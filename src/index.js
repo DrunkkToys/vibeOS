@@ -898,12 +898,15 @@ export async function DelegationEnforcer({ client, directory }) {
         }
 
         // ── Savings tag — mirrors CC session-report format ────────────
+        // Strip any footer a stale hot-reloaded plugin instance already wrote
+        // so we never accumulate two "— … —" lines in the same message.
+        const stripped = text.replace(/\n\n— .+ —$/, "")
         const ltTotal  = ltTasks + ltCache
         const savingsTag = ltTotal > 0
           ? ` theSaver: $${ltTotal.toFixed(2)} saved`
           : ""
 
-        output.text = text + `\n\n— ${modelTag}${savingsTag} —`
+        output.text = stripped + `\n\n— ${modelTag}${savingsTag} —`
 
         // Write session-report-pending.md for CC to display at next session start.
         if (ltTotal > 0 || ltCache > 0) {
