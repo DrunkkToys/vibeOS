@@ -284,9 +284,19 @@ const MODEL_USD_PER_TURN = {
   "openai/o4-mini":                       0.003,
 }
 
+// Strip routing prefixes (openrouter/, opencode/) and normalize version dots
+// so "openrouter/anthropic/claude-sonnet-4.6" → "anthropic/claude-sonnet-4-6"
+function normalizeModelId(model) {
+  let m = String(model || "").toLowerCase()
+  if (m.startsWith("openrouter/")) m = m.slice("openrouter/".length)
+  if (m.startsWith("opencode/"))   m = m.slice("opencode/".length)
+  m = m.replace(/(\d)\.(\d)/g, "$1-$2")  // 4.6 → 4-6
+  return m
+}
+
 export function modelCostPerTurn(model) {
   if (!model) return 0
-  const key = model.toLowerCase()
+  const key = normalizeModelId(model)
   if (key in MODEL_USD_PER_TURN) return MODEL_USD_PER_TURN[key]
   // Prefix match for versioned model IDs (e.g. "claude-opus-4-7-20251001")
   for (const [k, v] of Object.entries(MODEL_USD_PER_TURN)) {
