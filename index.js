@@ -236,7 +236,7 @@ const FREE = new Set(["task","todowrite","question","skill","read","glob","grep"
 
 // Estimated $ savings per warn (matches Claude Code hook tuning).
 const SAVE_EST = {
-  WRITE_EDIT:   0.08,
+  WRITE_EDIT:   0.07,  // matches bash hook SAVE_EST_WRITE_EDIT
   SOFT_QUOTA:   0.04,
   CONTEXT7:     0.06,
   OPUS_DISABLE: 0.14,
