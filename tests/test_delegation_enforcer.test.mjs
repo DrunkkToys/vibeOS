@@ -795,6 +795,41 @@ test("text.complete: writes session-report-pending.md when savings > 0", async (
   assert.match(content, /saved/, "report contains 'saved'")
 })
 
+test("tier override: opencode/ sonnet brain slot classified as high", async () => {
+  // Real-world case: user's brain slot is opencode/claude-sonnet-4-6 which matches
+  // the mid-tier regex (claude.*sonnet). The override must promote it to high tier
+  // so enforcement warnings fire.
+  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+    trinity: {
+      brain:  { oc: "opencode/claude-sonnet-4-6" },
+      medium: { oc: "deepseek/deepseek-v4-flash" },
+      cheap:  { oc: "deepseek/deepseek-chat" },
+    },
+    selection: { enabled: true, active_slot: "brain" },
+    tiers: {
+      high:   { regex: "opus|deepseek.*v4.*pro" },
+      mid:    { regex: "claude.*sonnet|sonnet|deepseek.*v4.*flash" },
+      budget: { regex: ".*" },
+    },
+  }))
+  const { DelegationEnforcer } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-oc-sonnet-brain")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "opencode/claude-sonnet-4-6" }))
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+
+  const stateFile = join(sandbox, ".claude/delegation-state.json")
+  if (existsSync(stateFile)) rmSync(stateFile)
+
+  // Without override: sonnet → mid → no warn. With override: sonnet-as-brain → high → warn.
+  await hooks["tool.execute.before"]({ tool: "write" })
+
+  assert.ok(existsSync(stateFile), "state file written — enforcement triggered (tier=high)")
+  const s = JSON.parse(readFileSync(stateFile, "utf-8"))
+  assert.ok((s?.lifetime?.warn_count ?? 0) > 0,
+    "warn recorded: opencode/claude-sonnet-4-6 as brain slot is treated as high tier")
+})
+
 test("text.complete: appends to session-reports.log", async () => {
   const { DelegationEnforcer } = await loadPlugin()
   const dir = join(sandbox, ".opencode-seslog")
