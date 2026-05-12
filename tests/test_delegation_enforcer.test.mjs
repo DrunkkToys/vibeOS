@@ -451,8 +451,9 @@ test("text.complete: appends savings tag to assistant text", async () => {
 
   const out = { text: "Done." }
   await hooks["experimental.text.complete"]({ messageID: "msg-1" }, out)
-  assert.match(out.text, /lifetime \$0\.40 tasks/)
-  assert.match(out.text, /5 events/)
+  // New format: "theSaver: $X.XX saved" — matches CC session-report-writer format
+  assert.match(out.text, /theSaver: \$0\.40 saved/)
+  assert.doesNotMatch(out.text, /tasks|events|ROI/, "verbose breakdown removed")
 })
 
 test("text.complete: dedup by messageID", async () => {
