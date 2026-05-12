@@ -237,12 +237,67 @@ const WARN_ON_DIRECT = new Set(["write", "edit", "notebookedit"])
 const SOFT_QUOTA     = new Set(["bash", "webfetch", "websearch"])
 const FREE           = new Set(["task","todowrite","question","skill","read","glob","grep","list"])
 
-// Estimated $ savings per warn — mirrors bash hook constants exactly.
+// Estimated $ savings per warn — fallback constants (used when model is unknown).
+// Dynamic estimates are computed via modelCostPerTurn() below.
 const SAVE_EST = {
-  WRITE_EDIT:   0.07,  // SAVE_EST_WRITE_EDIT
-  SOFT_QUOTA:   0.00,  // SAVE_EST_BASH_QUOTA — tool runs regardless, no real saving
-  CONTEXT7:     0.05,  // SAVE_EST_CONTEXT7
-  OPUS_DISABLE: 0.14,  // SAVE_EST_OPUS_DISABLE
+  WRITE_EDIT:   0.07,  // fallback: opus brain doing one edit turn
+  SOFT_QUOTA:   0.00,  // tool runs regardless — no real saving
+  CONTEXT7:     0.05,  // fallback: webfetch turn cost for an opus brain
+  OPUS_DISABLE: 0.14,  // fallback: full-turn cost for an opus brain
+}
+
+// Models available at $0 on OpenCode's platform.
+const FREE_MODELS = new Set([
+  "deepseek/deepseek-chat",
+  "deepseek-chat",
+  "deepseek/deepseek-v3",       // free on some providers
+])
+
+// Approximate USD per typical ~1 K-token turn (blended input+output).
+// Add entries as new models appear; unknown models fall back to SAVE_EST constants.
+const MODEL_USD_PER_TURN = {
+  // Anthropic
+  "anthropic/claude-opus-4-7":            0.12,
+  "anthropic/claude-opus-4-5":            0.12,
+  "anthropic/claude-sonnet-4-6":          0.024,
+  "anthropic/claude-sonnet-4-5":          0.024,
+  "anthropic/claude-haiku-4-5":           0.005,
+  "anthropic/claude-haiku-4-5-20251001":  0.005,
+  // DeepSeek free
+  "deepseek/deepseek-chat":               0,
+  "deepseek-chat":                        0,
+  "deepseek/deepseek-v3":                 0,
+  // DeepSeek paid
+  "deepseek/deepseek-r1":                 0.001,
+  "deepseek/deepseek-v4-pro":             0.0003,
+  "deepseek/deepseek-v4-flash":           0.0001,
+  // Google
+  "google/gemini-2.5-pro":                0.005,
+  "google/gemini-2.5-flash":              0.0005,
+  "google/gemini-2.0-flash":              0.0003,
+  // OpenAI
+  "openai/gpt-4o":                        0.009,
+  "openai/gpt-4.1":                       0.009,
+  "openai/gpt-4o-mini":                   0.0003,
+  "openai/gpt-4.1-mini":                  0.0003,
+  "openai/o3":                            0.05,
+  "openai/o4-mini":                       0.003,
+}
+
+export function modelCostPerTurn(model) {
+  if (!model) return 0
+  const key = model.toLowerCase()
+  if (key in MODEL_USD_PER_TURN) return MODEL_USD_PER_TURN[key]
+  // Prefix match for versioned model IDs (e.g. "claude-opus-4-7-20251001")
+  for (const [k, v] of Object.entries(MODEL_USD_PER_TURN)) {
+    if (key.startsWith(k) || k.startsWith(key)) return v
+  }
+  return null  // unknown — callers fall back to SAVE_EST constants
+}
+
+export function isModelFree(model) {
+  const cost = modelCostPerTurn(model)
+  return cost !== null && cost === 0
 }
 
 // Context7 detection — scan known config files for the string "context7".
@@ -384,7 +439,7 @@ function recordSaving(tool, reason, saveEst) {
     const now = new Date().toISOString()
     state.lifetime ??= { warn_count: 0, est_savings_usd: 0, last_updated: "" }
     state.lifetime.warn_count = (state.lifetime.warn_count || 0) + 1
-    state.lifetime.est_savings_usd = Math.round(((state.lifetime.est_savings_usd || 0) + saveEst) * 100) / 100
+    state.lifetime.est_savings_usd = Math.round(((state.lifetime.est_savings_usd || 0) + saveEst) * 1000) / 1000
     state.lifetime.last_updated = now
     state.sessions ??= {}
     const sid = "opencode-" + (process.pid || "x")
@@ -583,18 +638,30 @@ export async function DelegationEnforcer({ client, directory }) {
 
       if (currentTier !== "high") return
       if (FREE.has(t)) return
+      // Free models have no per-turn cost — no savings to enforce.
+      if (isModelFree(currentModel)) return
+
+      // Dynamic save estimates derived from actual model pricing.
+      const _brainCost  = modelCostPerTurn(currentModel)
+      const _workerModel = TRINITY_CHEAP || TRINITY_MEDIUM || null
+      const _workerCost  = _workerModel ? (modelCostPerTurn(_workerModel) ?? 0) : 0
+      const _estEdit     = _brainCost !== null
+        ? Math.max(0, Math.round((_brainCost - _workerCost) * 1000) / 1000)
+        : SAVE_EST.WRITE_EDIT
+      const _estOpus     = _brainCost !== null ? _brainCost : SAVE_EST.OPUS_DISABLE
+      const _estC7       = _brainCost !== null ? _brainCost : SAVE_EST.CONTEXT7
 
       // Credit < 40%: high-tier non-task tool — record and nudge to step aside.
       if (_credit < 40) {
-        const total = recordSaving(t, "credit<40% high-tier", SAVE_EST.OPUS_DISABLE)
-        console.error(`[delegation-enforcer] [delegation] Credit ${_credit}% — high-tier model should step aside. Run 'trinity medium' to switch to medium slot. (~$${SAVE_EST.OPUS_DISABLE}/turn)`)
+        const total = recordSaving(t, "credit<40% high-tier", _estOpus)
+        console.error(`[delegation-enforcer] [delegation] Credit ${_credit}% — high-tier model should step aside. Run 'trinity medium' to switch to medium slot. (~$${_estOpus.toFixed(3)}/turn)`)
         return
       }
 
       // Write/Edit/NotebookEdit on high tier: warn and allow (memory mode).
       if (WARN_ON_DIRECT.has(t)) {
-        const total = recordSaving(t, "high-tier direct edit", SAVE_EST.WRITE_EDIT)
-        console.error(`[delegation-enforcer] [delegation] Tier=high doing ${t} directly — could delegate via Task to save ~$${SAVE_EST.WRITE_EDIT}/turn. (cumulative est. savings: $${(total ?? 0).toFixed(2)})`)
+        const total = recordSaving(t, "high-tier direct edit", _estEdit)
+        console.error(`[delegation-enforcer] [delegation] Tier=high doing ${t} directly — could delegate via Task to save ~$${_estEdit.toFixed(3)}/turn. (cumulative est. savings: $${(total ?? 0).toFixed(2)})`)
         return
       }
 
@@ -605,16 +672,16 @@ export async function DelegationEnforcer({ client, directory }) {
           if (isDocsTarget(target) && !context7Seen.has(target)) {
             context7Seen.add(target)
             if (context7Available) {
-              const total = recordSaving(t, "docs-target without context7", SAVE_EST.CONTEXT7)
-              console.error(`[delegation-enforcer] [cost policy] context7 MCP is available — if this ${t} is for library/framework docs, use context7 tools instead. Saves ~$${SAVE_EST.CONTEXT7}/turn. (cumulative: $${(total ?? 0).toFixed(2)})`)
+              const total = recordSaving(t, "docs-target without context7", _estC7)
+              console.error(`[delegation-enforcer] [cost policy] context7 MCP is available — if this ${t} is for library/framework docs, use context7 tools instead. Saves ~$${_estC7.toFixed(3)}/turn. (cumulative: $${(total ?? 0).toFixed(2)})`)
             } else {
-              const missed = recordMissedContext7(SAVE_EST.CONTEXT7)
+              const missed = recordMissedContext7(_estC7)
               if (!existsSync(CONTEXT7_INSTALL_FLAG)) {
                 try {
                   mkdirSync(dirname(CONTEXT7_INSTALL_FLAG), { recursive: true })
                   writeFileSync(CONTEXT7_INSTALL_FLAG, "")
                 } catch {}
-                console.error(`[delegation-enforcer] 💡 [one-time tip] Installing context7 MCP would save ~$${SAVE_EST.CONTEXT7}/turn on docs lookups. Setup: \`claude mcp add context7 npx @upstash/context7-mcp\`. Won't ask again.`)
+                console.error(`[delegation-enforcer] 💡 [one-time tip] Installing context7 MCP would save ~$${_estC7.toFixed(3)}/turn on docs lookups. Setup: \`claude mcp add context7 npx @upstash/context7-mcp\`. Won't ask again.`)
               } else if (!context7AlertedThisSession) {
                 context7AlertedThisSession = true
                 console.error(`[delegation-enforcer] 💸 [context7] Missed savings so far: $${(missed ?? 0).toFixed(2)} across docs lookups. Install when ready.`)

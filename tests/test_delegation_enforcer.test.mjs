@@ -24,7 +24,7 @@ async function loadPlugin() {
   // Cache-bust by appending a timestamp query — node's import cache is
   // per-URL but plugin captures STATE_FILE at module-eval, which uses
   // homedir() (read once). For tests we re-import each time.
-  const mod = await import("../delegation-enforcer.js?t=" + Date.now())
+  const mod = await import("../src/index.js?t=" + Date.now())
   return mod
 }
 
@@ -111,7 +111,7 @@ test("WARN_ON_DIRECT (write) records savings + does NOT throw", async () => {
 })
 
 test("WARN_ON_DIRECT (notebookedit) records savings at high tier", async () => {
-  const { DelegationEnforcer } = await loadPlugin()
+  const { DelegationEnforcer, modelCostPerTurn } = await loadPlugin()
   const dir = join(sandbox, ".opencode-nbedit")
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "anthropic/claude-opus-4-7" }))
@@ -126,9 +126,11 @@ test("WARN_ON_DIRECT (notebookedit) records savings at high tier", async () => {
 
   const after = JSON.parse(readFileSync(stateFile, "utf-8"))
   assert.equal(after.lifetime.warn_count, beforeCount + 1, "warn_count incremented for notebookedit")
+  // Dynamic estimate: opus brain cost (no worker model configured in sandbox)
+  const expectedSaving = modelCostPerTurn("anthropic/claude-opus-4-7") ?? 0.07
   assert.ok(
-    Math.abs(after.lifetime.est_savings_usd - (beforeSavings + 0.07)) < 0.001,
-    `WRITE_EDIT saving of $0.07 recorded, got ${after.lifetime.est_savings_usd}`
+    Math.abs(after.lifetime.est_savings_usd - (beforeSavings + expectedSaving)) < 0.001,
+    `saving of $${expectedSaving} recorded, got delta ${after.lifetime.est_savings_usd - beforeSavings}`
   )
 })
 
@@ -344,14 +346,19 @@ test("context7 absent + docs URL: creates one-time install flag + accumulates mi
     const flag = join(sb, ".claude/.context7-install-suggested")
     assert.equal(existsSync(flag), false, "flag absent before first docs hit")
 
+    const { modelCostPerTurn: mcp } = await loadPlugin()
+    const estC7 = mcp("anthropic/claude-opus-4-7") ?? 0.05
+
     await hooks["tool.execute.before"]({ tool: "webfetch" }, { args: { url: "https://docs.python.org/3/" } })
     assert.equal(existsSync(flag), true, "install-suggested flag created on first docs hit")
     let s = JSON.parse(readFileSync(join(sb, ".claude/delegation-state.json"), "utf-8"))
-    assert.equal(s.lifetime.missed_context7_usd, 0.05, "missed counter = 0.05 after 1 event")
+    assert.ok(Math.abs(s.lifetime.missed_context7_usd - estC7) < 0.001,
+      `missed counter = ${estC7} after 1 event, got ${s.lifetime.missed_context7_usd}`)
 
     await hooks["tool.execute.before"]({ tool: "webfetch" }, { args: { url: "https://docs.python.org/3/library/os.html" } })
     s = JSON.parse(readFileSync(join(sb, ".claude/delegation-state.json"), "utf-8"))
-    assert.equal(s.lifetime.missed_context7_usd, 0.10, "missed counter accumulates to 0.10 after 2 events")
+    assert.ok(Math.abs(s.lifetime.missed_context7_usd - estC7 * 2) < 0.001,
+      `missed counter accumulates to ${(estC7 * 2).toFixed(3)} after 2 events, got ${s.lifetime.missed_context7_usd}`)
   } finally {
     process.env.HOME = prevHome
     rmSync(sb, { recursive: true, force: true })
@@ -670,8 +677,96 @@ test("credit < 40%: records OPUS_DISABLE saving for high-tier non-task tool", as
 
   assert.ok(existsSync(stateFile), "state file created after credit<40% warn")
   const state = JSON.parse(readFileSync(stateFile, "utf-8"))
+  const { modelCostPerTurn: mcp } = await loadPlugin()
+  const expectedOpus = mcp("anthropic/claude-opus-4-7") ?? 0.14
   assert.ok(state.lifetime.warn_count >= 1, "warn_count incremented")
-  assert.ok(state.lifetime.est_savings_usd >= 0.14, "OPUS_DISABLE saving recorded")
+  assert.ok(state.lifetime.est_savings_usd >= expectedOpus * 0.9, `OPUS_DISABLE saving ≈ $${expectedOpus} recorded`)
+})
+
+// ── Model pricing table ──────────────────────────────────────────────────────
+test("modelCostPerTurn: known models return expected $/turn", async () => {
+  const { modelCostPerTurn } = await loadPlugin()
+  assert.equal(modelCostPerTurn("anthropic/claude-opus-4-7"), 0.12, "opus = $0.12/turn")
+  assert.equal(modelCostPerTurn("anthropic/claude-haiku-4-5"), 0.005, "haiku = $0.005/turn")
+  assert.equal(modelCostPerTurn("deepseek/deepseek-chat"), 0, "deepseek-chat = $0 (free)")
+  assert.equal(modelCostPerTurn("deepseek-chat"), 0, "deepseek-chat short form = $0 (free)")
+  assert.equal(modelCostPerTurn(null), 0, "null → 0")
+})
+
+test("modelCostPerTurn: unknown model returns null (falls back to SAVE_EST)", async () => {
+  const { modelCostPerTurn } = await loadPlugin()
+  assert.equal(modelCostPerTurn("some/unknown-model-xyz"), null)
+})
+
+test("isModelFree: deepseek-chat is free; opus is not", async () => {
+  const { isModelFree } = await loadPlugin()
+  assert.equal(isModelFree("deepseek/deepseek-chat"), true)
+  assert.equal(isModelFree("deepseek-chat"), true)
+  assert.equal(isModelFree("anthropic/claude-opus-4-7"), false)
+  assert.equal(isModelFree("anthropic/claude-haiku-4-5"), false)
+  assert.equal(isModelFree("some/unknown-model"), false, "unknown model is not free (null cost)")
+})
+
+test("free-model brain: no enforcement warnings even at high tier", async () => {
+  // Force deepseek-chat into high-tier by writing a tiers file that matches it.
+  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+    trinity: { cheap: { oc: "anthropic/claude-haiku-4-5" } },
+    selection: { enabled: true },
+    tiers: {
+      high:   { regex: "deepseek-chat|opus" },
+      mid:    { regex: "sonnet" },
+      budget: { regex: "haiku" },
+    },
+  }))
+  const { DelegationEnforcer } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-free-brain")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "deepseek/deepseek-chat" }))
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+
+  const stateFile = join(sandbox, ".claude/delegation-state.json")
+  const beforeCount = existsSync(stateFile)
+    ? JSON.parse(readFileSync(stateFile, "utf-8"))?.lifetime?.warn_count ?? 0
+    : 0
+
+  await hooks["tool.execute.before"]({ tool: "write" })
+  await hooks["tool.execute.before"]({ tool: "edit" })
+  await hooks["tool.execute.before"]({ tool: "notebookedit" })
+
+  const afterCount = existsSync(stateFile)
+    ? JSON.parse(readFileSync(stateFile, "utf-8"))?.lifetime?.warn_count ?? 0
+    : 0
+  assert.equal(afterCount, beforeCount,
+    "no warn recorded when brain is a free model (deepseek-chat)")
+})
+
+test("dynamic estimate: opus brain + haiku worker → brain_cost - worker_cost", async () => {
+  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+    trinity: {
+      brain:  { oc: "anthropic/claude-opus-4-7" },
+      medium: { oc: "anthropic/claude-sonnet-4-6" },
+      cheap:  { oc: "anthropic/claude-haiku-4-5" },
+    },
+    selection: { enabled: true, active_slot: "brain" },
+    tiers: { high: { regex: "opus" }, mid: { regex: "sonnet" }, budget: { regex: "haiku" } },
+  }))
+  const { DelegationEnforcer, modelCostPerTurn } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-dyn-est")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "anthropic/claude-opus-4-7" }))
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+
+  const stateFile = join(sandbox, ".claude/delegation-state.json")
+  if (existsSync(stateFile)) rmSync(stateFile)
+  await hooks["tool.execute.before"]({ tool: "write" })
+
+  const s = JSON.parse(readFileSync(stateFile, "utf-8"))
+  // With haiku as cheap worker: saving = opus_cost - haiku_cost
+  const expected = modelCostPerTurn("anthropic/claude-opus-4-7") - modelCostPerTurn("anthropic/claude-haiku-4-5")
+  assert.ok(
+    Math.abs(s.lifetime.est_savings_usd - expected) < 0.001,
+    `saving = opus(${modelCostPerTurn("anthropic/claude-opus-4-7")}) - haiku(${modelCostPerTurn("anthropic/claude-haiku-4-5")}) = ${expected}, got ${s.lifetime.est_savings_usd}`
+  )
 })
 
 // ── Session report writing ───────────────────────────────────────────────────
