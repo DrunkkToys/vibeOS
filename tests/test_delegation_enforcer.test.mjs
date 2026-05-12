@@ -795,13 +795,13 @@ test("text.complete: writes session-report-pending.md when savings > 0", async (
   assert.match(content, /saved/, "report contains 'saved'")
 })
 
-test("tier override: opencode/ sonnet brain slot classified as high", async () => {
-  // Real-world case: user's brain slot is opencode/claude-sonnet-4-6 which matches
-  // the mid-tier regex (claude.*sonnet). The override must promote it to high tier
-  // so enforcement warnings fire.
+test("tier override: openrouter sonnet brain slot classified as high", async () => {
+  // Real-world case: user's brain slot is openrouter/anthropic/claude-sonnet-4.6
+  // which matches the mid-tier regex (claude.*sonnet). The override must promote
+  // it to high tier so enforcement warnings fire.
   writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
     trinity: {
-      brain:  { oc: "opencode/claude-sonnet-4-6" },
+      brain:  { oc: "openrouter/anthropic/claude-sonnet-4.6" },
       medium: { oc: "deepseek/deepseek-v4-flash" },
       cheap:  { oc: "deepseek/deepseek-chat" },
     },
@@ -812,10 +812,10 @@ test("tier override: opencode/ sonnet brain slot classified as high", async () =
       budget: { regex: ".*" },
     },
   }))
-  const { DelegationEnforcer } = await loadPlugin()
-  const dir = join(sandbox, ".opencode-oc-sonnet-brain")
+  const { DelegationEnforcer, modelCostPerTurn } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-or-sonnet-brain")
   mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "opencode/claude-sonnet-4-6" }))
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "openrouter/anthropic/claude-sonnet-4.6" }))
   const hooks = await DelegationEnforcer({ client: {}, directory: dir })
 
   const stateFile = join(sandbox, ".claude/delegation-state.json")
@@ -827,7 +827,11 @@ test("tier override: opencode/ sonnet brain slot classified as high", async () =
   assert.ok(existsSync(stateFile), "state file written — enforcement triggered (tier=high)")
   const s = JSON.parse(readFileSync(stateFile, "utf-8"))
   assert.ok((s?.lifetime?.warn_count ?? 0) > 0,
-    "warn recorded: opencode/claude-sonnet-4-6 as brain slot is treated as high tier")
+    "warn recorded: openrouter/anthropic/claude-sonnet-4.6 as brain slot is treated as high tier")
+
+  // Also verify cost lookup normalises the openrouter/ prefix
+  assert.equal(modelCostPerTurn("openrouter/anthropic/claude-sonnet-4.6"), 0.024,
+    "openrouter/ prefix stripped + dot normalised → matches anthropic/claude-sonnet-4-6 cost")
 })
 
 test("text.complete: appends to session-reports.log", async () => {
