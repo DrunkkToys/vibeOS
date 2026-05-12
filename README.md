@@ -184,7 +184,7 @@ Copy `index.js` to your plugins folder:
 
 ```bash
 mkdir -p ~/.config/opencode/plugins
-cp index.js ~/.config/opencode/plugins/delegation-enforcer.js
+cp src/index.js ~/.config/opencode/plugins/delegation-enforcer.js
 ```
 
 Register it:
