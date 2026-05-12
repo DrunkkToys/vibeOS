@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- bump: version 0.2.1
+
 ## 0.2.0
 
 - feat: align alert schema with CC hook; add 4 new tests (39 total)
