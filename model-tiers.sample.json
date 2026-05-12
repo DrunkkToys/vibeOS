@@ -4,7 +4,7 @@
   "trinity": {
     "_comment": "Per-slot models for both runtimes. `oc` writes to ~/.config/opencode/opencode.json (.model). `cc` writes to ~/.claude/settings.json (.model) — bare aliases work in Claude Code (opus/sonnet/haiku). Sonnet is brain because opus is too expensive/rate-limited in this user's context.",
     "brain": {
-      "oc": "anthropic/claude-sonnet-4-6",
+      "oc": "opencode/claude-sonnet-4-6",
       "cc": "sonnet"
     },
     "medium": {
