@@ -897,33 +897,10 @@ export async function DelegationEnforcer({ client, directory }) {
           }
         }
 
-        // ── Savings breakdown ──────────────────────────────────────────
+        // ── Savings tag — mirrors CC session-report format ────────────
         const ltTotal  = ltTasks + ltCache
-        const fmt2     = v => `$${v.toFixed(2)}`
-        const fmt0     = v => `$${Math.round(v)}`
-
-        // session: task savings this OC process only (cache not available without JSONL)
-        const sesStr = sesTasks > 0 ? `session ${fmt2(sesTasks)} tasks | ` : ""
-
-        // lifetime: tasks + cache + total
-        const ltStr = `lifetime ${fmt2(ltTasks)} tasks + ${fmt0(ltCache)} cache = ${fmt0(ltTotal)}`
-
-        // events
-        const eventsStr = count > 0 ? ` (${count} events)` : ""
-
-        // ROI: total saved / total spent  (e.g. "5.0× ROI")
-        const roiStr = ltCost > 0 && ltTotal > 0
-          ? ` · 📈 ${(ltTotal / ltCost).toFixed(1)}× ROI`
-          : ""
-
-        // secondary: scratchpad cache hits
-        const scratchStr = scratchpadHits > 0 ? ` · 📦 ${scratchpadHits} cached` : ""
-
-        // secondary: missed context7 savings (only if meaningful)
-        const c7Str = missedC7 >= 0.5 ? ` · 💡 ${fmt2(missedC7)} missed (no context7)` : ""
-
-        const savingsTag = (ltTotal > 0 || count > 0)
-          ? ` · 💰 ${sesStr}${ltStr}${eventsStr}${roiStr}${scratchStr}${c7Str}`
+        const savingsTag = ltTotal > 0
+          ? ` theSaver: $${ltTotal.toFixed(2)} saved`
           : ""
 
         output.text = text + `\n\n— ${modelTag}${savingsTag} —`
