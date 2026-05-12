@@ -587,6 +587,17 @@ export async function DelegationEnforcer({ client, directory }) {
   if (!currentModel) currentModel = process?.env?.OPENCODE_MODEL || ""
   if (currentModel) {
     currentTier = classify(currentModel)
+    // Override: if current model matches the active brain slot's oc model, treat as high tier.
+    // (regex may classify sonnet as mid, but user configured it as brain)
+    try {
+      const _tiersData = JSON.parse(readFileSync(TIERS_FILE, "utf-8"))
+      const _activeSlot = _tiersData?.selection?.active_slot || "brain"
+      const _brainOcModel = _tiersData?.trinity?.[_activeSlot]?.oc || ""
+      if (_brainOcModel && currentModel === _brainOcModel) {
+        currentTier = "high"
+        console.error(`[delegation-enforcer] tier override → high (active_slot=${_activeSlot})`)
+      }
+    } catch {}
     console.error(`[delegation-enforcer] ACTIVE: model=${currentModel} tier=${currentTier}`)
   } else {
     console.error("[delegation-enforcer] NO MODEL — enforcement disabled")
