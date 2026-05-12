@@ -931,8 +931,8 @@ export async function DelegationEnforcer({ client, directory }) {
         // Write session-report-pending.md for CC to display at next session start.
         if (ltTotal > 0 || ltCache > 0) {
           try {
-            const _ltFmt = ltTotal < 1 ? ltTotal.toFixed(2) : `${Math.round(ltTotal)}`
-            const _reportLine = `— ${modelTag} theSaver: ${_ltFmt} saved —`
+            const _ltFmt = ltTotal.toFixed(2)
+            const _reportLine = `— ${modelTag} theSaver: $${_ltFmt} saved —`
             writeFileSync(join(homedir(), ".claude/session-report-pending.md"), _reportLine)
             appendFileSync(
               join(homedir(), ".claude/session-reports.log"),
