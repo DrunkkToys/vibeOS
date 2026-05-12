@@ -443,16 +443,18 @@ test("text.complete: appends savings tag to assistant text", async () => {
   writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "anthropic/claude-opus-4-7" }))
   const hooks = await DelegationEnforcer({ client: {}, directory: dir })
 
-  // Pre-seed state file so readLifetimeSavings returns >0
+  // Pre-seed state with lifetime savings + a session edit warn
   const stateFile = join(sandbox, ".claude/delegation-state.json")
+  const sid = "opencode-" + process.pid
   writeFileSync(stateFile, JSON.stringify({
-    lifetime: { warn_count: 5, est_savings_usd: 0.4, last_updated: "now" }
+    lifetime: { warn_count: 5, est_savings_usd: 0.4, last_updated: "now" },
+    sessions: { [sid]: { warns: [{ at: "now", tool: "edit", reason: "high-tier direct edit", est_savings_usd: 0.07 }], last_costed: "now" } }
   }))
 
   const out = { text: "Done." }
   await hooks["experimental.text.complete"]({ messageID: "msg-1" }, out)
-  // New format: "theSaver: $X.XX saved" — matches CC session-report-writer format
-  assert.match(out.text, /theSaver: \$0\.40 saved/)
+  // Format: "edit -$0.07 | theSaver: $0.40 saved" — mirrors CC session-report-writer
+  assert.match(out.text, /edit -\$0\.07 \| theSaver: \$0\.40 saved/)
   assert.doesNotMatch(out.text, /tasks|events|ROI/, "verbose breakdown removed")
 })
 
