@@ -464,16 +464,20 @@ let _savingsCache = null
 let _savingsCacheMtime = 0
 const _OC_SID = "opencode-" + (process.pid || "x")
 function readLifetimeSavings() {
-  const empty = { ltTasks: 0, ltCache: 0, ltCost: 0, count: 0, scratchpadHits: 0, missedC7: 0, sesTasks: 0 }
+  const empty = { ltTasks: 0, ltCache: 0, ltCost: 0, count: 0, scratchpadHits: 0, missedC7: 0, sesTasks: 0, sesEdit: 0, sesCredit: 0, sesC7: 0, sesQuota: 0 }
   try {
     if (!existsSync(STATE_FILE)) return empty
     const mtime = statSync(STATE_FILE).mtimeMs
     if (_savingsCache && mtime === _savingsCacheMtime) return _savingsCache
     const s = JSON.parse(readFileSync(STATE_FILE, "utf-8"))
     const ses = s?.sessions?.[_OC_SID]
-    const sesTasks = Array.isArray(ses?.warns)
-      ? ses.warns.reduce((a, w) => a + Number(w.est_savings_usd ?? 0), 0)
-      : 0
+    const warns = Array.isArray(ses?.warns) ? ses.warns : []
+    const sesTasks = warns.reduce((a, w) => a + Number(w.est_savings_usd ?? 0), 0)
+    // Per-warn-type session totals (mirrors CC session-report-writer breakdown)
+    const sesEdit   = warns.filter(w => w.reason?.includes("direct edit")).reduce((a, w) => a + Number(w.est_savings_usd ?? 0), 0)
+    const sesCredit = warns.filter(w => w.reason?.includes("credit")).reduce((a, w)    => a + Number(w.est_savings_usd ?? 0), 0)
+    const sesC7     = warns.filter(w => w.reason?.includes("context7")).reduce((a, w)  => a + Number(w.est_savings_usd ?? 0), 0)
+    const sesQuota  = warns.filter(w => w.reason?.includes("quota")).reduce((a, w)     => a + Number(w.est_savings_usd ?? 0), 0)
     _savingsCache = {
       ltTasks:        Number(s?.lifetime?.est_savings_usd         ?? 0),
       ltCache:        Number(s?.lifetime?.total_cache_savings_usd ?? 0),
@@ -481,7 +485,7 @@ function readLifetimeSavings() {
       count:          Number(s?.lifetime?.warn_count              ?? 0),
       scratchpadHits: Number(s?.lifetime?.scratchpad_hits_observed ?? 0),
       missedC7:       Number(s?.lifetime?.missed_context7_usd      ?? 0),
-      sesTasks,
+      sesTasks, sesEdit, sesCredit, sesC7, sesQuota,
     }
     _savingsCacheMtime = mtime
     return _savingsCache
@@ -874,7 +878,7 @@ export async function DelegationEnforcer({ client, directory }) {
         if (textCompletePainted.has(messageID)) return
 
         const text = (output?.text ?? "")
-        const { ltTasks, ltCache, ltCost, count, scratchpadHits, missedC7, sesTasks } = readLifetimeSavings()
+        const { ltTasks, ltCache, ltCost, count, scratchpadHits, missedC7, sesTasks, sesEdit, sesCredit, sesC7, sesQuota } = readLifetimeSavings()
         const brainTag = currentModel ? modelToSlotLabel(currentModel) : ""
         if (!brainTag && count === 0 && ltCache === 0) return
 
@@ -897,13 +901,22 @@ export async function DelegationEnforcer({ client, directory }) {
           }
         }
 
-        // ── Savings tag — mirrors CC session-report format ────────────
+        // ── Savings tag — mirrors CC session-report-writer format ────────
         // Strip any footer a stale hot-reloaded plugin instance already wrote
         // so we never accumulate two "— … —" lines in the same message.
         const stripped = text.replace(/\n\n— .+ —$/, "")
         const ltTotal  = ltTasks + ltCache
+
+        // Per-session breakdown parts (only emit if > $0.01, same threshold as CC)
+        const parts = []
+        if (sesEdit   > 0.01) parts.push(`edit -$${sesEdit.toFixed(2)}`)
+        if (sesCredit > 0.01) parts.push(`credit -$${sesCredit.toFixed(2)}`)
+        if (sesC7     > 0.01) parts.push(`context7 -$${sesC7.toFixed(2)}`)
+        if (sesQuota  > 0.01) parts.push(`quota -$${sesQuota.toFixed(2)}`)
+        const partsStr = parts.length > 0 ? parts.join(" | ") + " | " : ""
+
         const savingsTag = ltTotal > 0
-          ? ` theSaver: $${ltTotal.toFixed(2)} saved`
+          ? ` ${partsStr}theSaver: $${ltTotal.toFixed(2)} saved`
           : ""
 
         output.text = stripped + `\n\n— ${modelTag}${savingsTag} —`
