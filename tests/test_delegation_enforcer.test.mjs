@@ -67,16 +67,27 @@ test("classify: unknown → budget", async () => {
 })
 
 // ── tool.execute.before — memory mode ────────────────────────────────
-test("FREE tools (read, bash) are passed silently", async () => {
+test("FREE tools (read) and SOFT_QUOTA tools (bash) produce no state write within quota limit", async () => {
   const { DelegationEnforcer } = await loadPlugin()
   const dir = join(sandbox, ".opencode-free")
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "anthropic/claude-opus-4-7" }))
   const hooks = await DelegationEnforcer({ client: {}, directory: dir })
-  // Should not throw and should not record state
+
+  const stateFile = join(sandbox, ".claude/delegation-state.json")
+  const beforeCount = existsSync(stateFile)
+    ? JSON.parse(readFileSync(stateFile, "utf-8"))?.lifetime?.warn_count ?? 0
+    : 0
+
+  // read is FREE — passes silently with no state write
   await hooks["tool.execute.before"]({ tool: "read" })
+  // bash is SOFT_QUOTA — first call just logs progress (n=1/5), no state write
   await hooks["tool.execute.before"]({ tool: "bash" })
-  // No assertion needed — the test passes if nothing threw.
+
+  const afterCount = existsSync(stateFile)
+    ? JSON.parse(readFileSync(stateFile, "utf-8"))?.lifetime?.warn_count ?? 0
+    : 0
+  assert.equal(afterCount, beforeCount, "no warn recorded for FREE/SOFT_QUOTA within limit")
 })
 
 test("WARN_ON_DIRECT (write) records savings + does NOT throw", async () => {
@@ -99,6 +110,28 @@ test("WARN_ON_DIRECT (write) records savings + does NOT throw", async () => {
   assert.ok(after.lifetime.est_savings_usd > (before?.lifetime?.est_savings_usd || 0), "savings increased")
 })
 
+test("WARN_ON_DIRECT (notebookedit) records savings at high tier", async () => {
+  const { DelegationEnforcer } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-nbedit")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "anthropic/claude-opus-4-7" }))
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+
+  const stateFile = join(sandbox, ".claude/delegation-state.json")
+  const before = existsSync(stateFile) ? JSON.parse(readFileSync(stateFile, "utf-8")) : {}
+  const beforeCount = before?.lifetime?.warn_count || 0
+  const beforeSavings = before?.lifetime?.est_savings_usd || 0
+
+  await hooks["tool.execute.before"]({ tool: "notebookedit" })
+
+  const after = JSON.parse(readFileSync(stateFile, "utf-8"))
+  assert.equal(after.lifetime.warn_count, beforeCount + 1, "warn_count incremented for notebookedit")
+  assert.ok(
+    Math.abs(after.lifetime.est_savings_usd - (beforeSavings + 0.07)) < 0.001,
+    `WRITE_EDIT saving of $0.07 recorded, got ${after.lifetime.est_savings_usd}`
+  )
+})
+
 test("budget-tier tool calls don't record (only high tier enforces)", async () => {
   const { DelegationEnforcer } = await loadPlugin()
   const dir = join(sandbox, ".opencode-budgetenforce")
@@ -115,6 +148,47 @@ test("budget-tier tool calls don't record (only high tier enforces)", async () =
 
   const after = existsSync(stateFile) ? JSON.parse(readFileSync(stateFile, "utf-8")) : { lifetime: { warn_count: beforeCount } }
   assert.equal(after.lifetime.warn_count, beforeCount, "no warn recorded for budget tier")
+})
+
+// ── Soft quota: fires exactly once at SOFT_QUOTA_LIMIT+1 ─────────────
+test("SOFT_QUOTA (bash): fires exactly once at limit+1, records $0.00 saving", async () => {
+  // Fresh sandbox so softQuotaCounts and state start empty.
+  const sb = mkdtempSync(join(tmpdir(), "softquota-"))
+  mkdirSync(join(sb, ".claude/scratch"), { recursive: true })
+  const prevHome = process.env.HOME
+  process.env.HOME = sb
+  try {
+    const { DelegationEnforcer } = await loadPlugin()
+    const dir = join(sb, "proj")
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "anthropic/claude-opus-4-7" }))
+    const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+
+    const stateFile = join(sb, ".claude/delegation-state.json")
+
+    // Calls 1–5: within limit, no state write
+    for (let i = 0; i < 5; i++) {
+      await hooks["tool.execute.before"]({ tool: "bash" })
+    }
+    assert.equal(existsSync(stateFile), false, "no state written for calls within limit")
+
+    // Call 6 (= SOFT_QUOTA_LIMIT+1): fires exactly once
+    await hooks["tool.execute.before"]({ tool: "bash" })
+    assert.ok(existsSync(stateFile), "state written on call 6 (limit+1)")
+    const s = JSON.parse(readFileSync(stateFile, "utf-8"))
+    assert.equal(s.lifetime.warn_count, 1, "exactly one warn recorded at threshold")
+    // SOFT_QUOTA records $0.00 — tool runs regardless, no real saving
+    assert.equal(s.lifetime.est_savings_usd, 0, "SOFT_QUOTA saving is $0.00")
+
+    // Call 7: no additional state write (fires-once)
+    const warnBefore = s.lifetime.warn_count
+    await hooks["tool.execute.before"]({ tool: "bash" })
+    const s2 = JSON.parse(readFileSync(stateFile, "utf-8"))
+    assert.equal(s2.lifetime.warn_count, warnBefore, "no additional warn after threshold already fired")
+  } finally {
+    process.env.HOME = prevHome
+    rmSync(sb, { recursive: true, force: true })
+  }
 })
 
 // ── experimental.chat.messages.transform ─────────────────────────────
@@ -273,11 +347,11 @@ test("context7 absent + docs URL: creates one-time install flag + accumulates mi
     await hooks["tool.execute.before"]({ tool: "webfetch" }, { args: { url: "https://docs.python.org/3/" } })
     assert.equal(existsSync(flag), true, "install-suggested flag created on first docs hit")
     let s = JSON.parse(readFileSync(join(sb, ".claude/delegation-state.json"), "utf-8"))
-    assert.equal(s.lifetime.missed_context7_usd, 0.06, "missed counter = 0.06 after 1 event")
+    assert.equal(s.lifetime.missed_context7_usd, 0.05, "missed counter = 0.05 after 1 event")
 
     await hooks["tool.execute.before"]({ tool: "webfetch" }, { args: { url: "https://docs.python.org/3/library/os.html" } })
     s = JSON.parse(readFileSync(join(sb, ".claude/delegation-state.json"), "utf-8"))
-    assert.equal(s.lifetime.missed_context7_usd, 0.12, "missed counter accumulates to 0.12 after 2 events")
+    assert.equal(s.lifetime.missed_context7_usd, 0.10, "missed counter accumulates to 0.10 after 2 events")
   } finally {
     process.env.HOME = prevHome
     rmSync(sb, { recursive: true, force: true })
@@ -512,6 +586,66 @@ test("task routing: mid-tier brain → TRINITY_CHEAP", async () => {
   const out  = { args }
   await hooks["tool.execute.before"]({ tool: "task" }, out)
   assert.equal(out.args.model, "anthropic/claude-haiku-4-5", "mid-tier brain routes Task to cheap")
+})
+
+test("task routing: exploratory first-word routes to TRINITY_CHEAP regardless of tier", async () => {
+  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+    trinity: {
+      brain:  { oc: "anthropic/claude-opus-4-7" },
+      medium: { oc: "anthropic/claude-sonnet-4-6" },
+      cheap:  { oc: "anthropic/claude-haiku-4-5" },
+    },
+    selection: { enabled: true, active_slot: "brain" },
+    tiers: {
+      high:   { regex: "opus" },
+      mid:    { regex: "sonnet" },
+      budget: { regex: "haiku" },
+    },
+  }))
+  const { DelegationEnforcer } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-task-exploratory")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "anthropic/claude-opus-4-7" }))
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+
+  for (const word of ["find", "check", "list", "search", "verify"]) {
+    const args = { model: "anthropic/claude-opus-4-7", prompt: `${word} all usages of X` }
+    const out  = { args }
+    await hooks["tool.execute.before"]({ tool: "task" }, out)
+    assert.equal(out.args.model, "anthropic/claude-haiku-4-5",
+      `exploratory prompt starting with '${word}' routes to cheap slot`)
+    args.model = "anthropic/claude-opus-4-7"  // reset for next iteration
+  }
+})
+
+test("task routing: credit < 40% + Task forces cheap slot (not medium)", async () => {
+  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+    trinity: {
+      brain:  { oc: "anthropic/claude-opus-4-7" },
+      medium: { oc: "anthropic/claude-sonnet-4-6" },
+      cheap:  { oc: "anthropic/claude-haiku-4-5" },
+    },
+    selection: { enabled: true, active_slot: "brain" },
+    tiers: {
+      high:   { regex: "opus" },
+      mid:    { regex: "sonnet" },
+      budget: { regex: "haiku" },
+    },
+  }))
+  process.env.CLAUDE_CREDIT_PERCENT = "25"
+  const { DelegationEnforcer } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-task-credit")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "anthropic/claude-opus-4-7" }))
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+
+  const args = { model: "anthropic/claude-opus-4-7", prompt: "implement the feature" }
+  const out  = { args }
+  await hooks["tool.execute.before"]({ tool: "task" }, out)
+  delete process.env.CLAUDE_CREDIT_PERCENT
+
+  assert.equal(out.args.model, "anthropic/claude-haiku-4-5",
+    "credit<40% + Task forced to cheap slot (bypasses medium)")
 })
 
 // ── Credit < 40% warn ────────────────────────────────────────────────────────

@@ -26,8 +26,11 @@ import { tool } from "@opencode-ai/plugin"
 // ── Module state ────────────────────────────────────────────────────
 let currentTier = null
 let currentModel = null
-let directExecCount = 0
-const MAX_SOFT = 5
+// Per-tool soft-quota counters (same semantics as bash hook per-SID flag files).
+// Main scope uses quota 20, sub-agent scope uses 5 — OC has no scope concept so
+// use the more conservative sub-agent limit.
+const softQuotaCounts = {}
+const SOFT_QUOTA_LIMIT = 5
 const STATE_FILE = join(homedir(), ".claude/delegation-state.json")
 
 // Dedupe set: assistantMessageIds that already had the savings tag appended
@@ -230,16 +233,16 @@ function classify(m) {
 
 // Memory mode: never throw / never stop. Track "would-have-blocked" events
 // and surface cumulative savings to the GUI via experimental.text.complete.
-const WARN_ON_DIRECT = new Set(["write", "edit"])
-const SOFT_QUOTA = new Set(["webfetch", "websearch"])
-const FREE = new Set(["task","todowrite","question","skill","read","glob","grep","list","bash"])
+const WARN_ON_DIRECT = new Set(["write", "edit", "notebookedit"])
+const SOFT_QUOTA     = new Set(["bash", "webfetch", "websearch"])
+const FREE           = new Set(["task","todowrite","question","skill","read","glob","grep","list"])
 
-// Estimated $ savings per warn (matches Claude Code hook tuning).
+// Estimated $ savings per warn — mirrors bash hook constants exactly.
 const SAVE_EST = {
-  WRITE_EDIT:   0.07,  // matches bash hook SAVE_EST_WRITE_EDIT
-  SOFT_QUOTA:   0.04,
-  CONTEXT7:     0.06,
-  OPUS_DISABLE: 0.14,
+  WRITE_EDIT:   0.07,  // SAVE_EST_WRITE_EDIT
+  SOFT_QUOTA:   0.00,  // SAVE_EST_BASH_QUOTA — tool runs regardless, no real saving
+  CONTEXT7:     0.05,  // SAVE_EST_CONTEXT7
+  OPUS_DISABLE: 0.14,  // SAVE_EST_OPUS_DISABLE
 }
 
 // Context7 detection — scan known config files for the string "context7".
@@ -549,65 +552,84 @@ export async function DelegationEnforcer({ client, directory }) {
         }
       }
 
+      // Credit < 40% + Task: force to cheap slot (mirrors CC's rwh path).
+      const _credit = loadCredit()
+      if (_credit < 40 && t === "task" && TRINITY_CHEAP && args && typeof args === "object") {
+        if (args.model !== TRINITY_CHEAP) {
+          args.model = TRINITY_CHEAP
+          console.error(`[delegation-enforcer] 🔀 Credit ${_credit}%: forcing Task → cheap slot (${TRINITY_CHEAP})`)
+        }
+        return
+      }
+
       // Trinity rule: route Task subagents based on orchestrator tier.
-      // high-tier brain → medium slot; mid-tier brain → cheap slot.
-      // Mutates output.args in place — SDK passes args here for rewrites.
+      // Exploratory first-word detection → cheap (mirrors CC exploratory routing).
+      // Then: high-tier brain → medium slot; mid-tier brain → cheap slot.
       if (t === "task" && currentModel && args && typeof args === "object") {
-        const _target = (currentTier === "high" && TRINITY_MEDIUM) ? TRINITY_MEDIUM
-                      : TRINITY_CHEAP ? TRINITY_CHEAP
-                      : null
+        const _prompt = (args?.prompt ?? "").trim().toLowerCase()
+        const _firstWord = _prompt.split(/\s+/)[0]
+        const EXPLORATORY = new Set(["check","find","list","search","does","verify","look","count","show","get","read","grep","scan","detect","inspect"])
+        const _exploratoryTarget = EXPLORATORY.has(_firstWord) ? TRINITY_CHEAP : null
+        const _tierTarget = (currentTier === "high" && TRINITY_MEDIUM) ? TRINITY_MEDIUM
+                          : TRINITY_CHEAP ? TRINITY_CHEAP
+                          : null
+        const _target = _exploratoryTarget ?? _tierTarget
         if (_target && args.model !== _target) {
+          const _reason = _exploratoryTarget ? `exploratory ('${_firstWord}')` : `tier=${currentTier}`
           args.model = _target
-          console.error(`[delegation-enforcer] 🔀 Task → ${_target} (orchestrator: ${currentModel} tier=${currentTier})`)
+          console.error(`[delegation-enforcer] 🔀 Task → ${_target} (${_reason}, orchestrator: ${currentModel})`)
         }
       }
 
       if (currentTier !== "high") return
       if (FREE.has(t)) return
 
-      // Credit < 40%: high-tier brain should step aside (memory nudge only).
-      const _credit = loadCredit()
-      if (_credit < 40 && t !== "task") {
+      // Credit < 40%: high-tier non-task tool — record and nudge to step aside.
+      if (_credit < 40) {
         const total = recordSaving(t, "credit<40% high-tier", SAVE_EST.OPUS_DISABLE)
-        console.error(`[delegation-enforcer] 💰 Credit ${_credit}% — high-tier brain should step aside. Run 'trinity medium'. (~${SAVE_EST.OPUS_DISABLE}/turn, cumulative ${(total ?? 0).toFixed(2)})`)
+        console.error(`[delegation-enforcer] [delegation] Credit ${_credit}% — high-tier model should step aside. Run 'trinity medium' to switch to medium slot. (~$${SAVE_EST.OPUS_DISABLE}/turn)`)
         return
       }
 
-      // MEMORY MODE: never throw. Track would-have-blocked events as savings.
+      // Write/Edit/NotebookEdit on high tier: warn and allow (memory mode).
       if (WARN_ON_DIRECT.has(t)) {
         const total = recordSaving(t, "high-tier direct edit", SAVE_EST.WRITE_EDIT)
-        console.error(`[delegation-enforcer] 💰 SAVED $${SAVE_EST.WRITE_EDIT} (${t}) — cumulative $${(total ?? 0).toFixed(2)}`)
+        console.error(`[delegation-enforcer] [delegation] Tier=high doing ${t} directly — could delegate via Task to save ~$${SAVE_EST.WRITE_EDIT}/turn. (cumulative est. savings: $${(total ?? 0).toFixed(2)})`)
         return
       }
 
       if (SOFT_QUOTA.has(t)) {
-        // Context7 nudge / install-suggestion / per-session alert.
-        const target = args?.url || args?.query || ""
-        if (isDocsTarget(target) && !context7Seen.has(target)) {
-          context7Seen.add(target)
-          if (context7Available) {
-            const total = recordSaving(t, "docs-target without context7", SAVE_EST.CONTEXT7)
-            console.error(`[delegation-enforcer] 💰 SAVED $${SAVE_EST.CONTEXT7} (${t} → context7) — cumulative $${(total ?? 0).toFixed(2)}`)
-          } else {
-            const missed = recordMissedContext7(SAVE_EST.CONTEXT7)
-            if (!existsSync(CONTEXT7_INSTALL_FLAG)) {
-              try {
-                mkdirSync(dirname(CONTEXT7_INSTALL_FLAG), { recursive: true })
-                writeFileSync(CONTEXT7_INSTALL_FLAG, "")
-              } catch {}
-              console.error(`[delegation-enforcer] 💡 [one-time tip] Installing context7 MCP would save ~$${SAVE_EST.CONTEXT7}/turn on docs lookups. Setup: \`claude mcp add context7 npx @upstash/context7-mcp\`. Won't ask again.`)
-            } else if (!context7AlertedThisSession) {
-              context7AlertedThisSession = true
-              console.error(`[delegation-enforcer] 💸 [context7] Missed savings so far: $${(missed ?? 0).toFixed(2)} across docs lookups. Install when ready.`)
+        // Context7 nudge / install-suggestion / per-session alert (WebFetch/WebSearch only).
+        if (t !== "bash") {
+          const target = args?.url || args?.query || ""
+          if (isDocsTarget(target) && !context7Seen.has(target)) {
+            context7Seen.add(target)
+            if (context7Available) {
+              const total = recordSaving(t, "docs-target without context7", SAVE_EST.CONTEXT7)
+              console.error(`[delegation-enforcer] [cost policy] context7 MCP is available — if this ${t} is for library/framework docs, use context7 tools instead. Saves ~$${SAVE_EST.CONTEXT7}/turn. (cumulative: $${(total ?? 0).toFixed(2)})`)
+            } else {
+              const missed = recordMissedContext7(SAVE_EST.CONTEXT7)
+              if (!existsSync(CONTEXT7_INSTALL_FLAG)) {
+                try {
+                  mkdirSync(dirname(CONTEXT7_INSTALL_FLAG), { recursive: true })
+                  writeFileSync(CONTEXT7_INSTALL_FLAG, "")
+                } catch {}
+                console.error(`[delegation-enforcer] 💡 [one-time tip] Installing context7 MCP would save ~$${SAVE_EST.CONTEXT7}/turn on docs lookups. Setup: \`claude mcp add context7 npx @upstash/context7-mcp\`. Won't ask again.`)
+              } else if (!context7AlertedThisSession) {
+                context7AlertedThisSession = true
+                console.error(`[delegation-enforcer] 💸 [context7] Missed savings so far: $${(missed ?? 0).toFixed(2)} across docs lookups. Install when ready.`)
+              }
             }
           }
         }
-        directExecCount++
-        if (directExecCount > MAX_SOFT) {
-          const total = recordSaving(t, `soft quota ${directExecCount}/${MAX_SOFT}`, SAVE_EST.SOFT_QUOTA)
-          console.error(`[delegation-enforcer] 💰 SAVED $${SAVE_EST.SOFT_QUOTA} (${t} #${directExecCount}) — cumulative $${(total ?? 0).toFixed(2)}`)
-        } else {
-          console.error(`[delegation-enforcer] ${t} ${directExecCount}/${MAX_SOFT}`)
+        // Soft quota: track per-tool, fire exactly once at QUOTA+1 (tool still runs).
+        softQuotaCounts[t] = (softQuotaCounts[t] ?? 0) + 1
+        const n = softQuotaCounts[t]
+        if (n === SOFT_QUOTA_LIMIT + 1) {
+          const total = recordSaving(t, `soft quota exceeded (limit ${SOFT_QUOTA_LIMIT})`, SAVE_EST.SOFT_QUOTA)
+          console.error(`[delegation-enforcer] [delegation] ${t} #${n} (limit ${SOFT_QUOTA_LIMIT}) — consider Task subagent.`)
+        } else if (n <= SOFT_QUOTA_LIMIT) {
+          console.error(`[delegation-enforcer] ${t} ${n}/${SOFT_QUOTA_LIMIT}`)
         }
         return
       }
