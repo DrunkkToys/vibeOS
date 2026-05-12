@@ -16,7 +16,7 @@
  * Sister hook: ~/.claude/hooks/delegation-enforcer.sh (Claude Code).
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync } from "node:fs"
+import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, statSync } from "node:fs"
 import { join, dirname } from "node:path"
 import { homedir } from "node:os"
 import { spawn } from "node:child_process"
@@ -52,15 +52,18 @@ function loadTierRegexes() {
 }
 const { high: HIGH_TIER_RE, mid: MID_TIER_RE } = loadTierRegexes()
 
-function loadTrinityCheap() {
+function loadTrinityModels() {
   try {
     const p = join(homedir(), ".claude/model-tiers.json")
-    if (!existsSync(p)) return ""
+    if (!existsSync(p)) return { cheap: "", medium: "" }
     const j = JSON.parse(readFileSync(p, "utf-8"))
-    return j?.trinity?.cheap?.oc || j?.trinity?.cheap || ""
-  } catch { return "" }
+    return {
+      cheap:  j?.trinity?.cheap?.oc  || j?.trinity?.cheap  || "",
+      medium: j?.trinity?.medium?.oc || j?.trinity?.medium || "",
+    }
+  } catch { return { cheap: "", medium: "" } }
 }
-const TRINITY_CHEAP = loadTrinityCheap()
+const { cheap: TRINITY_CHEAP, medium: TRINITY_MEDIUM } = loadTrinityModels()
 
 // Read remaining credit percent from env/file/helper, same sources as bash hook.
 function loadCredit() {
@@ -233,9 +236,10 @@ const FREE = new Set(["task","todowrite","question","skill","read","glob","grep"
 
 // Estimated $ savings per warn (matches Claude Code hook tuning).
 const SAVE_EST = {
-  WRITE_EDIT: 0.08,
-  SOFT_QUOTA: 0.04,
-  CONTEXT7: 0.06,
+  WRITE_EDIT:   0.08,
+  SOFT_QUOTA:   0.04,
+  CONTEXT7:     0.06,
+  OPUS_DISABLE: 0.14,
 }
 
 // Context7 detection — scan known config files for the string "context7".
@@ -545,18 +549,29 @@ export async function DelegationEnforcer({ client, directory }) {
         }
       }
 
-      // Trinity rule: when orchestrator is mid (sonnet as brain), route
-      // Task subagents to the cheap slot. Mutates output.args in place — the
-      // OpenCode SDK passes args here exactly so plugins can rewrite them.
-      if (t === "task" && currentModel && currentModel !== TRINITY_CHEAP && TRINITY_CHEAP && args && typeof args === "object") {
-        if (args.model !== TRINITY_CHEAP) {
-          args.model = TRINITY_CHEAP
-          console.error(`[delegation-enforcer] 🔀 Task subagent → ${TRINITY_CHEAP} (orchestrator: ${currentModel})`)
+      // Trinity rule: route Task subagents based on orchestrator tier.
+      // high-tier brain → medium slot; mid-tier brain → cheap slot.
+      // Mutates output.args in place — SDK passes args here for rewrites.
+      if (t === "task" && currentModel && args && typeof args === "object") {
+        const _target = (currentTier === "high" && TRINITY_MEDIUM) ? TRINITY_MEDIUM
+                      : TRINITY_CHEAP ? TRINITY_CHEAP
+                      : null
+        if (_target && args.model !== _target) {
+          args.model = _target
+          console.error(`[delegation-enforcer] 🔀 Task → ${_target} (orchestrator: ${currentModel} tier=${currentTier})`)
         }
       }
 
       if (currentTier !== "high") return
       if (FREE.has(t)) return
+
+      // Credit < 40%: high-tier brain should step aside (memory nudge only).
+      const _credit = loadCredit()
+      if (_credit < 40 && t !== "task") {
+        const total = recordSaving(t, "credit<40% high-tier", SAVE_EST.OPUS_DISABLE)
+        console.error(`[delegation-enforcer] 💰 Credit ${_credit}% — high-tier brain should step aside. Run 'trinity medium'. (~${SAVE_EST.OPUS_DISABLE}/turn, cumulative ${(total ?? 0).toFixed(2)})`)
+        return
+      }
 
       // MEMORY MODE: never throw. Track would-have-blocked events as savings.
       if (WARN_ON_DIRECT.has(t)) {
@@ -781,14 +796,15 @@ export async function DelegationEnforcer({ client, directory }) {
           for (let i = 0; i < 100; i++) textCompletePainted.delete(it.next().value)
         }
 
-        // Show both brain → worker: [⚙ Sonnet → ⚡ DeepSeek Chat]
+        // Show brain → worker: [⚙ Sonnet → ⚡ Haiku] (two-tier aware)
         let modelTag = brainTag
-        if (TRINITY_CHEAP && TRINITY_CHEAP !== currentModel) {
-          const cheapTag = modelToSlotLabel(TRINITY_CHEAP)
-          if (cheapTag !== brainTag) {
+        const _workerModel = (currentTier === "high" && TRINITY_MEDIUM) ? TRINITY_MEDIUM : TRINITY_CHEAP
+        if (_workerModel && _workerModel !== currentModel) {
+          const workerTag = modelToSlotLabel(_workerModel)
+          if (workerTag !== brainTag) {
             const brainInner = brainTag.replace(/^\[|\]$/g, "")
-            const cheapInner = cheapTag.replace(/^\[|\]$/g, "")
-            modelTag = `[${brainInner} → ${cheapInner}]`
+            const workerInner = workerTag.replace(/^\[|\]$/g, "")
+            modelTag = `[${brainInner} → ${workerInner}]`
           }
         }
 
@@ -822,6 +838,19 @@ export async function DelegationEnforcer({ client, directory }) {
           : ""
 
         output.text = text + `\n\n— ${modelTag}${savingsTag} —`
+
+        // Write session-report-pending.md for CC to display at next session start.
+        if (ltTotal > 0 || ltCache > 0) {
+          try {
+            const _ltFmt = ltTotal < 1 ? ltTotal.toFixed(2) : `${Math.round(ltTotal)}`
+            const _reportLine = `— ${modelTag} theSaver: ${_ltFmt} saved —`
+            writeFileSync(join(homedir(), ".claude/session-report-pending.md"), _reportLine)
+            appendFileSync(
+              join(homedir(), ".claude/session-reports.log"),
+              `[${new Date().toISOString().slice(0, 16).replace("T", " ")}] ${_reportLine}\n`
+            )
+          } catch {}
+        }
       } catch (err) {
         console.error(`[delegation-enforcer] text.complete failed: ${err.message}`)
       }
