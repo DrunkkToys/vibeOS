@@ -1048,7 +1048,7 @@ export async function DelegationEnforcer({ client, directory }) {
               return `❌ Provide level: full | brief | off`
             }
             // "full" clears the override (let credit-based logic take over)
-            const stored = level === "full" ? null : level
+            const stored = level
             const ok = writeSelection("thinking_level", stored)
             if (!ok) return `❌ Failed to write model-tiers.json`
             const desc = {
