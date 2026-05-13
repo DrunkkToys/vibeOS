@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.2
+
+- bump: version 0.4.2
+- feat: credit API balance fetching (DeepSeek + OpenRouter)
+- fix: thinking level defaults to brief instead of off
+- fix: credit default 50% for sane fallback
+
+
 ## 0.3.4
 
 - bump: version 0.3.4
