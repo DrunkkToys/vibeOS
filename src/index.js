@@ -142,87 +142,10 @@ function applySlot(slot) {
 
 // Map a model ID to a human-readable label with tier icon.
 // Provider prefix is stripped before matching (everything before last "/").
-// Pass effectiveTier to respect brain-slot override (classify() alone misses it).
 function modelToSlotLabel(modelId, effectiveTier) {
-  const raw = String(modelId || "").toLowerCase()
-  const base = raw.split("/").pop() || raw
-
-  let name
-  // ── Claude ──────────────────────────────────────────────────────────
-  if      (/claude.*opus.*4/.test(base))          name = "Opus 4"
-  else if (/claude.*opus.*3/.test(base))          name = "Opus 3"
-  else if (/opus/.test(base))                     name = "Opus"
-  else if (/claude.*sonnet.*4[.-]6/.test(base))   name = "Sonnet 4.6"
-  else if (/claude.*sonnet.*4[.-]5/.test(base))   name = "Sonnet 4.5"
-  else if (/claude.*sonnet.*4/.test(base))        name = "Sonnet 4"
-  else if (/claude.*sonnet.*3[.-]7/.test(base))   name = "Sonnet 3.7"
-  else if (/claude.*sonnet.*3[.-]5/.test(base))   name = "Sonnet 3.5"
-  else if (/sonnet/.test(base))                   name = "Sonnet"
-  else if (/claude.*haiku.*4[.-]5/.test(base))    name = "Haiku 4.5"
-  else if (/claude.*haiku.*4/.test(base))         name = "Haiku 4"
-  else if (/claude.*haiku.*3[.-]5/.test(base))    name = "Haiku 3.5"
-  else if (/haiku/.test(base))                    name = "Haiku"
-  // ── DeepSeek ────────────────────────────────────────────────────────
-  else if (/deepseek.*v4.*pro/.test(base))        name = "DeepSeek v4 Pro"
-  else if (/deepseek.*v4.*flash/.test(base))      name = "DeepSeek v4 Flash"
-  else if (/deepseek.*r1/.test(base))             name = "DeepSeek R1"
-  else if (/deepseek.*v3/.test(base))             name = "DeepSeek V3"
-  else if (/deepseek.*v2/.test(base))             name = "DeepSeek V2"
-  else if (/deepseek.*coder/.test(base))          name = "DeepSeek Coder"
-  else if (/deepseek.*chat/.test(base))           name = "DeepSeek Chat"
-  else if (/deepseek.*pro/.test(base))            name = "DeepSeek Pro"
-  else if (/deepseek.*flash/.test(base))          name = "DeepSeek Flash"
-  else if (/deepseek/.test(base))                 name = "DeepSeek"
-  // ── Gemini ──────────────────────────────────────────────────────────
-  else if (/gemini.*2[.-]5.*pro/.test(base))      name = "Gemini 2.5 Pro"
-  else if (/gemini.*2[.-]5.*flash/.test(base))    name = "Gemini 2.5 Flash"
-  else if (/gemini.*2[.-]0.*flash/.test(base))    name = "Gemini 2.0 Flash"
-  else if (/gemini.*1[.-]5.*pro/.test(base))      name = "Gemini 1.5 Pro"
-  else if (/gemini.*1[.-]5.*flash/.test(base))    name = "Gemini 1.5 Flash"
-  else if (/gemini.*pro/.test(base))              name = "Gemini Pro"
-  else if (/gemini.*flash/.test(base))            name = "Gemini Flash"
-  else if (/gemini/.test(base))                   name = "Gemini"
-  // ── OpenAI ──────────────────────────────────────────────────────────
-  else if (/gpt-5/.test(base))                    name = "GPT-5"
-  else if (/o4-mini/.test(base))                  name = "o4 Mini"
-  else if (/o3-mini/.test(base))                  name = "o3 Mini"
-  else if (/o1-mini/.test(base))                  name = "o1 Mini"
-  else if (/(^|[^a-z])o3([^a-z]|$)/.test(base))  name = "o3"
-  else if (/(^|[^a-z])o1([^a-z]|$)/.test(base))  name = "o1"
-  else if (/gpt-4o-mini/.test(base))              name = "GPT-4o Mini"
-  else if (/gpt-4o/.test(base))                   name = "GPT-4o"
-  else if (/gpt-4/.test(base))                    name = "GPT-4"
-  else if (/gpt-3/.test(base))                    name = "GPT-3.5"
-  // ── Llama ───────────────────────────────────────────────────────────
-  else if (/llama.*3[.-]3/.test(base))            name = "Llama 3.3"
-  else if (/llama.*3[.-]2/.test(base))            name = "Llama 3.2"
-  else if (/llama.*3[.-]1/.test(base))            name = "Llama 3.1"
-  else if (/llama.*3/.test(base))                 name = "Llama 3"
-  else if (/llama/.test(base))                    name = "Llama"
-  // ── Mistral ─────────────────────────────────────────────────────────
-  else if (/mistral.*large/.test(base))           name = "Mistral Large"
-  else if (/mistral.*medium/.test(base))          name = "Mistral Medium"
-  else if (/mistral.*small/.test(base))           name = "Mistral Small"
-  else if (/mixtral/.test(base))                  name = "Mixtral"
-  else if (/mistral/.test(base))                  name = "Mistral"
-  // ── Qwen ────────────────────────────────────────────────────────────
-  else if (/qwen.*max/.test(base))                name = "Qwen Max"
-  else if (/qwen.*plus/.test(base))               name = "Qwen Plus"
-  else if (/qwen.*turbo/.test(base))              name = "Qwen Turbo"
-  else if (/qwen/.test(base))                     name = "Qwen"
-  // ── Grok ────────────────────────────────────────────────────────────
-  else if (/grok.*3/.test(base))                  name = "Grok 3"
-  else if (/grok.*2/.test(base))                  name = "Grok 2"
-  else if (/grok/.test(base))                     name = "Grok"
-  // ── Cohere ──────────────────────────────────────────────────────────
-  else if (/command.*r.*plus/.test(base))         name = "Command R+"
-  else if (/command.*r/.test(base))               name = "Command R"
-  // ── Fallback ────────────────────────────────────────────────────────
-  else name = base.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ")
-
   const tier = effectiveTier ?? classify(modelId)
   const icon = tier === "high" ? "🧠" : tier === "mid" ? "⚙" : "⚡"
-  return `[${icon} ${name}]`
+  return `[${icon} ${tier.charAt(0).toUpperCase() + tier.slice(1)}]`
 }
 
 function classify(m) {
@@ -241,10 +164,10 @@ const FREE           = new Set(["task","todowrite","question","skill","read","gl
 // Estimated $ savings per warn — fallback constants (used when model is unknown).
 // Dynamic estimates are computed via modelCostPerTurn() below.
 const SAVE_EST = {
-  WRITE_EDIT:   0.07,  // fallback: opus brain doing one edit turn
+  WRITE_EDIT:   0.07,  // fallback: high-tier model doing one edit turn
   SOFT_QUOTA:   0.00,  // tool runs regardless — no real saving
-  CONTEXT7:     0.05,  // fallback: webfetch turn cost for an opus brain
-  OPUS_DISABLE: 0.14,  // fallback: full-turn cost for an opus brain
+  CONTEXT7:     0.05,  // fallback: webfetch turn cost for a high-tier model
+  OPUS_DISABLE: 0.14,  // fallback: full-turn cost for a high-tier model
 }
 
 // Models available at $0 on OpenCode's platform.
@@ -257,26 +180,21 @@ const FREE_MODELS = new Set([
 // Approximate USD per typical ~1 K-token turn (blended input+output).
 // Add entries as new models appear; unknown models fall back to SAVE_EST constants.
 const MODEL_USD_PER_TURN = {
-  // Anthropic
   "anthropic/claude-opus-4-7":            0.12,
   "anthropic/claude-opus-4-5":            0.12,
   "anthropic/claude-sonnet-4-6":          0.024,
   "anthropic/claude-sonnet-4-5":          0.024,
   "anthropic/claude-haiku-4-5":           0.005,
   "anthropic/claude-haiku-4-5-20251001":  0.005,
-  // DeepSeek free
   "deepseek/deepseek-chat":               0,
   "deepseek-chat":                        0,
   "deepseek/deepseek-v3":                 0,
-  // DeepSeek paid
   "deepseek/deepseek-r1":                 0.001,
   "deepseek/deepseek-v4-pro":             0.0003,
   "deepseek/deepseek-v4-flash":           0.0001,
-  // Google
   "google/gemini-2.5-pro":                0.005,
   "google/gemini-2.5-flash":              0.0005,
   "google/gemini-2.0-flash":              0.0003,
-  // OpenAI
   "openai/gpt-4o":                        0.009,
   "openai/gpt-4.1":                       0.009,
   "openai/gpt-4o-mini":                   0.0003,
@@ -930,7 +848,7 @@ export async function DelegationEnforcer({ client, directory }) {
           for (let i = 0; i < 100; i++) textCompletePainted.delete(it.next().value)
         }
 
-        // Show brain → worker: [⚙ Sonnet → ⚡ Haiku] (two-tier aware)
+        // Show brain → worker tier routing (two-tier aware)
         let modelTag = brainTag
         const _workerModel = (currentTier === "high" && TRINITY_MEDIUM) ? TRINITY_MEDIUM : TRINITY_CHEAP
         if (_workerModel && _workerModel !== currentModel) {

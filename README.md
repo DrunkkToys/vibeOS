@@ -27,9 +27,9 @@ Running a capable brain model for every message is expensive and unnecessary. Mo
 ```
 You ask: "build a data pipeline and write tests"
 
-Brain (Sonnet)
-  ├── delegates pipeline implementation → Task subagent (Haiku) ⚡
-  ├── delegates test writing            → Task subagent (Haiku) ⚡
+Brain (high-tier)
+  ├── delegates pipeline implementation → Task subagent (budget-tier) ⚡
+  ├── delegates test writing            → Task subagent (budget-tier) ⚡
   └── reviews output, fills gaps, delivers final answer
 ```
 
@@ -37,8 +37,8 @@ Brain (Sonnet)
 
 | Work type | Brain cost | With theSaver |
 |---|---|---|
-| 50 tool calls (search, edit) | ~$0.80 | ~$0.12 (Haiku worker) |
-| 20 web fetches | ~$0.40 | ~$0.06 (Haiku worker) |
+| 50 tool calls (search, edit) | ~$0.80 | ~$0.12 (budget worker) |
+| 20 web fetches | ~$0.40 | ~$0.06 (budget worker) |
 | Prompt cache hits | paid at input rate | **paid at cache rate (10× cheaper)** |
 | Typical 2h session | ~$3–6 | ~$0.50–1.50 |
 
@@ -56,7 +56,7 @@ session $8.84 tasks + $493 cache = $501 | lifetime $14 tasks + $496 cache = $510
 
 The `$493 cache` is **real money saved** — computed from actual token counts, not estimated. It compounds fast across a long session.
 
-> **Why it matters:** In a session with 50k+ context tokens, every response re-reads the entire history. At Sonnet prices ($3/M input vs $0.30/M cache), a 100-turn session saves ~$0.27/turn × 100 = **$27 from caching alone**. The longer the session, the bigger the cache advantage.
+> **Why it matters:** In a session with 50k+ context tokens, every response re-reads the entire history. At typical high-tier prices ($3/M input vs $0.30/M cache), a 100-turn session saves ~$0.27/turn × 100 = **$27 from caching alone**. The longer the session, the bigger the cache advantage.
 
 ---
 
@@ -135,12 +135,12 @@ trinity thinking off     → never (maximum savings)
 Every assistant response ends with:
 
 ```
-— [⚙ Sonnet → ⚡ Haiku] · 💰 session $8.84 tasks + $493 cache = $501 | lifetime $14 tasks + $496 cache = $510 (273 events) —
+— [⚙ Mid → ⚡ Budget] · 💰 session $8.84 tasks + $493 cache = $501 | lifetime $14 tasks + $496 cache = $510 (273 events) —
 ```
 
 | Part | Meaning |
 |---|---|
-| `⚙ Sonnet → ⚡ Haiku` | Brain → worker model pair |
+| `⚙ Mid → ⚡ Budget` | Brain → worker model pair |
 | `session $X tasks` | Estimated savings from routing events this session |
 | `session $Y cache` | **Real** savings from prompt cache hits (actual token counts) |
 | `lifetime $A tasks + $B cache = $C` | Cumulative totals across all sessions |
@@ -152,7 +152,7 @@ Every assistant response ends with:
 
 | Feature | How it saves |
 |---|---|
-| Judge pattern | Brain orchestrates; Haiku implements — injected once per session as a system directive |
+| Judge pattern | Brain orchestrates; budget worker implements — injected once per session as a system directive |
 | Task subagent routing | Mid-tier brain → cheap worker automatically; 5–10× cost difference per task |
 | Thinking auto-depth | Stops paying for extended thinking when credits are low |
 | Context7 nudge | Redirects library-docs fetches to context7 MCP (smaller payload, no follow-ups) |
@@ -230,9 +230,9 @@ Control everything without leaving the chat window:
 ```json
 {
   "trinity": {
-    "brain":  { "oc": "opencode/claude-sonnet-4-6",  "cc": "sonnet" },
-    "medium": { "oc": "deepseek/deepseek-v4-flash",  "cc": "haiku"  },
-    "cheap":  { "oc": "opencode/claude-haiku-4-5",   "cc": "haiku"  }
+    "brain":  { "oc": "provider/high-tier-model",   "cc": "brain" },
+    "medium": { "oc": "provider/mid-tier-model",    "cc": "medium" },
+    "cheap":  { "oc": "provider/budget-tier-model",  "cc": "budget" }
   },
   "selection": {
     "credit_threshold_percent": 30,

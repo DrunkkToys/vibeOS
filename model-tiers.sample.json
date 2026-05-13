@@ -1,23 +1,23 @@
 {
   "$schema_version": 1,
-  "_comment": "Single source of truth for delegation-enforcer model classification. Both ~/.claude/hooks/delegation-enforcer.sh and ~/.config/opencode/plugins/delegation-enforcer.js load this file. Tier IDs (high/mid/budget) are stable — display labels are user-facing.",
+  "_comment": "Single source of truth for delegation-enforcer model classification. Both the bash hook and JS plugin load this file. Tier IDs (high/mid/budget) are stable — display labels are user-facing.",
   "trinity": {
-    "_comment": "Per-slot models for both runtimes. `oc` writes to ~/.config/opencode/opencode.json (.model). `cc` writes to ~/.claude/settings.json (.model) — bare aliases work in Claude Code (opus/sonnet/haiku). Sonnet is brain because opus is too expensive/rate-limited in this user's context.",
+    "_comment": "Per-slot models for both runtimes. `oc` writes to the OpenCode config. `cc` writes to the CC config. Adjust to match your available models.",
     "brain": {
-      "oc": "openrouter/anthropic/claude-sonnet-4.6",
-      "cc": "sonnet"
+      "oc": "provider/high-tier-model",
+      "cc": "brain"
     },
     "medium": {
-      "oc": "deepseek/deepseek-v4-flash",
-      "cc": "haiku"
+      "oc": "provider/mid-tier-model",
+      "cc": "medium"
     },
     "cheap": {
-      "oc": "deepseek/deepseek-chat",
-      "cc": "haiku"
+      "oc": "provider/budget-tier-model",
+      "cc": "budget"
     }
   },
   "selection": {
-    "_comment": "Used by `trinity auto`: pick `brain` slot when credit ≥ threshold, else `fallback` slot. Sonnet on OpenCode isn't always stable, so dropping to haiku (mid slot) at low credit is more reliable than burning what's left on flaky brain calls. `enabled` toggles all delegation-enforcer logic. `active_slot` records the last slot set by `trinity`.",
+    "_comment": "Used by `trinity auto`: pick `brain` slot when credit ≥ threshold, else `fallback` slot. Dropping to mid slot at low credit is more reliable than burning what's left on flaky brain calls. `enabled` toggles all delegation-enforcer logic. `active_slot` records the last slot set by `trinity`.",
     "credit_threshold_percent": 30,
     "brain": "brain",
     "fallback": "medium",
@@ -45,19 +45,19 @@
     }
   },
   "pricing": {
-    "opus": {
+    "high": {
       "input": 15.00,
       "output": 75.00,
       "cache_read": 1.50,
       "cache_write": 18.75
     },
-    "sonnet": {
+    "mid": {
       "input": 3.00,
       "output": 15.00,
       "cache_read": 0.30,
       "cache_write": 3.75
     },
-    "haiku": {
+    "budget": {
       "input": 0.80,
       "output": 4.00,
       "cache_read": 0.08,
