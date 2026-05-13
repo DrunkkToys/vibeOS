@@ -855,3 +855,265 @@ test("text.complete: appends to session-reports.log", async () => {
   assert.ok(lines.length >= 1, "at least one log entry written")
   assert.match(lines[0], /theSaver:/, "log entry contains theSaver label")
 })
+
+// ── new: modelToSlotLabel uses effectiveTier (brain-slot override) ────────────
+test("text.complete: sonnet-as-brain shows 🧠 icon in footer (effectiveTier fix)", async () => {
+  // When the active brain slot is openrouter/anthropic/claude-sonnet-4.6,
+  // modelToSlotLabel must use currentTier="high" (overridden), not classify()="mid".
+  // Result: footer must contain 🧠 not ⚙.
+  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+    trinity: {
+      brain:  { oc: "openrouter/anthropic/claude-sonnet-4.6" },
+      medium: { oc: "deepseek/deepseek-v4-flash" },
+      cheap:  { oc: "deepseek/deepseek-chat" },
+    },
+    selection: { enabled: true, active_slot: "brain" },
+    tiers: {
+      high:   { regex: "opus|deepseek.*v4.*pro" },
+      mid:    { regex: "claude.*sonnet|sonnet|deepseek.*v4.*flash" },
+      budget: { regex: ".*" },
+    },
+  }))
+  const { DelegationEnforcer } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-sonnet-icon")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "openrouter/anthropic/claude-sonnet-4.6" }))
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+
+  // Seed a non-zero savings total so the footer is always emitted.
+  const stateFile = join(sandbox, ".claude/delegation-state.json")
+  writeFileSync(stateFile, JSON.stringify({
+    lifetime: { warn_count: 1, est_savings_usd: 0.05, last_updated: "now" }
+  }))
+
+  const out = { text: "Hello." }
+  await hooks["experimental.text.complete"]({ messageID: "msg-icon-1" }, out)
+
+  assert.ok(out.text.includes("🧠"),
+    `footer must contain 🧠 (brain icon) for sonnet-as-brain; got: ${out.text}`)
+  assert.ok(!out.text.includes("⚙ Sonnet"),
+    `footer must NOT show ⚙ Sonnet when sonnet is the brain slot; got: ${out.text}`)
+})
+
+// ── new: pendingUiNote injected into tool.execute.after output ────────────────
+test("tool.execute.after: delegation warning injected into output.result", async () => {
+  // After tool.execute.before fires for a write on a high-tier model,
+  // tool.execute.after must inject the ⚠ [theSaver] note into output.result
+  // so it appears in the OC chat transcript, not just in stderr.
+  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+    trinity: {
+      brain:  { oc: "openrouter/anthropic/claude-sonnet-4.6" },
+      medium: { oc: "deepseek/deepseek-v4-flash" },
+      cheap:  { oc: "deepseek/deepseek-chat" },
+    },
+    selection: { enabled: true, active_slot: "brain" },
+    tiers: {
+      high:   { regex: "opus|deepseek.*v4.*pro" },
+      mid:    { regex: "claude.*sonnet|sonnet|deepseek.*v4.*flash" },
+      budget: { regex: ".*" },
+    },
+  }))
+  const { DelegationEnforcer } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-uinote")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "openrouter/anthropic/claude-sonnet-4.6" }))
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+
+  // Clear state so warn_count starts at 0.
+  const stateFile = join(sandbox, ".claude/delegation-state.json")
+  if (existsSync(stateFile)) rmSync(stateFile)
+
+  // Step 1: before-hook records the warning and sets pendingUiNote.
+  const beforeOutput = { args: {} }
+  await hooks["tool.execute.before"]({ tool: "edit" }, beforeOutput)
+
+  // Step 2: after-hook must inject the note into output.result.
+  const afterOutput = { result: "File edited successfully." }
+  await hooks["tool.execute.after"]({ tool: "edit", args: { filePath: "/tmp/foo.py" } }, afterOutput)
+
+  assert.ok(afterOutput.result.includes("⚠ [theSaver]"),
+    `output.result must contain ⚠ [theSaver] delegation note; got: ${afterOutput.result}`)
+  assert.ok(afterOutput.result.includes("Brain model doing edit"),
+    `output.result must describe the action; got: ${afterOutput.result}`)
+  assert.ok(afterOutput.result.startsWith("File edited successfully."),
+    "original tool result must be preserved at the start")
+})
+
+// ── new: pendingUiNote cleared after consumption (no double-inject) ───────────
+test("tool.execute.after: pendingUiNote consumed once — no double-inject on second call", async () => {
+  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+    trinity: {
+      brain:  { oc: "openrouter/anthropic/claude-sonnet-4.6" },
+      medium: { oc: "deepseek/deepseek-v4-flash" },
+      cheap:  { oc: "deepseek/deepseek-chat" },
+    },
+    selection: { enabled: true, active_slot: "brain" },
+    tiers: {
+      high:   { regex: "opus|deepseek.*v4.*pro" },
+      mid:    { regex: "claude.*sonnet|sonnet|deepseek.*v4.*flash" },
+      budget: { regex: ".*" },
+    },
+  }))
+  const { DelegationEnforcer } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-uinote2")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "openrouter/anthropic/claude-sonnet-4.6" }))
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+
+  const stateFile = join(sandbox, ".claude/delegation-state.json")
+  if (existsSync(stateFile)) rmSync(stateFile)
+
+  // Fire before+after once (consumes pendingUiNote).
+  await hooks["tool.execute.before"]({ tool: "write" }, { args: {} })
+  const first = { result: "Written." }
+  await hooks["tool.execute.after"]({ tool: "write", args: { filePath: "/tmp/a.py" } }, first)
+  assert.ok(first.result.includes("⚠ [theSaver]"), "first call: note injected")
+
+  // Second after-hook call without a preceding before — pendingUiNote must be null.
+  const second = { result: "Written again." }
+  await hooks["tool.execute.after"]({ tool: "write", args: { filePath: "/tmp/b.py" } }, second)
+  assert.ok(!second.result.includes("⚠ [theSaver]"),
+    "second call: note NOT injected (pendingUiNote was cleared after first consumption)")
+})
+
+// ════════════════════════════════════════════════════════════════════════════
+// INTEGRATION: full simulated OC session — sonnet-as-brain does a real turn
+// ════════════════════════════════════════════════════════════════════════════
+//
+// Simulates an entire OC session lifecycle:
+//   1. Plugin loads with openrouter/anthropic/claude-sonnet-4.6 as brain
+//   2. shell.env fires → OPENCODE_MODEL_TIER=high in env
+//   3. A Task is routed to the medium slot
+//   4. A write is done → pendingUiNote set in before, injected in after
+//   5. experimental.text.complete fires → footer shows 🧠 Sonnet 4.6 + savings
+//   6. session-report-pending.md written for CC
+//   7. Enforcement is disabled at runtime → all hooks become no-ops
+//   8. Re-enabled → enforcement resumes
+test("integration: full simulated OC session with sonnet-as-brain", async () => {
+  // ── Setup: isolated home with all config files ──────────────────────────
+  const tiersFile = join(sandbox, ".claude/model-tiers.json")
+  writeFileSync(tiersFile, JSON.stringify({
+    trinity: {
+      brain:  { oc: "openrouter/anthropic/claude-sonnet-4.6", cc: "sonnet" },
+      medium: { oc: "deepseek/deepseek-v4-flash",             cc: "haiku"  },
+      cheap:  { oc: "deepseek/deepseek-chat",                 cc: "haiku"  },
+    },
+    selection: { enabled: true, active_slot: "brain" },
+    tiers: {
+      high:   { regex: "opus|deepseek.*v4.*pro" },
+      mid:    { regex: "claude.*sonnet|sonnet|deepseek.*v4.*flash" },
+      budget: { regex: ".*" },
+    },
+  }))
+
+  // Project dir has local opencode.json pointing at brain model
+  const projDir = join(sandbox, "my-project")
+  mkdirSync(projDir, { recursive: true })
+  writeFileSync(join(projDir, "opencode.json"), JSON.stringify({
+    model: "openrouter/anthropic/claude-sonnet-4.6",
+  }))
+
+  // Clear state
+  const stateFile = join(sandbox, ".claude/delegation-state.json")
+  if (existsSync(stateFile)) rmSync(stateFile)
+
+  const { DelegationEnforcer } = await loadPlugin()
+  const hooks = await DelegationEnforcer({ client: {}, directory: projDir })
+
+  // ── 1. shell.env: OPENCODE_MODEL_TIER must be "high" ───────────────────
+  const envOut = { env: {} }
+  await hooks["shell.env"]({}, envOut)
+  assert.equal(envOut.env.OPENCODE_MODEL_TIER, "high",
+    "shell.env: sonnet-as-brain classified as high after override")
+
+  // ── 2. Task routing: high-tier brain → medium slot ──────────────────────
+  const taskArgs = { model: null, prompt: "Implement the new feature" }
+  await hooks["tool.execute.before"]({ tool: "task" }, { args: taskArgs })
+  assert.equal(taskArgs.model, "deepseek/deepseek-v4-flash",
+    "task routing: high-tier brain routes Task to medium slot (deepseek-v4-flash)")
+
+  // ── 3. Task routing: exploratory prompt → cheap slot ───────────────────
+  const taskArgs2 = { model: null, prompt: "find all usages of this function" }
+  await hooks["tool.execute.before"]({ tool: "task" }, { args: taskArgs2 })
+  assert.equal(taskArgs2.model, "deepseek/deepseek-chat",
+    "task routing: exploratory first-word routes to cheap slot")
+
+  // ── 4. Write tool: before sets pendingUiNote, after injects it ──────────
+  const writeBeforeOut = { args: {} }
+  await hooks["tool.execute.before"]({ tool: "write" }, writeBeforeOut)
+  assert.ok(existsSync(stateFile), "write: state file created after before-hook")
+  const s1 = JSON.parse(readFileSync(stateFile, "utf-8"))
+  assert.ok((s1?.lifetime?.warn_count ?? 0) >= 1,
+    "write: warn_count incremented in state file")
+
+  const writeAfterOut = { result: "File written." }
+  await hooks["tool.execute.after"]({ tool: "write", args: { filePath: "/tmp/foo.py" } }, writeAfterOut)
+  assert.ok(writeAfterOut.result.includes("⚠ [theSaver]"),
+    "write: delegation note visible in tool output (OC chat transcript)")
+  assert.ok(writeAfterOut.result.startsWith("File written."),
+    "write: original result preserved before the note")
+
+  // ── 5. Edit tool: before+after same flow ───────────────────────────────
+  await hooks["tool.execute.before"]({ tool: "edit" }, { args: {} })
+  const editAfterOut = { result: "Edit applied." }
+  await hooks["tool.execute.after"]({ tool: "edit", args: { filePath: "/tmp/foo.py" } }, editAfterOut)
+  assert.ok(editAfterOut.result.includes("⚠ [theSaver]"),
+    "edit: delegation note injected")
+  const s2 = JSON.parse(readFileSync(stateFile, "utf-8"))
+  assert.ok((s2?.lifetime?.warn_count ?? 0) >= 2,
+    "edit: second warn recorded cumulatively")
+
+  // ── 6. experimental.text.complete: footer shows 🧠 + savings ───────────
+  const textOut = { text: "Here is the plan." }
+  await hooks["experimental.text.complete"]({ messageID: "msg-integ-1" }, textOut)
+  assert.ok(textOut.text.includes("🧠"),
+    "text.complete: footer shows 🧠 (brain icon, not ⚙ mid) for sonnet-as-brain")
+  assert.ok(textOut.text.includes("Sonnet 4.6"),
+    "text.complete: footer shows model name Sonnet 4.6")
+  assert.ok(textOut.text.includes("theSaver:"),
+    "text.complete: footer shows theSaver savings label")
+  assert.ok(textOut.text.includes("DeepSeek v4 Flash"),
+    "text.complete: footer shows worker slot label (brain → worker)")
+  assert.ok(textOut.text.startsWith("Here is the plan."),
+    "text.complete: original response text preserved")
+
+  // ── 7. session-report-pending.md written for CC ─────────────────────────
+  const reportFile = join(sandbox, ".claude/session-report-pending.md")
+  assert.ok(existsSync(reportFile), "session-report-pending.md written after text.complete")
+  const reportContent = readFileSync(reportFile, "utf-8")
+  assert.ok(reportContent.includes("🧠") || reportContent.includes("Sonnet"),
+    "session-report: contains model info")
+  assert.ok(reportContent.includes("theSaver:"),
+    "session-report: contains theSaver label")
+
+  // ── 8. Deduplication: same messageID doesn't double-append footer ───────
+  const textOut2 = { text: "Another response." }
+  await hooks["experimental.text.complete"]({ messageID: "msg-integ-1" }, textOut2)
+  assert.ok(!textOut2.text.includes("theSaver:"),
+    "text.complete: duplicate messageID skipped — footer not appended again")
+
+  // ── 9. Disable enforcement at runtime → hooks become no-ops ────────────
+  const tiers = JSON.parse(readFileSync(tiersFile, "utf-8"))
+  tiers.selection.enabled = false
+  writeFileSync(tiersFile, JSON.stringify(tiers))
+
+  const taskArgs3 = { model: null, prompt: "Implement something" }
+  await hooks["tool.execute.before"]({ tool: "task" }, { args: taskArgs3 })
+  assert.equal(taskArgs3.model, null,
+    "disabled: task routing skipped when enforcement disabled")
+
+  const warnCountBefore = JSON.parse(readFileSync(stateFile, "utf-8"))?.lifetime?.warn_count ?? 0
+  await hooks["tool.execute.before"]({ tool: "write" }, { args: {} })
+  const warnCountAfter = JSON.parse(readFileSync(stateFile, "utf-8"))?.lifetime?.warn_count ?? 0
+  assert.equal(warnCountAfter, warnCountBefore,
+    "disabled: warn_count not incremented when enforcement disabled")
+
+  // ── 10. Re-enable → routing resumes ─────────────────────────────────────
+  tiers.selection.enabled = true
+  writeFileSync(tiersFile, JSON.stringify(tiers))
+
+  const taskArgs4 = { model: null, prompt: "Implement something again" }
+  await hooks["tool.execute.before"]({ tool: "task" }, { args: taskArgs4 })
+  assert.equal(taskArgs4.model, "deepseek/deepseek-v4-flash",
+    "re-enabled: task routing resumes after re-enabling")
+})
