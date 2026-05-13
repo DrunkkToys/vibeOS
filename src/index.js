@@ -70,10 +70,15 @@ const { cheap: TRINITY_CHEAP, medium: TRINITY_MEDIUM } = loadTrinityModels()
 
 // Read remaining credit percent from env/file/helper, same sources as bash hook.
 function loadCredit() {
+  // 1. Check cached API snapshot (populated by background refresh — triggered via trinity tool).
+  const pct = _cachedPct()
+  if (pct !== null) return pct
+  // 2. Check CLAUDE_CREDIT_PERCENT env
   if (process.env.CLAUDE_CREDIT_PERCENT) {
     const n = parseInt(process.env.CLAUDE_CREDIT_PERCENT, 10)
     if (!isNaN(n)) return n
   }
+  // 3. Check legacy file ~/.claude/credit-percent
   try {
     const f = join(homedir(), ".claude/credit-percent")
     if (existsSync(f)) {
@@ -81,14 +86,14 @@ function loadCredit() {
       if (!isNaN(n)) return n
     }
   } catch {}
-  return 100
+  return 50
 }
 
 // Map credit to thinking level: full / brief / off.
 function thinkingLevel(credit) {
   if (credit >= 70) return "full"
   if (credit >= 40) return "brief"
-  return "off"
+  return "brief"
 }
 
 // Read plugin enabled flag + active_slot fresh from model-tiers.json.
@@ -1054,6 +1059,8 @@ export async function DelegationEnforcer({ client, directory }) {
           level: tool.schema.enum(["full", "brief", "off"]).optional(),
         },
         async execute({ action, slot, level }) {
+          // Kick off credit API background fetch on any trinity command.
+          if (typeof _lazyRefresh === "function") _lazyRefresh()
           if (action === "status") {
             const sel = loadSelection()
             let tiers = {}
@@ -1118,3 +1125,76 @@ export async function DelegationEnforcer({ client, directory }) {
 export const id = "delegation-enforcer"
 export const server = DelegationEnforcer
 export default { id: "delegation-enforcer", server: DelegationEnforcer }
+
+// ── Credit API: fetch real balances from provider APIs ───────────────
+const AUTH_F = join(homedir(), ".local", "share", "opencode", "auth.json")
+const CREDIT_CACHE_F = join(homedir(), ".claude/credit-snapshot.json")
+const BALANCE_APIS = {
+  deepseek: {
+    url: "https://api.deepseek.com/user/balance",
+    parse(d) {
+      const b = d?.balance_infos?.find(b => b.currency === "USD")
+      return b ? parseFloat(b.total_balance) : 0
+    }
+  },
+  openrouter: {
+    url: "https://openrouter.ai/api/v1/credits",
+    parse(d) { return parseFloat(d?.data?.total_credits) || 0 }
+  }
+}
+let _creditTimer = null
+
+function _readAuth() {
+  try { return existsSync(AUTH_F) ? JSON.parse(readFileSync(AUTH_F, "utf-8")) : {} } catch { return {} }
+}
+
+async function _fetchBal(provider, key) {
+  const api = BALANCE_APIS[provider]
+  if (!api) return { provider, balance: 0 }
+  try {
+    const res = await fetch(api.url, {
+      headers: { Authorization: `Bearer ${key}` },
+      signal: AbortSignal.timeout(5000)
+    })
+    if (!res.ok) return { provider, balance: 0 }
+    return { provider, balance: api.parse(await res.json()) }
+  } catch { return { provider, balance: 0 } }
+}
+
+async function _snapshot() {
+  const auth = _readAuth()
+  let total = 0; const provs = []
+  for (const [p, c] of Object.entries(auth)) {
+    if (!c?.key || !BALANCE_APIS[p]) continue
+    const { balance } = await _fetchBal(p, c.key)
+    if (balance > 0) { provs.push({ provider: p, balance }); total += balance }
+  }
+  try { writeFileSync(CREDIT_CACHE_F, JSON.stringify({ total, providers: provs, ts: Date.now() })) } catch {}
+}
+
+function _cachedPct() {
+  try {
+    if (!existsSync(CREDIT_CACHE_F)) return null
+    const s = JSON.parse(readFileSync(CREDIT_CACHE_F, "utf-8"))
+    if (s?.total == null || !s.ts) return null
+    let budget = 50
+    try {
+      const p = join(homedir(), ".claude/model-tiers.json")
+      if (existsSync(p)) {
+        const j = JSON.parse(readFileSync(p, "utf-8"))
+        if (j?.selection?.monthly_budget_usd) budget = j.selection.monthly_budget_usd
+      }
+    } catch {}
+    return budget > 0 ? Math.min(150, Math.max(0, Math.round((s.total / budget) * 100))) : null
+  } catch { return null }
+}
+
+// Lazy background refresh — only starts when a hook calls loadCredit() for the first time.
+let _started = false
+function _lazyRefresh() {
+  if (_started) return
+  _started = true
+  _snapshot()
+  _creditTimer = setInterval(_snapshot, 60 * 60 * 1000)
+  if (_creditTimer.unref) _creditTimer.unref()
+}
