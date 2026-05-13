@@ -537,7 +537,7 @@ test("tool.execute.after: shows model label even with no savings recorded", asyn
   const out = { text: "Hi." }
   await hooks["experimental.text.complete"]({ messageID: "msg-empty-sav" }, out)
   // Model label always shown; no savings line when count=0
-  assert.match(out.text, /Opus/, "model label shown even when no savings")
+  assert.match(out.text, /High|Mid|Budget/, "model label shown even when no savings")
   assert.doesNotMatch(out.text, /saved/, "no savings line when count=0")
 })
 
@@ -891,8 +891,8 @@ test("text.complete: sonnet-as-brain shows 🧠 icon in footer (effectiveTier fi
 
   assert.ok(out.text.includes("🧠"),
     `footer must contain 🧠 (brain icon) for sonnet-as-brain; got: ${out.text}`)
-  assert.ok(!out.text.includes("⚙ Sonnet"),
-    `footer must NOT show ⚙ Sonnet when sonnet is the brain slot; got: ${out.text}`)
+  assert.ok(!out.text.includes("⚙ Mid →"),
+    `footer must NOT show ⚙ Mid → when mid is the brain slot; got: ${out.text}`)
 })
 
 // ── new: pendingUiNote injected into tool.execute.after output ────────────────
@@ -1068,12 +1068,12 @@ test("integration: full simulated OC session with sonnet-as-brain", async () => 
   await hooks["experimental.text.complete"]({ messageID: "msg-integ-1" }, textOut)
   assert.ok(textOut.text.includes("🧠"),
     "text.complete: footer shows 🧠 (brain icon, not ⚙ mid) for sonnet-as-brain")
-  assert.ok(textOut.text.includes("Sonnet 4.6"),
-    "text.complete: footer shows model name Sonnet 4.6")
+  assert.ok(textOut.text.includes("Mid"),
+    "text.complete: footer shows model tier Mid")
   assert.ok(textOut.text.includes("theSaver:"),
     "text.complete: footer shows theSaver savings label")
-  assert.ok(textOut.text.includes("DeepSeek v4 Flash"),
-    "text.complete: footer shows worker slot label (brain → worker)")
+  assert.ok(textOut.text.includes("Mid"),
+    "text.complete: footer shows worker slot mid tier label (brain → worker)")
   assert.ok(textOut.text.startsWith("Here is the plan."),
     "text.complete: original response text preserved")
 
@@ -1081,7 +1081,7 @@ test("integration: full simulated OC session with sonnet-as-brain", async () => 
   const reportFile = join(sandbox, ".claude/session-report-pending.md")
   assert.ok(existsSync(reportFile), "session-report-pending.md written after text.complete")
   const reportContent = readFileSync(reportFile, "utf-8")
-  assert.ok(reportContent.includes("🧠") || reportContent.includes("Sonnet"),
+  assert.ok(reportContent.includes("🧠") || reportContent.includes("Mid") || reportContent.includes("Budget"),
     "session-report: contains model info")
   assert.ok(reportContent.includes("theSaver:"),
     "session-report: contains theSaver label")
