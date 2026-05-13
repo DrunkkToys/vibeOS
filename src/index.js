@@ -441,8 +441,47 @@ const VERBOSE_LINE_RE = [
   /^\s*(Hope this helps|Let me know if|Feel free to|Happy to|Please let me know).*$/i,
 ]
 
+// Key-line patterns used during bullet-point extraction.
+const BULLET_PATTERNS = [
+  /^\s*\w[^:]{0,80}:/,              // definition lines  (key: value)
+  /^\s*[-*•]\s/,                     // already bulleted
+  /^\s*\d+\.\s/,                     // numbered lists
+  /^\s*(NOTE|TIP|IMPORTANT|WARNING|FIX|TODO|HACK)\b/i,
+  /^\s*[A-Z][A-Z\s_-]{4,}:\s/,      // section headers   (UPPERCASE: text)
+]
+
+// Compression parameters.
+const COMPRESS_RATIO      = 0.30   // target 30 % of original when compressing
+const COMPRESS_THRESHOLD  = 2000   // only compress if result exceeds this
+const MIN_KEPT_LINES_RATIO = 0.40  // keep at least 40 % of lines even if under target
+
+function extractBulletLines(lines, targetChars, minLines) {
+  const keyLines   = []
+  const otherLines = []
+
+  for (const line of lines) {
+    if (BULLET_PATTERNS.some(re => re.test(line))) keyLines.push(line)
+    else otherLines.push(line)
+  }
+
+  // Take key (bullet) lines first, then fill from remainder.
+  const selected = [...keyLines]
+  for (const line of otherLines) {
+    if (selected.length >= minLines && selected.join("\n").length >= targetChars) break
+    selected.push(line)
+  }
+
+  // If still well over target, trim from the end.
+  while (selected.length > minLines && selected.join("\n").length > targetChars * 2) {
+    selected.pop()
+  }
+
+  return selected
+}
+
 function compressText(text) {
   if (!text || typeof text !== "string") return text
+
   let lines = text.split("\n")
   let removed = 0
   const out = []
@@ -470,19 +509,29 @@ function compressText(text) {
 
   let result = collapsed.join("\n").trim()
 
-  // Truncate if excessively long, preserving code blocks
-  const MAX_LEN = 3000
-  if (result.length > MAX_LEN) {
-    // Try to find a good cutoff (end of paragraph/section)
-    const cutoff = result.lastIndexOf("\n\n", MAX_LEN)
-    if (cutoff > MAX_LEN * 0.5) {
-      result = result.slice(0, cutoff) + `\n\n… [${result.length - cutoff} chars truncated]`
-    } else {
-      result = result.slice(0, MAX_LEN) + `… [${result.length - MAX_LEN} chars truncated]`
+  // Percentage-based compression: only act if above threshold.
+  if (result.length > COMPRESS_THRESHOLD) {
+    const targetChars = Math.max(
+      Math.round(result.length * COMPRESS_RATIO),
+      COMPRESS_THRESHOLD
+    )
+    const minLines = Math.max(1, Math.round(collapsed.length * MIN_KEPT_LINES_RATIO))
+    const bulletLines = extractBulletLines(collapsed, targetChars, minLines)
+
+    result = bulletLines.join("\n").trim()
+
+    // Final safety truncate if bullet extraction didn't shrink enough.
+    if (result.length > targetChars * 1.5) {
+      const cutoff = result.lastIndexOf("\n\n", targetChars)
+      if (cutoff > targetChars * 0.5) {
+        result = result.slice(0, cutoff) + `\n\n… [${result.length - cutoff} chars truncated]`
+      } else {
+        result = result.slice(0, targetChars) + `… [${result.length - targetChars} chars truncated]`
+      }
     }
   }
 
-  if (removed > 0) {
+  if (removed > 0 || result !== collapsed.join("\n").trim()) {
     console.error(`[delegation-enforcer] COMPRESS: ${text.length}→${result.length} chars (${removed} verbose lines stripped)`)
   }
   return result || text // never return empty if original wasn't
