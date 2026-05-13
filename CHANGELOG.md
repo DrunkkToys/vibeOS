@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.3b
+
+- bump: version 0.2.3b
+
 ## 0.2.3a
 
 - bump: version 0.2.3a
