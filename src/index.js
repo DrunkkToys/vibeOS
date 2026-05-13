@@ -437,7 +437,7 @@ function readConfig(dir) {
 // ── Output compression ──────────────────────────────────────────────
 
 const VERBOSE_LINE_RE = [
-  /^\s*(I think|I believe|Let me|Here is|Here are|Below is|The following|Based on).*?:?\s*$/i,
+  /^\s*(I believe|Let me|Here is|Here are|Below is|The following|Based on).*?:?\s*$/i,
   /^\s*(Sure|Certainly|Absolutely|Of course|Great question)[!.,]?\s*$/i,
   /^\s*(I will|I'll|Let me|I can|I am going to)\s+.*$/i,
   /^\s*(Hope this helps|Let me know if|Feel free to|Happy to|Please let me know).*$/i,
@@ -973,7 +973,7 @@ export async function DelegationEnforcer({ client, directory }) {
         const judgeDirective =
           `[judge pattern] You are the orchestrator and judge. For tasks requiring research, reasoning, or code implementation: ` +
           `delegate to a Task subagent (runs on ${cheapModel} — fast and cheap). ` +
-          `Your role: verify correctness, fill gaps, synthesize the final answer. Keep your own direct output concise.`
+          `Your role: verify correctness, fill gaps, synthesize the final answer.`
 
         if (Array.isArray(output?.system)) {
           output.system.push(c7directive)
