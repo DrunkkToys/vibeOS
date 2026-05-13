@@ -437,9 +437,7 @@ function readConfig(dir) {
 // ── Output compression ──────────────────────────────────────────────
 
 const VERBOSE_LINE_RE = [
-  /^\s*(I believe|Let me|Here is|Here are|Below is|The following|Based on).*?:?\s*$/i,
   /^\s*(Sure|Certainly|Absolutely|Of course|Great question)[!.,]?\s*$/i,
-  /^\s*(I will|I'll|Let me|I can|I am going to)\s+.*$/i,
   /^\s*(Hope this helps|Let me know if|Feel free to|Happy to|Please let me know).*$/i,
 ]
 
@@ -790,12 +788,10 @@ export async function DelegationEnforcer({ client, directory }) {
         const PROTOCOL_TEXT =
           PROTOCOL_MARKER +
           " [Worker-to-Brain Report Protocol] When synthesizing the preceding Task output: " +
-          "1) STRIP preamble, confidence ratings, restated tasks. " +
-          "2) EXTRACT core findings/data only. " +
-          "3) REFORMAT into ≤5 bullets. " +
-          "4) VERIFY against the original ask. " +
-          "5) SYNTHESIZE into final response. " +
-          "Discard worker reasoning narration."
+          "1) EXTRACT core findings/data. " +
+          "2) REFORMAT into bullet points. " +
+          "3) VERIFY against the original ask. " +
+          "4) SYNTHESIZE into final response."
 
         for (let i = 0; i < messages.length - 1; i++) {
           const { info, parts } = messages[i]
@@ -967,18 +963,21 @@ export async function DelegationEnforcer({ client, directory }) {
         }
         const thinkDirective = thinkingDirectives[level] // undefined for "full" → no injection
 
-        // Judge-pattern directive — brain orchestrates and judges, worker does heavy lifting.
-        // Uses the OC cheap model ID (not CC alias) — runtimes stay separated.
-        const cheapModel = TRINITY_CHEAP || "the cheaper model"
-        const judgeDirective =
-          `[judge pattern] You are the orchestrator and judge. For tasks requiring research, reasoning, or code implementation: ` +
-          `delegate to a Task subagent (runs on ${cheapModel} — fast and cheap). ` +
-          `Your role: verify correctness, fill gaps, synthesize the final answer.`
-
         if (Array.isArray(output?.system)) {
           output.system.push(c7directive)
           if (thinkDirective) output.system.push(thinkDirective)
-          output.system.push(judgeDirective)
+        }
+
+        // Judge-pattern directive — brain orchestrates and judges, worker does heavy lifting.
+        // Only injected for high-tier brain (mid/budget brains don't need delegation nudge).
+        if (currentTier === "high") {
+          const cheapModel = TRINITY_CHEAP || "the cheaper model"
+          const judgeDirective =
+            `[judge pattern] You are the orchestrator and judge. For heavy tasks: ` +
+            `delegate to a Task subagent (runs on ${cheapModel} — fast and cheap). ` +
+            `Your role: verify correctness, fill gaps, synthesize the final answer.`
+
+          if (Array.isArray(output?.system)) output.system.push(judgeDirective)
         }
       } catch (err) {
         console.error(`[delegation-enforcer] system.transform failed: ${err.message}`)
