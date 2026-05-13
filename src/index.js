@@ -142,7 +142,8 @@ function applySlot(slot) {
 
 // Map a model ID to a human-readable label with tier icon.
 // Provider prefix is stripped before matching (everything before last "/").
-function modelToSlotLabel(modelId) {
+// Pass effectiveTier to respect brain-slot override (classify() alone misses it).
+function modelToSlotLabel(modelId, effectiveTier) {
   const raw = String(modelId || "").toLowerCase()
   const base = raw.split("/").pop() || raw
 
@@ -219,7 +220,7 @@ function modelToSlotLabel(modelId) {
   // ── Fallback ────────────────────────────────────────────────────────
   else name = base.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ")
 
-  const tier = classify(modelId)
+  const tier = effectiveTier ?? classify(modelId)
   const icon = tier === "high" ? "🧠" : tier === "mid" ? "⚙" : "⚡"
   return `[${icon} ${name}]`
 }
@@ -392,6 +393,11 @@ function recordScratchpadObservation() {
 // per-session alert flag (process lifetime is fine — sidecar == session).
 const CONTEXT7_INSTALL_FLAG = join(homedir(), ".claude/.context7-install-suggested")
 let context7AlertedThisSession = false
+
+// Pending UI note: set in tool.execute.before, consumed in tool.execute.after.
+// Lets the delegation warning appear in the OC chat transcript (tool result),
+// not just in stderr debug output.
+let pendingUiNote = null
 
 // Soft counter for hypothetical missed savings (no locking — drift acceptable
 // for a hypothetical metric). Mirrors bash record_missed_c7().
@@ -679,14 +685,18 @@ export async function DelegationEnforcer({ client, directory }) {
       // Credit < 40%: high-tier non-task tool — record and nudge to step aside.
       if (_credit < 40) {
         const total = recordSaving(t, "credit<40% high-tier", _estOpus)
-        console.error(`[delegation-enforcer] [delegation] Credit ${_credit}% — high-tier model should step aside. Run 'trinity medium' to switch to medium slot. (~$${_estOpus.toFixed(3)}/turn)`)
+        const msg = `⚠ [theSaver] Credit ${_credit}% — brain model doing ${t} directly. Run \`trinity medium\` to switch. (~$${_estOpus.toFixed(3)}/turn, cumulative: $${(total ?? 0).toFixed(2)})`
+        console.error(`[delegation-enforcer] [delegation] ${msg}`)
+        pendingUiNote = msg
         return
       }
 
       // Write/Edit/NotebookEdit on high tier: warn and allow (memory mode).
       if (WARN_ON_DIRECT.has(t)) {
         const total = recordSaving(t, "high-tier direct edit", _estEdit)
-        console.error(`[delegation-enforcer] [delegation] Tier=high doing ${t} directly — could delegate via Task to save ~$${_estEdit.toFixed(3)}/turn. (cumulative est. savings: $${(total ?? 0).toFixed(2)})`)
+        const msg = `⚠ [theSaver] Brain model doing ${t} directly — delegate via Task to save ~$${_estEdit.toFixed(3)}/turn. (cumulative: $${(total ?? 0).toFixed(2)})`
+        console.error(`[delegation-enforcer] [delegation] ${msg}`)
+        pendingUiNote = msg
         return
       }
 
@@ -739,6 +749,16 @@ export async function DelegationEnforcer({ client, directory }) {
           output.title = output.title.replace(/\[agent\]|\[general\]/gi, label)
           if (!output.title.includes(label)) output.title = `${output.title} ${label}`
         }
+      }
+
+      // Inject pending delegation UI note (set in tool.execute.before).
+      // This surfaces the warning in the OC chat transcript, not just stderr.
+      if (pendingUiNote) {
+        const note = `\n\n${pendingUiNote}`
+        if (typeof output?.result === "string") output.result += note
+        else if (typeof output?.text === "string") output.text += note
+        else output.result = pendingUiNote
+        pendingUiNote = null
       }
 
       // Test-reminder: nudge when source code is written/edited.
@@ -900,7 +920,7 @@ export async function DelegationEnforcer({ client, directory }) {
 
         const text = (output?.text ?? "")
         const { ltTasks, ltCache, ltCost, count, scratchpadHits, missedC7, sesTasks, sesEdit, sesCredit, sesC7, sesQuota } = readLifetimeSavings()
-        const brainTag = currentModel ? modelToSlotLabel(currentModel) : ""
+        const brainTag = currentModel ? modelToSlotLabel(currentModel, currentTier) : ""
         if (!brainTag && count === 0 && ltCache === 0) return
 
         textCompletePainted.add(messageID)
