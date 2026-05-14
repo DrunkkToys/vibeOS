@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.8
+
+- fix: scratchpad hash mismatch — stable JSON key sorting matches CC shasum
+- fix: cross-process log dedup — read file tail instead of per-process cache
+- fix: scratchpad inline size cap — auto-prune >2000 files or >20MB
+- fix: clean up savings tag — remove verbose "delegation + cache" breakdown
+
 ## 0.4.7
 
 - feat: flow enforcer — lightweight dev-flow rule checks on Write/Edit

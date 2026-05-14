@@ -453,8 +453,8 @@ test("text.complete: appends savings tag to assistant text", async () => {
 
   const out = { text: "Done." }
   await hooks["experimental.text.complete"]({ messageID: "msg-1" }, out)
-  // Format: "edit -$0.07 | theSaver: $0.40 delegation + $0.00 cache = $0.40 saved"
-  assert.match(out.text, /edit -\$0\.07 \| theSaver: \$0\.40 delegation \+ \$0\.00 cache = \$0\.40 saved/)
+  // Format: "edit -$0.07 | theSaver: $0.40 saved"
+  assert.match(out.text, /edit -\$0\.07 \| theSaver: \$0\.40 saved/)
   assert.doesNotMatch(out.text, /tasks|events|ROI/, "verbose breakdown removed")
 })
 

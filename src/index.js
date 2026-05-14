@@ -16,7 +16,7 @@
  * Sister hook: ~/.claude/hooks/delegation-enforcer.sh (Claude Code).
  */
 
-import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, statSync } from "node:fs"
+import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, statSync, readdirSync, openSync, readSync, closeSync, rmSync } from "node:fs"
 import { join, dirname } from "node:path"
 import { homedir } from "node:os"
 import { spawn } from "node:child_process"
@@ -37,9 +37,6 @@ const STATE_FILE = join(homedir(), ".claude/delegation-state.json")
 // Dedupe set: assistantMessageIds that already had the savings tag appended
 // during this sidecar's lifetime.
 const textCompletePainted = new Set()
-
-// Log dedup: skip appendFileSync if line identical to last written.
-let _lastLogLine = ""
 
 // Max lines before rotating session-reports.log.
 const MAX_LOG_LINES = 500
@@ -290,11 +287,17 @@ const scratchpadHitsSeen = new Set()
 export function getScratchpadHit(toolLower, args, baseDir = SCRATCHPAD_DIR) {
   if (!SCRATCHPAD_TOOLS.has(toolLower)) return null
   const titleCase = TOOL_NAME_NORMALIZE[toolLower]
-  // Match bash hashing exactly: shasum -a 256 of "<tool>\n<json>\n", first 16 chars.
-  const inputJson = JSON.stringify(args ?? {})
+  // Use stable JSON (sorted keys) so OC and CC produce the same hash
+  // regardless of property insertion order.
+  const inputJson = stableJson(args ?? {})
   const hash = createHash("sha256").update(`${titleCase}\n${inputJson}\n`).digest("hex").slice(0, 16)
   const fullPath = join(baseDir, `${hash}.txt`)
-  if (!existsSync(fullPath)) return null
+  if (!existsSync(fullPath)) {
+    // Fallback: scan for any file created in the last 2s (cross-runtime hash mismatch recovery)
+    const recent = scanRecentScratchpad(baseDir, titleCase, 2000)
+    if (recent) return recent
+    return null
+  }
   try {
     const st = statSync(fullPath)
     const ageSec = (Date.now() - st.mtimeMs) / 1000
@@ -305,6 +308,42 @@ export function getScratchpadHit(toolLower, args, baseDir = SCRATCHPAD_DIR) {
       summaryPath: existsSync(summaryPath) ? summaryPath : null,
     }
   } catch { return null }
+}
+
+// Stable JSON serialization with sorted keys — matches CC's shasum output.
+function stableJson(obj) {
+  if (obj === null || typeof obj !== "object") return JSON.stringify(obj)
+  if (Array.isArray(obj)) return "[" + obj.map(stableJson).join(",") + "]"
+  return "{" + Object.keys(obj).sort()
+    .map(k => JSON.stringify(k) + ":" + stableJson(obj[k]))
+    .join(",") + "}"
+}
+
+// Fallback: scan scratchpad for files written within the last N ms.
+let _lastScan = 0
+function scanRecentScratchpad(baseDir, toolName, windowMs) {
+  try {
+    if (!existsSync(baseDir)) return null
+    const now = Date.now()
+    // Throttle scans to once per 5s per process
+    if (now - _lastScan < 5000) return null
+    _lastScan = now
+    const entries = readdirSync(baseDir)
+    for (const entry of entries) {
+      if (!entry.endsWith(".txt") || entry.endsWith(".summary.txt")) continue
+      const fp = join(baseDir, entry)
+      const st = statSync(fp)
+      const ageMs = now - st.mtimeMs
+      if (ageMs > windowMs) continue
+      const summaryPath = join(baseDir, entry.replace(".txt", ".summary.txt"))
+      return {
+        hash: entry.replace(".txt", ""), fullPath: fp,
+        sizeBytes: st.size, ageSec: Math.round(ageMs / 1000),
+        summaryPath: existsSync(summaryPath) ? summaryPath : null,
+      }
+    }
+  } catch {}
+  return null
 }
 
 function recordScratchpadObservation() {
@@ -433,6 +472,23 @@ function _rotateLog(filePath, maxLines) {
     writeFileSync(filePath, kept)
     _lastLogRotated = statSync(filePath).mtimeMs
   } catch {}
+}
+
+// Read last line of a file by tailing the last 200 bytes — efficient cross-process dedup.
+function getLastLine(filePath) {
+  try {
+    if (!existsSync(filePath)) return ""
+    const st = statSync(filePath)
+    if (st.size === 0) return ""
+    const buf = Buffer.alloc(200)
+    const pos = Math.max(0, st.size - 200)
+    const fd = openSync(filePath, "r")
+    const { bytesRead } = readSync(fd, buf, 0, 200, pos)
+    closeSync(fd)
+    const chunk = buf.toString("utf-8", 0, bytesRead)
+    const lines = chunk.split("\n")
+    return lines[lines.length - 1]?.trim() || lines[lines.length - 2]?.trim() || ""
+  } catch { return "" }
 }
 
 // Cache the lifetime totals — invalidated on every recordSaving() write
@@ -596,6 +652,23 @@ function pruneScratchpadOnce() {
       child.unref()
     }
   } catch { /* prune is best-effort */ }
+  // Inline size cap: if > 2000 files or > 20MB, remove oldest 30%
+  try {
+    const dir = SCRATCHPAD_DIR
+    if (!existsSync(dir)) return
+    const entries = readdirSync(dir)
+    const txtFiles = entries.filter(e => e.endsWith(".txt")).map(e => join(dir, e))
+    if (txtFiles.length <= 2000) return
+    const totalSize = txtFiles.reduce((a, f) => a + (statSync(f).size || 0), 0)
+    if (totalSize < 20 * 1024 * 1024) return
+    // Sort by mtime ascending (oldest first), remove oldest 30%
+    txtFiles.sort((a, b) => statSync(a).mtimeMs - statSync(b).mtimeMs)
+    const remove = Math.ceil(txtFiles.length * 0.3)
+    for (let i = 0; i < remove; i++) {
+      try { rmSync(txtFiles[i]) } catch {}
+    }
+    console.error(`[delegation-enforcer] pruned ${remove} scratchpad files (${txtFiles.length} → ${txtFiles.length - remove})`)
+  } catch {}
 }
 
 export async function DelegationEnforcer({ client, directory }) {
@@ -980,33 +1053,29 @@ export async function DelegationEnforcer({ client, directory }) {
         const flowStr = (flowCounts.warn > 0 || flowCounts.hint > 0)
           ? `flow ${flowCounts.warn}w ${flowCounts.hint}h | ` : ""
 
-        const delStr = ltTasks.toFixed(2)
-        const cacheStr = ltCache.toFixed(2)
         const savingsTag = ltTotal > 0
-          ? ` ${flowStr}${partsStr}theSaver: $${delStr} delegation + $${cacheStr} cache = $${ltTotal.toFixed(2)} saved`
+          ? ` ${flowStr}${partsStr}theSaver: $${ltTotal.toFixed(2)} saved`
           : ""
 
         output.text = stripped + `\n\n— ${modelTag}${savingsTag} —`
 
-        // Write session-report-pending.md for CC to display at next session start.
-        if (ltTotal > 0 || ltCache > 0) {
-          try {
-            const _ltFmt = ltTotal.toFixed(2)
-            const _reportLine = `— ${modelTag} theSaver: $${_ltFmt} saved —`
-            writeFileSync(join(homedir(), ".claude/session-report-pending.md"), _reportLine)
-            // Dedup: skip if same as last line (avoids spamming thousands of identical entries)
-            if (_reportLine !== _lastLogLine) {
-              _lastLogLine = _reportLine
-              const logPath = join(homedir(), ".claude/session-reports.log")
-              _rotateLog(logPath, MAX_LOG_LINES)
-              const pid = process.pid || "?"
-              appendFileSync(
-                logPath,
-                `[${new Date().toISOString().slice(0, 16).replace("T", " ")} pid=${pid}] ${_reportLine}\n`
-              )
+            // Write session-report-pending.md for CC to display at next session start.
+            if (ltTotal > 0 || ltCache > 0) {
+              try {
+                const _ltFmt = ltTotal.toFixed(2)
+                const _reportLine = `— ${modelTag} theSaver: $${_ltFmt} saved —`
+                writeFileSync(join(homedir(), ".claude/session-report-pending.md"), _reportLine)
+                const logPath = join(homedir(), ".claude/session-reports.log")
+                const pid = process.pid || "?"
+                const ts = new Date().toISOString().slice(0, 16).replace("T", " ")
+                const newLine = `[${ts} pid=${pid}] ${_reportLine}`
+                // Cross-process dedup: read last line of file instead of in-memory
+                if (newLine !== getLastLine(logPath)) {
+                  _rotateLog(logPath, MAX_LOG_LINES)
+                  appendFileSync(logPath, newLine + "\n")
+                }
+              } catch {}
             }
-          } catch {}
-        }
       } catch (err) {
         console.error(`[delegation-enforcer] text.complete failed: ${err.message}`)
       }
