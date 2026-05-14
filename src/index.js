@@ -27,6 +27,10 @@ import { checkFlowRules, getFlowWarns, getSessionFlowCounts } from "./flow-enfor
 // ── Module state ────────────────────────────────────────────────────
 let currentTier = null
 let currentModel = null
+// Project identity (set during init, used by report framework)
+let currentProjectFingerprint = ""
+let currentProjectName = ""
+
 // Per-tool soft-quota counters (same semantics as bash hook per-SID flag files).
 // Main scope uses quota 20, sub-agent scope uses 5 — OC has no scope concept so
 // use the more conservative sub-agent limit.
@@ -231,6 +235,8 @@ export function modelCostPerTurn(model) {
   for (const [k, v] of Object.entries(MODEL_USD_PER_TURN)) {
     if (key.startsWith(k) || k.startsWith(key)) return v
   }
+  // Log unknown models so we can add entries
+  console.error(`[delegation-enforcer] modelCostPerTurn: unknown model '${model}' (normalized: '${key}') — add to MODEL_USD_PER_TURN`)
   return null  // unknown — callers fall back to SAVE_EST constants
 }
 
@@ -474,21 +480,27 @@ function _rotateLog(filePath, maxLines) {
   } catch {}
 }
 
-// Read last line of a file by tailing the last 200 bytes — efficient cross-process dedup.
-function getLastLine(filePath) {
+// Read last N lines of a file efficiently. Used for cross-process dedup.
+function getLastLines(filePath, n = 5, maxBytes = 1024) {
   try {
-    if (!existsSync(filePath)) return ""
+    if (!existsSync(filePath)) return []
     const st = statSync(filePath)
-    if (st.size === 0) return ""
-    const buf = Buffer.alloc(200)
-    const pos = Math.max(0, st.size - 200)
+    if (st.size === 0) return []
+    const bufSize = Math.min(maxBytes, st.size)
+    const pos = Math.max(0, st.size - bufSize)
+    const buf = Buffer.alloc(bufSize)
     const fd = openSync(filePath, "r")
-    const { bytesRead } = readSync(fd, buf, 0, 200, pos)
+    const { bytesRead } = readSync(fd, buf, 0, bufSize, pos)
     closeSync(fd)
     const chunk = buf.toString("utf-8", 0, bytesRead)
-    const lines = chunk.split("\n")
-    return lines[lines.length - 1]?.trim() || lines[lines.length - 2]?.trim() || ""
-  } catch { return "" }
+    const lines = chunk.split("\n").filter(Boolean)
+    return lines.slice(-n).map(l => l.trim())
+  } catch { return [] }
+}
+// Legacy alias for callers expecting singular return.
+function getLastLine(filePath) {
+  const lines = getLastLines(filePath, 1, 200)
+  return lines[0] || ""
 }
 
 // Cache the lifetime totals — invalidated on every recordSaving() write
@@ -504,19 +516,34 @@ function readLifetimeSavings() {
     const mtime = statSync(STATE_FILE).mtimeMs
     if (_savingsCache && mtime === _savingsCacheMtime) return _savingsCache
     const s = JSON.parse(readFileSync(STATE_FILE, "utf-8"))
+
+    // Compute ALL totals from session data atomically — never from separate lifetime fields
+    // written by different processes. This eliminates the savings-counter bounce.
+    let ltTasks = 0; let ltCache = 0; let ltCost = 0; let totalWarnCount = 0
+    for (const [, ses] of Object.entries(s?.sessions || {})) {
+      // Delegation savings from warns
+      const warns = Array.isArray(ses?.warns) ? ses.warns : []
+      totalWarnCount += warns.length
+      for (const w of warns) ltTasks += Number(w.est_savings_usd ?? 0)
+      // Cache savings and costs from costed sessions
+      ltCache += Number(ses?.cache_savings_usd ?? 0)
+      ltCost  += Number(ses?.cost_usd ?? 0)
+    }
+
+    // Per-warn-type session totals (current process only)
     const ses = s?.sessions?.[_OC_SID]
     const warns = Array.isArray(ses?.warns) ? ses.warns : []
     const sesTasks = warns.reduce((a, w) => a + Number(w.est_savings_usd ?? 0), 0)
-    // Per-warn-type session totals (mirrors CC session-report-writer breakdown)
     const sesEdit   = warns.filter(w => w.reason?.includes("direct edit")).reduce((a, w) => a + Number(w.est_savings_usd ?? 0), 0)
     const sesCredit = warns.filter(w => w.reason?.includes("credit")).reduce((a, w)    => a + Number(w.est_savings_usd ?? 0), 0)
     const sesC7     = warns.filter(w => w.reason?.includes("context7")).reduce((a, w)  => a + Number(w.est_savings_usd ?? 0), 0)
     const sesQuota  = warns.filter(w => w.reason?.includes("quota")).reduce((a, w)     => a + Number(w.est_savings_usd ?? 0), 0)
+
     _savingsCache = {
-      ltTasks:        Number(s?.lifetime?.est_savings_usd         ?? 0),
-      ltCache:        Number(s?.lifetime?.total_cache_savings_usd ?? 0),
-      ltCost:         Number(s?.lifetime?.total_cost_usd          ?? 0),
-      count:          Number(s?.lifetime?.warn_count              ?? 0),
+      ltTasks: Math.round(ltTasks * 100) / 100,
+      ltCache: Math.round(ltCache * 100) / 100,
+      ltCost:  Math.round(ltCost * 100) / 100,
+      count:   totalWarnCount,
       scratchpadHits: Number(s?.lifetime?.scratchpad_hits_observed ?? 0),
       missedC7:       Number(s?.lifetime?.missed_context7_usd      ?? 0),
       sesTasks, sesEdit, sesCredit, sesC7, sesQuota,
@@ -532,6 +559,134 @@ function readConfig(dir) {
     const c = JSON.parse(raw)
     return c?.agent?.build?.model || c?.model || ""
   } catch { return "" }
+}
+
+// ── Scratchpad decadence (progressive aging) ────────────────────────
+// Age-based cache decay:
+//   0-5 min:   FRESH   — keep full content, indexed
+//   5 min-1h:  WARM    — rotate to summary-only
+//   1h-24h:    COLD    — ensure summary only, compress summary
+//   >24h:      EXPIRE  — delete everything
+const DECADENCE_FRESH_MS    = 5 * 60 * 1000
+const DECADENCE_WARM_MS     = 60 * 60 * 1000
+const DECADENCE_COLD_MS     = 24 * 60 * 60 * 1000
+const DECADENCE_EXPIRE_MS   = 48 * 60 * 60 * 1000  // grace window beyond cold
+const DECADENCE_THROTTLE_MS = 60 * 1000              // run max once per minute
+const MAX_SCRATCHPAD_FILES  = 1000
+const MAX_SCRATCHPAD_BYTES  = 10 * 1024 * 1024       // 10MB
+let _lastDecadenceRun = 0
+const INDEX_PATH = join(homedir(), ".claude/scratch/index.jsonl")
+
+// Read only the first 120 bytes of a file (header check — avoids reading huge files).
+function _readHead(fullPath) {
+  try {
+    const buf = Buffer.alloc(120)
+    const fd = openSync(fullPath, "r")
+    const { bytesRead } = readSync(fd, buf, 0, 120, 0)
+    closeSync(fd)
+    return buf.toString("utf-8", 0, bytesRead)
+  } catch { return "" }
+}
+
+function indexAppend(hash, tool, size, extra) {
+  try {
+    mkdirSync(dirname(INDEX_PATH), { recursive: true })
+    const entry = JSON.stringify({
+      ts: new Date().toISOString(),
+      hash, tool, size,
+      pid: process.pid || 0,
+      source: "opencode",
+      ...extra,
+    }) + "\n"
+    appendFileSync(INDEX_PATH, entry)
+  } catch (err) {
+    console.error(`[delegation-enforcer] index write failed: ${err.message}`)
+  }
+}
+
+function applyDecadence() {
+  const now = Date.now()
+  if (now - _lastDecadenceRun < DECADENCE_THROTTLE_MS) return
+  _lastDecadenceRun = now
+  try {
+    if (!existsSync(SCRATCHPAD_DIR)) return
+    const entries = readdirSync(SCRATCHPAD_DIR)
+    let dataFiles = 0; let totalBytes = 0; let deleted = 0; let rotated = 0
+    for (const entry of entries) {
+      if (entry.endsWith(".meta.json") || entry.endsWith(".summary.txt")) continue
+      const fullPath = join(SCRATCHPAD_DIR, entry)
+      let st
+      try { st = statSync(fullPath) } catch { continue }
+      const age = now - st.mtimeMs
+      const hash = entry.replace(/\.txt$/, "")
+      // >48h: delete all associated files
+      if (age > DECADENCE_EXPIRE_MS) {
+        rmSync(fullPath)
+        const meta = join(SCRATCHPAD_DIR, hash + ".meta.json")
+        if (existsSync(meta)) rmSync(meta)
+        const summary = join(SCRATCHPAD_DIR, hash + ".summary.txt")
+        if (existsSync(summary)) rmSync(summary)
+        deleted++; continue
+      }
+      dataFiles++; totalBytes += st.size
+      // 24-48h: COLD — replace full content with compact summary pointer
+      if (age > DECADENCE_COLD_MS) {
+        const summaryPath = join(SCRATCHPAD_DIR, hash + ".summary.txt")
+        if (!existsSync(summaryPath)) {
+          const content = readFileSync(fullPath, "utf-8")
+          writeFileSync(summaryPath, content.slice(0, 200).replace(/\n+/g, " ").trim() + (content.length > 200 ? "…" : ""))
+        }
+        const head = _readHead(fullPath)
+        if (!head.includes("[cold-storage]")) {
+          writeFileSync(fullPath, `[cold-storage] ${st.size}B original → ${hash}.summary.txt`)
+          rotated++
+        }
+        continue
+      }
+      // 5min-24h: WARM — rotate large files (>1KB) to summary-only
+      if (age > DECADENCE_FRESH_MS && st.size > 1024) {
+        const summaryPath = join(SCRATCHPAD_DIR, hash + ".summary.txt")
+        if (!existsSync(summaryPath)) {
+          const content = readFileSync(fullPath, "utf-8")
+          writeFileSync(summaryPath, content.slice(0, 500).replace(/\n+/g, " ").trim() + (content.length > 500 ? "…" : ""))
+        }
+        const head = _readHead(fullPath)
+        if (!head.includes("[warm-storage]") && !head.includes("[cold-storage]")) {
+          writeFileSync(fullPath, `[warm-storage] ${st.size}B original at ${hash}.summary.txt`)
+          rotated++
+        }
+      }
+    }
+    // Hard eviction if count or size still exceeds limits
+    if (dataFiles > MAX_SCRATCHPAD_FILES || totalBytes > MAX_SCRATCHPAD_BYTES) {
+      const candidates = entries
+        .filter(e => !e.endsWith(".meta.json") && !e.endsWith(".summary.txt"))
+        .map(e => {
+          try { return { name: e, mtime: statSync(join(SCRATCHPAD_DIR, e)).mtimeMs } }
+          catch { return null }
+        })
+        .filter(Boolean)
+        .sort((a, b) => a.mtime - b.mtime)
+      const toRemove = Math.ceil(candidates.length * 0.3)
+      for (let i = 0; i < toRemove; i++) {
+        const base = join(SCRATCHPAD_DIR, candidates[i].name)
+        try { rmSync(base) } catch {}
+        const meta = base.replace(".txt", ".meta.json")
+        if (existsSync(meta)) try { rmSync(meta) } catch {}
+        const summary = base.replace(".txt", ".summary.txt")
+        if (existsSync(summary)) try { rmSync(summary) } catch {}
+        deleted++
+      }
+    }
+    if (deleted > 0 || rotated > 0) {
+      const action = []
+      if (rotated > 0) action.push(`rotated=${rotated}`)
+      if (deleted > 0) action.push(`deleted=${deleted}`)
+      console.error(`[delegation-enforcer] 📦 decadence: ${action.join(" ")} (${dataFiles} files, ${Math.round(totalBytes/1024)}KB)`)
+    }
+  } catch (err) {
+    console.error(`[delegation-enforcer] decadence error: ${err.message}`)
+  }
 }
 
 // ── Output compression ──────────────────────────────────────────────
@@ -652,22 +807,93 @@ function pruneScratchpadOnce() {
       child.unref()
     }
   } catch { /* prune is best-effort */ }
-  // Inline size cap: if > 2000 files or > 20MB, remove oldest 30%
+  // Inline size cap: use decadence thresholds, remove oldest 30%
   try {
     const dir = SCRATCHPAD_DIR
     if (!existsSync(dir)) return
     const entries = readdirSync(dir)
-    const txtFiles = entries.filter(e => e.endsWith(".txt")).map(e => join(dir, e))
-    if (txtFiles.length <= 2000) return
+    const txtFiles = entries.filter(e => e.endsWith(".txt") && !e.endsWith(".meta.json") && !e.endsWith(".summary.txt")).map(e => join(dir, e))
+    if (txtFiles.length <= MAX_SCRATCHPAD_FILES) return
     const totalSize = txtFiles.reduce((a, f) => a + (statSync(f).size || 0), 0)
-    if (totalSize < 20 * 1024 * 1024) return
+    if (totalSize < MAX_SCRATCHPAD_BYTES) return
     // Sort by mtime ascending (oldest first), remove oldest 30%
     txtFiles.sort((a, b) => statSync(a).mtimeMs - statSync(b).mtimeMs)
     const remove = Math.ceil(txtFiles.length * 0.3)
     for (let i = 0; i < remove; i++) {
       try { rmSync(txtFiles[i]) } catch {}
+      const meta = txtFiles[i].replace(".txt", ".meta.json")
+      if (existsSync(meta)) try { rmSync(meta) } catch {}
+      const sum = txtFiles[i].replace(".txt", ".summary.txt")
+      if (existsSync(sum)) try { rmSync(sum) } catch {}
     }
     console.error(`[delegation-enforcer] pruned ${remove} scratchpad files (${txtFiles.length} → ${txtFiles.length - remove})`)
+  } catch {}
+}
+
+// ── Project memory — cross-session continuity ───────────────────────
+const PROJECT_STATE_FILE = join(homedir(), ".claude/project-states.json")
+const briefedProjects = new Set()
+
+function projectFingerprint(dir) {
+  if (!dir) return "unknown"
+  return createHash("sha256").update(dir).digest("hex").slice(0, 12)
+}
+
+function loadProjectState() {
+  try {
+    if (existsSync(PROJECT_STATE_FILE)) {
+      return JSON.parse(readFileSync(PROJECT_STATE_FILE, "utf-8"))
+    }
+  } catch {}
+  return { project_hashes: {} }
+}
+
+function saveProjectState(state) {
+  try {
+    writeFileSync(PROJECT_STATE_FILE, JSON.stringify(state, null, 2) + "\n")
+  } catch (err) {
+    console.error(`[delegation-enforcer] project state write failed: ${err.message}`)
+  }
+}
+
+function buildProjectBriefing(dir) {
+  try {
+    const fp = projectFingerprint(dir)
+    const state = loadProjectState()
+    const p = state.project_hashes?.[fp]
+    if (!p || !p.lastSeen) return null
+    const name = dir ? dir.split("/").pop() : "unknown"
+    const lines = [
+      `[project-memory] Previously seen in "${name}":`,
+      `  • ${p.totalSessions || 0} past sessions, last ${p.lastSeen.slice(0, 10)}`,
+    ]
+    if (p.researchChains) lines.push(`  • ${p.researchChains} research domain chains found`)
+    if (p.context7Bypasses) lines.push(`  • ${p.context7Bypasses} context7-bypass warnings`)
+    if (p.commonTopics?.length) {
+      const topics = p.commonTopics.slice(0, 5).join(", ")
+      lines.push(`  • Common fetch topics: ${topics}`)
+    }
+    return lines.join("\n")
+  } catch { return null }
+}
+
+// Refresh currentModel/currentTier from disk config.
+// Called per-hook so trinity slot changes take effect without restart.
+function _refreshModel(directory) {
+  try {
+    const sel = loadSelection()
+    if (!sel.enabled) return
+    const tiersData = JSON.parse(readFileSync(TIERS_FILE, "utf-8"))
+    const activeSlot = sel.active_slot || "brain"
+    const slotOcModel = tiersData?.trinity?.[activeSlot]?.oc || ""
+    if (slotOcModel && currentModel !== slotOcModel) {
+      const old = currentModel
+      currentModel = slotOcModel
+      // Brain slot → enforce delegation (treat as high even for mid-classified models like sonnet)
+      // Medium/cheap slots → skip high-tier enforcement (no point warning on $0.0001/turn models)
+      currentTier = activeSlot === "brain" ? "high" : classify(currentModel)
+      console.error(`[delegation-enforcer] model refresh: ${old} → ${currentModel} (slot=${activeSlot} tier=${currentTier})`)
+    }
   } catch {}
 }
 
@@ -685,27 +911,43 @@ export async function DelegationEnforcer({ client, directory }) {
   if (!currentModel) currentModel = process?.env?.OPENCODE_MODEL || ""
   if (currentModel) {
     currentTier = classify(currentModel)
-    // Override: if current model matches the active brain slot's oc model, treat as high tier.
-    // (regex may classify sonnet as mid, but user configured it as brain)
+    // Override: only for brain slot — bump sonnet (classified mid by regex) to high
     try {
       const _tiersData = JSON.parse(readFileSync(TIERS_FILE, "utf-8"))
       const _activeSlot = _tiersData?.selection?.active_slot || "brain"
-      const _brainOcModel = _tiersData?.trinity?.[_activeSlot]?.oc || ""
-      if (_brainOcModel && currentModel === _brainOcModel) {
-        currentTier = "high"
-        console.error(`[delegation-enforcer] tier override → high (active_slot=${_activeSlot})`)
+      if (_activeSlot === "brain") {
+        const _brainOcModel = _tiersData?.trinity?.brain?.oc || ""
+        if (_brainOcModel && currentModel === _brainOcModel) {
+          currentTier = "high"
+          console.error(`[delegation-enforcer] tier override → high (brain slot)`)
+        }
       }
     } catch {}
     console.error(`[delegation-enforcer] ACTIVE: model=${currentModel} tier=${currentTier}`)
   } else {
     console.error("[delegation-enforcer] NO MODEL — enforcement disabled")
   }
-  const context7Available = detectContext7()
-  if (context7Available) console.error(`[delegation-enforcer] context7 detected — docs nudge enabled`)
+  if (detectContext7()) console.error(`[delegation-enforcer] context7 detected — docs nudge enabled`)
+
+  // ── Project memory: increment session counter ───────────────────
+  const fp = projectFingerprint(directory)
+  currentProjectFingerprint = fp
+  currentProjectName = directory ? directory.split("/").pop() : "unknown"
+  try {
+    const state = loadProjectState()
+    state.project_hashes[fp] ??= { totalSessions: 0, researchChains: 0, context7Bypasses: 0, commonTopics: [] }
+    state.project_hashes[fp].totalSessions = (state.project_hashes[fp].totalSessions || 0) + 1
+    state.project_hashes[fp].lastSeen = new Date().toISOString()
+    saveProjectState(state)
+    console.error(`[delegation-enforcer] project-memory: ${fp} now ${state.project_hashes[fp].totalSessions} sessions`)
+  } catch (err) {
+    console.error(`[delegation-enforcer] project-memory init failed: ${err.message}`)
+  }
 
   return {
     "tool.execute.before": async (input, output) => {
       if (!loadSelection().enabled) return
+      _refreshModel(directory)
       const t = input?.tool ?? ""
       const args = output?.args
 
@@ -758,11 +1000,13 @@ export async function DelegationEnforcer({ client, directory }) {
       const _brainCost  = modelCostPerTurn(currentModel)
       const _workerModel = TRINITY_CHEAP || TRINITY_MEDIUM || null
       const _workerCost  = _workerModel ? (modelCostPerTurn(_workerModel) ?? 0) : 0
-      const _estEdit     = _brainCost !== null
+      // Floor at SAVE_EST.WRITE_EDIT — never report $0 for a real enforcement event
+      const _rawEdit    = _brainCost !== null
         ? Math.max(0, Math.round((_brainCost - _workerCost) * 1000) / 1000)
         : SAVE_EST.WRITE_EDIT
-      const _estOpus     = _brainCost !== null ? _brainCost : SAVE_EST.OPUS_DISABLE
-      const _estC7       = _brainCost !== null ? _brainCost : SAVE_EST.CONTEXT7
+      const _estEdit    = Math.max(_rawEdit, SAVE_EST.WRITE_EDIT * 0.1)  // at least $0.007
+      const _estOpus    = _brainCost !== null ? Math.max(_brainCost, _estEdit) : SAVE_EST.OPUS_DISABLE
+      const _estC7      = _brainCost !== null ? Math.max(_brainCost, SAVE_EST.CONTEXT7) : SAVE_EST.CONTEXT7
 
       // Credit < 40%: high-tier non-task tool — record and nudge to step aside.
       if (_credit < 40) {
@@ -788,7 +1032,8 @@ export async function DelegationEnforcer({ client, directory }) {
           const target = args?.url || args?.query || ""
           if (isDocsTarget(target) && !context7Seen.has(target)) {
             context7Seen.add(target)
-            if (context7Available) {
+            // Re-check each time — context7 might be added mid-session
+            if (detectContext7()) {
               const total = recordSaving(t, "docs-target without context7", _estC7)
               console.error(`[delegation-enforcer] [cost policy] context7 MCP is available — if this ${t} is for library/framework docs, use context7 tools instead. Saves ~$${_estC7.toFixed(3)}/turn. (cumulative: $${(total ?? 0).toFixed(2)})`)
             } else {
@@ -821,6 +1066,7 @@ export async function DelegationEnforcer({ client, directory }) {
 
     "tool.execute.after": async (input, output) => {
       if (!loadSelection().enabled) return
+      _refreshModel(directory)
       const t = input?.tool ?? ""
 
       // Show human-friendly slot label in the UI title for Task subagents.
@@ -872,11 +1118,15 @@ export async function DelegationEnforcer({ client, directory }) {
 
       // Compress verbose tool outputs before they bloat context.
       // Only webfetch — task results contain synthesized data the brain needs verbatim.
-      if (t !== "webfetch") return
+      if (t !== "webfetch") {
+        // Run decadence even for non-webfetch tools (opportunistic maintenance)
+        applyDecadence()
+        return
+      }
 
       // Try multiple output paths (plugin API may vary)
       const raw = output?.result ?? output?.text ?? output?.content ?? output?.data
-      if (!raw || typeof raw !== "string") return
+      if (!raw || typeof raw !== "string") { applyDecadence(); return }
 
       const processed = compressText(raw)
       // Note: the Worker-to-Brain protocol is now injected via the
@@ -891,6 +1141,7 @@ export async function DelegationEnforcer({ client, directory }) {
         else if (output.content !== undefined) output.content = processed
         else if (output.data !== undefined) output.data = processed
       }
+      applyDecadence()
     },
 
     // Worker-to-Brain Report Protocol — injected via the cleaner side-channel.
@@ -938,7 +1189,10 @@ export async function DelegationEnforcer({ client, directory }) {
             const fullPath = join(SCRATCHPAD_DIR, `${hash}.txt`)
             try {
               mkdirSync(SCRATCHPAD_DIR, { recursive: true })
-              if (!existsSync(fullPath)) writeFileSync(fullPath, raw)
+              if (!existsSync(fullPath)) {
+                writeFileSync(fullPath, raw)
+                indexAppend(hash, part.tool, raw.length)
+              }
             } catch (err) {
               console.error(`[delegation-enforcer] ctx-compress write failed: ${err.message}`)
               continue
@@ -991,6 +1245,9 @@ export async function DelegationEnforcer({ client, directory }) {
             nextMsg.parts.push({ type: "text", text: PROTOCOL_TEXT, synthetic: true })
           }
         }
+
+        // ── Progressive decadence — age-based cache rotation ──────
+        applyDecadence()
       } catch (err) {
         console.error(`[delegation-enforcer] messages.transform failed: ${err.message}`)
       }
@@ -1006,6 +1263,7 @@ export async function DelegationEnforcer({ client, directory }) {
     // the same message are skipped to avoid duplication).
     "experimental.text.complete": async (input, output) => {
       if (!loadSelection().enabled) return
+      _refreshModel(directory)
       try {
         const messageID = input?.messageID
         if (!messageID) return
@@ -1069,8 +1327,8 @@ export async function DelegationEnforcer({ client, directory }) {
                 const pid = process.pid || "?"
                 const ts = new Date().toISOString().slice(0, 16).replace("T", " ")
                 const newLine = `[${ts} pid=${pid}] ${_reportLine}`
-                // Cross-process dedup: read last line of file instead of in-memory
-                if (newLine !== getLastLine(logPath)) {
+                // Cross-process dedup: check last 5 lines (200-byte tail was unreliable for 3+ writers)
+                if (!getLastLines(logPath, 5, 1024).includes(newLine)) {
                   _rotateLog(logPath, MAX_LOG_LINES)
                   appendFileSync(logPath, newLine + "\n")
                 }
@@ -1167,6 +1425,16 @@ export async function DelegationEnforcer({ client, directory }) {
 
           if (Array.isArray(output?.system)) output.system.push(judgeDirective)
         }
+
+        // Project memory briefing: one-shot per session
+        if (!briefedProjects.has(fp)) {
+          const briefing = buildProjectBriefing(directory)
+          if (briefing && Array.isArray(output?.system)) {
+            output.system.push(briefing)
+            briefedProjects.add(fp)
+            console.error(`[delegation-enforcer] project-memory: briefing injected for ${fp}`)
+          }
+        }
       } catch (err) {
         console.error(`[delegation-enforcer] system.transform failed: ${err.message}`)
       }
@@ -1193,7 +1461,7 @@ export async function DelegationEnforcer({ client, directory }) {
           slot: tool.schema.enum(["brain", "medium", "cheap", "on", "off"]).optional(),
           level: tool.schema.enum(["full", "brief", "off"]).optional(),
         },
-        async execute({ action, slot, level }) {
+        async execute({ action, slot, level } = {}) {
           // Kick off credit API background fetch on any trinity command.
           if (typeof _lazyRefresh === "function") _lazyRefresh()
           if (action === "status") {
@@ -1281,6 +1549,179 @@ export async function DelegationEnforcer({ client, directory }) {
           return `❌ Unknown action: ${action}`
         },
       }),
+      "research-audit": tool({
+        description:
+          "Scan recent session data for research anti-patterns (domain chains, redundant queries, no synthesis). " +
+          "Use hours=N to look back N hours (default 24). " +
+          "Call this after research-heavy interactions to audit quality.",
+        args: {
+          hours: tool.schema.number().optional(),
+        },
+        async execute({ hours } = {}) {
+          const report = researchAudit({ hours: hours ?? 24 })
+
+          // Update project memory with findings
+          try {
+            const state = loadProjectState()
+            state.project_hashes[fp] ??= { totalSessions: 0, researchChains: 0, context7Bypasses: 0, commonTopics: [] }
+            state.project_hashes[fp].lastSeen = new Date().toISOString()
+            state.project_hashes[fp].researchChains = Math.max(
+              state.project_hashes[fp].researchChains || 0, report.chains.length
+            )
+            state.project_hashes[fp].context7Bypasses = (state.project_hashes[fp].context7Bypasses || 0) + report.redundant
+            for (const [d] of Object.entries(report.byDomain)) {
+              if (!d.startsWith("_") && !state.project_hashes[fp].commonTopics.includes(d)) {
+                state.project_hashes[fp].commonTopics.push(d)
+              }
+            }
+            // Keep topics bounded
+            if (state.project_hashes[fp].commonTopics.length > 20) {
+              state.project_hashes[fp].commonTopics = state.project_hashes[fp].commonTopics.slice(-20)
+            }
+            saveProjectState(state)
+          } catch (err) {
+            console.error(`[delegation-enforcer] project-memory update failed: ${err.message}`)
+          }
+
+          // Auto-save as report (must be BEFORE early return for totalFetches=0)
+          try {
+            const findings = []
+            for (const c of report.chains) findings.push({ severity: "warn", topic: "Domain chain", detail: `${c.domain}: ${c.count} fetches in a row` })
+            if (report.redundant > 0) findings.push({ severity: "warn", topic: "Context7 bypass", detail: `${report.redundant} bypasses detected` })
+            if (report.totalFetches > 0) findings.push({ severity: "info", topic: "Fetch volume", detail: `${report.totalFetches} fetches, ${(report.totalBytes/1024).toFixed(0)}KB, ~$${report.estCost.toFixed(3)}` })
+            const narParts = [`Scanned index and session state for last ${hours ?? 24}h.`]
+            narParts.push(`Found ${report.totalFetches} fetch operations (${(report.totalBytes/1024).toFixed(0)}KB, ~$${report.estCost.toFixed(3)}).`)
+            if (report.chains.length > 0) {
+              narParts.push(`${report.chains.length} domain chain(s):`)
+              for (const c of report.chains) narParts.push(`  - ${c.domain}: ${c.count} consecutive fetches`)
+            }
+            if (report.redundant > 0) narParts.push(`Context7 bypasses: ${report.redundant}.`)
+            if (report.sessions > 0) narParts.push(`Spans ${report.sessions} session(s).`)
+            const narrative = narParts.join("\n")
+            saveReport({ type: "research-audit", summary: `${report.totalFetches} fetches, ${report.chains.length} chains, ${report.redundant} bypasses in ${hours ?? 24}h`, findings, metrics: report, narrative, tags: ["research"] })
+          } catch {}
+
+          const lines = [`🔬 Research audit (last ${hours ?? 24}h):`]
+          if (report.totalFetches === 0) {
+            lines.push(`  No WebFetch/WebSearch activity found.`)
+            return lines.join("\n")
+          }
+          lines.push(`  Fetches: ${report.totalFetches} (${(report.totalBytes / 1024).toFixed(0)}KB, ~$${report.estCost.toFixed(3)})`)
+          lines.push(`  Unique domains: ${Object.keys(report.byDomain).filter(k => !k.startsWith("_")).length}`)
+          if (report.redundant > 0) lines.push(`  ⚠ Context7 bypasses: ${report.redundant}`)
+          if (report.chains.length > 0) {
+            lines.push(`  ⚠ Domain chains (≥3 consecutive to same domain):`)
+            for (const c of report.chains) {
+              const d = c.domain.length > 50 ? c.domain.slice(0, 50) + "…" : c.domain
+              lines.push(`    • ${d}: ${c.count} fetches in a row`)
+            }
+          }
+          if (Object.keys(report.byDomain).length > 0) {
+            lines.push(`  Domain breakdown:`)
+            for (const [d, n] of Object.entries(report.byDomain).sort((a, b) => b[1] - a[1])) {
+              if (d.startsWith("_")) continue
+              const label = d.length > 55 ? d.slice(0, 55) + "…" : d
+              lines.push(`    ${n.toString().padStart(3)}  ${label}`)
+            }
+          }
+
+          lines.push(`\nTip: run with hours=6 for finer granularity.`)
+          return lines.join("\n")
+        },
+      }),
+      "report-save": tool({
+        description: "Save a manual report with findings, metrics, narrative. " +
+          "Findings: lines like 'warn: Topic: Detail' or 'info: Volume: 10 fetches'. " +
+          "Metrics: lines like 'fetches=10' or 'cost=0.03'. " +
+          "JSON arrays/objects also accepted for programmatic callers.",
+        args: {
+          summary: tool.schema.string({description: "One-line summary"}),
+          findings: tool.schema.string({description: "Plain text lines: severity: Topic: Detail / or JSON array"}).optional(),
+          metrics: tool.schema.string({description: "Plain text lines: key=value / or JSON object"}).optional(),
+          narrative: tool.schema.string({description: "Free-form markdown narrative"}).optional(),
+          tags: tool.schema.string({description: "Comma-separated tags"}).optional(),
+        },
+        async execute({ summary, findings, metrics, narrative, tags } = {}) {
+          let parsedFindings = []; let parsedMetrics = {}
+          // 1. Try JSON parse first (for programmatic callers like auto-save)
+          try { if (findings) parsedFindings = JSON.parse(findings) } catch {
+            // 2. Fallback: plain-text parser
+            if (findings) {
+              for (const line of findings.split("\n").map(l => l.trim()).filter(Boolean)) {
+                const m = line.match(/^(warn|info|hint)\s*:\s*(.+?)\s*:\s*(.+)/i)
+                if (m) parsedFindings.push({ severity: m[1].toLowerCase(), topic: m[2].trim(), detail: m[3].trim() })
+                else parsedFindings.push({ severity: "info", topic: "Note", detail: line })
+              }
+            }
+          }
+          // Metrics: JSON first, fallback key=value lines
+          try { if (metrics) parsedMetrics = JSON.parse(metrics) } catch {
+            if (metrics) {
+              for (const line of metrics.split("\n").map(l => l.trim()).filter(Boolean)) {
+                const m = line.match(/^([\w-]+)\s*=\s*([\d.]+)/)
+                if (m) parsedMetrics[m[1]] = parseFloat(m[2])
+              }
+            }
+          }
+          const tagList = tags ? tags.split(",").map(t => t.trim()).filter(Boolean) : []
+          const id = saveReport({ type: "manual", summary, findings: parsedFindings, metrics: parsedMetrics, narrative: narrative || "", tags: tagList })
+          if (id) return `✅ Report saved: ${id}\n  ${summary}\n  ${parsedFindings.length} findings, ${Object.keys(parsedMetrics).length} metrics, ${tagList.length} tags`
+          return `❌ Failed to save report`
+        },
+      }),
+      "report-list": tool({
+        description: "List saved reports. Filter by type (research-audit|manual), project name, hours (default 168 = 7d).",
+        args: {
+          type: tool.schema.string().optional(),
+          project: tool.schema.string().optional(),
+          hours: tool.schema.number().optional(),
+        },
+        async execute({ type, project, hours } = {}) {
+          const reports = listReports({ type, project, hours: hours ?? 168 })
+          if (reports.length === 0) return `📋 No reports found.`
+          const lines = [`📋 Reports (last ${hours ?? 168}h, ${reports.length} total):`]
+          for (const r of reports.slice(0, 30)) {
+            const d = r.created.slice(0, 16).replace("T", " ")
+            lines.push(`  [${d}] ${r.type} ${r.id.slice(0, 24)}…  ${(r.summary || "").slice(0, 60)}`)
+          }
+          if (reports.length > 30) lines.push(`  … and ${reports.length - 30} more`)
+          lines.push(`\nUse report-read id=<id> to view full report.`)
+          return lines.join("\n")
+        },
+      }),
+      "report-read": tool({
+        description: "Read a specific report by its ID (shown in report-list output). Returns full structured report.",
+        args: {
+          id: tool.schema.string({description: "Report ID from report-list"}),
+        },
+        async execute({ id } = {}) {
+          if (!id) return `❌ Provide id=<report-id>`
+          const report = readReport(id)
+          if (!report) return `❌ Report not found: ${id}`
+          const lines = [
+            `📄 ${report.meta.id}`,
+            `  ${report.meta.project} | ${report.meta.type} | ${report.meta.created.slice(0, 16).replace("T", " ")}`,
+            `  ${report.summary}`,
+          ]
+          if (report.findings?.length > 0) {
+            lines.push(`\nFindings:`)
+            for (const f of report.findings) {
+              const icon = f.severity === "warn" ? "⚠" : f.severity === "info" ? "ℹ" : "💡"
+              lines.push(`  ${icon} [${f.topic}] ${f.detail}`)
+            }
+          }
+          if (report.metrics && Object.keys(report.metrics).length > 0) {
+            lines.push(`\nMetrics:`)
+            for (const [k, v] of Object.entries(report.metrics)) {
+              if (typeof v === "number" && v < 0.01) continue
+              lines.push(`  ${k}: ${v}`)
+            }
+          }
+          if (report.tags?.length > 0) lines.push(`\nTags: ${report.tags.join(", ")}`)
+          if (report.narrative) lines.push(`\n---\n${report.narrative}`)
+          return lines.join("\n")
+        },
+      }),
     },
   }
 }
@@ -1288,6 +1729,278 @@ export async function DelegationEnforcer({ client, directory }) {
 export const id = "delegation-enforcer"
 export const server = DelegationEnforcer
 export default { id: "delegation-enforcer", server: DelegationEnforcer }
+
+// ── Research audit — lightweight session scan ───────────────────────
+// Scans the scratchpad index and session state for WebFetch/WebSearch
+// patterns: domain chains, redundant queries, context7 bypass.
+// Returns a structured report object.
+const FETCH_TOOLS = new Set(["WebFetch", "WebSearch", "webfetch", "websearch"])
+
+export function researchAudit({ hours = 24, session: sessionFilter } = {}) {
+  const cutoff = Date.now() - hours * 3600 * 1000
+  const report = { totalFetches: 0, totalBytes: 0, estCost: 0, chains: [], byDomain: {}, sessions: 0, redundant: 0 }
+
+  // 1. Scratchpad index entries (recent WebFetch/WebSearch only)
+  try {
+    if (existsSync(INDEX_PATH)) {
+      const lines = readFileSync(INDEX_PATH, "utf-8").trim().split("\n").filter(Boolean)
+      const domainCache = {}
+
+      for (const line of lines) {
+        const e = JSON.parse(line)
+        if (!FETCH_TOOLS.has(e.tool)) continue
+        const ts = new Date(e.ts).getTime()
+        if (ts < cutoff) continue
+        if (sessionFilter && e.session !== sessionFilter) continue
+
+        report.totalFetches++
+        report.totalBytes += e.size || 0
+
+        // Extract domain from summary if available
+        const hash = e.hash
+        const summaryPath = join(SCRATCHPAD_DIR, hash + ".summary.txt")
+        if (existsSync(summaryPath)) {
+          const summary = readFileSync(summaryPath, "utf-8").slice(0, 200)
+          const urlMatch = summary.match(/https?:\/\/([^\/\s\)]+)/i)
+          const queryMatch = summary.match(/"query":"([^"]+)"/)
+          let domain
+          if (urlMatch) {
+            // Extract registered domain (last 2 hostname parts) for grouping
+            const parts = urlMatch[1].replace(/[\)\.,;:>]+$/, "").split(".")
+            domain = parts.length >= 2 ? parts.slice(-2).join(".") : parts[0]
+          } else if (queryMatch) {
+            domain = queryMatch[1].split(/\s+/).slice(0, 3).join(" ")
+          } else {
+            // Fallback: extract first capitalized word sequence (e.g. "LDraw.org Library Spec")
+            const wordSeq = summary.match(/^([A-Z][a-zA-Z.&-]+(?:\s+[A-Z][a-zA-Z.&-]+)*)/)
+            domain = wordSeq?.[1] || (e.tool === "WebSearch" ? "web-search" : "unknown")
+          }
+          const domainKey = typeof domain === "string" ? domain : "unknown"
+          domainCache[hash] = domainKey
+          report.byDomain[domainKey] = (report.byDomain[domainKey] || 0) + 1
+        } else {
+          report.byDomain.unknown = (report.byDomain.unknown || 0) + 1
+        }
+      }
+
+      // Detect chains: 3+ fetches to same domain within 5 entries
+      const entries = lines
+        .map(l => JSON.parse(l))
+        .filter(e => FETCH_TOOLS.has(e.tool) && new Date(e.ts).getTime() >= cutoff)
+        .sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime())
+
+      const domainSeq = entries.map(e => domainCache[e.hash] || "unknown")
+      let chainStart = -1
+      for (let i = 2; i < domainSeq.length; i++) {
+        if (domainSeq[i] === domainSeq[i-1] && domainSeq[i-1] === domainSeq[i-2]) {
+          if (chainStart === -1 || domainSeq[i] !== domainSeq[chainStart]) {
+            chainStart = i - 2
+            const domain = domainSeq[i]
+            // Count how many consecutive
+            let chainEnd = i
+            while (chainEnd < domainSeq.length && domainSeq[chainEnd] === domain) chainEnd++
+            report.chains.push({ domain, count: chainEnd - chainStart, startIdx: chainStart })
+            i = chainEnd
+            chainStart = -1
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error(`[delegation-enforcer] researchAudit index scan failed: ${err.message}`)
+  }
+
+  // 2. Session state for tool_counts and context7 bypass
+  try {
+    if (existsSync(STATE_FILE)) {
+      const state = JSON.parse(readFileSync(STATE_FILE, "utf-8"))
+      for (const [sid, s] of Object.entries(state.sessions || {})) {
+        if (sessionFilter && sid !== sessionFilter) continue
+        report.sessions++
+        const tc = s.tool_counts || {}
+        const fetchCount = (tc.WebFetch || 0) + (tc.WebSearch || 0) + (tc.webfetch || 0) + (tc.websearch || 0)
+        const c7Warns = (s.warns || []).filter(w => w.reason?.includes("context7")).length
+        if (fetchCount > 0) {
+          report.byDomain["_session"] = (report.byDomain["_session"] || 0) + 1
+        }
+        report.redundant += c7Warns
+      }
+    }
+  } catch (err) {
+    console.error(`[delegation-enforcer] researchAudit state scan failed: ${err.message}`)
+  }
+
+  // 3. Estimated cost: ~$0.001 per fetch for brain model
+  const brainCost = currentModel ? (modelCostPerTurn(currentModel) ?? 0.003) : 0.003
+  report.estCost = Math.round(report.totalFetches * brainCost * 100) / 100
+
+  return report
+}
+
+// ── Reporting framework — persistent reports with consistent schema ─
+//   ~/.claude/reports/
+//     index.json              — quick-lookup index
+//     {id}.json               — individual report files
+//
+// Schema:
+//   meta: { id, project, fingerprint, type, created, sessionId }
+//   summary: string
+//   findings: [{ severity, topic, detail }]
+//   metrics: { [key]: number }
+//   narrative: string (markdown)
+//   tags: string[]
+const REPORTS_DIR = join(homedir(), ".claude/reports")
+const REPORTS_INDEX = join(REPORTS_DIR, "index.json")
+
+function reportsIndex() {
+  try {
+    if (existsSync(REPORTS_INDEX)) return JSON.parse(readFileSync(REPORTS_INDEX, "utf-8"))
+  } catch {}
+  return { reports: [] }
+}
+
+function saveReportsIndex(idx) {
+  try {
+    mkdirSync(REPORTS_DIR, { recursive: true })
+    writeFileSync(REPORTS_INDEX, JSON.stringify(idx, null, 2) + "\n")
+  } catch (err) {
+    console.error(`[delegation-enforcer] reports index write failed: ${err.message}`)
+  }
+}
+
+function reportId(type, fp) {
+  const ts = new Date().toISOString().replace(/[:-]/g, "").replace(/\..+/, "")
+  return `${ts}-${(fp || "unknown").slice(0, 6)}-${type}`
+}
+
+// Dedup: skip save if last report of same type has identical summary within 5 min
+const _reportDedupWindow = new Map()
+
+function _wouldBeDuplicate(type, summary) {
+  if (typeof summary !== "string") return false
+  const key = `${type || ""}::${summary.slice(0, 60)}`
+  const last = _reportDedupWindow.get(key)
+  if (last && (Date.now() - last) < 5 * 60 * 1000) return true
+  _reportDedupWindow.set(key, Date.now())
+  // Bounded map: evict oldest entries beyond 200
+  if (_reportDedupWindow.size > 200) {
+    const oldest = [..._reportDedupWindow.entries()].sort((a, b) => a[1] - b[1])[0]
+    if (oldest) _reportDedupWindow.delete(oldest[0])
+  }
+  return false
+}
+
+// Prune old reports: delete >90d, keep max 200
+function _pruneReports() {
+  try {
+    const idx = reportsIndex()
+    const now = Date.now()
+    const keep = []
+    for (const r of idx.reports) {
+      const created = new Date(r.created).getTime()
+      if (isNaN(created)) continue
+      // >90d: delete
+      if (now - created > 90 * 24 * 3600 * 1000) {
+        try { rmSync(join(REPORTS_DIR, `${r.id}.json`)) } catch {}
+        continue
+      }
+      keep.push(r)
+    }
+    // Keep max 200 (newest)
+    const pruned = keep.sort((a, b) => b.created.localeCompare(a.created)).slice(0, 200)
+    if (pruned.length !== idx.reports.length) {
+      idx.reports = pruned
+      saveReportsIndex(idx)
+      console.error(`[delegation-enforcer] reports pruned: ${idx.reports.length} kept (from ${keep.length})`)
+    }
+  } catch (err) {
+    console.error(`[delegation-enforcer] reports prune failed: ${err.message}`)
+  }
+}
+
+// Auto-parse findings (string → array) for callers that pass plain text directly to saveReport
+function _parseFindings(v) {
+  if (Array.isArray(v)) return v
+  if (typeof v !== "string" || !v.trim()) return []
+  try { return JSON.parse(v) } catch {}
+  const result = []
+  for (const line of v.split("\n").map(l => l.trim()).filter(Boolean)) {
+    const m = line.match(/^(warn|info|hint)\s*:\s*(.+?)\s*:\s*(.+)/i)
+    if (m) result.push({ severity: m[1].toLowerCase(), topic: m[2].trim(), detail: m[3].trim() })
+    else result.push({ severity: "info", topic: "Note", detail: line })
+  }
+  return result
+}
+
+function _parseMetrics(v) {
+  if (v && typeof v === "object" && !Array.isArray(v)) return v
+  if (typeof v !== "string" || !v.trim()) return {}
+  try { return JSON.parse(v) } catch {}
+  const result = {}
+  for (const line of v.split("\n").map(l => l.trim()).filter(Boolean)) {
+    const m = line.match(/^([\w-]+)\s*=\s*([\d.]+)/)
+    if (m) result[m[1]] = parseFloat(m[2])
+  }
+  return result
+}
+
+export function saveReport({ type = "manual", summary = "", findings, metrics, narrative = "", tags = [], fingerprint } = {}) {
+  // Auto-parse findings + metrics (supports array, JSON string, plain-text lines)
+  const parsedFindings = _parseFindings(findings)
+  const parsedMetrics = _parseMetrics(metrics)
+
+  // Dedup: skip if last same-type report has same summary within 5 min
+  if (_wouldBeDuplicate(type, summary)) return null
+
+  const fp = fingerprint || currentProjectFingerprint || "unknown"
+  const id = reportId(type, fp)
+  const report = {
+    meta: { id, project: currentProjectName || "unknown", fingerprint: fp, type, created: new Date().toISOString(), sessionId: `opencode-${process.pid || "?"}` },
+    summary, findings: parsedFindings, metrics: parsedMetrics, narrative, tags,
+  }
+  // Write report file
+  try {
+    mkdirSync(REPORTS_DIR, { recursive: true })
+    writeFileSync(join(REPORTS_DIR, `${id}.json`), JSON.stringify(report, null, 2) + "\n")
+  } catch (err) {
+    console.error(`[delegation-enforcer] report write failed: ${err.message}`)
+    return null
+  }
+  // Update index
+  try {
+    const idx = reportsIndex()
+    const _sum = (summary || "").slice(0, 80)
+    idx.reports.push({ id, type, project: report.meta.project, fingerprint: fp, created: report.meta.created, summary: _sum })
+    saveReportsIndex(idx)
+  } catch (err) {
+    console.error(`[delegation-enforcer] report index update failed: ${err.message}`)
+  }
+  // Opportunistic TTL prune (once per process ≈ every save)
+  _pruneReports()
+  return id
+}
+
+export function listReports({ type, project, hours = 168, fingerprint } = {}) {
+  const cutoff = Date.now() - hours * 3600 * 1000
+  const idx = reportsIndex()
+  return idx.reports.filter(r => {
+    if (type && r.type !== type) return false
+    if (project && r.project !== project) return false
+    if (fingerprint && r.fingerprint !== fingerprint) return false
+    const created = new Date(r.created).getTime()
+    if (isNaN(created) || created < cutoff) return false
+    return true
+  }).sort((a, b) => b.created.localeCompare(a.created))
+}
+
+export function readReport(id) {
+  if (!id) return null
+  const path = join(REPORTS_DIR, `${id}.json`)
+  try {
+    if (!existsSync(path)) return null
+    return JSON.parse(readFileSync(path, "utf-8"))
+  } catch { return null }
+}
 
 // ── Credit API: fetch real balances from provider APIs ───────────────
 const AUTH_F = join(homedir(), ".local", "share", "opencode", "auth.json")

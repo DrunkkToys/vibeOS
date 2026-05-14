@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.5.0
+
+- feat: progressive decadence — age-based scratchpad cache rotation
+  (5min fresh → 1h warm/summary → 24h cold → 48h delete, 1000 file / 10MB limit)
+- feat: research audit — scans scratchpad index + session state for WebFetch/WebSearch
+  anti-patterns (domain chains 3+, redundant queries, context7 bypass)
+- feat: reporting framework — persistent reports with consistent schema
+  (auto-saved from research-audit, save/list/read tools, plain-text findings parser)
+- feat: project memory — cross-session continuity via project-states.json
+  (session counter, research patterns, one-shot briefing on fresh session)
+- feat: research-audit, report-save, report-list, report-read tools (5 total)
+- fix: _refreshModel no longer forces currentTier="high" for non-brain slots
+- fix: init tier override only fires for brain slot (not all slots)
+- fix: auto-save moved before early return for totalFetches=0
+- fix: saveReport now auto-parses plain-text findings/metrics (JSON fallback)
+- fix: dedup prevents duplicate auto-saves within 5-minute window
+- fix: TTL prune deletes reports >90d, keeps max 200
+- fix: add ={} to all tool execute signatures to prevent destructuring crash
+- fix: null-guard _wouldBeDuplicate for null summary
+- fix: null-guard summary.slice() in report index update
+- test: deep test (43 pass, 0 fail — module, hooks, routing, project memory)
+- test: mid-tier / brain-slot / credit path test (10/10 pass)
+- test: report framework lifecycle (14/14 pass)
+- test: 4 report fixes (plain-text, dedup, TTL, narrative)
+- test: VENV stress test (57 pass, 2 false-positive from test sequencing)
+- perf: atomic lifetime reads — compute ltTasks+ltCache from single session snapshot
+- perf: getLastLines — 5-line/1024-byte tail replaces fragile 200-byte dedup
+- perf: _readHead — 120-byte header-only read for decadence idempotency checks
+
 ## 0.4.9
 
 - chore: bump v0.4.9
