@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LicenseRef-Commercial
+// SPDX-FileCopyrightText: 2026 theSaver <https://github.com/DrunkkToys/theSaver-oc>
 import { readFileSync, existsSync, mkdirSync, writeFileSync, statSync } from "node:fs"
 import { join, dirname } from "node:path"
 import { homedir } from "node:os"

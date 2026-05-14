@@ -1,0 +1,68 @@
+Commercial License — theSaver OpenCode Plugins
+
+Copyright (c) 2026 theSaver
+
+All Rights Reserved.
+
+---
+
+## 1. Grant of License
+
+This license grants you a non-exclusive, non-transferable, limited right to
+use the Software (defined below) subject to the terms herein.
+
+## 2. Definitions
+
+- **"Software"** means the delegation-enforcer plugin, research-audit,
+  reporting framework, decadence cache manager, and all associated source
+  code, documentation, and configuration files in this repository.
+- **"Commercial Use"** means use of the Software by or on behalf of a
+  for-profit entity or for revenue-generating activity, including but not
+  limited to: use by employees of a company during work hours, use to
+  develop commercial products, or use in any environment where a direct or
+  indirect financial benefit accrues.
+- **"Non-Commercial Use"** means personal, educational, hobbyist, or
+  open-source project use where no revenue or financial benefit is derived
+  from the use of the Software.
+
+## 3. Free Use (Non-Commercial)
+
+The Software may be used, modified, and copied free of charge for
+Non-Commercial Use only.
+
+## 4. Commercial Use Requirements
+
+Commercial Use of the Software requires a paid license. To obtain a
+commercial license:
+
+  1. Contact theSaver at the repository's issue tracker or homepage.
+  2. Identify the number of users / seats.
+  3. Agree on pricing (per-seat or per-organization).
+  4. A license certificate will be issued.
+
+Without a commercial license, any Commercial Use is prohibited.
+
+## 5. Restrictions
+
+You may NOT:
+- Redistribute the Software or any derivative as part of a paid product
+- Sublicense, sell, or rent the Software
+- Remove or alter any license notices
+- Use the Software in violation of applicable law
+
+## 6. No Warranty
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY.
+
+## 7. Termination
+
+Violation of any term automatically terminates this license. Upon
+termination, you must destroy all copies of the Software.
+
+---
+
+Contact: https://github.com/DrunkkToys/theSaver-oc
