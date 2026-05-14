@@ -1050,6 +1050,20 @@ export async function DelegationEnforcer({ client, directory }) {
           "Do not fetch those URLs directly when context7 can serve the same content. " +
           "This saves ~$0.06/turn on average."
 
+        // Thinking-level directive — only when manually set via `trinity thinking`.
+        // Never auto-injected: credit-based thinking caused model stalls.
+        const { thinking_level: explicitLevel } = loadSelection()
+        if (explicitLevel && explicitLevel !== "full" && Array.isArray(output?.system)) {
+          const credit = loadCredit()
+          const creditNote = `credit ${credit}%`
+          const directives = {
+            brief: `[thinking policy] Reasoning depth: BRIEF (manually set, ${creditNote}). Use extended thinking only for genuinely complex multi-step problems. Keep reasoning concise — skip exploratory scratch work and restatement.`,
+            off:   `[thinking policy] Reasoning depth: OFF (manually set, ${creditNote}). Skip extended thinking entirely. Respond directly and concisely. Every thinking token costs money — save it for when the user explicitly asks.`,
+          }
+          const d = directives[explicitLevel]
+          if (d) output.system.push(d)
+        }
+
         if (Array.isArray(output?.system)) {
           output.system.push(c7directive)
         }

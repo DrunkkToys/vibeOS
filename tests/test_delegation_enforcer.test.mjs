@@ -541,6 +541,131 @@ test("tool.execute.after: shows model label even with no savings recorded", asyn
   assert.doesNotMatch(out.text, /saved/, "no savings line when count=0")
 })
 
+// ── Stall-fix tests ──────────────────────────────────────────────────────────
+// These verify fixes for model-stalling bugs in v0.4.5.
+
+test("system.transform: no thinking directive injected by default", async () => {
+  const { DelegationEnforcer } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-stall1")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "anthropic/claude-opus-4-7" }))
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+
+  const out = { system: [] }
+  await hooks["experimental.chat.system.transform"]({}, out)
+  // Should have context7 directive + judge directive, but NO thinking directive
+  const allText = out.system.join(" ")
+  assert.ok(allText.includes("cost policy"), "context7 directive present")
+  assert.ok(allText.includes("judge pattern"), "judge directive present")
+  assert.doesNotMatch(allText, /thinking policy|Reasoning depth|Skip extended thinking/i,
+    "no thinking directive auto-injected")
+})
+
+test("system.transform: thinking directive injected when manually set to off", async () => {
+  const { DelegationEnforcer } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-stall2")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "anthropic/claude-opus-4-7" }))
+  // Manually set thinking_level in model-tiers.json
+  const tiersFile = join(sandbox, ".claude/model-tiers.json")
+  writeFileSync(tiersFile, JSON.stringify({
+    selection: { enabled: true, thinking_level: "off" },
+    trinity: { brain: { oc: "anthropic/claude-opus-4-7" } }
+  }))
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+
+  const out = { system: [] }
+  await hooks["experimental.chat.system.transform"]({}, out)
+  const allText = out.system.join(" ")
+  assert.ok(allText.includes("thinking policy"), "thinking directive injected")
+  assert.ok(/off/i.test(allText), "off level mentioned")
+  assert.ok(allText.includes("manually set"), "marked as manual override")
+  assert.ok(allText.includes("Respond directly and concisely"),
+    "off directive says to respond directly")
+})
+
+test("system.transform: thinking directive NOT injected when manually set to full", async () => {
+  const { DelegationEnforcer } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-stall3")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "anthropic/claude-opus-4-7" }))
+  const tiersFile = join(sandbox, ".claude/model-tiers.json")
+  writeFileSync(tiersFile, JSON.stringify({
+    selection: { enabled: true, thinking_level: "full" }
+  }))
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+
+  const out = { system: [] }
+  await hooks["experimental.chat.system.transform"]({}, out)
+  const allText = out.system.join(" ")
+  assert.doesNotMatch(allText, /thinking policy|Reasoning depth/i,
+    "no thinking directive for 'full'")
+})
+
+test("messages.transform: compression ref is neutral (no 'Read' imperative)", async () => {
+  const { DelegationEnforcer } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-stall4")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "anthropic/claude-opus-4-7" }))
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+
+  // Build a message with a large tool result that exceeds COMPRESS_THRESHOLD (2000)
+  // Tool result must be in the "cold" zone (not in last KEEP_HOT=10 messages)
+  const largeOutput = "X".repeat(3000)
+  const toolMsg = {
+    info: { role: "assistant" },
+    parts: [{
+      type: "tool", tool: "bash", callID: "c1",
+      state: { status: "completed", output: largeOutput }
+    }]
+  }
+  const fillerMsgs = Array.from({ length: 11 }, () =>
+    ({ info: { role: "user" }, parts: [{ type: "text", text: "filler" }] })
+  )
+  const messages = [
+    toolMsg,           // index 0 → cold zone (hotStart = 13 - 10 = 3)
+    ...fillerMsgs,
+    { info: { role: "user" }, parts: [{ type: "text", text: "ok" }] },
+  ]
+
+  await hooks["experimental.chat.messages.transform"]({}, { messages })
+
+  const toolPart = messages[0].parts.find(p => p?.type === "tool")
+  assert.ok(toolPart, "tool part exists")
+  const ref = toolPart.state.output
+  assert.ok(ref.includes("cold storage"), "ref contains 'cold storage' marker")
+  assert.doesNotMatch(ref, /\bRead\b/, "ref does NOT contain 'Read' imperative")
+  assert.doesNotMatch(ref, /Full content/, "ref does NOT contain 'Full content'")
+})
+
+test("tool.execute.after: task output NOT compressed (only webfetch)", async () => {
+  const { DelegationEnforcer } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-stall5")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "anthropic/claude-opus-4-7" }))
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+
+  const longText = "A".repeat(3500)
+  const out = { title: "task result", result: longText, metadata: {} }
+  await hooks["tool.execute.after"]({ tool: "task", callID: "c1", args: {} }, out)
+  // Task output must remain unchanged
+  assert.equal(out.result.length, longText.length, "task output not compressed")
+  assert.equal(out.result, longText, "task output identical")
+})
+
+test("tool.execute.after: webfetch output IS compressed", async () => {
+  const { DelegationEnforcer } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-stall6")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "anthropic/claude-opus-4-7" }))
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+
+  const longText = "A".repeat(3500)
+  const out = { title: "webfetch result", result: longText, metadata: {} }
+  await hooks["tool.execute.after"]({ tool: "webfetch", callID: "c1", args: {} }, out)
+  assert.ok(out.result.length < longText.length, "webfetch output compressed")
+})
+
 // ── Two-tier Trinity routing ─────────────────────────────────────────────────
 // TRINITY_MEDIUM/CHEAP are module-level constants evaluated at import time, so
 // model-tiers.json must be written to sandbox BEFORE loadPlugin() is called.

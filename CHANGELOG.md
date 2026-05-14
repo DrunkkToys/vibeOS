@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.6
+
+- test: 6 new stall-fix tests (system.transform, messages.transform, tool.execute.after)
+- fix: only inject thinking directive when manually set via `trinity thinking`
+- refactor: remove auto credit-based thinking injection (caused stalls)
+
 ## 0.4.5
 
 - fix: remove thinking directive from system prompt (caused model stalls)
