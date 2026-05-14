@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.9
+
+- chore: bump v0.4.9
+
 ## 0.4.8
 
 - fix: scratchpad hash mismatch — stable JSON key sorting matches CC shasum
