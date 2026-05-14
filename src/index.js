@@ -782,8 +782,9 @@ export async function DelegationEnforcer({ client, directory }) {
         }
       }
 
-      // Compress verbose tool outputs before they bloat context
-      if (t !== "task" && t !== "webfetch") return
+      // Compress verbose tool outputs before they bloat context.
+      // Only webfetch — task results contain synthesized data the brain needs verbatim.
+      if (t !== "webfetch") return
 
       // Try multiple output paths (plugin API may vary)
       const raw = output?.result ?? output?.text ?? output?.content ?? output?.data
@@ -859,9 +860,8 @@ export async function DelegationEnforcer({ client, directory }) {
 
             const summary = raw.slice(0, 200).replace(/\n+/g, " ").trim() + (raw.length > 200 ? "…" : "")
             const ref =
-              `${COMPRESS_MARKER} [${raw.length} chars compressed to disk]\n` +
-              `Summary: ${summary}\n` +
-              `Full content: Read ${fullPath}`
+              `${COMPRESS_MARKER} [${raw.length} chars compressed — cold storage at ${fullPath}] ` +
+              `[summary] ${summary}`
 
             state.output = ref
             compressedBytes += raw.length - ref.length
@@ -1050,22 +1050,8 @@ export async function DelegationEnforcer({ client, directory }) {
           "Do not fetch those URLs directly when context7 can serve the same content. " +
           "This saves ~$0.06/turn on average."
 
-        // Thinking-level directive — explicit selection overrides credit-based fallback.
-        // Explicit: set via `trinity thinking full|brief|off` (stored in model-tiers.json).
-        // Fallback: derived from ~/.claude/credit-percent (100% → full, 40–69% → brief, <40% → off).
-        const { thinking_level: explicitLevel } = loadSelection()
-        const credit = loadCredit()
-        const level  = explicitLevel || thinkingLevel(credit)
-        const creditNote = explicitLevel ? `manually set` : `credit ${credit}%`
-        const thinkingDirectives = {
-          brief: `[thinking policy] Reasoning depth: BRIEF (${creditNote}). Use extended thinking only for genuinely complex multi-step problems. Keep reasoning concise — skip exploratory scratch work and restatement.`,
-          off:   `[thinking policy] Reasoning depth: OFF (${creditNote}). Skip extended thinking entirely. Respond directly and concisely. Every thinking token costs money — save it for when the user explicitly asks.`,
-        }
-        const thinkDirective = thinkingDirectives[level] // undefined for "full" → no injection
-
         if (Array.isArray(output?.system)) {
           output.system.push(c7directive)
-          if (thinkDirective) output.system.push(thinkDirective)
         }
 
         // Judge-pattern directive — brain orchestrates and judges, worker does heavy lifting.

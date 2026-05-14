@@ -473,7 +473,7 @@ test("text.complete: dedup by messageID", async () => {
 })
 
 // ── tool.execute.after — output field ────────────────────────────────
-test("tool.execute.after: compresses task output via output.result field", async () => {
+test("tool.execute.after: compresses webfetch output via output.result field", async () => {
   const { DelegationEnforcer } = await loadPlugin()
   const dir = join(sandbox, ".opencode-aftercomp")
   mkdirSync(dir, { recursive: true })
@@ -483,8 +483,8 @@ test("tool.execute.after: compresses task output via output.result field", async
   // Build a long output that exceeds the 3000-char truncation threshold.
   // Plugin reads/writes output.result (not output.output).
   const longText = "A".repeat(3500)
-  const out = { title: "task result", result: longText, metadata: {} }
-  await hooks["tool.execute.after"]({ tool: "task", callID: "c1", args: {} }, out)
+  const out = { title: "webfetch result", result: longText, metadata: {} }
+  await hooks["tool.execute.after"]({ tool: "webfetch", callID: "c1", args: {} }, out)
   assert.ok(out.result.length < longText.length, "output.result was compressed/truncated")
   assert.ok(out.result.includes("truncated"), "truncation marker present")
 })

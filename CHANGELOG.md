@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.5
+
+- fix: remove thinking directive from system prompt (caused model stalls)
+- fix: replace imperative "Full content: Read <path>" with neutral cold-storage ref
+- fix: remove Task output compression — brain needs results verbatim
+- fix: only compress webfetch output (HTML/CSS noise)
+
 ## 0.4.4
 
 - fix: dedup session-reports.log writes — skip if line unchanged
