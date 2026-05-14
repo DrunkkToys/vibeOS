@@ -116,14 +116,14 @@ When credit drops below the threshold, `trinity auto` switches to the fallback s
 theSaver adjusts extended thinking based on your remaining credit:
 
 | Credit | Thinking | Effect |
-|---|---|---|
+|---|---|---|---|
 | ≥ 70% | **FULL** | No restriction — use extended thinking freely |
 | 40–69% | **BRIEF** | Extended thinking for complex problems only |
 | < 40% | **OFF** | Skip extended thinking entirely — save tokens |
 
-Override directly in chat:
+Manual override in chat persists regardless of credit level:
 ```
-trinity thinking full    → always use extended thinking
+trinity thinking full    → always use extended thinking (manual override)
 trinity thinking brief   → complex tasks only
 trinity thinking off     → never (maximum savings)
 ```

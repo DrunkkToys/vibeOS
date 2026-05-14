@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.1
+
+- fix: `trinity thinking full` now stores `"full"` string instead of `null`
+  — status correctly shows "manual" instead of "credit X%"
+  — persists regardless of credit drops (true manual override)
+
 ## 0.5.0
 
 - feat: progressive decadence — age-based scratchpad cache rotation
