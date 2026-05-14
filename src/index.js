@@ -22,6 +22,7 @@ import { homedir } from "node:os"
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import { tool } from "@opencode-ai/plugin"
+import { checkFlowRules, getFlowWarns, getSessionFlowCounts } from "./flow-enforcer.js"
 
 // ── Module state ────────────────────────────────────────────────────
 let currentTier = null
@@ -107,14 +108,15 @@ function thinkingLevel(credit) {
 const TIERS_FILE = join(homedir(), ".claude/model-tiers.json")
 function loadSelection() {
   try {
-    if (!existsSync(TIERS_FILE)) return { enabled: true, active_slot: null, thinking_level: null }
+    if (!existsSync(TIERS_FILE)) return { enabled: true, active_slot: null, thinking_level: null, flow_enabled: true }
     const j = JSON.parse(readFileSync(TIERS_FILE, "utf-8"))
     return {
       enabled:        j?.selection?.enabled !== false,
       active_slot:    j?.selection?.active_slot || null,
-      thinking_level: j?.selection?.thinking_level || null,  // "full" | "brief" | "off" | null (→ credit-based)
+      thinking_level: j?.selection?.thinking_level || null,
+      flow_enabled:   j?.selection?.flow_enabled !== false,
     }
-  } catch { return { enabled: true, active_slot: null, thinking_level: null } }
+  } catch { return { enabled: true, active_slot: null, thinking_level: null, flow_enabled: true } }
 }
 
 // Write a single key into selection block of model-tiers.json.
@@ -780,6 +782,19 @@ export async function DelegationEnforcer({ client, directory }) {
           else if (typeof output?.result === "string") output.result += note
           else console.error(`[delegation-enforcer] ${reminder}`)
         }
+
+        // Flow enforcer: check Write/Edit against development-flow rules.
+        if (loadSelection().flow_enabled) {
+          const toolName = t === "edit" ? "Edit" : "Write"
+          const filePath = input?.args?.filePath || input?.args?.file_path || input?.args?.path || ""
+          const content = t === "edit" ? (input?.args?.newString || "") : (input?.args?.content || "")
+          const flowHits = checkFlowRules({ tool: toolName, filePath, content })
+          for (const h of flowHits) {
+            if (h.deduped) continue
+            const icon = h.severity === "warn" ? "⚠" : "💡"
+            console.error(`[flow-enforcer] ${icon} [${h.severity}] ${h.id}: ${h.description} — ${filePath}`)
+          }
+        }
       }
 
       // Compress verbose tool outputs before they bloat context.
@@ -961,10 +976,14 @@ export async function DelegationEnforcer({ client, directory }) {
         if (sesQuota  > 0.01) parts.push(`quota -$${sesQuota.toFixed(2)}`)
         const partsStr = parts.length > 0 ? parts.join(" | ") + " | " : ""
 
+        const flowCounts = getSessionFlowCounts()
+        const flowStr = (flowCounts.warn > 0 || flowCounts.hint > 0)
+          ? `flow ${flowCounts.warn}w ${flowCounts.hint}h | ` : ""
+
         const delStr = ltTasks.toFixed(2)
         const cacheStr = ltCache.toFixed(2)
         const savingsTag = ltTotal > 0
-          ? ` ${partsStr}theSaver: $${delStr} delegation + $${cacheStr} cache = $${ltTotal.toFixed(2)} saved`
+          ? ` ${flowStr}${partsStr}theSaver: $${delStr} delegation + $${cacheStr} cache = $${ltTotal.toFixed(2)} saved`
           : ""
 
         output.text = stripped + `\n\n— ${modelTag}${savingsTag} —`
@@ -1098,10 +1117,11 @@ export async function DelegationEnforcer({ client, directory }) {
           "Use action='enable' or 'disable' to toggle the plugin (takes effect immediately, no restart needed). " +
           "Use action='set' with slot='brain'|'medium'|'cheap' to switch model tiers " +
           "(writes opencode.json — takes effect on next session restart). " +
+          "Use action='flow' with slot='on'|'off' to toggle flow enforcer, or action='flow' alone for audit. " +
           "Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', 'trinity status'.",
         args: {
-          action: tool.schema.enum(["status", "enable", "disable", "set", "thinking"]),
-          slot: tool.schema.enum(["brain", "medium", "cheap"]).optional(),
+          action: tool.schema.enum(["status", "enable", "disable", "set", "thinking", "flow"]),
+          slot: tool.schema.enum(["brain", "medium", "cheap", "on", "off"]).optional(),
           level: tool.schema.enum(["full", "brief", "off"]).optional(),
         },
         async execute({ action, slot, level }) {
@@ -1118,6 +1138,7 @@ export async function DelegationEnforcer({ client, directory }) {
               `🔌 Plugin: ${sel.enabled ? "ENABLED ✅" : "DISABLED ❌"}`,
               `🎯 Active slot: ${sel.active_slot || "(unset)"}`,
               `🧠 Thinking: ${effectiveLevel.toUpperCase()} (${thinkSrc})`,
+              `🔀 Flow enforcer: ${sel.flow_enabled !== false ? "ON" : "OFF"}`,
             ]
             for (const s of ["brain", "medium", "cheap"]) {
               const icon = s === "brain" ? "🧠" : s === "medium" ? "⚙ " : "⚡"
@@ -1159,6 +1180,33 @@ export async function DelegationEnforcer({ client, directory }) {
               off:   "thinking OFF (respond directly) — takes effect on next message",
             }
             return `✅ Reasoning depth → ${desc[level]}`
+          }
+
+          if (action === "flow") {
+            if (slot === "on" || slot === "off") {
+              const ok = writeSelection("flow_enabled", slot === "on")
+              return ok
+                ? `✅ Flow enforcer ${slot === "on" ? "ENABLED" : "DISABLED"}`
+                : `❌ Failed to write model-tiers.json`
+            }
+            // Audit: show current session flow warnings
+            const flowWarns = getFlowWarns()
+            const sid = String(process.pid || "?")
+            const sessionWarns = flowWarns.filter(w => String(w.sid) === sid)
+            const bySev = { warn: 0, hint: 0, flag: 0 }
+            for (const w of sessionWarns) {
+              if (bySev[w.severity] !== undefined) bySev[w.severity]++
+            }
+            const lines = [`🔀 Flow enforcer audit (this session):`]
+            lines.push(`  ${bySev.warn} warn, ${bySev.hint} hint, ${bySev.flag} flag`)
+            if (sessionWarns.length > 0) {
+              for (const w of sessionWarns.slice(-15)) {
+                const icon = w.severity === "warn" ? "⚠" : "💡"
+                lines.push(`  ${icon} [${w.severity}] ${w.rule_id}: ${w.description} — ${w.filePath || "(no file)"}`)
+              }
+            }
+            if (sessionWarns.length === 0) lines.push(`  No flow violations this session.`)
+            return lines.join("\n")
           }
 
           return `❌ Unknown action: ${action}`

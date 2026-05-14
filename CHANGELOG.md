@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.7
+
+- feat: flow enforcer — lightweight dev-flow rule checks on Write/Edit
+  (fast-path regex, never blocks, dedup per rule+file per session)
+- feat: `trinity flow` / `trinity flow on|off` — audit and toggle
+- test: 9 new flow enforcer unit tests (64 total)
+- fix: log rotation mtime guard to prevent repeated full-file reads
+
 ## 0.4.6
 
 - test: 6 new stall-fix tests (system.transform, messages.transform, tool.execute.after)

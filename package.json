@@ -1,6 +1,6 @@
 {
   "name": "opencode-delegation-enforcer",
-  "version": "0.4.6",
+  "version": "0.4.7",
   "description": "Cost-aware delegation enforcer for OpenCode. Tracks model usage, routes Task subagents to cheaper tiers, surfaces cumulative savings in chat, and provides a trinity CLI for brain/medium/cheap slot switching.",
   "type": "module",
   "exports": {

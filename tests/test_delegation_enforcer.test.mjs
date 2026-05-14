@@ -666,6 +666,115 @@ test("tool.execute.after: webfetch output IS compressed", async () => {
   assert.ok(out.result.length < longText.length, "webfetch output compressed")
 })
 
+// ── Flow enforcer tests ──────────────────────────────────────────────────────
+
+test("flow: Write .md file triggers new-md-file warn", async () => {
+  const { checkFlowRules, resetForTest, getSessionFlowCounts } = await import("../src/flow-enforcer.js?t=" + Date.now())
+  resetForTest([
+    { id: "new-md-file", severity: "warn", trigger: "Write", pattern: "\\.md$", description: "New markdown" },
+    { id: "todo-comment", severity: "hint", trigger: "Edit", pattern: "TODO", description: "TODO left in output" },
+  ])
+  const hits = checkFlowRules({ tool: "Write", filePath: "README.md", content: "# Title" })
+  assert.equal(hits.length, 1)
+  assert.equal(hits[0].id, "new-md-file")
+  assert.equal(hits[0].severity, "warn")
+  assert.equal(hits[0].deduped, false)
+})
+
+test("flow: Write file outside src/ triggers new-file-outside-src hint", async () => {
+  const { checkFlowRules, resetForTest } = await import("../src/flow-enforcer.js?t=" + Date.now())
+  resetForTest([
+    { id: "new-file-outside-src", severity: "hint", trigger: "Write", pattern: "^(?!src/|\\.)", description: "Outside src" },
+  ])
+  const hits = checkFlowRules({ tool: "Write", filePath: "/tmp/test.py", content: "x=1" })
+  assert.equal(hits.length, 1)
+  assert.equal(hits[0].id, "new-file-outside-src")
+  assert.equal(hits[0].severity, "hint")
+})
+
+test("flow: Write file in src/ does NOT trigger new-file-outside-src", async () => {
+  const { checkFlowRules, resetForTest } = await import("../src/flow-enforcer.js?t=" + Date.now())
+  resetForTest([
+    { id: "new-file-outside-src", severity: "hint", trigger: "Write", pattern: "^(?!src/|\\.)", description: "Outside src" },
+  ])
+  const hits = checkFlowRules({ tool: "Write", filePath: "src/index.js", content: "x=1" })
+  assert.equal(hits.length, 0)
+})
+
+test("flow: Edit with compat-shim triggers warn", async () => {
+  const { checkFlowRules, resetForTest } = await import("../src/flow-enforcer.js?t=" + Date.now())
+  resetForTest([
+    { id: "compat-shim", severity: "warn", trigger: "Edit", pattern: "_old|_legacy|# removed", description: "Compat shim" },
+  ])
+  const hits = checkFlowRules({ tool: "Edit", filePath: "src/foo.js", content: "function getConfig_old() {}" })
+  assert.equal(hits.length, 1)
+  assert.equal(hits[0].id, "compat-shim")
+  assert.equal(hits[0].severity, "warn")
+})
+
+test("flow: Edit with TODO triggers hint", async () => {
+  const { checkFlowRules, resetForTest } = await import("../src/flow-enforcer.js?t=" + Date.now())
+  resetForTest([
+    { id: "todo-comment", severity: "hint", trigger: "Edit", pattern: "TODO|FIXME|HACK", description: "TODO left" },
+  ])
+  const hits = checkFlowRules({ tool: "Edit", filePath: "src/bar.js", content: "// TODO: fix this later" })
+  assert.equal(hits.length, 1)
+  assert.equal(hits[0].id, "todo-comment")
+  assert.equal(hits[0].severity, "hint")
+})
+
+test("flow: Non-matching trigger is ignored", async () => {
+  const { checkFlowRules, resetForTest } = await import("../src/flow-enforcer.js?t=" + Date.now())
+  resetForTest([
+    { id: "todo-comment", severity: "hint", trigger: "Edit", pattern: "TODO", description: "TODO left" },
+  ])
+  // Write tool, but rule is Edit-only — no match
+  const hits = checkFlowRules({ tool: "Write", filePath: "src/bar.js", content: "// TODO: fix later" })
+  assert.equal(hits.length, 0)
+})
+
+test("flow: Dedup per rule+file — second call is deduped", async () => {
+  const { checkFlowRules, resetForTest } = await import("../src/flow-enforcer.js?t=" + Date.now())
+  resetForTest([
+    { id: "new-md-file", severity: "warn", trigger: "Write", pattern: "\\.md$", description: "New markdown" },
+  ])
+  const h1 = checkFlowRules({ tool: "Write", filePath: "README.md", content: "# Title" })
+  assert.equal(h1.length, 1)
+  assert.equal(h1[0].deduped, false)
+  const h2 = checkFlowRules({ tool: "Write", filePath: "README.md", content: "## Section" })
+  assert.equal(h2.length, 1)
+  assert.equal(h2[0].deduped, true)
+})
+
+test("flow: getSessionFlowCounts returns correct counts", async () => {
+  const { checkFlowRules, resetForTest, getSessionFlowCounts } = await import("../src/flow-enforcer.js?t=" + Date.now())
+  resetForTest([
+    { id: "new-md-file", severity: "warn", trigger: "Write", pattern: "\\.md$", description: "New markdown" },
+    { id: "new-file-outside-src", severity: "hint", trigger: "Write", pattern: "^(?!src/)", description: "Outside src" },
+  ])
+  // src/CHANGELOG.md triggers warn (\.md$) but NOT hint (starts with src/)
+  checkFlowRules({ tool: "Write", filePath: "src/CHANGELOG.md", content: "# Title" })
+  // /tmp/x.py triggers hint (not .md) — only 1 rule each
+  checkFlowRules({ tool: "Write", filePath: "/tmp/x.py", content: "x=1" })
+  const counts = getSessionFlowCounts()
+  assert.equal(counts.warn, 1)
+  assert.equal(counts.hint, 1)
+  assert.equal(counts.flag, 0)
+})
+
+test("flow: resetForTest clears all state", async () => {
+  const { checkFlowRules, resetForTest, getSessionFlowCounts } = await import("../src/flow-enforcer.js?t=" + Date.now())
+  resetForTest([
+    { id: "new-md-file", severity: "warn", trigger: "Write", pattern: "\\.md$", description: "New markdown" },
+  ])
+  checkFlowRules({ tool: "Write", filePath: "README.md", content: "# Title" })
+  assert.equal(getSessionFlowCounts().warn, 1)
+  resetForTest([])
+  assert.equal(getSessionFlowCounts().warn, 0)
+  const hits = checkFlowRules({ tool: "Write", filePath: "README.md", content: "# Title" })
+  assert.equal(hits.length, 0)
+})
+
 // ── Two-tier Trinity routing ─────────────────────────────────────────────────
 // TRINITY_MEDIUM/CHEAP are module-level constants evaluated at import time, so
 // model-tiers.json must be written to sandbox BEFORE loadPlugin() is called.
