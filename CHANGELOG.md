@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.4
+
+- fix: dedup session-reports.log writes — skip if line unchanged
+- fix: rotate session-reports.log at 500 lines to prevent unbounded growth
+- fix: add pid to log timestamps to distinguish concurrent writers
+- fix: show delegation vs cache breakdown in savings tag
+- fix: prune stale sessions from delegation-state.json (keep latest 30)
+
 ## 0.4.2
 
 - bump: version 0.4.2

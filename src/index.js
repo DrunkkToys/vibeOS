@@ -37,6 +37,12 @@ const STATE_FILE = join(homedir(), ".claude/delegation-state.json")
 // during this sidecar's lifetime.
 const textCompletePainted = new Set()
 
+// Log dedup: skip appendFileSync if line identical to last written.
+let _lastLogLine = ""
+
+// Max lines before rotating session-reports.log.
+const MAX_LOG_LINES = 500
+
 // Tier regexes — load from ~/.claude/model-tiers.json (single source of truth
 // shared with the bash hook). Falls back to inline regexes if file missing or
 // malformed, so the plugin never fails to load due to tier-config issues.
@@ -388,12 +394,43 @@ function recordSaving(tool, reason, saveEst) {
     if (state.sessions[sid].warns.length > 200) {
       state.sessions[sid].warns = state.sessions[sid].warns.slice(-200)
     }
+    _pruneOldSessions(state)
     writeFileSync(STATE_FILE, JSON.stringify(state, null, 2))
     return state.lifetime.est_savings_usd
   } catch (err) {
     console.error(`[delegation-enforcer] state write failed: ${err.message}`)
     return null
   }
+}
+
+// Prune session entries: keep latest 30 (by started or last_costed).
+function _pruneOldSessions(state) {
+  if (!state?.sessions) return
+  const entries = Object.entries(state.sessions)
+  if (entries.length <= 30) return
+  entries.sort((a, b) => {
+    const da = a[1]?.started || a[1]?.last_costed || ""
+    const db = b[1]?.started || b[1]?.last_costed || ""
+    return db.localeCompare(da)
+  })
+  state.sessions = Object.fromEntries(entries.slice(0, 30))
+}
+
+// Rotate session-reports.log: keep tail when exceeding max lines.
+// Avoids reading the file on every call via mtime guard.
+let _lastLogRotated = 0
+function _rotateLog(filePath, maxLines) {
+  try {
+    if (!existsSync(filePath)) return
+    const mtime = statSync(filePath).mtimeMs
+    if (mtime === _lastLogRotated) return
+    const data = readFileSync(filePath, "utf-8")
+    const lines = data.split("\n")
+    if (lines.length <= maxLines) return
+    const kept = lines.slice(-Math.floor(maxLines / 2)).join("\n") + "\n"
+    writeFileSync(filePath, kept)
+    _lastLogRotated = statSync(filePath).mtimeMs
+  } catch {}
 }
 
 // Cache the lifetime totals — invalidated on every recordSaving() write
@@ -924,8 +961,10 @@ export async function DelegationEnforcer({ client, directory }) {
         if (sesQuota  > 0.01) parts.push(`quota -$${sesQuota.toFixed(2)}`)
         const partsStr = parts.length > 0 ? parts.join(" | ") + " | " : ""
 
+        const delStr = ltTasks.toFixed(2)
+        const cacheStr = ltCache.toFixed(2)
         const savingsTag = ltTotal > 0
-          ? ` ${partsStr}theSaver: $${ltTotal.toFixed(2)} saved`
+          ? ` ${partsStr}theSaver: $${delStr} delegation + $${cacheStr} cache = $${ltTotal.toFixed(2)} saved`
           : ""
 
         output.text = stripped + `\n\n— ${modelTag}${savingsTag} —`
@@ -936,10 +975,17 @@ export async function DelegationEnforcer({ client, directory }) {
             const _ltFmt = ltTotal.toFixed(2)
             const _reportLine = `— ${modelTag} theSaver: $${_ltFmt} saved —`
             writeFileSync(join(homedir(), ".claude/session-report-pending.md"), _reportLine)
-            appendFileSync(
-              join(homedir(), ".claude/session-reports.log"),
-              `[${new Date().toISOString().slice(0, 16).replace("T", " ")}] ${_reportLine}\n`
-            )
+            // Dedup: skip if same as last line (avoids spamming thousands of identical entries)
+            if (_reportLine !== _lastLogLine) {
+              _lastLogLine = _reportLine
+              const logPath = join(homedir(), ".claude/session-reports.log")
+              _rotateLog(logPath, MAX_LOG_LINES)
+              const pid = process.pid || "?"
+              appendFileSync(
+                logPath,
+                `[${new Date().toISOString().slice(0, 16).replace("T", " ")} pid=${pid}] ${_reportLine}\n`
+              )
+            }
           } catch {}
         }
       } catch (err) {
