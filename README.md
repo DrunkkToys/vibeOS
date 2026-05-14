@@ -162,37 +162,42 @@ Every assistant response ends with:
 
 ---
 
-## Install
+## Purchase
 
-### Option A — from tarball (no registry)
+**Buy now**: https://thesaver.gumroad.com/l/thesaver-oc
+*(link active once product is published — or open a GitHub issue to request access)*
+
+| Tier | Price | Who |
+|---|---|---|
+| Individual | **$15** | 1 developer |
+| Team | **$50** | Up to 5 seats |
+| Enterprise | Contact | Site license, priority support |
+
+After purchase you receive a `.tgz` download. Install:
 
 ```bash
-npm install -g ./opencode-delegation-enforcer-0.2.0.tgz
+# Extract to plugins folder
+mkdir -p ~/.config/opencode/plugins
+tar -xzf opencode-delegation-enforcer-0.5.0.tgz -C /tmp/oc-extract
+cp /tmp/oc-extract/package/src/index.js ~/.config/opencode/plugins/delegation-enforcer.js
+cp /tmp/oc-extract/package/src/flow-enforcer.js ~/.config/opencode/plugins/
+cp /tmp/oc-extract/package/src/flow-rules.json ~/.config/opencode/plugins/
+rm -rf /tmp/oc-extract
 ```
 
 Register in `~/.config/opencode/opencode.json`:
 
 ```json
 {
-  "plugin": ["opencode-delegation-enforcer"]
-}
-```
-
-### Option B — drop the file directly
-
-Copy `index.js` to your plugins folder:
-
-```bash
-mkdir -p ~/.config/opencode/plugins
-cp src/index.js ~/.config/opencode/plugins/delegation-enforcer.js
-```
-
-Register it:
-
-```json
-{
   "plugin": ["./plugins/delegation-enforcer.js"]
 }
+```
+
+### Quick start
+
+```bash
+cp model-tiers.sample.json ~/.claude/model-tiers.json
+# edit to match your providers/models
 ```
 
 ### Copy the config

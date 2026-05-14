@@ -1,8 +1,6 @@
 /**
- * SPDX-License-Identifier: LicenseRef-Commercial
+ * SPDX-License-Identifier: MIT
  * SPDX-FileCopyrightText: 2026 theSaver <https://github.com/DrunkkToys/theSaver-oc>
- * 
- * This software is NOT free for commercial use. See LICENSE for terms.
  *
  * Delegation Enforcer Plugin — memory-mode, never blocks.
  *
