@@ -159,30 +159,19 @@ Every assistant response ends with:
 | Write/Edit ledger | Tracks every high-tier direct edit that could have been delegated |
 | Session vs lifetime savings | See ROI per conversation and across all time |
 | Live enable/disable | Toggle the whole plugin without restarting OpenCode |
+| TDD enforcer | Warns on Write/Edit to src/ without a matching test file; flags test.skip in test files |
 
 ---
 
-## Purchase
-
-**Buy now**: https://thesaver.gumroad.com/l/thesaver-oc
-*(link active once product is published — or open a GitHub issue to request access)*
-
-| Tier | Price | Who |
-|---|---|---|
-| Individual | **$15** | 1 developer |
-| Team | **$50** | Up to 5 seats |
-| Enterprise | Contact | Site license, priority support |
-
-After purchase you receive a `.tgz` download. Install:
+## Install
 
 ```bash
-# Extract to plugins folder
+git clone https://github.com/DrunkkToys/theSaver-oc.git /tmp/thesaver-oc
 mkdir -p ~/.config/opencode/plugins
-tar -xzf opencode-delegation-enforcer-0.5.1.tgz -C /tmp/oc-extract
-cp /tmp/oc-extract/package/src/index.js ~/.config/opencode/plugins/delegation-enforcer.js
-cp /tmp/oc-extract/package/src/flow-enforcer.js ~/.config/opencode/plugins/
-cp /tmp/oc-extract/package/src/flow-rules.json ~/.config/opencode/plugins/
-rm -rf /tmp/oc-extract
+cp /tmp/thesaver-oc/src/index.js ~/.config/opencode/plugins/delegation-enforcer.js
+cp /tmp/thesaver-oc/src/flow-enforcer.js ~/.config/opencode/plugins/
+cp /tmp/thesaver-oc/src/flow-rules.json ~/.config/opencode/plugins/
+rm -rf /tmp/thesaver-oc
 ```
 
 Register in `~/.config/opencode/opencode.json`:
@@ -198,12 +187,6 @@ Register in `~/.config/opencode/opencode.json`:
 ```bash
 cp model-tiers.sample.json ~/.claude/model-tiers.json
 # edit to match your providers/models
-```
-
-### Copy the config
-
-```bash
-cp model-tiers.sample.json ~/.claude/model-tiers.json
 ```
 
 *(Skip if you already have this from theSaver-cc — both plugins share the same file.)*
@@ -226,7 +209,10 @@ Control everything without leaving the chat window:
 | `trinity thinking full` | Always use extended thinking |
 | `trinity thinking brief` | Complex tasks only |
 | `trinity thinking off` | Never (max savings) |
+| `trinity flow on/off` | Toggle flow enforcer |
 | `trinity flow` | Audit flow violations this session |
+| `trinity tdd on/off` | Toggle TDD enforcer (default: ON) |
+| `trinity tdd` | Audit TDD violations this session |
 | `trinity help` | Show formatted usage with all commands |
 
 ### `trinity rebuild` — model auto-detection
