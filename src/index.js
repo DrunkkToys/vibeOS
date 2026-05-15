@@ -137,7 +137,7 @@ function writeSelection(key, value) {
 }
 
 // Write active_slot AND update opencode.json model to the matching oc model.
-function applySlot(slot) {
+export function applySlot(slot) {
   try {
     const j = JSON.parse(readFileSync(TIERS_FILE, "utf-8"))
     const ocModel = j?.trinity?.[slot]?.oc
@@ -151,6 +151,7 @@ function applySlot(slot) {
       oc.model = ocModel
       writeFileSync(ocConfig, JSON.stringify(oc, null, 2) + "\n")
     }
+    _refreshModel('')
     return { ok: true, ocModel }
   } catch (err) {
     return { ok: false, reason: err.message }
@@ -288,6 +289,10 @@ const SCRATCHPAD_MAX_AGE_SEC = Number(process.env.CLAUDE_SCRATCHPAD_MAX_AGE_SEC 
 const TOOL_NAME_NORMALIZE = {
   read: "Read", bash: "Bash", grep: "Grep", glob: "Glob",
   webfetch: "WebFetch", websearch: "WebSearch", list: "LS",
+  // Deterministic OpenCode-native tools — same input = same output
+  "context7_query-docs": "Context7QueryDocs",
+  "context7_resolve-library-id": "Context7ResolveLibrary",
+  obsidian: "Obsidian",   // read action: note content is immutable for same query
 }
 const SCRATCHPAD_TOOLS = new Set(Object.keys(TOOL_NAME_NORMALIZE))
 // Per-process dedup so the same hit isn't logged 5x in one turn.
@@ -1295,11 +1300,24 @@ export async function DelegationEnforcer({ client, directory }) {
             modelTag = `[${brainInner} → ${workerInner}]`
           }
         }
+        // Auto-save session report every 5 messages
+        _autoReportCount = (_autoReportCount || 0) + 1
+        if (_autoReportCount % 5 === 0) {
+          try {
+            const _sum = "Session cost: $" + ltCost.toFixed(2) + " | saved: $" + ltCache.toFixed(2) + " | " + sesTasks + " tasks"
+            saveReport({
+              type: "session",
+              summary: _sum,
+              metrics: { sessionCost: ltCost, cacheSavings: ltCache, tasksDelegated: sesTasks, model: currentModel, slot: loadSelection().active_slot || "unknown", editSavings: sesEdit, creditSavings: sesCredit, context7Savings: sesC7, quotaSavings: sesQuota, scratchpadHits: scratchpadHits },
+              tags: ["auto", "cost"],
+            })
+          } catch (e) { console.error("[delegation-enforcer] auto-report:", e.message) }
+        }
 
         // ── Savings tag — mirrors CC session-report-writer format ────────
         // Strip any footer a stale hot-reloaded plugin instance already wrote
         // so we never accumulate two "— … —" lines in the same message.
-        const stripped = text.replace(/\n\n— .+ —$/, "")
+        const stripped = text.replace(/\n\n— .+(?: —)?$/, "")
         const ltTotal  = ltTasks + ltCache
 
         // Per-session breakdown parts (only emit if > $0.01, same threshold as CC)
@@ -1438,6 +1456,23 @@ export async function DelegationEnforcer({ client, directory }) {
             console.error(`[delegation-enforcer] project-memory: briefing injected for ${fp}`)
           }
         }
+
+        // theSaver welcome banner — one-shot per project fingerprint
+        if (!briefedProjects.has("trinity_welcome_" + fp)) {
+          if (Array.isArray(output?.system)) {
+            const sel = loadSelection()
+            let tiers = {}
+            try { tiers = JSON.parse(readFileSync(TIERS_FILE, "utf-8")).trinity || {} } catch {}
+            const active = sel.active_slot || "medium"
+            const current = currentModel || "(unknown)"
+            const trinityTip =
+              "[theSaver] Active plugin. Slot: " + active + " (" + current + "). " +
+              "Use trinity command to switch slots, rebuild, or check status. " +
+              "Run \`trinity help\` for all commands."
+            output.system.push(trinityTip)
+            briefedProjects.add("trinity_welcome_" + fp)
+          }
+        }
       } catch (err) {
         console.error(`[delegation-enforcer] system.transform failed: ${err.message}`)
       }
@@ -1456,17 +1491,20 @@ export async function DelegationEnforcer({ client, directory }) {
           "Use action='status' to see current state. " +
           "Use action='enable' or 'disable' to toggle the plugin (takes effect immediately, no restart needed). " +
           "Use action='set' with slot='brain'|'medium'|'cheap' to switch model tiers " +
-          "(writes opencode.json — takes effect on next session restart). " +
+          "(writes opencode.json — active immediately). " +
+          "Use action='rebuild' to auto-detect available models from all configured providers and reassign brain/medium/cheap slots. " +
           "Use action='flow' with slot='on'|'off' to toggle flow enforcer, or action='flow' alone for audit. " +
           "Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', 'trinity status'.",
         args: {
-          action: tool.schema.enum(["status", "enable", "disable", "set", "thinking", "flow"]),
+          action: tool.schema.enum(["status", "enable", "disable", "set", "thinking", "flow", "rebuild", "help"]).optional(),
           slot: tool.schema.enum(["brain", "medium", "cheap", "on", "off"]).optional(),
           level: tool.schema.enum(["full", "brief", "off"]).optional(),
         },
         async execute({ action, slot, level } = {}) {
           // Kick off credit API background fetch on any trinity command.
           if (typeof _lazyRefresh === "function") _lazyRefresh()
+          if (!action) action = "status"
+          if (["brain", "medium", "cheap"].includes(action)) { slot = action; action = "set" }
           if (action === "status") {
             const sel = loadSelection()
             let tiers = {}
@@ -1486,7 +1524,6 @@ export async function DelegationEnforcer({ client, directory }) {
               const mark = sel.active_slot === s ? " ← active" : ""
               lines.push(`  ${icon} ${s}: ${oc}${mark}`)
             }
-            lines.push(`\nNote: slot changes take effect on next session restart.`)
             return lines.join("\n")
           }
 
@@ -1497,15 +1534,27 @@ export async function DelegationEnforcer({ client, directory }) {
             return `${val ? "✅ Plugin ENABLED" : "❌ Plugin DISABLED"} — takes effect immediately (no restart needed).`
           }
 
-          if (action === "set") {
+              if (action === "set") {
             if (!slot || !["brain", "medium", "cheap"].includes(slot)) {
               return `❌ Provide slot: brain | medium | cheap`
             }
+            let targetModel = ""
+            try {
+              const tiers = JSON.parse(readFileSync(TIERS_FILE, "utf-8"))
+              targetModel = tiers?.trinity?.[slot]?.oc || ""
+            } catch {}
+            if (!targetModel) {
+              return "❌ No model configured for " + slot + " slot. Run \`trinity rebuild\` first."
+            }
+            const auth = _readAuth()
+            const ok = await probeModel(targetModel, auth)
+            if (!ok) {
+              return "❌ " + targetModel + " failed API probe. Cannot switch to " + slot + " slot.\nCheck API key or run \`trinity rebuild\` to rediscover working models."
+            }
             const result = applySlot(slot)
             if (!result.ok) return `❌ Failed to set slot: ${result.reason}`
-            return `✅ Switched to ${slot} slot (${result.ocModel}). Takes effect on next session restart.\nTip: restart OpenCode to activate.`
+            return `✅ Switched to ${slot} slot (${result.ocModel}). Active now (no restart needed).`
           }
-
           if (action === "thinking") {
             if (!level || !["full", "brief", "off"].includes(level)) {
               return `❌ Provide level: full | brief | off`
@@ -1546,6 +1595,95 @@ export async function DelegationEnforcer({ client, directory }) {
               }
             }
             if (sessionWarns.length === 0) lines.push(`  No flow violations this session.`)
+            return lines.join("\n")
+          }
+
+          if (action === "rebuild") {
+            const providers = _loadOpenCodeProviders()
+            const auth = _readAuth()
+            const models = await discoverAvailableModels(providers, auth)
+            const ranked = classifyAndRankModels(models)
+            if (!ranked) {
+              return "\u274c No models discovered from any configured provider."
+            }
+            const probed = { brain: null, medium: null, cheap: null }
+            const failed = []
+            const candidates = [...new Set([ranked.brain.id, ranked.medium.id, ranked.cheap.id, ...models.map(m => m.id)])]
+            for (const id of candidates) {
+              if (probed.brain) break
+              const ok = await probeModel(id, auth)
+              if (ok) probed.brain = models.find(m => m.id === id) || { id, cost: _modelCost(id), tier: _modelTier(id) }
+              else failed.push("brain: " + id)
+            }
+            for (const id of candidates) {
+              if (probed.medium) break
+              if (id === probed.brain?.id) continue
+              const ok = await probeModel(id, auth)
+              if (ok) probed.medium = models.find(m => m.id === id) || { id, cost: _modelCost(id), tier: _modelTier(id) }
+              else if (!failed.some(f => f.endsWith(id))) failed.push("medium: " + id)
+            }
+            const byCost = [...models].sort((a, b) => a.cost - b.cost)
+            for (const m of byCost) {
+              if (probed.cheap) break
+              if (m.id === probed.brain?.id || m.id === probed.medium?.id) continue
+              const ok = await probeModel(m.id, auth)
+              if (ok) probed.cheap = m
+              else if (!failed.some(f => f.endsWith(m.id))) failed.push("cheap: " + m.id)
+            }
+            if (!probed.brain) {
+              return "\u274c No models responded to probe. Try checking your API keys.\n" + (failed.length > 0 ? "Failed:\n  " + failed.join("\n  ") : "No models discovered.")
+            }
+            if (!probed.medium) probed.medium = probed.brain
+            if (!probed.cheap) probed.cheap = probed.brain
+            try {
+              const tiers = JSON.parse(readFileSync(TIERS_FILE, "utf-8"))
+              tiers.trinity = {
+                brain: { oc: probed.brain.id, cc: modelToCcAlias(probed.brain.id) },
+                medium: { oc: probed.medium.id, cc: modelToCcAlias(probed.medium.id) },
+                cheap: { oc: probed.cheap.id, cc: modelToCcAlias(probed.cheap.id) },
+              }
+              writeFileSync(TIERS_FILE, JSON.stringify(tiers, null, 2) + "\n")
+            } catch (err) {
+              return "\u274c Failed to write model-tiers.json: " + err.message
+            }
+            try { applySlot("brain") } catch (e) { console.error("[delegation-enforcer] auto-activate brain failed:", e.message) }
+            const lines = [
+              "\ud83d\udd0d Auto-detected models from configured providers:",
+              "  \ud83e\udde0 brain  \u2192 " + probed.brain.id + " (tier: " + probed.brain.tier + ", $" + probed.brain.cost.toFixed(4) + "/turn) \u2705",
+              "  \u2699  medium \u2192 " + probed.medium.id + " (tier: " + probed.medium.tier + ", $" + probed.medium.cost.toFixed(4) + "/turn) \u2705",
+              "  \u26a1 cheap  \u2192 " + probed.cheap.id + " (tier: " + probed.cheap.tier + ", $" + probed.cheap.cost.toFixed(4) + "/turn) \u2705",
+            ]
+            if (failed.length > 0) {
+              lines.push("", "Probe failures (skipped):")
+              for (const f of failed) lines.push("  \u274c " + f)
+            }
+            lines.push("", "\u2705 model-tiers.json updated.", "\ud83e\udde0 Brain slot auto-activated: " + probed.brain.id)
+            return lines.join("\n")
+          }
+
+          if (action === "help") {
+            const L = "\u2501"
+            const lines = [
+              L.repeat(48),
+              "  \ud83d\udca1 theSaver \u2014 trinity commands",
+              L.repeat(48),
+              "",
+              "  trinity                          Show current status",
+              "  trinity status                   Show plugin state, slot, model tiers",
+              "  trinity rebuild                  Auto-detect working models from providers",
+              "  trinity set <slot>               Switch to brain/medium/cheap (probes first)",
+              "  trinity enable                   Enable the plugin",
+              "  trinity disable                  Disable the plugin",
+              "  trinity thinking <level>         Set reasoning: full | brief | off",
+              "  trinity flow <on|off>            Toggle flow enforcer",
+              "  trinity flow                     Audit flow violations this session",
+              "  trinity help                     Show this usage info",
+              "",
+              "  Shortcuts: \`trinity brain\`, \`trinity medium\`, \`trinity cheap\`",
+              "  also work via \`trinity set brain\` etc.",
+              "",
+              L.repeat(48),
+            ]
             return lines.join("\n")
           }
 
@@ -1680,16 +1818,16 @@ export async function DelegationEnforcer({ client, directory }) {
           hours: tool.schema.number().optional(),
         },
         async execute({ type, project, hours } = {}) {
-          const reports = listReports({ type, project, hours: hours ?? 168 })
-          if (reports.length === 0) return `📋 No reports found.`
-          const lines = [`📋 Reports (last ${hours ?? 168}h, ${reports.length} total):`]
-          for (const r of reports.slice(0, 30)) {
+                    const reports = listReports({ type, project, hours: hours ?? 168 })
+          if (reports.length === 0) return "📋 No reports found."
+          const lines = ["📋 Reports (last " + (hours ?? 168) + "h, " + reports.length + " total):"]
+          for (const r of reports.slice(0, 15)) {
             const d = r.created.slice(0, 16).replace("T", " ")
-            lines.push(`  [${d}] ${r.type} ${r.id.slice(0, 24)}…  ${(r.summary || "").slice(0, 60)}`)
+            const s = (r.summary || "").slice(0, 100)
+            lines.push("  [" + d + "] " + r.type + "  " + s)
           }
-          if (reports.length > 30) lines.push(`  … and ${reports.length - 30} more`)
-          lines.push(`\nUse report-read id=<id> to view full report.`)
-          return lines.join("\n")
+          if (reports.length > 15) lines.push("  … and " + (reports.length - 15) + " more")
+            return lines.join("\n")
         },
       }),
       "report-read": tool({
@@ -1701,26 +1839,25 @@ export async function DelegationEnforcer({ client, directory }) {
           if (!id) return `❌ Provide id=<report-id>`
           const report = readReport(id)
           if (!report) return `❌ Report not found: ${id}`
+                    const d = report.meta.created.slice(0, 16).replace("T", " ")
           const lines = [
-            `📄 ${report.meta.id}`,
-            `  ${report.meta.project} | ${report.meta.type} | ${report.meta.created.slice(0, 16).replace("T", " ")}`,
-            `  ${report.summary}`,
+            "📄 " + report.meta.type + " report  |  " + d,
+            "  💬 " + (report.summary || "(no summary)"),
           ]
-          if (report.findings?.length > 0) {
-            lines.push(`\nFindings:`)
-            for (const f of report.findings) {
-              const icon = f.severity === "warn" ? "⚠" : f.severity === "info" ? "ℹ" : "💡"
-              lines.push(`  ${icon} [${f.topic}] ${f.detail}`)
-            }
-          }
           if (report.metrics && Object.keys(report.metrics).length > 0) {
-            lines.push(`\nMetrics:`)
-            for (const [k, v] of Object.entries(report.metrics)) {
-              if (typeof v === "number" && v < 0.01) continue
-              lines.push(`  ${k}: ${v}`)
-            }
+            const m = report.metrics
+            lines.push("")
+            if (m.model) lines.push("  🧠 Model: " + m.model)
+            if (m.slot) lines.push("  🎯 Slot: " + m.slot)
+            if (m.sessionCost != null) lines.push("  💰 Cost: $" + Number(m.sessionCost).toFixed(2))
+            if (m.cacheSavings != null) lines.push("  💸 Cache saved: $" + Number(m.cacheSavings).toFixed(2))
+            if (m.tasksDelegated != null) lines.push("  🛒 Tasks delegated: " + m.tasksDelegated)
+            if (m.editSavings != null) lines.push("  ✏️ Edit savings: -$" + Number(m.editSavings).toFixed(2))
+            if (m.creditSavings != null) lines.push("  💳 Credit savings: -$" + Number(m.creditSavings).toFixed(2))
+            if (m.context7Savings != null) lines.push("  🔍 C7 savings: -$" + Number(m.context7Savings).toFixed(2))
+            if (m.scratchpadHits != null) lines.push("  📁 Scratchpad hits: " + m.scratchpadHits)
           }
-          if (report.tags?.length > 0) lines.push(`\nTags: ${report.tags.join(", ")}`)
+           if (report.tags?.length > 0) lines.push("\nTags: " + report.tags.join(", "))
           if (report.narrative) lines.push(`\n---\n${report.narrative}`)
           return lines.join("\n")
         },
@@ -2070,10 +2207,229 @@ function _cachedPct() {
 
 // Lazy background refresh — only starts when a hook calls loadCredit() for the first time.
 let _started = false
+let _autoReportCount = 0
 function _lazyRefresh() {
   if (_started) return
   _started = true
   _snapshot()
   _creditTimer = setInterval(_snapshot, 60 * 60 * 1000)
   if (_creditTimer.unref) _creditTimer.unref()
+}
+
+
+// ── trinity rebuild helpers: discover, classify, probe ────────────────
+
+const MODEL_RANK = { high: 3, mid: 2, budget: 1 }
+
+const OPENCODE_GO_CATALOG = [
+  "deepseek/deepseek-v4-flash",
+  "deepseek/deepseek-chat",
+  "deepseek/deepseek-reasoner",
+]
+
+function _loadOpenCodeProviders() {
+  try {
+    const ocConfigPath = join(homedir(), ".config", "opencode", "opencode.json")
+    if (!existsSync(ocConfigPath)) return {}
+    return JSON.parse(readFileSync(ocConfigPath, "utf-8"))?.provider || {}
+  } catch { return {} }
+}
+
+function _modelCost(id) {
+  if (!id) return 0
+  const c = modelCostPerTurn(id)
+  if (c != null) return c
+  const stripped = id.replace(/^(openrouter|opencode|deepseek)\//, "")
+  return modelCostPerTurn(stripped) ?? modelCostPerTurn("deepseek/" + stripped) ?? 0
+}
+
+function _modelTier(id) {
+  if (!id) return "budget"
+  const high = HIGH_TIER_RE?.test?.(id)
+  if (high) return "high"
+  const mid = MID_TIER_RE?.test?.(id)
+  return mid ? "mid" : "budget"
+}
+
+async function discoverAvailableModels(providers, auth) {
+  const all = []
+  const seen = new Set()
+
+  const push = (m) => {
+    if (seen.has(m.id)) return
+    seen.add(m.id)
+    all.push(m)
+  }
+
+  const pushIfNew = (id, provider) => push({ id, provider, cost: _modelCost(id), tier: _modelTier(id) })
+
+  if (providers.deepseek?.models) {
+    for (const rawId of Object.keys(providers.deepseek.models)) {
+      const id = rawId.includes("/") ? rawId : "deepseek/" + rawId
+      pushIfNew(id, "deepseek")
+    }
+  }
+
+  if (auth.deepseek?.key) {
+    try {
+      const res = await fetch("https://api.deepseek.com/models", {
+        headers: { Authorization: "Bearer " + auth.deepseek.key },
+        signal: AbortSignal.timeout(4000)
+      })
+      if (res.ok) {
+        const body = await res.json()
+        const list = body?.data || body?.models || []
+        for (const m of list) {
+          const rawId = (typeof m === "string" ? m : m.id) || ""
+          if (!rawId) continue
+          const id = rawId.includes("/") ? rawId : "deepseek/" + rawId
+          pushIfNew(id, "deepseek")
+        }
+      }
+    } catch {}
+  }
+
+  if (auth.openrouter?.key) {
+    try {
+      const res = await fetch("https://openrouter.ai/api/v1/models", {
+        headers: { Authorization: "Bearer " + auth.openrouter.key },
+        signal: AbortSignal.timeout(5000)
+      })
+      if (res.ok) {
+        const body = await res.json()
+        const list = body?.data || []
+        for (const m of list) {
+          const rawId = m.id
+          if (!rawId) continue
+          const id = "openrouter/" + rawId
+          pushIfNew(id, "openrouter")
+        }
+      }
+    } catch (e) {
+      console.error("[delegation-enforcer] OpenRouter probe failed:", e.message)
+    }
+  }
+
+  for (const id of OPENCODE_GO_CATALOG) {
+    pushIfNew(id, "opencode")
+  }
+
+  return all
+}
+
+export function classifyAndRankModels(models) {
+  if (!models || models.length === 0) return null
+
+  const unique = []
+  const seen = new Set()
+  for (const m of models) {
+    if (seen.has(m.id)) continue
+    seen.add(m.id)
+    unique.push({ ...m })
+  }
+
+  if (unique.length === 0) return null
+
+  unique.sort((a, b) => {
+    const ra = MODEL_RANK[a.tier] || 0
+    const rb = MODEL_RANK[b.tier] || 0
+    return rb !== ra ? rb - ra : b.cost - a.cost
+  })
+
+  const cheapest = [...unique].sort((a, b) => {
+    return a.cost !== b.cost ? a.cost - b.cost : (MODEL_RANK[b.tier] || 0) - (MODEL_RANK[a.tier] || 0)
+  })
+
+  return {
+    brain: unique[0],
+    medium: unique.length > 1 ? unique[1] : unique[0],
+    cheap: cheapest[0],
+  }
+}
+
+export function modelToCcAlias(modelId) {
+  if (!modelId) return "haiku"
+  let m = String(modelId).toLowerCase()
+    .replace(/\./g, "-")  // normalize dots to dashes
+    .replace(/^(openrouter|opencode|deepseek|anthropic|google)\//, "")  // strip known prefixes
+  // Strip nested provider prefix (e.g. "anthropic/claude-sonnet" → "claude-sonnet")
+  m = m.replace(/^(anthropic|google|openai|meta-llama|mistralai|qwen)\//, "")
+
+  const map = {
+    "deepseek-v4-pro": "deepseek-reasoner",
+    "deepseek-v4-flash": "haiku",
+    "deepseek-chat": "haiku",
+    "deepseek-reasoner": "deepseek-reasoner",
+    "deepseek-r1": "deepseek-reasoner",
+    "sonnet": "sonnet",
+    "claude-sonnet": "sonnet",
+    "opus": "opus",
+    "claude-opus": "opus",
+    "haiku": "haiku",
+    "claude-haiku": "haiku",
+    "gemini": "sonnet",
+    "gpt": "sonnet",
+    "qwq": "sonnet",
+  }
+
+  if (map[m]) return map[m]
+  if (m.length < 3) return "haiku"
+  for (const [k, v] of Object.entries(map)) {
+    if (!k || k.length < 3) continue
+    if (m.startsWith(k) || k.startsWith(m)) return v
+  }
+  return "haiku"
+}
+
+async function probeModel(modelId, auth) {
+  if (!modelId || !auth) return true
+
+  const id = String(modelId || "")
+  if (id.startsWith("opencode/")) return true
+
+  let apiUrl, apiKey, reqModel
+
+  if (id.startsWith("deepseek/")) {
+    apiUrl = "https://api.deepseek.com/chat/completions"
+    apiKey = auth.deepseek?.key
+    reqModel = id.replace("deepseek/", "")
+  }
+
+ else if (id.startsWith("openrouter/")) {
+    apiUrl = "https://openrouter.ai/api/v1/chat/completions"
+    apiKey = auth.openrouter?.key
+    reqModel = id.replace("openrouter/", "")
+  } else {
+    return true
+  }
+
+  if (!apiKey) {
+    console.error("[delegation-enforcer] probeModel: no API key for " + id)
+    return false
+  }
+
+  try {
+    const res = await fetch(apiUrl, {
+      method: "POST",
+      headers: {
+        "Authorization": "Bearer " + apiKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: reqModel,
+        messages: [{ role: "user", content: "ok" }],
+        max_tokens: 1,
+      }),
+      signal: AbortSignal.timeout(8000),
+    })
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => "")
+      console.error("[delegation-enforcer] probeModel FAIL " + id + ": HTTP " + res.status + " " + errBody.slice(0, 200))
+      return false
+    }
+    return true
+  } catch (err) {
+    console.error("[delegation-enforcer] probeModel ERROR " + id + ": " + err.message)
+    return false
+  }
 }

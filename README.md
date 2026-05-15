@@ -178,7 +178,7 @@ After purchase you receive a `.tgz` download. Install:
 ```bash
 # Extract to plugins folder
 mkdir -p ~/.config/opencode/plugins
-tar -xzf opencode-delegation-enforcer-0.5.0.tgz -C /tmp/oc-extract
+tar -xzf opencode-delegation-enforcer-0.5.1.tgz -C /tmp/oc-extract
 cp /tmp/oc-extract/package/src/index.js ~/.config/opencode/plugins/delegation-enforcer.js
 cp /tmp/oc-extract/package/src/flow-enforcer.js ~/.config/opencode/plugins/
 cp /tmp/oc-extract/package/src/flow-rules.json ~/.config/opencode/plugins/
@@ -216,15 +216,55 @@ Control everything without leaving the chat window:
 
 | Command | Effect |
 |---|---|
-| `trinity brain` | Switch to brain slot |
-| `trinity medium` | Switch to medium slot |
-| `trinity cheap` | Switch to cheap slot |
+| `trinity` or `trinity status` | Show current state, slot, and model |
+| `trinity rebuild` | **Auto-detect** working models from all providers, probe each with a real API call, then assign to brain/medium/cheap |
+| `trinity brain` | Switch to brain slot (probes the model first) |
+| `trinity medium` | Switch to medium slot (probes the model first) |
+| `trinity cheap` | Switch to cheap slot (probes the model first) |
 | `trinity on` | Enable plugin |
 | `trinity off` | Disable plugin |
 | `trinity thinking full` | Always use extended thinking |
 | `trinity thinking brief` | Complex tasks only |
 | `trinity thinking off` | Never (max savings) |
-| `trinity status` | Show current state |
+| `trinity flow` | Audit flow violations this session |
+| `trinity help` | Show formatted usage with all commands |
+
+### `trinity rebuild` — model auto-detection
+
+`trinity rebuild` scans your configured providers and finds working models:
+
+1. Reads providers from `~/.config/opencode/opencode.json`
+2. For each provider with an API key:
+   - **DeepSeek** — lists configured models + probes the API for additional ones
+   - **OpenRouter** — probes `/api/v1/models` (if API key present)
+   - **OpenCode GO** — uses a known catalog (flash, chat, reasoner)
+3. Ranks models by tier (high → mid → budget), then by cost
+4. **Probes each candidate** with a real API call (`max_tokens: 1`)
+5. Falls back through the ranked list if a model fails the probe
+6. Writes only working models to `~/.claude/model-tiers.json`
+
+Output example:
+```
+🔍 Auto-detected models from configured providers:
+  🧠 brain  → deepseek/deepseek-v4-pro (tier: high, $0.0003/turn) ✅
+  ⚙  medium → deepseek/deepseek-v4-flash (tier: mid, $0.0001/turn) ✅
+  ⚡ cheap  → deepseek/deepseek-chat (tier: budget, $0.0000/turn) ✅
+
+Probe failures (skipped):
+  ❌ brain: openrouter/anthropic/claude-sonnet-4.6
+
+✅ model-tiers.json updated.
+```
+
+### Model probing
+
+Every time you switch slots with `trinity set brain` (or the `trinity brain` shortcut), the plugin sends a **tiny probe** (`max_tokens: 1`) to verify the model responds before committing. If the probe fails, the switch is blocked and you're told why.
+
+This prevents switching to a dead model (expired API key, no credits, wrong ID).
+
+### Auto-welcome banner
+
+At the start of each session, the plugin injects a banner showing the active slot and model, plus a reminder to use `trinity help` for all commands. This appears once per project fingerprint.
 
 ---
 

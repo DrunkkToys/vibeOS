@@ -1351,3 +1351,346 @@ test("integration: full simulated OC session with sonnet-as-brain", async () => 
   assert.equal(taskArgs4.model, "deepseek/deepseek-v4-flash",
     "re-enabled: task routing resumes after re-enabling")
 })
+
+// ════════════════════════════════════════════════════════════════════════════
+// NEW: trinity rebuild helpers — classifyAndRankModels, modelToCcAlias
+// ════════════════════════════════════════════════════════════════════════════
+
+test("classifyAndRankModels: deepseek-only ranked brain>medium>cheap", async () => {
+  const { classifyAndRankModels } = await import("../src/index.js?t=" + Date.now())
+  const models = [
+    { id: "deepseek/deepseek-chat",     provider: "deepseek", cost: 0,       tier: "budget" },
+    { id: "deepseek/deepseek-v4-flash", provider: "deepseek", cost: 0.0001,  tier: "mid" },
+    { id: "deepseek/deepseek-v4-pro",   provider: "deepseek", cost: 0.0003,  tier: "high" },
+  ]
+  const result = classifyAndRankModels(models)
+  assert.ok(result, "result not null")
+  assert.equal(result.brain.id, "deepseek/deepseek-v4-pro",   "brain = v4-pro (high tier, highest cost)")
+  assert.equal(result.medium.id, "deepseek/deepseek-v4-flash", "medium = v4-flash (mid tier)")
+  assert.equal(result.cheap.id, "deepseek/deepseek-chat",      "cheap = chat (budget, lowest cost)")
+})
+
+test("classifyAndRankModels: single model → all slots same", async () => {
+  const { classifyAndRankModels } = await import("../src/index.js?t=" + Date.now())
+  const models = [
+    { id: "deepseek/deepseek-chat", provider: "deepseek", cost: 0, tier: "budget" },
+  ]
+  const result = classifyAndRankModels(models)
+  assert.ok(result, "result not null")
+  assert.equal(result.brain.id, "deepseek/deepseek-chat")
+  assert.equal(result.medium.id, "deepseek/deepseek-chat")
+  assert.equal(result.cheap.id, "deepseek/deepseek-chat")
+})
+
+test("classifyAndRankModels: mid+tier ranked correctly (no high)", async () => {
+  const { classifyAndRankModels } = await import("../src/index.js?t=" + Date.now())
+  const models = [
+    { id: "deepseek/deepseek-chat",     provider: "deepseek", cost: 0,       tier: "budget" },
+    { id: "deepseek/deepseek-v4-flash", provider: "deepseek", cost: 0.0001,  tier: "mid" },
+  ]
+  const result = classifyAndRankModels(models)
+  assert.ok(result, "result not null")
+  assert.equal(result.brain.id, "deepseek/deepseek-v4-flash", "brain = v4-flash (only mid-tier)")
+  assert.equal(result.medium.id, "deepseek/deepseek-chat", "medium = chat (second strongest)")
+  assert.equal(result.cheap.id, "deepseek/deepseek-chat", "cheap = chat (cheapest)")
+})
+
+test("classifyAndRankModels: dedup by id", async () => {
+  const { classifyAndRankModels } = await import("../src/index.js?t=" + Date.now())
+  const models = [
+    { id: "deepseek/deepseek-chat", provider: "deepseek", cost: 0, tier: "budget" },
+    { id: "deepseek/deepseek-chat", provider: "opencode", cost: 0, tier: "budget" }, // duplicate
+    { id: "deepseek/deepseek-v4-pro", provider: "deepseek", cost: 0.0003, tier: "high" },
+  ]
+  const result = classifyAndRankModels(models)
+  assert.ok(result, "result not null")
+  assert.equal(result.brain.id, "deepseek/deepseek-v4-pro", "brain = v4-pro")
+  assert.equal(result.cheap.id, "deepseek/deepseek-chat", "cheap = chat")
+})
+
+test("classifyAndRankModels: null/empty → null", async () => {
+  const { classifyAndRankModels } = await import("../src/index.js?t=" + Date.now())
+  assert.equal(classifyAndRankModels(null), null)
+  assert.equal(classifyAndRankModels([]), null)
+})
+
+test("modelToCcAlias: deepseek models map correctly", async () => {
+  const { modelToCcAlias } = await import("../src/index.js?t=" + Date.now())
+  assert.equal(modelToCcAlias("deepseek/deepseek-v4-pro"), "deepseek-reasoner")
+  assert.equal(modelToCcAlias("deepseek/deepseek-v4-flash"), "haiku")
+  assert.equal(modelToCcAlias("deepseek/deepseek-chat"), "haiku")
+  assert.equal(modelToCcAlias("deepseek/deepseek-reasoner"), "deepseek-reasoner")
+})
+
+test("modelToCcAlias: sonnet models map to sonnet", async () => {
+  const { modelToCcAlias } = await import("../src/index.js?t=" + Date.now())
+  assert.equal(modelToCcAlias("openrouter/anthropic/claude-sonnet-4.6"), "sonnet")
+  assert.equal(modelToCcAlias("claude-sonnet-4.6"), "sonnet")
+})
+
+test("modelToCcAlias: unknown model returns haiku", async () => {
+  const { modelToCcAlias } = await import("../src/index.js?t=" + Date.now())
+  assert.equal(modelToCcAlias("unknown/model-xyz"), "haiku")
+  assert.equal(modelToCcAlias(""), "haiku")
+  assert.equal(modelToCcAlias(null), "haiku")
+})
+
+// ════════════════════════════════════════════════════════════════════════════
+// NEW: applySlot config file integrity
+// ════════════════════════════════════════════════════════════════════════════
+
+test("applySlot: preserves model-tiers.json selection/tiers/pricing blocks", async () => {
+  let origHome = process.env.HOME
+  process.env.HOME = sandbox
+  const { DelegationEnforcer, applySlot } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-applyslot1")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-flash" }))
+
+  const tiersFile = join(sandbox, ".claude/model-tiers.json")
+  writeFileSync(tiersFile, JSON.stringify({
+    selection: { enabled: true, active_slot: "medium", thinking_level: "off", flow_enabled: true, monthly_budget_usd: 50 },
+    trinity: {
+      brain:  { oc: "deepseek/deepseek-v4-pro", cc: "deepseek-reasoner" },
+      medium: { oc: "deepseek/deepseek-v4-flash", cc: "haiku" },
+      cheap:  { oc: "deepseek/deepseek-chat", cc: "haiku" },
+    },
+    tiers: {
+      high:   { regex: "opus|deepseek.*v4.*pro|gpt-5" },
+      mid:    { regex: "claude.*sonnet|deepseek.*v4.*flash" },
+      budget: { regex: ".*" },
+    },
+    pricing: {
+      deepseek: { chat: 0, "v4-flash": 0.0001, "v4-pro": 0.0003 },
+      openrouter: {},
+    },
+  }))
+
+  //   let origHome = process.env.HOME
+  process.env.HOME = sandbox
+  try {
+    const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+    const result = applySlot("brain")
+    assert.ok(result.ok, `applySlot returned ok: ${JSON.stringify(result)}`)
+  } finally {
+    process.env.HOME = origHome
+  }
+
+  // Verify model-tiers.json is fully preserved
+  const after = JSON.parse(readFileSync(tiersFile, "utf-8"))
+  assert.equal(after.selection.active_slot, "brain", "active_slot updated to brain")
+  assert.equal(after.selection.enabled, true, "selection.enabled preserved")
+  assert.equal(after.selection.thinking_level, "off", "selection.thinking_level preserved")
+  assert.equal(after.selection.flow_enabled, true, "selection.flow_enabled preserved")
+  assert.equal(after.selection.monthly_budget_usd, 50, "selection.monthly_budget_usd preserved")
+  assert.equal(after.tiers.high.regex, "opus|deepseek.*v4.*pro|gpt-5", "tiers.high preserved")
+  assert.equal(after.tiers.mid.regex, "claude.*sonnet|deepseek.*v4.*flash", "tiers.mid preserved")
+  assert.equal(after.tiers.budget.regex, ".*", "tiers.budget preserved")
+  assert.equal(after.pricing.deepseek.chat, 0, "pricing.deepseek.chat preserved")
+  assert.equal(after.pricing.deepseek["v4-pro"], 0.0003, "pricing.deepseek.v4-pro preserved")
+  assert.equal(after.trinity.brain.oc, "deepseek/deepseek-v4-pro", "trinity.brain preserved")
+  process.env.HOME = origHome
+})
+
+test("applySlot: preserves opencode.json all fields (only model changes)", async () => {
+  let origHome = process.env.HOME
+  process.env.HOME = sandbox
+  const { DelegationEnforcer, applySlot } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-applyslot2")
+  mkdirSync(dir, { recursive: true })
+
+  // Write opencode.json with full realistic content
+  const ocConfigDir = join(sandbox, ".config/opencode")
+  mkdirSync(ocConfigDir, { recursive: true })
+  const ocConfigPath = join(ocConfigDir, "opencode.json")
+  writeFileSync(ocConfigPath, JSON.stringify({
+    "$schema": "https://opencode.ai/config.json",
+    "instructions": ["~/.config/opencode/AGENTS.md"],
+    "plugin": ["./plugins/delegation-enforcer.js"],
+    "model": "deepseek/deepseek-v4-flash",
+    "mcp": {
+      "context7": {
+        "type": "local",
+        "command": ["node", "context7-mcp"]
+      }
+    },
+    "provider": {
+      "opencode": {},
+      "deepseek": {
+        "models": {
+          "deepseek-v4-pro": {},
+          "deepseek-v4-flash": {},
+          "deepseek-chat": {},
+          "deepseek-reasoner": {}
+        }
+      }
+    }
+  }))
+
+  // model-tiers must exist with trinity block
+  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+    trinity: {
+      brain:  { oc: "deepseek/deepseek-v4-pro", cc: "deepseek-reasoner" },
+      medium: { oc: "deepseek/deepseek-v4-flash", cc: "haiku" },
+      cheap:  { oc: "deepseek/deepseek-chat", cc: "haiku" },
+    },
+    selection: { enabled: true, active_slot: "medium" },
+    tiers: { high: { regex: "." }, mid: { regex: "." }, budget: { regex: "." } },
+  }))
+
+  const result = applySlot("brain")
+  assert.ok(result.ok, `applySlot returned ok: ${JSON.stringify(result)}`)
+
+  const after = JSON.parse(readFileSync(ocConfigPath, "utf-8"))
+  assert.equal(after.model, "deepseek/deepseek-v4-pro", "model updated to brain slot")
+  assert.equal(after["$schema"], "https://opencode.ai/config.json", "schema preserved")
+  assert.deepEqual(after.provider, {
+    opencode: {},
+    deepseek: {
+      models: {
+        "deepseek-v4-pro": {},
+        "deepseek-v4-flash": {},
+        "deepseek-chat": {},
+        "deepseek-reasoner": {}
+      }
+    }
+  }, "provider models fully preserved — models not deleted from dropdown")
+  assert.deepEqual(after.mcp.context7.command, ["node", "context7-mcp"], "mcp preserved")
+  assert.deepEqual(after.plugin, ["./plugins/delegation-enforcer.js"], "plugin list preserved")
+  process.env.HOME = origHome
+})
+
+// ════════════════════════════════════════════════════════════════════════════
+// NEW: Welcome banner injection via system.transform
+// ════════════════════════════════════════════════════════════════════════════
+
+test("system.transform: welcome banner injected once per project", async () => {
+  // Write a proper model-tiers.json so the banner reads active slot
+  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+    trinity: {
+      brain:  { oc: "deepseek/deepseek-v4-pro", cc: "deepseek-reasoner" },
+      medium: { oc: "deepseek/deepseek-v4-flash", cc: "haiku" },
+      cheap:  { oc: "deepseek/deepseek-chat", cc: "haiku" },
+    },
+    selection: { enabled: true, active_slot: "medium" },
+    tiers: { high: { regex: "." }, mid: { regex: "." }, budget: { regex: "." } },
+  }))
+
+  const { DelegationEnforcer } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-welcome")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-flash" }))
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+
+  const out1 = { system: [] }
+  await hooks["experimental.chat.system.transform"]({}, out1)
+  const hasWelcome = out1.system.some(s => typeof s === "string" && s.includes("theSaver") && s.includes("trinity help"))
+  assert.ok(hasWelcome, "welcome banner present in first call: " + JSON.stringify(out1.system))
+
+  // Second call for same project → banner NOT injected again (one-shot)
+  const out2 = { system: [] }
+  await hooks["experimental.chat.system.transform"]({}, out2)
+  const hasWelcome2 = out2.system.some(s => typeof s === "string" && s.includes("theSaver") && s.includes("trinity help"))
+  assert.ok(!hasWelcome2, "welcome banner NOT re-injected on second call")
+})
+
+// ════════════════════════════════════════════════════════════════════════════
+// NEW: Auto-save session reports every 5 messages
+// ════════════════════════════════════════════════════════════════════════════
+
+test("text.complete: auto-saves report every 5 messages", async () => {
+  let origHome = process.env.HOME
+  process.env.HOME = sandbox
+  const { DelegationEnforcer, listReports } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-autosave")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "anthropic/claude-opus-4-7" }))
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+
+  writeFileSync(join(sandbox, ".claude/delegation-state.json"), JSON.stringify({
+    lifetime: { warn_count: 5, scratchpad_hits_observed: 3, missed_context7_usd: 0.01, last_updated: "now" },
+    sessions: {
+      ["test-session-" + process.pid]: {
+        warns: [{ est_savings_usd: 0.10, reason: "direct edit proxy" }],
+        cache_savings_usd: 0.50,
+        cost_usd: 0.12,
+      }
+    }
+  }))
+
+  // Call text.complete 5 times with unique messageIDs
+    for (let i = 1; i <= 5; i++) {
+      await hooks["experimental.text.complete"]({ messageID: "auto-msg-" + i }, { text: "Ok." })
+    }
+
+    // Check that a session report was auto-saved
+    const { readReport } = await import("../src/index.js?t=" + Date.now())
+    const allReps = listReports({ hours: 999 })
+    assert.ok(allReps.length >= 1, "at least 1 total report exists, got " + allReps.length)
+    const reports = listReports({ type: "session", hours: 999 })
+    assert.ok(reports.length >= 1, "session report exists, got " + reports.length)
+    if (reports.length > 0) {
+      const id = reports[0].id
+      const full = readReport(id)
+      assert.ok(full, "report readable")
+      assert.ok(full.summary.includes("Session cost") || full.summary.includes("saved"),
+        "report summary shows cost/savings: " + full.summary)
+      assert.ok(full.tags && full.tags.includes("auto"),
+        "report tagged as auto-generated")
+    }
+})
+
+// ════════════════════════════════════════════════════════════════════════════
+// NEW: report-list and report-read show cost breakdown
+// ════════════════════════════════════════════════════════════════════════════
+
+test("report-list/read: auto-report shown with cost/savings metrics", async () => {
+  const { DelegationEnforcer, saveReport, listReports, readReport } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-reportfmt")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-flash" }))
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+
+  // Manually save a session report with the same format as auto-save
+  const id = saveReport({
+    type: "session",
+    summary: "Session cost: $0.42 | saved: $1.80 | 12 tasks",
+    metrics: {
+      sessionCost: 0.42,
+      cacheSavings: 1.80,
+      tasksDelegated: 12,
+      model: "deepseek/deepseek-v4-pro",
+      slot: "brain",
+      editSavings: 0.05,
+      creditSavings: 0.10,
+      context7Savings: 0.03,
+    },
+    tags: ["auto", "cost"],
+  })
+  assert.ok(id, "report saved")
+
+  // listReports should include it
+  const reports = listReports({ type: "session", hours: 1 })
+  assert.ok(reports.length >= 1, "report appears in list")
+  const found = reports.find(r => r.id === id)
+  assert.ok(found, "saved report found in list")
+  assert.ok(found.summary.includes("$0.42"), "list shows cost: " + found.summary)
+
+  // readReport should show metrics breakdown
+  const full = readReport(id)
+  assert.ok(full, "report readable")
+  assert.equal(full.metrics.sessionCost, 0.42, "metrics.sessionCost")
+  assert.equal(full.metrics.cacheSavings, 1.80, "metrics.cacheSavings")
+  assert.equal(full.metrics.tasksDelegated, 12, "metrics.tasksDelegated")
+  assert.equal(full.metrics.model, "deepseek/deepseek-v4-pro", "metrics.model")
+  assert.equal(full.metrics.slot, "brain", "metrics.slot")
+})
+
+// ════════════════════════════════════════════════════════════════════════════
+// NEW: Probe model — verify API endpoint resolution
+// ════════════════════════════════════════════════════════════════════════════
+
+test("probeModel: opencode models skipped (assumed ok)", { skip: "requires mocking fetch" }, () => {})
+
+test("discoverAvailableModels: deepseek models from provider config", { skip: "requires API access" }, () => {})
+
