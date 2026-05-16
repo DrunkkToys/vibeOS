@@ -1,3 +1,7 @@
+## 0.7.12
+- chore: TDD strict defaults, flow enforcer improvements, release tooling
+
+
 # Changelog
 
 ## 0.7.10
