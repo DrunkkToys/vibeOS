@@ -23,7 +23,8 @@
     "fallback": "medium",
     "enabled": true,
     "active_slot": "brain",
-    "delegation_enforce": true
+    "delegation_enforce": true,
+    "tdd_strict": true
   },
   "tiers": {
     "high": {

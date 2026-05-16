@@ -25,6 +25,7 @@ import { homedir } from "node:os"
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import { checkFlowRules, getFlowWarns, getSessionFlowCounts } from "./theSaver-lib/flow-enforcer.js"
+import { computeSessionMetrics } from "./theSaver-lib/session-metrics.js"
 
 // Minimal self-contained tool helper — avoids @opencode-ai/plugin dependency
 // so the plugin works immediately on any install without bun/npm.
@@ -1467,105 +1468,7 @@ function readLifetimeSavings() {
     const mtime = statSync(STATE_FILE).mtimeMs
     if (_savingsCache && mtime === _savingsCacheMtime) return _savingsCache
     const s = JSON.parse(readFileSync(STATE_FILE, "utf-8"))
-
-    // Compute ALL totals from session data atomically — never from separate lifetime fields
-    // written by different processes. This eliminates the savings-counter bounce.
-    let ltTasks = 0; let ltCache = 0; let ltCost = 0; let totalWarnCount = 0
-    const sessionRates = []
-    for (const [sid, ses] of Object.entries(s?.sessions || {})) {
-      // Delegation savings from warns
-      const warns = Array.isArray(ses?.warns) ? ses.warns : []
-      totalWarnCount += warns.length
-      for (const w of warns) ltTasks += Number(w.est_savings_usd ?? 0)
-      // Cache savings and costs from costed sessions
-      ltCache += Number(ses?.cache_savings_usd ?? 0)
-      ltCost  += Number(ses?.cost_usd ?? 0)
-      // Compute session rate for trend analysis
-      if (ses?.started) {
-        const elapsed = (Date.now() - new Date(ses.started).getTime()) / 3600000
-        const sesTotal = warns.reduce((a, w) => a + Number(w.est_savings_usd ?? 0), 0) + Number(ses?.cache_savings_usd ?? 0)
-        if (elapsed > 0.05) sessionRates.push(sesTotal / elapsed)
-      }
-    }
-
-    // Backward-compat safety: preserve legacy lifetime cache aggregate
-    // if session-level cache fields are absent (older schemas).
-    const legacyLifetimeCache = Number(s?.lifetime?.cache_savings_usd ?? 0)
-    if (ltCache <= 0 && legacyLifetimeCache > 0) {
-      ltCache = legacyLifetimeCache
-    }
-
-    // Per-warn-type session totals (current process only)
-    const ses = s?.sessions?.[_OC_SID]
-    const warns = Array.isArray(ses?.warns) ? ses.warns : []
-    const sesTasks = warns.reduce((a, w) => a + Number(w.est_savings_usd ?? 0), 0)
-    const sesEdit   = warns.filter(w => w.reason?.includes("direct edit")).reduce((a, w) => a + Number(w.est_savings_usd ?? 0), 0)
-    const sesCredit = warns.filter(w => w.reason?.includes("credit")).reduce((a, w)    => a + Number(w.est_savings_usd ?? 0), 0)
-    const sesC7     = warns.filter(w => w.reason?.includes("context7")).reduce((a, w)  => a + Number(w.est_savings_usd ?? 0), 0)
-    const sesQuota  = warns.filter(w => w.reason?.includes("quota")).reduce((a, w)     => a + Number(w.est_savings_usd ?? 0), 0)
-
-    // Per-tool breakdown for current session
-    const sesToolBreakdown = {}
-    for (const w of warns) {
-      const tool = w.tool || "unknown"
-      sesToolBreakdown[tool] = (sesToolBreakdown[tool] || 0) + Number(w.est_savings_usd ?? 0)
-    }
-    // Round and sort by savings descending
-    for (const k of Object.keys(sesToolBreakdown)) {
-      sesToolBreakdown[k] = Math.round(sesToolBreakdown[k] * 100) / 100
-    }
-
-    // Session duration
-    let sesDuration = 0
-    let sesRatePerHour = 0
-    if (ses?.started) {
-      sesDuration = (Date.now() - new Date(ses.started).getTime()) / 1000
-      const sesTotal = sesTasks + Number(ses?.cache_savings_usd ?? 0)
-      const hours = sesDuration / 3600
-      sesRatePerHour = hours > 0 ? sesTotal / hours : 0
-    }
-
-    // Trend: compare current session rate vs average of previous sessions
-    let sesTrend = "stable"
-    if (sessionRates.length >= 2) {
-      const currentRate = sessionRates[sessionRates.length - 1]
-      const prevRates = sessionRates.slice(0, -1)
-      const avgPrev = prevRates.reduce((a, b) => a + b, 0) / prevRates.length
-      const diff = currentRate - avgPrev
-      const threshold = 0.15 // 15% change to trigger trend
-      if (avgPrev > 0) {
-        const pctChange = diff / avgPrev
-        if (pctChange > threshold) sesTrend = "up"
-        else if (pctChange < -threshold) sesTrend = "down"
-      }
-    }
-
-    // Model turn tracking (from tool_counts heuristics)
-    const sesModelTurns = { brain: 0, worker: 0 }
-    if (ses?.tool_counts) {
-      // Brain turns: direct tool usage (write, edit, bash, webfetch, websearch)
-      const brainTools = ["write", "edit", "notebookedit", "bash", "webfetch", "websearch"]
-      for (const t of brainTools) {
-        sesModelTurns.brain += Number(ses.tool_counts[t] || 0)
-      }
-      // Worker turns: task delegations
-      sesModelTurns.worker = Number(ses.tool_counts.task || 0)
-    }
-
-    _savingsCache = {
-      ltTasks: Math.round(ltTasks * 100) / 100,
-      ltCache: Math.round(ltCache * 100) / 100,
-      ltCost:  Math.round(ltCost * 100) / 100,
-      count:   totalWarnCount,
-      scratchpadHits: Number(s?.lifetime?.scratchpad_hits_observed ?? 0),
-      missedC7:       Number(s?.lifetime?.missed_context7_usd      ?? 0),
-      sesTasks, sesEdit, sesCredit, sesC7, sesQuota,
-      sesDuration: Math.round(sesDuration),
-      sesRatePerHour: Math.round(sesRatePerHour * 100) / 100,
-      sesTrend,
-      sesToolBreakdown,
-      sesModelTurns,
-    }
+    _savingsCache = computeSessionMetrics(s, _OC_SID)
     _savingsCacheMtime = mtime
     return _savingsCache
   } catch { return empty }
@@ -2003,8 +1906,11 @@ export async function DelegationEnforcer({ client, directory }) {
       if (_activeSlot === "brain") {
         const _brainOcModel = _tiersData?.trinity?.brain?.oc || ""
         if (_brainOcModel && currentModel === _brainOcModel && !PLACEHOLDER_RE.test(_brainOcModel)) {
-          currentTier = "high"
-          console.error(`[theSaver] tier override → high (brain slot)`)
+          const cost = modelCostPerTurn(_brainOcModel)
+          if (HIGH_TIER_RE.test(_brainOcModel) || (cost !== null && cost >= 0.01)) {
+            currentTier = "high"
+            console.error(`[theSaver] tier override → high (brain slot)`)
+          }
         }
       }
     } catch {}
@@ -2191,7 +2097,12 @@ export async function DelegationEnforcer({ client, directory }) {
       const stripped = text.replace(/\n\n— .+(?: —)?$/, "")
       const ltTotal = ltTasks + ltCache
       const trendIcon = sesTrend === "down" ? "↓" : sesTrend === "up" ? "↑" : "→"
-      const footerText = stripped + `\n\n— ${modelTag} | theSaver: ${ltTotal.toFixed(2)} saved ${trendIcon} —`
+      let footerText
+      if (ltTotal > 0) {
+        footerText = stripped + `\n\n— ${modelTag} | theSaver: ${ltTotal.toFixed(2)} saved ${trendIcon} —`
+      } else {
+        footerText = stripped + `\n\n— ${brainTag} —`
+      }
       if (typeof output?.text === "string") output.text = footerText
       else if (typeof output?.result === "string") output.result = footerText
       else if (typeof output?.content === "string") output.content = footerText
@@ -2261,8 +2172,8 @@ export async function DelegationEnforcer({ client, directory }) {
         // key name is used for model. Update both input/output arg objects and
         // all known key variants so routing sticks.
         const targetArgs = (
-          input?.args ? input.args
-          : inArgs ? inArgs
+          args ? args
+          : input?.args ? input.args
           : {}
         )
         const _prompt = (targetArgs?.prompt ?? "").trim().toLowerCase()
@@ -2489,7 +2400,7 @@ export async function DelegationEnforcer({ client, directory }) {
 
         // Flow enforcer: check Write/Edit against development-flow rules.
         if (sel.flow_enabled) {
-          const toolName = t === "edit" ? "Edit" : "Write"
+          const toolName = t === "edit" ? "edit" : "write"
           const filePath = input?.args?.filePath || input?.args?.file_path || input?.args?.path || ""
           const content = t === "edit" ? (input?.args?.newString || "") : (input?.args?.content || "")
           const flowHits = checkFlowRules({ tool: toolName, filePath, content })

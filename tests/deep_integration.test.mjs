@@ -14,7 +14,7 @@ mkdirSync(join(sandbox, ".local/share/opencode"), { recursive: true })
 writeFileSync(join(sandbox, ".config/opencode/opencode.json"), JSON.stringify({
   "$schema": "https://opencode.ai/config.json",
   "instructions": ["~/.config/opencode/AGENTS.md"],
-  "plugin": ["./plugins/delegation-enforcer.js"],
+  "plugin": ["./plugins/theSaver"],
   "model": "deepseek/deepseek-v4-flash",
   "mcp": { "context7": { "type": "local", "command": ["node", "context7-mcp"] } },
   "provider": {
@@ -28,7 +28,7 @@ writeFileSync(join(sandbox, ".config/opencode/opencode.json"), JSON.stringify({
 
 writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
   "$schema_version": 1,
-  "_comment": "Single source of truth for delegation-enforcer model classification.",
+  "_comment": "Single source of truth for theSaver model classification.",
   "selection": {
     "active_slot": "medium", "enabled": true, "thinking_level": "off",
     "flow_enabled": true, "monthly_budget_usd": 50
@@ -159,7 +159,7 @@ test("applySlot: writes model, preserves all config blocks", async () => {
   const oc = JSON.parse(readFileSync(join(sandbox, ".config/opencode/opencode.json"), "utf-8"))
   assert.equal(oc.model, "deepseek/deepseek-v4-pro")
   assert.ok(oc["$schema"])
-  assert.deepEqual(oc.plugin, ["./plugins/delegation-enforcer.js"])
+  assert.deepEqual(oc.plugin, ["./plugins/theSaver"])
   assert.deepEqual(Object.keys(oc.provider.deepseek.models), ["deepseek-v4-pro", "deepseek-v4-flash", "deepseek-chat", "deepseek-reasoner"], "dropdown preserved")
   const tiers = JSON.parse(readFileSync(join(sandbox, ".claude/model-tiers.json"), "utf-8"))
   assert.equal(tiers.selection.active_slot, "brain")
@@ -207,10 +207,10 @@ test("system.transform: context7 + welcome banner (one-shot)", async () => {
   const o1 = { system: [] }
   await hooks["experimental.chat.system.transform"]({}, o1)
   assert.ok(o1.system.some(s => typeof s === 'string' && s.includes("context7")))
-  assert.ok(o1.system.some(s => typeof s === 'string' && s.includes("theSaver")))
+  assert.ok(o1.system.some(s => typeof s === 'string' && s.includes("Active plugin")), "welcome banner present")
   const o2 = { system: [] }
   await hooks["experimental.chat.system.transform"]({}, o2)
-  assert.ok(!o2.system.some(s => typeof s === 'string' && s.includes("theSaver")), "banner one-shot")
+  assert.ok(!o2.system.some(s => typeof s === 'string' && s.includes("Active plugin")), "banner one-shot")
 })
 
 test("text.complete: footer + auto-save + dedup", async () => {

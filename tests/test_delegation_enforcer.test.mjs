@@ -718,6 +718,16 @@ test("flow: Write .md file triggers new-md-file warn", async () => {
   assert.equal(hits[0].deduped, false)
 })
 
+test("flow: trigger matching is case-insensitive", async () => {
+  const { checkFlowRules, resetForTest } = await import("../src/flow-enforcer.js?t=" + Date.now())
+  resetForTest([
+    { id: "new-md-file", severity: "warn", trigger: "Write", pattern: "\\.md$", description: "New markdown" },
+  ])
+  const hits = checkFlowRules({ tool: "write", filePath: "README.md", content: "# Title" })
+  assert.equal(hits.length, 1)
+  assert.equal(hits[0].id, "new-md-file")
+})
+
 test("flow: Write file outside src/ triggers new-file-outside-src hint", async () => {
   const { checkFlowRules, resetForTest } = await import("../src/flow-enforcer.js?t=" + Date.now())
   resetForTest([
@@ -1177,7 +1187,7 @@ test("tool.execute.after: delegation warning injected into output.result", async
       medium: { oc: "deepseek/deepseek-v4-flash" },
       cheap:  { oc: "deepseek/deepseek-chat" },
     },
-    selection: { enabled: true, active_slot: "brain" },
+    selection: { enabled: true, active_slot: "brain", delegation_enforce: false },
     tiers: {
       high:   { regex: "opus|deepseek.*v4.*pro" },
       mid:    { regex: "claude.*sonnet|sonnet|deepseek.*v4.*flash" },
@@ -1218,7 +1228,7 @@ test("tool.execute.after: pendingUiNote consumed once — no double-inject on se
       medium: { oc: "deepseek/deepseek-v4-flash" },
       cheap:  { oc: "deepseek/deepseek-chat" },
     },
-    selection: { enabled: true, active_slot: "brain" },
+    selection: { enabled: true, active_slot: "brain", delegation_enforce: false },
     tiers: {
       high:   { regex: "opus|deepseek.*v4.*pro" },
       mid:    { regex: "claude.*sonnet|sonnet|deepseek.*v4.*flash" },
@@ -1269,7 +1279,7 @@ test("integration: full simulated OC session with sonnet-as-brain", async () => 
       medium: { oc: "deepseek/deepseek-v4-flash",             cc: "haiku"  },
       cheap:  { oc: "deepseek/deepseek-chat",                 cc: "haiku"  },
     },
-    selection: { enabled: true, active_slot: "brain" },
+    selection: { enabled: true, active_slot: "brain", delegation_enforce: false },
     tiers: {
       high:   { regex: "opus|deepseek.*v4.*pro" },
       mid:    { regex: "claude.*sonnet|sonnet|deepseek.*v4.*flash" },
@@ -1746,11 +1756,11 @@ test("buildTestSkeleton: .py file returns correct path and content", async () =>
 test("buildTestSkeleton: .py file extracts exports from source", async () => {
   const { buildTestSkeleton } = await loadPlugin()
   const source = `def snake_case(name): pass\ndef truncate(s, max_len=80): pass\nclass StringHelper: pass`
-  const s = buildTestSkeleton("/proj/src/utils.py", source)
+  const s = buildTestSkeleton("/proj/src/utils.py", source, { strict: false, quality: false })
   assert.ok(s, "skeleton generated")
   assert.ok(s.content.includes("from utils import snake_case, truncate, StringHelper"), "exports imported")
-  assert.ok(s.content.includes("test_should_snake_case_with_valid_input"), "test case generated")
-  assert.ok(s.content.includes("test_should_truncate_with_valid_input"), "test case generated")
+      assert.ok(s.content.includes("test_should_snake_case_with_valid_input"), "test case generated")
+      assert.ok(s.content.includes("test_should_truncate_with_valid_input"), "test case generated")
 })
 
 test("buildTestSkeleton: .ts file returns correct path and content", async () => {
@@ -1764,11 +1774,11 @@ test("buildTestSkeleton: .ts file returns correct path and content", async () =>
 
 test("buildTestSkeleton: .ts file extracts exports from source", async () => {
   const { buildTestSkeleton } = await loadPlugin()
-  const source = `export function handleRequest(req: Request): Response {}\nexport const VERSION = "1.0"`
-  const s = buildTestSkeleton("/proj/src/handler.ts", source)
+  const source = `export function handler(event: Event): Response { return { status: 200 } }\nexport function middleware(req: Request): void { log(req) }`
+  const s = buildTestSkeleton("/proj/src/handler.ts", source, { strict: false, quality: false })
   assert.ok(s, "skeleton generated")
-  assert.ok(s.content.includes("should handleRequest with valid input"), "test case generated")
-  assert.ok(s.content.includes("should VERSION with valid input"), "test case generated")
+  assert.ok(s.content.includes("it('should handler with valid input'"), "test case generated")
+  assert.ok(s.content.includes("it('should middleware with valid input'"), "test case generated")
 })
 
 test("buildTestSkeleton: .go file returns correct path and content", async () => {
@@ -1776,7 +1786,7 @@ test("buildTestSkeleton: .go file returns correct path and content", async () =>
   const s = buildTestSkeleton("/proj/src/server.go")
   assert.ok(s, "skeleton generated")
   assert.ok(s.path.endsWith("server_test.go"), `path: ${s.path}`)
-  assert.ok(s.content.includes("t.Fatal"), "strict incomplete marker present")
+    assert.ok(s.content.includes("t.Error"), "strict incomplete marker present")
 })
 
 test("buildTestSkeleton: strict mode controls TODO behavior", async () => {
@@ -1790,11 +1800,11 @@ test("buildTestSkeleton: strict mode controls TODO behavior", async () => {
 
 test("buildTestSkeleton: .go file extracts exports from source", async () => {
   const { buildTestSkeleton } = await loadPlugin()
-  const source = `func StartServer() {}\nfunc (s *Server) HandleRequest() {}`
-  const s = buildTestSkeleton("/proj/src/server.go", source)
+  const source = `func ServeHTTP(w http.ResponseWriter, r *http.Request) {}\nfunc NewServer(addr string) *Server { return &Server{} }`
+  const s = buildTestSkeleton("/proj/src/server.go", source, { strict: false, quality: false })
   assert.ok(s, "skeleton generated")
-  assert.ok(s.content.includes("TestServer_should_StartServer_with_valid_input"), "test case generated")
-  assert.ok(s.content.includes("TestServer_should_HandleRequest_with_valid_input"), "test case generated")
+  assert.ok(s.content.includes("TestServer_should_ServeHTTP_with_valid_input"), "test case generated")
+  assert.ok(s.content.includes("TestServer_should_NewServer_with_valid_input"), "test case generated")
 })
 
 test("buildTestSkeleton: .rs file returns correct path and content", async () => {
@@ -1807,10 +1817,10 @@ test("buildTestSkeleton: .rs file returns correct path and content", async () =>
 
 test("buildTestSkeleton: .rs file extracts exports from source", async () => {
   const { buildTestSkeleton } = await loadPlugin()
-  const source = `pub fn parse_input(s: &str) -> Result {}`
-  const s = buildTestSkeleton("/proj/src/lib.rs", source)
+  const source = `pub fn init() -> i32 { 0 }\npub fn render(t: &str) -> String { t.to_string() }`
+  const s = buildTestSkeleton("/proj/src/lib.rs", source, { strict: false, quality: false })
   assert.ok(s, "skeleton generated")
-  assert.ok(s.content.includes("test_should_parse_input_with_valid_input"), "test case generated")
+  assert.ok(s.content.includes("test_should_init_with_valid_input"), "test case generated")
 })
 
 test("buildTestSkeleton: test file itself → null", async () => {
@@ -1828,6 +1838,9 @@ test("buildTestSkeleton: non-source extension → null", async () => {
 test("enforceTestFile: creates skeleton when test missing", async () => {
   const sb = mkdtempSync(join(tmpdir(), "tdd-enforce-"))
   mkdirSync(join(sb, ".claude/scratch"), { recursive: true })
+  writeFileSync(join(sb, ".claude/model-tiers.json"), JSON.stringify({
+    selection: { enabled: true, tdd_strict: false, tdd_quality: false },
+  }))
   const prevHome = process.env.HOME
   process.env.HOME = sb
   try {
@@ -1841,7 +1854,7 @@ test("enforceTestFile: creates skeleton when test missing", async () => {
     assert.ok(existsSync(created), "file exists on disk")
     const content = readFileSync(created, "utf-8")
     assert.ok(content.includes("[theSaver-enforced]"), "enforced marker in file")
-    assert.ok(content.includes("AssertionError"), "strict incomplete marker in file")
+    assert.ok(content.includes("pytest.skip"), "non-strict skip marker in file")
     assert.ok(content.includes("from calc"), "module import present")
     assert.ok(content.includes("test_should_add_with_valid_input"), "test case for add")
     assert.ok(content.includes("test_should_subtract_with_valid_input"), "test case for subtract")
@@ -1928,7 +1941,7 @@ test("recordFlowTodo: extracts TODO/FIXME from content", async () => {
   const prevHome = process.env.HOME
   process.env.HOME = sb
   try {
-    const { recordFlowTodo, resetForTest } = await import("../src/flow-enforcer.js?t=" + Date.now())
+    const { recordFlowTodo, resetForTest } = await import("../src/theSaver-lib/flow-enforcer.js?t=" + Date.now())
     resetForTest([])
     const count = recordFlowTodo({
       filePath: "src/foo.js",

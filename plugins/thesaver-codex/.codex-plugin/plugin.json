@@ -1,0 +1,36 @@
+{
+  "name": "thesaver-codex",
+  "version": "0.1.0",
+  "description": "Codex companion plugin for theSaver: reusable guard scripts, hook entrypoints, and cost/safety workflow conventions.",
+  "author": {
+    "name": "theSaver"
+  },
+  "homepage": "https://github.com/DrunkkToys/theSaver-oc",
+  "repository": "https://github.com/DrunkkToys/theSaver-oc",
+  "license": "MIT",
+  "keywords": [
+    "codex",
+    "plugin",
+    "hooks",
+    "thesaver",
+    "guardrails"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "theSaver Codex",
+    "shortDescription": "Hook and guardrail toolkit for Codex workflows",
+    "longDescription": "Adds lightweight hook scripts and usage guidance to enforce consistent, low-risk coding workflows with theSaver conventions in Codex.",
+    "developerName": "theSaver",
+    "category": "Engineering",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/DrunkkToys/theSaver-oc",
+    "defaultPrompt": [
+      "Run theSaver Codex pre-commit guard",
+      "Summarize staged changes with theSaver hook"
+    ],
+    "brandColor": "#1f6feb"
+  }
+}

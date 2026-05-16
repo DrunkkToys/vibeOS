@@ -1,333 +1,117 @@
-# theSaver — OpenCode
+# theSaver for OpenCode
 
-Cost-aware plugin for [OpenCode](https://opencode.ai).
+Cost-aware delegation and policy plugin for OpenCode Desktop.
 
-Three-tier model routing, prompt-cache savings tracking, and a live cost footer appended to every assistant response — without ever blocking a tool call.
+`theSaver` helps keep expensive model usage under control by enforcing delegation behavior, tracking savings, and exposing runtime controls through the `trinity` tool.
 
----
+## Version
 
-## The problem it solves
+Current package version: `0.7.11`
 
-Running a capable brain model for every message is expensive and unnecessary. Most work in a session — searches, file edits, subagent tasks — doesn't need the full brain. theSaver intercepts that work, routes it to a cheaper worker, and tracks exactly how much you saved in real time.
+## What It Does
 
----
+- Tracks estimated savings from delegation warnings and enforcement events.
+- Tracks cache savings as a separate persisted category when scratchpad cache hits are observed.
+- Adds a live footer to assistant outputs with model split, cumulative savings, and trend arrow.
+- Provides `trinity` runtime controls for slot switching, enforcement toggles, audits, and diagnostics.
+- Adds optional flow checks and TDD skeleton enforcement.
+- Adds report and research-audit tooling.
 
-## Three tiers, one workflow
+## Runtime Model Slots
 
-```
-🧠 Brain   — orchestrates, judges, synthesises (your main OC model)
-⚙  Medium  — capable mid-tier for complex subtasks
-⚡ Cheap   — fast, cheap worker for all heavy lifting
-```
+Slots are configured in `~/.claude/model-tiers.json`:
 
-### How they work together
+- `brain`
+- `medium`
+- `cheap`
 
-**You stay on the brain.** theSaver automatically routes Task subagents to the cheap slot and injects a once-per-session judge directive: the brain orchestrates and verifies; the worker implements.
+On startup, the plugin detects the active model/slot from `model-tiers.json`. No automatic slot switching occurs; use `trinity set <slot>` or `trinity rebuild` to change slots.
 
-```
-You ask: "build a data pipeline and write tests"
+## Savings Categories (Persisted)
 
-Brain (high-tier)
-  ├── delegates pipeline implementation → Task subagent (budget-tier) ⚡
-  ├── delegates test writing            → Task subagent (budget-tier) ⚡
-  └── reviews output, fills gaps, delivers final answer
-```
+State file: `~/.claude/delegation-state.json`
 
-**Real example savings per session:**
+- Delegation savings:
+  - `sessions[...].warns[].est_savings_usd`
+  - aggregated into footer totals
+- Cache savings:
+  - `sessions[...].cache_savings_usd`
+  - `lifetime.cache_savings_usd`
+  - optional `sessions[...].cache_hits[]` audit entries
+- Context7 missed-savings tracker:
+  - `lifetime.missed_context7_usd`
 
-| Work type | Brain cost | With theSaver |
-|---|---|---|
-| 50 tool calls (search, edit) | ~$0.80 | ~$0.12 (budget worker) |
-| 20 web fetches | ~$0.40 | ~$0.06 (budget worker) |
-| Prompt cache hits | paid at input rate | **paid at cache rate (10× cheaper)** |
-| Typical 2h session | ~$3–6 | ~$0.50–1.50 |
+## Footer Format
 
----
+Typical output footer:
 
-## Cache reading — the biggest saving
+`— [model route] | theSaver: <total> saved <arrow> —`
 
-Every time OpenCode re-reads its context (system prompt, history, tool results), it charges **input token rates**. With prompt caching enabled, repeated reads are charged at **cache-read rates — roughly 10× cheaper**.
+Example (with savings):
 
-theSaver tracks this in real time and appends it to every response:
+`— [🧠 deepseek-v4-flash → ⚙ deepseek-chat] | theSaver: 0.01 saved → —`
 
-```
-session $8.84 tasks + $493 cache = $501 | lifetime $14 tasks + $496 cache = $510
-```
+Example (no savings yet, tier label only):
 
-The `$493 cache` is **real money saved** — computed from actual token counts, not estimated. It compounds fast across a long session.
+`— [⚙ Mid] —`
 
-> **Why it matters:** In a session with 50k+ context tokens, every response re-reads the entire history. At typical high-tier prices ($3/M input vs $0.30/M cache), a 100-turn session saves ~$0.27/turn × 100 = **$27 from caching alone**. The longer the session, the bigger the cache advantage.
+## `trinity` Tool Commands
 
----
+Main commands:
 
-## Three-tier use cases
+- `trinity status`
+- `trinity set brain|medium|cheap`
+- `trinity brain|medium|cheap`
+- `trinity enable` / `trinity disable`
+- `trinity thinking full|brief|off`
+- `trinity enforce` / `trinity enforce on|off`
+- `trinity flow on|off` / `trinity flow enforce on|off` / `trinity flow`
+- `trinity tdd on|off` / `trinity tdd strict on|off` / `trinity tdd quality on|off` / `trinity tdd`
+- `trinity project`
+- `trinity diagnose`
+- `trinity rebuild`
+- `trinity help`
 
-### 🧠 Brain — when you need the best
+## Optional Enforcement Modules
 
-Use the brain slot for:
-- Architectural decisions and design reviews
-- Complex multi-file debugging
-- Final synthesis, answer quality, extended thinking
-- Anything where depth matters more than cost
+- Delegation enforcement:
+  - Blocks direct `write`/`edit`/`notebookedit` on high-tier brain when enabled.
+  - Adds user-visible enforcement notes.
+- Flow enforcer:
+  - Rule checks for write/edit patterns.
+  - Optional TODO/FIXME extraction queue when flow enforcement is enabled.
+- TDD enforcer:
+  - Auto-creates skeleton tests for changed source files when enabled.
+  - Strict mode is ON by default: TODO tests fail loudly until implemented.
 
-```
-trinity brain    ← type directly in chat
-```
+## Reports and Audit Tools
 
-### ⚙ Medium — capable, cheaper
+- `research-audit`
+- `report-save`
+- `report-list`
+- `report-read`
 
-Use the medium slot for:
-- Focused coding on a single module
-- Moderate-complexity refactors
-- Sessions where credits are running low but quality still matters
+These use `~/.claude/reports` and project memory in `~/.claude/project-states.json`.
 
-```
-trinity medium   ← type directly in chat
-```
+## Install / Sync (Local Plugin File)
 
-### ⚡ Cheap — the workhorse
+This repo exports plugin runtime from `src/index.js`.
 
-Runs automatically as the Task subagent target. Also switch here for:
-- Batch processing, log analysis, data transformation
-- Repetitive edits with clear specs
-- Speed > depth tasks
+For OpenCode Desktop local plugin usage:
 
-```
-trinity cheap    ← type directly in chat
-```
+1. Copy `src/index.js` to `~/.config/opencode/plugins/theSaver.js`
+2. Copy `src/theSaver-lib/flow-enforcer.js` to `~/.config/opencode/plugins/theSaver-lib/flow-enforcer.js`
+3. Copy `src/flow-rules.json` to `~/.config/opencode/plugins/theSaver-lib/flow-rules.json`
+4. Restart OpenCode Desktop
 
-### Credit-based auto-switching
+## Build
 
-Configured in `~/.claude/model-tiers.json`:
-```json
-"selection": {
-  "credit_threshold_percent": 30,
-  "brain":    "brain",
-  "fallback": "medium"
-}
-```
-
-When credit drops below the threshold, `trinity auto` switches to the fallback slot automatically.
-
----
-
-## Thinking level — automatic reasoning depth
-
-theSaver adjusts extended thinking based on your remaining credit:
-
-| Credit | Thinking | Effect |
-|---|---|---|---|
-| ≥ 70% | **FULL** | No restriction — use extended thinking freely |
-| 40–69% | **BRIEF** | Extended thinking for complex problems only |
-| < 40% | **OFF** | Skip extended thinking entirely — save tokens |
-
-Manual override in chat persists regardless of credit level:
-```
-trinity thinking full    → always use extended thinking (manual override)
-trinity thinking brief   → complex tasks only
-trinity thinking off     → never (maximum savings)
-```
-
----
-
-## Live footer — see savings after every response
-
-Every assistant response ends with:
-
-```
-— [⚙ Mid → ⚡ Budget] · 💰 session $8.84 tasks + $493 cache = $501 | lifetime $14 tasks + $496 cache = $510 (273 events) —
-```
-
-| Part | Meaning |
-|---|---|
-| `⚙ Mid → ⚡ Budget` | Brain → worker model pair |
-| `session $X tasks` | Estimated savings from routing events this session |
-| `session $Y cache` | **Real** savings from prompt cache hits (actual token counts) |
-| `lifetime $A tasks + $B cache = $C` | Cumulative totals across all sessions |
-| `(N events)` | Total delegation enforcement events lifetime |
-
----
-
-## Workflow optimization features
-
-| Feature | How it saves |
-|---|---|
-| Judge pattern | Brain orchestrates; budget worker implements — injected once per session as a system directive |
-| Task subagent routing | Mid-tier brain → cheap worker automatically; 5–10× cost difference per task |
-| Thinking auto-depth | Stops paying for extended thinking when credits are low |
-| Context7 nudge | Redirects library-docs fetches to context7 MCP (smaller payload, no follow-ups) |
-| Write/Edit ledger | Tracks every high-tier direct edit that could have been delegated |
-| Session vs lifetime savings | See ROI per conversation and across all time |
-| Live enable/disable | Toggle the whole plugin without restarting OpenCode |
-| TDD enforcer | Warns on Write/Edit to src/ without a matching test file; flags test.skip in test files |
+- `npm run build`
 
----
+This compiles TypeScript source-of-truth modules and syncs generated JS artifacts used by runtime.
 
-## Install
-
-```bash
-git clone https://github.com/DrunkkToys/theSaver-oc.git /tmp/thesaver-oc
-mkdir -p ~/.config/opencode/plugins
-cp /tmp/thesaver-oc/src/index.js ~/.config/opencode/plugins/delegation-enforcer.js
-cp /tmp/thesaver-oc/src/flow-enforcer.js ~/.config/opencode/plugins/
-cp /tmp/thesaver-oc/src/flow-rules.json ~/.config/opencode/plugins/
-rm -rf /tmp/thesaver-oc
-```
-
-Register in `~/.config/opencode/opencode.json`:
-
-```json
-{
-  "plugin": ["./plugins/delegation-enforcer.js"]
-}
-```
-
-### Quick start
-
-```bash
-cp model-tiers.sample.json ~/.claude/model-tiers.json
-# edit to match your providers/models
-```
-
-*(Skip if you already have this from theSaver-cc — both plugins share the same file.)*
+## Known Limitations
 
----
-
-## In-chat trinity tool
-
-Control everything without leaving the chat window:
-
-| Command | Effect |
-|---|---|
-| `trinity` or `trinity status` | Show current state, slot, and model |
-| `trinity rebuild` | **Auto-detect** working models from all providers, probe each with a real API call, then assign to brain/medium/cheap |
-| `trinity brain` | Switch to brain slot (probes the model first) |
-| `trinity medium` | Switch to medium slot (probes the model first) |
-| `trinity cheap` | Switch to cheap slot (probes the model first) |
-| `trinity on` | Enable plugin |
-| `trinity off` | Disable plugin |
-| `trinity thinking full` | Always use extended thinking |
-| `trinity thinking brief` | Complex tasks only |
-| `trinity thinking off` | Never (max savings) |
-| `trinity flow on/off` | Toggle flow enforcer |
-| `trinity flow` | Audit flow violations this session |
-| `trinity tdd on/off` | Toggle TDD enforcer (default: ON) |
-| `trinity tdd` | Audit TDD violations this session |
-| `trinity help` | Show formatted usage with all commands |
-
-### `trinity rebuild` — model auto-detection
-
-`trinity rebuild` scans your configured providers and finds working models:
-
-1. Reads providers from `~/.config/opencode/opencode.json`
-2. For each provider with an API key:
-   - **DeepSeek** — lists configured models + probes the API for additional ones
-   - **OpenRouter** — probes `/api/v1/models` (if API key present)
-   - **OpenCode GO** — uses a known catalog (flash, chat, reasoner)
-3. Ranks models by tier (high → mid → budget), then by cost
-4. **Probes each candidate** with a real API call (`max_tokens: 1`)
-5. Falls back through the ranked list if a model fails the probe
-6. Writes only working models to `~/.claude/model-tiers.json`
-
-Output example:
-```
-🔍 Auto-detected models from configured providers:
-  🧠 brain  → deepseek/deepseek-v4-pro (tier: high, $0.0003/turn) ✅
-  ⚙  medium → deepseek/deepseek-v4-flash (tier: mid, $0.0001/turn) ✅
-  ⚡ cheap  → deepseek/deepseek-chat (tier: budget, $0.0000/turn) ✅
-
-Probe failures (skipped):
-  ❌ brain: openrouter/anthropic/claude-sonnet-4.6
-
-✅ model-tiers.json updated.
-```
-
-### Model probing
-
-Every time you switch slots with `trinity set brain` (or the `trinity brain` shortcut), the plugin sends a **tiny probe** (`max_tokens: 1`) to verify the model responds before committing. If the probe fails, the switch is blocked and you're told why.
-
-This prevents switching to a dead model (expired API key, no credits, wrong ID).
-
-### Auto-welcome banner
-
-At the start of each session, the plugin injects a banner showing the active slot and model, plus a reminder to use `trinity help` for all commands. This appears once per project fingerprint.
-
----
-
-## Configuration
-
-`~/.claude/model-tiers.json` — shared with theSaver-cc:
-
-```json
-{
-  "trinity": {
-    "brain":  { "oc": "provider/high-tier-model",   "cc": "brain" },
-    "medium": { "oc": "provider/mid-tier-model",    "cc": "medium" },
-    "cheap":  { "oc": "provider/budget-tier-model",  "cc": "budget" }
-  },
-  "selection": {
-    "credit_threshold_percent": 30,
-    "enabled": true,
-    "active_slot": "brain"
-  }
-}
-```
-
----
-
-## Credit tracking
-
-```bash
-echo 85 > ~/.claude/credit-percent          # manual file
-export CLAUDE_CREDIT_PERCENT=85             # environment variable
-export CLAUDE_CREDIT_HELPER=~/bin/check-credit.sh  # dynamic script
-```
-
----
-
-## Shared state with theSaver-cc
-
-Both plugins write to the same files — install both to get unified savings tracking across runtimes:
-
-```
-~/.claude/delegation-state.json   # savings ledger (per-session + lifetime)
-~/.claude/model-tiers.json        # model slot config
-```
-
----
-
-## Requirements
-
-- OpenCode v1.14.33+
-- Node.js ≥ 18
-- `jq` — see platform notes below
-
-### Platform notes
-
-**macOS**
-```bash
-brew install jq
-```
-
-**Linux**
-```bash
-apt install jq      # Debian / Ubuntu
-yum install jq      # RHEL / CentOS
-```
-
-**Windows**
-
-The `trinity` CLI requires bash. Two options:
-
-| Option | Setup |
-|---|---|
-| **WSL** *(recommended)* | Full Linux environment. `apt install jq` works natively. Run `trinity` inside WSL. |
-| **Git Bash** | Ships with Git for Windows. Install `jq` manually: download the Windows binary from [jqlang.github.io/jq](https://jqlang.github.io/jq/download/) and place it on your PATH. |
-
-Install `jq` on Windows via package manager (pick one):
-```powershell
-choco install jq          # Chocolatey
-winget install jqlang.jq  # winget (Windows 11 / Win 10 1709+)
-```
-
-> **Note:** OpenCode itself runs on Windows, but the `trinity` CLI shells out to bash. WSL is the smoothest path — Git Bash works but may have edge cases with path handling.
+- OpenCode runtime behavior can vary by version for per-task model override handling.
+- Some legacy tests in this repo are older than current enforcement defaults and may fail due to changed policy semantics rather than runtime breakage.
+- Savings are estimates, not billing data.

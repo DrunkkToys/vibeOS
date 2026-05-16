@@ -5,3 +5,14 @@ awesome-opencode/
 opencode-cafe-submit.json
 CLAUDE.md
 FEATURES.md
+
+# Generated / build
+dist-ts/
+
+# Local state
+.codex-logs/
+.experiment/
+.thesaver-cx/
+.agents/
+
+

@@ -40,6 +40,10 @@ type FlowTodoInput = {
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const RULES_PATH = join(__dirname, "flow-rules.json")
+
+export function resolveRulesPath(): string {
+  return RULES_PATH
+}
 const STATE_FILE = join(homedir(), ".claude/delegation-state.json")
 const FLOW_TODO_FILE = join(homedir(), ".claude/flow-todo-queue.jsonl")
 const MAX_FLOW_TODOS = 200
@@ -50,11 +54,12 @@ let _cachedRules: FlowRule[] | null = null
 let _rulesMtime = 0
 
 function loadRules(): FlowRule[] {
+  const rulesPath = resolveRulesPath()
   try {
-    const mtime = _cachedRules ? statSync(RULES_PATH).mtimeMs : 0
+    const mtime = _cachedRules ? statSync(rulesPath).mtimeMs : 0
     if (_cachedRules && mtime === _rulesMtime) return _cachedRules
-    if (!existsSync(RULES_PATH)) { _cachedRules = []; return _cachedRules }
-    const j = JSON.parse(readFileSync(RULES_PATH, "utf-8")) as { rules?: FlowRule[] }
+    if (!existsSync(rulesPath)) { _cachedRules = []; return _cachedRules }
+    const j = JSON.parse(readFileSync(rulesPath, "utf-8")) as { rules?: FlowRule[] }
     _cachedRules = j.rules || []
     _rulesMtime = mtime
     return _cachedRules
@@ -91,10 +96,12 @@ function recordFlowWarn(hit: RecordFlowWarnInput): void {
 export function checkFlowRules({ tool, filePath, content }: CheckFlowRulesInput): FlowHit[] {
   const rules = loadRules()
   const hits: FlowHit[] = []
+  const toolName = String(tool || "").trim().toLowerCase()
 
   for (const rule of rules) {
-    if (rule.trigger !== tool) continue
-    const target = tool === "Write" ? (filePath || "") : (content || filePath || "")
+    const triggerName = String(rule.trigger || "").trim().toLowerCase()
+    if (triggerName !== toolName) continue
+    const target = toolName === "write" ? (filePath || "") : (content || filePath || "")
     let re: RegExp
     try { re = new RegExp(rule.pattern) } catch { continue }
     if (!re.test(target)) continue
@@ -136,7 +143,21 @@ export function resetForTest(rules: FlowRule[]): void {
   _cachedRules = rules
   _flowWarnsSeen.clear()
   // Sync mtime so loadRules() returns test rules instead of reloading from file.
-  try { _rulesMtime = statSync(RULES_PATH).mtimeMs } catch {}
+  try { _rulesMtime = statSync(resolveRulesPath()).mtimeMs } catch {}
+}
+
+export function resetAll(): void {
+  _flowWarnsSeen.clear()
+  _cachedRules = null
+  _rulesMtime = 0
+}
+
+export function addFlowRule(rule: FlowRule): void {
+  const rules = loadRules()
+  rules.push(rule)
+  writeFileSync(resolveRulesPath(), JSON.stringify({ rules }, null, 2), "utf-8")
+  _cachedRules = rules
+  _rulesMtime = statSync(resolveRulesPath()).mtimeMs
 }
 
 export function recordFlowTodo({ filePath, content }: FlowTodoInput): number {
