@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.7.9
+
+- change: delegation enforcement now defaults to ON (`delegation_enforce !== false`) for safer cost control
+- change: first-run auto-generated `model-tiers.json` now includes `"delegation_enforce": true`
+- docs: sample config updated to show delegation enforcement enabled by default
+
+## 0.7.8
+
+- fix: auto-sync no longer overwrites valid model-tiers.json entries with guessed provider-prefixed IDs
+- fix: provider model IDs now use correct provider prefix (e.g. `deepseek/`) instead of generic `opencode/`
+- fix: task routing skips medium slot when it matches the brain model (fallback to cheap)
+- fix: delegation_enforce defaults to opt-in (`=== true`) instead of opt-out (`!== false`)
+- fix: null-safety guard for enforcement block when no args passed
+- fix: first-install auto-config populates all trinity slots even with single-model fallback
+
+## 0.7.3
+
+- feat: always sync model-tiers.json with opencode.json on every session start (not just first install)
+- feat: detects ALL models from user config — both `provider` dropdown models AND top-level `model` field
+- fix: only writes to model-tiers.json if detected models differ from current config (no unnecessary writes)
+
+## 0.7.2
+
+- feat: auto-create model-tiers.json on first install from opencode desktop provider models (sniffs models from the dropdown menu, no manual config needed)
+- fix: TRINITY_CHEAP/MEDIUM are now mutable so auto-config can refresh them immediately after bootstrap
+
+## 0.6.0
+
+- feat: enhanced live footer with trend indicators (↑↓→), session duration, savings rate/hr
+- feat: per-tool cost breakdown in footer (edit, webfetch, context7, quota, etc.)
+- feat: model usage distribution percentage in footer tag (e.g. [🧠 60% → ⚡ 40%])
+- feat: cache savings displayed as separate line item in footer
+- feat: trend analysis comparing current session rate vs previous sessions
+- perf: extended readLifetimeSavings() to return sesDuration, sesRatePerHour, sesTrend, sesToolBreakdown, sesModelTurns
+- docs: updated README with new footer format documentation
+
 ## 0.5.2
 
 - bump: v0.5.2

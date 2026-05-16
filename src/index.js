@@ -16,7 +16,7 @@
  *   webfetch/websearch >5     → warn + record (memory)
  *   task/read/glob/grep/...   → free
  *
- * Sister hook: ~/.claude/hooks/delegation-enforcer.sh (Claude Code).
+ * Sister hook: ~/.claude/hooks/theSaver (Claude Code).
  */
 
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, statSync, readdirSync, openSync, readSync, closeSync, rmSync } from "node:fs"
@@ -24,8 +24,23 @@ import { join, dirname } from "node:path"
 import { homedir } from "node:os"
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
-import { tool } from "@opencode-ai/plugin"
-import { checkFlowRules, getFlowWarns, getSessionFlowCounts } from "./flow-enforcer.js"
+import { checkFlowRules, getFlowWarns, getSessionFlowCounts } from "./theSaver-lib/flow-enforcer.js"
+
+// Minimal self-contained tool helper — avoids @opencode-ai/plugin dependency
+// so the plugin works immediately on any install without bun/npm.
+function _zType(base) {
+  return Object.assign((...a) => _zType({ ...base, args: a }), {
+    optional: () => _zType({ ...base, optional: true }),
+    _isZod: true, _base: base,
+  })
+}
+const tool = Object.assign((def) => def, {
+  schema: {
+    string: (o) => _zType({ kind: "string", ...(o || {}) }),
+    number: (o) => _zType({ kind: "number", ...(o || {}) }),
+    enum: (values) => _zType({ kind: "enum", values }),
+  }
+})
 
 // ── Module state ────────────────────────────────────────────────────
 let currentTier = null
@@ -77,7 +92,7 @@ function loadTrinityModels() {
     }
   } catch { return { cheap: "", medium: "" } }
 }
-const { cheap: TRINITY_CHEAP, medium: TRINITY_MEDIUM } = loadTrinityModels()
+let { cheap: TRINITY_CHEAP, medium: TRINITY_MEDIUM } = loadTrinityModels()
 
 // Read remaining credit percent from env/file/helper, same sources as bash hook.
 function loadCredit() {
@@ -112,15 +127,18 @@ function thinkingLevel(credit) {
 const TIERS_FILE = join(homedir(), ".claude/model-tiers.json")
 function loadSelection() {
   try {
-    if (!existsSync(TIERS_FILE)) return { enabled: true, active_slot: null, thinking_level: null, flow_enabled: true }
+    if (!existsSync(TIERS_FILE)) return { enabled: true, active_slot: null, thinking_level: null, flow_enabled: true, tdd_enforce: false, flow_enforce: false, delegation_enforce: true }
     const j = JSON.parse(readFileSync(TIERS_FILE, "utf-8"))
     return {
-      enabled:        j?.selection?.enabled !== false,
-      active_slot:    j?.selection?.active_slot || null,
-      thinking_level: j?.selection?.thinking_level || null,
-      flow_enabled:   j?.selection?.flow_enabled !== false,
+      enabled:            j?.selection?.enabled !== false,
+      active_slot:        j?.selection?.active_slot || null,
+      thinking_level:     j?.selection?.thinking_level || null,
+      flow_enabled:       j?.selection?.flow_enabled !== false,
+      tdd_enforce:        j?.selection?.tdd_enforce === true,
+      flow_enforce:       j?.selection?.flow_enforce === true,
+      delegation_enforce: j?.selection?.delegation_enforce !== false,
     }
-  } catch { return { enabled: true, active_slot: null, thinking_level: null, flow_enabled: true } }
+  } catch { return { enabled: true, active_slot: null, thinking_level: null, flow_enabled: true, tdd_enforce: false, flow_enforce: false, delegation_enforce: true } }
 }
 
 // Write a single key into selection block of model-tiers.json.
@@ -131,7 +149,7 @@ function writeSelection(key, value) {
     writeFileSync(TIERS_FILE, JSON.stringify(j, null, 2) + "\n")
     return true
   } catch (err) {
-    console.error(`[delegation-enforcer] writeSelection failed: ${err.message}`)
+    console.error(`[theSaver] writeSelection failed: ${err.message}`)
     return false
   }
 }
@@ -164,6 +182,13 @@ function modelToSlotLabel(modelId, effectiveTier) {
   const tier = effectiveTier ?? classify(modelId)
   const icon = tier === "high" ? "🧠" : tier === "mid" ? "⚙" : "⚡"
   return `[${icon} ${tier.charAt(0).toUpperCase() + tier.slice(1)}]`
+}
+
+function shortModelName(modelId) {
+  const raw = String(modelId || "").trim()
+  if (!raw) return "unknown"
+  const parts = raw.split("/")
+  return parts[parts.length - 1] || raw
 }
 
 function classify(m) {
@@ -240,7 +265,7 @@ export function modelCostPerTurn(model) {
     if (key.startsWith(k) || k.startsWith(key)) return v
   }
   // Log unknown models so we can add entries
-  console.error(`[delegation-enforcer] modelCostPerTurn: unknown model '${model}' (normalized: '${key}') — add to MODEL_USD_PER_TURN`)
+  console.error(`[theSaver] modelCostPerTurn: unknown model '${model}' (normalized: '${key}') — add to MODEL_USD_PER_TURN`)
   return null  // unknown — callers fall back to SAVE_EST constants
 }
 
@@ -382,6 +407,7 @@ let context7AlertedThisSession = false
 // Lets the delegation warning appear in the OC chat transcript (tool result),
 // not just in stderr debug output.
 let pendingUiNote = null
+let enforcementBlocked = false
 
 // Soft counter for hypothetical missed savings (no locking — drift acceptable
 // for a hypothetical metric). Mirrors bash record_missed_c7().
@@ -406,6 +432,591 @@ function recordMissedContext7(saveEst) {
 const testReminderSeen = new Set()
 const SOURCE_EXT_RE = /\.(py|js|ts|mjs|tsx|jsx|sh|go|rs|rb|java|kt)$/i
 const SKIP_PATH_RE = /(\/(node_modules|\.venv|dist|build|__pycache__)\/|\/(tests?|spec)\/|test_[^/]+\.py$|_test\.py$|\.test\.[a-z]+$|\.spec\.[a-z]+$|\.config\/opencode\/plugins\/)/i
+
+// ── TDD Enforcement — skeleton templates with incomplete markers ────────────
+// Each skeleton CANNOT pass silently — uses language-specific skip/fail markers.
+// Extract function/class/export names from source code per language.
+// Returns an array of { name, type } objects.
+export function extractExports(sourceContent, ext) {
+  if (!sourceContent || typeof sourceContent !== "string") return []
+  const exports = []
+  const seen = new Set()
+  const add = (name, type = "function") => {
+    if (name && !seen.has(name)) { seen.add(name); exports.push({ name, type }) }
+  }
+
+  switch (ext) {
+    case "py": {
+      // def function_name( (exclude _private)
+      for (const m of sourceContent.matchAll(/^def\s+([a-zA-Z]\w*)\s*\(/gm)) add(m[1])
+      // class ClassName(
+      for (const m of sourceContent.matchAll(/^class\s+([a-zA-Z_]\w*)\s*[\(:]/gm)) add(m[1], "class")
+      break
+    }
+    case "js": case "mjs": case "jsx": {
+      // export function name(
+      for (const m of sourceContent.matchAll(/export\s+(?:async\s+)?function\s+([a-zA-Z_$]\w*)\s*\(/g)) add(m[1])
+      // export const name = ...
+      for (const m of sourceContent.matchAll(/export\s+const\s+([a-zA-Z_$]\w*)\s*=/g)) add(m[1])
+      // function name( (non-exported, fallback)
+      if (exports.length === 0) {
+        for (const m of sourceContent.matchAll(/^(?:async\s+)?function\s+([a-zA-Z_$]\w*)\s*\(/gm)) add(m[1])
+      }
+      break
+    }
+    case "ts": case "tsx": {
+      // export function name(
+      for (const m of sourceContent.matchAll(/export\s+(?:async\s+)?function\s+([a-zA-Z_$]\w*)\s*\(/g)) add(m[1])
+      // export const name = ...
+      for (const m of sourceContent.matchAll(/export\s+const\s+([a-zA-Z_$]\w*)\s*[:=]/g)) add(m[1])
+      // export class Name
+      for (const m of sourceContent.matchAll(/export\s+class\s+([a-zA-Z_$]\w*)/g)) add(m[1], "class")
+      break
+    }
+    case "go": {
+      // func (r Receiver) Name( or func Name(
+      for (const m of sourceContent.matchAll(/func\s+(?:\([^)]+\)\s+)?([A-Z]\w*)\s*\(/g)) add(m[1])
+      break
+    }
+    case "rs": {
+      // pub fn name(
+      for (const m of sourceContent.matchAll(/pub\s+fn\s+([a-zA-Z_]\w*)\s*</g)) add(m[1])
+      for (const m of sourceContent.matchAll(/pub\s+fn\s+([a-zA-Z_]\w*)\s*\(/g)) add(m[1])
+      // pub struct Name
+      for (const m of sourceContent.matchAll(/pub\s+struct\s+([a-zA-Z_]\w*)/g)) add(m[1], "struct")
+      break
+    }
+    case "rb": {
+      // def method_name
+      for (const m of sourceContent.matchAll(/def\s+(?:self\.)?([a-zA-Z_]\w*[?!=]?)/g)) add(m[1])
+      // class Name
+      for (const m of sourceContent.matchAll(/class\s+([A-Z]\w*)/g)) add(m[1], "class")
+      break
+    }
+    case "java": case "kt": {
+      // public/private/protected type name(
+      for (const m of sourceContent.matchAll(/(?:public|private|protected)\s+(?:static\s+)?(?:final\s+)?\S+\s+([a-zA-Z_$]\w*)\s*\(/g)) add(m[1])
+      // fun name(
+      for (const m of sourceContent.matchAll(/fun\s+([a-zA-Z_$]\w*)\s*\(/g)) add(m[1])
+      break
+    }
+    case "sh": {
+      // function name { or name() {
+      for (const m of sourceContent.matchAll(/^(?:function\s+)?([a-zA-Z_]\w*)\s*\(\)\s*\{/gm)) add(m[1])
+      for (const m of sourceContent.matchAll(/^function\s+([a-zA-Z_]\w*)/gm)) add(m[1])
+      break
+    }
+  }
+  return exports
+}
+
+// Generate test case names for a given function name.
+// Returns array of descriptive test case names.
+function generateTestCaseNames(funcName, _type) {
+  const base = funcName.replace(/^[_$]+/, "")
+  return [
+    `should ${base} with valid input`,
+    `should handle empty input for ${base}`,
+    `should handle edge cases in ${base}`,
+  ]
+}
+
+const TEST_SKELETONS = {
+  py: (name, exports = [], depth = "full") => {
+    const moduleImport = name.replace(/-/g, "_")
+    let content = `# [theSaver-enforced] Skeleton test — replace with real assertions\n`
+    content += `import pytest\n`
+    content += `from ${moduleImport} import ${exports.length > 0 ? exports.map(e => e.name).join(", ") : moduleImport}\n\n`
+    if (depth === "minimal") {
+      content += `def test_${name}_smoke():\n`
+      content += `    """Smoke test — replace with real assertions."""\n`
+      content += `    assert ${exports.length > 0 ? exports[0].name : moduleImport} is not None\n\n`
+    } else {
+      // Smoke test (passing)
+      content += `def test_${name}_smoke():\n`
+      content += `    """Smoke test: module imports correctly."""\n`
+      content += `    assert ${exports.length > 0 ? exports[0].name : moduleImport} is not None\n\n`
+      // Generate test stubs for each exported function
+      for (const exp of exports) {
+        if (exp.type === "class") continue
+        const cases = generateTestCaseNames(exp.name, exp.type)
+        content += `# TODO: implement tests for ${exp.name}\n`
+        for (const caseName of cases) {
+          const caseFunc = caseName.replace(/[^a-zA-Z0-9_]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "")
+          content += `def test_${caseFunc}():\n`
+          content += `    pytest.skip("TODO: implement ${caseName}")\n\n`
+        }
+      }
+      if (exports.length === 0) {
+        content += `def test_${name}_placeholder():\n`
+        content += `    pytest.skip("TODO: implement tests for ${name}")\n\n`
+      }
+    }
+    return content
+  },
+  js: (name, exports = [], depth = "full") => {
+    const importPath = `../${name}`
+    let content = `// [theSaver-enforced] Skeleton test — replace with real assertions\n`
+    content += `const { test, expect, describe } = require('@jest/globals');\n`
+    content += `const mod = require('${importPath}');\n\n`
+    content += `describe('${name}', () => {\n`
+    if (depth === "minimal") {
+      content += `  test('smoke: module loads', () => {\n`
+      content += `    expect(mod).toBeDefined();\n`
+      content += `  });\n`
+    } else {
+      // Smoke test (passing)
+      content += `  test('smoke: module loads', () => {\n`
+      content += `    expect(mod).toBeDefined();\n`
+      content += `  });\n\n`
+      // Generate test stubs for each exported function
+      for (const exp of exports) {
+        if (exp.type === "class") continue
+        const cases = generateTestCaseNames(exp.name, exp.type)
+        content += `  // TODO: implement tests for ${exp.name}\n`
+        for (const caseName of cases) {
+          content += `  test('${caseName}', () => {\n`
+          content += `    // TODO: implement ${caseName}\n`
+          content += `    expect(mod.${exp.name}).toBeDefined();\n`
+          content += `  });\n\n`
+        }
+      }
+      if (exports.length === 0) {
+        content += `  test('placeholder', () => {\n`
+        content += `    // TODO: implement tests for ${name}\n`
+        content += `    expect(true).toBe(true);\n`
+        content += `  });\n`
+      }
+    }
+    content += `});\n`
+    return content
+  },
+  mjs: (name, exports = [], depth = "full") => {
+    const importPath = `../${name}`
+    let content = `// [theSaver-enforced] Skeleton test — replace with real assertions\n`
+    content += `import { test, expect, describe } from 'vitest';\n`
+    content += `import * as mod from '${importPath}';\n\n`
+    content += `describe('${name}', () => {\n`
+    if (depth === "minimal") {
+      content += `  test('smoke: module loads', () => {\n`
+      content += `    expect(mod).toBeDefined();\n`
+      content += `  });\n`
+    } else {
+      content += `  test('smoke: module loads', () => {\n`
+      content += `    expect(mod).toBeDefined();\n`
+      content += `  });\n\n`
+      for (const exp of exports) {
+        if (exp.type === "class") continue
+        const cases = generateTestCaseNames(exp.name, exp.type)
+        content += `  // TODO: implement tests for ${exp.name}\n`
+        for (const caseName of cases) {
+          content += `  test('${caseName}', () => {\n`
+          content += `    // TODO: implement ${caseName}\n`
+          content += `    expect(mod.${exp.name}).toBeDefined();\n`
+          content += `  });\n\n`
+        }
+      }
+      if (exports.length === 0) {
+        content += `  test('placeholder', () => {\n`
+        content += `    // TODO: implement tests for ${name}\n`
+        content += `    expect(true).toBe(true);\n`
+        content += `  });\n`
+      }
+    }
+    content += `});\n`
+    return content
+  },
+  ts: (name, exports = [], depth = "full") => {
+    const importPath = `../${name}`
+    let content = `// [theSaver-enforced] Skeleton test — replace with real assertions\n`
+    content += `import { describe, it, expect } from 'vitest';\n`
+    content += `import * as mod from '${importPath}';\n\n`
+    content += `describe('${name}', () => {\n`
+    if (depth === "minimal") {
+      content += `  it('smoke: module loads', () => {\n`
+      content += `    expect(mod).toBeDefined();\n`
+      content += `  });\n`
+    } else {
+      content += `  it('smoke: module loads', () => {\n`
+      content += `    expect(mod).toBeDefined();\n`
+      content += `  });\n\n`
+      for (const exp of exports) {
+        if (exp.type === "class") continue
+        const cases = generateTestCaseNames(exp.name, exp.type)
+        content += `  // TODO: implement tests for ${exp.name}\n`
+        for (const caseName of cases) {
+          content += `  it('${caseName}', () => {\n`
+          content += `    // TODO: implement ${caseName}\n`
+          content += `    expect(mod.${exp.name}).toBeDefined();\n`
+          content += `  });\n\n`
+        }
+      }
+      if (exports.length === 0) {
+        content += `  it('placeholder', () => {\n`
+        content += `    // TODO: implement tests for ${name}\n`
+        content += `    expect(true).toBe(true);\n`
+        content += `  });\n`
+      }
+    }
+    content += `});\n`
+    return content
+  },
+  tsx: (name, exports = [], depth = "full") => TEST_SKELETONS.ts(name, exports, depth),
+  jsx: (name, exports = [], depth = "full") => TEST_SKELETONS.mjs(name, exports, depth),
+  go: (name, exports = [], depth = "full") => {
+    const cap = name.charAt(0).toUpperCase() + name.slice(1)
+    let content = `// [theSaver-enforced] Skeleton test — replace with real assertions\n`
+    content += `package main\n\n`
+    content += `import "testing"\n\n`
+    if (depth === "minimal") {
+      content += `func Test${cap}Smoke(t *testing.T) {\n`
+      content += `    // Smoke test: package compiles\n`
+      content += `    if false {\n`
+      content += `        t.Fatal("unreachable")\n`
+      content += `    }\n`
+      content += `}\n`
+    } else {
+      content += `func Test${cap}Smoke(t *testing.T) {\n`
+      content += `    // Smoke test: package compiles\n`
+      content += `    if false {\n`
+      content += `        t.Fatal("unreachable")\n`
+      content += `    }\n`
+      content += `}\n\n`
+      for (const exp of exports) {
+        content += `// TODO: implement tests for ${exp.name}\n`
+        const cases = generateTestCaseNames(exp.name, exp.type)
+        for (const caseName of cases) {
+          const testName = caseName.replace(/[^a-zA-Z0-9_]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "")
+          content += `func Test${cap}_${testName}(t *testing.T) {\n`
+          content += `    t.Skip("TODO: implement ${caseName}")\n`
+          content += `}\n\n`
+        }
+      }
+      if (exports.length === 0) {
+        content += `func Test${cap}Placeholder(t *testing.T) {\n`
+        content += `    t.Skip("TODO: implement tests for ${name}")\n`
+        content += `}\n`
+      }
+    }
+    return content
+  },
+  sh: (name, exports = [], depth = "full") => {
+    let content = `#!/bin/bash\n`
+    content += `# [theSaver-enforced] Skeleton test — replace with real assertions\n`
+    content += `set -e\n\n`
+    content += `# Source the script under test\n`
+    content += `SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"\n`
+    content += `source "$SCRIPT_DIR/../${name}.sh"\n\n`
+    if (depth === "minimal") {
+      content += `test_smoke() {\n`
+      content += `    echo "PASS: smoke test"\n`
+      content += `}\n\n`
+      content += `test_smoke\n`
+    } else {
+      content += `# Smoke test\n`
+      content += `test_smoke() {\n`
+      content += `    echo "PASS: smoke test"\n`
+      content += `}\n\n`
+      for (const exp of exports) {
+        content += `# TODO: implement tests for ${exp.name}\n`
+        const cases = generateTestCaseNames(exp.name, exp.type)
+        for (const caseName of cases) {
+          const testFunc = caseName.replace(/[^a-zA-Z0-9_]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "")
+          content += `test_${testFunc}() {\n`
+          content += `    echo "TODO: implement ${caseName}"\n`
+          content += `    return 1\n`
+          content += `}\n\n`
+        }
+      }
+      if (exports.length === 0) {
+        content += `test_placeholder() {\n`
+        content += `    echo "TODO: implement tests for ${name}"\n`
+        content += `    return 1\n`
+        content += `}\n\n`
+      }
+      content += `# Run all tests\n`
+      content += `test_smoke\n`
+    }
+    return content
+  },
+  rs: (name, exports = [], depth = "full") => {
+    const cap = name.charAt(0).toUpperCase() + name.slice(1)
+    let content = `// [theSaver-enforced] Skeleton test — replace with real assertions\n`
+    content += `#[cfg(test)]\n`
+    content += `mod tests {\n`
+    content += `    use super::*;\n\n`
+    if (depth === "minimal") {
+      content += `    #[test]\n`
+      content += `    fn test_${name}_smoke() {\n`
+      content += `        // Smoke test: module compiles\n`
+      content += `        assert!(true);\n`
+      content += `    }\n`
+    } else {
+      content += `    #[test]\n`
+      content += `    fn test_${name}_smoke() {\n`
+      content += `        // Smoke test: module compiles\n`
+      content += `        assert!(true);\n`
+      content += `    }\n\n`
+      for (const exp of exports) {
+        content += `    // TODO: implement tests for ${exp.name}\n`
+        const cases = generateTestCaseNames(exp.name, exp.type)
+        for (const caseName of cases) {
+          const testFunc = caseName.replace(/[^a-zA-Z0-9_]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "")
+          content += `    #[test]\n`
+          content += `    fn test_${testFunc}() {\n`
+          content += `        panic!("TODO: implement ${caseName}");\n`
+          content += `    }\n\n`
+        }
+      }
+      if (exports.length === 0) {
+        content += `    #[test]\n`
+        content += `    fn test_${name}_placeholder() {\n`
+        content += `        panic!("TODO: implement tests for ${name}");\n`
+        content += `    }\n`
+      }
+    }
+    content += `}\n`
+    return content
+  },
+  rb: (name, exports = [], depth = "full") => {
+    const cap = name.charAt(0).toUpperCase() + name.slice(1)
+    let content = `# [theSaver-enforced] Skeleton test — replace with real assertions\n`
+    content += `require 'minitest/autorun'\n`
+    content += `require_relative '../${name}'\n\n`
+    content += `class Test${cap} < Minitest::Test\n`
+    if (depth === "minimal") {
+      content += `  def test_smoke\n`
+      content += `    assert true\n`
+      content += `  end\n`
+    } else {
+      content += `  def test_smoke\n`
+      content += `    assert true\n`
+      content += `  end\n\n`
+      for (const exp of exports) {
+        content += `  # TODO: implement tests for ${exp.name}\n`
+        const cases = generateTestCaseNames(exp.name, exp.type)
+        for (const caseName of cases) {
+          const testFunc = caseName.replace(/[^a-zA-Z0-9_]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "")
+          content += `  def test_${testFunc}\n`
+          content += `    skip "TODO: implement ${caseName}"\n`
+          content += `  end\n\n`
+        }
+      }
+      if (exports.length === 0) {
+        content += `  def test_placeholder\n`
+        content += `    skip "TODO: implement tests for ${name}"\n`
+        content += `  end\n`
+      }
+    }
+    content += `end\n`
+    return content
+  },
+  java: (name, exports = [], depth = "full") => {
+    const cap = name.charAt(0).toUpperCase() + name.slice(1)
+    let content = `// [theSaver-enforced] Skeleton test — replace with real assertions\n`
+    content += `import org.junit.jupiter.api.Test;\n`
+    content += `import static org.junit.jupiter.api.Assertions.*;\n\n`
+    content += `class Test${cap} {\n`
+    if (depth === "minimal") {
+      content += `    @Test\n`
+      content += `    void testSmoke() {\n`
+      content += `        assertTrue(true);\n`
+      content += `    }\n`
+    } else {
+      content += `    @Test\n`
+      content += `    void testSmoke() {\n`
+      content += `        assertTrue(true);\n`
+      content += `    }\n\n`
+      for (const exp of exports) {
+        content += `    // TODO: implement tests for ${exp.name}\n`
+        const cases = generateTestCaseNames(exp.name, exp.type)
+        for (const caseName of cases) {
+          const testFunc = caseName.replace(/[^a-zA-Z0-9_]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "")
+          content += `    @Test\n`
+          content += `    void test${testFunc.charAt(0).toUpperCase() + testFunc.slice(1)}() {\n`
+          content += `        fail("TODO: implement ${caseName}");\n`
+          content += `    }\n\n`
+        }
+      }
+      if (exports.length === 0) {
+        content += `    @Test\n`
+        content += `    void testPlaceholder() {\n`
+        content += `        fail("TODO: implement tests for ${name}");\n`
+        content += `    }\n`
+      }
+    }
+    content += `}\n`
+    return content
+  },
+  kt: (name, exports = [], depth = "full") => {
+    const cap = name.charAt(0).toUpperCase() + name.slice(1)
+    let content = `// [theSaver-enforced] Skeleton test — replace with real assertions\n`
+    content += `import org.junit.jupiter.api.Test\n`
+    content += `import org.junit.jupiter.api.Assertions.*\n\n`
+    content += `class Test${cap} {\n`
+    if (depth === "minimal") {
+      content += `    @Test\n`
+      content += `    fun testSmoke() {\n`
+      content += `        assertTrue(true)\n`
+      content += `    }\n`
+    } else {
+      content += `    @Test\n`
+      content += `    fun testSmoke() {\n`
+      content += `        assertTrue(true)\n`
+      content += `    }\n\n`
+      for (const exp of exports) {
+        content += `    // TODO: implement tests for ${exp.name}\n`
+        const cases = generateTestCaseNames(exp.name, exp.type)
+        for (const caseName of cases) {
+          const testFunc = caseName.replace(/[^a-zA-Z0-9_]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "")
+          content += `    @Test\n`
+          content += `    fun test${testFunc.charAt(0).toUpperCase() + testFunc.slice(1)}() {\n`
+          content += `        fail("TODO: implement ${caseName}")\n`
+          content += `    }\n\n`
+        }
+      }
+      if (exports.length === 0) {
+        content += `    @Test\n`
+        content += `    fun testPlaceholder() {\n`
+        content += `        fail("TODO: implement tests for ${name}")\n`
+        content += `    }\n`
+      }
+    }
+    content += `}\n`
+    return content
+  },
+}
+
+// Cross-process lock directory for test file creation coordination.
+const ENFORCEMENT_LOCK_DIR = join(homedir(), ".claude/.enforcement-lock")
+const LOCK_EXPIRE_MS = 30_000
+
+// Cross-process cooldown to avoid duplicate enforcement across processes.
+const ENFORCEMENT_COOLDOWN_FILE = join(homedir(), ".claude/.enforcement-cooldown.jsonl")
+const COOLDOWN_MS = 60_000
+
+// Per-process recursion guard.
+const _enforcementCooldown = new Set()
+
+function _acquireLock(testPath) {
+  try {
+    mkdirSync(ENFORCEMENT_LOCK_DIR, { recursive: true })
+    const hash = createHash("sha256").update(testPath).digest("hex").slice(0, 16)
+    const lockPath = join(ENFORCEMENT_LOCK_DIR, `${hash}.lock`)
+    if (existsSync(lockPath)) {
+      const st = statSync(lockPath)
+      if (Date.now() - st.mtimeMs < LOCK_EXPIRE_MS) return false
+      rmSync(lockPath)
+    }
+    writeFileSync(lockPath, `${process.pid}\n${new Date().toISOString()}`)
+    return true
+  } catch { return false }
+}
+
+function _releaseLock(testPath) {
+  try {
+    const hash = createHash("sha256").update(testPath).digest("hex").slice(0, 16)
+    const lockPath = join(ENFORCEMENT_LOCK_DIR, `${hash}.lock`)
+    rmSync(lockPath)
+  } catch {}
+}
+
+function _isInCooldown(testPath) {
+  try {
+    if (!existsSync(ENFORCEMENT_COOLDOWN_FILE)) return false
+    const hash = createHash("sha256").update(testPath).digest("hex").slice(0, 16)
+    const lines = readFileSync(ENFORCEMENT_COOLDOWN_FILE, "utf-8").trim().split("\n").filter(Boolean)
+    const now = Date.now()
+    for (const line of lines) {
+      try {
+        const { h, ts } = JSON.parse(line)
+        if (h === hash && (now - ts) < COOLDOWN_MS) return true
+      } catch {}
+    }
+    return false
+  } catch { return false }
+}
+
+function _recordCooldown(testPath) {
+  try {
+    mkdirSync(dirname(ENFORCEMENT_COOLDOWN_FILE), { recursive: true })
+    const hash = createHash("sha256").update(testPath).digest("hex").slice(0, 16)
+    const entry = JSON.stringify({ h: hash, ts: Date.now() }) + "\n"
+    appendFileSync(ENFORCEMENT_COOLDOWN_FILE, entry)
+    // Prune old entries to keep file bounded
+    const lines = readFileSync(ENFORCEMENT_COOLDOWN_FILE, "utf-8").trim().split("\n").filter(Boolean)
+    if (lines.length > 500) {
+      writeFileSync(ENFORCEMENT_COOLDOWN_FILE, lines.slice(-200).join("\n") + "\n")
+    }
+  } catch {}
+}
+
+export function buildTestSkeleton(filePath, sourceContent = "") {
+  if (!filePath || typeof filePath !== "string") return null
+  if (!SOURCE_EXT_RE.test(filePath)) return null
+  if (SKIP_PATH_RE.test(filePath)) return null
+  const m = filePath.match(/([^/]+)\.([^.]+)$/)
+  if (!m) return null
+  const [, name, ext] = m
+  const extLower = ext.toLowerCase()
+  const skeletonFn = TEST_SKELETONS[extLower]
+  if (!skeletonFn) return null
+  const m2 = filePath.match(/^(.*\/)?([^/]+)\.([^.]+)$/)
+  const dir = m2 ? (m2[1] || "") : ""
+  let testPath
+  switch (extLower) {
+    case "py": testPath = dir + "tests/test_" + name + ".py"; break
+    case "sh": testPath = dir + "tests/test_" + name + ".sh"; break
+    case "js": case "mjs": case "ts": case "jsx": case "tsx":
+      testPath = dir + "tests/" + name + ".test." + ext; break
+    case "go": testPath = dir + name + "_test.go"; break
+    case "rs": testPath = dir + "tests/" + name + "_test.rs"; break
+    case "rb": testPath = dir + "test/" + name + "_test.rb"; break
+    case "java": case "kt": testPath = dir + "src/test/" + name.charAt(0).toUpperCase() + name.slice(1) + "Test." + ext; break
+    default: return null
+  }
+  const exports = extractExports(sourceContent, extLower)
+  return { path: testPath, content: skeletonFn(name, exports), dir: dirname(testPath) }
+}
+
+export function enforceTestFile(filePath) {
+  // Read source file content to extract exports
+  let sourceContent = ""
+  try {
+    if (existsSync(filePath)) {
+      sourceContent = readFileSync(filePath, "utf-8")
+    }
+  } catch {}
+  const skeleton = buildTestSkeleton(filePath, sourceContent)
+  if (!skeleton) return null
+  if (existsSync(skeleton.path)) return null
+  if (_enforcementCooldown.has(skeleton.path)) return null
+  if (_isInCooldown(skeleton.path)) return null
+  if (!_acquireLock(skeleton.path)) return null
+  try {
+    mkdirSync(skeleton.dir, { recursive: true })
+    writeFileSync(skeleton.path, skeleton.content)
+    _enforcementCooldown.add(skeleton.path)
+    _recordCooldown(skeleton.path)
+    // Record in state file for audit stats
+    try {
+      let state = {}
+      if (existsSync(STATE_FILE)) {
+        try { state = JSON.parse(readFileSync(STATE_FILE, "utf-8")) } catch {}
+      } else { mkdirSync(dirname(STATE_FILE), { recursive: true }) }
+      state.lifetime ??= { warn_count: 0, est_savings_usd: 0, last_updated: "" }
+      state.lifetime.tdd_enforced = (state.lifetime.tdd_enforced || 0) + 1
+      writeFileSync(STATE_FILE, JSON.stringify(state, null, 2))
+    } catch {}
+    console.error(`[theSaver] [tdd-enforce] Created skeleton: ${skeleton.path}`)
+    return skeleton.path
+  } catch (err) {
+    console.error(`[theSaver] [tdd-enforce] Failed to create ${skeleton.path}: ${err.message}`)
+    return null
+  } finally {
+    _releaseLock(skeleton.path)
+  }
+}
 
 export function buildTestReminder(filePath) {
   if (!filePath || typeof filePath !== "string") return null
@@ -453,7 +1064,7 @@ function recordSaving(tool, reason, saveEst) {
     writeFileSync(STATE_FILE, JSON.stringify(state, null, 2))
     return state.lifetime.est_savings_usd
   } catch (err) {
-    console.error(`[delegation-enforcer] state write failed: ${err.message}`)
+    console.error(`[theSaver] state write failed: ${err.message}`)
     return null
   }
 }
@@ -518,7 +1129,7 @@ let _savingsCache = null
 let _savingsCacheMtime = 0
 const _OC_SID = "opencode-" + (process.pid || "x")
 function readLifetimeSavings() {
-  const empty = { ltTasks: 0, ltCache: 0, ltCost: 0, count: 0, scratchpadHits: 0, missedC7: 0, sesTasks: 0, sesEdit: 0, sesCredit: 0, sesC7: 0, sesQuota: 0 }
+  const empty = { ltTasks: 0, ltCache: 0, ltCost: 0, count: 0, scratchpadHits: 0, missedC7: 0, sesTasks: 0, sesEdit: 0, sesCredit: 0, sesC7: 0, sesQuota: 0, sesDuration: 0, sesRatePerHour: 0, sesTrend: "stable", sesToolBreakdown: {}, sesModelTurns: { brain: 0, worker: 0 } }
   try {
     if (!existsSync(STATE_FILE)) return empty
     const mtime = statSync(STATE_FILE).mtimeMs
@@ -528,7 +1139,8 @@ function readLifetimeSavings() {
     // Compute ALL totals from session data atomically — never from separate lifetime fields
     // written by different processes. This eliminates the savings-counter bounce.
     let ltTasks = 0; let ltCache = 0; let ltCost = 0; let totalWarnCount = 0
-    for (const [, ses] of Object.entries(s?.sessions || {})) {
+    const sessionRates = []
+    for (const [sid, ses] of Object.entries(s?.sessions || {})) {
       // Delegation savings from warns
       const warns = Array.isArray(ses?.warns) ? ses.warns : []
       totalWarnCount += warns.length
@@ -536,6 +1148,12 @@ function readLifetimeSavings() {
       // Cache savings and costs from costed sessions
       ltCache += Number(ses?.cache_savings_usd ?? 0)
       ltCost  += Number(ses?.cost_usd ?? 0)
+      // Compute session rate for trend analysis
+      if (ses?.started) {
+        const elapsed = (Date.now() - new Date(ses.started).getTime()) / 3600000
+        const sesTotal = warns.reduce((a, w) => a + Number(w.est_savings_usd ?? 0), 0) + Number(ses?.cache_savings_usd ?? 0)
+        if (elapsed > 0.05) sessionRates.push(sesTotal / elapsed)
+      }
     }
 
     // Per-warn-type session totals (current process only)
@@ -547,6 +1165,54 @@ function readLifetimeSavings() {
     const sesC7     = warns.filter(w => w.reason?.includes("context7")).reduce((a, w)  => a + Number(w.est_savings_usd ?? 0), 0)
     const sesQuota  = warns.filter(w => w.reason?.includes("quota")).reduce((a, w)     => a + Number(w.est_savings_usd ?? 0), 0)
 
+    // Per-tool breakdown for current session
+    const sesToolBreakdown = {}
+    for (const w of warns) {
+      const tool = w.tool || "unknown"
+      sesToolBreakdown[tool] = (sesToolBreakdown[tool] || 0) + Number(w.est_savings_usd ?? 0)
+    }
+    // Round and sort by savings descending
+    for (const k of Object.keys(sesToolBreakdown)) {
+      sesToolBreakdown[k] = Math.round(sesToolBreakdown[k] * 100) / 100
+    }
+
+    // Session duration
+    let sesDuration = 0
+    let sesRatePerHour = 0
+    if (ses?.started) {
+      sesDuration = (Date.now() - new Date(ses.started).getTime()) / 1000
+      const sesTotal = sesTasks + Number(ses?.cache_savings_usd ?? 0)
+      const hours = sesDuration / 3600
+      sesRatePerHour = hours > 0 ? sesTotal / hours : 0
+    }
+
+    // Trend: compare current session rate vs average of previous sessions
+    let sesTrend = "stable"
+    if (sessionRates.length >= 2) {
+      const currentRate = sessionRates[sessionRates.length - 1]
+      const prevRates = sessionRates.slice(0, -1)
+      const avgPrev = prevRates.reduce((a, b) => a + b, 0) / prevRates.length
+      const diff = currentRate - avgPrev
+      const threshold = 0.15 // 15% change to trigger trend
+      if (avgPrev > 0) {
+        const pctChange = diff / avgPrev
+        if (pctChange > threshold) sesTrend = "up"
+        else if (pctChange < -threshold) sesTrend = "down"
+      }
+    }
+
+    // Model turn tracking (from tool_counts heuristics)
+    const sesModelTurns = { brain: 0, worker: 0 }
+    if (ses?.tool_counts) {
+      // Brain turns: direct tool usage (write, edit, bash, webfetch, websearch)
+      const brainTools = ["write", "edit", "notebookedit", "bash", "webfetch", "websearch"]
+      for (const t of brainTools) {
+        sesModelTurns.brain += Number(ses.tool_counts[t] || 0)
+      }
+      // Worker turns: task delegations
+      sesModelTurns.worker = Number(ses.tool_counts.task || 0)
+    }
+
     _savingsCache = {
       ltTasks: Math.round(ltTasks * 100) / 100,
       ltCache: Math.round(ltCache * 100) / 100,
@@ -555,6 +1221,11 @@ function readLifetimeSavings() {
       scratchpadHits: Number(s?.lifetime?.scratchpad_hits_observed ?? 0),
       missedC7:       Number(s?.lifetime?.missed_context7_usd      ?? 0),
       sesTasks, sesEdit, sesCredit, sesC7, sesQuota,
+      sesDuration: Math.round(sesDuration),
+      sesRatePerHour: Math.round(sesRatePerHour * 100) / 100,
+      sesTrend,
+      sesToolBreakdown,
+      sesModelTurns,
     }
     _savingsCacheMtime = mtime
     return _savingsCache
@@ -608,7 +1279,7 @@ function indexAppend(hash, tool, size, extra) {
     }) + "\n"
     appendFileSync(INDEX_PATH, entry)
   } catch (err) {
-    console.error(`[delegation-enforcer] index write failed: ${err.message}`)
+    console.error(`[theSaver] index write failed: ${err.message}`)
   }
 }
 
@@ -690,10 +1361,10 @@ function applyDecadence() {
       const action = []
       if (rotated > 0) action.push(`rotated=${rotated}`)
       if (deleted > 0) action.push(`deleted=${deleted}`)
-      console.error(`[delegation-enforcer] 📦 decadence: ${action.join(" ")} (${dataFiles} files, ${Math.round(totalBytes/1024)}KB)`)
+      console.error(`[theSaver] 📦 decadence: ${action.join(" ")} (${dataFiles} files, ${Math.round(totalBytes/1024)}KB)`)
     }
   } catch (err) {
-    console.error(`[delegation-enforcer] decadence error: ${err.message}`)
+    console.error(`[theSaver] decadence error: ${err.message}`)
   }
 }
 
@@ -795,7 +1466,7 @@ function compressText(text) {
   }
 
   if (removed > 0 || result !== collapsed.join("\n").trim()) {
-    console.error(`[delegation-enforcer] COMPRESS: ${text.length}→${result.length} chars (${removed} verbose lines stripped)`)
+    console.error(`[theSaver] COMPRESS: ${text.length}→${result.length} chars (${removed} verbose lines stripped)`)
   }
   return result || text // never return empty if original wasn't
 }
@@ -834,7 +1505,7 @@ function pruneScratchpadOnce() {
       const sum = txtFiles[i].replace(".txt", ".summary.txt")
       if (existsSync(sum)) try { rmSync(sum) } catch {}
     }
-    console.error(`[delegation-enforcer] pruned ${remove} scratchpad files (${txtFiles.length} → ${txtFiles.length - remove})`)
+    console.error(`[theSaver] pruned ${remove} scratchpad files (${txtFiles.length} → ${txtFiles.length - remove})`)
   } catch {}
 }
 
@@ -860,7 +1531,7 @@ function saveProjectState(state) {
   try {
     writeFileSync(PROJECT_STATE_FILE, JSON.stringify(state, null, 2) + "\n")
   } catch (err) {
-    console.error(`[delegation-enforcer] project state write failed: ${err.message}`)
+    console.error(`[theSaver] project state write failed: ${err.message}`)
   }
 }
 
@@ -887,26 +1558,41 @@ function buildProjectBriefing(dir) {
 
 // Refresh currentModel/currentTier from disk config.
 // Called per-hook so trinity slot changes take effect without restart.
+const PLACEHOLDER_RE = /^(provider|opencode)\/[a-z-]+-model$/i
 function _refreshModel(directory) {
   try {
     const sel = loadSelection()
     if (!sel.enabled) return
     const tiersData = JSON.parse(readFileSync(TIERS_FILE, "utf-8"))
     const activeSlot = sel.active_slot || "brain"
-    const slotOcModel = tiersData?.trinity?.[activeSlot]?.oc || ""
+    let slotOcModel = tiersData?.trinity?.[activeSlot]?.oc || ""
+    // Skip placeholder models (e.g. "provider/high-tier-model") — use auto-detected model instead
+    if (slotOcModel && PLACEHOLDER_RE.test(slotOcModel)) {
+      slotOcModel = ""
+      console.error(`[theSaver] placeholder model detected in ${activeSlot} slot — skipping, will auto-detect`)
+    }
     if (slotOcModel && currentModel !== slotOcModel) {
       const old = currentModel
       currentModel = slotOcModel
       // Brain slot → enforce delegation (treat as high even for mid-classified models like sonnet)
       // Medium/cheap slots → skip high-tier enforcement (no point warning on $0.0001/turn models)
       currentTier = activeSlot === "brain" ? "high" : classify(currentModel)
-      console.error(`[delegation-enforcer] model refresh: ${old} → ${currentModel} (slot=${activeSlot} tier=${currentTier})`)
+      console.error(`[theSaver] model refresh: ${old} → ${currentModel} (slot=${activeSlot} tier=${currentTier})`)
+    }
+    // If no model from tiers and no existing currentModel, try to auto-detect
+    if (!currentModel) {
+      const detected = readConfig(directory) || readConfig(join(homedir(), ".config/opencode")) || process?.env?.OPENCODE_MODEL || ""
+      if (detected) {
+        currentModel = detected
+        currentTier = classify(currentModel)
+        console.error(`[theSaver] auto-detected model: ${currentModel} (tier=${currentTier})`)
+      }
     }
   } catch {}
 }
 
 export async function DelegationEnforcer({ client, directory }) {
-  console.error(`[delegation-enforcer] LOADED cwd=${directory}`)
+  console.error(`[theSaver] LOADED cwd=${directory}`)
   pruneScratchpadOnce()
 
   // Detect model: project opencode.json → global ~/.config/opencode/opencode.json → env.
@@ -925,17 +1611,99 @@ export async function DelegationEnforcer({ client, directory }) {
       const _activeSlot = _tiersData?.selection?.active_slot || "brain"
       if (_activeSlot === "brain") {
         const _brainOcModel = _tiersData?.trinity?.brain?.oc || ""
-        if (_brainOcModel && currentModel === _brainOcModel) {
+        if (_brainOcModel && currentModel === _brainOcModel && !PLACEHOLDER_RE.test(_brainOcModel)) {
           currentTier = "high"
-          console.error(`[delegation-enforcer] tier override → high (brain slot)`)
+          console.error(`[theSaver] tier override → high (brain slot)`)
         }
       }
     } catch {}
-    console.error(`[delegation-enforcer] ACTIVE: model=${currentModel} tier=${currentTier}`)
+    console.error(`[theSaver] ACTIVE: model=${currentModel} tier=${currentTier}`)
   } else {
-    console.error("[delegation-enforcer] NO MODEL — enforcement disabled")
+    console.error("[theSaver] NO MODEL — enforcement disabled, will auto-detect on first hook")
   }
-  if (detectContext7()) console.error(`[delegation-enforcer] context7 detected — docs nudge enabled`)
+  // Auto-configure model-tiers.json — always syncs with opencode desktop config.
+  // Sniffs ALL models from the user's opencode.json (provider dropdown + model field).
+  if (currentModel) {
+    try {
+      let _tiersData
+      if (existsSync(TIERS_FILE)) {
+        _tiersData = JSON.parse(readFileSync(TIERS_FILE, "utf-8"))
+      } else {
+        _tiersData = { selection: { enabled: true, active_slot: "brain", delegation_enforce: true }, trinity: {} }
+      }
+      // Sniff available models from opencode desktop provider config
+      const _providers = _loadOpenCodeProviders()
+      const _allModels = []
+      for (const [providerName, cfg] of Object.entries(_providers)) {
+        if (cfg?.models && typeof cfg.models === "object") {
+          for (const rawId of Object.keys(cfg.models)) {
+            const id = rawId.includes("/") ? rawId : providerName + "/" + rawId
+            if (!_allModels.some(m => m.id === id)) {
+              _allModels.push({ id, cost: _modelCost(id), tier: _modelTier(id) })
+            }
+          }
+        }
+      }
+      // Also add currentModel if not already in the list (covers the top-level "model" field)
+      if (!_allModels.some(m => m.id === currentModel)) {
+        _allModels.push({ id: currentModel, cost: _modelCost(currentModel), tier: _modelTier(currentModel) })
+      }
+      // Classify and assign slots
+      const _ranked = classifyAndRankModels(_allModels)
+      const _brain  = _ranked?.brain  || { id: currentModel, cost: _modelCost(currentModel), tier: _modelTier(currentModel) }
+      let _medium = _ranked?.medium
+      let _cheap  = _ranked?.cheap
+      // Derive medium/cheap from brain only when truly missing.
+      // Never overwrite existing valid (non-placeholder) models from the config
+      // with provider-prefix-guessed IDs (e.g. "anthropic/deepseek-v4-flash").
+      const _existing = _tiersData?.trinity || {}
+      const _existingMedium = _existing.medium?.oc || ""
+      const _existingCheap  = _existing.cheap?.oc  || ""
+      const _isPlaceholder = (id) => !id || PLACEHOLDER_RE.test(id)
+      const _preferExistingOrRanked = (ranked, existingId) => {
+        if (ranked && ranked.id) return ranked
+        if (_isPlaceholder(existingId)) return null
+        if (!existingId) return null
+        return { id: existingId, cost: _modelCost(existingId), tier: _modelTier(existingId) }
+      }
+      if (!_medium || _medium.id === _brain.id) {
+        _medium = _preferExistingOrRanked(_medium, _existingMedium) || _medium
+      }
+      if (!_cheap || _cheap.id === _brain.id || (_medium && _cheap && _cheap.id === _medium.id)) {
+        _cheap = _preferExistingOrRanked(_cheap, _existingCheap) || _cheap
+      }
+      // If still no distinct medium/cheap (only one model discovered) and no existing config,
+      // set all three to brain so first-install doesn't leave slots empty.
+      if (_medium.id === _brain.id) _medium = { ..._brain }
+      if (_cheap.id === _brain.id || _cheap.id === _medium.id) _cheap = { ..._brain }
+      // Only set missing slots — never overwrite non-placeholder existing entries
+      // with auto-guessed provider-prefixed IDs.
+      let _didWrite = false
+      const _existingBrain = _existing.brain?.oc || ""
+      if (_isPlaceholder(_existingBrain)) {
+        _tiersData.trinity.brain = { oc: _brain.id, cc: modelToCcAlias(_brain.id) }
+        _didWrite = true
+      }
+      if (_medium && _isPlaceholder(_existingMedium)) {
+        _tiersData.trinity.medium = { oc: _medium.id, cc: modelToCcAlias(_medium.id) }
+        _didWrite = true
+      }
+      if (_cheap && _isPlaceholder(_existingCheap)) {
+        _tiersData.trinity.cheap = { oc: _cheap.id, cc: modelToCcAlias(_cheap.id) }
+        _didWrite = true
+      }
+      if (_didWrite) {
+        mkdirSync(dirname(TIERS_FILE), { recursive: true })
+        writeFileSync(TIERS_FILE, JSON.stringify(_tiersData, null, 2) + "\n")
+        console.error(`[theSaver] auto-synced model-tiers.json: brain=${_brain.id} medium=${_tiersData.trinity?.medium?.oc || ""} cheap=${_tiersData.trinity?.cheap?.oc || ""}`)
+        // Refresh in-memory trinity models immediately so routing works this session
+        const _refreshed = loadTrinityModels()
+        TRINITY_CHEAP  = _refreshed.cheap
+        TRINITY_MEDIUM = _refreshed.medium
+      }
+    } catch {}
+  }
+  if (detectContext7()) console.error(`[theSaver] context7 detected — docs nudge enabled`)
 
   // ── Project memory: increment session counter ───────────────────
   const fp = projectFingerprint(directory)
@@ -947,9 +1715,136 @@ export async function DelegationEnforcer({ client, directory }) {
     state.project_hashes[fp].totalSessions = (state.project_hashes[fp].totalSessions || 0) + 1
     state.project_hashes[fp].lastSeen = new Date().toISOString()
     saveProjectState(state)
-    console.error(`[delegation-enforcer] project-memory: ${fp} now ${state.project_hashes[fp].totalSessions} sessions`)
+    console.error(`[theSaver] project-memory: ${fp} now ${state.project_hashes[fp].totalSessions} sessions`)
   } catch (err) {
-    console.error(`[delegation-enforcer] project-memory init failed: ${err.message}`)
+    console.error(`[theSaver] project-memory init failed: ${err.message}`)
+  }
+
+  // ── Shared footer logic for text.complete + message.updated ──────
+  async function _appendFooter(input, output, directory) {
+    if (!loadSelection().enabled) return
+    _refreshModel(directory)
+    // Lazy model detection: try client API once
+    if (!currentModel) {
+      try {
+        const cfg = await client.config.get("model")
+        if (cfg) {
+          currentModel = String(cfg)
+          currentTier = classify(currentModel)
+          console.error(`[theSaver] client-detected model: ${currentModel} (tier=${currentTier})`)
+        }
+      } catch { /* client.config may not be available */ }
+    }
+    try {
+      const messageID =
+        input?.messageID ||
+        input?.messageId ||
+        input?.message?.id ||
+        output?.messageID ||
+        output?.messageId ||
+        output?.message?.id ||
+        null
+      if (!messageID) return
+      if (textCompletePainted.has(messageID)) return
+
+      const text =
+        typeof output?.text === "string" ? output.text :
+        typeof output?.result === "string" ? output.result :
+        typeof output?.content === "string" ? output.content :
+        ""
+      const { ltTasks, ltCache, ltCost, count, sesTasks, sesEdit, sesCredit, sesC7, sesQuota, sesDuration, sesRatePerHour, sesTrend, sesToolBreakdown, sesModelTurns } = readLifetimeSavings()
+      const brainTag = currentModel ? modelToSlotLabel(currentModel, currentTier) : (currentTier ? `[${currentTier.charAt(0).toUpperCase() + currentTier.slice(1)}]` : "[???]")
+
+      textCompletePainted.add(messageID)
+      if (textCompletePainted.size > 500) {
+        const it = textCompletePainted.values()
+        for (let i = 0; i < 100; i++) textCompletePainted.delete(it.next().value)
+      }
+
+      let modelTag = brainTag
+      const _workerModel = (currentTier === "high" && TRINITY_MEDIUM) ? TRINITY_MEDIUM : TRINITY_CHEAP
+      const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0)
+      const brainName = shortModelName(currentModel)
+      const workerName = shortModelName(_workerModel)
+      if (totalTurns > 0) {
+        const brainPct = Math.round((sesModelTurns.brain / totalTurns) * 100)
+        const workerPct = 100 - brainPct
+        if (_workerModel && _workerModel !== currentModel) {
+          modelTag = `[🧠 ${brainName} ${brainPct}%→ ⚙ ${workerName} ${workerPct}%]`
+        } else {
+          modelTag = `[🧠 ${brainName} ${brainPct}%]`
+        }
+      } else if (_workerModel && _workerModel !== currentModel) {
+        modelTag = `[🧠 ${brainName} → ⚙ ${workerName}]`
+      }
+
+      _autoReportCount = (_autoReportCount || 0) + 1
+      if (_autoReportCount % 5 === 0) {
+        try {
+          saveReport({
+            type: "session",
+            summary: "Session cost: $" + ltCost.toFixed(2) + " | saved: $" + ltCache.toFixed(2) + " | " + sesTasks + " tasks",
+            metrics: { sessionCost: ltCost, cacheSavings: ltCache, tasksDelegated: sesTasks, model: currentModel, slot: loadSelection().active_slot || "unknown", editSavings: sesEdit, creditSavings: sesCredit, context7Savings: sesC7, quotaSavings: sesQuota },
+            tags: ["auto", "cost"],
+          })
+        } catch (e) { console.error("[theSaver] auto-report:", e.message) }
+      }
+
+      const stripped = text.replace(/\n\n— .+(?: —)?$/, "")
+      const ltTotal = ltTasks + ltCache
+      const trendIcon = sesTrend === "down" ? "↓" : sesTrend === "up" ? "↑" : "→"
+      let durationStr = ""
+      if (sesDuration > 0) {
+        const hrs = Math.floor(sesDuration / 3600)
+        const mins = Math.floor((sesDuration % 3600) / 60)
+        if (hrs > 0) durationStr = ` (${hrs}h ${mins}m)`
+        else if (mins > 0) durationStr = ` (${mins}m)`
+      }
+      const rateStr = sesRatePerHour > 0 ? ` ($${sesRatePerHour.toFixed(2)}/hr)` : ""
+
+      const toolParts = []
+      if (sesEdit > 0.01) toolParts.push(`edit -$${sesEdit.toFixed(2)}`)
+      if (sesCredit > 0.01) toolParts.push(`credit -$${sesCredit.toFixed(2)}`)
+      if (sesC7 > 0.01) toolParts.push(`context7 -$${sesC7.toFixed(2)}`)
+      if (sesQuota > 0.01) toolParts.push(`quota -$${sesQuota.toFixed(2)}`)
+      const coveredTools = new Set(["write", "edit", "notebookedit", "bash", "webfetch", "websearch"])
+      for (const [tool, savings] of Object.entries(sesToolBreakdown || {})) {
+        if (savings > 0.01 && !coveredTools.has(tool.toLowerCase())) {
+          toolParts.push(`${tool} -$${savings.toFixed(2)}`)
+        }
+      }
+      const toolStr = toolParts.length > 0 ? toolParts.slice(0, 4).join(" | ") + " | " : ""
+      const cacheStr = ltCache > 0.01 ? `cache -$${ltCache.toFixed(2)} | ` : ""
+      const flowCounts = getSessionFlowCounts()
+      const flowStr = (flowCounts.warn > 0 || flowCounts.hint > 0) ? `flow ${flowCounts.warn}w ${flowCounts.hint}h | ` : ""
+
+      const detailTag = ltTotal > 0
+        ? `${flowStr}${cacheStr}${toolStr}${trendIcon}${durationStr}${rateStr}`
+        : `tracking${durationStr}`
+      const footerText = stripped + `\n\n— ${modelTag} | theSaver: ${ltTotal.toFixed(2)} saved${detailTag ? ` | ${detailTag}` : ""} —`
+      if (typeof output?.text === "string") output.text = footerText
+      else if (typeof output?.result === "string") output.result = footerText
+      else if (typeof output?.content === "string") output.content = footerText
+      else output.text = footerText
+
+      if (ltTotal > 0 || ltCache > 0) {
+        try {
+          const _ltFmt = ltTotal.toFixed(2)
+          const _reportLine = `— ${modelTag} theSaver: $${_ltFmt} saved ${trendIcon} —`
+          writeFileSync(join(homedir(), ".claude/session-report-pending.md"), _reportLine)
+          const logPath = join(homedir(), ".claude/session-reports.log")
+          const pid = process.pid || "?"
+          const ts = new Date().toISOString().slice(0, 16).replace("T", " ")
+          const newLine = `[${ts} pid=${pid}] ${_reportLine}`
+          if (!getLastLines(logPath, 5, 1024).includes(newLine)) {
+            _rotateLog(logPath, MAX_LOG_LINES)
+            appendFileSync(logPath, newLine + "\n")
+          }
+        } catch {}
+      }
+    } catch (err) {
+      console.error(`[theSaver] footer failed: ${err.message}`)
+    }
   }
 
   return {
@@ -966,7 +1861,7 @@ export async function DelegationEnforcer({ client, directory }) {
           scratchpadHitsSeen.add(hit.hash)
           const total = recordScratchpadObservation()
           const sumNote = hit.summaryPath ? ` (summary: ${hit.summaryPath})` : ""
-          console.error(`[delegation-enforcer] 📦 scratchpad hit for ${t}: ${hit.fullPath} ${hit.sizeBytes}B ${hit.ageSec}s old${sumNote} — total observed: ${total ?? "?"}`)
+          console.error(`[theSaver] 📦 scratchpad hit for ${t}: ${hit.fullPath} ${hit.sizeBytes}B ${hit.ageSec}s old${sumNote} — total observed: ${total ?? "?"}`)
         }
       }
 
@@ -975,7 +1870,7 @@ export async function DelegationEnforcer({ client, directory }) {
       if (_credit < 40 && t === "task" && TRINITY_CHEAP && args && typeof args === "object") {
         if (args.model !== TRINITY_CHEAP) {
           args.model = TRINITY_CHEAP
-          console.error(`[delegation-enforcer] 🔀 Credit ${_credit}%: forcing Task → cheap slot (${TRINITY_CHEAP})`)
+          console.error(`[theSaver] 🔀 Credit ${_credit}%: forcing Task → cheap slot (${TRINITY_CHEAP})`)
         }
         return
       }
@@ -988,18 +1883,17 @@ export async function DelegationEnforcer({ client, directory }) {
         const _firstWord = _prompt.split(/\s+/)[0]
         const EXPLORATORY = new Set(["check","find","list","search","does","verify","look","count","show","get","read","grep","scan","detect","inspect"])
         const _exploratoryTarget = EXPLORATORY.has(_firstWord) ? TRINITY_CHEAP : null
-        const _tierTarget = (currentTier === "high" && TRINITY_MEDIUM) ? TRINITY_MEDIUM
-                          : TRINITY_CHEAP ? TRINITY_CHEAP
+        const _tierTarget = (currentTier === "high" && TRINITY_MEDIUM && TRINITY_MEDIUM !== currentModel) ? TRINITY_MEDIUM
+                          : TRINITY_CHEAP && TRINITY_CHEAP !== currentModel ? TRINITY_CHEAP
                           : null
         const _target = _exploratoryTarget ?? _tierTarget
         if (_target && args.model !== _target) {
           const _reason = _exploratoryTarget ? `exploratory ('${_firstWord}')` : `tier=${currentTier}`
           args.model = _target
-          console.error(`[delegation-enforcer] 🔀 Task → ${_target} (${_reason}, orchestrator: ${currentModel})`)
+          console.error(`[theSaver] 🔀 Task → ${_target} (${_reason}, orchestrator: ${currentModel})`)
         }
       }
 
-      if (currentTier !== "high") return
       if (FREE.has(t)) return
       // Free models have no per-turn cost — no savings to enforce.
       if (isModelFree(currentModel)) return
@@ -1015,21 +1909,38 @@ export async function DelegationEnforcer({ client, directory }) {
       const _estEdit    = Math.max(_rawEdit, SAVE_EST.WRITE_EDIT * 0.1)  // at least $0.007
       const _estOpus    = _brainCost !== null ? Math.max(_brainCost, _estEdit) : SAVE_EST.OPUS_DISABLE
       const _estC7      = _brainCost !== null ? Math.max(_brainCost, SAVE_EST.CONTEXT7) : SAVE_EST.CONTEXT7
+      const _tierWord   = currentTier === "high" ? "Brain" : currentTier === "mid" ? "Medium" : "Budget"
 
-      // Credit < 40%: high-tier non-task tool — record and nudge to step aside.
+      // Credit < 40%: non-task tool — record and nudge to step aside.
       if (_credit < 40) {
         const total = recordSaving(t, "credit<40% high-tier", _estOpus)
-        const msg = `⚠ [theSaver] Credit ${_credit}% — brain model doing ${t} directly. Run \`trinity medium\` to switch. (~$${_estOpus.toFixed(3)}/turn, cumulative: $${(total ?? 0).toFixed(2)})`
-        console.error(`[delegation-enforcer] [delegation] ${msg}`)
+        const msg = `⚠ [theSaver] Credit ${_credit}% — ${_tierWord} model doing ${t} directly. Run \`trinity medium\` to switch. (~$${_estOpus.toFixed(3)}/turn, cumulative: $${(total ?? 0).toFixed(2)})`
+        console.error(`[theSaver] [delegation] ${msg}`)
         pendingUiNote = msg
         return
       }
 
-      // Write/Edit/NotebookEdit on high tier: warn and allow (memory mode).
+      // Write/Edit/NotebookEdit: enforce delegation on high tier when delegation_enforce is on.
       if (WARN_ON_DIRECT.has(t)) {
-        const total = recordSaving(t, "high-tier direct edit", _estEdit)
-        const msg = `⚠ [theSaver] Brain model doing ${t} directly — delegate via Task to save ~$${_estEdit.toFixed(3)}/turn. (cumulative: $${(total ?? 0).toFixed(2)})`
-        console.error(`[delegation-enforcer] [delegation] ${msg}`)
+        const sel = loadSelection()
+        if (sel.delegation_enforce && currentTier === "high" && args && typeof args === "object") {
+          const originalPath = args?.filePath || args?.file_path || ""
+          const basename = originalPath.split("/").pop() || "blocked"
+          if (t === "write") {
+            args.filePath = `/tmp/thesaver-enforcement-blocked-${basename}`
+            if (args.file_path !== undefined) args.file_path = args.filePath
+          } else if (t === "edit" || t === "notebookedit") {
+            args.oldString = `__THE_SAVER_ENFORCEMENT_BLOCK_${Date.now()}__`
+          }
+          const total = recordSaving(t, "delegation enforced", _estEdit)
+          pendingUiNote = `🚫 [theSaver ENFORCEMENT] Direct ${t} blocked on ${_tierWord} tier. Delegate implementation via Task subagent. Use \`trinity enforce off\` to disable enforcement or \`trinity medium\` to switch tiers. (cumulative: $${(total ?? 0).toFixed(2)})`
+          enforcementBlocked = true
+          console.error(`[theSaver] [enforcement] BLOCKED direct ${t} on high tier → delegate via Task`)
+          return
+        }
+        const total = recordSaving(t, "direct edit", _estEdit)
+        const msg = `⚠ [theSaver] ${_tierWord} model doing ${t} directly — delegate via Task to save ~$${_estEdit.toFixed(3)}/turn. (cumulative: $${(total ?? 0).toFixed(2)})`
+        console.error(`[theSaver] [delegation] ${msg}`)
         pendingUiNote = msg
         return
       }
@@ -1043,7 +1954,7 @@ export async function DelegationEnforcer({ client, directory }) {
             // Re-check each time — context7 might be added mid-session
             if (detectContext7()) {
               const total = recordSaving(t, "docs-target without context7", _estC7)
-              console.error(`[delegation-enforcer] [cost policy] context7 MCP is available — if this ${t} is for library/framework docs, use context7 tools instead. Saves ~$${_estC7.toFixed(3)}/turn. (cumulative: $${(total ?? 0).toFixed(2)})`)
+              console.error(`[theSaver] [cost policy] context7 MCP is available — if this ${t} is for library/framework docs, use context7 tools instead. Saves ~$${_estC7.toFixed(3)}/turn. (cumulative: $${(total ?? 0).toFixed(2)})`)
             } else {
               const missed = recordMissedContext7(_estC7)
               if (!existsSync(CONTEXT7_INSTALL_FLAG)) {
@@ -1051,10 +1962,10 @@ export async function DelegationEnforcer({ client, directory }) {
                   mkdirSync(dirname(CONTEXT7_INSTALL_FLAG), { recursive: true })
                   writeFileSync(CONTEXT7_INSTALL_FLAG, "")
                 } catch {}
-                console.error(`[delegation-enforcer] 💡 [one-time tip] Installing context7 MCP would save ~$${_estC7.toFixed(3)}/turn on docs lookups. Setup: \`claude mcp add context7 npx @upstash/context7-mcp\`. Won't ask again.`)
+                console.error(`[theSaver] 💡 [one-time tip] Installing context7 MCP would save ~$${_estC7.toFixed(3)}/turn on docs lookups. Setup: \`claude mcp add context7 npx @upstash/context7-mcp\`. Won't ask again.`)
               } else if (!context7AlertedThisSession) {
                 context7AlertedThisSession = true
-                console.error(`[delegation-enforcer] 💸 [context7] Missed savings so far: $${(missed ?? 0).toFixed(2)} across docs lookups. Install when ready.`)
+                console.error(`[theSaver] 💸 [context7] Missed savings so far: $${(missed ?? 0).toFixed(2)} across docs lookups. Install when ready.`)
               }
             }
           }
@@ -1064,9 +1975,9 @@ export async function DelegationEnforcer({ client, directory }) {
         const n = softQuotaCounts[t]
         if (n === SOFT_QUOTA_LIMIT + 1) {
           const total = recordSaving(t, `soft quota exceeded (limit ${SOFT_QUOTA_LIMIT})`, SAVE_EST.SOFT_QUOTA)
-          console.error(`[delegation-enforcer] [delegation] ${t} #${n} (limit ${SOFT_QUOTA_LIMIT}) — consider Task subagent.`)
+          console.error(`[theSaver] [delegation] ${t} #${n} (limit ${SOFT_QUOTA_LIMIT}) — consider Task subagent.`)
         } else if (n <= SOFT_QUOTA_LIMIT) {
-          console.error(`[delegation-enforcer] ${t} ${n}/${SOFT_QUOTA_LIMIT}`)
+          console.error(`[theSaver] ${t} ${n}/${SOFT_QUOTA_LIMIT}`)
         }
         return
       }
@@ -1090,12 +2001,23 @@ export async function DelegationEnforcer({ client, directory }) {
       // Inject pending delegation UI note (set in tool.execute.before).
       // This surfaces the warning in the OC chat transcript, not just stderr.
       if (pendingUiNote) {
-        const note = `\n\n${pendingUiNote}`
-        if (typeof output?.result === "string") output.result += note
-        else if (typeof output?.text === "string") output.text += note
-        else output.result = pendingUiNote
+        if (enforcementBlocked) {
+          if (typeof output?.result === "string") output.result = pendingUiNote
+          else if (typeof output?.text === "string") output.text = pendingUiNote
+          else if (typeof output?.content === "string") output.content = pendingUiNote
+          else output.result = pendingUiNote
+        } else {
+          const note = `\n\n${pendingUiNote}`
+          if (typeof output?.result === "string") output.result += note
+          else if (typeof output?.text === "string") output.text += note
+          else if (typeof output?.content === "string") output.content += note
+          else output.result = pendingUiNote
+        }
         pendingUiNote = null
       }
+
+      // Skip test-reminder, TDD, flow enforcement, and compression for blocked tools
+      if (enforcementBlocked) { enforcementBlocked = false; return }
 
       // Test-reminder: nudge when source code is written/edited.
       if (t === "write" || t === "edit" || t === "multiedit") {
@@ -1107,11 +2029,22 @@ export async function DelegationEnforcer({ client, directory }) {
           const note = `\n\n[test-reminder] ${reminder}`
           if (typeof output?.text === "string") output.text += note
           else if (typeof output?.result === "string") output.result += note
-          else console.error(`[delegation-enforcer] ${reminder}`)
+          else console.error(`[theSaver] ${reminder}`)
+        }
+
+        // TDD enforcement: auto-create skeleton test if enabled and no test exists.
+        const sel = loadSelection()
+        if (sel.tdd_enforce) {
+          const createdPath = enforceTestFile(fp)
+          if (createdPath) {
+            const enforceNote = `\n\n[test-enforced] Created skeleton at ${createdPath} — fill in assertions`
+            if (typeof output?.text === "string") output.text += enforceNote
+            else if (typeof output?.result === "string") output.result += enforceNote
+          }
         }
 
         // Flow enforcer: check Write/Edit against development-flow rules.
-        if (loadSelection().flow_enabled) {
+        if (sel.flow_enabled) {
           const toolName = t === "edit" ? "Edit" : "Write"
           const filePath = input?.args?.filePath || input?.args?.file_path || input?.args?.path || ""
           const content = t === "edit" ? (input?.args?.newString || "") : (input?.args?.content || "")
@@ -1120,6 +2053,15 @@ export async function DelegationEnforcer({ client, directory }) {
             if (h.deduped) continue
             const icon = h.severity === "warn" ? "⚠" : "💡"
             console.error(`[flow-enforcer] ${icon} [${h.severity}] ${h.id}: ${h.description} — ${filePath}`)
+          }
+          // Flow enforcement: extract TODO/FIXME to queue when flow_enforce is on.
+          if (sel.flow_enforce) {
+            const { recordFlowTodo } = await import("./theSaver-lib/flow-enforcer.js")
+            for (const h of flowHits) {
+              if (h.id === "todo-comment" && !h.deduped) {
+                recordFlowTodo({ filePath, content })
+              }
+            }
           }
         }
       }
@@ -1202,7 +2144,7 @@ export async function DelegationEnforcer({ client, directory }) {
                 indexAppend(hash, part.tool, raw.length)
               }
             } catch (err) {
-              console.error(`[delegation-enforcer] ctx-compress write failed: ${err.message}`)
+              console.error(`[theSaver] ctx-compress write failed: ${err.message}`)
               continue
             }
 
@@ -1215,11 +2157,11 @@ export async function DelegationEnforcer({ client, directory }) {
 
             state.output = ref
             compressedBytes += raw.length - ref.length
-            console.error(`[delegation-enforcer] 📦 ctx-compress: ${raw.length}→${ref.length} chars (hash: ${hash})`)
+            console.error(`[theSaver] 📦 ctx-compress: ${raw.length}→${ref.length} chars (hash: ${hash})`)
           }
         }
         if (compressedBytes > 0) {
-          console.error(`[delegation-enforcer] 📦 ctx-compress total saved this transform: ~${Math.round(compressedBytes / 4)} tokens`)
+          console.error(`[theSaver] 📦 ctx-compress total saved this transform: ~${Math.round(compressedBytes / 4)} tokens`)
         }
 
         // ── Worker-to-Brain Report Protocol ───────────────────────────────
@@ -1257,7 +2199,7 @@ export async function DelegationEnforcer({ client, directory }) {
         // ── Progressive decadence — age-based cache rotation ──────
         applyDecadence()
       } catch (err) {
-        console.error(`[delegation-enforcer] messages.transform failed: ${err.message}`)
+        console.error(`[theSaver] messages.transform failed: ${err.message}`)
       }
     },
 
@@ -1269,96 +2211,9 @@ export async function DelegationEnforcer({ client, directory }) {
     // We append the cumulative savings tag exactly once per assistantMessageId
     // (the first text-end fires per message gets it; subsequent text parts in
     // the same message are skipped to avoid duplication).
-    "experimental.text.complete": async (input, output) => {
-      if (!loadSelection().enabled) return
-      _refreshModel(directory)
-      try {
-        const messageID = input?.messageID
-        if (!messageID) return
-        if (textCompletePainted.has(messageID)) return
-
-        const text = (output?.text ?? "")
-        const { ltTasks, ltCache, ltCost, count, scratchpadHits, missedC7, sesTasks, sesEdit, sesCredit, sesC7, sesQuota } = readLifetimeSavings()
-        const brainTag = currentModel ? modelToSlotLabel(currentModel, currentTier) : ""
-        if (!brainTag && count === 0 && ltCache === 0) return
-
-        textCompletePainted.add(messageID)
-        // Bound the cache so a long-running sidecar doesn't grow it unbounded.
-        if (textCompletePainted.size > 500) {
-          const it = textCompletePainted.values()
-          for (let i = 0; i < 100; i++) textCompletePainted.delete(it.next().value)
-        }
-
-        // Show brain → worker tier routing (two-tier aware)
-        let modelTag = brainTag
-        const _workerModel = (currentTier === "high" && TRINITY_MEDIUM) ? TRINITY_MEDIUM : TRINITY_CHEAP
-        if (_workerModel && _workerModel !== currentModel) {
-          const workerTag = modelToSlotLabel(_workerModel)
-          if (workerTag !== brainTag) {
-            const brainInner = brainTag.replace(/^\[|\]$/g, "")
-            const workerInner = workerTag.replace(/^\[|\]$/g, "")
-            modelTag = `[${brainInner} → ${workerInner}]`
-          }
-        }
-        // Auto-save session report every 5 messages
-        _autoReportCount = (_autoReportCount || 0) + 1
-        if (_autoReportCount % 5 === 0) {
-          try {
-            const _sum = "Session cost: $" + ltCost.toFixed(2) + " | saved: $" + ltCache.toFixed(2) + " | " + sesTasks + " tasks"
-            saveReport({
-              type: "session",
-              summary: _sum,
-              metrics: { sessionCost: ltCost, cacheSavings: ltCache, tasksDelegated: sesTasks, model: currentModel, slot: loadSelection().active_slot || "unknown", editSavings: sesEdit, creditSavings: sesCredit, context7Savings: sesC7, quotaSavings: sesQuota, scratchpadHits: scratchpadHits },
-              tags: ["auto", "cost"],
-            })
-          } catch (e) { console.error("[delegation-enforcer] auto-report:", e.message) }
-        }
-
-        // ── Savings tag — mirrors CC session-report-writer format ────────
-        // Strip any footer a stale hot-reloaded plugin instance already wrote
-        // so we never accumulate two "— … —" lines in the same message.
-        const stripped = text.replace(/\n\n— .+(?: —)?$/, "")
-        const ltTotal  = ltTasks + ltCache
-
-        // Per-session breakdown parts (only emit if > $0.01, same threshold as CC)
-        const parts = []
-        if (sesEdit   > 0.01) parts.push(`edit -$${sesEdit.toFixed(2)}`)
-        if (sesCredit > 0.01) parts.push(`credit -$${sesCredit.toFixed(2)}`)
-        if (sesC7     > 0.01) parts.push(`context7 -$${sesC7.toFixed(2)}`)
-        if (sesQuota  > 0.01) parts.push(`quota -$${sesQuota.toFixed(2)}`)
-        const partsStr = parts.length > 0 ? parts.join(" | ") + " | " : ""
-
-        const flowCounts = getSessionFlowCounts()
-        const flowStr = (flowCounts.warn > 0 || flowCounts.hint > 0)
-          ? `flow ${flowCounts.warn}w ${flowCounts.hint}h | ` : ""
-
-        const savingsTag = ltTotal > 0
-          ? ` ${flowStr}${partsStr}theSaver: $${ltTotal.toFixed(2)} saved`
-          : ""
-
-        output.text = stripped + `\n\n— ${modelTag}${savingsTag} —`
-
-            // Write session-report-pending.md for CC to display at next session start.
-            if (ltTotal > 0 || ltCache > 0) {
-              try {
-                const _ltFmt = ltTotal.toFixed(2)
-                const _reportLine = `— ${modelTag} theSaver: $${_ltFmt} saved —`
-                writeFileSync(join(homedir(), ".claude/session-report-pending.md"), _reportLine)
-                const logPath = join(homedir(), ".claude/session-reports.log")
-                const pid = process.pid || "?"
-                const ts = new Date().toISOString().slice(0, 16).replace("T", " ")
-                const newLine = `[${ts} pid=${pid}] ${_reportLine}`
-                // Cross-process dedup: check last 5 lines (200-byte tail was unreliable for 3+ writers)
-                if (!getLastLines(logPath, 5, 1024).includes(newLine)) {
-                  _rotateLog(logPath, MAX_LOG_LINES)
-                  appendFileSync(logPath, newLine + "\n")
-                }
-              } catch {}
-            }
-      } catch (err) {
-        console.error(`[delegation-enforcer] text.complete failed: ${err.message}`)
-      }
-    },
+    "experimental.text.complete": async (input, output) => { await _appendFooter(input, output, directory) },
+    // message.updated fallback — fires in all OpenCode versions
+    "message.updated": async (input, output) => { await _appendFooter(input, output, directory) },
 
     // Scratchpad-aware compaction. When OpenCode is about to compact a session,
     // remind the compactor that tool results are persisted on disk at the
@@ -1397,7 +2252,7 @@ export async function DelegationEnforcer({ client, directory }) {
           output.context = [{ role: "user", content: note }]
         }
       } catch (err) {
-        console.error(`[delegation-enforcer] session.compacting failed: ${err.message}`)
+        console.error(`[theSaver] session.compacting failed: ${err.message}`)
       }
     },
 
@@ -1435,16 +2290,21 @@ export async function DelegationEnforcer({ client, directory }) {
           output.system.push(c7directive)
         }
 
-        // Judge-pattern directive — brain orchestrates and judges, worker does heavy lifting.
-        // Only injected for high-tier brain (mid/budget brains don't need delegation nudge).
-        if (currentTier === "high") {
+        // AI ORCHESTRATOR AGENT — injected for all tiers.
+        {
           const cheapModel = TRINITY_CHEAP || "the cheaper model"
-          const judgeDirective =
-            `[judge pattern] You are the orchestrator and judge. For heavy tasks: ` +
-            `delegate to a Task subagent (runs on ${cheapModel} — fast and cheap). ` +
-            `Your role: verify correctness, fill gaps, synthesize the final answer.`
+          const mediumModel = TRINITY_MEDIUM || "the medium model"
+          const sel = loadSelection()
+          const enforcementNote = sel.delegation_enforce
+            ? ` CRITICAL: Write/Edit tools are BLOCKED on this tier. You MUST delegate ALL implementation work to Task subagents. `
+            : ``
+          const orcDirective =
+            `[AI ORCHESTRATOR AGENT] You are an AI orchestrator agent. ` +
+            `Delegate heavy work to Task subagents (runs on ${cheapModel} or ${mediumModel}). ` +
+            `Your role: verify, fill gaps, synthesize.${enforcementNote}` +
+            `Always display the theSaver cost footer.`
 
-          if (Array.isArray(output?.system)) output.system.push(judgeDirective)
+          if (Array.isArray(output?.system)) output.system.push(orcDirective)
         }
 
         // Project memory briefing: one-shot per session
@@ -1453,7 +2313,7 @@ export async function DelegationEnforcer({ client, directory }) {
           if (briefing && Array.isArray(output?.system)) {
             output.system.push(briefing)
             briefedProjects.add(fp)
-            console.error(`[delegation-enforcer] project-memory: briefing injected for ${fp}`)
+            console.error(`[theSaver] project-memory: briefing injected for ${fp}`)
           }
         }
 
@@ -1474,7 +2334,7 @@ export async function DelegationEnforcer({ client, directory }) {
           }
         }
       } catch (err) {
-        console.error(`[delegation-enforcer] system.transform failed: ${err.message}`)
+        console.error(`[theSaver] system.transform failed: ${err.message}`)
       }
     },
 
@@ -1487,17 +2347,21 @@ export async function DelegationEnforcer({ client, directory }) {
     tool: {
       trinity: tool({
         description:
-          "Control the delegation-enforcer plugin and active model slot. " +
+          "Control the theSaver plugin and active model slot. " +
           "Use action='status' to see current state. " +
           "Use action='enable' or 'disable' to toggle the plugin (takes effect immediately, no restart needed). " +
           "Use action='set' with slot='brain'|'medium'|'cheap' to switch model tiers " +
           "(writes opencode.json — active immediately). " +
           "Use action='rebuild' to auto-detect available models from all configured providers and reassign brain/medium/cheap slots. " +
           "Use action='flow' with slot='on'|'off' to toggle flow enforcer, or action='flow' alone for audit. " +
+          "Use action='flow' with slot='enforce' and level='on'|'off' to toggle auto-extract TODOs. " +
+          "Use action='enforce' with slot='on'|'off' to toggle delegation enforcement (blocks direct writes/edits on brain tier). " +
+          "Use action='tdd' with slot='on'|'off' to toggle auto-create test skeletons, or action='tdd' alone for audit. " +
+          "Use action='project' to show per-project analytics and optimization suggestions. " +
           "Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', 'trinity status'.",
         args: {
-          action: tool.schema.enum(["status", "enable", "disable", "set", "thinking", "flow", "rebuild", "help"]).optional(),
-          slot: tool.schema.enum(["brain", "medium", "cheap", "on", "off"]).optional(),
+          action: tool.schema.enum(["status", "enable", "disable", "set", "thinking", "flow", "tdd", "project", "rebuild", "diagnose", "help", "enforce"]).optional(),
+          slot: tool.schema.enum(["brain", "medium", "cheap", "on", "off", "enforce"]).optional(),
           level: tool.schema.enum(["full", "brief", "off"]).optional(),
         },
         async execute({ action, slot, level } = {}) {
@@ -1517,6 +2381,9 @@ export async function DelegationEnforcer({ client, directory }) {
               `🎯 Active slot: ${sel.active_slot || "(unset)"}`,
               `🧠 Thinking: ${effectiveLevel.toUpperCase()} (${thinkSrc})`,
               `🔀 Flow enforcer: ${sel.flow_enabled !== false ? "ON" : "OFF"}`,
+              `🔀 Flow enforcement: ${sel.flow_enforce ? "ON (auto-extract TODOs)" : "OFF (log only)"}`,
+              `🧪 TDD enforcer: ${sel.tdd_enforce ? "ON (auto-create skeletons)" : "OFF (nudge only)"}`,
+              `🚫 Delegation enforcement: ${sel.delegation_enforce ? "ON (blocks direct writes/edits on brain)" : "OFF (warn only)"}`,
             ]
             for (const s of ["brain", "medium", "cheap"]) {
               const icon = s === "brain" ? "🧠" : s === "medium" ? "⚙ " : "⚡"
@@ -1578,6 +2445,14 @@ export async function DelegationEnforcer({ client, directory }) {
                 ? `✅ Flow enforcer ${slot === "on" ? "ENABLED" : "DISABLED"}`
                 : `❌ Failed to write model-tiers.json`
             }
+            if (slot === "enforce") {
+              // Need to read the next arg — use level as the on/off toggle for enforce
+              const enforceOn = level === "on" || level === "off" ? level === "on" : true
+              const ok = writeSelection("flow_enforce", enforceOn)
+              return ok
+                ? `✅ Flow enforcement ${enforceOn ? "ENABLED (auto-extract TODOs)" : "DISABLED (log only)"}`
+                : `❌ Failed to write model-tiers.json`
+            }
             // Audit: show current session flow warnings
             const flowWarns = getFlowWarns()
             const sid = String(process.pid || "?")
@@ -1595,6 +2470,155 @@ export async function DelegationEnforcer({ client, directory }) {
               }
             }
             if (sessionWarns.length === 0) lines.push(`  No flow violations this session.`)
+            return lines.join("\n")
+          }
+
+          if (action === "enforce") {
+            if (slot === "on" || slot === "off") {
+              const ok = writeSelection("delegation_enforce", slot === "on")
+              return ok
+                ? `🚫 Delegation enforcement ${slot === "on" ? "ENABLED — direct writes/edits BLOCKED on brain tier" : "DISABLED — warn only"}`
+                : `❌ Failed to write model-tiers.json`
+            }
+            const sel = loadSelection()
+            return `🚫 Delegation enforcement: ${sel.delegation_enforce ? "ON (blocks direct writes/edits on brain tier)" : "OFF (warn only)"}\nUse \`trinity enforce on\` or \`trinity enforce off\` to toggle.`
+          }
+
+          if (action === "tdd") {
+            if (slot === "on" || slot === "off") {
+              const ok = writeSelection("tdd_enforce", slot === "on")
+              return ok
+                ? `✅ TDD enforcement ${slot === "on" ? "ENABLED (auto-create skeletons)" : "DISABLED (nudge only)"}`
+                : `❌ Failed to write model-tiers.json`
+            }
+            // Audit: show TDD enforcement stats
+            const stateFile = join(homedir(), ".claude/delegation-state.json")
+            let enforced = 0
+            try {
+              if (existsSync(stateFile)) {
+                const s = JSON.parse(readFileSync(stateFile, "utf-8"))
+                enforced = s.lifetime?.tdd_enforced ?? 0
+              }
+            } catch {}
+            const sel = loadSelection()
+            const lines = [`🧪 TDD enforcer audit:`]
+            lines.push(`  Mode: ${sel.tdd_enforce ? "ENFORCE (auto-create skeletons)" : "NUDGE (reminders only)"}`)
+            lines.push(`  Skeletons created this lifetime: ${enforced}`)
+            return lines.join("\n")
+          }
+
+          if (action === "project") {
+            const L = "\u2501"
+            const lines = [`\ud83d\udcca Project profile \u2014 ${currentProjectName || "unknown"}`]
+            lines.push(L.repeat(40))
+            const fp = currentProjectFingerprint || projectFingerprint(directory)
+
+            // 1. Project memory from project-states.json
+            const pstate = loadProjectState()
+            const proj = pstate.project_hashes?.[fp]
+            if (proj) {
+              lines.push(`\n\ud83d\udcc5 Sessions: ${proj.totalSessions || 0} | Last: ${(proj.lastSeen || "").slice(0, 10)}`)
+              if (proj.researchChains) lines.push(`\ud83d\udd0d Research chains detected: ${proj.researchChains}`)
+              if (proj.context7Bypasses) lines.push(`\ud83d\udcb8 Context7 bypasses: ${proj.context7Bypasses}`)
+              if (proj.commonTopics?.length) {
+                const topics = proj.commonTopics.slice(0, 5).join(", ")
+                lines.push(`\ud83c\udf10 Common fetch domains: ${topics}`)
+              }
+            } else {
+              lines.push(`\n  (no project memory yet \u2014 first session)`)
+            }
+
+            // 2. Current session tool breakdown
+            const sv = readLifetimeSavings()
+            const totalTurns = (sv.sesModelTurns?.brain || 0) + (sv.sesModelTurns?.worker || 0)
+            const brainPct = totalTurns > 0 ? Math.round((sv.sesModelTurns.brain / totalTurns) * 100) : 0
+            if (totalTurns > 0) {
+              const workerPct = 100 - brainPct
+              lines.push(`\n\ud83d\udd04 Model usage: Brain ${brainPct}% (${sv.sesModelTurns.brain} turns) / Worker ${workerPct}% (${sv.sesModelTurns.worker} tasks)`)
+            }
+            if (sv.sesTasks > 0.01 || sv.ltCache > 0.01) {
+              lines.push(`\ud83d\udcb0 Session savings: $${sv.sesTasks.toFixed(2)} delegation + $${sv.ltCache.toFixed(2)} cache`)
+            }
+            if (sv.sesDuration > 0) {
+              const hrs = Math.floor(sv.sesDuration / 3600)
+              const mins = Math.floor((sv.sesDuration % 3600) / 60)
+              lines.push(`\u23f1  Duration: ${hrs}h ${mins}m | Rate: $${sv.sesRatePerHour.toFixed(2)}/hr | Trend: ${sv.sesTrend === "down" ? "\u2193" : sv.sesTrend === "up" ? "\u2191" : "\u2192"}`)
+            }
+
+            // 3. Tool breakdown
+            const toolEntries = Object.entries(sv.sesToolBreakdown || {}).filter(([_, v]) => v > 0.005).sort((a, b) => b[1] - a[1])
+            if (toolEntries.length > 0) {
+              lines.push(`\n\ud83d\udd27 Per-tool savings:`)
+              for (const [tool, savings] of toolEntries) {
+                lines.push(`  ${tool.padEnd(14)} \u2014$${savings.toFixed(2)}`)
+              }
+            }
+
+            // 4. Flow enforcer stats
+            const flowWarns = getFlowWarns()
+            const sid = String(process.pid || "?")
+            const sessionFlowWarns = flowWarns.filter(w => String(w.sid) === sid)
+            const byRule = {}
+            for (const w of sessionFlowWarns) {
+              const key = w.rule_id || "unknown"
+              byRule[key] = (byRule[key] || 0) + 1
+            }
+            if (Object.keys(byRule).length > 0) {
+              lines.push(`\n\u26a0\ufe0f Flow violations (this session):`)
+              for (const [rule, count] of Object.entries(byRule)) {
+                lines.push(`  ${rule.padEnd(22)} ${count}`)
+              }
+            }
+
+            // 5. Optimization suggestions
+            const suggestions = []
+            // High direct-edit ratio → delegate more
+            if (totalTurns > 10 && sv.sesModelTurns.brain > sv.sesModelTurns.worker * 2) {
+              if (!loadSelection().delegation_enforce) {
+                suggestions.push(`\ud83d\udca1 High direct brain usage (${brainPct}%) — enable enforcement with \`trinity enforce on\` to block direct writes/edits`)
+              } else {
+                suggestions.push(`\ud83d\udca1 High direct brain usage (${brainPct}%) — enforcement is ON but brain keeps editing directly; check plugin logs`)
+              }
+            }
+            // Context7 bypasses
+            if (proj?.context7Bypasses > 3) {
+              suggestions.push(`\ud83d\udca1 ${proj.context7Bypasses} context7 bypasses \u2014 install context7 MCP to save ~$0.05/turn`)
+            }
+            // Research chains
+            if (proj?.researchChains > 2) {
+              suggestions.push(`\ud83d\udca1 ${proj.researchChains} research domain chains \u2014 consider caching or batching doc lookups`)
+            }
+            // Frequent webfetch users
+            if ((sv.sesToolBreakdown?.webfetch || 0) > 0.1 || (sv.sesToolBreakdown?.websearch || 0) > 0.1) {
+              suggestions.push(`\ud83d\udca1 High webfetch/websearch usage \u2014 use context7 tools or scratchpad caching`)
+            }
+            // Flow: new-md-file violations
+            if ((byRule["new-md-file"] || 0) > 2) {
+              suggestions.push(`\ud83d\udca1 ${byRule["new-md-file"]} new .md files \u2014 verify explicit user request for docs`)
+            }
+            // Flow: todo-comment accumulation
+            if ((byRule["todo-comment"] || 0) > 5) {
+              suggestions.push(`\ud83d\udca1 ${byRule["todo-comment"]} TODO/FIXME left \u2014 clean up or track in issue tracker`)
+            }
+            // No flow enforcer enabled
+            if (loadSelection().flow_enabled === false) {
+              suggestions.push(`\ud83d\udca1 Flow enforcer is OFF \u2014 enable with \`trinity flow on\` to catch anti-patterns`)
+            }
+            // Credit low
+            const credit = loadCredit()
+            if (credit < 40) {
+              suggestions.push(`\ud83d\udca1 Credit at ${credit}% \u2014 switch to medium/cheap slot with \`trinity medium\``)
+            }
+
+            if (suggestions.length > 0) {
+              lines.push(`\n\ud83c\udfaf Optimization suggestions:`)
+              for (const s of suggestions) lines.push(`  ${s}`)
+            } else {
+              lines.push(`\n\u2705 No optimization suggestions \u2014 looking good!`)
+            }
+
+            lines.push(`\n${L.repeat(40)}`)
+            lines.push(`Run \`trinity help\` for all commands | \`research-audit\` for deep fetch analysis`)
             return lines.join("\n")
           }
 
@@ -1646,7 +2670,7 @@ export async function DelegationEnforcer({ client, directory }) {
             } catch (err) {
               return "\u274c Failed to write model-tiers.json: " + err.message
             }
-            try { applySlot("brain") } catch (e) { console.error("[delegation-enforcer] auto-activate brain failed:", e.message) }
+            try { applySlot("brain") } catch (e) { console.error("[theSaver] auto-activate brain failed:", e.message) }
             const lines = [
               "\ud83d\udd0d Auto-detected models from configured providers:",
               "  \ud83e\udde0 brain  \u2192 " + probed.brain.id + " (tier: " + probed.brain.tier + ", $" + probed.brain.cost.toFixed(4) + "/turn) \u2705",
@@ -1661,7 +2685,115 @@ export async function DelegationEnforcer({ client, directory }) {
             return lines.join("\n")
           }
 
-          if (action === "help") {
+          if (action === "diagnose") {
+            const results = []
+            const ocConfig = join(homedir(), ".config/opencode/opencode.json")
+
+            // 1. Required files
+            const checks = [
+              { path: TIERS_FILE,                                        label: "model-tiers.json"       },
+              { path: ocConfig,                                            label: "opencode.json"          },
+              { path: STATE_FILE,                                          label: "delegation-state.json" },
+            ]
+            for (const c of checks) {
+              results.push({
+                ok: existsSync(c.path),
+                okLabel: existsSync(c.path) ? "\u2705" : "\u274c",
+                label: c.label,
+                detail: existsSync(c.path) ? "exists" : "missing",
+              })
+            }
+
+            // 2. Slot population
+            try {
+              const tiers = JSON.parse(readFileSync(TIERS_FILE, "utf-8"))
+              for (const s of ["brain","medium","cheap"]) {
+                const m = tiers?.trinity?.[s]?.oc || ""
+                const ok = m.length > 0 && !m.toLowerCase().includes("placeholder")
+                results.push({
+                  ok, okLabel: ok ? "\u2705" : "\u274c",
+                  label: `${s} slot`,
+                  detail: ok ? m : (m.length > 0 ? `placeholder: ${m}` : "unset"),
+                })
+              }
+            } catch {
+              for (const s of ["brain","medium","cheap"]) {
+                results.push({ ok: false, okLabel: "\u274c", label: `${s} slot`, detail: "cannot read model-tiers.json" })
+              }
+            }
+
+            // 3. Model probe
+            if (currentModel) {
+              try {
+                const auth = _readAuth()
+                const ok = await probeModel(currentModel, auth)
+                results.push({
+                  ok, okLabel: ok ? "\u2705" : "\u274c",
+                  label: "model probe",
+                  detail: ok ? "API responsive" : `probe failed: ${currentModel}`,
+                })
+              } catch {
+                results.push({ ok: false, okLabel: "\u274c", label: "model probe", detail: "exception during probe" })
+              }
+            } else {
+              results.push({ ok: false, okLabel: "\u274c", label: "model probe", detail: "no current model detected" })
+            }
+
+            // 4. Credits
+            const credit = loadCredit()
+            let budget = 50
+            let totalBal = 0
+            try {
+              const j = JSON.parse(readFileSync(TIERS_FILE, "utf-8"))
+              if (j?.selection?.monthly_budget_usd) budget = j.selection.monthly_budget_usd
+            } catch {}
+            try {
+              const cache = JSON.parse(readFileSync(CREDIT_CACHE_F, "utf-8"))
+              if (cache?.total != null) totalBal = cache.total
+            } catch {}
+            const remaining = budget > 0 ? ((Math.min(credit, 150) / 100) * budget).toFixed(2) : "?"
+            const creditOk = credit >= 40
+            results.push({
+              ok: creditOk, okLabel: creditOk ? "\u2705" : "\u274c",
+              label: "credits",
+              detail: `${credit}%${totalBal > 0 ? ` ($${totalBal.toFixed(2)} of $${budget})` : ` (of $${budget})`}`,
+            })
+
+            // 5. Session stats
+            try {
+              const state = JSON.parse(readFileSync(STATE_FILE, "utf-8"))
+              const sid = String(process.pid || "?")
+              const ses = state?.sessions?.[sid]
+              const delegationCount = ses?.warns?.length || 0
+              const cacheSavings = (state?.lifetime?.cache_savings_usd || 0).toFixed(2)
+              const fw = (state?.flow_warns || []).filter(w => String(w.sid) === sid)
+              const flowW = fw.filter(w => w.severity === "warn").length
+              const flowH = fw.filter(w => w.severity === "hint").length
+              const tdd = state?.lifetime?.tdd_enforced ?? 0
+              const enf = loadSelection().delegation_enforce ? " ENFORCE" : ""
+              results.push({
+                ok: true, okLabel: "\u2705",
+                label: "session",
+                detail: `${delegationCount} delegates, $${cacheSavings} cache, ${flowW}w/${flowH}h flow, ${tdd} TDD${enf}`,
+              })
+            } catch {
+              results.push({ ok: true, okLabel: "\u2705", label: "session", detail: "no state file yet" })
+            }
+
+            const okCount = results.filter(r => r.ok).length
+            const lines = [
+              "\ud83d\udd0d  theSaver \u2014 Self Diagnostic",
+              "=".repeat(40),
+              ""
+            ]
+            for (const r of results) {
+              lines.push(`  ${r.okLabel} ${r.label}: ${r.detail}`)
+            }
+            lines.push("", `${okCount}/${results.length} checks passed`)
+            return lines.join("\n")
+          }
+
+            if (action === "help") {
             const L = "\u2501"
             const lines = [
               L.repeat(48),
@@ -1676,7 +2808,14 @@ export async function DelegationEnforcer({ client, directory }) {
               "  trinity disable                  Disable the plugin",
               "  trinity thinking <level>         Set reasoning: full | brief | off",
               "  trinity flow <on|off>            Toggle flow enforcer",
+              "  trinity flow enforce <on|off>    Toggle auto-extract TODOs from code",
               "  trinity flow                     Audit flow violations this session",
+              "  trinity enforce <on|off>         Toggle delegation enforcement (block brain-tier writes/edits)",
+              "  trinity enforce                  Show enforcement status",
+              "  trinity tdd <on|off>             Toggle auto-create test skeletons",
+              "  trinity tdd                      Audit TDD enforcement stats",
+              "  trinity project                  Per-project analytics & optimization tips",
+              "  trinity diagnose                 Run self-diagnostic (files, slots, probe, credits, stats)",
               "  trinity help                     Show this usage info",
               "",
               "  Shortcuts: \`trinity brain\`, \`trinity medium\`, \`trinity cheap\`",
@@ -1721,7 +2860,7 @@ export async function DelegationEnforcer({ client, directory }) {
             }
             saveProjectState(state)
           } catch (err) {
-            console.error(`[delegation-enforcer] project-memory update failed: ${err.message}`)
+            console.error(`[theSaver] project-memory update failed: ${err.message}`)
           }
 
           // Auto-save as report (must be BEFORE early return for totalFetches=0)
@@ -1866,9 +3005,9 @@ export async function DelegationEnforcer({ client, directory }) {
   }
 }
 
-export const id = "delegation-enforcer"
+export const id = "theSaver"
 export const server = DelegationEnforcer
-export default { id: "delegation-enforcer", server: DelegationEnforcer }
+export default { id: "theSaver", server: DelegationEnforcer }
 
 // ── Research audit — lightweight session scan ───────────────────────
 // Scans the scratchpad index and session state for WebFetch/WebSearch
@@ -1947,7 +3086,7 @@ export function researchAudit({ hours = 24, session: sessionFilter } = {}) {
       }
     }
   } catch (err) {
-    console.error(`[delegation-enforcer] researchAudit index scan failed: ${err.message}`)
+    console.error(`[theSaver] researchAudit index scan failed: ${err.message}`)
   }
 
   // 2. Session state for tool_counts and context7 bypass
@@ -1967,7 +3106,7 @@ export function researchAudit({ hours = 24, session: sessionFilter } = {}) {
       }
     }
   } catch (err) {
-    console.error(`[delegation-enforcer] researchAudit state scan failed: ${err.message}`)
+    console.error(`[theSaver] researchAudit state scan failed: ${err.message}`)
   }
 
   // 3. Estimated cost: ~$0.001 per fetch for brain model
@@ -2004,7 +3143,7 @@ function saveReportsIndex(idx) {
     mkdirSync(REPORTS_DIR, { recursive: true })
     writeFileSync(REPORTS_INDEX, JSON.stringify(idx, null, 2) + "\n")
   } catch (err) {
-    console.error(`[delegation-enforcer] reports index write failed: ${err.message}`)
+    console.error(`[theSaver] reports index write failed: ${err.message}`)
   }
 }
 
@@ -2051,10 +3190,10 @@ function _pruneReports() {
     if (pruned.length !== idx.reports.length) {
       idx.reports = pruned
       saveReportsIndex(idx)
-      console.error(`[delegation-enforcer] reports pruned: ${idx.reports.length} kept (from ${keep.length})`)
+      console.error(`[theSaver] reports pruned: ${idx.reports.length} kept (from ${keep.length})`)
     }
   } catch (err) {
-    console.error(`[delegation-enforcer] reports prune failed: ${err.message}`)
+    console.error(`[theSaver] reports prune failed: ${err.message}`)
   }
 }
 
@@ -2103,7 +3242,7 @@ export function saveReport({ type = "manual", summary = "", findings, metrics, n
     mkdirSync(REPORTS_DIR, { recursive: true })
     writeFileSync(join(REPORTS_DIR, `${id}.json`), JSON.stringify(report, null, 2) + "\n")
   } catch (err) {
-    console.error(`[delegation-enforcer] report write failed: ${err.message}`)
+    console.error(`[theSaver] report write failed: ${err.message}`)
     return null
   }
   // Update index
@@ -2113,7 +3252,7 @@ export function saveReport({ type = "manual", summary = "", findings, metrics, n
     idx.reports.push({ id, type, project: report.meta.project, fingerprint: fp, created: report.meta.created, summary: _sum })
     saveReportsIndex(idx)
   } catch (err) {
-    console.error(`[delegation-enforcer] report index update failed: ${err.message}`)
+    console.error(`[theSaver] report index update failed: ${err.message}`)
   }
   // Opportunistic TTL prune (once per process ≈ every save)
   _pruneReports()
@@ -2204,6 +3343,7 @@ function _cachedPct() {
     return budget > 0 ? Math.min(150, Math.max(0, Math.round((s.total / budget) * 100))) : null
   } catch { return null }
 }
+
 
 // Lazy background refresh — only starts when a hook calls loadCredit() for the first time.
 let _started = false
@@ -2306,7 +3446,7 @@ async function discoverAvailableModels(providers, auth) {
         }
       }
     } catch (e) {
-      console.error("[delegation-enforcer] OpenRouter probe failed:", e.message)
+      console.error("[theSaver] OpenRouter probe failed:", e.message)
     }
   }
 
@@ -2404,7 +3544,7 @@ async function probeModel(modelId, auth) {
   }
 
   if (!apiKey) {
-    console.error("[delegation-enforcer] probeModel: no API key for " + id)
+    console.error("[theSaver] probeModel: no API key for " + id)
     return false
   }
 
@@ -2424,12 +3564,12 @@ async function probeModel(modelId, auth) {
     })
     if (!res.ok) {
       const errBody = await res.text().catch(() => "")
-      console.error("[delegation-enforcer] probeModel FAIL " + id + ": HTTP " + res.status + " " + errBody.slice(0, 200))
+      console.error("[theSaver] probeModel FAIL " + id + ": HTTP " + res.status + " " + errBody.slice(0, 200))
       return false
     }
     return true
   } catch (err) {
-    console.error("[delegation-enforcer] probeModel ERROR " + id + ": " + err.message)
+    console.error("[theSaver] probeModel ERROR " + id + ": " + err.message)
     return false
   }
 }

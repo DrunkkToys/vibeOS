@@ -1,6 +1,6 @@
 {
   "$schema_version": 1,
-  "_comment": "Single source of truth for delegation-enforcer model classification. Both the bash hook and JS plugin load this file. Tier IDs (high/mid/budget) are stable — display labels are user-facing.",
+  "_comment": "Single source of truth for theSaver model classification. Both the bash hook and JS plugin load this file. Tier IDs (high/mid/budget) are stable — display labels are user-facing.",
   "trinity": {
     "_comment": "Per-slot models for both runtimes. `oc` writes to the OpenCode config. `cc` writes to the CC config. Adjust to match your available models.",
     "brain": {
@@ -17,12 +17,13 @@
     }
   },
   "selection": {
-    "_comment": "Used by `trinity auto`: pick `brain` slot when credit ≥ threshold, else `fallback` slot. Dropping to mid slot at low credit is more reliable than burning what's left on flaky brain calls. `enabled` toggles all delegation-enforcer logic. `active_slot` records the last slot set by `trinity`.",
+    "_comment": "Used by `trinity auto`: pick `brain` slot when credit ≥ threshold, else `fallback` slot. Dropping to mid slot at low credit is more reliable than burning what's left on flaky brain calls. `enabled` toggles all theSaver logic. `active_slot` records the last slot set by `trinity`.",
     "credit_threshold_percent": 30,
     "brain": "brain",
     "fallback": "medium",
     "enabled": true,
-    "active_slot": "brain"
+    "active_slot": "brain",
+    "delegation_enforce": true
   },
   "tiers": {
     "high": {
