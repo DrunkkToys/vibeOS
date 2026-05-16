@@ -1,4 +1,4 @@
-// Unit tests for ~/.config/opencode/plugins/delegation-enforcer.js
+// Unit tests for ~/.config/opencode/plugins/theSaver
 // Run: ~/.nvm/versions/node/v23.11.0/bin/node --test tests/test_delegation_enforcer.test.mjs
 //
 // We import the plugin module and exercise its hooks against fake input/output
@@ -111,6 +111,16 @@ test("WARN_ON_DIRECT (write) records savings + does NOT throw", async () => {
 })
 
 test("WARN_ON_DIRECT (notebookedit) records savings at high tier", async () => {
+  // Write tiers BEFORE loadPlugin() so module-level TRINITY_CHEAP is set correctly.
+  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+    trinity: {
+      brain:  { oc: "anthropic/claude-opus-4-7" },
+      medium: { oc: "anthropic/claude-sonnet-4-6" },
+      cheap:  { oc: "anthropic/claude-haiku-4-5" },
+    },
+    selection: { enabled: true, active_slot: "brain" },
+    tiers: { high: { regex: "opus" }, mid: { regex: "sonnet" }, budget: { regex: "haiku" } },
+  }))
   const { DelegationEnforcer, modelCostPerTurn } = await loadPlugin()
   const dir = join(sandbox, ".opencode-nbedit")
   mkdirSync(dir, { recursive: true })
@@ -126,15 +136,15 @@ test("WARN_ON_DIRECT (notebookedit) records savings at high tier", async () => {
 
   const after = JSON.parse(readFileSync(stateFile, "utf-8"))
   assert.equal(after.lifetime.warn_count, beforeCount + 1, "warn_count incremented for notebookedit")
-  // Dynamic estimate: opus brain cost (no worker model configured in sandbox)
-  const expectedSaving = modelCostPerTurn("anthropic/claude-opus-4-7") ?? 0.07
+  // Dynamic estimate: opus brain - haiku worker = 0.12 - 0.005 = 0.115
+  const expectedSaving = modelCostPerTurn("anthropic/claude-opus-4-7") - modelCostPerTurn("anthropic/claude-haiku-4-5")
   assert.ok(
     Math.abs(after.lifetime.est_savings_usd - (beforeSavings + expectedSaving)) < 0.001,
-    `saving of $${expectedSaving} recorded, got delta ${after.lifetime.est_savings_usd - beforeSavings}`
+    `saving = opus(${modelCostPerTurn("anthropic/claude-opus-4-7")}) - haiku(${modelCostPerTurn("anthropic/claude-haiku-4-5")}) = ${expectedSaving}, got delta ${after.lifetime.est_savings_usd - beforeSavings}`
   )
 })
 
-test("budget-tier tool calls don't record (only high tier enforces)", async () => {
+test("budget-tier tool calls DO record warns (all tiers enforce)", async () => {
   const { DelegationEnforcer } = await loadPlugin()
   const dir = join(sandbox, ".opencode-budgetenforce")
   mkdirSync(dir, { recursive: true })
@@ -142,14 +152,15 @@ test("budget-tier tool calls don't record (only high tier enforces)", async () =
   const hooks = await DelegationEnforcer({ client: {}, directory: dir })
 
   const stateFile = join(sandbox, ".claude/delegation-state.json")
-  const before = existsSync(stateFile) ? JSON.parse(readFileSync(stateFile, "utf-8")) : { lifetime: { warn_count: 0 } }
-  const beforeCount = before?.lifetime?.warn_count || 0
+  const beforeCount = existsSync(stateFile)
+    ? JSON.parse(readFileSync(stateFile, "utf-8"))?.lifetime?.warn_count ?? 0
+    : 0
 
   await hooks["tool.execute.before"]({ tool: "write" })
   await hooks["tool.execute.before"]({ tool: "edit" })
 
   const after = existsSync(stateFile) ? JSON.parse(readFileSync(stateFile, "utf-8")) : { lifetime: { warn_count: beforeCount } }
-  assert.equal(after.lifetime.warn_count, beforeCount, "no warn recorded for budget tier")
+  assert.ok(after.lifetime.warn_count > beforeCount, "warns now recorded for all tiers (not just high)")
 })
 
 // ── Soft quota: fires exactly once at SOFT_QUOTA_LIMIT+1 ─────────────
@@ -453,9 +464,8 @@ test("text.complete: appends savings tag to assistant text", async () => {
 
   const out = { text: "Done." }
   await hooks["experimental.text.complete"]({ messageID: "msg-1" }, out)
-  // Format: "edit -$0.07 | theSaver: $0.07 saved" (atomic read from session data)
-  assert.match(out.text, /edit -\$0\.07 \| theSaver: \$0\.07 saved/)
-  assert.doesNotMatch(out.text, /tasks|events|ROI/, "verbose breakdown removed")
+  assert.match(out.text, /— \[.+\] \| theSaver: 0\.07 saved [↑↓→] —/, "compact footer format")
+  assert.doesNotMatch(out.text, /flow \d+w|edit -\$|cache -\$|\$.*\/hr/, "no verbose breakdown in footer")
 })
 
 test("text.complete: dedup by messageID", async () => {
@@ -470,6 +480,33 @@ test("text.complete: dedup by messageID", async () => {
   const first = out.text
   await hooks["experimental.text.complete"]({ messageID: "msg-dedup" }, out)
   assert.equal(out.text, first, "second call for same messageID does not append again")
+})
+
+test("text.complete: footer format is stable and compact (immutable contract)", async () => {
+  const { DelegationEnforcer } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-text-format")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-flash" }))
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+
+  const stateFile = join(sandbox, ".claude/delegation-state.json")
+  const sid = "opencode-" + process.pid
+  writeFileSync(stateFile, JSON.stringify({
+    lifetime: { warn_count: 1, est_savings_usd: 0.27, last_updated: "now", cache_savings_usd: 0 },
+    sessions: {
+      [sid]: {
+        started: new Date(Date.now() - 11 * 60 * 1000).toISOString(),
+        warns: [{ at: "now", tool: "edit", reason: "high-tier direct edit", est_savings_usd: 0.27 }],
+        tool_counts: { edit: 1 },
+      },
+    },
+  }))
+
+  const out = { text: "ok" }
+  await hooks["experimental.text.complete"]({ messageID: "msg-format-1" }, out)
+  const footerLine = out.text.split("\n").slice(-1)[0]
+  assert.match(footerLine, /^— \[.+\] \| theSaver: \d+\.\d{2} saved [↑↓→] —$/, "exact footer contract")
+  assert.doesNotMatch(footerLine, /\| flow |edit -\$|cache -\$|\(.*m\)|\/hr/, "no verbose fragments")
 })
 
 // ── tool.execute.after — output field ────────────────────────────────
@@ -553,10 +590,10 @@ test("system.transform: no thinking directive injected by default", async () => 
 
   const out = { system: [] }
   await hooks["experimental.chat.system.transform"]({}, out)
-  // Should have context7 directive + judge directive, but NO thinking directive
+  // Should have context7 directive + orchestrator directive, but NO thinking directive
   const allText = out.system.join(" ")
   assert.ok(allText.includes("cost policy"), "context7 directive present")
-  assert.ok(allText.includes("judge pattern"), "judge directive present")
+  assert.ok(allText.includes("AI ORCHESTRATOR AGENT"), "orchestrator directive present")
   assert.doesNotMatch(allText, /thinking policy|Reasoning depth|Skip extended thinking/i,
     "no thinking directive auto-injected")
 })
@@ -1302,12 +1339,10 @@ test("integration: full simulated OC session with sonnet-as-brain", async () => 
   await hooks["experimental.text.complete"]({ messageID: "msg-integ-1" }, textOut)
   assert.ok(textOut.text.includes("🧠"),
     "text.complete: footer shows 🧠 (brain icon, not ⚙ mid) for sonnet-as-brain")
-  assert.ok(textOut.text.includes("Mid"),
-    "text.complete: footer shows model tier Mid")
   assert.ok(textOut.text.includes("theSaver:"),
     "text.complete: footer shows theSaver savings label")
-  assert.ok(textOut.text.includes("Mid"),
-    "text.complete: footer shows worker slot mid tier label (brain → worker)")
+  assert.match(textOut.text, /— \[.+\] \| theSaver: \d+\.\d{2} saved [↑↓→] —/,
+    "text.complete: footer uses compact immutable format")
   assert.ok(textOut.text.startsWith("Here is the plan."),
     "text.complete: original response text preserved")
 
@@ -1506,7 +1541,7 @@ test("applySlot: preserves opencode.json all fields (only model changes)", async
   writeFileSync(ocConfigPath, JSON.stringify({
     "$schema": "https://opencode.ai/config.json",
     "instructions": ["~/.config/opencode/AGENTS.md"],
-    "plugin": ["./plugins/delegation-enforcer.js"],
+    "plugin": ["./plugins/theSaver"],
     "model": "deepseek/deepseek-v4-flash",
     "mcp": {
       "context7": {
@@ -1556,7 +1591,7 @@ test("applySlot: preserves opencode.json all fields (only model changes)", async
     }
   }, "provider models fully preserved — models not deleted from dropdown")
   assert.deepEqual(after.mcp.context7.command, ["node", "context7-mcp"], "mcp preserved")
-  assert.deepEqual(after.plugin, ["./plugins/delegation-enforcer.js"], "plugin list preserved")
+  assert.deepEqual(after.plugin, ["./plugins/theSaver"], "plugin list preserved")
   process.env.HOME = origHome
 })
 
@@ -1694,3 +1729,329 @@ test("probeModel: opencode models skipped (assumed ok)", { skip: "requires mocki
 
 test("discoverAvailableModels: deepseek models from provider config", { skip: "requires API access" }, () => {})
 
+// ════════════════════════════════════════════════════════════════════════════
+// TDD Enforcement — skeleton creation, lock, cooldown, recursion guard
+// ════════════════════════════════════════════════════════════════════════════
+
+test("buildTestSkeleton: .py file returns correct path and content", async () => {
+  const { buildTestSkeleton } = await loadPlugin()
+  const s = buildTestSkeleton("/proj/src/utils.py")
+  assert.ok(s, "skeleton generated")
+  assert.ok(s.path.endsWith("tests/test_utils.py"), `path: ${s.path}`)
+  assert.ok(s.content.includes("[theSaver-enforced]"), "enforced marker present")
+  assert.ok(s.content.includes("AssertionError"), "strict incomplete marker present")
+  assert.ok(s.content.includes("from utils import"), "module import present")
+})
+
+test("buildTestSkeleton: .py file extracts exports from source", async () => {
+  const { buildTestSkeleton } = await loadPlugin()
+  const source = `def snake_case(name): pass\ndef truncate(s, max_len=80): pass\nclass StringHelper: pass`
+  const s = buildTestSkeleton("/proj/src/utils.py", source)
+  assert.ok(s, "skeleton generated")
+  assert.ok(s.content.includes("from utils import snake_case, truncate, StringHelper"), "exports imported")
+  assert.ok(s.content.includes("test_should_snake_case_with_valid_input"), "test case generated")
+  assert.ok(s.content.includes("test_should_truncate_with_valid_input"), "test case generated")
+})
+
+test("buildTestSkeleton: .ts file returns correct path and content", async () => {
+  const { buildTestSkeleton } = await loadPlugin()
+  const s = buildTestSkeleton("/proj/src/handler.ts")
+  assert.ok(s, "skeleton generated")
+  assert.ok(s.path.endsWith("tests/handler.test.ts"), `path: ${s.path}`)
+  assert.ok(s.content.includes("TODO: implement"), "incomplete marker present")
+  assert.ok(s.content.includes("toBeDefined()"), "module check present")
+})
+
+test("buildTestSkeleton: .ts file extracts exports from source", async () => {
+  const { buildTestSkeleton } = await loadPlugin()
+  const source = `export function handleRequest(req: Request): Response {}\nexport const VERSION = "1.0"`
+  const s = buildTestSkeleton("/proj/src/handler.ts", source)
+  assert.ok(s, "skeleton generated")
+  assert.ok(s.content.includes("should handleRequest with valid input"), "test case generated")
+  assert.ok(s.content.includes("should VERSION with valid input"), "test case generated")
+})
+
+test("buildTestSkeleton: .go file returns correct path and content", async () => {
+  const { buildTestSkeleton } = await loadPlugin()
+  const s = buildTestSkeleton("/proj/src/server.go")
+  assert.ok(s, "skeleton generated")
+  assert.ok(s.path.endsWith("server_test.go"), `path: ${s.path}`)
+  assert.ok(s.content.includes("t.Fatal"), "strict incomplete marker present")
+})
+
+test("buildTestSkeleton: strict mode controls TODO behavior", async () => {
+  const { buildTestSkeleton } = await loadPlugin()
+  const source = `export function sum(a,b){ return a+b }\n`
+  const strict = buildTestSkeleton("/proj/src/sum.js", source, { strict: true })
+  const nonStrict = buildTestSkeleton("/proj/src/sum.js", source, { strict: false })
+  assert.ok(strict.content.includes("throw new Error('TODO: implement"), "strict skeleton must fail loudly")
+  assert.ok(nonStrict.content.includes("expect(true).toBe(true)"), "non-strict skeleton should be non-blocking")
+})
+
+test("buildTestSkeleton: .go file extracts exports from source", async () => {
+  const { buildTestSkeleton } = await loadPlugin()
+  const source = `func StartServer() {}\nfunc (s *Server) HandleRequest() {}`
+  const s = buildTestSkeleton("/proj/src/server.go", source)
+  assert.ok(s, "skeleton generated")
+  assert.ok(s.content.includes("TestServer_should_StartServer_with_valid_input"), "test case generated")
+  assert.ok(s.content.includes("TestServer_should_HandleRequest_with_valid_input"), "test case generated")
+})
+
+test("buildTestSkeleton: .rs file returns correct path and content", async () => {
+  const { buildTestSkeleton } = await loadPlugin()
+  const s = buildTestSkeleton("/proj/src/lib.rs")
+  assert.ok(s, "skeleton generated")
+  assert.ok(s.path.endsWith("tests/lib_test.rs"), `path: ${s.path}`)
+  assert.ok(s.content.includes('panic!("TODO'), "incomplete marker present")
+})
+
+test("buildTestSkeleton: .rs file extracts exports from source", async () => {
+  const { buildTestSkeleton } = await loadPlugin()
+  const source = `pub fn parse_input(s: &str) -> Result {}`
+  const s = buildTestSkeleton("/proj/src/lib.rs", source)
+  assert.ok(s, "skeleton generated")
+  assert.ok(s.content.includes("test_should_parse_input_with_valid_input"), "test case generated")
+})
+
+test("buildTestSkeleton: test file itself → null", async () => {
+  const { buildTestSkeleton } = await loadPlugin()
+  assert.equal(buildTestSkeleton("/proj/tests/test_utils.py"), null)
+  assert.equal(buildTestSkeleton("/proj/src/utils.test.ts"), null)
+})
+
+test("buildTestSkeleton: non-source extension → null", async () => {
+  const { buildTestSkeleton } = await loadPlugin()
+  assert.equal(buildTestSkeleton("/proj/README.md"), null)
+  assert.equal(buildTestSkeleton("/proj/config.json"), null)
+})
+
+test("enforceTestFile: creates skeleton when test missing", async () => {
+  const sb = mkdtempSync(join(tmpdir(), "tdd-enforce-"))
+  mkdirSync(join(sb, ".claude/scratch"), { recursive: true })
+  const prevHome = process.env.HOME
+  process.env.HOME = sb
+  try {
+    const { enforceTestFile } = await loadPlugin()
+    const srcDir = join(sb, "proj/src")
+    mkdirSync(srcDir, { recursive: true })
+    const srcFile = join(srcDir, `calc-${Date.now()}.py`)
+    writeFileSync(srcFile, "def add(a, b): return a + b\ndef subtract(a, b): return a - b")
+    const created = enforceTestFile(srcFile)
+    assert.ok(created, "skeleton created")
+    assert.ok(existsSync(created), "file exists on disk")
+    const content = readFileSync(created, "utf-8")
+    assert.ok(content.includes("[theSaver-enforced]"), "enforced marker in file")
+    assert.ok(content.includes("AssertionError"), "strict incomplete marker in file")
+    assert.ok(content.includes("from calc"), "module import present")
+    assert.ok(content.includes("test_should_add_with_valid_input"), "test case for add")
+    assert.ok(content.includes("test_should_subtract_with_valid_input"), "test case for subtract")
+  } finally {
+    process.env.HOME = prevHome
+    rmSync(sb, { recursive: true, force: true })
+  }
+})
+
+test("enforceTestFile: skips when test already exists", async () => {
+  const sb = mkdtempSync(join(tmpdir(), "tdd-skip-"))
+  mkdirSync(join(sb, ".claude/scratch"), { recursive: true })
+  const prevHome = process.env.HOME
+  process.env.HOME = sb
+  try {
+    const srcDir = join(sb, "proj/src")
+    const testDir = join(srcDir, "tests")
+    mkdirSync(srcDir, { recursive: true })
+    mkdirSync(testDir, { recursive: true })
+    const ts = Date.now()
+    const srcFile = join(srcDir, `skip-${ts}.py`)
+    const testFile = join(testDir, `test_skip-${ts}.py`)
+    writeFileSync(srcFile, "def foo(): pass")
+    writeFileSync(testFile, "def test_foo(): assert True")
+    const { enforceTestFile } = await loadPlugin()
+    const created = enforceTestFile(srcFile)
+    assert.equal(created, null, "no skeleton created when test exists")
+  } finally {
+    process.env.HOME = prevHome
+    rmSync(sb, { recursive: true, force: true })
+  }
+})
+
+test("enforceTestFile: dedup — second call for same file returns null", async () => {
+  const sb = mkdtempSync(join(tmpdir(), "tdd-dedup-"))
+  mkdirSync(join(sb, ".claude/scratch"), { recursive: true })
+  const prevHome = process.env.HOME
+  process.env.HOME = sb
+  try {
+    const { enforceTestFile } = await loadPlugin()
+    const srcDir = join(sb, "proj/src")
+    mkdirSync(srcDir, { recursive: true })
+    const srcFile = join(srcDir, `dedup-${Date.now()}.py`)
+    writeFileSync(srcFile, "def bar(): pass")
+    const first = enforceTestFile(srcFile)
+    assert.ok(first, "first call creates skeleton")
+    const second = enforceTestFile(srcFile)
+    assert.equal(second, null, "second call returns null (file exists)")
+  } finally {
+    process.env.HOME = prevHome
+    rmSync(sb, { recursive: true, force: true })
+  }
+})
+
+test("enforceTestFile: records tdd_enforced count in state file", async () => {
+  const sb = mkdtempSync(join(tmpdir(), "tdd-state-"))
+  mkdirSync(join(sb, ".claude/scratch"), { recursive: true })
+  const prevHome = process.env.HOME
+  process.env.HOME = sb
+  try {
+    const { enforceTestFile } = await loadPlugin()
+    const srcDir = join(sb, "proj/src")
+    mkdirSync(srcDir, { recursive: true })
+    const srcFile = join(srcDir, `state-${Date.now()}.py`)
+    writeFileSync(srcFile, "def baz(): pass")
+    enforceTestFile(srcFile)
+    const stateFile = join(sb, ".claude/delegation-state.json")
+    assert.ok(existsSync(stateFile), "state file created")
+    const state = JSON.parse(readFileSync(stateFile, "utf-8"))
+    assert.equal(state.lifetime.tdd_enforced, 1, "tdd_enforced = 1")
+  } finally {
+    process.env.HOME = prevHome
+    rmSync(sb, { recursive: true, force: true })
+  }
+})
+
+// ════════════════════════════════════════════════════════════════════════════
+// Flow Enforcement — TODO extraction
+// ════════════════════════════════════════════════════════════════════════════
+
+test("recordFlowTodo: extracts TODO/FIXME from content", async () => {
+  const sb = mkdtempSync(join(tmpdir(), "flow-todo-"))
+  mkdirSync(join(sb, ".claude/scratch"), { recursive: true })
+  const prevHome = process.env.HOME
+  process.env.HOME = sb
+  try {
+    const { recordFlowTodo, resetForTest } = await import("../src/flow-enforcer.js?t=" + Date.now())
+    resetForTest([])
+    const count = recordFlowTodo({
+      filePath: "src/foo.js",
+      content: "// TODO: fix this later\n// FIXME: broken\nconst x = 1; // HACK: workaround",
+    })
+    assert.equal(count, 3, "3 TODOs extracted")
+    const todoFile = join(sb, ".claude/flow-todo-queue.jsonl")
+    assert.ok(existsSync(todoFile), "todo queue created")
+    const lines = readFileSync(todoFile, "utf-8").trim().split("\n").filter(Boolean)
+    assert.equal(lines.length, 1, "one entry written")
+    const entry = JSON.parse(lines[0])
+    assert.equal(entry.filePath, "src/foo.js")
+    assert.equal(entry.todos.length, 3)
+    assert.equal(entry.todos[0].type, "TODO")
+    assert.equal(entry.todos[1].type, "FIXME")
+    assert.equal(entry.todos[2].type, "HACK")
+  } finally {
+    process.env.HOME = prevHome
+    rmSync(sb, { recursive: true, force: true })
+  }
+})
+
+test("recordFlowTodo: returns 0 when no TODOs in content", async () => {
+  const sb = mkdtempSync(join(tmpdir(), "flow-todo-empty-"))
+  mkdirSync(join(sb, ".claude/scratch"), { recursive: true })
+  const prevHome = process.env.HOME
+  process.env.HOME = sb
+  try {
+    const { recordFlowTodo, resetForTest } = await import("../src/flow-enforcer.js?t=" + Date.now())
+    resetForTest([])
+    const count = recordFlowTodo({
+      filePath: "src/clean.js",
+      content: "const x = 1;\nfunction foo() { return x; }",
+    })
+    assert.equal(count, 0, "no TODOs found")
+  } finally {
+    process.env.HOME = prevHome
+    rmSync(sb, { recursive: true, force: true })
+  }
+})
+
+// ════════════════════════════════════════════════════════════════════════════
+// Trinity tdd/flow enforce commands
+// ════════════════════════════════════════════════════════════════════════════
+
+test("trinity tdd: enable/disable enforcement", async () => {
+  const { DelegationEnforcer } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-tdd-cmd")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "haiku" }))
+  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+    trinity: { brain: { oc: "haiku" } },
+    selection: { enabled: true, tdd_enforce: false },
+  }))
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+  const t = hooks.tool.trinity
+  // Default: off
+  const status = await t.execute({ action: "status" })
+  assert.ok(status.includes("OFF (nudge only)"), "tdd default off: " + status)
+  // Enable
+  const enable = await t.execute({ action: "tdd", slot: "on" })
+  assert.ok(enable.includes("ENABLED"), "tdd enable: " + enable)
+  // Verify in status
+  const status2 = await t.execute({ action: "status" })
+  assert.ok(status2.includes("ON (auto-create skeletons)"), "tdd now on: " + status2)
+  // Disable
+  const disable = await t.execute({ action: "tdd", slot: "off" })
+  assert.ok(disable.includes("DISABLED"), "tdd disable: " + disable)
+})
+
+test("trinity tdd strict: defaults ON and toggles on/off", async () => {
+  const { DelegationEnforcer } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-tdd-strict")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "haiku" }))
+  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+    trinity: { brain: { oc: "haiku" } },
+    selection: { enabled: true, tdd_enforce: true },
+  }))
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+  const t = hooks.tool.trinity
+  const status = await t.execute({ action: "status" })
+  assert.ok(status.includes("TDD strict: ON"), "default strict ON in status: " + status)
+  const off = await t.execute({ action: "tdd", slot: "strict", level: "off" })
+  assert.ok(off.includes("DISABLED"), "strict off message: " + off)
+  const status2 = await t.execute({ action: "status" })
+  assert.ok(status2.includes("TDD strict: OFF"), "strict OFF in status: " + status2)
+  const on = await t.execute({ action: "tdd", slot: "strict", level: "on" })
+  assert.ok(on.includes("ENABLED"), "strict on message: " + on)
+})
+
+test("trinity flow: enable/disable enforcement", async () => {
+  const { DelegationEnforcer } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-flow-cmd")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "haiku" }))
+  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+    trinity: { brain: { oc: "haiku" } },
+    selection: { enabled: true, flow_enforce: false },
+  }))
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+  const t = hooks.tool.trinity
+  const enable = await t.execute({ action: "flow", slot: "enforce", level: "on" })
+  assert.ok(enable.includes("ENABLED"), "flow enforce on: " + enable)
+  const status = await t.execute({ action: "status" })
+  assert.ok(status.includes("ON (auto-extract TODOs)"), "flow enforce in status: " + status)
+  const disable = await t.execute({ action: "flow", slot: "enforce", level: "off" })
+  assert.ok(disable.includes("DISABLED"), "flow enforce off: " + disable)
+})
+
+test("trinity tdd: audit shows stats", async () => {
+  const { DelegationEnforcer } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-tdd-audit")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "haiku" }))
+  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+    trinity: { brain: { oc: "haiku" } },
+    selection: { enabled: true, tdd_enforce: false },
+    lifetime: { tdd_enforced: 5 },
+  }))
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+  const t = hooks.tool.trinity
+  const audit = await t.execute({ action: "tdd" })
+  assert.ok(audit.includes("TDD enforcer"), "tdd audit: " + audit)
+  assert.ok(audit.includes("NUDGE") || audit.includes("ENFORCE"), "mode shown")
+})

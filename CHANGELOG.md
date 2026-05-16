@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.7.10
+
+- feat: compact immutable footer format: `— [model route] | theSaver: X.XX saved ↑|↓|→ —`
+- change: remove noisy footer breakdown segments (flow/tool/rate/duration) from chat footer
+- change: model usage percentages now show only when both brain and worker are actually used
+- test: added footer format contract test to prevent accidental format drift
+
+## Unreleased
+
+- change: TDD strict mode now defaults to ON (`selection.tdd_strict !== false`)
+- feat: `trinity tdd strict on|off` command to control strict failing TODO templates
+- docs: sample config + README updated for TDD strict defaults and command
+
 ## 0.7.9
 
 - change: delegation enforcement now defaults to ON (`delegation_enforce !== false`) for safer cost control

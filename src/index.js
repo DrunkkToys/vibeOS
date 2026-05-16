@@ -19,7 +19,7 @@
  * Sister hook: ~/.claude/hooks/theSaver (Claude Code).
  */
 
-import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, statSync, readdirSync, openSync, readSync, closeSync, rmSync } from "node:fs"
+import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, statSync, readdirSync, openSync, readSync, closeSync, rmSync, copyFileSync } from "node:fs"
 import { join, dirname } from "node:path"
 import { homedir } from "node:os"
 import { spawn } from "node:child_process"
@@ -127,7 +127,7 @@ function thinkingLevel(credit) {
 const TIERS_FILE = join(homedir(), ".claude/model-tiers.json")
 function loadSelection() {
   try {
-    if (!existsSync(TIERS_FILE)) return { enabled: true, active_slot: null, thinking_level: null, flow_enabled: true, tdd_enforce: false, flow_enforce: false, delegation_enforce: true }
+    if (!existsSync(TIERS_FILE)) return { enabled: true, active_slot: null, thinking_level: null, flow_enabled: true, tdd_enforce: false, tdd_strict: true, tdd_quality: true, flow_enforce: false, delegation_enforce: true }
     const j = JSON.parse(readFileSync(TIERS_FILE, "utf-8"))
     return {
       enabled:            j?.selection?.enabled !== false,
@@ -135,10 +135,12 @@ function loadSelection() {
       thinking_level:     j?.selection?.thinking_level || null,
       flow_enabled:       j?.selection?.flow_enabled !== false,
       tdd_enforce:        j?.selection?.tdd_enforce === true,
+      tdd_strict:         j?.selection?.tdd_strict !== false,
+      tdd_quality:        j?.selection?.tdd_quality !== false,
       flow_enforce:       j?.selection?.flow_enforce === true,
       delegation_enforce: j?.selection?.delegation_enforce !== false,
     }
-  } catch { return { enabled: true, active_slot: null, thinking_level: null, flow_enabled: true, tdd_enforce: false, flow_enforce: false, delegation_enforce: true } }
+  } catch { return { enabled: true, active_slot: null, thinking_level: null, flow_enabled: true, tdd_enforce: false, tdd_strict: true, tdd_quality: true, flow_enforce: false, delegation_enforce: true } }
 }
 
 // Write a single key into selection block of model-tiers.json.
@@ -189,6 +191,12 @@ function shortModelName(modelId) {
   if (!raw) return "unknown"
   const parts = raw.split("/")
   return parts[parts.length - 1] || raw
+}
+
+function trendDisplay(sesTrend) {
+  const t = sesTrend === "up" || sesTrend === "down" ? sesTrend : "stable"
+  const icon = t === "up" ? "↑" : t === "down" ? "↓" : "→"
+  return `${icon} ${t}`
 }
 
 function classify(m) {
@@ -309,7 +317,10 @@ const context7Seen = new Set()
 // Conservative: detect + log + count hits. Do NOT short-circuit the tool
 // (cache may be stale; bash hook validates freshness, JS just observes
 // for now).
-const SCRATCHPAD_DIR = join(homedir(), ".claude/scratch/by-hash")
+const SCRATCHPAD_ROOT = join(homedir(), ".claude/scratch")
+const SCRATCHPAD_GLOBAL_DIR = join(SCRATCHPAD_ROOT, "by-hash")
+const SCRATCHPAD_SESSIONS_DIR = join(SCRATCHPAD_ROOT, "sessions")
+const SCRATCHPAD_SESSION_TTL_MS = 48 * 60 * 60 * 1000
 const SCRATCHPAD_MAX_AGE_SEC = Number(process.env.CLAUDE_SCRATCHPAD_MAX_AGE_SEC || 86400)
 const TOOL_NAME_NORMALIZE = {
   read: "Read", bash: "Bash", grep: "Grep", glob: "Glob",
@@ -322,18 +333,67 @@ const TOOL_NAME_NORMALIZE = {
 const SCRATCHPAD_TOOLS = new Set(Object.keys(TOOL_NAME_NORMALIZE))
 // Per-process dedup so the same hit isn't logged 5x in one turn.
 const scratchpadHitsSeen = new Set()
+const _OC_SID = "opencode-" + (process.pid || "x")
+function getSessionRoot() { return join(SCRATCHPAD_SESSIONS_DIR, _OC_SID) }
+function getSessionScratchpadDir() { return join(getSessionRoot(), "by-hash") }
+function getSessionIndexPath() { return join(getSessionRoot(), "index.jsonl") }
+function getGlobalIndexPath() { return join(SCRATCHPAD_ROOT, "index.jsonl") }
+function ensureSessionScratchpadDirs() {
+  try {
+    mkdirSync(getSessionScratchpadDir(), { recursive: true })
+    return true
+  } catch { return false }
+}
 
-export function getScratchpadHit(toolLower, args, baseDir = SCRATCHPAD_DIR) {
+function safeCopyIntoSession(hash, fromPath) {
+  try {
+    if (!ensureSessionScratchpadDirs()) return
+    const sessionPath = join(getSessionScratchpadDir(), `${hash}.txt`)
+    if (!existsSync(sessionPath)) {
+      copyFileSync(fromPath, sessionPath)
+      const globalSummary = join(SCRATCHPAD_GLOBAL_DIR, `${hash}.summary.txt`)
+      const sessionSummary = join(getSessionScratchpadDir(), `${hash}.summary.txt`)
+      if (existsSync(globalSummary) && !existsSync(sessionSummary)) {
+        copyFileSync(globalSummary, sessionSummary)
+      }
+    }
+  } catch {}
+}
+let _sessionCleanupRegistered = false
+let _sessionCacheCleaned = false
+function cleanupCurrentSessionScratchpad() {
+  if (_sessionCacheCleaned) return
+  _sessionCacheCleaned = true
+  try {
+    rmSync(getSessionRoot(), { recursive: true, force: true })
+  } catch {}
+}
+function registerSessionCleanupHandlers() {
+  if (_sessionCleanupRegistered) return
+  _sessionCleanupRegistered = true
+  ensureSessionScratchpadDirs()
+  cleanupStaleSessionScratchpads()
+  process.on("exit", cleanupCurrentSessionScratchpad)
+  process.on("SIGINT", () => {
+    cleanupCurrentSessionScratchpad()
+    process.exit(130)
+  })
+}
+
+export function getScratchpadHit(toolLower, args, baseDir = null) {
   if (!SCRATCHPAD_TOOLS.has(toolLower)) return null
   const titleCase = TOOL_NAME_NORMALIZE[toolLower]
   // Use stable JSON (sorted keys) so OC and CC produce the same hash
   // regardless of property insertion order.
   const inputJson = stableJson(args ?? {})
   const hash = createHash("sha256").update(`${titleCase}\n${inputJson}\n`).digest("hex").slice(0, 16)
-  const fullPath = join(baseDir, `${hash}.txt`)
-  if (!existsSync(fullPath)) {
-    // Fallback: scan for any file created in the last 2s (cross-runtime hash mismatch recovery)
-    const recent = scanRecentScratchpad(baseDir, titleCase, 2000)
+  const sessionDir = baseDir || getSessionScratchpadDir()
+  const globalDir = SCRATCHPAD_GLOBAL_DIR
+  const sessionPath = join(sessionDir, `${hash}.txt`)
+  const globalPath = join(globalDir, `${hash}.txt`)
+  let fullPath = existsSync(sessionPath) ? sessionPath : (existsSync(globalPath) ? globalPath : null)
+  if (!fullPath) {
+    const recent = scanRecentScratchpad(sessionDir, titleCase, 2000) || scanRecentScratchpad(globalDir, titleCase, 2000)
     if (recent) return recent
     return null
   }
@@ -341,7 +401,10 @@ export function getScratchpadHit(toolLower, args, baseDir = SCRATCHPAD_DIR) {
     const st = statSync(fullPath)
     const ageSec = (Date.now() - st.mtimeMs) / 1000
     if (ageSec > SCRATCHPAD_MAX_AGE_SEC) return null
-    const summaryPath = join(baseDir, `${hash}.summary.txt`)
+    if (fullPath === globalPath) safeCopyIntoSession(hash, globalPath)
+    const sessionSummaryPath = join(sessionDir, `${hash}.summary.txt`)
+    const globalSummaryPath = join(globalDir, `${hash}.summary.txt`)
+    const summaryPath = existsSync(sessionSummaryPath) ? sessionSummaryPath : globalSummaryPath
     return {
       hash, fullPath, sizeBytes: st.size, ageSec: Math.round(ageSec),
       summaryPath: existsSync(summaryPath) ? summaryPath : null,
@@ -408,6 +471,7 @@ let context7AlertedThisSession = false
 // not just in stderr debug output.
 let pendingUiNote = null
 let enforcementBlocked = false
+let taskSlotRestore = null
 
 // Soft counter for hypothetical missed savings (no locking — drift acceptable
 // for a hypothetical metric). Mirrors bash record_missed_c7().
@@ -512,17 +576,177 @@ export function extractExports(sourceContent, ext) {
 
 // Generate test case names for a given function name.
 // Returns array of descriptive test case names.
-function generateTestCaseNames(funcName, _type) {
+function generateTestCaseNames(funcName, _type, quality = false) {
   const base = funcName.replace(/^[_$]+/, "")
+  if (!quality) {
+    return [
+      `should ${base} with valid input`,
+      `should handle invalid input for ${base}`,
+      `should handle edge cases in ${base}`,
+    ]
+  }
+  // Quality mode gives richer, signature-aware names
   return [
-    `should ${base} with valid input`,
-    `should handle empty input for ${base}`,
-    `should handle edge cases in ${base}`,
+    `${base}: works correctly with typical valid input`,
+    `${base}: raises gracefully on invalid/malformed input`,
+    `${base}: handles boundary and edge-case values`,
   ]
 }
 
+// Extract parameter names from a function's source code for type inference.
+function inferFunctionParams(sourceContent, funcName) {
+  if (!sourceContent || !funcName) return []
+  const patterns = [
+    new RegExp(`(?:export\\s+)?(?:async\\s+)?function\\s+${funcName}\\s*\\(([^)]*)\\)`, 'm'),
+    new RegExp(`(?:export\\s+)?const\\s+${funcName}\\s*[:=]\\s*(?:async\\s+)?\\(([^)]*)\\)`, 'm'),
+    new RegExp(`(?:export\\s+)?const\\s+${funcName}\\s*[:=]\\s*(?:async\\s+)?function\\s*\\(([^)]*)\\)`, 'm'),
+    new RegExp(`def\\s+${funcName}\\s*\\(([^)]*)\\)`, 'm'),
+    new RegExp(`fun\\s+${funcName}\\s*\\(([^)]*)\\)`, 'm'),
+  ]
+  for (const pat of patterns) {
+    const m = sourceContent.match(pat)
+    if (m) {
+      return m[1].split(',').map(s => {
+        const trimmed = s.trim()
+        if (!trimmed) return null
+        // Extract name from "name: Type = default" or "name=default" or just "name"
+        const nameMatch = trimmed.match(/^\s*(?:public|private|protected|static|final|val|var|let|const)?\s*(?:readonly\s+)?(?:[_$a-zA-Z][_$a-zA-Z0-9]*)\s*(?::|(?=\s*=)|(?=\s*[,)]))/)
+        const rawName = trimmed.replace(/^[^a-zA-Z_$]*/, '').replace(/[=:].*$/, '').replace(/\s+.*$/, '').trim()
+        const defaultMatch = trimmed.match(/=\s*(.+)$/)
+        const typeMatch = trimmed.match(/:\s*(\w+)/)
+        return {
+          name: rawName || `arg${Math.random().toString(36).slice(2, 5)}`,
+          type: typeMatch ? typeMatch[1] : null,
+          defaultValue: defaultMatch ? defaultMatch[1].trim() : null,
+        }
+      }).filter(Boolean)
+    }
+  }
+  return []
+}
+
+// Infer likely type from parameter name heuristics when no type annotation exists.
+function inferTypeFromName(paramName, defaultValue) {
+  if (!paramName) return "any"
+  const name = paramName.toLowerCase()
+  if (defaultValue !== null && defaultValue !== undefined) {
+    if (/^["']/.test(defaultValue)) return "string"
+    if (/^\d+\.?\d*$/.test(defaultValue)) return "number"
+    if (/^(true|false)$/i.test(defaultValue)) return "boolean"
+    if (/^\[/.test(defaultValue)) return "array"
+    if (/^\{/.test(defaultValue)) return "object"
+    if (/^null$/i.test(defaultValue)) return "null"
+  }
+  if (/^(is|has|can|should|will|did|was|are|contains?_|[A-Z])/.test(name)) return "boolean"
+  if (/^(count|index|limit|offset|max|min|size|length|total|num|age)_?/.test(name)) return "number"
+  if (/^(name|title|label|msg|message|text|str|prefix|suffix|path|url|email|id)_?/.test(name)) return "string"
+  if (/^(items|list|arr|entries|data|values|args)_?/.test(name)) return "array"
+  if (/^(obj|config|opts|options|settings|params|props)_?/.test(name)) return "object"
+  if (/^(fn|cb|callback|handler|on[A-Z])/.test(name)) return "function"
+  return "any"
+}
+
+// Map language key to language name for comment syntax.
+function _langComment(lang) {
+  const map = { py: "#", js: "//", mjs: "//", ts: "//", tsx: "//", jsx: "//", go: "//", rs: "//", rb: "#", sh: "#", java: "//", kt: "//" }
+  return map[lang] || "//"
+}
+
+// Generate quality assertion templates for a single function based on inferred signature.
+function buildQualityAssertionsForFunc(funcName, params, lang, indent) {
+  const cmt = _langComment(lang)
+  const nl = lang === "py" || lang === "rb" || lang === "sh" ? "\n" : "\n"
+  let block = ""
+
+  // Determine test-value defaults per parameter
+  const testValues = params.map(p => {
+    const t = p.type || inferTypeFromName(p.name, p.defaultValue)
+    if (t === "string" || t === "String") return '"sample_input"'
+    if (t === "number" || t === "int" || t === "float" || t === "Number") return "42"
+    if (t === "boolean" || t === "bool" || t === "Boolean") return "true"
+    if (t === "array" || t === "Array" || t === "list" || t === "List") return "[]"
+    if (t === "object" || t === "Object" || t === "dict" || t === "Dict") return "{}"
+    if (t === "function" || t === "Function") return "() => {}"
+    if (t === "any") return '"test"'
+    if (t === "null") return "null"
+    return '"test"'
+  })
+
+  const args = testValues.join(", ")
+
+  switch (lang) {
+    case "py": {
+      block += `${indent}def test_${funcName}_valid_input():\n`
+      block += `${indent}    """Assert ${funcName} runs with typical valid input."""\n`
+      block += `${indent}    result = ${funcName}(${args})\n`
+      block += `${indent}    assert result is not None\n\n`
+      block += `${indent}def test_${funcName}_invalid_input():\n`
+      block += `${indent}    """Assert ${funcName} raises on None/null input where applicable."""\n`
+      block += `${indent}    with pytest.raises((TypeError, ValueError)):\n`
+      block += `${indent}        ${funcName}(None)\n\n`
+      block += `${indent}def test_${funcName}_edge_cases():\n`
+      block += `${indent}    """Assert ${funcName} handles boundary values."""\n`
+      const ecArgs = params.map(p => {
+        const t = p.type || inferTypeFromName(p.name, p.defaultValue)
+        if (t === "string") return '""'
+        if (t === "number" || t === "int" || t === "float") return "0"
+        return '"edge"'
+      }).join(", ")
+      block += `${indent}    result = ${funcName}(${ecArgs})\n`
+      block += `${indent}    assert result is not None\n\n`
+      break
+    }
+    case "js": case "mjs": case "ts": case "tsx": case "jsx": {
+      const blkLang = (lang === "ts" || lang === "tsx") ? "it" : "test"
+      block += `${indent}${blkLang}('${funcName}: handles valid input', () => {\n`
+      block += `${indent}  const result = mod.${funcName}(${args});\n`
+      block += `${indent}  expect(result).toBeDefined();\n`
+      block += `${indent}});\n\n`
+      block += `${indent}${blkLang}('${funcName}: rejects invalid input', () => {\n`
+      block += `${indent}  // TODO: replace with expected error type\n`
+      block += `${indent}  expect(() => mod.${funcName}(null)).toThrow();\n`
+      block += `${indent}});\n\n`
+      block += `${indent}${blkLang}('${funcName}: handles edge cases', () => {\n`
+      const ecArgsJS = params.map(p => {
+        const t = p.type || inferTypeFromName(p.name, p.defaultValue)
+        if (t === "string") return '""'
+        if (t === "number" || t === "int" || t === "float") return "0"
+        if (t === "boolean") return "false"
+        if (t === "array") return "[]"
+        if (t === "object") return "{}"
+        return "undefined"
+      }).join(", ")
+      block += `${indent}  const result = mod.${funcName}(${ecArgsJS});\n`
+      block += `${indent}  expect(result).toBeDefined();\n`
+      block += `${indent}});\n\n`
+      break
+    }
+    default: {
+      // Generic quality template with comments
+      block += `${indent}${cmt} TODO: Quality assertion for ${funcName} — valid input\n`
+      block += `${indent}${cmt} ${funcName}(${args}) should return expected result\n\n`
+      block += `${indent}${cmt} TODO: Quality assertion for ${funcName} — invalid input\n`
+      block += `${indent}${cmt} ${funcName}(null) should error gracefully\n\n`
+      block += `${indent}${cmt} TODO: Quality assertion for ${funcName} — edge case\n`
+      block += `${indent}${cmt} ${funcName}() with boundary values should not crash\n\n`
+    }
+  }
+  return block
+}
+
+// Check if generated skeleton content has ONLY placeholders (no real logic).
+function isSkeletonUseless(content) {
+  if (!content) return true
+  // Count meaningful lines vs TODO/placeholder lines
+  const lines = content.split('\n').filter(l => l.trim() && !l.trim().startsWith('//') && !l.trim().startsWith('#') && !l.trim().startsWith('/*') && !l.trim().startsWith('*'))
+  const todoLines = content.split('\n').filter(l => /TODO|placeholder|smoke|is exported|module loads/.test(l))
+  const meaningfulLines = lines.filter(l => !/TODO|placeholder|smoke|is exported|module loads|throw new Error|raise AssertionError|pytest\.skip|assert.*true/.test(l))
+  // If fewer than 2 meaningful lines, it's probably just a skeleton
+  return meaningfulLines.length < 2
+}
+
 const TEST_SKELETONS = {
-  py: (name, exports = [], depth = "full") => {
+  py: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => {
     const moduleImport = name.replace(/-/g, "_")
     let content = `# [theSaver-enforced] Skeleton test — replace with real assertions\n`
     content += `import pytest\n`
@@ -539,22 +763,28 @@ const TEST_SKELETONS = {
       // Generate test stubs for each exported function
       for (const exp of exports) {
         if (exp.type === "class") continue
-        const cases = generateTestCaseNames(exp.name, exp.type)
+        const cases = generateTestCaseNames(exp.name, exp.type, quality)
         content += `# TODO: implement tests for ${exp.name}\n`
         for (const caseName of cases) {
           const caseFunc = caseName.replace(/[^a-zA-Z0-9_]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "")
           content += `def test_${caseFunc}():\n`
-          content += `    pytest.skip("TODO: implement ${caseName}")\n\n`
+          if (strict) content += `    raise AssertionError("TODO: implement ${caseName}")\n\n`
+          else content += `    pytest.skip("TODO: implement ${caseName}")\n\n`
+        }
+        if (quality && sourceContent) {
+          const params = inferFunctionParams(sourceContent, exp.name)
+          content += buildQualityAssertionsForFunc(exp.name, params, "py", "")
         }
       }
       if (exports.length === 0) {
         content += `def test_${name}_placeholder():\n`
-        content += `    pytest.skip("TODO: implement tests for ${name}")\n\n`
+        if (strict) content += `    raise AssertionError("TODO: implement tests for ${name}")\n\n`
+        else content += `    pytest.skip("TODO: implement tests for ${name}")\n\n`
       }
     }
     return content
   },
-  js: (name, exports = [], depth = "full") => {
+  js: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => {
     const importPath = `../${name}`
     let content = `// [theSaver-enforced] Skeleton test — replace with real assertions\n`
     content += `const { test, expect, describe } = require('@jest/globals');\n`
@@ -572,13 +802,21 @@ const TEST_SKELETONS = {
       // Generate test stubs for each exported function
       for (const exp of exports) {
         if (exp.type === "class") continue
-        const cases = generateTestCaseNames(exp.name, exp.type)
+        const cases = generateTestCaseNames(exp.name, exp.type, quality)
         content += `  // TODO: implement tests for ${exp.name}\n`
+        content += `  test('${exp.name} is exported', () => {\n`
+        content += `    expect(typeof mod.${exp.name}).toBe('function');\n`
+        content += `  });\n\n`
         for (const caseName of cases) {
           content += `  test('${caseName}', () => {\n`
           content += `    // TODO: implement ${caseName}\n`
-          content += `    expect(mod.${exp.name}).toBeDefined();\n`
+          if (strict) content += `    throw new Error('TODO: implement ${caseName}');\n`
+          else content += `    expect(true).toBe(true);\n`
           content += `  });\n\n`
+        }
+        if (quality && sourceContent) {
+          const params = inferFunctionParams(sourceContent, exp.name)
+          content += buildQualityAssertionsForFunc(exp.name, params, "js", "  ")
         }
       }
       if (exports.length === 0) {
@@ -591,7 +829,7 @@ const TEST_SKELETONS = {
     content += `});\n`
     return content
   },
-  mjs: (name, exports = [], depth = "full") => {
+  mjs: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => {
     const importPath = `../${name}`
     let content = `// [theSaver-enforced] Skeleton test — replace with real assertions\n`
     content += `import { test, expect, describe } from 'vitest';\n`
@@ -607,13 +845,21 @@ const TEST_SKELETONS = {
       content += `  });\n\n`
       for (const exp of exports) {
         if (exp.type === "class") continue
-        const cases = generateTestCaseNames(exp.name, exp.type)
+        const cases = generateTestCaseNames(exp.name, exp.type, quality)
         content += `  // TODO: implement tests for ${exp.name}\n`
+        content += `  test('${exp.name} is exported', () => {\n`
+        content += `    expect(typeof mod.${exp.name}).toBe('function');\n`
+        content += `  });\n\n`
         for (const caseName of cases) {
           content += `  test('${caseName}', () => {\n`
           content += `    // TODO: implement ${caseName}\n`
-          content += `    expect(mod.${exp.name}).toBeDefined();\n`
+          if (strict) content += `    throw new Error('TODO: implement ${caseName}');\n`
+          else content += `    expect(true).toBe(true);\n`
           content += `  });\n\n`
+        }
+        if (quality && sourceContent) {
+          const params = inferFunctionParams(sourceContent, exp.name)
+          content += buildQualityAssertionsForFunc(exp.name, params, "mjs", "  ")
         }
       }
       if (exports.length === 0) {
@@ -626,10 +872,10 @@ const TEST_SKELETONS = {
     content += `});\n`
     return content
   },
-  ts: (name, exports = [], depth = "full") => {
+  ts: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => {
     const importPath = `../${name}`
     let content = `// [theSaver-enforced] Skeleton test — replace with real assertions\n`
-    content += `import { describe, it, expect } from 'vitest';\n`
+    content += `import { test, expect, describe, it } from 'vitest';\n`
     content += `import * as mod from '${importPath}';\n\n`
     content += `describe('${name}', () => {\n`
     if (depth === "minimal") {
@@ -642,13 +888,21 @@ const TEST_SKELETONS = {
       content += `  });\n\n`
       for (const exp of exports) {
         if (exp.type === "class") continue
-        const cases = generateTestCaseNames(exp.name, exp.type)
+        const cases = generateTestCaseNames(exp.name, exp.type, quality)
         content += `  // TODO: implement tests for ${exp.name}\n`
+        content += `  it('${exp.name} is exported', () => {\n`
+        content += `    expect(typeof mod.${exp.name}).toBe('function');\n`
+        content += `  });\n\n`
         for (const caseName of cases) {
           content += `  it('${caseName}', () => {\n`
           content += `    // TODO: implement ${caseName}\n`
-          content += `    expect(mod.${exp.name}).toBeDefined();\n`
+          if (strict) content += `    throw new Error('TODO: implement ${caseName}');\n`
+          else content += `    expect(true).toBe(true);\n`
           content += `  });\n\n`
+        }
+        if (quality && sourceContent) {
+          const params = inferFunctionParams(sourceContent, exp.name)
+          content += buildQualityAssertionsForFunc(exp.name, params, "ts", "  ")
         }
       }
       if (exports.length === 0) {
@@ -661,157 +915,165 @@ const TEST_SKELETONS = {
     content += `});\n`
     return content
   },
-  tsx: (name, exports = [], depth = "full") => TEST_SKELETONS.ts(name, exports, depth),
-  jsx: (name, exports = [], depth = "full") => TEST_SKELETONS.mjs(name, exports, depth),
-  go: (name, exports = [], depth = "full") => {
+  tsx: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => TEST_SKELETONS.ts(name, exports, depth, strict, quality, sourceContent),
+  jsx: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => TEST_SKELETONS.mjs(name, exports, depth, strict, quality, sourceContent),
+  go: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => {
     const cap = name.charAt(0).toUpperCase() + name.slice(1)
     let content = `// [theSaver-enforced] Skeleton test — replace with real assertions\n`
     content += `package main\n\n`
     content += `import "testing"\n\n`
     if (depth === "minimal") {
-      content += `func Test${cap}Smoke(t *testing.T) {\n`
-      content += `    // Smoke test: package compiles\n`
-      content += `    if false {\n`
-      content += `        t.Fatal("unreachable")\n`
-      content += `    }\n`
+      content += `func Test${cap}_Smoke(t *testing.T) {\n`
+      content += `\tt.Log("TODO: implement smoke test")\n`
+      content += `\tt.Fail()\n`
       content += `}\n`
     } else {
-      content += `func Test${cap}Smoke(t *testing.T) {\n`
-      content += `    // Smoke test: package compiles\n`
-      content += `    if false {\n`
-      content += `        t.Fatal("unreachable")\n`
-      content += `    }\n`
+      content += `func Test${cap}_Smoke(t *testing.T) {\n`
+      content += `\tt.Log("Module loads correctly")\n`
+      content += `\tt.Fail()\n`
       content += `}\n\n`
       for (const exp of exports) {
+        if (exp.type === "class") continue
+        const cases = generateTestCaseNames(exp.name, exp.type, quality)
+        const expCap = exp.name.charAt(0).toUpperCase() + exp.name.slice(1)
         content += `// TODO: implement tests for ${exp.name}\n`
-        const cases = generateTestCaseNames(exp.name, exp.type)
         for (const caseName of cases) {
-          const testName = caseName.replace(/[^a-zA-Z0-9_]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "")
-          content += `func Test${cap}_${testName}(t *testing.T) {\n`
-          content += `    t.Skip("TODO: implement ${caseName}")\n`
+          const caseFunc = caseName.replace(/[^a-zA-Z0-9_]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "")
+          content += `func Test${cap}_${caseFunc}(t *testing.T) {\n`
+          if (strict) content += `\tt.Error("TODO: implement ${caseName}")\n`
+          else content += `\tt.Skip("TODO: implement ${caseName}")\n`
           content += `}\n\n`
+        }
+        if (quality && sourceContent) {
+          const params = inferFunctionParams(sourceContent, exp.name)
+          content += `    // TODO: Real assertion for ${exp.name} — valid input\n`
+          content += `    // TODO: Real assertion for ${exp.name} — invalid input\n`
+          content += `    // TODO: Real assertion for ${exp.name} — edge case\n\n`
         }
       }
       if (exports.length === 0) {
-        content += `func Test${cap}Placeholder(t *testing.T) {\n`
-        content += `    t.Skip("TODO: implement tests for ${name}")\n`
+        content += `func Test${cap}_Placeholder(t *testing.T) {\n`
+        if (strict) content += `\tt.Error("TODO: implement tests for ${name}")\n`
+        else content += `\tt.Skip("TODO: implement tests for ${name}")\n`
         content += `}\n`
       }
     }
     return content
   },
-  sh: (name, exports = [], depth = "full") => {
-    let content = `#!/bin/bash\n`
-    content += `# [theSaver-enforced] Skeleton test — replace with real assertions\n`
-    content += `set -e\n\n`
-    content += `# Source the script under test\n`
-    content += `SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"\n`
-    content += `source "$SCRIPT_DIR/../${name}.sh"\n\n`
+  sh: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => {
+    let content = `# [theSaver-enforced] Skeleton test — replace with real assertions\n`
+    content += `#!/bin/bash\n\n`
     if (depth === "minimal") {
-      content += `test_smoke() {\n`
-      content += `    echo "PASS: smoke test"\n`
-      content += `}\n\n`
-      content += `test_smoke\n`
+      content += `echo "TODO: implement smoke test for ${name}" && exit 1\n`
     } else {
-      content += `# Smoke test\n`
-      content += `test_smoke() {\n`
-      content += `    echo "PASS: smoke test"\n`
-      content += `}\n\n`
+      content += `# Smoke: module loads\n`
+      content += `echo "Smoke test placeholder"\n\n`
       for (const exp of exports) {
         content += `# TODO: implement tests for ${exp.name}\n`
-        const cases = generateTestCaseNames(exp.name, exp.type)
+        const cases = generateTestCaseNames(exp.name, exp.type, quality)
         for (const caseName of cases) {
-          const testFunc = caseName.replace(/[^a-zA-Z0-9_]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "")
-          content += `test_${testFunc}() {\n`
+          const caseFunc = caseName.replace(/[^a-zA-Z0-9_]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "")
+          content += `function test_${caseFunc} {\n`
           content += `    echo "TODO: implement ${caseName}"\n`
-          content += `    return 1\n`
+          if (strict) content += `    exit 1\n`
+          else content += `    echo "SKIP: ${caseName}"\n`
           content += `}\n\n`
+        }
+        if (quality && sourceContent) {
+          const params = inferFunctionParams(sourceContent, exp.name)
+          content += buildQualityAssertionsForFunc(exp.name, params, "sh", "")
         }
       }
       if (exports.length === 0) {
-        content += `test_placeholder() {\n`
-        content += `    echo "TODO: implement tests for ${name}"\n`
-        content += `    return 1\n`
-        content += `}\n\n`
+        content += `function test_smoke {\n`
+        if (strict) content += `    echo "TODO: implement tests for ${name}" && exit 1\n`
+        else content += `    echo "TODO: implement tests for ${name}"\n`
+        content += `}\n`
       }
       content += `# Run all tests\n`
       content += `test_smoke\n`
     }
     return content
   },
-  rs: (name, exports = [], depth = "full") => {
-    const cap = name.charAt(0).toUpperCase() + name.slice(1)
+  rs: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => {
     let content = `// [theSaver-enforced] Skeleton test — replace with real assertions\n`
-    content += `#[cfg(test)]\n`
-    content += `mod tests {\n`
+    content += `#[cfg(test)]\nmod tests {\n`
     content += `    use super::*;\n\n`
     if (depth === "minimal") {
-      content += `    #[test]\n`
-      content += `    fn test_${name}_smoke() {\n`
-      content += `        // Smoke test: module compiles\n`
-      content += `        assert!(true);\n`
-      content += `    }\n`
+      content += `    #[test]\n    fn ${name}_smoke() {\n`
+      content += `        // TODO: implement smoke test\n        panic!();\n    }\n`
     } else {
-      content += `    #[test]\n`
-      content += `    fn test_${name}_smoke() {\n`
-      content += `        // Smoke test: module compiles\n`
-      content += `        assert!(true);\n`
-      content += `    }\n\n`
+      content += `    #[test]\n    fn ${name}_smoke() {\n`
+      content += `        // Smoke: module loads\n`
+      content += `        assert!(true);\n    }\n\n`
       for (const exp of exports) {
+        if (exp.type === "class") continue
+        const cases = generateTestCaseNames(exp.name, exp.type, quality)
         content += `    // TODO: implement tests for ${exp.name}\n`
-        const cases = generateTestCaseNames(exp.name, exp.type)
         for (const caseName of cases) {
-          const testFunc = caseName.replace(/[^a-zA-Z0-9_]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "")
-          content += `    #[test]\n`
-          content += `    fn test_${testFunc}() {\n`
-          content += `        panic!("TODO: implement ${caseName}");\n`
+          const caseFunc = caseName.replace(/[^a-zA-Z0-9_]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "")
+          content += `    #[test]\n    fn test_${caseFunc}() {\n`
+          if (strict) content += `        panic!("TODO: implement ${caseName}");\n`
+          else content += `        // TODO: implement ${caseName}\n`
           content += `    }\n\n`
+        }
+        if (quality && sourceContent) {
+          const params = inferFunctionParams(sourceContent, exp.name)
+          content += buildQualityAssertionsForFunc(exp.name, params, "rs", "    ")
         }
       }
       if (exports.length === 0) {
-        content += `    #[test]\n`
-        content += `    fn test_${name}_placeholder() {\n`
-        content += `        panic!("TODO: implement tests for ${name}");\n`
+        content += `    #[test]\n    fn ${name}_placeholder() {\n`
+        if (strict) content += `        panic!("TODO: implement tests for ${name}");\n`
+        else content += `        // TODO: implement tests for ${name}\n`
         content += `    }\n`
       }
     }
     content += `}\n`
     return content
   },
-  rb: (name, exports = [], depth = "full") => {
-    const cap = name.charAt(0).toUpperCase() + name.slice(1)
+  rb: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => {
     let content = `# [theSaver-enforced] Skeleton test — replace with real assertions\n`
     content += `require 'minitest/autorun'\n`
     content += `require_relative '../${name}'\n\n`
-    content += `class Test${cap} < Minitest::Test\n`
+    content += `class Test${name.charAt(0).toUpperCase() + name.slice(1)} < Minitest::Test\n`
     if (depth === "minimal") {
       content += `  def test_smoke\n`
-      content += `    assert true\n`
+      content += `    # TODO: implement smoke test\n`
+      content += `    flunk "TODO: implement smoke test"\n`
       content += `  end\n`
     } else {
       content += `  def test_smoke\n`
+      content += `    # Smoke: module loads\n`
       content += `    assert true\n`
       content += `  end\n\n`
       for (const exp of exports) {
+        if (exp.type === "class") continue
+        const cases = generateTestCaseNames(exp.name, exp.type, quality)
         content += `  # TODO: implement tests for ${exp.name}\n`
-        const cases = generateTestCaseNames(exp.name, exp.type)
         for (const caseName of cases) {
-          const testFunc = caseName.replace(/[^a-zA-Z0-9_]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "")
-          content += `  def test_${testFunc}\n`
-          content += `    skip "TODO: implement ${caseName}"\n`
+          const caseFunc = caseName.replace(/[^a-zA-Z0-9_]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "")
+          content += `  def test_${caseFunc}\n`
+          if (strict) content += `    flunk "TODO: implement ${caseName}"\n`
+          else content += `    # TODO: implement ${caseName}\n`
           content += `  end\n\n`
+        }
+        if (quality && sourceContent) {
+          const params = inferFunctionParams(sourceContent, exp.name)
+          content += buildQualityAssertionsForFunc(exp.name, params, "rb", "  ")
         }
       }
       if (exports.length === 0) {
         content += `  def test_placeholder\n`
-        content += `    skip "TODO: implement tests for ${name}"\n`
+        if (strict) content += `    flunk "TODO: implement tests for ${name}"\n`
+        else content += `    # TODO: implement tests for ${name}\n`
         content += `  end\n`
       }
     }
     content += `end\n`
     return content
   },
-  java: (name, exports = [], depth = "full") => {
+  java: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => {
     const cap = name.charAt(0).toUpperCase() + name.slice(1)
     let content = `// [theSaver-enforced] Skeleton test — replace with real assertions\n`
     content += `import org.junit.jupiter.api.Test;\n`
@@ -829,26 +1091,32 @@ const TEST_SKELETONS = {
       content += `    }\n\n`
       for (const exp of exports) {
         content += `    // TODO: implement tests for ${exp.name}\n`
-        const cases = generateTestCaseNames(exp.name, exp.type)
+        const cases = generateTestCaseNames(exp.name, exp.type, quality)
         for (const caseName of cases) {
           const testFunc = caseName.replace(/[^a-zA-Z0-9_]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "")
+          if (!strict) content += `    // @Disabled(\"TODO\")\n`
           content += `    @Test\n`
           content += `    void test${testFunc.charAt(0).toUpperCase() + testFunc.slice(1)}() {\n`
-          content += `        fail("TODO: implement ${caseName}");\n`
+          if (strict) content += `        fail("TODO: implement ${caseName}");\n`
+          else content += `        assertTrue(true); // TODO: implement ${caseName}\n`
           content += `    }\n\n`
+        }
+        if (quality && sourceContent) {
+          const params = inferFunctionParams(sourceContent, exp.name)
+          content += buildQualityAssertionsForFunc(exp.name, params, "java", "    ")
         }
       }
       if (exports.length === 0) {
         content += `    @Test\n`
         content += `    void testPlaceholder() {\n`
-        content += `        fail("TODO: implement tests for ${name}");\n`
+        content += `        assertTrue(true); // TODO: implement tests for ${name}\n`
         content += `    }\n`
       }
     }
     content += `}\n`
     return content
   },
-  kt: (name, exports = [], depth = "full") => {
+  kt: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => {
     const cap = name.charAt(0).toUpperCase() + name.slice(1)
     let content = `// [theSaver-enforced] Skeleton test — replace with real assertions\n`
     content += `import org.junit.jupiter.api.Test\n`
@@ -866,19 +1134,25 @@ const TEST_SKELETONS = {
       content += `    }\n\n`
       for (const exp of exports) {
         content += `    // TODO: implement tests for ${exp.name}\n`
-        const cases = generateTestCaseNames(exp.name, exp.type)
+        const cases = generateTestCaseNames(exp.name, exp.type, quality)
         for (const caseName of cases) {
           const testFunc = caseName.replace(/[^a-zA-Z0-9_]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "")
+          if (!strict) content += `    // @Disabled(\"TODO\")\n`
           content += `    @Test\n`
           content += `    fun test${testFunc.charAt(0).toUpperCase() + testFunc.slice(1)}() {\n`
-          content += `        fail("TODO: implement ${caseName}")\n`
+          if (strict) content += `        fail(\"TODO: implement ${caseName}\")\n`
+          else content += `        assertTrue(true) // TODO: implement ${caseName}\n`
           content += `    }\n\n`
+        }
+        if (quality && sourceContent) {
+          const params = inferFunctionParams(sourceContent, exp.name)
+          content += buildQualityAssertionsForFunc(exp.name, params, "kt", "    ")
         }
       }
       if (exports.length === 0) {
         content += `    @Test\n`
         content += `    fun testPlaceholder() {\n`
-        content += `        fail("TODO: implement tests for ${name}")\n`
+        content += `        assertTrue(true) // TODO: implement tests for ${name}\n`
         content += `    }\n`
       }
     }
@@ -951,7 +1225,7 @@ function _recordCooldown(testPath) {
   } catch {}
 }
 
-export function buildTestSkeleton(filePath, sourceContent = "") {
+export function buildTestSkeleton(filePath, sourceContent = "", options = {}) {
   if (!filePath || typeof filePath !== "string") return null
   if (!SOURCE_EXT_RE.test(filePath)) return null
   if (SKIP_PATH_RE.test(filePath)) return null
@@ -961,6 +1235,8 @@ export function buildTestSkeleton(filePath, sourceContent = "") {
   const extLower = ext.toLowerCase()
   const skeletonFn = TEST_SKELETONS[extLower]
   if (!skeletonFn) return null
+  const strict = options.strict !== undefined ? options.strict : true
+  const quality = options.quality !== undefined ? options.quality : true
   const m2 = filePath.match(/^(.*\/)?([^/]+)\.([^.]+)$/)
   const dir = m2 ? (m2[1] || "") : ""
   let testPath
@@ -976,18 +1252,18 @@ export function buildTestSkeleton(filePath, sourceContent = "") {
     default: return null
   }
   const exports = extractExports(sourceContent, extLower)
-  return { path: testPath, content: skeletonFn(name, exports), dir: dirname(testPath) }
+  return { path: testPath, content: skeletonFn(name, exports, "full", strict, quality, sourceContent), dir: dirname(testPath) }
 }
 
 export function enforceTestFile(filePath) {
-  // Read source file content to extract exports
   let sourceContent = ""
   try {
     if (existsSync(filePath)) {
       sourceContent = readFileSync(filePath, "utf-8")
     }
   } catch {}
-  const skeleton = buildTestSkeleton(filePath, sourceContent)
+  const sel = loadSelection()
+  const skeleton = buildTestSkeleton(filePath, sourceContent, { strict: sel.tdd_strict !== false, quality: sel.tdd_quality !== false })
   if (!skeleton) return null
   if (existsSync(skeleton.path)) return null
   if (_enforcementCooldown.has(skeleton.path)) return null
@@ -998,7 +1274,7 @@ export function enforceTestFile(filePath) {
     writeFileSync(skeleton.path, skeleton.content)
     _enforcementCooldown.add(skeleton.path)
     _recordCooldown(skeleton.path)
-    // Record in state file for audit stats
+    // Record extended telemetry in state file
     try {
       let state = {}
       if (existsSync(STATE_FILE)) {
@@ -1006,10 +1282,24 @@ export function enforceTestFile(filePath) {
       } else { mkdirSync(dirname(STATE_FILE), { recursive: true }) }
       state.lifetime ??= { warn_count: 0, est_savings_usd: 0, last_updated: "" }
       state.lifetime.tdd_enforced = (state.lifetime.tdd_enforced || 0) + 1
+      state.lifetime.tdd_skeletons_created = (state.lifetime.tdd_skeletons_created || 0) + 1
+      if (sel.tdd_strict !== false) {
+        state.lifetime.tdd_strict_fail_templates_created = (state.lifetime.tdd_strict_fail_templates_created || 0) + 1
+      }
+      if (sel.tdd_quality !== false) {
+        state.lifetime.tdd_quality_templates_created = (state.lifetime.tdd_quality_templates_created || 0) + 1
+      }
+      state.lifetime.last_updated = new Date().toISOString()
       writeFileSync(STATE_FILE, JSON.stringify(state, null, 2))
     } catch {}
+    let resultPath = skeleton.path
+    // Anti-useless-run guard: warn if content is only placeholders
+    const useless = isSkeletonUseless(skeleton.content)
+    if (useless) {
+      console.error(`[theSaver] [tdd-enforce] ⚠ WARNING: Generated skeleton at ${skeleton.path} has ONLY placeholder content (no real assertions). Consider turning on quality templates with \`trinity tdd quality on\` or adding manual tests.`)
+    }
     console.error(`[theSaver] [tdd-enforce] Created skeleton: ${skeleton.path}`)
-    return skeleton.path
+    return resultPath
   } catch (err) {
     console.error(`[theSaver] [tdd-enforce] Failed to create ${skeleton.path}: ${err.message}`)
     return null
@@ -1053,8 +1343,9 @@ function recordSaving(tool, reason, saveEst) {
     state.lifetime.est_savings_usd = Math.round(((state.lifetime.est_savings_usd || 0) + saveEst) * 1000) / 1000
     state.lifetime.last_updated = now
     state.sessions ??= {}
-    const sid = "opencode-" + (process.pid || "x")
+    const sid = _OC_SID
     state.sessions[sid] ??= { started: now, source: "opencode", tool_counts: {}, warns: [] }
+    state.sessions[sid].session_cache_dir = getSessionScratchpadDir()
     state.sessions[sid].tool_counts[tool] = (state.sessions[sid].tool_counts[tool] || 0) + 1
     state.sessions[sid].warns.push({ at: now, tool, reason, est_savings_usd: saveEst })
     if (state.sessions[sid].warns.length > 200) {
@@ -1065,6 +1356,48 @@ function recordSaving(tool, reason, saveEst) {
     return state.lifetime.est_savings_usd
   } catch (err) {
     console.error(`[theSaver] state write failed: ${err.message}`)
+    return null
+  }
+}
+
+function recordCacheSaving(tool, saveEst, meta = {}) {
+  try {
+    let state = {}
+    if (existsSync(STATE_FILE)) {
+      try { state = JSON.parse(readFileSync(STATE_FILE, "utf-8")) } catch {}
+    } else {
+      mkdirSync(dirname(STATE_FILE), { recursive: true })
+    }
+    const now = new Date().toISOString()
+    state.lifetime ??= { warn_count: 0, est_savings_usd: 0, last_updated: "" }
+    state.lifetime.cache_savings_usd = Math.round(((state.lifetime.cache_savings_usd || 0) + saveEst) * 1000) / 1000
+    state.lifetime.last_updated = now
+    state.sessions ??= {}
+    const sid = _OC_SID
+    state.sessions[sid] ??= { started: now, source: "opencode", tool_counts: {}, warns: [] }
+    state.sessions[sid].session_cache_dir = getSessionScratchpadDir()
+    state.sessions[sid].tool_counts[tool] = (state.sessions[sid].tool_counts[tool] || 0) + 1
+    state.sessions[sid].cache_savings_usd = Math.round(((state.sessions[sid].cache_savings_usd || 0) + saveEst) * 1000) / 1000
+    if (meta?.hash) {
+      state.sessions[sid].cache_hits ??= []
+      state.sessions[sid].cache_hits.push({
+        at: now,
+        tool,
+        hash: meta.hash,
+        est_savings_usd: saveEst,
+      })
+      if (state.sessions[sid].cache_hits.length > 200) {
+        state.sessions[sid].cache_hits = state.sessions[sid].cache_hits.slice(-200)
+      }
+    }
+    _pruneOldSessions(state)
+    writeFileSync(STATE_FILE, JSON.stringify(state, null, 2))
+    return {
+      lifetime: state.lifetime.cache_savings_usd || 0,
+      session: state.sessions[sid].cache_savings_usd || 0,
+    }
+  } catch (err) {
+    console.error(`[theSaver] cache state write failed: ${err.message}`)
     return null
   }
 }
@@ -1127,7 +1460,6 @@ function getLastLine(filePath) {
 // written since we last read).
 let _savingsCache = null
 let _savingsCacheMtime = 0
-const _OC_SID = "opencode-" + (process.pid || "x")
 function readLifetimeSavings() {
   const empty = { ltTasks: 0, ltCache: 0, ltCost: 0, count: 0, scratchpadHits: 0, missedC7: 0, sesTasks: 0, sesEdit: 0, sesCredit: 0, sesC7: 0, sesQuota: 0, sesDuration: 0, sesRatePerHour: 0, sesTrend: "stable", sesToolBreakdown: {}, sesModelTurns: { brain: 0, worker: 0 } }
   try {
@@ -1154,6 +1486,13 @@ function readLifetimeSavings() {
         const sesTotal = warns.reduce((a, w) => a + Number(w.est_savings_usd ?? 0), 0) + Number(ses?.cache_savings_usd ?? 0)
         if (elapsed > 0.05) sessionRates.push(sesTotal / elapsed)
       }
+    }
+
+    // Backward-compat safety: preserve legacy lifetime cache aggregate
+    // if session-level cache fields are absent (older schemas).
+    const legacyLifetimeCache = Number(s?.lifetime?.cache_savings_usd ?? 0)
+    if (ltCache <= 0 && legacyLifetimeCache > 0) {
+      ltCache = legacyLifetimeCache
     }
 
     // Per-warn-type session totals (current process only)
@@ -1250,11 +1589,14 @@ const DECADENCE_FRESH_MS    = 5 * 60 * 1000
 const DECADENCE_WARM_MS     = 60 * 60 * 1000
 const DECADENCE_COLD_MS     = 24 * 60 * 60 * 1000
 const DECADENCE_EXPIRE_MS   = 48 * 60 * 60 * 1000  // grace window beyond cold
-const DECADENCE_THROTTLE_MS = 60 * 1000              // run max once per minute
+const DECADENCE_THROTTLE_MS = 60 * 1000              // session run max once per minute
+const DECADENCE_GLOBAL_THROTTLE_MS = 5 * 60 * 1000   // global run max once per 5 minutes
 const MAX_SCRATCHPAD_FILES  = 1000
 const MAX_SCRATCHPAD_BYTES  = 10 * 1024 * 1024       // 10MB
+const MAX_SESSION_SCRATCHPAD_FILES = 200
+const MAX_SESSION_SCRATCHPAD_BYTES = 2 * 1024 * 1024 // 2MB
 let _lastDecadenceRun = 0
-const INDEX_PATH = join(homedir(), ".claude/scratch/index.jsonl")
+let _lastGlobalDecadenceRun = 0
 
 // Read only the first 120 bytes of a file (header check — avoids reading huge files).
 function _readHead(fullPath) {
@@ -1269,102 +1611,150 @@ function _readHead(fullPath) {
 
 function indexAppend(hash, tool, size, extra) {
   try {
-    mkdirSync(dirname(INDEX_PATH), { recursive: true })
-    const entry = JSON.stringify({
+    const entryObj = {
       ts: new Date().toISOString(),
       hash, tool, size,
       pid: process.pid || 0,
+      session: _OC_SID,
       source: "opencode",
       ...extra,
-    }) + "\n"
-    appendFileSync(INDEX_PATH, entry)
+    }
+    const entry = JSON.stringify(entryObj) + "\n"
+    const globalIndex = getGlobalIndexPath()
+    const sessionIndex = getSessionIndexPath()
+    mkdirSync(dirname(globalIndex), { recursive: true })
+    mkdirSync(dirname(sessionIndex), { recursive: true })
+    appendFileSync(globalIndex, entry)
+    appendFileSync(sessionIndex, entry)
   } catch (err) {
     console.error(`[theSaver] index write failed: ${err.message}`)
   }
 }
 
+function _pruneScratchpadDir(targetDir, opts = {}) {
+  const { maxFiles = MAX_SCRATCHPAD_FILES, maxBytes = MAX_SCRATCHPAD_BYTES, rotate = true } = opts
+  const now = Date.now()
+  if (!existsSync(targetDir)) return { dataFiles: 0, totalBytes: 0, deleted: 0, rotated: 0 }
+  const entries = readdirSync(targetDir)
+  let dataFiles = 0; let totalBytes = 0; let deleted = 0; let rotated = 0
+  for (const entry of entries) {
+    if (entry.endsWith(".meta.json") || entry.endsWith(".summary.txt")) continue
+    const fullPath = join(targetDir, entry)
+    let st
+    try { st = statSync(fullPath) } catch { continue }
+    const age = now - st.mtimeMs
+    const hash = entry.replace(/\.txt$/, "")
+    if (age > DECADENCE_EXPIRE_MS) {
+      try { rmSync(fullPath) } catch {}
+      const meta = join(targetDir, hash + ".meta.json")
+      if (existsSync(meta)) try { rmSync(meta) } catch {}
+      const summary = join(targetDir, hash + ".summary.txt")
+      if (existsSync(summary)) try { rmSync(summary) } catch {}
+      deleted++; continue
+    }
+    dataFiles++; totalBytes += st.size
+    if (!rotate) continue
+    if (age > DECADENCE_COLD_MS) {
+      const summaryPath = join(targetDir, hash + ".summary.txt")
+      if (!existsSync(summaryPath)) {
+        const content = readFileSync(fullPath, "utf-8")
+        writeFileSync(summaryPath, content.slice(0, 200).replace(/\n+/g, " ").trim() + (content.length > 200 ? "…" : ""))
+      }
+      const head = _readHead(fullPath)
+      if (!head.includes("[cold-storage]")) {
+        writeFileSync(fullPath, `[cold-storage] ${st.size}B original → ${hash}.summary.txt`)
+        rotated++
+      }
+      continue
+    }
+    if (age > DECADENCE_FRESH_MS && st.size > 1024) {
+      const summaryPath = join(targetDir, hash + ".summary.txt")
+      if (!existsSync(summaryPath)) {
+        const content = readFileSync(fullPath, "utf-8")
+        writeFileSync(summaryPath, content.slice(0, 500).replace(/\n+/g, " ").trim() + (content.length > 500 ? "…" : ""))
+      }
+      const head = _readHead(fullPath)
+      if (!head.includes("[warm-storage]") && !head.includes("[cold-storage]")) {
+        writeFileSync(fullPath, `[warm-storage] ${st.size}B original at ${hash}.summary.txt`)
+        rotated++
+      }
+    }
+  }
+  if (dataFiles > maxFiles || totalBytes > maxBytes) {
+    const candidates = entries
+      .filter(e => !e.endsWith(".meta.json") && !e.endsWith(".summary.txt"))
+      .map(e => {
+        try { return { name: e, mtime: statSync(join(targetDir, e)).mtimeMs } }
+        catch { return null }
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.mtime - b.mtime)
+    const toRemove = Math.ceil(candidates.length * 0.3)
+    for (let i = 0; i < toRemove; i++) {
+      const base = join(targetDir, candidates[i].name)
+      try { rmSync(base) } catch {}
+      const meta = base.replace(".txt", ".meta.json")
+      if (existsSync(meta)) try { rmSync(meta) } catch {}
+      const summary = base.replace(".txt", ".summary.txt")
+      if (existsSync(summary)) try { rmSync(summary) } catch {}
+      deleted++
+    }
+  }
+  return { dataFiles, totalBytes, deleted, rotated }
+}
+
+function cleanupStaleSessionScratchpads() {
+  try {
+    if (!existsSync(SCRATCHPAD_SESSIONS_DIR)) return
+    const now = Date.now()
+    for (const sid of readdirSync(SCRATCHPAD_SESSIONS_DIR)) {
+      const sesRoot = join(SCRATCHPAD_SESSIONS_DIR, sid)
+      let st
+      try { st = statSync(sesRoot) } catch { continue }
+      if (!st.isDirectory()) continue
+      const age = now - st.mtimeMs
+      if (age > SCRATCHPAD_SESSION_TTL_MS) {
+        try { rmSync(sesRoot, { recursive: true, force: true }) } catch {}
+      }
+    }
+  } catch {}
+}
+
 function applyDecadence() {
   const now = Date.now()
-  if (now - _lastDecadenceRun < DECADENCE_THROTTLE_MS) return
-  _lastDecadenceRun = now
-  try {
-    if (!existsSync(SCRATCHPAD_DIR)) return
-    const entries = readdirSync(SCRATCHPAD_DIR)
-    let dataFiles = 0; let totalBytes = 0; let deleted = 0; let rotated = 0
-    for (const entry of entries) {
-      if (entry.endsWith(".meta.json") || entry.endsWith(".summary.txt")) continue
-      const fullPath = join(SCRATCHPAD_DIR, entry)
-      let st
-      try { st = statSync(fullPath) } catch { continue }
-      const age = now - st.mtimeMs
-      const hash = entry.replace(/\.txt$/, "")
-      // >48h: delete all associated files
-      if (age > DECADENCE_EXPIRE_MS) {
-        rmSync(fullPath)
-        const meta = join(SCRATCHPAD_DIR, hash + ".meta.json")
-        if (existsSync(meta)) rmSync(meta)
-        const summary = join(SCRATCHPAD_DIR, hash + ".summary.txt")
-        if (existsSync(summary)) rmSync(summary)
-        deleted++; continue
+  if (now - _lastDecadenceRun >= DECADENCE_THROTTLE_MS) {
+    _lastDecadenceRun = now
+    try {
+      const ses = _pruneScratchpadDir(getSessionScratchpadDir(), {
+        maxFiles: MAX_SESSION_SCRATCHPAD_FILES,
+        maxBytes: MAX_SESSION_SCRATCHPAD_BYTES,
+        rotate: false,
+      })
+      if (ses.deleted > 0) {
+        console.error(`[theSaver] 📦 session-decadence: deleted=${ses.deleted} (${ses.dataFiles} files, ${Math.round(ses.totalBytes/1024)}KB)`)
       }
-      dataFiles++; totalBytes += st.size
-      // 24-48h: COLD — replace full content with compact summary pointer
-      if (age > DECADENCE_COLD_MS) {
-        const summaryPath = join(SCRATCHPAD_DIR, hash + ".summary.txt")
-        if (!existsSync(summaryPath)) {
-          const content = readFileSync(fullPath, "utf-8")
-          writeFileSync(summaryPath, content.slice(0, 200).replace(/\n+/g, " ").trim() + (content.length > 200 ? "…" : ""))
-        }
-        const head = _readHead(fullPath)
-        if (!head.includes("[cold-storage]")) {
-          writeFileSync(fullPath, `[cold-storage] ${st.size}B original → ${hash}.summary.txt`)
-          rotated++
-        }
-        continue
-      }
-      // 5min-24h: WARM — rotate large files (>1KB) to summary-only
-      if (age > DECADENCE_FRESH_MS && st.size > 1024) {
-        const summaryPath = join(SCRATCHPAD_DIR, hash + ".summary.txt")
-        if (!existsSync(summaryPath)) {
-          const content = readFileSync(fullPath, "utf-8")
-          writeFileSync(summaryPath, content.slice(0, 500).replace(/\n+/g, " ").trim() + (content.length > 500 ? "…" : ""))
-        }
-        const head = _readHead(fullPath)
-        if (!head.includes("[warm-storage]") && !head.includes("[cold-storage]")) {
-          writeFileSync(fullPath, `[warm-storage] ${st.size}B original at ${hash}.summary.txt`)
-          rotated++
-        }
-      }
+    } catch (err) {
+      console.error(`[theSaver] session decadence error: ${err.message}`)
     }
-    // Hard eviction if count or size still exceeds limits
-    if (dataFiles > MAX_SCRATCHPAD_FILES || totalBytes > MAX_SCRATCHPAD_BYTES) {
-      const candidates = entries
-        .filter(e => !e.endsWith(".meta.json") && !e.endsWith(".summary.txt"))
-        .map(e => {
-          try { return { name: e, mtime: statSync(join(SCRATCHPAD_DIR, e)).mtimeMs } }
-          catch { return null }
-        })
-        .filter(Boolean)
-        .sort((a, b) => a.mtime - b.mtime)
-      const toRemove = Math.ceil(candidates.length * 0.3)
-      for (let i = 0; i < toRemove; i++) {
-        const base = join(SCRATCHPAD_DIR, candidates[i].name)
-        try { rmSync(base) } catch {}
-        const meta = base.replace(".txt", ".meta.json")
-        if (existsSync(meta)) try { rmSync(meta) } catch {}
-        const summary = base.replace(".txt", ".summary.txt")
-        if (existsSync(summary)) try { rmSync(summary) } catch {}
-        deleted++
+  }
+  if (now - _lastGlobalDecadenceRun >= DECADENCE_GLOBAL_THROTTLE_MS) {
+    _lastGlobalDecadenceRun = now
+    try {
+      const global = _pruneScratchpadDir(SCRATCHPAD_GLOBAL_DIR, {
+        maxFiles: MAX_SCRATCHPAD_FILES,
+        maxBytes: MAX_SCRATCHPAD_BYTES,
+        rotate: true,
+      })
+      cleanupStaleSessionScratchpads()
+      if (global.deleted > 0 || global.rotated > 0) {
+        const action = []
+        if (global.rotated > 0) action.push(`rotated=${global.rotated}`)
+        if (global.deleted > 0) action.push(`deleted=${global.deleted}`)
+        console.error(`[theSaver] 📦 global-decadence: ${action.join(" ")} (${global.dataFiles} files, ${Math.round(global.totalBytes/1024)}KB)`)
       }
+    } catch (err) {
+      console.error(`[theSaver] global decadence error: ${err.message}`)
     }
-    if (deleted > 0 || rotated > 0) {
-      const action = []
-      if (rotated > 0) action.push(`rotated=${rotated}`)
-      if (deleted > 0) action.push(`deleted=${deleted}`)
-      console.error(`[theSaver] 📦 decadence: ${action.join(" ")} (${dataFiles} files, ${Math.round(totalBytes/1024)}KB)`)
-    }
-  } catch (err) {
-    console.error(`[theSaver] decadence error: ${err.message}`)
   }
 }
 
@@ -1488,7 +1878,7 @@ function pruneScratchpadOnce() {
   } catch { /* prune is best-effort */ }
   // Inline size cap: use decadence thresholds, remove oldest 30%
   try {
-    const dir = SCRATCHPAD_DIR
+    const dir = SCRATCHPAD_GLOBAL_DIR
     if (!existsSync(dir)) return
     const entries = readdirSync(dir)
     const txtFiles = entries.filter(e => e.endsWith(".txt") && !e.endsWith(".meta.json") && !e.endsWith(".summary.txt")).map(e => join(dir, e))
@@ -1593,6 +1983,7 @@ function _refreshModel(directory) {
 
 export async function DelegationEnforcer({ client, directory }) {
   console.error(`[theSaver] LOADED cwd=${directory}`)
+  registerSessionCleanupHandlers()
   pruneScratchpadOnce()
 
   // Detect model: project opencode.json → global ~/.config/opencode/opencode.json → env.
@@ -1629,7 +2020,7 @@ export async function DelegationEnforcer({ client, directory }) {
       if (existsSync(TIERS_FILE)) {
         _tiersData = JSON.parse(readFileSync(TIERS_FILE, "utf-8"))
       } else {
-        _tiersData = { selection: { enabled: true, active_slot: "brain", delegation_enforce: true }, trinity: {} }
+        _tiersData = { selection: { enabled: true, active_slot: "brain", delegation_enforce: true, tdd_strict: true }, trinity: {} }
       }
       // Sniff available models from opencode desktop provider config
       const _providers = _loadOpenCodeProviders()
@@ -1766,13 +2157,20 @@ export async function DelegationEnforcer({ client, directory }) {
       const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0)
       const brainName = shortModelName(currentModel)
       const workerName = shortModelName(_workerModel)
+      const shouldShowTurnPct = totalTurns > 0
+        && (sesModelTurns?.brain || 0) > 0
+        && (sesModelTurns?.worker || 0) > 0
+        && _workerModel
+        && _workerModel !== currentModel
       if (totalTurns > 0) {
         const brainPct = Math.round((sesModelTurns.brain / totalTurns) * 100)
         const workerPct = 100 - brainPct
-        if (_workerModel && _workerModel !== currentModel) {
+        if (shouldShowTurnPct) {
           modelTag = `[🧠 ${brainName} ${brainPct}%→ ⚙ ${workerName} ${workerPct}%]`
+        } else if (_workerModel && _workerModel !== currentModel) {
+          modelTag = `[🧠 ${brainName} → ⚙ ${workerName}]`
         } else {
-          modelTag = `[🧠 ${brainName} ${brainPct}%]`
+          modelTag = `[🧠 ${brainName}]`
         }
       } else if (_workerModel && _workerModel !== currentModel) {
         modelTag = `[🧠 ${brainName} → ⚙ ${workerName}]`
@@ -1793,35 +2191,7 @@ export async function DelegationEnforcer({ client, directory }) {
       const stripped = text.replace(/\n\n— .+(?: —)?$/, "")
       const ltTotal = ltTasks + ltCache
       const trendIcon = sesTrend === "down" ? "↓" : sesTrend === "up" ? "↑" : "→"
-      let durationStr = ""
-      if (sesDuration > 0) {
-        const hrs = Math.floor(sesDuration / 3600)
-        const mins = Math.floor((sesDuration % 3600) / 60)
-        if (hrs > 0) durationStr = ` (${hrs}h ${mins}m)`
-        else if (mins > 0) durationStr = ` (${mins}m)`
-      }
-      const rateStr = sesRatePerHour > 0 ? ` ($${sesRatePerHour.toFixed(2)}/hr)` : ""
-
-      const toolParts = []
-      if (sesEdit > 0.01) toolParts.push(`edit -$${sesEdit.toFixed(2)}`)
-      if (sesCredit > 0.01) toolParts.push(`credit -$${sesCredit.toFixed(2)}`)
-      if (sesC7 > 0.01) toolParts.push(`context7 -$${sesC7.toFixed(2)}`)
-      if (sesQuota > 0.01) toolParts.push(`quota -$${sesQuota.toFixed(2)}`)
-      const coveredTools = new Set(["write", "edit", "notebookedit", "bash", "webfetch", "websearch"])
-      for (const [tool, savings] of Object.entries(sesToolBreakdown || {})) {
-        if (savings > 0.01 && !coveredTools.has(tool.toLowerCase())) {
-          toolParts.push(`${tool} -$${savings.toFixed(2)}`)
-        }
-      }
-      const toolStr = toolParts.length > 0 ? toolParts.slice(0, 4).join(" | ") + " | " : ""
-      const cacheStr = ltCache > 0.01 ? `cache -$${ltCache.toFixed(2)} | ` : ""
-      const flowCounts = getSessionFlowCounts()
-      const flowStr = (flowCounts.warn > 0 || flowCounts.hint > 0) ? `flow ${flowCounts.warn}w ${flowCounts.hint}h | ` : ""
-
-      const detailTag = ltTotal > 0
-        ? `${flowStr}${cacheStr}${toolStr}${trendIcon}${durationStr}${rateStr}`
-        : `tracking${durationStr}`
-      const footerText = stripped + `\n\n— ${modelTag} | theSaver: ${ltTotal.toFixed(2)} saved${detailTag ? ` | ${detailTag}` : ""} —`
+      const footerText = stripped + `\n\n— ${modelTag} | theSaver: ${ltTotal.toFixed(2)} saved ${trendIcon} —`
       if (typeof output?.text === "string") output.text = footerText
       else if (typeof output?.result === "string") output.result = footerText
       else if (typeof output?.content === "string") output.content = footerText
@@ -1853,6 +2223,7 @@ export async function DelegationEnforcer({ client, directory }) {
       _refreshModel(directory)
       const t = input?.tool ?? ""
       const args = output?.args
+      const inArgs = input?.args
 
       // Scratchpad observation (all tiers) — read-only, never blocks.
       if (SCRATCHPAD_TOOLS.has(t)) {
@@ -1860,8 +2231,15 @@ export async function DelegationEnforcer({ client, directory }) {
         if (hit && !scratchpadHitsSeen.has(hit.hash)) {
           scratchpadHitsSeen.add(hit.hash)
           const total = recordScratchpadObservation()
+          // Persist cache savings as a first-class savings type.
+          const _brainCost = modelCostPerTurn(currentModel)
+          const _cacheSave = _brainCost !== null
+            ? Math.max(0.001, Math.round((_brainCost * 0.5) * 1000) / 1000)
+            : 0.002
+          const cacheSaved = recordCacheSaving(t, _cacheSave, { hash: hit.hash })
           const sumNote = hit.summaryPath ? ` (summary: ${hit.summaryPath})` : ""
-          console.error(`[theSaver] 📦 scratchpad hit for ${t}: ${hit.fullPath} ${hit.sizeBytes}B ${hit.ageSec}s old${sumNote} — total observed: ${total ?? "?"}`)
+          const cacheNote = cacheSaved ? `, cache+$${(cacheSaved.lifetime || 0).toFixed(3)} lt` : ""
+          console.error(`[theSaver] 📦 scratchpad hit for ${t}: ${hit.fullPath} ${hit.sizeBytes}B ${hit.ageSec}s old${sumNote} — total observed: ${total ?? "?"}${cacheNote}`)
         }
       }
 
@@ -1878,8 +2256,16 @@ export async function DelegationEnforcer({ client, directory }) {
       // Trinity rule: route Task subagents based on orchestrator tier.
       // Exploratory first-word detection → cheap (mirrors CC exploratory routing).
       // Then: high-tier brain → medium slot; mid-tier brain → cheap slot.
-      if (t === "task" && currentModel && args && typeof args === "object") {
-        const _prompt = (args?.prompt ?? "").trim().toLowerCase()
+      if (t === "task" && currentModel && ((args && typeof args === "object") || (inArgs && typeof inArgs === "object"))) {
+        // OpenCode versions differ on where task args are consumed and what
+        // key name is used for model. Update both input/output arg objects and
+        // all known key variants so routing sticks.
+        const targetArgs = (
+          input?.args ? input.args
+          : inArgs ? inArgs
+          : {}
+        )
+        const _prompt = (targetArgs?.prompt ?? "").trim().toLowerCase()
         const _firstWord = _prompt.split(/\s+/)[0]
         const EXPLORATORY = new Set(["check","find","list","search","does","verify","look","count","show","get","read","grep","scan","detect","inspect"])
         const _exploratoryTarget = EXPLORATORY.has(_firstWord) ? TRINITY_CHEAP : null
@@ -1887,9 +2273,34 @@ export async function DelegationEnforcer({ client, directory }) {
                           : TRINITY_CHEAP && TRINITY_CHEAP !== currentModel ? TRINITY_CHEAP
                           : null
         const _target = _exploratoryTarget ?? _tierTarget
-        if (_target && args.model !== _target) {
+        if (_target && targetArgs?.model !== _target) {
           const _reason = _exploratoryTarget ? `exploratory ('${_firstWord}')` : `tier=${currentTier}`
-          args.model = _target
+          const _setModel = (obj) => {
+            if (!obj || typeof obj !== "object") return
+            obj.model = _target
+            obj.modelID = _target
+            obj.modelId = _target
+          }
+          _setModel(targetArgs)
+          _setModel(args)
+          _setModel(inArgs)
+          // Workaround: some OpenCode builds ignore per-task model args.
+          // Force delegation by temporarily switching global slot for this task.
+          try {
+            const selNow = loadSelection()
+            const desiredSlot = _target === TRINITY_CHEAP ? "cheap" : _target === TRINITY_MEDIUM ? "medium" : null
+            if (selNow.delegation_enforce && currentTier === "high" && desiredSlot && selNow.active_slot !== desiredSlot) {
+              taskSlotRestore = selNow.active_slot || "brain"
+              const switched = applySlot(desiredSlot)
+              if (switched?.ok) {
+                currentModel = switched.ocModel
+                currentTier = classify(currentModel)
+                console.error(`[theSaver] 🔁 task workaround: switched global slot ${taskSlotRestore} → ${desiredSlot}`)
+              } else {
+                taskSlotRestore = null
+              }
+            }
+          } catch {}
           console.error(`[theSaver] 🔀 Task → ${_target} (${_reason}, orchestrator: ${currentModel})`)
         }
       }
@@ -1914,7 +2325,8 @@ export async function DelegationEnforcer({ client, directory }) {
       // Credit < 40%: non-task tool — record and nudge to step aside.
       if (_credit < 40) {
         const total = recordSaving(t, "credit<40% high-tier", _estOpus)
-        const msg = `⚠ [theSaver] Credit ${_credit}% — ${_tierWord} model doing ${t} directly. Run \`trinity medium\` to switch. (~$${_estOpus.toFixed(3)}/turn, cumulative: $${(total ?? 0).toFixed(2)})`
+        const trend = trendDisplay(readLifetimeSavings().sesTrend)
+        const msg = `⚠ [theSaver] Credit ${_credit}% — ${_tierWord} model doing ${t} directly. Run \`trinity medium\` to switch. (~$${_estOpus.toFixed(3)}/turn, total saved: $${(total ?? 0).toFixed(2)}, trend: ${trend})`
         console.error(`[theSaver] [delegation] ${msg}`)
         pendingUiNote = msg
         return
@@ -2016,6 +2428,19 @@ export async function DelegationEnforcer({ client, directory }) {
         pendingUiNote = null
       }
 
+      // Restore original slot after a forced task-slot workaround.
+      if (t === "task" && taskSlotRestore) {
+        try {
+          const back = applySlot(taskSlotRestore)
+          if (back?.ok) {
+            currentModel = back.ocModel
+            currentTier = classify(currentModel)
+            console.error(`[theSaver] 🔁 task workaround: restored global slot → ${taskSlotRestore}`)
+          }
+        } catch {}
+        taskSlotRestore = null
+      }
+
       // Skip test-reminder, TDD, flow enforcement, and compression for blocked tools
       if (enforcementBlocked) { enforcementBlocked = false; return }
 
@@ -2037,9 +2462,28 @@ export async function DelegationEnforcer({ client, directory }) {
         if (sel.tdd_enforce) {
           const createdPath = enforceTestFile(fp)
           if (createdPath) {
-            const enforceNote = `\n\n[test-enforced] Created skeleton at ${createdPath} — fill in assertions`
+            const ext = createdPath.split('.').pop()
+            const fileName = createdPath.split('/').pop()
+            const enforceNote = `\n\n[test-enforced] Created skeleton at ${createdPath}\n  NEXT: 1) Open ${fileName}  2) Replace TODO/FIXME markers with real assertions  3) Run \`npx vitest run ${createdPath}\` (or language-equivalent)  4) Confirm tests pass`
             if (typeof output?.text === "string") output.text += enforceNote
             else if (typeof output?.result === "string") output.result += enforceNote
+          }
+        }
+
+        // Detect test-file follow-up edits (telemetry)
+        if (t === "edit" || t === "write") {
+          const testExtRe = /\.(test|spec)\./i
+          if (testExtRe.test(fp)) {
+            try {
+              let state = {}
+              if (existsSync(STATE_FILE)) {
+                try { state = JSON.parse(readFileSync(STATE_FILE, "utf-8")) } catch {}
+              } else { mkdirSync(dirname(STATE_FILE), { recursive: true }) }
+              state.lifetime ??= { warn_count: 0, est_savings_usd: 0, last_updated: "" }
+              state.lifetime.tdd_followup_completions = (state.lifetime.tdd_followup_completions || 0) + 1
+              state.lifetime.last_updated = new Date().toISOString()
+              writeFileSync(STATE_FILE, JSON.stringify(state, null, 2))
+            } catch {}
           }
         }
 
@@ -2136,9 +2580,9 @@ export async function DelegationEnforcer({ client, directory }) {
             // Always write to disk — hot or cold.
             const hash = createHash("sha256")
               .update(`tool_result\n${raw}\n`).digest("hex").slice(0, 16)
-            const fullPath = join(SCRATCHPAD_DIR, `${hash}.txt`)
+            const fullPath = join(getSessionScratchpadDir(), `${hash}.txt`)
             try {
-              mkdirSync(SCRATCHPAD_DIR, { recursive: true })
+              ensureSessionScratchpadDirs()
               if (!existsSync(fullPath)) {
                 writeFileSync(fullPath, raw)
                 indexAppend(hash, part.tool, raw.length)
@@ -2216,14 +2660,14 @@ export async function DelegationEnforcer({ client, directory }) {
     "message.updated": async (input, output) => { await _appendFooter(input, output, directory) },
 
     // Scratchpad-aware compaction. When OpenCode is about to compact a session,
-    // remind the compactor that tool results are persisted on disk at the
-    // shared ~/.claude/scratch/by-hash/ tree and to preserve hash/path refs in
+    // remind the compactor that tool results are persisted on disk in the
+    // session cache tree and to preserve hash/path refs in
     // the summary. The model can Read those paths back post-compact, so we
     // can compact more aggressively without losing recoverable detail.
     "experimental.session.compacting": async (_input, output) => {
       if (!loadSelection().enabled) return
       try {
-        const indexPath = join(homedir(), ".claude/scratch/index.jsonl")
+        const indexPath = getSessionIndexPath()
         let recent = ""
         if (existsSync(indexPath)) {
           try {
@@ -2231,14 +2675,14 @@ export async function DelegationEnforcer({ client, directory }) {
             recent = lines
               .map((l) => { try { return JSON.parse(l) } catch { return null } })
               .filter((e) => e && e.hash)
-              .map((e) => `  • ${e.tool} → ~/.claude/scratch/by-hash/${e.hash}.txt (${e.size}B)`)
+              .map((e) => `  • ${e.tool} → ~/.claude/scratch/sessions/${_OC_SID}/by-hash/${e.hash}.txt (${e.size}B)`)
               .join("\n")
           } catch {}
         }
         if (!recent) recent = "  (no recent scratchpad entries)"
 
         const note =
-          "[scratchpad-aware compaction] Tool results from this session live on disk at ~/.claude/scratch/by-hash/<hash>.txt " +
+          `[scratchpad-aware compaction] Tool results from this session live on disk at ~/.claude/scratch/sessions/${_OC_SID}/by-hash/<hash>.txt ` +
           "(plus .meta.json metadata and optional .summary.txt Haiku digest). WHEN COMPACTING: " +
           "(1) drop verbose tool result bodies — the bulk lives on disk; " +
           "(2) PRESERVE every <hash> reference, file path, and pointer in the summary; " +
@@ -2248,8 +2692,12 @@ export async function DelegationEnforcer({ client, directory }) {
 
         if (output && Array.isArray(output.context)) {
           output.context.push({ role: "user", content: note })
+          output.context.push({ role: "user", content: `[theSaver] session cache dir: ${getSessionScratchpadDir()} (cleanup on exit enabled)` })
         } else if (output) {
-          output.context = [{ role: "user", content: note }]
+          output.context = [
+            { role: "user", content: note },
+            { role: "user", content: `[theSaver] session cache dir: ${getSessionScratchpadDir()} (cleanup on exit enabled)` },
+          ]
         }
       } catch (err) {
         console.error(`[theSaver] session.compacting failed: ${err.message}`)
@@ -2356,13 +2804,15 @@ export async function DelegationEnforcer({ client, directory }) {
           "Use action='flow' with slot='on'|'off' to toggle flow enforcer, or action='flow' alone for audit. " +
           "Use action='flow' with slot='enforce' and level='on'|'off' to toggle auto-extract TODOs. " +
           "Use action='enforce' with slot='on'|'off' to toggle delegation enforcement (blocks direct writes/edits on brain tier). " +
-          "Use action='tdd' with slot='on'|'off' to toggle auto-create test skeletons, or action='tdd' alone for audit. " +
+          "Use action='tdd' with slot='on'|'off' to toggle auto-create test skeletons. " +
+          "Use action='tdd' with slot='strict' and level='on'|'off' to toggle strict failing TODO test templates. " +
+          "Use action='tdd' alone for audit. " +
           "Use action='project' to show per-project analytics and optimization suggestions. " +
           "Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', 'trinity status'.",
         args: {
           action: tool.schema.enum(["status", "enable", "disable", "set", "thinking", "flow", "tdd", "project", "rebuild", "diagnose", "help", "enforce"]).optional(),
-          slot: tool.schema.enum(["brain", "medium", "cheap", "on", "off", "enforce"]).optional(),
-          level: tool.schema.enum(["full", "brief", "off"]).optional(),
+          slot: tool.schema.enum(["brain", "medium", "cheap", "on", "off", "enforce", "strict"]).optional(),
+          level: tool.schema.enum(["full", "brief", "off", "on"]).optional(),
         },
         async execute({ action, slot, level } = {}) {
           // Kick off credit API background fetch on any trinity command.
@@ -2383,6 +2833,7 @@ export async function DelegationEnforcer({ client, directory }) {
               `🔀 Flow enforcer: ${sel.flow_enabled !== false ? "ON" : "OFF"}`,
               `🔀 Flow enforcement: ${sel.flow_enforce ? "ON (auto-extract TODOs)" : "OFF (log only)"}`,
               `🧪 TDD enforcer: ${sel.tdd_enforce ? "ON (auto-create skeletons)" : "OFF (nudge only)"}`,
+              `🧪 TDD strict: ${sel.tdd_strict !== false ? "ON (TODO tests fail)" : "OFF (TODO tests non-blocking)"}`,
               `🚫 Delegation enforcement: ${sel.delegation_enforce ? "ON (blocks direct writes/edits on brain)" : "OFF (warn only)"}`,
             ]
             for (const s of ["brain", "medium", "cheap"]) {
@@ -2485,6 +2936,24 @@ export async function DelegationEnforcer({ client, directory }) {
           }
 
           if (action === "tdd") {
+            if (slot === "strict") {
+              if (level !== "on" && level !== "off") {
+                return "❌ Provide level on|off for `trinity tdd strict`"
+              }
+              const ok = writeSelection("tdd_strict", level === "on")
+              return ok
+                ? `✅ TDD strict ${level === "on" ? "ENABLED (TODO tests fail loudly)" : "DISABLED (TODO tests non-blocking)"}`
+                : `❌ Failed to write model-tiers.json`
+            }
+            if (slot === "quality") {
+              if (level !== "on" && level !== "off") {
+                return "❌ Provide level on|off for `trinity tdd quality`"
+              }
+              const ok = writeSelection("tdd_quality", level === "on")
+              return ok
+                ? `✅ TDD quality templates ${level === "on" ? "ENABLED (real assertions, invalid-input, edge-case stubs)" : "DISABLED (TODO-only stubs)"}`
+                : `❌ Failed to write model-tiers.json`
+            }
             if (slot === "on" || slot === "off") {
               const ok = writeSelection("tdd_enforce", slot === "on")
               return ok
@@ -2503,6 +2972,8 @@ export async function DelegationEnforcer({ client, directory }) {
             const sel = loadSelection()
             const lines = [`🧪 TDD enforcer audit:`]
             lines.push(`  Mode: ${sel.tdd_enforce ? "ENFORCE (auto-create skeletons)" : "NUDGE (reminders only)"}`)
+            lines.push(`  Strict templates: ${sel.tdd_strict !== false ? "ON (fail TODO tests)" : "OFF (non-blocking TODO tests)"}`)
+            lines.push(`  Quality templates: ${sel.tdd_quality !== false ? "ON (real assertion stubs)" : "OFF (TODO-only stubs)"}`)
             lines.push(`  Skeletons created this lifetime: ${enforced}`)
             return lines.join("\n")
           }
@@ -2813,6 +3284,7 @@ export async function DelegationEnforcer({ client, directory }) {
               "  trinity enforce <on|off>         Toggle delegation enforcement (block brain-tier writes/edits)",
               "  trinity enforce                  Show enforcement status",
               "  trinity tdd <on|off>             Toggle auto-create test skeletons",
+              "  trinity tdd strict <on|off>      Toggle strict failing TODO templates",
               "  trinity tdd                      Audit TDD enforcement stats",
               "  trinity project                  Per-project analytics & optimization tips",
               "  trinity diagnose                 Run self-diagnostic (files, slots, probe, credits, stats)",
@@ -3021,8 +3493,9 @@ export function researchAudit({ hours = 24, session: sessionFilter } = {}) {
 
   // 1. Scratchpad index entries (recent WebFetch/WebSearch only)
   try {
-    if (existsSync(INDEX_PATH)) {
-      const lines = readFileSync(INDEX_PATH, "utf-8").trim().split("\n").filter(Boolean)
+    const indexPath = getGlobalIndexPath()
+    if (existsSync(indexPath)) {
+      const lines = readFileSync(indexPath, "utf-8").trim().split("\n").filter(Boolean)
       const domainCache = {}
 
       for (const line of lines) {
@@ -3037,7 +3510,9 @@ export function researchAudit({ hours = 24, session: sessionFilter } = {}) {
 
         // Extract domain from summary if available
         const hash = e.hash
-        const summaryPath = join(SCRATCHPAD_DIR, hash + ".summary.txt")
+        const summaryPathSession = join(getSessionScratchpadDir(), hash + ".summary.txt")
+        const summaryPathGlobal = join(SCRATCHPAD_GLOBAL_DIR, hash + ".summary.txt")
+        const summaryPath = existsSync(summaryPathSession) ? summaryPathSession : summaryPathGlobal
         if (existsSync(summaryPath)) {
           const summary = readFileSync(summaryPath, "utf-8").slice(0, 200)
           const urlMatch = summary.match(/https?:\/\/([^\/\s\)]+)/i)
