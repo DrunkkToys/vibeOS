@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "types": ["node"],
+    "outDir": "dist-ts",
+    "rootDir": "src"
+  },
+  "include": [
+    "src/theSaver-lib/flow-enforcer.ts",
+    "src/utils/math.ts"
+  ]
+}
