@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.2
+
+- bump: v0.5.2
+
 ## 0.5.1
 
 - fix: `trinity thinking full` now stores `"full"` string instead of `null`
