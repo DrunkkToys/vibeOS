@@ -4,7 +4,7 @@
 // We import the plugin module and exercise its hooks against fake input/output
 // objects. Each test runs in a tmpdir so the real shared state file is safe.
 
-import { test, before, after } from "node:test"
+import { test, before, beforeEach, after } from "node:test"
 import assert from "node:assert/strict"
 import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -16,6 +16,9 @@ before(() => {
   sandbox = mkdtempSync(join(tmpdir(), "delegation-test-"))
   mkdirSync(join(sandbox, ".claude/scratch"), { recursive: true })
   process.env.HOME = sandbox
+})
+beforeEach(() => {
+  rmSync(join(sandbox, ".claude/model-tiers.json"), { force: true })
 })
 after(() => rmSync(sandbox, { recursive: true, force: true }))
 
@@ -45,6 +48,10 @@ test("classify: opus → high", async () => {
 })
 
 test("classify: deepseek-flash → mid", async () => {
+  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+    selection: { enabled: true, active_slot: "cheap" },
+    trinity: { brain: { oc: "" }, medium: { oc: "" }, cheap: { oc: "" } },
+  }))
   const { DelegationEnforcer } = await loadPlugin()
   const dir = join(sandbox, ".opencode-mid")
   mkdirSync(dir, { recursive: true })
@@ -56,6 +63,10 @@ test("classify: deepseek-flash → mid", async () => {
 })
 
 test("classify: unknown → budget", async () => {
+  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+    selection: { enabled: true, active_slot: "cheap" },
+    trinity: { brain: { oc: "" }, medium: { oc: "" }, cheap: { oc: "" } },
+  }))
   const { DelegationEnforcer } = await loadPlugin()
   const dir = join(sandbox, ".opencode-budget")
   mkdirSync(dir, { recursive: true })
@@ -64,6 +75,38 @@ test("classify: unknown → budget", async () => {
   const envOut = { env: {} }
   await hooks["shell.env"]({}, envOut)
   assert.equal(envOut.env.OPENCODE_MODEL_TIER, "budget")
+})
+
+test("slot switch updates tier even when model ID is unchanged", async () => {
+  const tiersPath = join(sandbox, ".claude/model-tiers.json")
+  writeFileSync(tiersPath, JSON.stringify({
+    trinity: {
+      brain: { oc: "deepseek/deepseek-chat" },
+      medium: { oc: "deepseek/deepseek-chat" },
+      cheap: { oc: "deepseek/deepseek-chat" },
+    },
+    selection: { enabled: true, active_slot: "cheap" },
+    tiers: { high: { regex: "opus" }, mid: { regex: "sonnet|flash" }, budget: { regex: "haiku|chat" } },
+  }))
+
+  const { DelegationEnforcer } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-same-model-slots")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "deepseek/deepseek-chat" }))
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+
+  const firstEnv = { env: {} }
+  await hooks["shell.env"]({}, firstEnv)
+  assert.equal(firstEnv.env.OPENCODE_MODEL_TIER, "budget")
+
+  // Flip slot to brain while keeping model ID unchanged across slots.
+  const tiers = JSON.parse(readFileSync(tiersPath, "utf-8"))
+  tiers.selection.active_slot = "brain"
+  writeFileSync(tiersPath, JSON.stringify(tiers))
+
+  const secondEnv = { env: {} }
+  await hooks["shell.env"]({}, secondEnv)
+  assert.equal(secondEnv.env.OPENCODE_MODEL_TIER, "high")
 })
 
 // ── tool.execute.before — memory mode ────────────────────────────────
@@ -91,6 +134,16 @@ test("FREE tools (read) and SOFT_QUOTA tools (bash) produce no state write withi
 })
 
 test("WARN_ON_DIRECT (write) records savings + does NOT throw", async () => {
+  // Ensure trinity models are available so write enforcement can compute non-free savings.
+  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+    trinity: {
+      brain:  { oc: "anthropic/claude-opus-4-7" },
+      medium: { oc: "anthropic/claude-sonnet-4-6" },
+      cheap:  { oc: "anthropic/claude-haiku-4-5" },
+    },
+    selection: { enabled: true, active_slot: "brain" },
+    tiers: { high: { regex: "opus" }, mid: { regex: "sonnet" }, budget: { regex: "haiku" } },
+  }))
   const { DelegationEnforcer } = await loadPlugin()
   const dir = join(sandbox, ".opencode-write")
   mkdirSync(dir, { recursive: true })
@@ -1214,7 +1267,7 @@ test("tool.execute.after: delegation warning injected into output.result", async
 
   assert.ok(afterOutput.result.includes("⚠ [theSaver]"),
     `output.result must contain ⚠ [theSaver] delegation note; got: ${afterOutput.result}`)
-  assert.ok(afterOutput.result.includes("Brain model doing edit"),
+  assert.ok(afterOutput.result.includes("Brain model running edit"),
     `output.result must describe the action; got: ${afterOutput.result}`)
   assert.ok(afterOutput.result.startsWith("File edited successfully."),
     "original tool result must be preserved at the start")
@@ -2067,4 +2120,56 @@ test("trinity tdd: audit shows stats", async () => {
   const audit = await t.execute({ action: "tdd" })
   assert.ok(audit.includes("TDD enforcer"), "tdd audit: " + audit)
   assert.ok(audit.includes("NUDGE") || audit.includes("ENFORCE"), "mode shown")
+})
+
+test("trinity repair-state: preview and apply merge duplicate fingerprints safely", async () => {
+  const { DelegationEnforcer } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-repair")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "haiku" }))
+  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+    selection: { enabled: true, active_slot: "brain" },
+    trinity: { brain: { oc: "haiku" } },
+  }))
+
+  const { createHash } = await import("node:crypto")
+  const dstFp = createHash("sha256").update(dir).digest("hex").slice(0, 12)
+  const srcFp = "8a5edab28263"
+  writeFileSync(join(sandbox, ".claude/project-states.json"), JSON.stringify({
+    project_hashes: {
+      [dstFp]: { totalSessions: 2, researchChains: 1, context7Bypasses: 0, commonTopics: ["a.dev"], lastSeen: "2026-05-17T07:00:00.000Z" },
+      [srcFp]: { totalSessions: 3, researchChains: 4, context7Bypasses: 2, commonTopics: ["b.dev"], lastSeen: "2026-05-17T08:00:00.000Z" },
+    }
+  }))
+  mkdirSync(join(sandbox, ".claude/reports"), { recursive: true })
+  writeFileSync(join(sandbox, ".claude/reports/index.json"), JSON.stringify({
+    reports: [
+      { id: "r1", type: "manual", project: ".opencode-repair", fingerprint: srcFp, created: "2026-05-17T08:10:00.000Z", summary: "x" },
+      { id: "r2", type: "manual", project: ".opencode-repair", fingerprint: dstFp, created: "2026-05-17T08:20:00.000Z", summary: "y" },
+    ]
+  }))
+  writeFileSync(join(sandbox, ".claude/reports/r1.json"), JSON.stringify({
+    meta: { id: "r1", project: ".opencode-repair", fingerprint: srcFp, type: "manual", created: "2026-05-17T08:10:00.000Z", sessionId: "opencode-1" },
+    summary: "x", findings: [], metrics: {}, narrative: "", tags: []
+  }))
+
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+  const t = hooks.tool.trinity
+  const preview = await t.execute({ action: "repair-state", slot: "preview" })
+  assert.ok(preview.includes("State repair (preview)"), preview)
+  assert.ok(preview.includes(srcFp), preview)
+
+  const applied = await t.execute({ action: "repair-state", slot: "apply" })
+  assert.ok(applied.includes("Applied"), applied)
+
+  const afterState = JSON.parse(readFileSync(join(sandbox, ".claude/project-states.json"), "utf-8"))
+  assert.ok(afterState.project_hashes[dstFp], "target fp exists")
+  assert.equal(afterState.project_hashes[srcFp], undefined, "source fp removed")
+  assert.equal(afterState.project_hashes[dstFp].totalSessions, 6, "sessions merged (includes current init session)")
+  assert.equal(afterState.project_hashes[dstFp].researchChains, 4, "research chains merged by max")
+  assert.equal(afterState.project_hashes[dstFp].context7Bypasses, 2, "bypasses merged by sum")
+
+  const afterIndex = JSON.parse(readFileSync(join(sandbox, ".claude/reports/index.json"), "utf-8"))
+  assert.equal(afterIndex.reports.filter(r => r.fingerprint === srcFp).length, 0, "source fingerprint removed from index")
+  assert.ok(afterIndex.reports.some(r => r.id === "r1" && r.fingerprint === dstFp), "index relabeled to target fingerprint")
 })

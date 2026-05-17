@@ -21,7 +21,9 @@
 
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, statSync, readdirSync, openSync, readSync, closeSync, rmSync, copyFileSync } from "node:fs"
 import { join, dirname } from "node:path"
-import { homedir } from "node:os"
+import { homedir, tmpdir } from "node:os"
+
+const USER_HOME = (() => { try { return homedir() } catch { return tmpdir() } })()
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import { checkFlowRules, getFlowWarns, getSessionFlowCounts } from "./theSaver-lib/flow-enforcer.js"
@@ -55,7 +57,9 @@ let currentProjectName = ""
 // use the more conservative sub-agent limit.
 const softQuotaCounts = {}
 const SOFT_QUOTA_LIMIT = 5
-const STATE_FILE = join(homedir(), ".claude/delegation-state.json")
+const STATE_FILE = join(USER_HOME, ".claude/delegation-state.json")
+const PRICING_CACHE_FILE = join(USER_HOME, ".claude/model-pricing-cache.json")
+const FILE_LOCK_DIR = join(USER_HOME, ".claude/.theSaver-locks")
 
 // Dedupe set: assistantMessageIds that already had the savings tag appended
 // during this sidecar's lifetime.
@@ -71,7 +75,7 @@ const FALLBACK_HIGH = /opus|gemini-.*-pro|deepseek\/deepseek-v4-pro|gpt-5|(^|\/)
 const FALLBACK_MID  = /deepseek\/deepseek-v4-flash|claude.*sonnet|gemini-.*-flash|gpt-4o(?!-mini)/i
 function loadTierRegexes() {
   try {
-    const p = join(homedir(), ".claude/model-tiers.json")
+    const p = join(USER_HOME, ".claude/model-tiers.json")
     if (!existsSync(p)) return { high: FALLBACK_HIGH, mid: FALLBACK_MID }
     const j = JSON.parse(readFileSync(p, "utf-8"))
     return {
@@ -84,7 +88,7 @@ const { high: HIGH_TIER_RE, mid: MID_TIER_RE } = loadTierRegexes()
 
 function loadTrinityModels() {
   try {
-    const p = join(homedir(), ".claude/model-tiers.json")
+    const p = join(USER_HOME, ".claude/model-tiers.json")
     if (!existsSync(p)) return { cheap: "", medium: "" }
     const j = JSON.parse(readFileSync(p, "utf-8"))
     return {
@@ -107,7 +111,7 @@ function loadCredit() {
   }
   // 3. Check legacy file ~/.claude/credit-percent
   try {
-    const f = join(homedir(), ".claude/credit-percent")
+    const f = join(USER_HOME, ".claude/credit-percent")
     if (existsSync(f)) {
       const n = parseInt(readFileSync(f, "utf-8").trim(), 10)
       if (!isNaN(n)) return n
@@ -125,7 +129,7 @@ function thinkingLevel(credit) {
 
 // Read plugin enabled flag + active_slot fresh from model-tiers.json.
 // Called per-hook so live edits (trinity on/off) take effect without restart.
-const TIERS_FILE = join(homedir(), ".claude/model-tiers.json")
+const TIERS_FILE = join(USER_HOME, ".claude/model-tiers.json")
 function loadSelection() {
   try {
     if (!existsSync(TIERS_FILE)) return { enabled: true, active_slot: null, thinking_level: null, flow_enabled: true, tdd_enforce: false, tdd_strict: true, tdd_quality: true, flow_enforce: false, delegation_enforce: true }
@@ -165,8 +169,11 @@ export function applySlot(slot) {
     if (!ocModel) return { ok: false, reason: `slot '${slot}' has no oc model` }
     j.selection.active_slot = slot
     writeFileSync(TIERS_FILE, JSON.stringify(j, null, 2) + "\n")
-    // Also write to opencode.json so next session picks it up.
-    const ocConfig = join(homedir(), ".config/opencode/opencode.json")
+    // Prefer project-local config to avoid mutating global provider/dropdown config.
+    const localOcConfig = join(process.cwd(), "opencode.json")
+    const ocConfig = existsSync(localOcConfig)
+      ? localOcConfig
+      : join(USER_HOME, ".config/opencode/opencode.json")
     if (existsSync(ocConfig)) {
       const oc = JSON.parse(readFileSync(ocConfig, "utf-8"))
       oc.model = ocModel
@@ -244,6 +251,7 @@ const MODEL_USD_PER_TURN = {
   "deepseek/deepseek-r1":                 0.001,
   "deepseek/deepseek-v4-pro":             0.0003,
   "deepseek/deepseek-v4-flash":           0.0001,
+  "deepseek/deepseek-reasoner":           0.001,
   "google/gemini-2.5-pro":                0.005,
   "google/gemini-2.5-flash":              0.0005,
   "google/gemini-2.0-flash":              0.0003,
@@ -253,6 +261,63 @@ const MODEL_USD_PER_TURN = {
   "openai/gpt-4.1-mini":                  0.0003,
   "openai/o3":                            0.05,
   "openai/o4-mini":                       0.003,
+}
+
+const TURN_BLEND_INPUT_TOKENS = 700
+const TURN_BLEND_OUTPUT_TOKENS = 300
+let _dynamicPricingCache = null
+let _dynamicPricingCacheLoadedAt = 0
+
+function _loadDynamicPricingCache() {
+  const now = Date.now()
+  if (_dynamicPricingCache && (now - _dynamicPricingCacheLoadedAt) < 10_000) return _dynamicPricingCache
+  _dynamicPricingCacheLoadedAt = now
+  try {
+    const raw = JSON.parse(readFileSync(PRICING_CACHE_FILE, "utf-8"))
+    const map = raw?.models && typeof raw.models === "object" ? raw.models : {}
+    _dynamicPricingCache = map
+  } catch {
+    _dynamicPricingCache = {}
+  }
+  return _dynamicPricingCache
+}
+
+function _dynamicCostFor(model) {
+  const key = normalizeModelId(model)
+  const cache = _loadDynamicPricingCache()
+  if (Object.prototype.hasOwnProperty.call(cache, key)) return cache[key]
+  for (const [k, v] of Object.entries(cache)) {
+    if (key.startsWith(k) || k.startsWith(key)) return v
+  }
+  return null
+}
+
+function _parseOpenRouterTurnCost(modelRow) {
+  const p = modelRow?.pricing || {}
+  const inTok = Number(p.prompt ?? p.input ?? p.request)
+  const outTok = Number(p.completion ?? p.output ?? p.response)
+  if (Number.isFinite(inTok) && Number.isFinite(outTok)) {
+    return inTok * TURN_BLEND_INPUT_TOKENS + outTok * TURN_BLEND_OUTPUT_TOKENS
+  }
+  const oneTok = Number(p.price ?? p.total ?? p.input ?? p.output)
+  if (Number.isFinite(oneTok)) return oneTok * 1000
+  return null
+}
+
+function _writeDynamicPricingCache(modelsMap) {
+  if (!modelsMap || typeof modelsMap !== "object") return
+  try {
+    withFileLock(PRICING_CACHE_FILE, () => {
+      mkdirSync(dirname(PRICING_CACHE_FILE), { recursive: true })
+      writeFileSync(PRICING_CACHE_FILE, JSON.stringify({
+        ts: Date.now(),
+        source: "openrouter-models",
+        models: modelsMap,
+      }, null, 2) + "\n")
+    })
+    _dynamicPricingCache = modelsMap
+    _dynamicPricingCacheLoadedAt = Date.now()
+  } catch {}
 }
 
 // Strip routing prefixes (openrouter/, opencode/) and normalize version dots
@@ -267,6 +332,8 @@ function normalizeModelId(model) {
 
 export function modelCostPerTurn(model) {
   if (!model) return 0
+  const dyn = _dynamicCostFor(model)
+  if (dyn != null) return dyn
   const key = normalizeModelId(model)
   if (key in MODEL_USD_PER_TURN) return MODEL_USD_PER_TURN[key]
   // Prefix match for versioned model IDs (e.g. "claude-opus-4-7-20251001")
@@ -286,9 +353,9 @@ export function isModelFree(model) {
 // Context7 detection — scan known config files for the string "context7".
 // Cheap (one-time at module load); falsy → docs nudge stays dormant.
 const CONTEXT7_CONFIG_FILES = [
-  join(homedir(), ".claude/settings.json"),
-  join(homedir(), ".claude.json"),
-  join(homedir(), ".config/opencode/opencode.json"),
+  join(USER_HOME, ".claude/settings.json"),
+  join(USER_HOME, ".claude.json"),
+  join(USER_HOME, ".config/opencode/opencode.json"),
 ]
 export function detectContext7(files = CONTEXT7_CONFIG_FILES) {
   if (process.env.CLAUDE_CONTEXT7_AVAILABLE) return true
@@ -318,7 +385,7 @@ const context7Seen = new Set()
 // Conservative: detect + log + count hits. Do NOT short-circuit the tool
 // (cache may be stale; bash hook validates freshness, JS just observes
 // for now).
-const SCRATCHPAD_ROOT = join(homedir(), ".claude/scratch")
+const SCRATCHPAD_ROOT = join(USER_HOME, ".claude/scratch")
 const SCRATCHPAD_GLOBAL_DIR = join(SCRATCHPAD_ROOT, "by-hash")
 const SCRATCHPAD_SESSIONS_DIR = join(SCRATCHPAD_ROOT, "sessions")
 const SCRATCHPAD_SESSION_TTL_MS = 48 * 60 * 60 * 1000
@@ -422,6 +489,59 @@ function stableJson(obj) {
     .join(",") + "}"
 }
 
+function _lockPathFor(filePath) {
+  const hash = createHash("sha1").update(String(filePath || "")).digest("hex")
+  return join(FILE_LOCK_DIR, `${hash}.lock`)
+}
+
+function withFileLock(filePath, fn, opts = {}) {
+  const staleMs = Number(opts.staleMs || 30_000)
+  const timeoutMs = Number(opts.timeoutMs || 2_000)
+  const lockPath = _lockPathFor(filePath)
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    try {
+      mkdirSync(FILE_LOCK_DIR, { recursive: true })
+      const fd = openSync(lockPath, "wx")
+      try { writeFileSync(fd, `${process.pid}\n${Date.now()}\n`) } catch {}
+      try {
+        return fn()
+      } finally {
+        try { closeSync(fd) } catch {}
+        try { rmSync(lockPath, { force: true }) } catch {}
+      }
+    } catch (err) {
+      try {
+        if (existsSync(lockPath)) {
+          const age = Date.now() - statSync(lockPath).mtimeMs
+          if (age > staleMs) {
+            try { rmSync(lockPath, { force: true }) } catch {}
+          }
+        }
+      } catch {}
+    }
+  }
+  return fn()
+}
+
+function readJsonOrEmpty(filePath) {
+  try {
+    if (!existsSync(filePath)) return {}
+    return JSON.parse(readFileSync(filePath, "utf-8"))
+  } catch { return {} }
+}
+
+function updateState(mutator) {
+  return withFileLock(STATE_FILE, () => {
+    let state = readJsonOrEmpty(STATE_FILE)
+    if (!state || typeof state !== "object") state = {}
+    const next = mutator(state) ?? state
+    mkdirSync(dirname(STATE_FILE), { recursive: true })
+    writeFileSync(STATE_FILE, JSON.stringify(next, null, 2))
+    return next
+  })
+}
+
 // Fallback: scan scratchpad for files written within the last N ms.
 let _lastScan = 0
 function scanRecentScratchpad(baseDir, toolName, windowMs) {
@@ -451,20 +571,18 @@ function scanRecentScratchpad(baseDir, toolName, windowMs) {
 
 function recordScratchpadObservation() {
   try {
-    let state = {}
-    if (existsSync(STATE_FILE)) {
-      try { state = JSON.parse(readFileSync(STATE_FILE, "utf-8")) } catch {}
-    } else { mkdirSync(dirname(STATE_FILE), { recursive: true }) }
-    state.lifetime ??= { warn_count: 0, est_savings_usd: 0, last_updated: "" }
-    state.lifetime.scratchpad_hits_observed = (state.lifetime.scratchpad_hits_observed || 0) + 1
-    writeFileSync(STATE_FILE, JSON.stringify(state, null, 2))
-    return state.lifetime.scratchpad_hits_observed
+    const state = updateState((s) => {
+      s.lifetime ??= { warn_count: 0, est_savings_usd: 0, last_updated: "" }
+      s.lifetime.scratchpad_hits_observed = (s.lifetime.scratchpad_hits_observed || 0) + 1
+      return s
+    })
+    return state?.lifetime?.scratchpad_hits_observed ?? null
   } catch { return null }
 }
 
 // One-time install-suggestion flag (persisted across processes) and
 // per-session alert flag (process lifetime is fine — sidecar == session).
-const CONTEXT7_INSTALL_FLAG = join(homedir(), ".claude/.context7-install-suggested")
+const CONTEXT7_INSTALL_FLAG = join(USER_HOME, ".claude/.context7-install-suggested")
 let context7AlertedThisSession = false
 
 // Pending UI note: set in tool.execute.before, consumed in tool.execute.after.
@@ -478,18 +596,23 @@ let taskSlotRestore = null
 // for a hypothetical metric). Mirrors bash record_missed_c7().
 function recordMissedContext7(saveEst) {
   try {
-    let state = {}
-    if (existsSync(STATE_FILE)) {
-      try { state = JSON.parse(readFileSync(STATE_FILE, "utf-8")) } catch {}
-    } else {
-      mkdirSync(dirname(STATE_FILE), { recursive: true })
-    }
-    state.lifetime ??= { warn_count: 0, est_savings_usd: 0, last_updated: "" }
-    state.lifetime.missed_context7_usd = Math.round(
-      ((state.lifetime.missed_context7_usd || 0) + saveEst) * 100
-    ) / 100
-    writeFileSync(STATE_FILE, JSON.stringify(state, null, 2))
-    return state.lifetime.missed_context7_usd
+    const state = updateState((s) => {
+      s.lifetime ??= { warn_count: 0, est_savings_usd: 0, last_updated: "" }
+      s.lifetime.missed_context7_usd = Math.round(
+        ((s.lifetime.missed_context7_usd || 0) + saveEst) * 100
+      ) / 100
+      return s
+    })
+    try {
+      if (currentProjectFingerprint) {
+        const pstate = loadProjectState()
+        const bucket = ensureProjectBucket(pstate, currentProjectFingerprint)
+        bucket.context7Bypasses = (bucket.context7Bypasses || 0) + 1
+        bucket.lastSeen = new Date().toISOString()
+        saveProjectState(pstate)
+      }
+    } catch {}
+    return state?.lifetime?.missed_context7_usd ?? null
   } catch { return null }
 }
 
@@ -1163,11 +1286,11 @@ const TEST_SKELETONS = {
 }
 
 // Cross-process lock directory for test file creation coordination.
-const ENFORCEMENT_LOCK_DIR = join(homedir(), ".claude/.enforcement-lock")
+const ENFORCEMENT_LOCK_DIR = join(USER_HOME, ".claude/.enforcement-lock")
 const LOCK_EXPIRE_MS = 30_000
 
 // Cross-process cooldown to avoid duplicate enforcement across processes.
-const ENFORCEMENT_COOLDOWN_FILE = join(homedir(), ".claude/.enforcement-cooldown.jsonl")
+const ENFORCEMENT_COOLDOWN_FILE = join(USER_HOME, ".claude/.enforcement-cooldown.jsonl")
 const COOLDOWN_MS = 60_000
 
 // Per-process recursion guard.
@@ -1277,21 +1400,19 @@ export function enforceTestFile(filePath) {
     _recordCooldown(skeleton.path)
     // Record extended telemetry in state file
     try {
-      let state = {}
-      if (existsSync(STATE_FILE)) {
-        try { state = JSON.parse(readFileSync(STATE_FILE, "utf-8")) } catch {}
-      } else { mkdirSync(dirname(STATE_FILE), { recursive: true }) }
-      state.lifetime ??= { warn_count: 0, est_savings_usd: 0, last_updated: "" }
-      state.lifetime.tdd_enforced = (state.lifetime.tdd_enforced || 0) + 1
-      state.lifetime.tdd_skeletons_created = (state.lifetime.tdd_skeletons_created || 0) + 1
-      if (sel.tdd_strict !== false) {
-        state.lifetime.tdd_strict_fail_templates_created = (state.lifetime.tdd_strict_fail_templates_created || 0) + 1
-      }
-      if (sel.tdd_quality !== false) {
-        state.lifetime.tdd_quality_templates_created = (state.lifetime.tdd_quality_templates_created || 0) + 1
-      }
-      state.lifetime.last_updated = new Date().toISOString()
-      writeFileSync(STATE_FILE, JSON.stringify(state, null, 2))
+      updateState((state) => {
+        state.lifetime ??= { warn_count: 0, est_savings_usd: 0, last_updated: "" }
+        state.lifetime.tdd_enforced = (state.lifetime.tdd_enforced || 0) + 1
+        state.lifetime.tdd_skeletons_created = (state.lifetime.tdd_skeletons_created || 0) + 1
+        if (sel.tdd_strict !== false) {
+          state.lifetime.tdd_strict_fail_templates_created = (state.lifetime.tdd_strict_fail_templates_created || 0) + 1
+        }
+        if (sel.tdd_quality !== false) {
+          state.lifetime.tdd_quality_templates_created = (state.lifetime.tdd_quality_templates_created || 0) + 1
+        }
+        state.lifetime.last_updated = new Date().toISOString()
+        return state
+      })
     } catch {}
     let resultPath = skeleton.path
     // Anti-useless-run guard: warn if content is only placeholders
@@ -1332,29 +1453,25 @@ export function buildTestReminder(filePath) {
 
 function recordSaving(tool, reason, saveEst) {
   try {
-    let state = {}
-    if (existsSync(STATE_FILE)) {
-      try { state = JSON.parse(readFileSync(STATE_FILE, "utf-8")) } catch {}
-    } else {
-      mkdirSync(dirname(STATE_FILE), { recursive: true })
-    }
-    const now = new Date().toISOString()
-    state.lifetime ??= { warn_count: 0, est_savings_usd: 0, last_updated: "" }
-    state.lifetime.warn_count = (state.lifetime.warn_count || 0) + 1
-    state.lifetime.est_savings_usd = Math.round(((state.lifetime.est_savings_usd || 0) + saveEst) * 1000) / 1000
-    state.lifetime.last_updated = now
-    state.sessions ??= {}
-    const sid = _OC_SID
-    state.sessions[sid] ??= { started: now, source: "opencode", tool_counts: {}, warns: [] }
-    state.sessions[sid].session_cache_dir = getSessionScratchpadDir()
-    state.sessions[sid].tool_counts[tool] = (state.sessions[sid].tool_counts[tool] || 0) + 1
-    state.sessions[sid].warns.push({ at: now, tool, reason, est_savings_usd: saveEst })
-    if (state.sessions[sid].warns.length > 200) {
-      state.sessions[sid].warns = state.sessions[sid].warns.slice(-200)
-    }
-    _pruneOldSessions(state)
-    writeFileSync(STATE_FILE, JSON.stringify(state, null, 2))
-    return state.lifetime.est_savings_usd
+    const state = updateState((s) => {
+      const now = new Date().toISOString()
+      s.lifetime ??= { warn_count: 0, est_savings_usd: 0, last_updated: "" }
+      s.lifetime.warn_count = (s.lifetime.warn_count || 0) + 1
+      s.lifetime.est_savings_usd = Math.round(((s.lifetime.est_savings_usd || 0) + saveEst) * 1000) / 1000
+      s.lifetime.last_updated = now
+      s.sessions ??= {}
+      const sid = _OC_SID
+      s.sessions[sid] ??= { started: now, source: "opencode", tool_counts: {}, warns: [] }
+      s.sessions[sid].session_cache_dir = getSessionScratchpadDir()
+      s.sessions[sid].tool_counts[tool] = (s.sessions[sid].tool_counts[tool] || 0) + 1
+      s.sessions[sid].warns.push({ at: now, tool, reason, est_savings_usd: saveEst })
+      if (s.sessions[sid].warns.length > 200) {
+        s.sessions[sid].warns = s.sessions[sid].warns.slice(-200)
+      }
+      _pruneOldSessions(s)
+      return s
+    })
+    return state?.lifetime?.est_savings_usd ?? null
   } catch (err) {
     console.error(`[theSaver] state write failed: ${err.message}`)
     return null
@@ -1363,39 +1480,36 @@ function recordSaving(tool, reason, saveEst) {
 
 function recordCacheSaving(tool, saveEst, meta = {}) {
   try {
-    let state = {}
-    if (existsSync(STATE_FILE)) {
-      try { state = JSON.parse(readFileSync(STATE_FILE, "utf-8")) } catch {}
-    } else {
-      mkdirSync(dirname(STATE_FILE), { recursive: true })
-    }
-    const now = new Date().toISOString()
-    state.lifetime ??= { warn_count: 0, est_savings_usd: 0, last_updated: "" }
-    state.lifetime.cache_savings_usd = Math.round(((state.lifetime.cache_savings_usd || 0) + saveEst) * 1000) / 1000
-    state.lifetime.last_updated = now
-    state.sessions ??= {}
-    const sid = _OC_SID
-    state.sessions[sid] ??= { started: now, source: "opencode", tool_counts: {}, warns: [] }
-    state.sessions[sid].session_cache_dir = getSessionScratchpadDir()
-    state.sessions[sid].tool_counts[tool] = (state.sessions[sid].tool_counts[tool] || 0) + 1
-    state.sessions[sid].cache_savings_usd = Math.round(((state.sessions[sid].cache_savings_usd || 0) + saveEst) * 1000) / 1000
-    if (meta?.hash) {
-      state.sessions[sid].cache_hits ??= []
-      state.sessions[sid].cache_hits.push({
+    const state = updateState((s) => {
+      const now = new Date().toISOString()
+      s.lifetime ??= { warn_count: 0, est_savings_usd: 0, last_updated: "" }
+      s.lifetime.cache_savings_usd = Math.round(((s.lifetime.cache_savings_usd || 0) + saveEst) * 1000) / 1000
+      s.lifetime.last_updated = now
+      s.sessions ??= {}
+      const sid = _OC_SID
+      s.sessions[sid] ??= { started: now, source: "opencode", tool_counts: {}, warns: [] }
+      s.sessions[sid].session_cache_dir = getSessionScratchpadDir()
+      s.sessions[sid].tool_counts[tool] = (s.sessions[sid].tool_counts[tool] || 0) + 1
+      s.sessions[sid].cache_savings_usd = Math.round(((s.sessions[sid].cache_savings_usd || 0) + saveEst) * 1000) / 1000
+      if (meta?.hash) {
+        s.sessions[sid].cache_hits ??= []
+        s.sessions[sid].cache_hits.push({
         at: now,
         tool,
         hash: meta.hash,
         est_savings_usd: saveEst,
       })
-      if (state.sessions[sid].cache_hits.length > 200) {
-        state.sessions[sid].cache_hits = state.sessions[sid].cache_hits.slice(-200)
+      if (s.sessions[sid].cache_hits.length > 200) {
+        s.sessions[sid].cache_hits = s.sessions[sid].cache_hits.slice(-200)
       }
-    }
-    _pruneOldSessions(state)
-    writeFileSync(STATE_FILE, JSON.stringify(state, null, 2))
+      }
+      _pruneOldSessions(s)
+      return s
+    })
+    const sid = _OC_SID
     return {
-      lifetime: state.lifetime.cache_savings_usd || 0,
-      session: state.sessions[sid].cache_savings_usd || 0,
+      lifetime: state?.lifetime?.cache_savings_usd || 0,
+      session: state?.sessions?.[sid]?.cache_savings_usd || 0,
     }
   } catch (err) {
     console.error(`[theSaver] cache state write failed: ${err.message}`)
@@ -1476,10 +1590,28 @@ function readLifetimeSavings() {
 
 function readConfig(dir) {
   try {
-    const raw = readFileSync(join(dir, "opencode.json"), "utf-8")
-    const c = JSON.parse(raw)
+    const c = readOpenCodeConfigObject(dir)
     return c?.agent?.build?.model || c?.model || ""
   } catch { return "" }
+}
+
+function parseJsonc(raw) {
+  const noBlockComments = String(raw || "").replace(/\/\*[\s\S]*?\*\//g, "")
+  const noLineComments = noBlockComments.replace(/(^|\s)\/\/.*$/gm, "$1")
+  const noTrailingCommas = noLineComments.replace(/,\s*([}\]])/g, "$1")
+  return JSON.parse(noTrailingCommas)
+}
+
+function readOpenCodeConfigObject(dir) {
+  const jsonPath = join(dir, "opencode.json")
+  const jsoncPath = join(dir, "opencode.jsonc")
+  if (existsSync(jsonPath)) {
+    return JSON.parse(readFileSync(jsonPath, "utf-8"))
+  }
+  if (existsSync(jsoncPath)) {
+    return parseJsonc(readFileSync(jsoncPath, "utf-8"))
+  }
+  return {}
 }
 
 // ── Scratchpad decadence (progressive aging) ────────────────────────
@@ -1773,7 +1905,7 @@ function pruneScratchpadOnce() {
   if (prunedThisProcess) return
   prunedThisProcess = true
   try {
-    const script = join(homedir(), ".claude/hooks/scratchpad-prune.sh")
+    const script = join(USER_HOME, ".claude/hooks/scratchpad-prune.sh")
     if (existsSync(script)) {
       const child = spawn("bash", [script], { detached: true, stdio: "ignore" })
       child.unref()
@@ -1803,7 +1935,7 @@ function pruneScratchpadOnce() {
 }
 
 // ── Project memory — cross-session continuity ───────────────────────
-const PROJECT_STATE_FILE = join(homedir(), ".claude/project-states.json")
+const PROJECT_STATE_FILE = join(USER_HOME, ".claude/project-states.json")
 const briefedProjects = new Set()
 
 function projectFingerprint(dir) {
@@ -1813,8 +1945,10 @@ function projectFingerprint(dir) {
 
 function loadProjectState() {
   try {
-    if (existsSync(PROJECT_STATE_FILE)) {
-      return JSON.parse(readFileSync(PROJECT_STATE_FILE, "utf-8"))
+    const state = readJsonOrEmpty(PROJECT_STATE_FILE)
+    if (state && typeof state === "object") {
+      state.project_hashes ??= {}
+      return state
     }
   } catch {}
   return { project_hashes: {} }
@@ -1822,10 +1956,47 @@ function loadProjectState() {
 
 function saveProjectState(state) {
   try {
-    writeFileSync(PROJECT_STATE_FILE, JSON.stringify(state, null, 2) + "\n")
+    withFileLock(PROJECT_STATE_FILE, () => {
+      mkdirSync(dirname(PROJECT_STATE_FILE), { recursive: true })
+      writeFileSync(PROJECT_STATE_FILE, JSON.stringify(state, null, 2) + "\n")
+    })
   } catch (err) {
     console.error(`[theSaver] project state write failed: ${err.message}`)
   }
+}
+
+function ensureProjectBucket(state, fp) {
+  state.project_hashes ??= {}
+  state.project_hashes[fp] ??= {
+    totalSessions: 0,
+    researchChains: 0,
+    context7Bypasses: 0,
+    commonTopics: [],
+  }
+  return state.project_hashes[fp]
+}
+
+function mergeProjectBucket(dst, src) {
+  const a = dst || {}
+  const b = src || {}
+  const topics = [...new Set([...(a.commonTopics || []), ...(b.commonTopics || [])])].slice(-20)
+  return {
+    totalSessions: (a.totalSessions || 0) + (b.totalSessions || 0),
+    researchChains: Math.max(a.researchChains || 0, b.researchChains || 0),
+    context7Bypasses: (a.context7Bypasses || 0) + (b.context7Bypasses || 0),
+    commonTopics: topics,
+    lastSeen: [a.lastSeen, b.lastSeen].filter(Boolean).sort().slice(-1)[0] || new Date().toISOString(),
+  }
+}
+
+function backupFile(path, label = "backup") {
+  try {
+    if (!existsSync(path)) return null
+    const ts = new Date().toISOString().replace(/[:.]/g, "-")
+    const dst = `${path}.${label}.${ts}.bak`
+    copyFileSync(path, dst)
+    return dst
+  } catch { return null }
 }
 
 function buildProjectBriefing(dir) {
@@ -1864,17 +2035,23 @@ function _refreshModel(directory) {
       slotOcModel = ""
       console.error(`[theSaver] placeholder model detected in ${activeSlot} slot — skipping, will auto-detect`)
     }
-    if (slotOcModel && currentModel !== slotOcModel) {
-      const old = currentModel
-      currentModel = slotOcModel
-      // Brain slot → enforce delegation (treat as high even for mid-classified models like sonnet)
-      // Medium/cheap slots → skip high-tier enforcement (no point warning on $0.0001/turn models)
-      currentTier = activeSlot === "brain" ? "high" : classify(currentModel)
-      console.error(`[theSaver] model refresh: ${old} → ${currentModel} (slot=${activeSlot} tier=${currentTier})`)
+    if (slotOcModel) {
+      // Always derive tier from active slot so footer/env reflect slot changes,
+      // even when multiple slots point to the same model ID.
+      const nextTier = activeSlot === "brain" ? "high" : classify(slotOcModel)
+      const modelChanged = currentModel !== slotOcModel
+      const tierChanged = currentTier !== nextTier
+      if (modelChanged || tierChanged) {
+        const oldModel = currentModel
+        const oldTier = currentTier
+        currentModel = slotOcModel
+        currentTier = nextTier
+        console.error(`[theSaver] model refresh: ${oldModel}(${oldTier}) → ${currentModel}(${currentTier}) (slot=${activeSlot})`)
+      }
     }
     // If no model from tiers and no existing currentModel, try to auto-detect
     if (!currentModel) {
-      const detected = readConfig(directory) || readConfig(join(homedir(), ".config/opencode")) || process?.env?.OPENCODE_MODEL || ""
+      const detected = readConfig(directory) || readConfig(join(USER_HOME, ".config/opencode")) || process?.env?.OPENCODE_MODEL || ""
       if (detected) {
         currentModel = detected
         currentTier = classify(currentModel)
@@ -2008,13 +2185,13 @@ export async function DelegationEnforcer({ client, directory }) {
   currentProjectName = directory ? directory.split("/").pop() : "unknown"
   try {
     const state = loadProjectState()
-    state.project_hashes[fp] ??= { totalSessions: 0, researchChains: 0, context7Bypasses: 0, commonTopics: [] }
-    state.project_hashes[fp].totalSessions = (state.project_hashes[fp].totalSessions || 0) + 1
-    state.project_hashes[fp].lastSeen = new Date().toISOString()
+    const bucket = ensureProjectBucket(state, fp)
+    bucket.totalSessions = (bucket.totalSessions || 0) + 1
+    bucket.lastSeen = new Date().toISOString()
     saveProjectState(state)
-    console.error(`[theSaver] project-memory: ${fp} now ${state.project_hashes[fp].totalSessions} sessions`)
+    console.error(`[theSaver] project-memory: ${fp} now ${bucket.totalSessions} sessions`)
   } catch (err) {
-    console.error(`[theSaver] project-memory init failed: ${err.message}`)
+    console.error(`[theSaver] project-memory init failed for ${fp}: ${err.message}`)
   }
 
   // ── Shared footer logic for text.complete + message.updated ──────
@@ -2112,8 +2289,8 @@ export async function DelegationEnforcer({ client, directory }) {
         try {
           const _ltFmt = ltTotal.toFixed(2)
           const _reportLine = `— ${modelTag} theSaver: $${_ltFmt} saved ${trendIcon} —`
-          writeFileSync(join(homedir(), ".claude/session-report-pending.md"), _reportLine)
-          const logPath = join(homedir(), ".claude/session-reports.log")
+          writeFileSync(join(USER_HOME, ".claude/session-report-pending.md"), _reportLine)
+          const logPath = join(USER_HOME, ".claude/session-reports.log")
           const pid = process.pid || "?"
           const ts = new Date().toISOString().slice(0, 16).replace("T", " ")
           const newLine = `[${ts} pid=${pid}] ${_reportLine}`
@@ -2237,7 +2414,7 @@ export async function DelegationEnforcer({ client, directory }) {
       if (_credit < 40) {
         const total = recordSaving(t, "credit<40% high-tier", _estOpus)
         const trend = trendDisplay(readLifetimeSavings().sesTrend)
-        const msg = `⚠ [theSaver] Credit ${_credit}% — ${_tierWord} model doing ${t} directly. Run \`trinity medium\` to switch. (~$${_estOpus.toFixed(3)}/turn, total saved: $${(total ?? 0).toFixed(2)}, trend: ${trend})`
+        const msg = `⚠ [theSaver] Low credit (${_credit}%) — ${_tierWord} model running ${t} directly. Switch to a cheaper tier: \`trinity medium\`. Saves ~$${_estOpus.toFixed(3)}/turn. (cumulative: $${(total ?? 0).toFixed(2)}, trend: ${trend})`
         console.error(`[theSaver] [delegation] ${msg}`)
         pendingUiNote = msg
         return
@@ -2256,13 +2433,13 @@ export async function DelegationEnforcer({ client, directory }) {
             args.oldString = `__THE_SAVER_ENFORCEMENT_BLOCK_${Date.now()}__`
           }
           const total = recordSaving(t, "delegation enforced", _estEdit)
-          pendingUiNote = `🚫 [theSaver ENFORCEMENT] Direct ${t} blocked on ${_tierWord} tier. Delegate implementation via Task subagent. Use \`trinity enforce off\` to disable enforcement or \`trinity medium\` to switch tiers. (cumulative: $${(total ?? 0).toFixed(2)})`
+          pendingUiNote = `🚫 [theSaver ENFORCEMENT] Direct ${t} blocked on ${_tierWord} tier. Use \`trinity medium\` to switch tiers, or \`trinity enforce off\` to disable. Delegate via Task subagent instead. (cumulative: $${(total ?? 0).toFixed(2)})`
           enforcementBlocked = true
           console.error(`[theSaver] [enforcement] BLOCKED direct ${t} on high tier → delegate via Task`)
           return
         }
         const total = recordSaving(t, "direct edit", _estEdit)
-        const msg = `⚠ [theSaver] ${_tierWord} model doing ${t} directly — delegate via Task to save ~$${_estEdit.toFixed(3)}/turn. (cumulative: $${(total ?? 0).toFixed(2)})`
+        const msg = `⚠ [theSaver] ${_tierWord} model running ${t} directly — delegate via Task to save ~$${_estEdit.toFixed(3)}/turn. Use \`trinity medium\` to switch tiers. (cumulative: $${(total ?? 0).toFixed(2)})`
         console.error(`[theSaver] [delegation] ${msg}`)
         pendingUiNote = msg
         return
@@ -2277,7 +2454,7 @@ export async function DelegationEnforcer({ client, directory }) {
             // Re-check each time — context7 might be added mid-session
             if (detectContext7()) {
               const total = recordSaving(t, "docs-target without context7", _estC7)
-              console.error(`[theSaver] [cost policy] context7 MCP is available — if this ${t} is for library/framework docs, use context7 tools instead. Saves ~$${_estC7.toFixed(3)}/turn. (cumulative: $${(total ?? 0).toFixed(2)})`)
+              console.error(`[theSaver] [cost policy] Context7 tools available — use them for library/framework docs instead of ${t}. Saves ~$${_estC7.toFixed(3)}/turn. (cumulative: $${(total ?? 0).toFixed(2)})`)
             } else {
               const missed = recordMissedContext7(_estC7)
               if (!existsSync(CONTEXT7_INSTALL_FLAG)) {
@@ -2386,14 +2563,12 @@ export async function DelegationEnforcer({ client, directory }) {
           const testExtRe = /\.(test|spec)\./i
           if (testExtRe.test(fp)) {
             try {
-              let state = {}
-              if (existsSync(STATE_FILE)) {
-                try { state = JSON.parse(readFileSync(STATE_FILE, "utf-8")) } catch {}
-              } else { mkdirSync(dirname(STATE_FILE), { recursive: true }) }
-              state.lifetime ??= { warn_count: 0, est_savings_usd: 0, last_updated: "" }
-              state.lifetime.tdd_followup_completions = (state.lifetime.tdd_followup_completions || 0) + 1
-              state.lifetime.last_updated = new Date().toISOString()
-              writeFileSync(STATE_FILE, JSON.stringify(state, null, 2))
+              updateState((state) => {
+                state.lifetime ??= { warn_count: 0, est_savings_usd: 0, last_updated: "" }
+                state.lifetime.tdd_followup_completions = (state.lifetime.tdd_followup_completions || 0) + 1
+                state.lifetime.last_updated = new Date().toISOString()
+                return state
+              })
             } catch {}
           }
         }
@@ -2698,6 +2873,7 @@ export async function DelegationEnforcer({ client, directory }) {
     },
 
     "shell.env": async (_input, output) => {
+      _refreshModel(directory)
       output.env ??= {}
       output.env.OPENCODE_MODEL_TIER = currentTier || "unknown"
       output.env.OPENCODE_MODEL = currentModel || "unknown"
@@ -2721,8 +2897,8 @@ export async function DelegationEnforcer({ client, directory }) {
           "Use action='project' to show per-project analytics and optimization suggestions. " +
           "Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', 'trinity status'.",
         args: {
-          action: tool.schema.enum(["status", "enable", "disable", "set", "thinking", "flow", "tdd", "project", "rebuild", "diagnose", "help", "enforce"]).optional(),
-          slot: tool.schema.enum(["brain", "medium", "cheap", "on", "off", "enforce", "strict"]).optional(),
+          action: tool.schema.enum(["status", "enable", "disable", "set", "thinking", "flow", "tdd", "project", "rebuild", "diagnose", "help", "enforce", "repair-state"]).optional(),
+          slot: tool.schema.enum(["brain", "medium", "cheap", "on", "off", "enforce", "strict", "quality", "preview", "apply"]).optional(),
           level: tool.schema.enum(["full", "brief", "off", "on"]).optional(),
         },
         async execute({ action, slot, level } = {}) {
@@ -2763,7 +2939,7 @@ export async function DelegationEnforcer({ client, directory }) {
             return `${val ? "✅ Plugin ENABLED" : "❌ Plugin DISABLED"} — takes effect immediately (no restart needed).`
           }
 
-              if (action === "set") {
+          if (action === "set") {
             if (!slot || !["brain", "medium", "cheap"].includes(slot)) {
               return `❌ Provide slot: brain | medium | cheap`
             }
@@ -2808,8 +2984,8 @@ export async function DelegationEnforcer({ client, directory }) {
                 : `❌ Failed to write model-tiers.json`
             }
             if (slot === "enforce") {
-              // Need to read the next arg — use level as the on/off toggle for enforce
-              const enforceOn = level === "on" || level === "off" ? level === "on" : true
+              if (level !== "on" && level !== "off") return "❌ Provide level on|off for `trinity flow enforce`"
+              const enforceOn = level === "on"
               const ok = writeSelection("flow_enforce", enforceOn)
               return ok
                 ? `✅ Flow enforcement ${enforceOn ? "ENABLED (auto-extract TODOs)" : "DISABLED (log only)"}`
@@ -2872,7 +3048,7 @@ export async function DelegationEnforcer({ client, directory }) {
                 : `❌ Failed to write model-tiers.json`
             }
             // Audit: show TDD enforcement stats
-            const stateFile = join(homedir(), ".claude/delegation-state.json")
+            const stateFile = join(USER_HOME, ".claude/delegation-state.json")
             let enforced = 0
             try {
               if (existsSync(stateFile)) {
@@ -3069,7 +3245,7 @@ export async function DelegationEnforcer({ client, directory }) {
 
           if (action === "diagnose") {
             const results = []
-            const ocConfig = join(homedir(), ".config/opencode/opencode.json")
+            const ocConfig = join(USER_HOME, ".config/opencode/opencode.json")
 
             // 1. Required files
             const checks = [
@@ -3175,6 +3351,90 @@ export async function DelegationEnforcer({ client, directory }) {
             return lines.join("\n")
           }
 
+          if (action === "repair-state") {
+            const mode = slot || "preview"
+            if (mode !== "preview" && mode !== "apply") {
+              return "❌ Use `trinity repair-state preview` or `trinity repair-state apply`."
+            }
+            const dstFp = currentProjectFingerprint || projectFingerprint(directory)
+            const name = currentProjectName || (directory ? directory.split("/").pop() : "unknown")
+            const idx = reportsIndex()
+            const byFp = new Map()
+            for (const r of idx.reports || []) {
+              if (r.project !== name) continue
+              byFp.set(r.fingerprint, (byFp.get(r.fingerprint) || 0) + 1)
+            }
+            const candidates = [...byFp.entries()]
+              .filter(([fp2, count]) => fp2 && fp2 !== dstFp && count > 0)
+              .sort((a, b) => b[1] - a[1])
+            if (candidates.length === 0) {
+              return `✅ No duplicate fingerprint candidates found for project "${name}".`
+            }
+            const [srcFp, reportCount] = candidates[0]
+            const pstate = loadProjectState()
+            const dstBucket = ensureProjectBucket(pstate, dstFp)
+            const srcBucket = pstate.project_hashes?.[srcFp] || null
+            const merged = mergeProjectBucket(dstBucket, srcBucket)
+            const lines = [
+              `🛠 State repair (${mode})`,
+              `  project: ${name}`,
+              `  target:  ${dstFp}`,
+              `  source:  ${srcFp}`,
+              `  reports to relabel: ${reportCount}`,
+              `  sessions: ${(dstBucket.totalSessions || 0)} + ${(srcBucket?.totalSessions || 0)} -> ${merged.totalSessions}`,
+              `  bypasses: ${(dstBucket.context7Bypasses || 0)} + ${(srcBucket?.context7Bypasses || 0)} -> ${merged.context7Bypasses}`,
+              `  researchChains(max): ${Math.max(dstBucket.researchChains || 0, srcBucket?.researchChains || 0)}`,
+            ]
+            if (mode === "preview") {
+              lines.push("", "Run `trinity repair-state apply` to execute with backups.")
+              return lines.join("\n")
+            }
+
+            const backups = []
+            const b1 = backupFile(PROJECT_STATE_FILE, "repair-state")
+            if (b1) backups.push(b1)
+            const b2 = backupFile(REPORTS_INDEX, "repair-state")
+            if (b2) backups.push(b2)
+
+            // 1) Merge project-state buckets
+            pstate.project_hashes ??= {}
+            pstate.project_hashes[dstFp] = merged
+            delete pstate.project_hashes[srcFp]
+            saveProjectState(pstate)
+
+            // 2) Relabel report index
+            let relabeled = 0
+            for (const r of idx.reports || []) {
+              if (r.project === name && r.fingerprint === srcFp) {
+                r.fingerprint = dstFp
+                relabeled++
+              }
+            }
+            saveReportsIndex(idx)
+
+            // 3) Relabel report files metadata (best-effort)
+            for (const r of idx.reports || []) {
+              if (r.project !== name || r.fingerprint !== dstFp) continue
+              const rf = join(REPORTS_DIR, `${r.id}.json`)
+              try {
+                if (!existsSync(rf)) continue
+                const data = JSON.parse(readFileSync(rf, "utf-8"))
+                if (data?.meta?.project === name && data?.meta?.fingerprint === srcFp) {
+                  data.meta.fingerprint = dstFp
+                  writeFileSync(rf, JSON.stringify(data, null, 2) + "\n")
+                }
+              } catch {}
+            }
+
+            lines.push("")
+            lines.push(`✅ Applied. Relabeled ${relabeled} report index entries.`)
+            if (backups.length > 0) {
+              lines.push("Backups:")
+              for (const b of backups) lines.push(`  - ${b}`)
+            }
+            return lines.join("\n")
+          }
+
             if (action === "help") {
             const L = "\u2501"
             const lines = [
@@ -3198,6 +3458,8 @@ export async function DelegationEnforcer({ client, directory }) {
               "  trinity tdd strict <on|off>      Toggle strict failing TODO templates",
               "  trinity tdd                      Audit TDD enforcement stats",
               "  trinity project                  Per-project analytics & optimization tips",
+              "  trinity repair-state preview     Preview safe fingerprint merge for current project",
+              "  trinity repair-state apply       Apply merge + relabel reports (with backups)",
               "  trinity diagnose                 Run self-diagnostic (files, slots, probe, credits, stats)",
               "  trinity help                     Show this usage info",
               "",
@@ -3226,20 +3488,20 @@ export async function DelegationEnforcer({ client, directory }) {
           // Update project memory with findings
           try {
             const state = loadProjectState()
-            state.project_hashes[fp] ??= { totalSessions: 0, researchChains: 0, context7Bypasses: 0, commonTopics: [] }
-            state.project_hashes[fp].lastSeen = new Date().toISOString()
-            state.project_hashes[fp].researchChains = Math.max(
-              state.project_hashes[fp].researchChains || 0, report.chains.length
+            const bucket = ensureProjectBucket(state, fp)
+            bucket.lastSeen = new Date().toISOString()
+            bucket.researchChains = Math.max(
+              bucket.researchChains || 0, report.chains.length
             )
-            state.project_hashes[fp].context7Bypasses = (state.project_hashes[fp].context7Bypasses || 0) + report.redundant
+            bucket.context7Bypasses = (bucket.context7Bypasses || 0) + report.redundant
             for (const [d] of Object.entries(report.byDomain)) {
-              if (!d.startsWith("_") && !state.project_hashes[fp].commonTopics.includes(d)) {
-                state.project_hashes[fp].commonTopics.push(d)
+              if (!d.startsWith("_") && !bucket.commonTopics.includes(d)) {
+                bucket.commonTopics.push(d)
               }
             }
             // Keep topics bounded
-            if (state.project_hashes[fp].commonTopics.length > 20) {
-              state.project_hashes[fp].commonTopics = state.project_hashes[fp].commonTopics.slice(-20)
+            if (bucket.commonTopics.length > 20) {
+              bucket.commonTopics = bucket.commonTopics.slice(-20)
             }
             saveProjectState(state)
           } catch (err) {
@@ -3514,20 +3776,21 @@ export function researchAudit({ hours = 24, session: sessionFilter } = {}) {
 //   metrics: { [key]: number }
 //   narrative: string (markdown)
 //   tags: string[]
-const REPORTS_DIR = join(homedir(), ".claude/reports")
+const REPORTS_DIR = join(USER_HOME, ".claude/reports")
 const REPORTS_INDEX = join(REPORTS_DIR, "index.json")
 
 function reportsIndex() {
-  try {
-    if (existsSync(REPORTS_INDEX)) return JSON.parse(readFileSync(REPORTS_INDEX, "utf-8"))
-  } catch {}
-  return { reports: [] }
+  const idx = readJsonOrEmpty(REPORTS_INDEX)
+  if (!idx || !Array.isArray(idx.reports)) return { reports: [] }
+  return idx
 }
 
 function saveReportsIndex(idx) {
   try {
-    mkdirSync(REPORTS_DIR, { recursive: true })
-    writeFileSync(REPORTS_INDEX, JSON.stringify(idx, null, 2) + "\n")
+    withFileLock(REPORTS_INDEX, () => {
+      mkdirSync(REPORTS_DIR, { recursive: true })
+      writeFileSync(REPORTS_INDEX, JSON.stringify(idx, null, 2) + "\n")
+    })
   } catch (err) {
     console.error(`[theSaver] reports index write failed: ${err.message}`)
   }
@@ -3623,22 +3886,18 @@ export function saveReport({ type = "manual", summary = "", findings, metrics, n
     meta: { id, project: currentProjectName || "unknown", fingerprint: fp, type, created: new Date().toISOString(), sessionId: `opencode-${process.pid || "?"}` },
     summary, findings: parsedFindings, metrics: parsedMetrics, narrative, tags,
   }
-  // Write report file
   try {
-    mkdirSync(REPORTS_DIR, { recursive: true })
-    writeFileSync(join(REPORTS_DIR, `${id}.json`), JSON.stringify(report, null, 2) + "\n")
+    withFileLock(REPORTS_INDEX, () => {
+      mkdirSync(REPORTS_DIR, { recursive: true })
+      writeFileSync(join(REPORTS_DIR, `${id}.json`), JSON.stringify(report, null, 2) + "\n")
+      const idx = reportsIndex()
+      const _sum = (summary || "").slice(0, 80)
+      idx.reports.push({ id, type, project: report.meta.project, fingerprint: fp, created: report.meta.created, summary: _sum })
+      writeFileSync(REPORTS_INDEX, JSON.stringify(idx, null, 2) + "\n")
+    })
   } catch (err) {
-    console.error(`[theSaver] report write failed: ${err.message}`)
+    console.error(`[theSaver] report/index write failed: ${err.message}`)
     return null
-  }
-  // Update index
-  try {
-    const idx = reportsIndex()
-    const _sum = (summary || "").slice(0, 80)
-    idx.reports.push({ id, type, project: report.meta.project, fingerprint: fp, created: report.meta.created, summary: _sum })
-    saveReportsIndex(idx)
-  } catch (err) {
-    console.error(`[theSaver] report index update failed: ${err.message}`)
   }
   // Opportunistic TTL prune (once per process ≈ every save)
   _pruneReports()
@@ -3668,8 +3927,8 @@ export function readReport(id) {
 }
 
 // ── Credit API: fetch real balances from provider APIs ───────────────
-const AUTH_F = join(homedir(), ".local", "share", "opencode", "auth.json")
-const CREDIT_CACHE_F = join(homedir(), ".claude/credit-snapshot.json")
+const AUTH_F = join(USER_HOME, ".local", "share", "opencode", "auth.json")
+const CREDIT_CACHE_F = join(USER_HOME, ".claude/credit-snapshot.json")
 const BALANCE_APIS = {
   deepseek: {
     url: "https://api.deepseek.com/user/balance",
@@ -3720,7 +3979,7 @@ function _cachedPct() {
     if (s?.total == null || !s.ts) return null
     let budget = 50
     try {
-      const p = join(homedir(), ".claude/model-tiers.json")
+      const p = join(USER_HOME, ".claude/model-tiers.json")
       if (existsSync(p)) {
         const j = JSON.parse(readFileSync(p, "utf-8"))
         if (j?.selection?.monthly_budget_usd) budget = j.selection.monthly_budget_usd
@@ -3755,9 +4014,8 @@ const OPENCODE_GO_CATALOG = [
 
 function _loadOpenCodeProviders() {
   try {
-    const ocConfigPath = join(homedir(), ".config", "opencode", "opencode.json")
-    if (!existsSync(ocConfigPath)) return {}
-    return JSON.parse(readFileSync(ocConfigPath, "utf-8"))?.provider || {}
+    const cfg = readOpenCodeConfigObject(join(USER_HOME, ".config", "opencode"))
+    return cfg?.provider || {}
   } catch { return {} }
 }
 
@@ -3824,12 +4082,18 @@ async function discoverAvailableModels(providers, auth) {
       if (res.ok) {
         const body = await res.json()
         const list = body?.data || []
+        const pricingMap = {}
         for (const m of list) {
           const rawId = m.id
           if (!rawId) continue
+          const dynTurnCost = _parseOpenRouterTurnCost(m)
+          if (dynTurnCost != null && Number.isFinite(dynTurnCost)) {
+            pricingMap[normalizeModelId(rawId)] = dynTurnCost
+          }
           const id = "openrouter/" + rawId
           pushIfNew(id, "openrouter")
         }
+        if (Object.keys(pricingMap).length > 0) _writeDynamicPricingCache(pricingMap)
       }
     } catch (e) {
       console.error("[theSaver] OpenRouter probe failed:", e.message)

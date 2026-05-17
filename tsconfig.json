@@ -11,7 +11,9 @@
     "rootDir": "src"
   },
   "include": [
-    "src/theSaver-lib/flow-enforcer.ts",
-    "src/utils/math.ts"
+    "src/**/*.ts"
+  ],
+  "exclude": [
+    "src/**/*.test.ts"
   ]
 }

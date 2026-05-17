@@ -149,14 +149,14 @@ test("Python: generates test path and imports exports", () => {
   assert.ok(s)
   assert.ok(s.path.endsWith("tests/test_calc.py"))
   assert.ok(s.content.includes("from calc import add, sub"))
-  assert.ok(s.content.includes("test_should_add_with_valid_input"))
-  assert.ok(s.content.includes("test_should_sub_with_valid_input"))
+  assert.ok(s.content.includes("test_add_works_correctly_with_typical_valid_input"))
+  assert.ok(s.content.includes("test_sub_works_correctly_with_typical_valid_input"))
 })
 
 test("Python: no exports → placeholder", () => {
   const s = buildTestSkeleton("/proj/src/empty.py", "")
   assert.ok(s)
-  assert.ok(s.content.includes("pytest.skip"))
+  assert.ok(s.content.includes("raise AssertionError"))
 })
 
 test("TypeScript: generates .test.ts with exports", () => {
@@ -165,7 +165,7 @@ test("TypeScript: generates .test.ts with exports", () => {
   assert.ok(s)
   assert.ok(s.path.endsWith("tests/runner.test.ts"))
   assert.ok(s.content.includes("import * as mod from '../runner'"))
-  assert.ok(s.content.includes("should run with valid input"))
+  assert.ok(s.content.includes("run: works correctly with typical valid input"))
 })
 
 test("Go: generates _test.go with exports", () => {
@@ -173,7 +173,7 @@ test("Go: generates _test.go with exports", () => {
   const s = buildTestSkeleton("/proj/src/server.go", src)
   assert.ok(s)
   assert.ok(s.path.endsWith("server_test.go"))
-  assert.ok(s.content.includes("TestServer_should_Start_with_valid_input"))
+  assert.ok(s.content.includes("TestServer_Start_works_correctly_with_typical_valid_input"))
 })
 
 test("Rust: generates _test.rs with exports", () => {
@@ -181,7 +181,7 @@ test("Rust: generates _test.rs with exports", () => {
   const s = buildTestSkeleton("/proj/src/lib.rs", src)
   assert.ok(s)
   assert.ok(s.path.endsWith("tests/lib_test.rs"))
-  assert.ok(s.content.includes("test_should_parse_with_valid_input"))
+  assert.ok(s.content.includes("test_parse_works_correctly_with_typical_valid_input"))
 })
 
 test("Ruby: generates _test.rb with exports", () => {
@@ -189,7 +189,7 @@ test("Ruby: generates _test.rb with exports", () => {
   const s = buildTestSkeleton("/proj/src/greeter.rb", src)
   assert.ok(s)
   assert.ok(s.path.endsWith("test/greeter_test.rb"))
-  assert.ok(s.content.includes("def test_should_hello_with_valid_input"))
+  assert.ok(s.content.includes("def test_hello_works_correctly_with_typical_valid_input"))
 })
 
 test("Shell: generates test_.sh with exports", () => {
@@ -197,7 +197,7 @@ test("Shell: generates test_.sh with exports", () => {
   const s = buildTestSkeleton("/proj/src/deploy.sh", src)
   assert.ok(s)
   assert.ok(s.path.endsWith("tests/test_deploy.sh"))
-  assert.ok(s.content.includes("test_should_deploy_with_valid_input"))
+  assert.ok(s.content.includes("test_deploy_works_correctly_with_typical_valid_input"))
 })
 
 test("JSX/TSX: delegates to JS/TS generators", () => {
@@ -206,8 +206,8 @@ test("JSX/TSX: delegates to JS/TS generators", () => {
   const tsx = buildTestSkeleton("/proj/src/App.tsx", src)
   assert.ok(jsx)
   assert.ok(tsx)
-  assert.ok(jsx.content.includes("should Component with valid input"))
-  assert.ok(tsx.content.includes("should Component with valid input"))
+  assert.ok(jsx.content.includes("Component: works correctly with typical valid input"))
+  assert.ok(tsx.content.includes("Component: works correctly with typical valid input"))
 })
 
 test("Java: generates Test.java with exports", () => {
@@ -215,7 +215,7 @@ test("Java: generates Test.java with exports", () => {
   const s = buildTestSkeleton("/proj/src/service.java", src)
   assert.ok(s)
   assert.ok(s.path.endsWith("src/test/ServiceTest.java"))
-  assert.ok(s.content.includes("testShould_doStuff_with_valid_input"))
+  assert.ok(s.content.includes("testDoStuff_works_correctly_with_typical_valid_input"))
 })
 
 test("Kotlin: generates Test.kt with exports", () => {
@@ -223,7 +223,7 @@ test("Kotlin: generates Test.kt with exports", () => {
   const s = buildTestSkeleton("/proj/src/calculator.kt", src)
   assert.ok(s)
   assert.ok(s.path.endsWith("src/test/CalculatorTest.kt"))
-  assert.ok(s.content.includes("testShould_add_with_valid_input"))
+  assert.ok(s.content.includes("testAdd_works_correctly_with_typical_valid_input"))
 })
 
 test("Kotlin: generates Test.kt with exports (calculate)", () => {
@@ -231,7 +231,7 @@ test("Kotlin: generates Test.kt with exports (calculate)", () => {
   const s = buildTestSkeleton("/proj/src/calculator.kt", src)
   assert.ok(s)
   assert.ok(s.path.endsWith("src/test/CalculatorTest.kt"))
-  assert.ok(s.content.includes("testShould_calculate_with_valid_input"))
+  assert.ok(s.content.includes("testCalculate_works_correctly_with_typical_valid_input"))
 })
 
 test("Unsupported extension → null", () => {
@@ -263,8 +263,8 @@ test("creates skeleton with exports on disk", () => {
   const content = readFileSync(created, "utf-8")
   assert.ok(content.includes("[theSaver-enforced]"))
   assert.ok(content.includes("from math import add, mul"))
-  assert.ok(content.includes("test_should_add_with_valid_input"))
-  assert.ok(content.includes("test_should_mul_with_valid_input"))
+  assert.ok(content.includes("test_add_works_correctly_with_typical_valid_input"))
+  assert.ok(content.includes("test_mul_works_correctly_with_typical_valid_input"))
   assert.ok(content.includes("test_math_smoke"))
 })
 
@@ -285,8 +285,8 @@ test("creates skeleton for TypeScript", () => {
   assert.ok(existsSync(created), "file exists on disk")
   const content = readFileSync(created, "utf-8")
   assert.ok(content.includes("import * as mod from '../handler'"))
-  assert.ok(content.includes("should handle with valid input"))
-  assert.ok(content.includes("should VERSION with valid input"))
+  assert.ok(content.includes("handle: works correctly with typical valid input"))
+  assert.ok(content.includes("VERSION: works correctly with typical valid input"))
 })
 
 test("creates skeleton for Go", () => {
@@ -297,8 +297,8 @@ test("creates skeleton for Go", () => {
   assert.ok(created, "returned path")
   assert.ok(existsSync(created), "file exists on disk")
   const content = readFileSync(created, "utf-8")
-  assert.ok(content.includes("TestServer_should_StartServer_with_valid_input"))
-  assert.ok(content.includes("TestServer_should_HandleRequest_with_valid_input"))
+  assert.ok(content.includes("TestServer_StartServer_works_correctly_with_typical_valid_input"))
+  assert.ok(content.includes("TestServer_HandleRequest_works_correctly_with_typical_valid_input"))
 })
 
 test("creates skeleton for Rust", () => {
@@ -309,7 +309,7 @@ test("creates skeleton for Rust", () => {
   assert.ok(created, "returned path")
   assert.ok(existsSync(created), "file exists on disk")
   const content = readFileSync(created, "utf-8")
-  assert.ok(content.includes("test_should_parse_with_valid_input"))
+  assert.ok(content.includes("test_parse_works_correctly_with_typical_valid_input"))
 })
 
 test("creates skeleton for Ruby", () => {
@@ -320,8 +320,8 @@ test("creates skeleton for Ruby", () => {
   assert.ok(created, "returned path")
   assert.ok(existsSync(created), "file exists on disk")
   const content = readFileSync(created, "utf-8")
-  assert.ok(content.includes("def test_should_hello_with_valid_input"))
-  assert.ok(content.includes("def test_should_goodbye_with_valid_input"))
+  assert.ok(content.includes("def test_hello_works_correctly_with_typical_valid_input"))
+  assert.ok(content.includes("def test_goodbye_works_correctly_with_typical_valid_input"))
 })
 
 test("creates skeleton for Shell", () => {
@@ -332,8 +332,8 @@ test("creates skeleton for Shell", () => {
   assert.ok(created, "returned path")
   assert.ok(existsSync(created), "file exists on disk")
   const content = readFileSync(created, "utf-8")
-  assert.ok(content.includes("test_should_deploy_with_valid_input"))
-  assert.ok(content.includes("test_should_rollback_with_valid_input"))
+  assert.ok(content.includes("test_deploy_works_correctly_with_typical_valid_input"))
+  assert.ok(content.includes("test_rollback_works_correctly_with_typical_valid_input"))
 })
 
 test("creates skeleton for JavaScript (ESM)", () => {
@@ -345,8 +345,8 @@ test("creates skeleton for JavaScript (ESM)", () => {
   assert.ok(existsSync(created), "file exists on disk")
   const content = readFileSync(created, "utf-8")
   assert.ok(content.includes("import * as mod from '../utils'"))
-  assert.ok(content.includes("should format with valid input"))
-  assert.ok(content.includes("should MAX_LEN with valid input"))
+  assert.ok(content.includes("format: works correctly with typical valid input"))
+  assert.ok(content.includes("MAX_LEN: works correctly with typical valid input"))
 })
 
 test("creates skeleton for JSX", () => {
@@ -357,7 +357,7 @@ test("creates skeleton for JSX", () => {
   assert.ok(created, "returned path")
   assert.ok(existsSync(created), "file exists on disk")
   const content = readFileSync(created, "utf-8")
-  assert.ok(content.includes("should Button with valid input"))
+  assert.ok(content.includes("Button: works correctly with typical valid input"))
 })
 
 test("creates skeleton for TSX", () => {
@@ -368,7 +368,7 @@ test("creates skeleton for TSX", () => {
   assert.ok(created, "returned path")
   assert.ok(existsSync(created), "file exists on disk")
   const content = readFileSync(created, "utf-8")
-  assert.ok(content.includes("should Card with valid input"))
+  assert.ok(content.includes("Card: works correctly with typical valid input"))
 })
 
 test("creates skeleton for Java", () => {
@@ -379,7 +379,7 @@ test("creates skeleton for Java", () => {
   assert.ok(created, "returned path")
   assert.ok(existsSync(created), "file exists on disk")
   const content = readFileSync(created, "utf-8")
-  assert.ok(content.includes("testShould_run_with_valid_input"))
+  assert.ok(content.includes("testRun_works_correctly_with_typical_valid_input"))
 })
 
 test("creates skeleton for Kotlin", () => {
@@ -390,7 +390,7 @@ test("creates skeleton for Kotlin", () => {
   assert.ok(created, "returned path")
   assert.ok(existsSync(created), "file exists on disk")
   const content = readFileSync(created, "utf-8")
-  assert.ok(content.includes("testShould_add_with_valid_input"))
+  assert.ok(content.includes("testAdd_works_correctly_with_typical_valid_input"))
 })
 
 test("tdd_enforced counter increments in state file", () => {
@@ -420,7 +420,7 @@ test("empty file → no exports → placeholder", () => {
   const created = enforceTestFile(srcFile)
   assert.ok(created, "returned path")
   const content = readFileSync(created, "utf-8")
-  assert.ok(content.includes("t.Skip"), "has skip marker")
+  assert.ok(content.includes("t.Error"), "has strict marker")
 })
 
 test("private functions not extracted (Go)", () => {

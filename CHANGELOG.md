@@ -1,8 +1,44 @@
-## 0.7.12
-- chore: TDD strict defaults, flow enforcer improvements, release tooling
-
-
 # Changelog
+
+## 0.8.0
+
+- chore: minor release bump for stabilized release candidate
+- test: re-validated first-install flow, slot switching, footer integrity, and neutral-environment gates
+
+## 0.7.15
+
+- fix: footer tier refresh now follows active slot changes even when model id is unchanged
+- test: added regression coverage for slot-switch tier updates and stabilized classify fixtures
+- test: neutral-environment validation (`env -i`) re-run before release bump
+
+## 0.7.14
+
+- test: release hardening pass with expanded adversarial coverage (20 tiger-team checks) and full gate validation
+- test: neutral-environment parity validation (`env -i`) confirms typecheck/build/test stability matches baseline
+- test: pre-existing failing write-enforcement test fixed via deterministic model-tiers fixture setup
+- chore: add checkpoint reliability tooling
+  - new `checkpoint-template.md` for structured session handoff
+  - new `scripts/checkpoint-validate.mjs` for schema validation (sections, task IDs/states, diff-stat evidence, handoff checklist)
+  - new `scripts/tests/checkpoint-validate.test.mjs` with pass/fail fixture coverage
+  - new npm scripts: `checkpoint:validate`, `test:scripts`
+- docs: release readiness and SI/cross-session validation workflow standardized for safer iteration
+
+## 0.7.13
+
+- fix: production plugin load hardening — remove hidden `../utils/timer.js` dependency from `session-metrics.js`
+- fix: plugin install payload completeness — include `src/theSaver-lib/session-metrics.js` in desktop sync set
+- fix: runtime config compatibility — remove invalid `plugins` key usage from `opencode.json` workflow assumptions
+- fix: config reader robustness — support both `opencode.json` and `opencode.jsonc` (including JSONC comments/trailing commas)
+- fix: applySlot safety — prefer project-local `opencode.json` to avoid accidental global provider/dropdown mutations
+- test: deep neutral-environment validation (`env -i`) for full suite + build + runtime plugin load (`opencode models deepseek`)
+- docs: README version/install sync updated to match actual runtime dependencies and file paths
+
+## 0.7.12
+
+- chore: TDD strict defaults, flow enforcer improvements, release tooling
+- change: TDD strict mode now defaults to ON (`selection.tdd_strict !== false`)
+- feat: `trinity tdd strict on|off` command to control strict failing TODO templates
+- docs: sample config + README updated for TDD strict defaults and command
 
 ## 0.7.10
 
@@ -10,12 +46,6 @@
 - change: remove noisy footer breakdown segments (flow/tool/rate/duration) from chat footer
 - change: model usage percentages now show only when both brain and worker are actually used
 - test: added footer format contract test to prevent accidental format drift
-
-## Unreleased
-
-- change: TDD strict mode now defaults to ON (`selection.tdd_strict !== false`)
-- feat: `trinity tdd strict on|off` command to control strict failing TODO templates
-- docs: sample config + README updated for TDD strict defaults and command
 
 ## 0.7.9
 

@@ -6,7 +6,7 @@ Cost-aware delegation and policy plugin for OpenCode Desktop.
 
 ## Version
 
-Current package version: `0.7.11`
+Current package version: `0.7.13`
 
 ## What It Does
 
@@ -101,8 +101,9 @@ For OpenCode Desktop local plugin usage:
 
 1. Copy `src/index.js` to `~/.config/opencode/plugins/theSaver.js`
 2. Copy `src/theSaver-lib/flow-enforcer.js` to `~/.config/opencode/plugins/theSaver-lib/flow-enforcer.js`
-3. Copy `src/flow-rules.json` to `~/.config/opencode/plugins/theSaver-lib/flow-rules.json`
-4. Restart OpenCode Desktop
+3. Copy `src/theSaver-lib/session-metrics.js` to `~/.config/opencode/plugins/theSaver-lib/session-metrics.js`
+4. Copy `src/theSaver-lib/flow-rules.json` to `~/.config/opencode/plugins/theSaver-lib/flow-rules.json`
+5. Restart OpenCode Desktop
 
 ## Build
 
