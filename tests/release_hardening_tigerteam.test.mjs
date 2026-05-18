@@ -143,6 +143,40 @@ test("tigerteam 19: saveReport/listReports/readReport roundtrip in sandbox HOME"
   }
 })
 
+test("tigerteam 20a: report-read rejects path traversal ID '..'", async () => {
+  const sandboxHome = mkdtempSync(join(tmpdir(), "tiger-report-pt-"))
+  const previousHome = process.env.HOME
+  process.env.HOME = sandboxHome
+  try {
+    const { readReport } = await loadPlugin()
+    assert.equal(readReport("../../../etc/passwd"), null, "path traversal ID should be rejected (null)")
+    assert.equal(readReport("report/../escape"), null, "relative escape ID should be rejected (null)")
+    assert.equal(readReport("..\\..\\..\\windows\\system32"), null, "backslash traversal ID should be rejected (null)")
+  } finally {
+    if (previousHome === undefined) delete process.env.HOME
+    else process.env.HOME = previousHome
+    rmSync(sandboxHome, { recursive: true, force: true })
+  }
+})
+
+test("tigerteam 20b: report-read accepts valid alphanumeric ID", async () => {
+  const sandboxHome = mkdtempSync(join(tmpdir(), "tiger-report-valid-"))
+  const previousHome = process.env.HOME
+  process.env.HOME = sandboxHome
+  try {
+    const { saveReport, readReport } = await loadPlugin()
+    const id = saveReport({ type: "manual", summary: "Test report" })
+    assert.ok(id)
+    const report = readReport(id)
+    assert.ok(report)
+    assert.equal(report.meta.id, id)
+  } finally {
+    if (previousHome === undefined) delete process.env.HOME
+    else process.env.HOME = previousHome
+    rmSync(sandboxHome, { recursive: true, force: true })
+  }
+})
+
 test("tigerteam 20: enforceTestFile writes skeleton and is idempotent", async () => {
   const sandbox = mkdtempSync(join(tmpdir(), "tiger-enforce-"))
   const previousHome = process.env.HOME

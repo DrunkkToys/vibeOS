@@ -3,6 +3,7 @@
 // that the footer display expects. Pure computation — no file I/O, no caching.
 
 type WarnEntry = {
+  count?: number | string
   est_savings_usd?: number | string
   reason?: string
   tool?: string
@@ -23,6 +24,7 @@ type MetricsState = {
     cache_savings_usd?: number | string
     scratchpad_hits_observed?: number | string
     missed_context7_usd?: number | string
+    warn_count?: number | string
   }
 }
 
@@ -62,6 +64,7 @@ export function computeSessionMetrics(state: unknown, sessionId: string) {
     ltTasks: 0, ltCache: 0, ltCost: 0, count: 0,
     scratchpadHits: 0, missedC7: 0,
     sesTasks: 0, sesEdit: 0, sesCredit: 0, sesC7: 0, sesQuota: 0,
+    sesTaskDelegations: 0,
     sesDuration: 0, sesRatePerHour: 0, sesTrend: "stable",
     sesToolBreakdown: {} as Record<string, number>, sesModelTurns: { brain: 0, worker: 0 }
   }
@@ -105,6 +108,9 @@ export function computeSessionMetrics(state: unknown, sessionId: string) {
   const sesCredit = aggregateWarns(warns, w => Boolean(w.reason?.includes("credit")))
   const sesC7 = aggregateWarns(warns, w => Boolean(w.reason?.includes("context7")))
   const sesQuota = aggregateWarns(warns, w => Boolean(w.reason?.includes("quota")))
+  const sesTaskDelegationCount = warns.filter(w =>
+    Boolean(w.reason?.includes("delegation")) || Boolean(w.reason?.includes("enforced")) || Boolean(w.reason?.includes("direct"))
+  ).reduce((sum, w) => sum + (Number(w.count) || 1), 0)
 
   // Per-tool breakdown
   const sesToolBreakdown: Record<string, number> = {}
@@ -155,10 +161,11 @@ export function computeSessionMetrics(state: unknown, sessionId: string) {
     ltTasks: Math.round(ltTasks * 100) / 100,
     ltCache: Math.round(ltCache * 100) / 100,
     ltCost: Math.round(ltCost * 100) / 100,
-    count: totalWarnCount,
+    count: Math.max(totalWarnCount, Number(s?.lifetime?.warn_count ?? 0)),
     scratchpadHits: Number(s?.lifetime?.scratchpad_hits_observed ?? 0),
     missedC7: Number(s?.lifetime?.missed_context7_usd ?? 0),
     sesTasks, sesEdit, sesCredit, sesC7, sesQuota,
+    sesTaskDelegations: sesTaskDelegationCount,
     sesDuration: Math.round(sesDuration),
     sesDurationFormatted: formatDuration(Math.round(sesDuration)),
     sesRatePerHour: Math.round(sesRatePerHour * 100) / 100,

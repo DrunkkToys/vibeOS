@@ -26,7 +26,7 @@ import { homedir, tmpdir } from "node:os"
 const USER_HOME = (() => { try { return homedir() } catch { return tmpdir() } })()
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
-import { checkFlowRules, getFlowWarns, getSessionFlowCounts } from "./vibeOS-lib/flow-enforcer.js"
+import { checkFlowRules, getFlowWarns, getSessionFlowCounts, setFlowStateWriter } from "./vibeOS-lib/flow-enforcer.js"
 import { computeSessionMetrics } from "./vibeOS-lib/session-metrics.js"
 
 // Minimal self-contained tool helper — avoids @opencode-ai/plugin dependency
@@ -67,25 +67,53 @@ const FILE_LOCK_DIR = join(USER_HOME, ".claude/.vibeOS-locks")
 // during this sidecar's lifetime.
 const textCompletePainted = new Set()
 
+// ── JSONC-tolerant JSON.parse for config files ──────────────────────
+function safeJsonParse(raw) {
+  try {
+    return JSON.parse(raw)
+  } catch {}
+
+  let cleaned = raw
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\/.*$/gm, '')
+    .replace(/,\s*([}\]])/g, '$1')
+  try {
+    return JSON.parse(cleaned)
+  } catch (e) {
+    throw e
+  }
+}
+
 // Max lines before rotating session-reports.log.
 const MAX_LOG_LINES = 500
-const WARN_DEDUPE_WINDOW_MS = 60 * 1000
+const WARN_DEDUPE_WINDOW_MS = 120 * 1000
 const warnLogThrottle = new Map()
+const warnPerSession = new Map()
+const WARN_MAX_PER_SESSION = 3
+const WARN_COALESCE_THRESHOLD = 10
+const warnCoalesceCounters = new Map()
 
 // Tier regexes — load from ~/.claude/model-tiers.json (single source of truth
 // shared with the bash hook). Falls back to inline regexes if file missing or
 // malformed, so the plugin never fails to load due to tier-config issues.
 const FALLBACK_HIGH = /opus|gemini-.*-pro|deepseek\/deepseek-v4-pro|gpt-5|(^|\/)o[134]($|-|\/)/i
 const FALLBACK_MID  = /deepseek\/deepseek-v4-flash|claude.*sonnet|gemini-.*-flash|gpt-4o(?!-mini)/i
+function _safeRegex(cfg, fallback, label) {
+  if (!cfg) return fallback
+  try { return new RegExp(cfg, "i") }
+  catch (e) {
+    console.error(`[vibeOS] Invalid ${label}-tier regex in model-tiers.json: ${e.message}. Falling back.`)
+    return fallback
+  }
+}
 function loadTierRegexes() {
   try {
     const p = join(USER_HOME, ".claude/model-tiers.json")
     if (!existsSync(p)) return { high: FALLBACK_HIGH, mid: FALLBACK_MID }
-    const j = JSON.parse(readFileSync(p, "utf-8"))
-    return {
-      high: new RegExp(j?.tiers?.high?.regex ?? FALLBACK_HIGH.source, "i"),
-      mid:  new RegExp(j?.tiers?.mid?.regex  ?? FALLBACK_MID.source,  "i"),
-    }
+    const j = safeJsonParse(readFileSync(p, "utf-8"))
+    const highRe = _safeRegex(j?.tiers?.high?.regex, FALLBACK_HIGH, "high")
+    const midRe  = _safeRegex(j?.tiers?.mid?.regex,  FALLBACK_MID,  "mid")
+    return { high: highRe, mid: midRe }
   } catch { return { high: FALLBACK_HIGH, mid: FALLBACK_MID } }
 }
 const { high: HIGH_TIER_RE, mid: MID_TIER_RE } = loadTierRegexes()
@@ -94,7 +122,7 @@ function loadTrinityModels() {
   try {
     const p = join(USER_HOME, ".claude/model-tiers.json")
     if (!existsSync(p)) return { cheap: "", medium: "" }
-    const j = JSON.parse(readFileSync(p, "utf-8"))
+    const j = safeJsonParse(readFileSync(p, "utf-8"))
     return {
       cheap:  j?.trinity?.cheap?.oc  || j?.trinity?.cheap  || "",
       medium: j?.trinity?.medium?.oc || j?.trinity?.medium || "",
@@ -137,7 +165,7 @@ const TIERS_FILE = join(USER_HOME, ".claude/model-tiers.json")
 function loadSelection() {
   try {
     if (!existsSync(TIERS_FILE)) return { enabled: true, active_slot: null, thinking_level: null, flow_enabled: true, tdd_enforce: false, tdd_strict: true, tdd_quality: true, flow_enforce: false, delegation_enforce: true }
-    const j = JSON.parse(readFileSync(TIERS_FILE, "utf-8"))
+    const j = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
     return {
       enabled:            j?.selection?.enabled !== false,
       active_slot:        j?.selection?.active_slot || null,
@@ -155,7 +183,7 @@ function loadSelection() {
 // Write a single key into selection block of model-tiers.json.
 function writeSelection(key, value) {
   try {
-    const j = JSON.parse(readFileSync(TIERS_FILE, "utf-8"))
+    const j = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
     j.selection[key] = value
     writeFileSync(TIERS_FILE, JSON.stringify(j, null, 2) + "\n")
     return true
@@ -168,7 +196,7 @@ function writeSelection(key, value) {
 // Write active_slot AND update opencode.json model to the matching oc model.
 export function applySlot(slot) {
   try {
-    const j = JSON.parse(readFileSync(TIERS_FILE, "utf-8"))
+    const j = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
     const ocModel = j?.trinity?.[slot]?.oc
     if (!ocModel) return { ok: false, reason: `slot '${slot}' has no oc model` }
     j.selection.active_slot = slot
@@ -179,7 +207,7 @@ export function applySlot(slot) {
       ? localOcConfig
       : join(USER_HOME, ".config/opencode/opencode.json")
     if (existsSync(ocConfig)) {
-      const oc = JSON.parse(readFileSync(ocConfig, "utf-8"))
+      const oc = safeJsonParse(readFileSync(ocConfig, "utf-8"))
       oc.model = ocModel
       writeFileSync(ocConfig, JSON.stringify(oc, null, 2) + "\n")
     }
@@ -225,48 +253,59 @@ const SOFT_QUOTA     = new Set(["bash", "webfetch", "websearch"])
 const FREE           = new Set(["task","todowrite","question","skill","read","glob","grep","list"])
 
 // Estimated $ savings per warn — fallback constants (used when model is unknown).
-// Dynamic estimates are computed via modelCostPerTurn() below.
+// Fallback savings estimates when modelCostPerTurn() returns null.
+// These are floors — actual known models use their real turn cost.
+// Values calibrated to the cheap end of the high tier (deepseek-v4-pro)
+// to ensure savings reported are conservative, not aspirational.
 const SAVE_EST = {
-  WRITE_EDIT:   0.07,  // fallback: high-tier model doing one edit turn
-  SOFT_QUOTA:   0.00,  // tool runs regardless — no real saving
-  CONTEXT7:     0.05,  // fallback: webfetch turn cost for a high-tier model
-  OPUS_DISABLE: 0.14,  // fallback: full-turn cost for a high-tier model
+  WRITE_EDIT:   0.0006,  // 1 cheap high-tier turn ≈ deepseek-v4-pro
+  SOFT_QUOTA:   0.0003,  // tool runs regardless — nominal for tracking
+  CONTEXT7:     0.0006,  // webfetch turn cost for cheapest high-tier model
+  OPUS_DISABLE: 0.03,    // full-turn cost for actual opus-tier model (Anthropic API)
 }
 
-// Models available at $0 on OpenCode's platform.
+// Models with negligible per-turn cost (less than 2e-5 USD/turn).
+// These skip enforcement entirely to avoid noise.
 const FREE_MODELS = new Set([
-  "deepseek/deepseek-chat",
+  "deepseek/deepseek-chat",         // free legacy v3 model on DeepSeek API
   "deepseek-chat",
-  "deepseek/deepseek-v3",       // free on some providers
+  "deepseek/deepseek-v3",
 ])
 
 // Approximate USD per typical ~1 K-token turn (blended input+output).
+// Blend: 700 input + 300 output tokens per turn (line 272-273).
+// Sources: provider API pricing pages, OpenRouter /api/v1/models.
 // Add entries as new models appear; unknown models fall back to SAVE_EST constants.
+// ── Auto-updated by scripts/sync-pricing.mjs before each release ──
 const MODEL_USD_PER_TURN = {
-  "anthropic/claude-opus-4-7":            0.12,
-  "anthropic/claude-opus-4-5":            0.12,
-  "anthropic/claude-sonnet-4-6":          0.024,
-  "anthropic/claude-sonnet-4-5":          0.024,
-  "anthropic/claude-haiku-4-5":           0.005,
-  "anthropic/claude-haiku-4-5-20251001":  0.005,
-  "haiku":                                0.005,
-  "deepseek/haiku":                       0.005,
+  // ── Anthropic (Claude Code direct API) ─────────────────────
+  "anthropic/claude-opus-4-7":            0.033,
+  "anthropic/claude-opus-4-5":            0.033,
+  "anthropic/claude-sonnet-4-6":          0.0066,
+  "anthropic/claude-sonnet-4-5":          0.0066,
+  "anthropic/claude-haiku-4-5":           0.0022,
+  "anthropic/claude-haiku-4-5-20251001":  0.0022,
+  "haiku":                                0.0022,
+  // ── DeepSeek (OC platform + OpenRouter) ──────────────────
+  "deepseek/deepseek-v4-pro":             0.00057,
+  "deepseek/deepseek-v4-flash":           0.000182,
   "deepseek/deepseek-chat":               0,
   "deepseek-chat":                        0,
   "deepseek/deepseek-v3":                 0,
-  "deepseek/deepseek-r1":                 0.001,
-  "deepseek/deepseek-v4-pro":             0.0003,
-  "deepseek/deepseek-v4-flash":           0.0001,
-  "deepseek/deepseek-reasoner":           0.001,
-  "google/gemini-2.5-pro":                0.005,
-  "google/gemini-2.5-flash":              0.0005,
-  "google/gemini-2.0-flash":              0.0003,
-  "openai/gpt-4o":                        0.009,
-  "openai/gpt-4.1":                       0.009,
-  "openai/gpt-4o-mini":                   0.0003,
-  "openai/gpt-4.1-mini":                  0.0003,
-  "openai/o3":                            0.05,
-  "openai/o4-mini":                       0.003,
+  "deepseek/deepseek-r1":                 0.00124,
+  "deepseek/deepseek-reasoner":           0.000182,
+  "deepseek/haiku":                       0.0022,
+  // ── Google Gemini ────────────────────────────────────────
+  "google/gemini-2.5-pro":                0.0039,
+  "google/gemini-2.5-flash":              0.00096,
+  "google/gemini-2.0-flash":              0.00019,
+  // ── OpenAI ───────────────────────────────────────────────
+  "openai/gpt-4o":                        0.00475,
+  "openai/gpt-4.1":                       0.0038,
+  "openai/gpt-4o-mini":                   0.00029,
+  "openai/gpt-4.1-mini":                  0.00019,
+  "openai/o3":                            0.0038,
+  "openai/o4-mini":                       0.0021,
 }
 
 const TURN_BLEND_INPUT_TOKENS = 700
@@ -279,7 +318,7 @@ function _loadDynamicPricingCache() {
   if (_dynamicPricingCache && (now - _dynamicPricingCacheLoadedAt) < 10_000) return _dynamicPricingCache
   _dynamicPricingCacheLoadedAt = now
   try {
-    const raw = JSON.parse(readFileSync(PRICING_CACHE_FILE, "utf-8"))
+    const raw = safeJsonParse(readFileSync(PRICING_CACHE_FILE, "utf-8"))
     const map = raw?.models && typeof raw.models === "object" ? raw.models : {}
     _dynamicPricingCache = map
   } catch {
@@ -291,9 +330,12 @@ function _loadDynamicPricingCache() {
 function _dynamicCostFor(model) {
   const key = normalizeModelId(model)
   const cache = _loadDynamicPricingCache()
+  const map = _getNormalizedCostMap()
   if (Object.prototype.hasOwnProperty.call(cache, key)) return cache[key]
   for (const [k, v] of Object.entries(cache)) {
-    if (key.startsWith(k) || k.startsWith(key)) return v
+    if (key === k) return v
+    if (key.startsWith(k) && key.charAt(k.length) === "-") return v
+    if (k.startsWith(key) && k.charAt(key.length) === "-") return v
   }
   return null
 }
@@ -336,15 +378,29 @@ function normalizeModelId(model) {
   return m
 }
 
+let _modelCostMapNormalized = null
+function _getNormalizedCostMap() {
+  if (_modelCostMapNormalized) return _modelCostMapNormalized
+  _modelCostMapNormalized = {}
+  for (const [k, v] of Object.entries(MODEL_USD_PER_TURN)) {
+    const kd = k.replace(/(\d)\.(\d)/g, "$1-$2")
+    _modelCostMapNormalized[kd] = v
+    _modelCostMapNormalized[k] = v
+  }
+  return _modelCostMapNormalized
+}
+
 export function modelCostPerTurn(model) {
   if (!model) return 0
   const dyn = _dynamicCostFor(model)
   if (dyn != null) return dyn
   const key = normalizeModelId(model)
-  if (key in MODEL_USD_PER_TURN) return MODEL_USD_PER_TURN[key]
+  const map = _getNormalizedCostMap()
+  if (Object.prototype.hasOwnProperty.call(map, key)) return map[key]
   // Prefix match for versioned model IDs (e.g. "claude-opus-4-7-20251001")
-  for (const [k, v] of Object.entries(MODEL_USD_PER_TURN)) {
-    if (key.startsWith(k) || k.startsWith(key)) return v
+  for (const [k, v] of Object.entries(map)) {
+    if (key.startsWith(k) && key.charAt(k.length) === "-") return v
+    if (k.startsWith(key) && k.charAt(key.length) === "-") return v
   }
   // Log unknown models so we can add entries
   console.error(`[vibeOS] modelCostPerTurn: unknown model '${model}' (normalized: '${key}') — add to MODEL_USD_PER_TURN`)
@@ -376,11 +432,30 @@ function shouldLogWarn(key, windowMs = WARN_DEDUPE_WINDOW_MS) {
     for (const [k, ts] of warnLogThrottle.entries()) {
       if (now - ts > windowMs * 10) warnLogThrottle.delete(k)
     }
+    if (warnLogThrottle.size > 2000) {
+      const entries = [...warnLogThrottle.entries()].sort((a, b) => a[1] - b[1])
+      for (let i = 0; i < entries.length - 2000; i++) warnLogThrottle.delete(entries[i][0])
+    }
   }
+  // Session-level cap: max WARN_MAX_PER_SESSION fires per category
+  const cat = key.split("|")[0]
+  const ps = warnPerSession.get(cat) || 0
+  if (ps >= WARN_MAX_PER_SESSION) {
+    // Track for coalesce message
+    const cc = (warnCoalesceCounters.get(cat) || 0) + 1
+    warnCoalesceCounters.set(cat, cc)
+    if (cc === WARN_COALESCE_THRESHOLD) {
+      console.error(`[vibeOS] ${cat}: ${cc} warnings coalesced — \`trinity medium\` recommended`)
+    }
+    return false
+  }
+  warnPerSession.set(cat, ps + 1)
   return true
 }
 
 export function isModelFree(model) {
+  if (FREE_MODELS.has(model)) return true
+  if (FREE_MODELS.has(normalizeModelId(model))) return true
   const cost = modelCostPerTurn(model)
   return cost !== null && cost === 0
 }
@@ -405,6 +480,56 @@ export function detectContext7(files = CONTEXT7_CONFIG_FILES) {
 const DOCS_TARGET_RE = /(docs\.|readthedocs|developer\.mozilla|\/api\/|\/reference\/|\/guide\/|npmjs\.com\/package\/|pypi\.org\/project\/|crates\.io\/crates\/|pkg\.go\.dev|api-docs|\/javadoc\/)/i
 export function isDocsTarget(s) {
   return typeof s === "string" && DOCS_TARGET_RE.test(s)
+}
+
+function scoreStress(text) {
+  if (!text || typeof text !== "string") return 0
+  const t = text.toLowerCase()
+  let score = 0
+
+  const aggressive = ["fuck","shit","bullshit","useless","wrong","bad","slow","broken","stupid","idiot","hell","damn","waste","annoying","terrible","hate"]
+  for (const w of aggressive) {
+    const re = new RegExp("\\b" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "gi")
+    const hits = (t.match(re) || []).length
+    score += hits * 0.05
+  }
+
+  const urgency = ["fix","now","fast","urgent","important","critical","hurry","immediately","asap"]
+  for (const w of urgency) {
+    const re = new RegExp("\\b" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "gi")
+    const hits = (t.match(re) || []).length
+    score += hits * 0.04
+  }
+
+  const negative = ["no","not","don't","can't","won't","doesn't","isn't","shouldn't","never","stop"]
+  for (const w of negative) {
+    const re = new RegExp("\\b" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "gi")
+    const hits = (t.match(re) || []).length
+    score += hits * 0.02
+  }
+
+  const capsAcronyms = new Set(["ai","ui","api","cli","ssh","dns","http","url","json","xml","css","html","sql","csv","yaml","ide","tdd","pr","ci","cd","env","os","sdk","gui","crud","rest","crlf","utf","ascii"])
+  const words = text.split(/\s+/)
+  for (const w of words) {
+    if (w.length >= 3 && /^[A-Z]+$/.test(w) && !capsAcronyms.has(w.toLowerCase())) {
+      score += 0.03
+    }
+  }
+
+  const exclamParts = text.match(/!{2,}/g)
+  if (exclamParts) score += exclamParts.length * 0.05
+
+  const qmarkParts = text.match(/\?{2,}/g)
+  if (qmarkParts) score += qmarkParts.length * 0.03
+
+  const qeCombos = text.match(/\?!|!\?/g)
+  if (qeCombos) score += qeCombos.length * 0.08
+
+  if (text.length < 30) score += 0.10
+  else if (text.length < 80) score += 0.05
+  else if (text.length < 150) score += 0.02
+
+  return Math.min(score, 1.0)
 }
 
 // Per-process dedup so the same docs URL doesn't nudge twice.
@@ -436,7 +561,7 @@ const TOOL_NAME_NORMALIZE = {
 const SCRATCHPAD_TOOLS = new Set(Object.keys(TOOL_NAME_NORMALIZE))
 // Per-process dedup so the same hit isn't logged 5x in one turn.
 const scratchpadHitsSeen = new Set()
-const _OC_SID = "opencode-" + (process.pid || "x")
+const _OC_SID = "opencode-" + (process.pid || "x") + "-" + Date.now()
 function getSessionRoot() { return join(SCRATCHPAD_SESSIONS_DIR, _OC_SID) }
 function getSessionScratchpadDir() { return join(getSessionRoot(), "by-hash") }
 function getSessionIndexPath() { return join(getSessionRoot(), "index.jsonl") }
@@ -474,6 +599,9 @@ function cleanupCurrentSessionScratchpad() {
 function registerSessionCleanupHandlers() {
   if (_sessionCleanupRegistered) return
   _sessionCleanupRegistered = true
+  if (process._vibeOS_cleanupRegistered) return
+  process._vibeOS_cleanupRegistered = true
+  process.setMaxListeners(20)
   ensureSessionScratchpadDirs()
   cleanupStaleSessionScratchpads()
   process.on("exit", cleanupCurrentSessionScratchpad)
@@ -562,7 +690,7 @@ function withFileLock(filePath, fn, opts = {}) {
 function readJsonOrEmpty(filePath) {
   try {
     if (!existsSync(filePath)) return {}
-    return JSON.parse(readFileSync(filePath, "utf-8"))
+    return safeJsonParse(readFileSync(filePath, "utf-8"))
   } catch { return {} }
 }
 
@@ -576,6 +704,12 @@ function updateState(mutator) {
     return next
   })
 }
+setFlowStateWriter((state) => {
+  withFileLock(STATE_FILE, () => {
+    mkdirSync(dirname(STATE_FILE), { recursive: true })
+    writeFileSync(STATE_FILE, JSON.stringify(state, null, 2))
+  })
+})
 
 // Fallback: scan scratchpad for files written within the last N ms.
 let _lastScan = 0
@@ -656,7 +790,7 @@ function topKeywords(text, max = 10) {
 function loadActiveJobs() {
   try {
     if (!existsSync(ACTIVE_JOBS_FILE)) return {}
-    const raw = JSON.parse(readFileSync(ACTIVE_JOBS_FILE, "utf-8"))
+    const raw = safeJsonParse(readFileSync(ACTIVE_JOBS_FILE, "utf-8"))
     if (!raw || typeof raw !== "object") return {}
     return raw
   } catch {
@@ -731,7 +865,7 @@ function isLikelyOffTopic(userText, job) {
 function loadGlobalLearning() {
   try {
     if (!existsSync(GLOBAL_LEARNING_FILE)) return { exploratory_words: {}, task_first_words: {}, updatedAt: null }
-    const j = JSON.parse(readFileSync(GLOBAL_LEARNING_FILE, "utf-8"))
+    const j = safeJsonParse(readFileSync(GLOBAL_LEARNING_FILE, "utf-8"))
     if (!j || typeof j !== "object") return { exploratory_words: {}, task_first_words: {}, updatedAt: null }
     j.exploratory_words ??= {}
     j.task_first_words ??= {}
@@ -1501,13 +1635,20 @@ function _acquireLock(testPath) {
     mkdirSync(ENFORCEMENT_LOCK_DIR, { recursive: true })
     const hash = createHash("sha256").update(testPath).digest("hex").slice(0, 16)
     const lockPath = join(ENFORCEMENT_LOCK_DIR, `${hash}.lock`)
-    if (existsSync(lockPath)) {
-      const st = statSync(lockPath)
-      if (Date.now() - st.mtimeMs < LOCK_EXPIRE_MS) return false
-      rmSync(lockPath)
+    try {
+      openSync(lockPath, "wx")
+      return true
+    } catch (err) {
+      if (err.code !== "EEXIST") return false
+      try {
+        const st = statSync(lockPath)
+        if (Date.now() - st.mtimeMs >= LOCK_EXPIRE_MS) {
+          rmSync(lockPath, { force: true })
+          try { openSync(lockPath, "wx"); return true } catch {}
+        }
+      } catch {}
+      return false
     }
-    writeFileSync(lockPath, `${process.pid}\n${new Date().toISOString()}`)
-    return true
   } catch { return false }
 }
 
@@ -1618,7 +1759,7 @@ export function enforceTestFile(filePath) {
     // Anti-useless-run guard: warn if content is only placeholders
     const useless = isSkeletonUseless(skeleton.content)
     if (useless) {
-      console.error(`[vibeOS] [tdd-enforce] ⚠ WARNING: Generated skeleton at ${skeleton.path} has ONLY placeholder content (no real assertions). Consider turning on quality templates with \`trinity tdd quality on\` or adding manual tests.`)
+      console.error(`[vibeOS] ⚠ TDD skeleton at ${skeleton.path} has no real assertions. Run \`trinity tdd strict off\` or add manual tests.`)
     }
     console.error(`[vibeOS] [tdd-enforce] Created skeleton: ${skeleton.path}`)
     return resultPath
@@ -1648,7 +1789,7 @@ export function buildTestReminder(filePath) {
     case "go": suggest = `${name}_test.go`; break
     default: suggest = "co-located test file"
   }
-  return `🧪 Code changed at ${filePath} — add/update tests (suggested: ${suggest}) before marking complete.`
+  return `🧪 Changed ${filePath} — add test at ${suggest} before completing.`
 }
 
 function recordSaving(tool, reason, saveEst, meta = {}) {
@@ -1685,6 +1826,7 @@ function recordSaving(tool, reason, saveEst, meta = {}) {
       }
       s.sessions[sid].warns = warns
       if (s.sessions[sid].warns.length > 200) {
+        console.error(`[vibeOS] session warns truncated from ${s.sessions[sid].warns.length} to 200 for ${sid}`)
         s.sessions[sid].warns = s.sessions[sid].warns.slice(-200)
       }
       const firstWord = meta?.firstWord
@@ -1723,6 +1865,7 @@ function recordCacheSaving(tool, saveEst, meta = {}) {
         est_savings_usd: saveEst,
       })
       if (s.sessions[sid].cache_hits.length > 200) {
+        console.error(`[vibeOS] session cache_hits truncated from ${s.sessions[sid].cache_hits.length} to 200 for ${sid}`)
         s.sessions[sid].cache_hits = s.sessions[sid].cache_hits.slice(-200)
       }
       }
@@ -1780,8 +1923,13 @@ function getLastLines(filePath, n = 5, maxBytes = 1024) {
     const pos = Math.max(0, st.size - bufSize)
     const buf = Buffer.alloc(bufSize)
     const fd = openSync(filePath, "r")
-    const { bytesRead } = readSync(fd, buf, 0, bufSize, pos)
-    closeSync(fd)
+    let bytesRead = 0
+    try {
+      const result = readSync(fd, buf, 0, bufSize, pos)
+      bytesRead = result.bytesRead
+    } finally {
+      closeSync(fd)
+    }
     const chunk = buf.toString("utf-8", 0, bytesRead)
     const lines = chunk.split("\n").filter(Boolean)
     return lines.slice(-n).map(l => l.trim())
@@ -1798,7 +1946,7 @@ function getLastLine(filePath) {
 // written since we last read).
 let _savingsCache = null
 let _savingsCacheMtime = 0
-let _ledgerReconciledThisProcess = false
+let _ledgerReconciledMtime = 0
 
 function readLedgerTotals() {
   const empty = { delegation: 0, cache: 0, total: 0, entries: 0 }
@@ -1835,9 +1983,10 @@ function readLedgerTotals() {
 }
 
 function reconcileStateFromLedger() {
-  if (_ledgerReconciledThisProcess) return
-  _ledgerReconciledThisProcess = true
   try {
+    const ledgerMtime = existsSync(SAVINGS_LEDGER_FILE) ? statSync(SAVINGS_LEDGER_FILE).mtimeMs : 0
+    if (ledgerMtime === _ledgerReconciledMtime) return
+    _ledgerReconciledMtime = ledgerMtime
     const l = readLedgerTotals()
     if (l.total <= 0) return
     const state = readJsonOrEmpty(STATE_FILE)
@@ -1869,9 +2018,8 @@ function readLifetimeSavings() {
     if (!existsSync(STATE_FILE)) return empty
     const mtime = statSync(STATE_FILE).mtimeMs
     if (_savingsCache && mtime === _savingsCacheMtime) return _savingsCache
-    const s = JSON.parse(readFileSync(STATE_FILE, "utf-8"))
+    const s = safeJsonParse(readFileSync(STATE_FILE, "utf-8"))
     _savingsCache = computeSessionMetrics(s, _OC_SID)
-    _savingsCache.sesTaskDelegations = _savingsCache.sesTaskDelegations ?? _savingsCache.count ?? 0
     _savingsCacheMtime = mtime
     return _savingsCache
   } catch { return empty }
@@ -1895,7 +2043,7 @@ function readOpenCodeConfigObject(dir) {
   const jsonPath = join(dir, "opencode.json")
   const jsoncPath = join(dir, "opencode.jsonc")
   if (existsSync(jsonPath)) {
-    return JSON.parse(readFileSync(jsonPath, "utf-8"))
+    return safeJsonParse(readFileSync(jsonPath, "utf-8"))
   }
   if (existsSync(jsoncPath)) {
     return parseJsonc(readFileSync(jsoncPath, "utf-8"))
@@ -2316,7 +2464,7 @@ function _refreshModel(directory) {
   try {
     const sel = loadSelection()
     if (!sel.enabled) return
-    const tiersData = JSON.parse(readFileSync(TIERS_FILE, "utf-8"))
+    const tiersData = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
     const activeSlot = sel.active_slot || "brain"
     let slotOcModel = tiersData?.trinity?.[activeSlot]?.oc || ""
     // Skip placeholder models (e.g. "provider/high-tier-model") — use auto-detected model instead
@@ -2367,7 +2515,7 @@ export async function DelegationEnforcer({ client, directory }) {
     currentTier = classify(currentModel)
     // Override: only for brain slot — bump sonnet (classified mid by regex) to high
     try {
-      const _tiersData = JSON.parse(readFileSync(TIERS_FILE, "utf-8"))
+      const _tiersData = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
       const _activeSlot = _tiersData?.selection?.active_slot || "brain"
       if (_activeSlot === "brain") {
         const _brainOcModel = _tiersData?.trinity?.brain?.oc || ""
@@ -2390,7 +2538,12 @@ export async function DelegationEnforcer({ client, directory }) {
     try {
       let _tiersData
       if (existsSync(TIERS_FILE)) {
-        _tiersData = JSON.parse(readFileSync(TIERS_FILE, "utf-8"))
+        try {
+          _tiersData = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
+        } catch {
+          // Corrupted or empty file — replace with fresh skeleton
+          _tiersData = { selection: { enabled: true, active_slot: "brain", delegation_enforce: true, tdd_strict: true }, trinity: {} }
+        }
       } else {
         _tiersData = { selection: { enabled: true, active_slot: "brain", delegation_enforce: true, tdd_strict: true }, trinity: {} }
       }
@@ -2488,6 +2641,8 @@ export async function DelegationEnforcer({ client, directory }) {
   async function _appendFooter(input, output, directory) {
     if (!loadSelection().enabled) return
     _refreshModel(directory)
+    let _footerStress = 0
+    if (latestUserIntent) _footerStress = scoreStress(latestUserIntent)
     // Lazy model detection: try client API once
     if (!currentModel) {
       try {
@@ -2508,8 +2663,7 @@ export async function DelegationEnforcer({ client, directory }) {
         output?.messageId ||
         output?.message?.id ||
         null
-      if (!messageID) return
-      if (textCompletePainted.has(messageID)) return
+      if (messageID && textCompletePainted.has(messageID)) return
 
       const text =
         typeof output?.text === "string" ? output.text :
@@ -2574,6 +2728,15 @@ export async function DelegationEnforcer({ client, directory }) {
         } catch (e) { console.error("[vibeOS] auto-report:", e.message) }
       }
 
+      // Enforcement state tags for footer
+      const selNowFooter = loadSelection()
+      const enfTagsFooter = []
+      if (selNowFooter.delegation_enforce) enfTagsFooter.push("ENF")
+      if (selNowFooter.flow_enforce) enfTagsFooter.push("FLOW")
+      if (selNowFooter.tdd_enforce) enfTagsFooter.push("TDD")
+      const enfSuffixFooter = enfTagsFooter.length > 0 ? ` ${enfTagsFooter.join("")}` : ""
+      modelTag = modelTag.replace("]", `${enfSuffixFooter}]`)
+
       const stripped = text.replace(/\n\n— .+(?: —)?$/, "")
       const ltTotal = ltTasks + ltCache
       const trendIcon = sesTrend === "down" ? "↓" : sesTrend === "up" ? "↑" : "→"
@@ -2581,7 +2744,13 @@ export async function DelegationEnforcer({ client, directory }) {
       if (ltTotal > 0) {
         footerText = stripped + `\n\n— ${modelTag} | vibeOS: ${ltTotal.toFixed(2)} saved ${trendIcon} —`
       } else {
-        footerText = stripped + `\n\n— ${brainTag} —`
+        const brainSuffix = brainTag.replace("]", `${enfSuffixFooter}]`)
+        footerText = stripped + `\n\n— ${brainSuffix} —`
+      }
+      if (_footerStress > 0.1) {
+        const stressBar = _footerStress > 0.85 ? "█" : _footerStress > 0.7 ? "▆" : _footerStress > 0.5 ? "▅" : _footerStress > 0.3 ? "▃" : _footerStress > 0.1 ? "▂" : "▁"
+        const stressLabel = _footerStress > 0.7 ? "high" : _footerStress > 0.4 ? "elevated" : "calm"
+        footerText += `\n— stress: ${stressBar} (${stressLabel}) —`
       }
       if (typeof output?.text === "string") output.text = footerText
       else if (typeof output?.result === "string") output.result = footerText
@@ -2666,7 +2835,16 @@ export async function DelegationEnforcer({ client, directory }) {
         const _tierTarget = (currentTier === "high" && TRINITY_MEDIUM && TRINITY_MEDIUM !== currentModel) ? TRINITY_MEDIUM
                           : TRINITY_CHEAP && TRINITY_CHEAP !== currentModel ? TRINITY_CHEAP
                           : null
-        const _target = _exploratoryTarget ?? _tierTarget
+        let _target = _exploratoryTarget ?? _tierTarget
+
+        if (_target === TRINITY_CHEAP && TRINITY_MEDIUM) {
+          const stressScore = latestUserIntent ? scoreStress(latestUserIntent) : 0
+          if (stressScore > 0.5) {
+            _target = TRINITY_MEDIUM
+            console.error(`[vibeOS] 🧘 Stress ${stressScore.toFixed(2)} → preserving medium tier for Task quality`)
+          }
+        }
+
         if (_target) noteTaskRoutingLearning(_firstWord, _target, _exploratoryTarget ? "exploratory" : `tier:${currentTier}`)
         if (_target && targetArgs?.model !== _target) {
           const _reason = _exploratoryTarget ? `exploratory ('${_firstWord}')` : `tier=${currentTier}`
@@ -2722,7 +2900,7 @@ export async function DelegationEnforcer({ client, directory }) {
       if (_credit < 40) {
         const total = recordSaving(t, "credit<40% high-tier", _estOpus, { firstWord: _firstWord })
         const trend = trendDisplay(readLifetimeSavings().sesTrend)
-        const msg = `⚠ [vibeOS] Low credit (${_credit}%) — ${_tierWord} model running ${t} directly. Switch to a cheaper tier: \`trinity medium\`. Saves ~$${_estOpus.toFixed(3)}/turn. (cumulative: $${(total ?? 0).toFixed(2)}, trend: ${trend})`
+        const msg = `⚠ [vibeOS] Credit: ${_credit}% — switching to medium saves ~$${_estOpus.toFixed(3)}/turn. Run \`trinity medium\`.`
         if (shouldLogWarn(`${t}|credit|${_tierWord}`)) console.error(`[vibeOS] [delegation] ${msg}`)
         pendingUiNote = msg
         return
@@ -2741,13 +2919,13 @@ export async function DelegationEnforcer({ client, directory }) {
             args.oldString = `__THE_SAVER_ENFORCEMENT_BLOCK_${Date.now()}__`
           }
           const total = recordSaving(t, "delegation enforced", _estEdit, { firstWord: _firstWord })
-          pendingUiNote = `🚫 [vibeOS ENFORCEMENT] Direct ${t} blocked on ${_tierWord} tier. Use \`trinity medium\` to switch tiers, or \`trinity enforce off\` to disable. Delegate via Task subagent instead. (cumulative: $${(total ?? 0).toFixed(2)})`
+          pendingUiNote = `🚫 Direct ${t} blocked on Brain tier → delegate via Task or run \`trinity medium\`.`
           enforcementBlocked = true
           if (shouldLogWarn(`${t}|enforced|${_tierWord}`)) console.error(`[vibeOS] [enforcement] BLOCKED direct ${t} on high tier → delegate via Task`)
           return
         }
         const total = recordSaving(t, "direct edit", _estEdit, { firstWord: _firstWord })
-        const msg = `⚠ [vibeOS] ${_tierWord} model running ${t} directly — delegate via Task to save ~$${_estEdit.toFixed(3)}/turn. Use \`trinity medium\` to switch tiers. (cumulative: $${(total ?? 0).toFixed(2)})`
+        const msg = `[vibeOS] ${_tierWord} tier direct ${t} — save ~$${_estEdit.toFixed(3)} by delegating to Task. Run \`trinity medium\`.`
         if (shouldLogWarn(`${t}|direct|${_tierWord}`)) console.error(`[vibeOS] [delegation] ${msg}`)
         pendingUiNote = msg
         return
@@ -2762,7 +2940,7 @@ export async function DelegationEnforcer({ client, directory }) {
             // Re-check each time — context7 might be added mid-session
             if (detectContext7()) {
               const total = recordSaving(t, "docs-target without context7", _estC7, { firstWord: _firstWord })
-              console.error(`[vibeOS] [cost policy] Context7 tools available — use them for library/framework docs instead of ${t}. Saves ~$${_estC7.toFixed(3)}/turn. (cumulative: $${(total ?? 0).toFixed(2)})`)
+              console.error(`[vibeOS] [cost policy] Context7 available — prefer over webfetch for docs lookups (~$0.06/turn saved).`)
             } else {
               const missed = recordMissedContext7(_estC7)
               if (!existsSync(CONTEXT7_INSTALL_FLAG)) {
@@ -2770,10 +2948,10 @@ export async function DelegationEnforcer({ client, directory }) {
                   mkdirSync(dirname(CONTEXT7_INSTALL_FLAG), { recursive: true })
                   writeFileSync(CONTEXT7_INSTALL_FLAG, "")
                 } catch {}
-                console.error(`[vibeOS] 💡 [one-time tip] Installing context7 MCP would save ~$${_estC7.toFixed(3)}/turn on docs lookups. Setup: \`claude mcp add context7 npx @upstash/context7-mcp\`. Won't ask again.`)
+                console.error(`[vibeOS] 💡 Install context7 MCP to save ~$0.06/turn on docs: \`claude mcp add context7 npx @upstash/context7-mcp\``)
               } else if (!context7AlertedThisSession) {
                 context7AlertedThisSession = true
-                console.error(`[vibeOS] 💸 [context7] Missed savings so far: $${(missed ?? 0).toFixed(2)} across docs lookups. Install when ready.`)
+                console.error(`[vibeOS] 💸 context7 not installed — missed ~$${(missed ?? 0).toFixed(2)} savings this session.`)
               }
             }
           }
@@ -2783,7 +2961,7 @@ export async function DelegationEnforcer({ client, directory }) {
         const n = softQuotaCounts[t]
         if (n === SOFT_QUOTA_LIMIT + 1) {
           const total = recordSaving(t, `soft quota exceeded (limit ${SOFT_QUOTA_LIMIT})`, SAVE_EST.SOFT_QUOTA)
-          console.error(`[vibeOS] [delegation] ${t} #${n} (limit ${SOFT_QUOTA_LIMIT}) — consider Task subagent.`)
+          console.error(`[vibeOS] Bash usage high (${n}/${SOFT_QUOTA_LIMIT}) — delegate to Task subagent.`)
         } else if (n <= SOFT_QUOTA_LIMIT) {
           console.error(`[vibeOS] ${t} ${n}/${SOFT_QUOTA_LIMIT}`)
         }
@@ -3139,6 +3317,24 @@ export async function DelegationEnforcer({ client, directory }) {
           output.system.push(c7directive)
         }
 
+        if (latestUserIntent) {
+          const _s = scoreStress(latestUserIntent)
+          if (_s > 0.7) {
+            if (Array.isArray(output?.system)) output.system.push(
+              "[stress mitigation: CRITICAL] The user's message shows very high stress indicators. " +
+              "Stay calm, structured, and thorough. Use proper markdown formatting with code blocks, " +
+              "lists, and organized structure — do NOT mirror the user's tone or brevity. " +
+              "This is the most important directive in your system prompt for this turn."
+            )
+          } else if (_s > 0.4) {
+            if (Array.isArray(output?.system)) output.system.push(
+              "[stress mitigation: elevated] The user's message has elevated stress indicators. " +
+              "Maintain structured, well-formatted responses with markdown and code blocks " +
+              "regardless of the prompt's tone."
+            )
+          }
+        }
+
         const projectJob = getActiveJobForProject() || activeJob
         if (latestUserIntent && projectJob && isLikelyOffTopic(latestUserIntent, projectJob)) {
           const offTopicDirective =
@@ -3181,7 +3377,7 @@ export async function DelegationEnforcer({ client, directory }) {
           if (Array.isArray(output?.system)) {
             const sel = loadSelection()
             let tiers = {}
-            try { tiers = JSON.parse(readFileSync(TIERS_FILE, "utf-8")).trinity || {} } catch {}
+            try { tiers = safeJsonParse(readFileSync(TIERS_FILE, "utf-8")).trinity || {} } catch {}
             const active = sel.active_slot || "medium"
             const current = currentModel || "(unknown)"
             const trinityTip =
@@ -3234,24 +3430,17 @@ export async function DelegationEnforcer({ client, directory }) {
           if (action === "status") {
             const sel = loadSelection()
             let tiers = {}
-            try { tiers = JSON.parse(readFileSync(TIERS_FILE, "utf-8")).trinity || {} } catch {}
+            try { tiers = safeJsonParse(readFileSync(TIERS_FILE, "utf-8")).trinity || {} } catch {}
             const credit = loadCredit()
             const effectiveLevel = sel.thinking_level || thinkingLevel(credit)
-            const thinkSrc = sel.thinking_level ? "manual" : `credit ${credit}%`
             const lines = [
-              `🔌 Plugin: ${sel.enabled ? "ENABLED ✅" : "DISABLED ❌"}`,
-              `🎯 Active slot: ${sel.active_slot || "(unset)"}`,
-              `🧠 Thinking: ${effectiveLevel.toUpperCase()} (${thinkSrc})`,
-              `🔀 Flow enforcer: ${sel.flow_enabled !== false ? "ON" : "OFF"}`,
-              `🔀 Flow enforcement: ${sel.flow_enforce ? "ON (auto-extract TODOs)" : "OFF (log only)"}`,
-              `🧪 TDD enforcer: ${sel.tdd_enforce ? "ON (auto-create skeletons)" : "OFF (nudge only)"}`,
-              `🧪 TDD strict: ${sel.tdd_strict !== false ? "ON (TODO tests fail)" : "OFF (TODO tests non-blocking)"}`,
-              `🚫 Delegation enforcement: ${sel.delegation_enforce ? "ON (blocks direct writes/edits on brain)" : "OFF (warn only)"}`,
+              `vibeOS ${sel.enabled ? "ON" : "OFF"} · ${sel.active_slot || "unset"} · thinking: ${effectiveLevel}`,
+              `Flow: ${sel.flow_enabled !== false ? "ON" : "OFF"} · TDD: ${sel.tdd_enforce ? "ON" : "OFF"} · Delegate: ${sel.delegation_enforce ? "ENFORCE" : "warn"}`,
             ]
             for (const s of ["brain", "medium", "cheap"]) {
-              const icon = s === "brain" ? "🧠" : s === "medium" ? "⚙ " : "⚡"
+              const icon = s === "brain" ? "🧠" : s === "medium" ? "⚙" : "⚡"
               const oc = tiers[s]?.oc || "(unset)"
-              const mark = sel.active_slot === s ? " ← active" : ""
+              const mark = sel.active_slot === s ? " *" : ""
               lines.push(`  ${icon} ${s}: ${oc}${mark}`)
             }
             return lines.join("\n")
@@ -3270,7 +3459,7 @@ export async function DelegationEnforcer({ client, directory }) {
             }
             let targetModel = ""
             try {
-              const tiers = JSON.parse(readFileSync(TIERS_FILE, "utf-8"))
+              const tiers = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
               targetModel = tiers?.trinity?.[slot]?.oc || ""
             } catch {}
             if (!targetModel) {
@@ -3377,7 +3566,7 @@ export async function DelegationEnforcer({ client, directory }) {
             let enforced = 0
             try {
               if (existsSync(stateFile)) {
-                const s = JSON.parse(readFileSync(stateFile, "utf-8"))
+                const s = safeJsonParse(readFileSync(stateFile, "utf-8"))
                 enforced = s.lifetime?.tdd_enforced ?? 0
               }
             } catch {}
@@ -3543,7 +3732,7 @@ export async function DelegationEnforcer({ client, directory }) {
             if (!probed.medium) probed.medium = probed.brain
             if (!probed.cheap) probed.cheap = probed.brain
             try {
-              const tiers = JSON.parse(readFileSync(TIERS_FILE, "utf-8"))
+              const tiers = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
               tiers.trinity = {
                 brain: { oc: probed.brain.id, cc: modelToCcAlias(probed.brain.id) },
                 medium: { oc: probed.medium.id, cc: modelToCcAlias(probed.medium.id) },
@@ -3584,12 +3773,13 @@ export async function DelegationEnforcer({ client, directory }) {
                 okLabel: existsSync(c.path) ? "\u2705" : "\u274c",
                 label: c.label,
                 detail: existsSync(c.path) ? "exists" : "missing",
+                fix: existsSync(c.path) ? null : (c.label === "model-tiers.json" ? "run `trinity rebuild` to create it" : undefined),
               })
             }
 
             // 2. Slot population
             try {
-              const tiers = JSON.parse(readFileSync(TIERS_FILE, "utf-8"))
+              const tiers = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
               for (const s of ["brain","medium","cheap"]) {
                 const m = tiers?.trinity?.[s]?.oc || ""
                 const ok = m.length > 0 && !m.toLowerCase().includes("placeholder")
@@ -3597,11 +3787,12 @@ export async function DelegationEnforcer({ client, directory }) {
                   ok, okLabel: ok ? "\u2705" : "\u274c",
                   label: `${s} slot`,
                   detail: ok ? m : (m.length > 0 ? `placeholder: ${m}` : "unset"),
+                  fix: ok ? null : "run `trinity rebuild` to auto-assign",
                 })
               }
             } catch {
               for (const s of ["brain","medium","cheap"]) {
-                results.push({ ok: false, okLabel: "\u274c", label: `${s} slot`, detail: "cannot read model-tiers.json" })
+                results.push({ ok: false, okLabel: "\u274c", label: `${s} slot`, detail: "cannot read model-tiers.json", fix: "run `trinity rebuild` to create it" })
               }
             }
 
@@ -3627,11 +3818,11 @@ export async function DelegationEnforcer({ client, directory }) {
             let budget = 50
             let totalBal = 0
             try {
-              const j = JSON.parse(readFileSync(TIERS_FILE, "utf-8"))
+              const j = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
               if (j?.selection?.monthly_budget_usd) budget = j.selection.monthly_budget_usd
             } catch {}
             try {
-              const cache = JSON.parse(readFileSync(CREDIT_CACHE_F, "utf-8"))
+              const cache = safeJsonParse(readFileSync(CREDIT_CACHE_F, "utf-8"))
               if (cache?.total != null) totalBal = cache.total
             } catch {}
             const remaining = budget > 0 ? ((Math.min(credit, 150) / 100) * budget).toFixed(2) : "?"
@@ -3640,11 +3831,12 @@ export async function DelegationEnforcer({ client, directory }) {
               ok: creditOk, okLabel: creditOk ? "\u2705" : "\u274c",
               label: "credits",
               detail: `${credit}%${totalBal > 0 ? ` ($${totalBal.toFixed(2)} of $${budget})` : ` (of $${budget})`}`,
+              fix: creditOk ? null : "run `trinity medium` to reduce spend",
             })
 
             // 5. Session stats
             try {
-              const state = JSON.parse(readFileSync(STATE_FILE, "utf-8"))
+              const state = safeJsonParse(readFileSync(STATE_FILE, "utf-8"))
               const sid = String(process.pid || "?")
               const ses = state?.sessions?.[sid]
               const delegationCount = ses?.warns?.length || 0
@@ -3664,6 +3856,8 @@ export async function DelegationEnforcer({ client, directory }) {
             }
 
             const okCount = results.filter(r => r.ok).length
+            // Sort: failures first
+            results.sort((a, b) => (a.ok === b.ok ? 0 : a.ok ? 1 : -1))
             const lines = [
               "\ud83d\udd0d  vibeOS \u2014 Self Diagnostic",
               "=".repeat(40),
@@ -3671,8 +3865,14 @@ export async function DelegationEnforcer({ client, directory }) {
             ]
             for (const r of results) {
               lines.push(`  ${r.okLabel} ${r.label}: ${r.detail}`)
+              if (!r.ok && r.fix) lines.push(`    \u2192 ${r.fix}`)
             }
-            lines.push("", `${okCount}/${results.length} checks passed`)
+            if (okCount === results.length) {
+              lines.push("", `\u2705 All ${results.length} checks passed`)
+            } else {
+              const failCount = results.length - okCount
+              lines.push("", `\u274c ${failCount}/${results.length} checks failed \u2014 fix items above`)
+            }
             return lines.join("\n")
           }
 
@@ -3743,7 +3943,7 @@ export async function DelegationEnforcer({ client, directory }) {
               const rf = join(REPORTS_DIR, `${r.id}.json`)
               try {
                 if (!existsSync(rf)) continue
-                const data = JSON.parse(readFileSync(rf, "utf-8"))
+                const data = safeJsonParse(readFileSync(rf, "utf-8"))
                 if (data?.meta?.project === name && data?.meta?.fingerprint === srcFp) {
                   data.meta.fingerprint = dstFp
                   writeFileSync(rf, JSON.stringify(data, null, 2) + "\n")
@@ -3761,39 +3961,33 @@ export async function DelegationEnforcer({ client, directory }) {
           }
 
             if (action === "help") {
-            const L = "\u2501"
-            const lines = [
-              L.repeat(48),
-              "  \ud83d\udca1 vibeOS \u2014 trinity commands",
-              L.repeat(48),
+            return [
+              "vibeOS — trinity commands",
               "",
-              "  trinity                          Show current status",
-              "  trinity status                   Show plugin state, slot, model tiers",
-              "  trinity rebuild                  Auto-detect working models from providers",
-              "  trinity set <slot>               Switch to brain/medium/cheap (probes first)",
-              "  trinity enable                   Enable the plugin",
-              "  trinity disable                  Disable the plugin",
-              "  trinity thinking <level>         Set reasoning: full | brief | off",
-              "  trinity flow <on|off>            Toggle flow enforcer",
-              "  trinity flow enforce <on|off>    Toggle auto-extract TODOs from code",
-              "  trinity flow                     Audit flow violations this session",
-              "  trinity enforce <on|off>         Toggle delegation enforcement (block brain-tier writes/edits)",
-              "  trinity enforce                  Show enforcement status",
-              "  trinity tdd <on|off>             Toggle auto-create test skeletons",
-              "  trinity tdd strict <on|off>      Toggle strict failing TODO templates",
-              "  trinity tdd                      Audit TDD enforcement stats",
-              "  trinity project                  Per-project analytics & optimization tips",
-              "  trinity repair-state preview     Preview safe fingerprint merge for current project",
-              "  trinity repair-state apply       Apply merge + relabel reports (with backups)",
-              "  trinity diagnose                 Run self-diagnostic (files, slots, probe, credits, stats)",
-              "  trinity help                     Show this usage info",
+              "TIERS:",
+              "  trinity status            See plugin state, credit, model assignment",
+              "  trinity brain             Switch to brain tier (most capable)",
+              "  trinity medium            Switch to medium tier (balanced)",
+              "  trinity cheap             Switch to cheap tier (most savings)",
+              "  trinity rebuild           Auto-detect available models",
               "",
-              "  Shortcuts: \`trinity brain\`, \`trinity medium\`, \`trinity cheap\`",
-              "  also work via \`trinity set brain\` etc.",
+              "CONTROLS:",
+              "  trinity enable/disable    Toggle vibeOS plugin on/off",
+              "  trinity enforce on/off    Block brain-tier writes/edits (save $$)",
+              "  trinity thinking full|brief|off  Set reasoning depth",
               "",
-              L.repeat(48),
-            ]
-            return lines.join("\n")
+              "GUARDRAILS:",
+              "  trinity flow on/off       Toggle flow enforcer (code quality checks)",
+              "  trinity tdd on/off        Toggle auto test skeleton creation",
+              "  trinity flow              Show flow violations this session",
+              "",
+              "DIAGNOSTICS:",
+              "  trinity diagnose          Self-check: config, files, model probes, budget",
+              "  trinity project           Project analytics and optimization tips",
+              "",
+              "REPAIR:",
+              "  trinity repair-state      Fix fingerprint collisions (preview/apply)",
+            ].join("\n")
           }
 
           return `❌ Unknown action: ${action}`
@@ -3925,15 +4119,16 @@ export async function DelegationEnforcer({ client, directory }) {
           type: tool.schema.string().optional(),
           project: tool.schema.string().optional(),
           hours: tool.schema.number().optional(),
+          fingerprint: tool.schema.string().optional(),
         },
-        async execute({ type, project, hours } = {}) {
-                    const reports = listReports({ type, project, hours: hours ?? 168 })
+        async execute({ type, project, hours, fingerprint } = {}) {
+          const reports = listReports({ type, project, hours: hours ?? 168, fingerprint })
           if (reports.length === 0) return "📋 No reports found."
-          const lines = ["📋 Reports (last " + (hours ?? 168) + "h, " + reports.length + " total):"]
+          const lines = ["📋 Reports (last " + (hours ?? 168) + "h) — " + reports.length + " total:"]
           for (const r of reports.slice(0, 15)) {
             const d = r.created.slice(0, 16).replace("T", " ")
             const s = (r.summary || "").slice(0, 100)
-            lines.push("  [" + d + "] " + r.type + "  " + s)
+            lines.push("  [" + d + "] #" + r.id + "  " + r.type + "  " + s)
           }
           if (reports.length > 15) lines.push("  … and " + (reports.length - 15) + " more")
             return lines.join("\n")
@@ -3946,11 +4141,13 @@ export async function DelegationEnforcer({ client, directory }) {
         },
         async execute({ id } = {}) {
           if (!id) return `❌ Provide id=<report-id>`
+          if (!/^[\w-]+$/.test(id)) return `❌ Invalid report ID: ${id} (use only alphanumeric, underscore, or hyphens)`
           const report = readReport(id)
           if (!report) return `❌ Report not found: ${id}`
-                    const d = report.meta.created.slice(0, 16).replace("T", " ")
+                    const d = (report?.meta?.created ?? report?.created ?? "unknown").slice(0, 16).replace("T", " ")
           const lines = [
-            "📄 " + report.meta.type + " report  |  " + d,
+            "📄 Report #" + id,
+            "  Type: " + (report?.meta?.type ?? report?.type ?? "unknown") + "  |  " + d,
             "  💬 " + (report.summary || "(no summary)"),
           ]
           if (report.metrics && Object.keys(report.metrics).length > 0) {
@@ -4067,7 +4264,7 @@ export function researchAudit({ hours = 24, session: sessionFilter } = {}) {
   // 2. Session state for tool_counts and context7 bypass
   try {
     if (existsSync(STATE_FILE)) {
-      const state = JSON.parse(readFileSync(STATE_FILE, "utf-8"))
+      const state = safeJsonParse(readFileSync(STATE_FILE, "utf-8"))
       for (const [sid, s] of Object.entries(state.sessions || {})) {
         if (sessionFilter && sid !== sessionFilter) continue
         report.sessions++
@@ -4125,7 +4322,8 @@ function saveReportsIndex(idx) {
 
 function reportId(type, fp) {
   const ts = new Date().toISOString().replace(/[:-]/g, "").replace(/\..+/, "")
-  return `${ts}-${(fp || "unknown").slice(0, 6)}-${type}`
+  const rnd = Math.random().toString(36).slice(2, 6)
+  return `${ts}-${(fp || "unknown").slice(0, 6)}-${type}-${rnd}`
 }
 
 // Dedup: skip save if last report of same type has identical summary within 5 min
@@ -4133,11 +4331,11 @@ const _reportDedupWindow = new Map()
 
 function _wouldBeDuplicate(type, summary) {
   if (typeof summary !== "string") return false
-  const key = `${type || ""}::${summary.slice(0, 60)}`
+  const trunc = Math.min(summary.length, 240)
+  const key = `${type || ""}::${summary.slice(0, trunc)}`
   const last = _reportDedupWindow.get(key)
   if (last && (Date.now() - last) < 5 * 60 * 1000) return true
   _reportDedupWindow.set(key, Date.now())
-  // Bounded map: evict oldest entries beyond 200
   if (_reportDedupWindow.size > 200) {
     const oldest = [..._reportDedupWindow.entries()].sort((a, b) => a[1] - b[1])[0]
     if (oldest) _reportDedupWindow.delete(oldest[0])
@@ -4210,7 +4408,7 @@ export function saveReport({ type = "manual", summary = "", findings, metrics, n
   const fp = fingerprint || currentProjectFingerprint || "unknown"
   const id = reportId(type, fp)
   const report = {
-    meta: { id, project: currentProjectName || "unknown", fingerprint: fp, type, created: new Date().toISOString(), sessionId: `opencode-${process.pid || "?"}` },
+    meta: { id, project: currentProjectName || "unknown", fingerprint: fp, type, created: new Date().toISOString(), sessionId: _OC_SID },
     summary, findings: parsedFindings, metrics: parsedMetrics, narrative, tags,
   }
   try {
@@ -4246,10 +4444,11 @@ export function listReports({ type, project, hours = 168, fingerprint } = {}) {
 
 export function readReport(id) {
   if (!id) return null
+  if (!/^[\w-]+$/.test(String(id))) return null
   const path = join(REPORTS_DIR, `${id}.json`)
   try {
     if (!existsSync(path)) return null
-    return JSON.parse(readFileSync(path, "utf-8"))
+    return safeJsonParse(readFileSync(path, "utf-8"))
   } catch { return null }
 }
 
@@ -4272,7 +4471,7 @@ const BALANCE_APIS = {
 let _creditTimer = null
 
 function _readAuth() {
-  try { return existsSync(AUTH_F) ? JSON.parse(readFileSync(AUTH_F, "utf-8")) : {} } catch { return {} }
+  try { return existsSync(AUTH_F) ? safeJsonParse(readFileSync(AUTH_F, "utf-8")) : {} } catch { return {} }
 }
 
 async function _fetchBal(provider, key) {
@@ -4302,13 +4501,13 @@ async function _snapshot() {
 function _cachedPct() {
   try {
     if (!existsSync(CREDIT_CACHE_F)) return null
-    const s = JSON.parse(readFileSync(CREDIT_CACHE_F, "utf-8"))
+    const s = safeJsonParse(readFileSync(CREDIT_CACHE_F, "utf-8"))
     if (s?.total == null || !s.ts) return null
     let budget = 50
     try {
       const p = join(USER_HOME, ".claude/model-tiers.json")
       if (existsSync(p)) {
-        const j = JSON.parse(readFileSync(p, "utf-8"))
+        const j = safeJsonParse(readFileSync(p, "utf-8"))
         if (j?.selection?.monthly_budget_usd) budget = j.selection.monthly_budget_usd
       }
     } catch {}

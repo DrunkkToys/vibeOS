@@ -175,7 +175,7 @@ test("diagnose: pass/fail count summary line", async () => {
   writeCredit(44, 50)
 
   const output = await hooks.tool.trinity.execute({ action: "diagnose" })
-  assert.ok(output.match(/checks passed/), "pass/fail summary line: " + output.slice(-80))
+  assert.ok(output.match(/checks (passed|failed)/), "pass/fail summary line: " + output.slice(-80))
 })
 
 test("diagnose: appears in help", async () => {

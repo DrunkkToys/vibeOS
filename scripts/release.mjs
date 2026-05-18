@@ -52,6 +52,16 @@ if (branch !== "main" && branch !== "master") {
 const forceBump = ["patch", "minor", "major"].find(t => process.argv.includes(t)) || null
 const autoYes = process.argv.includes("--yes") || process.argv.includes("-y")
 
+// ── SYNC MODEL PRICING ──────────────────────────────────────────
+log("")
+log(`${BOLD}💰 Syncing model pricing...${RESET}`)
+try {
+  sh(`node ${join(__dirname, "sync-pricing.mjs")}`, { stdio: "inherit" })
+  log(`${GREEN}✓${RESET} pricing cache refreshed`)
+} catch {
+  log(`${YELLOW}⚠${RESET}  pricing sync failed — continuing with cached data`)
+}
+
 // ── CONVENTIONAL COMMITS → BUMP TYPE + CHANGELOG ──────────────
 
 let lastTag

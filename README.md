@@ -97,13 +97,27 @@ These use `~/.claude/reports` and project memory in `~/.claude/project-states.js
 
 This repo exports plugin runtime from `src/index.js`.
 
-For OpenCode Desktop local plugin usage:
+For OpenCode Desktop local plugin usage, copy these files to `~/.config/opencode/plugins/`:
 
-1. Copy `src/index.js` to `~/.config/opencode/plugins/VibeTheOG.js`
-2. Copy `src/VibeTheOG-lib/flow-enforcer.js` to `~/.config/opencode/plugins/VibeTheOG-lib/flow-enforcer.js`
-3. Copy `src/VibeTheOG-lib/session-metrics.js` to `~/.config/opencode/plugins/VibeTheOG-lib/session-metrics.js`
-4. Copy `src/VibeTheOG-lib/flow-rules.json` to `~/.config/opencode/plugins/VibeTheOG-lib/flow-rules.json`
-5. Restart OpenCode Desktop
+```
+cp src/index.js                    ~/.config/opencode/plugins/vibeOS.js
+cp src/vibeOS-lib/flow-enforcer.js ~/.config/opencode/plugins/vibeOS-lib/flow-enforcer.js
+cp src/vibeOS-lib/session-metrics.js ~/.config/opencode/plugins/vibeOS-lib/session-metrics.js
+cp src/vibeOS-lib/flow-rules.json  ~/.config/opencode/plugins/vibeOS-lib/flow-rules.json
+cp src/utils/cost-formatter.js     ~/.config/opencode/plugins/vibeOS-lib/cost-formatter.js
+cp src/utils/math.js               ~/.config/opencode/plugins/vibeOS-lib/math.js
+cp src/utils/timer.js              ~/.config/opencode/plugins/vibeOS-lib/timer.js
+```
+
+Then register the plugin in `~/.config/opencode/opencode.json`:
+
+```json
+"plugins": [
+  { "id": "vibeOS", "path": "~/.config/opencode/plugins/vibeOS.js" }
+]
+```
+
+Restart OpenCode Desktop. The plugin auto-creates `~/.claude/model-tiers.json` on first run.
 
 ## Build
 

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 VibeTheOG <https://github.com/DrunkkToys/VibeTheOG>
+// SPDX-FileCopyrightText: 2026 vibeOS <https://github.com/DrunkkToys/vibeOS>
 import { readFileSync, existsSync, mkdirSync, writeFileSync, statSync, appendFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
@@ -13,6 +13,10 @@ const STATE_FILE = join(homedir(), ".claude/delegation-state.json");
 const FLOW_TODO_FILE = join(homedir(), ".claude/flow-todo-queue.jsonl");
 const MAX_FLOW_TODOS = 200;
 const _flowWarnsSeen = new Set();
+let _flowStateWriter = null;
+export function setFlowStateWriter(fn) {
+    _flowStateWriter = fn;
+}
 let _cachedRules = null;
 let _rulesMtime = 0;
 function loadRules() {
@@ -59,7 +63,12 @@ function recordFlowWarn(hit) {
         if (state.flow_warns.length > 500) {
             state.flow_warns = state.flow_warns.slice(-500);
         }
-        writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
+        if (_flowStateWriter) {
+            _flowStateWriter(state);
+        }
+        else {
+            writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
+        }
     }
     catch { }
 }

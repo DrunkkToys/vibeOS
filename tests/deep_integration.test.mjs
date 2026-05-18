@@ -87,13 +87,14 @@ async function freshPlugin(dir = projectDir) {
 // ===== TESTS =====
 
 test("modelCostPerTurn: known models, dots normalization, provider prefixes, unknown", () => {
-  assert.equal(modelCostPerTurn("deepseek/deepseek-v4-pro"), 0.0003)
-  assert.equal(modelCostPerTurn("deepseek/deepseek-v4-flash"), 0.0001)
-  assert.equal(modelCostPerTurn("anthropic/claude-opus-4-7"), 0.12)
+  assert.equal(modelCostPerTurn("deepseek/deepseek-v4-pro"), 0.00057)
+  assert.equal(modelCostPerTurn("deepseek/deepseek-v4-flash"), 0.000182)
+  assert.equal(modelCostPerTurn("deepseek/deepseek-chat"), 0, "chat is free on DeepSeek API")
+  assert.equal(modelCostPerTurn("anthropic/claude-opus-4-7"), 0.033)
   // anthropic prefix + dots: normalization strips dots but not anthropic/ prefix
-  // The cost table entry is "anthropic/claude-sonnet-4-6" = 0.024
-  assert.equal(modelCostPerTurn("anthropic/claude-sonnet-4-6"), 0.024, "dots -> dashes")
-  assert.equal(modelCostPerTurn("openrouter/anthropic/claude-sonnet-4-6"), 0.024)
+  // The cost table entry is "anthropic/claude-sonnet-4-6" = 0.0066
+  assert.equal(modelCostPerTurn("anthropic/claude-sonnet-4-6"), 0.0066, "dots -> dashes")
+  assert.equal(modelCostPerTurn("openrouter/anthropic/claude-sonnet-4-6"), 0.0066)
   assert.equal(modelCostPerTurn(""), 0)
   assert.equal(modelCostPerTurn(null), 0)
   assert.equal(modelCostPerTurn("nonexistent-model"), null)  // unknown model: returns 0 (SAVE_EST fallback), not null
@@ -107,15 +108,15 @@ test("isModelFree: correctly identifies", () => {
 test("classifyAndRankModels: full set, mixed providers, two models, dedup, empty", () => {
   const r1 = classifyAndRankModels([
     { id: "deepseek/deepseek-chat", provider: "deepseek", cost: 0, tier: "budget" },
-    { id: "deepseek/deepseek-v4-flash", provider: "deepseek", cost: 0.0001, tier: "mid" },
-    { id: "deepseek/deepseek-v4-pro", provider: "deepseek", cost: 0.0003, tier: "high" },
+    { id: "deepseek/deepseek-v4-flash", provider: "deepseek", cost: 0.000182, tier: "mid" },
+    { id: "deepseek/deepseek-v4-pro", provider: "deepseek", cost: 0.00057, tier: "high" },
   ])
   assert.equal(r1.brain.id, "deepseek/deepseek-v4-pro")
-  assert.equal(r1.cheap.id, "deepseek/deepseek-chat")
+  assert.equal(r1.cheap.id, "deepseek/deepseek-chat", "chat is free → cheapest")
 
   const r2 = classifyAndRankModels([
     { id: "deepseek/deepseek-chat", provider: "deepseek", cost: 0, tier: "budget" },
-    { id: "deepseek/deepseek-v4-pro", provider: "deepseek", cost: 0.0003, tier: "high" },
+    { id: "deepseek/deepseek-v4-pro", provider: "deepseek", cost: 0.00057, tier: "high" },
   ])
   assert.equal(r2.brain.id, "deepseek/deepseek-v4-pro")
   assert.equal(r2.cheap.id, "deepseek/deepseek-chat")
@@ -241,11 +242,11 @@ test("trinity tool: status, set, shortcuts, thinking, flow, help", async () => {
   const hooks = await freshPlugin()
   const t = hooks.tool.trinity
   const s = await t.execute({})  // no-arg = status
-  assert.ok(s.includes("ENABLED"), "default: " + s.slice(0, 50))
+  assert.ok(s.includes("vibeOS ON"), "default: " + s.slice(0, 50))
   await t.execute({ action: "disable" })
-  assert.ok((await t.execute({ action: "status" })).toLowerCase().includes("disabled"))
+  assert.ok((await t.execute({ action: "status" })).toLowerCase().includes("vibeos off"), "status after disable includes OFF: " + String((await t.execute({ action: "status" }))).slice(0, 60))
   await t.execute({ action: "enable" })
-  assert.ok((await t.execute({ action: "status" })).toLowerCase().includes("enabled"))
+  assert.ok((await t.execute({ action: "status" })).toLowerCase().includes("vibeos on"), "status after enable includes ON: " + String((await t.execute({ action: "status" }))).slice(0, 60))
   const set = await t.execute({ action: "set", slot: "brain" })
   assert.ok(set.includes("Switched") || set.includes("brain"), "set: " + set)
   // Note: probeModel needs real API — in sandbox it fails, which is correct behavior

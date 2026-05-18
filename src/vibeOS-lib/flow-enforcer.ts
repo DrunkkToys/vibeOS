@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 VibeTheOG <https://github.com/DrunkkToys/VibeTheOG>
+// SPDX-FileCopyrightText: 2026 vibeOS <https://github.com/DrunkkToys/vibeOS>
 import { readFileSync, existsSync, mkdirSync, writeFileSync, statSync, appendFileSync } from "node:fs"
 import { join, dirname } from "node:path"
 import { homedir } from "node:os"
@@ -46,9 +46,41 @@ export function resolveRulesPath(): string {
 }
 const STATE_FILE = join(homedir(), ".claude/delegation-state.json")
 const FLOW_TODO_FILE = join(homedir(), ".claude/flow-todo-queue.jsonl")
+const FLOW_DEDUP_FILE = join(homedir(), ".claude/.flow-dedup-keys.json")
 const MAX_FLOW_TODOS = 200
 
 const _flowWarnsSeen = new Set<string>()
+
+// Persist flow dedup keys across restarts to avoid re-warnings
+function loadFlowDedupKeys(): void {
+  try {
+    if (existsSync(FLOW_DEDUP_FILE)) {
+      const raw = readFileSync(FLOW_DEDUP_FILE, "utf-8")
+      const keys: string[] = JSON.parse(raw)
+      if (Array.isArray(keys)) {
+        for (const k of keys) _flowWarnsSeen.add(k)
+      }
+    }
+  } catch {}
+}
+
+function persistFlowDedupKey(key: string): void {
+  try {
+    mkdirSync(dirname(FLOW_DEDUP_FILE), { recursive: true })
+    let keys: string[] = []
+    if (existsSync(FLOW_DEDUP_FILE)) {
+      try { keys = JSON.parse(readFileSync(FLOW_DEDUP_FILE, "utf-8")) } catch {}
+      if (!Array.isArray(keys)) keys = []
+    }
+    if (!keys.includes(key)) {
+      keys.push(key)
+      if (keys.length > 1000) keys = keys.slice(-500)
+      writeFileSync(FLOW_DEDUP_FILE, JSON.stringify(keys), "utf-8")
+    }
+  } catch {}
+}
+
+loadFlowDedupKeys()
 
 let _cachedRules: FlowRule[] | null = null
 let _rulesMtime = 0
@@ -112,6 +144,7 @@ export function checkFlowRules({ tool, filePath, content }: CheckFlowRulesInput)
       continue
     }
     _flowWarnsSeen.add(key)
+    persistFlowDedupKey(key)
     const hit: FlowHit = { ...rule, filePath, deduped: false }
     hits.push(hit)
     recordFlowWarn(hit)
