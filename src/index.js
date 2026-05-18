@@ -353,8 +353,7 @@ function _dynamicCostFor(model) {
   if (Object.prototype.hasOwnProperty.call(cache, key)) return cache[key]
   for (const [k, v] of Object.entries(cache)) {
     if (key === k) return v
-    if (key.startsWith(k) && key.charAt(k.length) === "-") return v
-    if (k.startsWith(key) && k.charAt(key.length) === "-") return v
+    if (key.startsWith(k) && /-\d+$/.test(k) && key.charAt(k.length) === "-") return v
   }
   return null
 }
@@ -418,8 +417,7 @@ export function modelCostPerTurn(model) {
   if (Object.prototype.hasOwnProperty.call(map, key)) return map[key]
   // Prefix match for versioned model IDs (e.g. "claude-opus-4-7-20251001")
   for (const [k, v] of Object.entries(map)) {
-    if (key.startsWith(k) && key.charAt(k.length) === "-") return v
-    if (k.startsWith(key) && k.charAt(key.length) === "-") return v
+    if (key.startsWith(k) && /-\d+$/.test(k) && key.charAt(k.length) === "-") return v
   }
   // Log unknown models so we can add entries
   console.error(`[vibeOS] modelCostPerTurn: unknown model '${model}' (normalized: '${key}') — add to MODEL_USD_PER_TURN`)
@@ -473,6 +471,7 @@ function shouldLogWarn(key, windowMs = WARN_DEDUPE_WINDOW_MS) {
 }
 
 export function isModelFree(model) {
+  if (!model || typeof model !== "string") return false
   if (FREE_MODELS.has(model)) return true
   if (FREE_MODELS.has(normalizeModelId(model))) return true
   const cost = modelCostPerTurn(model)
@@ -1035,8 +1034,8 @@ export function extractExports(sourceContent, ext) {
       break
     }
     case "java": case "kt": {
-      // public/private/protected type name(
-      for (const m of sourceContent.matchAll(/(?:public|private|protected)\s+(?:static\s+)?(?:final\s+)?\S+\s+([a-zA-Z_$]\w*)\s*\(/g)) add(m[1])
+      // public/protected type name(
+      for (const m of sourceContent.matchAll(/(?:public|protected)\s+(?:static\s+)?(?:final\s+)?\S+\s+([a-zA-Z_$]\w*)\s*\(/g)) add(m[1])
       // fun name(
       for (const m of sourceContent.matchAll(/fun\s+([a-zA-Z_$]\w*)\s*\(/g)) add(m[1])
       break
@@ -1087,7 +1086,7 @@ function inferFunctionParams(sourceContent, funcName) {
         const trimmed = s.trim()
         if (!trimmed) return null
         // Extract name from "name: Type = default" or "name=default" or just "name"
-        const nameMatch = trimmed.match(/^\s*(?:public|private|protected|static|final|val|var|let|const)?\s*(?:readonly\s+)?(?:[_$a-zA-Z][_$a-zA-Z0-9]*)\s*(?::|(?=\s*=)|(?=\s*[,)]))/)
+        const nameMatch = trimmed.match(/^\s*((?:public|protected)|static|final|val|var|let|const)?\s*(?:readonly\s+)?(?:[_$a-zA-Z][_$a-zA-Z0-9]*)\s*(?::|(?=\s*=)|(?=\s*[,)]))/)
         const rawName = trimmed.replace(/^[^a-zA-Z_$]*/, '').replace(/[=:].*$/, '').replace(/\s+.*$/, '').trim()
         const defaultMatch = trimmed.match(/=\s*(.+)$/)
         const typeMatch = trimmed.match(/:\s*(\w+)/)
@@ -3066,6 +3065,36 @@ export async function DelegationEnforcer({ client, directory }) {
 
       // Skip test-reminder, TDD, flow enforcement, and compression for blocked tools
       if (enforcementBlocked) { enforcementBlocked = false; return }
+
+      // TDD enforcement for task subagent results: scan task output for
+      // file paths with source extensions and create skeletons (same logic
+      // as the write/edit handler below, but for files written by subagents).
+      if (t === "task") {
+        const outputText = (output?.result ?? output?.text ?? output?.content ?? "")
+        if (typeof outputText === "string" && outputText.length > 0) {
+          const TASK_FILE_RE = /((?:\.?[\w@][\w.\-]*\/)+[\w.\-]+\.(?:py|js|ts|mjs|tsx|jsx|sh|go|rs|rb|java|kt))/gi
+          const sel = loadSelection()
+          const explicitTestIntent = isUserAskingForTests(latestUserIntent)
+          const seen = new Set()
+          let match
+          while ((match = TASK_FILE_RE.exec(outputText)) !== null) {
+            const fp = match[1]
+            if (seen.has(fp)) continue
+            seen.add(fp)
+            const isTestPath = /(^|\/)(tests?|spec)\//i.test(fp) || /\.(test|spec)\./i.test(fp)
+            if (sel.tdd_enforce && (explicitTestIntent || isTestPath)) {
+              const createdPath = enforceTestFile(fp)
+              if (createdPath) {
+                const ext = createdPath.split('.').pop()
+                const fileName = createdPath.split('/').pop()
+                const enforceNote = "\n\n[test-enforced] Created skeleton at " + createdPath + "\n  NEXT: 1) Open " + fileName + "  2) Replace TODO/FIXME markers with real assertions  3) Run `npx vitest run " + createdPath + "` (or language-equivalent)  4) Confirm tests pass"
+                if (typeof output?.text === "string") output.text += enforceNote
+                else if (typeof output?.result === "string") output.result += enforceNote
+              }
+            }
+          }
+        }
+      }
 
       // Test-reminder: nudge when source code is written/edited.
       if (t === "write" || t === "edit" || t === "multiedit") {
