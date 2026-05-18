@@ -122,9 +122,9 @@ export function computeSessionMetrics(state, sessionId) {
         sesModelTurns.worker = Number(ses.tool_counts.task || 0);
     }
     return {
-        ltTasks: Math.round(ltTasks * 100) / 100,
-        ltCache: Math.round(ltCache * 100) / 100,
-        ltCost: Math.round(ltCost * 100) / 100,
+        ltTasks: Math.round(ltTasks * 10000) / 10000,
+        ltCache: Math.round(ltCache * 10000) / 10000,
+        ltCost: Math.round(ltCost * 10000) / 10000,
         count: Math.max(totalWarnCount, Number(s?.lifetime?.warn_count ?? 0)),
         scratchpadHits: Number(s?.lifetime?.scratchpad_hits_observed ?? 0),
         missedC7: Number(s?.lifetime?.missed_context7_usd ?? 0),

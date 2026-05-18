@@ -271,6 +271,18 @@ function roundUsd(v, precision = 6) {
   return Math.round(n * f) / f
 }
 
+function formatUsd(v) {
+  const n = Number(v ?? 0)
+  if (!Number.isFinite(n) || n === 0) return "0.00"
+  const abs = Math.abs(n)
+  if (abs >= 0.01) return n.toFixed(2)
+  const s = abs.toFixed(10)
+  const dot = s.indexOf(".")
+  let i = dot + 1
+  while (i < s.length && s[i] === "0") i++
+  return n.toFixed(i - dot)
+}
+
 // Models with negligible per-turn cost (less than 2e-5 USD/turn).
 // These skip enforcement entirely to avoid noise.
 const FREE_MODELS = new Set([
@@ -2742,7 +2754,7 @@ export async function DelegationEnforcer({ client, directory }) {
         try {
           saveReport({
             type: "session",
-            summary: "Session cost: $" + ltCost.toFixed(2) + " | cache saved: $" + ltCache.toFixed(2) + " | delegation saved: $" + Number(sesTasks || 0).toFixed(3) + " | task delegations: " + Number(sesTaskDelegations || 0),
+            summary: "Session cost: $" + formatUsd(ltCost) + " | cache saved: $" + formatUsd(ltCache) + " | delegation saved: $" + formatUsd(Number(sesTasks || 0)) + " | task delegations: " + Number(sesTaskDelegations || 0),
             metrics: {
               sessionId: _OC_SID,
               projectFingerprint: currentProjectFingerprint || "unknown",
@@ -2779,7 +2791,7 @@ export async function DelegationEnforcer({ client, directory }) {
       const trendIcon = sesTrend === "down" ? "↓" : sesTrend === "up" ? "↑" : "→"
       let footerText
       if (ltTotal > 0) {
-        footerText = stripped + `\n\n— ${modelTag} | vibeOS: ${ltTotal.toFixed(2)} saved ${trendIcon} —`
+        footerText = stripped + `\n\n— ${modelTag} | vibeOS: ${formatUsd(ltTotal)} saved ${trendIcon} —`
       } else {
         const brainSuffix = brainTag.replace("]", `${enfSuffixFooter}]`)
         footerText = stripped + `\n\n— ${brainSuffix} —`
@@ -3877,7 +3889,7 @@ export async function DelegationEnforcer({ client, directory }) {
               const sid = String(process.pid || "?")
               const ses = state?.sessions?.[sid]
               const delegationCount = ses?.warns?.length || 0
-              const cacheSavings = (state?.lifetime?.cache_savings_usd || 0).toFixed(2)
+              const cacheSavings = formatUsd(state?.lifetime?.cache_savings_usd || 0)
               const fw = (state?.flow_warns || []).filter(w => String(w.sid) === sid)
               const flowW = fw.filter(w => w.severity === "warn").length
               const flowH = fw.filter(w => w.severity === "hint").length
