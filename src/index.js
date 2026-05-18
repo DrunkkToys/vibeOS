@@ -1,6 +1,6 @@
 /**
  * SPDX-License-Identifier: MIT
- * SPDX-FileCopyrightText: 2026 VibeTheOG <https://github.com/DrunkkToys/VibeTheOG>
+ * SPDX-FileCopyrightText: 2026 vibeOS <https://github.com/DrunkkToys/vibeOS>
  *
  * Delegation Enforcer Plugin — memory-mode, never blocks.
  *
@@ -16,7 +16,7 @@
  *   webfetch/websearch >5     → warn + record (memory)
  *   task/read/glob/grep/...   → free
  *
- * Sister hook: ~/.claude/hooks/VibeTheOG (Claude Code).
+ * Sister hook: ~/.claude/hooks/vibeOS (Claude Code).
  */
 
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, statSync, readdirSync, openSync, readSync, closeSync, rmSync, copyFileSync } from "node:fs"
@@ -26,8 +26,8 @@ import { homedir, tmpdir } from "node:os"
 const USER_HOME = (() => { try { return homedir() } catch { return tmpdir() } })()
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
-import { checkFlowRules, getFlowWarns, getSessionFlowCounts } from "./VibeTheOG-lib/flow-enforcer.js"
-import { computeSessionMetrics } from "./VibeTheOG-lib/session-metrics.js"
+import { checkFlowRules, getFlowWarns, getSessionFlowCounts } from "./vibeOS-lib/flow-enforcer.js"
+import { computeSessionMetrics } from "./vibeOS-lib/session-metrics.js"
 
 // Minimal self-contained tool helper — avoids @opencode-ai/plugin dependency
 // so the plugin works immediately on any install without bun/npm.
@@ -61,7 +61,7 @@ const STATE_FILE = join(USER_HOME, ".claude/delegation-state.json")
 const SAVINGS_LEDGER_FILE = join(USER_HOME, ".claude/savings-ledger.jsonl")
 const GLOBAL_LEARNING_FILE = join(USER_HOME, ".claude/global-learning.json")
 const PRICING_CACHE_FILE = join(USER_HOME, ".claude/model-pricing-cache.json")
-const FILE_LOCK_DIR = join(USER_HOME, ".claude/.VibeTheOG-locks")
+const FILE_LOCK_DIR = join(USER_HOME, ".claude/.vibeOS-locks")
 
 // Dedupe set: assistantMessageIds that already had the savings tag appended
 // during this sidecar's lifetime.
@@ -69,6 +69,8 @@ const textCompletePainted = new Set()
 
 // Max lines before rotating session-reports.log.
 const MAX_LOG_LINES = 500
+const WARN_DEDUPE_WINDOW_MS = 60 * 1000
+const warnLogThrottle = new Map()
 
 // Tier regexes — load from ~/.claude/model-tiers.json (single source of truth
 // shared with the bash hook). Falls back to inline regexes if file missing or
@@ -158,7 +160,7 @@ function writeSelection(key, value) {
     writeFileSync(TIERS_FILE, JSON.stringify(j, null, 2) + "\n")
     return true
   } catch (err) {
-    console.error(`[VibeTheOG] writeSelection failed: ${err.message}`)
+    console.error(`[vibeOS] writeSelection failed: ${err.message}`)
     return false
   }
 }
@@ -247,6 +249,8 @@ const MODEL_USD_PER_TURN = {
   "anthropic/claude-sonnet-4-5":          0.024,
   "anthropic/claude-haiku-4-5":           0.005,
   "anthropic/claude-haiku-4-5-20251001":  0.005,
+  "haiku":                                0.005,
+  "deepseek/haiku":                       0.005,
   "deepseek/deepseek-chat":               0,
   "deepseek-chat":                        0,
   "deepseek/deepseek-v3":                 0,
@@ -343,8 +347,37 @@ export function modelCostPerTurn(model) {
     if (key.startsWith(k) || k.startsWith(key)) return v
   }
   // Log unknown models so we can add entries
-  console.error(`[VibeTheOG] modelCostPerTurn: unknown model '${model}' (normalized: '${key}') — add to MODEL_USD_PER_TURN`)
+  console.error(`[vibeOS] modelCostPerTurn: unknown model '${model}' (normalized: '${key}') — add to MODEL_USD_PER_TURN`)
   return null  // unknown — callers fall back to SAVE_EST constants
+}
+
+function extractFirstWordFromArgs(tool, args) {
+  try {
+    if (!args || typeof args !== "object") return null
+    const pick = (...vals) => vals.find(v => typeof v === "string" && v.trim())
+    const raw = pick(
+      args.prompt, args.query, args.url, args.command, args.cmd,
+      args.oldString, args.newString, args.filePath, args.file_path
+    )
+    if (!raw) return null
+    const token = String(raw).trim().toLowerCase().split(/\s+/)[0] || ""
+    return /^[a-z][a-z0-9_-]{1,24}$/.test(token) ? token : null
+  } catch {
+    return null
+  }
+}
+
+function shouldLogWarn(key, windowMs = WARN_DEDUPE_WINDOW_MS) {
+  const now = Date.now()
+  const prev = warnLogThrottle.get(key) || 0
+  if (now - prev < windowMs) return false
+  warnLogThrottle.set(key, now)
+  if (warnLogThrottle.size > 2000) {
+    for (const [k, ts] of warnLogThrottle.entries()) {
+      if (now - ts > windowMs * 10) warnLogThrottle.delete(k)
+    }
+  }
+  return true
 }
 
 export function isModelFree(model) {
@@ -1039,7 +1072,7 @@ function isSkeletonUseless(content) {
 const TEST_SKELETONS = {
   py: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => {
     const moduleImport = name.replace(/-/g, "_")
-    let content = `# [VibeTheOG-enforced] Skeleton test — replace with real assertions\n`
+    let content = `# [vibeOS-enforced] Skeleton test — replace with real assertions\n`
     content += `import pytest\n`
     content += `from ${moduleImport} import ${exports.length > 0 ? exports.map(e => e.name).join(", ") : moduleImport}\n\n`
     if (depth === "minimal") {
@@ -1077,7 +1110,7 @@ const TEST_SKELETONS = {
   },
   js: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => {
     const importPath = `../${name}`
-    let content = `// [VibeTheOG-enforced] Skeleton test — replace with real assertions\n`
+    let content = `// [vibeOS-enforced] Skeleton test — replace with real assertions\n`
     content += `const { test, expect, describe } = require('@jest/globals');\n`
     content += `const mod = require('${importPath}');\n\n`
     content += `describe('${name}', () => {\n`
@@ -1122,7 +1155,7 @@ const TEST_SKELETONS = {
   },
   mjs: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => {
     const importPath = `../${name}`
-    let content = `// [VibeTheOG-enforced] Skeleton test — replace with real assertions\n`
+    let content = `// [vibeOS-enforced] Skeleton test — replace with real assertions\n`
     content += `import { test, expect, describe } from 'vitest';\n`
     content += `import * as mod from '${importPath}';\n\n`
     content += `describe('${name}', () => {\n`
@@ -1165,7 +1198,7 @@ const TEST_SKELETONS = {
   },
   ts: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => {
     const importPath = `../${name}`
-    let content = `// [VibeTheOG-enforced] Skeleton test — replace with real assertions\n`
+    let content = `// [vibeOS-enforced] Skeleton test — replace with real assertions\n`
     content += `import { test, expect, describe, it } from 'vitest';\n`
     content += `import * as mod from '${importPath}';\n\n`
     content += `describe('${name}', () => {\n`
@@ -1210,7 +1243,7 @@ const TEST_SKELETONS = {
   jsx: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => TEST_SKELETONS.mjs(name, exports, depth, strict, quality, sourceContent),
   go: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => {
     const cap = name.charAt(0).toUpperCase() + name.slice(1)
-    let content = `// [VibeTheOG-enforced] Skeleton test — replace with real assertions\n`
+    let content = `// [vibeOS-enforced] Skeleton test — replace with real assertions\n`
     content += `package main\n\n`
     content += `import "testing"\n\n`
     if (depth === "minimal") {
@@ -1252,7 +1285,7 @@ const TEST_SKELETONS = {
     return content
   },
   sh: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => {
-    let content = `# [VibeTheOG-enforced] Skeleton test — replace with real assertions\n`
+    let content = `# [vibeOS-enforced] Skeleton test — replace with real assertions\n`
     content += `#!/bin/bash\n\n`
     if (depth === "minimal") {
       content += `echo "TODO: implement smoke test for ${name}" && exit 1\n`
@@ -1287,7 +1320,7 @@ const TEST_SKELETONS = {
     return content
   },
   rs: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => {
-    let content = `// [VibeTheOG-enforced] Skeleton test — replace with real assertions\n`
+    let content = `// [vibeOS-enforced] Skeleton test — replace with real assertions\n`
     content += `#[cfg(test)]\nmod tests {\n`
     content += `    use super::*;\n\n`
     if (depth === "minimal") {
@@ -1324,7 +1357,7 @@ const TEST_SKELETONS = {
     return content
   },
   rb: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => {
-    let content = `# [VibeTheOG-enforced] Skeleton test — replace with real assertions\n`
+    let content = `# [vibeOS-enforced] Skeleton test — replace with real assertions\n`
     content += `require 'minitest/autorun'\n`
     content += `require_relative '../${name}'\n\n`
     content += `class Test${name.charAt(0).toUpperCase() + name.slice(1)} < Minitest::Test\n`
@@ -1366,7 +1399,7 @@ const TEST_SKELETONS = {
   },
   java: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => {
     const cap = name.charAt(0).toUpperCase() + name.slice(1)
-    let content = `// [VibeTheOG-enforced] Skeleton test — replace with real assertions\n`
+    let content = `// [vibeOS-enforced] Skeleton test — replace with real assertions\n`
     content += `import org.junit.jupiter.api.Test;\n`
     content += `import static org.junit.jupiter.api.Assertions.*;\n\n`
     content += `class Test${cap} {\n`
@@ -1409,7 +1442,7 @@ const TEST_SKELETONS = {
   },
   kt: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => {
     const cap = name.charAt(0).toUpperCase() + name.slice(1)
-    let content = `// [VibeTheOG-enforced] Skeleton test — replace with real assertions\n`
+    let content = `// [vibeOS-enforced] Skeleton test — replace with real assertions\n`
     content += `import org.junit.jupiter.api.Test\n`
     content += `import org.junit.jupiter.api.Assertions.*\n\n`
     content += `class Test${cap} {\n`
@@ -1585,12 +1618,12 @@ export function enforceTestFile(filePath) {
     // Anti-useless-run guard: warn if content is only placeholders
     const useless = isSkeletonUseless(skeleton.content)
     if (useless) {
-      console.error(`[VibeTheOG] [tdd-enforce] ⚠ WARNING: Generated skeleton at ${skeleton.path} has ONLY placeholder content (no real assertions). Consider turning on quality templates with \`trinity tdd quality on\` or adding manual tests.`)
+      console.error(`[vibeOS] [tdd-enforce] ⚠ WARNING: Generated skeleton at ${skeleton.path} has ONLY placeholder content (no real assertions). Consider turning on quality templates with \`trinity tdd quality on\` or adding manual tests.`)
     }
-    console.error(`[VibeTheOG] [tdd-enforce] Created skeleton: ${skeleton.path}`)
+    console.error(`[vibeOS] [tdd-enforce] Created skeleton: ${skeleton.path}`)
     return resultPath
   } catch (err) {
-    console.error(`[VibeTheOG] [tdd-enforce] Failed to create ${skeleton.path}: ${err.message}`)
+    console.error(`[vibeOS] [tdd-enforce] Failed to create ${skeleton.path}: ${err.message}`)
     return null
   } finally {
     _releaseLock(skeleton.path)
@@ -1618,7 +1651,7 @@ export function buildTestReminder(filePath) {
   return `🧪 Code changed at ${filePath} — add/update tests (suggested: ${suggest}) before marking complete.`
 }
 
-function recordSaving(tool, reason, saveEst) {
+function recordSaving(tool, reason, saveEst, meta = {}) {
   try {
     const state = updateState((s) => {
       const now = new Date().toISOString()
@@ -1631,16 +1664,39 @@ function recordSaving(tool, reason, saveEst) {
       s.sessions[sid] ??= { started: now, source: "opencode", tool_counts: {}, warns: [] }
       s.sessions[sid].session_cache_dir = getSessionScratchpadDir()
       s.sessions[sid].tool_counts[tool] = (s.sessions[sid].tool_counts[tool] || 0) + 1
-      s.sessions[sid].warns.push({ at: now, tool, reason, est_savings_usd: saveEst })
+      const warns = Array.isArray(s.sessions[sid].warns) ? s.sessions[sid].warns : []
+      const last = warns.length > 0 ? warns[warns.length - 1] : null
+      const lastAt = last?.at ? Date.parse(last.at) : 0
+      const nowTs = Date.parse(now)
+      const canMerge = Boolean(
+        last &&
+        last.tool === tool &&
+        last.reason === reason &&
+        Number.isFinite(lastAt) &&
+        Number.isFinite(nowTs) &&
+        (nowTs - lastAt) <= WARN_DEDUPE_WINDOW_MS
+      )
+      if (canMerge) {
+        last.at = now
+        last.count = Number(last.count || 1) + 1
+        last.est_savings_usd = Math.round((Number(last.est_savings_usd || 0) + Number(saveEst || 0)) * 1000) / 1000
+      } else {
+        warns.push({ at: now, tool, reason, est_savings_usd: saveEst, count: 1 })
+      }
+      s.sessions[sid].warns = warns
       if (s.sessions[sid].warns.length > 200) {
         s.sessions[sid].warns = s.sessions[sid].warns.slice(-200)
+      }
+      const firstWord = meta?.firstWord
+      if (firstWord && (tool === "bash" || tool === "webfetch" || tool === "websearch" || tool === "write" || tool === "edit" || tool === "notebookedit")) {
+        try { noteTaskRoutingLearning(firstWord, TRINITY_CHEAP || TRINITY_MEDIUM || "unknown", `observed:${tool}`) } catch {}
       }
       _pruneOldSessions(s)
       return s
     })
     return state?.lifetime?.est_savings_usd ?? null
   } catch (err) {
-    console.error(`[VibeTheOG] state write failed: ${err.message}`)
+    console.error(`[vibeOS] state write failed: ${err.message}`)
     return null
   }
 }
@@ -1679,7 +1735,7 @@ function recordCacheSaving(tool, saveEst, meta = {}) {
       session: state?.sessions?.[sid]?.cache_savings_usd || 0,
     }
   } catch (err) {
-    console.error(`[VibeTheOG] cache state write failed: ${err.message}`)
+    console.error(`[vibeOS] cache state write failed: ${err.message}`)
     return null
   }
 }
@@ -1800,14 +1856,14 @@ function reconcileStateFromLedger() {
     })
     _savingsCache = null
     _savingsCacheMtime = 0
-    console.error(`[VibeTheOG] savings reconciled from ledger: state $${stTotal.toFixed(3)} -> ledger $${l.total.toFixed(3)} (${l.entries} entries)`)
+    console.error(`[vibeOS] savings reconciled from ledger: state $${stTotal.toFixed(3)} -> ledger $${l.total.toFixed(3)} (${l.entries} entries)`)
   } catch (err) {
-    console.error(`[VibeTheOG] ledger reconcile failed: ${err.message}`)
+    console.error(`[vibeOS] ledger reconcile failed: ${err.message}`)
   }
 }
 
 function readLifetimeSavings() {
-  const empty = { ltTasks: 0, ltCache: 0, ltCost: 0, count: 0, scratchpadHits: 0, missedC7: 0, sesTasks: 0, sesEdit: 0, sesCredit: 0, sesC7: 0, sesQuota: 0, sesDuration: 0, sesRatePerHour: 0, sesTrend: "stable", sesToolBreakdown: {}, sesModelTurns: { brain: 0, worker: 0 } }
+  const empty = { ltTasks: 0, ltCache: 0, ltCost: 0, count: 0, scratchpadHits: 0, missedC7: 0, sesTasks: 0, sesEdit: 0, sesCredit: 0, sesC7: 0, sesQuota: 0, sesTaskDelegations: 0, sesDuration: 0, sesRatePerHour: 0, sesTrend: "stable", sesToolBreakdown: {}, sesModelTurns: { brain: 0, worker: 0 } }
   try {
     reconcileStateFromLedger()
     if (!existsSync(STATE_FILE)) return empty
@@ -1815,6 +1871,7 @@ function readLifetimeSavings() {
     if (_savingsCache && mtime === _savingsCacheMtime) return _savingsCache
     const s = JSON.parse(readFileSync(STATE_FILE, "utf-8"))
     _savingsCache = computeSessionMetrics(s, _OC_SID)
+    _savingsCache.sesTaskDelegations = _savingsCache.sesTaskDelegations ?? _savingsCache.count ?? 0
     _savingsCacheMtime = mtime
     return _savingsCache
   } catch { return empty }
@@ -1894,7 +1951,7 @@ function indexAppend(hash, tool, size, extra) {
     appendFileSync(globalIndex, entry)
     appendFileSync(sessionIndex, entry)
   } catch (err) {
-    console.error(`[VibeTheOG] index write failed: ${err.message}`)
+    console.error(`[vibeOS] index write failed: ${err.message}`)
   }
 }
 
@@ -1998,10 +2055,10 @@ function applyDecadence() {
         rotate: false,
       })
       if (ses.deleted > 0) {
-        console.error(`[VibeTheOG] 📦 session-decadence: deleted=${ses.deleted} (${ses.dataFiles} files, ${Math.round(ses.totalBytes/1024)}KB)`)
+        console.error(`[vibeOS] 📦 session-decadence: deleted=${ses.deleted} (${ses.dataFiles} files, ${Math.round(ses.totalBytes/1024)}KB)`)
       }
     } catch (err) {
-      console.error(`[VibeTheOG] session decadence error: ${err.message}`)
+      console.error(`[vibeOS] session decadence error: ${err.message}`)
     }
   }
   if (now - _lastGlobalDecadenceRun >= DECADENCE_GLOBAL_THROTTLE_MS) {
@@ -2017,10 +2074,10 @@ function applyDecadence() {
         const action = []
         if (global.rotated > 0) action.push(`rotated=${global.rotated}`)
         if (global.deleted > 0) action.push(`deleted=${global.deleted}`)
-        console.error(`[VibeTheOG] 📦 global-decadence: ${action.join(" ")} (${global.dataFiles} files, ${Math.round(global.totalBytes/1024)}KB)`)
+        console.error(`[vibeOS] 📦 global-decadence: ${action.join(" ")} (${global.dataFiles} files, ${Math.round(global.totalBytes/1024)}KB)`)
       }
     } catch (err) {
-      console.error(`[VibeTheOG] global decadence error: ${err.message}`)
+      console.error(`[vibeOS] global decadence error: ${err.message}`)
     }
   }
 }
@@ -2123,7 +2180,7 @@ function compressText(text) {
   }
 
   if (removed > 0 || result !== collapsed.join("\n").trim()) {
-    console.error(`[VibeTheOG] COMPRESS: ${text.length}→${result.length} chars (${removed} verbose lines stripped)`)
+    console.error(`[vibeOS] COMPRESS: ${text.length}→${result.length} chars (${removed} verbose lines stripped)`)
   }
   return result || text // never return empty if original wasn't
 }
@@ -2162,7 +2219,7 @@ function pruneScratchpadOnce() {
       const sum = txtFiles[i].replace(".txt", ".summary.txt")
       if (existsSync(sum)) try { rmSync(sum) } catch {}
     }
-    console.error(`[VibeTheOG] pruned ${remove} scratchpad files (${txtFiles.length} → ${txtFiles.length - remove})`)
+    console.error(`[vibeOS] pruned ${remove} scratchpad files (${txtFiles.length} → ${txtFiles.length - remove})`)
   } catch {}
 }
 
@@ -2193,7 +2250,7 @@ function saveProjectState(state) {
       writeFileSync(PROJECT_STATE_FILE, JSON.stringify(state, null, 2) + "\n")
     })
   } catch (err) {
-    console.error(`[VibeTheOG] project state write failed: ${err.message}`)
+    console.error(`[vibeOS] project state write failed: ${err.message}`)
   }
 }
 
@@ -2265,7 +2322,7 @@ function _refreshModel(directory) {
     // Skip placeholder models (e.g. "provider/high-tier-model") — use auto-detected model instead
     if (slotOcModel && PLACEHOLDER_RE.test(slotOcModel)) {
       slotOcModel = ""
-      console.error(`[VibeTheOG] placeholder model detected in ${activeSlot} slot — skipping, will auto-detect`)
+      console.error(`[vibeOS] placeholder model detected in ${activeSlot} slot — skipping, will auto-detect`)
     }
     if (slotOcModel) {
       // Always derive tier from active slot so footer/env reflect slot changes,
@@ -2278,7 +2335,7 @@ function _refreshModel(directory) {
         const oldTier = currentTier
         currentModel = slotOcModel
         currentTier = nextTier
-        console.error(`[VibeTheOG] model refresh: ${oldModel}(${oldTier}) → ${currentModel}(${currentTier}) (slot=${activeSlot})`)
+        console.error(`[vibeOS] model refresh: ${oldModel}(${oldTier}) → ${currentModel}(${currentTier}) (slot=${activeSlot})`)
       }
     }
     // If no model from tiers and no existing currentModel, try to auto-detect
@@ -2287,14 +2344,14 @@ function _refreshModel(directory) {
       if (detected) {
         currentModel = detected
         currentTier = classify(currentModel)
-        console.error(`[VibeTheOG] auto-detected model: ${currentModel} (tier=${currentTier})`)
+        console.error(`[vibeOS] auto-detected model: ${currentModel} (tier=${currentTier})`)
       }
     }
   } catch {}
 }
 
 export async function DelegationEnforcer({ client, directory }) {
-  console.error(`[VibeTheOG] LOADED cwd=${directory}`)
+  console.error(`[vibeOS] LOADED cwd=${directory}`)
   registerSessionCleanupHandlers()
   pruneScratchpadOnce()
 
@@ -2318,14 +2375,14 @@ export async function DelegationEnforcer({ client, directory }) {
           const cost = modelCostPerTurn(_brainOcModel)
           if (HIGH_TIER_RE.test(_brainOcModel) || (cost !== null && cost >= 0.01)) {
             currentTier = "high"
-            console.error(`[VibeTheOG] tier override → high (brain slot)`)
+            console.error(`[vibeOS] tier override → high (brain slot)`)
           }
         }
       }
     } catch {}
-    console.error(`[VibeTheOG] ACTIVE: model=${currentModel} tier=${currentTier}`)
+    console.error(`[vibeOS] ACTIVE: model=${currentModel} tier=${currentTier}`)
   } else {
-    console.error("[VibeTheOG] NO MODEL — enforcement disabled, will auto-detect on first hook")
+    console.error("[vibeOS] NO MODEL — enforcement disabled, will auto-detect on first hook")
   }
   // Auto-configure model-tiers.json — always syncs with opencode desktop config.
   // Sniffs ALL models from the user's opencode.json (provider dropdown + model field).
@@ -2401,7 +2458,7 @@ export async function DelegationEnforcer({ client, directory }) {
       if (_didWrite) {
         mkdirSync(dirname(TIERS_FILE), { recursive: true })
         writeFileSync(TIERS_FILE, JSON.stringify(_tiersData, null, 2) + "\n")
-        console.error(`[VibeTheOG] auto-synced model-tiers.json: brain=${_brain.id} medium=${_tiersData.trinity?.medium?.oc || ""} cheap=${_tiersData.trinity?.cheap?.oc || ""}`)
+        console.error(`[vibeOS] auto-synced model-tiers.json: brain=${_brain.id} medium=${_tiersData.trinity?.medium?.oc || ""} cheap=${_tiersData.trinity?.cheap?.oc || ""}`)
         // Refresh in-memory trinity models immediately so routing works this session
         const _refreshed = loadTrinityModels()
         TRINITY_CHEAP  = _refreshed.cheap
@@ -2409,7 +2466,7 @@ export async function DelegationEnforcer({ client, directory }) {
       }
     } catch {}
   }
-  if (detectContext7()) console.error(`[VibeTheOG] context7 detected — docs nudge enabled`)
+  if (detectContext7()) console.error(`[vibeOS] context7 detected — docs nudge enabled`)
 
   // ── Project memory: increment session counter ───────────────────
   const fp = projectFingerprint(directory)
@@ -2422,9 +2479,9 @@ export async function DelegationEnforcer({ client, directory }) {
     bucket.totalSessions = (bucket.totalSessions || 0) + 1
     bucket.lastSeen = new Date().toISOString()
     saveProjectState(state)
-    console.error(`[VibeTheOG] project-memory: ${fp} now ${bucket.totalSessions} sessions`)
+    console.error(`[vibeOS] project-memory: ${fp} now ${bucket.totalSessions} sessions`)
   } catch (err) {
-    console.error(`[VibeTheOG] project-memory init failed for ${fp}: ${err.message}`)
+    console.error(`[vibeOS] project-memory init failed for ${fp}: ${err.message}`)
   }
 
   // ── Shared footer logic for text.complete + message.updated ──────
@@ -2438,7 +2495,7 @@ export async function DelegationEnforcer({ client, directory }) {
         if (cfg) {
           currentModel = String(cfg)
           currentTier = classify(currentModel)
-          console.error(`[VibeTheOG] client-detected model: ${currentModel} (tier=${currentTier})`)
+          console.error(`[vibeOS] client-detected model: ${currentModel} (tier=${currentTier})`)
         }
       } catch { /* client.config may not be available */ }
     }
@@ -2459,7 +2516,7 @@ export async function DelegationEnforcer({ client, directory }) {
         typeof output?.result === "string" ? output.result :
         typeof output?.content === "string" ? output.content :
         ""
-      const { ltTasks, ltCache, ltCost, count, sesTasks, sesEdit, sesCredit, sesC7, sesQuota, sesDuration, sesRatePerHour, sesTrend, sesToolBreakdown, sesModelTurns } = readLifetimeSavings()
+      const { ltTasks, ltCache, ltCost, count, sesTasks, sesEdit, sesCredit, sesC7, sesQuota, sesTaskDelegations, sesDuration, sesRatePerHour, sesTrend, sesToolBreakdown, sesModelTurns } = readLifetimeSavings()
       const brainTag = currentModel ? modelToSlotLabel(currentModel, currentTier) : (currentTier ? `[${currentTier.charAt(0).toUpperCase() + currentTier.slice(1)}]` : "[???]")
 
       textCompletePainted.add(messageID)
@@ -2497,11 +2554,24 @@ export async function DelegationEnforcer({ client, directory }) {
         try {
           saveReport({
             type: "session",
-            summary: "Session cost: $" + ltCost.toFixed(2) + " | saved: $" + ltCache.toFixed(2) + " | " + sesTasks + " tasks",
-            metrics: { sessionCost: ltCost, cacheSavings: ltCache, tasksDelegated: sesTasks, model: currentModel, slot: loadSelection().active_slot || "unknown", editSavings: sesEdit, creditSavings: sesCredit, context7Savings: sesC7, quotaSavings: sesQuota },
+            summary: "Session cost: $" + ltCost.toFixed(2) + " | cache saved: $" + ltCache.toFixed(2) + " | delegation saved: $" + Number(sesTasks || 0).toFixed(3) + " | task delegations: " + Number(sesTaskDelegations || 0),
+            metrics: {
+              sessionCost: ltCost,
+              cacheSavings: ltCache,
+              delegationSavingsUsd: sesTasks,
+              taskDelegationCount: sesTaskDelegations,
+              // Backward compatibility (legacy field historically misnamed)
+              tasksDelegated: sesTaskDelegations,
+              model: currentModel,
+              slot: loadSelection().active_slot || "unknown",
+              editSavings: sesEdit,
+              creditSavings: sesCredit,
+              context7Savings: sesC7,
+              quotaSavings: sesQuota,
+            },
             tags: ["auto", "cost"],
           })
-        } catch (e) { console.error("[VibeTheOG] auto-report:", e.message) }
+        } catch (e) { console.error("[vibeOS] auto-report:", e.message) }
       }
 
       const stripped = text.replace(/\n\n— .+(?: —)?$/, "")
@@ -2509,7 +2579,7 @@ export async function DelegationEnforcer({ client, directory }) {
       const trendIcon = sesTrend === "down" ? "↓" : sesTrend === "up" ? "↑" : "→"
       let footerText
       if (ltTotal > 0) {
-        footerText = stripped + `\n\n— ${modelTag} | VibeTheOG: ${ltTotal.toFixed(2)} saved ${trendIcon} —`
+        footerText = stripped + `\n\n— ${modelTag} | vibeOS: ${ltTotal.toFixed(2)} saved ${trendIcon} —`
       } else {
         footerText = stripped + `\n\n— ${brainTag} —`
       }
@@ -2521,7 +2591,7 @@ export async function DelegationEnforcer({ client, directory }) {
       if (ltTotal > 0 || ltCache > 0) {
         try {
           const _ltFmt = ltTotal.toFixed(2)
-          const _reportLine = `— ${modelTag} VibeTheOG: $${_ltFmt} saved ${trendIcon} —`
+          const _reportLine = `— ${modelTag} vibeOS: $${_ltFmt} saved ${trendIcon} —`
           writeFileSync(join(USER_HOME, ".claude/session-report-pending.md"), _reportLine)
           const logPath = join(USER_HOME, ".claude/session-reports.log")
           const pid = process.pid || "?"
@@ -2534,7 +2604,7 @@ export async function DelegationEnforcer({ client, directory }) {
         } catch {}
       }
     } catch (err) {
-      console.error(`[VibeTheOG] footer failed: ${err.message}`)
+      console.error(`[vibeOS] footer failed: ${err.message}`)
     }
   }
 
@@ -2560,7 +2630,7 @@ export async function DelegationEnforcer({ client, directory }) {
           const cacheSaved = recordCacheSaving(t, _cacheSave, { hash: hit.hash })
           const sumNote = hit.summaryPath ? ` (summary: ${hit.summaryPath})` : ""
           const cacheNote = cacheSaved ? `, cache+$${(cacheSaved.lifetime || 0).toFixed(3)} lt` : ""
-          console.error(`[VibeTheOG] 📦 scratchpad hit for ${t}: ${hit.fullPath} ${hit.sizeBytes}B ${hit.ageSec}s old${sumNote} — total observed: ${total ?? "?"}${cacheNote}`)
+          console.error(`[vibeOS] 📦 scratchpad hit for ${t}: ${hit.fullPath} ${hit.sizeBytes}B ${hit.ageSec}s old${sumNote} — total observed: ${total ?? "?"}${cacheNote}`)
         }
       }
 
@@ -2569,7 +2639,7 @@ export async function DelegationEnforcer({ client, directory }) {
       if (_credit < 40 && t === "task" && TRINITY_CHEAP && args && typeof args === "object") {
         if (args.model !== TRINITY_CHEAP) {
           args.model = TRINITY_CHEAP
-          console.error(`[VibeTheOG] 🔀 Credit ${_credit}%: forcing Task → cheap slot (${TRINITY_CHEAP})`)
+          console.error(`[vibeOS] 🔀 Credit ${_credit}%: forcing Task → cheap slot (${TRINITY_CHEAP})`)
         }
         return
       }
@@ -2620,13 +2690,13 @@ export async function DelegationEnforcer({ client, directory }) {
               if (switched?.ok) {
                 currentModel = switched.ocModel
                 currentTier = classify(currentModel)
-                console.error(`[VibeTheOG] 🔁 task workaround: switched global slot ${taskSlotRestore} → ${desiredSlot}`)
+                console.error(`[vibeOS] 🔁 task workaround: switched global slot ${taskSlotRestore} → ${desiredSlot}`)
               } else {
                 taskSlotRestore = null
               }
             }
           } catch {}
-          console.error(`[VibeTheOG] 🔀 Task → ${_target} (${_reason}, orchestrator: ${currentModel})`)
+          console.error(`[vibeOS] 🔀 Task → ${_target} (${_reason}, orchestrator: ${currentModel})`)
         }
       }
 
@@ -2646,13 +2716,14 @@ export async function DelegationEnforcer({ client, directory }) {
       const _estOpus    = _brainCost !== null ? Math.max(_brainCost, _estEdit) : SAVE_EST.OPUS_DISABLE
       const _estC7      = _brainCost !== null ? Math.max(_brainCost, SAVE_EST.CONTEXT7) : SAVE_EST.CONTEXT7
       const _tierWord   = currentTier === "high" ? "Brain" : currentTier === "mid" ? "Medium" : "Budget"
+      const _firstWord = extractFirstWordFromArgs(t, args || inArgs)
 
       // Credit < 40%: non-task tool — record and nudge to step aside.
       if (_credit < 40) {
-        const total = recordSaving(t, "credit<40% high-tier", _estOpus)
+        const total = recordSaving(t, "credit<40% high-tier", _estOpus, { firstWord: _firstWord })
         const trend = trendDisplay(readLifetimeSavings().sesTrend)
-        const msg = `⚠ [VibeTheOG] Low credit (${_credit}%) — ${_tierWord} model running ${t} directly. Switch to a cheaper tier: \`trinity medium\`. Saves ~$${_estOpus.toFixed(3)}/turn. (cumulative: $${(total ?? 0).toFixed(2)}, trend: ${trend})`
-        console.error(`[VibeTheOG] [delegation] ${msg}`)
+        const msg = `⚠ [vibeOS] Low credit (${_credit}%) — ${_tierWord} model running ${t} directly. Switch to a cheaper tier: \`trinity medium\`. Saves ~$${_estOpus.toFixed(3)}/turn. (cumulative: $${(total ?? 0).toFixed(2)}, trend: ${trend})`
+        if (shouldLogWarn(`${t}|credit|${_tierWord}`)) console.error(`[vibeOS] [delegation] ${msg}`)
         pendingUiNote = msg
         return
       }
@@ -2669,15 +2740,15 @@ export async function DelegationEnforcer({ client, directory }) {
           } else if (t === "edit" || t === "notebookedit") {
             args.oldString = `__THE_SAVER_ENFORCEMENT_BLOCK_${Date.now()}__`
           }
-          const total = recordSaving(t, "delegation enforced", _estEdit)
-          pendingUiNote = `🚫 [VibeTheOG ENFORCEMENT] Direct ${t} blocked on ${_tierWord} tier. Use \`trinity medium\` to switch tiers, or \`trinity enforce off\` to disable. Delegate via Task subagent instead. (cumulative: $${(total ?? 0).toFixed(2)})`
+          const total = recordSaving(t, "delegation enforced", _estEdit, { firstWord: _firstWord })
+          pendingUiNote = `🚫 [vibeOS ENFORCEMENT] Direct ${t} blocked on ${_tierWord} tier. Use \`trinity medium\` to switch tiers, or \`trinity enforce off\` to disable. Delegate via Task subagent instead. (cumulative: $${(total ?? 0).toFixed(2)})`
           enforcementBlocked = true
-          console.error(`[VibeTheOG] [enforcement] BLOCKED direct ${t} on high tier → delegate via Task`)
+          if (shouldLogWarn(`${t}|enforced|${_tierWord}`)) console.error(`[vibeOS] [enforcement] BLOCKED direct ${t} on high tier → delegate via Task`)
           return
         }
-        const total = recordSaving(t, "direct edit", _estEdit)
-        const msg = `⚠ [VibeTheOG] ${_tierWord} model running ${t} directly — delegate via Task to save ~$${_estEdit.toFixed(3)}/turn. Use \`trinity medium\` to switch tiers. (cumulative: $${(total ?? 0).toFixed(2)})`
-        console.error(`[VibeTheOG] [delegation] ${msg}`)
+        const total = recordSaving(t, "direct edit", _estEdit, { firstWord: _firstWord })
+        const msg = `⚠ [vibeOS] ${_tierWord} model running ${t} directly — delegate via Task to save ~$${_estEdit.toFixed(3)}/turn. Use \`trinity medium\` to switch tiers. (cumulative: $${(total ?? 0).toFixed(2)})`
+        if (shouldLogWarn(`${t}|direct|${_tierWord}`)) console.error(`[vibeOS] [delegation] ${msg}`)
         pendingUiNote = msg
         return
       }
@@ -2690,8 +2761,8 @@ export async function DelegationEnforcer({ client, directory }) {
             context7Seen.add(target)
             // Re-check each time — context7 might be added mid-session
             if (detectContext7()) {
-              const total = recordSaving(t, "docs-target without context7", _estC7)
-              console.error(`[VibeTheOG] [cost policy] Context7 tools available — use them for library/framework docs instead of ${t}. Saves ~$${_estC7.toFixed(3)}/turn. (cumulative: $${(total ?? 0).toFixed(2)})`)
+              const total = recordSaving(t, "docs-target without context7", _estC7, { firstWord: _firstWord })
+              console.error(`[vibeOS] [cost policy] Context7 tools available — use them for library/framework docs instead of ${t}. Saves ~$${_estC7.toFixed(3)}/turn. (cumulative: $${(total ?? 0).toFixed(2)})`)
             } else {
               const missed = recordMissedContext7(_estC7)
               if (!existsSync(CONTEXT7_INSTALL_FLAG)) {
@@ -2699,10 +2770,10 @@ export async function DelegationEnforcer({ client, directory }) {
                   mkdirSync(dirname(CONTEXT7_INSTALL_FLAG), { recursive: true })
                   writeFileSync(CONTEXT7_INSTALL_FLAG, "")
                 } catch {}
-                console.error(`[VibeTheOG] 💡 [one-time tip] Installing context7 MCP would save ~$${_estC7.toFixed(3)}/turn on docs lookups. Setup: \`claude mcp add context7 npx @upstash/context7-mcp\`. Won't ask again.`)
+                console.error(`[vibeOS] 💡 [one-time tip] Installing context7 MCP would save ~$${_estC7.toFixed(3)}/turn on docs lookups. Setup: \`claude mcp add context7 npx @upstash/context7-mcp\`. Won't ask again.`)
               } else if (!context7AlertedThisSession) {
                 context7AlertedThisSession = true
-                console.error(`[VibeTheOG] 💸 [context7] Missed savings so far: $${(missed ?? 0).toFixed(2)} across docs lookups. Install when ready.`)
+                console.error(`[vibeOS] 💸 [context7] Missed savings so far: $${(missed ?? 0).toFixed(2)} across docs lookups. Install when ready.`)
               }
             }
           }
@@ -2712,9 +2783,9 @@ export async function DelegationEnforcer({ client, directory }) {
         const n = softQuotaCounts[t]
         if (n === SOFT_QUOTA_LIMIT + 1) {
           const total = recordSaving(t, `soft quota exceeded (limit ${SOFT_QUOTA_LIMIT})`, SAVE_EST.SOFT_QUOTA)
-          console.error(`[VibeTheOG] [delegation] ${t} #${n} (limit ${SOFT_QUOTA_LIMIT}) — consider Task subagent.`)
+          console.error(`[vibeOS] [delegation] ${t} #${n} (limit ${SOFT_QUOTA_LIMIT}) — consider Task subagent.`)
         } else if (n <= SOFT_QUOTA_LIMIT) {
-          console.error(`[VibeTheOG] ${t} ${n}/${SOFT_QUOTA_LIMIT}`)
+          console.error(`[vibeOS] ${t} ${n}/${SOFT_QUOTA_LIMIT}`)
         }
         return
       }
@@ -2760,7 +2831,7 @@ export async function DelegationEnforcer({ client, directory }) {
           if (back?.ok) {
             currentModel = back.ocModel
             currentTier = classify(currentModel)
-            console.error(`[VibeTheOG] 🔁 task workaround: restored global slot → ${taskSlotRestore}`)
+            console.error(`[vibeOS] 🔁 task workaround: restored global slot → ${taskSlotRestore}`)
           }
         } catch {}
         taskSlotRestore = null
@@ -2779,7 +2850,7 @@ export async function DelegationEnforcer({ client, directory }) {
           const note = `\n\n[test-reminder] ${reminder}`
           if (typeof output?.text === "string") output.text += note
           else if (typeof output?.result === "string") output.result += note
-          else console.error(`[VibeTheOG] ${reminder}`)
+          else console.error(`[vibeOS] ${reminder}`)
         }
 
         // TDD enforcement: auto-create skeleton test if enabled and no test exists.
@@ -2796,7 +2867,7 @@ export async function DelegationEnforcer({ client, directory }) {
             else if (typeof output?.result === "string") output.result += enforceNote
           }
         } else if (sel.tdd_enforce && !isTestPath) {
-          console.error(`[VibeTheOG] [tdd-enforce] skipped auto-skeleton for ${fp} (no explicit test intent in latest user request)`)
+          console.error(`[vibeOS] [tdd-enforce] skipped auto-skeleton for ${fp} (no explicit test intent in latest user request)`)
         }
 
         // Detect test-file follow-up edits (telemetry)
@@ -2827,7 +2898,7 @@ export async function DelegationEnforcer({ client, directory }) {
           }
           // Flow enforcement: extract TODO/FIXME to queue when flow_enforce is on.
           if (sel.flow_enforce) {
-            const { recordFlowTodo } = await import("./VibeTheOG-lib/flow-enforcer.js")
+            const { recordFlowTodo } = await import("./vibeOS-lib/flow-enforcer.js")
             for (const h of flowHits) {
               if (h.id === "todo-comment" && !h.deduped) {
                 recordFlowTodo({ filePath, content })
@@ -2915,7 +2986,7 @@ export async function DelegationEnforcer({ client, directory }) {
                 indexAppend(hash, part.tool, raw.length)
               }
             } catch (err) {
-              console.error(`[VibeTheOG] ctx-compress write failed: ${err.message}`)
+              console.error(`[vibeOS] ctx-compress write failed: ${err.message}`)
               continue
             }
 
@@ -2928,11 +2999,11 @@ export async function DelegationEnforcer({ client, directory }) {
 
             state.output = ref
             compressedBytes += raw.length - ref.length
-            console.error(`[VibeTheOG] 📦 ctx-compress: ${raw.length}→${ref.length} chars (hash: ${hash})`)
+            console.error(`[vibeOS] 📦 ctx-compress: ${raw.length}→${ref.length} chars (hash: ${hash})`)
           }
         }
         if (compressedBytes > 0) {
-          console.error(`[VibeTheOG] 📦 ctx-compress total saved this transform: ~${Math.round(compressedBytes / 4)} tokens`)
+          console.error(`[vibeOS] 📦 ctx-compress total saved this transform: ~${Math.round(compressedBytes / 4)} tokens`)
         }
 
         // ── Worker-to-Brain Report Protocol ───────────────────────────────
@@ -2970,7 +3041,7 @@ export async function DelegationEnforcer({ client, directory }) {
         // ── Progressive decadence — age-based cache rotation ──────
         applyDecadence()
       } catch (err) {
-        console.error(`[VibeTheOG] messages.transform failed: ${err.message}`)
+        console.error(`[vibeOS] messages.transform failed: ${err.message}`)
       }
     },
 
@@ -3019,15 +3090,15 @@ export async function DelegationEnforcer({ client, directory }) {
 
         if (output && Array.isArray(output.context)) {
           output.context.push({ role: "user", content: note })
-          output.context.push({ role: "user", content: `[VibeTheOG] session cache dir: ${getSessionScratchpadDir()} (cleanup on exit enabled)` })
+          output.context.push({ role: "user", content: `[vibeOS] session cache dir: ${getSessionScratchpadDir()} (cleanup on exit enabled)` })
         } else if (output) {
           output.context = [
             { role: "user", content: note },
-            { role: "user", content: `[VibeTheOG] session cache dir: ${getSessionScratchpadDir()} (cleanup on exit enabled)` },
+            { role: "user", content: `[vibeOS] session cache dir: ${getSessionScratchpadDir()} (cleanup on exit enabled)` },
           ]
         }
       } catch (err) {
-        console.error(`[VibeTheOG] session.compacting failed: ${err.message}`)
+        console.error(`[vibeOS] session.compacting failed: ${err.message}`)
       }
     },
 
@@ -3075,7 +3146,7 @@ export async function DelegationEnforcer({ client, directory }) {
             `The latest user request appears off-topic relative to this running job. ` +
             `Before taking write/edit/task actions, ask one concise confirmation question to validate switching scope.`
           if (Array.isArray(output?.system)) output.system.push(offTopicDirective)
-          console.error("[VibeTheOG] [job-focus] off-topic request detected vs active job context")
+          console.error("[vibeOS] [job-focus] off-topic request detected vs active job context")
         }
 
         // AI ORCHESTRATOR AGENT — injected for all tiers.
@@ -3090,7 +3161,7 @@ export async function DelegationEnforcer({ client, directory }) {
             `[AI ORCHESTRATOR AGENT] You are an AI orchestrator agent. ` +
             `Delegate heavy work to Task subagents (runs on ${cheapModel} or ${mediumModel}). ` +
             `Your role: verify, fill gaps, synthesize.${enforcementNote}` +
-            `Always display the VibeTheOG cost footer.`
+            `Always display the vibeOS cost footer.`
 
           if (Array.isArray(output?.system)) output.system.push(orcDirective)
         }
@@ -3101,11 +3172,11 @@ export async function DelegationEnforcer({ client, directory }) {
           if (briefing && Array.isArray(output?.system)) {
             output.system.push(briefing)
             briefedProjects.add(fp)
-            console.error(`[VibeTheOG] project-memory: briefing injected for ${fp}`)
+            console.error(`[vibeOS] project-memory: briefing injected for ${fp}`)
           }
         }
 
-        // VibeTheOG welcome banner — one-shot per project fingerprint
+        // vibeOS welcome banner — one-shot per project fingerprint
         if (!briefedProjects.has("trinity_welcome_" + fp)) {
           if (Array.isArray(output?.system)) {
             const sel = loadSelection()
@@ -3114,7 +3185,7 @@ export async function DelegationEnforcer({ client, directory }) {
             const active = sel.active_slot || "medium"
             const current = currentModel || "(unknown)"
             const trinityTip =
-              "[VibeTheOG] Active plugin. Slot: " + active + " (" + current + "). " +
+              "[vibeOS] Active plugin. Slot: " + active + " (" + current + "). " +
               "Use trinity command to switch slots, rebuild, or check status. " +
               "Run \`trinity help\` for all commands."
             output.system.push(trinityTip)
@@ -3122,7 +3193,7 @@ export async function DelegationEnforcer({ client, directory }) {
           }
         }
       } catch (err) {
-        console.error(`[VibeTheOG] system.transform failed: ${err.message}`)
+        console.error(`[vibeOS] system.transform failed: ${err.message}`)
       }
     },
 
@@ -3136,7 +3207,7 @@ export async function DelegationEnforcer({ client, directory }) {
     tool: {
       trinity: tool({
         description:
-          "Control the VibeTheOG plugin and active model slot. " +
+          "Control the vibeOS plugin and active model slot. " +
           "Use action='status' to see current state. " +
           "Use action='enable' or 'disable' to toggle the plugin (takes effect immediately, no restart needed). " +
           "Use action='set' with slot='brain'|'medium'|'cheap' to switch model tiers " +
@@ -3482,7 +3553,7 @@ export async function DelegationEnforcer({ client, directory }) {
             } catch (err) {
               return "\u274c Failed to write model-tiers.json: " + err.message
             }
-            try { applySlot("brain") } catch (e) { console.error("[VibeTheOG] auto-activate brain failed:", e.message) }
+            try { applySlot("brain") } catch (e) { console.error("[vibeOS] auto-activate brain failed:", e.message) }
             const lines = [
               "\ud83d\udd0d Auto-detected models from configured providers:",
               "  \ud83e\udde0 brain  \u2192 " + probed.brain.id + " (tier: " + probed.brain.tier + ", $" + probed.brain.cost.toFixed(4) + "/turn) \u2705",
@@ -3594,7 +3665,7 @@ export async function DelegationEnforcer({ client, directory }) {
 
             const okCount = results.filter(r => r.ok).length
             const lines = [
-              "\ud83d\udd0d  VibeTheOG \u2014 Self Diagnostic",
+              "\ud83d\udd0d  vibeOS \u2014 Self Diagnostic",
               "=".repeat(40),
               ""
             ]
@@ -3693,7 +3764,7 @@ export async function DelegationEnforcer({ client, directory }) {
             const L = "\u2501"
             const lines = [
               L.repeat(48),
-              "  \ud83d\udca1 VibeTheOG \u2014 trinity commands",
+              "  \ud83d\udca1 vibeOS \u2014 trinity commands",
               L.repeat(48),
               "",
               "  trinity                          Show current status",
@@ -3759,7 +3830,7 @@ export async function DelegationEnforcer({ client, directory }) {
             }
             saveProjectState(state)
           } catch (err) {
-            console.error(`[VibeTheOG] project-memory update failed: ${err.message}`)
+            console.error(`[vibeOS] project-memory update failed: ${err.message}`)
           }
 
           // Auto-save as report (must be BEFORE early return for totalFetches=0)
@@ -3889,7 +3960,9 @@ export async function DelegationEnforcer({ client, directory }) {
             if (m.slot) lines.push("  🎯 Slot: " + m.slot)
             if (m.sessionCost != null) lines.push("  💰 Cost: $" + Number(m.sessionCost).toFixed(2))
             if (m.cacheSavings != null) lines.push("  💸 Cache saved: $" + Number(m.cacheSavings).toFixed(2))
-            if (m.tasksDelegated != null) lines.push("  🛒 Tasks delegated: " + m.tasksDelegated)
+            if (m.taskDelegationCount != null) lines.push("  🛒 Task delegations: " + Number(m.taskDelegationCount))
+            if (m.delegationSavingsUsd != null) lines.push("  🧾 Delegation savings: -$" + Number(m.delegationSavingsUsd).toFixed(2))
+            else if (m.tasksDelegated != null) lines.push("  🛒 Tasks delegated: " + m.tasksDelegated)
             if (m.editSavings != null) lines.push("  ✏️ Edit savings: -$" + Number(m.editSavings).toFixed(2))
             if (m.creditSavings != null) lines.push("  💳 Credit savings: -$" + Number(m.creditSavings).toFixed(2))
             if (m.context7Savings != null) lines.push("  🔍 C7 savings: -$" + Number(m.context7Savings).toFixed(2))
@@ -3904,9 +3977,9 @@ export async function DelegationEnforcer({ client, directory }) {
   }
 }
 
-export const id = "VibeTheOG"
+export const id = "vibeOS"
 export const server = DelegationEnforcer
-export default { id: "VibeTheOG", server: DelegationEnforcer }
+export default { id: "vibeOS", server: DelegationEnforcer }
 
 // ── Research audit — lightweight session scan ───────────────────────
 // Scans the scratchpad index and session state for WebFetch/WebSearch
@@ -3988,7 +4061,7 @@ export function researchAudit({ hours = 24, session: sessionFilter } = {}) {
       }
     }
   } catch (err) {
-    console.error(`[VibeTheOG] researchAudit index scan failed: ${err.message}`)
+    console.error(`[vibeOS] researchAudit index scan failed: ${err.message}`)
   }
 
   // 2. Session state for tool_counts and context7 bypass
@@ -4008,7 +4081,7 @@ export function researchAudit({ hours = 24, session: sessionFilter } = {}) {
       }
     }
   } catch (err) {
-    console.error(`[VibeTheOG] researchAudit state scan failed: ${err.message}`)
+    console.error(`[vibeOS] researchAudit state scan failed: ${err.message}`)
   }
 
   // 3. Estimated cost: ~$0.001 per fetch for brain model
@@ -4046,7 +4119,7 @@ function saveReportsIndex(idx) {
       writeFileSync(REPORTS_INDEX, JSON.stringify(idx, null, 2) + "\n")
     })
   } catch (err) {
-    console.error(`[VibeTheOG] reports index write failed: ${err.message}`)
+    console.error(`[vibeOS] reports index write failed: ${err.message}`)
   }
 }
 
@@ -4093,10 +4166,10 @@ function _pruneReports() {
     if (pruned.length !== idx.reports.length) {
       idx.reports = pruned
       saveReportsIndex(idx)
-      console.error(`[VibeTheOG] reports pruned: ${idx.reports.length} kept (from ${keep.length})`)
+      console.error(`[vibeOS] reports pruned: ${idx.reports.length} kept (from ${keep.length})`)
     }
   } catch (err) {
-    console.error(`[VibeTheOG] reports prune failed: ${err.message}`)
+    console.error(`[vibeOS] reports prune failed: ${err.message}`)
   }
 }
 
@@ -4150,7 +4223,7 @@ export function saveReport({ type = "manual", summary = "", findings, metrics, n
       writeFileSync(REPORTS_INDEX, JSON.stringify(idx, null, 2) + "\n")
     })
   } catch (err) {
-    console.error(`[VibeTheOG] report/index write failed: ${err.message}`)
+    console.error(`[vibeOS] report/index write failed: ${err.message}`)
     return null
   }
   // Opportunistic TTL prune (once per process ≈ every save)
@@ -4350,7 +4423,7 @@ async function discoverAvailableModels(providers, auth) {
         if (Object.keys(pricingMap).length > 0) _writeDynamicPricingCache(pricingMap)
       }
     } catch (e) {
-      console.error("[VibeTheOG] OpenRouter probe failed:", e.message)
+      console.error("[vibeOS] OpenRouter probe failed:", e.message)
     }
   }
 
@@ -4448,7 +4521,7 @@ async function probeModel(modelId, auth) {
   }
 
   if (!apiKey) {
-    console.error("[VibeTheOG] probeModel: no API key for " + id)
+    console.error("[vibeOS] probeModel: no API key for " + id)
     return false
   }
 
@@ -4468,12 +4541,12 @@ async function probeModel(modelId, auth) {
     })
     if (!res.ok) {
       const errBody = await res.text().catch(() => "")
-      console.error("[VibeTheOG] probeModel FAIL " + id + ": HTTP " + res.status + " " + errBody.slice(0, 200))
+      console.error("[vibeOS] probeModel FAIL " + id + ": HTTP " + res.status + " " + errBody.slice(0, 200))
       return false
     }
     return true
   } catch (err) {
-    console.error("[VibeTheOG] probeModel ERROR " + id + ": " + err.message)
+    console.error("[vibeOS] probeModel ERROR " + id + ": " + err.message)
     return false
   }
 }

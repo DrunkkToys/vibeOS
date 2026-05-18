@@ -7,8 +7,8 @@ const SRC = join(ROOT, "src")
 const ALLOWED_JS = new Set([
   "src/index.js", // intentional runtime entrypoint (not yet migrated)
   "src/flow-enforcer.js", // compiled from src/flow-enforcer.ts
-  "src/VibeTheOG-lib/flow-enforcer.js", // compiled from src/VibeTheOG-lib/flow-enforcer.ts
-  "src/VibeTheOG-lib/session-metrics.js", // compiled from src/VibeTheOG-lib/session-metrics.ts
+  "src/vibeOS-lib/flow-enforcer.js", // compiled from src/vibeOS-lib/flow-enforcer.ts
+  "src/vibeOS-lib/session-metrics.js", // compiled from src/vibeOS-lib/session-metrics.ts
   "src/utils/cost-formatter.js", // compiled from src/utils/cost-formatter.ts
   "src/utils/timer.js", // compiled from src/utils/timer.ts
   "src/utils/math.js", // compiled from src/utils/math.ts

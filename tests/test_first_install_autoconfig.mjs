@@ -1,5 +1,5 @@
 // Simulation test: clean first installation → auto-create model-tiers.json
-// Mirrors what happens when VibeTheOG is installed fresh on opencode desktop.
+// Mirrors what happens when vibeOS is installed fresh on opencode desktop.
 //
 // Run: node --test tests/test_first_install_autoconfig.mjs
 

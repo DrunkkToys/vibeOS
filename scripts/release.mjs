@@ -220,5 +220,5 @@ log(`${GREEN}✓${RESET} pushed tag v${newVer}`)
 
 log("")
 log(`${GREEN}${BOLD}✅ v${newVer} released${RESET}`)
-log(`   ${CYAN}https://github.com/DrunkkToys/VibeTheOG+/releases/tag/v${newVer}${RESET}`)
+log(`   ${CYAN}https://github.com/DrunkkToys/vibeOS/releases/tag/v${newVer}${RESET}`)
 log("")

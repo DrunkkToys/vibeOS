@@ -1,4 +1,4 @@
-// Unit tests for ~/.config/opencode/plugins/VibeTheOG
+// Unit tests for ~/.config/opencode/plugins/vibeOS
 // Run: ~/.nvm/versions/node/v23.11.0/bin/node --test tests/test_delegation_enforcer.test.mjs
 //
 // We import the plugin module and exercise its hooks against fake input/output
@@ -521,7 +521,7 @@ test("text.complete: appends savings tag to assistant text", async () => {
 
   const out = { text: "Done." }
   await hooks["experimental.text.complete"]({ messageID: "msg-1" }, out)
-  assert.match(out.text, /— \[.+\] \| VibeTheOG: 0\.40 saved [↑↓→] —/, "compact footer format")
+  assert.match(out.text, /— \[.+\] \| vibeOS: 0\.40 saved [↑↓→] —/, "compact footer format")
   assert.doesNotMatch(out.text, /flow \d+w|edit -\$|cache -\$|\$.*\/hr/, "no verbose breakdown in footer")
 })
 
@@ -562,7 +562,7 @@ test("text.complete: footer format is stable and compact (immutable contract)", 
   const out = { text: "ok" }
   await hooks["experimental.text.complete"]({ messageID: "msg-format-1" }, out)
   const footerLine = out.text.split("\n").slice(-1)[0]
-  assert.match(footerLine, /^— \[.+\] \| VibeTheOG: \d+\.\d{2} saved [↑↓→] —$/, "exact footer contract")
+  assert.match(footerLine, /^— \[.+\] \| vibeOS: \d+\.\d{2} saved [↑↓→] —$/, "exact footer contract")
   assert.doesNotMatch(footerLine, /\| flow |edit -\$|cache -\$|\(.*m\)|\/hr/, "no verbose fragments")
 })
 
@@ -588,7 +588,7 @@ test("text.complete: auto-rebuilds state from ledger when state total is lower, 
   const out = { text: "hello" }
   await hooks["experimental.text.complete"]({ messageID: "msg-ledger-rebuild" }, out)
   const footer = out.text.split("\n").slice(-1)[0]
-  assert.match(footer, /VibeTheOG: 1\.56 saved [↑↓→]/, "footer must show reconstructed ledger historical total")
+  assert.match(footer, /vibeOS: 1\.56 saved [↑↓→]/, "footer must show reconstructed ledger historical total")
 
   const reconciled = JSON.parse(readFileSync(stateFile, "utf-8"))
   assert.equal(reconciled.lifetime.est_savings_usd, 1.25, "delegation savings rebuilt from ledger")
@@ -1223,7 +1223,7 @@ test("text.complete: writes session-report-pending.md when savings > 0", async (
   const reportFile = join(sandbox, ".claude/session-report-pending.md")
   assert.ok(existsSync(reportFile), "session-report-pending.md written")
   const content = readFileSync(reportFile, "utf-8")
-  assert.match(content, /VibeTheOG:/, "report contains VibeTheOG label")
+  assert.match(content, /vibeOS:/, "report contains vibeOS label")
   assert.match(content, /saved/, "report contains 'saved'")
 })
 
@@ -1285,7 +1285,7 @@ test("text.complete: appends to session-reports.log", async () => {
   assert.ok(existsSync(logFile), "session-reports.log created")
   const lines = readFileSync(logFile, "utf-8").trim().split("\n")
   assert.ok(lines.length >= 1, "at least one log entry written")
-  assert.match(lines[0], /VibeTheOG:/, "log entry contains VibeTheOG label")
+  assert.match(lines[0], /vibeOS:/, "log entry contains vibeOS label")
 })
 
 // ── new: modelToSlotLabel uses effectiveTier (brain-slot override) ────────────
@@ -1330,7 +1330,7 @@ test("text.complete: sonnet-as-brain shows 🧠 icon in footer (effectiveTier fi
 // ── new: pendingUiNote injected into tool.execute.after output ────────────────
 test("tool.execute.after: delegation warning injected into output.result", async () => {
   // After tool.execute.before fires for a write on a high-tier model,
-  // tool.execute.after must inject the ⚠ [VibeTheOG] note into output.result
+  // tool.execute.after must inject the ⚠ [vibeOS] note into output.result
   // so it appears in the OC chat transcript, not just in stderr.
   writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
     trinity: {
@@ -1363,8 +1363,8 @@ test("tool.execute.after: delegation warning injected into output.result", async
   const afterOutput = { result: "File edited successfully." }
   await hooks["tool.execute.after"]({ tool: "edit", args: { filePath: "/tmp/foo.py" } }, afterOutput)
 
-  assert.ok(afterOutput.result.includes("⚠ [VibeTheOG]"),
-    `output.result must contain ⚠ [VibeTheOG] delegation note; got: ${afterOutput.result}`)
+  assert.ok(afterOutput.result.includes("⚠ [vibeOS]"),
+    `output.result must contain ⚠ [vibeOS] delegation note; got: ${afterOutput.result}`)
   assert.ok(afterOutput.result.includes("model running edit"),
     `output.result must describe the action; got: ${afterOutput.result}`)
   assert.ok(afterOutput.result.startsWith("File edited successfully."),
@@ -1399,12 +1399,12 @@ test("tool.execute.after: pendingUiNote consumed once — no double-inject on se
   await hooks["tool.execute.before"]({ tool: "write" }, { args: {} })
   const first = { result: "Written." }
   await hooks["tool.execute.after"]({ tool: "write", args: { filePath: "/tmp/a.py" } }, first)
-  assert.ok(first.result.includes("⚠ [VibeTheOG]"), "first call: note injected")
+  assert.ok(first.result.includes("⚠ [vibeOS]"), "first call: note injected")
 
   // Second after-hook call without a preceding before — pendingUiNote must be null.
   const second = { result: "Written again." }
   await hooks["tool.execute.after"]({ tool: "write", args: { filePath: "/tmp/b.py" } }, second)
-  assert.ok(!second.result.includes("⚠ [VibeTheOG]"),
+  assert.ok(!second.result.includes("⚠ [vibeOS]"),
     "second call: note NOT injected (pendingUiNote was cleared after first consumption)")
 })
 
@@ -1480,7 +1480,7 @@ test("integration: full simulated OC session with sonnet-as-brain", async () => 
 
   const writeAfterOut = { result: "File written." }
   await hooks["tool.execute.after"]({ tool: "write", args: { filePath: "/tmp/foo.py" } }, writeAfterOut)
-  assert.ok(writeAfterOut.result.includes("⚠ [VibeTheOG]"),
+  assert.ok(writeAfterOut.result.includes("⚠ [vibeOS]"),
     "write: delegation note visible in tool output (OC chat transcript)")
   assert.ok(writeAfterOut.result.startsWith("File written."),
     "write: original result preserved before the note")
@@ -1489,7 +1489,7 @@ test("integration: full simulated OC session with sonnet-as-brain", async () => 
   await hooks["tool.execute.before"]({ tool: "edit" }, { args: {} })
   const editAfterOut = { result: "Edit applied." }
   await hooks["tool.execute.after"]({ tool: "edit", args: { filePath: "/tmp/foo.py" } }, editAfterOut)
-  assert.ok(editAfterOut.result.includes("⚠ [VibeTheOG]"),
+  assert.ok(editAfterOut.result.includes("⚠ [vibeOS]"),
     "edit: delegation note injected")
   const s2 = JSON.parse(readFileSync(stateFile, "utf-8"))
   assert.ok((s2?.lifetime?.warn_count ?? 0) >= 2,
@@ -1500,9 +1500,9 @@ test("integration: full simulated OC session with sonnet-as-brain", async () => 
   await hooks["experimental.text.complete"]({ messageID: "msg-integ-1" }, textOut)
   assert.ok(textOut.text.includes("🧠"),
     "text.complete: footer shows 🧠 (brain icon, not ⚙ mid) for sonnet-as-brain")
-  assert.ok(textOut.text.includes("VibeTheOG:"),
-    "text.complete: footer shows VibeTheOG savings label")
-  assert.match(textOut.text, /— \[.+\] \| VibeTheOG: \d+\.\d{2} saved [↑↓→] —/,
+  assert.ok(textOut.text.includes("vibeOS:"),
+    "text.complete: footer shows vibeOS savings label")
+  assert.match(textOut.text, /— \[.+\] \| vibeOS: \d+\.\d{2} saved [↑↓→] —/,
     "text.complete: footer uses compact immutable format")
   assert.ok(textOut.text.startsWith("Here is the plan."),
     "text.complete: original response text preserved")
@@ -1513,13 +1513,13 @@ test("integration: full simulated OC session with sonnet-as-brain", async () => 
   const reportContent = readFileSync(reportFile, "utf-8")
   assert.ok(reportContent.includes("🧠") || reportContent.includes("Mid") || reportContent.includes("Budget"),
     "session-report: contains model info")
-  assert.ok(reportContent.includes("VibeTheOG:"),
-    "session-report: contains VibeTheOG label")
+  assert.ok(reportContent.includes("vibeOS:"),
+    "session-report: contains vibeOS label")
 
   // ── 8. Deduplication: same messageID doesn't double-append footer ───────
   const textOut2 = { text: "Another response." }
   await hooks["experimental.text.complete"]({ messageID: "msg-integ-1" }, textOut2)
-  assert.ok(!textOut2.text.includes("VibeTheOG:"),
+  assert.ok(!textOut2.text.includes("vibeOS:"),
     "text.complete: duplicate messageID skipped — footer not appended again")
 
   // ── 9. Disable enforcement at runtime → hooks become no-ops ────────────
@@ -1752,7 +1752,7 @@ test("applySlot: preserves opencode.json all fields (only model changes)", async
   writeFileSync(ocConfigPath, JSON.stringify({
     "$schema": "https://opencode.ai/config.json",
     "instructions": ["~/.config/opencode/AGENTS.md"],
-    "plugin": ["./plugins/VibeTheOG"],
+    "plugin": ["./plugins/vibeOS"],
     "model": "deepseek/deepseek-v4-flash",
     "mcp": {
       "context7": {
@@ -1802,7 +1802,7 @@ test("applySlot: preserves opencode.json all fields (only model changes)", async
     }
   }, "provider models fully preserved — models not deleted from dropdown")
   assert.deepEqual(after.mcp.context7.command, ["node", "context7-mcp"], "mcp preserved")
-  assert.deepEqual(after.plugin, ["./plugins/VibeTheOG"], "plugin list preserved")
+  assert.deepEqual(after.plugin, ["./plugins/vibeOS"], "plugin list preserved")
   process.env.HOME = origHome
 })
 
@@ -1830,13 +1830,13 @@ test("system.transform: welcome banner injected once per project", async () => {
 
   const out1 = { system: [] }
   await hooks["experimental.chat.system.transform"]({}, out1)
-  const hasWelcome = out1.system.some(s => typeof s === "string" && s.includes("VibeTheOG") && s.includes("trinity help"))
+  const hasWelcome = out1.system.some(s => typeof s === "string" && s.includes("vibeOS") && s.includes("trinity help"))
   assert.ok(hasWelcome, "welcome banner present in first call: " + JSON.stringify(out1.system))
 
   // Second call for same project → banner NOT injected again (one-shot)
   const out2 = { system: [] }
   await hooks["experimental.chat.system.transform"]({}, out2)
-  const hasWelcome2 = out2.system.some(s => typeof s === "string" && s.includes("VibeTheOG") && s.includes("trinity help"))
+  const hasWelcome2 = out2.system.some(s => typeof s === "string" && s.includes("vibeOS") && s.includes("trinity help"))
   assert.ok(!hasWelcome2, "welcome banner NOT re-injected on second call")
 })
 
@@ -1949,7 +1949,7 @@ test("buildTestSkeleton: .py file returns correct path and content", async () =>
   const s = buildTestSkeleton("/proj/src/utils.py")
   assert.ok(s, "skeleton generated")
   assert.ok(s.path.endsWith("tests/test_utils.py"), `path: ${s.path}`)
-  assert.ok(s.content.includes("[VibeTheOG-enforced]"), "enforced marker present")
+  assert.ok(s.content.includes("[vibeOS-enforced]"), "enforced marker present")
   assert.ok(s.content.includes("AssertionError"), "strict incomplete marker present")
   assert.ok(s.content.includes("from utils import"), "module import present")
 })
@@ -2054,7 +2054,7 @@ test("enforceTestFile: creates skeleton when test missing", async () => {
     assert.ok(created, "skeleton created")
     assert.ok(existsSync(created), "file exists on disk")
     const content = readFileSync(created, "utf-8")
-    assert.ok(content.includes("[VibeTheOG-enforced]"), "enforced marker in file")
+    assert.ok(content.includes("[vibeOS-enforced]"), "enforced marker in file")
     assert.ok(content.includes("pytest.skip"), "non-strict skip marker in file")
     assert.ok(content.includes("from calc"), "module import present")
     assert.ok(content.includes("test_should_add_with_valid_input"), "test case for add")
@@ -2179,7 +2179,7 @@ test("recordFlowTodo: extracts TODO/FIXME from content", async () => {
   const prevHome = process.env.HOME
   process.env.HOME = sb
   try {
-    const { recordFlowTodo, resetForTest } = await import("../src/VibeTheOG-lib/flow-enforcer.js?t=" + Date.now())
+    const { recordFlowTodo, resetForTest } = await import("../src/vibeOS-lib/flow-enforcer.js?t=" + Date.now())
     resetForTest([])
     const count = recordFlowTodo({
       filePath: "src/foo.js",

@@ -14,7 +14,7 @@ mkdirSync(join(sandbox, ".local/share/opencode"), { recursive: true })
 writeFileSync(join(sandbox, ".config/opencode/opencode.json"), JSON.stringify({
   "$schema": "https://opencode.ai/config.json",
   "instructions": ["~/.config/opencode/AGENTS.md"],
-  "plugin": ["./plugins/VibeTheOG"],
+  "plugin": ["./plugins/vibeOS"],
   "model": "deepseek/deepseek-v4-flash",
   "mcp": { "context7": { "type": "local", "command": ["node", "context7-mcp"] } },
   "provider": {
@@ -28,7 +28,7 @@ writeFileSync(join(sandbox, ".config/opencode/opencode.json"), JSON.stringify({
 
 writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
   "$schema_version": 1,
-  "_comment": "Single source of truth for VibeTheOG model classification.",
+  "_comment": "Single source of truth for vibeOS model classification.",
   "selection": {
     "active_slot": "medium", "enabled": true, "thinking_level": "off",
     "flow_enabled": true, "monthly_budget_usd": 50
@@ -159,7 +159,7 @@ test("applySlot: writes model, preserves all config blocks", async () => {
   const oc = JSON.parse(readFileSync(join(sandbox, ".config/opencode/opencode.json"), "utf-8"))
   assert.equal(oc.model, "deepseek/deepseek-v4-pro")
   assert.ok(oc["$schema"])
-  assert.deepEqual(oc.plugin, ["./plugins/VibeTheOG"])
+  assert.deepEqual(oc.plugin, ["./plugins/vibeOS"])
   assert.deepEqual(Object.keys(oc.provider.deepseek.models), ["deepseek-v4-pro", "deepseek-v4-flash", "deepseek-chat", "deepseek-reasoner"], "dropdown preserved")
   const tiers = JSON.parse(readFileSync(join(sandbox, ".claude/model-tiers.json"), "utf-8"))
   assert.equal(tiers.selection.active_slot, "brain")
@@ -217,7 +217,7 @@ test("text.complete: footer + auto-save + dedup", async () => {
   const hooks = await freshPlugin()
   const o1 = { text: "Hello." }
   await hooks["experimental.text.complete"]({ messageID: "d1" }, o1)
-  assert.ok(o1.text.includes("VibeTheOG"), "footer: " + o1.text.slice(-80))
+  assert.ok(o1.text.includes("vibeOS"), "footer: " + o1.text.slice(-80))
   const o2 = { text: "Again." }
   await hooks["experimental.text.complete"]({ messageID: "d1" }, o2)
   assert.equal(o2.text, "Again.", "dedup: same msgID not processed twice")

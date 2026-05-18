@@ -4,4 +4,4 @@ export {
   getSessionFlowCounts,
   recordFlowTodo,
   resetForTest,
-} from "./VibeTheOG-lib/flow-enforcer.js"
+} from "./vibeOS-lib/flow-enforcer.js"
