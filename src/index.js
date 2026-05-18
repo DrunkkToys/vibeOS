@@ -211,7 +211,7 @@ export function applySlot(slot) {
       oc.model = ocModel
       writeFileSync(ocConfig, JSON.stringify(oc, null, 2) + "\n")
     }
-    _refreshModel('')
+    _refreshModel(process.cwd())
     return { ok: true, ocModel }
   } catch (err) {
     return { ok: false, reason: err.message }
@@ -2506,6 +2506,28 @@ function _refreshModel(directory) {
         currentTier = classify(currentModel)
         console.error(`[vibeOS] auto-detected model: ${currentModel} (tier=${currentTier})`)
       }
+    }
+    // Reconcile with the actual OpenCode config model (handles manual model switches)
+    const cfgModel = readConfig(directory) || readConfig(join(USER_HOME, ".config/opencode")) || ""
+    if (cfgModel && cfgModel !== currentModel) {
+      const oldModel = currentModel
+      const oldTier = currentTier
+      currentModel = cfgModel
+      currentTier = classify(cfgModel)
+      console.error(`[vibeOS] model refresh (config): ${oldModel}(${oldTier}) → ${currentModel}(${currentTier})`)
+      try {
+        if (existsSync(TIERS_FILE)) {
+          const t = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
+          for (const s of ["brain", "medium", "cheap"]) {
+            if (t?.trinity?.[s]?.oc === cfgModel) {
+              t.selection.active_slot = s
+              writeFileSync(TIERS_FILE, JSON.stringify(t, null, 2) + "\n")
+              console.error(`[vibeOS] model refresh (config): synced active_slot → ${s}`)
+              break
+            }
+          }
+        }
+      } catch {}
     }
   } catch {}
 }
