@@ -221,7 +221,7 @@ test("budget-tier tool calls DO record warns (all tiers enforce)", async () => {
 })
 
 // ── Soft quota: fires exactly once at SOFT_QUOTA_LIMIT+1 ─────────────
-test("SOFT_QUOTA (bash): fires exactly once at limit+1, records $0.00 saving", async () => {
+test("SOFT_QUOTA (bash): fires exactly once at limit+1, records nominal saving", async () => {
   // Fresh sandbox so softQuotaCounts and state start empty.
   const sb = mkdtempSync(join(tmpdir(), "softquota-"))
   mkdirSync(join(sb, ".claude/scratch"), { recursive: true })
@@ -247,8 +247,8 @@ test("SOFT_QUOTA (bash): fires exactly once at limit+1, records $0.00 saving", a
     assert.ok(existsSync(stateFile), "state written on call 6 (limit+1)")
     const s = JSON.parse(readFileSync(stateFile, "utf-8"))
     assert.equal(s.lifetime.warn_count, 1, "exactly one warn recorded at threshold")
-    // SOFT_QUOTA records $0.00 — tool runs regardless, no real saving
-    assert.equal(s.lifetime.est_savings_usd, 0, "SOFT_QUOTA saving is $0.00")
+    // SOFT_QUOTA records a nominal non-zero value to keep incentive signal visible.
+    assert.ok(Number(s.lifetime.est_savings_usd) >= 0.0003, "SOFT_QUOTA saving is nominal and non-zero")
 
     // Call 7: no additional state write (fires-once)
     const warnBefore = s.lifetime.warn_count

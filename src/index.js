@@ -264,6 +264,13 @@ const SAVE_EST = {
   OPUS_DISABLE: 0.03,    // full-turn cost for actual opus-tier model (Anthropic API)
 }
 
+function roundUsd(v, precision = 6) {
+  const n = Number(v ?? 0)
+  if (!Number.isFinite(n)) return 0
+  const f = 10 ** precision
+  return Math.round(n * f) / f
+}
+
 // Models with negligible per-turn cost (less than 2e-5 USD/turn).
 // These skip enforcement entirely to avoid noise.
 const FREE_MODELS = new Set([
@@ -1798,11 +1805,13 @@ function recordSaving(tool, reason, saveEst, meta = {}) {
       const now = new Date().toISOString()
       s.lifetime ??= { warn_count: 0, est_savings_usd: 0, last_updated: "" }
       s.lifetime.warn_count = (s.lifetime.warn_count || 0) + 1
-      s.lifetime.est_savings_usd = Math.round(((s.lifetime.est_savings_usd || 0) + saveEst) * 1000) / 1000
+      s.lifetime.est_savings_usd = roundUsd((s.lifetime.est_savings_usd || 0) + Number(saveEst || 0))
       s.lifetime.last_updated = now
       s.sessions ??= {}
       const sid = _OC_SID
       s.sessions[sid] ??= { started: now, source: "opencode", tool_counts: {}, warns: [] }
+      if (currentProjectFingerprint) s.sessions[sid].project_fingerprint = currentProjectFingerprint
+      if (currentProjectName) s.sessions[sid].project_name = currentProjectName
       s.sessions[sid].session_cache_dir = getSessionScratchpadDir()
       s.sessions[sid].tool_counts[tool] = (s.sessions[sid].tool_counts[tool] || 0) + 1
       const warns = Array.isArray(s.sessions[sid].warns) ? s.sessions[sid].warns : []
@@ -1820,9 +1829,9 @@ function recordSaving(tool, reason, saveEst, meta = {}) {
       if (canMerge) {
         last.at = now
         last.count = Number(last.count || 1) + 1
-        last.est_savings_usd = Math.round((Number(last.est_savings_usd || 0) + Number(saveEst || 0)) * 1000) / 1000
+        last.est_savings_usd = roundUsd(Number(last.est_savings_usd || 0) + Number(saveEst || 0))
       } else {
-        warns.push({ at: now, tool, reason, est_savings_usd: saveEst, count: 1 })
+        warns.push({ at: now, tool, reason, est_savings_usd: roundUsd(saveEst), count: 1 })
       }
       s.sessions[sid].warns = warns
       if (s.sessions[sid].warns.length > 200) {
@@ -1847,22 +1856,25 @@ function recordCacheSaving(tool, saveEst, meta = {}) {
   try {
     const state = updateState((s) => {
       const now = new Date().toISOString()
+      const delta = Number(saveEst || 0)
       s.lifetime ??= { warn_count: 0, est_savings_usd: 0, last_updated: "" }
-      s.lifetime.cache_savings_usd = Math.round(((s.lifetime.cache_savings_usd || 0) + saveEst) * 1000) / 1000
+      s.lifetime.cache_savings_usd = roundUsd(Number(s.lifetime.cache_savings_usd || 0) + delta)
       s.lifetime.last_updated = now
       s.sessions ??= {}
       const sid = _OC_SID
       s.sessions[sid] ??= { started: now, source: "opencode", tool_counts: {}, warns: [] }
+      if (currentProjectFingerprint) s.sessions[sid].project_fingerprint = currentProjectFingerprint
+      if (currentProjectName) s.sessions[sid].project_name = currentProjectName
       s.sessions[sid].session_cache_dir = getSessionScratchpadDir()
       s.sessions[sid].tool_counts[tool] = (s.sessions[sid].tool_counts[tool] || 0) + 1
-      s.sessions[sid].cache_savings_usd = Math.round(((s.sessions[sid].cache_savings_usd || 0) + saveEst) * 1000) / 1000
+      s.sessions[sid].cache_savings_usd = roundUsd(Number(s.sessions[sid].cache_savings_usd || 0) + delta)
       if (meta?.hash) {
         s.sessions[sid].cache_hits ??= []
         s.sessions[sid].cache_hits.push({
         at: now,
         tool,
         hash: meta.hash,
-        est_savings_usd: saveEst,
+        est_savings_usd: roundUsd(delta),
       })
       if (s.sessions[sid].cache_hits.length > 200) {
         console.error(`[vibeOS] session cache_hits truncated from ${s.sessions[sid].cache_hits.length} to 200 for ${sid}`)
@@ -2710,6 +2722,9 @@ export async function DelegationEnforcer({ client, directory }) {
             type: "session",
             summary: "Session cost: $" + ltCost.toFixed(2) + " | cache saved: $" + ltCache.toFixed(2) + " | delegation saved: $" + Number(sesTasks || 0).toFixed(3) + " | task delegations: " + Number(sesTaskDelegations || 0),
             metrics: {
+              sessionId: _OC_SID,
+              projectFingerprint: currentProjectFingerprint || "unknown",
+              projectName: currentProjectName || "unknown",
               sessionCost: ltCost,
               cacheSavings: ltCache,
               delegationSavingsUsd: sesTasks,
@@ -2886,11 +2901,11 @@ export async function DelegationEnforcer({ client, directory }) {
       const _brainCost  = modelCostPerTurn(currentModel)
       const _workerModel = TRINITY_CHEAP || TRINITY_MEDIUM || null
       const _workerCost  = _workerModel ? (modelCostPerTurn(_workerModel) ?? 0) : 0
-      // Floor at SAVE_EST.WRITE_EDIT — never report $0 for a real enforcement event
+      // Keep precision high to avoid dropping tiny but real per-event savings to zero.
       const _rawEdit    = _brainCost !== null
-        ? Math.max(0, Math.round((_brainCost - _workerCost) * 1000) / 1000)
+        ? Math.max(0, _brainCost - _workerCost)
         : SAVE_EST.WRITE_EDIT
-      const _estEdit    = Math.max(_rawEdit, SAVE_EST.WRITE_EDIT * 0.1)  // at least $0.007
+      const _estEdit    = Math.max(_rawEdit, SAVE_EST.WRITE_EDIT * 0.1)
       const _estOpus    = _brainCost !== null ? Math.max(_brainCost, _estEdit) : SAVE_EST.OPUS_DISABLE
       const _estC7      = _brainCost !== null ? Math.max(_brainCost, SAVE_EST.CONTEXT7) : SAVE_EST.CONTEXT7
       const _tierWord   = currentTier === "high" ? "Brain" : currentTier === "mid" ? "Medium" : "Budget"
