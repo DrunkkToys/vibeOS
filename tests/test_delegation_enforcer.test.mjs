@@ -1,4 +1,4 @@
-// Unit tests for ~/.config/opencode/plugins/theSaver
+// Unit tests for ~/.config/opencode/plugins/VibeTheOG
 // Run: ~/.nvm/versions/node/v23.11.0/bin/node --test tests/test_delegation_enforcer.test.mjs
 //
 // We import the plugin module and exercise its hooks against fake input/output
@@ -19,6 +19,10 @@ before(() => {
 })
 beforeEach(() => {
   rmSync(join(sandbox, ".claude/model-tiers.json"), { force: true })
+  rmSync(join(sandbox, ".claude/delegation-state.json"), { force: true })
+  rmSync(join(sandbox, ".claude/savings-ledger.jsonl"), { force: true })
+  rmSync(join(sandbox, ".claude/active-jobs.json"), { force: true })
+  rmSync(join(sandbox, ".claude/global-learning.json"), { force: true })
 })
 after(() => rmSync(sandbox, { recursive: true, force: true }))
 
@@ -517,7 +521,7 @@ test("text.complete: appends savings tag to assistant text", async () => {
 
   const out = { text: "Done." }
   await hooks["experimental.text.complete"]({ messageID: "msg-1" }, out)
-  assert.match(out.text, /— \[.+\] \| theSaver: 0\.07 saved [↑↓→] —/, "compact footer format")
+  assert.match(out.text, /— \[.+\] \| VibeTheOG: 0\.40 saved [↑↓→] —/, "compact footer format")
   assert.doesNotMatch(out.text, /flow \d+w|edit -\$|cache -\$|\$.*\/hr/, "no verbose breakdown in footer")
 })
 
@@ -558,8 +562,37 @@ test("text.complete: footer format is stable and compact (immutable contract)", 
   const out = { text: "ok" }
   await hooks["experimental.text.complete"]({ messageID: "msg-format-1" }, out)
   const footerLine = out.text.split("\n").slice(-1)[0]
-  assert.match(footerLine, /^— \[.+\] \| theSaver: \d+\.\d{2} saved [↑↓→] —$/, "exact footer contract")
+  assert.match(footerLine, /^— \[.+\] \| VibeTheOG: \d+\.\d{2} saved [↑↓→] —$/, "exact footer contract")
   assert.doesNotMatch(footerLine, /\| flow |edit -\$|cache -\$|\(.*m\)|\/hr/, "no verbose fragments")
+})
+
+test("text.complete: auto-rebuilds state from ledger when state total is lower, footer shows reconstructed historical total", async () => {
+  const stateFile = join(sandbox, ".claude/delegation-state.json")
+  const ledgerFile = join(sandbox, ".claude/savings-ledger.jsonl")
+  writeFileSync(stateFile, JSON.stringify({
+    lifetime: { warn_count: 1, est_savings_usd: 0.01, cache_savings_usd: 0.00, last_updated: new Date().toISOString() },
+    sessions: {},
+  }, null, 2))
+  const ledgerRows = [
+    JSON.stringify({ type: "delegation", amount_usd: 1.25, at: new Date().toISOString() }),
+    JSON.stringify({ type: "cache", amount_usd: 0.31, at: new Date().toISOString() }),
+  ].join("\n") + "\n"
+  writeFileSync(ledgerFile, ledgerRows)
+
+  const { DelegationEnforcer } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-ledger-reconcile")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-pro" }))
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+
+  const out = { text: "hello" }
+  await hooks["experimental.text.complete"]({ messageID: "msg-ledger-rebuild" }, out)
+  const footer = out.text.split("\n").slice(-1)[0]
+  assert.match(footer, /VibeTheOG: 1\.56 saved [↑↓→]/, "footer must show reconstructed ledger historical total")
+
+  const reconciled = JSON.parse(readFileSync(stateFile, "utf-8"))
+  assert.equal(reconciled.lifetime.est_savings_usd, 1.25, "delegation savings rebuilt from ledger")
+  assert.equal(reconciled.lifetime.cache_savings_usd, 0.31, "cache savings rebuilt from ledger")
 })
 
 // ── tool.execute.after — output field ────────────────────────────────
@@ -690,6 +723,71 @@ test("system.transform: thinking directive NOT injected when manually set to ful
   const allText = out.system.join(" ")
   assert.doesNotMatch(allText, /thinking policy|Reasoning depth/i,
     "no thinking directive for 'full'")
+})
+
+test("system.transform: injects job-focus directive when request is off-topic vs active job", async () => {
+  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+    selection: { enabled: true, active_slot: "brain", delegation_enforce: true },
+    trinity: {
+      brain: { oc: "deepseek/deepseek-v4-pro" },
+      medium: { oc: "deepseek/deepseek-v4-flash" },
+      cheap: { oc: "deepseek/deepseek-chat" },
+    },
+  }))
+  const { DelegationEnforcer } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-jobfocus")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-pro" }))
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+
+  // Seed active job via Task prompt.
+  const taskPrompt = "Migrate TypeScript modules, validate footer format, and run typecheck + test suite."
+  await hooks["tool.execute.before"](
+    { tool: "task", args: { prompt: taskPrompt } },
+    { args: { prompt: taskPrompt } }
+  )
+
+  const out = { system: [] }
+  await hooks["experimental.chat.system.transform"](
+    { role: "user", content: "Book flights and hotels for Tokyo with cheapest dates." },
+    out
+  )
+  const allText = out.system.join(" ")
+  assert.ok(allText.includes("[job-focus]"), "job-focus directive should be injected for off-topic request")
+})
+
+test("system.transform: active job is project-scoped and does not leak across projects", async () => {
+  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+    selection: { enabled: true, active_slot: "brain", delegation_enforce: true },
+    trinity: {
+      brain: { oc: "deepseek/deepseek-v4-pro" },
+      medium: { oc: "deepseek/deepseek-v4-flash" },
+      cheap: { oc: "deepseek/deepseek-chat" },
+    },
+  }))
+  const { DelegationEnforcer } = await loadPlugin()
+
+  const dirA = join(sandbox, ".opencode-jobscope-a")
+  mkdirSync(dirA, { recursive: true })
+  writeFileSync(join(dirA, "opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-pro" }))
+  const hooksA = await DelegationEnforcer({ client: {}, directory: dirA })
+  const aPrompt = "Refactor ledger persistence and reconcile footer totals with historical savings."
+  await hooksA["tool.execute.before"](
+    { tool: "task", args: { prompt: aPrompt } },
+    { args: { prompt: aPrompt } }
+  )
+
+  const dirB = join(sandbox, ".opencode-jobscope-b")
+  mkdirSync(dirB, { recursive: true })
+  writeFileSync(join(dirB, "opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-pro" }))
+  const hooksB = await DelegationEnforcer({ client: {}, directory: dirB })
+  const outB = { system: [] }
+  await hooksB["experimental.chat.system.transform"](
+    { role: "user", content: "Book flights and hotels for Tokyo with cheapest dates." },
+    outB
+  )
+  const bText = outB.system.join(" ")
+  assert.equal(bText.includes("[job-focus]"), false, "project B should not inherit project A active job context")
 })
 
 test("messages.transform: compression ref is neutral (no 'Read' imperative)", async () => {
@@ -1125,7 +1223,7 @@ test("text.complete: writes session-report-pending.md when savings > 0", async (
   const reportFile = join(sandbox, ".claude/session-report-pending.md")
   assert.ok(existsSync(reportFile), "session-report-pending.md written")
   const content = readFileSync(reportFile, "utf-8")
-  assert.match(content, /theSaver:/, "report contains theSaver label")
+  assert.match(content, /VibeTheOG:/, "report contains VibeTheOG label")
   assert.match(content, /saved/, "report contains 'saved'")
 })
 
@@ -1187,7 +1285,7 @@ test("text.complete: appends to session-reports.log", async () => {
   assert.ok(existsSync(logFile), "session-reports.log created")
   const lines = readFileSync(logFile, "utf-8").trim().split("\n")
   assert.ok(lines.length >= 1, "at least one log entry written")
-  assert.match(lines[0], /theSaver:/, "log entry contains theSaver label")
+  assert.match(lines[0], /VibeTheOG:/, "log entry contains VibeTheOG label")
 })
 
 // ── new: modelToSlotLabel uses effectiveTier (brain-slot override) ────────────
@@ -1232,7 +1330,7 @@ test("text.complete: sonnet-as-brain shows 🧠 icon in footer (effectiveTier fi
 // ── new: pendingUiNote injected into tool.execute.after output ────────────────
 test("tool.execute.after: delegation warning injected into output.result", async () => {
   // After tool.execute.before fires for a write on a high-tier model,
-  // tool.execute.after must inject the ⚠ [theSaver] note into output.result
+  // tool.execute.after must inject the ⚠ [VibeTheOG] note into output.result
   // so it appears in the OC chat transcript, not just in stderr.
   writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
     trinity: {
@@ -1265,9 +1363,9 @@ test("tool.execute.after: delegation warning injected into output.result", async
   const afterOutput = { result: "File edited successfully." }
   await hooks["tool.execute.after"]({ tool: "edit", args: { filePath: "/tmp/foo.py" } }, afterOutput)
 
-  assert.ok(afterOutput.result.includes("⚠ [theSaver]"),
-    `output.result must contain ⚠ [theSaver] delegation note; got: ${afterOutput.result}`)
-  assert.ok(afterOutput.result.includes("Brain model running edit"),
+  assert.ok(afterOutput.result.includes("⚠ [VibeTheOG]"),
+    `output.result must contain ⚠ [VibeTheOG] delegation note; got: ${afterOutput.result}`)
+  assert.ok(afterOutput.result.includes("model running edit"),
     `output.result must describe the action; got: ${afterOutput.result}`)
   assert.ok(afterOutput.result.startsWith("File edited successfully."),
     "original tool result must be preserved at the start")
@@ -1301,12 +1399,12 @@ test("tool.execute.after: pendingUiNote consumed once — no double-inject on se
   await hooks["tool.execute.before"]({ tool: "write" }, { args: {} })
   const first = { result: "Written." }
   await hooks["tool.execute.after"]({ tool: "write", args: { filePath: "/tmp/a.py" } }, first)
-  assert.ok(first.result.includes("⚠ [theSaver]"), "first call: note injected")
+  assert.ok(first.result.includes("⚠ [VibeTheOG]"), "first call: note injected")
 
   // Second after-hook call without a preceding before — pendingUiNote must be null.
   const second = { result: "Written again." }
   await hooks["tool.execute.after"]({ tool: "write", args: { filePath: "/tmp/b.py" } }, second)
-  assert.ok(!second.result.includes("⚠ [theSaver]"),
+  assert.ok(!second.result.includes("⚠ [VibeTheOG]"),
     "second call: note NOT injected (pendingUiNote was cleared after first consumption)")
 })
 
@@ -1382,7 +1480,7 @@ test("integration: full simulated OC session with sonnet-as-brain", async () => 
 
   const writeAfterOut = { result: "File written." }
   await hooks["tool.execute.after"]({ tool: "write", args: { filePath: "/tmp/foo.py" } }, writeAfterOut)
-  assert.ok(writeAfterOut.result.includes("⚠ [theSaver]"),
+  assert.ok(writeAfterOut.result.includes("⚠ [VibeTheOG]"),
     "write: delegation note visible in tool output (OC chat transcript)")
   assert.ok(writeAfterOut.result.startsWith("File written."),
     "write: original result preserved before the note")
@@ -1391,7 +1489,7 @@ test("integration: full simulated OC session with sonnet-as-brain", async () => 
   await hooks["tool.execute.before"]({ tool: "edit" }, { args: {} })
   const editAfterOut = { result: "Edit applied." }
   await hooks["tool.execute.after"]({ tool: "edit", args: { filePath: "/tmp/foo.py" } }, editAfterOut)
-  assert.ok(editAfterOut.result.includes("⚠ [theSaver]"),
+  assert.ok(editAfterOut.result.includes("⚠ [VibeTheOG]"),
     "edit: delegation note injected")
   const s2 = JSON.parse(readFileSync(stateFile, "utf-8"))
   assert.ok((s2?.lifetime?.warn_count ?? 0) >= 2,
@@ -1402,9 +1500,9 @@ test("integration: full simulated OC session with sonnet-as-brain", async () => 
   await hooks["experimental.text.complete"]({ messageID: "msg-integ-1" }, textOut)
   assert.ok(textOut.text.includes("🧠"),
     "text.complete: footer shows 🧠 (brain icon, not ⚙ mid) for sonnet-as-brain")
-  assert.ok(textOut.text.includes("theSaver:"),
-    "text.complete: footer shows theSaver savings label")
-  assert.match(textOut.text, /— \[.+\] \| theSaver: \d+\.\d{2} saved [↑↓→] —/,
+  assert.ok(textOut.text.includes("VibeTheOG:"),
+    "text.complete: footer shows VibeTheOG savings label")
+  assert.match(textOut.text, /— \[.+\] \| VibeTheOG: \d+\.\d{2} saved [↑↓→] —/,
     "text.complete: footer uses compact immutable format")
   assert.ok(textOut.text.startsWith("Here is the plan."),
     "text.complete: original response text preserved")
@@ -1415,13 +1513,13 @@ test("integration: full simulated OC session with sonnet-as-brain", async () => 
   const reportContent = readFileSync(reportFile, "utf-8")
   assert.ok(reportContent.includes("🧠") || reportContent.includes("Mid") || reportContent.includes("Budget"),
     "session-report: contains model info")
-  assert.ok(reportContent.includes("theSaver:"),
-    "session-report: contains theSaver label")
+  assert.ok(reportContent.includes("VibeTheOG:"),
+    "session-report: contains VibeTheOG label")
 
   // ── 8. Deduplication: same messageID doesn't double-append footer ───────
   const textOut2 = { text: "Another response." }
   await hooks["experimental.text.complete"]({ messageID: "msg-integ-1" }, textOut2)
-  assert.ok(!textOut2.text.includes("theSaver:"),
+  assert.ok(!textOut2.text.includes("VibeTheOG:"),
     "text.complete: duplicate messageID skipped — footer not appended again")
 
   // ── 9. Disable enforcement at runtime → hooks become no-ops ────────────
@@ -1448,6 +1546,56 @@ test("integration: full simulated OC session with sonnet-as-brain", async () => 
   await hooks["tool.execute.before"]({ tool: "task" }, { args: taskArgs4 })
   assert.equal(taskArgs4.model, "deepseek/deepseek-v4-flash",
     "re-enabled: task routing resumes after re-enabling")
+})
+
+test("task routing: learned exploratory first-word persists across projects via global learning", async () => {
+  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+    trinity: {
+      brain:  { oc: "openrouter/anthropic/claude-opus-4-7", cc: "opus" },
+      medium: { oc: "deepseek/deepseek-v4-flash",           cc: "sonnet" },
+      cheap:  { oc: "deepseek/deepseek-chat",               cc: "haiku" },
+    },
+    selection: { enabled: true, active_slot: "medium", delegation_enforce: false },
+    tiers: {
+      high:   { regex: "opus|deepseek.*v4.*pro" },
+      mid:    { regex: "claude.*sonnet|sonnet|deepseek.*v4.*flash" },
+      budget: { regex: ".*" },
+    },
+  }))
+
+  // Project A "teaches" the plugin that "triage" is exploratory by repeatedly
+  // routing Task calls from mid tier to cheap.
+  const projectA = join(sandbox, "proj-A")
+  mkdirSync(projectA, { recursive: true })
+  writeFileSync(join(projectA, "opencode.json"), JSON.stringify({ model: "anthropic/claude-sonnet-4-6" }))
+
+  const { DelegationEnforcer } = await loadPlugin()
+  const hooksA = await DelegationEnforcer({ client: {}, directory: projectA })
+  for (let i = 0; i < 3; i++) {
+    const out = { args: { model: null, prompt: "triage the flaky tests" } }
+    await hooksA["tool.execute.before"]({ tool: "task" }, out)
+    assert.equal(out.args.model, "deepseek/deepseek-chat")
+  }
+
+  const glPath = join(sandbox, ".claude/global-learning.json")
+  assert.ok(existsSync(glPath), "global learning file created")
+  const gl = JSON.parse(readFileSync(glPath, "utf-8"))
+  assert.ok(gl.exploratory_words?.triage, "triage promoted into learned exploratory words")
+
+  // Project B should reuse that learned word even on high tier, where the
+  // default tier route would otherwise be brain->medium.
+  const tiers2 = JSON.parse(readFileSync(join(sandbox, ".claude/model-tiers.json"), "utf-8"))
+  tiers2.selection.active_slot = "brain"
+  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify(tiers2))
+
+  const projectB = join(sandbox, "proj-B")
+  mkdirSync(projectB, { recursive: true })
+  writeFileSync(join(projectB, "opencode.json"), JSON.stringify({ model: "openrouter/anthropic/claude-opus-4-7" }))
+  const hooksB = await DelegationEnforcer({ client: {}, directory: projectB })
+  const outB = { args: { model: null, prompt: "triage the release notes" } }
+  await hooksB["tool.execute.before"]({ tool: "task" }, outB)
+  assert.equal(outB.args.model, "deepseek/deepseek-chat",
+    "learned exploratory routing should force cheap across projects")
 })
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -1604,7 +1752,7 @@ test("applySlot: preserves opencode.json all fields (only model changes)", async
   writeFileSync(ocConfigPath, JSON.stringify({
     "$schema": "https://opencode.ai/config.json",
     "instructions": ["~/.config/opencode/AGENTS.md"],
-    "plugin": ["./plugins/theSaver"],
+    "plugin": ["./plugins/VibeTheOG"],
     "model": "deepseek/deepseek-v4-flash",
     "mcp": {
       "context7": {
@@ -1654,7 +1802,7 @@ test("applySlot: preserves opencode.json all fields (only model changes)", async
     }
   }, "provider models fully preserved — models not deleted from dropdown")
   assert.deepEqual(after.mcp.context7.command, ["node", "context7-mcp"], "mcp preserved")
-  assert.deepEqual(after.plugin, ["./plugins/theSaver"], "plugin list preserved")
+  assert.deepEqual(after.plugin, ["./plugins/VibeTheOG"], "plugin list preserved")
   process.env.HOME = origHome
 })
 
@@ -1682,13 +1830,13 @@ test("system.transform: welcome banner injected once per project", async () => {
 
   const out1 = { system: [] }
   await hooks["experimental.chat.system.transform"]({}, out1)
-  const hasWelcome = out1.system.some(s => typeof s === "string" && s.includes("theSaver") && s.includes("trinity help"))
+  const hasWelcome = out1.system.some(s => typeof s === "string" && s.includes("VibeTheOG") && s.includes("trinity help"))
   assert.ok(hasWelcome, "welcome banner present in first call: " + JSON.stringify(out1.system))
 
   // Second call for same project → banner NOT injected again (one-shot)
   const out2 = { system: [] }
   await hooks["experimental.chat.system.transform"]({}, out2)
-  const hasWelcome2 = out2.system.some(s => typeof s === "string" && s.includes("theSaver") && s.includes("trinity help"))
+  const hasWelcome2 = out2.system.some(s => typeof s === "string" && s.includes("VibeTheOG") && s.includes("trinity help"))
   assert.ok(!hasWelcome2, "welcome banner NOT re-injected on second call")
 })
 
@@ -1801,7 +1949,7 @@ test("buildTestSkeleton: .py file returns correct path and content", async () =>
   const s = buildTestSkeleton("/proj/src/utils.py")
   assert.ok(s, "skeleton generated")
   assert.ok(s.path.endsWith("tests/test_utils.py"), `path: ${s.path}`)
-  assert.ok(s.content.includes("[theSaver-enforced]"), "enforced marker present")
+  assert.ok(s.content.includes("[VibeTheOG-enforced]"), "enforced marker present")
   assert.ok(s.content.includes("AssertionError"), "strict incomplete marker present")
   assert.ok(s.content.includes("from utils import"), "module import present")
 })
@@ -1906,7 +2054,7 @@ test("enforceTestFile: creates skeleton when test missing", async () => {
     assert.ok(created, "skeleton created")
     assert.ok(existsSync(created), "file exists on disk")
     const content = readFileSync(created, "utf-8")
-    assert.ok(content.includes("[theSaver-enforced]"), "enforced marker in file")
+    assert.ok(content.includes("[VibeTheOG-enforced]"), "enforced marker in file")
     assert.ok(content.includes("pytest.skip"), "non-strict skip marker in file")
     assert.ok(content.includes("from calc"), "module import present")
     assert.ok(content.includes("test_should_add_with_valid_input"), "test case for add")
@@ -1984,6 +2132,43 @@ test("enforceTestFile: records tdd_enforced count in state file", async () => {
   }
 })
 
+test("tdd-enforce gate: skips skeleton without explicit test intent, creates with explicit test intent", async () => {
+  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+    selection: { enabled: true, active_slot: "medium", tdd_enforce: true, tdd_strict: true, tdd_quality: true },
+    trinity: {
+      brain: { oc: "deepseek/deepseek-v4-pro" },
+      medium: { oc: "deepseek/deepseek-v4-flash" },
+      cheap: { oc: "deepseek/deepseek-chat" },
+    },
+  }))
+  const { DelegationEnforcer } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-tdd-intent")
+  mkdirSync(join(dir, "src"), { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-flash" }))
+  const srcFile = join(dir, "src", "gate-worker.js")
+  const testFile = join(dir, "src", "tests", "gate-worker.test.js")
+  writeFileSync(srcFile, "module.exports = { run: () => 1 };\n")
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+
+  // No explicit test intent yet.
+  await hooks["tool.execute.after"](
+    { tool: "write", args: { filePath: srcFile } },
+    { result: "ok" }
+  )
+  assert.equal(existsSync(testFile), false, "should not auto-create skeleton without explicit test intent")
+
+  // Provide explicit test intent through latest user request capture.
+  await hooks["experimental.chat.system.transform"](
+    { role: "user", content: "Add tests for gate-worker.js and run regression checks." },
+    { system: [] }
+  )
+  await hooks["tool.execute.after"](
+    { tool: "write", args: { filePath: srcFile } },
+    { result: "ok" }
+  )
+  assert.equal(existsSync(testFile), true, "should auto-create skeleton when user explicitly asks for tests")
+})
+
 // ════════════════════════════════════════════════════════════════════════════
 // Flow Enforcement — TODO extraction
 // ════════════════════════════════════════════════════════════════════════════
@@ -1994,7 +2179,7 @@ test("recordFlowTodo: extracts TODO/FIXME from content", async () => {
   const prevHome = process.env.HOME
   process.env.HOME = sb
   try {
-    const { recordFlowTodo, resetForTest } = await import("../src/theSaver-lib/flow-enforcer.js?t=" + Date.now())
+    const { recordFlowTodo, resetForTest } = await import("../src/VibeTheOG-lib/flow-enforcer.js?t=" + Date.now())
     resetForTest([])
     const count = recordFlowTodo({
       filePath: "src/foo.js",

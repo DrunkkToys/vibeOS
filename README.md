@@ -1,12 +1,12 @@
-# theSaver for OpenCode
+# VibeTheOG for OpenCode
 
 Cost-aware delegation and policy plugin for OpenCode Desktop.
 
-`theSaver` helps keep expensive model usage under control by enforcing delegation behavior, tracking savings, and exposing runtime controls through the `trinity` tool.
+`VibeTheOG` helps keep expensive model usage under control by enforcing delegation behavior, tracking savings, and exposing runtime controls through the `trinity` tool.
 
 ## Version
 
-Current package version: `0.7.13`
+Current package version: `0.8.1`
 
 ## What It Does
 
@@ -45,11 +45,11 @@ State file: `~/.claude/delegation-state.json`
 
 Typical output footer:
 
-`— [model route] | theSaver: <total> saved <arrow> —`
+`— [model route] | VibeTheOG: <total> saved <arrow> —`
 
 Example (with savings):
 
-`— [🧠 deepseek-v4-flash → ⚙ deepseek-chat] | theSaver: 0.01 saved → —`
+`— [🧠 deepseek-v4-flash → ⚙ deepseek-chat] | VibeTheOG: 0.01 saved → —`
 
 Example (no savings yet, tier label only):
 
@@ -99,10 +99,10 @@ This repo exports plugin runtime from `src/index.js`.
 
 For OpenCode Desktop local plugin usage:
 
-1. Copy `src/index.js` to `~/.config/opencode/plugins/theSaver.js`
-2. Copy `src/theSaver-lib/flow-enforcer.js` to `~/.config/opencode/plugins/theSaver-lib/flow-enforcer.js`
-3. Copy `src/theSaver-lib/session-metrics.js` to `~/.config/opencode/plugins/theSaver-lib/session-metrics.js`
-4. Copy `src/theSaver-lib/flow-rules.json` to `~/.config/opencode/plugins/theSaver-lib/flow-rules.json`
+1. Copy `src/index.js` to `~/.config/opencode/plugins/VibeTheOG.js`
+2. Copy `src/VibeTheOG-lib/flow-enforcer.js` to `~/.config/opencode/plugins/VibeTheOG-lib/flow-enforcer.js`
+3. Copy `src/VibeTheOG-lib/session-metrics.js` to `~/.config/opencode/plugins/VibeTheOG-lib/session-metrics.js`
+4. Copy `src/VibeTheOG-lib/flow-rules.json` to `~/.config/opencode/plugins/VibeTheOG-lib/flow-rules.json`
 5. Restart OpenCode Desktop
 
 ## Build

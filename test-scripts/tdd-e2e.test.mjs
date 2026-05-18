@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// End-to-end TDD enforcement test for theSaver
+// End-to-end TDD enforcement test for VibeTheOG
 // Tests: extractExports, buildTestSkeleton, enforceTestFile, dedup, multi-language
 
 import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, mkdtempSync } from 'node:fs'
@@ -261,7 +261,7 @@ test("creates skeleton with exports on disk", () => {
   assert.ok(created, "returned path")
   assert.ok(existsSync(created), "file exists on disk")
   const content = readFileSync(created, "utf-8")
-  assert.ok(content.includes("[theSaver-enforced]"))
+  assert.ok(content.includes("[VibeTheOG-enforced]"))
   assert.ok(content.includes("from math import add, mul"))
   assert.ok(content.includes("test_add_works_correctly_with_typical_valid_input"))
   assert.ok(content.includes("test_mul_works_correctly_with_typical_valid_input"))

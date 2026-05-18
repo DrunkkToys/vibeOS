@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.1
+
+- fix: reduce dummy actions by gating auto TDD skeleton creation to explicit test intent (or direct test-path edits)
+- feat: add active-job persistence and off-topic detection to prompt for scope confirmation before write/edit/task actions
+- chore: patch release bump and docs version sync
+
 ## 0.8.0
 
 - chore: minor release bump for stabilized release candidate
@@ -26,7 +32,7 @@
 ## 0.7.13
 
 - fix: production plugin load hardening — remove hidden `../utils/timer.js` dependency from `session-metrics.js`
-- fix: plugin install payload completeness — include `src/theSaver-lib/session-metrics.js` in desktop sync set
+- fix: plugin install payload completeness — include `src/VibeTheOG-lib/session-metrics.js` in desktop sync set
 - fix: runtime config compatibility — remove invalid `plugins` key usage from `opencode.json` workflow assumptions
 - fix: config reader robustness — support both `opencode.json` and `opencode.jsonc` (including JSONC comments/trailing commas)
 - fix: applySlot safety — prefer project-local `opencode.json` to avoid accidental global provider/dropdown mutations
@@ -42,7 +48,7 @@
 
 ## 0.7.10
 
-- feat: compact immutable footer format: `— [model route] | theSaver: X.XX saved ↑|↓|→ —`
+- feat: compact immutable footer format: `— [model route] | VibeTheOG: X.XX saved ↑|↓|→ —`
 - change: remove noisy footer breakdown segments (flow/tool/rate/duration) from chat footer
 - change: model usage percentages now show only when both brain and worker are actually used
 - test: added footer format contract test to prevent accidental format drift
@@ -206,4 +212,4 @@
 
 ## 0.1.0
 
-- Initial release — theSaver-oc v3
+- Initial release — VibeTheOG v3

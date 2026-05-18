@@ -6,7 +6,7 @@
 ## What Was Done
 - Deleted stale duplicate test files: `src/utils/tests/timer.test.js`, `src/utils/tests/cost-formatter.test.js`
 - Updated `package.json` test script to include all real test locations:
-  `node --test tests/*.test.mjs src/tests/*.test.js src/utils/tests/*.test.mjs src/theSaver-lib/tests/*.test.mjs`
+  `node --test tests/*.test.mjs src/tests/*.test.js src/utils/tests/*.test.mjs src/VibeTheOG-lib/tests/*.test.mjs`
 
 ## Validation Results
 - `npm run typecheck` — PASS (clean)

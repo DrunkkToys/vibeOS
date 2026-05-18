@@ -1,4 +1,4 @@
-This is a test prompt to exercise theSaver's TDD enforcement and developer flow rules.
+This is a test prompt to exercise VibeTheOG's TDD enforcement and developer flow rules.
 
 ---
 
@@ -20,7 +20,7 @@ Please create a small utility module for string manipulation in Python. Specific
 
 ---
 
-This should trigger the following theSaver behaviors:
+This should trigger the following VibeTheOG behaviors:
 
 ### TDD Enforcement (should be ON):
 - Writing `src/utils/strings.py` → creates `src/utils/tests/test_strings.py` skeleton with `pytest.skip`

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 theSaver <https://github.com/DrunkkToys/theSaver-oc>
+// SPDX-FileCopyrightText: 2026 VibeTheOG <https://github.com/DrunkkToys/VibeTheOG>
 // Tests for the trinity diagnose command
 
 import test from 'node:test'

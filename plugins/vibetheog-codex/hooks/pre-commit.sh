@@ -4,4 +4,4 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$ROOT_DIR"
 
-bash plugins/thesaver-codex/scripts/run-guard.sh
+bash plugins/vibetheog-codex/scripts/run-guard.sh

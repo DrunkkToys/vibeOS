@@ -1,4 +1,4 @@
-// [theSaver-enforced] Skeleton test — replace with real assertions
+// [VibeTheOG-enforced] Skeleton test — replace with real assertions
 import { test, expect, describe } from 'vitest';
 import * as mod from '../sync-ts-build';
 

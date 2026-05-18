@@ -15,7 +15,7 @@ Scope: deep, autonomous validation of README claims + additional unclaimed runti
 
 - Full test suite: PASS (`121 pass, 0 fail, 3 skipped`)
 - Build: PASS (`tsc` + `sync-ts-build`)
-- Runtime plugin load: PASS (theSaver loads, no plugin load failure in latest log)
+- Runtime plugin load: PASS (VibeTheOG loads, no plugin load failure in latest log)
 - Provider model listing: PASS (`deepseek-chat`, `deepseek-reasoner`, `deepseek-v4-flash`, `deepseek-v4-pro`)
 
 ## README Claim Validation Matrix
@@ -59,7 +59,7 @@ Scope: deep, autonomous validation of README claims + additional unclaimed runti
 - Removed invalid `plugins` key usage path that made OpenCode config invalid.
 
 2. Plugin deployment completeness: PASS
-- Ensured `session-metrics.js`, `flow-enforcer.js`, and `flow-rules.json` are present in `~/.config/opencode/plugins/theSaver-lib/`.
+- Ensured `session-metrics.js`, `flow-enforcer.js`, and `flow-rules.json` are present in `~/.config/opencode/plugins/VibeTheOG-lib/`.
 
 3. Plugin runtime dependency isolation: PASS
 - `session-metrics.js` no longer imports non-shipped `../utils/timer.js`.

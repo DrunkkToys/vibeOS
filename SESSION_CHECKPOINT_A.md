@@ -7,14 +7,14 @@
 master (no uncommitted changes from baseline run)
 
 ## Key Repo State
-- **Project**: theSaver v0.7.14 — Cost-aware delegation enforcer for OpenCode
+- **Project**: VibeTheOG v0.7.14 — Cost-aware delegation enforcer for OpenCode
 - **Package**: Node 18+, ESM, TypeScript via tsc
 - **Build System**: `tsc -p tsconfig.json && node scripts/sync-ts-build.mjs` (compiles .ts to .js, syncs outputs)
 - **Test Runner**: `node --test tests/*.test.mjs src/tests/*.test.js`
-- **Active model**: deepseek/deepseek-v4-flash (tier=mid) — from theSaver plugin context
+- **Active model**: deepseek/deepseek-v4-flash (tier=mid) — from VibeTheOG plugin context
 - **Plugin state**: loaded in codex/oc context, tracks project-memory at ~/.claude/project-states.json
-- **Memory store**: `.thesaver-cx/state.json` (runs=3, files_scanned=123)
-- **Logs**: `.codex-logs/thesaver-cx.log`, `thesaver-codex.log`
+- **Memory store**: `.vibetheog-cx/state.json` (runs=3, files_scanned=123)
+- **Logs**: `.codex-logs/vibetheog-cx.log`, `vibetheog-codex.log`
 
 ## Baseline Command Results
 
@@ -26,13 +26,13 @@ master (no uncommitted changes from baseline run)
 
 ## Memory-Related Signals from Output
 1. `project-memory init failed: Cannot read properties of undefined` — repeated across ~50+ test instances, accessing `project_hashes[fp].totalSessions` on undefined
-2. `[theSaver] LOADED cwd=...` — plugin initialization per test sandbox
-3. `[theSaver] ACTIVE: model=... tier=...` — model/tier classification per context
+2. `[VibeTheOG] LOADED cwd=...` — plugin initialization per test sandbox
+3. `[VibeTheOG] ACTIVE: model=... tier=...` — model/tier classification per context
 4. `[flow-enforcer]` hints (new-md-file, new-file-outside-src, TODO extraction)
 5. `[tdd-enforce] Created skeleton:` — test skeleton generation
 6. `ctx-compress` / `📦 ctx-compress total saved this transform: ~647 tokens` — context compression signals
 7. `session-report-pending.md` writes, `session-reports.log` appends
-8. `[theSaver] modelCostPerTurn: unknown model 'haiku'` — missing model cost entries
+8. `[VibeTheOG] modelCostPerTurn: unknown model 'haiku'` — missing model cost entries
 9. `MaxListenersExceededWarning: 11 exit listeners` — potential resource leak
 10. `[delegation] ⚠ Brain model running write directly` — cost-warning system
 

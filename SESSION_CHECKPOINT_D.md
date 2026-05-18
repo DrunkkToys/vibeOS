@@ -9,10 +9,10 @@
 - **Test suite**: 213 tests, 210 pass, 0 fail, 3 skip
 - **Build system**: typecheck PASS, build PASS
 - **Node**: Node 18+, ESM
-- **Model/tier**: deepseek/deepseek-v4-flash (tier=mid) — from theSaver plugin
+- **Model/tier**: deepseek/deepseek-v4-flash (tier=mid) — from VibeTheOG plugin
 
 ## Active Session Artifacts
-1. `.thesaver-cx/state.json` — runs=3, files_scanned=123
+1. `.vibetheog-cx/state.json` — runs=3, files_scanned=123
 2. `SESSION_CHECKPOINT_A.md` — baseline + memory signals
 3. `SESSION_CHECKPOINT_B.md` — after Chunk 1 (test consolidation)
 4. `SESSION_CHECKPOINT_C.md` — after Phase 2 (all 3 chunks)
@@ -28,7 +28,7 @@
 - `src/index.js` — line 2142: improved project-memory init failed error message to include fingerprint
 
 ### Created
-- `src/theSaver-lib/tests/flow-enforcer.test.mjs` — node:test port covering getFlowWarns and recordFlowTodo
+- `src/VibeTheOG-lib/tests/flow-enforcer.test.mjs` — node:test port covering getFlowWarns and recordFlowTodo
 
 ## Continuation Plan for Next Session
 1. Verify repo integrity: `git status`, `npm run typecheck && npm run build && npm test`
@@ -47,4 +47,4 @@
 - Run `npm test` first to confirm state integrity
 - Inspect `git diff` to see all changes
 - Use checkpoint "remaining work" lists to set priorities
-- The `.thesaver-cx/state.json` provides runtime-level memory
+- The `.vibetheog-cx/state.json` provides runtime-level memory

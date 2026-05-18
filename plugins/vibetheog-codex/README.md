@@ -1,11 +1,11 @@
-# theSaver Codex Plugin
+# VibeTheOG Codex Plugin
 
-This plugin adds a Codex-native companion layer for `theSaver` with:
+This plugin adds a Codex-native companion layer for `VibeTheOG` with:
 
 - Plugin manifest (`.codex-plugin/plugin.json`)
 - Hook scripts (`hooks/`)
 - Reusable script entrypoint (`scripts/run-guard.sh`)
-- Skill prompt for consistent behavior (`skills/thesaver-guard/SKILL.md`)
+- Skill prompt for consistent behavior (`skills/vibetheog-guard/SKILL.md`)
 
 ## Layout
 
@@ -18,19 +18,19 @@ This plugin adds a Codex-native companion layer for `theSaver` with:
 Run guard manually:
 
 ```bash
-bash plugins/thesaver-codex/scripts/run-guard.sh
+bash plugins/vibetheog-codex/scripts/run-guard.sh
 ```
 
 Run full suite mode:
 
 ```bash
-THESAVER_GUARD_FULL=1 bash plugins/thesaver-codex/scripts/run-guard.sh
+VIBETHEOG_GUARD_FULL=1 bash plugins/vibetheog-codex/scripts/run-guard.sh
 ```
 
 Run pre-commit hook manually:
 
 ```bash
-bash plugins/thesaver-codex/hooks/pre-commit.sh
+bash plugins/vibetheog-codex/hooks/pre-commit.sh
 ```
 
 ## Wiring Suggestions
@@ -40,6 +40,6 @@ You can wire these scripts to your preferred runner (git hooks, task runner, or 
 Example git hook setup:
 
 ```bash
-ln -sf ../../plugins/thesaver-codex/hooks/pre-commit.sh .git/hooks/pre-commit
+ln -sf ../../plugins/vibetheog-codex/hooks/pre-commit.sh .git/hooks/pre-commit
 chmod +x .git/hooks/pre-commit
 ```

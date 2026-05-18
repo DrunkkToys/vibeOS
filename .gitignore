@@ -12,7 +12,7 @@ dist-ts/
 # Local state
 .codex-logs/
 .experiment/
-.thesaver-cx/
+.vibetheog-cx/
 .agents/
 
 

@@ -129,9 +129,9 @@ for (const line of skelContent.split("\n")) {
 }
 console.log(`  ── End content ──`)
 
-test("has [theSaver-enforced] banner at top", () => {
-  assert.ok(skelContent.includes("[theSaver-enforced]"),
-    "Missing [theSaver-enforced] banner")
+test("has [VibeTheOG-enforced] banner at top", () => {
+  assert.ok(skelContent.includes("[VibeTheOG-enforced]"),
+    "Missing [VibeTheOG-enforced] banner")
 })
 
 test("has test stubs for hashKey", () => {

@@ -1,4 +1,4 @@
-// [theSaver-enforced] Skeleton test — replace with real assertions
+// [VibeTheOG-enforced] Skeleton test — replace with real assertions
 import { describe, it, expect } from 'vitest';
 import * as mod from '../math';
 

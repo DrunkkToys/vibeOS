@@ -5,7 +5,7 @@
 | Continuity Dimension | Verdict | Evidence |
 |---|---|---|
 | **Task Continuity** | **FAIL** | Task 3 scope drift (`.js→.ts` silently became `vitest→node:test`) and Task 5 (null guard) dropped between A→B with no rationale. D's continuation plan introduces new items never taskified. |
-| **State Continuity** | **PASS** | Branch, model/tier, `.thesaver-cx/state.json` counters, build system, and test counts all consistent across A→D. One minor phrasing anomaly (pass count vs total count). |
+| **State Continuity** | **PASS** | Branch, model/tier, `.vibetheog-cx/state.json` counters, build system, and test counts all consistent across A→D. One minor phrasing anomaly (pass count vs total count). |
 | **Artifact Continuity** | **FAIL** | Only 5 of ~25 file changes documented across checkpoints. `git diff --stat` shows 15 modified files + 10+ untracked files; checkpoints cover only 5. A new session would be unaware of ~75% of working tree changes. |
 | **Behavioral Continuity** | **FAIL** | Four rationale gaps: scope drift un-explained, dropped task un-accounted, orphan signals (model cost, MaxListeners) emerge in D without acknowledgment of earlier detection. |
 

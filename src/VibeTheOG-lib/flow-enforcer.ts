@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 theSaver <https://github.com/DrunkkToys/theSaver-oc>
+// SPDX-FileCopyrightText: 2026 VibeTheOG <https://github.com/DrunkkToys/VibeTheOG>
 import { readFileSync, existsSync, mkdirSync, writeFileSync, statSync, appendFileSync } from "node:fs"
 import { join, dirname } from "node:path"
 import { homedir } from "node:os"

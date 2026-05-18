@@ -1,13 +1,13 @@
-# theSaver Guard Skill
+# VibeTheOG Guard Skill
 
-Use this skill when the user asks to run theSaver Codex guardrails.
+Use this skill when the user asks to run VibeTheOG Codex guardrails.
 
 ## Workflow
 
 1. Run the guard:
 
 ```bash
-bash plugins/thesaver-codex/scripts/run-guard.sh
+bash plugins/vibetheog-codex/scripts/run-guard.sh
 ```
 
 2. If guard fails, show the first actionable failure and suggest the smallest fix.

@@ -1,6 +1,6 @@
 /**
  * SPDX-License-Identifier: MIT
- * SPDX-FileCopyrightText: 2026 theSaver <https://github.com/DrunkkToys/theSaver-oc>
+ * SPDX-FileCopyrightText: 2026 VibeTheOG <https://github.com/DrunkkToys/VibeTheOG>
  *
  * Delegation Enforcer Plugin — memory-mode, never blocks.
  *
@@ -16,7 +16,7 @@
  *   webfetch/websearch >5     → warn + record (memory)
  *   task/read/glob/grep/...   → free
  *
- * Sister hook: ~/.claude/hooks/theSaver (Claude Code).
+ * Sister hook: ~/.claude/hooks/VibeTheOG (Claude Code).
  */
 
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, statSync, readdirSync, openSync, readSync, closeSync, rmSync, copyFileSync } from "node:fs"
@@ -26,8 +26,8 @@ import { homedir, tmpdir } from "node:os"
 const USER_HOME = (() => { try { return homedir() } catch { return tmpdir() } })()
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
-import { checkFlowRules, getFlowWarns, getSessionFlowCounts } from "./theSaver-lib/flow-enforcer.js"
-import { computeSessionMetrics } from "./theSaver-lib/session-metrics.js"
+import { checkFlowRules, getFlowWarns, getSessionFlowCounts } from "./VibeTheOG-lib/flow-enforcer.js"
+import { computeSessionMetrics } from "./VibeTheOG-lib/session-metrics.js"
 
 // Minimal self-contained tool helper — avoids @opencode-ai/plugin dependency
 // so the plugin works immediately on any install without bun/npm.
@@ -58,8 +58,10 @@ let currentProjectName = ""
 const softQuotaCounts = {}
 const SOFT_QUOTA_LIMIT = 5
 const STATE_FILE = join(USER_HOME, ".claude/delegation-state.json")
+const SAVINGS_LEDGER_FILE = join(USER_HOME, ".claude/savings-ledger.jsonl")
+const GLOBAL_LEARNING_FILE = join(USER_HOME, ".claude/global-learning.json")
 const PRICING_CACHE_FILE = join(USER_HOME, ".claude/model-pricing-cache.json")
-const FILE_LOCK_DIR = join(USER_HOME, ".claude/.theSaver-locks")
+const FILE_LOCK_DIR = join(USER_HOME, ".claude/.VibeTheOG-locks")
 
 // Dedupe set: assistantMessageIds that already had the savings tag appended
 // during this sidecar's lifetime.
@@ -156,7 +158,7 @@ function writeSelection(key, value) {
     writeFileSync(TIERS_FILE, JSON.stringify(j, null, 2) + "\n")
     return true
   } catch (err) {
-    console.error(`[theSaver] writeSelection failed: ${err.message}`)
+    console.error(`[VibeTheOG] writeSelection failed: ${err.message}`)
     return false
   }
 }
@@ -341,7 +343,7 @@ export function modelCostPerTurn(model) {
     if (key.startsWith(k) || k.startsWith(key)) return v
   }
   // Log unknown models so we can add entries
-  console.error(`[theSaver] modelCostPerTurn: unknown model '${model}' (normalized: '${key}') — add to MODEL_USD_PER_TURN`)
+  console.error(`[VibeTheOG] modelCostPerTurn: unknown model '${model}' (normalized: '${key}') — add to MODEL_USD_PER_TURN`)
   return null  // unknown — callers fall back to SAVE_EST constants
 }
 
@@ -591,6 +593,171 @@ let context7AlertedThisSession = false
 let pendingUiNote = null
 let enforcementBlocked = false
 let taskSlotRestore = null
+const ACTIVE_JOBS_FILE = join(USER_HOME, ".claude/active-jobs.json")
+let activeJob = null
+let latestUserIntent = null
+
+function tokenizeWords(text) {
+  if (!text || typeof text !== "string") return []
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter((w) => w.length > 2)
+}
+
+function topKeywords(text, max = 10) {
+  const stop = new Set(["the", "and", "for", "with", "that", "this", "from", "into", "your", "you", "are", "but", "not", "all", "can", "use", "was", "have", "has", "had", "they", "them", "their", "then", "than", "when", "what", "why", "how", "who", "will", "would", "should", "about", "check", "make", "build", "write", "edit", "file", "code", "test", "tests", "run"])
+  const freq = new Map()
+  for (const w of tokenizeWords(text)) {
+    if (stop.has(w)) continue
+    freq.set(w, (freq.get(w) || 0) + 1)
+  }
+  return [...freq.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, max)
+    .map(([w]) => w)
+}
+
+function loadActiveJobs() {
+  try {
+    if (!existsSync(ACTIVE_JOBS_FILE)) return {}
+    const raw = JSON.parse(readFileSync(ACTIVE_JOBS_FILE, "utf-8"))
+    if (!raw || typeof raw !== "object") return {}
+    return raw
+  } catch {
+    return {}
+  }
+}
+
+function getActiveJobForProject(fp = currentProjectFingerprint) {
+  if (!fp) return null
+  const jobs = loadActiveJobs()
+  const job = jobs[fp]
+  if (!job || typeof job !== "object") return null
+  return job
+}
+
+function saveActiveJobForProject(job, fp = currentProjectFingerprint) {
+  if (!fp || !job || typeof job !== "object") return
+  try {
+    const jobs = loadActiveJobs()
+    jobs[fp] = job
+    mkdirSync(dirname(ACTIVE_JOBS_FILE), { recursive: true })
+    writeFileSync(ACTIVE_JOBS_FILE, JSON.stringify(jobs, null, 2))
+  } catch {}
+}
+
+function setActiveJobFromTaskPrompt(prompt) {
+  if (!prompt || typeof prompt !== "string") return
+  const p = prompt.trim()
+  if (p.length < 24) return
+  activeJob = {
+    prompt: p.slice(0, 1200),
+    keywords: topKeywords(p, 12),
+    updatedAt: new Date().toISOString(),
+  }
+  saveActiveJobForProject(activeJob)
+}
+
+function extractLastUserText(obj) {
+  if (!obj || typeof obj !== "object") return null
+  const candidates = []
+  const scan = (v) => {
+    if (!v || typeof v !== "object") return
+    if (Array.isArray(v)) {
+      for (const i of v) scan(i)
+      return
+    }
+    if (v.role === "user" && typeof v.content === "string") candidates.push(v.content)
+    if (typeof v.text === "string") candidates.push(v.text)
+    for (const val of Object.values(v)) scan(val)
+  }
+  scan(obj)
+  if (!candidates.length) return null
+  return candidates[candidates.length - 1]
+}
+
+function isUserAskingForTests(text) {
+  if (!text || typeof text !== "string") return false
+  return /\b(test|tests|typecheck|coverage|qa|regression|e2e|unit test|integration test)\b/i.test(text)
+}
+
+function isLikelyOffTopic(userText, job) {
+  if (!userText || !job?.keywords?.length) return false
+  if (/\b(new task|switch task|different task|ignore previous|start over)\b/i.test(userText)) return false
+  const now = Date.now()
+  const updatedAt = Date.parse(job.updatedAt || "")
+  if (!Number.isFinite(updatedAt) || now - updatedAt > 2 * 60 * 60 * 1000) return false
+  const userWords = new Set(topKeywords(userText, 12))
+  const overlap = job.keywords.filter((k) => userWords.has(k))
+  return overlap.length === 0 && userWords.size >= 3
+}
+
+function loadGlobalLearning() {
+  try {
+    if (!existsSync(GLOBAL_LEARNING_FILE)) return { exploratory_words: {}, task_first_words: {}, updatedAt: null }
+    const j = JSON.parse(readFileSync(GLOBAL_LEARNING_FILE, "utf-8"))
+    if (!j || typeof j !== "object") return { exploratory_words: {}, task_first_words: {}, updatedAt: null }
+    j.exploratory_words ??= {}
+    j.task_first_words ??= {}
+    return j
+  } catch {
+    return { exploratory_words: {}, task_first_words: {}, updatedAt: null }
+  }
+}
+
+function updateGlobalLearning(mutator) {
+  return withFileLock(GLOBAL_LEARNING_FILE, () => {
+    const s = loadGlobalLearning()
+    const next = mutator(s) ?? s
+    next.updatedAt = new Date().toISOString()
+    mkdirSync(dirname(GLOBAL_LEARNING_FILE), { recursive: true })
+    writeFileSync(GLOBAL_LEARNING_FILE, JSON.stringify(next, null, 2))
+    return next
+  })
+}
+
+function getLearnedExploratoryWords() {
+  const out = new Set()
+  try {
+    const gl = loadGlobalLearning()
+    for (const [w, meta] of Object.entries(gl.exploratory_words || {})) {
+      if ((meta?.count || 0) >= 1) out.add(String(w))
+    }
+  } catch {}
+  return out
+}
+
+function noteTaskRoutingLearning(firstWord, targetModel, reason) {
+  if (!firstWord || !/^[a-z][a-z0-9_-]{1,24}$/.test(firstWord)) return
+  try {
+    const now = new Date().toISOString()
+    const nonExploratory = new Set(["build", "implement", "fix", "add", "update", "remove", "write", "edit", "refactor", "create"])
+    updateGlobalLearning((gl) => {
+      gl.task_first_words ??= {}
+      const row = gl.task_first_words[firstWord] || { total: 0, cheap: 0, medium: 0, high: 0, lastSeen: null, lastReason: null }
+      row.total += 1
+      if (targetModel === TRINITY_CHEAP) row.cheap += 1
+      else if (targetModel === TRINITY_MEDIUM) row.medium += 1
+      else row.high += 1
+      row.lastSeen = now
+      row.lastReason = reason || "unknown"
+      gl.task_first_words[firstWord] = row
+
+      // Learn portable exploratory intent across projects after repeated cheap-safe routes.
+      if (!nonExploratory.has(firstWord) && row.cheap >= 3 && row.cheap / Math.max(1, row.total) >= 0.7) {
+        gl.exploratory_words ??= {}
+        const e = gl.exploratory_words[firstWord] || { count: 0, lastSeen: null }
+        e.count += 1
+        e.lastSeen = now
+        gl.exploratory_words[firstWord] = e
+      }
+      return gl
+    })
+  } catch {}
+}
 
 // Soft counter for hypothetical missed savings (no locking — drift acceptable
 // for a hypothetical metric). Mirrors bash record_missed_c7().
@@ -872,7 +1039,7 @@ function isSkeletonUseless(content) {
 const TEST_SKELETONS = {
   py: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => {
     const moduleImport = name.replace(/-/g, "_")
-    let content = `# [theSaver-enforced] Skeleton test — replace with real assertions\n`
+    let content = `# [VibeTheOG-enforced] Skeleton test — replace with real assertions\n`
     content += `import pytest\n`
     content += `from ${moduleImport} import ${exports.length > 0 ? exports.map(e => e.name).join(", ") : moduleImport}\n\n`
     if (depth === "minimal") {
@@ -910,7 +1077,7 @@ const TEST_SKELETONS = {
   },
   js: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => {
     const importPath = `../${name}`
-    let content = `// [theSaver-enforced] Skeleton test — replace with real assertions\n`
+    let content = `// [VibeTheOG-enforced] Skeleton test — replace with real assertions\n`
     content += `const { test, expect, describe } = require('@jest/globals');\n`
     content += `const mod = require('${importPath}');\n\n`
     content += `describe('${name}', () => {\n`
@@ -955,7 +1122,7 @@ const TEST_SKELETONS = {
   },
   mjs: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => {
     const importPath = `../${name}`
-    let content = `// [theSaver-enforced] Skeleton test — replace with real assertions\n`
+    let content = `// [VibeTheOG-enforced] Skeleton test — replace with real assertions\n`
     content += `import { test, expect, describe } from 'vitest';\n`
     content += `import * as mod from '${importPath}';\n\n`
     content += `describe('${name}', () => {\n`
@@ -998,7 +1165,7 @@ const TEST_SKELETONS = {
   },
   ts: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => {
     const importPath = `../${name}`
-    let content = `// [theSaver-enforced] Skeleton test — replace with real assertions\n`
+    let content = `// [VibeTheOG-enforced] Skeleton test — replace with real assertions\n`
     content += `import { test, expect, describe, it } from 'vitest';\n`
     content += `import * as mod from '${importPath}';\n\n`
     content += `describe('${name}', () => {\n`
@@ -1043,7 +1210,7 @@ const TEST_SKELETONS = {
   jsx: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => TEST_SKELETONS.mjs(name, exports, depth, strict, quality, sourceContent),
   go: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => {
     const cap = name.charAt(0).toUpperCase() + name.slice(1)
-    let content = `// [theSaver-enforced] Skeleton test — replace with real assertions\n`
+    let content = `// [VibeTheOG-enforced] Skeleton test — replace with real assertions\n`
     content += `package main\n\n`
     content += `import "testing"\n\n`
     if (depth === "minimal") {
@@ -1085,7 +1252,7 @@ const TEST_SKELETONS = {
     return content
   },
   sh: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => {
-    let content = `# [theSaver-enforced] Skeleton test — replace with real assertions\n`
+    let content = `# [VibeTheOG-enforced] Skeleton test — replace with real assertions\n`
     content += `#!/bin/bash\n\n`
     if (depth === "minimal") {
       content += `echo "TODO: implement smoke test for ${name}" && exit 1\n`
@@ -1120,7 +1287,7 @@ const TEST_SKELETONS = {
     return content
   },
   rs: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => {
-    let content = `// [theSaver-enforced] Skeleton test — replace with real assertions\n`
+    let content = `// [VibeTheOG-enforced] Skeleton test — replace with real assertions\n`
     content += `#[cfg(test)]\nmod tests {\n`
     content += `    use super::*;\n\n`
     if (depth === "minimal") {
@@ -1157,7 +1324,7 @@ const TEST_SKELETONS = {
     return content
   },
   rb: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => {
-    let content = `# [theSaver-enforced] Skeleton test — replace with real assertions\n`
+    let content = `# [VibeTheOG-enforced] Skeleton test — replace with real assertions\n`
     content += `require 'minitest/autorun'\n`
     content += `require_relative '../${name}'\n\n`
     content += `class Test${name.charAt(0).toUpperCase() + name.slice(1)} < Minitest::Test\n`
@@ -1199,7 +1366,7 @@ const TEST_SKELETONS = {
   },
   java: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => {
     const cap = name.charAt(0).toUpperCase() + name.slice(1)
-    let content = `// [theSaver-enforced] Skeleton test — replace with real assertions\n`
+    let content = `// [VibeTheOG-enforced] Skeleton test — replace with real assertions\n`
     content += `import org.junit.jupiter.api.Test;\n`
     content += `import static org.junit.jupiter.api.Assertions.*;\n\n`
     content += `class Test${cap} {\n`
@@ -1242,7 +1409,7 @@ const TEST_SKELETONS = {
   },
   kt: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => {
     const cap = name.charAt(0).toUpperCase() + name.slice(1)
-    let content = `// [theSaver-enforced] Skeleton test — replace with real assertions\n`
+    let content = `// [VibeTheOG-enforced] Skeleton test — replace with real assertions\n`
     content += `import org.junit.jupiter.api.Test\n`
     content += `import org.junit.jupiter.api.Assertions.*\n\n`
     content += `class Test${cap} {\n`
@@ -1418,12 +1585,12 @@ export function enforceTestFile(filePath) {
     // Anti-useless-run guard: warn if content is only placeholders
     const useless = isSkeletonUseless(skeleton.content)
     if (useless) {
-      console.error(`[theSaver] [tdd-enforce] ⚠ WARNING: Generated skeleton at ${skeleton.path} has ONLY placeholder content (no real assertions). Consider turning on quality templates with \`trinity tdd quality on\` or adding manual tests.`)
+      console.error(`[VibeTheOG] [tdd-enforce] ⚠ WARNING: Generated skeleton at ${skeleton.path} has ONLY placeholder content (no real assertions). Consider turning on quality templates with \`trinity tdd quality on\` or adding manual tests.`)
     }
-    console.error(`[theSaver] [tdd-enforce] Created skeleton: ${skeleton.path}`)
+    console.error(`[VibeTheOG] [tdd-enforce] Created skeleton: ${skeleton.path}`)
     return resultPath
   } catch (err) {
-    console.error(`[theSaver] [tdd-enforce] Failed to create ${skeleton.path}: ${err.message}`)
+    console.error(`[VibeTheOG] [tdd-enforce] Failed to create ${skeleton.path}: ${err.message}`)
     return null
   } finally {
     _releaseLock(skeleton.path)
@@ -1473,7 +1640,7 @@ function recordSaving(tool, reason, saveEst) {
     })
     return state?.lifetime?.est_savings_usd ?? null
   } catch (err) {
-    console.error(`[theSaver] state write failed: ${err.message}`)
+    console.error(`[VibeTheOG] state write failed: ${err.message}`)
     return null
   }
 }
@@ -1512,7 +1679,7 @@ function recordCacheSaving(tool, saveEst, meta = {}) {
       session: state?.sessions?.[sid]?.cache_savings_usd || 0,
     }
   } catch (err) {
-    console.error(`[theSaver] cache state write failed: ${err.message}`)
+    console.error(`[VibeTheOG] cache state write failed: ${err.message}`)
     return null
   }
 }
@@ -1575,9 +1742,74 @@ function getLastLine(filePath) {
 // written since we last read).
 let _savingsCache = null
 let _savingsCacheMtime = 0
+let _ledgerReconciledThisProcess = false
+
+function readLedgerTotals() {
+  const empty = { delegation: 0, cache: 0, total: 0, entries: 0 }
+  try {
+    if (!existsSync(SAVINGS_LEDGER_FILE)) return empty
+    const raw = readFileSync(SAVINGS_LEDGER_FILE, "utf-8")
+    if (!raw.trim()) return empty
+    let delegation = 0
+    let cache = 0
+    let entries = 0
+    for (const line of raw.split("\n")) {
+      const ln = line.trim()
+      if (!ln) continue
+      let rec = null
+      try { rec = JSON.parse(ln) } catch { continue }
+      if (!rec || typeof rec !== "object") continue
+      const amt = Number(rec.amount_usd ?? rec.est_savings_usd ?? rec.savings_usd ?? 0)
+      if (!Number.isFinite(amt) || amt <= 0) continue
+      entries += 1
+      const kind = String(rec.type || rec.category || rec.source || "").toLowerCase()
+      if (kind.includes("cache")) cache += amt
+      else delegation += amt
+    }
+    const total = delegation + cache
+    return {
+      delegation: Math.round(delegation * 1000) / 1000,
+      cache: Math.round(cache * 1000) / 1000,
+      total: Math.round(total * 1000) / 1000,
+      entries,
+    }
+  } catch {
+    return empty
+  }
+}
+
+function reconcileStateFromLedger() {
+  if (_ledgerReconciledThisProcess) return
+  _ledgerReconciledThisProcess = true
+  try {
+    const l = readLedgerTotals()
+    if (l.total <= 0) return
+    const state = readJsonOrEmpty(STATE_FILE)
+    const stDelegation = Number(state?.lifetime?.est_savings_usd ?? 0)
+    const stCache = Number(state?.lifetime?.cache_savings_usd ?? 0)
+    const stTotal = (Number.isFinite(stDelegation) ? stDelegation : 0) + (Number.isFinite(stCache) ? stCache : 0)
+    if (stTotal + 0.0005 >= l.total) return
+    updateState((s) => {
+      s.lifetime ??= { warn_count: 0, est_savings_usd: 0, last_updated: "" }
+      s.lifetime.est_savings_usd = l.delegation
+      s.lifetime.cache_savings_usd = l.cache
+      s.lifetime.last_updated = new Date().toISOString()
+      s.lifetime.rebuilt_from_ledger = true
+      s.lifetime.ledger_entries_reconciled = l.entries
+      return s
+    })
+    _savingsCache = null
+    _savingsCacheMtime = 0
+    console.error(`[VibeTheOG] savings reconciled from ledger: state $${stTotal.toFixed(3)} -> ledger $${l.total.toFixed(3)} (${l.entries} entries)`)
+  } catch (err) {
+    console.error(`[VibeTheOG] ledger reconcile failed: ${err.message}`)
+  }
+}
+
 function readLifetimeSavings() {
   const empty = { ltTasks: 0, ltCache: 0, ltCost: 0, count: 0, scratchpadHits: 0, missedC7: 0, sesTasks: 0, sesEdit: 0, sesCredit: 0, sesC7: 0, sesQuota: 0, sesDuration: 0, sesRatePerHour: 0, sesTrend: "stable", sesToolBreakdown: {}, sesModelTurns: { brain: 0, worker: 0 } }
   try {
+    reconcileStateFromLedger()
     if (!existsSync(STATE_FILE)) return empty
     const mtime = statSync(STATE_FILE).mtimeMs
     if (_savingsCache && mtime === _savingsCacheMtime) return _savingsCache
@@ -1662,7 +1894,7 @@ function indexAppend(hash, tool, size, extra) {
     appendFileSync(globalIndex, entry)
     appendFileSync(sessionIndex, entry)
   } catch (err) {
-    console.error(`[theSaver] index write failed: ${err.message}`)
+    console.error(`[VibeTheOG] index write failed: ${err.message}`)
   }
 }
 
@@ -1766,10 +1998,10 @@ function applyDecadence() {
         rotate: false,
       })
       if (ses.deleted > 0) {
-        console.error(`[theSaver] 📦 session-decadence: deleted=${ses.deleted} (${ses.dataFiles} files, ${Math.round(ses.totalBytes/1024)}KB)`)
+        console.error(`[VibeTheOG] 📦 session-decadence: deleted=${ses.deleted} (${ses.dataFiles} files, ${Math.round(ses.totalBytes/1024)}KB)`)
       }
     } catch (err) {
-      console.error(`[theSaver] session decadence error: ${err.message}`)
+      console.error(`[VibeTheOG] session decadence error: ${err.message}`)
     }
   }
   if (now - _lastGlobalDecadenceRun >= DECADENCE_GLOBAL_THROTTLE_MS) {
@@ -1785,10 +2017,10 @@ function applyDecadence() {
         const action = []
         if (global.rotated > 0) action.push(`rotated=${global.rotated}`)
         if (global.deleted > 0) action.push(`deleted=${global.deleted}`)
-        console.error(`[theSaver] 📦 global-decadence: ${action.join(" ")} (${global.dataFiles} files, ${Math.round(global.totalBytes/1024)}KB)`)
+        console.error(`[VibeTheOG] 📦 global-decadence: ${action.join(" ")} (${global.dataFiles} files, ${Math.round(global.totalBytes/1024)}KB)`)
       }
     } catch (err) {
-      console.error(`[theSaver] global decadence error: ${err.message}`)
+      console.error(`[VibeTheOG] global decadence error: ${err.message}`)
     }
   }
 }
@@ -1891,7 +2123,7 @@ function compressText(text) {
   }
 
   if (removed > 0 || result !== collapsed.join("\n").trim()) {
-    console.error(`[theSaver] COMPRESS: ${text.length}→${result.length} chars (${removed} verbose lines stripped)`)
+    console.error(`[VibeTheOG] COMPRESS: ${text.length}→${result.length} chars (${removed} verbose lines stripped)`)
   }
   return result || text // never return empty if original wasn't
 }
@@ -1930,7 +2162,7 @@ function pruneScratchpadOnce() {
       const sum = txtFiles[i].replace(".txt", ".summary.txt")
       if (existsSync(sum)) try { rmSync(sum) } catch {}
     }
-    console.error(`[theSaver] pruned ${remove} scratchpad files (${txtFiles.length} → ${txtFiles.length - remove})`)
+    console.error(`[VibeTheOG] pruned ${remove} scratchpad files (${txtFiles.length} → ${txtFiles.length - remove})`)
   } catch {}
 }
 
@@ -1961,7 +2193,7 @@ function saveProjectState(state) {
       writeFileSync(PROJECT_STATE_FILE, JSON.stringify(state, null, 2) + "\n")
     })
   } catch (err) {
-    console.error(`[theSaver] project state write failed: ${err.message}`)
+    console.error(`[VibeTheOG] project state write failed: ${err.message}`)
   }
 }
 
@@ -2033,7 +2265,7 @@ function _refreshModel(directory) {
     // Skip placeholder models (e.g. "provider/high-tier-model") — use auto-detected model instead
     if (slotOcModel && PLACEHOLDER_RE.test(slotOcModel)) {
       slotOcModel = ""
-      console.error(`[theSaver] placeholder model detected in ${activeSlot} slot — skipping, will auto-detect`)
+      console.error(`[VibeTheOG] placeholder model detected in ${activeSlot} slot — skipping, will auto-detect`)
     }
     if (slotOcModel) {
       // Always derive tier from active slot so footer/env reflect slot changes,
@@ -2046,7 +2278,7 @@ function _refreshModel(directory) {
         const oldTier = currentTier
         currentModel = slotOcModel
         currentTier = nextTier
-        console.error(`[theSaver] model refresh: ${oldModel}(${oldTier}) → ${currentModel}(${currentTier}) (slot=${activeSlot})`)
+        console.error(`[VibeTheOG] model refresh: ${oldModel}(${oldTier}) → ${currentModel}(${currentTier}) (slot=${activeSlot})`)
       }
     }
     // If no model from tiers and no existing currentModel, try to auto-detect
@@ -2055,14 +2287,14 @@ function _refreshModel(directory) {
       if (detected) {
         currentModel = detected
         currentTier = classify(currentModel)
-        console.error(`[theSaver] auto-detected model: ${currentModel} (tier=${currentTier})`)
+        console.error(`[VibeTheOG] auto-detected model: ${currentModel} (tier=${currentTier})`)
       }
     }
   } catch {}
 }
 
 export async function DelegationEnforcer({ client, directory }) {
-  console.error(`[theSaver] LOADED cwd=${directory}`)
+  console.error(`[VibeTheOG] LOADED cwd=${directory}`)
   registerSessionCleanupHandlers()
   pruneScratchpadOnce()
 
@@ -2086,14 +2318,14 @@ export async function DelegationEnforcer({ client, directory }) {
           const cost = modelCostPerTurn(_brainOcModel)
           if (HIGH_TIER_RE.test(_brainOcModel) || (cost !== null && cost >= 0.01)) {
             currentTier = "high"
-            console.error(`[theSaver] tier override → high (brain slot)`)
+            console.error(`[VibeTheOG] tier override → high (brain slot)`)
           }
         }
       }
     } catch {}
-    console.error(`[theSaver] ACTIVE: model=${currentModel} tier=${currentTier}`)
+    console.error(`[VibeTheOG] ACTIVE: model=${currentModel} tier=${currentTier}`)
   } else {
-    console.error("[theSaver] NO MODEL — enforcement disabled, will auto-detect on first hook")
+    console.error("[VibeTheOG] NO MODEL — enforcement disabled, will auto-detect on first hook")
   }
   // Auto-configure model-tiers.json — always syncs with opencode desktop config.
   // Sniffs ALL models from the user's opencode.json (provider dropdown + model field).
@@ -2169,7 +2401,7 @@ export async function DelegationEnforcer({ client, directory }) {
       if (_didWrite) {
         mkdirSync(dirname(TIERS_FILE), { recursive: true })
         writeFileSync(TIERS_FILE, JSON.stringify(_tiersData, null, 2) + "\n")
-        console.error(`[theSaver] auto-synced model-tiers.json: brain=${_brain.id} medium=${_tiersData.trinity?.medium?.oc || ""} cheap=${_tiersData.trinity?.cheap?.oc || ""}`)
+        console.error(`[VibeTheOG] auto-synced model-tiers.json: brain=${_brain.id} medium=${_tiersData.trinity?.medium?.oc || ""} cheap=${_tiersData.trinity?.cheap?.oc || ""}`)
         // Refresh in-memory trinity models immediately so routing works this session
         const _refreshed = loadTrinityModels()
         TRINITY_CHEAP  = _refreshed.cheap
@@ -2177,21 +2409,22 @@ export async function DelegationEnforcer({ client, directory }) {
       }
     } catch {}
   }
-  if (detectContext7()) console.error(`[theSaver] context7 detected — docs nudge enabled`)
+  if (detectContext7()) console.error(`[VibeTheOG] context7 detected — docs nudge enabled`)
 
   // ── Project memory: increment session counter ───────────────────
   const fp = projectFingerprint(directory)
   currentProjectFingerprint = fp
   currentProjectName = directory ? directory.split("/").pop() : "unknown"
+  activeJob = getActiveJobForProject(fp)
   try {
     const state = loadProjectState()
     const bucket = ensureProjectBucket(state, fp)
     bucket.totalSessions = (bucket.totalSessions || 0) + 1
     bucket.lastSeen = new Date().toISOString()
     saveProjectState(state)
-    console.error(`[theSaver] project-memory: ${fp} now ${bucket.totalSessions} sessions`)
+    console.error(`[VibeTheOG] project-memory: ${fp} now ${bucket.totalSessions} sessions`)
   } catch (err) {
-    console.error(`[theSaver] project-memory init failed for ${fp}: ${err.message}`)
+    console.error(`[VibeTheOG] project-memory init failed for ${fp}: ${err.message}`)
   }
 
   // ── Shared footer logic for text.complete + message.updated ──────
@@ -2205,7 +2438,7 @@ export async function DelegationEnforcer({ client, directory }) {
         if (cfg) {
           currentModel = String(cfg)
           currentTier = classify(currentModel)
-          console.error(`[theSaver] client-detected model: ${currentModel} (tier=${currentTier})`)
+          console.error(`[VibeTheOG] client-detected model: ${currentModel} (tier=${currentTier})`)
         }
       } catch { /* client.config may not be available */ }
     }
@@ -2268,7 +2501,7 @@ export async function DelegationEnforcer({ client, directory }) {
             metrics: { sessionCost: ltCost, cacheSavings: ltCache, tasksDelegated: sesTasks, model: currentModel, slot: loadSelection().active_slot || "unknown", editSavings: sesEdit, creditSavings: sesCredit, context7Savings: sesC7, quotaSavings: sesQuota },
             tags: ["auto", "cost"],
           })
-        } catch (e) { console.error("[theSaver] auto-report:", e.message) }
+        } catch (e) { console.error("[VibeTheOG] auto-report:", e.message) }
       }
 
       const stripped = text.replace(/\n\n— .+(?: —)?$/, "")
@@ -2276,7 +2509,7 @@ export async function DelegationEnforcer({ client, directory }) {
       const trendIcon = sesTrend === "down" ? "↓" : sesTrend === "up" ? "↑" : "→"
       let footerText
       if (ltTotal > 0) {
-        footerText = stripped + `\n\n— ${modelTag} | theSaver: ${ltTotal.toFixed(2)} saved ${trendIcon} —`
+        footerText = stripped + `\n\n— ${modelTag} | VibeTheOG: ${ltTotal.toFixed(2)} saved ${trendIcon} —`
       } else {
         footerText = stripped + `\n\n— ${brainTag} —`
       }
@@ -2288,7 +2521,7 @@ export async function DelegationEnforcer({ client, directory }) {
       if (ltTotal > 0 || ltCache > 0) {
         try {
           const _ltFmt = ltTotal.toFixed(2)
-          const _reportLine = `— ${modelTag} theSaver: $${_ltFmt} saved ${trendIcon} —`
+          const _reportLine = `— ${modelTag} VibeTheOG: $${_ltFmt} saved ${trendIcon} —`
           writeFileSync(join(USER_HOME, ".claude/session-report-pending.md"), _reportLine)
           const logPath = join(USER_HOME, ".claude/session-reports.log")
           const pid = process.pid || "?"
@@ -2301,7 +2534,7 @@ export async function DelegationEnforcer({ client, directory }) {
         } catch {}
       }
     } catch (err) {
-      console.error(`[theSaver] footer failed: ${err.message}`)
+      console.error(`[VibeTheOG] footer failed: ${err.message}`)
     }
   }
 
@@ -2327,7 +2560,7 @@ export async function DelegationEnforcer({ client, directory }) {
           const cacheSaved = recordCacheSaving(t, _cacheSave, { hash: hit.hash })
           const sumNote = hit.summaryPath ? ` (summary: ${hit.summaryPath})` : ""
           const cacheNote = cacheSaved ? `, cache+$${(cacheSaved.lifetime || 0).toFixed(3)} lt` : ""
-          console.error(`[theSaver] 📦 scratchpad hit for ${t}: ${hit.fullPath} ${hit.sizeBytes}B ${hit.ageSec}s old${sumNote} — total observed: ${total ?? "?"}${cacheNote}`)
+          console.error(`[VibeTheOG] 📦 scratchpad hit for ${t}: ${hit.fullPath} ${hit.sizeBytes}B ${hit.ageSec}s old${sumNote} — total observed: ${total ?? "?"}${cacheNote}`)
         }
       }
 
@@ -2336,7 +2569,7 @@ export async function DelegationEnforcer({ client, directory }) {
       if (_credit < 40 && t === "task" && TRINITY_CHEAP && args && typeof args === "object") {
         if (args.model !== TRINITY_CHEAP) {
           args.model = TRINITY_CHEAP
-          console.error(`[theSaver] 🔀 Credit ${_credit}%: forcing Task → cheap slot (${TRINITY_CHEAP})`)
+          console.error(`[VibeTheOG] 🔀 Credit ${_credit}%: forcing Task → cheap slot (${TRINITY_CHEAP})`)
         }
         return
       }
@@ -2354,13 +2587,17 @@ export async function DelegationEnforcer({ client, directory }) {
           : {}
         )
         const _prompt = (targetArgs?.prompt ?? "").trim().toLowerCase()
+        if (typeof targetArgs?.prompt === "string") setActiveJobFromTaskPrompt(targetArgs.prompt)
         const _firstWord = _prompt.split(/\s+/)[0]
-        const EXPLORATORY = new Set(["check","find","list","search","does","verify","look","count","show","get","read","grep","scan","detect","inspect"])
+        const BASE_EXPLORATORY = new Set(["check","find","list","search","does","verify","look","count","show","get","read","grep","scan","detect","inspect"])
+        const LEARNED_EXPLORATORY = getLearnedExploratoryWords()
+        const EXPLORATORY = new Set([...BASE_EXPLORATORY, ...LEARNED_EXPLORATORY])
         const _exploratoryTarget = EXPLORATORY.has(_firstWord) ? TRINITY_CHEAP : null
         const _tierTarget = (currentTier === "high" && TRINITY_MEDIUM && TRINITY_MEDIUM !== currentModel) ? TRINITY_MEDIUM
                           : TRINITY_CHEAP && TRINITY_CHEAP !== currentModel ? TRINITY_CHEAP
                           : null
         const _target = _exploratoryTarget ?? _tierTarget
+        if (_target) noteTaskRoutingLearning(_firstWord, _target, _exploratoryTarget ? "exploratory" : `tier:${currentTier}`)
         if (_target && targetArgs?.model !== _target) {
           const _reason = _exploratoryTarget ? `exploratory ('${_firstWord}')` : `tier=${currentTier}`
           const _setModel = (obj) => {
@@ -2383,13 +2620,13 @@ export async function DelegationEnforcer({ client, directory }) {
               if (switched?.ok) {
                 currentModel = switched.ocModel
                 currentTier = classify(currentModel)
-                console.error(`[theSaver] 🔁 task workaround: switched global slot ${taskSlotRestore} → ${desiredSlot}`)
+                console.error(`[VibeTheOG] 🔁 task workaround: switched global slot ${taskSlotRestore} → ${desiredSlot}`)
               } else {
                 taskSlotRestore = null
               }
             }
           } catch {}
-          console.error(`[theSaver] 🔀 Task → ${_target} (${_reason}, orchestrator: ${currentModel})`)
+          console.error(`[VibeTheOG] 🔀 Task → ${_target} (${_reason}, orchestrator: ${currentModel})`)
         }
       }
 
@@ -2414,8 +2651,8 @@ export async function DelegationEnforcer({ client, directory }) {
       if (_credit < 40) {
         const total = recordSaving(t, "credit<40% high-tier", _estOpus)
         const trend = trendDisplay(readLifetimeSavings().sesTrend)
-        const msg = `⚠ [theSaver] Low credit (${_credit}%) — ${_tierWord} model running ${t} directly. Switch to a cheaper tier: \`trinity medium\`. Saves ~$${_estOpus.toFixed(3)}/turn. (cumulative: $${(total ?? 0).toFixed(2)}, trend: ${trend})`
-        console.error(`[theSaver] [delegation] ${msg}`)
+        const msg = `⚠ [VibeTheOG] Low credit (${_credit}%) — ${_tierWord} model running ${t} directly. Switch to a cheaper tier: \`trinity medium\`. Saves ~$${_estOpus.toFixed(3)}/turn. (cumulative: $${(total ?? 0).toFixed(2)}, trend: ${trend})`
+        console.error(`[VibeTheOG] [delegation] ${msg}`)
         pendingUiNote = msg
         return
       }
@@ -2427,20 +2664,20 @@ export async function DelegationEnforcer({ client, directory }) {
           const originalPath = args?.filePath || args?.file_path || ""
           const basename = originalPath.split("/").pop() || "blocked"
           if (t === "write") {
-            args.filePath = `/tmp/thesaver-enforcement-blocked-${basename}`
+            args.filePath = `/tmp/vibetheog-enforcement-blocked-${basename}`
             if (args.file_path !== undefined) args.file_path = args.filePath
           } else if (t === "edit" || t === "notebookedit") {
             args.oldString = `__THE_SAVER_ENFORCEMENT_BLOCK_${Date.now()}__`
           }
           const total = recordSaving(t, "delegation enforced", _estEdit)
-          pendingUiNote = `🚫 [theSaver ENFORCEMENT] Direct ${t} blocked on ${_tierWord} tier. Use \`trinity medium\` to switch tiers, or \`trinity enforce off\` to disable. Delegate via Task subagent instead. (cumulative: $${(total ?? 0).toFixed(2)})`
+          pendingUiNote = `🚫 [VibeTheOG ENFORCEMENT] Direct ${t} blocked on ${_tierWord} tier. Use \`trinity medium\` to switch tiers, or \`trinity enforce off\` to disable. Delegate via Task subagent instead. (cumulative: $${(total ?? 0).toFixed(2)})`
           enforcementBlocked = true
-          console.error(`[theSaver] [enforcement] BLOCKED direct ${t} on high tier → delegate via Task`)
+          console.error(`[VibeTheOG] [enforcement] BLOCKED direct ${t} on high tier → delegate via Task`)
           return
         }
         const total = recordSaving(t, "direct edit", _estEdit)
-        const msg = `⚠ [theSaver] ${_tierWord} model running ${t} directly — delegate via Task to save ~$${_estEdit.toFixed(3)}/turn. Use \`trinity medium\` to switch tiers. (cumulative: $${(total ?? 0).toFixed(2)})`
-        console.error(`[theSaver] [delegation] ${msg}`)
+        const msg = `⚠ [VibeTheOG] ${_tierWord} model running ${t} directly — delegate via Task to save ~$${_estEdit.toFixed(3)}/turn. Use \`trinity medium\` to switch tiers. (cumulative: $${(total ?? 0).toFixed(2)})`
+        console.error(`[VibeTheOG] [delegation] ${msg}`)
         pendingUiNote = msg
         return
       }
@@ -2454,7 +2691,7 @@ export async function DelegationEnforcer({ client, directory }) {
             // Re-check each time — context7 might be added mid-session
             if (detectContext7()) {
               const total = recordSaving(t, "docs-target without context7", _estC7)
-              console.error(`[theSaver] [cost policy] Context7 tools available — use them for library/framework docs instead of ${t}. Saves ~$${_estC7.toFixed(3)}/turn. (cumulative: $${(total ?? 0).toFixed(2)})`)
+              console.error(`[VibeTheOG] [cost policy] Context7 tools available — use them for library/framework docs instead of ${t}. Saves ~$${_estC7.toFixed(3)}/turn. (cumulative: $${(total ?? 0).toFixed(2)})`)
             } else {
               const missed = recordMissedContext7(_estC7)
               if (!existsSync(CONTEXT7_INSTALL_FLAG)) {
@@ -2462,10 +2699,10 @@ export async function DelegationEnforcer({ client, directory }) {
                   mkdirSync(dirname(CONTEXT7_INSTALL_FLAG), { recursive: true })
                   writeFileSync(CONTEXT7_INSTALL_FLAG, "")
                 } catch {}
-                console.error(`[theSaver] 💡 [one-time tip] Installing context7 MCP would save ~$${_estC7.toFixed(3)}/turn on docs lookups. Setup: \`claude mcp add context7 npx @upstash/context7-mcp\`. Won't ask again.`)
+                console.error(`[VibeTheOG] 💡 [one-time tip] Installing context7 MCP would save ~$${_estC7.toFixed(3)}/turn on docs lookups. Setup: \`claude mcp add context7 npx @upstash/context7-mcp\`. Won't ask again.`)
               } else if (!context7AlertedThisSession) {
                 context7AlertedThisSession = true
-                console.error(`[theSaver] 💸 [context7] Missed savings so far: $${(missed ?? 0).toFixed(2)} across docs lookups. Install when ready.`)
+                console.error(`[VibeTheOG] 💸 [context7] Missed savings so far: $${(missed ?? 0).toFixed(2)} across docs lookups. Install when ready.`)
               }
             }
           }
@@ -2475,9 +2712,9 @@ export async function DelegationEnforcer({ client, directory }) {
         const n = softQuotaCounts[t]
         if (n === SOFT_QUOTA_LIMIT + 1) {
           const total = recordSaving(t, `soft quota exceeded (limit ${SOFT_QUOTA_LIMIT})`, SAVE_EST.SOFT_QUOTA)
-          console.error(`[theSaver] [delegation] ${t} #${n} (limit ${SOFT_QUOTA_LIMIT}) — consider Task subagent.`)
+          console.error(`[VibeTheOG] [delegation] ${t} #${n} (limit ${SOFT_QUOTA_LIMIT}) — consider Task subagent.`)
         } else if (n <= SOFT_QUOTA_LIMIT) {
-          console.error(`[theSaver] ${t} ${n}/${SOFT_QUOTA_LIMIT}`)
+          console.error(`[VibeTheOG] ${t} ${n}/${SOFT_QUOTA_LIMIT}`)
         }
         return
       }
@@ -2523,7 +2760,7 @@ export async function DelegationEnforcer({ client, directory }) {
           if (back?.ok) {
             currentModel = back.ocModel
             currentTier = classify(currentModel)
-            console.error(`[theSaver] 🔁 task workaround: restored global slot → ${taskSlotRestore}`)
+            console.error(`[VibeTheOG] 🔁 task workaround: restored global slot → ${taskSlotRestore}`)
           }
         } catch {}
         taskSlotRestore = null
@@ -2542,12 +2779,14 @@ export async function DelegationEnforcer({ client, directory }) {
           const note = `\n\n[test-reminder] ${reminder}`
           if (typeof output?.text === "string") output.text += note
           else if (typeof output?.result === "string") output.result += note
-          else console.error(`[theSaver] ${reminder}`)
+          else console.error(`[VibeTheOG] ${reminder}`)
         }
 
         // TDD enforcement: auto-create skeleton test if enabled and no test exists.
         const sel = loadSelection()
-        if (sel.tdd_enforce) {
+        const explicitTestIntent = isUserAskingForTests(latestUserIntent)
+        const isTestPath = /(^|\/)(tests?|spec)\//i.test(fp) || /\.(test|spec)\./i.test(fp)
+        if (sel.tdd_enforce && (explicitTestIntent || isTestPath)) {
           const createdPath = enforceTestFile(fp)
           if (createdPath) {
             const ext = createdPath.split('.').pop()
@@ -2556,6 +2795,8 @@ export async function DelegationEnforcer({ client, directory }) {
             if (typeof output?.text === "string") output.text += enforceNote
             else if (typeof output?.result === "string") output.result += enforceNote
           }
+        } else if (sel.tdd_enforce && !isTestPath) {
+          console.error(`[VibeTheOG] [tdd-enforce] skipped auto-skeleton for ${fp} (no explicit test intent in latest user request)`)
         }
 
         // Detect test-file follow-up edits (telemetry)
@@ -2586,7 +2827,7 @@ export async function DelegationEnforcer({ client, directory }) {
           }
           // Flow enforcement: extract TODO/FIXME to queue when flow_enforce is on.
           if (sel.flow_enforce) {
-            const { recordFlowTodo } = await import("./theSaver-lib/flow-enforcer.js")
+            const { recordFlowTodo } = await import("./VibeTheOG-lib/flow-enforcer.js")
             for (const h of flowHits) {
               if (h.id === "todo-comment" && !h.deduped) {
                 recordFlowTodo({ filePath, content })
@@ -2674,7 +2915,7 @@ export async function DelegationEnforcer({ client, directory }) {
                 indexAppend(hash, part.tool, raw.length)
               }
             } catch (err) {
-              console.error(`[theSaver] ctx-compress write failed: ${err.message}`)
+              console.error(`[VibeTheOG] ctx-compress write failed: ${err.message}`)
               continue
             }
 
@@ -2687,11 +2928,11 @@ export async function DelegationEnforcer({ client, directory }) {
 
             state.output = ref
             compressedBytes += raw.length - ref.length
-            console.error(`[theSaver] 📦 ctx-compress: ${raw.length}→${ref.length} chars (hash: ${hash})`)
+            console.error(`[VibeTheOG] 📦 ctx-compress: ${raw.length}→${ref.length} chars (hash: ${hash})`)
           }
         }
         if (compressedBytes > 0) {
-          console.error(`[theSaver] 📦 ctx-compress total saved this transform: ~${Math.round(compressedBytes / 4)} tokens`)
+          console.error(`[VibeTheOG] 📦 ctx-compress total saved this transform: ~${Math.round(compressedBytes / 4)} tokens`)
         }
 
         // ── Worker-to-Brain Report Protocol ───────────────────────────────
@@ -2729,7 +2970,7 @@ export async function DelegationEnforcer({ client, directory }) {
         // ── Progressive decadence — age-based cache rotation ──────
         applyDecadence()
       } catch (err) {
-        console.error(`[theSaver] messages.transform failed: ${err.message}`)
+        console.error(`[VibeTheOG] messages.transform failed: ${err.message}`)
       }
     },
 
@@ -2778,15 +3019,15 @@ export async function DelegationEnforcer({ client, directory }) {
 
         if (output && Array.isArray(output.context)) {
           output.context.push({ role: "user", content: note })
-          output.context.push({ role: "user", content: `[theSaver] session cache dir: ${getSessionScratchpadDir()} (cleanup on exit enabled)` })
+          output.context.push({ role: "user", content: `[VibeTheOG] session cache dir: ${getSessionScratchpadDir()} (cleanup on exit enabled)` })
         } else if (output) {
           output.context = [
             { role: "user", content: note },
-            { role: "user", content: `[theSaver] session cache dir: ${getSessionScratchpadDir()} (cleanup on exit enabled)` },
+            { role: "user", content: `[VibeTheOG] session cache dir: ${getSessionScratchpadDir()} (cleanup on exit enabled)` },
           ]
         }
       } catch (err) {
-        console.error(`[theSaver] session.compacting failed: ${err.message}`)
+        console.error(`[VibeTheOG] session.compacting failed: ${err.message}`)
       }
     },
 
@@ -2797,6 +3038,9 @@ export async function DelegationEnforcer({ client, directory }) {
     "experimental.chat.system.transform": async (_input, output) => {
       if (!loadSelection().enabled) return
       try {
+        const userText = extractLastUserText(_input) || extractLastUserText(output)
+        latestUserIntent = typeof userText === "string" ? userText : null
+
         // Context7 directive — model self-determines tool availability.
         const c7directive =
           "[cost policy] If mcp__context7__resolve-library-id and mcp__context7__get-library-docs " +
@@ -2824,6 +3068,16 @@ export async function DelegationEnforcer({ client, directory }) {
           output.system.push(c7directive)
         }
 
+        const projectJob = getActiveJobForProject() || activeJob
+        if (latestUserIntent && projectJob && isLikelyOffTopic(latestUserIntent, projectJob)) {
+          const offTopicDirective =
+            `[job-focus] Active job context exists: "${(projectJob.prompt || "").slice(0, 140)}...". ` +
+            `The latest user request appears off-topic relative to this running job. ` +
+            `Before taking write/edit/task actions, ask one concise confirmation question to validate switching scope.`
+          if (Array.isArray(output?.system)) output.system.push(offTopicDirective)
+          console.error("[VibeTheOG] [job-focus] off-topic request detected vs active job context")
+        }
+
         // AI ORCHESTRATOR AGENT — injected for all tiers.
         {
           const cheapModel = TRINITY_CHEAP || "the cheaper model"
@@ -2836,7 +3090,7 @@ export async function DelegationEnforcer({ client, directory }) {
             `[AI ORCHESTRATOR AGENT] You are an AI orchestrator agent. ` +
             `Delegate heavy work to Task subagents (runs on ${cheapModel} or ${mediumModel}). ` +
             `Your role: verify, fill gaps, synthesize.${enforcementNote}` +
-            `Always display the theSaver cost footer.`
+            `Always display the VibeTheOG cost footer.`
 
           if (Array.isArray(output?.system)) output.system.push(orcDirective)
         }
@@ -2847,11 +3101,11 @@ export async function DelegationEnforcer({ client, directory }) {
           if (briefing && Array.isArray(output?.system)) {
             output.system.push(briefing)
             briefedProjects.add(fp)
-            console.error(`[theSaver] project-memory: briefing injected for ${fp}`)
+            console.error(`[VibeTheOG] project-memory: briefing injected for ${fp}`)
           }
         }
 
-        // theSaver welcome banner — one-shot per project fingerprint
+        // VibeTheOG welcome banner — one-shot per project fingerprint
         if (!briefedProjects.has("trinity_welcome_" + fp)) {
           if (Array.isArray(output?.system)) {
             const sel = loadSelection()
@@ -2860,7 +3114,7 @@ export async function DelegationEnforcer({ client, directory }) {
             const active = sel.active_slot || "medium"
             const current = currentModel || "(unknown)"
             const trinityTip =
-              "[theSaver] Active plugin. Slot: " + active + " (" + current + "). " +
+              "[VibeTheOG] Active plugin. Slot: " + active + " (" + current + "). " +
               "Use trinity command to switch slots, rebuild, or check status. " +
               "Run \`trinity help\` for all commands."
             output.system.push(trinityTip)
@@ -2868,7 +3122,7 @@ export async function DelegationEnforcer({ client, directory }) {
           }
         }
       } catch (err) {
-        console.error(`[theSaver] system.transform failed: ${err.message}`)
+        console.error(`[VibeTheOG] system.transform failed: ${err.message}`)
       }
     },
 
@@ -2882,7 +3136,7 @@ export async function DelegationEnforcer({ client, directory }) {
     tool: {
       trinity: tool({
         description:
-          "Control the theSaver plugin and active model slot. " +
+          "Control the VibeTheOG plugin and active model slot. " +
           "Use action='status' to see current state. " +
           "Use action='enable' or 'disable' to toggle the plugin (takes effect immediately, no restart needed). " +
           "Use action='set' with slot='brain'|'medium'|'cheap' to switch model tiers " +
@@ -3228,7 +3482,7 @@ export async function DelegationEnforcer({ client, directory }) {
             } catch (err) {
               return "\u274c Failed to write model-tiers.json: " + err.message
             }
-            try { applySlot("brain") } catch (e) { console.error("[theSaver] auto-activate brain failed:", e.message) }
+            try { applySlot("brain") } catch (e) { console.error("[VibeTheOG] auto-activate brain failed:", e.message) }
             const lines = [
               "\ud83d\udd0d Auto-detected models from configured providers:",
               "  \ud83e\udde0 brain  \u2192 " + probed.brain.id + " (tier: " + probed.brain.tier + ", $" + probed.brain.cost.toFixed(4) + "/turn) \u2705",
@@ -3340,7 +3594,7 @@ export async function DelegationEnforcer({ client, directory }) {
 
             const okCount = results.filter(r => r.ok).length
             const lines = [
-              "\ud83d\udd0d  theSaver \u2014 Self Diagnostic",
+              "\ud83d\udd0d  VibeTheOG \u2014 Self Diagnostic",
               "=".repeat(40),
               ""
             ]
@@ -3439,7 +3693,7 @@ export async function DelegationEnforcer({ client, directory }) {
             const L = "\u2501"
             const lines = [
               L.repeat(48),
-              "  \ud83d\udca1 theSaver \u2014 trinity commands",
+              "  \ud83d\udca1 VibeTheOG \u2014 trinity commands",
               L.repeat(48),
               "",
               "  trinity                          Show current status",
@@ -3505,7 +3759,7 @@ export async function DelegationEnforcer({ client, directory }) {
             }
             saveProjectState(state)
           } catch (err) {
-            console.error(`[theSaver] project-memory update failed: ${err.message}`)
+            console.error(`[VibeTheOG] project-memory update failed: ${err.message}`)
           }
 
           // Auto-save as report (must be BEFORE early return for totalFetches=0)
@@ -3650,9 +3904,9 @@ export async function DelegationEnforcer({ client, directory }) {
   }
 }
 
-export const id = "theSaver"
+export const id = "VibeTheOG"
 export const server = DelegationEnforcer
-export default { id: "theSaver", server: DelegationEnforcer }
+export default { id: "VibeTheOG", server: DelegationEnforcer }
 
 // ── Research audit — lightweight session scan ───────────────────────
 // Scans the scratchpad index and session state for WebFetch/WebSearch
@@ -3734,7 +3988,7 @@ export function researchAudit({ hours = 24, session: sessionFilter } = {}) {
       }
     }
   } catch (err) {
-    console.error(`[theSaver] researchAudit index scan failed: ${err.message}`)
+    console.error(`[VibeTheOG] researchAudit index scan failed: ${err.message}`)
   }
 
   // 2. Session state for tool_counts and context7 bypass
@@ -3754,7 +4008,7 @@ export function researchAudit({ hours = 24, session: sessionFilter } = {}) {
       }
     }
   } catch (err) {
-    console.error(`[theSaver] researchAudit state scan failed: ${err.message}`)
+    console.error(`[VibeTheOG] researchAudit state scan failed: ${err.message}`)
   }
 
   // 3. Estimated cost: ~$0.001 per fetch for brain model
@@ -3792,7 +4046,7 @@ function saveReportsIndex(idx) {
       writeFileSync(REPORTS_INDEX, JSON.stringify(idx, null, 2) + "\n")
     })
   } catch (err) {
-    console.error(`[theSaver] reports index write failed: ${err.message}`)
+    console.error(`[VibeTheOG] reports index write failed: ${err.message}`)
   }
 }
 
@@ -3839,10 +4093,10 @@ function _pruneReports() {
     if (pruned.length !== idx.reports.length) {
       idx.reports = pruned
       saveReportsIndex(idx)
-      console.error(`[theSaver] reports pruned: ${idx.reports.length} kept (from ${keep.length})`)
+      console.error(`[VibeTheOG] reports pruned: ${idx.reports.length} kept (from ${keep.length})`)
     }
   } catch (err) {
-    console.error(`[theSaver] reports prune failed: ${err.message}`)
+    console.error(`[VibeTheOG] reports prune failed: ${err.message}`)
   }
 }
 
@@ -3896,7 +4150,7 @@ export function saveReport({ type = "manual", summary = "", findings, metrics, n
       writeFileSync(REPORTS_INDEX, JSON.stringify(idx, null, 2) + "\n")
     })
   } catch (err) {
-    console.error(`[theSaver] report/index write failed: ${err.message}`)
+    console.error(`[VibeTheOG] report/index write failed: ${err.message}`)
     return null
   }
   // Opportunistic TTL prune (once per process ≈ every save)
@@ -4096,7 +4350,7 @@ async function discoverAvailableModels(providers, auth) {
         if (Object.keys(pricingMap).length > 0) _writeDynamicPricingCache(pricingMap)
       }
     } catch (e) {
-      console.error("[theSaver] OpenRouter probe failed:", e.message)
+      console.error("[VibeTheOG] OpenRouter probe failed:", e.message)
     }
   }
 
@@ -4194,7 +4448,7 @@ async function probeModel(modelId, auth) {
   }
 
   if (!apiKey) {
-    console.error("[theSaver] probeModel: no API key for " + id)
+    console.error("[VibeTheOG] probeModel: no API key for " + id)
     return false
   }
 
@@ -4214,12 +4468,12 @@ async function probeModel(modelId, auth) {
     })
     if (!res.ok) {
       const errBody = await res.text().catch(() => "")
-      console.error("[theSaver] probeModel FAIL " + id + ": HTTP " + res.status + " " + errBody.slice(0, 200))
+      console.error("[VibeTheOG] probeModel FAIL " + id + ": HTTP " + res.status + " " + errBody.slice(0, 200))
       return false
     }
     return true
   } catch (err) {
-    console.error("[theSaver] probeModel ERROR " + id + ": " + err.message)
+    console.error("[VibeTheOG] probeModel ERROR " + id + ": " + err.message)
     return false
   }
 }

@@ -203,7 +203,7 @@ log(`${GREEN}✓${RESET} pushed tag v${newVer}`)
 // ── GITHUB RELEASE ─────────────────────────────────────────────
 
 {
-  const tmpDir = mkdtempSync(join(tmpdir(), "thesaver-release-"))
+  const tmpDir = mkdtempSync(join(tmpdir(), "vibetheog-release-"))
   const notesPath = join(tmpDir, "release-notes.md")
   writeFileSync(notesPath, `## What's Changed\n\n${changelogBlock}`)
   try {
@@ -220,5 +220,5 @@ log(`${GREEN}✓${RESET} pushed tag v${newVer}`)
 
 log("")
 log(`${GREEN}${BOLD}✅ v${newVer} released${RESET}`)
-log(`   ${CYAN}https://github.com/DrunkkToys/theSaver-oc/releases/tag/v${newVer}${RESET}`)
+log(`   ${CYAN}https://github.com/DrunkkToys/VibeTheOG+/releases/tag/v${newVer}${RESET}`)
 log("")

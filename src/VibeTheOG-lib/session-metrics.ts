@@ -19,6 +19,7 @@ type SessionEntry = {
 type MetricsState = {
   sessions?: Record<string, SessionEntry>
   lifetime?: {
+    est_savings_usd?: number | string
     cache_savings_usd?: number | string
     scratchpad_hits_observed?: number | string
     missed_context7_usd?: number | string
@@ -87,9 +88,13 @@ export function computeSessionMetrics(state: unknown, sessionId: string) {
     }
   }
 
+  const legacyLifetimeDelegation = Number(s?.lifetime?.est_savings_usd ?? 0)
+  if (legacyLifetimeDelegation > 0) {
+    ltTasks = Math.max(ltTasks, legacyLifetimeDelegation)
+  }
   const legacyLifetimeCache = Number(s?.lifetime?.cache_savings_usd ?? 0)
-  if (ltCache <= 0 && legacyLifetimeCache > 0) {
-    ltCache = legacyLifetimeCache
+  if (legacyLifetimeCache > 0) {
+    ltCache = Math.max(ltCache, legacyLifetimeCache)
   }
 
   // ── Session-specific stats ──
