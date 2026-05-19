@@ -27,8 +27,8 @@ const mappings = [
     to: join("src", "utils", "math.js"),
   },
   {
-    from: join("dist-ts", "mcp-server.js"),
-    to: join("src", "mcp-server.js"),
+    from: join("dist-ts", "vibeOS-mcp-server.js"),
+    to: join("src", "vibeOS-mcp-server.js"),
   },
 ]
 
