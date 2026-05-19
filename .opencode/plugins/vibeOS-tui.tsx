@@ -36,7 +36,6 @@ type SavingsResponse = {
 }
 
 const plugin: TuiPlugin = async (api, _options, _meta) => {
-  console.log("[vibeOS-tui] loaded, slots.register:", typeof api.slots?.register, "ui.Slot:", typeof api.ui?.Slot)
   const [status, setStatus] = createSignal<StatusResponse | null>(null)
   const [savings, setSavings] = createSignal<SavingsResponse | null>(null)
   const [error, setError] = createSignal<string | null>(null)
