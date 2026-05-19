@@ -22,6 +22,9 @@
 | `package.json` | package definition and scripts |
 | `tsconfig.json` | TypeScript compile configuration |
 | `plugins/*` | CodeX plugin integration |
+| `.opencode/plugins/*` | TUI dashboard sidebar plugin |
+| `src/mcp-server.ts` | CodeX MCP server TypeScript source |
+| `src/mcp-server.js` | CodeX MCP server compiled |
 | Any `.ts` file | TypeScript source files — see Section 3 |
 | Any `.json` file under `src/` | flow rules and configuration |
 
@@ -51,6 +54,8 @@ Every feature in the README is a promised behavior. **If a proposed change touch
 12. **File-based locking** — Prevents concurrent plugin instances via `~/.claude/.vibeOS-locks/`.
 13. **Per-session warning caps and coalescing** — Limits and merges repeated delegation warnings.
 14. **Pattern learner and runtime controls** — Learns recurring struggle/routine patterns per project and exposes `trinity patterns` and `trinity patterns clear`.
+15. **CodeX MCP server** — Extended tool capabilities via MCP protocol integration.
+16. **TUI dashboard sidebar** — Real-time plugin status, controls, and model split display via OpenCode sidebar plugin.
 
 **If you are unsure whether a change affects any of these features: STOP and ASK.**
 

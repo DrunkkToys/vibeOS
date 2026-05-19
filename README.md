@@ -6,7 +6,7 @@ Cost-aware delegation and policy plugin for OpenCode Desktop.
 
 ## Version
 
-Current package version: `0.8.1`
+Current package version: `0.9.1`
 
 ## What It Does
 
@@ -17,6 +17,10 @@ Current package version: `0.8.1`
 - Adds optional flow checks and TDD skeleton enforcement.
 - Adds report and research-audit tooling.
 - Learns recurring struggle and routine patterns per project, with `trinity patterns` inspection and `trinity patterns clear`.
+- Stress mitigation pipeline: detects user stress signals, shows live stress gauge in footer, injects protective system prompts, and upgrades Task tier when user is stressed.
+- CodeX MCP server integration for extended tool capabilities.
+- TUI dashboard sidebar plugin for real-time plugin status and controls.
+- Worker-to-Brain (WBP) protocol synthesizes delegated task output directly in assistant chat.
 
 ## Runtime Model Slots
 
