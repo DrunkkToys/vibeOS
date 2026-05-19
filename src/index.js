@@ -28,6 +28,7 @@ import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import { checkFlowRules, getFlowWarns, getSessionFlowCounts, setFlowStateWriter } from "./vibeOS-lib/flow-enforcer.js"
 import { computeSessionMetrics } from "./vibeOS-lib/session-metrics.js"
+import { createMcpServer } from "./mcp-server.js"
 
 // Minimal self-contained tool helper — avoids @opencode-ai/plugin dependency
 // so the plugin works immediately on any install without bun/npm.
@@ -311,7 +312,7 @@ const MODEL_USD_PER_TURN = {
   "haiku":                                0.0022,
   // ── DeepSeek (OC platform + OpenRouter) ──────────────────
   "deepseek/deepseek-v4-pro":             0.00057,
-  "deepseek/deepseek-v4-flash":           0.000182,
+  "deepseek/deepseek-v4-flash": 0.000182,
   "deepseek/deepseek-chat":               0,
   "deepseek-chat":                        0,
   "deepseek/deepseek-v3":                 0,
@@ -2050,6 +2051,260 @@ function readLifetimeSavings() {
     _savingsCacheMtime = mtime
     return _savingsCache
   } catch { return empty }
+}
+
+function readPackageVersion() {
+  try {
+    const pkg = safeJsonParse(readFileSync(join(process.cwd(), "package.json"), "utf-8"))
+    return String(pkg?.version || "")
+  } catch { return "" }
+}
+
+function readFullState() {
+  try {
+    if (!existsSync(STATE_FILE)) return {}
+    return safeJsonParse(readFileSync(STATE_FILE, "utf-8"))
+  } catch { return {} }
+}
+
+function computeStatusPayload() {
+  const sel = loadSelection()
+  const tiers = readJsonOrEmpty(TIERS_FILE)
+  const credit = loadCredit()
+  const activeSlot = sel.active_slot || "brain"
+  const current = tiers?.trinity?.[activeSlot]?.oc || currentModel || ""
+  const thinking = sel.thinking_level || thinkingLevel(credit)
+  const hooks = {
+    enabled: sel.enabled !== false,
+    active_slot: activeSlot,
+    enforce: sel.delegation_enforce !== false,
+    flow_enforcer: sel.flow_enabled !== false,
+    flow_extract_todos: sel.flow_enforce === true,
+    tdd_enforcer: sel.tdd_enforce === true,
+    tdd_strict: sel.tdd_strict !== false,
+    thinking,
+    current_model: current,
+    credit_percent: credit,
+    version: readPackageVersion(),
+  }
+
+  try {
+    const port = loadMcpPort()
+    if (port !== 0) {
+      if (!_mcpServerRuntime) {
+        _mcpServerRuntime = createMcpServer({
+          getState: () => ({ ...computeStatusPayload(), sessions_raw: readFullState()?.sessions || {} }),
+          getSavings: () => computeSavingsPayload(),
+          getSessionMetrics: () => computeSessionMetrics(readFullState(), _OC_SID),
+          listReports: (filter) => {
+            if (!existsSync(REPORTS_DIR)) {
+              const err = new Error("reports dir not found")
+              err.status = 404
+              throw err
+            }
+            return listReports(filter || {})
+          },
+          readReport: (id) => readReport(id),
+          runDiagnose: async () => {
+            const raw = await hooks.tool.trinity.execute({ action: "diagnose" })
+            return diagnoseStructuredFromText(raw)
+          },
+          runProject: async () => {
+            const raw = await hooks.tool.trinity.execute({ action: "project" })
+            return projectStructuredFromText(raw)
+          },
+          runTrinity: async (action, params = {}) => hooks.tool.trinity.execute({ action, slot: params.slot, level: params.level }),
+          runResearchAudit: (hours) => researchAudit({ hours: hours ?? 24 }),
+          saveReport: (data) => saveReport(data),
+          getCurrentSessionId: () => _OC_SID,
+          generateSessionCheckout: () => computeSessionCheckout(),
+        })
+      }
+      _mcpServerRuntime.start(port)
+      console.error(`[vibeOS] MCP server listening on http://127.0.0.1:${port}`)
+      if (!_mcpServerHooked) {
+        _mcpServerHooked = true
+        const closeServer = () => {
+          try { _mcpServerRuntime?.close() } catch {}
+        }
+        process.on("SIGTERM", closeServer)
+        process.on("SIGINT", closeServer)
+      }
+    }
+  } catch (err) {
+    console.error(`[vibeOS] MCP server startup failed: ${err.message}`)
+  }
+
+  return hooks
+}
+
+function computeSavingsPayload() {
+  const lt = readLifetimeSavings()
+  return {
+    lifetime: {
+      delegation_usd: Number(lt.ltTasks || 0),
+      cache_usd: Number(lt.ltCache || 0),
+      missed_context7_usd: Number(lt.missedC7 || 0),
+      total_warns: Number(lt.count || 0),
+    },
+    current_session: {
+      delegation_usd: Number(lt.sesTasks || 0),
+      cache_usd: Number((readFullState()?.sessions?.[_OC_SID]?.cache_savings_usd) || 0),
+      warns_count: Array.isArray(readFullState()?.sessions?.[_OC_SID]?.warns) ? readFullState().sessions[_OC_SID].warns.length : 0,
+      tool_breakdown: lt.sesToolBreakdown || {},
+    },
+    cache_hits_this_session: Number(readFullState()?.sessions?.[_OC_SID]?.cache_hits?.length || 0),
+    trend: lt.sesTrend || "stable",
+    savings_rate_per_hour: Number(lt.sesRatePerHour || 0),
+  }
+}
+
+function computeSessionsPayload() {
+  const state = readFullState()
+  const sessions = Object.entries(state?.sessions || {}).map(([id, ses]) => ({
+    id,
+    started: ses?.started || null,
+    cost_usd: Number(ses?.cost_usd || 0),
+    delegation_savings_usd: Array.isArray(ses?.warns)
+      ? ses.warns.reduce((sum, w) => sum + (Number(w?.est_savings_usd || 0) || 0), 0)
+      : 0,
+    cache_savings_usd: Number(ses?.cache_savings_usd || 0),
+    warns_count: Array.isArray(ses?.warns) ? ses.warns.length : 0,
+  }))
+  return { sessions, total_sessions: sessions.length }
+}
+
+function computeSessionCheckout() {
+  const state = readFullState()
+  const metrics = computeSessionMetrics(state, _OC_SID)
+  const session = state?.sessions?.[_OC_SID] || {}
+  const warns = Array.isArray(session?.warns) ? session.warns : []
+  const rankedOps = warns
+    .map((w) => ({
+      tool: String(w?.tool || "unknown"),
+      reason: String(w?.reason || ""),
+      savings_usd: Number(w?.est_savings_usd || 0),
+      at: w?.at || null,
+    }))
+    .sort((a, b) => b.savings_usd - a.savings_usd)
+    .slice(0, 3)
+  const flowWarns = getFlowWarns().filter((w) => String(w?.sid || "") === String(process.pid || ""))
+  const summary = {
+    session_id: _OC_SID,
+    duration_seconds: Number(metrics?.sesDuration || 0),
+    duration: metrics?.sesDurationFormatted || "0h 0m 0s",
+    cost_usd: Number(session?.cost_usd || 0),
+    savings: {
+      delegation_usd: Number(metrics?.sesTasks || 0),
+      cache_usd: Number(session?.cache_savings_usd || 0),
+      total_usd: Number((metrics?.sesTasks || 0) + Number(session?.cache_savings_usd || 0)),
+    },
+    tools: {
+      breakdown: metrics?.sesToolBreakdown || {},
+      top_expensive_operations: rankedOps,
+    },
+    model_split: metrics?.sesModelTurns || { brain: 0, worker: 0 },
+    trend_vs_previous_sessions: metrics?.sesTrend || "stable",
+    flow_violations: flowWarns,
+  }
+  const reportId = saveReport({
+    type: "session-checkout",
+    summary: `Session checkout ${_OC_SID}: $${Number(summary.savings.total_usd || 0).toFixed(3)} saved`,
+    findings: rankedOps.map((op) => ({
+      severity: "info",
+      topic: op.tool,
+      detail: `${op.reason} ($${op.savings_usd.toFixed(6)})`,
+    })),
+    metrics: {
+      duration_seconds: summary.duration_seconds,
+      cost_usd: summary.cost_usd,
+      delegation_savings_usd: summary.savings.delegation_usd,
+      cache_savings_usd: summary.savings.cache_usd,
+      total_savings_usd: summary.savings.total_usd,
+      trend: summary.trend_vs_previous_sessions,
+      brain_turns: summary.model_split.brain || 0,
+      worker_turns: summary.model_split.worker || 0,
+    },
+    narrative: JSON.stringify(summary),
+    tags: ["session", "checkout"],
+  })
+  return { ok: true, summary, report_id: reportId }
+}
+
+function diagnoseStructuredFromText(raw) {
+  const text = String(raw || "")
+  const lines = text.split("\n")
+  const files = []
+  const model_probes = []
+  const suggestions = []
+  let credit = { percent: loadCredit(), ok: true, fix: null }
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    if (trimmed.includes("→")) {
+      suggestions.push(trimmed.replace(/^→\s*/, ""))
+    }
+    if (/slot/i.test(trimmed) && /(brain|medium|cheap)/i.test(trimmed)) {
+      model_probes.push({ slot: trimmed, model: "", ok: trimmed.includes("✅"), fix: trimmed.includes("→") ? trimmed.split("→")[1].trim() : undefined })
+    }
+    if (/model-tiers\.json|opencode\.json|delegation-state\.json|auth\.json/i.test(trimmed)) {
+      files.push({ path: trimmed, exists: trimmed.includes("✅"), ok: trimmed.includes("✅"), fix: trimmed.includes("→") ? trimmed.split("→")[1].trim() : undefined })
+    }
+    if (/credit/i.test(trimmed)) {
+      const m = trimmed.match(/(\d+)%/)
+      if (m) credit.percent = Number(m[1])
+      credit.ok = trimmed.includes("✅")
+      credit.fix = trimmed.includes("→") ? trimmed.split("→")[1].trim() : null
+    }
+  }
+  return {
+    config_valid: !text.includes("❌"),
+    files,
+    model_probes,
+    credit,
+    locks_clean: true,
+    suggestions,
+  }
+}
+
+function projectStructuredFromText(raw) {
+  const text = String(raw || "")
+  const lines = text.split("\n")
+  let brain_pct = 0
+  let worker_pct = 0
+  const m1 = text.match(/Brain[^0-9]*(\d+)%/i)
+  const m2 = text.match(/Worker[^0-9]*(\d+)%/i)
+  if (m1) brain_pct = Number(m1[1])
+  if (m2) worker_pct = Number(m2[1])
+  const suggestions = lines.filter((l) => l.includes("💡")).map((l) => l.replace(/^.*💡\s*/, "").trim())
+  return {
+    brain_pct,
+    worker_pct,
+    enforcement_status: loadSelection().delegation_enforce ? "enforce" : "warn",
+    flow_status: loadSelection().flow_enabled !== false ? "on" : "off",
+    credit_percent: loadCredit(),
+    suggestions,
+  }
+}
+
+function loadMcpPort() {
+  const envPort = process.env.VIBEOS_MCP_PORT
+  if (envPort != null && envPort !== "") {
+    const n = Number(envPort)
+    if (!Number.isFinite(n)) return 9578
+    return n
+  }
+  try {
+    if (existsSync(TIERS_FILE)) {
+      const tiers = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
+      const cfg = tiers?.mcp_port
+      if (cfg === false || cfg === "disabled") return 0
+      if (cfg === 0) return 0
+      const n = Number(cfg)
+      if (Number.isFinite(n)) return n
+    }
+  } catch {}
+  return 9578
 }
 
 function readConfig(dir) {
@@ -4828,6 +5083,8 @@ const BALANCE_APIS = {
   }
 }
 let _creditTimer = null
+let _mcpServerRuntime = null
+let _mcpServerHooked = false
 
 function _readAuth() {
   try { return existsSync(AUTH_F) ? safeJsonParse(readFileSync(AUTH_F, "utf-8")) : {} } catch { return {} }
