@@ -26,7 +26,7 @@ import { homedir, tmpdir } from "node:os"
 const USER_HOME = (() => { try { return homedir() } catch { return tmpdir() } })()
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
-import { checkFlowRules, getFlowWarns, getSessionFlowCounts, setFlowStateWriter } from "./vibeOS-lib/flow-enforcer.js"
+import { checkFlowRules, getFlowWarns, getSessionFlowCounts, setFlowStateWriter, ensureProjectDocs } from "./vibeOS-lib/flow-enforcer.js"
 import { computeSessionMetrics } from "./vibeOS-lib/session-metrics.js"
 import { ResolutionTracker, buildAdvice, classifySituation, ExposureModel } from "./vibeOS-lib/blackbox/index.js"
 import { createMcpServer } from "./vibeOS-mcp-server.js"
@@ -361,6 +361,11 @@ const SAVE_EST = {
   CONTEXT7:     0.0006,  // webfetch turn cost for cheapest high-tier model
   OPUS_DISABLE: 0.03,    // full-turn cost for actual opus-tier model (Anthropic API)
 }
+// Estimated USD saved per 1M cached input tokens (miss_price - cache_hit_price).
+// DeepSeek v4-pro: $0.14 - $0.0028 = $0.1372. General heuristic ~$0.10 across providers.
+const CACHE_SAVED_PER_1M_INPUT_TOKENS = 0.10
+// Approximate bytes per token for JSON/text content (varies 3-6, use 4 as safe estimate).
+const BYTES_PER_TOKEN = 4
 
 function roundUsd(v, precision = 6) {
   const n = Number(v ?? 0)
@@ -899,7 +904,9 @@ function updateState(mutator) {
 setFlowStateWriter((state) => {
   withFileLock(STATE_FILE, () => {
     mkdirSync(dirname(STATE_FILE), { recursive: true })
-    writeFileSync(STATE_FILE, JSON.stringify(state, null, 2))
+    const existing = readJsonOrEmpty(STATE_FILE)
+    const merged = { ...existing, ...state }
+    writeFileSync(STATE_FILE, JSON.stringify(merged, null, 2))
   })
 })
 
@@ -3416,6 +3423,19 @@ export async function DelegationEnforcer({ client, directory }) {
     console.error(`[vibeOS] project-memory init failed for ${fp}: ${err.message}`)
   }
 
+  // ── Project Guard: ensure AGENTS.md and README.md exist ──────────
+  try {
+    if (directory && existsSync(directory)) {
+      const techStack = detectTechStack(directory)
+      const result = ensureProjectDocs(directory, techStack)
+      if (result.created.length > 0) {
+        console.error(`[vibeOS] Project Guard: created ${result.created.join(", ")}`)
+      }
+    }
+  } catch (err) {
+    console.error(`[vibeOS] Project Guard init failed: ${err.message}`)
+  }
+
   // ── Shared footer logic for text.complete + message.updated ──────
   async function _appendFooter(input, output, directory) {
     if (!loadSelection().enabled) return
@@ -3621,10 +3641,10 @@ function scoreTaskQuality(outputText, promptText) {
           scratchpadHitsSeen.add(hit.hash)
           const total = recordScratchpadObservation()
           // Persist cache savings as a first-class savings type.
-          const _brainCost = modelCostPerTurn(currentModel)
-          const _cacheSave = _brainCost !== null
-            ? Math.max(0.001, Math.round((_brainCost * 0.5) * 1000) / 1000)
-            : 0.002
+          // Compute from actual scratchpad file size: inputs that would
+          // have been charged at miss rate are served from cache.
+          const _inputTokens = Math.max(1, Math.round(hit.sizeBytes / BYTES_PER_TOKEN))
+          const _cacheSave = Math.round(_inputTokens * CACHE_SAVED_PER_1M_INPUT_TOKENS / 1_000_000 * 1000) / 1000
           const cacheSaved = recordCacheSaving(t, _cacheSave, { hash: hit.hash })
           const sumNote = hit.summaryPath ? ` (summary: ${hit.summaryPath})` : ""
           const cacheNote = cacheSaved ? `, cache+$${(cacheSaved.lifetime || 0).toFixed(3)} lt` : ""
@@ -3956,6 +3976,18 @@ function scoreTaskQuality(outputText, promptText) {
                 return state
               })
             } catch {}
+          }
+        }
+
+        // Project Guard: check edits to protected doc files (AGENTS.md / README.md)
+        {
+          const fp = input?.args?.filePath || input?.args?.file_path || input?.args?.path || ""
+          const guardRe = /(?:^|\/)(AGENTS|README)\.md$/i
+          if (guardRe.test(fp)) {
+            const guardIcons = { flag: "!", warn: "!!", hint: "_" }
+            const guardIcon = guardIcons.flag || "!"
+            const fn = basename(fp)
+            console.error(`[flow-enforcer] ${guardIcon} [guard] ${fn}: protected project doc modified — verify user intent`)
           }
         }
 
@@ -4311,6 +4343,16 @@ function scoreTaskQuality(outputText, promptText) {
           )
         }
 
+        // Project Guard directive — maintain AGENTS.md and README.md
+        if (Array.isArray(output?.system)) {
+          output.system.push(
+            "[project guard] AGENTS.md and README.md are protected by vibeOS. " +
+            "Do NOT modify either file without explicit user permission. " +
+            "When implementing new features, update README.md to document them. " +
+            "AGENTS.md defines that AI agents must ask before changing code — respect this rule."
+          )
+        }
+
         // Context window budget warning — estimate usage and warn when approaching limits.
         if (Array.isArray(output?.system)) {
           const ctxBudget = estimateContextBudget(_input, output)
@@ -4378,9 +4420,10 @@ function scoreTaskQuality(outputText, promptText) {
           "Use action='tdd' alone for audit. " +
           "Use action='project' to show per-project analytics and optimization suggestions. " +
           "Use action='patterns' to inspect learned project patterns or slot='clear' to clear them. " +
+          "Use action='guard' to ensure AGENTS.md and README.md exist and stay current. " +
           "Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', 'trinity status'.",
         args: {
-          action: tool.schema.enum(["status", "enable", "disable", "set", "thinking", "flow", "tdd", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target"]).optional(),
+          action: tool.schema.enum(["status", "enable", "disable", "set", "thinking", "flow", "tdd", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard"]).optional(),
           slot: tool.schema.enum(["brain", "medium", "cheap", "on", "off", "enforce", "strict", "quality", "preview", "apply", "clear", "savings"]).optional(),
           level: tool.schema.enum(["full", "brief", "off", "on"]).optional(),
         },
@@ -4807,6 +4850,22 @@ function scoreTaskQuality(outputText, promptText) {
             return lines.join("\n")
           }
 
+          if (action === "guard") {
+            if (!directory || !existsSync(directory)) return "Working directory not accessible."
+            const techStack = detectTechStack(directory)
+            const result = ensureProjectDocs(directory, techStack)
+            if (result.created.length === 0 && result.skipped.length > 0) {
+              return `AGENTS.md and README.md already exist. Use \`trinity guard\` to check for missing features.`
+            }
+            const lines = [`Project Guard: ${directory.split("/").pop() || "unknown"}`]
+            for (const f of result.created) lines.push(`  Created ${f}`)
+            for (const f of result.skipped) lines.push(`  Already exists: ${f}`)
+            lines.push("")
+            lines.push("AGENTS.md: defines AI agent behavioral rules — ASK BEFORE changing code.")
+            lines.push("README.md: auto-maintained feature documentation — keep it updated.")
+            return lines.join("\n")
+          }
+
           if (action === "rebuild") {
             const providers = _loadOpenCodeProviders()
             const auth = _readAuth()
@@ -5139,6 +5198,7 @@ function scoreTaskQuality(outputText, promptText) {
               "GUARDRAILS:",
               "  trinity flow on/off       Toggle flow enforcer (code quality checks)",
               "  trinity tdd on/off        Toggle auto test skeleton creation",
+              "  trinity guard             Ensure AGENTS.md/README.md exist and are current",
               "  trinity flow              Show flow violations this session",
               "",
               "DIAGNOSTICS:",
