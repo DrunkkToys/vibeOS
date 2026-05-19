@@ -211,7 +211,11 @@ function loadBlackboxState() {
   } catch { return { enabled: false, sessions: {} } }
 }
 
+let _blackboxSaveTs = 0
 function saveBlackboxState(state) {
+  const now = Date.now()
+  if (now - _blackboxSaveTs < 5000) return
+  _blackboxSaveTs = now
   try {
     mkdirSync(dirname(BLACKBOX_STATE_FILE), { recursive: true })
     writeFileSync(BLACKBOX_STATE_FILE, JSON.stringify(state, null, 2) + "\n")
