@@ -1,4 +1,4 @@
-import { getDb } from "./db.js"
+import { getDb } from "../lib/db.js"
 
 const MASTER_KEY = process.env.VIBEOS_API_MASTER_KEY
 

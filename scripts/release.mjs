@@ -226,11 +226,26 @@ log(`${GREEN}✓${RESET} pushed tag v${newVer}`)
   rmSync(tmpDir, { recursive: true })
 }
 
-// ── DEPLOY TO LOCAL PLUGIN DIR ─────────────────────────────────
+// ── NPM PUBLISH ────────────────────────────────────────────────
 
 log("")
-log(`${BOLD}📨 Deploying plugin...${RESET}`)
+log(`${BOLD}📦 Publishing to npm...${RESET}`)
 try {
+  sh(`npm publish`)
+  log(`${GREEN}✓${RESET} v${newVer} published to npm`)
+} catch (e) {
+  log(`${YELLOW}⚠${RESET}  npm publish failed: ${e.message}`)
+  log(`   run manually: npm publish`)
+}
+
+// ── DEPLOY TO LOCAL PLUGIN DIR ─────────────────────────────────
+
+if (process.argv.includes("--ci")) {
+  log(`${YELLOW}⚠${RESET}  skipping local deploy (--ci mode)`)
+} else {
+  log("")
+  log(`${BOLD}📨 Deploying plugin...${RESET}`)
+  try {
   const { cpSync, readFileSync: rf, writeFileSync: wf, existsSync: ex, mkdirSync: mk, readdirSync, statSync } = await import("node:fs")
   const pluginDir = join(homedir(), ".config", "opencode", "plugins")
   if (!ex(pluginDir)) {
