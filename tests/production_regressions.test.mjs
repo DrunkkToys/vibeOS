@@ -516,6 +516,66 @@ test("BUG 8 (MEDIUM) — prefix-match in modelCostPerTurn does not produce false
   }
 })
 
+// ── BUG 10 (MEDIUM): savings carry forward across session restarts ──
+test("BUG 10 (MEDIUM) — savings carry forward after cold session restart", async () => {
+  seedTierFile()
+  process.env.CLAUDE_CREDIT_PERCENT = "25"
+
+  const stateFile = join(sandbox, ".claude/delegation-state.json")
+
+  // Session A: record savings via write/edit enforcement
+  const { DelegationEnforcer: DA } = await loadPlugin()
+  const dirA = join(sandbox, ".opencode-reg-session-a")
+  mkdirSync(dirA, { recursive: true })
+  writeFileSync(join(dirA, "opencode.json"), JSON.stringify({ model: "anthropic/claude-opus-4-7" }))
+  const hooksA = await DA({ client: {}, directory: dirA })
+
+  await hooksA["tool.execute.before"]({ tool: "write" })
+  await hooksA["tool.execute.before"]({ tool: "edit" })
+  await hooksA["tool.execute.before"]({ tool: "bash" })
+
+  const stateA = JSON.parse(readFileSync(stateFile, "utf-8"))
+  const savingsA = stateA?.lifetime?.est_savings_usd ?? 0
+  const cacheSavingsA = stateA?.lifetime?.cache_savings_usd ?? 0
+  const sessionCountA = Object.keys(stateA?.sessions || {}).length
+
+  assert.ok(savingsA > 0, `Session A should record delegation savings, got ${savingsA}`)
+  assert.ok(sessionCountA >= 1, `Session A should create a session entry, got ${sessionCountA}`)
+
+  // Session B: simulate cold restart — load fresh module (new _OC_SID)
+  const { DelegationEnforcer: DB } = await loadPlugin()
+  const dirB = join(sandbox, ".opencode-reg-session-b")
+  mkdirSync(dirB, { recursive: true })
+  writeFileSync(join(dirB, "opencode.json"), JSON.stringify({ model: "anthropic/claude-opus-4-7" }))
+  const hooksB = await DB({ client: {}, directory: dirB })
+
+  // Verify state file still contains session A's data and lifetime totals
+  const stateB = JSON.parse(readFileSync(stateFile, "utf-8"))
+  const savingsB = stateB?.lifetime?.est_savings_usd ?? 0
+  const cacheSavingsB = stateB?.lifetime?.cache_savings_usd ?? 0
+  const sessionKeys = Object.keys(stateB?.sessions || {})
+
+  assert.ok(savingsB >= savingsA,
+    `Lifetime delegation savings should persist across restart. Session A: $${savingsA}, Session B: $${savingsB}`)
+  assert.equal(cacheSavingsB, cacheSavingsA,
+    `Lifetime cache savings should persist unchanged. Session A: $${cacheSavingsA}, Session B: $${cacheSavingsB}`)
+  assert.ok(sessionKeys.length >= 1,
+    `Session entries should persist. Got ${sessionKeys.length} entries: ${sessionKeys.join(", ")}`)
+
+  // Record new savings in session B and verify lifetime accumulates across both sessions
+  await hooksB["tool.execute.before"]({ tool: "write" })
+  await hooksB["tool.execute.before"]({ tool: "edit" })
+
+  const stateFinal = JSON.parse(readFileSync(stateFile, "utf-8"))
+  const savingsFinal = stateFinal?.lifetime?.est_savings_usd ?? 0
+  const sessionCountFinal = Object.keys(stateFinal?.sessions || {}).length
+
+  assert.ok(savingsFinal > savingsB,
+    `Session B writes should increment lifetime total. Before: $${savingsB}, After: $${savingsFinal}`)
+  assert.ok(sessionCountFinal >= 2,
+    `State should contain entries for both sessions. Got ${sessionCountFinal}, keys: ${Object.keys(stateFinal?.sessions || {}).join(", ")}`)
+})
+
 // ═══════════════════════════════════════════════════════════════════════
 // Section: Backward Compatibility
 // ═══════════════════════════════════════════════════════════════════════
