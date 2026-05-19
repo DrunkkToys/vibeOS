@@ -1,4 +1,4 @@
-## 0.10.3
+## 0.11.0
 - feat: per-session model lock (`trinity lock on|off`) — prevents auto-reconcile with OpenCode config changes
 - feat: lock status shown in `trinity status` guards and live footer (`LOCK` tag)
 - feat: blackbox real feature extraction — 11 derived features per turn (word count, question ratio, urgency, sentiment, complexity, etc.)
