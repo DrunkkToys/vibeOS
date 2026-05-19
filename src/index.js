@@ -28,7 +28,7 @@ import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import { checkFlowRules, getFlowWarns, getSessionFlowCounts, setFlowStateWriter, ensureProjectDocs } from "./vibeOS-lib/flow-enforcer.js"
 import { computeSessionMetrics } from "./vibeOS-lib/session-metrics.js"
-import { ResolutionTracker, buildAdvice, classifySituation, ExposureModel } from "./vibeOS-lib/blackbox/index.js"
+import { LocalBlackboxStub } from "./vibeOS-lib/blackbox/local-stub.js"
 import { createMcpServer } from "./vibeOS-mcp-server.js"
 import { VibeOSApiClient, VibeOSAuthError, VibeOSTimeoutError, VibeOSNetworkError } from "./vibeOS-api-server/client.js"
 import { computeDifficulty, cascadeDecide, createPatternGraph, ensureNode, addRouteEdge, predictBestModel, hashQuery, deserializeGraph } from "./vibeOS-lib/ml-router.js"
@@ -307,19 +307,18 @@ function getBlackboxTracker() {
     const state = loadBlackboxState()
     const sid = _OC_SID
     if (state.sessions?.[sid]?.history) {
-      _blackboxTracker = ResolutionTracker.deserialize(state.sessions[sid])
+      _blackboxTracker = LocalBlackboxStub.deserialize(state.sessions[sid])
     } else if (currentProjectFingerprint) {
       const projectKeys = Object.keys(state.sessions || {}).filter(k => state.sessions[k].project_fingerprint === currentProjectFingerprint)
       const latest = projectKeys.sort().slice(-1)[0]
       if (latest && state.sessions[latest]?.history) {
         const data = state.sessions[latest]
-        data.sessionId = sid
-        _blackboxTracker = ResolutionTracker.deserialize(data)
+        _blackboxTracker = LocalBlackboxStub.deserialize(data)
       } else {
-        _blackboxTracker = new ResolutionTracker(sid, 10)
+        _blackboxTracker = new LocalBlackboxStub()
       }
     } else {
-      _blackboxTracker = new ResolutionTracker(sid, 10)
+      _blackboxTracker = new LocalBlackboxStub()
     }
   }
   return _blackboxTracker
@@ -3552,12 +3551,6 @@ export async function DelegationEnforcer({ client, directory }) {
       const { ltTasks, ltCache, ltCost, count, sesTasks, sesEdit, sesCredit, sesC7, sesQuota, sesTaskDelegations, sesDuration, sesRatePerHour, sesTrend, sesToolBreakdown, sesModelTurns, quality_avg } = readLifetimeSavings()
       const brainTag = currentModel ? modelToSlotLabel(currentModel, currentTier) : (currentTier ? `[${currentTier.charAt(0).toUpperCase() + currentTier.slice(1)}]` : "[???]")
 
-      textCompletePainted.add(messageID)
-      if (textCompletePainted.size > 500) {
-        const it = textCompletePainted.values()
-        for (let i = 0; i < 100; i++) textCompletePainted.delete(it.next().value)
-      }
-
       let modelTag = brainTag
       const _workerModel = (currentTier === "high" && TRINITY_MEDIUM) ? TRINITY_MEDIUM : TRINITY_CHEAP
       const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0)
@@ -3681,6 +3674,12 @@ export async function DelegationEnforcer({ client, directory }) {
       else if (typeof output?.result === "string") output.result = footerText
       else if (typeof output?.content === "string") output.content = footerText
       else output.text = footerText
+
+      textCompletePainted.add(messageID)
+      if (textCompletePainted.size > 500) {
+        const it = textCompletePainted.values()
+        for (let i = 0; i < 100; i++) textCompletePainted.delete(it.next().value)
+      }
 
       if (ltTotal > 0 || ltCache > 0) {
         try {
