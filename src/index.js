@@ -5242,6 +5242,10 @@ const BALANCE_APIS = {
 }
 let _creditTimer = null
 let _mcpServerRuntime = null
+export function closeMcpServer() {
+    if (!_mcpServerRuntime) return Promise.resolve()
+    return _mcpServerRuntime.close()
+}
 let _mcpServerHooked = false
 
 function _readAuth() {
