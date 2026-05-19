@@ -4019,6 +4019,57 @@ function scoreTaskQuality(outputText, promptText) {
     "tool.execute.after": async (input, output) => {
       if (!loadSelection().enabled) return
       _refreshModel(directory)
+
+      // ── Generate footer alert (prepended to tool result, visible in chat) ──
+      let _footerText = ""
+      try {
+        const { ltTasks, ltCache, ltCost, sesTrend, sesModelTurns } = readLifetimeSavings()
+        const ltTotal = ltTasks + ltCache
+        const trendIcon = sesTrend === "down" ? "down" : sesTrend === "up" ? "up" : "-"
+        const selNow = loadSelection()
+        const tags = [`[${shortModelName(currentModel)}]`]
+        if (selNow.delegation_enforce) tags.push("[ENF ON]")
+        if (selNow.flow_enforce) tags.push("[FLOW ON]")
+        if (selNow.tdd_enforce) tags.push("[TDD ON]")
+        if (_modelLocked) tags.push("[LOCK ON]")
+        const workerModel = (currentTier === "high" && TRINITY_MEDIUM) ? TRINITY_MEDIUM : TRINITY_CHEAP
+        const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0)
+        if (totalTurns > 0 && workerModel && workerModel !== currentModel) {
+          const brainPct = Math.round((sesModelTurns.brain / totalTurns) * 100)
+          tags[0] = `[${shortModelName(currentModel)} ${brainPct}% > ${shortModelName(workerModel)} ${100 - brainPct}%]`
+        }
+        const statusLine = tags.join(" ")
+        let stressTag = ""
+        if (latestUserIntent) {
+          const ss = scoreStress(latestUserIntent)
+          if (ss > 0.1) {
+            const label = ss > 0.7 ? "high" : ss > 0.4 ? "elevated" : "calm"
+            stressTag = ` stress:${label}`
+          }
+        }
+        if (ltTotal > 0) {
+          _footerText = `vibeOS: ${formatUsd(ltTotal)} saved ${trendIcon} | ${statusLine}${stressTag}\n\n`
+        } else {
+          _footerText = `${statusLine}${stressTag}\n\n`
+        }
+        output.title = _footerText.trim()
+        if (typeof output?.output === "string") output.output = _footerText + output.output
+        else if (typeof output?.result === "string") output.result = _footerText + output.result
+        else if (typeof output?.text === "string") output.text = _footerText + output.text
+        else if (typeof output?.content === "string") output.content = _footerText + output.content
+        else output.output = _footerText
+
+        _autoReportCount = (_autoReportCount || 0) + 1
+        if (_autoReportCount % 5 === 0 && ltTotal > 0) {
+          saveReport({
+            type: "session", summary: `Session cost: $${formatUsd(ltCost)} | cache saved: $${formatUsd(ltCache)} | delegation saved: $${formatUsd(ltTasks)}`,
+            metrics: { sessionId: _OC_SID, sessionCost: ltCost, cacheSavings: ltCache, delegationSavingsUsd: ltTasks, model: currentModel, slot: selNow.active_slot || "unknown" },
+            tags: ["auto", "cost"],
+          }).catch(() => {})
+        }
+      } catch {}
+      // ── End footer ──
+
       const t = input?.tool ?? ""
 
       // Save ML state after Task or key tools (throttled to avoid excessive I/O).
@@ -4202,51 +4253,6 @@ function scoreTaskQuality(outputText, promptText) {
         }
       }
 
-      // ── Footer: model + savings + enforcement tags via output.title (UI-only) ──
-      try {
-        _refreshModel(directory)
-        const { ltTasks, ltCache, ltCost, sesTrend, sesModelTurns } = readLifetimeSavings()
-        const ltTotal = ltTasks + ltCache
-        const trendIcon = sesTrend === "down" ? "down" : sesTrend === "up" ? "up" : "-"
-        const selNow = loadSelection()
-        const tags = [`[${shortModelName(currentModel)}]`]
-        if (selNow.delegation_enforce) tags.push("[ENF ON]")
-        if (selNow.flow_enforce) tags.push("[FLOW ON]")
-        if (selNow.tdd_enforce) tags.push("[TDD ON]")
-        if (_modelLocked) tags.push("[LOCK ON]")
-        const workerModel = (currentTier === "high" && TRINITY_MEDIUM) ? TRINITY_MEDIUM : TRINITY_CHEAP
-        const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0)
-        if (totalTurns > 0 && workerModel && workerModel !== currentModel) {
-          const brainPct = Math.round((sesModelTurns.brain / totalTurns) * 100)
-          tags[0] = `[${shortModelName(currentModel)} ${brainPct}% > ${shortModelName(workerModel)} ${100 - brainPct}%]`
-        }
-        const statusLine = tags.join(" ")
-        let stressTag = ""
-        if (latestUserIntent) {
-          const ss = scoreStress(latestUserIntent)
-          if (ss > 0.1) {
-            const label = ss > 0.7 ? "high" : ss > 0.4 ? "elevated" : "calm"
-            stressTag = ` stress:${label}`
-          }
-        }
-        let footerLine
-        if (ltTotal > 0) {
-          footerLine = `vibeOS: ${formatUsd(ltTotal)} saved ${trendIcon} | ${statusLine}${stressTag}`
-        } else {
-          footerLine = `${statusLine}${stressTag}`
-        }
-        output.title = footerLine
-
-        _autoReportCount = (_autoReportCount || 0) + 1
-        if (_autoReportCount % 5 === 0 && ltTotal > 0) {
-          saveReport({
-            type: "session", summary: `Session cost: $${formatUsd(ltCost)} | cache saved: $${formatUsd(ltCache)} | delegation saved: $${formatUsd(ltTasks)}`,
-            metrics: { sessionId: _OC_SID, sessionCost: ltCost, cacheSavings: ltCache, delegationSavingsUsd: ltTasks, model: currentModel, slot: selNow.active_slot || "unknown" },
-            tags: ["auto", "cost"],
-          }).catch(() => {})
-        }
-      } catch {}
-
       // Compress verbose tool outputs before they bloat context.
       // Only webfetch — task results contain synthesized data the brain needs verbatim.
       if (t !== "webfetch") {
@@ -4384,16 +4390,9 @@ function scoreTaskQuality(outputText, promptText) {
       }
     },
 
-    // `experimental.text.complete` fires when an assistant text part finishes
-    // streaming. Append the live model-split + savings footer. Also capture
-    // blackbox outcome signals from assistant response text.
     "experimental.text.complete": async (input, output) => { await _appendFooter(input, output, directory) },
-
-    // Fallback footer for OpenCode instances where text.complete may not fire.
-    // Uses _appendFooter internally (idempotent by messageId dedup).
     "message.updated": async (input, output) => { await _appendFooter(input, output, directory) },
 
-    // Hard-guaranteed GUI savings display.
     // Scratchpad-aware compaction. When OpenCode is about to compact a session,
     // remind the compactor that tool results are persisted on disk in the
     // session cache tree and to preserve hash/path refs in

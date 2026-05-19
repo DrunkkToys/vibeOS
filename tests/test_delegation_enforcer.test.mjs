@@ -640,6 +640,8 @@ test("tool.execute.after: does not set output.result/text/content/data (wrong fi
   const longText = "B".repeat(3500)
   const out = { title: "task result", output: longText, metadata: {} }
   await hooks["tool.execute.after"]({ tool: "task", callID: "c3", args: {} }, out)
+  assert.ok(typeof out.output === "string" && out.output.length > longText.length, "output.output has footer prepended")
+  assert.ok(out.output.endsWith(longText), "original output preserved after footer")
   assert.equal(out.result, undefined, "output.result must remain undefined")
   assert.equal(out.text, undefined, "output.text must remain undefined")
   assert.equal(out.content, undefined, "output.content must remain undefined")
@@ -836,9 +838,8 @@ test("tool.execute.after: task output NOT compressed (only webfetch)", async () 
   const longText = "A".repeat(3500)
   const out = { title: "task result", result: longText, metadata: {} }
   await hooks["tool.execute.after"]({ tool: "task", callID: "c1", args: {} }, out)
-  // Task output must remain unchanged
-  assert.equal(out.result.length, longText.length, "task output not compressed")
-  assert.equal(out.result, longText, "task output identical")
+  assert.ok(out.result.length > longText.length, "task output has footer prepended")
+  assert.ok(out.result.endsWith(longText), "task output preserved after footer")
 })
 
 test("tool.execute.after: webfetch output IS compressed", async () => {
@@ -1367,8 +1368,8 @@ test("tool.execute.after: delegation warning injected into output.result", async
     `output.result must contain [vibeOS] delegation note; got: ${afterOutput.result}`)
   assert.ok(afterOutput.result.includes("tier direct edit"),
     `output.result must describe the action; got: ${afterOutput.result}`)
-  assert.ok(afterOutput.result.startsWith("File edited successfully."),
-    "original tool result must be preserved at the start")
+  assert.ok(afterOutput.result.includes("File edited successfully."),
+    "original tool result must be preserved")
 })
 
 // ── new: pendingUiNote cleared after consumption (no double-inject) ───────────
@@ -1482,8 +1483,8 @@ test("integration: full simulated OC session with sonnet-as-brain", async () => 
   await hooks["tool.execute.after"]({ tool: "write", args: { filePath: "/tmp/foo.py" } }, writeAfterOut)
   assert.ok(writeAfterOut.result.includes("[vibeOS]"),
     "write: delegation note visible in tool output (OC chat transcript)")
-  assert.ok(writeAfterOut.result.startsWith("File written."),
-    "write: original result preserved before the note")
+  assert.ok(writeAfterOut.result.includes("File written."),
+    "write: original result preserved")
 
   // ── 5. Edit tool: before+after same flow ───────────────────────────────
   await hooks["tool.execute.before"]({ tool: "edit" }, { args: {} })
