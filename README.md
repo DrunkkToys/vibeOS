@@ -6,7 +6,7 @@ vibeOS helps keep expensive model usage under control by enforcing delegation be
 
 ## Version
 
-Current package version: `0.9.1`
+Current package version: `0.10.0`
 
 ## What It Does
 
@@ -106,9 +106,24 @@ These use `~/.claude/reports` and project memory in `~/.claude/project-states.js
 - Stores per-project pattern memory in `~/.claude/project-states.json`.
 - Promotes patterns after repeated confirmation across sessions and surfaces them via `trinity patterns`.
 
-## Install / Sync (Local Plugin File)
+## Install
 
-This repo exports plugin runtime from `src/index.js`.
+### npm (Recommended)
+
+Published to npm as `vibeOS`:
+
+```bash
+npm install vibeOS
+```
+
+Then register in `~/.config/opencode/opencode.json`:
+```json
+"plugins": [
+  { "id": "vibeOS", "path": "node_modules/vibeOS/src/index.js" }
+]
+```
+
+### Local Plugin File
 
 For OpenCode Desktop local plugin usage, copy these files to `~/.config/opencode/plugins/`:
 
@@ -137,6 +152,118 @@ Restart OpenCode Desktop. The plugin auto-creates `~/.claude/model-tiers.json` o
 - `npm run build`
 
 This compiles TypeScript source-of-truth modules and syncs generated JS artifacts used by runtime.
+
+## CI/CD
+
+GitHub Actions workflows are in `.github/workflows/`:
+
+- **CI** (`.github/workflows/ci.yml`): Runs on every push/PR to `main`/`master`. Executes typecheck, syntax check, test suite, TypeScript audit, and build validation.
+
+- **Release** (`.github/workflows/release.yml`): Manual trigger via GitHub Actions UI (`workflow_dispatch`). Prompts for version bump type (patch/minor/major), then runs tests, builds, and executes `scripts/release.mjs --yes --ci` which bumps version, updates changelog, commits/tags/pushes, creates a GitHub Release, and publishes to npm.
+
+Before using the release workflow, add an `NPM_TOKEN` secret to the repository with an npm automation token that has publish permissions for the `vibeOS` package.
+
+## Remote API Protection
+
+vibeOS core algorithms are protected via a remote API server. Proprietary code (delegation enforcement, stress mitigation, blackbox decision engine, TDD enforcement, pattern learner, context compression, dynamic pricing) runs on a remote server — not in the local plugin.
+
+### Architecture
+
+```
+Local Plugin (src/index.js)          Remote API Server (VPS)
+─────────────────────────            ─────────────────────────
+- Hook registrations                 - Fastify API server
+- File I/O, state management         - SQLite token/seat DB
+- UI/footer rendering                - Protected algorithms
+- HTTPS calls to remote API          - Admin token management
+- Fallback if API unreachable        - SSL (api.vibetheog.com)
+```
+
+### How It Works
+
+1. Plugin sends `Authorization: Bearer <token>` with each protected algorithm call
+2. API server validates token against seat/license database
+3. If token is valid → returns algorithm result
+4. If token is revoked/expired → returns 403, plugin enters fallback mode
+5. When a customer doesn't pay → admin deactivates their seat → all tokens revoked
+
+### Environment Variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `VIBEOS_API_URL` | `https://api.vibetheog.com` | API server URL |
+| `VIBEOS_API_TOKEN` | `null` | User's API token (required for remote calls) |
+| `VIBEOS_API_ENABLED` | `true` (if token set) | Enable/disable remote API |
+
+When `VIBEOS_API_TOKEN` is not set, the plugin runs entirely in local fallback mode (degraded — no protected algorithms).
+
+### Token Management (Admin)
+
+All admin endpoints require the master key (`VIBEOS_API_MASTER_KEY`):
+
+```bash
+# Create a seat with token (WordPress integration)
+curl -X POST -H "Authorization: Bearer $MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"User","email":"user@example.com","with_token":"wp-label"}' \
+  https://api.vibetheog.com/admin/seats
+
+# Suspend a seat (revokes all tokens)
+curl -X PATCH -H "Authorization: Bearer $MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"status":"suspended"}' \
+  https://api.vibetheog.com/admin/seats/:id
+
+# Reactivate a seat
+curl -X PATCH -H "Authorization: Bearer $MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"status":"active"}' \
+  https://api.vibetheog.com/admin/seats/:id
+
+# List all tokens
+curl -H "Authorization: Bearer $MASTER_KEY" \
+  https://api.vibetheog.com/admin/tokens
+```
+
+### WordPress Integration
+
+When a user purchases a subscription via WordPress:
+1. WordPress membership plugin handles payment
+2. On payment success, WordPress calls `POST /admin/seats` with `with_token` param
+3. API returns seat + token → stored in WordPress user meta
+4. On subscription lapse, WordPress calls `PATCH /admin/seats/:id` with `status: "suspended"`
+5. All tokens for that seat are revoked → plugin gets 403 → fallback mode
+
+### Deploying the API Server
+
+The API server is in `src/vibeOS-api-server/`. To deploy:
+
+```bash
+cd src/vibeOS-api-server
+./scripts/deploy.sh
+```
+
+This installs Node.js, uploads files, sets up systemd service, and configures Nginx reverse proxy on the VPS.
+
+### API Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/v1/delegate/check` | Check if tool call should be blocked |
+| `POST` | `/api/v1/route/model` | Tier routing decision |
+| `POST` | `/api/v1/stress/score` | Stress scoring |
+| `POST` | `/api/v1/blackbox/analyze` | Dialogue analysis |
+| `POST` | `/api/v1/tdd/skeleton` | Test skeleton generation |
+| `POST` | `/api/v1/patterns/observe` | Record pattern observation |
+| `POST` | `/api/v1/pricing/fetch` | Fetch model pricing |
+| `POST` | `/api/v1/compress/context` | Context compression |
+| `POST` | `/admin/seats` | Create seat (optionally with token) |
+| `GET` | `/admin/seats` | List all seats |
+| `PATCH` | `/admin/seats/:id` | Suspend/reactivate seat |
+| `POST` | `/admin/tokens` | Create token |
+| `GET` | `/admin/tokens` | List all tokens |
+| `PATCH` | `/admin/tokens/:id` | Revoke/reactivate token |
+| `DELETE` | `/admin/tokens/:id` | Delete token |
 
 ## Known Limitations
 

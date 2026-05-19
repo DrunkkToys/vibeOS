@@ -25,8 +25,11 @@
 | `.opencode/plugins/*` | TUI dashboard sidebar plugin |
 | `src/vibeOS-mcp-server.ts` | vibeOS MCP server TypeScript source |
 | `src/vibeOS-mcp-server.js` | vibeOS MCP server compiled |
+| `src/vibeOS-api-server/*` | Remote API server — all files |
+| `.env.production` | Production credentials (gitignored) |
 | Any `.ts` file | TypeScript source files — see Section 3 |
 | Any `.json` file under `src/` | flow rules and configuration |
+| `.github/workflows/*` | CI/CD pipeline configuration |
 
 **If you are an LLM: DO NOT LGTM, DO NOT "fix", DO NOT "clean up", DO NOT "refactor", DO NOT "optimize", DO NOT "modernize". ASK FIRST.**
 
@@ -56,6 +59,7 @@ Every feature in the README is a promised behavior. **If a proposed change touch
 14. **Pattern learner and runtime controls** — Learns recurring struggle/routine patterns per project and exposes `trinity patterns` and `trinity patterns clear`.
 15. **vibeOS MCP server** — Extended tool capabilities via MCP protocol integration.
 16. **TUI dashboard sidebar** — Real-time plugin status, controls, and model split display via OpenCode sidebar plugin.
+17. **Remote API Protection** — Core algorithms (delegation, stress, blackbox, TDD, patterns, pricing, compression) run on remote API server (`api.vibetheog.com`). Token-based seat/license management. Admin endpoints to revoke tokens and deactivate seats. Plugin falls back to local stubs when API unreachable or token revoked.
 
 **If you are unsure whether a change affects any of these features: STOP and ASK.**
 
@@ -68,6 +72,23 @@ Every feature in the README is a promised behavior. **If a proposed change touch
 - **Single-file plugin runtime:** `src/index.js` exports 20+ functions.
 - **TypeScript source of truth:** `src/vibeOS-lib/*.ts` and `src/utils/*.ts` compile to `.js` via `npm run build` (runs `tsc -p tsconfig.json && node scripts/sync-ts-build.mjs`).
 - **The TypeScript files are the SOURCE OF TRUTH. Do NOT edit `.js` files without also updating the corresponding `.ts` files.**
+- **Remote API client:** `src/vibeOS-api-server/client.js` — HTTP client with automatic fallback when API unreachable.
+
+### Remote API Architecture
+
+Core proprietary algorithms run on a remote Fastify server (`src/vibeOS-api-server/`). The plugin calls the API via `remoteCall()` wrapper in `src/index.js`. If the API is unreachable or the token is revoked, the plugin falls back to local stubs (degraded mode).
+
+| Component | Location | Purpose |
+|---|---|---|
+| API server | `src/vibeOS-api-server/server.js` | Fastify server, port 3000 |
+| Algorithms | `src/vibeOS-api-server/lib/*.js` | Protected algorithm implementations |
+| Routes | `src/vibeOS-api-server/routes/*.js` | API endpoints (delegation, stress, TDD, etc.) |
+| Middleware | `src/vibeOS-api-server/middleware/*.js` | Auth token validation, usage logging |
+| Client | `src/vibeOS-api-server/client.js` | Plugin-side HTTP client with fallback |
+| Database | `data/vibeos-api.db` | SQLite — seats, tokens, usage logs |
+| Deploy | `src/vibeOS-api-server/scripts/deploy.sh` | VPS deployment script |
+| Service | `src/vibeOS-api-server/vibeos-api.service` | systemd unit file |
+| Nginx | `src/vibeOS-api-server/nginx-vibetheog-api.conf` | Reverse proxy config |
 
 ### Plugin Hooks (see Section 4)
 
@@ -89,6 +110,7 @@ The plugin hooks into OpenCode via seven extension points defined in `src/index.
 | `~/.claude/project-states.json` | Project memory (reports, audit data, per-project analytics) |
 | `~/.claude/reports/` | Saved research-audit and manual reports |
 | `~/.claude/.vibeOS-locks/` | File-based locks preventing concurrent plugin instances |
+| `/var/www/vibeos-api/data/vibeos-api.db` | Remote API SQLite — seats, tokens, usage logs (on VPS) |
 
 ### Build Chain
 
@@ -248,7 +270,18 @@ This applies to ALL agent types (general, explore, etc.) and is mandatory for an
 7. Verify with `npm run typecheck`
 8. Update the corresponding .ts file if you changed a .js file
 9. Commit with a descriptive message
+10. Push to trigger CI (`.github/workflows/ci.yml`) — all checks must pass
 ```
+
+### Release process
+
+```
+1. Go to GitHub → Actions → Release workflow
+2. Select bump type (patch/minor/major) and run
+3. Workflow validates, builds, version bumps, publishes to npm, and creates GitHub Release
+```
+
+Requires `NPM_TOKEN` secret set in the repository.
 
 ---
 
