@@ -1959,6 +1959,8 @@ function recordSaving(tool, reason, saveEst, meta = {}) {
       _pruneOldSessions(s)
       return s
     })
+    const sid = _OC_SID
+    try { appendFileSync(SAVINGS_LEDGER_FILE, JSON.stringify({ at: new Date().toISOString(), kind: "delegation", amount_usd: Number(saveEst || 0), sid, tool }) + "\n") } catch {}
     return state?.lifetime?.est_savings_usd ?? null
   } catch (err) {
     console.error(`[vibeOS] state write failed: ${err.message}`)
@@ -1999,6 +2001,7 @@ function recordCacheSaving(tool, saveEst, meta = {}) {
       return s
     })
     const sid = _OC_SID
+    try { appendFileSync(SAVINGS_LEDGER_FILE, JSON.stringify({ at: new Date().toISOString(), kind: "cache", amount_usd: Number(saveEst || 0), sid, tool }) + "\n") } catch {}
     return {
       lifetime: state?.lifetime?.cache_savings_usd || 0,
       session: state?.sessions?.[sid]?.cache_savings_usd || 0,
