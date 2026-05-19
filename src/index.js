@@ -3383,7 +3383,7 @@ export async function DelegationEnforcer({ client, directory }) {
   }
   // Auto-configure model-tiers.json — always syncs with opencode desktop config.
   // Sniffs ALL models from the user's opencode.json (provider dropdown + model field).
-  if (currentModel) {
+  if (currentModel || !existsSync(TIERS_FILE)) {
     try {
       let _tiersData
       if (existsSync(TIERS_FILE)) {
