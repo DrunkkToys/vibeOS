@@ -749,6 +749,7 @@ function withFileLock(filePath, fn, opts = {}) {
       } catch {}
     }
   }
+  console.error(`[vibeOS] WARN: lock not acquired for ${filePath} after ${timeoutMs}ms -> possible concurrent write`)
   return fn()
 }
 
@@ -760,20 +761,39 @@ function readJsonOrEmpty(filePath) {
 }
 
 function updateState(mutator) {
-  return withFileLock(STATE_FILE, () => {
-    let state = readJsonOrEmpty(STATE_FILE)
-    if (!state || typeof state !== "object") state = {}
-    if (!state.session_started_at || state.session_started_at === "not-a-valid-date" || isNaN(Date.parse(state.session_started_at))) {
-      state.session_started_at = new Date().toISOString()
+  const MAX_RETRIES = 3
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      const result = withFileLock(STATE_FILE, () => {
+        const preGen = (readJsonOrEmpty(STATE_FILE)._gen || 0)
+        let state = readJsonOrEmpty(STATE_FILE)
+        if (!state || typeof state !== "object") state = {}
+        if (!state.session_started_at || state.session_started_at === "not-a-valid-date" || isNaN(Date.parse(state.session_started_at))) {
+          state.session_started_at = new Date().toISOString()
+        }
+        state.lifetime ??= {}
+        state.lifetime.missed_context7_usd ??= 0
+        state.lifetime.cache_savings_usd ??= 0
+        state._gen = preGen + 1
+        const next = mutator(state) ?? state
+        mkdirSync(dirname(STATE_FILE), { recursive: true })
+        writeFileSync(STATE_FILE, JSON.stringify(next, null, 2))
+        return next
+      })
+      if (!result || typeof result !== "object") return result
+      const postGen = result._gen
+      const onDiskGen = (readJsonOrEmpty(STATE_FILE)._gen || 0)
+      if (onDiskGen === postGen) return result
+      if (attempt < MAX_RETRIES - 1) continue
+      console.error(`[vibeOS] WARN: updateState retry exhausted - possible state divergence`)
+      return result
+    } catch (err) {
+      if (attempt < MAX_RETRIES - 1) continue
+      console.error(`[vibeOS] updateState error: ${err.message}`)
+      return null
     }
-    state.lifetime ??= {}
-    state.lifetime.missed_context7_usd ??= 0
-    state.lifetime.cache_savings_usd ??= 0
-    const next = mutator(state) ?? state
-    mkdirSync(dirname(STATE_FILE), { recursive: true })
-    writeFileSync(STATE_FILE, JSON.stringify(next, null, 2))
-    return next
-  })
+  }
+  return null
 }
 setFlowStateWriter((state) => {
   withFileLock(STATE_FILE, () => {
