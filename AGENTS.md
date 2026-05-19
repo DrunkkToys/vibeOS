@@ -50,6 +50,7 @@ Every feature in the README is a promised behavior. **If a proposed change touch
 11. **JSONC-tolerant config parsing** — `safeJsonParse()` handles trailing commas, comments, unquoted keys.
 12. **File-based locking** — Prevents concurrent plugin instances via `~/.claude/.vibeOS-locks/`.
 13. **Per-session warning caps and coalescing** — Limits and merges repeated delegation warnings.
+14. **Pattern learner and runtime controls** — Learns recurring struggle/routine patterns per project and exposes `trinity patterns` and `trinity patterns clear`.
 
 **If you are unsure whether a change affects any of these features: STOP and ASK.**
 
