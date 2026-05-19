@@ -1,3 +1,19 @@
+## 0.9.0
+- feat: stress-mitigation pipeline — detect, warn, harden, reroute
+- fix: TDD skeleton now fires for task subagent file writes
+- fix: smart sub-cent display and 4dp precision for cache savings
+- fix: _refreshModel now reconciles with actual opencode.json model
+- refactor: full decouple — VibeTheOG → vibeOS branding, dirs, reports, test paths
+- docs: add AGENTS.md — immutable project spec for all LLMs
+Merge pull request #1 from DrunkkToys/experiment/process-data-py
+Document pattern learner commands and claimed feature
+Add routine-pattern promotion regression test
+fix telemetry precision and cross-project session linkage
+rename: VibeTheOG → vibeOS
+rename to VibeTheOG and fix OpenCode manifest/plugin path consistency
+release: bump to v0.8.0 and sync stability hardening
+
+
 # Changelog
 
 ## 0.8.1
