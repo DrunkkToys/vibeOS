@@ -251,21 +251,21 @@ function thinkingLevel(credit) {
 const TIERS_FILE = join(USER_HOME, ".claude/model-tiers.json")
 function loadSelection() {
   try {
-    if (!existsSync(TIERS_FILE)) return { enabled: true, active_slot: null, thinking_level: "brief", flow_enabled: false, tdd_enforce: false, tdd_strict: false, tdd_quality: false, flow_enforce: false, delegation_enforce: true, savings_goal_usd: 0 }
+    if (!existsSync(TIERS_FILE)) return { enabled: true, active_slot: null, thinking_level: "brief", flow_enabled: true, tdd_enforce: false, tdd_strict: false, tdd_quality: false, flow_enforce: true, delegation_enforce: true, savings_goal_usd: 0 }
     const j = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
     return {
       enabled:            j?.selection?.enabled !== false,
       active_slot:        j?.selection?.active_slot || null,
       thinking_level:     j?.selection?.thinking_level || "brief",
-      flow_enabled:       j?.selection?.flow_enabled === true,
+      flow_enabled:       j?.selection?.flow_enabled !== false,
       tdd_enforce:        j?.selection?.tdd_enforce === true,
       tdd_strict:         j?.selection?.tdd_strict === true,
       tdd_quality:        j?.selection?.tdd_quality === true,
-      flow_enforce:       j?.selection?.flow_enforce === true,
+      flow_enforce:       j?.selection?.flow_enforce !== false,
       delegation_enforce: j?.selection?.delegation_enforce !== false,
       savings_goal_usd:   Number(j?.selection?.savings_goal_usd || 0),
     }
-  } catch { return { enabled: true, active_slot: null, thinking_level: "brief", flow_enabled: false, tdd_enforce: false, tdd_strict: false, tdd_quality: false, flow_enforce: false, delegation_enforce: true, savings_goal_usd: 0 } }
+  } catch { return { enabled: true, active_slot: null, thinking_level: "brief", flow_enabled: true, tdd_enforce: false, tdd_strict: false, tdd_quality: false, flow_enforce: true, delegation_enforce: true, savings_goal_usd: 0 } }
 }
 
 // Write a single key into selection block of model-tiers.json.
@@ -4202,33 +4202,38 @@ function scoreTaskQuality(outputText, promptText) {
         }
       }
 
-      // ── Footer: model split + savings tag via output.title (UI-only, not in context) ──
+      // ── Footer: model + savings + enforcement tags via output.title (UI-only) ──
       try {
         _refreshModel(directory)
         const { ltTasks, ltCache, ltCost, sesTrend, sesModelTurns } = readLifetimeSavings()
         const ltTotal = ltTasks + ltCache
-        const trendIcon = sesTrend === "down" ? "↓" : sesTrend === "up" ? "↑" : "→"
+        const trendIcon = sesTrend === "down" ? "down" : sesTrend === "up" ? "up" : "-"
         const selNow = loadSelection()
-        const enfTags = []
-        if (selNow.delegation_enforce) enfTags.push("ENF")
-        if (selNow.flow_enforce) enfTags.push("FLOW")
-        if (selNow.tdd_enforce) enfTags.push("TDD")
-        if (_modelLocked) enfTags.push("LOCK")
-        let brainTag = currentModel ? modelToSlotLabel(currentModel, currentTier) : `[${currentTier || "???"}]`
-        const enfSuffix = enfTags.length > 0 ? ` ${enfTags.join("")}` : ""
-        brainTag = brainTag.replace("]", `${enfSuffix}]`)
+        const tags = [`[${shortModelName(currentModel)}]`]
+        if (selNow.delegation_enforce) tags.push("[ENF ON]")
+        if (selNow.flow_enforce) tags.push("[FLOW ON]")
+        if (selNow.tdd_enforce) tags.push("[TDD ON]")
+        if (_modelLocked) tags.push("[LOCK ON]")
         const workerModel = (currentTier === "high" && TRINITY_MEDIUM) ? TRINITY_MEDIUM : TRINITY_CHEAP
         const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0)
-        let modelTag = brainTag
         if (totalTurns > 0 && workerModel && workerModel !== currentModel) {
           const brainPct = Math.round((sesModelTurns.brain / totalTurns) * 100)
-          modelTag = `[${shortModelName(currentModel)} ${brainPct}%→ ${shortModelName(workerModel)} ${100-brainPct}%]`.replace("]", `${enfSuffix}]`)
+          tags[0] = `[${shortModelName(currentModel)} ${brainPct}% > ${shortModelName(workerModel)} ${100 - brainPct}%]`
+        }
+        const statusLine = tags.join(" ")
+        let stressTag = ""
+        if (latestUserIntent) {
+          const ss = scoreStress(latestUserIntent)
+          if (ss > 0.1) {
+            const label = ss > 0.7 ? "high" : ss > 0.4 ? "elevated" : "calm"
+            stressTag = ` stress:${label}`
+          }
         }
         let footerLine
         if (ltTotal > 0) {
-          footerLine = `— ${modelTag} | vibeOS: ${formatUsd(ltTotal)} saved ${trendIcon} —`
+          footerLine = `vibeOS: ${formatUsd(ltTotal)} saved ${trendIcon} | ${statusLine}${stressTag}`
         } else {
-          footerLine = `— ${modelTag} —`
+          footerLine = `${statusLine}${stressTag}`
         }
         output.title = footerLine
 
