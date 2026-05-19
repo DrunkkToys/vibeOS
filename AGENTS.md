@@ -71,7 +71,7 @@ Every feature in the README is a promised behavior. **If a proposed change touch
 
 ### Plugin Hooks (see Section 4)
 
-The plugin hooks into OpenCode via six extension points defined in `src/index.js`:
+The plugin hooks into OpenCode via seven extension points defined in `src/index.js`:
 - `experimental.text.complete`
 - `experimental.chat.messages.transform`
 - `experimental.chat.system.transform`
@@ -116,7 +116,7 @@ usable plugin runtime
 
 ## 🔌 OPECODE HOOKS — DO NOT ALTER SIGNATURES
 
-These six hooks are registered in `src/index.js`. Changing any hook signature or removing a hook will break the plugin.
+These seven hooks are registered in `src/index.js`. Changing any hook signature or removing a hook will break the plugin.
 
 ```
 "experimental.text.complete"
@@ -125,6 +125,7 @@ These six hooks are registered in `src/index.js`. Changing any hook signature or
 "tool.execute.before"
 "tool.execute.after"
 "message.updated"
+"experimental.session.compacting"
 ```
 
 - `experimental.chat.system.transform` — Injects system prompt directives (context7 optimization, stress inoculation, flow/TDD enforcement rules).
@@ -133,6 +134,7 @@ These six hooks are registered in `src/index.js`. Changing any hook signature or
 - `message.updated` — Fallback footer append for OpenCode versions where `text.complete` does not fire.
 - `tool.execute.before` — Delegation enforcement checks before tool execution.
 - `tool.execute.after` — Injects pending delegation UI notes after tool execution.
+- `experimental.session.compacting` — Injects scratchpad-aware compaction hints so the compactor preserves hash/path references.
 
 ---
 
