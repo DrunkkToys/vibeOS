@@ -30,6 +30,56 @@ import { checkFlowRules, getFlowWarns, getSessionFlowCounts, setFlowStateWriter 
 import { computeSessionMetrics } from "./vibeOS-lib/session-metrics.js"
 import { ResolutionTracker, buildAdvice, classifySituation, ExposureModel } from "./vibeOS-lib/blackbox/index.js"
 import { createMcpServer } from "./vibeOS-mcp-server.js"
+import { VibeOSApiClient, VibeOSAuthError, VibeOSTimeoutError, VibeOSNetworkError } from "./vibeOS-api-server/client.js"
+
+// ── Remote API client (Phase 2) ─────────────────────────────────────
+const VIBEOS_API_URL = process.env.VIBEOS_API_URL || "https://api.vibetheog.com"
+const VIBEOS_API_TOKEN = process.env.VIBEOS_API_TOKEN || null
+const VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && !!VIBEOS_API_TOKEN
+
+let _apiClient = null
+let _apiFallbackMode = false
+let _apiFallbackSince = null
+
+function getApiClient() {
+  if (!_apiClient && VIBEOS_API_ENABLED) {
+    _apiClient = new VibeOSApiClient({
+      baseUrl: VIBEOS_API_URL,
+      apiToken: VIBEOS_API_TOKEN,
+      timeout: 5000,
+    })
+  }
+  return _apiClient
+}
+
+function isApiFallback() {
+  return _apiFallbackMode || !VIBEOS_API_ENABLED
+}
+
+async function remoteCall(method, args, fallbackFn) {
+  if (!VIBEOS_API_ENABLED) {
+    if (fallbackFn) return fallbackFn()
+    return null
+  }
+  try {
+    const client = getApiClient()
+    if (!client) { if (fallbackFn) return fallbackFn(); return null }
+    const result = await client[method](...args)
+    _apiFallbackMode = false
+    _apiFallbackSince = null
+    return result
+  } catch (err) {
+    if (!_apiFallbackMode) {
+      _apiFallbackMode = true
+      _apiFallbackSince = new Date().toISOString()
+      console.error(`[vibeOS] API fallback activated: ${err.message}`)
+    }
+    if (fallbackFn) {
+      try { return fallbackFn() } catch (fe) { console.error(`[vibeOS] fallback also failed: ${fe.message}`) }
+    }
+    return null
+  }
+}
 
 // Minimal self-contained tool helper — avoids @opencode-ai/plugin dependency
 // so the plugin works immediately on any install without bun/npm.
@@ -3407,8 +3457,11 @@ export async function DelegationEnforcer({ client, directory }) {
                           : null
         let _target = _exploratoryTarget ?? _tierTarget
 
-        if (_target === TRINITY_CHEAP && TRINITY_MEDIUM) {
-          const stressScore = latestUserIntent ? scoreStress(latestUserIntent) : 0
+        const stressScore = latestUserIntent ? scoreStress(latestUserIntent) : 0
+        const apiRoute = await remoteCall("routeModel", [_prompt, currentTier, TRINITY_CHEAP, TRINITY_MEDIUM, LEARNED_EXPLORATORY, stressScore], null)
+        if (apiRoute?.target) {
+          _target = apiRoute.target
+        } else if (_target === TRINITY_CHEAP && TRINITY_MEDIUM) {
           if (stressScore > 0.5) {
             _target = TRINITY_MEDIUM
             console.error(`[vibeOS] 🧘 Stress ${stressScore.toFixed(2)} → preserving medium tier for Task quality`)
@@ -3479,23 +3532,33 @@ export async function DelegationEnforcer({ client, directory }) {
       // Write/Edit/NotebookEdit: enforce delegation on high tier when delegation_enforce is on.
       if (WARN_ON_DIRECT.has(String(t || "").toLowerCase())) {
         const sel = loadSelection()
+        const tLower = String(t || "").toLowerCase()
         if (sel.delegation_enforce && currentTier === "high" && args && typeof args === "object") {
-          console.error(`[vibeOS] [enforcement] BLOCK check: tier=${currentTier} enforce=${sel.delegation_enforce} tool=${t} argsOk=${args && typeof args === "object"}`)
           const actualArgs = args || (output && output.args) || {}
-          const tLower = String(t || "").toLowerCase()
           const originalPath = actualArgs.filePath || actualArgs.file_path || ""
           const basename = originalPath.split("/").pop() || "blocked"
-          if (tLower === "write") {
-            actualArgs.filePath = `/tmp/vibeos-enforcement-blocked-${basename}`
-            if (actualArgs.file_path !== undefined) actualArgs.file_path = actualArgs.filePath
-          } else if (tLower === "edit" || tLower === "notebookedit") {
-            actualArgs.oldString = `__THE_SAVER_ENFORCEMENT_BLOCK_${Date.now()}__`
+
+          const apiResult = await remoteCall("delegateCheck", [tLower, currentTier, currentModel, _prompt, _dynamicPricingCache || {}], () => ({
+            blocked: true,
+            savings: _estEdit,
+          }))
+
+          const isBlocked = apiResult?.blocked !== false
+          const savings = apiResult?.savings ?? _estEdit
+
+          if (isBlocked) {
+            if (tLower === "write") {
+              actualArgs.filePath = `/tmp/vibeos-enforcement-blocked-${basename}`
+              if (actualArgs.file_path !== undefined) actualArgs.file_path = actualArgs.filePath
+            } else if (tLower === "edit" || tLower === "notebookedit") {
+              actualArgs.oldString = `__THE_SAVER_ENFORCEMENT_BLOCK_${Date.now()}__`
+            }
+            const total = recordSaving(t, "delegation enforced", savings, { firstWord: _firstWord })
+            pendingUiNote = `🚫 Direct ${t} blocked on Brain tier → delegate via Task or run \`trinity medium\`.`
+            enforcementBlocked = true
+            if (shouldLogWarn(`${t}|enforced|${_tierWord}`)) console.error(`[vibeOS] [enforcement] BLOCKED direct ${t} on high tier → delegate via Task`)
+            return
           }
-          const total = recordSaving(t, "delegation enforced", _estEdit, { firstWord: _firstWord })
-          pendingUiNote = `🚫 Direct ${t} blocked on Brain tier → delegate via Task or run \`trinity medium\`.`
-          enforcementBlocked = true
-          if (shouldLogWarn(`${t}|enforced|${_tierWord}`)) console.error(`[vibeOS] [enforcement] BLOCKED direct ${t} on high tier → delegate via Task`)
-          return
         }
         const total = recordSaving(t, "direct edit", _estEdit, { firstWord: _firstWord })
         const msg = `[vibeOS] ${_tierWord} tier direct ${t} — save ~$${_estEdit.toFixed(3)} by delegating to Task. Run \`trinity medium\`.`
