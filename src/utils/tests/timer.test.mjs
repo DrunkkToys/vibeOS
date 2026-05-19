@@ -1,28 +1,42 @@
-import { describe, it, beforeEach, afterEach } from 'node:test'
+import { describe, it, before, after, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert'
 import { writeFileSync, unlinkSync, existsSync, renameSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { sessionDuration, elapsedNew, formatDuration, startTimer, getElapsedSeconds } from '../timer.js'
 
-const STATE_FILE = join(homedir(), '.claude/delegation-state.json')
-const BACKUP_FILE = join(homedir(), '.claude/delegation-state.json.experiment-backup')
+function _statePath(name = 'delegation-state.json') {
+  return join(homedir(), '.claude', name)
+}
+const BACKUP_SUFFIX = '.experiment-backup'
 
 function backupStateFile() {
-  if (existsSync(STATE_FILE)) {
-    renameSync(STATE_FILE, BACKUP_FILE)
+  const sf = _statePath()
+  const bf = _statePath('delegation-state.json' + BACKUP_SUFFIX)
+  if (existsSync(sf)) {
+    renameSync(sf, bf)
   }
 }
 
 function restoreStateFile() {
-  if (existsSync(STATE_FILE)) unlinkSync(STATE_FILE)
-  if (existsSync(BACKUP_FILE)) renameSync(BACKUP_FILE, STATE_FILE)
+  const sf = _statePath()
+  const bf = _statePath('delegation-state.json' + BACKUP_SUFFIX)
+  if (existsSync(sf)) unlinkSync(sf)
+  if (existsSync(bf)) renameSync(bf, sf)
 }
+
+let _origHome
+before(() => {
+  _origHome = process.env.HOME
+})
+after(() => {
+  process.env.HOME = _origHome
+})
 
 function writeTestState(data) {
   const dir = join(homedir(), '.claude')
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-  writeFileSync(STATE_FILE, JSON.stringify(data))
+  writeFileSync(_statePath(), JSON.stringify(data))
 }
 
 describe('getElapsedSeconds', () => {
@@ -97,10 +111,10 @@ describe('sessionDuration', () => {
   })
 
   it('returns zeros when state file does not exist', () => {
-    restoreStateFile()
+    const sf = _statePath()
+    if (existsSync(sf)) unlinkSync(sf)
     const result = sessionDuration()
     assert.deepStrictEqual(result, { hours: 0, minutes: 0, seconds: 0 })
-    backupStateFile()
   })
 
   it('returns zeros when session_started_at is invalid date', () => {
