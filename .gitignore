@@ -15,4 +15,12 @@ dist-ts/
 .vibetheog-cx/
 .agents/
 
+# Secrets — NEVER commit
+.env.production
+.env.local
+*.key
+*.pem
+secrets/
+PRODUCTION-CREDENTIALS.md
+
 
