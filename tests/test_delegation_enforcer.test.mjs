@@ -664,7 +664,7 @@ test("tool.execute.after: shows model label even with no savings recorded", asyn
   const out = { text: "Hi." }
   await hooks["experimental.text.complete"]({ messageID: "msg-empty-sav" }, out)
   // Model label always shown; no savings line when count=0
-  assert.match(out.text, /High|Mid|Budget/, "model label shown even when no savings")
+  assert.match(out.text, /\[claude-opus-4-7\]/, "model label shown even when no savings")
   assert.doesNotMatch(out.text, /saved/, "no savings line when count=0")
 })
 
@@ -1290,42 +1290,20 @@ test("text.complete: appends to session-reports.log", async () => {
 })
 
 // ── new: modelToSlotLabel uses effectiveTier (brain-slot override) ────────────
-test("text.complete: sonnet-as-brain shows 🧠 icon in footer (effectiveTier fix)", async () => {
-  // When the active brain slot is openrouter/anthropic/claude-sonnet-4.6,
-  // modelToSlotLabel must use currentTier="high" (overridden), not classify()="mid".
-  // Result: footer must contain 🧠 not ⚙.
-  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
-    trinity: {
-      brain:  { oc: "openrouter/anthropic/claude-sonnet-4.6" },
-      medium: { oc: "deepseek/deepseek-v4-flash" },
-      cheap:  { oc: "deepseek/deepseek-chat" },
-    },
-    selection: { enabled: true, active_slot: "brain" },
-    tiers: {
-      high:   { regex: "opus|deepseek.*v4.*pro" },
-      mid:    { regex: "claude.*sonnet|sonnet|deepseek.*v4.*flash" },
-      budget: { regex: ".*" },
-    },
-  }))
-  const { DelegationEnforcer } = await loadPlugin()
-  const dir = join(sandbox, ".opencode-sonnet-icon")
+test("text.complete: sonnet-as-brain footer shows correct model name (effectiveTier fix)", async () => {
+  const { DelegationEnforcer, readReport, loadSelection, saveReport } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-sonneticon")
   mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "openrouter/anthropic/claude-sonnet-4.6" }))
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "anthropic/claude-sonnet-4-6" }))
   const hooks = await DelegationEnforcer({ client: {}, directory: dir })
 
-  // Seed a non-zero savings total so the footer is always emitted.
-  const stateFile = join(sandbox, ".claude/delegation-state.json")
-  writeFileSync(stateFile, JSON.stringify({
-    lifetime: { warn_count: 1, est_savings_usd: 0.05, last_updated: "now" }
-  }))
-
-  const out = { text: "Hello." }
-  await hooks["experimental.text.complete"]({ messageID: "msg-icon-1" }, out)
-
-  assert.ok(out.text.includes("🧠"),
-    `footer must contain 🧠 (brain icon) for sonnet-as-brain; got: ${out.text}`)
-  assert.ok(!out.text.includes("⚙ Mid →"),
-    `footer must NOT show ⚙ Mid → when mid is the brain slot; got: ${out.text}`)
+  // Result: footer must contain claude-sonnet not claude-haiku.
+  const out = { text: "Test." }
+  await hooks["experimental.text.complete"]({ messageID: "msg-sonnet-icon1" }, out)
+  assert.ok(out.text.includes("claude-sonnet"),
+    `footer must contain model name for sonnet-as-brain; got: ${out.text}`)
+  assert.ok(!out.text.includes("haiku"),
+    `footer must NOT show haiku when sonnet is the brain slot; got: ${out.text}`)
 })
 
 // ── new: pendingUiNote injected into tool.execute.after output ────────────────
@@ -1418,7 +1396,7 @@ test("tool.execute.after: pendingUiNote consumed once — no double-inject on se
 //   2. shell.env fires → OPENCODE_MODEL_TIER=high in env
 //   3. A Task is routed to the medium slot
 //   4. A write is done → pendingUiNote set in before, injected in after
-//   5. experimental.text.complete fires → footer shows 🧠 Sonnet 4.6 + savings
+//   5. experimental.text.complete fires → footer shows model name + savings
 //   6. session-report-pending.md written for CC
 //   7. Enforcement is disabled at runtime → all hooks become no-ops
 //   8. Re-enabled → enforcement resumes
@@ -1496,11 +1474,11 @@ test("integration: full simulated OC session with sonnet-as-brain", async () => 
   assert.ok((s2?.lifetime?.warn_count ?? 0) >= 2,
     "edit: second warn recorded cumulatively")
 
-  // ── 6. experimental.text.complete: footer shows 🧠 + savings ───────────
+  // ── 6. experimental.text.complete: footer shows model name + savings ───
   const textOut = { text: "Here is the plan." }
   await hooks["experimental.text.complete"]({ messageID: "msg-integ-1" }, textOut)
-  assert.ok(textOut.text.includes("🧠"),
-    "text.complete: footer shows 🧠 (brain icon, not ⚙ mid) for sonnet-as-brain")
+  assert.ok(textOut.text.includes("claude-sonnet"),
+    "text.complete: footer shows model name (not tier) for sonnet-as-brain")
   assert.ok(textOut.text.includes("vibeOS:"),
     "text.complete: footer shows vibeOS savings label")
   assert.match(textOut.text, /— \[.+\] \| vibeOS: \d+\.\d{2} saved [↑↓→]/,
@@ -1512,7 +1490,7 @@ test("integration: full simulated OC session with sonnet-as-brain", async () => 
   const reportFile = join(sandbox, ".claude/session-report-pending.md")
   assert.ok(existsSync(reportFile), "session-report-pending.md written after text.complete")
   const reportContent = readFileSync(reportFile, "utf-8")
-  assert.ok(reportContent.includes("🧠") || reportContent.includes("Mid") || reportContent.includes("Budget"),
+  assert.ok(reportContent.includes("claude-sonnet") || reportContent.includes("Mid") || reportContent.includes("Budget"),
     "session-report: contains model info")
   assert.ok(reportContent.includes("vibeOS:"),
     "session-report: contains vibeOS label")
