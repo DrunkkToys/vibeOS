@@ -1,3 +1,17 @@
+## 0.10.3
+- feat: per-session model lock (`trinity lock on|off`) — prevents auto-reconcile with OpenCode config changes
+- feat: lock status shown in `trinity status` guards and live footer (`LOCK` tag)
+- feat: blackbox real feature extraction — 11 derived features per turn (word count, question ratio, urgency, sentiment, complexity, etc.)
+- feat: blackbox loop prevention — 4-level escalating intervention (gentle → suggestive → assertive → escalated) injected into system prompts
+- feat: blackbox PIVOT/SWITCH detection — detects context changes outside project scope via drift rate + instruction density change
+- feat: blackbox outcome tracking — detects satisfaction signals from assistant responses (positive/negative/neutral)
+- feat: blackbox online calibration — `POST /api/v1/blackbox/calibrate` auto-tunes thresholds from session outcomes per project
+- feat: blackbox cross-session continuity — project-scoped session keys (not PID), state persists across terminal restarts
+- feat: blackbox API server unification — API server now imports shared ResolutionTracker (removed duplicate implementation)
+- feat: `blackbox_calibration` SQLite table for per-project calibrated weights
+- feat: `blackbox_sessions` now includes outcome column, `/api/v1/blackbox/outcome`, `/api/v1/blackbox/calibration`, `/api/v1/blackbox/project-sessions` endpoints
+- docs: README and AGENTS updated with model lock, blackbox engine, and calibration documentation
+
 ## 0.9.3
 - fix: MCP server now starts during DelegationEnforcer init (was trapped in orphaned computeStatusPayload)
 - fix: add mcp_port auto-write to model-tiers.json on init

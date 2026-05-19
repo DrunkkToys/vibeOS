@@ -6,7 +6,7 @@ vibeOS helps keep expensive model usage under control by enforcing delegation be
 
 ## Version
 
-Current package version: `0.10.0`
+Current package version: `0.10.3`
 
 ## What It Does
 
@@ -14,7 +14,9 @@ Current package version: `0.10.0`
 - Tracks cache savings as a separate persisted category when scratchpad cache hits are observed.
 - Adds a live footer to assistant outputs with model split, cumulative savings, and trend arrow.
 - Provides `trinity` runtime controls for slot switching, enforcement toggles, audits, and diagnostics.
+- Adds per-session model locking: prevents the plugin from auto-switching models when the user changes the model in the OpenCode GUI (`trinity lock on|off`).
 - Adds optional flow checks and TDD skeleton enforcement.
+- Adds project guard: ensures AGENTS.md and README.md exist and stay protected in every project.
 - Adds report and research-audit tooling.
 - Learns recurring struggle and routine patterns per project, with `trinity patterns` inspection and `trinity patterns clear`.
 - Stress mitigation pipeline: detects user stress signals, shows live stress gauge in footer, injects protective system prompts, and upgrades Task tier when user is stressed.
@@ -28,11 +30,15 @@ Current package version: `0.10.0`
 vibeOS protects its core algorithms by serving them from a self-hosted API server rather than bundling them entirely in the plugin:
 
 | Algorithm | Endpoint | Description |
-|---|---|---|
+|---|---|---|---|
 | Delegation enforcement | `POST /api/v1/delegate/check` | Model cost calculation, block/warn routing |
 | Model tier routing | `POST /api/v1/route/model` | Tier classification, stress-aware routing |
 | Stress scoring | `POST /api/v1/stress/score` | NLP stress signal detection |
-| Blackbox engine | `POST /api/v1/blackbox/analyze` | Dialogue trajectory, loop detection |
+| Blackbox engine | `POST /api/v1/blackbox/analyze` | Dialogue trajectory, loop detection, pivot/switch, outcome tracking |
+| Blackbox calibration | `POST /api/v1/blackbox/calibrate` | Auto-tune thresholds from session outcomes |
+| Blackbox calibration state | `GET /api/v1/blackbox/calibration` | Read calibrated weights per project |
+| Blackbox outcome | `POST /api/v1/blackbox/outcome` | Record session satisfaction outcome |
+| Blackbox project sessions | `GET /api/v1/blackbox/project-sessions` | List cross-session history per project |
 | TDD skeleton gen | `POST /api/v1/tdd/skeleton` | Multi-language test generation |
 | Pattern learner | `POST /api/v1/patterns/observe` | Friction/routine detection |
 | Model pricing | `POST /api/v1/pricing/fetch` | Dynamic OpenRouter pricing cache |
@@ -110,11 +116,13 @@ Main commands:
 - `trinity enable` / `trinity disable`
 - `trinity thinking full|brief|off`
 - `trinity enforce` / `trinity enforce on|off`
+- `trinity lock on|off` / `trinity lock`
 - `trinity flow on|off` / `trinity flow enforce on|off` / `trinity flow`
 - `trinity tdd on|off` / `trinity tdd strict on|off` / `trinity tdd quality on|off` / `trinity tdd`
 - `trinity project`
 - `trinity patterns`
 - `trinity patterns clear`
+- `trinity guard`
 - `trinity diagnose`
 - `trinity rebuild`
 - `trinity help`
@@ -130,6 +138,13 @@ Main commands:
 - TDD enforcer:
   - Auto-creates skeleton tests for changed source files when enabled.
   - Strict mode is ON by default: TODO tests fail loudly until implemented.
+- Project Guard:
+  - On session init, checks if AGENTS.md and README.md exist in the project root.
+  - Auto-creates AGENTS.md with protective rules (LLM must ask before modifying code).
+  - Auto-creates README.md with tech stack auto-detection and feature stubs.
+  - Flow rules warn/flag on write/edit to these protected files.
+  - System prompt injects directive to maintain both files.
+  - `trinity guard` command regenerates both files on demand.
 
 ## Reports and Audit Tools
 
@@ -145,6 +160,26 @@ These use `~/.claude/reports` and project memory in `~/.claude/project-states.js
 - Detects repeated friction signals and recurring successful routines from session behavior.
 - Stores per-project pattern memory in `~/.claude/project-states.json`.
 - Promotes patterns after repeated confirmation across sessions and surfaces them via `trinity patterns`.
+
+## Blackbox Decision Engine
+
+The blackbox tracks dialogue trajectory per-session and per-project, providing real-time decision state insights:
+
+- **Resolution tracking**: Classifies each session into one of 7 sub-regimes (INIT, DIVERGENT, EXPLORING, REFINING, CONVERGING, CLOSED, LOOPING) based on entropy trends, action consistency, feature contradiction, and embedding drift.
+- **Real feature extraction**: Derives 11 features from each user message — message length, word count, question ratio, code blocks, urgency signals, sentiment, complexity, repetition, and instruction density.
+- **Loop prevention**: Detects when the conversation is going in circles and injects escalating system prompt interventions (gentle → suggestive → assertive → escalated) to break the loop.
+- **PIVOT/SWITCH detection**: Recognizes when the user changes context outside the current project scope and injects scope-confirmation directives.
+- **Outcome tracking**: Detects satisfaction signals from assistant responses (positive: "thanks/that works/perfect"; negative: "broken/still failing/wrong") and records them for calibration.
+- **Online calibration**: The API server aggregates session outcomes and auto-tunes loop detection, momentum, and closure thresholds per project via `POST /api/v1/blackbox/calibrate`.
+- **Cross-session continuity**: State persists per project fingerprint in `~/.claude/blackbox-state.json` and remotely in SQLite, allowing resolution state to carry across terminal restarts.
+
+Commands:
+- `trinity blackbox on` — Enable the decision engine
+- `trinity blackbox off` — Disable the decision engine
+- `trinity blackbox status` — View current resolution, sub-regime, momentum, loop state, and project history
+- `trinity blackbox reset` — Clear the resolution tracker for the current session
+
+The blackbox injects a decision directive into system prompts showing current resolution state, intent volatility, and continuity. When looping or pivoting is detected, stronger intervention directives are injected to guide the model.
 
 ## Install
 

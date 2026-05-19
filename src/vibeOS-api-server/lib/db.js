@@ -43,6 +43,27 @@ export function getDb() {
       FOREIGN KEY (seat_id) REFERENCES seats(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS blackbox_sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL UNIQUE,
+      project_id TEXT,
+      state_json TEXT NOT NULL DEFAULT '{}',
+      outcome TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS blackbox_calibration (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id TEXT NOT NULL DEFAULT 'global',
+      weights_json TEXT NOT NULL DEFAULT '{}',
+      samples_used INTEGER NOT NULL DEFAULT 0,
+      precision REAL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(project_id)
+    );
+
     CREATE TABLE IF NOT EXISTS usage_log (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       token_id INTEGER NOT NULL,
@@ -58,6 +79,8 @@ export function getDb() {
     CREATE INDEX IF NOT EXISTS idx_tokens_seat ON api_tokens(seat_id);
     CREATE INDEX IF NOT EXISTS idx_tokens_status ON api_tokens(status);
     CREATE INDEX IF NOT EXISTS idx_seats_status ON seats(status);
+    CREATE INDEX IF NOT EXISTS idx_blackbox_project ON blackbox_sessions(project_id);
+    CREATE INDEX IF NOT EXISTS idx_blackbox_updated ON blackbox_sessions(updated_at);
     CREATE INDEX IF NOT EXISTS idx_usage_token ON usage_log(token_id);
     CREATE INDEX IF NOT EXISTS idx_usage_created ON usage_log(created_at);
   `)
