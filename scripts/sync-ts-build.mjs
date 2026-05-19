@@ -15,6 +15,10 @@ const mappings = [
     to: join("src", "vibeOS-lib", "session-metrics.js"),
   },
   {
+    from: join("dist-ts", "vibeOS-lib", "auto-activation.js"),
+    to: join("src", "vibeOS-lib", "auto-activation.js"),
+  },
+  {
     from: join("dist-ts", "utils", "cost-formatter.js"),
     to: join("src", "utils", "cost-formatter.js"),
   },
