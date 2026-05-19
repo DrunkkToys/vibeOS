@@ -49,6 +49,24 @@ try {
   }
   if (existsSync(destLibDir)) countFiles(destLibDir)
   process.stderr.write(`[vibeOS deploy] src/vibeOS-lib/ → ~/.config/opencode/plugins/vibeOS-lib/ (${libCount} files)\n`)
+
+  // Copy vibeOS-api-server directory (remote API client, routes, middleware)
+  const srcApiServerDir = join(ROOT, "src", "vibeOS-api-server")
+  const destApiServerDir = join(pluginDir, "vibeOS-api-server")
+  cpSync(srcApiServerDir, destApiServerDir, { recursive: true, force: true })
+  let apiCount = 0
+  function countApiFiles(dir) {
+    for (const entry of readdirSync(dir)) {
+      const full = join(dir, entry)
+      if (statSync(full).isDirectory()) {
+        countApiFiles(full)
+      } else {
+        apiCount++
+      }
+    }
+  }
+  if (existsSync(destApiServerDir)) countApiFiles(destApiServerDir)
+  process.stderr.write(`[vibeOS deploy] src/vibeOS-api-server/ → ~/.config/opencode/plugins/vibeOS-api-server/ (${apiCount} files)\n`)
   process.stderr.write("[vibeOS deploy] Done\n")
 } catch (e) {
   process.stderr.write(`[vibeOS deploy] ERROR: ${e.message}\n`)
