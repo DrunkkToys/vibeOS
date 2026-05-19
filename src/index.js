@@ -3298,6 +3298,7 @@ export async function DelegationEnforcer({ client, directory }) {
       modelTag = modelTag.replace("]", `${enfSuffixFooter}]`)
 
       const stripped = text.replace(/\n\n— .+(?: —)?$/, "")
+      if (stripped !== text) return
       const ltTotal = ltTasks + ltCache
       const trendIcon = sesTrend === "down" ? "↓" : sesTrend === "up" ? "↑" : "→"
       let footerText
