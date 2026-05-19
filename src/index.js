@@ -20,7 +20,7 @@
  */
 
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, statSync, readdirSync, openSync, readSync, closeSync, rmSync, copyFileSync } from "node:fs"
-import { join, dirname } from "node:path"
+import { join, dirname, relative, basename } from "node:path"
 import { homedir, tmpdir } from "node:os"
 
 const USER_HOME = (() => { try { return homedir() } catch { return tmpdir() } })()
@@ -88,6 +88,10 @@ function safeJsonParse(raw) {
 const MAX_LOG_LINES = 500
 const WARN_DEDUPE_WINDOW_MS = 120 * 1000
 const warnLogThrottle = new Map()
+const recentToolEvents = []
+const frictionSessionKeys = new Set()
+const routineSessionKeys = new Set()
+let lastMutationEvent = null
 const warnPerSession = new Map()
 const WARN_MAX_PER_SESSION = 3
 const WARN_COALESCE_THRESHOLD = 10
@@ -2440,12 +2444,246 @@ function mergeProjectBucket(dst, src) {
   const a = dst || {}
   const b = src || {}
   const topics = [...new Set([...(a.commonTopics || []), ...(b.commonTopics || [])])].slice(-20)
+  const mergePatterns = (kind) => {
+    const out = {}
+    for (const srcObj of [a.userPatterns?.[kind], b.userPatterns?.[kind]]) {
+      for (const [key, val] of Object.entries(srcObj || {})) {
+        const row = out[key] || { count: 0, sessions: [], lastSeen: null, summary: val?.summary || "" }
+        row.count += Number(val?.count || 0)
+        row.sessions = [...new Set([...(row.sessions || []), ...(val?.sessions || [])])].slice(-10)
+        row.lastSeen = [row.lastSeen, val?.lastSeen].filter(Boolean).sort().slice(-1)[0] || null
+        row.summary = row.summary || val?.summary || ""
+        if (val?.kind) row.kind = val.kind
+        out[key] = row
+      }
+    }
+    return out
+  }
   return {
     totalSessions: (a.totalSessions || 0) + (b.totalSessions || 0),
     researchChains: Math.max(a.researchChains || 0, b.researchChains || 0),
     context7Bypasses: (a.context7Bypasses || 0) + (b.context7Bypasses || 0),
     commonTopics: topics,
+    userPatterns: {
+      friction: mergePatterns("friction"),
+      routines: mergePatterns("routines"),
+    },
     lastSeen: [a.lastSeen, b.lastSeen].filter(Boolean).sort().slice(-1)[0] || new Date().toISOString(),
+  }
+}
+
+function normalizeObservedPath(filePath, directory) {
+  if (!filePath || typeof filePath !== "string") return "unknown"
+  let p = filePath
+  try {
+    if (directory && p.startsWith("/")) {
+      const rel = relative(directory, p)
+      if (rel && !rel.startsWith("..") && !rel.startsWith("/")) p = rel
+    }
+  } catch {}
+  p = p.replace(/\\/g, "/").replace(/^\.\/+/, "")
+  if (/^(src\/index\.js|package\.json|README\.md|CHANGELOG\.md|tsconfig\.json)$/i.test(p)) return p
+  const m = p.match(/\.([a-z0-9]+)$/i)
+  if (p.startsWith("src/") && m) return `src/*.${m[1].toLowerCase()}`
+  if (p.startsWith("tests/") && m) return `tests/*.${m[1].toLowerCase()}`
+  return basename(p) || "unknown"
+}
+
+function commandFamily(command) {
+  const c = String(command || "").trim().toLowerCase()
+  if (!c) return "unknown"
+  if (/\bnode\s+--check\b/.test(c)) return "syntax-check"
+  if (/\bnpm\s+run\s+typecheck\b|\btsc\b.*--noemit/.test(c)) return "typecheck"
+  if (/\bnpm\s+test\b|\bnode\s+--test\b|\bvitest\b|\bjest\b|\bpytest\b/.test(c)) return "test"
+  if (/\bnpm\s+run\s+build\b|\btsc\s+-p\b/.test(c)) return "build"
+  if (/\bgit\s+status\b/.test(c)) return "git-status"
+  if (/\bgit\s+commit\b/.test(c)) return "git-commit"
+  const first = c.replace(/^[a-z_][a-z0-9_]*=\S+\s+/g, "").split(/\s+/)[0]
+  return /^[a-z0-9._/-]{1,30}$/.test(first) ? first : "command"
+}
+
+function commandFailed(output) {
+  const code = output?.exitCode ?? output?.statusCode ?? output?.code
+  if (Number.isFinite(Number(code)) && Number(code) !== 0) return true
+  const raw = output?.result ?? output?.text ?? output?.content ?? output?.data ?? ""
+  if (typeof raw !== "string") return false
+  return /\b(exit code|exited with code)\s*[:=]?\s*[1-9]\b|\b(assertionerror|syntaxerror|typeerror|referenceerror)\b|\b(failed|error:|err!)\b/i.test(raw)
+}
+
+function noteProjectPattern(kind, key, summary, meta = {}) {
+  if (!currentProjectFingerprint || !key || !summary) return
+  try {
+    const pstate = loadProjectState()
+    const bucket = ensureProjectBucket(pstate, currentProjectFingerprint)
+    bucket.userPatterns ??= { friction: {}, routines: {} }
+    bucket.userPatterns.friction ??= {}
+    bucket.userPatterns.routines ??= {}
+    const target = kind === "routine" ? bucket.userPatterns.routines : bucket.userPatterns.friction
+    const now = new Date().toISOString()
+    const row = target[key] || { kind, summary, count: 0, sessions: [], firstSeen: now, lastSeen: null }
+    row.kind = kind
+    row.summary = summary
+    row.count = Number(row.count || 0) + 1
+    row.sessions = [...new Set([...(row.sessions || []), _OC_SID])].slice(-10)
+    row.lastSeen = now
+    if (meta.family) row.family = meta.family
+    if (meta.path) row.path = meta.path
+    target[key] = row
+    const entries = Object.entries(target)
+    if (entries.length > 50) {
+      entries.sort((a, b) => String(b[1]?.lastSeen || "").localeCompare(String(a[1]?.lastSeen || "")))
+      const kept = Object.fromEntries(entries.slice(0, 50))
+      for (const k of Object.keys(target)) delete target[k]
+      Object.assign(target, kept)
+    }
+    bucket.lastSeen = now
+    saveProjectState(pstate)
+  } catch (err) {
+    console.error(`[vibeOS] pattern learner write failed: ${err.message}`)
+  }
+}
+
+function recordFrictionPattern(key, summary, meta = {}) {
+  const sessionKey = `friction:${key}`
+  if (frictionSessionKeys.has(sessionKey)) return
+  frictionSessionKeys.add(sessionKey)
+  noteProjectPattern("friction", key, summary, meta)
+}
+
+function recordRoutinePattern(key, summary, meta = {}) {
+  const sessionKey = `routine:${key}`
+  if (routineSessionKeys.has(sessionKey)) return
+  routineSessionKeys.add(sessionKey)
+  noteProjectPattern("routine", key, summary, meta)
+}
+
+function observeUserCorrection(text) {
+  const s = String(text || "").toLowerCase()
+  if (!s) return
+  let key = null
+  let summary = null
+  if (/\b(wrong|incorrect|bad)\s+import\b|\bimport\s+(is|was)\s+wrong\b/.test(s)) {
+    key = "correction:imports"
+    summary = "User corrections mention import mistakes."
+  } else if (/\b(forgot|missing|didn't|did not)\s+(run\s+)?(test|tests|typecheck|build)\b/.test(s)) {
+    key = "correction:verification"
+    summary = "User corrections mention missing verification."
+  } else if (/\b(forgot|missing|didn't|did not)\s+commit\b/.test(s)) {
+    key = "correction:commit"
+    summary = "User corrections mention missed commits."
+  } else if (/\b(this took too long|too slow|took too long)\b/.test(s)) {
+    key = "correction:latency"
+    summary = "User corrections mention slow task completion."
+  }
+  if (key) recordFrictionPattern(key, summary)
+}
+
+function promotedProjectPatterns(fp) {
+  try {
+    const p = loadProjectState().project_hashes?.[fp]
+    const out = []
+    const collect = (rows, label) => {
+      for (const row of Object.values(rows || {})) {
+        const sessions = new Set(row?.sessions || [])
+        if (sessions.size >= 3) out.push({ label, summary: row.summary, sessions: sessions.size, lastSeen: row.lastSeen || "" })
+      }
+    }
+    collect(p?.userPatterns?.friction, "friction")
+    collect(p?.userPatterns?.routines, "routine")
+    out.sort((a, b) => b.sessions - a.sessions || String(b.lastSeen).localeCompare(String(a.lastSeen)))
+    return out.slice(0, 3)
+  } catch {
+    return []
+  }
+}
+
+function projectPatternRows(fp) {
+  try {
+    const p = loadProjectState().project_hashes?.[fp]
+    const rows = []
+    for (const [kind, label] of [["friction", "friction"], ["routines", "routine"]]) {
+      for (const [key, row] of Object.entries(p?.userPatterns?.[kind] || {})) {
+        const sessions = new Set(row?.sessions || [])
+        rows.push({
+          key,
+          label,
+          summary: row?.summary || key,
+          count: Number(row?.count || 0),
+          sessions: sessions.size,
+          lastSeen: row?.lastSeen || "",
+        })
+      }
+    }
+    rows.sort((a, b) => b.sessions - a.sessions || b.count - a.count || String(b.lastSeen).localeCompare(String(a.lastSeen)))
+    return rows
+  } catch {
+    return []
+  }
+}
+
+function clearProjectPatterns(fp) {
+  try {
+    const pstate = loadProjectState()
+    const bucket = pstate.project_hashes?.[fp]
+    if (!bucket?.userPatterns) return 0
+    const count = Object.keys(bucket.userPatterns.friction || {}).length + Object.keys(bucket.userPatterns.routines || {}).length
+    bucket.userPatterns = { friction: {}, routines: {} }
+    bucket.lastSeen = new Date().toISOString()
+    saveProjectState(pstate)
+    return count
+  } catch (err) {
+    console.error(`[vibeOS] pattern learner clear failed: ${err.message}`)
+    return 0
+  }
+}
+
+function observeToolPattern(toolName, input, output, directory) {
+  try {
+    const t = String(toolName || "").toLowerCase()
+    const args = input?.args || {}
+    const filePath = args.filePath || args.file_path || args.path || ""
+    const observedPath = normalizeObservedPath(filePath, directory)
+    let target = observedPath
+    if (t === "bash") target = commandFamily(args.command || args.cmd || args.script || "")
+    if (t === "task") target = extractFirstWordFromArgs(t, args) || "task"
+    const event = { tool: t, target, at: Date.now() }
+    recentToolEvents.push(event)
+    if (recentToolEvents.length > 20) recentToolEvents.shift()
+    let repeat = 0
+    for (let i = recentToolEvents.length - 1; i >= 0; i--) {
+      const e = recentToolEvents[i]
+      if (e.tool !== event.tool || e.target !== event.target) break
+      repeat++
+    }
+    if (repeat === 3) {
+      recordFrictionPattern(`repeat-tool:${t}:${target}`, `Repeated ${t} calls against ${target} in one session.`, { family: t, path: target })
+    }
+
+    if (["write", "edit", "multiedit", "notebookedit"].includes(t) && observedPath !== "unknown") {
+      lastMutationEvent = { at: Date.now(), path: observedPath, tool: t }
+      return
+    }
+
+    if (t === "bash") {
+      const family = commandFamily(args.command || args.cmd || args.script || "")
+      if (lastMutationEvent && Date.now() - lastMutationEvent.at <= 10 * 60 * 1000) {
+        if (["syntax-check", "typecheck", "test", "build"].includes(family) && commandFailed(output)) {
+          recordFrictionPattern(
+            `post-edit-failure:${lastMutationEvent.path}:${family}`,
+            `After editing ${lastMutationEvent.path}, ${family} failed soon after.`,
+            { family, path: lastMutationEvent.path }
+          )
+        } else if (["syntax-check", "typecheck", "test", "build", "git-status"].includes(family) && !commandFailed(output)) {
+          recordRoutinePattern(
+            `post-edit-routine:${lastMutationEvent.path}:${family}`,
+            `After editing ${lastMutationEvent.path}, ${family} is a recurring verification step.`,
+            { family, path: lastMutationEvent.path }
+          )
+        }
+      }
+    }
+  } catch (err) {
+    console.error(`[vibeOS] pattern learner observe failed: ${err.message}`)
   }
 }
 
@@ -2475,6 +2713,11 @@ function buildProjectBriefing(dir) {
     if (p.commonTopics?.length) {
       const topics = p.commonTopics.slice(0, 5).join(", ")
       lines.push(`  • Common fetch topics: ${topics}`)
+    }
+    const hints = promotedProjectPatterns(fp)
+    if (hints.length) {
+      lines.push("  • Learned patterns:")
+      for (const h of hints) lines.push(`    - ${h.summary}`)
     }
     return lines.join("\n")
   } catch { return null }
@@ -3065,6 +3308,7 @@ export async function DelegationEnforcer({ client, directory }) {
 
       // Skip test-reminder, TDD, flow enforcement, and compression for blocked tools
       if (enforcementBlocked) { enforcementBlocked = false; return }
+      observeToolPattern(t, input, output, directory)
 
       // TDD enforcement for task subagent results: scan task output for
       // file paths with source extensions and create skeletons (same logic
@@ -3367,6 +3611,7 @@ export async function DelegationEnforcer({ client, directory }) {
       try {
         const userText = extractLastUserText(_input) || extractLastUserText(output)
         latestUserIntent = typeof userText === "string" ? userText : null
+        if (latestUserIntent) observeUserCorrection(latestUserIntent)
 
         // Context7 directive — model self-determines tool availability.
         const c7directive =
@@ -3494,10 +3739,11 @@ export async function DelegationEnforcer({ client, directory }) {
           "Use action='tdd' with slot='strict' and level='on'|'off' to toggle strict failing TODO test templates. " +
           "Use action='tdd' alone for audit. " +
           "Use action='project' to show per-project analytics and optimization suggestions. " +
+          "Use action='patterns' to inspect learned project patterns or slot='clear' to clear them. " +
           "Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', 'trinity status'.",
         args: {
-          action: tool.schema.enum(["status", "enable", "disable", "set", "thinking", "flow", "tdd", "project", "rebuild", "diagnose", "help", "enforce", "repair-state"]).optional(),
-          slot: tool.schema.enum(["brain", "medium", "cheap", "on", "off", "enforce", "strict", "quality", "preview", "apply"]).optional(),
+          action: tool.schema.enum(["status", "enable", "disable", "set", "thinking", "flow", "tdd", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state"]).optional(),
+          slot: tool.schema.enum(["brain", "medium", "cheap", "on", "off", "enforce", "strict", "quality", "preview", "apply", "clear"]).optional(),
           level: tool.schema.enum(["full", "brief", "off", "on"]).optional(),
         },
         async execute({ action, slot, level } = {}) {
@@ -3674,6 +3920,11 @@ export async function DelegationEnforcer({ client, directory }) {
                 const topics = proj.commonTopics.slice(0, 5).join(", ")
                 lines.push(`\ud83c\udf10 Common fetch domains: ${topics}`)
               }
+              const promoted = promotedProjectPatterns(fp)
+              if (promoted.length) {
+                lines.push(`\nLearned patterns:`)
+                for (const ptn of promoted) lines.push(`  [${ptn.label}] ${ptn.summary}`)
+              }
             } else {
               lines.push(`\n  (no project memory yet \u2014 first session)`)
             }
@@ -3754,6 +4005,9 @@ export async function DelegationEnforcer({ client, directory }) {
             if (loadSelection().flow_enabled === false) {
               suggestions.push(`\ud83d\udca1 Flow enforcer is OFF \u2014 enable with \`trinity flow on\` to catch anti-patterns`)
             }
+            for (const ptn of promotedProjectPatterns(fp)) {
+              suggestions.push(`Learned ${ptn.label} pattern: ${ptn.summary}`)
+            }
             // Credit low
             const credit = loadCredit()
             if (credit < 40) {
@@ -3769,6 +4023,31 @@ export async function DelegationEnforcer({ client, directory }) {
 
             lines.push(`\n${L.repeat(40)}`)
             lines.push(`Run \`trinity help\` for all commands | \`research-audit\` for deep fetch analysis`)
+            return lines.join("\n")
+          }
+
+          if (action === "patterns") {
+            const fp = currentProjectFingerprint || projectFingerprint(directory)
+            const name = currentProjectName || (directory ? directory.split("/").pop() : "unknown")
+            if (slot === "clear") {
+              const count = clearProjectPatterns(fp)
+              return `Pattern memory cleared for "${name}" (${count} pattern${count === 1 ? "" : "s"} removed).`
+            }
+            const rows = projectPatternRows(fp)
+            const lines = [`Project patterns - ${name}`]
+            if (rows.length === 0) {
+              lines.push("  No learned patterns yet.")
+              lines.push("  Patterns promote into briefings after 3 separate sessions.")
+              return lines.join("\n")
+            }
+            const promoted = rows.filter(r => r.sessions >= 3).length
+            lines.push(`  ${rows.length} stored, ${promoted} promoted`)
+            for (const r of rows.slice(0, 15)) {
+              const tag = r.sessions >= 3 ? "promoted" : "learning"
+              lines.push(`  [${r.label}/${tag}] ${r.summary} (${r.sessions} session${r.sessions === 1 ? "" : "s"}, ${r.count} hit${r.count === 1 ? "" : "s"})`)
+            }
+            lines.push("")
+            lines.push("Use `trinity patterns clear` to clear project pattern memory.")
             return lines.join("\n")
           }
 
@@ -4062,6 +4341,8 @@ export async function DelegationEnforcer({ client, directory }) {
               "DIAGNOSTICS:",
               "  trinity diagnose          Self-check: config, files, model probes, budget",
               "  trinity project           Project analytics and optimization tips",
+              "  trinity patterns          Show learned friction/routine patterns",
+              "  trinity patterns clear    Clear learned patterns for this project",
               "",
               "REPAIR:",
               "  trinity repair-state      Fix fingerprint collisions (preview/apply)",
