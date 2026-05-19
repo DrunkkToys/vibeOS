@@ -645,6 +645,39 @@ function scoreStress(text) {
   return Math.min(score, 1.0)
 }
 
+function estimateContextBudget(_input, output) {
+  try {
+    const DEFAULT_CONTEXT_LIMIT = 128000
+    const CHARS_PER_TOKEN = 4
+    let totalChars = 0
+    const messages = output?.messages
+    if (Array.isArray(messages)) {
+      for (const msg of messages) {
+        const parts = msg?.parts
+        if (!Array.isArray(parts)) continue
+        for (const part of parts) {
+          if (part?.type === "text" && typeof part.text === "string") {
+            totalChars += part.text.length
+          } else if (part?.type === "tool" && typeof part.state?.output === "string") {
+            totalChars += part.state.output.length
+          }
+        }
+      }
+    }
+    const systemParts = output?.system
+    if (Array.isArray(systemParts)) {
+      for (const s of systemParts) {
+        if (typeof s === "string") totalChars += s.length
+      }
+    }
+    const estimatedTokens = Math.round(totalChars / CHARS_PER_TOKEN)
+    const pct = Math.round((estimatedTokens / DEFAULT_CONTEXT_LIMIT) * 100)
+    return { estimatedTokens, pct, totalChars }
+  } catch {
+    return null
+  }
+}
+
 // Per-process dedup so the same docs URL doesn't nudge twice.
 const context7Seen = new Set()
 
@@ -4175,9 +4208,9 @@ function scoreTaskQuality(outputText, promptText) {
           "Do not fetch those URLs directly when context7 can serve the same content. " +
           "This saves ~$0.06/turn on average."
 
-        // Thinking-level directive — only when manually set via `trinity thinking`.
-        // Never auto-injected: credit-based thinking caused model stalls.
-        const { thinking_level: explicitLevel } = loadSelection()
+        // Thinking-level directive — always inject when set (default is "brief" for cost savings).
+        const sel = loadSelection()
+        const { thinking_level: explicitLevel } = sel
         if (explicitLevel && explicitLevel !== "full" && Array.isArray(output?.system)) {
           const credit = loadCredit()
           const creditNote = `credit ${credit}%`
@@ -4211,7 +4244,6 @@ function scoreTaskQuality(outputText, promptText) {
           }
         }
 
-        // Blackbox decision engine — inject decision-aware guidance when enabled
         if (_blackboxEnabled && latestUserIntent) {
           try {
             const situationType = classifySituation(latestUserIntent)
@@ -4239,21 +4271,56 @@ function scoreTaskQuality(outputText, promptText) {
           console.error("[vibeOS] [job-focus] off-topic request detected vs active job context")
         }
 
-        // AI ORCHESTRATOR AGENT — injected for all tiers.
-        {
+        // AI ORCHESTRATOR AGENT — only when delegation enforcement is active.
+        if (sel.delegation_enforce && Array.isArray(output?.system)) {
           const cheapModel = TRINITY_CHEAP || "the cheaper model"
           const mediumModel = TRINITY_MEDIUM || "the medium model"
-          const sel = loadSelection()
-          const enforcementNote = sel.delegation_enforce
-            ? ` CRITICAL: Write/Edit tools are BLOCKED on this tier. You MUST delegate ALL implementation work to Task subagents. `
-            : ``
           const orcDirective =
             `[AI ORCHESTRATOR AGENT] You are an AI orchestrator agent. ` +
             `Delegate heavy work to Task subagents (runs on ${cheapModel} or ${mediumModel}). ` +
-            `Your role: verify, fill gaps, synthesize.${enforcementNote}` +
+            `Your role: verify, fill gaps, synthesize. CRITICAL: Write/Edit tools are BLOCKED on this tier. You MUST delegate ALL implementation work to Task subagents. ` +
             `Always display the vibeOS cost footer.`
+          output.system.push(orcDirective)
+        }
 
-          if (Array.isArray(output?.system)) output.system.push(orcDirective)
+        // Batch task execution helper — encourage parallel subagent calls.
+        if (Array.isArray(output?.system)) {
+          output.system.push(
+            "[batch execution] When you need to run multiple independent Task subagent calls, " +
+            "invoke them ALL in parallel rather than sequentially. " +
+            "Parallel tasks complete faster and reduce total session cost. " +
+            "Only sequence tasks when one depends on the output of another."
+          )
+        }
+
+        // TDD directive — only when TDD enforcement is enabled.
+        if (sel.tdd_enforce && Array.isArray(output?.system)) {
+          const strictNote = sel.tdd_strict ? " STRICT mode: TODO tests MUST pass before considering work complete." : ""
+          output.system.push(
+            `[tdd enforcement] Auto-create skeleton tests for source files being written/edited.${strictNote} ` +
+            "When creating or modifying source files, ensure corresponding test files exist with proper assertions."
+          )
+        }
+
+        // Flow directive — only when flow enforcer is enabled.
+        if (sel.flow_enabled && Array.isArray(output?.system)) {
+          const enforceNote = sel.flow_enforce ? " TODO/FIXME extraction is active." : ""
+          output.system.push(
+            `[flow enforcement] Development flow rules are active: write/edit operations are checked against project conventions.${enforceNote} ` +
+            "Follow existing code patterns, naming conventions, and project structure."
+          )
+        }
+
+        // Context window budget warning — estimate usage and warn when approaching limits.
+        if (Array.isArray(output?.system)) {
+          const ctxBudget = estimateContextBudget(_input, output)
+          if (ctxBudget && ctxBudget.pct > 70) {
+            const severity = ctxBudget.pct > 90 ? "CRITICAL" : "WARNING"
+            output.system.push(
+              `[context budget: ${severity}] Context window is ${ctxBudget.pct}% full (~${ctxBudget.estimatedTokens} tokens). ` +
+              "Consider using Task subagents for heavy work, compressing tool outputs, or starting a new session to avoid context overflow."
+            )
+          }
         }
 
         // Project memory briefing: one-shot per session
