@@ -30,6 +30,30 @@ const mappings = [
     from: join("dist-ts", "vibeOS-mcp-server.js"),
     to: join("src", "vibeOS-mcp-server.js"),
   },
+  {
+    from: join("dist-ts", "vibeOS-lib", "blackbox", "index.js"),
+    to: join("src", "vibeOS-lib", "blackbox", "index.js"),
+  },
+  {
+    from: join("dist-ts", "vibeOS-lib", "blackbox", "advice-layer.js"),
+    to: join("src", "vibeOS-lib", "blackbox", "advice-layer.js"),
+  },
+  {
+    from: join("dist-ts", "vibeOS-lib", "blackbox", "crew-constants.js"),
+    to: join("src", "vibeOS-lib", "blackbox", "crew-constants.js"),
+  },
+  {
+    from: join("dist-ts", "vibeOS-lib", "blackbox", "exposure-model.js"),
+    to: join("src", "vibeOS-lib", "blackbox", "exposure-model.js"),
+  },
+  {
+    from: join("dist-ts", "vibeOS-lib", "blackbox", "resolution-tracker.js"),
+    to: join("src", "vibeOS-lib", "blackbox", "resolution-tracker.js"),
+  },
+  {
+    from: join("dist-ts", "vibeOS-lib", "blackbox", "taxonomy.js"),
+    to: join("src", "vibeOS-lib", "blackbox", "taxonomy.js"),
+  },
 ]
 
 for (const { from, to } of mappings) {

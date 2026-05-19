@@ -4,7 +4,7 @@ import { execSync } from "node:child_process"
 import { readFileSync, writeFileSync, mkdtempSync, rmSync } from "node:fs"
 import { join, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
-import { tmpdir } from "node:os"
+import { tmpdir, homedir } from "node:os"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, "..")
@@ -224,6 +224,50 @@ log(`${GREEN}✓${RESET} pushed tag v${newVer}`)
     log(`   run manually: gh release create v${newVer} --notes-file "${notesPath}"`)
   }
   rmSync(tmpDir, { recursive: true })
+}
+
+// ── DEPLOY TO LOCAL PLUGIN DIR ─────────────────────────────────
+
+log("")
+log(`${BOLD}📨 Deploying plugin...${RESET}`)
+try {
+  const { cpSync, readFileSync: rf, writeFileSync: wf, existsSync: ex, mkdirSync: mk, readdirSync, statSync } = await import("node:fs")
+  const pluginDir = join(homedir(), ".config", "opencode", "plugins")
+  if (!ex(pluginDir)) {
+    mk(pluginDir, { recursive: true })
+  }
+
+  const srcPath = join(ROOT, "src", "index.js")
+  const destPath = join(pluginDir, "vibeOS.js")
+  const src = rf(srcPath)
+  wf(destPath, src)
+  log(`${GREEN}✓${RESET} [vibeOS deploy] src/index.js → ~/.config/opencode/plugins/vibeOS.js (${src.length} bytes)`)
+
+  const srcMcpServerPath = join(ROOT, "src", "vibeOS-mcp-server.js")
+  const destMcpServerPath = join(pluginDir, "vibeOS-mcp-server.js")
+  if (ex(srcMcpServerPath)) {
+    wf(destMcpServerPath, rf(srcMcpServerPath))
+    log(`${GREEN}✓${RESET} [vibeOS deploy] src/vibeOS-mcp-server.js → ~/.config/opencode/plugins/vibeOS-mcp-server.js`)
+  }
+
+  const srcLibDir = join(ROOT, "src", "vibeOS-lib")
+  const destLibDir = join(pluginDir, "vibeOS-lib")
+  cpSync(srcLibDir, destLibDir, { recursive: true, force: true })
+  let libCount = 0
+  function countFiles(dir) {
+    for (const entry of readdirSync(dir)) {
+      const full = join(dir, entry)
+      if (statSync(full).isDirectory()) {
+        countFiles(full)
+      } else {
+        libCount++
+      }
+    }
+  }
+  if (ex(destLibDir)) countFiles(destLibDir)
+  log(`${GREEN}✓${RESET} [vibeOS deploy] src/vibeOS-lib/ → ~/.config/opencode/plugins/vibeOS-lib/ (${libCount} files)`)
+} catch (e) {
+  log(`${YELLOW}⚠${RESET}  deploy step failed: ${e.message}`)
 }
 
 // ── DONE ───────────────────────────────────────────────────────

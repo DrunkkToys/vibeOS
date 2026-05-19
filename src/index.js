@@ -28,6 +28,7 @@ import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import { checkFlowRules, getFlowWarns, getSessionFlowCounts, setFlowStateWriter } from "./vibeOS-lib/flow-enforcer.js"
 import { computeSessionMetrics } from "./vibeOS-lib/session-metrics.js"
+import { ResolutionTracker, buildAdvice, classifySituation, ExposureModel } from "./vibeOS-lib/blackbox/index.js"
 import { createMcpServer } from "./vibeOS-mcp-server.js"
 
 // Minimal self-contained tool helper — avoids @opencode-ai/plugin dependency
@@ -63,6 +64,7 @@ const SAVINGS_LEDGER_FILE = join(USER_HOME, ".claude/savings-ledger.jsonl")
 const GLOBAL_LEARNING_FILE = join(USER_HOME, ".claude/global-learning.json")
 const PRICING_CACHE_FILE = join(USER_HOME, ".claude/model-pricing-cache.json")
 const FILE_LOCK_DIR = join(USER_HOME, ".claude/.vibeOS-locks")
+const BLACKBOX_STATE_FILE = join(USER_HOME, ".claude/blackbox-state.json")
 
 // Dedupe set: assistantMessageIds that already had the savings tag appended
 // during this sidecar's lifetime.
@@ -196,6 +198,46 @@ function writeSelection(key, value) {
     console.error(`[vibeOS] writeSelection failed: ${err.message}`)
     return false
   }
+}
+
+// ── Blackbox state management ──────────────────────────────────────
+let _blackboxTracker = null
+let _blackboxEnabled = false
+
+function loadBlackboxState() {
+  try {
+    if (!existsSync(BLACKBOX_STATE_FILE)) return { enabled: false, sessions: {} }
+    return safeJsonParse(readFileSync(BLACKBOX_STATE_FILE, "utf-8")) || { enabled: false, sessions: {} }
+  } catch { return { enabled: false, sessions: {} } }
+}
+
+function saveBlackboxState(state) {
+  try {
+    mkdirSync(dirname(BLACKBOX_STATE_FILE), { recursive: true })
+    writeFileSync(BLACKBOX_STATE_FILE, JSON.stringify(state, null, 2) + "\n")
+  } catch (err) {
+    console.error(`[vibeOS] saveBlackboxState failed: ${err.message}`)
+  }
+}
+
+function getBlackboxTracker() {
+  if (!_blackboxTracker) {
+    const state = loadBlackboxState()
+    const sid = String(process.pid || "default")
+    if (state.sessions?.[sid]?.history) {
+      _blackboxTracker = ResolutionTracker.deserialize(state.sessions[sid])
+    } else {
+      _blackboxTracker = new ResolutionTracker(sid, 10)
+    }
+  }
+  return _blackboxTracker
+}
+
+function getBlackboxResolution() {
+  try {
+    const tracker = getBlackboxTracker()
+    return tracker.snapshot()
+  } catch { return null }
 }
 
 // Write active_slot AND update opencode.json model to the matching oc model.
@@ -721,6 +763,12 @@ function updateState(mutator) {
   return withFileLock(STATE_FILE, () => {
     let state = readJsonOrEmpty(STATE_FILE)
     if (!state || typeof state !== "object") state = {}
+    if (!state.session_started_at || state.session_started_at === "not-a-valid-date" || isNaN(Date.parse(state.session_started_at))) {
+      state.session_started_at = new Date().toISOString()
+    }
+    state.lifetime ??= {}
+    state.lifetime.missed_context7_usd ??= 0
+    state.lifetime.cache_savings_usd ??= 0
     const next = mutator(state) ?? state
     mkdirSync(dirname(STATE_FILE), { recursive: true })
     writeFileSync(STATE_FILE, JSON.stringify(next, null, 2))
@@ -2088,53 +2136,6 @@ function computeStatusPayload() {
     version: readPackageVersion(),
   }
 
-  try {
-    const port = loadMcpPort()
-    if (port !== 0) {
-      if (!_mcpServerRuntime) {
-        _mcpServerRuntime = createMcpServer({
-          getState: () => ({ ...computeStatusPayload(), sessions_raw: readFullState()?.sessions || {} }),
-          getSavings: () => computeSavingsPayload(),
-          getSessionMetrics: () => computeSessionMetrics(readFullState(), _OC_SID),
-          listReports: (filter) => {
-            if (!existsSync(REPORTS_DIR)) {
-              const err = new Error("reports dir not found")
-              err.status = 404
-              throw err
-            }
-            return listReports(filter || {})
-          },
-          readReport: (id) => readReport(id),
-          runDiagnose: async () => {
-            const raw = await hooks.tool.trinity.execute({ action: "diagnose" })
-            return diagnoseStructuredFromText(raw)
-          },
-          runProject: async () => {
-            const raw = await hooks.tool.trinity.execute({ action: "project" })
-            return projectStructuredFromText(raw)
-          },
-          runTrinity: async (action, params = {}) => hooks.tool.trinity.execute({ action, slot: params.slot, level: params.level }),
-          runResearchAudit: (hours) => researchAudit({ hours: hours ?? 24 }),
-          saveReport: (data) => saveReport(data),
-          getCurrentSessionId: () => _OC_SID,
-          generateSessionCheckout: () => computeSessionCheckout(),
-        })
-      }
-      _mcpServerRuntime.start(port)
-      console.error(`[vibeOS] MCP server listening on http://127.0.0.1:${port}`)
-      if (!_mcpServerHooked) {
-        _mcpServerHooked = true
-        const closeServer = () => {
-          try { _mcpServerRuntime?.close() } catch {}
-        }
-        process.on("SIGTERM", closeServer)
-        process.on("SIGINT", closeServer)
-      }
-    }
-  } catch (err) {
-    console.error(`[vibeOS] MCP server startup failed: ${err.message}`)
-  }
-
   return hooks
 }
 
@@ -3152,6 +3153,10 @@ export async function DelegationEnforcer({ client, directory }) {
         _didWrite = true
       }
       if (_didWrite) {
+        _tiersData.selection ??= {}
+        if (_tiersData.selection.mcp_port === undefined) {
+          _tiersData.selection.mcp_port = 9578
+        }
         mkdirSync(dirname(TIERS_FILE), { recursive: true })
         writeFileSync(TIERS_FILE, JSON.stringify(_tiersData, null, 2) + "\n")
         console.error(`[vibeOS] auto-synced model-tiers.json: brain=${_brain.id} medium=${_tiersData.trinity?.medium?.oc || ""} cheap=${_tiersData.trinity?.cheap?.oc || ""}`)
@@ -3162,6 +3167,15 @@ export async function DelegationEnforcer({ client, directory }) {
       }
     } catch {}
   }
+  // Ensure mcp_port is set in model-tiers.json
+  try {
+    const _mt = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
+    if (_mt.selection && (_mt.selection.mcp_port === undefined || _mt.selection.mcp_port === null)) {
+      _mt.selection.mcp_port = 9578
+      writeFileSync(TIERS_FILE, JSON.stringify(_mt, null, 2) + "\n")
+      console.error(`[vibeOS] mcp_port set to 9578 in model-tiers.json`)
+    }
+  } catch {}
   if (detectContext7()) console.error(`[vibeOS] context7 detected — docs nudge enabled`)
 
   // ── Project memory: increment session counter ───────────────────
@@ -3298,6 +3312,16 @@ export async function DelegationEnforcer({ client, directory }) {
         const stressLabel = _footerStress > 0.7 ? "high" : _footerStress > 0.4 ? "elevated" : "calm"
         footerText += `\n— stress: ${stressBar} (${stressLabel}) —`
       }
+      if (_blackboxEnabled) {
+        try {
+          const res = getBlackboxResolution()
+          if (res && res.n_interactions > 0) {
+            const momentumBar = res.momentum > 0.3 ? "↑↑" : res.momentum > 0 ? "↑" : res.momentum < -0.3 ? "↓↓" : res.momentum < 0 ? "↓" : "→"
+            const loopTag = res.is_looping ? " ⚠loop" : ""
+            footerText += `\n— decision: ${res.resolution} ${res.sub_regime} ${momentumBar}${loopTag} —`
+          }
+        } catch {}
+      }
       if (typeof output?.text === "string") output.text = footerText
       else if (typeof output?.result === "string") output.result = footerText
       else if (typeof output?.content === "string") output.content = footerText
@@ -3323,7 +3347,7 @@ export async function DelegationEnforcer({ client, directory }) {
     }
   }
 
-  return {
+  const pluginHooks = {
     "tool.execute.before": async (input, output) => {
       if (!loadSelection().enabled) return
       _refreshModel(directory)
@@ -3453,16 +3477,19 @@ export async function DelegationEnforcer({ client, directory }) {
       }
 
       // Write/Edit/NotebookEdit: enforce delegation on high tier when delegation_enforce is on.
-      if (WARN_ON_DIRECT.has(t)) {
+      if (WARN_ON_DIRECT.has(String(t || "").toLowerCase())) {
         const sel = loadSelection()
         if (sel.delegation_enforce && currentTier === "high" && args && typeof args === "object") {
-          const originalPath = args?.filePath || args?.file_path || ""
+          console.error(`[vibeOS] [enforcement] BLOCK check: tier=${currentTier} enforce=${sel.delegation_enforce} tool=${t} argsOk=${args && typeof args === "object"}`)
+          const actualArgs = args || (output && output.args) || {}
+          const tLower = String(t || "").toLowerCase()
+          const originalPath = actualArgs.filePath || actualArgs.file_path || ""
           const basename = originalPath.split("/").pop() || "blocked"
-          if (t === "write") {
-            args.filePath = `/tmp/vibetheog-enforcement-blocked-${basename}`
-            if (args.file_path !== undefined) args.file_path = args.filePath
-          } else if (t === "edit" || t === "notebookedit") {
-            args.oldString = `__THE_SAVER_ENFORCEMENT_BLOCK_${Date.now()}__`
+          if (tLower === "write") {
+            actualArgs.filePath = `/tmp/vibeos-enforcement-blocked-${basename}`
+            if (actualArgs.file_path !== undefined) actualArgs.file_path = actualArgs.filePath
+          } else if (tLower === "edit" || tLower === "notebookedit") {
+            actualArgs.oldString = `__THE_SAVER_ENFORCEMENT_BLOCK_${Date.now()}__`
           }
           const total = recordSaving(t, "delegation enforced", _estEdit, { firstWord: _firstWord })
           pendingUiNote = `🚫 Direct ${t} blocked on Brain tier → delegate via Task or run \`trinity medium\`.`
@@ -3868,6 +3895,18 @@ export async function DelegationEnforcer({ client, directory }) {
         latestUserIntent = typeof userText === "string" ? userText : null
         if (latestUserIntent) observeUserCorrection(latestUserIntent)
 
+        // Blackbox resolution tracking — update tracker on each user message
+        if (_blackboxEnabled && latestUserIntent) {
+          try {
+            const tracker = getBlackboxTracker()
+            tracker.update(latestUserIntent, {}, "explore", 1.0, 50)
+            const state = loadBlackboxState()
+            const sid = String(process.pid || "default")
+            state.sessions[sid] = tracker.serialize()
+            saveBlackboxState(state)
+          } catch {}
+        }
+
         // Context7 directive — model self-determines tool availability.
         const c7directive =
           "[cost policy] If mcp__context7__resolve-library-id and mcp__context7__get-library-docs " +
@@ -3911,6 +3950,24 @@ export async function DelegationEnforcer({ client, directory }) {
               "regardless of the prompt's tone."
             )
           }
+        }
+
+        // Blackbox decision engine — inject decision-aware guidance when enabled
+        if (_blackboxEnabled && latestUserIntent) {
+          try {
+            const situationType = classifySituation(latestUserIntent)
+            const tracker = getBlackboxTracker()
+            const res = tracker.snapshot()
+            if (res.n_interactions > 0) {
+              const decisionDirective =
+                `[decision engine] Current resolution: ${res.resolution} (${res.sub_regime}). ` +
+                `Momentum: ${res.momentum > 0 ? "positive" : res.momentum < 0 ? "negative" : "neutral"}. ` +
+                `Situation type: ${situationType}. ` +
+                `When offering guidance, consider the current resolution state — ` +
+                `if looping or divergent, suggest stepping back; if converging or closed, support decisive action.`
+              if (Array.isArray(output?.system)) output.system.push(decisionDirective)
+            }
+          } catch {}
         }
 
         const projectJob = getActiveJobForProject() || activeJob
@@ -3997,7 +4054,7 @@ export async function DelegationEnforcer({ client, directory }) {
           "Use action='patterns' to inspect learned project patterns or slot='clear' to clear them. " +
           "Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', 'trinity status'.",
         args: {
-          action: tool.schema.enum(["status", "enable", "disable", "set", "thinking", "flow", "tdd", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state"]).optional(),
+          action: tool.schema.enum(["status", "enable", "disable", "set", "thinking", "flow", "tdd", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox"]).optional(),
           slot: tool.schema.enum(["brain", "medium", "cheap", "on", "off", "enforce", "strict", "quality", "preview", "apply", "clear"]).optional(),
           level: tool.schema.enum(["full", "brief", "off", "on"]).optional(),
         },
@@ -4160,7 +4217,7 @@ export async function DelegationEnforcer({ client, directory }) {
 
           if (action === "project") {
             const L = "\u2501"
-            const lines = [`\ud83d\udcca Project profile \u2014 ${currentProjectName || "unknown"}`]
+            const lines = [`\ud83d\udcca Project profile \u2014 ${currentProjectName || (directory ? directory.split("/").pop() : "unknown")}`]
             lines.push(L.repeat(40))
             const fp = currentProjectFingerprint || projectFingerprint(directory)
 
@@ -4323,20 +4380,20 @@ export async function DelegationEnforcer({ client, directory }) {
               if (ok) probed.brain = models.find(m => m.id === id) || { id, cost: _modelCost(id), tier: _modelTier(id) }
               else failed.push("brain: " + id)
             }
-            for (const id of candidates) {
-              if (probed.medium) break
-              if (id === probed.brain?.id) continue
-              const ok = await probeModel(id, auth)
-              if (ok) probed.medium = models.find(m => m.id === id) || { id, cost: _modelCost(id), tier: _modelTier(id) }
-              else if (!failed.some(f => f.endsWith(id))) failed.push("medium: " + id)
-            }
             const byCost = [...models].sort((a, b) => a.cost - b.cost)
             for (const m of byCost) {
               if (probed.cheap) break
-              if (m.id === probed.brain?.id || m.id === probed.medium?.id) continue
+              if (m.id === probed.brain?.id) continue
               const ok = await probeModel(m.id, auth)
               if (ok) probed.cheap = m
               else if (!failed.some(f => f.endsWith(m.id))) failed.push("cheap: " + m.id)
+            }
+            for (const id of candidates) {
+              if (probed.medium) break
+              if (id === probed.brain?.id || id === probed.cheap?.id) continue
+              const ok = await probeModel(id, auth)
+              if (ok) probed.medium = models.find(m => m.id === id) || { id, cost: _modelCost(id), tier: _modelTier(id) }
+              else if (!failed.some(f => f.endsWith(id))) failed.push("medium: " + id)
             }
             if (!probed.brain) {
               return "\u274c No models responded to probe. Try checking your API keys.\n" + (failed.length > 0 ? "Failed:\n  " + failed.join("\n  ") : "No models discovered.")
@@ -4572,6 +4629,53 @@ export async function DelegationEnforcer({ client, directory }) {
             return lines.join("\n")
           }
 
+          if (action === "blackbox") {
+            const mode = slot || "status"
+            if (mode === "on") {
+              _blackboxEnabled = true
+              const state = loadBlackboxState()
+              state.enabled = true
+              saveBlackboxState(state)
+              return "✅ Blackbox decision engine ENABLED — will track resolution state and enhance system prompts."
+            }
+            if (mode === "off") {
+              _blackboxEnabled = false
+              const state = loadBlackboxState()
+              state.enabled = false
+              saveBlackboxState(state)
+              return "⏸ Blackbox decision engine DISABLED."
+            }
+            if (mode === "reset") {
+              _blackboxTracker = null
+              const state = loadBlackboxState()
+              const sid = String(process.pid || "default")
+              delete state.sessions[sid]
+              saveBlackboxState(state)
+              return "🔄 Blackbox resolution tracker RESET."
+            }
+            if (mode === "status") {
+              const bbState = loadBlackboxState()
+              const enabled = _blackboxEnabled || bbState.enabled
+              const lines = [`Blackbox Decision Engine: ${enabled ? "ON" : "OFF"}`]
+              if (enabled) {
+                const res = getBlackboxResolution()
+                if (res) {
+                  lines.push(`  Resolution: ${res.resolution}`)
+                  lines.push(`  Sub-regime: ${res.sub_regime}`)
+                  lines.push(`  Momentum: ${res.momentum > 0 ? "↑" : res.momentum < 0 ? "↓" : "→"} ${res.momentum.toFixed(2)}`)
+                  lines.push(`  Interactions: ${res.n_interactions}`)
+                  if (res.is_looping) lines.push("  ⚠ Looping detected — consider a fresh perspective")
+                } else {
+                  lines.push("  No resolution data yet — start a decision session")
+                }
+              }
+              lines.push("")
+              lines.push("Usage: trinity blackbox on|off|status|reset")
+              return lines.join("\n")
+            }
+            return `❌ Use \`trinity blackbox on|off|status|reset\``
+          }
+
             if (action === "help") {
             return [
               "vibeOS — trinity commands",
@@ -4601,6 +4705,11 @@ export async function DelegationEnforcer({ client, directory }) {
               "",
               "REPAIR:",
               "  trinity repair-state      Fix fingerprint collisions (preview/apply)",
+              "",
+              "DECISION ENGINE:",
+              "  trinity blackbox on/off   Toggle theWay blackbox decision engine",
+              "  trinity blackbox status   View resolution state and momentum",
+              "  trinity blackbox reset    Clear resolution tracker",
             ].join("\n")
           }
 
@@ -4786,6 +4895,55 @@ export async function DelegationEnforcer({ client, directory }) {
       }),
     },
   }
+
+  try {
+    const port = loadMcpPort()
+    if (port !== 0) {
+      if (!_mcpServerRuntime) {
+        _mcpServerRuntime = createMcpServer({
+          getState: () => ({ ...computeStatusPayload(), sessions_raw: readFullState()?.sessions || {} }),
+          getSavings: () => computeSavingsPayload(),
+          getSessionMetrics: () => computeSessionMetrics(readFullState(), _OC_SID),
+          listReports: (filter) => {
+            if (!existsSync(REPORTS_DIR)) {
+              const err = new Error("reports dir not found")
+              err.status = 404
+              throw err
+            }
+            return listReports(filter || {})
+          },
+          readReport: (id) => readReport(id),
+          runDiagnose: async () => {
+            const raw = await pluginHooks.tool.trinity.execute({ action: "diagnose" })
+            return diagnoseStructuredFromText(raw)
+          },
+          runProject: async () => {
+            const raw = await pluginHooks.tool.trinity.execute({ action: "project" })
+            return projectStructuredFromText(raw)
+          },
+          runTrinity: async (action, params = {}) => pluginHooks.tool.trinity.execute({ action, slot: params.slot, level: params.level }),
+          runResearchAudit: (hours) => researchAudit({ hours: hours ?? 24 }),
+          saveReport: (data) => saveReport(data),
+          getCurrentSessionId: () => _OC_SID,
+          generateSessionCheckout: () => computeSessionCheckout(),
+        })
+      }
+      _mcpServerRuntime.start(port)
+      console.error(`[vibeOS] MCP server listening on http://127.0.0.1:${port}`)
+      if (!_mcpServerHooked) {
+        _mcpServerHooked = true
+        const closeServer = () => {
+          try { _mcpServerRuntime?.close() } catch {}
+        }
+        process.on("SIGTERM", closeServer)
+        process.on("SIGINT", closeServer)
+      }
+    }
+  } catch (err) {
+    console.error(`[vibeOS] MCP server startup failed: ${err.message}`)
+  }
+
+  return pluginHooks
 }
 
 export const id = "vibeOS"
