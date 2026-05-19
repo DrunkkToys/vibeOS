@@ -3445,15 +3445,15 @@ export async function DelegationEnforcer({ client, directory }) {
       // with auto-guessed provider-prefixed IDs.
       let _didWrite = false
       const _existingBrain = _existing.brain?.oc || ""
-      if (_isPlaceholder(_existingBrain)) {
+      if (_brain.id && _isPlaceholder(_existingBrain)) {
         _tiersData.trinity.brain = { oc: _brain.id, cc: modelToCcAlias(_brain.id) }
         _didWrite = true
       }
-      if (_medium && _isPlaceholder(_existingMedium)) {
+      if (_medium && _medium.id && _isPlaceholder(_existingMedium)) {
         _tiersData.trinity.medium = { oc: _medium.id, cc: modelToCcAlias(_medium.id) }
         _didWrite = true
       }
-      if (_cheap && _isPlaceholder(_existingCheap)) {
+      if (_cheap && _cheap.id && _isPlaceholder(_existingCheap)) {
         _tiersData.trinity.cheap = { oc: _cheap.id, cc: modelToCcAlias(_cheap.id) }
         _didWrite = true
       }
@@ -3469,6 +3469,10 @@ export async function DelegationEnforcer({ client, directory }) {
         const _refreshed = loadTrinityModels()
         TRINITY_CHEAP  = _refreshed.cheap
         TRINITY_MEDIUM = _refreshed.medium
+      } else if (!existsSync(TIERS_FILE)) {
+        mkdirSync(dirname(TIERS_FILE), { recursive: true })
+        writeFileSync(TIERS_FILE, JSON.stringify(_tiersData, null, 2) + "\n")
+        console.error(`[vibeOS] created empty model-tiers.json skeleton (no model detected)`)
       }
     } catch {}
   }
@@ -5270,7 +5274,7 @@ function scoreTaskQuality(outputText, promptText) {
             }
 
             // 3. Model probe
-            if (currentModel) {
+  if (currentModel || !existsSync(TIERS_FILE)) {
               try {
                 const auth = _readAuth()
                 const ok = await probeModel(currentModel, auth)
