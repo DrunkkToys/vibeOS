@@ -332,6 +332,9 @@ function getBlackboxResolution() {
 }
 
 let _prevOutputText = ""
+let _latestBlackboxState = null
+let _latestBlackboxLoopMsg = null
+let _latestBlackboxPivotMsg = null
 
 function detectOutcomeSignal(text) {
   if (!text) return null
@@ -348,19 +351,39 @@ async function syncOutcomeToApi(outcome) {
   } catch {}
 }
 
-async function syncBlackboxToApi(sessionId, userText, features, action, entropy, uncertainty) {
+async function fetchBlackboxEnrichment(sessionId, localState) {
   try {
     const client = getApiClient()
-    if (!client || isApiFallback()) return
-    await client.blackboxAnalyze(sessionId, {
-      userText,
-      features,
-      action,
-      entropy,
-      uncertainty,
+    if (!client || isApiFallback()) return null
+    const result = await client.blackboxAnalyze(sessionId, {
+      userText: "",
+      features: localState.features || {},
+      action: localState.action || "explore",
+      entropy: localState.entropy ?? 1.0,
+      uncertainty: localState.uncertainty ?? 50,
       project_id: currentProjectFingerprint || null,
     })
-  } catch { /* API sync is best-effort; local state is authoritative */ }
+    if (result) {
+      _latestBlackboxLoopMsg = result.loop_intervention_directive || null
+      _latestBlackboxPivotMsg = result.pivot_directive || null
+      return {
+        ...localState,
+        sub_regime: result.sub_regime || localState.sub_regime,
+        resolution: result.resolution || localState.resolution,
+        momentum: result.momentum ?? localState.momentum,
+        signals: result.signals || localState.signals,
+        intent_state: result.intent_state || localState.intent_state,
+        continuity_state: result.continuity_state || localState.continuity_state,
+        is_looping: result.is_looping ?? localState.is_looping,
+        loop_consecutive: result.loop_consecutive ?? localState.loop_consecutive,
+        loop_intervention_level: result.loop_intervention_level || localState.loop_intervention_level,
+        pivot_detected: result.pivot_detected ?? localState.pivot_detected,
+        pivot_score: result.pivot_score ?? localState.pivot_score,
+        outcome: result.outcome || localState.outcome,
+      }
+    }
+  } catch {}
+  return null
 }
 
 // Write active_slot AND update opencode.json model to the matching oc model.
@@ -3650,11 +3673,11 @@ export async function DelegationEnforcer({ client, directory }) {
       }
       if (_blackboxEnabled) {
         try {
-          const res = getBlackboxResolution()
+          const res = _latestBlackboxState || getBlackboxResolution()
           if (res && res.n_interactions > 0) {
             const momentumBar = res.momentum > 0.3 ? "↑↑" : res.momentum > 0 ? "↑" : res.momentum < -0.3 ? "↓↓" : res.momentum < 0 ? "↓" : "→"
             const loopTag = res.is_looping ? " ⚠loop" : ""
-            footerText += `\n— decision: ${res.resolution} ${res.sub_regime} ${momentumBar}${loopTag} —`
+            footerText += `\n— decision: ${res.resolution || "unresolved"} ${res.sub_regime || "?"} ${momentumBar}${loopTag} —`
           }
           const prevText = _prevOutputText
           _prevOutputText = typeof output?.text === "string" ? output.text : typeof output?.result === "string" ? output.result : ""
@@ -4179,6 +4202,46 @@ function scoreTaskQuality(outputText, promptText) {
         }
       }
 
+      // ── Footer: model split + savings tag via output.title (UI-only, not in context) ──
+      try {
+        _refreshModel(directory)
+        const { ltTasks, ltCache, ltCost, sesTrend, sesModelTurns } = readLifetimeSavings()
+        const ltTotal = ltTasks + ltCache
+        const trendIcon = sesTrend === "down" ? "↓" : sesTrend === "up" ? "↑" : "→"
+        const selNow = loadSelection()
+        const enfTags = []
+        if (selNow.delegation_enforce) enfTags.push("ENF")
+        if (selNow.flow_enforce) enfTags.push("FLOW")
+        if (selNow.tdd_enforce) enfTags.push("TDD")
+        if (_modelLocked) enfTags.push("LOCK")
+        let brainTag = currentModel ? modelToSlotLabel(currentModel, currentTier) : `[${currentTier || "???"}]`
+        const enfSuffix = enfTags.length > 0 ? ` ${enfTags.join("")}` : ""
+        brainTag = brainTag.replace("]", `${enfSuffix}]`)
+        const workerModel = (currentTier === "high" && TRINITY_MEDIUM) ? TRINITY_MEDIUM : TRINITY_CHEAP
+        const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0)
+        let modelTag = brainTag
+        if (totalTurns > 0 && workerModel && workerModel !== currentModel) {
+          const brainPct = Math.round((sesModelTurns.brain / totalTurns) * 100)
+          modelTag = `[${shortModelName(currentModel)} ${brainPct}%→ ${shortModelName(workerModel)} ${100-brainPct}%]`.replace("]", `${enfSuffix}]`)
+        }
+        let footerLine
+        if (ltTotal > 0) {
+          footerLine = `— ${modelTag} | vibeOS: ${formatUsd(ltTotal)} saved ${trendIcon} —`
+        } else {
+          footerLine = `— ${modelTag} —`
+        }
+        output.title = footerLine
+
+        _autoReportCount = (_autoReportCount || 0) + 1
+        if (_autoReportCount % 5 === 0 && ltTotal > 0) {
+          saveReport({
+            type: "session", summary: `Session cost: $${formatUsd(ltCost)} | cache saved: $${formatUsd(ltCache)} | delegation saved: $${formatUsd(ltTasks)}`,
+            metrics: { sessionId: _OC_SID, sessionCost: ltCost, cacheSavings: ltCache, delegationSavingsUsd: ltTasks, model: currentModel, slot: selNow.active_slot || "unknown" },
+            tags: ["auto", "cost"],
+          }).catch(() => {})
+        }
+      } catch {}
+
       // Compress verbose tool outputs before they bloat context.
       // Only webfetch — task results contain synthesized data the brain needs verbatim.
       if (t !== "webfetch") {
@@ -4316,18 +4379,16 @@ function scoreTaskQuality(outputText, promptText) {
       }
     },
 
-    // Hard-guaranteed GUI savings display.
     // `experimental.text.complete` fires when an assistant text part finishes
-    // streaming, and whatever we return becomes the literal displayed text in
-    // the OpenCode GUI. No instruction-following required.
-    //
-    // We append the cumulative savings tag exactly once per assistantMessageId
-    // (the first text-end fires per message gets it; subsequent text parts in
-    // the same message are skipped to avoid duplication).
+    // streaming. Append the live model-split + savings footer. Also capture
+    // blackbox outcome signals from assistant response text.
     "experimental.text.complete": async (input, output) => { await _appendFooter(input, output, directory) },
-    // message.updated fallback — fires in all OpenCode versions
+
+    // Fallback footer for OpenCode instances where text.complete may not fire.
+    // Uses _appendFooter internally (idempotent by messageId dedup).
     "message.updated": async (input, output) => { await _appendFooter(input, output, directory) },
 
+    // Hard-guaranteed GUI savings display.
     // Scratchpad-aware compaction. When OpenCode is about to compact a session,
     // remind the compactor that tool results are persisted on disk in the
     // session cache tree and to preserve hash/path refs in
@@ -4384,35 +4445,21 @@ function scoreTaskQuality(outputText, promptText) {
         latestUserIntent = typeof userText === "string" ? userText : null
         if (latestUserIntent) observeUserCorrection(latestUserIntent)
 
-        // Blackbox resolution tracking — update tracker on each user message
+        // Blackbox resolution tracking — local stub + async API enrichment
         if (_blackboxEnabled && latestUserIntent) {
           try {
             const tracker = getBlackboxTracker()
-            const features = ResolutionTracker.extractFeatures(latestUserIntent)
-            const action = /refactor|change|replace|switch|pivot|migrate/i.test(latestUserIntent) ? "change"
-              : /commit|save|push|merge|release|deploy|finalize/i.test(latestUserIntent) ? "commit"
-              : /write|create|build|make|add|implement|generate/i.test(latestUserIntent) ? "act"
-              : /explain|why|how|what|analyze|review|check|find|search|look/i.test(latestUserIntent) ? "explore"
-              : /show|list|get|read|see|view|display|print/i.test(latestUserIntent) ? "observe"
-              : "explore"
-            const entropy = Math.min(2.58, 0.5
-              + (features.question_ratio || 0) * 0.5
-              + (features.complexity || 0) * 0.8
-              + (features.repetition || 0) * 0.6
-              + (features.instruction_density || 0) * 0.4)
-            const uncertainty = Math.min(100, Math.max(10,
-              50 + (features.question_ratio || 0) * 40
-              - (features.code_blocks || 0) * 10
-              + (features.sentiment || 0.5) * 30
-              - (features.urgency || 0) * 20))
-            tracker.update(latestUserIntent, features, action, entropy, uncertainty)
+            const localState = tracker.update(latestUserIntent)
             const state = loadBlackboxState()
             const sid = _OC_SID
             const serialized = tracker.serialize()
             serialized.project_fingerprint = currentProjectFingerprint || ""
             state.sessions[sid] = serialized
             saveBlackboxState(state)
-            syncBlackboxToApi(sid, latestUserIntent, features, action, entropy, uncertainty)
+            _latestBlackboxState = localState
+            fetchBlackboxEnrichment(sid, localState).then(enriched => {
+              if (enriched) _latestBlackboxState = enriched
+            })
           } catch {}
         }
 
@@ -4461,39 +4508,27 @@ function scoreTaskQuality(outputText, promptText) {
           }
         }
 
-        if (_blackboxEnabled && latestUserIntent) {
+        if (_blackboxEnabled && _latestBlackboxState && _latestBlackboxState.n_interactions > 0) {
           try {
-            const situationType = classifySituation(latestUserIntent)
-            const tracker = getBlackboxTracker()
-            const res = tracker.snapshot()
-            if (res.n_interactions > 0) {
-              const signals = res.signals || {}
-              const intent = res.intent_state || {}
-              const decisionDirective =
-                `[decision engine] Current resolution: ${res.resolution} (${res.sub_regime}). ` +
-                `Momentum: ${res.momentum > 0 ? "positive" : res.momentum < 0 ? "negative" : "neutral"}. ` +
-                `Situation type: ${situationType}. ` +
-                `Intent volatility: ${(intent.volatility_score || 0).toFixed(2)}, ` +
-                `Continuity: ${res.continuity_state || "N/A"}. ` +
-                `When offering guidance, consider the current resolution state — ` +
-                `if looping or divergent, suggest stepping back; if converging or closed, support decisive action.`
-              if (Array.isArray(output?.system)) output.system.push(decisionDirective)
-            }
+            const res = _latestBlackboxState
+            const decisionDirective =
+              `[decision engine] Current resolution: ${res.resolution || "unresolved"} (${res.sub_regime || "EXPLORING"}). ` +
+              `Momentum: ${(res.momentum || 0) > 0 ? "positive" : (res.momentum || 0) < 0 ? "negative" : "neutral"}. ` +
+              `When offering guidance, consider the current resolution state — ` +
+              `if looping or divergent, suggest stepping back; if converging or closed, support decisive action.`
+            if (Array.isArray(output?.system)) output.system.push(decisionDirective)
 
-            const loopIntervention = tracker.getLoopIntervention()
-            if (loopIntervention) {
-              const severity = loopIntervention.level === "escalated" ? "CRITICAL"
-                : loopIntervention.level === "assertive" ? "WARNING" : "NOTICE"
+            if (res.is_looping && res.loop_intervention_level && res.loop_intervention_level !== "none") {
+              const severity = res.loop_intervention_level === "escalated" ? "CRITICAL"
+                : res.loop_intervention_level === "assertive" ? "WARNING" : "NOTICE"
               const loopDirective =
-                `[loop prevention: ${severity}] ${loopIntervention.directive} ` +
-                `(loop #${res.loop_consecutive}, level: ${loopIntervention.level})` +
-                (loopIntervention.resetSuggested ? " STRONGLY RECOMMEND resetting your approach." : "")
+                `[loop prevention: ${severity}] ${_latestBlackboxLoopMsg || "The conversation may be looping — try a different approach."} ` +
+                `(level: ${res.loop_intervention_level})`
               if (Array.isArray(output?.system)) output.system.push(loopDirective)
             }
 
-            const pivotDirective = tracker.getPivotDirective()
-            if (pivotDirective && Array.isArray(output?.system)) {
-              output.system.push(`[context switch: PIVOT] ${pivotDirective}`)
+            if (res.pivot_detected && _latestBlackboxPivotMsg) {
+              if (Array.isArray(output?.system)) output.system.push(`[context switch: PIVOT] ${_latestBlackboxPivotMsg}`)
             }
           } catch {}
         }
@@ -4692,7 +4727,7 @@ function scoreTaskQuality(outputText, promptText) {
             let decisionLine = ""
             if (_blackboxEnabled) {
               try {
-                const res = getBlackboxResolution()
+                const res = _latestBlackboxState || getBlackboxResolution()
                 if (res && res.n_interactions > 0) {
                   const momentumIcon = res.momentum > 0.3 ? "up up" : res.momentum > 0 ? "up" : res.momentum < -0.3 ? "down down" : res.momentum < 0 ? "down" : "flat"
                   const loopTag = res.is_looping ? " (loop)" : ""
@@ -5465,7 +5500,7 @@ function scoreTaskQuality(outputText, promptText) {
               const enabled = _blackboxEnabled || bbState.enabled
               const lines = [`Blackbox Decision Engine: ${enabled ? "ON" : "OFF"}`]
               if (enabled) {
-                const res = getBlackboxResolution()
+                const res = _latestBlackboxState || getBlackboxResolution()
                 if (res) {
                   lines.push(`  Resolution: ${res.resolution}`)
                   lines.push(`  Sub-regime: ${res.sub_regime}`)
