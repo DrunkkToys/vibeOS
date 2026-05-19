@@ -1,3 +1,13 @@
+## 0.9.4
+- feat: CodeX MCP server and dashboard sidebar plugin integration
+- feat: vibeOS TUI dashboard sidebar plugin
+- fix: release/deploy synced lib deps - blackbox missing caused footer (and all hooks) to disappear
+- fix: resolution-tracker thresholds - isConverging >=0.5, detectLoop Jaccard 0.6, isRefining >-0.01
+- refactor: rename CodeX MCP server to vibeOS MCP server
+- docs: update README and AGENTS for v0.9.1 features
+- chore: v0.9.1
+
+
 ## 0.9.3
 - fix: MCP server now starts during DelegationEnforcer init (was trapped in orphaned computeStatusPayload)
 - fix: add mcp_port auto-write to model-tiers.json on init
