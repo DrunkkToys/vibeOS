@@ -221,20 +221,21 @@ function thinkingLevel(credit) {
 const TIERS_FILE = join(USER_HOME, ".claude/model-tiers.json")
 function loadSelection() {
   try {
-    if (!existsSync(TIERS_FILE)) return { enabled: true, active_slot: null, thinking_level: null, flow_enabled: true, tdd_enforce: false, tdd_strict: true, tdd_quality: true, flow_enforce: false, delegation_enforce: true }
+    if (!existsSync(TIERS_FILE)) return { enabled: true, active_slot: null, thinking_level: "brief", flow_enabled: false, tdd_enforce: false, tdd_strict: false, tdd_quality: false, flow_enforce: false, delegation_enforce: true, savings_goal_usd: 0 }
     const j = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
     return {
       enabled:            j?.selection?.enabled !== false,
       active_slot:        j?.selection?.active_slot || null,
-      thinking_level:     j?.selection?.thinking_level || null,
-      flow_enabled:       j?.selection?.flow_enabled !== false,
+      thinking_level:     j?.selection?.thinking_level || "brief",
+      flow_enabled:       j?.selection?.flow_enabled === true,
       tdd_enforce:        j?.selection?.tdd_enforce === true,
-      tdd_strict:         j?.selection?.tdd_strict !== false,
-      tdd_quality:        j?.selection?.tdd_quality !== false,
+      tdd_strict:         j?.selection?.tdd_strict === true,
+      tdd_quality:        j?.selection?.tdd_quality === true,
       flow_enforce:       j?.selection?.flow_enforce === true,
       delegation_enforce: j?.selection?.delegation_enforce !== false,
+      savings_goal_usd:   Number(j?.selection?.savings_goal_usd || 0),
     }
-  } catch { return { enabled: true, active_slot: null, thinking_level: null, flow_enabled: true, tdd_enforce: false, tdd_strict: true, tdd_quality: true, flow_enforce: false, delegation_enforce: true } }
+  } catch { return { enabled: true, active_slot: null, thinking_level: "brief", flow_enabled: false, tdd_enforce: false, tdd_strict: false, tdd_quality: false, flow_enforce: false, delegation_enforce: true, savings_goal_usd: 0 } }
 }
 
 // Write a single key into selection block of model-tiers.json.
@@ -373,11 +374,8 @@ function formatUsd(v) {
   if (!Number.isFinite(n) || n === 0) return "0.00"
   const abs = Math.abs(n)
   if (abs >= 0.01) return n.toFixed(2)
-  const s = abs.toFixed(10)
-  const dot = s.indexOf(".")
-  let i = dot + 1
-  while (i < s.length && s[i] === "0") i++
-  return n.toFixed(i - dot)
+  if (abs >= 0.001) return n.toFixed(3)
+  return n.toFixed(4)
 }
 
 // Models with negligible per-turn cost (less than 2e-5 USD/turn).
@@ -719,11 +717,24 @@ function registerSessionCleanupHandlers() {
   process.setMaxListeners(20)
   ensureSessionScratchpadDirs()
   cleanupStaleSessionScratchpads()
-  process.on("exit", cleanupCurrentSessionScratchpad)
+  process.on("exit", () => { _flushLedgerBuffer(); cleanupCurrentSessionScratchpad() })
   process.on("SIGINT", () => {
     cleanupCurrentSessionScratchpad()
     process.exit(130)
   })
+}
+
+// Ledger write buffer: flushes every 10 entries or after 5s.
+let _ledgerBuffer = []
+let _ledgerBufferTimer = null
+const LEDGER_BUFFER_MAX = 10
+const LEDGER_BUFFER_FLUSH_MS = 5000
+
+function _flushLedgerBuffer() {
+  if (_ledgerBufferTimer) { clearTimeout(_ledgerBufferTimer); _ledgerBufferTimer = null }
+  if (_ledgerBuffer.length === 0) return
+  const batch = _ledgerBuffer.splice(0)
+  try { appendFileSync(SAVINGS_LEDGER_FILE, batch.join("")) } catch {}
 }
 
 export function getScratchpadHit(toolLower, args, baseDir = null) {
@@ -830,6 +841,7 @@ function updateState(mutator) {
         state.lifetime ??= {}
         state.lifetime.missed_context7_usd ??= 0
         state.lifetime.cache_savings_usd ??= 0
+        state._ledgerFormatVersion ??= 2
         state._gen = preGen + 1
         const next = mutator(state) ?? state
         mkdirSync(dirname(STATE_FILE), { recursive: true })
@@ -1049,6 +1061,22 @@ function noteTaskRoutingLearning(firstWord, targetModel, reason) {
   try {
     const now = new Date().toISOString()
     const nonExploratory = new Set(["build", "implement", "fix", "add", "update", "remove", "write", "edit", "refactor", "create"])
+    // Per-project: store this learning in the current project bucket
+    try {
+      const pstate = loadProjectState()
+      const fp = currentProjectFingerprint || projectFingerprint(process.cwd())
+      const bucket = ensureProjectBucket(pstate, fp)
+      bucket.taskWordPatterns ??= {}
+      const localRow = bucket.taskWordPatterns[firstWord] || { total: 0, cheap: 0, medium: 0, high: 0, lastSeen: null }
+      localRow.total += 1
+      if (targetModel === TRINITY_CHEAP) localRow.cheap += 1
+      else if (targetModel === TRINITY_MEDIUM) localRow.medium += 1
+      else localRow.high += 1
+      localRow.lastSeen = now
+      bucket.taskWordPatterns[firstWord] = localRow
+      saveProjectState(pstate)
+    } catch {}
+
     updateGlobalLearning((gl) => {
       gl.task_first_words ??= {}
       const row = gl.task_first_words[firstWord] || { total: 0, cheap: 0, medium: 0, high: 0, lastSeen: null, lastReason: null }
@@ -1058,6 +1086,26 @@ function noteTaskRoutingLearning(firstWord, targetModel, reason) {
       else row.high += 1
       row.lastSeen = now
       row.lastReason = reason || "unknown"
+      gl.task_first_words[firstWord] = row
+
+      // Cross-project pattern merging: search other project buckets with overlapping techStack
+      try {
+        const pstate = loadProjectState()
+        const currentFp = currentProjectFingerprint || ""
+        const currentTech = currentFp ? pstate.project_hashes?.[currentFp]?.techStack : null
+        if (currentTech && Array.isArray(currentTech) && currentTech.length > 0) {
+          for (const [fp, bucket] of Object.entries(pstate.project_hashes || {})) {
+            if (fp === currentFp) continue
+            const otherTech = bucket?.techStack
+            if (!otherTech || !Array.isArray(otherTech)) continue
+            if (!otherTech.some(t => currentTech.includes(t))) continue
+            const otherRow = bucket?.taskWordPatterns?.[firstWord]
+            if (otherRow && otherRow.total) {
+              row.total += otherRow.total
+            }
+          }
+        }
+      } catch {}
       gl.task_first_words[firstWord] = row
 
       // Learn portable exploratory intent across projects after repeated cheap-safe routes.
@@ -1097,9 +1145,33 @@ function recordMissedContext7(saveEst) {
   } catch { return null }
 }
 
+function detectTechStack(dir) {
+  const stacks = []
+  try {
+    const pkg = safeJsonParse(readFileSync(join(dir, "package.json"), "utf-8"))
+    if (pkg) {
+      if (pkg.devDependencies?.typescript || pkg.dependencies?.typescript || existsSync(join(dir, "tsconfig.json"))) stacks.push("typescript")
+      if (pkg.dependencies?.react || pkg.devDependencies?.react) stacks.push("react")
+      stacks.push("javascript")
+    }
+  } catch {}
+  try {
+    if (existsSync(join(dir, "Cargo.toml"))) stacks.push("rust")
+  } catch {}
+  try {
+    if (existsSync(join(dir, "go.mod"))) stacks.push("go")
+  } catch {}
+  try {
+    if (existsSync(join(dir, "requirements.txt"))) stacks.push("python")
+    if (existsSync(join(dir, "setup.py"))) stacks.push("python")
+    if (existsSync(join(dir, "pyproject.toml"))) stacks.push("python")
+  } catch {}
+  return [...new Set(stacks)]
+}
+
 // Test-reminder: per-process dedup so we don't nudge for the same file twice.
 const testReminderSeen = new Set()
-const SOURCE_EXT_RE = /\.(py|js|ts|mjs|tsx|jsx|sh|go|rs|rb|java|kt)$/i
+const SOURCE_EXT_RE = /\.(py|js|ts|mjs|tsx|jsx|cjs|mts|sh|go|rs|rb|java|kt)$/i
 const SKIP_PATH_RE = /(\/(node_modules|\.venv|dist|build|__pycache__)\/|\/(tests?|spec)\/|test_[^/]+\.py$|_test\.py$|\.test\.[a-z]+$|\.spec\.[a-z]+$|\.config\/opencode\/plugins\/)/i
 
 // ── TDD Enforcement — skeleton templates with incomplete markers ────────────
@@ -1522,6 +1594,8 @@ const TEST_SKELETONS = {
   },
   tsx: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => TEST_SKELETONS.ts(name, exports, depth, strict, quality, sourceContent),
   jsx: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => TEST_SKELETONS.mjs(name, exports, depth, strict, quality, sourceContent),
+  cjs: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => TEST_SKELETONS.mjs(name, exports, depth, strict, quality, sourceContent),
+  mts: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => TEST_SKELETONS.ts(name, exports, depth, strict, quality, sourceContent),
   go: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => {
     const cap = name.charAt(0).toUpperCase() + name.slice(1)
     let content = `// [vibeOS-enforced] Skeleton test — replace with real assertions\n`
@@ -1855,7 +1929,7 @@ export function buildTestSkeleton(filePath, sourceContent = "", options = {}) {
   switch (extLower) {
     case "py": testPath = dir + "tests/test_" + name + ".py"; break
     case "sh": testPath = dir + "tests/test_" + name + ".sh"; break
-    case "js": case "mjs": case "ts": case "jsx": case "tsx":
+    case "js": case "mjs": case "ts": case "jsx": case "tsx": case "cjs": case "mts":
       testPath = dir + "tests/" + name + ".test." + ext; break
     case "go": testPath = dir + name + "_test.go"; break
     case "rs": testPath = dir + "tests/" + name + "_test.rs"; break
@@ -1868,6 +1942,7 @@ export function buildTestSkeleton(filePath, sourceContent = "", options = {}) {
 }
 
 export function enforceTestFile(filePath) {
+  console.error(`[vibeOS] [tdd-enforce] enforceTestFile called for ${filePath}`)
   let sourceContent = ""
   try {
     if (existsSync(filePath)) {
@@ -1986,7 +2061,11 @@ function recordSaving(tool, reason, saveEst, meta = {}) {
       return s
     })
     const sid = _OC_SID
-    try { appendFileSync(SAVINGS_LEDGER_FILE, JSON.stringify({ at: new Date().toISOString(), kind: "delegation", amount_usd: Number(saveEst || 0), sid, tool }) + "\n") } catch {}
+    try {
+      _ledgerBuffer.push(JSON.stringify({ v: 2, at: new Date().toISOString(), kind: "delegation", amount_usd: Number(saveEst || 0), sid, tool }) + "\n")
+      if (_ledgerBuffer.length >= LEDGER_BUFFER_MAX) _flushLedgerBuffer()
+      else if (!_ledgerBufferTimer) _ledgerBufferTimer = setTimeout(_flushLedgerBuffer, LEDGER_BUFFER_FLUSH_MS)
+    } catch {}
     return state?.lifetime?.est_savings_usd ?? null
   } catch (err) {
     console.error(`[vibeOS] state write failed: ${err.message}`)
@@ -2027,7 +2106,11 @@ function recordCacheSaving(tool, saveEst, meta = {}) {
       return s
     })
     const sid = _OC_SID
-    try { appendFileSync(SAVINGS_LEDGER_FILE, JSON.stringify({ at: new Date().toISOString(), kind: "cache", amount_usd: Number(saveEst || 0), sid, tool }) + "\n") } catch {}
+    try {
+      _ledgerBuffer.push(JSON.stringify({ v: 2, at: new Date().toISOString(), kind: "cache", amount_usd: Number(saveEst || 0), sid, tool }) + "\n")
+      if (_ledgerBuffer.length >= LEDGER_BUFFER_MAX) _flushLedgerBuffer()
+      else if (!_ledgerBufferTimer) _ledgerBufferTimer = setTimeout(_flushLedgerBuffer, LEDGER_BUFFER_FLUSH_MS)
+    } catch {}
     return {
       lifetime: state?.lifetime?.cache_savings_usd || 0,
       session: state?.sessions?.[sid]?.cache_savings_usd || 0,
@@ -2118,10 +2201,11 @@ function readLedgerTotals() {
       let rec = null
       try { rec = JSON.parse(ln) } catch { continue }
       if (!rec || typeof rec !== "object") continue
+      if (rec.v !== undefined && rec.v !== 2) continue
       const amt = Number(rec.amount_usd ?? rec.est_savings_usd ?? rec.savings_usd ?? 0)
       if (!Number.isFinite(amt) || amt <= 0) continue
       entries += 1
-      const kind = String(rec.type || rec.category || rec.source || "").toLowerCase()
+      const kind = String(rec.kind || rec.type || rec.category || rec.source || "").toLowerCase()
       if (kind.includes("cache")) cache += amt
       else delegation += amt
     }
@@ -2148,7 +2232,7 @@ function reconcileStateFromLedger() {
     const stDelegation = Number(state?.lifetime?.est_savings_usd ?? 0)
     const stCache = Number(state?.lifetime?.cache_savings_usd ?? 0)
     const stTotal = (Number.isFinite(stDelegation) ? stDelegation : 0) + (Number.isFinite(stCache) ? stCache : 0)
-    if (stTotal + 0.0005 >= l.total) return
+    if (Math.abs(stTotal - l.total) < 0.0005) return
     updateState((s) => {
       s.lifetime ??= { warn_count: 0, est_savings_usd: 0, last_updated: "" }
       s.lifetime.est_savings_usd = l.delegation
@@ -2167,7 +2251,7 @@ function reconcileStateFromLedger() {
 }
 
 function readLifetimeSavings() {
-  const empty = { ltTasks: 0, ltCache: 0, ltCost: 0, count: 0, scratchpadHits: 0, missedC7: 0, sesTasks: 0, sesEdit: 0, sesCredit: 0, sesC7: 0, sesQuota: 0, sesTaskDelegations: 0, sesDuration: 0, sesRatePerHour: 0, sesTrend: "stable", sesToolBreakdown: {}, sesModelTurns: { brain: 0, worker: 0 } }
+  const empty = { ltTasks: 0, ltCache: 0, ltCost: 0, count: 0, scratchpadHits: 0, missedC7: 0, sesTasks: 0, sesEdit: 0, sesCredit: 0, sesC7: 0, sesQuota: 0, sesTaskDelegations: 0, sesDuration: 0, sesRatePerHour: 0, sesTrend: "stable", sesToolBreakdown: {}, sesModelTurns: { brain: 0, worker: 0 }, quality_avg: 0 }
   try {
     reconcileStateFromLedger()
     if (!existsSync(STATE_FILE)) return empty
@@ -2766,11 +2850,14 @@ function saveProjectState(state) {
 
 function ensureProjectBucket(state, fp) {
   state.project_hashes ??= {}
-  state.project_hashes[fp] ??= {
-    totalSessions: 0,
-    researchChains: 0,
-    context7Bypasses: 0,
-    commonTopics: [],
+  if (!state.project_hashes[fp]) {
+    state.project_hashes[fp] = {
+      totalSessions: 0,
+      researchChains: 0,
+      context7Bypasses: 0,
+      commonTopics: [],
+      techStack: detectTechStack(process.cwd()),
+    }
   }
   return state.project_hashes[fp]
 }
@@ -2972,6 +3059,8 @@ function clearProjectPatterns(fp) {
   }
 }
 
+const _patternFiredKeys = new Set()
+
 function observeToolPattern(toolName, input, output, directory) {
   try {
     const t = String(toolName || "").toLowerCase()
@@ -2992,6 +3081,27 @@ function observeToolPattern(toolName, input, output, directory) {
     }
     if (repeat === 3) {
       recordFrictionPattern(`repeat-tool:${t}:${target}`, `Repeated ${t} calls against ${target} in one session.`, { family: t, path: target })
+      _patternFiredKeys.add(`repeat-tool:${t}:${target}`)
+    }
+    if (repeat > 3) {
+      // User keeps doing the same thing after pattern fired — ignored suggestion
+      try {
+        updateGlobalLearning((gl) => {
+          gl.patternQuality ??= { ignoredCount: 0, trustedCount: 0 }
+          gl.patternQuality.ignoredCount = (gl.patternQuality.ignoredCount || 0) + 1
+          return gl
+        })
+      } catch {}
+    }
+    if (repeat === 0 && _patternFiredKeys.size > 0) {
+      // User switched to a different action — could be following a suggestion
+      try {
+        updateGlobalLearning((gl) => {
+          gl.patternQuality ??= { ignoredCount: 0, trustedCount: 0 }
+          gl.patternQuality.trustedCount = (gl.patternQuality.trustedCount || 0) + 1
+          return gl
+        })
+      } catch {}
     }
 
     if (["write", "edit", "multiedit", "notebookedit"].includes(t) && observedPath !== "unknown") {
@@ -3306,7 +3416,7 @@ export async function DelegationEnforcer({ client, directory }) {
         typeof output?.result === "string" ? output.result :
         typeof output?.content === "string" ? output.content :
         ""
-      const { ltTasks, ltCache, ltCost, count, sesTasks, sesEdit, sesCredit, sesC7, sesQuota, sesTaskDelegations, sesDuration, sesRatePerHour, sesTrend, sesToolBreakdown, sesModelTurns } = readLifetimeSavings()
+      const { ltTasks, ltCache, ltCost, count, sesTasks, sesEdit, sesCredit, sesC7, sesQuota, sesTaskDelegations, sesDuration, sesRatePerHour, sesTrend, sesToolBreakdown, sesModelTurns, quality_avg } = readLifetimeSavings()
       const brainTag = currentModel ? modelToSlotLabel(currentModel, currentTier) : (currentTier ? `[${currentTier.charAt(0).toUpperCase() + currentTier.slice(1)}]` : "[???]")
 
       textCompletePainted.add(messageID)
@@ -3367,22 +3477,41 @@ export async function DelegationEnforcer({ client, directory }) {
         } catch (e) { console.error("[vibeOS] auto-report:", e.message) }
       }
 
-      // Enforcement state tags for footer
+      // Enforcement state tags + quality indicator for footer
       const selNowFooter = loadSelection()
       const enfTagsFooter = []
       if (selNowFooter.delegation_enforce) enfTagsFooter.push("ENF")
       if (selNowFooter.flow_enforce) enfTagsFooter.push("FLOW")
       if (selNowFooter.tdd_enforce) enfTagsFooter.push("TDD")
-      const enfSuffixFooter = enfTagsFooter.length > 0 ? ` ${enfTagsFooter.join("")}` : ""
+      let enfSuffixFooter = enfTagsFooter.length > 0 ? ` ${enfTagsFooter.join("")}` : ""
+      if (quality_avg > 0) {
+        enfSuffixFooter = ` QA:${Math.round(quality_avg)}%${enfSuffixFooter}`
+      }
       modelTag = modelTag.replace("]", `${enfSuffixFooter}]`)
 
       const stripped = text.replace(/\n\n— .+(?: —)?$/, "")
       if (stripped !== text) return
       const ltTotal = ltTasks + ltCache
       const trendIcon = sesTrend === "down" ? "↓" : sesTrend === "up" ? "↑" : "→"
+      const brainModelCost = currentModel ? (modelCostPerTurn(currentModel) ?? 0) : 0
+      const cheapModelCost = _workerModel ? (modelCostPerTurn(_workerModel) ?? 0) : 0
+      const imputedMultiplier = (brainModelCost > SAVE_EST.WRITE_EDIT && cheapModelCost > 0 && brainModelCost > cheapModelCost) ? (brainModelCost / cheapModelCost) : 0
       let footerText
       if (ltTotal > 0) {
-        footerText = stripped + `\n\n— ${modelTag} | vibeOS: ${formatUsd(ltTotal)} saved ${trendIcon} —`
+        let savingsDisplay = `vibeOS: ${formatUsd(ltTotal)} saved ${trendIcon}`
+        if (imputedMultiplier > 2) {
+          const imputedActual = ltTotal * imputedMultiplier
+          savingsDisplay += ` (${formatUsd(imputedActual)} actual)`
+        }
+        const selGoal = loadSelection()
+        const goalUsd = selGoal.savings_goal_usd || 0
+        if (goalUsd > 0) {
+          const pct = Math.min(100, Math.round((ltTotal / goalUsd) * 100))
+          const filled = Math.floor(pct / 10)
+          const bar = "\u2588".repeat(filled) + "\u2591".repeat(10 - filled)
+          savingsDisplay += ` | ${formatUsd(ltTotal)} / ${formatUsd(goalUsd)} [${bar}]`
+        }
+        footerText = stripped + `\n\n— ${modelTag} | ${savingsDisplay} —`
       } else {
         const brainSuffix = brainTag.replace("]", `${enfSuffixFooter}]`)
         footerText = stripped + `\n\n— ${brainSuffix} —`
@@ -3426,6 +3555,23 @@ export async function DelegationEnforcer({ client, directory }) {
       console.error(`[vibeOS] footer failed: ${err.message}`)
     }
   }
+
+function scoreTaskQuality(outputText, promptText) {
+  if (typeof outputText !== "string" || outputText.length === 0) return 0
+  if (typeof promptText !== "string") promptText = ""
+
+  let score = 50
+  if (promptText.length > 0 && outputText.length > promptText.length * 0.5) score += 10
+  if (outputText.length < 50) score -= 20
+  if (/error|failed|unable|cannot|could not/i.test(outputText)) score -= 10
+  if (/TODO|FIXME|placeholder/i.test(outputText) && outputText.length < 200) score -= 15
+  const codeBlocks = (outputText.match(/```/g) || []).length
+  if (codeBlocks >= 2) score += 10
+  if (outputText.length > 500) score += 10
+  if (outputText.length > 1000) score += 5
+
+  return Math.max(0, Math.min(100, score))
+}
 
   const pluginHooks = {
     "tool.execute.before": async (input, output) => {
@@ -3650,6 +3796,28 @@ export async function DelegationEnforcer({ client, directory }) {
         }
       }
 
+      // Quality scoring for task outputs
+      if (t === "task") {
+        const quality = scoreTaskQuality(output?.result || output?.text || "", input?.args?.prompt || "")
+        try {
+          appendFileSync(SAVINGS_LEDGER_FILE, JSON.stringify({
+            at: new Date().toISOString(),
+            kind: "quality",
+            score: quality,
+            tool: t,
+            sid: _OC_SID,
+            v: 2
+          }) + "\n")
+        } catch {}
+        updateState((s) => {
+          s.lifetime ??= { warn_count: 0, est_savings_usd: 0, last_updated: "" }
+          s.lifetime.quality_total_score = (s.lifetime.quality_total_score || 0) + quality
+          s.lifetime.quality_total_count = (s.lifetime.quality_total_count || 0) + 1
+          s.lifetime.last_updated = new Date().toISOString()
+          return s
+        })
+      }
+
       // Inject pending delegation UI note (set in tool.execute.before).
       // This surfaces the warning in the OC chat transcript, not just stderr.
       if (pendingUiNote) {
@@ -3691,7 +3859,7 @@ export async function DelegationEnforcer({ client, directory }) {
       if (t === "task") {
         const outputText = (output?.result ?? output?.text ?? output?.content ?? "")
         if (typeof outputText === "string" && outputText.length > 0) {
-          const TASK_FILE_RE = /((?:\.?[\w@][\w.\-]*\/)+[\w.\-]+\.(?:py|js|ts|mjs|tsx|jsx|sh|go|rs|rb|java|kt))/gi
+          const TASK_FILE_RE = /((?:\.?[\w@][\w.\-]*\/)+[\w.\-]+\.(?:py|js|ts|mjs|tsx|jsx|cjs|mts|sh|go|rs|rb|java|kt))/gi
           const sel = loadSelection()
           const explicitTestIntent = isUserAskingForTests(latestUserIntent)
           const seen = new Set()
@@ -3701,7 +3869,7 @@ export async function DelegationEnforcer({ client, directory }) {
             if (seen.has(fp)) continue
             seen.add(fp)
             const isTestPath = /(^|\/)(tests?|spec)\//i.test(fp) || /\.(test|spec)\./i.test(fp)
-            if (sel.tdd_enforce && (explicitTestIntent || isTestPath)) {
+            if (sel.tdd_enforce && !isTestPath) {
               const createdPath = enforceTestFile(fp)
               if (createdPath) {
                 const ext = createdPath.split('.').pop()
@@ -3732,7 +3900,7 @@ export async function DelegationEnforcer({ client, directory }) {
         const sel = loadSelection()
         const explicitTestIntent = isUserAskingForTests(latestUserIntent)
         const isTestPath = /(^|\/)(tests?|spec)\//i.test(fp) || /\.(test|spec)\./i.test(fp)
-        if (sel.tdd_enforce && (explicitTestIntent || isTestPath)) {
+        if (sel.tdd_enforce && !isTestPath) {
           const createdPath = enforceTestFile(fp)
           if (createdPath) {
             const ext = createdPath.split('.').pop()
@@ -3741,8 +3909,6 @@ export async function DelegationEnforcer({ client, directory }) {
             if (typeof output?.text === "string") output.text += enforceNote
             else if (typeof output?.result === "string") output.result += enforceNote
           }
-        } else if (sel.tdd_enforce && !isTestPath) {
-          console.error(`[vibeOS] [tdd-enforce] skipped auto-skeleton for ${fp} (no explicit test intent in latest user request)`)
         }
 
         // Detect test-file follow-up edits (telemetry)
@@ -4147,8 +4313,8 @@ export async function DelegationEnforcer({ client, directory }) {
           "Use action='patterns' to inspect learned project patterns or slot='clear' to clear them. " +
           "Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', 'trinity status'.",
         args: {
-          action: tool.schema.enum(["status", "enable", "disable", "set", "thinking", "flow", "tdd", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox"]).optional(),
-          slot: tool.schema.enum(["brain", "medium", "cheap", "on", "off", "enforce", "strict", "quality", "preview", "apply", "clear"]).optional(),
+          action: tool.schema.enum(["status", "enable", "disable", "set", "thinking", "flow", "tdd", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target"]).optional(),
+          slot: tool.schema.enum(["brain", "medium", "cheap", "on", "off", "enforce", "strict", "quality", "preview", "apply", "clear", "savings"]).optional(),
           level: tool.schema.enum(["full", "brief", "off", "on"]).optional(),
         },
         async execute({ action, slot, level } = {}) {
@@ -4431,12 +4597,130 @@ export async function DelegationEnforcer({ client, directory }) {
             return lines.join("\n")
           }
 
+          if (action === "report" && slot === "savings") {
+            const L = "\u2501"
+            const lines = [`== Savings Deep Report ==`]
+            lines.push(L.repeat(40))
+            const sv = readLifetimeSavings()
+            const ltTotal = sv.ltTasks + sv.ltCache
+
+            // By tool: read ledger entries
+            const toolTotals = {}
+            let entryCount = 0
+            try {
+              if (existsSync(SAVINGS_LEDGER_FILE)) {
+                const raw = readFileSync(SAVINGS_LEDGER_FILE, "utf-8")
+                for (const ln of raw.trim().split("\n")) {
+                  if (!ln.trim()) continue
+                  let rec = null
+                  try { rec = JSON.parse(ln) } catch { continue }
+                  if (!rec || rec.v !== 2) continue
+                  const amt = Number(rec.amount_usd ?? 0)
+                  const tool = String(rec.tool || "unknown")
+                  toolTotals[tool] = (toolTotals[tool] || 0) + amt
+                  entryCount++
+                }
+              }
+            } catch {}
+            lines.push(`\nBy tool:`)
+            const sortedTools = Object.entries(toolTotals).sort((a, b) => b[1] - a[1])
+            if (sortedTools.length === 0) {
+              lines.push(`  (no ledger entries yet)`)
+            } else {
+              for (const [tool, amt] of sortedTools) {
+                lines.push(`  ${tool.padEnd(14)} $${amt.toFixed(4)}`)
+              }
+            }
+
+            // By day: read ledger entries
+            const dayTotals = {}
+            try {
+              if (existsSync(SAVINGS_LEDGER_FILE)) {
+                const raw = readFileSync(SAVINGS_LEDGER_FILE, "utf-8")
+                for (const ln of raw.trim().split("\n")) {
+                  if (!ln.trim()) continue
+                  let rec = null
+                  try { rec = JSON.parse(ln) } catch { continue }
+                  if (!rec || rec.v !== 2) continue
+                  const amt = Number(rec.amount_usd ?? 0)
+                  const day = (rec.at || "").slice(0, 10)
+                  if (day) dayTotals[day] = (dayTotals[day] || 0) + amt
+                }
+              }
+            } catch {}
+            lines.push(`\nBy day:`)
+            const sortedDays = Object.entries(dayTotals).sort((a, b) => a[0].localeCompare(b[0]))
+            if (sortedDays.length === 0) {
+              lines.push(`  (no daily data yet)`)
+            } else {
+              for (const [day, amt] of sortedDays) {
+                lines.push(`  ${day}  $${amt.toFixed(4)}`)
+              }
+            }
+
+            // Lifetime totals
+            lines.push(`\nLifetime:`)
+            lines.push(`  Delegation savings: $${sv.ltTasks.toFixed(4)}`)
+            lines.push(`  Cache savings:     $${(sv.ltCache || 0).toFixed(4)}`)
+            lines.push(`  Total:             $${ltTotal.toFixed(4)}`)
+            lines.push(`  Ledger entries:    ${entryCount}`)
+            lines.push(`\n${L.repeat(40)}`)
+            return lines.join("\n")
+          }
+
+          if (action === "target") {
+            const goalVal = parseFloat(slot)
+            if (!Number.isFinite(goalVal) || goalVal <= 0) {
+              return `Usage: trinity target <amount>\nExample: trinity target 5.00`
+            }
+            const ok = writeSelection("savings_goal_usd", Math.round(goalVal * 100) / 100)
+            return ok
+              ? `Savings goal set to $${goalVal.toFixed(2)}. Track progress in the footer.`
+              : `Failed to write savings goal.`
+          }
+
           if (action === "patterns") {
             const fp = currentProjectFingerprint || projectFingerprint(directory)
             const name = currentProjectName || (directory ? directory.split("/").pop() : "unknown")
             if (slot === "clear") {
               const count = clearProjectPatterns(fp)
               return `Pattern memory cleared for "${name}" (${count} pattern${count === 1 ? "" : "s"} removed).`
+            }
+            if (slot === "suggest") {
+              const pstate = loadProjectState()
+              const currentBucket = pstate.project_hashes?.[fp]
+              const currentTech = currentBucket?.techStack || []
+              const currentKeys = new Set([
+                ...Object.keys(currentBucket?.userPatterns?.friction || {}),
+                ...Object.keys(currentBucket?.userPatterns?.routines || {}),
+              ])
+              const candidates = []
+              for (const [otherFp, bucket] of Object.entries(pstate.project_hashes || {})) {
+                if (otherFp === fp) continue
+                const otherTech = bucket?.techStack || []
+                if (!otherTech.some(t => currentTech.includes(t))) continue
+                for (const [kind, label] of [["friction", "friction"], ["routines", "routine"]]) {
+                  for (const [key, row] of Object.entries(bucket?.userPatterns?.[kind] || {})) {
+                    if (currentKeys.has(key)) continue
+                    const sessions = new Set(row?.sessions || []).size
+                    candidates.push({ key, label, summary: row?.summary || key, count: Number(row?.count || 0), sessions, lastSeen: row?.lastSeen || "" })
+                  }
+                }
+              }
+              candidates.sort((a, b) => b.count - a.count || b.sessions - a.sessions)
+              const top = candidates.slice(0, 5)
+              const lines = ["[\u26a1 From similar tech stack projects]"]
+              if (top.length === 0) {
+                lines.push("  No cross-project suggestions available yet.")
+                return lines.join("\n")
+              }
+              for (const c of top) {
+                const tag = c.sessions >= 3 ? "promoted" : "learning"
+                lines.push(`  [${c.label}/${tag}] ${c.summary} (${c.count} hit${c.count === 1 ? "" : "s"}, ${c.sessions} session${c.sessions === 1 ? "" : "s"})`)
+              }
+              lines.push("")
+              lines.push("Use `trinity patterns` to see this project's own patterns.")
+              return lines.join("\n")
             }
             const rows = projectPatternRows(fp)
             const lines = [`Project patterns - ${name}`]
@@ -4794,6 +5078,7 @@ export async function DelegationEnforcer({ client, directory }) {
               "  trinity diagnose          Self-check: config, files, model probes, budget",
               "  trinity project           Project analytics and optimization tips",
               "  trinity patterns          Show learned friction/routine patterns",
+              "  trinity patterns suggest  Suggest relevant patterns from similar stack projects",
               "  trinity patterns clear    Clear learned patterns for this project",
               "",
               "REPAIR:",
