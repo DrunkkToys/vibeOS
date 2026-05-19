@@ -75,9 +75,7 @@ export function computeSessionMetrics(state, sessionId) {
     const sesCredit = aggregateWarns(warns, w => Boolean(w.reason?.includes("credit")));
     const sesC7 = aggregateWarns(warns, w => Boolean(w.reason?.includes("context7")));
     const sesQuota = aggregateWarns(warns, w => Boolean(w.reason?.includes("quota")));
-    const sesTaskDelegationCount = warns.filter(w =>
-        Boolean(w.reason?.includes("delegation")) || Boolean(w.reason?.includes("enforced")) || Boolean(w.reason?.includes("direct"))
-    ).reduce((sum, w) => sum + (Number(w.count) || 1), 0);
+    const sesTaskDelegationCount = warns.filter(w => Boolean(w.reason?.includes("delegation")) || Boolean(w.reason?.includes("enforced")) || Boolean(w.reason?.includes("direct"))).reduce((sum, w) => sum + (Number(w.count) || 1), 0);
     // Per-tool breakdown
     const sesToolBreakdown = {};
     for (const w of warns) {

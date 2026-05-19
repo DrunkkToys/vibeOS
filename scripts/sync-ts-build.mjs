@@ -26,6 +26,10 @@ const mappings = [
     from: join("dist-ts", "utils", "math.js"),
     to: join("src", "utils", "math.js"),
   },
+  {
+    from: join("dist-ts", "mcp-server.js"),
+    to: join("src", "mcp-server.js"),
+  },
 ]
 
 for (const { from, to } of mappings) {

@@ -50,6 +50,11 @@ const FLOW_DEDUP_FILE = join(homedir(), ".claude/.flow-dedup-keys.json")
 const MAX_FLOW_TODOS = 200
 
 const _flowWarnsSeen = new Set<string>()
+let _stateWriter: ((state: any) => void) | null = null
+
+export function setFlowStateWriter(writer: ((state: any) => void) | null): void {
+  _stateWriter = typeof writer === "function" ? writer : null
+}
 
 // Persist flow dedup keys across restarts to avoid re-warnings
 function loadFlowDedupKeys(): void {
@@ -121,7 +126,8 @@ function recordFlowWarn(hit: RecordFlowWarnInput): void {
     if (state.flow_warns.length > 500) {
       state.flow_warns = state.flow_warns.slice(-500)
     }
-    writeFileSync(STATE_FILE, JSON.stringify(state, null, 2))
+    if (_stateWriter) _stateWriter(state)
+    else writeFileSync(STATE_FILE, JSON.stringify(state, null, 2))
   } catch {}
 }
 

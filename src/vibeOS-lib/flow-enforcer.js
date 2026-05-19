@@ -11,12 +11,49 @@ export function resolveRulesPath() {
 }
 const STATE_FILE = join(homedir(), ".claude/delegation-state.json");
 const FLOW_TODO_FILE = join(homedir(), ".claude/flow-todo-queue.jsonl");
+const FLOW_DEDUP_FILE = join(homedir(), ".claude/.flow-dedup-keys.json");
 const MAX_FLOW_TODOS = 200;
 const _flowWarnsSeen = new Set();
-let _flowStateWriter = null;
-export function setFlowStateWriter(fn) {
-    _flowStateWriter = fn;
+let _stateWriter = null;
+export function setFlowStateWriter(writer) {
+    _stateWriter = typeof writer === "function" ? writer : null;
 }
+// Persist flow dedup keys across restarts to avoid re-warnings
+function loadFlowDedupKeys() {
+    try {
+        if (existsSync(FLOW_DEDUP_FILE)) {
+            const raw = readFileSync(FLOW_DEDUP_FILE, "utf-8");
+            const keys = JSON.parse(raw);
+            if (Array.isArray(keys)) {
+                for (const k of keys)
+                    _flowWarnsSeen.add(k);
+            }
+        }
+    }
+    catch { }
+}
+function persistFlowDedupKey(key) {
+    try {
+        mkdirSync(dirname(FLOW_DEDUP_FILE), { recursive: true });
+        let keys = [];
+        if (existsSync(FLOW_DEDUP_FILE)) {
+            try {
+                keys = JSON.parse(readFileSync(FLOW_DEDUP_FILE, "utf-8"));
+            }
+            catch { }
+            if (!Array.isArray(keys))
+                keys = [];
+        }
+        if (!keys.includes(key)) {
+            keys.push(key);
+            if (keys.length > 1000)
+                keys = keys.slice(-500);
+            writeFileSync(FLOW_DEDUP_FILE, JSON.stringify(keys), "utf-8");
+        }
+    }
+    catch { }
+}
+loadFlowDedupKeys();
 let _cachedRules = null;
 let _rulesMtime = 0;
 function loadRules() {
@@ -63,12 +100,10 @@ function recordFlowWarn(hit) {
         if (state.flow_warns.length > 500) {
             state.flow_warns = state.flow_warns.slice(-500);
         }
-        if (_flowStateWriter) {
-            _flowStateWriter(state);
-        }
-        else {
+        if (_stateWriter)
+            _stateWriter(state);
+        else
             writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
-        }
     }
     catch { }
 }
@@ -96,6 +131,7 @@ export function checkFlowRules({ tool, filePath, content }) {
             continue;
         }
         _flowWarnsSeen.add(key);
+        persistFlowDedupKey(key);
         const hit = { ...rule, filePath, deduped: false };
         hits.push(hit);
         recordFlowWarn(hit);
