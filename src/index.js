@@ -3572,30 +3572,13 @@ export async function DelegationEnforcer({ client, directory }) {
         typeof output?.content === "string" ? output.content :
         ""
       const { ltTasks, ltCache, ltCost, count, sesTasks, sesEdit, sesCredit, sesC7, sesQuota, sesTaskDelegations, sesDuration, sesRatePerHour, sesTrend, sesToolBreakdown, sesModelTurns, quality_avg } = readLifetimeSavings()
-      const brainTag = currentModel ? modelToSlotLabel(currentModel, currentTier) : (currentTier ? `[${currentTier.charAt(0).toUpperCase() + currentTier.slice(1)}]` : "[???]")
 
-      let modelTag = brainTag
+      let modelTag = `[${shortModelName(currentModel)}]`
       const _workerModel = (currentTier === "high" && TRINITY_MEDIUM) ? TRINITY_MEDIUM : TRINITY_CHEAP
       const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0)
-      const brainName = shortModelName(currentModel)
-      const workerName = shortModelName(_workerModel)
-      const shouldShowTurnPct = totalTurns > 0
-        && (sesModelTurns?.brain || 0) > 0
-        && (sesModelTurns?.worker || 0) > 0
-        && _workerModel
-        && _workerModel !== currentModel
-      if (totalTurns > 0) {
+      if (totalTurns > 0 && _workerModel && _workerModel !== currentModel) {
         const brainPct = Math.round((sesModelTurns.brain / totalTurns) * 100)
-        const workerPct = 100 - brainPct
-        if (shouldShowTurnPct) {
-          modelTag = `[🧠 ${brainName} ${brainPct}%→ ⚙ ${workerName} ${workerPct}%]`
-        } else if (_workerModel && _workerModel !== currentModel) {
-          modelTag = `[🧠 ${brainName} → ⚙ ${workerName}]`
-        } else {
-          modelTag = `[🧠 ${brainName}]`
-        }
-      } else if (_workerModel && _workerModel !== currentModel) {
-        modelTag = `[🧠 ${brainName} → ⚙ ${workerName}]`
+        modelTag = `[${shortModelName(currentModel)} ${brainPct}% > ${shortModelName(_workerModel)} ${100 - brainPct}%]`
       }
 
       _autoReportCount = (_autoReportCount || 0) + 1
@@ -3626,18 +3609,18 @@ export async function DelegationEnforcer({ client, directory }) {
         } catch (e) { console.error("[vibeOS] auto-report:", e.message) }
       }
 
-      // Enforcement state tags + quality indicator for footer
+      // Enforcement state tags for footer
       const selNowFooter = loadSelection()
       const enfTagsFooter = []
-      if (selNowFooter.delegation_enforce) enfTagsFooter.push("ENF")
-      if (selNowFooter.flow_enforce) enfTagsFooter.push("FLOW")
-      if (selNowFooter.tdd_enforce) enfTagsFooter.push("TDD")
-      if (_modelLocked) enfTagsFooter.push("LOCK")
-      let enfSuffixFooter = enfTagsFooter.length > 0 ? ` ${enfTagsFooter.join("")}` : ""
+      if (selNowFooter.delegation_enforce) enfTagsFooter.push("[ENF ON]")
+      if (selNowFooter.flow_enforce) enfTagsFooter.push("[FLOW ON]")
+      if (selNowFooter.tdd_enforce) enfTagsFooter.push("[TDD ON]")
+      if (_modelLocked) enfTagsFooter.push("[LOCK ON]")
+      let enfSuffixFooter = enfTagsFooter.length > 0 ? ` ${enfTagsFooter.join(" ")}` : ""
       if (quality_avg > 0) {
-        enfSuffixFooter = ` QA:${Math.round(quality_avg)}%${enfSuffixFooter}`
+        enfSuffixFooter = ` QA:${Math.round(quality_avg)}% ${enfTagsFooter.join(" ")}`
       }
-      modelTag = modelTag.replace("]", `${enfSuffixFooter}]`)
+      modelTag = `${modelTag}${enfSuffixFooter || ""}`
 
       const stripped = text.replace(/\n\n— .+(?: —)?$/, "")
       if (stripped !== text) return
@@ -3663,8 +3646,7 @@ export async function DelegationEnforcer({ client, directory }) {
         }
         footerText = stripped + `\n\n— ${modelTag} | ${savingsDisplay} —`
       } else {
-        const brainSuffix = brainTag.replace("]", `${enfSuffixFooter}]`)
-        footerText = stripped + `\n\n— ${brainSuffix} —`
+        footerText = stripped + `\n\n— ${modelTag} —`
       }
       if (_footerStress > 0.1) {
         const stressBar = _footerStress > 0.85 ? "█" : _footerStress > 0.7 ? "▆" : _footerStress > 0.5 ? "▅" : _footerStress > 0.3 ? "▃" : _footerStress > 0.1 ? "▂" : "▁"
@@ -4025,7 +4007,7 @@ function scoreTaskQuality(outputText, promptText) {
       try {
         const { ltTasks, ltCache, ltCost, sesTrend, sesModelTurns } = readLifetimeSavings()
         const ltTotal = ltTasks + ltCache
-        const trendIcon = sesTrend === "down" ? "down" : sesTrend === "up" ? "up" : "-"
+        const trendIcon = sesTrend === "down" ? "↓" : sesTrend === "up" ? "↑" : "→"
         const selNow = loadSelection()
         const tags = [`[${shortModelName(currentModel)}]`]
         if (selNow.delegation_enforce) tags.push("[ENF ON]")
@@ -4718,7 +4700,7 @@ function scoreTaskQuality(outputText, promptText) {
 
             const stressScore = latestUserIntent ? scoreStress(latestUserIntent) : 0
             const stressBar = stressScore > 0.85 ? "█" : stressScore > 0.7 ? "▆" : stressScore > 0.5 ? "▅" : stressScore > 0.3 ? "▃" : stressScore > 0.1 ? "▂" : "▁"
-            const stressLabel = stressScore > 0.7 ? "high" : stressScore > 0.4 ? "elevated" : "calm"
+            const stressLabel = stressScore > 0.7 ? "high" : stressScore > 0.4 ? "elevated" : stressScore > 0.1 ? "calm" : "none"
 
             const totalTurns = (sv.sesModelTurns?.brain || 0) + (sv.sesModelTurns?.worker || 0)
             const brainPct = totalTurns > 0 ? Math.round((sv.sesModelTurns.brain / totalTurns) * 100) : 0
