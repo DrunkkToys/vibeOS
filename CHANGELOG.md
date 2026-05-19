@@ -1,3 +1,8 @@
+## 0.9.1
+- feat: CodeX MCP server integration
+- feat: vibeOS TUI dashboard sidebar plugin
+- chore: sync-ts-build and flow-enforcer enhancements
+
 ## 0.9.0
 - feat: stress-mitigation pipeline — detect, warn, harden, reroute
 - fix: TDD skeleton now fires for task subagent file writes
