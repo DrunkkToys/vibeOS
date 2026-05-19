@@ -10,6 +10,7 @@
 - feat: blackbox API server unification — API server now imports shared ResolutionTracker (removed duplicate implementation)
 - feat: `blackbox_calibration` SQLite table for per-project calibrated weights
 - feat: `blackbox_sessions` now includes outcome column, `/api/v1/blackbox/outcome`, `/api/v1/blackbox/calibration`, `/api/v1/blackbox/project-sessions` endpoints
+- refactor: blackbox moved to API-server-only — plugin uses local stub, full engine runs on server
 - docs: README and AGENTS updated with model lock, blackbox engine, and calibration documentation
 
 ## 0.9.3
