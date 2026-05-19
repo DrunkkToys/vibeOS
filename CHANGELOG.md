@@ -1,3 +1,9 @@
+## 0.9.2
+- fix: resolution-tracker thresholds — isConverging `> 0.5` → `>= 0.5`
+- fix: resolution-tracker thresholds — detectLoop Jaccard 0.8 → 0.6
+- fix: resolution-tracker thresholds — isRefining `entropyTrend >= 0` → `> -0.01`
+- test: add blackbox evaluation harness with per-regime precision/recall/F1
+
 ## 0.9.1
 - feat: vibeOS MCP server HTTP API
 - feat: vibeOS TUI dashboard sidebar plugin
