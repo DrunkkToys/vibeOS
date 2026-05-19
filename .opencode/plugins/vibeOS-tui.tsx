@@ -80,15 +80,83 @@ const plugin: TuiPlugin = async (api, _options, _meta) => {
     }
   }
 
-  const btnStyle = (active: boolean) => ({
-    color: active ? "green" as const : "dim" as const,
-    bold: active,
-  })
+  const openControls = () => {
+    const s = status()
+    if (!s) return
 
-  const toggleStyle = (on: boolean) => ({
-    color: on ? "green" as const : "red" as const,
-    bold: true,
-  })
+    const activeSlot = s.active_slot
+    const shortModel = s.current_model?.split("/")[1] ?? s.current_model ?? "?"
+
+    api.ui.dialog.replace(() => {
+      const { DialogSelect } = api.ui
+      return (
+        <DialogSelect
+          title="vibeOS"
+          placeholder="Filter controls..."
+          options={[
+            {
+              category: "Model Slot",
+              title: `${activeSlot === "brain" ? "[*] " : ""}Brain (${shortModel})`,
+              value: "set_brain",
+              description: activeSlot === "brain" ? "Current slot" : "Primary model slot",
+              disabled: activeSlot === "brain",
+            },
+            {
+              category: "Model Slot",
+              title: `${activeSlot === "medium" ? "[*] " : ""}Medium`,
+              value: "set_medium",
+              description: activeSlot === "medium" ? "Current slot" : "Mid-tier model slot",
+              disabled: activeSlot === "medium",
+            },
+            {
+              category: "Model Slot",
+              title: `${activeSlot === "cheap" ? "[*] " : ""}Cheap`,
+              value: "set_cheap",
+              description: activeSlot === "cheap" ? "Current slot" : "Cost-saving model slot",
+              disabled: activeSlot === "cheap",
+            },
+            {
+              category: "Enforcers",
+              title: `Flow: ${s.flow_enforcer ? "ON" : "OFF"}`,
+              value: "toggle_flow",
+              description: s.flow_enforcer ? "Click to disable" : "Click to enable",
+            },
+            {
+              category: "Enforcers",
+              title: `TDD: ${s.tdd_enforcer ? "ON" : "OFF"}${s.tdd_strict ? " (strict)" : ""}`,
+              value: "toggle_tdd",
+              description: s.tdd_enforcer ? "Click to disable" : "Click to enable",
+            },
+            {
+              category: "Enforcers",
+              title: `Enforce: ${s.enforce ? "ON" : "OFF"}`,
+              value: "toggle_enforce",
+              description: s.enforce ? "Click to disable" : "Click to enable",
+            },
+            {
+              category: "Plugin",
+              title: "Disable vibeOS",
+              value: "disable",
+              description: "Stop all vibeOS enforcement and tracking",
+            },
+          ]}
+          onSelect={(opt) => {
+            if (opt.value === "set_brain") doAction({ action: "set", slot: "brain", level: null })
+            else if (opt.value === "set_medium") doAction({ action: "set", slot: "medium", level: null })
+            else if (opt.value === "set_cheap") doAction({ action: "set", slot: "cheap", level: null })
+            else if (opt.value === "toggle_flow")
+              doAction({ action: "flow", slot: s.flow_enforcer ? "off" : "on", level: null })
+            else if (opt.value === "toggle_tdd")
+              doAction({ action: "tdd", slot: s.tdd_enforcer ? "off" : "on", level: null })
+            else if (opt.value === "toggle_enforce")
+              doAction({ action: "enforce", slot: s.enforce ? "off" : "on", level: null })
+            else if (opt.value === "disable") doAction({ action: "disable", slot: null, level: null })
+            api.ui.dialog.clear()
+          }}
+        />
+      )
+    })
+  }
 
   const Slot = api.ui.Slot
 
@@ -100,14 +168,7 @@ const plugin: TuiPlugin = async (api, _options, _meta) => {
       return (
         <box flexDirection="column">
           <Slot name="sidebar_title" session_id={props.session_id} title="vibeOS">
-            <text dim>vibeOS ▸ offline</text>
-          </Slot>
-          <Slot name="sidebar_content" session_id={props.session_id}>
-            <box flexDirection="column" padding={1}>
-              <text dim>vibeOS MCP not running</text>
-              <newline />
-              <text dim>Ensure the server plugin is active</text>
-            </box>
+            <text dim onClick={openControls}>vibeOS ▸ offline</text>
           </Slot>
           <Slot name="sidebar_footer" session_id={props.session_id}>
             <text dim>vibeOS MCP offline</text>
@@ -118,218 +179,37 @@ const plugin: TuiPlugin = async (api, _options, _meta) => {
 
     const activeSlot = s?.active_slot ?? "?"
     const enabled = s?.enabled ?? false
-    const trendArrow = sv?.trend === "up" ? "↑" : sv?.trend === "down" ? "↓" : "→"
-    const delegation = (sv?.current_session?.delegation_usd ?? 0) + (sv?.lifetime?.delegation_usd ?? 0)
-    const cache = (sv?.current_session?.cache_usd ?? 0) + (sv?.lifetime?.cache_usd ?? 0)
+    const trendArrow = sv?.trend === "up" ? "up" : sv?.trend === "down" ? "down" : "flat"
     const lifetime = (sv?.lifetime?.delegation_usd ?? 0) + (sv?.lifetime?.cache_usd ?? 0)
-    const missedC7 = sv?.lifetime?.missed_context7_usd ?? 0
-    const toolBreakdown = sv?.current_session?.tool_breakdown ?? {}
-    const topTools = Object.entries(toolBreakdown)
-      .sort(([, a], [, b]) => (b as number) - (a as number))
-      .slice(0, 5)
     const trendColor = sv?.trend === "up" ? "green" : sv?.trend === "down" ? "red" : "yellow"
-    const shortModel = s?.current_model?.split("/")[1] ?? s?.current_model ?? "?"
+    const rate = sv?.savings_rate_per_hour?.toFixed(2) ?? "0.00"
+    const warns = sv?.current_session?.warns_count ?? 0
+    const flowOn = s?.flow_enforcer ?? false
+    const tddOn = s?.tdd_enforcer ?? false
 
     return (
       <box flexDirection="column">
         <Slot name="sidebar_title" session_id={props.session_id} title="vibeOS">
           <box>
-            <text bold>vibeOS</text>
+            <text bold onClick={openControls}>vibeOS</text>
             <text dim> ▸ </text>
-            <text>{activeSlot}</text>
+            <text onClick={openControls}>{activeSlot}</text>
             <text> </text>
-            <text color={enabled ? "green" : "red"}>{enabled ? "●" : "○"}</text>
-          </box>
-        </Slot>
-
-        <Slot name="sidebar_content" session_id={props.session_id}>
-          <box flexDirection="column" padding={1}>
-            <text dim bold>MODEL &amp; STATUS</text>
-            <newline />
-            <box>
-              <text>🧠 </text>
-              <text bold={activeSlot === "brain"} color={activeSlot === "brain" ? "green" : undefined}>
-                {shortModel}
-              </text>
-              {activeSlot === "brain" && <text color="green"> ★ active</text>}
-            </box>
-            <newline />
-            <text dim>────────────────────────</text>
-            <newline />
-            <box>
-              <text>Flow     </text>
-              <text color={s?.flow_enforcer ? "green" : "red"} bold>
-                {s?.flow_enforcer ? "████ ON" : "──── OFF"}
-              </text>
-            </box>
-            <newline />
-            <box>
-              <text>TDD      </text>
-              <text color={s?.tdd_enforcer ? "green" : "red"} bold>
-                {s?.tdd_enforcer ? "████ ON" : "──── OFF"}
-              </text>
-              {s?.tdd_enforcer && s?.tdd_strict && <text> (strict)</text>}
-            </box>
-            <newline />
-            <box>
-              <text>Enforce  </text>
-              <text color={s?.enforce ? "green" : "red"} bold>
-                {s?.enforce ? "████ ON" : "──── OFF"}
-              </text>
-            </box>
-            <newline />
-            <text dim>────────────────────────</text>
-            <newline />
-            <box>
-              <text>Thinking: </text>
-              <text>{s?.thinking ?? "?"}</text>
-            </box>
-            <newline />
-            <newline />
-
-            <text dim bold>SAVINGS</text>
-            <newline />
-            <box>
-              <text bold>vibeOS saved: </text>
-              <text bold color={trendColor}>${lifetime.toFixed(2)} {trendArrow}</text>
-            </box>
-            <newline />
-            <box>
-              <text>  Delegation: </text>
-              <text>${delegation.toFixed(2)}</text>
-            </box>
-            <newline />
-            <box>
-              <text>  Cache:      </text>
-              <text>${cache.toFixed(2)}</text>
-            </box>
-            <newline />
-            <box>
-              <text>  C7 missed:  </text>
-              <text>${missedC7.toFixed(2)}</text>
-            </box>
-            <newline />
-            <text dim>────────────────────────</text>
-            <newline />
-            <box>
-              <text dim>Session: 0h 23m</text>
-            </box>
-            <newline />
-            <box>
-              <text>Rate: </text>
-              <text>${sv?.savings_rate_per_hour?.toFixed(2) ?? "0.00"}/hr</text>
-            </box>
-            <newline />
-            <box>
-              <text>Warns: </text>
-              <text>{sv?.current_session?.warns_count ?? 0}</text>
-            </box>
-            <newline />
-            <text dim>────────────────────────</text>
-            <newline />
-            <text dim>Tool split:</text>
-            <newline />
-            {topTools.map(([tool, val]) => (
-              <>
-                <box>
-                  <text>  {tool.padEnd(8)}</text>
-                  <text>${(val as number).toFixed(2)}</text>
-                </box>
-                <newline />
-              </>
-            ))}
-            <newline />
-
-            <text dim bold>CONTROLS</text>
-            <newline />
-            <box>
-              <text
-                {...btnStyle(activeSlot === "brain")}
-                onClick={() => doAction({ action: "set", slot: "brain", level: null })}
-              >
-                [brain]
-              </text>
-              <text> </text>
-              <text
-                {...btnStyle(activeSlot === "medium")}
-                onClick={() => doAction({ action: "set", slot: "medium", level: null })}
-              >
-                [medium]
-              </text>
-              <text> </text>
-              <text
-                {...btnStyle(activeSlot === "cheap")}
-                onClick={() => doAction({ action: "set", slot: "cheap", level: null })}
-              >
-                [cheap]
-              </text>
-            </box>
-            <newline />
-            <box>
-              <text
-                {...toggleStyle(s?.flow_enforcer ?? false)}
-                onClick={() => doAction({ action: "flow", slot: "on", level: null })}
-              >
-                [Flow ON]
-              </text>
-              <text> </text>
-              <text
-                {...toggleStyle(!(s?.flow_enforcer ?? false))}
-                onClick={() => doAction({ action: "flow", slot: "off", level: null })}
-              >
-                [Flow OFF]
-              </text>
-            </box>
-            <newline />
-            <box>
-              <text
-                {...toggleStyle(s?.tdd_enforcer ?? false)}
-                onClick={() => doAction({ action: "tdd", slot: "on", level: null })}
-              >
-                [TDD ON]
-              </text>
-              <text> </text>
-              <text
-                {...toggleStyle(!(s?.tdd_enforcer ?? false))}
-                onClick={() => doAction({ action: "tdd", slot: "off", level: null })}
-              >
-                [TDD OFF]
-              </text>
-            </box>
-            <newline />
-            <box>
-              <text
-                {...toggleStyle(s?.enforce ?? false)}
-                onClick={() => doAction({ action: "enforce", slot: "on", level: null })}
-              >
-                [Enforce ON]
-              </text>
-              <text> </text>
-              <text
-                {...toggleStyle(!(s?.enforce ?? false))}
-                onClick={() => doAction({ action: "enforce", slot: "off", level: null })}
-              >
-                [Enforce OFF]
-              </text>
-            </box>
-            <newline />
-            <text
-              color="red"
-              bold
-              onClick={() => doAction({ action: "disable", slot: null, level: null })}
-            >
-              [Disable Plugin]
+            <text color={enabled ? "green" : "red"} onClick={openControls}>
+              {enabled ? "." : "o"}
             </text>
           </box>
         </Slot>
-
         <Slot name="sidebar_footer" session_id={props.session_id}>
           <box>
-            <text dim>
-              Pattern: {(sv?.current_session?.warns_count ?? 0) > 0 ? "12" : "--"}  |  Trend:{" "}
-            </text>
-            <text color={trendColor}>{trendArrow}</text>
-            <text dim>  |  Rate: ${sv?.savings_rate_per_hour?.toFixed(2) ?? "0.00"}/hr</text>
+            <text dim>Saved </text>
+            <text color={trendColor}>{lifetime.toFixed(2)}</text>
+            <text dim> {trendArrow} </text>
+            <text>{rate}/hr</text>
+            <text dim> | </text>
+            <text color={flowOn ? "green" : "dim"}>F</text>
+            <text color={tddOn ? "green" : "dim"}>T</text>
+            <text dim> w{warns}</text>
           </box>
         </Slot>
       </box>

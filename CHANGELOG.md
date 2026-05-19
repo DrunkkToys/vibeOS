@@ -1,3 +1,9 @@
+## 0.9.3
+- fix: MCP server now starts during DelegationEnforcer init (was trapped in orphaned computeStatusPayload)
+- fix: add mcp_port auto-write to model-tiers.json on init
+- fix: initialize cache_savings_usd in state file on first write
+- fix: deploy.mjs now copies vibeOS-lib/ (including blackbox) and vibeOS-mcp-server.js
+
 ## 0.9.2
 - fix: resolution-tracker thresholds — isConverging `> 0.5` → `>= 0.5`
 - fix: resolution-tracker thresholds — detectLoop Jaccard 0.8 → 0.6
