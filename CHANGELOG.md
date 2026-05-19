@@ -1,5 +1,5 @@
 ## 0.9.1
-- feat: CodeX MCP server integration
+- feat: vibeOS MCP server HTTP API
 - feat: vibeOS TUI dashboard sidebar plugin
 - chore: sync-ts-build and flow-enforcer enhancements
 

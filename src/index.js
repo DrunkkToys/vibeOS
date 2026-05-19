@@ -28,7 +28,7 @@ import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import { checkFlowRules, getFlowWarns, getSessionFlowCounts, setFlowStateWriter } from "./vibeOS-lib/flow-enforcer.js"
 import { computeSessionMetrics } from "./vibeOS-lib/session-metrics.js"
-import { createMcpServer } from "./mcp-server.js"
+import { createMcpServer } from "./vibeOS-mcp-server.js"
 
 // Minimal self-contained tool helper — avoids @opencode-ai/plugin dependency
 // so the plugin works immediately on any install without bun/npm.

@@ -18,7 +18,7 @@ Current package version: `0.9.1`
 - Adds report and research-audit tooling.
 - Learns recurring struggle and routine patterns per project, with `trinity patterns` inspection and `trinity patterns clear`.
 - Stress mitigation pipeline: detects user stress signals, shows live stress gauge in footer, injects protective system prompts, and upgrades Task tier when user is stressed.
-- CodeX MCP server integration for extended tool capabilities.
+- vibeOS MCP server with HTTP API for extended tool capabilities (trinity, reports, session metrics, diagnostics).
 - TUI dashboard sidebar plugin for real-time plugin status and controls.
 - Worker-to-Brain (WBP) protocol synthesizes delegated task output directly in assistant chat.
 
