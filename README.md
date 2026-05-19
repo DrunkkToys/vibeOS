@@ -21,6 +21,46 @@ Current package version: `0.10.0`
 - vibeOS MCP server with HTTP API for extended tool capabilities (trinity, reports, session metrics, diagnostics).
 - TUI dashboard sidebar plugin for real-time plugin status and controls.
 - Worker-to-Brain (WBP) protocol synthesizes delegated task output directly in assistant chat.
+- **Remote API protection**: Core algorithms run on a self-hosted API server (`api.vibetheog.com`) with token-based authentication. Non-paying seats can be deactivated, immediately revoking all API tokens and falling back to local degraded mode.
+
+## Remote API Protection
+
+vibeOS protects its core algorithms by serving them from a self-hosted API server rather than bundling them entirely in the plugin:
+
+| Algorithm | Endpoint | Description |
+|---|---|---|
+| Delegation enforcement | `POST /api/v1/delegate/check` | Model cost calculation, block/warn routing |
+| Model tier routing | `POST /api/v1/route/model` | Tier classification, stress-aware routing |
+| Stress scoring | `POST /api/v1/stress/score` | NLP stress signal detection |
+| Blackbox engine | `POST /api/v1/blackbox/analyze` | Dialogue trajectory, loop detection |
+| TDD skeleton gen | `POST /api/v1/tdd/skeleton` | Multi-language test generation |
+| Pattern learner | `POST /api/v1/patterns/observe` | Friction/routine detection |
+| Model pricing | `POST /api/v1/pricing/fetch` | Dynamic OpenRouter pricing cache |
+| Context compression | `POST /api/v1/compress/context` | Bullet-point extraction |
+
+### Environment Variables
+
+```
+VIBEOS_API_URL=https://api.vibetheog.com   # API server URL (default: https://api.vibetheog.com)
+VIBEOS_API_TOKEN=vos_...                    # Your API token (required for remote mode)
+VIBEOS_API_ENABLED=true                     # Set to "false" to use local-only mode
+```
+
+When `VIBEOS_API_TOKEN` is not set or `VIBEOS_API_ENABLED=false`, the plugin runs in local-only mode with all algorithms bundled. When a valid token is provided, core algorithms are offloaded to the remote API.
+
+### Seat & Token Management
+
+The API server manages licenses via seats:
+
+- **Create a seat + token** (WordPress integration):  
+  `POST /admin/seats` with `{ "name": "...", "email": "...", "with_token": "label" }`
+
+- **Suspend a seat** (non-paying customer):  
+  `PATCH /admin/seats/:id` with `{ "status": "suspended" }`  
+  This immediately revokes all API tokens for that seat. The plugin falls back to local degraded mode.
+
+- **Reactivate a seat**:  
+  `PATCH /admin/seats/:id` with `{ "status": "active" }`
 
 ## Runtime Model Slots
 
@@ -162,108 +202,6 @@ GitHub Actions workflows are in `.github/workflows/`:
 - **Release** (`.github/workflows/release.yml`): Manual trigger via GitHub Actions UI (`workflow_dispatch`). Prompts for version bump type (patch/minor/major), then runs tests, builds, and executes `scripts/release.mjs --yes --ci` which bumps version, updates changelog, commits/tags/pushes, creates a GitHub Release, and publishes to npm.
 
 Before using the release workflow, add an `NPM_TOKEN` secret to the repository with an npm automation token that has publish permissions for the `vibeOS` package.
-
-## Remote API Protection
-
-vibeOS core algorithms are protected via a remote API server. Proprietary code (delegation enforcement, stress mitigation, blackbox decision engine, TDD enforcement, pattern learner, context compression, dynamic pricing) runs on a remote server — not in the local plugin.
-
-### Architecture
-
-```
-Local Plugin (src/index.js)          Remote API Server (VPS)
-─────────────────────────            ─────────────────────────
-- Hook registrations                 - Fastify API server
-- File I/O, state management         - SQLite token/seat DB
-- UI/footer rendering                - Protected algorithms
-- HTTPS calls to remote API          - Admin token management
-- Fallback if API unreachable        - SSL (api.vibetheog.com)
-```
-
-### How It Works
-
-1. Plugin sends `Authorization: Bearer <token>` with each protected algorithm call
-2. API server validates token against seat/license database
-3. If token is valid → returns algorithm result
-4. If token is revoked/expired → returns 403, plugin enters fallback mode
-5. When a customer doesn't pay → admin deactivates their seat → all tokens revoked
-
-### Environment Variables
-
-| Variable | Default | Description |
-|---|---|---|
-| `VIBEOS_API_URL` | `https://api.vibetheog.com` | API server URL |
-| `VIBEOS_API_TOKEN` | `null` | User's API token (required for remote calls) |
-| `VIBEOS_API_ENABLED` | `true` (if token set) | Enable/disable remote API |
-
-When `VIBEOS_API_TOKEN` is not set, the plugin runs entirely in local fallback mode (degraded — no protected algorithms).
-
-### Token Management (Admin)
-
-All admin endpoints require the master key (`VIBEOS_API_MASTER_KEY`):
-
-```bash
-# Create a seat with token (WordPress integration)
-curl -X POST -H "Authorization: Bearer $MASTER_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"name":"User","email":"user@example.com","with_token":"wp-label"}' \
-  https://api.vibetheog.com/admin/seats
-
-# Suspend a seat (revokes all tokens)
-curl -X PATCH -H "Authorization: Bearer $MASTER_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"status":"suspended"}' \
-  https://api.vibetheog.com/admin/seats/:id
-
-# Reactivate a seat
-curl -X PATCH -H "Authorization: Bearer $MASTER_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"status":"active"}' \
-  https://api.vibetheog.com/admin/seats/:id
-
-# List all tokens
-curl -H "Authorization: Bearer $MASTER_KEY" \
-  https://api.vibetheog.com/admin/tokens
-```
-
-### WordPress Integration
-
-When a user purchases a subscription via WordPress:
-1. WordPress membership plugin handles payment
-2. On payment success, WordPress calls `POST /admin/seats` with `with_token` param
-3. API returns seat + token → stored in WordPress user meta
-4. On subscription lapse, WordPress calls `PATCH /admin/seats/:id` with `status: "suspended"`
-5. All tokens for that seat are revoked → plugin gets 403 → fallback mode
-
-### Deploying the API Server
-
-The API server is in `src/vibeOS-api-server/`. To deploy:
-
-```bash
-cd src/vibeOS-api-server
-./scripts/deploy.sh
-```
-
-This installs Node.js, uploads files, sets up systemd service, and configures Nginx reverse proxy on the VPS.
-
-### API Endpoints
-
-| Method | Path | Description |
-|---|---|---|
-| `POST` | `/api/v1/delegate/check` | Check if tool call should be blocked |
-| `POST` | `/api/v1/route/model` | Tier routing decision |
-| `POST` | `/api/v1/stress/score` | Stress scoring |
-| `POST` | `/api/v1/blackbox/analyze` | Dialogue analysis |
-| `POST` | `/api/v1/tdd/skeleton` | Test skeleton generation |
-| `POST` | `/api/v1/patterns/observe` | Record pattern observation |
-| `POST` | `/api/v1/pricing/fetch` | Fetch model pricing |
-| `POST` | `/api/v1/compress/context` | Context compression |
-| `POST` | `/admin/seats` | Create seat (optionally with token) |
-| `GET` | `/admin/seats` | List all seats |
-| `PATCH` | `/admin/seats/:id` | Suspend/reactivate seat |
-| `POST` | `/admin/tokens` | Create token |
-| `GET` | `/admin/tokens` | List all tokens |
-| `PATCH` | `/admin/tokens/:id` | Revoke/reactivate token |
-| `DELETE` | `/admin/tokens/:id` | Delete token |
 
 ## Known Limitations
 
