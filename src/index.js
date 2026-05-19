@@ -755,6 +755,12 @@ function withFileLock(filePath, fn, opts = {}) {
 function readJsonOrEmpty(filePath) {
   try {
     if (!existsSync(filePath)) return {}
+    const MAX_JSON_BYTES = 50 * 1024 * 1024
+    const st = statSync(filePath)
+    if (st.size > MAX_JSON_BYTES) {
+      console.error(`[vibeOS] state file too large (${st.size} bytes), returning empty`)
+      return {}
+    }
     return safeJsonParse(readFileSync(filePath, "utf-8"))
   } catch { return {} }
 }
