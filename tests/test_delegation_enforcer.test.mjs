@@ -1714,11 +1714,13 @@ test("applySlot: preserves model-tiers.json selection/tiers/pricing blocks", asy
     },
   }))
 
-  //   let origHome = process.env.HOME
+  const origCwd = process.cwd()
+  process.chdir(dir)
   process.env.HOME = sandbox
   try {
     const hooks = await DelegationEnforcer({ client: {}, directory: dir })
     const result = applySlot("brain")
+    process.chdir(origCwd)
     assert.ok(result.ok, `applySlot returned ok: ${JSON.stringify(result)}`)
   } finally {
     process.env.HOME = origHome
@@ -1786,7 +1788,10 @@ test("applySlot: preserves opencode.json all fields (only model changes)", async
     tiers: { high: { regex: "." }, mid: { regex: "." }, budget: { regex: "." } },
   }))
 
+  const origCwd = process.cwd()
+  process.chdir(sandbox)
   const result = applySlot("brain")
+  process.chdir(origCwd)
   assert.ok(result.ok, `applySlot returned ok: ${JSON.stringify(result)}`)
 
   const after = JSON.parse(readFileSync(ocConfigPath, "utf-8"))

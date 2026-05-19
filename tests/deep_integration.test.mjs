@@ -1,6 +1,7 @@
 // Deep integration tests — neutral sandbox, full simulation
-import test from 'node:test'
+import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
+import { closeMcpServer } from '../src/index.js'
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, renameSync, copyFileSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -10,6 +11,8 @@ process.env.HOME = sandbox
 mkdirSync(join(sandbox, ".config/opencode"), { recursive: true })
 mkdirSync(join(sandbox, ".claude/reports"), { recursive: true })
 mkdirSync(join(sandbox, ".local/share/opencode"), { recursive: true })
+
+after(async () => { await closeMcpServer() })
 
 writeFileSync(join(sandbox, ".config/opencode/opencode.json"), JSON.stringify({
   "$schema": "https://opencode.ai/config.json",
@@ -156,7 +159,10 @@ test("getScratchpadHit + buildTestReminder", () => {
 
 test("applySlot: writes model, preserves all config blocks", async () => {
   await freshPlugin()
+  const origCwd = process.cwd()
+  process.chdir(sandbox)
   applySlot("brain")
+  process.chdir(origCwd)
   const oc = JSON.parse(readFileSync(join(sandbox, ".config/opencode/opencode.json"), "utf-8"))
   assert.equal(oc.model, "deepseek/deepseek-v4-pro")
   assert.ok(oc["$schema"])
