@@ -1,8 +1,8 @@
-# VibeTheOG for OpenCode
+# vibeOS for OpenCode
 
 Cost-aware delegation and policy plugin for OpenCode Desktop.
 
-`VibeTheOG` helps keep expensive model usage under control by enforcing delegation behavior, tracking savings, and exposing runtime controls through the `trinity` tool.
+vibeOS helps keep expensive model usage under control by enforcing delegation behavior, tracking savings, and exposing runtime controls through the `trinity` tool.
 
 ## Version
 

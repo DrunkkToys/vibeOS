@@ -10,7 +10,7 @@
 
 | File / Directory | Why |
 |---|---|
-| `src/index.js` | 4751+ lines — the entire plugin runtime |
+| `src/index.js` | 5529+ lines — the entire plugin runtime |
 | `src/vibeOS-lib/*` | flow enforcer, session metrics, flow rules |
 | `src/utils/*` | cost formatter, math, timer |
 | `tests/*` | all integration, regression, delegation, diagnose tests |
@@ -71,13 +71,14 @@ Every feature in the README is a promised behavior. **If a proposed change touch
 
 ### Plugin Hooks (see Section 4)
 
-The plugin hooks into OpenCode via six extension points defined in `src/index.js`:
+The plugin hooks into OpenCode via seven extension points defined in `src/index.js`:
 - `experimental.text.complete`
 - `experimental.chat.messages.transform`
 - `experimental.chat.system.transform`
 - `tool.execute.before`
 - `tool.execute.after`
 - `message.updated`
+- `shell.env` — Injects `OPENCODE_MODEL_TIER` and `OPENCODE_MODEL` env vars into subprocesses.
 
 ### State Files (see Section 6)
 
