@@ -1,0 +1,19 @@
+[Unit]
+Description=vibeOS API Server
+After=network.target nginx.service
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/vibeos-api
+Environment=NODE_ENV=production
+EnvironmentFile=/var/www/vibeos-api/.env
+ExecStart=/usr/bin/node server.js
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
