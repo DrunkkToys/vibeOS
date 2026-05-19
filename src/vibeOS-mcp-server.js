@@ -188,12 +188,19 @@ export function createMcpServer(deps) {
         },
         close() {
             if (!server)
-                return;
-            try {
-                server.close();
-            }
-            catch { }
-            server = null;
+                return Promise.resolve();
+            return new Promise((resolve) => {
+                try {
+                    server.close(() => {
+                        server = null;
+                        resolve();
+                    });
+                }
+                catch {
+                    server = null;
+                    resolve();
+                }
+            });
         },
     };
 }
