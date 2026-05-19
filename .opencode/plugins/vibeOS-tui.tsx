@@ -35,8 +35,23 @@ type SavingsResponse = {
   savings_rate_per_hour: number
 }
 
+// Named export for TUI auto-discovery
+export const vibeOSTui = async (api, _options, _meta) => {
+  try {
+    if (api?.ui?.toast) {
+      api.ui.toast({ variant: "info", message: "vibeOS TUI plugin executing" })
+    }
+    if (typeof process !== "undefined") {
+      process.stderr?.write?.("[vibeOS-tui] plugin function called\n")
+    }
+  } catch (e) {
+    if (typeof process !== "undefined") {
+      process.stderr?.write?.("[vibeOS-tui] ERROR: " + String(e) + "\n")
+    }
+  }
+}
+
 const plugin: TuiPlugin = async (api, _options, _meta) => {
-  api.ui.toast({ variant: "info", message: "vibeOS TUI plugin function executing" })
   const [status, setStatus] = createSignal<StatusResponse | null>(null)
   const [savings, setSavings] = createSignal<SavingsResponse | null>(null)
   const [error, setError] = createSignal<string | null>(null)
