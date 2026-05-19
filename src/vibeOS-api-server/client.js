@@ -178,6 +178,10 @@ class VibeOSApiClient {
     return this.request("/admin/seats", { name, email }, true)
   }
 
+  async adminCreateSeatWithToken(name, email, tokenLabel = null) {
+    return this.request("/admin/seats", { name, email, with_token: tokenLabel || true }, true)
+  }
+
   async adminListSeats() {
     return this.request("/admin/seats", null, true)
   }
