@@ -248,11 +248,11 @@ test("trinity tool: status, set, shortcuts, thinking, flow, help", async () => {
   const hooks = await freshPlugin()
   const t = hooks.tool.trinity
   const s = await t.execute({})  // no-arg = status
-  assert.ok(s.includes("vibeOS ON"), "default: " + s.slice(0, 50))
+  assert.ok(s.includes("[vibeOS-dashboard]"), "default: " + s.slice(0, 50))
   await t.execute({ action: "disable" })
-  assert.ok((await t.execute({ action: "status" })).toLowerCase().includes("vibeos off"), "status after disable includes OFF: " + String((await t.execute({ action: "status" }))).slice(0, 60))
+  assert.ok((await t.execute({ action: "status" })).toLowerCase().includes("[vibeos-dashboard]"), "status after disable: " + String((await t.execute({ action: "status" }))).slice(0, 60))
   await t.execute({ action: "enable" })
-  assert.ok((await t.execute({ action: "status" })).toLowerCase().includes("vibeos on"), "status after enable includes ON: " + String((await t.execute({ action: "status" }))).slice(0, 60))
+  assert.ok((await t.execute({ action: "status" })).toLowerCase().includes("[vibeos-dashboard]"), "status after enable: " + String((await t.execute({ action: "status" }))).slice(0, 60))
   const set = await t.execute({ action: "set", slot: "brain" })
   assert.ok(set.includes("Switched") || set.includes("brain"), "set: " + set)
   // Note: probeModel needs real API — in sandbox it fails, which is correct behavior
