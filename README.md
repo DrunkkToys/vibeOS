@@ -16,6 +16,7 @@ Current package version: `0.8.1`
 - Provides `trinity` runtime controls for slot switching, enforcement toggles, audits, and diagnostics.
 - Adds optional flow checks and TDD skeleton enforcement.
 - Adds report and research-audit tooling.
+- Learns recurring struggle and routine patterns per project, with `trinity patterns` inspection and `trinity patterns clear`.
 
 ## Runtime Model Slots
 
@@ -68,6 +69,8 @@ Main commands:
 - `trinity flow on|off` / `trinity flow enforce on|off` / `trinity flow`
 - `trinity tdd on|off` / `trinity tdd strict on|off` / `trinity tdd quality on|off` / `trinity tdd`
 - `trinity project`
+- `trinity patterns`
+- `trinity patterns clear`
 - `trinity diagnose`
 - `trinity rebuild`
 - `trinity help`
@@ -92,6 +95,12 @@ Main commands:
 - `report-read`
 
 These use `~/.claude/reports` and project memory in `~/.claude/project-states.json`.
+
+## Pattern Learning
+
+- Detects repeated friction signals and recurring successful routines from session behavior.
+- Stores per-project pattern memory in `~/.claude/project-states.json`.
+- Promotes patterns after repeated confirmation across sessions and surfaces them via `trinity patterns`.
 
 ## Install / Sync (Local Plugin File)
 

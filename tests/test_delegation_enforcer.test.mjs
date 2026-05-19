@@ -9,6 +9,7 @@ import assert from "node:assert/strict"
 import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { createHash } from "node:crypto"
 
 // Use a sandbox HOME so STATE_FILE inside the plugin points into tmpdir.
 let sandbox
@@ -23,6 +24,7 @@ beforeEach(() => {
   rmSync(join(sandbox, ".claude/savings-ledger.jsonl"), { force: true })
   rmSync(join(sandbox, ".claude/active-jobs.json"), { force: true })
   rmSync(join(sandbox, ".claude/global-learning.json"), { force: true })
+  rmSync(join(sandbox, ".claude/project-states.json"), { force: true })
 })
 after(() => rmSync(sandbox, { recursive: true, force: true }))
 
@@ -1838,6 +1840,230 @@ test("system.transform: welcome banner injected once per project", async () => {
   await hooks["experimental.chat.system.transform"]({}, out2)
   const hasWelcome2 = out2.system.some(s => typeof s === "string" && s.includes("vibeOS") && s.includes("trinity help"))
   assert.ok(!hasWelcome2, "welcome banner NOT re-injected on second call")
+})
+
+test("pattern learner: records normalized post-edit failure", async () => {
+  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+    trinity: { brain: { oc: "haiku" } },
+    selection: { enabled: true, active_slot: "brain" },
+  }))
+  const { DelegationEnforcer } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-pattern-record")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "haiku" }))
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+
+  await hooks["tool.execute.after"](
+    { tool: "write", args: { filePath: join(dir, "src/index.js") } },
+    { result: "ok" }
+  )
+  await hooks["tool.execute.after"](
+    { tool: "bash", args: { command: "npm run typecheck" } },
+    { exitCode: 1, result: "exited with code 2" }
+  )
+
+  const fp = createHash("sha256").update(dir).digest("hex").slice(0, 12)
+  const state = JSON.parse(readFileSync(join(sandbox, ".claude/project-states.json"), "utf-8"))
+  const row = state.project_hashes[fp].userPatterns.friction["post-edit-failure:src/index.js:typecheck"]
+  assert.ok(row, "post-edit failure pattern recorded")
+  assert.equal(row.summary, "After editing src/index.js, typecheck failed soon after.")
+  assert.equal(row.sessions.length, 1)
+})
+
+test("system.transform: injects promoted learned project patterns", async () => {
+  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+    trinity: { brain: { oc: "haiku" } },
+    selection: { enabled: true, active_slot: "brain" },
+  }))
+  const { DelegationEnforcer } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-pattern-brief")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "haiku" }))
+  const fp = createHash("sha256").update(dir).digest("hex").slice(0, 12)
+  writeFileSync(join(sandbox, ".claude/project-states.json"), JSON.stringify({
+    project_hashes: {
+      [fp]: {
+        totalSessions: 3,
+        lastSeen: "2026-05-19T00:00:00.000Z",
+        userPatterns: {
+          friction: {
+            "post-edit-failure:src/index.js:typecheck": {
+              kind: "friction",
+              summary: "After editing src/index.js, typecheck failed soon after.",
+              count: 3,
+              sessions: ["s1", "s2", "s3"],
+              lastSeen: "2026-05-19T00:00:00.000Z",
+            },
+          },
+          routines: {},
+        },
+      },
+    },
+  }))
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+  const out = { system: [] }
+  await hooks["experimental.chat.system.transform"]({}, out)
+  assert.ok(out.system.some(s => String(s).includes("Learned patterns")), JSON.stringify(out.system))
+  assert.ok(out.system.some(s => String(s).includes("After editing src/index.js, typecheck failed soon after.")), JSON.stringify(out.system))
+})
+
+test("pattern learner: detects repeated same tool target", async () => {
+  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+    trinity: { brain: { oc: "haiku" } },
+    selection: { enabled: true, active_slot: "brain" },
+  }))
+  const { DelegationEnforcer } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-pattern-repeat")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "haiku" }))
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+
+  await hooks["tool.execute.after"]({ tool: "bash", args: { command: "git status" } }, { exitCode: 0, result: "ok" })
+  await hooks["tool.execute.after"]({ tool: "bash", args: { command: "git status" } }, { exitCode: 0, result: "ok" })
+  await hooks["tool.execute.after"]({ tool: "bash", args: { command: "git status" } }, { exitCode: 0, result: "ok" })
+
+  const fp = createHash("sha256").update(dir).digest("hex").slice(0, 12)
+  const state = JSON.parse(readFileSync(join(sandbox, ".claude/project-states.json"), "utf-8"))
+  const row = state.project_hashes[fp].userPatterns.friction["repeat-tool:bash:git-status"]
+  assert.ok(row, "repeat-tool pattern recorded")
+  assert.equal(row.summary, "Repeated bash calls against git-status in one session.")
+})
+
+test("pattern learner: detects correction language in system transform", async () => {
+  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+    trinity: { brain: { oc: "haiku" } },
+    selection: { enabled: true, active_slot: "brain" },
+  }))
+  const { DelegationEnforcer } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-pattern-correction")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "haiku" }))
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+  await hooks["experimental.chat.system.transform"](
+    { role: "user", content: "wrong import path again; imports are wrong." },
+    { system: [] }
+  )
+
+  const fp = createHash("sha256").update(dir).digest("hex").slice(0, 12)
+  const state = JSON.parse(readFileSync(join(sandbox, ".claude/project-states.json"), "utf-8"))
+  const row = state.project_hashes[fp].userPatterns.friction["correction:imports"]
+  assert.ok(row, "correction pattern recorded")
+  assert.equal(row.summary, "User corrections mention import mistakes.")
+})
+
+test("pattern learner: records successful post-edit routine", async () => {
+  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+    trinity: { brain: { oc: "haiku" } },
+    selection: { enabled: true, active_slot: "brain" },
+  }))
+  const { DelegationEnforcer } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-pattern-routine")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "haiku" }))
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+
+  await hooks["tool.execute.after"](
+    { tool: "write", args: { filePath: join(dir, "src/index.js") } },
+    { result: "ok" }
+  )
+  await hooks["tool.execute.after"](
+    { tool: "bash", args: { command: "npm test" } },
+    { exitCode: 0, result: "all good" }
+  )
+
+  const fp = createHash("sha256").update(dir).digest("hex").slice(0, 12)
+  const state = JSON.parse(readFileSync(join(sandbox, ".claude/project-states.json"), "utf-8"))
+  const row = state.project_hashes[fp].userPatterns.routines["post-edit-routine:src/index.js:test"]
+  assert.ok(row, "post-edit routine recorded")
+  assert.equal(row.summary, "After editing src/index.js, test is a recurring verification step.")
+})
+
+test("trinity patterns: lists and clears project pattern memory", async () => {
+  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+    trinity: { brain: { oc: "haiku" } },
+    selection: { enabled: true, active_slot: "brain" },
+  }))
+  const { DelegationEnforcer } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-pattern-cmd")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "haiku" }))
+  const fp = createHash("sha256").update(dir).digest("hex").slice(0, 12)
+  writeFileSync(join(sandbox, ".claude/project-states.json"), JSON.stringify({
+    project_hashes: {
+      [fp]: {
+        totalSessions: 4,
+        lastSeen: "2026-05-19T00:00:00.000Z",
+        userPatterns: {
+          friction: {
+            "repeat-tool:bash:git-status": {
+              kind: "friction",
+              summary: "Repeated bash calls against git-status in one session.",
+              count: 3,
+              sessions: ["a", "b", "c"],
+              lastSeen: "2026-05-19T00:00:00.000Z",
+            },
+          },
+          routines: {
+            "post-edit-routine:src/index.js:test": {
+              kind: "routine",
+              summary: "After editing src/index.js, test is a recurring verification step.",
+              count: 2,
+              sessions: ["a", "b"],
+              lastSeen: "2026-05-18T00:00:00.000Z",
+            },
+          },
+        },
+      },
+    },
+  }))
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+  const t = hooks.tool.trinity
+
+  const listed = await t.execute({ action: "patterns" })
+  assert.ok(listed.includes("Project patterns"), listed)
+  assert.ok(listed.includes("Repeated bash calls against git-status in one session."), listed)
+
+  const cleared = await t.execute({ action: "patterns", slot: "clear" })
+  assert.ok(cleared.includes("Pattern memory cleared"), cleared)
+
+  const listedAfter = await t.execute({ action: "patterns" })
+  assert.ok(listedAfter.includes("No learned patterns yet."), listedAfter)
+})
+
+test("trinity patterns: routine pattern is promoted after 3 sessions", async () => {
+  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+    trinity: { brain: { oc: "haiku" } },
+    selection: { enabled: true, active_slot: "brain" },
+  }))
+  const { DelegationEnforcer } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-pattern-routine-promoted")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "haiku" }))
+  const fp = createHash("sha256").update(dir).digest("hex").slice(0, 12)
+  writeFileSync(join(sandbox, ".claude/project-states.json"), JSON.stringify({
+    project_hashes: {
+      [fp]: {
+        totalSessions: 4,
+        lastSeen: "2026-05-19T00:00:00.000Z",
+        userPatterns: {
+          friction: {},
+          routines: {
+            "post-edit-routine:src/index.js:test": {
+              kind: "routine",
+              summary: "After editing src/index.js, test is a recurring verification step.",
+              count: 4,
+              sessions: ["s1", "s2", "s3"],
+              lastSeen: "2026-05-19T00:00:00.000Z",
+            },
+          },
+        },
+      },
+    },
+  }))
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+  const listed = await hooks.tool.trinity.execute({ action: "patterns" })
+  assert.ok(listed.includes("1 stored, 1 promoted"), listed)
+  assert.ok(listed.includes("[routine/promoted] After editing src/index.js, test is a recurring verification step."), listed)
 })
 
 // ════════════════════════════════════════════════════════════════════════════

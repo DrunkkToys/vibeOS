@@ -33,12 +33,12 @@
 
 Every feature in the README is a promised behavior. **If a proposed change touches any of these, you MUST ask first and explain the impact:**
 
-1. **Cost-aware delegation enforcement** — Blocks direct `write`/`edit` on high-tier brain model. User-visible enforcement notes. Delegation cost estimates.
+1. **Cost-aware delegation enforcement** — Blocks direct `write`/`edit`/`notebookedit` on high-tier brain model. User-visible enforcement notes. Delegation cost estimates.
 2. **Cache savings tracking** — Separate persisted category (`cache_savings_usd`). Tracks scratchpad cache hits.
 3. **Live footer** — Model split display, cumulative savings, trend arrow. Appended via `experimental.text.complete` and `message.updated`.
-4. **trinity runtime controls** — Slot switching (`set brain|medium|cheap`), enforcement toggles (`enforce on|off`), flow toggles, TDD toggles, audits, diagnostics, project analytics.
+4. **trinity runtime controls** — Slot switching (`set brain|medium|cheap`, `brain|medium|cheap` shorthand, `rebuild`), `status`, `enable`/`disable`, `thinking full|brief|off`, enforcement toggles (`enforce on|off`), flow toggles (`flow on|off`, `flow enforce on|off`), TDD toggles (`tdd on|off`, `tdd strict on|off`, `tdd quality on|off`), `project`, `diagnose`, `help`.
 5. **Flow enforcer** — Write/edit pattern rule checks. TODO/FIXME extraction queue when flow enforcement is active.
-6. **TDD enforcer** — Auto skeleton tests for changed source files. Strict mode (ON by default): TODO tests fail loudly.
+6. **TDD enforcer** — Auto skeleton tests for changed source files. Strict mode (ON by default): TODO tests fail loudly. Quality mode: `trinity tdd quality on|off`.
 7. **Report and research-audit tooling** — `report-save`, `report-list`, `report-read`, `research-audit`.
 8. **STRESS MITIGATION PIPELINE** — Core feature, recently added:
    - `scoreStress()` — user stress signal detection
@@ -50,6 +50,7 @@ Every feature in the README is a promised behavior. **If a proposed change touch
 11. **JSONC-tolerant config parsing** — `safeJsonParse()` handles trailing commas, comments, unquoted keys.
 12. **File-based locking** — Prevents concurrent plugin instances via `~/.claude/.vibeOS-locks/`.
 13. **Per-session warning caps and coalescing** — Limits and merges repeated delegation warnings.
+14. **Pattern learner and runtime controls** — Learns recurring struggle/routine patterns per project and exposes `trinity patterns` and `trinity patterns clear`.
 
 **If you are unsure whether a change affects any of these features: STOP and ASK.**
 
@@ -214,6 +215,18 @@ Runs `tsc -p tsconfig.json --noEmit` — validates all TypeScript sources withou
 4. Always run lint/typecheck before committing: `npm run typecheck`
 5. Do not "fix", "clean up", "refactor", "optimize", or "modernize" without asking.
 6. Do not add "helpful" features that were not requested.
+
+---
+
+## 🚚 TASK SUBAGENT MODEL ROUTING
+
+When the orchestrator (brain-tier) has Write/Edit blocked by delegation enforcement, route implementation work to Task subagents using `model: "deepseek/deepseek-chat"` (cheap tier) as primary, with `model: "deepseek/deepseek-v4-flash"` as fallback. The cheap tier has Write/Edit tools available.
+
+```json
+task(subagent_type="general", model="deepseek/deepseek-chat")
+```
+
+This applies to ALL agent types (general, explore, etc.) and is mandatory for any task that requires file modifications (edit/write tools).
 
 ---
 
