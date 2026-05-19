@@ -2315,7 +2315,7 @@ function readConfig(dir) {
   } catch { return "" }
 }
 
-function parseJsonc(raw) {
+export function parseJsonc(raw) {
   const noBlockComments = String(raw || "").replace(/\/\*[\s\S]*?\*\//g, "")
   const noLineComments = noBlockComments.replace(/(^|\s)\/\/.*$/gm, "$1")
   const noTrailingCommas = noLineComments.replace(/,\s*([}\]])/g, "$1")
