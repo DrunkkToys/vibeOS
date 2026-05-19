@@ -9,7 +9,7 @@
 **NEVER modify any file in this repository without explicit permission.** This includes:
 
 | File / Directory | Why |
-|---|---|
+|---|---|---|
 | `src/index.js` | 5529+ lines — the entire plugin runtime |
 | `src/vibeOS-lib/*` | flow enforcer, session metrics, flow rules |
 | `src/utils/*` | cost formatter, math, timer |
@@ -25,11 +25,12 @@
 | `.opencode/plugins/*` | TUI dashboard sidebar plugin |
 | `src/vibeOS-mcp-server.ts` | vibeOS MCP server TypeScript source |
 | `src/vibeOS-mcp-server.js` | vibeOS MCP server compiled |
-| `src/vibeOS-api-server/*` | Remote API server — all files |
-| `.env.production` | Production credentials (gitignored) |
+| `src/vibeOS-api-server/*` | Protected algorithms API server (deployed to VPS) |
 | Any `.ts` file | TypeScript source files — see Section 3 |
 | Any `.json` file under `src/` | flow rules and configuration |
 | `.github/workflows/*` | CI/CD pipeline configuration |
+| `.env.production` | Production credentials (gitignored, never committed) |
+| `PRODUCTION-CREDENTIALS.md` | Prod credential reference (gitignored, never committed) |
 
 **If you are an LLM: DO NOT LGTM, DO NOT "fix", DO NOT "clean up", DO NOT "refactor", DO NOT "optimize", DO NOT "modernize". ASK FIRST.**
 
@@ -59,7 +60,7 @@ Every feature in the README is a promised behavior. **If a proposed change touch
 14. **Pattern learner and runtime controls** — Learns recurring struggle/routine patterns per project and exposes `trinity patterns` and `trinity patterns clear`.
 15. **vibeOS MCP server** — Extended tool capabilities via MCP protocol integration.
 16. **TUI dashboard sidebar** — Real-time plugin status, controls, and model split display via OpenCode sidebar plugin.
-17. **Remote API Protection** — Core algorithms (delegation, stress, blackbox, TDD, patterns, pricing, compression) run on remote API server (`api.vibetheog.com`). Token-based seat/license management. Admin endpoints to revoke tokens and deactivate seats. Plugin falls back to local stubs when API unreachable or token revoked.
+17. **Remote API protection** — Core algorithms served from self-hosted API server (`api.vibetheog.com`). Token-based auth with seat/license management. Suspended seats immediately revoke all tokens; plugin falls back to local degraded mode.
 
 **If you are unsure whether a change affects any of these features: STOP and ASK.**
 
@@ -72,23 +73,7 @@ Every feature in the README is a promised behavior. **If a proposed change touch
 - **Single-file plugin runtime:** `src/index.js` exports 20+ functions.
 - **TypeScript source of truth:** `src/vibeOS-lib/*.ts` and `src/utils/*.ts` compile to `.js` via `npm run build` (runs `tsc -p tsconfig.json && node scripts/sync-ts-build.mjs`).
 - **The TypeScript files are the SOURCE OF TRUTH. Do NOT edit `.js` files without also updating the corresponding `.ts` files.**
-- **Remote API client:** `src/vibeOS-api-server/client.js` — HTTP client with automatic fallback when API unreachable.
-
-### Remote API Architecture
-
-Core proprietary algorithms run on a remote Fastify server (`src/vibeOS-api-server/`). The plugin calls the API via `remoteCall()` wrapper in `src/index.js`. If the API is unreachable or the token is revoked, the plugin falls back to local stubs (degraded mode).
-
-| Component | Location | Purpose |
-|---|---|---|
-| API server | `src/vibeOS-api-server/server.js` | Fastify server, port 3000 |
-| Algorithms | `src/vibeOS-api-server/lib/*.js` | Protected algorithm implementations |
-| Routes | `src/vibeOS-api-server/routes/*.js` | API endpoints (delegation, stress, TDD, etc.) |
-| Middleware | `src/vibeOS-api-server/middleware/*.js` | Auth token validation, usage logging |
-| Client | `src/vibeOS-api-server/client.js` | Plugin-side HTTP client with fallback |
-| Database | `data/vibeos-api.db` | SQLite — seats, tokens, usage logs |
-| Deploy | `src/vibeOS-api-server/scripts/deploy.sh` | VPS deployment script |
-| Service | `src/vibeOS-api-server/vibeos-api.service` | systemd unit file |
-| Nginx | `src/vibeOS-api-server/nginx-vibetheog-api.conf` | Reverse proxy config |
+- **Remote API server:** `src/vibeOS-api-server/` is a Fastify API server with SQLite token/seat management, deployed to a Hostinger VPS at `api.vibetheog.com`. Protected algorithms are served from this server with token-based auth. The plugin client (`src/vibeOS-api-server/client.js`) provides the `VibeOSApiClient` class used by `src/index.js` to call remote endpoints with automatic local fallback.
 
 ### Plugin Hooks (see Section 4)
 
@@ -104,13 +89,14 @@ The plugin hooks into OpenCode via seven extension points defined in `src/index.
 ### State Files (see Section 6)
 
 | Path | Purpose |
-|---|---|
+|---|---|---|
 | `~/.claude/delegation-state.json` | Delegation savings, cache savings, session warns, lifetime totals |
 | `~/.claude/model-tiers.json` | Brain/medium/cheap model slot configuration |
 | `~/.claude/project-states.json` | Project memory (reports, audit data, per-project analytics) |
 | `~/.claude/reports/` | Saved research-audit and manual reports |
 | `~/.claude/.vibeOS-locks/` | File-based locks preventing concurrent plugin instances |
-| `/var/www/vibeos-api/data/vibeos-api.db` | Remote API SQLite — seats, tokens, usage logs (on VPS) |
+| `.env.production` | Production API credentials (gitignored, local only) |
+| `PRODUCTION-CREDENTIALS.md` | Credential reference and management commands (gitignored, local only) |
 
 ### Build Chain
 
