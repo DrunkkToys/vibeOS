@@ -43,7 +43,7 @@ Every feature in the README is a promised behavior. **If a proposed change touch
 1. **Cost-aware delegation enforcement** — Blocks direct `write`/`edit`/`notebookedit` on high-tier brain model. User-visible enforcement notes. Delegation cost estimates.
 2. **Cache savings tracking** — Separate persisted category (`cache_savings_usd`). Tracks scratchpad cache hits.
 3. **Live footer** — Model split display, cumulative savings, trend arrow. Appended via `experimental.text.complete` and `message.updated`.
-4. **trinity runtime controls** — Slot switching (`set brain|medium|cheap`, `brain|medium|cheap` shorthand, `rebuild`), `status`, `enable`/`disable`, `thinking full|brief|off`, enforcement toggles (`enforce on|off`), flow toggles (`flow on|off`, `flow enforce on|off`), TDD toggles (`tdd on|off`, `tdd strict on|off`, `tdd quality on|off`), `project`, `diagnose`, `help`.
+4. **trinity runtime controls** — Slot switching (`set brain|medium|cheap`, `brain|medium|cheap` shorthand, `rebuild`), `status`, `enable`/`disable`, `thinking full|brief|off`, enforcement toggles (`enforce on|off`), model locking (`lock on|off`), flow toggles (`flow on|off`, `flow enforce on|off`), TDD toggles (`tdd on|off`, `tdd strict on|off`, `tdd quality on|off`), `project`, `diagnose`, `help`.
 5. **Flow enforcer** — Write/edit pattern rule checks. TODO/FIXME extraction queue when flow enforcement is active.
 6. **TDD enforcer** — Auto skeleton tests for changed source files. Strict mode (ON by default): TODO tests fail loudly. Quality mode: `trinity tdd quality on|off`.
 7. **Report and research-audit tooling** — `report-save`, `report-list`, `report-read`, `research-audit`.
@@ -61,6 +61,9 @@ Every feature in the README is a promised behavior. **If a proposed change touch
 15. **vibeOS MCP server** — Extended tool capabilities via MCP protocol integration.
 16. **TUI dashboard sidebar** — Real-time plugin status, controls, and model split display via OpenCode sidebar plugin.
 17. **Remote API protection** — Core algorithms served from self-hosted API server (`api.vibetheog.com`). Token-based auth with seat/license management. Suspended seats immediately revoke all tokens; plugin falls back to local degraded mode.
+18. **Per-session model locking** — `trinity lock on|off` freezes the model at session start. When locked, the plugin skips auto-reconcile with OpenCode config changes. Lock is in-memory only (resets on restart). Live footer shows `LOCK` tag when active.
+
+19. **Blackbox decision engine** — Tracks dialogue trajectory with 7 sub-regimes, 11 derived features per turn, loop prevention with 4 escalating intervention levels, PIVOT/SWITCH detection for context changes, outcome tracking from assistant response satisfaction signals, and online calibration via API server. State persisted per project in `~/.claude/blackbox-state.json` and remotely in SQLite (`blackbox_sessions`, `blackbox_calibration` tables). Commands: `trinity blackbox on|off|status|reset`. Injects decision directive, loop intervention, and pivot detection into system prompts. Footer shows resolution state, sub-regime, and momentum.
 
 **If you are unsure whether a change affects any of these features: STOP and ASK.**
 
@@ -94,6 +97,7 @@ The plugin hooks into OpenCode via seven extension points defined in `src/index.
 | `~/.claude/model-tiers.json` | Brain/medium/cheap model slot configuration |
 | `~/.claude/project-states.json` | Project memory (reports, audit data, per-project analytics) |
 | `~/.claude/reports/` | Saved research-audit and manual reports |
+| `~/.claude/blackbox-state.json` | Per-project resolution tracker state, session outcomes |
 | `~/.claude/.vibeOS-locks/` | File-based locks preventing concurrent plugin instances |
 | `.env.production` | Production API credentials (gitignored, local only) |
 | `PRODUCTION-CREDENTIALS.md` | Credential reference and management commands (gitignored, local only) |

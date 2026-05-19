@@ -99,7 +99,16 @@ class VibeOSApiClient {
   }
 
   async blackboxAnalyze(sessionId, entry) {
-    return this.request("/api/v1/blackbox/analyze", { session_id: sessionId, entry })
+    return this.request("/api/v1/blackbox/analyze", {
+      session_id: sessionId,
+      project_id: entry.project_id || null,
+      user_text: entry.userText || "",
+      features: entry.features || {},
+      action: entry.action || "explore",
+      entropy: entry.entropy ?? 1.0,
+      uncertainty: entry.uncertainty ?? 50,
+      embedding: entry.embedding || null,
+    })
   }
 
   async blackboxState(sessionId) {
@@ -108,6 +117,18 @@ class VibeOSApiClient {
 
   async blackboxReset(sessionId) {
     return this.request("/api/v1/blackbox/reset", { session_id: sessionId })
+  }
+
+  async blackboxOutcome(sessionId, outcome) {
+    return this.request("/api/v1/blackbox/outcome", { session_id: sessionId, outcome })
+  }
+
+  async blackboxCalibrate(projectId) {
+    return this.request("/api/v1/blackbox/calibrate", { project_id: projectId || "global" })
+  }
+
+  async blackboxCalibration(projectId) {
+    return this.request(`/api/v1/blackbox/calibration?project_id=${projectId || "global"}`, null)
   }
 
   async tddExports(sourceContent, ext) {

@@ -1,196 +1,113 @@
+import { ResolutionTracker as SharedResolutionTracker } from "../../vibeOS-lib/blackbox/resolution-tracker.js"
+
 const SUB_REGIMES = ["INIT", "DIVERGENT", "EXPLORING", "REFINING", "CONVERGING", "CLOSED", "LOOPING"]
 
 class ResolutionTracker {
-  constructor() {
-    this.history = []
-    this.state = {
-      subRegime: "INIT",
-      entropy: 0,
-      uncertainty: 100,
-      momentum: 0,
-      loopCount: 0,
-      turnCount: 0,
-    }
+  constructor(sessionId, projectId, maxHistory = 50) {
+    this._inner = new SharedResolutionTracker(sessionId, maxHistory)
+    this.projectId = projectId || null
   }
 
   update(entry) {
-    this.history.push({
-      turn: this.state.turnCount++,
-      timestamp: Date.now(),
-      userText: entry.userText || "",
-      features: entry.features || [],
-      actions: entry.actions || [],
-      entropy: entry.entropy ?? this.state.entropy,
-      uncertainty: entry.uncertainty ?? this.state.uncertainty,
-      embedding: entry.embedding || null,
-    })
+    const userText = entry.userText || ""
+    const features = entry.features && typeof entry.features === "object" && !Array.isArray(entry.features)
+      ? entry.features
+      : {}
+    const action = (entry.actions && entry.actions.length > 0) ? entry.actions[0] : (entry.action || "explore")
+    const entropy = entry.entropy ?? 1.0
+    const uncertainty = entry.uncertainty ?? 50
+    const embedding = entry.embedding || null
 
-    if (this.history.length > 50) {
-      this.history = this.history.slice(-40)
-    }
-
-    this.state.entropy = this.history[this.history.length - 1].entropy
-    this.state.uncertainty = this.history[this.history.length - 1].uncertainty
-    this.state.subRegime = this.computeSubRegime()
-    this.state.momentum = this.calcMomentum()
-    this.state.loopCount = this.detectLoop() ? this.state.loopCount + 1 : 0
-  }
-
-  computeSubRegime() {
-    if (this.history.length < 2) return "INIT"
-
-    const recent = this.history.slice(-5)
-    const isLooping = this.detectLoop()
-    if (isLooping) return "LOOPING"
-
-    const entropyTrend = this.calcEntropyTrend()
-    const actionConsistency = this.calcActionConsistency()
-
-    if (entropyTrend < -0.1 && actionConsistency > 0.7) return "CONVERGING"
-    if (entropyTrend > 0.1 && actionConsistency < 0.3) return "DIVERGENT"
-    if (entropyTrend > 0.05) return "EXPLORING"
-    if (entropyTrend < -0.05) return "REFINING"
-    if (this.state.uncertainty < 20) return "CLOSED"
-
-    return "EXPLORING"
-  }
-
-  calcEntropyTrend() {
-    if (this.history.length < 3) return 0
-    const recent = this.history.slice(-5).map(h => h.entropy)
-    return linearTrend(recent)
-  }
-
-  calcActionConsistency() {
-    if (this.history.length < 2) return 1
-    const recent = this.history.slice(-5)
-    const actionSets = recent.map(h => new Set(h.actions || []))
-    let matches = 0
-    let total = 0
-    for (let i = 1; i < actionSets.length; i++) {
-      const intersection = [...actionSets[i - 1]].filter(a => actionSets[i].has(a))
-      const union = new Set([...actionSets[i - 1], ...actionSets[i]])
-      if (union.size > 0) {
-        matches += intersection.length / union.size
-        total++
-      }
-    }
-    return total > 0 ? matches / total : 1
-  }
-
-  calcEmbeddingDelta() {
-    if (this.history.length < 2) return 0
-    const last = this.history[this.history.length - 1]
-    const prev = this.history[this.history.length - 2]
-    if (!last.embedding || !prev.embedding) return 0
-    return euclideanDistance(last.embedding, prev.embedding)
-  }
-
-  detectLoop(k = 3) {
-    if (this.history.length < k * 2) return false
-    const recent = this.history.slice(-k)
-    const older = this.history.slice(-(k * 2), -k)
-
-    const recentWords = new Set(recent.flatMap(h => (h.userText || "").toLowerCase().split(/\s+/)).filter(w => w.length > 3))
-    const olderWords = new Set(older.flatMap(h => (h.userText || "").toLowerCase().split(/\s+/)).filter(w => w.length > 3))
-
-    if (recentWords.size === 0 || olderWords.size === 0) return false
-
-    const intersection = [...recentWords].filter(w => olderWords.has(w))
-    const jaccard = intersection.length / new Set([...recentWords, ...olderWords]).size
-
-    const infoGain = this.calcEntropyTrend()
-    return jaccard > 0.6 && infoGain > -0.02
-  }
-
-  computeIntentState() {
-    const actions = this.history.slice(-10).map(h => h.actions || [])
-    const embeddings = this.history.slice(-10).filter(h => h.embedding).map(h => h.embedding)
-
-    const volatility = actions.length > 1 ? variance(actions.map(a => a.length)) : 0
-    const driftRate = embeddings.length > 2 ? this.calcEmbeddingDelta() : 0
-
-    return {
-      volatility: Math.min(volatility / 10, 1),
-      drift_rate: Math.min(driftRate, 1),
-      continuity: this.continuityState(volatility, driftRate),
-    }
-  }
-
-  continuityState(volatility, driftRate) {
-    const combined = volatility * 0.4 + driftRate * 0.6
-    if (combined < 0.2) return "HIGH"
-    if (combined < 0.5) return "MEDIUM"
-    return "LOW"
-  }
-
-  calcMomentum() {
-    const entropyTrend = this.calcEntropyTrend()
-    const actionConsistency = this.calcActionConsistency()
-    const embeddingDelta = this.calcEmbeddingDelta()
-
-    return (entropyTrend * -0.3) + (actionConsistency * 0.5) + ((1 - Math.min(embeddingDelta, 1)) * 0.2)
+    return this._inner.update(userText, features, action, entropy, uncertainty, embedding)
   }
 
   getState() {
+    const snap = this._inner.snapshot()
     return {
-      sub_regime: this.state.subRegime,
-      entropy: roundTo(this.state.entropy, 3),
-      uncertainty: roundTo(this.state.uncertainty, 1),
-      momentum: roundTo(this.state.momentum, 3),
-      loop_count: this.state.loopCount,
-      turn_count: this.state.turnCount,
-      intent_state: this.computeIntentState(),
-      history_length: this.history.length,
+      sub_regime: snap.sub_regime || "INIT",
+      resolution: snap.resolution || "unresolved",
+      momentum: snap.momentum || 0,
+      signals: snap.signals || {},
+      intent_state: snap.intent_state || { volatility_score: 0, drift_rate: 0, core_goal_embedding: null },
+      continuity_state: snap.continuity_state || null,
+      is_looping: snap.is_looping || false,
+      loop_consecutive: snap.loop_consecutive || 0,
+      loop_intervention_level: snap.loop_intervention_level || "none",
+      pivot_detected: snap.pivot_detected || false,
+      pivot_score: snap.pivot_score || 0,
+      outcome: snap.outcome || null,
+      n_interactions: snap.n_interactions || 0,
+      loop_count: snap.is_looping ? snap.loop_consecutive || 1 : 0,
+      turn_count: snap.n_interactions || 0,
+      history_length: this._inner.getHistory().length,
     }
   }
-}
 
-function linearTrend(values) {
-  if (values.length < 2) return 0
-  const n = values.length
-  let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0
-  for (let i = 0; i < n; i++) {
-    sumX += i
-    sumY += values[i]
-    sumXY += i * values[i]
-    sumX2 += i * i
+  recordOutcome(outcome) {
+    this._inner.recordOutcome(outcome)
   }
-  const denom = n * sumX2 - sumX * sumX
-  return denom === 0 ? 0 : (n * sumXY - sumX * sumY) / denom
-}
 
-function cosineSimilarity(a, b) {
-  if (a.length !== b.length) return 0
-  let dot = 0, normA = 0, normB = 0
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i]
-    normA += a[i] * a[i]
-    normB += b[i] * b[i]
+  getLoopIntervention() {
+    return this._inner.getLoopIntervention()
   }
-  const denom = Math.sqrt(normA) * Math.sqrt(normB)
-  return denom === 0 ? 0 : dot / denom
-}
 
-function euclideanDistance(a, b) {
-  if (a.length !== b.length) return Infinity
-  let sum = 0
-  for (let i = 0; i < a.length; i++) {
-    const d = a[i] - b[i]
-    sum += d * d
+  getPivotDirective() {
+    return this._inner.getPivotDirective()
   }
-  return Math.sqrt(sum)
+
+  setCalibratedWeights(weights) {
+    this._inner.setCalibratedWeights(weights)
+  }
+
+  getOutcomeHistory() {
+    return this._inner.getOutcomeHistory()
+  }
+
+  reset() {
+    this._inner.reset()
+  }
+
+  serialize() {
+    return this._inner.serialize()
+  }
+
+  static deserialize(data) {
+    const tracker = new ResolutionTracker(data.sessionId)
+    tracker._inner = SharedResolutionTracker.deserialize(data)
+    return tracker
+  }
 }
 
-function variance(values) {
-  if (values.length < 2) return 0
-  const mean = values.reduce((a, b) => a + b, 0) / values.length
-  return values.reduce((sum, v) => sum + (v - mean) ** 2, 0) / (values.length - 1)
+function extractFeatures(text) {
+  if (!text || typeof text !== "string") return {}
+  const len = text.length
+  const words = text.split(/\s+/).filter(w => w.length > 0)
+  const wordCount = words.length
+  const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0)
+  const sentenceCount = sentences.length
+  const avgWordLen = wordCount > 0 ? words.reduce((s, w) => s + w.length, 0) / wordCount : 0
+  const questions = (text.match(/\?/g) || []).length
+  const questionRatio = sentenceCount > 0 ? questions / sentenceCount : 0
+  const codeBlocks = (text.match(/```/g) || []).length / 2
+  const urgency = /urgent|asap|immediately|critical|broken|failing|crash|error|bug/i.test(text) ? 1.0 : 0.0
+  const repetition = wordCount > 5
+    ? (text.toLowerCase().match(/(\b\w+\b).*?\1/g) || []).length / wordCount
+    : 0
+  const sentimentIndicators = /thanks|great|perfect|awesome/i.test(text) ? 0.2
+    : /frustrat|annoy|not working|doesn't work|stupid|useless/i.test(text) ? 0.8
+    : 0.5
+
+  return {
+    length: Math.min(1.0, len / 5000),
+    word_count: Math.min(1.0, wordCount / 500),
+    sentence_count: Math.min(1.0, sentenceCount / 50),
+    avg_word_length: Math.min(1.0, avgWordLen / 10),
+    question_ratio: Math.min(1.0, questionRatio),
+    code_blocks: Math.min(1.0, codeBlocks / 5),
+    urgency,
+    repetition: Math.min(1.0, repetition * 10),
+    sentiment: sentimentIndicators,
+  }
 }
 
-function roundTo(n, d) {
-  const m = 10 ** d
-  return Math.round(n * m) / m
-}
-
-export { ResolutionTracker, SUB_REGIMES, linearTrend, cosineSimilarity, euclideanDistance, variance }
+export { ResolutionTracker, SUB_REGIMES, extractFeatures }

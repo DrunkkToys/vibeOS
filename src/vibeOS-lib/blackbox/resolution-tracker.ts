@@ -11,6 +11,8 @@ export type ResolutionEntry = {
   uncertainty: number
   embedding: number[] | null
   timestamp: number
+  outcome?: string | null
+  is_pivot?: boolean
 }
 
 export type ResolutionState = {
@@ -30,6 +32,11 @@ export type ResolutionState = {
   }
   continuity_state: string
   is_looping: boolean
+  loop_consecutive: number
+  loop_intervention_level: string
+  pivot_detected: boolean
+  pivot_score: number
+  outcome: string | null
   n_interactions: number
 }
 
@@ -39,11 +46,19 @@ export class ResolutionTracker {
   private sessionId: string
   private maxHistory: number
   private history: ResolutionEntry[]
+  private loopCount: number
+  private pivotHistory: number[]
+  private outcomeHistory: { turn: number; outcome: string; timestamp: number }[]
+  public calibratedWeights: { momentum: number[]; subRegime: Record<string, number>; loopJaccard: number; closureConfidence: number } | null
 
   constructor(sessionId: string, maxHistory: number = 10) {
     this.sessionId = sessionId
     this.maxHistory = maxHistory
     this.history = []
+    this.loopCount = 0
+    this.pivotHistory = []
+    this.outcomeHistory = []
+    this.calibratedWeights = null
   }
 
   update(
@@ -63,13 +78,45 @@ export class ResolutionTracker {
       embedding: embedding ? [...embedding] : null,
       timestamp: Date.now() / 1000,
     }
+
+    if (this.history.length >= 2) {
+      entry.is_pivot = this.detectPivotSignal(entry, this.history[this.history.length - 1])
+      if (entry.is_pivot) {
+        this.pivotHistory.push(this.history.length)
+      }
+    }
+
     this.history.push(entry)
 
     if (this.history.length > this.maxHistory) {
       this.history.shift()
     }
 
-    return this.computeState()
+    const state = this.computeState()
+    if (state.is_looping) {
+      this.loopCount++
+      this.history[this.history.length - 1].outcome = this.history[this.history.length - 1].outcome || "loop_detected"
+    } else if (state.sub_regime !== "LOOPING") {
+      this.loopCount = Math.max(0, this.loopCount - 1)
+    }
+
+    return state
+  }
+
+  private detectPivotSignal(current: ResolutionEntry, previous: ResolutionEntry): boolean {
+    const drift = this.history.length >= 4
+      ? this.computeIntentState().drift_rate
+      : 0
+
+    const repeatRatio = (current.features?.repetition || 0)
+    const instructionChange = Math.abs((current.features?.instruction_density || 0.6) - (previous.features?.instruction_density || 0.6))
+    const lengthRatio = previous.text.length > 0
+      ? Math.abs(current.text.length - previous.text.length) / previous.text.length
+      : 0
+
+    const pivotScore = drift * 0.35 + repeatRatio * 0.15 + instructionChange * 0.25 + lengthRatio * 0.25
+
+    return pivotScore > 0.45
   }
 
   private computeState(): ResolutionState {
@@ -84,6 +131,11 @@ export class ResolutionTracker {
         intent_state: { volatility_score: 0.0, drift_rate: 0.0, core_goal_embedding: null },
         continuity_state: "HIGH",
         is_looping: false,
+        loop_consecutive: 0,
+        loop_intervention_level: "none",
+        pivot_detected: false,
+        pivot_score: 0.0,
+        outcome: null,
         n_interactions: 0,
       }
     }
@@ -137,6 +189,18 @@ export class ResolutionTracker {
       lastEntry.entropy,
     )
 
+    let loopLevel = "none"
+    if (isLooping) {
+      if (this.loopCount >= 4) loopLevel = "escalated"
+      else if (this.loopCount >= 3) loopLevel = "assertive"
+      else if (this.loopCount >= 2) loopLevel = "suggestive"
+      else loopLevel = "gentle"
+    }
+
+    const pivotDetected = lastEntry.is_pivot || false
+    const pivotScore = pivotDetected ? 1.0
+      : (intentState.drift_rate * 0.6 + (intentState.volatility_score * 0.4))
+
     return {
       sub_regime: subRegime,
       resolution,
@@ -154,6 +218,11 @@ export class ResolutionTracker {
       },
       continuity_state: continuityState,
       is_looping: isLooping,
+      loop_consecutive: this.loopCount,
+      loop_intervention_level: loopLevel,
+      pivot_detected: pivotDetected,
+      pivot_score: Math.round(pivotScore * 10000) / 10000,
+      outcome: lastEntry.outcome || null,
       n_interactions: n,
     }
   }
@@ -216,6 +285,8 @@ export class ResolutionTracker {
   }
 
   private detectLoop(k: number = 3, threshold: number = 0.6): boolean {
+    const effectiveThreshold = this.calibratedWeights?.loopJaccard ?? threshold
+
     if (this.history.length < k + 1) return false
 
     const currWords = new Set(this.history[this.history.length - 1].text.toLowerCase().split(/\s+/))
@@ -229,7 +300,7 @@ export class ResolutionTracker {
 
     const infoGain = this.history[this.history.length - 1].entropy < this.history[this.history.length - (k + 1)].entropy
 
-    return jaccard > threshold && !infoGain
+    return jaccard > effectiveThreshold && !infoGain
   }
 
   private isExploring(contradiction: number, entropyTrend: number, _actionConsistency: number = 0.0): boolean {
@@ -254,9 +325,10 @@ export class ResolutionTracker {
 
     const lastAction = this.history[this.history.length - 1].action
     const lastEntropy = this.history[this.history.length - 1].entropy
+    const ccThreshold = this.calibratedWeights?.closureConfidence ?? 0.7
 
     return (
-      consistency > 0.7 &&
+      consistency > ccThreshold &&
       delta < 0.1 &&
       contradiction < 0.1 &&
       ["act", "commit"].includes(lastAction) &&
@@ -334,9 +406,11 @@ export class ResolutionTracker {
   ): number {
     if (isLooping) return -1.0
 
-    const entropyComponent = -entropyTrend * 0.3
-    const consistencyComponent = actionConsistency * 0.5
-    const deltaComponent = (1.0 - Math.min(1.0, embeddingDelta)) * 0.2
+    const w = this.calibratedWeights?.momentum || [-0.3, 0.5, 0.2]
+
+    const entropyComponent = entropyTrend * w[0]
+    const consistencyComponent = actionConsistency * w[1]
+    const deltaComponent = (1.0 - Math.min(1.0, embeddingDelta)) * w[2]
 
     let momentum = entropyComponent + consistencyComponent + deltaComponent
 
@@ -351,6 +425,66 @@ export class ResolutionTracker {
 
   reset(): void {
     this.history = []
+    this.loopCount = 0
+    this.pivotHistory = []
+    this.outcomeHistory = []
+  }
+
+  recordOutcome(outcome: string): void {
+    const entry = this.history[this.history.length - 1]
+    if (entry) {
+      entry.outcome = outcome
+      this.outcomeHistory.push({
+        turn: this.history.length,
+        outcome,
+        timestamp: Date.now() / 1000,
+      })
+    }
+  }
+
+  getLoopIntervention(): { level: string; directive: string; resetSuggested: boolean } | null {
+    const state = this.snapshot()
+    if (!state.is_looping) return null
+
+    const interventions: Record<string, { directive: string; resetSuggested: boolean }> = {
+      gentle: {
+        directive: "You may be repeating yourself — try rephrasing the core question differently or approaching from a new angle.",
+        resetSuggested: false,
+      },
+      suggestive: {
+        directive: "The conversation is looping. Step back and identify what new information you need. Consider asking a different question or taking a break from this topic.",
+        resetSuggested: false,
+      },
+      assertive: {
+        directive: "You are stuck in a loop. The current approach is not productive. PIVOT: list 3 alternative approaches you haven't tried and pick one.",
+        resetSuggested: false,
+      },
+      escalated: {
+        directive: "CRITICAL: You have been looping for several turns. STOP the current approach entirely. Either SWITCH to a completely different topic or reset your strategy. Continued looping wastes time and tokens.",
+        resetSuggested: true,
+      },
+    }
+
+    return {
+      level: state.loop_intervention_level,
+      ...interventions[state.loop_intervention_level] || interventions.gentle,
+    }
+  }
+
+  getPivotDirective(): string | null {
+    const state = this.snapshot()
+    if (!state.pivot_detected) return null
+
+    return (
+      "PIVOT DETECTED: The conversation has shifted context. " +
+      "The previous resolution state may no longer apply. " +
+      "Acknowledge the context change and adapt your guidance accordingly. " +
+      "If the new topic is entirely unrelated to the project, confirm the scope change before proceeding."
+    )
+  }
+
+  setCalibratedWeights(weights: { momentum: number[]; subRegime: Record<string, number>; loopJaccard: number; closureConfidence: number }): void {
+    this.calibratedWeights = weights
   }
 
   snapshot(): ResolutionState {
@@ -361,18 +495,68 @@ export class ResolutionTracker {
     return [...this.history]
   }
 
+  getOutcomeHistory(): { turn: number; outcome: string; timestamp: number }[] {
+    return [...this.outcomeHistory]
+  }
+
   serialize(): Record<string, any> {
     return {
       sessionId: this.sessionId,
       maxHistory: this.maxHistory,
       history: this.history,
+      loopCount: this.loopCount,
+      pivotHistory: this.pivotHistory,
+      outcomeHistory: this.outcomeHistory,
+      calibratedWeights: this.calibratedWeights,
     }
   }
 
   static deserialize(data: Record<string, any>): ResolutionTracker {
     const tracker = new ResolutionTracker(data.sessionId, data.maxHistory)
     tracker.history = data.history || []
+    tracker.loopCount = data.loopCount || 0
+    tracker.pivotHistory = data.pivotHistory || []
+    tracker.outcomeHistory = data.outcomeHistory || []
+    tracker.calibratedWeights = data.calibratedWeights || null
     return tracker
+  }
+
+  static extractFeatures(text: string): Record<string, number> {
+    if (!text || typeof text !== "string") return {}
+    const len = text.length
+    const words = text.split(/\s+/).filter(w => w.length > 0)
+    const wordCount = words.length
+    const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0)
+    const sentenceCount = sentences.length
+    const avgWordLen = wordCount > 0 ? words.reduce((s, w) => s + w.length, 0) / wordCount : 0
+    const questions = (text.match(/\?/g) || []).length
+    const questionRatio = sentenceCount > 0 ? questions / sentenceCount : 0
+    const codeBlocks = (text.match(/```/g) || []).length / 2
+    const urgency = /urgent|asap|immediately|critical|broken|failing|crash|error|bug/i.test(text) ? 1.0 : 0.0
+    const repetition = wordCount > 5
+      ? (text.toLowerCase().match(/(\b\w+\b).*?\1/g) || []).length / wordCount
+      : 0
+    const sentimentInds = /thanks|great|perfect|awesome/i.test(text) ? 0.2
+      : /frustrat|annoy|not working|doesn't work|stupid|useless/i.test(text) ? 0.8
+      : 0.5
+    const complexity = /complex|difficult|hard|confusing|trick|subtle|nuance/i.test(text) ? 1.0 : 0.0
+    const instructionDensity = /do not|must|should|always|never|critical/i.test(text) ? 1.0
+      : /please|could you|maybe|perhaps/i.test(text) ? 0.3
+      : 0.6
+
+    return {
+      length: Math.min(1.0, len / 5000),
+      word_count: Math.min(1.0, wordCount / 500),
+      sentence_count: Math.min(1.0, sentenceCount / 50),
+      avg_word_length: Math.min(1.0, avgWordLen / 10),
+      question_ratio: Math.min(1.0, questionRatio),
+      code_blocks: Math.min(1.0, codeBlocks / 5),
+      urgency,
+      repetition: Math.min(1.0, repetition * 10),
+      sentiment: sentimentInds,
+      complexity,
+      instruction_density: instructionDensity,
+    }
   }
 }
 

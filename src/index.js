@@ -31,6 +31,8 @@ import { computeSessionMetrics } from "./vibeOS-lib/session-metrics.js"
 import { ResolutionTracker, buildAdvice, classifySituation, ExposureModel } from "./vibeOS-lib/blackbox/index.js"
 import { createMcpServer } from "./vibeOS-mcp-server.js"
 import { VibeOSApiClient, VibeOSAuthError, VibeOSTimeoutError, VibeOSNetworkError } from "./vibeOS-api-server/client.js"
+import { computeDifficulty, cascadeDecide, createPatternGraph, ensureNode, addRouteEdge, predictBestModel, hashQuery, deserializeGraph } from "./vibeOS-lib/ml-router.js"
+import { createCacheDatabase, addCacheEntry, recordCacheStats, predictCacheHit, compositeSimilarity, evictStaleEntries, deserializeCacheDb } from "./vibeOS-lib/smart-cache.js"
 
 // ── Remote API client (Phase 2) ─────────────────────────────────────
 const VIBEOS_API_URL = process.env.VIBEOS_API_URL || "https://api.vibetheog.com"
@@ -150,6 +152,34 @@ const WARN_MAX_PER_SESSION = 3
 const WARN_COALESCE_THRESHOLD = 10
 const warnCoalesceCounters = new Map()
 
+// ── ML Router: query difficulty predictor + confidence cascading + pattern graph ──
+let _mlGraph = createPatternGraph()
+let _cacheDb = createCacheDatabase()
+const ML_ENABLED = true
+const ML_CONFIDENCE_THRESHOLD = 0.6
+let _mlSavePending = false
+
+function loadMLState() {
+  try {
+    const gl = loadGlobalLearning()
+    if (gl.ml_graph_raw) _mlGraph = deserializeGraph(gl.ml_graph_raw)
+    if (gl.ml_cache_raw) _cacheDb = deserializeCacheDb(gl.ml_cache_raw)
+    evictStaleEntries(_cacheDb, 86400 * 7)
+  } catch {}
+}
+function saveMLState() {
+  if (!ML_ENABLED) return false
+  try {
+    updateGlobalLearning((gl) => {
+      gl.ml_graph_raw = JSON.stringify(_mlGraph)
+      gl.ml_cache_raw = JSON.stringify(_cacheDb)
+      return gl
+    })
+    return true
+  } catch { return false }
+}
+loadMLState()
+
 // Tier regexes — load from ~/.claude/model-tiers.json (single source of truth
 // shared with the bash hook). Falls back to inline regexes if file missing or
 // malformed, so the plugin never fails to load due to tier-config issues.
@@ -254,6 +284,7 @@ function writeSelection(key, value) {
 // ── Blackbox state management ──────────────────────────────────────
 let _blackboxTracker = null
 let _blackboxEnabled = false
+let _modelLocked = false
 
 function loadBlackboxState() {
   try {
@@ -274,9 +305,19 @@ function saveBlackboxState(state) {
 function getBlackboxTracker() {
   if (!_blackboxTracker) {
     const state = loadBlackboxState()
-    const sid = String(process.pid || "default")
+    const sid = _OC_SID
     if (state.sessions?.[sid]?.history) {
       _blackboxTracker = ResolutionTracker.deserialize(state.sessions[sid])
+    } else if (currentProjectFingerprint) {
+      const projectKeys = Object.keys(state.sessions || {}).filter(k => state.sessions[k].project_fingerprint === currentProjectFingerprint)
+      const latest = projectKeys.sort().slice(-1)[0]
+      if (latest && state.sessions[latest]?.history) {
+        const data = state.sessions[latest]
+        data.sessionId = sid
+        _blackboxTracker = ResolutionTracker.deserialize(data)
+      } else {
+        _blackboxTracker = new ResolutionTracker(sid, 10)
+      }
     } else {
       _blackboxTracker = new ResolutionTracker(sid, 10)
     }
@@ -289,6 +330,38 @@ function getBlackboxResolution() {
     const tracker = getBlackboxTracker()
     return tracker.snapshot()
   } catch { return null }
+}
+
+let _prevOutputText = ""
+
+function detectOutcomeSignal(text) {
+  if (!text) return null
+  if (/thank|perfect|exactly|that.?s it|works great|works perfectly|solved|fixed|awesome|you rock/i.test(text)) return "positive"
+  if (/doesn.?t work|still broken|not working|incorrect|wrong|failed|error|useless|stuck/i.test(text)) return "negative"
+  return null
+}
+
+async function syncOutcomeToApi(outcome) {
+  try {
+    const client = getApiClient()
+    if (!client || isApiFallback()) return
+    await client.blackboxOutcome(_OC_SID, outcome)
+  } catch {}
+}
+
+async function syncBlackboxToApi(sessionId, userText, features, action, entropy, uncertainty) {
+  try {
+    const client = getApiClient()
+    if (!client || isApiFallback()) return
+    await client.blackboxAnalyze(sessionId, {
+      userText,
+      features,
+      action,
+      entropy,
+      uncertainty,
+      project_id: currentProjectFingerprint || null,
+    })
+  } catch { /* API sync is best-effort; local state is authoritative */ }
 }
 
 // Write active_slot AND update opencode.json model to the matching oc model.
@@ -3247,26 +3320,29 @@ function _refreshModel(directory) {
       }
     }
     // Reconcile with the actual OpenCode config model (handles manual model switches)
-    const cfgModel = readConfig(directory) || readConfig(join(USER_HOME, ".config/opencode")) || ""
-    if (cfgModel && cfgModel !== currentModel) {
-      const oldModel = currentModel
-      const oldTier = currentTier
-      currentModel = cfgModel
-      currentTier = classify(cfgModel)
-      console.error(`[vibeOS] model refresh (config): ${oldModel}(${oldTier}) → ${currentModel}(${currentTier})`)
-      try {
-        if (existsSync(TIERS_FILE)) {
-          const t = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
-          for (const s of ["brain", "medium", "cheap"]) {
-            if (t?.trinity?.[s]?.oc === cfgModel) {
-              t.selection.active_slot = s
-              writeFileSync(TIERS_FILE, JSON.stringify(t, null, 2) + "\n")
-              console.error(`[vibeOS] model refresh (config): synced active_slot → ${s}`)
-              break
+    // When model lock is active, skip auto-reconcile — user must explicitly switch via trinity.
+    if (!_modelLocked) {
+      const cfgModel = readConfig(directory) || readConfig(join(USER_HOME, ".config/opencode")) || ""
+      if (cfgModel && cfgModel !== currentModel) {
+        const oldModel = currentModel
+        const oldTier = currentTier
+        currentModel = cfgModel
+        currentTier = classify(cfgModel)
+        console.error(`[vibeOS] model refresh (config): ${oldModel}(${oldTier}) → ${currentModel}(${currentTier})`)
+        try {
+          if (existsSync(TIERS_FILE)) {
+            const t = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
+            for (const s of ["brain", "medium", "cheap"]) {
+              if (t?.trinity?.[s]?.oc === cfgModel) {
+                t.selection.active_slot = s
+                writeFileSync(TIERS_FILE, JSON.stringify(t, null, 2) + "\n")
+                console.error(`[vibeOS] model refresh (config): synced active_slot → ${s}`)
+                break
+              }
             }
           }
-        }
-      } catch {}
+        } catch {}
+      }
     }
   } catch {}
 }
@@ -3536,6 +3612,7 @@ export async function DelegationEnforcer({ client, directory }) {
       if (selNowFooter.delegation_enforce) enfTagsFooter.push("ENF")
       if (selNowFooter.flow_enforce) enfTagsFooter.push("FLOW")
       if (selNowFooter.tdd_enforce) enfTagsFooter.push("TDD")
+      if (_modelLocked) enfTagsFooter.push("LOCK")
       let enfSuffixFooter = enfTagsFooter.length > 0 ? ` ${enfTagsFooter.join("")}` : ""
       if (quality_avg > 0) {
         enfSuffixFooter = ` QA:${Math.round(quality_avg)}%${enfSuffixFooter}`
@@ -3581,6 +3658,18 @@ export async function DelegationEnforcer({ client, directory }) {
             const momentumBar = res.momentum > 0.3 ? "↑↑" : res.momentum > 0 ? "↑" : res.momentum < -0.3 ? "↓↓" : res.momentum < 0 ? "↓" : "→"
             const loopTag = res.is_looping ? " ⚠loop" : ""
             footerText += `\n— decision: ${res.resolution} ${res.sub_regime} ${momentumBar}${loopTag} —`
+          }
+          const prevText = _prevOutputText
+          _prevOutputText = typeof output?.text === "string" ? output.text : typeof output?.result === "string" ? output.result : ""
+          if (_blackboxEnabled && _prevOutputText && prevText && _prevOutputText !== prevText) {
+            const outcome = detectOutcomeSignal(_prevOutputText)
+            if (outcome) {
+              try {
+                const tracker = getBlackboxTracker()
+                tracker.recordOutcome(outcome)
+                syncOutcomeToApi(outcome)
+              } catch {}
+            }
           }
         } catch {}
       }
@@ -3650,6 +3739,32 @@ function scoreTaskQuality(outputText, promptText) {
           const cacheNote = cacheSaved ? `, cache+$${(cacheSaved.lifetime || 0).toFixed(3)} lt` : ""
           console.error(`[vibeOS] 📦 scratchpad hit for ${t}: ${hit.fullPath} ${hit.sizeBytes}B ${hit.ageSec}s old${sumNote} — total observed: ${total ?? "?"}${cacheNote}`)
         }
+        // Smart cache: learn from this observation + predict future reuse.
+        if (ML_ENABLED) {
+          try {
+            const rawArgs = args || inArgs || {}
+            const promptText = typeof rawArgs.prompt === "string" ? rawArgs.prompt
+              : typeof rawArgs.filePath === "string" ? `${t}:${rawArgs.filePath}`
+              : typeof rawArgs.command === "string" ? rawArgs.command
+              : typeof rawArgs.url === "string" ? rawArgs.url
+              : typeof rawArgs.pattern === "string" ? rawArgs.pattern
+              : typeof rawArgs.query === "string" ? rawArgs.query
+              : ""
+            if (promptText) {
+              const keyStr = `${t}:${String(promptText).slice(0, 120)}`
+              addCacheEntry(_cacheDb, hit ? hit.hash : hashQuery(keyStr), t, promptText, hit ? hit.sizeBytes : 0, hit ? hit.ageSec : 0)
+              recordCacheStats(_cacheDb, t, !!hit, hit ? _cacheSave : 0)
+              if (!hit) {
+                const prediction = predictCacheHit(_cacheDb, t, promptText)
+                if (prediction.shouldWarm && prediction.confidence >= 0.6) {
+                  console.error(`[vibeOS] 🔮 Smart cache: ${t} may benefit from caching — ${prediction.reason} (conf: ${(prediction.confidence * 100).toFixed(0)}%)`)
+                }
+              }
+            }
+          } catch (scErr) {
+            console.error(`[vibeOS] Smart cache error: ${scErr.message}`)
+          }
+        }
       }
 
       // Credit < 40% + Task: force to cheap slot (mirrors CC's rwh path).
@@ -3694,6 +3809,47 @@ function scoreTaskQuality(outputText, promptText) {
           if (stressScore > 0.5) {
             _target = TRINITY_MEDIUM
             console.error(`[vibeOS] 🧘 Stress ${stressScore.toFixed(2)} → preserving medium tier for Task quality`)
+          }
+        }
+
+        // ML Router: difficulty prediction + confidence cascading.
+        if (ML_ENABLED) {
+          try {
+            const mlDifficulty = computeDifficulty(_prompt)
+            const mlHash = hashQuery(_prompt)
+            const mlGraphPrediction = predictBestModel(_mlGraph, _firstWord, currentTier)
+            if (mlDifficulty.confidence >= ML_CONFIDENCE_THRESHOLD && mlDifficulty.level !== "moderate") {
+              const mlTarget = mlDifficulty.suggestedTier === "cheap" ? TRINITY_CHEAP
+                : mlDifficulty.suggestedTier === "medium" ? TRINITY_MEDIUM
+                : null
+              if (mlTarget && mlTarget !== currentModel) {
+                const tierRank = { budget: 0, cheap: 1, mid: 2, medium: 2, high: 3, brain: 3 }
+                const mlRank = tierRank[mlDifficulty.suggestedTier] || 0
+                const curRank = _target ? (tierRank[classify(_target)] || 0) : 0
+                if (!_target) {
+                  _target = mlTarget
+                  console.error(`[vibeOS] 🧠 ML difficulty: ${mlDifficulty.level} (score ${mlDifficulty.score.toFixed(2)}, conf ${mlDifficulty.confidence.toFixed(2)}) → ${mlTarget}`)
+                } else if (mlRank > curRank && mlDifficulty.confidence >= 0.75) {
+                  _target = mlTarget
+                  console.error(`[vibeOS] 🧠 ML upgrade: ${mlDifficulty.level} (score ${mlDifficulty.score.toFixed(2)}, conf ${mlDifficulty.confidence.toFixed(2)}) → ${mlTarget}`)
+                }
+              }
+            }
+            if (mlGraphPrediction && mlGraphPrediction !== currentModel) {
+              const graphNode = _mlGraph.nodes[_firstWord]
+              if (graphNode && graphNode.count >= 3) {
+                if (!_target) {
+                  _target = mlGraphPrediction
+                  console.error(`[vibeOS] 🕸 ML graph: ${_firstWord} → ${mlGraphPrediction} (${graphNode.count} samples)`)
+                }
+              }
+            }
+            if (_target) {
+              const _mlTier = classify(_target) === "budget" ? "cheap" : classify(_target) === "mid" ? "medium" : classify(_target)
+              addRouteEdge(_mlGraph, _firstWord, _target, _mlTier, true)
+            }
+          } catch (mlErr) {
+            console.error(`[vibeOS] ML router error: ${mlErr.message}`)
           }
         }
 
@@ -3838,6 +3994,12 @@ function scoreTaskQuality(outputText, promptText) {
       if (!loadSelection().enabled) return
       _refreshModel(directory)
       const t = input?.tool ?? ""
+
+      // Save ML state after Task or key tools (throttled to avoid excessive I/O).
+      if ((t === "task" || t === "bash" || t === "edit" || t === "write") && !_mlSavePending) {
+        _mlSavePending = true
+        setTimeout(() => { saveMLState(); _mlSavePending = false }, 5000)
+      }
 
       // Show human-friendly slot label in the UI title for Task subagents.
       if (t === "task") {
@@ -4223,11 +4385,31 @@ function scoreTaskQuality(outputText, promptText) {
         if (_blackboxEnabled && latestUserIntent) {
           try {
             const tracker = getBlackboxTracker()
-            tracker.update(latestUserIntent, {}, "explore", 1.0, 50)
+            const features = ResolutionTracker.extractFeatures(latestUserIntent)
+            const action = /refactor|change|replace|switch|pivot|migrate/i.test(latestUserIntent) ? "change"
+              : /commit|save|push|merge|release|deploy|finalize/i.test(latestUserIntent) ? "commit"
+              : /write|create|build|make|add|implement|generate/i.test(latestUserIntent) ? "act"
+              : /explain|why|how|what|analyze|review|check|find|search|look/i.test(latestUserIntent) ? "explore"
+              : /show|list|get|read|see|view|display|print/i.test(latestUserIntent) ? "observe"
+              : "explore"
+            const entropy = Math.min(2.58, 0.5
+              + (features.question_ratio || 0) * 0.5
+              + (features.complexity || 0) * 0.8
+              + (features.repetition || 0) * 0.6
+              + (features.instruction_density || 0) * 0.4)
+            const uncertainty = Math.min(100, Math.max(10,
+              50 + (features.question_ratio || 0) * 40
+              - (features.code_blocks || 0) * 10
+              + (features.sentiment || 0.5) * 30
+              - (features.urgency || 0) * 20))
+            tracker.update(latestUserIntent, features, action, entropy, uncertainty)
             const state = loadBlackboxState()
-            const sid = String(process.pid || "default")
-            state.sessions[sid] = tracker.serialize()
+            const sid = _OC_SID
+            const serialized = tracker.serialize()
+            serialized.project_fingerprint = currentProjectFingerprint || ""
+            state.sessions[sid] = serialized
             saveBlackboxState(state)
+            syncBlackboxToApi(sid, latestUserIntent, features, action, entropy, uncertainty)
           } catch {}
         }
 
@@ -4282,13 +4464,33 @@ function scoreTaskQuality(outputText, promptText) {
             const tracker = getBlackboxTracker()
             const res = tracker.snapshot()
             if (res.n_interactions > 0) {
+              const signals = res.signals || {}
+              const intent = res.intent_state || {}
               const decisionDirective =
                 `[decision engine] Current resolution: ${res.resolution} (${res.sub_regime}). ` +
                 `Momentum: ${res.momentum > 0 ? "positive" : res.momentum < 0 ? "negative" : "neutral"}. ` +
                 `Situation type: ${situationType}. ` +
+                `Intent volatility: ${(intent.volatility_score || 0).toFixed(2)}, ` +
+                `Continuity: ${res.continuity_state || "N/A"}. ` +
                 `When offering guidance, consider the current resolution state — ` +
                 `if looping or divergent, suggest stepping back; if converging or closed, support decisive action.`
               if (Array.isArray(output?.system)) output.system.push(decisionDirective)
+            }
+
+            const loopIntervention = tracker.getLoopIntervention()
+            if (loopIntervention) {
+              const severity = loopIntervention.level === "escalated" ? "CRITICAL"
+                : loopIntervention.level === "assertive" ? "WARNING" : "NOTICE"
+              const loopDirective =
+                `[loop prevention: ${severity}] ${loopIntervention.directive} ` +
+                `(loop #${res.loop_consecutive}, level: ${loopIntervention.level})` +
+                (loopIntervention.resetSuggested ? " STRONGLY RECOMMEND resetting your approach." : "")
+              if (Array.isArray(output?.system)) output.system.push(loopDirective)
+            }
+
+            const pivotDirective = tracker.getPivotDirective()
+            if (pivotDirective && Array.isArray(output?.system)) {
+              output.system.push(`[context switch: PIVOT] ${pivotDirective}`)
             }
           } catch {}
         }
@@ -4391,6 +4593,23 @@ function scoreTaskQuality(outputText, promptText) {
             briefedProjects.add("trinity_welcome_" + fp)
           }
         }
+
+        // vibeOS Dashboard display directive — ask once, instruct permanently
+        if (!briefedProjects.has("vibeos_dashboard_instruct")) {
+          if (Array.isArray(output?.system)) {
+            output.system.push(
+              "[vibeOS dashboard display] When the trinity tool returns output starting with '[vibeOS-dashboard]', " +
+              "you MUST use the question tool to display that data in a clean, human-readable format. " +
+              "Use the question field (not the header) to show the dashboard data. " +
+              "Format it with clear sections separated by blank lines, aligned columns with spaces, " +
+              "and plain text only (no emojis, no markdown). " +
+              "The header should be 'vibeOS Dashboard'. " +
+              "Include only one option in options: {label: 'Dismiss', description: ''}. " +
+              "Strip the '[vibeOS-dashboard]' marker line before displaying."
+            )
+            briefedProjects.add("vibeos_dashboard_instruct")
+          }
+        }
       } catch (err) {
         console.error(`[vibeOS] system.transform failed: ${err.message}`)
       }
@@ -4438,16 +4657,84 @@ function scoreTaskQuality(outputText, promptText) {
             try { tiers = safeJsonParse(readFileSync(TIERS_FILE, "utf-8")).trinity || {} } catch {}
             const credit = loadCredit()
             const effectiveLevel = sel.thinking_level || thinkingLevel(credit)
-            const lines = [
-              `vibeOS ${sel.enabled ? "ON" : "OFF"} · ${sel.active_slot || "unset"} · thinking: ${effectiveLevel}`,
-              `Flow: ${sel.flow_enabled !== false ? "ON" : "OFF"} · TDD: ${sel.tdd_enforce ? "ON" : "OFF"} · Delegate: ${sel.delegation_enforce ? "ENFORCE" : "warn"}`,
-            ]
-            for (const s of ["brain", "medium", "cheap"]) {
-              const icon = s === "brain" ? "🧠" : s === "medium" ? "⚙" : "⚡"
-              const oc = tiers[s]?.oc || "(unset)"
-              const mark = sel.active_slot === s ? " *" : ""
-              lines.push(`  ${icon} ${s}: ${oc}${mark}`)
+
+            const sv = readLifetimeSavings()
+            const ltTotal = (sv.ltTasks || 0) + (sv.ltCache || 0)
+            const sesTasks = sv.sesTasks || 0
+            const sesCache = Number(readFullState()?.sessions?.[_OC_SID]?.cache_savings_usd || 0)
+            const sesWarns = Array.isArray(readFullState()?.sessions?.[_OC_SID]?.warns) ? readFullState().sessions[_OC_SID].warns.length : 0
+            const sesTrend = sv.sesTrend || "stable"
+            const sesRate = sv.sesRatePerHour || 0
+            const missedC7 = sv.missedC7 || 0
+            const toolBreakdown = sv.sesToolBreakdown || {}
+            const topTools = Object.entries(toolBreakdown).filter(([, v]) => v > 0.005).sort((a, b) => b[1] - a[1]).slice(0, 5)
+
+            const brainModel = tiers?.brain?.oc || "(unset)"
+            const mediumModel = tiers?.medium?.oc || "(unset)"
+            const cheapModel = tiers?.cheap?.oc || "(unset)"
+            const activeSlot = sel.active_slot || "brain"
+
+            const stressScore = latestUserIntent ? scoreStress(latestUserIntent) : 0
+            const stressBar = stressScore > 0.85 ? "█" : stressScore > 0.7 ? "▆" : stressScore > 0.5 ? "▅" : stressScore > 0.3 ? "▃" : stressScore > 0.1 ? "▂" : "▁"
+            const stressLabel = stressScore > 0.7 ? "high" : stressScore > 0.4 ? "elevated" : "calm"
+
+            const totalTurns = (sv.sesModelTurns?.brain || 0) + (sv.sesModelTurns?.worker || 0)
+            const brainPct = totalTurns > 0 ? Math.round((sv.sesModelTurns.brain / totalTurns) * 100) : 0
+            const workerPct = 100 - brainPct
+            const qualityAvg = sv.quality_avg || 0
+            const sesDuration = sv.sesDuration || 0
+            const durHrs = Math.floor(sesDuration / 3600)
+            const durMins = Math.floor((sesDuration % 3600) / 60)
+
+            let decisionLine = ""
+            if (_blackboxEnabled) {
+              try {
+                const res = getBlackboxResolution()
+                if (res && res.n_interactions > 0) {
+                  const momentumIcon = res.momentum > 0.3 ? "up up" : res.momentum > 0 ? "up" : res.momentum < -0.3 ? "down down" : res.momentum < 0 ? "down" : "flat"
+                  const loopTag = res.is_looping ? " (loop)" : ""
+                  decisionLine = `${res.resolution} ${res.sub_regime} ${momentumIcon}${loopTag}`
+                }
+              } catch {}
             }
+
+            const goalUsd = sel.savings_goal_usd || 0
+            const goalBar = goalUsd > 0 ? ` ${Math.round(Math.min(100, (ltTotal / goalUsd) * 100))}%` : ""
+
+            const lines = [
+              `[vibeOS-dashboard]`,
+              `Model: ${activeSlot} (${brainModel})`,
+              ...(totalTurns > 0 ? [`Split: brain ${brainPct}% / worker ${workerPct}% (${totalTurns} total)`] : []),
+              `Thinking: ${effectiveLevel}`,
+              `Credit: ${credit}%`,
+              ...(qualityAvg > 0 ? [`Quality: ${Math.round(qualityAvg)}%`] : []),
+              ...(decisionLine ? [`Decision: ${decisionLine}`] : []),
+              `|`,
+              `Stress: ${stressBar} (${stressLabel})`,
+              `|`,
+              `Guards:`,
+              `  Flow: ${sel.flow_enabled !== false ? "ON" : "OFF"}${sel.flow_enforce ? " (extract)" : ""}`,
+              `  TDD: ${sel.tdd_enforce ? "ON" : "OFF"}${sel.tdd_strict !== false ? " strict" : ""}${sel.tdd_quality !== false ? " quality" : ""}`,
+              `  Enforce: ${sel.delegation_enforce ? "ON" : "OFF"}`,
+              `  Lock: ${_modelLocked ? "🔒 ON (model fixed)" : "🔓 OFF"}`,
+              `|`,
+              `All-time savings:`,
+              `  Total: $${ltTotal.toFixed(2)} (${sesTrend})${goalBar}`,
+              `  Delegation: $${(sv.ltTasks || 0).toFixed(2)}`,
+              `  Cache: $${(sv.ltCache || 0).toFixed(2)}`,
+              `  Missed: $${missedC7.toFixed(2)}`,
+              `|`,
+              `This session:`,
+              ...(sesDuration > 0 ? [`  Duration: ${durHrs}h ${durMins}m`] : []),
+              `  Rate: $${sesRate.toFixed(2)}/hr`,
+              `  Warnings: ${sesWarns}`,
+              ...(topTools.length > 0 ? [`  Top tools:`, ...topTools.map(([t, v]) => `    ${t}: $${v.toFixed(2)}`)] : []),
+              `|`,
+              `Tiers:`,
+              `  brain:  ${brainModel}${activeSlot === "brain" ? "  *" : ""}`,
+              `  medium: ${mediumModel}${activeSlot === "medium" ? "  *" : ""}`,
+              `  cheap:  ${cheapModel}${activeSlot === "cheap" ? "  *" : ""}`,
+            ]
             return lines.join("\n")
           }
 
@@ -4539,6 +4826,20 @@ function scoreTaskQuality(outputText, promptText) {
             }
             const sel = loadSelection()
             return `🚫 Delegation enforcement: ${sel.delegation_enforce ? "ON (blocks direct writes/edits on brain tier)" : "OFF (warn only)"}\nUse \`trinity enforce on\` or \`trinity enforce off\` to toggle.`
+          }
+
+          if (action === "lock") {
+            if (slot === "on") {
+              _modelLocked = true
+              console.error(`[vibeOS] model LOCKED — ${currentModel} (${currentTier}) will not auto-reconcile with config`)
+              return `🔒 Model LOCKED — ${currentModel || "detected model"} will not change unless you force with \`trinity set\` or \`trinity lock off\`.`
+            }
+            if (slot === "off") {
+              _modelLocked = false
+              console.error(`[vibeOS] model UNLOCKED — auto-reconcile re-enabled`)
+              return `🔓 Model UNLOCKED — will auto-follow OpenCode config changes.`
+            }
+            return `🔒 Model lock: ${_modelLocked ? "ON (fixed per session)" : "OFF (follows config)"}\nUse \`trinity lock on\` or \`trinity lock off\` to toggle.\nLock is per-session (resets on restart).`
           }
 
           if (action === "tdd") {
@@ -5151,7 +5452,7 @@ function scoreTaskQuality(outputText, promptText) {
             if (mode === "reset") {
               _blackboxTracker = null
               const state = loadBlackboxState()
-              const sid = String(process.pid || "default")
+              const sid = _OC_SID
               delete state.sessions[sid]
               saveBlackboxState(state)
               return "🔄 Blackbox resolution tracker RESET."
@@ -5170,6 +5471,12 @@ function scoreTaskQuality(outputText, promptText) {
                   if (res.is_looping) lines.push("  ⚠ Looping detected — consider a fresh perspective")
                 } else {
                   lines.push("  No resolution data yet — start a decision session")
+                }
+                if (currentProjectFingerprint) {
+                  lines.push("")
+                  lines.push(`  Project: ${currentProjectName || "unknown"}`)
+                  const projectSessions = Object.entries(bbState.sessions || {}).filter(([k, v]) => v.project_fingerprint === currentProjectFingerprint)
+                  lines.push(`  Cross-session history: ${projectSessions.length} session(s) for this project`)
                 }
               }
               lines.push("")
@@ -5193,6 +5500,7 @@ function scoreTaskQuality(outputText, promptText) {
               "CONTROLS:",
               "  trinity enable/disable    Toggle vibeOS plugin on/off",
               "  trinity enforce on/off    Block brain-tier writes/edits (save $$)",
+              "  trinity lock on/off       Lock model at session start (skip auto-reconcile)",
               "  trinity thinking full|brief|off  Set reasoning depth",
               "",
               "GUARDRAILS:",
@@ -5213,8 +5521,8 @@ function scoreTaskQuality(outputText, promptText) {
               "",
               "DECISION ENGINE:",
               "  trinity blackbox on/off   Toggle theWay blackbox decision engine",
-              "  trinity blackbox status   View resolution state and momentum",
-              "  trinity blackbox reset    Clear resolution tracker",
+              "  trinity blackbox status   View resolution state, momentum, project history",
+              "  trinity blackbox reset    Clear resolution tracker for current session",
             ].join("\n")
           }
 
