@@ -4668,8 +4668,9 @@ function scoreTaskQuality(outputText, promptText) {
           console.error("[vibeOS] [job-focus] off-topic request detected vs active job context")
         }
 
-        // AI ORCHESTRATOR AGENT — only when delegation enforcement is active.
-        if (sel.delegation_enforce && Array.isArray(output?.system)) {
+        // AI ORCHESTRATOR AGENT — only when delegation enforcement is active
+        // and enforcement is not relaxed (meta-controller already covers relaxed mode).
+        if (sel.delegation_enforce && _controlVector?.enforcement_mode !== "relaxed" && Array.isArray(output?.system)) {
           const tierBias = _controlVector?.tier_bias || "auto"
           const cheapModel = TRINITY_CHEAP || "the cheaper model"
           const mediumModel = TRINITY_MEDIUM || "the medium model"
@@ -4686,7 +4687,8 @@ function scoreTaskQuality(outputText, promptText) {
         }
 
         // Batch task execution helper — encourage parallel subagent calls.
-        if (Array.isArray(output?.system)) {
+        // Skip when enforcement is relaxed (orchestrator is de-emphasized).
+        if (_controlVector?.enforcement_mode !== "relaxed" && Array.isArray(output?.system)) {
           output.system.push(
             "[batch execution] When you need to run multiple independent Task subagent calls, " +
             "invoke them ALL in parallel rather than sequentially. " +
@@ -4695,8 +4697,9 @@ function scoreTaskQuality(outputText, promptText) {
           )
         }
 
-        // TDD directive — only when TDD enforcement is enabled.
-        if (sel.tdd_enforce && Array.isArray(output?.system)) {
+        // TDD directive — only when TDD enforcement is enabled
+        // and not in lazy mode (meta-controller already covers lazy mode).
+        if (sel.tdd_enforce && _controlVector?.tdd_mode !== "lazy" && Array.isArray(output?.system)) {
           const tddMode = _controlVector?.tdd_mode || (sel.tdd_strict ? "strict" : "normal")
           const tddFocus = _controlVector?.tdd_focus || []
           const modeNotes = {
@@ -4711,8 +4714,9 @@ function scoreTaskQuality(outputText, promptText) {
           )
         }
 
-        // Flow directive — only when flow enforcer is enabled.
-        if (sel.flow_enabled && Array.isArray(output?.system)) {
+        // Flow directive — only when flow enforcer is enabled
+        // and not in audit mode (meta-controller already covers audit mode).
+        if (sel.flow_enabled && _controlVector?.flow_mode !== "audit" && Array.isArray(output?.system)) {
           const flowMode = _controlVector?.flow_mode || (sel.flow_enforce ? "normal" : "audit")
           const flowFocus = _controlVector?.flow_focus || []
           const enforceNote = sel.flow_enforce ? " TODO/FIXME extraction is active." : ""
@@ -4726,7 +4730,7 @@ function scoreTaskQuality(outputText, promptText) {
         // Project Guard directive — maintain AGENTS.md and README.md
         if (Array.isArray(output?.system)) {
           output.system.push(
-            "[project guard] AGENTS.md and README.md are protected by vibeOS. " +
+            "[project guard: CRITICAL] AGENTS.md and README.md are protected by vibeOS. " +
             "Do NOT modify either file without explicit user permission. " +
             "When implementing new features, update README.md to document them. " +
             "AGENTS.md defines that AI agents must ask before changing code — respect this rule."
