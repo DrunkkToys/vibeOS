@@ -150,9 +150,12 @@ function validateState(state: any, path: string): void {
     console.error(`[vibeOS] State validation warning: invalid session_started_at at ${path}, resetting`)
     state.session_started_at = new Date().toISOString()
   }
-  if (state.sessions && !Array.isArray(state.sessions)) {
-    console.error(`[vibeOS] State validation warning: sessions is not array at ${path}, resetting`)
-    state.sessions = []
+  if (state.sessions && Array.isArray(state.sessions)) {
+    console.error(`[vibeOS] State validation: converting legacy sessions array to object at ${path}`)
+    state.sessions = {}
+  } else if (state.sessions && !Array.isArray(state.sessions) && (typeof state.sessions !== "object" || state.sessions === null)) {
+    console.error(`[vibeOS] State validation warning: sessions is invalid type at ${path}, resetting`)
+    state.sessions = {}
   }
   if (state.lifetime && typeof state.lifetime !== 'object') {
     console.error(`[vibeOS] State validation warning: lifetime is not object at ${path}, resetting`)
@@ -2556,21 +2559,6 @@ function computeSavingsPayload() {
   }
 }
 
-function computeSessionsPayload() {
-  const state = readFullState()
-  const sessions = Object.entries(state?.sessions || {}).map(([id, ses]) => ({
-    id,
-    started: ses?.started || null,
-    cost_usd: Number(ses?.cost_usd || 0),
-    delegation_savings_usd: Array.isArray(ses?.warns)
-      ? ses.warns.reduce((sum, w) => sum + (Number(w?.est_savings_usd || 0) || 0), 0)
-      : 0,
-    cache_savings_usd: Number(ses?.cache_savings_usd || 0),
-    warns_count: Array.isArray(ses?.warns) ? ses.warns.length : 0,
-  }))
-  return { sessions, total_sessions: sessions.length }
-}
-
 function computeSessionCheckout() {
   const state = readFullState()
   const metrics = computeSessionMetrics(state, _OC_SID)
@@ -3806,22 +3794,6 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
       if (textCompletePainted.size > 500) {
         const it = textCompletePainted.values()
         for (let i = 0; i < 100; i++) textCompletePainted.delete(it.next().value)
-      }
-
-      if (ltTotal > 0 || ltCache > 0) {
-        try {
-          const _ltFmt = ltTotal.toFixed(2)
-          const _reportLine = `— ${modelTag} vibeOS: $${_ltFmt} saved ${trendIcon} —`
-          writeFileSync(join(USER_HOME, ".claude/session-report-pending.md"), _reportLine)
-          const logPath = join(USER_HOME, ".claude/session-reports.log")
-          const pid = process.pid || "?"
-          const ts = new Date().toISOString().slice(0, 16).replace("T", " ")
-          const newLine = `[${ts} pid=${pid}] ${_reportLine}`
-          if (!getLastLines(logPath, 5, 1024).includes(newLine)) {
-            _rotateLog(logPath, MAX_LOG_LINES)
-            appendFileSync(logPath, newLine + "\n")
-          }
-        } catch {}
       }
     } catch (err) {
       console.error(`[vibeOS] footer failed: ${err.message}`)
