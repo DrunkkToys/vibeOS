@@ -4549,7 +4549,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                 const ltTotal = ltTasks + ltCache;
                 const trendIcon = sesTrend === "down" ? "↓" : sesTrend === "up" ? "↑" : "→";
                 const selNow = loadSelection();
-                const tags = [`[${shortModelName(currentModel)}]`];
+                const tags = [`[${currentModel || "unknown"}]`];
                 if (selNow.delegation_enforce)
                     tags.push("[ENF ON]");
                 if (selNow.flow_enforce)
@@ -4558,11 +4558,11 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                     tags.push("[TDD ON]");
                 if (_modelLocked)
                     tags.push("[LOCK ON]");
-                const workerModel = (currentTier === "high" && TRINITY_MEDIUM) ? TRINITY_MEDIUM : TRINITY_CHEAP;
+                const _workerModel = (currentTier === "high" && TRINITY_MEDIUM) ? TRINITY_MEDIUM : TRINITY_CHEAP;
                 const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0);
-                if (totalTurns > 0 && workerModel && workerModel !== currentModel) {
+                if (totalTurns > 0 && _workerModel && _workerModel !== currentModel) {
                     const brainPct = Math.round((sesModelTurns.brain / totalTurns) * 100);
-                    tags[0] = `[${shortModelName(currentModel)} ${brainPct}% > ${shortModelName(workerModel)} ${100 - brainPct}%]`;
+                    tags[0] = `[${currentModel || "unknown"} ${brainPct}% → ${_workerModel} ${100 - brainPct}%]`;
                 }
                 const statusLine = tags.join(" ");
                 let stressTag = "";
@@ -4570,14 +4570,15 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                     const ss = scoreStress(latestUserIntent);
                     if (ss > 0.1) {
                         const label = ss > 0.7 ? "high" : ss > 0.4 ? "elevated" : "calm";
-                        stressTag = ` stress:${label}`;
+                        const bar = ss > 0.85 ? "█" : ss > 0.7 ? "▆" : ss > 0.5 ? "▅" : ss > 0.3 ? "▃" : ss > 0.1 ? "▂" : "▁";
+                        stressTag = ` | stress: ${bar} ${label}`;
                     }
                 }
                 if (ltTotal > 0) {
-                    _footerText = `vibeOS: ${formatUsd(ltTotal)} saved ${trendIcon} | ${statusLine}${stressTag}\n\n`;
+                    _footerText = `— ${statusLine} | vibeOS: ${formatUsd(ltTotal)} saved ${trendIcon}${stressTag} —\n\n`;
                 }
                 else {
-                    _footerText = `${statusLine}${stressTag}\n\n`;
+                    _footerText = `— ${statusLine}${stressTag} —\n\n`;
                 }
                 output.title = _footerText.trim();
                 if (typeof output?.output === "string")
