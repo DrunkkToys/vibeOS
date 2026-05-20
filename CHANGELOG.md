@@ -1,3 +1,9 @@
+## 0.13.5
+- refactor: extract 16 modules (7207 lines) from src/index.ts into src/lib/
+- fix: ES module binding divergence — add setters for mutable state
+- fix: missing imports, directory→projectDirectory rename, loadCredit import
+- fix: TDD auto-generated artifact cleanup
+
 ## 0.13.4
 - feat: blackbox dynamically controls thinking mode per sub-regime for cost savings
 - feat: complete remote API migration — dual-path scoreStress, patternsObserve/Record, TDD exports with local fallback + neutral env test
