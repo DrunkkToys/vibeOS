@@ -1,3 +1,8 @@
+## 0.13.6
+- feat: web dashboard sidecar with SolidJS SPA, SSE, and standalone server
+- docs: add rule 7 — don't lie about tool execution, ask once
+
+
 ## 0.13.5
 - refactor: extract 16 modules (7207 lines) from src/index.ts into src/lib/
 - fix: ES module binding divergence — add setters for mutable state
