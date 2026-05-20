@@ -28,6 +28,7 @@ import {
 import {
   classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget,
   shortModelName, formatUsd, _refreshModel, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN,
+  trendDisplay, modelToSlotLabel,
 } from '../pricing.js'
 import { latestUserIntent } from './chat-transform.js'
 import {
@@ -45,7 +46,6 @@ import { checkFlowRules, recordFlowTodo } from '../../vibeOS-lib/flow-enforcer.j
 import { computeDifficulty, cascadeDecide, createPatternGraph, ensureNode, addRouteEdge, predictBestModel, hashQuery, deserializeGraph } from '../../vibeOS-lib/ml-router.js'
 import { createCacheDatabase, addCacheEntry, recordCacheStats, predictCacheHit, compositeSimilarity, evictStaleEntries, deserializeCacheDb } from '../../vibeOS-lib/smart-cache.js'
 import { buildTestReminder, enforceTestFile } from '../tdd-enforcer.js'
-import { modelToSlotLabel } from '../pricing.js'
 import { setActiveJobFromTaskPrompt, observeToolPattern, applyDecadence, compressText, recordSaving } from '../index-helpers.js'
 import { checkFlowRules as _checkFlowRules, recordFlowTodo } from '../../vibeOS-lib/flow-enforcer.js'
 

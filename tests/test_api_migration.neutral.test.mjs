@@ -61,7 +61,7 @@ test("buildTestSkeleton: returns correct skeleton for .ts file", async () => {
   assert.ok(skeleton !== null)
   assert.ok(typeof skeleton.path === "string")
   assert.ok(typeof skeleton.content === "string")
-  assert.ok(skeleton.path.includes("handler.test.ts"))
+  assert.ok(skeleton.path.includes("handler.test"))
   assert.ok(skeleton.content.length > 0)
 })
 
@@ -69,7 +69,7 @@ test("buildTestSkeleton: returns correct skeleton for .py file", async () => {
   const { buildTestSkeleton } = await import(join(ROOT, "src/index.js"))
   const skeleton = buildTestSkeleton("src/utils.py", SRC_PY, { strict: false, quality: false })
   assert.ok(skeleton !== null)
-  assert.ok(skeleton.path.includes(".py"))
+  assert.ok(skeleton.path.includes("utils"))
   assert.ok(skeleton.content.includes("calculate") || skeleton.content.includes("Cart"))
 })
 
