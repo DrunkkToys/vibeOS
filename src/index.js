@@ -333,7 +333,7 @@ function writeSelection(key, value) {
 }
 // ── Blackbox state management ──────────────────────────────────────
 let _blackboxTracker = null;
-let _blackboxEnabled = false;
+let _blackboxEnabled = true;
 let _modelLocked = false;
 export function loadBlackboxState() {
     try {
@@ -463,7 +463,9 @@ export function applySlot(slot) {
         if (!ocModel)
             return { ok: false, reason: `slot '${slot}' has no oc model` };
         j.selection.active_slot = slot;
-        writeFileSync(TIERS_FILE, JSON.stringify(j, null, 2) + "\n");
+        const _tmp = TIERS_FILE + ".tmp." + Date.now();
+        writeFileSync(_tmp, JSON.stringify(j, null, 2) + "\n", "utf-8");
+        renameSync(_tmp, TIERS_FILE);
         // Prefer project-local config to avoid mutating global provider/dropdown config.
         const localOcConfig = join(process.cwd(), "opencode.json");
         const ocConfig = existsSync(localOcConfig)
@@ -3011,7 +3013,9 @@ function persistMcpPort(port) {
             return;
         tiers.selection.mcp_port = port;
         mkdirSync(dirname(TIERS_FILE), { recursive: true });
-        writeFileSync(TIERS_FILE, JSON.stringify(tiers, null, 2) + "\n");
+        const _tmp = TIERS_FILE + ".tmp." + Date.now();
+        writeFileSync(_tmp, JSON.stringify(tiers, null, 2) + "\n", "utf-8");
+        renameSync(_tmp, TIERS_FILE);
         console.error(`[vibeOS] mcp_port set to ${port} in model-tiers.json`);
     }
     catch { }
@@ -3451,7 +3455,9 @@ function saveProjectState(state) {
     try {
         withFileLock(PROJECT_STATE_FILE, () => {
             mkdirSync(dirname(PROJECT_STATE_FILE), { recursive: true });
-            writeFileSync(PROJECT_STATE_FILE, JSON.stringify(state, null, 2) + "\n");
+            const _tmp = PROJECT_STATE_FILE + ".tmp." + Date.now();
+            writeFileSync(_tmp, JSON.stringify(state, null, 2) + "\n", "utf-8");
+            renameSync(_tmp, PROJECT_STATE_FILE);
         });
     }
     catch (err) {
@@ -3859,7 +3865,9 @@ function _refreshModel(directory) {
                         for (const s of ["brain", "medium", "cheap"]) {
                             if (t?.trinity?.[s]?.oc === cfgModel) {
                                 t.selection.active_slot = s;
-                                writeFileSync(TIERS_FILE, JSON.stringify(t, null, 2) + "\n");
+                                const _tmp = TIERS_FILE + ".tmp." + Date.now();
+                                writeFileSync(_tmp, JSON.stringify(t, null, 2) + "\n", "utf-8");
+                                renameSync(_tmp, TIERS_FILE);
                                 console.error(`[vibeOS] model refresh (config): synced active_slot → ${s}`);
                                 break;
                             }
@@ -3998,7 +4006,9 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                     _tiersData.selection.mcp_port = 9578;
                 }
                 mkdirSync(dirname(TIERS_FILE), { recursive: true });
-                writeFileSync(TIERS_FILE, JSON.stringify(_tiersData, null, 2) + "\n");
+                const _tmp = TIERS_FILE + ".tmp." + Date.now();
+                writeFileSync(_tmp, JSON.stringify(_tiersData, null, 2) + "\n", "utf-8");
+                renameSync(_tmp, TIERS_FILE);
                 console.error(`[vibeOS] auto-synced model-tiers.json: brain=${_brain.id} medium=${_tiersData.trinity?.medium?.oc || ""} cheap=${_tiersData.trinity?.cheap?.oc || ""}`);
                 // Refresh in-memory trinity models immediately so routing works this session
                 const _refreshed = loadTrinityModels();
@@ -4008,7 +4018,9 @@ export async function DelegationEnforcer({ client, directory } = {}) {
             }
             else if (!existsSync(TIERS_FILE)) {
                 mkdirSync(dirname(TIERS_FILE), { recursive: true });
-                writeFileSync(TIERS_FILE, JSON.stringify(_tiersData, null, 2) + "\n");
+                const _tmp2 = TIERS_FILE + ".tmp." + Date.now();
+                writeFileSync(_tmp2, JSON.stringify(_tiersData, null, 2) + "\n", "utf-8");
+                renameSync(_tmp2, TIERS_FILE);
                 console.error(`[vibeOS] created empty model-tiers.json skeleton (no model detected)`);
             }
         }
@@ -4019,7 +4031,9 @@ export async function DelegationEnforcer({ client, directory } = {}) {
         const _mt = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"));
         if (_mt.selection && (_mt.selection.mcp_port === undefined || _mt.selection.mcp_port === null)) {
             _mt.selection.mcp_port = 9578;
-            writeFileSync(TIERS_FILE, JSON.stringify(_mt, null, 2) + "\n");
+            const _tmp3 = TIERS_FILE + ".tmp." + Date.now();
+            writeFileSync(_tmp3, JSON.stringify(_mt, null, 2) + "\n", "utf-8");
+            renameSync(_tmp3, TIERS_FILE);
             console.error(`[vibeOS] mcp_port set to 9578 in model-tiers.json`);
         }
     }
@@ -4089,23 +4103,14 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                 typeof output?.result === "string" ? output.result :
                     typeof output?.content === "string" ? output.content :
                         "";
-            const strippedText = text.split("\n").filter(line => {
-                const trimmed = line.trim();
-                if (trimmed.startsWith("\u2014 ") && (trimmed.includes("vibeOS:") || trimmed.includes("decision:") || trimmed.includes("stress:"))) return false;
-                if (trimmed.match(/^\u2014 \[.+\] \| vibeOS:/)) return false;
-                if (trimmed.match(/^\u2014 \[.+\] \|/)) return false;
-                return true;
-            }).join("\n");
             const { ltTasks, ltCache, ltCost, count, sesTasks, sesEdit, sesCredit, sesC7, sesQuota, sesTaskDelegations, sesDuration, sesRatePerHour, sesTrend, sesToolBreakdown, sesModelTurns, quality_avg } = readLifetimeSavings();
-            const _displayTiers = readJsonOrEmpty(TIERS_FILE);
-            const _displayActiveSlot = loadSelection().active_slot || "brain";
-            const displayModel = _displayTiers?.trinity?.[_displayActiveSlot]?.oc || TRINITY_BRAIN || currentModel || "";
-            let modelTag = `[${displayModel}]`;
+            const brainModel = TRINITY_BRAIN || currentModel || "";
+            let modelTag = `[${shortModelName(brainModel)}]`;
             const _workerModel = (currentTier === "high" && TRINITY_MEDIUM) ? TRINITY_MEDIUM : TRINITY_CHEAP;
             const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0);
-            if (_workerModel && _workerModel !== displayModel) {
-                const brainPct = Math.round(((sesModelTurns?.brain || 0) / (totalTurns || 1)) * 100);
-                modelTag = `[${displayModel} ${brainPct}% → ${_workerModel} ${100 - brainPct}%]`;
+            if (totalTurns > 0 && _workerModel && _workerModel !== brainModel) {
+                const brainPct = Math.round((sesModelTurns.brain / totalTurns) * 100);
+                modelTag = `[${shortModelName(brainModel)} ${brainPct}% > ${shortModelName(_workerModel)} ${100 - brainPct}%]`;
             }
             _autoReportCount = (_autoReportCount || 0) + 1;
             if (_autoReportCount % 5 === 0) {
@@ -4153,7 +4158,9 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                 enfSuffixFooter = ` QA:${Math.round(quality_avg)}% ${enfTagsFooter.join(" ")}`;
             }
             modelTag = `${modelTag}${enfSuffixFooter || ""}`;
-
+            const stripped = text.replace(/\n\n— .+(?: —)?$/, "");
+            if (stripped !== text)
+                return;
             const ltTotal = ltTasks + ltCache;
             const trendIcon = sesTrend === "down" ? "↓" : sesTrend === "up" ? "↑" : "→";
             const brainModelCost = currentModel ? (modelCostPerTurn(currentModel) ?? 0) : 0;
@@ -4174,12 +4181,15 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                     const bar = "\u2588".repeat(filled) + "\u2591".repeat(10 - filled);
                     savingsDisplay += ` | ${formatUsd(ltTotal)} / ${formatUsd(goalUsd)} [${bar}]`;
                 }
-                const stressBar = _footerStress > 0.85 ? "█" : _footerStress > 0.7 ? "▆" : _footerStress > 0.5 ? "▅" : _footerStress > 0.3 ? "▃" : _footerStress > 0.1 ? "▂" : "▁";
-                const stressLabel = _footerStress > 0.7 ? "high" : _footerStress > 0.4 ? "elevated" : "calm";
-                footerText = strippedText + `\n\n— ${modelTag} | ${savingsDisplay} | stress: ${stressBar} ${stressLabel} —`;
+                footerText = stripped + `\n\n— ${modelTag} | ${savingsDisplay} —`;
             }
             else {
-                footerText = strippedText + `\n\n— ${modelTag} —`;
+                footerText = stripped + `\n\n— ${modelTag} —`;
+            }
+            if (_footerStress > 0.1) {
+                const stressBar = _footerStress > 0.85 ? "█" : _footerStress > 0.7 ? "▆" : _footerStress > 0.5 ? "▅" : _footerStress > 0.3 ? "▃" : _footerStress > 0.1 ? "▂" : "▁";
+                const stressLabel = _footerStress > 0.7 ? "high" : _footerStress > 0.4 ? "elevated" : "calm";
+                footerText += `\n— stress: ${stressBar} (${stressLabel}) —`;
             }
             if (_blackboxEnabled) {
                 try {
@@ -4210,7 +4220,22 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                 for (let i = 0; i < 100; i++)
                     textCompletePainted.delete(it.next().value);
             }
-            // Session report write removed — handled elsewhere.
+            if (ltTotal > 0 || ltCache > 0) {
+                try {
+                    const _ltFmt = ltTotal.toFixed(2);
+                    const _reportLine = `— ${modelTag} vibeOS: $${_ltFmt} saved ${trendIcon} —`;
+                    writeFileSync(join(USER_HOME, ".claude/session-report-pending.md"), _reportLine);
+                    const logPath = join(USER_HOME, ".claude/session-reports.log");
+                    const pid = process.pid || "?";
+                    const ts = new Date().toISOString().slice(0, 16).replace("T", " ");
+                    const newLine = `[${ts} pid=${pid}] ${_reportLine}`;
+                    if (!getLastLines(logPath, 5, 1024).includes(newLine)) {
+                        _rotateLog(logPath, MAX_LOG_LINES);
+                        appendFileSync(logPath, newLine + "\n");
+                    }
+                }
+                catch { }
+            }
         }
         catch (err) {
             console.error(`[vibeOS] footer failed: ${err.message}`);
@@ -4524,9 +4549,6 @@ export async function DelegationEnforcer({ client, directory } = {}) {
             if (!loadSelection().enabled)
                 return;
             _refreshModel(directory);
-            const _displayTiers = readJsonOrEmpty(TIERS_FILE);
-            const _displayActiveSlot = loadSelection().active_slot || "brain";
-            const displayModel = _displayTiers?.trinity?.[_displayActiveSlot]?.oc || TRINITY_BRAIN || currentModel || "";
             // ── Generate footer alert (prepended to tool result, visible in chat) ──
             let _footerText = "";
             try {
@@ -4534,7 +4556,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                 const ltTotal = ltTasks + ltCache;
                 const trendIcon = sesTrend === "down" ? "↓" : sesTrend === "up" ? "↑" : "→";
                 const selNow = loadSelection();
-                const tags = [`[${displayModel}]`];
+                const tags = [`[${shortModelName(currentModel)}]`];
                 if (selNow.delegation_enforce)
                     tags.push("[ENF ON]");
                 if (selNow.flow_enforce)
@@ -4547,7 +4569,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                 const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0);
                 if (totalTurns > 0 && workerModel && workerModel !== currentModel) {
                     const brainPct = Math.round((sesModelTurns.brain / totalTurns) * 100);
-                    tags[0] = `[${displayModel} ${brainPct}% → ${workerModel} ${100 - brainPct}%]`;
+                    tags[0] = `[${shortModelName(currentModel)} ${brainPct}% > ${shortModelName(workerModel)} ${100 - brainPct}%]`;
                 }
                 const statusLine = tags.join(" ");
                 let stressTag = "";
@@ -5012,7 +5034,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                         fetchBlackboxEnrichment(sid, localState).then(enriched => {
                             if (enriched)
                                 _latestBlackboxState = enriched;
-                        });
+                        }).catch(() => { });
                     }
                     catch { }
                 }
@@ -5211,10 +5233,15 @@ export async function DelegationEnforcer({ client, directory } = {}) {
             }
         },
         "shell.env": async (_input, output) => {
-            _refreshModel(directory);
-            output.env ??= {};
-            output.env.OPENCODE_MODEL_TIER = currentTier || "unknown";
-            output.env.OPENCODE_MODEL = currentModel || "unknown";
+            try {
+                _refreshModel(directory);
+                output.env ??= {};
+                output.env.OPENCODE_MODEL_TIER = currentTier || "unknown";
+                output.env.OPENCODE_MODEL = currentModel || "unknown";
+            }
+            catch (e) {
+                console.error("[vibeOS] shell.env error:", e);
+            }
         },
         tool: {
             trinity: tool({
@@ -5837,7 +5864,9 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                                 medium: { oc: probed.medium.id, cc: modelToCcAlias(probed.medium.id) },
                                 cheap: { oc: probed.cheap.id, cc: modelToCcAlias(probed.cheap.id) },
                             };
-                            writeFileSync(TIERS_FILE, JSON.stringify(tiers, null, 2) + "\n");
+                            const _tmp = TIERS_FILE + ".tmp." + Date.now();
+                            writeFileSync(_tmp, JSON.stringify(tiers, null, 2) + "\n", "utf-8");
+                            renameSync(_tmp, TIERS_FILE);
                         }
                         catch (err) {
                             return "\u274c Failed to write model-tiers.json: " + err.message;

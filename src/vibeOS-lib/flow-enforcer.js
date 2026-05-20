@@ -1,9 +1,17 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 vibeOS <https://github.com/DrunkkToys/vibeOS>
-import { readFileSync, existsSync, mkdirSync, writeFileSync, statSync, appendFileSync } from "node:fs";
+import { readFileSync, existsSync, mkdirSync, writeFileSync, statSync, appendFileSync, renameSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
+function safeJsonParse(raw) {
+    try {
+        return JSON.parse(raw);
+    }
+    catch { }
+    let cleaned = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '').replace(/,\s*([}\]])/g, '$1');
+    return JSON.parse(cleaned);
+}
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const RULES_PATH = join(__dirname, "flow-rules.json");
 export function resolveRulesPath() {
@@ -104,7 +112,7 @@ function loadFlowDedupKeys() {
     try {
         if (existsSync(FLOW_DEDUP_FILE)) {
             const raw = readFileSync(FLOW_DEDUP_FILE, "utf-8");
-            const keys = JSON.parse(raw);
+            const keys = safeJsonParse(raw);
             if (Array.isArray(keys)) {
                 for (const k of keys)
                     _flowWarnsSeen.add(k);
@@ -119,7 +127,7 @@ function persistFlowDedupKey(key) {
         let keys = [];
         if (existsSync(FLOW_DEDUP_FILE)) {
             try {
-                keys = JSON.parse(readFileSync(FLOW_DEDUP_FILE, "utf-8"));
+                keys = safeJsonParse(readFileSync(FLOW_DEDUP_FILE, "utf-8"));
             }
             catch { }
             if (!Array.isArray(keys))
@@ -147,7 +155,7 @@ function loadRules() {
             _cachedRules = [];
             return _cachedRules;
         }
-        const j = JSON.parse(readFileSync(rulesPath, "utf-8"));
+        const j = safeJsonParse(readFileSync(rulesPath, "utf-8"));
         _cachedRules = j.rules || [];
         _rulesMtime = mtime;
         return _cachedRules;
@@ -162,7 +170,7 @@ function recordFlowWarn(hit) {
         let state = {};
         if (existsSync(STATE_FILE)) {
             try {
-                state = JSON.parse(readFileSync(STATE_FILE, "utf-8"));
+                state = safeJsonParse(readFileSync(STATE_FILE, "utf-8"));
             }
             catch { }
         }
@@ -184,9 +192,11 @@ function recordFlowWarn(hit) {
         if (_stateWriter)
             _stateWriter(state);
         else {
-            const existing = JSON.parse(existsSync(STATE_FILE) ? readFileSync(STATE_FILE, "utf-8") : "{}");
+            const existing = safeJsonParse(existsSync(STATE_FILE) ? readFileSync(STATE_FILE, "utf-8") : "{}");
             const merged = { ...existing, ...state };
-            writeFileSync(STATE_FILE, JSON.stringify(merged, null, 2));
+            const tmpFile = STATE_FILE + ".tmp." + Date.now();
+            writeFileSync(tmpFile, JSON.stringify(merged, null, 2));
+            renameSync(tmpFile, STATE_FILE);
         }
     }
     catch { }
@@ -226,7 +236,7 @@ export function getFlowWarns() {
     try {
         if (!existsSync(STATE_FILE))
             return [];
-        const s = JSON.parse(readFileSync(STATE_FILE, "utf-8"));
+        const s = safeJsonParse(readFileSync(STATE_FILE, "utf-8"));
         return s?.flow_warns || [];
     }
     catch {

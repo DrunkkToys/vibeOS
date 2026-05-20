@@ -415,7 +415,9 @@ export function applySlot(slot) {
     const ocModel = j?.trinity?.[slot]?.oc
     if (!ocModel) return { ok: false, reason: `slot '${slot}' has no oc model` }
     j.selection.active_slot = slot
-    writeFileSync(TIERS_FILE, JSON.stringify(j, null, 2) + "\n")
+    const _tmp = TIERS_FILE + ".tmp." + Date.now()
+    writeFileSync(_tmp, JSON.stringify(j, null, 2) + "\n", "utf-8")
+    renameSync(_tmp, TIERS_FILE)
     // Prefer project-local config to avoid mutating global provider/dropdown config.
     const localOcConfig = join(process.cwd(), "opencode.json")
     const ocConfig = existsSync(localOcConfig)
@@ -2658,7 +2660,9 @@ function persistMcpPort(port) {
     if (Number(tiers.selection.mcp_port) === Number(port)) return
     tiers.selection.mcp_port = port
     mkdirSync(dirname(TIERS_FILE), { recursive: true })
-    writeFileSync(TIERS_FILE, JSON.stringify(tiers, null, 2) + "\n")
+    const _tmp = TIERS_FILE + ".tmp." + Date.now()
+    writeFileSync(_tmp, JSON.stringify(tiers, null, 2) + "\n", "utf-8")
+    renameSync(_tmp, TIERS_FILE)
     console.error(`[vibeOS] mcp_port set to ${port} in model-tiers.json`)
   } catch {}
 }
@@ -3033,7 +3037,9 @@ function saveProjectState(state) {
   try {
     withFileLock(PROJECT_STATE_FILE, () => {
       mkdirSync(dirname(PROJECT_STATE_FILE), { recursive: true })
-      writeFileSync(PROJECT_STATE_FILE, JSON.stringify(state, null, 2) + "\n")
+      const _tmp = PROJECT_STATE_FILE + ".tmp." + Date.now()
+      writeFileSync(_tmp, JSON.stringify(state, null, 2) + "\n", "utf-8")
+      renameSync(_tmp, PROJECT_STATE_FILE)
     })
   } catch (err) {
     console.error(`[vibeOS] project state write failed: ${err.message}`)
@@ -3414,7 +3420,9 @@ function _refreshModel(directory) {
             for (const s of ["brain", "medium", "cheap"]) {
               if (t?.trinity?.[s]?.oc === cfgModel) {
                 t.selection.active_slot = s
-                writeFileSync(TIERS_FILE, JSON.stringify(t, null, 2) + "\n")
+                const _tmp = TIERS_FILE + ".tmp." + Date.now()
+                writeFileSync(_tmp, JSON.stringify(t, null, 2) + "\n", "utf-8")
+                renameSync(_tmp, TIERS_FILE)
                 console.error(`[vibeOS] model refresh (config): synced active_slot → ${s}`)
                 break
               }
@@ -3542,7 +3550,9 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
           _tiersData.selection.mcp_port = 9578
         }
         mkdirSync(dirname(TIERS_FILE), { recursive: true })
-        writeFileSync(TIERS_FILE, JSON.stringify(_tiersData, null, 2) + "\n")
+        const _tmp = TIERS_FILE + ".tmp." + Date.now()
+        writeFileSync(_tmp, JSON.stringify(_tiersData, null, 2) + "\n", "utf-8")
+        renameSync(_tmp, TIERS_FILE)
         console.error(`[vibeOS] auto-synced model-tiers.json: brain=${_brain.id} medium=${_tiersData.trinity?.medium?.oc || ""} cheap=${_tiersData.trinity?.cheap?.oc || ""}`)
         // Refresh in-memory trinity models immediately so routing works this session
         const _refreshed = loadTrinityModels()
@@ -3551,7 +3561,9 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
         TRINITY_MEDIUM = _refreshed.medium
       } else if (!existsSync(TIERS_FILE)) {
         mkdirSync(dirname(TIERS_FILE), { recursive: true })
-        writeFileSync(TIERS_FILE, JSON.stringify(_tiersData, null, 2) + "\n")
+        const _tmp2 = TIERS_FILE + ".tmp." + Date.now()
+        writeFileSync(_tmp2, JSON.stringify(_tiersData, null, 2) + "\n", "utf-8")
+        renameSync(_tmp2, TIERS_FILE)
         console.error(`[vibeOS] created empty model-tiers.json skeleton (no model detected)`)
       }
     } catch {}
@@ -3561,7 +3573,9 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
     const _mt = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
     if (_mt.selection && (_mt.selection.mcp_port === undefined || _mt.selection.mcp_port === null)) {
       _mt.selection.mcp_port = 9578
-      writeFileSync(TIERS_FILE, JSON.stringify(_mt, null, 2) + "\n")
+      const _tmp3 = TIERS_FILE + ".tmp." + Date.now()
+      writeFileSync(_tmp3, JSON.stringify(_mt, null, 2) + "\n", "utf-8")
+      renameSync(_tmp3, TIERS_FILE)
       console.error(`[vibeOS] mcp_port set to 9578 in model-tiers.json`)
     }
   } catch {}
@@ -4518,7 +4532,7 @@ function scoreTaskQuality(outputText, promptText) {
             _latestBlackboxState = localState
             fetchBlackboxEnrichment(sid, localState).then(enriched => {
               if (enriched) _latestBlackboxState = enriched
-            })
+            }).catch(() => {})
           } catch {}
         }
 
@@ -4738,10 +4752,12 @@ function scoreTaskQuality(outputText, promptText) {
     },
 
     "shell.env": async (_input, output) => {
-      _refreshModel(directory)
-      output.env ??= {}
-      output.env.OPENCODE_MODEL_TIER = currentTier || "unknown"
-      output.env.OPENCODE_MODEL = currentModel || "unknown"
+      try {
+        _refreshModel(directory)
+        output.env ??= {}
+        output.env.OPENCODE_MODEL_TIER = currentTier || "unknown"
+        output.env.OPENCODE_MODEL = currentModel || "unknown"
+      } catch (e) { console.error("[vibeOS] shell.env error:", e) }
     },
 
     tool: {
@@ -5333,7 +5349,9 @@ function scoreTaskQuality(outputText, promptText) {
                 medium: { oc: probed.medium.id, cc: modelToCcAlias(probed.medium.id) },
                 cheap: { oc: probed.cheap.id, cc: modelToCcAlias(probed.cheap.id) },
               }
-              writeFileSync(TIERS_FILE, JSON.stringify(tiers, null, 2) + "\n")
+              const _tmp = TIERS_FILE + ".tmp." + Date.now()
+              writeFileSync(_tmp, JSON.stringify(tiers, null, 2) + "\n", "utf-8")
+              renameSync(_tmp, TIERS_FILE)
             } catch (err) {
               return "\u274c Failed to write model-tiers.json: " + err.message
             }
