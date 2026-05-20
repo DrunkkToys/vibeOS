@@ -11,11 +11,13 @@ const ROOT = join(__dirname, "..")
 const srcPath = join(ROOT, "src", "index.js")
 const srcMcpServerPath = join(ROOT, "src", "vibeOS-mcp-server.js")
 const srcLibDir = join(ROOT, "src", "vibeOS-lib")
+const srcCommonLibDir = join(ROOT, "src", "lib")
 const srcDashboardDistDir = join(ROOT, "src", "dashboard", "dist")
 const pluginDir = join(homedir(), ".config", "opencode", "plugins")
 const destPath = join(pluginDir, "vibeOS.js")
 const destMcpServerPath = join(pluginDir, "vibeOS-mcp-server.js")
 const destLibDir = join(pluginDir, "vibeOS-lib")
+const destCommonLibDir = join(pluginDir, "lib")
 
 if (!existsSync(srcPath)) {
   process.stderr.write("[vibeOS deploy] ERROR: src/index.js not found\n")
@@ -33,6 +35,15 @@ try {
   if (existsSync(srcMcpServerPath)) {
     writeFileSync(destMcpServerPath, readFileSync(srcMcpServerPath))
     process.stderr.write(`[vibeOS deploy] src/vibeOS-mcp-server.js → ~/.config/opencode/plugins/vibeOS-mcp-server.js\n`)
+  }
+
+  // Copy src/lib/ directory (state, pricing, hooks, etc.)
+  if (existsSync(srcCommonLibDir)) {
+    cpSync(srcCommonLibDir, destCommonLibDir, { recursive: true, force: true })
+    let libCount = 0
+    const walk = (d) => { for (const e of readdirSync(d)) { const f = join(d, e); if (statSync(f).isDirectory()) walk(f); else libCount++; } };
+    if (existsSync(destCommonLibDir)) walk(destCommonLibDir)
+    process.stderr.write(`[vibeOS deploy] src/lib/ → ~/.config/opencode/plugins/lib/ (${libCount} files)\n`)
   }
 
   if (existsSync(srcDashboardDistDir)) {

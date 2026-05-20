@@ -1,3 +1,6 @@
+## 0.13.9
+- fix: deploy script missing src/lib/ — plugin hooks failed silently, no footer rendered
+
 ## 0.13.8
 - docs: add LIVE_DEBUG.md with 87 prompt tests across 18 categories
 
