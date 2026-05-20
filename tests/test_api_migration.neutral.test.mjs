@@ -9,29 +9,29 @@ const SRC_TS = "export function handler(req) { return req.body }\nexport const M
 
 test("scoreStress: local fallback when no token", async () => {
   const { scoreStress } = await import(join(ROOT, "src/index.js"))
-  const score = await scoreStress("this is broken and useless")
+  const score = scoreStress("this is broken and useless")
   assert.ok(score > 0, "returns positive score for aggressive text")
   assert.equal(typeof score, "number")
 })
 
 test("scoreStress: handles empty/null input gracefully", async () => {
   const { scoreStress } = await import(join(ROOT, "src/index.js"))
-  assert.equal(await scoreStress(null), 0)
-  assert.equal(await scoreStress(""), 0)
-  assert.equal(await scoreStress(undefined), 0)
+  assert.equal(scoreStress(null), 0)
+  assert.equal(scoreStress(""), 0)
+  assert.equal(scoreStress(undefined), 0)
 })
 
 test("scoreStress: short hostile text scores higher than polite long text", async () => {
   const { scoreStress } = await import(join(ROOT, "src/index.js"))
-  const hScore = await scoreStress("fix this NOW")
-  const pScore = await scoreStress("when you have a moment could you please look at the import statements")
+  const hScore = scoreStress("fix this NOW")
+  const pScore = scoreStress("when you have a moment could you please look at the import statements")
   assert.ok(hScore > pScore, `hostile=${hScore} > polite=${pScore}`)
 })
 
 test("extractExports: local fallback when no token - Python", async () => {
-  const { extractExports, _localExtractExports } = await import(join(ROOT, "src/index.js"))
-  const localExports = await _localExtractExports(SRC_PY, "py")
-  const exports = await extractExports(SRC_PY, "py")
+  const { extractExports } = await import(join(ROOT, "src/index.js"))
+  const localExports = extractExports(SRC_PY, "py")
+  const exports = extractExports(SRC_PY, "py")
   assert.ok(Array.isArray(exports))
   assert.ok(Array.isArray(localExports))
   assert.ok(exports.some(e => e.name === "calculate"))
@@ -41,7 +41,7 @@ test("extractExports: local fallback when no token - Python", async () => {
 
 test("extractExports: local fallback when no token - TypeScript", async () => {
   const { extractExports } = await import(join(ROOT, "src/index.js"))
-  const exports = await extractExports(SRC_TS, "ts")
+  const exports = extractExports(SRC_TS, "ts")
   assert.ok(Array.isArray(exports))
   const names = exports.map(e => e.name)
   assert.ok(names.includes("handler"))
@@ -52,12 +52,12 @@ test("extractExports: local fallback when no token - TypeScript", async () => {
 
 test("extractExports: handles empty source", async () => {
   const { extractExports } = await import(join(ROOT, "src/index.js"))
-  assert.equal((await extractExports("", "ts")).length, 0)
+  assert.equal((extractExports("", "ts")).length, 0)
 })
 
 test("buildTestSkeleton: returns correct skeleton for .ts file", async () => {
   const { buildTestSkeleton } = await import(join(ROOT, "src/index.js"))
-  const skeleton = await buildTestSkeleton("src/handler.ts", SRC_TS, { strict: false, quality: false })
+  const skeleton = buildTestSkeleton("src/handler.ts", SRC_TS, { strict: false, quality: false })
   assert.ok(skeleton !== null)
   assert.ok(typeof skeleton.path === "string")
   assert.ok(typeof skeleton.content === "string")
@@ -67,7 +67,7 @@ test("buildTestSkeleton: returns correct skeleton for .ts file", async () => {
 
 test("buildTestSkeleton: returns correct skeleton for .py file", async () => {
   const { buildTestSkeleton } = await import(join(ROOT, "src/index.js"))
-  const skeleton = await buildTestSkeleton("src/utils.py", SRC_PY, { strict: false, quality: false })
+  const skeleton = buildTestSkeleton("src/utils.py", SRC_PY, { strict: false, quality: false })
   assert.ok(skeleton !== null)
   assert.ok(skeleton.path.includes(".py"))
   assert.ok(skeleton.content.includes("calculate") || skeleton.content.includes("Cart"))
@@ -75,23 +75,23 @@ test("buildTestSkeleton: returns correct skeleton for .py file", async () => {
 
 test("buildTestSkeleton: returns null for unsupported extension", async () => {
   const { buildTestSkeleton } = await import(join(ROOT, "src/index.js"))
-  assert.equal(await buildTestSkeleton("src/data.json", '{"a": 1}', { strict: false, quality: false }), null)
+  assert.equal(buildTestSkeleton("src/data.json", '{"a": 1}', { strict: false, quality: false }), null)
 })
 
 test("buildTestSkeleton: returns null for test file path", async () => {
   const { buildTestSkeleton } = await import(join(ROOT, "src/index.js"))
-  const skeleton = await buildTestSkeleton("src/tests/foo.ts", SRC_TS, { strict: false, quality: false })
+  const skeleton = buildTestSkeleton("src/tests/foo.ts", SRC_TS, { strict: false, quality: false })
   assert.equal(skeleton, null)
 })
 
 test("buildTestSkeleton: returns null for null input", async () => {
   const { buildTestSkeleton } = await import(join(ROOT, "src/index.js"))
-  assert.equal(await buildTestSkeleton(null), null)
+  assert.equal(buildTestSkeleton(null), null)
 })
 
 test("buildTestSkeleton: strict mode includes fail marker", async () => {
   const { buildTestSkeleton } = await import(join(ROOT, "src/index.js"))
-  const skeleton = await buildTestSkeleton("src/app.ts", SRC_TS, { strict: true, quality: false })
+  const skeleton = buildTestSkeleton("src/app.ts", SRC_TS, { strict: true, quality: false })
   assert.ok(skeleton !== null)
   const hasFail = skeleton.content.includes("TODO") || skeleton.content.includes("Error") || skeleton.content.includes("fail") || skeleton.content.includes("throw")
   assert.ok(hasFail, "strict skeleton has a fail marker")
@@ -125,7 +125,6 @@ test("all migration exports are functions", async () => {
   const mod = await import(join(ROOT, "src/index.js"))
   assert.equal(typeof mod.scoreStress, "function")
   assert.equal(typeof mod.extractExports, "function")
-  assert.equal(typeof mod._localExtractExports, "function")
   assert.equal(typeof mod.buildTestSkeleton, "function")
   assert.equal(typeof mod.enforceTestFile, "function")
   assert.equal(typeof mod.observeToolPattern, "function")
@@ -133,16 +132,9 @@ test("all migration exports are functions", async () => {
   assert.equal(typeof mod.remoteCall, "function")
 })
 
-test("buildTestSkeleton: returns a Promise (is async after migration)", async () => {
-  const { buildTestSkeleton } = await import(join(ROOT, "src/index.js"))
-  const result = buildTestSkeleton("src/test.ts", SRC_TS, { strict: false, quality: false })
-  assert.ok(result instanceof Promise)
-  assert.ok((await result) !== null)
-})
 
-test("enforceTestFile: returns a Promise (is async after migration)", async () => {
+
+test("enforceTestFile: returns null directly (is synchronous after revert)", async () => {
   const { enforceTestFile } = await import(join(ROOT, "src/index.js"))
-  const result = enforceTestFile("src/foo.json")
-  assert.ok(result instanceof Promise)
-  assert.equal(await result, null)
+  assert.equal(enforceTestFile("src/foo.json"), null)
 })
