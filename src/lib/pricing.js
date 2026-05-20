@@ -2,6 +2,9 @@
 export let TRINITY_BRAIN = null;
 export let TRINITY_MEDIUM = null;
 export let TRINITY_CHEAP = null;
+export function setTrinityBrain(v) { TRINITY_BRAIN = v; }
+export function setTrinityMedium(v) { TRINITY_MEDIUM = v; }
+export function setTrinityCheap(v) { TRINITY_CHEAP = v; }
 /**
  * SPDX-License-Identifier: MIT
  * SPDX-FileCopyrightText: 2026 vibeOS <https://github.com/DrunkkToys/vibeOS>
@@ -163,7 +166,7 @@ export function shortModelName(modelId) {
     const parts = raw.split("/");
     return parts[parts.length - 1] || raw;
 }
-function trendDisplay(sesTrend) {
+export function trendDisplay(sesTrend) {
     const t = sesTrend === "up" || sesTrend === "down" ? sesTrend : "stable";
     const icon = t === "up" ? "↑" : t === "down" ? "↓" : "→";
     return `${icon} ${t}`;

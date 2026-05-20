@@ -73,6 +73,10 @@ let currentTier = null;
 let currentModel = null;
 let currentProjectFingerprint = "";
 let currentProjectName = "";
+export function setCurrentTier(v) { currentTier = v; }
+export function setCurrentModel(v) { currentModel = v; }
+export function setCurrentProjectFingerprint(v) { currentProjectFingerprint = v; }
+export function setCurrentProjectName(v) { currentProjectName = v; }
 const textCompletePainted = new Set();
 const softQuotaCounts = {};
 // ── Warning/coalescing state ─────────────────────────────────────────

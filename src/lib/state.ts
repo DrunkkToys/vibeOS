@@ -76,6 +76,11 @@ let currentTier: string | null = null
 let currentModel: string | null = null
 let currentProjectFingerprint = ""
 let currentProjectName = ""
+
+export function setCurrentTier(v: string | null) { currentTier = v }
+export function setCurrentModel(v: string | null) { currentModel = v }
+export function setCurrentProjectFingerprint(v: string) { currentProjectFingerprint = v }
+export function setCurrentProjectName(v: string) { currentProjectName = v }
 const textCompletePainted = new Set()
 const softQuotaCounts: Record<string, number> = {}
 
@@ -1460,6 +1465,10 @@ export {
   currentModel,
   currentProjectFingerprint,
   currentProjectName,
+  setCurrentTier,
+  setCurrentModel,
+  setCurrentProjectFingerprint,
+  setCurrentProjectName,
   textCompletePainted,
   softQuotaCounts,
   warnLogThrottle,

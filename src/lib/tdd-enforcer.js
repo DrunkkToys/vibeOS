@@ -2,7 +2,8 @@
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, statSync, readdirSync, rmSync, openSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { createHash } from "node:crypto";
-import { USER_HOME, _detectedFramework, loadSelection, updateState, testReminderSeen, } from "./state.js";
+import { USER_HOME, loadSelection, updateState, testReminderSeen, } from "./state.js";
+let _detectedFramework = null;
 let directory = undefined;
 const SOURCE_EXT_RE = /\.(py|js|ts|mjs|tsx|jsx|cjs|mts|sh|go|rs|rb|java|kt)$/i;
 const SKIP_PATH_RE = /(\/(node_modules|\.venv|dist|build|__pycache__)\/|\/(tests?|spec)\/|test_[^/]+\.py$|_test\.py$|\.test\.[a-z]+$|\.spec\.[a-z]+$|\.config\/opencode\/plugins\/)/i;
