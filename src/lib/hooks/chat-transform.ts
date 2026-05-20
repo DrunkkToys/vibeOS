@@ -20,7 +20,7 @@ import {
 } from '../state.js'
 import {
   classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget,
-  shortModelName, formatUsd, _refreshModel,
+  shortModelName, formatUsd, _refreshModel, TRINITY_CHEAP, TRINITY_MEDIUM,
 } from '../pricing.js'
 import {
   scoreStress, classifyTurnSimple, computeControlVector,
