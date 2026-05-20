@@ -147,6 +147,42 @@ export const onMessagesTransform = async (_input, output) => {
 
         // ── Progressive decadence — age-based cache rotation ──────
         applyDecadence()
+
+        // ── Blackbox resolution tracking ───────────────────────────────────
+        const lastUserMsg = messages.slice().reverse().find(m => m.info?.role === "user")
+        if (lastUserMsg) {
+          const textPart = lastUserMsg.parts?.find(p => p?.type === "text")
+          if (textPart?.text) {
+            latestUserIntent = textPart.text
+            try {
+              if (_blackboxEnabled) {
+                const tracker = getBlackboxTracker()
+                const localState = tracker.update(latestUserIntent)
+                const state = loadBlackboxStateFromCtx()
+                const sid = _OC_SID
+                const serialized = tracker.serialize()
+                serialized.project_fingerprint = currentProjectFingerprint || ""
+                if (!state.sessions[sid]) state.sessions[sid] = {}
+                state.sessions[sid].control_history ??= []
+                const cv = computeControlVector(localState)
+                state.sessions[sid].control_history.push(buildControlHistoryEntry(
+                  state.sessions[sid].control_history.length + 1,
+                  localState.sub_regime || "INIT",
+                  cv,
+                ))
+                if (state.sessions[sid].control_history.length > 100) {
+                  state.sessions[sid].control_history = state.sessions[sid].control_history.slice(-100)
+                }
+                state.sessions[sid] = serialized
+                saveBlackboxStateToCtx(state)
+                _latestBlackboxState = localState
+                fetchBlackboxEnrichment(sid, localState).then(enriched => {
+                  if (enriched) _latestBlackboxState = enriched
+                }).catch(() => {})
+              }
+            } catch {}
+          }
+        }
       } catch (err) {
         console.error(`[vibeOS] messages.transform failed: ${err.message}`)
       }
@@ -155,46 +191,17 @@ export const onMessagesTransform = async (_input, output) => {
 export const onSystemTransform = async (_input, output) => {
       if (!loadSelection().enabled) return
       try {
-        const userText = extractLastUserText(_input) || extractLastUserText(output)
-        latestUserIntent = typeof userText === "string" ? userText : null
+        if (!latestUserIntent) {
+          const userText = extractLastUserText(_input) || extractLastUserText(output)
+          latestUserIntent = typeof userText === "string" ? userText : null
+        }
         if (latestUserIntent) observeUserCorrection(latestUserIntent)
 
-        // Blackbox resolution tracking — local stub + async API enrichment
         let _controlVector = null
-        if (latestUserIntent) {
-          try {
-            if (_blackboxEnabled) {
-              const tracker = getBlackboxTracker()
-              const localState = tracker.update(latestUserIntent)
-              const state = loadBlackboxState()
-              const sid = _OC_SID
-              const serialized = tracker.serialize()
-              serialized.project_fingerprint = currentProjectFingerprint || ""
-
-              _controlVector = computeControlVector(localState)
-
-              if (!state.sessions[sid]) state.sessions[sid] = {}
-              state.sessions[sid].control_history ??= []
-              state.sessions[sid].control_history.push(buildControlHistoryEntry(
-                state.sessions[sid].control_history.length + 1,
-                localState.sub_regime || "INIT",
-                _controlVector,
-              ))
-
-              if (state.sessions[sid].control_history.length > 100) {
-                state.sessions[sid].control_history = state.sessions[sid].control_history.slice(-100)
-              }
-
-              state.sessions[sid] = serialized
-              saveBlackboxState(state)
-              _latestBlackboxState = localState
-              fetchBlackboxEnrichment(sid, localState).then(enriched => {
-                if (enriched) _latestBlackboxState = enriched
-              }).catch(() => {})
-            } else {
-              _controlVector = computeControlVector({ sub_regime: classifyTurnSimple(latestUserIntent) })
-            }
-          } catch {}
+        if (_latestBlackboxState) {
+          _controlVector = computeControlVector(_latestBlackboxState)
+        } else if (latestUserIntent) {
+          _controlVector = computeControlVector({ sub_regime: classifyTurnSimple(latestUserIntent) })
         }
 
         // Context7 directive — model self-determines tool availability.
@@ -415,3 +422,5 @@ export const onSystemTransform = async (_input, output) => {
         console.error(`[vibeOS] system.transform failed: ${err.message}`)
       }
     }
+
+export { latestUserIntent }

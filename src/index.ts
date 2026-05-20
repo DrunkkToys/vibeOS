@@ -64,7 +64,7 @@ import { loadCredit, thinkingLevel } from "./lib/credit-api.js"
 import { classifyAndRankModels, modelToCcAlias, discoverAvailableModels } from "./lib/trinity-rebuild.js"
 import { _appendFooter } from "./lib/hooks/footer.js"
 import { onToolExecuteBefore, onToolExecuteAfter, setToolDirectory } from "./lib/hooks/tool-execute.js"
-import { onMessagesTransform, onSystemTransform } from "./lib/hooks/chat-transform.js"
+import { onMessagesTransform, onSystemTransform, latestUserIntent } from "./lib/hooks/chat-transform.js"
 import { onSessionCompacting } from "./lib/hooks/session-compact.js"
 import { onShellEnv } from "./lib/hooks/shell-env.js"
 
@@ -84,7 +84,6 @@ let _creditTimer: ReturnType<typeof setInterval> | null = null
 let _started = false
 let context7Seen = new Set()
 let _prevOutputText = ""
-let latestUserIntent: string | null = null
 
 const SAVE_EST = {
   WRITE_EDIT:   0.005,
