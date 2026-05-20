@@ -32,6 +32,7 @@ function parseBody(req) {
 export function createMcpServer(deps) {
     let server = null;
     let startPromise = null;
+    let closePromise = null;
     const handler = async (req, res) => {
         try {
             const method = (req.method || "GET").toUpperCase();
@@ -178,9 +179,11 @@ export function createMcpServer(deps) {
         }
     };
     return {
-        start(port) {
+        async start(port) {
+            if (closePromise)
+                await closePromise;
             if (server)
-                return Promise.resolve(server);
+                return server;
             if (startPromise)
                 return startPromise;
             server = http.createServer((req, res) => {
@@ -210,22 +213,27 @@ export function createMcpServer(deps) {
         },
         close() {
             if (!server)
-                return Promise.resolve();
+                return closePromise || Promise.resolve();
+            if (closePromise)
+                return closePromise;
             const current = server;
-            return new Promise((resolve) => {
+            closePromise = new Promise((resolve) => {
                 try {
                     current.close(() => {
                         if (server === current)
                             server = null;
+                        closePromise = null;
                         resolve();
                     });
                 }
                 catch {
                     if (server === current)
                         server = null;
+                    closePromise = null;
                     resolve();
                 }
             });
+            return closePromise;
         },
     };
 }
