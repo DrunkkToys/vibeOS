@@ -5854,7 +5854,7 @@ function scoreTaskQuality(outputText, promptText) {
           generateSessionCheckout: () => computeSessionCheckout(),
         })
       }
-      _mcpServerRuntime.start(port)
+      await _mcpServerRuntime.start(port)
       console.error(`[vibeOS] MCP server listening on http://127.0.0.1:${port}`)
       if (!_mcpServerHooked) {
         _mcpServerHooked = true
