@@ -1,3 +1,81 @@
+## 0.13.3
+- feat: blackbox dynamically controls thinking mode per sub-regime for cost savings
+- feat: complete remote API migration — dual-path scoreStress, patternsObserve/Record, TDD exports with local fallback + neutral env test
+- feat: complete remote API migration — dual-path scoreStress, patternsObserve/Record, TDD exports with local fallback
+- feat: blackbox ML enhancements — real features, loop prevention, pivot detection, outcome tracking, calibration
+- feat: v0.10.0 — 6 enhancement phases implemented
+- feat: WordPress integration - atomic seat+token creation
+- feat: Phase 2 - Integrate remote API client into plugin runtime
+- feat: Phase 1 - Remote API server for protected algorithms
+- feat: CodeX MCP server and dashboard sidebar plugin integration
+- feat: vibeOS TUI dashboard sidebar plugin
+- fix: release.mjs — add missing closing brace for deploy else block
+- fix: stabilize refactored modules — ES module bindings, setters, missing imports
+- fix: flow-enforcer race condition, blackbox default ON, dynamic footer
+- fix: lock model name, enforcement logging, TDD framework detection, cache display rounding
+- fix: validateState sessions object, remove stale report writes, drop dead code
+- fix: state validation, flow TODO dedup, session checkpointing, fetch verification
+- fix: _appendFooter full model names, → arrow, inline stress; 361/362 pass
+- fix: atomic state writes, safeJsonParse in flow-enforcer, hook error handling (#15)
+- fix: model split always shown, stress inline in footer, not separate line
+- fix: footer uses slot model name, → arrow, inline stress always, remove session-report writes, disable blackbox default
+- fix: sync second footer builder in tool.execute.after with new template
+- fix: compact footer with inline stress gauge, full model names, robust test assertions
+- fix: footer uses trinity tier model name, all 362 tests pass
+- fix: resolve pricing cache corruption, improve TODO extraction, and tune delegation savings
+- fix: use dynamic mcp port fallback
+- fix: handle mcp server close-reopen race
+- fix: await mcp server startup
+- fix: harden prompt send and unblock typecheck
+- fix: sync opencode.json model with brain tier, restore footer icons (trend arrows, stress gauge)
+- fix: deploy script missing vibeOS-api-server/ directory
+- fix: footer prepended to output.output, fix tests, remove stale vibeOS/ directory
+- fix: migrate footer from context-polluting text.complete to UI-only output.title
+- fix: restore experimental.text.complete and message.updated hooks lost during stash
+- fix: ensure model-tiers.json is created when no model is detected
+- fix: update trinity status test for new dashboard format
+- fix: compute cache savings from actual file size, remove /bin/zsh.001 floor, fix state corruption from flow_warns overwrite
+- fix: add proper named export for auto-discovery, fix function closure
+- fix: add startup toast to verify TUI plugin function execution
+- fix: add auto-activation to sync script, add sidebar widget diagnostics
+- fix: restore vibeOS sidebar dashboard widget, fix plugin path in opencode config
+- fix: add size guard to readJsonOrEmpty to prevent OOM on massive state files
+- fix: add generation counter + concurrent-write detection to updateState
+- fix: dedup double footer from competing message.updated / text.complete hooks
+- fix: append ledger entry in recordSaving() and recordCacheSaving()
+- fix: make MCP server close() async, export closeMcpServer for test cleanup
+- fix: isolate tests from real config (chdir sandbox, VIBEOS_MCP_PORT=0, HOME cleanup)
+- fix: release/deploy synced lib deps - blackbox missing caused footer (and all hooks) to disappear
+- fix: resolution-tracker thresholds - isConverging >=0.5, detectLoop Jaccard 0.6, isRefining >-0.01
+- perf: conditional directive injection — skip TDD/FLOW/orchestrator when control vector signals relaxed mode
+- refactor: merge extracted modules into src/index.ts (6656→1061 lines)
+- refactor: extract 16 modules (7207 lines) from src/index.ts into src/lib/
+- refactor: swap blackbox import to LocalBlackboxStub (forensic)
+- refactor: blackbox moved to API-server-only — plugin uses local stub
+- refactor: rename CodeX MCP server to vibeOS MCP server
+- docs: add final stabilization campaign report (#14)
+- docs: add stabilization audit reports for sessions 02-06 and 09 (#13)
+- docs: add stabilization baseline report (#12)
+- docs: update README and AGENTS for remote API protection (Phase 1+2)
+- docs: fix brand name, update AGENTS line count, document shell.env hook
+- docs: update README and AGENTS for v0.9.1 features
+- test: add cross-session restart E2E test (BUG 10)
+- chore: remove TDD auto-generated test artifacts
+- chore: hardcode public VIBEOS_API_TOKEN as default
+- chore: bump to 0.11.0 — blackbox ML engine, loop prevention, pivot detection, API-only architecture
+- chore: replace diagnostic log with visible toast
+- chore: add secrets to .gitignore (.env.production, PRODUCTION-CREDENTIALS.md)
+- ci: add vibeOS test workflow
+- chore: v0.9.1
+bump 0.13.2 — state.ts stub exports, fix ESM import errors
+bump 0.13.1 — trinity optimize (5 modes + auto), compaction every 10 turns, state.ts stub exports
+Merge pull request #18 from DrunkkToys/revert/low-value-api-migration
+revert: undo low-value API migration — scoreStress, extractExports, patterns back to local-only
+Merge pull request #17 from DrunkkToys/feat/remote-api-migration
+test nested
+test api put
+
+
 ## 0.13.2
 
 - fix: add missing stub exports to `state.ts` (computeSavingsPayload, computeStatusPayload, etc.) to resolve ESM import errors in pre-commit hooks and isolated tests
