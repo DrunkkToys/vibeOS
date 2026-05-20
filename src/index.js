@@ -6,17 +6,15 @@
  * vibeOS — OpenCode plugin: cost-aware delegation enforcer, trinity tier
  * control, live savings footer, TDD enforcer, flow enforcer, project guard,
  * research audit, reporting, decision engine, context7 optimization, and more.
- *
- * Source of truth: src/index.ts (compiled from TypeScript — do NOT edit .js directly).
  */
 import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, renameSync } from "node:fs";
 import { join, dirname, basename } from "node:path";
 import { getFlowWarns, ensureProjectDocs } from "./vibeOS-lib/flow-enforcer.js";
 import { computeSessionMetrics } from "./vibeOS-lib/session-metrics.js";
 import { createMcpServer } from "./vibeOS-mcp-server.js";
-import { applySlot, modelCostPerTurn, detectContext7, formatUsd, classify, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, } from "./lib/pricing.js";
+import { applySlot, modelCostPerTurn, detectContext7, formatUsd, classify, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, readConfig, } from "./lib/pricing.js";
 import { scoreStress, detectTechStack, loadBlackboxState, saveBlackboxState, getBlackboxResolution, } from "./lib/turn-classify.js";
-import { safeJsonParse, readFullState, loadSelection, writeSelection, readLifetimeSavings, _OC_SID, _modelLocked, _blackboxEnabled, currentTier, currentModel, currentProjectFingerprint, currentProjectName, _latestBlackboxState, getActiveJobForProject, projectFingerprint, loadProjectState, saveProjectState, ensureProjectBucket, mergeProjectBucket, SAVINGS_LEDGER_FILE, TIERS_FILE, USER_HOME, STATE_FILE, PROJECT_STATE_FILE, REPORTS_DIR, AUTH_F, CREDIT_CACHE_F, pruneScratchpadOnce, registerSessionCleanupHandlers, promotedProjectPatterns, projectPatternRows, clearProjectPatterns, reportsIndex, saveReportsIndex, readOpenCodeConfigObject, loadTrinityModels, computeStatusPayload, computeSavingsPayload, computeSessionCheckout, diagnoseStructuredFromText, projectStructuredFromText, persistMcpPort, loadMcpPort, } from "./lib/state.js";
+import { safeJsonParse, readFullState, loadSelection, writeSelection, readLifetimeSavings, _OC_SID, _modelLocked, _blackboxEnabled, _latestBlackboxState, getActiveJobForProject, projectFingerprint, loadProjectState, saveProjectState, ensureProjectBucket, mergeProjectBucket, TIERS_FILE, USER_HOME, STATE_FILE, REPORTS_DIR, AUTH_F, CREDIT_CACHE_F, pruneScratchpadOnce, registerSessionCleanupHandlers, projectPatternRows, clearProjectPatterns, tool, } from "./lib/state.js";
 import { researchAudit } from "./lib/research-audit.js";
 import { saveReport, listReports, readReport } from "./lib/reporting.js";
 import { loadCredit, thinkingLevel } from "./lib/credit-api.js";
@@ -26,21 +24,17 @@ import { onToolExecuteBefore, onToolExecuteAfter } from "./lib/hooks/tool-execut
 import { onMessagesTransform, onSystemTransform } from "./lib/hooks/chat-transform.js";
 import { onSessionCompacting } from "./lib/hooks/session-compact.js";
 import { onShellEnv } from "./lib/hooks/shell-env.js";
-// ── Tool helper (used by DelegationEnforcer for tool definitions) ─────
-import { _zType } from "./lib/state.js";
-const tool = Object.assign((def) => def, {
-    schema: {
-        string: (o) => _zType({ kind: "string", ...(o || {}) }),
-        number: (o) => _zType({ kind: "number", ...(o || {}) }),
-        enum: (values) => _zType({ kind: "enum", values }),
-    }
-});
 // ── Remote API client state ──────────────────────────────────────────
-const _apiUrl = "https://api.vibetheog.com";
 let _apiClient = null;
 let _apiFallbackMode = false;
 let _apiFallbackSince = null;
-// ── Module-level state (NOT in extracted modules) ────────────────────
+// ── LOCAL state (independent from module copies) ─────────────────────
+// ES import bindings are live read-only — can't reassign imported `let`.
+// These local copies are mutated by DelegationEnforcer.
+let currentTier = null;
+let currentModel = null;
+let currentProjectFingerprint = "";
+let currentProjectName = "unknown";
 let activeJob = null;
 let fp = "";
 let _mcpServerRuntime = null;
@@ -146,7 +140,6 @@ function _lazyRefresh() {
         _creditTimer.unref();
 }
 // ── OpenCode provider config helpers ──────────────────────────────────
-const MODEL_RANK = { high: 3, mid: 2, budget: 1 };
 const OPENCODE_GO_CATALOG = [
     "deepseek/deepseek-v4-flash",
     "deepseek/deepseek-chat",
@@ -154,12 +147,27 @@ const OPENCODE_GO_CATALOG = [
 ];
 function _loadOpenCodeProviders() {
     try {
-        const cfg = readOpenCodeConfigObject(join(USER_HOME, ".config", "opencode"));
+        const cfg = _readOpenCodeConfigObject(join(USER_HOME, ".config", "opencode"));
         return cfg?.provider || {};
     }
     catch {
         return {};
     }
+}
+function _readOpenCodeConfigObject(dir) {
+    const jsonPath = join(dir, "opencode.json");
+    const jsoncPath = join(dir, "opencode.jsonc");
+    if (existsSync(jsonPath))
+        return safeJsonParse(readFileSync(jsonPath, "utf-8"));
+    if (existsSync(jsoncPath))
+        return _parseJsonc(readFileSync(jsoncPath, "utf-8"));
+    return {};
+}
+function _parseJsonc(raw) {
+    const noBlock = String(raw || "").replace(/\/\*[\s\S]*?\*\//g, "");
+    const noLine = noBlock.replace(/(^|\s)\/\/.*$/gm, "$1");
+    const noTrailing = noLine.replace(/,\s*([}\]])/g, "$1");
+    return safeJsonParse(noTrailing);
 }
 function _modelCost(id) {
     if (!id)
@@ -193,8 +201,207 @@ function backupFile(path, label) {
         return null;
     }
 }
-// ── Utility: readConfig from directory ────────────────────────────────
-import { readConfig } from "./lib/pricing.js";
+function readPackageVersion() {
+    try {
+        const pkg = safeJsonParse(readFileSync(join(process.cwd(), "package.json"), "utf-8"));
+        return String(pkg?.version || "");
+    }
+    catch {
+        return "";
+    }
+}
+function loadMcpPort() {
+    const envPort = process.env.VIBEOS_MCP_PORT;
+    if (envPort != null && envPort !== "") {
+        const n = Number(envPort);
+        if (!Number.isFinite(n))
+            return 9578;
+        return n;
+    }
+    try {
+        if (existsSync(TIERS_FILE)) {
+            const tiers = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"));
+            const cfg = tiers?.selection?.mcp_port ?? tiers?.mcp_port;
+            if (cfg === false || cfg === "disabled" || cfg === 0)
+                return 0;
+            const n = Number(cfg);
+            if (Number.isFinite(n))
+                return n;
+        }
+    }
+    catch { }
+    return 9578;
+}
+function persistMcpPort(port) {
+    try {
+        if (!existsSync(TIERS_FILE))
+            return;
+        const tiers = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"));
+        tiers.selection ??= {};
+        if (Number(tiers.selection.mcp_port) === Number(port))
+            return;
+        tiers.selection.mcp_port = port;
+        mkdirSync(dirname(TIERS_FILE), { recursive: true });
+        const tmp = TIERS_FILE + ".tmp." + Date.now();
+        writeFileSync(tmp, JSON.stringify(tiers, null, 2) + "\n", "utf-8");
+        renameSync(tmp, TIERS_FILE);
+    }
+    catch { }
+}
+function computeStatusPayload() {
+    const sel = loadSelection();
+    let tiersData = {};
+    try {
+        tiersData = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"));
+    }
+    catch { }
+    const credit = loadCredit();
+    const activeSlot = sel.active_slot || "brain";
+    const current = tiersData?.trinity?.[activeSlot]?.oc || currentModel || "";
+    const thinking = sel.thinking_level || thinkingLevel(credit);
+    return {
+        enabled: sel.enabled !== false,
+        active_slot: activeSlot,
+        enforce: sel.delegation_enforce !== false,
+        flow_enforcer: sel.flow_enabled !== false,
+        flow_extract_todos: sel.flow_enforce === true,
+        tdd_enforcer: sel.tdd_enforce === true,
+        tdd_strict: sel.tdd_strict !== false,
+        thinking,
+        current_model: current,
+        credit_percent: credit,
+        version: readPackageVersion(),
+    };
+}
+function computeSavingsPayload() {
+    const lt = readLifetimeSavings();
+    return {
+        lifetime: {
+            delegation_usd: Number(lt.ltTasks || 0),
+            cache_usd: Number(lt.ltCache || 0),
+            missed_context7_usd: Number(lt.missedC7 || 0),
+            total_warns: Number(lt.count || 0),
+        },
+        current_session: {
+            delegation_usd: Number(lt.sesTasks || 0),
+            cache_usd: Number((readFullState()?.sessions?.[_OC_SID]?.cache_savings_usd) || 0),
+            warns_count: Array.isArray(readFullState()?.sessions?.[_OC_SID]?.warns) ? readFullState().sessions[_OC_SID].warns.length : 0,
+            tool_breakdown: lt.sesToolBreakdown || {},
+        },
+        cache_hits_this_session: Number(readFullState()?.sessions?.[_OC_SID]?.cache_hits?.length || 0),
+        trend: lt.sesTrend || "stable",
+        savings_rate_per_hour: Number(lt.sesRatePerHour || 0),
+    };
+}
+function computeSessionCheckout() {
+    const state = readFullState();
+    const metrics = computeSessionMetrics(state, _OC_SID);
+    const session = state?.sessions?.[_OC_SID] || {};
+    const warns = Array.isArray(session?.warns) ? session.warns : [];
+    const rankedOps = warns
+        .map((w) => ({
+        tool: String(w?.tool || "unknown"),
+        reason: String(w?.reason || ""),
+        savings_usd: Number(w?.est_savings_usd || 0),
+        at: w?.at || null,
+    }))
+        .sort((a, b) => b.savings_usd - a.savings_usd)
+        .slice(0, 3);
+    const flowWarns = getFlowWarns().filter((w) => String(w?.sid || "") === String(process.pid || ""));
+    const summary = {
+        session_id: _OC_SID,
+        duration_seconds: Number(metrics?.sesDuration || 0),
+        duration: metrics?.sesDurationFormatted || "0h 0m 0s",
+        cost_usd: Number(session?.cost_usd || 0),
+        savings: {
+            delegation_usd: Number(metrics?.sesTasks || 0),
+            cache_usd: Number(session?.cache_savings_usd || 0),
+            total_usd: Number((metrics?.sesTasks || 0) + Number(session?.cache_savings_usd || 0)),
+        },
+        tools: {
+            breakdown: metrics?.sesToolBreakdown || {},
+            top_expensive_operations: rankedOps,
+        },
+        model_split: metrics?.sesModelTurns || { brain: 0, worker: 0 },
+        trend_vs_previous_sessions: metrics?.sesTrend || "stable",
+        flow_violations: flowWarns,
+    };
+    const reportId = saveReport({
+        type: "session-checkout",
+        summary: `Session checkout ${_OC_SID}: $${Number(summary.savings.total_usd || 0).toFixed(3)} saved`,
+        findings: rankedOps.map((op) => ({
+            severity: "info",
+            topic: op.tool,
+            detail: `${op.reason} ($${op.savings_usd.toFixed(6)})`,
+        })),
+        metrics: {
+            duration_seconds: summary.duration_seconds,
+            cost_usd: summary.cost_usd,
+            delegation_savings_usd: summary.savings.delegation_usd,
+            cache_savings_usd: summary.savings.cache_usd,
+            total_savings_usd: summary.savings.total_usd,
+            trend: summary.trend_vs_previous_sessions,
+            brain_turns: summary.model_split.brain || 0,
+            worker_turns: summary.model_split.worker || 0,
+        },
+        narrative: JSON.stringify(summary),
+        tags: ["session", "checkout"],
+    });
+    return { ok: true, summary, report_id: reportId };
+}
+function diagnoseStructuredFromText(raw) {
+    const text = String(raw || "");
+    const lines = text.split("\n");
+    const files = [];
+    const model_probes = [];
+    const suggestions = [];
+    let credit = { percent: loadCredit(), ok: true, fix: null };
+    for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed)
+            continue;
+        if (trimmed.includes("→"))
+            suggestions.push(trimmed.replace(/^→\s*/, ""));
+        if (/slot/i.test(trimmed) && /(brain|medium|cheap)/i.test(trimmed)) {
+            model_probes.push({ slot: trimmed, model: "", ok: trimmed.includes("✅"), fix: trimmed.includes("→") ? trimmed.split("→")[1].trim() : undefined });
+        }
+        if (/model-tiers\.json|opencode\.json|delegation-state\.json|auth\.json/i.test(trimmed)) {
+            files.push({ path: trimmed, exists: trimmed.includes("✅"), ok: trimmed.includes("✅"), fix: trimmed.includes("→") ? trimmed.split("→")[1].trim() : undefined });
+        }
+        if (/credit/i.test(trimmed)) {
+            const m = trimmed.match(/(\d+)%/);
+            if (m)
+                credit.percent = Number(m[1]);
+            credit.ok = trimmed.includes("✅");
+            credit.fix = trimmed.includes("→") ? trimmed.split("→")[1].trim() : null;
+        }
+    }
+    return {
+        config_valid: !text.includes("❌"),
+        files,
+        model_probes,
+        credit,
+        locks_clean: true,
+        suggestions,
+    };
+}
+function projectStructuredFromText(raw) {
+    const text = String(raw || "");
+    const m1 = text.match(/Brain[^0-9]*(\d+)%/i);
+    const m2 = text.match(/Worker[^0-9]*(\d+)%/i);
+    const brainPct = m1 ? Number(m1[1]) : 0;
+    const workerPct = m2 ? Number(m2[1]) : 0;
+    const lines = text.split("\n");
+    const suggestions = lines.filter((l) => l.includes("💡")).map((l) => l.replace(/^.*💡\s*/, "").trim());
+    return {
+        brain_pct: brainPct,
+        worker_pct: workerPct,
+        enforcement_status: loadSelection().delegation_enforce ? "enforce" : "warn",
+        flow_status: loadSelection().flow_enabled !== false ? "on" : "off",
+        credit_percent: loadCredit(),
+        suggestions,
+    };
+}
 // ── DelegationEnforcer — main plugin entry point ─────────────────────
 export async function DelegationEnforcer({ client, directory } = {}) {
     console.error(`[vibeOS] LOADED cwd=${directory}`);
@@ -231,7 +438,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
     else {
         console.error("[vibeOS] NO MODEL — enforcement disabled, will auto-detect on first hook");
     }
-    // Auto-configure model-tiers.json — always syncs with opencode desktop config.
+    // Auto-configure model-tiers.json
     if (currentModel || !existsSync(TIERS_FILE)) {
         try {
             let _tiersData;
@@ -304,25 +511,20 @@ export async function DelegationEnforcer({ client, directory } = {}) {
             }
             if (_didWrite) {
                 _tiersData.selection ??= {};
-                if (_tiersData.selection.mcp_port === undefined) {
+                if (_tiersData.selection.mcp_port === undefined)
                     _tiersData.selection.mcp_port = 9578;
-                }
                 mkdirSync(dirname(TIERS_FILE), { recursive: true });
                 const _tmp = TIERS_FILE + ".tmp." + Date.now();
                 writeFileSync(_tmp, JSON.stringify(_tiersData, null, 2) + "\n", "utf-8");
                 renameSync(_tmp, TIERS_FILE);
                 console.error(`[vibeOS] auto-synced model-tiers.json: brain=${_brain.id} medium=${_tiersData.trinity?.medium?.oc || ""} cheap=${_tiersData.trinity?.cheap?.oc || ""}`);
-                const _refreshed = loadTrinityModels();
-                TRINITY_BRAIN = _refreshed.brain;
-                TRINITY_CHEAP = _refreshed.cheap;
-                TRINITY_MEDIUM = _refreshed.medium;
-            }
-            else if (!existsSync(TIERS_FILE)) {
-                mkdirSync(dirname(TIERS_FILE), { recursive: true });
-                const _tmp2 = TIERS_FILE + ".tmp." + Date.now();
-                writeFileSync(_tmp2, JSON.stringify(_tiersData, null, 2) + "\n", "utf-8");
-                renameSync(_tmp2, TIERS_FILE);
-                console.error(`[vibeOS] created empty model-tiers.json skeleton (no model detected)`);
+                const _tiersCfg = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"));
+                const _b = _tiersCfg?.trinity?.brain?.oc;
+                const _m = _tiersCfg?.trinity?.medium?.oc;
+                const _c = _tiersCfg?.trinity?.cheap?.oc;
+                TRINITY_BRAIN = _b || _brain.id;
+                TRINITY_CHEAP = _c || _cheap?.id || null;
+                TRINITY_MEDIUM = _m || _medium?.id || null;
             }
         }
         catch { }
@@ -332,10 +534,9 @@ export async function DelegationEnforcer({ client, directory } = {}) {
         const _mt = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"));
         if (_mt.selection && (_mt.selection.mcp_port === undefined || _mt.selection.mcp_port === null)) {
             _mt.selection.mcp_port = 9578;
-            const _tmp3 = TIERS_FILE + ".tmp." + Date.now();
-            writeFileSync(_tmp3, JSON.stringify(_mt, null, 2) + "\n", "utf-8");
-            renameSync(_tmp3, TIERS_FILE);
-            console.error(`[vibeOS] mcp_port set to 9578 in model-tiers.json`);
+            const _tmp = TIERS_FILE + ".tmp." + Date.now();
+            writeFileSync(_tmp, JSON.stringify(_mt, null, 2) + "\n", "utf-8");
+            renameSync(_tmp, TIERS_FILE);
         }
     }
     catch { }
@@ -352,7 +553,6 @@ export async function DelegationEnforcer({ client, directory } = {}) {
         bucket.totalSessions = (bucket.totalSessions || 0) + 1;
         bucket.lastSeen = new Date().toISOString();
         saveProjectState(state);
-        console.error(`[vibeOS] project-memory: ${fp} now ${bucket.totalSessions} sessions`);
     }
     catch (err) {
         console.error(`[vibeOS] project-memory init failed for ${fp}: ${err.message}`);
@@ -362,9 +562,8 @@ export async function DelegationEnforcer({ client, directory } = {}) {
         if (directory && existsSync(directory)) {
             const techStack = detectTechStack(directory);
             const result = ensureProjectDocs(directory, techStack);
-            if (result.created.length > 0) {
+            if (result.created.length > 0)
                 console.error(`[vibeOS] Project Guard: created ${result.created.join(", ")}`);
-            }
         }
     }
     catch (err) {
@@ -373,7 +572,6 @@ export async function DelegationEnforcer({ client, directory } = {}) {
     // ── Plugin hooks ──────────────────────────────────────────────────
     const pluginHooks = {
         "tool.execute.before": async (input, output) => {
-            // Set directory context for imported hooks
             onToolExecuteBefore._directory = directory;
             return onToolExecuteBefore(input, output);
         },
@@ -398,22 +596,18 @@ export async function DelegationEnforcer({ client, directory } = {}) {
         },
         tool: {
             trinity: tool({
-                description: "Control the vibeOS plugin and active model slot. " +
-                    "Use action='status' to see current state. " +
-                    "Use action='enable' or 'disable' to toggle the plugin (takes effect immediately, no restart needed). " +
-                    "Use action='set' with slot='brain'|'medium'|'cheap' to switch model tiers " +
-                    "(writes opencode.json — active immediately). " +
-                    "Use action='rebuild' to auto-detect available models from all configured providers and reassign brain/medium/cheap slots. " +
-                    "Use action='flow' with slot='on'|'off' to toggle flow enforcer, or action='flow' alone for audit. " +
-                    "Use action='flow' with slot='enforce' and level='on'|'off' to toggle auto-extract TODOs. " +
-                    "Use action='enforce' with slot='on'|'off' to toggle delegation enforcement (blocks direct writes/edits on brain tier). " +
-                    "Use action='tdd' with slot='on'|'off' to toggle auto-create test skeletons. " +
-                    "Use action='tdd' with slot='strict' and level='on'|'off' to toggle strict failing TODO test templates. " +
-                    "Use action='tdd' alone for audit. " +
-                    "Use action='project' to show per-project analytics and optimization suggestions. " +
-                    "Use action='patterns' to inspect learned project patterns or slot='clear' to clear them. " +
-                    "Use action='guard' to ensure AGENTS.md and README.md exist and stay current. " +
-                    "Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', 'trinity status'.",
+                description: "Control the vibeOS plugin and active model slot.\n" +
+                    "Use action='status' to see current state.\n" +
+                    "Use action='enable' or 'disable' to toggle the plugin.\n" +
+                    "Use action='set' with slot='brain'|'medium'|'cheap' to switch.\n" +
+                    "Use action='rebuild' to auto-detect available models.\n" +
+                    "Use action='flow' with slot='on'|'off' to toggle flow enforcer.\n" +
+                    "Use action='enforce' with slot='on'|'off' to toggle delegation enforcement.\n" +
+                    "Use action='tdd' with slot='on'|'off' to toggle auto-test skeletons.\n" +
+                    "Use action='project' for per-project analytics.\n" +
+                    "Use action='patterns' for learned project patterns.\n" +
+                    "Use action='guard' for Project Guard.\n" +
+                    "Call when the user says 'switch to medium', 'use cheap model', 'disable plugin', or 'trinity status'.",
                 args: {
                     action: tool.schema.enum(["status", "enable", "disable", "set", "thinking", "flow", "tdd", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard"]).optional(),
                     slot: tool.schema.enum(["brain", "medium", "cheap", "on", "off", "enforce", "strict", "quality", "preview", "apply", "clear", "savings"]).optional(),
@@ -440,7 +634,6 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                         const sv = readLifetimeSavings();
                         const ltTotal = (sv.ltTasks || 0) + (sv.ltCache || 0);
                         const sesTasks = sv.sesTasks || 0;
-                        const sesCache = Number(readFullState()?.sessions?.[_OC_SID]?.cache_savings_usd || 0);
                         const sesWarns = Array.isArray(readFullState()?.sessions?.[_OC_SID]?.warns) ? readFullState().sessions[_OC_SID].warns.length : 0;
                         const sesTrend = sv.sesTrend || "stable";
                         const sesRate = sv.sesRatePerHour || 0;
@@ -467,8 +660,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                                 const res = _latestBlackboxState || getBlackboxResolution();
                                 if (res && res.n_interactions > 3) {
                                     const momentumIcon = res.momentum > 0.3 ? "up up" : res.momentum > 0 ? "up" : res.momentum < -0.3 ? "down down" : res.momentum < 0 ? "down" : "flat";
-                                    const loopTag = res.is_looping ? " (loop)" : "";
-                                    decisionLine = `${res.resolution} ${res.sub_regime} ${momentumIcon}${loopTag}`;
+                                    decisionLine = `${res.resolution} ${res.sub_regime} ${momentumIcon}${res.is_looping ? " (loop)" : ""}`;
                                 }
                             }
                             catch { }
@@ -486,88 +678,58 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                             `|`,
                             `Stress: ${stressBar} (${stressLabel})`,
                             `|`,
-                            `Guards:`,
-                            `  Flow: ${sel.flow_enabled !== false ? "ON" : "OFF"}${sel.flow_enforce ? " (extract)" : ""}`,
-                            `  TDD: ${sel.tdd_enforce ? "ON" : "OFF"}${sel.tdd_strict !== false ? " strict" : ""}${sel.tdd_quality !== false ? " quality" : ""}`,
-                            `  Enforce: ${sel.delegation_enforce ? "ON" : "OFF"}`,
-                            `  Lock: ${_modelLocked ? "🔒 ON (model fixed)" : "🔓 OFF"}`,
+                            `Guards: Flow: ${sel.flow_enabled !== false ? "ON" : "OFF"}${sel.flow_enforce ? " (extract)" : ""}`,
+                            `TDD: ${sel.tdd_enforce ? "ON" : "OFF"}${sel.tdd_strict !== false ? " strict" : ""}${sel.tdd_quality !== false ? " quality" : ""}`,
+                            `Enforce: ${sel.delegation_enforce ? "ON" : "OFF"}`,
+                            `Lock: ${_modelLocked ? "LOCKED" : "unlocked"}`,
                             `|`,
-                            `All-time savings:`,
-                            `  Total: $${ltTotal.toFixed(2)} (${sesTrend})${goalBar}`,
-                            `  Delegation: $${(sv.ltTasks || 0).toFixed(2)}`,
-                            `  Cache: $${formatUsd(sv.ltCache || 0)}`,
-                            `  Missed: $${missedC7.toFixed(2)}`,
+                            `All-time: Total: $${ltTotal.toFixed(2)} (${sesTrend})${goalBar}`,
+                            `Delegation: $${(sv.ltTasks || 0).toFixed(2)}`,
+                            `Cache: $${formatUsd(sv.ltCache || 0)}`,
+                            `Missed: $${missedC7.toFixed(2)}`,
                             `|`,
                             `This session:`,
-                            ...(sesDuration > 0 ? [`  Duration: ${durHrs}h ${durMins}m`] : []),
-                            `  Rate: $${sesRate.toFixed(2)}/hr`,
-                            `  Warnings: ${sesWarns}`,
-                            ...(topTools.length > 0 ? [`  Top tools:`, ...topTools.map(([t, v]) => `    ${t}: $${v.toFixed(2)}`)] : []),
+                            ...(sesDuration > 0 ? [`Duration: ${durHrs}h ${durMins}m`] : []),
+                            `Rate: $${sesRate.toFixed(2)}/hr`,
+                            `Warnings: ${sesWarns}`,
+                            ...(topTools.length > 0 ? [`Top tools:`, ...topTools.map(([t, v]) => `  ${t}: $${v.toFixed(2)}`)] : []),
                             `|`,
-                            `Tiers:`,
-                            `  brain:  ${brainModel}${activeSlot === "brain" ? "  *" : ""}`,
+                            `Tiers: brain: ${brainModel}${activeSlot === "brain" ? "  *" : ""}`,
                             `  medium: ${mediumModel}${activeSlot === "medium" ? "  *" : ""}`,
                             `  cheap:  ${cheapModel}${activeSlot === "cheap" ? "  *" : ""}`,
                         ];
                         return lines.join("\n");
                     }
-                    if (action === "enable" || action === "disable") {
-                        const val = action === "enable";
-                        const ok = writeSelection("enabled", val);
-                        if (!ok)
-                            return `❌ Failed to write model-tiers.json`;
-                        return `${val ? "✅ Plugin ENABLED" : "❌ Plugin DISABLED"} — takes effect immediately (no restart needed).`;
+                    if (action === "enable") {
+                        return writeSelection("enabled", true) ? "Plugin ENABLED" : "Failed";
+                    }
+                    if (action === "disable") {
+                        return writeSelection("enabled", false) ? "Plugin DISABLED" : "Failed";
                     }
                     if (action === "set") {
-                        if (!slot || !["brain", "medium", "cheap"].includes(slot)) {
-                            return `❌ Provide slot: brain | medium | cheap`;
-                        }
-                        let targetModel = "";
-                        try {
-                            const tiers = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"));
-                            targetModel = tiers?.trinity?.[slot]?.oc || "";
-                        }
-                        catch { }
-                        if (!targetModel) {
-                            return "❌ No model configured for " + slot + " slot. Run `trinity rebuild` first.";
-                        }
-                        const auth = _readAuth();
-                        // probeModel is only available via require from trinity-rebuild
+                        if (!slot || !["brain", "medium", "cheap"].includes(slot))
+                            return "Provide slot: brain | medium | cheap";
                         const result = applySlot(slot);
                         if (!result.ok)
-                            return `❌ Failed to set slot: ${result.reason}`;
-                        return `✅ Switched to ${slot} slot (${result.ocModel}). Active now (no restart needed).`;
+                            return "Failed: " + result.reason;
+                        return `Switched to ${slot} slot (${result.ocModel})`;
                     }
                     if (action === "thinking") {
-                        if (!level || !["full", "brief", "off"].includes(level)) {
-                            return `❌ Provide level: full | brief | off`;
-                        }
-                        const stored = level;
-                        const ok = writeSelection("thinking_level", stored);
-                        if (!ok)
-                            return `❌ Failed to write model-tiers.json`;
-                        const desc = {
-                            full: "full thinking (no restriction) — takes effect on next message",
-                            brief: "brief thinking (complex tasks only) — takes effect on next message",
-                            off: "thinking OFF (respond directly) — takes effect on next message",
-                        };
-                        return `✅ Reasoning depth → ${desc[level]}`;
+                        if (!level || !["full", "brief", "off"].includes(level))
+                            return "Provide level: full | brief | off";
+                        const desc = { full: "no restriction", brief: "complex tasks only", off: "none" };
+                        if (!writeSelection("thinking_level", level))
+                            return "Failed";
+                        return `Reasoning depth -> ${desc[level]}`;
                     }
                     if (action === "flow") {
                         if (slot === "on" || slot === "off") {
-                            const ok = writeSelection("flow_enabled", slot === "on");
-                            return ok
-                                ? `✅ Flow enforcer ${slot === "on" ? "ENABLED" : "DISABLED"}`
-                                : `❌ Failed to write model-tiers.json`;
+                            return writeSelection("flow_enabled", slot === "on") ? `Flow ${slot === "on" ? "ON" : "OFF"}` : "Failed";
                         }
                         if (slot === "enforce") {
                             if (level !== "on" && level !== "off")
-                                return "❌ Provide level on|off for `trinity flow enforce`";
-                            const enforceOn = level === "on";
-                            const ok = writeSelection("flow_enforce", enforceOn);
-                            return ok
-                                ? `✅ Flow enforcement ${enforceOn ? "ENABLED (auto-extract TODOs)" : "DISABLED (log only)"}`
-                                : `❌ Failed to write model-tiers.json`;
+                                return "Provide level on|off";
+                            return writeSelection("flow_enforce", level === "on") ? `Flow enforce ${level === "on" ? "ON" : "OFF"}` : "Failed";
                         }
                         const flowWarns = getFlowWarns();
                         const sid = String(process.pid || "?");
@@ -577,385 +739,103 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                             if (bySev[w.severity] !== undefined)
                                 bySev[w.severity]++;
                         }
-                        const lines = [`🔀 Flow enforcer audit (this session):`];
+                        const lines = [`Flow enforcer audit:`];
                         lines.push(`  ${bySev.warn} warn, ${bySev.hint} hint, ${bySev.flag} flag`);
-                        if (sessionWarns.length > 0) {
-                            for (const w of sessionWarns.slice(-15)) {
-                                const icon = w.severity === "warn" ? "⚠" : "💡";
-                                lines.push(`  ${icon} [${w.severity}] ${w.rule_id}: ${w.description} — ${w.filePath || "(no file)"}`);
-                            }
-                        }
                         if (sessionWarns.length === 0)
-                            lines.push(`  No flow violations this session.`);
+                            lines.push(`  No flow violations.`);
+                        else
+                            for (const w of sessionWarns.slice(-15))
+                                lines.push(`  [${w.severity}] ${w.rule_id}: ${w.description}`);
                         return lines.join("\n");
                     }
                     if (action === "enforce") {
-                        if (slot === "on" || slot === "off") {
-                            const ok = writeSelection("delegation_enforce", slot === "on");
-                            return ok
-                                ? `🚫 Delegation enforcement ${slot === "on" ? "ENABLED — direct writes/edits BLOCKED on brain tier" : "DISABLED — warn only"}`
-                                : `❌ Failed to write model-tiers.json`;
-                        }
-                        const sel = loadSelection();
-                        return `🚫 Delegation enforcement: ${sel.delegation_enforce ? "ON (blocks direct writes/edits on brain tier)" : "OFF (warn only)"}\nUse \`trinity enforce on\` or \`trinity enforce off\` to toggle.`;
-                    }
-                    if (action === "lock") {
-                        if (slot === "on") {
-                            _modelLocked = true;
-                            const _tiers = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"));
-                            console.error(`[vibeOS] model LOCKED — ${_tiers?.trinity?.[_tiers?.selection?.active_slot || "brain"]?.oc || currentModel || "?"} (${currentTier}) will not auto-reconcile with config`);
-                            const lockModel = _tiers?.trinity?.[_tiers?.selection?.active_slot || "brain"]?.oc || currentModel || "detected model";
-                            return `🔒 Model LOCKED — ${lockModel} will not change unless you force with \`trinity set\` or \`trinity lock off\`.`;
-                        }
-                        if (slot === "off") {
-                            _modelLocked = false;
-                            console.error(`[vibeOS] model UNLOCKED — auto-reconcile re-enabled`);
-                            return `🔓 Model UNLOCKED — will auto-follow OpenCode config changes.`;
-                        }
-                        return `🔒 Model lock: ${_modelLocked ? "ON (fixed per session)" : "OFF (follows config)"}\nUse \`trinity lock on\` or \`trinity lock off\` to toggle.\nLock is per-session (resets on restart).`;
+                        if (slot === "on")
+                            return writeSelection("delegation_enforce", true) ? "Enforcement ON" : "Failed";
+                        if (slot === "off")
+                            return writeSelection("delegation_enforce", false) ? "Enforcement OFF" : "Failed";
+                        return "Enforce: " + (loadSelection().delegation_enforce ? "ON" : "OFF");
                     }
                     if (action === "tdd") {
+                        if (slot === "on")
+                            return writeSelection("tdd_enforce", true) ? "TDD ON" : "Failed";
+                        if (slot === "off")
+                            return writeSelection("tdd_enforce", false) ? "TDD OFF" : "Failed";
                         if (slot === "strict") {
-                            if (level !== "on" && level !== "off") {
-                                return "❌ Provide level on|off for `trinity tdd strict`";
-                            }
-                            const ok = writeSelection("tdd_strict", level === "on");
-                            return ok
-                                ? `✅ TDD strict ${level === "on" ? "ENABLED (TODO tests fail loudly)" : "DISABLED (TODO tests non-blocking)"}`
-                                : `❌ Failed to write model-tiers.json`;
+                            if (level !== "on" && level !== "off")
+                                return "Provide level on|off";
+                            return writeSelection("tdd_strict", level === "on") ? `TDD strict ${level === "on" ? "ON" : "OFF"}` : "Failed";
                         }
-                        if (slot === "quality") {
-                            if (level !== "on" && level !== "off") {
-                                return "❌ Provide level on|off for `trinity tdd quality`";
-                            }
-                            const ok = writeSelection("tdd_quality", level === "on");
-                            return ok
-                                ? `✅ TDD quality templates ${level === "on" ? "ENABLED (real assertions, invalid-input, edge-case stubs)" : "DISABLED (TODO-only stubs)"}`
-                                : `❌ Failed to write model-tiers.json`;
-                        }
-                        if (slot === "on" || slot === "off") {
-                            const ok = writeSelection("tdd_enforce", slot === "on");
-                            return ok
-                                ? `✅ TDD enforcement ${slot === "on" ? "ENABLED (auto-create skeletons)" : "DISABLED (nudge only)"}`
-                                : `❌ Failed to write model-tiers.json`;
-                        }
-                        const stateFile = join(USER_HOME, ".claude/delegation-state.json");
-                        let enforced = 0;
-                        try {
-                            if (existsSync(stateFile)) {
-                                const s = safeJsonParse(readFileSync(stateFile, "utf-8"));
-                                enforced = s.lifetime?.tdd_enforced ?? 0;
-                            }
-                        }
-                        catch { }
                         const sel = loadSelection();
-                        const lines = [`🧪 TDD enforcer audit:`];
-                        lines.push(`  Mode: ${sel.tdd_enforce ? "ENFORCE (auto-create skeletons)" : "NUDGE (reminders only)"}`);
-                        lines.push(`  Strict templates: ${sel.tdd_strict !== false ? "ON (fail TODO tests)" : "OFF (non-blocking TODO tests)"}`);
-                        lines.push(`  Quality templates: ${sel.tdd_quality !== false ? "ON (real assertion stubs)" : "OFF (TODO-only stubs)"}`);
-                        lines.push(`  Skeletons created this lifetime: ${enforced}`);
-                        return lines.join("\n");
+                        return `TDD: ${sel.tdd_enforce ? "ON" : "OFF"} strict:${sel.tdd_strict !== false} quality:${sel.tdd_quality !== false}`;
                     }
                     if (action === "project") {
                         const L = "\u2501";
-                        const lines = [`📊 Project profile — ${currentProjectName || (directory ? directory.split("/").pop() : "unknown")}`];
+                        const lines = [`Project profile - ${currentProjectName || "unknown"}`];
                         lines.push(L.repeat(40));
                         const _fp = currentProjectFingerprint || projectFingerprint(directory);
                         const pstate = loadProjectState();
                         const proj = pstate.project_hashes?.[_fp];
                         if (proj) {
-                            lines.push(`\n📅 Sessions: ${proj.totalSessions || 0} | Last: ${(proj.lastSeen || "").slice(0, 10)}`);
+                            lines.push(`\nSessions: ${proj.totalSessions || 0} | Last: ${(proj.lastSeen || "").slice(0, 10)}`);
                             if (proj.researchChains)
-                                lines.push(`🔍 Research chains detected: ${proj.researchChains}`);
-                            if (proj.context7Bypasses)
-                                lines.push(`💰 Context7 bypasses: ${proj.context7Bypasses}`);
-                            if (proj.commonTopics?.length) {
-                                const topics = proj.commonTopics.slice(0, 5).join(", ");
-                                lines.push(`🌐 Common fetch domains: ${topics}`);
-                            }
-                            const promoted = promotedProjectPatterns(_fp);
-                            if (promoted.length) {
-                                lines.push(`\nLearned patterns:`);
-                                for (const ptn of promoted)
-                                    lines.push(`  [${ptn.label}] ${ptn.summary}`);
-                            }
-                        }
-                        else {
-                            lines.push(`\n  (no project memory yet — first session)`);
+                                lines.push(`Research chains: ${proj.researchChains}`);
+                            if (proj.commonTopics?.length)
+                                lines.push(`Common domains: ${proj.commonTopics.slice(0, 5).join(", ")}`);
                         }
                         const sv = readLifetimeSavings();
                         const totalTurns = (sv.sesModelTurns?.brain || 0) + (sv.sesModelTurns?.worker || 0);
-                        const brainPct = totalTurns > 0 ? Math.round((sv.sesModelTurns.brain / totalTurns) * 100) : 0;
-                        if (totalTurns > 0) {
-                            const workerPct = 100 - brainPct;
-                            lines.push(`\n🔀 Model usage: Brain ${brainPct}% (${sv.sesModelTurns.brain} turns) / Worker ${workerPct}% (${sv.sesModelTurns.worker} tasks)`);
-                        }
-                        if (sv.sesTasks > 0.01 || sv.ltCache > 0.01) {
-                            lines.push(`💰 Session savings: $${sv.sesTasks.toFixed(2)} delegation + $${sv.ltCache.toFixed(2)} cache`);
-                        }
-                        if (sv.sesDuration > 0) {
-                            const hrs = Math.floor(sv.sesDuration / 3600);
-                            const mins = Math.floor((sv.sesDuration % 3600) / 60);
-                            lines.push(`⏱  Duration: ${hrs}h ${mins}m | Rate: $${sv.sesRatePerHour.toFixed(2)}/hr | Trend: ${sv.sesTrend === "down" ? "↓" : sv.sesTrend === "up" ? "↑" : "→"}`);
-                        }
-                        const toolEntries = Object.entries(sv.sesToolBreakdown || {}).filter(([_, v]) => v > 0.005).sort((a, b) => b[1] - a[1]);
-                        if (toolEntries.length > 0) {
-                            lines.push(`\n🔧 Per-tool savings:`);
-                            for (const [tool, savings] of toolEntries) {
-                                lines.push(`  ${tool.padEnd(14)} —$${savings.toFixed(2)}`);
-                            }
-                        }
-                        const flowWarns = getFlowWarns();
-                        const sid = String(process.pid || "?");
-                        const sessionFlowWarns = flowWarns.filter((w) => String(w.sid) === sid);
-                        const byRule = {};
-                        for (const w of sessionFlowWarns) {
-                            const key = w.rule_id || "unknown";
-                            byRule[key] = (byRule[key] || 0) + 1;
-                        }
-                        if (Object.keys(byRule).length > 0) {
-                            lines.push(`\n⚠️ Flow violations (this session):`);
-                            for (const [rule, count] of Object.entries(byRule)) {
-                                lines.push(`  ${rule.padEnd(22)} ${count}`);
-                            }
-                        }
-                        const suggestions = [];
-                        if (totalTurns > 10 && sv.sesModelTurns.brain > sv.sesModelTurns.worker * 2) {
-                            if (!loadSelection().delegation_enforce) {
-                                suggestions.push(`💡 High direct brain usage (${brainPct}%) — enable enforcement with \`trinity enforce on\` to block direct writes/edits`);
-                            }
-                            else {
-                                suggestions.push(`💡 High direct brain usage (${brainPct}%) — enforcement is ON but brain keeps editing directly; check plugin logs`);
-                            }
-                        }
-                        if (proj?.context7Bypasses > 3) {
-                            suggestions.push(`💡 ${proj.context7Bypasses} context7 bypasses — install context7 MCP to save ~$0.05/turn`);
-                        }
-                        if (proj?.researchChains > 2) {
-                            suggestions.push(`💡 ${proj.researchChains} research domain chains — consider caching or batching doc lookups`);
-                        }
-                        if ((sv.sesToolBreakdown?.webfetch || 0) > 0.1 || (sv.sesToolBreakdown?.websearch || 0) > 0.1) {
-                            suggestions.push(`💡 High webfetch/websearch usage — use context7 tools or scratchpad caching`);
-                        }
-                        if ((byRule["new-md-file"] || 0) > 2) {
-                            suggestions.push(`💡 ${byRule["new-md-file"]} new .md files — verify explicit user request for docs`);
-                        }
-                        if ((byRule["todo-comment"] || 0) > 5) {
-                            suggestions.push(`💡 ${byRule["todo-comment"]} TODO/FIXME left — clean up or track in issue tracker`);
-                        }
-                        if (loadSelection().flow_enabled === false) {
-                            suggestions.push(`💡 Flow enforcer is OFF — enable with \`trinity flow on\` to catch anti-patterns`);
-                        }
-                        for (const ptn of promotedProjectPatterns(_fp)) {
-                            suggestions.push(`Learned ${ptn.label} pattern: ${ptn.summary}`);
-                        }
+                        if (totalTurns > 0)
+                            lines.push(`Model split: brain ${Math.round((sv.sesModelTurns.brain / totalTurns) * 100)}% / worker ${100 - Math.round((sv.sesModelTurns.brain / totalTurns) * 100)}%`);
+                        if (sv.sesDuration > 0)
+                            lines.push(`Duration: ${Math.floor(sv.sesDuration / 3600)}h ${Math.floor((sv.sesDuration % 3600) / 60)}m`);
+                        if (sv.sesTasks > 0.01 || sv.ltCache > 0.01)
+                            lines.push(`Savings: delegation $${sv.sesTasks.toFixed(2)} + cache $${sv.ltCache.toFixed(2)}`);
+                        if (loadSelection().delegation_enforce === false)
+                            lines.push(`HINT: enable enforcement with \`trinity enforce on\``);
                         const credit = loadCredit();
-                        if (credit < 40) {
-                            suggestions.push(`💡 Credit at ${credit}% — switch to medium/cheap slot with \`trinity medium\``);
-                        }
-                        if (suggestions.length > 0) {
-                            lines.push(`\n🎯 Optimization suggestions:`);
-                            for (const s of suggestions)
-                                lines.push(`  ${s}`);
-                        }
-                        else {
-                            lines.push(`\n✅ No optimization suggestions — looking good!`);
-                        }
-                        lines.push(`\n${L.repeat(40)}`);
-                        lines.push(`Run \`trinity help\` for all commands | \`research-audit\` for deep fetch analysis`);
+                        if (credit < 40)
+                            lines.push(`HINT: credit ${credit}% - switch to medium slot`);
+                        lines.push(L.repeat(40));
                         return lines.join("\n");
                     }
                     if (action === "report" && slot === "savings") {
-                        const L = "\u2501";
-                        const lines = [`== Savings Deep Report ==`];
-                        lines.push(L.repeat(40));
                         const sv = readLifetimeSavings();
-                        const ltTotal = sv.ltTasks + sv.ltCache;
-                        const toolTotals = {};
-                        let entryCount = 0;
-                        try {
-                            if (existsSync(SAVINGS_LEDGER_FILE)) {
-                                const raw = readFileSync(SAVINGS_LEDGER_FILE, "utf-8");
-                                for (const ln of raw.trim().split("\n")) {
-                                    if (!ln.trim())
-                                        continue;
-                                    let rec = null;
-                                    try {
-                                        rec = JSON.parse(ln);
-                                    }
-                                    catch {
-                                        continue;
-                                    }
-                                    if (!rec || rec.v !== 2)
-                                        continue;
-                                    const amt = Number(rec.amount_usd ?? 0);
-                                    const tool = String(rec.tool || "unknown");
-                                    toolTotals[tool] = (toolTotals[tool] || 0) + amt;
-                                    entryCount++;
-                                }
-                            }
-                        }
-                        catch { }
-                        lines.push(`\nBy tool:`);
-                        const sortedTools = Object.entries(toolTotals).sort((a, b) => b[1] - a[1]);
-                        if (sortedTools.length === 0) {
-                            lines.push(`  (no ledger entries yet)`);
-                        }
-                        else {
-                            for (const [tool, amt] of sortedTools) {
-                                lines.push(`  ${tool.padEnd(14)} $${amt.toFixed(4)}`);
-                            }
-                        }
-                        const dayTotals = {};
-                        try {
-                            if (existsSync(SAVINGS_LEDGER_FILE)) {
-                                const raw = readFileSync(SAVINGS_LEDGER_FILE, "utf-8");
-                                for (const ln of raw.trim().split("\n")) {
-                                    if (!ln.trim())
-                                        continue;
-                                    let rec = null;
-                                    try {
-                                        rec = JSON.parse(ln);
-                                    }
-                                    catch {
-                                        continue;
-                                    }
-                                    if (!rec || rec.v !== 2)
-                                        continue;
-                                    const amt = Number(rec.amount_usd ?? 0);
-                                    const day = (rec.at || "").slice(0, 10);
-                                    if (day)
-                                        dayTotals[day] = (dayTotals[day] || 0) + amt;
-                                }
-                            }
-                        }
-                        catch { }
-                        lines.push(`\nBy day:`);
-                        const sortedDays = Object.entries(dayTotals).sort((a, b) => a[0].localeCompare(b[0]));
-                        if (sortedDays.length === 0) {
-                            lines.push(`  (no daily data yet)`);
-                        }
-                        else {
-                            for (const [day, amt] of sortedDays) {
-                                lines.push(`  ${day}  $${amt.toFixed(4)}`);
-                            }
-                        }
-                        lines.push(`\nLifetime:`);
-                        lines.push(`  Delegation savings: $${sv.ltTasks.toFixed(4)}`);
-                        lines.push(`  Cache savings:     $${(sv.ltCache || 0).toFixed(4)}`);
-                        lines.push(`  Total:             $${ltTotal.toFixed(4)}`);
-                        lines.push(`  Ledger entries:    ${entryCount}`);
-                        lines.push(`\n${L.repeat(40)}`);
-                        return lines.join("\n");
-                    }
-                    if (action === "target") {
-                        const goalVal = parseFloat(slot || "");
-                        if (!Number.isFinite(goalVal) || goalVal <= 0) {
-                            return `Usage: trinity target <amount>\nExample: trinity target 5.00`;
-                        }
-                        const ok = writeSelection("savings_goal_usd", Math.round(goalVal * 100) / 100);
-                        return ok
-                            ? `Savings goal set to $${goalVal.toFixed(2)}. Track progress in the footer.`
-                            : `Failed to write savings goal.`;
+                        return `Savings: delegation $${sv.ltTasks.toFixed(4)} | cache $${(sv.ltCache || 0).toFixed(4)}`;
                     }
                     if (action === "patterns") {
                         const _fp = currentProjectFingerprint || projectFingerprint(directory);
-                        const name = currentProjectName || (directory ? directory.split("/").pop() : "unknown");
+                        const name = currentProjectName || "unknown";
                         if (slot === "clear") {
-                            const count = clearProjectPatterns(_fp);
-                            return `Pattern memory cleared for "${name}" (${count} pattern${count === 1 ? "" : "s"} removed).`;
-                        }
-                        if (slot === "suggest") {
-                            const pstate = loadProjectState();
-                            const currentBucket = pstate.project_hashes?.[_fp];
-                            const currentTech = currentBucket?.techStack || [];
-                            const currentKeys = new Set([
-                                ...Object.keys(currentBucket?.userPatterns?.friction || {}),
-                                ...Object.keys(currentBucket?.userPatterns?.routines || {}),
-                            ]);
-                            const candidates = [];
-                            for (const [otherFp, bucket] of Object.entries(pstate.project_hashes || {})) {
-                                if (otherFp === _fp)
-                                    continue;
-                                const otherTech = bucket?.techStack || [];
-                                if (!otherTech.some((t) => currentTech.includes(t)))
-                                    continue;
-                                for (const [kind, label] of [["friction", "friction"], ["routines", "routine"]]) {
-                                    for (const [key, row] of Object.entries(bucket?.userPatterns?.[kind] || {})) {
-                                        if (currentKeys.has(key))
-                                            continue;
-                                        const sessions = new Set(row?.sessions || []).size;
-                                        candidates.push({ key, label, summary: row?.summary || key, count: Number(row?.count || 0), sessions, lastSeen: row?.lastSeen || "" });
-                                    }
-                                }
-                            }
-                            candidates.sort((a, b) => b.count - a.count || b.sessions - a.sessions);
-                            const top = candidates.slice(0, 5);
-                            const _lines = ["[⚡ From similar tech stack projects]"];
-                            if (top.length === 0) {
-                                _lines.push("  No cross-project suggestions available yet.");
-                                return _lines.join("\n");
-                            }
-                            for (const c of top) {
-                                const tag = c.sessions >= 3 ? "promoted" : "learning";
-                                _lines.push(`  [${c.label}/${tag}] ${c.summary} (${c.count} hit${c.count === 1 ? "" : "s"}, ${c.sessions} session${c.sessions === 1 ? "" : "s"})`);
-                            }
-                            _lines.push("");
-                            _lines.push("Use `trinity patterns` to see this project's own patterns.");
-                            return _lines.join("\n");
+                            return `Cleared ${clearProjectPatterns(_fp)} patterns for "${name}"`;
                         }
                         const rows = projectPatternRows(_fp);
-                        const _lines = [`Project patterns - ${name}`];
-                        if (rows.length === 0) {
-                            _lines.push("  No learned patterns yet.");
-                            _lines.push("  Patterns promote into briefings after 3 separate sessions.");
-                            return _lines.join("\n");
-                        }
-                        const _promoted = rows.filter((r) => r.sessions >= 3).length;
-                        _lines.push(`  ${rows.length} stored, ${_promoted} promoted`);
+                        if (rows.length === 0)
+                            return "No learned patterns yet.";
+                        const lines = [`Project patterns - ${name}:`];
                         for (const r of rows.slice(0, 15)) {
                             const tag = r.sessions >= 3 ? "promoted" : "learning";
-                            _lines.push(`  [${r.label}/${tag}] ${r.summary} (${r.sessions} session${r.sessions === 1 ? "" : "s"}, ${r.count} hit${r.count === 1 ? "" : "s"})`);
+                            lines.push(`  [${r.label}/${tag}] ${r.summary} (${r.sessions} sessions)`);
                         }
-                        _lines.push("");
-                        _lines.push("Use `trinity patterns clear` to clear project pattern memory.");
-                        return _lines.join("\n");
+                        return lines.join("\n");
                     }
                     if (action === "guard") {
                         if (!directory || !existsSync(directory))
-                            return "Working directory not accessible.";
-                        const techStack = detectTechStack(directory);
-                        const result = ensureProjectDocs(directory, techStack);
-                        if (result.created.length === 0 && result.skipped.length > 0) {
-                            return `AGENTS.md and README.md already exist. Use \`trinity guard\` to check for missing features.`;
-                        }
-                        const _lines = [`Project Guard: ${directory.split("/").pop() || "unknown"}`];
+                            return "No directory.";
+                        const result = ensureProjectDocs(directory, detectTechStack(directory));
+                        const lines = [`Project Guard: ${directory.split("/").pop()}`];
                         for (const f of result.created)
-                            _lines.push(`  Created ${f}`);
+                            lines.push(`  Created ${f}`);
                         for (const f of result.skipped)
-                            _lines.push(`  Already exists: ${f}`);
-                        _lines.push("");
-                        _lines.push("AGENTS.md: defines AI agent behavioral rules — ASK BEFORE changing code.");
-                        _lines.push("README.md: auto-maintained feature documentation — keep it updated.");
-                        return _lines.join("\n");
+                            lines.push(`  Already exists: ${f}`);
+                        return lines.join("\n");
                     }
                     if (action === "rebuild") {
                         const providers = _loadOpenCodeProviders();
                         const auth = _readAuth();
                         const models = await discoverAvailableModels(providers, auth);
                         const ranked = classifyAndRankModels(models);
-                        if (!ranked) {
-                            return "❌ No models discovered from any configured provider.";
-                        }
-                        const probed = { brain: null, medium: null, cheap: null };
-                        const failed = [];
-                        // Note: probeModel is in state.ts as _probeModel or we use the imported version
-                        const lines = [
-                            "🔍 Auto-detected models from configured providers:",
-                            "  🧠 brain  → " + ranked.brain.id + " (tier: " + ranked.brain.tier + ", $" + ranked.brain.cost.toFixed(4) + "/turn) ✅",
-                            "  ⚙  medium → " + ranked.medium.id + " (tier: " + ranked.medium.tier + ", $" + ranked.medium.cost.toFixed(4) + "/turn) ✅",
-                            "  ⚡ cheap  → " + ranked.cheap.id + " (tier: " + ranked.cheap.tier + ", $" + ranked.cheap.cost.toFixed(4) + "/turn) ✅",
-                        ];
+                        if (!ranked)
+                            return "No models discovered.";
                         try {
                             const tiers = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"));
                             tiers.trinity = {
@@ -963,195 +843,84 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                                 medium: { oc: ranked.medium.id, cc: modelToCcAlias(ranked.medium.id) },
                                 cheap: { oc: ranked.cheap.id, cc: modelToCcAlias(ranked.cheap.id) },
                             };
-                            const _tmp4 = TIERS_FILE + ".tmp." + Date.now();
-                            writeFileSync(_tmp4, JSON.stringify(tiers, null, 2) + "\n", "utf-8");
-                            renameSync(_tmp4, TIERS_FILE);
+                            const _tmp = TIERS_FILE + ".tmp." + Date.now();
+                            writeFileSync(_tmp, JSON.stringify(tiers, null, 2) + "\n", "utf-8");
+                            renameSync(_tmp, TIERS_FILE);
                         }
-                        catch (err) {
-                            return "❌ Failed to write model-tiers.json: " + err.message;
+                        catch (e) {
+                            return "Failed: " + e.message;
                         }
                         try {
                             applySlot("brain");
                         }
-                        catch (e) {
-                            console.error("[vibeOS] auto-activate brain failed:", e.message);
-                        }
-                        lines.push("", "✅ model-tiers.json updated.");
-                        return lines.join("\n");
+                        catch { }
+                        return `Rebuilt: brain=${ranked.brain.id} medium=${ranked.medium.id} cheap=${ranked.cheap.id}`;
                     }
                     if (action === "diagnose") {
                         const results = [];
-                        const ocConfig = join(USER_HOME, ".config/opencode/opencode.json");
                         const checks = [
                             { path: TIERS_FILE, label: "model-tiers.json" },
-                            { path: ocConfig, label: "opencode.json" },
+                            { path: join(USER_HOME, ".config/opencode/opencode.json"), label: "opencode.json" },
                             { path: STATE_FILE, label: "delegation-state.json" },
                         ];
                         for (const c of checks) {
-                            results.push({
-                                ok: existsSync(c.path),
-                                okLabel: existsSync(c.path) ? "✅" : "❌",
-                                label: c.label,
-                                detail: existsSync(c.path) ? "exists" : "missing",
-                                fix: existsSync(c.path) ? undefined : (c.label === "model-tiers.json" ? "run `trinity rebuild` to create it" : undefined),
-                            });
+                            results.push({ ok: existsSync(c.path), okLabel: existsSync(c.path) ? "OK" : "MISSING", label: c.label, detail: existsSync(c.path) ? "exists" : "missing", fix: existsSync(c.path) ? undefined : (c.label === "model-tiers.json" ? "run `trinity rebuild`" : undefined) });
                         }
                         try {
                             const tiers = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"));
                             for (const s of ["brain", "medium", "cheap"]) {
                                 const m = tiers?.trinity?.[s]?.oc || "";
                                 const ok = m.length > 0 && !m.toLowerCase().includes("placeholder");
-                                results.push({
-                                    ok, okLabel: ok ? "✅" : "❌",
-                                    label: `${s} slot`,
-                                    detail: ok ? m : (m.length > 0 ? `placeholder: ${m}` : "unset"),
-                                    fix: ok ? undefined : "run `trinity rebuild` to auto-assign",
-                                });
+                                results.push({ ok, okLabel: ok ? "OK" : "MISSING", label: `${s} slot`, detail: ok ? m : "unset", fix: ok ? undefined : "run `trinity rebuild`" });
                             }
                         }
                         catch {
-                            for (const s of ["brain", "medium", "cheap"]) {
-                                results.push({ ok: false, okLabel: "❌", label: `${s} slot`, detail: "cannot read model-tiers.json", fix: "run `trinity rebuild` to create it" });
-                            }
-                        }
-                        if (currentModel || !existsSync(TIERS_FILE)) {
-                            results.push({ ok: true, okLabel: "✅", label: "model probe", detail: "API probe skipped in read-only mode" });
+                            for (const s of ["brain", "medium", "cheap"])
+                                results.push({ ok: false, okLabel: "ERR", label: `${s} slot`, detail: "cannot read", fix: "run `trinity rebuild`" });
                         }
                         const credit = loadCredit();
-                        let budget = 50;
-                        try {
-                            const j = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"));
-                            if (j?.selection?.monthly_budget_usd)
-                                budget = j.selection.monthly_budget_usd;
-                        }
-                        catch { }
-                        const creditOk = credit >= 40;
-                        results.push({
-                            ok: creditOk, okLabel: creditOk ? "✅" : "❌",
-                            label: "credits",
-                            detail: `${credit}% (of $${budget})`,
-                            fix: creditOk ? undefined : "run `trinity medium` to reduce spend",
-                        });
-                        try {
-                            const state = safeJsonParse(readFileSync(STATE_FILE, "utf-8"));
-                            const sid = String(process.pid || "?");
-                            const ses = state?.sessions?.[sid];
-                            const delegationCount = ses?.warns?.length || 0;
-                            const cacheSavings = formatUsd(state?.lifetime?.cache_savings_usd || 0);
-                            const fw = (state?.flow_warns || []).filter((w) => String(w.sid) === sid);
-                            const flowW = fw.filter((w) => w.severity === "warn").length;
-                            const flowH = fw.filter((w) => w.severity === "hint").length;
-                            const tdd = state?.lifetime?.tdd_enforced ?? 0;
-                            const enf = loadSelection().delegation_enforce ? " ENFORCE" : "";
-                            results.push({
-                                ok: true, okLabel: "✅",
-                                label: "session",
-                                detail: `${delegationCount} delegates, $${cacheSavings} cache, ${flowW}w/${flowH}h flow, ${tdd} TDD${enf}`,
-                            });
-                        }
-                        catch {
-                            results.push({ ok: true, okLabel: "✅", label: "session", detail: "no state file yet" });
-                        }
+                        results.push({ ok: credit >= 40, okLabel: credit >= 40 ? "OK" : "LOW", label: "credits", detail: `${credit}%`, fix: credit >= 40 ? undefined : "run `trinity medium`" });
                         const okCount = results.filter(r => r.ok).length;
                         results.sort((a, b) => (a.ok === b.ok ? 0 : a.ok ? 1 : -1));
-                        const lines = [
-                            "🔍  vibeOS — Self Diagnostic",
-                            "=".repeat(40),
-                            ""
-                        ];
+                        const lines = ["Self Diagnostic:"];
                         for (const r of results) {
                             lines.push(`  ${r.okLabel} ${r.label}: ${r.detail}`);
                             if (!r.ok && r.fix)
-                                lines.push(`    → ${r.fix}`);
+                                lines.push(`    fix: ${r.fix}`);
                         }
-                        if (okCount === results.length) {
-                            lines.push("", `✅ All ${results.length} checks passed`);
-                        }
-                        else {
-                            const failCount = results.length - okCount;
-                            lines.push("", `❌ ${failCount}/${results.length} checks failed — fix items above`);
-                        }
+                        lines.push(`\n${okCount}/${results.length} passed`);
                         return lines.join("\n");
                     }
                     if (action === "repair-state") {
                         const mode = slot || "preview";
-                        if (mode !== "preview" && mode !== "apply") {
-                            return "❌ Use `trinity repair-state preview` or `trinity repair-state apply`.";
-                        }
+                        if (mode !== "preview" && mode !== "apply")
+                            return "Use `trinity repair-state preview` or `trinity repair-state apply`.";
                         const dstFp = currentProjectFingerprint || projectFingerprint(directory);
-                        const name = currentProjectName || (directory ? directory.split("/").pop() : "unknown");
-                        const idx = reportsIndex();
-                        const byFp = new Map();
-                        for (const r of idx.reports || []) {
-                            if (r.project !== name)
-                                continue;
-                            byFp.set(r.fingerprint, (byFp.get(r.fingerprint) || 0) + 1);
-                        }
-                        const candidates = [...byFp.entries()]
-                            .filter(([fp2, count]) => fp2 && fp2 !== dstFp && count > 0)
-                            .sort((a, b) => b[1] - a[1]);
-                        if (candidates.length === 0) {
-                            return `✅ No duplicate fingerprint candidates found for project "${name}".`;
-                        }
-                        const [srcFp, reportCount] = candidates[0];
+                        const name = currentProjectName || "unknown";
                         const pstate = loadProjectState();
                         const dstBucket = ensureProjectBucket(pstate, dstFp);
-                        const srcBucket = pstate.project_hashes?.[srcFp] || null;
-                        const merged = mergeProjectBucket(dstBucket, srcBucket);
-                        const lines = [
-                            `🛠 State repair (${mode})`,
-                            `  project: ${name}`,
-                            `  target:  ${dstFp}`,
-                            `  source:  ${srcFp}`,
-                            `  reports to relabel: ${reportCount}`,
-                            `  sessions: ${(dstBucket.totalSessions || 0)} + ${(srcBucket?.totalSessions || 0)} -> ${merged.totalSessions}`,
-                            `  bypasses: ${(dstBucket.context7Bypasses || 0)} + ${(srcBucket?.context7Bypasses || 0)} -> ${merged.context7Bypasses}`,
-                            `  researchChains(max): ${Math.max(dstBucket.researchChains || 0, srcBucket?.researchChains || 0)}`,
-                        ];
-                        if (mode === "preview") {
-                            lines.push("", "Run `trinity repair-state apply` to execute with backups.");
-                            return lines.join("\n");
-                        }
-                        const backups = [];
-                        const b1 = backupFile(PROJECT_STATE_FILE, "repair-state");
-                        if (b1)
-                            backups.push(b1);
-                        const b2 = backupFile(REPORTS_INDEX, "repair-state");
-                        if (b2)
-                            backups.push(b2);
-                        pstate.project_hashes ??= {};
-                        pstate.project_hashes[dstFp] = merged;
-                        delete pstate.project_hashes[srcFp];
-                        saveProjectState(pstate);
-                        let relabeled = 0;
-                        for (const r of idx.reports || []) {
-                            if (r.project === name && r.fingerprint === srcFp) {
-                                r.fingerprint = dstFp;
-                                relabeled++;
+                        const srcFps = Object.keys(pstate.project_hashes || {}).filter((f) => f !== dstFp);
+                        if (srcFps.length === 0)
+                            return `No duplicates for "${name}".`;
+                        const lines = [`Repair (${mode}) for "${name}":`, `  Keeping: ${dstFp}`];
+                        for (const sf of srcFps) {
+                            const src = pstate.project_hashes[sf];
+                            if (src) {
+                                lines.push(`  Merging: ${sf} (${src.totalSessions || 0} sessions)`);
+                                if (mode === "apply")
+                                    mergeProjectBucket(dstBucket, src);
                             }
                         }
-                        saveReportsIndex(idx);
-                        for (const r of idx.reports || []) {
-                            if (r.project !== name || r.fingerprint !== dstFp)
-                                continue;
-                            const rf = join(REPORTS_DIR, `${r.id}.json`);
-                            try {
-                                if (!existsSync(rf))
-                                    continue;
-                                const data = safeJsonParse(readFileSync(rf, "utf-8"));
-                                if (data?.meta?.project === name && data?.meta?.fingerprint === srcFp) {
-                                    data.meta.fingerprint = dstFp;
-                                    writeFileSync(rf, JSON.stringify(data, null, 2) + "\n");
-                                }
+                        if (mode === "apply") {
+                            if (mode === "apply") {
+                                for (const sf of srcFps)
+                                    delete pstate.project_hashes[sf];
+                                saveProjectState(pstate);
+                                lines.push("Applied.");
                             }
-                            catch { }
                         }
-                        lines.push("");
-                        lines.push(`✅ Applied. Relabeled ${relabeled} report index entries.`);
-                        if (backups.length > 0) {
-                            lines.push("Backups:");
-                            for (const b of backups)
-                                lines.push(`  - ${b}`);
+                        else {
+                            lines.push("Run with `apply` to execute.");
                         }
                         return lines.join("\n");
                     }
@@ -1159,104 +928,60 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                         const mode = slot || "status";
                         if (mode === "on") {
                             _blackboxEnabled = true;
-                            const state = loadBlackboxState();
-                            state.enabled = true;
-                            saveBlackboxState(state);
-                            return "✅ Blackbox decision engine ENABLED — will track resolution state and enhance system prompts.";
+                            saveBlackboxState({ ...loadBlackboxState(), enabled: true });
+                            return "Blackbox ON";
                         }
                         if (mode === "off") {
                             _blackboxEnabled = false;
-                            const state = loadBlackboxState();
-                            state.enabled = false;
-                            saveBlackboxState(state);
-                            return "⏸ Blackbox decision engine DISABLED.";
+                            saveBlackboxState({ ...loadBlackboxState(), enabled: false });
+                            return "Blackbox OFF";
                         }
                         if (mode === "reset") {
-                            const state = loadBlackboxState();
-                            const sid = _OC_SID;
-                            delete state.sessions[sid];
-                            saveBlackboxState(state);
-                            return "🔄 Blackbox resolution tracker RESET.";
+                            const s = loadBlackboxState();
+                            delete s.sessions[_OC_SID];
+                            saveBlackboxState(s);
+                            return "Blackbox RESET";
                         }
                         if (mode === "status") {
                             const bbState = loadBlackboxState();
-                            const enabled = _blackboxEnabled || bbState.enabled;
-                            const lines = [`Blackbox Decision Engine: ${enabled ? "ON" : "OFF"}`];
-                            if (enabled) {
-                                const res = _latestBlackboxState || getBlackboxResolution();
-                                if (res) {
-                                    lines.push(`  Resolution: ${res.resolution}`);
-                                    lines.push(`  Sub-regime: ${res.sub_regime}`);
-                                    lines.push(`  Momentum: ${res.momentum > 0 ? "↑" : res.momentum < 0 ? "↓" : "→"} ${res.momentum.toFixed(2)}`);
-                                    lines.push(`  Interactions: ${res.n_interactions}`);
-                                    if (res.is_looping)
-                                        lines.push("  ⚠ Looping detected — consider a fresh perspective");
-                                }
-                                else {
-                                    lines.push("  No resolution data yet — start a decision session");
-                                }
-                                if (currentProjectFingerprint) {
-                                    lines.push("");
-                                    lines.push(`  Project: ${currentProjectName || "unknown"}`);
-                                    const projectSessions = Object.entries(bbState.sessions || {}).filter(([k, v]) => v.project_fingerprint === currentProjectFingerprint);
-                                    lines.push(`  Cross-session history: ${projectSessions.length} session(s) for this project`);
-                                }
+                            const lines = [`Blackbox: ${(_blackboxEnabled || bbState.enabled) ? "ON" : "OFF"}`];
+                            const res = _latestBlackboxState || getBlackboxResolution();
+                            if (res) {
+                                lines.push(`  Resolution: ${res.resolution}`);
+                                lines.push(`  Sub-regime: ${res.sub_regime}`);
+                                lines.push(`  Momentum: ${res.momentum > 0 ? "up" : res.momentum < 0 ? "down" : "flat"} (${res.momentum.toFixed(2)})`);
+                                lines.push(`  Interactions: ${res.n_interactions}`);
                             }
-                            lines.push("");
-                            lines.push("Usage: trinity blackbox on|off|status|reset");
                             return lines.join("\n");
                         }
-                        return `❌ Use \`trinity blackbox on|off|status|reset\``;
+                        return "Usage: trinity blackbox on|off|status|reset";
                     }
                     if (action === "help") {
                         return [
-                            "vibeOS — trinity commands",
+                            "vibeOS - trinity commands",
                             "",
-                            "TIERS:",
-                            "  trinity status            See plugin state, credit, model assignment",
-                            "  trinity brain             Switch to brain tier (most capable)",
-                            "  trinity medium            Switch to medium tier (balanced)",
-                            "  trinity cheap             Switch to cheap tier (most savings)",
-                            "  trinity rebuild           Auto-detect available models",
-                            "",
-                            "CONTROLS:",
-                            "  trinity enable/disable    Toggle vibeOS plugin on/off",
-                            "  trinity enforce on/off    Block brain-tier writes/edits (save $$)",
-                            "  trinity lock on/off       Lock model at session start (skip auto-reconcile)",
-                            "  trinity thinking full|brief|off  Set reasoning depth",
-                            "",
-                            "GUARDRAILS:",
-                            "  trinity flow on/off       Toggle flow enforcer (code quality checks)",
-                            "  trinity tdd on/off        Toggle auto test skeleton creation",
-                            "  trinity guard             Ensure AGENTS.md/README.md exist and are current",
-                            "  trinity flow              Show flow violations this session",
-                            "",
-                            "DIAGNOSTICS:",
-                            "  trinity diagnose          Self-check: config, files, model probes, budget",
-                            "  trinity project           Project analytics and optimization tips",
-                            "  trinity patterns          Show learned friction/routine patterns",
-                            "  trinity patterns suggest  Suggest relevant patterns from similar stack projects",
-                            "  trinity patterns clear    Clear learned patterns for this project",
-                            "",
-                            "REPAIR:",
-                            "  trinity repair-state      Fix fingerprint collisions (preview/apply)",
-                            "",
-                            "DECISION ENGINE:",
-                            "  trinity blackbox on/off   Toggle theWay blackbox decision engine",
-                            "  trinity blackbox status   View resolution state, momentum, project history",
-                            "  trinity blackbox reset    Clear resolution tracker for current session",
+                            "  trinity status       See plugin state, credit, model",
+                            "  trinity brain        Switch to brain tier",
+                            "  trinity medium       Switch to medium tier",
+                            "  trinity cheap        Switch to cheap tier",
+                            "  trinity rebuild      Auto-detect models",
+                            "  trinity enable/disable Toggle plugin",
+                            "  trinity enforce on/off Block brain-tier writes",
+                            "  trinity thinking full|brief|off Set reasoning depth",
+                            "  trinity flow on/off  Toggle flow enforcer",
+                            "  trinity tdd on/off   Toggle auto-test skeletons",
+                            "  trinity diagnose     Self-check",
+                            "  trinity project      Project analytics",
+                            "  trinity patterns     Show learned patterns",
+                            "  trinity guard        Ensure AGENTS.md/README.md exist",
                         ].join("\n");
                     }
-                    return `❌ Unknown action: ${action}`;
+                    return `Unknown action: ${action}`;
                 },
             }),
             "research-audit": tool({
-                description: "Scan recent session data for research anti-patterns (domain chains, redundant queries, no synthesis). " +
-                    "Use hours=N to look back N hours (default 24). " +
-                    "Call this after research-heavy interactions to audit quality.",
-                args: {
-                    hours: tool.schema.number().optional(),
-                },
+                description: "Scan session for research anti-patterns (domain chains, redundant queries, no synthesis). hours=N (default 24).",
+                args: { hours: tool.schema.number().optional() },
                 async execute({ hours } = {}) {
                     const report = researchAudit({ hours: hours ?? 24 });
                     try {
@@ -1264,82 +989,38 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                         const bucket = ensureProjectBucket(state, fp);
                         bucket.lastSeen = new Date().toISOString();
                         bucket.researchChains = Math.max(bucket.researchChains || 0, report.chains.length);
-                        bucket.context7Bypasses = (bucket.context7Bypasses || 0) + report.redundant;
-                        for (const [d] of Object.entries(report.byDomain)) {
-                            if (!d.startsWith("_") && !bucket.commonTopics.includes(d)) {
-                                bucket.commonTopics.push(d);
-                            }
-                        }
-                        if (bucket.commonTopics.length > 20) {
-                            bucket.commonTopics = bucket.commonTopics.slice(-20);
-                        }
                         saveProjectState(state);
                     }
-                    catch (err) {
-                        console.error(`[vibeOS] project-memory update failed: ${err.message}`);
-                    }
+                    catch { }
                     try {
                         const findings = [];
                         for (const c of report.chains)
-                            findings.push({ severity: "warn", topic: "Domain chain", detail: `${c.domain}: ${c.count} fetches in a row` });
+                            findings.push({ severity: "warn", topic: "Domain chain", detail: `${c.domain}: ${c.count} fetches` });
                         if (report.redundant > 0)
-                            findings.push({ severity: "warn", topic: "Context7 bypass", detail: `${report.redundant} bypasses detected` });
+                            findings.push({ severity: "warn", topic: "Context7 bypass", detail: `${report.redundant} bypasses` });
                         if (report.totalFetches > 0)
-                            findings.push({ severity: "info", topic: "Fetch volume", detail: `${report.totalFetches} fetches, ${(report.totalBytes / 1024).toFixed(0)}KB, ~$${report.estCost.toFixed(3)}` });
-                        const narParts = [`Scanned index and session state for last ${hours ?? 24}h.`];
-                        narParts.push(`Found ${report.totalFetches} fetch operations (${(report.totalBytes / 1024).toFixed(0)}KB, ~$${report.estCost.toFixed(3)}).`);
-                        if (report.chains.length > 0) {
-                            narParts.push(`${report.chains.length} domain chain(s):`);
-                            for (const c of report.chains)
-                                narParts.push(`  - ${c.domain}: ${c.count} consecutive fetches`);
-                        }
-                        if (report.redundant > 0)
-                            narParts.push(`Context7 bypasses: ${report.redundant}.`);
-                        if (report.sessions > 0)
-                            narParts.push(`Spans ${report.sessions} session(s).`);
-                        const narrative = narParts.join("\n");
-                        saveReport({ type: "research-audit", summary: `${report.totalFetches} fetches, ${report.chains.length} chains, ${report.redundant} bypasses in ${hours ?? 24}h`, findings, metrics: report, narrative, tags: ["research"] });
+                            findings.push({ severity: "info", topic: "Fetch volume", detail: `${report.totalFetches} fetches, ${(report.totalBytes / 1024).toFixed(0)}KB` });
+                        saveReport({ type: "research-audit", summary: `${report.totalFetches} fetches, ${report.chains.length} chains`, findings, metrics: report, tags: ["research"] });
                     }
                     catch { }
-                    const lines = [`🔬 Research audit (last ${hours ?? 24}h):`];
-                    if (report.totalFetches === 0) {
-                        lines.push(`  No WebFetch/WebSearch activity found.`);
-                        return lines.join("\n");
-                    }
-                    lines.push(`  Fetches: ${report.totalFetches} (${(report.totalBytes / 1024).toFixed(0)}KB, ~$${report.estCost.toFixed(3)})`);
-                    lines.push(`  Unique domains: ${Object.keys(report.byDomain).filter(k => !k.startsWith("_")).length}`);
+                    const lines = [`Research audit (last ${hours ?? 24}h):`];
+                    if (report.totalFetches === 0)
+                        return lines.concat("  No activity.").join("\n");
+                    lines.push(`  Fetches: ${report.totalFetches} (${(report.totalBytes / 1024).toFixed(0)}KB)`);
                     if (report.redundant > 0)
-                        lines.push(`  ⚠ Context7 bypasses: ${report.redundant}`);
-                    if (report.chains.length > 0) {
-                        lines.push(`  ⚠ Domain chains (≥3 consecutive to same domain):`);
-                        for (const c of report.chains) {
-                            const d = c.domain.length > 50 ? c.domain.slice(0, 50) + "…" : c.domain;
-                            lines.push(`    • ${d}: ${c.count} fetches in a row`);
-                        }
-                    }
-                    if (Object.keys(report.byDomain).length > 0) {
-                        lines.push(`  Domain breakdown:`);
-                        for (const [d, n] of Object.entries(report.byDomain).sort((a, b) => b[1] - a[1])) {
-                            if (d.startsWith("_"))
-                                continue;
-                            const label = d.length > 55 ? d.slice(0, 55) + "…" : d;
-                            lines.push(`    ${String(n).padStart(3)}  ${label}`);
-                        }
-                    }
-                    lines.push(`\nTip: run with hours=6 for finer granularity.`);
+                        lines.push(`  Context7 bypasses: ${report.redundant}`);
+                    for (const c of report.chains)
+                        lines.push(`  Chain: ${c.domain} (${c.count}x)`);
                     return lines.join("\n");
                 },
             }),
             "report-save": tool({
-                description: "Save a manual report with findings, metrics, narrative. " +
-                    "Findings: lines like 'warn: Topic: Detail' or 'info: Volume: 10 fetches'. " +
-                    "Metrics: lines like 'fetches=10' or 'cost=0.03'. " +
-                    "JSON arrays/objects also accepted for programmatic callers.",
+                description: "Save report with findings, metrics, narrative.",
                 args: {
                     summary: tool.schema.string({ description: "One-line summary" }),
-                    findings: tool.schema.string({ description: "Plain text lines: severity: Topic: Detail / or JSON array" }).optional(),
-                    metrics: tool.schema.string({ description: "Plain text lines: key=value / or JSON object" }).optional(),
-                    narrative: tool.schema.string({ description: "Free-form markdown narrative" }).optional(),
+                    findings: tool.schema.string({ description: "Plain text lines or JSON array" }).optional(),
+                    metrics: tool.schema.string({ description: "Plain text lines key=value or JSON" }).optional(),
+                    narrative: tool.schema.string({ description: "Free-form markdown" }).optional(),
                     tags: tool.schema.string({ description: "Comma-separated tags" }).optional(),
                 },
                 async execute({ summary, findings, metrics, narrative, tags } = {}) {
@@ -1350,7 +1031,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                             parsedFindings = JSON.parse(findings);
                     }
                     catch {
-                        if (findings) {
+                        if (findings)
                             for (const line of findings.split("\n").map((l) => l.trim()).filter(Boolean)) {
                                 const m = line.match(/^(warn|info|hint)\s*:\s*(.+?)\s*:\s*(.+)/i);
                                 if (m)
@@ -1358,100 +1039,62 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                                 else
                                     parsedFindings.push({ severity: "info", topic: "Note", detail: line });
                             }
-                        }
                     }
                     try {
                         if (metrics)
                             parsedMetrics = JSON.parse(metrics);
                     }
                     catch {
-                        if (metrics) {
+                        if (metrics)
                             for (const line of metrics.split("\n").map((l) => l.trim()).filter(Boolean)) {
                                 const m = line.match(/^([\w-]+)\s*=\s*([\d.]+)/);
                                 if (m)
                                     parsedMetrics[m[1]] = parseFloat(m[2]);
                             }
-                        }
                     }
                     const tagList = tags ? tags.split(",").map((t) => t.trim()).filter(Boolean) : [];
                     const id = saveReport({ type: "manual", summary, findings: parsedFindings, metrics: parsedMetrics, narrative: narrative || "", tags: tagList });
-                    if (id)
-                        return `✅ Report saved: ${id}\n  ${summary}\n  ${parsedFindings.length} findings, ${Object.keys(parsedMetrics).length} metrics, ${tagList.length} tags`;
-                    return `❌ Failed to save report`;
+                    return id ? `Report saved: ${id}` : "Failed";
                 },
             }),
             "report-list": tool({
-                description: "List saved reports. Filter by type (research-audit|manual), project name, hours (default 168 = 7d).",
+                description: "List reports. Filter by type, project, hours (default 168).",
                 args: {
                     type: tool.schema.string().optional(),
                     project: tool.schema.string().optional(),
                     hours: tool.schema.number().optional(),
-                    fingerprint: tool.schema.string().optional(),
                 },
-                async execute({ type, project, hours, fingerprint } = {}) {
-                    const reports = listReports({ type, project, hours: hours ?? 168, fingerprint });
+                async execute({ type, project, hours } = {}) {
+                    const reports = listReports({ type, project, hours: hours ?? 168 });
                     if (reports.length === 0)
-                        return "📋 No reports found.";
-                    const lines = ["📋 Reports (last " + (hours ?? 168) + "h) — " + reports.length + " total:"];
+                        return "No reports found.";
+                    const lines = [`Reports (last ${hours ?? 168}h): ${reports.length} total`];
                     for (const r of reports.slice(0, 15)) {
                         const d = r.created.slice(0, 16).replace("T", " ");
-                        const s = (r.summary || "").slice(0, 100);
-                        lines.push("  [" + d + "] #" + r.id + "  " + r.type + "  " + s);
+                        lines.push(`  [${d}] #${r.id} ${r.type} ${(r.summary || "").slice(0, 80)}`);
                     }
                     if (reports.length > 15)
-                        lines.push("  … and " + (reports.length - 15) + " more");
+                        lines.push(`  ... and ${reports.length - 15} more`);
                     return lines.join("\n");
                 },
             }),
             "report-read": tool({
-                description: "Read a specific report by its ID (shown in report-list output). Returns full structured report.",
-                args: {
-                    id: tool.schema.string({ description: "Report ID from report-list" }),
-                },
+                description: "Read a report by ID (from report-list).",
+                args: { id: tool.schema.string({ description: "Report ID" }) },
                 async execute({ id } = {}) {
-                    if (!id)
-                        return `❌ Provide id=<report-id>`;
-                    if (!/^[\w-]+$/.test(id))
-                        return `❌ Invalid report ID: ${id} (use only alphanumeric, underscore, or hyphens)`;
+                    if (!id || !/^[\w-]+$/.test(id))
+                        return `Invalid ID: ${id}`;
                     const report = readReport(id);
                     if (!report)
-                        return `❌ Report not found: ${id}`;
-                    const d = (report?.meta?.created ?? report?.created ?? "unknown").slice(0, 16).replace("T", " ");
-                    const lines = [
-                        "📄 Report #" + id,
-                        "  Type: " + (report?.meta?.type ?? report?.type ?? "unknown") + "  |  " + d,
-                        "  💬 " + (report.summary || "(no summary)"),
-                    ];
-                    if (report.metrics && Object.keys(report.metrics).length > 0) {
-                        const m = report.metrics;
-                        lines.push("");
-                        if (m.model)
-                            lines.push("  🧠 Model: " + m.model);
-                        if (m.slot)
-                            lines.push("  🎯 Slot: " + m.slot);
-                        if (m.sessionCost != null)
-                            lines.push("  💰 Cost: $" + Number(m.sessionCost).toFixed(2));
-                        if (m.cacheSavings != null)
-                            lines.push("  💸 Cache saved: $" + Number(m.cacheSavings).toFixed(2));
-                        if (m.taskDelegationCount != null)
-                            lines.push("  🛒 Task delegations: " + Number(m.taskDelegationCount));
-                        if (m.delegationSavingsUsd != null)
-                            lines.push("  🧾 Delegation savings: -$" + Number(m.delegationSavingsUsd).toFixed(2));
-                        else if (m.tasksDelegated != null)
-                            lines.push("  🛒 Tasks delegated: " + m.tasksDelegated);
-                        if (m.editSavings != null)
-                            lines.push("  ✏️ Edit savings: -$" + Number(m.editSavings).toFixed(2));
-                        if (m.creditSavings != null)
-                            lines.push("  💳 Credit savings: -$" + Number(m.creditSavings).toFixed(2));
-                        if (m.context7Savings != null)
-                            lines.push("  🔍 C7 savings: -$" + Number(m.context7Savings).toFixed(2));
-                        if (m.scratchpadHits != null)
-                            lines.push("  📁 Scratchpad hits: " + m.scratchpadHits);
-                    }
-                    if (report.tags?.length > 0)
-                        lines.push("\nTags: " + report.tags.join(", "));
+                        return `Not found: ${id}`;
+                    const d = (report?.meta?.created ?? report?.created ?? "?").slice(0, 16).replace("T", " ");
+                    const lines = [`Report #${id}`, `  Type: ${report?.meta?.type ?? report?.type ?? "?"}  |  ${d}`];
+                    if (report.summary)
+                        lines.push(`  ${report.summary}`);
+                    if (report.tags?.length)
+                        lines.push(`  Tags: ${report.tags.join(", ")}`);
                     if (report.narrative)
-                        lines.push(`\n---\n${report.narrative}`);
+                        lines.push(`  ---\n${report.narrative}`);
                     return lines.join("\n");
                 },
             }),
@@ -1468,22 +1111,16 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                     getSessionMetrics: () => computeSessionMetrics(readFullState(), _OC_SID),
                     listReports: (filter) => {
                         if (!existsSync(REPORTS_DIR)) {
-                            const err = new Error("reports dir not found");
-                            err.status = 404;
-                            throw err;
+                            const e = new Error("reports dir not found");
+                            e.status = 404;
+                            throw e;
                         }
                         return listReports(filter || {});
                     },
-                    readReport: (id) => readReport(id),
-                    runDiagnose: async () => {
-                        const raw = await pluginHooks.tool.trinity.execute({ action: "diagnose" });
-                        return diagnoseStructuredFromText(raw);
-                    },
-                    runProject: async () => {
-                        const raw = await pluginHooks.tool.trinity.execute({ action: "project" });
-                        return projectStructuredFromText(raw);
-                    },
-                    runTrinity: async (action, params = {}) => pluginHooks.tool.trinity.execute({ action, slot: params.slot, level: params.level }),
+                    readReport: (rvId) => readReport(rvId),
+                    runDiagnose: async () => diagnoseStructuredFromText(await pluginHooks.tool.trinity.execute({ action: "diagnose" })),
+                    runProject: async () => projectStructuredFromText(await pluginHooks.tool.trinity.execute({ action: "project" })),
+                    runTrinity: async (rvAction, params = {}) => pluginHooks.tool.trinity.execute({ action: rvAction, slot: params.slot, level: params.level }),
                     runResearchAudit: (hours) => researchAudit({ hours: hours ?? 24 }),
                     saveReport: (data) => saveReport(data),
                     getCurrentSessionId: () => _OC_SID,
@@ -1494,22 +1131,22 @@ export async function DelegationEnforcer({ client, directory } = {}) {
             const actualPort = Number(mcpServer?.address?.()?.port || port);
             if (actualPort && actualPort !== port)
                 persistMcpPort(actualPort);
-            console.error(`[vibeOS] MCP server listening on http://127.0.0.1:${actualPort}`);
+            console.error(`[vibeOS] MCP server on http://127.0.0.1:${actualPort}`);
             if (!_mcpServerHooked) {
                 _mcpServerHooked = true;
-                const closeServer = () => {
-                    try {
-                        _mcpServerRuntime?.close();
-                    }
-                    catch { }
-                };
-                process.on("SIGTERM", closeServer);
-                process.on("SIGINT", closeServer);
+                process.on("SIGTERM", () => { try {
+                    _mcpServerRuntime?.close();
+                }
+                catch { } });
+                process.on("SIGINT", () => { try {
+                    _mcpServerRuntime?.close();
+                }
+                catch { } });
             }
         }
     }
     catch (err) {
-        console.error(`[vibeOS] MCP server startup failed: ${err.message}`);
+        console.error(`[vibeOS] MCP startup failed: ${err.message}`);
     }
     return pluginHooks;
 }
@@ -1518,3 +1155,16 @@ export const server = DelegationEnforcer;
 export default { id: "vibeOS", server: DelegationEnforcer };
 export { researchAudit } from "./lib/research-audit.js";
 export { saveReport, listReports, readReport } from "./lib/reporting.js";
+export { applySlot, modelCostPerTurn, isModelFree, isDocsTarget, detectContext7, loadTierRegexes, classify, _refreshModel, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, } from "./lib/pricing.js";
+export { getScratchpadHit, getSessionScratchpadDir, getSessionIndexPath } from "./lib/state.js";
+export { extractExports, buildTestSkeleton, enforceTestFile, buildTestReminder } from "./lib/tdd-enforcer.js";
+export { classifyAndRankModels, modelToCcAlias } from "./lib/trinity-rebuild.js";
+export function closeMcpServer() {
+    try {
+        if (_mcpServerRuntime) {
+            _mcpServerRuntime.close();
+            _mcpServerRuntime = null;
+        }
+    }
+    catch { }
+}
