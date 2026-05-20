@@ -1,0 +1,47 @@
+name: vibeOS Release
+on:
+  workflow_dispatch:
+    inputs:
+      bump_type:
+        description: Version bump type
+        required: true
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npx tsc -p tsconfig.json --noEmit
+      - run: node --check src/index.js
+      - run: npm run build
+      - run: node scripts/release.mjs --ci --yes ${{ inputs.bump_type }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Create GitHub Release
+        run: |
+          TAG="v$(node -e "console.log(require('./package.json').version)")"
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes-file <(node -e "
+              const fs = require('fs');
+              const lines = fs.readFileSync('CHANGELOG.md','utf-8').split('\n');
+              const idx = lines.findIndex(l => l.startsWith('## '));
+              const end = lines.slice(idx + 1).findIndex(l => l.startsWith('## '));
+              console.log(lines.slice(idx + 1, end > 0 ? idx + 1 + end : undefined).join('\n').trim());
+            ")
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -49,12 +49,18 @@ fastify.get("/favicon.ico", async (request, reply) => {
 })
 
 fastify.setNotFoundHandler((request, reply) => {
-  reply.code(404).send({ error: "not found", path: request.url })
+  reply.code(404).send({ error: "not found", code: "NOT_FOUND", path: request.url })
 })
 
 fastify.setErrorHandler((error, request, reply) => {
   fastify.log.error(error)
-  reply.code(500).send({ error: "internal server error" })
+  const statusCode = error.statusCode || error.status || 500
+  const message = statusCode >= 500 ? "Internal server error" : error.message
+  reply.code(statusCode).send({
+    error: message,
+    code: statusCode >= 500 ? "INTERNAL_ERROR" : "REQUEST_ERROR",
+    ...(error.validation && { validation: error.validation }),
+  })
 })
 
 async function start() {
@@ -63,9 +69,9 @@ async function start() {
 
   try {
     await fastify.listen({ port: PORT, host: HOST })
-    console.log(`[vibeOS-api] Server running on http://${HOST}:${PORT}`)
-    console.log(`[vibeOS-api] Health check: http://${HOST}:${PORT}/health`)
-    console.log(`[vibeOS-api] Admin endpoints require VIBEOS_API_MASTER_KEY`)
+    console.log("[vibeOS-api] Server running on http://" + HOST + ":" + PORT)
+    console.log("[vibeOS-api] Health check: http://" + HOST + ":" + PORT + "/health")
+    console.log("[vibeOS-api] Admin endpoints require VIBEOS_API_MASTER_KEY")
   } catch (err) {
     fastify.log.error(err)
     process.exit(1)

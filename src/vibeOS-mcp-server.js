@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2026 vibeOS <https://github.com/DrunkkToys/vibeOS>
 import http from "node:http";
 import { parse as parseUrl } from "node:url";
 function json(res, statusCode, data) {
@@ -68,16 +70,18 @@ export function createMcpServer(deps) {
             }
             if (method === "GET" && path === "/reports") {
                 try {
-                    const type = typeof parsed.query.type === "string" ? parsed.query.type : undefined;
-                    const project = typeof parsed.query.project === "string" ? parsed.query.project : undefined;
-                    const hoursRaw = parsed.query.hours;
+                    const query = parsed.query;
+                    const type = typeof query.type === "string" ? query.type : undefined;
+                    const project = typeof query.project === "string" ? query.project : undefined;
+                    const hoursRaw = query.hours;
                     const hours = hoursRaw != null ? Number(hoursRaw) : undefined;
-                    const fingerprint = typeof parsed.query.fingerprint === "string" ? parsed.query.fingerprint : undefined;
+                    const fingerprint = typeof query.fingerprint === "string" ? query.fingerprint : undefined;
                     const reports = deps.listReports({ type, project, hours: Number.isFinite(hours) ? hours : undefined, fingerprint });
                     json(res, 200, reports);
                 }
                 catch (err) {
-                    if (err?.status === 404) {
+                    const error = err;
+                    if (error?.status === 404) {
                         json(res, 404, { error: "not found", status: 404 });
                         return;
                     }
@@ -175,7 +179,8 @@ export function createMcpServer(deps) {
             json(res, 404, { error: "not found", status: 404 });
         }
         catch (err) {
-            json(res, 500, { error: err?.message || "internal error", status: 500 });
+            const error = err;
+            json(res, 500, { error: error?.message || "internal error", status: 500 });
         }
     };
     return {
@@ -213,10 +218,11 @@ export function createMcpServer(deps) {
                     return server;
                 }
                 catch (err) {
-                    if (err?.code !== "EADDRINUSE" || port === 0) {
+                    const error = err;
+                    if (error?.code !== "EADDRINUSE" || port === 0) {
                         startPromise = null;
                         server = null;
-                        console.error(`[vibeOS] MCP server bind failed: ${err.message}`);
+                        console.error(`[vibeOS] MCP server bind failed: ${error.message}`);
                         throw err;
                     }
                     try {
@@ -228,9 +234,10 @@ export function createMcpServer(deps) {
                         return fallback;
                     }
                     catch (fallbackErr) {
+                        const fbError = fallbackErr;
                         startPromise = null;
                         server = null;
-                        console.error(`[vibeOS] MCP server bind failed: ${fallbackErr.message}`);
+                        console.error(`[vibeOS] MCP server bind failed: ${fbError.message}`);
                         throw fallbackErr;
                     }
                 }

@@ -9,7 +9,6 @@ const RULES_PATH = join(__dirname, "flow-rules.json");
 export function resolveRulesPath() {
     return RULES_PATH;
 }
-
 const GUARD_AGENTS_TEMPLATE = [
     "# AGENTS.md",
     "",
@@ -28,7 +27,6 @@ const GUARD_AGENTS_TEMPLATE = [
     "- README.md",
     "",
 ].join("\n");
-
 const GUARD_README_TEMPLATE = (name, techStack) => {
     const stackLine = techStack.length > 0 ? techStack.map((t) => `\`${t}\``).join(", ") : "(auto-detected on next session)";
     return [
@@ -50,7 +48,6 @@ const GUARD_README_TEMPLATE = (name, techStack) => {
         "",
     ].join("\n");
 };
-
 export function ensureProjectDocs(dir, techStack) {
     const created = [];
     const skipped = [];
@@ -272,11 +269,13 @@ export function recordFlowTodo({ filePath, content }) {
     try {
         mkdirSync(dirname(FLOW_TODO_FILE), { recursive: true });
         // Extract TODO/FIXME lines from content (line-by-line for reliability).
-        const todoRe = /(TODO|FIXME|HACK)[\s:]+(.+)$/i;
+        const todoRe = /(?:\/\/\s*|\#\s*)(TODO|FIXME|HACK)[\s:]+(.+)$/i;
         const todos = [];
         for (const line of content.split("\n")) {
+            console.log(`[DEBUG] Checking line: "${line}"`);
             const m = line.match(todoRe);
             if (m) {
+                console.log(`[DEBUG] Match found: ${m[0]} -> type: ${m[1]}, text: ${m[2]}`);
                 todos.push({ type: m[1], text: m[2].trim() });
             }
         }

@@ -3,6 +3,10 @@ import { dirname, join } from "node:path"
 
 const mappings = [
   {
+    from: join("dist-ts", "index.js"),
+    to: join("src", "index.js"),
+  },
+  {
     from: join("dist-ts", "vibeOS-lib", "flow-enforcer.js"),
     to: join("src", "vibeOS-lib", "flow-enforcer.js"),
   },
@@ -13,10 +17,6 @@ const mappings = [
   {
     from: join("dist-ts", "vibeOS-lib", "session-metrics.js"),
     to: join("src", "vibeOS-lib", "session-metrics.js"),
-  },
-  {
-    from: join("dist-ts", "vibeOS-lib", "auto-activation.js"),
-    to: join("src", "vibeOS-lib", "auto-activation.js"),
   },
   {
     from: join("dist-ts", "utils", "cost-formatter.js"),
@@ -57,6 +57,26 @@ const mappings = [
   {
     from: join("dist-ts", "vibeOS-lib", "blackbox", "taxonomy.js"),
     to: join("src", "vibeOS-lib", "blackbox", "taxonomy.js"),
+  },
+  {
+    from: join("dist-ts", "vibeOS-lib", "blackbox", "meta-controller.js"),
+    to: join("src", "vibeOS-lib", "blackbox", "meta-controller.js"),
+  },
+  {
+    from: join("dist-ts", "vibeOS-lib", "ml-router.js"),
+    to: join("src", "vibeOS-lib", "ml-router.js"),
+  },
+  {
+    from: join("dist-ts", "vibeOS-lib", "smart-cache.js"),
+    to: join("src", "vibeOS-lib", "smart-cache.js"),
+  },
+  {
+    from: join("dist-ts", "vibeOS-lib", "blackbox", "local-stub.js"),
+    to: join("src", "vibeOS-lib", "blackbox", "local-stub.js"),
+  },
+  {
+    from: join("dist-ts", "vibeOS-api-server", "client.js"),
+    to: join("src", "vibeOS-api-server", "client.js"),
   },
 ]
 
