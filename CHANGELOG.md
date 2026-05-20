@@ -1,3 +1,9 @@
+## 0.13.8
+- docs: add LIVE_DEBUG.md with 87 prompt tests across 18 categories
+
+## 0.13.7
+- chore: release bump
+
 ## 0.13.6
 - feat: web dashboard sidecar with SolidJS SPA, SSE, and standalone server
 - docs: add rule 7 — don't lie about tool execution, ask once
