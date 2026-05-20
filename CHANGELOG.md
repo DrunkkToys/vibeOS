@@ -1,3 +1,8 @@
+## 0.13.2
+
+- fix: add missing stub exports to `state.ts` (computeSavingsPayload, computeStatusPayload, etc.) to resolve ESM import errors in pre-commit hooks and isolated tests
+- fix: sync all compiled `.js` artifacts from `dist-ts/` to `src/lib/` to fix test environment imports
+
 ## 0.13.1
 
 - feat: `trinity optimize` command — 5 session-level modes (budget/quality/speed/longrun/auto) with cache-savings-driven auto switching
