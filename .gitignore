@@ -8,6 +8,8 @@ FEATURES.md
 
 # Generated / build
 dist-ts/
+src/dashboard/dist/
+src/dashboard/node_modules/
 
 # Local state
 .codex-logs/

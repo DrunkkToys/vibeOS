@@ -1028,6 +1028,7 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
       const actualPort = Number(mcpServer?.address?.()?.port || port)
       if (actualPort && actualPort !== port) persistMcpPort(actualPort)
       console.error(`[vibeOS] MCP server on http://127.0.0.1:${actualPort}`)
+      if (actualPort) console.error(`[vibeOS] Dashboard at http://127.0.0.1:${actualPort}/`)
       console.error(`[vibeOS] Dashboard at http://127.0.0.1:${actualPort}/`)
       if (!_mcpServerHooked) {
         _mcpServerHooked = true
