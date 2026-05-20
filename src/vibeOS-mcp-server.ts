@@ -48,8 +48,9 @@ function parseBody(req: http.IncomingMessage): Promise<any> {
   })
 }
 
-export function createMcpServer(deps: Deps): { start: (port: number) => http.Server; close: () => Promise<void> } {
+export function createMcpServer(deps: Deps): { start: (port: number) => Promise<http.Server>; close: () => Promise<void> } {
   let server: http.Server | null = null
+  let startPromise: Promise<http.Server> | null = null
 
   const handler = async (req: http.IncomingMessage, res: http.ServerResponse) => {
     try {
@@ -207,16 +208,31 @@ export function createMcpServer(deps: Deps): { start: (port: number) => http.Ser
 
   return {
     start(port: number) {
-      if (server) return server
+      if (server) return Promise.resolve(server)
+      if (startPromise) return startPromise
       server = http.createServer((req, res) => {
         void handler(req, res)
       })
-      server.once("error", (err) => {
-        console.error(`[vibeOS] MCP server bind failed: ${err.message}`)
-        server = null
+      startPromise = new Promise((resolve, reject) => {
+        const onListening = () => {
+          startPromise = null
+          resolve(server as http.Server)
+        }
+        const onError = (err: Error) => {
+          console.error(`[vibeOS] MCP server bind failed: ${err.message}`)
+          startPromise = null
+          server = null
+          reject(err)
+        }
+        server?.once("listening", onListening)
+        server?.once("error", onError)
+        try {
+          server?.listen(port, "127.0.0.1")
+        } catch (err) {
+          onError(err as Error)
+        }
       })
-      server.listen(port, "127.0.0.1")
-      return server
+      return startPromise
     },
     close() {
       if (!server) return Promise.resolve()

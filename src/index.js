@@ -29,6 +29,7 @@ import { createHash } from "node:crypto"
 import { checkFlowRules, getFlowWarns, getSessionFlowCounts, setFlowStateWriter, ensureProjectDocs } from "./vibeOS-lib/flow-enforcer.js"
 import { computeSessionMetrics } from "./vibeOS-lib/session-metrics.js"
 import { LocalBlackboxStub } from "./vibeOS-lib/blackbox/local-stub.js"
+import { computeControlVector, buildControlHistoryEntry } from "./vibeOS-lib/blackbox/meta-controller.js"
 import { createMcpServer } from "./vibeOS-mcp-server.js"
 import { VibeOSApiClient, VibeOSAuthError, VibeOSTimeoutError, VibeOSNetworkError } from "./vibeOS-api-server/client.js"
 import { computeDifficulty, cascadeDecide, createPatternGraph, ensureNode, addRouteEdge, predictBestModel, hashQuery, deserializeGraph } from "./vibeOS-lib/ml-router.js"
@@ -4432,6 +4433,7 @@ function scoreTaskQuality(outputText, promptText) {
         if (latestUserIntent) observeUserCorrection(latestUserIntent)
 
         // Blackbox resolution tracking — local stub + async API enrichment
+        let _controlVector = null
         if (_blackboxEnabled && latestUserIntent) {
           try {
             const tracker = getBlackboxTracker()
@@ -4440,6 +4442,24 @@ function scoreTaskQuality(outputText, promptText) {
             const sid = _OC_SID
             const serialized = tracker.serialize()
             serialized.project_fingerprint = currentProjectFingerprint || ""
+
+            // Compute control vector from blackbox state
+            _controlVector = computeControlVector(localState)
+
+            // Append control history entry
+            if (!state.sessions[sid]) state.sessions[sid] = {}
+            state.sessions[sid].control_history ??= []
+            state.sessions[sid].control_history.push(buildControlHistoryEntry(
+              state.sessions[sid].control_history.length + 1,
+              localState.sub_regime || "INIT",
+              _controlVector,
+            ))
+
+            // Trim control history to last 100 entries
+            if (state.sessions[sid].control_history.length > 100) {
+              state.sessions[sid].control_history = state.sessions[sid].control_history.slice(-100)
+            }
+
             state.sessions[sid] = serialized
             saveBlackboxState(state)
             _latestBlackboxState = localState
@@ -4450,13 +4470,16 @@ function scoreTaskQuality(outputText, promptText) {
         }
 
         // Context7 directive — model self-determines tool availability.
+        const c7urgency = _controlVector?.context7_urgency || "preferred"
         const c7directive =
           "[cost policy] If mcp__context7__resolve-library-id and mcp__context7__get-library-docs " +
           "tools are available in this session, ALWAYS use them instead of WebFetch or WebSearch " +
           "when looking up library or framework documentation " +
           "(docs.*, readthedocs.*, npmjs.com/package/*, pypi.org/project/*, pkg.go.dev, /api/reference/). " +
           "Do not fetch those URLs directly when context7 can serve the same content. " +
-          "This saves ~$0.06/turn on average."
+          "This saves ~$0.06/turn on average." +
+          (c7urgency === "required" ? " CRITICAL: context7 usage is REQUIRED this turn." : "") +
+          (c7urgency === "optional" ? " (context7 is optional this turn — use if helpful but not required.)" : "")
 
         // Thinking-level directive — always inject when set (default is "brief" for cost savings).
         const sel = loadSelection()
@@ -4477,7 +4500,8 @@ function scoreTaskQuality(outputText, promptText) {
         }
 
         if (latestUserIntent) {
-          const _s = scoreStress(latestUserIntent)
+          const stressMult = _controlVector?.stress_multiplier ?? 1.0
+          const _s = scoreStress(latestUserIntent) * stressMult
           if (_s > 0.7) {
             if (Array.isArray(output?.system)) output.system.push(
               "[stress mitigation: CRITICAL] The user's message shows very high stress indicators. " +
@@ -4494,7 +4518,13 @@ function scoreTaskQuality(outputText, promptText) {
           }
         }
 
-        if (_blackboxEnabled && _latestBlackboxState && _latestBlackboxState.n_interactions > 0) {
+        // Unified control vector directives (v2 meta-controller)
+        if (_controlVector && _controlVector.directives.length > 0) {
+          for (const directive of _controlVector.directives) {
+            if (Array.isArray(output?.system)) output.system.push(directive)
+          }
+        } else if (_blackboxEnabled && _latestBlackboxState && _latestBlackboxState.n_interactions > 0) {
+          // Fallback: legacy ad-hoc blackbox directives (pre-v2)
           try {
             const res = _latestBlackboxState
             const decisionDirective =
@@ -4531,13 +4561,18 @@ function scoreTaskQuality(outputText, promptText) {
 
         // AI ORCHESTRATOR AGENT — only when delegation enforcement is active.
         if (sel.delegation_enforce && Array.isArray(output?.system)) {
+          const tierBias = _controlVector?.tier_bias || "auto"
           const cheapModel = TRINITY_CHEAP || "the cheaper model"
           const mediumModel = TRINITY_MEDIUM || "the medium model"
+          let brainModel = "(brain)"
+          try { brainModel = safeJsonParse(readFileSync(TIERS_FILE, "utf-8")).trinity?.brain?.oc || brainModel } catch {}
+          const targetModel = tierBias === "cheap" ? cheapModel : tierBias === "medium" ? mediumModel : tierBias === "brain" ? brainModel : `${cheapModel} or ${mediumModel}`
           const orcDirective =
             `[AI ORCHESTRATOR AGENT] You are an AI orchestrator agent. ` +
-            `Delegate heavy work to Task subagents (runs on ${cheapModel} or ${mediumModel}). ` +
+            `Delegate heavy work to Task subagents (runs on ${targetModel}). ` +
             `Your role: verify, fill gaps, synthesize. CRITICAL: Write/Edit tools are BLOCKED on this tier. You MUST delegate ALL implementation work to Task subagents. ` +
-            `Always display the vibeOS cost footer.`
+            `Always display the vibeOS cost footer.` +
+            (tierBias !== "auto" ? ` [tier routing] This turn is biased toward ${tierBias} tier.` : "")
           output.system.push(orcDirective)
         }
 
@@ -4553,18 +4588,28 @@ function scoreTaskQuality(outputText, promptText) {
 
         // TDD directive — only when TDD enforcement is enabled.
         if (sel.tdd_enforce && Array.isArray(output?.system)) {
-          const strictNote = sel.tdd_strict ? " STRICT mode: TODO tests MUST pass before considering work complete." : ""
+          const tddMode = _controlVector?.tdd_mode || (sel.tdd_strict ? "strict" : "normal")
+          const tddFocus = _controlVector?.tdd_focus || []
+          const modeNotes = {
+            lazy: " Skeletons only when explicitly requested.",
+            strict: " STRICT mode: TODO tests MUST pass before considering work complete.",
+            quality: " QUALITY mode: Full coverage including edge cases.",
+          }
+          const focusNote = tddFocus.length > 0 ? ` Focus: ${tddFocus.join(", ")}.` : ""
           output.system.push(
-            `[tdd enforcement] Auto-create skeleton tests for source files being written/edited.${strictNote} ` +
+            `[tdd enforcement: ${tddMode}] Auto-create skeleton tests for source files being written/edited.${modeNotes[tddMode] || ""}${focusNote} ` +
             "When creating or modifying source files, ensure corresponding test files exist with proper assertions."
           )
         }
 
         // Flow directive — only when flow enforcer is enabled.
         if (sel.flow_enabled && Array.isArray(output?.system)) {
+          const flowMode = _controlVector?.flow_mode || (sel.flow_enforce ? "normal" : "audit")
+          const flowFocus = _controlVector?.flow_focus || []
           const enforceNote = sel.flow_enforce ? " TODO/FIXME extraction is active." : ""
+          const focusNote = flowFocus.length > 0 ? ` Focus rules: ${flowFocus.join(", ")}.` : ""
           output.system.push(
-            `[flow enforcement] Development flow rules are active: write/edit operations are checked against project conventions.${enforceNote} ` +
+            `[flow enforcement: ${flowMode}] Development flow rules are active: write/edit operations are checked against project conventions.${enforceNote}${focusNote} ` +
             "Follow existing code patterns, naming conventions, and project structure."
           )
         }
@@ -5765,7 +5810,7 @@ function scoreTaskQuality(outputText, promptText) {
           generateSessionCheckout: () => computeSessionCheckout(),
         })
       }
-      _mcpServerRuntime.start(port)
+      await _mcpServerRuntime.start(port)
       console.error(`[vibeOS] MCP server listening on http://127.0.0.1:${port}`)
       if (!_mcpServerHooked) {
         _mcpServerHooked = true

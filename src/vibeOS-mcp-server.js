@@ -31,6 +31,7 @@ function parseBody(req) {
 }
 export function createMcpServer(deps) {
     let server = null;
+    let startPromise = null;
     const handler = async (req, res) => {
         try {
             const method = (req.method || "GET").toUpperCase();
@@ -179,16 +180,33 @@ export function createMcpServer(deps) {
     return {
         start(port) {
             if (server)
-                return server;
+                return Promise.resolve(server);
+            if (startPromise)
+                return startPromise;
             server = http.createServer((req, res) => {
                 void handler(req, res);
             });
-            server.once("error", (err) => {
-                console.error(`[vibeOS] MCP server bind failed: ${err.message}`);
-                server = null;
+            startPromise = new Promise((resolve, reject) => {
+                const onListening = () => {
+                    startPromise = null;
+                    resolve(server);
+                };
+                const onError = (err) => {
+                    console.error(`[vibeOS] MCP server bind failed: ${err.message}`);
+                    startPromise = null;
+                    server = null;
+                    reject(err);
+                };
+                server?.once("listening", onListening);
+                server?.once("error", onError);
+                try {
+                    server?.listen(port, "127.0.0.1");
+                }
+                catch (err) {
+                    onError(err);
+                }
             });
-            server.listen(port, "127.0.0.1");
-            return server;
+            return startPromise;
         },
         close() {
             if (!server)
