@@ -58,7 +58,7 @@ function getApiClient() {
 function isApiFallback() {
     return _apiFallbackMode || !VIBEOS_API_ENABLED;
 }
-async function remoteCall(method, args, fallbackFn) {
+export async function remoteCall(method, args, fallbackFn) {
     if (!VIBEOS_API_ENABLED) {
         if (fallbackFn)
             return fallbackFn();
@@ -854,7 +854,7 @@ function _localScoreStress(text) {
         score += 0.02;
     return Math.min(score, 1.0);
 }
-async function scoreStress(text) {
+export async function scoreStress(text) {
     return remoteCall("scoreStress", [text], () => _localScoreStress(text));
 }
 function estimateContextBudget(_input, output) {
@@ -1623,7 +1623,7 @@ export function _localExtractExports(sourceContent, ext) {
     }
     return exports;
 }
-async function extractExports(sourceContent, ext) {
+export async function extractExports(sourceContent, ext) {
     return remoteCall("tddExports", [sourceContent, ext], () => _localExtractExports(sourceContent, ext));
 }
 // Generate test case names for a given function name.
@@ -3599,7 +3599,7 @@ function commandFailed(output) {
         return false;
     return /\b(exit code|exited with code)\s*[:=]?\s*[1-9]\b|\b(assertionerror|syntaxerror|typeerror|referenceerror)\b|\b(failed|error:|err!)\b/i.test(raw);
 }
-function noteProjectPattern(kind, key, summary, meta = {}) {
+export function noteProjectPattern(kind, key, summary, meta = {}) {
     if (!currentProjectFingerprint || !key || !summary)
         return;
     try {
@@ -3740,7 +3740,7 @@ function clearProjectPatterns(fp) {
     }
 }
 const _patternFiredKeys = new Set();
-function observeToolPattern(toolName, input, output, directory) {
+export function observeToolPattern(toolName, input, output, directory) {
     try {
         const t = String(toolName || "").toLowerCase();
         const args = input?.args || {};

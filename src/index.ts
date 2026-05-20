@@ -60,7 +60,7 @@ function isApiFallback() {
   return _apiFallbackMode || !VIBEOS_API_ENABLED
 }
 
-async function remoteCall(method, args, fallbackFn) {
+export async function remoteCall(method, args, fallbackFn) {
   if (!VIBEOS_API_ENABLED) {
     if (fallbackFn) return fallbackFn()
     return null
@@ -797,7 +797,7 @@ function _localScoreStress(text: string): number {
   return Math.min(score, 1.0)
 }
 
-async function scoreStress(text: string): Promise<number> {
+export async function scoreStress(text: string): Promise<number> {
     return remoteCall("scoreStress", [text], () => _localScoreStress(text));
 }
 
@@ -1456,7 +1456,7 @@ export function _localExtractExports(sourceContent, ext) {
   return exports
 }
 
-async function extractExports(sourceContent: string, ext: string): Promise<any[]> {
+export async function extractExports(sourceContent: string, ext: string): Promise<any[]> {
     return remoteCall("tddExports", [sourceContent, ext], () => _localExtractExports(sourceContent, ext));
 }
 
@@ -3171,7 +3171,7 @@ function commandFailed(output) {
   return /\b(exit code|exited with code)\s*[:=]?\s*[1-9]\b|\b(assertionerror|syntaxerror|typeerror|referenceerror)\b|\b(failed|error:|err!)\b/i.test(raw)
 }
 
-function noteProjectPattern(kind, key, summary, meta = {}) {
+export function noteProjectPattern(kind, key, summary, meta = {}) {
   if (!currentProjectFingerprint || !key || !summary) return
   try {
     const pstate = loadProjectState()
@@ -3303,7 +3303,7 @@ function clearProjectPatterns(fp) {
 
 const _patternFiredKeys = new Set()
 
-function observeToolPattern(toolName, input, output, directory) {
+export function observeToolPattern(toolName, input, output, directory) {
   try {
     const t = String(toolName || "").toLowerCase()
     const args = input?.args || {}
