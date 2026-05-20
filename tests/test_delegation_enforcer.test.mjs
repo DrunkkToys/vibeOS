@@ -1207,7 +1207,7 @@ test("dynamic estimate: opus brain + haiku worker → brain_cost - worker_cost",
 })
 
 // ── Session report writing ───────────────────────────────────────────────────
-test("text.complete: writes session-report-pending.md when savings > 0", async () => {
+test("text.complete: no longer writes session-report-pending.md", async () => {
   const { DelegationEnforcer } = await loadPlugin()
   const dir = join(sandbox, ".opencode-sesreport")
   mkdirSync(dir, { recursive: true })
@@ -1223,10 +1223,7 @@ test("text.complete: writes session-report-pending.md when savings > 0", async (
   await hooks["experimental.text.complete"]({ messageID: "msg-report-1" }, out)
 
   const reportFile = join(sandbox, ".claude/session-report-pending.md")
-  assert.ok(existsSync(reportFile), "session-report-pending.md written")
-  const content = readFileSync(reportFile, "utf-8")
-  assert.match(content, /vibeOS:/, "report contains vibeOS label")
-  assert.match(content, /saved/, "report contains 'saved'")
+  assert.ok(!existsSync(reportFile), "session-report-pending.md no longer written (removed in footer refactor)")
 })
 
 test("tier override: openrouter sonnet brain slot classified as high", async () => {
@@ -1268,7 +1265,7 @@ test("tier override: openrouter sonnet brain slot classified as high", async () 
     "openrouter/ prefix stripped + dot normalised → matches anthropic/claude-sonnet-4-6 cost")
 })
 
-test("text.complete: appends to session-reports.log", async () => {
+test("text.complete: no longer writes session-reports.log", async () => {
   const { DelegationEnforcer } = await loadPlugin()
   const dir = join(sandbox, ".opencode-seslog")
   mkdirSync(dir, { recursive: true })
@@ -1284,10 +1281,7 @@ test("text.complete: appends to session-reports.log", async () => {
   await hooks["experimental.text.complete"]({ messageID: "msg-log-2" }, { text: "Hi." })
 
   const logFile = join(sandbox, ".claude/session-reports.log")
-  assert.ok(existsSync(logFile), "session-reports.log created")
-  const lines = readFileSync(logFile, "utf-8").trim().split("\n")
-  assert.ok(lines.length >= 1, "at least one log entry written")
-  assert.match(lines[0], /vibeOS:/, "log entry contains vibeOS label")
+  assert.ok(!existsSync(logFile), "session-reports.log no longer written (removed in footer refactor)")
 })
 
 // ── new: modelToSlotLabel uses effectiveTier (brain-slot override) ────────────
@@ -1487,14 +1481,9 @@ test("integration: full simulated OC session with sonnet-as-brain", async () => 
   assert.ok(textOut.text.startsWith("Here is the plan."),
     "text.complete: original response text preserved")
 
-  // ── 7. session-report-pending.md written for CC ─────────────────────────
+  // ── 7. session-report-pending.md no longer written ─────────────────────
   const reportFile = join(sandbox, ".claude/session-report-pending.md")
-  assert.ok(existsSync(reportFile), "session-report-pending.md written after text.complete")
-  const reportContent = readFileSync(reportFile, "utf-8")
-  assert.ok(reportContent.includes("claude-sonnet") || reportContent.includes("Mid") || reportContent.includes("Budget"),
-    "session-report: contains model info")
-  assert.ok(reportContent.includes("vibeOS:"),
-    "session-report: contains vibeOS label")
+  assert.ok(!existsSync(reportFile), "session-report-pending.md no longer written (removed in footer refactor)")
 
   // ── 8. Deduplication: same messageID doesn't double-append footer ───────
   const textOut2 = { text: "Another response." }
