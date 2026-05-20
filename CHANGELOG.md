@@ -1,3 +1,27 @@
+## 0.13.1
+
+- feat: `trinity optimize` command — 5 session-level modes (budget/quality/speed/longrun/auto) with cache-savings-driven auto switching
+- feat: blackbox `OptimizationMode` delta tables — per-mode overrides for all 10 control knobs
+- feat: turn counter + proactive context compaction every 10 turns
+- feat: `autoSelectMode()` — auto switches budget/balanced/quality per sub-regime based on session cache savings
+- feat: footer optimization mode tag (`[BUDGET]`, `[QUALITY]`, `[SPEED]`, `[LONGRUN]`, `[AUTO→BUDGET]`)
+- feat: per-session mode persistence in `blackbox-state.json` (resets to `auto` on restart)
+- feat: mode-specific system prompt directive injection
+- feat: mode locked for session — blackbox CANNOT override user-set mode
+
+## 0.13.0
+
+- refactor: extract 16 modules from src/index.ts into src/lib/ (state, pricing, trinity, TDD, hooks, reporting, research-audit, api-client, credit-api, turn-classify, index-helpers)
+- feat: blackbox dynamically controls thinking mode per sub-regime for cost savings
+- fix: flow-enforcer race condition, blackbox default ON, dynamic footer improvement
+- fix: lock model name, enforcement logging, TDD framework detection, cache display rounding
+- perf: conditional directive injection — skip TDD/FLOW/orchestrator when control vector signals relaxed mode
+- fix: model split always shown, stress inline in footer, not separate line
+- fix: atomic state writes, safeJsonParse in flow-enforcer, hook error handling
+- perf: inline stress in footer, remove session-report writes, disable blackbox default
+- docs: AGENTS.md updated — 8 hooks (added session.compacting), new src/lib/ architecture
+- docs: README updated — added Architecture section with src/lib/ module descriptions
+
 ## 0.12.0 (production readiness stabilisation)
 
 - feat: production-ready feature inventory and documentation reconciliation
