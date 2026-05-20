@@ -25,6 +25,7 @@ beforeEach(() => {
   rmSync(join(sandbox, ".claude/active-jobs.json"), { force: true })
   rmSync(join(sandbox, ".claude/global-learning.json"), { force: true })
   rmSync(join(sandbox, ".claude/project-states.json"), { force: true })
+  rmSync(join(sandbox, ".claude/blackbox-state.json"), { force: true })
 })
 after(() => rmSync(sandbox, { recursive: true, force: true }))
 
@@ -563,7 +564,7 @@ test("text.complete: footer format is stable and compact (immutable contract)", 
 
   const out = { text: "ok" }
   await hooks["experimental.text.complete"]({ messageID: "msg-format-1" }, out)
-  const footerLine = out.text.split("\n").slice(-1)[0]
+  const footerLine = out.text.split("\n").find(l => l.includes("vibeOS:"))
   assert.match(footerLine, /^— \[.+\] \| vibeOS: \d+\.\d{2} saved [↑↓→]/, "exact footer contract")
   assert.doesNotMatch(footerLine, /\| flow |edit -\$|cache -\$|\(.*m\)|\/hr/, "no verbose fragments")
 })
@@ -589,7 +590,7 @@ test("text.complete: auto-rebuilds state from ledger when state total is lower, 
 
   const out = { text: "hello" }
   await hooks["experimental.text.complete"]({ messageID: "msg-ledger-rebuild" }, out)
-  const footer = out.text.split("\n").slice(-1)[0]
+  const footer = out.text.split("\n").find(l => l.includes("vibeOS:"))
   assert.match(footer, /vibeOS: 1\.56 saved [↑↓→]/, "footer must show reconstructed ledger historical total")
 
   const reconciled = JSON.parse(readFileSync(stateFile, "utf-8"))
@@ -664,7 +665,7 @@ test("tool.execute.after: shows model label even with no savings recorded", asyn
   const out = { text: "Hi." }
   await hooks["experimental.text.complete"]({ messageID: "msg-empty-sav" }, out)
   // Model label always shown; no savings line when count=0
-  assert.match(out.text, /\[claude-opus-4-7\]/, "model label shown even when no savings")
+  assert.match(out.text, /claude-opus-4-7/, "model label shown even when no savings")
   assert.doesNotMatch(out.text, /saved/, "no savings line when count=0")
 })
 

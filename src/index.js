@@ -4088,12 +4088,12 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                     typeof output?.content === "string" ? output.content :
                         "";
             const { ltTasks, ltCache, ltCost, count, sesTasks, sesEdit, sesCredit, sesC7, sesQuota, sesTaskDelegations, sesDuration, sesRatePerHour, sesTrend, sesToolBreakdown, sesModelTurns, quality_avg } = readLifetimeSavings();
-            let modelTag = `[${shortModelName(currentModel)}]`;
+            let modelTag = `[${currentModel || "unknown"}]`;
             const _workerModel = (currentTier === "high" && TRINITY_MEDIUM) ? TRINITY_MEDIUM : TRINITY_CHEAP;
             const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0);
             if (totalTurns > 0 && _workerModel && _workerModel !== currentModel) {
                 const brainPct = Math.round((sesModelTurns.brain / totalTurns) * 100);
-                modelTag = `[${shortModelName(currentModel)} ${brainPct}% > ${shortModelName(_workerModel)} ${100 - brainPct}%]`;
+                modelTag = `[${currentModel || "unknown"} ${brainPct}% → ${_workerModel} ${100 - brainPct}%]`;
             }
             _autoReportCount = (_autoReportCount || 0) + 1;
             if (_autoReportCount % 5 === 0) {
@@ -4149,6 +4149,12 @@ export async function DelegationEnforcer({ client, directory } = {}) {
             const brainModelCost = currentModel ? (modelCostPerTurn(currentModel) ?? 0) : 0;
             const cheapModelCost = _workerModel ? (modelCostPerTurn(_workerModel) ?? 0) : 0;
             const imputedMultiplier = (brainModelCost > SAVE_EST.WRITE_EDIT && cheapModelCost > 0 && brainModelCost > cheapModelCost) ? (brainModelCost / cheapModelCost) : 0;
+            let stressParts = "";
+            if (_footerStress > 0.1) {
+                const stressBar = _footerStress > 0.85 ? "█" : _footerStress > 0.7 ? "▆" : _footerStress > 0.5 ? "▅" : _footerStress > 0.3 ? "▃" : _footerStress > 0.1 ? "▂" : "▁";
+                const stressLabel = _footerStress > 0.7 ? "high" : _footerStress > 0.4 ? "elevated" : "calm";
+                stressParts = ` | stress: ${stressBar} ${stressLabel}`;
+            }
             let footerText;
             if (ltTotal > 0) {
                 let savingsDisplay = `vibeOS: ${formatUsd(ltTotal)} saved ${trendIcon}`;
@@ -4164,15 +4170,10 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                     const bar = "\u2588".repeat(filled) + "\u2591".repeat(10 - filled);
                     savingsDisplay += ` | ${formatUsd(ltTotal)} / ${formatUsd(goalUsd)} [${bar}]`;
                 }
-                footerText = stripped + `\n\n— ${modelTag} | ${savingsDisplay} —`;
+                footerText = stripped + `\n\n— ${modelTag} | ${savingsDisplay}${stressParts} —`;
             }
             else {
-                footerText = stripped + `\n\n— ${modelTag} —`;
-            }
-            if (_footerStress > 0.1) {
-                const stressBar = _footerStress > 0.85 ? "█" : _footerStress > 0.7 ? "▆" : _footerStress > 0.5 ? "▅" : _footerStress > 0.3 ? "▃" : _footerStress > 0.1 ? "▂" : "▁";
-                const stressLabel = _footerStress > 0.7 ? "high" : _footerStress > 0.4 ? "elevated" : "calm";
-                footerText += `\n— stress: ${stressBar} (${stressLabel}) —`;
+                footerText = stripped + `\n\n— ${modelTag}${stressParts} —`;
             }
             if (_blackboxEnabled) {
                 try {
