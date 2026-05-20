@@ -212,28 +212,51 @@ export function createMcpServer(deps: Deps): { start: (port: number) => Promise<
       if (closePromise) await closePromise
       if (server) return server
       if (startPromise) return startPromise
-      server = http.createServer((req, res) => {
-        void handler(req, res)
-      })
-      startPromise = new Promise((resolve, reject) => {
-        const onListening = () => {
-          startPromise = null
-          resolve(server as http.Server)
-        }
+      const listen = (listenPort: number) => new Promise<http.Server>((resolve, reject) => {
+        const nextServer = http.createServer((req, res) => {
+          void handler(req, res)
+        })
+        const onListening = () => resolve(nextServer)
         const onError = (err: Error) => {
-          console.error(`[vibeOS] MCP server bind failed: ${err.message}`)
-          startPromise = null
-          server = null
+          try { nextServer.close() } catch {}
           reject(err)
         }
-        server?.once("listening", onListening)
-        server?.once("error", onError)
+        nextServer.once("listening", onListening)
+        nextServer.once("error", onError)
         try {
-          server?.listen(port, "127.0.0.1")
+          nextServer.listen(listenPort, "127.0.0.1")
         } catch (err) {
           onError(err as Error)
         }
       })
+      startPromise = (async () => {
+        try {
+          server = await listen(port)
+          return server
+        } catch (err: any) {
+          if (err?.code !== "EADDRINUSE" || port === 0) {
+            startPromise = null
+            server = null
+            console.error(`[vibeOS] MCP server bind failed: ${err.message}`)
+            throw err
+          }
+          try {
+            const fallback = await listen(0)
+            server = fallback
+            const bound = fallback.address()
+            const actualPort = typeof bound === "object" && bound ? bound.port : 0
+            console.error(`[vibeOS] MCP server port ${port} busy; fell back to ${actualPort}`)
+            return fallback
+          } catch (fallbackErr: any) {
+            startPromise = null
+            server = null
+            console.error(`[vibeOS] MCP server bind failed: ${fallbackErr.message}`)
+            throw fallbackErr
+          }
+        } finally {
+          startPromise = null
+        }
+      })()
       return startPromise
     },
     close() {

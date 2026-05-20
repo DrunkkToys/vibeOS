@@ -1,7 +1,22 @@
 import type { TuiPlugin } from "@opencode-ai/plugin/tui"
 import { createSignal } from "solid-js"
+import { existsSync, readFileSync } from "node:fs"
+import { join } from "node:path"
+import { homedir } from "node:os"
 
-const BASE_URL = "http://localhost:9578"
+const DEFAULT_PORT = 9578
+const TIERS_FILE = join(homedir(), ".claude/model-tiers.json")
+
+function getBaseUrl() {
+  try {
+    if (existsSync(TIERS_FILE)) {
+      const tiers = JSON.parse(readFileSync(TIERS_FILE, "utf-8"))
+      const port = Number(tiers?.selection?.mcp_port)
+      if (Number.isFinite(port) && port > 0) return `http://localhost:${port}`
+    }
+  } catch {}
+  return `http://localhost:${DEFAULT_PORT}`
+}
 
 type StatusResponse = {
   enabled: boolean
@@ -58,9 +73,10 @@ const plugin: TuiPlugin = async (api, _options, _meta) => {
 
   const poll = async () => {
     try {
+      const baseUrl = getBaseUrl()
       const [s, sa] = await Promise.all([
-        fetch(`${BASE_URL}/status`).then((r) => r.json()),
-        fetch(`${BASE_URL}/savings`).then((r) => r.json()),
+        fetch(`${baseUrl}/status`).then((r) => r.json()),
+        fetch(`${baseUrl}/savings`).then((r) => r.json()),
       ])
       setStatus(s)
       setSavings(sa)
@@ -79,7 +95,7 @@ const plugin: TuiPlugin = async (api, _options, _meta) => {
 
   const doAction = async (body: Record<string, unknown>) => {
     try {
-      const res = await fetch(`${BASE_URL}/trinity`, {
+      const res = await fetch(`${getBaseUrl()}/trinity`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
