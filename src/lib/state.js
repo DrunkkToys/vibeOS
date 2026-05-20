@@ -853,6 +853,47 @@ function runDecadenceCycle() {
         catch { }
     }
 }
+function applyDecadence() {
+    const now = Date.now();
+    if (now - _lastDecadenceRun >= DECADENCE_THROTTLE_MS) {
+        _lastDecadenceRun = now;
+        try {
+            const ses = _pruneScratchpadDir(getSessionScratchpadDir(), {
+                maxFiles: MAX_SESSION_SCRATCHPAD_FILES,
+                maxBytes: MAX_SESSION_SCRATCHPAD_BYTES,
+                rotate: false,
+            });
+            if (ses.deleted > 0) {
+                console.error(`[vibeOS] session-decadence: deleted=${ses.deleted} (${ses.dataFiles} files, ${Math.round(ses.totalBytes / 1024)}KB)`);
+            }
+        }
+        catch (err) {
+            console.error(`[vibeOS] session decadence error: ${err.message}`);
+        }
+    }
+    if (now - _lastGlobalDecadenceRun >= DECADENCE_GLOBAL_THROTTLE_MS) {
+        _lastGlobalDecadenceRun = now;
+        try {
+            const global = _pruneScratchpadDir(SCRATCHPAD_GLOBAL_DIR, {
+                maxFiles: MAX_SCRATCHPAD_FILES,
+                maxBytes: MAX_SCRATCHPAD_BYTES,
+                rotate: true,
+            });
+            cleanupStaleSessionScratchpads();
+            if (global.deleted > 0 || global.rotated > 0) {
+                const action = [];
+                if (global.rotated > 0)
+                    action.push(`rotated=${global.rotated}`);
+                if (global.deleted > 0)
+                    action.push(`deleted=${global.deleted}`);
+                console.error(`[vibeOS] global-decadence: ${action.join(" ")} (${global.dataFiles} files, ${Math.round(global.totalBytes / 1024)}KB)`);
+            }
+        }
+        catch (err) {
+            console.error(`[vibeOS] global decadence error: ${err.message}`);
+        }
+    }
+}
 // ── Cleanup stale session scratchpads ──────────────────────────────────────
 function cleanupStaleSessionScratchpads() {
     try {
@@ -1640,7 +1681,7 @@ LEDGER_BUFFER_MAX, LEDGER_BUFFER_FLUSH_MS, _ledgerBuffer, _ledgerBufferTimer, _f
 // Stable JSON
 stableJson, _readHead, indexAppend, 
 // Scratchpad hits
-scratchpadHitsSeen, scanRecentScratchpad, getScratchpadHit, recordScratchpadObservation, _pruneScratchpadDir, runDecadenceCycle, cleanupStaleSessionScratchpads, pruneScratchpadOnce, 
+scratchpadHitsSeen, scanRecentScratchpad, getScratchpadHit, recordScratchpadObservation, _pruneScratchpadDir, runDecadenceCycle, applyDecadence, cleanupStaleSessionScratchpads, pruneScratchpadOnce, 
 // Active jobs
 loadActiveJobs, getActiveJobForProject, saveActiveJobForProject, saveJobRecord, loadJobRecord, 
 // Project memory

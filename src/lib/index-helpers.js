@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { join } from 'node:path';
 import { writeFileSync } from 'node:fs';
-import { _lastDecadenceRun, _lastGlobalDecadenceRun, _patternFiredKeys, recentToolEvents, lastMutationEvent, frictionSessionKeys, routineSessionKeys, _pruneScratchpadDir, cleanupStaleSessionScratchpads, getSessionScratchpadDir, SCRATCHPAD_GLOBAL_DIR, MAX_SCRATCHPAD_FILES, MAX_SCRATCHPAD_BYTES, MAX_SESSION_SCRATCHPAD_FILES, MAX_SESSION_SCRATCHPAD_BYTES, DECADENCE_THROTTLE_MS, DECADENCE_GLOBAL_THROTTLE_MS, normalizeObservedPath, commandFamily, commandFailed, saveActiveJobForProject, currentProjectFingerprint, currentProjectName, _OC_SID, loadProjectState, saveProjectState, ensureProjectBucket, updateGlobalLearning, updateState, roundUsd, WARN_DEDUPE_WINDOW_MS, _pruneOldSessions, _ledgerBuffer, _flushLedgerBuffer, LEDGER_BUFFER_MAX, _ledgerBufferTimer, LEDGER_BUFFER_FLUSH_MS, saveSessionCheckpoint, } from './state.js';
+import { applyDecadence, _patternFiredKeys, recentToolEvents, lastMutationEvent, frictionSessionKeys, routineSessionKeys, _pruneScratchpadDir, cleanupStaleSessionScratchpads, getSessionScratchpadDir, SCRATCHPAD_GLOBAL_DIR, MAX_SCRATCHPAD_FILES, MAX_SCRATCHPAD_BYTES, MAX_SESSION_SCRATCHPAD_FILES, MAX_SESSION_SCRATCHPAD_BYTES, DECADENCE_THROTTLE_MS, DECADENCE_GLOBAL_THROTTLE_MS, normalizeObservedPath, commandFamily, commandFailed, saveActiveJobForProject, currentProjectFingerprint, currentProjectName, _OC_SID, loadProjectState, saveProjectState, ensureProjectBucket, updateGlobalLearning, updateState, roundUsd, WARN_DEDUPE_WINDOW_MS, _pruneOldSessions, _ledgerBuffer, _flushLedgerBuffer, LEDGER_BUFFER_MAX, _ledgerBufferTimer, LEDGER_BUFFER_FLUSH_MS, saveSessionCheckpoint, } from './state.js';
 import { TRINITY_CHEAP, TRINITY_MEDIUM } from './pricing.js';
 import { topKeywords, extractFirstWordFromArgs, noteTaskRoutingLearning, } from './turn-classify.js';
 let activeJob = null;
@@ -54,48 +54,6 @@ export function setActiveJobFromTaskPrompt(prompt) {
         updatedAt: new Date().toISOString(),
     };
     saveActiveJobForProject(activeJob);
-}
-// ── applyDecadence ───────────────────────────────────────────────────
-export function applyDecadence() {
-    const now = Date.now();
-    if (now - _lastDecadenceRun >= DECADENCE_THROTTLE_MS) {
-        _lastDecadenceRun = now;
-        try {
-            const ses = _pruneScratchpadDir(getSessionScratchpadDir(), {
-                maxFiles: MAX_SESSION_SCRATCHPAD_FILES,
-                maxBytes: MAX_SESSION_SCRATCHPAD_BYTES,
-                rotate: false,
-            });
-            if (ses.deleted > 0) {
-                console.error(`[vibeOS] session-decadence: deleted=${ses.deleted} (${ses.dataFiles} files, ${Math.round(ses.totalBytes / 1024)}KB)`);
-            }
-        }
-        catch (err) {
-            console.error(`[vibeOS] session decadence error: ${err.message}`);
-        }
-    }
-    if (now - _lastGlobalDecadenceRun >= DECADENCE_GLOBAL_THROTTLE_MS) {
-        _lastGlobalDecadenceRun = now;
-        try {
-            const global = _pruneScratchpadDir(SCRATCHPAD_GLOBAL_DIR, {
-                maxFiles: MAX_SCRATCHPAD_FILES,
-                maxBytes: MAX_SCRATCHPAD_BYTES,
-                rotate: true,
-            });
-            cleanupStaleSessionScratchpads();
-            if (global.deleted > 0 || global.rotated > 0) {
-                const action = [];
-                if (global.rotated > 0)
-                    action.push(`rotated=${global.rotated}`);
-                if (global.deleted > 0)
-                    action.push(`deleted=${global.deleted}`);
-                console.error(`[vibeOS] global-decadence: ${action.join(" ")} (${global.dataFiles} files, ${Math.round(global.totalBytes / 1024)}KB)`);
-            }
-        }
-        catch (err) {
-            console.error(`[vibeOS] global decadence error: ${err.message}`);
-        }
-    }
 }
 // ── compressText ─────────────────────────────────────────────────────
 export function compressText(text) {
@@ -154,7 +112,7 @@ export function compressText(text) {
     return result || text; // never return empty if original wasn't
 }
 // ── Pattern helpers ──────────────────────────────────────────────────
-function noteProjectPattern(kind, key, summary, meta = {}) {
+export function noteProjectPattern(kind, key, summary, meta = {}) {
     if (!currentProjectFingerprint || !key || !summary)
         return;
     try {
@@ -370,3 +328,4 @@ export function recordSaving(tool, reason, saveEst, meta = {}) {
         return 0;
     }
 }
+export { applyDecadence } from './state.js';

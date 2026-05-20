@@ -1049,11 +1049,14 @@ export {
   applySlot, modelCostPerTurn, isModelFree, isDocsTarget, detectContext7,
   loadTierRegexes, classify, _refreshModel, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE,
   TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP,
-  setTrinityBrain, setTrinityMedium, setTrinityCheap,
+  setTrinityBrain, setTrinityMedium, setTrinityCheap, trendDisplay,
 } from "./lib/pricing.js"
 export { getScratchpadHit, getSessionScratchpadDir, getSessionIndexPath } from "./lib/state.js"
 export { extractExports, buildTestSkeleton, enforceTestFile, buildTestReminder } from "./lib/tdd-enforcer.js"
 export { classifyAndRankModels, modelToCcAlias } from "./lib/trinity-rebuild.js"
+export { scoreStress, detectTechStack, loadBlackboxState, saveBlackboxState, getBlackboxResolution, } from "./lib/turn-classify.js"
+export { remoteCall } from "./lib/api-client.js"
+export { observeToolPattern, noteProjectPattern, recordSaving, compressText, } from "./lib/index-helpers.js"
 
 export function closeMcpServer() {
   try {

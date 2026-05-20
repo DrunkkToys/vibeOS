@@ -210,7 +210,7 @@ export function compressText(text) {
 
 // ── Pattern helpers ──────────────────────────────────────────────────
 
-function noteProjectPattern(kind, key, summary, meta = {}) {
+export function noteProjectPattern(kind, key, summary, meta = {}) {
   if (!currentProjectFingerprint || !key || !summary) return
   try {
     const pstate = loadProjectState()
