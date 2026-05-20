@@ -10,7 +10,7 @@
 
 | File / Directory | Why |
 |---|---|---|
-| `src/index.js` | 5529+ lines — the entire plugin runtime |
+| `src/index.js` | 5529+ lines — the entire plugin runtime. **NEVER update directly; only via TypeScript compilation from `src/index.ts`** |
 | `src/vibeOS-lib/*` | flow enforcer, session metrics, flow rules |
 | `src/utils/*` | cost formatter, math, timer |
 | `tests/*` | all integration, regression, delegation, diagnose tests |
