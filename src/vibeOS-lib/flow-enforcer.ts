@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 vibeOS <https://github.com/DrunkkToys/vibeOS>
-import { readFileSync, existsSync, mkdirSync, writeFileSync, statSync, appendFileSync } from "node:fs"
+import { readFileSync, existsSync, mkdirSync, writeFileSync, statSync, appendFileSync, renameSync } from "node:fs"
 import { join, dirname } from "node:path"
 import { homedir } from "node:os"
 import { fileURLToPath } from "node:url"
@@ -36,6 +36,14 @@ type RecordFlowWarnInput = {
 type FlowTodoInput = {
   filePath?: string
   content: string
+}
+
+function safeJsonParse(raw: string): any {
+  try {
+    return JSON.parse(raw)
+  } catch {}
+  let cleaned = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '').replace(/,\s*([}\]])/g, '$1')
+  return JSON.parse(cleaned)
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -142,7 +150,7 @@ function loadFlowDedupKeys(): void {
   try {
     if (existsSync(FLOW_DEDUP_FILE)) {
       const raw = readFileSync(FLOW_DEDUP_FILE, "utf-8")
-      const keys: string[] = JSON.parse(raw)
+      const keys: string[] = safeJsonParse(raw)
       if (Array.isArray(keys)) {
         for (const k of keys) _flowWarnsSeen.add(k)
       }
@@ -155,7 +163,7 @@ function persistFlowDedupKey(key: string): void {
     mkdirSync(dirname(FLOW_DEDUP_FILE), { recursive: true })
     let keys: string[] = []
     if (existsSync(FLOW_DEDUP_FILE)) {
-      try { keys = JSON.parse(readFileSync(FLOW_DEDUP_FILE, "utf-8")) } catch {}
+      try { keys = safeJsonParse(readFileSync(FLOW_DEDUP_FILE, "utf-8")) } catch {}
       if (!Array.isArray(keys)) keys = []
     }
     if (!keys.includes(key)) {
@@ -177,7 +185,7 @@ function loadRules(): FlowRule[] {
     const mtime = _cachedRules ? statSync(rulesPath).mtimeMs : 0
     if (_cachedRules && mtime === _rulesMtime) return _cachedRules
     if (!existsSync(rulesPath)) { _cachedRules = []; return _cachedRules }
-    const j = JSON.parse(readFileSync(rulesPath, "utf-8")) as { rules?: FlowRule[] }
+    const j = safeJsonParse(readFileSync(rulesPath, "utf-8")) as { rules?: FlowRule[] }
     _cachedRules = j.rules || []
     _rulesMtime = mtime
     return _cachedRules
@@ -191,7 +199,7 @@ function recordFlowWarn(hit: RecordFlowWarnInput): void {
   try {
     let state: any = {}
     if (existsSync(STATE_FILE)) {
-      try { state = JSON.parse(readFileSync(STATE_FILE, "utf-8")) } catch {}
+      try { state = safeJsonParse(readFileSync(STATE_FILE, "utf-8")) } catch {}
     } else {
       mkdirSync(dirname(STATE_FILE), { recursive: true })
     }
@@ -209,9 +217,11 @@ function recordFlowWarn(hit: RecordFlowWarnInput): void {
     }
     if (_stateWriter) _stateWriter(state)
     else {
-      const existing = JSON.parse(existsSync(STATE_FILE) ? readFileSync(STATE_FILE, "utf-8") : "{}")
+      const existing = safeJsonParse(existsSync(STATE_FILE) ? readFileSync(STATE_FILE, "utf-8") : "{}")
       const merged = { ...existing, ...state }
-      writeFileSync(STATE_FILE, JSON.stringify(merged, null, 2))
+      const tmpFile = STATE_FILE + ".tmp." + Date.now()
+      writeFileSync(tmpFile, JSON.stringify(merged, null, 2))
+      renameSync(tmpFile, STATE_FILE)
     }
   } catch {}
 }
@@ -247,7 +257,7 @@ export function checkFlowRules({ tool, filePath, content }: CheckFlowRulesInput)
 export function getFlowWarns(): any[] {
   try {
     if (!existsSync(STATE_FILE)) return []
-    const s = JSON.parse(readFileSync(STATE_FILE, "utf-8"))
+    const s = safeJsonParse(readFileSync(STATE_FILE, "utf-8"))
     return s?.flow_warns || []
   } catch { return [] }
 }
