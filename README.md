@@ -172,19 +172,22 @@ These use `~/.claude/reports` and project memory in `~/.claude/project-states.js
 
 The blackbox tracks dialogue trajectory per-session and per-project, providing real-time decision state insights:
 
+**Enabled by default.**
+
 - **Resolution tracking**: Classifies each session into one of 7 sub-regimes (INIT, DIVERGENT, EXPLORING, REFINING, CONVERGING, CLOSED, LOOPING) based on entropy trends, action consistency, feature contradiction, and embedding drift.
 - **Real feature extraction**: Derives 11 features from each user message — message length, word count, question ratio, code blocks, urgency signals, sentiment, complexity, repetition, and instruction density.
 - **Loop prevention**: Detects when the conversation is going in circles and injects escalating system prompt interventions (gentle → suggestive → assertive → escalated) to break the loop.
 - **PIVOT/SWITCH detection**: Recognizes when the user changes context outside the current project scope and injects scope-confirmation directives.
 - **Outcome tracking**: Detects satisfaction signals from assistant responses (positive: "thanks/that works/perfect"; negative: "broken/still failing/wrong") and records them for calibration.
-- **Online calibration**: The API server aggregates session outcomes and auto-tunes loop detection, momentum, and closure thresholds per project via `POST /api/v1/blackbox/calibrate`.
 - **Cross-session continuity**: State persists per project fingerprint in `~/.claude/blackbox-state.json` and remotely in SQLite, allowing resolution state to carry across terminal restarts.
+- **Online calibration**: The API server aggregates session outcomes and auto-tunes loop detection, momentum, and closure thresholds per project via `POST /api/v1/blackbox/calibrate`.
 
 Commands:
 - `trinity blackbox on` — Enable the decision engine
 - `trinity blackbox off` — Disable the decision engine
 - `trinity blackbox status` — View current resolution, sub-regime, momentum, loop state, and project history
 - `trinity blackbox reset` — Clear the resolution tracker for the current session
+
 
 The blackbox injects a decision directive into system prompts showing current resolution state, intent volatility, and continuity. When looping or pivoting is detected, stronger intervention directives are injected to guide the model.
 

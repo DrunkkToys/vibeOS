@@ -210,15 +210,16 @@ const { high: HIGH_TIER_RE, mid: MID_TIER_RE } = loadTierRegexes()
 function loadTrinityModels() {
   try {
     const p = join(USER_HOME, ".claude/model-tiers.json")
-    if (!existsSync(p)) return { cheap: "", medium: "" }
+    if (!existsSync(p)) return { brain: "", cheap: "", medium: "" }
     const j = safeJsonParse(readFileSync(p, "utf-8"))
     return {
+      brain:  j?.trinity?.brain?.oc  || j?.trinity?.brain  || "",
       cheap:  j?.trinity?.cheap?.oc  || j?.trinity?.cheap  || "",
       medium: j?.trinity?.medium?.oc || j?.trinity?.medium || "",
     }
-  } catch { return { cheap: "", medium: "" } }
+  } catch { return { brain: "", cheap: "", medium: "" } }
 }
-let { cheap: TRINITY_CHEAP, medium: TRINITY_MEDIUM } = loadTrinityModels()
+let { brain: TRINITY_BRAIN, cheap: TRINITY_CHEAP, medium: TRINITY_MEDIUM } = loadTrinityModels()
 
 // Read remaining credit percent from env/file/helper, same sources as bash hook.
 function loadCredit() {
@@ -299,7 +300,7 @@ function writeSelection(key, value) {
 
 // ── Blackbox state management ──────────────────────────────────────
 let _blackboxTracker = null
-let _blackboxEnabled = false
+let _blackboxEnabled = true
 let _modelLocked = false
 
 export function loadBlackboxState() {
@@ -325,6 +326,7 @@ export function saveBlackboxState(state) {
 function getBlackboxTracker() {
   if (!_blackboxTracker) {
     const state = loadBlackboxState()
+    if (state.enabled !== undefined) _blackboxEnabled = state.enabled
     const sid = _OC_SID
     if (state.sessions?.[sid]?.history) {
       _blackboxTracker = LocalBlackboxStub.deserialize(state.sessions[sid])
@@ -3544,6 +3546,7 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
         console.error(`[vibeOS] auto-synced model-tiers.json: brain=${_brain.id} medium=${_tiersData.trinity?.medium?.oc || ""} cheap=${_tiersData.trinity?.cheap?.oc || ""}`)
         // Refresh in-memory trinity models immediately so routing works this session
         const _refreshed = loadTrinityModels()
+        TRINITY_BRAIN  = _refreshed.brain
         TRINITY_CHEAP  = _refreshed.cheap
         TRINITY_MEDIUM = _refreshed.medium
       } else if (!existsSync(TIERS_FILE)) {
@@ -3628,12 +3631,13 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
         ""
       const { ltTasks, ltCache, ltCost, count, sesTasks, sesEdit, sesCredit, sesC7, sesQuota, sesTaskDelegations, sesDuration, sesRatePerHour, sesTrend, sesToolBreakdown, sesModelTurns, quality_avg } = readLifetimeSavings()
 
-      let modelTag = `[${shortModelName(currentModel)}]`
+      const brainModel = TRINITY_BRAIN || currentModel || ""
+      let modelTag = `[${shortModelName(brainModel)}]`
       const _workerModel = (currentTier === "high" && TRINITY_MEDIUM) ? TRINITY_MEDIUM : TRINITY_CHEAP
       const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0)
-      if (totalTurns > 0 && _workerModel && _workerModel !== currentModel) {
+      if (totalTurns > 0 && _workerModel && _workerModel !== brainModel) {
         const brainPct = Math.round((sesModelTurns.brain / totalTurns) * 100)
-        modelTag = `[${shortModelName(currentModel)} ${brainPct}% > ${shortModelName(_workerModel)} ${100 - brainPct}%]`
+        modelTag = `[${shortModelName(brainModel)} ${brainPct}% > ${shortModelName(_workerModel)} ${100 - brainPct}%]`
       }
 
       _autoReportCount = (_autoReportCount || 0) + 1
@@ -3708,24 +3712,17 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
         const stressLabel = _footerStress > 0.7 ? "high" : _footerStress > 0.4 ? "elevated" : "calm"
         footerText += `\n— stress: ${stressBar} (${stressLabel}) —`
       }
+
       if (_blackboxEnabled) {
         try {
-          const res = _latestBlackboxState || getBlackboxResolution()
-          if (res && res.n_interactions > 0) {
-            const momentumBar = res.momentum > 0.3 ? "↑↑" : res.momentum > 0 ? "↑" : res.momentum < -0.3 ? "↓↓" : res.momentum < 0 ? "↓" : "→"
-            const loopTag = res.is_looping ? " ⚠loop" : ""
-            footerText += `\n— decision: ${res.resolution || "unresolved"} ${res.sub_regime || "?"} ${momentumBar}${loopTag} —`
-          }
           const prevText = _prevOutputText
           _prevOutputText = typeof output?.text === "string" ? output.text : typeof output?.result === "string" ? output.result : ""
-          if (_blackboxEnabled && _prevOutputText && prevText && _prevOutputText !== prevText) {
+          if (_prevOutputText && prevText && _prevOutputText !== prevText) {
             const outcome = detectOutcomeSignal(_prevOutputText)
             if (outcome) {
-              try {
-                const tracker = getBlackboxTracker()
-                tracker.recordOutcome(outcome)
-                syncOutcomeToApi(outcome)
-              } catch {}
+              const tracker = getBlackboxTracker()
+              tracker.recordOutcome(outcome)
+              syncOutcomeToApi(outcome)
             }
           }
         } catch {}
@@ -4815,7 +4812,7 @@ function scoreTaskQuality(outputText, promptText) {
             if (_blackboxEnabled) {
               try {
                 const res = _latestBlackboxState || getBlackboxResolution()
-                if (res && res.n_interactions > 0) {
+          if (res && res.n_interactions > 3) {
                   const momentumIcon = res.momentum > 0.3 ? "up up" : res.momentum > 0 ? "up" : res.momentum < -0.3 ? "down down" : res.momentum < 0 ? "down" : "flat"
                   const loopTag = res.is_looping ? " (loop)" : ""
                   decisionLine = `${res.resolution} ${res.sub_regime} ${momentumIcon}${loopTag}`
