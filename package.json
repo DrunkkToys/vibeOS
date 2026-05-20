@@ -20,7 +20,10 @@
     "codex:hook:summary": "bash plugins/vibetheog-codex/hooks/post-command-summary.sh",
     "precommit": "node scripts/pre-commit.mjs",
     "audit-state": "node scripts/audit-state.mjs",
-    "migrate-ledger": "node scripts/migrate-ledger.mjs"
+    "migrate-ledger": "node scripts/migrate-ledger.mjs",
+    "build:dashboard": "cd src/dashboard && npm install && npm run build",
+    "dev:dashboard": "cd src/dashboard && npm run dev",
+    "dashboard": "node scripts/dashboard-server.mjs"
   },
   "type": "module",
   "exports": {
