@@ -150,7 +150,7 @@ function validateState(state, path) {
         console.error(`[vibeOS] State validation failed: not an object at ${path}`);
         return;
     }
-    if (state.session_started_at && state.session_started_at !== 'not-a-valid-date' && isNaN(Date.parse(state.session_started_at))) {
+    if (state.session_started_at && isNaN(Date.parse(state.session_started_at))) {
         console.error(`[vibeOS] State validation warning: invalid session_started_at at ${path}, resetting`);
         state.session_started_at = new Date().toISOString();
     }
@@ -361,7 +361,7 @@ let _detectedFramework = null;
 export function loadBlackboxState() {
     try {
         if (!existsSync(BLACKBOX_STATE_FILE))
-            return { enabled: false, sessions: {} };
+            return { enabled: true, sessions: {} };
         const st = statSync(BLACKBOX_STATE_FILE);
         if (st.size > 10485760) {
             _handleStateCorruption(BLACKBOX_STATE_FILE);
@@ -424,6 +424,14 @@ let _prevOutputText = "";
 let _latestBlackboxState = null;
 let _latestBlackboxLoopMsg = null;
 let _latestBlackboxPivotMsg = null;
+function resolveEnforcementMode() {
+    const sub = _latestBlackboxState?.sub_regime || "INIT";
+    if (sub === "EXPLORING" || sub === "DIVERGENT" || sub === "LOOPING")
+        return "relaxed";
+    if (sub === "CONVERGING" || sub === "CLOSED")
+        return "strict";
+    return "normal";
+}
 function detectOutcomeSignal(text) {
     if (!text)
         return null;
@@ -809,7 +817,7 @@ const DOCS_TARGET_RE = /(docs\.|readthedocs|developer\.mozilla|\/api\/|\/referen
 export function isDocsTarget(s) {
     return typeof s === "string" && DOCS_TARGET_RE.test(s);
 }
-function _localScoreStress(text) {
+export function scoreStress(text) {
     if (!text || typeof text !== "string")
         return 0;
     const t = text.toLowerCase();
@@ -855,9 +863,6 @@ function _localScoreStress(text) {
     else if (text.length < 150)
         score += 0.02;
     return Math.min(score, 1.0);
-}
-export async function scoreStress(text) {
-    return remoteCall("scoreStress", [text], () => _localScoreStress(text));
 }
 function estimateContextBudget(_input, output) {
     try {
@@ -1159,11 +1164,22 @@ setFlowStateWriter((state) => {
     withFileLock(STATE_FILE, () => {
         mkdirSync(dirname(STATE_FILE), { recursive: true });
         const existing = readJsonOrEmpty(STATE_FILE);
-        const merged = { ...existing, ...state };
+        const merged = Object.assign({}, existing, { flow_warns: state.flow_warns, _gen: Math.max(existing._gen || 0, state._gen || 0) });
         const tmp = STATE_FILE + ".tmp";
         writeFileSync(tmp, JSON.stringify(merged, null, 2));
         renameSync(tmp, STATE_FILE);
     });
+});
+// Bootstrap current session on startup
+updateState((s) => {
+    s.sessions ??= {};
+    const sid = _OC_SID;
+    s.sessions[sid] ??= { started: new Date().toISOString(), source: "opencode", tool_counts: {}, warns: [] };
+    if (currentProjectFingerprint)
+        s.sessions[sid].project_fingerprint = currentProjectFingerprint;
+    if (currentProjectName)
+        s.sessions[sid].project_name = currentProjectName;
+    return s;
 });
 // Fallback: scan scratchpad for files written within the last N ms.
 let _lastScan = 0;
@@ -1222,6 +1238,21 @@ let taskSlotRestore = null;
 const ACTIVE_JOBS_FILE = join(USER_HOME, ".claude/active-jobs.json");
 let activeJob = null;
 let latestUserIntent = null;
+// Lightweight turn classifier — detects Q&A vs implementation when blackbox is off
+function classifyTurnSimple(userText) {
+    const lower = String(userText || "").trim();
+    if (!lower)
+        return "INIT";
+    // Q&A / research patterns -> EXPLORING (relaxed enforcement)
+    if (/^(how|what|why|when|where|who|can you|could you|tell me|explain|describe|show|list|check|is there|are there|does|do you|summarize|elaborate|clarify|inspect|trace|find|search|look|read|show me|dump)/i.test(lower)) {
+        return "EXPLORING";
+    }
+    // Implementation / write patterns -> REFINING (normal enforcement)
+    if (/^(write|create|add|build|implement|fix|change|edit|modify|update|refactor|generate|make|commit|push|deploy|release|publish|install|remove|delete|rename|move|copy|transform|convert|migrate)/i.test(lower)) {
+        return "REFINING";
+    }
+    return "INIT";
+}
 function tokenizeWords(text) {
     if (!text || typeof text !== "string")
         return [];
@@ -1528,7 +1559,7 @@ const SKIP_PATH_RE = /(\/(node_modules|\.venv|dist|build|__pycache__)\/|\/(tests
 // Each skeleton CANNOT pass silently — uses language-specific skip/fail markers.
 // Extract function/class/export names from source code per language.
 // Returns an array of { name, type } objects.
-export function _localExtractExports(sourceContent, ext) {
+export function extractExports(sourceContent, ext) {
     if (!sourceContent || typeof sourceContent !== "string")
         return [];
     const exports = [];
@@ -1625,9 +1656,7 @@ export function _localExtractExports(sourceContent, ext) {
     }
     return exports;
 }
-export async function extractExports(sourceContent, ext) {
-    return remoteCall("tddExports", [sourceContent, ext], () => _localExtractExports(sourceContent, ext));
-}
+
 // Generate test case names for a given function name.
 // Returns array of descriptive test case names.
 function generateTestCaseNames(funcName, _type, quality = false) {
@@ -2437,7 +2466,7 @@ function _recordCooldown(testPath) {
     }
     catch { }
 }
-export async function buildTestSkeleton(filePath, sourceContent = "", options = {}) {
+export function buildTestSkeleton(filePath, sourceContent = "", options = {}) {
     const fw = _detectTestFramework();
     if (!filePath || typeof filePath !== "string")
         return null;
@@ -2492,10 +2521,10 @@ export async function buildTestSkeleton(filePath, sourceContent = "", options = 
     if (fw?.testExt) {
         testPath = testPath.replace(new RegExp("\\.[^.]+$"), "." + fw.testExt);
     }
-    const exports = await extractExports(sourceContent, extLower);
+    const exports = extractExports(sourceContent, extLower);
     return { path: testPath, content: skeletonFn(name, exports, "full", strict, quality, sourceContent), dir: dirname(testPath) };
 }
-export async function enforceTestFile(filePath) {
+export function enforceTestFile(filePath) {
     console.error(`[vibeOS] [tdd-enforce] enforceTestFile called for ${filePath}`);
     let sourceContent = "";
     try {
@@ -2505,7 +2534,7 @@ export async function enforceTestFile(filePath) {
     }
     catch { }
     const sel = loadSelection();
-    const skeleton = await buildTestSkeleton(filePath, sourceContent, { strict: sel.tdd_strict !== false, quality: sel.tdd_quality !== false });
+    const skeleton = buildTestSkeleton(filePath, sourceContent, { strict: sel.tdd_strict !== false, quality: sel.tdd_quality !== false });
     if (!skeleton)
         return null;
     if (existsSync(skeleton.path))
@@ -3701,9 +3730,7 @@ export function noteProjectPattern(kind, key, summary, meta = {}) {
         }
         bucket.lastSeen = now;
         saveProjectState(pstate);
-        if (VIBEOS_API_ENABLED) {
-            remoteCall("patternsRecord", [_OC_SID, kind, key, summary, meta], null).catch(() => { });
-        }
+
     }
     catch (err) {
         console.error(`[vibeOS] pattern learner write failed: ${err.message}`);
@@ -3873,9 +3900,7 @@ export function observeToolPattern(toolName, input, output, directory) {
                 }
             }
         }
-        if (VIBEOS_API_ENABLED) {
-            remoteCall("patternsObserve", [_OC_SID, toolName, input, output, directory], null).catch(() => { });
-        }
+
     }
     catch (err) {
         console.error(`[vibeOS] pattern learner observe failed: ${err.message}`);
@@ -4192,7 +4217,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
         _refreshModel(directory);
         let _footerStress = 0;
         if (latestUserIntent)
-            _footerStress = await scoreStress(latestUserIntent);
+            _footerStress = scoreStress(latestUserIntent);
         // Lazy model detection: try client API once
         if (!currentModel) {
             try {
@@ -4258,15 +4283,23 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                     console.error("[vibeOS] auto-report:", e.message);
                 }
             }
-            // Enforcement state tags for footer
+            // Enforcement state tags for footer — dynamically adjusted by control vector
             const selNowFooter = loadSelection();
             const enfTagsFooter = [];
-            if (selNowFooter.delegation_enforce)
-                enfTagsFooter.push("[ENF ON]");
-            if (selNowFooter.flow_enforce)
-                enfTagsFooter.push("[FLOW ON]");
-            if (selNowFooter.tdd_enforce)
-                enfTagsFooter.push("[TDD ON]");
+            const bbMode = resolveEnforcementMode();
+            if (bbMode === "relaxed") {
+                enfTagsFooter.push("[Q&A]");
+            }
+            else {
+                if (selNowFooter.delegation_enforce)
+                    enfTagsFooter.push("[ENF ON]");
+                if (selNowFooter.flow_enforce)
+                    enfTagsFooter.push("[FLOW ON]");
+                if (selNowFooter.tdd_enforce)
+                    enfTagsFooter.push("[TDD ON]");
+                if (bbMode === "strict")
+                    enfTagsFooter.push("[STRICT]");
+            }
             if (_modelLocked)
                 enfTagsFooter.push("[LOCK ON]");
             let enfSuffixFooter = enfTagsFooter.length > 0 ? ` ${enfTagsFooter.join(" ")}` : "";
@@ -4446,7 +4479,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                     : TRINITY_CHEAP && TRINITY_CHEAP !== currentModel ? TRINITY_CHEAP
                         : null;
                 let _target = _exploratoryTarget ?? _tierTarget;
-                const stressScore = latestUserIntent ? await scoreStress(latestUserIntent) : 0;
+                const stressScore = latestUserIntent ? scoreStress(latestUserIntent) : 0;
                 const apiRoute = await remoteCall("routeModel", [_prompt, currentTier, TRINITY_CHEAP, TRINITY_MEDIUM, LEARNED_EXPLORATORY, stressScore], null);
                 if (apiRoute?.target) {
                     _target = apiRoute.target;
@@ -4655,12 +4688,20 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                 const trendIcon = sesTrend === "down" ? "↓" : sesTrend === "up" ? "↑" : "→";
                 const selNow = loadSelection();
                 const tags = [`[${shortModelName(currentModel)}]`];
-                if (selNow.delegation_enforce)
-                    tags.push("[ENF ON]");
-                if (selNow.flow_enforce)
-                    tags.push("[FLOW ON]");
-                if (selNow.tdd_enforce)
-                    tags.push("[TDD ON]");
+                const bbMode = resolveEnforcementMode();
+                if (bbMode === "relaxed") {
+                    tags.push("[Q&A]");
+                }
+                else {
+                    if (selNow.delegation_enforce)
+                        tags.push("[ENF ON]");
+                    if (selNow.flow_enforce)
+                        tags.push("[FLOW ON]");
+                    if (selNow.tdd_enforce)
+                        tags.push("[TDD ON]");
+                    if (bbMode === "strict")
+                        tags.push("[STRICT]");
+                }
                 if (_modelLocked)
                     tags.push("[LOCK ON]");
                 const workerModel = (currentTier === "high" && TRINITY_MEDIUM) ? TRINITY_MEDIUM : TRINITY_CHEAP;
@@ -4672,7 +4713,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                 const statusLine = tags.join(" ");
                 let stressTag = "";
                 if (latestUserIntent) {
-                    const ss = await scoreStress(latestUserIntent);
+                    const ss = scoreStress(latestUserIntent);
                     if (ss > 0.1) {
                         const label = ss > 0.7 ? "high" : ss > 0.4 ? "elevated" : "calm";
                         stressTag = ` stress:${label}`;
@@ -4807,7 +4848,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                         seen.add(fp);
                         const isTestPath = /(^|\/)(tests?|spec)\//i.test(fp) || /\.(test|spec)\./i.test(fp);
                         if (sel.tdd_enforce && !isTestPath) {
-                            const createdPath = await enforceTestFile(fp);
+                            const createdPath = enforceTestFile(fp);
                             if (createdPath) {
                                 const ext = createdPath.split('.').pop();
                                 const fileName = createdPath.split('/').pop();
@@ -4841,7 +4882,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                 const explicitTestIntent = isUserAskingForTests(latestUserIntent);
                 const isTestPath = /(^|\/)(tests?|spec)\//i.test(fp) || /\.(test|spec)\./i.test(fp);
                 if (sel.tdd_enforce && !isTestPath) {
-                    const createdPath = await enforceTestFile(fp);
+                    const createdPath = enforceTestFile(fp);
                     if (createdPath) {
                         const ext = createdPath.split('.').pop();
                         const fileName = createdPath.split('/').pop();
@@ -5107,32 +5148,34 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                     observeUserCorrection(latestUserIntent);
                 // Blackbox resolution tracking — local stub + async API enrichment
                 let _controlVector = null;
-                if (_blackboxEnabled && latestUserIntent) {
+                if (latestUserIntent) {
                     try {
-                        const tracker = getBlackboxTracker();
-                        const localState = tracker.update(latestUserIntent);
-                        const state = loadBlackboxState();
-                        const sid = _OC_SID;
-                        const serialized = tracker.serialize();
-                        serialized.project_fingerprint = currentProjectFingerprint || "";
-                        // Compute control vector from blackbox state
-                        _controlVector = computeControlVector(localState);
-                        // Append control history entry
-                        if (!state.sessions[sid])
-                            state.sessions[sid] = {};
-                        state.sessions[sid].control_history ??= [];
-                        state.sessions[sid].control_history.push(buildControlHistoryEntry(state.sessions[sid].control_history.length + 1, localState.sub_regime || "INIT", _controlVector));
-                        // Trim control history to last 100 entries
-                        if (state.sessions[sid].control_history.length > 100) {
-                            state.sessions[sid].control_history = state.sessions[sid].control_history.slice(-100);
+                        if (_blackboxEnabled) {
+                            const tracker = getBlackboxTracker();
+                            const localState = tracker.update(latestUserIntent);
+                            const state = loadBlackboxState();
+                            const sid = _OC_SID;
+                            const serialized = tracker.serialize();
+                            serialized.project_fingerprint = currentProjectFingerprint || "";
+                            _controlVector = computeControlVector(localState);
+                            if (!state.sessions[sid])
+                                state.sessions[sid] = {};
+                            state.sessions[sid].control_history ??= [];
+                            state.sessions[sid].control_history.push(buildControlHistoryEntry(state.sessions[sid].control_history.length + 1, localState.sub_regime || "INIT", _controlVector));
+                            if (state.sessions[sid].control_history.length > 100) {
+                                state.sessions[sid].control_history = state.sessions[sid].control_history.slice(-100);
+                            }
+                            state.sessions[sid] = serialized;
+                            saveBlackboxState(state);
+                            _latestBlackboxState = localState;
+                            fetchBlackboxEnrichment(sid, localState).then(enriched => {
+                                if (enriched)
+                                    _latestBlackboxState = enriched;
+                            }).catch(() => { });
                         }
-                        state.sessions[sid] = serialized;
-                        saveBlackboxState(state);
-                        _latestBlackboxState = localState;
-                        fetchBlackboxEnrichment(sid, localState).then(enriched => {
-                            if (enriched)
-                                _latestBlackboxState = enriched;
-                        }).catch(() => { });
+                        else {
+                            _controlVector = computeControlVector({ sub_regime: classifyTurnSimple(latestUserIntent) });
+                        }
                     }
                     catch { }
                 }
@@ -5165,7 +5208,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                 }
                 if (latestUserIntent) {
                     const stressMult = _controlVector?.stress_multiplier ?? 1.0;
-                    const _s = await scoreStress(latestUserIntent) * stressMult;
+                    const _s = scoreStress(latestUserIntent) * stressMult;
                     if (_s > 0.7) {
                         if (Array.isArray(output?.system))
                             output.system.push("[stress mitigation: CRITICAL] The user's message shows very high stress indicators. " +
@@ -5401,7 +5444,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                         const mediumModel = tiers?.medium?.oc || "(unset)";
                         const cheapModel = tiers?.cheap?.oc || "(unset)";
                         const activeSlot = sel.active_slot || "brain";
-                        const stressScore = latestUserIntent ? await scoreStress(latestUserIntent) : 0;
+                        const stressScore = latestUserIntent ? scoreStress(latestUserIntent) : 0;
                         const stressBar = stressScore > 0.85 ? "█" : stressScore > 0.7 ? "▆" : stressScore > 0.5 ? "▅" : stressScore > 0.3 ? "▃" : stressScore > 0.1 ? "▂" : "▁";
                         const stressLabel = stressScore > 0.7 ? "high" : stressScore > 0.4 ? "elevated" : stressScore > 0.1 ? "calm" : "none";
                         const totalTurns = (sv.sesModelTurns?.brain || 0) + (sv.sesModelTurns?.worker || 0);
