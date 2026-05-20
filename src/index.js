@@ -4104,13 +4104,13 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                     typeof output?.content === "string" ? output.content :
                         "";
             const { ltTasks, ltCache, ltCost, count, sesTasks, sesEdit, sesCredit, sesC7, sesQuota, sesTaskDelegations, sesDuration, sesRatePerHour, sesTrend, sesToolBreakdown, sesModelTurns, quality_avg } = readLifetimeSavings();
-            const brainModel = TRINITY_BRAIN || currentModel || "";
-            let modelTag = `[${shortModelName(brainModel)}]`;
+            const displayModel = TRINITY_BRAIN || currentModel || "";
+            let modelTag = `[${displayModel}]`;
             const _workerModel = (currentTier === "high" && TRINITY_MEDIUM) ? TRINITY_MEDIUM : TRINITY_CHEAP;
             const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0);
-            if (totalTurns > 0 && _workerModel && _workerModel !== brainModel) {
-                const brainPct = Math.round((sesModelTurns.brain / totalTurns) * 100);
-                modelTag = `[${shortModelName(brainModel)} ${brainPct}% > ${shortModelName(_workerModel)} ${100 - brainPct}%]`;
+            if (_workerModel && _workerModel !== displayModel) {
+                const brainPct = Math.round(((sesModelTurns?.brain || 0) / (totalTurns || 1)) * 100);
+                modelTag = `[${displayModel} ${brainPct}% → ${_workerModel} ${100 - brainPct}%]`;
             }
             _autoReportCount = (_autoReportCount || 0) + 1;
             if (_autoReportCount % 5 === 0) {
@@ -4181,15 +4181,12 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                     const bar = "\u2588".repeat(filled) + "\u2591".repeat(10 - filled);
                     savingsDisplay += ` | ${formatUsd(ltTotal)} / ${formatUsd(goalUsd)} [${bar}]`;
                 }
-                footerText = stripped + `\n\n— ${modelTag} | ${savingsDisplay} —`;
+                const stressBar = _footerStress > 0.85 ? "█" : _footerStress > 0.7 ? "▆" : _footerStress > 0.5 ? "▅" : _footerStress > 0.3 ? "▃" : _footerStress > 0.1 ? "▂" : "▁";
+                const stressLabel = _footerStress > 0.7 ? "high" : _footerStress > 0.4 ? "elevated" : "calm";
+                footerText = stripped + `\n\n— ${modelTag} | ${savingsDisplay} | stress: ${stressBar} ${stressLabel} —`;
             }
             else {
                 footerText = stripped + `\n\n— ${modelTag} —`;
-            }
-            if (_footerStress > 0.1) {
-                const stressBar = _footerStress > 0.85 ? "█" : _footerStress > 0.7 ? "▆" : _footerStress > 0.5 ? "▅" : _footerStress > 0.3 ? "▃" : _footerStress > 0.1 ? "▂" : "▁";
-                const stressLabel = _footerStress > 0.7 ? "high" : _footerStress > 0.4 ? "elevated" : "calm";
-                footerText += `\n— stress: ${stressBar} (${stressLabel}) —`;
             }
             if (_blackboxEnabled) {
                 try {
@@ -4219,22 +4216,6 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                 const it = textCompletePainted.values();
                 for (let i = 0; i < 100; i++)
                     textCompletePainted.delete(it.next().value);
-            }
-            if (ltTotal > 0 || ltCache > 0) {
-                try {
-                    const _ltFmt = ltTotal.toFixed(2);
-                    const _reportLine = `— ${modelTag} vibeOS: $${_ltFmt} saved ${trendIcon} —`;
-                    writeFileSync(join(USER_HOME, ".claude/session-report-pending.md"), _reportLine);
-                    const logPath = join(USER_HOME, ".claude/session-reports.log");
-                    const pid = process.pid || "?";
-                    const ts = new Date().toISOString().slice(0, 16).replace("T", " ");
-                    const newLine = `[${ts} pid=${pid}] ${_reportLine}`;
-                    if (!getLastLines(logPath, 5, 1024).includes(newLine)) {
-                        _rotateLog(logPath, MAX_LOG_LINES);
-                        appendFileSync(logPath, newLine + "\n");
-                    }
-                }
-                catch { }
             }
         }
         catch (err) {
