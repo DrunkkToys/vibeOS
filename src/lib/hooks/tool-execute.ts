@@ -27,7 +27,7 @@ import {
 } from '../state.js'
 import {
   classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget,
-  shortModelName, formatUsd, _refreshModel,
+  shortModelName, formatUsd, _refreshModel, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN,
 } from '../pricing.js'
 import { latestUserIntent } from './chat-transform.js'
 import {

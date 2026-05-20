@@ -73,9 +73,6 @@ let _apiClient: any = null
 let _apiFallbackMode = false
 let _apiFallbackSince: number | null = null
 
-let TRINITY_BRAIN: string | null = null
-let TRINITY_MEDIUM: string | null = null
-let TRINITY_CHEAP: string | null = null
 let activeJob: any = null
 let fp = ""
 let _mcpServerRuntime: any = null

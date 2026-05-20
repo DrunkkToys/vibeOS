@@ -44,6 +44,7 @@ import {
   saveSessionCheckpoint,
 } from './state.js'
 
+import { TRINITY_CHEAP, TRINITY_MEDIUM } from './pricing.js'
 import {
   topKeywords,
   extractFirstWordFromArgs,
@@ -51,8 +52,6 @@ import {
 } from './turn-classify.js'
 
 let activeJob = null
-let TRINITY_CHEAP
-let TRINITY_MEDIUM
 
 // ── Verbose-line / compression rules ─────────────────────────────────
 
