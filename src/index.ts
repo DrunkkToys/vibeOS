@@ -324,6 +324,7 @@ function writeSelection(key, value) {
 let _blackboxTracker = null
 let _blackboxEnabled = true
 let _modelLocked = false
+let _detectedFramework = null
 
 export function loadBlackboxState() {
   try {
@@ -487,7 +488,7 @@ function classify(m) {
 
 // Memory mode: never throw / never stop. Track "would-have-blocked" events
 // and surface cumulative savings to the GUI via experimental.text.complete.
-const WARN_ON_DIRECT = new Set(["write", "edit", "notebookedit"])
+const WARN_ON_DIRECT = new Set(["write", "edit", "notebookedit", "write_to_file", "replace_in_file", "apply_patch"])
 const SOFT_QUOTA     = new Set(["bash", "webfetch", "websearch"])
 const FREE           = new Set(["task","todowrite","question","skill","read","glob","grep","list"])
 
@@ -1631,6 +1632,44 @@ function isSkeletonUseless(content) {
   return meaningfulLines.length < 2
 }
 
+function _detectTestFramework() {
+  if (_detectedFramework) return _detectedFramework
+  let framework = null
+  let testExt = null
+  try {
+    const root = directory || process.cwd()
+    const pkgPath = join(root, "package.json")
+    if (existsSync(pkgPath)) {
+      const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"))
+      const testScript = String(pkg?.scripts?.test || "")
+      const deps = { ...pkg?.devDependencies, ...pkg?.dependencies }
+      if (testScript.includes("vitest") || deps["vitest"]) { framework = "vitest"; testExt = "ts" }
+      else if (testScript.includes("jest") || deps["jest"]) { framework = "jest"; testExt = "js" }
+      else if (testScript.includes("mocha") || deps["mocha"]) { framework = "mocha"; testExt = "js" }
+      else if (/node\s+--test/.test(testScript)) { framework = "node-test"; testExt = "js" }
+    }
+    if (!framework) {
+      const testDirs = ["src/tests", "tests", "test", "__tests__"]
+      for (const td of testDirs) {
+        const dirPath = join(root, td)
+        if (!existsSync(dirPath)) continue
+        const files = readdirSync(dirPath).filter(f => /\.test\./.test(f) || /\.spec\./.test(f))
+        if (files.length > 0) {
+          const content = readFileSync(join(dirPath, files[0]), "utf-8")
+          if (/from\s+['"]node:test['"]/.test(content)) { framework = "node-test"; testExt = files[0].split(".").pop(); break }
+          if (/from\s+['"]vitest['"]/.test(content)) { framework = "vitest"; testExt = files[0].split(".").pop(); break }
+          if (/require\(['"]@jest\/globals['"]\)/.test(content)) { framework = "jest"; testExt = files[0].split(".").pop(); break }
+        }
+      }
+    }
+  } catch (e) {
+    console.error(`[vibeOS] [tdd] framework detection failed: ${e.message}`)
+  }
+  _detectedFramework = { framework, testExt }
+  console.error(`[vibeOS] [tdd] detected test framework: ${framework || "default"} (ext: ${testExt || "match source"})`)
+  return _detectedFramework
+}
+
 const TEST_SKELETONS = {
   py: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => {
     const moduleImport = name.replace(/-/g, "_")
@@ -2121,6 +2160,7 @@ function _recordCooldown(testPath) {
 }
 
 export async function buildTestSkeleton(filePath, sourceContent = "", options = {}) {
+  const fw = _detectTestFramework()
   if (!filePath || typeof filePath !== "string") return null
   if (!SOURCE_EXT_RE.test(filePath)) return null
   if (SKIP_PATH_RE.test(filePath)) return null
@@ -2145,6 +2185,9 @@ export async function buildTestSkeleton(filePath, sourceContent = "", options = 
     case "rb": testPath = dir + "test/" + name + "_test.rb"; break
     case "java": case "kt": testPath = dir + "src/test/" + name.charAt(0).toUpperCase() + name.slice(1) + "Test." + ext; break
     default: return null
+  }
+  if (fw?.testExt) {
+    testPath = testPath.replace(new RegExp("\\.[^.]+$"), "." + fw.testExt)
   }
   const exports = await extractExports(sourceContent, extLower)
   return { path: testPath, content: skeletonFn(name, exports, "full", strict, quality, sourceContent), dir: dirname(testPath) }
@@ -4021,6 +4064,7 @@ function scoreTaskQuality(outputText, promptText) {
       // Write/Edit/NotebookEdit: enforce delegation on high tier when delegation_enforce is on.
       if (WARN_ON_DIRECT.has(String(t || "").toLowerCase())) {
         const sel = loadSelection()
+        console.error(`[vibeOS] [enforce-debug] tool=${t} tier=${currentTier} enforce=${sel?.delegation_enforce} argsType=${typeof args} argsExists=${!!args}`)
         const tLower = String(t || "").toLowerCase()
         if (sel.delegation_enforce && currentTier === "high" && args && typeof args === "object") {
           const actualArgs = args || (output && output.args) || {}
@@ -4891,7 +4935,7 @@ function scoreTaskQuality(outputText, promptText) {
               `All-time savings:`,
               `  Total: $${ltTotal.toFixed(2)} (${sesTrend})${goalBar}`,
               `  Delegation: $${(sv.ltTasks || 0).toFixed(2)}`,
-              `  Cache: $${(sv.ltCache || 0).toFixed(2)}`,
+              `  Cache: $${formatUsd(sv.ltCache || 0)}`,
               `  Missed: $${missedC7.toFixed(2)}`,
               `|`,
               `This session:`,
@@ -5001,8 +5045,9 @@ function scoreTaskQuality(outputText, promptText) {
           if (action === "lock") {
             if (slot === "on") {
               _modelLocked = true
-              console.error(`[vibeOS] model LOCKED — ${currentModel} (${currentTier}) will not auto-reconcile with config`)
-              return `🔒 Model LOCKED — ${currentModel || "detected model"} will not change unless you force with \`trinity set\` or \`trinity lock off\`.`
+              console.error(`[vibeOS] model LOCKED — ${_tiersData?.trinity?.[_tiersData?.selection?.active_slot || "brain"]?.oc || currentModel || "?"} (${currentTier}) will not auto-reconcile with config`)
+              const lockModel = _tiersData?.trinity?.[_tiersData?.selection?.active_slot || "brain"]?.oc || currentModel || "detected model"
+              return `🔒 Model LOCKED — ${lockModel} will not change unless you force with \`trinity set\` or \`trinity lock off\`.`
             }
             if (slot === "off") {
               _modelLocked = false
