@@ -297,25 +297,38 @@ export function addFlowRule(rule: FlowRule): void {
 export function recordFlowTodo({ filePath, content }: FlowTodoInput): number {
   try {
     mkdirSync(dirname(FLOW_TODO_FILE), { recursive: true })
-    // Extract TODO/FIXME lines from content (line-by-line for reliability).
     const todoRe = /(?:\/\/\s*|\#\s*)(TODO|FIXME|HACK)[\s:]+(.+)$/i
     const todos: Array<{ type: string; text: string }> = []
     for (const line of content.split("\n")) {
-      console.log(`[DEBUG] Checking line: "${line}"`);
       const m = line.match(todoRe)
       if (m) {
-        console.log(`[DEBUG] Match found: ${m[0]} -> type: ${m[1]}, text: ${m[2]}`);
         todos.push({ type: m[1], text: m[2].trim() })
       }
     }
     if (todos.length === 0) return 0
+
+    const dedupKey = `${filePath || ""}::${todos.map(t => `${t.type}:${t.text}`).join("|")}`
+    const existingLines: string[] = existsSync(FLOW_TODO_FILE)
+      ? readFileSync(FLOW_TODO_FILE, "utf-8").trim().split("\n").filter(Boolean)
+      : []
+    const existingKeys = new Set<string>()
+    for (const line of existingLines) {
+      try {
+        const entry = safeJsonParse(line)
+        if (entry && entry.filePath && entry.todos) {
+          const key = `${entry.filePath}::${entry.todos.map((t: any) => `${t.type}:${t.text}`).join("|")}`
+          existingKeys.add(key)
+        }
+      } catch {}
+    }
+    if (existingKeys.has(dedupKey)) return 0
+
     const entry = JSON.stringify({
       at: new Date().toISOString(),
       filePath,
       todos,
     }) + "\n"
     appendFileSync(FLOW_TODO_FILE, entry)
-    // Prune to keep file bounded.
     try {
       const lines = readFileSync(FLOW_TODO_FILE, "utf-8").trim().split("\n").filter(Boolean)
       if (lines.length > MAX_FLOW_TODOS) {

@@ -1,4 +1,4 @@
-# SPEC: vibeOS for OpenCode
+# SPEC: vibeOS for OpenCode [CRITICAL]
 
 > **THIS FILE IS LAW.** Read it before touching anything. Violating any rule below will break the plugin for all users.
 
