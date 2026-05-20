@@ -22,6 +22,7 @@ Current package version: `0.11.0`
 - Stress mitigation pipeline: detects user stress signals, shows live stress gauge in footer, injects protective system prompts, and upgrades Task tier when user is stressed.
 - vibeOS MCP server with HTTP API for extended tool capabilities (trinity, reports, session metrics, diagnostics).
 - TUI dashboard sidebar plugin for real-time plugin status and controls.
+- **Web dashboard** — SolidJS SPA served via standalone server (`npm run dashboard`) or embedded in the MCP server. Real-time SSE push updates at `http://127.0.0.1:3333`.
 - Worker-to-Brain (WBP) protocol synthesizes delegated task output directly in assistant chat.
 - **Remote API protection**: Core algorithms run on a self-hosted API server (`api.vibetheog.com`) with token-based authentication. Non-paying seats can be deactivated, immediately revoking all API tokens and falling back to local degraded mode.
 
@@ -248,11 +249,24 @@ Then register the plugin in `~/.config/opencode/opencode.json`:
 
 Restart OpenCode Desktop. The plugin auto-creates `~/.claude/model-tiers.json` on first run.
 
+## Web Dashboard
+
+Open `http://127.0.0.1:3333` in your browser after starting the server.
+
+```bash
+npm run build:dashboard   # Build the SPA (one-time)
+npm run dashboard         # Start standalone server on :3333
+npm run dev:dashboard     # Vite dev server on :5173 with hot-reload
+```
+
+Features: model split, savings, sessions, stress gauge, trinity controls, reports, blackbox state. SSE push updates every 1.5s.
+
 ## Build
 
 - `npm run build`
+- `npm run build:dashboard` (build the web dashboard SPA)
 
-This compiles TypeScript source-of-truth modules and syncs generated JS artifacts used by runtime.
+`npm run build` compiles TypeScript source-of-truth modules and syncs generated JS artifacts used by runtime.
 
 ## CI/CD
 

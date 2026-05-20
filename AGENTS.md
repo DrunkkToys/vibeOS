@@ -23,8 +23,9 @@
 | `tsconfig.json` | TypeScript compile configuration |
 | `plugins/*` | CodeX plugin integration |
 | `.opencode/plugins/*` | TUI dashboard sidebar plugin |
-| `src/vibeOS-mcp-server.ts` | vibeOS MCP server TypeScript source |
+| `src/vibeOS-mcp-server.ts` | vibeOS MCP server TypeScript source (serves dashboard static + SSE) |
 | `src/vibeOS-mcp-server.js` | vibeOS MCP server compiled |
+| `src/dashboard/*` | Web dashboard SPA (SolidJS, Vite build). Dist is gitignored, built via `npm run build:dashboard` |
 | `src/vibeOS-api-server/*` | Protected algorithms API server (deployed to VPS) |
 | Any `.ts` file | TypeScript source files — see Section 3 |
 | Any `.json` file under `src/` | flow rules and configuration |
@@ -63,7 +64,8 @@ Every feature in the README is a promised behavior. **If a proposed change touch
 17. **Remote API protection** — Core algorithms served from self-hosted API server (`api.vibetheog.com`). Token-based auth with seat/license management. Suspended seats immediately revoke all tokens; plugin falls back to local degraded mode.
 18. **Per-session model locking** — `trinity lock on|off` freezes the model at session start. When locked, the plugin skips auto-reconcile with OpenCode config changes. Lock is in-memory only (resets on restart). Live footer shows `LOCK` tag when active.
 
-19. **Blackbox decision engine** — Enabled by default. Tracks dialogue trajectory with 7 sub-regimes, 11 derived features per turn, loop prevention with 4 escalating intervention levels, PIVOT/SWITCH detection for context changes, outcome tracking from assistant response satisfaction signals, and online calibration via API server. State persisted per project in `~/.claude/blackbox-state.json` and remotely in SQLite (`blackbox_sessions`, `blackbox_calibration` tables). Commands: `trinity blackbox on|off|status|reset`. Injects decision directive, loop intervention, and pivot detection into system prompts. Footer shows resolution state, sub-regime, and momentum. When disabled, a lightweight `classifyTurnSimple()` fallback detects Q&A vs implementation intent and applies phase-appropriate enforcement levels.
+19. **Web dashboard** — SolidJS SPA served by the MCP server or standalone (`npm run dashboard`). SSE endpoint (`/events`) pushes real-time status/savings updates. Displays model split, savings, session history, stress gauge, trinity controls, reports, and blackbox state. Built via `npm run build:dashboard`.
+20. **Blackbox decision engine** — Enabled by default. Tracks dialogue trajectory with 7 sub-regimes, 11 derived features per turn, loop prevention with 4 escalating intervention levels, PIVOT/SWITCH detection for context changes, outcome tracking from assistant response satisfaction signals, and online calibration via API server. State persisted per project in `~/.claude/blackbox-state.json` and remotely in SQLite (`blackbox_sessions`, `blackbox_calibration` tables). Commands: `trinity blackbox on|off|status|reset`. Injects decision directive, loop intervention, and pivot detection into system prompts. Footer shows resolution state, sub-regime, and momentum. When disabled, a lightweight `classifyTurnSimple()` fallback detects Q&A vs implementation intent and applies phase-appropriate enforcement levels.
 
 **If you are unsure whether a change affects any of these features: STOP and ASK.**
 
@@ -119,6 +121,15 @@ dist-ts/                               (compiled JS output)
 src/*.js, src/vibeOS-lib/*.js, src/utils/*.js   (synced runtime artifacts)
     ↓  npm run build
 usable plugin runtime
+```
+
+### Dashboard Build Chain (separate)
+
+```
+src/dashboard/src/*.tsx               (SolidJS source)
+    ↓  npm run build:dashboard  (vite build)
+src/dashboard/dist/                   (compiled SPA)
+    ↓  served by MCP server or standalone dashboard-server.mjs
 ```
 
 ### TypeScript Source Files

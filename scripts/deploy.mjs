@@ -11,6 +11,7 @@ const ROOT = join(__dirname, "..")
 const srcPath = join(ROOT, "src", "index.js")
 const srcMcpServerPath = join(ROOT, "src", "vibeOS-mcp-server.js")
 const srcLibDir = join(ROOT, "src", "vibeOS-lib")
+const srcDashboardDistDir = join(ROOT, "src", "dashboard", "dist")
 const pluginDir = join(homedir(), ".config", "opencode", "plugins")
 const destPath = join(pluginDir, "vibeOS.js")
 const destMcpServerPath = join(pluginDir, "vibeOS-mcp-server.js")
@@ -32,6 +33,12 @@ try {
   if (existsSync(srcMcpServerPath)) {
     writeFileSync(destMcpServerPath, readFileSync(srcMcpServerPath))
     process.stderr.write(`[vibeOS deploy] src/vibeOS-mcp-server.js → ~/.config/opencode/plugins/vibeOS-mcp-server.js\n`)
+  }
+
+  if (existsSync(srcDashboardDistDir)) {
+    const dest = join(pluginDir, "dashboard", "dist")
+    cpSync(srcDashboardDistDir, dest, { recursive: true, force: true })
+    process.stderr.write(`[vibeOS deploy] src/dashboard/dist/ → ~/.config/opencode/plugins/dashboard/dist/\n`)
   }
 
   // Copy vibeOS-lib directory recursively (includes blackbox, utils, etc.)

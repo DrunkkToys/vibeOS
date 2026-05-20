@@ -5,6 +5,18 @@ import http from "node:http"
 import { IncomingMessage, ServerResponse } from "node:http"
 import { parse as parseUrl } from "node:url"
 import { URLSearchParams } from "node:url"
+import { createReadStream, existsSync, statSync } from "node:fs"
+import { extname, join, dirname } from "node:path"
+import { fileURLToPath } from "node:url"
+
+const MIME_MAP: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "application/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".png": "image/png",
+  ".ico": "image/x-icon",
+}
 
 type Deps = {
   getState: () => unknown
@@ -54,6 +66,34 @@ function parseBody(req: IncomingMessage): Promise<Record<string, unknown>> {
     })
     req.on("error", reject)
   })
+}
+
+const _MCP_FILENAME = fileURLToPath(import.meta.url)
+const _MCP_DIR = dirname(_MCP_FILENAME)
+
+function resolveDashboardDir(): string {
+  const c = [
+    join(_MCP_DIR, "dashboard", "dist"),
+    join(_MCP_DIR, "..", "src", "dashboard", "dist"),
+  ]
+  for (const p of c) { if (existsSync(join(p, "index.html"))) return p }
+  return c[0]
+}
+
+const DASHBOARD_DIR = resolveDashboardDir()
+
+function sendFile(res: ServerResponse, fp: string): void {
+  if (!existsSync(fp)) { res.statusCode = 404; res.setHeader("Content-Type", "text/plain; charset=utf-8"); res.end("not found"); return }
+  const ext = extname(fp).toLowerCase(); const mime = MIME_MAP[ext] || "application/octet-stream"; const st = statSync(fp)
+  res.statusCode = 200; res.setHeader("Content-Type", mime); res.setHeader("Content-Length", st.size); res.setHeader("Cache-Control", "no-cache")
+  const s = createReadStream(fp); s.pipe(res); s.on("error", () => { res.statusCode = 500; res.end() })
+}
+
+function serveDashboard(res: ServerResponse, p: string): void {
+  const idx = join(DASHBOARD_DIR, "index.html"); let fp = join(DASHBOARD_DIR, p === "/" ? "index.html" : p)
+  if (existsSync(fp) && statSync(fp).isFile()) { sendFile(res, fp); return }
+  if (existsSync(idx)) { sendFile(res, idx); return }
+  res.statusCode = 404; res.setHeader("Content-Type", "text/plain; charset=utf-8"); res.end("not found")
 }
 
 export function createMcpServer(deps: Deps): McpServer {
@@ -199,6 +239,15 @@ export function createMcpServer(deps: Deps): McpServer {
         json(res, 200, result)
         return
       }
+      if (method === "GET" && path === "/events") {
+        res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", "Connection": "keep-alive", "Access-Control-Allow-Origin": "*" })
+        const push = () => { res.write(`data: ${JSON.stringify({ status: deps.getState(), savings: deps.getSavings() })}\n\n`) }; push()
+        const iv = setInterval(push, 1500)
+        req.on("close", () => { clearInterval(iv) })
+        return
+      }
+
+      if (existsSync(join(DASHBOARD_DIR, "index.html"))) { serveDashboard(res, path); return }
       json(res, 404, { error: "not found", status: 404 })
     } catch (err: unknown) {
       const error = err as { message?: string }

@@ -1,0 +1,1 @@
+{"compilerOptions":{"target":"ES2022","module":"ESNext","moduleResolution":"bundler","jsx":"preserve","jsxImportSource":"solid-js","strict":true,"noImplicitAny":false,"strictNullChecks":false,"skipLibCheck":true,"resolveJsonModule":true,"isolatedModules":true,"types":[]},"include":["src"]}
