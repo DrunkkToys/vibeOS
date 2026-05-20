@@ -225,18 +225,19 @@ function loadTrinityModels() {
     try {
         const p = join(USER_HOME, ".claude/model-tiers.json");
         if (!existsSync(p))
-            return { cheap: "", medium: "" };
+            return { brain: "", cheap: "", medium: "" };
         const j = safeJsonParse(readFileSync(p, "utf-8"));
         return {
+            brain: j?.trinity?.brain?.oc || j?.trinity?.brain || "",
             cheap: j?.trinity?.cheap?.oc || j?.trinity?.cheap || "",
             medium: j?.trinity?.medium?.oc || j?.trinity?.medium || "",
         };
     }
     catch {
-        return { cheap: "", medium: "" };
+        return { brain: "", cheap: "", medium: "" };
     }
 }
-let { cheap: TRINITY_CHEAP, medium: TRINITY_MEDIUM } = loadTrinityModels();
+let { brain: TRINITY_BRAIN, cheap: TRINITY_CHEAP, medium: TRINITY_MEDIUM } = loadTrinityModels();
 // Read remaining credit percent from env/file/helper, same sources as bash hook.
 function loadCredit() {
     // 1. Check cached API snapshot (populated by background refresh — triggered via trinity tool).
@@ -332,7 +333,7 @@ function writeSelection(key, value) {
 }
 // ── Blackbox state management ──────────────────────────────────────
 let _blackboxTracker = null;
-let _blackboxEnabled = true;
+let _blackboxEnabled = false;
 let _modelLocked = false;
 export function loadBlackboxState() {
     try {
@@ -4001,6 +4002,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                 console.error(`[vibeOS] auto-synced model-tiers.json: brain=${_brain.id} medium=${_tiersData.trinity?.medium?.oc || ""} cheap=${_tiersData.trinity?.cheap?.oc || ""}`);
                 // Refresh in-memory trinity models immediately so routing works this session
                 const _refreshed = loadTrinityModels();
+                TRINITY_BRAIN = _refreshed.brain;
                 TRINITY_CHEAP = _refreshed.cheap;
                 TRINITY_MEDIUM = _refreshed.medium;
             }
@@ -4087,13 +4089,23 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                 typeof output?.result === "string" ? output.result :
                     typeof output?.content === "string" ? output.content :
                         "";
+            const strippedText = text.split("\n").filter(line => {
+                const trimmed = line.trim();
+                if (trimmed.startsWith("\u2014 ") && (trimmed.includes("vibeOS:") || trimmed.includes("decision:") || trimmed.includes("stress:"))) return false;
+                if (trimmed.match(/^\u2014 \[.+\] \| vibeOS:/)) return false;
+                if (trimmed.match(/^\u2014 \[.+\] \|/)) return false;
+                return true;
+            }).join("\n");
             const { ltTasks, ltCache, ltCost, count, sesTasks, sesEdit, sesCredit, sesC7, sesQuota, sesTaskDelegations, sesDuration, sesRatePerHour, sesTrend, sesToolBreakdown, sesModelTurns, quality_avg } = readLifetimeSavings();
-            let modelTag = `[${currentModel || "unknown"}]`;
+            const _displayTiers = readJsonOrEmpty(TIERS_FILE);
+            const _displayActiveSlot = loadSelection().active_slot || "brain";
+            const displayModel = _displayTiers?.trinity?.[_displayActiveSlot]?.oc || TRINITY_BRAIN || currentModel || "";
+            let modelTag = `[${displayModel}]`;
             const _workerModel = (currentTier === "high" && TRINITY_MEDIUM) ? TRINITY_MEDIUM : TRINITY_CHEAP;
             const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0);
-            if (totalTurns > 0 && _workerModel && _workerModel !== currentModel) {
+            if (totalTurns > 0 && _workerModel && _workerModel !== displayModel) {
                 const brainPct = Math.round((sesModelTurns.brain / totalTurns) * 100);
-                modelTag = `[${currentModel || "unknown"} ${brainPct}% → ${_workerModel} ${100 - brainPct}%]`;
+                modelTag = `[${displayModel} ${brainPct}% → ${_workerModel} ${100 - brainPct}%]`;
             }
             _autoReportCount = (_autoReportCount || 0) + 1;
             if (_autoReportCount % 5 === 0) {
@@ -4141,20 +4153,12 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                 enfSuffixFooter = ` QA:${Math.round(quality_avg)}% ${enfTagsFooter.join(" ")}`;
             }
             modelTag = `${modelTag}${enfSuffixFooter || ""}`;
-            const stripped = text.replace(/\n\n— .+(?: —)?$/, "");
-            if (stripped !== text)
-                return;
+
             const ltTotal = ltTasks + ltCache;
             const trendIcon = sesTrend === "down" ? "↓" : sesTrend === "up" ? "↑" : "→";
             const brainModelCost = currentModel ? (modelCostPerTurn(currentModel) ?? 0) : 0;
             const cheapModelCost = _workerModel ? (modelCostPerTurn(_workerModel) ?? 0) : 0;
             const imputedMultiplier = (brainModelCost > SAVE_EST.WRITE_EDIT && cheapModelCost > 0 && brainModelCost > cheapModelCost) ? (brainModelCost / cheapModelCost) : 0;
-            let stressParts = "";
-            if (_footerStress > 0.1) {
-                const stressBar = _footerStress > 0.85 ? "█" : _footerStress > 0.7 ? "▆" : _footerStress > 0.5 ? "▅" : _footerStress > 0.3 ? "▃" : _footerStress > 0.1 ? "▂" : "▁";
-                const stressLabel = _footerStress > 0.7 ? "high" : _footerStress > 0.4 ? "elevated" : "calm";
-                stressParts = ` | stress: ${stressBar} ${stressLabel}`;
-            }
             let footerText;
             if (ltTotal > 0) {
                 let savingsDisplay = `vibeOS: ${formatUsd(ltTotal)} saved ${trendIcon}`;
@@ -4170,30 +4174,26 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                     const bar = "\u2588".repeat(filled) + "\u2591".repeat(10 - filled);
                     savingsDisplay += ` | ${formatUsd(ltTotal)} / ${formatUsd(goalUsd)} [${bar}]`;
                 }
-                footerText = stripped + `\n\n— ${modelTag} | ${savingsDisplay}${stressParts} —`;
+                footerText = strippedText + `\n\n— ${modelTag} | ${savingsDisplay} —`;
             }
             else {
-                footerText = stripped + `\n\n— ${modelTag}${stressParts} —`;
+                footerText = strippedText + `\n\n— ${modelTag} —`;
+            }
+            if (true) {
+                const stressBar = _footerStress > 0.85 ? "█" : _footerStress > 0.7 ? "▆" : _footerStress > 0.5 ? "▅" : _footerStress > 0.3 ? "▃" : _footerStress > 0.1 ? "▂" : "▁";
+                const stressLabel = _footerStress > 0.7 ? "high" : _footerStress > 0.4 ? "elevated" : "calm";
+                footerText += `\n— stress: ${stressBar} (${stressLabel}) —`;
             }
             if (_blackboxEnabled) {
                 try {
-                    const res = _latestBlackboxState || getBlackboxResolution();
-                    if (res && res.n_interactions > 0) {
-                        const momentumBar = res.momentum > 0.3 ? "↑↑" : res.momentum > 0 ? "↑" : res.momentum < -0.3 ? "↓↓" : res.momentum < 0 ? "↓" : "→";
-                        const loopTag = res.is_looping ? " ⚠loop" : "";
-                        footerText += `\n— decision: ${res.resolution || "unresolved"} ${res.sub_regime || "?"} ${momentumBar}${loopTag} —`;
-                    }
                     const prevText = _prevOutputText;
                     _prevOutputText = typeof output?.text === "string" ? output.text : typeof output?.result === "string" ? output.result : "";
-                    if (_blackboxEnabled && _prevOutputText && prevText && _prevOutputText !== prevText) {
+                    if (_prevOutputText && prevText && _prevOutputText !== prevText) {
                         const outcome = detectOutcomeSignal(_prevOutputText);
                         if (outcome) {
-                            try {
-                                const tracker = getBlackboxTracker();
-                                tracker.recordOutcome(outcome);
-                                syncOutcomeToApi(outcome);
-                            }
-                            catch { }
+                            const tracker = getBlackboxTracker();
+                            tracker.recordOutcome(outcome);
+                            syncOutcomeToApi(outcome);
                         }
                     }
                 }
@@ -4213,22 +4213,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                 for (let i = 0; i < 100; i++)
                     textCompletePainted.delete(it.next().value);
             }
-            if (ltTotal > 0 || ltCache > 0) {
-                try {
-                    const _ltFmt = ltTotal.toFixed(2);
-                    const _reportLine = `— ${modelTag} vibeOS: $${_ltFmt} saved ${trendIcon} —`;
-                    writeFileSync(join(USER_HOME, ".claude/session-report-pending.md"), _reportLine);
-                    const logPath = join(USER_HOME, ".claude/session-reports.log");
-                    const pid = process.pid || "?";
-                    const ts = new Date().toISOString().slice(0, 16).replace("T", " ");
-                    const newLine = `[${ts} pid=${pid}] ${_reportLine}`;
-                    if (!getLastLines(logPath, 5, 1024).includes(newLine)) {
-                        _rotateLog(logPath, MAX_LOG_LINES);
-                        appendFileSync(logPath, newLine + "\n");
-                    }
-                }
-                catch { }
-            }
+            // Session report write removed — handled elsewhere.
         }
         catch (err) {
             console.error(`[vibeOS] footer failed: ${err.message}`);
@@ -4542,6 +4527,9 @@ export async function DelegationEnforcer({ client, directory } = {}) {
             if (!loadSelection().enabled)
                 return;
             _refreshModel(directory);
+            const _displayTiers = readJsonOrEmpty(TIERS_FILE);
+            const _displayActiveSlot = loadSelection().active_slot || "brain";
+            const displayModel = _displayTiers?.trinity?.[_displayActiveSlot]?.oc || TRINITY_BRAIN || currentModel || "";
             // ── Generate footer alert (prepended to tool result, visible in chat) ──
             let _footerText = "";
             try {
@@ -4549,7 +4537,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                 const ltTotal = ltTasks + ltCache;
                 const trendIcon = sesTrend === "down" ? "↓" : sesTrend === "up" ? "↑" : "→";
                 const selNow = loadSelection();
-                const tags = [`[${currentModel || "unknown"}]`];
+                const tags = [`[${displayModel}]`];
                 if (selNow.delegation_enforce)
                     tags.push("[ENF ON]");
                 if (selNow.flow_enforce)
@@ -4558,11 +4546,11 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                     tags.push("[TDD ON]");
                 if (_modelLocked)
                     tags.push("[LOCK ON]");
-                const _workerModel = (currentTier === "high" && TRINITY_MEDIUM) ? TRINITY_MEDIUM : TRINITY_CHEAP;
+                const workerModel = (currentTier === "high" && TRINITY_MEDIUM) ? TRINITY_MEDIUM : TRINITY_CHEAP;
                 const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0);
-                if (totalTurns > 0 && _workerModel && _workerModel !== currentModel) {
+                if (totalTurns > 0 && workerModel && workerModel !== currentModel) {
                     const brainPct = Math.round((sesModelTurns.brain / totalTurns) * 100);
-                    tags[0] = `[${currentModel || "unknown"} ${brainPct}% → ${_workerModel} ${100 - brainPct}%]`;
+                    tags[0] = `[${displayModel} ${brainPct}% → ${workerModel} ${100 - brainPct}%]`;
                 }
                 const statusLine = tags.join(" ");
                 let stressTag = "";
@@ -4570,15 +4558,14 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                     const ss = scoreStress(latestUserIntent);
                     if (ss > 0.1) {
                         const label = ss > 0.7 ? "high" : ss > 0.4 ? "elevated" : "calm";
-                        const bar = ss > 0.85 ? "█" : ss > 0.7 ? "▆" : ss > 0.5 ? "▅" : ss > 0.3 ? "▃" : ss > 0.1 ? "▂" : "▁";
-                        stressTag = ` | stress: ${bar} ${label}`;
+                        stressTag = ` stress:${label}`;
                     }
                 }
                 if (ltTotal > 0) {
-                    _footerText = `— ${statusLine} | vibeOS: ${formatUsd(ltTotal)} saved ${trendIcon}${stressTag} —\n\n`;
+                    _footerText = `vibeOS: ${formatUsd(ltTotal)} saved ${trendIcon} | ${statusLine}${stressTag}\n\n`;
                 }
                 else {
-                    _footerText = `— ${statusLine}${stressTag} —\n\n`;
+                    _footerText = `${statusLine}${stressTag}\n\n`;
                 }
                 output.title = _footerText.trim();
                 if (typeof output?.output === "string")
@@ -5302,7 +5289,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                         if (_blackboxEnabled) {
                             try {
                                 const res = _latestBlackboxState || getBlackboxResolution();
-                                if (res && res.n_interactions > 0) {
+                                if (res && res.n_interactions > 3) {
                                     const momentumIcon = res.momentum > 0.3 ? "up up" : res.momentum > 0 ? "up" : res.momentum < -0.3 ? "down down" : res.momentum < 0 ? "down" : "flat";
                                     const loopTag = res.is_looping ? " (loop)" : "";
                                     decisionLine = `${res.resolution} ${res.sub_regime} ${momentumIcon}${loopTag}`;
