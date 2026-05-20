@@ -35,6 +35,21 @@ import { createMcpServer } from "./vibeOS-mcp-server.js"
 import { VibeOSApiClient, VibeOSAuthError, VibeOSTimeoutError, VibeOSNetworkError } from "./vibeOS-api-server/client.js"
 import { computeDifficulty, cascadeDecide, createPatternGraph, ensureNode, addRouteEdge, predictBestModel, hashQuery, deserializeGraph } from "./vibeOS-lib/ml-router.js"
 import { createCacheDatabase, addCacheEntry, recordCacheStats, predictCacheHit, compositeSimilarity, evictStaleEntries, deserializeCacheDb } from "./vibeOS-lib/smart-cache.js"
+import * as _md_api_client from "./lib/api-client.js"
+import * as _md_pricing from "./lib/pricing.js"
+import * as _md_turn from "./lib/turn-classify.js"
+import * as _md_state from "./lib/state.js"
+import * as _md_tdd from "./lib/tdd-enforcer.js"
+import * as _md_ra from "./lib/research-audit.js"
+import * as _md_report from "./lib/reporting.js"
+import * as _md_credit from "./lib/credit-api.js"
+import * as _md_rebuild from "./lib/trinity-rebuild.js"
+import * as _md_trinity from "./lib/trinity-tool.js"
+import * as _md_footer from "./lib/hooks/footer.js"
+import * as _md_tool_exec from "./lib/hooks/tool-execute.js"
+import * as _md_chat_xform from "./lib/hooks/chat-transform.js"
+import * as _md_session_compact from "./lib/hooks/session-compact.js"
+import * as _md_shell_env from "./lib/hooks/shell-env.js"
 
 // ── Remote API client (Phase 2) ─────────────────────────────────────
 const VIBEOS_API_URL = process.env.VIBEOS_API_URL || "https://api.vibetheog.com"
@@ -4649,17 +4664,20 @@ function scoreTaskQuality(outputText, promptText) {
           (c7urgency === "required" ? " CRITICAL: context7 usage is REQUIRED this turn." : "") +
           (c7urgency === "optional" ? " (context7 is optional this turn — use if helpful but not required.)" : "")
 
-        // Thinking-level directive — always inject when set (default is "brief" for cost savings).
+        // Thinking-level directive — blackbox can override per-turn for cost savings.
         const sel = loadSelection()
-        const { thinking_level: explicitLevel } = sel
-        if (explicitLevel && explicitLevel !== "full" && Array.isArray(output?.system)) {
+        const userLevel = sel.thinking_level
+        const bbLevel = _controlVector?.thinking_mode
+        const effectiveLevel = bbLevel && bbLevel !== "auto" ? bbLevel : userLevel
+        const source = bbLevel && bbLevel !== "auto" ? "blackbox" : "manually"
+        if (effectiveLevel && effectiveLevel !== "full" && Array.isArray(output?.system)) {
           const credit = loadCredit()
           const creditNote = `credit ${credit}%`
           const directives = {
-            brief: `[thinking policy] Reasoning depth: BRIEF (manually set, ${creditNote}). Use extended thinking only for genuinely complex multi-step problems. Keep reasoning concise — skip exploratory scratch work and restatement.`,
-            off:   `[thinking policy] Reasoning depth: OFF (manually set, ${creditNote}). Skip extended thinking entirely. Respond directly and concisely. Every thinking token costs money — save it for when the user explicitly asks.`,
+            brief: `[thinking policy] Reasoning depth: BRIEF (${source} set, ${creditNote}). Use extended thinking only for genuinely complex multi-step problems. Keep reasoning concise — skip exploratory scratch work and restatement.`,
+            off:   `[thinking policy] Reasoning depth: OFF (${source} set, ${creditNote}). Skip extended thinking entirely. Respond directly and concisely. Every thinking token costs money — save it for when the user explicitly asks.`,
           }
-          const d = directives[explicitLevel]
+          const d = directives[effectiveLevel]
           if (d) output.system.push(d)
         }
 

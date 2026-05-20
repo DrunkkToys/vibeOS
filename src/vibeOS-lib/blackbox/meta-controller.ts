@@ -15,6 +15,8 @@ export type ControlVector = {
 
   tier_bias: "cheap" | "auto" | "medium" | "brain"
 
+  thinking_mode: "off" | "brief" | "full" | "auto"
+
   stress_multiplier: number
 
   context7_urgency: "optional" | "preferred" | "required"
@@ -35,6 +37,7 @@ const REGIME_CONTROL: RegimeControlMap = {
     tdd_mode: "normal",
     tdd_focus: [],
     tier_bias: "auto",
+    thinking_mode: "auto",
     stress_multiplier: 1.0,
     context7_urgency: "preferred",
     wbp_verbosity: "normal",
@@ -47,6 +50,7 @@ const REGIME_CONTROL: RegimeControlMap = {
     tdd_mode: "lazy",
     tdd_focus: [],
     tier_bias: "medium",
+    thinking_mode: "off",
     stress_multiplier: 0.5,
     context7_urgency: "optional",
     wbp_verbosity: "detailed",
@@ -59,6 +63,7 @@ const REGIME_CONTROL: RegimeControlMap = {
     tdd_mode: "lazy",
     tdd_focus: [],
     tier_bias: "cheap",
+    thinking_mode: "off",
     stress_multiplier: 0.7,
     context7_urgency: "optional",
     wbp_verbosity: "detailed",
@@ -71,6 +76,7 @@ const REGIME_CONTROL: RegimeControlMap = {
     tdd_mode: "normal",
     tdd_focus: [],
     tier_bias: "auto",
+    thinking_mode: "auto",
     stress_multiplier: 1.0,
     context7_urgency: "preferred",
     wbp_verbosity: "normal",
@@ -83,6 +89,7 @@ const REGIME_CONTROL: RegimeControlMap = {
     tdd_mode: "strict",
     tdd_focus: ["skeleton-on-write", "assertion-check"],
     tier_bias: "brain",
+    thinking_mode: "brief",
     stress_multiplier: 1.5,
     context7_urgency: "required",
     wbp_verbosity: "minimal",
@@ -95,6 +102,7 @@ const REGIME_CONTROL: RegimeControlMap = {
     tdd_mode: "lazy",
     tdd_focus: [],
     tier_bias: "medium",
+    thinking_mode: "off",
     stress_multiplier: 0.3,
     context7_urgency: "optional",
     wbp_verbosity: "detailed",
@@ -107,6 +115,7 @@ const REGIME_CONTROL: RegimeControlMap = {
     tdd_mode: "quality",
     tdd_focus: ["full-coverage", "edge-cases"],
     tier_bias: "brain",
+    thinking_mode: "brief",
     stress_multiplier: 2.0,
     context7_urgency: "required",
     wbp_verbosity: "minimal",
@@ -161,6 +170,15 @@ function buildDirectives(
     d.push(`[tier routing] Route to ${cv.tier_bias} tier for this turn.`)
   }
 
+  if (cv.thinking_mode !== "auto") {
+    d.push(
+      `[thinking mode: ${cv.thinking_mode}] Reasoning depth set to ${cv.thinking_mode}. ` +
+      (cv.thinking_mode === "off"
+        ? "Skip extended thinking entirely. Respond directly and concisely. Every thinking token costs money — save it for when the user explicitly asks."
+        : "Use extended thinking only for genuinely complex multi-step problems. Keep reasoning concise.")
+    )
+  }
+
   if (cv.context7_urgency !== "preferred") {
     d.push(
       `[context7] Documentation lookup is ${cv.context7_urgency}. ` +
@@ -202,6 +220,7 @@ export function buildControlHistoryEntry(
       flow_mode: control.flow_mode,
       tdd_mode: control.tdd_mode,
       tier_bias: control.tier_bias,
+      thinking_mode: control.thinking_mode,
       stress_multiplier: control.stress_multiplier,
       context7_urgency: control.context7_urgency,
       wbp_verbosity: control.wbp_verbosity,
