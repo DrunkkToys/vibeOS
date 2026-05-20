@@ -332,7 +332,7 @@ function writeSelection(key, value) {
 }
 // ── Blackbox state management ──────────────────────────────────────
 let _blackboxTracker = null;
-let _blackboxEnabled = false;
+let _blackboxEnabled = true;
 let _modelLocked = false;
 export function loadBlackboxState() {
     try {
@@ -364,6 +364,8 @@ export function saveBlackboxState(state) {
 function getBlackboxTracker() {
     if (!_blackboxTracker) {
         const state = loadBlackboxState();
+        if (state.enabled !== undefined)
+            _blackboxEnabled = state.enabled;
         const sid = _OC_SID;
         if (state.sessions?.[sid]?.history) {
             _blackboxTracker = LocalBlackboxStub.deserialize(state.sessions[sid]);
