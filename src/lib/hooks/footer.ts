@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, sta
 import { join, dirname, basename } from "node:path"
 import { homedir, tmpdir } from "node:os"
 import { classify, modelCostPerTurn, _refreshModel, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP } from "../pricing.js"
+import { latestUserIntent } from "./chat-transform.js"
 import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, loadOptimizationMode, autoSelectMode, classifyTurnSimple } from "../turn-classify.js"
 import { saveReport } from "../reporting.js"
 
@@ -18,7 +19,6 @@ let _modelLocked = false
 let _blackboxEnabled = true
 let _prevOutputText = ""
 let _autoReportCount = 0
-let latestUserIntent = null
 const textCompletePainted = new Set()
 
 const SAVE_EST = {

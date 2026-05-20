@@ -29,6 +29,7 @@ import {
   classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget,
   shortModelName, formatUsd, _refreshModel,
 } from '../pricing.js'
+import { latestUserIntent } from './chat-transform.js'
 import {
   scoreStress, extractFirstWordFromArgs, shouldLogWarn,
   isUserAskingForTests, isLikelyOffTopic, resolveEnforcementMode,
@@ -55,7 +56,6 @@ const WARN_ON_DIRECT = new Set(['write', 'edit', 'notebookedit', 'write_to_file'
 const SOFT_QUOTA = new Set(['bash', 'webfetch', 'websearch'])
 const FREE = new Set(['task', 'todowrite', 'question', 'skill', 'read', 'glob', 'grep', 'list'])
 
-let latestUserIntent = null
 let activeJob = null
 let projectDirectory = ""
 let pendingUiNote = null

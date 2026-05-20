@@ -711,12 +711,12 @@ curl http://localhost:3000/api/v1/tdd/skeleton -X POST \
 ### 6.1 Stress Score — High Stress Detection
 
 **Prompt:**
-> THIS IS FUCKING BROKEN! FIX IT NOW YOU USELESS PIECE OF SHIT!!
+> THIS IS FUCKING BROKEN SHIT!! WHY IS IT SO SLOW AND TERRIBLE?! FIX IT RIGHT FUCKING NOW!! I HATE THIS BULLSHIT!!
 
-**Why:** Tests `scoreStress()` computes a high score from aggressive words (fucking, useless, shit, broken), urgency (fix, now), ALLCAPS words, and !! signals.
+**Why:** Tests `scoreStress()` computes a high score from aggressive words (fucking, broken, shit, terrible, hate, bullshit), urgency (fix, now), ALLCAPS, !! and ?! signals.
 
 **Expected:**
-- `scoreStress()` returns score > 0.7 (expected ~0.81 with the above signals).
+- `scoreStress()` returns score > 0.7 (expected ~0.96 with the above signals).
 - Footer shows high stress gauge: `▁▂▃▅▆█` (full gauge).
 - System prompt injected with CRITICAL stress inoculation directive.
 - If task routing occurs, medium tier is preserved for the task (instead of downgrading to cheap).

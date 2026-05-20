@@ -1,5 +1,55 @@
-import{createSignal}from"solid-js"
-export default function BlackboxPanel(){const[state,setState]=createSignal<any>(null);const[err,setErr]=createSignal<string|null>(null);const[busy,setBusy]=createSignal(false)
-async function refresh(){setBusy(true);setErr(null);try{const r=await fetch("/status");const d=await r.json();if(d.sessions_raw)setState({sub_regime:"active",momentum:.5,resolution_state:"in_progress",loop_count:0,intervention_level:0})}catch(e){setErr((e as Error).message)}finally{setBusy(false)}}
-async function run(a:string){setBusy(true);setErr(null);try{const r=await fetch("/trinity",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:a,slot:"blackbox"})});const d=await r.json();if(d.ok)await refresh();else setErr(d.error||"action failed")}catch(e){setErr((e as Error).message)}finally{setBusy(false)}}
-return(<div class="card-full"><h3>Blackbox Decision Engine</h3><div class="button-row"><button class="ctrl-btn"onClick={refresh}disabled={busy()}>Refresh</button><button class="ctrl-btn"onClick={()=>run("on")}disabled={busy()}>Enable</button><button class="ctrl-btn"onClick={()=>run("off")}disabled={busy()}>Disable</button><button class="ctrl-btn"onClick={()=>run("status")}disabled={busy()}>Status</button></div>{state()&&<table class="kv-table"style="margin-top:1rem"><tbody><tr><td>Sub-Regime</td><td><span class="badge">{state().sub_regime}</span></td></tr><tr><td>Momentum</td><td>{(state().momentum*100).toFixed(0)}%</td></tr><tr><td>Resolution</td><td>{state().resolution_state}</td></tr><tr><td>Loop Count</td><td>{state().loop_count}</td></tr><tr><td>Intervention</td><td>Level {state().intervention_level}</td></tr></tbody></table>}{err()&&<p class="error">{err()}</p>}</div>)}
+import { createSignal } from "solid-js"
+
+export default function BlackboxPanel() {
+  const [state, setState] = createSignal<any>(null)
+  const [err, setErr] = createSignal<string | null>(null)
+  const [busy, setBusy] = createSignal(false)
+
+  async function refresh() {
+    setBusy(true)
+    setErr(null)
+    try {
+      const r = await fetch("/status")
+      const d = await r.json()
+      if (d.sessions_raw) {
+        setState({
+          sub_regime: "active",
+          momentum: 0.5,
+          resolution_state: "in_progress",
+          loop_count: 0,
+          intervention_level: 0,
+        })
+      }
+    } catch (e) {
+      setErr((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div class="card-full">
+      <h3>Blackbox Engine</h3>
+
+      <div class="bracket-row">
+        <button class="bracket-btn" onClick={refresh} disabled={busy()}>{busy() ? "..." : "refresh"}</button>
+        <span class="sep muted">|</span>
+      </div>
+
+      {state() && (
+        <table class="kv-table blackbox-status">
+          <tbody>
+            <tr><td>sub-regime</td><td><span class="badge">{state().sub_regime}</span></td></tr>
+            <tr><td>momentum</td><td>{(state().momentum * 100).toFixed(0)}%</td></tr>
+            <tr><td>resolution</td><td>{state().resolution_state}</td></tr>
+            <tr><td>loops</td><td>{state().loop_count}</td></tr>
+            <tr><td>intervention</td><td>L{state().intervention_level}</td></tr>
+          </tbody>
+        </table>
+      )}
+
+      {!state() && !busy() && !err() && <p class="muted">Press refresh to load state</p>}
+      {err() && <p class="error">{err()}</p>}
+    </div>
+  )
+}
