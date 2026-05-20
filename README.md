@@ -191,6 +191,22 @@ Commands:
 
 The blackbox injects a decision directive into system prompts showing current resolution state, intent volatility, and continuity. When looping or pivoting is detected, stronger intervention directives are injected to guide the model.
 
+### Session Workflow Phases
+
+The meta-controller maps detected sub-regimes to enforcement levels:
+
+| Sub-regime | Enforcement | Directives Injected |
+|---|---|---|
+| INIT | normal | delegation, context7, project guard |
+| EXPLORING / DIVERGENT | relaxed | context7, project guard only (skips TDD, flow, full enforcement) |
+| REFINING | normal | delegation, flow (audit), blackbox, batch execution |
+| CONVERGING / CLOSED | strict | all directives — TDD, flow (strict), orchestrator, job-focus |
+| LOOPING | relaxed | de-escalation — context7 + loop intervention only |
+
+When the blackbox is disabled, a lightweight `classifyTurnSimple()` fallback inspects user message patterns:
+- Q&A patterns (`"how"`, `"what"`, `"explain"`) → EXPLORING (relaxed)
+- Implementation patterns (`"write"`, `"fix"`, `"implement"`) → REFINING (normal)
+
 ## Install
 
 ### npm (Recommended)
