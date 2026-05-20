@@ -12,15 +12,15 @@ import { join, dirname, basename } from "node:path";
 import { getFlowWarns, ensureProjectDocs } from "./vibeOS-lib/flow-enforcer.js";
 import { computeSessionMetrics } from "./vibeOS-lib/session-metrics.js";
 import { createMcpServer } from "./vibeOS-mcp-server.js";
-import { applySlot, modelCostPerTurn, detectContext7, formatUsd, classify, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, readConfig, } from "./lib/pricing.js";
+import { applySlot, modelCostPerTurn, detectContext7, formatUsd, classify, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, readConfig, setTrinityBrain, setTrinityMedium, setTrinityCheap, } from "./lib/pricing.js";
 import { scoreStress, detectTechStack, loadBlackboxState, saveBlackboxState, getBlackboxResolution, } from "./lib/turn-classify.js";
-import { safeJsonParse, readFullState, loadSelection, writeSelection, readLifetimeSavings, _OC_SID, _modelLocked, _blackboxEnabled, _latestBlackboxState, getActiveJobForProject, projectFingerprint, loadProjectState, saveProjectState, ensureProjectBucket, mergeProjectBucket, TIERS_FILE, USER_HOME, STATE_FILE, REPORTS_DIR, AUTH_F, CREDIT_CACHE_F, pruneScratchpadOnce, registerSessionCleanupHandlers, projectPatternRows, clearProjectPatterns, tool, } from "./lib/state.js";
+import { safeJsonParse, readFullState, loadSelection, writeSelection, readLifetimeSavings, _OC_SID, _modelLocked, _blackboxEnabled, currentTier, currentModel, currentProjectFingerprint, currentProjectName, setCurrentTier, setCurrentModel, setCurrentProjectFingerprint, setCurrentProjectName, _latestBlackboxState, getActiveJobForProject, projectFingerprint, loadProjectState, saveProjectState, ensureProjectBucket, mergeProjectBucket, TIERS_FILE, USER_HOME, STATE_FILE, REPORTS_DIR, AUTH_F, CREDIT_CACHE_F, pruneScratchpadOnce, registerSessionCleanupHandlers, projectPatternRows, clearProjectPatterns, tool, } from "./lib/state.js";
 import { researchAudit } from "./lib/research-audit.js";
 import { saveReport, listReports, readReport } from "./lib/reporting.js";
 import { loadCredit, thinkingLevel } from "./lib/credit-api.js";
 import { classifyAndRankModels, modelToCcAlias, discoverAvailableModels } from "./lib/trinity-rebuild.js";
 import { _appendFooter } from "./lib/hooks/footer.js";
-import { onToolExecuteBefore, onToolExecuteAfter } from "./lib/hooks/tool-execute.js";
+import { onToolExecuteBefore, onToolExecuteAfter, setToolDirectory } from "./lib/hooks/tool-execute.js";
 import { onMessagesTransform, onSystemTransform } from "./lib/hooks/chat-transform.js";
 import { onSessionCompacting } from "./lib/hooks/session-compact.js";
 import { onShellEnv } from "./lib/hooks/shell-env.js";
@@ -28,13 +28,9 @@ import { onShellEnv } from "./lib/hooks/shell-env.js";
 let _apiClient = null;
 let _apiFallbackMode = false;
 let _apiFallbackSince = null;
-// ── LOCAL state (independent from module copies) ─────────────────────
-// ES import bindings are live read-only — can't reassign imported `let`.
-// These local copies are mutated by DelegationEnforcer.
-let currentTier = null;
-let currentModel = null;
-let currentProjectFingerprint = "";
-let currentProjectName = "unknown";
+let TRINITY_BRAIN = null;
+let TRINITY_MEDIUM = null;
+let TRINITY_CHEAP = null;
 let activeJob = null;
 let fp = "";
 let _mcpServerRuntime = null;
@@ -405,19 +401,21 @@ function projectStructuredFromText(raw) {
 // ── DelegationEnforcer — main plugin entry point ─────────────────────
 export async function DelegationEnforcer({ client, directory } = {}) {
     console.error(`[vibeOS] LOADED cwd=${directory}`);
+    if (typeof setToolDirectory === "function")
+        setToolDirectory(directory || "");
     registerSessionCleanupHandlers();
     pruneScratchpadOnce();
     // Detect model: project opencode.json → global ~/.config/opencode/opencode.json → env.
-    currentModel = readConfig(directory);
+    setCurrentModel(readConfig(directory));
     if (!currentModel) {
         const home = process.env.HOME || "";
         if (home)
-            currentModel = readConfig(join(home, ".config/opencode"));
+            setCurrentModel(readConfig(join(home, ".config/opencode")));
     }
     if (!currentModel)
-        currentModel = process?.env?.OPENCODE_MODEL || "";
+        setCurrentModel(process?.env?.OPENCODE_MODEL || "");
     if (currentModel) {
-        currentTier = classify(currentModel);
+        setCurrentTier(classify(currentModel));
         try {
             const _tiersData = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"));
             const _activeSlot = _tiersData?.selection?.active_slot || "brain";
@@ -426,7 +424,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                 if (_brainOcModel && currentModel === _brainOcModel && !PLACEHOLDER_RE.test(_brainOcModel)) {
                     const cost = modelCostPerTurn(_brainOcModel);
                     if (HIGH_TIER_RE.test(_brainOcModel) || (cost !== null && cost >= 0.01)) {
-                        currentTier = "high";
+                        setCurrentTier("high");
                         console.error(`[vibeOS] tier override → high (brain slot)`);
                     }
                 }
@@ -522,9 +520,9 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                 const _b = _tiersCfg?.trinity?.brain?.oc;
                 const _m = _tiersCfg?.trinity?.medium?.oc;
                 const _c = _tiersCfg?.trinity?.cheap?.oc;
-                TRINITY_BRAIN = _b || _brain.id;
-                TRINITY_CHEAP = _c || _cheap?.id || null;
-                TRINITY_MEDIUM = _m || _medium?.id || null;
+                setTrinityBrain(_b || _brain.id);
+                setTrinityCheap(_c || _cheap?.id || null);
+                setTrinityMedium(_m || _medium?.id || null);
             }
         }
         catch { }
@@ -544,8 +542,8 @@ export async function DelegationEnforcer({ client, directory } = {}) {
         console.error(`[vibeOS] context7 detected — docs nudge enabled`);
     // ── Project memory ────────────────────────────────────────────────
     fp = projectFingerprint(directory);
-    currentProjectFingerprint = fp;
-    currentProjectName = directory ? directory.split("/").pop() : "unknown";
+    setCurrentProjectFingerprint(fp);
+    setCurrentProjectName(directory ? directory.split("/").pop() : "unknown");
     activeJob = getActiveJobForProject(fp);
     try {
         const state = loadProjectState();
@@ -1132,6 +1130,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
             if (actualPort && actualPort !== port)
                 persistMcpPort(actualPort);
             console.error(`[vibeOS] MCP server on http://127.0.0.1:${actualPort}`);
+            console.error(`[vibeOS] Dashboard at http://127.0.0.1:${actualPort}/`);
             if (!_mcpServerHooked) {
                 _mcpServerHooked = true;
                 process.on("SIGTERM", () => { try {
@@ -1155,7 +1154,7 @@ export const server = DelegationEnforcer;
 export default { id: "vibeOS", server: DelegationEnforcer };
 export { researchAudit } from "./lib/research-audit.js";
 export { saveReport, listReports, readReport } from "./lib/reporting.js";
-export { applySlot, modelCostPerTurn, isModelFree, isDocsTarget, detectContext7, loadTierRegexes, classify, _refreshModel, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, } from "./lib/pricing.js";
+export { applySlot, modelCostPerTurn, isModelFree, isDocsTarget, detectContext7, loadTierRegexes, classify, _refreshModel, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, setTrinityBrain, setTrinityMedium, setTrinityCheap, } from "./lib/pricing.js";
 export { getScratchpadHit, getSessionScratchpadDir, getSessionIndexPath } from "./lib/state.js";
 export { extractExports, buildTestSkeleton, enforceTestFile, buildTestReminder } from "./lib/tdd-enforcer.js";
 export { classifyAndRankModels, modelToCcAlias } from "./lib/trinity-rebuild.js";

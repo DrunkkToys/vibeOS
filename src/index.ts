@@ -23,6 +23,8 @@ import {
   applySlot, modelCostPerTurn, isModelFree, isDocsTarget, detectContext7, modelToSlotLabel,
   shortModelName, roundUsd, formatUsd, classify, _refreshModel, loadTierRegexes,
   HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, readConfig,
+  TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP,
+  setTrinityBrain, setTrinityMedium, setTrinityCheap,
 } from "./lib/pricing.js"
 import {
   scoreStress, classifyTurnSimple, extractFirstWordFromArgs, shouldLogWarn,
@@ -35,6 +37,8 @@ import {
 import {
   safeJsonParse, readFullState, updateState, loadSelection, writeSelection,
   readLifetimeSavings, _OC_SID, _modelLocked, _blackboxEnabled,
+  currentTier, currentModel, currentProjectFingerprint, currentProjectName,
+  setCurrentTier, setCurrentModel, setCurrentProjectFingerprint, setCurrentProjectName,
   textCompletePainted, softQuotaCounts, enforcementBlocked, taskSlotRestore,
   pendingUiNote, briefedProjects, scratchpadHitsSeen, context7AlertedThisSession,
   _latestBlackboxState, _latestBlackboxLoopMsg, _latestBlackboxPivotMsg,
@@ -58,8 +62,8 @@ import { researchAudit } from "./lib/research-audit.js"
 import { saveReport, listReports, readReport } from "./lib/reporting.js"
 import { loadCredit, thinkingLevel } from "./lib/credit-api.js"
 import { classifyAndRankModels, modelToCcAlias, discoverAvailableModels } from "./lib/trinity-rebuild.js"
-import { _appendFooter, scoreTaskQuality } from "./lib/hooks/footer.js"
-import { onToolExecuteBefore, onToolExecuteAfter } from "./lib/hooks/tool-execute.js"
+import { _appendFooter } from "./lib/hooks/footer.js"
+import { onToolExecuteBefore, onToolExecuteAfter, setToolDirectory } from "./lib/hooks/tool-execute.js"
 import { onMessagesTransform, onSystemTransform } from "./lib/hooks/chat-transform.js"
 import { onSessionCompacting } from "./lib/hooks/session-compact.js"
 import { onShellEnv } from "./lib/hooks/shell-env.js"
@@ -69,13 +73,9 @@ let _apiClient: any = null
 let _apiFallbackMode = false
 let _apiFallbackSince: number | null = null
 
-// ── LOCAL state (independent from module copies) ─────────────────────
-// ES import bindings are live read-only — can't reassign imported `let`.
-// These local copies are mutated by DelegationEnforcer.
-let currentTier: string | null = null
-let currentModel: string | null = null
-let currentProjectFingerprint = ""
-let currentProjectName = "unknown"
+let TRINITY_BRAIN: string | null = null
+let TRINITY_MEDIUM: string | null = null
+let TRINITY_CHEAP: string | null = null
 let activeJob: any = null
 let fp = ""
 let _mcpServerRuntime: any = null
@@ -414,18 +414,19 @@ function projectStructuredFromText(raw: string): any {
 
 export async function DelegationEnforcer({ client, directory }: { client?: unknown; directory?: string } = {}) {
   console.error(`[vibeOS] LOADED cwd=${directory}`)
+  if (typeof setToolDirectory === "function") setToolDirectory(directory || "")
   registerSessionCleanupHandlers()
   pruneScratchpadOnce()
 
   // Detect model: project opencode.json → global ~/.config/opencode/opencode.json → env.
-  currentModel = readConfig(directory)
+  setCurrentModel(readConfig(directory))
   if (!currentModel) {
     const home = process.env.HOME || ""
-    if (home) currentModel = readConfig(join(home, ".config/opencode"))
+    if (home) setCurrentModel(readConfig(join(home, ".config/opencode")))
   }
-  if (!currentModel) currentModel = process?.env?.OPENCODE_MODEL || ""
+  if (!currentModel) setCurrentModel(process?.env?.OPENCODE_MODEL || "")
   if (currentModel) {
-    currentTier = classify(currentModel)
+    setCurrentTier(classify(currentModel))
     try {
       const _tiersData = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
       const _activeSlot = _tiersData?.selection?.active_slot || "brain"
@@ -434,7 +435,7 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
         if (_brainOcModel && currentModel === _brainOcModel && !PLACEHOLDER_RE.test(_brainOcModel)) {
           const cost = modelCostPerTurn(_brainOcModel)
           if (HIGH_TIER_RE.test(_brainOcModel) || (cost !== null && cost >= 0.01)) {
-            currentTier = "high"
+            setCurrentTier("high")
             console.error(`[vibeOS] tier override → high (brain slot)`)
           }
         }
@@ -519,9 +520,9 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
         const _b = _tiersCfg?.trinity?.brain?.oc
         const _m = _tiersCfg?.trinity?.medium?.oc
         const _c = _tiersCfg?.trinity?.cheap?.oc
-        TRINITY_BRAIN  = _b || _brain.id
-        TRINITY_CHEAP  = _c || _cheap?.id || null
-        TRINITY_MEDIUM = _m || _medium?.id || null
+        setTrinityBrain(_b || _brain.id)
+        setTrinityCheap(_c || _cheap?.id || null)
+        setTrinityMedium(_m || _medium?.id || null)
       }
     } catch {}
   }
@@ -540,8 +541,8 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
 
   // ── Project memory ────────────────────────────────────────────────
   fp = projectFingerprint(directory)
-  currentProjectFingerprint = fp
-  currentProjectName = directory ? directory.split("/").pop() : "unknown"
+  setCurrentProjectFingerprint(fp)
+  setCurrentProjectName(directory ? directory.split("/").pop() : "unknown")
   activeJob = getActiveJobForProject(fp)
   try {
     const state = loadProjectState()
@@ -1027,6 +1028,7 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
       const actualPort = Number(mcpServer?.address?.()?.port || port)
       if (actualPort && actualPort !== port) persistMcpPort(actualPort)
       console.error(`[vibeOS] MCP server on http://127.0.0.1:${actualPort}`)
+      console.error(`[vibeOS] Dashboard at http://127.0.0.1:${actualPort}/`)
       if (!_mcpServerHooked) {
         _mcpServerHooked = true
         process.on("SIGTERM", () => { try { _mcpServerRuntime?.close() } catch {} })
@@ -1049,6 +1051,8 @@ export { saveReport, listReports, readReport } from "./lib/reporting.js"
 export {
   applySlot, modelCostPerTurn, isModelFree, isDocsTarget, detectContext7,
   loadTierRegexes, classify, _refreshModel, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE,
+  TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP,
+  setTrinityBrain, setTrinityMedium, setTrinityCheap,
 } from "./lib/pricing.js"
 export { getScratchpadHit, getSessionScratchpadDir, getSessionIndexPath } from "./lib/state.js"
 export { extractExports, buildTestSkeleton, enforceTestFile, buildTestReminder } from "./lib/tdd-enforcer.js"

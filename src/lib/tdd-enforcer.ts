@@ -4,11 +4,12 @@ import { join, dirname } from "node:path"
 import { createHash } from "node:crypto"
 import {
   USER_HOME,
-  _detectedFramework,
   loadSelection,
   updateState,
   testReminderSeen,
 } from "./state.js"
+
+let _detectedFramework: any = null
 
 let directory = undefined
 
