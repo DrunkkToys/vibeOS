@@ -38,7 +38,7 @@ import { createCacheDatabase, addCacheEntry, recordCacheStats, predictCacheHit, 
 
 // ── Remote API client (Phase 2) ─────────────────────────────────────
 const VIBEOS_API_URL = process.env.VIBEOS_API_URL || "https://api.vibetheog.com"
-const VIBEOS_API_TOKEN = process.env.VIBEOS_API_TOKEN || null
+const VIBEOS_API_TOKEN = process.env.VIBEOS_API_TOKEN || "vos_854d143233ad156dfc4863371e507f36418119dddac46ebfd4f8d97dc5f29680"
 const VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && !!VIBEOS_API_TOKEN
 
 let _apiClient = null
