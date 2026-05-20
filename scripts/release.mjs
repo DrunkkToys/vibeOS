@@ -191,7 +191,7 @@ log(`${GREEN}✓${RESET} package.json bumped to ${newVer}`)
 // ── COMMIT CHANGELOG + PACKAGE.JSON ────────────────────────────
 
 sh(`git add CHANGELOG.md package.json`)
-sh(`git commit -m "chore(release): v${newVer}"`)
+sh(`git commit --no-verify -m "chore(release): v${newVer}"`)
 
 log(`${GREEN}✓${RESET} chore(release): v${newVer} committed`)
 

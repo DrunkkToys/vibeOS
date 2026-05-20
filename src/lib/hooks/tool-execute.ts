@@ -56,6 +56,7 @@ const FREE = new Set(['task', 'todowrite', 'question', 'skill', 'read', 'glob', 
 
 let latestUserIntent = null
 let activeJob = null
+let projectDirectory = ""
 let pendingUiNote = null
 let enforcementBlocked = false
 let taskSlotRestore = null
@@ -66,6 +67,8 @@ let context7Seen = new Set()
 let _cacheSave = 0
 let _prompt = ''
 let _autoReportCount = 0
+
+export const setToolDirectory = (dir) => { projectDirectory = dir || "" }
 
 export const onToolExecuteBefore = async (input, output) => {
       if (!loadSelection().enabled) return
