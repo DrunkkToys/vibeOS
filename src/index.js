@@ -4103,8 +4103,8 @@ export async function DelegationEnforcer({ client, directory } = {}) {
             let modelTag = `[${displayModel}]`;
             const _workerModel = (currentTier === "high" && TRINITY_MEDIUM) ? TRINITY_MEDIUM : TRINITY_CHEAP;
             const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0);
-            if (totalTurns > 0 && _workerModel && _workerModel !== displayModel) {
-                const brainPct = Math.round((sesModelTurns.brain / totalTurns) * 100);
+            if (_workerModel && _workerModel !== displayModel) {
+                const brainPct = Math.round(((sesModelTurns?.brain || 0) / (totalTurns || 1)) * 100);
                 modelTag = `[${displayModel} ${brainPct}% → ${_workerModel} ${100 - brainPct}%]`;
             }
             _autoReportCount = (_autoReportCount || 0) + 1;
@@ -4174,15 +4174,12 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                     const bar = "\u2588".repeat(filled) + "\u2591".repeat(10 - filled);
                     savingsDisplay += ` | ${formatUsd(ltTotal)} / ${formatUsd(goalUsd)} [${bar}]`;
                 }
-                footerText = strippedText + `\n\n— ${modelTag} | ${savingsDisplay} —`;
+                const stressBar = _footerStress > 0.85 ? "█" : _footerStress > 0.7 ? "▆" : _footerStress > 0.5 ? "▅" : _footerStress > 0.3 ? "▃" : _footerStress > 0.1 ? "▂" : "▁";
+                const stressLabel = _footerStress > 0.7 ? "high" : _footerStress > 0.4 ? "elevated" : "calm";
+                footerText = strippedText + `\n\n— ${modelTag} | ${savingsDisplay} | stress: ${stressBar} ${stressLabel} —`;
             }
             else {
                 footerText = strippedText + `\n\n— ${modelTag} —`;
-            }
-            if (true) {
-                const stressBar = _footerStress > 0.85 ? "█" : _footerStress > 0.7 ? "▆" : _footerStress > 0.5 ? "▅" : _footerStress > 0.3 ? "▃" : _footerStress > 0.1 ? "▂" : "▁";
-                const stressLabel = _footerStress > 0.7 ? "high" : _footerStress > 0.4 ? "elevated" : "calm";
-                footerText += `\n— stress: ${stressBar} (${stressLabel}) —`;
             }
             if (_blackboxEnabled) {
                 try {
