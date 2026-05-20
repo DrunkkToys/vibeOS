@@ -1,7 +1,27 @@
 import { copyFileSync, existsSync, mkdirSync } from "node:fs"
 import { dirname, join } from "node:path"
 
+// Build the list of lib modules to sync
+const libModules = [
+  "api-client", "pricing", "state", "turn-classify", "tdd-enforcer",
+  "index-helpers", "research-audit", "reporting", "credit-api",
+  "trinity-rebuild", "trinity-tool",
+]
+
+const hookModules = [
+  "footer", "tool-execute", "chat-transform", "session-compact", "shell-env",
+]
+
+const syncPairs = []
+for (const mod of libModules) {
+  syncPairs.push({ from: join("dist-ts", "lib", `${mod}.js`), to: join("src", "lib", `${mod}.js`) })
+}
+for (const mod of hookModules) {
+  syncPairs.push({ from: join("dist-ts", "lib", "hooks", `${mod}.js`), to: join("src", "lib", "hooks", `${mod}.js`) })
+}
+
 const mappings = [
+  ...syncPairs,
   {
     from: join("dist-ts", "index.js"),
     to: join("src", "index.js"),
