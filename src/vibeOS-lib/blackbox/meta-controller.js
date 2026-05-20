@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: 2026 vibeOS <https://github.com/DrunkkToys/vibeOS>
 // Meta-Controller — maps blackbox resolution state to a unified control vector.
 // v2 orchestration: single source of truth for all subsystem directives.
+// v3: OptimizationMode system — 4 session-level profiles + auto mode.
 const REGIME_CONTROL = {
     INIT: {
         enforcement_mode: "normal",
@@ -96,16 +97,134 @@ const REGIME_CONTROL = {
     },
 };
 const DEFAULT_CONTROL = REGIME_CONTROL.EXPLORING;
-export function computeControlVector(state, action) {
+const MODE_DELTAS = {
+    balanced: {},
+    budget: {
+        tier_bias: "cheap",
+        thinking_mode: "off",
+        tdd_mode: "lazy",
+        tdd_focus: [],
+        flow_mode: "audit",
+        flow_focus: [],
+        enforcement_mode: "relaxed",
+        wbp_verbosity: "minimal",
+        context7_urgency: "optional",
+        stress_multiplier: 0.3,
+        loop_threshold: 0.7,
+        api_enrichment: false,
+        outcome_detection: true,
+    },
+    quality: {
+        tier_bias: "brain",
+        thinking_mode: "full",
+        tdd_mode: "quality",
+        tdd_focus: ["full-coverage", "edge-cases", "property-based"],
+        flow_mode: "strict",
+        flow_focus: ["write-edit-check", "no-untouched-files", "no-lgtm", "suggest-alternative"],
+        enforcement_mode: "strict",
+        wbp_verbosity: "detailed",
+        context7_urgency: "required",
+        stress_multiplier: 2.0,
+        loop_threshold: 0.4,
+        api_enrichment: true,
+        outcome_detection: true,
+    },
+    speed: {
+        tier_bias: "medium",
+        thinking_mode: "off",
+        tdd_mode: "lazy",
+        tdd_focus: [],
+        flow_mode: "audit",
+        flow_focus: [],
+        enforcement_mode: "relaxed",
+        wbp_verbosity: "minimal",
+        context7_urgency: "optional",
+        stress_multiplier: 0.0,
+        loop_threshold: 0.9,
+        api_enrichment: false,
+        outcome_detection: false,
+    },
+    longrun: {
+        tier_bias: "brain",
+        thinking_mode: "brief",
+        tdd_mode: "quality",
+        tdd_focus: ["full-coverage", "edge-cases", "skeleton-on-write", "assertion-check"],
+        flow_mode: "strict",
+        flow_focus: ["write-edit-check", "no-untouched-files", "no-lgtm", "suggest-alternative"],
+        enforcement_mode: "strict",
+        wbp_verbosity: "detailed",
+        context7_urgency: "required",
+        stress_multiplier: 1.0,
+        loop_threshold: 0.5,
+        api_enrichment: true,
+        outcome_detection: true,
+    },
+};
+// Cache savings thresholds for auto mode switching
+const CACHE_SAVE_HIGH = 2.00; // > $2.00 → can afford quality
+const CACHE_SAVE_MOD = 0.50; // > $0.50 → balanced
+// ≤ $0.50 → budget
+export function autoSelectMode(cacheSavings, subRegime) {
+    if (cacheSavings > CACHE_SAVE_HIGH) {
+        if (subRegime === "CONVERGING" || subRegime === "CLOSED")
+            return "quality";
+        if (subRegime === "EXPLORING" || subRegime === "DIVERGENT")
+            return "balanced";
+        return "balanced";
+    }
+    if (cacheSavings > CACHE_SAVE_MOD) {
+        if (subRegime === "CONVERGING" || subRegime === "CLOSED")
+            return "balanced";
+        if (subRegime === "EXPLORING" || subRegime === "DIVERGENT")
+            return "budget";
+        return "balanced";
+    }
+    return "budget";
+}
+export function computeControlVector(state, action, optimizationMode, cacheSavings) {
     const regime = state.sub_regime || "INIT";
     const base = REGIME_CONTROL[regime] || DEFAULT_CONTROL;
-    const directives = buildDirectives(base, regime, state, action);
+    // Determine effective mode
+    let effectiveMode = optimizationMode || "balanced";
+    if (effectiveMode === "auto") {
+        effectiveMode = autoSelectMode(cacheSavings ?? 0, regime);
+    }
+    // Apply mode deltas on top of base (only for non-balanced modes)
+    const delta = effectiveMode !== "balanced" ? (MODE_DELTAS[effectiveMode] || {}) : {};
+    const overridden = {
+        optimization_mode: optimizationMode || "balanced",
+        enforcement_mode: delta.enforcement_mode ?? base.enforcement_mode,
+        enforcement_reason: delta.enforcement_mode
+            ? `[optimize: ${effectiveMode}] ${describeMode(delta)}`
+            : base.enforcement_reason,
+        flow_mode: delta.flow_mode ?? base.flow_mode,
+        flow_focus: delta.flow_focus ?? base.flow_focus,
+        tdd_mode: delta.tdd_mode ?? base.tdd_mode,
+        tdd_focus: delta.tdd_focus ?? base.tdd_focus,
+        tier_bias: delta.tier_bias ?? base.tier_bias,
+        thinking_mode: delta.thinking_mode ?? base.thinking_mode,
+        stress_multiplier: delta.stress_multiplier ?? base.stress_multiplier,
+        context7_urgency: delta.context7_urgency ?? base.context7_urgency,
+        wbp_verbosity: delta.wbp_verbosity ?? base.wbp_verbosity,
+    };
+    const directives = buildDirectives(overridden, regime, state, action, effectiveMode);
     return {
-        ...base,
+        ...overridden,
         directives,
     };
 }
-function buildDirectives(cv, regime, state, action) {
+function describeMode(delta) {
+    if (delta.tier_bias === "cheap")
+        return "budget mode — max cost savings";
+    if (delta.tier_bias === "brain" && delta.thinking_mode === "full")
+        return "quality mode — max output quality";
+    if (delta.tdd_mode === "quality" && delta.flow_mode === "strict")
+        return "longrun mode — codebase health";
+    if (delta.tier_bias === "medium" && delta.stress_multiplier === 0)
+        return "speed mode — max response speed";
+    return `${delta.tier_bias || "auto"} / ${delta.thinking_mode || "auto"}`;
+}
+function buildDirectives(cv, regime, state, action, optimizationMode) {
     const d = [];
     if (cv.enforcement_mode !== "normal") {
         d.push(`[delegation enforcement: ${cv.enforcement_mode}] ${cv.enforcement_reason}. ` +
@@ -147,6 +266,9 @@ function buildDirectives(cv, regime, state, action) {
             : state.loop_intervention_level === "assertive" ? "WARNING" : "NOTICE";
         d.push(`[loop prevention: ${severity}] The conversation may be looping — try a different approach. (level: ${state.loop_intervention_level})`);
     }
+    if (optimizationMode && optimizationMode !== "balanced") {
+        d.push(`[optimization: ${optimizationMode}] Session optimization mode is "${optimizationMode}". This overrides default per-regime behavior.`);
+    }
     return d;
 }
 export function buildControlHistoryEntry(turn, regime, control, reward = null) {
@@ -167,3 +289,4 @@ export function buildControlHistoryEntry(turn, regime, control, reward = null) {
     };
 }
 export const REGIME_CONTROL_TABLE = REGIME_CONTROL;
+export { MODE_DELTAS, CACHE_SAVE_HIGH, CACHE_SAVE_MOD };

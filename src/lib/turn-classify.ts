@@ -713,7 +713,64 @@ export function getOC_SID() {
   return _OC_SID
 }
 
+// ── Optimization Mode persistence ───────────────────────────────────────
+// Stored in blackbox-state.json under sessions[<SID>].optimization_mode
+// Default: "auto" (first session / restart). User can lock per session.
+const DFLT_OPTIMIZATION_MODE = "auto"
+
+export function loadOptimizationMode(): string {
+  try {
+    const state = loadBlackboxState()
+    const sid = _OC_SID
+    return state.sessions?.[sid]?.optimization_mode || DFLT_OPTIMIZATION_MODE
+  } catch { return DFLT_OPTIMIZATION_MODE }
+}
+
+export function saveOptimizationMode(mode: string): void {
+  try {
+    const state = loadBlackboxState()
+    const sid = _OC_SID
+    if (!state.sessions) state.sessions = {}
+    if (!state.sessions[sid]) state.sessions[sid] = {}
+    state.sessions[sid].optimization_mode = mode
+    saveBlackboxState(state)
+  } catch (err) {
+    console.error("[vibeOS] saveOptimizationMode failed: " + err.message)
+  }
+}
+
+// ── Turn counter for compaction triggers ───────────────────────────────
+// Stored in blackbox-state.json under sessions[<SID>].turn_counter
+// Incremented each interaction turn. At % 10 === 0, compaction fires.
+
+export function getTurnCounter(): number {
+  try {
+    const state = loadBlackboxState()
+    const sid = _OC_SID
+    return state.sessions?.[sid]?.turn_counter || 0
+  } catch { return 0 }
+}
+
+export function incrementTurnCounter(): number {
+  try {
+    const state = loadBlackboxState()
+    const sid = _OC_SID
+    if (!state.sessions) state.sessions = {}
+    if (!state.sessions[sid]) state.sessions[sid] = {}
+    const next = (state.sessions[sid].turn_counter || 0) + 1
+    state.sessions[sid].turn_counter = next
+    saveBlackboxState(state)
+    return next
+  } catch { return 0 }
+}
+
+export { OptimizationMode, autoSelectMode, MODE_DELTAS } from "../vibeOS-lib/blackbox/meta-controller.js"
+
 export {
+  loadOptimizationMode,
+  saveOptimizationMode,
+  getTurnCounter,
+  incrementTurnCounter,
   // Turn classification
   estimateContextBudget,
   classifyTurnSimple,

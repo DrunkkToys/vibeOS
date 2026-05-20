@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, sta
 import { join, dirname, basename } from "node:path"
 import { homedir, tmpdir } from "node:os"
 import { classify, modelCostPerTurn, _refreshModel, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP } from "../pricing.js"
-import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi } from "../turn-classify.js"
+import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, loadOptimizationMode, autoSelectMode, classifyTurnSimple } from "../turn-classify.js"
 import { saveReport } from "../reporting.js"
 
 const USER_HOME = (() => { try { return homedir() } catch { return tmpdir() } })()
@@ -90,6 +90,7 @@ function readLifetimeSavings() {
       sesCredit: roundUsd(ses?.credit_savings_usd || 0),
       sesC7: roundUsd(ses?.context7_savings_usd || 0),
       sesQuota: roundUsd(ses?.quota_savings_usd || 0),
+      sesCache: roundUsd(ses?.cache_savings_usd || 0),
       sesTaskDelegations: ses?.task_delegations_count || 0,
       sesDuration: ses?.duration_seconds || 0,
       sesRatePerHour: ses?.rate_per_hour || 0,
@@ -98,7 +99,7 @@ function readLifetimeSavings() {
       sesModelTurns: ses?.model_turns || {},
       quality_avg: ses?.quality_avg || 0,
     }
-  } catch { return { ltTasks: 0, ltCache: 0, ltCost: 0, count: 0, sesTasks: 0, sesEdit: 0, sesCredit: 0, sesC7: 0, sesQuota: 0, sesTaskDelegations: 0, sesDuration: 0, sesRatePerHour: 0, sesTrend: "", sesToolBreakdown: {}, sesModelTurns: {}, quality_avg: 0 } }
+  } catch { return { ltTasks: 0, ltCache: 0, ltCost: 0, count: 0, sesTasks: 0, sesEdit: 0, sesCredit: 0, sesC7: 0, sesQuota: 0, sesCache: 0, sesTaskDelegations: 0, sesDuration: 0, sesRatePerHour: 0, sesTrend: "", sesToolBreakdown: {}, sesModelTurns: {}, quality_avg: 0 } }
 }
 
 let _OC_SID = "opencode-" + (process.pid || "x") + "-" + Date.now()
@@ -152,7 +153,7 @@ async function _appendFooter(input, output, directory) {
         typeof output?.result === "string" ? output.result :
         typeof output?.content === "string" ? output.content :
         ""
-      const { ltTasks, ltCache, ltCost, count, sesTasks, sesEdit, sesCredit, sesC7, sesQuota, sesTaskDelegations, sesDuration, sesRatePerHour, sesTrend, sesToolBreakdown, sesModelTurns, quality_avg } = readLifetimeSavings()
+      const { ltTasks, ltCache, ltCost, count, sesTasks, sesEdit, sesCredit, sesC7, sesQuota, sesCache, sesTaskDelegations, sesDuration, sesRatePerHour, sesTrend, sesToolBreakdown, sesModelTurns, quality_avg } = readLifetimeSavings()
 
       const brainModel = TRINITY_BRAIN || currentModel || ""
       let modelTag = `[${shortModelName(brainModel)}]`
@@ -208,7 +209,20 @@ async function _appendFooter(input, output, directory) {
       if (quality_avg > 0) {
         enfSuffixFooter = ` QA:${Math.round(quality_avg)}% ${enfTagsFooter.join(" ")}`
       }
-      modelTag = `${modelTag}${enfSuffixFooter || ""}`
+      // Optimization mode tag
+      const optModeFooter = loadOptimizationMode()
+      let optTagFooter = ""
+      if (optModeFooter === "budget") optTagFooter = "[BUDGET]"
+      else if (optModeFooter === "quality") optTagFooter = "[QUALITY]"
+      else if (optModeFooter === "speed") optTagFooter = "[SPEED]"
+      else if (optModeFooter === "longrun") optTagFooter = "[LONGRUN]"
+      else if (optModeFooter === "auto") {
+        const autoSavings = readLifetimeSavings()
+        const autoActive = autoSelectMode(autoSavings?.sesCache || 0, classifyTurnSimple(latestUserIntent || ""))
+        const autoTag = { budget: "BUDGET", quality: "QUALITY", speed: "SPEED", longrun: "LONGRUN", balanced: "BALANCED" }
+        optTagFooter = `[AUTO→${autoTag[autoActive] || autoActive.toUpperCase()}]`
+      }
+      modelTag = `${modelTag}${optTagFooter}${enfSuffixFooter || ""}`
 
       const stripped = text.replace(/\n\n— .+(?: —)?$/, "")
       if (stripped !== text) return
