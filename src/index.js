@@ -58,7 +58,7 @@ function getApiClient() {
 function isApiFallback() {
     return _apiFallbackMode || !VIBEOS_API_ENABLED;
 }
-async function remoteCall(method, args, fallbackFn) {
+export async function remoteCall(method, args, fallbackFn) {
     if (!VIBEOS_API_ENABLED) {
         if (fallbackFn)
             return fallbackFn();
@@ -154,9 +154,12 @@ function validateState(state, path) {
         console.error(`[vibeOS] State validation warning: invalid session_started_at at ${path}, resetting`);
         state.session_started_at = new Date().toISOString();
     }
-    if (state.sessions && !Array.isArray(state.sessions)) {
-        console.error(`[vibeOS] State validation warning: sessions is not array at ${path}, resetting`);
-        state.sessions = [];
+    if (state.sessions && Array.isArray(state.sessions)) {
+        console.error(`[vibeOS] State validation: converting legacy sessions array to object at ${path}`);
+        state.sessions = {};
+    } else if (state.sessions && !Array.isArray(state.sessions) && (typeof state.sessions !== "object" || state.sessions === null)) {
+        console.error(`[vibeOS] State validation warning: sessions is invalid type at ${path}, resetting`);
+        state.sessions = {};
     }
     if (state.lifetime && typeof state.lifetime !== 'object') {
         console.error(`[vibeOS] State validation warning: lifetime is not object at ${path}, resetting`);
@@ -851,7 +854,7 @@ function _localScoreStress(text) {
         score += 0.02;
     return Math.min(score, 1.0);
 }
-async function scoreStress(text) {
+export async function scoreStress(text) {
     return remoteCall("scoreStress", [text], () => _localScoreStress(text));
 }
 function estimateContextBudget(_input, output) {
@@ -1536,8 +1539,10 @@ export function _localExtractExports(sourceContent, ext) {
     };
     switch (ext) {
         case "py": {
+            // def function_name( (exclude _private)
             for (const m of sourceContent.matchAll(/^def\s+([a-zA-Z]\w*)\s*\(/gm))
                 add(m[1]);
+            // class ClassName(
             for (const m of sourceContent.matchAll(/^class\s+([a-zA-Z_]\w*)\s*[\(:]/gm))
                 add(m[1], "class");
             break;
@@ -1545,10 +1550,13 @@ export function _localExtractExports(sourceContent, ext) {
         case "js":
         case "mjs":
         case "jsx": {
+            // export function name(
             for (const m of sourceContent.matchAll(/export\s+(?:async\s+)?function\s+([a-zA-Z_$]\w*)\s*\(/g))
                 add(m[1]);
+            // export const name = ...
             for (const m of sourceContent.matchAll(/export\s+const\s+([a-zA-Z_$]\w*)\s*=/g))
                 add(m[1]);
+            // function name( (non-exported, fallback)
             if (exports.length === 0) {
                 for (const m of sourceContent.matchAll(/^(?:async\s+)?function\s+([a-zA-Z_$]\w*)\s*\(/gm))
                     add(m[1]);
@@ -1557,44 +1565,55 @@ export function _localExtractExports(sourceContent, ext) {
         }
         case "ts":
         case "tsx": {
+            // export function name(
             for (const m of sourceContent.matchAll(/export\s+(?:async\s+)?function\s+([a-zA-Z_$]\w*)\s*\(/g))
                 add(m[1]);
+            // export const name = ...
             for (const m of sourceContent.matchAll(/export\s+const\s+([a-zA-Z_$]\w*)\s*[:=]/g))
                 add(m[1]);
+            // export class Name
             for (const m of sourceContent.matchAll(/export\s+class\s+([a-zA-Z_$]\w*)/g))
                 add(m[1], "class");
             break;
         }
         case "go": {
+            // func (r Receiver) Name( or func Name(
             for (const m of sourceContent.matchAll(/func\s+(?:\([^)]+\)\s+)?([A-Z]\w*)\s*\(/g))
                 add(m[1]);
             break;
         }
         case "rs": {
+            // pub fn name(
             for (const m of sourceContent.matchAll(/pub\s+fn\s+([a-zA-Z_]\w*)\s*</g))
                 add(m[1]);
             for (const m of sourceContent.matchAll(/pub\s+fn\s+([a-zA-Z_]\w*)\s*\(/g))
                 add(m[1]);
+            // pub struct Name
             for (const m of sourceContent.matchAll(/pub\s+struct\s+([a-zA-Z_]\w*)/g))
                 add(m[1], "struct");
             break;
         }
         case "rb": {
+            // def method_name
             for (const m of sourceContent.matchAll(/def\s+(?:self\.)?([a-zA-Z_]\w*[?!=]?)/g))
                 add(m[1]);
+            // class Name
             for (const m of sourceContent.matchAll(/class\s+([A-Z]\w*)/g))
                 add(m[1], "class");
             break;
         }
         case "java":
         case "kt": {
+            // public/protected type name(
             for (const m of sourceContent.matchAll(/(?:public|protected)\s+(?:static\s+)?(?:final\s+)?\S+\s+([a-zA-Z_$]\w*)\s*\(/g))
                 add(m[1]);
+            // fun name(
             for (const m of sourceContent.matchAll(/fun\s+([a-zA-Z_$]\w*)\s*\(/g))
                 add(m[1]);
             break;
         }
         case "sh": {
+            // function name { or name() {
             for (const m of sourceContent.matchAll(/^(?:function\s+)?([a-zA-Z_]\w*)\s*\(\)\s*\{/gm))
                 add(m[1]);
             for (const m of sourceContent.matchAll(/^function\s+([a-zA-Z_]\w*)/gm))
@@ -1604,7 +1623,7 @@ export function _localExtractExports(sourceContent, ext) {
     }
     return exports;
 }
-async function extractExports(sourceContent, ext) {
+export async function extractExports(sourceContent, ext) {
     return remoteCall("tddExports", [sourceContent, ext], () => _localExtractExports(sourceContent, ext));
 }
 // Generate test case names for a given function name.
@@ -2885,20 +2904,6 @@ function computeSavingsPayload() {
         savings_rate_per_hour: Number(lt.sesRatePerHour || 0),
     };
 }
-function computeSessionsPayload() {
-    const state = readFullState();
-    const sessions = Object.entries(state?.sessions || {}).map(([id, ses]) => ({
-        id,
-        started: ses?.started || null,
-        cost_usd: Number(ses?.cost_usd || 0),
-        delegation_savings_usd: Array.isArray(ses?.warns)
-            ? ses.warns.reduce((sum, w) => sum + (Number(w?.est_savings_usd || 0) || 0), 0)
-            : 0,
-        cache_savings_usd: Number(ses?.cache_savings_usd || 0),
-        warns_count: Array.isArray(ses?.warns) ? ses.warns.length : 0,
-    }));
-    return { sessions, total_sessions: sessions.length };
-}
 function computeSessionCheckout() {
     const state = readFullState();
     const metrics = computeSessionMetrics(state, _OC_SID);
@@ -3594,7 +3599,7 @@ function commandFailed(output) {
         return false;
     return /\b(exit code|exited with code)\s*[:=]?\s*[1-9]\b|\b(assertionerror|syntaxerror|typeerror|referenceerror)\b|\b(failed|error:|err!)\b/i.test(raw);
 }
-function noteProjectPattern(kind, key, summary, meta = {}) {
+export function noteProjectPattern(kind, key, summary, meta = {}) {
     if (!currentProjectFingerprint || !key || !summary)
         return;
     try {
@@ -3627,7 +3632,7 @@ function noteProjectPattern(kind, key, summary, meta = {}) {
         bucket.lastSeen = now;
         saveProjectState(pstate);
         if (VIBEOS_API_ENABLED) {
-            remoteCall("patternsRecord", [_OC_SID, kind, key, summary, meta], null).catch(() => {});
+            remoteCall("patternsRecord", [_OC_SID, kind, key, summary, meta], null).catch(() => { });
         }
     }
     catch (err) {
@@ -3735,7 +3740,7 @@ function clearProjectPatterns(fp) {
     }
 }
 const _patternFiredKeys = new Set();
-function observeToolPattern(toolName, input, output, directory) {
+export function observeToolPattern(toolName, input, output, directory) {
     try {
         const t = String(toolName || "").toLowerCase();
         const args = input?.args || {};
@@ -3799,7 +3804,7 @@ function observeToolPattern(toolName, input, output, directory) {
             }
         }
         if (VIBEOS_API_ENABLED) {
-            remoteCall("patternsObserve", [_OC_SID, toolName, input, output, directory], null).catch(() => {});
+            remoteCall("patternsObserve", [_OC_SID, toolName, input, output, directory], null).catch(() => { });
         }
     }
     catch (err) {
@@ -4257,22 +4262,6 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                 const it = textCompletePainted.values();
                 for (let i = 0; i < 100; i++)
                     textCompletePainted.delete(it.next().value);
-            }
-            if (ltTotal > 0 || ltCache > 0) {
-                try {
-                    const _ltFmt = ltTotal.toFixed(2);
-                    const _reportLine = `— ${modelTag} vibeOS: $${_ltFmt} saved ${trendIcon} —`;
-                    writeFileSync(join(USER_HOME, ".claude/session-report-pending.md"), _reportLine);
-                    const logPath = join(USER_HOME, ".claude/session-reports.log");
-                    const pid = process.pid || "?";
-                    const ts = new Date().toISOString().slice(0, 16).replace("T", " ");
-                    const newLine = `[${ts} pid=${pid}] ${_reportLine}`;
-                    if (!getLastLines(logPath, 5, 1024).includes(newLine)) {
-                        _rotateLog(logPath, MAX_LOG_LINES);
-                        appendFileSync(logPath, newLine + "\n");
-                    }
-                }
-                catch { }
             }
         }
         catch (err) {
@@ -5105,7 +5094,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                 }
                 if (latestUserIntent) {
                     const stressMult = _controlVector?.stress_multiplier ?? 1.0;
-                    const _s = (await scoreStress(latestUserIntent)) * stressMult;
+                    const _s = await scoreStress(latestUserIntent) * stressMult;
                     if (_s > 0.7) {
                         if (Array.isArray(output?.system))
                             output.system.push("[stress mitigation: CRITICAL] The user's message shows very high stress indicators. " +
