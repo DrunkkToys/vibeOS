@@ -2606,6 +2606,21 @@ function loadMcpPort() {
   } catch {}
   return 9578
 }
+function persistMcpPort(port) {
+  try {
+    if (!existsSync(TIERS_FILE))
+      return;
+    const tiers = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"));
+    tiers.selection ??= {};
+    if (Number(tiers.selection.mcp_port) === Number(port))
+      return;
+    tiers.selection.mcp_port = port;
+    mkdirSync(dirname(TIERS_FILE), { recursive: true });
+    writeFileSync(TIERS_FILE, JSON.stringify(tiers, null, 2) + "\n");
+    console.error(`[vibeOS] mcp_port set to ${port} in model-tiers.json`);
+  }
+  catch { }
+}
 
 function readConfig(dir) {
   try {
@@ -5810,8 +5825,11 @@ function scoreTaskQuality(outputText, promptText) {
           generateSessionCheckout: () => computeSessionCheckout(),
         })
       }
-      await _mcpServerRuntime.start(port)
-      console.error(`[vibeOS] MCP server listening on http://127.0.0.1:${port}`)
+      const mcpServer = await _mcpServerRuntime.start(port);
+      const actualPort = Number(mcpServer?.address?.()?.port || port);
+      if (actualPort && actualPort !== port)
+          persistMcpPort(actualPort);
+      console.error(`[vibeOS] MCP server listening on http://127.0.0.1:${actualPort}`);
       if (!_mcpServerHooked) {
         _mcpServerHooked = true
         const closeServer = () => {
