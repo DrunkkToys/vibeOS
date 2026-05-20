@@ -38,6 +38,7 @@ import {
   noteTaskRoutingLearning,
 } from '../turn-classify.js'
 import { saveReport } from '../reporting.js'
+import { loadCredit } from '../credit-api.js'
 import { getApiClient, remoteCall, isApiFallback } from '../api-client.js'
 import { checkFlowRules, recordFlowTodo } from '../../vibeOS-lib/flow-enforcer.js'
 import { computeDifficulty, cascadeDecide, createPatternGraph, ensureNode, addRouteEdge, predictBestModel, hashQuery, deserializeGraph } from '../../vibeOS-lib/ml-router.js'
@@ -72,7 +73,7 @@ export const setToolDirectory = (dir) => { projectDirectory = dir || "" }
 
 export const onToolExecuteBefore = async (input, output) => {
       if (!loadSelection().enabled) return
-      _refreshModel(directory)
+      _refreshModel(projectDirectory)
       const t = input?.tool ?? ""
       const args = output?.args
       const inArgs = input?.args
@@ -349,7 +350,7 @@ export const onToolExecuteBefore = async (input, output) => {
 
 export const onToolExecuteAfter = async (input, output) => {
       if (!loadSelection().enabled) return
-      _refreshModel(directory)
+      _refreshModel(projectDirectory)
 
       // ── Generate footer alert (prepended to tool result, visible in chat) ──
       let _footerText = ""
@@ -480,7 +481,7 @@ export const onToolExecuteAfter = async (input, output) => {
 
       // Skip test-reminder, TDD, flow enforcement, and compression for blocked tools
       if (enforcementBlocked) { enforcementBlocked = false; return }
-      observeToolPattern(t, input, output, directory)
+      observeToolPattern(t, input, output, projectDirectory)
 
       // TDD enforcement for task subagent results: scan task output for
       // file paths with source extensions and create skeletons (same logic
