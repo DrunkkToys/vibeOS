@@ -183,21 +183,28 @@ export function createMcpServer(deps) {
             server = http.createServer((req, res) => {
                 void handler(req, res);
             });
+            server.once("error", (err) => {
+                console.error(`[vibeOS] MCP server bind failed: ${err.message}`);
+                server = null;
+            });
             server.listen(port, "127.0.0.1");
             return server;
         },
         close() {
             if (!server)
                 return Promise.resolve();
+            const current = server;
             return new Promise((resolve) => {
                 try {
-                    server.close(() => {
-                        server = null;
+                    current.close(() => {
+                        if (server === current)
+                            server = null;
                         resolve();
                     });
                 }
                 catch {
-                    server = null;
+                    if (server === current)
+                        server = null;
                     resolve();
                 }
             });
