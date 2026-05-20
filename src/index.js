@@ -1656,7 +1656,6 @@ export function extractExports(sourceContent, ext) {
     }
     return exports;
 }
-
 // Generate test case names for a given function name.
 // Returns array of descriptive test case names.
 function generateTestCaseNames(funcName, _type, quality = false) {
@@ -3730,7 +3729,6 @@ export function noteProjectPattern(kind, key, summary, meta = {}) {
         }
         bucket.lastSeen = now;
         saveProjectState(pstate);
-
     }
     catch (err) {
         console.error(`[vibeOS] pattern learner write failed: ${err.message}`);
@@ -3900,7 +3898,6 @@ export function observeToolPattern(toolName, input, output, directory) {
                 }
             }
         }
-
     }
     catch (err) {
         console.error(`[vibeOS] pattern learner observe failed: ${err.message}`);

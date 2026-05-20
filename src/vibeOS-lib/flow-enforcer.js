@@ -189,11 +189,12 @@ function recordFlowWarn(hit) {
         if (state.flow_warns.length > 500) {
             state.flow_warns = state.flow_warns.slice(-500);
         }
+        const fp = { flow_warns: state.flow_warns };
         if (_stateWriter)
-            _stateWriter(state);
+            _stateWriter(fp);
         else {
             const existing = safeJsonParse(existsSync(STATE_FILE) ? readFileSync(STATE_FILE, "utf-8") : "{}");
-            const merged = { ...existing, ...state };
+            const merged = Object.assign({}, existing, fp);
             const tmpFile = STATE_FILE + ".tmp." + Date.now();
             writeFileSync(tmpFile, JSON.stringify(merged, null, 2));
             renameSync(tmpFile, STATE_FILE);
