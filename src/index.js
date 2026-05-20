@@ -804,7 +804,7 @@ const DOCS_TARGET_RE = /(docs\.|readthedocs|developer\.mozilla|\/api\/|\/referen
 export function isDocsTarget(s) {
     return typeof s === "string" && DOCS_TARGET_RE.test(s);
 }
-function scoreStress(text) {
+function _localScoreStress(text) {
     if (!text || typeof text !== "string")
         return 0;
     const t = text.toLowerCase();
@@ -850,6 +850,9 @@ function scoreStress(text) {
     else if (text.length < 150)
         score += 0.02;
     return Math.min(score, 1.0);
+}
+async function scoreStress(text) {
+    return remoteCall("scoreStress", [text], () => _localScoreStress(text));
 }
 function estimateContextBudget(_input, output) {
     try {
@@ -1520,7 +1523,7 @@ const SKIP_PATH_RE = /(\/(node_modules|\.venv|dist|build|__pycache__)\/|\/(tests
 // Each skeleton CANNOT pass silently — uses language-specific skip/fail markers.
 // Extract function/class/export names from source code per language.
 // Returns an array of { name, type } objects.
-export function extractExports(sourceContent, ext) {
+export function _localExtractExports(sourceContent, ext) {
     if (!sourceContent || typeof sourceContent !== "string")
         return [];
     const exports = [];
@@ -1533,10 +1536,8 @@ export function extractExports(sourceContent, ext) {
     };
     switch (ext) {
         case "py": {
-            // def function_name( (exclude _private)
             for (const m of sourceContent.matchAll(/^def\s+([a-zA-Z]\w*)\s*\(/gm))
                 add(m[1]);
-            // class ClassName(
             for (const m of sourceContent.matchAll(/^class\s+([a-zA-Z_]\w*)\s*[\(:]/gm))
                 add(m[1], "class");
             break;
@@ -1544,13 +1545,10 @@ export function extractExports(sourceContent, ext) {
         case "js":
         case "mjs":
         case "jsx": {
-            // export function name(
             for (const m of sourceContent.matchAll(/export\s+(?:async\s+)?function\s+([a-zA-Z_$]\w*)\s*\(/g))
                 add(m[1]);
-            // export const name = ...
             for (const m of sourceContent.matchAll(/export\s+const\s+([a-zA-Z_$]\w*)\s*=/g))
                 add(m[1]);
-            // function name( (non-exported, fallback)
             if (exports.length === 0) {
                 for (const m of sourceContent.matchAll(/^(?:async\s+)?function\s+([a-zA-Z_$]\w*)\s*\(/gm))
                     add(m[1]);
@@ -1559,55 +1557,44 @@ export function extractExports(sourceContent, ext) {
         }
         case "ts":
         case "tsx": {
-            // export function name(
             for (const m of sourceContent.matchAll(/export\s+(?:async\s+)?function\s+([a-zA-Z_$]\w*)\s*\(/g))
                 add(m[1]);
-            // export const name = ...
             for (const m of sourceContent.matchAll(/export\s+const\s+([a-zA-Z_$]\w*)\s*[:=]/g))
                 add(m[1]);
-            // export class Name
             for (const m of sourceContent.matchAll(/export\s+class\s+([a-zA-Z_$]\w*)/g))
                 add(m[1], "class");
             break;
         }
         case "go": {
-            // func (r Receiver) Name( or func Name(
             for (const m of sourceContent.matchAll(/func\s+(?:\([^)]+\)\s+)?([A-Z]\w*)\s*\(/g))
                 add(m[1]);
             break;
         }
         case "rs": {
-            // pub fn name(
             for (const m of sourceContent.matchAll(/pub\s+fn\s+([a-zA-Z_]\w*)\s*</g))
                 add(m[1]);
             for (const m of sourceContent.matchAll(/pub\s+fn\s+([a-zA-Z_]\w*)\s*\(/g))
                 add(m[1]);
-            // pub struct Name
             for (const m of sourceContent.matchAll(/pub\s+struct\s+([a-zA-Z_]\w*)/g))
                 add(m[1], "struct");
             break;
         }
         case "rb": {
-            // def method_name
             for (const m of sourceContent.matchAll(/def\s+(?:self\.)?([a-zA-Z_]\w*[?!=]?)/g))
                 add(m[1]);
-            // class Name
             for (const m of sourceContent.matchAll(/class\s+([A-Z]\w*)/g))
                 add(m[1], "class");
             break;
         }
         case "java":
         case "kt": {
-            // public/protected type name(
             for (const m of sourceContent.matchAll(/(?:public|protected)\s+(?:static\s+)?(?:final\s+)?\S+\s+([a-zA-Z_$]\w*)\s*\(/g))
                 add(m[1]);
-            // fun name(
             for (const m of sourceContent.matchAll(/fun\s+([a-zA-Z_$]\w*)\s*\(/g))
                 add(m[1]);
             break;
         }
         case "sh": {
-            // function name { or name() {
             for (const m of sourceContent.matchAll(/^(?:function\s+)?([a-zA-Z_]\w*)\s*\(\)\s*\{/gm))
                 add(m[1]);
             for (const m of sourceContent.matchAll(/^function\s+([a-zA-Z_]\w*)/gm))
@@ -1616,6 +1603,9 @@ export function extractExports(sourceContent, ext) {
         }
     }
     return exports;
+}
+async function extractExports(sourceContent, ext) {
+    return remoteCall("tddExports", [sourceContent, ext], () => _localExtractExports(sourceContent, ext));
 }
 // Generate test case names for a given function name.
 // Returns array of descriptive test case names.
@@ -2362,7 +2352,7 @@ function _recordCooldown(testPath) {
     }
     catch { }
 }
-export function buildTestSkeleton(filePath, sourceContent = "", options = {}) {
+export async function buildTestSkeleton(filePath, sourceContent = "", options = {}) {
     if (!filePath || typeof filePath !== "string")
         return null;
     if (!SOURCE_EXT_RE.test(filePath))
@@ -2413,10 +2403,10 @@ export function buildTestSkeleton(filePath, sourceContent = "", options = {}) {
             break;
         default: return null;
     }
-    const exports = extractExports(sourceContent, extLower);
+    const exports = await extractExports(sourceContent, extLower);
     return { path: testPath, content: skeletonFn(name, exports, "full", strict, quality, sourceContent), dir: dirname(testPath) };
 }
-export function enforceTestFile(filePath) {
+export async function enforceTestFile(filePath) {
     console.error(`[vibeOS] [tdd-enforce] enforceTestFile called for ${filePath}`);
     let sourceContent = "";
     try {
@@ -2426,7 +2416,7 @@ export function enforceTestFile(filePath) {
     }
     catch { }
     const sel = loadSelection();
-    const skeleton = buildTestSkeleton(filePath, sourceContent, { strict: sel.tdd_strict !== false, quality: sel.tdd_quality !== false });
+    const skeleton = await buildTestSkeleton(filePath, sourceContent, { strict: sel.tdd_strict !== false, quality: sel.tdd_quality !== false });
     if (!skeleton)
         return null;
     if (existsSync(skeleton.path))
@@ -3636,6 +3626,9 @@ function noteProjectPattern(kind, key, summary, meta = {}) {
         }
         bucket.lastSeen = now;
         saveProjectState(pstate);
+        if (VIBEOS_API_ENABLED) {
+            remoteCall("patternsRecord", [_OC_SID, kind, key, summary, meta], null).catch(() => {});
+        }
     }
     catch (err) {
         console.error(`[vibeOS] pattern learner write failed: ${err.message}`);
@@ -3804,6 +3797,9 @@ function observeToolPattern(toolName, input, output, directory) {
                     recordRoutinePattern(`post-edit-routine:${lastMutationEvent.path}:${family}`, `After editing ${lastMutationEvent.path}, ${family} is a recurring verification step.`, { family, path: lastMutationEvent.path });
                 }
             }
+        }
+        if (VIBEOS_API_ENABLED) {
+            remoteCall("patternsObserve", [_OC_SID, toolName, input, output, directory], null).catch(() => {});
         }
     }
     catch (err) {
@@ -4121,7 +4117,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
         _refreshModel(directory);
         let _footerStress = 0;
         if (latestUserIntent)
-            _footerStress = scoreStress(latestUserIntent);
+            _footerStress = await scoreStress(latestUserIntent);
         // Lazy model detection: try client API once
         if (!currentModel) {
             try {
@@ -4391,7 +4387,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                     : TRINITY_CHEAP && TRINITY_CHEAP !== currentModel ? TRINITY_CHEAP
                         : null;
                 let _target = _exploratoryTarget ?? _tierTarget;
-                const stressScore = latestUserIntent ? scoreStress(latestUserIntent) : 0;
+                const stressScore = latestUserIntent ? await scoreStress(latestUserIntent) : 0;
                 const apiRoute = await remoteCall("routeModel", [_prompt, currentTier, TRINITY_CHEAP, TRINITY_MEDIUM, LEARNED_EXPLORATORY, stressScore], null);
                 if (apiRoute?.target) {
                     _target = apiRoute.target;
@@ -4616,7 +4612,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                 const statusLine = tags.join(" ");
                 let stressTag = "";
                 if (latestUserIntent) {
-                    const ss = scoreStress(latestUserIntent);
+                    const ss = await scoreStress(latestUserIntent);
                     if (ss > 0.1) {
                         const label = ss > 0.7 ? "high" : ss > 0.4 ? "elevated" : "calm";
                         stressTag = ` stress:${label}`;
@@ -4751,7 +4747,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                         seen.add(fp);
                         const isTestPath = /(^|\/)(tests?|spec)\//i.test(fp) || /\.(test|spec)\./i.test(fp);
                         if (sel.tdd_enforce && !isTestPath) {
-                            const createdPath = enforceTestFile(fp);
+                            const createdPath = await enforceTestFile(fp);
                             if (createdPath) {
                                 const ext = createdPath.split('.').pop();
                                 const fileName = createdPath.split('/').pop();
@@ -4785,7 +4781,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                 const explicitTestIntent = isUserAskingForTests(latestUserIntent);
                 const isTestPath = /(^|\/)(tests?|spec)\//i.test(fp) || /\.(test|spec)\./i.test(fp);
                 if (sel.tdd_enforce && !isTestPath) {
-                    const createdPath = enforceTestFile(fp);
+                    const createdPath = await enforceTestFile(fp);
                     if (createdPath) {
                         const ext = createdPath.split('.').pop();
                         const fileName = createdPath.split('/').pop();
@@ -5109,7 +5105,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                 }
                 if (latestUserIntent) {
                     const stressMult = _controlVector?.stress_multiplier ?? 1.0;
-                    const _s = scoreStress(latestUserIntent) * stressMult;
+                    const _s = (await scoreStress(latestUserIntent)) * stressMult;
                     if (_s > 0.7) {
                         if (Array.isArray(output?.system))
                             output.system.push("[stress mitigation: CRITICAL] The user's message shows very high stress indicators. " +
@@ -5345,7 +5341,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                         const mediumModel = tiers?.medium?.oc || "(unset)";
                         const cheapModel = tiers?.cheap?.oc || "(unset)";
                         const activeSlot = sel.active_slot || "brain";
-                        const stressScore = latestUserIntent ? scoreStress(latestUserIntent) : 0;
+                        const stressScore = latestUserIntent ? await scoreStress(latestUserIntent) : 0;
                         const stressBar = stressScore > 0.85 ? "█" : stressScore > 0.7 ? "▆" : stressScore > 0.5 ? "▅" : stressScore > 0.3 ? "▃" : stressScore > 0.1 ? "▂" : "▁";
                         const stressLabel = stressScore > 0.7 ? "high" : stressScore > 0.4 ? "elevated" : stressScore > 0.1 ? "calm" : "none";
                         const totalTurns = (sv.sesModelTurns?.brain || 0) + (sv.sesModelTurns?.worker || 0);

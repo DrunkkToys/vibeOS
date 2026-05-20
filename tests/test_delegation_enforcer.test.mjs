@@ -2144,7 +2144,7 @@ test("discoverAvailableModels: deepseek models from provider config", { skip: "r
 
 test("buildTestSkeleton: .py file returns correct path and content", async () => {
   const { buildTestSkeleton } = await loadPlugin()
-  const s = buildTestSkeleton("/proj/src/utils.py")
+  const s = await buildTestSkeleton("/proj/src/utils.py")
   assert.ok(s, "skeleton generated")
   assert.ok(s.path.endsWith("tests/test_utils.py"), `path: ${s.path}`)
   assert.ok(s.content.includes("[vibeOS-enforced]"), "enforced marker present")
@@ -2155,7 +2155,7 @@ test("buildTestSkeleton: .py file returns correct path and content", async () =>
 test("buildTestSkeleton: .py file extracts exports from source", async () => {
   const { buildTestSkeleton } = await loadPlugin()
   const source = `def snake_case(name): pass\ndef truncate(s, max_len=80): pass\nclass StringHelper: pass`
-  const s = buildTestSkeleton("/proj/src/utils.py", source, { strict: false, quality: false })
+  const s = await buildTestSkeleton("/proj/src/utils.py", source, { strict: false, quality: false })
   assert.ok(s, "skeleton generated")
   assert.ok(s.content.includes("from utils import snake_case, truncate, StringHelper"), "exports imported")
       assert.ok(s.content.includes("test_should_snake_case_with_valid_input"), "test case generated")
@@ -2164,7 +2164,7 @@ test("buildTestSkeleton: .py file extracts exports from source", async () => {
 
 test("buildTestSkeleton: .ts file returns correct path and content", async () => {
   const { buildTestSkeleton } = await loadPlugin()
-  const s = buildTestSkeleton("/proj/src/handler.ts")
+  const s = await buildTestSkeleton("/proj/src/handler.ts")
   assert.ok(s, "skeleton generated")
   assert.ok(s.path.endsWith("tests/handler.test.ts"), `path: ${s.path}`)
   assert.ok(s.content.includes("TODO: implement"), "incomplete marker present")
@@ -2174,7 +2174,7 @@ test("buildTestSkeleton: .ts file returns correct path and content", async () =>
 test("buildTestSkeleton: .ts file extracts exports from source", async () => {
   const { buildTestSkeleton } = await loadPlugin()
   const source = `export function handler(event: Event): Response { return { status: 200 } }\nexport function middleware(req: Request): void { log(req) }`
-  const s = buildTestSkeleton("/proj/src/handler.ts", source, { strict: false, quality: false })
+  const s = await buildTestSkeleton("/proj/src/handler.ts", source, { strict: false, quality: false })
   assert.ok(s, "skeleton generated")
   assert.ok(s.content.includes("it('should handler with valid input'"), "test case generated")
   assert.ok(s.content.includes("it('should middleware with valid input'"), "test case generated")
@@ -2182,7 +2182,7 @@ test("buildTestSkeleton: .ts file extracts exports from source", async () => {
 
 test("buildTestSkeleton: .go file returns correct path and content", async () => {
   const { buildTestSkeleton } = await loadPlugin()
-  const s = buildTestSkeleton("/proj/src/server.go")
+  const s = await buildTestSkeleton("/proj/src/server.go")
   assert.ok(s, "skeleton generated")
   assert.ok(s.path.endsWith("server_test.go"), `path: ${s.path}`)
     assert.ok(s.content.includes("t.Error"), "strict incomplete marker present")
@@ -2191,8 +2191,8 @@ test("buildTestSkeleton: .go file returns correct path and content", async () =>
 test("buildTestSkeleton: strict mode controls TODO behavior", async () => {
   const { buildTestSkeleton } = await loadPlugin()
   const source = `export function sum(a,b){ return a+b }\n`
-  const strict = buildTestSkeleton("/proj/src/sum.js", source, { strict: true })
-  const nonStrict = buildTestSkeleton("/proj/src/sum.js", source, { strict: false })
+  const strict = await buildTestSkeleton("/proj/src/sum.js", source, { strict: true })
+  const nonStrict = await buildTestSkeleton("/proj/src/sum.js", source, { strict: false })
   assert.ok(strict.content.includes("throw new Error('TODO: implement"), "strict skeleton must fail loudly")
   assert.ok(nonStrict.content.includes("expect(true).toBe(true)"), "non-strict skeleton should be non-blocking")
 })
@@ -2200,7 +2200,7 @@ test("buildTestSkeleton: strict mode controls TODO behavior", async () => {
 test("buildTestSkeleton: .go file extracts exports from source", async () => {
   const { buildTestSkeleton } = await loadPlugin()
   const source = `func ServeHTTP(w http.ResponseWriter, r *http.Request) {}\nfunc NewServer(addr string) *Server { return &Server{} }`
-  const s = buildTestSkeleton("/proj/src/server.go", source, { strict: false, quality: false })
+  const s = await buildTestSkeleton("/proj/src/server.go", source, { strict: false, quality: false })
   assert.ok(s, "skeleton generated")
   assert.ok(s.content.includes("TestServer_should_ServeHTTP_with_valid_input"), "test case generated")
   assert.ok(s.content.includes("TestServer_should_NewServer_with_valid_input"), "test case generated")
@@ -2208,7 +2208,7 @@ test("buildTestSkeleton: .go file extracts exports from source", async () => {
 
 test("buildTestSkeleton: .rs file returns correct path and content", async () => {
   const { buildTestSkeleton } = await loadPlugin()
-  const s = buildTestSkeleton("/proj/src/lib.rs")
+  const s = await buildTestSkeleton("/proj/src/lib.rs")
   assert.ok(s, "skeleton generated")
   assert.ok(s.path.endsWith("tests/lib_test.rs"), `path: ${s.path}`)
   assert.ok(s.content.includes('panic!("TODO'), "incomplete marker present")
@@ -2217,21 +2217,21 @@ test("buildTestSkeleton: .rs file returns correct path and content", async () =>
 test("buildTestSkeleton: .rs file extracts exports from source", async () => {
   const { buildTestSkeleton } = await loadPlugin()
   const source = `pub fn init() -> i32 { 0 }\npub fn render(t: &str) -> String { t.to_string() }`
-  const s = buildTestSkeleton("/proj/src/lib.rs", source, { strict: false, quality: false })
+  const s = await buildTestSkeleton("/proj/src/lib.rs", source, { strict: false, quality: false })
   assert.ok(s, "skeleton generated")
   assert.ok(s.content.includes("test_should_init_with_valid_input"), "test case generated")
 })
 
 test("buildTestSkeleton: test file itself → null", async () => {
   const { buildTestSkeleton } = await loadPlugin()
-  assert.equal(buildTestSkeleton("/proj/tests/test_utils.py"), null)
-  assert.equal(buildTestSkeleton("/proj/src/utils.test.ts"), null)
+  assert.equal(await buildTestSkeleton("/proj/tests/test_utils.py"), null)
+  assert.equal(await buildTestSkeleton("/proj/src/utils.test.ts"), null)
 })
 
 test("buildTestSkeleton: non-source extension → null", async () => {
   const { buildTestSkeleton } = await loadPlugin()
-  assert.equal(buildTestSkeleton("/proj/README.md"), null)
-  assert.equal(buildTestSkeleton("/proj/config.json"), null)
+  assert.equal(await buildTestSkeleton("/proj/README.md"), null)
+  assert.equal(await buildTestSkeleton("/proj/config.json"), null)
 })
 
 test("enforceTestFile: creates skeleton when test missing", async () => {
@@ -2248,7 +2248,7 @@ test("enforceTestFile: creates skeleton when test missing", async () => {
     mkdirSync(srcDir, { recursive: true })
     const srcFile = join(srcDir, `calc-${Date.now()}.py`)
     writeFileSync(srcFile, "def add(a, b): return a + b\ndef subtract(a, b): return a - b")
-    const created = enforceTestFile(srcFile)
+    const created = await enforceTestFile(srcFile)
     assert.ok(created, "skeleton created")
     assert.ok(existsSync(created), "file exists on disk")
     const content = readFileSync(created, "utf-8")
@@ -2279,7 +2279,7 @@ test("enforceTestFile: skips when test already exists", async () => {
     writeFileSync(srcFile, "def foo(): pass")
     writeFileSync(testFile, "def test_foo(): assert True")
     const { enforceTestFile } = await loadPlugin()
-    const created = enforceTestFile(srcFile)
+    const created = await enforceTestFile(srcFile)
     assert.equal(created, null, "no skeleton created when test exists")
   } finally {
     process.env.HOME = prevHome
@@ -2298,9 +2298,9 @@ test("enforceTestFile: dedup — second call for same file returns null", async 
     mkdirSync(srcDir, { recursive: true })
     const srcFile = join(srcDir, `dedup-${Date.now()}.py`)
     writeFileSync(srcFile, "def bar(): pass")
-    const first = enforceTestFile(srcFile)
+    const first = await enforceTestFile(srcFile)
     assert.ok(first, "first call creates skeleton")
-    const second = enforceTestFile(srcFile)
+    const second = await enforceTestFile(srcFile)
     assert.equal(second, null, "second call returns null (file exists)")
   } finally {
     process.env.HOME = prevHome
@@ -2319,7 +2319,7 @@ test("enforceTestFile: records tdd_enforced count in state file", async () => {
     mkdirSync(srcDir, { recursive: true })
     const srcFile = join(srcDir, `state-${Date.now()}.py`)
     writeFileSync(srcFile, "def baz(): pass")
-    enforceTestFile(srcFile)
+    await enforceTestFile(srcFile)
     const stateFile = join(sb, ".claude/delegation-state.json")
     assert.ok(existsSync(stateFile), "state file created")
     const state = JSON.parse(readFileSync(stateFile, "utf-8"))
