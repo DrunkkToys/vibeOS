@@ -744,7 +744,7 @@ export function isDocsTarget(s) {
   return typeof s === "string" && DOCS_TARGET_RE.test(s)
 }
 
-function scoreStress(text) {
+function _localScoreStress(text: string): number {
   if (!text || typeof text !== "string") return 0
   const t = text.toLowerCase()
   let score = 0
@@ -792,6 +792,10 @@ function scoreStress(text) {
   else if (text.length < 150) score += 0.02
 
   return Math.min(score, 1.0)
+}
+
+async function scoreStress(text: string): Promise<number> {
+    return remoteCall("scoreStress", [text], () => _localScoreStress(text));
 }
 
 function estimateContextBudget(_input, output) {
@@ -1376,7 +1380,7 @@ const SKIP_PATH_RE = /(\/(node_modules|\.venv|dist|build|__pycache__)\/|\/(tests
 // Each skeleton CANNOT pass silently — uses language-specific skip/fail markers.
 // Extract function/class/export names from source code per language.
 // Returns an array of { name, type } objects.
-export function extractExports(sourceContent, ext) {
+export function _localExtractExports(sourceContent, ext) {
   if (!sourceContent || typeof sourceContent !== "string") return []
   const exports = []
   const seen = new Set()
@@ -1447,6 +1451,10 @@ export function extractExports(sourceContent, ext) {
     }
   }
   return exports
+}
+
+async function extractExports(sourceContent: string, ext: string): Promise<any[]> {
+    return remoteCall("tddExports", [sourceContent, ext], () => _localExtractExports(sourceContent, ext));
 }
 
 // Generate test case names for a given function name.
@@ -2109,7 +2117,7 @@ function _recordCooldown(testPath) {
   } catch {}
 }
 
-export function buildTestSkeleton(filePath, sourceContent = "", options = {}) {
+export async function buildTestSkeleton(filePath, sourceContent = "", options = {}) {
   if (!filePath || typeof filePath !== "string") return null
   if (!SOURCE_EXT_RE.test(filePath)) return null
   if (SKIP_PATH_RE.test(filePath)) return null
@@ -2135,11 +2143,11 @@ export function buildTestSkeleton(filePath, sourceContent = "", options = {}) {
     case "java": case "kt": testPath = dir + "src/test/" + name.charAt(0).toUpperCase() + name.slice(1) + "Test." + ext; break
     default: return null
   }
-  const exports = extractExports(sourceContent, extLower)
+  const exports = await extractExports(sourceContent, extLower)
   return { path: testPath, content: skeletonFn(name, exports, "full", strict, quality, sourceContent), dir: dirname(testPath) }
 }
 
-export function enforceTestFile(filePath) {
+export async function enforceTestFile(filePath) {
   console.error(`[vibeOS] [tdd-enforce] enforceTestFile called for ${filePath}`)
   let sourceContent = ""
   try {
@@ -2148,7 +2156,7 @@ export function enforceTestFile(filePath) {
     }
   } catch {}
   const sel = loadSelection()
-  const skeleton = buildTestSkeleton(filePath, sourceContent, { strict: sel.tdd_strict !== false, quality: sel.tdd_quality !== false })
+  const skeleton = await buildTestSkeleton(filePath, sourceContent, { strict: sel.tdd_strict !== false, quality: sel.tdd_quality !== false })
   if (!skeleton) return null
   if (existsSync(skeleton.path)) return null
   if (_enforcementCooldown.has(skeleton.path)) return null
@@ -3203,6 +3211,9 @@ function noteProjectPattern(kind, key, summary, meta = {}) {
     }
     bucket.lastSeen = now
     saveProjectState(pstate)
+        if (VIBEOS_API_ENABLED) {
+            remoteCall("patternsRecord", [_OC_SID, kind, key, summary, meta], null).catch(() => {});
+        }
   } catch (err) {
     console.error(`[vibeOS] pattern learner write failed: ${err.message}`)
   }
@@ -3370,6 +3381,9 @@ function observeToolPattern(toolName, input, output, directory) {
         }
       }
     }
+        if (VIBEOS_API_ENABLED) {
+            remoteCall("patternsObserve", [_OC_SID, toolName, input, output, directory], null).catch(() => {});
+        }
   } catch (err) {
     console.error(`[vibeOS] pattern learner observe failed: ${err.message}`)
   }
@@ -3660,7 +3674,7 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
     if (!loadSelection().enabled) return
     _refreshModel(directory)
     let _footerStress = 0
-    if (latestUserIntent) _footerStress = scoreStress(latestUserIntent)
+    if (latestUserIntent) _footerStress = await scoreStress(latestUserIntent)
     // Lazy model detection: try client API once
     if (!currentModel) {
       try {
@@ -3919,7 +3933,7 @@ function scoreTaskQuality(outputText, promptText) {
                           : null
         let _target = _exploratoryTarget ?? _tierTarget
 
-        const stressScore = latestUserIntent ? scoreStress(latestUserIntent) : 0
+        const stressScore = latestUserIntent ? await scoreStress(latestUserIntent) : 0
         const apiRoute = await remoteCall("routeModel", [_prompt, currentTier, TRINITY_CHEAP, TRINITY_MEDIUM, LEARNED_EXPLORATORY, stressScore], null)
         if (apiRoute?.target) {
           _target = apiRoute.target
@@ -4133,7 +4147,7 @@ function scoreTaskQuality(outputText, promptText) {
         const statusLine = tags.join(" ")
         let stressTag = ""
         if (latestUserIntent) {
-          const ss = scoreStress(latestUserIntent)
+          const ss = await scoreStress(latestUserIntent)
           if (ss > 0.1) {
             const label = ss > 0.7 ? "high" : ss > 0.4 ? "elevated" : "calm"
             stressTag = ` stress:${label}`
@@ -4254,7 +4268,7 @@ function scoreTaskQuality(outputText, promptText) {
             seen.add(fp)
             const isTestPath = /(^|\/)(tests?|spec)\//i.test(fp) || /\.(test|spec)\./i.test(fp)
             if (sel.tdd_enforce && !isTestPath) {
-              const createdPath = enforceTestFile(fp)
+              const createdPath = await enforceTestFile(fp)
               if (createdPath) {
                 const ext = createdPath.split('.').pop()
                 const fileName = createdPath.split('/').pop()
@@ -4285,7 +4299,7 @@ function scoreTaskQuality(outputText, promptText) {
         const explicitTestIntent = isUserAskingForTests(latestUserIntent)
         const isTestPath = /(^|\/)(tests?|spec)\//i.test(fp) || /\.(test|spec)\./i.test(fp)
         if (sel.tdd_enforce && !isTestPath) {
-          const createdPath = enforceTestFile(fp)
+          const createdPath = await enforceTestFile(fp)
           if (createdPath) {
             const ext = createdPath.split('.').pop()
             const fileName = createdPath.split('/').pop()
@@ -4610,7 +4624,7 @@ function scoreTaskQuality(outputText, promptText) {
 
         if (latestUserIntent) {
           const stressMult = _controlVector?.stress_multiplier ?? 1.0
-          const _s = scoreStress(latestUserIntent) * stressMult
+          const _s = await scoreStress(latestUserIntent) * stressMult
           if (_s > 0.7) {
             if (Array.isArray(output?.system)) output.system.push(
               "[stress mitigation: CRITICAL] The user's message shows very high stress indicators. " +
@@ -4858,7 +4872,7 @@ function scoreTaskQuality(outputText, promptText) {
             const cheapModel = tiers?.cheap?.oc || "(unset)"
             const activeSlot = sel.active_slot || "brain"
 
-            const stressScore = latestUserIntent ? scoreStress(latestUserIntent) : 0
+            const stressScore = latestUserIntent ? await scoreStress(latestUserIntent) : 0
             const stressBar = stressScore > 0.85 ? "█" : stressScore > 0.7 ? "▆" : stressScore > 0.5 ? "▅" : stressScore > 0.3 ? "▃" : stressScore > 0.1 ? "▂" : "▁"
             const stressLabel = stressScore > 0.7 ? "high" : stressScore > 0.4 ? "elevated" : stressScore > 0.1 ? "calm" : "none"
 
