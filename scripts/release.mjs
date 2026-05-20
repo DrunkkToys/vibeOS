@@ -284,6 +284,7 @@ if (process.argv.includes("--ci")) {
 } catch (e) {
   log(`${YELLOW}⚠${RESET}  deploy step failed: ${e.message}`)
 }
+}
 
 // ── DONE ───────────────────────────────────────────────────────
 
