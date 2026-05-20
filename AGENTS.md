@@ -99,6 +99,13 @@ The plugin hooks into OpenCode via seven extension points defined in `src/index.
 | `~/.claude/reports/` | Saved research-audit and manual reports |
 | `~/.claude/blackbox-state.json` | Per-project resolution tracker state, session outcomes |
 | `~/.claude/.vibeOS-locks/` | File-based locks preventing concurrent plugin instances |
+| `~/.claude/savings-ledger.jsonl` | Append-only savings and credit event log |
+| `~/.claude/global-learning.json` | Cross-project pattern learning, pricing hints, struggle/tech co-occurrence |
+| `~/.claude/model-pricing-cache.json` | Cached model pricing metadata keyed by model ID |
+| `~/.claude/active-jobs.json` | In-flight delegation job records with status and result paths |
+| `~/.claude/.flow-todo-queue.jsonl` | Flow enforcer TODO extraction queue (append-only) |
+| `~/.claude/.flow-dedup-keys.json` | Deduplication key set for flow TODO extraction |
+| `~/.claude/.enforcement-cooldown.jsonl` | Per-tool cooldown timestamps for delegation warn coalescing |
 | `.env.production` | Production API credentials (gitignored, local only) |
 | `PRODUCTION-CREDENTIALS.md` | Credential reference and management commands (gitignored, local only) |
 
@@ -124,12 +131,20 @@ usable plugin runtime
 | `src/utils/math.ts` | `src/utils/math.js` |
 | `src/utils/timer.ts` | `src/utils/timer.js` |
 | `src/flow-enforcer.ts` | `src/flow-enforcer.js` |
+| `src/vibeOS-lib/ml-router.ts` | `src/vibeOS-lib/ml-router.js` |
+| `src/vibeOS-lib/smart-cache.ts` | `src/vibeOS-lib/smart-cache.js` |
+| `src/vibeOS-lib/blackbox/resolution-tracker.ts` | `src/vibeOS-lib/blackbox/resolution-tracker.js` |
+| `src/vibeOS-lib/blackbox/advice-layer.ts` | `src/vibeOS-lib/blackbox/advice-layer.js` |
+| `src/vibeOS-lib/blackbox/exposure-model.ts` | `src/vibeOS-lib/blackbox/exposure-model.js` |
+| `src/vibeOS-lib/blackbox/taxonomy.ts` | `src/vibeOS-lib/blackbox/taxonomy.js` |
+| `src/vibeOS-lib/blackbox/crew-constants.ts` | `src/vibeOS-lib/blackbox/crew-constants.js` |
+| `src/vibeOS-lib/blackbox/index.ts` | `src/vibeOS-lib/blackbox/index.js` |
 
 ---
 
 ## 🔌 OPECODE HOOKS — DO NOT ALTER SIGNATURES
 
-These six hooks are registered in `src/index.js`. Changing any hook signature or removing a hook will break the plugin.
+These seven hooks are registered in `src/index.js`. Changing any hook signature or removing a hook will break the plugin.
 
 ```
 "experimental.text.complete"
@@ -138,6 +153,8 @@ These six hooks are registered in `src/index.js`. Changing any hook signature or
 "tool.execute.before"
 "tool.execute.after"
 "message.updated"
+"experimental.session.compacting"
+
 ```
 
 - `experimental.chat.system.transform` — Injects system prompt directives (context7 optimization, stress inoculation, flow/TDD enforcement rules).
@@ -192,9 +209,18 @@ Runs `tsc -p tsconfig.json --noEmit` — validates all TypeScript sources withou
 | File | Contents |
 |---|---|
 | `~/.claude/delegation-state.json` | `sessions[...].warns[]`, `sessions[...].cache_hits[]`, `sessions[...].cache_savings_usd`, `lifetime.total_savings_usd`, `lifetime.cache_savings_usd`, `lifetime.missed_context7_usd` |
+| `~/.claude/blackbox-state.json` | Per-project resolution tracker state, session outcomes |
+| `~/.claude/.vibeOS-locks/` | File-based locks preventing concurrent plugin instances |
 | `~/.claude/model-tiers.json` | `brain`, `medium`, `cheap` model IDs |
 | `~/.claude/project-states.json` | Per-project memory, report references, analytics |
 | `~/.claude/reports/` | Directory of saved report JSON files |
+| `~/.claude/savings-ledger.jsonl` | Append-only savings and credit event log |
+| `~/.claude/global-learning.json` | Cross-project pattern learning, pricing hints, struggle/tech co-occurrence |
+| `~/.claude/model-pricing-cache.json` | Cached model pricing metadata keyed by model ID |
+| `~/.claude/active-jobs.json` | In-flight delegation job records with status and result paths |
+| `~/.claude/.flow-todo-queue.jsonl` | Flow enforcer TODO extraction queue (append-only) |
+| `~/.claude/.flow-dedup-keys.json` | Deduplication key set for flow TODO extraction |
+| `~/.claude/.enforcement-cooldown.jsonl` | Per-tool cooldown timestamps for delegation warn coalescing |
 
 ### Critical Rules
 

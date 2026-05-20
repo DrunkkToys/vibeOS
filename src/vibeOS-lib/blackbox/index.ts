@@ -63,3 +63,13 @@ export {
   ACTION_SUGGESTIONS,
   CURIOSITY_PROMPTS,
 } from "./crew-constants.js"
+
+export {
+  computeControlVector,
+  buildControlHistoryEntry,
+  REGIME_CONTROL_TABLE,
+} from "./meta-controller.js"
+
+export type {
+  ControlVector,
+} from "./meta-controller.js"

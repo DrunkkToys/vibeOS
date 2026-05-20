@@ -1,3 +1,22 @@
+## 0.12.0 (production readiness stabilisation)
+
+- feat: production-ready feature inventory and documentation reconciliation
+- feat: complete test coverage — 362 passing tests, all skeleton files filled
+- fix: error handling — added null-safe DelegationEnforcer default parameter
+- fix: error handling — wrapped all scratchpad I/O in try/catch guards
+- fix: error handling — safeJsonParse adopted in parseJsonc for JSONC tolerance
+- fix: state file integrity — atomic write-then-rename for all 7 state file writers
+- fix: state file integrity — corruption recovery with backup + logging for all 8 readers
+- fix: state file integrity — 10MB size limits prevent OOM on corrupt files
+- fix: MCP server — CORS headers, request logging, input validation, path traversal protection
+- fix: API server — input validation, error handling, SQL injection protection on all 15 route files
+- fix: API server — auth middleware hardening (suspended seat handling, master key auth)
+- fix: scripts — demo_timer.mjs corruption fix, release.mjs syntax fix, sync-ts-build.mjs mapping fix
+- fix: CI/CD — node 20/22 matrix, build step, new release.yml workflow
+- fix: build chain — orphaned dist-ts/ artifacts removed, all TS file mappings verified
+- docs: AGENTS.md — added 7th hook, 8 missing .ts files, 9 missing state files
+- docs: README — added 4 env vars, 3 trinity commands
+
 ## 0.11.0
 - feat: per-session model lock (`trinity lock on|off`) — prevents auto-reconcile with OpenCode config changes
 - feat: lock status shown in `trinity status` guards and live footer (`LOCK` tag)

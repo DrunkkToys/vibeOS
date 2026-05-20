@@ -1,7 +1,27 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": [
-    "./.opencode/plugins/vibeOS-tui.tsx"
-  ],
-  "model": "deepseek/deepseek-v4-pro"
+  "model": "anthropic/claude-haiku-4-5",
+  "provider": {
+    "deepseek": {
+      "name": "DeepSeek",
+      "api": "openai",
+      "options": {
+        "baseURL": "https://api.deepseek.com/v1"
+      },
+      "models": {
+        "deepseek-v4-pro": {
+          "name": "DeepSeek V4 Pro"
+        },
+        "deepseek-v4-flash": {
+          "name": "DeepSeek V4 Flash"
+        },
+        "deepseek-chat": {
+          "name": "DeepSeek Chat"
+        },
+        "deepseek-reasoner": {
+          "name": "DeepSeek Reasoner"
+        }
+      }
+    }
+  }
 }

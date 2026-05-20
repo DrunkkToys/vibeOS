@@ -1,33 +1,41 @@
-import http from "node:http"
-import { parse as parseUrl } from "node:url"
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2026 vibeOS <https://github.com/DrunkkToys/vibeOS>
 
-type TrinityAction = "status" | "enable" | "disable" | "set" | "thinking" | "flow" | "tdd" | "project" | "patterns" | "rebuild" | "diagnose" | "help" | "enforce" | "repair-state"
+import http from "node:http"
+import { IncomingMessage, ServerResponse } from "node:http"
+import { parse as parseUrl } from "node:url"
+import { URLSearchParams } from "node:url"
 
 type Deps = {
-  getState: () => any
-  getSavings: () => any
-  getSessionMetrics: (sid?: string) => any
-  listReports: (filter?: any) => any[]
-  readReport: (id: string) => any
-  runDiagnose: () => any
-  runProject: () => any
-  runTrinity: (action: TrinityAction, params?: any) => Promise<any> | any
-  runResearchAudit: (hours?: number) => any
-  saveReport: (data: any) => string | null
+  getState: () => unknown
+  getSavings: () => unknown
+  getSessionMetrics: (sessionId: string) => unknown
   getCurrentSessionId: () => string
-  generateSessionCheckout: () => any
+  listReports: (params: { type?: string; project?: string; hours?: number; fingerprint?: string }) => unknown
+  readReport: (id: string) => unknown
+  runDiagnose: () => unknown
+  runProject: () => unknown
+  runTrinity: (action: string, opts: { slot?: string; level?: string }) => Promise<unknown>
+  runResearchAudit: (hours: number) => unknown
+  saveReport: (params: { type: string; summary: string; findings: unknown[]; metrics: Record<string, unknown>; narrative: string; tags: unknown[] }) => string | null
+  generateSessionCheckout: () => unknown
 }
 
-function json(res: http.ServerResponse, statusCode: number, data: any): void {
+type McpServer = {
+  start: (port: number) => Promise<http.Server>
+  close: () => Promise<void>
+}
+
+function json(res: ServerResponse, statusCode: number, data: unknown): void {
   res.statusCode = statusCode
   res.setHeader("Content-Type", "application/json")
   res.end(JSON.stringify(data))
 }
 
-function parseBody(req: http.IncomingMessage): Promise<any> {
+function parseBody(req: IncomingMessage): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     let raw = ""
-    req.on("data", (chunk) => {
+    req.on("data", (chunk: Buffer) => {
       raw += String(chunk || "")
       if (raw.length > 1024 * 1024) {
         reject(new Error("payload too large"))
@@ -48,12 +56,12 @@ function parseBody(req: http.IncomingMessage): Promise<any> {
   })
 }
 
-export function createMcpServer(deps: Deps): { start: (port: number) => Promise<http.Server>; close: () => Promise<void> } {
+export function createMcpServer(deps: Deps): McpServer {
   let server: http.Server | null = null
   let startPromise: Promise<http.Server> | null = null
   let closePromise: Promise<void> | null = null
 
-  const handler = async (req: http.IncomingMessage, res: http.ServerResponse) => {
+  const handler = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     try {
       const method = (req.method || "GET").toUpperCase()
       const parsed = parseUrl(req.url || "/", true)
@@ -63,21 +71,19 @@ export function createMcpServer(deps: Deps): { start: (port: number) => Promise<
         json(res, 200, deps.getState())
         return
       }
-
       if (method === "GET" && path === "/savings") {
         json(res, 200, deps.getSavings())
         return
       }
-
       if (method === "GET" && path === "/sessions") {
-        const state = deps.getState()
-        const sessionsMap = state?.sessions_raw || {}
-        const sessions = Object.entries(sessionsMap).map(([id, ses]: [string, any]) => ({
+        const state = deps.getState() as Record<string, unknown> | null
+        const sessionsMap = state?.sessions_raw as Record<string, Record<string, unknown>> | undefined || {}
+        const sessions = Object.entries(sessionsMap).map(([id, ses]) => ({
           id,
           started: ses?.started || null,
           cost_usd: Number(ses?.cost_usd ?? 0) || 0,
           delegation_savings_usd: Array.isArray(ses?.warns)
-            ? ses.warns.reduce((sum: number, w: any) => sum + (Number(w?.est_savings_usd ?? 0) || 0), 0)
+            ? (ses.warns as Array<Record<string, unknown>>).reduce((sum, w) => sum + (Number(w?.est_savings_usd ?? 0) || 0), 0)
             : 0,
           cache_savings_usd: Number(ses?.cache_savings_usd ?? 0) || 0,
           warns_count: Array.isArray(ses?.warns) ? ses.warns.length : 0,
@@ -85,23 +91,23 @@ export function createMcpServer(deps: Deps): { start: (port: number) => Promise<
         json(res, 200, { sessions, total_sessions: sessions.length })
         return
       }
-
       if (method === "GET" && path === "/sessions/current") {
         json(res, 200, deps.getSessionMetrics(deps.getCurrentSessionId()))
         return
       }
-
       if (method === "GET" && path === "/reports") {
         try {
-          const type = typeof parsed.query.type === "string" ? parsed.query.type : undefined
-          const project = typeof parsed.query.project === "string" ? parsed.query.project : undefined
-          const hoursRaw = parsed.query.hours
+          const query = parsed.query as Record<string, string | undefined>
+          const type = typeof query.type === "string" ? query.type : undefined
+          const project = typeof query.project === "string" ? query.project : undefined
+          const hoursRaw = query.hours
           const hours = hoursRaw != null ? Number(hoursRaw) : undefined
-          const fingerprint = typeof parsed.query.fingerprint === "string" ? parsed.query.fingerprint : undefined
-          const reports = deps.listReports({ type, project, hours: Number.isFinite(hours) ? hours : undefined, fingerprint })
+          const fingerprint = typeof query.fingerprint === "string" ? query.fingerprint : undefined
+          const reports = deps.listReports({ type, project, hours: Number.isFinite(hours as number) ? hours : undefined, fingerprint })
           json(res, 200, reports)
-        } catch (err: any) {
-          if (err?.status === 404) {
+        } catch (err: unknown) {
+          const error = err as { status?: number }
+          if (error?.status === 404) {
             json(res, 404, { error: "not found", status: 404 })
             return
           }
@@ -109,7 +115,6 @@ export function createMcpServer(deps: Deps): { start: (port: number) => Promise<
         }
         return
       }
-
       if (method === "GET" && path.startsWith("/reports/")) {
         const id = decodeURIComponent(path.replace(/^\/reports\//, "")).trim()
         const report = deps.readReport(id)
@@ -120,28 +125,25 @@ export function createMcpServer(deps: Deps): { start: (port: number) => Promise<
         json(res, 200, report)
         return
       }
-
       if (method === "GET" && path === "/diagnose") {
         json(res, 200, deps.runDiagnose())
         return
       }
-
       if (method === "GET" && path === "/project") {
         json(res, 200, deps.runProject())
         return
       }
-
       if (method === "POST" && path === "/trinity") {
-        let body: any
+        let body: Record<string, unknown>
         try {
           body = await parseBody(req)
         } catch {
           json(res, 400, { error: "invalid request", status: 400 })
           return
         }
-        const action = body?.action as TrinityAction
-        const slot = body?.slot
-        const level = body?.level
+        const action = body?.action as string | undefined
+        const slot = body?.slot as string | undefined
+        const level = body?.level as string | undefined
         if (!action || typeof action !== "string") {
           json(res, 400, { error: "invalid request", status: 400 })
           return
@@ -152,9 +154,8 @@ export function createMcpServer(deps: Deps): { start: (port: number) => Promise<
         json(res, ok ? 200 : 400, ok ? { ok: true, result } : { ok: false, error: txt })
         return
       }
-
       if (method === "POST" && path === "/research-audit") {
-        let body: any
+        let body: Record<string, unknown>
         try {
           body = await parseBody(req)
         } catch {
@@ -166,9 +167,8 @@ export function createMcpServer(deps: Deps): { start: (port: number) => Promise<
         json(res, 200, report)
         return
       }
-
       if (method === "POST" && path === "/reports") {
-        let body: any
+        let body: Record<string, unknown>
         try {
           body = await parseBody(req)
         } catch {
@@ -181,10 +181,10 @@ export function createMcpServer(deps: Deps): { start: (port: number) => Promise<
         }
         const id = deps.saveReport({
           type: "manual",
-          summary: body.summary || "",
-          findings: body.findings || [],
-          metrics: body.metrics || {},
-          narrative: body.narrative || "",
+          summary: (body.summary as string) || "",
+          findings: (body.findings as unknown[]) || [],
+          metrics: (body.metrics as Record<string, unknown>) || {},
+          narrative: (body.narrative as string) || "",
           tags: Array.isArray(body.tags) ? body.tags : [],
         })
         if (!id) {
@@ -194,63 +194,66 @@ export function createMcpServer(deps: Deps): { start: (port: number) => Promise<
         json(res, 200, { ok: true, id })
         return
       }
-
       if (method === "POST" && path === "/sessions/checkout") {
         const result = deps.generateSessionCheckout()
         json(res, 200, result)
         return
       }
-
       json(res, 404, { error: "not found", status: 404 })
-    } catch (err: any) {
-      json(res, 500, { error: err?.message || "internal error", status: 500 })
+    } catch (err: unknown) {
+      const error = err as { message?: string }
+      json(res, 500, { error: error?.message || "internal error", status: 500 })
     }
   }
 
   return {
-    async start(port: number) {
+    async start(port: number): Promise<http.Server> {
       if (closePromise) await closePromise
       if (server) return server
       if (startPromise) return startPromise
-      const listen = (listenPort: number) => new Promise<http.Server>((resolve, reject) => {
-        const nextServer = http.createServer((req, res) => {
+
+      const listen = (listenPort: number): Promise<http.Server> => new Promise((resolve, reject) => {
+        const nextServer = http.createServer((req: IncomingMessage, res: ServerResponse) => {
           void handler(req, res)
         })
         const onListening = () => resolve(nextServer)
         const onError = (err: Error) => {
-          try { nextServer.close() } catch {}
+          try { nextServer.close() } catch { }
           reject(err)
         }
         nextServer.once("listening", onListening)
         nextServer.once("error", onError)
         try {
           nextServer.listen(listenPort, "127.0.0.1")
-        } catch (err) {
+        } catch (err: unknown) {
           onError(err as Error)
         }
       })
+
       startPromise = (async () => {
         try {
           server = await listen(port)
           return server
-        } catch (err: any) {
-          if (err?.code !== "EADDRINUSE" || port === 0) {
+        } catch (err: unknown) {
+          const error = err as { code?: string; message: string }
+          if (error?.code !== "EADDRINUSE" || port === 0) {
             startPromise = null
             server = null
-            console.error(`[vibeOS] MCP server bind failed: ${err.message}`)
+            console.error(`[vibeOS] MCP server bind failed: ${error.message}`)
             throw err
           }
           try {
             const fallback = await listen(0)
             server = fallback
             const bound = fallback.address()
-            const actualPort = typeof bound === "object" && bound ? bound.port : 0
+            const actualPort = typeof bound === "object" && bound ? (bound as { port: number }).port : 0
             console.error(`[vibeOS] MCP server port ${port} busy; fell back to ${actualPort}`)
             return fallback
-          } catch (fallbackErr: any) {
+          } catch (fallbackErr: unknown) {
+            const fbError = fallbackErr as { message: string }
             startPromise = null
             server = null
-            console.error(`[vibeOS] MCP server bind failed: ${fallbackErr.message}`)
+            console.error(`[vibeOS] MCP server bind failed: ${fbError.message}`)
             throw fallbackErr
           }
         } finally {
@@ -259,7 +262,8 @@ export function createMcpServer(deps: Deps): { start: (port: number) => Promise<
       })()
       return startPromise
     },
-    close() {
+
+    close(): Promise<void> {
       if (!server) return closePromise || Promise.resolve()
       if (closePromise) return closePromise
       const current = server

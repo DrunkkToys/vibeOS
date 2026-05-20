@@ -50,6 +50,10 @@ vibeOS protects its core algorithms by serving them from a self-hosted API serve
 VIBEOS_API_URL=https://api.vibetheog.com   # API server URL (default: https://api.vibetheog.com)
 VIBEOS_API_TOKEN=vos_...                    # Your API token (required for remote mode)
 VIBEOS_API_ENABLED=true                     # Set to "false" to use local-only mode
+CLAUDE_CREDIT_PERCENT=150                   # Override credit percentage (default: 100)
+CLAUDE_CONTEXT7_AVAILABLE=true              # Set to enable context7 cost optimization
+CLAUDE_SCRATCHPAD_MAX_AGE_SEC=86400         # Scratchpad cache lifetime in seconds
+VIBEOS_MCP_PORT=3001                        # MCP server port (default: 3001)
 ```
 
 When `VIBEOS_API_TOKEN` is not set or `VIBEOS_API_ENABLED=false`, the plugin runs in local-only mode with all algorithms bundled. When a valid token is provided, core algorithms are offloaded to the remote API.
@@ -122,6 +126,9 @@ Main commands:
 - `trinity project`
 - `trinity patterns`
 - `trinity patterns clear`
+- `trinity patterns suggest`
+- `trinity target <amount>`
+- `trinity repair-state`
 - `trinity guard`
 - `trinity diagnose`
 - `trinity rebuild`

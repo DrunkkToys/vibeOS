@@ -288,11 +288,13 @@ export function recordFlowTodo({ filePath, content }: FlowTodoInput): number {
   try {
     mkdirSync(dirname(FLOW_TODO_FILE), { recursive: true })
     // Extract TODO/FIXME lines from content (line-by-line for reliability).
-    const todoRe = /(TODO|FIXME|HACK)[\s:]+(.+)$/i
+    const todoRe = /(?:\/\/\s*|\#\s*)(TODO|FIXME|HACK)[\s:]+(.+)$/i
     const todos: Array<{ type: string; text: string }> = []
     for (const line of content.split("\n")) {
+      console.log(`[DEBUG] Checking line: "${line}"`);
       const m = line.match(todoRe)
       if (m) {
+        console.log(`[DEBUG] Match found: ${m[0]} -> type: ${m[1]}, text: ${m[2]}`);
         todos.push({ type: m[1], text: m[2].trim() })
       }
     }

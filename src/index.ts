@@ -302,7 +302,7 @@ let _blackboxTracker = null
 let _blackboxEnabled = false
 let _modelLocked = false
 
-function loadBlackboxState() {
+export function loadBlackboxState() {
   try {
     if (!existsSync(BLACKBOX_STATE_FILE)) return { enabled: false, sessions: {} }
     const st = statSync(BLACKBOX_STATE_FILE)
@@ -311,7 +311,7 @@ function loadBlackboxState() {
   } catch { _handleStateCorruption(BLACKBOX_STATE_FILE); return { enabled: false, sessions: {} } }
 }
 
-function saveBlackboxState(state) {
+export function saveBlackboxState(state) {
   try {
     mkdirSync(dirname(BLACKBOX_STATE_FILE), { recursive: true })
     const tmp = BLACKBOX_STATE_FILE + ".tmp"
@@ -471,9 +471,9 @@ const FREE           = new Set(["task","todowrite","question","skill","read","gl
 // Values calibrated to the cheap end of the high tier (deepseek-v4-pro)
 // to ensure savings reported are conservative, not aspirational.
 const SAVE_EST = {
-  WRITE_EDIT:   0.0006,  // 1 cheap high-tier turn ≈ deepseek-v4-pro
+  WRITE_EDIT:   0.005,  // Conservative estimate for brain-tier vs worker-tier
   SOFT_QUOTA:   0.0003,  // tool runs regardless — nominal for tracking
-  CONTEXT7:     0.0006,  // webfetch turn cost for cheapest high-tier model
+  CONTEXT7:     0.002,   // webfetch turn cost for cheapest high-tier model
   OPUS_DISABLE: 0.03,    // full-turn cost for actual opus-tier model (Anthropic API)
 }
 // Estimated USD saved per 1M cached input tokens (miss_price - cache_hit_price).
@@ -552,10 +552,9 @@ function _loadDynamicPricingCache() {
   if (_dynamicPricingCache && (now - _dynamicPricingCacheLoadedAt) < 10_000) return _dynamicPricingCache
   _dynamicPricingCacheLoadedAt = now
   try {
-    if (existsSync(PRICING_CACHE_FILE)) {
-      const st = statSync(PRICING_CACHE_FILE)
-      if (st.size > 10485760) { _handleStateCorruption(PRICING_CACHE_FILE); _dynamicPricingCache = {}; return {} }
-    }
+    if (!existsSync(PRICING_CACHE_FILE)) return {}
+    const st = statSync(PRICING_CACHE_FILE)
+    if (st.size > 10485760) { _handleStateCorruption(PRICING_CACHE_FILE); _dynamicPricingCache = {}; return {} }
     const raw = safeJsonParse(readFileSync(PRICING_CACHE_FILE, "utf-8"))
     const map = raw?.models && typeof raw.models === "object" ? raw.models : {}
     _dynamicPricingCache = map
@@ -970,8 +969,7 @@ function withFileLock(filePath, fn, opts = {}) {
       } catch {}
     }
   }
-  console.error(`[vibeOS] WARN: lock not acquired for ${filePath} after ${timeoutMs}ms -> possible concurrent write`)
-  return fn()
+  throw new Error(`[vibeOS] lock not acquired for ${filePath} after ${timeoutMs}ms`)
 }
 
 function readJsonOrEmpty(filePath) {
@@ -2639,7 +2637,7 @@ function loadMcpPort() {
   try {
     if (existsSync(TIERS_FILE)) {
       const tiers = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
-      const cfg = tiers?.mcp_port
+      const cfg = tiers?.selection?.mcp_port ?? tiers?.mcp_port
       if (cfg === false || cfg === "disabled") return 0
       if (cfg === 0) return 0
       const n = Number(cfg)
@@ -2654,6 +2652,7 @@ function persistMcpPort(port) {
     if (!existsSync(TIERS_FILE)) return
     const tiers = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
     tiers.selection ??= {}
+    tiers.mcp_port = port
     if (Number(tiers.selection.mcp_port) === Number(port)) return
     tiers.selection.mcp_port = port
     mkdirSync(dirname(TIERS_FILE), { recursive: true })

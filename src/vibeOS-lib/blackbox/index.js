@@ -7,3 +7,4 @@ export { classifySituation, getActions, recommendAction, getSituationTypes, } fr
 export { ResolutionTracker } from "./resolution-tracker.js";
 export { ExposureModel } from "./exposure-model.js";
 export { ACTION_TARGET, ACTION_TYPE, FALLBACK_PLANS, ACTION_SUGGESTIONS, CURIOSITY_PROMPTS, } from "./crew-constants.js";
+export { computeControlVector, buildControlHistoryEntry, REGIME_CONTROL_TABLE, } from "./meta-controller.js";
