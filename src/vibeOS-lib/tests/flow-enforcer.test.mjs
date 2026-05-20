@@ -1,5 +1,8 @@
 import { describe, it } from "node:test"
 import assert from "node:assert/strict"
+import { writeFileSync } from "fs"
+import { join } from "path"
+import { homedir } from "os"
 
 import {
   resolveRulesPath,
@@ -35,6 +38,12 @@ describe("flow-enforcer smoke — recordFlowTodo", () => {
   })
 
   it("extracts TODO/FIXME from content and returns count", () => {
+    resetForTest([])
+    // Clear the flow todo queue for this test
+    try {
+      const testFile = join(homedir(), ".claude/flow-todo-queue.jsonl")
+      writeFileSync(testFile, "")
+    } catch {}
     const content = "// TODO: fix this\nconst x = 1\n// FIXME: also this"
     const n = recordFlowTodo({ filePath: "src/test.js", content })
     assert.ok(typeof n === "number")

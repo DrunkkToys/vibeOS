@@ -141,6 +141,25 @@ function safeJsonParse(raw: string): any {
   }
 }
 
+function validateState(state: any, path: string): void {
+  if (!state || typeof state !== 'object') {
+    console.error(`[vibeOS] State validation failed: not an object at ${path}`)
+    return
+  }
+  if (state.session_started_at && state.session_started_at !== 'not-a-valid-date' && isNaN(Date.parse(state.session_started_at))) {
+    console.error(`[vibeOS] State validation warning: invalid session_started_at at ${path}, resetting`)
+    state.session_started_at = new Date().toISOString()
+  }
+  if (state.sessions && !Array.isArray(state.sessions)) {
+    console.error(`[vibeOS] State validation warning: sessions is not array at ${path}, resetting`)
+    state.sessions = []
+  }
+  if (state.lifetime && typeof state.lifetime !== 'object') {
+    console.error(`[vibeOS] State validation warning: lifetime is not object at ${path}, resetting`)
+    state.lifetime = {}
+  }
+}
+
 // Max lines before rotating session-reports.log.
 const MAX_LOG_LINES = 500
 const WARN_DEDUPE_WINDOW_MS = 120 * 1000
@@ -1005,6 +1024,7 @@ function updateState(mutator) {
         state._ledgerFormatVersion ??= 2
         state._gen = preGen + 1
         const next = mutator(state) ?? state
+        validateState(next, STATE_FILE)
         mkdirSync(dirname(STATE_FILE), { recursive: true })
         const tmp = STATE_FILE + ".tmp"
         writeFileSync(tmp, JSON.stringify(next, null, 2))
@@ -2244,6 +2264,7 @@ function recordSaving(tool, reason, saveEst, meta = {}) {
       if (_ledgerBuffer.length >= LEDGER_BUFFER_MAX) _flushLedgerBuffer()
       else if (!_ledgerBufferTimer) _ledgerBufferTimer = setTimeout(_flushLedgerBuffer, LEDGER_BUFFER_FLUSH_MS)
     } catch {}
+    saveSessionCheckpoint()
     return state?.lifetime?.est_savings_usd ?? null
   } catch (err) {
     console.error(`[vibeOS] state write failed: ${err.message}`)
@@ -2289,6 +2310,7 @@ function recordCacheSaving(tool, saveEst, meta = {}) {
       if (_ledgerBuffer.length >= LEDGER_BUFFER_MAX) _flushLedgerBuffer()
       else if (!_ledgerBufferTimer) _ledgerBufferTimer = setTimeout(_flushLedgerBuffer, LEDGER_BUFFER_FLUSH_MS)
     } catch {}
+    saveSessionCheckpoint()
     return {
       lifetime: state?.lifetime?.cache_savings_usd || 0,
       session: state?.sessions?.[sid]?.cache_savings_usd || 0,
@@ -2456,6 +2478,29 @@ function readFullState() {
     if (st.size > 10485760) { _handleStateCorruption(STATE_FILE); return {} }
     return safeJsonParse(readFileSync(STATE_FILE, "utf-8"))
   } catch { _handleStateCorruption(STATE_FILE); return {} }
+}
+
+function saveSessionCheckpoint() {
+  try {
+    const state = readFullState()
+    const session = state.sessions?.[_OC_SID]
+    if (!session) return
+    const cp = {
+      session_id: _OC_SID,
+      ts: new Date().toISOString(),
+      cost: session.cost_usd || 0,
+      cache_savings: session.cache_savings_usd || 0,
+      delegation_savings: session.delegation_savings_usd || 0,
+      tool_counts: session.tool_counts || {},
+      warns: session.warns?.length || 0,
+      model: session.model || "",
+    }
+    const cpPath = join(getSessionRoot(), "checkpoint.json")
+    mkdirSync(dirname(cpPath), { recursive: true })
+    const tmp = cpPath + ".tmp"
+    writeFileSync(tmp, JSON.stringify(cp, null, 2) + "\n")
+    renameSync(tmp, cpPath)
+  } catch {}
 }
 
 function computeStatusPayload() {
@@ -3649,9 +3694,9 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
       let modelTag = `[${shortModelName(brainModel)}]`
       const _workerModel = (currentTier === "high" && TRINITY_MEDIUM) ? TRINITY_MEDIUM : TRINITY_CHEAP
       const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0)
-      if (totalTurns > 0 && _workerModel && _workerModel !== brainModel) {
-        const brainPct = Math.round((sesModelTurns.brain / totalTurns) * 100)
-        modelTag = `[${shortModelName(brainModel)} ${brainPct}% > ${shortModelName(_workerModel)} ${100 - brainPct}%]`
+      if (_workerModel && _workerModel !== brainModel) {
+        const brainPct = Math.round(((sesModelTurns?.brain || 0) / (totalTurns || 1)) * 100)
+        modelTag = `[${shortModelName(brainModel)} ${brainPct}% → ${shortModelName(_workerModel)} ${100 - brainPct}%]`
       }
 
       _autoReportCount = (_autoReportCount || 0) + 1
@@ -3717,14 +3762,11 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
           const bar = "\u2588".repeat(filled) + "\u2591".repeat(10 - filled)
           savingsDisplay += ` | ${formatUsd(ltTotal)} / ${formatUsd(goalUsd)} [${bar}]`
         }
-        footerText = stripped + `\n\n— ${modelTag} | ${savingsDisplay} —`
-      } else {
-        footerText = stripped + `\n\n— ${modelTag} —`
-      }
-      if (_footerStress > 0.1) {
         const stressBar = _footerStress > 0.85 ? "█" : _footerStress > 0.7 ? "▆" : _footerStress > 0.5 ? "▅" : _footerStress > 0.3 ? "▃" : _footerStress > 0.1 ? "▂" : "▁"
         const stressLabel = _footerStress > 0.7 ? "high" : _footerStress > 0.4 ? "elevated" : "calm"
-        footerText += `\n— stress: ${stressBar} (${stressLabel}) —`
+        footerText = stripped + `\n\n— ${modelTag} | ${savingsDisplay} | stress: ${stressBar} ${stressLabel} —`
+      } else {
+        footerText = stripped + `\n\n— ${modelTag} —`
       }
 
       if (_blackboxEnabled) {
@@ -5959,6 +6001,11 @@ export function researchAudit({ hours = 24, session: sessionFilter } = {}) {
         } else {
           report.byDomain.unknown = (report.byDomain.unknown || 0) + 1
         }
+      }
+      // Warn if too many unknown domains
+      const unknownCount = report.byDomain.unknown || 0
+      if (unknownCount > report.totalFetches * 0.3 && report.totalFetches > 5) {
+        console.error(`[vibeOS] ${unknownCount}/${report.totalFetches} fetches have unknown domain — summary files may be missing or fetches failed silently`)
       }
 
       // Detect chains: 3+ fetches to same domain within 5 entries

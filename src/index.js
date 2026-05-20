@@ -145,6 +145,24 @@ function safeJsonParse(raw) {
         throw e;
     }
 }
+function validateState(state, path) {
+    if (!state || typeof state !== 'object') {
+        console.error(`[vibeOS] State validation failed: not an object at ${path}`);
+        return;
+    }
+    if (state.session_started_at && state.session_started_at !== 'not-a-valid-date' && isNaN(Date.parse(state.session_started_at))) {
+        console.error(`[vibeOS] State validation warning: invalid session_started_at at ${path}, resetting`);
+        state.session_started_at = new Date().toISOString();
+    }
+    if (state.sessions && !Array.isArray(state.sessions)) {
+        console.error(`[vibeOS] State validation warning: sessions is not array at ${path}, resetting`);
+        state.sessions = [];
+    }
+    if (state.lifetime && typeof state.lifetime !== 'object') {
+        console.error(`[vibeOS] State validation warning: lifetime is not object at ${path}, resetting`);
+        state.lifetime = {};
+    }
+}
 // Max lines before rotating session-reports.log.
 const MAX_LOG_LINES = 500;
 const WARN_DEDUPE_WINDOW_MS = 120 * 1000;
@@ -1102,6 +1120,7 @@ function updateState(mutator) {
                 state._ledgerFormatVersion ??= 2;
                 state._gen = preGen + 1;
                 const next = mutator(state) ?? state;
+                validateState(next, STATE_FILE);
                 mkdirSync(dirname(STATE_FILE), { recursive: true });
                 const tmp = STATE_FILE + ".tmp";
                 writeFileSync(tmp, JSON.stringify(next, null, 2));
@@ -2552,6 +2571,7 @@ function recordSaving(tool, reason, saveEst, meta = {}) {
                 _ledgerBufferTimer = setTimeout(_flushLedgerBuffer, LEDGER_BUFFER_FLUSH_MS);
         }
         catch { }
+        saveSessionCheckpoint();
         return state?.lifetime?.est_savings_usd ?? null;
     }
     catch (err) {
@@ -2602,6 +2622,7 @@ function recordCacheSaving(tool, saveEst, meta = {}) {
                 _ledgerBufferTimer = setTimeout(_flushLedgerBuffer, LEDGER_BUFFER_FLUSH_MS);
         }
         catch { }
+        saveSessionCheckpoint();
         return {
             lifetime: state?.lifetime?.cache_savings_usd || 0,
             session: state?.sessions?.[sid]?.cache_savings_usd || 0,
@@ -2807,6 +2828,30 @@ function readFullState() {
         _handleStateCorruption(STATE_FILE);
         return {};
     }
+}
+function saveSessionCheckpoint() {
+    try {
+        const state = readFullState();
+        const session = state.sessions?.[_OC_SID];
+        if (!session)
+            return;
+        const cp = {
+            session_id: _OC_SID,
+            ts: new Date().toISOString(),
+            cost: session.cost_usd || 0,
+            cache_savings: session.cache_savings_usd || 0,
+            delegation_savings: session.delegation_savings_usd || 0,
+            tool_counts: session.tool_counts || {},
+            warns: session.warns?.length || 0,
+            model: session.model || "",
+        };
+        const cpPath = join(getSessionRoot(), "checkpoint.json");
+        mkdirSync(dirname(cpPath), { recursive: true });
+        const tmp = cpPath + ".tmp";
+        writeFileSync(tmp, JSON.stringify(cp, null, 2) + "\n");
+        renameSync(tmp, cpPath);
+    }
+    catch { }
 }
 function computeStatusPayload() {
     const sel = loadSelection();
@@ -4104,13 +4149,13 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                     typeof output?.content === "string" ? output.content :
                         "";
             const { ltTasks, ltCache, ltCost, count, sesTasks, sesEdit, sesCredit, sesC7, sesQuota, sesTaskDelegations, sesDuration, sesRatePerHour, sesTrend, sesToolBreakdown, sesModelTurns, quality_avg } = readLifetimeSavings();
-            const displayModel = TRINITY_BRAIN || currentModel || "";
-            let modelTag = `[${displayModel}]`;
+            const brainModel = TRINITY_BRAIN || currentModel || "";
+            let modelTag = `[${shortModelName(brainModel)}]`;
             const _workerModel = (currentTier === "high" && TRINITY_MEDIUM) ? TRINITY_MEDIUM : TRINITY_CHEAP;
             const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0);
-            if (_workerModel && _workerModel !== displayModel) {
+            if (_workerModel && _workerModel !== brainModel) {
                 const brainPct = Math.round(((sesModelTurns?.brain || 0) / (totalTurns || 1)) * 100);
-                modelTag = `[${displayModel} ${brainPct}% → ${_workerModel} ${100 - brainPct}%]`;
+                modelTag = `[${shortModelName(brainModel)} ${brainPct}% → ${shortModelName(_workerModel)} ${100 - brainPct}%]`;
             }
             _autoReportCount = (_autoReportCount || 0) + 1;
             if (_autoReportCount % 5 === 0) {
@@ -4216,6 +4261,22 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                 const it = textCompletePainted.values();
                 for (let i = 0; i < 100; i++)
                     textCompletePainted.delete(it.next().value);
+            }
+            if (ltTotal > 0 || ltCache > 0) {
+                try {
+                    const _ltFmt = ltTotal.toFixed(2);
+                    const _reportLine = `— ${modelTag} vibeOS: $${_ltFmt} saved ${trendIcon} —`;
+                    writeFileSync(join(USER_HOME, ".claude/session-report-pending.md"), _reportLine);
+                    const logPath = join(USER_HOME, ".claude/session-reports.log");
+                    const pid = process.pid || "?";
+                    const ts = new Date().toISOString().slice(0, 16).replace("T", " ");
+                    const newLine = `[${ts} pid=${pid}] ${_reportLine}`;
+                    if (!getLastLines(logPath, 5, 1024).includes(newLine)) {
+                        _rotateLog(logPath, MAX_LOG_LINES);
+                        appendFileSync(logPath, newLine + "\n");
+                    }
+                }
+                catch { }
             }
         }
         catch (err) {
@@ -6501,6 +6562,11 @@ export function researchAudit({ hours = 24, session: sessionFilter } = {}) {
                 else {
                     report.byDomain.unknown = (report.byDomain.unknown || 0) + 1;
                 }
+            }
+            // Warn if too many unknown domains
+            const unknownCount = report.byDomain.unknown || 0;
+            if (unknownCount > report.totalFetches * 0.3 && report.totalFetches > 5) {
+                console.error(`[vibeOS] ${unknownCount}/${report.totalFetches} fetches have unknown domain — summary files may be missing or fetches failed silently`);
             }
             // Detect chains: 3+ fetches to same domain within 5 entries
             const entries = lines
