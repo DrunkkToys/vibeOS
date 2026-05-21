@@ -435,6 +435,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
         console.error("[vibeOS] NO MODEL — enforcement disabled, will auto-detect on first hook");
     }
     // Auto-configure model-tiers.json
+    console.error(`[vibeOS] auto-config guard: currentModel=${currentModel ? "SET" : "NONE"}, TIERS_FILE=${TIERS_FILE}, exists=${existsSync(TIERS_FILE)}`);
     if (currentModel || !existsSync(TIERS_FILE)) {
         try {
             let _tiersData;
@@ -518,6 +519,10 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                 _didWrite = true;
             }
             if (_didWrite || _wasCorrupted) {
+                console.error(`[vibeOS] WRITE: _didWrite=${_didWrite} _wasCorrupted=${_wasCorrupted} brain=${_brain?.id}`);
+            }
+            else {
+                console.error(`[vibeOS] SKIP WRITE: _didWrite=${_didWrite} _wasCorrupted=${_wasCorrupted} existingBrain=${_existingBrain} brainId=${_brain?.id}`);
                 _tiersData.selection ??= {};
                 if (_tiersData.selection.mcp_port === undefined)
                     _tiersData.selection.mcp_port = 9578;

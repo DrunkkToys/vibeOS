@@ -115,7 +115,7 @@ export function createMcpServer(deps) {
                     cost_usd: Number(ses?.cost_usd ?? 0) || 0,
                     delegation_savings_usd: Array.isArray(ses?.warns)
                         ? ses.warns.reduce((sum, w) => sum + (Number(w?.est_savings_usd ?? 0) || 0), 0)
-                        : 0,
+                        : ses?.total_savings_usd || 0,
                     cache_savings_usd: Number(ses?.cache_savings_usd ?? 0) || 0,
                     warns_count: Array.isArray(ses?.warns) ? ses.warns.length : 0,
                 }));
