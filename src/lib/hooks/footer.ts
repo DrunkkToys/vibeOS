@@ -161,7 +161,7 @@ async function _appendFooter(input, output, directory) {
 
       const sessionSlot = loadSessionSlot(_OC_SID)
       const slot = sessionSlot || loadSelection().active_slot || "brain"
-      const brainModel = slot === "brain" ? TRINITY_BRAIN : slot === "medium" ? TRINITY_MEDIUM : TRINITY_CHEAP || currentModel || ""
+      const brainModel = slot === "brain" ? (TRINITY_BRAIN || currentModel) : slot === "medium" ? (TRINITY_MEDIUM || currentModel) : (TRINITY_CHEAP || currentModel || "")
       let modelTag = `[${shortModelName(brainModel)}]`
       const _workerModel = slot === "brain" ? TRINITY_MEDIUM : null
       const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0)
@@ -218,7 +218,8 @@ async function _appendFooter(input, output, directory) {
       // Optimization mode tag
       const optModeFooter = loadOptimizationMode()
       let optTagFooter = ""
-      if (optModeFooter === "budget") optTagFooter = "[BUDGET]"
+      if (optModeFooter === "audit") optTagFooter = "[AUDIT]"
+      else if (optModeFooter === "budget") optTagFooter = "[BUDGET]"
       else if (optModeFooter === "quality") optTagFooter = "[QUALITY]"
       else if (optModeFooter === "speed") optTagFooter = "[SPEED]"
       else if (optModeFooter === "longrun") optTagFooter = "[LONGRUN]"
@@ -226,7 +227,7 @@ async function _appendFooter(input, output, directory) {
         const autoRegime = classifyTurnSimple(latestUserIntent || "")
         const autoStress = scoreStress(latestUserIntent || "")
         const autoActive = await apiAutoSelectMode(autoRegime, autoStress)
-        const autoTag = { budget: "BUDGET", quality: "QUALITY", speed: "SPEED", longrun: "LONGRUN", balanced: "BALANCED" }
+        const autoTag = { audit: "AUDIT", budget: "BUDGET", quality: "QUALITY", speed: "SPEED", longrun: "LONGRUN", balanced: "BALANCED" }
         optTagFooter = `[AUTO→${autoTag[autoActive] || autoActive.toUpperCase()}]`
         const slot = autoActive === "quality" ? "brain" : autoActive === "speed" ? "medium" : "cheap"
         if (!_modelLocked) {

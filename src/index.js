@@ -2323,6 +2323,21 @@ function saveActiveJobForProject(job, fp3 = currentProjectFingerprint) {
   } catch {
   }
 }
+function clearActiveJobForProject(fp3 = currentProjectFingerprint) {
+  if (!fp3)
+    return;
+  try {
+    const jobs = loadActiveJobs();
+    if (!jobs[fp3])
+      return;
+    delete jobs[fp3];
+    mkdirSync3(dirname3(ACTIVE_JOBS_FILE), { recursive: true });
+    const tmp = ACTIVE_JOBS_FILE + ".tmp";
+    writeFileSync3(tmp, JSON.stringify(jobs, null, 2));
+    renameSync3(tmp, ACTIVE_JOBS_FILE);
+  } catch {
+  }
+}
 function projectFingerprint(dir) {
   if (!dir)
     return "unknown";
@@ -3226,264 +3241,6 @@ function applySlot2(slot) {
   }
 }
 
-// src/vibeOS-lib/blackbox/meta-controller.js
-var REGIME_CONTROL = {
-  INIT: {
-    enforcement_mode: "normal",
-    enforcement_reason: "fresh session \u2014 baseline enforcement",
-    flow_mode: "normal",
-    flow_focus: [],
-    tdd_mode: "normal",
-    tdd_focus: [],
-    tier_bias: "auto",
-    thinking_mode: "auto",
-    stress_multiplier: 1,
-    context7_urgency: "preferred",
-    wbp_verbosity: "normal"
-  },
-  DIVERGENT: {
-    enforcement_mode: "relaxed",
-    enforcement_reason: "signals scattered \u2014 avoid interrupting exploration",
-    flow_mode: "audit",
-    flow_focus: ["no-write-without-clarification"],
-    tdd_mode: "lazy",
-    tdd_focus: [],
-    tier_bias: "medium",
-    thinking_mode: "off",
-    stress_multiplier: 0.5,
-    context7_urgency: "optional",
-    wbp_verbosity: "detailed"
-  },
-  EXPLORING: {
-    enforcement_mode: "relaxed",
-    enforcement_reason: "user researching \u2014 minimal enforcement, save brain for real work",
-    flow_mode: "audit",
-    flow_focus: [],
-    tdd_mode: "lazy",
-    tdd_focus: [],
-    tier_bias: "cheap",
-    thinking_mode: "off",
-    stress_multiplier: 0.7,
-    context7_urgency: "optional",
-    wbp_verbosity: "detailed"
-  },
-  REFINING: {
-    enforcement_mode: "normal",
-    enforcement_reason: "user narrowing down \u2014 balanced mode",
-    flow_mode: "normal",
-    flow_focus: [],
-    tdd_mode: "normal",
-    tdd_focus: [],
-    tier_bias: "auto",
-    thinking_mode: "auto",
-    stress_multiplier: 1,
-    context7_urgency: "preferred",
-    wbp_verbosity: "normal"
-  },
-  CONVERGING: {
-    enforcement_mode: "strict",
-    enforcement_reason: "user about to commit \u2014 full enforcement, catch violations",
-    flow_mode: "strict",
-    flow_focus: ["write-edit-check", "no-untouched-files"],
-    tdd_mode: "strict",
-    tdd_focus: ["skeleton-on-write", "assertion-check"],
-    tier_bias: "brain",
-    thinking_mode: "brief",
-    stress_multiplier: 1.5,
-    context7_urgency: "required",
-    wbp_verbosity: "minimal"
-  },
-  LOOPING: {
-    enforcement_mode: "relaxed",
-    enforcement_reason: "user stuck \u2014 relax all enforcement, fresh perspective",
-    flow_mode: "audit",
-    flow_focus: ["suggest-alternative"],
-    tdd_mode: "lazy",
-    tdd_focus: [],
-    tier_bias: "medium",
-    thinking_mode: "off",
-    stress_multiplier: 0.3,
-    context7_urgency: "optional",
-    wbp_verbosity: "detailed"
-  },
-  CLOSED: {
-    enforcement_mode: "strict",
-    enforcement_reason: "finalizing \u2014 full enforcement, max stress sensitivity",
-    flow_mode: "strict",
-    flow_focus: ["write-edit-check", "no-untouched-files", "no-lgtm"],
-    tdd_mode: "quality",
-    tdd_focus: ["full-coverage", "edge-cases"],
-    tier_bias: "brain",
-    thinking_mode: "brief",
-    stress_multiplier: 2,
-    context7_urgency: "required",
-    wbp_verbosity: "minimal"
-  }
-};
-var DEFAULT_CONTROL = REGIME_CONTROL.EXPLORING;
-var MODE_DELTAS = {
-  balanced: {},
-  budget: {
-    tier_bias: "cheap",
-    thinking_mode: "off",
-    tdd_mode: "lazy",
-    tdd_focus: [],
-    flow_mode: "audit",
-    flow_focus: [],
-    enforcement_mode: "relaxed",
-    wbp_verbosity: "minimal",
-    context7_urgency: "optional",
-    stress_multiplier: 0.3,
-    loop_threshold: 0.7,
-    api_enrichment: false,
-    outcome_detection: true
-  },
-  quality: {
-    tier_bias: "brain",
-    thinking_mode: "full",
-    tdd_mode: "quality",
-    tdd_focus: ["full-coverage", "edge-cases", "property-based"],
-    flow_mode: "strict",
-    flow_focus: ["write-edit-check", "no-untouched-files", "no-lgtm", "suggest-alternative"],
-    enforcement_mode: "strict",
-    wbp_verbosity: "detailed",
-    context7_urgency: "required",
-    stress_multiplier: 2,
-    loop_threshold: 0.4,
-    api_enrichment: true,
-    outcome_detection: true
-  },
-  speed: {
-    tier_bias: "medium",
-    thinking_mode: "off",
-    tdd_mode: "lazy",
-    tdd_focus: [],
-    flow_mode: "audit",
-    flow_focus: [],
-    enforcement_mode: "relaxed",
-    wbp_verbosity: "minimal",
-    context7_urgency: "optional",
-    stress_multiplier: 0,
-    loop_threshold: 0.9,
-    api_enrichment: false,
-    outcome_detection: false
-  },
-  longrun: {
-    tier_bias: "brain",
-    thinking_mode: "brief",
-    tdd_mode: "quality",
-    tdd_focus: ["full-coverage", "edge-cases", "skeleton-on-write", "assertion-check"],
-    flow_mode: "strict",
-    flow_focus: ["write-edit-check", "no-untouched-files", "no-lgtm", "suggest-alternative"],
-    enforcement_mode: "strict",
-    wbp_verbosity: "detailed",
-    context7_urgency: "required",
-    stress_multiplier: 1,
-    loop_threshold: 0.5,
-    api_enrichment: true,
-    outcome_detection: true
-  }
-};
-function autoSelectMode(subRegime, stressMultiplier) {
-  if (subRegime === "CONVERGING" || subRegime === "CLOSED")
-    return "quality";
-  if (subRegime === "LOOPING")
-    return "speed";
-  if (stressMultiplier && stressMultiplier > 0.5)
-    return "quality";
-  return "budget";
-}
-function computeControlVector(state, action, optimizationMode) {
-  const regime = state.sub_regime || "INIT";
-  const base = REGIME_CONTROL[regime] || DEFAULT_CONTROL;
-  let effectiveMode = optimizationMode || "balanced";
-  if (effectiveMode === "auto") {
-    effectiveMode = autoSelectMode(regime, state.latest_stress_multiplier);
-  }
-  const delta = effectiveMode !== "balanced" ? MODE_DELTAS[effectiveMode] || {} : {};
-  const overridden = {
-    optimization_mode: effectiveMode,
-    enforcement_mode: delta.enforcement_mode ?? base.enforcement_mode,
-    enforcement_reason: delta.enforcement_mode ? `[optimize: ${effectiveMode}] ${describeMode(delta)}` : base.enforcement_reason,
-    flow_mode: delta.flow_mode ?? base.flow_mode,
-    flow_focus: delta.flow_focus ?? base.flow_focus,
-    tdd_mode: delta.tdd_mode ?? base.tdd_mode,
-    tdd_focus: delta.tdd_focus ?? base.tdd_focus,
-    tier_bias: delta.tier_bias ?? base.tier_bias,
-    thinking_mode: delta.thinking_mode ?? base.thinking_mode,
-    stress_multiplier: delta.stress_multiplier ?? base.stress_multiplier,
-    context7_urgency: delta.context7_urgency ?? base.context7_urgency,
-    wbp_verbosity: delta.wbp_verbosity ?? base.wbp_verbosity
-  };
-  const directives = buildDirectives(overridden, regime, state, action, effectiveMode);
-  return {
-    ...overridden,
-    directives
-  };
-}
-function describeMode(delta) {
-  if (delta.tier_bias === "cheap")
-    return "budget mode \u2014 max cost savings";
-  if (delta.tier_bias === "brain" && delta.thinking_mode === "full")
-    return "quality mode \u2014 max output quality";
-  if (delta.tdd_mode === "quality" && delta.flow_mode === "strict")
-    return "longrun mode \u2014 codebase health";
-  if (delta.tier_bias === "medium" && delta.stress_multiplier === 0)
-    return "speed mode \u2014 max response speed";
-  return `${delta.tier_bias || "auto"} / ${delta.thinking_mode || "auto"}`;
-}
-function buildDirectives(cv, regime, state, action, optimizationMode) {
-  const d = [];
-  if (cv.enforcement_mode !== "normal") {
-    d.push(`[delegation enforcement: ${cv.enforcement_mode}] ${cv.enforcement_reason}. ` + (cv.enforcement_mode === "relaxed" ? "Write/Edit restrictions are temporarily eased. Proceed with caution." : "ALL write/edit operations must pass strict validation. No exceptions."));
-  }
-  if (cv.flow_mode !== "normal") {
-    const focusNote = cv.flow_focus.length > 0 ? ` Focus rules: ${cv.flow_focus.join(", ")}.` : "";
-    d.push(`[flow: ${cv.flow_mode}] Flow enforcer is in ${cv.flow_mode} mode.${focusNote}`);
-  }
-  if (cv.tdd_mode !== "normal") {
-    const focusNote = cv.tdd_focus.length > 0 ? ` Focus: ${cv.tdd_focus.join(", ")}.` : "";
-    d.push(`[tdd: ${cv.tdd_mode}] TDD enforcement is ${cv.tdd_mode}.${focusNote}`);
-  }
-  if (cv.tier_bias !== "auto") {
-    d.push(`[tier routing] Route to ${cv.tier_bias} tier for this turn.`);
-  }
-  if (cv.thinking_mode !== "auto") {
-    d.push(`[thinking mode: ${cv.thinking_mode}] Reasoning depth set to ${cv.thinking_mode}. ` + (cv.thinking_mode === "off" ? "Skip extended thinking entirely. Respond directly and concisely. Every thinking token costs money \u2014 save it for when the user explicitly asks." : "Use extended thinking only for genuinely complex multi-step problems. Keep reasoning concise."));
-  }
-  if (cv.context7_urgency !== "preferred") {
-    d.push(`[context7] Documentation lookup is ${cv.context7_urgency}. ` + (cv.context7_urgency === "required" ? "You MUST use mcp__context7__* tools before any web search for library/framework docs." : "context7 tools are available but not required."));
-  }
-  if (cv.wbp_verbosity !== "normal") {
-    d.push(`[wbp protocol] Delegation output synthesis is ${cv.wbp_verbosity}. ` + (cv.wbp_verbosity === "minimal" ? "Summarize subagent results in 1-2 sentences." : "Provide full detail from subagent output including code changes and rationale."));
-  }
-  if (state.is_looping && state.loop_intervention_level && state.loop_intervention_level !== "none") {
-    const severity = state.loop_intervention_level === "escalated" ? "CRITICAL" : state.loop_intervention_level === "assertive" ? "WARNING" : "NOTICE";
-    d.push(`[loop prevention: ${severity}] The conversation may be looping \u2014 try a different approach. (level: ${state.loop_intervention_level})`);
-  }
-  if (optimizationMode && optimizationMode !== "balanced") {
-    d.push(`[optimization: ${optimizationMode}] Session optimization mode is "${optimizationMode}". This overrides default per-regime behavior.`);
-  }
-  return d;
-}
-function buildControlHistoryEntry(turn, regime, control, reward = null) {
-  return {
-    turn,
-    regime,
-    control: {
-      enforcement_mode: control.enforcement_mode,
-      flow_mode: control.flow_mode,
-      tdd_mode: control.tdd_mode,
-      tier_bias: control.tier_bias,
-      thinking_mode: control.thinking_mode,
-      stress_multiplier: control.stress_multiplier,
-      context7_urgency: control.context7_urgency,
-      wbp_verbosity: control.wbp_verbosity
-    },
-    reward
-  };
-}
-
 // src/lib/turn-classify.js
 import { readFileSync as readFileSync5, writeFileSync as writeFileSync5, appendFileSync as appendFileSync5, existsSync as existsSync6, mkdirSync as mkdirSync5, statSync as statSync6, copyFileSync as copyFileSync4, renameSync as renameSync5, openSync as openSync3, closeSync as closeSync3, rmSync as rmSync3 } from "node:fs";
 import { join as join6, dirname as dirname5, basename as basename4 } from "node:path";
@@ -3793,138 +3550,43 @@ async function remoteCall(method, args, fallbackFn) {
   }
 }
 
-// src/vibeOS-lib/blackbox/local-stub.js
-var LocalBlackboxStub = class _LocalBlackboxStub {
+// src/lib/turn-classify.js
+function buildControlHistoryEntry(turn, regime, control, reward = null) {
+  return {
+    turn,
+    regime,
+    control: {
+      enforcement_mode: control.enforcement_mode,
+      flow_mode: control.flow_mode,
+      tdd_mode: control.tdd_mode,
+      tier_bias: control.tier_bias,
+      thinking_mode: control.thinking_mode,
+      stress_multiplier: control.stress_multiplier,
+      context7_urgency: control.context7_urgency,
+      wbp_verbosity: control.wbp_verbosity
+    },
+    reward
+  };
+}
+var _BlackboxStub = class __BlackboxStub {
   history;
-  loopCount;
-  constructor() {
-    this.history = [];
-    this.loopCount = 0;
-  }
-  extractFeatures(text) {
-    if (!text || typeof text !== "string")
-      return {};
-    const len = text.length;
-    const words = text.split(/\s+/).filter((w) => w.length > 0);
-    const wordCount = words.length;
-    const sentences = text.split(/[.!?]+/).filter((s) => s.trim().length > 0);
-    const sentenceCount = sentences.length;
-    const avgWordLen = wordCount > 0 ? words.reduce((s, w) => s + w.length, 0) / wordCount : 0;
-    const questions = (text.match(/\?/g) || []).length;
-    const questionRatio = sentenceCount > 0 ? questions / sentenceCount : 0;
-    const codeBlocks = (text.match(/```/g) || []).length / 2;
-    const urgency = /urgent|asap|immediately|critical|broken|failing|crash|error|bug/i.test(text) ? 1 : 0;
-    const repetition = wordCount > 5 ? (text.toLowerCase().match(/(\b\w+\b).*?\1/g) || []).length / wordCount : 0;
-    const sentimentInds = /thanks|great|perfect|awesome/i.test(text) ? 0.2 : /frustrat|annoy|not working|doesn't work|stupid|useless/i.test(text) ? 0.8 : 0.5;
-    const complexity = /complex|difficult|hard|confusing|trick|subtle|nuance/i.test(text) ? 1 : 0;
-    const instructionDensity = /do not|must|should|always|never|critical/i.test(text) ? 1 : /please|could you|maybe|perhaps/i.test(text) ? 0.3 : 0.6;
-    return {
-      length: Math.min(1, len / 5e3),
-      word_count: Math.min(1, wordCount / 500),
-      sentence_count: Math.min(1, sentenceCount / 50),
-      avg_word_length: Math.min(1, avgWordLen / 10),
-      question_ratio: Math.min(1, questionRatio),
-      code_blocks: Math.min(1, codeBlocks / 5),
-      urgency,
-      repetition: Math.min(1, repetition * 10),
-      sentiment: sentimentInds,
-      complexity,
-      instruction_density: instructionDensity
-    };
-  }
-  classifyAction(text) {
-    if (/refactor|change|replace|switch|pivot|migrate/i.test(text))
-      return "change";
-    if (/commit|save|push|merge|release|deploy|finalize/i.test(text))
-      return "commit";
-    if (/write|create|build|make|add|implement|generate/i.test(text))
-      return "act";
-    if (/explain|why|how|what|analyze|review|check|find|search|look/i.test(text))
-      return "explore";
-    if (/show|list|get|read|see|view|display|print/i.test(text))
-      return "observe";
-    return "explore";
-  }
-  computeEntropy(features) {
-    return Math.min(2.58, 0.5 + (features.question_ratio || 0) * 0.5 + (features.complexity || 0) * 0.8 + (features.repetition || 0) * 0.6 + (features.instruction_density || 0) * 0.4);
-  }
-  computeUncertainty(features) {
-    return Math.min(100, Math.max(10, 50 + (features.question_ratio || 0) * 40 - (features.code_blocks || 0) * 10 + (features.sentiment || 0.5) * 30 - (features.urgency || 0) * 20));
-  }
-  update(text) {
-    const features = this.extractFeatures(text);
-    const action = this.classifyAction(text);
-    const entropy = this.computeEntropy(features);
-    const uncertainty = this.computeUncertainty(features);
-    const isLooping = this.detectBasicLoop(text);
-    this.history.push({ text, timestamp: Date.now() / 1e3 });
-    if (this.history.length > 10)
-      this.history.shift();
-    if (isLooping)
-      this.loopCount++;
-    else
-      this.loopCount = Math.max(0, this.loopCount - 1);
-    return {
-      sub_regime: isLooping ? "LOOPING" : "EXPLORING",
-      resolution: isLooping ? "looping" : "unresolved",
-      momentum: isLooping ? -0.3 : 0.3,
-      signals: { action_consistency: 1, entropy_trend: 0, feature_contradiction: 0, embedding_delta: 0 },
-      intent_state: { volatility_score: 0, drift_rate: 0, core_goal_embedding: null },
-      continuity_state: "MEDIUM",
-      is_looping: isLooping,
-      loop_consecutive: this.loopCount,
-      loop_intervention_level: this.loopCount >= 3 ? "escalated" : this.loopCount >= 2 ? "assertive" : this.loopCount >= 1 ? "gentle" : "none",
-      pivot_detected: false,
-      pivot_score: 0,
-      outcome: null,
-      n_interactions: this.history.length,
-      features,
-      action,
-      entropy,
-      uncertainty
-    };
-  }
-  detectBasicLoop(text, threshold = 0.5) {
-    if (this.history.length < 3)
-      return false;
-    const currWords = new Set(text.toLowerCase().split(/\s+/).filter((w) => w.length > 3));
-    const pastWords = new Set(this.history[this.history.length - 3].text.toLowerCase().split(/\s+/).filter((w) => w.length > 3));
-    if (currWords.size === 0 || pastWords.size === 0)
-      return false;
-    const intersection = new Set([...currWords].filter((w) => pastWords.has(w)));
-    const union = /* @__PURE__ */ new Set([...currWords, ...pastWords]);
-    return intersection.size / Math.max(union.size, 1) > threshold;
-  }
-  getLoopIntervention() {
-    if (this.loopCount < 1)
-      return null;
-    const interventions = {
-      gentle: { level: "gentle", directive: "You may be repeating yourself \u2014 try rephrasing the core question.", resetSuggested: false },
-      assertive: { level: "assertive", directive: "You are stuck in a loop. List 3 alternative approaches.", resetSuggested: false },
-      escalated: { level: "escalated", directive: "CRITICAL: Loop detected. STOP the current approach and SWITCH topics.", resetSuggested: true }
-    };
-    return this.loopCount >= 3 ? interventions.escalated : this.loopCount >= 2 ? interventions.assertive : interventions.gentle;
-  }
-  getPivotDirective() {
-    return null;
-  }
-  recordOutcome(_outcome) {
-  }
-  serialize() {
-    return { history: this.history, loopCount: this.loopCount };
-  }
+  currentRegime;
   static deserialize(data) {
-    const stub = new _LocalBlackboxStub();
-    stub.history = data.history || [];
-    stub.loopCount = data.loopCount || 0;
-    return stub;
+    const s = new __BlackboxStub();
+    s.history = data?.history || [];
+    s.currentRegime = data?.currentRegime || "INIT";
+    return s;
+  }
+  update(_text) {
+    return { sub_regime: this.currentRegime || "INIT" };
   }
   snapshot() {
-    return this.update("");
+    return { sub_regime: this.currentRegime || "INIT", resolution: "unresolved", momentum: 0, signals: {} };
+  }
+  serialize() {
+    return { history: this.history, currentRegime: this.currentRegime };
   }
 };
-
-// src/lib/turn-classify.js
 var USER_HOME4 = (() => {
   try {
     return homedir5();
@@ -4077,18 +3739,18 @@ function getBlackboxTracker() {
       setBlackboxEnabled(state.enabled);
     const sid = _OC_SID2;
     if (state.sessions?.[sid]?.history) {
-      _blackboxTracker = LocalBlackboxStub.deserialize(state.sessions[sid]);
+      _blackboxTracker = _BlackboxStub.deserialize(state.sessions[sid]);
     } else if (currentProjectFingerprint2) {
       const projectKeys = Object.keys(state.sessions || {}).filter((k) => state.sessions[k].project_fingerprint === currentProjectFingerprint2);
       const latest = projectKeys.sort().slice(-1)[0];
       if (latest && state.sessions[latest]?.history) {
         const data = state.sessions[latest];
-        _blackboxTracker = LocalBlackboxStub.deserialize(data);
+        _blackboxTracker = _BlackboxStub.deserialize(data);
       } else {
-        _blackboxTracker = new LocalBlackboxStub();
+        _blackboxTracker = new _BlackboxStub();
       }
     } else {
-      _blackboxTracker = new LocalBlackboxStub();
+      _blackboxTracker = new _BlackboxStub();
     }
   }
   return _blackboxTracker;
@@ -4351,7 +4013,7 @@ function isLikelyOffTopic(userText, job) {
     return false;
   const now = Date.now();
   const updatedAt = Date.parse(job.updatedAt || "");
-  if (!Number.isFinite(updatedAt) || now - updatedAt > 2 * 60 * 60 * 1e3)
+  if (!Number.isFinite(updatedAt) || now - updatedAt > 5 * 60 * 1e3)
     return false;
   const userWords = new Set(topKeywords(userText, 12));
   const overlap = job.keywords.filter((k) => userWords.has(k));
@@ -5112,13 +4774,384 @@ function modelToCcAlias(modelId) {
 
 // src/lib/hooks/footer.js
 import { readFileSync as readFileSync11 } from "node:fs";
-import { join as join12 } from "node:path";
+import { join as join13 } from "node:path";
 import { homedir as homedir8, tmpdir as tmpdir7 } from "node:os";
 
 // src/lib/hooks/chat-transform.js
-import { readFileSync as readFileSync10, writeFileSync as writeFileSync8, existsSync as existsSync11 } from "node:fs";
-import { join as join11, basename as basename6 } from "node:path";
+import { readFileSync as readFileSync10, writeFileSync as writeFileSync9, existsSync as existsSync11 } from "node:fs";
+import { join as join12, basename as basename6 } from "node:path";
 import { createHash as createHash4 } from "node:crypto";
+
+// src/lib/index-helpers.js
+import { join as join11 } from "node:path";
+import { writeFileSync as writeFileSync8 } from "node:fs";
+var activeJob = null;
+var VERBOSE_LINE_RE = [
+  /^[\s#*/\\\-_=+|~:;'"`@\$%^&<>{}\[\]()!?.,0-9]+$/,
+  /^(Filed|Created|Modified|Deleted|Updated|Renamed|Copied|Moved|Changed):/,
+  /^➡️|^  👉|^  \-|^  \*|^  \d+\.|^  \d+\)/
+];
+var BULLET_PATTERNS = [
+  /^\s*[-*+•·]\s+/,
+  /^\s*\d+[.)]\s+/
+];
+var COMPRESS_RATIO = 0.3;
+var COMPRESS_THRESHOLD = 2e3;
+var MIN_KEPT_LINES_RATIO = 0.4;
+function extractBulletLines(lines, targetChars, minLines) {
+  const keyLines = [];
+  const otherLines = [];
+  for (const line of lines) {
+    if (BULLET_PATTERNS.some((re) => re.test(line)))
+      keyLines.push(line);
+    else
+      otherLines.push(line);
+  }
+  const selected = [...keyLines];
+  for (const line of otherLines) {
+    if (selected.length >= minLines && selected.join("\n").length >= targetChars)
+      break;
+    selected.push(line);
+  }
+  while (selected.length > minLines && selected.join("\n").length > targetChars * 2) {
+    selected.pop();
+  }
+  return selected;
+}
+function setActiveJobFromTaskPrompt(prompt) {
+  if (!prompt || typeof prompt !== "string")
+    return;
+  const p = prompt.trim();
+  if (p.length < 24)
+    return;
+  activeJob = {
+    prompt: p.slice(0, 1200),
+    keywords: topKeywords(p, 12),
+    updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  saveActiveJobForProject(activeJob);
+}
+function compressText(text) {
+  if (!text || typeof text !== "string")
+    return text;
+  let lines = text.split("\n");
+  let removed = 0;
+  const out = [];
+  for (const line of lines) {
+    let skip = false;
+    for (const re of VERBOSE_LINE_RE) {
+      if (re.test(line)) {
+        skip = true;
+        removed++;
+        break;
+      }
+    }
+    if (!skip)
+      out.push(line);
+  }
+  const collapsed = [];
+  let blanks = 0;
+  for (const line of out) {
+    if (line.trim() === "") {
+      blanks++;
+      if (blanks <= 2)
+        collapsed.push(line);
+    } else {
+      blanks = 0;
+      collapsed.push(line);
+    }
+  }
+  let result = collapsed.join("\n").trim();
+  if (result.length > COMPRESS_THRESHOLD) {
+    const targetChars = Math.max(Math.round(result.length * COMPRESS_RATIO), COMPRESS_THRESHOLD);
+    const minLines = Math.max(1, Math.round(collapsed.length * MIN_KEPT_LINES_RATIO));
+    const bulletLines = extractBulletLines(collapsed, targetChars, minLines);
+    result = bulletLines.join("\n").trim();
+    if (result.length > targetChars * 1.5) {
+      const cutoff = result.lastIndexOf("\n\n", targetChars);
+      if (cutoff > targetChars * 0.5) {
+        result = result.slice(0, cutoff) + `
+
+... [${result.length - cutoff} chars truncated]`;
+      } else {
+        result = result.slice(0, targetChars) + `... [${result.length - targetChars} chars truncated]`;
+      }
+    }
+  }
+  if (removed > 0 || result !== collapsed.join("\n").trim()) {
+    console.error(`[vibeOS] COMPRESS: ${text.length}->${result.length} chars (${removed} verbose lines stripped)`);
+  }
+  return result || text;
+}
+function noteProjectPattern(kind, key, summary, meta = {}) {
+  if (!currentProjectFingerprint || !key || !summary)
+    return;
+  try {
+    const pstate = loadProjectState();
+    const bucket = ensureProjectBucket(pstate, currentProjectFingerprint);
+    bucket.userPatterns ??= { friction: {}, routines: {} };
+    bucket.userPatterns.friction ??= {};
+    bucket.userPatterns.routines ??= {};
+    const target = kind === "routine" ? bucket.userPatterns.routines : bucket.userPatterns.friction;
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const row = target[key] || { kind, summary, count: 0, sessions: [], firstSeen: now, lastSeen: null };
+    row.kind = kind;
+    row.summary = summary;
+    row.count = Number(row.count || 0) + 1;
+    row.sessions = [.../* @__PURE__ */ new Set([...row.sessions || [], _OC_SID])].slice(-10);
+    row.lastSeen = now;
+    if (meta.family)
+      row.family = meta.family;
+    if (meta.path)
+      row.path = meta.path;
+    target[key] = row;
+    const entries = Object.entries(target);
+    if (entries.length > 50) {
+      entries.sort((a, b) => String(b[1]?.lastSeen || "").localeCompare(String(a[1]?.lastSeen || "")));
+      const kept = Object.fromEntries(entries.slice(0, 50));
+      for (const k of Object.keys(target))
+        delete target[k];
+      Object.assign(target, kept);
+    }
+    bucket.lastSeen = now;
+    saveProjectState(pstate);
+  } catch (err) {
+    console.error(`[vibeOS] pattern learner write failed: ${err.message}`);
+  }
+}
+function recordFrictionPattern(key, summary, meta = {}) {
+  const sessionKey = `friction:${key}`;
+  if (frictionSessionKeys.has(sessionKey))
+    return;
+  frictionSessionKeys.add(sessionKey);
+  noteProjectPattern("friction", key, summary, meta);
+}
+function recordRoutinePattern(key, summary, meta = {}) {
+  const sessionKey = `routine:${key}`;
+  if (routineSessionKeys.has(sessionKey))
+    return;
+  routineSessionKeys.add(sessionKey);
+  noteProjectPattern("routine", key, summary, meta);
+}
+var _lastStressWrite = 0;
+var STRESS_WRITE_INTERVAL_MS = 15e3;
+function saveSessionStress(score, level) {
+  if (typeof score !== "number" || !isFinite(score))
+    return;
+  const now = Date.now();
+  if (now - _lastStressWrite < STRESS_WRITE_INTERVAL_MS)
+    return;
+  _lastStressWrite = now;
+  try {
+    updateState((s) => {
+      const sid = _OC_SID;
+      const ses = s.sessions?.[sid] || {};
+      if (!Array.isArray(ses.stress_history))
+        ses.stress_history = [];
+      ses.stress_history.push({ ts: (/* @__PURE__ */ new Date()).toISOString(), score, level });
+      if (ses.stress_history.length > 100)
+        ses.stress_history = ses.stress_history.slice(-50);
+      const scores = ses.stress_history.map((h) => h.score);
+      ses.maxSessionStress = Math.max(...scores);
+      ses.avgSessionStress = scores.reduce((a, b) => a + b, 0) / scores.length;
+      s.sessions[sid] = ses;
+      return s;
+    });
+  } catch {
+  }
+}
+function observeToolPattern(toolName, input, output, directory3) {
+  try {
+    const t = String(toolName || "").toLowerCase();
+    const args = input?.args || {};
+    const filePath = args.filePath || args.file_path || args.path || "";
+    const observedPath = normalizeObservedPath(filePath, directory3);
+    let target = observedPath;
+    if (t === "bash")
+      target = commandFamily(args.command || args.cmd || args.script || "");
+    if (t === "task")
+      target = extractFirstWordFromArgs(t, args) || "task";
+    const event = { tool: t, target, at: Date.now() };
+    recentToolEvents.push(event);
+    if (recentToolEvents.length > 20)
+      recentToolEvents.shift();
+    let repeat = 0;
+    for (let i = recentToolEvents.length - 1; i >= 0; i--) {
+      const e = recentToolEvents[i];
+      if (e.tool !== event.tool || e.target !== event.target)
+        break;
+      repeat++;
+    }
+    if (repeat === 3) {
+      recordFrictionPattern(`repeat-tool:${t}:${target}`, `Repeated ${t} calls against ${target} in one session.`, { family: t, path: target });
+      _patternFiredKeys.add(`repeat-tool:${t}:${target}`);
+    }
+    if (repeat > 3) {
+      try {
+        updateGlobalLearning((gl) => {
+          gl.patternQuality ??= { ignoredCount: 0, trustedCount: 0 };
+          gl.patternQuality.ignoredCount = (gl.patternQuality.ignoredCount || 0) + 1;
+          return gl;
+        });
+      } catch {
+      }
+    }
+    if (repeat === 0 && _patternFiredKeys.size > 0) {
+      try {
+        updateGlobalLearning((gl) => {
+          gl.patternQuality ??= { ignoredCount: 0, trustedCount: 0 };
+          gl.patternQuality.trustedCount = (gl.patternQuality.trustedCount || 0) + 1;
+          return gl;
+        });
+      } catch {
+      }
+    }
+    if (["write", "edit", "multiedit", "notebookedit"].includes(t) && observedPath !== "unknown") {
+      setLastMutationEvent({ at: Date.now(), path: observedPath, tool: t });
+      return;
+    }
+    if (t === "bash") {
+      const family = commandFamily(args.command || args.cmd || args.script || "");
+      if (lastMutationEvent && Date.now() - lastMutationEvent.at <= 10 * 60 * 1e3) {
+        if (["syntax-check", "typecheck", "test", "build"].includes(family) && commandFailed(output)) {
+          recordFrictionPattern(`post-edit-failure:${lastMutationEvent.path}:${family}`, `After editing ${lastMutationEvent.path}, ${family} failed soon after.`, { family, path: lastMutationEvent.path });
+        } else if (["syntax-check", "typecheck", "test", "build", "git-status"].includes(family) && !commandFailed(output)) {
+          recordRoutinePattern(`post-edit-routine:${lastMutationEvent.path}:${family}`, `After editing ${lastMutationEvent.path}, ${family} is a recurring verification step.`, { family, path: lastMutationEvent.path });
+        }
+      }
+    }
+  } catch (err) {
+    console.error(`[vibeOS] pattern learner observe failed: ${err.message}`);
+  }
+  try {
+    const t = String(toolName || "").toLowerCase();
+    const args = input?.args || {};
+    const ev = { tool: t, at: Date.now() };
+    if (recentToolEvents.length > 0) {
+      const prev = recentToolEvents[recentToolEvents.length - 1];
+      const pairKey = `${prev.tool}\u2192${ev.tool}`;
+      updateGlobalLearning((gl) => {
+        gl.toolPairs ??= {};
+        gl.toolPairs[pairKey] = (gl.toolPairs[pairKey] || 0) + 1;
+        if (gl.toolPairs[pairKey] >= 3 && !gl.promotedRoutines?.includes(pairKey)) {
+          gl.promotedRoutines ??= [];
+          if (!gl.promotedRoutines.includes(pairKey))
+            gl.promotedRoutines.push(pairKey);
+          recordRoutinePattern(`pair:${pairKey}`, `Recurring tool pair ${pairKey} detected across projects.`, { pair: pairKey });
+        }
+        return gl;
+      });
+    }
+    if (currentProjectName) {
+      const ext = currentProjectName.endsWith(".tsx") || currentProjectName.endsWith(".jsx") ? "frontend" : currentProjectName.endsWith(".go") || currentProjectName.endsWith(".rs") ? "backend" : currentProjectName.endsWith(".py") ? "data" : "unknown";
+      updateGlobalLearning((gl) => {
+        gl.projectTypeToolCount ??= {};
+        const ptc = gl.projectTypeToolCount;
+        ptc[ext] ??= {};
+        ptc[ext][t] = (ptc[ext][t] || 0) + 1;
+        return gl;
+      });
+    }
+  } catch {
+  }
+}
+function recordSaving(tool2, reason, saveEst, meta = {}) {
+  try {
+    if (!saveEst || saveEst <= 0)
+      return 0;
+    const firstWord = meta?.firstWord || tool2 || "";
+    updateState((s) => {
+      s.lifetime ??= { total_savings_usd: 0, cache_savings_usd: 0, missed_context7_usd: 0, session_count: 0, warn_count: 0 };
+      s.sessions ??= {};
+      const sid = _OC_SID;
+      if (!s.sessions[sid]) {
+        s.sessions[sid] = { total_savings_usd: 0, cache_savings_usd: 0, project_name: "", warns: [], cache_hits: [], seenWarnKeys: {} };
+        if (currentProjectFingerprint) {
+          s.sessions[sid].project_fingerprint = currentProjectFingerprint;
+        }
+        if (currentProjectName) {
+          s.sessions[sid].project_name = currentProjectName;
+        }
+      }
+      const ses = s.sessions[sid];
+      ses.total_savings_usd = roundUsd(Number(ses.total_savings_usd || 0) + saveEst);
+      s.lifetime.total_savings_usd = roundUsd(Number(s.lifetime.total_savings_usd || 0) + saveEst);
+      s.lifetime.warn_count = (s.lifetime.warn_count || 0) + 1;
+      if (reason && firstWord) {
+        const now = Date.now();
+        const warnKey = `${_OC_SID}:${firstWord}`;
+        ses.seenWarnKeys ??= {};
+        let deduped = false;
+        for (let i = ses.warns.length - 1; i >= 0 && !deduped; i--) {
+          const w = ses.warns[i];
+          if (w?.key === warnKey && now - w.ts < WARN_DEDUPE_WINDOW_MS) {
+            w.count = (w.count || 1) + 1;
+            w.reason = reason;
+            w.saveEst = (w.saveEst || 0) + saveEst;
+            w.est_savings_usd = (w.est_savings_usd || 0) + saveEst;
+            deduped = true;
+          }
+        }
+        if (!deduped) {
+          ses.warns.push({ key: warnKey, reason, saveEst, est_savings_usd: saveEst, firstWord, ts: now, count: 1, tool: tool2 });
+        }
+        if (!ses.seenWarnKeys[warnKey]) {
+          ses.seenWarnKeys[warnKey] = true;
+          try {
+            noteTaskRoutingLearning(firstWord, TRINITY_CHEAP || TRINITY_MEDIUM || "unknown", `observed:${tool2}`);
+          } catch {
+          }
+        }
+      }
+      const cap = 30;
+      if (ses.warns.length > cap) {
+        ses.warns = ses.warns.slice(-cap);
+        const keys = Object.keys(ses.seenWarnKeys || {});
+        if (keys.length > cap * 2) {
+          ses.seenWarnKeys = Object.fromEntries(keys.slice(-cap * 2).map((k) => [k, true]));
+        }
+      }
+      try {
+        const sd = getSessionScratchpadDir();
+        if (sd) {
+          const sp = join11(sd, "delegation-state-hint.txt");
+          try {
+            writeFileSync8(sp, JSON.stringify({ sid, total_savings: s.lifetime.total_savings_usd, last_reason: reason }), "utf8");
+          } catch {
+          }
+        }
+      } catch {
+      }
+      ses.last_reason = reason;
+      ses.last_save_est = saveEst;
+      s.last_updated = (/* @__PURE__ */ new Date()).toISOString();
+      _pruneOldSessions(s);
+    });
+    const entry = JSON.stringify({
+      ts: (/* @__PURE__ */ new Date()).toISOString(),
+      usd: saveEst,
+      sid: _OC_SID,
+      tool: tool2,
+      reason,
+      saveEst,
+      fgp: currentProjectFingerprint || ""
+    });
+    _ledgerBuffer.push(entry);
+    if (_ledgerBuffer.length >= LEDGER_BUFFER_MAX)
+      _flushLedgerBuffer();
+    else if (!_ledgerBufferTimer)
+      setLedgerBufferTimer(setTimeout(_flushLedgerBuffer, LEDGER_BUFFER_FLUSH_MS));
+    return saveEst;
+  } catch (err) {
+    try {
+      saveSessionCheckpoint();
+    } catch {
+    }
+    return 0;
+  }
+}
+
+// src/lib/hooks/chat-transform.js
 var latestUserIntent = null;
 var currentProjectFingerprint4 = "";
 var fp = "";
@@ -5127,6 +5160,7 @@ var _latestBlackboxState3 = null;
 var _latestBlackboxLoopMsg2 = null;
 var _latestBlackboxPivotMsg2 = null;
 var briefedProjects = /* @__PURE__ */ new Set();
+var correctionSeenKeys = /* @__PURE__ */ new Set();
 async function apiComputeControlVector(state, action, optimizationMode) {
   try {
     const res = await remoteCall("blackboxControlVector", [state, action, optimizationMode], null);
@@ -5134,10 +5168,57 @@ async function apiComputeControlVector(state, action, optimizationMode) {
       return res.control_vector;
   } catch {
   }
-  return computeControlVector(state, action, optimizationMode);
+  return {
+    enforcement_mode: "normal",
+    enforcement_reason: "[optimize: balanced] offline fallback",
+    flow_mode: "normal",
+    flow_focus: [],
+    tdd_mode: "normal",
+    tdd_focus: [],
+    tier_bias: "auto",
+    thinking_mode: "auto",
+    stress_multiplier: 1,
+    context7_urgency: "preferred",
+    wbp_verbosity: "normal",
+    optimization_mode: "balanced",
+    directives: []
+  };
 }
-function observeUserCorrection(_text) {
-  return;
+function observeUserCorrection(text) {
+  if (!text || typeof text !== "string")
+    return;
+  try {
+    const t = text.toLowerCase();
+    const corrections = [];
+    if (/wrong\b|that.s wrong|incorrect|not what i|didn.t mean|misunderstood/i.test(t)) {
+      if (/\bimport\b|require\b|from\b|path\b|module\b/i.test(t))
+        corrections.push("correction:imports");
+      if (/\bfunction\b|logic\b|algorithm\b|calculation\b|formula\b|return\b|result\b/i.test(t) && !corrections.includes("correction:imports"))
+        corrections.push("correction:logic");
+      if (/\brename\b|variable\b|const\b|let\b|var\b|name\b|called\b/i.test(t) && !corrections.includes("correction:logic"))
+        corrections.push("correction:naming");
+      if (/\bdelete\b|remove\b|get rid\b|revert\b|undo\b|rollback\b/i.test(t))
+        corrections.push("correction:deletion");
+      if (/\brestructure\b|refactor\b|reorganize\b|move\b|split\b|extract\b/i.test(t) && !corrections.includes("correction:deletion"))
+        corrections.push("correction:restructure");
+      if (corrections.length === 0)
+        corrections.push("correction:general");
+    }
+    if (corrections.length === 0 && /\bshould be\b|change .+ to\b|replace .+ with\b|instead of\b/i.test(t)) {
+      corrections.push("correction:general");
+    }
+    for (const c of corrections) {
+      const sessionKey = `friction:${c}`;
+      if (correctionSeenKeys.has(sessionKey))
+        continue;
+      correctionSeenKeys.add(sessionKey);
+      try {
+        noteProjectPattern("friction", c, `User corrected ${c.replace("correction:", "")} in a follow-up message.`, { family: c });
+      } catch {
+      }
+    }
+  } catch {
+  }
 }
 function buildProjectBriefing(directory3) {
   const label = currentProjectName || (directory3 ? basename6(directory3) : "");
@@ -5175,9 +5256,9 @@ function syncControlSettings(cv) {
     }
     if (cv.thinking_mode)
       writeIf("thinking_level", cv.thinking_mode);
-    const userOptMode = loadSessionSlot(sid + "_opt") || loadOptimizationMode();
-    if (cv.optimization_mode && userOptMode !== "auto") {
-      if (userOptMode !== cv.optimization_mode) {
+    if (cv.optimization_mode) {
+      const existingMode = loadSessionSlot(sid + "_opt");
+      if (existingMode !== cv.optimization_mode) {
         writeSessionSlot(sid + "_opt", cv.optimization_mode);
         saveOptimizationMode(cv.optimization_mode);
       }
@@ -5233,11 +5314,11 @@ var onMessagesTransform = async (_input, output) => {
         const hash = createHash4("sha256").update(`tool_result
 ${raw}
 `).digest("hex").slice(0, 16);
-        const fullPath = join11(getSessionScratchpadDir(), `${hash}.txt`);
+        const fullPath = join12(getSessionScratchpadDir(), `${hash}.txt`);
         try {
           ensureSessionScratchpadDirs();
           if (!existsSync11(fullPath)) {
-            writeFileSync8(fullPath, raw);
+            writeFileSync9(fullPath, raw);
             indexAppend(hash, part.tool, raw.length);
           }
         } catch (err) {
@@ -5296,8 +5377,10 @@ ${raw}
               state.sessions[sid] = {};
             state.sessions[sid].control_history ??= [];
             const st = scoreStress(latestUserIntent);
-            if (st)
+            if (st) {
               localState.latest_stress_multiplier = st;
+              saveSessionStress(st, st > 1.5 ? "critical" : st > 0.7 ? "elevated" : st > 0.3 ? "moderate" : "none");
+            }
             const cv = await apiComputeControlVector(localState, void 0, loadOptimizationMode());
             state.sessions[sid].control_history.push(buildControlHistoryEntry(state.sessions[sid].control_history.length + 1, localState.sub_regime || "INIT", cv));
             if (state.sessions[sid].control_history.length > 100) {
@@ -5487,7 +5570,7 @@ async function apiAutoSelectMode(regime, stress) {
       return res.mode;
   } catch {
   }
-  return autoSelectMode(regime, stress);
+  return "balanced";
 }
 var USER_HOME7 = (() => {
   try {
@@ -5496,8 +5579,8 @@ var USER_HOME7 = (() => {
     return tmpdir7();
   }
 })();
-var STATE_FILE5 = join12(USER_HOME7, ".claude/delegation-state.json");
-var SAVINGS_LEDGER_FILE2 = join12(USER_HOME7, ".claude/savings-ledger.jsonl");
+var STATE_FILE5 = join13(USER_HOME7, ".claude/delegation-state.json");
+var SAVINGS_LEDGER_FILE2 = join13(USER_HOME7, ".claude/savings-ledger.jsonl");
 var _prevOutputText = "";
 var _autoReportCount = 0;
 var textCompletePainted = /* @__PURE__ */ new Set();
@@ -5556,7 +5639,7 @@ function formatUsd2(v) {
 }
 function loadSelection3() {
   try {
-    const raw = readFileSync11(join12(USER_HOME7, ".claude/model-tiers.json"), "utf-8");
+    const raw = readFileSync11(join13(USER_HOME7, ".claude/model-tiers.json"), "utf-8");
     return safeJsonParse6(raw)?.selection || { active_slot: "medium", enabled: true, delegation_enforce: false, flow_enabled: false, flow_enforce: false, tdd_enforce: false, tdd_strict: false };
   } catch {
     return { active_slot: "medium", enabled: true, delegation_enforce: false, flow_enabled: false, flow_enforce: false, tdd_enforce: false, tdd_strict: false };
@@ -5637,7 +5720,7 @@ async function _appendFooter(input, output, directory3) {
     const { ltTasks, ltCache, ltCost, count, sesTasks, sesEdit, sesCredit, sesC7, sesQuota, sesCache, sesTaskDelegations, sesDuration, sesRatePerHour, sesTrend, sesToolBreakdown, sesModelTurns, quality_avg } = readLifetimeSavings2();
     const sessionSlot = loadSessionSlot(_OC_SID6);
     const slot = sessionSlot || loadSelection3().active_slot || "brain";
-    const brainModel = slot === "brain" ? TRINITY_BRAIN : slot === "medium" ? TRINITY_MEDIUM : TRINITY_CHEAP || currentModel || "";
+    const brainModel = slot === "brain" ? (TRINITY_BRAIN || currentModel) : slot === "medium" ? (TRINITY_MEDIUM || currentModel) : (TRINITY_CHEAP || currentModel || "");
     let modelTag = `[${shortModelName2(brainModel)}]`;
     const _workerModel = slot === "brain" ? TRINITY_MEDIUM : null;
     const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0);
@@ -5697,7 +5780,9 @@ async function _appendFooter(input, output, directory3) {
     }
     const optModeFooter = loadOptimizationMode();
     let optTagFooter = "";
-    if (optModeFooter === "budget")
+    if (optModeFooter === "audit")
+      optTagFooter = "[AUDIT]";
+    else if (optModeFooter === "budget")
       optTagFooter = "[BUDGET]";
     else if (optModeFooter === "quality")
       optTagFooter = "[QUALITY]";
@@ -5709,7 +5794,7 @@ async function _appendFooter(input, output, directory3) {
       const autoRegime = classifyTurnSimple(latestUserIntent || "");
       const autoStress = scoreStress(latestUserIntent || "");
       const autoActive = await apiAutoSelectMode(autoRegime, autoStress);
-      const autoTag = { budget: "BUDGET", quality: "QUALITY", speed: "SPEED", longrun: "LONGRUN", balanced: "BALANCED" };
+      const autoTag = { audit: "AUDIT", budget: "BUDGET", quality: "QUALITY", speed: "SPEED", longrun: "LONGRUN", balanced: "BALANCED" };
       optTagFooter = `[AUTO\u2192${autoTag[autoActive] || autoActive.toUpperCase()}]`;
       const slot2 = autoActive === "quality" ? "brain" : autoActive === "speed" ? "medium" : "cheap";
       if (!_modelLocked) {
@@ -5792,8 +5877,8 @@ import { dirname as dirname7, basename as basename7 } from "node:path";
 init_flow_enforcer();
 
 // src/lib/tdd-enforcer.js
-import { readFileSync as readFileSync12, writeFileSync as writeFileSync9, appendFileSync as appendFileSync6, existsSync as existsSync12, mkdirSync as mkdirSync7, statSync as statSync8, readdirSync as readdirSync2, rmSync as rmSync5, openSync as openSync4 } from "node:fs";
-import { join as join13, dirname as dirname6 } from "node:path";
+import { readFileSync as readFileSync12, writeFileSync as writeFileSync10, appendFileSync as appendFileSync6, existsSync as existsSync12, mkdirSync as mkdirSync7, statSync as statSync8, readdirSync as readdirSync2, rmSync as rmSync5, openSync as openSync4 } from "node:fs";
+import { join as join14, dirname as dirname6 } from "node:path";
 import { createHash as createHash5 } from "node:crypto";
 var _detectedFramework = null;
 var directory = void 0;
@@ -6110,7 +6195,7 @@ function _detectTestFramework() {
   let testExt = null;
   try {
     const root = directory || process.cwd();
-    const pkgPath = join13(root, "package.json");
+    const pkgPath = join14(root, "package.json");
     if (existsSync12(pkgPath)) {
       const pkg = JSON.parse(readFileSync12(pkgPath, "utf-8"));
       const testScript = String(pkg?.scripts?.test || "");
@@ -6132,12 +6217,12 @@ function _detectTestFramework() {
     if (!framework) {
       const testDirs = ["src/tests", "tests", "test", "__tests__"];
       for (const td of testDirs) {
-        const dirPath = join13(root, td);
+        const dirPath = join14(root, td);
         if (!existsSync12(dirPath))
           continue;
         const files = readdirSync2(dirPath).filter((f) => /\.test\./.test(f) || /\.spec\./.test(f));
         if (files.length > 0) {
-          const content = readFileSync12(join13(dirPath, files[0]), "utf-8");
+          const content = readFileSync12(join14(dirPath, files[0]), "utf-8");
           if (/from\s+['"]node:test['"]/.test(content)) {
             framework = "node-test";
             testExt = files[0].split(".").pop();
@@ -6878,16 +6963,16 @@ mod tests {
     return content;
   }
 };
-var ENFORCEMENT_LOCK_DIR = join13(USER_HOME2, ".claude/.enforcement-lock");
+var ENFORCEMENT_LOCK_DIR = join14(USER_HOME2, ".claude/.enforcement-lock");
 var LOCK_EXPIRE_MS = 3e4;
-var ENFORCEMENT_COOLDOWN_FILE2 = join13(USER_HOME2, ".claude/.enforcement-cooldown.jsonl");
+var ENFORCEMENT_COOLDOWN_FILE2 = join14(USER_HOME2, ".claude/.enforcement-cooldown.jsonl");
 var COOLDOWN_MS = 6e4;
 var _enforcementCooldown = /* @__PURE__ */ new Set();
 function _acquireLock(testPath) {
   try {
     mkdirSync7(ENFORCEMENT_LOCK_DIR, { recursive: true });
     const hash = createHash5("sha256").update(testPath).digest("hex").slice(0, 16);
-    const lockPath = join13(ENFORCEMENT_LOCK_DIR, `${hash}.lock`);
+    const lockPath = join14(ENFORCEMENT_LOCK_DIR, `${hash}.lock`);
     try {
       openSync4(lockPath, "wx");
       return true;
@@ -6915,7 +7000,7 @@ function _acquireLock(testPath) {
 function _releaseLock(testPath) {
   try {
     const hash = createHash5("sha256").update(testPath).digest("hex").slice(0, 16);
-    const lockPath = join13(ENFORCEMENT_LOCK_DIR, `${hash}.lock`);
+    const lockPath = join14(ENFORCEMENT_LOCK_DIR, `${hash}.lock`);
     rmSync5(lockPath);
   } catch {
   }
@@ -6948,7 +7033,7 @@ function _recordCooldown(testPath) {
     appendFileSync6(ENFORCEMENT_COOLDOWN_FILE2, entry);
     const lines = readFileSync12(ENFORCEMENT_COOLDOWN_FILE2, "utf-8").trim().split("\n").filter(Boolean);
     if (lines.length > 500) {
-      writeFileSync9(ENFORCEMENT_COOLDOWN_FILE2, lines.slice(-200).join("\n") + "\n");
+      writeFileSync10(ENFORCEMENT_COOLDOWN_FILE2, lines.slice(-200).join("\n") + "\n");
     }
   } catch {
   }
@@ -7035,7 +7120,7 @@ function enforceTestFile(filePath) {
     return null;
   try {
     mkdirSync7(skeleton.dir, { recursive: true });
-    writeFileSync9(skeleton.path, skeleton.content);
+    writeFileSync10(skeleton.path, skeleton.content);
     _enforcementCooldown.add(skeleton.path);
     _recordCooldown(skeleton.path);
     try {
@@ -7104,317 +7189,6 @@ function buildTestReminder(filePath) {
       suggest = "co-located test file";
   }
   return `\u{1F9EA} Changed ${filePath} \u2014 add test at ${suggest} before completing.`;
-}
-
-// src/lib/index-helpers.js
-import { join as join14 } from "node:path";
-import { writeFileSync as writeFileSync10 } from "node:fs";
-var activeJob = null;
-var VERBOSE_LINE_RE = [
-  /^[\s#*/\\\-_=+|~:;'"`@\$%^&<>{}\[\]()!?.,0-9]+$/,
-  /^(Filed|Created|Modified|Deleted|Updated|Renamed|Copied|Moved|Changed):/,
-  /^➡️|^  👉|^  \-|^  \*|^  \d+\.|^  \d+\)/
-];
-var BULLET_PATTERNS = [
-  /^\s*[-*+•·]\s+/,
-  /^\s*\d+[.)]\s+/
-];
-var COMPRESS_RATIO = 0.3;
-var COMPRESS_THRESHOLD = 2e3;
-var MIN_KEPT_LINES_RATIO = 0.4;
-function extractBulletLines(lines, targetChars, minLines) {
-  const keyLines = [];
-  const otherLines = [];
-  for (const line of lines) {
-    if (BULLET_PATTERNS.some((re) => re.test(line)))
-      keyLines.push(line);
-    else
-      otherLines.push(line);
-  }
-  const selected = [...keyLines];
-  for (const line of otherLines) {
-    if (selected.length >= minLines && selected.join("\n").length >= targetChars)
-      break;
-    selected.push(line);
-  }
-  while (selected.length > minLines && selected.join("\n").length > targetChars * 2) {
-    selected.pop();
-  }
-  return selected;
-}
-function setActiveJobFromTaskPrompt(prompt) {
-  if (!prompt || typeof prompt !== "string")
-    return;
-  const p = prompt.trim();
-  if (p.length < 24)
-    return;
-  activeJob = {
-    prompt: p.slice(0, 1200),
-    keywords: topKeywords(p, 12),
-    updatedAt: (/* @__PURE__ */ new Date()).toISOString()
-  };
-  saveActiveJobForProject(activeJob);
-}
-function compressText(text) {
-  if (!text || typeof text !== "string")
-    return text;
-  let lines = text.split("\n");
-  let removed = 0;
-  const out = [];
-  for (const line of lines) {
-    let skip = false;
-    for (const re of VERBOSE_LINE_RE) {
-      if (re.test(line)) {
-        skip = true;
-        removed++;
-        break;
-      }
-    }
-    if (!skip)
-      out.push(line);
-  }
-  const collapsed = [];
-  let blanks = 0;
-  for (const line of out) {
-    if (line.trim() === "") {
-      blanks++;
-      if (blanks <= 2)
-        collapsed.push(line);
-    } else {
-      blanks = 0;
-      collapsed.push(line);
-    }
-  }
-  let result = collapsed.join("\n").trim();
-  if (result.length > COMPRESS_THRESHOLD) {
-    const targetChars = Math.max(Math.round(result.length * COMPRESS_RATIO), COMPRESS_THRESHOLD);
-    const minLines = Math.max(1, Math.round(collapsed.length * MIN_KEPT_LINES_RATIO));
-    const bulletLines = extractBulletLines(collapsed, targetChars, minLines);
-    result = bulletLines.join("\n").trim();
-    if (result.length > targetChars * 1.5) {
-      const cutoff = result.lastIndexOf("\n\n", targetChars);
-      if (cutoff > targetChars * 0.5) {
-        result = result.slice(0, cutoff) + `
-
-... [${result.length - cutoff} chars truncated]`;
-      } else {
-        result = result.slice(0, targetChars) + `... [${result.length - targetChars} chars truncated]`;
-      }
-    }
-  }
-  if (removed > 0 || result !== collapsed.join("\n").trim()) {
-    console.error(`[vibeOS] COMPRESS: ${text.length}->${result.length} chars (${removed} verbose lines stripped)`);
-  }
-  return result || text;
-}
-function noteProjectPattern(kind, key, summary, meta = {}) {
-  if (!currentProjectFingerprint || !key || !summary)
-    return;
-  try {
-    const pstate = loadProjectState();
-    const bucket = ensureProjectBucket(pstate, currentProjectFingerprint);
-    bucket.userPatterns ??= { friction: {}, routines: {} };
-    bucket.userPatterns.friction ??= {};
-    bucket.userPatterns.routines ??= {};
-    const target = kind === "routine" ? bucket.userPatterns.routines : bucket.userPatterns.friction;
-    const now = (/* @__PURE__ */ new Date()).toISOString();
-    const row = target[key] || { kind, summary, count: 0, sessions: [], firstSeen: now, lastSeen: null };
-    row.kind = kind;
-    row.summary = summary;
-    row.count = Number(row.count || 0) + 1;
-    row.sessions = [.../* @__PURE__ */ new Set([...row.sessions || [], _OC_SID])].slice(-10);
-    row.lastSeen = now;
-    if (meta.family)
-      row.family = meta.family;
-    if (meta.path)
-      row.path = meta.path;
-    target[key] = row;
-    const entries = Object.entries(target);
-    if (entries.length > 50) {
-      entries.sort((a, b) => String(b[1]?.lastSeen || "").localeCompare(String(a[1]?.lastSeen || "")));
-      const kept = Object.fromEntries(entries.slice(0, 50));
-      for (const k of Object.keys(target))
-        delete target[k];
-      Object.assign(target, kept);
-    }
-    bucket.lastSeen = now;
-    saveProjectState(pstate);
-  } catch (err) {
-    console.error(`[vibeOS] pattern learner write failed: ${err.message}`);
-  }
-}
-function recordFrictionPattern(key, summary, meta = {}) {
-  const sessionKey = `friction:${key}`;
-  if (frictionSessionKeys.has(sessionKey))
-    return;
-  frictionSessionKeys.add(sessionKey);
-  noteProjectPattern("friction", key, summary, meta);
-}
-function recordRoutinePattern(key, summary, meta = {}) {
-  const sessionKey = `routine:${key}`;
-  if (routineSessionKeys.has(sessionKey))
-    return;
-  routineSessionKeys.add(sessionKey);
-  noteProjectPattern("routine", key, summary, meta);
-}
-function observeToolPattern(toolName, input, output, directory3) {
-  try {
-    const t = String(toolName || "").toLowerCase();
-    const args = input?.args || {};
-    const filePath = args.filePath || args.file_path || args.path || "";
-    const observedPath = normalizeObservedPath(filePath, directory3);
-    let target = observedPath;
-    if (t === "bash")
-      target = commandFamily(args.command || args.cmd || args.script || "");
-    if (t === "task")
-      target = extractFirstWordFromArgs(t, args) || "task";
-    const event = { tool: t, target, at: Date.now() };
-    recentToolEvents.push(event);
-    if (recentToolEvents.length > 20)
-      recentToolEvents.shift();
-    let repeat = 0;
-    for (let i = recentToolEvents.length - 1; i >= 0; i--) {
-      const e = recentToolEvents[i];
-      if (e.tool !== event.tool || e.target !== event.target)
-        break;
-      repeat++;
-    }
-    if (repeat === 3) {
-      recordFrictionPattern(`repeat-tool:${t}:${target}`, `Repeated ${t} calls against ${target} in one session.`, { family: t, path: target });
-      _patternFiredKeys.add(`repeat-tool:${t}:${target}`);
-    }
-    if (repeat > 3) {
-      try {
-        updateGlobalLearning((gl) => {
-          gl.patternQuality ??= { ignoredCount: 0, trustedCount: 0 };
-          gl.patternQuality.ignoredCount = (gl.patternQuality.ignoredCount || 0) + 1;
-          return gl;
-        });
-      } catch {
-      }
-    }
-    if (repeat === 0 && _patternFiredKeys.size > 0) {
-      try {
-        updateGlobalLearning((gl) => {
-          gl.patternQuality ??= { ignoredCount: 0, trustedCount: 0 };
-          gl.patternQuality.trustedCount = (gl.patternQuality.trustedCount || 0) + 1;
-          return gl;
-        });
-      } catch {
-      }
-    }
-    if (["write", "edit", "multiedit", "notebookedit"].includes(t) && observedPath !== "unknown") {
-      setLastMutationEvent({ at: Date.now(), path: observedPath, tool: t });
-      return;
-    }
-    if (t === "bash") {
-      const family = commandFamily(args.command || args.cmd || args.script || "");
-      if (lastMutationEvent && Date.now() - lastMutationEvent.at <= 10 * 60 * 1e3) {
-        if (["syntax-check", "typecheck", "test", "build"].includes(family) && commandFailed(output)) {
-          recordFrictionPattern(`post-edit-failure:${lastMutationEvent.path}:${family}`, `After editing ${lastMutationEvent.path}, ${family} failed soon after.`, { family, path: lastMutationEvent.path });
-        } else if (["syntax-check", "typecheck", "test", "build", "git-status"].includes(family) && !commandFailed(output)) {
-          recordRoutinePattern(`post-edit-routine:${lastMutationEvent.path}:${family}`, `After editing ${lastMutationEvent.path}, ${family} is a recurring verification step.`, { family, path: lastMutationEvent.path });
-        }
-      }
-    }
-  } catch (err) {
-    console.error(`[vibeOS] pattern learner observe failed: ${err.message}`);
-  }
-}
-function recordSaving(tool2, reason, saveEst, meta = {}) {
-  try {
-    if (!saveEst || saveEst <= 0)
-      return 0;
-    const firstWord = meta?.firstWord || tool2 || "";
-    updateState((s) => {
-      s.lifetime ??= { total_savings_usd: 0, cache_savings_usd: 0, missed_context7_usd: 0, session_count: 0, warn_count: 0 };
-      s.sessions ??= {};
-      const sid = _OC_SID;
-      if (!s.sessions[sid]) {
-        s.sessions[sid] = { total_savings_usd: 0, cache_savings_usd: 0, project_name: "", warns: [], cache_hits: [], seenWarnKeys: {} };
-        if (currentProjectFingerprint) {
-          s.sessions[sid].project_fingerprint = currentProjectFingerprint;
-        }
-        if (currentProjectName) {
-          s.sessions[sid].project_name = currentProjectName;
-        }
-      }
-      const ses = s.sessions[sid];
-      ses.total_savings_usd = roundUsd(Number(ses.total_savings_usd || 0) + saveEst);
-      s.lifetime.total_savings_usd = roundUsd(Number(s.lifetime.total_savings_usd || 0) + saveEst);
-      s.lifetime.warn_count = (s.lifetime.warn_count || 0) + 1;
-      if (reason && firstWord) {
-        const now = Date.now();
-        const warnKey = `${_OC_SID}:${firstWord}`;
-        ses.seenWarnKeys ??= {};
-        let deduped = false;
-        for (let i = ses.warns.length - 1; i >= 0 && !deduped; i--) {
-          const w = ses.warns[i];
-          if (w?.key === warnKey && now - w.ts < WARN_DEDUPE_WINDOW_MS) {
-            w.count = (w.count || 1) + 1;
-            w.reason = reason;
-            w.saveEst = (w.saveEst || 0) + saveEst;
-            w.est_savings_usd = (w.est_savings_usd || 0) + saveEst;
-            deduped = true;
-          }
-        }
-        if (!deduped) {
-          ses.warns.push({ key: warnKey, reason, saveEst, est_savings_usd: saveEst, firstWord, ts: now, count: 1, tool: tool2 });
-        }
-        if (!ses.seenWarnKeys[warnKey]) {
-          ses.seenWarnKeys[warnKey] = true;
-          try {
-            noteTaskRoutingLearning(firstWord, TRINITY_CHEAP || TRINITY_MEDIUM || "unknown", `observed:${tool2}`);
-          } catch {
-          }
-        }
-      }
-      const cap = 30;
-      if (ses.warns.length > cap) {
-        ses.warns = ses.warns.slice(-cap);
-        const keys = Object.keys(ses.seenWarnKeys || {});
-        if (keys.length > cap * 2) {
-          ses.seenWarnKeys = Object.fromEntries(keys.slice(-cap * 2).map((k) => [k, true]));
-        }
-      }
-      try {
-        const sd = getSessionScratchpadDir();
-        if (sd) {
-          const sp = join14(sd, "delegation-state-hint.txt");
-          try {
-            writeFileSync10(sp, JSON.stringify({ sid, total_savings: s.lifetime.total_savings_usd, last_reason: reason }), "utf8");
-          } catch {
-          }
-        }
-      } catch {
-      }
-      ses.last_reason = reason;
-      ses.last_save_est = saveEst;
-      s.last_updated = (/* @__PURE__ */ new Date()).toISOString();
-      _pruneOldSessions(s);
-    });
-    const entry = JSON.stringify({
-      ts: (/* @__PURE__ */ new Date()).toISOString(),
-      usd: saveEst,
-      sid: _OC_SID,
-      tool: tool2,
-      reason,
-      saveEst,
-      fgp: currentProjectFingerprint || ""
-    });
-    _ledgerBuffer.push(entry);
-    if (_ledgerBuffer.length >= LEDGER_BUFFER_MAX)
-      _flushLedgerBuffer();
-    else if (!_ledgerBufferTimer)
-      setLedgerBufferTimer(setTimeout(_flushLedgerBuffer, LEDGER_BUFFER_FLUSH_MS));
-    return saveEst;
-  } catch (err) {
-    try {
-      saveSessionCheckpoint();
-    } catch {
-    }
-    return 0;
-  }
 }
 
 // src/lib/hooks/tool-execute.js
@@ -7817,6 +7591,12 @@ ${pendingUiNote}`;
     } catch {
     }
     taskSlotRestore = null;
+  }
+  if (t === "task" && currentProjectFingerprint) {
+    try {
+      clearActiveJobForProject(currentProjectFingerprint);
+    } catch {
+    }
   }
   if (enforcementBlocked) {
     enforcementBlocked = false;
@@ -8493,10 +8273,10 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     },
     tool: {
       trinity: tool({
-        description: "Control the vibeOS plugin and active model slot.\nUse action='status' to see current state.\nUse action='enable' or 'disable' to toggle the plugin.\nUse action='set' with slot='brain'|'medium'|'cheap' to switch.\nUse action='mode' with slot='budget'|'quality'|'speed'|'longrun'|'auto' to switch optimization modes.\nUse action='rebuild' to auto-detect available models.\nUse action='flow' with slot='on'|'off' to toggle flow enforcer.\nUse action='enforce' with slot='on'|'off' to toggle delegation enforcement.\nUse action='tdd' with slot='on'|'off' to toggle auto-test skeletons.\nUse action='project' for per-project analytics.\nUse action='patterns' for learned project patterns.\nUse action='guard' for Project Guard.\nCall when the user says 'switch to medium', 'use cheap model', 'disable plugin', or 'trinity status'.",
+        description: "Control the vibeOS plugin and active model slot.\nUse action='status' to see current state.\nUse action='enable' or 'disable' to toggle the plugin.\nUse action='set' with slot='brain'|'medium'|'cheap' to switch.\nUse action='mode' with slot='budget'|'quality'|'speed'|'longrun'|'auto' to switch optimization modes.\nUse action='rebuild' to auto-detect available models.\nUse action='flow' with slot='on'|'off' to toggle flow enforcer.\nUse action='enforce' with slot='on'|'off' to toggle delegation enforcement.\nUse action='tdd' with slot='on'|'off' to toggle auto-test skeletons.\nUse action='project' for per-project analytics.\nUse action='patterns' for learned project patterns.\nUse action='guard' for Project Guard.\nUse action='job' to manage active job context (clear to dismiss off-topic warnings).\nCall when the user says 'switch to medium', 'use cheap model', 'disable plugin', or 'trinity status'.",
         args: {
-          action: tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard"]).optional(),
-          slot: tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings"]).optional(),
+          action: tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard", "job"]).optional(),
+          slot: tool.schema.enum(["brain", "medium", "cheap", "audit", "budget", "quality", "speed", "longrun", "auto", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings"]).optional(),
           level: tool.schema.enum(["full", "brief", "off", "on"]).optional()
         },
         async execute({ action, slot, level } = {}) {
@@ -8595,12 +8375,17 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
             return `Switched to ${slot} slot (${result.ocModel})`;
           }
           if (action === "mode") {
-            if (!slot || !["budget", "quality", "speed", "longrun", "auto"].includes(slot)) return "Provide mode: budget | quality | speed | longrun | auto";
+            if (!slot || !["audit", "budget", "quality", "speed", "longrun", "auto"].includes(slot)) return "Provide mode: audit | budget | quality | speed | longrun | auto";
             saveOptimizationMode(slot);
-            const tierMap = { budget: "cheap", quality: "brain", speed: "medium", longrun: "brain" };
+            const tierMap = { audit: "medium", budget: "cheap", quality: "brain", speed: "medium", longrun: "brain" };
             const tierSlot = tierMap[slot] || "cheap";
-            writeSelection("active_slot", tierSlot);
-            if (slot === "budget") {
+            if (slot === "audit") {
+              writeSelection("delegation_enforce", false);
+              writeSelection("flow_enabled", true);
+              writeSelection("flow_enforce", false);
+              writeSelection("tdd_enforce", false);
+              writeSelection("thinking_level", "full");
+            } else if (slot === "budget") {
               writeSelection("delegation_enforce", false);
               writeSelection("flow_enabled", false);
               writeSelection("flow_enforce", false);
@@ -8836,12 +8621,19 @@ ${okCount}/${results.length} passed`);
             }
             return "Usage: trinity blackbox on|off|status|reset";
           }
+          if (action === "job") {
+            const active = getActiveJobForProject(fp2);
+            if (!active) return "No active job context.";
+            clearActiveJobForProject(fp2);
+            activeJob2 = null;
+            return "Active job context cleared. Off-topic warnings will be suppressed.";
+          }
           if (action === "help") {
             return [
               "vibeOS - trinity commands",
               "",
               "  trinity status       See plugin state, credit, model",
-              "  trinity mode budget|quality|speed|auto   Switch optimization mode",
+              "  trinity mode audit|budget|quality|speed|auto   Switch optimization mode",
               "  trinity brain        Switch to brain tier",
               "  trinity medium       Switch to medium tier",
               "  trinity cheap        Switch to cheap tier",
@@ -8854,7 +8646,8 @@ ${okCount}/${results.length} passed`);
               "  trinity diagnose     Self-check",
               "  trinity project      Project analytics",
               "  trinity patterns     Show learned patterns",
-              "  trinity guard        Ensure AGENTS.md/README.md exist"
+              "  trinity guard        Ensure AGENTS.md/README.md exist",
+              "  trinity job clear    Dismiss active job context warning"
             ].join("\n");
           }
           return `Unknown action: ${action}`;

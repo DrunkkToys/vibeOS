@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { classify, modelCostPerTurn, _refreshModel, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP } from "../pricing.js";
 import { latestUserIntent } from "./chat-transform.js";
-import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, loadOptimizationMode, autoSelectMode, classifyTurnSimple } from "../turn-classify.js";
+import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, loadOptimizationMode, classifyTurnSimple } from "../turn-classify.js";
 import { saveReport } from "../reporting.js";
 import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, _modelLocked, _blackboxEnabled, reconcileStateFromLedger } from "../state.js";
 import { loadSessionSlot, writeSessionSlot } from "../selection-manager.js";
@@ -17,7 +17,7 @@ async function apiAutoSelectMode(regime, stress) {
             return res.mode;
     }
     catch { }
-    return autoSelectMode(regime, stress);
+    return "balanced";
 }
 const USER_HOME = (() => { try {
     return homedir();
@@ -182,7 +182,7 @@ async function _appendFooter(input, output, directory) {
         const { ltTasks, ltCache, ltCost, count, sesTasks, sesEdit, sesCredit, sesC7, sesQuota, sesCache, sesTaskDelegations, sesDuration, sesRatePerHour, sesTrend, sesToolBreakdown, sesModelTurns, quality_avg } = readLifetimeSavings();
         const sessionSlot = loadSessionSlot(_OC_SID);
         const slot = sessionSlot || loadSelection().active_slot || "brain";
-        const brainModel = slot === "brain" ? TRINITY_BRAIN : slot === "medium" ? TRINITY_MEDIUM : TRINITY_CHEAP || currentModel || "";
+        const brainModel = slot === "brain" ? (TRINITY_BRAIN || currentModel) : slot === "medium" ? (TRINITY_MEDIUM || currentModel) : (TRINITY_CHEAP || currentModel || "");
         let modelTag = `[${shortModelName(brainModel)}]`;
         const _workerModel = slot === "brain" ? TRINITY_MEDIUM : null;
         const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0);
@@ -246,7 +246,9 @@ async function _appendFooter(input, output, directory) {
         // Optimization mode tag
         const optModeFooter = loadOptimizationMode();
         let optTagFooter = "";
-        if (optModeFooter === "budget")
+        if (optModeFooter === "audit")
+            optTagFooter = "[AUDIT]";
+        else if (optModeFooter === "budget")
             optTagFooter = "[BUDGET]";
         else if (optModeFooter === "quality")
             optTagFooter = "[QUALITY]";
@@ -258,7 +260,7 @@ async function _appendFooter(input, output, directory) {
             const autoRegime = classifyTurnSimple(latestUserIntent || "");
             const autoStress = scoreStress(latestUserIntent || "");
             const autoActive = await apiAutoSelectMode(autoRegime, autoStress);
-            const autoTag = { budget: "BUDGET", quality: "QUALITY", speed: "SPEED", longrun: "LONGRUN", balanced: "BALANCED" };
+            const autoTag = { audit: "AUDIT", budget: "BUDGET", quality: "QUALITY", speed: "SPEED", longrun: "LONGRUN", balanced: "BALANCED" };
             optTagFooter = `[AUTO→${autoTag[autoActive] || autoActive.toUpperCase()}]`;
             const slot = autoActive === "quality" ? "brain" : autoActive === "speed" ? "medium" : "cheap";
             if (!_modelLocked) {
