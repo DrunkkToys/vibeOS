@@ -76,15 +76,11 @@ function readLifetimeSavings() {
     const state = safeJsonParse(raw)
     const ses = state?.sessions?.[(typeof _OC_SID !== "undefined" ? _OC_SID : "")] || {}
     return {
-      ltTasks: roundUsd((state?.lifetime?.total_savings_usd || 0) + (state?.lifetime?.delegation_savings_usd || 0)),
+      ltTasks: roundUsd(state?.lifetime?.total_savings_usd || 0),
       ltCache: roundUsd(state?.lifetime?.cache_savings_usd || 0),
       ltCost: roundUsd(state?.lifetime?.total_cost_usd || 0),
       count: state?.lifetime?.warn_count || 0,
       sesTasks: roundUsd(ses?.total_savings_usd || 0),
-      sesEdit: roundUsd(ses?.edit_savings_usd || 0),
-      sesCredit: roundUsd(ses?.credit_savings_usd || 0),
-      sesC7: roundUsd(ses?.context7_savings_usd || 0),
-      sesQuota: roundUsd(ses?.quota_savings_usd || 0),
       sesCache: roundUsd(ses?.cache_savings_usd || 0),
       sesTaskDelegations: ses?.task_delegations_count || 0,
       sesDuration: ses?.duration_seconds || 0,
@@ -94,7 +90,7 @@ function readLifetimeSavings() {
       sesModelTurns: ses?.model_turns || {},
       quality_avg: ses?.quality_avg || 0,
     }
-  } catch { return { ltTasks: 0, ltCache: 0, ltCost: 0, count: 0, sesTasks: 0, sesEdit: 0, sesCredit: 0, sesC7: 0, sesQuota: 0, sesCache: 0, sesTaskDelegations: 0, sesDuration: 0, sesRatePerHour: 0, sesTrend: "", sesToolBreakdown: {}, sesModelTurns: {}, quality_avg: 0 } }
+  } catch { return { ltTasks: 0, ltCache: 0, ltCost: 0, count: 0, sesTasks: 0, sesCache: 0, sesTaskDelegations: 0, sesDuration: 0, sesRatePerHour: 0, sesTrend: "", sesToolBreakdown: {}, sesModelTurns: {}, quality_avg: 0 } }
 }
 
 let _OC_SID = "opencode-" + (process.pid || "x") + "-" + Date.now()

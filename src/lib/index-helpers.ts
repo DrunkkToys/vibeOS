@@ -301,7 +301,7 @@ export function recordSaving(tool, reason, saveEst, meta = {}) {
       s.sessions ??= {}
       const sid = _OC_SID
       if (!s.sessions[sid]) {
-        s.sessions[sid] = { delegation_savings_usd: 0, cache_savings_usd: 0, project_name: "", warns: [], cache_hits: [], seenWarnKeys: {} }
+        s.sessions[sid] = { total_savings_usd: 0, cache_savings_usd: 0, project_name: "", warns: [], cache_hits: [], seenWarnKeys: {} }
         if (currentProjectFingerprint) {
           s.sessions[sid].project_fingerprint = currentProjectFingerprint
         }
@@ -310,7 +310,7 @@ export function recordSaving(tool, reason, saveEst, meta = {}) {
         }
       }
       const ses = s.sessions[sid]
-      ses.delegation_savings_usd = roundUsd(Number(ses.delegation_savings_usd || 0) + saveEst)
+      ses.total_savings_usd = roundUsd(Number(ses.total_savings_usd || 0) + saveEst)
       s.lifetime.total_savings_usd = roundUsd(Number(s.lifetime.total_savings_usd || 0) + saveEst)
 
       if (reason && firstWord) {
@@ -363,6 +363,7 @@ export function recordSaving(tool, reason, saveEst, meta = {}) {
     // Buffer ledger entry
     const entry = JSON.stringify({
       ts: new Date().toISOString(),
+      usd: saveEst,
       sid: _OC_SID,
       tool,
       reason,

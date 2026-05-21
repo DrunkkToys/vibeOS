@@ -1239,7 +1239,7 @@ function recordDelegation(tool: string, saveEst: number, meta: any = {}): any {
 
       if (currentProjectName) s.sessions[sid].project_name = currentProjectName
 
-      s.sessions[sid].delegation_savings_usd = roundUsd(Number(s.sessions[sid].delegation_savings_usd || 0) + delta)
+      s.sessions[sid].total_savings_usd = roundUsd(Number(s.sessions[sid].total_savings_usd || 0) + delta)
       _pruneOldSessions(s)
       return s
     })
@@ -1410,7 +1410,7 @@ function saveSessionCheckpoint(): void {
       ts: new Date().toISOString(),
       cost: session.cost_usd || 0,
       cache_savings: session.cache_savings_usd || 0,
-      delegation_savings: session.delegation_savings_usd || 0,
+      total_savings: session.total_savings_usd || 0,
       tool_counts: session.tool_counts || {},
       warns: session.warns?.length || 0,
       model: session.model || "",
@@ -1440,11 +1440,9 @@ function _computeSessionMetrics(state: any, sid: string): any {
     ltCache: Number(state?.lifetime?.cache_savings_usd || 0),
     missedC7: Number(state?.lifetime?.missed_context7_usd || 0),
     count: warns.length,
-    sesTasks: Number(session?.delegation_savings_usd || 0),
-    sesEdit: Number(session?.edit_savings_usd || 0),
-    sesC7: Number(state?.lifetime?.missed_context7_usd || 0),
+    sesTasks: Number(session?.total_savings_usd || 0),
     sesDuration: durationSec,
-    sesRatePerHour: Number((((session?.delegation_savings_usd || 0) + (session?.cache_savings_usd || 0)) / hours).toFixed(2)),
+    sesRatePerHour: Number((((session?.total_savings_usd || 0) + (session?.cache_savings_usd || 0)) / hours).toFixed(2)),
     sesTrend: "stable",
     sesToolBreakdown: toolBreakdown,
     sesModelTurns: session?.model_turns || { brain: 0, worker: 0 },
