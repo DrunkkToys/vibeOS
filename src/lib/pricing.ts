@@ -368,17 +368,17 @@ function loadSelection() {
     return {
       enabled:            j?.selection?.enabled !== false,
       active_slot:        j?.selection?.active_slot || null,
-      thinking_level:     j?.selection?.thinking_level || "brief",
-      flow_enabled:       j?.selection?.flow_enabled !== false,
+      thinking_level:     j?.selection?.thinking_level || "off",
+      flow_enabled:       j?.selection?.flow_enabled === true,
       tdd_enforce:        j?.selection?.tdd_enforce === true,
       tdd_strict:         j?.selection?.tdd_strict === true,
-      tdd_quality:        j?.selection?.tdd_quality === true,
-      flow_enforce:       j?.selection?.flow_enforce !== false,
-      delegation_enforce: j?.selection?.delegation_enforce !== false,
+      tdd_quality:        j?.selection?.tdd_quality !== false,
+      flow_enforce:       j?.selection?.flow_enforce === true,
+      delegation_enforce: j?.selection?.delegation_enforce === true,
     }
   } catch { _handleStateCorruption(TIERS_FILE); return DFLT_SEL }
 }
-const DFLT_SEL = { enabled: true, active_slot: null, thinking_level: "brief", flow_enabled: true, tdd_enforce: false, tdd_strict: false, tdd_quality: false, flow_enforce: true, delegation_enforce: true }
+const DFLT_SEL = { enabled: true, active_slot: null, thinking_level: "off", flow_enabled: false, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: false, delegation_enforce: false }
 
 export function readConfig(dir) {
   try {
