@@ -1,3 +1,7 @@
+## 0.13.20
+- fix: update deepseek/deepseek-v4-flash pricing to /bin/zsh.000146
+
+
 ## 0.13.19
 - feat: trinity mode budget|quality|speed|longrun|auto command
 
