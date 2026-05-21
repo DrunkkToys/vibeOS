@@ -22,8 +22,8 @@ export function createTrinityTool(deps) {
       "Use action='guard' to ensure AGENTS.md and README.md exist and stay current. " +
       "Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', 'trinity status'.",
     args: {
-            action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard"]).optional(),
-            slot: deps.tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings"]).optional(),
+            action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard", "job"]).optional(),
+            slot: deps.tool.schema.enum(["brain", "medium", "cheap", "audit", "budget", "quality", "speed", "longrun", "auto", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings"]).optional(),
       level: deps.tool.schema.enum(["full", "brief", "off", "on"]).optional(),
     },
     async execute({ action, slot, level }: { action?: string; slot?: string; level?: string } = {}) {
@@ -143,15 +143,21 @@ export function createTrinityTool(deps) {
         return `\u2705 Switched to ${slot} slot (${result.ocModel}). Active now (no restart needed).`
       }
       if (action === "mode") {
-        if (!slot || !["budget", "quality", "speed", "longrun", "auto"].includes(slot)) {
-          return `Provide mode: budget | quality | speed | longrun | auto`
+        if (!slot || !["audit", "budget", "quality", "speed", "longrun", "auto"].includes(slot)) {
+          return `Provide mode: audit | budget | quality | speed | longrun | auto`
         }
         const ok = deps.saveOptimizationMode(slot)
         if (!ok) return `Failed to write mode`
-        const tierMap = { budget: "cheap", quality: "brain", speed: "medium", longrun: "brain" }
+        const tierMap = { audit: "medium", budget: "cheap", quality: "brain", speed: "medium", longrun: "brain" }
         const tierSlot = tierMap[slot] || "cheap"
         deps.writeSelection("active_slot", tierSlot)
-        if (slot === "budget") {
+        if (slot === "audit") {
+          deps.writeSelection("delegation_enforce", false)
+          deps.writeSelection("flow_enabled", true)
+          deps.writeSelection("flow_enforce", false)
+          deps.writeSelection("tdd_enforce", false)
+          deps.writeSelection("thinking_level", "full")
+        } else if (slot === "budget") {
           deps.writeSelection("delegation_enforce", false)
           deps.writeSelection("flow_enabled", false)
           deps.writeSelection("flow_enforce", false)
@@ -542,6 +548,16 @@ export function createTrinityTool(deps) {
         lines.push("AGENTS.md: defines AI agent behavioral rules \u2014 ASK BEFORE changing code.")
         lines.push("README.md: auto-maintained feature documentation \u2014 keep it updated.")
         return lines.join("\n")
+      }
+
+      if (action === "job") {
+        const fp = deps.projectFingerprint ? deps.projectFingerprint(deps.directory) : null
+        const active = fp && typeof deps.getActiveJobForProject === "function" ? deps.getActiveJobForProject(fp) : null
+        if (!active) return "No active job context."
+        if (typeof deps.clearActiveJobForProject === "function") {
+          deps.clearActiveJobForProject(fp)
+        }
+        return "Active job context cleared. Off-topic warnings will be suppressed."
       }
 
       if (action === "rebuild") {

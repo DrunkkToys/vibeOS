@@ -97,6 +97,21 @@ const REGIME_CONTROL = {
 const DEFAULT_CONTROL = REGIME_CONTROL.EXPLORING;
 const MODE_DELTAS = {
     balanced: {},
+    audit: {
+        tier_bias: "medium",
+        thinking_mode: "full",
+        tdd_mode: "lazy",
+        tdd_focus: [],
+        flow_mode: "audit",
+        flow_focus: [],
+        enforcement_mode: "relaxed",
+        wbp_verbosity: "detailed",
+        context7_urgency: "optional",
+        stress_multiplier: 0.0,
+        loop_threshold: 0.8,
+        api_enrichment: true,
+        outcome_detection: true,
+    },
     budget: {
         tier_bias: "cheap",
         thinking_mode: "off",

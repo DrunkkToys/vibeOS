@@ -16,6 +16,7 @@ import {
   getSessionScratchpadDir, ensureSessionScratchpadDirs, getSessionIndexPath,
   indexAppend,
   loadActiveJobs, getActiveJobForProject, setActiveJobForProject,
+  clearActiveJobForProject,
   saveJobRecord, loadJobRecord,
   detectTechStack, projectFingerprint, loadProjectState, saveProjectState,
   ensureProjectBucket, mergeProjectBucket, SAVINGS_LEDGER_FILE,
@@ -477,6 +478,11 @@ export const onToolExecuteAfter = async (input, output) => {
           }
         } catch {}
         taskSlotRestore = null
+      }
+
+      // ── Clear active job on subagent completion ──────────────────
+      if (t === "task" && currentProjectFingerprint) {
+        try { clearActiveJobForProject(currentProjectFingerprint) } catch {}
       }
 
       // Skip test-reminder, TDD, flow enforcement, and compression for blocked tools

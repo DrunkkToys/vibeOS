@@ -979,6 +979,21 @@ function saveActiveJobForProject(job, fp = currentProjectFingerprint) {
     }
     catch { }
 }
+function clearActiveJobForProject(fp = currentProjectFingerprint) {
+    if (!fp)
+        return;
+    try {
+        const jobs = loadActiveJobs();
+        if (!jobs[fp])
+            return;
+        delete jobs[fp];
+        mkdirSync(dirname(ACTIVE_JOBS_FILE), { recursive: true });
+        const tmp = ACTIVE_JOBS_FILE + ".tmp";
+        writeFileSync(tmp, JSON.stringify(jobs, null, 2));
+        renameSync(tmp, ACTIVE_JOBS_FILE);
+    }
+    catch { }
+}
 function saveJobRecord(jobId, record) {
     try {
         const jobs = loadActiveJobs();
@@ -1662,7 +1677,7 @@ stableJson, _readHead, indexAppend,
 // Scratchpad hits
 scratchpadHitsSeen, scanRecentScratchpad, getScratchpadHit, recordScratchpadObservation, _pruneScratchpadDir, runDecadenceCycle, applyDecadence, cleanupStaleSessionScratchpads, pruneScratchpadOnce, 
 // Active jobs
-loadActiveJobs, getActiveJobForProject, saveActiveJobForProject, saveJobRecord, loadJobRecord, 
+loadActiveJobs, getActiveJobForProject, saveActiveJobForProject, clearActiveJobForProject, saveJobRecord, loadJobRecord, 
 // Project memory
 projectFingerprint, loadProjectState, saveProjectState, ensureProjectBucket, mergeProjectBucket, detectTechStack, 
 // Path normalization / command helpers

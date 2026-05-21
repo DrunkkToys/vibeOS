@@ -842,6 +842,19 @@ function saveActiveJobForProject(job: any, fp: string = currentProjectFingerprin
   } catch {}
 }
 
+function clearActiveJobForProject(fp: string = currentProjectFingerprint): void {
+  if (!fp) return
+  try {
+    const jobs = loadActiveJobs()
+    if (!jobs[fp]) return
+    delete jobs[fp]
+    mkdirSync(dirname(ACTIVE_JOBS_FILE), { recursive: true })
+    const tmp = ACTIVE_JOBS_FILE + ".tmp"
+    writeFileSync(tmp, JSON.stringify(jobs, null, 2))
+    renameSync(tmp, ACTIVE_JOBS_FILE)
+  } catch {}
+}
+
 function saveJobRecord(jobId: string, record: any): void {
   try {
     const jobs = loadActiveJobs()
@@ -1606,6 +1619,7 @@ export {
   loadActiveJobs,
   getActiveJobForProject,
   saveActiveJobForProject,
+  clearActiveJobForProject,
   saveJobRecord,
   loadJobRecord,
 

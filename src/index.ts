@@ -44,7 +44,7 @@ import {
   _latestBlackboxState, _latestBlackboxLoopMsg, _latestBlackboxPivotMsg,
   getScratchpadHit, recordScratchpadObservation, getSessionScratchpadDir,
   ensureSessionScratchpadDirs, getSessionIndexPath, indexAppend,
-  getActiveJobForProject, projectFingerprint, loadProjectState, saveProjectState,
+  getActiveJobForProject, clearActiveJobForProject, projectFingerprint, loadProjectState, saveProjectState,
   ensureProjectBucket, mergeProjectBucket, saveMLState,
   SAVINGS_LEDGER_FILE, CONTEXT7_INSTALL_FLAG, SOFT_QUOTA_LIMIT, SCRATCHPAD_TOOLS,
   TRINITY_OPENCODE_CONFIG, TRINITY_OPENCODE_CONFIGC, TIERS_FILE,
@@ -609,7 +609,7 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
           "Use action='status' to see current state.\n" +
           "Use action='enable' or 'disable' to toggle the plugin.\n" +
           "Use action='set' with slot='brain'|'medium'|'cheap' to switch.\n" +
-          "Use action='mode' with slot='budget'|'quality'|'speed'|'longrun'|'auto' to switch optimization modes.\n" +
+          "Use action='mode' with slot='audit'|'budget'|'quality'|'speed'|'longrun'|'auto' to switch optimization modes.\n" +
           "Use action='rebuild' to auto-detect available models.\n" +
           "Use action='flow' with slot='on'|'off' to toggle flow enforcer.\n" +
           "Use action='enforce' with slot='on'|'off' to toggle delegation enforcement.\n" +
@@ -617,10 +617,11 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
           "Use action='project' for per-project analytics.\n" +
           "Use action='patterns' for learned project patterns.\n" +
           "Use action='guard' for Project Guard.\n" +
+          "Use action='job' to manage active job context (clear to dismiss off-topic warnings).\n" +
           "Call when the user says 'switch to medium', 'use cheap model', 'disable plugin', or 'trinity status'.",
         args: {
-          action: tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard"]).optional(),
-          slot: tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings"]).optional(),
+          action: tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard", "job"]).optional(),
+          slot: tool.schema.enum(["brain", "medium", "cheap", "audit", "budget", "quality", "speed", "longrun", "auto", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings"]).optional(),
           level: tool.schema.enum(["full", "brief", "off", "on"]).optional(),
         },
         async execute({ action, slot, level }: { action?: string; slot?: string; level?: string } = {}) {
@@ -708,12 +709,17 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
             return `Switched to ${slot} slot (${result.ocModel})`
           }
           if (action === "mode") {
-            if (!slot || !["budget", "quality", "speed", "longrun", "auto"].includes(slot)) return "Provide mode: budget | quality | speed | longrun | auto"
+            if (!slot || !["audit", "budget", "quality", "speed", "longrun", "auto"].includes(slot)) return "Provide mode: audit | budget | quality | speed | longrun | auto"
             saveOptimizationMode(slot)
-            const tierMap: Record<string, string> = { budget: "cheap", quality: "brain", speed: "medium", longrun: "brain" }
+            const tierMap: Record<string, string> = { audit: "medium", budget: "cheap", quality: "brain", speed: "medium", longrun: "brain" }
             const tierSlot = tierMap[slot] || "cheap"
-            writeSelection("active_slot", tierSlot)
-            if (slot === "budget") {
+            if (slot === "audit") {
+              writeSelection("delegation_enforce", false)
+              writeSelection("flow_enabled", true)
+              writeSelection("flow_enforce", false)
+              writeSelection("tdd_enforce", false)
+              writeSelection("thinking_level", "full")
+            } else if (slot === "budget") {
               writeSelection("delegation_enforce", false)
               writeSelection("flow_enabled", false)
               writeSelection("flow_enforce", false)
@@ -927,12 +933,19 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
             }
             return "Usage: trinity blackbox on|off|status|reset"
           }
+          if (action === "job") {
+            const active = getActiveJobForProject(fp)
+            if (!active) return "No active job context."
+            clearActiveJobForProject(fp)
+            activeJob = null
+            return "Active job context cleared. Off-topic warnings will be suppressed."
+          }
           if (action === "help") {
             return [
               "vibeOS - trinity commands",
               "",
               "  trinity status       See plugin state, credit, model",
-              "  trinity mode budget|quality|speed|auto   Switch optimization mode",
+              "  trinity mode audit|budget|quality|speed|auto   Switch optimization mode",
               "  trinity brain        Switch to brain tier",
               "  trinity medium       Switch to medium tier",
               "  trinity cheap        Switch to cheap tier",
@@ -946,6 +959,7 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
               "  trinity project      Project analytics",
               "  trinity patterns     Show learned patterns",
               "  trinity guard        Ensure AGENTS.md/README.md exist",
+              "  trinity job clear    Dismiss active job context warning",
             ].join("\n")
           }
           return `Unknown action: ${action}`
