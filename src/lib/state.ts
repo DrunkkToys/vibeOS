@@ -1305,7 +1305,7 @@ function readLedgerTotals(): { delegation: number, cache: number, total: number,
       try { rec = JSON.parse(ln) } catch { continue }
       if (!rec || typeof rec !== "object") continue
       if (rec.v !== undefined && rec.v !== 2) continue
-      const amt = Number(rec.amount_usd ?? rec.est_savings_usd ?? rec.savings_usd ?? 0)
+      const amt = Number(rec.amount_usd ?? rec.est_savings_usd ?? rec.savings_usd ?? rec.usd ?? 0)
       if (!Number.isFinite(amt) || amt <= 0) continue
       entries += 1
       const kind = String(rec.kind || rec.type || rec.category || rec.source || "").toLowerCase()
@@ -1332,13 +1332,14 @@ function reconcileStateFromLedger(): void {
     const l = readLedgerTotals()
     if (l.total <= 0) return
     const state = readJsonOrEmpty(DELEGATION_STATE_FILE)
-    const stDelegation = Number(state?.lifetime?.est_savings_usd ?? 0)
+    const stDelegation = Number(state?.lifetime?.est_savings_usd ?? state?.lifetime?.total_savings_usd ?? 0)
     const stCache = Number(state?.lifetime?.cache_savings_usd ?? 0)
     const stTotal = (Number.isFinite(stDelegation) ? stDelegation : 0) + (Number.isFinite(stCache) ? stCache : 0)
     if (Math.abs(stTotal - l.total) < 0.0005) return
     updateState((s: any) => {
       s.lifetime ??= { warn_count: 0, est_savings_usd: 0, last_updated: "" }
       s.lifetime.est_savings_usd = l.delegation
+      s.lifetime.total_savings_usd = l.delegation
       s.lifetime.cache_savings_usd = l.cache
       s.lifetime.last_updated = new Date().toISOString()
       s.lifetime.rebuilt_from_ledger = true
