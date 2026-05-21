@@ -160,34 +160,22 @@ const MODE_DELTAS = {
         outcome_detection: true,
     },
 };
-// Cache savings thresholds for auto mode switching
-const CACHE_SAVE_HIGH = 2.00; // > $2.00 → can afford quality
-const CACHE_SAVE_MOD = 0.50; // > $0.50 → balanced
-// ≤ $0.50 → budget
-export function autoSelectMode(cacheSavings, subRegime) {
-    if (cacheSavings > CACHE_SAVE_HIGH) {
-        if (subRegime === "CONVERGING" || subRegime === "CLOSED")
-            return "quality";
-        if (subRegime === "EXPLORING" || subRegime === "DIVERGENT")
-            return "balanced";
-        return "balanced";
-    }
-    if (cacheSavings > CACHE_SAVE_MOD) {
-        if (subRegime === "CONVERGING" || subRegime === "CLOSED")
-            return "balanced";
-        if (subRegime === "EXPLORING" || subRegime === "DIVERGENT")
-            return "budget";
-        return "balanced";
-    }
+export function autoSelectMode(subRegime, stressMultiplier) {
+    if (subRegime === "CONVERGING" || subRegime === "CLOSED")
+        return "quality";
+    if (subRegime === "LOOPING")
+        return "speed";
+    if (stressMultiplier && stressMultiplier > 1.5)
+        return "quality";
     return "budget";
 }
-export function computeControlVector(state, action, optimizationMode, cacheSavings) {
+export function computeControlVector(state, action, optimizationMode) {
     const regime = state.sub_regime || "INIT";
     const base = REGIME_CONTROL[regime] || DEFAULT_CONTROL;
     // Determine effective mode
     let effectiveMode = optimizationMode || "balanced";
     if (effectiveMode === "auto") {
-        effectiveMode = autoSelectMode(cacheSavings ?? 0, regime);
+        effectiveMode = autoSelectMode(regime, state.latest_stress_multiplier);
     }
     // Apply mode deltas on top of base (only for non-balanced modes)
     const delta = effectiveMode !== "balanced" ? (MODE_DELTAS[effectiveMode] || {}) : {};
@@ -289,4 +277,4 @@ export function buildControlHistoryEntry(turn, regime, control, reward = null) {
     };
 }
 export const REGIME_CONTROL_TABLE = REGIME_CONTROL;
-export { MODE_DELTAS, CACHE_SAVE_HIGH, CACHE_SAVE_MOD };
+export { MODE_DELTAS };

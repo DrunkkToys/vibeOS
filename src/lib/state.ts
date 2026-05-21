@@ -147,7 +147,7 @@ const LEDGER_BUFFER_FLUSH_MS = 5000
 const testReminderSeen = new Set<string>()
 
 // ── Default selection & global learning ──────────────────────────────
-const DFLT_SEL = { enabled: true, active_slot: null, thinking_level: "brief", flow_enabled: true, tdd_enforce: false, tdd_strict: false, tdd_quality: false, flow_enforce: true, delegation_enforce: true, savings_goal_usd: 0 }
+const DFLT_SEL = { enabled: true, active_slot: null, thinking_level: "brief", flow_enabled: true, tdd_enforce: false, tdd_strict: false, tdd_quality: false, flow_enforce: true, delegation_enforce: true }
 const DFLT_GL = { exploratory_words: {}, task_first_words: {}, updatedAt: null }
 
 // ── Tool helper (minimal, avoids @opencode-ai/plugin dependency) ──────
@@ -213,6 +213,7 @@ function withFileLock(filePath: string, fn: () => any, opts: { staleMs?: number,
 
 // ── JSONC-tolerant JSON.parse ────────────────────────────────────────
 function safeJsonParse(raw: string): any {
+  if (raw == null || raw === '') return null
   try {
     return JSON.parse(raw)
   } catch {}
@@ -367,7 +368,6 @@ function loadSelection(): any {
       tdd_quality:        j?.selection?.tdd_quality === true,
       flow_enforce:       j?.selection?.flow_enforce !== false,
       delegation_enforce: j?.selection?.delegation_enforce !== false,
-      savings_goal_usd:   Number(j?.selection?.savings_goal_usd || 0),
     }
   } catch { _handleStateCorruption(TIERS_FILE); return DFLT_SEL }
 }
@@ -533,7 +533,9 @@ function _flushLedgerBuffer(): void {
   if (_ledgerBufferTimer) { clearTimeout(_ledgerBufferTimer); _ledgerBufferTimer = null }
   if (_ledgerBuffer.length === 0) return
   const batch = _ledgerBuffer.splice(0)
-  try { appendFileSync(SAVINGS_LEDGER_FILE, batch.join("")) } catch {}
+  const lines = batch.map(e => typeof e === "string" ? e.trimEnd() : String(e).trimEnd())
+  const joined = lines.filter(Boolean).map(l => l + "\n").join("")
+  try { appendFileSync(SAVINGS_LEDGER_FILE, joined) } catch {}
 }
 
 function recordSavingsLedgerEntry(entry: any): void {
@@ -553,7 +555,14 @@ function loadSavingsLedger(limit: number = 1000): any[] {
     const recent = limit ? lines.slice(-limit) : lines
     const entries: any[] = []
     for (const line of recent) {
-      try { const rec = JSON.parse(line); if (rec && typeof rec === "object") entries.push(rec) } catch {}
+      try { const rec = JSON.parse(line); if (rec && typeof rec === "object") entries.push(rec) } catch {
+        const matches = line.match(/\{[^{}]*\{[^}]*}[^{}]*\}|\{[^}]+\}/g)
+        if (matches) {
+          for (const m of matches) {
+            try { const rec = JSON.parse(m); if (rec && typeof rec === "object") entries.push(rec) } catch {}
+          }
+        }
+      }
     }
     return entries
   } catch { return [] }
@@ -1224,9 +1233,12 @@ function recordDelegation(tool: string, saveEst: number, meta: any = {}): any {
       s.lifetime.last_updated = now
       s.sessions ??= {}
       const sid = _OC_SID
-      s.sessions[sid] ??= { started: now, source: "opencode", tool_counts: {}, warns: [] }
+      s.sessions[sid] ??= { started: now, session_started_at: now, source: "opencode", tool_counts: {}, warns: [] }
+
       if (currentProjectFingerprint) s.sessions[sid].project_fingerprint = currentProjectFingerprint
+
       if (currentProjectName) s.sessions[sid].project_name = currentProjectName
+
       s.sessions[sid].delegation_savings_usd = roundUsd(Number(s.sessions[sid].delegation_savings_usd || 0) + delta)
       _pruneOldSessions(s)
       return s
@@ -1247,7 +1259,7 @@ function recordCacheSaving(tool: string, saveEst: number, meta: any = {}): any {
       s.lifetime.last_updated = now
       s.sessions ??= {}
       const sid = _OC_SID
-      s.sessions[sid] ??= { started: now, source: "opencode", tool_counts: {}, warns: [] }
+      s.sessions[sid] ??= { started: now, session_started_at: now, source: "opencode", tool_counts: {}, warns: [] }
       if (currentProjectFingerprint) s.sessions[sid].project_fingerprint = currentProjectFingerprint
       if (currentProjectName) s.sessions[sid].project_name = currentProjectName
       s.sessions[sid].session_cache_dir = getSessionScratchpadDir()

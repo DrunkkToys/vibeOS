@@ -66,8 +66,8 @@ function formatUsd(v) {
 function loadSelection() {
   try {
     const raw = readFileSync(join(USER_HOME, ".claude/model-tiers.json"), "utf-8")
-    return safeJsonParse(raw)?.selection || { active_slot: "medium", enabled: true, delegation_enforce: false, flow_enabled: false, flow_enforce: false, tdd_enforce: false, tdd_strict: false, savings_goal_usd: 0 }
-  } catch { return { active_slot: "medium", enabled: true, delegation_enforce: false, flow_enabled: false, flow_enforce: false, tdd_enforce: false, tdd_strict: false, savings_goal_usd: 0 } }
+    return safeJsonParse(raw)?.selection || { active_slot: "medium", enabled: true, delegation_enforce: false, flow_enabled: false, flow_enforce: false, tdd_enforce: false, tdd_strict: false }
+  } catch { return { active_slot: "medium", enabled: true, delegation_enforce: false, flow_enabled: false, flow_enforce: false, tdd_enforce: false, tdd_strict: false } }
 }
 
 function readLifetimeSavings() {
@@ -232,14 +232,6 @@ async function _appendFooter(input, output, directory) {
         if (imputedMultiplier > 2) {
           const imputedActual = ltTotal * imputedMultiplier
           savingsDisplay += ` (${formatUsd(imputedActual)} actual)`
-        }
-        const selGoal = loadSelection()
-        const goalUsd = selGoal.savings_goal_usd || 0
-        if (goalUsd > 0) {
-          const pct = Math.min(100, Math.round((ltTotal / goalUsd) * 100))
-          const filled = Math.floor(pct / 10)
-          const bar = "\u2588".repeat(filled) + "\u2591".repeat(10 - filled)
-          savingsDisplay += ` | ${formatUsd(ltTotal)} / ${formatUsd(goalUsd)} [${bar}]`
         }
         const stressBar = _footerStress > 0.85 ? "█" : _footerStress > 0.7 ? "▆" : _footerStress > 0.5 ? "▅" : _footerStress > 0.3 ? "▃" : _footerStress > 0.1 ? "▂" : "▁"
         const stressLabel = _footerStress > 0.7 ? "high" : _footerStress > 0.4 ? "elevated" : "calm"

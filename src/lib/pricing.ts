@@ -25,6 +25,7 @@ const USER_HOME = (() => { try { return homedir() } catch { return tmpdir() } })
 
 // ── JSONC-tolerant JSON.parse for config files ──────────────────────
 function safeJsonParse(raw: string): any {
+  if (raw == null || raw === '') return null
   try {
     return JSON.parse(raw)
   } catch {}
@@ -374,11 +375,10 @@ function loadSelection() {
       tdd_quality:        j?.selection?.tdd_quality === true,
       flow_enforce:       j?.selection?.flow_enforce !== false,
       delegation_enforce: j?.selection?.delegation_enforce !== false,
-      savings_goal_usd:   Number(j?.selection?.savings_goal_usd || 0),
     }
   } catch { _handleStateCorruption(TIERS_FILE); return DFLT_SEL }
 }
-const DFLT_SEL = { enabled: true, active_slot: null, thinking_level: "brief", flow_enabled: true, tdd_enforce: false, tdd_strict: false, tdd_quality: false, flow_enforce: true, delegation_enforce: true, savings_goal_usd: 0 }
+const DFLT_SEL = { enabled: true, active_slot: null, thinking_level: "brief", flow_enabled: true, tdd_enforce: false, tdd_strict: false, tdd_quality: false, flow_enforce: true, delegation_enforce: true }
 
 export function readConfig(dir) {
   try {

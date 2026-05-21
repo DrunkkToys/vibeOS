@@ -199,30 +199,17 @@ const MODE_DELTAS: Record<Exclude<OptimizationMode, "auto">, ModeDelta> = {
   },
 }
 
-// Cache savings thresholds for auto mode switching
-const CACHE_SAVE_HIGH = 2.00  // > $2.00 → can afford quality
-const CACHE_SAVE_MOD = 0.50   // > $0.50 → balanced
-                              // ≤ $0.50 → budget
-
-export function autoSelectMode(cacheSavings: number, subRegime: string): OptimizationMode {
-  if (cacheSavings > CACHE_SAVE_HIGH) {
-    if (subRegime === "CONVERGING" || subRegime === "CLOSED") return "quality"
-    if (subRegime === "EXPLORING" || subRegime === "DIVERGENT") return "balanced"
-    return "balanced"
-  }
-  if (cacheSavings > CACHE_SAVE_MOD) {
-    if (subRegime === "CONVERGING" || subRegime === "CLOSED") return "balanced"
-    if (subRegime === "EXPLORING" || subRegime === "DIVERGENT") return "budget"
-    return "balanced"
-  }
+export function autoSelectMode(subRegime: string, stressMultiplier?: number): OptimizationMode {
+  if (subRegime === "CONVERGING" || subRegime === "CLOSED") return "quality"
+  if (subRegime === "LOOPING") return "speed"
+  if (stressMultiplier && stressMultiplier > 1.5) return "quality"
   return "budget"
 }
 
 export function computeControlVector(
-  state: { sub_regime?: string; is_looping?: boolean; loop_intervention_level?: string; momentum?: number; n_interactions?: number },
+  state: { sub_regime?: string; is_looping?: boolean; loop_intervention_level?: string; momentum?: number; n_interactions?: number; latest_stress_multiplier?: number },
   action?: string,
   optimizationMode?: OptimizationMode,
-  cacheSavings?: number,
 ): ControlVector {
   const regime = state.sub_regime || "INIT"
   const base = REGIME_CONTROL[regime] || DEFAULT_CONTROL
@@ -230,7 +217,7 @@ export function computeControlVector(
   // Determine effective mode
   let effectiveMode: OptimizationMode = optimizationMode || "balanced"
   if (effectiveMode === "auto") {
-    effectiveMode = autoSelectMode(cacheSavings ?? 0, regime)
+    effectiveMode = autoSelectMode(regime, state.latest_stress_multiplier)
   }
 
   // Apply mode deltas on top of base (only for non-balanced modes)
@@ -365,4 +352,4 @@ export function buildControlHistoryEntry(
 }
 
 export const REGIME_CONTROL_TABLE = REGIME_CONTROL
-export { MODE_DELTAS, CACHE_SAVE_HIGH, CACHE_SAVE_MOD }
+export { MODE_DELTAS }

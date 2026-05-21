@@ -132,7 +132,7 @@ const LEDGER_BUFFER_FLUSH_MS = 5000;
 // ── Test reminder state ──────────────────────────────────────────────
 const testReminderSeen = new Set();
 // ── Default selection & global learning ──────────────────────────────
-const DFLT_SEL = { enabled: true, active_slot: null, thinking_level: "brief", flow_enabled: true, tdd_enforce: false, tdd_strict: false, tdd_quality: false, flow_enforce: true, delegation_enforce: true, savings_goal_usd: 0 };
+const DFLT_SEL = { enabled: true, active_slot: null, thinking_level: "brief", flow_enabled: true, tdd_enforce: false, tdd_strict: false, tdd_quality: false, flow_enforce: true, delegation_enforce: true };
 const DFLT_GL = { exploratory_words: {}, task_first_words: {}, updatedAt: null };
 // ── Tool helper (minimal, avoids @opencode-ai/plugin dependency) ──────
 function _zType(base) {
@@ -214,6 +214,8 @@ function withFileLock(filePath, fn, opts = {}) {
 }
 // ── JSONC-tolerant JSON.parse ────────────────────────────────────────
 function safeJsonParse(raw) {
+    if (raw == null || raw === '')
+        return null;
     try {
         return JSON.parse(raw);
     }
@@ -389,7 +391,6 @@ function loadSelection() {
             tdd_quality: j?.selection?.tdd_quality === true,
             flow_enforce: j?.selection?.flow_enforce !== false,
             delegation_enforce: j?.selection?.delegation_enforce !== false,
-            savings_goal_usd: Number(j?.selection?.savings_goal_usd || 0),
         };
     }
     catch {
@@ -582,8 +583,10 @@ function _flushLedgerBuffer() {
     if (_ledgerBuffer.length === 0)
         return;
     const batch = _ledgerBuffer.splice(0);
+    const lines = batch.map(e => typeof e === "string" ? e.trimEnd() : String(e).trimEnd());
+    const joined = lines.filter(Boolean).map(l => l + "\n").join("");
     try {
-        appendFileSync(SAVINGS_LEDGER_FILE, batch.join(""));
+        appendFileSync(SAVINGS_LEDGER_FILE, joined);
     }
     catch { }
 }
@@ -613,7 +616,19 @@ function loadSavingsLedger(limit = 1000) {
                 if (rec && typeof rec === "object")
                     entries.push(rec);
             }
-            catch { }
+            catch {
+                const matches = line.match(/\{[^{}]*\{[^}]*}[^{}]*\}|\{[^}]+\}/g);
+                if (matches) {
+                    for (const m of matches) {
+                        try {
+                            const rec = JSON.parse(m);
+                            if (rec && typeof rec === "object")
+                                entries.push(rec);
+                        }
+                        catch { }
+                    }
+                }
+            }
         }
         return entries;
     }
@@ -1400,7 +1415,7 @@ function recordDelegation(tool, saveEst, meta = {}) {
             s.lifetime.last_updated = now;
             s.sessions ??= {};
             const sid = _OC_SID;
-            s.sessions[sid] ??= { started: now, source: "opencode", tool_counts: {}, warns: [] };
+            s.sessions[sid] ??= { started: now, session_started_at: now, source: "opencode", tool_counts: {}, warns: [] };
             if (currentProjectFingerprint)
                 s.sessions[sid].project_fingerprint = currentProjectFingerprint;
             if (currentProjectName)
@@ -1425,7 +1440,7 @@ function recordCacheSaving(tool, saveEst, meta = {}) {
             s.lifetime.last_updated = now;
             s.sessions ??= {};
             const sid = _OC_SID;
-            s.sessions[sid] ??= { started: now, source: "opencode", tool_counts: {}, warns: [] };
+            s.sessions[sid] ??= { started: now, session_started_at: now, source: "opencode", tool_counts: {}, warns: [] };
             if (currentProjectFingerprint)
                 s.sessions[sid].project_fingerprint = currentProjectFingerprint;
             if (currentProjectName)
