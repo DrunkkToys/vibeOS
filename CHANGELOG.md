@@ -1,3 +1,10 @@
+## 0.13.18
+- fix: per-session active_slot and optimization_mode in blackbox-state
+- fix: footer model tag shows active slot model instead of hardcoded brain tier
+- refactor: esbuild bundle — single-file vibeeOS.js output
+- chore: v0.13.17
+
+
 ## 0.13.16
 - fix: auto-mode tier switch in footer (bypass broken system.transform hook)
 
