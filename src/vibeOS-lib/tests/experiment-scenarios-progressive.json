@@ -1,0 +1,115 @@
+{
+  "meta": {
+    "description": "Progressive benchmark scenarios with KNOWN CORRECT outputs. Tests context awareness across 5+ files in vibeOS codebase.",
+    "version": "3.0.0",
+    "hypothesis": "Brain tier outperforms cheap at 10+ file context requirements. Context degradation hits cheap tier harder after 10+ implicit references.",
+    "methodology": "Each scenario has a known correct diff. Evaluator compares output to ground truth. Tracks tokens in/out, latency, correctness."
+  },
+  "metrics": {
+    "correctness": "Exact output matches known correct answer (0 or 1)",
+    "partial_correctness": "Output functionally correct but syntactically different (0-1)",
+    "tokens_in": "Completion tokens used by the model",
+    "tokens_out": "Tokens generated",
+    "latency_ms": "Wall time in milliseconds",
+    "files_read": "Number of files opened to complete task",
+    "files_modified": "Number of files changed",
+    "regression": "Did the change break existing tests? (0 or 1)"
+  },
+  "scenarios": [
+    {
+      "id": "delete-record-saving",
+      "description": "Delete the `recordSaving` function and all calls to it. Known outcome: function removed from index-helpers.ts, no callers in index.ts.",
+      "knownCorrectDiff": [{"file": "src/lib/index-helpers.ts", "linesRemoved": 85}, {"file": "src/index.ts", "linesChanged": 0}],
+      "filesRequired": ["src/lib/index-helpers.ts", "src/index.ts"],
+      "verification": "grep -r 'recordSaving' src/ --include='*.ts' | wc -l == 0",
+      "dependencies": [],
+      "turnsRequired": 2
+    },
+    {
+      "id": "rename-sync-control-settings",
+      "description": "Rename `syncControlSettings` to `applyControlVector` everywhere in src/. Known outcome: all references updated, no broken imports.",
+      "knownCorrectDiff": [{"file": "src/lib/hooks/chat-transform.ts", "linesChanged": 3}, {"file": "src/lib/hooks/chat-transform.js", "linesChanged": 3}],
+      "filesRequired": ["src/lib/hooks/chat-transform.ts", "src/lib/hooks/chat-transform.js", "src/vibeOS-lib/blackbox/meta-controller.ts"],
+      "verification": "grep 'syncControlSettings' src/ --include='*.ts' | wc -l == 0 AND grep 'applyControlVector' src/ --include='*.ts' | wc -l >= 2",
+      "dependencies": [],
+      "turnsRequired": 2
+    },
+    {
+      "id": "fix-savings-field-mismatch",
+      "description": "Fix the savings tracking bug: `delegation_savings_usd` should be `total_savings_usd` in state.ts, index.ts, and footer.ts. Known outcome: 4 files changed, field name consistent across all.",
+      "knownCorrectDiff": [{"file": "src/lib/state.ts", "linesChanged": 5}, {"file": "src/index.ts", "linesChanged": 1}, {"file": "src/lib/hooks/footer.ts", "linesChanged": 2}, {"file": "src/vibeOS-mcp-server.ts", "linesChanged": 1}],
+      "filesRequired": ["src/lib/state.ts", "src/index.ts", "src/lib/hooks/footer.ts", "src/vibeOS-mcp-server.ts"],
+      "verification": "grep 'delegation_savings_usd' src/ --include='*.ts' | wc -l == 0",
+      "dependencies": [],
+      "turnsRequired": 5
+    },
+    {
+      "id": "add-footer-tool-count-field",
+      "description": "Add tool count to footer. Known outcome: readLifetimeSavings returns sesToolCount, _appendFooter displays '| tools: N'.",
+      "knownCorrectDiff": [{"file": "src/lib/hooks/footer.ts", "linesChanged": 3}],
+      "filesRequired": ["src/lib/hooks/footer.ts"],
+      "verification": "grep 'sesToolCount' src/lib/hooks/footer.ts | wc -l >= 2 AND grep 'tools:' src/lib/hooks/footer.ts | wc -l >= 2",
+      "dependencies": [],
+      "turnsRequired": 3
+    },
+    {
+      "id": "extract-selection-manager",
+      "description": "Extract loadSelection and writeSelection from state.ts into a new file selection-manager.ts. Known outcome: new file created, state.ts re-exports, all imports chain correctly.",
+      "knownCorrectDiff": [{"file": "src/lib/selection-manager.ts", "linesChanged": 65}, {"file": "src/lib/state.ts", "linesChanged": 10}],
+      "filesRequired": ["src/lib/state.ts", "src/index.ts"],
+      "verification": "node -e 'import(\"src/lib/selection-manager.ts\").then(m => console.log(Object.keys(m)))' 2>&1 | grep loadSelection",
+      "dependencies": [],
+      "turnsRequired": 5
+    },
+    {
+      "id": "add-auto-select-mode-test",
+      "description": "Add a test for autoSelectMode: when regime=CONVERGING, mode should be 'quality'. Write the test in src/lib/hooks/tests/. Known outcome: test file created, test passes.",
+      "knownCorrectDiff": [{"file": "src/lib/hooks/tests/auto-select-mode.test.ts", "linesChanged": 20}],
+      "filesRequired": ["src/vibeOS-lib/blackbox/meta-controller.ts", "src/lib/hooks/tests/"],
+      "verification": "node --test src/lib/hooks/tests/auto-select-mode.test.ts | grep 'pass 1'",
+      "dependencies": [],
+      "turnsRequired": 3
+    },
+    {
+      "id": "progressive-context-chain",
+      "description": "Multi-turn progressive task: Turn 1) read state.ts and understand the savings tracking. Turn 2) find where total_savings_usd is written. Turn 3) find where it's read. Turn 4) ensure consistency. Known outcome: identify all 5 touchpoints and confirm they use the same field name.",
+      "knownCorrectDiff": [{"file": "report.txt", "linesChanged": 10}],
+      "filesRequired": ["src/lib/index-helpers.ts", "src/lib/state.ts", "src/lib/hooks/footer.ts", "src/vibeOS-mcp-server.ts"],
+      "verification": "grep -c 'total_savings_usd\|delegation_savings_usd' report.txt > /dev/null",
+      "dependencies": [],
+      "turnsRequired": 4
+    },
+    {
+      "id": "cross-file-type-refactor",
+      "description": "Rename OptimizationMode type (currently string union) to an enum. Update meta-controller.ts and all consumers. Known outcome: type definition changed, all imports updated, typecheck passes.",
+      "knownCorrectDiff": [{"file": "src/vibeOS-lib/blackbox/meta-controller.ts", "linesChanged": 10}, {"file": "src/lib/hooks/chat-transform.ts", "linesChanged": 2}],
+      "filesRequired": ["src/vibeOS-lib/blackbox/meta-controller.ts", "src/vibeOS-lib/blackbox/index.ts", "src/lib/hooks/chat-transform.ts"],
+      "verification": "grep 'OptimizationMode' src/vibeOS-lib/blackbox/meta-controller.ts | head -1 | grep 'enum'",
+      "dependencies": [],
+      "turnsRequired": 6
+    },
+    {
+      "id": "introduce-bug-fix-cycle",
+      "description": "Known bug: the ledger writes saveEst but readers expect 'usd'. Fix: add 'usd' to the ledger entry. Known outcome: index-helpers.ts ledger entry now includes usd field.",
+      "knownCorrectDiff": [{"file": "src/lib/index-helpers.ts", "linesChanged": 1}],
+      "filesRequired": ["src/lib/index-helpers.ts", "src/lib/hooks/footer.ts"],
+      "verification": "grep 'usd:' src/lib/index-helpers.ts | grep -v 'saveEst' | grep -v 'total_\\|cache_\\|missed_' | wc -l >= 1",
+      "dependencies": [],
+      "turnsRequired": 3
+    },
+    {
+      "id": "complex-architectural-change",
+      "description": "Move the `syncControlSettings` call from chat-transform.ts line 247 to BEFORE the blackbox state is saved (line 199), so settings are written before the next turn's state is computed. Known outcome: the call moves from line 247 to between lines 198-199.",
+      "knownCorrectDiff": [{"file": "src/lib/hooks/chat-transform.ts", "linesChanged": 2}],
+      "filesRequired": ["src/lib/hooks/chat-transform.ts"],
+      "verification": "grep -n 'syncControlSettings' src/lib/hooks/chat-transform.ts | head -1",
+      "dependencies": [],
+      "turnsRequired": 5
+    }
+  ],
+  "rotation": {
+    "scenariosPerNight": 10,
+    "maxRunsPerScenario": 50,
+    "cooldownNights": 0
+  }
+}
