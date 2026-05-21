@@ -1,3 +1,41 @@
+## 0.13.15
+- feat: progressive benchmark v3 — known-ground-truth scenarios, git isolation, full KPIs
+- feat: tier_bias now enforces active_slot switch via syncControlSettings
+- feat: nightly experiment runner for quality vs budget A/B testing
+- feat: syncControlSettings — mode-driven auto-toggle of all enforcement settings
+- fix: pass loadOptimizationMode() to computeControlVector so auto-mode actually switches tier
+- fix: ledger reconciliation reads usd field, writes total_savings_usd
+- fix: lifetime savings display and auto-mode tier routing
+- fix: align DFLT_SEL and loadSelection defaults with auto-mode
+- fix: align savings tracking fields across all systems
+- fix: optimization_mode now returns effective mode, not input value
+- fix: add setShellDirectory, fix flow-enforcer import path, shell.env directory wiring
+- fix: move applyDecadence import to state.js, add setLastMutationEvent
+- fix: const assignment + missing imports in shell.env hook
+- fix: move .ts stripping to end of deploy (after all copies)
+- fix: remove duplicate exports, add setLastMutationEvent, strip .ts on deploy
+- fix: replace all direct assignments to imported state vars with setters
+- fix: deploy .ts files (they are fixed, no stripping needed)
+- fix: deploy script now excludes .ts files from deployed plugin dir
+- fix: move applyDecadence to state.js where decadence vars are owned
+- fix: missing exports, const assignment bug in applyDecadence, TDD test expectations
+- fix: missing TRINITY_CHEAP/MEDIUM imports in hook files — plugin crashed on load
+- refactor: replace toy scenarios with 6 hard multi-file/architectural scenarios
+- refactor: regime-driven autoSelectMode, remove savings_goal_usd
+- docs: update README, AGENTS, LIVE_DEBUG for regime-driven autoSelectMode
+- docs: add LIVE_BUG section, ML/smart-cache tests, TDD live prompts
+- chore: sync compiled JS with TS savings fixes
+- chore: remove experiment artifacts, ignore experiments/ dir
+- chore: sync compiled index.js with TS source
+- chore: v0.13.11
+- chore: v0.13.10
+- chore: v0.13.9
+- chore: v0.13.8
+- chore: v0.13.7
+0.13.14
+0.13.13
+
+
 ## 0.13.11
 - fix: use setters for all imported state vars (ES module bindings are read-only)
 - fix: add setLastMutationEvent, remove duplicate exports in state.js
