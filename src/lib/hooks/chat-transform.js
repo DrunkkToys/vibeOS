@@ -4,10 +4,12 @@ import { join, basename } from 'node:path';
 import { createHash } from 'node:crypto';
 import { currentModel, currentProjectName, _blackboxEnabled, loadSelection, writeSelection, safeJsonParse, applyDecadence, getSessionScratchpadDir, ensureSessionScratchpadDirs, indexAppend, getActiveJobForProject, TIERS_FILE, setCurrentModel, setCurrentTier, } from '../state.js';
 import { TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN, } from '../pricing.js';
-import { scoreStress, classifyTurnSimple, computeControlVector, loadOptimizationMode, saveOptimizationMode, getBlackboxTracker, loadBlackboxState as loadBlackboxStateFromCtx, saveBlackboxState as saveBlackboxStateToCtx, extractLastUserText, isLikelyOffTopic, fetchBlackboxEnrichment, estimateContextBudget, buildControlHistoryEntry, } from '../turn-classify.js';
+import { scoreStress, classifyTurnSimple, loadOptimizationMode, saveOptimizationMode, getBlackboxTracker, loadBlackboxState as loadBlackboxStateFromCtx, saveBlackboxState as saveBlackboxStateToCtx, extractLastUserText, isLikelyOffTopic, fetchBlackboxEnrichment, estimateContextBudget, buildControlHistoryEntry, } from '../turn-classify.js';
 import { remoteCall } from '../api-client.js';
 import { loadCredit } from '../credit-api.js';
 import { loadSessionSlot, writeSessionSlot } from '../selection-manager.js';
+import { noteProjectPattern } from '../index-helpers.js';
+import { saveSessionStress } from '../index-helpers.js';
 let latestUserIntent = null;
 let currentProjectFingerprint = '';
 let fp = '';
@@ -17,6 +19,7 @@ let _latestBlackboxLoopMsg = null;
 let _latestBlackboxPivotMsg = null;
 let _prevOutputText = '';
 const briefedProjects = new Set();
+const correctionSeenKeys = new Set();
 async function apiComputeControlVector(state, action, optimizationMode) {
     try {
         const res = await remoteCall('blackboxControlVector', [state, action, optimizationMode], null);
@@ -24,10 +27,57 @@ async function apiComputeControlVector(state, action, optimizationMode) {
             return res.control_vector;
     }
     catch { }
-    return computeControlVector(state, action, optimizationMode);
+    return {
+        enforcement_mode: "normal",
+        enforcement_reason: "[optimize: balanced] offline fallback",
+        flow_mode: "normal",
+        flow_focus: [],
+        tdd_mode: "normal",
+        tdd_focus: [],
+        tier_bias: "auto",
+        thinking_mode: "auto",
+        stress_multiplier: 1.0,
+        context7_urgency: "preferred",
+        wbp_verbosity: "normal",
+        optimization_mode: "balanced",
+        directives: [],
+    };
 }
-function observeUserCorrection(_text) {
-    return;
+function observeUserCorrection(text) {
+    if (!text || typeof text !== "string")
+        return;
+    try {
+        const t = text.toLowerCase();
+        const corrections = [];
+        if (/wrong\b|that.s wrong|incorrect|not what i|didn.t mean|misunderstood/i.test(t)) {
+            if (/\bimport\b|require\b|from\b|path\b|module\b/i.test(t))
+                corrections.push("correction:imports");
+            if (/\bfunction\b|logic\b|algorithm\b|calculation\b|formula\b|return\b|result\b/i.test(t) && !corrections.includes("correction:imports"))
+                corrections.push("correction:logic");
+            if (/\brename\b|variable\b|const\b|let\b|var\b|name\b|called\b/i.test(t) && !corrections.includes("correction:logic"))
+                corrections.push("correction:naming");
+            if (/\bdelete\b|remove\b|get rid\b|revert\b|undo\b|rollback\b/i.test(t))
+                corrections.push("correction:deletion");
+            if (/\brestructure\b|refactor\b|reorganize\b|move\b|split\b|extract\b/i.test(t) && !corrections.includes("correction:deletion"))
+                corrections.push("correction:restructure");
+            if (corrections.length === 0)
+                corrections.push("correction:general");
+        }
+        if (corrections.length === 0 && /\bshould be\b|change .+ to\b|replace .+ with\b|instead of\b/i.test(t)) {
+            corrections.push("correction:general");
+        }
+        for (const c of corrections) {
+            const sessionKey = `friction:${c}`;
+            if (correctionSeenKeys.has(sessionKey))
+                continue;
+            correctionSeenKeys.add(sessionKey);
+            try {
+                noteProjectPattern("friction", c, `User corrected ${c.replace("correction:", "")} in a follow-up message.`, { family: c });
+            }
+            catch { }
+        }
+    }
+    catch { }
 }
 function buildProjectBriefing(directory) {
     const label = currentProjectName || (directory ? basename(directory) : "");
@@ -208,8 +258,10 @@ export const onMessagesTransform = async (_input, output) => {
                             state.sessions[sid] = {};
                         state.sessions[sid].control_history ??= [];
                         const st = scoreStress(latestUserIntent);
-                        if (st)
+                        if (st) {
                             localState.latest_stress_multiplier = st;
+                            saveSessionStress(st, st > 1.5 ? "critical" : st > 0.7 ? "elevated" : st > 0.3 ? "moderate" : "none");
+                        }
                         const cv = await apiComputeControlVector(localState, undefined, loadOptimizationMode());
                         state.sessions[sid].control_history.push(buildControlHistoryEntry(state.sessions[sid].control_history.length + 1, localState.sub_regime || "INIT", cv));
                         if (state.sessions[sid].control_history.length > 100) {
