@@ -1,3 +1,9 @@
+## 0.13.21
+- fix: blackbox save TTL throttle, export parseJsonc, stress/pattern tests
+- fix: rebuild bundled src/index.js with warn_count and ledger fixes
+- fix: warn_count tracking, est_savings_usd, and ledger reconcile
+
+
 ## 0.13.20
 - fix: update deepseek/deepseek-v4-flash pricing to /bin/zsh.000146
 
