@@ -163,6 +163,34 @@ function recordRoutinePattern(key, summary, meta = {}) {
     routineSessionKeys.add(sessionKey);
     noteProjectPattern("routine", key, summary, meta);
 }
+// ── Stress history persistence ───────────────────────────────────────
+let _lastStressWrite = 0;
+const STRESS_WRITE_INTERVAL_MS = 15000;
+export function saveSessionStress(score, level) {
+    if (typeof score !== "number" || !isFinite(score))
+        return;
+    const now = Date.now();
+    if (now - _lastStressWrite < STRESS_WRITE_INTERVAL_MS)
+        return;
+    _lastStressWrite = now;
+    try {
+        updateState((s) => {
+            const sid = _OC_SID;
+            const ses = s.sessions?.[sid] || {};
+            if (!Array.isArray(ses.stress_history))
+                ses.stress_history = [];
+            ses.stress_history.push({ ts: new Date().toISOString(), score, level });
+            if (ses.stress_history.length > 100)
+                ses.stress_history = ses.stress_history.slice(-50);
+            const scores = ses.stress_history.map((h) => h.score);
+            ses.maxSessionStress = Math.max(...scores);
+            ses.avgSessionStress = scores.reduce((a, b) => a + b, 0) / scores.length;
+            s.sessions[sid] = ses;
+            return s;
+        });
+    }
+    catch { }
+}
 // ── observeToolPattern ───────────────────────────────────────────────
 export function observeToolPattern(toolName, input, output, directory) {
     try {
@@ -231,6 +259,41 @@ export function observeToolPattern(toolName, input, output, directory) {
     catch (err) {
         console.error(`[vibeOS] pattern learner observe failed: ${err.message}`);
     }
+    // ── Cross-project tool co-occurrence & multi-turn routines ──
+    try {
+        const t = String(toolName || "").toLowerCase();
+        const args = input?.args || {};
+        const ev = { tool: t, at: Date.now() };
+        if (recentToolEvents.length > 0) {
+            const prev = recentToolEvents[recentToolEvents.length - 1];
+            const pairKey = `${prev.tool}→${ev.tool}`;
+            updateGlobalLearning((gl) => {
+                gl.toolPairs ??= {};
+                gl.toolPairs[pairKey] = (gl.toolPairs[pairKey] || 0) + 1;
+                if (gl.toolPairs[pairKey] >= 3 && !gl.promotedRoutines?.includes(pairKey)) {
+                    gl.promotedRoutines ??= [];
+                    if (!gl.promotedRoutines.includes(pairKey))
+                        gl.promotedRoutines.push(pairKey);
+                    recordRoutinePattern(`pair:${pairKey}`, `Recurring tool pair ${pairKey} detected across projects.`, { pair: pairKey });
+                }
+                return gl;
+            });
+        }
+        // Track project-type tool patterns
+        if (currentProjectName) {
+            const ext = currentProjectName.endsWith('.tsx') || currentProjectName.endsWith('.jsx') ? 'frontend' :
+                currentProjectName.endsWith('.go') || currentProjectName.endsWith('.rs') ? 'backend' :
+                    currentProjectName.endsWith('.py') ? 'data' : 'unknown';
+            updateGlobalLearning((gl) => {
+                gl.projectTypeToolCount ??= {};
+                const ptc = gl.projectTypeToolCount;
+                ptc[ext] ??= {};
+                ptc[ext][t] = (ptc[ext][t] || 0) + 1;
+                return gl;
+            });
+        }
+    }
+    catch { }
 }
 // ── recordSaving ──────────────────────────────────────────────────────
 export function recordSaving(tool, reason, saveEst, meta = {}) {

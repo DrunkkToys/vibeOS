@@ -344,7 +344,7 @@ var init_flow_enforcer = __esm({
 
 // src/index.ts
 init_flow_enforcer();
-import { readFileSync as readFileSync14, writeFileSync as writeFileSync12, existsSync as existsSync15, mkdirSync as mkdirSync9, copyFileSync as copyFileSync6, renameSync as renameSync6 } from "node:fs";
+import { readFileSync as readFileSync14, writeFileSync as writeFileSync12, existsSync as existsSync15, mkdirSync as mkdirSync10, copyFileSync as copyFileSync6, renameSync as renameSync6 } from "node:fs";
 import { join as join15, dirname as dirname8, basename as basename8 } from "node:path";
 
 // src/vibeOS-lib/session-metrics.js
@@ -2323,21 +2323,6 @@ function saveActiveJobForProject(job, fp3 = currentProjectFingerprint) {
   } catch {
   }
 }
-function clearActiveJobForProject(fp3 = currentProjectFingerprint) {
-  if (!fp3)
-    return;
-  try {
-    const jobs = loadActiveJobs();
-    if (!jobs[fp3])
-      return;
-    delete jobs[fp3];
-    mkdirSync3(dirname3(ACTIVE_JOBS_FILE), { recursive: true });
-    const tmp = ACTIVE_JOBS_FILE + ".tmp";
-    writeFileSync3(tmp, JSON.stringify(jobs, null, 2));
-    renameSync3(tmp, ACTIVE_JOBS_FILE);
-  } catch {
-  }
-}
 function projectFingerprint(dir) {
   if (!dir)
     return "unknown";
@@ -2495,6 +2480,26 @@ function commandFailed(output) {
   if (typeof raw !== "string")
     return false;
   return /\b(exit code|exited with code)\s*[:=]?\s*[1-9]\b|\b(assertionerror|syntaxerror|typeerror|referenceerror)\b|\b(failed|error:|err!)\b/i.test(raw);
+}
+function promotedProjectPatterns(fp3) {
+  try {
+    const p = loadProjectState().project_hashes?.[fp3];
+    const out = [];
+    const collect = (rows, label) => {
+      for (const row of Object.values(rows || {})) {
+        const r = row;
+        const sessions = new Set(r?.sessions || []);
+        if (sessions.size >= 3)
+          out.push({ label, summary: r.summary, sessions: sessions.size, lastSeen: r.lastSeen || "" });
+      }
+    };
+    collect(p?.userPatterns?.friction, "friction");
+    collect(p?.userPatterns?.routines, "routine");
+    out.sort((a, b) => b.sessions - a.sessions || String(b.lastSeen).localeCompare(String(a.lastSeen)));
+    return out.slice(0, 3);
+  } catch {
+    return [];
+  }
 }
 function projectPatternRows(fp3) {
   try {
@@ -3388,6 +3393,9 @@ var VibeOSApiClient = class {
   async blackboxCalibration(projectId) {
     return this.request("/api/v1/blackbox/calibration?project_id=" + (projectId || "global"), null);
   }
+  async blackboxControlVector(state, action, optimizationMode) {
+    return this.request("/api/v1/blackbox/control-vector", { ...state, action, optimization_mode: optimizationMode });
+  }
   async tddExports(sourceContent, ext) {
     return this.request("/api/v1/tdd/exports", { source_content: sourceContent, ext });
   }
@@ -3498,7 +3506,7 @@ var VibeOSNetworkError = class extends Error {
 
 // src/lib/api-client.js
 var VIBEOS_API_URL = process.env.VIBEOS_API_URL || "https://api.vibetheog.com";
-var VIBEOS_API_TOKEN = process.env.VIBEOS_API_TOKEN || "vos_854d143233ad156dfc4863371e507f36418119dddac46ebfd4f8d97dc5f29680";
+var VIBEOS_API_TOKEN = process.env.VIBEOS_API_TOKEN || "vos_59d73aa4b7838a7ca9dafe957993177b5629c7954091db3350b4150882ff7064";
 var VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && !!VIBEOS_API_TOKEN;
 var _apiClient = null;
 var _apiFallbackMode = false;
@@ -4013,7 +4021,7 @@ function isLikelyOffTopic(userText, job) {
     return false;
   const now = Date.now();
   const updatedAt = Date.parse(job.updatedAt || "");
-  if (!Number.isFinite(updatedAt) || now - updatedAt > 5 * 60 * 1e3)
+  if (!Number.isFinite(updatedAt) || now - updatedAt > 2 * 60 * 60 * 1e3)
     return false;
   const userWords = new Set(topKeywords(userText, 12));
   const overlap = job.keywords.filter((k) => userWords.has(k));
@@ -4778,7 +4786,7 @@ import { join as join13 } from "node:path";
 import { homedir as homedir8, tmpdir as tmpdir7 } from "node:os";
 
 // src/lib/hooks/chat-transform.js
-import { readFileSync as readFileSync10, writeFileSync as writeFileSync9, existsSync as existsSync11 } from "node:fs";
+import { readFileSync as readFileSync10, writeFileSync as writeFileSync9, existsSync as existsSync11, mkdirSync as mkdirSync7 } from "node:fs";
 import { join as join12, basename as basename6 } from "node:path";
 import { createHash as createHash4 } from "node:crypto";
 
@@ -5226,6 +5234,83 @@ function buildProjectBriefing(directory3) {
     return null;
   return `[project memory] Active project: ${label}. Stay focused on the current repository and prefer the existing workflow.`;
 }
+function ensureProjectSkill(dir, fp3) {
+  const skillsDir = join12(dir, ".opencode", "skills");
+  const projectName = basename6(dir);
+  const skillDir = join12(skillsDir, projectName);
+  const skillPath = join12(skillDir, "SKILL.md");
+  if (existsSync11(skillPath)) {
+    return { created: false, skipped: true, path: skillPath };
+  }
+  const promoted = promotedProjectPatterns(fp3);
+  if (promoted.length === 0) {
+    return { created: false, skipped: false };
+  }
+  const techStack = detectTechStack(dir);
+  const globalLearning = loadGlobalLearning();
+  const promotedRoutines = globalLearning.promotedRoutines || [];
+  const toolPairs = globalLearning.toolPairs || {};
+  const skillName = `project-${projectName.replace(/[^a-z0-9-]/gi, "-").toLowerCase()}`;
+  let content = `---
+`;
+  content += `name: ${skillName}
+`;
+  content += `description: Project-specific conventions, patterns, and workflows for ${projectName}. Auto-generated by vibeOS.
+`;
+  content += `---
+
+`;
+  content += `# ${projectName} Conventions
+
+`;
+  if (techStack.length > 0) {
+    content += `## Tech Stack
+
+`;
+    content += techStack.map((t) => `- ${t}`).join("\n") + "\n\n";
+  }
+  const routines = promoted.filter((p) => p.label === "routine");
+  if (routines.length > 0) {
+    content += `## Routines (established workflows)
+
+`;
+    for (const r of routines) {
+      content += `- ${r.summary} (${r.sessions} sessions)
+`;
+    }
+    content += "\n";
+  }
+  const frictions = promoted.filter((p) => p.label === "friction");
+  if (frictions.length > 0) {
+    content += `## Frictions (patterns to avoid)
+
+`;
+    for (const f of frictions) {
+      content += `- ${f.summary} (${f.sessions} sessions)
+`;
+    }
+    content += "\n";
+  }
+  if (promotedRoutines.length > 0) {
+    content += `## Common Tool Chains
+
+`;
+    for (const pair of promotedRoutines) {
+      content += `- ${pair}
+`;
+    }
+    content += "\n";
+  }
+  try {
+    mkdirSync7(skillDir, { recursive: true });
+    writeFileSync9(skillPath, content, "utf-8");
+    console.error(`[vibeOS] Project Guard: created .opencode/skills/${projectName}/SKILL.md`);
+    return { created: true, path: skillPath, skipped: false };
+  } catch (err) {
+    console.error(`[vibeOS] Project Guard: failed to create skill for ${projectName}: ${err.message}`);
+    return { created: false, skipped: false };
+  }
+}
 function syncControlSettings(cv) {
   if (!cv)
     return;
@@ -5256,9 +5341,9 @@ function syncControlSettings(cv) {
     }
     if (cv.thinking_mode)
       writeIf("thinking_level", cv.thinking_mode);
-    if (cv.optimization_mode) {
-      const existingMode = loadSessionSlot(sid + "_opt");
-      if (existingMode !== cv.optimization_mode) {
+    const userOptMode = loadSessionSlot(sid + "_opt") || loadOptimizationMode();
+    if (cv.optimization_mode && userOptMode !== "auto") {
+      if (userOptMode !== cv.optimization_mode) {
         writeSessionSlot(sid + "_opt", cv.optimization_mode);
         saveOptimizationMode(cv.optimization_mode);
       }
@@ -5720,7 +5805,7 @@ async function _appendFooter(input, output, directory3) {
     const { ltTasks, ltCache, ltCost, count, sesTasks, sesEdit, sesCredit, sesC7, sesQuota, sesCache, sesTaskDelegations, sesDuration, sesRatePerHour, sesTrend, sesToolBreakdown, sesModelTurns, quality_avg } = readLifetimeSavings2();
     const sessionSlot = loadSessionSlot(_OC_SID6);
     const slot = sessionSlot || loadSelection3().active_slot || "brain";
-    const brainModel = slot === "brain" ? (TRINITY_BRAIN || currentModel) : slot === "medium" ? (TRINITY_MEDIUM || currentModel) : (TRINITY_CHEAP || currentModel || "");
+    const brainModel = slot === "brain" ? TRINITY_BRAIN || currentModel : slot === "medium" ? TRINITY_MEDIUM || currentModel : TRINITY_CHEAP || currentModel || "";
     let modelTag = `[${shortModelName2(brainModel)}]`;
     const _workerModel = slot === "brain" ? TRINITY_MEDIUM : null;
     const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0);
@@ -5872,12 +5957,12 @@ async function _appendFooter(input, output, directory3) {
 }
 
 // src/lib/hooks/tool-execute.js
-import { writeFileSync as writeFileSync11, appendFileSync as appendFileSync7, existsSync as existsSync13, mkdirSync as mkdirSync8 } from "node:fs";
+import { writeFileSync as writeFileSync11, appendFileSync as appendFileSync7, existsSync as existsSync13, mkdirSync as mkdirSync9 } from "node:fs";
 import { dirname as dirname7, basename as basename7 } from "node:path";
 init_flow_enforcer();
 
 // src/lib/tdd-enforcer.js
-import { readFileSync as readFileSync12, writeFileSync as writeFileSync10, appendFileSync as appendFileSync6, existsSync as existsSync12, mkdirSync as mkdirSync7, statSync as statSync8, readdirSync as readdirSync2, rmSync as rmSync5, openSync as openSync4 } from "node:fs";
+import { readFileSync as readFileSync12, writeFileSync as writeFileSync10, appendFileSync as appendFileSync6, existsSync as existsSync12, mkdirSync as mkdirSync8, statSync as statSync8, readdirSync as readdirSync2, rmSync as rmSync5, openSync as openSync4 } from "node:fs";
 import { join as join14, dirname as dirname6 } from "node:path";
 import { createHash as createHash5 } from "node:crypto";
 var _detectedFramework = null;
@@ -6970,7 +7055,7 @@ var COOLDOWN_MS = 6e4;
 var _enforcementCooldown = /* @__PURE__ */ new Set();
 function _acquireLock(testPath) {
   try {
-    mkdirSync7(ENFORCEMENT_LOCK_DIR, { recursive: true });
+    mkdirSync8(ENFORCEMENT_LOCK_DIR, { recursive: true });
     const hash = createHash5("sha256").update(testPath).digest("hex").slice(0, 16);
     const lockPath = join14(ENFORCEMENT_LOCK_DIR, `${hash}.lock`);
     try {
@@ -7027,7 +7112,7 @@ function _isInCooldown(testPath) {
 }
 function _recordCooldown(testPath) {
   try {
-    mkdirSync7(dirname6(ENFORCEMENT_COOLDOWN_FILE2), { recursive: true });
+    mkdirSync8(dirname6(ENFORCEMENT_COOLDOWN_FILE2), { recursive: true });
     const hash = createHash5("sha256").update(testPath).digest("hex").slice(0, 16);
     const entry = JSON.stringify({ h: hash, ts: Date.now() }) + "\n";
     appendFileSync6(ENFORCEMENT_COOLDOWN_FILE2, entry);
@@ -7119,7 +7204,7 @@ function enforceTestFile(filePath) {
   if (!_acquireLock(skeleton.path))
     return null;
   try {
-    mkdirSync7(skeleton.dir, { recursive: true });
+    mkdirSync8(skeleton.dir, { recursive: true });
     writeFileSync10(skeleton.path, skeleton.content);
     _enforcementCooldown.add(skeleton.path);
     _recordCooldown(skeleton.path);
@@ -7422,7 +7507,7 @@ var onToolExecuteBefore = async (input, output) => {
           const missed = recordMissedContext7(_estC7);
           if (!existsSync13(CONTEXT7_INSTALL_FLAG)) {
             try {
-              mkdirSync8(dirname7(CONTEXT7_INSTALL_FLAG), { recursive: true });
+              mkdirSync9(dirname7(CONTEXT7_INSTALL_FLAG), { recursive: true });
               writeFileSync11(CONTEXT7_INSTALL_FLAG, "");
             } catch {
             }
@@ -7591,12 +7676,6 @@ ${pendingUiNote}`;
     } catch {
     }
     taskSlotRestore = null;
-  }
-  if (t === "task" && currentProjectFingerprint) {
-    try {
-      clearActiveJobForProject(currentProjectFingerprint);
-    } catch {
-    }
   }
   if (enforcementBlocked) {
     enforcementBlocked = false;
@@ -7925,7 +8004,7 @@ function persistMcpPort(port) {
     tiers.selection ??= {};
     if (Number(tiers.selection.mcp_port) === Number(port)) return;
     tiers.selection.mcp_port = port;
-    mkdirSync9(dirname8(TIERS_FILE2), { recursive: true });
+    mkdirSync10(dirname8(TIERS_FILE2), { recursive: true });
     const tmp = TIERS_FILE2 + ".tmp." + Date.now();
     writeFileSync12(tmp, JSON.stringify(tiers, null, 2) + "\n", "utf-8");
     renameSync6(tmp, TIERS_FILE2);
@@ -8194,7 +8273,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
         console.error(`[vibeOS] SKIP WRITE: _didWrite=${_didWrite} _wasCorrupted=${_wasCorrupted} existingBrain=${_existingBrain} brainId=${_brain?.id}`);
         _tiersData.selection ??= {};
         if (_tiersData.selection.mcp_port === void 0) _tiersData.selection.mcp_port = 9578;
-        mkdirSync9(dirname8(TIERS_FILE2), { recursive: true });
+        mkdirSync10(dirname8(TIERS_FILE2), { recursive: true });
         const _tmp = TIERS_FILE2 + ".tmp." + Date.now();
         writeFileSync12(_tmp, JSON.stringify(_tiersData, null, 2) + "\n", "utf-8");
         renameSync6(_tmp, TIERS_FILE2);
@@ -8239,6 +8318,10 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
       const techStack = detectTechStack2(directory3);
       const result = ensureProjectDocs(directory3, techStack);
       if (result.created.length > 0) console.error(`[vibeOS] Project Guard: created ${result.created.join(", ")}`);
+      const skillResult = ensureProjectSkill(directory3, fp2);
+      if (skillResult.created) {
+        console.error(`[vibeOS] Project Guard: created ${skillResult.path}`);
+      }
     }
   } catch (err) {
     console.error(`[vibeOS] Project Guard init failed: ${err.message}`);
@@ -8273,10 +8356,10 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     },
     tool: {
       trinity: tool({
-        description: "Control the vibeOS plugin and active model slot.\nUse action='status' to see current state.\nUse action='enable' or 'disable' to toggle the plugin.\nUse action='set' with slot='brain'|'medium'|'cheap' to switch.\nUse action='mode' with slot='budget'|'quality'|'speed'|'longrun'|'auto' to switch optimization modes.\nUse action='rebuild' to auto-detect available models.\nUse action='flow' with slot='on'|'off' to toggle flow enforcer.\nUse action='enforce' with slot='on'|'off' to toggle delegation enforcement.\nUse action='tdd' with slot='on'|'off' to toggle auto-test skeletons.\nUse action='project' for per-project analytics.\nUse action='patterns' for learned project patterns.\nUse action='guard' for Project Guard.\nUse action='job' to manage active job context (clear to dismiss off-topic warnings).\nCall when the user says 'switch to medium', 'use cheap model', 'disable plugin', or 'trinity status'.",
+        description: "Control the vibeOS plugin and active model slot.\nUse action='status' to see current state.\nUse action='enable' or 'disable' to toggle the plugin.\nUse action='set' with slot='brain'|'medium'|'cheap' to switch.\nUse action='mode' with slot='budget'|'quality'|'speed'|'longrun'|'auto' to switch optimization modes.\nUse action='rebuild' to auto-detect available models.\nUse action='flow' with slot='on'|'off' to toggle flow enforcer.\nUse action='enforce' with slot='on'|'off' to toggle delegation enforcement.\nUse action='tdd' with slot='on'|'off' to toggle auto-test skeletons.\nUse action='project' for per-project analytics.\nUse action='patterns' for learned project patterns.\nUse action='guard' for Project Guard.\nCall when the user says 'switch to medium', 'use cheap model', 'disable plugin', or 'trinity status'.",
         args: {
-          action: tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard", "job"]).optional(),
-          slot: tool.schema.enum(["brain", "medium", "cheap", "audit", "budget", "quality", "speed", "longrun", "auto", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings"]).optional(),
+          action: tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard"]).optional(),
+          slot: tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings"]).optional(),
           level: tool.schema.enum(["full", "brief", "off", "on"]).optional()
         },
         async execute({ action, slot, level } = {}) {
@@ -8375,17 +8458,12 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
             return `Switched to ${slot} slot (${result.ocModel})`;
           }
           if (action === "mode") {
-            if (!slot || !["audit", "budget", "quality", "speed", "longrun", "auto"].includes(slot)) return "Provide mode: audit | budget | quality | speed | longrun | auto";
+            if (!slot || !["budget", "quality", "speed", "longrun", "auto"].includes(slot)) return "Provide mode: budget | quality | speed | longrun | auto";
             saveOptimizationMode(slot);
-            const tierMap = { audit: "medium", budget: "cheap", quality: "brain", speed: "medium", longrun: "brain" };
+            const tierMap = { budget: "cheap", quality: "brain", speed: "medium", longrun: "brain" };
             const tierSlot = tierMap[slot] || "cheap";
-            if (slot === "audit") {
-              writeSelection("delegation_enforce", false);
-              writeSelection("flow_enabled", true);
-              writeSelection("flow_enforce", false);
-              writeSelection("tdd_enforce", false);
-              writeSelection("thinking_level", "full");
-            } else if (slot === "budget") {
+            writeSelection("active_slot", tierSlot);
+            if (slot === "budget") {
               writeSelection("delegation_enforce", false);
               writeSelection("flow_enabled", false);
               writeSelection("flow_enforce", false);
@@ -8621,19 +8699,12 @@ ${okCount}/${results.length} passed`);
             }
             return "Usage: trinity blackbox on|off|status|reset";
           }
-          if (action === "job") {
-            const active = getActiveJobForProject(fp2);
-            if (!active) return "No active job context.";
-            clearActiveJobForProject(fp2);
-            activeJob2 = null;
-            return "Active job context cleared. Off-topic warnings will be suppressed.";
-          }
           if (action === "help") {
             return [
               "vibeOS - trinity commands",
               "",
               "  trinity status       See plugin state, credit, model",
-              "  trinity mode audit|budget|quality|speed|auto   Switch optimization mode",
+              "  trinity mode budget|quality|speed|auto   Switch optimization mode",
               "  trinity brain        Switch to brain tier",
               "  trinity medium       Switch to medium tier",
               "  trinity cheap        Switch to cheap tier",
@@ -8646,8 +8717,7 @@ ${okCount}/${results.length} passed`);
               "  trinity diagnose     Self-check",
               "  trinity project      Project analytics",
               "  trinity patterns     Show learned patterns",
-              "  trinity guard        Ensure AGENTS.md/README.md exist",
-              "  trinity job clear    Dismiss active job context warning"
+              "  trinity guard        Ensure AGENTS.md/README.md exist"
             ].join("\n");
           }
           return `Unknown action: ${action}`;

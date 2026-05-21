@@ -2,7 +2,7 @@
 import { VibeOSApiClient } from "../vibeOS-api-server/client.js";
 // ── Remote API client (Phase 2) ─────────────────────────────────────
 export const VIBEOS_API_URL = process.env.VIBEOS_API_URL || "https://api.vibetheog.com";
-export const VIBEOS_API_TOKEN = process.env.VIBEOS_API_TOKEN || "vos_854d143233ad156dfc4863371e507f36418119dddac46ebfd4f8d97dc5f29680";
+export const VIBEOS_API_TOKEN = process.env.VIBEOS_API_TOKEN || "vos_59d73aa4b7838a7ca9dafe957993177b5629c7954091db3350b4150882ff7064";
 export const VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && !!VIBEOS_API_TOKEN;
 let _apiClient = null;
 let _apiFallbackMode = false;
