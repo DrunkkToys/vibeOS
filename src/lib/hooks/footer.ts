@@ -6,17 +6,12 @@ import { classify, modelCostPerTurn, _refreshModel, TRINITY_BRAIN, TRINITY_MEDIU
 import { latestUserIntent } from "./chat-transform.js"
 import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, loadOptimizationMode, autoSelectMode, classifyTurnSimple } from "../turn-classify.js"
 import { saveReport } from "../reporting.js"
+import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, _modelLocked, _blackboxEnabled } from "../state.js"
 
 const USER_HOME = (() => { try { return homedir() } catch { return tmpdir() } })()
 const STATE_FILE = join(USER_HOME, ".claude/delegation-state.json")
 const SAVINGS_LEDGER_FILE = join(USER_HOME, ".claude/savings-ledger.jsonl")
 
-let currentTier = null
-let currentModel = null
-let currentProjectFingerprint = ""
-let currentProjectName = ""
-let _modelLocked = false
-let _blackboxEnabled = true
 let _prevOutputText = ""
 let _autoReportCount = 0
 const textCompletePainted = new Set()
@@ -131,8 +126,8 @@ async function _appendFooter(input, output, directory) {
       try {
         const cfg = await client.config.get("model")
         if (cfg) {
-          currentModel = String(cfg)
-          currentTier = classify(currentModel)
+          setCurrentModel(String(cfg))
+          setCurrentTier(classify(String(cfg)))
           console.error(`[vibeOS] client-detected model: ${currentModel} (tier=${currentTier})`)
         }
       } catch { /* client.config may not be available */ }

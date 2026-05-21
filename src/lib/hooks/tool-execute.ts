@@ -5,7 +5,7 @@ import { homedir, tmpdir } from 'node:os'
 import { createHash } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import {
-  currentTier, currentModel, currentProjectFingerprint, currentProjectName,
+  currentTier, currentModel, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName,
   textCompletePainted, softQuotaCounts, enforcementBlocked, taskSlotRestore,
   pendingUiNote, briefedProjects, _OC_SID, _modelLocked, _blackboxEnabled,
   _autoReportCount, scratchpadHitsSeen, context7AlertedThisSession,
@@ -231,8 +231,8 @@ export const onToolExecuteBefore = async (input, output) => {
               taskSlotRestore = selNow.active_slot || "brain"
               const switched = applySlot(desiredSlot)
               if (switched?.ok) {
-                currentModel = switched.ocModel
-                currentTier = classify(currentModel)
+                setCurrentModel(switched.ocModel)
+                setCurrentTier(classify(switched.ocModel))
                 console.error(`[vibeOS] 🔁 task workaround: switched global slot ${taskSlotRestore} → ${desiredSlot}`)
               } else {
                 taskSlotRestore = null
@@ -471,8 +471,8 @@ export const onToolExecuteAfter = async (input, output) => {
         try {
           const back = applySlot(taskSlotRestore)
           if (back?.ok) {
-            currentModel = back.ocModel
-            currentTier = classify(currentModel)
+            setCurrentModel(back.ocModel)
+            setCurrentTier(classify(back.ocModel))
             console.error(`[vibeOS] 🔁 task workaround: restored global slot → ${taskSlotRestore}`)
           }
         } catch {}

@@ -674,7 +674,7 @@ function recordMissedContext7(saveEst) {
 
 // State accessors — called from index.ts to sync mutable state
 export function setProjectFingerprint(fp) {
-  currentProjectFingerprint = fp
+  setCurrentProjectFingerprint(fp)
 }
 
 export function getBlackboxEnabled() {
