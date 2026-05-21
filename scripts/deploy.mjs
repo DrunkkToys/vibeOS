@@ -46,13 +46,6 @@ try {
     process.stderr.write(`[vibeOS deploy] src/lib/ → ~/.config/opencode/plugins/lib/ (${libCount} files)\n`)
   }
 
-  // Strip .ts files from ALL deployed dirs — runtime must only use .js
-  if (existsSync(pluginDir)) {
-    const rmTsRecursive = (d) => { for (const e of readdirSync(d)) { const f = join(d, e); if (statSync(f).isDirectory()) rmTsRecursive(f); else if (e.endsWith('.ts')) { rmSync(f); } } };
-    rmTsRecursive(pluginDir)
-    process.stderr.write(`[vibeOS deploy] Removed .ts files from plugin dir\n`)
-  }
-
   if (existsSync(srcDashboardDistDir)) {
     const dest = join(pluginDir, "dashboard", "dist")
     cpSync(srcDashboardDistDir, dest, { recursive: true, force: true })
@@ -92,6 +85,11 @@ try {
   }
   if (existsSync(destApiServerDir)) countApiFiles(destApiServerDir)
   process.stderr.write(`[vibeOS deploy] src/vibeOS-api-server/ → ~/.config/opencode/plugins/vibeOS-api-server/ (${apiCount} files)\n`)
+
+  const rmTsRecursive = (d) => { for (const e of readdirSync(d)) { const f = join(d, e); if (statSync(f).isDirectory()) rmTsRecursive(f); else if (e.endsWith('.ts')) { rmSync(f); } } };
+  rmTsRecursive(pluginDir)
+  process.stderr.write(`[vibeOS deploy] Stripped .ts files from plugin dir\n`)
+
   process.stderr.write("[vibeOS deploy] Done\n")
 } catch (e) {
   process.stderr.write(`[vibeOS deploy] ERROR: ${e.message}\n`)
