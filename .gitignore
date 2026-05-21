@@ -29,3 +29,4 @@ PRODUCTION-CREDENTIALS.md
 
 # vibeOS API server runtime data
 src/vibeOS-api-server/data/
+src/experiments/
