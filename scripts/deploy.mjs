@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { cpSync, readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs"
+import { cpSync, readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, rmSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { homedir } from "node:os"
@@ -44,6 +44,13 @@ try {
     const walk = (d) => { for (const e of readdirSync(d)) { const f = join(d, e); if (statSync(f).isDirectory()) walk(f); else libCount++; } };
     if (existsSync(destCommonLibDir)) walk(destCommonLibDir)
     process.stderr.write(`[vibeOS deploy] src/lib/ → ~/.config/opencode/plugins/lib/ (${libCount} files)\n`)
+  }
+
+  // Strip .ts files from ALL deployed dirs — runtime must only use .js
+  if (existsSync(pluginDir)) {
+    const rmTsRecursive = (d) => { for (const e of readdirSync(d)) { const f = join(d, e); if (statSync(f).isDirectory()) rmTsRecursive(f); else if (e.endsWith('.ts')) { rmSync(f); } } };
+    rmTsRecursive(pluginDir)
+    process.stderr.write(`[vibeOS deploy] Removed .ts files from plugin dir\n`)
   }
 
   if (existsSync(srcDashboardDistDir)) {
