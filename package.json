@@ -48,7 +48,7 @@
     "@opencode-ai/plugin": ">=1.0.0"
   },
   "files": [
-    "src/",
+    "src/index.js",
     "model-tiers.sample.json",
     "README.md",
     "CHANGELOG.md",
