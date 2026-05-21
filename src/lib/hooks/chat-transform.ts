@@ -25,6 +25,7 @@ import {
 } from '../pricing.js'
 import {
   scoreStress, classifyTurnSimple, computeControlVector, loadOptimizationMode,
+  saveOptimizationMode,
   getBlackboxTracker, getBlackboxResolution,
   loadBlackboxState as loadBlackboxStateFromCtx, saveBlackboxState as saveBlackboxStateToCtx,
   resolveEnforcementMode, extractLastUserText,
@@ -41,6 +42,7 @@ import { saveReport } from '../reporting.js'
 import { checkFlowRules, recordFlowTodo } from '../../vibeOS-lib/flow-enforcer.js'
 import { ensureProjectDocs } from '../../vibeOS-lib/flow-enforcer.js'
 import { computeDifficulty } from '../../vibeOS-lib/ml-router.js'
+import { loadSessionSlot, writeSessionSlot } from '../selection-manager.js'
 
 let latestUserIntent = null
 let currentProjectFingerprint = ''
@@ -66,6 +68,7 @@ function buildProjectBriefing(directory: string): string | null {
 export function syncControlSettings(cv: any): void {
   if (!cv) return
   try {
+    const sid = _OC_SID
     const writeIf = (key: string, val: any) => {
       const sel = loadSelection()
       if (sel[key] !== val) writeSelection(key, val)
@@ -91,23 +94,31 @@ export function syncControlSettings(cv: any): void {
 
     if (cv.thinking_mode) writeIf("thinking_level", cv.thinking_mode)
 
+    if (cv.optimization_mode) {
+      const existingMode = loadSessionSlot(sid + "_opt")
+      if (existingMode !== cv.optimization_mode) {
+        writeSessionSlot(sid + "_opt", cv.optimization_mode)
+        saveOptimizationMode(cv.optimization_mode)
+      }
+    }
+
     const slot = cv.tier_bias
     if (slot && slot !== "auto") {
-      writeIf("active_slot", slot)
-      const sel = loadSelection()
-      if (sel.active_slot === slot) {
-        if (slot === "brain" && TRINITY_BRAIN) {
-          setCurrentModel(TRINITY_BRAIN)
-          setCurrentTier("high")
-        }
-        else if (slot === "medium" && TRINITY_MEDIUM) {
-          setCurrentModel(TRINITY_MEDIUM)
-          setCurrentTier("mid")
-        }
-        else if (slot === "cheap" && TRINITY_CHEAP) {
-          setCurrentModel(TRINITY_CHEAP)
-          setCurrentTier("low")
-        }
+      const existingSlot = loadSessionSlot(sid)
+      if (existingSlot !== slot) {
+        writeSessionSlot(sid, slot)
+      }
+      if (slot === "brain" && TRINITY_BRAIN) {
+        setCurrentModel(TRINITY_BRAIN)
+        setCurrentTier("high")
+      }
+      else if (slot === "medium" && TRINITY_MEDIUM) {
+        setCurrentModel(TRINITY_MEDIUM)
+        setCurrentTier("mid")
+      }
+      else if (slot === "cheap" && TRINITY_CHEAP) {
+        setCurrentModel(TRINITY_CHEAP)
+        setCurrentTier("low")
       }
     }
   } catch { /* noop — non-critical sync */ }

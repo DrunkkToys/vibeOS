@@ -4,7 +4,7 @@ import { join, dirname, relative, basename } from "node:path"
 import { spawn } from "node:child_process"
 import { homedir, tmpdir } from "node:os"
 import { createHash } from "node:crypto"
-import { loadSelection, writeSelection, DFLT_SEL } from "./selection-manager"
+import { loadSelection, writeSelection, DFLT_SEL } from "./selection-manager.js"
 
 // ── File system constants ────────────────────────────────────────────
 const USER_HOME = (() => { try { return homedir() } catch { return tmpdir() } })()

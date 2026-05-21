@@ -4,8 +4,9 @@ import { join, basename } from 'node:path';
 import { createHash } from 'node:crypto';
 import { currentModel, currentProjectName, loadSelection, writeSelection, safeJsonParse, applyDecadence, getSessionScratchpadDir, ensureSessionScratchpadDirs, indexAppend, getActiveJobForProject, TIERS_FILE, setCurrentModel, setCurrentTier, } from '../state.js';
 import { TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN, } from '../pricing.js';
-import { scoreStress, classifyTurnSimple, computeControlVector, loadOptimizationMode, getBlackboxTracker, loadBlackboxState as loadBlackboxStateFromCtx, saveBlackboxState as saveBlackboxStateToCtx, extractLastUserText, isLikelyOffTopic, fetchBlackboxEnrichment, estimateContextBudget, buildControlHistoryEntry, } from '../turn-classify.js';
+import { scoreStress, classifyTurnSimple, computeControlVector, loadOptimizationMode, saveOptimizationMode, getBlackboxTracker, loadBlackboxState as loadBlackboxStateFromCtx, saveBlackboxState as saveBlackboxStateToCtx, extractLastUserText, isLikelyOffTopic, fetchBlackboxEnrichment, estimateContextBudget, buildControlHistoryEntry, } from '../turn-classify.js';
 import { loadCredit } from '../credit-api.js';
+import { loadSessionSlot, writeSessionSlot } from '../selection-manager.js';
 let latestUserIntent = null;
 let currentProjectFingerprint = '';
 let fp = '';
@@ -29,6 +30,7 @@ export function syncControlSettings(cv) {
     if (!cv)
         return;
     try {
+        const sid = _OC_SID;
         const writeIf = (key, val) => {
             const sel = loadSelection();
             if (sel[key] !== val)
@@ -56,23 +58,30 @@ export function syncControlSettings(cv) {
         }
         if (cv.thinking_mode)
             writeIf("thinking_level", cv.thinking_mode);
+        if (cv.optimization_mode) {
+            const existingMode = loadSessionSlot(sid + "_opt");
+            if (existingMode !== cv.optimization_mode) {
+                writeSessionSlot(sid + "_opt", cv.optimization_mode);
+                saveOptimizationMode(cv.optimization_mode);
+            }
+        }
         const slot = cv.tier_bias;
         if (slot && slot !== "auto") {
-            writeIf("active_slot", slot);
-            const sel = loadSelection();
-            if (sel.active_slot === slot) {
-                if (slot === "brain" && TRINITY_BRAIN) {
-                    setCurrentModel(TRINITY_BRAIN);
-                    setCurrentTier("high");
-                }
-                else if (slot === "medium" && TRINITY_MEDIUM) {
-                    setCurrentModel(TRINITY_MEDIUM);
-                    setCurrentTier("mid");
-                }
-                else if (slot === "cheap" && TRINITY_CHEAP) {
-                    setCurrentModel(TRINITY_CHEAP);
-                    setCurrentTier("low");
-                }
+            const existingSlot = loadSessionSlot(sid);
+            if (existingSlot !== slot) {
+                writeSessionSlot(sid, slot);
+            }
+            if (slot === "brain" && TRINITY_BRAIN) {
+                setCurrentModel(TRINITY_BRAIN);
+                setCurrentTier("high");
+            }
+            else if (slot === "medium" && TRINITY_MEDIUM) {
+                setCurrentModel(TRINITY_MEDIUM);
+                setCurrentTier("mid");
+            }
+            else if (slot === "cheap" && TRINITY_CHEAP) {
+                setCurrentModel(TRINITY_CHEAP);
+                setCurrentTier("low");
             }
         }
     }

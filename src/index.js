@@ -777,6 +777,11 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                                 return "Provide level on|off";
                             return writeSelection("tdd_strict", level === "on") ? `TDD strict ${level === "on" ? "ON" : "OFF"}` : "Failed";
                         }
+                        if (slot === "quality") {
+                            if (level !== "on" && level !== "off")
+                                return "Provide level on|off";
+                            return writeSelection("tdd_quality", level === "on") ? `TDD quality ${level === "on" ? "ON" : "OFF"}` : "Failed";
+                        }
                         const sel = loadSelection();
                         return `TDD: ${sel.tdd_enforce ? "ON" : "OFF"} strict:${sel.tdd_strict !== false} quality:${sel.tdd_quality !== false}`;
                     }
@@ -1168,6 +1173,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
 }
 export const id = "vibeOS";
 export const server = DelegationEnforcer;
+export const VERSION = readPackageVersion();
 export default { id: "vibeOS", server: DelegationEnforcer };
 export { researchAudit } from "./lib/research-audit.js";
 export { saveReport, listReports, readReport } from "./lib/reporting.js";
