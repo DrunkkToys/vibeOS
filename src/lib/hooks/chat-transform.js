@@ -2,8 +2,8 @@
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { createHash } from 'node:crypto';
-import { currentModel, currentProjectName, loadSelection, writeSelection, safeJsonParse, applyDecadence, getSessionScratchpadDir, ensureSessionScratchpadDirs, indexAppend, getActiveJobForProject, TIERS_FILE, } from '../state.js';
-import { TRINITY_CHEAP, TRINITY_MEDIUM, } from '../pricing.js';
+import { currentModel, currentProjectName, loadSelection, writeSelection, safeJsonParse, applyDecadence, getSessionScratchpadDir, ensureSessionScratchpadDirs, indexAppend, getActiveJobForProject, TIERS_FILE, setCurrentModel, setCurrentTier, } from '../state.js';
+import { TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN, classify, } from '../pricing.js';
 import { scoreStress, classifyTurnSimple, computeControlVector, getBlackboxTracker, loadBlackboxState as loadBlackboxStateFromCtx, saveBlackboxState as saveBlackboxStateToCtx, extractLastUserText, isLikelyOffTopic, fetchBlackboxEnrichment, estimateContextBudget, buildControlHistoryEntry, } from '../turn-classify.js';
 import { loadCredit } from '../credit-api.js';
 let latestUserIntent = null;
@@ -57,8 +57,24 @@ export function syncControlSettings(cv) {
         if (cv.thinking_mode)
             writeIf("thinking_level", cv.thinking_mode);
         const slot = cv.tier_bias;
-        if (slot && slot !== "auto")
+        if (slot && slot !== "auto") {
             writeIf("active_slot", slot);
+            const sel = loadSelection();
+            if (sel.active_slot === slot) {
+                if (slot === "brain" && TRINITY_BRAIN) {
+                    setCurrentModel(TRINITY_BRAIN);
+                    setCurrentTier("high");
+                }
+                else if (slot === "medium" && TRINITY_MEDIUM) {
+                    setCurrentModel(TRINITY_MEDIUM);
+                    setCurrentTier("mid");
+                }
+                else if (slot === "cheap" && TRINITY_CHEAP) {
+                    setCurrentModel(TRINITY_CHEAP);
+                    setCurrentTier("low");
+                }
+            }
+        }
     }
     catch { /* noop — non-critical sync */ }
 }
