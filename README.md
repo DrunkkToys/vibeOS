@@ -128,7 +128,6 @@ Main commands:
 - `trinity patterns`
 - `trinity patterns clear`
 - `trinity patterns suggest`
-- `trinity target <amount>`
 - `trinity repair-state`
 - `trinity guard`
 - `trinity diagnose`
@@ -194,15 +193,17 @@ The blackbox injects a decision directive into system prompts showing current re
 
 ### Session Workflow Phases
 
-The meta-controller maps detected sub-regimes to enforcement levels:
+The meta-controller maps detected sub-regimes to optimization modes, which are the authority over all plugin settings. Each turn, `syncControlSettings()` writes the mode's control vector to `model-tiers.json`, auto-toggling enforcement, flow, TDD, and thinking level:
 
-| Sub-regime | Enforcement | Directives Injected |
-|---|---|---|
-| INIT | normal | delegation, context7, project guard |
-| EXPLORING / DIVERGENT | relaxed | context7, project guard only (skips TDD, flow, full enforcement) |
-| REFINING | normal | delegation, flow (audit), blackbox, batch execution |
-| CONVERGING / CLOSED | strict | all directives — TDD, flow (strict), orchestrator, job-focus |
-| LOOPING | relaxed | de-escalation — context7 + loop intervention only |
+| Regime | Mode | Enforce | Flow | TDD | Tier | Think |
+|---|---|---|---|---|---|---|
+| INIT | budget | relaxed | audit | lazy | cheap | off |
+| EXPLORING / DIVERGENT | budget | relaxed | audit | lazy | cheap | off |
+| REFINING | budget | relaxed | audit | lazy | cheap | off |
+| CONVERGING / CLOSED | quality | strict | strict | quality | brain | full |
+| LOOPING | speed | relaxed | audit | lazy | medium | off |
+
+**Stress override**: When user stress exceeds 1.5, any regime escalates to `quality` mode — enforcement tightens, brain tier activates. Settings are re-synced every turn; mode is the sole authority. Manual `trinity enforce on/off` still works until the next turn re-evaluates.
 
 When the blackbox is disabled, a lightweight `classifyTurnSimple()` fallback inspects user message patterns:
 - Q&A patterns (`"how"`, `"what"`, `"explain"`) → EXPLORING (relaxed)
