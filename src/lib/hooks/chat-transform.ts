@@ -48,7 +48,6 @@ let latestUserIntent = null
 let currentProjectFingerprint = ''
 let fp = ''
 let _OC_SID = 'opencode-' + (process.pid || 'x') + '-' + Date.now()
-let _blackboxEnabled = true
 let _latestBlackboxState = null
 let _latestBlackboxLoopMsg = null
 let _latestBlackboxPivotMsg = null

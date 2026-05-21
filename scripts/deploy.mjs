@@ -37,14 +37,7 @@ try {
     process.stderr.write(`[vibeOS deploy] src/vibeOS-mcp-server.js → ~/.config/opencode/plugins/vibeOS-mcp-server.js\n`)
   }
 
-  // Copy src/lib/ directory (state, pricing, hooks, etc.)
-  if (existsSync(srcCommonLibDir)) {
-    cpSync(srcCommonLibDir, destCommonLibDir, { recursive: true, force: true })
-    let libCount = 0
-    const walk = (d) => { for (const e of readdirSync(d)) { const f = join(d, e); if (statSync(f).isDirectory()) walk(f); else libCount++; } };
-    if (existsSync(destCommonLibDir)) walk(destCommonLibDir)
-    process.stderr.write(`[vibeOS deploy] src/lib/ → ~/.config/opencode/plugins/lib/ (${libCount} files)\n`)
-  }
+  // ── lib/ no longer needed — bundled into vibeOS.js ───────────────────
 
   if (existsSync(srcDashboardDistDir)) {
     const dest = join(pluginDir, "dashboard", "dist")

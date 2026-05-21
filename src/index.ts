@@ -36,7 +36,7 @@ import {
 } from "./lib/turn-classify.js"
 import {
   safeJsonParse, readFullState, updateState, loadSelection, writeSelection,
-  readLifetimeSavings, _OC_SID, _modelLocked, _blackboxEnabled,
+  readLifetimeSavings, _OC_SID, _modelLocked, _blackboxEnabled, setBlackboxEnabled,
   currentTier, currentModel, currentProjectFingerprint, currentProjectName,
   setCurrentTier, setCurrentModel, setCurrentProjectFingerprint, setCurrentProjectName,
   textCompletePainted, softQuotaCounts, enforcementBlocked, taskSlotRestore,
@@ -577,6 +577,21 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
     console.error(`[vibeOS] Project Guard init failed: ${(err as Error).message}`)
   }
 
+  // ── Auto-mode tier switch ─────────────────────────────────────────
+  const _mode = loadOptimizationMode() || "auto"
+  if (_mode === "auto" && currentModel && !_modelLocked) {
+    const _intent = classifyTurnSimple(directory?.split("/").pop() || "")
+    const _autoActive = autoSelectMode(0, _intent)
+    const _slot = _autoActive === "quality" ? "brain" : _autoActive === "speed" ? "medium" : "cheap"
+    writeSelection("active_slot", _slot)
+    const _sel = loadSelection()
+    if (_sel.active_slot === _slot) {
+      if (_slot === "brain" && TRINITY_BRAIN) { setCurrentModel(TRINITY_BRAIN); setCurrentTier("high") }
+      else if (_slot === "medium" && TRINITY_MEDIUM) { setCurrentModel(TRINITY_MEDIUM); setCurrentTier("mid") }
+      else if (_slot === "cheap" && TRINITY_CHEAP) { setCurrentModel(TRINITY_CHEAP); setCurrentTier("low") }
+    }
+  }
+
   // ── Plugin hooks ──────────────────────────────────────────────────
   const pluginHooks = {
     "tool.execute.before": async (input: any, output: any) => {
@@ -882,8 +897,8 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
           }
           if (action === "blackbox") {
             const mode = slot || "status"
-            if (mode === "on") { _blackboxEnabled = true; saveBlackboxState({ ...loadBlackboxState(), enabled: true }); return "Blackbox ON" }
-            if (mode === "off") { _blackboxEnabled = false; saveBlackboxState({ ...loadBlackboxState(), enabled: false }); return "Blackbox OFF" }
+            if (mode === "on") { setBlackboxEnabled(true); saveBlackboxState({ ...loadBlackboxState(), enabled: true }); return "Blackbox ON" }
+            if (mode === "off") { setBlackboxEnabled(false); saveBlackboxState({ ...loadBlackboxState(), enabled: false }); return "Blackbox OFF" }
             if (mode === "reset") { const s = loadBlackboxState(); delete s.sessions[_OC_SID]; saveBlackboxState(s); return "Blackbox RESET" }
             if (mode === "status") {
               const bbState = loadBlackboxState()

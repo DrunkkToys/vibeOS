@@ -105,6 +105,7 @@ export function setMlSavePending(v) { _mlSavePending = v; }
 // ── Blackbox state ──────────────────────────────────────────────────
 let _blackboxTracker = null;
 let _blackboxEnabled = true;
+export function setBlackboxEnabled(val) { _blackboxEnabled = val; }
 let _latestBlackboxState = null;
 let _latestBlackboxLoopMsg = null;
 let _latestBlackboxPivotMsg = null;
@@ -128,6 +129,7 @@ const briefedProjects = new Set();
 // ── Ledger write buffer ─────────────────────────────────────────────
 let _ledgerBuffer = [];
 let _ledgerBufferTimer = null;
+export function setLedgerBufferTimer(val) { _ledgerBufferTimer = val; }
 const LEDGER_BUFFER_MAX = 10;
 const LEDGER_BUFFER_FLUSH_MS = 5000;
 // ── Test reminder state ──────────────────────────────────────────────
