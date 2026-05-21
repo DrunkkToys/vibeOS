@@ -1,3 +1,7 @@
+## 0.13.19
+- feat: trinity mode budget|quality|speed|longrun|auto command
+
+
 ## 0.13.18
 - fix: per-session active_slot and optimization_mode in blackbox-state
 - fix: footer model tag shows active slot model instead of hardcoded brain tier
