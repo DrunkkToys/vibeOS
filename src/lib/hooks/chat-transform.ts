@@ -141,9 +141,9 @@ export function syncControlSettings(cv: any): void {
 
     if (cv.thinking_mode) writeIf("thinking_level", cv.thinking_mode)
 
-    if (cv.optimization_mode) {
-      const existingMode = loadSessionSlot(sid + "_opt")
-      if (existingMode !== cv.optimization_mode) {
+    const userOptMode = loadSessionSlot(sid + "_opt") || loadOptimizationMode()
+    if (cv.optimization_mode && userOptMode !== "auto") {
+      if (userOptMode !== cv.optimization_mode) {
         writeSessionSlot(sid + "_opt", cv.optimization_mode)
         saveOptimizationMode(cv.optimization_mode)
       }
