@@ -1,3 +1,7 @@
+## 0.13.16
+- fix: auto-mode tier switch in footer (bypass broken system.transform hook)
+
+
 ## 0.13.15
 - feat: progressive benchmark v3 — known-ground-truth scenarios, git isolation, full KPIs
 - feat: tier_bias now enforces active_slot switch via syncControlSettings
