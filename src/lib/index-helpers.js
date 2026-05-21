@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { join } from 'node:path';
 import { writeFileSync } from 'node:fs';
-import { applyDecadence, _patternFiredKeys, recentToolEvents, lastMutationEvent, frictionSessionKeys, routineSessionKeys, _pruneScratchpadDir, cleanupStaleSessionScratchpads, getSessionScratchpadDir, SCRATCHPAD_GLOBAL_DIR, MAX_SCRATCHPAD_FILES, MAX_SCRATCHPAD_BYTES, MAX_SESSION_SCRATCHPAD_FILES, MAX_SESSION_SCRATCHPAD_BYTES, DECADENCE_THROTTLE_MS, DECADENCE_GLOBAL_THROTTLE_MS, normalizeObservedPath, commandFamily, commandFailed, saveActiveJobForProject, currentProjectFingerprint, currentProjectName, _OC_SID, loadProjectState, saveProjectState, ensureProjectBucket, updateGlobalLearning, updateState, roundUsd, WARN_DEDUPE_WINDOW_MS, _pruneOldSessions, _ledgerBuffer, _flushLedgerBuffer, LEDGER_BUFFER_MAX, _ledgerBufferTimer, LEDGER_BUFFER_FLUSH_MS, saveSessionCheckpoint, } from './state.js';
+import { _patternFiredKeys, recentToolEvents, lastMutationEvent, frictionSessionKeys, routineSessionKeys, _pruneScratchpadDir, cleanupStaleSessionScratchpads, getSessionScratchpadDir, SCRATCHPAD_GLOBAL_DIR, MAX_SCRATCHPAD_FILES, MAX_SCRATCHPAD_BYTES, MAX_SESSION_SCRATCHPAD_FILES, MAX_SESSION_SCRATCHPAD_BYTES, DECADENCE_THROTTLE_MS, DECADENCE_GLOBAL_THROTTLE_MS, normalizeObservedPath, commandFamily, commandFailed, saveActiveJobForProject, currentProjectFingerprint, currentProjectName, _OC_SID, loadProjectState, saveProjectState, ensureProjectBucket, updateGlobalLearning, updateState, roundUsd, WARN_DEDUPE_WINDOW_MS, _pruneOldSessions, _ledgerBuffer, _flushLedgerBuffer, LEDGER_BUFFER_MAX, _ledgerBufferTimer, LEDGER_BUFFER_FLUSH_MS, saveSessionCheckpoint, } from './state.js';
 import { TRINITY_CHEAP, TRINITY_MEDIUM } from './pricing.js';
 import { topKeywords, extractFirstWordFromArgs, noteTaskRoutingLearning, } from './turn-classify.js';
 let activeJob = null;
@@ -55,6 +55,7 @@ export function setActiveJobFromTaskPrompt(prompt) {
     };
     saveActiveJobForProject(activeJob);
 }
+
 // ── compressText ─────────────────────────────────────────────────────
 export function compressText(text) {
     if (!text || typeof text !== "string")
