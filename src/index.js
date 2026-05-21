@@ -3123,7 +3123,7 @@ function readConfig(dir) {
     return "";
   }
 }
-function parseJsonc(raw) {
+export function parseJsonc(raw) {
   const noBlockComments = String(raw || "").replace(/\/\*[\s\S]*?\*\//g, "");
   const noLineComments = noBlockComments.replace(/(^|\s)\/\/.*$/gm, "$1");
   const noTrailingCommas = noLineComments.replace(/,\s*([}\]])/g, "$1");
@@ -4060,7 +4060,11 @@ function loadBlackboxState() {
     return { enabled: false, sessions: {} };
   }
 }
+let _blackboxSaveTs = 0;
 function saveBlackboxState(state) {
+  const now = Date.now();
+  if (now - _blackboxSaveTs < 5000) return;
+  _blackboxSaveTs = now;
   try {
     mkdirSync5(dirname5(BLACKBOX_STATE_FILE2), { recursive: true });
     const tmp = BLACKBOX_STATE_FILE2 + ".tmp";
