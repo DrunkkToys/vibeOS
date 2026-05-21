@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT\n// SPDX-FileCopyrightText: 2026 vibeOS <https://github.com/DrunkkToys/vibeOS>\n// vibeOS — OpenCode plugin\n
 var __defProp = Object.defineProperty;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __esm = (fn, res) => function __init() {
@@ -668,13 +667,7 @@ function createMcpServer(deps) {
           json(res, 400, { error: "invalid request", status: 400 });
           return;
         }
-        let result;
-        try {
-          result = await deps.runTrinity(action, { slot, level });
-        } catch (e) {
-          json(res, 500, { ok: false, error: String(e) });
-          return;
-        }
+        const result = await deps.runTrinity(action, { slot, level });
         const txt = typeof result === "string" ? result : JSON.stringify(result);
         const ok = !(txt.startsWith("\u274C") || txt.toLowerCase().includes("unknown action"));
         json(res, ok ? 200 : 400, ok ? { ok: true, result } : { ok: false, error: txt });
@@ -1614,9 +1607,9 @@ var _mlSavePending = false;
 function setMlSavePending(v) {
   _mlSavePending = v;
 }
-var _blackboxEnabled = true;
+var _blackboxEnabled2 = true;
 function setBlackboxEnabled(val) {
-  _blackboxEnabled = val;
+  _blackboxEnabled2 = val;
 }
 var _latestBlackboxState = null;
 var _modelLocked = false;
@@ -2934,7 +2927,7 @@ var MODEL_USD_PER_TURN = {
   "haiku": 22e-4,
   // ── DeepSeek (OC platform + OpenRouter) ──────────────────
   "deepseek/deepseek-v4-pro": 57e-5,
-  "deepseek/deepseek-v4-flash": 0.000146,
+  "deepseek/deepseek-v4-flash": 182e-6,
   "deepseek/deepseek-chat": 0,
   "deepseek-chat": 0,
   "deepseek/deepseek-v3": 0,
@@ -5546,6 +5539,7 @@ function loadSelection3() {
 }
 function readLifetimeSavings2() {
   try {
+    reconcileStateFromLedger();
     const raw = readFileSync11(STATE_FILE5, "utf-8");
     const state = safeJsonParse6(raw);
     const ses = state?.sessions?.[typeof _OC_SID6 !== "undefined" ? _OC_SID6 : ""] || {};
@@ -5732,7 +5726,7 @@ async function _appendFooter(input, output, directory3) {
 
 \u2014 ${modelTag} \u2014`;
     }
-    if (_blackboxEnabled) {
+    if (_blackboxEnabled2) {
       try {
         const prevText = _prevOutputText;
         _prevOutputText = typeof output?.text === "string" ? output.text : typeof output?.result === "string" ? output.result : "";
@@ -7305,9 +7299,9 @@ function recordSaving(tool2, reason, saveEst, meta = {}) {
   try {
     if (!saveEst || saveEst <= 0)
       return 0;
-    const firstWord = meta?.firstWord || "";
+    const firstWord = meta?.firstWord || tool2 || "";
     updateState((s) => {
-      s.lifetime ??= { total_savings_usd: 0, cache_savings_usd: 0, missed_context7_usd: 0, session_count: 0 };
+      s.lifetime ??= { total_savings_usd: 0, cache_savings_usd: 0, missed_context7_usd: 0, session_count: 0, warn_count: 0, est_savings_usd: 0 };
       s.sessions ??= {};
       const sid = _OC_SID;
       if (!s.sessions[sid]) {
@@ -7322,6 +7316,8 @@ function recordSaving(tool2, reason, saveEst, meta = {}) {
       const ses = s.sessions[sid];
       ses.total_savings_usd = roundUsd(Number(ses.total_savings_usd || 0) + saveEst);
       s.lifetime.total_savings_usd = roundUsd(Number(s.lifetime.total_savings_usd || 0) + saveEst);
+      s.lifetime.est_savings_usd = roundUsd(Number(s.lifetime.est_savings_usd || 0) + saveEst);
+      s.lifetime.warn_count = (s.lifetime.warn_count || 0) + 1;
       if (reason && firstWord) {
         const now = Date.now();
         const warnKey = `${_OC_SID}:${firstWord}`;
@@ -7333,11 +7329,12 @@ function recordSaving(tool2, reason, saveEst, meta = {}) {
             w.count = (w.count || 1) + 1;
             w.reason = reason;
             w.saveEst = (w.saveEst || 0) + saveEst;
+            w.est_savings_usd = (w.est_savings_usd || 0) + saveEst;
             deduped = true;
           }
         }
         if (!deduped) {
-          ses.warns.push({ key: warnKey, reason, saveEst, firstWord, ts: now, count: 1 });
+          ses.warns.push({ key: warnKey, reason, saveEst, est_savings_usd: saveEst, firstWord, ts: now, count: 1, tool: tool2 });
         }
         if (!ses.seenWarnKeys[warnKey]) {
           ses.seenWarnKeys[warnKey] = true;
@@ -8517,7 +8514,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
             const durHrs = Math.floor(sesDuration / 3600);
             const durMins = Math.floor(sesDuration % 3600 / 60);
             let decisionLine = "";
-            if (_blackboxEnabled) {
+            if (_blackboxEnabled2) {
               try {
                 const res = _latestBlackboxState || getBlackboxResolution();
                 if (res && res.n_interactions > 3) {
@@ -8802,7 +8799,7 @@ ${okCount}/${results.length} passed`);
             }
             if (mode === "status") {
               const bbState = loadBlackboxState();
-              const lines = [`Blackbox: ${_blackboxEnabled || bbState.enabled ? "ON" : "OFF"}`];
+              const lines = [`Blackbox: ${_blackboxEnabled2 || bbState.enabled ? "ON" : "OFF"}`];
               const res = _latestBlackboxState || getBlackboxResolution();
               if (res) {
                 lines.push(`  Resolution: ${res.resolution}`);
