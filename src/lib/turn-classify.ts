@@ -1,5 +1,4 @@
 // @ts-nocheck
-export { computeControlVector, buildControlHistoryEntry } from "../vibeOS-lib/blackbox/meta-controller.js"
 
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, statSync, copyFileSync, renameSync, openSync, closeSync, rmSync } from "node:fs"
 import { join, dirname, basename } from "node:path"
@@ -8,7 +7,77 @@ import { createHash } from "node:crypto"
 import { safeJsonParse, _blackboxEnabled, setBlackboxEnabled as _setGlobalBlackboxEnabled } from "./state.js"
 import { loadSessionOptMode, writeSessionOptMode } from "./selection-manager.js"
 import { getApiClient, isApiFallback } from "./api-client.js"
-import { LocalBlackboxStub } from "../vibeOS-lib/blackbox/local-stub.js"
+
+type OptimizationMode = "balanced" | "budget" | "quality" | "speed" | "longrun" | "auto"
+
+function autoSelectMode(_subRegime: string, _stressMultiplier?: number): OptimizationMode {
+  return "balanced"
+}
+
+function computeControlVector(
+  _state: { sub_regime?: string; is_looping?: boolean; loop_intervention_level?: string; momentum?: number; n_interactions?: number; latest_stress_multiplier?: number },
+  _action?: string,
+  _optimizationMode?: OptimizationMode,
+): any {
+  return {
+    enforcement_mode: "normal",
+    enforcement_reason: "[optimize: balanced] using safe offline defaults",
+    flow_mode: "normal",
+    flow_focus: [],
+    tdd_mode: "normal",
+    tdd_focus: [],
+    tier_bias: "auto",
+    thinking_mode: "auto",
+    stress_multiplier: 1.0,
+    context7_urgency: "preferred",
+    wbp_verbosity: "normal",
+    optimization_mode: "balanced",
+    directives: [],
+  }
+}
+
+function buildControlHistoryEntry(
+  turn: number,
+  regime: string,
+  control: any,
+  reward: number | null = null,
+): Record<string, unknown> {
+  return {
+    turn,
+    regime,
+    control: {
+      enforcement_mode: control.enforcement_mode,
+      flow_mode: control.flow_mode,
+      tdd_mode: control.tdd_mode,
+      tier_bias: control.tier_bias,
+      thinking_mode: control.thinking_mode,
+      stress_multiplier: control.stress_multiplier,
+      context7_urgency: control.context7_urgency,
+      wbp_verbosity: control.wbp_verbosity,
+    },
+    reward,
+  }
+}
+
+class _BlackboxStub {
+  history: any[]
+  currentRegime: string
+  static deserialize(data: any): _BlackboxStub {
+    const s = new _BlackboxStub()
+    s.history = data?.history || []
+    s.currentRegime = data?.currentRegime || "INIT"
+    return s
+  }
+  update(_text: string): any {
+    return { sub_regime: this.currentRegime || "INIT" }
+  }
+  snapshot(): any {
+    return { sub_regime: this.currentRegime || "INIT", resolution: "unresolved", momentum: 0, signals: {} }
+  }
+  serialize(): any {
+    return { history: this.history, currentRegime: this.currentRegime }
+  }
+}
 
 const USER_HOME = (() => { try { return homedir() } catch { return tmpdir() } })()
 
@@ -196,18 +265,18 @@ export function getBlackboxTracker() {
     if (state.enabled !== undefined) _setGlobalBlackboxEnabled(state.enabled)
     const sid = _OC_SID
     if (state.sessions?.[sid]?.history) {
-      _blackboxTracker = LocalBlackboxStub.deserialize(state.sessions[sid])
+      _blackboxTracker = _BlackboxStub.deserialize(state.sessions[sid])
     } else if (currentProjectFingerprint) {
       const projectKeys = Object.keys(state.sessions || {}).filter(k => state.sessions[k].project_fingerprint === currentProjectFingerprint)
       const latest = projectKeys.sort().slice(-1)[0]
       if (latest && state.sessions[latest]?.history) {
         const data = state.sessions[latest]
-        _blackboxTracker = LocalBlackboxStub.deserialize(data)
+        _blackboxTracker = _BlackboxStub.deserialize(data)
       } else {
-        _blackboxTracker = new LocalBlackboxStub()
+        _blackboxTracker = new _BlackboxStub()
       }
     } else {
-      _blackboxTracker = new LocalBlackboxStub()
+      _blackboxTracker = new _BlackboxStub()
     }
   }
   return _blackboxTracker
@@ -759,7 +828,7 @@ export function incrementTurnCounter(): number {
   } catch { return 0 }
 }
 
-export { OptimizationMode, autoSelectMode, MODE_DELTAS } from "../vibeOS-lib/blackbox/meta-controller.js"
+export { OptimizationMode, autoSelectMode, computeControlVector, buildControlHistoryEntry }
 
 export {
   loadOptimizationMode,

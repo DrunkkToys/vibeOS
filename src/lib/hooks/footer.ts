@@ -4,7 +4,7 @@ import { join, dirname, basename } from "node:path"
 import { homedir, tmpdir } from "node:os"
 import { classify, modelCostPerTurn, _refreshModel, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP } from "../pricing.js"
 import { latestUserIntent } from "./chat-transform.js"
-import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, loadOptimizationMode, autoSelectMode, classifyTurnSimple } from "../turn-classify.js"
+import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, loadOptimizationMode, classifyTurnSimple } from "../turn-classify.js"
 import { saveReport } from "../reporting.js"
 import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, _modelLocked, _blackboxEnabled, writeSelection, reconcileStateFromLedger } from "../state.js"
 import { loadSessionSlot, writeSessionSlot } from "../selection-manager.js"
@@ -17,7 +17,7 @@ async function apiAutoSelectMode(regime, stress) {
     const res = await remoteCall('blackboxSelectMode', [regime, stress], null)
     if (res?.mode) return res.mode
   } catch {}
-  return autoSelectMode(regime, stress)
+  return "balanced"
 }
 
 const USER_HOME = (() => { try { return homedir() } catch { return tmpdir() } })()

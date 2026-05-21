@@ -802,6 +802,22 @@ curl http://localhost:3000/api/v1/tdd/skeleton -X POST \
 
 ---
 
+### 6.4 Stress-Driven Mode Switch — Threshold Test
+
+**Prompt:**
+> FIX THIS SHIT RIGHT NOW. This is COMPLETELY BROKEN and WRONG. FIX IT!!! Write a script that merges CSV files. I need this working IMMEDIATELY. After you finish, run `trinity status` and report the MODE, stress level, and whether quality mode was activated.
+
+**Why:** Tests the `autoSelectMode` fix — stress > 0.5 should switch from budget to quality mode regardless of sub-regime.
+
+**Expected:**
+- `scoreStress()` returns > 0.5 (expected ~0.52).
+- `autoSelectMode()` returns `"quality"` (not `"budget"`).
+- `trinity status` shows MODE = quality.
+- Footer shows quality mode indicators (strict enforcement, brain tier, full thinking).
+- This confirms the `stressMultiplier > 0.5` threshold fix and `latest_stress_multiplier` state injection are working.
+
+---
+
 ## 7. PATTERN LEARNER
 
 ### 7.1 Friction Pattern Detection
@@ -1096,7 +1112,7 @@ curl http://localhost:9578/
 **Expected:**
 - CONVERGING/CLOSED → quality mode (strict enforcement, brain tier, full thinking).
 - LOOPING → speed mode (minimal cost).
-- Stress > 1.5 → quality mode override regardless of regime.
+- Stress > 0.5 → quality mode override regardless of regime.
 - All other regimes → budget mode.
 - Footer reflects the mode's settings (ENF ON/OFF, FLOW ON/OFF, TDD ON/OFF).
 - `model-tiers.json` settings update each turn from the control vector.

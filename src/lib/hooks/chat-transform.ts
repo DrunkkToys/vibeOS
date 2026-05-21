@@ -24,7 +24,7 @@ import {
   shortModelName, formatUsd, _refreshModel, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN,
 } from '../pricing.js'
 import {
-  scoreStress, classifyTurnSimple, computeControlVector, loadOptimizationMode,
+  scoreStress, classifyTurnSimple, loadOptimizationMode,
   saveOptimizationMode,
   getBlackboxTracker, getBlackboxResolution,
   loadBlackboxState as loadBlackboxStateFromCtx, saveBlackboxState as saveBlackboxStateToCtx,
@@ -62,7 +62,21 @@ async function apiComputeControlVector(state: any, action: any, optimizationMode
     const res = await remoteCall('blackboxControlVector', [state, action, optimizationMode], null)
     if (res?.control_vector) return res.control_vector
   } catch {}
-  return computeControlVector(state, action, optimizationMode)
+  return {
+    enforcement_mode: "normal",
+    enforcement_reason: "[optimize: balanced] offline fallback",
+    flow_mode: "normal",
+    flow_focus: [],
+    tdd_mode: "normal",
+    tdd_focus: [],
+    tier_bias: "auto",
+    thinking_mode: "auto",
+    stress_multiplier: 1.0,
+    context7_urgency: "preferred",
+    wbp_verbosity: "normal",
+    optimization_mode: "balanced",
+    directives: [],
+  }
 }
 
 function observeUserCorrection(text: string | null): void {

@@ -35,7 +35,6 @@ import {
   scoreStress, extractFirstWordFromArgs, shouldLogWarn,
   isUserAskingForTests, isLikelyOffTopic, resolveEnforcementMode,
   getBlackboxTracker, loadBlackboxState, saveBlackboxState,
-  computeControlVector,
   loadGlobalLearning, updateGlobalLearning, getLearnedExploratoryWords,
   noteTaskRoutingLearning,
 } from '../turn-classify.js'
