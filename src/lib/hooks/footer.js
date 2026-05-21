@@ -167,9 +167,10 @@ async function _appendFooter(input, output, directory) {
                 typeof output?.content === "string" ? output.content :
                     "";
         const { ltTasks, ltCache, ltCost, count, sesTasks, sesEdit, sesCredit, sesC7, sesQuota, sesCache, sesTaskDelegations, sesDuration, sesRatePerHour, sesTrend, sesToolBreakdown, sesModelTurns, quality_avg } = readLifetimeSavings();
-        const brainModel = TRINITY_BRAIN || currentModel || "";
+        const slot = loadSelection().active_slot || "brain";
+        const brainModel = slot === "brain" ? TRINITY_BRAIN : slot === "medium" ? TRINITY_MEDIUM : TRINITY_CHEAP || currentModel || "";
         let modelTag = `[${shortModelName(brainModel)}]`;
-        const _workerModel = (currentTier === "high" && TRINITY_MEDIUM) ? TRINITY_MEDIUM : TRINITY_CHEAP;
+        const _workerModel = slot === "brain" ? TRINITY_MEDIUM : null;
         const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0);
         if (_workerModel && _workerModel !== brainModel) {
             const brainPct = Math.round(((sesModelTurns?.brain || 0) / (totalTurns || 1)) * 100);
