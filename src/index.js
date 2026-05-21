@@ -23,7 +23,7 @@ import { _appendFooter } from "./lib/hooks/footer.js";
 import { onToolExecuteBefore, onToolExecuteAfter, setToolDirectory } from "./lib/hooks/tool-execute.js";
 import { onMessagesTransform, onSystemTransform, latestUserIntent } from "./lib/hooks/chat-transform.js";
 import { onSessionCompacting } from "./lib/hooks/session-compact.js";
-import { onShellEnv } from "./lib/hooks/shell-env.js";
+import { onShellEnv, setShellDirectory } from "./lib/hooks/shell-env.js";
 // ── Remote API client state ──────────────────────────────────────────
 let _apiClient = null;
 let _apiFallbackMode = false;
@@ -399,6 +399,8 @@ export async function DelegationEnforcer({ client, directory } = {}) {
     console.error(`[vibeOS] LOADED cwd=${directory}`);
     if (typeof setToolDirectory === "function")
         setToolDirectory(directory || "");
+    if (typeof setShellDirectory === "function")
+        setShellDirectory(directory || "");
     registerSessionCleanupHandlers();
     pruneScratchpadOnce();
     // Detect model: project opencode.json → global ~/.config/opencode/opencode.json → env.
@@ -585,7 +587,8 @@ export async function DelegationEnforcer({ client, directory } = {}) {
             return onSystemTransform(_input, output);
         },
         "shell.env": async (_input, output) => {
-            onShellEnv._directory = directory;
+            if (typeof setShellDirectory === "function")
+                setShellDirectory(directory || "");
             return onShellEnv(_input, output);
         },
         tool: {
