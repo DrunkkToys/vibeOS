@@ -237,9 +237,9 @@ export function recordSaving(tool, reason, saveEst, meta = {}) {
     try {
         if (!saveEst || saveEst <= 0)
             return 0;
-        const firstWord = meta?.firstWord || "";
+        const firstWord = meta?.firstWord || tool || "";
         updateState((s) => {
-            s.lifetime ??= { total_savings_usd: 0, cache_savings_usd: 0, missed_context7_usd: 0, session_count: 0 };
+            s.lifetime ??= { total_savings_usd: 0, cache_savings_usd: 0, missed_context7_usd: 0, session_count: 0, warn_count: 0, est_savings_usd: 0 };
             s.sessions ??= {};
             const sid = _OC_SID;
             if (!s.sessions[sid]) {
@@ -254,6 +254,8 @@ export function recordSaving(tool, reason, saveEst, meta = {}) {
             const ses = s.sessions[sid];
             ses.total_savings_usd = roundUsd(Number(ses.total_savings_usd || 0) + saveEst);
             s.lifetime.total_savings_usd = roundUsd(Number(s.lifetime.total_savings_usd || 0) + saveEst);
+            s.lifetime.est_savings_usd = roundUsd(Number(s.lifetime.est_savings_usd || 0) + saveEst);
+            s.lifetime.warn_count = (s.lifetime.warn_count || 0) + 1;
             if (reason && firstWord) {
                 const now = Date.now();
                 const warnKey = `${_OC_SID}:${firstWord}`;
@@ -265,11 +267,12 @@ export function recordSaving(tool, reason, saveEst, meta = {}) {
                         w.count = (w.count || 1) + 1;
                         w.reason = reason;
                         w.saveEst = (w.saveEst || 0) + saveEst;
+                        w.est_savings_usd = (w.est_savings_usd || 0) + saveEst;
                         deduped = true;
                     }
                 }
                 if (!deduped) {
-                    ses.warns.push({ key: warnKey, reason, saveEst, firstWord, ts: now, count: 1 });
+                    ses.warns.push({ key: warnKey, reason, saveEst, est_savings_usd: saveEst, firstWord, ts: now, count: 1, tool });
                 }
                 if (!ses.seenWarnKeys[warnKey]) {
                     ses.seenWarnKeys[warnKey] = true;
