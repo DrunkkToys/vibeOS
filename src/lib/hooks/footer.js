@@ -6,7 +6,8 @@ import { classify, modelCostPerTurn, _refreshModel, TRINITY_BRAIN, TRINITY_MEDIU
 import { latestUserIntent } from "./chat-transform.js";
 import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, loadOptimizationMode, autoSelectMode, classifyTurnSimple } from "../turn-classify.js";
 import { saveReport } from "../reporting.js";
-import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, _modelLocked, _blackboxEnabled, writeSelection } from "../state.js";
+import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, _modelLocked, _blackboxEnabled } from "../state.js";
+import { loadSessionSlot, writeSessionSlot } from "../selection-manager.js";
 const USER_HOME = (() => { try {
     return homedir();
 }
@@ -167,7 +168,8 @@ async function _appendFooter(input, output, directory) {
                 typeof output?.content === "string" ? output.content :
                     "";
         const { ltTasks, ltCache, ltCost, count, sesTasks, sesEdit, sesCredit, sesC7, sesQuota, sesCache, sesTaskDelegations, sesDuration, sesRatePerHour, sesTrend, sesToolBreakdown, sesModelTurns, quality_avg } = readLifetimeSavings();
-        const slot = loadSelection().active_slot || "brain";
+        const sessionSlot = loadSessionSlot(_OC_SID);
+        const slot = sessionSlot || loadSelection().active_slot || "brain";
         const brainModel = slot === "brain" ? TRINITY_BRAIN : slot === "medium" ? TRINITY_MEDIUM : TRINITY_CHEAP || currentModel || "";
         let modelTag = `[${shortModelName(brainModel)}]`;
         const _workerModel = slot === "brain" ? TRINITY_MEDIUM : null;
@@ -247,12 +249,18 @@ async function _appendFooter(input, output, directory) {
             optTagFooter = `[AUTO→${autoTag[autoActive] || autoActive.toUpperCase()}]`;
             const slot = autoActive === "quality" ? "brain" : autoActive === "speed" ? "medium" : "cheap";
             if (!_modelLocked) {
-                writeSelection("active_slot", slot);
-                const sel = loadSelection();
-                if (sel.active_slot === slot) {
-                    if (slot === "brain" && TRINITY_BRAIN) { setCurrentModel(TRINITY_BRAIN); setCurrentTier("high"); }
-                    else if (slot === "medium" && TRINITY_MEDIUM) { setCurrentModel(TRINITY_MEDIUM); setCurrentTier("mid"); }
-                    else if (slot === "cheap" && TRINITY_CHEAP) { setCurrentModel(TRINITY_CHEAP); setCurrentTier("low"); }
+                writeSessionSlot(_OC_SID, slot);
+                if (slot === "brain" && TRINITY_BRAIN) {
+                    setCurrentModel(TRINITY_BRAIN);
+                    setCurrentTier("high");
+                }
+                else if (slot === "medium" && TRINITY_MEDIUM) {
+                    setCurrentModel(TRINITY_MEDIUM);
+                    setCurrentTier("mid");
+                }
+                else if (slot === "cheap" && TRINITY_CHEAP) {
+                    setCurrentModel(TRINITY_CHEAP);
+                    setCurrentTier("low");
                 }
             }
         }

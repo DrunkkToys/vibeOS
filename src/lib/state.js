@@ -133,6 +133,7 @@ const LEDGER_BUFFER_FLUSH_MS = 5000;
 // ── Test reminder state ──────────────────────────────────────────────
 const testReminderSeen = new Set();
 // ── Default selection & global learning ──────────────────────────────
+// DFLT_SEL is imported from selection-manager
 const DFLT_GL = { exploratory_words: {}, task_first_words: {}, updatedAt: null };
 // ── Tool helper (minimal, avoids @opencode-ai/plugin dependency) ──────
 function _zType(base) {
@@ -371,7 +372,7 @@ function loadTierRegexes() {
 }
 const { high: HIGH_TIER_RE, mid: MID_TIER_RE } = loadTierRegexes();
 // ── Selection management (model-tiers.json) ──────────────────────────
-// loadSelection, writeSelection, and DFLT_SEL are imported from selection-manager.js
+// loadSelection, writeSelection, and DFLT_SEL are imported from selection-manager
 // ── Global learning ──────────────────────────────────────────────────
 function loadGlobalLearning() {
     try {

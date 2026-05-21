@@ -6,6 +6,7 @@ import { join, dirname, basename } from "node:path"
 import { homedir, tmpdir } from "node:os"
 import { createHash } from "node:crypto"
 import { safeJsonParse } from "./state.js"
+import { loadSessionOptMode, writeSessionOptMode } from "./selection-manager.js"
 import { getApiClient, isApiFallback } from "./api-client.js"
 import { LocalBlackboxStub } from "../vibeOS-lib/blackbox/local-stub.js"
 
@@ -720,20 +721,14 @@ const DFLT_OPTIMIZATION_MODE = "auto"
 
 export function loadOptimizationMode(): string {
   try {
-    const state = loadBlackboxState()
     const sid = _OC_SID
-    return state.sessions?.[sid]?.optimization_mode || DFLT_OPTIMIZATION_MODE
+    return loadSessionOptMode(sid) || DFLT_OPTIMIZATION_MODE
   } catch { return DFLT_OPTIMIZATION_MODE }
 }
 
 export function saveOptimizationMode(mode: string): void {
   try {
-    const state = loadBlackboxState()
-    const sid = _OC_SID
-    if (!state.sessions) state.sessions = {}
-    if (!state.sessions[sid]) state.sessions[sid] = {}
-    state.sessions[sid].optimization_mode = mode
-    saveBlackboxState(state)
+    writeSessionOptMode(_OC_SID, mode)
   } catch (err) {
     console.error("[vibeOS] saveOptimizationMode failed: " + err.message)
   }

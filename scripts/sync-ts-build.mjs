@@ -4,7 +4,7 @@ import { dirname, join } from "node:path"
 // Build the list of lib modules to sync
 const libModules = [
   "api-client", "pricing", "state", "turn-classify", "tdd-enforcer",
-  "index-helpers", "research-audit", "reporting", "credit-api",
+  "index-helpers", "research-audit", "reporting", "credit-api", "selection-manager",
   "trinity-rebuild", "trinity-tool",
 ]
 
