@@ -23,7 +23,7 @@ import {
   ML_ENABLED, _mlGraph, _cacheDb, _mlSavePending, ML_CONFIDENCE_THRESHOLD,
   loadMLState, saveMLState,
   readJsonOrEmpty, _handleStateCorruption, _lockPathFor,
-  SCRATCHPAD_TOOLS,
+  SCRATCHPAD_TOOLS, applyDecadence,
 } from '../state.js'
 import {
   classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget,
@@ -46,7 +46,7 @@ import { checkFlowRules, recordFlowTodo } from '../../vibeOS-lib/flow-enforcer.j
 import { computeDifficulty, cascadeDecide, createPatternGraph, ensureNode, addRouteEdge, predictBestModel, hashQuery, deserializeGraph } from '../../vibeOS-lib/ml-router.js'
 import { createCacheDatabase, addCacheEntry, recordCacheStats, predictCacheHit, compositeSimilarity, evictStaleEntries, deserializeCacheDb } from '../../vibeOS-lib/smart-cache.js'
 import { buildTestReminder, enforceTestFile } from '../tdd-enforcer.js'
-import { setActiveJobFromTaskPrompt, observeToolPattern, applyDecadence, compressText, recordSaving } from '../index-helpers.js'
+import { setActiveJobFromTaskPrompt, observeToolPattern, compressText, recordSaving } from '../index-helpers.js'
 import { checkFlowRules as _checkFlowRules, recordFlowTodo } from '../../vibeOS-lib/flow-enforcer.js'
 
 const SAVE_EST = { WRITE_EDIT: 0.005, SOFT_QUOTA: 0.0003, CONTEXT7: 0.002, OPUS_DISABLE: 0.03 }

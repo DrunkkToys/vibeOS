@@ -2,8 +2,9 @@
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { currentModel, loadSelection, safeJsonParse, getSessionScratchpadDir, ensureSessionScratchpadDirs, indexAppend, getActiveJobForProject, TIERS_FILE, } from '../state.js';
+import { currentModel, loadSelection, safeJsonParse, getSessionScratchpadDir, ensureSessionScratchpadDirs, indexAppend, getActiveJobForProject, TIERS_FILE, applyDecadence, } from '../state.js';
 import { TRINITY_CHEAP, TRINITY_MEDIUM, } from '../pricing.js';
+import { activeJob } from '../index-helpers.js';
 import { scoreStress, classifyTurnSimple, computeControlVector, getBlackboxTracker, loadBlackboxState as loadBlackboxStateFromCtx, saveBlackboxState as saveBlackboxStateToCtx, extractLastUserText, isLikelyOffTopic, fetchBlackboxEnrichment, estimateContextBudget, buildControlHistoryEntry, } from '../turn-classify.js';
 import { loadCredit } from '../credit-api.js';
 let latestUserIntent = null;

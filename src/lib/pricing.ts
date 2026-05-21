@@ -19,6 +19,7 @@ import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, sta
 import { join, dirname, basename } from "node:path"
 import { homedir, tmpdir } from "node:os"
 import { createHash } from "node:crypto"
+import { currentModel, currentTier, setCurrentModel, setCurrentTier } from "./state.js"
 
 const USER_HOME = (() => { try { return homedir() } catch { return tmpdir() } })()
 
@@ -89,8 +90,6 @@ function withFileLock(filePath, fn, opts = {}) {
 }
 
 // ── Module state ────────────────────────────────────────────────────
-let currentTier = null
-let currentModel = null
 let _modelLocked = false
 
 // ── Tier classification ─────────────────────────────────────────────
