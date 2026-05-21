@@ -89,6 +89,9 @@ export function syncControlSettings(cv: any): void {
     }
 
     if (cv.thinking_mode) writeIf("thinking_level", cv.thinking_mode)
+
+    const slot = cv.tier_bias
+    if (slot && slot !== "auto") writeIf("active_slot", slot)
   } catch { /* noop — non-critical sync */ }
 }
 

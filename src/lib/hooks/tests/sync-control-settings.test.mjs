@@ -17,6 +17,7 @@ const mapCV = (cv) => {
     out.tdd_enforce = true; out.tdd_strict = cv.tdd_mode === "strict"
   }
   if (cv.thinking_mode) out.thinking_level = cv.thinking_mode
+  if (cv.tier_bias && cv.tier_bias !== "auto") out.active_slot = cv.tier_bias
   return out
 }
 
@@ -93,7 +94,7 @@ test("null cv → null", () => {
 test("undefined cv → null", () => {
   assert.deepStrictEqual(mapCV(undefined), null)
 })
-test("empty cv → all toggles true (default active), thinking untouched", () => {
+test("empty cv → all toggles true (default active), thinking untouched, no slot change", () => {
   const r = mapCV({})
   assert.deepStrictEqual(r.delegation_enforce, true)
   assert.deepStrictEqual(r.flow_enabled, true)
@@ -101,4 +102,25 @@ test("empty cv → all toggles true (default active), thinking untouched", () =>
   assert.deepStrictEqual(r.tdd_enforce, true)
   assert.deepStrictEqual(r.tdd_strict, false)
   assert.deepStrictEqual(r.thinking_level, undefined)
+  assert.deepStrictEqual(r.active_slot, undefined)
+})
+test("tier_bias: cheap → active_slot=cheap", () => {
+  const r = mapCV({ tier_bias: "cheap" })
+  assert.deepStrictEqual(r.active_slot, "cheap")
+})
+test("tier_bias: brain → active_slot=brain", () => {
+  const r = mapCV({ tier_bias: "brain" })
+  assert.deepStrictEqual(r.active_slot, "brain")
+})
+test("tier_bias: medium → active_slot=medium", () => {
+  const r = mapCV({ tier_bias: "medium" })
+  assert.deepStrictEqual(r.active_slot, "medium")
+})
+test("tier_bias: auto → no active_slot change", () => {
+  const r = mapCV({ tier_bias: "auto" })
+  assert.deepStrictEqual(r.active_slot, undefined)
+})
+test("no tier_bias → no active_slot change", () => {
+  const r = mapCV({ enforcement_mode: "strict" })
+  assert.deepStrictEqual(r.active_slot, undefined)
 })
