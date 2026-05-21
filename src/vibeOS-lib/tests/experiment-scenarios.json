@@ -1,163 +1,94 @@
 {
   "meta": {
-    "description": "vibeOS nightly experiment scenarios. Rotates variants nightly for A/B testing quality vs budget mode.",
-    "version": "1.0.0",
-    "experiment_hypothesis": "Quality mode (brain tier, full thinking, strict enforcement) produces measurably better code outcomes than budget mode (cheap tier, off thinking, relaxed enforcement)."
+    "description": "vibeOS nightly experiment scenarios. Hard scenarios (>100 lines, multi-file, architectural) test whether quality/brain mode produces measurably better outcomes than budget/cheap mode.",
+    "version": "2.0.0",
+    "experiment_hypothesis": "For HARD scenarios (multi-file architecture, complex state, concurrent systems), quality mode (brain tier, full thinking) produces measurably better code than budget mode (cheap tier, off thinking). For MEDIUM scenarios, both tiers produce equivalent quality."
   },
   "metrics": {
     "correctness": "Tests pass on first run (0-1)",
-    "completeness": "All requirements addressed (0-1)",
-    "safety": "No vulnerabilities or dangerous patterns (0-1)",
-    "verbosity": "Token count relative to task complexity (normalized)",
-    "time_to_solve": "Wall time to completion (seconds, lower is better for simple, context-dependent for complex)"
+    "completeness": "All requirements addressed — files complete, edge cases, architecture (0-1)",
+    "safety": "No vulnerabilities, race conditions, or dangerous patterns (0-1)",
+    "architecture_quality": "Module cohesion, interface design, SOLID adherence (0-1)",
+    "time_to_solve": "Wall time to completion (seconds)"
   },
-  "domains": ["api", "algorithm", "cli", "refactor", "debug", "test"],
+  "domains": ["api", "arch", "systems", "refactor", "algorithm"],
   "scenarios": [
     {
       "id": "api-authenticate",
       "domain": "api",
       "complexity": "medium",
-      "prompt": "Create an Express.js authentication middleware in TypeScript that validates JWT tokens from the Authorization header. Extract the user ID from the token payload and attach it to `req.user`. Return 401 if the token is missing, expired, or invalid. Keep it under 40 lines.",
+      "prompt": "Create an Express.js authentication middleware in TypeScript that validates JWT tokens from the Authorization header. Extract the user ID from the token payload and attach it to `req.user`. Return 401 if the token is missing, expired, or invalid. Include proper TypeScript types and error handling.",
       "expectedFiles": ["middleware/auth.ts"],
-      "validation": {
-        "type": "jest",
-        "testFile": "middleware/auth.test.ts",
-        "preTestSetup": "npm init -y && npm install express jsonwebtoken @types/express @types/jsonwebtoken typescript jest ts-jest @types/jest --save-dev && npx tsc --init"
-      },
-      "passCriteria": {
-        "testsPass": 1,
-        "hasTypeAnnotation": true,
-        "hasErrorHandling": true,
-        "maxLines": 45
-      }
-    },
-    {
-      "id": "algorithm-binary-search",
-      "domain": "algorithm",
-      "complexity": "easy",
-      "prompt": "Implement a generic binary search function in TypeScript that works on any sorted array. Handle edge cases: empty array, single element, target not found. Return the index or -1. Include JSDoc. Write it in a single file `src/search.ts`.",
-      "expectedFiles": ["src/search.ts"],
-      "validation": {
-        "type": "jest",
-        "testFile": "src/search.test.ts",
-        "preTestSetup": ""
-      },
-      "passCriteria": {
-        "testsPass": 1,
-        "hasJSDoc": true,
-        "genericsUsed": true,
-        "maxLines": 25
-      }
-    },
-    {
-      "id": "cli-arg-parser",
-      "domain": "cli",
-      "complexity": "easy",
-      "prompt": "Write a Node.js CLI argument parser in a single file `cli.js`. It should parse `--name <value>`, `--verbose` (flag), and positional arguments. Return an object with parsed values. No dependencies. Include error handling for unknown flags.",
-      "expectedFiles": ["cli.js"],
-      "validation": {
-        "type": "node",
-        "testFile": "cli.js --name test --verbose file1 file2",
-        "preTestSetup": ""
-      },
-      "passCriteria": {
-        "outputMatches": true,
-        "hasErrorHandling": true,
-        "maxLines": 50
-      }
+      "validation": { "type": "jest", "testFile": "middleware/auth.test.ts" },
+      "passCriteria": { "testsPass": 1, "hasTypeAnnotation": true, "hasErrorHandling": true }
     },
     {
       "id": "refactor-extract-function",
       "domain": "refactor",
       "complexity": "medium",
-      "prompt": "Given this TypeScript function, refactor it by extracting the validation logic and the formatting logic into separate pure functions. Keep the same public API. Do not change behavior:\n```ts\nfunction processOrder(order: { items: { price: number; qty: number }[]; tax: number; discount: number }): string {\n  if (!order.items || !Array.isArray(order.items)) throw new Error('Invalid items');\n  if (order.items.length === 0) throw new Error('No items');\n  if (typeof order.tax !== 'number' || order.tax < 0) throw new Error('Invalid tax');\n  let subtotal = 0;\n  for (const item of order.items) {\n    if (typeof item.price !== 'number' || item.price < 0) throw new Error('Invalid price');\n    if (typeof item.qty !== 'number' || item.qty < 0) throw new Error('Invalid qty');\n    subtotal += item.price * item.qty;\n  }\n  const total = subtotal + subtotal * order.tax - order.discount;\n  return '$' + total.toFixed(2);\n}\n```",
+      "prompt": "Given this TypeScript function, refactor it by extracting the validation logic and the formatting logic into separate pure functions. Keep the same public API. Preserve all behavior:\n```ts\nfunction processOrder(order: { items: { price: number; qty: number }[]; tax: number; discount: number }): string {\n  if (!order.items || !Array.isArray(order.items)) throw new Error('Invalid items');\n  if (order.items.length === 0) throw new Error('No items');\n  if (typeof order.tax !== 'number' || order.tax < 0) throw new Error('Invalid tax');\n  let subtotal = 0;\n  for (const item of order.items) {\n    if (typeof item.price !== 'number' || item.price < 0) throw new Error('Invalid price');\n    if (typeof item.qty !== 'number' || item.qty < 0) throw new Error('Invalid qty');\n    subtotal += item.price * item.qty;\n  }\n  const total = subtotal + subtotal * order.tax - order.discount;\n  return '$' + total.toFixed(2);\n}\n```",
       "expectedFiles": ["order.ts"],
-      "validation": {
-        "type": "jest",
-        "testFile": "order.test.ts",
-        "preTestSetup": ""
-      },
-      "passCriteria": {
-        "testsPass": 1,
-        "extractedFunctions": 2,
-        "behaviorPreserved": true,
-        "maxLines": 55
-      }
-    },
-    {
-      "id": "debug-null-reference",
-      "domain": "debug",
-      "complexity": "easy",
-      "prompt": "This TypeScript code throws 'Cannot read properties of null' at runtime. Find and fix the bug. Write the corrected code:\n```ts\ninterface User { profile?: { name?: string } }\nfunction getUserName(user: User | null): string {\n  return user.profile.name;\n}\n```",
-      "expectedFiles": ["user.ts"],
-      "validation": {
-        "type": "jest",
-        "testFile": "user.test.ts",
-        "preTestSetup": ""
-      },
-      "passCriteria": {
-        "testsPass": 1,
-        "nullHandled": true,
-        "undefinedHandled": true
-      }
-    },
-    {
-      "id": "test-coverage-gap",
-      "domain": "test",
-      "complexity": "medium",
-      "prompt": "Write comprehensive unit tests for this TypeScript utility using Jest. Cover edge cases: empty input, single element, duplicates, negative numbers, type mismatches:\n```ts\nexport function uniqueSorted(numbers: number[]): number[] {\n  return [...new Set(numbers)].sort((a, b) => a - b);\n}\n```",
-      "expectedFiles": ["uniqueSorted.test.ts"],
-      "validation": {
-        "type": "jest",
-        "testFile": "uniqueSorted.test.ts",
-        "preTestSetup": "npm init -y && npm install jest ts-jest @types/jest typescript --save-dev 2>/dev/null"
-      },
-      "passCriteria": {
-        "testsPass": 1,
-        "testCount": 5,
-        "edgeCasesCovered": true
-      }
+      "validation": { "type": "jest", "testFile": "order.test.ts" },
+      "passCriteria": { "testsPass": 1, "extractedFunctions": 2, "behaviorPreserved": true }
     },
     {
       "id": "api-rate-limiter",
       "domain": "api",
       "complexity": "hard",
-      "prompt": "Implement a sliding window rate limiter for Express.js in TypeScript. It should limit to N requests per window per IP. Use an in-memory store (Map). Return 429 when limit exceeded. Include cleanup of old entries. Write in `rateLimiter.ts`. Under 60 lines.",
+      "prompt": "Implement a sliding window rate limiter for Express.js in TypeScript. Requirements: 1) limit N requests per window per IP, 2) in-memory Map store, 3) return 429 with Retry-After header when exceeded, 4) automatic cleanup of expired entries via setInterval, 5) configurable window size and max requests, 6) export as middleware factory `createRateLimiter(windowMs, maxRequests)`. Write in `rateLimiter.ts`. Include comprehensive tests.",
       "expectedFiles": ["rateLimiter.ts"],
-      "validation": {
-        "type": "jest",
-        "testFile": "rateLimiter.test.ts",
-        "preTestSetup": ""
-      },
-      "passCriteria": {
-        "testsPass": 1,
-        "rateLimitedCorrectly": true,
-        "cleanupImplemented": true,
-        "maxLines": 65
-      }
+      "validation": { "type": "jest", "testFile": "rateLimiter.test.ts" },
+      "passCriteria": { "testsPass": 1, "rateLimitedCorrectly": true, "cleanupImplemented": true, "retryAfterHeader": true }
     },
     {
-      "id": "algorithm-fibonacci-memo",
+      "id": "arch-multi-file-rest-api",
+      "domain": "arch",
+      "complexity": "hard",
+      "prompt": "Design and implement a multi-file REST API for a task manager in TypeScript using Express. Architecture:\n- `types.ts` — Task interface (id: string, title: string, description?: string, status: 'todo'|'in-progress'|'done', priority: 'low'|'medium'|'high', createdAt: Date, updatedAt: Date)\n- `store.ts` — In-memory data store class (TaskStore) with create, findById, findAll, update, delete, searchByStatus. Generate IDs with crypto.randomUUID(). All methods return Promises.\n- `middleware/validateTask.ts` — Express middleware that validates request body: title non-empty (3-200 chars), status valid, priority valid. Return 400 with specific error messages.\n- `routes.ts` — Express Router with: GET /tasks, GET /tasks/:id, POST /tasks, PATCH /tasks/:id, DELETE /tasks/:id. Use async error wrapper.\n- `app.ts` — Express app with JSON parsing, CORS, routes mounted at /api, 404 handler, global error handler middleware.\nReturn ALL 5 files. Each must be complete, compilable, and properly import from each other.",
+      "expectedFiles": ["types.ts", "store.ts", "middleware/validateTask.ts", "routes.ts", "app.ts"],
+      "validation": { "type": "jest", "testFile": "app.test.ts" },
+      "passCriteria": { "testsPass": 1, "filesComplete": 5, "hasValidation": true, "hasErrorHandler": true, "hasCRUD": true }
+    },
+    {
+      "id": "systems-concurrent-task-runner",
+      "domain": "systems",
+      "complexity": "hard",
+      "prompt": "Implement a concurrent task runner in TypeScript. Requirements:\n1) Accept an array of async tasks and a concurrency limit N\n2) Run at most N tasks simultaneously (not Promise.all — must use semaphore pattern)\n3) Collect results in order (result[i] corresponds to task[i])\n4) If any task rejects, cancel remaining tasks gracefully and reject with the error\n5) Support external cancellation via AbortSignal\n6) Include a TaskRunner class with methods: run(), cancel(), status() returning { running, pending, completed, failed }\n7) Use proper TypeScript generics: TaskRunner<T> where T is the task result type\n8) Handle edge cases: empty task array, concurrency > task count, single task.\nWrite tests covering all edge cases. Export as single file `taskRunner.ts`.",
+      "expectedFiles": ["taskRunner.ts"],
+      "validation": { "type": "jest", "testFile": "taskRunner.test.ts" },
+      "passCriteria": { "testsPass": 1, "concurrencyCorrect": true, "cancellationWorks": true, "orderPreserved": true, "errorPropagation": true }
+    },
+    {
+      "id": "refactor-monolith-split",
+      "domain": "refactor",
+      "complexity": "hard",
+      "prompt": "Refactor this monolithic TypeScript file into 4 properly separated modules:\n- `models/user.ts` — User interface and types\n- `utils/validation.ts` — Email, password, and username validation functions\n- `repositories/userRepository.ts` — Data access layer with async operations\n- `services/userService.ts` — Business logic layer\n\nThe monolith contains User model, 3 validation functions, 5 repository functions, and 4 service functions (register, login, updateProfile, deleteAccount). Preserve ALL behavior. Each module must have proper imports/exports. Return all 4 files.\n\n```ts\ninterface User { id: string; username: string; email: string; passwordHash: string; createdAt: Date }\nfunction isValidEmail(email: string): boolean { return /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email) }\nfunction isStrongPassword(pw: string): boolean { return pw.length >= 8 && /[A-Z]/.test(pw) && /[0-9]/.test(pw) }\nfunction isValidUsername(u: string): boolean { return u.length >= 3 && u.length <= 30 && /^[a-zA-Z0-9_]+$/.test(u) }\nconst userDB: Map<string, User> = new Map()\nasync function findById(id: string): Promise<User | undefined> { return Promise.resolve(userDB.get(id)) }\nasync function findByEmail(email: string): Promise<User | undefined> { for (const u of userDB.values()) { if (u.email === email) return u } return undefined }\nasync function createUser(user: User): Promise<User> { userDB.set(user.id, user); return user }\nasync function updateUser(id: string, updates: Partial<User>): Promise<User | undefined> { const u = userDB.get(id); if (!u) return undefined; Object.assign(u, updates); return u }\nasync function deleteUser(id: string): Promise<boolean> { return userDB.delete(id) }\nasync function registerUser(username: string, email: string, password: string): Promise<User> { if (!isValidEmail(email)) throw new Error('Invalid email'); if (!isStrongPassword(password)) throw new Error('Weak password'); if (!isValidUsername(username)) throw new Error('Invalid username'); const existing = await findByEmail(email); if (existing) throw new Error('Email already registered'); const user: User = { id: Date.now().toString(36) + Math.random().toString(36).slice(2), username, email, passwordHash: 'hashed_' + password, createdAt: new Date() }; return createUser(user) }\nasync function loginUser(email: string, password: string): Promise<User> { const user = await findByEmail(email); if (!user) throw new Error('User not found'); if (user.passwordHash !== 'hashed_' + password) throw new Error('Invalid password'); return user }\nasync function updateProfile(id: string, data: { username?: string; email?: string }): Promise<User> { if (data.email && !isValidEmail(data.email)) throw new Error('Invalid email'); if (data.username && !isValidUsername(data.username)) throw new Error('Invalid username'); const updated = await updateUser(id, data); if (!updated) throw new Error('User not found'); return updated }\nasync function deleteAccount(id: string): Promise<void> { const deleted = await deleteUser(id); if (!deleted) throw new Error('User not found') }\n```",
+      "expectedFiles": ["models/user.ts", "utils/validation.ts", "repositories/userRepository.ts", "services/userService.ts"],
+      "validation": { "type": "jest", "testFile": "services/userService.test.ts" },
+      "passCriteria": { "testsPass": 1, "modulesExtracted": 4, "importsCorrect": true, "behaviorPreserved": true }
+    },
+    {
+      "id": "arch-state-machine",
+      "domain": "arch",
+      "complexity": "hard",
+      "prompt": "Implement a fully type-safe finite state machine in TypeScript.\nRequirements:\n1) Generic over state type S (extends string) and event type E (extends string)\n2) Accept a transitions map: Record<S, Partial<Record<E, S>>> at construction\n3) transition(event: E): void — validates event is allowed for current state, moves to target state\n4) can(event: E): boolean — check if transition is possible without executing\n5) Lifecycle callbacks: onEnter(state, callback), onExit(state, callback), onTransition(from, event, to, callback)\n6) getHistory(): Array<{ from: S; event: E; to: S; timestamp: number }>\n7) reset(): void — return to initial state, clear history\n8) getState(): S — current state\n9) TypeScript must catch invalid states/events at compile time (discriminated unions or template literal types).\n10) Handle edge cases: duplicate transitions, transition to same state, empty transitions map\nWrite comprehensive tests. Single file `stateMachine.ts`.",
+      "expectedFiles": ["stateMachine.ts"],
+      "validation": { "type": "jest", "testFile": "stateMachine.test.ts" },
+      "passCriteria": { "testsPass": 1, "genericTyped": true, "callbacksWork": true, "historyTracked": true, "typeSafe": true }
+    },
+    {
+      "id": "algorithm-djikstra-pathfinder",
       "domain": "algorithm",
-      "complexity": "medium",
-      "prompt": "Implement a memoized Fibonacci function in TypeScript. It should cache results for repeated calls. Include a `reset()` function to clear the cache. Support large inputs (n up to 100). Return BigInt. Write in `fibonacci.ts`.",
-      "expectedFiles": ["fibonacci.ts"],
-      "validation": {
-        "type": "jest",
-        "testFile": "fibonacci.test.ts",
-        "preTestSetup": ""
-      },
-      "passCriteria": {
-        "testsPass": 1,
-        "memoized": true,
-        "usesBigInt": true,
-        "maxLines": 30
-      }
+      "complexity": "hard",
+      "prompt": "Implement Dijkstra's shortest path algorithm in TypeScript.\nRequirements:\n1) Accept a weighted directed graph as adjacency list: Map<string, Array<{ node: string; weight: number }>>\n2) Function: shortestPath(graph, start, end): { path: string[], distance: number } | null\n3) Use a min-priority queue (implement it, don't import). Use binary heap.\n4) Return the path as an array of node IDs and the total distance. Return null if no path exists.\n5) Handle edge cases: empty graph, start equals end, disconnected nodes, negative weights (throw error if negative), multiple equal-cost paths (return any), cycles.\n6) Write a BinaryHeap class with push, pop, isEmpty, decreaseKey.\n7) TypeScript generics: BinaryHeap<T>\n8) Include JSDoc for both BinaryHeap and shortestPath.\n9) Write comprehensive tests covering all edge cases.\nSingle file `dijkstra.ts`.",
+      "expectedFiles": ["dijkstra.ts"],
+      "validation": { "type": "jest", "testFile": "dijkstra.test.ts" },
+      "passCriteria": { "testsPass": 1, "binaryHeapWorks": true, "pathCorrect": true, "negativeRejected": true, "allEdgeCases": true }
     }
   ],
   "rotation": {
     "scenariosPerNight": 2,
-    "maxRunsPerScenario": 3,
-    "cooldownNights": 2
+    "maxRunsPerScenario": 5,
+    "cooldownNights": 1
   }
 }
