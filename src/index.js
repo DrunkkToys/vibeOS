@@ -2927,7 +2927,7 @@ var MODEL_USD_PER_TURN = {
   "haiku": 22e-4,
   // ── DeepSeek (OC platform + OpenRouter) ──────────────────
   "deepseek/deepseek-v4-pro": 57e-5,
-  "deepseek/deepseek-v4-flash": 0.000146,
+  "deepseek/deepseek-v4-flash": 182e-6,
   "deepseek/deepseek-chat": 0,
   "deepseek-chat": 0,
   "deepseek/deepseek-v3": 0,
@@ -3123,7 +3123,7 @@ function readConfig(dir) {
     return "";
   }
 }
-export function parseJsonc(raw) {
+function parseJsonc(raw) {
   const noBlockComments = String(raw || "").replace(/\/\*[\s\S]*?\*\//g, "");
   const noLineComments = noBlockComments.replace(/(^|\s)\/\/.*$/gm, "$1");
   const noTrailingCommas = noLineComments.replace(/,\s*([}\]])/g, "$1");
@@ -4060,11 +4060,7 @@ function loadBlackboxState() {
     return { enabled: false, sessions: {} };
   }
 }
-let _blackboxSaveTs = 0;
 function saveBlackboxState(state) {
-  const now = Date.now();
-  if (now - _blackboxSaveTs < 5000) return;
-  _blackboxSaveTs = now;
   try {
     mkdirSync5(dirname5(BLACKBOX_STATE_FILE2), { recursive: true });
     const tmp = BLACKBOX_STATE_FILE2 + ".tmp";
