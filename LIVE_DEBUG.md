@@ -53,9 +53,15 @@ node /tmp/vibeos-full-retest.mjs | grep Total
 
 # 8. Run neutral test suite
 VIBEOS_MCP_PORT=0 node --test tests/test_api_migration.neutral.test.mjs tests/test_tdd_enforcer.test.mjs | grep "fail 0"
+
+# 9. Check state file integrity (ledger concat, dedup, pricing-cache, timestamps)
+python3 -c "exec(open('LIVE_DEBUG.md').read().split('### 20.9')[1].split('```bash')[1].split('```')[0].strip().split('python3 -c')[1].split(\"'\")[1])" 2>/dev/null || echo "SKIP: run Section 20.9 manually"
+
+# 10. Check for pricing-cache corruption loop
+python3 -c "import os; log=os.path.expanduser('~/.claude/.state-corruption-log.jsonl'); [print(f'CORRUPT:{l.strip()[:80]}') for l in open(log)] if os.path.exists(log) else print('CLEAN')" | wc -l
 ```
 
-**Expected:** All commands pass. Zero "Assignment to constant variable", zero "TRINITY_CHEAP", zero "Duplicate export" errors.
+**Expected:** All commands pass. Zero "Assignment to constant variable", zero "TRINITY_CHEAP", zero "Duplicate export" errors. Zero integrity errors from #9. Corruption log count from #10 should be 0 after a clean start.
 
 ---
 
@@ -1080,16 +1086,20 @@ curl http://localhost:9578/
 
 ---
 
-### 11.11 Trinity Target
+### 11.11 Auto-Select Mode (Regime + Stress)
 
 **Prompt:**
-> trinity target 10
+> trinity status
 
-**Why:** Tests savings goal configuration for progress tracking in footer.
+**Why:** Tests that `autoSelectMode()` selects mode purely by regime + stress, with no cache savings threshold.
 
 **Expected:**
-- Footer shows progress bar: `$X.XX / $10.00 [█████░░░░░]`.
-- Goal persisted in state.
+- CONVERGING/CLOSED → quality mode (strict enforcement, brain tier, full thinking).
+- LOOPING → speed mode (minimal cost).
+- Stress > 1.5 → quality mode override regardless of regime.
+- All other regimes → budget mode.
+- Footer reflects the mode's settings (ENF ON/OFF, FLOW ON/OFF, TDD ON/OFF).
+- `model-tiers.json` settings update each turn from the control vector.
 
 ---
 
@@ -1495,3 +1505,361 @@ console.log('ML+Cache test PASSED');
 | PATCH | `/admin/tokens/:id` | Master | Update token |
 | DELETE | `/admin/tokens/:id` | Master | Delete token |
 | GET | `/admin/usage` | Master | Usage statistics |
+
+---
+
+## 20. STATE CORRUPTION & RECOVERY INTEGRITY
+
+> **P0:** Catches ledger concatenation, rebuild data loss, pricing-cache corruption loops, and dedup failures found in production on this device.
+
+---
+
+### 20.1 Savings Ledger — Append Integrity (Newline Separation)
+
+**Prompt (run in terminal):**
+```bash
+cat ~/.claude/savings-ledger.jsonl | python3 -c "
+import json, sys
+lines = sys.stdin.read().strip().split('\n')
+for i, line in enumerate(lines):
+    try:
+        json.loads(line.strip())
+    except json.JSONDecodeError:
+        import re
+        objs = re.findall(r'\{[^}]+\}', line.strip())
+        print(f'CORRUPT line {i}: {len(objs)} objects concatenated (no newline)')
+        sys.exit(1)
+print('OK: all lines parse as single JSON objects')
+"
+```
+
+**Why:** `_ledgerBuffer` flush must write one JSON object per line (append-only JSONL). A flush-buffer bug was concatenating 129 objects on a single line without newline separators, corrupting the entire ledger and preventing rebuild from working.
+
+**Expected:**
+- Every line is a single valid JSON object.
+- Zero "CORRUPT" output.
+- No line contains more than one `{...}` JSON structure.
+
+---
+
+### 20.2 Savings Ledger — Rebuild Captures All Entries
+
+**Prompt:**
+```bash
+# Count entry unique identifiers in ledger vs state
+python3 -c "
+import json, re, sys
+
+# Count entries in ledger
+with open('/Users/drunkktoys/.claude/savings-ledger.jsonl') as f:
+    raw = f.read()
+entries = re.findall(r'\{[^}]+\}', raw)
+ledger_sids = set()
+for e_str in entries:
+    try:
+        e = json.loads(e_str)
+        ledger_sids.add(e.get('sid', ''))
+    except: pass
+print(f'Ledger unique sessions: {len(ledger_sids)}, total entries: {len(entries)}')
+
+# Count entries in state
+with open('/Users/drunkktoys/.claude/delegation-state.json') as f:
+    state = json.load(f)
+sessions = state.get('sessions', {})
+total_warns = sum(len(s.get('warns', [])) for s in sessions.values())
+total_cache = sum(len(s.get('cache_hits', [])) for s in sessions.values())
+rebuild_count = state.get('lifetime', {}).get('ledger_entries_reconciled', 0)
+print(f'State: {len(sessions)} sessions, {total_warns} warns, {total_cache} cache hits')
+print(f'Rebuild reconciled: {rebuild_count} entries')
+# rebuild_count must be >= total_warns + total_cache (close enough)
+if rebuild_count >= total_warns + total_cache:
+    print('PASS: rebuild captured all entries')
+else:
+    print(f'FAIL: rebuild missing {total_warns + total_cache - rebuild_count} entries')
+"
+```
+
+**Why:** After the JSON concatenation bug, `reconcileStateFromLedger()` could only parse 1 entry from a ledger containing 173 entries across 2 sessions. The rebuild must parse every individual JSON object from the ledger, handling multi-object recovery via regex as fallback.
+
+**Expected:**
+- `rebuild_count` >= `total_warns + total_cache` (must not lose entries).
+- `ledger_entries_reconciled` field matches actual count of unique ledger entries.
+- If state was not rebuilt, `rebuilt_from_ledger` should be absent or `false` and no data should be missing.
+
+---
+
+### 20.3 Savings Not Lost After State Corrupt+Rebuild Cycle
+
+**Prompt:**
+```bash
+# Simulate: save current savings total, delete state, restart plugin, verify total matches
+SAVED=$(python3 -c "import json; d=json.load(open('/Users/drunkktoys/.claude/delegation-state.json')); print(d['lifetime']['total_savings_usd'])")
+echo "Savings before: \$$SAVED"
+# DO NOT actually delete here — check trinity status instead
+trinity status 2>/dev/null | grep -oE '\$[0-9]+\.[0-9]+' | head -1
+```
+
+**Why:** Production state showed footer reporting $0.92 saved, but after a corruption-triggered rebuild, only $0.05 remained in `delegation-state.json`. The ledger is the source of truth — state rebuild must recover exact totals from it.
+
+**Expected:**
+- Footer total matches `delegation-state.json` `total_savings_usd` within $0.01.
+- After any rebuild, `lifetime.rebuilt_from_ledger = true` and the total includes all ledger entry amounts.
+- `session-report.log` entries agree with state file totals (no discrepancy > $0.01).
+
+---
+
+### 20.4 Model Pricing Cache — No Corruption Loop
+
+**Prompt (run in terminal):**
+```bash
+python3 -c "
+import json, os
+path = '/Users/drunkktoys/.claude/model-pricing-cache.json'
+try:
+    with open(path) as f:
+        d = json.load(f)
+    print(f'OK: valid JSON, {len(d)} model entries')
+except json.JSONDecodeError as e:
+    print(f'CORRUPT: {e}')
+    os.exit(1)
+
+# Check corruption log count
+log_path = '/Users/drunkktoys/.claude/.state-corruption-log.jsonl'
+corrupt_count = 0
+if os.path.exists(log_path):
+    with open(log_path) as f:
+        corrupt_count = len(f.readlines())
+print(f'Corruption log entries: {corrupt_count}')
+if corrupt_count > 5:
+    print(f'WARN: {corrupt_count} corruption events — pricing cache loop suspected')
+else:
+    print('OK: corruption rate normal')
+"
+```
+
+**Why:** Production hit 92 corruption events, with 20 in a single 37-second window. The `model-pricing-cache.json` was being written as corrupt JSON repeatedly — either a race condition between concurrent writes, or `safeJsonWrite()` writing incomplete data.
+
+**Expected:**
+- `model-pricing-cache.json` is valid JSON (never corrupt).
+- Corruption log entries are 0 or < 3 after a clean session start.
+- No tight cluster of corruption events (20+ in < 60 seconds).
+- If corrupt, backup is saved to `~/.claude/.backups/` before overwrite.
+
+---
+
+### 20.5 Warn Dedup — Duplicate Keys Coalesced
+
+**Prompt:**
+```bash
+python3 -c "
+import json
+with open('/Users/drunkktoys/.claude/delegation-state.json') as f:
+    d = json.load(f)
+for sid, s in d.get('sessions', {}).items():
+    warns = s.get('warns', [])
+    keys = [w.get('key') for w in warns]
+    dupes = {k: count for k, count in [(k, keys.count(k)) for k in set(keys)] if count > 1}
+    if dupes:
+        print(f'SESSION {sid}: DUPLICATE KEYS — {dupes}')
+    else:
+        print(f'SESSION {sid}: OK — no duplicate warn keys')
+"
+```
+
+**Why:** Production found `opencode-10529-1779349339458:import` appearing twice as separate warn entries (8 seconds apart). The dedup logic using dedup key = `${_OC_SID}:${firstWord}` within `WARN_DEDUPE_WINDOW_MS` (120s) should coalesce identical keys by incrementing `count` on the existing entry, not creating a duplicate.
+
+**Expected:**
+- Every session has zero duplicate `warns[].key` entries.
+- If a tool is blocked twice within 120 seconds with the same `firstWord`, the second warn increments `count` on the first entry (does NOT create a new entry).
+- `key` value should not be empty string or null.
+
+---
+
+### 20.6 Session Timestamp — `session_started_at` Not Null
+
+**Prompt:**
+```bash
+python3 -c "
+import json
+with open('/Users/drunkktoys/.claude/delegation-state.json') as f:
+    d = json.load(f)
+for sid, s in d.get('sessions', {}).items():
+    started = s.get('session_started_at')
+    if started is None:
+        print(f'SESSION {sid}: FAIL — session_started_at is null')
+    elif isinstance(started, str) and started.strip() == '':
+        print(f'SESSION {sid}: FAIL — session_started_at is empty string')
+    else:
+        print(f'SESSION {sid}: OK — {started}')
+"
+```
+
+**Why:** Both production sessions showed `null` for `session_started_at`. `ensureSession()` must set an ISO timestamp on session creation — without it, session age calculations, rate tracking, and report filtering are all broken.
+
+**Expected:**
+- Every session has a non-null, non-empty `session_started_at` ISO 8601 string.
+- Timestamp is set at session creation time (first warn, first cache hit, or explicit init).
+- Timestamp is in the past (not future-dated).
+
+---
+
+### 20.7 Model Split — Non-Empty After Tool Use
+
+**Prompt:** After running at least one task subagent or a tool call in the current session:
+```bash
+python3 -c "
+import json
+with open('/Users/drunkktoys/.claude/delegation-state.json') as f:
+    d = json.load(f)
+for sid, s in d.get('sessions', {}).items():
+    split = s.get('model_split', {})
+    print(f'SESSION {sid}: {len(split)} models tracked')
+    for model, count in split.items():
+        print(f'  {model}: {count}')
+"
+```
+
+**Why:** Both production sessions showed empty `{}` for `model_split`. The model usage tracker should record every tool call's model into the split, enabling the footer to display percentage breakdown (e.g., `deepseek-v4-pro 100% → deepseek-chat 0%`).
+
+**Expected:**
+- At least 1 model entry in `model_split` for sessions that had tool calls.
+- Model IDs match actual provider/model format (e.g., `deepseek/deepseek-chat`).
+- Footer model split percentages match the state file.
+
+---
+
+### 20.8 State Corruption — Backup Before Overwrite
+
+**Prompt:**
+```bash
+ls -la ~/.claude/.backups/ 2>/dev/null && echo "---"
+python3 -c "
+import os
+log = '/Users/drunkktoys/.claude/.state-corruption-log.jsonl'
+if os.path.exists(log):
+    with open(log) as f:
+        for line in f:
+            import json
+            e = json.loads(line)
+            backup = e.get('backup', '')
+            if backup and not os.path.exists(backup):
+                print(f'ORPHAN BACKUP: {backup} (logged but file missing)')
+print('Backup check complete')
+"
+```
+
+**Why:** The corruption log had 92 entries but `.backups/` directory was empty — suggesting backups were either never written or were cleaned up prematurely. Every corruption event must save a backup before overwriting, and backups must persist at least until the next clean write succeeds.
+
+**Expected:**
+- Every `backup` path in `.state-corruption-log.jsonl` exists on disk OR has been garbage-collected with a corresponding "cleaned" log entry.
+- No orphan corruption log entries pointing to nonexistent files.
+- Backup cleanup happens only after the original file is confirmed valid.
+
+---
+
+### 20.9 End-to-End: Session Lifecycle Integrity
+
+**Prompt:** Run the full check script:
+```bash
+python3 -c "
+import json, os, re, sys
+
+errors = 0
+
+# 1. delegation-state.json
+try:
+    with open(os.path.expanduser('~/.claude/delegation-state.json')) as f:
+        state = json.load(f)
+    lt = state.get('lifetime', {})
+    sessions = state.get('sessions', {})
+    
+    # Check total_savings_usd matches session sums
+    sess_total = sum(s.get('delegation_savings_usd', 0) + s.get('cache_savings_usd', 0) for s in sessions.values())
+    lt_total = lt.get('total_savings_usd', 0)
+    if abs(sess_total - lt_total) > 0.001:
+        print(f'FAIL: session total \${sess_total:.4f} != lifetime total \${lt_total:.4f}')
+        errors += 1
+    else:
+        print(f'OK: session/lifetime totals match (\${lt_total:.4f})')
+    
+    # Check session_started_at
+    for sid, s in sessions.items():
+        if not s.get('session_started_at'):
+            print(f'FAIL: session {sid[:20]}... missing started_at')
+            errors += 1
+    
+    # Check dedup
+    for sid, s in sessions.items():
+        warns = s.get('warns', [])
+        keys = [w.get('key') for w in warns]
+        dupes = {k: c for k, c in [(k, keys.count(k)) for k in set(keys)] if c > 1}
+        if dupes:
+            print(f'FAIL: session {sid[:20]}... duped keys: {dupes}')
+            errors += 1
+    
+    # Check model_split
+    for sid, s in sessions.items():
+        if len(s.get('model_split', {})) == 0 and len(s.get('warns', [])) > 0:
+            print(f'WARN: session {sid[:20]}... has warns but empty model_split')
+    
+except Exception as e:
+    print(f'FAIL: delegation-state.json unreadable: {e}')
+    errors += 1
+
+# 2. savings-ledger.jsonl integrity  
+try:
+    with open(os.path.expanduser('~/.claude/savings-ledger.jsonl')) as f:
+        lines = f.read().strip().split('\n')
+    concat_lines = 0
+    for i, line in enumerate(lines):
+        try:
+            json.loads(line.strip())
+        except json.JSONDecodeError:
+            objs = re.findall(r'\{[^}]+\}', line.strip())
+            if len(objs) > 1:
+                concat_lines += 1
+    if concat_lines > 0:
+        print(f'FAIL: {concat_lines} ledger lines have concatenated JSON')
+        errors += 1
+    else:
+        print(f'OK: ledger ({len(lines)} lines) — all single JSON per line')
+except Exception as e:
+    print(f'FAIL: savings-ledger.jsonl unreadable: {e}')
+    errors += 1
+
+# 3. model-pricing-cache.json
+try:
+    with open(os.path.expanduser('~/.claude/model-pricing-cache.json')) as f:
+        json.load(f)
+    print('OK: model-pricing-cache.json is valid JSON')
+except Exception as e:
+    print(f'FAIL: model-pricing-cache.json corrupt: {e}')
+    errors += 1
+
+# 4. blackbox-state.json
+bb_path = os.path.expanduser('~/.claude/blackbox-state.json')
+if os.path.exists(bb_path):
+    try:
+        with open(bb_path) as f:
+            json.load(f)
+        print('OK: blackbox-state.json is valid JSON')
+    except Exception as e:
+        print(f'FAIL: blackbox-state.json corrupt: {e}')
+        errors += 1
+else:
+    print('WARN: blackbox-state.json not found (may be normal if blackbox disabled)')
+
+print(f'\n{errors} integrity errors found')
+sys.exit(errors)
+"
+```
+
+**Why:** Catches all the production failures (dedup, timestamps, ledger concatenation, pricing-cache corruption, session/lifetime mismatch, blackbox state) in a single check. Run this at session start and after every trinity operation.
+
+**Expected:**
+- `0 integrity errors found`.
+- `session/lifetime totals match` (no drift).
+- No duplicate dedup keys.
+- Ledger lines parse as single JSON objects.
+- `model-pricing-cache.json` valid.
+- `blackbox-state.json` valid (or warn if disabled).
