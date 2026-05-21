@@ -4,7 +4,7 @@ import { join, basename } from 'node:path';
 import { createHash } from 'node:crypto';
 import { currentModel, currentProjectName, loadSelection, writeSelection, safeJsonParse, applyDecadence, getSessionScratchpadDir, ensureSessionScratchpadDirs, indexAppend, getActiveJobForProject, TIERS_FILE, setCurrentModel, setCurrentTier, } from '../state.js';
 import { TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN, classify, } from '../pricing.js';
-import { scoreStress, classifyTurnSimple, computeControlVector, getBlackboxTracker, loadBlackboxState as loadBlackboxStateFromCtx, saveBlackboxState as saveBlackboxStateToCtx, extractLastUserText, isLikelyOffTopic, fetchBlackboxEnrichment, estimateContextBudget, buildControlHistoryEntry, } from '../turn-classify.js';
+import { scoreStress, classifyTurnSimple, computeControlVector, loadOptimizationMode, getBlackboxTracker, loadBlackboxState as loadBlackboxStateFromCtx, saveBlackboxState as saveBlackboxStateToCtx, extractLastUserText, isLikelyOffTopic, fetchBlackboxEnrichment, estimateContextBudget, buildControlHistoryEntry, } from '../turn-classify.js';
 import { loadCredit } from '../credit-api.js';
 let latestUserIntent = null;
 let currentProjectFingerprint = '';
@@ -189,7 +189,7 @@ export const onMessagesTransform = async (_input, output) => {
                         if (!state.sessions[sid])
                             state.sessions[sid] = {};
                         state.sessions[sid].control_history ??= [];
-                        const cv = computeControlVector(localState);
+                        const cv = computeControlVector(localState, undefined, loadOptimizationMode());
                         state.sessions[sid].control_history.push(buildControlHistoryEntry(state.sessions[sid].control_history.length + 1, localState.sub_regime || "INIT", cv));
                         if (state.sessions[sid].control_history.length > 100) {
                             state.sessions[sid].control_history = state.sessions[sid].control_history.slice(-100);
@@ -223,10 +223,10 @@ export const onSystemTransform = async (_input, output) => {
             observeUserCorrection(latestUserIntent);
         let _controlVector = null;
         if (_latestBlackboxState) {
-            _controlVector = computeControlVector(_latestBlackboxState);
+            _controlVector = computeControlVector(_latestBlackboxState, undefined, loadOptimizationMode());
         }
         else if (latestUserIntent) {
-            _controlVector = computeControlVector({ sub_regime: classifyTurnSimple(latestUserIntent) });
+            _controlVector = computeControlVector({ sub_regime: classifyTurnSimple(latestUserIntent) }, undefined, loadOptimizationMode());
         }
         syncControlSettings(_controlVector);
         // Context7 directive — model self-determines tool availability.
