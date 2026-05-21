@@ -17,10 +17,11 @@ import {
   TRINITY_OPENCODE_CONFIG, TRINITY_OPENCODE_CONFIGC, TIERS_FILE,
   loadGlobalLearning, updateGlobalLearning, DFLT_GL,
   getLearnedExploratoryWords,
+  setCurrentModel, setCurrentTier,
 } from '../state.js'
 import {
   classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget,
-  shortModelName, formatUsd, _refreshModel, TRINITY_CHEAP, TRINITY_MEDIUM,
+  shortModelName, formatUsd, _refreshModel, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN,
 } from '../pricing.js'
 import {
   scoreStress, classifyTurnSimple, computeControlVector,
@@ -91,7 +92,24 @@ export function syncControlSettings(cv: any): void {
     if (cv.thinking_mode) writeIf("thinking_level", cv.thinking_mode)
 
     const slot = cv.tier_bias
-    if (slot && slot !== "auto") writeIf("active_slot", slot)
+    if (slot && slot !== "auto") {
+      writeIf("active_slot", slot)
+      const sel = loadSelection()
+      if (sel.active_slot === slot) {
+        if (slot === "brain" && TRINITY_BRAIN) {
+          setCurrentModel(TRINITY_BRAIN)
+          setCurrentTier("high")
+        }
+        else if (slot === "medium" && TRINITY_MEDIUM) {
+          setCurrentModel(TRINITY_MEDIUM)
+          setCurrentTier("mid")
+        }
+        else if (slot === "cheap" && TRINITY_CHEAP) {
+          setCurrentModel(TRINITY_CHEAP)
+          setCurrentTier("low")
+        }
+      }
+    }
   } catch { /* noop — non-critical sync */ }
 }
 

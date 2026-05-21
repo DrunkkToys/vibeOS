@@ -4,6 +4,7 @@ import { join, dirname, relative, basename } from "node:path"
 import { spawn } from "node:child_process"
 import { homedir, tmpdir } from "node:os"
 import { createHash } from "node:crypto"
+import { loadSelection, writeSelection, DFLT_SEL } from "./selection-manager"
 
 // ── File system constants ────────────────────────────────────────────
 const USER_HOME = (() => { try { return homedir() } catch { return tmpdir() } })()
@@ -147,7 +148,7 @@ const LEDGER_BUFFER_FLUSH_MS = 5000
 const testReminderSeen = new Set<string>()
 
 // ── Default selection & global learning ──────────────────────────────
-const DFLT_SEL = { enabled: true, active_slot: null, thinking_level: "off", flow_enabled: false, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: false, delegation_enforce: false }
+// DFLT_SEL is imported from selection-manager
 const DFLT_GL = { exploratory_words: {}, task_first_words: {}, updatedAt: null }
 
 // ── Tool helper (minimal, avoids @opencode-ai/plugin dependency) ──────
@@ -352,39 +353,7 @@ function loadTierRegexes(): { high: RegExp, mid: RegExp } {
 const { high: HIGH_TIER_RE, mid: MID_TIER_RE } = loadTierRegexes()
 
 // ── Selection management (model-tiers.json) ──────────────────────────
-function loadSelection(): any {
-  try {
-    if (!existsSync(TIERS_FILE)) return DFLT_SEL
-    const st = statSync(TIERS_FILE)
-    if (st.size > 10485760) { _handleStateCorruption(TIERS_FILE); return DFLT_SEL }
-    const j = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
-    return {
-      enabled:            j?.selection?.enabled !== false,
-      active_slot:        j?.selection?.active_slot || null,
-      thinking_level:     j?.selection?.thinking_level || "off",
-      flow_enabled:       j?.selection?.flow_enabled === true,
-      tdd_enforce:        j?.selection?.tdd_enforce === true,
-      tdd_strict:         j?.selection?.tdd_strict === true,
-      tdd_quality:        j?.selection?.tdd_quality !== false,
-      flow_enforce:       j?.selection?.flow_enforce === true,
-      delegation_enforce: j?.selection?.delegation_enforce === true,
-    }
-  } catch { _handleStateCorruption(TIERS_FILE); return DFLT_SEL }
-}
-
-function writeSelection(key: string, value: any): boolean {
-  try {
-    const j = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
-    j.selection[key] = value
-    const tmp = TIERS_FILE + ".tmp"
-    writeFileSync(tmp, JSON.stringify(j, null, 2) + "\n")
-    renameSync(tmp, TIERS_FILE)
-    return true
-  } catch (err) {
-    console.error(`[vibeOS] writeSelection failed: ${err.message}`)
-    return false
-  }
-}
+// loadSelection, writeSelection, and DFLT_SEL are imported from selection-manager
 
 // ── Global learning ──────────────────────────────────────────────────
 function loadGlobalLearning(): any {
@@ -1436,7 +1405,7 @@ function _computeSessionMetrics(state: any, sid: string): any {
   const durationSec = Math.floor((Date.now() - startedAt) / 1000)
   const hours = Math.max(durationSec / 3600, 0.001)
   return {
-    ltTasks: Number(state?.lifetime?.est_savings_usd || 0),
+    ltTasks: Number(state?.lifetime?.total_savings_usd || state?.lifetime?.est_savings_usd || 0),
     ltCache: Number(state?.lifetime?.cache_savings_usd || 0),
     missedC7: Number(state?.lifetime?.missed_context7_usd || 0),
     count: warns.length,
