@@ -13,6 +13,7 @@ import { computeDifficulty, addRouteEdge, predictBestModel, hashQuery } from '..
 import { addCacheEntry, recordCacheStats, predictCacheHit } from '../../vibeOS-lib/smart-cache.js';
 import { buildTestReminder, enforceTestFile } from '../tdd-enforcer.js';
 import { setActiveJobFromTaskPrompt, observeToolPattern, compressText, recordSaving } from '../index-helpers.js';
+import { scoreTaskQuality } from './footer.js';
 const SAVE_EST = { WRITE_EDIT: 0.005, SOFT_QUOTA: 0.0003, CONTEXT7: 0.002, OPUS_DISABLE: 0.03 };
 const BYTES_PER_TOKEN = 4;
 const CACHE_SAVED_PER_1M_INPUT_TOKENS = 0.10;
@@ -570,7 +571,7 @@ export const onToolExecuteAfter = async (input, output) => {
             }
             // Flow enforcement: extract TODO/FIXME to queue when flow_enforce is on.
             if (sel.flow_enforce) {
-                const { recordFlowTodo } = await import("./vibeOS-lib/flow-enforcer.js");
+                const { recordFlowTodo } = await import("../../vibeOS-lib/flow-enforcer.js");
                 for (const h of flowHits) {
                     if (h.id === "todo-comment" && !h.deduped) {
                         recordFlowTodo({ filePath, content });

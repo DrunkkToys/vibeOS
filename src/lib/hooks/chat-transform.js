@@ -1,8 +1,8 @@
 // @ts-nocheck
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, basename } from 'node:path';
 import { createHash } from 'node:crypto';
-import { currentModel, loadSelection, safeJsonParse, getSessionScratchpadDir, ensureSessionScratchpadDirs, indexAppend, getActiveJobForProject, TIERS_FILE, } from '../state.js';
+import { currentModel, currentProjectName, loadSelection, safeJsonParse, applyDecadence, getSessionScratchpadDir, ensureSessionScratchpadDirs, indexAppend, getActiveJobForProject, TIERS_FILE, } from '../state.js';
 import { TRINITY_CHEAP, TRINITY_MEDIUM, } from '../pricing.js';
 import { scoreStress, classifyTurnSimple, computeControlVector, getBlackboxTracker, loadBlackboxState as loadBlackboxStateFromCtx, saveBlackboxState as saveBlackboxStateToCtx, extractLastUserText, isLikelyOffTopic, fetchBlackboxEnrichment, estimateContextBudget, buildControlHistoryEntry, } from '../turn-classify.js';
 import { loadCredit } from '../credit-api.js';
@@ -16,6 +16,15 @@ let _latestBlackboxLoopMsg = null;
 let _latestBlackboxPivotMsg = null;
 let _prevOutputText = '';
 const briefedProjects = new Set();
+function observeUserCorrection(_text) {
+    return;
+}
+function buildProjectBriefing(directory) {
+    const label = currentProjectName || (directory ? basename(directory) : "");
+    if (!label)
+        return null;
+    return `[project memory] Active project: ${label}. Stay focused on the current repository and prefer the existing workflow.`;
+}
 export const onMessagesTransform = async (_input, output) => {
     if (!loadSelection().enabled)
         return;
@@ -242,7 +251,7 @@ export const onSystemTransform = async (_input, output) => {
             }
             catch { }
         }
-        const projectJob = getActiveJobForProject() || activeJob;
+        const projectJob = getActiveJobForProject();
         if (latestUserIntent && projectJob && isLikelyOffTopic(latestUserIntent, projectJob)) {
             const offTopicDirective = `[job-focus] Active job context exists: "${(projectJob.prompt || "").slice(0, 140)}...". ` +
                 `The latest user request appears off-topic relative to this running job. ` +
@@ -320,7 +329,7 @@ export const onSystemTransform = async (_input, output) => {
         }
         // Project memory briefing: one-shot per session
         if (!briefedProjects.has(fp)) {
-            const briefing = buildProjectBriefing(directory);
+            const briefing = buildProjectBriefing(currentProjectName || "");
             if (briefing && Array.isArray(output?.system)) {
                 output.system.push(briefing);
                 briefedProjects.add(fp);

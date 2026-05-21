@@ -7,7 +7,7 @@ import {
   currentTier, currentModel, currentProjectFingerprint, currentProjectName,
   _OC_SID, _modelLocked, _blackboxEnabled, _autoReportCount, 
   loadSelection, writeSelection, readLifetimeSavings,
-  updateState, withFileLock, safeJsonParse,
+  updateState, withFileLock, safeJsonParse, applyDecadence,
   getSessionScratchpadDir, ensureSessionScratchpadDirs, getSessionIndexPath,
   indexAppend, scratchpadHitsSeen, briefedProjects,
   loadActiveJobs, getActiveJobForProject,
@@ -51,6 +51,16 @@ let _latestBlackboxLoopMsg = null
 let _latestBlackboxPivotMsg = null
 let _prevOutputText = ''
 const briefedProjects = new Set()
+
+function observeUserCorrection(_text: string | null): void {
+  return
+}
+
+function buildProjectBriefing(directory: string): string | null {
+  const label = currentProjectName || (directory ? basename(directory) : "")
+  if (!label) return null
+  return `[project memory] Active project: ${label}. Stay focused on the current repository and prefer the existing workflow.`
+}
 
 export const onMessagesTransform = async (_input, output) => {
       if (!loadSelection().enabled) return
@@ -284,7 +294,7 @@ export const onSystemTransform = async (_input, output) => {
           } catch {}
         }
 
-        const projectJob = getActiveJobForProject() || activeJob
+        const projectJob = getActiveJobForProject()
         if (latestUserIntent && projectJob && isLikelyOffTopic(latestUserIntent, projectJob)) {
           const offTopicDirective =
             `[job-focus] Active job context exists: "${(projectJob.prompt || "").slice(0, 140)}...". ` +
@@ -377,7 +387,7 @@ export const onSystemTransform = async (_input, output) => {
 
         // Project memory briefing: one-shot per session
         if (!briefedProjects.has(fp)) {
-          const briefing = buildProjectBriefing(directory)
+          const briefing = buildProjectBriefing(currentProjectName || "")
           if (briefing && Array.isArray(output?.system)) {
             output.system.push(briefing)
             briefedProjects.add(fp)
