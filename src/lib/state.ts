@@ -90,6 +90,7 @@ const recentToolEvents: Array<{ tool: string, target: string, at: number }> = []
 const frictionSessionKeys = new Set<string>()
 const routineSessionKeys = new Set<string>()
 let lastMutationEvent: string | null = null
+export function setLastMutationEvent(v: typeof lastMutationEvent) { lastMutationEvent = v }
 const warnPerSession = new Map<string, number>()
 const warnCoalesceCounters = new Map<string, number>()
 

@@ -8,6 +8,7 @@ import {
   _patternFiredKeys,
   recentToolEvents,
   lastMutationEvent,
+  setLastMutationEvent,
   frictionSessionKeys,
   routineSessionKeys,
   _pruneScratchpadDir,
@@ -262,7 +263,7 @@ export function observeToolPattern(toolName, input, output, directory) {
     }
 
     if (["write", "edit", "multiedit", "notebookedit"].includes(t) && observedPath !== "unknown") {
-      lastMutationEvent = { at: Date.now(), path: observedPath, tool: t }
+      setLastMutationEvent({ at: Date.now(), path: observedPath, tool: t })
       return
     }
 

@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { writeFileSync, appendFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname, basename } from 'node:path';
-import { currentTier, currentModel, setCurrentModel, setCurrentTier, _OC_SID, _modelLocked, loadSelection, readLifetimeSavings, recordCacheSaving, recordMissedContext7, getScratchpadHit, recordScratchpadObservation, updateState, SAVINGS_LEDGER_FILE, CONTEXT7_INSTALL_FLAG, SOFT_QUOTA_LIMIT, ML_ENABLED, _mlGraph, _cacheDb, _mlSavePending, ML_CONFIDENCE_THRESHOLD, saveMLState, SCRATCHPAD_TOOLS, } from '../state.js';
+import { currentTier, currentModel, setCurrentModel, setCurrentTier, _OC_SID, _modelLocked, loadSelection, readLifetimeSavings, recordCacheSaving, recordMissedContext7, getScratchpadHit, recordScratchpadObservation, updateState, SAVINGS_LEDGER_FILE, CONTEXT7_INSTALL_FLAG, SOFT_QUOTA_LIMIT, ML_ENABLED, _mlGraph, _cacheDb, _mlSavePending, ML_CONFIDENCE_THRESHOLD, saveMLState, SCRATCHPAD_TOOLS, applyDecadence, } from '../state.js';
 import { classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget, shortModelName, formatUsd, _refreshModel, TRINITY_CHEAP, TRINITY_MEDIUM, trendDisplay, modelToSlotLabel, } from '../pricing.js';
 import { latestUserIntent } from './chat-transform.js';
 import { scoreStress, extractFirstWordFromArgs, shouldLogWarn, isUserAskingForTests, resolveEnforcementMode, getLearnedExploratoryWords, noteTaskRoutingLearning, } from '../turn-classify.js';
@@ -12,7 +12,7 @@ import { checkFlowRules } from '../../vibeOS-lib/flow-enforcer.js';
 import { computeDifficulty, addRouteEdge, predictBestModel, hashQuery } from '../../vibeOS-lib/ml-router.js';
 import { addCacheEntry, recordCacheStats, predictCacheHit } from '../../vibeOS-lib/smart-cache.js';
 import { buildTestReminder, enforceTestFile } from '../tdd-enforcer.js';
-import { setActiveJobFromTaskPrompt, observeToolPattern, applyDecadence, compressText, recordSaving } from '../index-helpers.js';
+import { setActiveJobFromTaskPrompt, observeToolPattern, compressText, recordSaving } from '../index-helpers.js';
 const SAVE_EST = { WRITE_EDIT: 0.005, SOFT_QUOTA: 0.0003, CONTEXT7: 0.002, OPUS_DISABLE: 0.03 };
 const BYTES_PER_TOKEN = 4;
 const CACHE_SAVED_PER_1M_INPUT_TOKENS = 0.10;
