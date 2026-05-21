@@ -2,7 +2,7 @@
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { createHash } from 'node:crypto';
-import { currentModel, currentProjectName, loadSelection, safeJsonParse, applyDecadence, getSessionScratchpadDir, ensureSessionScratchpadDirs, indexAppend, getActiveJobForProject, TIERS_FILE, } from '../state.js';
+import { currentModel, currentProjectName, loadSelection, writeSelection, safeJsonParse, applyDecadence, getSessionScratchpadDir, ensureSessionScratchpadDirs, indexAppend, getActiveJobForProject, TIERS_FILE, } from '../state.js';
 import { TRINITY_CHEAP, TRINITY_MEDIUM, } from '../pricing.js';
 import { scoreStress, classifyTurnSimple, computeControlVector, getBlackboxTracker, loadBlackboxState as loadBlackboxStateFromCtx, saveBlackboxState as saveBlackboxStateToCtx, extractLastUserText, isLikelyOffTopic, fetchBlackboxEnrichment, estimateContextBudget, buildControlHistoryEntry, } from '../turn-classify.js';
 import { loadCredit } from '../credit-api.js';
@@ -24,6 +24,40 @@ function buildProjectBriefing(directory) {
     if (!label)
         return null;
     return `[project memory] Active project: ${label}. Stay focused on the current repository and prefer the existing workflow.`;
+}
+function syncControlSettings(cv) {
+    if (!cv)
+        return;
+    try {
+        const writeIf = (key, val) => {
+            const sel = loadSelection();
+            if (sel[key] !== val)
+                writeSelection(key, val);
+        };
+        if (cv.enforcement_mode === "relaxed")
+            writeIf("delegation_enforce", false);
+        else
+            writeIf("delegation_enforce", true);
+        if (cv.flow_mode === "audit") {
+            writeIf("flow_enabled", false);
+            writeIf("flow_enforce", false);
+        }
+        else {
+            writeIf("flow_enabled", true);
+            writeIf("flow_enforce", cv.flow_mode === "strict");
+        }
+        if (cv.tdd_mode === "lazy") {
+            writeIf("tdd_enforce", false);
+            writeIf("tdd_strict", false);
+        }
+        else {
+            writeIf("tdd_enforce", true);
+            writeIf("tdd_strict", cv.tdd_mode === "strict");
+        }
+        if (cv.thinking_mode)
+            writeIf("thinking_level", cv.thinking_mode);
+    }
+    catch { /* noop — non-critical sync */ }
 }
 export const onMessagesTransform = async (_input, output) => {
     if (!loadSelection().enabled)
@@ -175,6 +209,7 @@ export const onSystemTransform = async (_input, output) => {
         else if (latestUserIntent) {
             _controlVector = computeControlVector({ sub_regime: classifyTurnSimple(latestUserIntent) });
         }
+        syncControlSettings(_controlVector);
         // Context7 directive — model self-determines tool availability.
         const c7urgency = _controlVector?.context7_urgency || "preferred";
         const c7directive = "[cost policy] If mcp__context7__resolve-library-id and mcp__context7__get-library-docs " +

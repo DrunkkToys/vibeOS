@@ -62,6 +62,36 @@ function buildProjectBriefing(directory: string): string | null {
   return `[project memory] Active project: ${label}. Stay focused on the current repository and prefer the existing workflow.`
 }
 
+function syncControlSettings(cv: any): void {
+  if (!cv) return
+  try {
+    const writeIf = (key: string, val: any) => {
+      const sel = loadSelection()
+      if (sel[key] !== val) writeSelection(key, val)
+    }
+    if (cv.enforcement_mode === "relaxed") writeIf("delegation_enforce", false)
+    else writeIf("delegation_enforce", true)
+
+    if (cv.flow_mode === "audit") {
+      writeIf("flow_enabled", false)
+      writeIf("flow_enforce", false)
+    } else {
+      writeIf("flow_enabled", true)
+      writeIf("flow_enforce", cv.flow_mode === "strict")
+    }
+
+    if (cv.tdd_mode === "lazy") {
+      writeIf("tdd_enforce", false)
+      writeIf("tdd_strict", false)
+    } else {
+      writeIf("tdd_enforce", true)
+      writeIf("tdd_strict", cv.tdd_mode === "strict")
+    }
+
+    if (cv.thinking_mode) writeIf("thinking_level", cv.thinking_mode)
+  } catch { /* noop — non-critical sync */ }
+}
+
 export const onMessagesTransform = async (_input, output) => {
       if (!loadSelection().enabled) return
       try {
@@ -213,6 +243,8 @@ export const onSystemTransform = async (_input, output) => {
         } else if (latestUserIntent) {
           _controlVector = computeControlVector({ sub_regime: classifyTurnSimple(latestUserIntent) })
         }
+
+        syncControlSettings(_controlVector)
 
         // Context7 directive — model self-determines tool availability.
         const c7urgency = _controlVector?.context7_urgency || "preferred"
