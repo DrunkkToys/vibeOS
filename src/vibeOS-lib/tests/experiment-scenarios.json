@@ -1,0 +1,163 @@
+{
+  "meta": {
+    "description": "vibeOS nightly experiment scenarios. Rotates variants nightly for A/B testing quality vs budget mode.",
+    "version": "1.0.0",
+    "experiment_hypothesis": "Quality mode (brain tier, full thinking, strict enforcement) produces measurably better code outcomes than budget mode (cheap tier, off thinking, relaxed enforcement)."
+  },
+  "metrics": {
+    "correctness": "Tests pass on first run (0-1)",
+    "completeness": "All requirements addressed (0-1)",
+    "safety": "No vulnerabilities or dangerous patterns (0-1)",
+    "verbosity": "Token count relative to task complexity (normalized)",
+    "time_to_solve": "Wall time to completion (seconds, lower is better for simple, context-dependent for complex)"
+  },
+  "domains": ["api", "algorithm", "cli", "refactor", "debug", "test"],
+  "scenarios": [
+    {
+      "id": "api-authenticate",
+      "domain": "api",
+      "complexity": "medium",
+      "prompt": "Create an Express.js authentication middleware in TypeScript that validates JWT tokens from the Authorization header. Extract the user ID from the token payload and attach it to `req.user`. Return 401 if the token is missing, expired, or invalid. Keep it under 40 lines.",
+      "expectedFiles": ["middleware/auth.ts"],
+      "validation": {
+        "type": "jest",
+        "testFile": "middleware/auth.test.ts",
+        "preTestSetup": "npm init -y && npm install express jsonwebtoken @types/express @types/jsonwebtoken typescript jest ts-jest @types/jest --save-dev && npx tsc --init"
+      },
+      "passCriteria": {
+        "testsPass": 1,
+        "hasTypeAnnotation": true,
+        "hasErrorHandling": true,
+        "maxLines": 45
+      }
+    },
+    {
+      "id": "algorithm-binary-search",
+      "domain": "algorithm",
+      "complexity": "easy",
+      "prompt": "Implement a generic binary search function in TypeScript that works on any sorted array. Handle edge cases: empty array, single element, target not found. Return the index or -1. Include JSDoc. Write it in a single file `src/search.ts`.",
+      "expectedFiles": ["src/search.ts"],
+      "validation": {
+        "type": "jest",
+        "testFile": "src/search.test.ts",
+        "preTestSetup": ""
+      },
+      "passCriteria": {
+        "testsPass": 1,
+        "hasJSDoc": true,
+        "genericsUsed": true,
+        "maxLines": 25
+      }
+    },
+    {
+      "id": "cli-arg-parser",
+      "domain": "cli",
+      "complexity": "easy",
+      "prompt": "Write a Node.js CLI argument parser in a single file `cli.js`. It should parse `--name <value>`, `--verbose` (flag), and positional arguments. Return an object with parsed values. No dependencies. Include error handling for unknown flags.",
+      "expectedFiles": ["cli.js"],
+      "validation": {
+        "type": "node",
+        "testFile": "cli.js --name test --verbose file1 file2",
+        "preTestSetup": ""
+      },
+      "passCriteria": {
+        "outputMatches": true,
+        "hasErrorHandling": true,
+        "maxLines": 50
+      }
+    },
+    {
+      "id": "refactor-extract-function",
+      "domain": "refactor",
+      "complexity": "medium",
+      "prompt": "Given this TypeScript function, refactor it by extracting the validation logic and the formatting logic into separate pure functions. Keep the same public API. Do not change behavior:\n```ts\nfunction processOrder(order: { items: { price: number; qty: number }[]; tax: number; discount: number }): string {\n  if (!order.items || !Array.isArray(order.items)) throw new Error('Invalid items');\n  if (order.items.length === 0) throw new Error('No items');\n  if (typeof order.tax !== 'number' || order.tax < 0) throw new Error('Invalid tax');\n  let subtotal = 0;\n  for (const item of order.items) {\n    if (typeof item.price !== 'number' || item.price < 0) throw new Error('Invalid price');\n    if (typeof item.qty !== 'number' || item.qty < 0) throw new Error('Invalid qty');\n    subtotal += item.price * item.qty;\n  }\n  const total = subtotal + subtotal * order.tax - order.discount;\n  return '$' + total.toFixed(2);\n}\n```",
+      "expectedFiles": ["order.ts"],
+      "validation": {
+        "type": "jest",
+        "testFile": "order.test.ts",
+        "preTestSetup": ""
+      },
+      "passCriteria": {
+        "testsPass": 1,
+        "extractedFunctions": 2,
+        "behaviorPreserved": true,
+        "maxLines": 55
+      }
+    },
+    {
+      "id": "debug-null-reference",
+      "domain": "debug",
+      "complexity": "easy",
+      "prompt": "This TypeScript code throws 'Cannot read properties of null' at runtime. Find and fix the bug. Write the corrected code:\n```ts\ninterface User { profile?: { name?: string } }\nfunction getUserName(user: User | null): string {\n  return user.profile.name;\n}\n```",
+      "expectedFiles": ["user.ts"],
+      "validation": {
+        "type": "jest",
+        "testFile": "user.test.ts",
+        "preTestSetup": ""
+      },
+      "passCriteria": {
+        "testsPass": 1,
+        "nullHandled": true,
+        "undefinedHandled": true
+      }
+    },
+    {
+      "id": "test-coverage-gap",
+      "domain": "test",
+      "complexity": "medium",
+      "prompt": "Write comprehensive unit tests for this TypeScript utility using Jest. Cover edge cases: empty input, single element, duplicates, negative numbers, type mismatches:\n```ts\nexport function uniqueSorted(numbers: number[]): number[] {\n  return [...new Set(numbers)].sort((a, b) => a - b);\n}\n```",
+      "expectedFiles": ["uniqueSorted.test.ts"],
+      "validation": {
+        "type": "jest",
+        "testFile": "uniqueSorted.test.ts",
+        "preTestSetup": "npm init -y && npm install jest ts-jest @types/jest typescript --save-dev 2>/dev/null"
+      },
+      "passCriteria": {
+        "testsPass": 1,
+        "testCount": 5,
+        "edgeCasesCovered": true
+      }
+    },
+    {
+      "id": "api-rate-limiter",
+      "domain": "api",
+      "complexity": "hard",
+      "prompt": "Implement a sliding window rate limiter for Express.js in TypeScript. It should limit to N requests per window per IP. Use an in-memory store (Map). Return 429 when limit exceeded. Include cleanup of old entries. Write in `rateLimiter.ts`. Under 60 lines.",
+      "expectedFiles": ["rateLimiter.ts"],
+      "validation": {
+        "type": "jest",
+        "testFile": "rateLimiter.test.ts",
+        "preTestSetup": ""
+      },
+      "passCriteria": {
+        "testsPass": 1,
+        "rateLimitedCorrectly": true,
+        "cleanupImplemented": true,
+        "maxLines": 65
+      }
+    },
+    {
+      "id": "algorithm-fibonacci-memo",
+      "domain": "algorithm",
+      "complexity": "medium",
+      "prompt": "Implement a memoized Fibonacci function in TypeScript. It should cache results for repeated calls. Include a `reset()` function to clear the cache. Support large inputs (n up to 100). Return BigInt. Write in `fibonacci.ts`.",
+      "expectedFiles": ["fibonacci.ts"],
+      "validation": {
+        "type": "jest",
+        "testFile": "fibonacci.test.ts",
+        "preTestSetup": ""
+      },
+      "passCriteria": {
+        "testsPass": 1,
+        "memoized": true,
+        "usesBigInt": true,
+        "maxLines": 30
+      }
+    }
+  ],
+  "rotation": {
+    "scenariosPerNight": 2,
+    "maxRunsPerScenario": 3,
+    "cooldownNights": 2
+  }
+}
