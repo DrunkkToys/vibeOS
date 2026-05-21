@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { cpSync, readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs"
+import { cpSync, readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, rmSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { homedir } from "node:os"
@@ -37,13 +37,15 @@ try {
     process.stderr.write(`[vibeOS deploy] src/vibeOS-mcp-server.js → ~/.config/opencode/plugins/vibeOS-mcp-server.js\n`)
   }
 
-  // Copy src/lib/ directory (state, pricing, hooks, etc.)
+  // Copy src/lib/ directory (state, pricing, hooks, etc.) — .ts excluded
   if (existsSync(srcCommonLibDir)) {
     cpSync(srcCommonLibDir, destCommonLibDir, { recursive: true, force: true })
-    let libCount = 0
-    const walk = (d) => { for (const e of readdirSync(d)) { const f = join(d, e); if (statSync(f).isDirectory()) walk(f); else libCount++; } };
+    const rmTs = (d) => { for (const e of readdirSync(d)) { const f = join(d, e); if (statSync(f).isDirectory()) rmTs(f); else if (e.endsWith('.ts')) rmSync(f); } };
+    if (existsSync(destCommonLibDir)) rmTs(destCommonLibDir)
+    let jsCount = 0
+    const walk = (d) => { for (const e of readdirSync(d)) { const f = join(d, e); if (statSync(f).isDirectory()) walk(f); else if (e.endsWith('.js')) jsCount++; } };
     if (existsSync(destCommonLibDir)) walk(destCommonLibDir)
-    process.stderr.write(`[vibeOS deploy] src/lib/ → ~/.config/opencode/plugins/lib/ (${libCount} files)\n`)
+    process.stderr.write(`[vibeOS deploy] src/lib/ → ~/.config/opencode/plugins/lib/ (${jsCount} .js files)\n`)
   }
 
   if (existsSync(srcDashboardDistDir)) {
@@ -54,6 +56,9 @@ try {
 
   // Copy vibeOS-lib directory recursively (includes blackbox, utils, etc.)
   cpSync(srcLibDir, destLibDir, { recursive: true, force: true })
+  // Remove .ts files from vibeOS-lib too
+  const rmTs = (d) => { for (const e of readdirSync(d)) { const f = join(d, e); if (statSync(f).isDirectory()) rmTs(f); else if (e.endsWith('.ts')) rmSync(f); } };
+  if (existsSync(destLibDir)) rmTs(destLibDir)
   let libCount = 0
   function countFiles(dir) {
     for (const entry of readdirSync(dir)) {
