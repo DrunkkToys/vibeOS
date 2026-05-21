@@ -24,7 +24,7 @@ import {
   shortModelName, formatUsd, _refreshModel, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN,
 } from '../pricing.js'
 import {
-  scoreStress, classifyTurnSimple, computeControlVector,
+  scoreStress, classifyTurnSimple, computeControlVector, loadOptimizationMode,
   getBlackboxTracker, getBlackboxResolution,
   loadBlackboxState as loadBlackboxStateFromCtx, saveBlackboxState as saveBlackboxStateToCtx,
   resolveEnforcementMode, extractLastUserText,
@@ -225,7 +225,7 @@ export const onMessagesTransform = async (_input, output) => {
                 serialized.project_fingerprint = currentProjectFingerprint || ""
                 if (!state.sessions[sid]) state.sessions[sid] = {}
                 state.sessions[sid].control_history ??= []
-                const cv = computeControlVector(localState)
+                const cv = computeControlVector(localState, undefined, loadOptimizationMode())
                 state.sessions[sid].control_history.push(buildControlHistoryEntry(
                   state.sessions[sid].control_history.length + 1,
                   localState.sub_regime || "INIT",
@@ -260,9 +260,9 @@ export const onSystemTransform = async (_input, output) => {
 
         let _controlVector = null
         if (_latestBlackboxState) {
-          _controlVector = computeControlVector(_latestBlackboxState)
+          _controlVector = computeControlVector(_latestBlackboxState, undefined, loadOptimizationMode())
         } else if (latestUserIntent) {
-          _controlVector = computeControlVector({ sub_regime: classifyTurnSimple(latestUserIntent) })
+          _controlVector = computeControlVector({ sub_regime: classifyTurnSimple(latestUserIntent) }, undefined, loadOptimizationMode())
         }
 
         syncControlSettings(_controlVector)
