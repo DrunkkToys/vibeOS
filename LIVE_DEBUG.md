@@ -21,6 +21,44 @@ Each test block contains:
 
 ---
 
+## LIVE_BUG — Quick Live Session Verification
+
+> Run these commands directly in an OpenCode chat session to verify the plugin is alive.
+
+```bash
+# 1. Verify enforcement is on (brain tier must block writes)
+trinity status
+
+# 2. Check savings are accumulating
+cat ~/.claude/delegation-state.json | python3 -c "import json,sys; d=json.load(sys.stdin); print('Saved:',d['lifetime']['total_savings_usd'])"
+
+# 3. Verify stress scoring works
+echo "Stress test"  # then trigger a high-stress prompt
+
+# 4. Check all 8 hooks are registered
+grep -c "tool.execute.before\|text.complete\|shell.env" src/index.js
+
+# 5. Check no .ts files are deployed to runtime
+find ~/.config/opencode/plugins -name '*.ts' | wc -l  # should be 0
+
+# 6. Verify plugin loads without errors
+node -e "import('./src/index.js').then(()=>console.log('OK')).catch(e=>console.log(e.message))"
+
+# 7. Run automated test suite
+node /tmp/vibeos-savings-test.mjs | grep RESULTS
+node /tmp/vibeos-tdd-flow-test.mjs | grep RESULTS
+node /tmp/vibeos-state-edge-test.mjs | grep SUMMARY
+node /tmp/vibeos-footer-test.mjs | grep "Footer tests"
+node /tmp/vibeos-full-retest.mjs | grep Total
+
+# 8. Run neutral test suite
+VIBEOS_MCP_PORT=0 node --test tests/test_api_migration.neutral.test.mjs tests/test_tdd_enforcer.test.mjs | grep "fail 0"
+```
+
+**Expected:** All commands pass. Zero "Assignment to constant variable", zero "TRINITY_CHEAP", zero "Duplicate export" errors.
+
+---
+
 ## 1. SAVINGS FEATURES
 
 ### 1.1 Delegation Savings — Write/Edit Block on Brain Tier
@@ -555,8 +593,6 @@ curl http://localhost:3000/api/v1/nonexistent
 - Skeleton contains `import pytest` and `pytest.skip("TODO")` (for non-strict mode) or `raise NotImplementedError("TODO")` (for strict mode).
 - `delegation-state.json.lifetime.tdd_skeletons_created` incremented.
 
----
-
 ### 4.2 TDD Strict Mode — TODO Fails Loudly
 
 **Prompt:** (With `tdd strict on` already set)
@@ -566,8 +602,6 @@ curl http://localhost:3000/api/v1/nonexistent
 
 **Expected:**
 - Skeleton uses assertion-based failure (e.g., `throw new Error("TODO")` or `assert.fail("TODO")`).
-
----
 
 ### 4.3 TDD Quality Mode — Rich Assertions
 
@@ -580,8 +614,6 @@ curl http://localhost:3000/api/v1/nonexistent
 - Skeleton includes inferred parameter types, example inputs, and specific assertion patterns (not just `skip`/`fail`).
 - Assertions test actual behavior (e.g., `assert capitalize_words("hello world") == "Hello World"`).
 
----
-
 ### 4.4 TDD Dedup — No Duplicate Skeleton
 
 **Prompt:** After test 4.1, repeat:
@@ -593,8 +625,6 @@ curl http://localhost:3000/api/v1/nonexistent
 - No new skeleton file created.
 - `tdd_skeletons_created` NOT incremented.
 
----
-
 ### 4.5 TDD With Remote API — Skeleton Endpoint
 
 **Prompt:**
@@ -602,7 +632,7 @@ curl http://localhost:3000/api/v1/nonexistent
 curl http://localhost:3000/api/v1/tdd/skeleton -X POST \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <valid_token>" \
-  -d '{"source":"src/lib/calc.py","code":"def mult(a,b): return a*b","language":"python","framework":"pytest"}'
+  -d '{"file_name":"lib/calc.py","code":"def mult(a,b): return a*b","language":"python","framework":"pytest","exports":[{"name":"mult","type":"function"}]}'
 ```
 
 **Why:** Tests the `/api/v1/tdd/skeleton` endpoint generates a multi-language test skeleton remotely.
@@ -611,6 +641,21 @@ curl http://localhost:3000/api/v1/tdd/skeleton -X POST \
 - Status code: 200
 - Response: `{ "skeleton": "...", "framework": "pytest", "language": "python", "coverage_hints": ["mult"] }`
 - Skeleton contains proper test function for `mult`.
+
+### 4.6 TDD Live Verification
+
+**Prompt:**
+> trinity tdd on
+> Write `src/test_me.py` with `def hello(): return "world"`
+> cat src/tests/test_test_me.py
+
+**Why:** End-to-end live verification that TDD enforcer fires on file write and creates a test skeleton.
+
+**Expected:**
+- `trinity tdd on` confirms enforcement active.
+- After writing source file, test skeleton appears.
+- File contains language-appropriate test framework code.
+- `cat` shows the generated test file contents.
 
 ---
 
@@ -1315,6 +1360,83 @@ npm run dev:dashboard
 **Expected:**
 - `active-jobs.json` has entry with job ID, status "pending", project fingerprint, prompt excerpt.
 - On completion, status updated or entry removed.
+
+---
+
+## 19. ML ROUTER & SMART CACHE
+
+### 19.1 Smart Cache — Predict Hit on Repeat Tool
+
+**Prompt (run twice):**
+> Read `package.json`
+
+**Why:** Tests `addCacheEntry()` and `predictCacheHit()` in `src/vibeOS-lib/smart-cache.js`. After first read, the cache database records the observation. Second read should predict a cache hit.
+
+**Expected (second run):**
+- Console log: `[vibeOS] 🔮 Smart cache: read may benefit from caching`
+- `_cacheDb` contains entry for the read tool.
+- Prediction `shouldWarm` is `true` for the second call.
+
+### 19.2 Smart Cache — Eviction
+
+**Prompt:** Run `glob **/*.js` 50+ times with unique patterns.
+
+**Why:** Tests `evictStaleEntries()` purges least-useful cache entries.
+
+**Expected:**
+- Cache database size stays bounded.
+- Oldest/lowest-confidence entries are evicted.
+
+### 19.3 ML Router — Compute Difficulty
+
+**Prompt:**
+> Write a full e-commerce backend with user auth, product catalog, shopping cart, payment processing, order management, inventory tracking, shipping integration, and admin dashboard.
+
+**Why:** Tests `computeDifficulty()` in `src/vibeOS-lib/ml-router.js`.
+
+**Expected:**
+- `computeDifficulty()` returns a difficulty score > 0.5 (complex task).
+- Router suggests a higher-tier model for complex tasks.
+
+### 19.4 ML Router — Predict Best Model
+
+**Prompt:**
+> Run `npm test`
+
+**Why:** Tests `predictBestModel()` routes simple tasks to cheaper tiers.
+
+**Expected:**
+- For simple bash commands, router suggests cheap/medium tier.
+- For multi-file edits, router suggests brain tier.
+
+### 19.5 ML Router — Route Edge Learning
+
+**Prompt:** Switch tiers repeatedly on different task types.
+
+**Why:** Tests `addRouteEdge()` records routing decisions for future optimization.
+
+**Expected:**
+- `global-learning.json` contains routing edges.
+- ML graph data persisted across sessions.
+
+### 19.6 Smart Cache Live Verification
+
+**Prompt:**
+```bash
+node -e "
+import { createCacheDatabase, addCacheEntry, recordCacheStats, predictCacheHit } from '/Users/drunkktoys/Desktop/theSaver-oc/src/vibeOS-lib/smart-cache.js';
+const db = createCacheDatabase();
+addCacheEntry(db, 'test-hash', 'read', 'test-prompt', 1024, 0);
+recordCacheStats(db, 'read', true, 0.0005);
+const pred = predictCacheHit(db, 'read', 'test-prompt');
+console.log('Should warm:', pred.shouldWarm, 'Confidence:', pred.confidence);
+console.log('ML+Cache test PASSED');
+"
+```
+
+**Why:** Direct function-level test.
+
+**Expected:** Output shows `ML+Cache test PASSED`.
 
 ---
 
