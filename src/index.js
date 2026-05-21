@@ -1614,9 +1614,9 @@ var _mlSavePending = false;
 function setMlSavePending(v) {
   _mlSavePending = v;
 }
-var _blackboxEnabled2 = true;
+var _blackboxEnabled = true;
 function setBlackboxEnabled(val) {
-  _blackboxEnabled2 = val;
+  _blackboxEnabled = val;
 }
 var _latestBlackboxState = null;
 var _modelLocked = false;
@@ -3391,7 +3391,7 @@ var MODE_DELTAS = {
     outcome_detection: true
   }
 };
-function autoSelectMode2(subRegime, stressMultiplier) {
+function autoSelectMode(subRegime, stressMultiplier) {
   if (subRegime === "CONVERGING" || subRegime === "CLOSED")
     return "quality";
   if (subRegime === "LOOPING")
@@ -3405,7 +3405,7 @@ function computeControlVector(state, action, optimizationMode) {
   const base = REGIME_CONTROL[regime] || DEFAULT_CONTROL;
   let effectiveMode = optimizationMode || "balanced";
   if (effectiveMode === "auto") {
-    effectiveMode = autoSelectMode2(regime, state.latest_stress_multiplier);
+    effectiveMode = autoSelectMode(regime, state.latest_stress_multiplier);
   }
   const delta = effectiveMode !== "balanced" ? MODE_DELTAS[effectiveMode] || {} : {};
   const overridden = {
@@ -5688,7 +5688,7 @@ async function _appendFooter(input, output, directory3) {
       optTagFooter = "[LONGRUN]";
     else if (optModeFooter === "auto") {
       const autoSavings = readLifetimeSavings2();
-      const autoActive = autoSelectMode2(autoSavings?.sesCache || 0, classifyTurnSimple(latestUserIntent || ""));
+      const autoActive = autoSelectMode(autoSavings?.sesCache || 0, classifyTurnSimple(latestUserIntent || ""));
       const autoTag = { budget: "BUDGET", quality: "QUALITY", speed: "SPEED", longrun: "LONGRUN", balanced: "BALANCED" };
       optTagFooter = `[AUTO\u2192${autoTag[autoActive] || autoActive.toUpperCase()}]`;
       const slot2 = autoActive === "quality" ? "brain" : autoActive === "speed" ? "medium" : "cheap";
@@ -5732,7 +5732,7 @@ async function _appendFooter(input, output, directory3) {
 
 \u2014 ${modelTag} \u2014`;
     }
-    if (_blackboxEnabled2) {
+    if (_blackboxEnabled) {
       try {
         const prevText = _prevOutputText;
         _prevOutputText = typeof output?.text === "string" ? output.text : typeof output?.result === "string" ? output.result : "";
@@ -8441,26 +8441,6 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
   } catch (err) {
     console.error(`[vibeOS] Project Guard init failed: ${err.message}`);
   }
-  const _mode = loadOptimizationMode() || "auto";
-  if (_mode === "auto" && currentModel && !_modelLocked) {
-    const _intent = classifyTurnSimple(directory3?.split("/").pop() || "");
-    const _autoActive = autoSelectMode(0, _intent);
-    const _slot = _autoActive === "quality" ? "brain" : _autoActive === "speed" ? "medium" : "cheap";
-    writeSelection("active_slot", _slot);
-    const _sel = loadSelection();
-    if (_sel.active_slot === _slot) {
-      if (_slot === "brain" && TRINITY_BRAIN) {
-        setCurrentModel(TRINITY_BRAIN);
-        setCurrentTier("high");
-      } else if (_slot === "medium" && TRINITY_MEDIUM) {
-        setCurrentModel(TRINITY_MEDIUM);
-        setCurrentTier("mid");
-      } else if (_slot === "cheap" && TRINITY_CHEAP) {
-        setCurrentModel(TRINITY_CHEAP);
-        setCurrentTier("low");
-      }
-    }
-  }
   const pluginHooks = {
     "tool.execute.before": async (input, output) => {
       onToolExecuteBefore._directory = directory3;
@@ -8491,10 +8471,10 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     },
     tool: {
       trinity: tool({
-        description: "Control the vibeOS plugin and active model slot.\nUse action='status' to see current state.\nUse action='enable' or 'disable' to toggle the plugin.\nUse action='set' with slot='brain'|'medium'|'cheap' to switch.\nUse action='rebuild' to auto-detect available models.\nUse action='flow' with slot='on'|'off' to toggle flow enforcer.\nUse action='enforce' with slot='on'|'off' to toggle delegation enforcement.\nUse action='tdd' with slot='on'|'off' to toggle auto-test skeletons.\nUse action='project' for per-project analytics.\nUse action='patterns' for learned project patterns.\nUse action='guard' for Project Guard.\nCall when the user says 'switch to medium', 'use cheap model', 'disable plugin', or 'trinity status'.",
+        description: "Control the vibeOS plugin and active model slot.\nUse action='status' to see current state.\nUse action='enable' or 'disable' to toggle the plugin.\nUse action='set' with slot='brain'|'medium'|'cheap' to switch.\nUse action='mode' with slot='budget'|'quality'|'speed'|'longrun'|'auto' to switch optimization modes.\nUse action='rebuild' to auto-detect available models.\nUse action='flow' with slot='on'|'off' to toggle flow enforcer.\nUse action='enforce' with slot='on'|'off' to toggle delegation enforcement.\nUse action='tdd' with slot='on'|'off' to toggle auto-test skeletons.\nUse action='project' for per-project analytics.\nUse action='patterns' for learned project patterns.\nUse action='guard' for Project Guard.\nCall when the user says 'switch to medium', 'use cheap model', 'disable plugin', or 'trinity status'.",
         args: {
-          action: tool.schema.enum(["status", "enable", "disable", "set", "thinking", "flow", "tdd", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard"]).optional(),
-          slot: tool.schema.enum(["brain", "medium", "cheap", "on", "off", "enforce", "strict", "quality", "preview", "apply", "clear", "savings"]).optional(),
+          action: tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard"]).optional(),
+          slot: tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings"]).optional(),
           level: tool.schema.enum(["full", "brief", "off", "on"]).optional()
         },
         async execute({ action, slot, level } = {}) {
@@ -8537,7 +8517,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
             const durHrs = Math.floor(sesDuration / 3600);
             const durMins = Math.floor(sesDuration % 3600 / 60);
             let decisionLine = "";
-            if (_blackboxEnabled2) {
+            if (_blackboxEnabled) {
               try {
                 const res = _latestBlackboxState || getBlackboxResolution();
                 if (res && res.n_interactions > 3) {
@@ -8591,6 +8571,33 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
             const result = applySlot2(slot);
             if (!result.ok) return "Failed: " + result.reason;
             return `Switched to ${slot} slot (${result.ocModel})`;
+          }
+          if (action === "mode") {
+            if (!slot || !["budget", "quality", "speed", "longrun", "auto"].includes(slot)) return "Provide mode: budget | quality | speed | longrun | auto";
+            saveOptimizationMode(slot);
+            const tierMap = { budget: "cheap", quality: "brain", speed: "medium", longrun: "brain" };
+            const tierSlot = tierMap[slot] || "cheap";
+            writeSelection("active_slot", tierSlot);
+            if (slot === "budget") {
+              writeSelection("delegation_enforce", false);
+              writeSelection("flow_enabled", false);
+              writeSelection("flow_enforce", false);
+              writeSelection("tdd_enforce", false);
+              writeSelection("thinking_level", "off");
+            } else if (slot === "quality") {
+              writeSelection("delegation_enforce", true);
+              writeSelection("flow_enabled", true);
+              writeSelection("flow_enforce", true);
+              writeSelection("tdd_enforce", true);
+              writeSelection("thinking_level", "full");
+            } else if (slot === "speed") {
+              writeSelection("delegation_enforce", false);
+              writeSelection("flow_enabled", false);
+              writeSelection("flow_enforce", false);
+              writeSelection("tdd_enforce", false);
+              writeSelection("thinking_level", "off");
+            }
+            return `Mode set to ${slot.toUpperCase()}. Tier: ${tierSlot}.`;
           }
           if (action === "thinking") {
             if (!level || !["full", "brief", "off"].includes(level)) return "Provide level: full | brief | off";
@@ -8795,7 +8802,7 @@ ${okCount}/${results.length} passed`);
             }
             if (mode === "status") {
               const bbState = loadBlackboxState();
-              const lines = [`Blackbox: ${_blackboxEnabled2 || bbState.enabled ? "ON" : "OFF"}`];
+              const lines = [`Blackbox: ${_blackboxEnabled || bbState.enabled ? "ON" : "OFF"}`];
               const res = _latestBlackboxState || getBlackboxResolution();
               if (res) {
                 lines.push(`  Resolution: ${res.resolution}`);
@@ -8812,6 +8819,7 @@ ${okCount}/${results.length} passed`);
               "vibeOS - trinity commands",
               "",
               "  trinity status       See plugin state, credit, model",
+              "  trinity mode budget|quality|speed|auto   Switch optimization mode",
               "  trinity brain        Switch to brain tier",
               "  trinity medium       Switch to medium tier",
               "  trinity cheap        Switch to cheap tier",

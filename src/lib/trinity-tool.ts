@@ -22,8 +22,8 @@ export function createTrinityTool(deps) {
       "Use action='guard' to ensure AGENTS.md and README.md exist and stay current. " +
       "Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', 'trinity status'.",
     args: {
-      action: deps.tool.schema.enum(["status", "enable", "disable", "set", "thinking", "flow", "tdd", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard"]).optional(),
-      slot: deps.tool.schema.enum(["brain", "medium", "cheap", "on", "off", "enforce", "strict", "quality", "preview", "apply", "clear", "savings"]).optional(),
+            action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard"]).optional(),
+            slot: deps.tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings"]).optional(),
       level: deps.tool.schema.enum(["full", "brief", "off", "on"]).optional(),
     },
     async execute({ action, slot, level }: { action?: string; slot?: string; level?: string } = {}) {
@@ -141,6 +141,36 @@ export function createTrinityTool(deps) {
         const result = deps.applySlot(slot)
         if (!result.ok) return `\u274c Failed to set slot: ${result.reason}`
         return `\u2705 Switched to ${slot} slot (${result.ocModel}). Active now (no restart needed).`
+      }
+      if (action === "mode") {
+        if (!slot || !["budget", "quality", "speed", "longrun", "auto"].includes(slot)) {
+          return `Provide mode: budget | quality | speed | longrun | auto`
+        }
+        const ok = deps.saveOptimizationMode(slot)
+        if (!ok) return `Failed to write mode`
+        const tierMap = { budget: "cheap", quality: "brain", speed: "medium", longrun: "brain" }
+        const tierSlot = tierMap[slot] || "cheap"
+        deps.writeSelection("active_slot", tierSlot)
+        if (slot === "budget") {
+          deps.writeSelection("delegation_enforce", false)
+          deps.writeSelection("flow_enabled", false)
+          deps.writeSelection("flow_enforce", false)
+          deps.writeSelection("tdd_enforce", false)
+          deps.writeSelection("thinking_level", "off")
+        } else if (slot === "quality") {
+          deps.writeSelection("delegation_enforce", true)
+          deps.writeSelection("flow_enabled", true)
+          deps.writeSelection("flow_enforce", true)
+          deps.writeSelection("tdd_enforce", true)
+          deps.writeSelection("thinking_level", "full")
+        } else if (slot === "speed") {
+          deps.writeSelection("delegation_enforce", false)
+          deps.writeSelection("flow_enabled", false)
+          deps.writeSelection("flow_enforce", false)
+          deps.writeSelection("tdd_enforce", false)
+          deps.writeSelection("thinking_level", "off")
+        }
+        return `Mode set to ${slot.toUpperCase()}. Tier: ${tierSlot}.`
       }
       if (action === "thinking") {
         if (!level || !["full", "brief", "off"].includes(level)) {
