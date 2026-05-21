@@ -1,3 +1,14 @@
+## 0.13.11
+- fix: use setters for all imported state vars (ES module bindings are read-only)
+- fix: add setLastMutationEvent, remove duplicate exports in state.js
+- fix: deploy script strips .ts files to prevent runtime conflicts
+- refactor: LIVE_DEBUG 136/137 pass, neutral env clean
+
+## 0.13.10
+- fix: move applyDecadence to state.js where _lastDecadenceRun is owned
+- fix: add missing TRINITY_CHEAP/MEDIUM, trendDisplay, scoreStress, remoteCall exports
+- docs: add LIVE_DEBUG.md with 87 prompt tests
+
 ## 0.13.9
 - fix: deploy script missing src/lib/ — plugin hooks failed silently, no footer rendered
 
