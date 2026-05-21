@@ -85,6 +85,7 @@ const recentToolEvents = [];
 const frictionSessionKeys = new Set();
 const routineSessionKeys = new Set();
 let lastMutationEvent = null;
+export function setLastMutationEvent(v) { lastMutationEvent = v; }
 const warnPerSession = new Map();
 const warnCoalesceCounters = new Map();
 // ── Savings cache (cross-process guard) ──────────────────────────────

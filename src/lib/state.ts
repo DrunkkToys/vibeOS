@@ -1512,7 +1512,7 @@ export {
   recentToolEvents,
   frictionSessionKeys,
   routineSessionKeys,
-  lastMutationEvent,
+  lastMutationEvent, setLastMutationEvent,
   warnPerSession,
   warnCoalesceCounters,
   enforcementBlocked,
