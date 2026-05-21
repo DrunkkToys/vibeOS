@@ -188,6 +188,10 @@ class VibeOSApiClient {
     return this.request("/api/v1/blackbox/calibration?project_id=" + (projectId || "global"), null)
   }
 
+  async blackboxControlVector(state: unknown, action: unknown, optimizationMode: string): Promise<unknown> {
+    return this.request("/api/v1/blackbox/control-vector", { ...(state as Record<string, unknown>), action, optimization_mode: optimizationMode })
+  }
+
   async tddExports(sourceContent: string, ext: string): Promise<unknown> {
     return this.request("/api/v1/tdd/exports", { source_content: sourceContent, ext })
   }

@@ -64,7 +64,7 @@ import { loadCredit, thinkingLevel } from "./lib/credit-api.js"
 import { classifyAndRankModels, modelToCcAlias, discoverAvailableModels } from "./lib/trinity-rebuild.js"
 import { _appendFooter } from "./lib/hooks/footer.js"
 import { onToolExecuteBefore, onToolExecuteAfter, setToolDirectory } from "./lib/hooks/tool-execute.js"
-import { onMessagesTransform, onSystemTransform, latestUserIntent } from "./lib/hooks/chat-transform.js"
+import { onMessagesTransform, onSystemTransform, latestUserIntent, ensureProjectSkill } from "./lib/hooks/chat-transform.js"
 import { onSessionCompacting } from "./lib/hooks/session-compact.js"
 import { onShellEnv, setShellDirectory } from "./lib/hooks/shell-env.js"
 
@@ -572,6 +572,10 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
       const techStack = detectTechStack(directory)
       const result = ensureProjectDocs(directory, techStack)
       if (result.created.length > 0) console.error(`[vibeOS] Project Guard: created ${result.created.join(", ")}`)
+      const skillResult = ensureProjectSkill(directory, fp)
+      if (skillResult.created) {
+        console.error(`[vibeOS] Project Guard: created ${skillResult.path}`)
+      }
     }
   } catch (err) {
     console.error(`[vibeOS] Project Guard init failed: ${(err as Error).message}`)
