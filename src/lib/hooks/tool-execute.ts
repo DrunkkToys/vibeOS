@@ -20,7 +20,7 @@ import {
   detectTechStack, projectFingerprint, loadProjectState, saveProjectState,
   ensureProjectBucket, mergeProjectBucket, SAVINGS_LEDGER_FILE,
   CONTEXT7_INSTALL_FLAG, SOFT_QUOTA_LIMIT,
-  ML_ENABLED, _mlGraph, _cacheDb, _mlSavePending, ML_CONFIDENCE_THRESHOLD,
+  ML_ENABLED, _mlGraph, _cacheDb, _mlSavePending, ML_CONFIDENCE_THRESHOLD, setMlSavePending,
   loadMLState, saveMLState,
   readJsonOrEmpty, _handleStateCorruption, _lockPathFor,
   SCRATCHPAD_TOOLS, applyDecadence,
@@ -412,8 +412,8 @@ export const onToolExecuteAfter = async (input, output) => {
 
       // Save ML state after Task or key tools (throttled to avoid excessive I/O).
       if ((t === "task" || t === "bash" || t === "edit" || t === "write") && !_mlSavePending) {
-        _mlSavePending = true
-        setTimeout(() => { saveMLState(); _mlSavePending = false }, 5000)
+        setMlSavePending(true)
+        setTimeout(() => { saveMLState(); setMlSavePending(false) }, 5000)
       }
 
       // Show human-friendly slot label in the UI title for Task subagents.

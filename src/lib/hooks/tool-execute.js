@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { writeFileSync, appendFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname, basename } from 'node:path';
-import { currentTier, currentModel, setCurrentModel, setCurrentTier, _OC_SID, _modelLocked, loadSelection, readLifetimeSavings, recordCacheSaving, recordMissedContext7, getScratchpadHit, recordScratchpadObservation, updateState, SAVINGS_LEDGER_FILE, CONTEXT7_INSTALL_FLAG, SOFT_QUOTA_LIMIT, ML_ENABLED, _mlGraph, _cacheDb, _mlSavePending, ML_CONFIDENCE_THRESHOLD, saveMLState, SCRATCHPAD_TOOLS, applyDecadence, } from '../state.js';
+import { currentTier, currentModel, setCurrentModel, setCurrentTier, _OC_SID, _modelLocked, loadSelection, readLifetimeSavings, recordCacheSaving, recordMissedContext7, getScratchpadHit, recordScratchpadObservation, updateState, SAVINGS_LEDGER_FILE, CONTEXT7_INSTALL_FLAG, SOFT_QUOTA_LIMIT, ML_ENABLED, _mlGraph, _cacheDb, _mlSavePending, ML_CONFIDENCE_THRESHOLD, setMlSavePending, saveMLState, SCRATCHPAD_TOOLS, applyDecadence, } from '../state.js';
 import { classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget, shortModelName, formatUsd, _refreshModel, TRINITY_CHEAP, TRINITY_MEDIUM, trendDisplay, modelToSlotLabel, } from '../pricing.js';
 import { latestUserIntent } from './chat-transform.js';
 import { scoreStress, extractFirstWordFromArgs, shouldLogWarn, isUserAskingForTests, resolveEnforcementMode, getLearnedExploratoryWords, noteTaskRoutingLearning, } from '../turn-classify.js';
@@ -387,8 +387,8 @@ export const onToolExecuteAfter = async (input, output) => {
     const t = input?.tool ?? "";
     // Save ML state after Task or key tools (throttled to avoid excessive I/O).
     if ((t === "task" || t === "bash" || t === "edit" || t === "write") && !_mlSavePending) {
-        _mlSavePending = true;
-        setTimeout(() => { saveMLState(); _mlSavePending = false; }, 5000);
+        setMlSavePending(true);
+        setTimeout(() => { saveMLState(); setMlSavePending(false); }, 5000);
     }
     // Show human-friendly slot label in the UI title for Task subagents.
     if (t === "task") {

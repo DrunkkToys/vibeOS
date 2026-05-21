@@ -108,6 +108,7 @@ let _cacheDb: any = createCacheDatabase()
 const ML_ENABLED = true
 const ML_CONFIDENCE_THRESHOLD = 0.6
 let _mlSavePending = false
+export function setMlSavePending(v: boolean) { _mlSavePending = v }
 
 // ── Blackbox state ──────────────────────────────────────────────────
 let _blackboxTracker: any = null
