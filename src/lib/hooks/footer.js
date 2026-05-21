@@ -6,7 +6,7 @@ import { classify, modelCostPerTurn, _refreshModel, TRINITY_BRAIN, TRINITY_MEDIU
 import { latestUserIntent } from "./chat-transform.js";
 import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, loadOptimizationMode, autoSelectMode, classifyTurnSimple } from "../turn-classify.js";
 import { saveReport } from "../reporting.js";
-import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, _modelLocked, _blackboxEnabled } from "../state.js";
+import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, _modelLocked, _blackboxEnabled, writeSelection, reconcileStateFromLedger } from "../state.js";
 import { loadSessionSlot, writeSessionSlot } from "../selection-manager.js";
 const USER_HOME = (() => { try {
     return homedir();
@@ -87,6 +87,7 @@ function loadSelection() {
 }
 function readLifetimeSavings() {
     try {
+        reconcileStateFromLedger();
         const raw = readFileSync(STATE_FILE, "utf-8");
         const state = safeJsonParse(raw);
         const ses = state?.sessions?.[(typeof _OC_SID !== "undefined" ? _OC_SID : "")] || {};
