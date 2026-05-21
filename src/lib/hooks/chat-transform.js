@@ -25,7 +25,7 @@ function buildProjectBriefing(directory) {
         return null;
     return `[project memory] Active project: ${label}. Stay focused on the current repository and prefer the existing workflow.`;
 }
-function syncControlSettings(cv) {
+export function syncControlSettings(cv) {
     if (!cv)
         return;
     try {

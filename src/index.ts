@@ -444,12 +444,24 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
   }
 
   // Auto-configure model-tiers.json
+  console.error(`[vibeOS] auto-config guard: currentModel=${currentModel ? "SET" : "NONE"}, TIERS_FILE=${TIERS_FILE}, exists=${existsSync(TIERS_FILE)}`)
   if (currentModel || !existsSync(TIERS_FILE)) {
     try {
       let _tiersData
+      let _wasCorrupted = false
       if (existsSync(TIERS_FILE)) {
         try { _tiersData = safeJsonParse(readFileSync(TIERS_FILE, "utf-8")) } catch {
           _tiersData = { selection: { enabled: true, active_slot: "brain", delegation_enforce: true, tdd_strict: true }, trinity: {} }
+          _wasCorrupted = true
+        }
+        if (!_wasCorrupted && !_tiersData?.trinity) _wasCorrupted = true
+        if (!_wasCorrupted) {
+          for (const slot of ["brain", "medium", "cheap"]) {
+            if (!_tiersData?.trinity?.[slot] || _tiersData.trinity[slot] === null || typeof _tiersData.trinity[slot].oc !== "string") {
+              _wasCorrupted = true
+              break
+            }
+          }
         }
       } else {
         _tiersData = { selection: { enabled: true, active_slot: "brain", delegation_enforce: true, tdd_strict: true }, trinity: {} }
@@ -505,7 +517,10 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
         _tiersData.trinity.cheap = { oc: _cheap.id, cc: modelToCcAlias(_cheap.id) }
         _didWrite = true
       }
-      if (_didWrite) {
+      if (_didWrite || _wasCorrupted) {
+        console.error(`[vibeOS] WRITE: _didWrite=${_didWrite} _wasCorrupted=${_wasCorrupted} brain=${_brain?.id}`)
+      } else {
+        console.error(`[vibeOS] SKIP WRITE: _didWrite=${_didWrite} _wasCorrupted=${_wasCorrupted} existingBrain=${_existingBrain} brainId=${_brain?.id}`)
         _tiersData.selection ??= {}
         if (_tiersData.selection.mcp_port === undefined) _tiersData.selection.mcp_port = 9578
         mkdirSync(dirname(TIERS_FILE), { recursive: true })
@@ -648,10 +663,8 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
                   const momentumIcon = res.momentum > 0.3 ? "up up" : res.momentum > 0 ? "up" : res.momentum < -0.3 ? "down down" : res.momentum < 0 ? "down" : "flat"
                   decisionLine = `${res.resolution} ${res.sub_regime} ${momentumIcon}${res.is_looping ? " (loop)" : ""}`
                 }
-              } catch {}
+  } catch {}
             }
-            const goalUsd = sel.savings_goal_usd || 0
-            const goalBar = goalUsd > 0 ? ` ${Math.round(Math.min(100, (ltTotal / goalUsd) * 100))}%` : ""
             const lines = [
               `[vibeOS-dashboard]`,
               `Model: ${activeSlot} (${brainModel})`,
@@ -668,7 +681,7 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
               `Enforce: ${sel.delegation_enforce ? "ON" : "OFF"}`,
               `Lock: ${_modelLocked ? "LOCKED" : "unlocked"}`,
               `|`,
-              `All-time: Total: $${ltTotal.toFixed(2)} (${sesTrend})${goalBar}`,
+              `All-time: Total: $${ltTotal.toFixed(2)} (${sesTrend})`,
               `Delegation: $${(sv.ltTasks || 0).toFixed(2)}`,
               `Cache: $${formatUsd(sv.ltCache || 0)}`,
               `Missed: $${missedC7.toFixed(2)}`,
@@ -999,9 +1012,10 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
   }
 
   // ── MCP server startup ─────────────────────────────────────────────
+  const _inTestEnv = process.env.VIBEOS_MCP_PORT === "0" || !client || Object.keys((client as any) || {}).length === 0
   try {
     const port = loadMcpPort()
-    if (port !== 0) {
+    if (port !== 0 && !_inTestEnv) {
       if (!_mcpServerRuntime) {
         _mcpServerRuntime = createMcpServer({
           getState: () => ({ ...computeStatusPayload(), sessions_raw: readFullState()?.sessions || {} }),

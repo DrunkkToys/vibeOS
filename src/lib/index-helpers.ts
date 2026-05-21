@@ -317,16 +317,17 @@ export function recordSaving(tool, reason, saveEst, meta = {}) {
         const now = Date.now()
         const warnKey = `${_OC_SID}:${firstWord}`
         ses.seenWarnKeys ??= {}
-        if (ses.warns.length > 0) {
-          const last = ses.warns[ses.warns.length - 1]
-          if (last?.key === warnKey && (now - last.ts) < WARN_DEDUPE_WINDOW_MS) {
-            last.count = (last.count || 1) + 1
-            last.reason = reason
-            last.saveEst = (last.saveEst || 0) + saveEst
-          } else {
-            ses.warns.push({ key: warnKey, reason, saveEst, firstWord, ts: now, count: 1 })
+        let deduped = false
+        for (let i = ses.warns.length - 1; i >= 0 && !deduped; i--) {
+          const w = ses.warns[i]
+          if (w?.key === warnKey && (now - w.ts) < WARN_DEDUPE_WINDOW_MS) {
+            w.count = (w.count || 1) + 1
+            w.reason = reason
+            w.saveEst = (w.saveEst || 0) + saveEst
+            deduped = true
           }
-        } else {
+        }
+        if (!deduped) {
           ses.warns.push({ key: warnKey, reason, saveEst, firstWord, ts: now, count: 1 })
         }
         if (!ses.seenWarnKeys[warnKey]) {

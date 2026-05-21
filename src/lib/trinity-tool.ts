@@ -77,9 +77,6 @@ export function createTrinityTool(deps) {
           } catch {}
         }
 
-        const goalUsd = sel.savings_goal_usd || 0
-        const goalBar = goalUsd > 0 ? ` ${Math.round(Math.min(100, (ltTotal / goalUsd) * 100))}%` : ""
-
         const lines = [
           `[vibeOS-dashboard]`,
           `Model: ${activeSlot} (${brainModel})`,
@@ -98,7 +95,7 @@ export function createTrinityTool(deps) {
           `  Lock: ${deps._modelLocked ? "\u{1F512} ON (model fixed)" : "\u{1F513} OFF"}`,
           `|`,
           `All-time savings:`,
-          `  Total: $${ltTotal.toFixed(2)} (${sesTrend})${goalBar}`,
+          `  Total: $${ltTotal.toFixed(2)} (${sesTrend})`,
           `  Delegation: $${(sv.ltTasks || 0).toFixed(2)}`,
           `  Cache: $${deps.formatUsd(sv.ltCache || 0)}`,
           `  Missed: $${missedC7.toFixed(2)}`,
@@ -438,17 +435,6 @@ export function createTrinityTool(deps) {
         lines.push(`  Ledger entries:    ${entryCount}`)
         lines.push(`\n${L.repeat(40)}`)
         return lines.join("\n")
-      }
-
-      if (action === "target") {
-        const goalVal = parseFloat(slot)
-        if (!Number.isFinite(goalVal) || goalVal <= 0) {
-          return `Usage: trinity target <amount>\nExample: trinity target 5.00`
-        }
-        const ok = deps.writeSelection("savings_goal_usd", Math.round(goalVal * 100) / 100)
-        return ok
-          ? `Savings goal set to $${goalVal.toFixed(2)}. Track progress in the footer.`
-          : `Failed to write savings goal.`
       }
 
       if (action === "patterns") {

@@ -62,7 +62,7 @@ function buildProjectBriefing(directory: string): string | null {
   return `[project memory] Active project: ${label}. Stay focused on the current repository and prefer the existing workflow.`
 }
 
-function syncControlSettings(cv: any): void {
+export function syncControlSettings(cv: any): void {
   if (!cv) return
   try {
     const writeIf = (key: string, val: any) => {
