@@ -148,6 +148,7 @@ function updateState(mutator) {
                 state.lifetime ??= {};
                 state.lifetime.missed_context7_usd ??= 0;
                 state.lifetime.cache_savings_usd ??= 0;
+                state.lifetime.total_savings_usd ??= 0;
                 state._ledgerFormatVersion ??= 2;
                 state._gen = preGen + 1;
                 const next = mutator(state) ?? state;
@@ -227,8 +228,8 @@ export function saveBlackboxState(state) {
 export function getBlackboxTracker() {
     if (!_blackboxTracker) {
         const state = loadBlackboxState();
-            if (state.enabled !== undefined)
-                _setGlobalBlackboxEnabled(state.enabled);
+        if (state.enabled !== undefined)
+            _setGlobalBlackboxEnabled(state.enabled);
         const sid = _OC_SID;
         if (state.sessions?.[sid]?.history) {
             _blackboxTracker = LocalBlackboxStub.deserialize(state.sessions[sid]);
@@ -730,7 +731,7 @@ function noteTaskRoutingLearning(firstWord, targetModel, reason) {
 function recordMissedContext7(saveEst) {
     try {
         const state = updateState((s) => {
-            s.lifetime ??= { warn_count: 0, est_savings_usd: 0, last_updated: "" };
+            s.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" };
             s.lifetime.missed_context7_usd = Math.round(((s.lifetime.missed_context7_usd || 0) + saveEst) * 100) / 100;
             return s;
         });

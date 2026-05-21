@@ -441,7 +441,7 @@ export const onToolExecuteAfter = async (input, output) => {
           }) + "\n")
         } catch {}
         updateState((s) => {
-          s.lifetime ??= { warn_count: 0, est_savings_usd: 0, last_updated: "" }
+          s.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" }
           s.lifetime.quality_total_score = (s.lifetime.quality_total_score || 0) + quality
           s.lifetime.quality_total_count = (s.lifetime.quality_total_count || 0) + 1
           s.lifetime.last_updated = new Date().toISOString()
@@ -548,7 +548,7 @@ export const onToolExecuteAfter = async (input, output) => {
           if (testExtRe.test(fp)) {
             try {
               updateState((state) => {
-                state.lifetime ??= { warn_count: 0, est_savings_usd: 0, last_updated: "" }
+                state.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" }
                 state.lifetime.tdd_followup_completions = (state.lifetime.tdd_followup_completions || 0) + 1
                 state.lifetime.last_updated = new Date().toISOString()
                 return state

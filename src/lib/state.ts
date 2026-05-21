@@ -282,6 +282,7 @@ function updateState(mutator: (state: any) => any): any {
         state.lifetime ??= {}
         state.lifetime.missed_context7_usd ??= 0
         state.lifetime.cache_savings_usd ??= 0
+        state.lifetime.total_savings_usd ??= 0
         state._ledgerFormatVersion ??= 2
         state._gen = preGen + 1
         const next = mutator(state) ?? state
@@ -1199,8 +1200,8 @@ function recordDelegation(tool: string, saveEst: number, meta: any = {}): any {
     return updateState((s: any) => {
       const now = new Date().toISOString()
       const delta = Number(saveEst || 0)
-      s.lifetime ??= { warn_count: 0, est_savings_usd: 0, last_updated: "" }
-      s.lifetime.est_savings_usd = roundUsd(Number(s.lifetime.est_savings_usd || 0) + delta)
+      s.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" }
+      s.lifetime.total_savings_usd = roundUsd(Number(s.lifetime.total_savings_usd || 0) + delta)
       s.lifetime.last_updated = now
       s.sessions ??= {}
       const sid = _OC_SID
@@ -1225,7 +1226,7 @@ function recordCacheSaving(tool: string, saveEst: number, meta: any = {}): any {
     const state = updateState((s: any) => {
       const now = new Date().toISOString()
       const delta = Number(saveEst || 0)
-      s.lifetime ??= { warn_count: 0, est_savings_usd: 0, last_updated: "" }
+      s.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" }
       s.lifetime.cache_savings_usd = roundUsd(Number(s.lifetime.cache_savings_usd || 0) + delta)
       s.lifetime.last_updated = now
       s.sessions ??= {}
@@ -1271,7 +1272,7 @@ function recordCacheSaving(tool: string, saveEst: number, meta: any = {}): any {
 function recordMissedContext7(saveEst: number): any {
   try {
     const state = updateState((s: any) => {
-      s.lifetime ??= { warn_count: 0, est_savings_usd: 0, last_updated: "" }
+      s.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" }
       s.lifetime.missed_context7_usd = Math.round(
         ((s.lifetime.missed_context7_usd || 0) + saveEst) * 100
       ) / 100
@@ -1339,8 +1340,7 @@ function reconcileStateFromLedger(): void {
     const stTotal = (Number.isFinite(stDelegation) ? stDelegation : 0) + (Number.isFinite(stCache) ? stCache : 0)
     if (Math.abs(stTotal - l.total) < 0.0005) return
     updateState((s: any) => {
-      s.lifetime ??= { warn_count: 0, est_savings_usd: 0, last_updated: "" }
-      s.lifetime.est_savings_usd = l.delegation
+      s.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" }
       s.lifetime.total_savings_usd = l.delegation
       s.lifetime.cache_savings_usd = l.cache
       s.lifetime.last_updated = new Date().toISOString()

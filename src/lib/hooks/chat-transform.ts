@@ -43,6 +43,8 @@ import { checkFlowRules, recordFlowTodo } from '../../vibeOS-lib/flow-enforcer.j
 import { ensureProjectDocs } from '../../vibeOS-lib/flow-enforcer.js'
 import { computeDifficulty } from '../../vibeOS-lib/ml-router.js'
 import { loadSessionSlot, writeSessionSlot } from '../selection-manager.js'
+import { noteProjectPattern } from '../index-helpers.js'
+import { saveSessionStress } from '../index-helpers.js'
 
 let latestUserIntent = null
 let currentProjectFingerprint = ''
@@ -53,9 +55,41 @@ let _latestBlackboxLoopMsg = null
 let _latestBlackboxPivotMsg = null
 let _prevOutputText = ''
 const briefedProjects = new Set()
+const correctionSeenKeys = new Set()
 
-function observeUserCorrection(_text: string | null): void {
-  return
+async function apiComputeControlVector(state: any, action: any, optimizationMode: any): Promise<any> {
+  try {
+    const res = await remoteCall('blackboxControlVector', [state, action, optimizationMode], null)
+    if (res?.control_vector) return res.control_vector
+  } catch {}
+  return computeControlVector(state, action, optimizationMode)
+}
+
+function observeUserCorrection(text: string | null): void {
+  if (!text || typeof text !== "string") return
+  try {
+    const t = text.toLowerCase()
+    const corrections: string[] = []
+    if (/wrong\b|that.s wrong|incorrect|not what i|didn.t mean|misunderstood/i.test(t)) {
+      if (/\bimport\b|require\b|from\b|path\b|module\b/i.test(t)) corrections.push("correction:imports")
+      if (/\bfunction\b|logic\b|algorithm\b|calculation\b|formula\b|return\b|result\b/i.test(t) && !corrections.includes("correction:imports")) corrections.push("correction:logic")
+      if (/\brename\b|variable\b|const\b|let\b|var\b|name\b|called\b/i.test(t) && !corrections.includes("correction:logic")) corrections.push("correction:naming")
+      if (/\bdelete\b|remove\b|get rid\b|revert\b|undo\b|rollback\b/i.test(t)) corrections.push("correction:deletion")
+      if (/\brestructure\b|refactor\b|reorganize\b|move\b|split\b|extract\b/i.test(t) && !corrections.includes("correction:deletion")) corrections.push("correction:restructure")
+      if (corrections.length === 0) corrections.push("correction:general")
+    }
+    if (corrections.length === 0 && /\bshould be\b|change .+ to\b|replace .+ with\b|instead of\b/i.test(t)) {
+      corrections.push("correction:general")
+    }
+    for (const c of corrections) {
+      const sessionKey = `friction:${c}`
+      if (correctionSeenKeys.has(sessionKey)) continue
+      correctionSeenKeys.add(sessionKey)
+      try {
+        noteProjectPattern("friction", c, `User corrected ${c.replace("correction:", "")} in a follow-up message.`, { family: c })
+      } catch {}
+    }
+  } catch {}
 }
 
 function buildProjectBriefing(directory: string): string | null {
@@ -235,7 +269,8 @@ export const onMessagesTransform = async (_input, output) => {
                 serialized.project_fingerprint = currentProjectFingerprint || ""
                 if (!state.sessions[sid]) state.sessions[sid] = {}
                 state.sessions[sid].control_history ??= []
-                const cv = computeControlVector(localState, undefined, loadOptimizationMode())
+                const st = scoreStress(latestUserIntent); if (st) { localState.latest_stress_multiplier = st; saveSessionStress(st, st > 1.5 ? "critical" : st > 0.7 ? "elevated" : st > 0.3 ? "moderate" : "none") }
+                const cv = await apiComputeControlVector(localState, undefined, loadOptimizationMode())
                 state.sessions[sid].control_history.push(buildControlHistoryEntry(
                   state.sessions[sid].control_history.length + 1,
                   localState.sub_regime || "INIT",
@@ -270,9 +305,11 @@ export const onSystemTransform = async (_input, output) => {
 
         let _controlVector = null
         if (_latestBlackboxState) {
-          _controlVector = computeControlVector(_latestBlackboxState, undefined, loadOptimizationMode())
+          const st = latestUserIntent ? scoreStress(latestUserIntent) : 0; if (st) _latestBlackboxState.latest_stress_multiplier = st
+          _controlVector = await apiComputeControlVector(_latestBlackboxState, undefined, loadOptimizationMode())
         } else if (latestUserIntent) {
-          _controlVector = computeControlVector({ sub_regime: classifyTurnSimple(latestUserIntent) }, undefined, loadOptimizationMode())
+          const st = scoreStress(latestUserIntent)
+          _controlVector = await apiComputeControlVector({ sub_regime: classifyTurnSimple(latestUserIntent), latest_stress_multiplier: st || undefined }, undefined, loadOptimizationMode())
         }
 
         syncControlSettings(_controlVector)

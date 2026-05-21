@@ -848,7 +848,7 @@ export function enforceTestFile(filePath) {
     // Record extended telemetry in state file
     try {
       updateState((state) => {
-        state.lifetime ??= { warn_count: 0, est_savings_usd: 0, last_updated: "" }
+        state.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" }
         state.lifetime.tdd_enforced = (state.lifetime.tdd_enforced || 0) + 1
         state.lifetime.tdd_skeletons_created = (state.lifetime.tdd_skeletons_created || 0) + 1
         if (sel.tdd_strict !== false) {

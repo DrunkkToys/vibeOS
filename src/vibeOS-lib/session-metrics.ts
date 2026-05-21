@@ -20,6 +20,7 @@ type SessionEntry = {
 type MetricsState = {
   sessions?: Record<string, SessionEntry>
   lifetime?: {
+    total_savings_usd?: number | string
     est_savings_usd?: number | string
     cache_savings_usd?: number | string
     scratchpad_hits_observed?: number | string
@@ -91,7 +92,7 @@ export function computeSessionMetrics(state: unknown, sessionId: string) {
     }
   }
 
-  const legacyLifetimeDelegation = Number(s?.lifetime?.est_savings_usd ?? 0)
+  const legacyLifetimeDelegation = Number(s?.lifetime?.total_savings_usd ?? s?.lifetime?.est_savings_usd ?? 0)
   if (legacyLifetimeDelegation > 0) {
     ltTasks = Math.max(ltTasks, legacyLifetimeDelegation)
   }

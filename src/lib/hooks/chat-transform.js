@@ -2,9 +2,10 @@
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { createHash } from 'node:crypto';
-import { currentModel, currentProjectName, loadSelection, writeSelection, safeJsonParse, applyDecadence, getSessionScratchpadDir, ensureSessionScratchpadDirs, indexAppend, getActiveJobForProject, TIERS_FILE, setCurrentModel, setCurrentTier, } from '../state.js';
+import { currentModel, currentProjectName, _blackboxEnabled, loadSelection, writeSelection, safeJsonParse, applyDecadence, getSessionScratchpadDir, ensureSessionScratchpadDirs, indexAppend, getActiveJobForProject, TIERS_FILE, setCurrentModel, setCurrentTier, } from '../state.js';
 import { TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN, } from '../pricing.js';
 import { scoreStress, classifyTurnSimple, computeControlVector, loadOptimizationMode, saveOptimizationMode, getBlackboxTracker, loadBlackboxState as loadBlackboxStateFromCtx, saveBlackboxState as saveBlackboxStateToCtx, extractLastUserText, isLikelyOffTopic, fetchBlackboxEnrichment, estimateContextBudget, buildControlHistoryEntry, } from '../turn-classify.js';
+import { remoteCall } from '../api-client.js';
 import { loadCredit } from '../credit-api.js';
 import { loadSessionSlot, writeSessionSlot } from '../selection-manager.js';
 let latestUserIntent = null;
@@ -16,6 +17,15 @@ let _latestBlackboxLoopMsg = null;
 let _latestBlackboxPivotMsg = null;
 let _prevOutputText = '';
 const briefedProjects = new Set();
+async function apiComputeControlVector(state, action, optimizationMode) {
+    try {
+        const res = await remoteCall('blackboxControlVector', [state, action, optimizationMode], null);
+        if (res?.control_vector)
+            return res.control_vector;
+    }
+    catch { }
+    return computeControlVector(state, action, optimizationMode);
+}
 function observeUserCorrection(_text) {
     return;
 }
@@ -197,7 +207,10 @@ export const onMessagesTransform = async (_input, output) => {
                         if (!state.sessions[sid])
                             state.sessions[sid] = {};
                         state.sessions[sid].control_history ??= [];
-                        const cv = computeControlVector(localState, undefined, loadOptimizationMode());
+                        const st = scoreStress(latestUserIntent);
+                        if (st)
+                            localState.latest_stress_multiplier = st;
+                        const cv = await apiComputeControlVector(localState, undefined, loadOptimizationMode());
                         state.sessions[sid].control_history.push(buildControlHistoryEntry(state.sessions[sid].control_history.length + 1, localState.sub_regime || "INIT", cv));
                         if (state.sessions[sid].control_history.length > 100) {
                             state.sessions[sid].control_history = state.sessions[sid].control_history.slice(-100);
@@ -231,10 +244,14 @@ export const onSystemTransform = async (_input, output) => {
             observeUserCorrection(latestUserIntent);
         let _controlVector = null;
         if (_latestBlackboxState) {
-            _controlVector = computeControlVector(_latestBlackboxState, undefined, loadOptimizationMode());
+            const st = latestUserIntent ? scoreStress(latestUserIntent) : 0;
+            if (st)
+                _latestBlackboxState.latest_stress_multiplier = st;
+            _controlVector = await apiComputeControlVector(_latestBlackboxState, undefined, loadOptimizationMode());
         }
         else if (latestUserIntent) {
-            _controlVector = computeControlVector({ sub_regime: classifyTurnSimple(latestUserIntent) }, undefined, loadOptimizationMode());
+            const st = scoreStress(latestUserIntent);
+            _controlVector = await apiComputeControlVector({ sub_regime: classifyTurnSimple(latestUserIntent), latest_stress_multiplier: st || undefined }, undefined, loadOptimizationMode());
         }
         syncControlSettings(_controlVector);
         // Context7 directive — model self-determines tool availability.

@@ -1,4 +1,5 @@
 import { ResolutionTracker, SUB_REGIMES, extractFeatures } from "../lib/blackbox.js"
+import { computeControlVector, autoSelectMode } from "../lib/meta-controller.js"
 import { getDb } from "../lib/db.js"
 
 const trackers = new Map()
@@ -225,5 +226,18 @@ export async function blackboxRoutes(fastify) {
     } catch (err) {
       return reply.code(500).send({ error: `failed to read calibration: ${err.message}` })
     }
+  })
+
+  fastify.post("/api/v1/blackbox/control-vector", async (request, reply) => {
+    const { sub_regime, is_looping, loop_intervention_level, momentum, n_interactions, latest_stress_multiplier, action, optimization_mode } = request.body || {}
+    const state = { sub_regime, is_looping, loop_intervention_level, momentum, n_interactions, latest_stress_multiplier }
+    const cv = computeControlVector(state, action, optimization_mode)
+    return { ok: true, control_vector: cv }
+  })
+
+  fastify.post("/api/v1/blackbox/select-mode", async (request, reply) => {
+    const { sub_regime, stress_multiplier } = request.body || {}
+    const mode = autoSelectMode(sub_regime, stress_multiplier)
+    return { ok: true, mode }
   })
 }

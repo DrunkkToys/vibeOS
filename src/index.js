@@ -410,7 +410,7 @@ function computeSessionMetrics(state, sessionId) {
         sessionRates.push(sesTotal / elapsed);
     }
   }
-  const legacyLifetimeDelegation = Number(s?.lifetime?.est_savings_usd ?? 0);
+  const legacyLifetimeDelegation = Number(s?.lifetime?.total_savings_usd ?? s?.lifetime?.est_savings_usd ?? 0);
   if (legacyLifetimeDelegation > 0) {
     ltTasks = Math.max(ltTasks, legacyLifetimeDelegation);
   }
@@ -1607,9 +1607,9 @@ var _mlSavePending = false;
 function setMlSavePending(v) {
   _mlSavePending = v;
 }
-var _blackboxEnabled2 = true;
+var _blackboxEnabled = true;
 function setBlackboxEnabled(val) {
-  _blackboxEnabled2 = val;
+  _blackboxEnabled = val;
 }
 var _latestBlackboxState = null;
 var _modelLocked = false;
@@ -1769,6 +1769,7 @@ function updateState(mutator) {
         state.lifetime ??= {};
         state.lifetime.missed_context7_usd ??= 0;
         state.lifetime.cache_savings_usd ??= 0;
+        state.lifetime.total_savings_usd ??= 0;
         state._ledgerFormatVersion ??= 2;
         state._gen = preGen + 1;
         const next = mutator(state) ?? state;
@@ -2539,7 +2540,7 @@ function recordCacheSaving(tool2, saveEst, meta = {}) {
     const state = updateState((s) => {
       const now = (/* @__PURE__ */ new Date()).toISOString();
       const delta = Number(saveEst || 0);
-      s.lifetime ??= { warn_count: 0, est_savings_usd: 0, last_updated: "" };
+      s.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" };
       s.lifetime.cache_savings_usd = roundUsd(Number(s.lifetime.cache_savings_usd || 0) + delta);
       s.lifetime.last_updated = now;
       s.sessions ??= {};
@@ -2589,7 +2590,7 @@ function recordCacheSaving(tool2, saveEst, meta = {}) {
 function recordMissedContext7(saveEst) {
   try {
     const state = updateState((s) => {
-      s.lifetime ??= { warn_count: 0, est_savings_usd: 0, last_updated: "" };
+      s.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" };
       s.lifetime.missed_context7_usd = Math.round(((s.lifetime.missed_context7_usd || 0) + saveEst) * 100) / 100;
       return s;
     });
@@ -2670,8 +2671,7 @@ function reconcileStateFromLedger() {
     if (Math.abs(stTotal - l.total) < 5e-4)
       return;
     updateState((s) => {
-      s.lifetime ??= { warn_count: 0, est_savings_usd: 0, last_updated: "" };
-      s.lifetime.est_savings_usd = l.delegation;
+      s.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" };
       s.lifetime.total_savings_usd = l.delegation;
       s.lifetime.cache_savings_usd = l.cache;
       s.lifetime.last_updated = (/* @__PURE__ */ new Date()).toISOString();
@@ -3389,7 +3389,7 @@ function autoSelectMode(subRegime, stressMultiplier) {
     return "quality";
   if (subRegime === "LOOPING")
     return "speed";
-  if (stressMultiplier && stressMultiplier > 1.5)
+  if (stressMultiplier && stressMultiplier > 0.5)
     return "quality";
   return "budget";
 }
@@ -5127,6 +5127,15 @@ var _latestBlackboxState3 = null;
 var _latestBlackboxLoopMsg2 = null;
 var _latestBlackboxPivotMsg2 = null;
 var briefedProjects = /* @__PURE__ */ new Set();
+async function apiComputeControlVector(state, action, optimizationMode) {
+  try {
+    const res = await remoteCall("blackboxControlVector", [state, action, optimizationMode], null);
+    if (res?.control_vector)
+      return res.control_vector;
+  } catch {
+  }
+  return computeControlVector(state, action, optimizationMode);
+}
 function observeUserCorrection(_text) {
   return;
 }
@@ -5286,7 +5295,10 @@ ${raw}
             if (!state.sessions[sid])
               state.sessions[sid] = {};
             state.sessions[sid].control_history ??= [];
-            const cv = computeControlVector(localState, void 0, loadOptimizationMode());
+            const st = scoreStress(latestUserIntent);
+            if (st)
+              localState.latest_stress_multiplier = st;
+            const cv = await apiComputeControlVector(localState, void 0, loadOptimizationMode());
             state.sessions[sid].control_history.push(buildControlHistoryEntry(state.sessions[sid].control_history.length + 1, localState.sub_regime || "INIT", cv));
             if (state.sessions[sid].control_history.length > 100) {
               state.sessions[sid].control_history = state.sessions[sid].control_history.slice(-100);
@@ -5320,9 +5332,13 @@ var onSystemTransform = async (_input, output) => {
       observeUserCorrection(latestUserIntent);
     let _controlVector = null;
     if (_latestBlackboxState3) {
-      _controlVector = computeControlVector(_latestBlackboxState3, void 0, loadOptimizationMode());
+      const st = latestUserIntent ? scoreStress(latestUserIntent) : 0;
+      if (st)
+        _latestBlackboxState3.latest_stress_multiplier = st;
+      _controlVector = await apiComputeControlVector(_latestBlackboxState3, void 0, loadOptimizationMode());
     } else if (latestUserIntent) {
-      _controlVector = computeControlVector({ sub_regime: classifyTurnSimple(latestUserIntent) }, void 0, loadOptimizationMode());
+      const st = scoreStress(latestUserIntent);
+      _controlVector = await apiComputeControlVector({ sub_regime: classifyTurnSimple(latestUserIntent), latest_stress_multiplier: st || void 0 }, void 0, loadOptimizationMode());
     }
     syncControlSettings(_controlVector);
     const c7urgency = _controlVector?.context7_urgency || "preferred";
@@ -5464,6 +5480,15 @@ var onSystemTransform = async (_input, output) => {
 };
 
 // src/lib/hooks/footer.js
+async function apiAutoSelectMode(regime, stress) {
+  try {
+    const res = await remoteCall("blackboxSelectMode", [regime, stress], null);
+    if (res?.mode)
+      return res.mode;
+  } catch {
+  }
+  return autoSelectMode(regime, stress);
+}
 var USER_HOME7 = (() => {
   try {
     return homedir8();
@@ -5681,8 +5706,9 @@ async function _appendFooter(input, output, directory3) {
     else if (optModeFooter === "longrun")
       optTagFooter = "[LONGRUN]";
     else if (optModeFooter === "auto") {
-      const autoSavings = readLifetimeSavings2();
-      const autoActive = autoSelectMode(autoSavings?.sesCache || 0, classifyTurnSimple(latestUserIntent || ""));
+      const autoRegime = classifyTurnSimple(latestUserIntent || "");
+      const autoStress = scoreStress(latestUserIntent || "");
+      const autoActive = await apiAutoSelectMode(autoRegime, autoStress);
       const autoTag = { budget: "BUDGET", quality: "QUALITY", speed: "SPEED", longrun: "LONGRUN", balanced: "BALANCED" };
       optTagFooter = `[AUTO\u2192${autoTag[autoActive] || autoActive.toUpperCase()}]`;
       const slot2 = autoActive === "quality" ? "brain" : autoActive === "speed" ? "medium" : "cheap";
@@ -5711,7 +5737,7 @@ async function _appendFooter(input, output, directory3) {
     const imputedMultiplier = brainModelCost > SAVE_EST.WRITE_EDIT && cheapModelCost > 0 && brainModelCost > cheapModelCost ? brainModelCost / cheapModelCost : 0;
     let footerText;
     if (ltTotal > 0) {
-      let savingsDisplay = `vibeOS: ${formatUsd2(ltTotal)} saved ${trendIcon}`;
+      let savingsDisplay = `vibeOS: ${formatUsd2(ltTotal)} saved up ${trendIcon}`;
       if (imputedMultiplier > 2) {
         const imputedActual = ltTotal * imputedMultiplier;
         savingsDisplay += ` (${formatUsd2(imputedActual)} actual)`;
@@ -5726,7 +5752,7 @@ async function _appendFooter(input, output, directory3) {
 
 \u2014 ${modelTag} \u2014`;
     }
-    if (_blackboxEnabled2) {
+    if (_blackboxEnabled) {
       try {
         const prevText = _prevOutputText;
         _prevOutputText = typeof output?.text === "string" ? output.text : typeof output?.result === "string" ? output.result : "";
@@ -7014,7 +7040,7 @@ function enforceTestFile(filePath) {
     _recordCooldown(skeleton.path);
     try {
       updateState((state) => {
-        state.lifetime ??= { warn_count: 0, est_savings_usd: 0, last_updated: "" };
+        state.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" };
         state.lifetime.tdd_enforced = (state.lifetime.tdd_enforced || 0) + 1;
         state.lifetime.tdd_skeletons_created = (state.lifetime.tdd_skeletons_created || 0) + 1;
         if (sel.tdd_strict !== false) {
@@ -7301,7 +7327,7 @@ function recordSaving(tool2, reason, saveEst, meta = {}) {
       return 0;
     const firstWord = meta?.firstWord || tool2 || "";
     updateState((s) => {
-      s.lifetime ??= { total_savings_usd: 0, cache_savings_usd: 0, missed_context7_usd: 0, session_count: 0, warn_count: 0, est_savings_usd: 0 };
+      s.lifetime ??= { total_savings_usd: 0, cache_savings_usd: 0, missed_context7_usd: 0, session_count: 0, warn_count: 0 };
       s.sessions ??= {};
       const sid = _OC_SID;
       if (!s.sessions[sid]) {
@@ -7316,7 +7342,6 @@ function recordSaving(tool2, reason, saveEst, meta = {}) {
       const ses = s.sessions[sid];
       ses.total_savings_usd = roundUsd(Number(ses.total_savings_usd || 0) + saveEst);
       s.lifetime.total_savings_usd = roundUsd(Number(s.lifetime.total_savings_usd || 0) + saveEst);
-      s.lifetime.est_savings_usd = roundUsd(Number(s.lifetime.est_savings_usd || 0) + saveEst);
       s.lifetime.warn_count = (s.lifetime.warn_count || 0) + 1;
       if (reason && firstWord) {
         const now = Date.now();
@@ -7749,7 +7774,7 @@ var onToolExecuteAfter = async (input, output) => {
     } catch {
     }
     updateState((s) => {
-      s.lifetime ??= { warn_count: 0, est_savings_usd: 0, last_updated: "" };
+      s.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" };
       s.lifetime.quality_total_score = (s.lifetime.quality_total_score || 0) + quality;
       s.lifetime.quality_total_count = (s.lifetime.quality_total_count || 0) + 1;
       s.lifetime.last_updated = (/* @__PURE__ */ new Date()).toISOString();
@@ -7864,7 +7889,7 @@ ${pendingUiNote}`;
       if (testExtRe.test(fp3)) {
         try {
           updateState((state) => {
-            state.lifetime ??= { warn_count: 0, est_savings_usd: 0, last_updated: "" };
+            state.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" };
             state.lifetime.tdd_followup_completions = (state.lifetime.tdd_followup_completions || 0) + 1;
             state.lifetime.last_updated = (/* @__PURE__ */ new Date()).toISOString();
             return state;
@@ -8514,7 +8539,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
             const durHrs = Math.floor(sesDuration / 3600);
             const durMins = Math.floor(sesDuration % 3600 / 60);
             let decisionLine = "";
-            if (_blackboxEnabled2) {
+            if (_blackboxEnabled) {
               try {
                 const res = _latestBlackboxState || getBlackboxResolution();
                 if (res && res.n_interactions > 3) {
@@ -8799,7 +8824,7 @@ ${okCount}/${results.length} passed`);
             }
             if (mode === "status") {
               const bbState = loadBlackboxState();
-              const lines = [`Blackbox: ${_blackboxEnabled2 || bbState.enabled ? "ON" : "OFF"}`];
+              const lines = [`Blackbox: ${_blackboxEnabled || bbState.enabled ? "ON" : "OFF"}`];
               const res = _latestBlackboxState || getBlackboxResolution();
               if (res) {
                 lines.push(`  Resolution: ${res.resolution}`);

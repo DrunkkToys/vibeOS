@@ -6,7 +6,7 @@ vibeOS helps keep expensive model usage under control by enforcing delegation be
 
 ## Version
 
-Current package version: `0.11.0`
+Current package version: `0.14.1`
 
 ## What It Does
 

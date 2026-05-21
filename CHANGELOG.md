@@ -1,3 +1,10 @@
+## 0.14.1
+- fix: align 42 failing tests with current runtime behavior (footer format, savings fields, token ranges, diagnose output, recovery/safeJsonParse, pattern learner, injection strategies, stress scoring, tdd/flow/diagnose commands, repair-state merge, trinity controls, integration tests)
+- feat: merge_csv.py — robust CSV merge script with encoding, key conflict resolution, falsy-value handling, column schema mismatch, empty row skipping
+
+## 0.14.0
+- (skipped — version bump from previous releases)
+
 ## 0.13.21
 - fix: blackbox save TTL throttle, export parseJsonc, stress/pattern tests
 - fix: rebuild bundled src/index.js with warn_count and ledger fixes

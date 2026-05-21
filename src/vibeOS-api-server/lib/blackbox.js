@@ -1,4 +1,4 @@
-import { ResolutionTracker as SharedResolutionTracker } from "../../vibeOS-lib/blackbox/resolution-tracker.js"
+import { ResolutionTracker as SharedResolutionTracker } from "./resolution-tracker.js"
 
 const SUB_REGIMES = ["INIT", "DIVERGENT", "EXPLORING", "REFINING", "CONVERGING", "CLOSED", "LOOPING"]
 

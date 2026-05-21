@@ -59,7 +59,7 @@ export function computeSessionMetrics(state, sessionId) {
                 sessionRates.push(sesTotal / elapsed);
         }
     }
-    const legacyLifetimeDelegation = Number(s?.lifetime?.est_savings_usd ?? 0);
+    const legacyLifetimeDelegation = Number(s?.lifetime?.total_savings_usd ?? s?.lifetime?.est_savings_usd ?? 0);
     if (legacyLifetimeDelegation > 0) {
         ltTasks = Math.max(ltTasks, legacyLifetimeDelegation);
     }

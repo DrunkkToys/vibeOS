@@ -8,6 +8,17 @@ import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTr
 import { saveReport } from "../reporting.js"
 import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, _modelLocked, _blackboxEnabled, writeSelection, reconcileStateFromLedger } from "../state.js"
 import { loadSessionSlot, writeSessionSlot } from "../selection-manager.js"
+import { remoteCall } from "../api-client.js"
+
+let _cachedAutoMode = null
+
+async function apiAutoSelectMode(regime, stress) {
+  try {
+    const res = await remoteCall('blackboxSelectMode', [regime, stress], null)
+    if (res?.mode) return res.mode
+  } catch {}
+  return autoSelectMode(regime, stress)
+}
 
 const USER_HOME = (() => { try { return homedir() } catch { return tmpdir() } })()
 const STATE_FILE = join(USER_HOME, ".claude/delegation-state.json")
@@ -212,8 +223,9 @@ async function _appendFooter(input, output, directory) {
       else if (optModeFooter === "speed") optTagFooter = "[SPEED]"
       else if (optModeFooter === "longrun") optTagFooter = "[LONGRUN]"
       else if (optModeFooter === "auto") {
-        const autoSavings = readLifetimeSavings()
-        const autoActive = autoSelectMode(autoSavings?.sesCache || 0, classifyTurnSimple(latestUserIntent || ""))
+        const autoRegime = classifyTurnSimple(latestUserIntent || "")
+        const autoStress = scoreStress(latestUserIntent || "")
+        const autoActive = await apiAutoSelectMode(autoRegime, autoStress)
         const autoTag = { budget: "BUDGET", quality: "QUALITY", speed: "SPEED", longrun: "LONGRUN", balanced: "BALANCED" }
         optTagFooter = `[AUTO→${autoTag[autoActive] || autoActive.toUpperCase()}]`
         const slot = autoActive === "quality" ? "brain" : autoActive === "speed" ? "medium" : "cheap"
@@ -235,7 +247,7 @@ async function _appendFooter(input, output, directory) {
       const imputedMultiplier = (brainModelCost > SAVE_EST.WRITE_EDIT && cheapModelCost > 0 && brainModelCost > cheapModelCost) ? (brainModelCost / cheapModelCost) : 0
       let footerText
       if (ltTotal > 0) {
-        let savingsDisplay = `vibeOS: ${formatUsd(ltTotal)} saved ${trendIcon}`
+        let savingsDisplay = `vibeOS: ${formatUsd(ltTotal)} saved up ${trendIcon}`
         if (imputedMultiplier > 2) {
           const imputedActual = ltTotal * imputedMultiplier
           savingsDisplay += ` (${formatUsd(imputedActual)} actual)`

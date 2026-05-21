@@ -418,7 +418,7 @@ test("BUG 9 (MEDIUM) — ledger reconcile picks up new entries on subsequent cal
     sessions: {},
     lifetime: {
       warn_count: 2,
-      est_savings_usd: 0.20,
+      total_savings_usd: 0.20,
       cache_savings_usd: 0,
       last_updated: "2026-05-18T00:00:00Z",
     },
@@ -440,7 +440,7 @@ test("BUG 9 (MEDIUM) — ledger reconcile picks up new entries on subsequent cal
 
   // After first reconcile, state should reflect ledger total ($0.75)
   const state1 = JSON.parse(readFileSync(stateFile, "utf-8"))
-  const savings1 = state1?.lifetime?.est_savings_usd ?? 0
+  const savings1 = state1?.lifetime?.total_savings_usd ?? 0
   const reconciled1 = state1?.lifetime?.rebuilt_from_ledger
   // Either state was reconciled from ledger, or the internal estimate includes both entries
   assert.ok(
@@ -464,7 +464,7 @@ test("BUG 9 (MEDIUM) — ledger reconcile picks up new entries on subsequent cal
   await pushTextComplete(hooks, "bug9b", 5)
 
   const state2 = JSON.parse(readFileSync(stateFile, "utf-8"))
-  const savings2 = state2?.lifetime?.est_savings_usd ?? 0
+  const savings2 = state2?.lifetime?.total_savings_usd ?? 0
   const reconciled2 = state2?.lifetime?.rebuilt_from_ledger
 
   // If the module re-reconciled, savings should now reflect all 3 entries
@@ -535,7 +535,7 @@ test("BUG 10 (MEDIUM) — savings carry forward after cold session restart", asy
   await hooksA["tool.execute.before"]({ tool: "bash" })
 
   const stateA = JSON.parse(readFileSync(stateFile, "utf-8"))
-  const savingsA = stateA?.lifetime?.est_savings_usd ?? 0
+  const savingsA = stateA?.lifetime?.total_savings_usd ?? 0
   const cacheSavingsA = stateA?.lifetime?.cache_savings_usd ?? 0
   const sessionCountA = Object.keys(stateA?.sessions || {}).length
 
@@ -551,7 +551,7 @@ test("BUG 10 (MEDIUM) — savings carry forward after cold session restart", asy
 
   // Verify state file still contains session A's data and lifetime totals
   const stateB = JSON.parse(readFileSync(stateFile, "utf-8"))
-  const savingsB = stateB?.lifetime?.est_savings_usd ?? 0
+  const savingsB = stateB?.lifetime?.total_savings_usd ?? 0
   const cacheSavingsB = stateB?.lifetime?.cache_savings_usd ?? 0
   const sessionKeys = Object.keys(stateB?.sessions || {})
 
@@ -567,7 +567,7 @@ test("BUG 10 (MEDIUM) — savings carry forward after cold session restart", asy
   await hooksB["tool.execute.before"]({ tool: "edit" })
 
   const stateFinal = JSON.parse(readFileSync(stateFile, "utf-8"))
-  const savingsFinal = stateFinal?.lifetime?.est_savings_usd ?? 0
+  const savingsFinal = stateFinal?.lifetime?.total_savings_usd ?? 0
   const sessionCountFinal = Object.keys(stateFinal?.sessions || {}).length
 
   assert.ok(savingsFinal > savingsB,
