@@ -4,7 +4,7 @@ import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, sta
 import { join, dirname, basename } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { createHash } from "node:crypto";
-import { safeJsonParse } from "./state.js";
+import { safeJsonParse, _blackboxEnabled, setBlackboxEnabled as _setGlobalBlackboxEnabled } from "./state.js";
 import { loadSessionOptMode, writeSessionOptMode } from "./selection-manager.js";
 import { getApiClient, isApiFallback } from "./api-client.js";
 import { LocalBlackboxStub } from "../vibeOS-lib/blackbox/local-stub.js";
@@ -21,7 +21,6 @@ const STATE_FILE = join(USER_HOME, ".claude/delegation-state.json");
 const PROJECT_STATE_FILE = join(USER_HOME, ".claude/project-states.json");
 export const DFLT_GL = { exploratory_words: {}, task_first_words: {}, updatedAt: null };
 let _blackboxTracker = null;
-let _blackboxEnabled = true;
 const _OC_SID = "opencode-" + (process.pid || "x") + "-" + Date.now();
 let currentProjectFingerprint = "";
 let _prevOutputText = "";
@@ -228,8 +227,8 @@ export function saveBlackboxState(state) {
 export function getBlackboxTracker() {
     if (!_blackboxTracker) {
         const state = loadBlackboxState();
-        if (state.enabled !== undefined)
-            _blackboxEnabled = state.enabled;
+            if (state.enabled !== undefined)
+                _setGlobalBlackboxEnabled(state.enabled);
         const sid = _OC_SID;
         if (state.sessions?.[sid]?.history) {
             _blackboxTracker = LocalBlackboxStub.deserialize(state.sessions[sid]);
@@ -759,7 +758,7 @@ export function getBlackboxEnabled() {
     return _blackboxEnabled;
 }
 export function setBlackboxEnabled(val) {
-    _blackboxEnabled = val;
+    _setGlobalBlackboxEnabled(val);
 }
 export function getLatestBlackboxState() {
     return _latestBlackboxState;

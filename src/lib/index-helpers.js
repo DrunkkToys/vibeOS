@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { join } from 'node:path';
 import { writeFileSync } from 'node:fs';
-import { _patternFiredKeys, recentToolEvents, lastMutationEvent, setLastMutationEvent, frictionSessionKeys, routineSessionKeys, getSessionScratchpadDir, normalizeObservedPath, commandFamily, commandFailed, saveActiveJobForProject, currentProjectFingerprint, currentProjectName, _OC_SID, loadProjectState, saveProjectState, ensureProjectBucket, updateGlobalLearning, updateState, roundUsd, WARN_DEDUPE_WINDOW_MS, _pruneOldSessions, _ledgerBuffer, _flushLedgerBuffer, LEDGER_BUFFER_MAX, _ledgerBufferTimer, LEDGER_BUFFER_FLUSH_MS, saveSessionCheckpoint, } from './state.js';
+import { _patternFiredKeys, recentToolEvents, lastMutationEvent, setLastMutationEvent, frictionSessionKeys, routineSessionKeys, getSessionScratchpadDir, normalizeObservedPath, commandFamily, commandFailed, saveActiveJobForProject, currentProjectFingerprint, currentProjectName, _OC_SID, loadProjectState, saveProjectState, ensureProjectBucket, updateGlobalLearning, updateState, roundUsd, WARN_DEDUPE_WINDOW_MS, _pruneOldSessions, _ledgerBuffer, _flushLedgerBuffer, LEDGER_BUFFER_MAX, _ledgerBufferTimer, setLedgerBufferTimer, LEDGER_BUFFER_FLUSH_MS, saveSessionCheckpoint, } from './state.js';
 import { TRINITY_CHEAP, TRINITY_MEDIUM } from './pricing.js';
 import { topKeywords, extractFirstWordFromArgs, noteTaskRoutingLearning, } from './turn-classify.js';
 let activeJob = null;
@@ -317,7 +317,7 @@ export function recordSaving(tool, reason, saveEst, meta = {}) {
         if (_ledgerBuffer.length >= LEDGER_BUFFER_MAX)
             _flushLedgerBuffer();
         else if (!_ledgerBufferTimer)
-            _ledgerBufferTimer = setTimeout(_flushLedgerBuffer, LEDGER_BUFFER_FLUSH_MS);
+            setLedgerBufferTimer(setTimeout(_flushLedgerBuffer, LEDGER_BUFFER_FLUSH_MS));
         return saveEst;
     }
     catch (err) {

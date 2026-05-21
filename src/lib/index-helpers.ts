@@ -40,6 +40,7 @@ import {
   _flushLedgerBuffer,
   LEDGER_BUFFER_MAX,
   _ledgerBufferTimer,
+  setLedgerBufferTimer,
   LEDGER_BUFFER_FLUSH_MS,
   saveSessionCheckpoint,
 } from './state.js'
@@ -372,7 +373,7 @@ export function recordSaving(tool, reason, saveEst, meta = {}) {
     })
     _ledgerBuffer.push(entry)
     if (_ledgerBuffer.length >= LEDGER_BUFFER_MAX) _flushLedgerBuffer()
-    else if (!_ledgerBufferTimer) _ledgerBufferTimer = setTimeout(_flushLedgerBuffer, LEDGER_BUFFER_FLUSH_MS)
+    else if (!_ledgerBufferTimer) setLedgerBufferTimer(setTimeout(_flushLedgerBuffer, LEDGER_BUFFER_FLUSH_MS))
 
     return saveEst
   } catch (err) {
