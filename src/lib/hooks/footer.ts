@@ -6,7 +6,7 @@ import { classify, modelCostPerTurn, _refreshModel, TRINITY_BRAIN, TRINITY_MEDIU
 import { latestUserIntent } from "./chat-transform.js"
 import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, loadOptimizationMode, autoSelectMode, classifyTurnSimple } from "../turn-classify.js"
 import { saveReport } from "../reporting.js"
-import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, _modelLocked, _blackboxEnabled } from "../state.js"
+import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, _modelLocked, _blackboxEnabled, writeSelection } from "../state.js"
 
 const USER_HOME = (() => { try { return homedir() } catch { return tmpdir() } })()
 const STATE_FILE = join(USER_HOME, ".claude/delegation-state.json")
@@ -212,6 +212,16 @@ async function _appendFooter(input, output, directory) {
         const autoActive = autoSelectMode(autoSavings?.sesCache || 0, classifyTurnSimple(latestUserIntent || ""))
         const autoTag = { budget: "BUDGET", quality: "QUALITY", speed: "SPEED", longrun: "LONGRUN", balanced: "BALANCED" }
         optTagFooter = `[AUTO→${autoTag[autoActive] || autoActive.toUpperCase()}]`
+        const slot = autoActive === "quality" ? "brain" : autoActive === "speed" ? "medium" : "cheap"
+        if (!_modelLocked) {
+          writeSelection("active_slot", slot)
+          const sel = loadSelection()
+          if (sel.active_slot === slot) {
+            if (slot === "brain" && TRINITY_BRAIN) { setCurrentModel(TRINITY_BRAIN); setCurrentTier("high") }
+            else if (slot === "medium" && TRINITY_MEDIUM) { setCurrentModel(TRINITY_MEDIUM); setCurrentTier("mid") }
+            else if (slot === "cheap" && TRINITY_CHEAP) { setCurrentModel(TRINITY_CHEAP); setCurrentTier("low") }
+          }
+        }
       }
       modelTag = `${modelTag}${optTagFooter}${enfSuffixFooter || ""}`
 
