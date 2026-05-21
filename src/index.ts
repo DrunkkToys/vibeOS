@@ -577,21 +577,6 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
     console.error(`[vibeOS] Project Guard init failed: ${(err as Error).message}`)
   }
 
-  // ── Auto-mode tier switch ─────────────────────────────────────────
-  const _mode = loadOptimizationMode() || "auto"
-  if (_mode === "auto" && currentModel && !_modelLocked) {
-    const _intent = classifyTurnSimple(directory?.split("/").pop() || "")
-    const _autoActive = autoSelectMode(0, _intent)
-    const _slot = _autoActive === "quality" ? "brain" : _autoActive === "speed" ? "medium" : "cheap"
-    writeSelection("active_slot", _slot)
-    const _sel = loadSelection()
-    if (_sel.active_slot === _slot) {
-      if (_slot === "brain" && TRINITY_BRAIN) { setCurrentModel(TRINITY_BRAIN); setCurrentTier("high") }
-      else if (_slot === "medium" && TRINITY_MEDIUM) { setCurrentModel(TRINITY_MEDIUM); setCurrentTier("mid") }
-      else if (_slot === "cheap" && TRINITY_CHEAP) { setCurrentModel(TRINITY_CHEAP); setCurrentTier("low") }
-    }
-  }
-
   // ── Plugin hooks ──────────────────────────────────────────────────
   const pluginHooks = {
     "tool.execute.before": async (input: any, output: any) => {
@@ -624,6 +609,7 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
           "Use action='status' to see current state.\n" +
           "Use action='enable' or 'disable' to toggle the plugin.\n" +
           "Use action='set' with slot='brain'|'medium'|'cheap' to switch.\n" +
+          "Use action='mode' with slot='budget'|'quality'|'speed'|'longrun'|'auto' to switch optimization modes.\n" +
           "Use action='rebuild' to auto-detect available models.\n" +
           "Use action='flow' with slot='on'|'off' to toggle flow enforcer.\n" +
           "Use action='enforce' with slot='on'|'off' to toggle delegation enforcement.\n" +
@@ -633,8 +619,8 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
           "Use action='guard' for Project Guard.\n" +
           "Call when the user says 'switch to medium', 'use cheap model', 'disable plugin', or 'trinity status'.",
         args: {
-          action: tool.schema.enum(["status", "enable", "disable", "set", "thinking", "flow", "tdd", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard"]).optional(),
-          slot: tool.schema.enum(["brain", "medium", "cheap", "on", "off", "enforce", "strict", "quality", "preview", "apply", "clear", "savings"]).optional(),
+          action: tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard"]).optional(),
+          slot: tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings"]).optional(),
           level: tool.schema.enum(["full", "brief", "off", "on"]).optional(),
         },
         async execute({ action, slot, level }: { action?: string; slot?: string; level?: string } = {}) {
@@ -720,6 +706,33 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
             const result = applySlot(slot)
             if (!result.ok) return "Failed: " + result.reason
             return `Switched to ${slot} slot (${result.ocModel})`
+          }
+          if (action === "mode") {
+            if (!slot || !["budget", "quality", "speed", "longrun", "auto"].includes(slot)) return "Provide mode: budget | quality | speed | longrun | auto"
+            saveOptimizationMode(slot)
+            const tierMap: Record<string, string> = { budget: "cheap", quality: "brain", speed: "medium", longrun: "brain" }
+            const tierSlot = tierMap[slot] || "cheap"
+            writeSelection("active_slot", tierSlot)
+            if (slot === "budget") {
+              writeSelection("delegation_enforce", false)
+              writeSelection("flow_enabled", false)
+              writeSelection("flow_enforce", false)
+              writeSelection("tdd_enforce", false)
+              writeSelection("thinking_level", "off")
+            } else if (slot === "quality") {
+              writeSelection("delegation_enforce", true)
+              writeSelection("flow_enabled", true)
+              writeSelection("flow_enforce", true)
+              writeSelection("tdd_enforce", true)
+              writeSelection("thinking_level", "full")
+            } else if (slot === "speed") {
+              writeSelection("delegation_enforce", false)
+              writeSelection("flow_enabled", false)
+              writeSelection("flow_enforce", false)
+              writeSelection("tdd_enforce", false)
+              writeSelection("thinking_level", "off")
+            }
+            return `Mode set to ${slot.toUpperCase()}. Tier: ${tierSlot}.`
           }
           if (action === "thinking") {
             if (!level || !["full", "brief", "off"].includes(level)) return "Provide level: full | brief | off"
@@ -919,6 +932,7 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
               "vibeOS - trinity commands",
               "",
               "  trinity status       See plugin state, credit, model",
+              "  trinity mode budget|quality|speed|auto   Switch optimization mode",
               "  trinity brain        Switch to brain tier",
               "  trinity medium       Switch to medium tier",
               "  trinity cheap        Switch to cheap tier",
