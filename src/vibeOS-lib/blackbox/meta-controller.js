@@ -180,7 +180,7 @@ export function computeControlVector(state, action, optimizationMode) {
     // Apply mode deltas on top of base (only for non-balanced modes)
     const delta = effectiveMode !== "balanced" ? (MODE_DELTAS[effectiveMode] || {}) : {};
     const overridden = {
-        optimization_mode: optimizationMode || "balanced",
+        optimization_mode: effectiveMode,
         enforcement_mode: delta.enforcement_mode ?? base.enforcement_mode,
         enforcement_reason: delta.enforcement_mode
             ? `[optimize: ${effectiveMode}] ${describeMode(delta)}`

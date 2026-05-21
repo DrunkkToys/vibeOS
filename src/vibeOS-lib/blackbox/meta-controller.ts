@@ -224,7 +224,7 @@ export function computeControlVector(
   const delta = effectiveMode !== "balanced" ? (MODE_DELTAS[effectiveMode] || {}) : {}
 
   const overridden: Omit<ControlVector, "directives"> = {
-    optimization_mode: optimizationMode || "balanced",
+    optimization_mode: effectiveMode,
     enforcement_mode: delta.enforcement_mode ?? base.enforcement_mode,
     enforcement_reason: delta.enforcement_mode
       ? `[optimize: ${effectiveMode}] ${describeMode(delta)}`
