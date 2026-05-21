@@ -2,7 +2,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync, copyFileSync, rmSync } from "node:fs";
 import { join, basename } from "node:path";
 import { homedir, tmpdir } from "node:os";
-import { withFileLock, safeJsonParse } from "./state.js";
+import { withFileLock, safeJsonParse, currentProjectFingerprint, setCurrentProjectFingerprint } from "./state.js";
 const USER_HOME = (() => { try {
     return homedir();
 }
@@ -19,11 +19,10 @@ catch {
 export const REPORTS_DIR = join(USER_HOME, ".claude/reports");
 const REPORTS_INDEX = join(REPORTS_DIR, "index.json");
 const _OC_SID = "opencode-" + (process.pid || "x") + "-" + Date.now();
-export let currentProjectFingerprint = "";
 export let currentProjectName = "";
 export function setReportingContext({ fingerprint, projectName } = {}) {
     if (fingerprint !== undefined)
-        currentProjectFingerprint = fingerprint;
+        setCurrentProjectFingerprint(fingerprint);
     if (projectName !== undefined)
         currentProjectName = projectName;
 }

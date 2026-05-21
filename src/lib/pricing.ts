@@ -431,8 +431,8 @@ export function _refreshModel(directory) {
       if (modelChanged || tierChanged) {
         const oldModel = currentModel
         const oldTier = currentTier
-        currentModel = slotOcModel
-        currentTier = nextTier
+        setCurrentModel(slotOcModel)
+        setCurrentTier(nextTier)
         console.error(`[vibeOS] model refresh: ${oldModel}(${oldTier}) → ${currentModel}(${currentTier}) (slot=${activeSlot})`)
       }
     }
@@ -440,8 +440,8 @@ export function _refreshModel(directory) {
     if (!currentModel) {
       const detected = readConfig(directory) || readConfig(join(USER_HOME, ".config/opencode")) || process?.env?.OPENCODE_MODEL || ""
       if (detected) {
-        currentModel = detected
-        currentTier = classify(currentModel)
+        setCurrentModel(detected)
+        setCurrentTier(classify(detected))
         console.error(`[vibeOS] auto-detected model: ${currentModel} (tier=${currentTier})`)
       }
     }
@@ -452,8 +452,8 @@ export function _refreshModel(directory) {
       if (cfgModel && cfgModel !== currentModel) {
         const oldModel = currentModel
         const oldTier = currentTier
-        currentModel = cfgModel
-        currentTier = classify(cfgModel)
+        setCurrentModel(cfgModel)
+        setCurrentTier(classify(cfgModel))
         console.error(`[vibeOS] model refresh (config): ${oldModel}(${oldTier}) → ${currentModel}(${currentTier})`)
         try {
           if (existsSync(TIERS_FILE)) {
