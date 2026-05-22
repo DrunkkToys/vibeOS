@@ -18,32 +18,13 @@ import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, sta
 import { join, dirname, basename } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { createHash } from "node:crypto";
-import { currentModel, currentTier, setCurrentModel, setCurrentTier } from "./state.js";
+import { currentModel, currentTier, setCurrentModel, setCurrentTier, safeJsonParse, _safeRegex, FALLBACK_HIGH, FALLBACK_MID } from "./state.js";
 const USER_HOME = (() => { try {
     return homedir();
 }
 catch {
     return tmpdir();
 } })();
-// ── JSONC-tolerant JSON.parse for config files ──────────────────────
-function safeJsonParse(raw) {
-    if (raw == null || raw === '')
-        return null;
-    try {
-        return JSON.parse(raw);
-    }
-    catch { }
-    let cleaned = raw
-        .replace(/\/\*[\s\S]*?\*\//g, '')
-        .replace(/\/\/.*$/gm, '')
-        .replace(/,\s*([}\]])/g, '$1');
-    try {
-        return JSON.parse(cleaned);
-    }
-    catch (e) {
-        throw e;
-    }
-}
 function _handleStateCorruption(path) {
     const backupDir = join(USER_HOME, ".claude", ".backups");
     mkdirSync(backupDir, { recursive: true });
@@ -113,22 +94,6 @@ function withFileLock(filePath, fn, opts = {}) {
 // ── Module state ────────────────────────────────────────────────────
 let _modelLocked = false;
 // ── Tier classification ─────────────────────────────────────────────
-// Tier regexes — load from ~/.claude/model-tiers.json (single source of truth
-// shared with the bash hook). Falls back to inline regexes if file missing or
-// malformed, so the plugin never fails to load due to tier-config issues.
-const FALLBACK_HIGH = /opus|gemini-.*-pro|deepseek\/deepseek-v4-pro|gpt-5|(^|\/)o[134]($|-|\/)/i;
-const FALLBACK_MID = /deepseek\/deepseek-v4-flash|claude.*sonnet|gemini-.*-flash|gpt-4o(?!-mini)/i;
-function _safeRegex(cfg, fallback, label) {
-    if (!cfg)
-        return fallback;
-    try {
-        return new RegExp(cfg, "i");
-    }
-    catch (e) {
-        console.error(`[vibeOS] Invalid ${label}-tier regex in model-tiers.json: ${e.message}. Falling back.`);
-        return fallback;
-    }
-}
 export let _autoReportCount = 0;
 export function loadTierRegexes() {
     try {

@@ -345,7 +345,7 @@ var init_flow_enforcer = __esm({
 // src/index.ts
 init_flow_enforcer();
 import { readFileSync as readFileSync14, writeFileSync as writeFileSync12, existsSync as existsSync15, mkdirSync as mkdirSync10, copyFileSync as copyFileSync6, renameSync as renameSync6 } from "node:fs";
-import { join as join15, dirname as dirname8, basename as basename8 } from "node:path";
+import { join as join15, dirname as dirname8, basename as basename9 } from "node:path";
 
 // src/vibeOS-lib/session-metrics.js
 function formatDuration(totalSeconds) {
@@ -830,13 +830,13 @@ function createMcpServer(deps) {
 
 // src/lib/pricing.js
 import { readFileSync as readFileSync4, writeFileSync as writeFileSync4, appendFileSync as appendFileSync4, existsSync as existsSync5, mkdirSync as mkdirSync4, statSync as statSync5, copyFileSync as copyFileSync3, renameSync as renameSync4, openSync as openSync2, closeSync as closeSync2, rmSync as rmSync2 } from "node:fs";
-import { join as join5, dirname as dirname4, basename as basename3 } from "node:path";
+import { join as join5, dirname as dirname4, basename as basename4 } from "node:path";
 import { homedir as homedir4, tmpdir as tmpdir3 } from "node:os";
 import { createHash as createHash2 } from "node:crypto";
 
 // src/lib/state.js
 import { readFileSync as readFileSync3, writeFileSync as writeFileSync3, appendFileSync as appendFileSync3, existsSync as existsSync4, mkdirSync as mkdirSync3, statSync as statSync4, readdirSync, openSync, readSync, closeSync, rmSync, copyFileSync as copyFileSync2, renameSync as renameSync3 } from "node:fs";
-import { join as join4, dirname as dirname3, relative, basename as basename2 } from "node:path";
+import { join as join4, dirname as dirname3, basename as basename3 } from "node:path";
 import { spawn } from "node:child_process";
 import { homedir as homedir3, tmpdir as tmpdir2 } from "node:os";
 import { createHash } from "node:crypto";
@@ -975,6 +975,130 @@ function writeSessionOptMode(sid, mode) {
     console.error("[vibeOS] writeSessionOptMode failed: " + err.message);
     return false;
   }
+}
+
+// src/lib/pattern-helpers.js
+import { relative, basename as basename2 } from "node:path";
+function normalizeObservedPath(filePath, directory3) {
+  if (!filePath || typeof filePath !== "string")
+    return "unknown";
+  let p = filePath;
+  try {
+    if (directory3 && p.startsWith("/")) {
+      const rel = relative(directory3, p);
+      if (rel && !rel.startsWith("..") && !rel.startsWith("/"))
+        p = rel;
+    }
+  } catch {
+  }
+  p = p.replace(/\\/g, "/").replace(/^\.\/+/, "");
+  if (/^(src\/index\.js|package\.json|README\.md|CHANGELOG\.md|tsconfig\.json)$/i.test(p))
+    return p;
+  const m = p.match(/\.([a-z0-9]+)$/i);
+  if (p.startsWith("src/") && m)
+    return `src/*.${m[1].toLowerCase()}`;
+  if (p.startsWith("tests/") && m)
+    return `tests/*.${m[1].toLowerCase()}`;
+  return basename2(p) || "unknown";
+}
+function commandFamily(command) {
+  const c = String(command || "").trim().toLowerCase();
+  if (!c)
+    return "unknown";
+  if (/\bnode\s+--check\b/.test(c))
+    return "syntax-check";
+  if (/\bnpm\s+run\s+typecheck\b|\btsc\b.*--noemit/.test(c))
+    return "typecheck";
+  if (/\bnpm\s+test\b|\bnode\s+--test\b|\bvitest\b|\bjest\b|\bpytest\b/.test(c))
+    return "test";
+  if (/\bnpm\s+run\s+build\b|\btsc\s+-p\b/.test(c))
+    return "build";
+  if (/\bgit\s+status\b/.test(c))
+    return "git-status";
+  if (/\bgit\s+commit\b/.test(c))
+    return "git-commit";
+  const first = c.replace(/^[a-z_][a-z0-9_]*=\S+\s+/g, "").split(/\s+/)[0];
+  return /^[a-z0-9._/-]{1,30}$/.test(first) ? first : "command";
+}
+function commandFailed(output) {
+  const code = output?.exitCode ?? output?.statusCode ?? output?.code;
+  if (Number.isFinite(Number(code)) && Number(code) !== 0)
+    return true;
+  const raw = output?.result ?? output?.text ?? output?.content ?? output?.data ?? "";
+  if (typeof raw !== "string")
+    return false;
+  return /\b(exit code|exited with code)\s*[:=]?\s*[1-9]\b|\b(assertionerror|syntaxerror|typeerror|referenceerror)\b|\b(failed|error:|err!)\b/i.test(raw);
+}
+function mergeProjectBucket(dst, src) {
+  const a = dst || {};
+  const b = src || {};
+  const topics = [.../* @__PURE__ */ new Set([...a.commonTopics || [], ...b.commonTopics || []])].slice(-20);
+  const mergePatterns = (kind) => {
+    const out = {};
+    for (const srcObj of [a.userPatterns?.[kind], b.userPatterns?.[kind]]) {
+      for (const [key, val] of Object.entries(srcObj || {})) {
+        const v = val;
+        const row = out[key] || { count: 0, sessions: [], lastSeen: null, summary: v?.summary || "" };
+        row.count += Number(v?.count || 0);
+        row.sessions = [.../* @__PURE__ */ new Set([...row.sessions || [], ...v?.sessions || []])].slice(-10);
+        row.lastSeen = [row.lastSeen, v?.lastSeen].filter(Boolean).sort().slice(-1)[0] || null;
+        row.summary = row.summary || v?.summary || "";
+        if (v?.kind)
+          row.kind = v.kind;
+        out[key] = row;
+      }
+    }
+    return out;
+  };
+  return {
+    totalSessions: (a.totalSessions || 0) + (b.totalSessions || 0),
+    researchChains: Math.max(a.researchChains || 0, b.researchChains || 0),
+    context7Bypasses: (a.context7Bypasses || 0) + (b.context7Bypasses || 0),
+    commonTopics: topics,
+    userPatterns: {
+      friction: mergePatterns("friction"),
+      routines: mergePatterns("routines")
+    },
+    lastSeen: [a.lastSeen, b.lastSeen].filter(Boolean).sort().slice(-1)[0] || (/* @__PURE__ */ new Date()).toISOString()
+  };
+}
+function _pruneOldSessions(state) {
+  if (!state?.sessions)
+    return;
+  const entries = Object.entries(state.sessions);
+  if (entries.length <= 30)
+    return;
+  entries.sort((a, b) => {
+    const da = a[1]?.started || a[1]?.last_costed || "";
+    const db = b[1]?.started || b[1]?.last_costed || "";
+    return db.localeCompare(da);
+  });
+  state.sessions = Object.fromEntries(entries.slice(0, 30));
+}
+function _computeSessionMetrics(state, sid) {
+  const session = state?.sessions?.[sid] || {};
+  const warns = Array.isArray(session?.warns) ? session.warns : [];
+  const toolCounts = session?.tool_counts || {};
+  const toolBreakdown = {};
+  for (const [t, c] of Object.entries(toolCounts)) {
+    toolBreakdown[String(t)] = Number(c || 0);
+  }
+  const startedAt = session?.started ? new Date(session.started).getTime() : Date.now();
+  const durationSec = Math.floor((Date.now() - startedAt) / 1e3);
+  const hours = Math.max(durationSec / 3600, 1e-3);
+  return {
+    ltTasks: Number(state?.lifetime?.total_savings_usd || state?.lifetime?.est_savings_usd || 0),
+    ltCache: Number(state?.lifetime?.cache_savings_usd || 0),
+    missedC7: Number(state?.lifetime?.missed_context7_usd || 0),
+    count: warns.length,
+    sesTasks: Number(session?.total_savings_usd || 0),
+    sesDuration: durationSec,
+    sesRatePerHour: Number((((session?.total_savings_usd || 0) + (session?.cache_savings_usd || 0)) / hours).toFixed(2)),
+    sesTrend: "stable",
+    sesToolBreakdown: toolBreakdown,
+    sesModelTurns: session?.model_turns || { brain: 0, worker: 0 },
+    quality_avg: 0
+  };
 }
 
 // src/vibeOS-lib/ml-router.js
@@ -1645,7 +1769,7 @@ var tool = Object.assign((def) => def, {
 function _handleStateCorruption2(path) {
   const backupDir = join4(USER_HOME2, ".claude", ".backups");
   mkdirSync3(backupDir, { recursive: true });
-  const backupPath = join4(backupDir, basename2(path) + ".corrupted." + Date.now());
+  const backupPath = join4(backupDir, basename3(path) + ".corrupted." + Date.now());
   try {
     copyFileSync2(path, backupPath);
   } catch {
@@ -2364,39 +2488,6 @@ function ensureProjectBucket(state, fp3) {
   }
   return state.project_hashes[fp3];
 }
-function mergeProjectBucket(dst, src) {
-  const a = dst || {};
-  const b = src || {};
-  const topics = [.../* @__PURE__ */ new Set([...a.commonTopics || [], ...b.commonTopics || []])].slice(-20);
-  const mergePatterns = (kind) => {
-    const out = {};
-    for (const srcObj of [a.userPatterns?.[kind], b.userPatterns?.[kind]]) {
-      for (const [key, val] of Object.entries(srcObj || {})) {
-        const v = val;
-        const row = out[key] || { count: 0, sessions: [], lastSeen: null, summary: v?.summary || "" };
-        row.count += Number(v?.count || 0);
-        row.sessions = [.../* @__PURE__ */ new Set([...row.sessions || [], ...v?.sessions || []])].slice(-10);
-        row.lastSeen = [row.lastSeen, v?.lastSeen].filter(Boolean).sort().slice(-1)[0] || null;
-        row.summary = row.summary || v?.summary || "";
-        if (v?.kind)
-          row.kind = v.kind;
-        out[key] = row;
-      }
-    }
-    return out;
-  };
-  return {
-    totalSessions: (a.totalSessions || 0) + (b.totalSessions || 0),
-    researchChains: Math.max(a.researchChains || 0, b.researchChains || 0),
-    context7Bypasses: (a.context7Bypasses || 0) + (b.context7Bypasses || 0),
-    commonTopics: topics,
-    userPatterns: {
-      friction: mergePatterns("friction"),
-      routines: mergePatterns("routines")
-    },
-    lastSeen: [a.lastSeen, b.lastSeen].filter(Boolean).sort().slice(-1)[0] || (/* @__PURE__ */ new Date()).toISOString()
-  };
-}
 function detectTechStack(dir) {
   const stacks = [];
   try {
@@ -2430,56 +2521,6 @@ function detectTechStack(dir) {
   } catch {
   }
   return [...new Set(stacks)];
-}
-function normalizeObservedPath(filePath, directory3) {
-  if (!filePath || typeof filePath !== "string")
-    return "unknown";
-  let p = filePath;
-  try {
-    if (directory3 && p.startsWith("/")) {
-      const rel = relative(directory3, p);
-      if (rel && !rel.startsWith("..") && !rel.startsWith("/"))
-        p = rel;
-    }
-  } catch {
-  }
-  p = p.replace(/\\/g, "/").replace(/^\.\/+/, "");
-  if (/^(src\/index\.js|package\.json|README\.md|CHANGELOG\.md|tsconfig\.json)$/i.test(p))
-    return p;
-  const m = p.match(/\.([a-z0-9]+)$/i);
-  if (p.startsWith("src/") && m)
-    return `src/*.${m[1].toLowerCase()}`;
-  if (p.startsWith("tests/") && m)
-    return `tests/*.${m[1].toLowerCase()}`;
-  return basename2(p) || "unknown";
-}
-function commandFamily(command) {
-  const c = String(command || "").trim().toLowerCase();
-  if (!c)
-    return "unknown";
-  if (/\bnode\s+--check\b/.test(c))
-    return "syntax-check";
-  if (/\bnpm\s+run\s+typecheck\b|\btsc\b.*--noemit/.test(c))
-    return "typecheck";
-  if (/\bnpm\s+test\b|\bnode\s+--test\b|\bvitest\b|\bjest\b|\bpytest\b/.test(c))
-    return "test";
-  if (/\bnpm\s+run\s+build\b|\btsc\s+-p\b/.test(c))
-    return "build";
-  if (/\bgit\s+status\b/.test(c))
-    return "git-status";
-  if (/\bgit\s+commit\b/.test(c))
-    return "git-commit";
-  const first = c.replace(/^[a-z_][a-z0-9_]*=\S+\s+/g, "").split(/\s+/)[0];
-  return /^[a-z0-9._/-]{1,30}$/.test(first) ? first : "command";
-}
-function commandFailed(output) {
-  const code = output?.exitCode ?? output?.statusCode ?? output?.code;
-  if (Number.isFinite(Number(code)) && Number(code) !== 0)
-    return true;
-  const raw = output?.result ?? output?.text ?? output?.content ?? output?.data ?? "";
-  if (typeof raw !== "string")
-    return false;
-  return /\b(exit code|exited with code)\s*[:=]?\s*[1-9]\b|\b(assertionerror|syntaxerror|typeerror|referenceerror)\b|\b(failed|error:|err!)\b/i.test(raw);
 }
 function promotedProjectPatterns(fp3) {
   try {
@@ -2540,19 +2581,6 @@ function clearProjectPatterns(fp3) {
     console.error(`[vibeOS] pattern learner clear failed: ${err.message}`);
     return 0;
   }
-}
-function _pruneOldSessions(state) {
-  if (!state?.sessions)
-    return;
-  const entries = Object.entries(state.sessions);
-  if (entries.length <= 30)
-    return;
-  entries.sort((a, b) => {
-    const da = a[1]?.started || a[1]?.last_costed || "";
-    const db = b[1]?.started || b[1]?.last_costed || "";
-    return db.localeCompare(da);
-  });
-  state.sessions = Object.fromEntries(entries.slice(0, 30));
 }
 var STATE_FILE2 = DELEGATION_STATE_FILE;
 function recordCacheSaving(tool2, saveEst, meta = {}) {
@@ -2743,31 +2771,6 @@ function saveSessionCheckpoint() {
   } catch {
   }
 }
-function _computeSessionMetrics(state, sid) {
-  const session = state?.sessions?.[sid] || {};
-  const warns = Array.isArray(session?.warns) ? session.warns : [];
-  const toolCounts = session?.tool_counts || {};
-  const toolBreakdown = {};
-  for (const [t, c] of Object.entries(toolCounts)) {
-    toolBreakdown[String(t)] = Number(c || 0);
-  }
-  const startedAt = session?.started ? new Date(session.started).getTime() : Date.now();
-  const durationSec = Math.floor((Date.now() - startedAt) / 1e3);
-  const hours = Math.max(durationSec / 3600, 1e-3);
-  return {
-    ltTasks: Number(state?.lifetime?.total_savings_usd || state?.lifetime?.est_savings_usd || 0),
-    ltCache: Number(state?.lifetime?.cache_savings_usd || 0),
-    missedC7: Number(state?.lifetime?.missed_context7_usd || 0),
-    count: warns.length,
-    sesTasks: Number(session?.total_savings_usd || 0),
-    sesDuration: durationSec,
-    sesRatePerHour: Number((((session?.total_savings_usd || 0) + (session?.cache_savings_usd || 0)) / hours).toFixed(2)),
-    sesTrend: "stable",
-    sesToolBreakdown: toolBreakdown,
-    sesModelTurns: session?.model_turns || { brain: 0, worker: 0 },
-    quality_avg: 0
-  };
-}
 
 // src/lib/pricing.js
 var TRINITY_BRAIN = null;
@@ -2789,24 +2792,10 @@ var USER_HOME3 = (() => {
     return tmpdir3();
   }
 })();
-function safeJsonParse4(raw) {
-  if (raw == null || raw === "")
-    return null;
-  try {
-    return JSON.parse(raw);
-  } catch {
-  }
-  let cleaned = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "").replace(/,\s*([}\]])/g, "$1");
-  try {
-    return JSON.parse(cleaned);
-  } catch (e) {
-    throw e;
-  }
-}
 function _handleStateCorruption3(path) {
   const backupDir = join5(USER_HOME3, ".claude", ".backups");
   mkdirSync4(backupDir, { recursive: true });
-  const backupPath = join5(backupDir, basename3(path) + ".corrupted." + Date.now());
+  const backupPath = join5(backupDir, basename4(path) + ".corrupted." + Date.now());
   try {
     copyFileSync3(path, backupPath);
   } catch {
@@ -2868,29 +2857,17 @@ ${Date.now()}
   throw new Error(`[vibeOS] lock not acquired for ${filePath} after ${timeoutMs}ms`);
 }
 var _modelLocked2 = false;
-var FALLBACK_HIGH2 = /opus|gemini-.*-pro|deepseek\/deepseek-v4-pro|gpt-5|(^|\/)o[134]($|-|\/)/i;
-var FALLBACK_MID2 = /deepseek\/deepseek-v4-flash|claude.*sonnet|gemini-.*-flash|gpt-4o(?!-mini)/i;
-function _safeRegex2(cfg, fallback, label) {
-  if (!cfg)
-    return fallback;
-  try {
-    return new RegExp(cfg, "i");
-  } catch (e) {
-    console.error(`[vibeOS] Invalid ${label}-tier regex in model-tiers.json: ${e.message}. Falling back.`);
-    return fallback;
-  }
-}
 function loadTierRegexes2() {
   try {
     const p = join5(USER_HOME3, ".claude/model-tiers.json");
     if (!existsSync5(p))
-      return { high: FALLBACK_HIGH2, mid: FALLBACK_MID2 };
-    const j = safeJsonParse4(readFileSync4(p, "utf-8"));
-    const highRe = _safeRegex2(j?.tiers?.high?.regex, FALLBACK_HIGH2, "high");
-    const midRe = _safeRegex2(j?.tiers?.mid?.regex, FALLBACK_MID2, "mid");
+      return { high: FALLBACK_HIGH, mid: FALLBACK_MID };
+    const j = safeJsonParse3(readFileSync4(p, "utf-8"));
+    const highRe = _safeRegex(j?.tiers?.high?.regex, FALLBACK_HIGH, "high");
+    const midRe = _safeRegex(j?.tiers?.mid?.regex, FALLBACK_MID, "mid");
     return { high: highRe, mid: midRe };
   } catch {
-    return { high: FALLBACK_HIGH2, mid: FALLBACK_MID2 };
+    return { high: FALLBACK_HIGH, mid: FALLBACK_MID };
   }
 }
 var { high: HIGH_TIER_RE2, mid: MID_TIER_RE2 } = loadTierRegexes2();
@@ -2991,7 +2968,7 @@ function _loadDynamicPricingCache() {
       _dynamicPricingCache = {};
       return {};
     }
-    const raw = safeJsonParse4(readFileSync4(PRICING_CACHE_FILE2, "utf-8"));
+    const raw = safeJsonParse3(readFileSync4(PRICING_CACHE_FILE2, "utf-8"));
     const map = raw?.models && typeof raw.models === "object" ? raw.models : {};
     _dynamicPricingCache = map;
   } catch {
@@ -3124,7 +3101,7 @@ function loadSelection2() {
       _handleStateCorruption3(TIERS_FILE3);
       return DFLT_SEL2;
     }
-    const j = safeJsonParse4(readFileSync4(TIERS_FILE3, "utf-8"));
+    const j = safeJsonParse3(readFileSync4(TIERS_FILE3, "utf-8"));
     return {
       enabled: j?.selection?.enabled !== false,
       active_slot: j?.selection?.active_slot || null,
@@ -3154,13 +3131,13 @@ function parseJsonc(raw) {
   const noBlockComments = String(raw || "").replace(/\/\*[\s\S]*?\*\//g, "");
   const noLineComments = noBlockComments.replace(/(^|\s)\/\/.*$/gm, "$1");
   const noTrailingCommas = noLineComments.replace(/,\s*([}\]])/g, "$1");
-  return safeJsonParse4(noTrailingCommas);
+  return safeJsonParse3(noTrailingCommas);
 }
 function readOpenCodeConfigObject(dir) {
   const jsonPath = join5(dir, "opencode.json");
   const jsoncPath = join5(dir, "opencode.jsonc");
   if (existsSync5(jsonPath)) {
-    return safeJsonParse4(readFileSync4(jsonPath, "utf-8"));
+    return safeJsonParse3(readFileSync4(jsonPath, "utf-8"));
   }
   if (existsSync5(jsoncPath)) {
     return parseJsonc(readFileSync4(jsoncPath, "utf-8"));
@@ -3173,7 +3150,7 @@ function _refreshModel(directory3) {
     const sel = loadSelection2();
     if (!sel.enabled)
       return;
-    const tiersData = safeJsonParse4(readFileSync4(TIERS_FILE3, "utf-8"));
+    const tiersData = safeJsonParse3(readFileSync4(TIERS_FILE3, "utf-8"));
     const activeSlot = sel.active_slot || "brain";
     let slotOcModel = tiersData?.trinity?.[activeSlot]?.oc || "";
     if (slotOcModel && PLACEHOLDER_RE.test(slotOcModel)) {
@@ -3210,7 +3187,7 @@ function _refreshModel(directory3) {
         console.error(`[vibeOS] model refresh (config): ${oldModel}(${oldTier}) \u2192 ${currentModel}(${currentTier})`);
         try {
           if (existsSync5(TIERS_FILE3)) {
-            const t = safeJsonParse4(readFileSync4(TIERS_FILE3, "utf-8"));
+            const t = safeJsonParse3(readFileSync4(TIERS_FILE3, "utf-8"));
             for (const s of ["brain", "medium", "cheap"]) {
               if (t?.trinity?.[s]?.oc === cfgModel) {
                 t.selection.active_slot = s;
@@ -3231,7 +3208,7 @@ function _refreshModel(directory3) {
 }
 function applySlot2(slot) {
   try {
-    const j = safeJsonParse4(readFileSync4(TIERS_FILE3, "utf-8"));
+    const j = safeJsonParse3(readFileSync4(TIERS_FILE3, "utf-8"));
     const ocModel = j?.trinity?.[slot]?.oc;
     if (!ocModel)
       return { ok: false, reason: `slot '${slot}' has no oc model` };
@@ -3242,7 +3219,7 @@ function applySlot2(slot) {
     const localOcConfig = join5(process.cwd(), "opencode.json");
     const ocConfig = existsSync5(localOcConfig) ? localOcConfig : join5(USER_HOME3, ".config/opencode/opencode.json");
     if (existsSync5(ocConfig)) {
-      const oc = safeJsonParse4(readFileSync4(ocConfig, "utf-8"));
+      const oc = safeJsonParse3(readFileSync4(ocConfig, "utf-8"));
       oc.model = ocModel;
       writeFileSync4(ocConfig, JSON.stringify(oc, null, 2) + "\n");
     }
@@ -3255,7 +3232,7 @@ function applySlot2(slot) {
 
 // src/lib/turn-classify.js
 import { readFileSync as readFileSync5, writeFileSync as writeFileSync5, appendFileSync as appendFileSync5, existsSync as existsSync6, mkdirSync as mkdirSync5, statSync as statSync6, copyFileSync as copyFileSync4, renameSync as renameSync5, openSync as openSync3, closeSync as closeSync3, rmSync as rmSync3 } from "node:fs";
-import { join as join6, dirname as dirname5, basename as basename4 } from "node:path";
+import { join as join6, dirname as dirname5, basename as basename5 } from "node:path";
 import { homedir as homedir5, tmpdir as tmpdir4 } from "node:os";
 import { createHash as createHash3 } from "node:crypto";
 
@@ -3536,6 +3513,7 @@ function isApiFallback() {
 }
 async function remoteCall(method, args, fallbackFn) {
   if (!VIBEOS_API_ENABLED || _apiFallbackMode) {
+    console.error(`[vibeOS] remoteCall(${method}): skipped \u2014 enabled=${VIBEOS_API_ENABLED}, fallback=${_apiFallbackMode}`);
     if (fallbackFn)
       return fallbackFn();
     return null;
@@ -3543,6 +3521,7 @@ async function remoteCall(method, args, fallbackFn) {
   try {
     const client2 = getApiClient();
     if (!client2) {
+      console.error(`[vibeOS] remoteCall(${method}): no client`);
       if (fallbackFn)
         return fallbackFn();
       return null;
@@ -3552,6 +3531,7 @@ async function remoteCall(method, args, fallbackFn) {
     _apiFallbackSince = null;
     return result;
   } catch (err) {
+    console.error(`[vibeOS] remoteCall(${method}): caught error \u2014 ${err?.message || err}`);
     if (!_apiFallbackMode) {
       _apiFallbackMode = true;
       _apiFallbackSince = (/* @__PURE__ */ new Date()).toISOString();
@@ -3794,7 +3774,7 @@ var warnCoalesceCounters = /* @__PURE__ */ new Map();
 function _handleStateCorruption4(path) {
   const backupDir = join6(USER_HOME4, ".claude", ".backups");
   mkdirSync5(backupDir, { recursive: true });
-  const backupPath = join6(backupDir, basename4(path) + ".corrupted." + Date.now());
+  const backupPath = join6(backupDir, basename5(path) + ".corrupted." + Date.now());
   try {
     copyFileSync4(path, backupPath);
   } catch {
@@ -4368,7 +4348,7 @@ function researchAudit({ hours = 24, session: sessionFilter } = {}) {
 
 // src/lib/reporting.js
 import { readFileSync as readFileSync7, writeFileSync as writeFileSync6, existsSync as existsSync8, mkdirSync as mkdirSync6, statSync as statSync7, copyFileSync as copyFileSync5, rmSync as rmSync4 } from "node:fs";
-import { join as join8, basename as basename5 } from "node:path";
+import { join as join8, basename as basename6 } from "node:path";
 import { homedir as homedir7, tmpdir as tmpdir6 } from "node:os";
 var USER_HOME6 = (() => {
   try {
@@ -4385,7 +4365,7 @@ var currentProjectName2 = "";
 function _handleStateCorruption5(path) {
   const backupDir = join8(USER_HOME6, ".claude", ".backups");
   mkdirSync6(backupDir, { recursive: true });
-  const backupPath = join8(backupDir, basename5(path) + ".corrupted." + Date.now());
+  const backupPath = join8(backupDir, basename6(path) + ".corrupted." + Date.now());
   try {
     copyFileSync5(path, backupPath);
   } catch {
@@ -4573,7 +4553,7 @@ function readReport(id2) {
 // src/lib/credit-api.js
 import { readFileSync as readFileSync8, writeFileSync as writeFileSync7, existsSync as existsSync9 } from "node:fs";
 import { join as join9 } from "node:path";
-function safeJsonParse5(raw) {
+function safeJsonParse4(raw) {
   try {
     return JSON.parse(raw);
   } catch {
@@ -4589,14 +4569,14 @@ function _cachedPct() {
   try {
     if (!existsSync9(CREDIT_CACHE_F))
       return null;
-    const s = safeJsonParse5(readFileSync8(CREDIT_CACHE_F, "utf-8"));
+    const s = safeJsonParse4(readFileSync8(CREDIT_CACHE_F, "utf-8"));
     if (s?.total == null || !s.ts)
       return null;
     let budget = 50;
     try {
       const p = join9(USER_HOME2, ".claude/model-tiers.json");
       if (existsSync9(p)) {
-        const j = safeJsonParse5(readFileSync8(p, "utf-8"));
+        const j = safeJsonParse4(readFileSync8(p, "utf-8"));
         if (j?.selection?.monthly_budget_usd)
           budget = j.selection.monthly_budget_usd;
       }
@@ -4799,13 +4779,14 @@ import { homedir as homedir8, tmpdir as tmpdir7 } from "node:os";
 
 // src/lib/hooks/chat-transform.js
 import { readFileSync as readFileSync10, writeFileSync as writeFileSync9, existsSync as existsSync11, mkdirSync as mkdirSync7 } from "node:fs";
-import { join as join12, basename as basename6 } from "node:path";
+import { join as join12, basename as basename7 } from "node:path";
 import { createHash as createHash4 } from "node:crypto";
 
 // src/lib/index-helpers.js
 import { join as join11 } from "node:path";
 import { writeFileSync as writeFileSync8 } from "node:fs";
-var activeJob = null;
+
+// src/lib/text-compress.js
 var VERBOSE_LINE_RE = [
   /^[\s#*/\\\-_=+|~:;'"`@\$%^&<>{}\[\]()!?.,0-9]+$/,
   /^(Filed|Created|Modified|Deleted|Updated|Renamed|Copied|Moved|Changed):/,
@@ -4837,19 +4818,6 @@ function extractBulletLines(lines, targetChars, minLines) {
     selected.pop();
   }
   return selected;
-}
-function setActiveJobFromTaskPrompt(prompt) {
-  if (!prompt || typeof prompt !== "string")
-    return;
-  const p = prompt.trim();
-  if (p.length < 24)
-    return;
-  activeJob = {
-    prompt: p.slice(0, 1200),
-    keywords: topKeywords(p, 12),
-    updatedAt: (/* @__PURE__ */ new Date()).toISOString()
-  };
-  saveActiveJobForProject(activeJob);
 }
 function compressText(text) {
   if (!text || typeof text !== "string")
@@ -4902,6 +4870,22 @@ function compressText(text) {
     console.error(`[vibeOS] COMPRESS: ${text.length}->${result.length} chars (${removed} verbose lines stripped)`);
   }
   return result || text;
+}
+
+// src/lib/index-helpers.js
+var activeJob = null;
+function setActiveJobFromTaskPrompt(prompt) {
+  if (!prompt || typeof prompt !== "string")
+    return;
+  const p = prompt.trim();
+  if (p.length < 24)
+    return;
+  activeJob = {
+    prompt: p.slice(0, 1200),
+    keywords: topKeywords(p, 12),
+    updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  saveActiveJobForProject(activeJob);
 }
 function noteProjectPattern(kind, key, summary, meta = {}) {
   if (!currentProjectFingerprint || !key || !summary)
@@ -5257,14 +5241,14 @@ function observeUserCorrection(text) {
   }
 }
 function buildProjectBriefing(directory3) {
-  const label = currentProjectName || (directory3 ? basename6(directory3) : "");
+  const label = currentProjectName || (directory3 ? basename7(directory3) : "");
   if (!label)
     return null;
   return `[project memory] Active project: ${label}. Stay focused on the current repository and prefer the existing workflow.`;
 }
 function ensureProjectSkill(dir, fp3) {
   const skillsDir = join12(dir, ".opencode", "skills");
-  const projectName = basename6(dir);
+  const projectName = basename7(dir);
   const skillDir = join12(skillsDir, projectName);
   const skillPath = join12(skillDir, "SKILL.md");
   if (existsSync11(skillPath)) {
@@ -5675,7 +5659,9 @@ async function apiAutoSelectMode(regime, stress) {
     const res = await remoteCall("blackboxSelectMode", [regime, stress], null);
     if (res?.mode)
       return res.mode;
-  } catch {
+    console.error("[vibeOS] apiAutoSelectMode: remoteCall returned", res);
+  } catch (e) {
+    console.error("[vibeOS] apiAutoSelectMode: error", e?.message || e);
   }
   return "balanced";
 }
@@ -5927,7 +5913,7 @@ async function _appendFooter(input, output, directory3) {
 
 // src/lib/hooks/tool-execute.js
 import { writeFileSync as writeFileSync11, appendFileSync as appendFileSync7, existsSync as existsSync13, mkdirSync as mkdirSync9 } from "node:fs";
-import { dirname as dirname7, basename as basename7 } from "node:path";
+import { dirname as dirname7, basename as basename8 } from "node:path";
 init_flow_enforcer();
 
 // src/lib/tdd-enforcer.js
@@ -7437,7 +7423,7 @@ var onToolExecuteBefore = async (input, output) => {
     if (sel.delegation_enforce && currentTier === "high" && args && typeof args === "object") {
       const actualArgs = args || output && output.args || {};
       const originalPath = actualArgs.filePath || actualArgs.file_path || "";
-      const basename9 = originalPath.split("/").pop() || "blocked";
+      const basename10 = originalPath.split("/").pop() || "blocked";
       const apiResult = await remoteCall("delegateCheck", [tLower, currentTier, currentModel, _prompt], () => ({
         blocked: true,
         savings: _estEdit
@@ -7446,7 +7432,7 @@ var onToolExecuteBefore = async (input, output) => {
       const savings = apiResult?.savings ?? _estEdit;
       if (isBlocked) {
         if (tLower === "write") {
-          actualArgs.filePath = `/tmp/vibeos-enforcement-blocked-${basename9}`;
+          actualArgs.filePath = `/tmp/vibeos-enforcement-blocked-${basename10}`;
           if (actualArgs.file_path !== void 0)
             actualArgs.file_path = actualArgs.filePath;
         } else if (tLower === "edit" || tLower === "notebookedit") {
@@ -7735,7 +7721,7 @@ ${pendingUiNote}`;
       if (guardRe.test(fp4)) {
         const guardIcons = { flag: "!", warn: "!!", hint: "_" };
         const guardIcon = guardIcons.flag || "!";
-        const fn = basename7(fp4);
+        const fn = basename8(fp4);
         console.error(`[flow-enforcer] ${guardIcon} [guard] ${fn}: protected project doc modified \u2014 verify user intent`);
       }
     }

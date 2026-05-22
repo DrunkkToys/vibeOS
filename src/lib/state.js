@@ -1,10 +1,11 @@
 // @ts-nocheck
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, statSync, readdirSync, openSync, readSync, closeSync, rmSync, copyFileSync, renameSync } from "node:fs";
-import { join, dirname, relative, basename } from "node:path";
+import { join, dirname, basename } from "node:path";
 import { spawn } from "node:child_process";
 import { homedir, tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { loadSelection, writeSelection, DFLT_SEL } from "./selection-manager.js";
+import { _computeSessionMetrics, _pruneOldSessions } from "./pattern-helpers.js";
 // ── File system constants ────────────────────────────────────────────
 const USER_HOME = (() => { try {
     return homedir();
@@ -216,7 +217,7 @@ function withFileLock(filePath, fn, opts = {}) {
     throw new Error(`[vibeOS] lock not acquired for ${filePath} after ${timeoutMs}ms`);
 }
 // ── JSONC-tolerant JSON.parse ────────────────────────────────────────
-export function safeJsonParse(raw) {
+function safeJsonParse(raw) {
     if (raw == null || raw === '')
         return null;
     try {
@@ -348,7 +349,7 @@ function roundUsd(v) {
 // ── Tier regexes ─────────────────────────────────────────────────────
 const FALLBACK_HIGH = /opus|gemini-.*-pro|deepseek\/deepseek-v4-pro|gpt-5|(^|\/)o[134]($|-|\/)/i;
 const FALLBACK_MID = /deepseek\/deepseek-v4-flash|claude.*sonnet|gemini-.*-flash|gpt-4o(?!-mini)/i;
-function _safeRegex(cfg, fallback, label) {
+export function _safeRegex(cfg, fallback, label) {
     if (!cfg)
         return fallback;
     try {
@@ -1042,39 +1043,6 @@ function ensureProjectBucket(state, fp) {
     }
     return state.project_hashes[fp];
 }
-function mergeProjectBucket(dst, src) {
-    const a = dst || {};
-    const b = src || {};
-    const topics = [...new Set([...(a.commonTopics || []), ...(b.commonTopics || [])])].slice(-20);
-    const mergePatterns = (kind) => {
-        const out = {};
-        for (const srcObj of [a.userPatterns?.[kind], b.userPatterns?.[kind]]) {
-            for (const [key, val] of Object.entries(srcObj || {})) {
-                const v = val;
-                const row = out[key] || { count: 0, sessions: [], lastSeen: null, summary: v?.summary || "" };
-                row.count += Number(v?.count || 0);
-                row.sessions = [...new Set([...(row.sessions || []), ...(v?.sessions || [])])].slice(-10);
-                row.lastSeen = [row.lastSeen, v?.lastSeen].filter(Boolean).sort().slice(-1)[0] || null;
-                row.summary = row.summary || v?.summary || "";
-                if (v?.kind)
-                    row.kind = v.kind;
-                out[key] = row;
-            }
-        }
-        return out;
-    };
-    return {
-        totalSessions: (a.totalSessions || 0) + (b.totalSessions || 0),
-        researchChains: Math.max(a.researchChains || 0, b.researchChains || 0),
-        context7Bypasses: (a.context7Bypasses || 0) + (b.context7Bypasses || 0),
-        commonTopics: topics,
-        userPatterns: {
-            friction: mergePatterns("friction"),
-            routines: mergePatterns("routines"),
-        },
-        lastSeen: [a.lastSeen, b.lastSeen].filter(Boolean).sort().slice(-1)[0] || new Date().toISOString(),
-    };
-}
 // ── Tech stack detection ─────────────────────────────────────────────
 function detectTechStack(dir) {
     const stacks = [];
@@ -1109,57 +1077,6 @@ function detectTechStack(dir) {
     }
     catch { }
     return [...new Set(stacks)];
-}
-// ── Path normalization / command helpers ─────────────────────────────
-function normalizeObservedPath(filePath, directory) {
-    if (!filePath || typeof filePath !== "string")
-        return "unknown";
-    let p = filePath;
-    try {
-        if (directory && p.startsWith("/")) {
-            const rel = relative(directory, p);
-            if (rel && !rel.startsWith("..") && !rel.startsWith("/"))
-                p = rel;
-        }
-    }
-    catch { }
-    p = p.replace(/\\/g, "/").replace(/^\.\/+/, "");
-    if (/^(src\/index\.js|package\.json|README\.md|CHANGELOG\.md|tsconfig\.json)$/i.test(p))
-        return p;
-    const m = p.match(/\.([a-z0-9]+)$/i);
-    if (p.startsWith("src/") && m)
-        return `src/*.${m[1].toLowerCase()}`;
-    if (p.startsWith("tests/") && m)
-        return `tests/*.${m[1].toLowerCase()}`;
-    return basename(p) || "unknown";
-}
-function commandFamily(command) {
-    const c = String(command || "").trim().toLowerCase();
-    if (!c)
-        return "unknown";
-    if (/\bnode\s+--check\b/.test(c))
-        return "syntax-check";
-    if (/\bnpm\s+run\s+typecheck\b|\btsc\b.*--noemit/.test(c))
-        return "typecheck";
-    if (/\bnpm\s+test\b|\bnode\s+--test\b|\bvitest\b|\bjest\b|\bpytest\b/.test(c))
-        return "test";
-    if (/\bnpm\s+run\s+build\b|\btsc\s+-p\b/.test(c))
-        return "build";
-    if (/\bgit\s+status\b/.test(c))
-        return "git-status";
-    if (/\bgit\s+commit\b/.test(c))
-        return "git-commit";
-    const first = c.replace(/^[a-z_][a-z0-9_]*=\S+\s+/g, "").split(/\s+/)[0];
-    return /^[a-z0-9._/-]{1,30}$/.test(first) ? first : "command";
-}
-function commandFailed(output) {
-    const code = output?.exitCode ?? output?.statusCode ?? output?.code;
-    if (Number.isFinite(Number(code)) && Number(code) !== 0)
-        return true;
-    const raw = output?.result ?? output?.text ?? output?.content ?? output?.data ?? "";
-    if (typeof raw !== "string")
-        return false;
-    return /\b(exit code|exited with code)\s*[:=]?\s*[1-9]\b|\b(assertionerror|syntaxerror|typeerror|referenceerror)\b|\b(failed|error:|err!)\b/i.test(raw);
 }
 // ── Pattern learning ─────────────────────────────────────────────────
 function promotedProjectPatterns(fp) {
@@ -1273,20 +1190,6 @@ function getLastLines(filePath, n = 5, maxBytes = 1024) {
 function getLastLine(filePath) {
     const lines = getLastLines(filePath, 1, 200);
     return lines[0] || "";
-}
-// ── Session pruning ──────────────────────────────────────────────────
-function _pruneOldSessions(state) {
-    if (!state?.sessions)
-        return;
-    const entries = Object.entries(state.sessions);
-    if (entries.length <= 30)
-        return;
-    entries.sort((a, b) => {
-        const da = a[1]?.started || a[1]?.last_costed || "";
-        const db = b[1]?.started || b[1]?.last_costed || "";
-        return db.localeCompare(da);
-    });
-    state.sessions = Object.fromEntries(entries.slice(0, 30));
 }
 function loadScrapbookIndex() {
     try {
@@ -1597,32 +1500,6 @@ function saveSessionCheckpoint() {
     }
     catch { }
 }
-// ── Lightweight computeSessionMetrics (replacement to avoid circular dependency) ──
-function _computeSessionMetrics(state, sid) {
-    const session = state?.sessions?.[sid] || {};
-    const warns = Array.isArray(session?.warns) ? session.warns : [];
-    const toolCounts = session?.tool_counts || {};
-    const toolBreakdown = {};
-    for (const [t, c] of Object.entries(toolCounts)) {
-        toolBreakdown[String(t)] = Number(c || 0);
-    }
-    const startedAt = session?.started ? new Date(session.started).getTime() : Date.now();
-    const durationSec = Math.floor((Date.now() - startedAt) / 1000);
-    const hours = Math.max(durationSec / 3600, 0.001);
-    return {
-        ltTasks: Number(state?.lifetime?.total_savings_usd || state?.lifetime?.est_savings_usd || 0),
-        ltCache: Number(state?.lifetime?.cache_savings_usd || 0),
-        missedC7: Number(state?.lifetime?.missed_context7_usd || 0),
-        count: warns.length,
-        sesTasks: Number(session?.total_savings_usd || 0),
-        sesDuration: durationSec,
-        sesRatePerHour: Number((((session?.total_savings_usd || 0) + (session?.cache_savings_usd || 0)) / hours).toFixed(2)),
-        sesTrend: "stable",
-        sesToolBreakdown: toolBreakdown,
-        sesModelTurns: session?.model_turns || { brain: 0, worker: 0 },
-        quality_avg: 0,
-    };
-}
 // ── Export ───────────────────────────────────────────────────────────
 export { 
 // File system constants
@@ -1649,6 +1526,8 @@ DFLT_SEL, loadSelection, writeSelection,
 DFLT_GL, loadGlobalLearning, updateGlobalLearning, getLearnedExploratoryWords, 
 // Blackbox state
 _blackboxTracker, _blackboxEnabled, _latestBlackboxState, _latestBlackboxLoopMsg, _latestBlackboxPivotMsg, _modelLocked, _detectedFramework, 
+// JSONC parsing
+safeJsonParse, 
 // State management
 validateState, readJsonOrEmpty, updateState, readFullState, writeFullState, withFileLock, _lockPathFor, _handleStateCorruption, 
 // Session scratchpad
@@ -1662,15 +1541,11 @@ scratchpadHitsSeen, scanRecentScratchpad, getScratchpadHit, recordScratchpadObse
 // Active jobs
 loadActiveJobs, getActiveJobForProject, saveActiveJobForProject, saveJobRecord, loadJobRecord, 
 // Project memory
-projectFingerprint, loadProjectState, saveProjectState, ensureProjectBucket, mergeProjectBucket, detectTechStack, 
-// Path normalization / command helpers
-normalizeObservedPath, commandFamily, commandFailed, 
+projectFingerprint, loadProjectState, saveProjectState, ensureProjectBucket, detectTechStack, 
 // Pattern learning
 promotedProjectPatterns, projectPatternRows, clearProjectPatterns, 
 // Log rotation
 _rotateLog, getLastLines, getLastLine, 
-// Session pruning
-_pruneOldSessions, 
 // Scrapbook index
 loadScrapbookIndex, saveScrapbookIndex, rebuildScrapbookIndex, 
 // Savings operations
