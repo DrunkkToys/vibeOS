@@ -1,3 +1,13 @@
+## 0.15.3
+- fix: remove sticky fallback flag that kills auto mode after single API failure
+- refactor: architecture simplification and scale readiness
+- docs: update vibeOS skills to match current plugin behavior
+- docs: update vibeOS skills to match current plugin behavior
+- chore: finalize cleanup
+- chore: update import paths for vibeOScore monorepo migration
+Merge pull request #32 from DrunkkToys/refactor/architecture-simplify-scale
+
+
 ## 0.15.2
 - fix: add missing mergeProjectBucket re-export in state module
 - fix: update pricing.js import assertion to handle additional state imports
