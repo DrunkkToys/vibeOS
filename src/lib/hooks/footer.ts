@@ -12,13 +12,21 @@ import { remoteCall } from "../api-client.js"
 import { SAVE_EST } from "../constants.js"
 
 let _cachedAutoMode = null
+let _cachedAutoModeTs = 0
+const AUTO_CACHE_TTL = 60000
 
 async function apiAutoSelectMode(regime, stress) {
+  const now = Date.now()
+  if (_cachedAutoMode && now - _cachedAutoModeTs < AUTO_CACHE_TTL) return _cachedAutoMode
   try {
     const res = await remoteCall('blackboxSelectMode', [regime, stress], null)
-    if (res?.mode) return res.mode
-  } catch {}
-  return "balanced"
+    if (res?.mode) {
+      _cachedAutoMode = res.mode
+      _cachedAutoModeTs = now
+      return res.mode
+    }
+  } catch (e) { console.error("[vibeOS] apiAutoSelectMode error:", e.message) }
+  return _cachedAutoMode || "balanced"
 }
 
 const USER_HOME = (() => { try { return homedir() } catch { return tmpdir() } })()

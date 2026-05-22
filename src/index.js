@@ -6690,14 +6690,23 @@ var onSystemTransform = async (_input, output) => {
 };
 
 // src/lib/hooks/footer.js
+var _cachedAutoMode = null;
+var _cachedAutoModeTs = 0;
+var AUTO_CACHE_TTL = 6e4;
 async function apiAutoSelectMode(regime, stress) {
+  const now = Date.now();
+  if (_cachedAutoMode && now - _cachedAutoModeTs < AUTO_CACHE_TTL) return _cachedAutoMode;
   try {
     const res = await remoteCall("blackboxSelectMode", [regime, stress], null);
-    if (res?.mode)
+    if (res?.mode) {
+      _cachedAutoMode = res.mode;
+      _cachedAutoModeTs = now;
       return res.mode;
-  } catch {
+    }
+  } catch (e) {
+    console.error("[vibeOS] apiAutoSelectMode error:", e.message);
   }
-  return "balanced";
+  return _cachedAutoMode || "balanced";
 }
 var USER_HOME7 = (() => {
   try {
