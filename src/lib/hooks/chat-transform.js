@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { homedir } from 'node:os';
 import { createHash } from 'node:crypto';
-import { currentModel, currentProjectName, _blackboxEnabled, loadSelection, writeSelection, safeJsonParse, applyDecadence, getSessionScratchpadDir, ensureSessionScratchpadDirs, indexAppend, getActiveJobForProject, loadTodos, promotedProjectPatterns, detectTechStack, TRINITY_OPENCODE_CONFIG, TIERS_FILE, loadGlobalLearning, setCurrentModel, setCurrentTier, } from '../state.js';
+import { currentModel, currentProjectFingerprint, currentProjectName, _blackboxEnabled, loadSelection, writeSelection, safeJsonParse, applyDecadence, getSessionScratchpadDir, ensureSessionScratchpadDirs, indexAppend, briefedProjects, getActiveJobForProject, loadTodos, promotedProjectPatterns, detectTechStack, TRINITY_OPENCODE_CONFIG, TIERS_FILE, loadGlobalLearning, setCurrentModel, setCurrentTier, } from '../state.js';
 import { TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN, } from '../pricing.js';
 import { scoreStress, classifyTurnSimple, loadOptimizationMode, saveOptimizationMode, getBlackboxTracker, loadBlackboxState as loadBlackboxStateFromCtx, saveBlackboxState as saveBlackboxStateToCtx, extractLastUserText, isLikelyOffTopic, fetchBlackboxEnrichment, estimateContextBudget, buildControlHistoryEntry, } from '../turn-classify.js';
 import { remoteCall } from '../api-client.js';
@@ -13,14 +13,11 @@ import { noteProjectPattern } from '../index-helpers.js';
 import { saveSessionStress } from '../index-helpers.js';
 import { COMPRESS_THRESHOLD, KEEP_HOT, COMPRESS_MARKER, PROTOCOL_MARKER, PROTOCOL_TEXT } from "../constants.js";
 let latestUserIntent = null;
-let currentProjectFingerprint = '';
-let fp = '';
 let _OC_SID = 'opencode-' + (process.pid || 'x') + '-' + Date.now();
 let _latestBlackboxState = null;
 let _latestBlackboxLoopMsg = null;
 let _latestBlackboxPivotMsg = null;
 let _prevOutputText = '';
-const briefedProjects = new Set();
 const correctionSeenKeys = new Set();
 async function apiComputeControlVector(state, action, optimizationMode) {
     try {
@@ -551,16 +548,35 @@ export const onSystemTransform = async (_input, output) => {
             }
         }
         // Project memory briefing: one-shot per session
-        if (!briefedProjects.has(fp)) {
+        if (!briefedProjects.has(currentProjectFingerprint)) {
             const briefing = buildProjectBriefing(currentProjectName || "");
             if (briefing && Array.isArray(output?.system)) {
                 output.system.push(briefing);
-                briefedProjects.add(fp);
-                console.error(`[vibeOS] project-memory: briefing injected for ${fp}`);
+                briefedProjects.add(currentProjectFingerprint);
+                console.error(`[vibeOS] project-memory: briefing injected for ${currentProjectFingerprint}`);
+            }
+        }
+        // Pattern injection: learned routines & frictions — one-shot per fingerprint
+        if (!briefedProjects.has("vibeos_patterns_" + currentProjectFingerprint)) {
+            const patterns = promotedProjectPatterns(currentProjectFingerprint);
+            if (patterns && patterns.length > 0 && Array.isArray(output?.system)) {
+                const routines = patterns.filter(p => p.label === 'routine');
+                const frictions = patterns.filter(p => p.label === 'friction');
+                const parts = [];
+                if (routines.length > 0) {
+                    parts.push("Routines: " + routines.map(r => r.summary).join("; "));
+                }
+                if (frictions.length > 0) {
+                    parts.push("Frictions: " + frictions.map(f => f.summary).join("; "));
+                }
+                if (parts.length > 0) {
+                    output.system.push("[project patterns] " + parts.join(". ") + ".");
+                    briefedProjects.add("vibeos_patterns_" + currentProjectFingerprint);
+                }
             }
         }
         // vibeOS welcome banner — one-shot per project fingerprint
-        if (!briefedProjects.has("trinity_welcome_" + fp)) {
+        if (!briefedProjects.has("trinity_welcome_" + currentProjectFingerprint)) {
             if (Array.isArray(output?.system)) {
                 const sel = loadSelection();
                 let tiers = {};
@@ -574,7 +590,7 @@ export const onSystemTransform = async (_input, output) => {
                     "Use trinity command to switch slots, rebuild, or check status. " +
                     "Run \`trinity help\` for all commands.";
                 output.system.push(trinityTip);
-                briefedProjects.add("trinity_welcome_" + fp);
+                briefedProjects.add("trinity_welcome_" + currentProjectFingerprint);
             }
         }
         // vibeOS Dashboard display directive — ask once, instruct permanently
