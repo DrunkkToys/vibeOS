@@ -194,7 +194,7 @@ async function _appendFooter(input, output, directory) {
         const autoStress = scoreStress(latestUserIntent || "")
         const autoActive = await apiAutoSelectMode(autoRegime, autoStress)
         const autoTag = { audit: "AUDIT", budget: "BUDGET", quality: "QUALITY", speed: "SPEED", longrun: "LONGRUN", balanced: "BALANCED" }
-        optTagFooter = `[AUTO→${autoTag[autoActive] || autoActive.toUpperCase()}]`
+        optTagFooter = `[VIBE→${autoTag[autoActive] || autoActive.toUpperCase()}]`
         saveOptimizationMode(autoActive)
         const slot = autoActive === "quality" ? "brain" : autoActive === "speed" ? "medium" : "cheap"
         if (!_modelLocked) {
