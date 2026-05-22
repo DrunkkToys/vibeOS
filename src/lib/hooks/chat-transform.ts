@@ -68,7 +68,7 @@ async function apiComputeControlVector(state: any, action: any, optimizationMode
   const isRelaxed = opt === "budget" || opt === "speed" || opt === "audit"
   const isStrict = opt === "quality"
   return {
-    enforcement_mode: isStrict ? "strict" : isRelaxed ? "relaxed" : "normal",
+    enforcement_mode: isStrict ? "strict" : "normal",
     enforcement_reason: `[optimize: ${opt}] offline fallback`,
     flow_mode: isStrict ? "strict" : isRelaxed ? "audit" : "normal",
     flow_focus: [],
