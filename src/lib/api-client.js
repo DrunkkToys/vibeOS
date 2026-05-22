@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { VibeOSApiClient } from "../vibeOS-api-server/client.js";
+import { VibeOSApiClient } from "vibeOScore/client";
 // ── Remote API client (Phase 2) ─────────────────────────────────────
 export const VIBEOS_API_URL = process.env.VIBEOS_API_URL || "https://api.vibetheog.com";
 export const VIBEOS_API_TOKEN = process.env.VIBEOS_API_TOKEN || "vos_59d73aa4b7838a7ca9dafe957993177b5629c7954091db3350b4150882ff7064";

@@ -1,6 +1,6 @@
 // @ts-nocheck
 
-import { VibeOSApiClient, VibeOSAuthError, VibeOSTimeoutError, VibeOSNetworkError } from "../vibeOS-api-server/client.js"
+import { VibeOSApiClient, VibeOSAuthError, VibeOSTimeoutError, VibeOSNetworkError } from "vibeOScore/client"
 
 // ── Remote API client (Phase 2) ─────────────────────────────────────
 export const VIBEOS_API_URL = process.env.VIBEOS_API_URL || "https://api.vibetheog.com"
