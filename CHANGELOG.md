@@ -1,3 +1,7 @@
+## 0.15.7
+- fix: auto mode now actually applies optimization mode from API response
+
+
 ## 0.15.6
 - fix: auto mode cache with TTL 60s, preserve last mode on API failure
 
