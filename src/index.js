@@ -6241,71 +6241,7 @@ function isSkeletonUseless(content) {
   return meaningfulLines.length < 2;
 }
 
-// src/lib/tdd-enforcer.js
-var _detectedFramework = null;
-var directory = void 0;
-var SOURCE_EXT_RE = /\.(py|js|ts|mjs|tsx|jsx|cjs|mts|sh|go|rs|rb|java|kt)$/i;
-var SKIP_PATH_RE = /(\/(node_modules|\.venv|dist|build|__pycache__)\/|\/(tests?|spec)\/|test_[^/]+\.py$|_test\.py$|\.test\.[a-z]+$|\.spec\.[a-z]+$|\.config\/opencode\/plugins\/)/i;
-function _detectTestFramework() {
-  if (_detectedFramework)
-    return _detectedFramework;
-  let framework = null;
-  let testExt = null;
-  try {
-    const root = directory || process.cwd();
-    const pkgPath = join14(root, "package.json");
-    if (existsSync12(pkgPath)) {
-      const pkg = JSON.parse(readFileSync12(pkgPath, "utf-8"));
-      const testScript = String(pkg?.scripts?.test || "");
-      const deps = { ...pkg?.devDependencies, ...pkg?.dependencies };
-      if (testScript.includes("vitest") || deps["vitest"]) {
-        framework = "vitest";
-        testExt = "ts";
-      } else if (testScript.includes("jest") || deps["jest"]) {
-        framework = "jest";
-        testExt = "js";
-      } else if (testScript.includes("mocha") || deps["mocha"]) {
-        framework = "mocha";
-        testExt = "js";
-      } else if (/node\s+--test/.test(testScript)) {
-        framework = "node-test";
-        testExt = "js";
-      }
-    }
-    if (!framework) {
-      const testDirs = ["src/tests", "tests", "test", "__tests__"];
-      for (const td of testDirs) {
-        const dirPath = join14(root, td);
-        if (!existsSync12(dirPath))
-          continue;
-        const files = readdirSync2(dirPath).filter((f) => /\.test\./.test(f) || /\.spec\./.test(f));
-        if (files.length > 0) {
-          const content = readFileSync12(join14(dirPath, files[0]), "utf-8");
-          if (/from\s+['"]node:test['"]/.test(content)) {
-            framework = "node-test";
-            testExt = files[0].split(".").pop();
-            break;
-          }
-          if (/from\s+['"]vitest['"]/.test(content)) {
-            framework = "vitest";
-            testExt = files[0].split(".").pop();
-            break;
-          }
-          if (/require\(['"]@jest\/globals['"]\)/.test(content)) {
-            framework = "jest";
-            testExt = files[0].split(".").pop();
-            break;
-          }
-        }
-      }
-    }
-  } catch (e) {
-    console.error(`[vibeOS] [tdd] framework detection failed: ${e.message}`);
-  }
-  _detectedFramework = { framework, testExt };
-  console.error(`[vibeOS] [tdd] detected test framework: ${framework || "default"} (ext: ${testExt || "match source"})`);
-  return _detectedFramework;
-}
+// src/lib/test-skeletons.js
 var TEST_SKELETONS = {
   py: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => {
     const moduleImport = name.replace(/-/g, "_");
@@ -7021,6 +6957,73 @@ mod tests {
     return content;
   }
 };
+var test_skeletons_default = TEST_SKELETONS;
+
+// src/lib/tdd-enforcer.js
+var _detectedFramework = null;
+var directory = void 0;
+var SOURCE_EXT_RE = /\.(py|js|ts|mjs|tsx|jsx|cjs|mts|sh|go|rs|rb|java|kt)$/i;
+var SKIP_PATH_RE = /(\/(node_modules|\.venv|dist|build|__pycache__)\/|\/(tests?|spec)\/|test_[^/]+\.py$|_test\.py$|\.test\.[a-z]+$|\.spec\.[a-z]+$|\.config\/opencode\/plugins\/)/i;
+function _detectTestFramework() {
+  if (_detectedFramework)
+    return _detectedFramework;
+  let framework = null;
+  let testExt = null;
+  try {
+    const root = directory || process.cwd();
+    const pkgPath = join14(root, "package.json");
+    if (existsSync12(pkgPath)) {
+      const pkg = JSON.parse(readFileSync12(pkgPath, "utf-8"));
+      const testScript = String(pkg?.scripts?.test || "");
+      const deps = { ...pkg?.devDependencies, ...pkg?.dependencies };
+      if (testScript.includes("vitest") || deps["vitest"]) {
+        framework = "vitest";
+        testExt = "ts";
+      } else if (testScript.includes("jest") || deps["jest"]) {
+        framework = "jest";
+        testExt = "js";
+      } else if (testScript.includes("mocha") || deps["mocha"]) {
+        framework = "mocha";
+        testExt = "js";
+      } else if (/node\s+--test/.test(testScript)) {
+        framework = "node-test";
+        testExt = "js";
+      }
+    }
+    if (!framework) {
+      const testDirs = ["src/tests", "tests", "test", "__tests__"];
+      for (const td of testDirs) {
+        const dirPath = join14(root, td);
+        if (!existsSync12(dirPath))
+          continue;
+        const files = readdirSync2(dirPath).filter((f) => /\.test\./.test(f) || /\.spec\./.test(f));
+        if (files.length > 0) {
+          const content = readFileSync12(join14(dirPath, files[0]), "utf-8");
+          if (/from\s+['"]node:test['"]/.test(content)) {
+            framework = "node-test";
+            testExt = files[0].split(".").pop();
+            break;
+          }
+          if (/from\s+['"]vitest['"]/.test(content)) {
+            framework = "vitest";
+            testExt = files[0].split(".").pop();
+            break;
+          }
+          if (/require\(['"]@jest\/globals['"]\)/.test(content)) {
+            framework = "jest";
+            testExt = files[0].split(".").pop();
+            break;
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.error(`[vibeOS] [tdd] framework detection failed: ${e.message}`);
+  }
+  _detectedFramework = { framework, testExt };
+  console.error(`[vibeOS] [tdd] detected test framework: ${framework || "default"} (ext: ${testExt || "match source"})`);
+  return _detectedFramework;
+}
 var ENFORCEMENT_LOCK_DIR = join14(USER_HOME2, ".claude/.enforcement-lock");
 var LOCK_EXPIRE_MS = 3e4;
 var ENFORCEMENT_COOLDOWN_FILE2 = join14(USER_HOME2, ".claude/.enforcement-cooldown.jsonl");
@@ -7109,7 +7112,7 @@ function buildTestSkeleton(filePath, sourceContent = "", options = {}) {
     return null;
   const [, name, ext] = m;
   const extLower = ext.toLowerCase();
-  const skeletonFn = TEST_SKELETONS[extLower];
+  const skeletonFn = test_skeletons_default[extLower];
   if (!skeletonFn)
     return null;
   const strict = options.strict !== void 0 ? options.strict : true;
