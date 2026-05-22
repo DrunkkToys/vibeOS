@@ -1,3 +1,7 @@
+## 0.15.12
+- fix: restore global scratchpad cache for savings, keep per-session content isolation
+
+
 ## 0.15.11
 - fix: externalize vibeOScore in esbuild for CI build
 - fix: rebuild index.js with guarded __dirname for ESM compat
