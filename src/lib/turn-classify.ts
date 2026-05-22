@@ -704,3 +704,5 @@ export {
   withFileLock,
   readJsonOrEmpty,
 }
+
+export function resetBlackboxTracker() { _blackboxTracker = null }

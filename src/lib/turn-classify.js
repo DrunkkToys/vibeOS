@@ -725,3 +725,5 @@ extractFirstWordFromArgs, shouldLogWarn, noteTaskRoutingLearning,
 recordMissedContext7, 
 // State helpers
 updateState, loadProjectState, saveProjectState, ensureProjectBucket, projectFingerprint, withFileLock, readJsonOrEmpty, };
+
+export function resetBlackboxTracker() { _blackboxTracker = null }

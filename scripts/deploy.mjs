@@ -9,15 +9,12 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, "..")
 
 const srcPath = join(ROOT, "src", "index.js")
-const srcMcpServerPath = join(ROOT, "src", "vibeOS-mcp-server.js")
 const srcLibDir = join(ROOT, "src", "vibeOS-lib")
-const srcCommonLibDir = join(ROOT, "src", "lib")
-const srcDashboardDistDir = join(ROOT, "src", "dashboard", "dist")
 const pluginDir = join(homedir(), ".config", "opencode", "plugins")
 const destPath = join(pluginDir, "vibeOS.js")
-const destMcpServerPath = join(pluginDir, "vibeOS-mcp-server.js")
 const destLibDir = join(pluginDir, "vibeOS-lib")
-const destCommonLibDir = join(pluginDir, "lib")
+
+// vibeOS-api-server, vibeOS-mcp-server, and dashboard now live in vibeOScore package
 
 if (!existsSync(srcPath)) {
   process.stderr.write("[vibeOS deploy] ERROR: src/index.js not found\n")
@@ -30,20 +27,7 @@ try {
   }
   const src = readFileSync(srcPath)
   writeFileSync(destPath, src)
-  process.stderr.write(`[vibeOS deploy] src/index.js → ~/.config/opencode/plugins/vibeOS.js (${src.length} bytes)\n`)
-
-  if (existsSync(srcMcpServerPath)) {
-    writeFileSync(destMcpServerPath, readFileSync(srcMcpServerPath))
-    process.stderr.write(`[vibeOS deploy] src/vibeOS-mcp-server.js → ~/.config/opencode/plugins/vibeOS-mcp-server.js\n`)
-  }
-
-  // ── lib/ no longer needed — bundled into vibeOS.js ───────────────────
-
-  if (existsSync(srcDashboardDistDir)) {
-    const dest = join(pluginDir, "dashboard", "dist")
-    cpSync(srcDashboardDistDir, dest, { recursive: true, force: true })
-    process.stderr.write(`[vibeOS deploy] src/dashboard/dist/ → ~/.config/opencode/plugins/dashboard/dist/\n`)
-  }
+  process.stderr.write(`[vibeOS deploy] src/index.js -> ~/.config/opencode/plugins/vibeOS.js (${src.length} bytes)\n`)
 
   // Copy vibeOS-lib directory recursively (includes blackbox, utils, etc.)
   cpSync(srcLibDir, destLibDir, { recursive: true, force: true })
@@ -59,27 +43,26 @@ try {
     }
   }
   if (existsSync(destLibDir)) countFiles(destLibDir)
-  process.stderr.write(`[vibeOS deploy] src/vibeOS-lib/ → ~/.config/opencode/plugins/vibeOS-lib/ (${libCount} files)\n`)
+  process.stderr.write(`[vibeOS deploy] src/vibeOS-lib/ -> ~/.config/opencode/plugins/vibeOS-lib/ (${libCount} files)\n`)
 
-  // Copy vibeOS-api-server directory (remote API client, routes, middleware)
-  const srcApiServerDir = join(ROOT, "src", "vibeOS-api-server")
-  const destApiServerDir = join(pluginDir, "vibeOS-api-server")
-  cpSync(srcApiServerDir, destApiServerDir, { recursive: true, force: true })
-  let apiCount = 0
-  function countApiFiles(dir) {
-    for (const entry of readdirSync(dir)) {
-      const full = join(dir, entry)
-      if (statSync(full).isDirectory()) {
-        countApiFiles(full)
-      } else {
-        apiCount++
-      }
-    }
+  // Clean up legacy backend files if they exist
+  const oldApiServerDir = join(pluginDir, "vibeOS-api-server")
+  if (existsSync(oldApiServerDir)) {
+    rmSync(oldApiServerDir, { recursive: true, force: true })
+    process.stderr.write(`[vibeOS deploy] Removed legacy vibeOS-api-server dir\n`)
   }
-  if (existsSync(destApiServerDir)) countApiFiles(destApiServerDir)
-  process.stderr.write(`[vibeOS deploy] src/vibeOS-api-server/ → ~/.config/opencode/plugins/vibeOS-api-server/ (${apiCount} files)\n`)
+  const oldMcpServer = join(pluginDir, "vibeOS-mcp-server.js")
+  if (existsSync(oldMcpServer)) {
+    rmSync(oldMcpServer)
+    process.stderr.write(`[vibeOS deploy] Removed legacy vibeOS-mcp-server.js\n`)
+  }
+  const oldDashboardDist = join(pluginDir, "dashboard", "dist")
+  if (existsSync(oldDashboardDist)) {
+    rmSync(oldDashboardDist, { recursive: true, force: true })
+    process.stderr.write(`[vibeOS deploy] Removed legacy dashboard dist dir\n`)
+  }
 
-  const rmTsRecursive = (d) => { for (const e of readdirSync(d)) { const f = join(d, e); if (statSync(f).isDirectory()) rmTsRecursive(f); else if (e.endsWith('.ts')) { rmSync(f); } } };
+  const rmTsRecursive = (d) => { for (const e of readdirSync(d)) { const f = join(d, e); if (statSync(f).isDirectory()) rmTsRecursive(f); else if (e.endsWith('.ts')) { rmSync(f); } } }
   rmTsRecursive(pluginDir)
   process.stderr.write(`[vibeOS deploy] Stripped .ts files from plugin dir\n`)
 

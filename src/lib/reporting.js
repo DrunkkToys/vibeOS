@@ -17,7 +17,7 @@ catch {
 //   narrative: string (markdown)
 //   tags: string[]
 export const REPORTS_DIR = join(USER_HOME, ".claude/reports");
-const REPORTS_INDEX = join(REPORTS_DIR, "index.json");
+export const REPORTS_INDEX = join(REPORTS_DIR, "index.json");
 const _OC_SID = "opencode-" + (process.pid || "x") + "-" + Date.now();
 export let currentProjectFingerprint = "";
 export let currentProjectName = "";
@@ -52,13 +52,13 @@ function readJsonOrEmpty(filePath) {
         return {};
     }
 }
-function reportsIndex() {
+export function reportsIndex() {
     const idx = readJsonOrEmpty(REPORTS_INDEX);
     if (!idx || !Array.isArray(idx.reports))
         return { reports: [] };
     return idx;
 }
-function saveReportsIndex(idx) {
+export function saveReportsIndex(idx) {
     try {
         withFileLock(REPORTS_INDEX, () => {
             mkdirSync(REPORTS_DIR, { recursive: true });

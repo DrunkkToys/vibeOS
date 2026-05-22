@@ -15,8 +15,8 @@ import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import { checkFlowRules, getFlowWarns, ensureProjectDocs } from "./vibeOS-lib/flow-enforcer.js"
 import { computeSessionMetrics } from "./vibeOS-lib/session-metrics.js"
-import { createMcpServer } from "./vibeOS-mcp-server.js"
-import { VibeOSApiClient } from "./vibeOS-api-server/client.js"
+import { createMcpServer } from "vibeOScore/mcp-server"
+import { VibeOSApiClient } from "vibeOScore/client"
 
 import { getApiClient, remoteCall, isApiFallback, VIBEOS_API_URL } from "./lib/api-client.js"
 import {
@@ -59,9 +59,10 @@ import {
 import { extractExports, buildTestSkeleton, enforceTestFile, buildTestReminder } from "./lib/tdd-enforcer.js"
 import { setActiveJobFromTaskPrompt, observeToolPattern, applyDecadence, compressText, recordSaving } from "./lib/index-helpers.js"
 import { researchAudit } from "./lib/research-audit.js"
-import { saveReport, listReports, readReport } from "./lib/reporting.js"
-import { loadCredit, thinkingLevel } from "./lib/credit-api.js"
-import { classifyAndRankModels, modelToCcAlias, discoverAvailableModels } from "./lib/trinity-rebuild.js"
+import { saveReport, listReports, readReport, reportsIndex, saveReportsIndex, REPORTS_INDEX } from "./lib/reporting.js"
+import { loadCredit, thinkingLevel, _lazyRefresh, _readAuth } from "./lib/credit-api.js"
+import { createTrinityTool } from "./lib/trinity-tool.js"
+import { classifyAndRankModels, modelToCcAlias, discoverAvailableModels, probeModel } from "./lib/trinity-rebuild.js"
 import { _appendFooter } from "./lib/hooks/footer.js"
 import { onToolExecuteBefore, onToolExecuteAfter, setToolDirectory } from "./lib/hooks/tool-execute.js"
 import { onMessagesTransform, onSystemTransform, latestUserIntent, ensureProjectSkill } from "./lib/hooks/chat-transform.js"
@@ -77,8 +78,6 @@ let activeJob: any = null
 let fp = ""
 let _mcpServerRuntime: any = null
 let _mcpServerHooked = false
-let _creditTimer: ReturnType<typeof setInterval> | null = null
-let _started = false
 let context7Seen = new Set()
 let _prevOutputText = ""
 
@@ -90,73 +89,6 @@ const SAVE_EST = {
 }
 
 // ── Credit snapshot refresh ──────────────────────────────────────────
-const BALANCE_APIS: Record<string, any> = {
-  deepseek: {
-    url: "https://api.deepseek.com/user/balance",
-    parse(d: any) {
-      const b = d?.balance_infos?.find((b: any) => b.currency === "USD")
-      return b ? parseFloat(b.total_balance) : 0
-    }
-  },
-  openrouter: {
-    url: "https://openrouter.ai/api/v1/credits",
-    parse(d: any) { return parseFloat(d?.data?.total_credits) || 0 }
-  }
-}
-
-function _readAuth(): any {
-  try { return existsSync(AUTH_F) ? safeJsonParse(readFileSync(AUTH_F, "utf-8")) : {} } catch { return {} }
-}
-
-async function _fetchBal(provider: string, key: string): Promise<{ provider: string; balance: number }> {
-  const api = BALANCE_APIS[provider]
-  if (!api) return { provider, balance: 0 }
-  try {
-    const res = await fetch(api.url, {
-      headers: { Authorization: `Bearer ${key}` },
-      signal: AbortSignal.timeout(5000)
-    })
-    if (!res.ok) return { provider, balance: 0 }
-    return { provider, balance: api.parse(await res.json()) }
-  } catch { return { provider, balance: 0 } }
-}
-
-async function _snapshot(): Promise<void> {
-  const auth = _readAuth()
-  let total = 0; const provs: Array<{ provider: string; balance: number }> = []
-  for (const [p, c] of Object.entries(auth)) {
-    if (!(c as any)?.key || !BALANCE_APIS[p]) continue
-    const { balance } = await _fetchBal(p, (c as any).key)
-    if (balance > 0) { provs.push({ provider: p, balance }); total += balance }
-  }
-  try { writeFileSync(CREDIT_CACHE_F, JSON.stringify({ total, providers: provs, ts: Date.now() })) } catch {}
-}
-
-function _cachedPct(): number | null {
-  try {
-    if (!existsSync(CREDIT_CACHE_F)) return null
-    const s = safeJsonParse(readFileSync(CREDIT_CACHE_F, "utf-8"))
-    if (s?.total == null || !s.ts) return null
-    let budget = 50
-    try {
-      const p = join(USER_HOME, ".claude/model-tiers.json")
-      if (existsSync(p)) {
-        const j = safeJsonParse(readFileSync(p, "utf-8"))
-        if (j?.selection?.monthly_budget_usd) budget = j.selection.monthly_budget_usd
-      }
-    } catch {}
-    return budget > 0 ? Math.min(150, Math.max(0, Math.round((s.total / budget) * 100))) : null
-  } catch { return null }
-}
-
-function _lazyRefresh(): void {
-  if (_started) return
-  _started = true
-  _snapshot()
-  _creditTimer = setInterval(_snapshot, 60 * 60 * 1000)
-  if (_creditTimer.unref) _creditTimer.unref()
-}
-
 // ── OpenCode provider config helpers ──────────────────────────────────
 const OPENCODE_GO_CATALOG = [
   "deepseek/deepseek-v4-flash",
@@ -584,6 +516,29 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
   }
 
   // ── Plugin hooks ──────────────────────────────────────────────────
+    // trinity tool dependency injection
+    const _tiersData = (() => { try { return safeJsonParse(readFileSync(TIERS_FILE, "utf-8")) } catch { return {} } })()
+    const trinityDeps = {
+      tool, _lazyRefresh, _readAuth, _tiersData,
+      _loadOpenCodeProviders, _modelCost, _modelTier,
+      _modelLocked, _blackboxEnabled, _latestBlackboxState,
+      currentModel, currentTier, currentProjectFingerprint, currentProjectName,
+      latestUserIntent, directory,
+      safeJsonParse, readFileSync, writeFileSync, existsSync, renameSync,
+      TIERS_FILE, USER_HOME, STATE_FILE, CREDIT_CACHE_F,
+      SAVINGS_LEDGER_FILE, PROJECT_STATE_FILE, REPORTS_DIR, REPORTS_INDEX,
+      loadSelection, writeSelection, loadCredit, thinkingLevel,
+      readLifetimeSavings, readFullState, _OC_SID, formatUsd,
+      getBlackboxResolution, scoreStress, applySlot, saveOptimizationMode,
+      getFlowWarns, projectFingerprint, loadProjectState, saveProjectState,
+      ensureProjectBucket, mergeProjectBucket, clearProjectPatterns,
+      projectPatternRows, promotedProjectPatterns, detectTechStack, ensureProjectDocs,
+      discoverAvailableModels, classifyAndRankModels, modelToCcAlias, probeModel,
+      setBlackboxEnabled, loadBlackboxState, saveBlackboxState,
+      reportsIndex, saveReportsIndex, backupFile,
+      get _blackboxTracker() { return getBlackboxTracker() },
+      set _blackboxTracker(v) { resetBlackboxTracker() },
+    }
   const pluginHooks = {
     "tool.execute.before": async (input: any, output: any) => {
       (onToolExecuteBefore as any)._directory = directory
@@ -609,354 +564,7 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
       return onShellEnv(_input, output)
     },
     tool: {
-      trinity: tool({
-        description:
-          "Control the vibeOS plugin and active model slot.\n" +
-          "Use action='status' to see current state.\n" +
-          "Use action='enable' or 'disable' to toggle the plugin.\n" +
-          "Use action='set' with slot='brain'|'medium'|'cheap' to switch.\n" +
-          "Use action='mode' with slot='budget'|'quality'|'speed'|'longrun'|'auto' to switch optimization modes.\n" +
-          "Use action='rebuild' to auto-detect available models.\n" +
-          "Use action='flow' with slot='on'|'off' to toggle flow enforcer.\n" +
-          "Use action='enforce' with slot='on'|'off' to toggle delegation enforcement.\n" +
-          "Use action='tdd' with slot='on'|'off' to toggle auto-test skeletons.\n" +
-          "Use action='project' for per-project analytics.\n" +
-          "Use action='patterns' for learned project patterns.\n" +
-          "Use action='guard' for Project Guard.\n" +
-          "Call when the user says 'switch to medium', 'use cheap model', 'disable plugin', or 'trinity status'.",
-        args: {
-          action: tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard"]).optional(),
-          slot: tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings"]).optional(),
-          level: tool.schema.enum(["full", "brief", "off", "on"]).optional(),
-        },
-        async execute({ action, slot, level }: { action?: string; slot?: string; level?: string } = {}) {
-          if (typeof _lazyRefresh === "function") _lazyRefresh()
-          if (!action) action = "status"
-          if (["brain", "medium", "cheap"].includes(action)) { slot = action; action = "set" }
-          if (action === "status") {
-            const sel = loadSelection()
-            let tiers: any = {}
-            try { tiers = safeJsonParse(readFileSync(TIERS_FILE, "utf-8")).trinity || {} } catch {}
-            const credit = loadCredit()
-            const effectiveLevel = sel.thinking_level || thinkingLevel(credit)
-            const sv = readLifetimeSavings()
-            const ltTotal = (sv.ltTasks || 0) + (sv.ltCache || 0)
-            const sesTasks = sv.sesTasks || 0
-            const sesWarns = Array.isArray(readFullState()?.sessions?.[_OC_SID]?.warns) ? readFullState().sessions[_OC_SID].warns.length : 0
-            const sesTrend = sv.sesTrend || "stable"
-            const sesRate = sv.sesRatePerHour || 0
-            const missedC7 = sv.missedC7 || 0
-            const toolBreakdown = sv.sesToolBreakdown || {}
-            const topTools = Object.entries(toolBreakdown).filter(([, v]) => (v as number) > 0.005).sort((a, b) => (b[1] as number) - (a[1] as number)).slice(0, 5) as [string, number][]
-            const brainModel = tiers?.brain?.oc || "(unset)"
-            const mediumModel = tiers?.medium?.oc || "(unset)"
-            const cheapModel = tiers?.cheap?.oc || "(unset)"
-            const activeSlot = sel.active_slot || "brain"
-            const stressScore = latestUserIntent ? scoreStress(latestUserIntent) : 0
-            const stressBar = stressScore > 0.85 ? "█" : stressScore > 0.7 ? "▆" : stressScore > 0.5 ? "▅" : stressScore > 0.3 ? "▃" : stressScore > 0.1 ? "▂" : "▁"
-            const stressLabel = stressScore > 0.7 ? "high" : stressScore > 0.4 ? "elevated" : stressScore > 0.1 ? "calm" : "none"
-            const totalTurns = (sv.sesModelTurns?.brain || 0) + (sv.sesModelTurns?.worker || 0)
-            const brainPct = totalTurns > 0 ? Math.round((sv.sesModelTurns.brain / totalTurns) * 100) : 0
-            const workerPct = 100 - brainPct
-            const qualityAvg = sv.quality_avg || 0
-            const sesDuration = sv.sesDuration || 0
-            const durHrs = Math.floor(sesDuration / 3600)
-            const durMins = Math.floor((sesDuration % 3600) / 60)
-            let decisionLine = ""
-            if (_blackboxEnabled) {
-              try {
-                const res = _latestBlackboxState || getBlackboxResolution()
-                if (res && res.n_interactions > 3) {
-                  const momentumIcon = res.momentum > 0.3 ? "up up" : res.momentum > 0 ? "up" : res.momentum < -0.3 ? "down down" : res.momentum < 0 ? "down" : "flat"
-                  decisionLine = `${res.resolution} ${res.sub_regime} ${momentumIcon}${res.is_looping ? " (loop)" : ""}`
-                }
-  } catch {}
-            }
-            const lines = [
-              `[vibeOS-dashboard]`,
-              `Model: ${activeSlot} (${brainModel})`,
-              ...(totalTurns > 0 ? [`Split: brain ${brainPct}% / worker ${workerPct}% (${totalTurns} total)`] : []),
-              `Thinking: ${effectiveLevel}`,
-              `Credit: ${credit}%`,
-              ...(qualityAvg > 0 ? [`Quality: ${Math.round(qualityAvg)}%`] : []),
-              ...(decisionLine ? [`Decision: ${decisionLine}`] : []),
-              `|`,
-              `Stress: ${stressBar} (${stressLabel})`,
-              `|`,
-              `Guards: Flow: ${sel.flow_enabled !== false ? "ON" : "OFF"}${sel.flow_enforce ? " (extract)" : ""}`,
-              `TDD: ${sel.tdd_enforce ? "ON" : "OFF"}${sel.tdd_strict !== false ? " strict" : ""}${sel.tdd_quality !== false ? " quality" : ""}`,
-              `Enforce: ${sel.delegation_enforce ? "ON" : "OFF"}`,
-              `Lock: ${_modelLocked ? "LOCKED" : "unlocked"}`,
-              `|`,
-              `All-time: Total: $${ltTotal.toFixed(2)} (${sesTrend})`,
-              `Delegation: $${(sv.ltTasks || 0).toFixed(2)}`,
-              `Cache: $${formatUsd(sv.ltCache || 0)}`,
-              `Missed: $${missedC7.toFixed(2)}`,
-              `|`,
-              `This session:`,
-              ...(sesDuration > 0 ? [`Duration: ${durHrs}h ${durMins}m`] : []),
-              `Rate: $${sesRate.toFixed(2)}/hr`,
-              `Warnings: ${sesWarns}`,
-              ...(topTools.length > 0 ? [`Top tools:`, ...topTools.map(([t, v]) => `  ${t}: $${v.toFixed(2)}`)] : []),
-              `|`,
-              `Tiers: brain: ${brainModel}${activeSlot === "brain" ? "  *" : ""}`,
-              `  medium: ${mediumModel}${activeSlot === "medium" ? "  *" : ""}`,
-              `  cheap:  ${cheapModel}${activeSlot === "cheap" ? "  *" : ""}`,
-            ]
-            return lines.join("\n")
-          }
-          if (action === "enable") { return writeSelection("enabled", true) ? "Plugin ENABLED" : "Failed" }
-          if (action === "disable") { return writeSelection("enabled", false) ? "Plugin DISABLED" : "Failed" }
-          if (action === "set") {
-            if (!slot || !["brain", "medium", "cheap"].includes(slot)) return "Provide slot: brain | medium | cheap"
-            const result = applySlot(slot)
-            if (!result.ok) return "Failed: " + result.reason
-            return `Switched to ${slot} slot (${result.ocModel})`
-          }
-          if (action === "mode") {
-            if (!slot || !["budget", "quality", "speed", "longrun", "auto"].includes(slot)) return "Provide mode: budget | quality | speed | longrun | auto"
-            saveOptimizationMode(slot)
-            const tierMap: Record<string, string> = { budget: "cheap", quality: "brain", speed: "medium", longrun: "brain" }
-            const tierSlot = tierMap[slot] || "cheap"
-            writeSelection("active_slot", tierSlot)
-            if (slot === "budget") {
-              writeSelection("delegation_enforce", false)
-              writeSelection("flow_enabled", false)
-              writeSelection("flow_enforce", false)
-              writeSelection("tdd_enforce", false)
-              writeSelection("thinking_level", "off")
-            } else if (slot === "quality") {
-              writeSelection("delegation_enforce", true)
-              writeSelection("flow_enabled", true)
-              writeSelection("flow_enforce", true)
-              writeSelection("tdd_enforce", true)
-              writeSelection("thinking_level", "full")
-            } else if (slot === "speed") {
-              writeSelection("delegation_enforce", false)
-              writeSelection("flow_enabled", false)
-              writeSelection("flow_enforce", false)
-              writeSelection("tdd_enforce", false)
-              writeSelection("thinking_level", "off")
-            }
-            return `Mode set to ${slot.toUpperCase()}. Tier: ${tierSlot}.`
-          }
-          if (action === "thinking") {
-            if (!level || !["full", "brief", "off"].includes(level)) return "Provide level: full | brief | off"
-            const desc: Record<string, string> = { full: "no restriction", brief: "complex tasks only", off: "none" }
-            if (!writeSelection("thinking_level", level)) return "Failed"
-            return `Reasoning depth -> ${desc[level]}`
-          }
-          if (action === "flow") {
-            if (slot === "on" || slot === "off") {
-              return writeSelection("flow_enabled", slot === "on") ? `Flow ${slot === "on" ? "ON" : "OFF"}` : "Failed"
-            }
-            if (slot === "enforce") {
-              if (level !== "on" && level !== "off") return "Provide level on|off"
-              return writeSelection("flow_enforce", level === "on") ? `Flow enforce ${level === "on" ? "ON" : "OFF"}` : "Failed"
-            }
-            const flowWarns = getFlowWarns()
-            const sid = String(process.pid || "?")
-            const sessionWarns = flowWarns.filter((w: any) => String(w.sid) === sid)
-            const bySev: Record<string, number> = { warn: 0, hint: 0, flag: 0 }
-            for (const w of sessionWarns) { if (bySev[w.severity] !== undefined) bySev[w.severity]++ }
-            const lines = [`Flow enforcer audit:`]
-            lines.push(`  ${bySev.warn} warn, ${bySev.hint} hint, ${bySev.flag} flag`)
-            if (sessionWarns.length === 0) lines.push(`  No flow violations.`)
-            else for (const w of sessionWarns.slice(-15)) lines.push(`  [${w.severity}] ${w.rule_id}: ${w.description}`)
-            return lines.join("\n")
-          }
-          if (action === "enforce") {
-            if (slot === "on") return writeSelection("delegation_enforce", true) ? "Enforcement ON" : "Failed"
-            if (slot === "off") return writeSelection("delegation_enforce", false) ? "Enforcement OFF" : "Failed"
-            return "Enforce: " + (loadSelection().delegation_enforce ? "ON" : "OFF")
-          }
-          if (action === "tdd") {
-            if (slot === "on") return writeSelection("tdd_enforce", true) ? "TDD ON" : "Failed"
-            if (slot === "off") return writeSelection("tdd_enforce", false) ? "TDD OFF" : "Failed"
-            if (slot === "strict") {
-              if (level !== "on" && level !== "off") return "Provide level on|off"
-              return writeSelection("tdd_strict", level === "on") ? `TDD strict ${level === "on" ? "ON" : "OFF"}` : "Failed"
-            }
-            if (slot === "quality") {
-              if (level !== "on" && level !== "off") return "Provide level on|off"
-              return writeSelection("tdd_quality", level === "on") ? `TDD quality ${level === "on" ? "ON" : "OFF"}` : "Failed"
-            }
-            const sel = loadSelection()
-            return `TDD: ${sel.tdd_enforce ? "ON" : "OFF"} strict:${sel.tdd_strict !== false} quality:${sel.tdd_quality !== false}`
-          }
-          if (action === "project") {
-            const L = "\u2501"
-            const lines = [`Project profile - ${currentProjectName || "unknown"}`]
-            lines.push(L.repeat(40))
-            const _fp = currentProjectFingerprint || projectFingerprint(directory)
-            const pstate = loadProjectState()
-            const proj = pstate.project_hashes?.[_fp]
-            if (proj) {
-              lines.push(`\nSessions: ${proj.totalSessions || 0} | Last: ${(proj.lastSeen || "").slice(0, 10)}`)
-              if (proj.researchChains) lines.push(`Research chains: ${proj.researchChains}`)
-              if (proj.commonTopics?.length) lines.push(`Common domains: ${proj.commonTopics.slice(0, 5).join(", ")}`)
-            }
-            const sv = readLifetimeSavings()
-            const totalTurns = (sv.sesModelTurns?.brain || 0) + (sv.sesModelTurns?.worker || 0)
-            if (totalTurns > 0) lines.push(`Model split: brain ${Math.round((sv.sesModelTurns.brain / totalTurns) * 100)}% / worker ${100 - Math.round((sv.sesModelTurns.brain / totalTurns) * 100)}%`)
-            if (sv.sesDuration > 0) lines.push(`Duration: ${Math.floor(sv.sesDuration / 3600)}h ${Math.floor((sv.sesDuration % 3600) / 60)}m`)
-            if (sv.sesTasks > 0.01 || sv.ltCache > 0.01) lines.push(`Savings: delegation $${sv.sesTasks.toFixed(2)} + cache $${sv.ltCache.toFixed(2)}`)
-            if (loadSelection().delegation_enforce === false) lines.push(`HINT: enable enforcement with \`trinity enforce on\``)
-            const credit = loadCredit()
-            if (credit < 40) lines.push(`HINT: credit ${credit}% - switch to medium slot`)
-            lines.push(L.repeat(40))
-            return lines.join("\n")
-          }
-          if (action === "report" && slot === "savings") {
-            const sv = readLifetimeSavings()
-            return `Savings: delegation $${sv.ltTasks.toFixed(4)} | cache $${(sv.ltCache || 0).toFixed(4)}`
-          }
-          if (action === "patterns") {
-            const _fp = currentProjectFingerprint || projectFingerprint(directory)
-            const name = currentProjectName || "unknown"
-            if (slot === "clear") {
-              return `Cleared ${clearProjectPatterns(_fp)} patterns for "${name}"`
-            }
-            const rows = projectPatternRows(_fp)
-            if (rows.length === 0) return "No learned patterns yet."
-            const lines = [`Project patterns - ${name}:`]
-            for (const r of rows.slice(0, 15)) {
-              const tag = r.sessions >= 3 ? "promoted" : "learning"
-              lines.push(`  [${r.label}/${tag}] ${r.summary} (${r.sessions} sessions)`)
-            }
-            return lines.join("\n")
-          }
-          if (action === "guard") {
-            if (!directory || !existsSync(directory)) return "No directory."
-            const result = ensureProjectDocs(directory, detectTechStack(directory))
-            const lines = [`Project Guard: ${directory.split("/").pop()}`]
-            for (const f of result.created) lines.push(`  Created ${f}`)
-            for (const f of result.skipped) lines.push(`  Already exists: ${f}`)
-            return lines.join("\n")
-          }
-          if (action === "rebuild") {
-            const providers = _loadOpenCodeProviders()
-            const auth = _readAuth()
-            const models = await discoverAvailableModels(providers, auth)
-            const ranked = classifyAndRankModels(models)
-            if (!ranked) return "No models discovered."
-            try {
-              const tiers = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
-              tiers.trinity = {
-                brain: { oc: ranked.brain.id, cc: modelToCcAlias(ranked.brain.id) },
-                medium: { oc: ranked.medium.id, cc: modelToCcAlias(ranked.medium.id) },
-                cheap: { oc: ranked.cheap.id, cc: modelToCcAlias(ranked.cheap.id) },
-              }
-              const _tmp = TIERS_FILE + ".tmp." + Date.now()
-              writeFileSync(_tmp, JSON.stringify(tiers, null, 2) + "\n", "utf-8")
-              renameSync(_tmp, TIERS_FILE)
-            } catch (e) { return "Failed: " + (e as Error).message }
-            try { applySlot("brain") } catch {}
-            return `Rebuilt: brain=${ranked.brain.id} medium=${ranked.medium.id} cheap=${ranked.cheap.id}`
-          }
-          if (action === "diagnose") {
-            const results: Array<{ ok: boolean; okLabel: string; label: string; detail: string; fix?: string }> = []
-            const checks = [
-              { path: TIERS_FILE, label: "model-tiers.json" },
-              { path: join(USER_HOME, ".config/opencode/opencode.json"), label: "opencode.json" },
-              { path: STATE_FILE, label: "delegation-state.json" },
-            ]
-            for (const c of checks) {
-              results.push({ ok: existsSync(c.path), okLabel: existsSync(c.path) ? "OK" : "MISSING", label: c.label, detail: existsSync(c.path) ? "exists" : "missing", fix: existsSync(c.path) ? undefined : (c.label === "model-tiers.json" ? "run `trinity rebuild`" : undefined) })
-            }
-            try {
-              const tiers = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
-              for (const s of ["brain", "medium", "cheap"]) {
-                const m = tiers?.trinity?.[s]?.oc || ""
-                const ok = m.length > 0 && !m.toLowerCase().includes("placeholder")
-                results.push({ ok, okLabel: ok ? "OK" : "MISSING", label: `${s} slot`, detail: ok ? m : "unset", fix: ok ? undefined : "run `trinity rebuild`" })
-              }
-            } catch {
-              for (const s of ["brain", "medium", "cheap"]) results.push({ ok: false, okLabel: "ERR", label: `${s} slot`, detail: "cannot read", fix: "run `trinity rebuild`" })
-            }
-            const credit = loadCredit()
-            results.push({ ok: credit >= 40, okLabel: credit >= 40 ? "OK" : "LOW", label: "credits", detail: `${credit}%`, fix: credit >= 40 ? undefined : "run `trinity medium`" })
-            const okCount = results.filter(r => r.ok).length
-            results.sort((a, b) => (a.ok === b.ok ? 0 : a.ok ? 1 : -1))
-            const lines = ["Self Diagnostic:"]
-            for (const r of results) {
-              lines.push(`  ${r.okLabel} ${r.label}: ${r.detail}`)
-              if (!r.ok && r.fix) lines.push(`    fix: ${r.fix}`)
-            }
-            lines.push(`\n${okCount}/${results.length} passed`)
-            return lines.join("\n")
-          }
-          if (action === "repair-state") {
-            const mode = slot || "preview"
-            if (mode !== "preview" && mode !== "apply") return "Use `trinity repair-state preview` or `trinity repair-state apply`."
-            const dstFp = currentProjectFingerprint || projectFingerprint(directory)
-            const name = currentProjectName || "unknown"
-            const pstate = loadProjectState()
-            const dstBucket = ensureProjectBucket(pstate, dstFp)
-            const srcFps = Object.keys(pstate.project_hashes || {}).filter((f: string) => f !== dstFp)
-            if (srcFps.length === 0) return `No duplicates for "${name}".`
-            const lines = [`Repair (${mode}) for "${name}":`, `  Keeping: ${dstFp}`]
-            for (const sf of srcFps) {
-              const src = pstate.project_hashes[sf]
-              if (src) {
-                lines.push(`  Merging: ${sf} (${src.totalSessions || 0} sessions)`)
-                if (mode === "apply") mergeProjectBucket(dstBucket, src)
-              }
-            }
-            if (mode === "apply") {
-              if (mode === "apply") {
-                for (const sf of srcFps) delete pstate.project_hashes[sf]
-                saveProjectState(pstate)
-                lines.push("Applied.")
-              }
-            } else {
-              lines.push("Run with `apply` to execute.")
-            }
-            return lines.join("\n")
-          }
-          if (action === "blackbox") {
-            const mode = slot || "status"
-            if (mode === "on") { setBlackboxEnabled(true); saveBlackboxState({ ...loadBlackboxState(), enabled: true }); return "Blackbox ON" }
-            if (mode === "off") { setBlackboxEnabled(false); saveBlackboxState({ ...loadBlackboxState(), enabled: false }); return "Blackbox OFF" }
-            if (mode === "reset") { const s = loadBlackboxState(); delete s.sessions[_OC_SID]; saveBlackboxState(s); return "Blackbox RESET" }
-            if (mode === "status") {
-              const bbState = loadBlackboxState()
-              const lines = [`Blackbox: ${(_blackboxEnabled || bbState.enabled) ? "ON" : "OFF"}`]
-              const res = _latestBlackboxState || getBlackboxResolution()
-              if (res) {
-                lines.push(`  Resolution: ${res.resolution}`)
-                lines.push(`  Sub-regime: ${res.sub_regime}`)
-                lines.push(`  Momentum: ${res.momentum > 0 ? "up" : res.momentum < 0 ? "down" : "flat"} (${res.momentum.toFixed(2)})`)
-                lines.push(`  Interactions: ${res.n_interactions}`)
-              }
-              return lines.join("\n")
-            }
-            return "Usage: trinity blackbox on|off|status|reset"
-          }
-          if (action === "help") {
-            return [
-              "vibeOS - trinity commands",
-              "",
-              "  trinity status       See plugin state, credit, model",
-              "  trinity mode budget|quality|speed|auto   Switch optimization mode",
-              "  trinity brain        Switch to brain tier",
-              "  trinity medium       Switch to medium tier",
-              "  trinity cheap        Switch to cheap tier",
-              "  trinity rebuild      Auto-detect models",
-              "  trinity enable/disable Toggle plugin",
-              "  trinity enforce on/off Block brain-tier writes",
-              "  trinity thinking full|brief|off Set reasoning depth",
-              "  trinity flow on/off  Toggle flow enforcer",
-              "  trinity tdd on/off   Toggle auto-test skeletons",
-              "  trinity diagnose     Self-check",
-              "  trinity project      Project analytics",
-              "  trinity patterns     Show learned patterns",
-              "  trinity guard        Ensure AGENTS.md/README.md exist",
-            ].join("\n")
-          }
-          return `Unknown action: ${action}`
-        },
-      }),
+      trinity: tool(createTrinityTool(trinityDeps)),
       "research-audit": tool({
         description: "Scan session for research anti-patterns (domain chains, redundant queries, no synthesis). hours=N (default 24).",
         args: { hours: tool.schema.number().optional() },
