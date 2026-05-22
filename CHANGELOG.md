@@ -1,3 +1,11 @@
+## 0.15.0
+- fix: autoconfig write bug, API fallback short-circuit, constants extraction (#27)
+- fix: add blackboxSelectMode client method for footer auto-mode routing
+- refactor: extract 9 pure classifiers from turn-classify.ts to classifiers.ts
+Merge pull request #26 from DrunkkToys/refactor/extract-classifiers
+Merge pull request #25 from DrunkkToys/fix/blackbox-select-mode-client-method
+
+
 ## 0.14.5
 - fix: remove duplicate Create GitHub Release step (release script handles it)
 - fix: add contents:write permission to release workflow
