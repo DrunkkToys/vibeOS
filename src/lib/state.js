@@ -5,7 +5,7 @@ import { spawn } from "node:child_process";
 import { homedir, tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { loadSelection, writeSelection, DFLT_SEL } from "./selection-manager.js";
-import { _computeSessionMetrics, _pruneOldSessions } from "./pattern-helpers.js";
+import { _computeSessionMetrics, _pruneOldSessions, mergeProjectBucket } from "./pattern-helpers.js";
 // ── File system constants ────────────────────────────────────────────
 const USER_HOME = (() => { try {
     return homedir();
@@ -1541,7 +1541,7 @@ scratchpadHitsSeen, scanRecentScratchpad, getScratchpadHit, recordScratchpadObse
 // Active jobs
 loadActiveJobs, getActiveJobForProject, saveActiveJobForProject, saveJobRecord, loadJobRecord, 
 // Project memory
-projectFingerprint, loadProjectState, saveProjectState, ensureProjectBucket, detectTechStack, 
+projectFingerprint, loadProjectState, saveProjectState, ensureProjectBucket, mergeProjectBucket, detectTechStack, 
 // Pattern learning
 promotedProjectPatterns, projectPatternRows, clearProjectPatterns, 
 // Log rotation

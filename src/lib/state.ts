@@ -1503,6 +1503,7 @@ export {
   loadProjectState,
   saveProjectState,
   ensureProjectBucket,
+  mergeProjectBucket,
   detectTechStack,
 
   // Pattern learning
