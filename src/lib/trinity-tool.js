@@ -79,7 +79,7 @@ export function createTrinityTool(deps) {
                 }
                 const lines = [
                     `[vibeOS-dashboard]`,
-                    `Model: ${activeSlot} (${brainModel})`,
+                    `Model: ${activeSlot} (${tiers?.[activeSlot]?.oc || deps.currentModel || "(unset)"})`,
                     ...(totalTurns > 0 ? [`Split: brain ${brainPct}% / worker ${workerPct}% (${totalTurns} total)`] : []),
                     `Thinking: ${effectiveLevel}`,
                     `Credit: ${credit}%`,
@@ -134,13 +134,17 @@ export function createTrinityTool(deps) {
                     return "\u274c No model configured for " + slot + " slot. Run \`trinity rebuild\` first.";
                 }
                 const auth = deps._readAuth();
-                const ok = await deps.probeModel(targetModel, auth);
-                if (!ok) {
-                    return "\u274c " + targetModel + " failed API probe. Cannot switch to " + slot + " slot.\nCheck API key or run \`trinity rebuild\` to rediscover working models.";
+                try {
+                  const ok = await deps.probeModel(targetModel, auth);
+                  if (!ok) console.error("[vibeOS] WARN: " + targetModel + " probe failed - switching anyway");
+                } catch (e) {
+                  console.error("[vibeOS] WARN: probe error for " + targetModel + ": " + e.message + " - switching anyway");
                 }
+                deps.writeSessionSlot(deps._OC_SID, slot);
                 const result = deps.applySlot(slot);
                 if (!result.ok)
                     return `\u274c Failed to set slot: ${result.reason}`;
+                deps._refreshModel(deps.directory);
                 return `\u2705 Switched to ${slot} slot (${result.ocModel}). Active now (no restart needed).`;
             }
             if (action === "mode") {

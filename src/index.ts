@@ -60,6 +60,8 @@ import { extractExports, buildTestSkeleton, enforceTestFile, buildTestReminder }
 import { setActiveJobFromTaskPrompt, observeToolPattern, applyDecadence, compressText, recordSaving } from "./lib/index-helpers.js"
 import { researchAudit } from "./lib/research-audit.js"
 import { saveReport, listReports, readReport, reportsIndex, saveReportsIndex, REPORTS_INDEX } from "./lib/reporting.js"
+import { writeSessionSlot } from "./lib/selection-manager.js"
+import { _refreshModel } from "./lib/pricing.js"
 import { loadCredit, thinkingLevel, _lazyRefresh, _readAuth } from "./lib/credit-api.js"
 import { createTrinityTool } from "./lib/trinity-tool.js"
 import { classifyAndRankModels, modelToCcAlias, discoverAvailableModels, probeModel } from "./lib/trinity-rebuild.js"
@@ -535,7 +537,7 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
       projectPatternRows, promotedProjectPatterns, detectTechStack, ensureProjectDocs,
       discoverAvailableModels, classifyAndRankModels, modelToCcAlias, probeModel,
       setBlackboxEnabled, loadBlackboxState, saveBlackboxState,
-      reportsIndex, saveReportsIndex, backupFile,
+      reportsIndex, saveReportsIndex, backupFile, writeSessionSlot, _refreshModel, writeSessionSlot, _refreshModel,
       get _blackboxTracker() { return getBlackboxTracker() },
       set _blackboxTracker(v) { resetBlackboxTracker() },
     }

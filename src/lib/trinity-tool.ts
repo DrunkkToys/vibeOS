@@ -79,7 +79,7 @@ export function createTrinityTool(deps) {
 
         const lines = [
           `[vibeOS-dashboard]`,
-          `Model: ${activeSlot} (${brainModel})`,
+          `Model: ${activeSlot} (${tiers?.[activeSlot]?.oc || deps.currentModel || "(unset)"})`,
           ...(totalTurns > 0 ? [`Split: brain ${brainPct}% / worker ${workerPct}% (${totalTurns} total)`] : []),
           `Thinking: ${effectiveLevel}`,
           `Credit: ${credit}%`,
@@ -140,8 +140,10 @@ export function createTrinityTool(deps) {
         } catch (e) {
           console.error("[vibeOS] WARN: probe error for " + targetModel + ": " + e.message + " - switching anyway")
         }
+        deps.writeSessionSlot(deps._OC_SID, slot)
         const result = deps.applySlot(slot)
         if (!result.ok) return `\u274c Failed to set slot: ${result.reason}`
+        deps._refreshModel(deps.directory)
         return `\u2705 Switched to ${slot} slot (${result.ocModel}). Active now (no restart needed).`
       }
       if (action === "mode") {
