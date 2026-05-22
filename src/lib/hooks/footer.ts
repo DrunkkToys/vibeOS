@@ -8,7 +8,7 @@ import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTr
 import { saveReport } from "../reporting.js"
 import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, _modelLocked, _blackboxEnabled, writeSelection, reconcileStateFromLedger, safeJsonParse } from "../state.js"
 import { loadSessionSlot, writeSessionSlot } from "../selection-manager.js"
-import { remoteCall } from "../api-client.js"
+import { remoteCall, isApiFallback } from "../api-client.js"
 import { SAVE_EST } from "../constants.js"
 
 let _cachedAutoMode = null
@@ -195,7 +195,8 @@ async function _appendFooter(input, output, directory) {
         const autoStress = scoreStress(latestUserIntent || "")
         const autoActive = await apiAutoSelectMode(autoRegime, autoStress)
         const autoTag = { audit: "AUDIT", budget: "BUDGET", quality: "QUALITY", speed: "SPEED", longrun: "LONGRUN", balanced: "BALANCED" }
-        optTagFooter = `[VIBE→${autoTag[autoActive] || autoActive.toUpperCase()}]`
+        const fb = isApiFallback() ? "\u26a1" : ""
+        optTagFooter = `[VIBE→${autoTag[autoActive] || autoActive.toUpperCase()}${fb}]`
         saveOptimizationMode(autoActive)
         const slot = autoActive === "quality" ? "brain" : autoActive === "speed" ? "medium" : "cheap"
         if (!_modelLocked) {
