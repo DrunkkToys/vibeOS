@@ -3513,7 +3513,6 @@ function isApiFallback() {
 }
 async function remoteCall(method, args, fallbackFn) {
   if (!VIBEOS_API_ENABLED || _apiFallbackMode) {
-    console.error(`[vibeOS] remoteCall(${method}): skipped \u2014 enabled=${VIBEOS_API_ENABLED}, fallback=${_apiFallbackMode}`);
     if (fallbackFn)
       return fallbackFn();
     return null;
@@ -3521,7 +3520,6 @@ async function remoteCall(method, args, fallbackFn) {
   try {
     const client2 = getApiClient();
     if (!client2) {
-      console.error(`[vibeOS] remoteCall(${method}): no client`);
       if (fallbackFn)
         return fallbackFn();
       return null;
@@ -3531,7 +3529,6 @@ async function remoteCall(method, args, fallbackFn) {
     _apiFallbackSince = null;
     return result;
   } catch (err) {
-    console.error(`[vibeOS] remoteCall(${method}): caught error \u2014 ${err?.message || err}`);
     if (!_apiFallbackMode) {
       _apiFallbackMode = true;
       _apiFallbackSince = (/* @__PURE__ */ new Date()).toISOString();
@@ -5659,9 +5656,7 @@ async function apiAutoSelectMode(regime, stress) {
     const res = await remoteCall("blackboxSelectMode", [regime, stress], null);
     if (res?.mode)
       return res.mode;
-    console.error("[vibeOS] apiAutoSelectMode: remoteCall returned", res);
-  } catch (e) {
-    console.error("[vibeOS] apiAutoSelectMode: error", e?.message || e);
+  } catch {
   }
   return "balanced";
 }
