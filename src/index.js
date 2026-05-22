@@ -22,9 +22,9 @@ __export(flow_enforcer_exports, {
   resolveRulesPath: () => resolveRulesPath,
   setFlowStateWriter: () => setFlowStateWriter
 });
-import { readFileSync as readFileSync2, existsSync, mkdirSync, writeFileSync, statSync, appendFileSync, renameSync } from "node:fs";
+import { readFileSync, existsSync, mkdirSync, writeFileSync, statSync, appendFileSync, renameSync } from "node:fs";
 import { join, dirname } from "node:path";
-import { homedir as homedir2 } from "node:os";
+import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 function safeJsonParse(raw) {
   try {
@@ -81,7 +81,7 @@ function setFlowStateWriter(writer) {
 function loadFlowDedupKeys() {
   try {
     if (existsSync(FLOW_DEDUP_FILE)) {
-      const raw = readFileSync2(FLOW_DEDUP_FILE, "utf-8");
+      const raw = readFileSync(FLOW_DEDUP_FILE, "utf-8");
       const keys = safeJsonParse(raw);
       if (Array.isArray(keys)) {
         for (const k of keys)
@@ -97,7 +97,7 @@ function persistFlowDedupKey(key) {
     let keys = [];
     if (existsSync(FLOW_DEDUP_FILE)) {
       try {
-        keys = safeJsonParse(readFileSync2(FLOW_DEDUP_FILE, "utf-8"));
+        keys = safeJsonParse(readFileSync(FLOW_DEDUP_FILE, "utf-8"));
       } catch {
       }
       if (!Array.isArray(keys))
@@ -122,7 +122,7 @@ function loadRules() {
       _cachedRules = [];
       return _cachedRules;
     }
-    const j = safeJsonParse(readFileSync2(rulesPath, "utf-8"));
+    const j = safeJsonParse(readFileSync(rulesPath, "utf-8"));
     _cachedRules = j.rules || [];
     _rulesMtime = mtime;
     return _cachedRules;
@@ -136,7 +136,7 @@ function recordFlowWarn(hit) {
     let state = {};
     if (existsSync(STATE_FILE)) {
       try {
-        state = safeJsonParse(readFileSync2(STATE_FILE, "utf-8"));
+        state = safeJsonParse(readFileSync(STATE_FILE, "utf-8"));
       } catch {
       }
     } else {
@@ -158,7 +158,7 @@ function recordFlowWarn(hit) {
     if (_stateWriter)
       _stateWriter(fp3);
     else {
-      const existing = safeJsonParse(existsSync(STATE_FILE) ? readFileSync2(STATE_FILE, "utf-8") : "{}");
+      const existing = safeJsonParse(existsSync(STATE_FILE) ? readFileSync(STATE_FILE, "utf-8") : "{}");
       const merged = Object.assign({}, existing, fp3);
       const tmpFile = STATE_FILE + ".tmp." + Date.now();
       writeFileSync(tmpFile, JSON.stringify(merged, null, 2));
@@ -201,7 +201,7 @@ function getFlowWarns() {
   try {
     if (!existsSync(STATE_FILE))
       return [];
-    const s = safeJsonParse(readFileSync2(STATE_FILE, "utf-8"));
+    const s = safeJsonParse(readFileSync(STATE_FILE, "utf-8"));
     return s?.flow_warns || [];
   } catch {
     return [];
@@ -252,7 +252,7 @@ function recordFlowTodo({ filePath, content }) {
     if (todos.length === 0)
       return 0;
     const dedupKey = `${filePath || ""}::${todos.map((t) => `${t.type}:${t.text}`).join("|")}`;
-    const existingLines = existsSync(FLOW_TODO_FILE) ? readFileSync2(FLOW_TODO_FILE, "utf-8").trim().split("\n").filter(Boolean) : [];
+    const existingLines = existsSync(FLOW_TODO_FILE) ? readFileSync(FLOW_TODO_FILE, "utf-8").trim().split("\n").filter(Boolean) : [];
     const existingKeys = /* @__PURE__ */ new Set();
     for (const line of existingLines) {
       try {
@@ -273,7 +273,7 @@ function recordFlowTodo({ filePath, content }) {
     }) + "\n";
     appendFileSync(FLOW_TODO_FILE, entry);
     try {
-      const lines = readFileSync2(FLOW_TODO_FILE, "utf-8").trim().split("\n").filter(Boolean);
+      const lines = readFileSync(FLOW_TODO_FILE, "utf-8").trim().split("\n").filter(Boolean);
       if (lines.length > MAX_FLOW_TODOS) {
         writeFileSync(FLOW_TODO_FILE, lines.slice(-Math.floor(MAX_FLOW_TODOS / 2)).join("\n") + "\n");
       }
@@ -330,9 +330,9 @@ var init_flow_enforcer = __esm({
         ""
       ].join("\n");
     };
-    STATE_FILE = join(homedir2(), ".claude/delegation-state.json");
-    FLOW_TODO_FILE = join(homedir2(), ".claude/flow-todo-queue.jsonl");
-    FLOW_DEDUP_FILE = join(homedir2(), ".claude/.flow-dedup-keys.json");
+    STATE_FILE = join(homedir(), ".claude/delegation-state.json");
+    FLOW_TODO_FILE = join(homedir(), ".claude/flow-todo-queue.jsonl");
+    FLOW_DEDUP_FILE = join(homedir(), ".claude/.flow-dedup-keys.json");
     MAX_FLOW_TODOS = 200;
     _flowWarnsSeen = /* @__PURE__ */ new Set();
     _stateWriter = null;
@@ -345,7 +345,7 @@ var init_flow_enforcer = __esm({
 // src/index.ts
 init_flow_enforcer();
 import { readFileSync as readFileSync15, writeFileSync as writeFileSync12, existsSync as existsSync15, mkdirSync as mkdirSync10, copyFileSync as copyFileSync6, renameSync as renameSync6 } from "node:fs";
-import { join as join16, dirname as dirname8, basename as basename9 } from "node:path";
+import { join as join17, dirname as dirname9, basename as basename9 } from "node:path";
 
 // src/vibeOS-lib/session-metrics.js
 function formatDuration(totalSeconds) {
@@ -828,25 +828,25 @@ function createMcpServer(deps) {
 }
 
 // src/lib/pricing.js
-import { readFileSync as readFileSync5, writeFileSync as writeFileSync4, appendFileSync as appendFileSync4, existsSync as existsSync5, mkdirSync as mkdirSync4, statSync as statSync5, copyFileSync as copyFileSync3, renameSync as renameSync4, openSync as openSync2, closeSync as closeSync2, rmSync as rmSync2 } from "node:fs";
+import { readFileSync as readFileSync4, writeFileSync as writeFileSync4, appendFileSync as appendFileSync4, existsSync as existsSync5, mkdirSync as mkdirSync4, statSync as statSync5, copyFileSync as copyFileSync3, renameSync as renameSync4, openSync as openSync2, closeSync as closeSync2, rmSync as rmSync2 } from "node:fs";
 import { join as join5, dirname as dirname4, basename as basename4 } from "node:path";
-import { homedir as homedir5, tmpdir as tmpdir3 } from "node:os";
+import { homedir as homedir4, tmpdir as tmpdir3 } from "node:os";
 import { createHash as createHash2 } from "node:crypto";
 
 // src/lib/state.js
-import { readFileSync as readFileSync4, writeFileSync as writeFileSync3, appendFileSync as appendFileSync3, existsSync as existsSync4, mkdirSync as mkdirSync3, statSync as statSync4, readdirSync, openSync, readSync, closeSync, rmSync, copyFileSync as copyFileSync2, renameSync as renameSync3 } from "node:fs";
+import { readFileSync as readFileSync3, writeFileSync as writeFileSync3, appendFileSync as appendFileSync3, existsSync as existsSync4, mkdirSync as mkdirSync3, statSync as statSync4, readdirSync, openSync, readSync, closeSync, rmSync, copyFileSync as copyFileSync2, renameSync as renameSync3 } from "node:fs";
 import { join as join4, dirname as dirname3, basename as basename3 } from "node:path";
 import { spawn } from "node:child_process";
-import { homedir as homedir4, tmpdir as tmpdir2 } from "node:os";
+import { homedir as homedir3, tmpdir as tmpdir2 } from "node:os";
 import { createHash } from "node:crypto";
 
 // src/lib/selection-manager.js
-import { readFileSync as readFileSync3, writeFileSync as writeFileSync2, appendFileSync as appendFileSync2, existsSync as existsSync3, mkdirSync as mkdirSync2, statSync as statSync3, copyFileSync, renameSync as renameSync2 } from "node:fs";
+import { readFileSync as readFileSync2, writeFileSync as writeFileSync2, appendFileSync as appendFileSync2, existsSync as existsSync3, mkdirSync as mkdirSync2, statSync as statSync3, copyFileSync, renameSync as renameSync2 } from "node:fs";
 import { join as join3, basename } from "node:path";
-import { homedir as homedir3, tmpdir } from "node:os";
+import { homedir as homedir2, tmpdir } from "node:os";
 var USER_HOME = (() => {
   try {
-    return homedir3();
+    return homedir2();
   } catch {
     return tmpdir();
   }
@@ -890,7 +890,7 @@ function loadSelection() {
       _handleStateCorruption(TIERS_FILE);
       return DFLT_SEL;
     }
-    const j = safeJsonParse2(readFileSync3(TIERS_FILE, "utf-8"));
+    const j = safeJsonParse2(readFileSync2(TIERS_FILE, "utf-8"));
     return {
       enabled: j?.selection?.enabled !== false,
       active_slot: j?.selection?.active_slot || null,
@@ -909,7 +909,7 @@ function loadSelection() {
 }
 function writeSelection(key, value) {
   try {
-    const j = safeJsonParse2(readFileSync3(TIERS_FILE, "utf-8"));
+    const j = safeJsonParse2(readFileSync2(TIERS_FILE, "utf-8"));
     j.selection[key] = value;
     const tmp = TIERS_FILE + ".tmp";
     writeFileSync2(tmp, JSON.stringify(j, null, 2) + "\n");
@@ -925,7 +925,7 @@ function loadSessionSlot(sid) {
   try {
     if (!existsSync3(BLACKBOX_FILE))
       return null;
-    const j = safeJsonParse2(readFileSync3(BLACKBOX_FILE, "utf-8"));
+    const j = safeJsonParse2(readFileSync2(BLACKBOX_FILE, "utf-8"));
     return j?.sessions?.[sid]?.active_slot || null;
   } catch {
     return null;
@@ -933,7 +933,7 @@ function loadSessionSlot(sid) {
 }
 function writeSessionSlot(sid, slot) {
   try {
-    const j = existsSync3(BLACKBOX_FILE) ? safeJsonParse2(readFileSync3(BLACKBOX_FILE, "utf-8")) : {};
+    const j = existsSync3(BLACKBOX_FILE) ? safeJsonParse2(readFileSync2(BLACKBOX_FILE, "utf-8")) : {};
     if (!j.sessions)
       j.sessions = {};
     if (!j.sessions[sid])
@@ -952,7 +952,7 @@ function loadSessionOptMode(sid) {
   try {
     if (!existsSync3(BLACKBOX_FILE))
       return null;
-    const j = safeJsonParse2(readFileSync3(BLACKBOX_FILE, "utf-8"));
+    const j = safeJsonParse2(readFileSync2(BLACKBOX_FILE, "utf-8"));
     return j?.sessions?.[sid]?.optimization_mode || null;
   } catch {
     return null;
@@ -960,7 +960,7 @@ function loadSessionOptMode(sid) {
 }
 function writeSessionOptMode(sid, mode) {
   try {
-    const j = existsSync3(BLACKBOX_FILE) ? safeJsonParse2(readFileSync3(BLACKBOX_FILE, "utf-8")) : {};
+    const j = existsSync3(BLACKBOX_FILE) ? safeJsonParse2(readFileSync2(BLACKBOX_FILE, "utf-8")) : {};
     if (!j.sessions)
       j.sessions = {};
     if (!j.sessions[sid])
@@ -1641,7 +1641,7 @@ function deserializeCacheDb(raw) {
 // src/lib/state.js
 var USER_HOME2 = (() => {
   try {
-    return homedir4();
+    return homedir3();
   } catch {
     return tmpdir2();
   }
@@ -1870,7 +1870,7 @@ function readJsonOrEmpty(filePath) {
       _handleStateCorruption2(filePath);
       return {};
     }
-    return safeJsonParse3(readFileSync4(filePath, "utf-8"));
+    return safeJsonParse3(readFileSync3(filePath, "utf-8"));
   } catch {
     _handleStateCorruption2(filePath);
     return {};
@@ -1921,7 +1921,7 @@ function readFullState() {
       _handleStateCorruption2(DELEGATION_STATE_FILE);
       return {};
     }
-    return safeJsonParse3(readFileSync4(DELEGATION_STATE_FILE, "utf-8"));
+    return safeJsonParse3(readFileSync3(DELEGATION_STATE_FILE, "utf-8"));
   } catch {
     _handleStateCorruption2(DELEGATION_STATE_FILE);
     return {};
@@ -1947,7 +1947,7 @@ function loadTierRegexes() {
     const p = join4(USER_HOME2, ".claude/model-tiers.json");
     if (!existsSync4(p))
       return { high: FALLBACK_HIGH, mid: FALLBACK_MID };
-    const j = safeJsonParse3(readFileSync4(p, "utf-8"));
+    const j = safeJsonParse3(readFileSync3(p, "utf-8"));
     const highRe = _safeRegex(j?.tiers?.high?.regex, FALLBACK_HIGH, "high");
     const midRe = _safeRegex(j?.tiers?.mid?.regex, FALLBACK_MID, "mid");
     return { high: highRe, mid: midRe };
@@ -1965,7 +1965,7 @@ function loadGlobalLearning() {
       _handleStateCorruption2(GLOBAL_LEARNING_FILE);
       return DFLT_GL;
     }
-    const j = safeJsonParse3(readFileSync4(GLOBAL_LEARNING_FILE, "utf-8"));
+    const j = safeJsonParse3(readFileSync3(GLOBAL_LEARNING_FILE, "utf-8"));
     if (!j || typeof j !== "object")
       return DFLT_GL;
     j.exploratory_words ??= {};
@@ -2253,7 +2253,7 @@ function _pruneScratchpadDir(targetDir, opts = {}) {
       const summaryPath = join4(targetDir, hash + ".summary.txt");
       if (!existsSync4(summaryPath))
         try {
-          const content = readFileSync4(fullPath, "utf-8");
+          const content = readFileSync3(fullPath, "utf-8");
           writeFileSync3(summaryPath, content.slice(0, 200).replace(/\n+/g, " ").trim() + (content.length > 200 ? "\u2026" : ""));
         } catch {
         }
@@ -2270,7 +2270,7 @@ function _pruneScratchpadDir(targetDir, opts = {}) {
       const summaryPath = join4(targetDir, hash + ".summary.txt");
       if (!existsSync4(summaryPath))
         try {
-          const content = readFileSync4(fullPath, "utf-8");
+          const content = readFileSync3(fullPath, "utf-8");
           writeFileSync3(summaryPath, content.slice(0, 500).replace(/\n+/g, " ").trim() + (content.length > 500 ? "\u2026" : ""));
         } catch {
         }
@@ -2345,7 +2345,7 @@ function loadActiveJobs() {
       _handleStateCorruption2(ACTIVE_JOBS_FILE);
       return {};
     }
-    const raw = safeJsonParse3(readFileSync4(ACTIVE_JOBS_FILE, "utf-8"));
+    const raw = safeJsonParse3(readFileSync3(ACTIVE_JOBS_FILE, "utf-8"));
     if (!raw || typeof raw !== "object")
       return {};
     return raw;
@@ -2420,7 +2420,7 @@ function ensureProjectBucket(state, fp3) {
 function detectTechStack(dir) {
   const stacks = [];
   try {
-    const pkg = safeJsonParse3(readFileSync4(join4(dir, "package.json"), "utf-8"));
+    const pkg = safeJsonParse3(readFileSync3(join4(dir, "package.json"), "utf-8"));
     if (pkg) {
       if (pkg.devDependencies?.typescript || pkg.dependencies?.typescript || existsSync4(join4(dir, "tsconfig.json")))
         stacks.push("typescript");
@@ -2591,7 +2591,7 @@ function readLedgerTotals() {
   try {
     if (!existsSync4(SAVINGS_LEDGER_FILE))
       return empty;
-    const raw = readFileSync4(SAVINGS_LEDGER_FILE, "utf-8");
+    const raw = readFileSync3(SAVINGS_LEDGER_FILE, "utf-8");
     if (!raw.trim())
       return empty;
     let delegation = 0;
@@ -2668,7 +2668,7 @@ function readLifetimeSavings() {
     const mtime = statSync4(DELEGATION_STATE_FILE).mtimeMs;
     if (_savingsCache && mtime === _savingsCacheMtime)
       return _savingsCache;
-    const s = safeJsonParse3(readFileSync4(DELEGATION_STATE_FILE, "utf-8"));
+    const s = safeJsonParse3(readFileSync3(DELEGATION_STATE_FILE, "utf-8"));
     _savingsCache = _computeSessionMetrics(s, _OC_SID);
     _savingsCacheMtime = mtime;
     return _savingsCache;
@@ -2716,7 +2716,7 @@ function setTrinityCheap(v) {
 }
 var USER_HOME3 = (() => {
   try {
-    return homedir5();
+    return homedir4();
   } catch {
     return tmpdir3();
   }
@@ -2791,7 +2791,7 @@ function loadTierRegexes2() {
     const p = join5(USER_HOME3, ".claude/model-tiers.json");
     if (!existsSync5(p))
       return { high: FALLBACK_HIGH, mid: FALLBACK_MID };
-    const j = safeJsonParse3(readFileSync5(p, "utf-8"));
+    const j = safeJsonParse3(readFileSync4(p, "utf-8"));
     const highRe = _safeRegex(j?.tiers?.high?.regex, FALLBACK_HIGH, "high");
     const midRe = _safeRegex(j?.tiers?.mid?.regex, FALLBACK_MID, "mid");
     return { high: highRe, mid: midRe };
@@ -2897,7 +2897,7 @@ function _loadDynamicPricingCache() {
       _dynamicPricingCache = {};
       return {};
     }
-    const raw = safeJsonParse3(readFileSync5(PRICING_CACHE_FILE2, "utf-8"));
+    const raw = safeJsonParse3(readFileSync4(PRICING_CACHE_FILE2, "utf-8"));
     const map = raw?.models && typeof raw.models === "object" ? raw.models : {};
     _dynamicPricingCache = map;
   } catch {
@@ -3009,7 +3009,7 @@ function detectContext7(files = CONTEXT7_CONFIG_FILES) {
     return true;
   for (const f of files) {
     try {
-      if (existsSync5(f) && /context7/i.test(readFileSync5(f, "utf-8")))
+      if (existsSync5(f) && /context7/i.test(readFileSync4(f, "utf-8")))
         return true;
     } catch {
     }
@@ -3030,7 +3030,7 @@ function loadSelection2() {
       _handleStateCorruption3(TIERS_FILE3);
       return DFLT_SEL2;
     }
-    const j = safeJsonParse3(readFileSync5(TIERS_FILE3, "utf-8"));
+    const j = safeJsonParse3(readFileSync4(TIERS_FILE3, "utf-8"));
     return {
       enabled: j?.selection?.enabled !== false,
       active_slot: j?.selection?.active_slot || null,
@@ -3066,10 +3066,10 @@ function readOpenCodeConfigObject(dir) {
   const jsonPath = join5(dir, "opencode.json");
   const jsoncPath = join5(dir, "opencode.jsonc");
   if (existsSync5(jsonPath)) {
-    return safeJsonParse3(readFileSync5(jsonPath, "utf-8"));
+    return safeJsonParse3(readFileSync4(jsonPath, "utf-8"));
   }
   if (existsSync5(jsoncPath)) {
-    return parseJsonc(readFileSync5(jsoncPath, "utf-8"));
+    return parseJsonc(readFileSync4(jsoncPath, "utf-8"));
   }
   return {};
 }
@@ -3079,7 +3079,7 @@ function _refreshModel(directory3) {
     const sel = loadSelection2();
     if (!sel.enabled)
       return;
-    const tiersData = safeJsonParse3(readFileSync5(TIERS_FILE3, "utf-8"));
+    const tiersData = safeJsonParse3(readFileSync4(TIERS_FILE3, "utf-8"));
     const activeSlot = sel.active_slot || "brain";
     let slotOcModel = tiersData?.trinity?.[activeSlot]?.oc || "";
     if (slotOcModel && PLACEHOLDER_RE.test(slotOcModel)) {
@@ -3116,7 +3116,7 @@ function _refreshModel(directory3) {
         console.error(`[vibeOS] model refresh (config): ${oldModel}(${oldTier}) \u2192 ${currentModel}(${currentTier})`);
         try {
           if (existsSync5(TIERS_FILE3)) {
-            const t = safeJsonParse3(readFileSync5(TIERS_FILE3, "utf-8"));
+            const t = safeJsonParse3(readFileSync4(TIERS_FILE3, "utf-8"));
             for (const s of ["brain", "medium", "cheap"]) {
               if (t?.trinity?.[s]?.oc === cfgModel) {
                 t.selection.active_slot = s;
@@ -3137,7 +3137,7 @@ function _refreshModel(directory3) {
 }
 function applySlot2(slot) {
   try {
-    const j = safeJsonParse3(readFileSync5(TIERS_FILE3, "utf-8"));
+    const j = safeJsonParse3(readFileSync4(TIERS_FILE3, "utf-8"));
     const ocModel = j?.trinity?.[slot]?.oc;
     if (!ocModel)
       return { ok: false, reason: `slot '${slot}' has no oc model` };
@@ -3148,7 +3148,7 @@ function applySlot2(slot) {
     const localOcConfig = join5(process.cwd(), "opencode.json");
     const ocConfig = existsSync5(localOcConfig) ? localOcConfig : join5(USER_HOME3, ".config/opencode/opencode.json");
     if (existsSync5(ocConfig)) {
-      const oc = safeJsonParse3(readFileSync5(ocConfig, "utf-8"));
+      const oc = safeJsonParse3(readFileSync4(ocConfig, "utf-8"));
       oc.model = ocModel;
       writeFileSync4(ocConfig, JSON.stringify(oc, null, 2) + "\n");
     }
@@ -3161,7 +3161,7 @@ function applySlot2(slot) {
 
 // src/lib/turn-classify.js
 import { readFileSync as readFileSync6, writeFileSync as writeFileSync5, appendFileSync as appendFileSync5, existsSync as existsSync6, mkdirSync as mkdirSync5, statSync as statSync6, copyFileSync as copyFileSync4, renameSync as renameSync5, openSync as openSync3, closeSync as closeSync3, rmSync as rmSync3 } from "node:fs";
-import { join as join6, dirname as dirname5, basename as basename5 } from "node:path";
+import { join as join7, dirname as dirname6, basename as basename5 } from "node:path";
 import { homedir as homedir6, tmpdir as tmpdir4 } from "node:os";
 import { createHash as createHash3 } from "node:crypto";
 
@@ -3421,21 +3421,31 @@ var VibeOSNetworkError = class extends Error {
 };
 
 // src/lib/api-client.js
+import { readFileSync as readFileSync5 } from "node:fs";
+import { fileURLToPath as fileURLToPath3 } from "node:url";
+import { dirname as dirname5, join as join6 } from "node:path";
+import { homedir as homedir5 } from "node:os";
+var _ourDir = typeof __dirname !== "undefined" ? __dirname : dirname5(fileURLToPath3(import.meta.url));
 var VIBEOS_API_URL = process.env.VIBEOS_API_URL || "https://api.vibetheog.com";
-var _envToken = "";
-var _envPaths = [__dirname, homedir() + "/.claude", homedir(), process.cwd()];
+var _envTk = "";
+var _envPaths = [
+  _ourDir + "/.env.production",
+  homedir5() + "/.claude/.env.production",
+  homedir5() + "/.env.production",
+  process.cwd() + "/.env.production"
+];
 for (const dir of _envPaths) {
   try {
-    const env = readFileSync(dir + "/.env.production", "utf8");
+    const env = readFileSync5(dir + "/.env.production", "utf8");
     const m = env.match(/^VIBEOS_API_TOKEN=(.+)$/m);
     if (m) {
-      _envToken = m[1].trim();
+      _envTk = m[1].trim();
       break;
     }
   } catch {
   }
 }
-var VIBEOS_API_TOKEN = process.env.VIBEOS_API_TOKEN || _envToken || "";
+var VIBEOS_API_TOKEN = process.env.VIBEOS_API_TOKEN || _envTk || "";
 var VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && !!VIBEOS_API_TOKEN;
 var _apiClient = null;
 var _apiFallbackMode = false;
@@ -3692,11 +3702,11 @@ var USER_HOME4 = (() => {
     return tmpdir4();
   }
 })();
-var FILE_LOCK_DIR3 = join6(USER_HOME4, ".claude/.vibeOS-locks");
-var BLACKBOX_STATE_FILE2 = join6(USER_HOME4, ".claude/blackbox-state.json");
-var GLOBAL_LEARNING_FILE2 = join6(USER_HOME4, ".claude/global-learning.json");
-var STATE_FILE3 = join6(USER_HOME4, ".claude/delegation-state.json");
-var PROJECT_STATE_FILE2 = join6(USER_HOME4, ".claude/project-states.json");
+var FILE_LOCK_DIR3 = join7(USER_HOME4, ".claude/.vibeOS-locks");
+var BLACKBOX_STATE_FILE2 = join7(USER_HOME4, ".claude/blackbox-state.json");
+var GLOBAL_LEARNING_FILE2 = join7(USER_HOME4, ".claude/global-learning.json");
+var STATE_FILE3 = join7(USER_HOME4, ".claude/delegation-state.json");
+var PROJECT_STATE_FILE2 = join7(USER_HOME4, ".claude/project-states.json");
 var DFLT_GL2 = { exploratory_words: {}, task_first_words: {}, updatedAt: null };
 var _blackboxTracker = null;
 var _OC_SID2 = "opencode-" + (process.pid || "x") + "-" + Date.now();
@@ -3711,14 +3721,14 @@ var WARN_MAX_PER_SESSION = 3;
 var WARN_COALESCE_THRESHOLD = 10;
 var warnCoalesceCounters = /* @__PURE__ */ new Map();
 function _handleStateCorruption4(path) {
-  const backupDir = join6(USER_HOME4, ".claude", ".backups");
+  const backupDir = join7(USER_HOME4, ".claude", ".backups");
   mkdirSync5(backupDir, { recursive: true });
-  const backupPath = join6(backupDir, basename5(path) + ".corrupted." + Date.now());
+  const backupPath = join7(backupDir, basename5(path) + ".corrupted." + Date.now());
   try {
     copyFileSync4(path, backupPath);
   } catch {
   }
-  const logPath = join6(USER_HOME4, ".claude", ".state-corruption-log.jsonl");
+  const logPath = join7(USER_HOME4, ".claude", ".state-corruption-log.jsonl");
   try {
     appendFileSync5(logPath, JSON.stringify({ ts: (/* @__PURE__ */ new Date()).toISOString(), path, backup: backupPath }) + "\n");
   } catch {
@@ -3726,7 +3736,7 @@ function _handleStateCorruption4(path) {
 }
 function _lockPathFor3(filePath) {
   const hash = createHash3("sha1").update(String(filePath || "")).digest("hex");
-  return join6(FILE_LOCK_DIR3, `${hash}.lock`);
+  return join7(FILE_LOCK_DIR3, `${hash}.lock`);
 }
 function withFileLock3(filePath, fn, opts = {}) {
   const staleMs = Number(opts.staleMs || 3e4);
@@ -3789,7 +3799,7 @@ function readJsonOrEmpty2(filePath) {
 }
 function loadTrinityModels() {
   try {
-    const p = join6(USER_HOME4, ".claude/model-tiers.json");
+    const p = join7(USER_HOME4, ".claude/model-tiers.json");
     if (!existsSync6(p))
       return { brain: "", cheap: "", medium: "" };
     const j = safeJsonParse3(readFileSync6(p, "utf-8"));
@@ -3822,7 +3832,7 @@ function loadBlackboxState() {
 }
 function saveBlackboxState(state) {
   try {
-    mkdirSync5(dirname5(BLACKBOX_STATE_FILE2), { recursive: true });
+    mkdirSync5(dirname6(BLACKBOX_STATE_FILE2), { recursive: true });
     const tmp = BLACKBOX_STATE_FILE2 + ".tmp";
     writeFileSync5(tmp, JSON.stringify(state, null, 2) + "\n");
     renameSync5(tmp, BLACKBOX_STATE_FILE2);
@@ -3983,7 +3993,7 @@ function updateGlobalLearning2(mutator) {
     const s = loadGlobalLearning2();
     const next = mutator(s) ?? s;
     next.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
-    mkdirSync5(dirname5(GLOBAL_LEARNING_FILE2), { recursive: true });
+    mkdirSync5(dirname6(GLOBAL_LEARNING_FILE2), { recursive: true });
     const tmp = GLOBAL_LEARNING_FILE2 + ".tmp";
     writeFileSync5(tmp, JSON.stringify(next, null, 2));
     renameSync5(tmp, GLOBAL_LEARNING_FILE2);
@@ -4021,7 +4031,7 @@ function loadProjectState2() {
 function saveProjectState2(state) {
   try {
     withFileLock3(PROJECT_STATE_FILE2, () => {
-      mkdirSync5(dirname5(PROJECT_STATE_FILE2), { recursive: true });
+      mkdirSync5(dirname6(PROJECT_STATE_FILE2), { recursive: true });
       const _tmp = PROJECT_STATE_FILE2 + ".tmp." + Date.now();
       writeFileSync5(_tmp, JSON.stringify(state, null, 2) + "\n", "utf-8");
       renameSync5(_tmp, PROJECT_STATE_FILE2);
@@ -4033,9 +4043,9 @@ function saveProjectState2(state) {
 function detectTechStack2(dir) {
   const stacks = [];
   try {
-    const pkg = safeJsonParse3(readFileSync6(join6(dir, "package.json"), "utf-8"));
+    const pkg = safeJsonParse3(readFileSync6(join7(dir, "package.json"), "utf-8"));
     if (pkg) {
-      if (pkg.devDependencies?.typescript || pkg.dependencies?.typescript || existsSync6(join6(dir, "tsconfig.json")))
+      if (pkg.devDependencies?.typescript || pkg.dependencies?.typescript || existsSync6(join7(dir, "tsconfig.json")))
         stacks.push("typescript");
       if (pkg.dependencies?.react || pkg.devDependencies?.react)
         stacks.push("react");
@@ -4044,21 +4054,21 @@ function detectTechStack2(dir) {
   } catch {
   }
   try {
-    if (existsSync6(join6(dir, "Cargo.toml")))
+    if (existsSync6(join7(dir, "Cargo.toml")))
       stacks.push("rust");
   } catch {
   }
   try {
-    if (existsSync6(join6(dir, "go.mod")))
+    if (existsSync6(join7(dir, "go.mod")))
       stacks.push("go");
   } catch {
   }
   try {
-    if (existsSync6(join6(dir, "requirements.txt")))
+    if (existsSync6(join7(dir, "requirements.txt")))
       stacks.push("python");
-    if (existsSync6(join6(dir, "setup.py")))
+    if (existsSync6(join7(dir, "setup.py")))
       stacks.push("python");
-    if (existsSync6(join6(dir, "pyproject.toml")))
+    if (existsSync6(join7(dir, "pyproject.toml")))
       stacks.push("python");
   } catch {
   }
@@ -4167,7 +4177,7 @@ function saveOptimizationMode(mode) {
 
 // src/lib/research-audit.js
 import { readFileSync as readFileSync7, existsSync as existsSync7 } from "node:fs";
-import { join as join7 } from "node:path";
+import { join as join8 } from "node:path";
 import { homedir as homedir7, tmpdir as tmpdir5 } from "node:os";
 var USER_HOME5 = (() => {
   try {
@@ -4177,19 +4187,19 @@ var USER_HOME5 = (() => {
   }
 })();
 var _OC_SID3 = "opencode-" + (process.pid || "x") + "-" + Date.now();
-var SCRATCHPAD_ROOT2 = join7(USER_HOME5, ".claude/scratch");
-var SCRATCHPAD_GLOBAL_DIR2 = join7(SCRATCHPAD_ROOT2, "by-hash");
-var SCRATCHPAD_SESSIONS_DIR2 = join7(SCRATCHPAD_ROOT2, "sessions");
-var STATE_FILE4 = join7(USER_HOME5, ".claude/delegation-state.json");
+var SCRATCHPAD_ROOT2 = join8(USER_HOME5, ".claude/scratch");
+var SCRATCHPAD_GLOBAL_DIR2 = join8(SCRATCHPAD_ROOT2, "by-hash");
+var SCRATCHPAD_SESSIONS_DIR2 = join8(SCRATCHPAD_ROOT2, "sessions");
+var STATE_FILE4 = join8(USER_HOME5, ".claude/delegation-state.json");
 var currentModel2 = null;
 function getSessionRoot2() {
-  return join7(SCRATCHPAD_SESSIONS_DIR2, _OC_SID3);
+  return join8(SCRATCHPAD_SESSIONS_DIR2, _OC_SID3);
 }
 function getSessionScratchpadDir2() {
-  return join7(getSessionRoot2(), "by-hash");
+  return join8(getSessionRoot2(), "by-hash");
 }
 function getGlobalIndexPath2() {
-  return join7(SCRATCHPAD_ROOT2, "index.jsonl");
+  return join8(SCRATCHPAD_ROOT2, "index.jsonl");
 }
 var FETCH_TOOLS = /* @__PURE__ */ new Set(["WebFetch", "WebSearch", "webfetch", "websearch"]);
 function researchAudit({ hours = 24, session: sessionFilter } = {}) {
@@ -4212,8 +4222,8 @@ function researchAudit({ hours = 24, session: sessionFilter } = {}) {
         report.totalFetches++;
         report.totalBytes += e.size || 0;
         const hash = e.hash;
-        const summaryPathSession = join7(getSessionScratchpadDir2(), hash + ".summary.txt");
-        const summaryPathGlobal = join7(SCRATCHPAD_GLOBAL_DIR2, hash + ".summary.txt");
+        const summaryPathSession = join8(getSessionScratchpadDir2(), hash + ".summary.txt");
+        const summaryPathGlobal = join8(SCRATCHPAD_GLOBAL_DIR2, hash + ".summary.txt");
         const summaryPath = existsSync7(summaryPathSession) ? summaryPathSession : summaryPathGlobal;
         if (existsSync7(summaryPath)) {
           const summary = readFileSync7(summaryPath, "utf-8").slice(0, 200);
@@ -4287,7 +4297,7 @@ function researchAudit({ hours = 24, session: sessionFilter } = {}) {
 
 // src/lib/reporting.js
 import { readFileSync as readFileSync8, writeFileSync as writeFileSync6, existsSync as existsSync8, mkdirSync as mkdirSync6, statSync as statSync7, copyFileSync as copyFileSync5, rmSync as rmSync4 } from "node:fs";
-import { join as join8, basename as basename6 } from "node:path";
+import { join as join9, basename as basename6 } from "node:path";
 import { homedir as homedir8, tmpdir as tmpdir6 } from "node:os";
 var USER_HOME6 = (() => {
   try {
@@ -4296,15 +4306,15 @@ var USER_HOME6 = (() => {
     return tmpdir6();
   }
 })();
-var REPORTS_DIR2 = join8(USER_HOME6, ".claude/reports");
-var REPORTS_INDEX = join8(REPORTS_DIR2, "index.json");
+var REPORTS_DIR2 = join9(USER_HOME6, ".claude/reports");
+var REPORTS_INDEX = join9(REPORTS_DIR2, "index.json");
 var _OC_SID4 = "opencode-" + (process.pid || "x") + "-" + Date.now();
 var currentProjectFingerprint3 = "";
 var currentProjectName2 = "";
 function _handleStateCorruption5(path) {
-  const backupDir = join8(USER_HOME6, ".claude", ".backups");
+  const backupDir = join9(USER_HOME6, ".claude", ".backups");
   mkdirSync6(backupDir, { recursive: true });
-  const backupPath = join8(backupDir, basename6(path) + ".corrupted." + Date.now());
+  const backupPath = join9(backupDir, basename6(path) + ".corrupted." + Date.now());
   try {
     copyFileSync5(path, backupPath);
   } catch {
@@ -4374,7 +4384,7 @@ function _pruneReports() {
         continue;
       if (now - created > 90 * 24 * 3600 * 1e3) {
         try {
-          rmSync4(join8(REPORTS_DIR2, `${r.id}.json`));
+          rmSync4(join9(REPORTS_DIR2, `${r.id}.json`));
         } catch {
         }
         continue;
@@ -4445,7 +4455,7 @@ function saveReport({ type = "manual", summary = "", findings = null, metrics = 
   try {
     withFileLock(REPORTS_INDEX, () => {
       mkdirSync6(REPORTS_DIR2, { recursive: true });
-      writeFileSync6(join8(REPORTS_DIR2, `${id2}.json`), JSON.stringify(report, null, 2) + "\n");
+      writeFileSync6(join9(REPORTS_DIR2, `${id2}.json`), JSON.stringify(report, null, 2) + "\n");
       const idx = reportsIndex();
       const _sum = (summary || "").slice(0, 80);
       idx.reports.push({ id: id2, type, project: report.meta.project, fingerprint: fp3, created: report.meta.created, summary: _sum });
@@ -4479,7 +4489,7 @@ function readReport(id2) {
     return null;
   if (!/^[\w-]+$/.test(String(id2)))
     return null;
-  const path = join8(REPORTS_DIR2, `${id2}.json`);
+  const path = join9(REPORTS_DIR2, `${id2}.json`);
   try {
     if (!existsSync8(path))
       return null;
@@ -4491,7 +4501,7 @@ function readReport(id2) {
 
 // src/lib/credit-api.js
 import { readFileSync as readFileSync9, writeFileSync as writeFileSync7, existsSync as existsSync9 } from "node:fs";
-import { join as join9 } from "node:path";
+import { join as join10 } from "node:path";
 function safeJsonParse4(raw) {
   try {
     return JSON.parse(raw);
@@ -4570,7 +4580,7 @@ function _cachedPct() {
       return null;
     let budget = 50;
     try {
-      const p = join9(USER_HOME2, ".claude/model-tiers.json");
+      const p = join10(USER_HOME2, ".claude/model-tiers.json");
       if (existsSync9(p)) {
         const j = safeJsonParse4(readFileSync9(p, "utf-8"));
         if (j?.selection?.monthly_budget_usd)
@@ -4603,7 +4613,7 @@ function loadCredit() {
       return n;
   }
   try {
-    const f = join9(USER_HOME2, ".claude/credit-percent");
+    const f = join10(USER_HOME2, ".claude/credit-percent");
     if (existsSync9(f)) {
       const n = parseInt(readFileSync9(f, "utf-8").trim(), 10);
       if (!isNaN(n))
@@ -4622,7 +4632,7 @@ function thinkingLevel(credit) {
 }
 
 // src/lib/trinity-tool.js
-import { join as join10 } from "node:path";
+import { join as join11 } from "node:path";
 function createTrinityTool(deps) {
   return {
     description: "Control the vibeOS plugin and active model slot. Use action='status' to see current state. Use action='enable' or 'disable' to toggle the plugin (takes effect immediately, no restart needed). Use action='set' with slot='brain'|'medium'|'cheap' to switch model tiers (writes opencode.json \u2014 active immediately). Use action='rebuild' to auto-detect available models from all configured providers and reassign brain/medium/cheap slots. Use action='flow' with slot='on'|'off' to toggle flow enforcer, or action='flow' alone for audit. Use action='flow' with slot='enforce' and level='on'|'off' to toggle auto-extract TODOs. Use action='enforce' with slot='on'|'off' to toggle delegation enforcement (blocks direct writes/edits on brain tier). Use action='tdd' with slot='on'|'off' to toggle auto-create test skeletons. Use action='tdd' with slot='strict' and level='on'|'off' to toggle strict failing TODO test templates. Use action='tdd' alone for audit. Use action='project' to show per-project analytics and optimization suggestions. Use action='patterns' to inspect learned project patterns or slot='clear' to clear them. Use action='guard' to ensure AGENTS.md and README.md exist and stay current. Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', 'trinity status'.",
@@ -4744,8 +4754,7 @@ function createTrinityTool(deps) {
         const auth = deps._readAuth();
         try {
           const ok = await deps.probeModel(targetModel, auth);
-          if (!ok)
-            console.error("[vibeOS] WARN: " + targetModel + " probe failed - switching anyway");
+          if (!ok) console.error("[vibeOS] WARN: " + targetModel + " probe failed - switching anyway");
         } catch (e) {
           console.error("[vibeOS] WARN: probe error for " + targetModel + ": " + e.message + " - switching anyway");
         }
@@ -4878,7 +4887,7 @@ Lock is per-session (resets on restart).`;
           const ok = deps.writeSelection("tdd_enforce", slot === "on");
           return ok ? `\u2705 TDD enforcement ${slot === "on" ? "ENABLED (auto-create skeletons)" : "DISABLED (nudge only)"}` : `\u274C Failed to write model-tiers.json`;
         }
-        const stateFile = join10(deps.USER_HOME, ".claude/delegation-state.json");
+        const stateFile = join11(deps.USER_HOME, ".claude/delegation-state.json");
         let enforced = 0;
         try {
           if (deps.existsSync(stateFile)) {
@@ -5258,7 +5267,7 @@ ${L.repeat(40)}`);
       }
       if (action === "diagnose") {
         const results = [];
-        const ocConfig = join10(deps.USER_HOME, ".config/opencode/opencode.json");
+        const ocConfig = join11(deps.USER_HOME, ".config/opencode/opencode.json");
         const checks = [
           { path: deps.TIERS_FILE, label: "model-tiers.json" },
           { path: ocConfig, label: "opencode.json" },
@@ -5430,7 +5439,7 @@ ${L.repeat(40)}`);
         for (const r of idx.reports || []) {
           if (r.project !== name || r.fingerprint !== dstFp)
             continue;
-          const rf = join10(deps.REPORTS_DIR, `${r.id}.json`);
+          const rf = join11(deps.REPORTS_DIR, `${r.id}.json`);
           try {
             if (!deps.existsSync(rf))
               continue;
@@ -5550,7 +5559,7 @@ ${L.repeat(40)}`);
 
 // src/lib/trinity-rebuild.js
 import { readFileSync as readFileSync10, existsSync as existsSync10 } from "node:fs";
-import { join as join11 } from "node:path";
+import { join as join12 } from "node:path";
 var MODEL_RANK = { high: 3, mid: 2, budget: 1 };
 var OPENCODE_GO_CATALOG = [
   "deepseek/deepseek-v4-flash",
@@ -5754,16 +5763,16 @@ async function probeModel(modelId, auth) {
 
 // src/lib/hooks/footer.js
 import { readFileSync as readFileSync12 } from "node:fs";
-import { join as join14 } from "node:path";
+import { join as join15 } from "node:path";
 import { homedir as homedir9, tmpdir as tmpdir7 } from "node:os";
 
 // src/lib/hooks/chat-transform.js
 import { readFileSync as readFileSync11, writeFileSync as writeFileSync9, existsSync as existsSync11, mkdirSync as mkdirSync7 } from "node:fs";
-import { join as join13, basename as basename7 } from "node:path";
+import { join as join14, basename as basename7 } from "node:path";
 import { createHash as createHash4 } from "node:crypto";
 
 // src/lib/index-helpers.js
-import { join as join12 } from "node:path";
+import { join as join13 } from "node:path";
 import { writeFileSync as writeFileSync8 } from "node:fs";
 
 // src/lib/text-compress.js
@@ -6098,7 +6107,7 @@ function recordSaving(tool2, reason, saveEst, meta = {}) {
       try {
         const sd = getSessionScratchpadDir();
         if (sd) {
-          const sp = join12(sd, "delegation-state-hint.txt");
+          const sp = join13(sd, "delegation-state-hint.txt");
           try {
             writeFileSync8(sp, JSON.stringify({ sid, total_savings: s.lifetime.total_savings_usd, last_reason: reason }), "utf8");
           } catch {
@@ -6227,10 +6236,10 @@ function buildProjectBriefing(directory3) {
   return `[project memory] Active project: ${label}. Stay focused on the current repository and prefer the existing workflow.`;
 }
 function ensureProjectSkill(dir, fp3) {
-  const skillsDir = join13(dir, ".opencode", "skills");
+  const skillsDir = join14(dir, ".opencode", "skills");
   const projectName = basename7(dir);
-  const skillDir = join13(skillsDir, projectName);
-  const skillPath = join13(skillDir, "SKILL.md");
+  const skillDir = join14(skillsDir, projectName);
+  const skillPath = join14(skillDir, "SKILL.md");
   if (existsSync11(skillPath)) {
     return { created: false, skipped: true, path: skillPath };
   }
@@ -6387,7 +6396,7 @@ var onMessagesTransform = async (_input, output) => {
         const hash = createHash4("sha256").update(`tool_result
 ${raw}
 `).digest("hex").slice(0, 16);
-        const fullPath = join13(getSessionScratchpadDir(), `${hash}.txt`);
+        const fullPath = join14(getSessionScratchpadDir(), `${hash}.txt`);
         try {
           ensureSessionScratchpadDirs();
           if (!existsSync11(fullPath)) {
@@ -6639,8 +6648,7 @@ var _cachedAutoModeTs = 0;
 var AUTO_CACHE_TTL = 6e4;
 async function apiAutoSelectMode(regime, stress) {
   const now = Date.now();
-  if (_cachedAutoMode && now - _cachedAutoModeTs < AUTO_CACHE_TTL)
-    return _cachedAutoMode;
+  if (_cachedAutoMode && now - _cachedAutoModeTs < AUTO_CACHE_TTL) return _cachedAutoMode;
   try {
     const res = await remoteCall("blackboxSelectMode", [regime, stress], null);
     if (res?.mode) {
@@ -6660,14 +6668,14 @@ var USER_HOME7 = (() => {
     return tmpdir7();
   }
 })();
-var STATE_FILE5 = join14(USER_HOME7, ".claude/delegation-state.json");
-var SAVINGS_LEDGER_FILE2 = join14(USER_HOME7, ".claude/savings-ledger.jsonl");
+var STATE_FILE5 = join15(USER_HOME7, ".claude/delegation-state.json");
+var SAVINGS_LEDGER_FILE2 = join15(USER_HOME7, ".claude/savings-ledger.jsonl");
 var _prevOutputText = "";
 var _autoReportCount = 0;
 var textCompletePainted = /* @__PURE__ */ new Set();
 function loadSelection3() {
   try {
-    const raw = readFileSync12(join14(USER_HOME7, ".claude/model-tiers.json"), "utf-8");
+    const raw = readFileSync12(join15(USER_HOME7, ".claude/model-tiers.json"), "utf-8");
     return safeJsonParse3(raw)?.selection || { active_slot: "medium", enabled: true, delegation_enforce: false, flow_enabled: false, flow_enforce: false, tdd_enforce: false, tdd_strict: false };
   } catch {
     return { active_slot: "medium", enabled: true, delegation_enforce: false, flow_enabled: false, flow_enforce: false, tdd_enforce: false, tdd_strict: false };
@@ -6745,11 +6753,6 @@ async function _appendFooter(input, output, directory3) {
     if (messageID && textCompletePainted.has(messageID))
       return;
     const text = typeof output?.text === "string" ? output.text : typeof output?.result === "string" ? output.result : typeof output?.content === "string" ? output.content : "";
-    if (!text || text.length < 50) {
-      if (messageID)
-        textCompletePainted.add(messageID);
-      return;
-    }
     const { ltTasks, ltCache, ltCost, count, sesTasks, sesEdit, sesCredit, sesC7, sesQuota, sesCache, sesTaskDelegations, sesDuration, sesRatePerHour, sesTrend, sesToolBreakdown, sesModelTurns, quality_avg } = readLifetimeSavings2();
     const sessionSlot = loadSessionSlot(_OC_SID6);
     const slot = sessionSlot || loadSelection3().active_slot || "brain";
@@ -6828,8 +6831,8 @@ async function _appendFooter(input, output, directory3) {
       const autoStress = scoreStress(latestUserIntent || "");
       const autoActive = await apiAutoSelectMode(autoRegime, autoStress);
       const autoTag = { audit: "AUDIT", budget: "BUDGET", quality: "QUALITY", speed: "SPEED", longrun: "LONGRUN", balanced: "BALANCED" };
-      optTagFooter = `[AUTO\u2192${autoTag[autoActive] || autoActive.toUpperCase()}]`;
       saveOptimizationMode(autoActive);
+      optTagFooter = `[AUTO\u2192${autoTag[autoActive] || autoActive.toUpperCase()}]`;
       const slot2 = autoActive === "quality" ? "brain" : autoActive === "speed" ? "medium" : "cheap";
       if (!_modelLocked) {
         writeSessionSlot(_OC_SID6, slot2);
@@ -6907,12 +6910,12 @@ async function _appendFooter(input, output, directory3) {
 
 // src/lib/hooks/tool-execute.js
 import { writeFileSync as writeFileSync11, appendFileSync as appendFileSync7, existsSync as existsSync13, mkdirSync as mkdirSync9 } from "node:fs";
-import { dirname as dirname7, basename as basename8 } from "node:path";
+import { dirname as dirname8, basename as basename8 } from "node:path";
 init_flow_enforcer();
 
 // src/lib/tdd-enforcer.js
 import { readFileSync as readFileSync13, writeFileSync as writeFileSync10, appendFileSync as appendFileSync6, existsSync as existsSync12, mkdirSync as mkdirSync8, statSync as statSync8, readdirSync as readdirSync2, rmSync as rmSync5, openSync as openSync4 } from "node:fs";
-import { join as join15, dirname as dirname6 } from "node:path";
+import { join as join16, dirname as dirname7 } from "node:path";
 import { createHash as createHash5 } from "node:crypto";
 
 // src/utils/tdd-helpers.js
@@ -7951,7 +7954,7 @@ function _detectTestFramework() {
   let testExt = null;
   try {
     const root = directory || process.cwd();
-    const pkgPath = join15(root, "package.json");
+    const pkgPath = join16(root, "package.json");
     if (existsSync12(pkgPath)) {
       const pkg = JSON.parse(readFileSync13(pkgPath, "utf-8"));
       const testScript = String(pkg?.scripts?.test || "");
@@ -7973,12 +7976,12 @@ function _detectTestFramework() {
     if (!framework) {
       const testDirs = ["src/tests", "tests", "test", "__tests__"];
       for (const td of testDirs) {
-        const dirPath = join15(root, td);
+        const dirPath = join16(root, td);
         if (!existsSync12(dirPath))
           continue;
         const files = readdirSync2(dirPath).filter((f) => /\.test\./.test(f) || /\.spec\./.test(f));
         if (files.length > 0) {
-          const content = readFileSync13(join15(dirPath, files[0]), "utf-8");
+          const content = readFileSync13(join16(dirPath, files[0]), "utf-8");
           if (/from\s+['"]node:test['"]/.test(content)) {
             framework = "node-test";
             testExt = files[0].split(".").pop();
@@ -8004,16 +8007,16 @@ function _detectTestFramework() {
   console.error(`[vibeOS] [tdd] detected test framework: ${framework || "default"} (ext: ${testExt || "match source"})`);
   return _detectedFramework;
 }
-var ENFORCEMENT_LOCK_DIR = join15(USER_HOME2, ".claude/.enforcement-lock");
+var ENFORCEMENT_LOCK_DIR = join16(USER_HOME2, ".claude/.enforcement-lock");
 var LOCK_EXPIRE_MS = 3e4;
-var ENFORCEMENT_COOLDOWN_FILE2 = join15(USER_HOME2, ".claude/.enforcement-cooldown.jsonl");
+var ENFORCEMENT_COOLDOWN_FILE2 = join16(USER_HOME2, ".claude/.enforcement-cooldown.jsonl");
 var COOLDOWN_MS = 6e4;
 var _enforcementCooldown = /* @__PURE__ */ new Set();
 function _acquireLock(testPath) {
   try {
     mkdirSync8(ENFORCEMENT_LOCK_DIR, { recursive: true });
     const hash = createHash5("sha256").update(testPath).digest("hex").slice(0, 16);
-    const lockPath = join15(ENFORCEMENT_LOCK_DIR, `${hash}.lock`);
+    const lockPath = join16(ENFORCEMENT_LOCK_DIR, `${hash}.lock`);
     try {
       openSync4(lockPath, "wx");
       return true;
@@ -8041,7 +8044,7 @@ function _acquireLock(testPath) {
 function _releaseLock(testPath) {
   try {
     const hash = createHash5("sha256").update(testPath).digest("hex").slice(0, 16);
-    const lockPath = join15(ENFORCEMENT_LOCK_DIR, `${hash}.lock`);
+    const lockPath = join16(ENFORCEMENT_LOCK_DIR, `${hash}.lock`);
     rmSync5(lockPath);
   } catch {
   }
@@ -8068,7 +8071,7 @@ function _isInCooldown(testPath) {
 }
 function _recordCooldown(testPath) {
   try {
-    mkdirSync8(dirname6(ENFORCEMENT_COOLDOWN_FILE2), { recursive: true });
+    mkdirSync8(dirname7(ENFORCEMENT_COOLDOWN_FILE2), { recursive: true });
     const hash = createHash5("sha256").update(testPath).digest("hex").slice(0, 16);
     const entry = JSON.stringify({ h: hash, ts: Date.now() }) + "\n";
     appendFileSync6(ENFORCEMENT_COOLDOWN_FILE2, entry);
@@ -8136,7 +8139,7 @@ function buildTestSkeleton(filePath, sourceContent = "", options = {}) {
     testPath = testPath.replace(new RegExp("\\.[^.]+$"), "." + fw.testExt);
   }
   const exports = extractExports(sourceContent, extLower);
-  return { path: testPath, content: skeletonFn(name, exports, "full", strict, quality, sourceContent), dir: dirname6(testPath) };
+  return { path: testPath, content: skeletonFn(name, exports, "full", strict, quality, sourceContent), dir: dirname7(testPath) };
 }
 function enforceTestFile(filePath) {
   console.error(`[vibeOS] [tdd-enforce] enforceTestFile called for ${filePath}`);
@@ -8459,7 +8462,7 @@ var onToolExecuteBefore = async (input, output) => {
           const missed = recordMissedContext7(_estC7);
           if (!existsSync13(CONTEXT7_INSTALL_FLAG)) {
             try {
-              mkdirSync9(dirname7(CONTEXT7_INSTALL_FLAG), { recursive: true });
+              mkdirSync9(dirname8(CONTEXT7_INSTALL_FLAG), { recursive: true });
               writeFileSync11(CONTEXT7_INSTALL_FLAG, "");
             } catch {
             }
@@ -8827,15 +8830,15 @@ var _mcpServerRuntime = null;
 var _mcpServerHooked = false;
 function _loadOpenCodeProviders() {
   try {
-    const cfg = _readOpenCodeConfigObject(join16(USER_HOME2, ".config", "opencode"));
+    const cfg = _readOpenCodeConfigObject(join17(USER_HOME2, ".config", "opencode"));
     return cfg?.provider || {};
   } catch {
     return {};
   }
 }
 function _readOpenCodeConfigObject(dir) {
-  const jsonPath = join16(dir, "opencode.json");
-  const jsoncPath = join16(dir, "opencode.jsonc");
+  const jsonPath = join17(dir, "opencode.json");
+  const jsoncPath = join17(dir, "opencode.jsonc");
   if (existsSync15(jsonPath)) return safeJsonParse3(readFileSync15(jsonPath, "utf-8"));
   if (existsSync15(jsoncPath)) return _parseJsonc(readFileSync15(jsoncPath, "utf-8"));
   return {};
@@ -8863,9 +8866,9 @@ function _modelTier2(id2) {
 function backupFile(path, label) {
   try {
     if (!existsSync15(path)) return null;
-    const bkDir = join16(USER_HOME2, ".claude", ".backups");
+    const bkDir = join17(USER_HOME2, ".claude", ".backups");
     mkdirSync10(bkDir, { recursive: true });
-    const bk = join16(bkDir, `${basename9(path)}.${label}.${Date.now()}.bak`);
+    const bk = join17(bkDir, `${basename9(path)}.${label}.${Date.now()}.bak`);
     copyFileSync6(path, bk);
     return bk;
   } catch {
@@ -8874,7 +8877,7 @@ function backupFile(path, label) {
 }
 function readPackageVersion() {
   try {
-    const pkg = safeJsonParse3(readFileSync15(join16(process.cwd(), "package.json"), "utf-8"));
+    const pkg = safeJsonParse3(readFileSync15(join17(process.cwd(), "package.json"), "utf-8"));
     return String(pkg?.version || "");
   } catch {
     return "";
@@ -8906,7 +8909,7 @@ function persistMcpPort(port) {
     tiers.selection ??= {};
     if (Number(tiers.selection.mcp_port) === Number(port)) return;
     tiers.selection.mcp_port = port;
-    mkdirSync10(dirname8(TIERS_FILE2), { recursive: true });
+    mkdirSync10(dirname9(TIERS_FILE2), { recursive: true });
     const tmp = TIERS_FILE2 + ".tmp." + Date.now();
     writeFileSync12(tmp, JSON.stringify(tiers, null, 2) + "\n", "utf-8");
     renameSync6(tmp, TIERS_FILE2);
@@ -9070,7 +9073,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
   setCurrentModel(readConfig(directory3));
   if (!currentModel) {
     const home = process.env.HOME || "";
-    if (home) setCurrentModel(readConfig(join16(home, ".config/opencode")));
+    if (home) setCurrentModel(readConfig(join17(home, ".config/opencode")));
   }
   if (!currentModel) setCurrentModel(process?.env?.OPENCODE_MODEL || "");
   if (currentModel) {
@@ -9172,7 +9175,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
       if (_tiersData2) {
         _tiersData2.selection ??= {};
         if (_tiersData2.selection.mcp_port === void 0) _tiersData2.selection.mcp_port = 9578;
-        mkdirSync10(dirname8(TIERS_FILE2), { recursive: true });
+        mkdirSync10(dirname9(TIERS_FILE2), { recursive: true });
         const _tmp = TIERS_FILE2 + ".tmp." + Date.now();
         writeFileSync12(_tmp, JSON.stringify(_tiersData2, null, 2) + "\n", "utf-8");
         renameSync6(_tmp, TIERS_FILE2);
