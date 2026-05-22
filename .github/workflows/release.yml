@@ -37,17 +37,3 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-      - name: Create GitHub Release
-        run: |
-          TAG="v$(node -e "console.log(require('./package.json').version)")"
-          gh release create "$TAG" \
-            --title "$TAG" \
-            --notes-file <(node -e "
-              const fs = require('fs');
-              const lines = fs.readFileSync('CHANGELOG.md','utf-8').split('\n');
-              const idx = lines.findIndex(l => l.startsWith('## '));
-              const end = lines.slice(idx + 1).findIndex(l => l.startsWith('## '));
-              console.log(lines.slice(idx + 1, end > 0 ? idx + 1 + end : undefined).join('\n').trim());
-            ")
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
