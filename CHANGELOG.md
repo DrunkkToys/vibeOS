@@ -1,3 +1,9 @@
+## 0.15.10
+- fix: prevent empty footer from message.updated blocking text.complete
+- fix: prevent empty footer from message.updated blocking text.complete
+- fix: deploy copies .env.production alongside plugin
+
+
 ## 0.15.9
 - fix: VIBEOS_API_TOKEN lookup from __dirname, ~/.claude/, ~/, cwd/
 
