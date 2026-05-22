@@ -19,6 +19,8 @@ Each test block contains:
 - **Why** — what feature/behavior is being tested
 - **Expected** — what must happen (in state files, footer, console logs, API responses)
 
+**CRITICAL — For AI agents running LIVE_DEBUG:** You MUST execute every prompt in this document. Running only structural checks (syntax, typecheck, test suites) is NOT sufficient. Each section's prompt must be sent through the actual OpenCode session and the results verified against Expected. Do NOT skip prompt-based tests or substitute them with `node --test` runs.
+
 ---
 
 ## LIVE_BUG — Quick Live Session Verification
