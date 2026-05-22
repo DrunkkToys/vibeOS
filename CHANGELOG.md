@@ -1,3 +1,7 @@
+## 0.15.6
+- fix: auto mode cache with TTL 60s, preserve last mode on API failure
+
+
 ## 0.15.5
 - fix: trinity set now clears session slot + refreshes model in footer
 
