@@ -216,7 +216,7 @@ function withFileLock(filePath, fn, opts = {}) {
     throw new Error(`[vibeOS] lock not acquired for ${filePath} after ${timeoutMs}ms`);
 }
 // ── JSONC-tolerant JSON.parse ────────────────────────────────────────
-function safeJsonParse(raw) {
+export function safeJsonParse(raw) {
     if (raw == null || raw === '')
         return null;
     try {
@@ -1649,8 +1649,6 @@ DFLT_SEL, loadSelection, writeSelection,
 DFLT_GL, loadGlobalLearning, updateGlobalLearning, getLearnedExploratoryWords, 
 // Blackbox state
 _blackboxTracker, _blackboxEnabled, _latestBlackboxState, _latestBlackboxLoopMsg, _latestBlackboxPivotMsg, _modelLocked, _detectedFramework, 
-// JSONC parsing
-safeJsonParse, 
 // State management
 validateState, readJsonOrEmpty, updateState, readFullState, writeFullState, withFileLock, _lockPathFor, _handleStateCorruption, 
 // Session scratchpad

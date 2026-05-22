@@ -517,10 +517,7 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
         _tiersData.trinity.cheap = { oc: _cheap.id, cc: modelToCcAlias(_cheap.id) }
         _didWrite = true
       }
-      if (_didWrite || _wasCorrupted) {
-        console.error(`[vibeOS] WRITE: _didWrite=${_didWrite} _wasCorrupted=${_wasCorrupted} brain=${_brain?.id}`)
-      } else {
-        console.error(`[vibeOS] SKIP WRITE: _didWrite=${_didWrite} _wasCorrupted=${_wasCorrupted} existingBrain=${_existingBrain} brainId=${_brain?.id}`)
+      if (_tiersData) {
         _tiersData.selection ??= {}
         if (_tiersData.selection.mcp_port === undefined) _tiersData.selection.mcp_port = 9578
         mkdirSync(dirname(TIERS_FILE), { recursive: true })
@@ -535,6 +532,11 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
         setTrinityBrain(_b || _brain.id)
         setTrinityCheap(_c || _cheap?.id || null)
         setTrinityMedium(_m || _medium?.id || null)
+        if (_didWrite || _wasCorrupted) {
+          console.error(`[vibeOS] WRITE: _didWrite=${_didWrite} _wasCorrupted=${_wasCorrupted} brain=${_brain?.id}`)
+        } else {
+          console.error(`[vibeOS] SKIP WRITE: _didWrite=${_didWrite} _wasCorrupted=${_wasCorrupted} existingBrain=${_existingBrain} brainId=${_brain?.id}`)
+        }
       }
     } catch {}
   }

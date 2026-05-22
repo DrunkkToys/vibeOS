@@ -132,7 +132,7 @@ python3 -c "import os; log=os.path.expanduser('~/.claude/.state-corruption-log.j
   - `sessions[<sid>].cache_savings_usd` incremented by `(fileSize/4) * 0.10 / 1_000_000`
   - `sessions[<sid>].cache_hits[]` contains entry with `hash`, `tool: "read"`, `est_savings_usd`
   - `lifetime.cache_savings_usd` incremented
-- `~/.claude/savings-ledger.jsonl` contains line with `kind: "cache"`, `amount_usd`, `tool: "read"`, `sid`
+- `~/.claude/savings-ledger.jsonl` contains line with `kind: "quality"`, `score`, `tool` (e.g. `"read"`), `sid`, `at`, `v: 2`
 - Footer shows `+$X.XXX lt` in cache savings display.
 
 ---

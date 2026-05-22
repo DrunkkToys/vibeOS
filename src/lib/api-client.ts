@@ -27,7 +27,7 @@ export function isApiFallback() {
 }
 
 export async function remoteCall(method, args, fallbackFn) {
-  if (!VIBEOS_API_ENABLED) {
+  if (!VIBEOS_API_ENABLED || _apiFallbackMode) {
     if (fallbackFn) return fallbackFn()
     return null
   }
