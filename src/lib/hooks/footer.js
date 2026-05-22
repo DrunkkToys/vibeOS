@@ -174,6 +174,7 @@ async function _appendFooter(input, output, directory) {
         const selNowFooter = loadSelection();
         const enfTagsFooter = [];
         const bbMode = resolveEnforcementMode();
+        const optModeFooter = loadOptimizationMode();
         if (bbMode === "relaxed") {
             enfTagsFooter.push("[Q&A]");
         }
@@ -184,6 +185,7 @@ async function _appendFooter(input, output, directory) {
                 enfTagsFooter.push("[FLOW ON]");
             if (selNowFooter.tdd_enforce)
                 enfTagsFooter.push("[TDD ON]");
+            ;
             if (bbMode === "strict")
                 enfTagsFooter.push("[STRICT]");
         }
@@ -194,7 +196,6 @@ async function _appendFooter(input, output, directory) {
             enfSuffixFooter = ` QA:${Math.round(quality_avg)}% ${enfTagsFooter.join(" ")}`;
         }
         // Optimization mode tag
-        const optModeFooter = loadOptimizationMode();
         let optTagFooter = "";
         if (optModeFooter === "audit")
             optTagFooter = "[AUDIT]";
