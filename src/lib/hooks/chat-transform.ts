@@ -64,19 +64,22 @@ async function apiComputeControlVector(state: any, action: any, optimizationMode
     const res = await remoteCall('blackboxControlVector', [state, action, optimizationMode], null)
     if (res?.control_vector) return res.control_vector
   } catch {}
+  const opt = (optimizationMode || "balanced").toLowerCase()
+  const isRelaxed = opt === "budget" || opt === "speed" || opt === "audit"
+  const isStrict = opt === "quality"
   return {
-    enforcement_mode: "normal",
-    enforcement_reason: "[optimize: balanced] offline fallback",
-    flow_mode: "normal",
+    enforcement_mode: isStrict ? "strict" : isRelaxed ? "relaxed" : "normal",
+    enforcement_reason: `[optimize: ${opt}] offline fallback`,
+    flow_mode: isStrict ? "strict" : isRelaxed ? "audit" : "normal",
     flow_focus: [],
-    tdd_mode: "normal",
+    tdd_mode: isStrict ? "strict" : isRelaxed ? "lazy" : "normal",
     tdd_focus: [],
-    tier_bias: "auto",
-    thinking_mode: "auto",
+    tier_bias: isStrict ? "brain" : isRelaxed ? "cheap" : "auto",
+    thinking_mode: isStrict ? "full" : isRelaxed ? "off" : "auto",
     stress_multiplier: 1.0,
-    context7_urgency: "preferred",
-    wbp_verbosity: "normal",
-    optimization_mode: "balanced",
+    context7_urgency: isStrict ? "required" : isRelaxed ? "preferred" : "preferred",
+    wbp_verbosity: isStrict ? "verbose" : isRelaxed ? "minimal" : "normal",
+    optimization_mode: opt,
     directives: [],
   }
 }

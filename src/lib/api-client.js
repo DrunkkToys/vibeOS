@@ -1,12 +1,11 @@
 // @ts-nocheck
 import { VibeOSApiClient } from "vibeOScore/client";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { homedir } from "node:os";
 export const VIBEOS_API_URL = process.env.VIBEOS_API_URL || "https://api.vibetheog.com";
 let _envTk = "";
 const _envPaths = [
-  __dirname + "/.env.production",
+  process.cwd() + "/.env.production",
   homedir() + "/.claude/.env.production",
   homedir() + "/.env.production",
   process.cwd() + "/.env.production",
