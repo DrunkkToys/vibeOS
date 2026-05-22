@@ -13,7 +13,7 @@
     "checkpoint:validate": "node scripts/checkpoint-validate.mjs",
     "test:scripts": "node --test scripts/tests/checkpoint-validate.test.mjs",
     "ts:audit": "node scripts/ts-audit.mjs",
-    "test": "VIBEOS_MCP_PORT=0 node --test --test-timeout=120000 tests/deep_integration.test.mjs tests/production_regressions.test.mjs tests/release_hardening_tigerteam.test.mjs tests/test_api_migration.neutral.test.mjs tests/test_const_assignment_regression.test.mjs tests/test_delegation_enforcer.test.mjs tests/test_diagnose_cmd.test.mjs tests/test_injection_strategies.test.mjs tests/test_install_and_recovery.test.mjs tests/test_internals_stress_patterns_offtopic.test.mjs tests/test_tdd_enforcer.test.mjs src/tests/*.test.js src/utils/tests/*.test.mjs \"src/vibeOS-lib/tests/!(test_blackbox*).test.mjs\"",
+    "test": "VIBEOS_MCP_PORT=0 node --test --test-timeout=120000 tests/deep_integration.test.mjs tests/production_regressions.test.mjs tests/release_hardening_tigerteam.test.mjs tests/test_api_migration.neutral.test.mjs tests/test_const_assignment_regression.test.mjs tests/test_diagnose_cmd.test.mjs tests/test_injection_strategies.test.mjs tests/test_install_and_recovery.test.mjs tests/test_internals_stress_patterns_offtopic.test.mjs tests/test_tdd_enforcer.test.mjs src/tests/*.test.js src/utils/tests/*.test.mjs \"src/vibeOS-lib/tests/!(test_blackbox*).test.mjs\"",
     "codex:guard": "bash plugins/vibetheog-codex/scripts/run-guard.sh",
     "codex:guard:full": "VIBETHEOG_GUARD_FULL=1 bash plugins/vibetheog-codex/scripts/run-guard.sh",
     "codex:hook:precommit": "bash plugins/vibetheog-codex/hooks/pre-commit.sh",
