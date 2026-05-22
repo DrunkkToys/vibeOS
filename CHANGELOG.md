@@ -1,3 +1,7 @@
+## 0.15.8
+- fix: load VIBEOS_API_TOKEN from .env.production if env var not set
+
+
 ## 0.15.7
 - fix: auto mode now actually applies optimization mode from API response
 
