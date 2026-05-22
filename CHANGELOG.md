@@ -1,3 +1,9 @@
+## 0.15.21
+- feat: expose all regime thresholds as calibratable weights
+- docs: add SIGNAL-REFERENCE.md with full signal pipeline documentation
+footer: TDD tag controlled by blackbox, VIBE replaces AUTO
+
+
 ## 0.15.12
 - fix: restore global scratchpad cache for savings, keep per-session content isolation
 
