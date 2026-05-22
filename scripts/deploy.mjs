@@ -66,6 +66,15 @@ try {
   rmTsRecursive(pluginDir)
   process.stderr.write(`[vibeOS deploy] Stripped .ts files from plugin dir\n`)
 
+  const envSrc = join(ROOT, ".env.production")
+  if (existsSync(envSrc)) {
+    const envDest = join(pluginDir, ".env.production")
+    if (!existsSync(envDest)) {
+      writeFileSync(envDest, readFileSync(envSrc))
+      process.stderr.write(`[vibeOS deploy] Copied .env.production to plugin dir\n`)
+    }
+  }
+
   process.stderr.write("[vibeOS deploy] Done\n")
 } catch (e) {
   process.stderr.write(`[vibeOS deploy] ERROR: ${e.message}\n`)
