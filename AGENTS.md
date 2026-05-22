@@ -82,7 +82,7 @@ Every feature in the README is a promised behavior. **If a proposed change touch
 
 ### Plugin Hooks (see Section 4)
 
-The plugin hooks into OpenCode via seven extension points defined in `src/index.js`:
+The plugin hooks into OpenCode via 8 extension points defined in `src/index.ts`:
 - `experimental.text.complete`
 - `experimental.chat.messages.transform`
 - `experimental.chat.system.transform`
@@ -113,14 +113,18 @@ The plugin hooks into OpenCode via seven extension points defined in `src/index.
 
 ### Build Chain
 
+Development workflow — after editing .ts files, compile + sync lib modules first:
 ```
-src/vibeOS-lib/*.ts, src/utils/*.ts   (TypeScript source)
-    ↓  tsc -p tsconfig.json
-dist-ts/                               (compiled JS output)
-    ↓  node scripts/sync-ts-build.mjs
-src/*.js, src/vibeOS-lib/*.js, src/utils/*.js   (synced runtime artifacts)
-    ↓  npm run build
-usable plugin runtime
+tsc -p tsconfig.json                   # Compile all .ts → dist-ts/
+node scripts/sync-ts-build.mjs         # Copy dist-ts/* → src/* (synced .js artifacts)
+npm run build                          # Type-check + esbuild bundle + deploy
+```
+
+`npm run build` runs:
+```
+tsc -p tsconfig.json --noEmit          # Type-check only
+npx esbuild src/index.ts --bundle --outfile=src/index.js --platform=node --format=esm --target=node22 --external:node:* --external:vibeOScore
+node scripts/deploy.mjs                # Copy to plugin directory
 ```
 
 ### Dashboard Build Chain (separate)
@@ -153,9 +157,9 @@ src/dashboard/dist/                   (compiled SPA)
 
 ---
 
-## 🔌 OPECODE HOOKS — DO NOT ALTER SIGNATURES
+## 🔌 OPENCODE HOOKS — DO NOT ALTER SIGNATURES
 
-These seven hooks are registered in `src/index.js`. Changing any hook signature or removing a hook will break the plugin.
+These 8 hooks are registered in `src/index.js`. Changing any hook signature or removing a hook will break the plugin.
 
 ```
 "experimental.text.complete"
@@ -165,7 +169,7 @@ These seven hooks are registered in `src/index.js`. Changing any hook signature 
 "tool.execute.after"
 "message.updated"
 "experimental.session.compacting"
-
+"shell.env"
 ```
 
 - `experimental.chat.system.transform` — Injects system prompt directives (context7 optimization, stress inoculation, flow/TDD enforcement rules).
@@ -174,6 +178,7 @@ These seven hooks are registered in `src/index.js`. Changing any hook signature 
 - `message.updated` — Fallback footer append for OpenCode versions where `text.complete` does not fire.
 - `tool.execute.before` — Delegation enforcement checks before tool execution.
 - `tool.execute.after` — Injects pending delegation UI notes after tool execution.
+- `shell.env` — Injects `OPENCODE_MODEL_TIER` and `OPENCODE_MODEL` env vars into subprocesses.
 
 ---
 

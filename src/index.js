@@ -291,12 +291,12 @@ function recordFlowTodo({ filePath, content }) {
     return 0;
   }
 }
-var __dirname, RULES_PATH, GUARD_AGENTS_TEMPLATE, GUARD_README_TEMPLATE, STATE_FILE, FLOW_TODO_FILE, FLOW_DEDUP_FILE, MAX_FLOW_TODOS, _flowWarnsSeen, _stateWriter, _cachedRules, _rulesMtime;
+var __dirname2, RULES_PATH, GUARD_AGENTS_TEMPLATE, GUARD_README_TEMPLATE, STATE_FILE, FLOW_TODO_FILE, FLOW_DEDUP_FILE, MAX_FLOW_TODOS, _flowWarnsSeen, _stateWriter, _cachedRules, _rulesMtime;
 var init_flow_enforcer = __esm({
   "src/vibeOS-lib/flow-enforcer.js"() {
     "use strict";
-    __dirname = dirname(fileURLToPath(import.meta.url));
-    RULES_PATH = join(__dirname, "flow-rules.json");
+    __dirname2 = dirname(fileURLToPath(import.meta.url));
+    RULES_PATH = join(__dirname2, "flow-rules.json");
     GUARD_AGENTS_TEMPLATE = [
       "# AGENTS.md",
       "",
@@ -350,7 +350,7 @@ var init_flow_enforcer = __esm({
 
 // src/index.ts
 init_flow_enforcer();
-import { readFileSync as readFileSync15, writeFileSync as writeFileSync12, existsSync as existsSync14, mkdirSync as mkdirSync10, copyFileSync as copyFileSync6, renameSync as renameSync6 } from "node:fs";
+import { readFileSync as readFileSync15, writeFileSync as writeFileSync13, existsSync as existsSync14, mkdirSync as mkdirSync10, copyFileSync as copyFileSync6, renameSync as renameSync6 } from "node:fs";
 import { join as join15, dirname as dirname7, basename as basename9 } from "node:path";
 
 // src/vibeOS-lib/session-metrics.js
@@ -496,26 +496,123 @@ function computeSessionMetrics(state, sessionId) {
 // src/index.ts
 import { createMcpServer } from "vibeOScore/mcp-server";
 
+// src/lib/api-client.js
+import { VibeOSApiClient, VibeOSAuthError, VibeOSTimeoutError, VibeOSNetworkError } from "vibeOScore/client";
+import { readFileSync as readFileSync2, writeFileSync as writeFileSync2 } from "node:fs";
+import { homedir as homedir2 } from "node:os";
+var VIBEOS_API_URL = process.env.VIBEOS_API_URL || "https://api.vibetheog.com";
+var _envTk = "";
+var _envPaths = [
+  process.cwd() + "/.env.production",
+  homedir2() + "/.claude/.env.production",
+  homedir2() + "/.env.production",
+  process.cwd() + "/.env.production"
+];
+for (const dir of _envPaths) {
+  try {
+    const env = readFileSync2(dir + "/.env.production", "utf8");
+    const m = env.match(/^VIBEOS_API_TOKEN=(.+)$/m);
+    if (m) {
+      _envTk = m[1].trim();
+      break;
+    }
+  } catch {
+  }
+}
+var VIBEOS_API_TOKEN = process.env.VIBEOS_API_TOKEN || _envTk || "";
+var VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && !!VIBEOS_API_TOKEN;
+var _apiClient = null;
+var _apiFallbackMode = false;
+var _apiFallbackSince = null;
+function setApiToken(newToken) {
+  VIBEOS_API_TOKEN = newToken;
+  VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && !!VIBEOS_API_TOKEN;
+  _apiClient = null;
+  _apiFallbackMode = false;
+  _apiFallbackSince = null;
+  const paths = [__dirname, homedir2() + "/.claude", homedir2(), process.cwd()];
+  for (const dir of paths) {
+    try {
+      const filePath = dir + "/.env.production";
+      let env = "";
+      try {
+        env = readFileSync2(filePath, "utf8");
+      } catch {
+      }
+      const lines = env.split("\n");
+      const filtered = lines.filter((l) => !l.startsWith("VIBEOS_API_TOKEN="));
+      filtered.push("VIBEOS_API_TOKEN=" + newToken);
+      writeFileSync2(filePath, filtered.join("\n") + "\n", "utf8");
+    } catch {
+    }
+  }
+  console.error("[vibeOS] API token updated via setApiToken");
+}
+function getApiClient() {
+  if (!_apiClient && VIBEOS_API_ENABLED) {
+    _apiClient = new VibeOSApiClient({
+      baseUrl: VIBEOS_API_URL,
+      apiToken: VIBEOS_API_TOKEN,
+      timeout: 5e3
+    });
+  }
+  return _apiClient;
+}
+function isApiFallback() {
+  return _apiFallbackMode || !VIBEOS_API_ENABLED;
+}
+async function remoteCall(method, args, fallbackFn) {
+  if (!VIBEOS_API_ENABLED || _apiFallbackMode) {
+    if (fallbackFn) return fallbackFn();
+    return null;
+  }
+  try {
+    const client2 = getApiClient();
+    if (!client2) {
+      if (fallbackFn) return fallbackFn();
+      return null;
+    }
+    const result = await client2[method](...args);
+    _apiFallbackMode = false;
+    _apiFallbackSince = null;
+    return result;
+  } catch (err) {
+    if (!_apiFallbackMode) {
+      _apiFallbackMode = true;
+      _apiFallbackSince = (/* @__PURE__ */ new Date()).toISOString();
+      console.error(`[vibeOS] API fallback activated: ${err.message}`);
+    }
+    if (fallbackFn) {
+      try {
+        return fallbackFn();
+      } catch (fe) {
+        console.error(`[vibeOS] fallback also failed: ${fe.message}`);
+      }
+    }
+    return null;
+  }
+}
+
 // src/lib/pricing.js
-import { readFileSync as readFileSync4, writeFileSync as writeFileSync4, appendFileSync as appendFileSync4, existsSync as existsSync4, mkdirSync as mkdirSync4, statSync as statSync4, copyFileSync as copyFileSync3, renameSync as renameSync4, openSync as openSync2, closeSync as closeSync2, rmSync as rmSync2 } from "node:fs";
+import { readFileSync as readFileSync5, writeFileSync as writeFileSync5, appendFileSync as appendFileSync4, existsSync as existsSync4, mkdirSync as mkdirSync4, statSync as statSync4, copyFileSync as copyFileSync3, renameSync as renameSync4, openSync as openSync2, closeSync as closeSync2, rmSync as rmSync2 } from "node:fs";
 import { join as join4, dirname as dirname3, basename as basename4 } from "node:path";
-import { homedir as homedir4, tmpdir as tmpdir3 } from "node:os";
+import { homedir as homedir5, tmpdir as tmpdir3 } from "node:os";
 import { createHash as createHash2 } from "node:crypto";
 
 // src/lib/state.js
-import { readFileSync as readFileSync3, writeFileSync as writeFileSync3, appendFileSync as appendFileSync3, existsSync as existsSync3, mkdirSync as mkdirSync3, statSync as statSync3, readdirSync, openSync, readSync, closeSync, rmSync, copyFileSync as copyFileSync2, renameSync as renameSync3 } from "node:fs";
+import { readFileSync as readFileSync4, writeFileSync as writeFileSync4, appendFileSync as appendFileSync3, existsSync as existsSync3, mkdirSync as mkdirSync3, statSync as statSync3, readdirSync, openSync, readSync, closeSync, rmSync, copyFileSync as copyFileSync2, renameSync as renameSync3 } from "node:fs";
 import { join as join3, dirname as dirname2, basename as basename3 } from "node:path";
 import { spawn } from "node:child_process";
-import { homedir as homedir3, tmpdir as tmpdir2 } from "node:os";
+import { homedir as homedir4, tmpdir as tmpdir2 } from "node:os";
 import { createHash } from "node:crypto";
 
 // src/lib/selection-manager.js
-import { readFileSync as readFileSync2, writeFileSync as writeFileSync2, appendFileSync as appendFileSync2, existsSync as existsSync2, mkdirSync as mkdirSync2, statSync as statSync2, copyFileSync, renameSync as renameSync2 } from "node:fs";
+import { readFileSync as readFileSync3, writeFileSync as writeFileSync3, appendFileSync as appendFileSync2, existsSync as existsSync2, mkdirSync as mkdirSync2, statSync as statSync2, copyFileSync, renameSync as renameSync2 } from "node:fs";
 import { join as join2, basename } from "node:path";
-import { homedir as homedir2, tmpdir } from "node:os";
+import { homedir as homedir3, tmpdir } from "node:os";
 var USER_HOME = (() => {
   try {
-    return homedir2();
+    return homedir3();
   } catch {
     return tmpdir();
   }
@@ -559,7 +656,7 @@ function loadSelection() {
       _handleStateCorruption(TIERS_FILE);
       return DFLT_SEL;
     }
-    const j = safeJsonParse2(readFileSync2(TIERS_FILE, "utf-8"));
+    const j = safeJsonParse2(readFileSync3(TIERS_FILE, "utf-8"));
     return {
       enabled: j?.selection?.enabled !== false,
       active_slot: j?.selection?.active_slot || null,
@@ -578,10 +675,10 @@ function loadSelection() {
 }
 function writeSelection(key, value) {
   try {
-    const j = safeJsonParse2(readFileSync2(TIERS_FILE, "utf-8"));
+    const j = safeJsonParse2(readFileSync3(TIERS_FILE, "utf-8"));
     j.selection[key] = value;
     const tmp = TIERS_FILE + ".tmp";
-    writeFileSync2(tmp, JSON.stringify(j, null, 2) + "\n");
+    writeFileSync3(tmp, JSON.stringify(j, null, 2) + "\n");
     renameSync2(tmp, TIERS_FILE);
     return true;
   } catch (err) {
@@ -594,7 +691,7 @@ function loadSessionSlot(sid) {
   try {
     if (!existsSync2(BLACKBOX_FILE))
       return null;
-    const j = safeJsonParse2(readFileSync2(BLACKBOX_FILE, "utf-8"));
+    const j = safeJsonParse2(readFileSync3(BLACKBOX_FILE, "utf-8"));
     return j?.sessions?.[sid]?.active_slot || null;
   } catch {
     return null;
@@ -602,14 +699,14 @@ function loadSessionSlot(sid) {
 }
 function writeSessionSlot(sid, slot) {
   try {
-    const j = existsSync2(BLACKBOX_FILE) ? safeJsonParse2(readFileSync2(BLACKBOX_FILE, "utf-8")) : {};
+    const j = existsSync2(BLACKBOX_FILE) ? safeJsonParse2(readFileSync3(BLACKBOX_FILE, "utf-8")) : {};
     if (!j.sessions)
       j.sessions = {};
     if (!j.sessions[sid])
       j.sessions[sid] = {};
     j.sessions[sid].active_slot = slot;
     const tmp = BLACKBOX_FILE + ".tmp";
-    writeFileSync2(tmp, JSON.stringify(j, null, 2) + "\n");
+    writeFileSync3(tmp, JSON.stringify(j, null, 2) + "\n");
     renameSync2(tmp, BLACKBOX_FILE);
     return true;
   } catch (err) {
@@ -621,7 +718,7 @@ function loadSessionOptMode(sid) {
   try {
     if (!existsSync2(BLACKBOX_FILE))
       return null;
-    const j = safeJsonParse2(readFileSync2(BLACKBOX_FILE, "utf-8"));
+    const j = safeJsonParse2(readFileSync3(BLACKBOX_FILE, "utf-8"));
     return j?.sessions?.[sid]?.optimization_mode || null;
   } catch {
     return null;
@@ -629,14 +726,14 @@ function loadSessionOptMode(sid) {
 }
 function writeSessionOptMode(sid, mode) {
   try {
-    const j = existsSync2(BLACKBOX_FILE) ? safeJsonParse2(readFileSync2(BLACKBOX_FILE, "utf-8")) : {};
+    const j = existsSync2(BLACKBOX_FILE) ? safeJsonParse2(readFileSync3(BLACKBOX_FILE, "utf-8")) : {};
     if (!j.sessions)
       j.sessions = {};
     if (!j.sessions[sid])
       j.sessions[sid] = {};
     j.sessions[sid].optimization_mode = mode;
     const tmp = BLACKBOX_FILE + ".tmp";
-    writeFileSync2(tmp, JSON.stringify(j, null, 2) + "\n");
+    writeFileSync3(tmp, JSON.stringify(j, null, 2) + "\n");
     renameSync2(tmp, BLACKBOX_FILE);
     return true;
   } catch (err) {
@@ -1310,7 +1407,7 @@ function deserializeCacheDb(raw) {
 // src/lib/state.js
 var USER_HOME2 = (() => {
   try {
-    return homedir3();
+    return homedir4();
   } catch {
     return tmpdir2();
   }
@@ -1461,7 +1558,7 @@ function withFileLock(filePath, fn, opts = {}) {
       mkdirSync3(FILE_LOCK_DIR, { recursive: true });
       const fd = openSync(lockPath, "wx");
       try {
-        writeFileSync3(fd, `${process.pid}
+        writeFileSync4(fd, `${process.pid}
 ${Date.now()}
 `);
       } catch {
@@ -1539,7 +1636,7 @@ function readJsonOrEmpty(filePath) {
       _handleStateCorruption2(filePath);
       return {};
     }
-    return safeJsonParse3(readFileSync3(filePath, "utf-8"));
+    return safeJsonParse3(readFileSync4(filePath, "utf-8"));
   } catch {
     _handleStateCorruption2(filePath);
     return {};
@@ -1567,7 +1664,7 @@ function updateState(mutator) {
         validateState(next, DELEGATION_STATE_FILE);
         mkdirSync3(dirname2(DELEGATION_STATE_FILE), { recursive: true });
         const tmp = DELEGATION_STATE_FILE + ".tmp";
-        writeFileSync3(tmp, JSON.stringify(next, null, 2) + "\n");
+        writeFileSync4(tmp, JSON.stringify(next, null, 2) + "\n");
         renameSync3(tmp, DELEGATION_STATE_FILE);
         return next;
       });
@@ -1590,7 +1687,7 @@ function readFullState() {
       _handleStateCorruption2(DELEGATION_STATE_FILE);
       return {};
     }
-    return safeJsonParse3(readFileSync3(DELEGATION_STATE_FILE, "utf-8"));
+    return safeJsonParse3(readFileSync4(DELEGATION_STATE_FILE, "utf-8"));
   } catch {
     _handleStateCorruption2(DELEGATION_STATE_FILE);
     return {};
@@ -1616,7 +1713,7 @@ function loadTierRegexes() {
     const p = join3(USER_HOME2, ".claude/model-tiers.json");
     if (!existsSync3(p))
       return { high: FALLBACK_HIGH, mid: FALLBACK_MID };
-    const j = safeJsonParse3(readFileSync3(p, "utf-8"));
+    const j = safeJsonParse3(readFileSync4(p, "utf-8"));
     const highRe = _safeRegex(j?.tiers?.high?.regex, FALLBACK_HIGH, "high");
     const midRe = _safeRegex(j?.tiers?.mid?.regex, FALLBACK_MID, "mid");
     return { high: highRe, mid: midRe };
@@ -1634,7 +1731,7 @@ function loadGlobalLearning() {
       _handleStateCorruption2(GLOBAL_LEARNING_FILE);
       return DFLT_GL;
     }
-    const j = safeJsonParse3(readFileSync3(GLOBAL_LEARNING_FILE, "utf-8"));
+    const j = safeJsonParse3(readFileSync4(GLOBAL_LEARNING_FILE, "utf-8"));
     if (!j || typeof j !== "object")
       return DFLT_GL;
     j.exploratory_words ??= {};
@@ -1652,7 +1749,7 @@ function updateGlobalLearning(mutator) {
     next.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
     mkdirSync3(dirname2(GLOBAL_LEARNING_FILE), { recursive: true });
     const tmp = GLOBAL_LEARNING_FILE + ".tmp";
-    writeFileSync3(tmp, JSON.stringify(next, null, 2));
+    writeFileSync4(tmp, JSON.stringify(next, null, 2));
     renameSync3(tmp, GLOBAL_LEARNING_FILE);
     return next;
   });
@@ -1926,14 +2023,14 @@ function _pruneScratchpadDir(targetDir, opts = {}) {
       const summaryPath = join3(targetDir, hash + ".summary.txt");
       if (!existsSync3(summaryPath))
         try {
-          const content = readFileSync3(fullPath, "utf-8");
-          writeFileSync3(summaryPath, content.slice(0, 200).replace(/\n+/g, " ").trim() + (content.length > 200 ? "\u2026" : ""));
+          const content = readFileSync4(fullPath, "utf-8");
+          writeFileSync4(summaryPath, content.slice(0, 200).replace(/\n+/g, " ").trim() + (content.length > 200 ? "\u2026" : ""));
         } catch {
         }
       const head = _readHead(fullPath);
       if (!head.includes("[cold-storage]"))
         try {
-          writeFileSync3(fullPath, `[cold-storage] ${st.size}B original \u2192 ${hash}.summary.txt`);
+          writeFileSync4(fullPath, `[cold-storage] ${st.size}B original \u2192 ${hash}.summary.txt`);
           rotated++;
         } catch {
         }
@@ -1943,14 +2040,14 @@ function _pruneScratchpadDir(targetDir, opts = {}) {
       const summaryPath = join3(targetDir, hash + ".summary.txt");
       if (!existsSync3(summaryPath))
         try {
-          const content = readFileSync3(fullPath, "utf-8");
-          writeFileSync3(summaryPath, content.slice(0, 500).replace(/\n+/g, " ").trim() + (content.length > 500 ? "\u2026" : ""));
+          const content = readFileSync4(fullPath, "utf-8");
+          writeFileSync4(summaryPath, content.slice(0, 500).replace(/\n+/g, " ").trim() + (content.length > 500 ? "\u2026" : ""));
         } catch {
         }
       const head = _readHead(fullPath);
       if (!head.includes("[warm-storage]") && !head.includes("[cold-storage]"))
         try {
-          writeFileSync3(fullPath, `[warm-storage] ${st.size}B original at ${hash}.summary.txt`);
+          writeFileSync4(fullPath, `[warm-storage] ${st.size}B original at ${hash}.summary.txt`);
           rotated++;
         } catch {
         }
@@ -2018,7 +2115,7 @@ function loadActiveJobs() {
       _handleStateCorruption2(ACTIVE_JOBS_FILE);
       return {};
     }
-    const raw = safeJsonParse3(readFileSync3(ACTIVE_JOBS_FILE, "utf-8"));
+    const raw = safeJsonParse3(readFileSync4(ACTIVE_JOBS_FILE, "utf-8"));
     if (!raw || typeof raw !== "object")
       return {};
     return raw;
@@ -2044,7 +2141,7 @@ function saveActiveJobForProject(job, fp3 = currentProjectFingerprint) {
     jobs[fp3] = job;
     mkdirSync3(dirname2(ACTIVE_JOBS_FILE), { recursive: true });
     const tmp = ACTIVE_JOBS_FILE + ".tmp";
-    writeFileSync3(tmp, JSON.stringify(jobs, null, 2));
+    writeFileSync4(tmp, JSON.stringify(jobs, null, 2));
     renameSync3(tmp, ACTIVE_JOBS_FILE);
   } catch {
   }
@@ -2070,7 +2167,7 @@ function saveProjectState(state) {
     withFileLock(PROJECT_STATE_FILE, () => {
       mkdirSync3(dirname2(PROJECT_STATE_FILE), { recursive: true });
       const _tmp = PROJECT_STATE_FILE + ".tmp." + Date.now();
-      writeFileSync3(_tmp, JSON.stringify(state, null, 2) + "\n", "utf-8");
+      writeFileSync4(_tmp, JSON.stringify(state, null, 2) + "\n", "utf-8");
       renameSync3(_tmp, PROJECT_STATE_FILE);
     });
   } catch (err) {
@@ -2093,7 +2190,7 @@ function ensureProjectBucket(state, fp3) {
 function detectTechStack(dir) {
   const stacks = [];
   try {
-    const pkg = safeJsonParse3(readFileSync3(join3(dir, "package.json"), "utf-8"));
+    const pkg = safeJsonParse3(readFileSync4(join3(dir, "package.json"), "utf-8"));
     if (pkg) {
       if (pkg.devDependencies?.typescript || pkg.dependencies?.typescript || existsSync3(join3(dir, "tsconfig.json")))
         stacks.push("typescript");
@@ -2264,7 +2361,7 @@ function readLedgerTotals() {
   try {
     if (!existsSync3(SAVINGS_LEDGER_FILE))
       return empty;
-    const raw = readFileSync3(SAVINGS_LEDGER_FILE, "utf-8");
+    const raw = readFileSync4(SAVINGS_LEDGER_FILE, "utf-8");
     if (!raw.trim())
       return empty;
     let delegation = 0;
@@ -2341,7 +2438,7 @@ function readLifetimeSavings() {
     const mtime = statSync3(DELEGATION_STATE_FILE).mtimeMs;
     if (_savingsCache && mtime === _savingsCacheMtime)
       return _savingsCache;
-    const s = safeJsonParse3(readFileSync3(DELEGATION_STATE_FILE, "utf-8"));
+    const s = safeJsonParse3(readFileSync4(DELEGATION_STATE_FILE, "utf-8"));
     _savingsCache = _computeSessionMetrics(s, _OC_SID);
     _savingsCacheMtime = mtime;
     return _savingsCache;
@@ -2368,7 +2465,7 @@ function saveSessionCheckpoint() {
     const cpPath = join3(getSessionRoot(), "checkpoint.json");
     mkdirSync3(dirname2(cpPath), { recursive: true });
     const tmp = cpPath + ".tmp";
-    writeFileSync3(tmp, JSON.stringify(cp, null, 2) + "\n");
+    writeFileSync4(tmp, JSON.stringify(cp, null, 2) + "\n");
     renameSync3(tmp, cpPath);
   } catch {
   }
@@ -2389,7 +2486,7 @@ function setTrinityCheap(v) {
 }
 var USER_HOME3 = (() => {
   try {
-    return homedir4();
+    return homedir5();
   } catch {
     return tmpdir3();
   }
@@ -2424,7 +2521,7 @@ function withFileLock2(filePath, fn, opts = {}) {
       mkdirSync4(FILE_LOCK_DIR2, { recursive: true });
       const fd = openSync2(lockPath, "wx");
       try {
-        writeFileSync4(fd, `${process.pid}
+        writeFileSync5(fd, `${process.pid}
 ${Date.now()}
 `);
       } catch {
@@ -2464,7 +2561,7 @@ function loadTierRegexes2() {
     const p = join4(USER_HOME3, ".claude/model-tiers.json");
     if (!existsSync4(p))
       return { high: FALLBACK_HIGH, mid: FALLBACK_MID };
-    const j = safeJsonParse3(readFileSync4(p, "utf-8"));
+    const j = safeJsonParse3(readFileSync5(p, "utf-8"));
     const highRe = _safeRegex(j?.tiers?.high?.regex, FALLBACK_HIGH, "high");
     const midRe = _safeRegex(j?.tiers?.mid?.regex, FALLBACK_MID, "mid");
     return { high: highRe, mid: midRe };
@@ -2533,7 +2630,7 @@ var MODEL_USD_PER_TURN = {
   "haiku": 22e-4,
   // ── DeepSeek (OC platform + OpenRouter) ──────────────────
   "deepseek/deepseek-v4-pro": 57e-5,
-  "deepseek/deepseek-v4-flash": 0.000146,
+  "deepseek/deepseek-v4-flash": 182e-6,
   "deepseek/deepseek-chat": 0,
   "deepseek-chat": 0,
   "deepseek/deepseek-v3": 0,
@@ -2570,7 +2667,7 @@ function _loadDynamicPricingCache() {
       _dynamicPricingCache = {};
       return {};
     }
-    const raw = safeJsonParse3(readFileSync4(PRICING_CACHE_FILE2, "utf-8"));
+    const raw = safeJsonParse3(readFileSync5(PRICING_CACHE_FILE2, "utf-8"));
     const map = raw?.models && typeof raw.models === "object" ? raw.models : {};
     _dynamicPricingCache = map;
   } catch {
@@ -2612,7 +2709,7 @@ function _writeDynamicPricingCache(modelsMap) {
     withFileLock2(PRICING_CACHE_FILE2, () => {
       mkdirSync4(dirname3(PRICING_CACHE_FILE2), { recursive: true });
       const tmp = PRICING_CACHE_FILE2 + ".tmp";
-      writeFileSync4(tmp, JSON.stringify({
+      writeFileSync5(tmp, JSON.stringify({
         ts: Date.now(),
         source: "openrouter-models",
         models: modelsMap
@@ -2682,7 +2779,7 @@ function detectContext7(files = CONTEXT7_CONFIG_FILES) {
     return true;
   for (const f of files) {
     try {
-      if (existsSync4(f) && /context7/i.test(readFileSync4(f, "utf-8")))
+      if (existsSync4(f) && /context7/i.test(readFileSync5(f, "utf-8")))
         return true;
     } catch {
     }
@@ -2703,7 +2800,7 @@ function loadSelection2() {
       _handleStateCorruption3(TIERS_FILE3);
       return DFLT_SEL2;
     }
-    const j = safeJsonParse3(readFileSync4(TIERS_FILE3, "utf-8"));
+    const j = safeJsonParse3(readFileSync5(TIERS_FILE3, "utf-8"));
     return {
       enabled: j?.selection?.enabled !== false,
       active_slot: j?.selection?.active_slot || null,
@@ -2739,10 +2836,10 @@ function readOpenCodeConfigObject(dir) {
   const jsonPath = join4(dir, "opencode.json");
   const jsoncPath = join4(dir, "opencode.jsonc");
   if (existsSync4(jsonPath)) {
-    return safeJsonParse3(readFileSync4(jsonPath, "utf-8"));
+    return safeJsonParse3(readFileSync5(jsonPath, "utf-8"));
   }
   if (existsSync4(jsoncPath)) {
-    return parseJsonc(readFileSync4(jsoncPath, "utf-8"));
+    return parseJsonc(readFileSync5(jsoncPath, "utf-8"));
   }
   return {};
 }
@@ -2752,7 +2849,7 @@ function _refreshModel(directory3) {
     const sel = loadSelection2();
     if (!sel.enabled)
       return;
-    const tiersData = safeJsonParse3(readFileSync4(TIERS_FILE3, "utf-8"));
+    const tiersData = safeJsonParse3(readFileSync5(TIERS_FILE3, "utf-8"));
     const activeSlot = sel.active_slot || "brain";
     let slotOcModel = tiersData?.trinity?.[activeSlot]?.oc || "";
     if (slotOcModel && PLACEHOLDER_RE.test(slotOcModel)) {
@@ -2789,12 +2886,12 @@ function _refreshModel(directory3) {
         console.error(`[vibeOS] model refresh (config): ${oldModel}(${oldTier}) \u2192 ${currentModel}(${currentTier})`);
         try {
           if (existsSync4(TIERS_FILE3)) {
-            const t = safeJsonParse3(readFileSync4(TIERS_FILE3, "utf-8"));
+            const t = safeJsonParse3(readFileSync5(TIERS_FILE3, "utf-8"));
             for (const s of ["brain", "medium", "cheap"]) {
               if (t?.trinity?.[s]?.oc === cfgModel) {
                 t.selection.active_slot = s;
                 const _tmp = TIERS_FILE3 + ".tmp." + Date.now();
-                writeFileSync4(_tmp, JSON.stringify(t, null, 2) + "\n", "utf-8");
+                writeFileSync5(_tmp, JSON.stringify(t, null, 2) + "\n", "utf-8");
                 renameSync4(_tmp, TIERS_FILE3);
                 console.error(`[vibeOS] model refresh (config): synced active_slot \u2192 ${s}`);
                 break;
@@ -2810,20 +2907,20 @@ function _refreshModel(directory3) {
 }
 function applySlot2(slot) {
   try {
-    const j = safeJsonParse3(readFileSync4(TIERS_FILE3, "utf-8"));
+    const j = safeJsonParse3(readFileSync5(TIERS_FILE3, "utf-8"));
     const ocModel = j?.trinity?.[slot]?.oc;
     if (!ocModel)
       return { ok: false, reason: `slot '${slot}' has no oc model` };
     j.selection.active_slot = slot;
     const _tmp = TIERS_FILE3 + ".tmp." + Date.now();
-    writeFileSync4(_tmp, JSON.stringify(j, null, 2) + "\n", "utf-8");
+    writeFileSync5(_tmp, JSON.stringify(j, null, 2) + "\n", "utf-8");
     renameSync4(_tmp, TIERS_FILE3);
     const localOcConfig = join4(process.cwd(), "opencode.json");
     const ocConfig = existsSync4(localOcConfig) ? localOcConfig : join4(USER_HOME3, ".config/opencode/opencode.json");
     if (existsSync4(ocConfig)) {
-      const oc = safeJsonParse3(readFileSync4(ocConfig, "utf-8"));
+      const oc = safeJsonParse3(readFileSync5(ocConfig, "utf-8"));
       oc.model = ocModel;
-      writeFileSync4(ocConfig, JSON.stringify(oc, null, 2) + "\n");
+      writeFileSync5(ocConfig, JSON.stringify(oc, null, 2) + "\n");
     }
     _refreshModel(process.cwd());
     return { ok: true, ocModel };
@@ -2833,85 +2930,10 @@ function applySlot2(slot) {
 }
 
 // src/lib/turn-classify.js
-import { readFileSync as readFileSync6, writeFileSync as writeFileSync5, appendFileSync as appendFileSync5, existsSync as existsSync5, mkdirSync as mkdirSync5, statSync as statSync5, copyFileSync as copyFileSync4, renameSync as renameSync5, openSync as openSync3, closeSync as closeSync3, rmSync as rmSync3 } from "node:fs";
+import { readFileSync as readFileSync6, writeFileSync as writeFileSync6, appendFileSync as appendFileSync5, existsSync as existsSync5, mkdirSync as mkdirSync5, statSync as statSync5, copyFileSync as copyFileSync4, renameSync as renameSync5, openSync as openSync3, closeSync as closeSync3, rmSync as rmSync3 } from "node:fs";
 import { join as join5, dirname as dirname4, basename as basename5 } from "node:path";
 import { homedir as homedir6, tmpdir as tmpdir4 } from "node:os";
 import { createHash as createHash3 } from "node:crypto";
-
-// src/lib/api-client.js
-import { VibeOSApiClient } from "vibeOScore/client";
-import { readFileSync as readFileSync5 } from "node:fs";
-import { homedir as homedir5 } from "node:os";
-var VIBEOS_API_URL = process.env.VIBEOS_API_URL || "https://api.vibetheog.com";
-var _envTk = "";
-var _envPaths = [
-  process.cwd() + "/.env.production",
-  homedir5() + "/.claude/.env.production",
-  homedir5() + "/.env.production",
-  process.cwd() + "/.env.production"
-];
-for (const dir of _envPaths) {
-  try {
-    const env = readFileSync5(dir + "/.env.production", "utf8");
-    const m = env.match(/^VIBEOS_API_TOKEN=(.+)$/m);
-    if (m) {
-      _envTk = m[1].trim();
-      break;
-    }
-  } catch {
-  }
-}
-var VIBEOS_API_TOKEN = process.env.VIBEOS_API_TOKEN || _envTk || "";
-var VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && !!VIBEOS_API_TOKEN;
-var _apiClient = null;
-var _apiFallbackMode = false;
-var _apiFallbackSince = null;
-function getApiClient() {
-  if (!_apiClient && VIBEOS_API_ENABLED) {
-    _apiClient = new VibeOSApiClient({
-      baseUrl: VIBEOS_API_URL,
-      apiToken: VIBEOS_API_TOKEN,
-      timeout: 5e3
-    });
-  }
-  return _apiClient;
-}
-function isApiFallback() {
-  return _apiFallbackMode || !VIBEOS_API_ENABLED;
-}
-async function remoteCall(method, args, fallbackFn) {
-  if (!VIBEOS_API_ENABLED || _apiFallbackMode) {
-    if (fallbackFn)
-      return fallbackFn();
-    return null;
-  }
-  try {
-    const client2 = getApiClient();
-    if (!client2) {
-      if (fallbackFn)
-        return fallbackFn();
-      return null;
-    }
-    const result = await client2[method](...args);
-    _apiFallbackMode = false;
-    _apiFallbackSince = null;
-    return result;
-  } catch (err) {
-    if (!_apiFallbackMode) {
-      _apiFallbackMode = true;
-      _apiFallbackSince = (/* @__PURE__ */ new Date()).toISOString();
-      console.error(`[vibeOS] API fallback activated: ${err.message}`);
-    }
-    if (fallbackFn) {
-      try {
-        return fallbackFn();
-      } catch (fe) {
-        console.error(`[vibeOS] fallback also failed: ${fe.message}`);
-      }
-    }
-    return null;
-  }
-}
 
 // src/lib/classifiers.js
 function detectOutcomeSignal(text) {
@@ -3164,7 +3186,7 @@ function withFileLock3(filePath, fn, opts = {}) {
       mkdirSync5(FILE_LOCK_DIR3, { recursive: true });
       const fd = openSync3(lockPath, "wx");
       try {
-        writeFileSync5(fd, `${process.pid}
+        writeFileSync6(fd, `${process.pid}
 ${Date.now()}
 `);
       } catch {
@@ -3250,7 +3272,7 @@ function saveBlackboxState(state) {
   try {
     mkdirSync5(dirname4(BLACKBOX_STATE_FILE2), { recursive: true });
     const tmp = BLACKBOX_STATE_FILE2 + ".tmp";
-    writeFileSync5(tmp, JSON.stringify(state, null, 2) + "\n");
+    writeFileSync6(tmp, JSON.stringify(state, null, 2) + "\n");
     renameSync5(tmp, BLACKBOX_STATE_FILE2);
   } catch (err) {
     console.error("[vibeOS] saveBlackboxState failed: " + err.message);
@@ -3411,7 +3433,7 @@ function updateGlobalLearning2(mutator) {
     next.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
     mkdirSync5(dirname4(GLOBAL_LEARNING_FILE2), { recursive: true });
     const tmp = GLOBAL_LEARNING_FILE2 + ".tmp";
-    writeFileSync5(tmp, JSON.stringify(next, null, 2));
+    writeFileSync6(tmp, JSON.stringify(next, null, 2));
     renameSync5(tmp, GLOBAL_LEARNING_FILE2);
     return next;
   });
@@ -3449,7 +3471,7 @@ function saveProjectState2(state) {
     withFileLock3(PROJECT_STATE_FILE2, () => {
       mkdirSync5(dirname4(PROJECT_STATE_FILE2), { recursive: true });
       const _tmp = PROJECT_STATE_FILE2 + ".tmp." + Date.now();
-      writeFileSync5(_tmp, JSON.stringify(state, null, 2) + "\n", "utf-8");
+      writeFileSync6(_tmp, JSON.stringify(state, null, 2) + "\n", "utf-8");
       renameSync5(_tmp, PROJECT_STATE_FILE2);
     });
   } catch (err) {
@@ -3712,7 +3734,7 @@ function researchAudit({ hours = 24, session: sessionFilter } = {}) {
 }
 
 // src/lib/reporting.js
-import { readFileSync as readFileSync8, writeFileSync as writeFileSync6, existsSync as existsSync7, mkdirSync as mkdirSync6, statSync as statSync6, copyFileSync as copyFileSync5, rmSync as rmSync4 } from "node:fs";
+import { readFileSync as readFileSync8, writeFileSync as writeFileSync7, existsSync as existsSync7, mkdirSync as mkdirSync6, statSync as statSync6, copyFileSync as copyFileSync5, rmSync as rmSync4 } from "node:fs";
 import { join as join7, basename as basename6 } from "node:path";
 import { homedir as homedir8, tmpdir as tmpdir6 } from "node:os";
 var USER_HOME6 = (() => {
@@ -3761,7 +3783,7 @@ function saveReportsIndex(idx) {
   try {
     withFileLock(REPORTS_INDEX, () => {
       mkdirSync6(REPORTS_DIR2, { recursive: true });
-      writeFileSync6(REPORTS_INDEX, JSON.stringify(idx, null, 2) + "\n");
+      writeFileSync7(REPORTS_INDEX, JSON.stringify(idx, null, 2) + "\n");
     });
   } catch (err) {
     console.error(`[vibeOS] reports index write failed: ${err.message}`);
@@ -3871,11 +3893,11 @@ function saveReport({ type = "manual", summary = "", findings = null, metrics = 
   try {
     withFileLock(REPORTS_INDEX, () => {
       mkdirSync6(REPORTS_DIR2, { recursive: true });
-      writeFileSync6(join7(REPORTS_DIR2, `${id2}.json`), JSON.stringify(report, null, 2) + "\n");
+      writeFileSync7(join7(REPORTS_DIR2, `${id2}.json`), JSON.stringify(report, null, 2) + "\n");
       const idx = reportsIndex();
       const _sum = (summary || "").slice(0, 80);
       idx.reports.push({ id: id2, type, project: report.meta.project, fingerprint: fp3, created: report.meta.created, summary: _sum });
-      writeFileSync6(REPORTS_INDEX, JSON.stringify(idx, null, 2) + "\n");
+      writeFileSync7(REPORTS_INDEX, JSON.stringify(idx, null, 2) + "\n");
     });
   } catch (err) {
     console.error(`[vibeOS] report/index write failed: ${err.message}`);
@@ -3916,7 +3938,7 @@ function readReport(id2) {
 }
 
 // src/lib/credit-api.js
-import { readFileSync as readFileSync9, writeFileSync as writeFileSync7, existsSync as existsSync8 } from "node:fs";
+import { readFileSync as readFileSync9, writeFileSync as writeFileSync8, existsSync as existsSync8 } from "node:fs";
 import { join as join8 } from "node:path";
 function safeJsonParse4(raw) {
   try {
@@ -3983,7 +4005,7 @@ async function _snapshot() {
     }
   }
   try {
-    writeFileSync7(CREDIT_CACHE_F, JSON.stringify({ total, providers: provs, ts: Date.now() }));
+    writeFileSync8(CREDIT_CACHE_F, JSON.stringify({ total, providers: provs, ts: Date.now() }));
   } catch {
   }
 }
@@ -4051,13 +4073,14 @@ function thinkingLevel(credit) {
 import { join as join9 } from "node:path";
 function createTrinityTool(deps) {
   return {
-    description: "Control the vibeOS plugin and active model slot. Use action='status' to see current state. Use action='enable' or 'disable' to toggle the plugin (takes effect immediately, no restart needed). Use action='set' with slot='brain'|'medium'|'cheap' to switch model tiers (writes opencode.json \u2014 active immediately). Use action='rebuild' to auto-detect available models from all configured providers and reassign brain/medium/cheap slots. Use action='flow' with slot='on'|'off' to toggle flow enforcer, or action='flow' alone for audit. Use action='flow' with slot='enforce' and level='on'|'off' to toggle auto-extract TODOs. Use action='enforce' with slot='on'|'off' to toggle delegation enforcement (blocks direct writes/edits on brain tier). Use action='tdd' with slot='on'|'off' to toggle auto-create test skeletons. Use action='tdd' with slot='strict' and level='on'|'off' to toggle strict failing TODO test templates. Use action='tdd' alone for audit. Use action='project' to show per-project analytics and optimization suggestions. Use action='patterns' to inspect learned project patterns or slot='clear' to clear them. Use action='guard' to ensure AGENTS.md and README.md exist and stay current. Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', 'trinity status'.",
+    description: "Control the vibeOS plugin and active model slot. Use action='status' to see current state. Use action='enable' or 'disable' to toggle the plugin (takes effect immediately, no restart needed). Use action='set' with slot='brain'|'medium'|'cheap' to switch model tiers (writes opencode.json \u2014 active immediately). Use action='rebuild' to auto-detect available models from all configured providers and reassign brain/medium/cheap slots. Use action='flow' with slot='on'|'off' to toggle flow enforcer, or action='flow' alone for audit. Use action='flow' with slot='enforce' and level='on'|'off' to toggle auto-extract TODOs. Use action='enforce' with slot='on'|'off' to toggle delegation enforcement (blocks direct writes/edits on brain tier). Use action='tdd' with slot='on'|'off' to toggle auto-create test skeletons. Use action='tdd' with slot='strict' and level='on'|'off' to toggle strict failing TODO test templates. Use action='tdd' alone for audit. Use action='project' to show per-project analytics and optimization suggestions. Use action='patterns' to inspect learned project patterns or slot='clear' to clear them. Use action='guard' to ensure AGENTS.md and README.md exist and stay current. Use action='api-token' with token='<new_token>' to update the API token and re-enable remote control-vector. Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', 'trinity status'.",
     args: {
-      action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard"]).optional(),
+      action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard", "api-token"]).optional(),
       slot: deps.tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings"]).optional(),
-      level: deps.tool.schema.enum(["full", "brief", "off", "on"]).optional()
+      level: deps.tool.schema.enum(["full", "brief", "off", "on"]).optional(),
+      token: deps.tool.schema.string().optional()
     },
-    async execute({ action, slot, level } = {}) {
+    async execute({ action, slot, level, token } = {}) {
       if (typeof deps._lazyRefresh === "function")
         deps._lazyRefresh();
       if (!action)
@@ -4599,6 +4622,11 @@ ${L.repeat(40)}`);
         lines.push("README.md: auto-maintained feature documentation \u2014 keep it updated.");
         return lines.join("\n");
       }
+      if (action === "api-token") {
+        if (!token) return "Usage: trinity api-token <token>\nProvide a valid VIBEOS_API_TOKEN to enable remote control-vector computation.";
+        deps.setApiToken(token);
+        return "[vibeOS] API token updated. Remote API re-enabled.";
+      }
       if (action === "rebuild") {
         const providers = deps._loadOpenCodeProviders();
         const auth = deps._readAuth();
@@ -4950,6 +4978,7 @@ ${L.repeat(40)}`);
           "  trinity flow on/off       Toggle flow enforcer (code quality checks)",
           "  trinity tdd on/off        Toggle auto test skeleton creation",
           "  trinity guard             Ensure AGENTS.md/README.md exist and are current",
+          "  trinity api-token        Update VIBEOS_API_TOKEN and re-enable remote API",
           "  trinity flow              Show flow violations this session",
           "",
           "DIAGNOSTICS:",
@@ -5183,14 +5212,14 @@ import { join as join13 } from "node:path";
 import { homedir as homedir10, tmpdir as tmpdir7 } from "node:os";
 
 // src/lib/hooks/chat-transform.js
-import { readFileSync as readFileSync11, writeFileSync as writeFileSync9, existsSync as existsSync10, mkdirSync as mkdirSync7 } from "node:fs";
+import { readFileSync as readFileSync11, writeFileSync as writeFileSync10, existsSync as existsSync10, mkdirSync as mkdirSync7 } from "node:fs";
 import { join as join12, basename as basename7 } from "node:path";
 import { homedir as homedir9 } from "node:os";
 import { createHash as createHash4 } from "node:crypto";
 
 // src/lib/index-helpers.js
 import { join as join11 } from "node:path";
-import { writeFileSync as writeFileSync8 } from "node:fs";
+import { writeFileSync as writeFileSync9 } from "node:fs";
 
 // src/lib/text-compress.js
 var VERBOSE_LINE_RE = [
@@ -5526,7 +5555,7 @@ function recordSaving(tool2, reason, saveEst, meta = {}) {
         if (sd) {
           const sp = join11(sd, "delegation-state-hint.txt");
           try {
-            writeFileSync8(sp, JSON.stringify({ sid, total_savings: s.lifetime.total_savings_usd, last_reason: reason }), "utf8");
+            writeFileSync9(sp, JSON.stringify({ sid, total_savings: s.lifetime.total_savings_usd, last_reason: reason }), "utf8");
           } catch {
           }
         }
@@ -5714,7 +5743,7 @@ function ensureProjectSkill(dir, fp22) {
   }
   try {
     mkdirSync7(skillDir, { recursive: true });
-    writeFileSync9(skillPath, content, "utf-8");
+    writeFileSync10(skillPath, content, "utf-8");
     console.error(`[vibeOS] Project Guard: created .opencode/skills/${projectName}/SKILL.md`);
     return { created: true, path: skillPath, skipped: false };
   } catch (err) {
@@ -5778,7 +5807,7 @@ function syncControlSettings(cv) {
           const oc = safeJsonParse3(readFileSync11(OC_CONFIG, "utf-8"));
           if (oc.default_agent !== cv.agent_mode) {
             oc.default_agent = cv.agent_mode;
-            writeFileSync9(OC_CONFIG, JSON.stringify(oc, null, 2) + "\n");
+            writeFileSync10(OC_CONFIG, JSON.stringify(oc, null, 2) + "\n");
           }
         }
       } catch {
@@ -5793,7 +5822,7 @@ function syncControlSettings(cv) {
             const oc = safeJsonParse3(readFileSync11(OC_CONFIG, "utf-8"));
             if (oc.default_agent === "plan") {
               oc.default_agent = "orchestrator";
-              writeFileSync9(OC_CONFIG, JSON.stringify(oc, null, 2) + "\n");
+              writeFileSync10(OC_CONFIG, JSON.stringify(oc, null, 2) + "\n");
             }
           }
         } catch {
@@ -5828,7 +5857,7 @@ ${raw}
         try {
           ensureSessionScratchpadDirs();
           if (!existsSync10(fullPath)) {
-            writeFileSync9(fullPath, raw);
+            writeFileSync10(fullPath, raw);
             indexAppend(hash, part.tool, raw.length);
           }
         } catch (err) {
@@ -6340,12 +6369,12 @@ async function _appendFooter(input, output, directory3) {
 }
 
 // src/lib/hooks/tool-execute.js
-import { writeFileSync as writeFileSync11, appendFileSync as appendFileSync7, existsSync as existsSync12, mkdirSync as mkdirSync9 } from "node:fs";
+import { writeFileSync as writeFileSync12, appendFileSync as appendFileSync7, existsSync as existsSync12, mkdirSync as mkdirSync9 } from "node:fs";
 import { dirname as dirname6, basename as basename8 } from "node:path";
 init_flow_enforcer();
 
 // src/lib/tdd-enforcer.js
-import { readFileSync as readFileSync13, writeFileSync as writeFileSync10, appendFileSync as appendFileSync6, existsSync as existsSync11, mkdirSync as mkdirSync8, statSync as statSync7, readdirSync as readdirSync2, rmSync as rmSync5, openSync as openSync4 } from "node:fs";
+import { readFileSync as readFileSync13, writeFileSync as writeFileSync11, appendFileSync as appendFileSync6, existsSync as existsSync11, mkdirSync as mkdirSync8, statSync as statSync7, readdirSync as readdirSync2, rmSync as rmSync5, openSync as openSync4 } from "node:fs";
 import { join as join14, dirname as dirname5 } from "node:path";
 import { createHash as createHash5 } from "node:crypto";
 
@@ -7508,7 +7537,7 @@ function _recordCooldown(testPath) {
     appendFileSync6(ENFORCEMENT_COOLDOWN_FILE2, entry);
     const lines = readFileSync13(ENFORCEMENT_COOLDOWN_FILE2, "utf-8").trim().split("\n").filter(Boolean);
     if (lines.length > 500) {
-      writeFileSync10(ENFORCEMENT_COOLDOWN_FILE2, lines.slice(-200).join("\n") + "\n");
+      writeFileSync11(ENFORCEMENT_COOLDOWN_FILE2, lines.slice(-200).join("\n") + "\n");
     }
   } catch {
   }
@@ -7595,7 +7624,7 @@ function enforceTestFile(filePath) {
     return null;
   try {
     mkdirSync8(skeleton.dir, { recursive: true });
-    writeFileSync10(skeleton.path, skeleton.content);
+    writeFileSync11(skeleton.path, skeleton.content);
     _enforcementCooldown.add(skeleton.path);
     _recordCooldown(skeleton.path);
     try {
@@ -7884,7 +7913,7 @@ var onToolExecuteBefore = async (input, output) => {
           if (!existsSync12(CONTEXT7_INSTALL_FLAG)) {
             try {
               mkdirSync9(dirname6(CONTEXT7_INSTALL_FLAG), { recursive: true });
-              writeFileSync11(CONTEXT7_INSTALL_FLAG, "");
+              writeFileSync12(CONTEXT7_INSTALL_FLAG, "");
             } catch {
             }
             console.error(`[vibeOS] \u{1F4A1} Install context7 MCP to save ~$0.06/turn on docs: \`claude mcp add context7 npx @upstash/context7-mcp\``);
@@ -8340,7 +8369,7 @@ function persistMcpPort(port) {
     tiers.selection.mcp_port = port;
     mkdirSync10(dirname7(TIERS_FILE2), { recursive: true });
     const tmp = TIERS_FILE2 + ".tmp." + Date.now();
-    writeFileSync12(tmp, JSON.stringify(tiers, null, 2) + "\n", "utf-8");
+    writeFileSync13(tmp, JSON.stringify(tiers, null, 2) + "\n", "utf-8");
     renameSync6(tmp, TIERS_FILE2);
   } catch {
   }
@@ -8606,7 +8635,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
         if (_tiersData2.selection.mcp_port === void 0) _tiersData2.selection.mcp_port = 9578;
         mkdirSync10(dirname7(TIERS_FILE2), { recursive: true });
         const _tmp = TIERS_FILE2 + ".tmp." + Date.now();
-        writeFileSync12(_tmp, JSON.stringify(_tiersData2, null, 2) + "\n", "utf-8");
+        writeFileSync13(_tmp, JSON.stringify(_tiersData2, null, 2) + "\n", "utf-8");
         renameSync6(_tmp, TIERS_FILE2);
         console.error(`[vibeOS] auto-synced model-tiers.json: brain=${_brain.id} medium=${_tiersData2.trinity?.medium?.oc || ""} cheap=${_tiersData2.trinity?.cheap?.oc || ""}`);
         const _tiersCfg = safeJsonParse3(readFileSync15(TIERS_FILE2, "utf-8"));
@@ -8630,7 +8659,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     if (_mt.selection && (_mt.selection.mcp_port === void 0 || _mt.selection.mcp_port === null)) {
       _mt.selection.mcp_port = 9578;
       const _tmp = TIERS_FILE2 + ".tmp." + Date.now();
-      writeFileSync12(_tmp, JSON.stringify(_mt, null, 2) + "\n", "utf-8");
+      writeFileSync13(_tmp, JSON.stringify(_mt, null, 2) + "\n", "utf-8");
       renameSync6(_tmp, TIERS_FILE2);
     }
   } catch {
@@ -8688,7 +8717,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     directory: directory3,
     safeJsonParse: safeJsonParse3,
     readFileSync: readFileSync15,
-    writeFileSync: writeFileSync12,
+    writeFileSync: writeFileSync13,
     existsSync: existsSync14,
     renameSync: renameSync6,
     TIERS_FILE: TIERS_FILE2,
@@ -8734,8 +8763,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     backupFile,
     writeSessionSlot,
     _refreshModel,
-    writeSessionSlot,
-    _refreshModel,
+    setApiToken,
     get _blackboxTracker() {
       return getBlackboxTracker();
     },

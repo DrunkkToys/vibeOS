@@ -18,7 +18,7 @@ import { computeSessionMetrics } from "./vibeOS-lib/session-metrics.js"
 import { createMcpServer } from "vibeOScore/mcp-server"
 import { VibeOSApiClient } from "vibeOScore/client"
 
-import { getApiClient, remoteCall, isApiFallback, VIBEOS_API_URL } from "./lib/api-client.js"
+import { getApiClient, remoteCall, isApiFallback, setApiToken, VIBEOS_API_URL } from "./lib/api-client.js"
 import {
   applySlot, modelCostPerTurn, isModelFree, isDocsTarget, detectContext7, modelToSlotLabel,
   shortModelName, roundUsd, formatUsd, classify, _refreshModel, loadTierRegexes,
@@ -537,7 +537,8 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
       projectPatternRows, promotedProjectPatterns, detectTechStack, ensureProjectDocs,
       discoverAvailableModels, classifyAndRankModels, modelToCcAlias, probeModel,
       setBlackboxEnabled, loadBlackboxState, saveBlackboxState,
-      reportsIndex, saveReportsIndex, backupFile, writeSessionSlot, _refreshModel, writeSessionSlot, _refreshModel,
+      reportsIndex, saveReportsIndex, backupFile, writeSessionSlot, _refreshModel,
+      setApiToken,
       get _blackboxTracker() { return getBlackboxTracker() },
       set _blackboxTracker(v) { resetBlackboxTracker() },
     }

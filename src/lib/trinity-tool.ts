@@ -19,14 +19,15 @@ export function createTrinityTool(deps) {
       "Use action='tdd' alone for audit. " +
       "Use action='project' to show per-project analytics and optimization suggestions. " +
       "Use action='patterns' to inspect learned project patterns or slot='clear' to clear them. " +
-      "Use action='guard' to ensure AGENTS.md and README.md exist and stay current. " +
+      "Use action='guard' to ensure AGENTS.md and README.md exist and stay current. Use action='api-token' with token='<new_token>' to update the API token and re-enable remote control-vector " +
       "Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', 'trinity status'.",
     args: {
-            action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard"]).optional(),
+            action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard", "api-token"]).optional(),
             slot: deps.tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings"]).optional(),
       level: deps.tool.schema.enum(["full", "brief", "off", "on"]).optional(),
+      token: deps.tool.schema.string().optional(),
     },
-    async execute({ action, slot, level }: { action?: string; slot?: string; level?: string } = {}) {
+    async execute({ action, slot, level, token }: { action?: string; slot?: string; level?: string; token?: string } = {}) {
       if (typeof deps._lazyRefresh === "function") deps._lazyRefresh()
       if (!action) action = "status"
       if (["brain", "medium", "cheap"].includes(action)) { slot = action; action = "set" }
@@ -548,6 +549,12 @@ export function createTrinityTool(deps) {
         return lines.join("\n")
       }
 
+      if (action === "api-token") {
+        if (!token) return "Usage: trinity api-token <token>\nProvide a valid VIBEOS_API_TOKEN to enable remote control-vector computation."
+        deps.setApiToken(token)
+        return "[vibeOS] API token updated. Remote API re-enabled."
+      }
+
       if (action === "rebuild") {
         const providers = deps._loadOpenCodeProviders()
         const auth = deps._readAuth()
@@ -881,6 +888,8 @@ export function createTrinityTool(deps) {
           "  trinity flow on/off       Toggle flow enforcer (code quality checks)",
           "  trinity tdd on/off        Toggle auto test skeleton creation",
           "  trinity guard             Ensure AGENTS.md/README.md exist and are current",
+  "  trinity api-token        Update VIBEOS_API_TOKEN and re-enable remote API",
+  "  trinity api-token        Update VIBEOS_API_TOKEN and re-enable remote API",
           "  trinity flow              Show flow violations this session",
           "",
           "DIAGNOSTICS:",
