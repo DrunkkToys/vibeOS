@@ -3510,6 +3510,14 @@ if (!_envToken2) {
   } catch {
   }
 }
+if (!_envToken2) {
+  try {
+    const env = readFileSync5(join6(homedir5(), ".claude", ".env.production"), "utf8");
+    const m = env.match(/^VIBEOS_API_TOKEN=(.+)$/m);
+    if (m) _envToken2 = m[1].trim();
+  } catch {
+  }
+}
 var VIBEOS_API_TOKEN = process.env.VIBEOS_API_TOKEN || _envToken2 || "";
 var VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && !!VIBEOS_API_TOKEN;
 var _apiClient = null;

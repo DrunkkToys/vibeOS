@@ -2,25 +2,22 @@
 
 import { VibeOSApiClient, VibeOSAuthError, VibeOSTimeoutError, VibeOSNetworkError } from "vibeOScore/client"
 
+import { VibeOSApiClient, VibeOSAuthError, VibeOSTimeoutError, VibeOSNetworkError } from "vibeOScore/client"
+
 // ── Remote API client (Phase 2) ─────────────────────────────────────
 export const VIBEOS_API_URL = process.env.VIBEOS_API_URL || "https://api.vibetheog.com"
-try {
-  const envPath = join(process.cwd(), ".env.production")
-  const env = fs.readFileSync(envPath, "utf8")
-  const m = env.match(/^VIBEOS_API_TOKEN=(.+)$/m)
-  if (m) { var _envToken = m[1].trim() }
-} catch {}
-if (!_envToken) {
+
+let _envToken = ""
+const _envPaths = [__dirname, homedir() + "/.claude", homedir(), process.cwd()]
+for (const dir of _envPaths) {
   try {
-    const envPath = join(homedir(), ".env.production")
-    const env = fs.readFileSync(envPath, "utf8")
+    const env = readFileSync(dir + "/.env.production", "utf8")
     const m = env.match(/^VIBEOS_API_TOKEN=(.+)$/m)
-    if (m) { _envToken = m[1].trim() }
+    if (m) { _envToken = m[1].trim(); break }
   } catch {}
 }
 export const VIBEOS_API_TOKEN = process.env.VIBEOS_API_TOKEN || _envToken || ""
 export const VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && !!VIBEOS_API_TOKEN
-
 let _apiClient = null
 let _apiFallbackMode = false
 let _apiFallbackSince = null
