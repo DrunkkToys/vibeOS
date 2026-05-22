@@ -4,7 +4,7 @@ import { join, dirname, basename } from "node:path"
 import { homedir, tmpdir } from "node:os"
 import { classify, modelCostPerTurn, _refreshModel, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, roundUsd, formatUsd } from "../pricing.js"
 import { latestUserIntent } from "./chat-transform.js"
-import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, loadOptimizationMode, classifyTurnSimple } from "../turn-classify.js"
+import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, loadOptimizationMode, saveOptimizationMode, classifyTurnSimple } from "../turn-classify.js"
 import { saveReport } from "../reporting.js"
 import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, _modelLocked, _blackboxEnabled, writeSelection, reconcileStateFromLedger, safeJsonParse } from "../state.js"
 import { loadSessionSlot, writeSessionSlot } from "../selection-manager.js"
@@ -191,6 +191,7 @@ async function _appendFooter(input, output, directory) {
         const autoActive = await apiAutoSelectMode(autoRegime, autoStress)
         const autoTag = { audit: "AUDIT", budget: "BUDGET", quality: "QUALITY", speed: "SPEED", longrun: "LONGRUN", balanced: "BALANCED" }
         optTagFooter = `[AUTO→${autoTag[autoActive] || autoActive.toUpperCase()}]`
+        saveOptimizationMode(autoActive)
         const slot = autoActive === "quality" ? "brain" : autoActive === "speed" ? "medium" : "cheap"
         if (!_modelLocked) {
           writeSessionSlot(_OC_SID, slot)

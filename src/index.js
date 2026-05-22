@@ -6878,6 +6878,7 @@ async function _appendFooter(input, output, directory3) {
       const autoStress = scoreStress(latestUserIntent || "");
       const autoActive = await apiAutoSelectMode(autoRegime, autoStress);
       const autoTag = { audit: "AUDIT", budget: "BUDGET", quality: "QUALITY", speed: "SPEED", longrun: "LONGRUN", balanced: "BALANCED" };
+      saveOptimizationMode(autoActive);
       optTagFooter = `[AUTO\u2192${autoTag[autoActive] || autoActive.toUpperCase()}]`;
       const slot2 = autoActive === "quality" ? "brain" : autoActive === "speed" ? "medium" : "cheap";
       if (!_modelLocked) {
