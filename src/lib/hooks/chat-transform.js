@@ -78,6 +78,7 @@ async function apiComputeControlVector(state, action, optimizationMode) {
     stress_multiplier: 1,
     context7_urgency: isStrict ? "required" : isRelaxed ? "preferred" : "preferred",
     wbp_verbosity: isStrict ? "verbose" : isRelaxed ? "minimal" : "normal",
+    agent_mode: isStrict ? "plan" : "auto",
     optimization_mode: opt,
     directives: []
   };
