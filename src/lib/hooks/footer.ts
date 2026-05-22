@@ -119,6 +119,10 @@ async function _appendFooter(input, output, directory) {
         typeof output?.result === "string" ? output.result :
         typeof output?.content === "string" ? output.content :
         ""
+      if (!text || text.length < 50) {
+        if (messageID) textCompletePainted.add(messageID)
+        return
+      }
       const { ltTasks, ltCache, ltCost, count, sesTasks, sesEdit, sesCredit, sesC7, sesQuota, sesCache, sesTaskDelegations, sesDuration, sesRatePerHour, sesTrend, sesToolBreakdown, sesModelTurns, quality_avg } = readLifetimeSavings()
 
       const sessionSlot = loadSessionSlot(_OC_SID)
