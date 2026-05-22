@@ -1,3 +1,8 @@
+## 0.15.4
+- fix: make model probe non-blocking on slot switch
+Build: self-contained bundle (vibeOScore resolved)
+
+
 ## 0.15.3
 - fix: remove sticky fallback flag that kills auto mode after single API failure
 - refactor: architecture simplification and scale readiness
