@@ -131,7 +131,8 @@ test("pricing.js: no orphaned local currentTier/currentModel (imports from state
   const { readFileSync } = await import("node:fs")
   const src = readFileSync(join(ROOT, "src/lib/pricing.js"), "utf-8")
   // After the fix, pricing.js imports these from state.js and does NOT declare them locally
-  assert.ok(src.includes("import { currentModel, currentTier, setCurrentModel, setCurrentTier }"), 
+  assert.ok(src.includes("import { currentModel, currentTier, setCurrentModel, setCurrentTier") 
+    && src.includes("from \"./state.js\""), 
     "pricing.js imports currentModel/currentTier/setCurrentModel/setCurrentTier from state.js")
   // Must NOT have local let declarations for these anymore
   assert.ok(!src.includes("\nlet currentTier = null"), "pricing.js must not have orphaned local let currentTier")
