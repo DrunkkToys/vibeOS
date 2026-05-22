@@ -658,7 +658,7 @@ export const onToolExecuteAfter = async (input, output) => {
         else if (output.data !== undefined) output.data = processed
       }
       // ── todowrite result parsing ──
-      if (inputTool === "todowrite" && _pendingTodoArgs && _pendingTodoArgs.length > 0) {
+      if (t === "todowrite" && _pendingTodoArgs && _pendingTodoArgs.length > 0) {
         try {
           for (const entry of _pendingTodoArgs) {
             if (entry && entry.content) {

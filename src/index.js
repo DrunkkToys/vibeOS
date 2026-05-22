@@ -8421,7 +8421,7 @@ ${pendingUiNote}`;
     else if (output.data !== void 0)
       output.data = processed;
   }
-  if (inputTool === "todowrite" && _pendingTodoArgs && _pendingTodoArgs.length > 0) {
+  if (t === "todowrite" && _pendingTodoArgs && _pendingTodoArgs.length > 0) {
     try {
       for (const entry of _pendingTodoArgs) {
         if (entry && entry.content) {
