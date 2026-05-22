@@ -689,10 +689,12 @@ function getScratchpadHit(toolLower, args, baseDir = null) {
     const inputJson = stableJson(args ?? {});
     const hash = createHash("sha256").update(`${titleCase}\n${inputJson}\n`).digest("hex").slice(0, 16);
     const sessionDir = baseDir || getSessionScratchpadDir();
+    const globalDir = SCRATCHPAD_GLOBAL_DIR;
     const sessionPath = join(sessionDir, `${hash}.txt`);
-    let fullPath = existsSync(sessionPath) ? sessionPath : null;
+    const globalPath = join(globalDir, `${hash}.txt`);
+    let fullPath = existsSync(sessionPath) ? sessionPath : (existsSync(globalPath) ? globalPath : null);
     if (!fullPath) {
-        const recent = scanRecentScratchpad(sessionDir, titleCase, 2000);
+        const recent = scanRecentScratchpad(sessionDir, titleCase, 2000) || scanRecentScratchpad(globalDir, titleCase, 2000);
         if (recent)
             return recent;
         return null;
@@ -703,9 +705,11 @@ function getScratchpadHit(toolLower, args, baseDir = null) {
         if (ageSec > SCRATCHPAD_MAX_AGE_SEC)
             return null;
         const sessionSummaryPath = join(sessionDir, `${hash}.summary.txt`);
+        const globalSummaryPath = join(globalDir, `${hash}.summary.txt`);
+        const summaryPath = existsSync(sessionSummaryPath) ? sessionSummaryPath : (existsSync(globalSummaryPath) ? globalSummaryPath : null);
         return {
             hash, fullPath, sizeBytes: st.size, ageSec: Math.round(ageSec),
-            summaryPath: existsSync(sessionSummaryPath) ? sessionSummaryPath : null,
+            summaryPath,
         };
     }
     catch {

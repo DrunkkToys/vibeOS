@@ -1824,10 +1824,12 @@ function getScratchpadHit(toolLower, args, baseDir = null) {
 ${inputJson}
 `).digest("hex").slice(0, 16);
   const sessionDir = baseDir || getSessionScratchpadDir();
+  const globalDir = SCRATCHPAD_GLOBAL_DIR;
   const sessionPath = join3(sessionDir, `${hash}.txt`);
-  let fullPath = existsSync3(sessionPath) ? sessionPath : null;
+  const globalPath = join3(globalDir, `${hash}.txt`);
+  let fullPath = existsSync3(sessionPath) ? sessionPath : existsSync3(globalPath) ? globalPath : null;
   if (!fullPath) {
-    const recent = scanRecentScratchpad(sessionDir, titleCase, 2e3);
+    const recent = scanRecentScratchpad(sessionDir, titleCase, 2e3) || scanRecentScratchpad(globalDir, titleCase, 2e3);
     if (recent)
       return recent;
     return null;
@@ -1838,12 +1840,14 @@ ${inputJson}
     if (ageSec > SCRATCHPAD_MAX_AGE_SEC)
       return null;
     const sessionSummaryPath = join3(sessionDir, `${hash}.summary.txt`);
+    const globalSummaryPath = join3(globalDir, `${hash}.summary.txt`);
+    const summaryPath = existsSync3(sessionSummaryPath) ? sessionSummaryPath : existsSync3(globalSummaryPath) ? globalSummaryPath : null;
     return {
       hash,
       fullPath,
       sizeBytes: st.size,
       ageSec: Math.round(ageSec),
-      summaryPath: existsSync3(sessionSummaryPath) ? sessionSummaryPath : null
+      summaryPath
     };
   } catch {
     return null;
