@@ -1,3 +1,13 @@
+## 0.15.2
+- fix: add missing mergeProjectBucket re-export in state module
+- fix: update pricing.js import assertion to handle additional state imports
+- refactor: extract text-compress, pattern-helpers, consolidate duplicates
+- docs: add mandatory prompt execution directive to LIVE_DEBUG
+- chore: sync compiled output after state module fix
+- chore: update gitignore and untrack internal dev artifacts
+Merge pull request #29 from DrunkkToys/refactor/extract-text-compress-pattern-helpers-consolidate
+
+
 ## 0.15.0
 - fix: autoconfig write bug, API fallback short-circuit, constants extraction (#27)
 - fix: add blackboxSelectMode client method for footer auto-mode routing
