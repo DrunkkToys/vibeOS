@@ -26,7 +26,7 @@ Learns recurring struggle/routine patterns per project.
 |---|---|
 | `trinity patterns` | Show learned patterns |
 | `trinity patterns clear` | Clear all learned patterns |
-| `trinity patterns suggest` | Suggest optimizations based on patterns |
+| `trinity patterns suggest` | Suggest optimizations based on patterns (help text only; no handler) |
 
 Stored in `~/.claude/project-states.json`. Patterns are promoted after repeated confirmation across sessions.
 
@@ -56,11 +56,11 @@ Auto-creates and protects `AGENTS.md` and `README.md` in every project.
 
 The meta-controller auto-toggles enforcement/flow/TDD/thinking per regime:
 
-| Regime | Mode | Enforce | Flow | TDD | Tier |
-|---|---|---|---|---|---|
-| INIT / EXPLORING / DIVERGENT | budget | relaxed | audit | lazy | cheap |
-| REFINING | budget | relaxed | audit | lazy | cheap |
-| CONVERGING / CLOSED | quality | strict | strict | quality | brain |
-| LOOPING | speed | relaxed | audit | lazy | medium |
+| Regime | Mode | Enforce | Flow | TDD | Think | Tier |
+|---|---|---|---|---|---|---|---|
+| INIT / EXPLORING / DIVERGENT | budget | relaxed | audit | lazy | off | cheap |
+| REFINING | budget | relaxed | audit | lazy | off | cheap |
+| CONVERGING / CLOSED | quality | strict | strict | quality | on | brain |
+| LOOPING | speed | relaxed | audit | lazy | brief | medium |
 
-Stress > 1.5 escalates any regime to quality mode.
+Stress > 1.5 escalates any regime to quality mode (tightens enforcement, activates brain tier). Manual `trinity enforce on|off` overrides are temporary — next turn re-evaluates.
