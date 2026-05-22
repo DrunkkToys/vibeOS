@@ -345,7 +345,7 @@ var init_flow_enforcer = __esm({
 // src/index.ts
 init_flow_enforcer();
 import { readFileSync as readFileSync14, writeFileSync as writeFileSync12, existsSync as existsSync15, mkdirSync as mkdirSync10, copyFileSync as copyFileSync6, renameSync as renameSync6 } from "node:fs";
-import { join as join15, dirname as dirname8, basename as basename9 } from "node:path";
+import { join as join16, dirname as dirname8, basename as basename9 } from "node:path";
 
 // src/vibeOS-lib/session-metrics.js
 function formatDuration(totalSeconds) {
@@ -4562,6 +4562,63 @@ function safeJsonParse4(raw) {
     throw e;
   }
 }
+var BALANCE_APIS = {
+  deepseek: {
+    url: "https://api.deepseek.com/user/balance",
+    parse(d) {
+      const b = d?.balance_infos?.find((b2) => b2.currency === "USD");
+      return b ? parseFloat(b.total_balance) : 0;
+    }
+  },
+  openrouter: {
+    url: "https://openrouter.ai/api/v1/credits",
+    parse(d) {
+      return parseFloat(d?.data?.total_credits) || 0;
+    }
+  }
+};
+var _creditTimer = null;
+function _readAuth() {
+  try {
+    return existsSync9(AUTH_F) ? safeJsonParse4(readFileSync8(AUTH_F, "utf-8")) : {};
+  } catch {
+    return {};
+  }
+}
+async function _fetchBal(provider, key) {
+  const api = BALANCE_APIS[provider];
+  if (!api)
+    return { provider, balance: 0 };
+  try {
+    const res = await fetch(api.url, {
+      headers: { Authorization: `Bearer ${key}` },
+      signal: AbortSignal.timeout(5e3)
+    });
+    if (!res.ok)
+      return { provider, balance: 0 };
+    return { provider, balance: api.parse(await res.json()) };
+  } catch {
+    return { provider, balance: 0 };
+  }
+}
+async function _snapshot() {
+  const auth = _readAuth();
+  let total = 0;
+  const provs = [];
+  for (const [p, c] of Object.entries(auth)) {
+    if (!c?.key || !BALANCE_APIS[p])
+      continue;
+    const { balance } = await _fetchBal(p, c.key);
+    if (balance > 0) {
+      provs.push({ provider: p, balance });
+      total += balance;
+    }
+  }
+  try {
+    writeFileSync7(CREDIT_CACHE_F, JSON.stringify({ total, providers: provs, ts: Date.now() }));
+  } catch {
+  }
+}
 function _cachedPct() {
   try {
     if (!existsSync9(CREDIT_CACHE_F))
@@ -4583,6 +4640,16 @@ function _cachedPct() {
   } catch {
     return null;
   }
+}
+var _started = false;
+function _lazyRefresh() {
+  if (_started)
+    return;
+  _started = true;
+  _snapshot();
+  _creditTimer = setInterval(_snapshot, 60 * 60 * 1e3);
+  if (_creditTimer.unref)
+    _creditTimer.unref();
 }
 function loadCredit() {
   const pct = _cachedPct();
@@ -4612,9 +4679,931 @@ function thinkingLevel(credit) {
   return "brief";
 }
 
+// src/lib/trinity-tool.js
+import { join as join10 } from "node:path";
+function createTrinityTool(deps) {
+  return {
+    description: "Control the vibeOS plugin and active model slot. Use action='status' to see current state. Use action='enable' or 'disable' to toggle the plugin (takes effect immediately, no restart needed). Use action='set' with slot='brain'|'medium'|'cheap' to switch model tiers (writes opencode.json \u2014 active immediately). Use action='rebuild' to auto-detect available models from all configured providers and reassign brain/medium/cheap slots. Use action='flow' with slot='on'|'off' to toggle flow enforcer, or action='flow' alone for audit. Use action='flow' with slot='enforce' and level='on'|'off' to toggle auto-extract TODOs. Use action='enforce' with slot='on'|'off' to toggle delegation enforcement (blocks direct writes/edits on brain tier). Use action='tdd' with slot='on'|'off' to toggle auto-create test skeletons. Use action='tdd' with slot='strict' and level='on'|'off' to toggle strict failing TODO test templates. Use action='tdd' alone for audit. Use action='project' to show per-project analytics and optimization suggestions. Use action='patterns' to inspect learned project patterns or slot='clear' to clear them. Use action='guard' to ensure AGENTS.md and README.md exist and stay current. Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', 'trinity status'.",
+    args: {
+      action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard"]).optional(),
+      slot: deps.tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings"]).optional(),
+      level: deps.tool.schema.enum(["full", "brief", "off", "on"]).optional()
+    },
+    async execute({ action, slot, level } = {}) {
+      if (typeof deps._lazyRefresh === "function")
+        deps._lazyRefresh();
+      if (!action)
+        action = "status";
+      if (["brain", "medium", "cheap"].includes(action)) {
+        slot = action;
+        action = "set";
+      }
+      if (action === "status") {
+        const sel = deps.loadSelection();
+        let tiers = {};
+        try {
+          tiers = deps.safeJsonParse(deps.readFileSync(deps.TIERS_FILE, "utf-8")).trinity || {};
+        } catch {
+        }
+        const credit = deps.loadCredit();
+        const effectiveLevel = sel.thinking_level || deps.thinkingLevel(credit);
+        const sv = deps.readLifetimeSavings();
+        const ltTotal = (sv.ltTasks || 0) + (sv.ltCache || 0);
+        const sesTasks = sv.sesTasks || 0;
+        const sesCache = Number(deps.readFullState()?.sessions?.[deps._OC_SID]?.cache_savings_usd || 0);
+        const sesWarns = Array.isArray(deps.readFullState()?.sessions?.[deps._OC_SID]?.warns) ? deps.readFullState().sessions[deps._OC_SID].warns.length : 0;
+        const sesTrend = sv.sesTrend || "stable";
+        const sesRate = sv.sesRatePerHour || 0;
+        const missedC7 = sv.missedC7 || 0;
+        const toolBreakdown = sv.sesToolBreakdown || {};
+        const topTools = Object.entries(toolBreakdown).filter(([, v]) => v > 5e-3).sort((a, b) => b[1] - a[1]).slice(0, 5);
+        const brainModel = tiers?.brain?.oc || "(unset)";
+        const mediumModel = tiers?.medium?.oc || "(unset)";
+        const cheapModel = tiers?.cheap?.oc || "(unset)";
+        const activeSlot = sel.active_slot || "brain";
+        const stressScore = deps.latestUserIntent ? deps.scoreStress(deps.latestUserIntent) : 0;
+        const stressBar = stressScore > 0.85 ? "\u2588" : stressScore > 0.7 ? "\u2586" : stressScore > 0.5 ? "\u2585" : stressScore > 0.3 ? "\u2583" : stressScore > 0.1 ? "\u2582" : "\u2581";
+        const stressLabel = stressScore > 0.7 ? "high" : stressScore > 0.4 ? "elevated" : stressScore > 0.1 ? "calm" : "none";
+        const totalTurns = (sv.sesModelTurns?.brain || 0) + (sv.sesModelTurns?.worker || 0);
+        const brainPct = totalTurns > 0 ? Math.round(sv.sesModelTurns.brain / totalTurns * 100) : 0;
+        const workerPct = 100 - brainPct;
+        const qualityAvg = sv.quality_avg || 0;
+        const sesDuration = sv.sesDuration || 0;
+        const durHrs = Math.floor(sesDuration / 3600);
+        const durMins = Math.floor(sesDuration % 3600 / 60);
+        let decisionLine = "";
+        if (deps._blackboxEnabled) {
+          try {
+            const res = deps._latestBlackboxState || deps.getBlackboxResolution();
+            if (res && res.n_interactions > 3) {
+              const momentumIcon = res.momentum > 0.3 ? "up up" : res.momentum > 0 ? "up" : res.momentum < -0.3 ? "down down" : res.momentum < 0 ? "down" : "flat";
+              const loopTag = res.is_looping ? " (loop)" : "";
+              decisionLine = `${res.resolution} ${res.sub_regime} ${momentumIcon}${loopTag}`;
+            }
+          } catch {
+          }
+        }
+        const lines = [
+          `[vibeOS-dashboard]`,
+          `Model: ${activeSlot} (${brainModel})`,
+          ...totalTurns > 0 ? [`Split: brain ${brainPct}% / worker ${workerPct}% (${totalTurns} total)`] : [],
+          `Thinking: ${effectiveLevel}`,
+          `Credit: ${credit}%`,
+          ...qualityAvg > 0 ? [`Quality: ${Math.round(qualityAvg)}%`] : [],
+          ...decisionLine ? [`Decision: ${decisionLine}`] : [],
+          `|`,
+          `Stress: ${stressBar} (${stressLabel})`,
+          `|`,
+          `Guards:`,
+          `  Flow: ${sel.flow_enabled !== false ? "ON" : "OFF"}${sel.flow_enforce ? " (extract)" : ""}`,
+          `  TDD: ${sel.tdd_enforce ? "ON" : "OFF"}${sel.tdd_strict !== false ? " strict" : ""}${sel.tdd_quality !== false ? " quality" : ""}`,
+          `  Enforce: ${sel.delegation_enforce ? "ON" : "OFF"}`,
+          `  Lock: ${deps._modelLocked ? "\u{1F512} ON (model fixed)" : "\u{1F513} OFF"}`,
+          `|`,
+          `All-time savings:`,
+          `  Total: $${ltTotal.toFixed(2)} (${sesTrend})`,
+          `  Delegation: $${(sv.ltTasks || 0).toFixed(2)}`,
+          `  Cache: $${deps.formatUsd(sv.ltCache || 0)}`,
+          `  Missed: $${missedC7.toFixed(2)}`,
+          `|`,
+          `This session:`,
+          ...sesDuration > 0 ? [`  Duration: ${durHrs}h ${durMins}m`] : [],
+          `  Rate: $${sesRate.toFixed(2)}/hr`,
+          `  Warnings: ${sesWarns}`,
+          ...topTools.length > 0 ? [`  Top tools:`, ...topTools.map(([t, v]) => `    ${t}: $${v.toFixed(2)}`)] : [],
+          `|`,
+          `Tiers:`,
+          `  brain:  ${brainModel}${activeSlot === "brain" ? "  *" : ""}`,
+          `  medium: ${mediumModel}${activeSlot === "medium" ? "  *" : ""}`,
+          `  cheap:  ${cheapModel}${activeSlot === "cheap" ? "  *" : ""}`
+        ];
+        return lines.join("\n");
+      }
+      if (action === "enable" || action === "disable") {
+        const val = action === "enable";
+        const ok = deps.writeSelection("enabled", val);
+        if (!ok)
+          return `\u274C Failed to write model-tiers.json`;
+        return `${val ? "\u2705 Plugin ENABLED" : "\u274C Plugin DISABLED"} \u2014 takes effect immediately (no restart needed).`;
+      }
+      if (action === "set") {
+        if (!slot || !["brain", "medium", "cheap"].includes(slot)) {
+          return `\u274C Provide slot: brain | medium | cheap`;
+        }
+        let targetModel = "";
+        try {
+          const tiers = deps.safeJsonParse(deps.readFileSync(deps.TIERS_FILE, "utf-8"));
+          targetModel = tiers?.trinity?.[slot]?.oc || "";
+        } catch {
+        }
+        if (!targetModel) {
+          return "\u274C No model configured for " + slot + " slot. Run `trinity rebuild` first.";
+        }
+        const auth = deps._readAuth();
+        const ok = await deps.probeModel(targetModel, auth);
+        if (!ok) {
+          return "\u274C " + targetModel + " failed API probe. Cannot switch to " + slot + " slot.\nCheck API key or run `trinity rebuild` to rediscover working models.";
+        }
+        const result = deps.applySlot(slot);
+        if (!result.ok)
+          return `\u274C Failed to set slot: ${result.reason}`;
+        return `\u2705 Switched to ${slot} slot (${result.ocModel}). Active now (no restart needed).`;
+      }
+      if (action === "mode") {
+        if (!slot || !["budget", "quality", "speed", "longrun", "auto"].includes(slot)) {
+          return `Provide mode: budget | quality | speed | longrun | auto`;
+        }
+        const ok = deps.saveOptimizationMode(slot);
+        if (!ok)
+          return `Failed to write mode`;
+        const tierMap = { budget: "cheap", quality: "brain", speed: "medium", longrun: "brain" };
+        const tierSlot = tierMap[slot] || "cheap";
+        deps.writeSelection("active_slot", tierSlot);
+        if (slot === "budget") {
+          deps.writeSelection("delegation_enforce", false);
+          deps.writeSelection("flow_enabled", false);
+          deps.writeSelection("flow_enforce", false);
+          deps.writeSelection("tdd_enforce", false);
+          deps.writeSelection("thinking_level", "off");
+        } else if (slot === "quality") {
+          deps.writeSelection("delegation_enforce", true);
+          deps.writeSelection("flow_enabled", true);
+          deps.writeSelection("flow_enforce", true);
+          deps.writeSelection("tdd_enforce", true);
+          deps.writeSelection("thinking_level", "full");
+        } else if (slot === "speed") {
+          deps.writeSelection("delegation_enforce", false);
+          deps.writeSelection("flow_enabled", false);
+          deps.writeSelection("flow_enforce", false);
+          deps.writeSelection("tdd_enforce", false);
+          deps.writeSelection("thinking_level", "off");
+        }
+        return `Mode set to ${slot.toUpperCase()}. Tier: ${tierSlot}.`;
+      }
+      if (action === "thinking") {
+        if (!level || !["full", "brief", "off"].includes(level)) {
+          return `\u274C Provide level: full | brief | off`;
+        }
+        const stored = level;
+        const ok = deps.writeSelection("thinking_level", stored);
+        if (!ok)
+          return `\u274C Failed to write model-tiers.json`;
+        const desc = {
+          full: "full thinking (no restriction) \u2014 takes effect on next message",
+          brief: "brief thinking (complex tasks only) \u2014 takes effect on next message",
+          off: "thinking OFF (respond directly) \u2014 takes effect on next message"
+        };
+        return `\u2705 Reasoning depth \u2192 ${desc[level]}`;
+      }
+      if (action === "flow") {
+        if (slot === "on" || slot === "off") {
+          const ok = deps.writeSelection("flow_enabled", slot === "on");
+          return ok ? `\u2705 Flow enforcer ${slot === "on" ? "ENABLED" : "DISABLED"}` : `\u274C Failed to write model-tiers.json`;
+        }
+        if (slot === "enforce") {
+          if (level !== "on" && level !== "off")
+            return "\u274C Provide level on|off for `trinity flow enforce`";
+          const enforceOn = level === "on";
+          const ok = deps.writeSelection("flow_enforce", enforceOn);
+          return ok ? `\u2705 Flow enforcement ${enforceOn ? "ENABLED (auto-extract TODOs)" : "DISABLED (log only)"}` : `\u274C Failed to write model-tiers.json`;
+        }
+        const flowWarns = deps.getFlowWarns();
+        const sid = String(process.pid || "?");
+        const sessionWarns = flowWarns.filter((w) => String(w.sid) === sid);
+        const bySev = { warn: 0, hint: 0, flag: 0 };
+        for (const w of sessionWarns) {
+          if (bySev[w.severity] !== void 0)
+            bySev[w.severity]++;
+        }
+        const lines = [`\u{1F500} Flow enforcer audit (this session):`];
+        lines.push(`  ${bySev.warn} warn, ${bySev.hint} hint, ${bySev.flag} flag`);
+        if (sessionWarns.length > 0) {
+          for (const w of sessionWarns.slice(-15)) {
+            const icon = w.severity === "warn" ? "\u26A0" : "\u{1F4A1}";
+            lines.push(`  ${icon} [${w.severity}] ${w.rule_id}: ${w.description} \u2014 ${w.filePath || "(no file)"}`);
+          }
+        }
+        if (sessionWarns.length === 0)
+          lines.push(`  No flow violations this session.`);
+        return lines.join("\n");
+      }
+      if (action === "enforce") {
+        if (slot === "on" || slot === "off") {
+          const ok = deps.writeSelection("delegation_enforce", slot === "on");
+          return ok ? `\u{1F6AB} Delegation enforcement ${slot === "on" ? "ENABLED \u2014 direct writes/edits BLOCKED on brain tier" : "DISABLED \u2014 warn only"}` : `\u274C Failed to write model-tiers.json`;
+        }
+        const sel = deps.loadSelection();
+        return `\u{1F6AB} Delegation enforcement: ${sel.delegation_enforce ? "ON (blocks direct writes/edits on brain tier)" : "OFF (warn only)"}
+Use \`trinity enforce on\` or \`trinity enforce off\` to toggle.`;
+      }
+      if (action === "lock") {
+        if (slot === "on") {
+          deps._modelLocked = true;
+          console.error(`[vibeOS] model LOCKED \u2014 ${deps._tiersData?.trinity?.[deps._tiersData?.selection?.active_slot || "brain"]?.oc || deps.currentModel || "?"} (${deps.currentTier}) will not auto-reconcile with config`);
+          const lockModel = deps._tiersData?.trinity?.[deps._tiersData?.selection?.active_slot || "brain"]?.oc || deps.currentModel || "detected model";
+          return `\u{1F512} Model LOCKED \u2014 ${lockModel} will not change unless you force with \`trinity set\` or \`trinity lock off\`.`;
+        }
+        if (slot === "off") {
+          deps._modelLocked = false;
+          console.error(`[vibeOS] model UNLOCKED \u2014 auto-reconcile re-enabled`);
+          return `\u{1F513} Model UNLOCKED \u2014 will auto-follow OpenCode config changes.`;
+        }
+        return `\u{1F512} Model lock: ${deps._modelLocked ? "ON (fixed per session)" : "OFF (follows config)"}
+Use \`trinity lock on\` or \`trinity lock off\` to toggle.
+Lock is per-session (resets on restart).`;
+      }
+      if (action === "tdd") {
+        if (slot === "strict") {
+          if (level !== "on" && level !== "off") {
+            return "\u274C Provide level on|off for `trinity tdd strict`";
+          }
+          const ok = deps.writeSelection("tdd_strict", level === "on");
+          return ok ? `\u2705 TDD strict ${level === "on" ? "ENABLED (TODO tests fail loudly)" : "DISABLED (TODO tests non-blocking)"}` : `\u274C Failed to write model-tiers.json`;
+        }
+        if (slot === "quality") {
+          if (level !== "on" && level !== "off") {
+            return "\u274C Provide level on|off for `trinity tdd quality`";
+          }
+          const ok = deps.writeSelection("tdd_quality", level === "on");
+          return ok ? `\u2705 TDD quality templates ${level === "on" ? "ENABLED (real assertions, invalid-input, edge-case stubs)" : "DISABLED (TODO-only stubs)"}` : `\u274C Failed to write model-tiers.json`;
+        }
+        if (slot === "on" || slot === "off") {
+          const ok = deps.writeSelection("tdd_enforce", slot === "on");
+          return ok ? `\u2705 TDD enforcement ${slot === "on" ? "ENABLED (auto-create skeletons)" : "DISABLED (nudge only)"}` : `\u274C Failed to write model-tiers.json`;
+        }
+        const stateFile = join10(deps.USER_HOME, ".claude/delegation-state.json");
+        let enforced = 0;
+        try {
+          if (deps.existsSync(stateFile)) {
+            const s = deps.safeJsonParse(deps.readFileSync(stateFile, "utf-8"));
+            enforced = s.lifetime?.tdd_enforced ?? 0;
+          }
+        } catch {
+        }
+        const sel = deps.loadSelection();
+        const lines = [`\u{1F9EA} TDD enforcer audit:`];
+        lines.push(`  Mode: ${sel.tdd_enforce ? "ENFORCE (auto-create skeletons)" : "NUDGE (reminders only)"}`);
+        lines.push(`  Strict templates: ${sel.tdd_strict !== false ? "ON (fail TODO tests)" : "OFF (non-blocking TODO tests)"}`);
+        lines.push(`  Quality templates: ${sel.tdd_quality !== false ? "ON (real assertion stubs)" : "OFF (TODO-only stubs)"}`);
+        lines.push(`  Skeletons created this lifetime: ${enforced}`);
+        return lines.join("\n");
+      }
+      if (action === "project") {
+        const L = "\u2501";
+        const lines = [`\u{1F4CA} Project profile \u2014 ${deps.currentProjectName || (deps.directory ? deps.directory.split("/").pop() : "unknown")}`];
+        lines.push(L.repeat(40));
+        const fp3 = deps.currentProjectFingerprint || deps.projectFingerprint(deps.directory);
+        const pstate = deps.loadProjectState();
+        const proj = pstate.project_hashes?.[fp3];
+        if (proj) {
+          lines.push(`
+\u{1F4C5} Sessions: ${proj.totalSessions || 0} | Last: ${(proj.lastSeen || "").slice(0, 10)}`);
+          if (proj.researchChains)
+            lines.push(`\u{1F50D} Research chains detected: ${proj.researchChains}`);
+          if (proj.context7Bypasses)
+            lines.push(`\u{1F4B8} Context7 bypasses: ${proj.context7Bypasses}`);
+          if (proj.commonTopics?.length) {
+            const topics = proj.commonTopics.slice(0, 5).join(", ");
+            lines.push(`\u{1F310} Common fetch domains: ${topics}`);
+          }
+          const promoted = deps.promotedProjectPatterns(fp3);
+          if (promoted.length) {
+            lines.push(`
+Learned patterns:`);
+            for (const ptn of promoted)
+              lines.push(`  [${ptn.label}] ${ptn.summary}`);
+          }
+        } else {
+          lines.push(`
+  (no project memory yet \u2014 first session)`);
+        }
+        const sv = deps.readLifetimeSavings();
+        const totalTurns = (sv.sesModelTurns?.brain || 0) + (sv.sesModelTurns?.worker || 0);
+        const brainPct = totalTurns > 0 ? Math.round(sv.sesModelTurns.brain / totalTurns * 100) : 0;
+        if (totalTurns > 0) {
+          const workerPct = 100 - brainPct;
+          lines.push(`
+\u{1F504} Model usage: Brain ${brainPct}% (${sv.sesModelTurns.brain} turns) / Worker ${workerPct}% (${sv.sesModelTurns.worker} tasks)`);
+        }
+        if (sv.sesTasks > 0.01 || sv.ltCache > 0.01) {
+          lines.push(`\u{1F4B0} Session savings: $${sv.sesTasks.toFixed(2)} delegation + $${sv.ltCache.toFixed(2)} cache`);
+        }
+        if (sv.sesDuration > 0) {
+          const hrs = Math.floor(sv.sesDuration / 3600);
+          const mins = Math.floor(sv.sesDuration % 3600 / 60);
+          lines.push(`\u23F1  Duration: ${hrs}h ${mins}m | Rate: $${sv.sesRatePerHour.toFixed(2)}/hr | Trend: ${sv.sesTrend === "down" ? "\u2193" : sv.sesTrend === "up" ? "\u2191" : "\u2192"}`);
+        }
+        const toolEntries = Object.entries(sv.sesToolBreakdown || {}).filter(([_, v]) => v > 5e-3).sort((a, b) => b[1] - a[1]);
+        if (toolEntries.length > 0) {
+          lines.push(`
+\u{1F527} Per-tool savings:`);
+          for (const [tool2, savings] of toolEntries) {
+            lines.push(`  ${tool2.padEnd(14)} \u2014$${savings.toFixed(2)}`);
+          }
+        }
+        const flowWarns = deps.getFlowWarns();
+        const sid = String(process.pid || "?");
+        const sessionFlowWarns = flowWarns.filter((w) => String(w.sid) === sid);
+        const byRule = {};
+        for (const w of sessionFlowWarns) {
+          const key = w.rule_id || "unknown";
+          byRule[key] = (byRule[key] || 0) + 1;
+        }
+        if (Object.keys(byRule).length > 0) {
+          lines.push(`
+\u26A0\uFE0F Flow violations (this session):`);
+          for (const [rule, count] of Object.entries(byRule)) {
+            lines.push(`  ${rule.padEnd(22)} ${count}`);
+          }
+        }
+        const suggestions = [];
+        if (totalTurns > 10 && sv.sesModelTurns.brain > sv.sesModelTurns.worker * 2) {
+          if (!deps.loadSelection().delegation_enforce) {
+            suggestions.push(`\u{1F4A1} High direct brain usage (${brainPct}%) \u2014 enable enforcement with \`trinity enforce on\` to block direct writes/edits`);
+          } else {
+            suggestions.push(`\u{1F4A1} High direct brain usage (${brainPct}%) \u2014 enforcement is ON but brain keeps editing directly; check plugin logs`);
+          }
+        }
+        if (proj?.context7Bypasses > 3) {
+          suggestions.push(`\u{1F4A1} ${proj.context7Bypasses} context7 bypasses \u2014 install context7 MCP to save ~$0.05/turn`);
+        }
+        if (proj?.researchChains > 2) {
+          suggestions.push(`\u{1F4A1} ${proj.researchChains} research domain chains \u2014 consider caching or batching doc lookups`);
+        }
+        if ((sv.sesToolBreakdown?.webfetch || 0) > 0.1 || (sv.sesToolBreakdown?.websearch || 0) > 0.1) {
+          suggestions.push(`\u{1F4A1} High webfetch/websearch usage \u2014 use context7 tools or scratchpad caching`);
+        }
+        if ((byRule["new-md-file"] || 0) > 2) {
+          suggestions.push(`\u{1F4A1} ${byRule["new-md-file"]} new .md files \u2014 verify explicit user request for docs`);
+        }
+        if ((byRule["todo-comment"] || 0) > 5) {
+          suggestions.push(`\u{1F4A1} ${byRule["todo-comment"]} TODO/FIXME left \u2014 clean up or track in issue tracker`);
+        }
+        if (deps.loadSelection().flow_enabled === false) {
+          suggestions.push(`\u{1F4A1} Flow enforcer is OFF \u2014 enable with \`trinity flow on\` to catch anti-patterns`);
+        }
+        for (const ptn of deps.promotedProjectPatterns(fp3)) {
+          suggestions.push(`Learned ${ptn.label} pattern: ${ptn.summary}`);
+        }
+        const credit = deps.loadCredit();
+        if (credit < 40) {
+          suggestions.push(`\u{1F4A1} Credit at ${credit}% \u2014 switch to medium/cheap slot with \`trinity medium\``);
+        }
+        if (suggestions.length > 0) {
+          lines.push(`
+\u{1F3AF} Optimization suggestions:`);
+          for (const s of suggestions)
+            lines.push(`  ${s}`);
+        } else {
+          lines.push(`
+\u2705 No optimization suggestions \u2014 looking good!`);
+        }
+        lines.push(`
+${L.repeat(40)}`);
+        lines.push(`Run \`trinity help\` for all commands | \`research-audit\` for deep fetch analysis`);
+        return lines.join("\n");
+      }
+      if (action === "report" && slot === "savings") {
+        const L = "\u2501";
+        const lines = [`== Savings Deep Report ==`];
+        lines.push(L.repeat(40));
+        const sv = deps.readLifetimeSavings();
+        const ltTotal = sv.ltTasks + sv.ltCache;
+        const toolTotals = {};
+        let entryCount = 0;
+        try {
+          if (deps.existsSync(deps.SAVINGS_LEDGER_FILE)) {
+            const raw = deps.readFileSync(deps.SAVINGS_LEDGER_FILE, "utf-8");
+            for (const ln of raw.trim().split("\n")) {
+              if (!ln.trim())
+                continue;
+              let rec = null;
+              try {
+                rec = JSON.parse(ln);
+              } catch {
+                continue;
+              }
+              if (!rec || rec.v !== 2)
+                continue;
+              const amt = Number(rec.amount_usd ?? 0);
+              const tool2 = String(rec.tool || "unknown");
+              toolTotals[tool2] = (toolTotals[tool2] || 0) + amt;
+              entryCount++;
+            }
+          }
+        } catch {
+        }
+        lines.push(`
+By tool:`);
+        const sortedTools = Object.entries(toolTotals).sort((a, b) => b[1] - a[1]);
+        if (sortedTools.length === 0) {
+          lines.push(`  (no ledger entries yet)`);
+        } else {
+          for (const [tool2, amt] of sortedTools) {
+            lines.push(`  ${tool2.padEnd(14)} $${amt.toFixed(4)}`);
+          }
+        }
+        const dayTotals = {};
+        try {
+          if (deps.existsSync(deps.SAVINGS_LEDGER_FILE)) {
+            const raw = deps.readFileSync(deps.SAVINGS_LEDGER_FILE, "utf-8");
+            for (const ln of raw.trim().split("\n")) {
+              if (!ln.trim())
+                continue;
+              let rec = null;
+              try {
+                rec = JSON.parse(ln);
+              } catch {
+                continue;
+              }
+              if (!rec || rec.v !== 2)
+                continue;
+              const amt = Number(rec.amount_usd ?? 0);
+              const day = (rec.at || "").slice(0, 10);
+              if (day)
+                dayTotals[day] = (dayTotals[day] || 0) + amt;
+            }
+          }
+        } catch {
+        }
+        lines.push(`
+By day:`);
+        const sortedDays = Object.entries(dayTotals).sort((a, b) => a[0].localeCompare(b[0]));
+        if (sortedDays.length === 0) {
+          lines.push(`  (no daily data yet)`);
+        } else {
+          for (const [day, amt] of sortedDays) {
+            lines.push(`  ${day}  $${amt.toFixed(4)}`);
+          }
+        }
+        lines.push(`
+Lifetime:`);
+        lines.push(`  Delegation savings: $${sv.ltTasks.toFixed(4)}`);
+        lines.push(`  Cache savings:     $${(sv.ltCache || 0).toFixed(4)}`);
+        lines.push(`  Total:             $${ltTotal.toFixed(4)}`);
+        lines.push(`  Ledger entries:    ${entryCount}`);
+        lines.push(`
+${L.repeat(40)}`);
+        return lines.join("\n");
+      }
+      if (action === "patterns") {
+        const fp3 = deps.currentProjectFingerprint || deps.projectFingerprint(deps.directory);
+        const name = deps.currentProjectName || (deps.directory ? deps.directory.split("/").pop() : "unknown");
+        if (slot === "clear") {
+          const count = deps.clearProjectPatterns(fp3);
+          return `Pattern memory cleared for "${name}" (${count} pattern${count === 1 ? "" : "s"} removed).`;
+        }
+        if (slot === "suggest") {
+          const pstate = deps.loadProjectState();
+          const currentBucket = pstate.project_hashes?.[fp3];
+          const currentTech = currentBucket?.techStack || [];
+          const currentKeys = /* @__PURE__ */ new Set([
+            ...Object.keys(currentBucket?.userPatterns?.friction || {}),
+            ...Object.keys(currentBucket?.userPatterns?.routines || {})
+          ]);
+          const candidates = [];
+          for (const [otherFp, bucket] of Object.entries(pstate.project_hashes || {})) {
+            if (otherFp === fp3)
+              continue;
+            const otherTech = bucket?.techStack || [];
+            if (!otherTech.some((t) => currentTech.includes(t)))
+              continue;
+            for (const [kind, label] of [["friction", "friction"], ["routines", "routine"]]) {
+              for (const [key, row] of Object.entries(bucket?.userPatterns?.[kind] || {})) {
+                if (currentKeys.has(key))
+                  continue;
+                const sessions = new Set(row?.sessions || []).size;
+                candidates.push({ key, label, summary: row?.summary || key, count: Number(row?.count || 0), sessions, lastSeen: row?.lastSeen || "" });
+              }
+            }
+          }
+          candidates.sort((a, b) => b.count - a.count || b.sessions - a.sessions);
+          const top = candidates.slice(0, 5);
+          const lines2 = ["[\u26A1 From similar tech stack projects]"];
+          if (top.length === 0) {
+            lines2.push("  No cross-project suggestions available yet.");
+            return lines2.join("\n");
+          }
+          for (const c of top) {
+            const tag = c.sessions >= 3 ? "promoted" : "learning";
+            lines2.push(`  [${c.label}/${tag}] ${c.summary} (${c.count} hit${c.count === 1 ? "" : "s"}, ${c.sessions} session${c.sessions === 1 ? "" : "s"})`);
+          }
+          lines2.push("");
+          lines2.push("Use `trinity patterns` to see this project's own patterns.");
+          return lines2.join("\n");
+        }
+        const rows = deps.projectPatternRows(fp3);
+        const lines = [`Project patterns - ${name}`];
+        if (rows.length === 0) {
+          lines.push("  No learned patterns yet.");
+          lines.push("  Patterns promote into briefings after 3 separate sessions.");
+          return lines.join("\n");
+        }
+        const promoted = rows.filter((r) => r.sessions >= 3).length;
+        lines.push(`  ${rows.length} stored, ${promoted} promoted`);
+        for (const r of rows.slice(0, 15)) {
+          const tag = r.sessions >= 3 ? "promoted" : "learning";
+          lines.push(`  [${r.label}/${tag}] ${r.summary} (${r.sessions} session${r.sessions === 1 ? "" : "s"}, ${r.count} hit${r.count === 1 ? "" : "s"})`);
+        }
+        lines.push("");
+        lines.push("Use `trinity patterns clear` to clear project pattern memory.");
+        return lines.join("\n");
+      }
+      if (action === "guard") {
+        if (!deps.directory || !deps.existsSync(deps.directory))
+          return "Working directory not accessible.";
+        const techStack = deps.detectTechStack(deps.directory);
+        const result = deps.ensureProjectDocs(deps.directory, techStack);
+        if (result.created.length === 0 && result.skipped.length > 0) {
+          return `AGENTS.md and README.md already exist. Use \`trinity guard\` to check for missing features.`;
+        }
+        const lines = [`Project Guard: ${deps.directory.split("/").pop() || "unknown"}`];
+        for (const f of result.created)
+          lines.push(`  Created ${f}`);
+        for (const f of result.skipped)
+          lines.push(`  Already exists: ${f}`);
+        lines.push("");
+        lines.push("AGENTS.md: defines AI agent behavioral rules \u2014 ASK BEFORE changing code.");
+        lines.push("README.md: auto-maintained feature documentation \u2014 keep it updated.");
+        return lines.join("\n");
+      }
+      if (action === "rebuild") {
+        const providers = deps._loadOpenCodeProviders();
+        const auth = deps._readAuth();
+        const models = await deps.discoverAvailableModels(providers, auth);
+        const ranked = deps.classifyAndRankModels(models);
+        if (!ranked) {
+          return "\u274C No models discovered from any configured provider.";
+        }
+        const probed = { brain: null, medium: null, cheap: null };
+        const failed = [];
+        const candidates = [.../* @__PURE__ */ new Set([ranked.brain.id, ranked.medium.id, ranked.cheap.id, ...models.map((m) => m.id)])];
+        for (const id2 of candidates) {
+          if (probed.brain)
+            break;
+          const ok = await deps.probeModel(id2, auth);
+          if (ok)
+            probed.brain = models.find((m) => m.id === id2) || { id: id2, cost: deps._modelCost(id2), tier: deps._modelTier(id2) };
+          else
+            failed.push("brain: " + id2);
+        }
+        const byCost = [...models].sort((a, b) => a.cost - b.cost);
+        for (const m of byCost) {
+          if (probed.cheap)
+            break;
+          if (m.id === probed.brain?.id)
+            continue;
+          const ok = await deps.probeModel(m.id, auth);
+          if (ok)
+            probed.cheap = m;
+          else if (!failed.some((f) => f.endsWith(m.id)))
+            failed.push("cheap: " + m.id);
+        }
+        for (const id2 of candidates) {
+          if (probed.medium)
+            break;
+          if (id2 === probed.brain?.id || id2 === probed.cheap?.id)
+            continue;
+          const ok = await deps.probeModel(id2, auth);
+          if (ok)
+            probed.medium = models.find((m) => m.id === id2) || { id: id2, cost: deps._modelCost(id2), tier: deps._modelTier(id2) };
+          else if (!failed.some((f) => f.endsWith(id2)))
+            failed.push("medium: " + id2);
+        }
+        if (!probed.brain) {
+          return "\u274C No models responded to probe. Try checking your API keys.\n" + (failed.length > 0 ? "Failed:\n  " + failed.join("\n  ") : "No models discovered.");
+        }
+        if (!probed.medium)
+          probed.medium = probed.brain;
+        if (!probed.cheap)
+          probed.cheap = probed.brain;
+        try {
+          const tiers = deps.safeJsonParse(deps.readFileSync(deps.TIERS_FILE, "utf-8"));
+          tiers.trinity = {
+            brain: { oc: probed.brain.id, cc: deps.modelToCcAlias(probed.brain.id) },
+            medium: { oc: probed.medium.id, cc: deps.modelToCcAlias(probed.medium.id) },
+            cheap: { oc: probed.cheap.id, cc: deps.modelToCcAlias(probed.cheap.id) }
+          };
+          const _tmp = deps.TIERS_FILE + ".tmp." + Date.now();
+          deps.writeFileSync(_tmp, JSON.stringify(tiers, null, 2) + "\n", "utf-8");
+          deps.renameSync(_tmp, deps.TIERS_FILE);
+        } catch (err) {
+          return "\u274C Failed to write model-tiers.json: " + err.message;
+        }
+        try {
+          deps.applySlot("brain");
+        } catch (e) {
+          console.error("[vibeOS] auto-activate brain failed:", e.message);
+        }
+        const lines = [
+          "\u{1F50D} Auto-detected models from configured providers:",
+          "  \u{1F9E0} brain  \u2192 " + probed.brain.id + " (tier: " + probed.brain.tier + ", $" + probed.brain.cost.toFixed(4) + "/turn) \u2705",
+          "  \u2699  medium \u2192 " + probed.medium.id + " (tier: " + probed.medium.tier + ", $" + probed.medium.cost.toFixed(4) + "/turn) \u2705",
+          "  \u26A1 cheap  \u2192 " + probed.cheap.id + " (tier: " + probed.cheap.tier + ", $" + probed.cheap.cost.toFixed(4) + "/turn) \u2705"
+        ];
+        if (failed.length > 0) {
+          lines.push("", "Probe failures (skipped):");
+          for (const f of failed)
+            lines.push("  \u274C " + f);
+        }
+        lines.push("", "\u2705 model-tiers.json updated.", "\u{1F9E0} Brain slot auto-activated: " + probed.brain.id);
+        return lines.join("\n");
+      }
+      if (action === "diagnose") {
+        const results = [];
+        const ocConfig = join10(deps.USER_HOME, ".config/opencode/opencode.json");
+        const checks = [
+          { path: deps.TIERS_FILE, label: "model-tiers.json" },
+          { path: ocConfig, label: "opencode.json" },
+          { path: deps.STATE_FILE, label: "delegation-state.json" }
+        ];
+        for (const c of checks) {
+          results.push({
+            ok: deps.existsSync(c.path),
+            okLabel: deps.existsSync(c.path) ? "\u2705" : "\u274C",
+            label: c.label,
+            detail: deps.existsSync(c.path) ? "exists" : "missing",
+            fix: deps.existsSync(c.path) ? null : c.label === "model-tiers.json" ? "run `trinity rebuild` to create it" : void 0
+          });
+        }
+        try {
+          const tiers = deps.safeJsonParse(deps.readFileSync(deps.TIERS_FILE, "utf-8"));
+          for (const s of ["brain", "medium", "cheap"]) {
+            const m = tiers?.trinity?.[s]?.oc || "";
+            const ok = m.length > 0 && !m.toLowerCase().includes("placeholder");
+            results.push({
+              ok,
+              okLabel: ok ? "\u2705" : "\u274C",
+              label: `${s} slot`,
+              detail: ok ? m : m.length > 0 ? `placeholder: ${m}` : "unset",
+              fix: ok ? null : "run `trinity rebuild` to auto-assign"
+            });
+          }
+        } catch {
+          for (const s of ["brain", "medium", "cheap"]) {
+            results.push({ ok: false, okLabel: "\u274C", label: `${s} slot`, detail: "cannot read model-tiers.json", fix: "run `trinity rebuild` to create it" });
+          }
+        }
+        if (deps.currentModel || !deps.existsSync(deps.TIERS_FILE)) {
+          try {
+            const auth = deps._readAuth();
+            const ok = await deps.probeModel(deps.currentModel, auth);
+            results.push({
+              ok,
+              okLabel: ok ? "\u2705" : "\u274C",
+              label: "model probe",
+              detail: ok ? "API responsive" : `probe failed: ${deps.currentModel}`
+            });
+          } catch {
+            results.push({ ok: false, okLabel: "\u274C", label: "model probe", detail: "exception during probe" });
+          }
+        } else {
+          results.push({ ok: false, okLabel: "\u274C", label: "model probe", detail: "no current model detected" });
+        }
+        const credit = deps.loadCredit();
+        let budget = 50;
+        let totalBal = 0;
+        try {
+          const j = deps.safeJsonParse(deps.readFileSync(deps.TIERS_FILE, "utf-8"));
+          if (j?.selection?.monthly_budget_usd)
+            budget = j.selection.monthly_budget_usd;
+        } catch {
+        }
+        try {
+          const cache = deps.safeJsonParse(deps.readFileSync(deps.CREDIT_CACHE_F, "utf-8"));
+          if (cache?.total != null)
+            totalBal = cache.total;
+        } catch {
+        }
+        const remaining = budget > 0 ? (Math.min(credit, 150) / 100 * budget).toFixed(2) : "?";
+        const creditOk = credit >= 40;
+        results.push({
+          ok: creditOk,
+          okLabel: creditOk ? "\u2705" : "\u274C",
+          label: "credits",
+          detail: `${credit}%${totalBal > 0 ? ` ($${totalBal.toFixed(2)} of $${budget})` : ` (of $${budget})`}`,
+          fix: creditOk ? null : "run `trinity medium` to reduce spend"
+        });
+        try {
+          const state = deps.safeJsonParse(deps.readFileSync(deps.STATE_FILE, "utf-8"));
+          const sid = String(process.pid || "?");
+          const ses = state?.sessions?.[sid];
+          const delegationCount = ses?.warns?.length || 0;
+          const cacheSavings = deps.formatUsd(state?.lifetime?.cache_savings_usd || 0);
+          const fw = (state?.flow_warns || []).filter((w) => String(w.sid) === sid);
+          const flowW = fw.filter((w) => w.severity === "warn").length;
+          const flowH = fw.filter((w) => w.severity === "hint").length;
+          const tdd = state?.lifetime?.tdd_enforced ?? 0;
+          const enf = deps.loadSelection().delegation_enforce ? " ENFORCE" : "";
+          results.push({
+            ok: true,
+            okLabel: "\u2705",
+            label: "session",
+            detail: `${delegationCount} delegates, $${cacheSavings} cache, ${flowW}w/${flowH}h flow, ${tdd} TDD${enf}`
+          });
+        } catch {
+          results.push({ ok: true, okLabel: "\u2705", label: "session", detail: "no state file yet" });
+        }
+        const okCount = results.filter((r) => r.ok).length;
+        results.sort((a, b) => a.ok === b.ok ? 0 : a.ok ? 1 : -1);
+        const lines = [
+          "\u{1F50D}  vibeOS \u2014 Self Diagnostic",
+          "=".repeat(40),
+          ""
+        ];
+        for (const r of results) {
+          lines.push(`  ${r.okLabel} ${r.label}: ${r.detail}`);
+          if (!r.ok && r.fix)
+            lines.push(`    \u2192 ${r.fix}`);
+        }
+        if (okCount === results.length) {
+          lines.push("", `\u2705 All ${results.length} checks passed`);
+        } else {
+          const failCount = results.length - okCount;
+          lines.push("", `\u274C ${failCount}/${results.length} checks failed \u2014 fix items above`);
+        }
+        return lines.join("\n");
+      }
+      if (action === "repair-state") {
+        const mode = slot || "preview";
+        if (mode !== "preview" && mode !== "apply") {
+          return "\u274C Use `trinity repair-state preview` or `trinity repair-state apply`.";
+        }
+        const dstFp = deps.currentProjectFingerprint || deps.projectFingerprint(deps.directory);
+        const name = deps.currentProjectName || (deps.directory ? deps.directory.split("/").pop() : "unknown");
+        const idx = deps.reportsIndex();
+        const byFp = /* @__PURE__ */ new Map();
+        for (const r of idx.reports || []) {
+          if (r.project !== name)
+            continue;
+          byFp.set(r.fingerprint, (byFp.get(r.fingerprint) || 0) + 1);
+        }
+        const candidates = [...byFp.entries()].filter(([fp22, count]) => fp22 && fp22 !== dstFp && count > 0).sort((a, b) => b[1] - a[1]);
+        if (candidates.length === 0) {
+          return `\u2705 No duplicate fingerprint candidates found for project "${name}".`;
+        }
+        const [srcFp, reportCount] = candidates[0];
+        const pstate = deps.loadProjectState();
+        const dstBucket = deps.ensureProjectBucket(pstate, dstFp);
+        const srcBucket = pstate.project_hashes?.[srcFp] || null;
+        const merged = deps.mergeProjectBucket(dstBucket, srcBucket);
+        const lines = [
+          `\u{1F6E0} State repair (${mode})`,
+          `  project: ${name}`,
+          `  target:  ${dstFp}`,
+          `  source:  ${srcFp}`,
+          `  reports to relabel: ${reportCount}`,
+          `  sessions: ${dstBucket.totalSessions || 0} + ${srcBucket?.totalSessions || 0} -> ${merged.totalSessions}`,
+          `  bypasses: ${dstBucket.context7Bypasses || 0} + ${srcBucket?.context7Bypasses || 0} -> ${merged.context7Bypasses}`,
+          `  researchChains(max): ${Math.max(dstBucket.researchChains || 0, srcBucket?.researchChains || 0)}`
+        ];
+        if (mode === "preview") {
+          lines.push("", "Run `trinity repair-state apply` to execute with backups.");
+          return lines.join("\n");
+        }
+        const backups = [];
+        const b1 = deps.backupFile(deps.PROJECT_STATE_FILE, "repair-state");
+        if (b1)
+          backups.push(b1);
+        const b2 = deps.backupFile(deps.REPORTS_INDEX, "repair-state");
+        if (b2)
+          backups.push(b2);
+        pstate.project_hashes ??= {};
+        pstate.project_hashes[dstFp] = merged;
+        delete pstate.project_hashes[srcFp];
+        deps.saveProjectState(pstate);
+        let relabeled = 0;
+        for (const r of idx.reports || []) {
+          if (r.project === name && r.fingerprint === srcFp) {
+            r.fingerprint = dstFp;
+            relabeled++;
+          }
+        }
+        deps.saveReportsIndex(idx);
+        for (const r of idx.reports || []) {
+          if (r.project !== name || r.fingerprint !== dstFp)
+            continue;
+          const rf = join10(deps.REPORTS_DIR, `${r.id}.json`);
+          try {
+            if (!deps.existsSync(rf))
+              continue;
+            const data = deps.safeJsonParse(deps.readFileSync(rf, "utf-8"));
+            if (data?.meta?.project === name && data?.meta?.fingerprint === srcFp) {
+              data.meta.fingerprint = dstFp;
+              deps.writeFileSync(rf, JSON.stringify(data, null, 2) + "\n");
+            }
+          } catch {
+          }
+        }
+        lines.push("");
+        lines.push(`\u2705 Applied. Relabeled ${relabeled} report index entries.`);
+        if (backups.length > 0) {
+          lines.push("Backups:");
+          for (const b of backups)
+            lines.push(`  - ${b}`);
+        }
+        return lines.join("\n");
+      }
+      if (action === "blackbox") {
+        const mode = slot || "status";
+        if (mode === "on") {
+          deps._blackboxEnabled = true;
+          const state = deps.loadBlackboxState();
+          state.enabled = true;
+          deps.saveBlackboxState(state);
+          return "\u2705 Blackbox decision engine ENABLED \u2014 will track resolution state and enhance system prompts.";
+        }
+        if (mode === "off") {
+          deps._blackboxEnabled = false;
+          const state = deps.loadBlackboxState();
+          state.enabled = false;
+          deps.saveBlackboxState(state);
+          return "\u23F8 Blackbox decision engine DISABLED.";
+        }
+        if (mode === "reset") {
+          deps._blackboxTracker = null;
+          const state = deps.loadBlackboxState();
+          const sid = deps._OC_SID;
+          delete state.sessions[sid];
+          deps.saveBlackboxState(state);
+          return "\u{1F504} Blackbox resolution tracker RESET.";
+        }
+        if (mode === "status") {
+          const bbState = deps.loadBlackboxState();
+          const enabled = deps._blackboxEnabled || bbState.enabled;
+          const lines = [`Blackbox Decision Engine: ${enabled ? "ON" : "OFF"}`];
+          if (enabled) {
+            const res = deps._latestBlackboxState || deps.getBlackboxResolution();
+            if (res) {
+              lines.push(`  Resolution: ${res.resolution}`);
+              lines.push(`  Sub-regime: ${res.sub_regime}`);
+              lines.push(`  Momentum: ${res.momentum > 0 ? "\u2191" : res.momentum < 0 ? "\u2193" : "\u2192"} ${res.momentum.toFixed(2)}`);
+              lines.push(`  Interactions: ${res.n_interactions}`);
+              if (res.is_looping)
+                lines.push("  \u26A0 Looping detected \u2014 consider a fresh perspective");
+            } else {
+              lines.push("  No resolution data yet \u2014 start a decision session");
+            }
+            if (deps.currentProjectFingerprint) {
+              lines.push("");
+              lines.push(`  Project: ${deps.currentProjectName || "unknown"}`);
+              const projectSessions = Object.entries(bbState.sessions || {}).filter(([k, v]) => v.project_fingerprint === deps.currentProjectFingerprint);
+              lines.push(`  Cross-session history: ${projectSessions.length} session(s) for this project`);
+            }
+          }
+          lines.push("");
+          lines.push("Usage: trinity blackbox on|off|status|reset");
+          return lines.join("\n");
+        }
+        return `\u274C Use \`trinity blackbox on|off|status|reset\``;
+      }
+      if (action === "help") {
+        return [
+          "vibeOS \u2014 trinity commands",
+          "",
+          "TIERS:",
+          "  trinity status            See plugin state, credit, model assignment",
+          "  trinity brain             Switch to brain tier (most capable)",
+          "  trinity medium            Switch to medium tier (balanced)",
+          "  trinity cheap             Switch to cheap tier (most savings)",
+          "  trinity rebuild           Auto-detect available models",
+          "",
+          "CONTROLS:",
+          "  trinity enable/disable    Toggle vibeOS plugin on/off",
+          "  trinity enforce on/off    Block brain-tier writes/edits (save $$)",
+          "  trinity lock on/off       Lock model at session start (skip auto-reconcile)",
+          "  trinity thinking full|brief|off  Set reasoning depth",
+          "",
+          "GUARDRAILS:",
+          "  trinity flow on/off       Toggle flow enforcer (code quality checks)",
+          "  trinity tdd on/off        Toggle auto test skeleton creation",
+          "  trinity guard             Ensure AGENTS.md/README.md exist and are current",
+          "  trinity flow              Show flow violations this session",
+          "",
+          "DIAGNOSTICS:",
+          "  trinity diagnose          Self-check: config, files, model probes, budget",
+          "  trinity project           Project analytics and optimization tips",
+          "  trinity patterns          Show learned friction/routine patterns",
+          "  trinity patterns suggest  Suggest relevant patterns from similar stack projects",
+          "  trinity patterns clear    Clear learned patterns for this project",
+          "",
+          "REPAIR:",
+          "  trinity repair-state      Fix fingerprint collisions (preview/apply)",
+          "",
+          "DECISION ENGINE:",
+          "  trinity blackbox on/off   Toggle theWay blackbox decision engine",
+          "  trinity blackbox status   View resolution state, momentum, project history",
+          "  trinity blackbox reset    Clear resolution tracker for current session"
+        ].join("\n");
+      }
+      return `\u274C Unknown action: ${action}`;
+    }
+  };
+}
+
 // src/lib/trinity-rebuild.js
 import { readFileSync as readFileSync9, existsSync as existsSync10 } from "node:fs";
-import { join as join10 } from "node:path";
+import { join as join11 } from "node:path";
 var MODEL_RANK = { high: 3, mid: 2, budget: 1 };
 var OPENCODE_GO_CATALOG = [
   "deepseek/deepseek-v4-flash",
@@ -4768,19 +5757,66 @@ function modelToCcAlias(modelId) {
   }
   return "haiku";
 }
+async function probeModel(modelId, auth) {
+  if (!modelId || !auth)
+    return true;
+  const id2 = String(modelId || "");
+  if (id2.startsWith("opencode/"))
+    return true;
+  let apiUrl, apiKey, reqModel;
+  if (id2.startsWith("deepseek/")) {
+    apiUrl = "https://api.deepseek.com/chat/completions";
+    apiKey = auth.deepseek?.key;
+    reqModel = id2.replace("deepseek/", "");
+  } else if (id2.startsWith("openrouter/")) {
+    apiUrl = "https://openrouter.ai/api/v1/chat/completions";
+    apiKey = auth.openrouter?.key;
+    reqModel = id2.replace("openrouter/", "");
+  } else {
+    return true;
+  }
+  if (!apiKey) {
+    console.error("[vibeOS] probeModel: no API key for " + id2);
+    return false;
+  }
+  try {
+    const res = await fetch(apiUrl, {
+      method: "POST",
+      headers: {
+        "Authorization": "Bearer " + apiKey,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: reqModel,
+        messages: [{ role: "user", content: "ok" }],
+        max_tokens: 1
+      }),
+      signal: AbortSignal.timeout(8e3)
+    });
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => "");
+      console.error("[vibeOS] probeModel FAIL " + id2 + ": HTTP " + res.status + " " + errBody.slice(0, 200));
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error("[vibeOS] probeModel ERROR " + id2 + ": " + err.message);
+    return false;
+  }
+}
 
 // src/lib/hooks/footer.js
 import { readFileSync as readFileSync11 } from "node:fs";
-import { join as join13 } from "node:path";
+import { join as join14 } from "node:path";
 import { homedir as homedir8, tmpdir as tmpdir7 } from "node:os";
 
 // src/lib/hooks/chat-transform.js
 import { readFileSync as readFileSync10, writeFileSync as writeFileSync9, existsSync as existsSync11, mkdirSync as mkdirSync7 } from "node:fs";
-import { join as join12, basename as basename7 } from "node:path";
+import { join as join13, basename as basename7 } from "node:path";
 import { createHash as createHash4 } from "node:crypto";
 
 // src/lib/index-helpers.js
-import { join as join11 } from "node:path";
+import { join as join12 } from "node:path";
 import { writeFileSync as writeFileSync8 } from "node:fs";
 
 // src/lib/text-compress.js
@@ -5115,7 +6151,7 @@ function recordSaving(tool2, reason, saveEst, meta = {}) {
       try {
         const sd = getSessionScratchpadDir();
         if (sd) {
-          const sp = join11(sd, "delegation-state-hint.txt");
+          const sp = join12(sd, "delegation-state-hint.txt");
           try {
             writeFileSync8(sp, JSON.stringify({ sid, total_savings: s.lifetime.total_savings_usd, last_reason: reason }), "utf8");
           } catch {
@@ -5244,10 +6280,10 @@ function buildProjectBriefing(directory3) {
   return `[project memory] Active project: ${label}. Stay focused on the current repository and prefer the existing workflow.`;
 }
 function ensureProjectSkill(dir, fp3) {
-  const skillsDir = join12(dir, ".opencode", "skills");
+  const skillsDir = join13(dir, ".opencode", "skills");
   const projectName = basename7(dir);
-  const skillDir = join12(skillsDir, projectName);
-  const skillPath = join12(skillDir, "SKILL.md");
+  const skillDir = join13(skillsDir, projectName);
+  const skillPath = join13(skillDir, "SKILL.md");
   if (existsSync11(skillPath)) {
     return { created: false, skipped: true, path: skillPath };
   }
@@ -5404,7 +6440,7 @@ var onMessagesTransform = async (_input, output) => {
         const hash = createHash4("sha256").update(`tool_result
 ${raw}
 `).digest("hex").slice(0, 16);
-        const fullPath = join12(getSessionScratchpadDir(), `${hash}.txt`);
+        const fullPath = join13(getSessionScratchpadDir(), `${hash}.txt`);
         try {
           ensureSessionScratchpadDirs();
           if (!existsSync11(fullPath)) {
@@ -5667,14 +6703,14 @@ var USER_HOME7 = (() => {
     return tmpdir7();
   }
 })();
-var STATE_FILE5 = join13(USER_HOME7, ".claude/delegation-state.json");
-var SAVINGS_LEDGER_FILE2 = join13(USER_HOME7, ".claude/savings-ledger.jsonl");
+var STATE_FILE5 = join14(USER_HOME7, ".claude/delegation-state.json");
+var SAVINGS_LEDGER_FILE2 = join14(USER_HOME7, ".claude/savings-ledger.jsonl");
 var _prevOutputText = "";
 var _autoReportCount = 0;
 var textCompletePainted = /* @__PURE__ */ new Set();
 function loadSelection3() {
   try {
-    const raw = readFileSync11(join13(USER_HOME7, ".claude/model-tiers.json"), "utf-8");
+    const raw = readFileSync11(join14(USER_HOME7, ".claude/model-tiers.json"), "utf-8");
     return safeJsonParse3(raw)?.selection || { active_slot: "medium", enabled: true, delegation_enforce: false, flow_enabled: false, flow_enforce: false, tdd_enforce: false, tdd_strict: false };
   } catch {
     return { active_slot: "medium", enabled: true, delegation_enforce: false, flow_enabled: false, flow_enforce: false, tdd_enforce: false, tdd_strict: false };
@@ -5913,7 +6949,7 @@ init_flow_enforcer();
 
 // src/lib/tdd-enforcer.js
 import { readFileSync as readFileSync12, writeFileSync as writeFileSync10, appendFileSync as appendFileSync6, existsSync as existsSync12, mkdirSync as mkdirSync8, statSync as statSync8, readdirSync as readdirSync2, rmSync as rmSync5, openSync as openSync4 } from "node:fs";
-import { join as join14, dirname as dirname6 } from "node:path";
+import { join as join15, dirname as dirname6 } from "node:path";
 import { createHash as createHash5 } from "node:crypto";
 
 // src/utils/tdd-helpers.js
@@ -6952,7 +7988,7 @@ function _detectTestFramework() {
   let testExt = null;
   try {
     const root = directory || process.cwd();
-    const pkgPath = join14(root, "package.json");
+    const pkgPath = join15(root, "package.json");
     if (existsSync12(pkgPath)) {
       const pkg = JSON.parse(readFileSync12(pkgPath, "utf-8"));
       const testScript = String(pkg?.scripts?.test || "");
@@ -6974,12 +8010,12 @@ function _detectTestFramework() {
     if (!framework) {
       const testDirs = ["src/tests", "tests", "test", "__tests__"];
       for (const td of testDirs) {
-        const dirPath = join14(root, td);
+        const dirPath = join15(root, td);
         if (!existsSync12(dirPath))
           continue;
         const files = readdirSync2(dirPath).filter((f) => /\.test\./.test(f) || /\.spec\./.test(f));
         if (files.length > 0) {
-          const content = readFileSync12(join14(dirPath, files[0]), "utf-8");
+          const content = readFileSync12(join15(dirPath, files[0]), "utf-8");
           if (/from\s+['"]node:test['"]/.test(content)) {
             framework = "node-test";
             testExt = files[0].split(".").pop();
@@ -7005,16 +8041,16 @@ function _detectTestFramework() {
   console.error(`[vibeOS] [tdd] detected test framework: ${framework || "default"} (ext: ${testExt || "match source"})`);
   return _detectedFramework;
 }
-var ENFORCEMENT_LOCK_DIR = join14(USER_HOME2, ".claude/.enforcement-lock");
+var ENFORCEMENT_LOCK_DIR = join15(USER_HOME2, ".claude/.enforcement-lock");
 var LOCK_EXPIRE_MS = 3e4;
-var ENFORCEMENT_COOLDOWN_FILE2 = join14(USER_HOME2, ".claude/.enforcement-cooldown.jsonl");
+var ENFORCEMENT_COOLDOWN_FILE2 = join15(USER_HOME2, ".claude/.enforcement-cooldown.jsonl");
 var COOLDOWN_MS = 6e4;
 var _enforcementCooldown = /* @__PURE__ */ new Set();
 function _acquireLock(testPath) {
   try {
     mkdirSync8(ENFORCEMENT_LOCK_DIR, { recursive: true });
     const hash = createHash5("sha256").update(testPath).digest("hex").slice(0, 16);
-    const lockPath = join14(ENFORCEMENT_LOCK_DIR, `${hash}.lock`);
+    const lockPath = join15(ENFORCEMENT_LOCK_DIR, `${hash}.lock`);
     try {
       openSync4(lockPath, "wx");
       return true;
@@ -7042,7 +8078,7 @@ function _acquireLock(testPath) {
 function _releaseLock(testPath) {
   try {
     const hash = createHash5("sha256").update(testPath).digest("hex").slice(0, 16);
-    const lockPath = join14(ENFORCEMENT_LOCK_DIR, `${hash}.lock`);
+    const lockPath = join15(ENFORCEMENT_LOCK_DIR, `${hash}.lock`);
     rmSync5(lockPath);
   } catch {
   }
@@ -7826,79 +8862,17 @@ var activeJob2 = null;
 var fp2 = "";
 var _mcpServerRuntime = null;
 var _mcpServerHooked = false;
-var _creditTimer = null;
-var _started = false;
-var BALANCE_APIS = {
-  deepseek: {
-    url: "https://api.deepseek.com/user/balance",
-    parse(d) {
-      const b = d?.balance_infos?.find((b2) => b2.currency === "USD");
-      return b ? parseFloat(b.total_balance) : 0;
-    }
-  },
-  openrouter: {
-    url: "https://openrouter.ai/api/v1/credits",
-    parse(d) {
-      return parseFloat(d?.data?.total_credits) || 0;
-    }
-  }
-};
-function _readAuth() {
-  try {
-    return existsSync15(AUTH_F) ? safeJsonParse3(readFileSync14(AUTH_F, "utf-8")) : {};
-  } catch {
-    return {};
-  }
-}
-async function _fetchBal(provider, key) {
-  const api = BALANCE_APIS[provider];
-  if (!api) return { provider, balance: 0 };
-  try {
-    const res = await fetch(api.url, {
-      headers: { Authorization: `Bearer ${key}` },
-      signal: AbortSignal.timeout(5e3)
-    });
-    if (!res.ok) return { provider, balance: 0 };
-    return { provider, balance: api.parse(await res.json()) };
-  } catch {
-    return { provider, balance: 0 };
-  }
-}
-async function _snapshot() {
-  const auth = _readAuth();
-  let total = 0;
-  const provs = [];
-  for (const [p, c] of Object.entries(auth)) {
-    if (!c?.key || !BALANCE_APIS[p]) continue;
-    const { balance } = await _fetchBal(p, c.key);
-    if (balance > 0) {
-      provs.push({ provider: p, balance });
-      total += balance;
-    }
-  }
-  try {
-    writeFileSync12(CREDIT_CACHE_F, JSON.stringify({ total, providers: provs, ts: Date.now() }));
-  } catch {
-  }
-}
-function _lazyRefresh() {
-  if (_started) return;
-  _started = true;
-  _snapshot();
-  _creditTimer = setInterval(_snapshot, 60 * 60 * 1e3);
-  if (_creditTimer.unref) _creditTimer.unref();
-}
 function _loadOpenCodeProviders() {
   try {
-    const cfg = _readOpenCodeConfigObject(join15(USER_HOME2, ".config", "opencode"));
+    const cfg = _readOpenCodeConfigObject(join16(USER_HOME2, ".config", "opencode"));
     return cfg?.provider || {};
   } catch {
     return {};
   }
 }
 function _readOpenCodeConfigObject(dir) {
-  const jsonPath = join15(dir, "opencode.json");
-  const jsoncPath = join15(dir, "opencode.jsonc");
+  const jsonPath = join16(dir, "opencode.json");
+  const jsoncPath = join16(dir, "opencode.jsonc");
   if (existsSync15(jsonPath)) return safeJsonParse3(readFileSync14(jsonPath, "utf-8"));
   if (existsSync15(jsoncPath)) return _parseJsonc(readFileSync14(jsoncPath, "utf-8"));
   return {};
@@ -7923,9 +8897,21 @@ function _modelTier2(id2) {
   const mid = MID_TIER_RE2?.test?.(id2);
   return mid ? "mid" : "budget";
 }
+function backupFile(path, label) {
+  try {
+    if (!existsSync15(path)) return null;
+    const bkDir = join16(USER_HOME2, ".claude", ".backups");
+    mkdirSync10(bkDir, { recursive: true });
+    const bk = join16(bkDir, `${basename9(path)}.${label}.${Date.now()}.bak`);
+    copyFileSync6(path, bk);
+    return bk;
+  } catch {
+    return null;
+  }
+}
 function readPackageVersion() {
   try {
-    const pkg = safeJsonParse3(readFileSync14(join15(process.cwd(), "package.json"), "utf-8"));
+    const pkg = safeJsonParse3(readFileSync14(join16(process.cwd(), "package.json"), "utf-8"));
     return String(pkg?.version || "");
   } catch {
     return "";
@@ -8121,16 +9107,16 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
   setCurrentModel(readConfig(directory3));
   if (!currentModel) {
     const home = process.env.HOME || "";
-    if (home) setCurrentModel(readConfig(join15(home, ".config/opencode")));
+    if (home) setCurrentModel(readConfig(join16(home, ".config/opencode")));
   }
   if (!currentModel) setCurrentModel(process?.env?.OPENCODE_MODEL || "");
   if (currentModel) {
     setCurrentTier(classify(currentModel));
     try {
-      const _tiersData = safeJsonParse3(readFileSync14(TIERS_FILE2, "utf-8"));
-      const _activeSlot = _tiersData?.selection?.active_slot || "brain";
+      const _tiersData2 = safeJsonParse3(readFileSync14(TIERS_FILE2, "utf-8"));
+      const _activeSlot = _tiersData2?.selection?.active_slot || "brain";
       if (_activeSlot === "brain") {
-        const _brainOcModel = _tiersData?.trinity?.brain?.oc || "";
+        const _brainOcModel = _tiersData2?.trinity?.brain?.oc || "";
         if (_brainOcModel && currentModel === _brainOcModel && !PLACEHOLDER_RE.test(_brainOcModel)) {
           const cost = modelCostPerTurn(_brainOcModel);
           if (HIGH_TIER_RE2.test(_brainOcModel) || cost !== null && cost >= 0.01) {
@@ -8148,26 +9134,26 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
   console.error(`[vibeOS] auto-config guard: currentModel=${currentModel ? "SET" : "NONE"}, TIERS_FILE=${TIERS_FILE2}, exists=${existsSync15(TIERS_FILE2)}`);
   if (currentModel || !existsSync15(TIERS_FILE2)) {
     try {
-      let _tiersData;
+      let _tiersData2;
       let _wasCorrupted = false;
       if (existsSync15(TIERS_FILE2)) {
         try {
-          _tiersData = safeJsonParse3(readFileSync14(TIERS_FILE2, "utf-8"));
+          _tiersData2 = safeJsonParse3(readFileSync14(TIERS_FILE2, "utf-8"));
         } catch {
-          _tiersData = { selection: { enabled: true, active_slot: "brain", delegation_enforce: true, tdd_strict: true }, trinity: {} };
+          _tiersData2 = { selection: { enabled: true, active_slot: "brain", delegation_enforce: true, tdd_strict: true }, trinity: {} };
           _wasCorrupted = true;
         }
-        if (!_wasCorrupted && !_tiersData?.trinity) _wasCorrupted = true;
+        if (!_wasCorrupted && !_tiersData2?.trinity) _wasCorrupted = true;
         if (!_wasCorrupted) {
           for (const slot of ["brain", "medium", "cheap"]) {
-            if (!_tiersData?.trinity?.[slot] || _tiersData.trinity[slot] === null || typeof _tiersData.trinity[slot].oc !== "string") {
+            if (!_tiersData2?.trinity?.[slot] || _tiersData2.trinity[slot] === null || typeof _tiersData2.trinity[slot].oc !== "string") {
               _wasCorrupted = true;
               break;
             }
           }
         }
       } else {
-        _tiersData = { selection: { enabled: true, active_slot: "brain", delegation_enforce: true, tdd_strict: true }, trinity: {} };
+        _tiersData2 = { selection: { enabled: true, active_slot: "brain", delegation_enforce: true, tdd_strict: true }, trinity: {} };
       }
       const _providers = _loadOpenCodeProviders();
       const _allModels = [];
@@ -8188,7 +9174,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
       const _brain = _ranked?.brain || { id: currentModel, cost: _modelCost2(currentModel), tier: _modelTier2(currentModel) };
       let _medium = _ranked?.medium;
       let _cheap = _ranked?.cheap;
-      const _existing = _tiersData?.trinity || {};
+      const _existing = _tiersData2?.trinity || {};
       const _existingMedium = _existing.medium?.oc || "";
       const _existingCheap = _existing.cheap?.oc || "";
       const _isPlaceholder = (id2) => !id2 || PLACEHOLDER_RE.test(id2);
@@ -8209,25 +9195,25 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
       let _didWrite = false;
       const _existingBrain = _existing.brain?.oc || "";
       if (_brain.id && _isPlaceholder(_existingBrain)) {
-        _tiersData.trinity.brain = { oc: _brain.id, cc: modelToCcAlias(_brain.id) };
+        _tiersData2.trinity.brain = { oc: _brain.id, cc: modelToCcAlias(_brain.id) };
         _didWrite = true;
       }
       if (_medium && _medium.id && _isPlaceholder(_existingMedium)) {
-        _tiersData.trinity.medium = { oc: _medium.id, cc: modelToCcAlias(_medium.id) };
+        _tiersData2.trinity.medium = { oc: _medium.id, cc: modelToCcAlias(_medium.id) };
         _didWrite = true;
       }
       if (_cheap && _cheap.id && _isPlaceholder(_existingCheap)) {
-        _tiersData.trinity.cheap = { oc: _cheap.id, cc: modelToCcAlias(_cheap.id) };
+        _tiersData2.trinity.cheap = { oc: _cheap.id, cc: modelToCcAlias(_cheap.id) };
         _didWrite = true;
       }
-      if (_tiersData) {
-        _tiersData.selection ??= {};
-        if (_tiersData.selection.mcp_port === void 0) _tiersData.selection.mcp_port = 9578;
+      if (_tiersData2) {
+        _tiersData2.selection ??= {};
+        if (_tiersData2.selection.mcp_port === void 0) _tiersData2.selection.mcp_port = 9578;
         mkdirSync10(dirname8(TIERS_FILE2), { recursive: true });
         const _tmp = TIERS_FILE2 + ".tmp." + Date.now();
-        writeFileSync12(_tmp, JSON.stringify(_tiersData, null, 2) + "\n", "utf-8");
+        writeFileSync12(_tmp, JSON.stringify(_tiersData2, null, 2) + "\n", "utf-8");
         renameSync6(_tmp, TIERS_FILE2);
-        console.error(`[vibeOS] auto-synced model-tiers.json: brain=${_brain.id} medium=${_tiersData.trinity?.medium?.oc || ""} cheap=${_tiersData.trinity?.cheap?.oc || ""}`);
+        console.error(`[vibeOS] auto-synced model-tiers.json: brain=${_brain.id} medium=${_tiersData2.trinity?.medium?.oc || ""} cheap=${_tiersData2.trinity?.cheap?.oc || ""}`);
         const _tiersCfg = safeJsonParse3(readFileSync14(TIERS_FILE2, "utf-8"));
         const _b = _tiersCfg?.trinity?.brain?.oc;
         const _m = _tiersCfg?.trinity?.medium?.oc;
@@ -8281,6 +9267,83 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
   } catch (err) {
     console.error(`[vibeOS] Project Guard init failed: ${err.message}`);
   }
+  const _tiersData = (() => {
+    try {
+      return safeJsonParse3(readFileSync14(TIERS_FILE2, "utf-8"));
+    } catch {
+      return {};
+    }
+  })();
+  const trinityDeps = {
+    tool,
+    _lazyRefresh,
+    _readAuth,
+    _tiersData,
+    _loadOpenCodeProviders,
+    _modelCost: _modelCost2,
+    _modelTier: _modelTier2,
+    _modelLocked,
+    _blackboxEnabled,
+    _latestBlackboxState,
+    currentModel,
+    currentTier,
+    currentProjectFingerprint,
+    currentProjectName,
+    latestUserIntent,
+    directory: directory3,
+    safeJsonParse: safeJsonParse3,
+    readFileSync: readFileSync14,
+    writeFileSync: writeFileSync12,
+    existsSync: existsSync15,
+    renameSync: renameSync6,
+    TIERS_FILE: TIERS_FILE2,
+    USER_HOME: USER_HOME2,
+    STATE_FILE: STATE_FILE2,
+    CREDIT_CACHE_F,
+    SAVINGS_LEDGER_FILE,
+    PROJECT_STATE_FILE,
+    REPORTS_DIR,
+    REPORTS_INDEX,
+    loadSelection,
+    writeSelection,
+    loadCredit,
+    thinkingLevel,
+    readLifetimeSavings,
+    readFullState,
+    _OC_SID,
+    formatUsd,
+    getBlackboxResolution,
+    scoreStress,
+    applySlot: applySlot2,
+    saveOptimizationMode,
+    getFlowWarns,
+    projectFingerprint,
+    loadProjectState,
+    saveProjectState,
+    ensureProjectBucket,
+    mergeProjectBucket,
+    clearProjectPatterns,
+    projectPatternRows,
+    promotedProjectPatterns,
+    detectTechStack: detectTechStack2,
+    ensureProjectDocs,
+    discoverAvailableModels,
+    classifyAndRankModels,
+    modelToCcAlias,
+    probeModel,
+    setBlackboxEnabled,
+    loadBlackboxState,
+    saveBlackboxState,
+    reportsIndex,
+    saveReportsIndex,
+    backupFile,
+    get _blackboxTracker() {
+      return getBlackboxTracker();
+    },
+    set _blackboxTracker(v) {
+      resetBlackboxTracker();
+    }
+  };
   const pluginHooks = {
     "tool.execute.before": async (input, output) => {
       onToolExecuteBefore._directory = directory3;
@@ -8310,374 +9373,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
       return onShellEnv(_input, output);
     },
     tool: {
-      trinity: tool({
-        description: "Control the vibeOS plugin and active model slot.\nUse action='status' to see current state.\nUse action='enable' or 'disable' to toggle the plugin.\nUse action='set' with slot='brain'|'medium'|'cheap' to switch.\nUse action='mode' with slot='budget'|'quality'|'speed'|'longrun'|'auto' to switch optimization modes.\nUse action='rebuild' to auto-detect available models.\nUse action='flow' with slot='on'|'off' to toggle flow enforcer.\nUse action='enforce' with slot='on'|'off' to toggle delegation enforcement.\nUse action='tdd' with slot='on'|'off' to toggle auto-test skeletons.\nUse action='project' for per-project analytics.\nUse action='patterns' for learned project patterns.\nUse action='guard' for Project Guard.\nCall when the user says 'switch to medium', 'use cheap model', 'disable plugin', or 'trinity status'.",
-        args: {
-          action: tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard"]).optional(),
-          slot: tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings"]).optional(),
-          level: tool.schema.enum(["full", "brief", "off", "on"]).optional()
-        },
-        async execute({ action, slot, level } = {}) {
-          if (typeof _lazyRefresh === "function") _lazyRefresh();
-          if (!action) action = "status";
-          if (["brain", "medium", "cheap"].includes(action)) {
-            slot = action;
-            action = "set";
-          }
-          if (action === "status") {
-            const sel = loadSelection();
-            let tiers = {};
-            try {
-              tiers = safeJsonParse3(readFileSync14(TIERS_FILE2, "utf-8")).trinity || {};
-            } catch {
-            }
-            const credit = loadCredit();
-            const effectiveLevel = sel.thinking_level || thinkingLevel(credit);
-            const sv = readLifetimeSavings();
-            const ltTotal = (sv.ltTasks || 0) + (sv.ltCache || 0);
-            const sesTasks = sv.sesTasks || 0;
-            const sesWarns = Array.isArray(readFullState()?.sessions?.[_OC_SID]?.warns) ? readFullState().sessions[_OC_SID].warns.length : 0;
-            const sesTrend = sv.sesTrend || "stable";
-            const sesRate = sv.sesRatePerHour || 0;
-            const missedC7 = sv.missedC7 || 0;
-            const toolBreakdown = sv.sesToolBreakdown || {};
-            const topTools = Object.entries(toolBreakdown).filter(([, v]) => v > 5e-3).sort((a, b) => b[1] - a[1]).slice(0, 5);
-            const brainModel = tiers?.brain?.oc || "(unset)";
-            const mediumModel = tiers?.medium?.oc || "(unset)";
-            const cheapModel = tiers?.cheap?.oc || "(unset)";
-            const activeSlot = sel.active_slot || "brain";
-            const stressScore = latestUserIntent ? scoreStress(latestUserIntent) : 0;
-            const stressBar = stressScore > 0.85 ? "\u2588" : stressScore > 0.7 ? "\u2586" : stressScore > 0.5 ? "\u2585" : stressScore > 0.3 ? "\u2583" : stressScore > 0.1 ? "\u2582" : "\u2581";
-            const stressLabel = stressScore > 0.7 ? "high" : stressScore > 0.4 ? "elevated" : stressScore > 0.1 ? "calm" : "none";
-            const totalTurns = (sv.sesModelTurns?.brain || 0) + (sv.sesModelTurns?.worker || 0);
-            const brainPct = totalTurns > 0 ? Math.round(sv.sesModelTurns.brain / totalTurns * 100) : 0;
-            const workerPct = 100 - brainPct;
-            const qualityAvg = sv.quality_avg || 0;
-            const sesDuration = sv.sesDuration || 0;
-            const durHrs = Math.floor(sesDuration / 3600);
-            const durMins = Math.floor(sesDuration % 3600 / 60);
-            let decisionLine = "";
-            if (_blackboxEnabled) {
-              try {
-                const res = _latestBlackboxState || getBlackboxResolution();
-                if (res && res.n_interactions > 3) {
-                  const momentumIcon = res.momentum > 0.3 ? "up up" : res.momentum > 0 ? "up" : res.momentum < -0.3 ? "down down" : res.momentum < 0 ? "down" : "flat";
-                  decisionLine = `${res.resolution} ${res.sub_regime} ${momentumIcon}${res.is_looping ? " (loop)" : ""}`;
-                }
-              } catch {
-              }
-            }
-            const lines = [
-              `[vibeOS-dashboard]`,
-              `Model: ${activeSlot} (${brainModel})`,
-              ...totalTurns > 0 ? [`Split: brain ${brainPct}% / worker ${workerPct}% (${totalTurns} total)`] : [],
-              `Thinking: ${effectiveLevel}`,
-              `Credit: ${credit}%`,
-              ...qualityAvg > 0 ? [`Quality: ${Math.round(qualityAvg)}%`] : [],
-              ...decisionLine ? [`Decision: ${decisionLine}`] : [],
-              `|`,
-              `Stress: ${stressBar} (${stressLabel})`,
-              `|`,
-              `Guards: Flow: ${sel.flow_enabled !== false ? "ON" : "OFF"}${sel.flow_enforce ? " (extract)" : ""}`,
-              `TDD: ${sel.tdd_enforce ? "ON" : "OFF"}${sel.tdd_strict !== false ? " strict" : ""}${sel.tdd_quality !== false ? " quality" : ""}`,
-              `Enforce: ${sel.delegation_enforce ? "ON" : "OFF"}`,
-              `Lock: ${_modelLocked ? "LOCKED" : "unlocked"}`,
-              `|`,
-              `All-time: Total: $${ltTotal.toFixed(2)} (${sesTrend})`,
-              `Delegation: $${(sv.ltTasks || 0).toFixed(2)}`,
-              `Cache: $${formatUsd(sv.ltCache || 0)}`,
-              `Missed: $${missedC7.toFixed(2)}`,
-              `|`,
-              `This session:`,
-              ...sesDuration > 0 ? [`Duration: ${durHrs}h ${durMins}m`] : [],
-              `Rate: $${sesRate.toFixed(2)}/hr`,
-              `Warnings: ${sesWarns}`,
-              ...topTools.length > 0 ? [`Top tools:`, ...topTools.map(([t, v]) => `  ${t}: $${v.toFixed(2)}`)] : [],
-              `|`,
-              `Tiers: brain: ${brainModel}${activeSlot === "brain" ? "  *" : ""}`,
-              `  medium: ${mediumModel}${activeSlot === "medium" ? "  *" : ""}`,
-              `  cheap:  ${cheapModel}${activeSlot === "cheap" ? "  *" : ""}`
-            ];
-            return lines.join("\n");
-          }
-          if (action === "enable") {
-            return writeSelection("enabled", true) ? "Plugin ENABLED" : "Failed";
-          }
-          if (action === "disable") {
-            return writeSelection("enabled", false) ? "Plugin DISABLED" : "Failed";
-          }
-          if (action === "set") {
-            if (!slot || !["brain", "medium", "cheap"].includes(slot)) return "Provide slot: brain | medium | cheap";
-            const result = applySlot2(slot);
-            if (!result.ok) return "Failed: " + result.reason;
-            return `Switched to ${slot} slot (${result.ocModel})`;
-          }
-          if (action === "mode") {
-            if (!slot || !["budget", "quality", "speed", "longrun", "auto"].includes(slot)) return "Provide mode: budget | quality | speed | longrun | auto";
-            saveOptimizationMode(slot);
-            const tierMap = { budget: "cheap", quality: "brain", speed: "medium", longrun: "brain" };
-            const tierSlot = tierMap[slot] || "cheap";
-            writeSelection("active_slot", tierSlot);
-            if (slot === "budget") {
-              writeSelection("delegation_enforce", false);
-              writeSelection("flow_enabled", false);
-              writeSelection("flow_enforce", false);
-              writeSelection("tdd_enforce", false);
-              writeSelection("thinking_level", "off");
-            } else if (slot === "quality") {
-              writeSelection("delegation_enforce", true);
-              writeSelection("flow_enabled", true);
-              writeSelection("flow_enforce", true);
-              writeSelection("tdd_enforce", true);
-              writeSelection("thinking_level", "full");
-            } else if (slot === "speed") {
-              writeSelection("delegation_enforce", false);
-              writeSelection("flow_enabled", false);
-              writeSelection("flow_enforce", false);
-              writeSelection("tdd_enforce", false);
-              writeSelection("thinking_level", "off");
-            }
-            return `Mode set to ${slot.toUpperCase()}. Tier: ${tierSlot}.`;
-          }
-          if (action === "thinking") {
-            if (!level || !["full", "brief", "off"].includes(level)) return "Provide level: full | brief | off";
-            const desc = { full: "no restriction", brief: "complex tasks only", off: "none" };
-            if (!writeSelection("thinking_level", level)) return "Failed";
-            return `Reasoning depth -> ${desc[level]}`;
-          }
-          if (action === "flow") {
-            if (slot === "on" || slot === "off") {
-              return writeSelection("flow_enabled", slot === "on") ? `Flow ${slot === "on" ? "ON" : "OFF"}` : "Failed";
-            }
-            if (slot === "enforce") {
-              if (level !== "on" && level !== "off") return "Provide level on|off";
-              return writeSelection("flow_enforce", level === "on") ? `Flow enforce ${level === "on" ? "ON" : "OFF"}` : "Failed";
-            }
-            const flowWarns = getFlowWarns();
-            const sid = String(process.pid || "?");
-            const sessionWarns = flowWarns.filter((w) => String(w.sid) === sid);
-            const bySev = { warn: 0, hint: 0, flag: 0 };
-            for (const w of sessionWarns) {
-              if (bySev[w.severity] !== void 0) bySev[w.severity]++;
-            }
-            const lines = [`Flow enforcer audit:`];
-            lines.push(`  ${bySev.warn} warn, ${bySev.hint} hint, ${bySev.flag} flag`);
-            if (sessionWarns.length === 0) lines.push(`  No flow violations.`);
-            else for (const w of sessionWarns.slice(-15)) lines.push(`  [${w.severity}] ${w.rule_id}: ${w.description}`);
-            return lines.join("\n");
-          }
-          if (action === "enforce") {
-            if (slot === "on") return writeSelection("delegation_enforce", true) ? "Enforcement ON" : "Failed";
-            if (slot === "off") return writeSelection("delegation_enforce", false) ? "Enforcement OFF" : "Failed";
-            return "Enforce: " + (loadSelection().delegation_enforce ? "ON" : "OFF");
-          }
-          if (action === "tdd") {
-            if (slot === "on") return writeSelection("tdd_enforce", true) ? "TDD ON" : "Failed";
-            if (slot === "off") return writeSelection("tdd_enforce", false) ? "TDD OFF" : "Failed";
-            if (slot === "strict") {
-              if (level !== "on" && level !== "off") return "Provide level on|off";
-              return writeSelection("tdd_strict", level === "on") ? `TDD strict ${level === "on" ? "ON" : "OFF"}` : "Failed";
-            }
-            if (slot === "quality") {
-              if (level !== "on" && level !== "off") return "Provide level on|off";
-              return writeSelection("tdd_quality", level === "on") ? `TDD quality ${level === "on" ? "ON" : "OFF"}` : "Failed";
-            }
-            const sel = loadSelection();
-            return `TDD: ${sel.tdd_enforce ? "ON" : "OFF"} strict:${sel.tdd_strict !== false} quality:${sel.tdd_quality !== false}`;
-          }
-          if (action === "project") {
-            const L = "\u2501";
-            const lines = [`Project profile - ${currentProjectName || "unknown"}`];
-            lines.push(L.repeat(40));
-            const _fp = currentProjectFingerprint || projectFingerprint(directory3);
-            const pstate = loadProjectState();
-            const proj = pstate.project_hashes?.[_fp];
-            if (proj) {
-              lines.push(`
-Sessions: ${proj.totalSessions || 0} | Last: ${(proj.lastSeen || "").slice(0, 10)}`);
-              if (proj.researchChains) lines.push(`Research chains: ${proj.researchChains}`);
-              if (proj.commonTopics?.length) lines.push(`Common domains: ${proj.commonTopics.slice(0, 5).join(", ")}`);
-            }
-            const sv = readLifetimeSavings();
-            const totalTurns = (sv.sesModelTurns?.brain || 0) + (sv.sesModelTurns?.worker || 0);
-            if (totalTurns > 0) lines.push(`Model split: brain ${Math.round(sv.sesModelTurns.brain / totalTurns * 100)}% / worker ${100 - Math.round(sv.sesModelTurns.brain / totalTurns * 100)}%`);
-            if (sv.sesDuration > 0) lines.push(`Duration: ${Math.floor(sv.sesDuration / 3600)}h ${Math.floor(sv.sesDuration % 3600 / 60)}m`);
-            if (sv.sesTasks > 0.01 || sv.ltCache > 0.01) lines.push(`Savings: delegation $${sv.sesTasks.toFixed(2)} + cache $${sv.ltCache.toFixed(2)}`);
-            if (loadSelection().delegation_enforce === false) lines.push(`HINT: enable enforcement with \`trinity enforce on\``);
-            const credit = loadCredit();
-            if (credit < 40) lines.push(`HINT: credit ${credit}% - switch to medium slot`);
-            lines.push(L.repeat(40));
-            return lines.join("\n");
-          }
-          if (action === "report" && slot === "savings") {
-            const sv = readLifetimeSavings();
-            return `Savings: delegation $${sv.ltTasks.toFixed(4)} | cache $${(sv.ltCache || 0).toFixed(4)}`;
-          }
-          if (action === "patterns") {
-            const _fp = currentProjectFingerprint || projectFingerprint(directory3);
-            const name = currentProjectName || "unknown";
-            if (slot === "clear") {
-              return `Cleared ${clearProjectPatterns(_fp)} patterns for "${name}"`;
-            }
-            const rows = projectPatternRows(_fp);
-            if (rows.length === 0) return "No learned patterns yet.";
-            const lines = [`Project patterns - ${name}:`];
-            for (const r of rows.slice(0, 15)) {
-              const tag = r.sessions >= 3 ? "promoted" : "learning";
-              lines.push(`  [${r.label}/${tag}] ${r.summary} (${r.sessions} sessions)`);
-            }
-            return lines.join("\n");
-          }
-          if (action === "guard") {
-            if (!directory3 || !existsSync15(directory3)) return "No directory.";
-            const result = ensureProjectDocs(directory3, detectTechStack2(directory3));
-            const lines = [`Project Guard: ${directory3.split("/").pop()}`];
-            for (const f of result.created) lines.push(`  Created ${f}`);
-            for (const f of result.skipped) lines.push(`  Already exists: ${f}`);
-            return lines.join("\n");
-          }
-          if (action === "rebuild") {
-            const providers = _loadOpenCodeProviders();
-            const auth = _readAuth();
-            const models = await discoverAvailableModels(providers, auth);
-            const ranked = classifyAndRankModels(models);
-            if (!ranked) return "No models discovered.";
-            try {
-              const tiers = safeJsonParse3(readFileSync14(TIERS_FILE2, "utf-8"));
-              tiers.trinity = {
-                brain: { oc: ranked.brain.id, cc: modelToCcAlias(ranked.brain.id) },
-                medium: { oc: ranked.medium.id, cc: modelToCcAlias(ranked.medium.id) },
-                cheap: { oc: ranked.cheap.id, cc: modelToCcAlias(ranked.cheap.id) }
-              };
-              const _tmp = TIERS_FILE2 + ".tmp." + Date.now();
-              writeFileSync12(_tmp, JSON.stringify(tiers, null, 2) + "\n", "utf-8");
-              renameSync6(_tmp, TIERS_FILE2);
-            } catch (e) {
-              return "Failed: " + e.message;
-            }
-            try {
-              applySlot2("brain");
-            } catch {
-            }
-            return `Rebuilt: brain=${ranked.brain.id} medium=${ranked.medium.id} cheap=${ranked.cheap.id}`;
-          }
-          if (action === "diagnose") {
-            const results = [];
-            const checks = [
-              { path: TIERS_FILE2, label: "model-tiers.json" },
-              { path: join15(USER_HOME2, ".config/opencode/opencode.json"), label: "opencode.json" },
-              { path: STATE_FILE2, label: "delegation-state.json" }
-            ];
-            for (const c of checks) {
-              results.push({ ok: existsSync15(c.path), okLabel: existsSync15(c.path) ? "OK" : "MISSING", label: c.label, detail: existsSync15(c.path) ? "exists" : "missing", fix: existsSync15(c.path) ? void 0 : c.label === "model-tiers.json" ? "run `trinity rebuild`" : void 0 });
-            }
-            try {
-              const tiers = safeJsonParse3(readFileSync14(TIERS_FILE2, "utf-8"));
-              for (const s of ["brain", "medium", "cheap"]) {
-                const m = tiers?.trinity?.[s]?.oc || "";
-                const ok = m.length > 0 && !m.toLowerCase().includes("placeholder");
-                results.push({ ok, okLabel: ok ? "OK" : "MISSING", label: `${s} slot`, detail: ok ? m : "unset", fix: ok ? void 0 : "run `trinity rebuild`" });
-              }
-            } catch {
-              for (const s of ["brain", "medium", "cheap"]) results.push({ ok: false, okLabel: "ERR", label: `${s} slot`, detail: "cannot read", fix: "run `trinity rebuild`" });
-            }
-            const credit = loadCredit();
-            results.push({ ok: credit >= 40, okLabel: credit >= 40 ? "OK" : "LOW", label: "credits", detail: `${credit}%`, fix: credit >= 40 ? void 0 : "run `trinity medium`" });
-            const okCount = results.filter((r) => r.ok).length;
-            results.sort((a, b) => a.ok === b.ok ? 0 : a.ok ? 1 : -1);
-            const lines = ["Self Diagnostic:"];
-            for (const r of results) {
-              lines.push(`  ${r.okLabel} ${r.label}: ${r.detail}`);
-              if (!r.ok && r.fix) lines.push(`    fix: ${r.fix}`);
-            }
-            lines.push(`
-${okCount}/${results.length} passed`);
-            return lines.join("\n");
-          }
-          if (action === "repair-state") {
-            const mode = slot || "preview";
-            if (mode !== "preview" && mode !== "apply") return "Use `trinity repair-state preview` or `trinity repair-state apply`.";
-            const dstFp = currentProjectFingerprint || projectFingerprint(directory3);
-            const name = currentProjectName || "unknown";
-            const pstate = loadProjectState();
-            const dstBucket = ensureProjectBucket(pstate, dstFp);
-            const srcFps = Object.keys(pstate.project_hashes || {}).filter((f) => f !== dstFp);
-            if (srcFps.length === 0) return `No duplicates for "${name}".`;
-            const lines = [`Repair (${mode}) for "${name}":`, `  Keeping: ${dstFp}`];
-            for (const sf of srcFps) {
-              const src = pstate.project_hashes[sf];
-              if (src) {
-                lines.push(`  Merging: ${sf} (${src.totalSessions || 0} sessions)`);
-                if (mode === "apply") mergeProjectBucket(dstBucket, src);
-              }
-            }
-            if (mode === "apply") {
-              if (mode === "apply") {
-                for (const sf of srcFps) delete pstate.project_hashes[sf];
-                saveProjectState(pstate);
-                lines.push("Applied.");
-              }
-            } else {
-              lines.push("Run with `apply` to execute.");
-            }
-            return lines.join("\n");
-          }
-          if (action === "blackbox") {
-            const mode = slot || "status";
-            if (mode === "on") {
-              setBlackboxEnabled(true);
-              saveBlackboxState({ ...loadBlackboxState(), enabled: true });
-              return "Blackbox ON";
-            }
-            if (mode === "off") {
-              setBlackboxEnabled(false);
-              saveBlackboxState({ ...loadBlackboxState(), enabled: false });
-              return "Blackbox OFF";
-            }
-            if (mode === "reset") {
-              const s = loadBlackboxState();
-              delete s.sessions[_OC_SID];
-              saveBlackboxState(s);
-              return "Blackbox RESET";
-            }
-            if (mode === "status") {
-              const bbState = loadBlackboxState();
-              const lines = [`Blackbox: ${_blackboxEnabled || bbState.enabled ? "ON" : "OFF"}`];
-              const res = _latestBlackboxState || getBlackboxResolution();
-              if (res) {
-                lines.push(`  Resolution: ${res.resolution}`);
-                lines.push(`  Sub-regime: ${res.sub_regime}`);
-                lines.push(`  Momentum: ${res.momentum > 0 ? "up" : res.momentum < 0 ? "down" : "flat"} (${res.momentum.toFixed(2)})`);
-                lines.push(`  Interactions: ${res.n_interactions}`);
-              }
-              return lines.join("\n");
-            }
-            return "Usage: trinity blackbox on|off|status|reset";
-          }
-          if (action === "help") {
-            return [
-              "vibeOS - trinity commands",
-              "",
-              "  trinity status       See plugin state, credit, model",
-              "  trinity mode budget|quality|speed|auto   Switch optimization mode",
-              "  trinity brain        Switch to brain tier",
-              "  trinity medium       Switch to medium tier",
-              "  trinity cheap        Switch to cheap tier",
-              "  trinity rebuild      Auto-detect models",
-              "  trinity enable/disable Toggle plugin",
-              "  trinity enforce on/off Block brain-tier writes",
-              "  trinity thinking full|brief|off Set reasoning depth",
-              "  trinity flow on/off  Toggle flow enforcer",
-              "  trinity tdd on/off   Toggle auto-test skeletons",
-              "  trinity diagnose     Self-check",
-              "  trinity project      Project analytics",
-              "  trinity patterns     Show learned patterns",
-              "  trinity guard        Ensure AGENTS.md/README.md exist"
-            ].join("\n");
-          }
-          return `Unknown action: ${action}`;
-        }
-      }),
+      trinity: tool(createTrinityTool(trinityDeps)),
       "research-audit": tool({
         description: "Scan session for research anti-patterns (domain chains, redundant queries, no synthesis). hours=N (default 24).",
         args: { hours: tool.schema.number().optional() },

@@ -33,14 +33,8 @@ const BALANCE_APIS = {
     }
 };
 let _creditTimer = null;
-export function closeMcpServer() {
-    if (!_mcpServerRuntime)
-        return Promise.resolve();
-    return _mcpServerRuntime.close();
-}
-let _mcpServerRuntime = null;
-let _mcpServerHooked = false;
-function _readAuth() {
+
+export function _readAuth() {
     try {
         return existsSync(AUTH_F) ? safeJsonParse(readFileSync(AUTH_F, "utf-8")) : {};
     }
