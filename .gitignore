@@ -16,6 +16,7 @@ src/dashboard/node_modules/
 .experiment/
 .vibetheog-cx/
 .agents/
+DATA_ANALYSIS_PROJECTS.md
 
 # Secrets — NEVER commit
 .env.production

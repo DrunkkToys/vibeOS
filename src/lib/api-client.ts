@@ -4,7 +4,21 @@ import { VibeOSApiClient, VibeOSAuthError, VibeOSTimeoutError, VibeOSNetworkErro
 
 // ── Remote API client (Phase 2) ─────────────────────────────────────
 export const VIBEOS_API_URL = process.env.VIBEOS_API_URL || "https://api.vibetheog.com"
-export const VIBEOS_API_TOKEN = process.env.VIBEOS_API_TOKEN || ""
+try {
+  const envPath = join(process.cwd(), ".env.production")
+  const env = fs.readFileSync(envPath, "utf8")
+  const m = env.match(/^VIBEOS_API_TOKEN=(.+)$/m)
+  if (m) { var _envToken = m[1].trim() }
+} catch {}
+if (!_envToken) {
+  try {
+    const envPath = join(homedir(), ".env.production")
+    const env = fs.readFileSync(envPath, "utf8")
+    const m = env.match(/^VIBEOS_API_TOKEN=(.+)$/m)
+    if (m) { _envToken = m[1].trim() }
+  } catch {}
+}
+export const VIBEOS_API_TOKEN = process.env.VIBEOS_API_TOKEN || _envToken || ""
 export const VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && !!VIBEOS_API_TOKEN
 
 let _apiClient = null
