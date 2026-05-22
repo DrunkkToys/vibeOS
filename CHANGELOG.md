@@ -1,3 +1,7 @@
+## 0.15.22
+- chore: update flash pricing, add fallback indicator to footer
+
+
 ## 0.15.21
 - feat: expose all regime thresholds as calibratable weights
 - docs: add SIGNAL-REFERENCE.md with full signal pipeline documentation
