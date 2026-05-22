@@ -16,10 +16,10 @@ export function createTrinityTool(deps) {
             "Use action='tdd' alone for audit. " +
             "Use action='project' to show per-project analytics and optimization suggestions. " +
             "Use action='patterns' to inspect learned project patterns or slot='clear' to clear them. " +
-            "Use action='guard' to ensure AGENTS.md and README.md exist and stay current. Use action='api-token' with token='<new_token>' to update the API token and re-enable remote control-vector. " +
+            "Use action='guard' to ensure AGENTS.md and README.md exist and stay current. Use action='api-token' with token='<new_token>' to update the API token and re-enable remote control-vector " +
             "Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', 'trinity status'.",
         args: {
-            action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard", "api-token"]).optional(),
+            action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard", "api-token", "todo", "todo-done", "todo-sync"]).optional(),
             slot: deps.tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings"]).optional(),
             level: deps.tool.schema.enum(["full", "brief", "off", "on"]).optional(),
             token: deps.tool.schema.string().optional(),
@@ -136,10 +136,12 @@ export function createTrinityTool(deps) {
                 }
                 const auth = deps._readAuth();
                 try {
-                  const ok = await deps.probeModel(targetModel, auth);
-                  if (!ok) console.error("[vibeOS] WARN: " + targetModel + " probe failed - switching anyway");
-                } catch (e) {
-                  console.error("[vibeOS] WARN: probe error for " + targetModel + ": " + e.message + " - switching anyway");
+                    const ok = await deps.probeModel(targetModel, auth);
+                    if (!ok)
+                        console.error("[vibeOS] WARN: " + targetModel + " probe failed - switching anyway");
+                }
+                catch (e) {
+                    console.error("[vibeOS] WARN: probe error for " + targetModel + ": " + e.message + " - switching anyway");
                 }
                 deps.writeSessionSlot(deps._OC_SID, slot);
                 const result = deps.applySlot(slot);
@@ -571,8 +573,34 @@ export function createTrinityTool(deps) {
                 lines.push("README.md: auto-maintained feature documentation \u2014 keep it updated.");
                 return lines.join("\n");
             }
+            if (action === "todo") {
+                const todos = deps.loadTodos();
+                const pending = todos.filter((t) => t.status === "pending");
+                if (pending.length === 0)
+                    return "No pending todos.";
+                const lines = ["Pending todos: " + pending.length];
+                for (const t of pending.slice(0, 20)) {
+                    lines.push("  #" + (t.id || "").slice(0, 8) + " [" + t.priority + "] " + (t.content || "").slice(0, 60));
+                }
+                if (pending.length > 20)
+                    lines.push("  ... and " + (pending.length - 20) + " more");
+                return lines.join("\n");
+            }
+            if (action === "todo-done") {
+                if (!slot)
+                    return "Usage: trinity todo-done <id>\nMark a todo as done by its ID.";
+                deps.markTodoDone(slot);
+                return "Todo " + slot + " marked done.";
+            }
+            if (action === "todo-sync") {
+                const count = deps.syncFlowTodosToNative((entry) => {
+                    deps.upsertTodo(entry);
+                });
+                return "Synced " + count + " flow TODO(s) to native todo list.";
+            }
             if (action === "api-token") {
-                if (!token) return "Usage: trinity api-token <token>\nProvide a valid VIBEOS_API_TOKEN to enable remote control-vector computation.";
+                if (!token)
+                    return "Usage: trinity api-token <token>\nProvide a valid VIBEOS_API_TOKEN to enable remote control-vector computation.";
                 deps.setApiToken(token);
                 return "[vibeOS] API token updated. Remote API re-enabled.";
             }
@@ -933,6 +961,7 @@ export function createTrinityTool(deps) {
                     "  trinity flow on/off       Toggle flow enforcer (code quality checks)",
                     "  trinity tdd on/off        Toggle auto test skeleton creation",
                     "  trinity guard             Ensure AGENTS.md/README.md exist and are current",
+                    "  trinity api-token        Update VIBEOS_API_TOKEN and re-enable remote API",
                     "  trinity api-token        Update VIBEOS_API_TOKEN and re-enable remote API",
                     "  trinity flow              Show flow violations this session",
                     "",

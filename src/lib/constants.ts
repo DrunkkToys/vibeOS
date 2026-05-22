@@ -10,7 +10,8 @@ export const SAVE_EST = {
 
 export const WARN_ON_DIRECT = new Set(["write", "edit", "notebookedit"])
 export const SOFT_QUOTA = new Set(["bash", "glob", "grep", "read", "webfetch", "websearch"])
-export const FREE = new Set(["todowrite", "question", "skill", "trinity", "report-list", "report-read", "report-save", "research-audit"])
+export const FREE = new Set(["question", "skill", "trinity", "report-list", "report-read", "report-save", "research-audit"])
+export const MONITOR = new Set(["todowrite"])
 
 export const COMPRESS_THRESHOLD = 2000
 export const KEEP_HOT = 10

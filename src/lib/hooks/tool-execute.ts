@@ -19,7 +19,7 @@ import {
   saveJobRecord, loadJobRecord,
   detectTechStack, projectFingerprint, loadProjectState, saveProjectState,
   ensureProjectBucket, mergeProjectBucket, SAVINGS_LEDGER_FILE,
-  CONTEXT7_INSTALL_FLAG, SOFT_QUOTA_LIMIT,
+  CONTEXT7_INSTALL_FLAG, SOFT_QUOTA_LIMIT, loadTodos, upsertTodo,
   ML_ENABLED, _mlGraph, _cacheDb, _mlSavePending, ML_CONFIDENCE_THRESHOLD, setMlSavePending,
   loadMLState, saveMLState,
   readJsonOrEmpty, _handleStateCorruption, _lockPathFor,
@@ -48,7 +48,7 @@ import { buildTestReminder, enforceTestFile } from '../tdd-enforcer.js'
 import { setActiveJobFromTaskPrompt, observeToolPattern, compressText, recordSaving } from '../index-helpers.js'
 import { scoreTaskQuality } from './footer.js'
 import { checkFlowRules as _checkFlowRules, recordFlowTodo } from '../../vibeOS-lib/flow-enforcer.js'
-import { SAVE_EST, WARN_ON_DIRECT, SOFT_QUOTA, FREE } from "../constants.js"
+import { SAVE_EST, WARN_ON_DIRECT, SOFT_QUOTA, FREE, MONITOR } from "../constants.js"
 
 const BYTES_PER_TOKEN = 4
 const CACHE_SAVED_PER_1M_INPUT_TOKENS = 0.10
@@ -65,6 +65,7 @@ let context7Seen = new Set()
 let _cacheSave = 0
 let _prompt = ''
 let _autoReportCount = 0
+let _pendingTodoArgs = null
 
 export const setToolDirectory = (dir) => { projectDirectory = dir || "" }
 
@@ -241,6 +242,11 @@ export const onToolExecuteBefore = async (input, output) => {
       }
 
       if (FREE.has(t)) return
+      if (MONITOR.has(t)) {
+        const todosArg = args?.todos || inArgs?.todos || []
+        _pendingTodoArgs = Array.isArray(todosArg) ? todosArg : [todosArg]
+        return
+      }
       // Free models have no per-turn cost — no savings to enforce.
       if (isModelFree(currentModel)) return
 
@@ -650,6 +656,23 @@ export const onToolExecuteAfter = async (input, output) => {
         else if (output.text !== undefined) output.text = processed
         else if (output.content !== undefined) output.content = processed
         else if (output.data !== undefined) output.data = processed
+      }
+      // ── todowrite result parsing ──
+      if (inputTool === "todowrite" && _pendingTodoArgs && _pendingTodoArgs.length > 0) {
+        try {
+          for (const entry of _pendingTodoArgs) {
+            if (entry && entry.content) {
+              upsertTodo({
+                content: entry.content,
+                filePath: entry.filePath || "",
+                priority: entry.priority || "medium",
+                source: "intercepted",
+              })
+            }
+          }
+          console.error("[vibeOS] tracked " + _pendingTodoArgs.length + " todo(s) from todowrite call")
+        } catch {}
+        _pendingTodoArgs = null
       }
       applyDecadence()
     }

@@ -22,7 +22,7 @@ export function createTrinityTool(deps) {
       "Use action='guard' to ensure AGENTS.md and README.md exist and stay current. Use action='api-token' with token='<new_token>' to update the API token and re-enable remote control-vector " +
       "Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', 'trinity status'.",
     args: {
-            action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard", "api-token"]).optional(),
+            action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard", "api-token", "todo", "todo-done", "todo-sync"]).optional(),
             slot: deps.tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings"]).optional(),
       level: deps.tool.schema.enum(["full", "brief", "off", "on"]).optional(),
       token: deps.tool.schema.string().optional(),
@@ -547,6 +547,29 @@ export function createTrinityTool(deps) {
         lines.push("AGENTS.md: defines AI agent behavioral rules \u2014 ASK BEFORE changing code.")
         lines.push("README.md: auto-maintained feature documentation \u2014 keep it updated.")
         return lines.join("\n")
+      }
+
+      if (action === "todo") {
+        const todos = deps.loadTodos()
+        const pending = todos.filter((t: any) => t.status === "pending")
+        if (pending.length === 0) return "No pending todos."
+        const lines = ["Pending todos: " + pending.length]
+        for (const t of pending.slice(0, 20)) {
+          lines.push("  #" + (t.id || "").slice(0, 8) + " [" + t.priority + "] " + (t.content || "").slice(0, 60))
+        }
+        if (pending.length > 20) lines.push("  ... and " + (pending.length - 20) + " more")
+        return lines.join("\n")
+      }
+      if (action === "todo-done") {
+        if (!slot) return "Usage: trinity todo-done <id>\nMark a todo as done by its ID."
+        deps.markTodoDone(slot)
+        return "Todo " + slot + " marked done."
+      }
+      if (action === "todo-sync") {
+        const count = deps.syncFlowTodosToNative((entry: any) => {
+          deps.upsertTodo(entry)
+        })
+        return "Synced " + count + " flow TODO(s) to native todo list."
       }
 
       if (action === "api-token") {

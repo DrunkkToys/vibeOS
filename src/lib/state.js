@@ -27,6 +27,7 @@ const CREDIT_CACHE_F = join(USER_HOME, ".claude/credit-snapshot.json");
 const FLOW_TODO_QUEUE_FILE = join(USER_HOME, ".claude/.flow-todo-queue.jsonl");
 const FLOW_DEDUP_FILE = join(USER_HOME, ".claude/.flow-dedup-keys.json");
 const ENFORCEMENT_COOLDOWN_FILE = join(USER_HOME, ".claude/.enforcement-cooldown.jsonl");
+const TODOS_FILE = join(USER_HOME, ".claude/todos.json");
 const REPORTS_DIR = join(USER_HOME, ".claude/reports");
 const CONTEXT7_INSTALL_FLAG = join(USER_HOME, ".claude/.context7-install-suggested");
 const TRINITY_OPENCODE_CONFIG = join(USER_HOME, ".config/opencode/opencode.json");
@@ -1308,6 +1309,62 @@ function recordMissedContext7(saveEst) {
         return null;
     }
 }
+// ── Todo persistence ────────────────────────────────────────────────
+function loadTodos() {
+    try {
+        if (!existsSync(TODOS_FILE))
+            return [];
+        const raw = readFileSync(TODOS_FILE, "utf-8");
+        const parsed = safeJsonParse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+    }
+    catch {
+        return [];
+    }
+}
+function saveTodos(todos) {
+    try {
+        mkdirSync(dirname(TODOS_FILE), { recursive: true });
+        const tmp = TODOS_FILE + ".tmp." + Date.now();
+        writeFileSync(tmp, JSON.stringify(todos, null, 2), "utf-8");
+        renameSync(tmp, TODOS_FILE);
+    }
+    catch { }
+}
+function upsertTodo(entry) {
+    const todos = loadTodos();
+    const existing = todos.findIndex(t => t.content === entry.content &&
+        (entry.filePath ? t.filePath === entry.filePath : true));
+    const newEntry = {
+        id: entry.id || crypto.randomUUID?.() || "todo-" + Date.now(),
+        content: entry.content,
+        status: entry.status || "pending",
+        filePath: entry.filePath || "",
+        priority: entry.priority || "medium",
+        source: entry.source || "manual",
+        createdAt: entry.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+    };
+    if (existing >= 0) {
+        todos[existing] = { ...todos[existing], ...newEntry, updatedAt: new Date().toISOString() };
+    }
+    else {
+        todos.push(newEntry);
+    }
+    saveTodos(todos);
+}
+function markTodoDone(id) {
+    const todos = loadTodos();
+    const found = todos.find(t => t.id === id);
+    if (found) {
+        found.status = "done";
+        found.updatedAt = new Date().toISOString();
+        saveTodos(todos);
+    }
+}
+function getTodos() {
+    return loadTodos();
+}
 // ── Savings ledger reconciliation ────────────────────────────────────
 function readLedgerTotals() {
     const empty = { delegation: 0, cache: 0, total: 0, entries: 0 };
@@ -1438,7 +1495,7 @@ function saveSessionCheckpoint() {
 // ── Export ───────────────────────────────────────────────────────────
 export { 
 // File system constants
-USER_HOME, FILE_LOCK_DIR, DELEGATION_STATE_FILE as DELEGATION_STATE_FILE, SAVINGS_LEDGER_FILE, GLOBAL_LEARNING_FILE, PRICING_CACHE_FILE, BLACKBOX_STATE_FILE, PROJECT_STATE_FILE, TIERS_FILE, ACTIVE_JOBS_FILE, FLOW_TODO_QUEUE_FILE, FLOW_DEDUP_FILE, ENFORCEMENT_COOLDOWN_FILE, AUTH_F, CREDIT_CACHE_F, REPORTS_DIR, CONTEXT7_INSTALL_FLAG, TRINITY_OPENCODE_CONFIG, TRINITY_OPENCODE_CONFIGC, STATE_FILE, 
+USER_HOME, FILE_LOCK_DIR, DELEGATION_STATE_FILE as DELEGATION_STATE_FILE, SAVINGS_LEDGER_FILE, GLOBAL_LEARNING_FILE, PRICING_CACHE_FILE, BLACKBOX_STATE_FILE, PROJECT_STATE_FILE, TIERS_FILE, ACTIVE_JOBS_FILE, FLOW_TODO_QUEUE_FILE, FLOW_DEDUP_FILE, ENFORCEMENT_COOLDOWN_FILE, TODOS_FILE, AUTH_F, CREDIT_CACHE_F, REPORTS_DIR, CONTEXT7_INSTALL_FLAG, TRINITY_OPENCODE_CONFIG, TRINITY_OPENCODE_CONFIGC, STATE_FILE, 
 // Scratchpad paths
 SCRATCHPAD_ROOT, SCRATCHPAD_GLOBAL_DIR, SCRATCHPAD_SESSIONS_DIR, SCRATCHPAD_SESSION_TTL_MS, SCRATCHPAD_MAX_AGE_SEC, MAX_SCRATCHPAD_FILES, MAX_SCRATCHPAD_BYTES, MAX_SESSION_SCRATCHPAD_FILES, MAX_SESSION_SCRATCHPAD_BYTES, DECADENCE_FRESH_MS, DECADENCE_WARM_MS, DECADENCE_COLD_MS, DECADENCE_EXPIRE_MS, DECADENCE_THROTTLE_MS, DECADENCE_GLOBAL_THROTTLE_MS, TOOL_NAME_NORMALIZE, SCRATCHPAD_TOOLS, 
 // Warning constants
@@ -1484,7 +1541,7 @@ _rotateLog, getLastLines, getLastLine,
 // Scrapbook index
 loadScrapbookIndex, saveScrapbookIndex, rebuildScrapbookIndex, 
 // Savings operations
-roundUsd, recordDelegation, recordCacheSaving, recordMissedContext7, readLedgerTotals, reconcileStateFromLedger, readLifetimeSavings, readPackageVersion, saveSessionCheckpoint, 
+roundUsd, recordDelegation, recordCacheSaving, recordMissedContext7, loadTodos, saveTodos, upsertTodo, markTodoDone, getTodos, readLedgerTotals, reconcileStateFromLedger, readLifetimeSavings, readPackageVersion, saveSessionCheckpoint, 
 // Blackbox state functions
 loadBlackboxState, saveBlackboxState, getBlackboxTracker, getBlackboxResolution, };
 // ── Status / Savings Payload Stubs ────────────────────────────────────

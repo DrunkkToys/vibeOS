@@ -23,6 +23,7 @@ const CREDIT_CACHE_F = join(USER_HOME, ".claude/credit-snapshot.json")
 const FLOW_TODO_QUEUE_FILE = join(USER_HOME, ".claude/.flow-todo-queue.jsonl")
 const FLOW_DEDUP_FILE = join(USER_HOME, ".claude/.flow-dedup-keys.json")
 const ENFORCEMENT_COOLDOWN_FILE = join(USER_HOME, ".claude/.enforcement-cooldown.jsonl")
+const TODOS_FILE = join(USER_HOME, ".claude/todos.json")
 const REPORTS_DIR = join(USER_HOME, ".claude/reports")
 const CONTEXT7_INSTALL_FLAG = join(USER_HOME, ".claude/.context7-install-suggested")
 const TRINITY_OPENCODE_CONFIG = join(USER_HOME, ".config/opencode/opencode.json")
@@ -1163,6 +1164,71 @@ function recordMissedContext7(saveEst: number): any {
   } catch { return null }
 }
 
+// ── Todo entry type ──────────────────────────────────────────────────
+type TodoEntry = {
+  id: string
+  content: string
+  status: "pending" | "done" | "wontfix"
+  filePath: string
+  priority: "low" | "medium" | "high" | "critical"
+  source: "manual" | "flow" | "intercepted"
+  createdAt: string
+  updatedAt: string
+}
+
+// ── Todo persistence ────────────────────────────────────────────────
+function loadTodos(): TodoEntry[] {
+  try {
+    if (!existsSync(TODOS_FILE)) return []
+    const raw = readFileSync(TODOS_FILE, "utf-8")
+    const parsed = safeJsonParse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch { return [] }
+}
+
+function saveTodos(todos: TodoEntry[]): void {
+  try {
+    mkdirSync(dirname(TODOS_FILE), { recursive: true })
+    const tmp = TODOS_FILE + ".tmp." + Date.now()
+    writeFileSync(tmp, JSON.stringify(todos, null, 2), "utf-8")
+    renameSync(tmp, TODOS_FILE)
+  } catch {}
+}
+
+function upsertTodo(entry: Partial<TodoEntry> & { content: string }): void {
+  const todos = loadTodos()
+  const existing = todos.findIndex(t =>
+    t.content === entry.content &&
+    (entry.filePath ? t.filePath === entry.filePath : true)
+  )
+  const newEntry: TodoEntry = {
+    id: entry.id || crypto.randomUUID?.() || "todo-" + Date.now(),
+    content: entry.content,
+    status: (entry.status as TodoEntry["status"]) || "pending",
+    filePath: entry.filePath || "",
+    priority: (entry.priority as TodoEntry["priority"]) || "medium",
+    source: (entry.source as TodoEntry["source"]) || "manual",
+    createdAt: entry.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  }
+  if (existing >= 0) {
+    todos[existing] = { ...todos[existing], ...newEntry, updatedAt: new Date().toISOString() }
+  } else {
+    todos.push(newEntry)
+  }
+  saveTodos(todos)
+}
+
+function markTodoDone(id: string): void {
+  const todos = loadTodos()
+  const found = todos.find(t => t.id === id)
+  if (found) { found.status = "done"; found.updatedAt = new Date().toISOString(); saveTodos(todos) }
+}
+
+function getTodos(): TodoEntry[] {
+  return loadTodos()
+}
+
 // ── Savings ledger reconciliation ────────────────────────────────────
 function readLedgerTotals(): { delegation: number, cache: number, total: number, entries: number } {
   const empty = { delegation: 0, cache: 0, total: 0, entries: 0 }
@@ -1283,6 +1349,7 @@ export {
   FLOW_TODO_QUEUE_FILE,
   FLOW_DEDUP_FILE,
   ENFORCEMENT_COOLDOWN_FILE,
+  TODOS_FILE,
   AUTH_F,
   CREDIT_CACHE_F,
   REPORTS_DIR,
@@ -1482,6 +1549,11 @@ export {
   recordDelegation,
   recordCacheSaving,
   recordMissedContext7,
+  loadTodos,
+  saveTodos,
+  upsertTodo,
+  markTodoDone,
+  getTodos,
   readLedgerTotals,
   reconcileStateFromLedger,
   readLifetimeSavings,

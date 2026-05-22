@@ -6,16 +6,17 @@ import { classify, modelCostPerTurn, _refreshModel, TRINITY_BRAIN, TRINITY_MEDIU
 import { latestUserIntent } from "./chat-transform.js";
 import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, loadOptimizationMode, saveOptimizationMode, classifyTurnSimple } from "../turn-classify.js";
 import { saveReport } from "../reporting.js";
-import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, _modelLocked, _blackboxEnabled, reconcileStateFromLedger, safeJsonParse } from "../state.js";
+import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, _modelLocked, _blackboxEnabled, reconcileStateFromLedger, safeJsonParse, loadTodos } from "../state.js";
 import { loadSessionSlot, writeSessionSlot } from "../selection-manager.js";
-import { remoteCall } from "../api-client.js";
+import { remoteCall, isApiFallback } from "../api-client.js";
 import { SAVE_EST } from "../constants.js";
 let _cachedAutoMode = null;
 let _cachedAutoModeTs = 0;
 const AUTO_CACHE_TTL = 60000;
 async function apiAutoSelectMode(regime, stress) {
     const now = Date.now();
-    if (_cachedAutoMode && now - _cachedAutoModeTs < AUTO_CACHE_TTL) return _cachedAutoMode;
+    if (_cachedAutoMode && now - _cachedAutoModeTs < AUTO_CACHE_TTL)
+        return _cachedAutoMode;
     try {
         const res = await remoteCall('blackboxSelectMode', [regime, stress], null);
         if (res?.mode) {
@@ -23,7 +24,10 @@ async function apiAutoSelectMode(regime, stress) {
             _cachedAutoModeTs = now;
             return res.mode;
         }
-    } catch (e) { console.error("[vibeOS] apiAutoSelectMode error:", e.message); }
+    }
+    catch (e) {
+        console.error("[vibeOS] apiAutoSelectMode error:", e.message);
+    }
     return _cachedAutoMode || "balanced";
 }
 const USER_HOME = (() => { try {
@@ -129,6 +133,11 @@ async function _appendFooter(input, output, directory) {
             typeof output?.result === "string" ? output.result :
                 typeof output?.content === "string" ? output.content :
                     "";
+        if (!text || text.length < 50) {
+            if (messageID)
+                textCompletePainted.add(messageID);
+            return;
+        }
         const { ltTasks, ltCache, ltCost, count, sesTasks, sesEdit, sesCredit, sesC7, sesQuota, sesCache, sesTaskDelegations, sesDuration, sesRatePerHour, sesTrend, sesToolBreakdown, sesModelTurns, quality_avg } = readLifetimeSavings();
         const sessionSlot = loadSessionSlot(_OC_SID);
         const slot = sessionSlot || loadSelection().active_slot || "brain";
@@ -185,7 +194,6 @@ async function _appendFooter(input, output, directory) {
                 enfTagsFooter.push("[FLOW ON]");
             if (selNowFooter.tdd_enforce)
                 enfTagsFooter.push("[TDD ON]");
-            ;
             if (bbMode === "strict")
                 enfTagsFooter.push("[STRICT]");
         }
@@ -212,8 +220,9 @@ async function _appendFooter(input, output, directory) {
             const autoStress = scoreStress(latestUserIntent || "");
             const autoActive = await apiAutoSelectMode(autoRegime, autoStress);
             const autoTag = { audit: "AUDIT", budget: "BUDGET", quality: "QUALITY", speed: "SPEED", longrun: "LONGRUN", balanced: "BALANCED" };
-                            saveOptimizationMode(autoActive);
-                optTagFooter = `[VIBE→${autoTag[autoActive] || autoActive.toUpperCase()}]`;
+            const fb = isApiFallback() ? "\u26a1" : "";
+            optTagFooter = `[VIBE→${autoTag[autoActive] || autoActive.toUpperCase()}${fb}]`;
+            saveOptimizationMode(autoActive);
             const slot = autoActive === "quality" ? "brain" : autoActive === "speed" ? "medium" : "cheap";
             if (!_modelLocked) {
                 writeSessionSlot(_OC_SID, slot);
@@ -243,6 +252,9 @@ async function _appendFooter(input, output, directory) {
         let footerText;
         if (ltTotal > 0) {
             let savingsDisplay = `vibeOS: $${formatUsd(ltTotal)} saved up ${trendIcon}`;
+            const _todoCount = loadTodos().filter(t => t.status === "pending").length;
+            if (_todoCount > 0)
+                savingsDisplay += " | [" + _todoCount + " todo]";
             if (imputedMultiplier > 2) {
                 const imputedActual = ltTotal * imputedMultiplier;
                 savingsDisplay += ` ($${formatUsd(imputedActual)} actual)`;

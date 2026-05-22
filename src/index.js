@@ -20,13 +20,15 @@ __export(flow_enforcer_exports, {
   addFlowRule: () => addFlowRule,
   checkFlowRules: () => checkFlowRules,
   ensureProjectDocs: () => ensureProjectDocs,
+  getFlowTodos: () => getFlowTodos,
   getFlowWarns: () => getFlowWarns,
   getSessionFlowCounts: () => getSessionFlowCounts,
   recordFlowTodo: () => recordFlowTodo,
   resetAll: () => resetAll,
   resetForTest: () => resetForTest,
   resolveRulesPath: () => resolveRulesPath,
-  setFlowStateWriter: () => setFlowStateWriter
+  setFlowStateWriter: () => setFlowStateWriter,
+  syncFlowTodosToNative: () => syncFlowTodosToNative
 });
 import { readFileSync, existsSync, mkdirSync, writeFileSync, statSync, appendFileSync, renameSync } from "node:fs";
 import { join, dirname } from "node:path";
@@ -290,6 +292,37 @@ function recordFlowTodo({ filePath, content }) {
   } catch {
     return 0;
   }
+}
+function getFlowTodos() {
+  try {
+    if (!existsSync(FLOW_TODO_FILE))
+      return [];
+    const raw = readFileSync(FLOW_TODO_FILE, "utf-8").trim();
+    if (!raw)
+      return [];
+    return raw.split("\n").filter(Boolean).map((line) => safeJsonParse(line)).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+function syncFlowTodosToNative(upsertFn) {
+  const entries = getFlowTodos();
+  let count = 0;
+  for (const entry of entries) {
+    for (const todo of entry.todos || []) {
+      const priority = todo.type === "FIXME" ? "high" : todo.type === "HACK" ? "medium" : "low";
+      if (upsertFn) {
+        upsertFn({
+          content: `[${todo.type}] ${todo.text}`,
+          filePath: entry.filePath || "",
+          priority,
+          source: "flow"
+        });
+      }
+      count++;
+    }
+  }
+  return count;
 }
 var __dirname2, RULES_PATH, GUARD_AGENTS_TEMPLATE, GUARD_README_TEMPLATE, STATE_FILE, FLOW_TODO_FILE, FLOW_DEDUP_FILE, MAX_FLOW_TODOS, _flowWarnsSeen, _stateWriter, _cachedRules, _rulesMtime;
 var init_flow_enforcer = __esm({
@@ -1426,6 +1459,7 @@ var CREDIT_CACHE_F = join3(USER_HOME2, ".claude/credit-snapshot.json");
 var FLOW_TODO_QUEUE_FILE = join3(USER_HOME2, ".claude/.flow-todo-queue.jsonl");
 var FLOW_DEDUP_FILE2 = join3(USER_HOME2, ".claude/.flow-dedup-keys.json");
 var ENFORCEMENT_COOLDOWN_FILE = join3(USER_HOME2, ".claude/.enforcement-cooldown.jsonl");
+var TODOS_FILE = join3(USER_HOME2, ".claude/todos.json");
 var REPORTS_DIR = join3(USER_HOME2, ".claude/reports");
 var CONTEXT7_INSTALL_FLAG = join3(USER_HOME2, ".claude/.context7-install-suggested");
 var TRINITY_OPENCODE_CONFIG = join3(USER_HOME2, ".config/opencode/opencode.json");
@@ -2356,6 +2390,58 @@ function recordMissedContext7(saveEst) {
     return null;
   }
 }
+function loadTodos() {
+  try {
+    if (!existsSync3(TODOS_FILE))
+      return [];
+    const raw = readFileSync4(TODOS_FILE, "utf-8");
+    const parsed = safeJsonParse3(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+function saveTodos(todos) {
+  try {
+    mkdirSync3(dirname2(TODOS_FILE), { recursive: true });
+    const tmp = TODOS_FILE + ".tmp." + Date.now();
+    writeFileSync4(tmp, JSON.stringify(todos, null, 2), "utf-8");
+    renameSync3(tmp, TODOS_FILE);
+  } catch {
+  }
+}
+function upsertTodo(entry) {
+  const todos = loadTodos();
+  const existing = todos.findIndex((t) => t.content === entry.content && (entry.filePath ? t.filePath === entry.filePath : true));
+  const newEntry = {
+    id: entry.id || crypto.randomUUID?.() || "todo-" + Date.now(),
+    content: entry.content,
+    status: entry.status || "pending",
+    filePath: entry.filePath || "",
+    priority: entry.priority || "medium",
+    source: entry.source || "manual",
+    createdAt: entry.createdAt || (/* @__PURE__ */ new Date()).toISOString(),
+    updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  if (existing >= 0) {
+    todos[existing] = { ...todos[existing], ...newEntry, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
+  } else {
+    todos.push(newEntry);
+  }
+  saveTodos(todos);
+}
+function markTodoDone(id2) {
+  const todos = loadTodos();
+  const found = todos.find((t) => t.id === id2);
+  if (found) {
+    found.status = "done";
+    found.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+    saveTodos(todos);
+  }
+}
+function getTodos() {
+  return loadTodos();
+}
 function readLedgerTotals() {
   const empty = { delegation: 0, cache: 0, total: 0, entries: 0 };
   try {
@@ -2630,7 +2716,7 @@ var MODEL_USD_PER_TURN = {
   "haiku": 22e-4,
   // ── DeepSeek (OC platform + OpenRouter) ──────────────────
   "deepseek/deepseek-v4-pro": 57e-5,
-  "deepseek/deepseek-v4-flash": 0.00013,
+  "deepseek/deepseek-v4-flash": 182e-6,
   "deepseek/deepseek-chat": 0,
   "deepseek-chat": 0,
   "deepseek/deepseek-v3": 0,
@@ -4073,9 +4159,9 @@ function thinkingLevel(credit) {
 import { join as join9 } from "node:path";
 function createTrinityTool(deps) {
   return {
-    description: "Control the vibeOS plugin and active model slot. Use action='status' to see current state. Use action='enable' or 'disable' to toggle the plugin (takes effect immediately, no restart needed). Use action='set' with slot='brain'|'medium'|'cheap' to switch model tiers (writes opencode.json \u2014 active immediately). Use action='rebuild' to auto-detect available models from all configured providers and reassign brain/medium/cheap slots. Use action='flow' with slot='on'|'off' to toggle flow enforcer, or action='flow' alone for audit. Use action='flow' with slot='enforce' and level='on'|'off' to toggle auto-extract TODOs. Use action='enforce' with slot='on'|'off' to toggle delegation enforcement (blocks direct writes/edits on brain tier). Use action='tdd' with slot='on'|'off' to toggle auto-create test skeletons. Use action='tdd' with slot='strict' and level='on'|'off' to toggle strict failing TODO test templates. Use action='tdd' alone for audit. Use action='project' to show per-project analytics and optimization suggestions. Use action='patterns' to inspect learned project patterns or slot='clear' to clear them. Use action='guard' to ensure AGENTS.md and README.md exist and stay current. Use action='api-token' with token='<new_token>' to update the API token and re-enable remote control-vector. Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', 'trinity status'.",
+    description: "Control the vibeOS plugin and active model slot. Use action='status' to see current state. Use action='enable' or 'disable' to toggle the plugin (takes effect immediately, no restart needed). Use action='set' with slot='brain'|'medium'|'cheap' to switch model tiers (writes opencode.json \u2014 active immediately). Use action='rebuild' to auto-detect available models from all configured providers and reassign brain/medium/cheap slots. Use action='flow' with slot='on'|'off' to toggle flow enforcer, or action='flow' alone for audit. Use action='flow' with slot='enforce' and level='on'|'off' to toggle auto-extract TODOs. Use action='enforce' with slot='on'|'off' to toggle delegation enforcement (blocks direct writes/edits on brain tier). Use action='tdd' with slot='on'|'off' to toggle auto-create test skeletons. Use action='tdd' with slot='strict' and level='on'|'off' to toggle strict failing TODO test templates. Use action='tdd' alone for audit. Use action='project' to show per-project analytics and optimization suggestions. Use action='patterns' to inspect learned project patterns or slot='clear' to clear them. Use action='guard' to ensure AGENTS.md and README.md exist and stay current. Use action='api-token' with token='<new_token>' to update the API token and re-enable remote control-vector Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', 'trinity status'.",
     args: {
-      action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard", "api-token"]).optional(),
+      action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard", "api-token", "todo", "todo-done", "todo-sync"]).optional(),
       slot: deps.tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings"]).optional(),
       level: deps.tool.schema.enum(["full", "brief", "off", "on"]).optional(),
       token: deps.tool.schema.string().optional()
@@ -4193,7 +4279,8 @@ function createTrinityTool(deps) {
         const auth = deps._readAuth();
         try {
           const ok = await deps.probeModel(targetModel, auth);
-          if (!ok) console.error("[vibeOS] WARN: " + targetModel + " probe failed - switching anyway");
+          if (!ok)
+            console.error("[vibeOS] WARN: " + targetModel + " probe failed - switching anyway");
         } catch (e) {
           console.error("[vibeOS] WARN: probe error for " + targetModel + ": " + e.message + " - switching anyway");
         }
@@ -4622,8 +4709,34 @@ ${L.repeat(40)}`);
         lines.push("README.md: auto-maintained feature documentation \u2014 keep it updated.");
         return lines.join("\n");
       }
+      if (action === "todo") {
+        const todos = deps.loadTodos();
+        const pending = todos.filter((t) => t.status === "pending");
+        if (pending.length === 0)
+          return "No pending todos.";
+        const lines = ["Pending todos: " + pending.length];
+        for (const t of pending.slice(0, 20)) {
+          lines.push("  #" + (t.id || "").slice(0, 8) + " [" + t.priority + "] " + (t.content || "").slice(0, 60));
+        }
+        if (pending.length > 20)
+          lines.push("  ... and " + (pending.length - 20) + " more");
+        return lines.join("\n");
+      }
+      if (action === "todo-done") {
+        if (!slot)
+          return "Usage: trinity todo-done <id>\nMark a todo as done by its ID.";
+        deps.markTodoDone(slot);
+        return "Todo " + slot + " marked done.";
+      }
+      if (action === "todo-sync") {
+        const count = deps.syncFlowTodosToNative((entry) => {
+          deps.upsertTodo(entry);
+        });
+        return "Synced " + count + " flow TODO(s) to native todo list.";
+      }
       if (action === "api-token") {
-        if (!token) return "Usage: trinity api-token <token>\nProvide a valid VIBEOS_API_TOKEN to enable remote control-vector computation.";
+        if (!token)
+          return "Usage: trinity api-token <token>\nProvide a valid VIBEOS_API_TOKEN to enable remote control-vector computation.";
         deps.setApiToken(token);
         return "[vibeOS] API token updated. Remote API re-enabled.";
       }
@@ -4978,6 +5091,7 @@ ${L.repeat(40)}`);
           "  trinity flow on/off       Toggle flow enforcer (code quality checks)",
           "  trinity tdd on/off        Toggle auto test skeleton creation",
           "  trinity guard             Ensure AGENTS.md/README.md exist and are current",
+          "  trinity api-token        Update VIBEOS_API_TOKEN and re-enable remote API",
           "  trinity api-token        Update VIBEOS_API_TOKEN and re-enable remote API",
           "  trinity flow              Show flow violations this session",
           "",
@@ -5599,7 +5713,8 @@ var SAVE_EST = {
 };
 var WARN_ON_DIRECT = /* @__PURE__ */ new Set(["write", "edit", "notebookedit"]);
 var SOFT_QUOTA = /* @__PURE__ */ new Set(["bash", "glob", "grep", "read", "webfetch", "websearch"]);
-var FREE = /* @__PURE__ */ new Set(["todowrite", "question", "skill", "trinity", "report-list", "report-read", "report-save", "research-audit"]);
+var FREE = /* @__PURE__ */ new Set(["question", "skill", "trinity", "report-list", "report-read", "report-save", "research-audit"]);
+var MONITOR = /* @__PURE__ */ new Set(["todowrite"]);
 var COMPRESS_THRESHOLD2 = 2e3;
 var KEEP_HOT = 10;
 var COMPRESS_MARKER = "[ctx-compressed-v1]";
@@ -5619,7 +5734,8 @@ var correctionSeenKeys = /* @__PURE__ */ new Set();
 async function apiComputeControlVector(state, action, optimizationMode) {
   try {
     const res = await remoteCall("blackboxControlVector", [state, action, optimizationMode], null);
-    if (res?.control_vector) return res.control_vector;
+    if (res?.control_vector)
+      return res.control_vector;
   } catch {
   }
   const opt = (optimizationMode || "balanced").toLowerCase();
@@ -5643,24 +5759,32 @@ async function apiComputeControlVector(state, action, optimizationMode) {
   };
 }
 function observeUserCorrection(text) {
-  if (!text || typeof text !== "string") return;
+  if (!text || typeof text !== "string")
+    return;
   try {
     const t = text.toLowerCase();
     const corrections = [];
     if (/wrong\b|that.s wrong|incorrect|not what i|didn.t mean|misunderstood/i.test(t)) {
-      if (/\bimport\b|require\b|from\b|path\b|module\b/i.test(t)) corrections.push("correction:imports");
-      if (/\bfunction\b|logic\b|algorithm\b|calculation\b|formula\b|return\b|result\b/i.test(t) && !corrections.includes("correction:imports")) corrections.push("correction:logic");
-      if (/\brename\b|variable\b|const\b|let\b|var\b|name\b|called\b/i.test(t) && !corrections.includes("correction:logic")) corrections.push("correction:naming");
-      if (/\bdelete\b|remove\b|get rid\b|revert\b|undo\b|rollback\b/i.test(t)) corrections.push("correction:deletion");
-      if (/\brestructure\b|refactor\b|reorganize\b|move\b|split\b|extract\b/i.test(t) && !corrections.includes("correction:deletion")) corrections.push("correction:restructure");
-      if (corrections.length === 0) corrections.push("correction:general");
+      if (/\bimport\b|require\b|from\b|path\b|module\b/i.test(t))
+        corrections.push("correction:imports");
+      if (/\bfunction\b|logic\b|algorithm\b|calculation\b|formula\b|return\b|result\b/i.test(t) && !corrections.includes("correction:imports"))
+        corrections.push("correction:logic");
+      if (/\brename\b|variable\b|const\b|let\b|var\b|name\b|called\b/i.test(t) && !corrections.includes("correction:logic"))
+        corrections.push("correction:naming");
+      if (/\bdelete\b|remove\b|get rid\b|revert\b|undo\b|rollback\b/i.test(t))
+        corrections.push("correction:deletion");
+      if (/\brestructure\b|refactor\b|reorganize\b|move\b|split\b|extract\b/i.test(t) && !corrections.includes("correction:deletion"))
+        corrections.push("correction:restructure");
+      if (corrections.length === 0)
+        corrections.push("correction:general");
     }
     if (corrections.length === 0 && /\bshould be\b|change .+ to\b|replace .+ with\b|instead of\b/i.test(t)) {
       corrections.push("correction:general");
     }
     for (const c of corrections) {
       const sessionKey = `friction:${c}`;
-      if (correctionSeenKeys.has(sessionKey)) continue;
+      if (correctionSeenKeys.has(sessionKey))
+        continue;
       correctionSeenKeys.add(sessionKey);
       try {
         noteProjectPattern("friction", c, `User corrected ${c.replace("correction:", "")} in a follow-up message.`, { family: c });
@@ -5672,10 +5796,11 @@ function observeUserCorrection(text) {
 }
 function buildProjectBriefing(directory3) {
   const label = currentProjectName || (directory3 ? basename7(directory3) : "");
-  if (!label) return null;
+  if (!label)
+    return null;
   return `[project memory] Active project: ${label}. Stay focused on the current repository and prefer the existing workflow.`;
 }
-function ensureProjectSkill(dir, fp22) {
+function ensureProjectSkill(dir, fp3) {
   const skillsDir = join12(dir, ".opencode", "skills");
   const projectName = basename7(dir);
   const skillDir = join12(skillsDir, projectName);
@@ -5683,7 +5808,7 @@ function ensureProjectSkill(dir, fp22) {
   if (existsSync10(skillPath)) {
     return { created: false, skipped: true, path: skillPath };
   }
-  const promoted = promotedProjectPatterns(fp22);
+  const promoted = promotedProjectPatterns(fp3);
   if (!promoted || promoted.length === 0) {
     return { created: false, skipped: false };
   }
@@ -5752,15 +5877,19 @@ function ensureProjectSkill(dir, fp22) {
   }
 }
 function syncControlSettings(cv) {
-  if (!cv) return;
+  if (!cv)
+    return;
   try {
     const sid = _OC_SID5;
     const writeIf = (key, val) => {
       const sel = loadSelection();
-      if (sel[key] !== val) writeSelection(key, val);
+      if (sel[key] !== val)
+        writeSelection(key, val);
     };
-    if (cv.enforcement_mode === "relaxed") writeIf("delegation_enforce", false);
-    else writeIf("delegation_enforce", true);
+    if (cv.enforcement_mode === "relaxed")
+      writeIf("delegation_enforce", false);
+    else
+      writeIf("delegation_enforce", true);
     if (cv.flow_mode === "audit") {
       writeIf("flow_enabled", false);
       writeIf("flow_enforce", false);
@@ -5775,7 +5904,8 @@ function syncControlSettings(cv) {
       writeIf("tdd_enforce", true);
       writeIf("tdd_strict", cv.tdd_mode === "strict");
     }
-    if (cv.thinking_mode) writeIf("thinking_level", cv.thinking_mode);
+    if (cv.thinking_mode)
+      writeIf("thinking_level", cv.thinking_mode);
     const userOptMode = loadSessionSlot(sid + "_opt") || loadOptimizationMode();
     if (cv.optimization_mode && userOptMode !== "auto") {
       if (userOptMode !== cv.optimization_mode) {
@@ -5833,23 +5963,30 @@ function syncControlSettings(cv) {
   }
 }
 var onMessagesTransform = async (_input, output) => {
-  if (!loadSelection().enabled) return;
+  if (!loadSelection().enabled)
+    return;
   try {
     const messages = output?.messages;
-    if (!Array.isArray(messages)) return;
+    if (!Array.isArray(messages))
+      return;
     const hotStart = Math.max(0, messages.length - KEEP_HOT);
     let compressedBytes = 0;
     for (let i = 0; i < messages.length; i++) {
       const { info, parts } = messages[i];
-      if (!Array.isArray(parts)) continue;
+      if (!Array.isArray(parts))
+        continue;
       const isCold = i < hotStart;
       for (const part of parts) {
-        if (part?.type !== "tool") continue;
+        if (part?.type !== "tool")
+          continue;
         const state = part.state;
-        if (state?.status !== "completed") continue;
+        if (state?.status !== "completed")
+          continue;
         const raw = state.output;
-        if (!raw || typeof raw !== "string" || raw.length < COMPRESS_THRESHOLD2) continue;
-        if (raw.includes(COMPRESS_MARKER)) continue;
+        if (!raw || typeof raw !== "string" || raw.length < COMPRESS_THRESHOLD2)
+          continue;
+        if (raw.includes(COMPRESS_MARKER))
+          continue;
         const hash = createHash4("sha256").update(`tool_result
 ${raw}
 `).digest("hex").slice(0, 16);
@@ -5864,7 +6001,8 @@ ${raw}
           console.error(`[vibeOS] ctx-compress write failed: ${err.message}`);
           continue;
         }
-        if (!isCold) continue;
+        if (!isCold)
+          continue;
         const summary = raw.slice(0, 200).replace(/\n+/g, " ").trim() + (raw.length > 200 ? "\u2026" : "");
         const ref = `${COMPRESS_MARKER} [${raw.length} chars compressed \u2014 cold storage at ${fullPath}] [summary] ${summary}`;
         state.output = ref;
@@ -5877,13 +6015,17 @@ ${raw}
     }
     for (let i = 0; i < messages.length - 1; i++) {
       const { info, parts } = messages[i];
-      if (!Array.isArray(parts)) continue;
+      if (!Array.isArray(parts))
+        continue;
       const hasTask = parts.some((p) => p?.type === "tool" && p?.tool === "task" && p?.state?.status === "completed");
-      if (!hasTask) continue;
+      if (!hasTask)
+        continue;
       const nextMsg = messages[i + 1];
-      if (!Array.isArray(nextMsg?.parts)) continue;
+      if (!Array.isArray(nextMsg?.parts))
+        continue;
       const alreadyHas = nextMsg.parts.some((p) => p?.type === "text" && p?.text?.includes(PROTOCOL_MARKER));
-      if (alreadyHas) continue;
+      if (alreadyHas)
+        continue;
       const textPart = nextMsg.parts.find((p) => p?.type === "text");
       if (textPart) {
         textPart.text = textPart.text + "\n\n" + PROTOCOL_TEXT;
@@ -5905,7 +6047,8 @@ ${raw}
             const sid = _OC_SID5;
             const serialized = tracker.serialize();
             serialized.project_fingerprint = currentProjectFingerprint4 || "";
-            if (!state.sessions[sid]) state.sessions[sid] = {};
+            if (!state.sessions[sid])
+              state.sessions[sid] = {};
             state.sessions[sid].control_history ??= [];
             const st = scoreStress(latestUserIntent);
             if (st) {
@@ -5913,11 +6056,7 @@ ${raw}
               saveSessionStress(st, st > 1.5 ? "critical" : st > 0.7 ? "elevated" : st > 0.3 ? "moderate" : "none");
             }
             const cv = await apiComputeControlVector(localState, void 0, loadOptimizationMode());
-            state.sessions[sid].control_history.push(buildControlHistoryEntry(
-              state.sessions[sid].control_history.length + 1,
-              localState.sub_regime || "INIT",
-              cv
-            ));
+            state.sessions[sid].control_history.push(buildControlHistoryEntry(state.sessions[sid].control_history.length + 1, localState.sub_regime || "INIT", cv));
             if (state.sessions[sid].control_history.length > 100) {
               state.sessions[sid].control_history = state.sessions[sid].control_history.slice(-100);
             }
@@ -5925,7 +6064,8 @@ ${raw}
             saveBlackboxState(state);
             _latestBlackboxState3 = localState;
             fetchBlackboxEnrichment(sid, localState).then((enriched) => {
-              if (enriched) _latestBlackboxState3 = enriched;
+              if (enriched)
+                _latestBlackboxState3 = enriched;
             }).catch(() => {
             });
           }
@@ -5938,17 +6078,20 @@ ${raw}
   }
 };
 var onSystemTransform = async (_input, output) => {
-  if (!loadSelection().enabled) return;
+  if (!loadSelection().enabled)
+    return;
   try {
     if (!latestUserIntent) {
       const userText = extractLastUserText(_input) || extractLastUserText(output);
       latestUserIntent = typeof userText === "string" ? userText : null;
     }
-    if (latestUserIntent) observeUserCorrection(latestUserIntent);
+    if (latestUserIntent)
+      observeUserCorrection(latestUserIntent);
     let _controlVector = null;
     if (_latestBlackboxState3) {
       const st = latestUserIntent ? scoreStress(latestUserIntent) : 0;
-      if (st) _latestBlackboxState3.latest_stress_multiplier = st;
+      if (st)
+        _latestBlackboxState3.latest_stress_multiplier = st;
       _controlVector = await apiComputeControlVector(_latestBlackboxState3, void 0, loadOptimizationMode());
     } else if (latestUserIntent) {
       const st = scoreStress(latestUserIntent);
@@ -5967,7 +6110,8 @@ var onSystemTransform = async (_input, output) => {
         off: `[thinking policy] Reasoning depth: OFF (manually set, ${creditNote}). Skip extended thinking entirely. Respond directly and concisely. Every thinking token costs money \u2014 save it for when the user explicitly asks.`
       };
       const d = directives[explicitLevel];
-      if (d) output.system.push(d);
+      if (d)
+        output.system.push(d);
     }
     if (Array.isArray(output?.system)) {
       output.system.push(c7directive);
@@ -5976,31 +6120,33 @@ var onSystemTransform = async (_input, output) => {
       const stressMult = _controlVector?.stress_multiplier ?? 1;
       const _s = scoreStress(latestUserIntent) * stressMult;
       if (_s > 0.7) {
-        if (Array.isArray(output?.system)) output.system.push(
-          "[stress mitigation: CRITICAL] The user's message shows very high stress indicators. Stay calm, structured, and thorough. Use proper markdown formatting with code blocks, lists, and organized structure \u2014 do NOT mirror the user's tone or brevity. This is the most important directive in your system prompt for this turn."
-        );
+        if (Array.isArray(output?.system))
+          output.system.push("[stress mitigation: CRITICAL] The user's message shows very high stress indicators. Stay calm, structured, and thorough. Use proper markdown formatting with code blocks, lists, and organized structure \u2014 do NOT mirror the user's tone or brevity. This is the most important directive in your system prompt for this turn.");
       } else if (_s > 0.4) {
-        if (Array.isArray(output?.system)) output.system.push(
-          "[stress mitigation: elevated] The user's message has elevated stress indicators. Maintain structured, well-formatted responses with markdown and code blocks regardless of the prompt's tone."
-        );
+        if (Array.isArray(output?.system))
+          output.system.push("[stress mitigation: elevated] The user's message has elevated stress indicators. Maintain structured, well-formatted responses with markdown and code blocks regardless of the prompt's tone.");
       }
     }
     if (_controlVector && _controlVector.directives.length > 0) {
       for (const directive of _controlVector.directives) {
-        if (Array.isArray(output?.system)) output.system.push(directive);
+        if (Array.isArray(output?.system))
+          output.system.push(directive);
       }
     } else if (_blackboxEnabled && _latestBlackboxState3 && _latestBlackboxState3.n_interactions > 0) {
       try {
         const res = _latestBlackboxState3;
         const decisionDirective = `[decision engine] Current resolution: ${res.resolution || "unresolved"} (${res.sub_regime || "EXPLORING"}). Momentum: ${(res.momentum || 0) > 0 ? "positive" : (res.momentum || 0) < 0 ? "negative" : "neutral"}. When offering guidance, consider the current resolution state \u2014 if looping or divergent, suggest stepping back; if converging or closed, support decisive action.`;
-        if (Array.isArray(output?.system)) output.system.push(decisionDirective);
+        if (Array.isArray(output?.system))
+          output.system.push(decisionDirective);
         if (res.is_looping && res.loop_intervention_level && res.loop_intervention_level !== "none") {
           const severity = res.loop_intervention_level === "escalated" ? "CRITICAL" : res.loop_intervention_level === "assertive" ? "WARNING" : "NOTICE";
           const loopDirective = `[loop prevention: ${severity}] ${_latestBlackboxLoopMsg2 || "The conversation may be looping \u2014 try a different approach."} (level: ${res.loop_intervention_level})`;
-          if (Array.isArray(output?.system)) output.system.push(loopDirective);
+          if (Array.isArray(output?.system))
+            output.system.push(loopDirective);
         }
         if (res.pivot_detected && _latestBlackboxPivotMsg2) {
-          if (Array.isArray(output?.system)) output.system.push(`[context switch: PIVOT] ${_latestBlackboxPivotMsg2}`);
+          if (Array.isArray(output?.system))
+            output.system.push(`[context switch: PIVOT] ${_latestBlackboxPivotMsg2}`);
         }
       } catch {
       }
@@ -6008,7 +6154,8 @@ var onSystemTransform = async (_input, output) => {
     const projectJob = getActiveJobForProject();
     if (latestUserIntent && projectJob && isLikelyOffTopic(latestUserIntent, projectJob)) {
       const offTopicDirective = `[job-focus] Active job context exists: "${(projectJob.prompt || "").slice(0, 140)}...". The latest user request appears off-topic relative to this running job. Before taking write/edit/task actions, ask one concise confirmation question to validate switching scope.`;
-      if (Array.isArray(output?.system)) output.system.push(offTopicDirective);
+      if (Array.isArray(output?.system))
+        output.system.push(offTopicDirective);
       console.error("[vibeOS] [job-focus] off-topic request detected vs active job context");
     }
     if (sel.delegation_enforce && _controlVector?.enforcement_mode !== "relaxed" && _controlVector?.agent_mode !== "plan" && Array.isArray(output?.system)) {
@@ -6025,9 +6172,7 @@ var onSystemTransform = async (_input, output) => {
       output.system.push(orcDirective);
     }
     if (_controlVector?.enforcement_mode !== "relaxed" && _controlVector?.agent_mode !== "plan" && Array.isArray(output?.system)) {
-      output.system.push(
-        "[batch execution] When you need to run multiple independent Task subagent calls, invoke them ALL in parallel rather than sequentially. Parallel tasks complete faster and reduce total session cost. Only sequence tasks when one depends on the output of another."
-      );
+      output.system.push("[batch execution] When you need to run multiple independent Task subagent calls, invoke them ALL in parallel rather than sequentially. Parallel tasks complete faster and reduce total session cost. Only sequence tasks when one depends on the output of another.");
     }
     if (sel.tdd_enforce && _controlVector?.tdd_mode !== "lazy" && Array.isArray(output?.system)) {
       const tddMode = _controlVector?.tdd_mode || (sel.tdd_strict ? "strict" : "normal");
@@ -6038,31 +6183,29 @@ var onSystemTransform = async (_input, output) => {
         quality: " QUALITY mode: Full coverage including edge cases."
       };
       const focusNote = tddFocus.length > 0 ? ` Focus: ${tddFocus.join(", ")}.` : "";
-      output.system.push(
-        `[tdd enforcement: ${tddMode}] Auto-create skeleton tests for source files being written/edited.${modeNotes[tddMode] || ""}${focusNote} When creating or modifying source files, ensure corresponding test files exist with proper assertions.`
-      );
+      output.system.push(`[tdd enforcement: ${tddMode}] Auto-create skeleton tests for source files being written/edited.${modeNotes[tddMode] || ""}${focusNote} When creating or modifying source files, ensure corresponding test files exist with proper assertions.`);
     }
     if (sel.flow_enabled && _controlVector?.flow_mode !== "audit" && Array.isArray(output?.system)) {
       const flowMode = _controlVector?.flow_mode || (sel.flow_enforce ? "normal" : "audit");
       const flowFocus = _controlVector?.flow_focus || [];
       const enforceNote = sel.flow_enforce ? " TODO/FIXME extraction is active." : "";
       const focusNote = flowFocus.length > 0 ? ` Focus rules: ${flowFocus.join(", ")}.` : "";
-      output.system.push(
-        `[flow enforcement: ${flowMode}] Development flow rules are active: write/edit operations are checked against project conventions.${enforceNote}${focusNote} Follow existing code patterns, naming conventions, and project structure.`
-      );
+      output.system.push(`[flow enforcement: ${flowMode}] Development flow rules are active: write/edit operations are checked against project conventions.${enforceNote}${focusNote} Follow existing code patterns, naming conventions, and project structure.`);
+      if (sel.flow_enforce && Array.isArray(output?.system)) {
+        const pendingTodos = loadTodos().filter((t) => t.status === "pending").length;
+        if (pendingTodos > 0) {
+          output.system.push("[vibeOS] " + pendingTodos + " extracted TODO/FIXME items are pending. Consider calling `todowrite` to add them to the native task list.");
+        }
+      }
     }
     if (Array.isArray(output?.system)) {
-      output.system.push(
-        "[project guard: CRITICAL] AGENTS.md and README.md are protected by vibeOS. Do NOT modify either file without explicit user permission. When implementing new features, update README.md to document them. AGENTS.md defines that AI agents must ask before changing code \u2014 respect this rule."
-      );
+      output.system.push("[project guard: CRITICAL] AGENTS.md and README.md are protected by vibeOS. Do NOT modify either file without explicit user permission. When implementing new features, update README.md to document them. AGENTS.md defines that AI agents must ask before changing code \u2014 respect this rule.");
     }
     if (Array.isArray(output?.system)) {
       const ctxBudget = estimateContextBudget(_input, output);
       if (ctxBudget && ctxBudget.pct > 70) {
         const severity = ctxBudget.pct > 90 ? "CRITICAL" : "WARNING";
-        output.system.push(
-          `[context budget: ${severity}] Context window is ${ctxBudget.pct}% full (~${ctxBudget.estimatedTokens} tokens). Consider using Task subagents for heavy work, compressing tool outputs, or starting a new session to avoid context overflow.`
-        );
+        output.system.push(`[context budget: ${severity}] Context window is ${ctxBudget.pct}% full (~${ctxBudget.estimatedTokens} tokens). Consider using Task subagents for heavy work, compressing tool outputs, or starting a new session to avoid context overflow.`);
       }
     }
     if (!briefedProjects.has(fp)) {
@@ -6090,9 +6233,7 @@ var onSystemTransform = async (_input, output) => {
     }
     if (!briefedProjects.has("vibeos_dashboard_instruct")) {
       if (Array.isArray(output?.system)) {
-        output.system.push(
-          "[vibeOS dashboard display] When the trinity tool returns output starting with '[vibeOS-dashboard]', you MUST use the question tool to display that data in a clean, human-readable format. Use the question field (not the header) to show the dashboard data. Format it with clear sections separated by blank lines, aligned columns with spaces, and plain text only (no emojis, no markdown). The header should be 'vibeOS Dashboard'. Include only one option in options: {label: 'Dismiss', description: ''}. Strip the '[vibeOS-dashboard]' marker line before displaying."
-        );
+        output.system.push("[vibeOS dashboard display] When the trinity tool returns output starting with '[vibeOS-dashboard]', you MUST use the question tool to display that data in a clean, human-readable format. Use the question field (not the header) to show the dashboard data. Format it with clear sections separated by blank lines, aligned columns with spaces, and plain text only (no emojis, no markdown). The header should be 'vibeOS Dashboard'. Include only one option in options: {label: 'Dismiss', description: ''}. Strip the '[vibeOS-dashboard]' marker line before displaying.");
         briefedProjects.add("vibeos_dashboard_instruct");
       }
     }
@@ -6107,7 +6248,8 @@ var _cachedAutoModeTs = 0;
 var AUTO_CACHE_TTL = 6e4;
 async function apiAutoSelectMode(regime, stress) {
   const now = Date.now();
-  if (_cachedAutoMode && now - _cachedAutoModeTs < AUTO_CACHE_TTL) return _cachedAutoMode;
+  if (_cachedAutoMode && now - _cachedAutoModeTs < AUTO_CACHE_TTL)
+    return _cachedAutoMode;
   try {
     const res = await remoteCall("blackboxSelectMode", [regime, stress], null);
     if (res?.mode) {
@@ -6212,6 +6354,11 @@ async function _appendFooter(input, output, directory3) {
     if (messageID && textCompletePainted.has(messageID))
       return;
     const text = typeof output?.text === "string" ? output.text : typeof output?.result === "string" ? output.result : typeof output?.content === "string" ? output.content : "";
+    if (!text || text.length < 50) {
+      if (messageID)
+        textCompletePainted.add(messageID);
+      return;
+    }
     const { ltTasks, ltCache, ltCost, count, sesTasks, sesEdit, sesCredit, sesC7, sesQuota, sesCache, sesTaskDelegations, sesDuration, sesRatePerHour, sesTrend, sesToolBreakdown, sesModelTurns, quality_avg } = readLifetimeSavings2();
     const sessionSlot = loadSessionSlot(_OC_SID6);
     const slot = sessionSlot || loadSelection3().active_slot || "brain";
@@ -6265,7 +6412,6 @@ async function _appendFooter(input, output, directory3) {
         enfTagsFooter.push("[FLOW ON]");
       if (selNowFooter.tdd_enforce)
         enfTagsFooter.push("[TDD ON]");
-      ;
       if (bbMode === "strict")
         enfTagsFooter.push("[STRICT]");
     }
@@ -6291,8 +6437,9 @@ async function _appendFooter(input, output, directory3) {
       const autoStress = scoreStress(latestUserIntent || "");
       const autoActive = await apiAutoSelectMode(autoRegime, autoStress);
       const autoTag = { audit: "AUDIT", budget: "BUDGET", quality: "QUALITY", speed: "SPEED", longrun: "LONGRUN", balanced: "BALANCED" };
+      const fb = isApiFallback() ? "\u26A1" : "";
+      optTagFooter = `[VIBE\u2192${autoTag[autoActive] || autoActive.toUpperCase()}${fb}]`;
       saveOptimizationMode(autoActive);
-      optTagFooter = `[VIBE\u2192${autoTag[autoActive] || autoActive.toUpperCase()}]`;
       const slot2 = autoActive === "quality" ? "brain" : autoActive === "speed" ? "medium" : "cheap";
       if (!_modelLocked) {
         writeSessionSlot(_OC_SID6, slot2);
@@ -6320,6 +6467,9 @@ async function _appendFooter(input, output, directory3) {
     let footerText;
     if (ltTotal > 0) {
       let savingsDisplay = `vibeOS: $${formatUsd(ltTotal)} saved up ${trendIcon}`;
+      const _todoCount = loadTodos().filter((t) => t.status === "pending").length;
+      if (_todoCount > 0)
+        savingsDisplay += " | [" + _todoCount + " todo]";
       if (imputedMultiplier > 2) {
         const imputedActual = ltTotal * imputedMultiplier;
         savingsDisplay += ` ($${formatUsd(imputedActual)} actual)`;
@@ -7707,25 +7857,27 @@ var softQuotaCounts = {};
 var context7AlertedThisSession = false;
 var context7Seen = /* @__PURE__ */ new Set();
 var _autoReportCount2 = 0;
+var _pendingTodoArgs = null;
 var setToolDirectory = (dir) => {
   projectDirectory = dir || "";
 };
 var onToolExecuteBefore = async (input, output) => {
-  if (!loadSelection().enabled) return;
+  if (!loadSelection().enabled)
+    return;
   _refreshModel(projectDirectory);
   const t = input?.tool ?? "";
   const args = output?.args;
   const inArgs = input?.args;
-  let _cacheSave2 = 0;
-  let _prompt2 = "";
+  let _cacheSave = 0;
+  let _prompt = "";
   if (SCRATCHPAD_TOOLS.has(t)) {
     const hit = getScratchpadHit(t, args);
     if (hit && !scratchpadHitsSeen2.has(hit.hash)) {
       scratchpadHitsSeen2.add(hit.hash);
       const total = recordScratchpadObservation();
       const _inputTokens = Math.max(1, Math.round(hit.sizeBytes / BYTES_PER_TOKEN));
-      _cacheSave2 = Math.round(_inputTokens * CACHE_SAVED_PER_1M_INPUT_TOKENS / 1e6 * 1e3) / 1e3;
-      const cacheSaved = recordCacheSaving(t, _cacheSave2, { hash: hit.hash });
+      _cacheSave = Math.round(_inputTokens * CACHE_SAVED_PER_1M_INPUT_TOKENS / 1e6 * 1e3) / 1e3;
+      const cacheSaved = recordCacheSaving(t, _cacheSave, { hash: hit.hash });
       const sumNote = hit.summaryPath ? ` (summary: ${hit.summaryPath})` : "";
       const cacheNote = cacheSaved ? `, cache+$${(cacheSaved.lifetime || 0).toFixed(3)} lt` : "";
       console.error(`[vibeOS] \u{1F4E6} scratchpad hit for ${t}: ${hit.fullPath} ${hit.sizeBytes}B ${hit.ageSec}s old${sumNote} \u2014 total observed: ${total ?? "?"}${cacheNote}`);
@@ -7737,7 +7889,7 @@ var onToolExecuteBefore = async (input, output) => {
         if (promptText) {
           const keyStr = `${t}:${String(promptText).slice(0, 120)}`;
           addCacheEntry(_cacheDb, hit ? hit.hash : hashQuery(keyStr), t, promptText, hit ? hit.sizeBytes : 0, hit ? hit.ageSec : 0);
-          recordCacheStats(_cacheDb, t, !!hit, hit ? _cacheSave2 : 0);
+          recordCacheStats(_cacheDb, t, !!hit, hit ? _cacheSave : 0);
           if (!hit) {
             const prediction = predictCacheHit(_cacheDb, t, promptText);
             if (prediction.shouldWarm && prediction.confidence >= 0.6) {
@@ -7760,9 +7912,10 @@ var onToolExecuteBefore = async (input, output) => {
   }
   if (t === "task" && currentModel && (args && typeof args === "object" || inArgs && typeof inArgs === "object")) {
     const targetArgs = args ? args : input?.args ? input.args : {};
-    _prompt2 = (targetArgs?.prompt ?? "").trim().toLowerCase();
-    if (typeof targetArgs?.prompt === "string") setActiveJobFromTaskPrompt(targetArgs.prompt);
-    const _firstWord2 = _prompt2.split(/\s+/)[0];
+    _prompt = (targetArgs?.prompt ?? "").trim().toLowerCase();
+    if (typeof targetArgs?.prompt === "string")
+      setActiveJobFromTaskPrompt(targetArgs.prompt);
+    const _firstWord2 = _prompt.split(/\s+/)[0];
     const BASE_EXPLORATORY = /* @__PURE__ */ new Set(["check", "find", "list", "search", "does", "verify", "look", "count", "show", "get", "read", "grep", "scan", "detect", "inspect"]);
     const LEARNED_EXPLORATORY = getLearnedExploratoryWords();
     const EXPLORATORY = /* @__PURE__ */ new Set([...BASE_EXPLORATORY, ...LEARNED_EXPLORATORY]);
@@ -7770,7 +7923,7 @@ var onToolExecuteBefore = async (input, output) => {
     const _tierTarget = currentTier === "high" && TRINITY_MEDIUM && TRINITY_MEDIUM !== currentModel ? TRINITY_MEDIUM : TRINITY_CHEAP && TRINITY_CHEAP !== currentModel ? TRINITY_CHEAP : null;
     let _target = _exploratoryTarget ?? _tierTarget;
     const stressScore = latestUserIntent ? scoreStress(latestUserIntent) : 0;
-    const apiRoute = await remoteCall("routeModel", [_prompt2, currentTier, TRINITY_CHEAP, TRINITY_MEDIUM, LEARNED_EXPLORATORY, stressScore], null);
+    const apiRoute = await remoteCall("routeModel", [_prompt, currentTier, TRINITY_CHEAP, TRINITY_MEDIUM, LEARNED_EXPLORATORY, stressScore], null);
     if (apiRoute?.target) {
       _target = apiRoute.target;
     } else if (_target === TRINITY_CHEAP && TRINITY_MEDIUM) {
@@ -7781,8 +7934,8 @@ var onToolExecuteBefore = async (input, output) => {
     }
     if (ML_ENABLED) {
       try {
-        const mlDifficulty = computeDifficulty(_prompt2);
-        const mlHash = hashQuery(_prompt2);
+        const mlDifficulty = computeDifficulty(_prompt);
+        const mlHash = hashQuery(_prompt);
         const mlGraphPrediction = predictBestModel(_mlGraph, _firstWord2, currentTier);
         if (mlDifficulty.confidence >= ML_CONFIDENCE_THRESHOLD && mlDifficulty.level !== "moderate") {
           const mlTarget = mlDifficulty.suggestedTier === "cheap" ? TRINITY_CHEAP : mlDifficulty.suggestedTier === "medium" ? TRINITY_MEDIUM : null;
@@ -7816,11 +7969,13 @@ var onToolExecuteBefore = async (input, output) => {
         console.error(`[vibeOS] ML router error: ${mlErr.message}`);
       }
     }
-    if (_target) noteTaskRoutingLearning(_firstWord2, _target, _exploratoryTarget ? "exploratory" : `tier:${currentTier}`);
+    if (_target)
+      noteTaskRoutingLearning(_firstWord2, _target, _exploratoryTarget ? "exploratory" : `tier:${currentTier}`);
     if (_target && targetArgs?.model !== _target) {
       const _reason = _exploratoryTarget ? `exploratory ('${_firstWord2}')` : `tier=${currentTier}`;
       const _setModel = (obj) => {
-        if (!obj || typeof obj !== "object") return;
+        if (!obj || typeof obj !== "object")
+          return;
         obj.model = _target;
         obj.modelID = _target;
         obj.modelId = _target;
@@ -7847,8 +8002,15 @@ var onToolExecuteBefore = async (input, output) => {
       console.error(`[vibeOS] \u{1F500} Task \u2192 ${_target} (${_reason}, orchestrator: ${currentModel})`);
     }
   }
-  if (FREE.has(t)) return;
-  if (isModelFree(currentModel)) return;
+  if (FREE.has(t))
+    return;
+  if (MONITOR.has(t)) {
+    const todosArg = args?.todos || inArgs?.todos || [];
+    _pendingTodoArgs = Array.isArray(todosArg) ? todosArg : [todosArg];
+    return;
+  }
+  if (isModelFree(currentModel))
+    return;
   const _brainCost = modelCostPerTurn(currentModel);
   const _workerModel = TRINITY_CHEAP || TRINITY_MEDIUM || null;
   const _workerCost = _workerModel ? modelCostPerTurn(_workerModel) ?? 0 : 0;
@@ -7862,7 +8024,8 @@ var onToolExecuteBefore = async (input, output) => {
     const total = recordSaving(t, "credit<40% high-tier", _estOpus, { firstWord: _firstWord });
     const trend = trendDisplay(readLifetimeSavings().sesTrend);
     const msg = `\u26A0 [vibeOS] Credit: ${_credit}% \u2014 switching to medium saves ~$${_estOpus.toFixed(3)}/turn. Run \`trinity medium\`.`;
-    if (shouldLogWarn(`${t}|credit|${_tierWord}`)) console.error(`[vibeOS] [delegation] ${msg}`);
+    if (shouldLogWarn(`${t}|credit|${_tierWord}`))
+      console.error(`[vibeOS] [delegation] ${msg}`);
     pendingUiNote = msg;
     return;
   }
@@ -7873,8 +8036,8 @@ var onToolExecuteBefore = async (input, output) => {
     if (sel.delegation_enforce && currentTier === "high" && args && typeof args === "object") {
       const actualArgs = args || output && output.args || {};
       const originalPath = actualArgs.filePath || actualArgs.file_path || "";
-      const basename22 = originalPath.split("/").pop() || "blocked";
-      const apiResult = await remoteCall("delegateCheck", [tLower, currentTier, currentModel, _prompt2], () => ({
+      const basename10 = originalPath.split("/").pop() || "blocked";
+      const apiResult = await remoteCall("delegateCheck", [tLower, currentTier, currentModel, _prompt], () => ({
         blocked: true,
         savings: _estEdit
       }));
@@ -7882,21 +8045,24 @@ var onToolExecuteBefore = async (input, output) => {
       const savings = apiResult?.savings ?? _estEdit;
       if (isBlocked) {
         if (tLower === "write") {
-          actualArgs.filePath = `/tmp/vibeos-enforcement-blocked-${basename22}`;
-          if (actualArgs.file_path !== void 0) actualArgs.file_path = actualArgs.filePath;
+          actualArgs.filePath = `/tmp/vibeos-enforcement-blocked-${basename10}`;
+          if (actualArgs.file_path !== void 0)
+            actualArgs.file_path = actualArgs.filePath;
         } else if (tLower === "edit" || tLower === "notebookedit") {
           actualArgs.oldString = `__THE_SAVER_ENFORCEMENT_BLOCK_${Date.now()}__`;
         }
         const total2 = recordSaving(t, "delegation enforced", savings, { firstWord: _firstWord });
         pendingUiNote = `\u{1F6AB} Direct ${t} blocked on Brain tier \u2192 delegate via Task or run \`trinity medium\`.`;
         enforcementBlocked = true;
-        if (shouldLogWarn(`${t}|enforced|${_tierWord}`)) console.error(`[vibeOS] [enforcement] BLOCKED direct ${t} on high tier \u2192 delegate via Task`);
+        if (shouldLogWarn(`${t}|enforced|${_tierWord}`))
+          console.error(`[vibeOS] [enforcement] BLOCKED direct ${t} on high tier \u2192 delegate via Task`);
         return;
       }
     }
     const total = recordSaving(t, "direct edit", _estEdit, { firstWord: _firstWord });
     const msg = `[vibeOS] ${_tierWord} tier direct ${t} \u2014 save ~$${_estEdit.toFixed(3)} by delegating to Task. Run \`trinity medium\`.`;
-    if (shouldLogWarn(`${t}|direct|${_tierWord}`)) console.error(`[vibeOS] [delegation] ${msg}`);
+    if (shouldLogWarn(`${t}|direct|${_tierWord}`))
+      console.error(`[vibeOS] [delegation] ${msg}`);
     pendingUiNote = msg;
     return;
   }
@@ -7936,7 +8102,8 @@ var onToolExecuteBefore = async (input, output) => {
   }
 };
 var onToolExecuteAfter = async (input, output) => {
-  if (!loadSelection().enabled) return;
+  if (!loadSelection().enabled)
+    return;
   _refreshModel(projectDirectory);
   let _footerText = "";
   try {
@@ -7949,12 +8116,17 @@ var onToolExecuteAfter = async (input, output) => {
     if (bbMode === "relaxed") {
       tags.push("[Q&A]");
     } else {
-      if (selNow.delegation_enforce) tags.push("[ENF ON]");
-      if (selNow.flow_enforce) tags.push("[FLOW ON]");
-      if (selNow.tdd_enforce) tags.push("[TDD ON]");
-      if (bbMode === "strict") tags.push("[STRICT]");
+      if (selNow.delegation_enforce)
+        tags.push("[ENF ON]");
+      if (selNow.flow_enforce)
+        tags.push("[FLOW ON]");
+      if (selNow.tdd_enforce)
+        tags.push("[TDD ON]");
+      if (bbMode === "strict")
+        tags.push("[STRICT]");
     }
-    if (_modelLocked) tags.push("[LOCK ON]");
+    if (_modelLocked)
+      tags.push("[LOCK ON]");
     const workerModel = currentTier === "high" && TRINITY_MEDIUM ? TRINITY_MEDIUM : TRINITY_CHEAP;
     const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0);
     if (totalTurns > 0 && workerModel && workerModel !== currentModel) {
@@ -7980,11 +8152,16 @@ var onToolExecuteAfter = async (input, output) => {
 `;
     }
     output.title = _footerText.trim();
-    if (typeof output?.output === "string") output.output = _footerText + output.output;
-    else if (typeof output?.result === "string") output.result = _footerText + output.result;
-    else if (typeof output?.text === "string") output.text = _footerText + output.text;
-    else if (typeof output?.content === "string") output.content = _footerText + output.content;
-    else output.output = _footerText;
+    if (typeof output?.output === "string")
+      output.output = _footerText + output.output;
+    else if (typeof output?.result === "string")
+      output.result = _footerText + output.result;
+    else if (typeof output?.text === "string")
+      output.text = _footerText + output.text;
+    else if (typeof output?.content === "string")
+      output.content = _footerText + output.content;
+    else
+      output.output = _footerText;
     _autoReportCount2 = (_autoReportCount2 || 0) + 1;
     if (_autoReportCount2 % 5 === 0 && ltTotal > 0) {
       saveReport({
@@ -8039,7 +8216,8 @@ var onToolExecuteAfter = async (input, output) => {
     if (m && typeof output?.title === "string") {
       const label = modelToSlotLabel(m);
       output.title = output.title.replace(/\[agent\]|\[general\]/gi, label);
-      if (!output.title.includes(label)) output.title = `${output.title} ${label}`;
+      if (!output.title.includes(label))
+        output.title = `${output.title} ${label}`;
     }
   }
   if (t === "task") {
@@ -8065,18 +8243,26 @@ var onToolExecuteAfter = async (input, output) => {
   }
   if (pendingUiNote) {
     if (enforcementBlocked) {
-      if (typeof output?.result === "string") output.result = pendingUiNote;
-      else if (typeof output?.text === "string") output.text = pendingUiNote;
-      else if (typeof output?.content === "string") output.content = pendingUiNote;
-      else output.result = pendingUiNote;
+      if (typeof output?.result === "string")
+        output.result = pendingUiNote;
+      else if (typeof output?.text === "string")
+        output.text = pendingUiNote;
+      else if (typeof output?.content === "string")
+        output.content = pendingUiNote;
+      else
+        output.result = pendingUiNote;
     } else {
       const note = `
 
 ${pendingUiNote}`;
-      if (typeof output?.result === "string") output.result += note;
-      else if (typeof output?.text === "string") output.text += note;
-      else if (typeof output?.content === "string") output.content += note;
-      else output.result = pendingUiNote;
+      if (typeof output?.result === "string")
+        output.result += note;
+      else if (typeof output?.text === "string")
+        output.text += note;
+      else if (typeof output?.content === "string")
+        output.content += note;
+      else
+        output.result = pendingUiNote;
     }
     pendingUiNote = null;
   }
@@ -8107,7 +8293,8 @@ ${pendingUiNote}`;
       let match;
       while ((match = TASK_FILE_RE.exec(outputText)) !== null) {
         const fp3 = match[1];
-        if (seen.has(fp3)) continue;
+        if (seen.has(fp3))
+          continue;
         seen.add(fp3);
         const isTestPath = /(^|\/)(tests?|spec)\//i.test(fp3) || /\.(test|spec)\./i.test(fp3);
         if (sel.tdd_enforce && !isTestPath) {
@@ -8116,8 +8303,10 @@ ${pendingUiNote}`;
             const ext = createdPath.split(".").pop();
             const fileName = createdPath.split("/").pop();
             const enforceNote = "\n\n[test-enforced] Created skeleton at " + createdPath + "\n  NEXT: 1) Open " + fileName + "  2) Replace TODO/FIXME markers with real assertions  3) Run `npx vitest run " + createdPath + "` (or language-equivalent)  4) Confirm tests pass";
-            if (typeof output?.text === "string") output.text += enforceNote;
-            else if (typeof output?.result === "string") output.result += enforceNote;
+            if (typeof output?.text === "string")
+              output.text += enforceNote;
+            else if (typeof output?.result === "string")
+              output.result += enforceNote;
           }
         }
       }
@@ -8130,9 +8319,12 @@ ${pendingUiNote}`;
       const note = `
 
 [test-reminder] ${reminder}`;
-      if (typeof output?.text === "string") output.text += note;
-      else if (typeof output?.result === "string") output.result += note;
-      else console.error(`[vibeOS] ${reminder}`);
+      if (typeof output?.text === "string")
+        output.text += note;
+      else if (typeof output?.result === "string")
+        output.result += note;
+      else
+        console.error(`[vibeOS] ${reminder}`);
     }
     const sel = loadSelection();
     const explicitTestIntent = isUserAskingForTests(latestUserIntent);
@@ -8146,8 +8338,10 @@ ${pendingUiNote}`;
 
 [test-enforced] Created skeleton at ${createdPath}
   NEXT: 1) Open ${fileName}  2) Replace TODO/FIXME markers with real assertions  3) Run \`npx vitest run ${createdPath}\` (or language-equivalent)  4) Confirm tests pass`;
-        if (typeof output?.text === "string") output.text += enforceNote;
-        else if (typeof output?.result === "string") output.result += enforceNote;
+        if (typeof output?.text === "string")
+          output.text += enforceNote;
+        else if (typeof output?.result === "string")
+          output.result += enforceNote;
       }
     }
     if (t === "edit" || t === "write") {
@@ -8165,12 +8359,12 @@ ${pendingUiNote}`;
       }
     }
     {
-      const fp22 = input?.args?.filePath || input?.args?.file_path || input?.args?.path || "";
+      const fp4 = input?.args?.filePath || input?.args?.file_path || input?.args?.path || "";
       const guardRe = /(?:^|\/)(AGENTS|README)\.md$/i;
-      if (guardRe.test(fp22)) {
+      if (guardRe.test(fp4)) {
         const guardIcons = { flag: "!", warn: "!!", hint: "_" };
         const guardIcon = guardIcons.flag || "!";
-        const fn = basename8(fp22);
+        const fn = basename8(fp4);
         console.error(`[flow-enforcer] ${guardIcon} [guard] ${fn}: protected project doc modified \u2014 verify user intent`);
       }
     }
@@ -8180,7 +8374,8 @@ ${pendingUiNote}`;
       const content = t === "edit" ? input?.args?.newString || "" : input?.args?.content || "";
       const flowHits = checkFlowRules({ tool: toolName, filePath, content });
       for (const h of flowHits) {
-        if (h.deduped) continue;
+        if (h.deduped)
+          continue;
         const icon = h.severity === "warn" ? "\u26A0" : "\u{1F4A1}";
         console.error(`[flow-enforcer] ${icon} [${h.severity}] ${h.id}: ${h.description} \u2014 ${filePath}`);
       }
@@ -8194,7 +8389,8 @@ ${pendingUiNote}`;
       }
       let todoCount = 0;
       for (const h of flowHits) {
-        if (h.id === "todo-comment" && !h.deduped) todoCount++;
+        if (h.id === "todo-comment" && !h.deduped)
+          todoCount++;
       }
       if (todoCount > 0) {
         const todoPushNote = "[todo-push] Auto-extracted " + todoCount + " TODO(s) from " + filePath + ". Call todowrite to add them to your task list.";
@@ -8216,10 +8412,31 @@ ${pendingUiNote}`;
   }
   const processed = compressText(raw);
   if (processed !== raw) {
-    if (output.result !== void 0) output.result = processed;
-    else if (output.text !== void 0) output.text = processed;
-    else if (output.content !== void 0) output.content = processed;
-    else if (output.data !== void 0) output.data = processed;
+    if (output.result !== void 0)
+      output.result = processed;
+    else if (output.text !== void 0)
+      output.text = processed;
+    else if (output.content !== void 0)
+      output.content = processed;
+    else if (output.data !== void 0)
+      output.data = processed;
+  }
+  if (inputTool === "todowrite" && _pendingTodoArgs && _pendingTodoArgs.length > 0) {
+    try {
+      for (const entry of _pendingTodoArgs) {
+        if (entry && entry.content) {
+          upsertTodo({
+            content: entry.content,
+            filePath: entry.filePath || "",
+            priority: entry.priority || "medium",
+            source: "intercepted"
+          });
+        }
+      }
+      console.error("[vibeOS] tracked " + _pendingTodoArgs.length + " todo(s) from todowrite call");
+    } catch {
+    }
+    _pendingTodoArgs = null;
   }
   applyDecadence();
 };
@@ -8385,6 +8602,9 @@ function computeStatusPayload() {
   const activeSlot = sel.active_slot || "brain";
   const current = tiersData?.trinity?.[activeSlot]?.oc || currentModel || "";
   const thinking = sel.thinking_level || thinkingLevel(credit);
+  const _todos = loadTodos();
+  const pendingTodos = _todos.filter((t) => t.status === "pending").length;
+  const totalTodos = _todos.length;
   return {
     enabled: sel.enabled !== false,
     active_slot: activeSlot,
@@ -8396,7 +8616,8 @@ function computeStatusPayload() {
     thinking,
     current_model: current,
     credit_percent: credit,
-    version: readPackageVersion()
+    version: readPackageVersion(),
+    todos: { total: totalTodos, pending: pendingTodos }
   };
 }
 function computeSavingsPayload() {
@@ -8764,6 +8985,11 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     writeSessionSlot,
     _refreshModel,
     setApiToken,
+    loadTodos,
+    upsertTodo,
+    getTodos,
+    markTodoDone,
+    syncFlowTodosToNative,
     get _blackboxTracker() {
       return getBlackboxTracker();
     },
@@ -8910,6 +9136,7 @@ ${report.narrative}`);
           getState: () => ({ ...computeStatusPayload(), sessions_raw: readFullState()?.sessions || {} }),
           getSavings: () => computeSavingsPayload(),
           getSessionMetrics: () => computeSessionMetrics(readFullState(), _OC_SID),
+          getTodos: () => loadTodos(),
           listReports: (filter) => {
             if (!existsSync14(REPORTS_DIR)) {
               const e = new Error("reports dir not found");

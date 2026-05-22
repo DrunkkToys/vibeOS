@@ -10,7 +10,7 @@ import {
   updateState, withFileLock, safeJsonParse, applyDecadence,
   getSessionScratchpadDir, ensureSessionScratchpadDirs, getSessionIndexPath,
   indexAppend, scratchpadHitsSeen, briefedProjects,
-  loadActiveJobs, getActiveJobForProject,
+  loadActiveJobs, getActiveJobForProject, loadTodos,
   loadProjectState, saveProjectState, ensureProjectBucket,
   promotedProjectPatterns,
   detectTechStack, projectFingerprint,
@@ -566,6 +566,17 @@ export const onSystemTransform = async (_input, output) => {
             `[flow enforcement: ${flowMode}] Development flow rules are active: write/edit operations are checked against project conventions.${enforceNote}${focusNote} ` +
             "Follow existing code patterns, naming conventions, and project structure."
           )
+          // Todo nudge — when flow TODOs are pending
+          if (sel.flow_enforce && Array.isArray(output?.system)) {
+            const pendingTodos = loadTodos().filter((t: any) => t.status === "pending").length
+            if (pendingTodos > 0) {
+              output.system.push(
+                "[vibeOS] " + pendingTodos + " extracted TODO/FIXME items are pending. " +
+                "Consider calling `todowrite` to add them to the native task list."
+              )
+            }
+          }
+
         }
 
         // Project Guard directive — maintain AGENTS.md and README.md

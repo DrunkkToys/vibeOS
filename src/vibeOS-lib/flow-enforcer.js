@@ -326,3 +326,35 @@ export function recordFlowTodo({ filePath, content }) {
         return 0;
     }
 }
+export function getFlowTodos() {
+    try {
+        if (!existsSync(FLOW_TODO_FILE))
+            return [];
+        const raw = readFileSync(FLOW_TODO_FILE, "utf-8").trim();
+        if (!raw)
+            return [];
+        return raw.split("\n").filter(Boolean).map(line => safeJsonParse(line)).filter(Boolean);
+    }
+    catch {
+        return [];
+    }
+}
+export function syncFlowTodosToNative(upsertFn) {
+    const entries = getFlowTodos();
+    let count = 0;
+    for (const entry of entries) {
+        for (const todo of entry.todos || []) {
+            const priority = todo.type === "FIXME" ? "high" : todo.type === "HACK" ? "medium" : "low";
+            if (upsertFn) {
+                upsertFn({
+                    content: `[${todo.type}] ${todo.text}`,
+                    filePath: entry.filePath || "",
+                    priority,
+                    source: "flow",
+                });
+            }
+            count++;
+        }
+    }
+    return count;
+}

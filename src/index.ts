@@ -13,7 +13,7 @@ import { join, dirname, relative, basename } from "node:path"
 import { homedir, tmpdir } from "node:os"
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
-import { checkFlowRules, getFlowWarns, ensureProjectDocs } from "./vibeOS-lib/flow-enforcer.js"
+import { checkFlowRules, getFlowWarns, ensureProjectDocs, getFlowTodos, syncFlowTodosToNative } from "./vibeOS-lib/flow-enforcer.js"
 import { computeSessionMetrics } from "./vibeOS-lib/session-metrics.js"
 import { createMcpServer } from "vibeOScore/mcp-server"
 import { VibeOSApiClient } from "vibeOScore/client"
@@ -54,8 +54,9 @@ import {
   recordCacheSaving, recordMissedContext7, SCRATCHPAD_GLOBAL_DIR,
   pruneScratchpadOnce, cleanupCurrentSessionScratchpad,
   registerSessionCleanupHandlers, promotedProjectPatterns, projectPatternRows,
-  clearProjectPatterns, _handleStateCorruption, _zType, tool,
+  clearProjectPatterns, loadTodos, getTodos, upsertTodo, markTodoDone, _handleStateCorruption, _zType, tool,
 } from "./lib/state.js"
+import { MONITOR } from "./lib/constants.js"
 import { extractExports, buildTestSkeleton, enforceTestFile, buildTestReminder } from "./lib/tdd-enforcer.js"
 import { setActiveJobFromTaskPrompt, observeToolPattern, applyDecadence, compressText, recordSaving } from "./lib/index-helpers.js"
 import { researchAudit } from "./lib/research-audit.js"
@@ -195,6 +196,9 @@ function computeStatusPayload(): any {
   const activeSlot = sel.active_slot || "brain"
   const current = tiersData?.trinity?.[activeSlot]?.oc || currentModel || ""
   const thinking = sel.thinking_level || thinkingLevel(credit)
+  const _todos = loadTodos()
+  const pendingTodos = _todos.filter(t => t.status === "pending").length
+  const totalTodos = _todos.length
   return {
     enabled: sel.enabled !== false,
     active_slot: activeSlot,
@@ -207,6 +211,7 @@ function computeStatusPayload(): any {
     current_model: current,
     credit_percent: credit,
     version: readPackageVersion(),
+    todos: { total: totalTodos, pending: pendingTodos },
   }
 }
 
@@ -539,6 +544,7 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
       setBlackboxEnabled, loadBlackboxState, saveBlackboxState,
       reportsIndex, saveReportsIndex, backupFile, writeSessionSlot, _refreshModel,
       setApiToken,
+      loadTodos, upsertTodo, getTodos, markTodoDone, syncFlowTodosToNative,
       get _blackboxTracker() { return getBlackboxTracker() },
       set _blackboxTracker(v) { resetBlackboxTracker() },
     }
@@ -671,6 +677,7 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
           getState: () => ({ ...computeStatusPayload(), sessions_raw: readFullState()?.sessions || {} }),
           getSavings: () => computeSavingsPayload(),
           getSessionMetrics: () => computeSessionMetrics(readFullState(), _OC_SID),
+          getTodos: () => loadTodos(),
           listReports: (filter: any) => {
             if (!existsSync(REPORTS_DIR)) { const e: any = new Error("reports dir not found"); e.status = 404; throw e }
             return listReports(filter || {})

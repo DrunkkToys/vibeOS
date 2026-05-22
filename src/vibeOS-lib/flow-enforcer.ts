@@ -340,3 +340,32 @@ export function recordFlowTodo({ filePath, content }: FlowTodoInput): number {
     return todos.length
   } catch { return 0 }
 }
+
+export function getFlowTodos(): Array<{ filePath: string; todos: Array<{ type: string; text: string }> }> {
+  try {
+    if (!existsSync(FLOW_TODO_FILE)) return []
+    const raw = readFileSync(FLOW_TODO_FILE, "utf-8").trim()
+    if (!raw) return []
+    return raw.split("\n").filter(Boolean).map(line => safeJsonParse(line)).filter(Boolean)
+  } catch { return [] }
+}
+
+export function syncFlowTodosToNative(upsertFn?: (entry: { content: string; filePath: string; priority: string; source: string }) => void): number {
+  const entries = getFlowTodos()
+  let count = 0
+  for (const entry of entries) {
+    for (const todo of entry.todos || []) {
+      const priority = todo.type === "FIXME" ? "high" : todo.type === "HACK" ? "medium" : "low"
+      if (upsertFn) {
+        upsertFn({
+          content: `[${todo.type}] ${todo.text}`,
+          filePath: entry.filePath || "",
+          priority,
+          source: "flow",
+        })
+      }
+      count++
+    }
+  }
+  return count
+}

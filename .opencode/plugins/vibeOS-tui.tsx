@@ -19,6 +19,11 @@ function getBaseUrl() {
 }
 
 type StatusResponse = {
+  todos: {
+    total: number
+    pending: number
+  }
+
   enabled: boolean
   active_slot: string
   enforce: boolean
@@ -226,6 +231,18 @@ const plugin: TuiPlugin = async (api, _options, _meta) => {
             <text dim>Tool split:</text>
             <newline />
             {topTools.map(([tool, val]) => (
+            <newline />
+            <text dim bold>TODOS</text>
+            <newline />
+            <box>
+              <text>Pending: </text>
+              <text color={s?.todos?.pending > 0 ? "yellow" : "green"} bold>
+                {s?.todos?.pending ?? 0}
+              </text>
+              <text> / {s?.todos?.total ?? 0}</text>
+            </box>
+            <newline />
+
               <>
                 <box>
                   <text>  {tool.padEnd(8)}</text>

@@ -6,7 +6,7 @@ import { classify, modelCostPerTurn, _refreshModel, TRINITY_BRAIN, TRINITY_MEDIU
 import { latestUserIntent } from "./chat-transform.js"
 import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, loadOptimizationMode, saveOptimizationMode, classifyTurnSimple } from "../turn-classify.js"
 import { saveReport } from "../reporting.js"
-import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, _modelLocked, _blackboxEnabled, writeSelection, reconcileStateFromLedger, safeJsonParse } from "../state.js"
+import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, _modelLocked, _blackboxEnabled, writeSelection, reconcileStateFromLedger, safeJsonParse, loadTodos } from "../state.js"
 import { loadSessionSlot, writeSessionSlot } from "../selection-manager.js"
 import { remoteCall, isApiFallback } from "../api-client.js"
 import { SAVE_EST } from "../constants.js"
@@ -218,6 +218,8 @@ async function _appendFooter(input, output, directory) {
       let footerText
       if (ltTotal > 0) {
         let savingsDisplay = `vibeOS: $${formatUsd(ltTotal)} saved up ${trendIcon}`
+        const _todoCount = loadTodos().filter(t => t.status === "pending").length
+        if (_todoCount > 0) savingsDisplay += " | [" + _todoCount + " todo]"
         if (imputedMultiplier > 2) {
           const imputedActual = ltTotal * imputedMultiplier
           savingsDisplay += ` ($${formatUsd(imputedActual)} actual)`
