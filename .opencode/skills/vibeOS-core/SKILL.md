@@ -13,7 +13,7 @@ npm: `npm install vibeOS`
 
 Then add to `~/.config/opencode/opencode.json`:
 ```json
-"plugin": ["vibeOS"]
+"plugins": [{"id": "vibeOS", "path": "vibeOS"}]
 ```
 
 Restart OpenCode.
@@ -27,7 +27,8 @@ Restart OpenCode.
 | `trinity brain|medium|cheap` | Shorthand slot switch |
 | `trinity rebuild` | Auto-detect available models and re-populate slots |
 | `trinity enable` / `trinity disable` | Enable or disable the plugin |
-| `trinity lock on|off` | Prevent auto-switching model when user changes it in GUI |
+| `trinity lock on|off` | Prevent auto-switching model when user changes it in GUI (in-memory, resets on restart) |
+| `trinity report savings` | Show delegation and cache savings report |
 
 ## Enforcement
 
@@ -53,8 +54,8 @@ Restart OpenCode.
 
 ## Footers
 
-Footer shows route, savings, stress gauge. Example:
-`— [deepseek-chat][AUTO→BUDGET] | vibeOS: +$0.19 saved → | stress: ▁ calm —`
+Footer shows route, savings, stress gauge, and enforcement status. Example:
+`— [deepseek-chat] [AUTO→BALANCED] [ENF ON] [TDD ON] | vibeOS: $0.61 saved → | stress: ▁ calm —`
 
 ## Mode Commands
 
