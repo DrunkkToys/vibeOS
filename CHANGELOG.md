@@ -1,3 +1,7 @@
+## 0.15.9
+- fix: VIBEOS_API_TOKEN lookup from __dirname, ~/.claude/, ~/, cwd/
+
+
 ## 0.15.8
 - fix: load VIBEOS_API_TOKEN from .env.production if env var not set
 
