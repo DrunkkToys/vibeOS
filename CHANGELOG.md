@@ -1,3 +1,7 @@
+## 0.15.5
+- fix: trinity set now clears session slot + refreshes model in footer
+
+
 ## 0.15.4
 - fix: make model probe non-blocking on slot switch
 Build: self-contained bundle (vibeOScore resolved)
