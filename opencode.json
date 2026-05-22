@@ -1,6 +1,6 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "model": "deepseek/deepseek-chat",
+  "model": "openrouter/nonexistent/fake-model",
   "provider": {
     "deepseek": {
       "name": "DeepSeek",

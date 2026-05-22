@@ -239,6 +239,18 @@ export function syncControlSettings(cv: any): void {
         setCurrentTier("low")
       }
     }
+    if (cv.agent_mode) {
+      try {
+        const OC_CONFIG = TRINITY_OPENCODE_CONFIG || join(homedir(), ".config/opencode/opencode.json")
+        if (existsSync(OC_CONFIG)) {
+          const oc = safeJsonParse(readFileSync(OC_CONFIG, "utf-8"))
+          if (oc.default_agent !== cv.agent_mode) {
+            oc.default_agent = cv.agent_mode
+            writeFileSync(OC_CONFIG, JSON.stringify(oc, null, 2) + "\n")
+          }
+        }
+      } catch {}
+    }
   } catch { /* noop — non-critical sync */ }
 }
 
@@ -480,7 +492,7 @@ export const onSystemTransform = async (_input, output) => {
 
         // AI ORCHESTRATOR AGENT — only when delegation enforcement is active
         // and enforcement is not relaxed (meta-controller already covers relaxed mode).
-        if (sel.delegation_enforce && _controlVector?.enforcement_mode !== "relaxed" && Array.isArray(output?.system)) {
+        if (sel.delegation_enforce && _controlVector?.enforcement_mode !== "relaxed" && _controlVector?.agent_mode !== "plan" && Array.isArray(output?.system)) {
           const tierBias = _controlVector?.tier_bias || "auto"
           const cheapModel = TRINITY_CHEAP || "the cheaper model"
           const mediumModel = TRINITY_MEDIUM || "the medium model"
@@ -498,7 +510,7 @@ export const onSystemTransform = async (_input, output) => {
 
         // Batch task execution helper — encourage parallel subagent calls.
         // Skip when enforcement is relaxed (orchestrator is de-emphasized).
-        if (_controlVector?.enforcement_mode !== "relaxed" && Array.isArray(output?.system)) {
+        if (_controlVector?.enforcement_mode !== "relaxed" && _controlVector?.agent_mode !== "plan" && Array.isArray(output?.system)) {
           output.system.push(
             "[batch execution] When you need to run multiple independent Task subagent calls, " +
             "invoke them ALL in parallel rather than sequentially. " +

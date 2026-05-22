@@ -407,6 +407,33 @@ export const onToolExecuteAfter = async (input, output) => {
 
       const t = input?.tool ?? ""
 
+      if (t === "trinity") {
+        const trinityArgs = input?.args || {}
+        const trinityAction = trinityArgs?.action || trinityArgs?.todo || ""
+        if (trinityAction === "todo") {
+          try {
+            const flowTodoFilePath = require("path").join(require("os").homedir(), ".claude/flow-todo-queue.jsonl")
+            let todoLines: string[] = []
+            if (require("fs").existsSync(flowTodoFilePath)) {
+              const raw = require("fs").readFileSync(flowTodoFilePath, "utf-8").trim()
+              todoLines = raw ? raw.split("\n").filter(Boolean) : []
+            }
+            let todoList = todoLines.map((l, i) => {
+              try { const p = JSON.parse(l); return "  " + (i+1) + ". " + (p.text || l) }
+              catch { return "  " + (i+1) + ". " + l }
+            }).join("\n")
+            const todoNote = "[vibeOS] Flow TODO Queue: " + todoLines.length + " item(s)\n" + (todoList || "  (no pending TODOs)")
+            if (typeof output?.text === "string")
+              output.text = todoNote + "\n\n" + output.text
+            else if (typeof output?.result === "string")
+              output.result = todoNote + "\n\n" + output.result
+          } catch (e) {
+            console.error("[vibeOS] trinity todo error:", e)
+          }
+        }
+        return
+      }
+
       // Save ML state after Task or key tools (throttled to avoid excessive I/O).
       if ((t === "task" || t === "bash" || t === "edit" || t === "write") && !_mlSavePending) {
         setMlSavePending(true)
@@ -585,6 +612,17 @@ export const onToolExecuteAfter = async (input, output) => {
               }
             }
           }
+            let todoCount = 0
+            for (const h of flowHits) {
+              if (h.id === "todo-comment" && !h.deduped) todoCount++
+            }
+            if (todoCount > 0) {
+              const todoPushNote = "[todo-push] Auto-extracted " + todoCount + " TODO(s) from " + filePath + ". Call todowrite to add them to your task list."
+              if (typeof output?.text === "string")
+                output.text += "\n\n" + todoPushNote
+              else if (typeof output?.result === "string")
+                output.result += "\n\n" + todoPushNote
+            }
         }
       }
 

@@ -345,7 +345,7 @@ var init_flow_enforcer = __esm({
 // src/index.ts
 init_flow_enforcer();
 import { readFileSync as readFileSync15, writeFileSync as writeFileSync12, existsSync as existsSync14, mkdirSync as mkdirSync10, copyFileSync as copyFileSync6, renameSync as renameSync6 } from "node:fs";
-import { join as join16, dirname as dirname8, basename as basename9 } from "node:path";
+import { join as join16, dirname as dirname7, basename as basename9 } from "node:path";
 
 // src/vibeOS-lib/session-metrics.js
 function formatDuration(totalSeconds) {
@@ -2828,18 +2828,17 @@ function applySlot2(slot) {
 
 // src/lib/turn-classify.js
 import { readFileSync as readFileSync6, writeFileSync as writeFileSync5, appendFileSync as appendFileSync5, existsSync as existsSync5, mkdirSync as mkdirSync5, statSync as statSync5, copyFileSync as copyFileSync4, renameSync as renameSync5, openSync as openSync3, closeSync as closeSync3, rmSync as rmSync3 } from "node:fs";
-import { join as join6, dirname as dirname5, basename as basename5 } from "node:path";
+import { join as join6, dirname as dirname4, basename as basename5 } from "node:path";
 import { homedir as homedir6, tmpdir as tmpdir4 } from "node:os";
 import { createHash as createHash3 } from "node:crypto";
 
 // src/lib/api-client.js
 import { VibeOSApiClient } from "vibeOScore/client";
 import { readFileSync as readFileSync5 } from "node:fs";
-import { fileURLToPath as fileURLToPath2 } from "node:url";
-import { dirname as dirname4, join as join5 } from "node:path";
+import { join as join5 } from "node:path";
 import { homedir as homedir5 } from "node:os";
-var _ourDir = typeof __dirname !== "undefined" ? __dirname : dirname4(fileURLToPath2(import.meta.url));
 var VIBEOS_API_URL = process.env.VIBEOS_API_URL || "https://api.vibetheog.com";
+var _ourDir = typeof __dirname !== "undefined" ? __dirname : dirname(dirname(fileURLToPath(import.meta.url)));
 var _envTk = "";
 var _envPaths = [
   _ourDir + "/.env.production",
@@ -3245,7 +3244,7 @@ function loadBlackboxState() {
 }
 function saveBlackboxState(state) {
   try {
-    mkdirSync5(dirname5(BLACKBOX_STATE_FILE2), { recursive: true });
+    mkdirSync5(dirname4(BLACKBOX_STATE_FILE2), { recursive: true });
     const tmp = BLACKBOX_STATE_FILE2 + ".tmp";
     writeFileSync5(tmp, JSON.stringify(state, null, 2) + "\n");
     renameSync5(tmp, BLACKBOX_STATE_FILE2);
@@ -3406,7 +3405,7 @@ function updateGlobalLearning2(mutator) {
     const s = loadGlobalLearning2();
     const next = mutator(s) ?? s;
     next.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
-    mkdirSync5(dirname5(GLOBAL_LEARNING_FILE2), { recursive: true });
+    mkdirSync5(dirname4(GLOBAL_LEARNING_FILE2), { recursive: true });
     const tmp = GLOBAL_LEARNING_FILE2 + ".tmp";
     writeFileSync5(tmp, JSON.stringify(next, null, 2));
     renameSync5(tmp, GLOBAL_LEARNING_FILE2);
@@ -3444,7 +3443,7 @@ function loadProjectState2() {
 function saveProjectState2(state) {
   try {
     withFileLock3(PROJECT_STATE_FILE2, () => {
-      mkdirSync5(dirname5(PROJECT_STATE_FILE2), { recursive: true });
+      mkdirSync5(dirname4(PROJECT_STATE_FILE2), { recursive: true });
       const _tmp = PROJECT_STATE_FILE2 + ".tmp." + Date.now();
       writeFileSync5(_tmp, JSON.stringify(state, null, 2) + "\n", "utf-8");
       renameSync5(_tmp, PROJECT_STATE_FILE2);
@@ -5778,6 +5777,20 @@ function syncControlSettings(cv) {
         setCurrentTier("low");
       }
     }
+    if (cv.agent_mode) {
+      try {
+        const home = process.env.HOME || "";
+        const OC_CONFIG = join13(home, ".config/opencode/opencode.json");
+        if (existsSync10(OC_CONFIG)) {
+          const oc = safeJsonParse3(readFileSync11(OC_CONFIG, "utf-8"));
+          if (oc.default_agent !== cv.agent_mode) {
+            oc.default_agent = cv.agent_mode;
+            writeFileSync9(OC_CONFIG, JSON.stringify(oc, null, 2) + "\n");
+          }
+        }
+      } catch {
+      }
+    }
   } catch {
   }
 }
@@ -5977,7 +5990,7 @@ var onSystemTransform = async (_input, output) => {
         output.system.push(offTopicDirective);
       console.error("[vibeOS] [job-focus] off-topic request detected vs active job context");
     }
-    if (sel.delegation_enforce && _controlVector?.enforcement_mode !== "relaxed" && Array.isArray(output?.system)) {
+    if (sel.delegation_enforce && _controlVector?.enforcement_mode !== "relaxed" && _controlVector?.agent_mode !== "plan" && Array.isArray(output?.system)) {
       const tierBias = _controlVector?.tier_bias || "auto";
       const cheapModel = TRINITY_CHEAP || "the cheaper model";
       const mediumModel = TRINITY_MEDIUM || "the medium model";
@@ -5990,7 +6003,7 @@ var onSystemTransform = async (_input, output) => {
       const orcDirective = `[AI ORCHESTRATOR AGENT] You are an AI orchestrator agent. Delegate heavy work to Task subagents (runs on ${targetModel}). Your role: verify, fill gaps, synthesize. CRITICAL: Write/Edit tools are BLOCKED on this tier. You MUST delegate ALL implementation work to Task subagents. Always display the vibeOS cost footer.` + (tierBias !== "auto" ? ` [tier routing] This turn is biased toward ${tierBias} tier.` : "");
       output.system.push(orcDirective);
     }
-    if (_controlVector?.enforcement_mode !== "relaxed" && Array.isArray(output?.system)) {
+    if (_controlVector?.enforcement_mode !== "relaxed" && _controlVector?.agent_mode !== "plan" && Array.isArray(output?.system)) {
       output.system.push("[batch execution] When you need to run multiple independent Task subagent calls, invoke them ALL in parallel rather than sequentially. Parallel tasks complete faster and reduce total session cost. Only sequence tasks when one depends on the output of another.");
     }
     if (sel.tdd_enforce && _controlVector?.tdd_mode !== "lazy" && Array.isArray(output?.system)) {
@@ -6323,12 +6336,12 @@ async function _appendFooter(input, output, directory3) {
 
 // src/lib/hooks/tool-execute.js
 import { writeFileSync as writeFileSync11, appendFileSync as appendFileSync7, existsSync as existsSync12, mkdirSync as mkdirSync9 } from "node:fs";
-import { dirname as dirname7, basename as basename8 } from "node:path";
+import { dirname as dirname6, basename as basename8 } from "node:path";
 init_flow_enforcer();
 
 // src/lib/tdd-enforcer.js
 import { readFileSync as readFileSync13, writeFileSync as writeFileSync10, appendFileSync as appendFileSync6, existsSync as existsSync11, mkdirSync as mkdirSync8, statSync as statSync7, readdirSync as readdirSync2, rmSync as rmSync5, openSync as openSync4 } from "node:fs";
-import { join as join15, dirname as dirname6 } from "node:path";
+import { join as join15, dirname as dirname5 } from "node:path";
 import { createHash as createHash5 } from "node:crypto";
 
 // src/utils/tdd-helpers.js
@@ -7484,7 +7497,7 @@ function _isInCooldown(testPath) {
 }
 function _recordCooldown(testPath) {
   try {
-    mkdirSync8(dirname6(ENFORCEMENT_COOLDOWN_FILE2), { recursive: true });
+    mkdirSync8(dirname5(ENFORCEMENT_COOLDOWN_FILE2), { recursive: true });
     const hash = createHash5("sha256").update(testPath).digest("hex").slice(0, 16);
     const entry = JSON.stringify({ h: hash, ts: Date.now() }) + "\n";
     appendFileSync6(ENFORCEMENT_COOLDOWN_FILE2, entry);
@@ -7552,7 +7565,7 @@ function buildTestSkeleton(filePath, sourceContent = "", options = {}) {
     testPath = testPath.replace(new RegExp("\\.[^.]+$"), "." + fw.testExt);
   }
   const exports = extractExports(sourceContent, extLower);
-  return { path: testPath, content: skeletonFn(name, exports, "full", strict, quality, sourceContent), dir: dirname6(testPath) };
+  return { path: testPath, content: skeletonFn(name, exports, "full", strict, quality, sourceContent), dir: dirname5(testPath) };
 }
 function enforceTestFile(filePath) {
   console.error(`[vibeOS] [tdd-enforce] enforceTestFile called for ${filePath}`);
@@ -7875,7 +7888,7 @@ var onToolExecuteBefore = async (input, output) => {
           const missed = recordMissedContext7(_estC7);
           if (!existsSync12(CONTEXT7_INSTALL_FLAG)) {
             try {
-              mkdirSync9(dirname7(CONTEXT7_INSTALL_FLAG), { recursive: true });
+              mkdirSync9(dirname6(CONTEXT7_INSTALL_FLAG), { recursive: true });
               writeFileSync11(CONTEXT7_INSTALL_FLAG, "");
             } catch {
             }
@@ -8322,7 +8335,7 @@ function persistMcpPort(port) {
     tiers.selection ??= {};
     if (Number(tiers.selection.mcp_port) === Number(port)) return;
     tiers.selection.mcp_port = port;
-    mkdirSync10(dirname8(TIERS_FILE2), { recursive: true });
+    mkdirSync10(dirname7(TIERS_FILE2), { recursive: true });
     const tmp = TIERS_FILE2 + ".tmp." + Date.now();
     writeFileSync12(tmp, JSON.stringify(tiers, null, 2) + "\n", "utf-8");
     renameSync6(tmp, TIERS_FILE2);
@@ -8588,7 +8601,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
       if (_tiersData2) {
         _tiersData2.selection ??= {};
         if (_tiersData2.selection.mcp_port === void 0) _tiersData2.selection.mcp_port = 9578;
-        mkdirSync10(dirname8(TIERS_FILE2), { recursive: true });
+        mkdirSync10(dirname7(TIERS_FILE2), { recursive: true });
         const _tmp = TIERS_FILE2 + ".tmp." + Date.now();
         writeFileSync12(_tmp, JSON.stringify(_tiersData2, null, 2) + "\n", "utf-8");
         renameSync6(_tmp, TIERS_FILE2);

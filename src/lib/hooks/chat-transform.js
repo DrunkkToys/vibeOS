@@ -203,8 +203,22 @@ export function syncControlSettings(cv) {
                 setCurrentTier("low");
             }
         }
+        if (cv.agent_mode) {
+            try {
+                const home = process.env.HOME || '';
+                const OC_CONFIG = join(home, '.config/opencode/opencode.json');
+                if (existsSync(OC_CONFIG)) {
+                    const oc = safeJsonParse(readFileSync(OC_CONFIG, 'utf-8'));
+                    if (oc.default_agent !== cv.agent_mode) {
+                        oc.default_agent = cv.agent_mode;
+                        writeFileSync(OC_CONFIG, JSON.stringify(oc, null, 2) + '\n');
+                    }
+                }
+            }
+            catch { /* noop */ }
+        }
     }
-    catch { /* noop — non-critical sync */ }
+    catch { /* noop \u2014 non-critical sync */ }
 }
 export const onMessagesTransform = async (_input, output) => {
     if (!loadSelection().enabled)
@@ -443,7 +457,7 @@ export const onSystemTransform = async (_input, output) => {
         }
         // AI ORCHESTRATOR AGENT — only when delegation enforcement is active
         // and enforcement is not relaxed (meta-controller already covers relaxed mode).
-        if (sel.delegation_enforce && _controlVector?.enforcement_mode !== "relaxed" && Array.isArray(output?.system)) {
+        if (sel.delegation_enforce && _controlVector?.enforcement_mode !== "relaxed" && _controlVector?.agent_mode !== "plan" && Array.isArray(output?.system)) {
             const tierBias = _controlVector?.tier_bias || "auto";
             const cheapModel = TRINITY_CHEAP || "the cheaper model";
             const mediumModel = TRINITY_MEDIUM || "the medium model";
@@ -462,7 +476,7 @@ export const onSystemTransform = async (_input, output) => {
         }
         // Batch task execution helper — encourage parallel subagent calls.
         // Skip when enforcement is relaxed (orchestrator is de-emphasized).
-        if (_controlVector?.enforcement_mode !== "relaxed" && Array.isArray(output?.system)) {
+        if (_controlVector?.enforcement_mode !== "relaxed" && _controlVector?.agent_mode !== "plan" && Array.isArray(output?.system)) {
             output.system.push("[batch execution] When you need to run multiple independent Task subagent calls, " +
                 "invoke them ALL in parallel rather than sequentially. " +
                 "Parallel tasks complete faster and reduce total session cost. " +
