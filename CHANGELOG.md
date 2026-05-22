@@ -1,3 +1,12 @@
+## 0.15.11
+- fix: externalize vibeOScore in esbuild for CI build
+- fix: rebuild index.js with guarded __dirname for ESM compat
+- fix: make scratchpad cache per-session, remove global dir fallback
+- fix: set real model in opencode.json, fix duplicate import in api-client.ts
+- chore: gitignore saveOS-AUDIT-REPORT.md and vibeOS.cjs
+- chore: sync compiled index.js with latest build
+
+
 ## 0.15.10
 - fix: prevent empty footer from message.updated blocking text.complete
 - fix: prevent empty footer from message.updated blocking text.complete
