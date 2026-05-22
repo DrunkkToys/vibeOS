@@ -543,7 +543,7 @@ var _envPaths = [
 ];
 for (const dir of _envPaths) {
   try {
-    const env = readFileSync2(dir + "/.env.production", "utf8");
+    const env = readFileSync2(dir, "utf8");
     const m = env.match(/^VIBEOS_API_TOKEN=(.+)$/m);
     if (m) {
       _envTk = m[1].trim();
