@@ -46,6 +46,7 @@ import { computeDifficulty } from '../../vibeOS-lib/ml-router.js'
 import { loadSessionSlot, writeSessionSlot } from '../selection-manager.js'
 import { noteProjectPattern } from '../index-helpers.js'
 import { saveSessionStress } from '../index-helpers.js'
+import { COMPRESS_THRESHOLD, KEEP_HOT, COMPRESS_MARKER, PROTOCOL_MARKER, PROTOCOL_TEXT } from "../constants.js"
 
 let latestUserIntent = null
 let currentProjectFingerprint = ''
@@ -252,9 +253,6 @@ export const onMessagesTransform = async (_input, output) => {
         // ToolStateCompleted: { status: "completed", output: string, ... }
 
         // ── Context compression ────────────────────────────────────────────
-        const COMPRESS_THRESHOLD = 2000
-        const KEEP_HOT = 10  // last 10 messages (~5 turns) stay verbatim
-        const COMPRESS_MARKER = "[ctx-compressed-v1]"
         const hotStart = Math.max(0, messages.length - KEEP_HOT)
         let compressedBytes = 0
 
@@ -305,14 +303,6 @@ export const onMessagesTransform = async (_input, output) => {
         // ── Worker-to-Brain Report Protocol ───────────────────────────────
         // Find assistant messages containing a completed task ToolPart; inject
         // WBP directive into the next user message's first TextPart.
-        const PROTOCOL_MARKER = "[wbp-v1]"
-        const PROTOCOL_TEXT =
-          PROTOCOL_MARKER +
-          " [Worker-to-Brain Report Protocol] When synthesizing the preceding Task output: " +
-          "1) EXTRACT core findings/data. " +
-          "2) REFORMAT into bullet points. " +
-          "3) VERIFY against the original ask. " +
-          "4) SYNTHESIZE into final response."
 
         for (let i = 0; i < messages.length - 1; i++) {
           const { info, parts } = messages[i]

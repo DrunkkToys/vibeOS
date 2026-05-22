@@ -14,12 +14,9 @@ import { addCacheEntry, recordCacheStats, predictCacheHit } from '../../vibeOS-l
 import { buildTestReminder, enforceTestFile } from '../tdd-enforcer.js';
 import { setActiveJobFromTaskPrompt, observeToolPattern, compressText, recordSaving } from '../index-helpers.js';
 import { scoreTaskQuality } from './footer.js';
-const SAVE_EST = { WRITE_EDIT: 0.005, SOFT_QUOTA: 0.0003, CONTEXT7: 0.002, OPUS_DISABLE: 0.03 };
+import { SAVE_EST, WARN_ON_DIRECT, SOFT_QUOTA, FREE } from "../constants.js";
 const BYTES_PER_TOKEN = 4;
 const CACHE_SAVED_PER_1M_INPUT_TOKENS = 0.10;
-const WARN_ON_DIRECT = new Set(['write', 'edit', 'notebookedit', 'write_to_file', 'replace_in_file', 'apply_patch']);
-const SOFT_QUOTA = new Set(['bash', 'webfetch', 'websearch']);
-const FREE = new Set(['task', 'todowrite', 'question', 'skill', 'read', 'glob', 'grep', 'list']);
 let activeJob = null;
 let projectDirectory = "";
 let pendingUiNote = null;

@@ -2919,6 +2919,13 @@ function trendDisplay(sesTrend) {
   const icon = t === "up" ? "\u2191" : t === "down" ? "\u2193" : "\u2192";
   return `${icon} ${t}`;
 }
+function roundUsd2(v, precision = 6) {
+  const n = Number(v ?? 0);
+  if (!Number.isFinite(n))
+    return 0;
+  const f = 10 ** precision;
+  return Math.round(n * f) / f;
+}
 function formatUsd(v) {
   const n = Number(v ?? 0);
   if (!Number.isFinite(n) || n === 0)
@@ -3528,7 +3535,7 @@ function isApiFallback() {
   return _apiFallbackMode || !VIBEOS_API_ENABLED;
 }
 async function remoteCall(method, args, fallbackFn) {
-  if (!VIBEOS_API_ENABLED) {
+  if (!VIBEOS_API_ENABLED || _apiFallbackMode) {
     if (fallbackFn)
       return fallbackFn();
     return null;
@@ -5164,6 +5171,22 @@ function recordSaving(tool2, reason, saveEst, meta = {}) {
   }
 }
 
+// src/lib/constants.js
+var SAVE_EST = {
+  WRITE_EDIT: 5e-3,
+  SOFT_QUOTA: 3e-4,
+  CONTEXT7: 2e-3,
+  OPUS_DISABLE: 0.03
+};
+var WARN_ON_DIRECT = /* @__PURE__ */ new Set(["write", "edit", "notebookedit"]);
+var SOFT_QUOTA = /* @__PURE__ */ new Set(["bash", "glob", "grep", "read", "webfetch", "websearch"]);
+var FREE = /* @__PURE__ */ new Set(["todowrite", "question", "skill", "trinity", "report-list", "report-read", "report-save", "research-audit"]);
+var COMPRESS_THRESHOLD2 = 2e3;
+var KEEP_HOT = 10;
+var COMPRESS_MARKER = "[ctx-compressed-v1]";
+var PROTOCOL_MARKER = "[wbp-v1]";
+var PROTOCOL_TEXT = PROTOCOL_MARKER + " [Worker-to-Brain Report Protocol] When synthesizing the preceding Task output: 1) EXTRACT core findings/data. 2) REFORMAT into bullet points. 3) VERIFY against the original ask. 4) SYNTHESIZE into final response.";
+
 // src/lib/hooks/chat-transform.js
 var latestUserIntent = null;
 var currentProjectFingerprint4 = "";
@@ -5248,13 +5271,12 @@ function ensureProjectSkill(dir, fp3) {
     return { created: false, skipped: true, path: skillPath };
   }
   const promoted = promotedProjectPatterns(fp3);
-  if (promoted.length === 0) {
+  if (!promoted || promoted.length === 0) {
     return { created: false, skipped: false };
   }
   const techStack = detectTechStack(dir);
   const globalLearning = loadGlobalLearning();
   const promotedRoutines = globalLearning.promotedRoutines || [];
-  const toolPairs = globalLearning.toolPairs || {};
   const skillName = `project-${projectName.replace(/[^a-z0-9-]/gi, "-").toLowerCase()}`;
   let content = `---
 `;
@@ -5380,9 +5402,6 @@ var onMessagesTransform = async (_input, output) => {
     const messages = output?.messages;
     if (!Array.isArray(messages))
       return;
-    const COMPRESS_THRESHOLD2 = 2e3;
-    const KEEP_HOT = 10;
-    const COMPRESS_MARKER = "[ctx-compressed-v1]";
     const hotStart = Math.max(0, messages.length - KEEP_HOT);
     let compressedBytes = 0;
     for (let i = 0; i < messages.length; i++) {
@@ -5427,8 +5446,6 @@ ${raw}
     if (compressedBytes > 0) {
       console.error(`[vibeOS] \u{1F4E6} ctx-compress total saved this transform: ~${Math.round(compressedBytes / 4)} tokens`);
     }
-    const PROTOCOL_MARKER = "[wbp-v1]";
-    const PROTOCOL_TEXT = PROTOCOL_MARKER + " [Worker-to-Brain Report Protocol] When synthesizing the preceding Task output: 1) EXTRACT core findings/data. 2) REFORMAT into bullet points. 3) VERIFY against the original ask. 4) SYNTHESIZE into final response.";
     for (let i = 0; i < messages.length - 1; i++) {
       const { info, parts } = messages[i];
       if (!Array.isArray(parts))
@@ -5674,63 +5691,10 @@ var SAVINGS_LEDGER_FILE2 = join13(USER_HOME7, ".claude/savings-ledger.jsonl");
 var _prevOutputText = "";
 var _autoReportCount = 0;
 var textCompletePainted = /* @__PURE__ */ new Set();
-var SAVE_EST = {
-  WRITE_EDIT: 5e-3,
-  SOFT_QUOTA: 3e-4,
-  CONTEXT7: 2e-3,
-  OPUS_DISABLE: 0.03
-};
-function safeJsonParse6(raw) {
-  try {
-    return JSON.parse(raw);
-  } catch {
-  }
-  let cleaned = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "").replace(/,\s*([}\]])/g, "$1");
-  try {
-    return JSON.parse(cleaned);
-  } catch (e) {
-    throw e;
-  }
-}
-function shortModelName2(modelId) {
-  if (!modelId || typeof modelId !== "string")
-    return "?";
-  if (/^[^/]+\/[^/]+:free$/i.test(modelId)) {
-    const free = modelId.replace(":free", "");
-    const p = free.split("/");
-    return p[p.length - 1].replace(/:free$/i, "") + " (free)";
-  }
-  if (/^[^/]+\/[^/]+$/.test(modelId)) {
-    const p = modelId.split("/");
-    return p[p.length - 1].replace(/:free$/i, "");
-  }
-  if (modelId.length <= 30)
-    return modelId;
-  return modelId.slice(0, 27) + "...";
-}
-function roundUsd2(v, precision = 6) {
-  const n = Number(v);
-  if (!Number.isFinite(n) || n === 0)
-    return 0;
-  if (Math.abs(n) < 1e-12)
-    return 0;
-  return Number(n.toFixed(precision));
-}
-function formatUsd2(v) {
-  const n = Number(v);
-  if (!Number.isFinite(n) || n === 0)
-    return "0.00";
-  const abs = Math.abs(n);
-  if (abs < 0.01)
-    return (n >= 0 ? "+" : "") + "$" + n.toFixed(4);
-  if (abs < 1)
-    return (n >= 0 ? "+" : "") + "$" + n.toFixed(3);
-  return (n >= 0 ? "+" : "") + "$" + n.toFixed(2);
-}
 function loadSelection3() {
   try {
     const raw = readFileSync11(join13(USER_HOME7, ".claude/model-tiers.json"), "utf-8");
-    return safeJsonParse6(raw)?.selection || { active_slot: "medium", enabled: true, delegation_enforce: false, flow_enabled: false, flow_enforce: false, tdd_enforce: false, tdd_strict: false };
+    return safeJsonParse3(raw)?.selection || { active_slot: "medium", enabled: true, delegation_enforce: false, flow_enabled: false, flow_enforce: false, tdd_enforce: false, tdd_strict: false };
   } catch {
     return { active_slot: "medium", enabled: true, delegation_enforce: false, flow_enabled: false, flow_enforce: false, tdd_enforce: false, tdd_strict: false };
   }
@@ -5739,7 +5703,7 @@ function readLifetimeSavings2() {
   try {
     reconcileStateFromLedger();
     const raw = readFileSync11(STATE_FILE5, "utf-8");
-    const state = safeJsonParse6(raw);
+    const state = safeJsonParse3(raw);
     const ses = state?.sessions?.[typeof _OC_SID6 !== "undefined" ? _OC_SID6 : ""] || {};
     return {
       ltTasks: roundUsd2(state?.lifetime?.total_savings_usd || 0),
@@ -5811,19 +5775,19 @@ async function _appendFooter(input, output, directory3) {
     const sessionSlot = loadSessionSlot(_OC_SID6);
     const slot = sessionSlot || loadSelection3().active_slot || "brain";
     const brainModel = slot === "brain" ? TRINITY_BRAIN || currentModel : slot === "medium" ? TRINITY_MEDIUM || currentModel : TRINITY_CHEAP || currentModel || "";
-    let modelTag = `[${shortModelName2(brainModel)}]`;
+    let modelTag = `[${shortModelName(brainModel)}]`;
     const _workerModel = slot === "brain" ? TRINITY_MEDIUM : null;
     const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0);
     if (_workerModel && _workerModel !== brainModel) {
       const brainPct = Math.round((sesModelTurns?.brain || 0) / (totalTurns || 1) * 100);
-      modelTag = `[${shortModelName2(brainModel)} ${brainPct}% \u2192 ${shortModelName2(_workerModel)} ${100 - brainPct}%]`;
+      modelTag = `[${shortModelName(brainModel)} ${brainPct}% \u2192 ${shortModelName(_workerModel)} ${100 - brainPct}%]`;
     }
     _autoReportCount = (_autoReportCount || 0) + 1;
     if (_autoReportCount % 5 === 0) {
       try {
         saveReport({
           type: "session",
-          summary: "Session cost: $" + formatUsd2(ltCost) + " | cache saved: $" + formatUsd2(ltCache) + " | delegation saved: $" + formatUsd2(Number(sesTasks || 0)) + " | task delegations: " + Number(sesTaskDelegations || 0),
+          summary: "Session cost: $" + formatUsd(ltCost) + " | cache saved: $" + formatUsd(ltCache) + " | delegation saved: $" + formatUsd(Number(sesTasks || 0)) + " | task delegations: " + Number(sesTaskDelegations || 0),
           metrics: {
             sessionId: _OC_SID6,
             projectFingerprint: currentProjectFingerprint || "unknown",
@@ -5912,10 +5876,10 @@ async function _appendFooter(input, output, directory3) {
     const imputedMultiplier = brainModelCost > SAVE_EST.WRITE_EDIT && cheapModelCost > 0 && brainModelCost > cheapModelCost ? brainModelCost / cheapModelCost : 0;
     let footerText;
     if (ltTotal > 0) {
-      let savingsDisplay = `vibeOS: ${formatUsd2(ltTotal)} saved up ${trendIcon}`;
+      let savingsDisplay = `vibeOS: $${formatUsd(ltTotal)} saved up ${trendIcon}`;
       if (imputedMultiplier > 2) {
         const imputedActual = ltTotal * imputedMultiplier;
-        savingsDisplay += ` (${formatUsd2(imputedActual)} actual)`;
+        savingsDisplay += ` ($${formatUsd(imputedActual)} actual)`;
       }
       const stressBar = _footerStress > 0.85 ? "\u2588" : _footerStress > 0.7 ? "\u2586" : _footerStress > 0.5 ? "\u2585" : _footerStress > 0.3 ? "\u2583" : _footerStress > 0.1 ? "\u2582" : "\u2581";
       const stressLabel = _footerStress > 0.7 ? "high" : _footerStress > 0.4 ? "elevated" : "calm";
@@ -5970,10 +5934,8 @@ init_flow_enforcer();
 import { readFileSync as readFileSync12, writeFileSync as writeFileSync10, appendFileSync as appendFileSync6, existsSync as existsSync12, mkdirSync as mkdirSync8, statSync as statSync8, readdirSync as readdirSync2, rmSync as rmSync5, openSync as openSync4 } from "node:fs";
 import { join as join14, dirname as dirname6 } from "node:path";
 import { createHash as createHash5 } from "node:crypto";
-var _detectedFramework = null;
-var directory = void 0;
-var SOURCE_EXT_RE = /\.(py|js|ts|mjs|tsx|jsx|cjs|mts|sh|go|rs|rb|java|kt)$/i;
-var SKIP_PATH_RE = /(\/(node_modules|\.venv|dist|build|__pycache__)\/|\/(tests?|spec)\/|test_[^/]+\.py$|_test\.py$|\.test\.[a-z]+$|\.spec\.[a-z]+$|\.config\/opencode\/plugins\/)/i;
+
+// src/utils/tdd-helpers.js
 function extractExports(sourceContent, ext) {
   if (!sourceContent || typeof sourceContent !== "string")
     return [];
@@ -6278,6 +6240,12 @@ function isSkeletonUseless(content) {
   const meaningfulLines = lines.filter((l) => !/TODO|placeholder|smoke|is exported|module loads|throw new Error|raise AssertionError|pytest\.skip|assert.*true/.test(l));
   return meaningfulLines.length < 2;
 }
+
+// src/lib/tdd-enforcer.js
+var _detectedFramework = null;
+var directory = void 0;
+var SOURCE_EXT_RE = /\.(py|js|ts|mjs|tsx|jsx|cjs|mts|sh|go|rs|rb|java|kt)$/i;
+var SKIP_PATH_RE = /(\/(node_modules|\.venv|dist|build|__pycache__)\/|\/(tests?|spec)\/|test_[^/]+\.py$|_test\.py$|\.test\.[a-z]+$|\.spec\.[a-z]+$|\.config\/opencode\/plugins\/)/i;
 function _detectTestFramework() {
   if (_detectedFramework)
     return _detectedFramework;
@@ -7282,12 +7250,8 @@ function buildTestReminder(filePath) {
 }
 
 // src/lib/hooks/tool-execute.js
-var SAVE_EST2 = { WRITE_EDIT: 5e-3, SOFT_QUOTA: 3e-4, CONTEXT7: 2e-3, OPUS_DISABLE: 0.03 };
 var BYTES_PER_TOKEN = 4;
 var CACHE_SAVED_PER_1M_INPUT_TOKENS = 0.1;
-var WARN_ON_DIRECT = /* @__PURE__ */ new Set(["write", "edit", "notebookedit", "write_to_file", "replace_in_file", "apply_patch"]);
-var SOFT_QUOTA = /* @__PURE__ */ new Set(["bash", "webfetch", "websearch"]);
-var FREE = /* @__PURE__ */ new Set(["task", "todowrite", "question", "skill", "read", "glob", "grep", "list"]);
 var projectDirectory = "";
 var pendingUiNote = null;
 var enforcementBlocked = false;
@@ -7448,10 +7412,10 @@ var onToolExecuteBefore = async (input, output) => {
   const _brainCost = modelCostPerTurn(currentModel);
   const _workerModel = TRINITY_CHEAP || TRINITY_MEDIUM || null;
   const _workerCost = _workerModel ? modelCostPerTurn(_workerModel) ?? 0 : 0;
-  const _rawEdit = _brainCost !== null ? Math.max(0, _brainCost - _workerCost) : SAVE_EST2.WRITE_EDIT;
-  const _estEdit = Math.max(_rawEdit, SAVE_EST2.WRITE_EDIT * 0.1);
-  const _estOpus = _brainCost !== null ? Math.max(_brainCost, _estEdit) : SAVE_EST2.OPUS_DISABLE;
-  const _estC7 = _brainCost !== null ? Math.max(_brainCost, SAVE_EST2.CONTEXT7) : SAVE_EST2.CONTEXT7;
+  const _rawEdit = _brainCost !== null ? Math.max(0, _brainCost - _workerCost) : SAVE_EST.WRITE_EDIT;
+  const _estEdit = Math.max(_rawEdit, SAVE_EST.WRITE_EDIT * 0.1);
+  const _estOpus = _brainCost !== null ? Math.max(_brainCost, _estEdit) : SAVE_EST.OPUS_DISABLE;
+  const _estC7 = _brainCost !== null ? Math.max(_brainCost, SAVE_EST.CONTEXT7) : SAVE_EST.CONTEXT7;
   const _tierWord = currentTier === "high" ? "Brain" : currentTier === "mid" ? "Medium" : "Budget";
   const _firstWord = extractFirstWordFromArgs(t, args || inArgs);
   if (_credit < 40) {
@@ -7527,7 +7491,7 @@ var onToolExecuteBefore = async (input, output) => {
     softQuotaCounts[t] = (softQuotaCounts[t] ?? 0) + 1;
     const n = softQuotaCounts[t];
     if (n === SOFT_QUOTA_LIMIT + 1) {
-      const total = recordSaving(t, `soft quota exceeded (limit ${SOFT_QUOTA_LIMIT})`, SAVE_EST2.SOFT_QUOTA);
+      const total = recordSaving(t, `soft quota exceeded (limit ${SOFT_QUOTA_LIMIT})`, SAVE_EST.SOFT_QUOTA);
       console.error(`[vibeOS] Bash usage high (${n}/${SOFT_QUOTA_LIMIT}) \u2014 delegate to Task subagent.`);
     } else if (n <= SOFT_QUOTA_LIMIT) {
       console.error(`[vibeOS] ${t} ${n}/${SOFT_QUOTA_LIMIT}`);

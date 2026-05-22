@@ -2,13 +2,14 @@
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, statSync, readdirSync, copyFileSync } from "node:fs"
 import { join, dirname, basename } from "node:path"
 import { homedir, tmpdir } from "node:os"
-import { classify, modelCostPerTurn, _refreshModel, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP } from "../pricing.js"
+import { classify, modelCostPerTurn, _refreshModel, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, roundUsd, formatUsd } from "../pricing.js"
 import { latestUserIntent } from "./chat-transform.js"
 import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, loadOptimizationMode, classifyTurnSimple } from "../turn-classify.js"
 import { saveReport } from "../reporting.js"
-import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, _modelLocked, _blackboxEnabled, writeSelection, reconcileStateFromLedger } from "../state.js"
+import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, _modelLocked, _blackboxEnabled, writeSelection, reconcileStateFromLedger, safeJsonParse } from "../state.js"
 import { loadSessionSlot, writeSessionSlot } from "../selection-manager.js"
 import { remoteCall } from "../api-client.js"
+import { SAVE_EST } from "../constants.js"
 
 let _cachedAutoMode = null
 
@@ -27,53 +28,6 @@ const SAVINGS_LEDGER_FILE = join(USER_HOME, ".claude/savings-ledger.jsonl")
 let _prevOutputText = ""
 let _autoReportCount = 0
 const textCompletePainted = new Set()
-
-const SAVE_EST = {
-  WRITE_EDIT:   0.005,
-  SOFT_QUOTA:   0.0003,
-  CONTEXT7:     0.002,
-  OPUS_DISABLE: 0.03,
-}
-
-function safeJsonParse(raw) {
-  try { return JSON.parse(raw) } catch {}
-  let cleaned = raw
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/\/\/.*$/gm, '')
-    .replace(/,\s*([}\]])/g, '$1')
-  try { return JSON.parse(cleaned) } catch (e) { throw e }
-}
-
-function shortModelName(modelId) {
-  if (!modelId || typeof modelId !== "string") return "?"
-  if (/^[^/]+\/[^/]+:free$/i.test(modelId)) {
-    const free = modelId.replace(":free", "")
-    const p = free.split("/")
-    return p[p.length - 1].replace(/:free$/i, "") + " (free)"
-  }
-  if (/^[^/]+\/[^/]+$/.test(modelId)) {
-    const p = modelId.split("/")
-    return p[p.length - 1].replace(/:free$/i, "")
-  }
-  if (modelId.length <= 30) return modelId
-  return modelId.slice(0, 27) + "..."
-}
-
-function roundUsd(v, precision = 6) {
-  const n = Number(v)
-  if (!Number.isFinite(n) || n === 0) return 0
-  if (Math.abs(n) < 1e-12) return 0
-  return Number(n.toFixed(precision))
-}
-
-function formatUsd(v) {
-  const n = Number(v)
-  if (!Number.isFinite(n) || n === 0) return "0.00"
-  const abs = Math.abs(n)
-  if (abs < 0.01) return (n >= 0 ? "+" : "") + "$" + n.toFixed(4)
-  if (abs < 1) return (n >= 0 ? "+" : "") + "$" + n.toFixed(3)
-  return (n >= 0 ? "+" : "") + "$" + n.toFixed(2)
-}
 
 function loadSelection() {
   try {
@@ -248,10 +202,10 @@ async function _appendFooter(input, output, directory) {
       const imputedMultiplier = (brainModelCost > SAVE_EST.WRITE_EDIT && cheapModelCost > 0 && brainModelCost > cheapModelCost) ? (brainModelCost / cheapModelCost) : 0
       let footerText
       if (ltTotal > 0) {
-        let savingsDisplay = `vibeOS: ${formatUsd(ltTotal)} saved up ${trendIcon}`
+        let savingsDisplay = `vibeOS: $${formatUsd(ltTotal)} saved up ${trendIcon}`
         if (imputedMultiplier > 2) {
           const imputedActual = ltTotal * imputedMultiplier
-          savingsDisplay += ` (${formatUsd(imputedActual)} actual)`
+          savingsDisplay += ` ($${formatUsd(imputedActual)} actual)`
         }
         const stressBar = _footerStress > 0.85 ? "█" : _footerStress > 0.7 ? "▆" : _footerStress > 0.5 ? "▅" : _footerStress > 0.3 ? "▃" : _footerStress > 0.1 ? "▂" : "▁"
         const stressLabel = _footerStress > 0.7 ? "high" : _footerStress > 0.4 ? "elevated" : "calm"
