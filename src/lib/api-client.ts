@@ -4,7 +4,7 @@ import { VibeOSApiClient, VibeOSAuthError, VibeOSTimeoutError, VibeOSNetworkErro
 
 // ── Remote API client (Phase 2) ─────────────────────────────────────
 export const VIBEOS_API_URL = process.env.VIBEOS_API_URL || "https://api.vibetheog.com"
-export const VIBEOS_API_TOKEN = process.env.VIBEOS_API_TOKEN || "vos_59d73aa4b7838a7ca9dafe957993177b5629c7954091db3350b4150882ff7064"
+export const VIBEOS_API_TOKEN = process.env.VIBEOS_API_TOKEN || ""
 export const VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && !!VIBEOS_API_TOKEN
 
 let _apiClient = null

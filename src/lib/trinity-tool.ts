@@ -134,9 +134,11 @@ export function createTrinityTool(deps) {
           return "\u274c No model configured for " + slot + " slot. Run \`trinity rebuild\` first."
         }
         const auth = deps._readAuth()
-        const ok = await deps.probeModel(targetModel, auth)
-        if (!ok) {
-          return "\u274c " + targetModel + " failed API probe. Cannot switch to " + slot + " slot.\nCheck API key or run \`trinity rebuild\` to rediscover working models."
+        try {
+          const ok = await deps.probeModel(targetModel, auth)
+          if (!ok) console.error("[vibeOS] WARN: " + targetModel + " probe failed - switching anyway")
+        } catch (e) {
+          console.error("[vibeOS] WARN: probe error for " + targetModel + ": " + e.message + " - switching anyway")
         }
         const result = deps.applySlot(slot)
         if (!result.ok) return `\u274c Failed to set slot: ${result.reason}`
