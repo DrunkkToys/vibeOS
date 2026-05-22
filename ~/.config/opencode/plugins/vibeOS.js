@@ -5782,6 +5782,22 @@ function syncControlSettings(cv) {
       } catch {
       }
     }
+    if (cv.agent_mode === "plan" && latestUserIntent) {
+      const planDone = /^(yes|go ahead|proceed|looks? good|do it|sounds? good|perfect|great|nice|ok|okay|let.s do it|implement|execute|make it|build it|write it|start)\b/i.test(latestUserIntent.trim());
+      if (planDone) {
+        try {
+          const OC_CONFIG = TRINITY_OPENCODE_CONFIG || join11(homedir9(), ".config/opencode/opencode.json");
+          if (existsSync9(OC_CONFIG)) {
+            const oc = safeJsonParse3(readFileSync10(OC_CONFIG, "utf-8"));
+            if (oc.default_agent === "plan") {
+              oc.default_agent = "orchestrator";
+              writeFileSync9(OC_CONFIG, JSON.stringify(oc, null, 2) + "\n");
+            }
+          }
+        } catch {
+        }
+      }
+    }
   } catch {
   }
 }
