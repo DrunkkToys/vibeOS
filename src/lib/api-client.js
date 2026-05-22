@@ -1,6 +1,5 @@
 // @ts-nocheck
 import { VibeOSApiClient } from "vibeOScore/client";
-import { VibeOSApiClient } from "vibeOScore/client";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
