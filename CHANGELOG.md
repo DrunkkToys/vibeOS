@@ -1,3 +1,7 @@
+## 0.15.23
+- feat: add trinity api-token command to inject VIBEOS_API_TOKEN
+
+
 ## 0.15.22
 - chore: update flash pricing, add fallback indicator to footer
 
