@@ -619,12 +619,10 @@ function getScratchpadHit(toolLower: string, args: any, baseDir: string | null =
   const inputJson = stableJson(args ?? {})
   const hash = createHash("sha256").update(`${titleCase}\n${inputJson}\n`).digest("hex").slice(0, 16)
   const sessionDir = baseDir || getSessionScratchpadDir()
-  const globalDir = SCRATCHPAD_GLOBAL_DIR
   const sessionPath = join(sessionDir, `${hash}.txt`)
-  const globalPath = join(globalDir, `${hash}.txt`)
-  let fullPath = existsSync(sessionPath) ? sessionPath : (existsSync(globalPath) ? globalPath : null)
+  let fullPath = existsSync(sessionPath) ? sessionPath : null
   if (!fullPath) {
-    const recent = scanRecentScratchpad(sessionDir, titleCase, 2000) || scanRecentScratchpad(globalDir, titleCase, 2000)
+    const recent = scanRecentScratchpad(sessionDir, titleCase, 2000)
     if (recent) return recent
     return null
   }
@@ -632,13 +630,10 @@ function getScratchpadHit(toolLower: string, args: any, baseDir: string | null =
     const st = statSync(fullPath)
     const ageSec = (Date.now() - st.mtimeMs) / 1000
     if (ageSec > SCRATCHPAD_MAX_AGE_SEC) return null
-    if (fullPath === globalPath) safeCopyIntoSession(hash, globalPath)
     const sessionSummaryPath = join(sessionDir, `${hash}.summary.txt`)
-    const globalSummaryPath = join(globalDir, `${hash}.summary.txt`)
-    const summaryPath = existsSync(sessionSummaryPath) ? sessionSummaryPath : globalSummaryPath
     return {
       hash, fullPath, sizeBytes: st.size, ageSec: Math.round(ageSec),
-      summaryPath: existsSync(summaryPath) ? summaryPath : null,
+      summaryPath: existsSync(sessionSummaryPath) ? sessionSummaryPath : null,
     }
   } catch { return null }
 }
@@ -717,10 +712,6 @@ function runDecadenceCycle(): void {
     const sessionDir = getSessionScratchpadDir()
     _pruneScratchpadDir(sessionDir, { maxFiles: MAX_SESSION_SCRATCHPAD_FILES, maxBytes: MAX_SESSION_SCRATCHPAD_BYTES, rotate: true })
   } catch {}
-  if (now - _lastGlobalDecadenceRun >= DECADENCE_GLOBAL_THROTTLE_MS) {
-    _lastGlobalDecadenceRun = now
-    try { _pruneScratchpadDir(SCRATCHPAD_GLOBAL_DIR, { maxFiles: MAX_SCRATCHPAD_FILES, maxBytes: MAX_SCRATCHPAD_BYTES, rotate: true }) } catch {}
-  }
 }
 function applyDecadence() {
     const now = Date.now();
@@ -737,25 +728,6 @@ function applyDecadence() {
             }
         } catch (err) {
             console.error(`[vibeOS] session decadence error: ${err.message}`);
-        }
-    }
-    if (now - _lastGlobalDecadenceRun >= DECADENCE_GLOBAL_THROTTLE_MS) {
-        _lastGlobalDecadenceRun = now;
-        try {
-            const global = _pruneScratchpadDir(SCRATCHPAD_GLOBAL_DIR, {
-                maxFiles: MAX_SCRATCHPAD_FILES,
-                maxBytes: MAX_SCRATCHPAD_BYTES,
-                rotate: true,
-            });
-            cleanupStaleSessionScratchpads();
-            if (global.deleted > 0 || global.rotated > 0) {
-                const action = [];
-                if (global.rotated > 0) action.push(`rotated=${global.rotated}`);
-                if (global.deleted > 0) action.push(`deleted=${global.deleted}`);
-                console.error(`[vibeOS] global-decadence: ${action.join(" ")} (${global.dataFiles} files, ${Math.round(global.totalBytes / 1024)}KB)`);
-            }
-        } catch (err) {
-            console.error(`[vibeOS] global decadence error: ${err.message}`);
         }
     }
 }
@@ -789,23 +761,7 @@ function pruneScratchpadOnce(): void {
       child.unref()
     }
   } catch { /* prune is best-effort */ }
-  // Inline size cap: use decadence thresholds, remove oldest 30%
-  try {
-    const dir = SCRATCHPAD_GLOBAL_DIR
-    if (!existsSync(dir)) return
-    const entries = readdirSync(dir)
-    const txtFiles = entries.filter((e: string) => e.endsWith(".txt") && !e.endsWith(".meta.json") && !e.endsWith(".summary.txt")).map((e: string) => join(dir, e))
-    if (txtFiles.length <= MAX_SCRATCHPAD_FILES) return
-    const totalSize = txtFiles.reduce((a: number, f: string) => a + (statSync(f).size || 0), 0)
-    if (totalSize < MAX_SCRATCHPAD_BYTES) return
-    txtFiles.sort((a: string, b: string) => statSync(a).mtimeMs - statSync(b).mtimeMs)
-    const remove = Math.ceil(txtFiles.length * 0.3)
-    for (let i = 0; i < remove; i++) {
-      try { rmSync(txtFiles[i]) } catch {}
-      const meta = txtFiles[i].replace(".txt", ".meta.json")
-      if (existsSync(meta)) try { rmSync(meta) } catch {}
-    }
-  } catch {}
+  cleanupStaleSessionScratchpads()
 }
 
 // ── Active jobs ──────────────────────────────────────────────────────
@@ -1093,13 +1049,9 @@ function _scanScrubpadDir(dir: string): ScrapbookIndexEntry[] {
 
 function rebuildScrapbookIndex(): ScrapbookIndexEntry[] {
   try {
-    const globalEntries = _scanScrubpadDir(SCRATCHPAD_GLOBAL_DIR)
     const sessionDir = getSessionScratchpadDir()
     const sessionEntries = _scanScrubpadDir(sessionDir)
-    const merged = new Map<string, ScrapbookIndexEntry>()
-    for (const e of globalEntries) merged.set(e.hash, e)
-    for (const e of sessionEntries) if (!merged.has(e.hash)) merged.set(e.hash, e)
-    const index = Array.from(merged.values())
+    const index = Array.from(new Map(sessionEntries.map(e => [e.hash, e])).values())
     saveScrapbookIndex(index)
     return index
   } catch { return [] }
