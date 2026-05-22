@@ -144,6 +144,9 @@ class VibeOSApiClient {
     async blackboxControlVector(state, action, optimizationMode) {
         return this.request("/api/v1/blackbox/control-vector", { ...state, action, optimization_mode: optimizationMode });
     }
+    async blackboxSelectMode(subRegime, stressMultiplier) {
+        return this.request("/api/v1/blackbox/select-mode", { sub_regime: subRegime, stress_multiplier: stressMultiplier });
+    }
     async tddExports(sourceContent, ext) {
         return this.request("/api/v1/tdd/exports", { source_content: sourceContent, ext });
     }
