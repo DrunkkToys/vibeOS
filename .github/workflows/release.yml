@@ -25,6 +25,11 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - name: Create stub vibeOScore package (local file dependency)
+        run: |
+          mkdir -p ../vibeOScore
+          echo '{"name":"vibeOScore","version":"1.0.0","main":"index.js"}' > ../vibeOScore/package.json
+          echo 'module.exports = {};' > ../vibeOScore/index.js
       - run: npm ci
       - run: |
           git config user.name "github-actions[bot]"
