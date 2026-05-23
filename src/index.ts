@@ -159,19 +159,19 @@ function loadMcpPort(): number {
   const envPort = process.env.VIBEOS_MCP_PORT
   if (envPort != null && envPort !== "") {
     const n = Number(envPort)
-    if (!Number.isFinite(n)) return 9578
+    if (!Number.isFinite(n)) return 0
     return n
   }
   try {
     if (existsSync(TIERS_FILE)) {
       const tiers = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
-      const cfg = tiers?.selection?.mcp_port ?? tiers?.mcp_port
+      const cfg = tiers?.selection?.mcp_port
       if (cfg === false || cfg === "disabled" || cfg === 0) return 0
       const n = Number(cfg)
       if (Number.isFinite(n)) return n
     }
   } catch {}
-  return 9578
+  return 0
 }
 
 function persistMcpPort(port: number): void {
@@ -179,8 +179,9 @@ function persistMcpPort(port: number): void {
     if (!existsSync(TIERS_FILE)) return
     const tiers = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
     tiers.selection ??= {}
-    if (Number(tiers.selection.mcp_port) === Number(port)) return
+    if (Number(tiers.selection.mcp_port) === Number(port) && !("mcp_port" in tiers)) return
     tiers.selection.mcp_port = port
+    if ("mcp_port" in tiers) delete (tiers as any).mcp_port
     mkdirSync(dirname(TIERS_FILE), { recursive: true })
     const tmp = TIERS_FILE + ".tmp." + Date.now()
     writeFileSync(tmp, JSON.stringify(tiers, null, 2) + "\n", "utf-8")
@@ -458,7 +459,7 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
       }
       if (_tiersData) {
         _tiersData.selection ??= {}
-        if (_tiersData.selection.mcp_port === undefined) _tiersData.selection.mcp_port = 9578
+        if ("mcp_port" in _tiersData) delete _tiersData.mcp_port
         mkdirSync(dirname(TIERS_FILE), { recursive: true })
         const _tmp = TIERS_FILE + ".tmp." + Date.now()
         writeFileSync(_tmp, JSON.stringify(_tiersData, null, 2) + "\n", "utf-8")
@@ -480,11 +481,11 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
     } catch {}
   }
 
-  // Ensure mcp_port is set
+  // Ensure stale root mcp_port is cleaned
   try {
     const _mt = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
-    if (_mt.selection && (_mt.selection.mcp_port === undefined || _mt.selection.mcp_port === null)) {
-      _mt.selection.mcp_port = 9578
+    if ("mcp_port" in _mt) {
+      delete _mt.mcp_port
       const _tmp = TIERS_FILE + ".tmp." + Date.now()
       writeFileSync(_tmp, JSON.stringify(_mt, null, 2) + "\n", "utf-8")
       renameSync(_tmp, TIERS_FILE)
@@ -533,7 +534,7 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
       _loadOpenCodeProviders, _modelCost, _modelTier,
       _modelLocked, _blackboxEnabled, _latestBlackboxState,
       currentModel, currentTier, currentProjectFingerprint, currentProjectName,
-      latestUserIntent, directory,
+      get latestUserIntent() { return latestUserIntent }, directory,
       safeJsonParse, readFileSync, writeFileSync, existsSync, renameSync,
       TIERS_FILE, USER_HOME, STATE_FILE, CREDIT_CACHE_F,
       SAVINGS_LEDGER_FILE, PROJECT_STATE_FILE, REPORTS_DIR, REPORTS_INDEX,

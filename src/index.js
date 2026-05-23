@@ -1947,18 +1947,47 @@ function scanRecentScratchpad(dir, titleCase, maxScan = 2e3) {
     if (!existsSync3(dir))
       return null;
     const entries = readdirSync(dir);
+    const ptrFiles = entries.filter((e) => e.endsWith(".ptr"));
+    const ptrCandidates = [];
+    for (const pf of ptrFiles) {
+      if (ptrCandidates.length >= 50)
+        break;
+      try {
+        const st = statSync3(join3(dir, pf));
+        ptrCandidates.push({ ptrPath: join3(dir, pf), mtimeMs: st.mtimeMs });
+      } catch {
+      }
+    }
+    ptrCandidates.sort((a, b) => b.mtimeMs - a.mtimeMs);
+    for (const { ptrPath } of ptrCandidates) {
+      try {
+        const ptrData = safeJsonParse3(readFileSync4(ptrPath, "utf-8"));
+        if (!ptrData?.contentHash)
+          continue;
+        if (titleCase && ptrData.tool && TOOL_NAME_NORMALIZE[ptrData.tool] !== titleCase)
+          continue;
+        const contentHash = ptrData.contentHash;
+        const f = join3(dir, `${contentHash}.txt`);
+        if (!existsSync3(f))
+          continue;
+        const st = statSync3(f);
+        const ageSec = (Date.now() - st.mtimeMs) / 1e3;
+        if (ageSec > SCRATCHPAD_MAX_AGE_SEC)
+          continue;
+        const sumPath = join3(dir, `${contentHash}.summary.txt`);
+        return { hash: contentHash, fullPath: f, sizeBytes: st.size, ageSec: Math.round(ageSec), summaryPath: existsSync3(sumPath) ? sumPath : null };
+      } catch {
+      }
+    }
     const txtFiles = entries.filter((e) => e.endsWith(".txt") && !e.endsWith(".summary.txt"));
     if (txtFiles.length === 0)
       return null;
     const candidateHashes = [];
     for (let i = txtFiles.length - 1; i >= 0; i--) {
       const f = txtFiles[i];
-      const head = _readHead(join3(dir, f));
-      if (head && head.includes(`[ctx-compressed-v1]`)) {
-        candidateHashes.push(f.replace(/\.txt$/, ""));
-      }
       if (candidateHashes.length > 50)
         break;
+      candidateHashes.push(f.replace(/\.txt$/, ""));
     }
     for (const hash of candidateHashes) {
       const f = join3(dir, `${hash}.txt`);
@@ -1990,10 +2019,28 @@ ${inputJson}
   const globalPath = join3(globalDir, `${hash}.txt`);
   let fullPath = existsSync3(sessionPath) ? sessionPath : existsSync3(globalPath) ? globalPath : null;
   if (!fullPath) {
-    const recent = scanRecentScratchpad(sessionDir, titleCase, 2e3) || scanRecentScratchpad(globalDir, titleCase, 2e3);
-    if (recent)
-      return recent;
-    return null;
+    const ptrSessionPath = join3(sessionDir, `${hash}.ptr`);
+    const ptrGlobalPath = join3(globalDir, `${hash}.ptr`);
+    const ptrPath = existsSync3(ptrSessionPath) ? ptrSessionPath : existsSync3(ptrGlobalPath) ? ptrGlobalPath : null;
+    let resolvedHash = hash;
+    if (ptrPath) {
+      try {
+        const ptrData = safeJsonParse3(readFileSync4(ptrPath, "utf-8"));
+        if (ptrData?.contentHash) {
+          resolvedHash = ptrData.contentHash;
+          const rSessionPath = join3(sessionDir, `${resolvedHash}.txt`);
+          const rGlobalPath = join3(globalDir, `${resolvedHash}.txt`);
+          fullPath = existsSync3(rSessionPath) ? rSessionPath : existsSync3(rGlobalPath) ? rGlobalPath : null;
+        }
+      } catch {
+      }
+    }
+    if (!fullPath) {
+      const recent = scanRecentScratchpad(sessionDir, titleCase, 2e3) || scanRecentScratchpad(globalDir, titleCase, 2e3);
+      if (recent)
+        return recent;
+      return null;
+    }
   }
   try {
     const st = statSync3(fullPath);
@@ -5571,12 +5618,75 @@ var COMPRESS_MARKER = "[ctx-compressed-v1]";
 var PROTOCOL_MARKER = "[wbp-v1]";
 var PROTOCOL_TEXT = PROTOCOL_MARKER + " [Worker-to-Brain Report Protocol] When synthesizing the preceding Task output: 1) EXTRACT core findings/data. 2) REFORMAT into bullet points. 3) VERIFY against the original ask. 4) SYNTHESIZE into final response.";
 
+// src/lib/templates.js
+var TEMPLATES = {
+  save: {
+    tier_bias: "cheap",
+    thinking_mode: "off",
+    enforcement_mode: "relaxed",
+    flow_mode: "audit",
+    tdd_mode: "lazy",
+    context7_urgency: "required",
+    wbp_verbosity: "minimal",
+    agent_mode: "auto",
+    directive: "[SAVE mode] Cost efficiency. Minimize token usage. Combine independent tool calls with && or ;. Prefer context7 over WebSearch/WebFetch for docs. Skip unnecessary verification. Batch parallel Task subagents."
+  },
+  quality: {
+    tier_bias: "brain",
+    thinking_mode: "full",
+    enforcement_mode: "strict",
+    flow_mode: "strict",
+    tdd_mode: "save",
+    context7_urgency: "preferred",
+    wbp_verbosity: "verbose",
+    agent_mode: "plan",
+    directive: "[QUALITY mode] High quality output. Full verification of all results. Production-grade code. Write tests covering all paths and edge cases. Validate outputs before presenting. Do not cut corners."
+  },
+  security: {
+    tier_bias: "brain",
+    thinking_mode: "brief",
+    enforcement_mode: "strict",
+    flow_mode: "strict",
+    tdd_mode: "quality",
+    context7_urgency: "preferred",
+    wbp_verbosity: "normal",
+    agent_mode: "plan",
+    directive: "[SECURITY mode] Defense-in-depth. Define the threat model before writing code. Validate all inputs. Never expose secrets or credentials. Verify each defense handles its threat. Consider: injection, broken auth, data exposure, logic errors, race conditions."
+  }
+};
+var DEFAULT_TEMPLATE = "quality";
+function detectBudgetSignal(creditPercent) {
+  return creditPercent < 40;
+}
+var _prevStress = 0;
+function detectStressSpike(stressScore) {
+  var delta = stressScore - _prevStress;
+  _prevStress = stressScore;
+  return delta > 0.3 && stressScore > 0.5;
+}
+function resolveTemplate(prevTemplate, stressScore, userText, creditPercent) {
+  if (detectBudgetSignal(creditPercent)) return "save";
+  if (detectStressSpike(stressScore)) return "quality";
+  return prevTemplate || DEFAULT_TEMPLATE;
+}
+var _turnCount = 0;
+function shouldInjectTemplate(template, prevTemplate) {
+  _turnCount++;
+  if (template !== prevTemplate) return true;
+  if (_turnCount % 10 === 0) return true;
+  return false;
+}
+
 // src/lib/hooks/chat-transform.js
 var latestUserIntent = null;
 var _OC_SID4 = "opencode-" + (process.pid || "x") + "-" + Date.now();
 var _latestBlackboxState3 = null;
 var _latestBlackboxLoopMsg2 = null;
 var _latestBlackboxPivotMsg2 = null;
+var _prevBlackboxRegime = null;
+var _currentTemplate = DEFAULT_TEMPLATE;
+var _prevTemplate = null;
+var _turnCountInject = 0;
 var correctionSeenKeys = /* @__PURE__ */ new Set();
 async function apiComputeControlVector(state, action, optimizationMode) {
   try {
@@ -5848,6 +5958,18 @@ ${raw}
         if (!existsSync10(fullPath)) {
           writeFileSync9(fullPath, raw);
           indexAppend(hash, part.tool, raw.length);
+          const invPart = parts.slice(0, parts.indexOf(part)).reverse().find((p) => p?.type === "tool" && p?.tool === part.tool && p?.state?.input && p?.state?.status !== "completed");
+          if (invPart?.state?.input) {
+            const toolKey = TOOL_NAME_NORMALIZE[part.tool] || part.tool;
+            const inputHash = createHash3("sha256").update(`${toolKey}
+${stableJson(invPart.state.input)}
+`).digest("hex").slice(0, 16);
+            const ptrPath = join12(getSessionScratchpadDir(), `${inputHash}.ptr`);
+            try {
+              writeFileSync9(ptrPath, JSON.stringify({ contentHash: hash, tool: part.tool }));
+            } catch {
+            }
+          }
         }
       } catch (err) {
         console.error(`[vibeOS] ctx-compress write failed: ${err.message}`);
@@ -5961,36 +6083,6 @@ function thinkingDirective(level) {
   }
   return `[thinking policy] Reasoning depth: OFF (manually set, ${creditNote}). Skip extended thinking entirely. Respond directly and concisely. Every thinking token costs money -- save it for when the user explicitly asks.`;
 }
-function orchestratorDirective(cv, sel) {
-  const tierBias = cv?.tier_bias || "auto";
-  let brainModel = "(brain)";
-  try {
-    brainModel = safeJsonParse3(readFileSync11(TIERS_FILE2, "utf-8")).trinity?.brain?.oc || brainModel;
-  } catch {
-  }
-  const cheapModel = TRINITY_CHEAP || "the cheaper model";
-  const mediumModel = TRINITY_MEDIUM || "the medium model";
-  const targetModel = tierBias === "cheap" ? cheapModel : tierBias === "medium" ? mediumModel : tierBias === "brain" ? brainModel : `${cheapModel} or ${mediumModel}`;
-  return `[AI ORCHESTRATOR AGENT] You are an AI orchestrator agent. Delegate heavy work to Task subagents (runs on ${targetModel}). Your role: verify, fill gaps, synthesize. CRITICAL: Write/Edit tools are BLOCKED on this tier. You MUST delegate ALL implementation work to Task subagents. Always display the vibeOS cost footer.` + (tierBias !== "auto" ? ` [tier routing] This turn is biased toward ${tierBias} tier.` : "");
-}
-var TDD_NOTES = {
-  lazy: " Skeletons only when explicitly requested.",
-  strict: " STRICT mode: TODO tests MUST pass before considering work complete.",
-  quality: " QUALITY mode: Full coverage including edge cases."
-};
-function tddDirective(cv, sel) {
-  const tddMode = cv?.tdd_mode || (sel.tdd_strict ? "strict" : "normal");
-  const tddFocus = cv?.tdd_focus || [];
-  const focusNote = tddFocus.length > 0 ? ` Focus: ${tddFocus.join(", ")}.` : "";
-  return `[tdd enforcement: ${tddMode}] Auto-create skeleton tests for source files being written/edited.${TDD_NOTES[tddMode] || ""}${focusNote} When creating or modifying source files, ensure corresponding test files exist with proper assertions.`;
-}
-function flowDirective(cv, sel) {
-  const flowMode = cv?.flow_mode || (sel.flow_enforce ? "normal" : "audit");
-  const flowFocus = cv?.flow_focus || [];
-  const enforceNote = sel.flow_enforce ? " TODO/FIXME extraction is active." : "";
-  const focusNote = flowFocus.length > 0 ? ` Focus rules: ${flowFocus.join(", ")}.` : "";
-  return `[flow enforcement: ${flowMode}] Development flow rules are active: write/edit operations are checked against project conventions.${enforceNote}${focusNote} Follow existing code patterns, naming conventions, and project structure.`;
-}
 function flowTodosDirective() {
   const pendingTodos = loadTodos().filter((t) => t.status === "pending").length;
   if (pendingTodos === 0)
@@ -6062,83 +6154,88 @@ var onSystemTransform = async (_input, output) => {
     const sel = loadSelection();
     const fp2 = currentProjectFingerprint || "";
     const stressScore = latestUserIntent ? scoreStress(latestUserIntent) * (_controlVector?.stress_multiplier ?? 1) : 0;
+    const credit = loadCredit();
+    _turnCountInject++;
+    _prevTemplate = _currentTemplate;
+    _currentTemplate = resolveTemplate(_prevTemplate, stressScore, latestUserIntent, credit);
+    if (_currentTemplate !== loadOptimizationMode()) {
+      saveOptimizationMode(_currentTemplate);
+    }
+    if (shouldInjectTemplate(_currentTemplate, _prevTemplate)) {
+      const tpl = TEMPLATES[_currentTemplate] || TEMPLATES[DEFAULT_TEMPLATE];
+      let fused = tpl.directive;
+      if (sel.delegation_enforce && _controlVector?.enforcement_mode !== "relaxed") {
+        fused += " CRITICAL: Write/Edit tools are BLOCKED on brain tier. Delegate ALL implementation to Task subagents. Use parallel invocation for independent tasks.";
+      }
+      if (sel.tdd_enforce && _controlVector?.tdd_mode !== "lazy") {
+        fused += " Auto-create test skeletons for changed source files.";
+      }
+      if (sel.flow_enabled && _controlVector?.flow_mode !== "audit") {
+        fused += " Follow existing code conventions and project patterns.";
+      }
+      pushSystem(output, fused);
+    }
     pushSystem(output, context7Directive(_controlVector));
     if (sel.thinking_level && sel.thinking_level !== "full") {
       pushSystem(output, thinkingDirective(sel.thinking_level));
     }
-    if (stressScore > 0.7) {
-      pushSystem(output, "[stress mitigation: CRITICAL] The user's message shows very high stress indicators. Stay calm, structured, and thorough. Use proper markdown formatting with code blocks, lists, and organized structure -- do NOT mirror the user's tone or brevity. This is the most important directive in your system prompt for this turn.");
-    } else if (stressScore > 0.4) {
-      pushSystem(output, "[stress mitigation: elevated] The user's message has elevated stress indicators. Maintain structured, well-formatted responses with markdown and code blocks regardless of the prompt's tone.");
+    if (stressScore > 0.7 && detectStressSpike(stressScore)) {
+      pushSystem(output, "[stress mitigation: CRITICAL] The user's message shows very high stress indicators. Stay calm, structured, and thorough. Use proper markdown formatting with code blocks, lists, and organized structure. Do NOT mirror the user's tone or brevity. This is the most important directive in your system prompt for this turn.");
+    } else if (stressScore > 0.4 && detectStressSpike(stressScore)) {
+      pushSystem(output, "[stress mitigation: elevated] The user's message has elevated stress indicators. Maintain structured, well-formatted responses with markdown and code blocks.");
     }
     if (_controlVector?.directives?.length > 0) {
       for (const directive of _controlVector.directives) {
         pushSystem(output, directive);
       }
     } else if (_blackboxEnabled && _latestBlackboxState3?.n_interactions > 0) {
+      const prevRegime = _prevBlackboxRegime;
       const res = _latestBlackboxState3;
-      pushSystem(output, `[decision engine] Current resolution: ${res.resolution || "unresolved"} (${res.sub_regime || "EXPLORING"}). Momentum: ${(res.momentum || 0) > 0 ? "positive" : (res.momentum || 0) < 0 ? "negative" : "neutral"}. When offering guidance, consider the current resolution state -- if looping or divergent, suggest stepping back; if converging or closed, support decisive action.`);
-      if (res.is_looping && res.loop_intervention_level && res.loop_intervention_level !== "none") {
-        const severity = res.loop_intervention_level === "escalated" ? "CRITICAL" : res.loop_intervention_level === "assertive" ? "WARNING" : "NOTICE";
-        pushSystem(output, `[loop prevention: ${severity}] ${_latestBlackboxLoopMsg2 || "The conversation may be looping -- try a different approach."} (level: ${res.loop_intervention_level})`);
-      }
-      if (res.pivot_detected && _latestBlackboxPivotMsg2) {
-        pushSystem(output, `[context switch: PIVOT] ${_latestBlackboxPivotMsg2}`);
+      const currentRegime = res.sub_regime || "EXPLORING";
+      if (currentRegime !== prevRegime) {
+        _prevBlackboxRegime = currentRegime;
+        pushSystem(output, "[decision engine] Resolution: " + (res.resolution || "unresolved") + " (" + currentRegime + "). Momentum: " + ((res.momentum || 0) > 0 ? "positive" : (res.momentum || 0) < 0 ? "negative" : "neutral") + ".");
+        if (res.is_looping && res.loop_intervention_level && res.loop_intervention_level !== "none") {
+          const severity = res.loop_intervention_level === "escalated" ? "CRITICAL" : res.loop_intervention_level === "assertive" ? "WARNING" : "NOTICE";
+          pushSystem(output, "[loop prevention: " + severity + "] " + (_latestBlackboxLoopMsg2 || "The conversation may be looping \u2014 try a different approach.") + " (level: " + res.loop_intervention_level + ")");
+        }
+        if (res.pivot_detected && _latestBlackboxPivotMsg2) {
+          pushSystem(output, "[context switch: PIVOT] " + _latestBlackboxPivotMsg2);
+        }
       }
     }
-    const projectJob = getActiveJobForProject();
-    if (latestUserIntent && projectJob && isLikelyOffTopic(latestUserIntent, projectJob)) {
-      pushSystem(output, `[job-focus] Active job context exists: "${(projectJob.prompt || "").slice(0, 140)}...". The latest user request appears off-topic relative to this running job. Before taking write/edit/task actions, ask one concise confirmation question to validate switching scope.`);
+    const projectJob2 = getActiveJobForProject();
+    if (latestUserIntent && projectJob2 && isLikelyOffTopic(latestUserIntent, projectJob2)) {
+      pushSystem(output, '[job-focus] Active job context exists: "' + (projectJob2.prompt || "").slice(0, 140) + '...". The latest user request appears off-topic relative to this running job. Before taking write/edit/task actions, ask one concise confirmation question to validate switching scope.');
       console.error("[vibeOS] [job-focus] off-topic request detected vs active job context");
     }
-    if (sel.delegation_enforce && _controlVector?.enforcement_mode !== "relaxed" && _controlVector?.agent_mode !== "plan") {
-      pushSystem(output, orchestratorDirective(_controlVector, sel));
+    if (sel.flow_enabled && sel.flow_enforce) {
+      const todoDirective = flowTodosDirective();
+      if (todoDirective) pushSystem(output, todoDirective);
     }
-    if (_controlVector?.enforcement_mode !== "relaxed" && _controlVector?.agent_mode !== "plan") {
-      pushSystem(output, "[batch execution] When you need to run multiple independent Task subagent calls, invoke them ALL in parallel rather than sequentially. Parallel tasks complete faster and reduce total session cost. Only sequence tasks when one depends on the output of another.");
+    if (_turnCountInject % 5 === 0) {
+      pushSystem(output, "[project guard: CRITICAL] AGENTS.md and README.md are protected by vibeOS. Do NOT modify either file without explicit user permission. AGENTS.md defines that AI agents must ask before changing code.");
     }
-    if (sel.tdd_enforce && _controlVector?.tdd_mode !== "lazy") {
-      pushSystem(output, tddDirective(_controlVector, sel));
-    }
-    if (sel.flow_enabled && _controlVector?.flow_mode !== "audit") {
-      pushSystem(output, flowDirective(_controlVector, sel));
-      if (sel.flow_enforce) {
-        pushSystem(output, flowTodosDirective());
-      }
-    }
-    pushSystem(output, "[project guard: CRITICAL] AGENTS.md and README.md are protected by vibeOS. Do NOT modify either file without explicit user permission. When implementing new features, update README.md to document them. AGENTS.md defines that AI agents must ask before changing code -- respect this rule.");
-    const currentMode = loadOptimizationMode();
-    if (currentMode === "quality") {
-      pushSystem(output, "[mode: quality] Prioritize quality and thoroughness. Provide complete edge case coverage, comprehensive error handling, full type annotations, production-grade code with tests. Do not cut corners for brevity.");
-    } else if (currentMode === "forensic") {
-      pushSystem(output, "[mode: forensic] Use forensic analysis depth: evidence-based reasoning tracing each claim to source; multi-hypothesis evaluation considering competing explanations; explicit uncertainty flags for assumptions and trade-offs; structured output with clear reasoning traces; thorough verification of all edge cases and failure modes.");
-    } else if (currentMode === "web-research" || currentMode === "exploration") {
-      pushSystem(output, "[mode: exploration] Use a research-oriented approach: gather information from multiple perspectives before converging; document alternative approaches; flag confidence levels for each finding; synthesize into actionable recommendations.");
-    } else if (currentMode === "defense_in_depth") {
-      pushSystem(output, "[mode: defense in depth] For every component: define the threat model, implement with defenses, then verify the defense handles the threat. Never write code without specifying what it defends against. Consider: injection, broken auth, data exposure, logic errors, race conditions.");
-    } else if (currentMode === "reporting") {
-      pushSystem(output, "[mode: formal report] Structure output as a formal engineering report with: executive summary, methodology, detailed findings with evidence, trade-offs documented, conclusions with confidence levels, and recommendations.");
-    } else if (currentMode === "verify") {
-      pushSystem(output, "[mode: verification-first] Before writing code, declare verification criteria: which edge cases must pass, what invariants must hold. After each code block, include a verification section showing how correctness is established against each criterion.");
-    }
-    pushSystem(output, contextBudgetDirective(_input, output));
+    const budgetDirective = contextBudgetDirective(_input, output);
+    if (budgetDirective) pushSystem(output, budgetDirective);
     if (!oneShot(fp2)) {
       pushSystem(output, buildProjectBriefing(currentProjectName || ""));
     }
     if (!oneShot("vibeos_patterns_" + fp2)) {
-      pushSystem(output, patternDirective(fp2));
+      const pd = patternDirective(fp2);
+      if (pd) pushSystem(output, pd);
     }
     if (!oneShot("trinity_welcome_" + fp2)) {
       pushSystem(output, welcomeDirective());
     }
     const calDir = join12(homedir8(), ".claude");
     const calFile = join12(calDir, "calibration-data.jsonl");
-    const regime = _latestBlackboxState3?.sub_regime || classifyTurnSimple(latestUserIntent || "");
+    const regime2 = _latestBlackboxState3?.sub_regime || classifyTurnSimple(latestUserIntent || "");
     const calRecord = JSON.stringify({
       ts: (/* @__PURE__ */ new Date()).toISOString(),
       sid: _OC_SID4,
-      mode: currentMode,
-      regime,
+      mode: _currentTemplate,
+      regime: regime2,
       stress: stressScore,
       fp: currentProjectFingerprint || ""
     }) + "\n";
@@ -6151,7 +6248,7 @@ var onSystemTransform = async (_input, output) => {
       pushSystem(output, "[vibeOS dashboard display] When the trinity tool returns output starting with '[vibeOS-dashboard]', you MUST use the question tool to display that data in a clean, human-readable format. Use the question field (not the header) to show the dashboard data. Format it with clear sections separated by blank lines, aligned columns with spaces, and plain text only (no emojis, no markdown). The header should be 'vibeOS Dashboard'. Include only one option in options: {label: 'Dismiss', description: ''}. Strip the '[vibeOS-dashboard]' marker line before displaying.");
     }
     if (!oneShot("vibeos_dopamine_style_" + fp2)) {
-      pushSystem(output, "[tool style: dopamine] When calling the bash tool, use an emoji-prefixed, progress-focused description \u2014 e.g. 'Shell \u26A1 Compiling assets...' or 'Shell \u{1F9EA} Running tests...'. Combine independent bash commands into a single call with && or ;. Never use raw technical labels as tool descriptions.");
+      pushSystem(output, "[tool style: dopamine] When calling the bash tool, use an emoji-prefixed, progress-focused description. Combine independent bash commands into a single call with && or ;. Never use raw technical labels as tool descriptions.");
     }
   } catch (err) {
     console.error(`[vibeOS] system.transform failed: ${err.message}`);
@@ -7808,7 +7905,7 @@ var onToolExecuteBefore = async (input, output) => {
     const hit = getScratchpadHit(t, args);
     if (hit && !scratchpadHitsSeen2.has(hit.hash)) {
       scratchpadHitsSeen2.add(hit.hash);
-      const total = recordScratchpadObservation();
+      const total = recordScratchpadObservation(t, args, hit.sizeBytes, { hash: hit.hash });
       const _inputTokens = Math.max(1, Math.round(hit.sizeBytes / BYTES_PER_TOKEN));
       _cacheSave = Math.max(1e-4, Math.round(_inputTokens * CACHE_SAVED_PER_1M_INPUT_TOKENS / 1e6 * 1e4) / 1e4);
       const cacheSaved = recordCacheSaving(t, _cacheSave, { hash: hit.hash });
@@ -8506,28 +8603,29 @@ function loadMcpPort() {
   const envPort = process.env.VIBEOS_MCP_PORT;
   if (envPort != null && envPort !== "") {
     const n = Number(envPort);
-    if (!Number.isFinite(n)) return 9578;
+    if (!Number.isFinite(n)) return 0;
     return n;
   }
   try {
     if (existsSync14(TIERS_FILE2)) {
       const tiers = safeJsonParse3(readFileSync15(TIERS_FILE2, "utf-8"));
-      const cfg = tiers?.selection?.mcp_port ?? tiers?.mcp_port;
+      const cfg = tiers?.selection?.mcp_port;
       if (cfg === false || cfg === "disabled" || cfg === 0) return 0;
       const n = Number(cfg);
       if (Number.isFinite(n)) return n;
     }
   } catch {
   }
-  return 9578;
+  return 0;
 }
 function persistMcpPort(port) {
   try {
     if (!existsSync14(TIERS_FILE2)) return;
     const tiers = safeJsonParse3(readFileSync15(TIERS_FILE2, "utf-8"));
     tiers.selection ??= {};
-    if (Number(tiers.selection.mcp_port) === Number(port)) return;
+    if (Number(tiers.selection.mcp_port) === Number(port) && !("mcp_port" in tiers)) return;
     tiers.selection.mcp_port = port;
+    if ("mcp_port" in tiers) delete tiers.mcp_port;
     mkdirSync11(dirname8(TIERS_FILE2), { recursive: true });
     const tmp = TIERS_FILE2 + ".tmp." + Date.now();
     writeFileSync12(tmp, JSON.stringify(tiers, null, 2) + "\n", "utf-8");
@@ -8797,7 +8895,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
       }
       if (_tiersData2) {
         _tiersData2.selection ??= {};
-        if (_tiersData2.selection.mcp_port === void 0) _tiersData2.selection.mcp_port = 9578;
+        if ("mcp_port" in _tiersData2) delete _tiersData2.mcp_port;
         mkdirSync11(dirname8(TIERS_FILE2), { recursive: true });
         const _tmp = TIERS_FILE2 + ".tmp." + Date.now();
         writeFileSync12(_tmp, JSON.stringify(_tiersData2, null, 2) + "\n", "utf-8");
@@ -8821,8 +8919,8 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
   }
   try {
     const _mt = safeJsonParse3(readFileSync15(TIERS_FILE2, "utf-8"));
-    if (_mt.selection && (_mt.selection.mcp_port === void 0 || _mt.selection.mcp_port === null)) {
-      _mt.selection.mcp_port = 9578;
+    if ("mcp_port" in _mt) {
+      delete _mt.mcp_port;
       const _tmp = TIERS_FILE2 + ".tmp." + Date.now();
       writeFileSync12(_tmp, JSON.stringify(_mt, null, 2) + "\n", "utf-8");
       renameSync6(_tmp, TIERS_FILE2);
@@ -8882,7 +8980,9 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     currentTier,
     currentProjectFingerprint,
     currentProjectName,
-    latestUserIntent,
+    get latestUserIntent() {
+      return latestUserIntent;
+    },
     directory: directory3,
     safeJsonParse: safeJsonParse3,
     readFileSync: readFileSync15,
