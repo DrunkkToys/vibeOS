@@ -103,12 +103,51 @@ npm run dashboard         # Start server on http://127.0.0.1:3333
 
 Displays model split, savings, session history, stress gauge, trinity controls, reports, and blackbox state with SSE push updates every 1.5s.
 
+## Security
+
+The API token (`VIBEOS_API_TOKEN`) acts as a **password** for your vibeOS seat. Treat it with the same care as any credential.
+
+- **Token-based seat auth** — Each token is bound to a seat. Suspending a seat immediately revokes all associated tokens.
+- **Graceful degradation** — If the token is revoked or the API is unreachable, the plugin falls back to local-only mode with bundled algorithms. No functionality is lost; only remote-optimized routing is disabled.
+- **Never commit tokens** — `.env.production` and `PRODUCTION-CREDENTIALS.md` are gitignored. Do not share or hardcode tokens in source files.
+- **Token rotation** — Generate a new token and update `VIBEOS_API_TOKEN` if you suspect a leak. Old tokens are invalidated immediately on seat suspension.
+- **Local-only mode** — Without an API token, all algorithms run locally. Set `VIBEOS_API_ENABLED=false` to explicitly disable all remote calls.
+
+## Context7 Cost Optimization
+
+[context7](https://upstash.com/docs/context7) is an MCP tool that resolves library/framework documentation queries at a fraction of the cost of WebFetch (~$0.06/turn saved).
+
+**Install it once:**
+
+```bash
+claude mcp add context7 npx @upstash/context7-mcp
+```
+
+### How vibeOS uses context7
+
+- **Auto-detection** — At module load, vibeOS scans `~/.claude/settings.json`, `~/.claude.json`, `opencode.json`, and `~/.config/opencode/` for a `context7` reference. No manual config needed.
+- **System prompt injection** — When context7 is detected, a cost-policy directive is injected into every system prompt instructing the model to prefer `mcp__context7__resolve-library-id` and `mcp__context7__get-library-docs` over WebFetch/WebSearch for documentation URLs.
+- **Urgency levels** — Controlled by the blackbox engine:
+  - `required` (strict/TDD-strict mode) — context7 is mandatory this turn.
+  - `preferred` (default) — context7 is encouraged but not forced.
+  - `optional` (relaxed mode) — context7 is a nice-to-have.
+- **Docs nudge** — If context7 is not installed and the model uses WebFetch on a documentation URL (docs.*, readthedocs, MDN, npmjs, pypi, crates.io, pkg.go.dev, etc.), vibeOS logs a one-time install suggestion and tracks the missed savings.
+- **Savings tracking** — Every docs URL fetched via WebFetch instead of context7 is recorded as `missed_context7_usd` in `~/.claude/delegation-state.json`. Accumulated misses appear in `trinity project` analytics with an installation suggestion when bypasses exceed 3.
+
+### Force-enable detection
+
+```bash
+export CLAUDE_CONTEXT7_AVAILABLE=true
+```
+
+Use this when context7 is configured but the auto-scan misses it (unusual paths, remote configs, or runtime-loaded MCP definitions).
+
 ## Environment Variables
 
 | Variable | Default | Description |
 |---|---|---|
 | `VIBEOS_API_URL` | `https://api.vibetheog.com` | API server URL |
-| `VIBEOS_API_TOKEN` | — | API token (required for remote mode) |
+| `VIBEOS_API_TOKEN` | — | **API token (password). Protect like a credential.** Required for remote mode. If compromised, rotate immediately via seat suspension. |
 | `VIBEOS_API_ENABLED` | `true` | Set to `false` for local-only mode |
 | `CLAUDE_CREDIT_PERCENT` | `100` | Credit percentage override |
 | `CLAUDE_CONTEXT7_AVAILABLE` | — | Enable context7 cost optimization |
