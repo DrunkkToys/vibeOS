@@ -1,0 +1,48 @@
+{
+  "test_name": "synthetic-accuracy-test",
+  "generated_at": "2026-05-23T20:11:45.861Z",
+  "total_turns": 100,
+  "global": {
+    "template_accuracy_pct": 100,
+    "accuracy_correct": 100,
+    "accuracy_total": 100,
+    "injection_precision_pct": 100,
+    "injection_precision_correct": 52,
+    "injection_precision_total": 52,
+    "injection_recall_pct": 100,
+    "injection_recall_hits": 47,
+    "injection_recall_total": 47,
+    "false_positive_rate_pct": 0,
+    "false_positives": 0,
+    "false_negative_rate_pct": 0,
+    "false_negatives": 0,
+    "total_injections": 52,
+    "total_changes": 47,
+    "periodic_injections": 10
+  },
+  "per_class": {
+    "save": {
+      "turns": 40,
+      "correct": 40,
+      "accuracy_pct": 100,
+      "injections": 17,
+      "injection_precision_pct": 100
+    },
+    "quality": {
+      "turns": 30,
+      "correct": 30,
+      "accuracy_pct": 100,
+      "injections": 12,
+      "injection_precision_pct": 100
+    },
+    "security": {
+      "turns": 30,
+      "correct": 30,
+      "accuracy_pct": 100,
+      "injections": 23,
+      "injection_precision_pct": 100
+    }
+  },
+  "mismatches": 0,
+  "mismatch_details": []
+}

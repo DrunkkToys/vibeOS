@@ -751,6 +751,7 @@ export { classifyAndRankModels, modelToCcAlias } from "./lib/trinity-rebuild.js"
 export { scoreStress, detectTechStack, loadBlackboxState, saveBlackboxState, getBlackboxResolution, } from "./lib/turn-classify.js"
 export { remoteCall } from "./lib/api-client.js"
 export { observeToolPattern, noteProjectPattern, recordSaving, compressText, } from "./lib/index-helpers.js"
+export { TEMPLATES, DEFAULT_TEMPLATE, resolveTemplate, detectSecuritySignal, detectBudgetSignal, detectLoopSignal, detectStressSpike, shouldInjectTemplate } from './lib/templates.js';
 
 export function closeMcpServer() {
   try {

@@ -32,7 +32,7 @@ import {
 } from '../pricing.js'
 import { latestUserIntent } from './chat-transform.js'
 import {
-  scoreStress, extractFirstWordFromArgs, shouldLogWarn,
+  scoreStress, scoreStressSmoothed, extractFirstWordFromArgs, shouldLogWarn,
   isUserAskingForTests, isLikelyOffTopic, resolveEnforcementMode,
   getBlackboxTracker, loadBlackboxState, saveBlackboxState,
   loadGlobalLearning, updateGlobalLearning, getLearnedExploratoryWords,
@@ -156,7 +156,7 @@ export const onToolExecuteBefore = async (input, output) => {
                           : null
         let _target = _exploratoryTarget ?? _tierTarget
 
-        const stressScore = latestUserIntent ? scoreStress(latestUserIntent) : 0
+        const stressScore = latestUserIntent ? scoreStressSmoothed(latestUserIntent) : 0
         const apiRoute = await remoteCall("routeModel", [_prompt, currentTier, TRINITY_CHEAP, TRINITY_MEDIUM, LEARNED_EXPLORATORY, stressScore], null)
         if (apiRoute?.target) {
           _target = apiRoute.target
@@ -383,7 +383,7 @@ export const onToolExecuteAfter = async (input, output) => {
         const statusLine = tags.join(" ")
         let stressTag = ""
         if (latestUserIntent) {
-          const ss = scoreStress(latestUserIntent)
+          const ss = scoreStressSmoothed(latestUserIntent)
           if (ss > 0.1) {
             const label = ss > 0.7 ? "high" : ss > 0.4 ? "elevated" : "calm"
             stressTag = ` stress:${label}`

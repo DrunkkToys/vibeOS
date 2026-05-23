@@ -25,7 +25,7 @@ import {
   shortModelName, formatUsd, _refreshModel, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN,
 } from '../pricing.js'
 import {
-  scoreStress, classifyTurnSimple, loadOptimizationMode,
+  scoreStress, scoreStressSmoothed, classifyTurnSimple, loadOptimizationMode,
   saveOptimizationMode,
   getBlackboxTracker, getBlackboxResolution,
   loadBlackboxState as loadBlackboxStateFromCtx, saveBlackboxState as saveBlackboxStateToCtx,
@@ -47,6 +47,7 @@ import { loadSessionSlot, writeSessionSlot } from '../selection-manager.js'
 import { noteProjectPattern } from '../index-helpers.js'
 import { saveSessionStress } from '../index-helpers.js'
 import { COMPRESS_THRESHOLD, KEEP_HOT, COMPRESS_MARKER, PROTOCOL_MARKER, PROTOCOL_TEXT } from "../constants.js"
+import { TEMPLATES, DEFAULT_TEMPLATE, resolveTemplate, detectLoopSignal, detectStressSpike, shouldInjectTemplate } from '../templates.js'
 
 let latestUserIntent = null
 let _OC_SID = 'opencode-' + (process.pid || 'x') + '-' + Date.now()
@@ -541,178 +542,146 @@ export const onSystemTransform = async (_input, output) => {
         latest_stress_multiplier: st || undefined,
       }, undefined, loadOptimizationMode())
     }
-    syncControlSettings(_controlVector)
+    syncControlSettings(_controlVector);
+        const system = output?.system;
+        if (!Array.isArray(system))
+            return;
+        const sel = loadSelection();
+        const fp = currentProjectFingerprint || "";
+        const stressScore = latestUserIntent
+            ? scoreStressSmoothed(latestUserIntent) * (_controlVector?.stress_multiplier ?? 1)
+            : 0;
+        const credit = loadCredit();
+        _turnCountInject++;
 
-    const system = output?.system
-    if (!Array.isArray(system)) return
+        _prevTemplate = _currentTemplate;
+        _currentTemplate = resolveTemplate(_prevTemplate, stressScore, latestUserIntent, credit);
+        if (_currentTemplate !== loadOptimizationMode()) {
+            saveOptimizationMode(_currentTemplate);
+        }
 
-    const sel = loadSelection()
-    const fp = currentProjectFingerprint || ""
-    const stressScore = latestUserIntent ? scoreStress(latestUserIntent) * (_controlVector?.stress_multiplier ?? 1) : 0
+        if (shouldInjectTemplate(_currentTemplate, _prevTemplate)) {
+            const tpl = TEMPLATES[_currentTemplate] || TEMPLATES[DEFAULT_TEMPLATE];
+            let fused = tpl.directive;
+            if (sel.delegation_enforce && _controlVector?.enforcement_mode !== "relaxed") {
+                fused += " CRITICAL: Write/Edit tools are BLOCKED on brain tier. Delegate ALL implementation to Task subagents. Use parallel invocation for independent tasks.";
+            }
+            if (sel.tdd_enforce && _controlVector?.tdd_mode !== "lazy") {
+                fused += " Auto-create test skeletons for changed source files.";
+            }
+            if (sel.flow_enabled && _controlVector?.flow_mode !== "audit") {
+                fused += " Follow existing code conventions and project patterns.";
+            }
+            pushSystem(output, fused);
+        }
 
-    pushSystem(output, context7Directive(_controlVector))
+        pushSystem(output, context7Directive(_controlVector));
 
-    if (sel.thinking_level && sel.thinking_level !== "full") {
-      pushSystem(output, thinkingDirective(sel.thinking_level))
+        if (sel.thinking_level && sel.thinking_level !== "full") {
+            pushSystem(output, thinkingDirective(sel.thinking_level));
+        }
+
+        if (stressScore > 0.7 && detectStressSpike(stressScore)) {
+            pushSystem(output, "[stress mitigation: CRITICAL] The user\'s message shows very high stress indicators. " +
+                "Stay calm, structured, and thorough. Use proper markdown formatting with code blocks, " +
+                "lists, and organized structure. Do NOT mirror the user\'s tone or brevity. " +
+                "This is the most important directive in your system prompt for this turn.");
+        }
+        else if (stressScore > 0.4 && detectStressSpike(stressScore)) {
+            pushSystem(output, "[stress mitigation: elevated] The user\'s message has elevated stress indicators. " +
+                "Maintain structured, well-formatted responses with markdown and code blocks.");
+        }
+
+        if (_controlVector?.directives?.length > 0) {
+            for (const directive of _controlVector.directives) {
+                pushSystem(output, directive);
+            }
+        }
+
+        else if (_blackboxEnabled && _latestBlackboxState?.n_interactions > 0) {
+            const prevRegime = _prevBlackboxRegime;
+            const res = _latestBlackboxState;
+            const currentRegime = res.sub_regime || "EXPLORING";
+            if (currentRegime !== prevRegime) {
+                _prevBlackboxRegime = currentRegime;
+                pushSystem(output, "[decision engine] Resolution: " + (res.resolution || "unresolved") + " " +
+                    "(" + currentRegime + "). Momentum: " + ((res.momentum || 0) > 0 ? "positive" : (res.momentum || 0) < 0 ? "negative" : "neutral") + ".");
+                if (res.is_looping && res.loop_intervention_level && res.loop_intervention_level !== "none") {
+                    const severity = res.loop_intervention_level === "escalated" ? "CRITICAL"
+                        : res.loop_intervention_level === "assertive" ? "WARNING" : "NOTICE";
+                    pushSystem(output, "[loop prevention: " + severity + "] " + (_latestBlackboxLoopMsg || "The conversation may be looping -- try a different approach.") + " " +
+                        "(level: " + res.loop_intervention_level + ")");
+                }
+                if (res.pivot_detected && _latestBlackboxPivotMsg) {
+                    pushSystem(output, "[context switch: PIVOT] " + _latestBlackboxPivotMsg);
+                }
+            }
+        }
+
+        const projectJob2 = getActiveJobForProject();
+        if (latestUserIntent && projectJob2 && isLikelyOffTopic(latestUserIntent, projectJob2)) {
+            pushSystem(output, "[job-focus] Active job context exists: \"" + ((projectJob2.prompt || "").slice(0, 140)) + "...\". " +
+                "The latest user request appears off-topic relative to this running job. " +
+                "Before taking write/edit/task actions, ask one concise confirmation question to validate switching scope.");
+            console.error("[vibeOS] [job-focus] off-topic request detected vs active job context");
+        }
+
+        if (sel.flow_enabled && sel.flow_enforce) {
+            const todoDirective = flowTodosDirective();
+            if (todoDirective) pushSystem(output, todoDirective);
+        }
+
+        if (_turnCountInject % 5 === 0) {
+            pushSystem(output, "[project guard: CRITICAL] AGENTS.md and README.md are protected by vibeOS. " +
+                "Do NOT modify either file without explicit user permission. " +
+                "AGENTS.md defines that AI agents must ask before changing code.");
+        }
+
+        const budgetDirective = contextBudgetDirective(_input, output);
+        if (budgetDirective) pushSystem(output, budgetDirective);
+
+        if (!oneShot(fp)) {
+            pushSystem(output, buildProjectBriefing(currentProjectName || ""));
+        }
+        if (!oneShot("vibeos_patterns_" + fp)) {
+            const pd = patternDirective(fp);
+            if (pd) pushSystem(output, pd);
+        }
+        if (!oneShot("trinity_welcome_" + fp)) {
+            pushSystem(output, welcomeDirective());
+        }
+
+        const calDir = join(homedir(), ".claude");
+        const calFile = join(calDir, "calibration-data.jsonl");
+        const regime2 = _latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || "");
+        const calRecord = JSON.stringify({
+            ts: new Date().toISOString(), sid: _OC_SID,
+            mode: _currentTemplate, regime: regime2, stress: stressScore,
+            fp: currentProjectFingerprint || "",
+        }) + "\n";
+        try {
+            mkdirSync(calDir, { recursive: true });
+            appendFileSync(calFile, calRecord);
+        } catch { }
+        if (!oneShot("vibeos_dashboard_instruct")) {
+            pushSystem(output, "[vibeOS dashboard display] When the trinity tool returns output starting with '[vibeOS-dashboard]', " +
+                "you MUST use the question tool to display that data in a clean, human-readable format. " +
+                "Use the question field (not the header) to show the dashboard data. " +
+                "Format it with clear sections separated by blank lines, aligned columns with spaces, " +
+                "and plain text only (no emojis, no markdown). " +
+                "The header should be 'vibeOS Dashboard'. " +
+                "Include only one option in options: {label: 'Dismiss', description: ''}. " +
+                "Strip the '[vibeOS-dashboard]' marker line before displaying.");
+        }
+        if (!oneShot("vibeos_dopamine_style_" + fp)) {
+            pushSystem(output, "[tool style: dopamine] When calling the bash tool, use an emoji-prefixed, progress-focused " +
+                "description. Combine independent bash commands into a single call with && or ;. " +
+                "Never use raw technical labels as tool descriptions.");
+        }
     }
-
-    if (stressScore > 0.7) {
-      pushSystem(output, "[stress mitigation: CRITICAL] The user's message shows very high stress indicators. " +
-        "Stay calm, structured, and thorough. Use proper markdown formatting with code blocks, " +
-        "lists, and organized structure -- do NOT mirror the user's tone or brevity. " +
-        "This is the most important directive in your system prompt for this turn.")
-    } else if (stressScore > 0.4) {
-      pushSystem(output, "[stress mitigation: elevated] The user's message has elevated stress indicators. " +
-        "Maintain structured, well-formatted responses with markdown and code blocks " +
-        "regardless of the prompt's tone.")
+    catch (err) {
+        console.error(`[vibeOS] system.transform failed: ${(err as Error).message}`);
     }
-
-    if (_controlVector?.directives?.length > 0) {
-      for (const directive of _controlVector.directives) {
-        pushSystem(output, directive)
-      }
-    } else if (_blackboxEnabled && _latestBlackboxState?.n_interactions > 0) {
-      const res = _latestBlackboxState
-      pushSystem(output,
-        `[decision engine] Current resolution: ${res.resolution || "unresolved"} (${res.sub_regime || "EXPLORING"}). ` +
-        `Momentum: ${(res.momentum || 0) > 0 ? "positive" : (res.momentum || 0) < 0 ? "negative" : "neutral"}. ` +
-        `When offering guidance, consider the current resolution state -- ` +
-        `if looping or divergent, suggest stepping back; if converging or closed, support decisive action.`)
-
-      if (res.is_looping && res.loop_intervention_level && res.loop_intervention_level !== "none") {
-        const severity = res.loop_intervention_level === "escalated" ? "CRITICAL"
-          : res.loop_intervention_level === "assertive" ? "WARNING" : "NOTICE"
-        pushSystem(output,
-          `[loop prevention: ${severity}] ${_latestBlackboxLoopMsg || "The conversation may be looping -- try a different approach."} ` +
-          `(level: ${res.loop_intervention_level})`)
-      }
-
-      if (res.pivot_detected && _latestBlackboxPivotMsg) {
-        pushSystem(output, `[context switch: PIVOT] ${_latestBlackboxPivotMsg}`)
-      }
-    }
-
-    const projectJob = getActiveJobForProject()
-    if (latestUserIntent && projectJob && isLikelyOffTopic(latestUserIntent, projectJob)) {
-      pushSystem(output,
-        `[job-focus] Active job context exists: "${(projectJob.prompt || "").slice(0, 140)}...". ` +
-        `The latest user request appears off-topic relative to this running job. ` +
-        `Before taking write/edit/task actions, ask one concise confirmation question to validate switching scope.`)
-      console.error("[vibeOS] [job-focus] off-topic request detected vs active job context")
-    }
-
-    if (sel.delegation_enforce && _controlVector?.enforcement_mode !== "relaxed" && _controlVector?.agent_mode !== "plan") {
-      pushSystem(output, orchestratorDirective(_controlVector, sel))
-    }
-
-    if (_controlVector?.enforcement_mode !== "relaxed" && _controlVector?.agent_mode !== "plan") {
-      pushSystem(output,
-        "[batch execution] When you need to run multiple independent Task subagent calls, " +
-        "invoke them ALL in parallel rather than sequentially. " +
-        "Parallel tasks complete faster and reduce total session cost. " +
-        "Only sequence tasks when one depends on the output of another.")
-    }
-
-    if (sel.tdd_enforce && _controlVector?.tdd_mode !== "lazy") {
-      pushSystem(output, tddDirective(_controlVector, sel))
-    }
-
-    if (sel.flow_enabled && _controlVector?.flow_mode !== "audit") {
-      pushSystem(output, flowDirective(_controlVector, sel))
-      if (sel.flow_enforce) {
-        pushSystem(output, flowTodosDirective())
-      }
-    }
-
-    pushSystem(output, "[project guard: CRITICAL] AGENTS.md and README.md are protected by vibeOS. " +
-      "Do NOT modify either file without explicit user permission. " +
-      "When implementing new features, update README.md to document them. " +
-      "AGENTS.md defines that AI agents must ask before changing code -- respect this rule.")
-
-    // -- Dynamic mode-specific prompt injection ----------------------------
-    const currentMode = loadOptimizationMode()
-    if (currentMode === "quality") {
-      pushSystem(output,
-        "[mode: quality] Prioritize quality and thoroughness. Provide complete edge case coverage, " +
-        "comprehensive error handling, full type annotations, production-grade code with tests. " +
-        "Do not cut corners for brevity.")
-    } else if (currentMode === "forensic") {
-      pushSystem(output,
-        "[mode: forensic] Use forensic analysis depth: evidence-based reasoning tracing each claim to source; " +
-        "multi-hypothesis evaluation considering competing explanations; " +
-        "explicit uncertainty flags for assumptions and trade-offs; " +
-        "structured output with clear reasoning traces; " +
-        "thorough verification of all edge cases and failure modes.")
-    } else if (currentMode === "web-research" || currentMode === "exploration") {
-      pushSystem(output,
-        "[mode: exploration] Use a research-oriented approach: gather information from multiple perspectives before converging; " +
-        "document alternative approaches; flag confidence levels for each finding; " +
-        "synthesize into actionable recommendations.")
-    } else if (currentMode === "defense_in_depth") {
-      pushSystem(output,
-        "[mode: defense in depth] For every component: define the threat model, implement with defenses, " +
-        "then verify the defense handles the threat. Never write code without specifying what it defends against. " +
-        "Consider: injection, broken auth, data exposure, logic errors, race conditions.")
-    } else if (currentMode === "reporting") {
-      pushSystem(output,
-        "[mode: formal report] Structure output as a formal engineering report with: executive summary, " +
-        "methodology, detailed findings with evidence, trade-offs documented, " +
-        "conclusions with confidence levels, and recommendations.")
-    } else if (currentMode === "verify") {
-      pushSystem(output,
-        "[mode: verification-first] Before writing code, declare verification criteria: which edge cases must pass, " +
-        "what invariants must hold. After each code block, include a verification section showing " +
-        "how correctness is established against each criterion.")
-    }
-
-    pushSystem(output, contextBudgetDirective(_input, output))
-
-    if (!oneShot(fp)) {
-      pushSystem(output, buildProjectBriefing(currentProjectName || ""))
-    }
-
-    if (!oneShot("vibeos_patterns_" + fp)) {
-      pushSystem(output, patternDirective(fp))
-    }
-
-    if (!oneShot("trinity_welcome_" + fp)) {
-      pushSystem(output, welcomeDirective())
-    }
-
-    // -- Calibration logging -------------------------------------------
-    const calDir = join(homedir(), ".claude")
-    const calFile = join(calDir, "calibration-data.jsonl")
-    const regime = _latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || "")
-    const calRecord = JSON.stringify({
-      ts: new Date().toISOString(), sid: _OC_SID,
-      mode: currentMode, regime, stress: stressScore,
-      fp: currentProjectFingerprint || "",
-    }) + "\n"
-    try { mkdirSync(calDir, { recursive: true }); appendFileSync(calFile, calRecord) } catch {}
-
-    if (!oneShot("vibeos_dashboard_instruct")) {
-      pushSystem(output,
-        "[vibeOS dashboard display] When the trinity tool returns output starting with '[vibeOS-dashboard]', " +
-        "you MUST use the question tool to display that data in a clean, human-readable format. " +
-        "Use the question field (not the header) to show the dashboard data. " +
-        "Format it with clear sections separated by blank lines, aligned columns with spaces, " +
-        "and plain text only (no emojis, no markdown). " +
-        "The header should be 'vibeOS Dashboard'. " +
-        "Include only one option in options: {label: 'Dismiss', description: ''}. " +
-        "Strip the '[vibeOS-dashboard]' marker line before displaying.")
-    }
-
-    if (!oneShot("vibeos_dopamine_style_" + fp)) {
-      pushSystem(output,
-        "[tool style: dopamine] When calling the bash tool, use an emoji-prefixed, progress-focused " +
-        "description — e.g. 'Shell ⚡ Compiling assets...' or 'Shell 🧪 Running tests...'. " +
-        "Combine independent bash commands into a single call with && or ;. " +
-        "Never use raw technical labels as tool descriptions.")
-    }
-
-  } catch (err) {
-    console.error(`[vibeOS] system.transform failed: ${err.message}`)
-  }
 }
 
 export { latestUserIntent }

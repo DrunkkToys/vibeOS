@@ -542,6 +542,24 @@ function loadSavingsLedger(limit: number = 1000): any[] {
   } catch { return [] }
 }
 
+function normalizeUrl(u: string): string {
+  if (!u || typeof u !== "string") return u
+  try {
+    const parsed = new URL(u)
+    parsed.hostname = parsed.hostname.toLowerCase()
+    parsed.pathname = parsed.pathname.replace(/\/$/, "") || "/"
+    const params = [...parsed.searchParams.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([k, v]) => k + "=" + (v || ""))
+      .join("&")
+    parsed.search = params ? "?" + params : ""
+    parsed.hash = ""
+    return parsed.href
+  } catch {
+    return u.trim().replace(/\/$/, "").toLowerCase()
+  }
+}
+
 // ── Stable JSON serialization (sorted keys, matches CC shasum) ──────
 function stableJson(obj: any): string {
   if (obj === null || typeof obj !== "object") return JSON.stringify(obj)
@@ -617,7 +635,10 @@ function scanRecentScratchpad(dir: string, titleCase: string, maxScan: number = 
 function getScratchpadHit(toolLower: string, args: any, baseDir: string | null = null): any {
   if (!SCRATCHPAD_TOOLS.has(toolLower)) return null
   const titleCase = TOOL_NAME_NORMALIZE[toolLower]
-  const inputJson = stableJson(args ?? {})
+  const normArgs = args?.url && typeof args.url === "string"
+    ? { ...args, url: normalizeUrl(args.url) }
+    : (args ?? {})
+  const inputJson = stableJson(normArgs)
   const hash = createHash("sha256").update(`${titleCase}\n${inputJson}\n`).digest("hex").slice(0, 16)
   const sessionDir = baseDir || getSessionScratchpadDir()
   const globalDir = SCRATCHPAD_GLOBAL_DIR
@@ -647,7 +668,10 @@ function recordScratchpadObservation(toolLower: string, args: any, fileSize: num
   if (!SCRATCHPAD_TOOLS.has(toolLower)) return
   try {
     const titleCase = TOOL_NAME_NORMALIZE[toolLower]
-    const inputJson = stableJson(args ?? {})
+    const normArgs = args?.url && typeof args.url === "string"
+      ? { ...args, url: normalizeUrl(args.url) }
+      : (args ?? {})
+    const inputJson = stableJson(normArgs)
     const hash = createHash("sha256").update(`${titleCase}\n${inputJson}\n`).digest("hex").slice(0, 16)
     const dedupeKey = `${toolLower}:${hash}`
     if (scratchpadHitsSeen.has(dedupeKey)) return
@@ -777,6 +801,24 @@ function loadActiveJobs(): any {
     if (st.size > 10485760) { _handleStateCorruption(ACTIVE_JOBS_FILE); return {} }
     const raw = safeJsonParse(readFileSync(ACTIVE_JOBS_FILE, "utf-8"))
     if (!raw || typeof raw !== "object") return {}
+    const now = Date.now()
+    const maxAge = 24 * 60 * 60 * 1000
+    let pruned = false
+    for (const key of Object.keys(raw)) {
+      const job = raw[key]
+      if (!job || typeof job !== "object") continue
+      const updatedAt = Date.parse(job.updatedAt || "")
+      if (!Number.isFinite(updatedAt) || now - updatedAt > maxAge) {
+        delete raw[key]
+        pruned = true
+      }
+    }
+    if (pruned) {
+      mkdirSync(dirname(ACTIVE_JOBS_FILE), { recursive: true })
+      const tmp = ACTIVE_JOBS_FILE + ".tmp"
+      writeFileSync(tmp, JSON.stringify(raw as Record<string,unknown>, null, 2))
+      renameSync(tmp, ACTIVE_JOBS_FILE)
+    }
     return raw
   } catch {
     _handleStateCorruption(ACTIVE_JOBS_FILE)

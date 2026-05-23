@@ -173,8 +173,32 @@ function persistFlowDedupKey(key: string): void {
     }
   } catch {}
 }
+function pruneDuplicateFlowWarns(): void {
+  try {
+    if (!existsSync(STATE_FILE)) return
+    const state = safeJsonParse(readFileSync(STATE_FILE, "utf-8"))
+    if (!state || !Array.isArray(state.flow_warns) || state.flow_warns.length === 0) return
+    const seen = new Map()
+    const deduped: any[] = []
+    for (const warn of state.flow_warns) {
+      const key = `${warn.rule_id}::${warn.filePath || ""}`
+      if (!seen.has(key)) {
+        seen.set(key, true)
+        deduped.push(warn)
+        _flowWarnsSeen.add(key)
+      }
+    }
+    if (deduped.length < state.flow_warns.length) {
+      state.flow_warns = deduped.length > 500 ? deduped.slice(-500) : deduped
+      const tmpFile = STATE_FILE + ".tmp.prune"
+      writeFileSync(tmpFile, JSON.stringify(state, null, 2))
+      renameSync(tmpFile, STATE_FILE)
+    }
+  } catch {}
+}
 
 loadFlowDedupKeys()
+pruneDuplicateFlowWarns()
 
 let _cachedRules: FlowRule[] | null = null
 let _rulesMtime = 0

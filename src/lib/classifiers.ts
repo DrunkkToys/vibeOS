@@ -58,6 +58,15 @@ export function scoreStress(text) {
   return Math.min(score, 1.0)
 }
 
+let _stressEmaScore = 0
+const STRESS_EMA_ALPHA = 0.3
+
+export function scoreStressSmoothed(text) {
+  const raw = scoreStress(text)
+  _stressEmaScore = STRESS_EMA_ALPHA * raw + (1 - STRESS_EMA_ALPHA) * _stressEmaScore
+  return Math.min(_stressEmaScore, 1.0)
+}
+
 export function estimateContextBudget(_input, output) {
   try {
     const DEFAULT_CONTEXT_LIMIT = 128000
@@ -156,7 +165,7 @@ export function isLikelyOffTopic(userText, job) {
   if (/\b(new task|switch task|different task|ignore previous|start over)\b/i.test(userText)) return false
   const now = Date.now()
   const updatedAt = Date.parse(job.updatedAt || "")
-  if (!Number.isFinite(updatedAt) || now - updatedAt > 2 * 60 * 60 * 1000) return false
+  if (!Number.isFinite(updatedAt) || now - updatedAt > 60 * 60 * 1000) return false
   const userWords = new Set(topKeywords(userText, 12))
   const overlap = job.keywords.filter((k) => userWords.has(k))
   return overlap.length === 0 && userWords.size >= 3

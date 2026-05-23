@@ -4,7 +4,7 @@ import { join, dirname, basename } from "node:path"
 import { homedir, tmpdir } from "node:os"
 import { classify, modelCostPerTurn, _refreshModel, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, roundUsd, formatUsd } from "../pricing.js"
 import { latestUserIntent } from "./chat-transform.js"
-import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, loadOptimizationMode, saveOptimizationMode, classifyTurnSimple } from "../turn-classify.js"
+import { scoreStress, scoreStressSmoothed, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, loadOptimizationMode, saveOptimizationMode, classifyTurnSimple } from "../turn-classify.js"
 import { saveReport } from "../reporting.js"
 import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, _modelLocked, _blackboxEnabled, writeSelection, reconcileStateFromLedger, safeJsonParse, loadTodos } from "../state.js"
 import { loadSessionSlot, writeSessionSlot } from "../selection-manager.js"
@@ -112,7 +112,7 @@ function scoreTaskQuality(outputText, promptText) {
 async function _appendFooter(input, output, directory) {
     _refreshModel(directory)
     let _footerStress = 0
-    if (latestUserIntent) _footerStress = scoreStress(latestUserIntent)
+    if (latestUserIntent) _footerStress = scoreStressSmoothed(latestUserIntent)
     // Lazy model detection: try client API once
     if (!currentModel) {
       try {
@@ -209,7 +209,7 @@ async function _appendFooter(input, output, directory) {
       const flashIcon = isApiFallback() ? "" : "⚡"
       if (optModeFooter === "auto") {
         const autoRegime = classifyTurnSimple(latestUserIntent || "")
-        const autoStress = scoreStress(latestUserIntent || "")
+        const autoStress = scoreStressSmoothed(latestUserIntent || "")
         const autoActive = await apiAutoSelectMode(autoRegime, autoStress)
         optTagFooter = `[VIBE→${autoActive.toUpperCase()}${flashIcon}]`
         saveOptimizationMode(autoActive)
