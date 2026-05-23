@@ -1,3 +1,10 @@
+## 0.18.6
+- fix: quality tracking computes avg from lifetime score/count (was always 0)
+- fix: savings rate precision to 4 decimals (was $0.00/hr)
+- fix: cache savings minimum $0.0001 per scratchpad hit (was rounding to $0)
+- fix: ledger reconciliation flushes buffer before reading + uses Math.max() to prevent state drops
+- fix: trinity slots now authoritative over opencode.json model
+
 ## 0.18.5
 - fix: trinity slots now authoritative over opencode.json model
 
