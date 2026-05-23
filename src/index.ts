@@ -522,6 +522,9 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
     console.error(`[vibeOS] Project Guard init failed: ${(err as Error).message}`)
   }
 
+  // ── Auto-enable on load ──────────────────────────────────────────────
+  try { writeSelection("enabled", true) } catch {}
+
   // ── Plugin hooks ──────────────────────────────────────────────────
     // trinity tool dependency injection
     const _tiersData = (() => { try { return safeJsonParse(readFileSync(TIERS_FILE, "utf-8")) } catch { return {} } })()

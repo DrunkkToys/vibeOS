@@ -320,8 +320,6 @@ export const onToolExecuteBefore = async (input, output) => {
     }
 };
 export const onToolExecuteAfter = async (input, output) => {
-    if (!loadSelection().enabled)
-        return;
     _refreshModel(projectDirectory);
     // ── Generate footer alert (prepended to tool result, visible in chat) ──
     let _footerText = "";

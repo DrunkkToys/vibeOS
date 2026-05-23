@@ -383,7 +383,7 @@ var init_flow_enforcer = __esm({
 
 // src/index.ts
 init_flow_enforcer();
-import { readFileSync as readFileSync15, writeFileSync as writeFileSync12, existsSync as existsSync14, mkdirSync as mkdirSync10, copyFileSync as copyFileSync5, renameSync as renameSync6 } from "node:fs";
+import { readFileSync as readFileSync15, writeFileSync as writeFileSync12, existsSync as existsSync14, mkdirSync as mkdirSync11, copyFileSync as copyFileSync5, renameSync as renameSync6 } from "node:fs";
 import { join as join15, dirname as dirname8, basename as basename8 } from "node:path";
 
 // src/vibeOS-lib/session-metrics.js
@@ -5166,12 +5166,12 @@ async function probeModel(modelId, auth) {
 }
 
 // src/lib/hooks/footer.js
-import { readFileSync as readFileSync12 } from "node:fs";
+import { readFileSync as readFileSync12, appendFileSync as appendFileSync6, mkdirSync as mkdirSync8 } from "node:fs";
 import { join as join13 } from "node:path";
 import { homedir as homedir9, tmpdir as tmpdir6 } from "node:os";
 
 // src/lib/hooks/chat-transform.js
-import { readFileSync as readFileSync11, writeFileSync as writeFileSync9, existsSync as existsSync10, mkdirSync as mkdirSync7 } from "node:fs";
+import { readFileSync as readFileSync11, writeFileSync as writeFileSync9, appendFileSync as appendFileSync5, existsSync as existsSync10, mkdirSync as mkdirSync7 } from "node:fs";
 import { join as join12, basename as basename6 } from "node:path";
 import { homedir as homedir8 } from "node:os";
 import { createHash as createHash3 } from "node:crypto";
@@ -5584,7 +5584,7 @@ async function apiComputeControlVector(state, action, optimizationMode) {
   }
   const opt = (optimizationMode || "balanced").toLowerCase();
   const isRelaxed = opt === "budget" || opt === "speed" || opt === "audit";
-  const isStrict = opt === "quality";
+  const isStrict = opt === "quality" || opt === "forensic" || opt === "defense_in_depth" || opt === "reporting";
   return {
     enforcement_mode: isStrict ? "strict" : "normal",
     enforcement_reason: `[optimize: ${opt}] offline fallback`,
@@ -6104,6 +6104,20 @@ var onSystemTransform = async (_input, output) => {
       }
     }
     pushSystem(output, "[project guard: CRITICAL] AGENTS.md and README.md are protected by vibeOS. Do NOT modify either file without explicit user permission. When implementing new features, update README.md to document them. AGENTS.md defines that AI agents must ask before changing code -- respect this rule.");
+    const currentMode = loadOptimizationMode();
+    if (currentMode === "quality") {
+      pushSystem(output, "[mode: quality] Prioritize quality and thoroughness. Provide complete edge case coverage, comprehensive error handling, full type annotations, production-grade code with tests. Do not cut corners for brevity.");
+    } else if (currentMode === "forensic") {
+      pushSystem(output, "[mode: forensic] Use forensic analysis depth: evidence-based reasoning tracing each claim to source; multi-hypothesis evaluation considering competing explanations; explicit uncertainty flags for assumptions and trade-offs; structured output with clear reasoning traces; thorough verification of all edge cases and failure modes.");
+    } else if (currentMode === "web-research" || currentMode === "exploration") {
+      pushSystem(output, "[mode: exploration] Use a research-oriented approach: gather information from multiple perspectives before converging; document alternative approaches; flag confidence levels for each finding; synthesize into actionable recommendations.");
+    } else if (currentMode === "defense_in_depth") {
+      pushSystem(output, "[mode: defense in depth] For every component: define the threat model, implement with defenses, then verify the defense handles the threat. Never write code without specifying what it defends against. Consider: injection, broken auth, data exposure, logic errors, race conditions.");
+    } else if (currentMode === "reporting") {
+      pushSystem(output, "[mode: formal report] Structure output as a formal engineering report with: executive summary, methodology, detailed findings with evidence, trade-offs documented, conclusions with confidence levels, and recommendations.");
+    } else if (currentMode === "verify") {
+      pushSystem(output, "[mode: verification-first] Before writing code, declare verification criteria: which edge cases must pass, what invariants must hold. After each code block, include a verification section showing how correctness is established against each criterion.");
+    }
     pushSystem(output, contextBudgetDirective(_input, output));
     if (!oneShot(fp2)) {
       pushSystem(output, buildProjectBriefing(currentProjectName || ""));
@@ -6114,8 +6128,27 @@ var onSystemTransform = async (_input, output) => {
     if (!oneShot("trinity_welcome_" + fp2)) {
       pushSystem(output, welcomeDirective());
     }
+    const calDir = join12(homedir8(), ".claude");
+    const calFile = join12(calDir, "calibration-data.jsonl");
+    const regime = _latestBlackboxState3?.sub_regime || classifyTurnSimple(latestUserIntent || "");
+    const calRecord = JSON.stringify({
+      ts: (/* @__PURE__ */ new Date()).toISOString(),
+      sid: _OC_SID4,
+      mode: currentMode,
+      regime,
+      stress: stressScore,
+      fp: currentProjectFingerprint || ""
+    }) + "\n";
+    try {
+      mkdirSync7(calDir, { recursive: true });
+      appendFileSync5(calFile, calRecord);
+    } catch {
+    }
     if (!oneShot("vibeos_dashboard_instruct")) {
       pushSystem(output, "[vibeOS dashboard display] When the trinity tool returns output starting with '[vibeOS-dashboard]', you MUST use the question tool to display that data in a clean, human-readable format. Use the question field (not the header) to show the dashboard data. Format it with clear sections separated by blank lines, aligned columns with spaces, and plain text only (no emojis, no markdown). The header should be 'vibeOS Dashboard'. Include only one option in options: {label: 'Dismiss', description: ''}. Strip the '[vibeOS-dashboard]' marker line before displaying.");
+    }
+    if (!oneShot("vibeos_dopamine_style_" + fp2)) {
+      pushSystem(output, "[tool style: dopamine] When calling the bash tool, use an emoji-prefixed, progress-focused description \u2014 e.g. 'Shell \u26A1 Compiling assets...' or 'Shell \u{1F9EA} Running tests...'. Combine independent bash commands into a single call with && or ;. Never use raw technical labels as tool descriptions.");
     }
   } catch (err) {
     console.error(`[vibeOS] system.transform failed: ${err.message}`);
@@ -6126,6 +6159,20 @@ var onSystemTransform = async (_input, output) => {
 var _cachedAutoMode = null;
 var _cachedAutoModeTs = 0;
 var AUTO_CACHE_TTL = 6e4;
+var DEFAULT_REGIME_MAP = {
+  LOOPING: "forensic",
+  DIVERGENT: "forensic",
+  EXPLORING: "web-research",
+  INIT: "web-research",
+  REFINING: "balanced",
+  CONVERGING: "quality",
+  CLOSED: "quality"
+};
+function regimeToMode(regime, stress) {
+  if (stress > 1.5)
+    return "quality";
+  return DEFAULT_REGIME_MAP[regime] || "balanced";
+}
 async function apiAutoSelectMode(regime, stress) {
   const now = Date.now();
   if (_cachedAutoMode && now - _cachedAutoModeTs < AUTO_CACHE_TTL)
@@ -6140,7 +6187,10 @@ async function apiAutoSelectMode(regime, stress) {
   } catch (e) {
     console.error("[vibeOS] apiAutoSelectMode error:", e.message);
   }
-  return _cachedAutoMode || "balanced";
+  const fallback = regimeToMode(regime, stress);
+  if (!_cachedAutoMode || _cachedAutoMode === "balanced")
+    _cachedAutoMode = fallback;
+  return _cachedAutoMode || fallback || "balanced";
 }
 var USER_HOME6 = (() => {
   try {
@@ -6212,8 +6262,6 @@ function scoreTaskQuality(outputText, promptText) {
   return Math.max(0, Math.min(100, score));
 }
 async function _appendFooter(input, output, directory3) {
-  if (!loadSelection3().enabled)
-    return;
   _refreshModel(directory3);
   let _footerStress = 0;
   if (latestUserIntent)
@@ -6234,7 +6282,7 @@ async function _appendFooter(input, output, directory3) {
     if (messageID && textCompletePainted.has(messageID))
       return;
     const text = typeof output?.text === "string" ? output.text : typeof output?.result === "string" ? output.result : typeof output?.content === "string" ? output.content : "";
-    if (!text || text.length < 50) {
+    if (!text) {
       if (messageID)
         textCompletePainted.add(messageID);
       return;
@@ -6309,7 +6357,7 @@ async function _appendFooter(input, output, directory3) {
       const autoActive = await apiAutoSelectMode(autoRegime, autoStress);
       optTagFooter = `[VIBE\u2192${autoActive.toUpperCase()}${flashIcon}]`;
       saveOptimizationMode(autoActive);
-      const slot2 = autoActive === "quality" ? "brain" : autoActive === "speed" ? "medium" : "cheap";
+      const slot2 = autoActive === "quality" || autoActive === "forensic" || autoActive === "defense_in_depth" || autoActive === "reporting" ? "brain" : autoActive === "speed" || autoActive === "web-research" || autoActive === "verify" ? "medium" : "cheap";
       if (!_modelLocked) {
         writeSessionSlot(_OC_SID5, slot2);
         if (slot2 === "brain" && TRINITY_BRAIN) {
@@ -6364,6 +6412,11 @@ ${vibeLine} \u2014`;
             const tracker = getBlackboxTracker();
             tracker.recordOutcome(outcome);
             syncOutcomeToApi(outcome);
+            try {
+              mkdirSync8(join13(USER_HOME6, ".claude"), { recursive: true });
+              appendFileSync6(join13(USER_HOME6, ".claude", "calibration-data.jsonl"), JSON.stringify({ ts: (/* @__PURE__ */ new Date()).toISOString(), event: "outcome", sid: _OC_SID5, outcome }) + "\n");
+            } catch {
+            }
           }
         }
       } catch {
@@ -6389,12 +6442,12 @@ ${vibeLine} \u2014`;
 }
 
 // src/lib/hooks/tool-execute.js
-import { writeFileSync as writeFileSync11, appendFileSync as appendFileSync6, existsSync as existsSync12, mkdirSync as mkdirSync9 } from "node:fs";
+import { writeFileSync as writeFileSync11, appendFileSync as appendFileSync8, existsSync as existsSync12, mkdirSync as mkdirSync10 } from "node:fs";
 import { dirname as dirname7, basename as basename7 } from "node:path";
 init_flow_enforcer();
 
 // src/lib/tdd-enforcer.js
-import { readFileSync as readFileSync13, writeFileSync as writeFileSync10, appendFileSync as appendFileSync5, existsSync as existsSync11, mkdirSync as mkdirSync8, statSync as statSync6, readdirSync as readdirSync3, rmSync as rmSync4, openSync as openSync3 } from "node:fs";
+import { readFileSync as readFileSync13, writeFileSync as writeFileSync10, appendFileSync as appendFileSync7, existsSync as existsSync11, mkdirSync as mkdirSync9, statSync as statSync6, readdirSync as readdirSync3, rmSync as rmSync4, openSync as openSync3 } from "node:fs";
 import { join as join14, dirname as dirname6 } from "node:path";
 import { createHash as createHash4 } from "node:crypto";
 
@@ -7494,7 +7547,7 @@ var COOLDOWN_MS = 6e4;
 var _enforcementCooldown = /* @__PURE__ */ new Set();
 function _acquireLock(testPath) {
   try {
-    mkdirSync8(ENFORCEMENT_LOCK_DIR, { recursive: true });
+    mkdirSync9(ENFORCEMENT_LOCK_DIR, { recursive: true });
     const hash = createHash4("sha256").update(testPath).digest("hex").slice(0, 16);
     const lockPath = join14(ENFORCEMENT_LOCK_DIR, `${hash}.lock`);
     try {
@@ -7551,10 +7604,10 @@ function _isInCooldown(testPath) {
 }
 function _recordCooldown(testPath) {
   try {
-    mkdirSync8(dirname6(ENFORCEMENT_COOLDOWN_FILE2), { recursive: true });
+    mkdirSync9(dirname6(ENFORCEMENT_COOLDOWN_FILE2), { recursive: true });
     const hash = createHash4("sha256").update(testPath).digest("hex").slice(0, 16);
     const entry = JSON.stringify({ h: hash, ts: Date.now() }) + "\n";
-    appendFileSync5(ENFORCEMENT_COOLDOWN_FILE2, entry);
+    appendFileSync7(ENFORCEMENT_COOLDOWN_FILE2, entry);
     const lines = readFileSync13(ENFORCEMENT_COOLDOWN_FILE2, "utf-8").trim().split("\n").filter(Boolean);
     if (lines.length > 500) {
       writeFileSync10(ENFORCEMENT_COOLDOWN_FILE2, lines.slice(-200).join("\n") + "\n");
@@ -7643,7 +7696,7 @@ function enforceTestFile(filePath) {
   if (!_acquireLock(skeleton.path))
     return null;
   try {
-    mkdirSync8(skeleton.dir, { recursive: true });
+    mkdirSync9(skeleton.dir, { recursive: true });
     writeFileSync10(skeleton.path, skeleton.content);
     _enforcementCooldown.add(skeleton.path);
     _recordCooldown(skeleton.path);
@@ -7950,7 +8003,7 @@ var onToolExecuteBefore = async (input, output) => {
           const missed = recordMissedContext7(_estC7);
           if (!existsSync12(CONTEXT7_INSTALL_FLAG)) {
             try {
-              mkdirSync9(dirname7(CONTEXT7_INSTALL_FLAG), { recursive: true });
+              mkdirSync10(dirname7(CONTEXT7_INSTALL_FLAG), { recursive: true });
               writeFileSync11(CONTEXT7_INSTALL_FLAG, "");
             } catch {
             }
@@ -7974,8 +8027,6 @@ var onToolExecuteBefore = async (input, output) => {
   }
 };
 var onToolExecuteAfter = async (input, output) => {
-  if (!loadSelection().enabled)
-    return;
   _refreshModel(projectDirectory);
   let _footerText = "";
   try {
@@ -8095,7 +8146,7 @@ var onToolExecuteAfter = async (input, output) => {
   if (t === "task") {
     const quality = scoreTaskQuality(output?.result || output?.text || "", input?.args?.prompt || "");
     try {
-      appendFileSync6(SAVINGS_LEDGER_FILE, JSON.stringify({
+      appendFileSync8(SAVINGS_LEDGER_FILE, JSON.stringify({
         at: (/* @__PURE__ */ new Date()).toISOString(),
         kind: "quality",
         score: quality,
@@ -8370,7 +8421,8 @@ var setShellDirectory = (dir) => {
 var onShellEnv = async (_input, output) => {
   try {
     _refreshModel(directory2 || process.cwd());
-    if (!output) output = {};
+    if (!output)
+      output = {};
     output.env ??= {};
     output.env.OPENCODE_MODEL_TIER = currentTier || "unknown";
     output.env.OPENCODE_MODEL = currentModel || "unknown";
@@ -8423,7 +8475,7 @@ function backupFile(path, label) {
   try {
     if (!existsSync14(path)) return null;
     const bkDir = join15(USER_HOME2, ".claude", ".backups");
-    mkdirSync10(bkDir, { recursive: true });
+    mkdirSync11(bkDir, { recursive: true });
     const bk = join15(bkDir, `${basename8(path)}.${label}.${Date.now()}.bak`);
     copyFileSync5(path, bk);
     return bk;
@@ -8465,7 +8517,7 @@ function persistMcpPort(port) {
     tiers.selection ??= {};
     if (Number(tiers.selection.mcp_port) === Number(port)) return;
     tiers.selection.mcp_port = port;
-    mkdirSync10(dirname8(TIERS_FILE2), { recursive: true });
+    mkdirSync11(dirname8(TIERS_FILE2), { recursive: true });
     const tmp = TIERS_FILE2 + ".tmp." + Date.now();
     writeFileSync12(tmp, JSON.stringify(tiers, null, 2) + "\n", "utf-8");
     renameSync6(tmp, TIERS_FILE2);
@@ -8735,7 +8787,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
       if (_tiersData2) {
         _tiersData2.selection ??= {};
         if (_tiersData2.selection.mcp_port === void 0) _tiersData2.selection.mcp_port = 9578;
-        mkdirSync10(dirname8(TIERS_FILE2), { recursive: true });
+        mkdirSync11(dirname8(TIERS_FILE2), { recursive: true });
         const _tmp = TIERS_FILE2 + ".tmp." + Date.now();
         writeFileSync12(_tmp, JSON.stringify(_tiersData2, null, 2) + "\n", "utf-8");
         renameSync6(_tmp, TIERS_FILE2);
@@ -8792,6 +8844,10 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     }
   } catch (err) {
     console.error(`[vibeOS] Project Guard init failed: ${err.message}`);
+  }
+  try {
+    writeSelection("enabled", true);
+  } catch {
   }
   const _tiersData = (() => {
     try {
@@ -8890,12 +8946,6 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     "experimental.chat.messages.transform": async (_input, output) => {
       return onMessagesTransform(_input, output);
     },
-    "experimental.text.complete": async (input, output) => {
-      await _appendFooter(input, output, directory3);
-    },
-    "message.updated": async (input, output) => {
-      await _appendFooter(input, output, directory3);
-    },
     "experimental.session.compacting": async (_input, output) => {
       return onSessionCompacting(_input, output);
     },
@@ -8905,6 +8955,12 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     "shell.env": async (_input, output) => {
       if (typeof setShellDirectory === "function") setShellDirectory(directory3 || "");
       return onShellEnv(_input, output);
+    },
+    "experimental.text.complete": async (_input, output) => {
+      await _appendFooter(_input, output, directory3);
+    },
+    "message.updated": async (_input, output) => {
+      await _appendFooter(_input, output, directory3);
     },
     tool: {
       trinity: tool(createTrinityTool(trinityDeps)),

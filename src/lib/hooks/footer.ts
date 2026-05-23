@@ -102,7 +102,6 @@ function scoreTaskQuality(outputText, promptText) {
 }
 
 async function _appendFooter(input, output, directory) {
-    if (!loadSelection().enabled) return
     _refreshModel(directory)
     let _footerStress = 0
     if (latestUserIntent) _footerStress = scoreStress(latestUserIntent)
