@@ -1270,6 +1270,7 @@ function reconcileStateFromLedger(): void {
     const ledgerMtime = existsSync(SAVINGS_LEDGER_FILE) ? statSync(SAVINGS_LEDGER_FILE).mtimeMs : 0
     if (ledgerMtime === _ledgerReconciledMtime) return
     _ledgerReconciledMtime = ledgerMtime
+    _flushLedgerBuffer()
     const l = readLedgerTotals()
     if (l.total <= 0) return
     const state = readJsonOrEmpty(DELEGATION_STATE_FILE)
@@ -1279,8 +1280,8 @@ function reconcileStateFromLedger(): void {
     if (Math.abs(stTotal - l.total) < 0.0005) return
     updateState((s: any) => {
       s.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" }
-      s.lifetime.total_savings_usd = l.delegation
-      s.lifetime.cache_savings_usd = l.cache
+      s.lifetime.total_savings_usd = Math.max(l.delegation, stDelegation)
+      s.lifetime.cache_savings_usd = Math.max(l.cache, stCache)
       s.lifetime.last_updated = new Date().toISOString()
       s.lifetime.rebuilt_from_ledger = true
       s.lifetime.ledger_entries_reconciled = l.entries

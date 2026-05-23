@@ -2516,6 +2516,7 @@ function reconcileStateFromLedger() {
     if (ledgerMtime === _ledgerReconciledMtime)
       return;
     _ledgerReconciledMtime = ledgerMtime;
+    _flushLedgerBuffer();
     const l = readLedgerTotals();
     if (l.total <= 0)
       return;
@@ -2527,8 +2528,8 @@ function reconcileStateFromLedger() {
       return;
     updateState((s) => {
       s.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" };
-      s.lifetime.total_savings_usd = l.delegation;
-      s.lifetime.cache_savings_usd = l.cache;
+      s.lifetime.total_savings_usd = Math.max(l.delegation, stDelegation);
+      s.lifetime.cache_savings_usd = Math.max(l.cache, stCache);
       s.lifetime.last_updated = (/* @__PURE__ */ new Date()).toISOString();
       s.lifetime.rebuilt_from_ledger = true;
       s.lifetime.ledger_entries_reconciled = l.entries;
@@ -3036,7 +3037,7 @@ function _refreshModel(directory3) {
         console.error(`[vibeOS] auto-detected model: ${currentModel} (tier=${currentTier})`);
       }
     }
-    if (!_modelLocked2) {
+    if (!_modelLocked2 && !slotOcModel) {
       const cfgModel = readConfig(directory3) || readConfig(join4(USER_HOME3, ".config/opencode")) || "";
       if (cfgModel && cfgModel !== currentModel) {
         const oldModel = currentModel;
@@ -6227,11 +6228,19 @@ function readLifetimeSavings2() {
       sesCache: roundUsd2(ses?.cache_savings_usd || 0),
       sesTaskDelegations: ses?.task_delegations_count || 0,
       sesDuration: ses?.duration_seconds || 0,
-      sesRatePerHour: ses?.rate_per_hour || 0,
+      sesRatePerHour: (() => {
+        const sesTotal = Number(ses?.total_savings_usd || 0) + Number(ses?.cache_savings_usd || 0);
+        if (!sesTotal)
+          return 0;
+        const dur = Number(ses?.duration_seconds || 0);
+        if (dur <= 0)
+          return 0;
+        return Number((sesTotal / (dur / 3600)).toFixed(4));
+      })(),
       sesTrend: ses?.trend || "",
       sesToolBreakdown: ses?.tool_breakdown || {},
       sesModelTurns: ses?.model_turns || {},
-      quality_avg: ses?.quality_avg || 0
+      quality_avg: state?.lifetime?.quality_total_count > 0 ? Math.round((state?.lifetime?.quality_total_score || 0) / state?.lifetime?.quality_total_count) : 0
     };
   } catch {
     return { ltTasks: 0, ltCache: 0, ltCost: 0, count: 0, sesTasks: 0, sesCache: 0, sesTaskDelegations: 0, sesDuration: 0, sesRatePerHour: 0, sesTrend: "", sesToolBreakdown: {}, sesModelTurns: {}, quality_avg: 0 };
@@ -7799,7 +7808,7 @@ var onToolExecuteBefore = async (input, output) => {
       scratchpadHitsSeen2.add(hit.hash);
       const total = recordScratchpadObservation();
       const _inputTokens = Math.max(1, Math.round(hit.sizeBytes / BYTES_PER_TOKEN));
-      _cacheSave = Math.round(_inputTokens * CACHE_SAVED_PER_1M_INPUT_TOKENS / 1e6 * 1e3) / 1e3;
+      _cacheSave = Math.max(1e-4, Math.round(_inputTokens * CACHE_SAVED_PER_1M_INPUT_TOKENS / 1e6 * 1e4) / 1e4);
       const cacheSaved = recordCacheSaving(t, _cacheSave, { hash: hit.hash });
       const sumNote = hit.summaryPath ? ` (summary: ${hit.summaryPath})` : "";
       const cacheNote = cacheSaved ? `, cache+$${(cacheSaved.lifetime || 0).toFixed(3)} lt` : "";

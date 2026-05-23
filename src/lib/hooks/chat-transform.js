@@ -648,7 +648,7 @@ export const onSystemTransform = async (_input, output) => {
         }
         if (!oneShot("vibeos_dopamine_style_" + fp)) {
             pushSystem(output, "[tool style: dopamine] When calling the bash tool, use an emoji-prefixed, progress-focused " +
-                "description \u2014 e.g. 'Shell \u26a1 Compiling assets...' or 'Shell \uD83E\uDDEA Running tests...'. " +
+                "description — e.g. 'Shell ⚡ Compiling assets...' or 'Shell 🧪 Running tests...'. " +
                 "Combine independent bash commands into a single call with && or ;. " +
                 "Never use raw technical labels as tool descriptions.");
         }

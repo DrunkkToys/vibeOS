@@ -73,11 +73,19 @@ function readLifetimeSavings() {
       sesCache: roundUsd(ses?.cache_savings_usd || 0),
       sesTaskDelegations: ses?.task_delegations_count || 0,
       sesDuration: ses?.duration_seconds || 0,
-      sesRatePerHour: ses?.rate_per_hour || 0,
+      sesRatePerHour: (() => {
+        const sesTotal = Number(ses?.total_savings_usd || 0) + Number(ses?.cache_savings_usd || 0)
+        if (!sesTotal) return 0
+        const dur = Number(ses?.duration_seconds || 0)
+        if (dur <= 0) return 0
+        return Number((sesTotal / (dur / 3600)).toFixed(4))
+      })(),
       sesTrend: ses?.trend || "",
       sesToolBreakdown: ses?.tool_breakdown || {},
       sesModelTurns: ses?.model_turns || {},
-      quality_avg: ses?.quality_avg || 0,
+      quality_avg: state?.lifetime?.quality_total_count > 0
+        ? Math.round((state?.lifetime?.quality_total_score || 0) / state?.lifetime?.quality_total_count)
+        : 0,
     }
   } catch { return { ltTasks: 0, ltCache: 0, ltCost: 0, count: 0, sesTasks: 0, sesCache: 0, sesTaskDelegations: 0, sesDuration: 0, sesRatePerHour: 0, sesTrend: "", sesToolBreakdown: {}, sesModelTurns: {}, quality_avg: 0 } }
 }

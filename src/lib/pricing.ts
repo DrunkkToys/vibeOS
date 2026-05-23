@@ -453,9 +453,10 @@ export function _refreshModel(directory) {
         console.error(`[vibeOS] auto-detected model: ${currentModel} (tier=${currentTier})`)
       }
     }
-    // Reconcile with the actual OpenCode config model (handles manual model switches)
-    // When model lock is active, skip auto-reconcile — user must explicitly switch via trinity.
-    if (!_modelLocked) {
+    // Only reconcile with OpenCode config model if no valid trinity slot model exists.
+    // The trinity slot config is authoritative — prevents a bogus opencode.json model
+    // from overriding the brain/medium/cheap slot assignment.
+    if (!_modelLocked && !slotOcModel) {
       const cfgModel = readConfig(directory) || readConfig(join(USER_HOME, ".config/opencode")) || ""
       if (cfgModel && cfgModel !== currentModel) {
         const oldModel = currentModel

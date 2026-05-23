@@ -1420,6 +1420,7 @@ function reconcileStateFromLedger() {
         if (ledgerMtime === _ledgerReconciledMtime)
             return;
         _ledgerReconciledMtime = ledgerMtime;
+        _flushLedgerBuffer();
         const l = readLedgerTotals();
         if (l.total <= 0)
             return;
@@ -1431,8 +1432,8 @@ function reconcileStateFromLedger() {
             return;
         updateState((s) => {
             s.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" };
-            s.lifetime.total_savings_usd = l.delegation;
-            s.lifetime.cache_savings_usd = l.cache;
+            s.lifetime.total_savings_usd = Math.max(l.delegation, stDelegation);
+            s.lifetime.cache_savings_usd = Math.max(l.cache, stCache);
             s.lifetime.last_updated = new Date().toISOString();
             s.lifetime.rebuilt_from_ledger = true;
             s.lifetime.ledger_entries_reconciled = l.entries;

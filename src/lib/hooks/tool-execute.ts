@@ -88,7 +88,7 @@ export const onToolExecuteBefore = async (input, output) => {
           // Compute from actual scratchpad file size: inputs that would
           // have been charged at miss rate are served from cache.
           const _inputTokens = Math.max(1, Math.round(hit.sizeBytes / BYTES_PER_TOKEN))
-          _cacheSave = Math.round(_inputTokens * CACHE_SAVED_PER_1M_INPUT_TOKENS / 1_000_000 * 1000) / 1000
+          _cacheSave = Math.max(0.0001, Math.round(_inputTokens * CACHE_SAVED_PER_1M_INPUT_TOKENS / 1_000_000 * 10000) / 10000)
           const cacheSaved = recordCacheSaving(t, _cacheSave, { hash: hit.hash })
           const sumNote = hit.summaryPath ? ` (summary: ${hit.summaryPath})` : ""
           const cacheNote = cacheSaved ? `, cache+$${(cacheSaved.lifetime || 0).toFixed(3)} lt` : ""

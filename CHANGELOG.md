@@ -1,3 +1,10 @@
+## 0.18.4
+- fix: quality tracking now computes avg from lifetime score/count instead of hardcoding 0
+- fix: savings rate shown with 4 decimal precision (was rounding to $0.00/hr)
+- fix: cache savings minimum enforced at $0.0001 per scratchpad hit (was rounding to $0)
+- fix: ledger reconciliation flushes buffer before reading + uses Math.max() to prevent state drops
+- fix: model lock no longer overridden by bogus opencode.json model
+
 ## 0.18.3
 - feat: dynamic mode injection + footer hooks fix
 - fix: auto-enable plugin on load + always show footer
