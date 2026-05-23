@@ -24,7 +24,6 @@ Current package version: `0.14.1`
 - TUI dashboard sidebar plugin for real-time plugin status and controls.
 - **Web dashboard** — SolidJS SPA served via standalone server (`npm run dashboard`) or embedded in the MCP server. Real-time SSE push updates at `http://127.0.0.1:3333`.
 - Worker-to-Brain (WBP) protocol synthesizes delegated task output directly in assistant chat.
-- **Remote API protection**: Core algorithms run on a self-hosted API server (`api.vibetheog.com`) with token-based authentication. Non-paying seats can be deactivated, immediately revoking all API tokens and falling back to local degraded mode.
 
 ## Remote API Protection
 
