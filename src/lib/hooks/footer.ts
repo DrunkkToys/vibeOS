@@ -202,30 +202,33 @@ async function _appendFooter(input, output, directory) {
       } else {
         optTagFooter = `[VIBE→${(optModeFooter || "").toUpperCase()}${flashIcon}]`
       }
-      modelTag = `${modelTag}${optTagFooter}${enfSuffixFooter || ""}`
-
       const stripped = text.replace(/\n\n— .+(?: —)?$/, "")
       if (stripped !== text) return
       const ltTotal = ltTasks + ltCache
-      const trendIcon = sesTrend === "down" ? "↓" : sesTrend === "up" ? "↑" : "→"
-      const brainModelCost = currentModel ? (modelCostPerTurn(currentModel) ?? 0) : 0
-      const cheapModelCost = _workerModel ? (modelCostPerTurn(_workerModel) ?? 0) : 0
-      const imputedMultiplier = (brainModelCost > SAVE_EST.WRITE_EDIT && cheapModelCost > 0 && brainModelCost > cheapModelCost) ? (brainModelCost / cheapModelCost) : 0
-      let footerText
-      if (ltTotal > 0) {
-        let savingsDisplay = `vibeOS: $${formatUsd(ltTotal)} saved up ${trendIcon}`
-        const _todoCount = loadTodos().filter(t => t.status === "pending").length
-        if (_todoCount > 0) savingsDisplay += " | [" + _todoCount + " todo]"
-        if (imputedMultiplier > 2) {
-          const imputedActual = ltTotal * imputedMultiplier
-          savingsDisplay += ` ($${formatUsd(imputedActual)} actual)`
-        }
-        const stressBar = _footerStress > 0.85 ? "█" : _footerStress > 0.7 ? "▆" : _footerStress > 0.5 ? "▅" : _footerStress > 0.3 ? "▃" : _footerStress > 0.1 ? "▂" : "▁"
-        const stressLabel = _footerStress > 0.7 ? "high" : _footerStress > 0.4 ? "elevated" : "calm"
-        footerText = stripped + `\n\n— ${modelTag} | ${savingsDisplay} | stress: ${stressBar} ${stressLabel} —`
-      } else {
-        footerText = stripped + `\n\n— ${modelTag} —`
+
+      // Build dopamine footer
+      const modeVerbMap = {
+        balanced: 'routing',
+        budget: 'saving',
+        quality: 'focusing',
+        speed: 'moving',
+        longrun: 'pacing',
+        auto: 'vibing',
+        'web-research': 'researching',
+        forensic: 'investigating',
       }
+      const optMode = (optModeFooter || 'balanced').toLowerCase()
+      const modeVerb = modeVerbMap[optMode] || 'vibing'
+      let vibeLine = `— ${modeVerb} on ${shortModelName(brainModel)}`
+      if (ltTotal > 0) {
+        vibeLine += ` ✨ $${formatUsd(ltTotal)} saved`
+      }
+      vibeLine += `, VIBE${flashIcon ? ' ⚡' : ''}`
+      if (_footerStress > 0.4) {
+        const stressLabel = _footerStress > 0.7 ? 'elevated' : 'uneven'
+        vibeLine += ` · ${stressLabel}`
+      }
+      const footerText = stripped + `\n\n${vibeLine} —`
 
       if (_blackboxEnabled) {
         try {
