@@ -75,6 +75,35 @@ try {
     }
   }
 
+  // ── Install nightly pricing sync cron if not already present ──
+  const isWin = process.platform === "win32"
+  if (!isWin) {
+    try {
+      const { execSync } = await import("node:child_process")
+      const CRON_MARKER = "# vibeOS nightly pricing sync"
+      const CRON_LINE = "0 0 * * * " + join(ROOT, "scripts", "nightly-experiment-cron.sh") + " >> " + join(homedir(), ".claude", "pricing-sync-cron.log") + " 2>&1"
+      let currentCrontab = ""
+      try { currentCrontab = execSync("crontab -l 2>/dev/null || true", { encoding: "utf8" }) } catch (e) { /* no crontab yet */ }
+      if (!currentCrontab.includes(CRON_MARKER)) {
+        const newCrontab = (currentCrontab.trim() + "\n" + CRON_MARKER + "\n" + CRON_LINE + "\n").trimStart()
+        execSync("crontab -", { input: newCrontab, encoding: "utf8" })
+        process.stderr.write("[vibeOS deploy] Added nightly pricing sync cron (0 0 * * *)\n")
+      }
+    } catch (e) {
+      process.stderr.write("[vibeOS deploy] WARNING: could not install nightly pricing cron.\n")
+      if (process.platform === "darwin") {
+        process.stderr.write("[vibeOS deploy]   macOS: grant Full Disk Access in System Settings > Privacy > Full Disk Access, then re-run deploy.\n")
+      } else {
+        process.stderr.write("[vibeOS deploy]   Linux: crontab -e and add '0 0 * * * " + join(ROOT, "scripts", "nightly-experiment-cron.sh") + " >> " + join(homedir(), ".claude", "pricing-sync-cron.log") + " 2>&1'\n")
+      }
+      process.stderr.write("[vibeOS deploy]   24h pricing sync is recommended to keep model cost data current.\n")
+    }
+  } else {
+    process.stderr.write("[vibeOS deploy] Windows: scheduled tasks not yet automated.\n")
+    process.stderr.write("[vibeOS deploy]   Create a Task Scheduler task running daily: node " + join(ROOT, "scripts", "sync-pricing.mjs") + "\n")
+    process.stderr.write("[vibeOS deploy]   Or install via WSL and use crontab there.\n")
+  }
+
   process.stderr.write("[vibeOS deploy] Done\n")
 } catch (e) {
   process.stderr.write(`[vibeOS deploy] ERROR: ${e.message}\n`)

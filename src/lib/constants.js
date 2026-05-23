@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: MIT
 // @ts-nocheck
 export const SAVE_EST = {
-    WRITE_EDIT: 0.005,
-    SOFT_QUOTA: 0.0003,
-    CONTEXT7: 0.002,
+    // Realistic: v4-pro (0.00057) - v4-flash (0.000182) = 0.000388/turn
+    WRITE_EDIT: 0.0004,
+    SOFT_QUOTA: 0.0001,
+    // DeepSeek cache: (0.14 - 0.0028)/1M * ~1000 tokens = 0.00014
+    CONTEXT7: 0.00014,
     OPUS_DISABLE: 0.03,
 };
 export const WARN_ON_DIRECT = new Set(["write", "edit", "notebookedit"]);

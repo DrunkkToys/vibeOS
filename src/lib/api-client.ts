@@ -1,12 +1,16 @@
 // @ts-nocheck
 
 import { VibeOSApiClient, VibeOSAuthError, VibeOSTimeoutError, VibeOSNetworkError } from "vibeOScore/client"
+import { dirname } from "node:path"
+import { fileURLToPath } from "node:url"
+import { homedir } from "node:os"
 
 // ── Remote API client (Phase 2) ─────────────────────────────────────
 export const VIBEOS_API_URL = process.env.VIBEOS_API_URL || "https://api.vibetheog.com"
 
 let _envToken = ""
-const _envPaths = [__dirname, homedir() + "/.claude", homedir(), process.cwd()]
+const _apiDir = typeof __dirname !== "undefined" ? __dirname : dirname(fileURLToPath(import.meta.url))
+const _envPaths = [_apiDir, homedir() + "/.claude", homedir(), process.cwd()]
 for (const dir of _envPaths) {
   try {
     const env = readFileSync(dir + "/.env.production", "utf8")
@@ -14,8 +18,18 @@ for (const dir of _envPaths) {
     if (m) { _envToken = m[1].trim(); break }
   } catch {}
 }
-export const VIBEOS_API_TOKEN = process.env.VIBEOS_API_TOKEN || _envToken || ""
+export let VIBEOS_API_TOKEN = process.env.VIBEOS_API_TOKEN || _envToken || ""
 export const VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && !!VIBEOS_API_TOKEN
+
+export function setApiToken(newToken) {
+  try {
+    const oldVal = VIBEOS_API_TOKEN
+    VIBEOS_API_TOKEN = newToken
+    console.error("[vibeOS] API token updated via setApiToken")
+  } catch(e) {
+    console.error("[vibeOS] Failed to update API token:", e.message)
+  }
+}
 let _apiClient = null
 let _apiFallbackMode = false
 let _apiFallbackSince = null

@@ -321,8 +321,10 @@ export const onToolExecuteBefore = async (input, output) => {
             context7Seen.add(target)
             // Re-check each time — context7 might be added mid-session
             if (detectContext7()) {
-              const total = recordSaving(t, "docs-target without context7", _estC7, { firstWord: _firstWord })
-              console.error(`[vibeOS] [cost policy] Context7 available — prefer over webfetch for docs lookups (~$0.06/turn saved).`)
+              const missed = recordMissedContext7(SAVE_EST.CONTEXT7)
+              if (shouldLogWarn(`context7-bypass|${t}|${_firstWord || "?"}`)) {
+                console.error(`[vibeOS] [cost policy] Context7 available but bypassed — webfetch on docs target instead. ~$${SAVE_EST.CONTEXT7.toFixed(4)}/turn missed.`)
+              }
             } else {
               const missed = recordMissedContext7(_estC7)
               if (!existsSync(CONTEXT7_INSTALL_FLAG)) {
