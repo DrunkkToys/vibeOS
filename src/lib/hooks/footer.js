@@ -6,7 +6,7 @@ import { classify, modelCostPerTurn, _refreshModel, TRINITY_BRAIN, TRINITY_MEDIU
 import { latestUserIntent } from "./chat-transform.js";
 import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, loadOptimizationMode, saveOptimizationMode, classifyTurnSimple } from "../turn-classify.js";
 import { saveReport } from "../reporting.js";
-import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, _modelLocked, _blackboxEnabled, reconcileStateFromLedger, safeJsonParse, loadTodos, recordCacheSaving } from "../state.js";
+import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, _modelLocked, _blackboxEnabled, reconcileStateFromLedger, safeJsonParse, loadTodos } from "../state.js";
 import { loadSessionSlot, writeSessionSlot } from "../selection-manager.js";
 import { remoteCall, isApiFallback } from "../api-client.js";
 import { SAVE_EST } from "../constants.js";
@@ -40,7 +40,6 @@ const STATE_FILE = join(USER_HOME, ".claude/delegation-state.json");
 const SAVINGS_LEDGER_FILE = join(USER_HOME, ".claude/savings-ledger.jsonl");
 let _prevOutputText = "";
 let _autoReportCount = 0;
-let _turnCount = 0; // for system prompt cache estimation
 const textCompletePainted = new Set();
 function loadSelection() {
     try {
@@ -259,15 +258,6 @@ async function _appendFooter(input, output, directory) {
             if (imputedMultiplier > 2) {
                 const imputedActual = ltTotal * imputedMultiplier;
                 savingsDisplay += ` ($${formatUsd(imputedActual)} actual)`;
-            }
-            // Estimate system prompt prefix cache (DeepSeek caches the system prompt every turn after first)
-            _turnCount++;
-            if (_turnCount > 1) {
-                // ~2000 tokens system prompt × $0.1372/1M (miss - hit) = ~$0.0003 per turn
-                try {
-                    recordCacheSaving("system-prompt", 0.0003, { hash: "sysprompt-v1" });
-                }
-                catch { }
             }
             const stressBar = _footerStress > 0.85 ? "█" : _footerStress > 0.7 ? "▆" : _footerStress > 0.5 ? "▅" : _footerStress > 0.3 ? "▃" : _footerStress > 0.1 ? "▂" : "▁";
             const stressLabel = _footerStress > 0.7 ? "high" : _footerStress > 0.4 ? "elevated" : "calm";
