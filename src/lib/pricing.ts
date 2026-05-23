@@ -144,10 +144,9 @@ export function formatUsd(v) {
 // ── Free model exceptions ───────────────────────────────────────────
 // Models with negligible per-turn cost (less than 2e-5 USD/turn).
 // These skip enforcement entirely to avoid noise.
+// deepseek-chat is DEPRECATED by DeepSeek — now maps to v4-flash ($0.000182/turn).
+// No DeepSeek models are free. Only local models (Ollama) qualify.
 const FREE_MODELS = new Set([
-  "deepseek/deepseek-chat",         // free legacy v3 model on DeepSeek API
-  "deepseek-chat",
-  "deepseek/deepseek-v3",
 ])
 
 // Approximate USD per typical ~1 K-token turn (blended input+output).
@@ -167,9 +166,9 @@ const MODEL_USD_PER_TURN = {
   // ── DeepSeek (OC platform + OpenRouter) ──────────────────
   "deepseek/deepseek-v4-pro":             0.00057,
   "deepseek/deepseek-v4-flash": 0.000182,
-  "deepseek/deepseek-chat":               0,
-  "deepseek-chat":                        0,
-  "deepseek/deepseek-v3":                 0,
+  "deepseek/deepseek-chat":               0.000182,
+  "deepseek-chat":                        0.000182,
+  "deepseek/deepseek-v3":                 0.000182,
   "deepseek/deepseek-r1":                 0.00124,
   "deepseek/deepseek-reasoner":           0.000182,
   "deepseek/haiku":                       0.0022,

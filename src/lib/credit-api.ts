@@ -41,7 +41,7 @@ export function closeMcpServer() {
 let _mcpServerRuntime = null
 let _mcpServerHooked = false
 
-export export function _readAuth() {
+export function _readAuth() {
   try { return existsSync(AUTH_F) ? safeJsonParse(readFileSync(AUTH_F, "utf-8")) : {} } catch { return {} }
 }
 

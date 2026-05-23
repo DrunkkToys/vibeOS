@@ -34,6 +34,21 @@ cd "$SCRIPT_DIR/.."
 START_TS=$(date +%s)
 DEADLINE=$((START_TS + 3540)) # 59 minutes
 
+# ── Step 1: Sync model pricing (24h refresh) ─────────────────
+echo "$(date): [PRICING] Syncing model pricing from OpenRouter..."
+node scripts/sync-pricing.mjs >> "$HOME/.claude/pricing-sync-cron.log" 2>&1
+PRICE_EXIT=$?
+echo "$(date): [PRICING] Done (exit $PRICE_EXIT)"
+
+# ── Step 2: Warn if v4-pro promo is ending (after May 31, price x4) ──
+NOW_EPOCH=$(date +%s)
+PROMO_END_EPOCH=$(date -j -f "%Y-%m-%d" "2026-05-31" +%s 2>/dev/null || echo 0)
+DAYS_LEFT=$(( (PROMO_END_EPOCH - NOW_EPOCH) / 86400 ))
+if [ "$DAYS_LEFT" -gt 0 ] && [ "$DAYS_LEFT" -le 30 ]; then
+  echo "$(date): [PRICING] WARNING: v4-pro 75% discount expires in ${DAYS_LEFT} days (May 31). Price jumps 4x."
+fi
+
+# ── Step 3: Nightly experiment ────────────────────────────────
 node scripts/nightly-experiment.mjs
 EXIT=$?
 
