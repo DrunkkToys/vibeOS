@@ -1,3 +1,18 @@
+## 0.16.0
+- feat: dopamine-style footer + natural language system directives
+- feat: dopamine-style footer + natural language system directives
+- feat: turn-aware compaction directive at turn 7+
+- feat: add forensic/web-research modes + 1084-datapoint benchmark
+- fix: flash icon only when API connected, unified [VIBE→MODE⚡] format
+- docs: Security section + Context7 cost optimization docs
+- docs: add Security section with API token emphasis and Context7 cost optimization docs
+- docs: persist all benchmark data + compaction research
+- docs: reformat README as user-facing PM doc, move internals to AGENTS.md, cleanup .gitignore
+Merge pull request #35 from DrunkkToys/refactor/simplify-chat-transform
+readme: center VIBE autoswitching as the core value proposition
+Revert "fix: add system prompt cache savings tracking"
+
+
 ## 0.15.23
 - feat: add trinity api-token command to inject VIBEOS_API_TOKEN
 
