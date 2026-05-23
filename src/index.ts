@@ -67,6 +67,35 @@ import { loadCredit, thinkingLevel, _lazyRefresh, _readAuth } from "./lib/credit
 import { createTrinityTool } from "./lib/trinity-tool.js"
 import { classifyAndRankModels, modelToCcAlias, discoverAvailableModels, probeModel } from "./lib/trinity-rebuild.js"
 import { _appendFooter } from "./lib/hooks/footer.js"
+import { readFileSync as _readFileSync, existsSync as _existsSync } from "node:fs"
+import { join as _join } from "node:path"
+
+// ── Calibration pipeline: load trained mode weights ───────────────────
+const CAL_WEIGHTS_FILE = _join(USER_HOME, ".claude", "mode-calibration-weights.json")
+let _calibratedModeMap: Record<string, string> | null = null
+
+function loadCalibratedModeMap(): Record<string, string> {
+  if (_calibratedModeMap) return _calibratedModeMap
+  try {
+    if (_existsSync(CAL_WEIGHTS_FILE)) {
+      const d = safeJsonParse(_readFileSync(CAL_WEIGHTS_FILE, "utf-8"))
+      if (d?.regime_mode_map) {
+        _calibratedModeMap = d.regime_mode_map
+        console.error("[vibeOS] calibration: loaded regime→mode weights")
+        return _calibratedModeMap
+      }
+    }
+  } catch {}
+  return {}
+}
+
+function getCalibratedMode(regime: string, stress: number): string | null {
+  if (stress > 1.5) return "quality"
+  const map = loadCalibratedModeMap()
+  return map[regime] || null
+}
+
+export { loadCalibratedModeMap, getCalibratedMode }
 import { onToolExecuteBefore, onToolExecuteAfter, setToolDirectory } from "./lib/hooks/tool-execute.js"
 import { onMessagesTransform, onSystemTransform, latestUserIntent, ensureProjectSkill } from "./lib/hooks/chat-transform.js"
 import { onSessionCompacting } from "./lib/hooks/session-compact.js"
@@ -560,8 +589,7 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
     "experimental.chat.messages.transform": async (_input: any, output: any) => {
       return onMessagesTransform(_input, output)
     },
-    "experimental.text.complete": async (input: any, output: any) => { await _appendFooter(input, output, directory) },
-    "message.updated": async (input: any, output: any) => { await _appendFooter(input, output, directory) },
+
     "experimental.session.compacting": async (_input: any, output: any) => {
       return onSessionCompacting(_input, output)
     },
@@ -571,6 +599,12 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
     "shell.env": async (_input: any, output: any) => {
       if (typeof setShellDirectory === "function") setShellDirectory(directory || "")
       return onShellEnv(_input, output)
+    },
+    "experimental.text.complete": async (_input: any, output: any) => {
+      await _appendFooter(_input, output, directory)
+    },
+    "message.updated": async (_input: any, output: any) => {
+      await _appendFooter(_input, output, directory)
     },
     tool: {
       trinity: tool(createTrinityTool(trinityDeps)),
