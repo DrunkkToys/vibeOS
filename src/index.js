@@ -8895,7 +8895,9 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
       }
       if (_tiersData2) {
         _tiersData2.selection ??= {};
-        if ("mcp_port" in _tiersData2) delete _tiersData2.mcp_port;
+        for (const _sk of ["mcp_port", "optimization_mode", "enforcement_enabled", "flow_enforce_level", "tdd_quality", "thinking_mode", "blackbox_regime", "_mode_changed_at", "_mode_source"]) {
+          if (_sk in _tiersData2) delete _tiersData2[_sk];
+        }
         mkdirSync11(dirname8(TIERS_FILE2), { recursive: true });
         const _tmp = TIERS_FILE2 + ".tmp." + Date.now();
         writeFileSync12(_tmp, JSON.stringify(_tiersData2, null, 2) + "\n", "utf-8");
@@ -8919,8 +8921,14 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
   }
   try {
     const _mt = safeJsonParse3(readFileSync15(TIERS_FILE2, "utf-8"));
-    if ("mcp_port" in _mt) {
-      delete _mt.mcp_port;
+    let _dirty = false;
+    for (const _sk of ["mcp_port", "optimization_mode", "enforcement_enabled", "flow_enforce_level", "tdd_quality", "thinking_mode", "blackbox_regime", "_mode_changed_at", "_mode_source"]) {
+      if (_sk in _mt) {
+        delete _mt[_sk];
+        _dirty = true;
+      }
+    }
+    if (_dirty) {
       const _tmp = TIERS_FILE2 + ".tmp." + Date.now();
       writeFileSync12(_tmp, JSON.stringify(_mt, null, 2) + "\n", "utf-8");
       renameSync6(_tmp, TIERS_FILE2);

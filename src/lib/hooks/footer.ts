@@ -248,7 +248,7 @@ async function _appendFooter(input, output, directory) {
       }
       vibeLine += `, VIBE${flashIcon ? ' ⚡' : ''}`
       if (_footerStress > 0.4) {
-        const stressLabel = _footerStress > 0.7 ? 'elevated' : 'uneven'
+        const stressLabel = _footerStress > 0.7 ? 'high' : 'elevated'
         vibeLine += ` · ${stressLabel}`
       }
       const footerText = stripped + `\n\n${vibeLine} —`

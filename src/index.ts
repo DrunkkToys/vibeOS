@@ -459,7 +459,9 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
       }
       if (_tiersData) {
         _tiersData.selection ??= {}
-        if ("mcp_port" in _tiersData) delete _tiersData.mcp_port
+        for (const _sk of ["mcp_port", "optimization_mode", "enforcement_enabled", "flow_enforce_level", "tdd_quality", "thinking_mode", "blackbox_regime", "_mode_changed_at", "_mode_source"]) {
+          if (_sk in _tiersData) delete (_tiersData as any)[_sk]
+        }
         mkdirSync(dirname(TIERS_FILE), { recursive: true })
         const _tmp = TIERS_FILE + ".tmp." + Date.now()
         writeFileSync(_tmp, JSON.stringify(_tiersData, null, 2) + "\n", "utf-8")
@@ -481,11 +483,14 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
     } catch {}
   }
 
-  // Ensure stale root mcp_port is cleaned
+  // Ensure stale root keys are cleaned (only selection + trinity belong at root)
   try {
     const _mt = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
-    if ("mcp_port" in _mt) {
-      delete _mt.mcp_port
+    let _dirty = false
+    for (const _sk of ["mcp_port", "optimization_mode", "enforcement_enabled", "flow_enforce_level", "tdd_quality", "thinking_mode", "blackbox_regime", "_mode_changed_at", "_mode_source"]) {
+      if (_sk in _mt) { delete (_mt as any)[_sk]; _dirty = true }
+    }
+    if (_dirty) {
       const _tmp = TIERS_FILE + ".tmp." + Date.now()
       writeFileSync(_tmp, JSON.stringify(_mt, null, 2) + "\n", "utf-8")
       renameSync(_tmp, TIERS_FILE)
