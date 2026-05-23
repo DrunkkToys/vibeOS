@@ -3020,19 +3020,19 @@ function scoreStress(text) {
   for (const w of aggressive) {
     const re = new RegExp("\\b" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "gi");
     const hits = (t.match(re) || []).length;
-    score += hits * 0.05;
+    score += hits * 0.3;
   }
   const urgency = ["fix", "now", "fast", "urgent", "important", "critical", "hurry", "immediately", "asap"];
   for (const w of urgency) {
     const re = new RegExp("\\b" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "gi");
     const hits = (t.match(re) || []).length;
-    score += hits * 0.04;
+    score += hits * 0.15;
   }
   const negative = ["no", "not", "don't", "can't", "won't", "doesn't", "isn't", "shouldn't", "never", "stop"];
   for (const w of negative) {
     const re = new RegExp("\\b" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "gi");
     const hits = (t.match(re) || []).length;
-    score += hits * 0.02;
+    score += hits * 0.08;
   }
   const capsAcronyms = /* @__PURE__ */ new Set(["ai", "ui", "api", "cli", "ssh", "dns", "http", "url", "json", "xml", "css", "html", "sql", "csv", "yaml", "ide", "tdd", "pr", "ci", "cd", "env", "os", "sdk", "gui", "crud", "rest", "crlf", "utf", "ascii"]);
   const words = text.split(/\s+/);
@@ -6434,7 +6434,7 @@ async function _appendFooter(input, output, directory3) {
       const autoStress = scoreStress(latestUserIntent || "");
       const autoActive = await apiAutoSelectMode(autoRegime, autoStress);
       const autoTag = { audit: "AUDIT", budget: "BUDGET", quality: "QUALITY", speed: "SPEED", longrun: "LONGRUN", balanced: "BALANCED" };
-      const fb = isApiFallback() ? "\u26A1" : "";
+      const fb = slot2 === "medium" ? "\u26A1" : "";
       optTagFooter = `[VIBE\u2192${autoTag[autoActive] || autoActive.toUpperCase()}${fb}]`;
       saveOptimizationMode(autoActive);
       const slot2 = autoActive === "quality" ? "brain" : autoActive === "speed" ? "medium" : "cheap";
