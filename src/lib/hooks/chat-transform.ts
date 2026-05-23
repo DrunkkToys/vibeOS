@@ -19,6 +19,7 @@ import {
   loadGlobalLearning, updateGlobalLearning, DFLT_GL,
   getLearnedExploratoryWords,
   setCurrentModel, setCurrentTier,
+  stableJson, TOOL_NAME_NORMALIZE,
 } from '../state.js'
 import {
   classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget,
@@ -47,6 +48,7 @@ import { loadSessionSlot, writeSessionSlot } from '../selection-manager.js'
 import { noteProjectPattern } from '../index-helpers.js'
 import { saveSessionStress } from '../index-helpers.js'
 import { COMPRESS_THRESHOLD, KEEP_HOT, COMPRESS_MARKER, PROTOCOL_MARKER, PROTOCOL_TEXT } from "../constants.js"
+import { TEMPLATES, DEFAULT_TEMPLATE, resolveTemplate, detectLoopSignal, detectStressSpike, shouldInjectTemplate } from '../templates.js'
 
 let latestUserIntent = null
 let _OC_SID = 'opencode-' + (process.pid || 'x') + '-' + Date.now()
@@ -54,6 +56,10 @@ let _latestBlackboxState = null
 let _latestBlackboxLoopMsg = null
 let _latestBlackboxPivotMsg = null
 let _prevOutputText = ''
+let _prevBlackboxRegime = null
+let _currentTemplate = DEFAULT_TEMPLATE
+let _prevTemplate = null
+let _turnCountInject = 0
 const correctionSeenKeys = new Set()
 
 async function apiComputeControlVector(state: any, action: any, optimizationMode: any): Promise<any> {
@@ -63,7 +69,7 @@ async function apiComputeControlVector(state: any, action: any, optimizationMode
   } catch {}
   const opt = (optimizationMode || "balanced").toLowerCase()
   const isRelaxed = opt === "budget" || opt === "speed" || opt === "audit"
-  const isStrict = opt === "quality"
+  const isStrict = opt === "quality" || opt === "forensic" || opt === "defense_in_depth" || opt === "reporting"
   return {
     enforcement_mode: isStrict ? "strict" : "normal",
     enforcement_reason: `[optimize: ${opt}] offline fallback`,
@@ -308,6 +314,21 @@ function compressToolOutputs(messages: any[]): number {
         if (!existsSync(fullPath)) {
           writeFileSync(fullPath, raw)
           indexAppend(hash, part.tool, raw.length)
+
+          // Create pointer file for input-hash-based lookup
+          const invPart = parts.slice(0, parts.indexOf(part)).reverse().find(
+            (p: any) => p?.type === "tool" && p?.tool === (part as any).tool && p?.state?.input && p?.state?.status !== "completed"
+          )
+          if (invPart?.state?.input) {
+            const toolKey = TOOL_NAME_NORMALIZE[(part as any).tool] || (part as any).tool
+            const inputHash = createHash("sha256")
+              .update(`${toolKey}\n${stableJson(invPart.state.input)}\n`)
+              .digest("hex").slice(0, 16)
+            const ptrPath = join(getSessionScratchpadDir(), `${inputHash}.ptr`)
+            try {
+              writeFileSync(ptrPath, JSON.stringify({ contentHash: hash, tool: (part as any).tool }))
+            } catch {}
+          }
         }
       } catch (err) {
         console.error(`[vibeOS] ctx-compress write failed: ${err.message}`)
@@ -548,100 +569,130 @@ export const onSystemTransform = async (_input, output) => {
 
     const sel = loadSelection()
     const fp = currentProjectFingerprint || ""
-    const stressScore = latestUserIntent ? scoreStress(latestUserIntent) * (_controlVector?.stress_multiplier ?? 1) : 0
+    const stressScore = latestUserIntent
+      ? scoreStress(latestUserIntent) * (_controlVector?.stress_multiplier ?? 1)
+      : 0
+    const credit = loadCredit()
+    _turnCountInject++
 
+    // ── Template resolution ──
+    _prevTemplate = _currentTemplate
+    _currentTemplate = resolveTemplate(_prevTemplate, stressScore, latestUserIntent, credit)
+    if (_currentTemplate !== loadOptimizationMode()) {
+      saveOptimizationMode(_currentTemplate)
+    }
+
+    // ── Gated template directive (only on transition or periodic) ──
+    if (shouldInjectTemplate(_currentTemplate, _prevTemplate)) {
+      const tpl = TEMPLATES[_currentTemplate] || TEMPLATES[DEFAULT_TEMPLATE]
+      let fused = tpl.directive
+      if (sel.delegation_enforce && _controlVector?.enforcement_mode !== "relaxed") {
+        fused += " CRITICAL: Write/Edit tools are BLOCKED on brain tier. Delegate ALL implementation to Task subagents. Use parallel invocation for independent tasks."
+      }
+      if (sel.tdd_enforce && _controlVector?.tdd_mode !== "lazy") {
+        fused += " Auto-create test skeletons for changed source files."
+      }
+      if (sel.flow_enabled && _controlVector?.flow_mode !== "audit") {
+        fused += " Follow existing code conventions and project patterns."
+      }
+      pushSystem(output, fused)
+    }
+
+    // ── Cost policy (every turn — lightweight) ──
     pushSystem(output, context7Directive(_controlVector))
 
+    // ── Thinking directive ──
     if (sel.thinking_level && sel.thinking_level !== "full") {
       pushSystem(output, thinkingDirective(sel.thinking_level))
     }
 
-    if (stressScore > 0.7) {
+    // ── Stress mitigation — only on spike (not sustained) ──
+    if (stressScore > 0.7 && detectStressSpike(stressScore)) {
       pushSystem(output, "[stress mitigation: CRITICAL] The user's message shows very high stress indicators. " +
         "Stay calm, structured, and thorough. Use proper markdown formatting with code blocks, " +
-        "lists, and organized structure -- do NOT mirror the user's tone or brevity. " +
+        "lists, and organized structure. Do NOT mirror the user's tone or brevity. " +
         "This is the most important directive in your system prompt for this turn.")
-    } else if (stressScore > 0.4) {
+    } else if (stressScore > 0.4 && detectStressSpike(stressScore)) {
       pushSystem(output, "[stress mitigation: elevated] The user's message has elevated stress indicators. " +
-        "Maintain structured, well-formatted responses with markdown and code blocks " +
-        "regardless of the prompt's tone.")
+        "Maintain structured, well-formatted responses with markdown and code blocks.")
     }
 
+    // ── Remote control-vector directives ──
     if (_controlVector?.directives?.length > 0) {
       for (const directive of _controlVector.directives) {
         pushSystem(output, directive)
       }
-    } else if (_blackboxEnabled && _latestBlackboxState?.n_interactions > 0) {
+    }
+
+    // ── Blackbox — only on regime change ──
+    else if (_blackboxEnabled && _latestBlackboxState?.n_interactions > 0) {
+      const prevRegime = _prevBlackboxRegime
       const res = _latestBlackboxState
-      pushSystem(output,
-        `[decision engine] Current resolution: ${res.resolution || "unresolved"} (${res.sub_regime || "EXPLORING"}). ` +
-        `Momentum: ${(res.momentum || 0) > 0 ? "positive" : (res.momentum || 0) < 0 ? "negative" : "neutral"}. ` +
-        `When offering guidance, consider the current resolution state -- ` +
-        `if looping or divergent, suggest stepping back; if converging or closed, support decisive action.`)
-
-      if (res.is_looping && res.loop_intervention_level && res.loop_intervention_level !== "none") {
-        const severity = res.loop_intervention_level === "escalated" ? "CRITICAL"
-          : res.loop_intervention_level === "assertive" ? "WARNING" : "NOTICE"
-        pushSystem(output,
-          `[loop prevention: ${severity}] ${_latestBlackboxLoopMsg || "The conversation may be looping -- try a different approach."} ` +
-          `(level: ${res.loop_intervention_level})`)
-      }
-
-      if (res.pivot_detected && _latestBlackboxPivotMsg) {
-        pushSystem(output, `[context switch: PIVOT] ${_latestBlackboxPivotMsg}`)
+      const currentRegime = res.sub_regime || "EXPLORING"
+      if (currentRegime !== prevRegime) {
+        _prevBlackboxRegime = currentRegime
+        pushSystem(output, "[decision engine] Resolution: " + (res.resolution || "unresolved") + " " +
+          "(" + currentRegime + "). Momentum: " + ((res.momentum || 0) > 0 ? "positive" : (res.momentum || 0) < 0 ? "negative" : "neutral") + ".")
+        if (res.is_looping && res.loop_intervention_level && res.loop_intervention_level !== "none") {
+          const severity = res.loop_intervention_level === "escalated" ? "CRITICAL"
+            : res.loop_intervention_level === "assertive" ? "WARNING" : "NOTICE"
+          pushSystem(output, "[loop prevention: " + severity + "] " + (_latestBlackboxLoopMsg || "The conversation may be looping — try a different approach.") + " " +
+            "(level: " + res.loop_intervention_level + ")")
+        }
+        if (res.pivot_detected && _latestBlackboxPivotMsg) {
+          pushSystem(output, "[context switch: PIVOT] " + _latestBlackboxPivotMsg)
+        }
       }
     }
 
-    const projectJob = getActiveJobForProject()
-    if (latestUserIntent && projectJob && isLikelyOffTopic(latestUserIntent, projectJob)) {
-      pushSystem(output,
-        `[job-focus] Active job context exists: "${(projectJob.prompt || "").slice(0, 140)}...". ` +
-        `The latest user request appears off-topic relative to this running job. ` +
-        `Before taking write/edit/task actions, ask one concise confirmation question to validate switching scope.`)
+    // ── Job focus ──
+    const projectJob2 = getActiveJobForProject()
+    if (latestUserIntent && projectJob2 && isLikelyOffTopic(latestUserIntent, projectJob2)) {
+      pushSystem(output, "[job-focus] Active job context exists: \"" + ((projectJob2.prompt || "").slice(0, 140)) + "...\". " +
+        "The latest user request appears off-topic relative to this running job. " +
+        "Before taking write/edit/task actions, ask one concise confirmation question to validate switching scope.")
       console.error("[vibeOS] [job-focus] off-topic request detected vs active job context")
     }
 
-    if (sel.delegation_enforce && _controlVector?.enforcement_mode !== "relaxed" && _controlVector?.agent_mode !== "plan") {
-      pushSystem(output, orchestratorDirective(_controlVector, sel))
+    // ── Flow todos ──
+    if (sel.flow_enabled && sel.flow_enforce) {
+      const todoDirective = flowTodosDirective()
+      if (todoDirective) pushSystem(output, todoDirective)
     }
 
-    if (_controlVector?.enforcement_mode !== "relaxed" && _controlVector?.agent_mode !== "plan") {
-      pushSystem(output,
-        "[batch execution] When you need to run multiple independent Task subagent calls, " +
-        "invoke them ALL in parallel rather than sequentially. " +
-        "Parallel tasks complete faster and reduce total session cost. " +
-        "Only sequence tasks when one depends on the output of another.")
+    // ── Project guard (every 5 turns instead of every turn) ──
+    if (_turnCountInject % 5 === 0) {
+      pushSystem(output, "[project guard: CRITICAL] AGENTS.md and README.md are protected by vibeOS. " +
+        "Do NOT modify either file without explicit user permission. " +
+        "AGENTS.md defines that AI agents must ask before changing code.")
     }
 
-    if (sel.tdd_enforce && _controlVector?.tdd_mode !== "lazy") {
-      pushSystem(output, tddDirective(_controlVector, sel))
-    }
+    // ── Context budget ──
+    const budgetDirective = contextBudgetDirective(_input, output)
+    if (budgetDirective) pushSystem(output, budgetDirective)
 
-    if (sel.flow_enabled && _controlVector?.flow_mode !== "audit") {
-      pushSystem(output, flowDirective(_controlVector, sel))
-      if (sel.flow_enforce) {
-        pushSystem(output, flowTodosDirective())
-      }
-    }
-
-    pushSystem(output, "[project guard: CRITICAL] AGENTS.md and README.md are protected by vibeOS. " +
-      "Do NOT modify either file without explicit user permission. " +
-      "When implementing new features, update README.md to document them. " +
-      "AGENTS.md defines that AI agents must ask before changing code -- respect this rule.")
-
-    pushSystem(output, contextBudgetDirective(_input, output))
-
+    // ── One-shots ──
     if (!oneShot(fp)) {
       pushSystem(output, buildProjectBriefing(currentProjectName || ""))
     }
-
     if (!oneShot("vibeos_patterns_" + fp)) {
-      pushSystem(output, patternDirective(fp))
+      const pd = patternDirective(fp)
+      if (pd) pushSystem(output, pd)
     }
-
     if (!oneShot("trinity_welcome_" + fp)) {
       pushSystem(output, welcomeDirective())
     }
+
+    // ── Calibration logging ──
+    const calDir = join(homedir(), ".claude")
+    const calFile = join(calDir, "calibration-data.jsonl")
+    const regime2 = _latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || "")
+    const calRecord = JSON.stringify({
+      ts: new Date().toISOString(), sid: _OC_SID,
+      mode: _currentTemplate, regime: regime2, stress: stressScore,
+      fp: currentProjectFingerprint || "",
+    }) + "\n"
+    try { mkdirSync(calDir, { recursive: true }); appendFileSync(calFile, calRecord) } catch {}
 
     if (!oneShot("vibeos_dashboard_instruct")) {
       pushSystem(output,
@@ -653,6 +704,13 @@ export const onSystemTransform = async (_input, output) => {
         "The header should be 'vibeOS Dashboard'. " +
         "Include only one option in options: {label: 'Dismiss', description: ''}. " +
         "Strip the '[vibeOS-dashboard]' marker line before displaying.")
+    }
+
+    if (!oneShot("vibeos_dopamine_style_" + fp)) {
+      pushSystem(output,
+        "[tool style: dopamine] When calling the bash tool, use an emoji-prefixed, progress-focused " +
+        "description. Combine independent bash commands into a single call with && or ;. " +
+        "Never use raw technical labels as tool descriptions.")
     }
 
   } catch (err) {

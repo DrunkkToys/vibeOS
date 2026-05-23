@@ -1,3 +1,33 @@
+## 0.18.8
+- feat: auto-update on plugin load — spawns `npm install vibeostheog@latest` in background
+
+## 0.18.7
+- feat: auto-install plugin via postinstall hook on `npm install`
+- fix: deploy.mjs gracefully skips missing vibeOS-lib directory
+
+## 0.18.6
+- fix: quality tracking computes avg from lifetime score/count (was always 0)
+- fix: savings rate precision to 4 decimals (was $0.00/hr)
+- fix: cache savings minimum $0.0001 per scratchpad hit (was rounding to $0)
+- fix: ledger reconciliation flushes buffer before reading + uses Math.max() to prevent state drops
+- fix: trinity slots now authoritative over opencode.json model
+
+## 0.18.5
+- fix: trinity slots now authoritative over opencode.json model
+
+
+## 0.18.4
+- fix: quality tracking now computes avg from lifetime score/count instead of hardcoding 0
+- fix: savings rate shown with 4 decimal precision (was rounding to $0.00/hr)
+- fix: cache savings minimum enforced at $0.0001 per scratchpad hit (was rounding to $0)
+- fix: ledger reconciliation flushes buffer before reading + uses Math.max() to prevent state drops
+- fix: model lock no longer overridden by bogus opencode.json model
+
+## 0.18.3
+- feat: dynamic mode injection + footer hooks fix
+- fix: auto-enable plugin on load + always show footer
+
+
 ## 0.17.0
 - feat: universal context7 detection — scans local opencode.json, ~/.config/opencode/*.json, system PATH, and npm npx cache
 - feat: `_scanOpenCodeConfigs` — finds context7 in any JSON config under ~/.config/opencode/

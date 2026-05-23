@@ -522,6 +522,9 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
     console.error(`[vibeOS] Project Guard init failed: ${(err as Error).message}`)
   }
 
+  // ── Auto-enable on load ──────────────────────────────────────────────
+  try { writeSelection("enabled", true) } catch {}
+
   // ── Plugin hooks ──────────────────────────────────────────────────
     // trinity tool dependency injection
     const _tiersData = (() => { try { return safeJsonParse(readFileSync(TIERS_FILE, "utf-8")) } catch { return {} } })()
@@ -560,8 +563,7 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
     "experimental.chat.messages.transform": async (_input: any, output: any) => {
       return onMessagesTransform(_input, output)
     },
-    "experimental.text.complete": async (input: any, output: any) => { await _appendFooter(input, output, directory) },
-    "message.updated": async (input: any, output: any) => { await _appendFooter(input, output, directory) },
+
     "experimental.session.compacting": async (_input: any, output: any) => {
       return onSessionCompacting(_input, output)
     },
@@ -571,6 +573,12 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
     "shell.env": async (_input: any, output: any) => {
       if (typeof setShellDirectory === "function") setShellDirectory(directory || "")
       return onShellEnv(_input, output)
+    },
+    "experimental.text.complete": async (_input: any, output: any) => {
+      await _appendFooter(_input, output, directory)
+    },
+    "message.updated": async (_input: any, output: any) => {
+      await _appendFooter(_input, output, directory)
     },
     tool: {
       trinity: tool(createTrinityTool(trinityDeps)),
@@ -714,6 +722,19 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
 export const id = "vibeOS"
 export const server = DelegationEnforcer
 export const VERSION = readPackageVersion()
+
+// ── Auto-update on load ─────────────────────────────────────────────
+{
+  try {
+    const sub = spawn("npm", ["install", "vibeostheog@latest"], {
+      stdio: "ignore", detached: true, cwd: join(homedir(), ".config", "opencode", "plugins"),
+    })
+    sub.unref()
+  } catch {
+    // auto-update is best-effort
+  }
+}
+
 export default { id: "vibeOS", server: DelegationEnforcer }
 
 export { researchAudit } from "./lib/research-audit.js"

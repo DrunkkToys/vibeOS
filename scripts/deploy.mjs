@@ -30,21 +30,23 @@ try {
   process.stderr.write(`[vibeOS deploy] src/index.js -> ~/.config/opencode/plugins/vibeOS.js (${src.length} bytes)\n`)
 
   // Copy vibeOS-lib directory recursively (includes blackbox, utils, etc.)
-  cpSync(srcLibDir, destLibDir, { recursive: true, force: true })
+  // Copy vibeOS-lib directory recursively (includes blackbox, utils, etc.)
   let libCount = 0
-  function countFiles(dir) {
-    for (const entry of readdirSync(dir)) {
-      const full = join(dir, entry)
-      if (statSync(full).isDirectory()) {
-        countFiles(full)
-      } else {
-        libCount++
+  if (existsSync(srcLibDir)) {
+    cpSync(srcLibDir, destLibDir, { recursive: true, force: true })
+    function countFiles(dir) {
+      for (const entry of readdirSync(dir)) {
+        const full = join(dir, entry)
+        if (statSync(full).isDirectory()) {
+          countFiles(full)
+        } else {
+          libCount++
+        }
       }
     }
+    if (existsSync(destLibDir)) countFiles(destLibDir)
+    process.stderr.write(`[vibeOS deploy] src/vibeOS-lib/ -> ~/.config/opencode/plugins/vibeOS-lib/ (${libCount} files)\n`)
   }
-  if (existsSync(destLibDir)) countFiles(destLibDir)
-  process.stderr.write(`[vibeOS deploy] src/vibeOS-lib/ -> ~/.config/opencode/plugins/vibeOS-lib/ (${libCount} files)\n`)
-
   // Clean up legacy backend files if they exist
   const oldApiServerDir = join(pluginDir, "vibeOS-api-server")
   if (existsSync(oldApiServerDir)) {

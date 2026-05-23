@@ -509,7 +509,7 @@ export function _refreshModel(directory) {
         }
         // Reconcile with the actual OpenCode config model (handles manual model switches)
         // When model lock is active, skip auto-reconcile — user must explicitly switch via trinity.
-        if (!_modelLocked) {
+        if (!_modelLocked && !slotOcModel) {
             const cfgModel = readConfig(directory) || readConfig(join(USER_HOME, ".config/opencode")) || "";
             if (cfgModel && cfgModel !== currentModel) {
                 const oldModel = currentModel;
