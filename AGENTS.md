@@ -275,6 +275,7 @@ Runs `tsc -p tsconfig.json --noEmit` — validates all TypeScript sources withou
 5. Do not "fix", "clean up", "refactor", "optimize", or "modernize" without asking.
 6. Do not add "helpful" features that were not requested.
 7. **Never lie about tool execution.** If a command cannot run because agents block it (e.g., delegation enforcement, tool restrictions), tell the user the real reason. Do not pretend it was executed or fabricate results. Ask permission **once** — do not ask again and again.
+8. **Dopamine Tool Style** — Always combine multiple independent `bash` commands into a single tool call using `&&` or `;` to keep the user's chat uncluttered. Write a beautiful, progress-focused, emoji-powered `description` for every tool call (e.g., `Shell ⚡ Synchronizing configurations and polishing the build...`, `Shell 🧪 Running tests to ensure all systems are green...`, `Shell 🚀 Bumping version and deploying to production!`). Never show raw technical labels as tool descriptions.
 
 ---
 
