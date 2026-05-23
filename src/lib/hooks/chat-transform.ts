@@ -63,7 +63,7 @@ async function apiComputeControlVector(state: any, action: any, optimizationMode
   } catch {}
   const opt = (optimizationMode || "balanced").toLowerCase()
   const isRelaxed = opt === "budget" || opt === "speed" || opt === "audit"
-  const isStrict = opt === "quality"
+  const isStrict = opt === "quality" || opt === "forensic" || opt === "defense_in_depth" || opt === "reporting"
   return {
     enforcement_mode: isStrict ? "strict" : "normal",
     enforcement_reason: `[optimize: ${opt}] offline fallback`,
@@ -629,6 +629,42 @@ export const onSystemTransform = async (_input, output) => {
       "When implementing new features, update README.md to document them. " +
       "AGENTS.md defines that AI agents must ask before changing code -- respect this rule.")
 
+    // -- Dynamic mode-specific prompt injection ----------------------------
+    const currentMode = loadOptimizationMode()
+    if (currentMode === "quality") {
+      pushSystem(output,
+        "[mode: quality] Prioritize quality and thoroughness. Provide complete edge case coverage, " +
+        "comprehensive error handling, full type annotations, production-grade code with tests. " +
+        "Do not cut corners for brevity.")
+    } else if (currentMode === "forensic") {
+      pushSystem(output,
+        "[mode: forensic] Use forensic analysis depth: evidence-based reasoning tracing each claim to source; " +
+        "multi-hypothesis evaluation considering competing explanations; " +
+        "explicit uncertainty flags for assumptions and trade-offs; " +
+        "structured output with clear reasoning traces; " +
+        "thorough verification of all edge cases and failure modes.")
+    } else if (currentMode === "web-research" || currentMode === "exploration") {
+      pushSystem(output,
+        "[mode: exploration] Use a research-oriented approach: gather information from multiple perspectives before converging; " +
+        "document alternative approaches; flag confidence levels for each finding; " +
+        "synthesize into actionable recommendations.")
+    } else if (currentMode === "defense_in_depth") {
+      pushSystem(output,
+        "[mode: defense in depth] For every component: define the threat model, implement with defenses, " +
+        "then verify the defense handles the threat. Never write code without specifying what it defends against. " +
+        "Consider: injection, broken auth, data exposure, logic errors, race conditions.")
+    } else if (currentMode === "reporting") {
+      pushSystem(output,
+        "[mode: formal report] Structure output as a formal engineering report with: executive summary, " +
+        "methodology, detailed findings with evidence, trade-offs documented, " +
+        "conclusions with confidence levels, and recommendations.")
+    } else if (currentMode === "verify") {
+      pushSystem(output,
+        "[mode: verification-first] Before writing code, declare verification criteria: which edge cases must pass, " +
+        "what invariants must hold. After each code block, include a verification section showing " +
+        "how correctness is established against each criterion.")
+    }
+
     pushSystem(output, contextBudgetDirective(_input, output))
 
     if (!oneShot(fp)) {
@@ -643,6 +679,17 @@ export const onSystemTransform = async (_input, output) => {
       pushSystem(output, welcomeDirective())
     }
 
+    // -- Calibration logging -------------------------------------------
+    const calDir = join(homedir(), ".claude")
+    const calFile = join(calDir, "calibration-data.jsonl")
+    const regime = _latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || "")
+    const calRecord = JSON.stringify({
+      ts: new Date().toISOString(), sid: _OC_SID,
+      mode: currentMode, regime, stress: stressScore,
+      fp: currentProjectFingerprint || "",
+    }) + "\n"
+    try { mkdirSync(calDir, { recursive: true }); appendFileSync(calFile, calRecord) } catch {}
+
     if (!oneShot("vibeos_dashboard_instruct")) {
       pushSystem(output,
         "[vibeOS dashboard display] When the trinity tool returns output starting with '[vibeOS-dashboard]', " +
@@ -653,6 +700,14 @@ export const onSystemTransform = async (_input, output) => {
         "The header should be 'vibeOS Dashboard'. " +
         "Include only one option in options: {label: 'Dismiss', description: ''}. " +
         "Strip the '[vibeOS-dashboard]' marker line before displaying.")
+    }
+
+    if (!oneShot("vibeos_dopamine_style_" + fp)) {
+      pushSystem(output,
+        "[tool style: dopamine] When calling the bash tool, use an emoji-prefixed, progress-focused " +
+        "description — e.g. 'Shell ⚡ Compiling assets...' or 'Shell 🧪 Running tests...'. " +
+        "Combine independent bash commands into a single call with && or ;. " +
+        "Never use raw technical labels as tool descriptions.")
     }
 
   } catch (err) {

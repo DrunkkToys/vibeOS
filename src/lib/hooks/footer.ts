@@ -15,6 +15,18 @@ let _cachedAutoMode = null
 let _cachedAutoModeTs = 0
 const AUTO_CACHE_TTL = 60000
 
+const REGIME_MODE_MAP = {
+  LOOPING: "forensic", DIVERGENT: "forensic",
+  EXPLORING: "web-research", INIT: "web-research",
+  REFINING: "balanced",
+  CONVERGING: "quality", CLOSED: "quality",
+}
+
+function regimeToMode(regime, stress) {
+  if (stress > 1.5) return "quality"
+  return REGIME_MODE_MAP[regime] || "balanced"
+}
+
 async function apiAutoSelectMode(regime, stress) {
   const now = Date.now()
   if (_cachedAutoMode && now - _cachedAutoModeTs < AUTO_CACHE_TTL) return _cachedAutoMode
@@ -26,7 +38,9 @@ async function apiAutoSelectMode(regime, stress) {
       return res.mode
     }
   } catch (e) { console.error("[vibeOS] apiAutoSelectMode error:", e.message) }
-  return _cachedAutoMode || "balanced"
+  const fallback = regimeToMode(regime, stress)
+  if (!_cachedAutoMode || _cachedAutoMode === "balanced") _cachedAutoMode = fallback
+  return _cachedAutoMode || fallback || "balanced"
 }
 
 const USER_HOME = (() => { try { return homedir() } catch { return tmpdir() } })()
@@ -119,7 +133,7 @@ async function _appendFooter(input, output, directory) {
         typeof output?.result === "string" ? output.result :
         typeof output?.content === "string" ? output.content :
         ""
-      if (!text || text.length < 50) {
+      if (!text) {
         if (messageID) textCompletePainted.add(messageID)
         return
       }
@@ -192,7 +206,9 @@ async function _appendFooter(input, output, directory) {
         const autoActive = await apiAutoSelectMode(autoRegime, autoStress)
         optTagFooter = `[VIBE→${autoActive.toUpperCase()}${flashIcon}]`
         saveOptimizationMode(autoActive)
-        const slot = autoActive === "quality" ? "brain" : autoActive === "speed" ? "medium" : "cheap"
+        const slot = autoActive === "quality" || autoActive === "forensic" || autoActive === "defense_in_depth" || autoActive === "reporting" ? "brain"
+          : autoActive === "speed" || autoActive === "web-research" || autoActive === "verify" ? "medium"
+          : "cheap"
         if (!_modelLocked) {
           writeSessionSlot(_OC_SID, slot)
           if (slot === "brain" && TRINITY_BRAIN) { setCurrentModel(TRINITY_BRAIN); setCurrentTier("high") }
