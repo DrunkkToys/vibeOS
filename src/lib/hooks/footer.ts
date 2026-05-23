@@ -15,7 +15,7 @@ let _cachedAutoMode = null
 let _cachedAutoModeTs = 0
 const AUTO_CACHE_TTL = 60000
 
-const REGIME_MODE_MAP = {
+const DEFAULT_REGIME_MAP = {
   LOOPING: "forensic", DIVERGENT: "forensic",
   EXPLORING: "web-research", INIT: "web-research",
   REFINING: "balanced",
@@ -24,7 +24,7 @@ const REGIME_MODE_MAP = {
 
 function regimeToMode(regime, stress) {
   if (stress > 1.5) return "quality"
-  return REGIME_MODE_MAP[regime] || "balanced"
+  return DEFAULT_REGIME_MAP[regime] || "balanced"
 }
 
 async function apiAutoSelectMode(regime, stress) {
@@ -256,6 +256,14 @@ async function _appendFooter(input, output, directory) {
               const tracker = getBlackboxTracker()
               tracker.recordOutcome(outcome)
               syncOutcomeToApi(outcome)
+              // Write outcome to calibration log
+              try {
+                mkdirSync(join(USER_HOME, ".claude"), { recursive: true })
+                appendFileSync(
+                  join(USER_HOME, ".claude", "calibration-data.jsonl"),
+                  JSON.stringify({ ts: new Date().toISOString(), event: "outcome", sid: _OC_SID, outcome }) + "\n"
+                )
+              } catch {}
             }
           }
         } catch {}

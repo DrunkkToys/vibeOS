@@ -560,8 +560,7 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
     "experimental.chat.messages.transform": async (_input: any, output: any) => {
       return onMessagesTransform(_input, output)
     },
-    "experimental.text.complete": async (input: any, output: any) => { await _appendFooter(input, output, directory) },
-    "message.updated": async (input: any, output: any) => { await _appendFooter(input, output, directory) },
+
     "experimental.session.compacting": async (_input: any, output: any) => {
       return onSessionCompacting(_input, output)
     },
@@ -571,6 +570,12 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
     "shell.env": async (_input: any, output: any) => {
       if (typeof setShellDirectory === "function") setShellDirectory(directory || "")
       return onShellEnv(_input, output)
+    },
+    "experimental.text.complete": async (_input: any, output: any) => {
+      await _appendFooter(_input, output, directory)
+    },
+    "message.updated": async (_input: any, output: any) => {
+      await _appendFooter(_input, output, directory)
     },
     tool: {
       trinity: tool(createTrinityTool(trinityDeps)),
