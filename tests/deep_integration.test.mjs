@@ -214,10 +214,10 @@ test("system.transform: context7 + welcome banner (one-shot)", async () => {
   const o1 = { system: [] }
   await hooks["experimental.chat.system.transform"]({}, o1)
   assert.ok(o1.system.some(s => typeof s === 'string' && s.includes("context7")))
-  assert.ok(o1.system.some(s => typeof s === 'string' && s.includes("Active plugin")), "welcome banner present")
+  assert.ok(o1.system.some(s => typeof s === 'string' && s.includes("vibeOS is active")), "welcome banner present")
   const o2 = { system: [] }
   await hooks["experimental.chat.system.transform"]({}, o2)
-  assert.ok(!o2.system.some(s => typeof s === 'string' && s.includes("Active plugin")), "banner one-shot")
+  assert.ok(!o2.system.some(s => typeof s === 'string' && s.includes("vibeOS is active")), "banner one-shot")
 })
 
 test("text.complete: footer + auto-save + dedup", async () => {
