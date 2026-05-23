@@ -1,8 +1,10 @@
 # vibeOS for OpenCode
 
-Cost-aware delegation and policy plugin for OpenCode Desktop.
+VIBE is a smart model router for OpenCode Desktop. It automatically selects and switches between brain, medium, and cheap model tiers based on the task at hand — expensive models handle orchestration while cost-effective models execute implementation work. No manual slot-picking needed.
 
-Keeps expensive model usage under control by enforcing delegation behavior, tracking savings, and exposing runtime controls through the `trinity` tool.
+The core is the VIBE autoswitcher: a decision engine that routes each request to the right tier based on context, enforcement policy, and session state. You stay in control via the `trinity` tool set, but the default workflow is zero-config.
+
+Beyond routing, vibeOS tracks savings from tier-switching, enforces delegation policies, and provides real-time visibility through a live status footer and web dashboard.
 
 ## Savings Categories
 
