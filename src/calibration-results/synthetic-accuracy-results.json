@@ -1,45 +1,38 @@
 {
   "test_name": "synthetic-accuracy-test",
-  "generated_at": "2026-05-23T20:11:45.861Z",
+  "generated_at": "2026-05-23T20:31:05.551Z",
   "total_turns": 100,
   "global": {
     "template_accuracy_pct": 100,
     "accuracy_correct": 100,
     "accuracy_total": 100,
     "injection_precision_pct": 100,
-    "injection_precision_correct": 52,
-    "injection_precision_total": 52,
+    "injection_precision_correct": 23,
+    "injection_precision_total": 23,
     "injection_recall_pct": 100,
-    "injection_recall_hits": 47,
-    "injection_recall_total": 47,
+    "injection_recall_hits": 13,
+    "injection_recall_total": 13,
     "false_positive_rate_pct": 0,
     "false_positives": 0,
     "false_negative_rate_pct": 0,
     "false_negatives": 0,
-    "total_injections": 52,
-    "total_changes": 47,
+    "total_injections": 23,
+    "total_changes": 13,
     "periodic_injections": 10
   },
   "per_class": {
     "save": {
-      "turns": 40,
-      "correct": 40,
+      "turns": 60,
+      "correct": 60,
       "accuracy_pct": 100,
-      "injections": 17,
+      "injections": 14,
       "injection_precision_pct": 100
     },
     "quality": {
-      "turns": 30,
-      "correct": 30,
+      "turns": 40,
+      "correct": 40,
       "accuracy_pct": 100,
-      "injections": 12,
-      "injection_precision_pct": 100
-    },
-    "security": {
-      "turns": 30,
-      "correct": 30,
-      "accuracy_pct": 100,
-      "injections": 23,
+      "injections": 9,
       "injection_precision_pct": 100
     }
   },

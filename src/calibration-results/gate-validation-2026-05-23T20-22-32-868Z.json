@@ -1,0 +1,26 @@
+{
+  "ts": "2026-05-23T20:22:32.867Z",
+  "turns": 1128,
+  "current_injections": {
+    "mode": 1128,
+    "blackbox": 1128,
+    "stress": 230,
+    "guard": 1128,
+    "context7": 1128
+  },
+  "proposed_injections": {
+    "mode": 113,
+    "blackbox": 124,
+    "stress": 0,
+    "guard": 225,
+    "context7": 225
+  },
+  "signals": {
+    "stress_spikes": 0,
+    "security_signals": 0,
+    "regime_changes": 124
+  },
+  "total_chars_current": 927408,
+  "total_chars_proposed": 108245,
+  "reduction_pct": 88.3
+}

@@ -7,13 +7,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // ── Embedded template gating (exact match of src/lib/templates.ts) ──
 
-const SEC_KEYWORDS = /\b(security|vuln|exploit|injection|xss|csrf|secret|credential|token leak|auth bypass|privacy|breach|backdoor|sql injection|cve)\b/i;
-const DEFAULT_TEMPLATE = "quality";
-
-function detectSecuritySignal(text) {
-  if (!text || typeof text !== "string") return false;
-  return SEC_KEYWORDS.test(text);
-}
+const DEFAULT_TEMPLATE = "save";
 
 function detectBudgetSignal(creditPercent) {
   return creditPercent < 40;
@@ -26,8 +20,7 @@ function detectStressSpike(stressScore) {
   return delta > 0.3 && stressScore > 0.5;
 }
 
-function resolveTemplate(prevTemplate, stressScore, userText, creditPercent) {
-  if (detectSecuritySignal(userText)) return "security";
+function resolveTemplate(prevTemplate, stressScore, unusedUserText, creditPercent) {
   if (detectBudgetSignal(creditPercent)) return "save";
   if (detectStressSpike(stressScore)) return "quality";
   return prevTemplate || DEFAULT_TEMPLATE;
@@ -75,8 +68,7 @@ let totalTurns = turns.length;
 // For per-class metrics
 const classMetrics = {
   save:    { total: 0, correct: 0, injections: 0, correctInjections: 0 },
-  quality: { total: 0, correct: 0, injections: 0, correctInjections: 0 },
-  security:{ total: 0, correct: 0, injections: 0, correctInjections: 0 }
+  quality: { total: 0, correct: 0, injections: 0, correctInjections: 0 }
 };
 
 for (const turn of turns) {
@@ -164,8 +156,8 @@ console.log("=".repeat(72));
 console.log("  SYNTHETIC ACCURACY TEST — Template Gating System");
 console.log("=".repeat(72));
 console.log("  Data: synthetic-accuracy-data.jsonl  |  Turns: " + totalTurns);
-console.log("  Templates: SAVE | QUALITY | SECURITY");
-console.log("  Gating:  security > budget(credit<40) > stress-spike > default(quality)");
+console.log("  Templates: SAVE | QUALITY");
+console.log("  Gating:  budget(credit<40) > stress-spike > default(save)");
 console.log("  Injection: on template change OR every 10 turns (reinforcement)");
 console.log("-".repeat(72));
 

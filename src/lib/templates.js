@@ -20,7 +20,7 @@ export var TEMPLATES = {
     thinking_mode: "full",
     enforcement_mode: "strict",
     flow_mode: "strict",
-    tdd_mode: "quality",
+    tdd_mode: "save",
     context7_urgency: "preferred",
     wbp_verbosity: "verbose",
     agent_mode: "plan",
@@ -48,13 +48,6 @@ export var TEMPLATES = {
 
 export var DEFAULT_TEMPLATE = "quality";
 
-var SEC_KEYWORDS = /\b(security|vuln|exploit|injection|xss|csrf|secret|credential|token leak|auth bypass|privacy|breach|backdoor|sql injection|cve)\b/i;
-
-export function detectSecuritySignal(text) {
-  if (!text || typeof text !== "string") return false;
-  return SEC_KEYWORDS.test(text);
-}
-
 export function detectBudgetSignal(creditPercent) {
   return creditPercent < 40;
 }
@@ -76,7 +69,6 @@ export function detectStressSpike(stressScore) {
 }
 
 export function resolveTemplate(prevTemplate, stressScore, userText, creditPercent) {
-  if (detectSecuritySignal(userText)) return "security";
   if (detectBudgetSignal(creditPercent)) return "save";
   if (detectStressSpike(stressScore)) return "quality";
   return prevTemplate || DEFAULT_TEMPLATE;

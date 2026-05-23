@@ -7,12 +7,9 @@ import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CAL_FILE = join(homedir(), ".claude", "calibration-data.jsonl");
 
-const SEC_KEYWORDS = /\b(security|vuln|exploit|injection|xss|csrf|secret|credential|token leak|auth bypass|privacy|breach|backdoor|sql injection|cve)\b/i;
-
 const TEMPLATES = {
   save: { name: "save" },
   quality: { name: "quality" },
-  security: { name: "security" },
 };
 
 let _turnCount = 0;
@@ -30,20 +27,14 @@ function detectStressSpike(stressScore) {
   return delta > 0.3 && stressScore > 0.5;
 }
 
-function detectSecuritySignal(text) {
-  if (!text || typeof text !== "string") return false;
-  return SEC_KEYWORDS.test(text);
-}
-
 function detectBudgetSignal(creditPercent) {
   return creditPercent < 40;
 }
 
 function resolveTemplate(prevTemplate, stressScore, userText, creditPercent) {
-  if (detectSecuritySignal(userText)) return "security";
   if (detectBudgetSignal(creditPercent)) return "save";
   if (detectStressSpike(stressScore)) return "quality";
-  return prevTemplate || "quality";
+  return prevTemplate || "save";
 }
 
 // ── Load calibration data ──
@@ -60,7 +51,7 @@ console.log(`Loaded ${turns.length} turns from calibration-data.jsonl\n`);
 
 // ── Simulate template gating ──
 let _prevTemplate = null;
-let _currentTemplate = "quality";
+let _currentTemplate = "save";
 let _prevRegime = null;
 let _regimeChanges = 0;
 let _stressSpikes = 0;
@@ -118,8 +109,7 @@ for (let i = 0; i < turns.length; i++) {
     _context7Injections++;
   }
 
-  // Track other signals
-  if (detectSecuritySignal(mode)) _securitySignals++;
+  // Security signals removed — no longer tracked
 
   // Update stress tracker for sustained stress count (current system)
   if (stressScore > 0.4) CURRENT_INJECTIONS.stress++;
