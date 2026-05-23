@@ -60,7 +60,7 @@ test("scoreStress: high stress >0.7 triggers CRITICAL directive", async () => {
   )
 
   const sysText = output.system.join(" ")
-  assert.ok(sysText.includes("stressed"),
+  assert.ok(sysText.includes("[stress mitigation:"),
     `Expected stress directive, got: ${sysText.slice(0, 200)}`)
 })
 
@@ -167,7 +167,7 @@ test("isLikelyOffTopic: off-topic request triggers job-focus directive", async (
   )
 
   const sysText = output.system ? output.system.join(" ") : ""
-  assert.ok(sysText.includes("There's an active job"),
+  assert.ok(sysText.includes("[job-focus] Active job context exists"),
     `Expected job-focus directive, got: ${sysText.slice(0, 200)}`)
 })
 

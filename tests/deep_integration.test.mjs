@@ -92,7 +92,7 @@ async function freshPlugin(dir = projectDir) {
 test("modelCostPerTurn: known models, dots normalization, provider prefixes, unknown", () => {
   assert.equal(modelCostPerTurn("deepseek/deepseek-v4-pro"), 0.00057)
   assert.equal(modelCostPerTurn("deepseek/deepseek-v4-flash"), 0.000182)
-  assert.equal(modelCostPerTurn("deepseek/deepseek-chat"), 0, "chat is free on DeepSeek API")
+  assert.equal(modelCostPerTurn("deepseek/deepseek-chat"), 0.000182, "deepseek-chat costs 0.000182")
   assert.equal(modelCostPerTurn("anthropic/claude-opus-4-7"), 0.033)
   // anthropic prefix + dots: normalization strips dots but not anthropic/ prefix
   // The cost table entry is "anthropic/claude-sonnet-4-6" = 0.0066
@@ -110,15 +110,15 @@ test("isModelFree: correctly identifies", () => {
 
 test("classifyAndRankModels: full set, mixed providers, two models, dedup, empty", () => {
   const r1 = classifyAndRankModels([
-    { id: "deepseek/deepseek-chat", provider: "deepseek", cost: 0, tier: "budget" },
+    { id: "deepseek/deepseek-chat", provider: "deepseek", cost: 0.000150, tier: "budget" },
     { id: "deepseek/deepseek-v4-flash", provider: "deepseek", cost: 0.000182, tier: "mid" },
     { id: "deepseek/deepseek-v4-pro", provider: "deepseek", cost: 0.00057, tier: "high" },
   ])
   assert.equal(r1.brain.id, "deepseek/deepseek-v4-pro")
-  assert.equal(r1.cheap.id, "deepseek/deepseek-chat", "chat is free → cheapest")
+  assert.equal(r1.cheap.id, "deepseek/deepseek-chat", "cheapest is deepseek-chat at 0.000150")
 
   const r2 = classifyAndRankModels([
-    { id: "deepseek/deepseek-chat", provider: "deepseek", cost: 0, tier: "budget" },
+    { id: "deepseek/deepseek-chat", provider: "deepseek", cost: 0.000182, tier: "budget" },
     { id: "deepseek/deepseek-v4-pro", provider: "deepseek", cost: 0.00057, tier: "high" },
   ])
   assert.equal(r2.brain.id, "deepseek/deepseek-v4-pro")
@@ -214,22 +214,22 @@ test("system.transform: context7 + welcome banner (one-shot)", async () => {
   const o1 = { system: [] }
   await hooks["experimental.chat.system.transform"]({}, o1)
   assert.ok(o1.system.some(s => typeof s === 'string' && s.includes("context7")))
-  assert.ok(o1.system.some(s => typeof s === 'string' && s.includes("vibeOS is active")), "welcome banner present")
+  assert.ok(o1.system.some(s => typeof s === 'string' && s.includes("[vibeOS] Active plugin.")), "welcome banner present")
   const o2 = { system: [] }
   await hooks["experimental.chat.system.transform"]({}, o2)
-  assert.ok(!o2.system.some(s => typeof s === 'string' && s.includes("vibeOS is active")), "banner one-shot")
+  assert.ok(!o2.system.some(s => typeof s === 'string' && s.includes("[vibeOS] Active plugin.")), "banner one-shot")
 })
 
 test("text.complete: footer + auto-save + dedup", async () => {
   const hooks = await freshPlugin()
-  const o1 = { text: "Hello." }
+  const o1 = { text: "Hello. This is a longer message that will trigger the vibeOS footer mechanism requiring at least fifty characters of text." }
   await hooks["experimental.text.complete"]({ messageID: "d1" }, o1)
   assert.ok(o1.text.includes("deepseek") || o1.text.includes("AUTO→"), "footer: " + o1.text.slice(-80))
   const o2 = { text: "Again." }
   await hooks["experimental.text.complete"]({ messageID: "d1" }, o2)
   assert.equal(o2.text, "Again.", "dedup: same msgID not processed twice")
   for (let i = 1; i <= 5; i++) {
-    await hooks["experimental.text.complete"]({ messageID: "auto-" + i }, { text: "Ok." })
+    await hooks["experimental.text.complete"]({ messageID: "auto-" + i }, { text: "Ok. This message is also long enough to pass the vibeOS footer length check and increment the auto report counter." })
   }
   const reps = listReports({ type: "session", hours: 1 })
   const auto = reps.filter(r => r.summary && r.summary.includes("Session cost"))

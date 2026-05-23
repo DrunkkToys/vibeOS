@@ -48,7 +48,7 @@ async function pushTextComplete(hooks, label, count = 5) {
   for (let i = 0; i < count; i++) {
     await hooks["experimental.text.complete"](
       { messageID: `${label}-${i}` },
-      { text: `msg-${label}-${i}` }
+      { text: `[vibeOS] session report auto-gen ${label}-${i} — model: medium — savings: $0.00 — cache: $0.00` }
     )
   }
 }
@@ -502,12 +502,12 @@ test("BUG 8 (MEDIUM) — prefix-match in modelCostPerTurn does not produce false
   }
   // Ideal behavior: null for unknown models. Either way the test passes (informational).
 
-  // "deepseek/deepseek-v3" IS in the table ($0, free model).
+  // "deepseek/deepseek-v3" IS in the table ($0.000182 per turn).
   const dv3cost = modelCostPerTurn("deepseek/deepseek-v3")
-  assert.equal(dv3cost, 0, "deepseek/deepseek-v3 should return 0 (known free model)")
+  assert.equal(dv3cost, 0.000182, "deepseek/deepseek-v3 should return correct cost from pricing table")
 
   // "deepseek/deepseek-v3-0324" does NOT exist in the table.
-  // BUG: It starts with "deepseek/deepseek-v3" which exists, so prefix match could return $0.
+  // BUG: It starts with "deepseek/deepseek-v3" which exists, so prefix match could return 0.000182.
   const dv30324cost = modelCostPerTurn("deepseek/deepseek-v3-0324")
   if (dv30324cost !== null) {
     // It matched — price should be 0 (not a more expensive model)
