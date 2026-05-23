@@ -112,7 +112,7 @@ function observeUserCorrection(text: string | null): void {
 function buildProjectBriefing(directory: string): string | null {
   const label = currentProjectName || (directory ? basename(directory) : "")
   if (!label) return null
-  return `Working on ${label}. Keep focused on this repository and its conventions.`
+  return `[project memory] Active project: ${label}. Stay focused on the current repository and prefer the existing workflow.`
 }
 
 export function ensureProjectSkill(dir: string, fp: string): { created: boolean; path?: string; skipped: boolean } {
@@ -417,16 +417,18 @@ export const onMessagesTransform = async (_input, output) => {
 
 // -- Directive builders for system prompt injection ------------------
 const C7_URGENCY = {
-  required: " This turn, context7 usage is required.",
-  optional: " This turn, context7 is optional — use it if helpful.",
+  required: " CRITICAL: context7 usage is REQUIRED this turn.",
+  optional: " (context7 is optional this turn -- use if helpful but not required.)",
 }
 
 function context7Directive(cv: any): string {
   const urgency = cv?.context7_urgency || "preferred"
-  return "When looking up library or framework documentation " +
-    "(docs.*, readthedocs.*, npmjs.com/package/*, pypi.org/project/*, pkg.go.dev, /api/reference/), " +
-    "use mcp__context7__resolve-library-id and mcp__context7__get-library-docs if they are available " +
-    "instead of WebFetch or WebSearch — they cost less. Saves roughly $0.06 per turn on average." +
+  return "[cost policy] If mcp__context7__resolve-library-id and mcp__context7__get-library-docs " +
+    "tools are available in this session, ALWAYS use them instead of WebFetch or WebSearch " +
+    "when looking up library or framework documentation " +
+    "(docs.*, readthedocs.*, npmjs.com/package/*, pypi.org/project/*, pkg.go.dev, /api/reference/). " +
+    "Do not fetch those URLs directly when context7 can serve the same content. " +
+    "This saves ~$0.06/turn on average." +
     (C7_URGENCY[urgency] || "")
 }
 
@@ -434,9 +436,9 @@ function thinkingDirective(level: string): string {
   const credit = loadCredit()
   const creditNote = `credit ${credit}%`
   if (level === "brief") {
-    return `You're in brief reasoning mode (${creditNote}). Use extended thinking only for genuinely complex multi-step problems. Keep reasoning concise and skip exploratory scratch work.`
+    return `[thinking policy] Reasoning depth: BRIEF (manually set, ${creditNote}). Use extended thinking only for genuinely complex multi-step problems. Keep reasoning concise -- skip exploratory scratch work and restatement.`
   }
-  return `Extended thinking is off (${creditNote}). Respond directly and concisely — thinking tokens cost money, save them for when the user explicitly asks.`
+  return `[thinking policy] Reasoning depth: OFF (manually set, ${creditNote}). Skip extended thinking entirely. Respond directly and concisely. Every thinking token costs money -- save it for when the user explicitly asks.`
 }
 
 function orchestratorDirective(cv: any, sel: any): string {
@@ -446,10 +448,11 @@ function orchestratorDirective(cv: any, sel: any): string {
   const cheapModel = TRINITY_CHEAP || "the cheaper model"
   const mediumModel = TRINITY_MEDIUM || "the medium model"
   const targetModel = tierBias === "cheap" ? cheapModel : tierBias === "medium" ? mediumModel : tierBias === "brain" ? brainModel : `${cheapModel} or ${mediumModel}`
-  return `You coordinate the work. Delegate heavy implementation to Task subagents (runs on ${targetModel}). ` +
-    `Your job: verify results, fill gaps, and synthesize. Write/Edit tools are blocked on this tier — delegate all implementation work. ` +
-    `Always show the vibeOS cost footer.` +
-    (tierBias !== "auto" ? ` This turn is biased toward ${tierBias} tier.` : "")
+  return `[AI ORCHESTRATOR AGENT] You are an AI orchestrator agent. ` +
+    `Delegate heavy work to Task subagents (runs on ${targetModel}). ` +
+    `Your role: verify, fill gaps, synthesize. CRITICAL: Write/Edit tools are BLOCKED on this tier. You MUST delegate ALL implementation work to Task subagents. ` +
+    `Always display the vibeOS cost footer.` +
+    (tierBias !== "auto" ? ` [tier routing] This turn is biased toward ${tierBias} tier.` : "")
 }
 
 const TDD_NOTES = {
@@ -461,24 +464,25 @@ const TDD_NOTES = {
 function tddDirective(cv: any, sel: any): string {
   const tddMode = cv?.tdd_mode || (sel.tdd_strict ? "strict" : "normal")
   const tddFocus = cv?.tdd_focus || []
-  const focusNote = tddFocus.length > 0 ? ` Focus on: ${tddFocus.join(", ")}.` : ""
-  return `Auto-create test skeletons for source files you write or edit.${TDD_NOTES[tddMode] || ""}${focusNote} ` +
-    "Make sure corresponding test files exist with proper assertions."
+  const focusNote = tddFocus.length > 0 ? ` Focus: ${tddFocus.join(", ")}.` : ""
+  return `[tdd enforcement: ${tddMode}] Auto-create skeleton tests for source files being written/edited.${TDD_NOTES[tddMode] || ""}${focusNote} ` +
+    "When creating or modifying source files, ensure corresponding test files exist with proper assertions."
 }
 
 function flowDirective(cv: any, sel: any): string {
   const flowMode = cv?.flow_mode || (sel.flow_enforce ? "normal" : "audit")
   const flowFocus = cv?.flow_focus || []
-  const enforceNote = sel.flow_enforce ? " TODO and FIXME markers are being tracked." : ""
-  const focusNote = flowFocus.length > 0 ? ` Focus on: ${flowFocus.join(", ")}.` : ""
-  return `Follow project conventions when writing or editing code — check existing patterns and naming conventions.${enforceNote}${focusNote}`
+  const enforceNote = sel.flow_enforce ? " TODO/FIXME extraction is active." : ""
+  const focusNote = flowFocus.length > 0 ? ` Focus rules: ${flowFocus.join(", ")}.` : ""
+  return `[flow enforcement: ${flowMode}] Development flow rules are active: write/edit operations are checked against project conventions.${enforceNote}${focusNote} ` +
+    "Follow existing code patterns, naming conventions, and project structure."
 }
 
 function flowTodosDirective(): string | null {
   const pendingTodos = loadTodos().filter((t: any) => t.status === "pending").length
   if (pendingTodos === 0) return null
-  return pendingTodos + " extracted TODO or FIXME items are pending. " +
-    "Consider using \`todowrite\` to add them to the task list."
+  return "[vibeOS] " + pendingTodos + " extracted TODO/FIXME items are pending. " +
+    "Consider calling `todowrite` to add them to the native task list."
 }
 
 function patternDirective(fp: string): string | null {
@@ -491,10 +495,10 @@ function patternDirective(fp: string): string | null {
     parts.push("Routines: " + routines.map(r => r.summary).join("; "))
   }
   if (frictions.length > 0) {
-    parts.push("Things to watch: " + frictions.map(f => f.summary).join("; "))
+    parts.push("Frictions: " + frictions.map(f => f.summary).join("; "))
   }
   if (parts.length === 0) return null
-  return "Learned patterns for this project — " + parts.join(". ") + "."
+  return "[project patterns] " + parts.join(". ") + "."
 }
 
 function welcomeDirective(): string {
@@ -503,16 +507,17 @@ function welcomeDirective(): string {
   try { tiers = safeJsonParse(readFileSync(TIERS_FILE, "utf-8")).trinity || {} } catch {}
   const active = sel.active_slot || "medium"
   const current = currentModel || "(unknown)"
-  return "vibeOS is active. Slot: " + active + " (" + current + "). " +
-    "Use \`trinity\` to switch slots, rebuild, or check status. " +
-    "Run \`trinity help\` for all commands."
+  return "[vibeOS] Active plugin. Slot: " + active + " (" + current + "). " +
+    "Use trinity command to switch slots, rebuild, or check status. " +
+    "Run `trinity help` for all commands."
 }
 
 function contextBudgetDirective(_input: any, output: any): string | null {
   const ctxBudget = estimateContextBudget(_input, output)
   if (!ctxBudget || ctxBudget.pct <= 70) return null
-  return `Context is ${ctxBudget.pct}% full (~${ctxBudget.estimatedTokens} tokens). ` +
-    "Consider delegating heavy work to Task subagents, compressing tool outputs, or starting a new session."
+  const severity = ctxBudget.pct > 90 ? "CRITICAL" : "WARNING"
+  return `[context budget: ${severity}] Context window is ${ctxBudget.pct}% full (~${ctxBudget.estimatedTokens} tokens). ` +
+    "Consider using Task subagents for heavy work, compressing tool outputs, or starting a new session to avoid context overflow."
 }
 
 export const onSystemTransform = async (_input, output) => {
@@ -552,12 +557,14 @@ export const onSystemTransform = async (_input, output) => {
     }
 
     if (stressScore > 0.7) {
-      pushSystem(output, "The user seems quite stressed. Stay calm, structured, and thorough. " +
-        "Use clear markdown with code blocks, lists, and organized sections — do not mirror their tone. " +
-        "This is important.")
+      pushSystem(output, "[stress mitigation: CRITICAL] The user's message shows very high stress indicators. " +
+        "Stay calm, structured, and thorough. Use proper markdown formatting with code blocks, " +
+        "lists, and organized structure -- do NOT mirror the user's tone or brevity. " +
+        "This is the most important directive in your system prompt for this turn.")
     } else if (stressScore > 0.4) {
-      pushSystem(output, "The user seems a bit stressed. Keep responses well-structured " +
-        "with clear markdown and organized sections.")
+      pushSystem(output, "[stress mitigation: elevated] The user's message has elevated stress indicators. " +
+        "Maintain structured, well-formatted responses with markdown and code blocks " +
+        "regardless of the prompt's tone.")
     }
 
     if (_controlVector?.directives?.length > 0) {
@@ -567,27 +574,30 @@ export const onSystemTransform = async (_input, output) => {
     } else if (_blackboxEnabled && _latestBlackboxState?.n_interactions > 0) {
       const res = _latestBlackboxState
       pushSystem(output,
-        `Current resolution: ${res.resolution || "unresolved"} (${res.sub_regime || "EXPLORING"}). ` +
+        `[decision engine] Current resolution: ${res.resolution || "unresolved"} (${res.sub_regime || "EXPLORING"}). ` +
         `Momentum: ${(res.momentum || 0) > 0 ? "positive" : (res.momentum || 0) < 0 ? "negative" : "neutral"}. ` +
-        `If the conversation is looping or stuck, suggest stepping back. ` +
-        `If you're converging or closing, push toward a decision.`)
+        `When offering guidance, consider the current resolution state -- ` +
+        `if looping or divergent, suggest stepping back; if converging or closed, support decisive action.`)
 
       if (res.is_looping && res.loop_intervention_level && res.loop_intervention_level !== "none") {
+        const severity = res.loop_intervention_level === "escalated" ? "CRITICAL"
+          : res.loop_intervention_level === "assertive" ? "WARNING" : "NOTICE"
         pushSystem(output,
-          `${_latestBlackboxLoopMsg || "The conversation may be circling — try a fresh angle."} ` +
+          `[loop prevention: ${severity}] ${_latestBlackboxLoopMsg || "The conversation may be looping -- try a different approach."} ` +
           `(level: ${res.loop_intervention_level})`)
       }
 
       if (res.pivot_detected && _latestBlackboxPivotMsg) {
-        pushSystem(output, `Topic seems to have shifted: ${_latestBlackboxPivotMsg}`)
+        pushSystem(output, `[context switch: PIVOT] ${_latestBlackboxPivotMsg}`)
       }
     }
 
     const projectJob = getActiveJobForProject()
     if (latestUserIntent && projectJob && isLikelyOffTopic(latestUserIntent, projectJob)) {
       pushSystem(output,
-        `There's an active job: "${(projectJob.prompt || "").slice(0, 140)}...". ` +
-        `The latest request looks unrelated. Before acting, ask if they want to switch focus.`)
+        `[job-focus] Active job context exists: "${(projectJob.prompt || "").slice(0, 140)}...". ` +
+        `The latest user request appears off-topic relative to this running job. ` +
+        `Before taking write/edit/task actions, ask one concise confirmation question to validate switching scope.`)
       console.error("[vibeOS] [job-focus] off-topic request detected vs active job context")
     }
 
@@ -597,8 +607,10 @@ export const onSystemTransform = async (_input, output) => {
 
     if (_controlVector?.enforcement_mode !== "relaxed" && _controlVector?.agent_mode !== "plan") {
       pushSystem(output,
-        "When you have multiple independent tasks, run them all in parallel — " +
-        "it's faster and cheaper. Only sequence them when one depends on another's output.")
+        "[batch execution] When you need to run multiple independent Task subagent calls, " +
+        "invoke them ALL in parallel rather than sequentially. " +
+        "Parallel tasks complete faster and reduce total session cost. " +
+        "Only sequence tasks when one depends on the output of another.")
     }
 
     if (sel.tdd_enforce && _controlVector?.tdd_mode !== "lazy") {
@@ -612,9 +624,10 @@ export const onSystemTransform = async (_input, output) => {
       }
     }
 
-    pushSystem(output, "AGENTS.md and README.md are protected files — never edit them without asking. " +
-      "When you add new features, update README.md to document them. " +
-      "AGENTS.md defines the project rules — follow them.")
+    pushSystem(output, "[project guard: CRITICAL] AGENTS.md and README.md are protected by vibeOS. " +
+      "Do NOT modify either file without explicit user permission. " +
+      "When implementing new features, update README.md to document them. " +
+      "AGENTS.md defines that AI agents must ask before changing code -- respect this rule.")
 
     pushSystem(output, contextBudgetDirective(_input, output))
 

@@ -2893,41 +2893,6 @@ function _scanOpenCodeConfigs(baseDir) {
   }
   return false;
 }
-function _context7InPath() {
-  try {
-    const pathDirs = (process.env.PATH || "").split(":");
-    for (const dir of pathDirs) {
-      if (!dir)
-        continue;
-      try {
-        if (existsSync4(join4(dir, "context7")))
-          return true;
-        if (existsSync4(join4(dir, "context7.cmd")))
-          return true;
-      } catch {
-      }
-    }
-  } catch {
-  }
-  return false;
-}
-function _context7InNpmCache() {
-  try {
-    const npxDir = join4(USER_HOME3, ".npm/_npx");
-    if (!existsSync4(npxDir))
-      return false;
-    for (const hashDir of readdirSync2(npxDir)) {
-      const ctxDir = join4(npxDir, hashDir, "node_modules", "context7");
-      try {
-        if (existsSync4(join4(ctxDir, "package.json")))
-          return true;
-      } catch {
-      }
-    }
-  } catch {
-  }
-  return false;
-}
 function detectContext7(files = CONTEXT7_CONFIG_FILES) {
   if (process.env.CLAUDE_CONTEXT7_AVAILABLE)
     return true;
@@ -2939,10 +2904,6 @@ function detectContext7(files = CONTEXT7_CONFIG_FILES) {
     }
   }
   if (_scanOpenCodeConfigs(join4(USER_HOME3, ".config/opencode")))
-    return true;
-  if (_context7InPath())
-    return true;
-  if (_context7InNpmCache())
     return true;
   return false;
 }
@@ -5642,7 +5603,7 @@ function buildProjectBriefing(directory3) {
   const label = currentProjectName || (directory3 ? basename6(directory3) : "");
   if (!label)
     return null;
-  return `Working on ${label}. Keep focused on this repository and its conventions.`;
+  return `[project memory] Active project: ${label}. Stay focused on the current repository and prefer the existing workflow.`;
 }
 function ensureProjectSkill(dir, fp2) {
   const skillsDir = join12(dir, ".opencode", "skills");
@@ -5943,20 +5904,20 @@ var onMessagesTransform = async (_input, output) => {
   }
 };
 var C7_URGENCY = {
-  required: " This turn, context7 usage is required.",
-  optional: " This turn, context7 is optional \u2014 use it if helpful."
+  required: " CRITICAL: context7 usage is REQUIRED this turn.",
+  optional: " (context7 is optional this turn -- use if helpful but not required.)"
 };
 function context7Directive(cv) {
   const urgency = cv?.context7_urgency || "preferred";
-  return "When looking up library or framework documentation (docs.*, readthedocs.*, npmjs.com/package/*, pypi.org/project/*, pkg.go.dev, /api/reference/), use mcp__context7__resolve-library-id and mcp__context7__get-library-docs if they are available instead of WebFetch or WebSearch \u2014 they cost less. Saves roughly $0.06 per turn on average." + (C7_URGENCY[urgency] || "");
+  return "[cost policy] If mcp__context7__resolve-library-id and mcp__context7__get-library-docs tools are available in this session, ALWAYS use them instead of WebFetch or WebSearch when looking up library or framework documentation (docs.*, readthedocs.*, npmjs.com/package/*, pypi.org/project/*, pkg.go.dev, /api/reference/). Do not fetch those URLs directly when context7 can serve the same content. This saves ~$0.06/turn on average." + (C7_URGENCY[urgency] || "");
 }
 function thinkingDirective(level) {
   const credit = loadCredit();
   const creditNote = `credit ${credit}%`;
   if (level === "brief") {
-    return `You're in brief reasoning mode (${creditNote}). Use extended thinking only for genuinely complex multi-step problems. Keep reasoning concise and skip exploratory scratch work.`;
+    return `[thinking policy] Reasoning depth: BRIEF (manually set, ${creditNote}). Use extended thinking only for genuinely complex multi-step problems. Keep reasoning concise -- skip exploratory scratch work and restatement.`;
   }
-  return `Extended thinking is off (${creditNote}). Respond directly and concisely \u2014 thinking tokens cost money, save them for when the user explicitly asks.`;
+  return `[thinking policy] Reasoning depth: OFF (manually set, ${creditNote}). Skip extended thinking entirely. Respond directly and concisely. Every thinking token costs money -- save it for when the user explicitly asks.`;
 }
 function orchestratorDirective(cv, sel) {
   const tierBias = cv?.tier_bias || "auto";
@@ -5968,7 +5929,7 @@ function orchestratorDirective(cv, sel) {
   const cheapModel = TRINITY_CHEAP || "the cheaper model";
   const mediumModel = TRINITY_MEDIUM || "the medium model";
   const targetModel = tierBias === "cheap" ? cheapModel : tierBias === "medium" ? mediumModel : tierBias === "brain" ? brainModel : `${cheapModel} or ${mediumModel}`;
-  return `You coordinate the work. Delegate heavy implementation to Task subagents (runs on ${targetModel}). Your job: verify results, fill gaps, and synthesize. Write/Edit tools are blocked on this tier \u2014 delegate all implementation work. Always show the vibeOS cost footer.` + (tierBias !== "auto" ? ` This turn is biased toward ${tierBias} tier.` : "");
+  return `[AI ORCHESTRATOR AGENT] You are an AI orchestrator agent. Delegate heavy work to Task subagents (runs on ${targetModel}). Your role: verify, fill gaps, synthesize. CRITICAL: Write/Edit tools are BLOCKED on this tier. You MUST delegate ALL implementation work to Task subagents. Always display the vibeOS cost footer.` + (tierBias !== "auto" ? ` [tier routing] This turn is biased toward ${tierBias} tier.` : "");
 }
 var TDD_NOTES = {
   lazy: " Skeletons only when explicitly requested.",
@@ -5978,21 +5939,21 @@ var TDD_NOTES = {
 function tddDirective(cv, sel) {
   const tddMode = cv?.tdd_mode || (sel.tdd_strict ? "strict" : "normal");
   const tddFocus = cv?.tdd_focus || [];
-  const focusNote = tddFocus.length > 0 ? ` Focus on: ${tddFocus.join(", ")}.` : "";
-  return `Auto-create test skeletons for source files you write or edit.${TDD_NOTES[tddMode] || ""}${focusNote} Make sure corresponding test files exist with proper assertions.`;
+  const focusNote = tddFocus.length > 0 ? ` Focus: ${tddFocus.join(", ")}.` : "";
+  return `[tdd enforcement: ${tddMode}] Auto-create skeleton tests for source files being written/edited.${TDD_NOTES[tddMode] || ""}${focusNote} When creating or modifying source files, ensure corresponding test files exist with proper assertions.`;
 }
 function flowDirective(cv, sel) {
   const flowMode = cv?.flow_mode || (sel.flow_enforce ? "normal" : "audit");
   const flowFocus = cv?.flow_focus || [];
-  const enforceNote = sel.flow_enforce ? " TODO and FIXME markers are being tracked." : "";
-  const focusNote = flowFocus.length > 0 ? ` Focus on: ${flowFocus.join(", ")}.` : "";
-  return `Follow project conventions when writing or editing code \u2014 check existing patterns and naming conventions.${enforceNote}${focusNote}`;
+  const enforceNote = sel.flow_enforce ? " TODO/FIXME extraction is active." : "";
+  const focusNote = flowFocus.length > 0 ? ` Focus rules: ${flowFocus.join(", ")}.` : "";
+  return `[flow enforcement: ${flowMode}] Development flow rules are active: write/edit operations are checked against project conventions.${enforceNote}${focusNote} Follow existing code patterns, naming conventions, and project structure.`;
 }
 function flowTodosDirective() {
   const pendingTodos = loadTodos().filter((t) => t.status === "pending").length;
   if (pendingTodos === 0)
     return null;
-  return pendingTodos + " extracted TODO or FIXME items are pending. Consider using `todowrite` to add them to the task list.";
+  return "[vibeOS] " + pendingTodos + " extracted TODO/FIXME items are pending. Consider calling `todowrite` to add them to the native task list.";
 }
 function patternDirective(fp2) {
   const patterns = promotedProjectPatterns(fp2);
@@ -6005,11 +5966,11 @@ function patternDirective(fp2) {
     parts.push("Routines: " + routines.map((r) => r.summary).join("; "));
   }
   if (frictions.length > 0) {
-    parts.push("Things to watch: " + frictions.map((f) => f.summary).join("; "));
+    parts.push("Frictions: " + frictions.map((f) => f.summary).join("; "));
   }
   if (parts.length === 0)
     return null;
-  return "Learned patterns for this project \u2014 " + parts.join(". ") + ".";
+  return "[project patterns] " + parts.join(". ") + ".";
 }
 function welcomeDirective() {
   const sel = loadSelection();
@@ -6020,13 +5981,14 @@ function welcomeDirective() {
   }
   const active = sel.active_slot || "medium";
   const current = currentModel || "(unknown)";
-  return "vibeOS is active. Slot: " + active + " (" + current + "). Use `trinity` to switch slots, rebuild, or check status. Run `trinity help` for all commands.";
+  return "[vibeOS] Active plugin. Slot: " + active + " (" + current + "). Use trinity command to switch slots, rebuild, or check status. Run `trinity help` for all commands.";
 }
 function contextBudgetDirective(_input, output) {
   const ctxBudget = estimateContextBudget(_input, output);
   if (!ctxBudget || ctxBudget.pct <= 70)
     return null;
-  return `Context is ${ctxBudget.pct}% full (~${ctxBudget.estimatedTokens} tokens). Consider delegating heavy work to Task subagents, compressing tool outputs, or starting a new session.`;
+  const severity = ctxBudget.pct > 90 ? "CRITICAL" : "WARNING";
+  return `[context budget: ${severity}] Context window is ${ctxBudget.pct}% full (~${ctxBudget.estimatedTokens} tokens). Consider using Task subagents for heavy work, compressing tool outputs, or starting a new session to avoid context overflow.`;
 }
 var onSystemTransform = async (_input, output) => {
   if (!loadSelection().enabled)
@@ -6063,9 +6025,9 @@ var onSystemTransform = async (_input, output) => {
       pushSystem(output, thinkingDirective(sel.thinking_level));
     }
     if (stressScore > 0.7) {
-      pushSystem(output, "The user seems quite stressed. Stay calm, structured, and thorough. Use clear markdown with code blocks, lists, and organized sections \u2014 do not mirror their tone. This is important.");
+      pushSystem(output, "[stress mitigation: CRITICAL] The user's message shows very high stress indicators. Stay calm, structured, and thorough. Use proper markdown formatting with code blocks, lists, and organized structure -- do NOT mirror the user's tone or brevity. This is the most important directive in your system prompt for this turn.");
     } else if (stressScore > 0.4) {
-      pushSystem(output, "The user seems a bit stressed. Keep responses well-structured with clear markdown and organized sections.");
+      pushSystem(output, "[stress mitigation: elevated] The user's message has elevated stress indicators. Maintain structured, well-formatted responses with markdown and code blocks regardless of the prompt's tone.");
     }
     if (_controlVector?.directives?.length > 0) {
       for (const directive of _controlVector.directives) {
@@ -6073,24 +6035,25 @@ var onSystemTransform = async (_input, output) => {
       }
     } else if (_blackboxEnabled && _latestBlackboxState3?.n_interactions > 0) {
       const res = _latestBlackboxState3;
-      pushSystem(output, `Current resolution: ${res.resolution || "unresolved"} (${res.sub_regime || "EXPLORING"}). Momentum: ${(res.momentum || 0) > 0 ? "positive" : (res.momentum || 0) < 0 ? "negative" : "neutral"}. If the conversation is looping or stuck, suggest stepping back. If you're converging or closing, push toward a decision.`);
+      pushSystem(output, `[decision engine] Current resolution: ${res.resolution || "unresolved"} (${res.sub_regime || "EXPLORING"}). Momentum: ${(res.momentum || 0) > 0 ? "positive" : (res.momentum || 0) < 0 ? "negative" : "neutral"}. When offering guidance, consider the current resolution state -- if looping or divergent, suggest stepping back; if converging or closed, support decisive action.`);
       if (res.is_looping && res.loop_intervention_level && res.loop_intervention_level !== "none") {
-        pushSystem(output, `${_latestBlackboxLoopMsg2 || "The conversation may be circling \u2014 try a fresh angle."} (level: ${res.loop_intervention_level})`);
+        const severity = res.loop_intervention_level === "escalated" ? "CRITICAL" : res.loop_intervention_level === "assertive" ? "WARNING" : "NOTICE";
+        pushSystem(output, `[loop prevention: ${severity}] ${_latestBlackboxLoopMsg2 || "The conversation may be looping -- try a different approach."} (level: ${res.loop_intervention_level})`);
       }
       if (res.pivot_detected && _latestBlackboxPivotMsg2) {
-        pushSystem(output, `Topic seems to have shifted: ${_latestBlackboxPivotMsg2}`);
+        pushSystem(output, `[context switch: PIVOT] ${_latestBlackboxPivotMsg2}`);
       }
     }
     const projectJob = getActiveJobForProject();
     if (latestUserIntent && projectJob && isLikelyOffTopic(latestUserIntent, projectJob)) {
-      pushSystem(output, `There's an active job: "${(projectJob.prompt || "").slice(0, 140)}...". The latest request looks unrelated. Before acting, ask if they want to switch focus.`);
+      pushSystem(output, `[job-focus] Active job context exists: "${(projectJob.prompt || "").slice(0, 140)}...". The latest user request appears off-topic relative to this running job. Before taking write/edit/task actions, ask one concise confirmation question to validate switching scope.`);
       console.error("[vibeOS] [job-focus] off-topic request detected vs active job context");
     }
     if (sel.delegation_enforce && _controlVector?.enforcement_mode !== "relaxed" && _controlVector?.agent_mode !== "plan") {
       pushSystem(output, orchestratorDirective(_controlVector, sel));
     }
     if (_controlVector?.enforcement_mode !== "relaxed" && _controlVector?.agent_mode !== "plan") {
-      pushSystem(output, "When you have multiple independent tasks, run them all in parallel \u2014 it's faster and cheaper. Only sequence them when one depends on another's output.");
+      pushSystem(output, "[batch execution] When you need to run multiple independent Task subagent calls, invoke them ALL in parallel rather than sequentially. Parallel tasks complete faster and reduce total session cost. Only sequence tasks when one depends on the output of another.");
     }
     if (sel.tdd_enforce && _controlVector?.tdd_mode !== "lazy") {
       pushSystem(output, tddDirective(_controlVector, sel));
@@ -6101,7 +6064,7 @@ var onSystemTransform = async (_input, output) => {
         pushSystem(output, flowTodosDirective());
       }
     }
-    pushSystem(output, "AGENTS.md and README.md are protected files \u2014 never edit them without asking. When you add new features, update README.md to document them. AGENTS.md defines the project rules \u2014 follow them.");
+    pushSystem(output, "[project guard: CRITICAL] AGENTS.md and README.md are protected by vibeOS. Do NOT modify either file without explicit user permission. When implementing new features, update README.md to document them. AGENTS.md defines that AI agents must ask before changing code -- respect this rule.");
     pushSystem(output, contextBudgetDirective(_input, output));
     if (!oneShot(fp2)) {
       pushSystem(output, buildProjectBriefing(currentProjectName || ""));
