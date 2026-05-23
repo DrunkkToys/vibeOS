@@ -45,7 +45,7 @@ export const onToolExecuteBefore = async (input, output) => {
         const hit = getScratchpadHit(t, args);
         if (hit && !scratchpadHitsSeen.has(hit.hash)) {
             scratchpadHitsSeen.add(hit.hash);
-            const total = recordScratchpadObservation();
+            const total = recordScratchpadObservation(t, args, hit.sizeBytes, { hash: hit.hash });
             // Persist cache savings as a first-class savings type.
             // Compute from actual scratchpad file size: inputs that would
             // have been charged at miss rate are served from cache.
