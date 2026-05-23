@@ -67,35 +67,6 @@ import { loadCredit, thinkingLevel, _lazyRefresh, _readAuth } from "./lib/credit
 import { createTrinityTool } from "./lib/trinity-tool.js"
 import { classifyAndRankModels, modelToCcAlias, discoverAvailableModels, probeModel } from "./lib/trinity-rebuild.js"
 import { _appendFooter } from "./lib/hooks/footer.js"
-import { readFileSync as _readFileSync, existsSync as _existsSync } from "node:fs"
-import { join as _join } from "node:path"
-
-// ── Calibration pipeline: load trained mode weights ───────────────────
-const CAL_WEIGHTS_FILE = _join(USER_HOME, ".claude", "mode-calibration-weights.json")
-let _calibratedModeMap: Record<string, string> | null = null
-
-function loadCalibratedModeMap(): Record<string, string> {
-  if (_calibratedModeMap) return _calibratedModeMap
-  try {
-    if (_existsSync(CAL_WEIGHTS_FILE)) {
-      const d = safeJsonParse(_readFileSync(CAL_WEIGHTS_FILE, "utf-8"))
-      if (d?.regime_mode_map) {
-        _calibratedModeMap = d.regime_mode_map
-        console.error("[vibeOS] calibration: loaded regime→mode weights")
-        return _calibratedModeMap
-      }
-    }
-  } catch {}
-  return {}
-}
-
-function getCalibratedMode(regime: string, stress: number): string | null {
-  if (stress > 1.5) return "quality"
-  const map = loadCalibratedModeMap()
-  return map[regime] || null
-}
-
-export { loadCalibratedModeMap, getCalibratedMode }
 import { onToolExecuteBefore, onToolExecuteAfter, setToolDirectory } from "./lib/hooks/tool-execute.js"
 import { onMessagesTransform, onSystemTransform, latestUserIntent, ensureProjectSkill } from "./lib/hooks/chat-transform.js"
 import { onSessionCompacting } from "./lib/hooks/session-compact.js"

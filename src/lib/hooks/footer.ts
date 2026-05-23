@@ -22,31 +22,10 @@ const DEFAULT_REGIME_MAP = {
   CONVERGING: "quality", CLOSED: "quality",
 }
 
-let _calibratedMap = null
-
-function loadCalibratedMap() {
-  if (_calibratedMap) return _calibratedMap
-  try {
-    const p = join(USER_HOME, ".claude", "mode-calibration-weights.json")
-    if (existsSync(p)) {
-      const d = safeJsonParse(readFileSync(p, "utf-8"))
-      if (d?.regime_mode_map) {
-        _calibratedMap = d.regime_mode_map
-        console.error(`[vibeOS] calibration: loaded regime→mode weights`)
-        return _calibratedMap
-      }
-    }
-  } catch {}
-  return DEFAULT_REGIME_MAP
-}
-
 function regimeToMode(regime, stress) {
   if (stress > 1.5) return "quality"
-  const map = loadCalibratedMap()
-  return map[regime] || DEFAULT_REGIME_MAP[regime] || "balanced"
+  return DEFAULT_REGIME_MAP[regime] || "balanced"
 }
-
-function clearCalibratedMap() { _calibratedMap = null }
 
 async function apiAutoSelectMode(regime, stress) {
   const now = Date.now()
