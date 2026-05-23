@@ -2734,7 +2734,7 @@ var MODEL_USD_PER_TURN = {
   "haiku": 22e-4,
   // ── DeepSeek (OC platform + OpenRouter) ──────────────────
   "deepseek/deepseek-v4-pro": 57e-5,
-  "deepseek/deepseek-v4-flash": 0.00013,
+  "deepseek/deepseek-v4-flash": 182e-6,
   "deepseek/deepseek-chat": 182e-6,
   "deepseek-chat": 182e-6,
   "deepseek/deepseek-v3": 182e-6,
