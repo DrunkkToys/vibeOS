@@ -1,3 +1,6 @@
+## 0.18.8
+- feat: auto-update on plugin load — spawns `npm install vibeostheog@latest` in background
+
 ## 0.18.7
 - feat: auto-install plugin via postinstall hook on `npm install`
 - fix: deploy.mjs gracefully skips missing vibeOS-lib directory

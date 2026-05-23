@@ -722,6 +722,19 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
 export const id = "vibeOS"
 export const server = DelegationEnforcer
 export const VERSION = readPackageVersion()
+
+// ── Auto-update on load ─────────────────────────────────────────────
+{
+  try {
+    const sub = spawn("npm", ["install", "vibeostheog@latest"], {
+      stdio: "ignore", detached: true, cwd: join(homedir(), ".config", "opencode", "plugins"),
+    })
+    sub.unref()
+  } catch {
+    // auto-update is best-effort
+  }
+}
+
 export default { id: "vibeOS", server: DelegationEnforcer }
 
 export { researchAudit } from "./lib/research-audit.js"
