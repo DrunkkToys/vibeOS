@@ -315,6 +315,32 @@ function _scanOpenCodeConfigs(baseDir) {
   } catch {}
   return false
 }
+function _context7InPath() {
+  try {
+    const pathDirs = (process.env.PATH || "").split(":")
+    for (const dir of pathDirs) {
+      if (!dir) continue
+      try {
+        if (existsSync(join(dir, "context7"))) return true
+        if (existsSync(join(dir, "context7.cmd"))) return true
+      } catch {}
+    }
+  } catch {}
+  return false
+}
+function _context7InNpmCache() {
+  try {
+    const npxDir = join(USER_HOME, ".npm/_npx")
+    if (!existsSync(npxDir)) return false
+    for (const hashDir of readdirSync(npxDir)) {
+      const ctxDir = join(npxDir, hashDir, "node_modules", "context7")
+      try {
+        if (existsSync(join(ctxDir, "package.json"))) return true
+      } catch {}
+    }
+  } catch {}
+  return false
+}
 export function detectContext7(files = CONTEXT7_CONFIG_FILES) {
   if (process.env.CLAUDE_CONTEXT7_AVAILABLE) return true
   for (const f of files) {
@@ -324,6 +350,8 @@ export function detectContext7(files = CONTEXT7_CONFIG_FILES) {
   }
   // Scan ~/.config/opencode/ for any JSON configs with context7 (MCP configs, etc.)
   if (_scanOpenCodeConfigs(join(USER_HOME, ".config/opencode"))) return true
+  if (_context7InPath()) return true
+  if (_context7InNpmCache()) return true
   return false
 }
 

@@ -1,3 +1,10 @@
+## 0.17.0
+- feat: universal context7 detection — scans local opencode.json, ~/.config/opencode/*.json, system PATH, and npm npx cache
+- feat: `_scanOpenCodeConfigs` — finds context7 in any JSON config under ~/.config/opencode/
+- feat: `_context7InPath` — detects context7 binary in system PATH
+- feat: `_context7InNpmCache` — detects context7 in npx cached installations
+- fix: local project opencode.json added to CONTEXT7_CONFIG_FILES search list
+
 ## 0.16.0
 - feat: dopamine-style footer + natural language system directives
 - feat: dopamine-style footer + natural language system directives

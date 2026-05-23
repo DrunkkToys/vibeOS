@@ -2893,6 +2893,41 @@ function _scanOpenCodeConfigs(baseDir) {
   }
   return false;
 }
+function _context7InPath() {
+  try {
+    const pathDirs = (process.env.PATH || "").split(":");
+    for (const dir of pathDirs) {
+      if (!dir)
+        continue;
+      try {
+        if (existsSync4(join4(dir, "context7")))
+          return true;
+        if (existsSync4(join4(dir, "context7.cmd")))
+          return true;
+      } catch {
+      }
+    }
+  } catch {
+  }
+  return false;
+}
+function _context7InNpmCache() {
+  try {
+    const npxDir = join4(USER_HOME3, ".npm/_npx");
+    if (!existsSync4(npxDir))
+      return false;
+    for (const hashDir of readdirSync2(npxDir)) {
+      const ctxDir = join4(npxDir, hashDir, "node_modules", "context7");
+      try {
+        if (existsSync4(join4(ctxDir, "package.json")))
+          return true;
+      } catch {
+      }
+    }
+  } catch {
+  }
+  return false;
+}
 function detectContext7(files = CONTEXT7_CONFIG_FILES) {
   if (process.env.CLAUDE_CONTEXT7_AVAILABLE)
     return true;
@@ -2904,6 +2939,10 @@ function detectContext7(files = CONTEXT7_CONFIG_FILES) {
     }
   }
   if (_scanOpenCodeConfigs(join4(USER_HOME3, ".config/opencode")))
+    return true;
+  if (_context7InPath())
+    return true;
+  if (_context7InNpmCache())
     return true;
   return false;
 }
