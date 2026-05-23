@@ -1,0 +1,57 @@
+{
+  "meta": {
+    "description": "Token/latency benchmark. Measures actual token consumption, throughput, and wall-clock latency across 3 tiers.",
+    "version": "1.0.0",
+    "hypothesis": "MEDIUM tier (flash) has 3-5x lower latency than BRAIN. CHEAP has highest tok/sec. Token throughput scales inversely with capability.",
+    "methodology": "Each scenario is a standalone prompt. Runner measures wall-clock time, estimates token counts from response length (1 tok ~= 4 chars), and records pricing estimates."
+  },
+  "pricing": {
+    "deepseek-v4-pro": { "prompt": 1.25, "completion": 8 },
+    "deepseek-v4-flash": { "prompt": 0.25, "completion": 1 },
+    "deepseek-chat": { "prompt": 0.14, "completion": 0.56 }
+  },
+  "scenarios": [
+    {
+      "id": "short-qa",
+      "category": "short",
+      "prompt": "What is the difference between TCP and UDP? Answer in 2-3 sentences.",
+      "expected_length_chars": 300,
+      "turns_required": 1
+    },
+    {
+      "id": "medium-explain",
+      "category": "medium",
+      "prompt": "Explain how a distributed consensus algorithm like Raft works. Include leader election, log replication, and safety properties. Write ~500 words.",
+      "expected_length_chars": 2000,
+      "turns_required": 1
+    },
+    {
+      "id": "long-codegen",
+      "category": "long",
+      "prompt": "Implement a complete LRU cache in TypeScript with generics, O(1) get/put, expiration TTL, event emitter for evictions, and comprehensive error handling. Include JSDoc. Write ~200 lines.",
+      "expected_length_chars": 6000,
+      "turns_required": 1
+    },
+    {
+      "id": "short-math",
+      "category": "short",
+      "prompt": "Calculate the sum of all prime numbers between 1 and 100. Show your work in 2-3 lines.",
+      "expected_length_chars": 300,
+      "turns_required": 1
+    },
+    {
+      "id": "medium-architecture",
+      "category": "medium",
+      "prompt": "Design the architecture for a real-time collaborative document editor (like Google Docs). Cover: OT vs CRDT, WebSocket mesh, persistence layer, conflict resolution, cursor sync. ~500 words.",
+      "expected_length_chars": 2000,
+      "turns_required": 1
+    },
+    {
+      "id": "long-api-design",
+      "category": "long",
+      "prompt": "Design a complete REST API for a multi-tenant SaaS platform. Include: authentication via JWT, RBAC with 3 roles, CRUD for 4 entities, rate limiting, pagination, soft delete, audit logging, and webhook support. Write a complete OpenAPI 3.0 spec in YAML.",
+      "expected_length_chars": 8000,
+      "turns_required": 1
+    }
+  ]
+}

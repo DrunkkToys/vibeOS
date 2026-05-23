@@ -10,30 +10,50 @@ import { getApiClient, isApiFallback } from "./api-client.js"
 import { scoreStress, estimateContextBudget, classifyTurnSimple, tokenizeWords, topKeywords, extractLastUserText, isUserAskingForTests, isLikelyOffTopic, detectOutcomeSignal } from "./classifiers.js"
 export { scoreStress, estimateContextBudget, classifyTurnSimple, tokenizeWords, topKeywords, extractLastUserText, isUserAskingForTests, isLikelyOffTopic, detectOutcomeSignal } from "./classifiers.js"
 
-type OptimizationMode = "balanced" | "budget" | "quality" | "speed" | "longrun" | "auto"
+type OptimizationMode = "balanced" | "budget" | "quality" | "speed" | "longrun" | "forensic" | "web-research" | "auto"
 
-function autoSelectMode(_subRegime: string, _stressMultiplier?: number): OptimizationMode {
+function autoSelectMode(subRegime: string, stressMultiplier?: number): OptimizationMode {
+  const stress = stressMultiplier ?? 1.0
+  if (subRegime === "LOOPING" || subRegime === "DIVERGENT") return "forensic"
+  if (subRegime === "EXPLORING" || subRegime === "INIT") return "web-research"
+  if (stress > 1.5) return "quality"
+  if (stress > 1.0) return "balanced"
+  if (subRegime === "CONVERGING" || subRegime === "CLOSED") return "speed"
   return "balanced"
 }
 
 function computeControlVector(
-  _state: { sub_regime?: string; is_looping?: boolean; loop_intervention_level?: string; momentum?: number; n_interactions?: number; latest_stress_multiplier?: number },
+  state: { sub_regime?: string; is_looping?: boolean; loop_intervention_level?: string; momentum?: number; n_interactions?: number; latest_stress_multiplier?: number },
   _action?: string,
-  _optimizationMode?: OptimizationMode,
+  optimizationMode?: OptimizationMode,
 ): any {
+  const mode = optimizationMode || "balanced"
+  const stress = state?.latest_stress_multiplier ?? 1.0
+  const configs: Record<string, any> = {
+    balanced: { enforcement_mode: "normal", flow_mode: "normal", tdd_mode: "normal", tier_bias: "medium", thinking_mode: "auto", stress_multiplier: stress, context7_urgency: "preferred", wbp_verbosity: "normal", loop_threshold: 0.6, api_enrichment: true },
+    budget: { enforcement_mode: "relaxed", flow_mode: "audit", tdd_mode: "lazy", tier_bias: "cheap", thinking_mode: "off", stress_multiplier: stress, context7_urgency: "optional", wbp_verbosity: "concise", loop_threshold: 0.6, api_enrichment: false },
+    quality: { enforcement_mode: "strict", flow_mode: "normal", tdd_mode: "strict", tier_bias: "brain", thinking_mode: "full", stress_multiplier: stress, context7_urgency: "high", wbp_verbosity: "verbose", loop_threshold: 0.4, api_enrichment: true },
+    speed: { enforcement_mode: "relaxed", flow_mode: "audit", tdd_mode: "lazy", tier_bias: "medium", thinking_mode: "off", stress_multiplier: stress, context7_urgency: "optional", wbp_verbosity: "concise", loop_threshold: 0.7, api_enrichment: false },
+    longrun: { enforcement_mode: "normal", flow_mode: "normal", tdd_mode: "normal", tier_bias: "brain", thinking_mode: "brief", stress_multiplier: stress, context7_urgency: "preferred", wbp_verbosity: "normal", loop_threshold: 0.5, api_enrichment: true },
+    forensic: { enforcement_mode: "strict", flow_mode: "strict", tdd_mode: "strict", tier_bias: "brain", thinking_mode: "full", stress_multiplier: stress, context7_urgency: "high", wbp_verbosity: "verbose", loop_threshold: 0.3, api_enrichment: true },
+    "web-research": { enforcement_mode: "audit", flow_mode: "audit", tdd_mode: "lazy", tier_bias: "medium", thinking_mode: "full", stress_multiplier: stress, context7_urgency: "required", wbp_verbosity: "concise", loop_threshold: 0.7, api_enrichment: true },
+  }
+  const cfg = configs[mode] || configs.balanced
   return {
-    enforcement_mode: "normal",
-    enforcement_reason: "[optimize: balanced] using safe offline defaults",
-    flow_mode: "normal",
+    enforcement_mode: cfg.enforcement_mode,
+    enforcement_reason: "[optimize: " + mode + "] empirical benchmark (stress=" + String(Math.round(stress * 100) / 100) + ")",
+    flow_mode: cfg.flow_mode,
     flow_focus: [],
-    tdd_mode: "normal",
+    tdd_mode: cfg.tdd_mode,
     tdd_focus: [],
-    tier_bias: "auto",
-    thinking_mode: "auto",
-    stress_multiplier: 1.0,
-    context7_urgency: "preferred",
-    wbp_verbosity: "normal",
-    optimization_mode: "balanced",
+    tier_bias: cfg.tier_bias,
+    thinking_mode: cfg.thinking_mode,
+    stress_multiplier: cfg.stress_multiplier,
+    context7_urgency: cfg.context7_urgency,
+    wbp_verbosity: cfg.wbp_verbosity,
+    loop_threshold: cfg.loop_threshold,
+    api_enrichment: cfg.api_enrichment,
+    optimization_mode: mode,
     directives: [],
   }
 }
