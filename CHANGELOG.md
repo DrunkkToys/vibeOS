@@ -1,3 +1,7 @@
+## 0.18.5
+- fix: trinity slots now authoritative over opencode.json model
+
+
 ## 0.18.4
 - fix: quality tracking now computes avg from lifetime score/count instead of hardcoding 0
 - fix: savings rate shown with 4 decimal precision (was rounding to $0.00/hr)
