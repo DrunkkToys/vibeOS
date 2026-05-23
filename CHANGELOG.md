@@ -1,3 +1,8 @@
+## 0.18.3
+- feat: dynamic mode injection + footer hooks fix
+- fix: auto-enable plugin on load + always show footer
+
+
 ## 0.17.0
 - feat: universal context7 detection — scans local opencode.json, ~/.config/opencode/*.json, system PATH, and npm npx cache
 - feat: `_scanOpenCodeConfigs` — finds context7 in any JSON config under ~/.config/opencode/
