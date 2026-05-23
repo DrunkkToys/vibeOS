@@ -1,3 +1,7 @@
+## 0.18.7
+- feat: auto-install plugin via postinstall hook on `npm install`
+- fix: deploy.mjs gracefully skips missing vibeOS-lib directory
+
 ## 0.18.6
 - fix: quality tracking computes avg from lifetime score/count (was always 0)
 - fix: savings rate precision to 4 decimals (was $0.00/hr)
