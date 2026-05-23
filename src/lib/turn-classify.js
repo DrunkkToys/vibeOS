@@ -1,9 +1,7 @@
 // @ts-nocheck
-import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, statSync, copyFileSync, renameSync, openSync, closeSync, rmSync } from "node:fs";
-import { join, dirname, basename } from "node:path";
-import { homedir, tmpdir } from "node:os";
-import { createHash } from "node:crypto";
-import { safeJsonParse, _blackboxEnabled, setBlackboxEnabled as _setGlobalBlackboxEnabled } from "./state.js";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { safeJsonParse, _blackboxEnabled, setBlackboxEnabled as _setGlobalBlackboxEnabled, USER_HOME, DELEGATION_STATE_FILE as STATE_FILE, _OC_SID, currentProjectFingerprint, setCurrentProjectFingerprint, withFileLock, readJsonOrEmpty, validateState, loadBlackboxState, saveBlackboxState, loadGlobalLearning, updateGlobalLearning, getLearnedExploratoryWords, projectFingerprint, loadProjectState, saveProjectState, detectTechStack, ensureProjectBucket, recordMissedContext7 } from "./state.js";
 import { loadSessionOptMode, writeSessionOptMode } from "./selection-manager.js";
 import { getApiClient, isApiFallback } from "./api-client.js";
 export { scoreStress, estimateContextBudget, classifyTurnSimple, tokenizeWords, topKeywords, extractLastUserText, isUserAskingForTests, isLikelyOffTopic, detectOutcomeSignal } from "./classifiers.js";
@@ -63,21 +61,7 @@ class _BlackboxStub {
         return { history: this.history, currentRegime: this.currentRegime };
     }
 }
-const USER_HOME = (() => { try {
-    return homedir();
-}
-catch {
-    return tmpdir();
-} })();
-const FILE_LOCK_DIR = join(USER_HOME, ".claude/.vibeOS-locks");
-const BLACKBOX_STATE_FILE = join(USER_HOME, ".claude/blackbox-state.json");
-const GLOBAL_LEARNING_FILE = join(USER_HOME, ".claude/global-learning.json");
-const STATE_FILE = join(USER_HOME, ".claude/delegation-state.json");
-const PROJECT_STATE_FILE = join(USER_HOME, ".claude/project-states.json");
-export const DFLT_GL = { exploratory_words: {}, task_first_words: {}, updatedAt: null };
 let _blackboxTracker = null;
-const _OC_SID = "opencode-" + (process.pid || "x") + "-" + Date.now();
-let currentProjectFingerprint = "";
 let _prevOutputText = "";
 let _latestBlackboxState = null;
 let _latestBlackboxLoopMsg = null;
@@ -88,106 +72,6 @@ const warnPerSession = new Map();
 const WARN_MAX_PER_SESSION = 3;
 const WARN_COALESCE_THRESHOLD = 10;
 const warnCoalesceCounters = new Map();
-function _handleStateCorruption(path) {
-    const backupDir = join(USER_HOME, ".claude", ".backups");
-    mkdirSync(backupDir, { recursive: true });
-    const backupPath = join(backupDir, basename(path) + ".corrupted." + Date.now());
-    try {
-        copyFileSync(path, backupPath);
-    }
-    catch { }
-    const logPath = join(USER_HOME, ".claude", ".state-corruption-log.jsonl");
-    try {
-        appendFileSync(logPath, JSON.stringify({ ts: new Date().toISOString(), path, backup: backupPath }) + "\n");
-    }
-    catch { }
-}
-function _lockPathFor(filePath) {
-    const hash = createHash("sha1").update(String(filePath || "")).digest("hex");
-    return join(FILE_LOCK_DIR, `${hash}.lock`);
-}
-function withFileLock(filePath, fn, opts = {}) {
-    const staleMs = Number(opts.staleMs || 30_000);
-    const timeoutMs = Number(opts.timeoutMs || 2_000);
-    const lockPath = _lockPathFor(filePath);
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-        try {
-            mkdirSync(FILE_LOCK_DIR, { recursive: true });
-            const fd = openSync(lockPath, "wx");
-            try {
-                writeFileSync(fd, `${process.pid}\n${Date.now()}\n`);
-            }
-            catch { }
-            try {
-                return fn();
-            }
-            finally {
-                try {
-                    closeSync(fd);
-                }
-                catch { }
-                try {
-                    rmSync(lockPath, { force: true });
-                }
-                catch { }
-            }
-        }
-        catch (err) {
-            try {
-                if (existsSync(lockPath)) {
-                    const age = Date.now() - statSync(lockPath).mtimeMs;
-                    if (age > staleMs) {
-                        try {
-                            rmSync(lockPath, { force: true });
-                        }
-                        catch { }
-                    }
-                }
-            }
-            catch { }
-        }
-    }
-    throw new Error("[vibeOS] lock not acquired for " + filePath + " after " + timeoutMs + "ms");
-}
-function readJsonOrEmpty(filePath) {
-    try {
-        if (!existsSync(filePath))
-            return {};
-        const st = statSync(filePath);
-        if (st.size > 10485760) {
-            _handleStateCorruption(filePath);
-            return {};
-        }
-        return safeJsonParse(readFileSync(filePath, "utf-8"));
-    }
-    catch {
-        _handleStateCorruption(filePath);
-        return {};
-    }
-}
-function validateState(state, path) {
-    if (!state || typeof state !== "object") {
-        console.error("[vibeOS] State validation failed: not an object at " + path);
-        return;
-    }
-    if (state.session_started_at && isNaN(Date.parse(state.session_started_at))) {
-        console.error("[vibeOS] State validation warning: invalid session_started_at at " + path + ", resetting");
-        state.session_started_at = new Date().toISOString();
-    }
-    if (state.sessions && Array.isArray(state.sessions)) {
-        console.error("[vibeOS] State validation: converting legacy sessions array to object at " + path);
-        state.sessions = {};
-    }
-    else if (state.sessions && !Array.isArray(state.sessions) && (typeof state.sessions !== "object" || state.sessions === null)) {
-        console.error("[vibeOS] State validation warning: sessions is invalid type at " + path + ", resetting");
-        state.sessions = {};
-    }
-    if (state.lifetime && typeof state.lifetime !== "object") {
-        console.error("[vibeOS] State validation warning: lifetime is not object at " + path + ", resetting");
-        state.lifetime = {};
-    }
-}
 function updateState(mutator) {
     const MAX_RETRIES = 3;
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -253,33 +137,6 @@ function loadTrinityModels() {
 const _trinityModels = loadTrinityModels();
 const TRINITY_CHEAP_MOD = _trinityModels.cheap;
 const TRINITY_MEDIUM_MOD = _trinityModels.medium;
-export function loadBlackboxState() {
-    try {
-        if (!existsSync(BLACKBOX_STATE_FILE))
-            return { enabled: true, sessions: {} };
-        const st = statSync(BLACKBOX_STATE_FILE);
-        if (st.size > 10485760) {
-            _handleStateCorruption(BLACKBOX_STATE_FILE);
-            return { enabled: false, sessions: {} };
-        }
-        return safeJsonParse(readFileSync(BLACKBOX_STATE_FILE, "utf-8")) || { enabled: false, sessions: {} };
-    }
-    catch {
-        _handleStateCorruption(BLACKBOX_STATE_FILE);
-        return { enabled: false, sessions: {} };
-    }
-}
-export function saveBlackboxState(state) {
-    try {
-        mkdirSync(dirname(BLACKBOX_STATE_FILE), { recursive: true });
-        const tmp = BLACKBOX_STATE_FILE + ".tmp";
-        writeFileSync(tmp, JSON.stringify(state, null, 2) + "\n");
-        renameSync(tmp, BLACKBOX_STATE_FILE);
-    }
-    catch (err) {
-        console.error("[vibeOS] saveBlackboxState failed: " + err.message);
-    }
-}
 export function getBlackboxTracker() {
     if (!_blackboxTracker) {
         const state = loadBlackboxState();
@@ -415,127 +272,6 @@ function shouldLogWarn(key, windowMs = WARN_DEDUPE_WINDOW_MS) {
     warnPerSession.set(cat, ps + 1);
     return true;
 }
-export function loadGlobalLearning() {
-    try {
-        if (!existsSync(GLOBAL_LEARNING_FILE))
-            return DFLT_GL;
-        const st = statSync(GLOBAL_LEARNING_FILE);
-        if (st.size > 10485760) {
-            _handleStateCorruption(GLOBAL_LEARNING_FILE);
-            return DFLT_GL;
-        }
-        const j = safeJsonParse(readFileSync(GLOBAL_LEARNING_FILE, "utf-8"));
-        if (!j || typeof j !== "object")
-            return DFLT_GL;
-        j.exploratory_words ??= {};
-        j.task_first_words ??= {};
-        return j;
-    }
-    catch {
-        _handleStateCorruption(GLOBAL_LEARNING_FILE);
-        return DFLT_GL;
-    }
-}
-export function updateGlobalLearning(mutator) {
-    return withFileLock(GLOBAL_LEARNING_FILE, () => {
-        const s = loadGlobalLearning();
-        const next = mutator(s) ?? s;
-        next.updatedAt = new Date().toISOString();
-        mkdirSync(dirname(GLOBAL_LEARNING_FILE), { recursive: true });
-        const tmp = GLOBAL_LEARNING_FILE + ".tmp";
-        writeFileSync(tmp, JSON.stringify(next, null, 2));
-        renameSync(tmp, GLOBAL_LEARNING_FILE);
-        return next;
-    });
-}
-export function getLearnedExploratoryWords() {
-    const out = new Set();
-    try {
-        const gl = loadGlobalLearning();
-        for (const [w, meta] of Object.entries(gl.exploratory_words || {})) {
-            if ((meta?.count || 0) >= 1)
-                out.add(String(w));
-        }
-    }
-    catch { }
-    return out;
-}
-function projectFingerprint(dir) {
-    if (!dir)
-        return "unknown";
-    return createHash("sha256").update(dir).digest("hex").slice(0, 12);
-}
-function loadProjectState() {
-    try {
-        const state = readJsonOrEmpty(PROJECT_STATE_FILE);
-        if (state && typeof state === "object") {
-            state.project_hashes ??= {};
-            return state;
-        }
-    }
-    catch { }
-    return { project_hashes: {} };
-}
-function saveProjectState(state) {
-    try {
-        withFileLock(PROJECT_STATE_FILE, () => {
-            mkdirSync(dirname(PROJECT_STATE_FILE), { recursive: true });
-            const _tmp = PROJECT_STATE_FILE + ".tmp." + Date.now();
-            writeFileSync(_tmp, JSON.stringify(state, null, 2) + "\n", "utf-8");
-            renameSync(_tmp, PROJECT_STATE_FILE);
-        });
-    }
-    catch (err) {
-        console.error("[vibeOS] project state write failed: " + err.message);
-    }
-}
-export function detectTechStack(dir) {
-    const stacks = [];
-    try {
-        const pkg = safeJsonParse(readFileSync(join(dir, "package.json"), "utf-8"));
-        if (pkg) {
-            if (pkg.devDependencies?.typescript || pkg.dependencies?.typescript || existsSync(join(dir, "tsconfig.json")))
-                stacks.push("typescript");
-            if (pkg.dependencies?.react || pkg.devDependencies?.react)
-                stacks.push("react");
-            stacks.push("javascript");
-        }
-    }
-    catch { }
-    try {
-        if (existsSync(join(dir, "Cargo.toml")))
-            stacks.push("rust");
-    }
-    catch { }
-    try {
-        if (existsSync(join(dir, "go.mod")))
-            stacks.push("go");
-    }
-    catch { }
-    try {
-        if (existsSync(join(dir, "requirements.txt")))
-            stacks.push("python");
-        if (existsSync(join(dir, "setup.py")))
-            stacks.push("python");
-        if (existsSync(join(dir, "pyproject.toml")))
-            stacks.push("python");
-    }
-    catch { }
-    return [...new Set(stacks)];
-}
-function ensureProjectBucket(state, fp) {
-    state.project_hashes ??= {};
-    if (!state.project_hashes[fp]) {
-        state.project_hashes[fp] = {
-            totalSessions: 0,
-            researchChains: 0,
-            context7Bypasses: 0,
-            commonTopics: [],
-            techStack: detectTechStack(process.cwd()),
-        };
-    }
-    return state.project_hashes[fp];
-}
 function noteTaskRoutingLearning(firstWord, targetModel, reason) {
     if (!firstWord || !/^[a-z][a-z0-9_-]{1,24}$/.test(firstWord))
         return;
@@ -609,31 +345,6 @@ function noteTaskRoutingLearning(firstWord, targetModel, reason) {
         });
     }
     catch { }
-}
-// Soft counter for hypothetical missed savings (no locking — drift acceptable
-// for a hypothetical metric). Mirrors bash record_missed_c7().
-function recordMissedContext7(saveEst) {
-    try {
-        const state = updateState((s) => {
-            s.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" };
-            s.lifetime.missed_context7_usd = Math.round(((s.lifetime.missed_context7_usd || 0) + saveEst) * 100) / 100;
-            return s;
-        });
-        try {
-            if (currentProjectFingerprint) {
-                const pstate = loadProjectState();
-                const bucket = ensureProjectBucket(pstate, currentProjectFingerprint);
-                bucket.context7Bypasses = (bucket.context7Bypasses || 0) + 1;
-                bucket.lastSeen = new Date().toISOString();
-                saveProjectState(pstate);
-            }
-        }
-        catch { }
-        return state?.lifetime?.missed_context7_usd ?? null;
-    }
-    catch {
-        return null;
-    }
 }
 // State accessors — called from index.ts to sync mutable state
 export function setProjectFingerprint(fp) {
@@ -720,10 +431,11 @@ export function incrementTurnCounter() {
 export { autoSelectMode, computeControlVector, buildControlHistoryEntry };
 export { getBlackboxResolution, syncOutcomeToApi, fetchBlackboxEnrichment, 
 // Warnings
-extractFirstWordFromArgs, shouldLogWarn, noteTaskRoutingLearning, 
+extractFirstWordFromArgs, shouldLogWarn, 
+// Global learning
+loadGlobalLearning, updateGlobalLearning, getLearnedExploratoryWords, noteTaskRoutingLearning, 
 // Missed context7
 recordMissedContext7, 
 // State helpers
-updateState, loadProjectState, saveProjectState, ensureProjectBucket, projectFingerprint, withFileLock, readJsonOrEmpty, };
-
-export function resetBlackboxTracker() { _blackboxTracker = null }
+updateState, loadProjectState, saveProjectState, ensureProjectBucket, projectFingerprint, withFileLock, readJsonOrEmpty, detectTechStack, loadBlackboxState, saveBlackboxState, };
+export function resetBlackboxTracker() { _blackboxTracker = null; }

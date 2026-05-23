@@ -15,7 +15,7 @@ export function setTrinityCheap(v: string | null) { TRINITY_CHEAP = v }
  * context7 detection, per-turn cost estimation, and slot management.
  */
 
-import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, statSync, copyFileSync, renameSync, openSync, closeSync, rmSync } from "node:fs"
+import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, statSync, copyFileSync, renameSync, openSync, closeSync, rmSync, readdirSync } from "node:fs"
 import { join, dirname, basename } from "node:path"
 import { homedir, tmpdir } from "node:os"
 import { createHash } from "node:crypto"
@@ -302,7 +302,19 @@ const CONTEXT7_CONFIG_FILES = [
   join(USER_HOME, ".claude/settings.json"),
   join(USER_HOME, ".claude.json"),
   join(USER_HOME, ".config/opencode/opencode.json"),
+  join(process.cwd(), "opencode.json"),
 ]
+function _scanOpenCodeConfigs(baseDir) {
+  try {
+    if (!existsSync(baseDir)) return
+    for (const entry of readdirSync(baseDir)) {
+      if (!entry.endsWith(".json")) continue
+      const full = join(baseDir, entry)
+      if (existsSync(full) && /context7/i.test(readFileSync(full, "utf-8"))) return true
+    }
+  } catch {}
+  return false
+}
 export function detectContext7(files = CONTEXT7_CONFIG_FILES) {
   if (process.env.CLAUDE_CONTEXT7_AVAILABLE) return true
   for (const f of files) {
@@ -310,6 +322,8 @@ export function detectContext7(files = CONTEXT7_CONFIG_FILES) {
       if (existsSync(f) && /context7/i.test(readFileSync(f, "utf-8"))) return true
     } catch {}
   }
+  // Scan ~/.config/opencode/ for any JSON configs with context7 (MCP configs, etc.)
+  if (_scanOpenCodeConfigs(join(USER_HOME, ".config/opencode"))) return true
   return false
 }
 

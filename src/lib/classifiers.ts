@@ -17,21 +17,21 @@ export function scoreStress(text) {
   for (const w of aggressive) {
     const re = new RegExp("\\b" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "gi")
     const hits = (t.match(re) || []).length
-    score += hits * 0.05
+    score += hits * 0.30
   }
 
   const urgency = ["fix","now","fast","urgent","important","critical","hurry","immediately","asap"]
   for (const w of urgency) {
     const re = new RegExp("\\b" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "gi")
     const hits = (t.match(re) || []).length
-    score += hits * 0.04
+    score += hits * 0.15
   }
 
   const negative = ["no","not","don't","can't","won't","doesn't","isn't","shouldn't","never","stop"]
   for (const w of negative) {
     const re = new RegExp("\\b" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "gi")
     const hits = (t.match(re) || []).length
-    score += hits * 0.02
+    score += hits * 0.08
   }
 
   const capsAcronyms = new Set(["ai","ui","api","cli","ssh","dns","http","url","json","xml","css","html","sql","csv","yaml","ide","tdd","pr","ci","cd","env","os","sdk","gui","crud","rest","crlf","utf","ascii"])

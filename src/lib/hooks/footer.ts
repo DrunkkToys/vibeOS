@@ -183,20 +183,14 @@ async function _appendFooter(input, output, directory) {
       if (quality_avg > 0) {
         enfSuffixFooter = ` QA:${Math.round(quality_avg)}% ${enfTagsFooter.join(" ")}`
       }
-      // Optimization mode tag
+      // Optimization mode tag — flash icon only when connected
       let optTagFooter = ""
-      if (optModeFooter === "audit") optTagFooter = "[AUDIT]"
-      else if (optModeFooter === "budget") optTagFooter = "[BUDGET]"
-      else if (optModeFooter === "quality") optTagFooter = "[QUALITY]"
-      else if (optModeFooter === "speed") optTagFooter = "[SPEED]"
-      else if (optModeFooter === "longrun") optTagFooter = "[LONGRUN]"
-      else if (optModeFooter === "auto") {
+      const flashIcon = isApiFallback() ? "" : "⚡"
+      if (optModeFooter === "auto") {
         const autoRegime = classifyTurnSimple(latestUserIntent || "")
         const autoStress = scoreStress(latestUserIntent || "")
         const autoActive = await apiAutoSelectMode(autoRegime, autoStress)
-        const autoTag = { audit: "AUDIT", budget: "BUDGET", quality: "QUALITY", speed: "SPEED", longrun: "LONGRUN", balanced: "BALANCED" }
-        const fb = isApiFallback() ? "\u26a1" : ""
-        optTagFooter = `[VIBE→${autoTag[autoActive] || autoActive.toUpperCase()}${fb}]`
+        optTagFooter = `[VIBE→${autoActive.toUpperCase()}${flashIcon}]`
         saveOptimizationMode(autoActive)
         const slot = autoActive === "quality" ? "brain" : autoActive === "speed" ? "medium" : "cheap"
         if (!_modelLocked) {
@@ -205,6 +199,8 @@ async function _appendFooter(input, output, directory) {
           else if (slot === "medium" && TRINITY_MEDIUM) { setCurrentModel(TRINITY_MEDIUM); setCurrentTier("mid") }
           else if (slot === "cheap" && TRINITY_CHEAP) { setCurrentModel(TRINITY_CHEAP); setCurrentTier("low") }
         }
+      } else {
+        optTagFooter = `[VIBE→${(optModeFooter || "").toUpperCase()}${flashIcon}]`
       }
       modelTag = `${modelTag}${optTagFooter}${enfSuffixFooter || ""}`
 
