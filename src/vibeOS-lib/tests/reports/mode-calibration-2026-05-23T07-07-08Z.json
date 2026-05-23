@@ -1,0 +1,440 @@
+{
+  "meta": {
+    "generated_at": "2026-05-22T07:46:33.046Z",
+    "version": "2.0",
+    "schema": "vibeos-mode-calibration-v2"
+  },
+  "active_models": {
+    "brain": "deepseek/deepseek-v4-pro",
+    "medium": "deepseek/deepseek-v4-flash",
+    "cheap": "deepseek/deepseek-chat"
+  },
+  "tier_collisions": [],
+  "pricing_estimates": {
+    "deepseek-v4-pro": {
+      "prompt": 1.25,
+      "completion": 8
+    },
+    "deepseek-v4-flash": {
+      "prompt": 0.25,
+      "completion": 1
+    },
+    "deepseek-chat": {
+      "prompt": 0.14,
+      "completion": 0.56
+    },
+    "deepseek-reasoner": {
+      "prompt": 0.55,
+      "completion": 2.19
+    },
+    "gpt-4o": {
+      "prompt": 2.5,
+      "completion": 10
+    },
+    "gpt-4o-mini": {
+      "prompt": 0.15,
+      "completion": 0.6
+    },
+    "claude-sonnet-4": {
+      "prompt": 3,
+      "completion": 15
+    },
+    "default": {
+      "prompt": 1,
+      "completion": 4
+    }
+  },
+  "mode_configs": {
+    "balanced": {
+      "tier": "auto",
+      "thinking": "auto",
+      "enforcement": "normal",
+      "flow": "normal",
+      "tdd": "normal",
+      "stress": 1,
+      "loop_threshold": 0.6,
+      "api_enrichment": true,
+      "outcome_detection": true,
+      "_empirical": {
+        "brain": {
+          "avg_latency_ms": 329,
+          "avg_tps": 7564,
+          "total_tok_out": 36892,
+          "total_cost": 0.295821,
+          "runs": 15
+        },
+        "medium": {
+          "avg_latency_ms": 308,
+          "avg_tps": 6686,
+          "total_tok_out": 29542,
+          "total_cost": 0.029679,
+          "runs": 15
+        },
+        "cheap": {
+          "avg_latency_ms": 391,
+          "avg_tps": 5344,
+          "total_tok_out": 13215,
+          "total_cost": 0.007441560000000001,
+          "runs": 8
+        }
+      }
+    },
+    "budget": {
+      "tier": "cheap",
+      "thinking": "off",
+      "enforcement": "relaxed",
+      "flow": "audit",
+      "tdd": "lazy",
+      "stress": 1,
+      "loop_threshold": 0.6,
+      "api_enrichment": false,
+      "outcome_detection": false,
+      "_empirical": {
+        "avg_latency_ms": 391,
+        "avg_tps": 5344,
+        "total_tok_out": 13215,
+        "total_cost": 0.007441560000000001,
+        "runs": 8
+      }
+    },
+    "quality": {
+      "tier": "brain",
+      "thinking": "full",
+      "enforcement": "strict",
+      "flow": "normal",
+      "tdd": "strict",
+      "stress": 1,
+      "loop_threshold": 0.4,
+      "api_enrichment": true,
+      "outcome_detection": true,
+      "_empirical": {
+        "avg_latency_ms": 329,
+        "avg_tps": 7564,
+        "total_tok_out": 36892,
+        "total_cost": 0.295821,
+        "runs": 15
+      }
+    },
+    "speed": {
+      "tier": "medium",
+      "thinking": "off",
+      "enforcement": "relaxed",
+      "flow": "audit",
+      "tdd": "lazy",
+      "stress": 1,
+      "loop_threshold": 0.7,
+      "api_enrichment": false,
+      "outcome_detection": false,
+      "_empirical": {
+        "avg_latency_ms": 308,
+        "avg_tps": 6686,
+        "total_tok_out": 29542,
+        "total_cost": 0.029679,
+        "runs": 15
+      }
+    },
+    "longrun": {
+      "tier": "brain",
+      "thinking": "brief",
+      "enforcement": "normal",
+      "flow": "normal",
+      "tdd": "normal",
+      "stress": 1,
+      "loop_threshold": 0.5,
+      "api_enrichment": true,
+      "outcome_detection": true,
+      "_empirical": {
+        "avg_latency_ms": 329,
+        "avg_tps": 7564,
+        "total_tok_out": 36892,
+        "total_cost": 0.295821,
+        "runs": 15
+      }
+    },
+    "forensic": {
+      "tier": "brain",
+      "thinking": "full",
+      "enforcement": "strict",
+      "flow": "strict",
+      "tdd": "strict",
+      "stress": 1.5,
+      "loop_threshold": 0.3,
+      "api_enrichment": true,
+      "outcome_detection": true,
+      "_empirical": {
+        "avg_latency_ms": 329,
+        "avg_tps": 7564,
+        "total_tok_out": 36892,
+        "total_cost": 0.295821,
+        "runs": 15,
+        "context7_urgency": "high",
+        "wbp_verbosity": "verbose",
+        "use_cases": [
+          "debugging",
+          "root cause analysis",
+          "security audit",
+          "bug investigation"
+        ],
+        "loop_protection": "aggressive"
+      }
+    },
+    "web-research": {
+      "tier": "medium",
+      "thinking": "full",
+      "enforcement": "audit",
+      "flow": "audit",
+      "tdd": "lazy",
+      "stress": 1,
+      "loop_threshold": 0.7,
+      "api_enrichment": true,
+      "outcome_detection": true,
+      "_empirical": {
+        "avg_latency_ms": 308,
+        "avg_tps": 6686,
+        "total_tok_out": 29542,
+        "total_cost": 0.029679,
+        "runs": 15,
+        "context7_urgency": "required",
+        "wbp_verbosity": "concise",
+        "use_cases": [
+          "web research",
+          "exploration",
+          "competitive analysis",
+          "documentation lookup"
+        ],
+        "loop_protection": "lenient"
+      }
+    }
+  },
+  "mode_breakdown": {
+    "balanced": {
+      "sessions": 5,
+      "cost": 0,
+      "deleg_savings": 0.11000000000000001,
+      "cache_savings": 0,
+      "warns": 12,
+      "tool_calls": 0,
+      "stress_sum": 0.68,
+      "stress_count": 5,
+      "scratchpad_hits": 0,
+      "total_session_ms": 0,
+      "context7_bypass": 0,
+      "ledger_entries": 0,
+      "task_calls": 0,
+      "task_success": 0,
+      "regime_changes": 0,
+      "cost_per_turn": 0,
+      "savings_ratio": 0,
+      "warn_per_session": 2.4,
+      "stress_avg": 0.14,
+      "cache_hit_rate": 0,
+      "cost_per_success": 0,
+      "thinking_roi": 0,
+      "speed_to_cost": 0,
+      "avg_cost_per_session": 0,
+      "est_prompt_tokens": 0,
+      "est_completion_tokens": 0,
+      "est_total_tokens": 0,
+      "est_tok_per_session": 0
+    },
+    "budget": {
+      "sessions": 0,
+      "cost": 0,
+      "deleg_savings": 0,
+      "cache_savings": 0,
+      "warns": 0,
+      "tool_calls": 0,
+      "stress_sum": 0,
+      "stress_count": 0,
+      "scratchpad_hits": 0,
+      "total_session_ms": 0,
+      "context7_bypass": 0,
+      "ledger_entries": 0,
+      "task_calls": 0,
+      "task_success": 0,
+      "regime_changes": 0,
+      "cost_per_turn": 0,
+      "savings_ratio": 0,
+      "warn_per_session": 0,
+      "stress_avg": 0,
+      "cache_hit_rate": 0,
+      "cost_per_success": 0,
+      "thinking_roi": 0,
+      "speed_to_cost": 0,
+      "avg_cost_per_session": 0,
+      "est_prompt_tokens": 0,
+      "est_completion_tokens": 0,
+      "est_total_tokens": 0,
+      "est_tok_per_session": 0
+    },
+    "quality": {
+      "sessions": 0,
+      "cost": 0,
+      "deleg_savings": 0,
+      "cache_savings": 0,
+      "warns": 0,
+      "tool_calls": 0,
+      "stress_sum": 0,
+      "stress_count": 0,
+      "scratchpad_hits": 0,
+      "total_session_ms": 0,
+      "context7_bypass": 0,
+      "ledger_entries": 0,
+      "task_calls": 0,
+      "task_success": 0,
+      "regime_changes": 0,
+      "cost_per_turn": 0,
+      "savings_ratio": 0,
+      "warn_per_session": 0,
+      "stress_avg": 0,
+      "cache_hit_rate": 0,
+      "cost_per_success": 0,
+      "thinking_roi": 0,
+      "speed_to_cost": 0,
+      "avg_cost_per_session": 0,
+      "est_prompt_tokens": 0,
+      "est_completion_tokens": 0,
+      "est_total_tokens": 0,
+      "est_tok_per_session": 0
+    },
+    "speed": {
+      "sessions": 0,
+      "cost": 0,
+      "deleg_savings": 0,
+      "cache_savings": 0,
+      "warns": 0,
+      "tool_calls": 0,
+      "stress_sum": 0,
+      "stress_count": 0,
+      "scratchpad_hits": 0,
+      "total_session_ms": 0,
+      "context7_bypass": 0,
+      "ledger_entries": 0,
+      "task_calls": 0,
+      "task_success": 0,
+      "regime_changes": 0,
+      "cost_per_turn": 0,
+      "savings_ratio": 0,
+      "warn_per_session": 0,
+      "stress_avg": 0,
+      "cache_hit_rate": 0,
+      "cost_per_success": 0,
+      "thinking_roi": 0,
+      "speed_to_cost": 0,
+      "avg_cost_per_session": 0,
+      "est_prompt_tokens": 0,
+      "est_completion_tokens": 0,
+      "est_total_tokens": 0,
+      "est_tok_per_session": 0
+    },
+    "longrun": {
+      "sessions": 0,
+      "cost": 0,
+      "deleg_savings": 0,
+      "cache_savings": 0,
+      "warns": 0,
+      "tool_calls": 0,
+      "stress_sum": 0,
+      "stress_count": 0,
+      "scratchpad_hits": 0,
+      "total_session_ms": 0,
+      "context7_bypass": 0,
+      "ledger_entries": 0,
+      "task_calls": 0,
+      "task_success": 0,
+      "regime_changes": 0,
+      "cost_per_turn": 0,
+      "savings_ratio": 0,
+      "warn_per_session": 0,
+      "stress_avg": 0,
+      "cache_hit_rate": 0,
+      "cost_per_success": 0,
+      "thinking_roi": 0,
+      "speed_to_cost": 0,
+      "avg_cost_per_session": 0,
+      "est_prompt_tokens": 0,
+      "est_completion_tokens": 0,
+      "est_total_tokens": 0,
+      "est_tok_per_session": 0
+    }
+  },
+  "regime_distribution": {
+    "UNKNOWN": 20
+  },
+  "regime_mode_map": {
+    "UNKNOWN": {
+      "balanced": 20
+    }
+  },
+  "learning_stats": {
+    "exploratory_words": 24,
+    "task_first_words": 122,
+    "ml_graph": "present",
+    "ml_cache": "present",
+    "cross_project_patterns": 58
+  },
+  "calibration_flags": [],
+  "expected_rankings": {
+    "cost_ranking": [
+      "balanced"
+    ],
+    "cost_valid": false,
+    "savings_ranking": [
+      "balanced"
+    ],
+    "warning_ranking": [
+      "balanced"
+    ]
+  },
+  "lifetime": {
+    "total_savings_usd": 0.366,
+    "cache_savings_usd": 0,
+    "missed_context7_usd": 0,
+    "scratchpad_hits": 0,
+    "warn_count": 22,
+    "session_count": 5,
+    "cost_sum": 0
+  },
+  "checklist": {
+    "speed_is_fastest_unverified": false,
+    "budget_is_cheapest_unverified": true,
+    "quality_best_output_unverified": true,
+    "longrun_appropriate_unverified": true,
+    "auto_mode_sensible_unverified": true,
+    "ttft_needs_live_bench": false,
+    "token_throughput_needs_live_bench": true,
+    "first_attempt_success_needs_live_bench": true,
+    "rework_cycles_needs_live_bench": true,
+    "compile_pass_rate_needs_live_bench": true,
+    "user_override_rate_needs_live_bench": true,
+    "balanced_empirically_verified": true,
+    "speed_latency_measured": "308ms avg",
+    "brain_latency_measured": "329ms avg",
+    "cheap_latency_measured": "391ms avg",
+    "tier_parity_confirmed": "brain ~= medium (within 8%)",
+    "forensic_mode_added": true,
+    "web_research_mode_added": true,
+    "calibration_date": "2026-05-23T07:07:08.679Z"
+  },
+  "verification": {
+    "tier_benchmark_completed": true,
+    "total_api_runs": 38,
+    "total_cost": 0.3329415600000001,
+    "human_flow_simulations": [
+      "delete-record-saving@72s",
+      "rename-sync-control@30s",
+      "fix-savings-field@95s"
+    ],
+    "modes_implemented": [
+      "balanced",
+      "budget",
+      "quality",
+      "speed",
+      "longrun",
+      "forensic",
+      "web-research"
+    ],
+    "auto_select_mode_fixed": true,
+    "compute_control_vector_active": true
+  }
+}

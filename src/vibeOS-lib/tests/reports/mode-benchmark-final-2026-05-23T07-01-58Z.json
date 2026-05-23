@@ -1,0 +1,129 @@
+{
+  "meta": {
+    "generated_at": "2026-05-23T07:01:58.571Z",
+    "type": "vibeos-mode-benchmark-final",
+    "version": "1.0",
+    "total_cost_usd": 0.33294155999999997
+  },
+  "tier_summary": [
+    {
+      "tier": "brain",
+      "runs": 15,
+      "avg_latency_ms": 329,
+      "avg_tps": 7564,
+      "total_tok_out": 36892,
+      "total_cost_usd": 0.295821,
+      "scenarios": [
+        "short-qa",
+        "medium-explain",
+        "long-codegen",
+        "short-math",
+        "medium-architecture",
+        "long-api-design"
+      ]
+    },
+    {
+      "tier": "medium",
+      "runs": 15,
+      "avg_latency_ms": 308,
+      "avg_tps": 6686,
+      "total_tok_out": 29542,
+      "total_cost_usd": 0.029679,
+      "scenarios": [
+        "short-qa",
+        "medium-explain",
+        "long-codegen",
+        "short-math",
+        "medium-architecture",
+        "long-api-design"
+      ]
+    },
+    {
+      "tier": "cheap",
+      "runs": 8,
+      "avg_latency_ms": 391,
+      "avg_tps": 5344,
+      "total_tok_out": 13215,
+      "total_cost_usd": 0.007441560000000001,
+      "scenarios": [
+        "short-qa",
+        "medium-explain",
+        "long-codegen",
+        "short-math",
+        "medium-architecture",
+        "long-api-design"
+      ]
+    }
+  ],
+  "thinking_summary": [
+    {
+      "mode": "off",
+      "runs": 8,
+      "avg_latency_ms": 304,
+      "avg_tps": 5655
+    },
+    {
+      "mode": "brief",
+      "runs": 6,
+      "avg_latency_ms": 309,
+      "avg_tps": 6141
+    },
+    {
+      "mode": "full",
+      "runs": 6,
+      "avg_latency_ms": 342,
+      "avg_tps": 6631
+    }
+  ],
+  "signals": [
+    {
+      "id": "TIER_PARITY",
+      "confidence": "HIGH",
+      "description": "Brain and medium have near-identical latency"
+    },
+    {
+      "id": "THINKING_OVERHEAD",
+      "confidence": "MEDIUM",
+      "description": "Full thinking adds ~15% latency"
+    },
+    {
+      "id": "CHEAP_GAP",
+      "confidence": "HIGH",
+      "description": "Cheap produces 60% shorter responses than medium"
+    },
+    {
+      "id": "CALIBRATION_GAP",
+      "confidence": "CRITICAL",
+      "description": "4/5 modes have zero real sessions"
+    },
+    {
+      "id": "HUMAN_FLOW_COST",
+      "confidence": "HIGH",
+      "description": "Real tasks cost 2-5x more than single-turn predictions"
+    },
+    {
+      "id": "AUTO_MODE_STUB",
+      "confidence": "HIGH",
+      "description": "autoSelectMode() always returns 'balanced' regardless of state"
+    }
+  ],
+  "mode_gaps": [
+    {
+      "id": "FORENSIC",
+      "priority": "HIGH",
+      "description": "Debugging/sleuthing workflow — brain + full thinking + strict flow"
+    },
+    {
+      "id": "WEB_RESEARCH",
+      "priority": "HIGH",
+      "description": "Research/exploration — medium + full thinking + context7"
+    }
+  ],
+  "recommendations": [
+    "Add FORENSIC mode with brain tier, full thinking, strict enforcement",
+    "Add WEB_RESEARCH mode with medium tier, full thinking, context7 required",
+    "Fix autoSelectMode() to use stress + regime for dynamic selection",
+    "Link calibration mode configs to computeControlVector()",
+    "Auto-record mode usage data to populate calibration for all modes"
+  ]
+}

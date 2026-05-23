@@ -1,0 +1,89 @@
+{
+  "meta": {
+    "generated_at": "2026-05-23T06:59:30.473Z",
+    "type": "mode-signal-analysis",
+    "version": "1.0"
+  },
+  "mode_projections": [
+    {
+      "mode": "balanced",
+      "tier": "brain",
+      "thinking": "off",
+      "avg_lat_ms": 309,
+      "avg_tps": 8898,
+      "cost_per_run": 0.020487833333333334,
+      "tok_eff": 0.008016629711751664
+    },
+    {
+      "mode": "budget",
+      "tier": "cheap",
+      "thinking": "off",
+      "avg_lat_ms": 330,
+      "avg_tps": 1109,
+      "cost_per_run": 0.00022820000000000002,
+      "tok_eff": 0.000569077306733167
+    },
+    {
+      "mode": "quality",
+      "tier": "brain",
+      "thinking": "full",
+      "avg_lat_ms": 355,
+      "avg_tps": 7817,
+      "cost_per_run": 0.019018499999999997,
+      "tok_eff": 0.008017917369308599
+    },
+    {
+      "mode": "speed",
+      "tier": "medium",
+      "thinking": "off",
+      "avg_lat_ms": 283,
+      "avg_tps": 5442,
+      "cost_per_run": 0.0015545000000000001,
+      "tok_eff": 0.001005498059508409
+    },
+    {
+      "mode": "longrun",
+      "tier": "brain",
+      "thinking": "brief",
+      "avg_lat_ms": 332,
+      "avg_tps": 6040,
+      "cost_per_run": 0.017647833333333335,
+      "tok_eff": 0.008019312329597092
+    }
+  ],
+  "gaps_found": [
+    {
+      "id": "TURBO",
+      "priority": "low",
+      "description": "Cheap + off thinking, already covered by budget"
+    },
+    {
+      "id": "FORENSIC",
+      "priority": "high",
+      "description": "Brain + full thinking + strict flow — no existing mode covers debugging"
+    },
+    {
+      "id": "WEB_RESEARCH",
+      "priority": "high",
+      "description": "Medium + full thinking + context7 — fills exploration gap"
+    },
+    {
+      "id": "CODE_REVIEW",
+      "priority": "medium",
+      "description": "Brain + full thinking + strict TDD — partially covered by quality"
+    }
+  ],
+  "key_insights": [
+    "Brain and medium have nearly identical latency (~320ms avg) — medium is not meaningfully faster",
+    "Medium is 8x cheaper than brain for equivalent throughput",
+    "First cheap request is 2.6x slower than subsequent (cold start: 981ms vs ~370ms)",
+    "All modes except 'balanced' have 0 real sessions in calibration data",
+    "Calibration checklist marks all mode hypotheses as 'unverified'"
+  ],
+  "recommendations": [
+    "Add FORENSIC mode for debugging/sleuthing workflows",
+    "Add WEB_RESEARCH mode for exploration tasks",
+    "Recalibrate auto mode selection since brain=medium in latency",
+    "Run forced mode sessions to populate calibration data for non-balanced modes"
+  ]
+}
