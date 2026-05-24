@@ -1,3 +1,19 @@
+## 0.19.0
+- feat: quality governance — self-protection, 2h release gate, outcome tracking (#44)
+- fix: chooseEpisodeMode defaults to budget (was always quality) + simplify isApiConnected check
+- fix: stress mitigation directive uses raw stress score, not API-scaled
+- fix: _refreshModel respects project-local opencode.json over bootstrap default slot
+- docs: mark v0.19.0 as alpha milestone release
+Merge pull request #47 from DrunkkToys/codex/status-lock-backend-fix
+Expose status lock and backend state
+Fix stress mitigation and TDD smoke coverage
+Rebuild bundle after telemetry merge
+Add privacy-preserving telemetry capture
+Refresh public README
+Extract runtime surface for easier maintenance
+Fix budget-first mode and stabilize tests
+
+
 ## 0.18.15
 - fix: session records missing started/session_started_at fields (v0.18.12)
 
