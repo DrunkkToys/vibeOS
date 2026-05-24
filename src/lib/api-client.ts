@@ -1,7 +1,7 @@
 // @ts-nocheck
 
 import { VibeOSApiClient, VibeOSAuthError, VibeOSTimeoutError, VibeOSNetworkError } from "vibeOScore/client"
-import { readFileSync } from "node:fs"
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs"
 import { dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 import { homedir } from "node:os"
@@ -31,6 +31,24 @@ export function setApiToken(newToken) {
   try {
     VIBEOS_API_TOKEN = String(newToken || "").trim()
     VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && !!VIBEOS_API_TOKEN
+    const primaryPath = _envPaths[0] + "/.env.production"
+    try {
+      if (existsSync(primaryPath)) {
+        let envContent = readFileSync(primaryPath, "utf8")
+        if (/^VIBEOS_API_TOKEN=/m.test(envContent)) {
+          envContent = envContent.replace(/^VIBEOS_API_TOKEN=.+$/m, `VIBEOS_API_TOKEN=${VIBEOS_API_TOKEN}`)
+        } else {
+          envContent = envContent.trimEnd() + `\nVIBEOS_API_TOKEN=${VIBEOS_API_TOKEN}\n`
+        }
+        writeFileSync(primaryPath, envContent, "utf8")
+      } else {
+        const parentDir = _envPaths[0]
+        if (!existsSync(parentDir)) mkdirSync(parentDir, { recursive: true })
+        writeFileSync(primaryPath, `VIBEOS_API_TOKEN=${VIBEOS_API_TOKEN}\n`, "utf8")
+      }
+    } catch (diskErr) {
+      console.error("[vibeOS] Failed to persist API token to disk:", diskErr.message)
+    }
     console.error("[vibeOS] API token updated via setApiToken")
   } catch(e) {
     console.error("[vibeOS] Failed to update API token:", e.message)
@@ -41,7 +59,9 @@ let _apiFallbackMode = false
 let _apiFallbackSince = null
 
 function syncApiTokenFromDisk(): void {
-  const diskToken = readTokenFromDisk() || process.env.VIBEOS_API_TOKEN || ""
+  const diskToken = readTokenFromDisk() || ""
+  const envToken = process.env.VIBEOS_API_TOKEN || ""
+
   if (diskToken && diskToken !== VIBEOS_API_TOKEN) {
     VIBEOS_API_TOKEN = diskToken
     VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && !!VIBEOS_API_TOKEN
@@ -49,6 +69,32 @@ function syncApiTokenFromDisk(): void {
     _apiFallbackMode = false
     _apiFallbackSince = null
     resetApiConnection()
+    console.error("[vibeOS] API token synced from disk (disk is newer)")
+  } else if (!diskToken && VIBEOS_API_TOKEN) {
+    const primaryPath = _envPaths[0] + "/.env.production"
+    try {
+      if (existsSync(primaryPath)) {
+        let envContent = readFileSync(primaryPath, "utf8")
+        if (/^VIBEOS_API_TOKEN=/m.test(envContent)) {
+          envContent = envContent.replace(/^VIBEOS_API_TOKEN=.+$/m, `VIBEOS_API_TOKEN=${VIBEOS_API_TOKEN}`)
+        } else {
+          envContent = envContent.trimEnd() + `\nVIBEOS_API_TOKEN=${VIBEOS_API_TOKEN}\n`
+        }
+        writeFileSync(primaryPath, envContent, "utf8")
+      } else {
+        const parentDir = _envPaths[0]
+        if (!existsSync(parentDir)) mkdirSync(parentDir, { recursive: true })
+        writeFileSync(primaryPath, `VIBEOS_API_TOKEN=${VIBEOS_API_TOKEN}\n`, "utf8")
+      }
+      console.error("[vibeOS] API token persisted to disk from memory (disk was empty)")
+    } catch (diskErr) {
+      console.error("[vibeOS] Failed to persist API token to disk from sync:", diskErr.message)
+    }
+    VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && !!VIBEOS_API_TOKEN
+  } else if (envToken && !diskToken && !VIBEOS_API_TOKEN) {
+    VIBEOS_API_TOKEN = envToken
+    VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && !!VIBEOS_API_TOKEN
+    console.error("[vibeOS] API token loaded from VIBEOS_API_TOKEN env var")
   } else {
     VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && !!VIBEOS_API_TOKEN
   }

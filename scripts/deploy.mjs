@@ -70,11 +70,15 @@ try {
 
   const envSrc = join(ROOT, ".env.production")
   if (existsSync(envSrc)) {
-    const envDest = join(pluginDir, ".env.production")
-    if (!existsSync(envDest)) {
-      writeFileSync(envDest, readFileSync(envSrc))
-      process.stderr.write(`[vibeOS deploy] Copied .env.production to plugin dir\n`)
-    }
+    const envContent = readFileSync(envSrc)
+    const pluginEnvDest = join(pluginDir, ".env.production")
+    const homeEnvDir = join(homedir(), ".claude")
+    const homeEnvDest = join(homeEnvDir, ".env.production")
+
+    mkdirSync(homeEnvDir, { recursive: true })
+    writeFileSync(pluginEnvDest, envContent)
+    writeFileSync(homeEnvDest, envContent)
+    process.stderr.write(`[vibeOS deploy] Synced .env.production to plugin dir and ~/.claude\n`)
   }
 
   // ── Install nightly pricing sync cron if not already present ──
