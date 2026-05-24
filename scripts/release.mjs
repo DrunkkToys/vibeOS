@@ -48,6 +48,20 @@ if (branch !== "main" && branch !== "master") {
   log(`${YELLOW}⚠${RESET}  not on main/master — current branch: ${CYAN}${branch}${RESET}`)
 }
 
+// ── RELEASE GATE: minimum 2-hour interval ──────────────────────
+const minReleaseGapMs = 2 * 60 * 60 * 1000
+let lastTagDate
+try {
+  const lastTag = sh("git tag --sort=-creatordate --list 'v*' | head -1")
+  if (lastTag) {
+    lastTagDate = new Date(sh(`git log -1 --format=%ai ${lastTag}`))
+  }
+} catch {}
+if (lastTagDate && (Date.now() - lastTagDate.getTime() < minReleaseGapMs)) {
+  const nextAvailable = new Date(lastTagDate.getTime() + minReleaseGapMs)
+  die(`at least ${minReleaseGapMs / 3600000}h required between releases. Last: ${lastTagDate.toISOString()}. Next available: ${nextAvailable.toISOString()}`)
+}
+
 // ── CLI ARG OVERRIDES ────────────────────────────────────────
 const forceBump = ["patch", "minor", "major"].find(t => process.argv.includes(t)) || null
 const autoYes = process.argv.includes("--yes") || process.argv.includes("-y")

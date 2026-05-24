@@ -14,6 +14,9 @@ const USER_HOME = (() => { try { return homedir() } catch { return tmpdir() } })
 //   metrics: { [key]: number }
 //   narrative: string (markdown)
 //   tags: string[]
+//   status: "pending" | "completed" | "failed" | "partial"
+//   task_description: string
+//   outcome_verified: boolean
 export const REPORTS_DIR = join(USER_HOME, ".claude/reports")
 export const REPORTS_INDEX = join(REPORTS_DIR, "index.json")
 
@@ -139,7 +142,7 @@ function _parseMetrics(v) {
   return result
 }
 
-export function saveReport({ type = "manual", summary = "", findings = null, metrics = null, narrative = "", tags = [], fingerprint = null }: { type?: string; summary?: string; findings?: unknown; metrics?: unknown; narrative?: string; tags?: unknown[]; fingerprint?: string | null } = {}) {
+export function saveReport({ type = "manual", summary = "", findings = null, metrics = null, narrative = "", tags = [], fingerprint = null, status = "pending", task_description = "", outcome_verified = false }: { type?: string; summary?: string; findings?: unknown; metrics?: unknown; narrative?: string; tags?: unknown[]; fingerprint?: string | null; status?: string; task_description?: string; outcome_verified?: boolean } = {}) {
   // Auto-parse findings + metrics (supports array, JSON string, plain-text lines)
   const parsedFindings = _parseFindings(findings)
   const parsedMetrics = _parseMetrics(metrics)
@@ -151,7 +154,7 @@ export function saveReport({ type = "manual", summary = "", findings = null, met
   const id = generateReportId(type, fp)
   const report = {
     meta: { id, project: currentProjectName || "unknown", fingerprint: fp, type, created: new Date().toISOString(), sessionId: _OC_SID },
-    summary, findings: parsedFindings, metrics: parsedMetrics, narrative, tags,
+    summary, findings: parsedFindings, metrics: parsedMetrics, narrative, tags, status, task_description, outcome_verified,
   }
   try {
     withFileLock(REPORTS_INDEX, () => {
