@@ -35,12 +35,18 @@ import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 function safeJsonParse(raw) {
+  if (raw == null || raw === "")
+    return null;
   try {
     return JSON.parse(raw);
   } catch {
   }
   let cleaned = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "").replace(/,\s*([}\]])/g, "$1");
-  return JSON.parse(cleaned);
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    return null;
+  }
 }
 function resolveRulesPath() {
   return RULES_PATH;
@@ -395,7 +401,7 @@ var init_flow_enforcer = __esm({
 // src/index.ts
 init_flow_enforcer();
 import { readFileSync as readFileSync15, writeFileSync as writeFileSync12, existsSync as existsSync14, mkdirSync as mkdirSync11, copyFileSync as copyFileSync5, renameSync as renameSync6 } from "node:fs";
-import { join as join15, dirname as dirname8, basename as basename8 } from "node:path";
+import { join as join16, dirname as dirname8, basename as basename8 } from "node:path";
 import { homedir as homedir10 } from "node:os";
 import { spawn as spawn2 } from "node:child_process";
 
@@ -1706,8 +1712,8 @@ function safeJsonParse3(raw) {
   let cleaned = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "").replace(/,\s*([}\]])/g, "$1");
   try {
     return JSON.parse(cleaned);
-  } catch (e) {
-    throw e;
+  } catch {
+    return null;
   }
 }
 function validateState(state, path) {
@@ -3900,9 +3906,10 @@ function loadOptimizationMode() {
 }
 function saveOptimizationMode(mode) {
   try {
-    writeSessionOptMode(_OC_SID, mode);
+    return writeSessionOptMode(_OC_SID, mode);
   } catch (err) {
     console.error("[vibeOS] saveOptimizationMode failed: " + err.message);
+    return false;
   }
 }
 function getTurnCounter() {
@@ -7187,7 +7194,7 @@ ${vibeLine} \u2014`;
 
 // src/lib/hooks/tool-execute.js
 import { writeFileSync as writeFileSync11, appendFileSync as appendFileSync8, existsSync as existsSync12, mkdirSync as mkdirSync10 } from "node:fs";
-import { dirname as dirname7, basename as basename7 } from "node:path";
+import { join as join15, dirname as dirname7, basename as basename7 } from "node:path";
 init_flow_enforcer();
 
 // src/lib/tdd-enforcer.js
@@ -8615,6 +8622,85 @@ function _argSizeBucket(tool2, args) {
     return _bucketChars(String(args?.newString || "").length);
   return _bucketChars(JSON.stringify(args || {}).length);
 }
+function _toolArgSources(input, output) {
+  return [input?.args, output?.args].filter((arg) => arg && typeof arg === "object");
+}
+function _normalizeToolPath(pathValue) {
+  return String(pathValue || "").trim().replace(/\\/g, "/");
+}
+function _resolveToolPath(pathValue) {
+  const raw = _normalizeToolPath(pathValue);
+  if (!raw)
+    return "";
+  if (/^[a-z]+:\/\//i.test(raw))
+    return raw;
+  if (raw.startsWith("/"))
+    return raw;
+  return projectDirectory ? join15(projectDirectory, raw).replace(/\\/g, "/") : raw;
+}
+function _isProtectedToolPath(pathValue) {
+  const raw = _normalizeToolPath(pathValue);
+  if (!raw)
+    return false;
+  const resolved = _resolveToolPath(pathValue);
+  const candidates = [raw, resolved].filter(Boolean);
+  const protectedPatterns = [
+    /(^|\/)src\/index\.(js|ts)$/i,
+    /(^|\/)src\/vibeOS-lib\//i,
+    /(^|\/)src\/utils\//i,
+    /(^|\/)src\/dashboard\//i,
+    /(^|\/)src\/vibeOS-api-server\//i,
+    /(^|\/)tests?\//i,
+    /(^|\/)test-scripts\//i,
+    /(^|\/)scripts\//i,
+    /(^|\/)\.github\/workflows\//i,
+    /(^|\/)\.opencode\/plugins\//i,
+    /(^|\/)plugins\//i,
+    /(^|\/)README\.md$/i,
+    /(^|\/)AGENTS\.md$/i,
+    /(^|\/)CHANGELOG\.md$/i,
+    /(^|\/)LICENSE$/i,
+    /(^|\/)package\.json$/i,
+    /(^|\/)tsconfig\.json$/i,
+    /(^|\/)\.env\.production$/i,
+    /(^|\/)PRODUCTION-CREDENTIALS\.md$/i
+  ];
+  return candidates.some((candidate) => protectedPatterns.some((re) => re.test(candidate)));
+}
+function _mutateBlockedToolArgs(toolName, sources, blockedPath, outputObj) {
+  const tLower = String(toolName || "").toLowerCase();
+  const blockedBase = basename7(blockedPath || "") || "blocked";
+  for (const src of sources) {
+    if (!src || typeof src !== "object")
+      continue;
+    if (tLower === "write") {
+      src.filePath = `/tmp/vibeos-enforcement-blocked-${blockedBase}`;
+      if (src.file_path !== void 0)
+        src.file_path = src.filePath;
+      if (src.path !== void 0)
+        src.path = src.filePath;
+      if (src.content !== void 0)
+        src.content = "";
+    } else if (tLower === "edit" || tLower === "notebookedit") {
+      src.oldString = `__THE_SAVER_ENFORCEMENT_BLOCK_${Date.now()}__`;
+      if (src.newString !== void 0)
+        src.newString = "";
+      if (src.content !== void 0)
+        src.content = "";
+      if (!src.filePath && blockedPath)
+        src.filePath = blockedPath;
+      if (src.file_path !== void 0 && !src.file_path)
+        src.file_path = blockedPath;
+      if (src.path !== void 0 && !src.path)
+        src.path = blockedPath;
+    }
+  }
+  if (outputObj && typeof outputObj === "object") {
+    outputObj.blocked = true;
+    outputObj.status = "error";
+    outputObj.error = outputObj.error || `blocked direct ${tLower}`;
+  }
+}
 function _dequeueTelemetryStart(tool2) {
   if (_pendingTelemetryStarts.length === 0)
     return null;
@@ -8808,11 +8894,11 @@ var onToolExecuteBefore = async (input, output) => {
     pendingUiNote = msg;
     return;
   }
-  const SELF_PROTECT_PATTERNS = ["/theSaver-oc/", "/theSaver-cx/", "/vibeOScore/", "/VibeTheOG/", "/theSlave/", "/theWay/", "/theBlender/", "/theLego/", "/loracolo/", "/drunkktoys/"];
   if (WARN_ON_DIRECT.has(String(t || "").toLowerCase())) {
-    const actualArgs = args || output && output.args || {};
-    const checkPath = actualArgs.filePath || actualArgs.file_path || "";
-    if (checkPath && SELF_PROTECT_PATTERNS.some((p) => checkPath.includes(p))) {
+    const argSources = _toolArgSources(input, output);
+    const checkPath = argSources.flatMap((src) => [src?.filePath, src?.file_path, src?.path]).find((v) => typeof v === "string" && v.trim()) || "";
+    if (_isProtectedToolPath(checkPath)) {
+      _mutateBlockedToolArgs(t, argSources, checkPath, output);
       if (shouldLogWarn(`${t}|protect|${checkPath}`))
         console.error(`[vibeOS] [protection] BLOCKED direct ${t} in self-protected directory: ${checkPath}`);
       pendingUiNote = `\u{1F6E1} Self-modification blocked: ${basename7(checkPath)} is in a protected project tree. Use manual git workflow.`;
@@ -8822,11 +8908,11 @@ var onToolExecuteBefore = async (input, output) => {
   }
   if (WARN_ON_DIRECT.has(String(t || "").toLowerCase())) {
     const sel = loadSelection();
-    console.error(`[vibeOS] [enforce-debug] tool=${t} tier=${currentTier} enforce=${sel?.delegation_enforce} argsType=${typeof args} argsExists=${!!args}`);
+    const argSources = _toolArgSources(input, output);
+    console.error(`[vibeOS] [enforce-debug] tool=${t} tier=${currentTier} enforce=${sel?.delegation_enforce} argsType=${typeof args} argsExists=${argSources.length > 0}`);
     const tLower = String(t || "").toLowerCase();
-    if (sel.delegation_enforce && currentTier === "high" && args && typeof args === "object") {
-      const actualArgs = args || output && output.args || {};
-      const originalPath = actualArgs.filePath || actualArgs.file_path || "";
+    if (sel.delegation_enforce && currentTier === "high" && argSources.length > 0) {
+      const originalPath = argSources.flatMap((src) => [src?.filePath, src?.file_path, src?.path]).find((v) => typeof v === "string" && v.trim()) || "";
       const basename9 = originalPath.split("/").pop() || "blocked";
       const apiResult = await remoteCall("delegateCheck", [tLower, currentTier, currentModel, _prompt], () => ({
         blocked: true,
@@ -8835,13 +8921,7 @@ var onToolExecuteBefore = async (input, output) => {
       const isBlocked = apiResult?.blocked !== false;
       const savings = apiResult?.savings ?? _estEdit;
       if (isBlocked) {
-        if (tLower === "write") {
-          actualArgs.filePath = `/tmp/vibeos-enforcement-blocked-${basename9}`;
-          if (actualArgs.file_path !== void 0)
-            actualArgs.file_path = actualArgs.filePath;
-        } else if (tLower === "edit" || tLower === "notebookedit") {
-          actualArgs.oldString = `__THE_SAVER_ENFORCEMENT_BLOCK_${Date.now()}__`;
-        }
+        _mutateBlockedToolArgs(tLower, argSources, originalPath, output);
         const total2 = recordSaving(t, "delegation enforced", savings, { firstWord: _firstWord });
         pendingUiNote = `\u{1F6AB} Direct ${t} blocked on Brain tier \u2192 delegate via Task or run \`trinity medium\`.`;
         enforcementBlocked = true;
@@ -9329,15 +9409,15 @@ var _mcpServerRuntime = null;
 var _mcpServerHooked = false;
 function _loadOpenCodeProviders() {
   try {
-    const cfg = _readOpenCodeConfigObject(join15(USER_HOME2, ".config", "opencode"));
+    const cfg = _readOpenCodeConfigObject(join16(USER_HOME2, ".config", "opencode"));
     return cfg?.provider || {};
   } catch {
     return {};
   }
 }
 function _readOpenCodeConfigObject(dir) {
-  const jsonPath = join15(dir, "opencode.json");
-  const jsoncPath = join15(dir, "opencode.jsonc");
+  const jsonPath = join16(dir, "opencode.json");
+  const jsoncPath = join16(dir, "opencode.jsonc");
   if (existsSync14(jsonPath)) return safeJsonParse3(readFileSync15(jsonPath, "utf-8"));
   if (existsSync14(jsoncPath)) return _parseJsonc(readFileSync15(jsoncPath, "utf-8"));
   return {};
@@ -9365,9 +9445,9 @@ function _modelTier2(id2) {
 function backupFile(path, label) {
   try {
     if (!existsSync14(path)) return null;
-    const bkDir = join15(USER_HOME2, ".claude", ".backups");
+    const bkDir = join16(USER_HOME2, ".claude", ".backups");
     mkdirSync11(bkDir, { recursive: true });
-    const bk = join15(bkDir, `${basename8(path)}.${label}.${Date.now()}.bak`);
+    const bk = join16(bkDir, `${basename8(path)}.${label}.${Date.now()}.bak`);
     copyFileSync5(path, bk);
     return bk;
   } catch {
@@ -9376,7 +9456,7 @@ function backupFile(path, label) {
 }
 function readPackageVersion() {
   try {
-    const pkg = safeJsonParse3(readFileSync15(join15(process.cwd(), "package.json"), "utf-8"));
+    const pkg = safeJsonParse3(readFileSync15(join16(process.cwd(), "package.json"), "utf-8"));
     return String(pkg?.version || "");
   } catch {
     return "";
@@ -9425,7 +9505,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
   setCurrentModel(readConfig(directory3));
   if (!currentModel) {
     const home = process.env.HOME || "";
-    if (home) setCurrentModel(readConfig(join15(home, ".config/opencode")));
+    if (home) setCurrentModel(readConfig(join16(home, ".config/opencode")));
   }
   if (!currentModel) setCurrentModel(process?.env?.OPENCODE_MODEL || "");
   if (currentModel) {
@@ -9919,7 +9999,7 @@ var server = DelegationEnforcer;
 var VERSION = readPackageVersion();
 {
   try {
-    const pluginsDir = join15(homedir10(), ".config", "opencode", "plugins");
+    const pluginsDir = join16(homedir10(), ".config", "opencode", "plugins");
     if (existsSync14(pluginsDir)) {
       const sub = spawn2("npm", ["install", "vibeostheog@latest"], {
         stdio: "ignore",

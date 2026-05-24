@@ -236,8 +236,8 @@ function safeJsonParse(raw: string): any {
     .replace(/,\s*([}\]])/g, '$1')
   try {
     return JSON.parse(cleaned)
-  } catch (e) {
-    throw e
+  } catch {
+    return null
   }
 }
 

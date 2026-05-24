@@ -39,11 +39,16 @@ type FlowTodoInput = {
 }
 
 function safeJsonParse(raw: string): any {
+  if (raw == null || raw === '') return null
   try {
     return JSON.parse(raw)
   } catch {}
   let cleaned = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '').replace(/,\s*([}\]])/g, '$1')
-  return JSON.parse(cleaned)
+  try {
+    return JSON.parse(cleaned)
+  } catch {
+    return null
+  }
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url))

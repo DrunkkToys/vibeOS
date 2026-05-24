@@ -322,6 +322,17 @@ describe('state', () => {
     expect(result).toBeDefined();
   });
 
+  test('safeJsonParse never throws on invalid input', () => {
+    expect(() => mod.safeJsonParse(null)).not.toThrow();
+    expect(() => mod.safeJsonParse("")).not.toThrow();
+    expect(() => mod.safeJsonParse("{invalid:")).not.toThrow();
+    expect(() => mod.safeJsonParse("not json at all")).not.toThrow();
+    expect(() => mod.safeJsonParse("/* unclosed comment")).not.toThrow();
+    expect(mod.safeJsonParse(null)).toBeNull();
+    expect(mod.safeJsonParse("")).toBeNull();
+    expect(mod.safeJsonParse("{invalid:")).toBeNull();
+  });
+
   // TODO: implement tests for _safeRegex
   test('_safeRegex is exported', () => {
     expect(typeof mod._safeRegex).toBe('function');

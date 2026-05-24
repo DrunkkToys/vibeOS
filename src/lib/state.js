@@ -239,8 +239,8 @@ function safeJsonParse(raw) {
     try {
         return JSON.parse(cleaned);
     }
-    catch (e) {
-        throw e;
+    catch {
+        return null;
     }
 }
 // ── State validation ─────────────────────────────────────────────────

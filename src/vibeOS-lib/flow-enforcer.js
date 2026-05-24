@@ -5,12 +5,19 @@ import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 function safeJsonParse(raw) {
+    if (raw == null || raw === '')
+        return null;
     try {
         return JSON.parse(raw);
     }
     catch { }
     let cleaned = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '').replace(/,\s*([}\]])/g, '$1');
-    return JSON.parse(cleaned);
+    try {
+        return JSON.parse(cleaned);
+    }
+    catch {
+        return null;
+    }
 }
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const RULES_PATH = join(__dirname, "flow-rules.json");
@@ -106,7 +113,7 @@ function getFlowTodoFile() {
     const home = process.env.HOME || homedir();
     return join(home, ".claude/flow-todo-queue.jsonl");
 }
-const FLOW_DEDUP_FILE = join(homedir(), ".claude/.flow-dedup-keys.json");
+const FLOW_DEDUP_FILE = join(process.env.HOME || homedir(), ".claude/.flow-dedup-keys.json");
 const MAX_FLOW_TODOS = 200;
 const _flowWarnsSeen = new Set();
 let _stateWriter = null;
