@@ -1,175 +1,135 @@
 # vibeOS for OpenCode
 
-VIBE is a smart model router for OpenCode Desktop. It automatically selects and switches between brain, medium, and cheap model tiers based on the task at hand — expensive models handle orchestration while cost-effective models execute implementation work. No manual slot-picking needed.
+vibeOS is the cost-aware routing layer for OpenCode Desktop. It keeps high-tier models focused on orchestration, pushes implementation work to cheaper tiers, and makes the savings visible in real time through the live footer and dashboard.
 
-The core is the VIBE autoswitcher: a decision engine that routes each request to the right tier based on context, enforcement policy, and session state. You stay in control via the `trinity` tool set, but the default workflow is zero-config.
+It also adds guardrails: delegation enforcement, flow and TDD controls, pattern learning, stress-aware routing, blackbox decision tracking, reporting, and remote API protection for the core algorithms.
 
-Beyond routing, vibeOS tracks savings from tier-switching, enforces delegation policies, and provides real-time visibility through a live status footer and web dashboard.
+## Why Teams Use It
 
-## Savings Categories
-
-- **Delegation savings** — Estimated cost avoided by routing tasks to cheaper models.
-- **Cache savings** — Cost avoided from scratchpad cache hits.
-
-Both are summed in the live footer and persisted in \`~/.claude/delegation-state.json\` across sessions.
-
-## What It Does
-
-- **Smart delegation** — Blocks direct write/edit on high-tier models and routes work to cheaper subagents
-- **Cost tracking** — Tracks estimated savings from delegation events and cache hits, displayed in a live footer
-- **trinity commands** — Runtime controls for model switching, enforcement toggles, audits, and diagnostics
-- **Flow enforcer** — Validates write/edit patterns against project rules; optionally extracts TODOs/FIXMEs
-- **TDD enforcer** — Auto-creates test skeletons for changed source files; strict mode makes TODO tests fail loudly
-- **Project guard** — Protects AGENTS.md and README.md in every project with auto-regeneration
-- **Pattern learner** — Detects recurring friction and routine patterns per project, surfaces via `trinity patterns`
-- **Stress mitigation** — Detects user stress signals, adjusts tier routing, and injects protective prompts
-- **Model locking** — Prevents auto-switching when model is changed in the OpenCode GUI (`trinity lock`)
-- **Report & audit** — `report-save`, `report-list`, `report-read`, and `research-audit` tools
-- **Worker-to-Brain protocol** — Delegates implementation tasks to cheaper subagents, synthesizes results in-chat
-- **Web dashboard** — Real-time status, savings, stress gauge, and controls via browser
-- **TUI sidebar** — Plugin status and controls via OpenCode sidebar plugin
-- **Blackbox decision engine** — Dialogue trajectory tracking with loop prevention, pivot detection, and outcome tracking
+- Routes work to the right model tier without manual babysitting
+- Tracks delegation savings and cache savings separately
+- Shows live status in chat, the footer, and the web dashboard
+- Adds runtime controls for flow, TDD, model locking, and blackbox mode
+- Falls back to local algorithms if the remote API is unavailable
 
 ## Install
 
-### npm (Recommended)
+### OpenCode plugin
+
+1. Install the package:
 
 ```bash
 npm install vibeOS
 ```
 
-Register in `~/.config/opencode/opencode.json`:
+2. Register it in `~/.config/opencode/opencode.json`:
 
 ```json
-"plugins": [
-  { "id": "vibeOS", "path": "node_modules/vibeOS/src/index.js" }
-]
+{
+  "plugins": [
+    { "id": "vibeOS", "path": "node_modules/vibeOS/src/index.js" }
+  ]
+}
 ```
 
-### Local Plugin File
+### Local plugin file
 
-Copy the plugin and lib files to `~/.config/opencode/plugins/`. See the repository for the complete file list.
-
-Register in `~/.config/opencode/opencode.json`:
+If you keep a local copy of the plugin, point OpenCode at the built file instead:
 
 ```json
-"plugins": [
-  { "id": "vibeOS", "path": "~/.config/opencode/plugins/vibeOS.js" }
-]
+{
+  "plugins": [
+    { "id": "vibeOS", "path": "~/.config/opencode/plugins/vibeOS.js" }
+  ]
+}
 ```
 
-Restart OpenCode Desktop. The plugin auto-creates its configuration on first run.
+Restart OpenCode Desktop after changing the config.
 
-## trinity Commands
+## Backend Root
 
-| Command | Description |
-|---|---|
-| `trinity status` | Show current plugin state |
-| `trinity set brain\|medium\|cheap` | Switch model slot |
-| `trinity brain\|medium\|cheap` | Shorthand slot switch |
-| `trinity enable` / `trinity disable` | Toggle plugin on/off |
-| `trinity thinking full\|brief\|off` | Set reasoning depth |
-| `trinity enforce on\|off` | Toggle delegation enforcement |
-| `trinity lock on\|off` | Toggle model locking |
-| `trinity flow on\|off` | Toggle flow enforcer |
-| `trinity flow enforce on\|off` | Toggle auto TODO extraction |
-| `trinity tdd on\|off` | Toggle test skeleton gen |
-| `trinity tdd strict on\|off` | Toggle strict mode |
-| `trinity tdd quality on\|off` | Toggle quality mode |
-| `trinity blackbox on\|off\|status\|reset` | Decision engine controls |
-| `trinity project` | Per-project analytics |
-| `trinity patterns` / `trinity patterns clear` | Inspect / clear patterns |
-| `trinity guard` | Regenerate project guard files |
-| `trinity diagnose` | Run diagnostics |
-| `trinity rebuild` | Auto-detect available models |
-| `trinity help` | Command reference |
+The backend lives at the Desktop-level sibling folder `../vibeOScore`.
 
-## Footer Format
-
-Typical output footer:
-
-```
-— [model route] | VibeTheOG: <total> saved <arrow> —
-```
-
-The footer shows model split, cumulative savings, stress gauge, and trend arrow.
-
-## Web Dashboard
+Use that folder when you need the API server, MCP server, or dashboard build chain:
 
 ```bash
-npm run build:dashboard   # Build the SPA
-npm run dashboard         # Start server on http://127.0.0.1:3333
+npm run start
+npm run start:all
+npm run build:dashboard
+npm run dev:dashboard
+npm run dashboard:serve
+npm run typecheck
+npm test
 ```
 
-Displays model split, savings, session history, stress gauge, trinity controls, reports, and blackbox state with SSE push updates every 1.5s.
+## Core Controls
 
-## Security
+Use `trinity help` for the full command list. The most common controls are:
 
-The API token (`VIBEOS_API_TOKEN`) acts as a **password** for your vibeOS seat. Treat it with the same care as any credential.
+- `trinity status` - show current tier, enforcement, savings, stress, and lock state
+- `trinity set brain|medium|cheap` - switch the active tier
+- `trinity brain|medium|cheap` - shorthand tier switch
+- `trinity rebuild` - re-detect available models and repopulate slots
+- `trinity enable` / `trinity disable` - toggle the plugin on or off
+- `trinity mode budget|quality|speed|longrun|auto` - change the optimization mode
+- `trinity thinking full|brief|off` - change reasoning depth
+- `trinity enforce on|off` - control delegation enforcement
+- `trinity lock on|off` - freeze the active model for the session
+- `trinity flow on|off` and `trinity flow enforce on|off` - manage flow checks
+- `trinity tdd on|off`, `trinity tdd strict on|off`, `trinity tdd quality on|off` - manage test skeleton behavior
+- `trinity project` - open project analytics
+- `trinity patterns` / `trinity patterns clear` - inspect or reset learned patterns
+- `trinity diagnose` - run a health check
+- `trinity repair-state preview|apply` - fix state fingerprint collisions
+- `trinity blackbox on|off|status|reset` - control the decision engine
+- `trinity guard` - refresh AGENTS.md and README.md checks
+- `trinity api-token <token>` - update the remote API token
 
-- **Token-based seat auth** — Each token is bound to a seat. Suspending a seat immediately revokes all associated tokens.
-- **Graceful degradation** — If the token is revoked or the API is unreachable, the plugin falls back to local-only mode with bundled algorithms. No functionality is lost; only remote-optimized routing is disabled.
-- **Never commit tokens** — `.env.production` and `PRODUCTION-CREDENTIALS.md` are gitignored. Do not share or hardcode tokens in source files.
-- **Token rotation** — Generate a new token and update `VIBEOS_API_TOKEN` if you suspect a leak. Old tokens are invalidated immediately on seat suspension.
-- **Local-only mode** — Without an API token, all algorithms run locally. Set `VIBEOS_API_ENABLED=false` to explicitly disable all remote calls.
+Additional reporting commands:
 
-## Context7 Cost Optimization
+- `report-save`
+- `report-list`
+- `report-read`
+- `research-audit`
 
-[context7](https://upstash.com/docs/context7) is an MCP tool that resolves library/framework documentation queries at a fraction of the cost of WebFetch (~$0.06/turn saved).
+## Savings And Footer
 
-**Install it once:**
+The footer shows:
 
-```bash
-claude mcp add context7 npx @upstash/context7-mcp
-```
+- the active model split
+- cumulative delegation savings
+- cache savings
+- stress level
+- lock and enforcement tags
 
-### How vibeOS uses context7
+Savings are persisted in `~/.claude/delegation-state.json`.
 
-- **Auto-detection** — At module load, vibeOS scans `~/.claude/settings.json`, `~/.claude.json`, `opencode.json`, and `~/.config/opencode/` for a `context7` reference. No manual config needed.
-- **System prompt injection** — When context7 is detected, a cost-policy directive is injected into every system prompt instructing the model to prefer `mcp__context7__resolve-library-id` and `mcp__context7__get-library-docs` over WebFetch/WebSearch for documentation URLs.
-- **Urgency levels** — Controlled by the blackbox engine:
-  - `required` (strict/TDD-strict mode) — context7 is mandatory this turn.
-  - `preferred` (default) — context7 is encouraged but not forced.
-  - `optional` (relaxed mode) — context7 is a nice-to-have.
-- **Docs nudge** — If context7 is not installed and the model uses WebFetch on a documentation URL (docs.*, readthedocs, MDN, npmjs, pypi, crates.io, pkg.go.dev, etc.), vibeOS logs a one-time install suggestion and tracks the missed savings.
-- **Savings tracking** — Every docs URL fetched via WebFetch instead of context7 is recorded as `missed_context7_usd` in `~/.claude/delegation-state.json`. Accumulated misses appear in `trinity project` analytics with an installation suggestion when bypasses exceed 3.
+## Configuration
 
-### Force-enable detection
-
-```bash
-export CLAUDE_CONTEXT7_AVAILABLE=true
-```
-
-Use this when context7 is configured but the auto-scan misses it (unusual paths, remote configs, or runtime-loaded MCP definitions).
-
-## Environment Variables
-
-| Variable | Default | Description |
+| Variable | Default | Purpose |
 |---|---|---|
-| `VIBEOS_API_URL` | `https://api.vibetheog.com` | API server URL |
-| `VIBEOS_API_TOKEN` | — | **API token (password). Protect like a credential.** Required for remote mode. If compromised, rotate immediately via seat suspension. |
+| `VIBEOS_API_URL` | `https://api.vibetheog.com` | Remote API server URL |
+| `VIBEOS_API_TOKEN` | none | Token for remote mode |
 | `VIBEOS_API_ENABLED` | `true` | Set to `false` for local-only mode |
-| `CLAUDE_CREDIT_PERCENT` | `100` | Credit percentage override |
-| `CLAUDE_CONTEXT7_AVAILABLE` | — | Enable context7 cost optimization |
+| `CLAUDE_CREDIT_PERCENT` | `100` | Credit override |
+| `CLAUDE_CONTEXT7_AVAILABLE` | unset | Enables context7 optimization |
 | `CLAUDE_SCRATCHPAD_MAX_AGE_SEC` | `86400` | Scratchpad cache lifetime |
 | `VIBEOS_MCP_PORT` | `3001` | MCP server port |
 
-Without an API token, the plugin runs in local-only mode with all algorithms bundled locally.
+Without a token, vibeOS keeps running in local-only mode with bundled algorithms.
 
-## Runtime Model Slots
+## Troubleshooting
 
-Tier configuration in `~/.claude/model-tiers.json`:
+- If the plugin does not appear, confirm the OpenCode config entry, then restart OpenCode Desktop.
+- If the model will not switch, run `trinity rebuild` and then `trinity set brain|medium|cheap`.
+- If writes or edits are blocked, that is usually delegation enforcement working as intended on the brain tier.
+- If the footer is missing, check that the plugin is enabled and that the current OpenCode session is receiving assistant completions.
+- If the remote API is down or the token is invalid, use `trinity api-token <token>` or rely on local-only mode.
+- If the dashboard does not load, rebuild it from the backend root with `npm run build:dashboard`.
+- If state or config looks inconsistent, run `trinity diagnose` and `trinity guard`.
 
-| Slot | Purpose |
-|---|---|
-| `brain` | High-tier model for orchestration |
-| `medium` | Mid-tier for moderate tasks |
-| `cheap` | Low-tier for delegation subagents |
+## Notes
 
-Use `trinity set brain|medium|cheap` or `trinity rebuild` to configure.
-
-## Known Limitations
-
-- OpenCode runtime behavior can vary by version.
-- Some test suite tests may fail due to policy semantic changes rather than actual breakage.
-- Savings displayed are estimates, not billing data.
+- `trinity help` is the canonical command reference.
+- `../vibeOScore` is the backend sibling directory on the Desktop.
+- The README stays intentionally high level so the command details can follow the code without a rewrite.
