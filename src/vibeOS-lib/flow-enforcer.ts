@@ -133,9 +133,17 @@ export function ensureProjectDocs(dir: string, techStack?: string[]): { created:
 
   return { created, skipped }
 }
-const STATE_FILE = join(homedir(), ".claude/delegation-state.json")
-const FLOW_TODO_FILE = join(homedir(), ".claude/flow-todo-queue.jsonl")
-const FLOW_DEDUP_FILE = join(homedir(), ".claude/.flow-dedup-keys.json")
+function getStateFile(): string {
+  const home = process.env.HOME || homedir()
+  return join(home, ".claude/delegation-state.json")
+}
+
+function getFlowTodoFile(): string {
+  const home = process.env.HOME || homedir()
+  return join(home, ".claude/flow-todo-queue.jsonl")
+}
+
+const FLOW_DEDUP_FILE = join(process.env.HOME || homedir(), ".claude/.flow-dedup-keys.json")
 const MAX_FLOW_TODOS = 200
 
 const _flowWarnsSeen = new Set<string>()
@@ -198,10 +206,11 @@ function loadRules(): FlowRule[] {
 function recordFlowWarn(hit: RecordFlowWarnInput): void {
   try {
     let state: any = {}
-    if (existsSync(STATE_FILE)) {
-      try { state = safeJsonParse(readFileSync(STATE_FILE, "utf-8")) } catch {}
+    const stateFile = getStateFile()
+    if (existsSync(stateFile)) {
+      try { state = safeJsonParse(readFileSync(stateFile, "utf-8")) } catch {}
     } else {
-      mkdirSync(dirname(STATE_FILE), { recursive: true })
+      mkdirSync(dirname(stateFile), { recursive: true })
     }
     state.flow_warns ??= []
     state.flow_warns.push({
@@ -218,11 +227,12 @@ function recordFlowWarn(hit: RecordFlowWarnInput): void {
     const fp = { flow_warns: state.flow_warns }
     if (_stateWriter) _stateWriter(fp)
     else {
-      const existing = safeJsonParse(existsSync(STATE_FILE) ? readFileSync(STATE_FILE, "utf-8") : "{}")
+      const stateFile = getStateFile()
+      const existing = safeJsonParse(existsSync(stateFile) ? readFileSync(stateFile, "utf-8") : "{}")
       const merged = Object.assign({}, existing, fp)
-      const tmpFile = STATE_FILE + ".tmp." + Date.now()
+      const tmpFile = stateFile + ".tmp." + Date.now()
       writeFileSync(tmpFile, JSON.stringify(merged, null, 2))
-      renameSync(tmpFile, STATE_FILE)
+      renameSync(tmpFile, stateFile)
     }
   } catch {}
 }
@@ -257,8 +267,9 @@ export function checkFlowRules({ tool, filePath, content }: CheckFlowRulesInput)
 
 export function getFlowWarns(): any[] {
   try {
-    if (!existsSync(STATE_FILE)) return []
-    const s = safeJsonParse(readFileSync(STATE_FILE, "utf-8"))
+    const stateFile = getStateFile()
+    if (!existsSync(stateFile)) return []
+    const s = safeJsonParse(readFileSync(stateFile, "utf-8"))
     return s?.flow_warns || []
   } catch { return [] }
 }
@@ -297,7 +308,8 @@ export function addFlowRule(rule: FlowRule): void {
 
 export function recordFlowTodo({ filePath, content }: FlowTodoInput): number {
   try {
-    mkdirSync(dirname(FLOW_TODO_FILE), { recursive: true })
+    const flowTodoFile = getFlowTodoFile()
+    mkdirSync(dirname(flowTodoFile), { recursive: true })
     const todoRe = /(?:\/\/\s*|\#\s*)(TODO|FIXME|HACK)[\s:]+(.+)$/i
     const todos: Array<{ type: string; text: string }> = []
     for (const line of content.split("\n")) {
@@ -309,8 +321,8 @@ export function recordFlowTodo({ filePath, content }: FlowTodoInput): number {
     if (todos.length === 0) return 0
 
     const dedupKey = `${filePath || ""}::${todos.map(t => `${t.type}:${t.text}`).join("|")}`
-    const existingLines: string[] = existsSync(FLOW_TODO_FILE)
-      ? readFileSync(FLOW_TODO_FILE, "utf-8").trim().split("\n").filter(Boolean)
+    const existingLines: string[] = existsSync(flowTodoFile)
+      ? readFileSync(flowTodoFile, "utf-8").trim().split("\n").filter(Boolean)
       : []
     const existingKeys = new Set<string>()
     for (const line of existingLines) {
@@ -329,11 +341,11 @@ export function recordFlowTodo({ filePath, content }: FlowTodoInput): number {
       filePath,
       todos,
     }) + "\n"
-    appendFileSync(FLOW_TODO_FILE, entry)
+    appendFileSync(flowTodoFile, entry)
     try {
-      const lines = readFileSync(FLOW_TODO_FILE, "utf-8").trim().split("\n").filter(Boolean)
+      const lines = readFileSync(flowTodoFile, "utf-8").trim().split("\n").filter(Boolean)
       if (lines.length > MAX_FLOW_TODOS) {
-        writeFileSync(FLOW_TODO_FILE, lines.slice(-Math.floor(MAX_FLOW_TODOS / 2)).join("\n") + "\n")
+        writeFileSync(flowTodoFile, lines.slice(-Math.floor(MAX_FLOW_TODOS / 2)).join("\n") + "\n")
       }
     } catch {}
     console.error(`[flow-enforcer] 📋 Extracted ${todos.length} TODO(s) from ${filePath} → flow-todo-queue.jsonl`)
@@ -343,8 +355,9 @@ export function recordFlowTodo({ filePath, content }: FlowTodoInput): number {
 
 export function getFlowTodos(): Array<{ filePath: string; todos: Array<{ type: string; text: string }> }> {
   try {
-    if (!existsSync(FLOW_TODO_FILE)) return []
-    const raw = readFileSync(FLOW_TODO_FILE, "utf-8").trim()
+    const flowTodoFile = getFlowTodoFile()
+    if (!existsSync(flowTodoFile)) return []
+    const raw = readFileSync(flowTodoFile, "utf-8").trim()
     if (!raw) return []
     return raw.split("\n").filter(Boolean).map(line => safeJsonParse(line)).filter(Boolean)
   } catch { return [] }

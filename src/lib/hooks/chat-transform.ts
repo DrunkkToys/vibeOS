@@ -23,11 +23,13 @@ import {
 } from '../state.js'
 import {
   classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget,
-  shortModelName, formatUsd, _refreshModel, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN,
+  shortModelName, formatUsd, _refreshModel, applySlot, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN,
 } from '../pricing.js'
 import {
   scoreStress, classifyTurnSimple, loadOptimizationMode,
   saveOptimizationMode,
+  selectOptimizationModeRemote,
+  computeControlVector,
   getBlackboxTracker, getBlackboxResolution,
   loadBlackboxState as loadBlackboxStateFromCtx, saveBlackboxState as saveBlackboxStateToCtx,
   resolveEnforcementMode, extractLastUserText,
@@ -38,13 +40,14 @@ import {
   estimateContextBudget,
   buildControlHistoryEntry,
 } from '../turn-classify.js'
+import { applyBudgetFirstMode, peekBudgetFirstMode } from '../mode-policy.js'
 import { getApiClient, remoteCall } from '../api-client.js'
 import { loadCredit } from '../credit-api.js'
 import { saveReport } from '../reporting.js'
 import { checkFlowRules, recordFlowTodo } from '../../vibeOS-lib/flow-enforcer.js'
 import { ensureProjectDocs } from '../../vibeOS-lib/flow-enforcer.js'
 import { computeDifficulty } from '../../vibeOS-lib/ml-router.js'
-import { loadSessionSlot, writeSessionSlot } from '../selection-manager.js'
+import { loadSessionOptMode, loadSessionSlot, writeSessionSlot } from '../selection-manager.js'
 import { noteProjectPattern } from '../index-helpers.js'
 import { saveSessionStress } from '../index-helpers.js'
 import { COMPRESS_THRESHOLD, KEEP_HOT, COMPRESS_MARKER, PROTOCOL_MARKER, PROTOCOL_TEXT } from "../constants.js"
@@ -67,25 +70,7 @@ async function apiComputeControlVector(state: any, action: any, optimizationMode
     const res = await remoteCall('blackboxControlVector', [state, action, optimizationMode], null)
     if (res?.control_vector) return res.control_vector
   } catch {}
-  const opt = (optimizationMode || "balanced").toLowerCase()
-  const isRelaxed = opt === "budget" || opt === "speed" || opt === "audit"
-  const isStrict = opt === "quality" || opt === "forensic" || opt === "defense_in_depth" || opt === "reporting"
-  return {
-    enforcement_mode: isStrict ? "strict" : "normal",
-    enforcement_reason: `[optimize: ${opt}] offline fallback`,
-    flow_mode: isStrict ? "strict" : isRelaxed ? "audit" : "normal",
-    flow_focus: [],
-    tdd_mode: isStrict ? "strict" : isRelaxed ? "lazy" : "normal",
-    tdd_focus: [],
-    tier_bias: isStrict ? "brain" : isRelaxed ? "cheap" : "auto",
-    thinking_mode: isStrict ? "full" : isRelaxed ? "off" : "auto",
-    stress_multiplier: 1.0,
-    context7_urgency: isStrict ? "required" : isRelaxed ? "preferred" : "preferred",
-    wbp_verbosity: isStrict ? "verbose" : isRelaxed ? "minimal" : "normal",
-    agent_mode: isStrict ? "plan" : "auto",
-    optimization_mode: opt,
-    directives: [],
-  }
+  return computeControlVector(state, action, optimizationMode)
 }
 
 function observeUserCorrection(text: string | null): void {
@@ -190,10 +175,12 @@ export function ensureProjectSkill(dir: string, fp: string): { created: boolean;
   }
 }
 
-export function syncControlSettings(cv: any): void {
+export function syncControlSettings(cv: any, options: { persistOptimizationMode?: boolean } = {}): void {
   if (!cv) return
   try {
     const sid = _OC_SID
+    const persistOptimizationMode = options.persistOptimizationMode !== false
+    const currentSel = loadSelection()
     const writeIf = (key: string, val: any) => {
       const sel = loadSelection()
       if (sel[key] !== val) writeSelection(key, val)
@@ -217,10 +204,10 @@ export function syncControlSettings(cv: any): void {
       writeIf("tdd_strict", cv.tdd_mode === "strict")
     }
 
-    if (cv.thinking_mode) writeIf("thinking_level", cv.thinking_mode)
+    if (cv.thinking_mode && currentSel.thinking_level !== "full") writeIf("thinking_level", cv.thinking_mode)
 
-    const userOptMode = loadSessionSlot(sid + "_opt") || loadOptimizationMode()
-    if (cv.optimization_mode && userOptMode !== "auto") {
+    const userOptMode = loadSessionOptMode(sid + "_opt") || loadOptimizationMode()
+    if (persistOptimizationMode && cv.optimization_mode && userOptMode !== "auto") {
       if (userOptMode !== cv.optimization_mode) {
         writeSessionSlot(sid + "_opt", cv.optimization_mode)
         saveOptimizationMode(cv.optimization_mode)
@@ -232,18 +219,10 @@ export function syncControlSettings(cv: any): void {
       const existingSlot = loadSessionSlot(sid)
       if (existingSlot !== slot) {
         writeSessionSlot(sid, slot)
-      }
-      if (slot === "brain" && TRINITY_BRAIN) {
-        setCurrentModel(TRINITY_BRAIN)
-        setCurrentTier("high")
-      }
-      else if (slot === "medium" && TRINITY_MEDIUM) {
-        setCurrentModel(TRINITY_MEDIUM)
-        setCurrentTier("mid")
-      }
-      else if (slot === "cheap" && TRINITY_CHEAP) {
-        setCurrentModel(TRINITY_CHEAP)
-        setCurrentTier("low")
+        const applied = applySlot(slot)
+        if (!applied?.ok) {
+          console.error(`[vibeOS] failed to apply slot ${slot}: ${applied?.reason || "unknown"}`)
+        }
       }
     }
     if (cv.agent_mode) {
@@ -399,7 +378,12 @@ async function trackBlackbox(messages: any[]): Promise<void> {
       saveSessionStress(st, st > 1.5 ? "critical" : st > 0.7 ? "elevated" : st > 0.3 ? "moderate" : "none")
     }
 
-    const cv = await apiComputeControlVector(localState, undefined, loadOptimizationMode())
+    const modePreview = peekBudgetFirstMode({
+      requestedMode: loadOptimizationMode(),
+      subRegime: localState.sub_regime || "INIT",
+      stress: st || 0,
+    })
+    const cv = await apiComputeControlVector(localState, undefined, modePreview.mode)
     state.sessions[sid].control_history.push(buildControlHistoryEntry(
       state.sessions[sid].control_history.length + 1,
       localState.sub_regime || "INIT",
@@ -550,19 +534,37 @@ export const onSystemTransform = async (_input, output) => {
     }
     if (latestUserIntent) observeUserCorrection(latestUserIntent)
 
+    const optimizationSuggestion = await selectOptimizationModeRemote(
+      _latestBlackboxState?.sub_regime || (latestUserIntent ? classifyTurnSimple(latestUserIntent) : "INIT"),
+      latestUserIntent ? scoreStress(latestUserIntent) : 0,
+      loadOptimizationMode(),
+    )
+    const optimizationDecision = applyBudgetFirstMode({
+      requestedMode: loadOptimizationMode(),
+      suggestedMode: optimizationSuggestion,
+      subRegime: _latestBlackboxState?.sub_regime || (latestUserIntent ? classifyTurnSimple(latestUserIntent) : "INIT"),
+      stress: latestUserIntent ? scoreStress(latestUserIntent) : 0,
+    })
+    const optimizationMode = optimizationDecision.mode
     let _controlVector = null
     if (_latestBlackboxState) {
       const st = latestUserIntent ? scoreStress(latestUserIntent) : 0
       if (st) _latestBlackboxState.latest_stress_multiplier = st
-      _controlVector = await apiComputeControlVector(_latestBlackboxState, undefined, loadOptimizationMode())
+      _controlVector = await apiComputeControlVector(_latestBlackboxState, undefined, optimizationMode)
     } else if (latestUserIntent) {
       const st = scoreStress(latestUserIntent)
       _controlVector = await apiComputeControlVector({
         sub_regime: classifyTurnSimple(latestUserIntent),
         latest_stress_multiplier: st || undefined,
-      }, undefined, loadOptimizationMode())
+      }, undefined, optimizationMode)
     }
-    syncControlSettings(_controlVector)
+    if (!_controlVector) {
+      _controlVector = await apiComputeControlVector({
+        sub_regime: "INIT",
+        latest_stress_multiplier: latestUserIntent ? scoreStress(latestUserIntent) : undefined,
+      }, undefined, optimizationMode)
+    }
+    syncControlSettings(_controlVector, { persistOptimizationMode: optimizationDecision.shouldPersistRequestedMode })
 
     const system = output?.system
     if (!Array.isArray(system)) return
@@ -578,9 +580,6 @@ export const onSystemTransform = async (_input, output) => {
     // ── Template resolution ──
     _prevTemplate = _currentTemplate
     _currentTemplate = resolveTemplate(_prevTemplate, stressScore, latestUserIntent, credit)
-    if (_currentTemplate !== loadOptimizationMode()) {
-      saveOptimizationMode(_currentTemplate)
-    }
 
     // ── Gated template directive (only on transition or periodic) ──
     if (shouldInjectTemplate(_currentTemplate, _prevTemplate)) {
@@ -606,13 +605,13 @@ export const onSystemTransform = async (_input, output) => {
       pushSystem(output, thinkingDirective(sel.thinking_level))
     }
 
-    // ── Stress mitigation — only on spike (not sustained) ──
-    if (stressScore > 0.7 && detectStressSpike(stressScore)) {
+    // ── Stress mitigation ──
+    if (stressScore > 0.7) {
       pushSystem(output, "[stress mitigation: CRITICAL] The user's message shows very high stress indicators. " +
         "Stay calm, structured, and thorough. Use proper markdown formatting with code blocks, " +
         "lists, and organized structure. Do NOT mirror the user's tone or brevity. " +
         "This is the most important directive in your system prompt for this turn.")
-    } else if (stressScore > 0.4 && detectStressSpike(stressScore)) {
+    } else if (stressScore > 0.4) {
       pushSystem(output, "[stress mitigation: elevated] The user's message has elevated stress indicators. " +
         "Maintain structured, well-formatted responses with markdown and code blocks.")
     }

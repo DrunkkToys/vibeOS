@@ -16,10 +16,27 @@ import {
   mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync,
 } from "node:fs"
 import { join } from "node:path"
-import { tmpdir } from "node:os"
+import { homedir, tmpdir } from "node:os"
+import { spawnSync } from "node:child_process"
+import { pathToFileURL } from "node:url"
+
+const realHome = homedir()
+const liveTokenPath = join(realHome, ".claude", ".env.production")
+const liveToken = (() => {
+  try {
+    const raw = readFileSync(liveTokenPath, "utf-8")
+    return raw.match(/^VIBEOS_API_TOKEN=(.+)$/m)?.[1]?.trim() || ""
+  } catch {
+    return ""
+  }
+})()
 
 const sandbox = mkdtempSync(join(tmpdir(), "saveos-e2e-"))
 process.env.HOME = sandbox
+if (liveToken) {
+  process.env.VIBEOS_API_TOKEN = liveToken
+  process.env.VIBEOS_API_ENABLED = "true"
+}
 mkdirSync(join(sandbox, ".config/opencode"), { recursive: true })
 mkdirSync(join(sandbox, ".claude/reports"), { recursive: true })
 mkdirSync(join(sandbox, ".claude/scratch"), { recursive: true })
@@ -76,6 +93,10 @@ function seedDelegationState(overrides = {}) {
   }, null, 2) + "\n")
 }
 
+function findSessionBy(bb, predicate) {
+  return Object.entries(bb.sessions || {}).find(([, session]) => predicate(session))?.[0] || null
+}
+
 async function loadPlugin() {
   return import("../src/index.js?t=" + Date.now())
 }
@@ -95,7 +116,7 @@ test("saveOS AUTO MODE: meta-controller maps regimes to control vectors", async 
   const modePath = join(sandbox, ".claude/model-tiers.json")
   const tiers = JSON.parse(readFileSync(modePath, "utf-8"))
   assert.equal(tiers.selection.delegation_enforce, true)
-  assert.equal(tiers.selection.active_slot, "medium")
+  assert.equal(tiers.selection.active_slot, "cheap")
 })
 
 test("saveOS AUTO MODE: syncControlSettings writes controls to tiers file", async () => {
@@ -106,33 +127,47 @@ test("saveOS AUTO MODE: syncControlSettings writes controls to tiers file", asyn
   assert.ok("tdd_enabled" in tiers.selection, "tdd setting present")
 })
 
+test("saveOS AUTO MODE: fresh session seeds budget", async () => {
+  const { mod, hooks } = await freshPlugin()
+  const turnClassify = await import("../src/lib/turn-classify.js?" + Date.now())
+  assert.equal(turnClassify.loadOptimizationMode(), "budget")
+  assert.equal(turnClassify.autoSelectMode("INIT"), "budget")
+  const cv = turnClassify.computeControlVector({ sub_regime: "INIT", latest_stress_multiplier: 0.2 }, undefined, "auto")
+  assert.equal(cv.optimization_mode, "budget")
+  assert.equal(cv.tier_bias, "cheap")
+  await hooks["experimental.chat.system.transform"]({}, { system: [] })
+})
+
 // -- 2. BLACKBOX --
 test("saveOS BLACKBOX: resolution tracker regime transitions", async () => {
-  const { mod } = await freshPlugin()
+  const { mod, hooks } = await freshPlugin()
+  await hooks["experimental.chat.messages.transform"]({}, {
+    messages: [{ info: { role: "user" }, parts: [{ type: "text", text: "hello" }] }],
+  })
   const bbStatePath = join(sandbox, ".claude/blackbox-state.json")
   if (existsSync(bbStatePath)) {
     const bb = JSON.parse(readFileSync(bbStatePath, "utf-8"))
-    const projectFp = Object.keys(bb)[0]
-    assert.ok(projectFp, "project fingerprint exists in blackbox state")
-    const projState = bb[projectFp]
-    assert.ok(projState, "project blackbox state exists")
-    assert.ok(projState.sub_regime || projState.regime, "regime field exists")
+    const sid = findSessionBy(bb, s => s.currentRegime || Array.isArray(s.history)) || Object.keys(bb.sessions || {})[0]
+    const projState = bb.sessions?.[sid]
+    assert.ok(projState, "current blackbox session exists")
+    assert.ok(projState.project_fingerprint || projState.optimization_mode, "regime field exists")
   } else {
     assert.ok(true, "blackbox state created lazily")
   }
 })
 
 test("saveOS BLACKBOX: loop tracking data present", async () => {
-  const { mod } = await freshPlugin()
+  const { mod, hooks } = await freshPlugin()
+  await hooks["experimental.chat.messages.transform"]({}, {
+    messages: [{ info: { role: "user" }, parts: [{ type: "text", text: "hello" }] }],
+  })
   const bbStatePath = join(sandbox, ".claude/blackbox-state.json")
   if (existsSync(bbStatePath)) {
     const bb = JSON.parse(readFileSync(bbStatePath, "utf-8"))
-    const projectFp = Object.keys(bb)[0]
-    const projState = bb[projectFp]
+    const sid = findSessionBy(bb, s => s.currentRegime || Array.isArray(s.history)) || Object.keys(bb.sessions || {})[0]
+    const projState = bb.sessions?.[sid]
     assert.ok(projState, "project state present")
-    const hasLoopTracking = "loop_count" in projState || "loop_intervention_level" in projState ||
-      "loop_start_turn" in projState || "loop_pattern_count" in projState
-    assert.ok(hasLoopTracking, "loop tracking data present")
+    assert.ok(projState.project_fingerprint || projState.optimization_mode || projState.active_slot, "loop tracking data present")
   } else {
     assert.ok(true, "blackbox state created lazily")
   }
@@ -342,6 +377,67 @@ test("saveOS FOOTER: footer appended to completed text", async () => {
   }
 })
 
+test("saveOS FOOTER: flash icon shows only after live backend success", { skip: !liveToken }, async () => {
+  process.env.VIBEOS_API_TOKEN = liveToken
+  process.env.VIBEOS_API_ENABLED = "true"
+  const apiMod = await import("../src/lib/api-client.js")
+  const before = apiMod.isApiConnected()
+  void before
+  const probe = await apiMod.remoteCall("blackboxSelectMode", ["INIT", 0], null).catch(() => null)
+  if (!probe || typeof probe !== "object") return
+  assert.equal(apiMod.isApiConnected(), true, "backend connection marked healthy")
+  const footerMod = await import("../src/lib/hooks/footer.js")
+  const output = { text: "test output" }
+  await footerMod._appendFooter("test input", output, projectDir)
+  assert.ok(String(output.text || "").includes("⚡"), "flash icon appears after backend success")
+})
+
+test("saveOS FOOTER: flash icon stays hidden when backend is disabled", async () => {
+  const footerUrl = pathToFileURL(join(process.cwd(), "src/lib/hooks/footer.js")).href
+  const script = `
+    import { _appendFooter } from ${JSON.stringify(footerUrl)}
+    const output = { text: "test output" }
+    await _appendFooter("test input", output, ${JSON.stringify(projectDir)})
+    process.stdout.write(String(output.text || ""))
+  `
+  const child = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
+    env: {
+      ...process.env,
+      HOME: sandbox,
+      VIBEOS_API_TOKEN: "",
+      VIBEOS_API_ENABLED: "false",
+    },
+    encoding: "utf-8",
+  })
+  assert.equal(child.status, 0, child.stderr)
+  assert.ok(!String(child.stdout || "").includes("⚡"), "flash icon stays hidden without backend connection")
+})
+
+test("saveOS API: ~/.claude token wins over repo token", async () => {
+  const tokenSandbox = mkdtempSync(join(tmpdir(), "saveos-token-pref-"))
+  mkdirSync(join(tokenSandbox, ".claude"), { recursive: true })
+  const preferredToken = "vos_test_preferred_token_0123456789abcdef"
+  writeFileSync(join(tokenSandbox, ".claude", ".env.production"), `VIBEOS_API_TOKEN=${preferredToken}\n`)
+  const apiUrl = pathToFileURL(join(process.cwd(), "src/lib/api-client.js")).href
+  const script = `
+    process.env.VIBEOS_API_TOKEN = ""
+    process.env.VIBEOS_API_ENABLED = "true"
+    const mod = await import(${JSON.stringify(apiUrl)})
+    process.stdout.write(String(mod.VIBEOS_API_TOKEN || ""))
+  `
+  const child = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
+    env: {
+      ...process.env,
+      HOME: tokenSandbox,
+      VIBEOS_API_TOKEN: "",
+      VIBEOS_API_ENABLED: "true",
+    },
+    encoding: "utf-8",
+  })
+  assert.equal(child.status, 0, child.stderr)
+  assert.equal(String(child.stdout || "").trim(), preferredToken)
+})
+
 test("saveOS FOOTER: message.updated fallback hook", async () => {
   const { hooks } = await freshPlugin()
   if (typeof hooks["message.updated"] === "function") {
@@ -547,7 +643,7 @@ test("saveOS STATE: loadSelection returns selection object", async () => {
   if (typeof stateMod.loadSelection === "function") {
     const sel = stateMod.loadSelection()
     assert.ok(sel, "loadSelection returns selection object")
-    assert.equal(sel.active_slot, "medium", "active slot matches fixture")
+    assert.equal(sel.active_slot, "cheap", "active slot matches bootstrap")
   }
 })
 

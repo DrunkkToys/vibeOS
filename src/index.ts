@@ -32,7 +32,7 @@ import {
   isLikelyOffTopic, detectTechStack, loadBlackboxState, saveBlackboxState,
   getBlackboxTracker, getBlackboxResolution, detectOutcomeSignal,
   fetchBlackboxEnrichment, loadGlobalLearning, updateGlobalLearning,
-  loadOptimizationMode, saveOptimizationMode,
+  saveOptimizationMode, bootstrapOptimizationSession,
 } from "./lib/turn-classify.js"
 import {
   safeJsonParse, readFullState, updateState, loadSelection, writeSelection,
@@ -530,6 +530,16 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
 
   // ── Auto-enable on load ──────────────────────────────────────────────
   try { writeSelection("enabled", true) } catch {}
+  try {
+    const bootstrap = bootstrapOptimizationSession()
+    if (!_modelLocked) {
+      const applied = applySlot(bootstrap.slot)
+      if (applied?.ok) {
+        console.error(`[vibeOS] bootstrap slot → ${bootstrap.slot} (${applied.ocModel})`)
+      }
+    }
+    void remoteCall("blackboxSelectMode", ["INIT", 0], null).catch(() => {})
+  } catch {}
 
   // ── Plugin hooks ──────────────────────────────────────────────────
     // trinity tool dependency injection
@@ -732,10 +742,13 @@ export const VERSION = readPackageVersion()
 // ── Auto-update on load ─────────────────────────────────────────────
 {
   try {
-    const sub = spawn("npm", ["install", "vibeostheog@latest"], {
-      stdio: "ignore", detached: true, cwd: join(homedir(), ".config", "opencode", "plugins"),
-    })
-    sub.unref()
+    const pluginsDir = join(homedir(), ".config", "opencode", "plugins")
+    if (existsSync(pluginsDir)) {
+      const sub = spawn("npm", ["install", "vibeostheog@latest"], {
+        stdio: "ignore", detached: true, cwd: pluginsDir,
+      })
+      sub.unref()
+    }
   } catch {
     // auto-update is best-effort
   }

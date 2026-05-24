@@ -3,16 +3,17 @@ import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync } fr
 import { join, basename } from 'node:path';
 import { homedir } from 'node:os';
 import { createHash } from 'node:crypto';
-import { currentModel, currentProjectFingerprint, currentProjectName, _blackboxEnabled, loadSelection, writeSelection, safeJsonParse, applyDecadence, getSessionScratchpadDir, ensureSessionScratchpadDirs, indexAppend, briefedProjects, getActiveJobForProject, loadTodos, promotedProjectPatterns, detectTechStack, TRINITY_OPENCODE_CONFIG, TIERS_FILE, loadGlobalLearning, setCurrentModel, setCurrentTier, stableJson, TOOL_NAME_NORMALIZE, } from '../state.js';
-import { TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN, } from '../pricing.js';
-import { scoreStress, classifyTurnSimple, loadOptimizationMode, saveOptimizationMode, getBlackboxTracker, loadBlackboxState as loadBlackboxStateFromCtx, saveBlackboxState as saveBlackboxStateToCtx, extractLastUserText, isLikelyOffTopic, fetchBlackboxEnrichment, estimateContextBudget, buildControlHistoryEntry, } from '../turn-classify.js';
+import { currentModel, currentProjectFingerprint, currentProjectName, _blackboxEnabled, loadSelection, writeSelection, safeJsonParse, applyDecadence, getSessionScratchpadDir, ensureSessionScratchpadDirs, indexAppend, briefedProjects, getActiveJobForProject, loadTodos, promotedProjectPatterns, detectTechStack, TRINITY_OPENCODE_CONFIG, TIERS_FILE, loadGlobalLearning, stableJson, TOOL_NAME_NORMALIZE, } from '../state.js';
+import { applySlot, TRINITY_CHEAP, TRINITY_MEDIUM, } from '../pricing.js';
+import { scoreStress, classifyTurnSimple, loadOptimizationMode, saveOptimizationMode, selectOptimizationModeRemote, computeControlVector, getBlackboxTracker, loadBlackboxState as loadBlackboxStateFromCtx, saveBlackboxState as saveBlackboxStateToCtx, extractLastUserText, isLikelyOffTopic, fetchBlackboxEnrichment, estimateContextBudget, buildControlHistoryEntry, } from '../turn-classify.js';
+import { applyBudgetFirstMode, peekBudgetFirstMode } from '../mode-policy.js';
 import { remoteCall } from '../api-client.js';
 import { loadCredit } from '../credit-api.js';
-import { loadSessionSlot, writeSessionSlot } from '../selection-manager.js';
+import { loadSessionOptMode, loadSessionSlot, writeSessionSlot } from '../selection-manager.js';
 import { noteProjectPattern } from '../index-helpers.js';
 import { saveSessionStress } from '../index-helpers.js';
 import { COMPRESS_THRESHOLD, KEEP_HOT, COMPRESS_MARKER, PROTOCOL_MARKER, PROTOCOL_TEXT } from "../constants.js";
-import { TEMPLATES, DEFAULT_TEMPLATE, resolveTemplate, detectLoopSignal, detectStressSpike, shouldInjectTemplate } from '../templates.js';
+import { TEMPLATES, DEFAULT_TEMPLATE, resolveTemplate, detectStressSpike, shouldInjectTemplate } from '../templates.js';
 let latestUserIntent = null;
 let _OC_SID = 'opencode-' + (process.pid || 'x') + '-' + Date.now();
 let _latestBlackboxState = null;
@@ -31,25 +32,7 @@ async function apiComputeControlVector(state, action, optimizationMode) {
             return res.control_vector;
     }
     catch { }
-    const opt = (optimizationMode || "balanced").toLowerCase();
-    const isRelaxed = opt === "budget" || opt === "speed" || opt === "audit";
-    const isStrict = opt === "quality" || opt === "forensic" || opt === "defense_in_depth" || opt === "reporting";
-    return {
-        enforcement_mode: isStrict ? "strict" : "normal",
-        enforcement_reason: `[optimize: ${opt}] offline fallback`,
-        flow_mode: isStrict ? "strict" : isRelaxed ? "audit" : "normal",
-        flow_focus: [],
-        tdd_mode: isStrict ? "strict" : isRelaxed ? "lazy" : "normal",
-        tdd_focus: [],
-        tier_bias: isStrict ? "brain" : isRelaxed ? "cheap" : "auto",
-        thinking_mode: isStrict ? "full" : isRelaxed ? "off" : "auto",
-        stress_multiplier: 1.0,
-        context7_urgency: isStrict ? "required" : isRelaxed ? "preferred" : "preferred",
-        wbp_verbosity: isStrict ? "verbose" : isRelaxed ? "minimal" : "normal",
-        agent_mode: isStrict ? "plan" : "auto",
-        optimization_mode: opt,
-        directives: [],
-    };
+    return computeControlVector(state, action, optimizationMode);
 }
 function observeUserCorrection(text) {
     if (!text || typeof text !== "string")
@@ -152,11 +135,13 @@ export function ensureProjectSkill(dir, fp) {
         return { created: false, skipped: false };
     }
 }
-export function syncControlSettings(cv) {
+export function syncControlSettings(cv, options = {}) {
     if (!cv)
         return;
     try {
         const sid = _OC_SID;
+        const persistOptimizationMode = options.persistOptimizationMode !== false;
+        const currentSel = loadSelection();
         const writeIf = (key, val) => {
             const sel = loadSelection();
             if (sel[key] !== val)
@@ -182,10 +167,10 @@ export function syncControlSettings(cv) {
             writeIf("tdd_enforce", true);
             writeIf("tdd_strict", cv.tdd_mode === "strict");
         }
-        if (cv.thinking_mode)
+        if (cv.thinking_mode && currentSel.thinking_level !== "full")
             writeIf("thinking_level", cv.thinking_mode);
-        const userOptMode = loadSessionSlot(sid + "_opt") || loadOptimizationMode();
-        if (cv.optimization_mode && userOptMode !== "auto") {
+        const userOptMode = loadSessionOptMode(sid + "_opt") || loadOptimizationMode();
+        if (persistOptimizationMode && cv.optimization_mode && userOptMode !== "auto") {
             if (userOptMode !== cv.optimization_mode) {
                 writeSessionSlot(sid + "_opt", cv.optimization_mode);
                 saveOptimizationMode(cv.optimization_mode);
@@ -196,18 +181,10 @@ export function syncControlSettings(cv) {
             const existingSlot = loadSessionSlot(sid);
             if (existingSlot !== slot) {
                 writeSessionSlot(sid, slot);
-            }
-            if (slot === "brain" && TRINITY_BRAIN) {
-                setCurrentModel(TRINITY_BRAIN);
-                setCurrentTier("high");
-            }
-            else if (slot === "medium" && TRINITY_MEDIUM) {
-                setCurrentModel(TRINITY_MEDIUM);
-                setCurrentTier("mid");
-            }
-            else if (slot === "cheap" && TRINITY_CHEAP) {
-                setCurrentModel(TRINITY_CHEAP);
-                setCurrentTier("low");
+                const applied = applySlot(slot);
+                if (!applied?.ok) {
+                    console.error(`[vibeOS] failed to apply slot ${slot}: ${applied?.reason || "unknown"}`);
+                }
             }
         }
         if (cv.agent_mode) {
@@ -282,7 +259,7 @@ function compressToolOutputs(messages) {
                     writeFileSync(fullPath, raw);
                     indexAppend(hash, part.tool, raw.length);
                     // Create pointer file for input-hash-based lookup
-                    const invPart = parts.slice(0, parts.indexOf(part)).reverse().find(p => p?.type === "tool" && p?.tool === part.tool && p?.state?.input && p?.state?.status !== "completed");
+                    const invPart = parts.slice(0, parts.indexOf(part)).reverse().find((p) => p?.type === "tool" && p?.tool === part.tool && p?.state?.input && p?.state?.status !== "completed");
                     if (invPart?.state?.input) {
                         const toolKey = TOOL_NAME_NORMALIZE[part.tool] || part.tool;
                         const inputHash = createHash("sha256")
@@ -362,7 +339,12 @@ async function trackBlackbox(messages) {
             localState.latest_stress_multiplier = st;
             saveSessionStress(st, st > 1.5 ? "critical" : st > 0.7 ? "elevated" : st > 0.3 ? "moderate" : "none");
         }
-        const cv = await apiComputeControlVector(localState, undefined, loadOptimizationMode());
+        const modePreview = peekBudgetFirstMode({
+            requestedMode: loadOptimizationMode(),
+            subRegime: localState.sub_regime || "INIT",
+            stress: st || 0,
+        });
+        const cv = await apiComputeControlVector(localState, undefined, modePreview.mode);
         state.sessions[sid].control_history.push(buildControlHistoryEntry(state.sessions[sid].control_history.length + 1, localState.sub_regime || "INIT", cv));
         if (state.sessions[sid].control_history.length > 100) {
             state.sessions[sid].control_history = state.sessions[sid].control_history.slice(-100);
@@ -510,21 +492,35 @@ export const onSystemTransform = async (_input, output) => {
         }
         if (latestUserIntent)
             observeUserCorrection(latestUserIntent);
+        const optimizationSuggestion = await selectOptimizationModeRemote(_latestBlackboxState?.sub_regime || (latestUserIntent ? classifyTurnSimple(latestUserIntent) : "INIT"), latestUserIntent ? scoreStress(latestUserIntent) : 0, loadOptimizationMode());
+        const optimizationDecision = applyBudgetFirstMode({
+            requestedMode: loadOptimizationMode(),
+            suggestedMode: optimizationSuggestion,
+            subRegime: _latestBlackboxState?.sub_regime || (latestUserIntent ? classifyTurnSimple(latestUserIntent) : "INIT"),
+            stress: latestUserIntent ? scoreStress(latestUserIntent) : 0,
+        });
+        const optimizationMode = optimizationDecision.mode;
         let _controlVector = null;
         if (_latestBlackboxState) {
             const st = latestUserIntent ? scoreStress(latestUserIntent) : 0;
             if (st)
                 _latestBlackboxState.latest_stress_multiplier = st;
-            _controlVector = await apiComputeControlVector(_latestBlackboxState, undefined, loadOptimizationMode());
+            _controlVector = await apiComputeControlVector(_latestBlackboxState, undefined, optimizationMode);
         }
         else if (latestUserIntent) {
             const st = scoreStress(latestUserIntent);
             _controlVector = await apiComputeControlVector({
                 sub_regime: classifyTurnSimple(latestUserIntent),
                 latest_stress_multiplier: st || undefined,
-            }, undefined, loadOptimizationMode());
+            }, undefined, optimizationMode);
         }
-        syncControlSettings(_controlVector);
+        if (!_controlVector) {
+            _controlVector = await apiComputeControlVector({
+                sub_regime: "INIT",
+                latest_stress_multiplier: latestUserIntent ? scoreStress(latestUserIntent) : undefined,
+            }, undefined, optimizationMode);
+        }
+        syncControlSettings(_controlVector, { persistOptimizationMode: optimizationDecision.shouldPersistRequestedMode });
         const system = output?.system;
         if (!Array.isArray(system))
             return;
@@ -535,14 +531,9 @@ export const onSystemTransform = async (_input, output) => {
             : 0;
         const credit = loadCredit();
         _turnCountInject++;
-
         // ── Template resolution ──
         _prevTemplate = _currentTemplate;
         _currentTemplate = resolveTemplate(_prevTemplate, stressScore, latestUserIntent, credit);
-        if (_currentTemplate !== loadOptimizationMode()) {
-            saveOptimizationMode(_currentTemplate);
-        }
-
         // ── Gated template directive (only on transition or periodic) ──
         if (shouldInjectTemplate(_currentTemplate, _prevTemplate)) {
             const tpl = TEMPLATES[_currentTemplate] || TEMPLATES[DEFAULT_TEMPLATE];
@@ -558,34 +549,29 @@ export const onSystemTransform = async (_input, output) => {
             }
             pushSystem(output, fused);
         }
-
         // ── Cost policy (every turn — lightweight) ──
         pushSystem(output, context7Directive(_controlVector));
-
         // ── Thinking directive ──
         if (sel.thinking_level && sel.thinking_level !== "full") {
             pushSystem(output, thinkingDirective(sel.thinking_level));
         }
-
-        // ── Stress mitigation — only on spike (not sustained) ──
-        if (stressScore > 0.7 && detectStressSpike(stressScore)) {
-            pushSystem(output, "[stress mitigation: CRITICAL] The user's message shows very high stress indicators. " +
-                "Stay calm, structured, and thorough. Use proper markdown formatting with code blocks, " +
-                "lists, and organized structure. Do NOT mirror the user's tone or brevity. " +
-                "This is the most important directive in your system prompt for this turn.");
-        }
-        else if (stressScore > 0.4 && detectStressSpike(stressScore)) {
-            pushSystem(output, "[stress mitigation: elevated] The user's message has elevated stress indicators. " +
-                "Maintain structured, well-formatted responses with markdown and code blocks.");
-        }
-
+    // ── Stress mitigation ──
+    if (stressScore > 0.7) {
+        pushSystem(output, "[stress mitigation: CRITICAL] The user's message shows very high stress indicators. " +
+            "Stay calm, structured, and thorough. Use proper markdown formatting with code blocks, " +
+            "lists, and organized structure. Do NOT mirror the user's tone or brevity. " +
+            "This is the most important directive in your system prompt for this turn.");
+    }
+    else if (stressScore > 0.4) {
+        pushSystem(output, "[stress mitigation: elevated] The user's message has elevated stress indicators. " +
+            "Maintain structured, well-formatted responses with markdown and code blocks.");
+    }
         // ── Remote control-vector directives ──
         if (_controlVector?.directives?.length > 0) {
             for (const directive of _controlVector.directives) {
                 pushSystem(output, directive);
             }
         }
-
         // ── Blackbox — only on regime change ──
         else if (_blackboxEnabled && _latestBlackboxState?.n_interactions > 0) {
             const prevRegime = _prevBlackboxRegime;
@@ -606,7 +592,6 @@ export const onSystemTransform = async (_input, output) => {
                 }
             }
         }
-
         // ── Job focus ──
         const projectJob2 = getActiveJobForProject();
         if (latestUserIntent && projectJob2 && isLikelyOffTopic(latestUserIntent, projectJob2)) {
@@ -615,36 +600,34 @@ export const onSystemTransform = async (_input, output) => {
                 "Before taking write/edit/task actions, ask one concise confirmation question to validate switching scope.");
             console.error("[vibeOS] [job-focus] off-topic request detected vs active job context");
         }
-
         // ── Flow todos ──
         if (sel.flow_enabled && sel.flow_enforce) {
             const todoDirective = flowTodosDirective();
-            if (todoDirective) pushSystem(output, todoDirective);
+            if (todoDirective)
+                pushSystem(output, todoDirective);
         }
-
         // ── Project guard (every 5 turns instead of every turn) ──
         if (_turnCountInject % 5 === 0) {
             pushSystem(output, "[project guard: CRITICAL] AGENTS.md and README.md are protected by vibeOS. " +
                 "Do NOT modify either file without explicit user permission. " +
                 "AGENTS.md defines that AI agents must ask before changing code.");
         }
-
         // ── Context budget ──
         const budgetDirective = contextBudgetDirective(_input, output);
-        if (budgetDirective) pushSystem(output, budgetDirective);
-
+        if (budgetDirective)
+            pushSystem(output, budgetDirective);
         // ── One-shots ──
         if (!oneShot(fp)) {
             pushSystem(output, buildProjectBriefing(currentProjectName || ""));
         }
         if (!oneShot("vibeos_patterns_" + fp)) {
             const pd = patternDirective(fp);
-            if (pd) pushSystem(output, pd);
+            if (pd)
+                pushSystem(output, pd);
         }
         if (!oneShot("trinity_welcome_" + fp)) {
             pushSystem(output, welcomeDirective());
         }
-
         // ── Calibration logging ──
         const calDir = join(homedir(), ".claude");
         const calFile = join(calDir, "calibration-data.jsonl");
@@ -657,7 +640,8 @@ export const onSystemTransform = async (_input, output) => {
         try {
             mkdirSync(calDir, { recursive: true });
             appendFileSync(calFile, calRecord);
-        } catch { }
+        }
+        catch { }
         if (!oneShot("vibeos_dashboard_instruct")) {
             pushSystem(output, "[vibeOS dashboard display] When the trinity tool returns output starting with '[vibeOS-dashboard]', " +
                 "you MUST use the question tool to display that data in a clean, human-readable format. " +

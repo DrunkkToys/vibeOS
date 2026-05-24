@@ -4,11 +4,12 @@ import { join, dirname, basename } from "node:path"
 import { homedir, tmpdir } from "node:os"
 import { classify, modelCostPerTurn, _refreshModel, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, roundUsd, formatUsd } from "../pricing.js"
 import { latestUserIntent } from "./chat-transform.js"
-import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, loadOptimizationMode, saveOptimizationMode, classifyTurnSimple } from "../turn-classify.js"
+import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, loadOptimizationMode, classifyTurnSimple } from "../turn-classify.js"
+import { peekBudgetFirstMode, recordBudgetFirstOutcome } from "../mode-policy.js"
 import { saveReport } from "../reporting.js"
-import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, _modelLocked, _blackboxEnabled, writeSelection, reconcileStateFromLedger, safeJsonParse, loadTodos } from "../state.js"
+import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, _modelLocked, _blackboxEnabled, _latestBlackboxState, writeSelection, reconcileStateFromLedger, safeJsonParse, loadTodos } from "../state.js"
 import { loadSessionSlot, writeSessionSlot } from "../selection-manager.js"
-import { remoteCall, isApiFallback } from "../api-client.js"
+import { remoteCall, isApiConnected } from "../api-client.js"
 import { SAVE_EST } from "../constants.js"
 
 let _cachedAutoMode = null
@@ -16,15 +17,15 @@ let _cachedAutoModeTs = 0
 const AUTO_CACHE_TTL = 60000
 
 const DEFAULT_REGIME_MAP = {
-  LOOPING: "forensic", DIVERGENT: "forensic",
-  EXPLORING: "web-research", INIT: "web-research",
-  REFINING: "balanced",
+  LOOPING: "speed", DIVERGENT: "budget",
+  EXPLORING: "budget", INIT: "budget",
+  REFINING: "budget",
   CONVERGING: "quality", CLOSED: "quality",
 }
 
 function regimeToMode(regime, stress) {
   if (stress > 1.5) return "quality"
-  return DEFAULT_REGIME_MAP[regime] || "balanced"
+  return DEFAULT_REGIME_MAP[regime] || "budget"
 }
 
 async function apiAutoSelectMode(regime, stress) {
@@ -204,27 +205,13 @@ async function _appendFooter(input, output, directory) {
       if (quality_avg > 0) {
         enfSuffixFooter = ` QA:${Math.round(quality_avg)}% ${enfTagsFooter.join(" ")}`
       }
-      // Optimization mode tag — flash icon only when connected
-      let optTagFooter = ""
-      const flashIcon = isApiFallback() ? "" : "⚡"
-      if (optModeFooter === "auto") {
-        const autoRegime = classifyTurnSimple(latestUserIntent || "")
-        const autoStress = scoreStress(latestUserIntent || "")
-        const autoActive = await apiAutoSelectMode(autoRegime, autoStress)
-        optTagFooter = `[VIBE→${autoActive.toUpperCase()}${flashIcon}]`
-        saveOptimizationMode(autoActive)
-        const slot = autoActive === "quality" || autoActive === "forensic" || autoActive === "defense_in_depth" || autoActive === "reporting" ? "brain"
-          : autoActive === "speed" || autoActive === "web-research" || autoActive === "verify" ? "medium"
-          : "cheap"
-        if (!_modelLocked) {
-          writeSessionSlot(_OC_SID, slot)
-          if (slot === "brain" && TRINITY_BRAIN) { setCurrentModel(TRINITY_BRAIN); setCurrentTier("high") }
-          else if (slot === "medium" && TRINITY_MEDIUM) { setCurrentModel(TRINITY_MEDIUM); setCurrentTier("mid") }
-          else if (slot === "cheap" && TRINITY_CHEAP) { setCurrentModel(TRINITY_CHEAP); setCurrentTier("low") }
-        }
-      } else {
-        optTagFooter = `[VIBE→${(optModeFooter || "").toUpperCase()}${flashIcon}]`
-      }
+      // Optimization mode resolver — keep the dopamine footer format.
+      const flashIcon = isApiConnected() ? "⚡" : ""
+      const resolvedMode = peekBudgetFirstMode({
+        requestedMode: optModeFooter,
+        subRegime: _latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""),
+        stress: _footerStress,
+      }).mode
       const stripped = text.replace(/\n\n— .+(?: —)?$/, "")
       if (stripped !== text) return
       const ltTotal = ltTasks + ltCache
@@ -240,7 +227,7 @@ async function _appendFooter(input, output, directory) {
         'web-research': 'researching',
         forensic: 'investigating',
       }
-      const optMode = (optModeFooter || 'balanced').toLowerCase()
+      const optMode = (resolvedMode || 'budget').toLowerCase()
       const modeVerb = modeVerbMap[optMode] || 'vibing'
       let vibeLine = `— ${modeVerb} on ${shortModelName(brainModel)}`
       if (ltTotal > 0) {
@@ -260,6 +247,11 @@ async function _appendFooter(input, output, directory) {
           if (_prevOutputText && prevText && _prevOutputText !== prevText) {
             const outcome = detectOutcomeSignal(_prevOutputText)
             if (outcome) {
+              recordBudgetFirstOutcome({
+                outcome,
+                subRegime: _latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""),
+                stress: _footerStress,
+              })
               const tracker = getBlackboxTracker()
               tracker.recordOutcome(outcome)
               syncOutcomeToApi(outcome)

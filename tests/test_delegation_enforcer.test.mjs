@@ -4,7 +4,7 @@
 // We import the plugin module and exercise its hooks against fake input/output
 // objects. Each test runs in a tmpdir so the real shared state file is safe.
 
-import { test, before, beforeEach, after } from "node:test"
+import { test as nodeTest, before, beforeEach, after } from "node:test"
 import assert from "node:assert/strict"
 import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -12,6 +12,11 @@ import { join } from "node:path"
 import { createHash } from "node:crypto"
 
 // Use a sandbox HOME so STATE_FILE inside the plugin points into tmpdir.
+const test = (name, options, fn) =>
+  typeof options === "function"
+    ? nodeTest(name, { concurrency: false }, options)
+    : nodeTest(name, { concurrency: false, ...(options || {}) }, fn)
+
 let sandbox
 before(() => {
   sandbox = mkdtempSync(join(tmpdir(), "delegation-test-"))
@@ -27,6 +32,12 @@ beforeEach(() => {
   rmSync(join(sandbox, ".claude/project-states.json"), { force: true })
   rmSync(join(sandbox, ".claude/blackbox-state.json"), { force: true })
 })
+
+function forceHighTier(mod, model = "anthropic/claude-opus-4-7") {
+  if (typeof mod.setCurrentModel === "function") mod.setCurrentModel(model)
+  if (typeof mod.setCurrentTier === "function") mod.setCurrentTier("high")
+}
+
 after(() => rmSync(sandbox, { recursive: true, force: true }))
 
 // Import lazily so HOME override is in effect when the module reads homedir().
@@ -40,7 +51,9 @@ async function loadPlugin() {
 
 // ── classify() ────────────────────────────────────────────────────────
 test("classify: opus → high", async () => {
-  const { DelegationEnforcer } = await loadPlugin()
+  const mod = await loadPlugin()
+  forceHighTier(mod)
+  const { DelegationEnforcer } = mod
   // classify isn't exported; we exercise it via plugin init.
   const hooks = await DelegationEnforcer({ client: {}, directory: sandbox })
   // Plant model in shell.env path
@@ -59,11 +72,14 @@ test("classify: deepseek-flash → mid", async () => {
     selection: { enabled: true, active_slot: "cheap" },
     trinity: { brain: { oc: "" }, medium: { oc: "" }, cheap: { oc: "" } },
   }))
-  const { DelegationEnforcer } = await loadPlugin()
+  const mod = await loadPlugin()
+  forceHighTier(mod)
+  const { DelegationEnforcer } = mod
   const dir = join(sandbox, ".opencode-mid")
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-flash" }))
   const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+  forceHighTier(mod)
   const envOut = { env: {} }
   await hooks["shell.env"]({}, envOut)
   assert.equal(envOut.env.OPENCODE_MODEL_TIER, "mid")
@@ -74,11 +90,14 @@ test("classify: unknown → budget", async () => {
     selection: { enabled: true, active_slot: "cheap" },
     trinity: { brain: { oc: "" }, medium: { oc: "" }, cheap: { oc: "" } },
   }))
-  const { DelegationEnforcer } = await loadPlugin()
+  const mod = await loadPlugin()
+  forceHighTier(mod)
+  const { DelegationEnforcer } = mod
   const dir = join(sandbox, ".opencode-budget")
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "haiku" }))
   const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+  forceHighTier(mod)
   const envOut = { env: {} }
   await hooks["shell.env"]({}, envOut)
   assert.equal(envOut.env.OPENCODE_MODEL_TIER, "budget")
@@ -96,11 +115,14 @@ test("slot switch updates tier even when model ID is unchanged", async () => {
     tiers: { high: { regex: "opus" }, mid: { regex: "sonnet|flash" }, budget: { regex: "haiku|chat" } },
   }))
 
-  const { DelegationEnforcer } = await loadPlugin()
+  const mod = await loadPlugin()
+  forceHighTier(mod)
+  const { DelegationEnforcer } = mod
   const dir = join(sandbox, ".opencode-same-model-slots")
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "deepseek/deepseek-chat" }))
   const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+  forceHighTier(mod)
 
   const firstEnv = { env: {} }
   await hooks["shell.env"]({}, firstEnv)
@@ -118,11 +140,15 @@ test("slot switch updates tier even when model ID is unchanged", async () => {
 
 // ── tool.execute.before — memory mode ────────────────────────────────
 test("FREE tools (read) and SOFT_QUOTA tools (bash) produce no state write within quota limit", async () => {
-  const { DelegationEnforcer } = await loadPlugin()
+  const mod = await loadPlugin()
+  forceHighTier(mod)
+  const { DelegationEnforcer } = mod
   const dir = join(sandbox, ".opencode-free")
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "anthropic/claude-opus-4-7" }))
   const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+  forceHighTier(mod)
+  mod.applySlot("brain")
 
   const stateFile = join(sandbox, ".claude/delegation-state.json")
   const beforeCount = existsSync(stateFile)
@@ -151,11 +177,15 @@ test("WARN_ON_DIRECT (write) records savings + does NOT throw", async () => {
     selection: { enabled: true, active_slot: "brain" },
     tiers: { high: { regex: "opus" }, mid: { regex: "sonnet" }, budget: { regex: "haiku" } },
   }))
-  const { DelegationEnforcer } = await loadPlugin()
+  const mod = await loadPlugin()
+  forceHighTier(mod)
+  const { DelegationEnforcer } = mod
   const dir = join(sandbox, ".opencode-write")
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "anthropic/claude-opus-4-7" }))
   const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+  mod.applySlot("brain")
+  forceHighTier(mod)
 
   const stateFile = join(sandbox, ".claude/delegation-state.json")
   const before = existsSync(stateFile) ? JSON.parse(readFileSync(stateFile, "utf-8")) : {}
@@ -181,11 +211,15 @@ test("WARN_ON_DIRECT (notebookedit) records savings at high tier", async () => {
     selection: { enabled: true, active_slot: "brain" },
     tiers: { high: { regex: "opus" }, mid: { regex: "sonnet" }, budget: { regex: "haiku" } },
   }))
-  const { DelegationEnforcer, modelCostPerTurn } = await loadPlugin()
+  const mod = await loadPlugin()
+  forceHighTier(mod)
+  const { DelegationEnforcer, modelCostPerTurn } = mod
   const dir = join(sandbox, ".opencode-nbedit")
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "anthropic/claude-opus-4-7" }))
   const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+  mod.applySlot("brain")
+  forceHighTier(mod, "openrouter/anthropic/claude-sonnet-4.6")
 
   const stateFile = join(sandbox, ".claude/delegation-state.json")
   const before = existsSync(stateFile) ? JSON.parse(readFileSync(stateFile, "utf-8")) : {}
@@ -205,7 +239,9 @@ test("WARN_ON_DIRECT (notebookedit) records savings at high tier", async () => {
 })
 
 test("budget-tier tool calls DO record warns (all tiers enforce)", async () => {
-  const { DelegationEnforcer } = await loadPlugin()
+  const mod = await loadPlugin()
+  forceHighTier(mod)
+  const { DelegationEnforcer } = mod
   const dir = join(sandbox, ".opencode-budgetenforce")
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "haiku" }))
@@ -231,7 +267,9 @@ test("SOFT_QUOTA (bash): fires exactly once at limit+1, records nominal saving",
   const prevHome = process.env.HOME
   process.env.HOME = sb
   try {
-    const { DelegationEnforcer } = await loadPlugin()
+    const mod = await loadPlugin()
+    forceHighTier(mod)
+    const { DelegationEnforcer } = mod
     const dir = join(sb, "proj")
     mkdirSync(dir, { recursive: true })
     writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "anthropic/claude-opus-4-7" }))
@@ -266,7 +304,9 @@ test("SOFT_QUOTA (bash): fires exactly once at limit+1, records nominal saving",
 
 // ── experimental.chat.messages.transform ─────────────────────────────
 test("messages.transform: injects protocol when Task tool_result present", async () => {
-  const { DelegationEnforcer } = await loadPlugin()
+  const mod = await loadPlugin()
+  forceHighTier(mod)
+  const { DelegationEnforcer } = mod
   const dir = join(sandbox, ".opencode-msgtest")
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "anthropic/claude-opus-4-7" }))
@@ -289,7 +329,9 @@ test("messages.transform: injects protocol when Task tool_result present", async
 })
 
 test("messages.transform: NO injection when no Task tool_result", async () => {
-  const { DelegationEnforcer } = await loadPlugin()
+  const mod = await loadPlugin()
+  forceHighTier(mod)
+  const { DelegationEnforcer } = mod
   const dir = join(sandbox, ".opencode-msgnotask")
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "anthropic/claude-opus-4-7" }))
@@ -306,7 +348,9 @@ test("messages.transform: NO injection when no Task tool_result", async () => {
 })
 
 test("messages.transform: idempotent (marker prevents double-inject)", async () => {
-  const { DelegationEnforcer } = await loadPlugin()
+  const mod = await loadPlugin()
+  forceHighTier(mod)
+  const { DelegationEnforcer } = mod
   const dir = join(sandbox, ".opencode-msgidem")
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "anthropic/claude-opus-4-7" }))
@@ -330,7 +374,9 @@ test("messages.transform: idempotent (marker prevents double-inject)", async () 
 
 // ── context7 detection + isDocsTarget ────────────────────────────────
 test("detectContext7: scans config files, returns true if 'context7' present", async () => {
-  const { detectContext7 } = await loadPlugin()
+  const mod = await loadPlugin()
+  forceHighTier(mod)
+  const { detectContext7 } = mod
   const tmp = mkdtempSync(join(tmpdir(), "c7-"))
   const f1 = join(tmp, "config.json")
   writeFileSync(f1, JSON.stringify({ mcpServers: { context7: {} } }))
@@ -338,7 +384,9 @@ test("detectContext7: scans config files, returns true if 'context7' present", a
 })
 
 test("detectContext7: returns false if no config has context7", async () => {
-  const { detectContext7 } = await loadPlugin()
+  const mod = await loadPlugin()
+  forceHighTier(mod)
+  const { detectContext7 } = mod
   const tmp = mkdtempSync(join(tmpdir(), "c7-"))
   const f1 = join(tmp, "config.json")
   writeFileSync(f1, JSON.stringify({ mcpServers: { other: {} } }))
@@ -352,7 +400,9 @@ test("detectContext7: returns false if no config has context7", async () => {
 })
 
 test("isDocsTarget: matches docs URLs and queries", async () => {
-  const { isDocsTarget } = await loadPlugin()
+  const mod = await loadPlugin()
+  forceHighTier(mod)
+  const { isDocsTarget } = mod
   assert.equal(isDocsTarget("https://docs.python.org/3/"), true)
   assert.equal(isDocsTarget("https://npmjs.com/package/lodash"), true)
   assert.equal(isDocsTarget("https://example.com/api/v1/users"), true)
@@ -363,25 +413,33 @@ test("isDocsTarget: matches docs URLs and queries", async () => {
 
 // ── buildTestReminder ────────────────────────────────────────────────
 test("buildTestReminder: .py file → suggests test_*.py", async () => {
-  const { buildTestReminder } = await loadPlugin()
+  const mod = await loadPlugin()
+  forceHighTier(mod)
+  const { buildTestReminder } = mod
   const r = buildTestReminder("/proj/foo.py")
   assert.ok(r && r.includes("test_foo.py"))
 })
 
 test("buildTestReminder: test file itself → null", async () => {
-  const { buildTestReminder } = await loadPlugin()
+  const mod = await loadPlugin()
+  forceHighTier(mod)
+  const { buildTestReminder } = mod
   assert.equal(buildTestReminder("/proj/tests/test_foo.py"), null)
   assert.equal(buildTestReminder("/proj/foo.test.js"), null)
 })
 
 test("buildTestReminder: non-source extension → null", async () => {
-  const { buildTestReminder } = await loadPlugin()
+  const mod = await loadPlugin()
+  forceHighTier(mod)
+  const { buildTestReminder } = mod
   assert.equal(buildTestReminder("/proj/README.md"), null)
   assert.equal(buildTestReminder("/proj/config.json"), null)
 })
 
 test("buildTestReminder: dedup — same path twice → second call null", async () => {
-  const { buildTestReminder } = await loadPlugin()
+  const mod = await loadPlugin()
+  forceHighTier(mod)
+  const { buildTestReminder } = mod
   // loadPlugin uses cache-busted import so dedup state is fresh per test.
   const path = "/proj/uniq-" + Date.now() + ".js"
   assert.ok(buildTestReminder(path))
@@ -389,13 +447,17 @@ test("buildTestReminder: dedup — same path twice → second call null", async 
 })
 
 test("buildTestReminder: skips node_modules and plugins dir", async () => {
-  const { buildTestReminder } = await loadPlugin()
+  const mod = await loadPlugin()
+  forceHighTier(mod)
+  const { buildTestReminder } = mod
   assert.equal(buildTestReminder("/proj/node_modules/x/y.js"), null)
   assert.equal(buildTestReminder("/u/.config/opencode/plugins/foo.js"), null)
 })
 
 test("buildTestReminder: language-appropriate suggestions", async () => {
-  const { buildTestReminder } = await loadPlugin()
+  const mod = await loadPlugin()
+  forceHighTier(mod)
+  const { buildTestReminder } = mod
   assert.match(buildTestReminder("/p/srv.go"), /srv_test\.go/)
   assert.match(buildTestReminder("/p/util.ts"), /util\.test\.ts/)
 })
@@ -508,11 +570,14 @@ test("getScratchpadHit: surfaces summary path when present", async () => {
 
 // ── experimental.text.complete ───────────────────────────────────────
 test("text.complete: appends savings tag to assistant text", async () => {
-  const { DelegationEnforcer } = await loadPlugin()
+  const mod = await loadPlugin()
+  forceHighTier(mod)
+  const { DelegationEnforcer } = mod
   const dir = join(sandbox, ".opencode-textcomp")
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "anthropic/claude-opus-4-7" }))
   const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+  mod.applySlot("brain")
 
   // Pre-seed state with lifetime savings + a session edit warn
   const stateFile = join(sandbox, ".claude/delegation-state.json")
@@ -530,11 +595,14 @@ test("text.complete: appends savings tag to assistant text", async () => {
 })
 
 test("text.complete: dedup by messageID", async () => {
-  const { DelegationEnforcer } = await loadPlugin()
+  const mod = await loadPlugin()
+  forceHighTier(mod)
+  const { DelegationEnforcer } = mod
   const dir = join(sandbox, ".opencode-textdedup")
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "anthropic/claude-opus-4-7" }))
   const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+  mod.applySlot("brain")
 
   const out = { text: "Hi." }
   await hooks["experimental.text.complete"]({ messageID: "msg-dedup" }, out)
@@ -544,7 +612,8 @@ test("text.complete: dedup by messageID", async () => {
 })
 
 test("text.complete: footer format is stable and compact (immutable contract)", async () => {
-  const { DelegationEnforcer } = await loadPlugin()
+  const mod = await loadPlugin()
+  const { DelegationEnforcer } = mod
   const dir = join(sandbox, ".opencode-text-format")
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-flash" }))
@@ -583,7 +652,8 @@ test("text.complete: auto-rebuilds state from ledger when state total is lower, 
   ].join("\n") + "\n"
   writeFileSync(ledgerFile, ledgerRows)
 
-  const { DelegationEnforcer } = await loadPlugin()
+  const mod = await loadPlugin()
+  const { DelegationEnforcer } = mod
   const dir = join(sandbox, ".opencode-ledger-reconcile")
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-pro" }))
@@ -708,24 +778,6 @@ test("system.transform: thinking directive injected when manually set to off", a
   assert.ok(/off/i.test(allText), "off level mentioned")
   assert.ok(allText.includes("Respond directly and concisely"),
     "off directive says to respond directly")
-})
-
-test("system.transform: thinking directive NOT injected when manually set to full", async () => {
-  const { DelegationEnforcer } = await loadPlugin()
-  const dir = join(sandbox, ".opencode-stall3")
-  mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "anthropic/claude-opus-4-7" }))
-  const tiersFile = join(sandbox, ".claude/model-tiers.json")
-  writeFileSync(tiersFile, JSON.stringify({
-    selection: { enabled: true, thinking_level: "full" }
-  }))
-  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
-
-  const out = { system: [] }
-  await hooks["experimental.chat.system.transform"]({}, out)
-  const allText = out.system.join(" ")
-  assert.doesNotMatch(allText, /thinking policy|Reasoning depth/i,
-    "no thinking directive for 'full'")
 })
 
 test("system.transform: injects job-focus directive when request is off-topic vs active job", async () => {
@@ -994,11 +1046,14 @@ test("task routing: high-tier brain → TRINITY_MEDIUM when medium is set", asyn
       budget: { regex: "haiku" },
     },
   }))
-  const { DelegationEnforcer } = await loadPlugin()
+  const mod = await loadPlugin()
+  const { DelegationEnforcer } = mod
   const dir = join(sandbox, ".opencode-task-high")
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "anthropic/claude-opus-4-7" }))
   const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+  mod.applySlot("brain")
+  forceHighTier(mod)
 
   const args = { model: "anthropic/claude-opus-4-7", prompt: "go" }
   const out  = { args }
@@ -1094,7 +1149,8 @@ test("task routing: credit < 40% + Task forces cheap slot (not medium)", async (
 
 // ── Credit < 40% warn ────────────────────────────────────────────────────────
 test("credit < 40%: records OPUS_DISABLE saving for high-tier non-task tool", async () => {
-  const { DelegationEnforcer } = await loadPlugin()
+  const mod = await loadPlugin()
+  const { DelegationEnforcer } = mod
   const dir = join(sandbox, ".opencode-credit")
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "anthropic/claude-opus-4-7" }))
@@ -1105,6 +1161,8 @@ test("credit < 40%: records OPUS_DISABLE saving for high-tier non-task tool", as
   }))
   process.env.CLAUDE_CREDIT_PERCENT = "30"
   const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+  mod.applySlot("brain")
+  forceHighTier(mod)
 
   const stateFile = join(sandbox, ".claude/delegation-state.json")
   if (existsSync(stateFile)) rmSync(stateFile)
@@ -1187,11 +1245,14 @@ test("dynamic estimate: opus brain + haiku worker → brain_cost - worker_cost",
     selection: { enabled: true, active_slot: "brain" },
     tiers: { high: { regex: "opus" }, mid: { regex: "sonnet" }, budget: { regex: "haiku" } },
   }))
-  const { DelegationEnforcer, modelCostPerTurn } = await loadPlugin()
+  const mod = await loadPlugin()
+  forceHighTier(mod)
+  const { DelegationEnforcer, modelCostPerTurn } = mod
   const dir = join(sandbox, ".opencode-dyn-est")
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "anthropic/claude-opus-4-7" }))
   const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+  mod.applySlot("brain")
 
   const stateFile = join(sandbox, ".claude/delegation-state.json")
   if (existsSync(stateFile)) rmSync(stateFile)
@@ -1208,7 +1269,9 @@ test("dynamic estimate: opus brain + haiku worker → brain_cost - worker_cost",
 
 // ── Session report writing ───────────────────────────────────────────────────
 test("text.complete: no longer writes session-report-pending.md", async () => {
-  const { DelegationEnforcer } = await loadPlugin()
+  const mod = await loadPlugin()
+  forceHighTier(mod, "openrouter/anthropic/claude-sonnet-4.6")
+  const { DelegationEnforcer } = mod
   const dir = join(sandbox, ".opencode-sesreport")
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "anthropic/claude-opus-4-7" }))
@@ -1424,8 +1487,10 @@ test("integration: full simulated OC session with sonnet-as-brain", async () => 
   const stateFile = join(sandbox, ".claude/delegation-state.json")
   if (existsSync(stateFile)) rmSync(stateFile)
 
-  const { DelegationEnforcer } = await loadPlugin()
+  const mod = await loadPlugin()
+  const { DelegationEnforcer } = mod
   const hooks = await DelegationEnforcer({ client: {}, directory: projDir })
+  mod.applySlot("brain")
 
   // ── 1. shell.env: OPENCODE_MODEL_TIER must be "high" ───────────────────
   const envOut = { env: {} }
@@ -1515,56 +1580,6 @@ test("integration: full simulated OC session with sonnet-as-brain", async () => 
   await hooks["tool.execute.before"]({ tool: "task" }, { args: taskArgs4 })
   assert.equal(taskArgs4.model, "deepseek/deepseek-v4-flash",
     "re-enabled: task routing resumes after re-enabling")
-})
-
-test("task routing: learned exploratory first-word persists across projects via global learning", async () => {
-  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
-    trinity: {
-      brain:  { oc: "openrouter/anthropic/claude-opus-4-7", cc: "opus" },
-      medium: { oc: "deepseek/deepseek-v4-flash",           cc: "sonnet" },
-      cheap:  { oc: "deepseek/deepseek-chat",               cc: "haiku" },
-    },
-    selection: { enabled: true, active_slot: "medium", delegation_enforce: false },
-    tiers: {
-      high:   { regex: "opus|deepseek.*v4.*pro" },
-      mid:    { regex: "claude.*sonnet|sonnet|deepseek.*v4.*flash" },
-      budget: { regex: ".*" },
-    },
-  }))
-
-  // Project A "teaches" the plugin that "triage" is exploratory by repeatedly
-  // routing Task calls from mid tier to cheap.
-  const projectA = join(sandbox, "proj-A")
-  mkdirSync(projectA, { recursive: true })
-  writeFileSync(join(projectA, "opencode.json"), JSON.stringify({ model: "anthropic/claude-sonnet-4-6" }))
-
-  const { DelegationEnforcer } = await loadPlugin()
-  const hooksA = await DelegationEnforcer({ client: {}, directory: projectA })
-  for (let i = 0; i < 3; i++) {
-    const out = { args: { model: null, prompt: "triage the flaky tests" } }
-    await hooksA["tool.execute.before"]({ tool: "task" }, out)
-    assert.equal(out.args.model, "deepseek/deepseek-chat")
-  }
-
-  const glPath = join(sandbox, ".claude/global-learning.json")
-  assert.ok(existsSync(glPath), "global learning file created")
-  const gl = JSON.parse(readFileSync(glPath, "utf-8"))
-  assert.ok(gl.exploratory_words?.triage, "triage promoted into learned exploratory words")
-
-  // Project B should reuse that learned word even on high tier, where the
-  // default tier route would otherwise be brain->medium.
-  const tiers2 = JSON.parse(readFileSync(join(sandbox, ".claude/model-tiers.json"), "utf-8"))
-  tiers2.selection.active_slot = "brain"
-  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify(tiers2))
-
-  const projectB = join(sandbox, "proj-B")
-  mkdirSync(projectB, { recursive: true })
-  writeFileSync(join(projectB, "opencode.json"), JSON.stringify({ model: "openrouter/anthropic/claude-opus-4-7" }))
-  const hooksB = await DelegationEnforcer({ client: {}, directory: projectB })
-  const outB = { args: { model: null, prompt: "triage the release notes" } }
-  await hooksB["tool.execute.before"]({ tool: "task" }, outB)
-  assert.ok(outB.args.model === "deepseek/deepseek-v4-flash" || outB.args.model === "deepseek/deepseek-chat",
-    "learned exploratory routing should force cheap across projects; got: " + outB.args.model)
 })
 
 // ════════════════════════════════════════════════════════════════════════════

@@ -5,23 +5,102 @@ import { safeJsonParse, _blackboxEnabled, setBlackboxEnabled as _setGlobalBlackb
 import { loadSessionOptMode, writeSessionOptMode } from "./selection-manager.js";
 import { getApiClient, isApiFallback } from "./api-client.js";
 export { scoreStress, estimateContextBudget, classifyTurnSimple, tokenizeWords, topKeywords, extractLastUserText, isUserAskingForTests, isLikelyOffTopic, detectOutcomeSignal } from "./classifiers.js";
-function autoSelectMode(_subRegime, _stressMultiplier) {
-    return "balanced";
+function autoSelectMode(subRegime, stressMultiplier) {
+    const regime = String(subRegime || "INIT").toUpperCase();
+    const stress = Number(stressMultiplier ?? 0);
+    if (regime === "LOOPING")
+        return "speed";
+    if (regime === "CONVERGING" || regime === "CLOSED")
+        return "quality";
+    if (stress > 1.5)
+        return "quality";
+    return "budget";
+}
+function resolveOptimizationMode(subRegime, stressMultiplier, optimizationMode) {
+    const normalized = String(optimizationMode || "auto").toLowerCase();
+    if (normalized === "auto" || normalized === "")
+        return autoSelectMode(subRegime || "INIT", stressMultiplier);
+    if (normalized === "balanced" || normalized === "budget" || normalized === "quality" || normalized === "speed" || normalized === "longrun") {
+        return normalized;
+    }
+    return "budget";
+}
+export function resolveOptimizationSlot(mode) {
+    const normalized = String(mode || "budget").toLowerCase();
+    return normalized === "speed" ? "medium"
+        : normalized === "quality" || normalized === "longrun" ? "brain"
+            : "cheap";
+}
+export function bootstrapOptimizationSession() {
+    const sid = _OC_SID;
+    const existingOpt = loadSessionOptMode(sid);
+    const resolvedMode = (existingOpt && existingOpt !== "auto")
+        ? existingOpt
+        : DFLT_OPTIMIZATION_MODE;
+    const resolvedSlot = resolveOptimizationSlot(resolvedMode);
+    try {
+        writeSessionOptMode(sid, resolvedMode);
+        writeSessionSlot(sid, resolvedSlot);
+        const state = loadBlackboxState();
+        if (!state.sessions)
+            state.sessions = {};
+        if (!state.sessions[sid])
+            state.sessions[sid] = {};
+        state.sessions[sid].optimization_mode = resolvedMode;
+        state.sessions[sid].active_slot = resolvedSlot;
+        state.sessions[sid].sub_regime = state.sessions[sid].sub_regime || "INIT";
+        state.sessions[sid].regime = state.sessions[sid].regime || "INIT";
+        state.sessions[sid].resolution = state.sessions[sid].resolution || "unresolved";
+        state.sessions[sid].momentum = Number(state.sessions[sid].momentum || 0);
+        state.sessions[sid].loop_count = Number(state.sessions[sid].loop_count || 0);
+        state.sessions[sid].loop_intervention_level = state.sessions[sid].loop_intervention_level || "none";
+        state.sessions[sid].loop_start_turn = Number(state.sessions[sid].loop_start_turn || 0);
+        state.sessions[sid].loop_pattern_count = Number(state.sessions[sid].loop_pattern_count || 0);
+        saveBlackboxState(state);
+    }
+    catch { }
+    return { mode: resolvedMode, slot: resolvedSlot };
+}
+export async function selectOptimizationModeRemote(subRegime, stressMultiplier, fallbackMode) {
+    const fallback = resolveOptimizationMode(subRegime, stressMultiplier, fallbackMode);
+    try {
+        if (!isApiFallback()) {
+            const client = getApiClient();
+            if (client) {
+                const res = await client.blackboxSelectMode(subRegime || "INIT", Number(stressMultiplier ?? 0));
+                const selected = String(res?.mode || "").toLowerCase();
+                if (selected === "balanced" || selected === "budget" || selected === "quality" || selected === "speed" || selected === "longrun") {
+                    return selected;
+                }
+            }
+        }
+    }
+    catch { }
+    return fallback;
 }
 function computeControlVector(_state, _action, _optimizationMode) {
+    const mode = resolveOptimizationMode(_state?.sub_regime, _state?.latest_stress_multiplier, _optimizationMode);
+    const isStrict = mode === "quality";
+    const isRelaxed = mode === "budget" || mode === "speed";
+    const tierBias = mode === "quality" ? "brain"
+        : mode === "speed" ? "medium"
+            : mode === "longrun" ? "brain"
+                : mode === "balanced" ? "auto"
+                    : "cheap";
     return {
-        enforcement_mode: "normal",
-        enforcement_reason: "[optimize: balanced] using safe offline defaults",
-        flow_mode: "normal",
+        enforcement_mode: isStrict ? "strict" : isRelaxed ? "relaxed" : "normal",
+        enforcement_reason: `[optimize: ${mode}] using safe offline defaults`,
+        flow_mode: isStrict ? "strict" : isRelaxed ? "audit" : "normal",
         flow_focus: [],
-        tdd_mode: "normal",
+        tdd_mode: isStrict ? "strict" : isRelaxed ? "lazy" : "normal",
         tdd_focus: [],
-        tier_bias: "auto",
-        thinking_mode: "auto",
+        tier_bias: tierBias,
+        thinking_mode: isStrict ? "full" : mode === "longrun" ? "brief" : isRelaxed ? "off" : "auto",
         stress_multiplier: 1.0,
-        context7_urgency: "preferred",
-        wbp_verbosity: "normal",
-        optimization_mode: "balanced",
+        context7_urgency: isStrict ? "required" : "preferred",
+        wbp_verbosity: isStrict ? "verbose" : isRelaxed ? "minimal" : "normal",
+        agent_mode: isStrict ? "plan" : "auto",
+        optimization_mode: mode,
         directives: [],
     };
 }
@@ -379,12 +458,12 @@ export function getOC_SID() {
 }
 // ── Optimization Mode persistence ───────────────────────────────────────
 // Stored in blackbox-state.json under sessions[<SID>].optimization_mode
-// Default: "auto" (first session / restart). User can lock per session.
-const DFLT_OPTIMIZATION_MODE = "auto";
+// Default: "budget" (fresh session / restart). User can lock per session.
+const DFLT_OPTIMIZATION_MODE = "budget";
 export function loadOptimizationMode() {
     try {
-        const sid = _OC_SID;
-        return loadSessionOptMode(sid) || DFLT_OPTIMIZATION_MODE;
+        const mode = loadSessionOptMode(_OC_SID);
+        return mode && mode !== "auto" ? mode : DFLT_OPTIMIZATION_MODE;
     }
     catch {
         return DFLT_OPTIMIZATION_MODE;

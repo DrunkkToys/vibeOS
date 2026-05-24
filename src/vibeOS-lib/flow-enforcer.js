@@ -98,8 +98,14 @@ export function ensureProjectDocs(dir, techStack) {
     catch { }
     return { created, skipped };
 }
-const STATE_FILE = join(homedir(), ".claude/delegation-state.json");
-const FLOW_TODO_FILE = join(homedir(), ".claude/flow-todo-queue.jsonl");
+function getStateFile() {
+    const home = process.env.HOME || homedir();
+    return join(home, ".claude/delegation-state.json");
+}
+function getFlowTodoFile() {
+    const home = process.env.HOME || homedir();
+    return join(home, ".claude/flow-todo-queue.jsonl");
+}
 const FLOW_DEDUP_FILE = join(homedir(), ".claude/.flow-dedup-keys.json");
 const MAX_FLOW_TODOS = 200;
 const _flowWarnsSeen = new Set();
@@ -168,14 +174,15 @@ function loadRules() {
 function recordFlowWarn(hit) {
     try {
         let state = {};
-        if (existsSync(STATE_FILE)) {
+        const stateFile = getStateFile();
+        if (existsSync(stateFile)) {
             try {
-                state = safeJsonParse(readFileSync(STATE_FILE, "utf-8"));
+                state = safeJsonParse(readFileSync(stateFile, "utf-8"));
             }
             catch { }
         }
         else {
-            mkdirSync(dirname(STATE_FILE), { recursive: true });
+            mkdirSync(dirname(stateFile), { recursive: true });
         }
         state.flow_warns ??= [];
         state.flow_warns.push({
@@ -193,11 +200,12 @@ function recordFlowWarn(hit) {
         if (_stateWriter)
             _stateWriter(fp);
         else {
-            const existing = safeJsonParse(existsSync(STATE_FILE) ? readFileSync(STATE_FILE, "utf-8") : "{}");
+            const stateFile = getStateFile();
+            const existing = safeJsonParse(existsSync(stateFile) ? readFileSync(stateFile, "utf-8") : "{}");
             const merged = Object.assign({}, existing, fp);
-            const tmpFile = STATE_FILE + ".tmp." + Date.now();
+            const tmpFile = stateFile + ".tmp." + Date.now();
             writeFileSync(tmpFile, JSON.stringify(merged, null, 2));
-            renameSync(tmpFile, STATE_FILE);
+            renameSync(tmpFile, stateFile);
         }
     }
     catch { }
@@ -235,9 +243,10 @@ export function checkFlowRules({ tool, filePath, content }) {
 }
 export function getFlowWarns() {
     try {
-        if (!existsSync(STATE_FILE))
+        const stateFile = getStateFile();
+        if (!existsSync(stateFile))
             return [];
-        const s = safeJsonParse(readFileSync(STATE_FILE, "utf-8"));
+        const s = safeJsonParse(readFileSync(stateFile, "utf-8"));
         return s?.flow_warns || [];
     }
     catch {
@@ -278,7 +287,8 @@ export function addFlowRule(rule) {
 }
 export function recordFlowTodo({ filePath, content }) {
     try {
-        mkdirSync(dirname(FLOW_TODO_FILE), { recursive: true });
+        const flowTodoFile = getFlowTodoFile();
+        mkdirSync(dirname(flowTodoFile), { recursive: true });
         const todoRe = /(?:\/\/\s*|\#\s*)(TODO|FIXME|HACK)[\s:]+(.+)$/i;
         const todos = [];
         for (const line of content.split("\n")) {
@@ -290,8 +300,8 @@ export function recordFlowTodo({ filePath, content }) {
         if (todos.length === 0)
             return 0;
         const dedupKey = `${filePath || ""}::${todos.map(t => `${t.type}:${t.text}`).join("|")}`;
-        const existingLines = existsSync(FLOW_TODO_FILE)
-            ? readFileSync(FLOW_TODO_FILE, "utf-8").trim().split("\n").filter(Boolean)
+        const existingLines = existsSync(flowTodoFile)
+            ? readFileSync(flowTodoFile, "utf-8").trim().split("\n").filter(Boolean)
             : [];
         const existingKeys = new Set();
         for (const line of existingLines) {
@@ -311,11 +321,11 @@ export function recordFlowTodo({ filePath, content }) {
             filePath,
             todos,
         }) + "\n";
-        appendFileSync(FLOW_TODO_FILE, entry);
+        appendFileSync(flowTodoFile, entry);
         try {
-            const lines = readFileSync(FLOW_TODO_FILE, "utf-8").trim().split("\n").filter(Boolean);
+            const lines = readFileSync(flowTodoFile, "utf-8").trim().split("\n").filter(Boolean);
             if (lines.length > MAX_FLOW_TODOS) {
-                writeFileSync(FLOW_TODO_FILE, lines.slice(-Math.floor(MAX_FLOW_TODOS / 2)).join("\n") + "\n");
+                writeFileSync(flowTodoFile, lines.slice(-Math.floor(MAX_FLOW_TODOS / 2)).join("\n") + "\n");
             }
         }
         catch { }
@@ -328,9 +338,10 @@ export function recordFlowTodo({ filePath, content }) {
 }
 export function getFlowTodos() {
     try {
-        if (!existsSync(FLOW_TODO_FILE))
+        const flowTodoFile = getFlowTodoFile();
+        if (!existsSync(flowTodoFile))
             return [];
-        const raw = readFileSync(FLOW_TODO_FILE, "utf-8").trim();
+        const raw = readFileSync(flowTodoFile, "utf-8").trim();
         if (!raw)
             return [];
         return raw.split("\n").filter(Boolean).map(line => safeJsonParse(line)).filter(Boolean);

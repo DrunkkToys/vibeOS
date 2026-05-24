@@ -5,15 +5,89 @@ import { join, dirname, basename } from "node:path"
 import { homedir, tmpdir } from "node:os"
 import { createHash } from "node:crypto"
 import { safeJsonParse, _blackboxEnabled, setBlackboxEnabled as _setGlobalBlackboxEnabled, USER_HOME, FILE_LOCK_DIR, DELEGATION_STATE_FILE as STATE_FILE, GLOBAL_LEARNING_FILE, BLACKBOX_STATE_FILE, PROJECT_STATE_FILE, _OC_SID, currentProjectFingerprint, setCurrentProjectFingerprint, _handleStateCorruption, _lockPathFor, withFileLock, readJsonOrEmpty, validateState, loadBlackboxState, saveBlackboxState, loadGlobalLearning, updateGlobalLearning, getLearnedExploratoryWords, projectFingerprint, loadProjectState, saveProjectState, detectTechStack, ensureProjectBucket, recordMissedContext7 } from "./state.js"
-import { loadSessionOptMode, writeSessionOptMode } from "./selection-manager.js"
+import { loadSessionOptMode, writeSessionOptMode, loadSessionSlot } from "./selection-manager.js"
 import { getApiClient, isApiFallback } from "./api-client.js"
 import { scoreStress, estimateContextBudget, classifyTurnSimple, tokenizeWords, topKeywords, extractLastUserText, isUserAskingForTests, isLikelyOffTopic, detectOutcomeSignal } from "./classifiers.js"
 export { scoreStress, estimateContextBudget, classifyTurnSimple, tokenizeWords, topKeywords, extractLastUserText, isUserAskingForTests, isLikelyOffTopic, detectOutcomeSignal } from "./classifiers.js"
 
 type OptimizationMode = "balanced" | "budget" | "quality" | "speed" | "longrun" | "auto"
 
-function autoSelectMode(_subRegime: string, _stressMultiplier?: number): OptimizationMode {
-  return "balanced"
+function autoSelectMode(subRegime: string, stressMultiplier?: number): OptimizationMode {
+  const regime = String(subRegime || "INIT").toUpperCase()
+  const stress = Number(stressMultiplier ?? 0)
+  if (regime === "LOOPING") return "speed"
+  if (regime === "CONVERGING" || regime === "CLOSED") return "quality"
+  if (stress > 1.5) return "quality"
+  return "budget"
+}
+
+function resolveOptimizationMode(
+  subRegime: string | undefined,
+  stressMultiplier: number | undefined,
+  optimizationMode: OptimizationMode | string | undefined,
+): OptimizationMode {
+  const normalized = String(optimizationMode || "auto").toLowerCase()
+  if (normalized === "auto" || normalized === "") return autoSelectMode(subRegime || "INIT", stressMultiplier)
+  if (normalized === "balanced" || normalized === "budget" || normalized === "quality" || normalized === "speed" || normalized === "longrun") {
+    return normalized as OptimizationMode
+  }
+  return "budget"
+}
+
+export function resolveOptimizationSlot(mode: OptimizationMode | string | undefined): "brain" | "medium" | "cheap" {
+  const normalized = String(mode || "budget").toLowerCase()
+  return normalized === "speed" ? "medium"
+    : normalized === "quality" || normalized === "longrun" ? "brain"
+    : "cheap"
+}
+
+export function bootstrapOptimizationSession(): { mode: OptimizationMode; slot: "brain" | "medium" | "cheap" } {
+  const sid = _OC_SID
+  const existingOpt = loadSessionOptMode(sid)
+  const resolvedMode = (existingOpt && existingOpt !== "auto")
+    ? (existingOpt as OptimizationMode)
+    : DFLT_OPTIMIZATION_MODE
+  const resolvedSlot = resolveOptimizationSlot(resolvedMode)
+  try {
+    writeSessionOptMode(sid, resolvedMode)
+    writeSessionSlot(sid, resolvedSlot)
+    const state = loadBlackboxState()
+    if (!state.sessions) state.sessions = {}
+    if (!state.sessions[sid]) state.sessions[sid] = {}
+    state.sessions[sid].optimization_mode = resolvedMode
+    state.sessions[sid].active_slot = resolvedSlot
+    state.sessions[sid].sub_regime = state.sessions[sid].sub_regime || "INIT"
+    state.sessions[sid].regime = state.sessions[sid].regime || "INIT"
+    state.sessions[sid].resolution = state.sessions[sid].resolution || "unresolved"
+    state.sessions[sid].momentum = Number(state.sessions[sid].momentum || 0)
+    state.sessions[sid].loop_count = Number(state.sessions[sid].loop_count || 0)
+    state.sessions[sid].loop_intervention_level = state.sessions[sid].loop_intervention_level || "none"
+    state.sessions[sid].loop_start_turn = Number(state.sessions[sid].loop_start_turn || 0)
+    state.sessions[sid].loop_pattern_count = Number(state.sessions[sid].loop_pattern_count || 0)
+    saveBlackboxState(state)
+  } catch {}
+  return { mode: resolvedMode, slot: resolvedSlot }
+}
+
+export async function selectOptimizationModeRemote(
+  subRegime: string | undefined,
+  stressMultiplier: number | undefined,
+  fallbackMode: OptimizationMode | string | undefined,
+): Promise<OptimizationMode> {
+  const fallback = resolveOptimizationMode(subRegime, stressMultiplier, fallbackMode)
+  try {
+    if (!isApiFallback()) {
+      const client = getApiClient()
+      if (client) {
+        const res = await client.blackboxSelectMode(subRegime || "INIT", Number(stressMultiplier ?? 0))
+        const selected = String((res as any)?.mode || "").toLowerCase()
+        if (selected === "balanced" || selected === "budget" || selected === "quality" || selected === "speed" || selected === "longrun") {
+          return selected as OptimizationMode
+        }
+      }
+    }
+  } catch {}
+  return fallback
 }
 
 function computeControlVector(
@@ -21,19 +95,28 @@ function computeControlVector(
   _action?: string,
   _optimizationMode?: OptimizationMode,
 ): any {
+  const mode = resolveOptimizationMode(_state?.sub_regime, _state?.latest_stress_multiplier, _optimizationMode)
+  const isStrict = mode === "quality"
+  const isRelaxed = mode === "budget" || mode === "speed"
+  const tierBias = mode === "quality" ? "brain"
+    : mode === "speed" ? "medium"
+    : mode === "longrun" ? "brain"
+    : mode === "balanced" ? "auto"
+    : "cheap"
   return {
-    enforcement_mode: "normal",
-    enforcement_reason: "[optimize: balanced] using safe offline defaults",
-    flow_mode: "normal",
+    enforcement_mode: isStrict ? "strict" : isRelaxed ? "relaxed" : "normal",
+    enforcement_reason: `[optimize: ${mode}] using safe offline defaults`,
+    flow_mode: isStrict ? "strict" : isRelaxed ? "audit" : "normal",
     flow_focus: [],
-    tdd_mode: "normal",
+    tdd_mode: isStrict ? "strict" : isRelaxed ? "lazy" : "normal",
     tdd_focus: [],
-    tier_bias: "auto",
-    thinking_mode: "auto",
+    tier_bias: tierBias,
+    thinking_mode: isStrict ? "full" : mode === "longrun" ? "brief" : isRelaxed ? "off" : "auto",
     stress_multiplier: 1.0,
-    context7_urgency: "preferred",
-    wbp_verbosity: "normal",
-    optimization_mode: "balanced",
+    context7_urgency: isStrict ? "required" : "preferred",
+    wbp_verbosity: isStrict ? "verbose" : isRelaxed ? "minimal" : "normal",
+    agent_mode: isStrict ? "plan" : "auto",
+    optimization_mode: mode,
     directives: [],
   }
 }
@@ -393,13 +476,13 @@ export function getOC_SID() {
 
 // ── Optimization Mode persistence ───────────────────────────────────────
 // Stored in blackbox-state.json under sessions[<SID>].optimization_mode
-// Default: "auto" (first session / restart). User can lock per session.
-const DFLT_OPTIMIZATION_MODE = "auto"
+// Default: "budget" (fresh session / restart). User can lock per session.
+const DFLT_OPTIMIZATION_MODE = "budget"
 
 export function loadOptimizationMode(): string {
   try {
-    const sid = _OC_SID
-    return loadSessionOptMode(sid) || DFLT_OPTIMIZATION_MODE
+    const mode = loadSessionOptMode(_OC_SID)
+    return mode && mode !== "auto" ? mode : DFLT_OPTIMIZATION_MODE
   } catch { return DFLT_OPTIMIZATION_MODE }
 }
 

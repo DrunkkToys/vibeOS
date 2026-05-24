@@ -30,7 +30,7 @@ __export(flow_enforcer_exports, {
   setFlowStateWriter: () => setFlowStateWriter,
   syncFlowTodosToNative: () => syncFlowTodosToNative
 });
-import { readFileSync as readFileSync2, existsSync, mkdirSync, writeFileSync, statSync, appendFileSync, renameSync } from "node:fs";
+import { readFileSync, existsSync, mkdirSync, writeFileSync, statSync, appendFileSync, renameSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -83,13 +83,21 @@ function ensureProjectDocs(dir, techStack) {
   }
   return { created, skipped };
 }
+function getStateFile() {
+  const home = process.env.HOME || homedir();
+  return join(home, ".claude/delegation-state.json");
+}
+function getFlowTodoFile() {
+  const home = process.env.HOME || homedir();
+  return join(home, ".claude/flow-todo-queue.jsonl");
+}
 function setFlowStateWriter(writer) {
   _stateWriter = typeof writer === "function" ? writer : null;
 }
 function loadFlowDedupKeys() {
   try {
     if (existsSync(FLOW_DEDUP_FILE)) {
-      const raw = readFileSync2(FLOW_DEDUP_FILE, "utf-8");
+      const raw = readFileSync(FLOW_DEDUP_FILE, "utf-8");
       const keys = safeJsonParse(raw);
       if (Array.isArray(keys)) {
         for (const k of keys)
@@ -105,7 +113,7 @@ function persistFlowDedupKey(key) {
     let keys = [];
     if (existsSync(FLOW_DEDUP_FILE)) {
       try {
-        keys = safeJsonParse(readFileSync2(FLOW_DEDUP_FILE, "utf-8"));
+        keys = safeJsonParse(readFileSync(FLOW_DEDUP_FILE, "utf-8"));
       } catch {
       }
       if (!Array.isArray(keys))
@@ -130,7 +138,7 @@ function loadRules() {
       _cachedRules = [];
       return _cachedRules;
     }
-    const j = safeJsonParse(readFileSync2(rulesPath, "utf-8"));
+    const j = safeJsonParse(readFileSync(rulesPath, "utf-8"));
     _cachedRules = j.rules || [];
     _rulesMtime = mtime;
     return _cachedRules;
@@ -142,13 +150,14 @@ function loadRules() {
 function recordFlowWarn(hit) {
   try {
     let state = {};
-    if (existsSync(STATE_FILE)) {
+    const stateFile = getStateFile();
+    if (existsSync(stateFile)) {
       try {
-        state = safeJsonParse(readFileSync2(STATE_FILE, "utf-8"));
+        state = safeJsonParse(readFileSync(stateFile, "utf-8"));
       } catch {
       }
     } else {
-      mkdirSync(dirname(STATE_FILE), { recursive: true });
+      mkdirSync(dirname(stateFile), { recursive: true });
     }
     state.flow_warns ??= [];
     state.flow_warns.push({
@@ -166,11 +175,12 @@ function recordFlowWarn(hit) {
     if (_stateWriter)
       _stateWriter(fp2);
     else {
-      const existing = safeJsonParse(existsSync(STATE_FILE) ? readFileSync2(STATE_FILE, "utf-8") : "{}");
+      const stateFile2 = getStateFile();
+      const existing = safeJsonParse(existsSync(stateFile2) ? readFileSync(stateFile2, "utf-8") : "{}");
       const merged = Object.assign({}, existing, fp2);
-      const tmpFile = STATE_FILE + ".tmp." + Date.now();
+      const tmpFile = stateFile2 + ".tmp." + Date.now();
       writeFileSync(tmpFile, JSON.stringify(merged, null, 2));
-      renameSync(tmpFile, STATE_FILE);
+      renameSync(tmpFile, stateFile2);
     }
   } catch {
   }
@@ -207,9 +217,10 @@ function checkFlowRules({ tool: tool2, filePath, content }) {
 }
 function getFlowWarns() {
   try {
-    if (!existsSync(STATE_FILE))
+    const stateFile = getStateFile();
+    if (!existsSync(stateFile))
       return [];
-    const s = safeJsonParse(readFileSync2(STATE_FILE, "utf-8"));
+    const s = safeJsonParse(readFileSync(stateFile, "utf-8"));
     return s?.flow_warns || [];
   } catch {
     return [];
@@ -248,7 +259,8 @@ function addFlowRule(rule) {
 }
 function recordFlowTodo({ filePath, content }) {
   try {
-    mkdirSync(dirname(FLOW_TODO_FILE), { recursive: true });
+    const flowTodoFile = getFlowTodoFile();
+    mkdirSync(dirname(flowTodoFile), { recursive: true });
     const todoRe = /(?:\/\/\s*|\#\s*)(TODO|FIXME|HACK)[\s:]+(.+)$/i;
     const todos = [];
     for (const line of content.split("\n")) {
@@ -260,7 +272,7 @@ function recordFlowTodo({ filePath, content }) {
     if (todos.length === 0)
       return 0;
     const dedupKey = `${filePath || ""}::${todos.map((t) => `${t.type}:${t.text}`).join("|")}`;
-    const existingLines = existsSync(FLOW_TODO_FILE) ? readFileSync2(FLOW_TODO_FILE, "utf-8").trim().split("\n").filter(Boolean) : [];
+    const existingLines = existsSync(flowTodoFile) ? readFileSync(flowTodoFile, "utf-8").trim().split("\n").filter(Boolean) : [];
     const existingKeys = /* @__PURE__ */ new Set();
     for (const line of existingLines) {
       try {
@@ -279,11 +291,11 @@ function recordFlowTodo({ filePath, content }) {
       filePath,
       todos
     }) + "\n";
-    appendFileSync(FLOW_TODO_FILE, entry);
+    appendFileSync(flowTodoFile, entry);
     try {
-      const lines = readFileSync2(FLOW_TODO_FILE, "utf-8").trim().split("\n").filter(Boolean);
+      const lines = readFileSync(flowTodoFile, "utf-8").trim().split("\n").filter(Boolean);
       if (lines.length > MAX_FLOW_TODOS) {
-        writeFileSync(FLOW_TODO_FILE, lines.slice(-Math.floor(MAX_FLOW_TODOS / 2)).join("\n") + "\n");
+        writeFileSync(flowTodoFile, lines.slice(-Math.floor(MAX_FLOW_TODOS / 2)).join("\n") + "\n");
       }
     } catch {
     }
@@ -295,9 +307,10 @@ function recordFlowTodo({ filePath, content }) {
 }
 function getFlowTodos() {
   try {
-    if (!existsSync(FLOW_TODO_FILE))
+    const flowTodoFile = getFlowTodoFile();
+    if (!existsSync(flowTodoFile))
       return [];
-    const raw = readFileSync2(FLOW_TODO_FILE, "utf-8").trim();
+    const raw = readFileSync(flowTodoFile, "utf-8").trim();
     if (!raw)
       return [];
     return raw.split("\n").filter(Boolean).map((line) => safeJsonParse(line)).filter(Boolean);
@@ -324,7 +337,7 @@ function syncFlowTodosToNative(upsertFn) {
   }
   return count;
 }
-var __dirname2, RULES_PATH, GUARD_AGENTS_TEMPLATE, GUARD_README_TEMPLATE, STATE_FILE, FLOW_TODO_FILE, FLOW_DEDUP_FILE, MAX_FLOW_TODOS, _flowWarnsSeen, _stateWriter, _cachedRules, _rulesMtime;
+var __dirname2, RULES_PATH, GUARD_AGENTS_TEMPLATE, GUARD_README_TEMPLATE, FLOW_DEDUP_FILE, MAX_FLOW_TODOS, _flowWarnsSeen, _stateWriter, _cachedRules, _rulesMtime;
 var init_flow_enforcer = __esm({
   "src/vibeOS-lib/flow-enforcer.js"() {
     "use strict";
@@ -369,8 +382,6 @@ var init_flow_enforcer = __esm({
         ""
       ].join("\n");
     };
-    STATE_FILE = join(homedir(), ".claude/delegation-state.json");
-    FLOW_TODO_FILE = join(homedir(), ".claude/flow-todo-queue.jsonl");
     FLOW_DEDUP_FILE = join(homedir(), ".claude/.flow-dedup-keys.json");
     MAX_FLOW_TODOS = 200;
     _flowWarnsSeen = /* @__PURE__ */ new Set();
@@ -383,8 +394,8 @@ var init_flow_enforcer = __esm({
 
 // src/index.ts
 init_flow_enforcer();
-import { readFileSync as readFileSync16, writeFileSync as writeFileSync12, existsSync as existsSync14, mkdirSync as mkdirSync11, copyFileSync as copyFileSync6, renameSync as renameSync7 } from "node:fs";
-import { join as join16, dirname as dirname8, basename as basename8 } from "node:path";
+import { readFileSync as readFileSync15, writeFileSync as writeFileSync12, existsSync as existsSync14, mkdirSync as mkdirSync11, copyFileSync as copyFileSync5, renameSync as renameSync6 } from "node:fs";
+import { join as join15, dirname as dirname8, basename as basename8 } from "node:path";
 import { homedir as homedir10 } from "node:os";
 import { spawn as spawn2 } from "node:child_process";
 
@@ -533,30 +544,74 @@ import { createMcpServer } from "vibeOScore/mcp-server";
 
 // src/lib/api-client.js
 import { VibeOSApiClient } from "vibeOScore/client";
+import { readFileSync as readFileSync2 } from "node:fs";
 import { dirname as dirname2 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 import { homedir as homedir2 } from "node:os";
-var VIBEOS_API_URL = process.env.VIBEOS_API_URL || "https://api.vibetheog.com";
-var _envToken = "";
-var _apiDir = typeof __dirname !== "undefined" ? __dirname : dirname2(fileURLToPath2(import.meta.url));
-var _envPaths = [_apiDir, homedir2() + "/.claude", homedir2(), process.cwd()];
-for (const dir of _envPaths) {
-  try {
-    const env = readFileSync(dir + "/.env.production", "utf8");
-    const m = env.match(/^VIBEOS_API_TOKEN=(.+)$/m);
-    if (m) {
-      _envToken = m[1].trim();
-      break;
-    }
-  } catch {
+
+// src/lib/runtime-state.js
+var RUNTIME_KEY = "__vibeOSRuntimeState";
+function getRuntimeState() {
+  const g = globalThis;
+  if (!g[RUNTIME_KEY]) {
+    g[RUNTIME_KEY] = {
+      apiConnected: false,
+      apiFallbackMode: false,
+      apiFallbackSince: null,
+      sessionId: "opencode-" + (process.pid || "x") + "-" + Date.now()
+    };
   }
+  return g[RUNTIME_KEY];
 }
-var VIBEOS_API_TOKEN = process.env.VIBEOS_API_TOKEN || _envToken || "";
+function getOcSessionId() {
+  return getRuntimeState().sessionId;
+}
+function markApiConnected() {
+  const state = getRuntimeState();
+  state.apiConnected = true;
+  state.apiFallbackMode = false;
+  state.apiFallbackSince = null;
+}
+function markApiDisconnected() {
+  const state = getRuntimeState();
+  state.apiConnected = false;
+  state.apiFallbackMode = true;
+  if (!state.apiFallbackSince)
+    state.apiFallbackSince = (/* @__PURE__ */ new Date()).toISOString();
+}
+function resetApiConnection() {
+  const state = getRuntimeState();
+  state.apiConnected = false;
+  state.apiFallbackMode = false;
+  state.apiFallbackSince = null;
+}
+function isApiConnected() {
+  const state = getRuntimeState();
+  return state.apiConnected && !state.apiFallbackMode;
+}
+
+// src/lib/api-client.js
+var VIBEOS_API_URL = process.env.VIBEOS_API_URL || "https://api.vibetheog.com";
+var _apiDir = typeof __dirname !== "undefined" ? __dirname : dirname2(fileURLToPath2(import.meta.url));
+var _envPaths = [homedir2() + "/.claude", _apiDir, process.cwd(), homedir2()];
+function readTokenFromDisk() {
+  for (const dir of _envPaths) {
+    try {
+      const env = readFileSync2(dir + "/.env.production", "utf8");
+      const m = env.match(/^VIBEOS_API_TOKEN=(.+)$/m);
+      if (m)
+        return m[1].trim();
+    } catch {
+    }
+  }
+  return "";
+}
+var VIBEOS_API_TOKEN = readTokenFromDisk() || process.env.VIBEOS_API_TOKEN || "";
 var VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && !!VIBEOS_API_TOKEN;
 function setApiToken(newToken) {
   try {
-    const oldVal = VIBEOS_API_TOKEN;
-    VIBEOS_API_TOKEN = newToken;
+    VIBEOS_API_TOKEN = String(newToken || "").trim();
+    VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && !!VIBEOS_API_TOKEN;
     console.error("[vibeOS] API token updated via setApiToken");
   } catch (e) {
     console.error("[vibeOS] Failed to update API token:", e.message);
@@ -565,7 +620,21 @@ function setApiToken(newToken) {
 var _apiClient = null;
 var _apiFallbackMode = false;
 var _apiFallbackSince = null;
+function syncApiTokenFromDisk() {
+  const diskToken = readTokenFromDisk() || process.env.VIBEOS_API_TOKEN || "";
+  if (diskToken && diskToken !== VIBEOS_API_TOKEN) {
+    VIBEOS_API_TOKEN = diskToken;
+    VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && !!VIBEOS_API_TOKEN;
+    _apiClient = null;
+    _apiFallbackMode = false;
+    _apiFallbackSince = null;
+    resetApiConnection();
+  } else {
+    VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && !!VIBEOS_API_TOKEN;
+  }
+}
 function getApiClient() {
+  syncApiTokenFromDisk();
   if (!_apiClient && VIBEOS_API_ENABLED) {
     _apiClient = new VibeOSApiClient({
       baseUrl: VIBEOS_API_URL,
@@ -578,7 +647,11 @@ function getApiClient() {
 function isApiFallback() {
   return _apiFallbackMode || !VIBEOS_API_ENABLED;
 }
+function isApiConnected2() {
+  return VIBEOS_API_ENABLED && isApiConnected() && !_apiFallbackMode;
+}
 async function remoteCall(method, args, fallbackFn) {
+  syncApiTokenFromDisk();
   if (!VIBEOS_API_ENABLED || _apiFallbackMode) {
     if (fallbackFn)
       return fallbackFn();
@@ -594,6 +667,7 @@ async function remoteCall(method, args, fallbackFn) {
     const result = await client2[method](...args);
     _apiFallbackMode = false;
     _apiFallbackSince = null;
+    markApiConnected();
     return result;
   } catch (err) {
     if (!_apiFallbackMode) {
@@ -601,6 +675,7 @@ async function remoteCall(method, args, fallbackFn) {
       _apiFallbackSince = (/* @__PURE__ */ new Date()).toISOString();
       console.error(`[vibeOS] API fallback activated: ${err.message}`);
     }
+    markApiDisconnected();
     if (fallbackFn) {
       try {
         return fallbackFn();
@@ -716,7 +791,7 @@ function loadSessionSlot(sid) {
     return null;
   }
 }
-function writeSessionSlot(sid, slot) {
+function writeSessionSlot2(sid, slot) {
   try {
     const j = existsSync2(BLACKBOX_FILE) ? safeJsonParse2(readFileSync3(BLACKBOX_FILE, "utf-8")) : {};
     if (!j.sessions)
@@ -877,11 +952,11 @@ function _computeSessionMetrics(state, sid) {
     count: warns.length,
     sesTasks: Number(session?.total_savings_usd || 0),
     sesDuration: durationSec,
-    sesRatePerHour: Number((((session?.total_savings_usd || 0) + (session?.cache_savings_usd || 0)) / hours).toFixed(2)),
+    sesRatePerHour: Number((((state?.lifetime?.total_savings_usd || 0) + (state?.lifetime?.cache_savings_usd || 0)) / hours).toFixed(4)),
     sesTrend: "stable",
     sesToolBreakdown: toolBreakdown,
     sesModelTurns: session?.model_turns || { brain: 0, worker: 0 },
-    quality_avg: 0
+    quality_avg: state?.lifetime?.quality_total_count > 0 ? Math.round((state?.lifetime?.quality_total_score || 0) / state?.lifetime?.quality_total_count) : 0
   };
 }
 
@@ -1480,7 +1555,7 @@ var TOOL_NAME_NORMALIZE = {
 var SCRATCHPAD_TOOLS = new Set(Object.keys(TOOL_NAME_NORMALIZE));
 var WARN_DEDUPE_WINDOW_MS = 120 * 1e3;
 var SOFT_QUOTA_LIMIT = 5;
-var _OC_SID = "opencode-" + (process.pid || "x") + "-" + Date.now();
+var _OC_SID = getOcSessionId();
 var _sessionStart = Date.now();
 var currentTier = null;
 var currentModel = null;
@@ -2386,7 +2461,7 @@ function clearProjectPatterns(fp2) {
     return 0;
   }
 }
-var STATE_FILE2 = DELEGATION_STATE_FILE;
+var STATE_FILE = DELEGATION_STATE_FILE;
 function recordCacheSaving(tool2, saveEst, meta = {}) {
   try {
     const state = updateState((s) => {
@@ -3305,6 +3380,97 @@ function isLikelyOffTopic(userText, job) {
 }
 
 // src/lib/turn-classify.js
+function autoSelectMode(subRegime, stressMultiplier) {
+  const regime = String(subRegime || "INIT").toUpperCase();
+  const stress = Number(stressMultiplier ?? 0);
+  if (regime === "LOOPING")
+    return "speed";
+  if (regime === "CONVERGING" || regime === "CLOSED")
+    return "quality";
+  if (stress > 1.5)
+    return "quality";
+  return "budget";
+}
+function resolveOptimizationMode(subRegime, stressMultiplier, optimizationMode) {
+  const normalized = String(optimizationMode || "auto").toLowerCase();
+  if (normalized === "auto" || normalized === "")
+    return autoSelectMode(subRegime || "INIT", stressMultiplier);
+  if (normalized === "balanced" || normalized === "budget" || normalized === "quality" || normalized === "speed" || normalized === "longrun") {
+    return normalized;
+  }
+  return "budget";
+}
+function resolveOptimizationSlot(mode) {
+  const normalized = String(mode || "budget").toLowerCase();
+  return normalized === "speed" ? "medium" : normalized === "quality" || normalized === "longrun" ? "brain" : "cheap";
+}
+function bootstrapOptimizationSession() {
+  const sid = _OC_SID;
+  const existingOpt = loadSessionOptMode(sid);
+  const resolvedMode = existingOpt && existingOpt !== "auto" ? existingOpt : DFLT_OPTIMIZATION_MODE;
+  const resolvedSlot = resolveOptimizationSlot(resolvedMode);
+  try {
+    writeSessionOptMode(sid, resolvedMode);
+    writeSessionSlot(sid, resolvedSlot);
+    const state = loadBlackboxState();
+    if (!state.sessions)
+      state.sessions = {};
+    if (!state.sessions[sid])
+      state.sessions[sid] = {};
+    state.sessions[sid].optimization_mode = resolvedMode;
+    state.sessions[sid].active_slot = resolvedSlot;
+    state.sessions[sid].sub_regime = state.sessions[sid].sub_regime || "INIT";
+    state.sessions[sid].regime = state.sessions[sid].regime || "INIT";
+    state.sessions[sid].resolution = state.sessions[sid].resolution || "unresolved";
+    state.sessions[sid].momentum = Number(state.sessions[sid].momentum || 0);
+    state.sessions[sid].loop_count = Number(state.sessions[sid].loop_count || 0);
+    state.sessions[sid].loop_intervention_level = state.sessions[sid].loop_intervention_level || "none";
+    state.sessions[sid].loop_start_turn = Number(state.sessions[sid].loop_start_turn || 0);
+    state.sessions[sid].loop_pattern_count = Number(state.sessions[sid].loop_pattern_count || 0);
+    saveBlackboxState(state);
+  } catch {
+  }
+  return { mode: resolvedMode, slot: resolvedSlot };
+}
+async function selectOptimizationModeRemote(subRegime, stressMultiplier, fallbackMode) {
+  const fallback = resolveOptimizationMode(subRegime, stressMultiplier, fallbackMode);
+  try {
+    if (!isApiFallback()) {
+      const client2 = getApiClient();
+      if (client2) {
+        const res = await client2.blackboxSelectMode(subRegime || "INIT", Number(stressMultiplier ?? 0));
+        const selected = String(res?.mode || "").toLowerCase();
+        if (selected === "balanced" || selected === "budget" || selected === "quality" || selected === "speed" || selected === "longrun") {
+          return selected;
+        }
+      }
+    }
+  } catch {
+  }
+  return fallback;
+}
+function computeControlVector(_state, _action, _optimizationMode) {
+  const mode = resolveOptimizationMode(_state?.sub_regime, _state?.latest_stress_multiplier, _optimizationMode);
+  const isStrict = mode === "quality";
+  const isRelaxed = mode === "budget" || mode === "speed";
+  const tierBias = mode === "quality" ? "brain" : mode === "speed" ? "medium" : mode === "longrun" ? "brain" : mode === "balanced" ? "auto" : "cheap";
+  return {
+    enforcement_mode: isStrict ? "strict" : isRelaxed ? "relaxed" : "normal",
+    enforcement_reason: `[optimize: ${mode}] using safe offline defaults`,
+    flow_mode: isStrict ? "strict" : isRelaxed ? "audit" : "normal",
+    flow_focus: [],
+    tdd_mode: isStrict ? "strict" : isRelaxed ? "lazy" : "normal",
+    tdd_focus: [],
+    tier_bias: tierBias,
+    thinking_mode: isStrict ? "full" : mode === "longrun" ? "brief" : isRelaxed ? "off" : "auto",
+    stress_multiplier: 1,
+    context7_urgency: isStrict ? "required" : "preferred",
+    wbp_verbosity: isStrict ? "verbose" : isRelaxed ? "minimal" : "normal",
+    agent_mode: isStrict ? "plan" : "auto",
+    optimization_mode: mode,
+    directives: []
+  };
+}
 function buildControlHistoryEntry(turn, regime, control, reward = null) {
   return {
     turn,
@@ -3568,11 +3734,11 @@ function noteTaskRoutingLearning(firstWord, targetModel, reason) {
   } catch {
   }
 }
-var DFLT_OPTIMIZATION_MODE = "auto";
+var DFLT_OPTIMIZATION_MODE = "budget";
 function loadOptimizationMode() {
   try {
-    const sid = _OC_SID;
-    return loadSessionOptMode(sid) || DFLT_OPTIMIZATION_MODE;
+    const mode = loadSessionOptMode(_OC_SID);
+    return mode && mode !== "auto" ? mode : DFLT_OPTIMIZATION_MODE;
   } catch {
     return DFLT_OPTIMIZATION_MODE;
   }
@@ -3609,7 +3775,7 @@ var _OC_SID2 = "opencode-" + (process.pid || "x") + "-" + Date.now();
 var SCRATCHPAD_ROOT2 = join6(USER_HOME4, ".claude/scratch");
 var SCRATCHPAD_GLOBAL_DIR2 = join6(SCRATCHPAD_ROOT2, "by-hash");
 var SCRATCHPAD_SESSIONS_DIR2 = join6(SCRATCHPAD_ROOT2, "sessions");
-var STATE_FILE3 = join6(USER_HOME4, ".claude/delegation-state.json");
+var STATE_FILE2 = join6(USER_HOME4, ".claude/delegation-state.json");
 var currentModel2 = null;
 function getSessionRoot2() {
   return join6(SCRATCHPAD_SESSIONS_DIR2, _OC_SID2);
@@ -3691,8 +3857,8 @@ function researchAudit({ hours = 24, session: sessionFilter } = {}) {
     console.error(`[vibeOS] researchAudit index scan failed: ${err.message}`);
   }
   try {
-    if (existsSync6(STATE_FILE3)) {
-      const state = safeJsonParse3(readFileSync7(STATE_FILE3, "utf-8"));
+    if (existsSync6(STATE_FILE2)) {
+      const state = safeJsonParse3(readFileSync7(STATE_FILE2, "utf-8"));
       for (const [sid, s] of Object.entries(state.sessions || {})) {
         if (sessionFilter && sid !== sessionFilter)
           continue;
@@ -3856,7 +4022,7 @@ function _parseMetrics(v) {
   }
   return result;
 }
-function saveReport({ type = "manual", summary = "", findings = null, metrics = null, narrative = "", tags = [], fingerprint = null } = {}) {
+function saveReport({ type = "manual", summary = "", findings = null, metrics = null, narrative = "", tags = [], fingerprint = null, status = "pending", task_description = "", outcome_verified = false } = {}) {
   const parsedFindings = _parseFindings(findings);
   const parsedMetrics = _parseMetrics(metrics);
   if (_wouldBeDuplicate(type, summary))
@@ -3869,7 +4035,10 @@ function saveReport({ type = "manual", summary = "", findings = null, metrics = 
     findings: parsedFindings,
     metrics: parsedMetrics,
     narrative,
-    tags
+    tags,
+    status,
+    task_description,
+    outcome_verified
   };
   try {
     withFileLock(REPORTS_INDEX, () => {
@@ -5226,6 +5395,186 @@ import { join as join12, basename as basename6 } from "node:path";
 import { homedir as homedir8 } from "node:os";
 import { createHash as createHash3 } from "node:crypto";
 
+// src/lib/mode-policy.js
+var BASELINE_MODE = "budget";
+var LOOP_REGIMES = /* @__PURE__ */ new Set(["LOOPING", "DIVERGENT"]);
+var QUALITY_REGIMES = /* @__PURE__ */ new Set(["CONVERGING", "CLOSED"]);
+var MANUAL_MODES = /* @__PURE__ */ new Set(["balanced", "quality", "speed", "longrun"]);
+function normalizeMode(mode) {
+  const normalized = String(mode || BASELINE_MODE).toLowerCase();
+  if (normalized === "auto" || normalized === "")
+    return BASELINE_MODE;
+  if (normalized === "budget" || normalized === "quality" || normalized === "speed" || normalized === "longrun" || normalized === "balanced") {
+    return normalized;
+  }
+  return BASELINE_MODE;
+}
+function normalizeRegime(regime) {
+  return String(regime || "INIT").toUpperCase();
+}
+function isManualOverride(mode) {
+  return MANUAL_MODES.has(normalizeMode(mode));
+}
+function chooseEpisodeMode(regime, suggestedMode, stress) {
+  if (LOOP_REGIMES.has(regime) || suggestedMode === "speed")
+    return "speed";
+  if (QUALITY_REGIMES.has(regime) || suggestedMode === "quality")
+    return "quality";
+  return stress > 1.5 ? "quality" : "quality";
+}
+function defaultPolicy() {
+  return {
+    active: false,
+    active_mode: BASELINE_MODE,
+    baseline_mode: BASELINE_MODE,
+    reason: null,
+    episode_id: null,
+    problem_streak: 0,
+    stable_streak: 0,
+    last_sub_regime: "INIT",
+    last_stress: 0,
+    last_outcome: null,
+    updated_at: null,
+    started_at: null
+  };
+}
+function modeToSlot(mode) {
+  const normalized = normalizeMode(mode);
+  if (normalized === "speed")
+    return "medium";
+  if (normalized === "quality" || normalized === "longrun")
+    return "brain";
+  return "cheap";
+}
+function loadSessionPolicy() {
+  const state = loadBlackboxState();
+  if (!state.sessions || typeof state.sessions !== "object")
+    state.sessions = {};
+  const sid = _OC_SID;
+  if (!state.sessions[sid] || typeof state.sessions[sid] !== "object")
+    state.sessions[sid] = {};
+  const session = state.sessions[sid];
+  if (!session.mode_policy || typeof session.mode_policy !== "object") {
+    session.mode_policy = defaultPolicy();
+  } else {
+    session.mode_policy.baseline_mode = session.mode_policy.baseline_mode || BASELINE_MODE;
+    session.mode_policy.active_mode = session.mode_policy.active_mode || BASELINE_MODE;
+    session.mode_policy.problem_streak = Number(session.mode_policy.problem_streak || 0);
+    session.mode_policy.stable_streak = Number(session.mode_policy.stable_streak || 0);
+  }
+  return { state, session, policy: session.mode_policy };
+}
+function persistSessionPolicy(state, session, policy, mode) {
+  policy.updated_at = (/* @__PURE__ */ new Date()).toISOString();
+  session.mode_policy = policy;
+  session.active_slot = modeToSlot(mode);
+  saveBlackboxState(state);
+  return {
+    active: !!policy.active,
+    mode,
+    reason: policy.reason || BASELINE_MODE,
+    shouldPersistRequestedMode: false
+  };
+}
+function peekBudgetFirstMode(input = {}) {
+  const requestedMode = normalizeMode(input.requestedMode);
+  if (isManualOverride(requestedMode)) {
+    return {
+      active: false,
+      mode: requestedMode,
+      reason: "manual",
+      shouldPersistRequestedMode: true
+    };
+  }
+  const { policy } = loadSessionPolicy();
+  if (policy.active && policy.active_mode && normalizeMode(policy.active_mode) !== BASELINE_MODE) {
+    return {
+      active: true,
+      mode: normalizeMode(policy.active_mode),
+      reason: policy.reason || "episode",
+      shouldPersistRequestedMode: false
+    };
+  }
+  return {
+    active: false,
+    mode: BASELINE_MODE,
+    reason: "budget",
+    shouldPersistRequestedMode: false
+  };
+}
+function applyBudgetFirstMode(input = {}) {
+  const requestedMode = normalizeMode(input.requestedMode);
+  if (isManualOverride(requestedMode)) {
+    return {
+      active: false,
+      mode: requestedMode,
+      reason: "manual",
+      shouldPersistRequestedMode: true
+    };
+  }
+  return withFileLock(BLACKBOX_STATE_FILE, () => {
+    const { state, session, policy } = loadSessionPolicy();
+    const regime = normalizeRegime(input.subRegime || policy.last_sub_regime);
+    const stress = Number(input.stress ?? policy.last_stress ?? 0);
+    const suggested = normalizeMode(input.suggestedMode);
+    policy.baseline_mode = BASELINE_MODE;
+    policy.last_sub_regime = regime;
+    policy.last_stress = stress;
+    policy.updated_at = (/* @__PURE__ */ new Date()).toISOString();
+    if (policy.active && policy.active_mode && normalizeMode(policy.active_mode) !== BASELINE_MODE) {
+      return persistSessionPolicy(state, session, policy, policy.active_mode);
+    }
+    const shouldStartEpisode = LOOP_REGIMES.has(regime) || QUALITY_REGIMES.has(regime) || Number(policy.problem_streak || 0) >= 2 || Number(policy.problem_streak || 0) >= 1 && stress > 1.5;
+    if (shouldStartEpisode) {
+      const nextMode = chooseEpisodeMode(regime, suggested, stress);
+      policy.active = true;
+      policy.active_mode = nextMode;
+      policy.reason = LOOP_REGIMES.has(regime) ? "loop" : QUALITY_REGIMES.has(regime) ? "quality" : stress > 1.5 ? "stress" : "problem";
+      policy.episode_id = policy.episode_id || `${_OC_SID}:${Date.now()}`;
+      policy.started_at = policy.started_at || (/* @__PURE__ */ new Date()).toISOString();
+      policy.stable_streak = 0;
+      return persistSessionPolicy(state, session, policy, nextMode);
+    }
+    policy.active = false;
+    policy.active_mode = BASELINE_MODE;
+    policy.reason = null;
+    return persistSessionPolicy(state, session, policy, BASELINE_MODE);
+  });
+}
+function recordBudgetFirstOutcome(input = {}) {
+  const outcome = String(input.outcome || "").toLowerCase();
+  if (outcome !== "positive" && outcome !== "negative") {
+    return peekBudgetFirstMode({ requestedMode: BASELINE_MODE });
+  }
+  return withFileLock(BLACKBOX_STATE_FILE, () => {
+    const { state, session, policy } = loadSessionPolicy();
+    const regime = normalizeRegime(input.subRegime || policy.last_sub_regime);
+    const stress = Number(input.stress ?? policy.last_stress ?? 0);
+    policy.last_sub_regime = regime;
+    policy.last_stress = stress;
+    policy.last_outcome = outcome;
+    policy.updated_at = (/* @__PURE__ */ new Date()).toISOString();
+    if (outcome === "negative") {
+      policy.problem_streak = Math.min(5, Number(policy.problem_streak || 0) + 1);
+      policy.stable_streak = 0;
+      return persistSessionPolicy(state, session, policy, policy.active && normalizeMode(policy.active_mode) !== BASELINE_MODE ? normalizeMode(policy.active_mode) : BASELINE_MODE);
+    }
+    policy.problem_streak = 0;
+    policy.stable_streak = Number(policy.stable_streak || 0) + 1;
+    if (policy.active) {
+      const calmEnough = stress <= 1;
+      if (calmEnough || policy.stable_streak >= 1) {
+        policy.active = false;
+        policy.active_mode = BASELINE_MODE;
+        policy.reason = null;
+        policy.episode_id = null;
+        policy.stable_streak = 0;
+      }
+    }
+    return persistSessionPolicy(state, session, policy, policy.active && normalizeMode(policy.active_mode) !== BASELINE_MODE ? normalizeMode(policy.active_mode) : BASELINE_MODE);
+  });
+}
+
 // src/lib/index-helpers.js
 import { join as join11 } from "node:path";
 import { writeFileSync as writeFileSync8 } from "node:fs";
@@ -5513,7 +5862,7 @@ function recordSaving(tool2, reason, saveEst, meta = {}) {
       s.sessions ??= {};
       const sid = _OC_SID;
       if (!s.sessions[sid]) {
-        s.sessions[sid] = { started: (/* @__PURE__ */ new Date()).toISOString(), session_started_at: (/* @__PURE__ */ new Date()).toISOString(), total_savings_usd: 0, cache_savings_usd: 0, project_name: "", warns: [], cache_hits: [], seenWarnKeys: {} };
+        s.sessions[sid] = { total_savings_usd: 0, cache_savings_usd: 0, project_name: "", warns: [], cache_hits: [], seenWarnKeys: {} };
         if (currentProjectFingerprint) {
           s.sessions[sid].project_fingerprint = currentProjectFingerprint;
         }
@@ -5636,7 +5985,7 @@ var TEMPLATES = {
     thinking_mode: "full",
     enforcement_mode: "strict",
     flow_mode: "strict",
-    tdd_mode: "save",
+    tdd_mode: "quality",
     context7_urgency: "preferred",
     wbp_verbosity: "verbose",
     agent_mode: "plan",
@@ -5654,26 +6003,38 @@ var TEMPLATES = {
     directive: "[SECURITY mode] Defense-in-depth. Define the threat model before writing code. Validate all inputs. Never expose secrets or credentials. Verify each defense handles its threat. Consider: injection, broken auth, data exposure, logic errors, race conditions."
   }
 };
-var DEFAULT_TEMPLATE = "quality";
+var DEFAULT_TEMPLATE = "save";
+var SEC_KEYWORDS = /\b(security|vuln|exploit|injection|xss|csrf|secret|credential|token leak|auth bypass|privacy|breach|backdoor|sql injection|cve)\b/i;
+function detectSecuritySignal(text) {
+  if (!text || typeof text !== "string")
+    return false;
+  return SEC_KEYWORDS.test(text);
+}
 function detectBudgetSignal(creditPercent) {
   return creditPercent < 40;
 }
 var _prevStress = 0;
 function detectStressSpike(stressScore) {
-  var delta = stressScore - _prevStress;
+  const delta = stressScore - _prevStress;
   _prevStress = stressScore;
   return delta > 0.3 && stressScore > 0.5;
 }
 function resolveTemplate(prevTemplate, stressScore, userText, creditPercent) {
-  if (detectBudgetSignal(creditPercent)) return "save";
-  if (detectStressSpike(stressScore)) return "quality";
+  if (detectSecuritySignal(userText))
+    return "security";
+  if (detectBudgetSignal(creditPercent))
+    return "save";
+  if (detectStressSpike(stressScore))
+    return "quality";
   return prevTemplate || DEFAULT_TEMPLATE;
 }
 var _turnCount = 0;
 function shouldInjectTemplate(template, prevTemplate) {
   _turnCount++;
-  if (template !== prevTemplate) return true;
-  if (_turnCount % 10 === 0) return true;
+  if (template !== prevTemplate)
+    return true;
+  if (_turnCount % 10 === 0)
+    return true;
   return false;
 }
 
@@ -5695,25 +6056,7 @@ async function apiComputeControlVector(state, action, optimizationMode) {
       return res.control_vector;
   } catch {
   }
-  const opt = (optimizationMode || "balanced").toLowerCase();
-  const isRelaxed = opt === "budget" || opt === "speed" || opt === "audit";
-  const isStrict = opt === "quality" || opt === "forensic" || opt === "defense_in_depth" || opt === "reporting";
-  return {
-    enforcement_mode: isStrict ? "strict" : "normal",
-    enforcement_reason: `[optimize: ${opt}] offline fallback`,
-    flow_mode: isStrict ? "strict" : isRelaxed ? "audit" : "normal",
-    flow_focus: [],
-    tdd_mode: isStrict ? "strict" : isRelaxed ? "lazy" : "normal",
-    tdd_focus: [],
-    tier_bias: isStrict ? "brain" : isRelaxed ? "cheap" : "auto",
-    thinking_mode: isStrict ? "full" : isRelaxed ? "off" : "auto",
-    stress_multiplier: 1,
-    context7_urgency: isStrict ? "required" : isRelaxed ? "preferred" : "preferred",
-    wbp_verbosity: isStrict ? "verbose" : isRelaxed ? "minimal" : "normal",
-    agent_mode: isStrict ? "plan" : "auto",
-    optimization_mode: opt,
-    directives: []
-  };
+  return computeControlVector(state, action, optimizationMode);
 }
 function observeUserCorrection(text) {
   if (!text || typeof text !== "string")
@@ -5833,11 +6176,13 @@ function ensureProjectSkill(dir, fp2) {
     return { created: false, skipped: false };
   }
 }
-function syncControlSettings(cv) {
+function syncControlSettings(cv, options = {}) {
   if (!cv)
     return;
   try {
     const sid = _OC_SID4;
+    const persistOptimizationMode = options.persistOptimizationMode !== false;
+    const currentSel = loadSelection();
     const writeIf = (key, val) => {
       const sel = loadSelection();
       if (sel[key] !== val)
@@ -5861,12 +6206,12 @@ function syncControlSettings(cv) {
       writeIf("tdd_enforce", true);
       writeIf("tdd_strict", cv.tdd_mode === "strict");
     }
-    if (cv.thinking_mode)
+    if (cv.thinking_mode && currentSel.thinking_level !== "full")
       writeIf("thinking_level", cv.thinking_mode);
-    const userOptMode = loadSessionSlot(sid + "_opt") || loadOptimizationMode();
-    if (cv.optimization_mode && userOptMode !== "auto") {
+    const userOptMode = loadSessionOptMode(sid + "_opt") || loadOptimizationMode();
+    if (persistOptimizationMode && cv.optimization_mode && userOptMode !== "auto") {
       if (userOptMode !== cv.optimization_mode) {
-        writeSessionSlot(sid + "_opt", cv.optimization_mode);
+        writeSessionSlot2(sid + "_opt", cv.optimization_mode);
         saveOptimizationMode(cv.optimization_mode);
       }
     }
@@ -5874,17 +6219,11 @@ function syncControlSettings(cv) {
     if (slot && slot !== "auto") {
       const existingSlot = loadSessionSlot(sid);
       if (existingSlot !== slot) {
-        writeSessionSlot(sid, slot);
-      }
-      if (slot === "brain" && TRINITY_BRAIN) {
-        setCurrentModel(TRINITY_BRAIN);
-        setCurrentTier("high");
-      } else if (slot === "medium" && TRINITY_MEDIUM) {
-        setCurrentModel(TRINITY_MEDIUM);
-        setCurrentTier("mid");
-      } else if (slot === "cheap" && TRINITY_CHEAP) {
-        setCurrentModel(TRINITY_CHEAP);
-        setCurrentTier("low");
+        writeSessionSlot2(sid, slot);
+        const applied = applySlot2(slot);
+        if (!applied?.ok) {
+          console.error(`[vibeOS] failed to apply slot ${slot}: ${applied?.reason || "unknown"}`);
+        }
       }
     }
     if (cv.agent_mode) {
@@ -6033,7 +6372,12 @@ async function trackBlackbox(messages) {
       localState.latest_stress_multiplier = st;
       saveSessionStress(st, st > 1.5 ? "critical" : st > 0.7 ? "elevated" : st > 0.3 ? "moderate" : "none");
     }
-    const cv = await apiComputeControlVector(localState, void 0, loadOptimizationMode());
+    const modePreview = peekBudgetFirstMode({
+      requestedMode: loadOptimizationMode(),
+      subRegime: localState.sub_regime || "INIT",
+      stress: st || 0
+    });
+    const cv = await apiComputeControlVector(localState, void 0, modePreview.mode);
     state.sessions[sid].control_history.push(buildControlHistoryEntry(state.sessions[sid].control_history.length + 1, localState.sub_regime || "INIT", cv));
     if (state.sessions[sid].control_history.length > 100) {
       state.sessions[sid].control_history = state.sessions[sid].control_history.slice(-100);
@@ -6134,20 +6478,34 @@ var onSystemTransform = async (_input, output) => {
     }
     if (latestUserIntent)
       observeUserCorrection(latestUserIntent);
+    const optimizationSuggestion = await selectOptimizationModeRemote(_latestBlackboxState3?.sub_regime || (latestUserIntent ? classifyTurnSimple(latestUserIntent) : "INIT"), latestUserIntent ? scoreStress(latestUserIntent) : 0, loadOptimizationMode());
+    const optimizationDecision = applyBudgetFirstMode({
+      requestedMode: loadOptimizationMode(),
+      suggestedMode: optimizationSuggestion,
+      subRegime: _latestBlackboxState3?.sub_regime || (latestUserIntent ? classifyTurnSimple(latestUserIntent) : "INIT"),
+      stress: latestUserIntent ? scoreStress(latestUserIntent) : 0
+    });
+    const optimizationMode = optimizationDecision.mode;
     let _controlVector = null;
     if (_latestBlackboxState3) {
       const st = latestUserIntent ? scoreStress(latestUserIntent) : 0;
       if (st)
         _latestBlackboxState3.latest_stress_multiplier = st;
-      _controlVector = await apiComputeControlVector(_latestBlackboxState3, void 0, loadOptimizationMode());
+      _controlVector = await apiComputeControlVector(_latestBlackboxState3, void 0, optimizationMode);
     } else if (latestUserIntent) {
       const st = scoreStress(latestUserIntent);
       _controlVector = await apiComputeControlVector({
         sub_regime: classifyTurnSimple(latestUserIntent),
         latest_stress_multiplier: st || void 0
-      }, void 0, loadOptimizationMode());
+      }, void 0, optimizationMode);
     }
-    syncControlSettings(_controlVector);
+    if (!_controlVector) {
+      _controlVector = await apiComputeControlVector({
+        sub_regime: "INIT",
+        latest_stress_multiplier: latestUserIntent ? scoreStress(latestUserIntent) : void 0
+      }, void 0, optimizationMode);
+    }
+    syncControlSettings(_controlVector, { persistOptimizationMode: optimizationDecision.shouldPersistRequestedMode });
     const system = output?.system;
     if (!Array.isArray(system))
       return;
@@ -6158,9 +6516,6 @@ var onSystemTransform = async (_input, output) => {
     _turnCountInject++;
     _prevTemplate = _currentTemplate;
     _currentTemplate = resolveTemplate(_prevTemplate, stressScore, latestUserIntent, credit);
-    if (_currentTemplate !== loadOptimizationMode()) {
-      saveOptimizationMode(_currentTemplate);
-    }
     if (shouldInjectTemplate(_currentTemplate, _prevTemplate)) {
       const tpl = TEMPLATES[_currentTemplate] || TEMPLATES[DEFAULT_TEMPLATE];
       let fused = tpl.directive;
@@ -6179,9 +6534,9 @@ var onSystemTransform = async (_input, output) => {
     if (sel.thinking_level && sel.thinking_level !== "full") {
       pushSystem(output, thinkingDirective(sel.thinking_level));
     }
-    if (stressScore > 0.7 && detectStressSpike(stressScore)) {
+    if (stressScore > 0.7) {
       pushSystem(output, "[stress mitigation: CRITICAL] The user's message shows very high stress indicators. Stay calm, structured, and thorough. Use proper markdown formatting with code blocks, lists, and organized structure. Do NOT mirror the user's tone or brevity. This is the most important directive in your system prompt for this turn.");
-    } else if (stressScore > 0.4 && detectStressSpike(stressScore)) {
+    } else if (stressScore > 0.4) {
       pushSystem(output, "[stress mitigation: elevated] The user's message has elevated stress indicators. Maintain structured, well-formatted responses with markdown and code blocks.");
     }
     if (_controlVector?.directives?.length > 0) {
@@ -6211,19 +6566,22 @@ var onSystemTransform = async (_input, output) => {
     }
     if (sel.flow_enabled && sel.flow_enforce) {
       const todoDirective = flowTodosDirective();
-      if (todoDirective) pushSystem(output, todoDirective);
+      if (todoDirective)
+        pushSystem(output, todoDirective);
     }
     if (_turnCountInject % 5 === 0) {
       pushSystem(output, "[project guard: CRITICAL] AGENTS.md and README.md are protected by vibeOS. Do NOT modify either file without explicit user permission. AGENTS.md defines that AI agents must ask before changing code.");
     }
     const budgetDirective = contextBudgetDirective(_input, output);
-    if (budgetDirective) pushSystem(output, budgetDirective);
+    if (budgetDirective)
+      pushSystem(output, budgetDirective);
     if (!oneShot(fp2)) {
       pushSystem(output, buildProjectBriefing(currentProjectName || ""));
     }
     if (!oneShot("vibeos_patterns_" + fp2)) {
       const pd = patternDirective(fp2);
-      if (pd) pushSystem(output, pd);
+      if (pd)
+        pushSystem(output, pd);
     }
     if (!oneShot("trinity_welcome_" + fp2)) {
       pushSystem(output, welcomeDirective());
@@ -6256,42 +6614,6 @@ var onSystemTransform = async (_input, output) => {
 };
 
 // src/lib/hooks/footer.js
-var _cachedAutoMode = null;
-var _cachedAutoModeTs = 0;
-var AUTO_CACHE_TTL = 6e4;
-var DEFAULT_REGIME_MAP = {
-  LOOPING: "forensic",
-  DIVERGENT: "forensic",
-  EXPLORING: "web-research",
-  INIT: "web-research",
-  REFINING: "balanced",
-  CONVERGING: "quality",
-  CLOSED: "quality"
-};
-function regimeToMode(regime, stress) {
-  if (stress > 1.5)
-    return "quality";
-  return DEFAULT_REGIME_MAP[regime] || "balanced";
-}
-async function apiAutoSelectMode(regime, stress) {
-  const now = Date.now();
-  if (_cachedAutoMode && now - _cachedAutoModeTs < AUTO_CACHE_TTL)
-    return _cachedAutoMode;
-  try {
-    const res = await remoteCall("blackboxSelectMode", [regime, stress], null);
-    if (res?.mode) {
-      _cachedAutoMode = res.mode;
-      _cachedAutoModeTs = now;
-      return res.mode;
-    }
-  } catch (e) {
-    console.error("[vibeOS] apiAutoSelectMode error:", e.message);
-  }
-  const fallback = regimeToMode(regime, stress);
-  if (!_cachedAutoMode || _cachedAutoMode === "balanced")
-    _cachedAutoMode = fallback;
-  return _cachedAutoMode || fallback || "balanced";
-}
 var USER_HOME6 = (() => {
   try {
     return homedir9();
@@ -6299,7 +6621,7 @@ var USER_HOME6 = (() => {
     return tmpdir6();
   }
 })();
-var STATE_FILE4 = join13(USER_HOME6, ".claude/delegation-state.json");
+var STATE_FILE3 = join13(USER_HOME6, ".claude/delegation-state.json");
 var SAVINGS_LEDGER_FILE2 = join13(USER_HOME6, ".claude/savings-ledger.jsonl");
 var _prevOutputText = "";
 var _autoReportCount = 0;
@@ -6315,7 +6637,7 @@ function loadSelection3() {
 function readLifetimeSavings2() {
   try {
     reconcileStateFromLedger();
-    const raw = readFileSync12(STATE_FILE4, "utf-8");
+    const raw = readFileSync12(STATE_FILE3, "utf-8");
     const state = safeJsonParse3(raw);
     const ses = state?.sessions?.[typeof _OC_SID5 !== "undefined" ? _OC_SID5 : ""] || {};
     return {
@@ -6457,31 +6779,12 @@ async function _appendFooter(input, output, directory3) {
     if (quality_avg > 0) {
       enfSuffixFooter = ` QA:${Math.round(quality_avg)}% ${enfTagsFooter.join(" ")}`;
     }
-    let optTagFooter = "";
-    const flashIcon = isApiFallback() ? "" : "\u26A1";
-    if (optModeFooter === "auto") {
-      const autoRegime = classifyTurnSimple(latestUserIntent || "");
-      const autoStress = scoreStress(latestUserIntent || "");
-      const autoActive = await apiAutoSelectMode(autoRegime, autoStress);
-      optTagFooter = `[VIBE\u2192${autoActive.toUpperCase()}${flashIcon}]`;
-      saveOptimizationMode(autoActive);
-      const slot2 = autoActive === "quality" || autoActive === "forensic" || autoActive === "defense_in_depth" || autoActive === "reporting" ? "brain" : autoActive === "speed" || autoActive === "web-research" || autoActive === "verify" ? "medium" : "cheap";
-      if (!_modelLocked) {
-        writeSessionSlot(_OC_SID5, slot2);
-        if (slot2 === "brain" && TRINITY_BRAIN) {
-          setCurrentModel(TRINITY_BRAIN);
-          setCurrentTier("high");
-        } else if (slot2 === "medium" && TRINITY_MEDIUM) {
-          setCurrentModel(TRINITY_MEDIUM);
-          setCurrentTier("mid");
-        } else if (slot2 === "cheap" && TRINITY_CHEAP) {
-          setCurrentModel(TRINITY_CHEAP);
-          setCurrentTier("low");
-        }
-      }
-    } else {
-      optTagFooter = `[VIBE\u2192${(optModeFooter || "").toUpperCase()}${flashIcon}]`;
-    }
+    const flashIcon = isApiConnected2() ? "\u26A1" : "";
+    const resolvedMode = peekBudgetFirstMode({
+      requestedMode: optModeFooter,
+      subRegime: _latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""),
+      stress: _footerStress
+    }).mode;
     const stripped = text.replace(/\n\n— .+(?: —)?$/, "");
     if (stripped !== text)
       return;
@@ -6496,7 +6799,7 @@ async function _appendFooter(input, output, directory3) {
       "web-research": "researching",
       forensic: "investigating"
     };
-    const optMode = (optModeFooter || "balanced").toLowerCase();
+    const optMode = (resolvedMode || "budget").toLowerCase();
     const modeVerb = modeVerbMap[optMode] || "vibing";
     let vibeLine = `\u2014 ${modeVerb} on ${shortModelName(brainModel)}`;
     if (ltTotal > 0) {
@@ -6504,7 +6807,7 @@ async function _appendFooter(input, output, directory3) {
     }
     vibeLine += `, VIBE${flashIcon ? " \u26A1" : ""}`;
     if (_footerStress > 0.4) {
-      const stressLabel = _footerStress > 0.7 ? "elevated" : "uneven";
+      const stressLabel = _footerStress > 0.7 ? "high" : "elevated";
       vibeLine += ` \xB7 ${stressLabel}`;
     }
     const footerText = stripped + `
@@ -6517,6 +6820,11 @@ ${vibeLine} \u2014`;
         if (_prevOutputText && prevText && _prevOutputText !== prevText) {
           const outcome = detectOutcomeSignal(_prevOutputText);
           if (outcome) {
+            recordBudgetFirstOutcome({
+              outcome,
+              subRegime: _latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""),
+              stress: _footerStress
+            });
             const tracker = getBlackboxTracker();
             tracker.recordOutcome(outcome);
             syncOutcomeToApi(outcome);
@@ -6549,7 +6857,7 @@ ${vibeLine} \u2014`;
   }
 }
 
-// src/lib/hooks/tool-execute.ts
+// src/lib/hooks/tool-execute.js
 import { writeFileSync as writeFileSync11, appendFileSync as appendFileSync8, existsSync as existsSync12, mkdirSync as mkdirSync10 } from "node:fs";
 import { dirname as dirname7, basename as basename7 } from "node:path";
 init_flow_enforcer();
@@ -7876,7 +8184,7 @@ function buildTestReminder(filePath) {
   return `\u{1F9EA} Changed ${filePath} \u2014 add test at ${suggest} before completing.`;
 }
 
-// src/lib/hooks/tool-execute.ts
+// src/lib/hooks/tool-execute.js
 var BYTES_PER_TOKEN = 4;
 var CACHE_SAVED_PER_1M_INPUT_TOKENS = 0.1;
 var projectDirectory = "";
@@ -7893,7 +8201,8 @@ var setToolDirectory = (dir) => {
   projectDirectory = dir || "";
 };
 var onToolExecuteBefore = async (input, output) => {
-  if (!loadSelection().enabled) return;
+  if (!loadSelection().enabled)
+    return;
   _refreshModel(projectDirectory);
   const t = input?.tool ?? "";
   const args = output?.args;
@@ -7943,7 +8252,8 @@ var onToolExecuteBefore = async (input, output) => {
   if (t === "task" && currentModel && (args && typeof args === "object" || inArgs && typeof inArgs === "object")) {
     const targetArgs = args ? args : input?.args ? input.args : {};
     _prompt = (targetArgs?.prompt ?? "").trim().toLowerCase();
-    if (typeof targetArgs?.prompt === "string") setActiveJobFromTaskPrompt(targetArgs.prompt);
+    if (typeof targetArgs?.prompt === "string")
+      setActiveJobFromTaskPrompt(targetArgs.prompt);
     const _firstWord2 = _prompt.split(/\s+/)[0];
     const BASE_EXPLORATORY = /* @__PURE__ */ new Set(["check", "find", "list", "search", "does", "verify", "look", "count", "show", "get", "read", "grep", "scan", "detect", "inspect"]);
     const LEARNED_EXPLORATORY = getLearnedExploratoryWords();
@@ -7998,11 +8308,13 @@ var onToolExecuteBefore = async (input, output) => {
         console.error(`[vibeOS] ML router error: ${mlErr.message}`);
       }
     }
-    if (_target) noteTaskRoutingLearning(_firstWord2, _target, _exploratoryTarget ? "exploratory" : `tier:${currentTier}`);
+    if (_target)
+      noteTaskRoutingLearning(_firstWord2, _target, _exploratoryTarget ? "exploratory" : `tier:${currentTier}`);
     if (_target && targetArgs?.model !== _target) {
       const _reason = _exploratoryTarget ? `exploratory ('${_firstWord2}')` : `tier=${currentTier}`;
       const _setModel = (obj) => {
-        if (!obj || typeof obj !== "object") return;
+        if (!obj || typeof obj !== "object")
+          return;
         obj.model = _target;
         obj.modelID = _target;
         obj.modelId = _target;
@@ -8029,13 +8341,15 @@ var onToolExecuteBefore = async (input, output) => {
       console.error(`[vibeOS] \u{1F500} Task \u2192 ${_target} (${_reason}, orchestrator: ${currentModel})`);
     }
   }
-  if (FREE.has(t)) return;
+  if (FREE.has(t))
+    return;
   if (MONITOR.has(t)) {
     const todosArg = args?.todos || inArgs?.todos || [];
     _pendingTodoArgs = Array.isArray(todosArg) ? todosArg : [todosArg];
     return;
   }
-  if (isModelFree(currentModel)) return;
+  if (isModelFree(currentModel))
+    return;
   const _brainCost = modelCostPerTurn(currentModel);
   const _workerModel = TRINITY_CHEAP || TRINITY_MEDIUM || null;
   const _workerCost = _workerModel ? modelCostPerTurn(_workerModel) ?? 0 : 0;
@@ -8049,7 +8363,8 @@ var onToolExecuteBefore = async (input, output) => {
     const total = recordSaving(t, "credit<40% high-tier", _estOpus, { firstWord: _firstWord });
     const trend = trendDisplay(readLifetimeSavings().sesTrend);
     const msg = `\u26A0 [vibeOS] Credit: ${_credit}% \u2014 switching to medium saves ~$${_estOpus.toFixed(3)}/turn. Run \`trinity medium\`.`;
-    if (shouldLogWarn(`${t}|credit|${_tierWord}`)) console.error(`[vibeOS] [delegation] ${msg}`);
+    if (shouldLogWarn(`${t}|credit|${_tierWord}`))
+      console.error(`[vibeOS] [delegation] ${msg}`);
     pendingUiNote = msg;
     return;
   }
@@ -8058,7 +8373,8 @@ var onToolExecuteBefore = async (input, output) => {
     const actualArgs = args || output && output.args || {};
     const checkPath = actualArgs.filePath || actualArgs.file_path || "";
     if (checkPath && SELF_PROTECT_PATTERNS.some((p) => checkPath.includes(p))) {
-      if (shouldLogWarn(`${t}|protect|${checkPath}`)) console.error(`[vibeOS] [protection] BLOCKED direct ${t} in self-protected directory: ${checkPath}`);
+      if (shouldLogWarn(`${t}|protect|${checkPath}`))
+        console.error(`[vibeOS] [protection] BLOCKED direct ${t} in self-protected directory: ${checkPath}`);
       pendingUiNote = `\u{1F6E1} Self-modification blocked: ${basename7(checkPath)} is in a protected project tree. Use manual git workflow.`;
       enforcementBlocked = true;
       return;
@@ -8081,20 +8397,23 @@ var onToolExecuteBefore = async (input, output) => {
       if (isBlocked) {
         if (tLower === "write") {
           actualArgs.filePath = `/tmp/vibeos-enforcement-blocked-${basename9}`;
-          if (actualArgs.file_path !== void 0) actualArgs.file_path = actualArgs.filePath;
+          if (actualArgs.file_path !== void 0)
+            actualArgs.file_path = actualArgs.filePath;
         } else if (tLower === "edit" || tLower === "notebookedit") {
           actualArgs.oldString = `__THE_SAVER_ENFORCEMENT_BLOCK_${Date.now()}__`;
         }
         const total2 = recordSaving(t, "delegation enforced", savings, { firstWord: _firstWord });
         pendingUiNote = `\u{1F6AB} Direct ${t} blocked on Brain tier \u2192 delegate via Task or run \`trinity medium\`.`;
         enforcementBlocked = true;
-        if (shouldLogWarn(`${t}|enforced|${_tierWord}`)) console.error(`[vibeOS] [enforcement] BLOCKED direct ${t} on high tier \u2192 delegate via Task`);
+        if (shouldLogWarn(`${t}|enforced|${_tierWord}`))
+          console.error(`[vibeOS] [enforcement] BLOCKED direct ${t} on high tier \u2192 delegate via Task`);
         return;
       }
     }
     const total = recordSaving(t, "direct edit", _estEdit, { firstWord: _firstWord });
     const msg = `[vibeOS] ${_tierWord} tier direct ${t} \u2014 save ~$${_estEdit.toFixed(3)} by delegating to Task. Run \`trinity medium\`.`;
-    if (shouldLogWarn(`${t}|direct|${_tierWord}`)) console.error(`[vibeOS] [delegation] ${msg}`);
+    if (shouldLogWarn(`${t}|direct|${_tierWord}`))
+      console.error(`[vibeOS] [delegation] ${msg}`);
     pendingUiNote = msg;
     return;
   }
@@ -8148,12 +8467,17 @@ var onToolExecuteAfter = async (input, output) => {
     if (bbMode === "relaxed") {
       tags.push("[Q&A]");
     } else {
-      if (selNow.delegation_enforce) tags.push("[ENF ON]");
-      if (selNow.flow_enforce) tags.push("[FLOW ON]");
-      if (selNow.tdd_enforce) tags.push("[TDD ON]");
-      if (bbMode === "strict") tags.push("[STRICT]");
+      if (selNow.delegation_enforce)
+        tags.push("[ENF ON]");
+      if (selNow.flow_enforce)
+        tags.push("[FLOW ON]");
+      if (selNow.tdd_enforce)
+        tags.push("[TDD ON]");
+      if (bbMode === "strict")
+        tags.push("[STRICT]");
     }
-    if (_modelLocked) tags.push("[LOCK ON]");
+    if (_modelLocked)
+      tags.push("[LOCK ON]");
     const workerModel = currentTier === "high" && TRINITY_MEDIUM ? TRINITY_MEDIUM : TRINITY_CHEAP;
     const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0);
     if (totalTurns > 0 && workerModel && workerModel !== currentModel) {
@@ -8179,11 +8503,16 @@ var onToolExecuteAfter = async (input, output) => {
 `;
     }
     output.title = _footerText.trim();
-    if (typeof output?.output === "string") output.output = _footerText + output.output;
-    else if (typeof output?.result === "string") output.result = _footerText + output.result;
-    else if (typeof output?.text === "string") output.text = _footerText + output.text;
-    else if (typeof output?.content === "string") output.content = _footerText + output.content;
-    else output.output = _footerText;
+    if (typeof output?.output === "string")
+      output.output = _footerText + output.output;
+    else if (typeof output?.result === "string")
+      output.result = _footerText + output.result;
+    else if (typeof output?.text === "string")
+      output.text = _footerText + output.text;
+    else if (typeof output?.content === "string")
+      output.content = _footerText + output.content;
+    else
+      output.output = _footerText;
     _autoReportCount2 = (_autoReportCount2 || 0) + 1;
     if (_autoReportCount2 % 5 === 0 && ltTotal > 0) {
       saveReport({
@@ -8238,7 +8567,8 @@ var onToolExecuteAfter = async (input, output) => {
     if (m && typeof output?.title === "string") {
       const label = modelToSlotLabel(m);
       output.title = output.title.replace(/\[agent\]|\[general\]/gi, label);
-      if (!output.title.includes(label)) output.title = `${output.title} ${label}`;
+      if (!output.title.includes(label))
+        output.title = `${output.title} ${label}`;
     }
   }
   if (t === "task") {
@@ -8264,18 +8594,26 @@ var onToolExecuteAfter = async (input, output) => {
   }
   if (pendingUiNote) {
     if (enforcementBlocked) {
-      if (typeof output?.result === "string") output.result = pendingUiNote;
-      else if (typeof output?.text === "string") output.text = pendingUiNote;
-      else if (typeof output?.content === "string") output.content = pendingUiNote;
-      else output.result = pendingUiNote;
+      if (typeof output?.result === "string")
+        output.result = pendingUiNote;
+      else if (typeof output?.text === "string")
+        output.text = pendingUiNote;
+      else if (typeof output?.content === "string")
+        output.content = pendingUiNote;
+      else
+        output.result = pendingUiNote;
     } else {
       const note = `
 
 ${pendingUiNote}`;
-      if (typeof output?.result === "string") output.result += note;
-      else if (typeof output?.text === "string") output.text += note;
-      else if (typeof output?.content === "string") output.content += note;
-      else output.result = pendingUiNote;
+      if (typeof output?.result === "string")
+        output.result += note;
+      else if (typeof output?.text === "string")
+        output.text += note;
+      else if (typeof output?.content === "string")
+        output.content += note;
+      else
+        output.result = pendingUiNote;
     }
     pendingUiNote = null;
   }
@@ -8306,7 +8644,8 @@ ${pendingUiNote}`;
       let match;
       while ((match = TASK_FILE_RE.exec(outputText)) !== null) {
         const fp2 = match[1];
-        if (seen.has(fp2)) continue;
+        if (seen.has(fp2))
+          continue;
         seen.add(fp2);
         const isTestPath = /(^|\/)(tests?|spec)\//i.test(fp2) || /\.(test|spec)\./i.test(fp2);
         if (sel.tdd_enforce && !isTestPath) {
@@ -8315,8 +8654,10 @@ ${pendingUiNote}`;
             const ext = createdPath.split(".").pop();
             const fileName = createdPath.split("/").pop();
             const enforceNote = "\n\n[test-enforced] Created skeleton at " + createdPath + "\n  NEXT: 1) Open " + fileName + "  2) Replace TODO/FIXME markers with real assertions  3) Run `npx vitest run " + createdPath + "` (or language-equivalent)  4) Confirm tests pass";
-            if (typeof output?.text === "string") output.text += enforceNote;
-            else if (typeof output?.result === "string") output.result += enforceNote;
+            if (typeof output?.text === "string")
+              output.text += enforceNote;
+            else if (typeof output?.result === "string")
+              output.result += enforceNote;
           }
         }
       }
@@ -8329,9 +8670,12 @@ ${pendingUiNote}`;
       const note = `
 
 [test-reminder] ${reminder}`;
-      if (typeof output?.text === "string") output.text += note;
-      else if (typeof output?.result === "string") output.result += note;
-      else console.error(`[vibeOS] ${reminder}`);
+      if (typeof output?.text === "string")
+        output.text += note;
+      else if (typeof output?.result === "string")
+        output.result += note;
+      else
+        console.error(`[vibeOS] ${reminder}`);
     }
     const sel = loadSelection();
     const explicitTestIntent = isUserAskingForTests(latestUserIntent);
@@ -8345,8 +8689,10 @@ ${pendingUiNote}`;
 
 [test-enforced] Created skeleton at ${createdPath}
   NEXT: 1) Open ${fileName}  2) Replace TODO/FIXME markers with real assertions  3) Run \`npx vitest run ${createdPath}\` (or language-equivalent)  4) Confirm tests pass`;
-        if (typeof output?.text === "string") output.text += enforceNote;
-        else if (typeof output?.result === "string") output.result += enforceNote;
+        if (typeof output?.text === "string")
+          output.text += enforceNote;
+        else if (typeof output?.result === "string")
+          output.result += enforceNote;
       }
     }
     if (t === "edit" || t === "write") {
@@ -8379,21 +8725,23 @@ ${pendingUiNote}`;
       const content = t === "edit" ? input?.args?.newString || "" : input?.args?.content || "";
       const flowHits = checkFlowRules({ tool: toolName, filePath, content });
       for (const h of flowHits) {
-        if (h.deduped) continue;
+        if (h.deduped)
+          continue;
         const icon = h.severity === "warn" ? "\u26A0" : "\u{1F4A1}";
         console.error(`[flow-enforcer] ${icon} [${h.severity}] ${h.id}: ${h.description} \u2014 ${filePath}`);
       }
       if (sel.flow_enforce) {
-        const { recordFlowTodo: recordFlowTodo3 } = await Promise.resolve().then(() => (init_flow_enforcer(), flow_enforcer_exports));
+        const { recordFlowTodo: recordFlowTodo2 } = await Promise.resolve().then(() => (init_flow_enforcer(), flow_enforcer_exports));
         for (const h of flowHits) {
           if (h.id === "todo-comment" && !h.deduped) {
-            recordFlowTodo3({ filePath, content });
+            recordFlowTodo2({ filePath, content });
           }
         }
       }
       let todoCount = 0;
       for (const h of flowHits) {
-        if (h.id === "todo-comment" && !h.deduped) todoCount++;
+        if (h.id === "todo-comment" && !h.deduped)
+          todoCount++;
       }
       if (todoCount > 0) {
         const todoPushNote = "[todo-push] Auto-extracted " + todoCount + " TODO(s) from " + filePath + ". Call todowrite to add them to your task list.";
@@ -8415,10 +8763,14 @@ ${pendingUiNote}`;
   }
   const processed = compressText(raw);
   if (processed !== raw) {
-    if (output.result !== void 0) output.result = processed;
-    else if (output.text !== void 0) output.text = processed;
-    else if (output.content !== void 0) output.content = processed;
-    else if (output.data !== void 0) output.data = processed;
+    if (output.result !== void 0)
+      output.result = processed;
+    else if (output.text !== void 0)
+      output.text = processed;
+    else if (output.content !== void 0)
+      output.content = processed;
+    else if (output.data !== void 0)
+      output.data = processed;
   }
   if (t === "todowrite" && _pendingTodoArgs && _pendingTodoArgs.length > 0) {
     try {
@@ -8441,7 +8793,7 @@ ${pendingUiNote}`;
 };
 
 // src/lib/hooks/session-compact.js
-import { readFileSync as readFileSync15, existsSync as existsSync13 } from "node:fs";
+import { readFileSync as readFileSync14, existsSync as existsSync13 } from "node:fs";
 var onSessionCompacting = async (_input, output) => {
   if (!loadSelection().enabled)
     return;
@@ -8452,7 +8804,7 @@ var onSessionCompacting = async (_input, output) => {
     let recent = "";
     if (existsSync13(indexPath)) {
       try {
-        const lines = readFileSync15(indexPath, "utf-8").trim().split("\n").slice(-30);
+        const lines = readFileSync14(indexPath, "utf-8").trim().split("\n").slice(-30);
         recent = lines.map((l) => {
           try {
             return JSON.parse(l);
@@ -8514,17 +8866,17 @@ var _mcpServerRuntime = null;
 var _mcpServerHooked = false;
 function _loadOpenCodeProviders() {
   try {
-    const cfg = _readOpenCodeConfigObject(join16(USER_HOME2, ".config", "opencode"));
+    const cfg = _readOpenCodeConfigObject(join15(USER_HOME2, ".config", "opencode"));
     return cfg?.provider || {};
   } catch {
     return {};
   }
 }
 function _readOpenCodeConfigObject(dir) {
-  const jsonPath = join16(dir, "opencode.json");
-  const jsoncPath = join16(dir, "opencode.jsonc");
-  if (existsSync14(jsonPath)) return safeJsonParse3(readFileSync16(jsonPath, "utf-8"));
-  if (existsSync14(jsoncPath)) return _parseJsonc(readFileSync16(jsoncPath, "utf-8"));
+  const jsonPath = join15(dir, "opencode.json");
+  const jsoncPath = join15(dir, "opencode.jsonc");
+  if (existsSync14(jsonPath)) return safeJsonParse3(readFileSync15(jsonPath, "utf-8"));
+  if (existsSync14(jsoncPath)) return _parseJsonc(readFileSync15(jsoncPath, "utf-8"));
   return {};
 }
 function _parseJsonc(raw) {
@@ -8550,10 +8902,10 @@ function _modelTier2(id2) {
 function backupFile(path, label) {
   try {
     if (!existsSync14(path)) return null;
-    const bkDir = join16(USER_HOME2, ".claude", ".backups");
+    const bkDir = join15(USER_HOME2, ".claude", ".backups");
     mkdirSync11(bkDir, { recursive: true });
-    const bk = join16(bkDir, `${basename8(path)}.${label}.${Date.now()}.bak`);
-    copyFileSync6(path, bk);
+    const bk = join15(bkDir, `${basename8(path)}.${label}.${Date.now()}.bak`);
+    copyFileSync5(path, bk);
     return bk;
   } catch {
     return null;
@@ -8561,7 +8913,7 @@ function backupFile(path, label) {
 }
 function readPackageVersion() {
   try {
-    const pkg = safeJsonParse3(readFileSync16(join16(process.cwd(), "package.json"), "utf-8"));
+    const pkg = safeJsonParse3(readFileSync15(join15(process.cwd(), "package.json"), "utf-8"));
     return String(pkg?.version || "");
   } catch {
     return "";
@@ -8576,7 +8928,7 @@ function loadMcpPort() {
   }
   try {
     if (existsSync14(TIERS_FILE2)) {
-      const tiers = safeJsonParse3(readFileSync16(TIERS_FILE2, "utf-8"));
+      const tiers = safeJsonParse3(readFileSync15(TIERS_FILE2, "utf-8"));
       const cfg = tiers?.selection?.mcp_port;
       if (cfg === false || cfg === "disabled" || cfg === 0) return 0;
       const n = Number(cfg);
@@ -8589,7 +8941,7 @@ function loadMcpPort() {
 function persistMcpPort(port) {
   try {
     if (!existsSync14(TIERS_FILE2)) return;
-    const tiers = safeJsonParse3(readFileSync16(TIERS_FILE2, "utf-8"));
+    const tiers = safeJsonParse3(readFileSync15(TIERS_FILE2, "utf-8"));
     tiers.selection ??= {};
     if (Number(tiers.selection.mcp_port) === Number(port) && !("mcp_port" in tiers)) return;
     tiers.selection.mcp_port = port;
@@ -8597,7 +8949,7 @@ function persistMcpPort(port) {
     mkdirSync11(dirname8(TIERS_FILE2), { recursive: true });
     const tmp = TIERS_FILE2 + ".tmp." + Date.now();
     writeFileSync12(tmp, JSON.stringify(tiers, null, 2) + "\n", "utf-8");
-    renameSync7(tmp, TIERS_FILE2);
+    renameSync6(tmp, TIERS_FILE2);
   } catch {
   }
 }
@@ -8605,7 +8957,7 @@ function computeStatusPayload() {
   const sel = loadSelection();
   let tiersData = {};
   try {
-    tiersData = safeJsonParse3(readFileSync16(TIERS_FILE2, "utf-8"));
+    tiersData = safeJsonParse3(readFileSync15(TIERS_FILE2, "utf-8"));
   } catch {
   }
   const credit = loadCredit();
@@ -8762,13 +9114,13 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
   setCurrentModel(readConfig(directory3));
   if (!currentModel) {
     const home = process.env.HOME || "";
-    if (home) setCurrentModel(readConfig(join16(home, ".config/opencode")));
+    if (home) setCurrentModel(readConfig(join15(home, ".config/opencode")));
   }
   if (!currentModel) setCurrentModel(process?.env?.OPENCODE_MODEL || "");
   if (currentModel) {
     setCurrentTier(classify(currentModel));
     try {
-      const _tiersData2 = safeJsonParse3(readFileSync16(TIERS_FILE2, "utf-8"));
+      const _tiersData2 = safeJsonParse3(readFileSync15(TIERS_FILE2, "utf-8"));
       const _activeSlot = _tiersData2?.selection?.active_slot || "brain";
       if (_activeSlot === "brain") {
         const _brainOcModel = _tiersData2?.trinity?.brain?.oc || "";
@@ -8793,7 +9145,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
       let _wasCorrupted = false;
       if (existsSync14(TIERS_FILE2)) {
         try {
-          _tiersData2 = safeJsonParse3(readFileSync16(TIERS_FILE2, "utf-8"));
+          _tiersData2 = safeJsonParse3(readFileSync15(TIERS_FILE2, "utf-8"));
         } catch {
           _tiersData2 = { selection: { enabled: true, active_slot: "brain", delegation_enforce: true, tdd_strict: true }, trinity: {} };
           _wasCorrupted = true;
@@ -8869,9 +9221,9 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
         mkdirSync11(dirname8(TIERS_FILE2), { recursive: true });
         const _tmp = TIERS_FILE2 + ".tmp." + Date.now();
         writeFileSync12(_tmp, JSON.stringify(_tiersData2, null, 2) + "\n", "utf-8");
-        renameSync7(_tmp, TIERS_FILE2);
+        renameSync6(_tmp, TIERS_FILE2);
         console.error(`[vibeOS] auto-synced model-tiers.json: brain=${_brain.id} medium=${_tiersData2.trinity?.medium?.oc || ""} cheap=${_tiersData2.trinity?.cheap?.oc || ""}`);
-        const _tiersCfg = safeJsonParse3(readFileSync16(TIERS_FILE2, "utf-8"));
+        const _tiersCfg = safeJsonParse3(readFileSync15(TIERS_FILE2, "utf-8"));
         const _b = _tiersCfg?.trinity?.brain?.oc;
         const _m = _tiersCfg?.trinity?.medium?.oc;
         const _c = _tiersCfg?.trinity?.cheap?.oc;
@@ -8888,7 +9240,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     }
   }
   try {
-    const _mt = safeJsonParse3(readFileSync16(TIERS_FILE2, "utf-8"));
+    const _mt = safeJsonParse3(readFileSync15(TIERS_FILE2, "utf-8"));
     let _dirty = false;
     for (const _sk of ["mcp_port", "optimization_mode", "enforcement_enabled", "flow_enforce_level", "tdd_quality", "thinking_mode", "blackbox_regime", "_mode_changed_at", "_mode_source"]) {
       if (_sk in _mt) {
@@ -8899,7 +9251,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     if (_dirty) {
       const _tmp = TIERS_FILE2 + ".tmp." + Date.now();
       writeFileSync12(_tmp, JSON.stringify(_mt, null, 2) + "\n", "utf-8");
-      renameSync7(_tmp, TIERS_FILE2);
+      renameSync6(_tmp, TIERS_FILE2);
     }
   } catch {
   }
@@ -8934,9 +9286,21 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     writeSelection("enabled", true);
   } catch {
   }
+  try {
+    const bootstrap = bootstrapOptimizationSession();
+    if (!_modelLocked) {
+      const applied = applySlot2(bootstrap.slot);
+      if (applied?.ok) {
+        console.error(`[vibeOS] bootstrap slot \u2192 ${bootstrap.slot} (${applied.ocModel})`);
+      }
+    }
+    void remoteCall("blackboxSelectMode", ["INIT", 0], null).catch(() => {
+    });
+  } catch {
+  }
   const _tiersData = (() => {
     try {
-      return safeJsonParse3(readFileSync16(TIERS_FILE2, "utf-8"));
+      return safeJsonParse3(readFileSync15(TIERS_FILE2, "utf-8"));
     } catch {
       return {};
     }
@@ -8961,13 +9325,13 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     },
     directory: directory3,
     safeJsonParse: safeJsonParse3,
-    readFileSync: readFileSync16,
+    readFileSync: readFileSync15,
     writeFileSync: writeFileSync12,
     existsSync: existsSync14,
-    renameSync: renameSync7,
+    renameSync: renameSync6,
     TIERS_FILE: TIERS_FILE2,
     USER_HOME: USER_HOME2,
-    STATE_FILE: STATE_FILE2,
+    STATE_FILE,
     CREDIT_CACHE_F,
     SAVINGS_LEDGER_FILE,
     PROJECT_STATE_FILE,
@@ -9006,7 +9370,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     reportsIndex,
     saveReportsIndex,
     backupFile,
-    writeSessionSlot,
+    writeSessionSlot: writeSessionSlot2,
     _refreshModel,
     setApiToken,
     loadTodos,
@@ -9211,12 +9575,15 @@ var server = DelegationEnforcer;
 var VERSION = readPackageVersion();
 {
   try {
-    const sub = spawn2("npm", ["install", "vibeostheog@latest"], {
-      stdio: "ignore",
-      detached: true,
-      cwd: join16(homedir10(), ".config", "opencode", "plugins")
-    });
-    sub.unref();
+    const pluginsDir = join15(homedir10(), ".config", "opencode", "plugins");
+    if (existsSync14(pluginsDir)) {
+      const sub = spawn2("npm", ["install", "vibeostheog@latest"], {
+        stdio: "ignore",
+        detached: true,
+        cwd: pluginsDir
+      });
+      sub.unref();
+    }
   } catch {
   }
 }

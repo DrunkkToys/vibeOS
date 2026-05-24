@@ -1,7 +1,10 @@
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-const STATE_FILE = join(homedir(), ".claude/delegation-state.json");
+function getStateFile() {
+    const home = process.env.HOME || homedir();
+    return join(home, ".claude/delegation-state.json");
+}
 export function startTimer() {
     return new Date().toISOString();
 }
@@ -26,7 +29,7 @@ export function elapsed(startTime) {
     return elapsedNew(startTime);
 }
 export function sessionDuration(customPath) {
-    const statePath = customPath || STATE_FILE;
+    const statePath = customPath || getStateFile();
     if (!existsSync(statePath)) {
         return { hours: 0, minutes: 0, seconds: 0 };
     }

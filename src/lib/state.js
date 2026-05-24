@@ -6,6 +6,7 @@ import { homedir, tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { loadSelection, writeSelection, DFLT_SEL } from "./selection-manager.js";
 import { mergeProjectBucket, _computeSessionMetrics, _pruneOldSessions } from "./pattern-helpers.js";
+import { getOcSessionId } from "./runtime-state.js";
 // ── File system constants ────────────────────────────────────────────
 const USER_HOME = (() => { try {
     return homedir();
@@ -66,10 +67,9 @@ const MAX_LOG_LINES = 500;
 // ── Soft quota ──────────────────────────────────────────────────────
 const SOFT_QUOTA_LIMIT = 5;
 // ── Session identity ─────────────────────────────────────────────────
-const _OC_SID = "opencode-" + (process.pid || "x") + "-" + Date.now();
+const _OC_SID = getOcSessionId();
 const _sessionStart = Date.now();
 const _sessionTimer = function () { return Date.now() - _sessionStart; };
-function getOcSessionId() { return _OC_SID; }
 function getSessionTimer() { return Date.now() - _sessionStart; }
 // ── Module-level state ───────────────────────────────────────────────
 let currentTier = null;

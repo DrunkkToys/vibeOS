@@ -2,11 +2,15 @@ import { describe, it, before, after, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert'
 import { writeFileSync, unlinkSync, existsSync, renameSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { homedir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { sessionDuration, elapsedNew, formatDuration, startTimer, getElapsedSeconds } from '../timer.js'
 
+function _homeDir() {
+  return process.env.HOME || homedir()
+}
+
 function _statePath(name = 'delegation-state.json') {
-  return join(homedir(), '.claude', name)
+  return join(_homeDir(), '.claude', name)
 }
 const BACKUP_SUFFIX = '.experiment-backup'
 
@@ -28,13 +32,15 @@ function restoreStateFile() {
 let _origHome
 before(() => {
   _origHome = process.env.HOME
+  process.env.HOME = join(tmpdir(), `timer-test-${Date.now()}`)
+  mkdirSync(join(process.env.HOME, '.claude'), { recursive: true })
 })
 after(() => {
   process.env.HOME = _origHome
 })
 
 function writeTestState(data) {
-  const dir = join(homedir(), '.claude')
+  const dir = join(_homeDir(), '.claude')
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
   writeFileSync(_statePath(), JSON.stringify(data))
 }
@@ -125,7 +131,7 @@ describe('sessionDuration', () => {
 })
 
 describe('sessionDuration with custom path', () => {
-  const tmpFile = join(homedir(), '.claude/delegation-state-test.json')
+  const tmpFile = join(_homeDir(), '.claude/delegation-state-test.json')
 
   beforeEach(() => {
     if (existsSync(tmpFile)) unlinkSync(tmpFile)
