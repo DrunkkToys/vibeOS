@@ -493,10 +493,10 @@ export function _refreshModel(directory) {
                 console.error(`[vibeOS] auto-detected model: ${currentModel} (tier=${currentTier})`);
             }
         }
-        // Only reconcile with OpenCode config model if no valid trinity slot model exists.
-        // The trinity slot config is authoritative — prevents a bogus opencode.json model
-        // from overriding the brain/medium/cheap slot assignment.
-        if (!_modelLocked && !slotOcModel) {
+        // Reconcile with the directory's opencode.json config.
+        // The trinity slot is authoritative UNLESS the directory config specifies a different model.
+        // This prevents the bootstrap's default slot from overriding a project-local model choice.
+        if (!_modelLocked) {
             const cfgModel = readConfig(directory) || readConfig(join(USER_HOME, ".config/opencode")) || "";
             if (cfgModel && cfgModel !== currentModel) {
                 const oldModel = currentModel;
