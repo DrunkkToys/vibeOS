@@ -133,14 +133,14 @@ test("diagnoseStructuredFromText extracts the actionable maintenance hints", () 
 test("projectStructuredFromText captures route split and enforcement state", () => {
   const payload = projectStructuredFromText(
     ["Brain 65%", "Worker 35%", "💡 keep fixes scoped"].join("\n"),
-    { delegation_enforce: false, flow_enabled: true },
+    { delegation_enforce: true, flow_enabled: true },
     44
   )
 
   assert.deepEqual(payload, {
     brain_pct: 65,
     worker_pct: 35,
-    enforcement_status: "warn",
+    enforcement_status: "enforce",
     flow_status: "on",
     credit_percent: 44,
     suggestions: ["keep fixes scoped"],

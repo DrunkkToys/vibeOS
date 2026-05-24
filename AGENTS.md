@@ -44,7 +44,7 @@ Every feature in the README is a promised behavior. **If a proposed change touch
 1. **Cost-aware delegation enforcement** — Blocks direct `write`/`edit`/`notebookedit` on high-tier brain model. User-visible enforcement notes. Delegation cost estimates.
 2. **Cache savings tracking** — Separate persisted category (`cache_savings_usd`). Tracks scratchpad cache hits.
 3. **Live footer** — Model split display, cumulative savings, trend arrow. Appended via `experimental.text.complete` and `message.updated`.
-4. **trinity runtime controls** — Slot switching (`set brain|medium|cheap`, `brain|medium|cheap` shorthand, `rebuild`), `status`, `enable`/`disable`, `thinking full|brief|off`, enforcement toggles (`enforce on|off`), model locking (`lock on|off`), flow toggles (`flow on|off`, `flow enforce on|off`), TDD toggles (`tdd on|off`, `tdd strict on|off`, `tdd quality on|off`), `project`, `diagnose`, `help`.
+4. **trinity runtime controls** — Slot switching (`set brain|medium|cheap`, `brain|medium|cheap` shorthand, `rebuild`), `status`, `enable`/`disable`, `mode budget|quality|speed|longrun|auto`, `thinking full|brief|off`, enforcement toggles (`enforce on|off`), model locking (`lock on|off`), flow toggles (`flow on|off`, `flow enforce on|off`), TDD toggles (`tdd on|off`, `tdd strict on|off`, `tdd quality on|off`), `project`, `patterns`, `repair-state preview|apply`, `report-save`/`report-list`/`report-read`, `api-token`, `diagnose`, `help`.
 5. **Flow enforcer** — Write/edit pattern rule checks. TODO/FIXME extraction queue when flow enforcement is active.
 6. **TDD enforcer** — Auto skeleton tests for changed source files. Strict mode (ON by default): TODO tests fail loudly. Quality mode: `trinity tdd quality on|off`.
 7. **Report and research-audit tooling** — `report-save`, `report-list`, `report-read`, `research-audit`.
@@ -89,6 +89,7 @@ The plugin hooks into OpenCode via 8 extension points defined in `src/index.ts`:
 - `tool.execute.before`
 - `tool.execute.after`
 - `message.updated`
+- `experimental.session.compacting`
 - `shell.env` — Injects `OPENCODE_MODEL_TIER` and `OPENCODE_MODEL` env vars into subprocesses.
 
 ### State Files (see Section 6)

@@ -16,7 +16,7 @@ function autoSelectMode(subRegime, stressMultiplier) {
         return "quality";
     return "budget";
 }
-function resolveOptimizationMode(subRegime, stressMultiplier, optimizationMode) {
+export function resolveOptimizationMode(subRegime, stressMultiplier, optimizationMode) {
     const normalized = String(optimizationMode || "auto").toLowerCase();
     if (normalized === "auto" || normalized === "")
         return autoSelectMode(subRegime || "INIT", stressMultiplier);
@@ -33,10 +33,7 @@ export function resolveOptimizationSlot(mode) {
 }
 export function bootstrapOptimizationSession() {
     const sid = _OC_SID;
-    const existingOpt = loadSessionOptMode(sid);
-    const resolvedMode = (existingOpt && existingOpt !== "auto")
-        ? existingOpt
-        : DFLT_OPTIMIZATION_MODE;
+    const resolvedMode = DFLT_OPTIMIZATION_MODE;
     const resolvedSlot = resolveOptimizationSlot(resolvedMode);
     try {
         writeSessionOptMode(sid, resolvedMode);
@@ -471,10 +468,11 @@ export function loadOptimizationMode() {
 }
 export function saveOptimizationMode(mode) {
     try {
-        writeSessionOptMode(_OC_SID, mode);
+        return writeSessionOptMode(_OC_SID, mode);
     }
     catch (err) {
         console.error("[vibeOS] saveOptimizationMode failed: " + err.message);
+        return false;
     }
 }
 // ── Turn counter for compaction triggers ───────────────────────────────

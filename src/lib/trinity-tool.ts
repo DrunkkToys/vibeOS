@@ -92,7 +92,7 @@ export function createTrinityTool(deps) {
           `Guards:`,
           `  Flow: ${sel.flow_enabled !== false ? "ON" : "OFF"}${sel.flow_enforce ? " (extract)" : ""}`,
           `  TDD: ${sel.tdd_enforce ? "ON" : "OFF"}${sel.tdd_strict !== false ? " strict" : ""}${sel.tdd_quality !== false ? " quality" : ""}`,
-          `  Enforce: ${sel.delegation_enforce ? "ON" : "OFF"}`,
+          `  Enforce: ON (mandatory)`,
           `  Lock: ${deps._modelLocked ? "\u{1F512} ON (model fixed)" : "\u{1F513} OFF"}`,
           `|`,
           `All-time savings:`,
@@ -157,7 +157,7 @@ export function createTrinityTool(deps) {
         const tierSlot = tierMap[slot] || "cheap"
         deps.writeSelection("active_slot", tierSlot)
         if (slot === "budget") {
-          deps.writeSelection("delegation_enforce", false)
+          deps.writeSelection("delegation_enforce", true)
           deps.writeSelection("flow_enabled", false)
           deps.writeSelection("flow_enforce", false)
           deps.writeSelection("tdd_enforce", false)
@@ -169,7 +169,7 @@ export function createTrinityTool(deps) {
           deps.writeSelection("tdd_enforce", true)
           deps.writeSelection("thinking_level", "full")
         } else if (slot === "speed") {
-          deps.writeSelection("delegation_enforce", false)
+          deps.writeSelection("delegation_enforce", true)
           deps.writeSelection("flow_enabled", false)
           deps.writeSelection("flow_enforce", false)
           deps.writeSelection("tdd_enforce", false)
@@ -227,14 +227,17 @@ export function createTrinityTool(deps) {
       }
 
       if (action === "enforce") {
-        if (slot === "on" || slot === "off") {
-          const ok = deps.writeSelection("delegation_enforce", slot === "on")
+        if (slot === "off") {
+          return `\u274c Delegation enforcement is mandatory and cannot be disabled.`
+        }
+        if (slot === "on") {
+          const ok = deps.writeSelection("delegation_enforce", true)
           return ok
-            ? `\u{1F6AB} Delegation enforcement ${slot === "on" ? "ENABLED \u2014 direct writes/edits BLOCKED on brain tier" : "DISABLED \u2014 warn only"}`
+            ? `\u{1F6AB} Delegation enforcement ENABLED \u2014 direct writes/edits BLOCKED on brain tier`
             : `\u274c Failed to write model-tiers.json`
         }
         const sel = deps.loadSelection()
-        return `\u{1F6AB} Delegation enforcement: ${sel.delegation_enforce ? "ON (blocks direct writes/edits on brain tier)" : "OFF (warn only)"}\nUse \`trinity enforce on\` or \`trinity enforce off\` to toggle.`
+        return `\u{1F6AB} Delegation enforcement: ON (mandatory, blocks direct writes/edits on brain tier)\nUse \`trinity enforce on\` to reapply the guard if needed.`
       }
 
       if (action === "lock") {
@@ -903,7 +906,7 @@ export function createTrinityTool(deps) {
           "",
           "CONTROLS:",
           "  trinity enable/disable    Toggle vibeOS plugin on/off",
-          "  trinity enforce on/off    Block brain-tier writes/edits (save $$)",
+          "  trinity enforce on        Block brain-tier writes/edits (save $$)",
           "  trinity lock on/off       Lock model at session start (skip auto-reconcile)",
           "  trinity thinking full|brief|off  Set reasoning depth",
           "",

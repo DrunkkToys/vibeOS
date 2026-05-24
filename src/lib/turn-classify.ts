@@ -21,7 +21,7 @@ function autoSelectMode(subRegime: string, stressMultiplier?: number): Optimizat
   return "budget"
 }
 
-function resolveOptimizationMode(
+export function resolveOptimizationMode(
   subRegime: string | undefined,
   stressMultiplier: number | undefined,
   optimizationMode: OptimizationMode | string | undefined,
@@ -43,10 +43,7 @@ export function resolveOptimizationSlot(mode: OptimizationMode | string | undefi
 
 export function bootstrapOptimizationSession(): { mode: OptimizationMode; slot: "brain" | "medium" | "cheap" } {
   const sid = _OC_SID
-  const existingOpt = loadSessionOptMode(sid)
-  const resolvedMode = (existingOpt && existingOpt !== "auto")
-    ? (existingOpt as OptimizationMode)
-    : DFLT_OPTIMIZATION_MODE
+  const resolvedMode = DFLT_OPTIMIZATION_MODE
   const resolvedSlot = resolveOptimizationSlot(resolvedMode)
   try {
     writeSessionOptMode(sid, resolvedMode)
@@ -486,11 +483,12 @@ export function loadOptimizationMode(): string {
   } catch { return DFLT_OPTIMIZATION_MODE }
 }
 
-export function saveOptimizationMode(mode: string): void {
+export function saveOptimizationMode(mode: string): boolean {
   try {
-    writeSessionOptMode(_OC_SID, mode)
+    return writeSessionOptMode(_OC_SID, mode)
   } catch (err) {
     console.error("[vibeOS] saveOptimizationMode failed: " + err.message)
+    return false
   }
 }
 

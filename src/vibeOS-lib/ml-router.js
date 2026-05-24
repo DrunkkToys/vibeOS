@@ -216,7 +216,6 @@ export function addRouteEdge(graph, queryWord, modelName, tier, success) {
         : tier === "mid" ? "medium"
             : tier === "high" ? "brain"
                 : tier;
-    const tierKey = success ? normalizedTier : normalizedTier;
     graph.tiers[normalizedTier] ??= [];
     if (!graph.tiers[normalizedTier].includes(modelName)) {
         graph.tiers[normalizedTier].push(modelName);

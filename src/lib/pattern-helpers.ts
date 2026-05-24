@@ -103,7 +103,7 @@ export function _computeSessionMetrics(state: any, sid: string): any {
     count: warns.length,
     sesTasks: Number(session?.total_savings_usd || 0),
     sesDuration: durationSec,
-    sesRatePerHour: Number((((state?.lifetime?.total_savings_usd || 0) + (state?.lifetime?.cache_savings_usd || 0)) / hours).toFixed(4)),
+    sesRatePerHour: Number((((session?.warns?.reduce((sum, w) => sum + Number(w?.est_savings_usd || 0), 0) || 0) + Number(session?.cache_savings_usd || 0)) / hours).toFixed(4)),
     sesTrend: "stable",
     sesToolBreakdown: toolBreakdown,
     sesModelTurns: session?.model_turns || { brain: 0, worker: 0 },

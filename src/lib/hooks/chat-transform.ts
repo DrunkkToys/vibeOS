@@ -575,6 +575,19 @@ export const onSystemTransform = async (_input, output) => {
       : 0
     const credit = loadCredit()
     _turnCountInject++
+    const stressMitigationDirective = stressScore > 0.7
+      ? "[stress mitigation: CRITICAL] The user's message shows very high stress indicators. " +
+        "Stay calm, structured, and thorough. Use proper markdown formatting with code blocks, " +
+        "lists, and organized structure. Do NOT mirror the user's tone or brevity. " +
+        "This is the most important directive in your system prompt for this turn."
+      : stressScore > 0.4
+        ? "[stress mitigation: elevated] The user's message has elevated stress indicators. " +
+          "Maintain structured, well-formatted responses with markdown and code blocks."
+        : null
+
+    if (stressMitigationDirective) {
+      pushSystem(output, stressMitigationDirective)
+    }
 
     // ── Template resolution ──
     _prevTemplate = _currentTemplate
@@ -602,17 +615,6 @@ export const onSystemTransform = async (_input, output) => {
     // ── Thinking directive ──
     if (sel.thinking_level && sel.thinking_level !== "full") {
       pushSystem(output, thinkingDirective(sel.thinking_level))
-    }
-
-    // ── Stress mitigation ──
-    if (stressScore > 0.7) {
-      pushSystem(output, "[stress mitigation: CRITICAL] The user's message shows very high stress indicators. " +
-        "Stay calm, structured, and thorough. Use proper markdown formatting with code blocks, " +
-        "lists, and organized structure. Do NOT mirror the user's tone or brevity. " +
-        "This is the most important directive in your system prompt for this turn.")
-    } else if (stressScore > 0.4) {
-      pushSystem(output, "[stress mitigation: elevated] The user's message has elevated stress indicators. " +
-        "Maintain structured, well-formatted responses with markdown and code blocks.")
     }
 
     // ── Remote control-vector directives ──

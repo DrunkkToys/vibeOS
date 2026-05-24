@@ -19,7 +19,7 @@ function makeSandbox(name) {
 
   writeFileSync(join(home, ".claude/model-tiers.json"), JSON.stringify({
     selection: {
-      active_slot: "medium", enabled: true, delegation_enforce: false,
+      active_slot: "medium", enabled: true, delegation_enforce: true,
       flow_enabled: false, tdd_enforce: false, thinking_level: "off",
       blackbox_enabled: false
     },

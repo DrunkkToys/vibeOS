@@ -115,10 +115,12 @@ export function _computeSessionMetrics(state, sid) {
         count: warns.length,
         sesTasks: Number(session?.total_savings_usd || 0),
         sesDuration: durationSec,
-        sesRatePerHour: Number((((session?.total_savings_usd || 0) + (session?.cache_savings_usd || 0)) / hours).toFixed(2)),
+        sesRatePerHour: Number((((session?.warns?.reduce((sum, w) => sum + Number(w?.est_savings_usd || 0), 0) || 0) + Number(session?.cache_savings_usd || 0)) / hours).toFixed(4)),
         sesTrend: "stable",
         sesToolBreakdown: toolBreakdown,
         sesModelTurns: session?.model_turns || { brain: 0, worker: 0 },
-        quality_avg: 0,
+        quality_avg: state?.lifetime?.quality_total_count > 0
+            ? Math.round((state?.lifetime?.quality_total_score || 0) / state?.lifetime?.quality_total_count)
+            : 0,
     };
 }

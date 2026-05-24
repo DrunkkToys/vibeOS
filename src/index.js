@@ -2951,25 +2951,11 @@ ${Date.now()}
   throw new Error(`[vibeOS] lock not acquired for ${filePath} after ${timeoutMs}ms`);
 }
 var _modelLocked2 = false;
-function loadTierRegexes2() {
-  try {
-    const p = join4(USER_HOME3, ".claude/model-tiers.json");
-    if (!existsSync4(p))
-      return { high: FALLBACK_HIGH, mid: FALLBACK_MID };
-    const j = safeJsonParse3(readFileSync5(p, "utf-8"));
-    const highRe = _safeRegex(j?.tiers?.high?.regex, FALLBACK_HIGH, "high");
-    const midRe = _safeRegex(j?.tiers?.mid?.regex, FALLBACK_MID, "mid");
-    return { high: highRe, mid: midRe };
-  } catch {
-    return { high: FALLBACK_HIGH, mid: FALLBACK_MID };
-  }
-}
-var { high: HIGH_TIER_RE2, mid: MID_TIER_RE2 } = loadTierRegexes2();
 function classify(m) {
   const s = String(m || "").toLowerCase();
-  if (HIGH_TIER_RE2.test(s))
+  if (HIGH_TIER_RE.test(s))
     return "high";
-  if (MID_TIER_RE2.test(s))
+  if (MID_TIER_RE.test(s))
     return "mid";
   return "budget";
 }
@@ -5536,10 +5522,10 @@ function _modelCost(id2) {
 function _modelTier(id2) {
   if (!id2)
     return "budget";
-  const high = HIGH_TIER_RE2?.test?.(id2);
+  const high = HIGH_TIER_RE?.test?.(id2);
   if (high)
     return "high";
-  const mid = MID_TIER_RE2?.test?.(id2);
+  const mid = MID_TIER_RE?.test?.(id2);
   return mid ? "mid" : "budget";
 }
 async function discoverAvailableModels(providers, auth) {
@@ -6849,6 +6835,10 @@ var onSystemTransform = async (_input, output) => {
     const stressScore = latestUserIntent ? scoreStress(latestUserIntent) * (_controlVector?.stress_multiplier ?? 1) : 0;
     const credit = loadCredit();
     _turnCountInject++;
+    const stressMitigationDirective = stressScore > 0.7 ? "[stress mitigation: CRITICAL] The user's message shows very high stress indicators. Stay calm, structured, and thorough. Use proper markdown formatting with code blocks, lists, and organized structure. Do NOT mirror the user's tone or brevity. This is the most important directive in your system prompt for this turn." : stressScore > 0.4 ? "[stress mitigation: elevated] The user's message has elevated stress indicators. Maintain structured, well-formatted responses with markdown and code blocks." : null;
+    if (stressMitigationDirective) {
+      pushSystem(output, stressMitigationDirective);
+    }
     _prevTemplate = _currentTemplate;
     _currentTemplate = resolveTemplate(_prevTemplate, stressScore, latestUserIntent, credit);
     if (shouldInjectTemplate(_currentTemplate, _prevTemplate)) {
@@ -6868,11 +6858,6 @@ var onSystemTransform = async (_input, output) => {
     pushSystem(output, context7Directive(_controlVector));
     if (sel.thinking_level && sel.thinking_level !== "full") {
       pushSystem(output, thinkingDirective(sel.thinking_level));
-    }
-    if (stressScore > 0.7) {
-      pushSystem(output, "[stress mitigation: CRITICAL] The user's message shows very high stress indicators. Stay calm, structured, and thorough. Use proper markdown formatting with code blocks, lists, and organized structure. Do NOT mirror the user's tone or brevity. This is the most important directive in your system prompt for this turn.");
-    } else if (stressScore > 0.4) {
-      pushSystem(output, "[stress mitigation: elevated] The user's message has elevated stress indicators. Maintain structured, well-formatted responses with markdown and code blocks.");
     }
     if (_controlVector?.directives?.length > 0) {
       for (const directive of _controlVector.directives) {
@@ -8885,15 +8870,6 @@ var onToolExecuteBefore = async (input, output) => {
   const _estC7 = _brainCost !== null ? Math.max(_brainCost, SAVE_EST.CONTEXT7) : SAVE_EST.CONTEXT7;
   const _tierWord = currentTier === "high" ? "Brain" : currentTier === "mid" ? "Medium" : "Budget";
   const _firstWord = extractFirstWordFromArgs(t, args || inArgs);
-  if (_credit < 40) {
-    const total = recordSaving(t, "credit<40% high-tier", _estOpus, { firstWord: _firstWord });
-    const trend = trendDisplay(readLifetimeSavings().sesTrend);
-    const msg = `\u26A0 [vibeOS] Credit: ${_credit}% \u2014 switching to medium saves ~$${_estOpus.toFixed(3)}/turn. Run \`trinity medium\`.`;
-    if (shouldLogWarn(`${t}|credit|${_tierWord}`))
-      console.error(`[vibeOS] [delegation] ${msg}`);
-    pendingUiNote = msg;
-    return;
-  }
   if (WARN_ON_DIRECT.has(String(t || "").toLowerCase())) {
     const argSources = _toolArgSources(input, output);
     const checkPath = argSources.flatMap((src) => [src?.filePath, src?.file_path, src?.path]).find((v) => typeof v === "string" && v.trim()) || "";
@@ -8905,6 +8881,15 @@ var onToolExecuteBefore = async (input, output) => {
       enforcementBlocked = true;
       return;
     }
+  }
+  if (_credit < 40) {
+    const total = recordSaving(t, "credit<40% high-tier", _estOpus, { firstWord: _firstWord });
+    const trend = trendDisplay(readLifetimeSavings().sesTrend);
+    const msg = `\u26A0 [vibeOS] Credit: ${_credit}% \u2014 switching to medium saves ~$${_estOpus.toFixed(3)}/turn. Run \`trinity medium\`.`;
+    if (shouldLogWarn(`${t}|credit|${_tierWord}`))
+      console.error(`[vibeOS] [delegation] ${msg}`);
+    pendingUiNote = msg;
+    return;
   }
   if (WARN_ON_DIRECT.has(String(t || "").toLowerCase())) {
     const sel = loadSelection();
@@ -9437,9 +9422,9 @@ function _modelCost2(id2) {
 }
 function _modelTier2(id2) {
   if (!id2) return "budget";
-  const high = HIGH_TIER_RE2?.test?.(id2);
+  const high = HIGH_TIER_RE?.test?.(id2);
   if (high) return "high";
-  const mid = MID_TIER_RE2?.test?.(id2);
+  const mid = MID_TIER_RE?.test?.(id2);
   return mid ? "mid" : "budget";
 }
 function backupFile(path, label) {
@@ -9517,7 +9502,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
         const _brainOcModel = _tiersData2?.trinity?.brain?.oc || "";
         if (_brainOcModel && currentModel === _brainOcModel && !PLACEHOLDER_RE.test(_brainOcModel)) {
           const cost = modelCostPerTurn(_brainOcModel);
-          if (HIGH_TIER_RE2.test(_brainOcModel) || cost !== null && cost >= 0.01) {
+          if (HIGH_TIER_RE.test(_brainOcModel) || cost !== null && cost >= 0.01) {
             setCurrentTier("high");
             console.error(`[vibeOS] tier override \u2192 high (brain slot)`);
           }
@@ -10023,8 +10008,8 @@ function closeMcpServer() {
 }
 export {
   DelegationEnforcer,
-  HIGH_TIER_RE2 as HIGH_TIER_RE,
-  MID_TIER_RE2 as MID_TIER_RE,
+  HIGH_TIER_RE,
+  MID_TIER_RE,
   PLACEHOLDER_RE,
   TRINITY_BRAIN,
   TRINITY_CHEAP,
@@ -10052,7 +10037,7 @@ export {
   isModelFree,
   listReports,
   loadBlackboxState,
-  loadTierRegexes2 as loadTierRegexes,
+  loadTierRegexes,
   modelCostPerTurn,
   modelToCcAlias,
   noteProjectPattern,

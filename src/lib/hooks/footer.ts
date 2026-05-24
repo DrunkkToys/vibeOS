@@ -55,8 +55,8 @@ const textCompletePainted = new Set()
 function loadSelection() {
   try {
     const raw = readFileSync(join(USER_HOME, ".claude/model-tiers.json"), "utf-8")
-    return safeJsonParse(raw)?.selection || { active_slot: "medium", enabled: true, delegation_enforce: false, flow_enabled: false, flow_enforce: false, tdd_enforce: false, tdd_strict: false }
-  } catch { return { active_slot: "medium", enabled: true, delegation_enforce: false, flow_enabled: false, flow_enforce: false, tdd_enforce: false, tdd_strict: false } }
+    return safeJsonParse(raw)?.selection || { active_slot: "medium", enabled: true, delegation_enforce: true, flow_enabled: false, flow_enforce: false, tdd_enforce: false, tdd_strict: false }
+  } catch { return { active_slot: "medium", enabled: true, delegation_enforce: true, flow_enabled: false, flow_enforce: false, tdd_enforce: false, tdd_strict: false } }
 }
 
 function readLifetimeSavings() {

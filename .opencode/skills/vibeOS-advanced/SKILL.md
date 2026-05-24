@@ -1,85 +1,70 @@
 ---
 name: vibeOS-advanced
-description: Use when the user mentions "blackbox", "stress gauge", "pattern learner", "diagnose", "project guard", "repair state", "patterns", "suggest patterns", "stress pipeline", "control vector", "auto-mode", or "project skill". Covers blackbox decision engine, pattern learning, stress mitigation, project guard, calibration, auto-mode, and control vector sync. Requires vibeOS-core to be installed.
+description: Use when the user mentions blackbox, stress gauge, pattern learner, diagnose, project guard, repair-state, patterns, stress pipeline, auto-mode, or project skill generation. Requires vibeOS-core.
 ---
 
 # vibeOS Advanced
 
 ## Blackbox Decision Engine
 
-Tracks dialogue trajectory per session with 7 sub-regimes (INIT, DIVERGENT, EXPLORING, REFINING, CONVERGING, CLOSED, LOOPING), 11 derived features per turn, loop prevention with 4 escalating intervention levels, pivot/switch detection for context changes, and online calibration via remote API. State persisted per project in `~/.claude/blackbox-state.json`.
+The blackbox engine tracks dialogue trajectory per session with 7 sub-regimes, loop prevention, pivot/switch detection, and outcome tracking. State is persisted per project in `~/.claude/blackbox-state.json` and calibrated from session outcomes.
 
 | Command | Effect |
 |---|---|
-| `trinity blackbox on` | Enable decision engine |
-| `trinity blackbox off` | Disable |
-| `trinity blackbox status` | Show resolution state, sub-regime, momentum, loop state |
-| `trinity blackbox reset` | Clear tracker for current session |
+| `trinity blackbox on` | Enable the decision engine |
+| `trinity blackbox off` | Disable it |
+| `trinity blackbox status` | Show resolution state, momentum, and project history |
+| `trinity blackbox reset` | Clear tracker state for the current session |
 
-### Auto-Mode
+## Auto-Mode
 
-When blackbox is enabled and optimization mode is `auto`, the control vector drives all enforcement settings every turn via `syncControlSettings()`:
-- Mode selection: CONVERGING/CLOSED → quality, LOOPING → speed, stress >1.5 → quality, else budget
-- Writes enforcement, flow, TDD, thinking to `model-tiers.json` per turn
-- No savings goal threshold — purely regime + stress driven
+Auto-mode is regime and stress driven:
 
-When disabled, a lightweight fallback (`classifyTurnSimple()`) detects Q&A vs implementation intent.
+- `LOOPING` → `speed`
+- `CONVERGING` or `CLOSED` → `quality`
+- stress above `1.5` → `quality`
+- otherwise → `budget`
 
-### Context Budget Warning
+The control vector is written into `model-tiers.json` each turn so enforcement, flow, TDD, and thinking mode stay synchronized with the current session state.
 
-Injects system prompt directive when context window exceeds 70% full (WARNING) or 90% (CRITICAL), advising Task subagent usage, output compression, or new session.
+When blackbox is disabled, `classifyTurnSimple()` falls back to a lighter Q&A vs implementation split.
 
 ## Pattern Learning
 
-Learns recurring struggle/routine patterns per project. Auto-generates project skills (`ensureProjectSkill()`) when 3+ promoted patterns exist.
+The pattern learner tracks recurring friction and routine patterns per project.
 
 | Command | Effect |
 |---|---|
 | `trinity patterns` | Show learned patterns |
-| `trinity patterns clear` | Clear all learned patterns |
-| `trinity patterns suggest` | Suggest patterns from similar tech stack projects |
+| `trinity patterns clear` | Clear learned patterns for the current project |
+| `trinity patterns suggest` | Suggest patterns from similar stack projects |
 
-Stored in `~/.claude/project-states.json`. Patterns are promoted after repeated confirmation across sessions.
+When enough patterns are promoted, vibeOS can generate a project skill under `.opencode/skills/<project>/SKILL.md`.
 
-## Stress Mitigation Pipeline
+## Stress Mitigation
 
-Detects stress signals from user messages and responds:
-
-- Live stress gauge in footer: `down-tick up-tick down-tick-dbl down-tick-tri up-tick full` (calm to high)
-- System prompt inoculation at critical/elevated levels (structured markdown, code blocks, thorough responses)
-- Stress-aware tier routing: upgrades Task to MEDIUM when stressed
-
-Check current stress via `trinity status`.
+Stress signals in the user message can raise the routing tier and change the tone of the system prompt. The footer also surfaces a live stress gauge so the session stays readable at a glance.
 
 ## Project Guard
 
-Auto-creates and protects `AGENTS.md` and `README.md` in every project.
-
-`trinity guard` — regenerate both files on demand.
-
-Also auto-generates `.opencode/skills/<project>/SKILL.md` from promoted patterns via `ensureProjectSkill()`.
+`trinity guard` refreshes the project-level `AGENTS.md` and `README.md` guidance so the workspace docs stay aligned with the current command surface.
 
 ## Remote API
 
-`trinity api-token <token>` — update API token at runtime to re-enable remote control-vector computation.
-
-Core algorithms served from `api.vibetheog.com` (Fastify + SQLite). Token-based auth with seat/license management. Suspended seats revoke all tokens immediately; plugin falls back to local degraded mode.
+The protected algorithms still resolve through `api.vibetheog.com` when the token is available. If the API is suspended or unavailable, vibeOS falls back to local degraded mode.
 
 ## Diagnostics
 
-`trinity diagnose` — run full diagnostics on plugin state, connections, model probes, and API availability.
-
-`trinity repair-state preview|apply` — fix fingerprint collisions between project state hashes (creates backups before applying).
+- `trinity diagnose` runs a runtime health check
+- `trinity repair-state preview|apply` fixes fingerprint collisions before they spread
 
 ## Session Workflow
-
-The meta-controller auto-toggles enforcement/flow/TDD/thinking per regime via control vector:
 
 | Regime | Mode | Enforce | Flow | TDD | Think | Tier |
 |---|---|---|---|---|---|---|
 | INIT / EXPLORING / DIVERGENT | budget | relaxed | audit | lazy | off | cheap |
 | REFINING | budget | relaxed | audit | lazy | off | cheap |
-| CONVERGING / CLOSED | quality | strict | strict | quality | on | brain |
+| CONVERGING / CLOSED | quality | strict | strict | quality | full | brain |
 | LOOPING | speed | relaxed | audit | lazy | brief | medium |
 
-Stress > 1.5 escalates any regime to quality mode (tightens enforcement, activates brain tier). Manual `trinity enforce on|off` overrides are temporary — next turn re-evaluates via `syncControlSettings()`.
+Stress above `1.5` escalates any regime to quality mode.

@@ -18,7 +18,8 @@ import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, sta
 import { join, dirname, basename } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { createHash } from "node:crypto";
-import { currentModel, currentTier, setCurrentModel, setCurrentTier, safeJsonParse, _safeRegex, FALLBACK_HIGH, FALLBACK_MID } from "./state.js";
+import { currentModel, currentTier, setCurrentModel, setCurrentTier, safeJsonParse, HIGH_TIER_RE, MID_TIER_RE, loadTierRegexes } from "./state.js";
+export { HIGH_TIER_RE, MID_TIER_RE, loadTierRegexes };
 const USER_HOME = (() => { try {
     return homedir();
 }
@@ -95,21 +96,6 @@ function withFileLock(filePath, fn, opts = {}) {
 let _modelLocked = false;
 // ── Tier classification ─────────────────────────────────────────────
 export let _autoReportCount = 0;
-export function loadTierRegexes() {
-    try {
-        const p = join(USER_HOME, ".claude/model-tiers.json");
-        if (!existsSync(p))
-            return { high: FALLBACK_HIGH, mid: FALLBACK_MID };
-        const j = safeJsonParse(readFileSync(p, "utf-8"));
-        const highRe = _safeRegex(j?.tiers?.high?.regex, FALLBACK_HIGH, "high");
-        const midRe = _safeRegex(j?.tiers?.mid?.regex, FALLBACK_MID, "mid");
-        return { high: highRe, mid: midRe };
-    }
-    catch {
-        return { high: FALLBACK_HIGH, mid: FALLBACK_MID };
-    }
-}
-export const { high: HIGH_TIER_RE, mid: MID_TIER_RE } = loadTierRegexes();
 export function classify(m) {
     const s = String(m || "").toLowerCase();
     if (HIGH_TIER_RE.test(s))
@@ -433,7 +419,7 @@ function loadSelection() {
             tdd_strict: j?.selection?.tdd_strict === true,
             tdd_quality: j?.selection?.tdd_quality !== false,
             flow_enforce: j?.selection?.flow_enforce === true,
-            delegation_enforce: j?.selection?.delegation_enforce === true,
+            delegation_enforce: true,
         };
     }
     catch {
@@ -441,7 +427,7 @@ function loadSelection() {
         return DFLT_SEL;
     }
 }
-const DFLT_SEL = { enabled: true, active_slot: null, thinking_level: "off", flow_enabled: false, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: false, delegation_enforce: false };
+const DFLT_SEL = { enabled: true, active_slot: null, thinking_level: "off", flow_enabled: false, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: false, delegation_enforce: true };
 export function readConfig(dir) {
     try {
         const c = readOpenCodeConfigObject(dir);
@@ -507,8 +493,9 @@ export function _refreshModel(directory) {
                 console.error(`[vibeOS] auto-detected model: ${currentModel} (tier=${currentTier})`);
             }
         }
-        // Reconcile with the actual OpenCode config model (handles manual model switches)
-        // When model lock is active, skip auto-reconcile — user must explicitly switch via trinity.
+        // Only reconcile with OpenCode config model if no valid trinity slot model exists.
+        // The trinity slot config is authoritative — prevents a bogus opencode.json model
+        // from overriding the brain/medium/cheap slot assignment.
         if (!_modelLocked && !slotOcModel) {
             const cfgModel = readConfig(directory) || readConfig(join(USER_HOME, ".config/opencode")) || "";
             if (cfgModel && cfgModel !== currentModel) {

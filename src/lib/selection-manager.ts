@@ -24,7 +24,7 @@ function safeJsonParse(raw: string): any {
   try { return JSON.parse(cleaned) } catch (e) { throw e }
 }
 
-const DFLT_SEL = { enabled: true, active_slot: null, thinking_level: "off", flow_enabled: false, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: false, delegation_enforce: false }
+const DFLT_SEL = { enabled: true, active_slot: null, thinking_level: "off", flow_enabled: false, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: false, delegation_enforce: true }
 
 const TIERS_FILE = join(USER_HOME, ".claude/model-tiers.json")
 
@@ -43,7 +43,7 @@ export function loadSelection(): any {
       tdd_strict:         j?.selection?.tdd_strict === true,
       tdd_quality:        j?.selection?.tdd_quality !== false,
       flow_enforce:       j?.selection?.flow_enforce === true,
-      delegation_enforce: j?.selection?.delegation_enforce === true,
+      delegation_enforce: true,
     }
   } catch { _handleStateCorruption(TIERS_FILE); return DFLT_SEL }
 }
@@ -51,7 +51,8 @@ export function loadSelection(): any {
 export function writeSelection(key: string, value: any): boolean {
   try {
     const j = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
-    j.selection[key] = value
+    if (!j.selection) j.selection = {}
+    j.selection[key] = key === "delegation_enforce" ? true : value
     const tmp = TIERS_FILE + ".tmp"
     writeFileSync(tmp, JSON.stringify(j, null, 2) + "\n")
     renameSync(tmp, TIERS_FILE)

@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { writeFileSync, appendFileSync, existsSync, mkdirSync } from 'node:fs';
-import { dirname, basename } from 'node:path';
+import { join, dirname, basename } from 'node:path';
 import { currentTier, currentModel, setCurrentModel, setCurrentTier, _OC_SID, _modelLocked, loadSelection, readLifetimeSavings, recordCacheSaving, recordMissedContext7, getScratchpadHit, recordScratchpadObservation, recordPrivacyTelemetry, updateState, SAVINGS_LEDGER_FILE, CONTEXT7_INSTALL_FLAG, SOFT_QUOTA_LIMIT, upsertTodo, ML_ENABLED, _mlGraph, _cacheDb, _mlSavePending, ML_CONFIDENCE_THRESHOLD, setMlSavePending, saveMLState, SCRATCHPAD_TOOLS, applyDecadence, } from '../state.js';
 import { classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget, shortModelName, formatUsd, _refreshModel, TRINITY_CHEAP, TRINITY_MEDIUM, trendDisplay, modelToSlotLabel, } from '../pricing.js';
 import { latestUserIntent } from './chat-transform.js';
@@ -119,6 +119,86 @@ function _argSizeBucket(tool, args) {
     if (t === "notebookedit")
         return _bucketChars(String(args?.newString || "").length);
     return _bucketChars(JSON.stringify(args || {}).length);
+}
+function _toolArgSources(input, output) {
+    return [input?.args, output?.args].filter((arg) => arg && typeof arg === "object");
+}
+function _normalizeToolPath(pathValue) {
+    return String(pathValue || "").trim().replace(/\\/g, "/");
+}
+function _resolveToolPath(pathValue) {
+    const raw = _normalizeToolPath(pathValue);
+    if (!raw)
+        return "";
+    if (/^[a-z]+:\/\//i.test(raw))
+        return raw;
+    if (raw.startsWith("/"))
+        return raw;
+    return projectDirectory ? join(projectDirectory, raw).replace(/\\/g, "/") : raw;
+}
+function _isProtectedToolPath(pathValue) {
+    const raw = _normalizeToolPath(pathValue);
+    if (!raw)
+        return false;
+    const resolved = _resolveToolPath(pathValue);
+    const candidates = [raw, resolved].filter(Boolean);
+    const protectedPatterns = [
+        /(^|\/)src\/index\.(js|ts)$/i,
+        /(^|\/)src\/vibeOS-lib\//i,
+        /(^|\/)src\/utils\//i,
+        /(^|\/)src\/dashboard\//i,
+        /(^|\/)src\/vibeOS-api-server\//i,
+        /(^|\/)tests?\//i,
+        /(^|\/)test-scripts\//i,
+        /(^|\/)scripts\//i,
+        /(^|\/)\.github\/workflows\//i,
+        /(^|\/)\.opencode\/plugins\//i,
+        /(^|\/)plugins\//i,
+        /(^|\/)README\.md$/i,
+        /(^|\/)AGENTS\.md$/i,
+        /(^|\/)CHANGELOG\.md$/i,
+        /(^|\/)LICENSE$/i,
+        /(^|\/)package\.json$/i,
+        /(^|\/)tsconfig\.json$/i,
+        /(^|\/)\.env\.production$/i,
+        /(^|\/)PRODUCTION-CREDENTIALS\.md$/i,
+    ];
+    return candidates.some((candidate) => protectedPatterns.some((re) => re.test(candidate)));
+}
+function _mutateBlockedToolArgs(toolName, sources, blockedPath, outputObj) {
+    const tLower = String(toolName || "").toLowerCase();
+    const blockedBase = basename(blockedPath || "") || "blocked";
+    for (const src of sources) {
+        if (!src || typeof src !== "object")
+            continue;
+        if (tLower === "write") {
+            src.filePath = `/tmp/vibeos-enforcement-blocked-${blockedBase}`;
+            if (src.file_path !== undefined)
+                src.file_path = src.filePath;
+            if (src.path !== undefined)
+                src.path = src.filePath;
+            if (src.content !== undefined)
+                src.content = "";
+        }
+        else if (tLower === "edit" || tLower === "notebookedit") {
+            src.oldString = `__THE_SAVER_ENFORCEMENT_BLOCK_${Date.now()}__`;
+            if (src.newString !== undefined)
+                src.newString = "";
+            if (src.content !== undefined)
+                src.content = "";
+            if (!src.filePath && blockedPath)
+                src.filePath = blockedPath;
+            if (src.file_path !== undefined && !src.file_path)
+                src.file_path = blockedPath;
+            if (src.path !== undefined && !src.path)
+                src.path = blockedPath;
+        }
+    }
+    if (outputObj && typeof outputObj === "object") {
+        outputObj.blocked = true;
+        outputObj.status = "error";
+        outputObj.error = outputObj.error || `blocked direct ${tLower}`;
+    }
 }
 function _dequeueTelemetryStart(tool) {
     if (_pendingTelemetryStarts.length === 0)
@@ -339,6 +419,23 @@ export const onToolExecuteBefore = async (input, output) => {
     const _estC7 = _brainCost !== null ? Math.max(_brainCost, SAVE_EST.CONTEXT7) : SAVE_EST.CONTEXT7;
     const _tierWord = currentTier === "high" ? "Brain" : currentTier === "mid" ? "Medium" : "Budget";
     const _firstWord = extractFirstWordFromArgs(t, args || inArgs);
+    // Self-modification protection: never allow writes to project source trees.
+    // This must run before credit gating so protected files are blocked even
+    // when the session is in low-credit mode.
+    if (WARN_ON_DIRECT.has(String(t || "").toLowerCase())) {
+        const argSources = _toolArgSources(input, output);
+        const checkPath = argSources
+            .flatMap((src) => [src?.filePath, src?.file_path, src?.path])
+            .find((v) => typeof v === "string" && v.trim()) || "";
+        if (_isProtectedToolPath(checkPath)) {
+            _mutateBlockedToolArgs(t, argSources, checkPath, output);
+            if (shouldLogWarn(`${t}|protect|${checkPath}`))
+                console.error(`[vibeOS] [protection] BLOCKED direct ${t} in self-protected directory: ${checkPath}`);
+            pendingUiNote = `🛡 Self-modification blocked: ${basename(checkPath)} is in a protected project tree. Use manual git workflow.`;
+            enforcementBlocked = true;
+            return;
+        }
+    }
     // Credit < 40%: non-task tool — record and nudge to step aside.
     if (_credit < 40) {
         const total = recordSaving(t, "credit<40% high-tier", _estOpus, { firstWord: _firstWord });
@@ -349,27 +446,16 @@ export const onToolExecuteBefore = async (input, output) => {
         pendingUiNote = msg;
         return;
     }
-    // Self-modification protection: never allow writes to project source trees.
-    const SELF_PROTECT_PATTERNS = ["/theSaver-oc/", "/theSaver-cx/", "/vibeOScore/", "/VibeTheOG/", "/theSlave/", "/theWay/", "/theBlender/", "/theLego/", "/loracolo/", "/drunkktoys/"];
-    if (WARN_ON_DIRECT.has(String(t || "").toLowerCase())) {
-        const actualArgs = args || (output && output.args) || {};
-        const checkPath = actualArgs.filePath || actualArgs.file_path || "";
-        if (checkPath && SELF_PROTECT_PATTERNS.some(p => checkPath.includes(p))) {
-            if (shouldLogWarn(`${t}|protect|${checkPath}`))
-                console.error(`[vibeOS] [protection] BLOCKED direct ${t} in self-protected directory: ${checkPath}`);
-            pendingUiNote = `🛡 Self-modification blocked: ${basename(checkPath)} is in a protected project tree. Use manual git workflow.`;
-            enforcementBlocked = true;
-            return;
-        }
-    }
     // Write/Edit/NotebookEdit: enforce delegation on high tier when delegation_enforce is on.
     if (WARN_ON_DIRECT.has(String(t || "").toLowerCase())) {
         const sel = loadSelection();
-        console.error(`[vibeOS] [enforce-debug] tool=${t} tier=${currentTier} enforce=${sel?.delegation_enforce} argsType=${typeof args} argsExists=${!!args}`);
+        const argSources = _toolArgSources(input, output);
+        console.error(`[vibeOS] [enforce-debug] tool=${t} tier=${currentTier} enforce=${sel?.delegation_enforce} argsType=${typeof args} argsExists=${argSources.length > 0}`);
         const tLower = String(t || "").toLowerCase();
-        if (sel.delegation_enforce && currentTier === "high" && args && typeof args === "object") {
-            const actualArgs = args || (output && output.args) || {};
-            const originalPath = actualArgs.filePath || actualArgs.file_path || "";
+        if (sel.delegation_enforce && currentTier === "high" && argSources.length > 0) {
+            const originalPath = argSources
+                .flatMap((src) => [src?.filePath, src?.file_path, src?.path])
+                .find((v) => typeof v === "string" && v.trim()) || "";
             const basename = originalPath.split("/").pop() || "blocked";
             const apiResult = await remoteCall("delegateCheck", [tLower, currentTier, currentModel, _prompt], () => ({
                 blocked: true,
@@ -378,14 +464,7 @@ export const onToolExecuteBefore = async (input, output) => {
             const isBlocked = apiResult?.blocked !== false;
             const savings = apiResult?.savings ?? _estEdit;
             if (isBlocked) {
-                if (tLower === "write") {
-                    actualArgs.filePath = `/tmp/vibeos-enforcement-blocked-${basename}`;
-                    if (actualArgs.file_path !== undefined)
-                        actualArgs.file_path = actualArgs.filePath;
-                }
-                else if (tLower === "edit" || tLower === "notebookedit") {
-                    actualArgs.oldString = `__THE_SAVER_ENFORCEMENT_BLOCK_${Date.now()}__`;
-                }
+                _mutateBlockedToolArgs(tLower, argSources, originalPath, output);
                 const total = recordSaving(t, "delegation enforced", savings, { firstWord: _firstWord });
                 pendingUiNote = `🚫 Direct ${t} blocked on Brain tier → delegate via Task or run \`trinity medium\`.`;
                 enforcementBlocked = true;

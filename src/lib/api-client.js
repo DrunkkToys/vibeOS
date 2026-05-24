@@ -1,30 +1,32 @@
 // @ts-nocheck
 import { VibeOSApiClient } from "vibeOScore/client";
+import { readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
+import { isApiConnected as isRuntimeApiConnected, markApiConnected, markApiDisconnected, resetApiConnection } from "./runtime-state.js";
 // ── Remote API client (Phase 2) ─────────────────────────────────────
 export const VIBEOS_API_URL = process.env.VIBEOS_API_URL || "https://api.vibetheog.com";
-let _envToken = "";
 const _apiDir = typeof __dirname !== "undefined" ? __dirname : dirname(fileURLToPath(import.meta.url));
-const _envPaths = [_apiDir, homedir() + "/.claude", homedir(), process.cwd()];
-for (const dir of _envPaths) {
-    try {
-        const env = readFileSync(dir + "/.env.production", "utf8");
-        const m = env.match(/^VIBEOS_API_TOKEN=(.+)$/m);
-        if (m) {
-            _envToken = m[1].trim();
-            break;
+const _envPaths = [homedir() + "/.claude", _apiDir, process.cwd(), homedir()];
+function readTokenFromDisk() {
+    for (const dir of _envPaths) {
+        try {
+            const env = readFileSync(dir + "/.env.production", "utf8");
+            const m = env.match(/^VIBEOS_API_TOKEN=(.+)$/m);
+            if (m)
+                return m[1].trim();
         }
+        catch { }
     }
-    catch { }
+    return "";
 }
-export let VIBEOS_API_TOKEN = process.env.VIBEOS_API_TOKEN || _envToken || "";
-export const VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && !!VIBEOS_API_TOKEN;
+export let VIBEOS_API_TOKEN = readTokenFromDisk() || process.env.VIBEOS_API_TOKEN || "";
+export let VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && !!VIBEOS_API_TOKEN;
 export function setApiToken(newToken) {
     try {
-        const oldVal = VIBEOS_API_TOKEN;
-        VIBEOS_API_TOKEN = newToken;
+        VIBEOS_API_TOKEN = String(newToken || "").trim();
+        VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && !!VIBEOS_API_TOKEN;
         console.error("[vibeOS] API token updated via setApiToken");
     }
     catch (e) {
@@ -34,7 +36,22 @@ export function setApiToken(newToken) {
 let _apiClient = null;
 let _apiFallbackMode = false;
 let _apiFallbackSince = null;
+function syncApiTokenFromDisk() {
+    const diskToken = readTokenFromDisk() || process.env.VIBEOS_API_TOKEN || "";
+    if (diskToken && diskToken !== VIBEOS_API_TOKEN) {
+        VIBEOS_API_TOKEN = diskToken;
+        VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && !!VIBEOS_API_TOKEN;
+        _apiClient = null;
+        _apiFallbackMode = false;
+        _apiFallbackSince = null;
+        resetApiConnection();
+    }
+    else {
+        VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && !!VIBEOS_API_TOKEN;
+    }
+}
 export function getApiClient() {
+    syncApiTokenFromDisk();
     if (!_apiClient && VIBEOS_API_ENABLED) {
         _apiClient = new VibeOSApiClient({
             baseUrl: VIBEOS_API_URL,
@@ -47,7 +64,11 @@ export function getApiClient() {
 export function isApiFallback() {
     return _apiFallbackMode || !VIBEOS_API_ENABLED;
 }
+export function isApiConnected() {
+    return VIBEOS_API_ENABLED && isRuntimeApiConnected() && !_apiFallbackMode;
+}
 export async function remoteCall(method, args, fallbackFn) {
+    syncApiTokenFromDisk();
     if (!VIBEOS_API_ENABLED || _apiFallbackMode) {
         if (fallbackFn)
             return fallbackFn();
@@ -63,6 +84,7 @@ export async function remoteCall(method, args, fallbackFn) {
         const result = await client[method](...args);
         _apiFallbackMode = false;
         _apiFallbackSince = null;
+        markApiConnected();
         return result;
     }
     catch (err) {
@@ -71,6 +93,7 @@ export async function remoteCall(method, args, fallbackFn) {
             _apiFallbackSince = new Date().toISOString();
             console.error(`[vibeOS] API fallback activated: ${err.message}`);
         }
+        markApiDisconnected();
         if (fallbackFn) {
             try {
                 return fallbackFn();

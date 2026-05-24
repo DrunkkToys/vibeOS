@@ -528,15 +528,16 @@ test("saveOS TRINITY: slot switching changes model tier", async () => {
   }
 })
 
-test("saveOS ENFORCEMENT: enforce on/off toggles", async () => {
+test("saveOS ENFORCEMENT: enforce on is mandatory and off is refused", async () => {
   const toolMod = await import("../src/lib/trinity-tool.js?t=" + Date.now())
   if (typeof toolMod.execute === "function") {
-    await toolMod.execute({}, { action: "enforce", slot: "off" })
+    const refuse = await toolMod.execute({}, { action: "enforce", slot: "off" })
     const tiers = JSON.parse(readFileSync(join(sandbox, ".claude/model-tiers.json"), "utf-8"))
-    assert.equal(tiers.selection.delegation_enforce, false, "enforcement disabled")
+    assert.ok(refuse.includes("mandatory") || refuse.includes("cannot be disabled"), "off is refused: " + refuse)
+    assert.equal(tiers.selection.delegation_enforce, true, "enforcement stays enabled")
     await toolMod.execute({}, { action: "enforce", slot: "on" })
     const tiers2 = JSON.parse(readFileSync(join(sandbox, ".claude/model-tiers.json"), "utf-8"))
-    assert.equal(tiers2.selection.delegation_enforce, true, "enforcement re-enabled")
+    assert.equal(tiers2.selection.delegation_enforce, true, "enforcement remains enabled")
   }
 })
 

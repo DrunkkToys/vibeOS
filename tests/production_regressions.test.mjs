@@ -38,7 +38,7 @@ function seedTierFile(overrides = {}) {
       medium: { oc: "deepseek/deepseek-v4-flash" },
       cheap: { oc: "deepseek/deepseek-chat" },
     },
-    selection: { enabled: true, active_slot: "brain", delegation_enforce: false },
+    selection: { enabled: true, active_slot: "brain", delegation_enforce: true },
     tiers: {
       high: { regex: "opus" },
       mid: { regex: "sonnet|flash" },

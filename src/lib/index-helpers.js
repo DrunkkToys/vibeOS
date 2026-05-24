@@ -217,7 +217,7 @@ export function recordSaving(tool, reason, saveEst, meta = {}) {
             s.sessions ??= {};
             const sid = _OC_SID;
             if (!s.sessions[sid]) {
-                s.sessions[sid] = { started: (new Date()).toISOString(), session_started_at: (new Date()).toISOString(), total_savings_usd: 0, cache_savings_usd: 0, project_name: "", warns: [], cache_hits: [], seenWarnKeys: {} };
+                s.sessions[sid] = { total_savings_usd: 0, cache_savings_usd: 0, project_name: "", warns: [], cache_hits: [], seenWarnKeys: {} };
                 if (currentProjectFingerprint) {
                     s.sessions[sid].project_fingerprint = currentProjectFingerprint;
                 }

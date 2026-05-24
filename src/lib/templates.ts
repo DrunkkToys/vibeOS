@@ -58,7 +58,7 @@ export const TEMPLATES: Record<string, Template> = {
   }
 };
 
-export const DEFAULT_TEMPLATE = "quality";
+export const DEFAULT_TEMPLATE = "save";
 
 const SEC_KEYWORDS = /\b(security|vuln|exploit|injection|xss|csrf|secret|credential|token leak|auth bypass|privacy|breach|backdoor|sql injection|cve)\b/i;
 
