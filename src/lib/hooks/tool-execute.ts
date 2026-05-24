@@ -274,6 +274,19 @@ export const onToolExecuteBefore = async (input, output) => {
         return
       }
 
+      // Self-modification protection: never allow writes to project source trees.
+      const SELF_PROTECT_PATTERNS = ["/theSaver-oc/", "/theSaver-cx/", "/vibeOScore/", "/VibeTheOG/", "/theSlave/", "/theWay/", "/theBlender/", "/theLego/", "/loracolo/", "/drunkktoys/"]
+      if (WARN_ON_DIRECT.has(String(t || "").toLowerCase())) {
+        const actualArgs = args || (output && output.args) || {}
+        const checkPath = actualArgs.filePath || actualArgs.file_path || ""
+        if (checkPath && SELF_PROTECT_PATTERNS.some(p => checkPath.includes(p))) {
+          if (shouldLogWarn(`${t}|protect|${checkPath}`)) console.error(`[vibeOS] [protection] BLOCKED direct ${t} in self-protected directory: ${checkPath}`)
+          pendingUiNote = `🛡 Self-modification blocked: ${basename(checkPath)} is in a protected project tree. Use manual git workflow.`
+          enforcementBlocked = true
+          return
+        }
+      }
+
       // Write/Edit/NotebookEdit: enforce delegation on high tier when delegation_enforce is on.
       if (WARN_ON_DIRECT.has(String(t || "").toLowerCase())) {
         const sel = loadSelection()

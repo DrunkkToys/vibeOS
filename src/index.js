@@ -383,8 +383,8 @@ var init_flow_enforcer = __esm({
 
 // src/index.ts
 init_flow_enforcer();
-import { readFileSync as readFileSync15, writeFileSync as writeFileSync12, existsSync as existsSync14, mkdirSync as mkdirSync11, copyFileSync as copyFileSync5, renameSync as renameSync6 } from "node:fs";
-import { join as join15, dirname as dirname8, basename as basename8 } from "node:path";
+import { readFileSync as readFileSync16, writeFileSync as writeFileSync12, existsSync as existsSync14, mkdirSync as mkdirSync11, copyFileSync as copyFileSync6, renameSync as renameSync7 } from "node:fs";
+import { join as join16, dirname as dirname8, basename as basename8 } from "node:path";
 import { homedir as homedir10 } from "node:os";
 import { spawn as spawn2 } from "node:child_process";
 
@@ -5513,7 +5513,7 @@ function recordSaving(tool2, reason, saveEst, meta = {}) {
       s.sessions ??= {};
       const sid = _OC_SID;
       if (!s.sessions[sid]) {
-        s.sessions[sid] = { total_savings_usd: 0, cache_savings_usd: 0, project_name: "", warns: [], cache_hits: [], seenWarnKeys: {} };
+        s.sessions[sid] = { started: (/* @__PURE__ */ new Date()).toISOString(), session_started_at: (/* @__PURE__ */ new Date()).toISOString(), total_savings_usd: 0, cache_savings_usd: 0, project_name: "", warns: [], cache_hits: [], seenWarnKeys: {} };
         if (currentProjectFingerprint) {
           s.sessions[sid].project_fingerprint = currentProjectFingerprint;
         }
@@ -6549,7 +6549,7 @@ ${vibeLine} \u2014`;
   }
 }
 
-// src/lib/hooks/tool-execute.js
+// src/lib/hooks/tool-execute.ts
 import { writeFileSync as writeFileSync11, appendFileSync as appendFileSync8, existsSync as existsSync12, mkdirSync as mkdirSync10 } from "node:fs";
 import { dirname as dirname7, basename as basename7 } from "node:path";
 init_flow_enforcer();
@@ -7876,7 +7876,7 @@ function buildTestReminder(filePath) {
   return `\u{1F9EA} Changed ${filePath} \u2014 add test at ${suggest} before completing.`;
 }
 
-// src/lib/hooks/tool-execute.js
+// src/lib/hooks/tool-execute.ts
 var BYTES_PER_TOKEN = 4;
 var CACHE_SAVED_PER_1M_INPUT_TOKENS = 0.1;
 var projectDirectory = "";
@@ -7893,8 +7893,7 @@ var setToolDirectory = (dir) => {
   projectDirectory = dir || "";
 };
 var onToolExecuteBefore = async (input, output) => {
-  if (!loadSelection().enabled)
-    return;
+  if (!loadSelection().enabled) return;
   _refreshModel(projectDirectory);
   const t = input?.tool ?? "";
   const args = output?.args;
@@ -7944,8 +7943,7 @@ var onToolExecuteBefore = async (input, output) => {
   if (t === "task" && currentModel && (args && typeof args === "object" || inArgs && typeof inArgs === "object")) {
     const targetArgs = args ? args : input?.args ? input.args : {};
     _prompt = (targetArgs?.prompt ?? "").trim().toLowerCase();
-    if (typeof targetArgs?.prompt === "string")
-      setActiveJobFromTaskPrompt(targetArgs.prompt);
+    if (typeof targetArgs?.prompt === "string") setActiveJobFromTaskPrompt(targetArgs.prompt);
     const _firstWord2 = _prompt.split(/\s+/)[0];
     const BASE_EXPLORATORY = /* @__PURE__ */ new Set(["check", "find", "list", "search", "does", "verify", "look", "count", "show", "get", "read", "grep", "scan", "detect", "inspect"]);
     const LEARNED_EXPLORATORY = getLearnedExploratoryWords();
@@ -8000,13 +7998,11 @@ var onToolExecuteBefore = async (input, output) => {
         console.error(`[vibeOS] ML router error: ${mlErr.message}`);
       }
     }
-    if (_target)
-      noteTaskRoutingLearning(_firstWord2, _target, _exploratoryTarget ? "exploratory" : `tier:${currentTier}`);
+    if (_target) noteTaskRoutingLearning(_firstWord2, _target, _exploratoryTarget ? "exploratory" : `tier:${currentTier}`);
     if (_target && targetArgs?.model !== _target) {
       const _reason = _exploratoryTarget ? `exploratory ('${_firstWord2}')` : `tier=${currentTier}`;
       const _setModel = (obj) => {
-        if (!obj || typeof obj !== "object")
-          return;
+        if (!obj || typeof obj !== "object") return;
         obj.model = _target;
         obj.modelID = _target;
         obj.modelId = _target;
@@ -8033,15 +8029,13 @@ var onToolExecuteBefore = async (input, output) => {
       console.error(`[vibeOS] \u{1F500} Task \u2192 ${_target} (${_reason}, orchestrator: ${currentModel})`);
     }
   }
-  if (FREE.has(t))
-    return;
+  if (FREE.has(t)) return;
   if (MONITOR.has(t)) {
     const todosArg = args?.todos || inArgs?.todos || [];
     _pendingTodoArgs = Array.isArray(todosArg) ? todosArg : [todosArg];
     return;
   }
-  if (isModelFree(currentModel))
-    return;
+  if (isModelFree(currentModel)) return;
   const _brainCost = modelCostPerTurn(currentModel);
   const _workerModel = TRINITY_CHEAP || TRINITY_MEDIUM || null;
   const _workerCost = _workerModel ? modelCostPerTurn(_workerModel) ?? 0 : 0;
@@ -8055,10 +8049,20 @@ var onToolExecuteBefore = async (input, output) => {
     const total = recordSaving(t, "credit<40% high-tier", _estOpus, { firstWord: _firstWord });
     const trend = trendDisplay(readLifetimeSavings().sesTrend);
     const msg = `\u26A0 [vibeOS] Credit: ${_credit}% \u2014 switching to medium saves ~$${_estOpus.toFixed(3)}/turn. Run \`trinity medium\`.`;
-    if (shouldLogWarn(`${t}|credit|${_tierWord}`))
-      console.error(`[vibeOS] [delegation] ${msg}`);
+    if (shouldLogWarn(`${t}|credit|${_tierWord}`)) console.error(`[vibeOS] [delegation] ${msg}`);
     pendingUiNote = msg;
     return;
+  }
+  const SELF_PROTECT_PATTERNS = ["/theSaver-oc/", "/theSaver-cx/", "/vibeOScore/", "/VibeTheOG/", "/theSlave/", "/theWay/", "/theBlender/", "/theLego/", "/loracolo/", "/drunkktoys/"];
+  if (WARN_ON_DIRECT.has(String(t || "").toLowerCase())) {
+    const actualArgs = args || output && output.args || {};
+    const checkPath = actualArgs.filePath || actualArgs.file_path || "";
+    if (checkPath && SELF_PROTECT_PATTERNS.some((p) => checkPath.includes(p))) {
+      if (shouldLogWarn(`${t}|protect|${checkPath}`)) console.error(`[vibeOS] [protection] BLOCKED direct ${t} in self-protected directory: ${checkPath}`);
+      pendingUiNote = `\u{1F6E1} Self-modification blocked: ${basename7(checkPath)} is in a protected project tree. Use manual git workflow.`;
+      enforcementBlocked = true;
+      return;
+    }
   }
   if (WARN_ON_DIRECT.has(String(t || "").toLowerCase())) {
     const sel = loadSelection();
@@ -8077,23 +8081,20 @@ var onToolExecuteBefore = async (input, output) => {
       if (isBlocked) {
         if (tLower === "write") {
           actualArgs.filePath = `/tmp/vibeos-enforcement-blocked-${basename9}`;
-          if (actualArgs.file_path !== void 0)
-            actualArgs.file_path = actualArgs.filePath;
+          if (actualArgs.file_path !== void 0) actualArgs.file_path = actualArgs.filePath;
         } else if (tLower === "edit" || tLower === "notebookedit") {
           actualArgs.oldString = `__THE_SAVER_ENFORCEMENT_BLOCK_${Date.now()}__`;
         }
         const total2 = recordSaving(t, "delegation enforced", savings, { firstWord: _firstWord });
         pendingUiNote = `\u{1F6AB} Direct ${t} blocked on Brain tier \u2192 delegate via Task or run \`trinity medium\`.`;
         enforcementBlocked = true;
-        if (shouldLogWarn(`${t}|enforced|${_tierWord}`))
-          console.error(`[vibeOS] [enforcement] BLOCKED direct ${t} on high tier \u2192 delegate via Task`);
+        if (shouldLogWarn(`${t}|enforced|${_tierWord}`)) console.error(`[vibeOS] [enforcement] BLOCKED direct ${t} on high tier \u2192 delegate via Task`);
         return;
       }
     }
     const total = recordSaving(t, "direct edit", _estEdit, { firstWord: _firstWord });
     const msg = `[vibeOS] ${_tierWord} tier direct ${t} \u2014 save ~$${_estEdit.toFixed(3)} by delegating to Task. Run \`trinity medium\`.`;
-    if (shouldLogWarn(`${t}|direct|${_tierWord}`))
-      console.error(`[vibeOS] [delegation] ${msg}`);
+    if (shouldLogWarn(`${t}|direct|${_tierWord}`)) console.error(`[vibeOS] [delegation] ${msg}`);
     pendingUiNote = msg;
     return;
   }
@@ -8147,17 +8148,12 @@ var onToolExecuteAfter = async (input, output) => {
     if (bbMode === "relaxed") {
       tags.push("[Q&A]");
     } else {
-      if (selNow.delegation_enforce)
-        tags.push("[ENF ON]");
-      if (selNow.flow_enforce)
-        tags.push("[FLOW ON]");
-      if (selNow.tdd_enforce)
-        tags.push("[TDD ON]");
-      if (bbMode === "strict")
-        tags.push("[STRICT]");
+      if (selNow.delegation_enforce) tags.push("[ENF ON]");
+      if (selNow.flow_enforce) tags.push("[FLOW ON]");
+      if (selNow.tdd_enforce) tags.push("[TDD ON]");
+      if (bbMode === "strict") tags.push("[STRICT]");
     }
-    if (_modelLocked)
-      tags.push("[LOCK ON]");
+    if (_modelLocked) tags.push("[LOCK ON]");
     const workerModel = currentTier === "high" && TRINITY_MEDIUM ? TRINITY_MEDIUM : TRINITY_CHEAP;
     const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0);
     if (totalTurns > 0 && workerModel && workerModel !== currentModel) {
@@ -8183,16 +8179,11 @@ var onToolExecuteAfter = async (input, output) => {
 `;
     }
     output.title = _footerText.trim();
-    if (typeof output?.output === "string")
-      output.output = _footerText + output.output;
-    else if (typeof output?.result === "string")
-      output.result = _footerText + output.result;
-    else if (typeof output?.text === "string")
-      output.text = _footerText + output.text;
-    else if (typeof output?.content === "string")
-      output.content = _footerText + output.content;
-    else
-      output.output = _footerText;
+    if (typeof output?.output === "string") output.output = _footerText + output.output;
+    else if (typeof output?.result === "string") output.result = _footerText + output.result;
+    else if (typeof output?.text === "string") output.text = _footerText + output.text;
+    else if (typeof output?.content === "string") output.content = _footerText + output.content;
+    else output.output = _footerText;
     _autoReportCount2 = (_autoReportCount2 || 0) + 1;
     if (_autoReportCount2 % 5 === 0 && ltTotal > 0) {
       saveReport({
@@ -8247,8 +8238,7 @@ var onToolExecuteAfter = async (input, output) => {
     if (m && typeof output?.title === "string") {
       const label = modelToSlotLabel(m);
       output.title = output.title.replace(/\[agent\]|\[general\]/gi, label);
-      if (!output.title.includes(label))
-        output.title = `${output.title} ${label}`;
+      if (!output.title.includes(label)) output.title = `${output.title} ${label}`;
     }
   }
   if (t === "task") {
@@ -8274,26 +8264,18 @@ var onToolExecuteAfter = async (input, output) => {
   }
   if (pendingUiNote) {
     if (enforcementBlocked) {
-      if (typeof output?.result === "string")
-        output.result = pendingUiNote;
-      else if (typeof output?.text === "string")
-        output.text = pendingUiNote;
-      else if (typeof output?.content === "string")
-        output.content = pendingUiNote;
-      else
-        output.result = pendingUiNote;
+      if (typeof output?.result === "string") output.result = pendingUiNote;
+      else if (typeof output?.text === "string") output.text = pendingUiNote;
+      else if (typeof output?.content === "string") output.content = pendingUiNote;
+      else output.result = pendingUiNote;
     } else {
       const note = `
 
 ${pendingUiNote}`;
-      if (typeof output?.result === "string")
-        output.result += note;
-      else if (typeof output?.text === "string")
-        output.text += note;
-      else if (typeof output?.content === "string")
-        output.content += note;
-      else
-        output.result = pendingUiNote;
+      if (typeof output?.result === "string") output.result += note;
+      else if (typeof output?.text === "string") output.text += note;
+      else if (typeof output?.content === "string") output.content += note;
+      else output.result = pendingUiNote;
     }
     pendingUiNote = null;
   }
@@ -8324,8 +8306,7 @@ ${pendingUiNote}`;
       let match;
       while ((match = TASK_FILE_RE.exec(outputText)) !== null) {
         const fp2 = match[1];
-        if (seen.has(fp2))
-          continue;
+        if (seen.has(fp2)) continue;
         seen.add(fp2);
         const isTestPath = /(^|\/)(tests?|spec)\//i.test(fp2) || /\.(test|spec)\./i.test(fp2);
         if (sel.tdd_enforce && !isTestPath) {
@@ -8334,10 +8315,8 @@ ${pendingUiNote}`;
             const ext = createdPath.split(".").pop();
             const fileName = createdPath.split("/").pop();
             const enforceNote = "\n\n[test-enforced] Created skeleton at " + createdPath + "\n  NEXT: 1) Open " + fileName + "  2) Replace TODO/FIXME markers with real assertions  3) Run `npx vitest run " + createdPath + "` (or language-equivalent)  4) Confirm tests pass";
-            if (typeof output?.text === "string")
-              output.text += enforceNote;
-            else if (typeof output?.result === "string")
-              output.result += enforceNote;
+            if (typeof output?.text === "string") output.text += enforceNote;
+            else if (typeof output?.result === "string") output.result += enforceNote;
           }
         }
       }
@@ -8350,12 +8329,9 @@ ${pendingUiNote}`;
       const note = `
 
 [test-reminder] ${reminder}`;
-      if (typeof output?.text === "string")
-        output.text += note;
-      else if (typeof output?.result === "string")
-        output.result += note;
-      else
-        console.error(`[vibeOS] ${reminder}`);
+      if (typeof output?.text === "string") output.text += note;
+      else if (typeof output?.result === "string") output.result += note;
+      else console.error(`[vibeOS] ${reminder}`);
     }
     const sel = loadSelection();
     const explicitTestIntent = isUserAskingForTests(latestUserIntent);
@@ -8369,10 +8345,8 @@ ${pendingUiNote}`;
 
 [test-enforced] Created skeleton at ${createdPath}
   NEXT: 1) Open ${fileName}  2) Replace TODO/FIXME markers with real assertions  3) Run \`npx vitest run ${createdPath}\` (or language-equivalent)  4) Confirm tests pass`;
-        if (typeof output?.text === "string")
-          output.text += enforceNote;
-        else if (typeof output?.result === "string")
-          output.result += enforceNote;
+        if (typeof output?.text === "string") output.text += enforceNote;
+        else if (typeof output?.result === "string") output.result += enforceNote;
       }
     }
     if (t === "edit" || t === "write") {
@@ -8405,23 +8379,21 @@ ${pendingUiNote}`;
       const content = t === "edit" ? input?.args?.newString || "" : input?.args?.content || "";
       const flowHits = checkFlowRules({ tool: toolName, filePath, content });
       for (const h of flowHits) {
-        if (h.deduped)
-          continue;
+        if (h.deduped) continue;
         const icon = h.severity === "warn" ? "\u26A0" : "\u{1F4A1}";
         console.error(`[flow-enforcer] ${icon} [${h.severity}] ${h.id}: ${h.description} \u2014 ${filePath}`);
       }
       if (sel.flow_enforce) {
-        const { recordFlowTodo: recordFlowTodo2 } = await Promise.resolve().then(() => (init_flow_enforcer(), flow_enforcer_exports));
+        const { recordFlowTodo: recordFlowTodo3 } = await Promise.resolve().then(() => (init_flow_enforcer(), flow_enforcer_exports));
         for (const h of flowHits) {
           if (h.id === "todo-comment" && !h.deduped) {
-            recordFlowTodo2({ filePath, content });
+            recordFlowTodo3({ filePath, content });
           }
         }
       }
       let todoCount = 0;
       for (const h of flowHits) {
-        if (h.id === "todo-comment" && !h.deduped)
-          todoCount++;
+        if (h.id === "todo-comment" && !h.deduped) todoCount++;
       }
       if (todoCount > 0) {
         const todoPushNote = "[todo-push] Auto-extracted " + todoCount + " TODO(s) from " + filePath + ". Call todowrite to add them to your task list.";
@@ -8443,14 +8415,10 @@ ${pendingUiNote}`;
   }
   const processed = compressText(raw);
   if (processed !== raw) {
-    if (output.result !== void 0)
-      output.result = processed;
-    else if (output.text !== void 0)
-      output.text = processed;
-    else if (output.content !== void 0)
-      output.content = processed;
-    else if (output.data !== void 0)
-      output.data = processed;
+    if (output.result !== void 0) output.result = processed;
+    else if (output.text !== void 0) output.text = processed;
+    else if (output.content !== void 0) output.content = processed;
+    else if (output.data !== void 0) output.data = processed;
   }
   if (t === "todowrite" && _pendingTodoArgs && _pendingTodoArgs.length > 0) {
     try {
@@ -8473,7 +8441,7 @@ ${pendingUiNote}`;
 };
 
 // src/lib/hooks/session-compact.js
-import { readFileSync as readFileSync14, existsSync as existsSync13 } from "node:fs";
+import { readFileSync as readFileSync15, existsSync as existsSync13 } from "node:fs";
 var onSessionCompacting = async (_input, output) => {
   if (!loadSelection().enabled)
     return;
@@ -8484,7 +8452,7 @@ var onSessionCompacting = async (_input, output) => {
     let recent = "";
     if (existsSync13(indexPath)) {
       try {
-        const lines = readFileSync14(indexPath, "utf-8").trim().split("\n").slice(-30);
+        const lines = readFileSync15(indexPath, "utf-8").trim().split("\n").slice(-30);
         recent = lines.map((l) => {
           try {
             return JSON.parse(l);
@@ -8546,17 +8514,17 @@ var _mcpServerRuntime = null;
 var _mcpServerHooked = false;
 function _loadOpenCodeProviders() {
   try {
-    const cfg = _readOpenCodeConfigObject(join15(USER_HOME2, ".config", "opencode"));
+    const cfg = _readOpenCodeConfigObject(join16(USER_HOME2, ".config", "opencode"));
     return cfg?.provider || {};
   } catch {
     return {};
   }
 }
 function _readOpenCodeConfigObject(dir) {
-  const jsonPath = join15(dir, "opencode.json");
-  const jsoncPath = join15(dir, "opencode.jsonc");
-  if (existsSync14(jsonPath)) return safeJsonParse3(readFileSync15(jsonPath, "utf-8"));
-  if (existsSync14(jsoncPath)) return _parseJsonc(readFileSync15(jsoncPath, "utf-8"));
+  const jsonPath = join16(dir, "opencode.json");
+  const jsoncPath = join16(dir, "opencode.jsonc");
+  if (existsSync14(jsonPath)) return safeJsonParse3(readFileSync16(jsonPath, "utf-8"));
+  if (existsSync14(jsoncPath)) return _parseJsonc(readFileSync16(jsoncPath, "utf-8"));
   return {};
 }
 function _parseJsonc(raw) {
@@ -8582,10 +8550,10 @@ function _modelTier2(id2) {
 function backupFile(path, label) {
   try {
     if (!existsSync14(path)) return null;
-    const bkDir = join15(USER_HOME2, ".claude", ".backups");
+    const bkDir = join16(USER_HOME2, ".claude", ".backups");
     mkdirSync11(bkDir, { recursive: true });
-    const bk = join15(bkDir, `${basename8(path)}.${label}.${Date.now()}.bak`);
-    copyFileSync5(path, bk);
+    const bk = join16(bkDir, `${basename8(path)}.${label}.${Date.now()}.bak`);
+    copyFileSync6(path, bk);
     return bk;
   } catch {
     return null;
@@ -8593,7 +8561,7 @@ function backupFile(path, label) {
 }
 function readPackageVersion() {
   try {
-    const pkg = safeJsonParse3(readFileSync15(join15(process.cwd(), "package.json"), "utf-8"));
+    const pkg = safeJsonParse3(readFileSync16(join16(process.cwd(), "package.json"), "utf-8"));
     return String(pkg?.version || "");
   } catch {
     return "";
@@ -8608,7 +8576,7 @@ function loadMcpPort() {
   }
   try {
     if (existsSync14(TIERS_FILE2)) {
-      const tiers = safeJsonParse3(readFileSync15(TIERS_FILE2, "utf-8"));
+      const tiers = safeJsonParse3(readFileSync16(TIERS_FILE2, "utf-8"));
       const cfg = tiers?.selection?.mcp_port;
       if (cfg === false || cfg === "disabled" || cfg === 0) return 0;
       const n = Number(cfg);
@@ -8621,7 +8589,7 @@ function loadMcpPort() {
 function persistMcpPort(port) {
   try {
     if (!existsSync14(TIERS_FILE2)) return;
-    const tiers = safeJsonParse3(readFileSync15(TIERS_FILE2, "utf-8"));
+    const tiers = safeJsonParse3(readFileSync16(TIERS_FILE2, "utf-8"));
     tiers.selection ??= {};
     if (Number(tiers.selection.mcp_port) === Number(port) && !("mcp_port" in tiers)) return;
     tiers.selection.mcp_port = port;
@@ -8629,7 +8597,7 @@ function persistMcpPort(port) {
     mkdirSync11(dirname8(TIERS_FILE2), { recursive: true });
     const tmp = TIERS_FILE2 + ".tmp." + Date.now();
     writeFileSync12(tmp, JSON.stringify(tiers, null, 2) + "\n", "utf-8");
-    renameSync6(tmp, TIERS_FILE2);
+    renameSync7(tmp, TIERS_FILE2);
   } catch {
   }
 }
@@ -8637,7 +8605,7 @@ function computeStatusPayload() {
   const sel = loadSelection();
   let tiersData = {};
   try {
-    tiersData = safeJsonParse3(readFileSync15(TIERS_FILE2, "utf-8"));
+    tiersData = safeJsonParse3(readFileSync16(TIERS_FILE2, "utf-8"));
   } catch {
   }
   const credit = loadCredit();
@@ -8794,13 +8762,13 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
   setCurrentModel(readConfig(directory3));
   if (!currentModel) {
     const home = process.env.HOME || "";
-    if (home) setCurrentModel(readConfig(join15(home, ".config/opencode")));
+    if (home) setCurrentModel(readConfig(join16(home, ".config/opencode")));
   }
   if (!currentModel) setCurrentModel(process?.env?.OPENCODE_MODEL || "");
   if (currentModel) {
     setCurrentTier(classify(currentModel));
     try {
-      const _tiersData2 = safeJsonParse3(readFileSync15(TIERS_FILE2, "utf-8"));
+      const _tiersData2 = safeJsonParse3(readFileSync16(TIERS_FILE2, "utf-8"));
       const _activeSlot = _tiersData2?.selection?.active_slot || "brain";
       if (_activeSlot === "brain") {
         const _brainOcModel = _tiersData2?.trinity?.brain?.oc || "";
@@ -8825,7 +8793,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
       let _wasCorrupted = false;
       if (existsSync14(TIERS_FILE2)) {
         try {
-          _tiersData2 = safeJsonParse3(readFileSync15(TIERS_FILE2, "utf-8"));
+          _tiersData2 = safeJsonParse3(readFileSync16(TIERS_FILE2, "utf-8"));
         } catch {
           _tiersData2 = { selection: { enabled: true, active_slot: "brain", delegation_enforce: true, tdd_strict: true }, trinity: {} };
           _wasCorrupted = true;
@@ -8901,9 +8869,9 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
         mkdirSync11(dirname8(TIERS_FILE2), { recursive: true });
         const _tmp = TIERS_FILE2 + ".tmp." + Date.now();
         writeFileSync12(_tmp, JSON.stringify(_tiersData2, null, 2) + "\n", "utf-8");
-        renameSync6(_tmp, TIERS_FILE2);
+        renameSync7(_tmp, TIERS_FILE2);
         console.error(`[vibeOS] auto-synced model-tiers.json: brain=${_brain.id} medium=${_tiersData2.trinity?.medium?.oc || ""} cheap=${_tiersData2.trinity?.cheap?.oc || ""}`);
-        const _tiersCfg = safeJsonParse3(readFileSync15(TIERS_FILE2, "utf-8"));
+        const _tiersCfg = safeJsonParse3(readFileSync16(TIERS_FILE2, "utf-8"));
         const _b = _tiersCfg?.trinity?.brain?.oc;
         const _m = _tiersCfg?.trinity?.medium?.oc;
         const _c = _tiersCfg?.trinity?.cheap?.oc;
@@ -8920,7 +8888,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     }
   }
   try {
-    const _mt = safeJsonParse3(readFileSync15(TIERS_FILE2, "utf-8"));
+    const _mt = safeJsonParse3(readFileSync16(TIERS_FILE2, "utf-8"));
     let _dirty = false;
     for (const _sk of ["mcp_port", "optimization_mode", "enforcement_enabled", "flow_enforce_level", "tdd_quality", "thinking_mode", "blackbox_regime", "_mode_changed_at", "_mode_source"]) {
       if (_sk in _mt) {
@@ -8931,7 +8899,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     if (_dirty) {
       const _tmp = TIERS_FILE2 + ".tmp." + Date.now();
       writeFileSync12(_tmp, JSON.stringify(_mt, null, 2) + "\n", "utf-8");
-      renameSync6(_tmp, TIERS_FILE2);
+      renameSync7(_tmp, TIERS_FILE2);
     }
   } catch {
   }
@@ -8968,7 +8936,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
   }
   const _tiersData = (() => {
     try {
-      return safeJsonParse3(readFileSync15(TIERS_FILE2, "utf-8"));
+      return safeJsonParse3(readFileSync16(TIERS_FILE2, "utf-8"));
     } catch {
       return {};
     }
@@ -8993,10 +8961,10 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     },
     directory: directory3,
     safeJsonParse: safeJsonParse3,
-    readFileSync: readFileSync15,
+    readFileSync: readFileSync16,
     writeFileSync: writeFileSync12,
     existsSync: existsSync14,
-    renameSync: renameSync6,
+    renameSync: renameSync7,
     TIERS_FILE: TIERS_FILE2,
     USER_HOME: USER_HOME2,
     STATE_FILE: STATE_FILE2,
@@ -9246,7 +9214,7 @@ var VERSION = readPackageVersion();
     const sub = spawn2("npm", ["install", "vibeostheog@latest"], {
       stdio: "ignore",
       detached: true,
-      cwd: join15(homedir10(), ".config", "opencode", "plugins")
+      cwd: join16(homedir10(), ".config", "opencode", "plugins")
     });
     sub.unref();
   } catch {
