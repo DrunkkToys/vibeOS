@@ -1,6 +1,8 @@
 # vibeOS for OpenCode
 
+> **Alpha Release** — This is the first alpha milestone of vibeOS. See [CHANGELOG.md](CHANGELOG.md) for release notes.
 vibeOS is the cost-aware routing layer for OpenCode Desktop. It keeps high-tier models focused on orchestration, pushes implementation work to cheaper tiers, and makes the savings visible in real time through the live footer and dashboard.
+
 
 It also adds guardrails: delegation enforcement, flow and TDD controls, pattern learning, stress-aware routing, blackbox decision tracking, reporting, and remote API protection for the core algorithms.
 
