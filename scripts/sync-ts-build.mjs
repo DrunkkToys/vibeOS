@@ -5,6 +5,7 @@ import { dirname, join } from "node:path"
 const libModules = [
   "api-client", "pricing", "state", "turn-classify", "tdd-enforcer",
   "index-helpers", "research-audit", "reporting", "credit-api", "selection-manager",
+  "runtime-surface",
   "trinity-rebuild", "trinity-tool",
 ]
 
@@ -102,7 +103,8 @@ const mappings = [
 
 for (const { from, to } of mappings) {
   if (!existsSync(from)) {
-    throw new Error(`Missing build output: ${from}`)
+    process.stderr.write(`[sync-ts-build] Skipping missing build output: ${from}\n`)
+    continue
   }
   mkdirSync(dirname(to), { recursive: true })
   copyFileSync(from, to)

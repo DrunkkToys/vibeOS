@@ -153,7 +153,14 @@ const testReminderSeen = new Set<string>()
 
 // ── Default selection & global learning ──────────────────────────────
 // DFLT_SEL is imported from selection-manager
-const DFLT_GL = { exploratory_words: {}, task_first_words: {}, updatedAt: null }
+const DFLT_GL = {
+  exploratory_words: {},
+  task_first_words: {},
+  context7_bypasses: 0,
+  context7_missed_usd: 0,
+  context7_last_seen: null,
+  updatedAt: null,
+}
 
 // ── Tool helper (minimal, avoids @opencode-ai/plugin dependency) ──────
 function _zType(base: any): any {
@@ -370,6 +377,9 @@ function loadGlobalLearning(): any {
     if (!j || typeof j !== "object") return DFLT_GL
     j.exploratory_words ??= {}
     j.task_first_words ??= {}
+    j.context7_bypasses ??= 0
+    j.context7_missed_usd ??= 0
+    j.context7_last_seen ??= null
     return j
   } catch {
     _handleStateCorruption(GLOBAL_LEARNING_FILE)
@@ -540,6 +550,149 @@ function loadSavingsLedger(limit: number = 1000): any[] {
     }
     return entries
   } catch { return [] }
+}
+
+function _newTelemetryBucket(): any {
+  return {
+    events: 0,
+    tool_counts: {},
+    tier_counts: {},
+    slot_counts: {},
+    kind_counts: {},
+    prompt_size_buckets: {},
+    output_size_buckets: {},
+    duration_buckets: {},
+    result_counts: {},
+    cache_hit_counts: { hit: 0, miss: 0 },
+    enforcement_counts: {},
+    flow_counts: {},
+    tdd_counts: {},
+    storage_bytes_estimate: 0,
+    retained_sessions: 0,
+    last_seen: null,
+    last_compacted_at: null,
+  }
+}
+
+function _incBucket(map: Record<string, number>, key: string, delta: number = 1): void {
+  const bucket = String(key || "unknown")
+  map[bucket] = Number(map[bucket] || 0) + delta
+}
+
+function _bucketNumeric(value: number, ranges: Array<[number, string]>, fallback: string = "unknown"): string {
+  const n = Number(value)
+  if (!Number.isFinite(n) || n < 0) return fallback
+  for (const [limit, label] of ranges) {
+    if (n <= limit) return label
+  }
+  return ranges.length > 0 ? ranges[ranges.length - 1][1] : fallback
+}
+
+function _bucketChars(value: any): string {
+  return _bucketNumeric(Number(value || 0), [
+    [0, "0"],
+    [63, "1-63"],
+    [255, "64-255"],
+    [1023, "256-1k"],
+    [4095, "1k-4k"],
+  ], "4k+")
+}
+
+function _bucketMs(value: any): string {
+  return _bucketNumeric(Number(value || 0), [
+    [49, "0-49ms"],
+    [199, "50-199ms"],
+    [999, "200-999ms"],
+    [4999, "1-4.9s"],
+    [14999, "5-14.9s"],
+  ], "15s+")
+}
+
+function _telemetrySizeEstimate(telemetry: any): number {
+  try {
+    return Buffer.byteLength(JSON.stringify(telemetry || {}), "utf8")
+  } catch {
+    return 0
+  }
+}
+
+export function recordPrivacyTelemetry(event: any): any {
+  try {
+    if (!event || typeof event !== "object") return null
+    return updateState((state: any) => {
+      const now = new Date().toISOString()
+      state.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" }
+      state.sessions ??= {}
+      const sid = String(event.session_id || _OC_SID || "unknown")
+      state.sessions[sid] ??= { started: now, session_started_at: now, source: "opencode", tool_counts: {}, warns: [], cache_hits: [], seenWarnKeys: {} }
+      const lifetime = state.lifetime.telemetry ??= _newTelemetryBucket()
+      const session = state.sessions[sid].telemetry ??= _newTelemetryBucket()
+      const tool = String(event.tool || "unknown").toLowerCase()
+      const tier = String(event.tier || "unknown").toLowerCase()
+      const slot = String(event.slot || "unknown").toLowerCase()
+      const kind = String(event.kind || "unknown").toLowerCase()
+      const promptSize = String(event.prompt_size_bucket || "unknown")
+      const outputSize = String(event.output_size_bucket || "unknown")
+      const duration = String(event.duration_bucket || "unknown")
+      const result = String(event.result || "unknown").toLowerCase()
+      const cache = event.cache_hit === true ? "hit" : event.cache_hit === false ? "miss" : "unknown"
+      const enforcement = String(event.enforcement || "unknown").toLowerCase()
+      const flow = String(event.flow || "unknown").toLowerCase()
+      const tdd = String(event.tdd || "unknown").toLowerCase()
+      const record = (bucket: any) => {
+        bucket.events = Number(bucket.events || 0) + 1
+        _incBucket(bucket.tool_counts, tool)
+        _incBucket(bucket.tier_counts, tier)
+        _incBucket(bucket.slot_counts, slot)
+        _incBucket(bucket.kind_counts, kind)
+        _incBucket(bucket.prompt_size_buckets, promptSize)
+        _incBucket(bucket.output_size_buckets, outputSize)
+        _incBucket(bucket.duration_buckets, duration)
+        _incBucket(bucket.result_counts, result)
+        _incBucket(bucket.enforcement_counts, enforcement)
+        _incBucket(bucket.flow_counts, flow)
+        _incBucket(bucket.tdd_counts, tdd)
+        if (cache === "hit" || cache === "miss") {
+          bucket.cache_hit_counts[cache] = Number(bucket.cache_hit_counts[cache] || 0) + 1
+        }
+        bucket.last_seen = now
+        bucket.storage_bytes_estimate = _telemetrySizeEstimate(bucket)
+      }
+      record(lifetime)
+      record(session)
+      lifetime.retained_sessions = Object.values(state.sessions).filter((ses: any) => Number(ses?.telemetry?.events || 0) > 0).length
+      session.retained_sessions = 1
+      state.lifetime.last_updated = now
+      return state
+    })
+  } catch {
+    return null
+  }
+}
+
+function readTelemetrySummary(state: any, sid: string = _OC_SID): any {
+  const lifetime = state?.lifetime?.telemetry || {}
+  const session = state?.sessions?.[sid]?.telemetry || {}
+  return {
+    lifetime_events: Number(lifetime.events || 0),
+    current_session_events: Number(session.events || 0),
+    storage_bytes_estimate: Number(lifetime.storage_bytes_estimate || 0),
+    retained_sessions: Number(lifetime.retained_sessions || 0),
+    tool_counts: lifetime.tool_counts || {},
+    tier_counts: lifetime.tier_counts || {},
+    slot_counts: lifetime.slot_counts || {},
+    kind_counts: lifetime.kind_counts || {},
+    prompt_size_buckets: lifetime.prompt_size_buckets || {},
+    output_size_buckets: lifetime.output_size_buckets || {},
+    duration_buckets: lifetime.duration_buckets || {},
+    result_counts: lifetime.result_counts || {},
+    cache_hit_counts: lifetime.cache_hit_counts || { hit: 0, miss: 0 },
+    enforcement_counts: lifetime.enforcement_counts || {},
+    flow_counts: lifetime.flow_counts || {},
+    tdd_counts: lifetime.tdd_counts || {},
+    last_seen: lifetime.last_seen || null,
+    last_compacted_at: lifetime.last_compacted_at || null,
+  }
 }
 
 // ── Stable JSON serialization (sorted keys, matches CC shasum) ──────
@@ -1191,8 +1344,27 @@ function recordMissedContext7(saveEst: number): any {
       s.lifetime.missed_context7_usd = Math.round(
         ((s.lifetime.missed_context7_usd || 0) + saveEst) * 100
       ) / 100
+      s.sessions ??= {}
+      const sid = _OC_SID
+      s.sessions[sid] ??= { total_savings_usd: 0, cache_savings_usd: 0, project_name: "", warns: [], cache_hits: [], seenWarnKeys: {} }
+      s.sessions[sid].context7_missed_usd = Math.round(
+        ((s.sessions[sid].context7_missed_usd || 0) + saveEst) * 100
+      ) / 100
       return s
     })
+    try {
+      _ledgerBuffer.push(JSON.stringify({
+        v: 2,
+        at: new Date().toISOString(),
+        kind: "context7",
+        amount_usd: Number(saveEst || 0),
+        sid: _OC_SID,
+        tool: "context7",
+        reason: "docs bypass",
+      }) + "\n")
+      if (_ledgerBuffer.length >= LEDGER_BUFFER_MAX) _flushLedgerBuffer()
+      else if (!_ledgerBufferTimer) _ledgerBufferTimer = setTimeout(_flushLedgerBuffer, LEDGER_BUFFER_FLUSH_MS)
+    } catch {}
     try {
       if (currentProjectFingerprint) {
         const pstate = loadProjectState()
@@ -1201,6 +1373,14 @@ function recordMissedContext7(saveEst: number): any {
         bucket.lastSeen = new Date().toISOString()
         saveProjectState(pstate)
       }
+    } catch {}
+    try {
+      updateGlobalLearning((gl: any) => {
+        gl.context7_bypasses = Number(gl.context7_bypasses || 0) + 1
+        gl.context7_missed_usd = Math.round((Number(gl.context7_missed_usd || 0) + Number(saveEst || 0)) * 100) / 100
+        gl.context7_last_seen = new Date().toISOString()
+        return gl
+      })
     } catch {}
     return state?.lifetime?.missed_context7_usd ?? null
   } catch { return null }
@@ -1272,14 +1452,15 @@ function getTodos(): TodoEntry[] {
 }
 
 // ── Savings ledger reconciliation ────────────────────────────────────
-function readLedgerTotals(): { delegation: number, cache: number, total: number, entries: number } {
-  const empty = { delegation: 0, cache: 0, total: 0, entries: 0 }
+function readLedgerTotals(): { delegation: number, cache: number, context7: number, total: number, entries: number } {
+  const empty = { delegation: 0, cache: 0, context7: 0, total: 0, entries: 0 }
   try {
     if (!existsSync(SAVINGS_LEDGER_FILE)) return empty
     const raw = readFileSync(SAVINGS_LEDGER_FILE, "utf-8")
     if (!raw.trim()) return empty
     let delegation = 0
     let cache = 0
+    let context7 = 0
     let entries = 0
     for (const line of raw.split("\n")) {
       const ln = line.trim()
@@ -1293,12 +1474,14 @@ function readLedgerTotals(): { delegation: number, cache: number, total: number,
       entries += 1
       const kind = String(rec.kind || rec.type || rec.category || rec.source || "").toLowerCase()
       if (kind.includes("cache")) cache += amt
+      else if (kind.includes("context7")) context7 += amt
       else delegation += amt
     }
     const total = delegation + cache
     return {
       delegation: Math.round(delegation * 1000) / 1000,
       cache: Math.round(cache * 1000) / 1000,
+      context7: Math.round(context7 * 1000) / 1000,
       total: Math.round(total * 1000) / 1000,
       entries,
     }
@@ -1314,16 +1497,18 @@ function reconcileStateFromLedger(): void {
     _ledgerReconciledMtime = ledgerMtime
     _flushLedgerBuffer()
     const l = readLedgerTotals()
-    if (l.total <= 0) return
+    if (l.total <= 0 && l.context7 <= 0) return
     const state = readJsonOrEmpty(DELEGATION_STATE_FILE)
     const stDelegation = Number(state?.lifetime?.est_savings_usd ?? state?.lifetime?.total_savings_usd ?? 0)
     const stCache = Number(state?.lifetime?.cache_savings_usd ?? 0)
+    const stMissedC7 = Number(state?.lifetime?.missed_context7_usd ?? 0)
     const stTotal = (Number.isFinite(stDelegation) ? stDelegation : 0) + (Number.isFinite(stCache) ? stCache : 0)
-    if (Math.abs(stTotal - l.total) < 0.0005) return
+    if (Math.abs(stTotal - l.total) < 0.0005 && Math.abs(stMissedC7 - l.context7) < 0.0005) return
     updateState((s: any) => {
       s.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" }
       s.lifetime.total_savings_usd = Math.max(l.delegation, stDelegation)
       s.lifetime.cache_savings_usd = Math.max(l.cache, stCache)
+      s.lifetime.missed_context7_usd = Math.max(l.context7, stMissedC7)
       s.lifetime.last_updated = new Date().toISOString()
       s.lifetime.rebuilt_from_ledger = true
       s.lifetime.ledger_entries_reconciled = l.entries
@@ -1333,14 +1518,14 @@ function reconcileStateFromLedger(): void {
 }
 
 function readLifetimeSavings(): any {
-  const empty = { ltTasks: 0, ltCache: 0, ltCost: 0, count: 0, scratchpadHits: 0, missedC7: 0, sesTasks: 0, sesEdit: 0, sesCredit: 0, sesC7: 0, sesQuota: 0, sesTaskDelegations: 0, sesDuration: 0, sesRatePerHour: 0, sesTrend: "stable", sesToolBreakdown: {}, sesModelTurns: { brain: 0, worker: 0 }, quality_avg: 0 }
+  const empty = { ltTasks: 0, ltCache: 0, ltCost: 0, count: 0, scratchpadHits: 0, missedC7: 0, sesTasks: 0, sesEdit: 0, sesCredit: 0, sesC7: 0, sesQuota: 0, sesTaskDelegations: 0, sesDuration: 0, sesRatePerHour: 0, sesTrend: "stable", sesToolBreakdown: {}, sesModelTurns: { brain: 0, worker: 0 }, quality_avg: 0, telemetry: readTelemetrySummary({}, _OC_SID) }
   try {
     reconcileStateFromLedger()
     if (!existsSync(DELEGATION_STATE_FILE)) return empty
     const mtime = statSync(DELEGATION_STATE_FILE).mtimeMs
     if (_savingsCache && mtime === _savingsCacheMtime) return _savingsCache
     const s = safeJsonParse(readFileSync(DELEGATION_STATE_FILE, "utf-8"))
-    _savingsCache = _computeSessionMetrics(s, _OC_SID)
+    _savingsCache = { ..._computeSessionMetrics(s, _OC_SID), telemetry: readTelemetrySummary(s, _OC_SID) }
     _savingsCacheMtime = mtime
     return _savingsCache
   } catch { return empty }
@@ -1600,6 +1785,8 @@ export {
   readLedgerTotals,
   reconcileStateFromLedger,
   readLifetimeSavings,
+  recordPrivacyTelemetry,
+  readTelemetrySummary,
   readPackageVersion,
   saveSessionCheckpoint,
 

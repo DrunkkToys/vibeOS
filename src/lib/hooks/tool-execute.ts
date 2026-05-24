@@ -12,6 +12,7 @@ import {
   loadSelection, writeSelection, readLifetimeSavings,
   recordCacheSaving, recordMissedContext7, getScratchpadHit,
   recordScratchpadObservation,
+  recordPrivacyTelemetry,
   updateState, withFileLock, safeJsonParse,
   getSessionScratchpadDir, ensureSessionScratchpadDirs, getSessionIndexPath,
   indexAppend,
@@ -66,6 +67,83 @@ let _cacheSave = 0
 let _prompt = ''
 let _autoReportCount = 0
 let _pendingTodoArgs = null
+let _pendingTelemetryStarts = []
+
+function _bucketChars(n) {
+  const size = Number(n || 0)
+  if (!Number.isFinite(size) || size <= 0) return "0"
+  if (size <= 63) return "1-63"
+  if (size <= 255) return "64-255"
+  if (size <= 1023) return "256-1k"
+  if (size <= 4095) return "1k-4k"
+  return "4k+"
+}
+
+function _bucketMs(n) {
+  const ms = Number(n || 0)
+  if (!Number.isFinite(ms) || ms < 0) return "unknown"
+  if (ms <= 49) return "0-49ms"
+  if (ms <= 199) return "50-199ms"
+  if (ms <= 999) return "200-999ms"
+  if (ms <= 4999) return "1-4.9s"
+  if (ms <= 14999) return "5-14.9s"
+  return "15s+"
+}
+
+function _toolKind(tool, args) {
+  const t = String(tool || "").toLowerCase()
+  if (t === "task") {
+    const prompt = String(args?.prompt || "").trim().toLowerCase()
+    const first = prompt.split(/\s+/)[0] || ""
+    if (/^(check|find|list|search|does|verify|look|count|show|get|read|grep|scan|detect|inspect)$/i.test(first)) return "explore"
+    if (/^(write|create|add|build|implement|fix|change|edit|modify|update|refactor|generate|make|commit|push|deploy|release|publish|install|remove|delete|rename|move|copy|transform|convert|migrate)/i.test(prompt)) return "implement"
+    return "task"
+  }
+  if (t === "bash") {
+    const command = String(args?.command || args?.cmd || args?.script || "").toLowerCase()
+    if (/(\btest\b|npm\s+test|vitest|jest|mocha|ava)/i.test(command)) return "test"
+    if (/(\btypecheck\b|tsc|eslint|lint)/i.test(command)) return "verify"
+    if (/(\bbuild\b|esbuild|vite|webpack)/i.test(command)) return "build"
+    if (/(\bdeploy\b|release|publish)/i.test(command)) return "deploy"
+    if (/(\bgit\b|\bgh\b)/i.test(command)) return "git"
+    return "shell"
+  }
+  if (t === "webfetch" || t === "websearch") {
+    const target = String(args?.url || args?.query || "")
+    return isDocsTarget(target) ? "docs" : "web"
+  }
+  if (t === "write" || t === "edit" || t === "notebookedit") {
+    const filePath = String(args?.filePath || args?.file_path || args?.path || "")
+    if (/(^|\/)(tests?|spec)\//i.test(filePath) || /\.(test|spec)\./i.test(filePath)) return "test"
+    if (/\.(md|txt|rst)$/i.test(filePath)) return "docs"
+    if (/\.(json|jsonc|yaml|yml|toml)$/i.test(filePath) || /(?:^|\/)(AGENTS|README|package)\.md$/i.test(filePath)) return "config"
+    if (/\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|rb|java|kt|sh)$/i.test(filePath)) return "source"
+    return "file"
+  }
+  return t || "unknown"
+}
+
+function _argSizeBucket(tool, args) {
+  const t = String(tool || "").toLowerCase()
+  if (t === "task") return _bucketChars(String(args?.prompt || "").length)
+  if (t === "bash") return _bucketChars(String(args?.command || args?.cmd || args?.script || "").length)
+  if (t === "webfetch" || t === "websearch") return _bucketChars(String(args?.url || args?.query || "").length)
+  if (t === "write") return _bucketChars(String(args?.content || "").length)
+  if (t === "edit") return _bucketChars(String(args?.newString || "").length + String(args?.oldString || "").length)
+  if (t === "notebookedit") return _bucketChars(String(args?.newString || "").length)
+  return _bucketChars(JSON.stringify(args || {}).length)
+}
+
+function _dequeueTelemetryStart(tool) {
+  if (_pendingTelemetryStarts.length === 0) return null
+  const t = String(tool || "").toLowerCase()
+  for (let i = _pendingTelemetryStarts.length - 1; i >= 0; i--) {
+    if (String(_pendingTelemetryStarts[i]?.tool || "").toLowerCase() === t) {
+      return _pendingTelemetryStarts.splice(i, 1)[0]
+    }
+  }
+  return _pendingTelemetryStarts.shift()
+}
 
 export const setToolDirectory = (dir) => { projectDirectory = dir || "" }
 
@@ -75,6 +153,16 @@ export const onToolExecuteBefore = async (input, output) => {
       const t = input?.tool ?? ""
       const args = output?.args
       const inArgs = input?.args
+      const telemetryStart = {
+        tool: t,
+        startedAt: Date.now(),
+        kind: _toolKind(t, args || inArgs || {}),
+        prompt_size_bucket: _argSizeBucket(t, args || inArgs || {}),
+        slot: loadSelection().active_slot || "unknown",
+        tier: currentTier || "unknown",
+        cache_hit: false,
+      }
+      _pendingTelemetryStarts.push(telemetryStart)
       let _cacheSave = 0
       let _prompt = ""
 
@@ -83,6 +171,7 @@ export const onToolExecuteBefore = async (input, output) => {
         const hit = getScratchpadHit(t, args)
         if (hit && !scratchpadHitsSeen.has(hit.hash)) {
           scratchpadHitsSeen.add(hit.hash)
+          telemetryStart.cache_hit = true
           const total = recordScratchpadObservation(t, args, hit.sizeBytes, { hash: hit.hash })
           // Persist cache savings as a first-class savings type.
           // Compute from actual scratchpad file size: inputs that would
@@ -368,6 +457,35 @@ export const onToolExecuteBefore = async (input, output) => {
 
 export const onToolExecuteAfter = async (input, output) => {
       _refreshModel(projectDirectory)
+      try {
+        const start = _dequeueTelemetryStart(input?.tool)
+        if (start) {
+          const outputText = typeof output?.result === "string" ? output.result
+            : typeof output?.text === "string" ? output.text
+            : typeof output?.content === "string" ? output.content
+            : typeof output?.data === "string" ? output.data
+            : ""
+          const result = output?.error || output?.isError || output?.status === "error" || output?.exitCode > 0
+            ? "error"
+            : enforcementBlocked ? "blocked"
+            : "ok"
+          recordPrivacyTelemetry({
+            session_id: _OC_SID,
+            tool: input?.tool ?? "unknown",
+            tier: start.tier || currentTier || "unknown",
+            slot: start.slot || loadSelection().active_slot || "unknown",
+            kind: start.kind || _toolKind(input?.tool, input?.args || {}),
+            prompt_size_bucket: start.prompt_size_bucket || "unknown",
+            output_size_bucket: _bucketChars(String(outputText || "").length),
+            duration_bucket: _bucketMs(Date.now() - Number(start.startedAt || Date.now())),
+            result,
+            cache_hit: start.cache_hit === true,
+            enforcement: loadSelection().delegation_enforce ? "on" : "off",
+            flow: loadSelection().flow_enforce ? "on" : "off",
+            tdd: loadSelection().tdd_enforce ? "on" : "off",
+          })
+        }
+      } catch {}
 
       // ── Generate footer alert (prepended to tool result, visible in chat) ──
       let _footerText = ""

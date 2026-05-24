@@ -382,7 +382,7 @@ var init_flow_enforcer = __esm({
         ""
       ].join("\n");
     };
-    FLOW_DEDUP_FILE = join(homedir(), ".claude/.flow-dedup-keys.json");
+    FLOW_DEDUP_FILE = join(process.env.HOME || homedir(), ".claude/.flow-dedup-keys.json");
     MAX_FLOW_TODOS = 200;
     _flowWarnsSeen = /* @__PURE__ */ new Set();
     _stateWriter = null;
@@ -739,7 +739,7 @@ function safeJsonParse2(raw) {
     throw e;
   }
 }
-var DFLT_SEL = { enabled: true, active_slot: null, thinking_level: "off", flow_enabled: false, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: false, delegation_enforce: false };
+var DFLT_SEL = { enabled: true, active_slot: null, thinking_level: "off", flow_enabled: false, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: false, delegation_enforce: true };
 var TIERS_FILE = join2(USER_HOME, ".claude/model-tiers.json");
 function loadSelection() {
   try {
@@ -760,7 +760,7 @@ function loadSelection() {
       tdd_strict: j?.selection?.tdd_strict === true,
       tdd_quality: j?.selection?.tdd_quality !== false,
       flow_enforce: j?.selection?.flow_enforce === true,
-      delegation_enforce: j?.selection?.delegation_enforce === true
+      delegation_enforce: true
     };
   } catch {
     _handleStateCorruption(TIERS_FILE);
@@ -770,7 +770,9 @@ function loadSelection() {
 function writeSelection(key, value) {
   try {
     const j = safeJsonParse2(readFileSync3(TIERS_FILE, "utf-8"));
-    j.selection[key] = value;
+    if (!j.selection)
+      j.selection = {};
+    j.selection[key] = key === "delegation_enforce" ? true : value;
     const tmp = TIERS_FILE + ".tmp";
     writeFileSync2(tmp, JSON.stringify(j, null, 2) + "\n");
     renameSync2(tmp, TIERS_FILE);
@@ -952,7 +954,7 @@ function _computeSessionMetrics(state, sid) {
     count: warns.length,
     sesTasks: Number(session?.total_savings_usd || 0),
     sesDuration: durationSec,
-    sesRatePerHour: Number((((state?.lifetime?.total_savings_usd || 0) + (state?.lifetime?.cache_savings_usd || 0)) / hours).toFixed(4)),
+    sesRatePerHour: Number((((session?.warns?.reduce((sum, w) => sum + Number(w?.est_savings_usd || 0), 0) || 0) + Number(session?.cache_savings_usd || 0)) / hours).toFixed(4)),
     sesTrend: "stable",
     sesToolBreakdown: toolBreakdown,
     sesModelTurns: session?.model_turns || { brain: 0, worker: 0 },
@@ -1240,7 +1242,6 @@ function addRouteEdge(graph, queryWord, modelName, tier, success) {
   outcomeNode.count++;
   outcomeNode.lastSeen = now;
   const normalizedTier = tier === "budget" || tier === "low" ? "cheap" : tier === "mid" ? "medium" : tier === "high" ? "brain" : tier;
-  const tierKey = success ? normalizedTier : normalizedTier;
   graph.tiers[normalizedTier] ??= [];
   if (!graph.tiers[normalizedTier].includes(modelName)) {
     graph.tiers[normalizedTier].push(modelName);
@@ -1611,7 +1612,14 @@ function setLedgerBufferTimer(val) {
 var LEDGER_BUFFER_MAX = 10;
 var LEDGER_BUFFER_FLUSH_MS = 5e3;
 var testReminderSeen = /* @__PURE__ */ new Set();
-var DFLT_GL = { exploratory_words: {}, task_first_words: {}, updatedAt: null };
+var DFLT_GL = {
+  exploratory_words: {},
+  task_first_words: {},
+  context7_bypasses: 0,
+  context7_missed_usd: 0,
+  context7_last_seen: null,
+  updatedAt: null
+};
 function _zType(base) {
   return Object.assign((...a) => _zType({ ...base, args: a }), {
     optional: () => _zType({ ...base, optional: true }),
@@ -1832,6 +1840,9 @@ function loadGlobalLearning() {
       return DFLT_GL;
     j.exploratory_words ??= {};
     j.task_first_words ??= {};
+    j.context7_bypasses ??= 0;
+    j.context7_missed_usd ??= 0;
+    j.context7_last_seen ??= null;
     return j;
   } catch {
     _handleStateCorruption2(GLOBAL_LEARNING_FILE);
@@ -1974,6 +1985,116 @@ function _flushLedgerBuffer() {
     appendFileSync3(SAVINGS_LEDGER_FILE, joined);
   } catch {
   }
+}
+function _newTelemetryBucket() {
+  return {
+    events: 0,
+    tool_counts: {},
+    tier_counts: {},
+    slot_counts: {},
+    kind_counts: {},
+    prompt_size_buckets: {},
+    output_size_buckets: {},
+    duration_buckets: {},
+    result_counts: {},
+    cache_hit_counts: { hit: 0, miss: 0 },
+    enforcement_counts: {},
+    flow_counts: {},
+    tdd_counts: {},
+    storage_bytes_estimate: 0,
+    retained_sessions: 0,
+    last_seen: null,
+    last_compacted_at: null
+  };
+}
+function _incBucket(map, key, delta = 1) {
+  const bucket = String(key || "unknown");
+  map[bucket] = Number(map[bucket] || 0) + delta;
+}
+function _telemetrySizeEstimate(telemetry) {
+  try {
+    return Buffer.byteLength(JSON.stringify(telemetry || {}), "utf8");
+  } catch {
+    return 0;
+  }
+}
+function recordPrivacyTelemetry(event) {
+  try {
+    if (!event || typeof event !== "object")
+      return null;
+    return updateState((state) => {
+      const now = (/* @__PURE__ */ new Date()).toISOString();
+      state.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" };
+      state.sessions ??= {};
+      const sid = String(event.session_id || _OC_SID || "unknown");
+      state.sessions[sid] ??= { started: now, session_started_at: now, source: "opencode", tool_counts: {}, warns: [], cache_hits: [], seenWarnKeys: {} };
+      const lifetime = state.lifetime.telemetry ??= _newTelemetryBucket();
+      const session = state.sessions[sid].telemetry ??= _newTelemetryBucket();
+      const tool2 = String(event.tool || "unknown").toLowerCase();
+      const tier = String(event.tier || "unknown").toLowerCase();
+      const slot = String(event.slot || "unknown").toLowerCase();
+      const kind = String(event.kind || "unknown").toLowerCase();
+      const promptSize = String(event.prompt_size_bucket || "unknown");
+      const outputSize = String(event.output_size_bucket || "unknown");
+      const duration = String(event.duration_bucket || "unknown");
+      const result = String(event.result || "unknown").toLowerCase();
+      const cache = event.cache_hit === true ? "hit" : event.cache_hit === false ? "miss" : "unknown";
+      const enforcement = String(event.enforcement || "unknown").toLowerCase();
+      const flow = String(event.flow || "unknown").toLowerCase();
+      const tdd = String(event.tdd || "unknown").toLowerCase();
+      const record = (bucket) => {
+        bucket.events = Number(bucket.events || 0) + 1;
+        _incBucket(bucket.tool_counts, tool2);
+        _incBucket(bucket.tier_counts, tier);
+        _incBucket(bucket.slot_counts, slot);
+        _incBucket(bucket.kind_counts, kind);
+        _incBucket(bucket.prompt_size_buckets, promptSize);
+        _incBucket(bucket.output_size_buckets, outputSize);
+        _incBucket(bucket.duration_buckets, duration);
+        _incBucket(bucket.result_counts, result);
+        _incBucket(bucket.enforcement_counts, enforcement);
+        _incBucket(bucket.flow_counts, flow);
+        _incBucket(bucket.tdd_counts, tdd);
+        if (cache === "hit" || cache === "miss") {
+          bucket.cache_hit_counts[cache] = Number(bucket.cache_hit_counts[cache] || 0) + 1;
+        }
+        bucket.last_seen = now;
+        bucket.storage_bytes_estimate = _telemetrySizeEstimate(bucket);
+      };
+      record(lifetime);
+      record(session);
+      lifetime.retained_sessions = Object.values(state.sessions).filter((ses) => Number(ses?.telemetry?.events || 0) > 0).length;
+      session.retained_sessions = 1;
+      state.lifetime.last_updated = now;
+      return state;
+    });
+  } catch {
+    return null;
+  }
+}
+function readTelemetrySummary(state, sid = _OC_SID) {
+  const lifetime = state?.lifetime?.telemetry || {};
+  const session = state?.sessions?.[sid]?.telemetry || {};
+  return {
+    lifetime_events: Number(lifetime.events || 0),
+    current_session_events: Number(session.events || 0),
+    storage_bytes_estimate: Number(lifetime.storage_bytes_estimate || 0),
+    retained_sessions: Number(lifetime.retained_sessions || 0),
+    tool_counts: lifetime.tool_counts || {},
+    tier_counts: lifetime.tier_counts || {},
+    slot_counts: lifetime.slot_counts || {},
+    kind_counts: lifetime.kind_counts || {},
+    prompt_size_buckets: lifetime.prompt_size_buckets || {},
+    output_size_buckets: lifetime.output_size_buckets || {},
+    duration_buckets: lifetime.duration_buckets || {},
+    result_counts: lifetime.result_counts || {},
+    cache_hit_counts: lifetime.cache_hit_counts || { hit: 0, miss: 0 },
+    enforcement_counts: lifetime.enforcement_counts || {},
+    flow_counts: lifetime.flow_counts || {},
+    tdd_counts: lifetime.tdd_counts || {},
+    last_seen: lifetime.last_seen || null,
+    last_compacted_at: lifetime.last_compacted_at || null
+  };
 }
 function stableJson(obj) {
   if (obj === null || typeof obj !== "object")
@@ -2519,8 +2640,28 @@ function recordMissedContext7(saveEst) {
     const state = updateState((s) => {
       s.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" };
       s.lifetime.missed_context7_usd = Math.round(((s.lifetime.missed_context7_usd || 0) + saveEst) * 100) / 100;
+      s.sessions ??= {};
+      const sid = _OC_SID;
+      s.sessions[sid] ??= { total_savings_usd: 0, cache_savings_usd: 0, project_name: "", warns: [], cache_hits: [], seenWarnKeys: {} };
+      s.sessions[sid].context7_missed_usd = Math.round(((s.sessions[sid].context7_missed_usd || 0) + saveEst) * 100) / 100;
       return s;
     });
+    try {
+      _ledgerBuffer.push(JSON.stringify({
+        v: 2,
+        at: (/* @__PURE__ */ new Date()).toISOString(),
+        kind: "context7",
+        amount_usd: Number(saveEst || 0),
+        sid: _OC_SID,
+        tool: "context7",
+        reason: "docs bypass"
+      }) + "\n");
+      if (_ledgerBuffer.length >= LEDGER_BUFFER_MAX)
+        _flushLedgerBuffer();
+      else if (!_ledgerBufferTimer)
+        _ledgerBufferTimer = setTimeout(_flushLedgerBuffer, LEDGER_BUFFER_FLUSH_MS);
+    } catch {
+    }
     try {
       if (currentProjectFingerprint) {
         const pstate = loadProjectState();
@@ -2529,6 +2670,15 @@ function recordMissedContext7(saveEst) {
         bucket.lastSeen = (/* @__PURE__ */ new Date()).toISOString();
         saveProjectState(pstate);
       }
+    } catch {
+    }
+    try {
+      updateGlobalLearning((gl) => {
+        gl.context7_bypasses = Number(gl.context7_bypasses || 0) + 1;
+        gl.context7_missed_usd = Math.round((Number(gl.context7_missed_usd || 0) + Number(saveEst || 0)) * 100) / 100;
+        gl.context7_last_seen = (/* @__PURE__ */ new Date()).toISOString();
+        return gl;
+      });
     } catch {
     }
     return state?.lifetime?.missed_context7_usd ?? null;
@@ -2589,7 +2739,7 @@ function getTodos() {
   return loadTodos();
 }
 function readLedgerTotals() {
-  const empty = { delegation: 0, cache: 0, total: 0, entries: 0 };
+  const empty = { delegation: 0, cache: 0, context7: 0, total: 0, entries: 0 };
   try {
     if (!existsSync3(SAVINGS_LEDGER_FILE))
       return empty;
@@ -2598,6 +2748,7 @@ function readLedgerTotals() {
       return empty;
     let delegation = 0;
     let cache = 0;
+    let context7 = 0;
     let entries = 0;
     for (const line of raw.split("\n")) {
       const ln = line.trim();
@@ -2620,6 +2771,8 @@ function readLedgerTotals() {
       const kind = String(rec.kind || rec.type || rec.category || rec.source || "").toLowerCase();
       if (kind.includes("cache"))
         cache += amt;
+      else if (kind.includes("context7"))
+        context7 += amt;
       else
         delegation += amt;
     }
@@ -2627,6 +2780,7 @@ function readLedgerTotals() {
     return {
       delegation: Math.round(delegation * 1e3) / 1e3,
       cache: Math.round(cache * 1e3) / 1e3,
+      context7: Math.round(context7 * 1e3) / 1e3,
       total: Math.round(total * 1e3) / 1e3,
       entries
     };
@@ -2642,18 +2796,20 @@ function reconcileStateFromLedger() {
     _ledgerReconciledMtime = ledgerMtime;
     _flushLedgerBuffer();
     const l = readLedgerTotals();
-    if (l.total <= 0)
+    if (l.total <= 0 && l.context7 <= 0)
       return;
     const state = readJsonOrEmpty(DELEGATION_STATE_FILE);
     const stDelegation = Number(state?.lifetime?.est_savings_usd ?? state?.lifetime?.total_savings_usd ?? 0);
     const stCache = Number(state?.lifetime?.cache_savings_usd ?? 0);
+    const stMissedC7 = Number(state?.lifetime?.missed_context7_usd ?? 0);
     const stTotal = (Number.isFinite(stDelegation) ? stDelegation : 0) + (Number.isFinite(stCache) ? stCache : 0);
-    if (Math.abs(stTotal - l.total) < 5e-4)
+    if (Math.abs(stTotal - l.total) < 5e-4 && Math.abs(stMissedC7 - l.context7) < 5e-4)
       return;
     updateState((s) => {
       s.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" };
       s.lifetime.total_savings_usd = Math.max(l.delegation, stDelegation);
       s.lifetime.cache_savings_usd = Math.max(l.cache, stCache);
+      s.lifetime.missed_context7_usd = Math.max(l.context7, stMissedC7);
       s.lifetime.last_updated = (/* @__PURE__ */ new Date()).toISOString();
       s.lifetime.rebuilt_from_ledger = true;
       s.lifetime.ledger_entries_reconciled = l.entries;
@@ -2663,7 +2819,7 @@ function reconcileStateFromLedger() {
   }
 }
 function readLifetimeSavings() {
-  const empty = { ltTasks: 0, ltCache: 0, ltCost: 0, count: 0, scratchpadHits: 0, missedC7: 0, sesTasks: 0, sesEdit: 0, sesCredit: 0, sesC7: 0, sesQuota: 0, sesTaskDelegations: 0, sesDuration: 0, sesRatePerHour: 0, sesTrend: "stable", sesToolBreakdown: {}, sesModelTurns: { brain: 0, worker: 0 }, quality_avg: 0 };
+  const empty = { ltTasks: 0, ltCache: 0, ltCost: 0, count: 0, scratchpadHits: 0, missedC7: 0, sesTasks: 0, sesEdit: 0, sesCredit: 0, sesC7: 0, sesQuota: 0, sesTaskDelegations: 0, sesDuration: 0, sesRatePerHour: 0, sesTrend: "stable", sesToolBreakdown: {}, sesModelTurns: { brain: 0, worker: 0 }, quality_avg: 0, telemetry: readTelemetrySummary({}, _OC_SID) };
   try {
     reconcileStateFromLedger();
     if (!existsSync3(DELEGATION_STATE_FILE))
@@ -2672,7 +2828,7 @@ function readLifetimeSavings() {
     if (_savingsCache && mtime === _savingsCacheMtime)
       return _savingsCache;
     const s = safeJsonParse3(readFileSync4(DELEGATION_STATE_FILE, "utf-8"));
-    _savingsCache = _computeSessionMetrics(s, _OC_SID);
+    _savingsCache = { ..._computeSessionMetrics(s, _OC_SID), telemetry: readTelemetrySummary(s, _OC_SID) };
     _savingsCacheMtime = mtime;
     return _savingsCache;
   } catch {
@@ -3095,14 +3251,14 @@ function loadSelection2() {
       tdd_strict: j?.selection?.tdd_strict === true,
       tdd_quality: j?.selection?.tdd_quality !== false,
       flow_enforce: j?.selection?.flow_enforce === true,
-      delegation_enforce: j?.selection?.delegation_enforce === true
+      delegation_enforce: true
     };
   } catch {
     _handleStateCorruption3(TIERS_FILE3);
     return DFLT_SEL2;
   }
 }
-var DFLT_SEL2 = { enabled: true, active_slot: null, thinking_level: "off", flow_enabled: false, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: false, delegation_enforce: false };
+var DFLT_SEL2 = { enabled: true, active_slot: null, thinking_level: "off", flow_enabled: false, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: false, delegation_enforce: true };
 function readConfig(dir) {
   try {
     const c = readOpenCodeConfigObject(dir);
@@ -3237,43 +3393,43 @@ function scoreStress(text) {
   for (const w of aggressive) {
     const re = new RegExp("\\b" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "gi");
     const hits = (t.match(re) || []).length;
-    score += hits * 0.3;
+    score += hits * 0.14;
   }
   const urgency = ["fix", "now", "fast", "urgent", "important", "critical", "hurry", "immediately", "asap"];
   for (const w of urgency) {
     const re = new RegExp("\\b" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "gi");
     const hits = (t.match(re) || []).length;
-    score += hits * 0.15;
+    score += hits * 0.06;
   }
   const negative = ["no", "not", "don't", "can't", "won't", "doesn't", "isn't", "shouldn't", "never", "stop"];
   for (const w of negative) {
     const re = new RegExp("\\b" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "gi");
     const hits = (t.match(re) || []).length;
-    score += hits * 0.08;
+    score += hits * 0.04;
   }
   const capsAcronyms = /* @__PURE__ */ new Set(["ai", "ui", "api", "cli", "ssh", "dns", "http", "url", "json", "xml", "css", "html", "sql", "csv", "yaml", "ide", "tdd", "pr", "ci", "cd", "env", "os", "sdk", "gui", "crud", "rest", "crlf", "utf", "ascii"]);
   const words = text.split(/\s+/);
   for (const w of words) {
     if (w.length >= 3 && /^[A-Z]+$/.test(w) && !capsAcronyms.has(w.toLowerCase())) {
-      score += 0.03;
+      score += 0.02;
     }
   }
   const exclamParts = text.match(/!{2,}/g);
   if (exclamParts)
-    score += exclamParts.length * 0.05;
+    score += exclamParts.length * 0.03;
   const qmarkParts = text.match(/\?{2,}/g);
   if (qmarkParts)
-    score += qmarkParts.length * 0.03;
+    score += qmarkParts.length * 0.02;
   const qeCombos = text.match(/\?!|!\?/g);
   if (qeCombos)
-    score += qeCombos.length * 0.08;
+    score += qeCombos.length * 0.05;
   if (text.length < 30)
-    score += 0.1;
-  else if (text.length < 80)
     score += 0.05;
+  else if (text.length < 80)
+    score += 0.03;
   else if (text.length < 150)
-    score += 0.02;
-  return Math.min(score, 1);
+    score += 0.01;
+  return Math.min(score, 0.95);
 }
 function estimateContextBudget(_input, output) {
   try {
@@ -3406,8 +3562,7 @@ function resolveOptimizationSlot(mode) {
 }
 function bootstrapOptimizationSession() {
   const sid = _OC_SID;
-  const existingOpt = loadSessionOptMode(sid);
-  const resolvedMode = existingOpt && existingOpt !== "auto" ? existingOpt : DFLT_OPTIMIZATION_MODE;
+  const resolvedMode = DFLT_OPTIMIZATION_MODE;
   const resolvedSlot = resolveOptimizationSlot(resolvedMode);
   try {
     writeSessionOptMode(sid, resolvedMode);
@@ -3881,21 +4036,21 @@ function researchAudit({ hours = 24, session: sessionFilter } = {}) {
 }
 
 // src/lib/runtime-surface.js
-function buildStatusPayload({ selection, tiersData, currentModel: currentModel3, creditPercent, version, todos, fallbackThinking }) {
-  const activeSlot = (selection === null || selection === void 0 ? void 0 : selection.active_slot) || "brain";
+function buildStatusPayload({ selection, tiersData, currentModel: currentModel3, creditPercent, version, todos }) {
+  const activeSlot = selection?.active_slot || "brain";
   const todoList = Array.isArray(todos) ? todos : [];
-  const pendingTodos = todoList.filter((t) => (t === null || t === void 0 ? void 0 : t.status) === "pending").length;
+  const pendingTodos = todoList.filter((t) => t?.status === "pending").length;
   const totalTodos = todoList.length;
-  const current = (tiersData === null || tiersData === void 0 ? void 0 : tiersData.trinity)?.[activeSlot]?.oc || currentModel3 || "";
+  const current = tiersData?.trinity?.[activeSlot]?.oc || currentModel3 || "";
   return {
-    enabled: (selection === null || selection === void 0 ? void 0 : selection.enabled) !== false,
+    enabled: selection?.enabled !== false,
     active_slot: activeSlot,
-    enforce: (selection === null || selection === void 0 ? void 0 : selection.delegation_enforce) !== false,
-    flow_enforcer: (selection === null || selection === void 0 ? void 0 : selection.flow_enabled) !== false,
-    flow_extract_todos: (selection === null || selection === void 0 ? void 0 : selection.flow_enforce) === true,
-    tdd_enforcer: (selection === null || selection === void 0 ? void 0 : selection.tdd_enforce) === true,
-    tdd_strict: (selection === null || selection === void 0 ? void 0 : selection.tdd_strict) !== false,
-    thinking: (selection === null || selection === void 0 ? void 0 : selection.thinking_level) || fallbackThinking || "brief",
+    enforce: selection?.delegation_enforce !== false,
+    flow_enforcer: selection?.flow_enabled !== false,
+    flow_extract_todos: selection?.flow_enforce === true,
+    tdd_enforcer: selection?.tdd_enforce === true,
+    tdd_strict: selection?.tdd_strict !== false,
+    thinking: selection?.thinking_level || fallbackThinking || "brief",
     current_model: current,
     credit_percent: creditPercent,
     version,
@@ -3903,48 +4058,69 @@ function buildStatusPayload({ selection, tiersData, currentModel: currentModel3,
   };
 }
 function buildSavingsPayload({ lifetime, session }) {
+  const telemetry = lifetime?.telemetry || {};
   return {
     lifetime: {
-      delegation_usd: Number((lifetime === null || lifetime === void 0 ? void 0 : lifetime.ltTasks) || 0),
-      cache_usd: Number((lifetime === null || lifetime === void 0 ? void 0 : lifetime.ltCache) || 0),
-      missed_context7_usd: Number((lifetime === null || lifetime === void 0 ? void 0 : lifetime.missedC7) || 0),
-      total_warns: Number((lifetime === null || lifetime === void 0 ? void 0 : lifetime.count) || 0)
+      delegation_usd: Number(lifetime?.ltTasks || 0),
+      cache_usd: Number(lifetime?.ltCache || 0),
+      missed_context7_usd: Number(lifetime?.missedC7 || 0),
+      total_warns: Number(lifetime?.count || 0)
     },
     current_session: {
-      delegation_usd: Number((lifetime === null || lifetime === void 0 ? void 0 : lifetime.sesTasks) || 0),
-      cache_usd: Number((session === null || session === void 0 ? void 0 : session.cache_savings_usd) || 0),
-      warns_count: Array.isArray(session === null || session === void 0 ? void 0 : session.warns) ? session.warns.length : 0,
-      tool_breakdown: (lifetime === null || lifetime === void 0 ? void 0 : lifetime.sesToolBreakdown) || {}
+      delegation_usd: Number(lifetime?.sesTasks || 0),
+      cache_usd: Number(session?.cache_savings_usd || 0),
+      warns_count: Array.isArray(session?.warns) ? session.warns.length : 0,
+      tool_breakdown: lifetime?.sesToolBreakdown || {}
     },
-    cache_hits_this_session: Number((session === null || session === void 0 ? void 0 : session.cache_hits)?.length || 0),
-    trend: (lifetime === null || lifetime === void 0 ? void 0 : lifetime.sesTrend) || "stable",
-    savings_rate_per_hour: Number((lifetime === null || lifetime === void 0 ? void 0 : lifetime.sesRatePerHour) || 0)
+    telemetry: {
+      lifetime_events: Number(telemetry?.lifetime_events ?? telemetry?.events ?? 0),
+      current_session_events: Number(telemetry?.current_session_events ?? telemetry?.session_events ?? session?.telemetry?.events ?? 0),
+      storage_bytes_estimate: Number(telemetry?.storage_bytes_estimate || 0),
+      retained_sessions: Number(telemetry?.retained_sessions || 0),
+      tool_counts: telemetry?.tool_counts || {},
+      tier_counts: telemetry?.tier_counts || {},
+      slot_counts: telemetry?.slot_counts || {},
+      kind_counts: telemetry?.kind_counts || {},
+      prompt_size_buckets: telemetry?.prompt_size_buckets || {},
+      output_size_buckets: telemetry?.output_size_buckets || {},
+      duration_buckets: telemetry?.duration_buckets || {},
+      result_counts: telemetry?.result_counts || {},
+      cache_hit_counts: telemetry?.cache_hit_counts || { hit: 0, miss: 0 },
+      enforcement_counts: telemetry?.enforcement_counts || {},
+      flow_counts: telemetry?.flow_counts || {},
+      tdd_counts: telemetry?.tdd_counts || {},
+      last_seen: telemetry?.last_seen || null,
+      last_compacted_at: telemetry?.last_compacted_at || null
+    },
+    cache_hits_this_session: Number(session?.cache_hits?.length || 0),
+    trend: lifetime?.sesTrend || "stable",
+    savings_rate_per_hour: Number(lifetime?.sesRatePerHour || 0)
   };
 }
 function buildSessionCheckout({ sessionId, metrics, session, flowWarns }) {
-  const warns = Array.isArray(session === null || session === void 0 ? void 0 : session.warns) ? session.warns : [];
+  const warns = Array.isArray(session?.warns) ? session.warns : [];
   const rankedOps = warns.map((w) => ({
-    tool: String((w === null || w === void 0 ? void 0 : w.tool) || "unknown"),
-    reason: String((w === null || w === void 0 ? void 0 : w.reason) || ""),
-    savings_usd: Number((w === null || w === void 0 ? void 0 : w.est_savings_usd) || 0),
-    at: (w === null || w === void 0 ? void 0 : w.at) || null
+    tool: String(w?.tool || "unknown"),
+    reason: String(w?.reason || ""),
+    savings_usd: Number(w?.est_savings_usd || 0),
+    at: w?.at || null
   })).sort((a, b) => b.savings_usd - a.savings_usd).slice(0, 3);
   const summary = {
     session_id: sessionId,
-    duration_seconds: Number((metrics === null || metrics === void 0 ? void 0 : metrics.sesDuration) || 0),
-    duration: (metrics === null || metrics === void 0 ? void 0 : metrics.sesDurationFormatted) || "0h 0m 0s",
-    cost_usd: Number((session === null || session === void 0 ? void 0 : session.cost_usd) || 0),
+    duration_seconds: Number(metrics?.sesDuration || 0),
+    duration: metrics?.sesDurationFormatted || "0h 0m 0s",
+    cost_usd: Number(session?.cost_usd || 0),
     savings: {
-      delegation_usd: Number((metrics === null || metrics === void 0 ? void 0 : metrics.sesTasks) || 0),
-      cache_usd: Number((session === null || session === void 0 ? void 0 : session.cache_savings_usd) || 0),
-      total_usd: Number(((metrics === null || metrics === void 0 ? void 0 : metrics.sesTasks) || 0) + Number((session === null || session === void 0 ? void 0 : session.cache_savings_usd) || 0))
+      delegation_usd: Number(metrics?.sesTasks || 0),
+      cache_usd: Number(session?.cache_savings_usd || 0),
+      total_usd: Number((metrics?.sesTasks || 0) + Number(session?.cache_savings_usd || 0))
     },
     tools: {
-      breakdown: (metrics === null || metrics === void 0 ? void 0 : metrics.sesToolBreakdown) || {},
+      breakdown: metrics?.sesToolBreakdown || {},
       top_expensive_operations: rankedOps
     },
-    model_split: (metrics === null || metrics === void 0 ? void 0 : metrics.sesModelTurns) || { brain: 0, worker: 0 },
-    trend_vs_previous_sessions: (metrics === null || metrics === void 0 ? void 0 : metrics.sesTrend) || "stable",
+    model_split: metrics?.sesModelTurns || { brain: 0, worker: 0 },
+    trend_vs_previous_sessions: metrics?.sesTrend || "stable",
     flow_violations: flowWarns
   };
   return {
@@ -3965,7 +4141,9 @@ function buildSessionCheckout({ sessionId, metrics, session, flowWarns }) {
         total_savings_usd: summary.savings.total_usd,
         trend: summary.trend_vs_previous_sessions,
         brain_turns: summary.model_split.brain || 0,
-        worker_turns: summary.model_split.worker || 0
+        worker_turns: summary.model_split.worker || 0,
+        telemetry_events: Number(session?.telemetry?.events || 0),
+        telemetry_storage_bytes_estimate: Number(session?.telemetry?.storage_bytes_estimate || 0)
       },
       narrative: JSON.stringify(summary),
       tags: ["session", "checkout"]
@@ -4020,8 +4198,8 @@ function projectStructuredFromText(raw, selection, creditPercent = 0) {
   return {
     brain_pct: brainPct,
     worker_pct: workerPct,
-    enforcement_status: (selection === null || selection === void 0 ? void 0 : selection.delegation_enforce) ? "enforce" : "warn",
-    flow_status: (selection === null || selection === void 0 ? void 0 : selection.flow_enabled) !== false ? "on" : "off",
+    enforcement_status: selection?.delegation_enforce ? "enforce" : "warn",
+    flow_status: selection?.flow_enabled !== false ? "on" : "off",
     credit_percent: Number(creditPercent || 0),
     suggestions
   };
@@ -4445,7 +4623,7 @@ function createTrinityTool(deps) {
           `Guards:`,
           `  Flow: ${sel.flow_enabled !== false ? "ON" : "OFF"}${sel.flow_enforce ? " (extract)" : ""}`,
           `  TDD: ${sel.tdd_enforce ? "ON" : "OFF"}${sel.tdd_strict !== false ? " strict" : ""}${sel.tdd_quality !== false ? " quality" : ""}`,
-          `  Enforce: ${sel.delegation_enforce ? "ON" : "OFF"}`,
+          `  Enforce: ON (mandatory)`,
           `  Lock: ${deps._modelLocked ? "\u{1F512} ON (model fixed)" : "\u{1F513} OFF"}`,
           `|`,
           `All-time savings:`,
@@ -4513,7 +4691,7 @@ function createTrinityTool(deps) {
         const tierSlot = tierMap[slot] || "cheap";
         deps.writeSelection("active_slot", tierSlot);
         if (slot === "budget") {
-          deps.writeSelection("delegation_enforce", false);
+          deps.writeSelection("delegation_enforce", true);
           deps.writeSelection("flow_enabled", false);
           deps.writeSelection("flow_enforce", false);
           deps.writeSelection("tdd_enforce", false);
@@ -4525,7 +4703,7 @@ function createTrinityTool(deps) {
           deps.writeSelection("tdd_enforce", true);
           deps.writeSelection("thinking_level", "full");
         } else if (slot === "speed") {
-          deps.writeSelection("delegation_enforce", false);
+          deps.writeSelection("delegation_enforce", true);
           deps.writeSelection("flow_enabled", false);
           deps.writeSelection("flow_enforce", false);
           deps.writeSelection("tdd_enforce", false);
@@ -4581,13 +4759,16 @@ function createTrinityTool(deps) {
         return lines.join("\n");
       }
       if (action === "enforce") {
-        if (slot === "on" || slot === "off") {
-          const ok = deps.writeSelection("delegation_enforce", slot === "on");
-          return ok ? `\u{1F6AB} Delegation enforcement ${slot === "on" ? "ENABLED \u2014 direct writes/edits BLOCKED on brain tier" : "DISABLED \u2014 warn only"}` : `\u274C Failed to write model-tiers.json`;
+        if (slot === "off") {
+          return `\u274C Delegation enforcement is mandatory and cannot be disabled.`;
+        }
+        if (slot === "on") {
+          const ok = deps.writeSelection("delegation_enforce", true);
+          return ok ? `\u{1F6AB} Delegation enforcement ENABLED \u2014 direct writes/edits BLOCKED on brain tier` : `\u274C Failed to write model-tiers.json`;
         }
         const sel = deps.loadSelection();
-        return `\u{1F6AB} Delegation enforcement: ${sel.delegation_enforce ? "ON (blocks direct writes/edits on brain tier)" : "OFF (warn only)"}
-Use \`trinity enforce on\` or \`trinity enforce off\` to toggle.`;
+        return `\u{1F6AB} Delegation enforcement: ON (mandatory, blocks direct writes/edits on brain tier)
+Use \`trinity enforce on\` to reapply the guard if needed.`;
       }
       if (action === "lock") {
         if (slot === "on") {
@@ -5294,7 +5475,7 @@ ${L.repeat(40)}`);
           "",
           "CONTROLS:",
           "  trinity enable/disable    Toggle vibeOS plugin on/off",
-          "  trinity enforce on/off    Block brain-tier writes/edits (save $$)",
+          "  trinity enforce on        Block brain-tier writes/edits (save $$)",
           "  trinity lock on/off       Lock model at session start (skip auto-reconcile)",
           "  trinity thinking full|brief|off  Set reasoning depth",
           "",
@@ -5661,6 +5842,7 @@ function applyBudgetFirstMode(input = {}) {
   }
   return withFileLock(BLACKBOX_STATE_FILE, () => {
     const { state, session, policy } = loadSessionPolicy();
+    const interactions = Number(input.nInteractions ?? state.sessions?.[_OC_SID]?.n_interactions ?? 0);
     const regime = normalizeRegime(input.subRegime || policy.last_sub_regime);
     const stress = Number(input.stress ?? policy.last_stress ?? 0);
     const suggested = normalizeMode(input.suggestedMode);
@@ -5671,7 +5853,7 @@ function applyBudgetFirstMode(input = {}) {
     if (policy.active && policy.active_mode && normalizeMode(policy.active_mode) !== BASELINE_MODE) {
       return persistSessionPolicy(state, session, policy, policy.active_mode);
     }
-    const shouldStartEpisode = LOOP_REGIMES.has(regime) || QUALITY_REGIMES.has(regime) || Number(policy.problem_streak || 0) >= 2 || Number(policy.problem_streak || 0) >= 1 && stress > 1.5;
+    const shouldStartEpisode = LOOP_REGIMES.has(regime) && interactions >= 2 || QUALITY_REGIMES.has(regime) || Number(policy.problem_streak || 0) >= 2 || Number(policy.problem_streak || 0) >= 1 && stress > 1.5;
     if (shouldStartEpisode) {
       const nextMode = chooseEpisodeMode(regime, suggested, stress);
       policy.active = true;
@@ -6335,10 +6517,7 @@ function syncControlSettings(cv, options = {}) {
       if (sel[key] !== val)
         writeSelection(key, val);
     };
-    if (cv.enforcement_mode === "relaxed")
-      writeIf("delegation_enforce", false);
-    else
-      writeIf("delegation_enforce", true);
+    writeIf("delegation_enforce", true);
     if (cv.flow_mode === "audit") {
       writeIf("flow_enabled", false);
       writeIf("flow_enforce", false);
@@ -6619,10 +6798,11 @@ var onSystemTransform = async (_input, output) => {
   if (!loadSelection().enabled)
     return;
   try {
-    if (!latestUserIntent) {
-      const userText = extractLastUserText(_input) || extractLastUserText(output);
-      latestUserIntent = typeof userText === "string" ? userText : null;
-    }
+    const userText = extractLastUserText(_input) || extractLastUserText(output);
+    if (typeof userText === "string" && userText.trim())
+      latestUserIntent = userText;
+    else if (!latestUserIntent)
+      latestUserIntent = null;
     if (latestUserIntent)
       observeUserCorrection(latestUserIntent);
     const optimizationSuggestion = await selectOptimizationModeRemote(_latestBlackboxState3?.sub_regime || (latestUserIntent ? classifyTurnSimple(latestUserIntent) : "INIT"), latestUserIntent ? scoreStress(latestUserIntent) : 0, loadOptimizationMode());
@@ -6630,7 +6810,8 @@ var onSystemTransform = async (_input, output) => {
       requestedMode: loadOptimizationMode(),
       suggestedMode: optimizationSuggestion,
       subRegime: _latestBlackboxState3?.sub_regime || (latestUserIntent ? classifyTurnSimple(latestUserIntent) : "INIT"),
-      stress: latestUserIntent ? scoreStress(latestUserIntent) : 0
+      stress: latestUserIntent ? scoreStress(latestUserIntent) : 0,
+      nInteractions: _latestBlackboxState3?.n_interactions ?? 0
     });
     const optimizationMode = optimizationDecision.mode;
     let _controlVector = null;
@@ -6776,9 +6957,9 @@ var textCompletePainted = /* @__PURE__ */ new Set();
 function loadSelection3() {
   try {
     const raw = readFileSync12(join13(USER_HOME6, ".claude/model-tiers.json"), "utf-8");
-    return safeJsonParse3(raw)?.selection || { active_slot: "medium", enabled: true, delegation_enforce: false, flow_enabled: false, flow_enforce: false, tdd_enforce: false, tdd_strict: false };
+    return safeJsonParse3(raw)?.selection || { active_slot: "medium", enabled: true, delegation_enforce: true, flow_enabled: false, flow_enforce: false, tdd_enforce: false, tdd_strict: false };
   } catch {
-    return { active_slot: "medium", enabled: true, delegation_enforce: false, flow_enabled: false, flow_enforce: false, tdd_enforce: false, tdd_strict: false };
+    return { active_slot: "medium", enabled: true, delegation_enforce: true, flow_enabled: false, flow_enforce: false, tdd_enforce: false, tdd_strict: false };
   }
 }
 function readLifetimeSavings2() {
@@ -8344,6 +8525,107 @@ var context7AlertedThisSession = false;
 var context7Seen = /* @__PURE__ */ new Set();
 var _autoReportCount2 = 0;
 var _pendingTodoArgs = null;
+var _pendingTelemetryStarts = [];
+function _bucketChars(n) {
+  const size = Number(n || 0);
+  if (!Number.isFinite(size) || size <= 0)
+    return "0";
+  if (size <= 63)
+    return "1-63";
+  if (size <= 255)
+    return "64-255";
+  if (size <= 1023)
+    return "256-1k";
+  if (size <= 4095)
+    return "1k-4k";
+  return "4k+";
+}
+function _bucketMs(n) {
+  const ms = Number(n || 0);
+  if (!Number.isFinite(ms) || ms < 0)
+    return "unknown";
+  if (ms <= 49)
+    return "0-49ms";
+  if (ms <= 199)
+    return "50-199ms";
+  if (ms <= 999)
+    return "200-999ms";
+  if (ms <= 4999)
+    return "1-4.9s";
+  if (ms <= 14999)
+    return "5-14.9s";
+  return "15s+";
+}
+function _toolKind(tool2, args) {
+  const t = String(tool2 || "").toLowerCase();
+  if (t === "task") {
+    const prompt = String(args?.prompt || "").trim().toLowerCase();
+    const first = prompt.split(/\s+/)[0] || "";
+    if (/^(check|find|list|search|does|verify|look|count|show|get|read|grep|scan|detect|inspect)$/i.test(first))
+      return "explore";
+    if (/^(write|create|add|build|implement|fix|change|edit|modify|update|refactor|generate|make|commit|push|deploy|release|publish|install|remove|delete|rename|move|copy|transform|convert|migrate)/i.test(prompt))
+      return "implement";
+    return "task";
+  }
+  if (t === "bash") {
+    const command = String(args?.command || args?.cmd || args?.script || "").toLowerCase();
+    if (/(\btest\b|npm\s+test|vitest|jest|mocha|ava)/i.test(command))
+      return "test";
+    if (/(\btypecheck\b|tsc|eslint|lint)/i.test(command))
+      return "verify";
+    if (/(\bbuild\b|esbuild|vite|webpack)/i.test(command))
+      return "build";
+    if (/(\bdeploy\b|release|publish)/i.test(command))
+      return "deploy";
+    if (/(\bgit\b|\bgh\b)/i.test(command))
+      return "git";
+    return "shell";
+  }
+  if (t === "webfetch" || t === "websearch") {
+    const target = String(args?.url || args?.query || "");
+    return isDocsTarget(target) ? "docs" : "web";
+  }
+  if (t === "write" || t === "edit" || t === "notebookedit") {
+    const filePath = String(args?.filePath || args?.file_path || args?.path || "");
+    if (/(^|\/)(tests?|spec)\//i.test(filePath) || /\.(test|spec)\./i.test(filePath))
+      return "test";
+    if (/\.(md|txt|rst)$/i.test(filePath))
+      return "docs";
+    if (/\.(json|jsonc|yaml|yml|toml)$/i.test(filePath) || /(?:^|\/)(AGENTS|README|package)\.md$/i.test(filePath))
+      return "config";
+    if (/\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|rb|java|kt|sh)$/i.test(filePath))
+      return "source";
+    return "file";
+  }
+  return t || "unknown";
+}
+function _argSizeBucket(tool2, args) {
+  const t = String(tool2 || "").toLowerCase();
+  if (t === "task")
+    return _bucketChars(String(args?.prompt || "").length);
+  if (t === "bash")
+    return _bucketChars(String(args?.command || args?.cmd || args?.script || "").length);
+  if (t === "webfetch" || t === "websearch")
+    return _bucketChars(String(args?.url || args?.query || "").length);
+  if (t === "write")
+    return _bucketChars(String(args?.content || "").length);
+  if (t === "edit")
+    return _bucketChars(String(args?.newString || "").length + String(args?.oldString || "").length);
+  if (t === "notebookedit")
+    return _bucketChars(String(args?.newString || "").length);
+  return _bucketChars(JSON.stringify(args || {}).length);
+}
+function _dequeueTelemetryStart(tool2) {
+  if (_pendingTelemetryStarts.length === 0)
+    return null;
+  const t = String(tool2 || "").toLowerCase();
+  for (let i = _pendingTelemetryStarts.length - 1; i >= 0; i--) {
+    if (String(_pendingTelemetryStarts[i]?.tool || "").toLowerCase() === t) {
+      return _pendingTelemetryStarts.splice(i, 1)[0];
+    }
+  }
+  return _pendingTelemetryStarts.shift();
+}
 var setToolDirectory = (dir) => {
   projectDirectory = dir || "";
 };
@@ -8354,12 +8636,23 @@ var onToolExecuteBefore = async (input, output) => {
   const t = input?.tool ?? "";
   const args = output?.args;
   const inArgs = input?.args;
+  const telemetryStart = {
+    tool: t,
+    startedAt: Date.now(),
+    kind: _toolKind(t, args || inArgs || {}),
+    prompt_size_bucket: _argSizeBucket(t, args || inArgs || {}),
+    slot: loadSelection().active_slot || "unknown",
+    tier: currentTier || "unknown",
+    cache_hit: false
+  };
+  _pendingTelemetryStarts.push(telemetryStart);
   let _cacheSave = 0;
   let _prompt = "";
   if (SCRATCHPAD_TOOLS.has(t)) {
     const hit = getScratchpadHit(t, args);
     if (hit && !scratchpadHitsSeen2.has(hit.hash)) {
       scratchpadHitsSeen2.add(hit.hash);
+      telemetryStart.cache_hit = true;
       const total = recordScratchpadObservation(t, args, hit.sizeBytes, { hash: hit.hash });
       const _inputTokens = Math.max(1, Math.round(hit.sizeBytes / BYTES_PER_TOKEN));
       _cacheSave = Math.max(1e-4, Math.round(_inputTokens * CACHE_SAVED_PER_1M_INPUT_TOKENS / 1e6 * 1e4) / 1e4);
@@ -8603,6 +8896,29 @@ var onToolExecuteBefore = async (input, output) => {
 };
 var onToolExecuteAfter = async (input, output) => {
   _refreshModel(projectDirectory);
+  try {
+    const start = _dequeueTelemetryStart(input?.tool);
+    if (start) {
+      const outputText = typeof output?.result === "string" ? output.result : typeof output?.text === "string" ? output.text : typeof output?.content === "string" ? output.content : typeof output?.data === "string" ? output.data : "";
+      const result = output?.error || output?.isError || output?.status === "error" || output?.exitCode > 0 ? "error" : enforcementBlocked ? "blocked" : "ok";
+      recordPrivacyTelemetry({
+        session_id: _OC_SID,
+        tool: input?.tool ?? "unknown",
+        tier: start.tier || currentTier || "unknown",
+        slot: start.slot || loadSelection().active_slot || "unknown",
+        kind: start.kind || _toolKind(input?.tool, input?.args || {}),
+        prompt_size_bucket: start.prompt_size_bucket || "unknown",
+        output_size_bucket: _bucketChars(String(outputText || "").length),
+        duration_bucket: _bucketMs(Date.now() - Number(start.startedAt || Date.now())),
+        result,
+        cache_hit: start.cache_hit === true,
+        enforcement: loadSelection().delegation_enforce ? "on" : "off",
+        flow: loadSelection().flow_enforce ? "on" : "off",
+        tdd: loadSelection().tdd_enforce ? "on" : "off"
+      });
+    }
+  } catch {
+  }
   let _footerText = "";
   try {
     const { ltTasks, ltCache, ltCost, sesTrend, sesModelTurns } = readLifetimeSavings();

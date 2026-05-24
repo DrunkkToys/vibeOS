@@ -66,6 +66,7 @@ export function buildSavingsPayload({
   lifetime: any
   session: any
 }) {
+  const telemetry = lifetime?.telemetry || {}
   return {
     lifetime: {
       delegation_usd: Number(lifetime?.ltTasks || 0),
@@ -78,6 +79,26 @@ export function buildSavingsPayload({
       cache_usd: Number(session?.cache_savings_usd || 0),
       warns_count: Array.isArray(session?.warns) ? session.warns.length : 0,
       tool_breakdown: lifetime?.sesToolBreakdown || {},
+    },
+    telemetry: {
+      lifetime_events: Number(telemetry?.lifetime_events ?? telemetry?.events ?? 0),
+      current_session_events: Number(telemetry?.current_session_events ?? telemetry?.session_events ?? session?.telemetry?.events ?? 0),
+      storage_bytes_estimate: Number(telemetry?.storage_bytes_estimate || 0),
+      retained_sessions: Number(telemetry?.retained_sessions || 0),
+      tool_counts: telemetry?.tool_counts || {},
+      tier_counts: telemetry?.tier_counts || {},
+      slot_counts: telemetry?.slot_counts || {},
+      kind_counts: telemetry?.kind_counts || {},
+      prompt_size_buckets: telemetry?.prompt_size_buckets || {},
+      output_size_buckets: telemetry?.output_size_buckets || {},
+      duration_buckets: telemetry?.duration_buckets || {},
+      result_counts: telemetry?.result_counts || {},
+      cache_hit_counts: telemetry?.cache_hit_counts || { hit: 0, miss: 0 },
+      enforcement_counts: telemetry?.enforcement_counts || {},
+      flow_counts: telemetry?.flow_counts || {},
+      tdd_counts: telemetry?.tdd_counts || {},
+      last_seen: telemetry?.last_seen || null,
+      last_compacted_at: telemetry?.last_compacted_at || null,
     },
     cache_hits_this_session: Number(session?.cache_hits?.length || 0),
     trend: lifetime?.sesTrend || "stable",
@@ -138,6 +159,8 @@ export function buildSessionCheckout({
         trend: summary.trend_vs_previous_sessions,
         brain_turns: summary.model_split.brain || 0,
         worker_turns: summary.model_split.worker || 0,
+        telemetry_events: Number(session?.telemetry?.events || 0),
+        telemetry_storage_bytes_estimate: Number(session?.telemetry?.storage_bytes_estimate || 0),
       },
       narrative: JSON.stringify(summary),
       tags: ["session", "checkout"],

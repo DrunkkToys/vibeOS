@@ -1,19 +1,19 @@
 // @ts-nocheck
-export function buildStatusPayload({ selection, tiersData, currentModel, creditPercent, version, todos, fallbackThinking, }) {
-    const activeSlot = (selection === null || selection === void 0 ? void 0 : selection.active_slot) || "brain";
+export function buildStatusPayload({ selection, tiersData, currentModel, creditPercent, version, todos, }) {
+    const activeSlot = selection?.active_slot || "brain";
     const todoList = Array.isArray(todos) ? todos : [];
-    const pendingTodos = todoList.filter(t => (t === null || t === void 0 ? void 0 : t.status) === "pending").length;
+    const pendingTodos = todoList.filter(t => t?.status === "pending").length;
     const totalTodos = todoList.length;
-    const current = (tiersData === null || tiersData === void 0 ? void 0 : tiersData.trinity)?.[activeSlot]?.oc || currentModel || "";
+    const current = tiersData?.trinity?.[activeSlot]?.oc || currentModel || "";
     return {
-        enabled: (selection === null || selection === void 0 ? void 0 : selection.enabled) !== false,
+        enabled: selection?.enabled !== false,
         active_slot: activeSlot,
-        enforce: (selection === null || selection === void 0 ? void 0 : selection.delegation_enforce) !== false,
-        flow_enforcer: (selection === null || selection === void 0 ? void 0 : selection.flow_enabled) !== false,
-        flow_extract_todos: (selection === null || selection === void 0 ? void 0 : selection.flow_enforce) === true,
-        tdd_enforcer: (selection === null || selection === void 0 ? void 0 : selection.tdd_enforce) === true,
-        tdd_strict: (selection === null || selection === void 0 ? void 0 : selection.tdd_strict) !== false,
-        thinking: (selection === null || selection === void 0 ? void 0 : selection.thinking_level) || fallbackThinking || "brief",
+        enforce: selection?.delegation_enforce !== false,
+        flow_enforcer: selection?.flow_enabled !== false,
+        flow_extract_todos: selection?.flow_enforce === true,
+        tdd_enforcer: selection?.tdd_enforce === true,
+        tdd_strict: selection?.tdd_strict !== false,
+        thinking: selection?.thinking_level || fallbackThinking || "brief",
         current_model: current,
         credit_percent: creditPercent,
         version,
@@ -21,51 +21,72 @@ export function buildStatusPayload({ selection, tiersData, currentModel, creditP
     };
 }
 export function buildSavingsPayload({ lifetime, session, }) {
+    const telemetry = lifetime?.telemetry || {};
     return {
         lifetime: {
-            delegation_usd: Number((lifetime === null || lifetime === void 0 ? void 0 : lifetime.ltTasks) || 0),
-            cache_usd: Number((lifetime === null || lifetime === void 0 ? void 0 : lifetime.ltCache) || 0),
-            missed_context7_usd: Number((lifetime === null || lifetime === void 0 ? void 0 : lifetime.missedC7) || 0),
-            total_warns: Number((lifetime === null || lifetime === void 0 ? void 0 : lifetime.count) || 0),
+            delegation_usd: Number(lifetime?.ltTasks || 0),
+            cache_usd: Number(lifetime?.ltCache || 0),
+            missed_context7_usd: Number(lifetime?.missedC7 || 0),
+            total_warns: Number(lifetime?.count || 0),
         },
         current_session: {
-            delegation_usd: Number((lifetime === null || lifetime === void 0 ? void 0 : lifetime.sesTasks) || 0),
-            cache_usd: Number((session === null || session === void 0 ? void 0 : session.cache_savings_usd) || 0),
-            warns_count: Array.isArray(session === null || session === void 0 ? void 0 : session.warns) ? session.warns.length : 0,
-            tool_breakdown: (lifetime === null || lifetime === void 0 ? void 0 : lifetime.sesToolBreakdown) || {},
+            delegation_usd: Number(lifetime?.sesTasks || 0),
+            cache_usd: Number(session?.cache_savings_usd || 0),
+            warns_count: Array.isArray(session?.warns) ? session.warns.length : 0,
+            tool_breakdown: lifetime?.sesToolBreakdown || {},
         },
-        cache_hits_this_session: Number((session === null || session === void 0 ? void 0 : session.cache_hits)?.length || 0),
-        trend: (lifetime === null || lifetime === void 0 ? void 0 : lifetime.sesTrend) || "stable",
-        savings_rate_per_hour: Number((lifetime === null || lifetime === void 0 ? void 0 : lifetime.sesRatePerHour) || 0),
+        telemetry: {
+            lifetime_events: Number(telemetry?.lifetime_events ?? telemetry?.events ?? 0),
+            current_session_events: Number(telemetry?.current_session_events ?? telemetry?.session_events ?? session?.telemetry?.events ?? 0),
+            storage_bytes_estimate: Number(telemetry?.storage_bytes_estimate || 0),
+            retained_sessions: Number(telemetry?.retained_sessions || 0),
+            tool_counts: telemetry?.tool_counts || {},
+            tier_counts: telemetry?.tier_counts || {},
+            slot_counts: telemetry?.slot_counts || {},
+            kind_counts: telemetry?.kind_counts || {},
+            prompt_size_buckets: telemetry?.prompt_size_buckets || {},
+            output_size_buckets: telemetry?.output_size_buckets || {},
+            duration_buckets: telemetry?.duration_buckets || {},
+            result_counts: telemetry?.result_counts || {},
+            cache_hit_counts: telemetry?.cache_hit_counts || { hit: 0, miss: 0 },
+            enforcement_counts: telemetry?.enforcement_counts || {},
+            flow_counts: telemetry?.flow_counts || {},
+            tdd_counts: telemetry?.tdd_counts || {},
+            last_seen: telemetry?.last_seen || null,
+            last_compacted_at: telemetry?.last_compacted_at || null,
+        },
+        cache_hits_this_session: Number(session?.cache_hits?.length || 0),
+        trend: lifetime?.sesTrend || "stable",
+        savings_rate_per_hour: Number(lifetime?.sesRatePerHour || 0),
     };
 }
 export function buildSessionCheckout({ sessionId, metrics, session, flowWarns, }) {
-    const warns = Array.isArray(session === null || session === void 0 ? void 0 : session.warns) ? session.warns : [];
+    const warns = Array.isArray(session?.warns) ? session.warns : [];
     const rankedOps = warns
         .map((w) => ({
-        tool: String((w === null || w === void 0 ? void 0 : w.tool) || "unknown"),
-        reason: String((w === null || w === void 0 ? void 0 : w.reason) || ""),
-        savings_usd: Number((w === null || w === void 0 ? void 0 : w.est_savings_usd) || 0),
-        at: (w === null || w === void 0 ? void 0 : w.at) || null,
+        tool: String(w?.tool || "unknown"),
+        reason: String(w?.reason || ""),
+        savings_usd: Number(w?.est_savings_usd || 0),
+        at: w?.at || null,
     }))
         .sort((a, b) => b.savings_usd - a.savings_usd)
         .slice(0, 3);
     const summary = {
         session_id: sessionId,
-        duration_seconds: Number((metrics === null || metrics === void 0 ? void 0 : metrics.sesDuration) || 0),
-        duration: (metrics === null || metrics === void 0 ? void 0 : metrics.sesDurationFormatted) || "0h 0m 0s",
-        cost_usd: Number((session === null || session === void 0 ? void 0 : session.cost_usd) || 0),
+        duration_seconds: Number(metrics?.sesDuration || 0),
+        duration: metrics?.sesDurationFormatted || "0h 0m 0s",
+        cost_usd: Number(session?.cost_usd || 0),
         savings: {
-            delegation_usd: Number((metrics === null || metrics === void 0 ? void 0 : metrics.sesTasks) || 0),
-            cache_usd: Number((session === null || session === void 0 ? void 0 : session.cache_savings_usd) || 0),
-            total_usd: Number(((metrics === null || metrics === void 0 ? void 0 : metrics.sesTasks) || 0) + Number((session === null || session === void 0 ? void 0 : session.cache_savings_usd) || 0)),
+            delegation_usd: Number(metrics?.sesTasks || 0),
+            cache_usd: Number(session?.cache_savings_usd || 0),
+            total_usd: Number((metrics?.sesTasks || 0) + Number(session?.cache_savings_usd || 0)),
         },
         tools: {
-            breakdown: (metrics === null || metrics === void 0 ? void 0 : metrics.sesToolBreakdown) || {},
+            breakdown: metrics?.sesToolBreakdown || {},
             top_expensive_operations: rankedOps,
         },
-        model_split: (metrics === null || metrics === void 0 ? void 0 : metrics.sesModelTurns) || { brain: 0, worker: 0 },
-        trend_vs_previous_sessions: (metrics === null || metrics === void 0 ? void 0 : metrics.sesTrend) || "stable",
+        model_split: metrics?.sesModelTurns || { brain: 0, worker: 0 },
+        trend_vs_previous_sessions: metrics?.sesTrend || "stable",
         flow_violations: flowWarns,
     };
     return {
@@ -87,6 +108,8 @@ export function buildSessionCheckout({ sessionId, metrics, session, flowWarns, }
                 trend: summary.trend_vs_previous_sessions,
                 brain_turns: summary.model_split.brain || 0,
                 worker_turns: summary.model_split.worker || 0,
+                telemetry_events: Number(session?.telemetry?.events || 0),
+                telemetry_storage_bytes_estimate: Number(session?.telemetry?.storage_bytes_estimate || 0),
             },
             narrative: JSON.stringify(summary),
             tags: ["session", "checkout"],
@@ -141,8 +164,8 @@ export function projectStructuredFromText(raw, selection, creditPercent = 0) {
     return {
         brain_pct: brainPct,
         worker_pct: workerPct,
-        enforcement_status: (selection === null || selection === void 0 ? void 0 : selection.delegation_enforce) ? "enforce" : "warn",
-        flow_status: (selection === null || selection === void 0 ? void 0 : selection.flow_enabled) !== false ? "on" : "off",
+        enforcement_status: selection?.delegation_enforce ? "enforce" : "warn",
+        flow_status: selection?.flow_enabled !== false ? "on" : "off",
         credit_percent: Number(creditPercent || 0),
         suggestions,
     };

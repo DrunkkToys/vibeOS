@@ -185,8 +185,7 @@ export function syncControlSettings(cv: any, options: { persistOptimizationMode?
       const sel = loadSelection()
       if (sel[key] !== val) writeSelection(key, val)
     }
-    if (cv.enforcement_mode === "relaxed") writeIf("delegation_enforce", false)
-    else writeIf("delegation_enforce", true)
+    writeIf("delegation_enforce", true)
 
     if (cv.flow_mode === "audit") {
       writeIf("flow_enabled", false)
@@ -528,10 +527,9 @@ function contextBudgetDirective(_input: any, output: any): string | null {
 export const onSystemTransform = async (_input, output) => {
   if (!loadSelection().enabled) return
   try {
-    if (!latestUserIntent) {
-      const userText = extractLastUserText(_input) || extractLastUserText(output)
-      latestUserIntent = typeof userText === "string" ? userText : null
-    }
+    const userText = extractLastUserText(_input) || extractLastUserText(output)
+    if (typeof userText === "string" && userText.trim()) latestUserIntent = userText
+    else if (!latestUserIntent) latestUserIntent = null
     if (latestUserIntent) observeUserCorrection(latestUserIntent)
 
     const optimizationSuggestion = await selectOptimizationModeRemote(
@@ -544,6 +542,7 @@ export const onSystemTransform = async (_input, output) => {
       suggestedMode: optimizationSuggestion,
       subRegime: _latestBlackboxState?.sub_regime || (latestUserIntent ? classifyTurnSimple(latestUserIntent) : "INIT"),
       stress: latestUserIntent ? scoreStress(latestUserIntent) : 0,
+      nInteractions: _latestBlackboxState?.n_interactions ?? 0,
     })
     const optimizationMode = optimizationDecision.mode
     let _controlVector = null

@@ -13,7 +13,7 @@ import { loadSessionOptMode, loadSessionSlot, writeSessionSlot } from '../select
 import { noteProjectPattern } from '../index-helpers.js';
 import { saveSessionStress } from '../index-helpers.js';
 import { COMPRESS_THRESHOLD, KEEP_HOT, COMPRESS_MARKER, PROTOCOL_MARKER, PROTOCOL_TEXT } from "../constants.js";
-import { TEMPLATES, DEFAULT_TEMPLATE, resolveTemplate, detectStressSpike, shouldInjectTemplate } from '../templates.js';
+import { TEMPLATES, DEFAULT_TEMPLATE, resolveTemplate, shouldInjectTemplate } from '../templates.js';
 let latestUserIntent = null;
 let _OC_SID = 'opencode-' + (process.pid || 'x') + '-' + Date.now();
 let _latestBlackboxState = null;
@@ -147,10 +147,7 @@ export function syncControlSettings(cv, options = {}) {
             if (sel[key] !== val)
                 writeSelection(key, val);
         };
-        if (cv.enforcement_mode === "relaxed")
-            writeIf("delegation_enforce", false);
-        else
-            writeIf("delegation_enforce", true);
+        writeIf("delegation_enforce", true);
         if (cv.flow_mode === "audit") {
             writeIf("flow_enabled", false);
             writeIf("flow_enforce", false);
@@ -486,10 +483,11 @@ export const onSystemTransform = async (_input, output) => {
     if (!loadSelection().enabled)
         return;
     try {
-        if (!latestUserIntent) {
-            const userText = extractLastUserText(_input) || extractLastUserText(output);
-            latestUserIntent = typeof userText === "string" ? userText : null;
-        }
+        const userText = extractLastUserText(_input) || extractLastUserText(output);
+        if (typeof userText === "string" && userText.trim())
+            latestUserIntent = userText;
+        else if (!latestUserIntent)
+            latestUserIntent = null;
         if (latestUserIntent)
             observeUserCorrection(latestUserIntent);
         const optimizationSuggestion = await selectOptimizationModeRemote(_latestBlackboxState?.sub_regime || (latestUserIntent ? classifyTurnSimple(latestUserIntent) : "INIT"), latestUserIntent ? scoreStress(latestUserIntent) : 0, loadOptimizationMode());
@@ -498,6 +496,7 @@ export const onSystemTransform = async (_input, output) => {
             suggestedMode: optimizationSuggestion,
             subRegime: _latestBlackboxState?.sub_regime || (latestUserIntent ? classifyTurnSimple(latestUserIntent) : "INIT"),
             stress: latestUserIntent ? scoreStress(latestUserIntent) : 0,
+            nInteractions: _latestBlackboxState?.n_interactions ?? 0,
         });
         const optimizationMode = optimizationDecision.mode;
         let _controlVector = null;
@@ -555,17 +554,17 @@ export const onSystemTransform = async (_input, output) => {
         if (sel.thinking_level && sel.thinking_level !== "full") {
             pushSystem(output, thinkingDirective(sel.thinking_level));
         }
-    // ── Stress mitigation ──
-    if (stressScore > 0.7) {
-        pushSystem(output, "[stress mitigation: CRITICAL] The user's message shows very high stress indicators. " +
-            "Stay calm, structured, and thorough. Use proper markdown formatting with code blocks, " +
-            "lists, and organized structure. Do NOT mirror the user's tone or brevity. " +
-            "This is the most important directive in your system prompt for this turn.");
-    }
-    else if (stressScore > 0.4) {
-        pushSystem(output, "[stress mitigation: elevated] The user's message has elevated stress indicators. " +
-            "Maintain structured, well-formatted responses with markdown and code blocks.");
-    }
+        // ── Stress mitigation ──
+        if (stressScore > 0.7) {
+            pushSystem(output, "[stress mitigation: CRITICAL] The user's message shows very high stress indicators. " +
+                "Stay calm, structured, and thorough. Use proper markdown formatting with code blocks, " +
+                "lists, and organized structure. Do NOT mirror the user's tone or brevity. " +
+                "This is the most important directive in your system prompt for this turn.");
+        }
+        else if (stressScore > 0.4) {
+            pushSystem(output, "[stress mitigation: elevated] The user's message has elevated stress indicators. " +
+                "Maintain structured, well-formatted responses with markdown and code blocks.");
+        }
         // ── Remote control-vector directives ──
         if (_controlVector?.directives?.length > 0) {
             for (const directive of _controlVector.directives) {
