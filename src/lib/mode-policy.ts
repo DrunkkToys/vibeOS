@@ -48,7 +48,7 @@ function isManualOverride(mode?: string | null): boolean {
 function chooseEpisodeMode(regime: string, suggestedMode: string, stress: number): AdaptiveMode {
   if (LOOP_REGIMES.has(regime) || suggestedMode === "speed") return "speed"
   if (QUALITY_REGIMES.has(regime) || suggestedMode === "quality") return "quality"
-  return stress > 1.5 ? "quality" : "quality"
+  return stress > 1.5 ? "quality" : "budget"
 }
 
 function defaultPolicy() {

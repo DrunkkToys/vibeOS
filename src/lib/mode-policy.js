@@ -23,7 +23,7 @@ function chooseEpisodeMode(regime, suggestedMode, stress) {
         return "speed";
     if (QUALITY_REGIMES.has(regime) || suggestedMode === "quality")
         return "quality";
-    return stress > 1.5 ? "quality" : "quality";
+    return stress > 1.5 ? "quality" : "budget";
 }
 function defaultPolicy() {
     return {

@@ -707,7 +707,7 @@ function isApiFallback() {
   return _apiFallbackMode || !VIBEOS_API_ENABLED;
 }
 function isApiConnected3() {
-  return VIBEOS_API_ENABLED && isApiConnected2() && !_apiFallbackMode;
+  return VIBEOS_API_ENABLED && !_apiFallbackMode;
 }
 async function remoteCall(method, args, fallbackFn) {
   syncApiTokenFromDisk();
@@ -5813,7 +5813,7 @@ function chooseEpisodeMode(regime, suggestedMode, stress) {
     return "speed";
   if (QUALITY_REGIMES.has(regime) || suggestedMode === "quality")
     return "quality";
-  return stress > 1.5 ? "quality" : "quality";
+  return stress > 1.5 ? "quality" : "budget";
 }
 function defaultPolicy() {
   return {
