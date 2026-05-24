@@ -591,7 +591,7 @@ function resetApiConnection() {
   state.apiFallbackMode = false;
   state.apiFallbackSince = null;
 }
-function isApiConnected() {
+function isApiConnected2() {
   const state = getRuntimeState();
   return state.apiConnected && !state.apiFallbackMode;
 }
@@ -706,8 +706,8 @@ function getApiClient() {
 function isApiFallback() {
   return _apiFallbackMode || !VIBEOS_API_ENABLED;
 }
-function isApiConnected2() {
-  return VIBEOS_API_ENABLED && isApiConnected() && !_apiFallbackMode;
+function isApiConnected3() {
+  return VIBEOS_API_ENABLED && isApiConnected2() && !_apiFallbackMode;
 }
 async function remoteCall(method, args, fallbackFn) {
   syncApiTokenFromDisk();
@@ -1657,6 +1657,8 @@ function setBlackboxEnabled(val) {
 }
 var _latestBlackboxState = null;
 var _modelLocked = false;
+var _lockedSlot = null;
+var _lockedModel = null;
 var _patternFiredKeys = /* @__PURE__ */ new Set();
 var _sessionCleanupRegistered = false;
 var _sessionCacheCleaned = false;
@@ -3003,7 +3005,6 @@ ${Date.now()}
   }
   throw new Error(`[vibeOS] lock not acquired for ${filePath} after ${timeoutMs}ms`);
 }
-var _modelLocked2 = false;
 function classify(m) {
   const s = String(m || "").toLowerCase();
   if (HIGH_TIER_RE.test(s))
@@ -3362,7 +3363,7 @@ function _refreshModel(directory3) {
         console.error(`[vibeOS] auto-detected model: ${currentModel} (tier=${currentTier})`);
       }
     }
-    if (!_modelLocked2) {
+    if (!_modelLocked) {
       const cfgModel = readConfig(directory3) || readConfig(join4(USER_HOME3, ".config/opencode")) || "";
       if (cfgModel && cfgModel !== currentModel) {
         const oldModel = currentModel;
@@ -4082,12 +4083,18 @@ function researchAudit({ hours = 24, session: sessionFilter } = {}) {
 }
 
 // src/lib/runtime-surface.js
-function buildStatusPayload({ selection, tiersData, currentModel: currentModel3, creditPercent, version, todos }) {
+function normalizeTrend(trend) {
+  return trend === "up" || trend === "down" ? trend : "flat";
+}
+function buildStatusPayload({ selection, tiersData, currentModel: currentModel3, creditPercent, version, todos, backendConnected, backendHealthUrl, modelLocked, lockedSlot, lockedModel }) {
   const activeSlot = selection?.active_slot || "brain";
   const todoList = Array.isArray(todos) ? todos : [];
   const pendingTodos = todoList.filter((t) => t?.status === "pending").length;
   const totalTodos = todoList.length;
   const current = tiersData?.trinity?.[activeSlot]?.oc || currentModel3 || "";
+  const lockActive = Boolean(modelLocked);
+  const resolvedLockedSlot = lockActive ? lockedSlot || activeSlot : null;
+  const resolvedLockedModel = lockActive ? lockedModel || current || null : null;
   return {
     enabled: selection?.enabled !== false,
     active_slot: activeSlot,
@@ -4100,7 +4107,12 @@ function buildStatusPayload({ selection, tiersData, currentModel: currentModel3,
     current_model: current,
     credit_percent: creditPercent,
     version,
-    todos: { total: totalTodos, pending: pendingTodos }
+    todos: { total: totalTodos, pending: pendingTodos },
+    backend_connected: Boolean(backendConnected),
+    backend_health_url: backendHealthUrl || null,
+    model_locked: lockActive,
+    locked_slot: resolvedLockedSlot,
+    locked_model: resolvedLockedModel
   };
 }
 function buildSavingsPayload({ lifetime, session }) {
@@ -4139,7 +4151,7 @@ function buildSavingsPayload({ lifetime, session }) {
       last_compacted_at: telemetry?.last_compacted_at || null
     },
     cache_hits_this_session: Number(session?.cache_hits?.length || 0),
-    trend: lifetime?.sesTrend || "stable",
+    trend: normalizeTrend(lifetime?.sesTrend),
     savings_rate_per_hour: Number(lifetime?.sesRatePerHour || 0)
   };
 }
@@ -4633,6 +4645,8 @@ function createTrinityTool(deps) {
         const mediumModel = tiers?.medium?.oc || "(unset)";
         const cheapModel = tiers?.cheap?.oc || "(unset)";
         const activeSlot = sel.active_slot || "brain";
+        const lockedSlot = deps._lockedSlot || null;
+        const lockedModel = deps._lockedModel || null;
         const stressScore = deps.latestUserIntent ? deps.scoreStress(deps.latestUserIntent) : 0;
         const stressBar = stressScore > 0.85 ? "\u2588" : stressScore > 0.7 ? "\u2586" : stressScore > 0.5 ? "\u2585" : stressScore > 0.3 ? "\u2583" : stressScore > 0.1 ? "\u2582" : "\u2581";
         const stressLabel = stressScore > 0.7 ? "high" : stressScore > 0.4 ? "elevated" : stressScore > 0.1 ? "calm" : "none";
@@ -4670,7 +4684,7 @@ function createTrinityTool(deps) {
           `  Flow: ${sel.flow_enabled !== false ? "ON" : "OFF"}${sel.flow_enforce ? " (extract)" : ""}`,
           `  TDD: ${sel.tdd_enforce ? "ON" : "OFF"}${sel.tdd_strict !== false ? " strict" : ""}${sel.tdd_quality !== false ? " quality" : ""}`,
           `  Enforce: ON (mandatory)`,
-          `  Lock: ${deps._modelLocked ? "\u{1F512} ON (model fixed)" : "\u{1F513} OFF"}`,
+          `  Lock: ${deps._modelLocked ? `\u{1F512} ON${lockedSlot ? ` (${lockedSlot})` : ""}${lockedModel ? ` ${lockedModel}` : ""}` : "\u{1F513} OFF"}`,
           `|`,
           `All-time savings:`,
           `  Total: $${ltTotal.toFixed(2)} (${sesTrend})`,
@@ -4818,13 +4832,18 @@ Use \`trinity enforce on\` to reapply the guard if needed.`;
       }
       if (action === "lock") {
         if (slot === "on") {
+          const lockSlot = deps.loadSelection()?.active_slot || "brain";
+          const lockModel = deps._tiersData?.trinity?.[lockSlot]?.oc || deps.currentModel || "detected model";
           deps._modelLocked = true;
-          console.error(`[vibeOS] model LOCKED \u2014 ${deps._tiersData?.trinity?.[deps._tiersData?.selection?.active_slot || "brain"]?.oc || deps.currentModel || "?"} (${deps.currentTier}) will not auto-reconcile with config`);
-          const lockModel = deps._tiersData?.trinity?.[deps._tiersData?.selection?.active_slot || "brain"]?.oc || deps.currentModel || "detected model";
+          deps._lockedSlot = lockSlot;
+          deps._lockedModel = lockModel;
+          console.error(`[vibeOS] model LOCKED \u2014 ${lockModel} (${deps.currentTier}) will not auto-reconcile with config`);
           return `\u{1F512} Model LOCKED \u2014 ${lockModel} will not change unless you force with \`trinity set\` or \`trinity lock off\`.`;
         }
         if (slot === "off") {
           deps._modelLocked = false;
+          deps._lockedSlot = null;
+          deps._lockedModel = null;
           console.error(`[vibeOS] model UNLOCKED \u2014 auto-reconcile re-enabled`);
           return `\u{1F513} Model UNLOCKED \u2014 will auto-follow OpenCode config changes.`;
         }
@@ -7153,7 +7172,7 @@ async function _appendFooter(input, output, directory3) {
     if (quality_avg > 0) {
       enfSuffixFooter = ` QA:${Math.round(quality_avg)}% ${enfTagsFooter.join(" ")}`;
     }
-    const flashIcon = isApiConnected2() ? "\u26A1" : "";
+    const flashIcon = isApiConnected3() ? "\u26A1" : "";
     const resolvedMode = peekBudgetFirstMode({
       requestedMode: optModeFooter,
       subRegime: _latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""),
@@ -9965,7 +9984,12 @@ ${report.narrative}`);
               creditPercent: loadCredit(),
               version: readPackageVersion(),
               todos: loadTodos(),
-              fallbackThinking: thinkingLevel(loadCredit())
+              fallbackThinking: thinkingLevel(loadCredit()),
+              backendConnected: isApiConnected(),
+              backendHealthUrl: `${VIBEOS_API_URL}/health`,
+              modelLocked: _modelLocked,
+              lockedSlot: _lockedSlot,
+              lockedModel: _lockedModel
             }),
             sessions_raw: readFullState()?.sessions || {}
           }),

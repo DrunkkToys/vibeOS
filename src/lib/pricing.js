@@ -18,7 +18,7 @@ import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, sta
 import { join, dirname, basename } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { createHash } from "node:crypto";
-import { currentModel, currentTier, setCurrentModel, setCurrentTier, safeJsonParse, HIGH_TIER_RE, MID_TIER_RE, loadTierRegexes } from "./state.js";
+import { currentModel, currentTier, setCurrentModel, setCurrentTier, safeJsonParse, HIGH_TIER_RE, MID_TIER_RE, loadTierRegexes, _modelLocked } from "./state.js";
 export { HIGH_TIER_RE, MID_TIER_RE, loadTierRegexes };
 const USER_HOME = (() => { try {
     return homedir();
@@ -92,8 +92,6 @@ function withFileLock(filePath, fn, opts = {}) {
     }
     throw new Error(`[vibeOS] lock not acquired for ${filePath} after ${timeoutMs}ms`);
 }
-// ── Module state ────────────────────────────────────────────────────
-let _modelLocked = false;
 // ── Tier classification ─────────────────────────────────────────────
 export let _autoReportCount = 0;
 export function classify(m) {

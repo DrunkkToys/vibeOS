@@ -121,6 +121,8 @@ let _latestBlackboxState: any = null
 let _latestBlackboxLoopMsg: string | null = null
 let _latestBlackboxPivotMsg: string | null = null
 let _modelLocked = false
+let _lockedSlot: string | null = null
+let _lockedModel: string | null = null
 let _detectedFramework: string | null = null
 
 // ── Log rotation mtime guard ─────────────────────────────────────────
@@ -1692,6 +1694,8 @@ export {
   _latestBlackboxLoopMsg,
   _latestBlackboxPivotMsg,
   _modelLocked,
+  _lockedSlot,
+  _lockedModel,
   _detectedFramework,
 
   // JSONC parsing

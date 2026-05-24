@@ -11,6 +11,10 @@ type SelectionLike = {
   thinking_level?: string
 }
 
+function normalizeTrend(trend: any): "up" | "down" | "flat" {
+  return trend === "up" || trend === "down" ? trend : "flat"
+}
+
 type StatusTodoLike = {
   status?: string
 }
@@ -29,6 +33,11 @@ export function buildStatusPayload({
   creditPercent,
   version,
   todos,
+  backendConnected,
+  backendHealthUrl,
+  modelLocked,
+  lockedSlot,
+  lockedModel,
 }: {
   selection: SelectionLike
   tiersData: any
@@ -37,12 +46,20 @@ export function buildStatusPayload({
   version: string
   todos: StatusTodoLike[]
   fallbackThinking?: string
+  backendConnected?: boolean
+  backendHealthUrl?: string | null
+  modelLocked?: boolean
+  lockedSlot?: string | null
+  lockedModel?: string | null
 }) {
   const activeSlot = selection?.active_slot || "brain"
   const todoList = Array.isArray(todos) ? todos : []
   const pendingTodos = todoList.filter(t => t?.status === "pending").length
   const totalTodos = todoList.length
   const current = tiersData?.trinity?.[activeSlot]?.oc || currentModel || ""
+  const lockActive = Boolean(modelLocked)
+  const resolvedLockedSlot = lockActive ? (lockedSlot || activeSlot) : null
+  const resolvedLockedModel = lockActive ? (lockedModel || current || null) : null
   return {
     enabled: selection?.enabled !== false,
     active_slot: activeSlot,
@@ -56,6 +73,11 @@ export function buildStatusPayload({
     credit_percent: creditPercent,
     version,
     todos: { total: totalTodos, pending: pendingTodos },
+    backend_connected: Boolean(backendConnected),
+    backend_health_url: backendHealthUrl || null,
+    model_locked: lockActive,
+    locked_slot: resolvedLockedSlot,
+    locked_model: resolvedLockedModel,
   }
 }
 
@@ -101,7 +123,7 @@ export function buildSavingsPayload({
       last_compacted_at: telemetry?.last_compacted_at || null,
     },
     cache_hits_this_session: Number(session?.cache_hits?.length || 0),
-    trend: lifetime?.sesTrend || "stable",
+    trend: normalizeTrend(lifetime?.sesTrend),
     savings_rate_per_hour: Number(lifetime?.sesRatePerHour || 0),
   }
 }
