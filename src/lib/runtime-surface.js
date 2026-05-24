@@ -1,10 +1,16 @@
 // @ts-nocheck
-export function buildStatusPayload({ selection, tiersData, currentModel, creditPercent, version, todos, }) {
+function normalizeTrend(trend) {
+    return trend === "up" || trend === "down" ? trend : "flat";
+}
+export function buildStatusPayload({ selection, tiersData, currentModel, creditPercent, version, todos, backendConnected, backendHealthUrl, modelLocked, lockedSlot, lockedModel, }) {
     const activeSlot = selection?.active_slot || "brain";
     const todoList = Array.isArray(todos) ? todos : [];
     const pendingTodos = todoList.filter(t => t?.status === "pending").length;
     const totalTodos = todoList.length;
     const current = tiersData?.trinity?.[activeSlot]?.oc || currentModel || "";
+    const lockActive = Boolean(modelLocked);
+    const resolvedLockedSlot = lockActive ? (lockedSlot || activeSlot) : null;
+    const resolvedLockedModel = lockActive ? (lockedModel || current || null) : null;
     return {
         enabled: selection?.enabled !== false,
         active_slot: activeSlot,
@@ -18,6 +24,11 @@ export function buildStatusPayload({ selection, tiersData, currentModel, creditP
         credit_percent: creditPercent,
         version,
         todos: { total: totalTodos, pending: pendingTodos },
+        backend_connected: Boolean(backendConnected),
+        backend_health_url: backendHealthUrl || null,
+        model_locked: lockActive,
+        locked_slot: resolvedLockedSlot,
+        locked_model: resolvedLockedModel,
     };
 }
 export function buildSavingsPayload({ lifetime, session, }) {
@@ -56,7 +67,7 @@ export function buildSavingsPayload({ lifetime, session, }) {
             last_compacted_at: telemetry?.last_compacted_at || null,
         },
         cache_hits_this_session: Number(session?.cache_hits?.length || 0),
-        trend: lifetime?.sesTrend || "stable",
+        trend: normalizeTrend(lifetime?.sesTrend),
         savings_rate_per_hour: Number(lifetime?.sesRatePerHour || 0),
     };
 }

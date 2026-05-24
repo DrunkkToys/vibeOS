@@ -112,6 +112,8 @@ let _latestBlackboxState = null;
 let _latestBlackboxLoopMsg = null;
 let _latestBlackboxPivotMsg = null;
 let _modelLocked = false;
+let _lockedSlot = null;
+let _lockedModel = null;
 let _detectedFramework = null;
 // ── Log rotation mtime guard ─────────────────────────────────────────
 let _lastLogRotated = 0;
@@ -1753,7 +1755,7 @@ DFLT_SEL, loadSelection, writeSelection,
 // Global learning
 DFLT_GL, loadGlobalLearning, updateGlobalLearning, getLearnedExploratoryWords, 
 // Blackbox state
-_blackboxTracker, _blackboxEnabled, _latestBlackboxState, _latestBlackboxLoopMsg, _latestBlackboxPivotMsg, _modelLocked, _detectedFramework, 
+_blackboxTracker, _blackboxEnabled, _latestBlackboxState, _latestBlackboxLoopMsg, _latestBlackboxPivotMsg, _modelLocked, _lockedSlot, _lockedModel, _detectedFramework, 
 // JSONC parsing
 safeJsonParse, 
 // State management

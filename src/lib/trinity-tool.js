@@ -56,6 +56,8 @@ export function createTrinityTool(deps) {
                 const mediumModel = tiers?.medium?.oc || "(unset)";
                 const cheapModel = tiers?.cheap?.oc || "(unset)";
                 const activeSlot = sel.active_slot || "brain";
+                const lockedSlot = deps._lockedSlot || null;
+                const lockedModel = deps._lockedModel || null;
                 const stressScore = deps.latestUserIntent ? deps.scoreStress(deps.latestUserIntent) : 0;
                 const stressBar = stressScore > 0.85 ? "█" : stressScore > 0.7 ? "▆" : stressScore > 0.5 ? "▅" : stressScore > 0.3 ? "▃" : stressScore > 0.1 ? "▂" : "▁";
                 const stressLabel = stressScore > 0.7 ? "high" : stressScore > 0.4 ? "elevated" : stressScore > 0.1 ? "calm" : "none";
@@ -93,7 +95,7 @@ export function createTrinityTool(deps) {
                     `  Flow: ${sel.flow_enabled !== false ? "ON" : "OFF"}${sel.flow_enforce ? " (extract)" : ""}`,
                     `  TDD: ${sel.tdd_enforce ? "ON" : "OFF"}${sel.tdd_strict !== false ? " strict" : ""}${sel.tdd_quality !== false ? " quality" : ""}`,
                     `  Enforce: ON (mandatory)`,
-                    `  Lock: ${deps._modelLocked ? "\u{1F512} ON (model fixed)" : "\u{1F513} OFF"}`,
+                    `  Lock: ${deps._modelLocked ? `\u{1F512} ON${lockedSlot ? ` (${lockedSlot})` : ""}${lockedModel ? ` ${lockedModel}` : ""}` : "\u{1F513} OFF"}`,
                     `|`,
                     `All-time savings:`,
                     `  Total: $${ltTotal.toFixed(2)} (${sesTrend})`,
@@ -249,13 +251,18 @@ export function createTrinityTool(deps) {
             }
             if (action === "lock") {
                 if (slot === "on") {
+                    const lockSlot = deps.loadSelection()?.active_slot || "brain";
+                    const lockModel = deps._tiersData?.trinity?.[lockSlot]?.oc || deps.currentModel || "detected model";
                     deps._modelLocked = true;
-                    console.error(`[vibeOS] model LOCKED \u2014 ${deps._tiersData?.trinity?.[deps._tiersData?.selection?.active_slot || "brain"]?.oc || deps.currentModel || "?"} (${deps.currentTier}) will not auto-reconcile with config`);
-                    const lockModel = deps._tiersData?.trinity?.[deps._tiersData?.selection?.active_slot || "brain"]?.oc || deps.currentModel || "detected model";
+                    deps._lockedSlot = lockSlot;
+                    deps._lockedModel = lockModel;
+                    console.error(`[vibeOS] model LOCKED \u2014 ${lockModel} (${deps.currentTier}) will not auto-reconcile with config`);
                     return `\u{1F512} Model LOCKED \u2014 ${lockModel} will not change unless you force with \`trinity set\` or \`trinity lock off\`.`;
                 }
                 if (slot === "off") {
                     deps._modelLocked = false;
+                    deps._lockedSlot = null;
+                    deps._lockedModel = null;
                     console.error(`[vibeOS] model UNLOCKED \u2014 auto-reconcile re-enabled`);
                     return `\u{1F513} Model UNLOCKED \u2014 will auto-follow OpenCode config changes.`;
                 }

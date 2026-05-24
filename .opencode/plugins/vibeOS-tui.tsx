@@ -35,6 +35,11 @@ type StatusResponse = {
   current_model: string
   credit_percent: number
   version: string
+  backend_connected?: boolean
+  backend_health_url?: string | null
+  model_locked?: boolean
+  locked_slot?: string | null
+  locked_model?: string | null
 }
 
 type SavingsResponse = {
@@ -158,6 +163,10 @@ const plugin: TuiPlugin = async (api, _options, _meta) => {
     const shortModel = s?.current_model?.split("/")[1] ?? s?.current_model ?? "?"
     const flowOn = s?.flow_enforcer ?? false
     const tddOn = s?.tdd_enforcer ?? false
+    const backendConnected = s?.backend_connected ?? false
+    const lockLabel = s?.model_locked
+      ? `${s?.locked_slot ? `${s.locked_slot} ` : ""}${s?.locked_model ?? ""}`.trim()
+      : "off"
 
     return (
       <box flexDirection="column">
@@ -179,6 +188,17 @@ const plugin: TuiPlugin = async (api, _options, _meta) => {
                 {shortModel}
               </text>
               {activeSlot === "brain" && <text color="green"> active</text>}
+            </box>
+            <newline />
+            <box>
+              <text>Backend </text>
+              <text color={backendConnected ? "green" : "red"} bold>{backendConnected ? "ON" : "OFF"}</text>
+            </box>
+            <newline />
+            <box>
+              <text>Lock </text>
+              <text color={s?.model_locked ? "green" : "red"} bold>{s?.model_locked ? "ON" : "OFF"}</text>
+              {s?.model_locked && lockLabel && <text dim> {lockLabel}</text>}
             </box>
             <newline />
             <text dim>---</text>
