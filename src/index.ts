@@ -60,6 +60,13 @@ import { MONITOR } from "./lib/constants.js"
 import { extractExports, buildTestSkeleton, enforceTestFile, buildTestReminder } from "./lib/tdd-enforcer.js"
 import { setActiveJobFromTaskPrompt, observeToolPattern, applyDecadence, compressText, recordSaving } from "./lib/index-helpers.js"
 import { researchAudit } from "./lib/research-audit.js"
+import {
+  buildStatusPayload,
+  buildSavingsPayload,
+  buildSessionCheckout,
+  diagnoseStructuredFromText,
+  projectStructuredFromText,
+} from "./lib/runtime-surface.js"
 import { saveReport, listReports, readReport, reportsIndex, saveReportsIndex, REPORTS_INDEX } from "./lib/reporting.js"
 import { writeSessionSlot } from "./lib/selection-manager.js"
 import { _refreshModel } from "./lib/pricing.js"
@@ -187,163 +194,6 @@ function persistMcpPort(port: number): void {
     writeFileSync(tmp, JSON.stringify(tiers, null, 2) + "\n", "utf-8")
     renameSync(tmp, TIERS_FILE)
   } catch {}
-}
-
-function computeStatusPayload(): any {
-  const sel = loadSelection()
-  let tiersData: any = {}
-  try { tiersData = safeJsonParse(readFileSync(TIERS_FILE, "utf-8")) } catch {}
-  const credit = loadCredit()
-  const activeSlot = sel.active_slot || "brain"
-  const current = tiersData?.trinity?.[activeSlot]?.oc || currentModel || ""
-  const thinking = sel.thinking_level || thinkingLevel(credit)
-  const _todos = loadTodos()
-  const pendingTodos = _todos.filter(t => t.status === "pending").length
-  const totalTodos = _todos.length
-  return {
-    enabled: sel.enabled !== false,
-    active_slot: activeSlot,
-    enforce: sel.delegation_enforce !== false,
-    flow_enforcer: sel.flow_enabled !== false,
-    flow_extract_todos: sel.flow_enforce === true,
-    tdd_enforcer: sel.tdd_enforce === true,
-    tdd_strict: sel.tdd_strict !== false,
-    thinking,
-    current_model: current,
-    credit_percent: credit,
-    version: readPackageVersion(),
-    todos: { total: totalTodos, pending: pendingTodos },
-  }
-}
-
-function computeSavingsPayload(): any {
-  const lt = readLifetimeSavings()
-  return {
-    lifetime: {
-      delegation_usd: Number(lt.ltTasks || 0),
-      cache_usd: Number(lt.ltCache || 0),
-      missed_context7_usd: Number(lt.missedC7 || 0),
-      total_warns: Number(lt.count || 0),
-    },
-    current_session: {
-      delegation_usd: Number(lt.sesTasks || 0),
-      cache_usd: Number((readFullState()?.sessions?.[_OC_SID]?.cache_savings_usd) || 0),
-      warns_count: Array.isArray(readFullState()?.sessions?.[_OC_SID]?.warns) ? readFullState().sessions[_OC_SID].warns.length : 0,
-      tool_breakdown: lt.sesToolBreakdown || {},
-    },
-    cache_hits_this_session: Number(readFullState()?.sessions?.[_OC_SID]?.cache_hits?.length || 0),
-    trend: lt.sesTrend || "stable",
-    savings_rate_per_hour: Number(lt.sesRatePerHour || 0),
-  }
-}
-
-function computeSessionCheckout(): any {
-  const state = readFullState()
-  const metrics = computeSessionMetrics(state, _OC_SID)
-  const session = state?.sessions?.[_OC_SID] || {}
-  const warns = Array.isArray(session?.warns) ? session.warns : []
-  const rankedOps = warns
-    .map((w: any) => ({
-      tool: String(w?.tool || "unknown"),
-      reason: String(w?.reason || ""),
-      savings_usd: Number(w?.est_savings_usd || 0),
-      at: w?.at || null,
-    }))
-    .sort((a: any, b: any) => b.savings_usd - a.savings_usd)
-    .slice(0, 3)
-  const flowWarns = getFlowWarns().filter((w: any) => String(w?.sid || "") === String(process.pid || ""))
-  const summary = {
-    session_id: _OC_SID,
-    duration_seconds: Number(metrics?.sesDuration || 0),
-    duration: metrics?.sesDurationFormatted || "0h 0m 0s",
-    cost_usd: Number(session?.cost_usd || 0),
-    savings: {
-      delegation_usd: Number(metrics?.sesTasks || 0),
-      cache_usd: Number(session?.cache_savings_usd || 0),
-      total_usd: Number((metrics?.sesTasks || 0) + Number(session?.cache_savings_usd || 0)),
-    },
-    tools: {
-      breakdown: metrics?.sesToolBreakdown || {},
-      top_expensive_operations: rankedOps,
-    },
-    model_split: metrics?.sesModelTurns || { brain: 0, worker: 0 },
-    trend_vs_previous_sessions: metrics?.sesTrend || "stable",
-    flow_violations: flowWarns,
-  }
-  const reportId = saveReport({
-    type: "session-checkout",
-    summary: `Session checkout ${_OC_SID}: $${Number(summary.savings.total_usd || 0).toFixed(3)} saved`,
-    findings: rankedOps.map((op: any) => ({
-      severity: "info",
-      topic: op.tool,
-      detail: `${op.reason} ($${op.savings_usd.toFixed(6)})`,
-    })),
-    metrics: {
-      duration_seconds: summary.duration_seconds,
-      cost_usd: summary.cost_usd,
-      delegation_savings_usd: summary.savings.delegation_usd,
-      cache_savings_usd: summary.savings.cache_usd,
-      total_savings_usd: summary.savings.total_usd,
-      trend: summary.trend_vs_previous_sessions,
-      brain_turns: summary.model_split.brain || 0,
-      worker_turns: summary.model_split.worker || 0,
-    },
-    narrative: JSON.stringify(summary),
-    tags: ["session", "checkout"],
-  })
-  return { ok: true, summary, report_id: reportId }
-}
-
-function diagnoseStructuredFromText(raw: string): any {
-  const text = String(raw || "")
-  const lines = text.split("\n")
-  const files: Array<any> = []
-  const model_probes: Array<any> = []
-  const suggestions: string[] = []
-  let credit = { percent: loadCredit(), ok: true, fix: null as string | null }
-  for (const line of lines) {
-    const trimmed = line.trim()
-    if (!trimmed) continue
-    if (trimmed.includes("→")) suggestions.push(trimmed.replace(/^→\s*/, ""))
-    if (/slot/i.test(trimmed) && /(brain|medium|cheap)/i.test(trimmed)) {
-      model_probes.push({ slot: trimmed, model: "", ok: trimmed.includes("✅"), fix: trimmed.includes("→") ? trimmed.split("→")[1].trim() : undefined })
-    }
-    if (/model-tiers\.json|opencode\.json|delegation-state\.json|auth\.json/i.test(trimmed)) {
-      files.push({ path: trimmed, exists: trimmed.includes("✅"), ok: trimmed.includes("✅"), fix: trimmed.includes("→") ? trimmed.split("→")[1].trim() : undefined })
-    }
-    if (/credit/i.test(trimmed)) {
-      const m = trimmed.match(/(\d+)%/)
-      if (m) credit.percent = Number(m[1])
-      credit.ok = trimmed.includes("✅")
-      credit.fix = trimmed.includes("→") ? trimmed.split("→")[1].trim() : null
-    }
-  }
-  return {
-    config_valid: !text.includes("❌"),
-    files,
-    model_probes,
-    credit,
-    locks_clean: true,
-    suggestions,
-  }
-}
-
-function projectStructuredFromText(raw: string): any {
-  const text = String(raw || "")
-  const m1 = text.match(/Brain[^0-9]*(\d+)%/i)
-  const m2 = text.match(/Worker[^0-9]*(\d+)%/i)
-  const brainPct = m1 ? Number(m1[1]) : 0
-  const workerPct = m2 ? Number(m2[1]) : 0
-  const lines = text.split("\n")
-  const suggestions = lines.filter((l: string) => l.includes("💡")).map((l: string) => l.replace(/^.*💡\s*/, "").trim())
-  return {
-    brain_pct: brainPct,
-    worker_pct: workerPct,
-    enforcement_status: loadSelection().delegation_enforce ? "enforce" : "warn",
-    flow_status: loadSelection().flow_enabled !== false ? "on" : "off",
-    credit_percent: loadCredit(),
-    suggestions,
-  }
 }
 
 // ── DelegationEnforcer — main plugin entry point ─────────────────────
@@ -698,8 +548,22 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
     if (port !== 0 && !_inTestEnv) {
       if (!_mcpServerRuntime) {
         _mcpServerRuntime = createMcpServer({
-          getState: () => ({ ...computeStatusPayload(), sessions_raw: readFullState()?.sessions || {} }),
-          getSavings: () => computeSavingsPayload(),
+          getState: () => ({
+            ...buildStatusPayload({
+              selection: loadSelection(),
+              tiersData: (() => { try { return safeJsonParse(readFileSync(TIERS_FILE, "utf-8")) } catch { return {} } })(),
+              currentModel: currentModel || "",
+              creditPercent: loadCredit(),
+              version: readPackageVersion(),
+              todos: loadTodos(),
+              fallbackThinking: thinkingLevel(loadCredit()),
+            }),
+            sessions_raw: readFullState()?.sessions || {},
+          }),
+          getSavings: () => buildSavingsPayload({
+            lifetime: readLifetimeSavings(),
+            session: readFullState()?.sessions?.[_OC_SID] || {},
+          }),
           getSessionMetrics: () => computeSessionMetrics(readFullState(), _OC_SID),
           getTodos: () => loadTodos(),
           listReports: (filter: any) => {
@@ -707,13 +571,26 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
             return listReports(filter || {})
           },
           readReport: (rvId: string) => readReport(rvId),
-          runDiagnose: async () => diagnoseStructuredFromText(await pluginHooks.tool.trinity.execute({ action: "diagnose" })),
-          runProject: async () => projectStructuredFromText(await pluginHooks.tool.trinity.execute({ action: "project" })),
+          runDiagnose: async () => diagnoseStructuredFromText(await pluginHooks.tool.trinity.execute({ action: "diagnose" }), loadCredit()),
+          runProject: async () => projectStructuredFromText(await pluginHooks.tool.trinity.execute({ action: "project" }), loadSelection(), loadCredit()),
           runTrinity: async (rvAction: string, params: any = {}) => pluginHooks.tool.trinity.execute({ action: rvAction, slot: params.slot, level: params.level }),
           runResearchAudit: (hours: number) => researchAudit({ hours: hours ?? 24 }),
           saveReport: (data: any) => saveReport(data),
           getCurrentSessionId: () => _OC_SID,
-          generateSessionCheckout: () => computeSessionCheckout(),
+          generateSessionCheckout: () => {
+            const state = readFullState()
+            const metrics = computeSessionMetrics(state, _OC_SID)
+            const session = state?.sessions?.[_OC_SID] || {}
+            const flowWarns = getFlowWarns().filter((w: any) => String(w?.sid || "") === String(process.pid || ""))
+            const checkout = buildSessionCheckout({
+              sessionId: _OC_SID,
+              metrics,
+              session,
+              flowWarns,
+            })
+            const reportId = saveReport(checkout.report)
+            return { ok: true, summary: checkout.summary, report_id: reportId }
+          },
         })
       }
       const mcpServer = await _mcpServerRuntime.start(port)
