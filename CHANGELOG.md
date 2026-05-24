@@ -1,3 +1,7 @@
+## 0.18.15
+- fix: session records missing started/session_started_at fields (v0.18.12)
+
+
 ## 0.18.8
 - feat: auto-update on plugin load — spawns `npm install vibeostheog@latest` in background
 
