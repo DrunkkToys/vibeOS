@@ -48,6 +48,8 @@ If you keep a local checkout of the plugin, point OpenCode at the built file ins
 
 Restart OpenCode Desktop after changing the config.
 
+The package also exposes `vibeostheog/server` and `vibeostheog/tui` for integrations that need the MCP server or sidebar plugin entrypoints directly.
+
 ## Common Npm Commands
 
 ```bash
