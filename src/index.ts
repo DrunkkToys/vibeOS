@@ -121,6 +121,32 @@ function _readOpenCodeConfigObject(dir: string): any {
   return {}
 }
 
+async function _resolveBootstrapModel(client: any, directory?: string): Promise<{ model: string; source: string }> {
+  const normalize = (value: any) => {
+    const model = String(value || "").trim()
+    return model && !PLACEHOLDER_RE.test(model) ? model : ""
+  }
+
+  const projectModel = normalize(readConfig(directory))
+  if (projectModel) return { model: projectModel, source: "project-config" }
+
+  try {
+    const apiModel = normalize(await client?.config?.get?.("model"))
+    if (apiModel) return { model: apiModel, source: "opencode-api" }
+  } catch {}
+
+  const home = process.env.HOME || ""
+  if (home) {
+    const globalModel = normalize(readConfig(join(home, ".config/opencode")))
+    if (globalModel) return { model: globalModel, source: "global-config" }
+  }
+
+  const envModel = normalize(process?.env?.OPENCODE_MODEL || "")
+  if (envModel) return { model: envModel, source: "env" }
+
+  return { model: "", source: "" }
+}
+
 function _parseJsonc(raw: string): any {
   const noBlock = String(raw || "").replace(/\/\*[\s\S]*?\*\//g, "")
   const noLine = noBlock.replace(/(^|\s)\/\/.*$/gm, "$1")
@@ -205,13 +231,12 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
   registerSessionCleanupHandlers()
   pruneScratchpadOnce()
 
-  // Detect model: project opencode.json → global ~/.config/opencode/opencode.json → env.
-  setCurrentModel(readConfig(directory))
-  if (!currentModel) {
-    const home = process.env.HOME || ""
-    if (home) setCurrentModel(readConfig(join(home, ".config/opencode")))
+  // Detect model: project opencode.json → OpenCode API → global ~/.config/opencode/opencode.json → env.
+  const _bootstrapModel = await _resolveBootstrapModel(client, directory)
+  if (_bootstrapModel.model) {
+    setCurrentModel(_bootstrapModel.model)
+    setCurrentTier(classify(_bootstrapModel.model))
   }
-  if (!currentModel) setCurrentModel(process?.env?.OPENCODE_MODEL || "")
   if (currentModel) {
     setCurrentTier(classify(currentModel))
     try {
@@ -235,7 +260,7 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
 
   // Auto-configure model-tiers.json
   console.error(`[vibeOS] auto-config guard: currentModel=${currentModel ? "SET" : "NONE"}, TIERS_FILE=${TIERS_FILE}, exists=${existsSync(TIERS_FILE)}`)
-  if (currentModel || !existsSync(TIERS_FILE)) {
+  if ((currentModel && String(currentModel).trim().length > 0) || existsSync(TIERS_FILE)) {
     try {
       let _tiersData
       let _wasCorrupted = false

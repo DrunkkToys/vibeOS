@@ -10045,6 +10045,27 @@ function _readOpenCodeConfigObject(dir) {
   if (existsSync16(jsoncPath)) return _parseJsonc(readFileSync15(jsoncPath, "utf-8"));
   return {};
 }
+async function _resolveBootstrapModel(client2, directory3) {
+  const normalize = (value) => {
+    const model = String(value || "").trim();
+    return model && !PLACEHOLDER_RE.test(model) ? model : "";
+  };
+  const projectModel = normalize(readConfig(directory3));
+  if (projectModel) return { model: projectModel, source: "project-config" };
+  try {
+    const apiModel = normalize(await client2?.config?.get?.("model"));
+    if (apiModel) return { model: apiModel, source: "opencode-api" };
+  } catch {
+  }
+  const home = process.env.HOME || "";
+  if (home) {
+    const globalModel = normalize(readConfig(join17(home, ".config/opencode")));
+    if (globalModel) return { model: globalModel, source: "global-config" };
+  }
+  const envModel = normalize(process?.env?.OPENCODE_MODEL || "");
+  if (envModel) return { model: envModel, source: "env" };
+  return { model: "", source: "" };
+}
 function _parseJsonc(raw) {
   const noBlock = String(raw || "").replace(/\/\*[\s\S]*?\*\//g, "");
   const noLine = noBlock.replace(/(^|\s)\/\/.*$/gm, "$1");
@@ -10125,12 +10146,11 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
   if (typeof setShellDirectory === "function") setShellDirectory(directory3 || "");
   registerSessionCleanupHandlers();
   pruneScratchpadOnce();
-  setCurrentModel(readConfig(directory3));
-  if (!currentModel) {
-    const home = process.env.HOME || "";
-    if (home) setCurrentModel(readConfig(join17(home, ".config/opencode")));
+  const _bootstrapModel = await _resolveBootstrapModel(client2, directory3);
+  if (_bootstrapModel.model) {
+    setCurrentModel(_bootstrapModel.model);
+    setCurrentTier(classify(_bootstrapModel.model));
   }
-  if (!currentModel) setCurrentModel(process?.env?.OPENCODE_MODEL || "");
   if (currentModel) {
     setCurrentTier(classify(currentModel));
     try {
@@ -10153,7 +10173,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     console.error("[vibeOS] NO MODEL \u2014 enforcement disabled, will auto-detect on first hook");
   }
   console.error(`[vibeOS] auto-config guard: currentModel=${currentModel ? "SET" : "NONE"}, TIERS_FILE=${TIERS_FILE2}, exists=${existsSync16(TIERS_FILE2)}`);
-  if (currentModel || !existsSync16(TIERS_FILE2)) {
+  if (currentModel && String(currentModel).trim().length > 0 || existsSync16(TIERS_FILE2)) {
     try {
       let _tiersData2;
       let _wasCorrupted = false;

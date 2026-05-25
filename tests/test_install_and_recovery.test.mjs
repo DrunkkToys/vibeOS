@@ -344,6 +344,36 @@ test("recovery: model-tiers.json with null values in slots recovers", async () =
   }
 })
 
+test("bootstrap: OpenCode API model seeds trinity slots when local config is missing", async () => {
+  const sb = freshSandbox()
+  const prevHome = process.env.HOME
+  process.env.HOME = sb
+  try {
+    const dir = join(sb, "project")
+    mkdirSync(dir, { recursive: true })
+
+    const client = {
+      config: {
+        get: async (key) => key === "model" ? "deepseek/deepseek-v4-pro" : null,
+      },
+    }
+
+    const { DelegationEnforcer } = await loadPlugin()
+    const hooks = await DelegationEnforcer({ client, directory: dir })
+    assert.ok(hooks, "plugin loads with OpenCode API client model")
+
+    const tiersPath = join(sb, ".claude/model-tiers.json")
+    assert.ok(existsSync(tiersPath), "model-tiers.json created from OpenCode API model")
+    const tiers = safeJsonParse(readFileSync(tiersPath, "utf-8"))
+    assert.equal(tiers?.trinity?.brain?.oc, "deepseek/deepseek-v4-pro", "brain slot seeded from API model")
+    assert.ok(tiers?.trinity?.medium?.oc, "medium slot seeded")
+    assert.ok(tiers?.trinity?.cheap?.oc, "cheap slot seeded")
+  } finally {
+    process.env.HOME = prevHome
+    rmSync(sb, { recursive: true, force: true })
+  }
+})
+
 // ────────────────────────────────────────────────────────────────────────────
 // GAP 4: Missing ALL config files (bare machine)
 // ────────────────────────────────────────────────────────────────────────────
