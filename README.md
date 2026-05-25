@@ -24,12 +24,16 @@ It also adds guardrails: delegation enforcement, flow and TDD controls, pattern 
 npm install vibeostheog
 ```
 
-2. Register it in `~/.config/opencode/opencode.json`:
+2. Let OpenCode load the built plugin from its plugin directory.
+   The package deploys `src/index.js` to `~/.config/opencode/plugins/vibeOS.js`
+   and can auto-register `./plugins/vibeOS.js` in `~/.config/opencode/opencode.json`.
+
+3. If you want to configure it manually, use:
 
 ```json
 {
-  "plugins": [
-    { "id": "vibeOS", "path": "node_modules/vibeostheog/src/index.js" }
+  "plugin": [
+    "./plugins/vibeOS.js"
   ]
 }
 ```
@@ -40,8 +44,8 @@ If you keep a local checkout of the plugin, point OpenCode at the built file ins
 
 ```json
 {
-  "plugins": [
-    { "id": "vibeOS", "path": "/absolute/path/to/theSaver-oc/src/index.js" }
+  "plugin": [
+    "/absolute/path/to/theSaver-oc/src/index.js"
   ]
 }
 ```
@@ -64,6 +68,7 @@ npm run release:patch
 
 ## Core Controls
 
+`trinity` is an OpenCode plugin command. Run it from inside OpenCode, not from a normal terminal shell.
 Use `trinity help` for the full command list. The most common controls are:
 
 - `trinity status` - show current tier, enforcement, savings, stress, and lock state
