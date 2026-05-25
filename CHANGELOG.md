@@ -1,3 +1,8 @@
+## 0.19.6
+- feat: add OpenCode-style setup installer
+- docs: align install flow with OpenCode npm plugin pattern
+
+
 ## 0.19.4
 - feat: register trinity in OpenCode keymap
 - docs: clarify install and trinity usage
