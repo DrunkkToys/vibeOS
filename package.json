@@ -7,7 +7,7 @@
     "release:patch": "node scripts/release.mjs patch --yes",
     "release:minor": "node scripts/release.mjs minor --yes",
     "release:major": "node scripts/release.mjs major --yes",
-    "build": "tsc -p tsconfig.json --noEmit && npx esbuild src/index.ts --bundle --outfile=src/index.js --platform=node --format=esm --target=node22 --external:node:* --external:vibeOScore && node scripts/deploy.mjs",
+    "build": "tsc -p tsconfig.json --noEmit && npx esbuild src/index.ts --bundle --outfile=src/index.js --platform=node --format=esm --target=node22 --external:node:* && node scripts/deploy.mjs",
     "deploy": "node scripts/deploy.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "checkpoint:validate": "node scripts/checkpoint-validate.mjs",
@@ -66,8 +66,7 @@
     "@types/node": "^22.15.30",
     "esbuild": "^0.28.0",
     "express": "^5.2.1",
-    "typescript": "^5.9.3",
-    "vibeOScore": "file:../vibeOScore"
+    "typescript": "^5.9.3"
   },
   "dependencies": {}
 }

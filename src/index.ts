@@ -15,8 +15,7 @@ import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import { checkFlowRules, getFlowWarns, ensureProjectDocs, getFlowTodos, syncFlowTodosToNative } from "./vibeOS-lib/flow-enforcer.js"
 import { computeSessionMetrics } from "./vibeOS-lib/session-metrics.js"
-import { createMcpServer } from "vibeOScore/mcp-server"
-import { VibeOSApiClient } from "vibeOScore/client"
+import { createMcpServer } from "./lib/vibeos-mcp-server.js"
 
 import { getApiClient, remoteCall, isApiFallback, setApiToken, VIBEOS_API_URL } from "./lib/api-client.js"
 import {
