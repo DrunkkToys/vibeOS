@@ -1,3 +1,11 @@
+## 0.19.1
+- fix: make README and runtime self-contained
+- test: add 59 integration + e2e tests for cross-module behavior and user workflows
+Merge pull request #49 from DrunkkToys/oc-desktop-live-savings-refresh
+Merge pull request #48 from DrunkkToys/codex/live-savings-refresh
+Invalidate savings cache on state writes
+
+
 ## 0.19.0
 - feat: quality governance — self-protection, 2h release gate, outcome tracking (#44)
 - fix: chooseEpisodeMode defaults to budget (was always quality) + simplify isApiConnected check
