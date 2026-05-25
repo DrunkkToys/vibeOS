@@ -23,6 +23,9 @@ writeFileSync(join(sandbox, ".config/opencode/opencode.json"), JSON.stringify({
   "provider": {
     "opencode": {},
     "openrouter": {},
+    "mistral": {
+      "models": { "mistral-large-latest": {}, "mistral-medium-latest": {} }
+    },
     "deepseek": {
       "models": { "deepseek-v4-pro": {}, "deepseek-v4-flash": {}, "deepseek-chat": {}, "deepseek-reasoner": {} }
     }
@@ -46,7 +49,7 @@ writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
     "medium": { "oc": "deepseek/deepseek-v4-flash", "cc": "haiku" },
     "cheap": { "oc": "deepseek/deepseek-chat", "cc": "haiku" }
   },
-  "pricing": { "deepseek": {}, "openrouter": {}, "opencode": {} }
+  "pricing": { "deepseek": {}, "openrouter": {}, "opencode": {}, "models": { "mistral/mistral-large-latest": 0.123 } }
 }, null, 2) + "\n")
 
 writeFileSync(join(sandbox, ".local/share/opencode/auth.json"), JSON.stringify({
@@ -82,6 +85,7 @@ const mod = await import("../src/index.js?deep=" + Date.now())
 const { DelegationEnforcer, applySlot, classifyAndRankModels, modelToCcAlias,
         modelCostPerTurn, isModelFree, saveReport, listReports, readReport,
         researchAudit, getScratchpadHit, buildTestReminder } = mod
+const { collectConfiguredProviderModels } = await import("../src/lib/trinity-rebuild.js?deep=" + Date.now())
 
 async function freshPlugin(dir = projectDir) {
   return await DelegationEnforcer({ client: {}, directory: dir })
@@ -94,6 +98,7 @@ test("modelCostPerTurn: known models, dots normalization, provider prefixes, unk
   assert.equal(modelCostPerTurn("deepseek/deepseek-v4-flash"), 0.000182)
   assert.equal(modelCostPerTurn("deepseek/deepseek-chat"), 0.000182, "deepseek-chat costs 0.000182")
   assert.equal(modelCostPerTurn("anthropic/claude-opus-4-7"), 0.033)
+  assert.equal(modelCostPerTurn("mistral/mistral-large-latest"), 0.123, "config override cost")
   // anthropic prefix + dots: normalization strips dots but not anthropic/ prefix
   // The cost table entry is "anthropic/claude-sonnet-4-6" = 0.0066
   assert.equal(modelCostPerTurn("anthropic/claude-sonnet-4-6"), 0.0066, "dots -> dashes")
@@ -106,6 +111,18 @@ test("modelCostPerTurn: known models, dots normalization, provider prefixes, unk
 test("isModelFree: correctly identifies", () => {
   assert.equal(isModelFree("deepseek/deepseek-v4-flash"), false)
   assert.equal(isModelFree("anthropic/claude-opus-4-7"), false)
+})
+
+test("collectConfiguredProviderModels: arbitrary OpenCode dropdown providers are preserved", () => {
+  const models = collectConfiguredProviderModels({
+    mistral: { models: { "mistral-large-latest": {}, "mistral-medium-latest": {} } },
+    custom: { models: { "custom/provider-model": {} } },
+  })
+  assert.deepEqual(models.map(m => m.id), [
+    "mistral/mistral-large-latest",
+    "mistral/mistral-medium-latest",
+    "custom/provider-model",
+  ])
 })
 
 test("classifyAndRankModels: full set, mixed providers, two models, dedup, empty", () => {

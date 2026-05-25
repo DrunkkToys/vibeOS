@@ -36,17 +36,55 @@ function readOpenCodeConfigObject(dir) {
     }
     return {};
 }
+function normalizeProviderModels(providerName, models) {
+    const out = [];
+    if (!models || typeof models !== "object")
+        return out;
+    for (const rawId of Object.keys(models)) {
+        const id = String(rawId || "").trim();
+        if (!id)
+            continue;
+        out.push(id.includes("/") ? id : providerName + "/" + id);
+    }
+    return out;
+}
+export function collectConfiguredProviderModels(providers) {
+    const all = [];
+    const seen = new Set();
+    for (const [providerName, cfg] of Object.entries(providers || {})) {
+        const ids = normalizeProviderModels(providerName, cfg?.models);
+        for (const id of ids) {
+            if (seen.has(id))
+                continue;
+            seen.add(id);
+            all.push({ id, provider: providerName, cost: _modelCost(id), tier: _modelTier(id) });
+        }
+    }
+    return all;
+}
 // ── trinity rebuild helpers: discover, classify, probe ────────────────
 const MODEL_RANK = { high: 3, mid: 2, budget: 1 };
-const OPENCODE_GO_CATALOG = [
-    "deepseek/deepseek-v4-flash",
-    "deepseek/deepseek-chat",
-    "deepseek/deepseek-reasoner",
-];
 function _loadOpenCodeProviders() {
     try {
-        const cfg = readOpenCodeConfigObject(join(USER_HOME, ".config", "opencode"));
-        return cfg?.provider || {};
+        const merged = {};
+        const dirs = [join(process.cwd(), "."), join(USER_HOME, ".config", "opencode")];
+        for (const dir of dirs) {
+            const cfg = readOpenCodeConfigObject(dir);
+            const providers = cfg?.provider || {};
+            for (const [providerName, providerCfg] of Object.entries(providers)) {
+                if (!merged[providerName])
+                    merged[providerName] = {};
+                merged[providerName] = {
+                    ...merged[providerName],
+                    ...providerCfg,
+                    models: {
+                        ...(merged[providerName]?.models || {}),
+                        ...(providerCfg?.models || {}),
+                    },
+                };
+            }
+        }
+        return merged;
     }
     catch {
         return {};
@@ -58,8 +96,8 @@ function _modelCost(id) {
     const c = modelCostPerTurn(id);
     if (c != null)
         return c;
-    const stripped = id.replace(/^(openrouter|opencode|deepseek)\//, "");
-    return modelCostPerTurn(stripped) ?? modelCostPerTurn("deepseek/" + stripped) ?? 0;
+    const stripped = String(id).includes("/") ? String(id).split("/").slice(1).join("/") : String(id);
+    return modelCostPerTurn(stripped) ?? 0;
 }
 function _modelTier(id) {
     if (!id)
@@ -71,21 +109,14 @@ function _modelTier(id) {
     return mid ? "mid" : "budget";
 }
 export async function discoverAvailableModels(providers, auth) {
-    const all = [];
-    const seen = new Set();
-    const push = (m) => {
-        if (seen.has(m.id))
+    const all = collectConfiguredProviderModels(providers);
+    const seen = new Set(all.map((m) => m.id));
+    const pushIfNew = (id, provider) => {
+        if (seen.has(id))
             return;
-        seen.add(m.id);
-        all.push(m);
+        seen.add(id);
+        all.push({ id, provider, cost: _modelCost(id), tier: _modelTier(id) });
     };
-    const pushIfNew = (id, provider) => push({ id, provider, cost: _modelCost(id), tier: _modelTier(id) });
-    if (providers.deepseek?.models) {
-        for (const rawId of Object.keys(providers.deepseek.models)) {
-            const id = rawId.includes("/") ? rawId : "deepseek/" + rawId;
-            pushIfNew(id, "deepseek");
-        }
-    }
     if (auth.deepseek?.key) {
         try {
             const res = await fetch("https://api.deepseek.com/models", {
@@ -134,9 +165,6 @@ export async function discoverAvailableModels(providers, auth) {
         catch (e) {
             console.error("[vibeOS] OpenRouter probe failed:", e.message);
         }
-    }
-    for (const id of OPENCODE_GO_CATALOG) {
-        pushIfNew(id, "opencode");
     }
     return all;
 }

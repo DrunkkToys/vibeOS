@@ -22,6 +22,7 @@ import {
   applySlot, modelCostPerTurn, isModelFree, isDocsTarget, detectContext7, modelToSlotLabel,
   shortModelName, roundUsd, formatUsd, classify, _refreshModel, loadTierRegexes,
   HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, readConfig,
+  getTrinitySlotOrder,
   TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP,
   setTrinityBrain, setTrinityMedium, setTrinityCheap,
 } from "./lib/pricing.js"
@@ -72,7 +73,7 @@ import { writeSessionSlot } from "./lib/selection-manager.js"
 import { _refreshModel } from "./lib/pricing.js"
 import { loadCredit, thinkingLevel, _lazyRefresh, _readAuth } from "./lib/credit-api.js"
 import { createTrinityTool } from "./lib/trinity-tool.js"
-import { classifyAndRankModels, modelToCcAlias, discoverAvailableModels, probeModel } from "./lib/trinity-rebuild.js"
+import { classifyAndRankModels, modelToCcAlias, discoverAvailableModels, probeModel, collectConfiguredProviderModels } from "./lib/trinity-rebuild.js"
 import { _appendFooter } from "./lib/hooks/footer.js"
 import { onToolExecuteBefore, onToolExecuteAfter, setToolDirectory } from "./lib/hooks/tool-execute.js"
 import { onMessagesTransform, onSystemTransform, latestUserIntent, ensureProjectSkill } from "./lib/hooks/chat-transform.js"
@@ -99,13 +100,6 @@ const SAVE_EST = {
 }
 
 // ── Credit snapshot refresh ──────────────────────────────────────────
-// ── OpenCode provider config helpers ──────────────────────────────────
-const OPENCODE_GO_CATALOG = [
-  "deepseek/deepseek-v4-flash",
-  "deepseek/deepseek-chat",
-  "deepseek/deepseek-reasoner",
-]
-
 function _loadOpenCodeProviders(): any {
   try {
     const cfg = _readOpenCodeConfigObject(join(USER_HOME, ".config", "opencode"))
@@ -132,8 +126,8 @@ function _modelCost(id: string): number {
   if (!id) return 0
   const c = modelCostPerTurn(id)
   if (c != null) return c
-  const stripped = id.replace(/^(openrouter|opencode|deepseek)\//, "")
-  return modelCostPerTurn(stripped) ?? modelCostPerTurn("deepseek/" + stripped) ?? 0
+  const stripped = String(id).includes("/") ? String(id).split("/").slice(1).join("/") : String(id)
+  return modelCostPerTurn(stripped) ?? 0
 }
 
 function _modelTier(id: string): string {
@@ -216,14 +210,16 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
     setCurrentTier(classify(currentModel))
     try {
       const _tiersData = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
-      const _activeSlot = _tiersData?.selection?.active_slot || "brain"
-      if (_activeSlot === "brain") {
-        const _brainOcModel = _tiersData?.trinity?.brain?.oc || ""
+      const _slotOrder = getTrinitySlotOrder(_tiersData)
+      const _primarySlot = _slotOrder[0] || "brain"
+      const _activeSlot = _tiersData?.selection?.active_slot || _primarySlot
+      if (_activeSlot === _primarySlot) {
+        const _brainOcModel = _tiersData?.trinity?.[_primarySlot]?.oc || ""
         if (_brainOcModel && currentModel === _brainOcModel && !PLACEHOLDER_RE.test(_brainOcModel)) {
           const cost = modelCostPerTurn(_brainOcModel)
           if (HIGH_TIER_RE.test(_brainOcModel) || (cost !== null && cost >= 0.01)) {
             setCurrentTier("high")
-            console.error(`[vibeOS] tier override → high (brain slot)`)
+            console.error(`[vibeOS] tier override → high (primary slot)`)
           }
         }
       }
@@ -244,9 +240,10 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
           _tiersData = { selection: { enabled: true, active_slot: "brain", delegation_enforce: true, tdd_strict: true }, trinity: {} }
           _wasCorrupted = true
         }
+        const _defaultSlots = getTrinitySlotOrder(_tiersData)
         if (!_wasCorrupted && !_tiersData?.trinity) _wasCorrupted = true
         if (!_wasCorrupted) {
-          for (const slot of ["brain", "medium", "cheap"]) {
+          for (const slot of _defaultSlots) {
             if (!_tiersData?.trinity?.[slot] || _tiersData.trinity[slot] === null || typeof _tiersData.trinity[slot].oc !== "string") {
               _wasCorrupted = true
               break
@@ -254,20 +251,11 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
           }
         }
       } else {
-        _tiersData = { selection: { enabled: true, active_slot: "brain", delegation_enforce: true, tdd_strict: true }, trinity: {} }
+        const _defaultSlots = getTrinitySlotOrder()
+        _tiersData = { selection: { enabled: true, active_slot: _defaultSlots[0] || "brain", delegation_enforce: true, tdd_strict: true }, trinity: {} }
       }
       const _providers = _loadOpenCodeProviders()
-      const _allModels: Array<{ id: string; cost: number; tier: string }> = []
-      for (const [providerName, cfg] of Object.entries(_providers)) {
-        if ((cfg as any)?.models && typeof (cfg as any).models === "object") {
-          for (const rawId of Object.keys((cfg as any).models)) {
-            const id = rawId.includes("/") ? rawId : providerName + "/" + rawId
-            if (!_allModels.some(m => m.id === id)) {
-              _allModels.push({ id, cost: _modelCost(id), tier: _modelTier(id) })
-            }
-          }
-        }
-      }
+      const _allModels = collectConfiguredProviderModels(_providers)
       if (!_allModels.some(m => m.id === currentModel)) {
         _allModels.push({ id: currentModel, cost: _modelCost(currentModel), tier: _modelTier(currentModel) })
       }
@@ -316,7 +304,7 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
         const _tmp = TIERS_FILE + ".tmp." + Date.now()
         writeFileSync(_tmp, JSON.stringify(_tiersData, null, 2) + "\n", "utf-8")
         renameSync(_tmp, TIERS_FILE)
-        console.error(`[vibeOS] auto-synced model-tiers.json: brain=${_brain.id} medium=${_tiersData.trinity?.medium?.oc || ""} cheap=${_tiersData.trinity?.cheap?.oc || ""}`)
+        console.error(`[vibeOS] auto-synced model-tiers.json: primary=${_brain.id} medium=${_tiersData.trinity?.medium?.oc || ""} cheap=${_tiersData.trinity?.cheap?.oc || ""}`)
         const _tiersCfg = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
         const _b = _tiersCfg?.trinity?.brain?.oc
         const _m = _tiersCfg?.trinity?.medium?.oc

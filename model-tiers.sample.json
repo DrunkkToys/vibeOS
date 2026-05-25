@@ -19,6 +19,7 @@
   "selection": {
     "_comment": "Used by `trinity auto`: pick `brain` slot when credit ≥ threshold, else `fallback` slot. Dropping to mid slot at low credit is more reliable than burning what's left on flaky brain calls. `enabled` toggles all VibeTheOG logic. `active_slot` records the last slot set by `trinity`.",
     "credit_threshold_percent": 30,
+    "slot_order": ["brain", "medium", "cheap"],
     "brain": "brain",
     "fallback": "medium",
     "enabled": true,
@@ -47,6 +48,9 @@
     }
   },
   "pricing": {
+    "models": {
+      "provider/model-id": 0.001
+    },
     "high": {
       "input": 15.00,
       "output": 75.00,

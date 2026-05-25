@@ -3506,6 +3506,7 @@ var USER_HOME3 = (() => {
     return tmpdir3();
   }
 })();
+var DEFAULT_TRINITY_SLOTS = ["brain", "medium", "cheap"];
 function _handleStateCorruption3(path) {
   const backupDir = join5(USER_HOME3, ".claude", ".backups");
   mkdirSync5(backupDir, { recursive: true });
@@ -3644,6 +3645,8 @@ var MODEL_USD_PER_TURN = {
   "openai/o3": 38e-4,
   "openai/o4-mini": 21e-4
 };
+var _pricingOverridesCache = null;
+var _pricingOverridesLoadedAt = 0;
 var TURN_BLEND_INPUT_TOKENS = 700;
 var TURN_BLEND_OUTPUT_TOKENS = 300;
 var _dynamicPricingCache = null;
@@ -3737,6 +3740,52 @@ function _getNormalizedCostMap() {
   }
   return _modelCostMapNormalized;
 }
+function _loadPricingOverrides() {
+  const now = Date.now();
+  if (_pricingOverridesCache && now - _pricingOverridesLoadedAt < 1e4)
+    return _pricingOverridesCache;
+  _pricingOverridesLoadedAt = now;
+  try {
+    if (!existsSync6(TIERS_FILE3))
+      return {};
+    const st = statSync5(TIERS_FILE3);
+    if (st.size > 10485760) {
+      _handleStateCorruption3(TIERS_FILE3);
+      _pricingOverridesCache = {};
+      return {};
+    }
+    const raw = safeJsonParse3(readFileSync5(TIERS_FILE3, "utf-8"));
+    const models = raw?.pricing?.models && typeof raw.pricing.models === "object" ? raw.pricing.models : {};
+    const out = {};
+    for (const [key, value] of Object.entries(models)) {
+      let cost = null;
+      if (typeof value === "number") {
+        cost = value;
+      } else if (value && typeof value === "object") {
+        const candidate = value.turn_usd ?? value.cost_per_turn ?? value.usd_per_turn ?? value.usd ?? value.cost;
+        const n = Number(candidate);
+        if (Number.isFinite(n))
+          cost = n;
+      }
+      if (!Number.isFinite(cost))
+        continue;
+      const rawKey = String(key || "").trim();
+      if (!rawKey)
+        continue;
+      const normalized = normalizeModelId(rawKey);
+      out[rawKey] = cost;
+      out[normalized] = cost;
+      const bare = rawKey.includes("/") ? rawKey.split("/").pop() : rawKey;
+      if (bare)
+        out[bare] = cost;
+    }
+    _pricingOverridesCache = out;
+  } catch {
+    _handleStateCorruption3(TIERS_FILE3);
+    _pricingOverridesCache = {};
+  }
+  return _pricingOverridesCache;
+}
 function modelCostPerTurn(model) {
   if (!model)
     return 0;
@@ -3744,6 +3793,14 @@ function modelCostPerTurn(model) {
   if (dyn != null)
     return dyn;
   const key = normalizeModelId(model);
+  const overrides = _loadPricingOverrides();
+  if (Object.prototype.hasOwnProperty.call(overrides, key))
+    return overrides[key];
+  if (Object.prototype.hasOwnProperty.call(overrides, model))
+    return overrides[model];
+  const bare = String(model || "").includes("/") ? String(model).split("/").pop() : String(model || "");
+  if (bare && Object.prototype.hasOwnProperty.call(overrides, bare))
+    return overrides[bare];
   const map = _getNormalizedCostMap();
   if (Object.prototype.hasOwnProperty.call(map, key))
     return map[key];
@@ -3895,21 +3952,27 @@ function readOpenCodeConfigObject(dir) {
   }
   return {};
 }
-var PLACEHOLDER_RE = /^(provider|opencode)\/[a-z-]+-model$/i;
+var PLACEHOLDER_RE = /^[^/]+\/[a-z-]+-model$/i;
+function getTrinitySlotOrder(tiersData = null) {
+  const configured = Array.isArray(tiersData?.selection?.slot_order) ? tiersData.selection.slot_order : null;
+  const valid = (configured || []).map((slot) => String(slot || "").trim()).filter(Boolean);
+  return valid.length > 0 ? valid : DEFAULT_TRINITY_SLOTS;
+}
 function _refreshModel(directory3) {
   try {
     const sel = loadSelection2();
     if (!sel.enabled)
       return;
     const tiersData = safeJsonParse3(readFileSync5(TIERS_FILE3, "utf-8"));
-    const activeSlot = sel.active_slot || "brain";
+    const slotOrder = getTrinitySlotOrder(tiersData);
+    const activeSlot = slotOrder.includes(sel.active_slot) ? sel.active_slot : slotOrder[0] || "brain";
     let slotOcModel = tiersData?.trinity?.[activeSlot]?.oc || "";
     if (slotOcModel && PLACEHOLDER_RE.test(slotOcModel)) {
       slotOcModel = "";
       console.error(`[vibeOS] placeholder model detected in ${activeSlot} slot \u2014 skipping, will auto-detect`);
     }
     if (slotOcModel) {
-      const nextTier = activeSlot === "brain" ? "high" : classify(slotOcModel);
+      const nextTier = activeSlot === (slotOrder[0] || "brain") ? "high" : classify(slotOcModel);
       const modelChanged = currentModel !== slotOcModel;
       const tierChanged = currentTier !== nextTier;
       if (modelChanged || tierChanged) {
@@ -3939,7 +4002,7 @@ function _refreshModel(directory3) {
         try {
           if (existsSync6(TIERS_FILE3)) {
             const t = safeJsonParse3(readFileSync5(TIERS_FILE3, "utf-8"));
-            for (const s of ["brain", "medium", "cheap"]) {
+            for (const s of getTrinitySlotOrder(t)) {
               if (t?.trinity?.[s]?.oc === cfgModel) {
                 t.selection.active_slot = s;
                 const _tmp = TIERS_FILE3 + ".tmp." + Date.now();
@@ -6141,20 +6204,41 @@ ${L.repeat(40)}`);
 // src/lib/trinity-rebuild.js
 import { readFileSync as readFileSync10, existsSync as existsSync11 } from "node:fs";
 import { join as join11 } from "node:path";
+function normalizeProviderModels(providerName, models) {
+  const out = [];
+  if (!models || typeof models !== "object")
+    return out;
+  for (const rawId of Object.keys(models)) {
+    const id2 = String(rawId || "").trim();
+    if (!id2)
+      continue;
+    out.push(id2.includes("/") ? id2 : providerName + "/" + id2);
+  }
+  return out;
+}
+function collectConfiguredProviderModels(providers) {
+  const all = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const [providerName, cfg] of Object.entries(providers || {})) {
+    const ids = normalizeProviderModels(providerName, cfg?.models);
+    for (const id2 of ids) {
+      if (seen.has(id2))
+        continue;
+      seen.add(id2);
+      all.push({ id: id2, provider: providerName, cost: _modelCost(id2), tier: _modelTier(id2) });
+    }
+  }
+  return all;
+}
 var MODEL_RANK = { high: 3, mid: 2, budget: 1 };
-var OPENCODE_GO_CATALOG = [
-  "deepseek/deepseek-v4-flash",
-  "deepseek/deepseek-chat",
-  "deepseek/deepseek-reasoner"
-];
 function _modelCost(id2) {
   if (!id2)
     return 0;
   const c = modelCostPerTurn(id2);
   if (c != null)
     return c;
-  const stripped = id2.replace(/^(openrouter|opencode|deepseek)\//, "");
-  return modelCostPerTurn(stripped) ?? modelCostPerTurn("deepseek/" + stripped) ?? 0;
+  const stripped = String(id2).includes("/") ? String(id2).split("/").slice(1).join("/") : String(id2);
+  return modelCostPerTurn(stripped) ?? 0;
 }
 function _modelTier(id2) {
   if (!id2)
@@ -6166,21 +6250,14 @@ function _modelTier(id2) {
   return mid ? "mid" : "budget";
 }
 async function discoverAvailableModels(providers, auth) {
-  const all = [];
-  const seen = /* @__PURE__ */ new Set();
-  const push = (m) => {
-    if (seen.has(m.id))
+  const all = collectConfiguredProviderModels(providers);
+  const seen = new Set(all.map((m) => m.id));
+  const pushIfNew = (id2, provider) => {
+    if (seen.has(id2))
       return;
-    seen.add(m.id);
-    all.push(m);
+    seen.add(id2);
+    all.push({ id: id2, provider, cost: _modelCost(id2), tier: _modelTier(id2) });
   };
-  const pushIfNew = (id2, provider) => push({ id: id2, provider, cost: _modelCost(id2), tier: _modelTier(id2) });
-  if (providers.deepseek?.models) {
-    for (const rawId of Object.keys(providers.deepseek.models)) {
-      const id2 = rawId.includes("/") ? rawId : "deepseek/" + rawId;
-      pushIfNew(id2, "deepseek");
-    }
-  }
   if (auth.deepseek?.key) {
     try {
       const res = await fetch("https://api.deepseek.com/models", {
@@ -6228,9 +6305,6 @@ async function discoverAvailableModels(providers, auth) {
     } catch (e) {
       console.error("[vibeOS] OpenRouter probe failed:", e.message);
     }
-  }
-  for (const id2 of OPENCODE_GO_CATALOG) {
-    pushIfNew(id2, "opencode");
   }
   return all;
 }
@@ -10055,8 +10129,8 @@ function _modelCost2(id2) {
   if (!id2) return 0;
   const c = modelCostPerTurn(id2);
   if (c != null) return c;
-  const stripped = id2.replace(/^(openrouter|opencode|deepseek)\//, "");
-  return modelCostPerTurn(stripped) ?? modelCostPerTurn("deepseek/" + stripped) ?? 0;
+  const stripped = String(id2).includes("/") ? String(id2).split("/").slice(1).join("/") : String(id2);
+  return modelCostPerTurn(stripped) ?? 0;
 }
 function _modelTier2(id2) {
   if (!id2) return "budget";
@@ -10135,14 +10209,16 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     setCurrentTier(classify(currentModel));
     try {
       const _tiersData2 = safeJsonParse3(readFileSync15(TIERS_FILE2, "utf-8"));
-      const _activeSlot = _tiersData2?.selection?.active_slot || "brain";
-      if (_activeSlot === "brain") {
-        const _brainOcModel = _tiersData2?.trinity?.brain?.oc || "";
+      const _slotOrder = getTrinitySlotOrder(_tiersData2);
+      const _primarySlot = _slotOrder[0] || "brain";
+      const _activeSlot = _tiersData2?.selection?.active_slot || _primarySlot;
+      if (_activeSlot === _primarySlot) {
+        const _brainOcModel = _tiersData2?.trinity?.[_primarySlot]?.oc || "";
         if (_brainOcModel && currentModel === _brainOcModel && !PLACEHOLDER_RE.test(_brainOcModel)) {
           const cost = modelCostPerTurn(_brainOcModel);
           if (HIGH_TIER_RE.test(_brainOcModel) || cost !== null && cost >= 0.01) {
             setCurrentTier("high");
-            console.error(`[vibeOS] tier override \u2192 high (brain slot)`);
+            console.error(`[vibeOS] tier override \u2192 high (primary slot)`);
           }
         }
       }
@@ -10164,9 +10240,10 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
           _tiersData2 = { selection: { enabled: true, active_slot: "brain", delegation_enforce: true, tdd_strict: true }, trinity: {} };
           _wasCorrupted = true;
         }
+        const _defaultSlots = getTrinitySlotOrder(_tiersData2);
         if (!_wasCorrupted && !_tiersData2?.trinity) _wasCorrupted = true;
         if (!_wasCorrupted) {
-          for (const slot of ["brain", "medium", "cheap"]) {
+          for (const slot of _defaultSlots) {
             if (!_tiersData2?.trinity?.[slot] || _tiersData2.trinity[slot] === null || typeof _tiersData2.trinity[slot].oc !== "string") {
               _wasCorrupted = true;
               break;
@@ -10174,20 +10251,11 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
           }
         }
       } else {
-        _tiersData2 = { selection: { enabled: true, active_slot: "brain", delegation_enforce: true, tdd_strict: true }, trinity: {} };
+        const _defaultSlots = getTrinitySlotOrder();
+        _tiersData2 = { selection: { enabled: true, active_slot: _defaultSlots[0] || "brain", delegation_enforce: true, tdd_strict: true }, trinity: {} };
       }
       const _providers = _loadOpenCodeProviders();
-      const _allModels = [];
-      for (const [providerName, cfg] of Object.entries(_providers)) {
-        if (cfg?.models && typeof cfg.models === "object") {
-          for (const rawId of Object.keys(cfg.models)) {
-            const id2 = rawId.includes("/") ? rawId : providerName + "/" + rawId;
-            if (!_allModels.some((m) => m.id === id2)) {
-              _allModels.push({ id: id2, cost: _modelCost2(id2), tier: _modelTier2(id2) });
-            }
-          }
-        }
-      }
+      const _allModels = collectConfiguredProviderModels(_providers);
       if (!_allModels.some((m) => m.id === currentModel)) {
         _allModels.push({ id: currentModel, cost: _modelCost2(currentModel), tier: _modelTier2(currentModel) });
       }
@@ -10236,7 +10304,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
         const _tmp = TIERS_FILE2 + ".tmp." + Date.now();
         writeFileSync13(_tmp, JSON.stringify(_tiersData2, null, 2) + "\n", "utf-8");
         renameSync6(_tmp, TIERS_FILE2);
-        console.error(`[vibeOS] auto-synced model-tiers.json: brain=${_brain.id} medium=${_tiersData2.trinity?.medium?.oc || ""} cheap=${_tiersData2.trinity?.cheap?.oc || ""}`);
+        console.error(`[vibeOS] auto-synced model-tiers.json: primary=${_brain.id} medium=${_tiersData2.trinity?.medium?.oc || ""} cheap=${_tiersData2.trinity?.cheap?.oc || ""}`);
         const _tiersCfg = safeJsonParse3(readFileSync15(TIERS_FILE2, "utf-8"));
         const _b = _tiersCfg?.trinity?.brain?.oc;
         const _m = _tiersCfg?.trinity?.medium?.oc;

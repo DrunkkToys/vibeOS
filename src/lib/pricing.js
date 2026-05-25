@@ -26,6 +26,7 @@ const USER_HOME = (() => { try {
 catch {
     return tmpdir();
 } })();
+const DEFAULT_TRINITY_SLOTS = ["brain", "medium", "cheap"];
 function _handleStateCorruption(path) {
     const backupDir = join(USER_HOME, ".claude", ".backups");
     mkdirSync(backupDir, { recursive: true });
@@ -186,6 +187,8 @@ const MODEL_USD_PER_TURN = {
     "openai/o3": 0.0038,
     "openai/o4-mini": 0.0021,
 };
+let _pricingOverridesCache = null;
+let _pricingOverridesLoadedAt = 0;
 const TURN_BLEND_INPUT_TOKENS = 700;
 const TURN_BLEND_OUTPUT_TOKENS = 300;
 let _dynamicPricingCache = null;
@@ -282,6 +285,54 @@ function _getNormalizedCostMap() {
     }
     return _modelCostMapNormalized;
 }
+function _loadPricingOverrides() {
+    const now = Date.now();
+    if (_pricingOverridesCache && (now - _pricingOverridesLoadedAt) < 10_000)
+        return _pricingOverridesCache;
+    _pricingOverridesLoadedAt = now;
+    try {
+        if (!existsSync(TIERS_FILE))
+            return {};
+        const st = statSync(TIERS_FILE);
+        if (st.size > 10485760) {
+            _handleStateCorruption(TIERS_FILE);
+            _pricingOverridesCache = {};
+            return {};
+        }
+        const raw = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"));
+        const models = raw?.pricing?.models && typeof raw.pricing.models === "object" ? raw.pricing.models : {};
+        const out = {};
+        for (const [key, value] of Object.entries(models)) {
+            let cost = null;
+            if (typeof value === "number") {
+                cost = value;
+            }
+            else if (value && typeof value === "object") {
+                const candidate = value.turn_usd ?? value.cost_per_turn ?? value.usd_per_turn ?? value.usd ?? value.cost;
+                const n = Number(candidate);
+                if (Number.isFinite(n))
+                    cost = n;
+            }
+            if (!Number.isFinite(cost))
+                continue;
+            const rawKey = String(key || "").trim();
+            if (!rawKey)
+                continue;
+            const normalized = normalizeModelId(rawKey);
+            out[rawKey] = cost;
+            out[normalized] = cost;
+            const bare = rawKey.includes("/") ? rawKey.split("/").pop() : rawKey;
+            if (bare)
+                out[bare] = cost;
+        }
+        _pricingOverridesCache = out;
+    }
+    catch {
+        _handleStateCorruption(TIERS_FILE);
+        _pricingOverridesCache = {};
+    }
+    return _pricingOverridesCache;
+}
 export function modelCostPerTurn(model) {
     if (!model)
         return 0;
@@ -289,6 +340,14 @@ export function modelCostPerTurn(model) {
     if (dyn != null)
         return dyn;
     const key = normalizeModelId(model);
+    const overrides = _loadPricingOverrides();
+    if (Object.prototype.hasOwnProperty.call(overrides, key))
+        return overrides[key];
+    if (Object.prototype.hasOwnProperty.call(overrides, model))
+        return overrides[model];
+    const bare = String(model || "").includes("/") ? String(model).split("/").pop() : String(model || "");
+    if (bare && Object.prototype.hasOwnProperty.call(overrides, bare))
+        return overrides[bare];
     const map = _getNormalizedCostMap();
     if (Object.prototype.hasOwnProperty.call(map, key))
         return map[key];
@@ -454,14 +513,24 @@ function readOpenCodeConfigObject(dir) {
 }
 // Refresh currentModel/currentTier from disk config.
 // Called per-hook so trinity slot changes take effect without restart.
-export const PLACEHOLDER_RE = /^(provider|opencode)\/[a-z-]+-model$/i;
+export const PLACEHOLDER_RE = /^[^/]+\/[a-z-]+-model$/i;
+export function getTrinitySlotOrder(tiersData = null) {
+    const configured = Array.isArray(tiersData?.selection?.slot_order)
+        ? tiersData.selection.slot_order
+        : null;
+    const valid = (configured || [])
+        .map((slot) => String(slot || "").trim())
+        .filter(Boolean);
+    return valid.length > 0 ? valid : DEFAULT_TRINITY_SLOTS;
+}
 export function _refreshModel(directory) {
     try {
         const sel = loadSelection();
         if (!sel.enabled)
             return;
         const tiersData = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"));
-        const activeSlot = sel.active_slot || "brain";
+        const slotOrder = getTrinitySlotOrder(tiersData);
+        const activeSlot = slotOrder.includes(sel.active_slot) ? sel.active_slot : (slotOrder[0] || "brain");
         let slotOcModel = tiersData?.trinity?.[activeSlot]?.oc || "";
         // Skip placeholder models (e.g. "provider/high-tier-model") — use auto-detected model instead
         if (slotOcModel && PLACEHOLDER_RE.test(slotOcModel)) {
@@ -471,7 +540,7 @@ export function _refreshModel(directory) {
         if (slotOcModel) {
             // Always derive tier from active slot so footer/env reflect slot changes,
             // even when multiple slots point to the same model ID.
-            const nextTier = activeSlot === "brain" ? "high" : classify(slotOcModel);
+            const nextTier = activeSlot === (slotOrder[0] || "brain") ? "high" : classify(slotOcModel);
             const modelChanged = currentModel !== slotOcModel;
             const tierChanged = currentTier !== nextTier;
             if (modelChanged || tierChanged) {
@@ -505,7 +574,7 @@ export function _refreshModel(directory) {
                 try {
                     if (existsSync(TIERS_FILE)) {
                         const t = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"));
-                        for (const s of ["brain", "medium", "cheap"]) {
+                        for (const s of getTrinitySlotOrder(t)) {
                             if (t?.trinity?.[s]?.oc === cfgModel) {
                                 t.selection.active_slot = s;
                                 const _tmp = TIERS_FILE + ".tmp." + Date.now();
