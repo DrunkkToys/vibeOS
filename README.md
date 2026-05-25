@@ -68,8 +68,9 @@ npm run release:patch
 
 ## Core Controls
 
-`trinity` is an OpenCode plugin command. Run it from inside OpenCode, not from a normal terminal shell.
-Use `trinity help` for the full command list. The most common controls are:
+`trinity` is an OpenCode plugin command. Run it from inside OpenCode, not from a normal terminal shell. Use `trinity help` for the full command list. The bundled TUI plugin also registers `trinity` and the common slot actions in OpenCode's command palette.
+
+The most common controls are:
 
 - `trinity status` - show current tier, enforcement, savings, stress, and lock state
 - `trinity set brain|medium|cheap` - switch the active tier
