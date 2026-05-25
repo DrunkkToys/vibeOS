@@ -1,10 +1,13 @@
 // @ts-nocheck
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from "node:fs";
 import { join, dirname } from "node:path";
-import { safeJsonParse, _blackboxEnabled, setBlackboxEnabled as _setGlobalBlackboxEnabled, USER_HOME, DELEGATION_STATE_FILE as STATE_FILE, _OC_SID, currentProjectFingerprint, setCurrentProjectFingerprint, withFileLock, readJsonOrEmpty, validateState, loadBlackboxState, saveBlackboxState, loadGlobalLearning, updateGlobalLearning, getLearnedExploratoryWords, projectFingerprint, loadProjectState, saveProjectState, detectTechStack, ensureProjectBucket, recordMissedContext7 } from "./state.js";
+import { safeJsonParse, _blackboxEnabled, setBlackboxEnabled as _setGlobalBlackboxEnabled, _OC_SID, currentProjectFingerprint, setCurrentProjectFingerprint, withFileLock, readJsonOrEmpty, validateState, loadBlackboxState, saveBlackboxState, loadGlobalLearning, updateGlobalLearning, getLearnedExploratoryWords, projectFingerprint, loadProjectState, saveProjectState, detectTechStack, ensureProjectBucket, recordMissedContext7 } from "./state.js";
 import { loadSessionOptMode, writeSessionOptMode } from "./selection-manager.js";
 import { getApiClient, isApiFallback } from "./api-client.js";
 export { scoreStress, estimateContextBudget, classifyTurnSimple, tokenizeWords, topKeywords, extractLastUserText, isUserAskingForTests, isLikelyOffTopic, detectOutcomeSignal } from "./classifiers.js";
+function getVibeOSHome() {
+    return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude");
+}
 function autoSelectMode(subRegime, stressMultiplier) {
     const regime = String(subRegime || "INIT").toUpperCase();
     const stress = Number(stressMultiplier ?? 0);
@@ -149,12 +152,13 @@ const WARN_MAX_PER_SESSION = 3;
 const WARN_COALESCE_THRESHOLD = 10;
 const warnCoalesceCounters = new Map();
 function updateState(mutator) {
+    const stateFile = join(getVibeOSHome(), "delegation-state.json");
     const MAX_RETRIES = 3;
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
         try {
-            const result = withFileLock(STATE_FILE, () => {
-                const preGen = (readJsonOrEmpty(STATE_FILE)._gen || 0);
-                let state = readJsonOrEmpty(STATE_FILE);
+            const result = withFileLock(stateFile, () => {
+                const preGen = (readJsonOrEmpty(stateFile)._gen || 0);
+                let state = readJsonOrEmpty(stateFile);
                 if (!state || typeof state !== "object")
                     state = {};
                 if (!state.session_started_at || state.session_started_at === "not-a-valid-date" || isNaN(Date.parse(state.session_started_at))) {
@@ -167,17 +171,17 @@ function updateState(mutator) {
                 state._ledgerFormatVersion ??= 2;
                 state._gen = preGen + 1;
                 const next = mutator(state) ?? state;
-                validateState(next, STATE_FILE);
-                mkdirSync(dirname(STATE_FILE), { recursive: true });
-                const tmp = STATE_FILE + ".tmp";
+                validateState(next, stateFile);
+                mkdirSync(dirname(stateFile), { recursive: true });
+                const tmp = stateFile + ".tmp";
                 writeFileSync(tmp, JSON.stringify(next, null, 2));
-                renameSync(tmp, STATE_FILE);
+                renameSync(tmp, stateFile);
                 return next;
             });
             if (!result || typeof result !== "object")
                 return result;
             const postGen = result._gen;
-            const onDiskGen = (readJsonOrEmpty(STATE_FILE)._gen || 0);
+            const onDiskGen = (readJsonOrEmpty(stateFile)._gen || 0);
             if (onDiskGen === postGen)
                 return result;
             if (attempt < MAX_RETRIES - 1)
@@ -196,7 +200,7 @@ function updateState(mutator) {
 }
 function loadTrinityModels() {
     try {
-        const p = join(USER_HOME, ".claude/model-tiers.json");
+        const p = join(getVibeOSHome(), "model-tiers.json");
         if (!existsSync(p))
             return { brain: "", cheap: "", medium: "" };
         const j = safeJsonParse(readFileSync(p, "utf-8"));

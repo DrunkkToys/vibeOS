@@ -1,7 +1,10 @@
 // @ts-nocheck
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { USER_HOME, AUTH_F, CREDIT_CACHE_F } from "./state.js";
+import { AUTH_F, CREDIT_CACHE_F } from "./state.js";
+function getVibeOSHome() {
+    return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude");
+}
 function safeJsonParse(raw) {
     try {
         return JSON.parse(raw);
@@ -92,7 +95,7 @@ export function _cachedPct() {
             return null;
         let budget = 50;
         try {
-            const p = join(USER_HOME, ".claude/model-tiers.json");
+            const p = join(getVibeOSHome(), "model-tiers.json");
             if (existsSync(p)) {
                 const j = safeJsonParse(readFileSync(p, "utf-8"));
                 if (j?.selection?.monthly_budget_usd)
@@ -126,7 +129,7 @@ export function loadCredit() {
             return n;
     }
     try {
-        const f = join(USER_HOME, ".claude/credit-percent");
+        const f = join(getVibeOSHome(), "credit-percent");
         if (existsSync(f)) {
             const n = parseInt(readFileSync(f, "utf-8").trim(), 10);
             if (!isNaN(n))

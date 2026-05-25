@@ -1,8 +1,10 @@
 // @ts-nocheck
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { USER_HOME } from "./state.js";
 import { modelCostPerTurn, normalizeModelId, _parseOpenRouterTurnCost, _writeDynamicPricingCache, HIGH_TIER_RE, MID_TIER_RE } from "./pricing.js";
+function getOpenCodeHome() {
+    return process.env.VIBEOS_OPENCODE_HOME || join(process.env.HOME || "", ".config", "opencode");
+}
 function safeJsonParse(raw) {
     try {
         return JSON.parse(raw);
@@ -45,7 +47,7 @@ const OPENCODE_GO_CATALOG = [
 ];
 function _loadOpenCodeProviders() {
     try {
-        const cfg = readOpenCodeConfigObject(join(USER_HOME, ".config", "opencode"));
+        const cfg = readOpenCodeConfigObject(getOpenCodeHome());
         return cfg?.provider || {};
     }
     catch {

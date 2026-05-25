@@ -2,10 +2,7 @@
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync, copyFileSync, rmSync } from "node:fs"
 import { join, basename } from "node:path"
-import { homedir, tmpdir } from "node:os"
-import { withFileLock, safeJsonParse } from "./state.js"
-
-const USER_HOME = (() => { try { return homedir() } catch { return tmpdir() } })()
+import { withFileLock, safeJsonParse, VIBEOS_HOME } from "./state.js"
 
 // Report data:
 //   meta: { id, project, fingerprint, type, created, sessionId }
@@ -17,8 +14,20 @@ const USER_HOME = (() => { try { return homedir() } catch { return tmpdir() } })
 //   status: "pending" | "completed" | "failed" | "partial"
 //   task_description: string
 //   outcome_verified: boolean
-export const REPORTS_DIR = join(USER_HOME, ".claude/reports")
-export const REPORTS_INDEX = join(REPORTS_DIR, "index.json")
+function getVibeOSHome() {
+  return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude")
+}
+
+function getReportsDir() {
+  return join(getVibeOSHome(), "reports")
+}
+
+function getReportsIndexPath() {
+  return join(getReportsDir(), "index.json")
+}
+
+export const REPORTS_DIR = getReportsDir()
+export const REPORTS_INDEX = getReportsIndexPath()
 
 const _OC_SID = "opencode-" + (process.pid || "x") + "-" + Date.now()
 export let currentProjectFingerprint = ""
@@ -30,7 +39,7 @@ export function setReportingContext({ fingerprint, projectName }: { fingerprint?
 }
 
 function _handleStateCorruption(path) {
-  const backupDir = join(USER_HOME, ".claude", ".backups")
+  const backupDir = join(getVibeOSHome(), ".backups")
   mkdirSync(backupDir, { recursive: true })
   const backupPath = join(backupDir, basename(path) + ".corrupted." + Date.now())
   try { copyFileSync(path, backupPath) } catch {}
@@ -49,16 +58,18 @@ function readJsonOrEmpty(filePath) {
 }
 
 export function reportsIndex() {
-  const idx = readJsonOrEmpty(REPORTS_INDEX)
+  const idx = readJsonOrEmpty(getReportsIndexPath())
   if (!idx || !Array.isArray(idx.reports)) return { reports: [] }
   return idx
 }
 
 export function saveReportsIndex(idx) {
   try {
-    withFileLock(REPORTS_INDEX, () => {
-      mkdirSync(REPORTS_DIR, { recursive: true })
-      writeFileSync(REPORTS_INDEX, JSON.stringify(idx, null, 2) + "\n")
+    const reportsIndexPath = getReportsIndexPath()
+    const reportsDir = getReportsDir()
+    withFileLock(reportsIndexPath, () => {
+      mkdirSync(reportsDir, { recursive: true })
+      writeFileSync(reportsIndexPath, JSON.stringify(idx, null, 2) + "\n")
     })
   } catch (err) {
     console.error(`[vibeOS] reports index write failed: ${err.message}`)
@@ -99,7 +110,7 @@ function _pruneReports() {
       if (isNaN(created)) continue
       // >90d: delete
       if (now - created > 90 * 24 * 3600 * 1000) {
-        try { rmSync(join(REPORTS_DIR, `${r.id}.json`)) } catch {}
+        try { rmSync(join(getReportsDir(), `${r.id}.json`)) } catch {}
         continue
       }
       keep.push(r)
@@ -157,13 +168,15 @@ export function saveReport({ type = "manual", summary = "", findings = null, met
     summary, findings: parsedFindings, metrics: parsedMetrics, narrative, tags, status, task_description, outcome_verified,
   }
   try {
-    withFileLock(REPORTS_INDEX, () => {
-      mkdirSync(REPORTS_DIR, { recursive: true })
-      writeFileSync(join(REPORTS_DIR, `${id}.json`), JSON.stringify(report, null, 2) + "\n")
+    const reportsIndexPath = getReportsIndexPath()
+    const reportsDir = getReportsDir()
+    withFileLock(reportsIndexPath, () => {
+      mkdirSync(reportsDir, { recursive: true })
+      writeFileSync(join(reportsDir, `${id}.json`), JSON.stringify(report, null, 2) + "\n")
       const idx = reportsIndex()
       const _sum = (summary || "").slice(0, 80)
       idx.reports.push({ id, type, project: report.meta.project, fingerprint: fp, created: report.meta.created, summary: _sum })
-      writeFileSync(REPORTS_INDEX, JSON.stringify(idx, null, 2) + "\n")
+      writeFileSync(reportsIndexPath, JSON.stringify(idx, null, 2) + "\n")
     })
   } catch (err) {
     console.error(`[vibeOS] report/index write failed: ${err.message}`)
@@ -190,7 +203,7 @@ export function listReports({ type, project, hours = 168, fingerprint }: { type?
 export function readReport(id) {
   if (!id) return null
   if (!/^[\w-]+$/.test(String(id))) return null
-  const path = join(REPORTS_DIR, `${id}.json`)
+  const path = join(getReportsDir(), `${id}.json`)
   try {
     if (!existsSync(path)) return null
     return safeJsonParse(readFileSync(path, "utf-8"))

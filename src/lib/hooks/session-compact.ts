@@ -17,14 +17,14 @@ export const onSessionCompacting = async (_input, output) => {
             recent = lines
               .map((l) => { try { return JSON.parse(l) } catch { return null } })
               .filter((e) => e && e.hash)
-              .map((e) => `  • ${e.tool} → ~/.claude/scratch/sessions/${_OC_SID}/by-hash/${e.hash}.txt (${e.size}B)`)
+              .map((e) => `  • ${e.tool} → ${getSessionScratchpadDir()}/${e.hash}.txt (${e.size}B)`)
               .join("\n")
           } catch {}
         }
         if (!recent) recent = "  (no recent scratchpad entries)"
 
         const scratchpadNote =
-          `[scratchpad-aware compaction] Tool results live on disk at ~/.claude/scratch/sessions/${_OC_SID}/by-hash/<hash>.txt ` +
+          `[scratchpad-aware compaction] Tool results live on disk at ${getSessionScratchpadDir()}/<hash>.txt ` +
           "(plus .meta.json and .summary.txt). WHEN COMPACTING: " +
           "(1) drop verbose tool result bodies — the bulk lives on disk; " +
           "(2) PRESERVE every <hash> reference, file path, and pointer; " +

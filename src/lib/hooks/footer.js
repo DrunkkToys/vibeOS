@@ -1,7 +1,6 @@
 // @ts-nocheck
 import { readFileSync, appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { homedir, tmpdir } from "node:os";
 import { classify, _refreshModel, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, roundUsd, formatUsd } from "../pricing.js";
 import { latestUserIntent } from "./chat-transform.js";
 import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, loadOptimizationMode, classifyTurnSimple } from "../turn-classify.js";
@@ -10,6 +9,9 @@ import { saveReport } from "../reporting.js";
 import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, _modelLocked, _blackboxEnabled, _latestBlackboxState, reconcileStateFromLedger, safeJsonParse } from "../state.js";
 import { loadSessionSlot } from "../selection-manager.js";
 import { remoteCall, isApiConnected } from "../api-client.js";
+function getVibeOSHome() {
+    return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude");
+}
 let _cachedAutoMode = null;
 let _cachedAutoModeTs = 0;
 const AUTO_CACHE_TTL = 60000;
@@ -44,20 +46,14 @@ async function apiAutoSelectMode(regime, stress) {
         _cachedAutoMode = fallback;
     return _cachedAutoMode || fallback || "balanced";
 }
-const USER_HOME = (() => { try {
-    return homedir();
-}
-catch {
-    return tmpdir();
-} })();
-const STATE_FILE = join(USER_HOME, ".claude/delegation-state.json");
-const SAVINGS_LEDGER_FILE = join(USER_HOME, ".claude/savings-ledger.jsonl");
+const STATE_FILE = join(getVibeOSHome(), "delegation-state.json");
+const SAVINGS_LEDGER_FILE = join(getVibeOSHome(), "savings-ledger.jsonl");
 let _prevOutputText = "";
 let _autoReportCount = 0;
 const textCompletePainted = new Set();
 function loadSelection() {
     try {
-        const raw = readFileSync(join(USER_HOME, ".claude/model-tiers.json"), "utf-8");
+        const raw = readFileSync(join(getVibeOSHome(), "model-tiers.json"), "utf-8");
         return safeJsonParse(raw)?.selection || { active_slot: "medium", enabled: true, delegation_enforce: true, flow_enabled: false, flow_enforce: false, tdd_enforce: false, tdd_strict: false };
     }
     catch {
@@ -276,8 +272,8 @@ async function _appendFooter(input, output, directory) {
                         syncOutcomeToApi(outcome);
                         // Write outcome to calibration log
                         try {
-                            mkdirSync(join(USER_HOME, ".claude"), { recursive: true });
-                            appendFileSync(join(USER_HOME, ".claude", "calibration-data.jsonl"), JSON.stringify({ ts: new Date().toISOString(), event: "outcome", sid: _OC_SID, outcome }) + "\n");
+                            mkdirSync(getVibeOSHome(), { recursive: true });
+                            appendFileSync(join(getVibeOSHome(), "calibration-data.jsonl"), JSON.stringify({ ts: new Date().toISOString(), event: "outcome", sid: _OC_SID, outcome }) + "\n");
                         }
                         catch { }
                     }

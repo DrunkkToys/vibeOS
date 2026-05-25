@@ -2,8 +2,8 @@ import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 function getStateFile() {
-    const home = process.env.HOME || homedir();
-    return join(home, ".claude/delegation-state.json");
+    const vibeHome = process.env.VIBEOS_HOME || join(process.env.HOME || homedir(), ".claude");
+    return join(vibeHome, "delegation-state.json");
 }
 export function startTimer() {
     return new Date().toISOString();

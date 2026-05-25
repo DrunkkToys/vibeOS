@@ -2,8 +2,10 @@
 // SPDX-FileCopyrightText: 2026 vibeOS <https://github.com/DrunkkToys/vibeOS>
 import { readFileSync, existsSync, mkdirSync, writeFileSync, statSync, appendFileSync, renameSync } from "node:fs";
 import { join, dirname } from "node:path";
-import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
+function getVibeOSHome() {
+    return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude");
+}
 function safeJsonParse(raw) {
     if (raw == null || raw === '')
         return null;
@@ -106,14 +108,12 @@ export function ensureProjectDocs(dir, techStack) {
     return { created, skipped };
 }
 function getStateFile() {
-    const home = process.env.HOME || homedir();
-    return join(home, ".claude/delegation-state.json");
+    return join(getVibeOSHome(), "delegation-state.json");
 }
 function getFlowTodoFile() {
-    const home = process.env.HOME || homedir();
-    return join(home, ".claude/flow-todo-queue.jsonl");
+    return join(getVibeOSHome(), "flow-todo-queue.jsonl");
 }
-const FLOW_DEDUP_FILE = join(process.env.HOME || homedir(), ".claude/.flow-dedup-keys.json");
+const FLOW_DEDUP_FILE = join(getVibeOSHome(), ".flow-dedup-keys.json");
 const MAX_FLOW_TODOS = 200;
 const _flowWarnsSeen = new Set();
 let _stateWriter = null;
