@@ -99,10 +99,6 @@ const plugin: TuiPlugin = async (api, _options, _meta) => {
   await poll()
   const timer = setInterval(poll, 3000)
 
-  api.lifecycle.onDispose(() => {
-    clearInterval(timer)
-  })
-
   const doAction = async (body: Record<string, unknown>) => {
     try {
       const res = await fetch(`${getBaseUrl()}/trinity`, {
@@ -121,6 +117,99 @@ const plugin: TuiPlugin = async (api, _options, _meta) => {
       api.ui.toast({ variant: "error", message: "vibeOS offline" })
     }
   }
+
+  const trinityCommands = [
+    {
+      title: "vibeOS: trinity",
+      value: "trinity",
+      description: "Open vibeOS controls and show the current status",
+      category: "vibeOS",
+      suggested: true,
+      slash: {
+        name: "trinity",
+        aliases: ["vibeos"],
+      },
+      onSelect: async () => {
+        await doAction({ action: "status" })
+      },
+    },
+    {
+      title: "vibeOS: trinity status",
+      value: "trinity status",
+      description: "Show the current tier, savings, and guard state",
+      category: "vibeOS",
+      slash: {
+        name: "trinity-status",
+        aliases: ["vibeos-status"],
+      },
+      onSelect: async () => {
+        await doAction({ action: "status" })
+      },
+    },
+    {
+      title: "vibeOS: trinity rebuild",
+      value: "trinity rebuild",
+      description: "Re-detect available models and repopulate the slots",
+      category: "vibeOS",
+      slash: {
+        name: "trinity-rebuild",
+        aliases: ["vibeos-rebuild"],
+      },
+      onSelect: async () => {
+        await doAction({ action: "rebuild" })
+      },
+    },
+    {
+      title: "vibeOS: trinity brain",
+      value: "trinity brain",
+      description: "Switch to the brain slot",
+      category: "vibeOS",
+      slash: {
+        name: "trinity-brain",
+        aliases: ["trinity-high"],
+      },
+      onSelect: async () => {
+        await doAction({ action: "set", slot: "brain" })
+      },
+    },
+    {
+      title: "vibeOS: trinity medium",
+      value: "trinity medium",
+      description: "Switch to the medium slot",
+      category: "vibeOS",
+      slash: {
+        name: "trinity-medium",
+      },
+      onSelect: async () => {
+        await doAction({ action: "set", slot: "medium" })
+      },
+    },
+    {
+      title: "vibeOS: trinity cheap",
+      value: "trinity cheap",
+      description: "Switch to the cheap slot",
+      category: "vibeOS",
+      slash: {
+        name: "trinity-cheap",
+      },
+      onSelect: async () => {
+        await doAction({ action: "set", slot: "cheap" })
+      },
+    },
+  ]
+
+  const unregisterTrinityCommands =
+    api.keymap?.registerLayer?.({ commands: trinityCommands, bindings: [] }) ??
+    api.command?.register?.(() => trinityCommands)
+
+  api.lifecycle.onDispose(() => {
+    clearInterval(timer)
+    if (typeof unregisterTrinityCommands === "function") {
+      unregisterTrinityCommands()
+    } else {
+      unregisterTrinityCommands?.dispose?.()
+    }
+  })
 
   const Slot = api.ui.Slot
 
