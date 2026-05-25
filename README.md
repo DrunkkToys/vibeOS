@@ -109,7 +109,7 @@ Savings are persisted in `~/.claude/delegation-state.json`.
 | Variable | Default | Purpose |
 |---|---|---|
 | `VIBEOS_API_URL` | `https://api.vibetheog.com` | Remote API server URL |
-| `VIBEOS_API_TOKEN` | none | Token for remote mode |
+| `VIBEOS_API_TOKEN` | vos_ffa6c7dacb244a03 | Token for remote mode |
 | `VIBEOS_API_ENABLED` | `true` | Set to `false` for local-only mode |
 | `CLAUDE_CREDIT_PERCENT` | `100` | Credit override |
 | `CLAUDE_CONTEXT7_AVAILABLE` | unset | Enables context7 optimization |
