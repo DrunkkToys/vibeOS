@@ -1,3 +1,7 @@
+## 0.19.3
+- fix: auto-register vibeOS plugin in opencode.json during deploy
+
+
 ## 0.19.2
 - fix: export server and tui entrypoints
 
