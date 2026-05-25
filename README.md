@@ -21,7 +21,7 @@ It also adds guardrails: delegation enforcement, flow and TDD controls, pattern 
 1. Install the package:
 
 ```bash
-npm install vibeOS
+npm install vibeostheog
 ```
 
 2. Register it in `~/.config/opencode/opencode.json`:
@@ -29,40 +29,36 @@ npm install vibeOS
 ```json
 {
   "plugins": [
-    { "id": "vibeOS", "path": "node_modules/vibeOS/src/index.js" }
+    { "id": "vibeOS", "path": "node_modules/vibeostheog/src/index.js" }
   ]
 }
 ```
 
 ### Local plugin file
 
-If you keep a local copy of the plugin, point OpenCode at the built file instead:
+If you keep a local checkout of the plugin, point OpenCode at the built file instead:
 
 ```json
 {
   "plugins": [
-    { "id": "vibeOS", "path": "~/.config/opencode/plugins/vibeOS.js" }
+    { "id": "vibeOS", "path": "/absolute/path/to/theSaver-oc/src/index.js" }
   ]
 }
 ```
 
 Restart OpenCode Desktop after changing the config.
 
-## Backend Root
-
-The backend lives at the Desktop-level sibling folder `../vibeOScore`.
-
-Use that folder when you need the API server, MCP server, or dashboard build chain:
+## Common Npm Commands
 
 ```bash
-npm run start
-npm run start:all
-npm run build:dashboard
-npm run dev:dashboard
-npm run dashboard:serve
+npm install
+npm run build
 npm run typecheck
 npm test
+npm run release:patch
 ```
+
+`npm run build` compiles `src/index.ts` to `src/index.js` and deploys the built plugin into the OpenCode plugin directory. `npm run typecheck` validates the TypeScript sources without emitting files.
 
 ## Core Controls
 
@@ -127,11 +123,10 @@ Without a token, vibeOS keeps running in local-only mode with bundled algorithms
 - If writes or edits are blocked, that is usually delegation enforcement working as intended on the brain tier.
 - If the footer is missing, check that the plugin is enabled and that the current OpenCode session is receiving assistant completions.
 - If the remote API is down or the token is invalid, use `trinity api-token <token>` or rely on local-only mode.
-- If the dashboard does not load, rebuild it from the backend root with `npm run build:dashboard`.
+- If the dashboard does not load, rebuild the plugin with `npm run build` and restart OpenCode.
 - If state or config looks inconsistent, run `trinity diagnose` and `trinity guard`.
 
 ## Notes
 
 - `trinity help` is the canonical command reference.
-- `../vibeOScore` is the backend sibling directory on the Desktop.
 - The README stays intentionally high level so the command details can follow the code without a rewrite.
