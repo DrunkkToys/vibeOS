@@ -21,8 +21,7 @@
     "codex:hook:summary": "bash plugins/vibetheog-codex/hooks/post-command-summary.sh",
     "precommit": "node scripts/pre-commit.mjs",
     "audit-state": "node scripts/audit-state.mjs",
-    "migrate-ledger": "node scripts/migrate-ledger.mjs",
-    "postinstall": "node scripts/deploy.mjs"
+    "migrate-ledger": "node scripts/migrate-ledger.mjs"
   },
   "type": "module",
   "exports": {
@@ -47,8 +46,8 @@
     "@opencode-ai/plugin": "^1.15.7"
   },
   "files": [
-    "src/index.js",
-    "src/lib/vibeos-mcp-server.js",
+    "src/**/*.js",
+    "src/**/*.json",
     ".opencode/plugins/vibeOS-tui.tsx",
     "scripts/deploy.mjs",
     "model-tiers.sample.json",

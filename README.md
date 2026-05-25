@@ -18,29 +18,17 @@ It also adds guardrails: delegation enforcement, flow and TDD controls, pattern 
 
 ### OpenCode plugin
 
-1. Install the package:
-
-```bash
-npm install vibeostheog
-```
-
-2. Let OpenCode load the built plugin from its plugin directory.
-   The package deploys `src/index.js` to `~/.config/opencode/plugins/vibeOS.js`
-   and can auto-register `./plugins/vibeOS.js` in `~/.config/opencode/opencode.json`.
-
-3. If you want to configure it manually, use:
+1. Add the package to your OpenCode config. OpenCode installs npm plugins automatically at startup:
 
 ```json
 {
   "plugin": [
-    "./plugins/vibeOS.js"
+    "vibeostheog@0.19.5"
   ]
 }
 ```
 
-### Local plugin file
-
-If you keep a local checkout of the plugin, point OpenCode at the built file instead:
+2. If you keep a local checkout of the plugin, point OpenCode at the built file instead:
 
 ```json
 {
@@ -64,7 +52,7 @@ npm test
 npm run release:patch
 ```
 
-`npm run build` compiles `src/index.ts` to `src/index.js` and deploys the built plugin into the OpenCode plugin directory. `npm run typecheck` validates the TypeScript sources without emitting files.
+`npm run build` compiles `src/index.ts` to `src/index.js` for the local checkout. `npm run typecheck` validates the TypeScript sources without emitting files.
 
 ## Core Controls
 
