@@ -18,17 +18,25 @@ It also adds guardrails: delegation enforcement, flow and TDD controls, pattern 
 
 ### OpenCode plugin
 
-1. Add the package to your OpenCode config. OpenCode installs npm plugins automatically at startup:
+1. Register the plugin with the bundled setup command:
+
+```bash
+npx vibeostheog setup --project
+```
+
+Use `npx vibeostheog setup` for a global OpenCode install under `~/.config/opencode/`.
+
+2. The setup command writes the package name into your OpenCode config. OpenCode installs npm plugins automatically at startup:
 
 ```json
 {
   "plugin": [
-    "vibeostheog@0.19.5"
+    "vibeostheog"
   ]
 }
 ```
 
-2. If you keep a local checkout of the plugin, point OpenCode at the built file instead:
+3. If you keep a local checkout of the plugin, point OpenCode at the built file instead:
 
 ```json
 {

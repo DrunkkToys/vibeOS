@@ -24,6 +24,10 @@
     "migrate-ledger": "node scripts/migrate-ledger.mjs"
   },
   "type": "module",
+  "main": "./src/index.js",
+  "bin": {
+    "vibeostheog": "./bin/setup.js"
+  },
   "exports": {
     ".": "./src/index.js",
     "./server": "./src/lib/vibeos-mcp-server.js",
@@ -48,6 +52,7 @@
   "files": [
     "src/**/*.js",
     "src/**/*.json",
+    "bin/setup.js",
     ".opencode/plugins/vibeOS-tui.tsx",
     "scripts/deploy.mjs",
     "model-tiers.sample.json",
