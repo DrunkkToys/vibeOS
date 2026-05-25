@@ -26,7 +26,9 @@
   },
   "type": "module",
   "exports": {
-    ".": "./src/index.js"
+    ".": "./src/index.js",
+    "./server": "./src/lib/vibeos-mcp-server.js",
+    "./tui": "./.opencode/plugins/vibeOS-tui.tsx"
   },
   "keywords": [
     "opencode",
@@ -46,6 +48,8 @@
   },
   "files": [
     "src/index.js",
+    "src/lib/vibeos-mcp-server.js",
+    ".opencode/plugins/vibeOS-tui.tsx",
     "scripts/deploy.mjs",
     "model-tiers.sample.json",
     "README.md",

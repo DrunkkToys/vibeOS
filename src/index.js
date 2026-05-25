@@ -545,7 +545,7 @@ function computeSessionMetrics(state, sessionId) {
   };
 }
 
-// src/lib/vibeos-mcp-server.ts
+// src/lib/vibeos-mcp-server.js
 import http from "node:http";
 import { parse as parseUrl } from "node:url";
 import { createReadStream, existsSync as existsSync2, statSync as statSync2 } from "node:fs";
@@ -594,7 +594,8 @@ function resolveDashboardDir() {
     join2(_MCP_DIR, "dashboard", "dist")
   ];
   for (const p of c) {
-    if (existsSync2(join2(p, "index.html"))) return p;
+    if (existsSync2(join2(p, "index.html")))
+      return p;
   }
   return c[0];
 }
@@ -820,8 +821,10 @@ function createMcpServer(deps) {
   };
   return {
     async start(port) {
-      if (server2) return server2;
-      if (startPromise) return startPromise;
+      if (server2)
+        return server2;
+      if (startPromise)
+        return startPromise;
       startPromise = new Promise((resolve, reject) => {
         const srv = http.createServer((req, res) => {
           void handler(req, res);
@@ -839,8 +842,10 @@ function createMcpServer(deps) {
       }
     },
     async close() {
-      if (!server2) return;
-      if (closePromise) return closePromise;
+      if (!server2)
+        return;
+      if (closePromise)
+        return closePromise;
       closePromise = new Promise((resolve, reject) => {
         server2?.close((err) => err ? reject(err) : resolve());
       });
@@ -3620,7 +3625,7 @@ var MODEL_USD_PER_TURN = {
   "haiku": 22e-4,
   // ── DeepSeek (OC platform + OpenRouter) ──────────────────
   "deepseek/deepseek-v4-pro": 57e-5,
-  "deepseek/deepseek-v4-flash": 0.00013,
+  "deepseek/deepseek-v4-flash": 182e-6,
   "deepseek/deepseek-chat": 182e-6,
   "deepseek-chat": 182e-6,
   "deepseek/deepseek-v3": 182e-6,
