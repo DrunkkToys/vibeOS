@@ -3,11 +3,15 @@ import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, sta
 import { join, dirname } from "node:path"
 import { createHash } from "node:crypto"
 import {
-  USER_HOME,
+  VIBEOS_HOME,
   loadSelection,
   updateState,
   testReminderSeen,
 } from "./state.js"
+
+function getVibeOSHome(): string {
+  return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude")
+}
 import { extractExports, generateTestCaseNames, inferFunctionParams, inferTypeFromName, _langComment, buildQualityAssertionsForFunc, isSkeletonUseless } from "../utils/tdd-helpers.js"
 import TEST_SKELETONS from "./test-skeletons.js"
 
@@ -59,11 +63,11 @@ function _detectTestFramework() {
 }
 
 // Cross-process lock directory for test file creation coordination.
-const ENFORCEMENT_LOCK_DIR = join(USER_HOME, ".claude/.enforcement-lock")
+const ENFORCEMENT_LOCK_DIR = join(getVibeOSHome(), ".enforcement-lock")
 const LOCK_EXPIRE_MS = 30_000
 
 // Cross-process cooldown to avoid duplicate enforcement across processes.
-const ENFORCEMENT_COOLDOWN_FILE = join(USER_HOME, ".claude/.enforcement-cooldown.jsonl")
+const ENFORCEMENT_COOLDOWN_FILE = join(getVibeOSHome(), ".enforcement-cooldown.jsonl")
 const COOLDOWN_MS = 60_000
 
 // Per-process recursion guard.

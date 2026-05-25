@@ -14,27 +14,29 @@ const USER_HOME = (() => { try {
 catch {
     return tmpdir();
 } })();
-const FILE_LOCK_DIR = join(USER_HOME, ".claude/.vibeOS-locks");
-const DELEGATION_STATE_FILE = join(USER_HOME, ".claude/delegation-state.json");
-const SAVINGS_LEDGER_FILE = join(USER_HOME, ".claude/savings-ledger.jsonl");
-const GLOBAL_LEARNING_FILE = join(USER_HOME, ".claude/global-learning.json");
-const PRICING_CACHE_FILE = join(USER_HOME, ".claude/model-pricing-cache.json");
-const BLACKBOX_STATE_FILE = join(USER_HOME, ".claude/blackbox-state.json");
-const PROJECT_STATE_FILE = join(USER_HOME, ".claude/project-states.json");
-const TIERS_FILE = join(USER_HOME, ".claude/model-tiers.json");
-const ACTIVE_JOBS_FILE = join(USER_HOME, ".claude/active-jobs.json");
+const VIBEOS_HOME = process.env.VIBEOS_HOME || join(USER_HOME, ".claude");
+const OPENCODE_HOME = process.env.VIBEOS_OPENCODE_HOME || join(USER_HOME, ".config", "opencode");
+const FILE_LOCK_DIR = join(VIBEOS_HOME, ".vibeOS-locks");
+const DELEGATION_STATE_FILE = join(VIBEOS_HOME, "delegation-state.json");
+const SAVINGS_LEDGER_FILE = join(VIBEOS_HOME, "savings-ledger.jsonl");
+const GLOBAL_LEARNING_FILE = join(VIBEOS_HOME, "global-learning.json");
+const PRICING_CACHE_FILE = join(VIBEOS_HOME, "model-pricing-cache.json");
+const BLACKBOX_STATE_FILE = join(VIBEOS_HOME, "blackbox-state.json");
+const PROJECT_STATE_FILE = join(VIBEOS_HOME, "project-states.json");
+const TIERS_FILE = join(VIBEOS_HOME, "model-tiers.json");
+const ACTIVE_JOBS_FILE = join(VIBEOS_HOME, "active-jobs.json");
 const AUTH_F = join(USER_HOME, ".local", "share", "opencode", "auth.json");
-const CREDIT_CACHE_F = join(USER_HOME, ".claude/credit-snapshot.json");
-const FLOW_TODO_QUEUE_FILE = join(USER_HOME, ".claude/.flow-todo-queue.jsonl");
-const FLOW_DEDUP_FILE = join(USER_HOME, ".claude/.flow-dedup-keys.json");
-const ENFORCEMENT_COOLDOWN_FILE = join(USER_HOME, ".claude/.enforcement-cooldown.jsonl");
-const TODOS_FILE = join(USER_HOME, ".claude/todos.json");
-const REPORTS_DIR = join(USER_HOME, ".claude/reports");
-const CONTEXT7_INSTALL_FLAG = join(USER_HOME, ".claude/.context7-install-suggested");
-const TRINITY_OPENCODE_CONFIG = join(USER_HOME, ".config/opencode/opencode.json");
-const TRINITY_OPENCODE_CONFIGC = join(USER_HOME, ".config/opencode/opencode.jsonc");
+const CREDIT_CACHE_F = join(VIBEOS_HOME, "credit-snapshot.json");
+const FLOW_TODO_QUEUE_FILE = join(VIBEOS_HOME, ".flow-todo-queue.jsonl");
+const FLOW_DEDUP_FILE = join(VIBEOS_HOME, ".flow-dedup-keys.json");
+const ENFORCEMENT_COOLDOWN_FILE = join(VIBEOS_HOME, ".enforcement-cooldown.jsonl");
+const TODOS_FILE = join(VIBEOS_HOME, "todos.json");
+const REPORTS_DIR = join(VIBEOS_HOME, "reports");
+const CONTEXT7_INSTALL_FLAG = join(VIBEOS_HOME, ".context7-install-suggested");
+const TRINITY_OPENCODE_CONFIG = join(OPENCODE_HOME, "opencode.json");
+const TRINITY_OPENCODE_CONFIGC = join(OPENCODE_HOME, "opencode.jsonc");
 // ── Scratchpad paths ─────────────────────────────────────────────────
-const SCRATCHPAD_ROOT = join(USER_HOME, ".claude/scratch");
+const SCRATCHPAD_ROOT = join(VIBEOS_HOME, "scratch");
 const SCRATCHPAD_GLOBAL_DIR = join(SCRATCHPAD_ROOT, "by-hash");
 const SCRATCHPAD_SESSIONS_DIR = join(SCRATCHPAD_ROOT, "sessions");
 const SCRATCHPAD_SESSION_TTL_MS = 48 * 60 * 60 * 1000;
@@ -43,6 +45,12 @@ const MAX_SCRATCHPAD_FILES = 1000;
 const MAX_SCRATCHPAD_BYTES = 10 * 1024 * 1024;
 const MAX_SESSION_SCRATCHPAD_FILES = 200;
 const MAX_SESSION_SCRATCHPAD_BYTES = 2 * 1024 * 1024;
+function getVibeOSHome() {
+    return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude");
+}
+function getOpenCodeHome() {
+    return process.env.VIBEOS_OPENCODE_HOME || join(process.env.HOME || USER_HOME, ".config", "opencode");
+}
 // ── Scratchpad decadence thresholds ──────────────────────────────────
 const DECADENCE_FRESH_MS = 5 * 60 * 1000;
 const DECADENCE_WARM_MS = 60 * 60 * 1000;
@@ -168,14 +176,14 @@ const tool = Object.assign((def) => def, {
 });
 // ── State corruption handler ─────────────────────────────────────────
 function _handleStateCorruption(path) {
-    const backupDir = join(USER_HOME, ".claude", ".backups");
+    const backupDir = join(VIBEOS_HOME, ".backups");
     mkdirSync(backupDir, { recursive: true });
     const backupPath = join(backupDir, basename(path) + ".corrupted." + Date.now());
     try {
         copyFileSync(path, backupPath);
     }
     catch { }
-    const logPath = join(USER_HOME, ".claude", ".state-corruption-log.jsonl");
+    const logPath = join(VIBEOS_HOME, ".state-corruption-log.jsonl");
     try {
         appendFileSync(logPath, JSON.stringify({ ts: new Date().toISOString(), path, backup: backupPath }) + "\n");
     }
@@ -290,12 +298,13 @@ function readJsonOrEmpty(filePath) {
     }
 }
 function updateState(mutator) {
+    const delegationStateFile = join(getVibeOSHome(), "delegation-state.json");
     const MAX_RETRIES = 3;
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
         try {
-            const result = withFileLock(DELEGATION_STATE_FILE, () => {
-                const preGen = (readJsonOrEmpty(DELEGATION_STATE_FILE)._gen || 0);
-                let state = readJsonOrEmpty(DELEGATION_STATE_FILE);
+            const result = withFileLock(delegationStateFile, () => {
+                const preGen = (readJsonOrEmpty(delegationStateFile)._gen || 0);
+                let state = readJsonOrEmpty(delegationStateFile);
                 if (!state || typeof state !== "object")
                     state = {};
                 if (!state.session_started_at || state.session_started_at === "not-a-valid-date" || isNaN(Date.parse(state.session_started_at))) {
@@ -308,11 +317,11 @@ function updateState(mutator) {
                 state._ledgerFormatVersion ??= 2;
                 state._gen = preGen + 1;
                 const next = mutator(state) ?? state;
-                validateState(next, DELEGATION_STATE_FILE);
-                mkdirSync(dirname(DELEGATION_STATE_FILE), { recursive: true });
-                const tmp = DELEGATION_STATE_FILE + ".tmp";
+                validateState(next, delegationStateFile);
+                mkdirSync(dirname(delegationStateFile), { recursive: true });
+                const tmp = delegationStateFile + ".tmp";
                 writeFileSync(tmp, JSON.stringify(next, null, 2) + "\n");
-                renameSync(tmp, DELEGATION_STATE_FILE);
+                renameSync(tmp, delegationStateFile);
                 invalidateSavingsCache();
                 return next;
             });
@@ -328,29 +337,31 @@ function updateState(mutator) {
     return null;
 }
 function readFullState() {
+    const delegationStateFile = join(getVibeOSHome(), "delegation-state.json");
     try {
-        if (!existsSync(DELEGATION_STATE_FILE))
+        if (!existsSync(delegationStateFile))
             return {};
-        const st = statSync(DELEGATION_STATE_FILE);
+        const st = statSync(delegationStateFile);
         if (st.size > 10485760) {
-            _handleStateCorruption(DELEGATION_STATE_FILE);
+            _handleStateCorruption(delegationStateFile);
             return {};
         }
-        return safeJsonParse(readFileSync(DELEGATION_STATE_FILE, "utf-8"));
+        return safeJsonParse(readFileSync(delegationStateFile, "utf-8"));
     }
     catch {
-        _handleStateCorruption(DELEGATION_STATE_FILE);
+        _handleStateCorruption(delegationStateFile);
         return {};
     }
 }
 function writeFullState(state) {
+    const delegationStateFile = join(getVibeOSHome(), "delegation-state.json");
     try {
-        withFileLock(DELEGATION_STATE_FILE, () => {
-            validateState(state, DELEGATION_STATE_FILE);
-            mkdirSync(dirname(DELEGATION_STATE_FILE), { recursive: true });
-            const tmp = DELEGATION_STATE_FILE + ".tmp";
+        withFileLock(delegationStateFile, () => {
+            validateState(state, delegationStateFile);
+            mkdirSync(dirname(delegationStateFile), { recursive: true });
+            const tmp = delegationStateFile + ".tmp";
             writeFileSync(tmp, JSON.stringify(state, null, 2) + "\n");
-            renameSync(tmp, DELEGATION_STATE_FILE);
+            renameSync(tmp, delegationStateFile);
             invalidateSavingsCache();
         });
     }
@@ -378,7 +389,7 @@ export function _safeRegex(cfg, fallback, label) {
 }
 function loadTierRegexes() {
     try {
-        const p = join(USER_HOME, ".claude/model-tiers.json");
+        const p = join(getVibeOSHome(), "model-tiers.json");
         if (!existsSync(p))
             return { high: FALLBACK_HIGH, mid: FALLBACK_MID };
         const j = safeJsonParse(readFileSync(p, "utf-8"));
@@ -395,15 +406,16 @@ const { high: HIGH_TIER_RE, mid: MID_TIER_RE } = loadTierRegexes();
 // loadSelection, writeSelection, and DFLT_SEL are imported from selection-manager
 // ── Global learning ──────────────────────────────────────────────────
 function loadGlobalLearning() {
+    const globalLearningFile = join(getVibeOSHome(), "global-learning.json");
     try {
-        if (!existsSync(GLOBAL_LEARNING_FILE))
+        if (!existsSync(globalLearningFile))
             return DFLT_GL;
-        const st = statSync(GLOBAL_LEARNING_FILE);
+        const st = statSync(globalLearningFile);
         if (st.size > 10485760) {
-            _handleStateCorruption(GLOBAL_LEARNING_FILE);
+            _handleStateCorruption(globalLearningFile);
             return DFLT_GL;
         }
-        const j = safeJsonParse(readFileSync(GLOBAL_LEARNING_FILE, "utf-8"));
+        const j = safeJsonParse(readFileSync(globalLearningFile, "utf-8"));
         if (!j || typeof j !== "object")
             return DFLT_GL;
         j.exploratory_words ??= {};
@@ -414,19 +426,20 @@ function loadGlobalLearning() {
         return j;
     }
     catch {
-        _handleStateCorruption(GLOBAL_LEARNING_FILE);
+        _handleStateCorruption(globalLearningFile);
         return DFLT_GL;
     }
 }
 function updateGlobalLearning(mutator) {
-    return withFileLock(GLOBAL_LEARNING_FILE, () => {
+    const globalLearningFile = join(getVibeOSHome(), "global-learning.json");
+    return withFileLock(globalLearningFile, () => {
         const s = loadGlobalLearning();
         const next = mutator(s) ?? s;
         next.updatedAt = new Date().toISOString();
-        mkdirSync(dirname(GLOBAL_LEARNING_FILE), { recursive: true });
-        const tmp = GLOBAL_LEARNING_FILE + ".tmp";
+        mkdirSync(dirname(globalLearningFile), { recursive: true });
+        const tmp = globalLearningFile + ".tmp";
         writeFileSync(tmp, JSON.stringify(next, null, 2));
-        renameSync(tmp, GLOBAL_LEARNING_FILE);
+        renameSync(tmp, globalLearningFile);
         return next;
     });
 }
@@ -472,27 +485,29 @@ function saveMLState() {
 loadMLState();
 // ── Blackbox state management ───────────────────────────────────────
 function loadBlackboxState() {
+    const blackboxFile = join(getVibeOSHome(), "blackbox-state.json");
     try {
-        if (!existsSync(BLACKBOX_STATE_FILE))
+        if (!existsSync(blackboxFile))
             return { enabled: true, sessions: {} };
-        const st = statSync(BLACKBOX_STATE_FILE);
+        const st = statSync(blackboxFile);
         if (st.size > 10485760) {
-            _handleStateCorruption(BLACKBOX_STATE_FILE);
+            _handleStateCorruption(blackboxFile);
             return { enabled: false, sessions: {} };
         }
-        return safeJsonParse(readFileSync(BLACKBOX_STATE_FILE, "utf-8")) || { enabled: false, sessions: {} };
+        return safeJsonParse(readFileSync(blackboxFile, "utf-8")) || { enabled: false, sessions: {} };
     }
     catch {
-        _handleStateCorruption(BLACKBOX_STATE_FILE);
+        _handleStateCorruption(blackboxFile);
         return { enabled: false, sessions: {} };
     }
 }
 function saveBlackboxState(state) {
+    const blackboxFile = join(getVibeOSHome(), "blackbox-state.json");
     try {
-        mkdirSync(dirname(BLACKBOX_STATE_FILE), { recursive: true });
-        const tmp = BLACKBOX_STATE_FILE + ".tmp";
+        mkdirSync(dirname(blackboxFile), { recursive: true });
+        const tmp = blackboxFile + ".tmp";
         writeFileSync(tmp, JSON.stringify(state, null, 2) + "\n");
-        renameSync(tmp, BLACKBOX_STATE_FILE);
+        renameSync(tmp, blackboxFile);
     }
     catch (err) {
         console.error(`[vibeOS] saveBlackboxState failed: ${err.message}`);
@@ -1080,7 +1095,7 @@ function pruneScratchpadOnce() {
         return;
     prunedThisProcess = true;
     try {
-        const script = join(USER_HOME, ".claude/hooks/scratchpad-prune.sh");
+        const script = join(VIBEOS_HOME, "hooks/scratchpad-prune.sh");
         if (existsSync(script)) {
             const child = spawn("bash", [script], { detached: true, stdio: "ignore" });
             child.unref();
@@ -1158,8 +1173,9 @@ function projectFingerprint(dir) {
     return createHash("sha256").update(dir).digest("hex").slice(0, 12);
 }
 function loadProjectState() {
+    const projectStateFile = join(getVibeOSHome(), "project-states.json");
     try {
-        const state = readJsonOrEmpty(PROJECT_STATE_FILE);
+        const state = readJsonOrEmpty(projectStateFile);
         if (state && typeof state === "object") {
             state.project_hashes ??= {};
             return state;
@@ -1169,12 +1185,13 @@ function loadProjectState() {
     return { project_hashes: {} };
 }
 function saveProjectState(state) {
+    const projectStateFile = join(getVibeOSHome(), "project-states.json");
     try {
-        withFileLock(PROJECT_STATE_FILE, () => {
-            mkdirSync(dirname(PROJECT_STATE_FILE), { recursive: true });
-            const _tmp = PROJECT_STATE_FILE + ".tmp." + Date.now();
+        withFileLock(projectStateFile, () => {
+            mkdirSync(dirname(projectStateFile), { recursive: true });
+            const _tmp = projectStateFile + ".tmp." + Date.now();
             writeFileSync(_tmp, JSON.stringify(state, null, 2) + "\n", "utf-8");
-            renameSync(_tmp, PROJECT_STATE_FILE);
+            renameSync(_tmp, projectStateFile);
         });
     }
     catch (err) {
@@ -1665,7 +1682,8 @@ function reconcileStateFromLedger() {
         const l = readLedgerTotals();
         if (l.total <= 0 && l.context7 <= 0)
             return;
-        const state = readJsonOrEmpty(DELEGATION_STATE_FILE);
+        const delegationStateFile = join(getVibeOSHome(), "delegation-state.json");
+        const state = readJsonOrEmpty(delegationStateFile);
         const stDelegation = Number(state?.lifetime?.est_savings_usd ?? state?.lifetime?.total_savings_usd ?? 0);
         const stCache = Number(state?.lifetime?.cache_savings_usd ?? 0);
         const stMissedC7 = Number(state?.lifetime?.missed_context7_usd ?? 0);
@@ -1690,12 +1708,13 @@ function readLifetimeSavings() {
     const empty = { ltTasks: 0, ltCache: 0, ltCost: 0, count: 0, scratchpadHits: 0, missedC7: 0, sesTasks: 0, sesEdit: 0, sesCredit: 0, sesC7: 0, sesQuota: 0, sesTaskDelegations: 0, sesDuration: 0, sesRatePerHour: 0, sesTrend: "stable", sesToolBreakdown: {}, sesModelTurns: { brain: 0, worker: 0 }, quality_avg: 0, telemetry: readTelemetrySummary({}, _OC_SID) };
     try {
         reconcileStateFromLedger();
-        if (!existsSync(DELEGATION_STATE_FILE))
+        const delegationStateFile = join(getVibeOSHome(), "delegation-state.json");
+        if (!existsSync(delegationStateFile))
             return empty;
-        const mtime = statSync(DELEGATION_STATE_FILE).mtimeMs;
+        const mtime = statSync(delegationStateFile).mtimeMs;
         if (_savingsCache && mtime === _savingsCacheMtime)
             return _savingsCache;
-        const s = safeJsonParse(readFileSync(DELEGATION_STATE_FILE, "utf-8"));
+        const s = safeJsonParse(readFileSync(delegationStateFile, "utf-8"));
         _savingsCache = { ..._computeSessionMetrics(s, _OC_SID), telemetry: readTelemetrySummary(s, _OC_SID) };
         _savingsCacheMtime = mtime;
         return _savingsCache;
@@ -1740,7 +1759,7 @@ function saveSessionCheckpoint() {
 // ── Export ───────────────────────────────────────────────────────────
 export { 
 // File system constants
-USER_HOME, FILE_LOCK_DIR, DELEGATION_STATE_FILE as DELEGATION_STATE_FILE, SAVINGS_LEDGER_FILE, GLOBAL_LEARNING_FILE, PRICING_CACHE_FILE, BLACKBOX_STATE_FILE, PROJECT_STATE_FILE, TIERS_FILE, ACTIVE_JOBS_FILE, FLOW_TODO_QUEUE_FILE, FLOW_DEDUP_FILE, ENFORCEMENT_COOLDOWN_FILE, TODOS_FILE, AUTH_F, CREDIT_CACHE_F, REPORTS_DIR, CONTEXT7_INSTALL_FLAG, TRINITY_OPENCODE_CONFIG, TRINITY_OPENCODE_CONFIGC, STATE_FILE, 
+VIBEOS_HOME, OPENCODE_HOME, USER_HOME, FILE_LOCK_DIR, DELEGATION_STATE_FILE as DELEGATION_STATE_FILE, SAVINGS_LEDGER_FILE, GLOBAL_LEARNING_FILE, PRICING_CACHE_FILE, BLACKBOX_STATE_FILE, PROJECT_STATE_FILE, TIERS_FILE, ACTIVE_JOBS_FILE, FLOW_TODO_QUEUE_FILE, FLOW_DEDUP_FILE, ENFORCEMENT_COOLDOWN_FILE, TODOS_FILE, AUTH_F, CREDIT_CACHE_F, REPORTS_DIR, CONTEXT7_INSTALL_FLAG, TRINITY_OPENCODE_CONFIG, TRINITY_OPENCODE_CONFIGC, STATE_FILE, 
 // Scratchpad paths
 SCRATCHPAD_ROOT, SCRATCHPAD_GLOBAL_DIR, SCRATCHPAD_SESSIONS_DIR, SCRATCHPAD_SESSION_TTL_MS, SCRATCHPAD_MAX_AGE_SEC, MAX_SCRATCHPAD_FILES, MAX_SCRATCHPAD_BYTES, MAX_SESSION_SCRATCHPAD_FILES, MAX_SESSION_SCRATCHPAD_BYTES, DECADENCE_FRESH_MS, DECADENCE_WARM_MS, DECADENCE_COLD_MS, DECADENCE_EXPIRE_MS, DECADENCE_THROTTLE_MS, DECADENCE_GLOBAL_THROTTLE_MS, TOOL_NAME_NORMALIZE, SCRATCHPAD_TOOLS, 
 // Warning constants

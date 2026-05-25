@@ -1,7 +1,6 @@
 // @ts-nocheck
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, statSync, readdirSync, copyFileSync, renameSync } from 'node:fs'
 import { join, dirname, basename } from 'node:path'
-import { homedir, tmpdir } from 'node:os'
 import { createHash } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import {
@@ -25,6 +24,7 @@ import {
   loadMLState, saveMLState,
   readJsonOrEmpty, _handleStateCorruption, _lockPathFor,
   SCRATCHPAD_TOOLS, applyDecadence,
+  VIBEOS_HOME,
 } from '../state.js'
 import {
   classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget,
@@ -53,6 +53,10 @@ import { SAVE_EST, WARN_ON_DIRECT, SOFT_QUOTA, FREE, MONITOR } from "../constant
 
 const BYTES_PER_TOKEN = 4
 const CACHE_SAVED_PER_1M_INPUT_TOKENS = 0.10
+
+function getVibeOSHome() {
+  return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude")
+}
 
 let activeJob = null
 let projectDirectory = ""
@@ -423,6 +427,8 @@ export const onToolExecuteBefore = async (input, output) => {
       const _estC7      = _brainCost !== null ? Math.max(_brainCost, SAVE_EST.CONTEXT7) : SAVE_EST.CONTEXT7
       const _tierWord   = currentTier === "high" ? "Brain" : currentTier === "mid" ? "Medium" : "Budget"
       const _firstWord = extractFirstWordFromArgs(t, args || inArgs)
+      const sel = loadSelection()
+      const compatibilityMode = sel.onboarding_mode === "assist"
 
       // Self-modification protection: never allow writes to project source trees.
       // This must run before credit gating so protected files are blocked even
@@ -442,7 +448,7 @@ export const onToolExecuteBefore = async (input, output) => {
       }
 
       // Credit < 40%: non-task tool — record and nudge to step aside.
-      if (_credit < 40) {
+      if (_credit < 40 && !compatibilityMode) {
         const total = recordSaving(t, "credit<40% high-tier", _estOpus, { firstWord: _firstWord })
         const trend = trendDisplay(readLifetimeSavings().sesTrend)
         const msg = `⚠ [vibeOS] Credit: ${_credit}% — switching to medium saves ~$${_estOpus.toFixed(3)}/turn. Run \`trinity medium\`.`
@@ -453,11 +459,10 @@ export const onToolExecuteBefore = async (input, output) => {
 
       // Write/Edit/NotebookEdit: enforce delegation on high tier when delegation_enforce is on.
       if (WARN_ON_DIRECT.has(String(t || "").toLowerCase())) {
-        const sel = loadSelection()
         const argSources = _toolArgSources(input, output)
         console.error(`[vibeOS] [enforce-debug] tool=${t} tier=${currentTier} enforce=${sel?.delegation_enforce} argsType=${typeof args} argsExists=${argSources.length > 0}`)
         const tLower = String(t || "").toLowerCase()
-        if (sel.delegation_enforce && currentTier === "high" && argSources.length > 0) {
+        if (!compatibilityMode && sel.delegation_enforce && currentTier === "high" && argSources.length > 0) {
           const originalPath = argSources
             .flatMap((src) => [src?.filePath, src?.file_path, src?.path])
             .find((v) => typeof v === "string" && v.trim()) || ""
@@ -481,10 +486,12 @@ export const onToolExecuteBefore = async (input, output) => {
           }
         }
         const total = recordSaving(t, "direct edit", _estEdit, { firstWord: _firstWord })
-        const msg = `[vibeOS] ${_tierWord} tier direct ${t} — save ~$${_estEdit.toFixed(3)} by delegating to Task. Run \`trinity medium\`.`
-        if (shouldLogWarn(`${t}|direct|${_tierWord}`)) console.error(`[vibeOS] [delegation] ${msg}`)
-        pendingUiNote = msg
-        return
+        if (!compatibilityMode) {
+          const msg = `[vibeOS] ${_tierWord} tier direct ${t} — save ~$${_estEdit.toFixed(3)} by delegating to Task. Run \`trinity medium\`.`
+          if (shouldLogWarn(`${t}|direct|${_tierWord}`)) console.error(`[vibeOS] [delegation] ${msg}`)
+          pendingUiNote = msg
+          return
+        }
       }
 
       if (SOFT_QUOTA.has(t)) {
@@ -622,7 +629,7 @@ export const onToolExecuteAfter = async (input, output) => {
         const trinityAction = trinityArgs?.action || trinityArgs?.todo || ""
         if (trinityAction === "todo") {
           try {
-            const flowTodoFilePath = require("path").join(require("os").homedir(), ".claude/flow-todo-queue.jsonl")
+            const flowTodoFilePath = join(getVibeOSHome(), ".flow-todo-queue.jsonl")
             let todoLines: string[] = []
             if (require("fs").existsSync(flowTodoFilePath)) {
               const raw = require("fs").readFileSync(flowTodoFilePath, "utf-8").trim()

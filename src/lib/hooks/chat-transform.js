@@ -1,7 +1,6 @@
 // @ts-nocheck
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join, basename } from 'node:path';
-import { homedir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { currentModel, currentProjectFingerprint, currentProjectName, _blackboxEnabled, loadSelection, writeSelection, safeJsonParse, applyDecadence, getSessionScratchpadDir, ensureSessionScratchpadDirs, indexAppend, briefedProjects, getActiveJobForProject, loadTodos, promotedProjectPatterns, detectTechStack, TRINITY_OPENCODE_CONFIG, TIERS_FILE, loadGlobalLearning, stableJson, TOOL_NAME_NORMALIZE, } from '../state.js';
 import { applySlot, TRINITY_CHEAP, TRINITY_MEDIUM, } from '../pricing.js';
@@ -14,6 +13,12 @@ import { noteProjectPattern } from '../index-helpers.js';
 import { saveSessionStress } from '../index-helpers.js';
 import { COMPRESS_THRESHOLD, KEEP_HOT, COMPRESS_MARKER, PROTOCOL_MARKER, PROTOCOL_TEXT } from "../constants.js";
 import { TEMPLATES, DEFAULT_TEMPLATE, resolveTemplate, shouldInjectTemplate } from '../templates.js';
+function getVibeOSHome() {
+    return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude");
+}
+function getOpenCodeHome() {
+    return process.env.VIBEOS_OPENCODE_HOME || join(process.env.HOME || "", ".config", "opencode");
+}
 let latestUserIntent = null;
 let _OC_SID = 'opencode-' + (process.pid || 'x') + '-' + Date.now();
 let _latestBlackboxState = null;
@@ -142,13 +147,18 @@ export function syncControlSettings(cv, options = {}) {
         const sid = _OC_SID;
         const persistOptimizationMode = options.persistOptimizationMode !== false;
         const currentSel = loadSelection();
+        const compatibilityMode = currentSel.onboarding_mode === "assist";
         const writeIf = (key, val) => {
             const sel = loadSelection();
             if (sel[key] !== val)
                 writeSelection(key, val);
         };
-        writeIf("delegation_enforce", true);
-        if (cv.flow_mode === "audit") {
+        writeIf("delegation_enforce", compatibilityMode ? cv.enforcement_mode === "strict" : true);
+        if (compatibilityMode) {
+            writeIf("flow_enabled", cv.flow_mode === "strict");
+            writeIf("flow_enforce", cv.flow_mode === "strict");
+        }
+        else if (cv.flow_mode === "audit") {
             writeIf("flow_enabled", false);
             writeIf("flow_enforce", false);
         }
@@ -156,7 +166,11 @@ export function syncControlSettings(cv, options = {}) {
             writeIf("flow_enabled", true);
             writeIf("flow_enforce", cv.flow_mode === "strict");
         }
-        if (cv.tdd_mode === "lazy") {
+        if (compatibilityMode) {
+            writeIf("tdd_enforce", cv.tdd_mode === "strict");
+            writeIf("tdd_strict", cv.tdd_mode === "strict");
+        }
+        else if (cv.tdd_mode === "lazy") {
             writeIf("tdd_enforce", false);
             writeIf("tdd_strict", false);
         }
@@ -186,7 +200,7 @@ export function syncControlSettings(cv, options = {}) {
         }
         if (cv.agent_mode) {
             try {
-                const OC_CONFIG = TRINITY_OPENCODE_CONFIG || join(homedir(), ".config/opencode/opencode.json");
+                const OC_CONFIG = TRINITY_OPENCODE_CONFIG || join(getOpenCodeHome(), "opencode.json");
                 if (existsSync(OC_CONFIG)) {
                     const oc = safeJsonParse(readFileSync(OC_CONFIG, "utf-8"));
                     if (oc.default_agent !== cv.agent_mode) {
@@ -201,7 +215,7 @@ export function syncControlSettings(cv, options = {}) {
             const planDone = /^(yes|go ahead|proceed|looks? good|do it|sounds? good|perfect|great|nice|ok|okay|let.s do it|implement|execute|make it|build it|write it|start)\b/i.test(latestUserIntent.trim());
             if (planDone) {
                 try {
-                    const OC_CONFIG = TRINITY_OPENCODE_CONFIG || join(homedir(), ".config/opencode/opencode.json");
+                    const OC_CONFIG = TRINITY_OPENCODE_CONFIG || join(getOpenCodeHome(), "opencode.json");
                     if (existsSync(OC_CONFIG)) {
                         const oc = safeJsonParse(readFileSync(OC_CONFIG, "utf-8"));
                         if (oc.default_agent === "plan") {
@@ -408,10 +422,14 @@ function orchestratorDirective(cv, sel) {
     const cheapModel = TRINITY_CHEAP || "the cheaper model";
     const mediumModel = TRINITY_MEDIUM || "the medium model";
     const targetModel = tierBias === "cheap" ? cheapModel : tierBias === "medium" ? mediumModel : tierBias === "brain" ? brainModel : `${cheapModel} or ${mediumModel}`;
+    const compatibilityMode = sel?.onboarding_mode === "assist";
     return `[AI ORCHESTRATOR AGENT] You are an AI orchestrator agent. ` +
         `Delegate heavy work to Task subagents (runs on ${targetModel}). ` +
-        `Your role: verify, fill gaps, synthesize. CRITICAL: Write/Edit tools are BLOCKED on this tier. You MUST delegate ALL implementation work to Task subagents. ` +
-        `Always display the vibeOS cost footer.` +
+        `Your role: verify, fill gaps, synthesize. ` +
+        (compatibilityMode
+            ? "Compatibility mode is active: direct Write/Edit is allowed until the user enables strict guardrails."
+            : "CRITICAL: Write/Edit tools are BLOCKED on this tier. You MUST delegate ALL implementation work to Task subagents.") +
+        ` Always display the vibeOS cost footer.` +
         (tierBias !== "auto" ? ` [tier routing] This turn is biased toward ${tierBias} tier.` : "");
 }
 const TDD_NOTES = {
@@ -628,7 +646,7 @@ export const onSystemTransform = async (_input, output) => {
             pushSystem(output, welcomeDirective());
         }
         // ── Calibration logging ──
-        const calDir = join(homedir(), ".claude");
+        const calDir = getVibeOSHome();
         const calFile = join(calDir, "calibration-data.jsonl");
         const regime2 = _latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || "");
         const calRecord = JSON.stringify({

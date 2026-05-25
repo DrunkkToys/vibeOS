@@ -3,8 +3,8 @@ import { join } from "node:path"
 import { homedir } from "node:os"
 
 function getStateFile() {
-  const home = process.env.HOME || homedir()
-  return join(home, ".claude/delegation-state.json")
+  const vibeHome = process.env.VIBEOS_HOME || join(process.env.HOME || homedir(), ".claude")
+  return join(vibeHome, "delegation-state.json")
 }
 
 type DurationParts = { hours: number; minutes: number; seconds: number }

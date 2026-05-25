@@ -14,12 +14,13 @@ export function createTrinityTool(deps) {
             "Use action='tdd' with slot='on'|'off' to toggle auto-create test skeletons. " +
             "Use action='tdd' with slot='strict' and level='on'|'off' to toggle strict failing TODO test templates. " +
             "Use action='tdd' alone for audit. " +
+            "Use action='setup' to create a compatibility profile for first-time users. " +
             "Use action='project' to show per-project analytics and optimization suggestions. " +
             "Use action='patterns' to inspect learned project patterns or slot='clear' to clear them. " +
             "Use action='guard' to ensure AGENTS.md and README.md exist and stay current. Use action='api-token' with token='<new_token>' to update the API token and re-enable remote control-vector " +
             "Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', 'trinity status'.",
         args: {
-            action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard", "api-token", "todo", "todo-done", "todo-sync"]).optional(),
+            action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "setup", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard", "api-token", "todo", "todo-done", "todo-sync"]).optional(),
             slot: deps.tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings"]).optional(),
             level: deps.tool.schema.enum(["full", "brief", "off", "on"]).optional(),
             token: deps.tool.schema.string().optional(),
@@ -58,6 +59,7 @@ export function createTrinityTool(deps) {
                 const activeSlot = sel.active_slot || "brain";
                 const lockedSlot = deps._lockedSlot || null;
                 const lockedModel = deps._lockedModel || null;
+                const onboardingMode = sel.onboarding_mode || "strict";
                 const stressScore = deps.latestUserIntent ? deps.scoreStress(deps.latestUserIntent) : 0;
                 const stressBar = stressScore > 0.85 ? "█" : stressScore > 0.7 ? "▆" : stressScore > 0.5 ? "▅" : stressScore > 0.3 ? "▃" : stressScore > 0.1 ? "▂" : "▁";
                 const stressLabel = stressScore > 0.7 ? "high" : stressScore > 0.4 ? "elevated" : stressScore > 0.1 ? "calm" : "none";
@@ -94,8 +96,9 @@ export function createTrinityTool(deps) {
                     `Guards:`,
                     `  Flow: ${sel.flow_enabled !== false ? "ON" : "OFF"}${sel.flow_enforce ? " (extract)" : ""}`,
                     `  TDD: ${sel.tdd_enforce ? "ON" : "OFF"}${sel.tdd_strict !== false ? " strict" : ""}${sel.tdd_quality !== false ? " quality" : ""}`,
-                    `  Enforce: ON (mandatory)`,
+                    `  Enforce: ${sel.delegation_enforce ? "ON" : "OFF"}${sel.onboarding_mode === "assist" ? " (compatibility)" : " (mandatory)"}`,
                     `  Lock: ${deps._modelLocked ? `\u{1F512} ON${lockedSlot ? ` (${lockedSlot})` : ""}${lockedModel ? ` ${lockedModel}` : ""}` : "\u{1F513} OFF"}`,
+                    `  Compatibility: ${onboardingMode === "assist" ? "ASSIST (soft defaults, progressive activation)" : "STRICT (full guardrails)"}`,
                     `|`,
                     `All-time savings:`,
                     `  Total: $${ltTotal.toFixed(2)} (${sesTrend})`,
@@ -162,8 +165,9 @@ export function createTrinityTool(deps) {
                 const tierMap = { budget: "cheap", quality: "brain", speed: "medium", longrun: "brain" };
                 const tierSlot = tierMap[slot] || "cheap";
                 deps.writeSelection("active_slot", tierSlot);
+                deps.writeSelection("onboarding_mode", slot === "quality" || slot === "longrun" ? "strict" : "assist");
                 if (slot === "budget") {
-                    deps.writeSelection("delegation_enforce", true);
+                    deps.writeSelection("delegation_enforce", false);
                     deps.writeSelection("flow_enabled", false);
                     deps.writeSelection("flow_enforce", false);
                     deps.writeSelection("tdd_enforce", false);
@@ -177,7 +181,7 @@ export function createTrinityTool(deps) {
                     deps.writeSelection("thinking_level", "full");
                 }
                 else if (slot === "speed") {
-                    deps.writeSelection("delegation_enforce", true);
+                    deps.writeSelection("delegation_enforce", false);
                     deps.writeSelection("flow_enabled", false);
                     deps.writeSelection("flow_enforce", false);
                     deps.writeSelection("tdd_enforce", false);
@@ -203,6 +207,8 @@ export function createTrinityTool(deps) {
             if (action === "flow") {
                 if (slot === "on" || slot === "off") {
                     const ok = deps.writeSelection("flow_enabled", slot === "on");
+                    if (ok && slot === "on")
+                        deps.writeSelection("onboarding_mode", "strict");
                     return ok
                         ? `\u2705 Flow enforcer ${slot === "on" ? "ENABLED" : "DISABLED"}`
                         : `\u274c Failed to write model-tiers.json`;
@@ -212,6 +218,8 @@ export function createTrinityTool(deps) {
                         return "\u274c Provide level on|off for \`trinity flow enforce\`";
                     const enforceOn = level === "on";
                     const ok = deps.writeSelection("flow_enforce", enforceOn);
+                    if (ok && enforceOn)
+                        deps.writeSelection("onboarding_mode", "strict");
                     return ok
                         ? `\u2705 Flow enforcement ${enforceOn ? "ENABLED (auto-extract TODOs)" : "DISABLED (log only)"}`
                         : `\u274c Failed to write model-tiers.json`;
@@ -238,10 +246,16 @@ export function createTrinityTool(deps) {
             }
             if (action === "enforce") {
                 if (slot === "off") {
+                    const sel = deps.loadSelection();
+                    if (sel.onboarding_mode === "assist" && sel.delegation_enforce !== true) {
+                        return `\u2705 Delegation enforcement is already OFF in compatibility mode.`;
+                    }
                     return `\u274c Delegation enforcement is mandatory and cannot be disabled.`;
                 }
                 if (slot === "on") {
                     const ok = deps.writeSelection("delegation_enforce", true);
+                    if (ok)
+                        deps.writeSelection("onboarding_mode", "strict");
                     return ok
                         ? `\u{1F6AB} Delegation enforcement ENABLED \u2014 direct writes/edits BLOCKED on brain tier`
                         : `\u274c Failed to write model-tiers.json`;
@@ -274,6 +288,8 @@ export function createTrinityTool(deps) {
                         return "\u274c Provide level on|off for \`trinity tdd strict\`";
                     }
                     const ok = deps.writeSelection("tdd_strict", level === "on");
+                    if (ok && level === "on")
+                        deps.writeSelection("onboarding_mode", "strict");
                     return ok
                         ? `\u2705 TDD strict ${level === "on" ? "ENABLED (TODO tests fail loudly)" : "DISABLED (TODO tests non-blocking)"}`
                         : `\u274c Failed to write model-tiers.json`;
@@ -283,17 +299,21 @@ export function createTrinityTool(deps) {
                         return "\u274c Provide level on|off for \`trinity tdd quality\`";
                     }
                     const ok = deps.writeSelection("tdd_quality", level === "on");
+                    if (ok && level === "on")
+                        deps.writeSelection("onboarding_mode", "strict");
                     return ok
                         ? `\u2705 TDD quality templates ${level === "on" ? "ENABLED (real assertions, invalid-input, edge-case stubs)" : "DISABLED (TODO-only stubs)"}`
                         : `\u274c Failed to write model-tiers.json`;
                 }
                 if (slot === "on" || slot === "off") {
                     const ok = deps.writeSelection("tdd_enforce", slot === "on");
+                    if (ok && slot === "on")
+                        deps.writeSelection("onboarding_mode", "strict");
                     return ok
                         ? `\u2705 TDD enforcement ${slot === "on" ? "ENABLED (auto-create skeletons)" : "DISABLED (nudge only)"}`
                         : `\u274c Failed to write model-tiers.json`;
                 }
-                const stateFile = join(deps.USER_HOME, ".claude/delegation-state.json");
+                const stateFile = deps.STATE_FILE;
                 let enforced = 0;
                 try {
                     if (deps.existsSync(stateFile)) {
@@ -308,6 +328,78 @@ export function createTrinityTool(deps) {
                 lines.push(`  Strict templates: ${sel.tdd_strict !== false ? "ON (fail TODO tests)" : "OFF (non-blocking TODO tests)"}`);
                 lines.push(`  Quality templates: ${sel.tdd_quality !== false ? "ON (real assertion stubs)" : "OFF (TODO-only stubs)"}`);
                 lines.push(`  Skeletons created this lifetime: ${enforced}`);
+                return lines.join("\n");
+            }
+            if (action === "setup") {
+                const now = new Date().toISOString();
+                const existing = deps.existsSync(deps.TIERS_FILE)
+                    ? (deps.safeJsonParse(deps.readFileSync(deps.TIERS_FILE, "utf-8")) || {})
+                    : {};
+                const providers = typeof deps._loadOpenCodeProviders === "function" ? deps._loadOpenCodeProviders() : {};
+                const auth = typeof deps._readAuth === "function" ? deps._readAuth() : {};
+                let discovered = [];
+                try {
+                    if (typeof deps.discoverAvailableModels === "function") {
+                        discovered = await deps.discoverAvailableModels(providers, auth);
+                    }
+                }
+                catch { }
+                let ranked = null;
+                try {
+                    if (typeof deps.classifyAndRankModels === "function") {
+                        ranked = deps.classifyAndRankModels(discovered);
+                    }
+                }
+                catch { }
+                const brain = ranked?.brain?.id || deps.currentModel || existing?.trinity?.brain?.oc || "";
+                const medium = ranked?.medium?.id || existing?.trinity?.medium?.oc || brain;
+                const cheap = ranked?.cheap?.id || existing?.trinity?.cheap?.oc || medium || brain;
+                const tiers = existing && typeof existing === "object" ? existing : {};
+                tiers.selection ??= {};
+                tiers.trinity ??= {};
+                tiers.selection.enabled = true;
+                tiers.selection.active_slot = tiers.selection.active_slot || (brain ? "brain" : "medium");
+                tiers.selection.onboarding_mode = "assist";
+                tiers.selection.delegation_enforce = false;
+                tiers.selection.flow_enabled = false;
+                tiers.selection.flow_enforce = false;
+                tiers.selection.tdd_enforce = false;
+                tiers.selection.tdd_strict = false;
+                tiers.selection.tdd_quality = false;
+                tiers.selection.thinking_level = "off";
+                tiers.selection.setup_completed_at = now;
+                if (brain)
+                    tiers.trinity.brain = { oc: brain, cc: deps.modelToCcAlias(brain) };
+                if (medium)
+                    tiers.trinity.medium = { oc: medium, cc: deps.modelToCcAlias(medium) };
+                if (cheap)
+                    tiers.trinity.cheap = { oc: cheap, cc: deps.modelToCcAlias(cheap) };
+                deps.mkdirSync(dirname(deps.TIERS_FILE), { recursive: true });
+                deps.writeFileSync(deps.TIERS_FILE, JSON.stringify(tiers, null, 2) + "\n");
+                try {
+                    const bbState = deps.loadBlackboxState();
+                    bbState.enabled = false;
+                    deps.saveBlackboxState(bbState);
+                    if (typeof deps.setBlackboxEnabled === "function")
+                        deps.setBlackboxEnabled(false);
+                    else
+                        deps._blackboxEnabled = false;
+                }
+                catch { }
+                if (typeof deps._refreshModel === "function")
+                    deps._refreshModel(deps.directory);
+                const lines = [
+                    "\u2705 Compatibility profile created.",
+                    `  Mode: assist`,
+                    `  Models: ${brain || "(unset)"}${medium && medium !== brain ? ` / ${medium}` : ""}${cheap && cheap !== medium ? ` / ${cheap}` : ""}`,
+                    `  Delegation: off`,
+                    `  Flow: off`,
+                    `  TDD: off`,
+                    `  Blackbox: off`,
+                ];
+                if (discovered.length > 0)
+                    lines.push(`  Discovered models: ${discovered.length}`);
+                lines.push("Use `trinity mode quality` or `trinity enforce on` to graduate to strict mode.");
                 return lines.join("\n");
             }
             if (action === "project") {
@@ -700,7 +792,7 @@ export function createTrinityTool(deps) {
             }
             if (action === "diagnose") {
                 const results = [];
-                const ocConfig = join(deps.USER_HOME, ".config/opencode/opencode.json");
+                const ocConfig = join(deps.OPENCODE_HOME, "opencode.json");
                 const checks = [
                     { path: deps.TIERS_FILE, label: "model-tiers.json" },
                     { path: ocConfig, label: "opencode.json" },
@@ -899,14 +991,20 @@ export function createTrinityTool(deps) {
             if (action === "blackbox") {
                 const mode = slot || "status";
                 if (mode === "on") {
-                    deps._blackboxEnabled = true;
+                    if (typeof deps.setBlackboxEnabled === "function")
+                        deps.setBlackboxEnabled(true);
+                    else
+                        deps._blackboxEnabled = true;
                     const state = deps.loadBlackboxState();
                     state.enabled = true;
                     deps.saveBlackboxState(state);
                     return "\u2705 Blackbox decision engine ENABLED \u2014 will track resolution state and enhance system prompts.";
                 }
                 if (mode === "off") {
-                    deps._blackboxEnabled = false;
+                    if (typeof deps.setBlackboxEnabled === "function")
+                        deps.setBlackboxEnabled(false);
+                    else
+                        deps._blackboxEnabled = false;
                     const state = deps.loadBlackboxState();
                     state.enabled = false;
                     deps.saveBlackboxState(state);
@@ -970,6 +1068,7 @@ export function createTrinityTool(deps) {
                     "GUARDRAILS:",
                     "  trinity flow on/off       Toggle flow enforcer (code quality checks)",
                     "  trinity tdd on/off        Toggle auto test skeleton creation",
+                    "  trinity setup             Create a compatibility profile for new users",
                     "  trinity guard             Ensure AGENTS.md/README.md exist and are current",
                     "  trinity api-token        Update VIBEOS_API_TOKEN and re-enable remote API",
                     "  trinity api-token        Update VIBEOS_API_TOKEN and re-enable remote API",

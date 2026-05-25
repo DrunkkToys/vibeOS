@@ -2,17 +2,18 @@
 
 import { readFileSync, existsSync } from "node:fs"
 import { join } from "node:path"
-import { homedir, tmpdir } from "node:os"
-import { safeJsonParse } from "./state.js"
+import { safeJsonParse, VIBEOS_HOME } from "./state.js"
 import { modelCostPerTurn } from "./pricing.js"
 
-const USER_HOME = (() => { try { return homedir() } catch { return tmpdir() } })()
+function getVibeOSHome() {
+  return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude")
+}
 
 const _OC_SID = "opencode-" + (process.pid || "x") + "-" + Date.now()
-const SCRATCHPAD_ROOT = join(USER_HOME, ".claude/scratch")
+const SCRATCHPAD_ROOT = join(getVibeOSHome(), "scratch")
 const SCRATCHPAD_GLOBAL_DIR = join(SCRATCHPAD_ROOT, "by-hash")
 const SCRATCHPAD_SESSIONS_DIR = join(SCRATCHPAD_ROOT, "sessions")
-const STATE_FILE = join(USER_HOME, ".claude/delegation-state.json")
+const STATE_FILE = join(getVibeOSHome(), "delegation-state.json")
 
 let currentModel = null
 

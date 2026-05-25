@@ -19,30 +19,36 @@ import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, sta
 import { join, dirname, basename } from "node:path"
 import { homedir, tmpdir } from "node:os"
 import { createHash } from "node:crypto"
-import { currentModel, currentTier, setCurrentModel, setCurrentTier, safeJsonParse, HIGH_TIER_RE, MID_TIER_RE, loadTierRegexes, _modelLocked } from "./state.js"
+import { currentModel, currentTier, setCurrentModel, setCurrentTier, safeJsonParse, HIGH_TIER_RE, MID_TIER_RE, loadTierRegexes, _modelLocked, VIBEOS_HOME, OPENCODE_HOME } from "./state.js"
 
 export { HIGH_TIER_RE, MID_TIER_RE, loadTierRegexes }
 
 const USER_HOME = (() => { try { return homedir() } catch { return tmpdir() } })()
 const DEFAULT_TRINITY_SLOTS = ["brain", "medium", "cheap"]
 
+function getVibeOSHome() {
+  return process.env.VIBEOS_HOME || join(process.env.HOME || homedir(), ".claude")
+}
+function getOpenCodeHome() {
+  return process.env.VIBEOS_OPENCODE_HOME || join(process.env.HOME || homedir(), ".config", "opencode")
+}
+
+const TIERS_FILE = join(getVibeOSHome(), "model-tiers.json")
+
 function _handleStateCorruption(path) {
-  const backupDir = join(USER_HOME, ".claude", ".backups")
+  const backupDir = join(getVibeOSHome(), ".backups")
   mkdirSync(backupDir, { recursive: true })
   const backupPath = join(backupDir, basename(path) + ".corrupted." + Date.now())
   try { copyFileSync(path, backupPath) } catch {}
-  const logPath = join(USER_HOME, ".claude", ".state-corruption-log.jsonl")
+  const logPath = join(getVibeOSHome(), ".state-corruption-log.jsonl")
   try { appendFileSync(logPath, JSON.stringify({ ts: new Date().toISOString(), path, backup: backupPath }) + "\n") } catch {}
 }
 
 // ── State paths ─────────────────────────────────────────────────────
-const FILE_LOCK_DIR = join(USER_HOME, ".claude/.vibeOS-locks")
-const PRICING_CACHE_FILE = join(USER_HOME, ".claude/model-pricing-cache.json")
-
 // ── File locking ────────────────────────────────────────────────────
 function _lockPathFor(filePath) {
   const hash = createHash("sha1").update(String(filePath || "")).digest("hex")
-  return join(FILE_LOCK_DIR, `${hash}.lock`)
+  return join(getVibeOSHome(), ".vibeOS-locks", `${hash}.lock`)
 }
 
 function withFileLock(filePath, fn, opts = {}) {
@@ -52,7 +58,7 @@ function withFileLock(filePath, fn, opts = {}) {
   const start = Date.now()
   while (Date.now() - start < timeoutMs) {
     try {
-      mkdirSync(FILE_LOCK_DIR, { recursive: true })
+      mkdirSync(join(getVibeOSHome(), ".vibeOS-locks"), { recursive: true })
       const fd = openSync(lockPath, "wx")
       try { writeFileSync(fd, `${process.pid}\n${Date.now()}\n`) } catch {}
       try {
@@ -184,6 +190,7 @@ function _loadDynamicPricingCache() {
   const now = Date.now()
   if (_dynamicPricingCache && (now - _dynamicPricingCacheLoadedAt) < 10_000) return _dynamicPricingCache
   _dynamicPricingCacheLoadedAt = now
+  const PRICING_CACHE_FILE = join(getVibeOSHome(), "model-pricing-cache.json")
   try {
     if (!existsSync(PRICING_CACHE_FILE)) return {}
     const st = statSync(PRICING_CACHE_FILE)
@@ -224,6 +231,7 @@ export function _parseOpenRouterTurnCost(modelRow) {
 
 export function _writeDynamicPricingCache(modelsMap) {
   if (!modelsMap || typeof modelsMap !== "object") return
+  const PRICING_CACHE_FILE = join(getVibeOSHome(), "model-pricing-cache.json")
   try {
     withFileLock(PRICING_CACHE_FILE, () => {
       mkdirSync(dirname(PRICING_CACHE_FILE), { recursive: true })
@@ -331,9 +339,9 @@ export function isModelFree(model) {
 // Context7 detection — scan known config files for the string "context7".
 // Cheap (one-time at module load); falsy → docs nudge stays dormant.
 const CONTEXT7_CONFIG_FILES = [
-  join(USER_HOME, ".claude/settings.json"),
-  join(USER_HOME, ".claude.json"),
-  join(USER_HOME, ".config/opencode/opencode.json"),
+  join(getVibeOSHome(), "settings.json"),
+  join(getVibeOSHome(), ".claude.json"),
+  join(getOpenCodeHome(), "opencode.json"),
   join(process.cwd(), "opencode.json"),
 ]
 function _scanOpenCodeConfigs(baseDir) {
@@ -381,7 +389,7 @@ export function detectContext7(files = CONTEXT7_CONFIG_FILES) {
     } catch {}
   }
   // Scan ~/.config/opencode/ for any JSON configs with context7 (MCP configs, etc.)
-  if (_scanOpenCodeConfigs(join(USER_HOME, ".config/opencode"))) return true
+  if (_scanOpenCodeConfigs(getOpenCodeHome())) return true
   if (_context7InPath()) return true
   if (_context7InNpmCache()) return true
   return false
@@ -399,8 +407,8 @@ const context7Seen = new Set()
 
 // Read plugin enabled flag + active_slot fresh from model-tiers.json.
 // Called per-hook so live edits (trinity on/off) take effect without restart.
-const TIERS_FILE = join(USER_HOME, ".claude/model-tiers.json")
 function loadSelection() {
+  const TIERS_FILE = join(getVibeOSHome(), "model-tiers.json")
   try {
     if (!existsSync(TIERS_FILE)) return DFLT_SEL
     const st = statSync(TIERS_FILE)
@@ -461,6 +469,7 @@ export function getTrinitySlotOrder(tiersData = null) {
 }
 export function _refreshModel(directory) {
   try {
+    const TIERS_FILE = join(getVibeOSHome(), "model-tiers.json")
     const sel = loadSelection()
     if (!sel.enabled) return
     const tiersData = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
@@ -488,7 +497,7 @@ export function _refreshModel(directory) {
     }
     // If no model from tiers and no existing currentModel, try to auto-detect
     if (!currentModel) {
-      const detected = readConfig(directory) || readConfig(join(USER_HOME, ".config/opencode")) || process?.env?.OPENCODE_MODEL || ""
+      const detected = readConfig(directory) || readConfig(getOpenCodeHome()) || process?.env?.OPENCODE_MODEL || ""
       if (detected) {
         setCurrentModel(detected)
         setCurrentTier(classify(detected))
@@ -499,7 +508,7 @@ export function _refreshModel(directory) {
     // The trinity slot is authoritative UNLESS the directory config specifies a different model.
     // This prevents the bootstrap's default slot from overriding a project-local model choice.
     if (!_modelLocked) {
-      const cfgModel = readConfig(directory) || readConfig(join(USER_HOME, ".config/opencode")) || ""
+      const cfgModel = readConfig(directory) || readConfig(getOpenCodeHome()) || ""
       if (cfgModel && cfgModel !== currentModel) {
         const oldModel = currentModel
         const oldTier = currentTier
@@ -528,6 +537,7 @@ export function _refreshModel(directory) {
 
 export function applySlot(slot) {
   try {
+    const TIERS_FILE = join(getVibeOSHome(), "model-tiers.json")
     const j = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
     const ocModel = j?.trinity?.[slot]?.oc
     if (!ocModel) return { ok: false, reason: `slot '${slot}' has no oc model` }
@@ -539,7 +549,7 @@ export function applySlot(slot) {
     const localOcConfig = join(process.cwd(), "opencode.json")
     const ocConfig = existsSync(localOcConfig)
       ? localOcConfig
-      : join(USER_HOME, ".config/opencode/opencode.json")
+      : join(getOpenCodeHome(), "opencode.json")
     if (existsSync(ocConfig)) {
       const oc = safeJsonParse(readFileSync(ocConfig, "utf-8"))
       oc.model = ocModel

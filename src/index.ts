@@ -56,6 +56,7 @@ import {
   pruneScratchpadOnce, cleanupCurrentSessionScratchpad,
   registerSessionCleanupHandlers, promotedProjectPatterns, projectPatternRows,
   clearProjectPatterns, loadTodos, getTodos, upsertTodo, markTodoDone, _handleStateCorruption, _zType, tool,
+  VIBEOS_HOME, OPENCODE_HOME,
 } from "./lib/state.js"
 import { MONITOR } from "./lib/constants.js"
 import { extractExports, buildTestSkeleton, enforceTestFile, buildTestReminder } from "./lib/tdd-enforcer.js"
@@ -80,6 +81,30 @@ import { onMessagesTransform, onSystemTransform, latestUserIntent, ensureProject
 import { onSessionCompacting } from "./lib/hooks/session-compact.js"
 import { onShellEnv, setShellDirectory } from "./lib/hooks/shell-env.js"
 
+function getVibeOSHome() {
+  return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude")
+}
+
+function getOpenCodeHome() {
+  return process.env.VIBEOS_OPENCODE_HOME || join(process.env.HOME || "", ".config", "opencode")
+}
+
+function getTiersFile() {
+  return join(getVibeOSHome(), "model-tiers.json")
+}
+
+function getReportsDir() {
+  return join(getVibeOSHome(), "reports")
+}
+
+function getReportsIndex() {
+  return join(getReportsDir(), "index.json")
+}
+
+function getStateFile() {
+  return join(getVibeOSHome(), "delegation-state.json")
+}
+
 // ── Remote API client state ──────────────────────────────────────────
 let _apiClient: any = null
 let _apiFallbackMode = false
@@ -102,7 +127,7 @@ const SAVE_EST = {
 // ── Credit snapshot refresh ──────────────────────────────────────────
 function _loadOpenCodeProviders(): any {
   try {
-    const cfg = _readOpenCodeConfigObject(join(USER_HOME, ".config", "opencode"))
+    const cfg = _readOpenCodeConfigObject(getOpenCodeHome())
     return cfg?.provider || {}
   } catch { return {} }
 }
@@ -113,6 +138,32 @@ function _readOpenCodeConfigObject(dir: string): any {
   if (existsSync(jsonPath)) return safeJsonParse(readFileSync(jsonPath, "utf-8"))
   if (existsSync(jsoncPath)) return _parseJsonc(readFileSync(jsoncPath, "utf-8"))
   return {}
+}
+
+async function _resolveBootstrapModel(client: any, directory?: string): Promise<{ model: string; source: string }> {
+  const normalize = (value: any) => {
+    const model = String(value || "").trim()
+    return model && !PLACEHOLDER_RE.test(model) ? model : ""
+  }
+
+  const projectModel = normalize(readConfig(directory))
+  if (projectModel) return { model: projectModel, source: "project-config" }
+
+  try {
+    const apiModel = normalize(await client?.config?.get?.("model"))
+    if (apiModel) return { model: apiModel, source: "opencode-api" }
+  } catch {}
+
+  const home = process.env.HOME || ""
+  if (home) {
+    const globalModel = normalize(readConfig(join(home, ".config/opencode")))
+    if (globalModel) return { model: globalModel, source: "global-config" }
+  }
+
+  const envModel = normalize(process?.env?.OPENCODE_MODEL || "")
+  if (envModel) return { model: envModel, source: "env" }
+
+  return { model: "", source: "" }
 }
 
 function _parseJsonc(raw: string): any {
@@ -141,7 +192,7 @@ function _modelTier(id: string): string {
 function backupFile(path: string, label: string): string | null {
   try {
     if (!existsSync(path)) return null
-    const bkDir = join(USER_HOME, ".claude", ".backups")
+    const bkDir = join(getVibeOSHome(), ".backups")
     mkdirSync(bkDir, { recursive: true })
     const bk = join(bkDir, `${basename(path)}.${label}.${Date.now()}.bak`)
     copyFileSync(path, bk)
@@ -164,8 +215,8 @@ function loadMcpPort(): number {
     return n
   }
   try {
-    if (existsSync(TIERS_FILE)) {
-      const tiers = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
+    if (existsSync(getTiersFile())) {
+      const tiers = safeJsonParse(readFileSync(getTiersFile(), "utf-8"))
       const cfg = tiers?.selection?.mcp_port
       if (cfg === false || cfg === "disabled" || cfg === 0) return 0
       const n = Number(cfg)
@@ -177,16 +228,16 @@ function loadMcpPort(): number {
 
 function persistMcpPort(port: number): void {
   try {
-    if (!existsSync(TIERS_FILE)) return
-    const tiers = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
+    if (!existsSync(getTiersFile())) return
+    const tiers = safeJsonParse(readFileSync(getTiersFile(), "utf-8"))
     tiers.selection ??= {}
     if (Number(tiers.selection.mcp_port) === Number(port) && !("mcp_port" in tiers)) return
     tiers.selection.mcp_port = port
     if ("mcp_port" in tiers) delete (tiers as any).mcp_port
-    mkdirSync(dirname(TIERS_FILE), { recursive: true })
-    const tmp = TIERS_FILE + ".tmp." + Date.now()
+    mkdirSync(dirname(getTiersFile()), { recursive: true })
+    const tmp = getTiersFile() + ".tmp." + Date.now()
     writeFileSync(tmp, JSON.stringify(tiers, null, 2) + "\n", "utf-8")
-    renameSync(tmp, TIERS_FILE)
+    renameSync(tmp, getTiersFile())
   } catch {}
 }
 
@@ -199,17 +250,16 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
   registerSessionCleanupHandlers()
   pruneScratchpadOnce()
 
-  // Detect model: project opencode.json → global ~/.config/opencode/opencode.json → env.
-  setCurrentModel(readConfig(directory))
-  if (!currentModel) {
-    const home = process.env.HOME || ""
-    if (home) setCurrentModel(readConfig(join(home, ".config/opencode")))
+  // Detect model: project opencode.json → OpenCode API → global ~/.config/opencode/opencode.json → env.
+  const _bootstrapModel = await _resolveBootstrapModel(client, directory)
+  if (_bootstrapModel.model) {
+    setCurrentModel(_bootstrapModel.model)
+    setCurrentTier(classify(_bootstrapModel.model))
   }
-  if (!currentModel) setCurrentModel(process?.env?.OPENCODE_MODEL || "")
   if (currentModel) {
     setCurrentTier(classify(currentModel))
     try {
-      const _tiersData = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
+      const _tiersData = safeJsonParse(readFileSync(getTiersFile(), "utf-8"))
       const _slotOrder = getTrinitySlotOrder(_tiersData)
       const _primarySlot = _slotOrder[0] || "brain"
       const _activeSlot = _tiersData?.selection?.active_slot || _primarySlot
@@ -230,14 +280,18 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
   }
 
   // Auto-configure model-tiers.json
-  console.error(`[vibeOS] auto-config guard: currentModel=${currentModel ? "SET" : "NONE"}, TIERS_FILE=${TIERS_FILE}, exists=${existsSync(TIERS_FILE)}`)
-  if (currentModel || !existsSync(TIERS_FILE)) {
+  console.error(`[vibeOS] auto-config guard: currentModel=${currentModel ? "SET" : "NONE"}, TIERS_FILE=${getTiersFile()}, exists=${existsSync(getTiersFile())}`)
+  const _compatBootstrap = !!client && !existsSync(getTiersFile())
+  if (_compatBootstrap || (currentModel && String(currentModel).trim().length > 0) || existsSync(getTiersFile())) {
     try {
       let _tiersData
       let _wasCorrupted = false
-      if (existsSync(TIERS_FILE)) {
-        try { _tiersData = safeJsonParse(readFileSync(TIERS_FILE, "utf-8")) } catch {
-          _tiersData = { selection: { enabled: true, active_slot: "brain", delegation_enforce: true, tdd_strict: true }, trinity: {} }
+      if (existsSync(getTiersFile())) {
+        try { _tiersData = safeJsonParse(readFileSync(getTiersFile(), "utf-8")) } catch {
+          _tiersData = { selection: _compatBootstrap
+            ? { enabled: true, active_slot: currentModel ? "brain" : "medium", delegation_enforce: false, flow_enabled: false, flow_enforce: false, tdd_enforce: false, tdd_strict: false, tdd_quality: false, thinking_level: "off", onboarding_mode: "assist" }
+            : { enabled: true, active_slot: "brain", delegation_enforce: true, tdd_strict: true },
+            trinity: {} }
           _wasCorrupted = true
         }
         const _defaultSlots = getTrinitySlotOrder(_tiersData)
@@ -252,7 +306,12 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
         }
       } else {
         const _defaultSlots = getTrinitySlotOrder()
-        _tiersData = { selection: { enabled: true, active_slot: _defaultSlots[0] || "brain", delegation_enforce: true, tdd_strict: true }, trinity: {} }
+        _tiersData = {
+          selection: _compatBootstrap
+            ? { enabled: true, active_slot: currentModel ? "brain" : "medium", delegation_enforce: false, flow_enabled: false, flow_enforce: false, tdd_enforce: false, tdd_strict: false, tdd_quality: false, thinking_level: "off", onboarding_mode: "assist" }
+            : { enabled: true, active_slot: _defaultSlots[0] || "brain", delegation_enforce: true, tdd_strict: true, tdd_quality: true, flow_enabled: false, flow_enforce: false, tdd_enforce: false, thinking_level: "off" },
+          trinity: {},
+        }
       }
       const _providers = _loadOpenCodeProviders()
       const _allModels = collectConfiguredProviderModels(_providers)
@@ -283,6 +342,16 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
       if (_cheap?.id === _brain.id || _cheap?.id === _medium?.id) _cheap = { ..._brain }
       let _didWrite = false
       const _existingBrain = _existing.brain?.oc || ""
+      if (_compatBootstrap) {
+        _tiersData.selection.onboarding_mode = "assist"
+        _tiersData.selection.delegation_enforce = false
+        _tiersData.selection.flow_enabled = false
+        _tiersData.selection.flow_enforce = false
+        _tiersData.selection.tdd_enforce = false
+        _tiersData.selection.tdd_strict = false
+        _tiersData.selection.tdd_quality = false
+        _tiersData.selection.thinking_level = "off"
+      }
       if (_brain.id && _isPlaceholder(_existingBrain)) {
         _tiersData.trinity.brain = { oc: _brain.id, cc: modelToCcAlias(_brain.id) }
         _didWrite = true
@@ -300,12 +369,20 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
         for (const _sk of ["mcp_port", "optimization_mode", "enforcement_enabled", "flow_enforce_level", "tdd_quality", "thinking_mode", "blackbox_regime", "_mode_changed_at", "_mode_source"]) {
           if (_sk in _tiersData) delete (_tiersData as any)[_sk]
         }
-        mkdirSync(dirname(TIERS_FILE), { recursive: true })
-        const _tmp = TIERS_FILE + ".tmp." + Date.now()
+        mkdirSync(dirname(getTiersFile()), { recursive: true })
+        const _tmp = getTiersFile() + ".tmp." + Date.now()
         writeFileSync(_tmp, JSON.stringify(_tiersData, null, 2) + "\n", "utf-8")
-        renameSync(_tmp, TIERS_FILE)
+        renameSync(_tmp, getTiersFile())
+        if (_compatBootstrap) {
+          try {
+            const _bbState = loadBlackboxState()
+            _bbState.enabled = false
+            saveBlackboxState(_bbState)
+            setBlackboxEnabled(false)
+          } catch {}
+        }
         console.error(`[vibeOS] auto-synced model-tiers.json: primary=${_brain.id} medium=${_tiersData.trinity?.medium?.oc || ""} cheap=${_tiersData.trinity?.cheap?.oc || ""}`)
-        const _tiersCfg = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
+        const _tiersCfg = safeJsonParse(readFileSync(getTiersFile(), "utf-8"))
         const _b = _tiersCfg?.trinity?.brain?.oc
         const _m = _tiersCfg?.trinity?.medium?.oc
         const _c = _tiersCfg?.trinity?.cheap?.oc
@@ -323,15 +400,15 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
 
   // Ensure stale root keys are cleaned (only selection + trinity belong at root)
   try {
-    const _mt = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
+    const _mt = safeJsonParse(readFileSync(getTiersFile(), "utf-8"))
     let _dirty = false
     for (const _sk of ["mcp_port", "optimization_mode", "enforcement_enabled", "flow_enforce_level", "tdd_quality", "thinking_mode", "blackbox_regime", "_mode_changed_at", "_mode_source"]) {
       if (_sk in _mt) { delete (_mt as any)[_sk]; _dirty = true }
     }
     if (_dirty) {
-      const _tmp = TIERS_FILE + ".tmp." + Date.now()
+      const _tmp = getTiersFile() + ".tmp." + Date.now()
       writeFileSync(_tmp, JSON.stringify(_mt, null, 2) + "\n", "utf-8")
-      renameSync(_tmp, TIERS_FILE)
+      renameSync(_tmp, getTiersFile())
     }
   } catch {}
   if (detectContext7()) console.error(`[vibeOS] context7 detected — docs nudge enabled`)
@@ -381,16 +458,17 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
 
   // ── Plugin hooks ──────────────────────────────────────────────────
     // trinity tool dependency injection
-    const _tiersData = (() => { try { return safeJsonParse(readFileSync(TIERS_FILE, "utf-8")) } catch { return {} } })()
+    const _tiersData = (() => { try { return safeJsonParse(readFileSync(getTiersFile(), "utf-8")) } catch { return {} } })()
     const trinityDeps = {
       tool, _lazyRefresh, _readAuth, _tiersData,
       _loadOpenCodeProviders, _modelCost, _modelTier,
-      _modelLocked, _blackboxEnabled, _latestBlackboxState,
+      _modelLocked, _latestBlackboxState,
       currentModel, currentTier, currentProjectFingerprint, currentProjectName,
       get latestUserIntent() { return latestUserIntent }, directory,
-      safeJsonParse, readFileSync, writeFileSync, existsSync, renameSync,
-      TIERS_FILE, USER_HOME, STATE_FILE, CREDIT_CACHE_F,
-      SAVINGS_LEDGER_FILE, PROJECT_STATE_FILE, REPORTS_DIR, REPORTS_INDEX,
+      safeJsonParse, readFileSync, writeFileSync, existsSync, renameSync, mkdirSync,
+      get TIERS_FILE() { return getTiersFile() }, USER_HOME, get STATE_FILE() { return getStateFile() }, CREDIT_CACHE_F,
+      SAVINGS_LEDGER_FILE, PROJECT_STATE_FILE, get REPORTS_DIR() { return getReportsDir() }, get REPORTS_INDEX() { return getReportsIndex() },
+      get OPENCODE_HOME() { return getOpenCodeHome() }, get VIBEOS_HOME() { return getVibeOSHome() },
       loadSelection, writeSelection, loadCredit, thinkingLevel,
       readLifetimeSavings, readFullState, _OC_SID, formatUsd,
       getBlackboxResolution, scoreStress, applySlot, saveOptimizationMode,
@@ -404,6 +482,8 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
       loadTodos, upsertTodo, getTodos, markTodoDone, syncFlowTodosToNative,
       get _blackboxTracker() { return getBlackboxTracker() },
       set _blackboxTracker(v) { resetBlackboxTracker() },
+      get _blackboxEnabled() { return _blackboxEnabled },
+      set _blackboxEnabled(v) { setBlackboxEnabled(v) },
     }
   const pluginHooks = {
     "tool.execute.before": async (input: any, output: any) => {
@@ -539,7 +619,7 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
           getState: () => ({
             ...buildStatusPayload({
               selection: loadSelection(),
-              tiersData: (() => { try { return safeJsonParse(readFileSync(TIERS_FILE, "utf-8")) } catch { return {} } })(),
+              tiersData: (() => { try { return safeJsonParse(readFileSync(getTiersFile(), "utf-8")) } catch { return {} } })(),
               currentModel: currentModel || "",
               creditPercent: loadCredit(),
               version: readPackageVersion(),
@@ -560,7 +640,7 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
           getSessionMetrics: () => computeSessionMetrics(readFullState(), _OC_SID),
           getTodos: () => loadTodos(),
           listReports: (filter: any) => {
-            if (!existsSync(REPORTS_DIR)) { const e: any = new Error("reports dir not found"); e.status = 404; throw e }
+            if (!existsSync(getReportsDir())) { const e: any = new Error("reports dir not found"); e.status = 404; throw e }
             return listReports(filter || {})
           },
           readReport: (rvId: string) => readReport(rvId),

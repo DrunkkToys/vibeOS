@@ -3,13 +3,16 @@ import { join, basename } from "node:path"
 import { homedir, tmpdir } from "node:os"
 
 const USER_HOME = (() => { try { return homedir() } catch { return tmpdir() } })()
+function getVibeOSHome() {
+  return process.env.VIBEOS_HOME || join(process.env.HOME || homedir(), ".claude")
+}
 
 function _handleStateCorruption(path: string): void {
-  const backupDir = join(USER_HOME, ".claude", ".backups")
+  const backupDir = join(getVibeOSHome(), ".backups")
   mkdirSync(backupDir, { recursive: true })
   const backupPath = join(backupDir, basename(path) + ".corrupted." + Date.now())
   try { copyFileSync(path, backupPath) } catch {}
-  const logPath = join(USER_HOME, ".claude", ".state-corruption-log.jsonl")
+  const logPath = join(getVibeOSHome(), ".state-corruption-log.jsonl")
   try { appendFileSync(logPath, JSON.stringify({ ts: new Date().toISOString(), path, backup: backupPath }) + "\n") } catch {}
 }
 
@@ -24,11 +27,10 @@ function safeJsonParse(raw: string): any {
   try { return JSON.parse(cleaned) } catch (e) { throw e }
 }
 
-const DFLT_SEL = { enabled: true, active_slot: null, thinking_level: "off", flow_enabled: false, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: false, delegation_enforce: true }
-
-const TIERS_FILE = join(USER_HOME, ".claude/model-tiers.json")
+const DFLT_SEL = { enabled: true, active_slot: null, thinking_level: "off", flow_enabled: false, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: false, delegation_enforce: true, onboarding_mode: null }
 
 export function loadSelection(): any {
+  const TIERS_FILE = join(getVibeOSHome(), "model-tiers.json")
   try {
     if (!existsSync(TIERS_FILE)) return DFLT_SEL
     const st = statSync(TIERS_FILE)
@@ -43,16 +45,18 @@ export function loadSelection(): any {
       tdd_strict:         j?.selection?.tdd_strict === true,
       tdd_quality:        j?.selection?.tdd_quality !== false,
       flow_enforce:       j?.selection?.flow_enforce === true,
-      delegation_enforce: true,
+      delegation_enforce: j?.selection?.delegation_enforce !== false,
+      onboarding_mode:    j?.selection?.onboarding_mode || null,
     }
   } catch { _handleStateCorruption(TIERS_FILE); return DFLT_SEL }
 }
 
 export function writeSelection(key: string, value: any): boolean {
+  const TIERS_FILE = join(getVibeOSHome(), "model-tiers.json")
   try {
     const j = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
     if (!j.selection) j.selection = {}
-    j.selection[key] = key === "delegation_enforce" ? true : value
+    j.selection[key] = value
     const tmp = TIERS_FILE + ".tmp"
     writeFileSync(tmp, JSON.stringify(j, null, 2) + "\n")
     renameSync(tmp, TIERS_FILE)
@@ -63,9 +67,8 @@ export function writeSelection(key: string, value: any): boolean {
   }
 }
 
-const BLACKBOX_FILE = join(USER_HOME, ".claude/blackbox-state.json")
-
 export function loadSessionSlot(sid: string): string | null {
+  const BLACKBOX_FILE = join(getVibeOSHome(), "blackbox-state.json")
   try {
     if (!existsSync(BLACKBOX_FILE)) return null
     const j = safeJsonParse(readFileSync(BLACKBOX_FILE, "utf-8"))
@@ -74,6 +77,7 @@ export function loadSessionSlot(sid: string): string | null {
 }
 
 export function writeSessionSlot(sid: string, slot: string): boolean {
+  const BLACKBOX_FILE = join(getVibeOSHome(), "blackbox-state.json")
   try {
     const j = existsSync(BLACKBOX_FILE)
       ? safeJsonParse(readFileSync(BLACKBOX_FILE, "utf-8"))
@@ -92,6 +96,7 @@ export function writeSessionSlot(sid: string, slot: string): boolean {
 }
 
 export function loadSessionOptMode(sid: string): string | null {
+  const BLACKBOX_FILE = join(getVibeOSHome(), "blackbox-state.json")
   try {
     if (!existsSync(BLACKBOX_FILE)) return null
     const j = safeJsonParse(readFileSync(BLACKBOX_FILE, "utf-8"))
@@ -100,6 +105,7 @@ export function loadSessionOptMode(sid: string): string | null {
 }
 
 export function writeSessionOptMode(sid: string, mode: string): boolean {
+  const BLACKBOX_FILE = join(getVibeOSHome(), "blackbox-state.json")
   try {
     const j = existsSync(BLACKBOX_FILE)
       ? safeJsonParse(readFileSync(BLACKBOX_FILE, "utf-8"))
