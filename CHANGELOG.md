@@ -1,3 +1,6 @@
+## 0.19.2
+- fix: export server and tui entrypoints
+
 ## 0.19.1
 - fix: make README and runtime self-contained
 - test: add 59 integration + e2e tests for cross-module behavior and user workflows
