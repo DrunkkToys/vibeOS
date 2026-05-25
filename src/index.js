@@ -707,7 +707,7 @@ function isApiFallback() {
   return _apiFallbackMode || !VIBEOS_API_ENABLED;
 }
 function isApiConnected3() {
-  return VIBEOS_API_ENABLED && !_apiFallbackMode;
+  return VIBEOS_API_ENABLED && isApiConnected2() && !_apiFallbackMode;
 }
 async function remoteCall(method, args, fallbackFn) {
   syncApiTokenFromDisk();
@@ -1643,6 +1643,10 @@ function setLastMutationEvent(v) {
 var _savingsCache = null;
 var _savingsCacheMtime = 0;
 var _ledgerReconciledMtime = 0;
+function invalidateSavingsCache() {
+  _savingsCache = null;
+  _savingsCacheMtime = 0;
+}
 var _mlGraph = createPatternGraph();
 var _cacheDb = createCacheDatabase();
 var ML_ENABLED = true;
@@ -1831,6 +1835,7 @@ function updateState(mutator) {
         const tmp = DELEGATION_STATE_FILE + ".tmp";
         writeFileSync4(tmp, JSON.stringify(next, null, 2) + "\n");
         renameSync3(tmp, DELEGATION_STATE_FILE);
+        invalidateSavingsCache();
         return next;
       });
       return result;
@@ -2876,6 +2881,7 @@ function reconcileStateFromLedger() {
       s.lifetime.ledger_entries_reconciled = l.entries;
       return s;
     });
+    invalidateSavingsCache();
   } catch {
   }
 }
@@ -3060,7 +3066,7 @@ var MODEL_USD_PER_TURN = {
   "haiku": 22e-4,
   // ── DeepSeek (OC platform + OpenRouter) ──────────────────
   "deepseek/deepseek-v4-pro": 57e-5,
-  "deepseek/deepseek-v4-flash": 0.00013,
+  "deepseek/deepseek-v4-flash": 182e-6,
   "deepseek/deepseek-chat": 182e-6,
   "deepseek-chat": 182e-6,
   "deepseek/deepseek-v3": 182e-6,

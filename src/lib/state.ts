@@ -102,6 +102,11 @@ let _savingsCache: any = null
 let _savingsCacheMtime = 0
 let _ledgerReconciledMtime = 0
 
+function invalidateSavingsCache(): void {
+  _savingsCache = null
+  _savingsCacheMtime = 0
+}
+
 // ── ML Router state ──────────────────────────────────────────────────
 import { createPatternGraph, deserializeGraph, addRouteEdge, ensureNode, computeDifficulty, cascadeDecide, predictBestModel, hashQuery } from "../vibeOS-lib/ml-router.js"
 import { createCacheDatabase, addCacheEntry, recordCacheStats, predictCacheHit, compositeSimilarity, evictStaleEntries, deserializeCacheDb } from "../vibeOS-lib/smart-cache.js"
@@ -302,6 +307,7 @@ function updateState(mutator: (state: any) => any): any {
         const tmp = DELEGATION_STATE_FILE + ".tmp"
         writeFileSync(tmp, JSON.stringify(next, null, 2) + "\n")
         renameSync(tmp, DELEGATION_STATE_FILE)
+        invalidateSavingsCache()
         return next
       })
       return result
@@ -332,6 +338,7 @@ function writeFullState(state: any): void {
       const tmp = DELEGATION_STATE_FILE + ".tmp"
       writeFileSync(tmp, JSON.stringify(state, null, 2) + "\n")
       renameSync(tmp, DELEGATION_STATE_FILE)
+      invalidateSavingsCache()
     })
   } catch (err) {
     console.error(`[vibeOS] writeFullState failed: ${err.message}`)
@@ -1516,6 +1523,7 @@ function reconcileStateFromLedger(): void {
       s.lifetime.ledger_entries_reconciled = l.entries
       return s
     })
+    invalidateSavingsCache()
   } catch {}
 }
 

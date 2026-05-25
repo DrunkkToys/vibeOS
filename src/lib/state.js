@@ -95,6 +95,10 @@ const warnCoalesceCounters = new Map();
 let _savingsCache = null;
 let _savingsCacheMtime = 0;
 let _ledgerReconciledMtime = 0;
+function invalidateSavingsCache() {
+    _savingsCache = null;
+    _savingsCacheMtime = 0;
+}
 // ── ML Router state ──────────────────────────────────────────────────
 import { createPatternGraph, deserializeGraph } from "../vibeOS-lib/ml-router.js";
 import { createCacheDatabase, evictStaleEntries, deserializeCacheDb } from "../vibeOS-lib/smart-cache.js";
@@ -309,6 +313,7 @@ function updateState(mutator) {
                 const tmp = DELEGATION_STATE_FILE + ".tmp";
                 writeFileSync(tmp, JSON.stringify(next, null, 2) + "\n");
                 renameSync(tmp, DELEGATION_STATE_FILE);
+                invalidateSavingsCache();
                 return next;
             });
             return result;
@@ -346,6 +351,7 @@ function writeFullState(state) {
             const tmp = DELEGATION_STATE_FILE + ".tmp";
             writeFileSync(tmp, JSON.stringify(state, null, 2) + "\n");
             renameSync(tmp, DELEGATION_STATE_FILE);
+            invalidateSavingsCache();
         });
     }
     catch (err) {
@@ -1676,6 +1682,7 @@ function reconcileStateFromLedger() {
             s.lifetime.ledger_entries_reconciled = l.entries;
             return s;
         });
+        invalidateSavingsCache();
     }
     catch { }
 }
