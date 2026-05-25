@@ -1,3 +1,8 @@
+## 0.19.4
+- feat: register trinity in OpenCode keymap
+- docs: clarify install and trinity usage
+
+
 ## 0.19.3
 - fix: auto-register vibeOS plugin in opencode.json during deploy
 
