@@ -22,7 +22,7 @@
     "precommit": "node scripts/pre-commit.mjs",
     "audit-state": "node scripts/audit-state.mjs",
     "migrate-ledger": "node scripts/migrate-ledger.mjs",
-    "postinstall": "node scripts/deploy.mjs 2>/dev/null || true"
+    "postinstall": "node scripts/deploy.mjs"
   },
   "type": "module",
   "exports": {

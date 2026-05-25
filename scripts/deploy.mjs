@@ -110,6 +110,30 @@ try {
     process.stderr.write("[vibeOS deploy]   Or install via WSL and use crontab there.\n")
   }
 
+  // Auto-register in opencode.json so OpenCode loads the plugin
+  try {
+    const ocConfigPath = join(homedir(), ".config", "opencode", "opencode.json")
+    if (existsSync(ocConfigPath)) {
+      const raw = readFileSync(ocConfigPath, "utf-8")
+      let config = {}
+      try {
+        const cleaned = raw.replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "")
+        config = JSON.parse(cleaned)
+      } catch {
+        config = {}
+      }
+      if (!Array.isArray(config.plugin)) config.plugin = []
+      const hasVibeOs = config.plugin.some(p => typeof p === "string" && p.includes("vibeOS"))
+      if (!hasVibeOs) {
+        config.plugin.push("./plugins/vibeOS.js")
+        writeFileSync(ocConfigPath, JSON.stringify(config, null, 2) + "\n")
+        process.stderr.write("[vibeOS deploy] Registered vibeOS in opencode.json\n")
+      }
+    }
+  } catch {
+    process.stderr.write("[vibeOS deploy] Could not auto-register in opencode.json (plugin may need manual config)\n")
+  }
+
   process.stderr.write("[vibeOS deploy] Done\n")
 } catch (e) {
   process.stderr.write(`[vibeOS deploy] ERROR: ${e.message}\n`)
