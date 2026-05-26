@@ -1265,9 +1265,6 @@ function getApiClient() {
 function isApiFallback() {
   return _apiFallbackMode || !VIBEOS_API_ENABLED;
 }
-function isApiConnected2() {
-  return VIBEOS_API_ENABLED && !_apiFallbackMode;
-}
 async function remoteCall(method, args, fallbackFn) {
   syncApiTokenFromDisk();
   if (!VIBEOS_API_ENABLED || _apiFallbackMode) {
@@ -7951,7 +7948,7 @@ async function _appendFooter(input, output, directory3) {
     if (quality_avg > 0) {
       enfSuffixFooter = ` QA:${Math.round(quality_avg)}% ${enfTagsFooter.join(" ")}`;
     }
-    const flashIcon = isApiConnected2() ? "\u26A1" : "";
+    const flashIcon = VIBEOS_API_ENABLED ? "\u26A1" : "";
     const resolvedMode = peekBudgetFirstMode({
       requestedMode: optModeFooter,
       subRegime: _latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""),

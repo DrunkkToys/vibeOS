@@ -8,7 +8,7 @@ import { peekBudgetFirstMode, recordBudgetFirstOutcome } from "../mode-policy.js
 import { saveReport } from "../reporting.js"
 import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, _modelLocked, _blackboxEnabled, _latestBlackboxState, writeSelection, reconcileStateFromLedger, safeJsonParse, loadTodos, VIBEOS_HOME } from "../state.js"
 import { loadSessionSlot, writeSessionSlot } from "../selection-manager.js"
-import { remoteCall, isApiConnected } from "../api-client.js"
+import { remoteCall, VIBEOS_API_ENABLED } from "../api-client.js"
 import { SAVE_EST } from "../constants.js"
 
 function getVibeOSHome() {
@@ -208,7 +208,7 @@ async function _appendFooter(input, output, directory) {
         enfSuffixFooter = ` QA:${Math.round(quality_avg)}% ${enfTagsFooter.join(" ")}`
       }
       // Optimization mode resolver — keep the dopamine footer format.
-      const flashIcon = isApiConnected() ? "⚡" : ""
+      const flashIcon = VIBEOS_API_ENABLED ? "⚡" : ""
       const resolvedMode = peekBudgetFirstMode({
         requestedMode: optModeFooter,
         subRegime: _latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""),
