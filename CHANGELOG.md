@@ -1,3 +1,13 @@
+## 0.19.7
+- feat: use native opencode model lists
+- fix: make OpenCode footer agnostic
+- fix: make vibeOS compatibility paths dynamic
+Merge pull request #56 from DrunkkToys/codex/agnostic-opencode-release
+Merge pull request #55 from DrunkkToys/codex/agnostic-opencode-models
+merge: origin/master into codex/agnostic-opencode-models
+Bootstrap trinity tiers from OpenCode model
+
+
 ## 0.19.6
 - feat: add OpenCode-style setup installer
 - docs: align install flow with OpenCode npm plugin pattern
