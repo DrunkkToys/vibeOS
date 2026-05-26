@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { join } from 'node:path';
 import { writeFileSync } from 'node:fs';
-import { _patternFiredKeys, recentToolEvents, lastMutationEvent, setLastMutationEvent, frictionSessionKeys, routineSessionKeys, getSessionScratchpadDir, saveActiveJobForProject, currentProjectFingerprint, currentProjectName, _OC_SID, loadProjectState, saveProjectState, ensureProjectBucket, updateGlobalLearning, updateState, roundUsd, WARN_DEDUPE_WINDOW_MS, _ledgerBuffer, _flushLedgerBuffer, LEDGER_BUFFER_MAX, _ledgerBufferTimer, setLedgerBufferTimer, LEDGER_BUFFER_FLUSH_MS, saveSessionCheckpoint, } from './state.js';
+import { _patternFiredKeys, recentToolEvents, lastMutationEvent, setLastMutationEvent, frictionSessionKeys, routineSessionKeys, getSessionScratchpadDir, saveActiveJobForProject, currentProjectFingerprint, currentProjectName, _OC_SID, loadProjectState, saveProjectState, ensureProjectBucket, updateGlobalLearning, updateState, roundUsd, getCurrentSessionId, WARN_DEDUPE_WINDOW_MS, _ledgerBuffer, _flushLedgerBuffer, LEDGER_BUFFER_MAX, _ledgerBufferTimer, setLedgerBufferTimer, LEDGER_BUFFER_FLUSH_MS, saveSessionCheckpoint, } from './state.js';
 import { normalizeObservedPath, commandFamily, commandFailed, _pruneOldSessions, } from './pattern-helpers.js';
 import { TRINITY_CHEAP, TRINITY_MEDIUM } from './pricing.js';
 import { topKeywords, extractFirstWordFromArgs, noteTaskRoutingLearning, } from './turn-classify.js';
@@ -38,7 +38,7 @@ export function noteProjectPattern(kind, key, summary, meta = {}) {
         row.kind = kind;
         row.summary = summary;
         row.count = Number(row.count || 0) + 1;
-        row.sessions = [...new Set([...(row.sessions || []), _OC_SID])].slice(-10);
+        row.sessions = [...new Set([...(row.sessions || []), getCurrentSessionId()])].slice(-10);
         row.lastSeen = now;
         if (meta.family)
             row.family = meta.family;

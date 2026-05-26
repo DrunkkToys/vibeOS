@@ -1,6 +1,5 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "model": "deepseek/deepseek-v4-pro",
   "provider": {
     "deepseek": {
       "name": "DeepSeek",
@@ -22,6 +21,22 @@
           "name": "DeepSeek Reasoner"
         }
       }
+    },
+    "openrouter": {
+      "name": "OpenRouter",
+      "api": "openai",
+      "options": {
+        "baseURL": "https://openrouter.ai/api/v1"
+      },
+      "models": {
+        "openrouter/anthropic/claude-sonnet-4.6": {
+          "name": "Claude Sonnet 4.6"
+        },
+        "openrouter/anthropic/claude-opus-4.1": {
+          "name": "Claude Opus 4.1"
+        }
+      }
     }
-  }
+  },
+  "model": "openrouter/anthropic/claude-sonnet-4.6"
 }

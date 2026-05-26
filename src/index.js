@@ -15,10 +15,10 @@ import { createMcpServer } from "./lib/vibeos-mcp-server.js";
 import { isApiConnected, setApiToken, setApiBootstrapToken, ensureBootstrapExchange, VIBEOS_API_URL } from "./lib/api-client.js";
 import { applySlot, modelCostPerTurn, detectContext7, formatUsd, classify, _refreshModel, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, readConfig, getTrinitySlotOrder, loadTrinitySlotsFromTiersFile, } from "./lib/pricing.js";
 import { scoreStress, detectTechStack, loadBlackboxState, saveBlackboxState, getBlackboxTracker, getBlackboxResolution, saveOptimizationMode, } from "./lib/turn-classify.js";
-import { safeJsonParse, readFullState, loadSelection, writeSelection, readLifetimeSavings, _OC_SID, _modelLocked, _blackboxEnabled, setBlackboxEnabled, _lockedSlot, _lockedModel, currentTier, currentModel, currentProjectFingerprint, currentProjectName, setCurrentTier, setCurrentModel, setCurrentProjectFingerprint, setCurrentProjectName, _latestBlackboxState, getActiveJobForProject, projectFingerprint, loadProjectState, saveProjectState, ensureProjectBucket, mergeProjectBucket, SAVINGS_LEDGER_FILE, USER_HOME, PROJECT_STATE_FILE, CREDIT_CACHE_F, pruneScratchpadOnce, registerSessionCleanupHandlers, promotedProjectPatterns, projectPatternRows, clearProjectPatterns, loadTodos, getTodos, upsertTodo, markTodoDone, tool, } from "./lib/state.js";
+import { safeJsonParse, readFullState, loadSelection, writeSelection, readLifetimeSavings, _OC_SID, _modelLocked, _blackboxEnabled, setBlackboxEnabled, _lockedSlot, _lockedModel, currentTier, currentModel, currentProjectFingerprint, currentProjectName, setCurrentTier, setCurrentModel, setCurrentProjectFingerprint, setCurrentProjectName, setCurrentSessionId, briefedProjects, _latestBlackboxState, getActiveJobForProject, projectFingerprint, loadProjectState, saveProjectState, ensureProjectBucket, mergeProjectBucket, setVibeOSHomeContext, SAVINGS_LEDGER_FILE, USER_HOME, CREDIT_CACHE_F, pruneScratchpadOnce, registerSessionCleanupHandlers, promotedProjectPatterns, projectPatternRows, clearProjectPatterns, loadTodos, getTodos, upsertTodo, markTodoDone, tool, } from "./lib/state.js";
 import { researchAudit } from "./lib/research-audit.js";
 import { buildStatusPayload, buildSavingsPayload, buildSessionCheckout, diagnoseStructuredFromText, projectStructuredFromText, } from "./lib/runtime-surface.js";
-import { saveReport, listReports, readReport, reportsIndex, saveReportsIndex } from "./lib/reporting.js";
+import { saveReport, listReports, readReport } from "./lib/reporting.js";
 import { writeSessionSlot } from "./lib/selection-manager.js";
 import { loadCredit, thinkingLevel, _lazyRefresh, _readAuth } from "./lib/credit-api.js";
 import { createTrinityTool } from "./lib/trinity-tool.js";
@@ -74,16 +74,6 @@ const SAVE_EST = {
     CONTEXT7: 0.002,
     OPUS_DISABLE: 0.03,
 };
-// ── Credit snapshot refresh ──────────────────────────────────────────
-function _loadOpenCodeProviders() {
-    try {
-        const cfg = _readOpenCodeConfigObject(getOpenCodeHome());
-        return cfg?.provider || {};
-    }
-    catch {
-        return {};
-    }
-}
 function _readOpenCodeConfigObject(dir) {
     const jsonPath = join(dir, "opencode.json");
     const jsoncPath = join(dir, "opencode.jsonc");
@@ -92,6 +82,32 @@ function _readOpenCodeConfigObject(dir) {
     if (existsSync(jsoncPath))
         return _parseJsonc(readFileSync(jsoncPath, "utf-8"));
     return {};
+}
+function _loadOpenCodeProviders(directory) {
+    try {
+        const merged = {};
+        const dirs = [directory ? join(directory, ".") : null, getOpenCodeHome()].filter(Boolean);
+        for (const dir of dirs) {
+            const cfg = _readOpenCodeConfigObject(String(dir));
+            const providers = cfg?.provider || {};
+            for (const [providerName, providerCfg] of Object.entries(providers)) {
+                if (!merged[providerName])
+                    merged[providerName] = {};
+                merged[providerName] = {
+                    ...merged[providerName],
+                    ...providerCfg,
+                    models: {
+                        ...(merged[providerName]?.models || {}),
+                        ...(providerCfg?.models || {}),
+                    },
+                };
+            }
+        }
+        return merged;
+    }
+    catch {
+        return {};
+    }
 }
 async function _resolveBootstrapModel(client, directory) {
     const normalize = (value) => {
@@ -111,6 +127,68 @@ async function _resolveBootstrapModel(client, directory) {
     if (envModel)
         return { model: envModel, source: "env" };
     return { model: "", source: "" };
+}
+function _loadActiveJobForProject(directory, fp = "") {
+    const candidates = [getVibeOSHome(), directory ? join(directory, "..") : ""].filter(Boolean);
+    for (const base of candidates) {
+        try {
+            const activeJobsPath = join(String(base), ".claude", "active-jobs.json");
+            if (!existsSync(activeJobsPath))
+                continue;
+            const jobs = safeJsonParse(readFileSync(activeJobsPath, "utf-8")) || {};
+            const job = fp ? jobs?.[fp] : null;
+            if (job && typeof job === "object")
+                return job;
+        }
+        catch { }
+    }
+    return getActiveJobForProject(fp);
+}
+async function _seedModelTiersIfMissing(directory) {
+    const TIERS_FILE = getTiersFile();
+    if (existsSync(TIERS_FILE))
+        return false;
+    const providers = _loadOpenCodeProviders(directory);
+    const auth = typeof _readAuth === "function" ? _readAuth() : {};
+    let discovered = [];
+    try {
+        discovered = await discoverAvailableModels(providers, auth);
+    }
+    catch { }
+    let ranked = null;
+    try {
+        ranked = classifyAndRankModels(discovered);
+    }
+    catch { }
+    const fallbackModel = currentModel || readConfig(directory) || readConfig(getOpenCodeHome()) || process?.env?.OPENCODE_MODEL || "";
+    const brain = ranked?.brain?.id || fallbackModel;
+    const medium = ranked?.medium?.id || brain;
+    const cheap = ranked?.cheap?.id || medium || brain;
+    if (!brain)
+        return false;
+    const tiers = {
+        selection: {
+            enabled: true,
+            active_slot: "brain",
+            thinking_level: "off",
+            flow_enabled: false,
+            flow_enforce: false,
+            tdd_enforce: false,
+            tdd_strict: false,
+            tdd_quality: false,
+            delegation_enforce: true,
+            onboarding_mode: "assist",
+            setup_completed_at: new Date().toISOString(),
+        },
+        trinity: {
+            brain: { oc: brain, cc: modelToCcAlias(brain) },
+            medium: { oc: medium, cc: modelToCcAlias(medium) },
+            cheap: { oc: cheap, cc: modelToCcAlias(cheap) },
+        },
+    };
+    mkdirSync(dirname(TIERS_FILE), { recursive: true });
+    writeFileSync(TIERS_FILE, JSON.stringify(tiers, null, 2) + "\n", "utf-8");
+    return true;
 }
 function _parseJsonc(raw) {
     const noBlock = String(raw || "").replace(/\/\*[\s\S]*?\*\//g, "");
@@ -202,6 +280,15 @@ function persistMcpPort(port) {
 // ── DelegationEnforcer — main plugin entry point ─────────────────────
 export async function DelegationEnforcer({ client, directory } = {}) {
     console.error(`[vibeOS] LOADED cwd=${directory}`);
+    const hookHome = process.env.HOME || USER_HOME;
+    const hookFp = projectFingerprint(directory || "");
+    const hookSessionId = `opencode-${process.pid || "x"}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    setVibeOSHomeContext(join(hookHome, ".claude"));
+    setCurrentSessionId(hookSessionId);
+    if (hookFp) {
+        setCurrentProjectFingerprint(hookFp);
+        setCurrentProjectName(directory ? directory.split("/").pop() : "unknown");
+    }
     if (typeof setToolDirectory === "function")
         setToolDirectory(directory || "");
     if (typeof setShellDirectory === "function")
@@ -243,6 +330,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
         if (!existsSync(getTiersFile())) {
             console.error(`[vibeOS] model-tiers.json missing at load; will seed on first hook`);
         }
+        await _seedModelTiersIfMissing(directory);
         loadTrinitySlotsFromTiersFile();
     }
     catch { }
@@ -254,7 +342,67 @@ export async function DelegationEnforcer({ client, directory } = {}) {
     fp = projectFingerprint(directory);
     setCurrentProjectFingerprint(fp);
     setCurrentProjectName(directory ? directory.split("/").pop() : "unknown");
-    activeJob = getActiveJobForProject(fp);
+    briefedProjects.clear();
+    activeJob = _loadActiveJobForProject(directory, fp);
+    const systemBriefedProjects = new Set();
+    const hookVibeHome = join(hookHome, ".claude");
+    const hookStateFile = join(hookVibeHome, "delegation-state.json");
+    const hookProjectStateFile = join(hookVibeHome, "project-states.json");
+    const hookReportsDir = join(hookVibeHome, "reports");
+    const hookReportsIndex = join(hookReportsDir, "index.json");
+    const hookTiersFile = join(hookVibeHome, "model-tiers.json");
+    const loadProjectStateStable = () => {
+        try {
+            const state = safeJsonParse(readFileSync(hookProjectStateFile, "utf-8"));
+            if (state && typeof state === "object") {
+                state.project_hashes ??= {};
+                return state;
+            }
+        }
+        catch { }
+        return { project_hashes: {} };
+    };
+    const saveProjectStateStable = (state) => {
+        try {
+            mkdirSync(dirname(hookProjectStateFile), { recursive: true });
+            const tmp = hookProjectStateFile + ".tmp";
+            writeFileSync(tmp, JSON.stringify(state, null, 2) + "\n");
+            renameSync(tmp, hookProjectStateFile);
+        }
+        catch { }
+    };
+    const reportsIndexStable = () => {
+        try {
+            const idx = safeJsonParse(readFileSync(hookReportsIndex, "utf-8"));
+            if (!idx || !Array.isArray(idx.reports))
+                return { reports: [] };
+            return idx;
+        }
+        catch {
+            return { reports: [] };
+        }
+    };
+    const saveReportsIndexStable = (idx) => {
+        try {
+            mkdirSync(hookReportsDir, { recursive: true });
+            writeFileSync(hookReportsIndex, JSON.stringify(idx, null, 2) + "\n");
+        }
+        catch { }
+    };
+    const backupFileStable = (path, label) => {
+        try {
+            if (!existsSync(path))
+                return null;
+            const bkDir = join(hookVibeHome, ".backups");
+            mkdirSync(bkDir, { recursive: true });
+            const bk = join(bkDir, `${basename(path)}.${label}.${Date.now()}.bak`);
+            copyFileSync(path, bk);
+            return bk;
+        }
+        catch {
+            return null;
+        }
+    };
     _runDeferredStartupBootstrap = () => { };
     // ── Plugin hooks ──────────────────────────────────────────────────
     // trinity tool dependency injection
@@ -271,18 +419,18 @@ export async function DelegationEnforcer({ client, directory } = {}) {
         currentModel, currentTier, currentProjectFingerprint, currentProjectName,
         get latestUserIntent() { return latestUserIntent; }, directory,
         safeJsonParse, readFileSync, writeFileSync, existsSync, renameSync, mkdirSync,
-        get TIERS_FILE() { return getTiersFile(); }, USER_HOME, get STATE_FILE() { return getStateFile(); }, CREDIT_CACHE_F,
-        SAVINGS_LEDGER_FILE, PROJECT_STATE_FILE, get REPORTS_DIR() { return getReportsDir(); }, get REPORTS_INDEX() { return getReportsIndex(); },
-        get OPENCODE_HOME() { return getOpenCodeHome(); }, get VIBEOS_HOME() { return getVibeOSHome(); },
+        get TIERS_FILE() { return hookTiersFile; }, USER_HOME, get STATE_FILE() { return hookStateFile; }, CREDIT_CACHE_F,
+        SAVINGS_LEDGER_FILE, PROJECT_STATE_FILE: hookProjectStateFile, get REPORTS_DIR() { return hookReportsDir; }, get REPORTS_INDEX() { return hookReportsIndex; },
+        get OPENCODE_HOME() { return getOpenCodeHome(); }, get VIBEOS_HOME() { return hookVibeHome; },
         loadSelection, writeSelection, loadCredit, thinkingLevel,
         readLifetimeSavings, readFullState, _OC_SID, formatUsd,
         getBlackboxResolution, scoreStress, applySlot, saveOptimizationMode,
-        getFlowWarns, projectFingerprint, loadProjectState, saveProjectState,
+        getFlowWarns, projectFingerprint, loadProjectState: loadProjectStateStable, saveProjectState: saveProjectStateStable,
         ensureProjectBucket, mergeProjectBucket, clearProjectPatterns,
         projectPatternRows, promotedProjectPatterns, detectTechStack, ensureProjectDocs,
         discoverAvailableModels, classifyAndRankModels, modelToCcAlias, probeModel,
         setBlackboxEnabled, loadBlackboxState, saveBlackboxState,
-        reportsIndex, saveReportsIndex, backupFile, writeSessionSlot, _refreshModel,
+        reportsIndex: reportsIndexStable, saveReportsIndex: saveReportsIndexStable, backupFile: backupFileStable, writeSessionSlot, _refreshModel,
         setApiToken,
         setApiBootstrapToken,
         ensureBootstrapExchange,
@@ -294,11 +442,21 @@ export async function DelegationEnforcer({ client, directory } = {}) {
     };
     const pluginHooks = {
         "tool.execute.before": async (input, output) => {
+            setVibeOSHomeContext(hookVibeHome);
+            if (hookFp) {
+                setCurrentProjectFingerprint(hookFp);
+                setCurrentProjectName(directory ? directory.split("/").pop() : "unknown");
+            }
             ensureDeferredBootstrap();
             onToolExecuteBefore._directory = directory;
             return onToolExecuteBefore(input, output);
         },
         "tool.execute.after": async (input, output) => {
+            setVibeOSHomeContext(hookVibeHome);
+            if (hookFp) {
+                setCurrentProjectFingerprint(hookFp);
+                setCurrentProjectName(directory ? directory.split("/").pop() : "unknown");
+            }
             onToolExecuteAfter._directory = directory;
             return onToolExecuteAfter(input, output);
         },
@@ -310,19 +468,42 @@ export async function DelegationEnforcer({ client, directory } = {}) {
             return onSessionCompacting(_input, output);
         },
         "experimental.chat.system.transform": async (_input, output) => {
+            setVibeOSHomeContext(hookVibeHome);
+            if (hookFp) {
+                setCurrentProjectFingerprint(hookFp);
+                setCurrentProjectName(directory ? directory.split("/").pop() : "unknown");
+            }
             ensureDeferredBootstrap();
+            onSystemTransform._directory = directory;
+            onSystemTransform._activeJob = activeJob;
+            onSystemTransform._briefedProjects = systemBriefedProjects;
             return onSystemTransform(_input, output);
         },
         "shell.env": async (_input, output) => {
+            setVibeOSHomeContext(hookVibeHome);
+            if (hookFp) {
+                setCurrentProjectFingerprint(hookFp);
+                setCurrentProjectName(directory ? directory.split("/").pop() : "unknown");
+            }
             if (typeof setShellDirectory === "function")
                 setShellDirectory(directory || "");
             return onShellEnv(_input, output);
         },
         "experimental.text.complete": async (_input, output) => {
+            setVibeOSHomeContext(hookVibeHome);
+            if (hookFp) {
+                setCurrentProjectFingerprint(hookFp);
+                setCurrentProjectName(directory ? directory.split("/").pop() : "unknown");
+            }
             ensureDeferredBootstrap();
             await _appendFooter(_input, output, directory);
         },
         "message.updated": async (_input, output) => {
+            setVibeOSHomeContext(hookVibeHome);
+            if (hookFp) {
+                setCurrentProjectFingerprint(hookFp);
+                setCurrentProjectName(directory ? directory.split("/").pop() : "unknown");
+            }
             ensureDeferredBootstrap();
             await _appendFooter(_input, output, directory);
         },

@@ -4,12 +4,14 @@ import { join, dirname, relative, basename } from "node:path"
 import { spawn } from "node:child_process"
 import { homedir, tmpdir } from "node:os"
 import { createHash } from "node:crypto"
+import { AsyncLocalStorage } from "node:async_hooks"
 import { loadSelection, writeSelection, DFLT_SEL } from "./selection-manager.js"
 import { normalizeObservedPath, commandFamily, commandFailed, mergeProjectBucket, _computeSessionMetrics, _pruneOldSessions } from "./pattern-helpers.js"
 import { getOcSessionId } from "./runtime-state.js"
 
 // ── File system constants ────────────────────────────────────────────
 const USER_HOME = (() => { try { return homedir() } catch { return tmpdir() } })()
+const VIBEOS_CONTEXT = new AsyncLocalStorage<{ home?: string }>()
 const VIBEOS_HOME = process.env.VIBEOS_HOME || join(USER_HOME, ".claude")
 const OPENCODE_HOME = process.env.VIBEOS_OPENCODE_HOME || join(USER_HOME, ".config", "opencode")
 const FILE_LOCK_DIR = join(VIBEOS_HOME, ".vibeOS-locks")
@@ -44,11 +46,15 @@ const MAX_SESSION_SCRATCHPAD_FILES = 200
 const MAX_SESSION_SCRATCHPAD_BYTES = 2 * 1024 * 1024
 
 function getVibeOSHome(): string {
-  return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude")
+  return VIBEOS_CONTEXT.getStore()?.home || process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude")
 }
 
 function getOpenCodeHome(): string {
-  return process.env.VIBEOS_OPENCODE_HOME || join(process.env.HOME || USER_HOME, ".config", "opencode")
+  return process.env.VIBEOS_OPENCODE_HOME || join(VIBEOS_CONTEXT.getStore()?.home || process.env.HOME || USER_HOME, ".config", "opencode")
+}
+
+export function setVibeOSHomeContext(home: string): void {
+  VIBEOS_CONTEXT.enterWith({ home: String(home || "") })
 }
 
 // ── Scratchpad decadence thresholds ──────────────────────────────────
@@ -80,6 +86,7 @@ const SOFT_QUOTA_LIMIT = 5
 
 // ── Session identity ─────────────────────────────────────────────────
 const _OC_SID = getOcSessionId()
+let currentSessionId = _OC_SID
 const _sessionStart = Date.now()
 const _sessionTimer = function () { return Date.now() - _sessionStart }
 function getSessionTimer() { return Date.now() - _sessionStart }
@@ -94,6 +101,8 @@ export function setCurrentTier(v: string | null) { currentTier = v }
 export function setCurrentModel(v: string | null) { currentModel = v }
 export function setCurrentProjectFingerprint(v: string) { currentProjectFingerprint = v }
 export function setCurrentProjectName(v: string) { currentProjectName = v }
+export function setCurrentSessionId(v: string) { currentSessionId = String(v || _OC_SID) }
+export function getCurrentSessionId(): string { return currentSessionId || _OC_SID }
 const textCompletePainted = new Set()
 const softQuotaCounts: Record<string, number> = {}
 

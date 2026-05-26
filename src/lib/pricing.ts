@@ -180,17 +180,21 @@ const MODEL_USD_PER_TURN = {
 }
 let _pricingOverridesCache = null
 let _pricingOverridesLoadedAt = 0
+let _pricingOverridesHome = ""
 
 const TURN_BLEND_INPUT_TOKENS = 700
 const TURN_BLEND_OUTPUT_TOKENS = 300
 let _dynamicPricingCache = null
 let _dynamicPricingCacheLoadedAt = 0
+let _dynamicPricingCacheHome = ""
 
 function _loadDynamicPricingCache() {
+  const home = getVibeOSHome()
   const now = Date.now()
-  if (_dynamicPricingCache && (now - _dynamicPricingCacheLoadedAt) < 10_000) return _dynamicPricingCache
+  if (_dynamicPricingCache && _dynamicPricingCacheHome === home && (now - _dynamicPricingCacheLoadedAt) < 10_000) return _dynamicPricingCache
   _dynamicPricingCacheLoadedAt = now
-  const PRICING_CACHE_FILE = join(getVibeOSHome(), "model-pricing-cache.json")
+  _dynamicPricingCacheHome = home
+  const PRICING_CACHE_FILE = join(home, "model-pricing-cache.json")
   try {
     if (!existsSync(PRICING_CACHE_FILE)) return {}
     const st = statSync(PRICING_CACHE_FILE)
@@ -271,14 +275,17 @@ function _getNormalizedCostMap() {
 }
 
 function _loadPricingOverrides() {
+  const home = getVibeOSHome()
   const now = Date.now()
-  if (_pricingOverridesCache && (now - _pricingOverridesLoadedAt) < 10_000) return _pricingOverridesCache
+  if (_pricingOverridesCache && _pricingOverridesHome === home && (now - _pricingOverridesLoadedAt) < 10_000) return _pricingOverridesCache
   _pricingOverridesLoadedAt = now
+  _pricingOverridesHome = home
   try {
-    if (!existsSync(TIERS_FILE)) return {}
-    const st = statSync(TIERS_FILE)
-    if (st.size > 10485760) { _handleStateCorruption(TIERS_FILE); _pricingOverridesCache = {}; return {} }
-    const raw = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
+    const tiersFile = join(home, "model-tiers.json")
+    if (!existsSync(tiersFile)) return {}
+    const st = statSync(tiersFile)
+    if (st.size > 10485760) { _handleStateCorruption(tiersFile); _pricingOverridesCache = {}; return {} }
+    const raw = safeJsonParse(readFileSync(tiersFile, "utf-8"))
     const models = raw?.pricing?.models && typeof raw.pricing.models === "object" ? raw.pricing.models : {}
     const out = {}
     for (const [key, value] of Object.entries(models)) {
@@ -301,7 +308,7 @@ function _loadPricingOverrides() {
     }
     _pricingOverridesCache = out
   } catch {
-    _handleStateCorruption(TIERS_FILE)
+    _handleStateCorruption(join(home, "model-tiers.json"))
     _pricingOverridesCache = {}
   }
   return _pricingOverridesCache
@@ -455,6 +462,33 @@ function readOpenCodeConfigObject(dir) {
   return {}
 }
 
+function _setTrinitySlotsFromTiers(tiersData) {
+  const brain = String(tiersData?.trinity?.brain?.oc || "").trim()
+  const medium = String(tiersData?.trinity?.medium?.oc || "").trim()
+  const cheap = String(tiersData?.trinity?.cheap?.oc || "").trim()
+  setTrinityBrain(brain && !PLACEHOLDER_RE.test(brain) ? brain : null)
+  setTrinityMedium(medium && !PLACEHOLDER_RE.test(medium) ? medium : null)
+  setTrinityCheap(cheap && !PLACEHOLDER_RE.test(cheap) ? cheap : null)
+  return { brain: TRINITY_BRAIN, medium: TRINITY_MEDIUM, cheap: TRINITY_CHEAP }
+}
+
+export function loadTrinitySlotsFromTiersFile() {
+  try {
+    const TIERS_FILE = join(getVibeOSHome(), "model-tiers.json")
+    if (!existsSync(TIERS_FILE)) return false
+    const st = statSync(TIERS_FILE)
+    if (st.size > 10485760) {
+      _handleStateCorruption(TIERS_FILE)
+      return false
+    }
+    const tiersData = safeJsonParse(readFileSync(TIERS_FILE, "utf-8")) || {}
+    _setTrinitySlotsFromTiers(tiersData)
+    return true
+  } catch {
+    return false
+  }
+}
+
 // Refresh currentModel/currentTier from disk config.
 // Called per-hook so trinity slot changes take effect without restart.
 export const PLACEHOLDER_RE = /^[^/]+\/[a-z-]+-model$/i
@@ -473,6 +507,7 @@ export function _refreshModel(directory) {
     const sel = loadSelection()
     if (!sel.enabled) return
     const tiersData = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
+    _setTrinitySlotsFromTiers(tiersData)
     const slotOrder = getTrinitySlotOrder(tiersData)
     const activeSlot = slotOrder.includes(sel.active_slot) ? sel.active_slot : (slotOrder[0] || "brain")
     let slotOcModel = tiersData?.trinity?.[activeSlot]?.oc || ""

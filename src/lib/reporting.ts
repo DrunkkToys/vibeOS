@@ -87,8 +87,7 @@ const _reportDedupWindow = new Map()
 
 function _wouldBeDuplicate(type, summary) {
   if (typeof summary !== "string") return false
-  const trunc = Math.min(summary.length, 240)
-  const key = `${type || ""}::${summary.slice(0, trunc)}`
+  const key = `${getVibeOSHome()}::${type || ""}::${summary}`
   const last = _reportDedupWindow.get(key)
   if (last && (Date.now() - last) < 5 * 60 * 1000) return true
   _reportDedupWindow.set(key, Date.now())

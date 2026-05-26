@@ -2,7 +2,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { safeJsonParse, _blackboxEnabled, setBlackboxEnabled as _setGlobalBlackboxEnabled, _OC_SID, currentProjectFingerprint, setCurrentProjectFingerprint, withFileLock, readJsonOrEmpty, validateState, loadBlackboxState, saveBlackboxState, loadGlobalLearning, updateGlobalLearning, getLearnedExploratoryWords, projectFingerprint, loadProjectState, saveProjectState, detectTechStack, ensureProjectBucket, recordMissedContext7 } from "./state.js";
-import { loadSessionOptMode, writeSessionOptMode, writeSelection } from "./selection-manager.js";
+import { loadSessionOptMode, writeSessionOptMode } from "./selection-manager.js";
 import { getApiClient, isApiFallback } from "./api-client.js";
 export { scoreStress, estimateContextBudget, classifyTurnSimple, tokenizeWords, topKeywords, extractLastUserText, isUserAskingForTests, isLikelyOffTopic, detectOutcomeSignal } from "./classifiers.js";
 function getVibeOSHome() {
@@ -41,7 +41,6 @@ export function bootstrapOptimizationSession() {
     try {
         writeSessionOptMode(sid, resolvedMode);
         writeSessionSlot(sid, resolvedSlot);
-        writeSelection("active_slot", resolvedSlot);
         const state = loadBlackboxState();
         if (!state.sessions)
             state.sessions = {};
