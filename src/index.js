@@ -2560,7 +2560,9 @@ function updateState(mutator) {
       return result;
     } catch (err) {
       if (attempt === MAX_RETRIES2 - 1) {
-        console.error(`[vibeOS] updateState failed after ${MAX_RETRIES2} retries: ${err.message}`);
+        if (process.env.VIBEOS_DEBUG_INTERNALS === "1") {
+          console.error(`[vibeOS] updateState failed after ${MAX_RETRIES2} retries: ${err.message}`);
+        }
         return null;
       }
     }
@@ -3667,6 +3669,7 @@ function setTrinityMedium(v) {
 function setTrinityCheap(v) {
   TRINITY_CHEAP = v;
 }
+var DEBUG_INTERNALS = process.env.VIBEOS_DEBUG_INTERNALS === "1";
 var USER_HOME3 = (() => {
   try {
     return homedir4();
@@ -4179,7 +4182,8 @@ function _refreshModel(directory3) {
     let slotOcModel = tiersData?.trinity?.[activeSlot]?.oc || "";
     if (slotOcModel && PLACEHOLDER_RE.test(slotOcModel)) {
       slotOcModel = "";
-      console.error(`[vibeOS] placeholder model detected in ${activeSlot} slot \u2014 skipping, will auto-detect`);
+      if (DEBUG_INTERNALS)
+        console.error(`[vibeOS] placeholder model detected in ${activeSlot} slot \u2014 skipping, will auto-detect`);
     }
     if (slotOcModel) {
       const nextTier = activeSlot === (slotOrder[0] || "brain") ? "high" : classify(slotOcModel);
@@ -4190,7 +4194,8 @@ function _refreshModel(directory3) {
         const oldTier = currentTier;
         setCurrentModel(slotOcModel);
         setCurrentTier(nextTier);
-        console.error(`[vibeOS] model refresh: ${oldModel}(${oldTier}) \u2192 ${currentModel}(${currentTier}) (slot=${activeSlot})`);
+        if (DEBUG_INTERNALS)
+          console.error(`[vibeOS] model refresh: ${oldModel}(${oldTier}) \u2192 ${currentModel}(${currentTier}) (slot=${activeSlot})`);
       }
     }
     if (!currentModel) {
@@ -4198,7 +4203,8 @@ function _refreshModel(directory3) {
       if (detected) {
         setCurrentModel(detected);
         setCurrentTier(classify(detected));
-        console.error(`[vibeOS] auto-detected model: ${currentModel} (tier=${currentTier})`);
+        if (DEBUG_INTERNALS)
+          console.error(`[vibeOS] auto-detected model: ${currentModel} (tier=${currentTier})`);
       }
     }
     if (!_modelLocked) {
@@ -4208,7 +4214,8 @@ function _refreshModel(directory3) {
         const oldTier = currentTier;
         setCurrentModel(cfgModel);
         setCurrentTier(classify(cfgModel));
-        console.error(`[vibeOS] model refresh (config): ${oldModel}(${oldTier}) \u2192 ${currentModel}(${currentTier})`);
+        if (DEBUG_INTERNALS)
+          console.error(`[vibeOS] model refresh (config): ${oldModel}(${oldTier}) \u2192 ${currentModel}(${currentTier})`);
         try {
           if (existsSync6(TIERS_FILE4)) {
             const t = safeJsonParse3(readFileSync5(TIERS_FILE4, "utf-8"));
@@ -4218,7 +4225,8 @@ function _refreshModel(directory3) {
                 const _tmp = TIERS_FILE4 + ".tmp." + Date.now();
                 writeFileSync5(_tmp, JSON.stringify(t, null, 2) + "\n", "utf-8");
                 renameSync4(_tmp, TIERS_FILE4);
-                console.error(`[vibeOS] model refresh (config): synced active_slot \u2192 ${s}`);
+                if (DEBUG_INTERNALS)
+                  console.error(`[vibeOS] model refresh (config): synced active_slot \u2192 ${s}`);
                 break;
               }
             }
@@ -6834,7 +6842,6 @@ function applyBudgetFirstMode(input = {}) {
   }
   return withFileLock(BLACKBOX_STATE_FILE, () => {
     const { state, session, policy } = loadSessionPolicy();
-    const interactions = Number(input.nInteractions ?? state.sessions?.[_OC_SID]?.n_interactions ?? 0);
     const regime = normalizeRegime(input.subRegime || policy.last_sub_regime);
     const stress = Number(input.stress ?? policy.last_stress ?? 0);
     const suggested = normalizeMode(input.suggestedMode);
@@ -6845,7 +6852,7 @@ function applyBudgetFirstMode(input = {}) {
     if (policy.active && policy.active_mode && normalizeMode(policy.active_mode) !== BASELINE_MODE) {
       return persistSessionPolicy(state, session, policy, policy.active_mode);
     }
-    const shouldStartEpisode = LOOP_REGIMES.has(regime) && interactions >= 2 || QUALITY_REGIMES.has(regime) || Number(policy.problem_streak || 0) >= 2 || Number(policy.problem_streak || 0) >= 1 && stress > 1.5;
+    const shouldStartEpisode = LOOP_REGIMES.has(regime) || suggested === "speed" || QUALITY_REGIMES.has(regime) || Number(policy.problem_streak || 0) >= 2 || Number(policy.problem_streak || 0) >= 1 && stress > 1.5;
     if (shouldStartEpisode) {
       const nextMode = chooseEpisodeMode(regime, suggested, stress);
       policy.active = true;
@@ -9483,6 +9490,7 @@ function buildTestReminder(filePath) {
 // src/lib/hooks/tool-execute.js
 var BYTES_PER_TOKEN = 4;
 var CACHE_SAVED_PER_1M_INPUT_TOKENS = 0.1;
+var DEBUG_INTERNALS2 = process.env.VIBEOS_DEBUG_INTERNALS === "1";
 function getVibeOSHome12() {
   return process.env.VIBEOS_HOME || join16(process.env.HOME || "", ".claude");
 }
@@ -9709,7 +9717,9 @@ var onToolExecuteBefore = async (input, output) => {
       const cacheSaved = recordCacheSaving(t, _cacheSave, { hash: hit.hash });
       const sumNote = hit.summaryPath ? ` (summary: ${hit.summaryPath})` : "";
       const cacheNote = cacheSaved ? `, cache+$${(cacheSaved.lifetime || 0).toFixed(3)} lt` : "";
-      console.error(`[vibeOS] \u{1F4E6} scratchpad hit for ${t}: ${hit.fullPath} ${hit.sizeBytes}B ${hit.ageSec}s old${sumNote} \u2014 total observed: ${total ?? "?"}${cacheNote}`);
+      if (DEBUG_INTERNALS2) {
+        console.error(`[vibeOS] \u{1F4E6} scratchpad hit for ${t}: ${hit.fullPath} ${hit.sizeBytes}B ${hit.ageSec}s old${sumNote} \u2014 total observed: ${total ?? "?"}${cacheNote}`);
+      }
     }
     if (ML_ENABLED) {
       try {
@@ -9721,13 +9731,15 @@ var onToolExecuteBefore = async (input, output) => {
           recordCacheStats(_cacheDb, t, !!hit, hit ? _cacheSave : 0);
           if (!hit) {
             const prediction = predictCacheHit(_cacheDb, t, promptText);
-            if (prediction.shouldWarm && prediction.confidence >= 0.6) {
+            if (prediction.shouldWarm && prediction.confidence >= 0.6 && DEBUG_INTERNALS2) {
               console.error(`[vibeOS] \u{1F52E} Smart cache: ${t} may benefit from caching \u2014 ${prediction.reason} (conf: ${(prediction.confidence * 100).toFixed(0)}%)`);
             }
           }
         }
       } catch (scErr) {
-        console.error(`[vibeOS] Smart cache error: ${scErr.message}`);
+        if (DEBUG_INTERNALS2) {
+          console.error(`[vibeOS] Smart cache error: ${scErr.message}`);
+        }
       }
     }
   }
@@ -9935,8 +9947,6 @@ var onToolExecuteBefore = async (input, output) => {
     if (n === SOFT_QUOTA_LIMIT + 1) {
       const total = recordSaving(t, `soft quota exceeded (limit ${SOFT_QUOTA_LIMIT})`, SAVE_EST.SOFT_QUOTA);
       console.error(`[vibeOS] Bash usage high (${n}/${SOFT_QUOTA_LIMIT}) \u2014 delegate to Task subagent.`);
-    } else if (n <= SOFT_QUOTA_LIMIT) {
-      console.error(`[vibeOS] ${t} ${n}/${SOFT_QUOTA_LIMIT}`);
     }
     return;
   }
@@ -10392,6 +10402,7 @@ var onShellEnv = async (_input, output) => {
 };
 
 // src/index.ts
+var DEBUG_INTERNALS3 = process.env.VIBEOS_DEBUG_INTERNALS === "1";
 function getVibeOSHome13() {
   return process.env.VIBEOS_HOME || join17(process.env.HOME || "", ".claude");
 }
@@ -10587,7 +10598,7 @@ function persistMcpPort(port) {
   }
 }
 async function DelegationEnforcer({ client: client2, directory: directory3 } = {}) {
-  console.error(`[vibeOS] LOADED cwd=${directory3}`);
+  if (DEBUG_INTERNALS3) console.error(`[vibeOS] LOADED cwd=${directory3}`);
   const hookHome = process.env.HOME || USER_HOME2;
   const hookFp = projectFingerprint(directory3 || "");
   const hookSessionId = `opencode-${process.pid || "x"}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -10619,26 +10630,26 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
           const cost = modelCostPerTurn(_brainOcModel);
           if (HIGH_TIER_RE.test(_brainOcModel) || cost !== null && cost >= 0.01) {
             setCurrentTier("high");
-            console.error(`[vibeOS] tier override \u2192 high (primary slot)`);
+            if (DEBUG_INTERNALS3) console.error(`[vibeOS] tier override \u2192 high (primary slot)`);
           }
         }
       }
     } catch {
     }
-    console.error(`[vibeOS] ACTIVE: model=${currentModel} tier=${currentTier}`);
+    if (DEBUG_INTERNALS3) console.error(`[vibeOS] ACTIVE: model=${currentModel} tier=${currentTier}`);
   } else {
-    console.error("[vibeOS] NO MODEL \u2014 enforcement disabled, will auto-detect on first hook");
+    if (DEBUG_INTERNALS3) console.error("[vibeOS] NO MODEL \u2014 enforcement disabled, will auto-detect on first hook");
   }
-  console.error(`[vibeOS] auto-config guard: currentModel=${currentModel ? "SET" : "NONE"}, TIERS_FILE=${getTiersFile()}, exists=${existsSync16(getTiersFile())}`);
+  if (DEBUG_INTERNALS3) console.error(`[vibeOS] auto-config guard: currentModel=${currentModel ? "SET" : "NONE"}, TIERS_FILE=${getTiersFile()}, exists=${existsSync16(getTiersFile())}`);
   try {
     if (!existsSync16(getTiersFile())) {
-      console.error(`[vibeOS] model-tiers.json missing at load; will seed on first hook`);
+      if (DEBUG_INTERNALS3) console.error(`[vibeOS] model-tiers.json missing at load; will seed on first hook`);
     }
     await _seedModelTiersIfMissing(directory3);
     loadTrinitySlotsFromTiersFile();
   } catch {
   }
-  if (detectContext7()) console.error(`[vibeOS] context7 detected \u2014 docs nudge enabled`);
+  if (DEBUG_INTERNALS3 && detectContext7()) console.error(`[vibeOS] context7 detected \u2014 docs nudge enabled`);
   fp = projectFingerprint(directory3);
   setCurrentProjectFingerprint(fp);
   setCurrentProjectName(directory3 ? directory3.split("/").pop() : "unknown");

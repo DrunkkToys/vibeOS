@@ -25,6 +25,7 @@ export { HIGH_TIER_RE, MID_TIER_RE, loadTierRegexes }
 
 const USER_HOME = (() => { try { return homedir() } catch { return tmpdir() } })()
 const DEFAULT_TRINITY_SLOTS = ["brain", "medium", "cheap"]
+const DEBUG_INTERNALS = process.env.VIBEOS_DEBUG_INTERNALS === "1"
 
 function getVibeOSHome() {
   return process.env.VIBEOS_HOME || join(process.env.HOME || homedir(), ".claude")
@@ -514,7 +515,7 @@ export function _refreshModel(directory) {
     // Skip placeholder models (e.g. "provider/high-tier-model") — use auto-detected model instead
     if (slotOcModel && PLACEHOLDER_RE.test(slotOcModel)) {
       slotOcModel = ""
-      console.error(`[vibeOS] placeholder model detected in ${activeSlot} slot — skipping, will auto-detect`)
+      if (DEBUG_INTERNALS) console.error(`[vibeOS] placeholder model detected in ${activeSlot} slot — skipping, will auto-detect`)
     }
     if (slotOcModel) {
       // Always derive tier from active slot so footer/env reflect slot changes,
@@ -527,7 +528,7 @@ export function _refreshModel(directory) {
         const oldTier = currentTier
         setCurrentModel(slotOcModel)
         setCurrentTier(nextTier)
-        console.error(`[vibeOS] model refresh: ${oldModel}(${oldTier}) → ${currentModel}(${currentTier}) (slot=${activeSlot})`)
+        if (DEBUG_INTERNALS) console.error(`[vibeOS] model refresh: ${oldModel}(${oldTier}) → ${currentModel}(${currentTier}) (slot=${activeSlot})`)
       }
     }
     // If no model from tiers and no existing currentModel, try to auto-detect
@@ -536,7 +537,7 @@ export function _refreshModel(directory) {
       if (detected) {
         setCurrentModel(detected)
         setCurrentTier(classify(detected))
-        console.error(`[vibeOS] auto-detected model: ${currentModel} (tier=${currentTier})`)
+        if (DEBUG_INTERNALS) console.error(`[vibeOS] auto-detected model: ${currentModel} (tier=${currentTier})`)
       }
     }
     // Reconcile with the directory's opencode.json config.
@@ -549,7 +550,7 @@ export function _refreshModel(directory) {
         const oldTier = currentTier
         setCurrentModel(cfgModel)
         setCurrentTier(classify(cfgModel))
-        console.error(`[vibeOS] model refresh (config): ${oldModel}(${oldTier}) → ${currentModel}(${currentTier})`)
+        if (DEBUG_INTERNALS) console.error(`[vibeOS] model refresh (config): ${oldModel}(${oldTier}) → ${currentModel}(${currentTier})`)
         try {
           if (existsSync(TIERS_FILE)) {
             const t = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
@@ -559,7 +560,7 @@ export function _refreshModel(directory) {
                 const _tmp = TIERS_FILE + ".tmp." + Date.now()
                 writeFileSync(_tmp, JSON.stringify(t, null, 2) + "\n", "utf-8")
                 renameSync(_tmp, TIERS_FILE)
-                console.error(`[vibeOS] model refresh (config): synced active_slot → ${s}`)
+                if (DEBUG_INTERNALS) console.error(`[vibeOS] model refresh (config): synced active_slot → ${s}`)
                 break
               }
             }

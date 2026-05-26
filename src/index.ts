@@ -78,6 +78,8 @@ import { createTrinityTool } from "./lib/trinity-tool.js"
 import { classifyAndRankModels, modelToCcAlias, discoverAvailableModels, probeModel, collectConfiguredProviderModels } from "./lib/trinity-rebuild.js"
 import { _appendFooter } from "./lib/hooks/footer.js"
 import { onToolExecuteBefore, onToolExecuteAfter, setToolDirectory } from "./lib/hooks/tool-execute.js"
+
+const DEBUG_INTERNALS = process.env.VIBEOS_DEBUG_INTERNALS === "1"
 import { onMessagesTransform, onSystemTransform, latestUserIntent, ensureProjectSkill } from "./lib/hooks/chat-transform.js"
 import { onSessionCompacting } from "./lib/hooks/session-compact.js"
 import { onShellEnv, setShellDirectory } from "./lib/hooks/shell-env.js"
@@ -327,7 +329,7 @@ function persistMcpPort(port: number): void {
 // ── DelegationEnforcer — main plugin entry point ─────────────────────
 
 export async function DelegationEnforcer({ client, directory }: { client?: unknown; directory?: string } = {}) {
-  console.error(`[vibeOS] LOADED cwd=${directory}`)
+  if (DEBUG_INTERNALS) console.error(`[vibeOS] LOADED cwd=${directory}`)
   const hookHome = process.env.HOME || USER_HOME
   const hookFp = projectFingerprint(directory || "")
   const hookSessionId = `opencode-${process.pid || "x"}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
@@ -361,26 +363,26 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
           const cost = modelCostPerTurn(_brainOcModel)
           if (HIGH_TIER_RE.test(_brainOcModel) || (cost !== null && cost >= 0.01)) {
             setCurrentTier("high")
-            console.error(`[vibeOS] tier override → high (primary slot)`)
+            if (DEBUG_INTERNALS) console.error(`[vibeOS] tier override → high (primary slot)`)
           }
         }
       }
     } catch {}
-    console.error(`[vibeOS] ACTIVE: model=${currentModel} tier=${currentTier}`)
+    if (DEBUG_INTERNALS) console.error(`[vibeOS] ACTIVE: model=${currentModel} tier=${currentTier}`)
   } else {
-    console.error("[vibeOS] NO MODEL — enforcement disabled, will auto-detect on first hook")
+    if (DEBUG_INTERNALS) console.error("[vibeOS] NO MODEL — enforcement disabled, will auto-detect on first hook")
   }
 
-  console.error(`[vibeOS] auto-config guard: currentModel=${currentModel ? "SET" : "NONE"}, TIERS_FILE=${getTiersFile()}, exists=${existsSync(getTiersFile())}`)
+  if (DEBUG_INTERNALS) console.error(`[vibeOS] auto-config guard: currentModel=${currentModel ? "SET" : "NONE"}, TIERS_FILE=${getTiersFile()}, exists=${existsSync(getTiersFile())}`)
   try {
     if (!existsSync(getTiersFile())) {
-      console.error(`[vibeOS] model-tiers.json missing at load; will seed on first hook`)
+      if (DEBUG_INTERNALS) console.error(`[vibeOS] model-tiers.json missing at load; will seed on first hook`)
     }
     await _seedModelTiersIfMissing(directory)
     loadTrinitySlotsFromTiersFile()
   } catch {}
 
-  if (detectContext7()) console.error(`[vibeOS] context7 detected — docs nudge enabled`)
+  if (DEBUG_INTERNALS && detectContext7()) console.error(`[vibeOS] context7 detected — docs nudge enabled`)
 
   // ── Startup safety ──────────────────────────────────────────────────
   // Keep load-time side effects minimal: defer any slot/catalog writes until

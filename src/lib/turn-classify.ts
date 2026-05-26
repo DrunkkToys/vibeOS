@@ -214,11 +214,15 @@ function updateState(mutator) {
       const onDiskGen = (readJsonOrEmpty(stateFile)._gen || 0)
       if (onDiskGen === postGen) return result
       if (attempt < MAX_RETRIES - 1) continue
-      console.error("[vibeOS] WARN: updateState retry exhausted - possible state divergence")
+      if (process.env.VIBEOS_DEBUG_INTERNALS === "1") {
+        console.error("[vibeOS] WARN: updateState retry exhausted - possible state divergence")
+      }
       return result
     } catch (err) {
       if (attempt < MAX_RETRIES - 1) continue
-      console.error("[vibeOS] updateState error: " + err.message)
+      if (process.env.VIBEOS_DEBUG_INTERNALS === "1") {
+        console.error("[vibeOS] updateState error: " + err.message)
+      }
       return null
     }
   }

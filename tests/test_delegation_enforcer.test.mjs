@@ -137,6 +137,43 @@ test("slot switch updates tier even when model ID is unchanged", async () => {
   assert.equal(secondEnv.env.OPENCODE_MODEL_TIER, "high")
 })
 
+test("shell.env keeps model refresh logs silent while still reconciling config changes", async () => {
+  const tiersPath = join(sandbox, ".claude/model-tiers.json")
+  writeFileSync(tiersPath, JSON.stringify({
+    trinity: {
+      brain: { oc: "deepseek/deepseek-v4-pro" },
+      medium: { oc: "deepseek/deepseek-v4-flash" },
+      cheap: { oc: "deepseek/deepseek-chat" },
+    },
+    selection: { enabled: true, active_slot: "cheap" },
+  }))
+
+  const dir = join(sandbox, ".opencode-refresh-silent")
+  mkdirSync(dir, { recursive: true })
+  const configPath = join(dir, "opencode.json")
+  writeFileSync(configPath, JSON.stringify({ model: "deepseek/deepseek-v4-flash" }))
+
+  const mod = await loadPlugin()
+  forceHighTier(mod)
+  const { DelegationEnforcer } = mod
+
+  const errs = []
+  const origError = console.error
+  console.error = (...args) => { errs.push(args.map(String).join(" ")) }
+  try {
+    const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+    writeFileSync(configPath, JSON.stringify({ model: "deepseek/deepseek-v4-pro" }))
+    const envOut = { env: {} }
+    await hooks["shell.env"]({}, envOut)
+    assert.equal(envOut.env.OPENCODE_MODEL_TIER, "high")
+  } finally {
+    console.error = origError
+  }
+
+  assert.equal(errs.filter((line) => /\[vibeOS\].*(model refresh|auto-detected model|auto-config guard|placeholder model detected|model-tiers\.json missing at load|ACTIVE: model|NO MODEL)/.test(line)).length, 0,
+    "model reconciliation stays silent in normal mode")
+})
+
 // ── tool.execute.before — memory mode ────────────────────────────────
 test("FREE tools (read) and SOFT_QUOTA tools (bash) produce no state write within quota limit", async () => {
   const mod = await loadPlugin()
@@ -153,16 +190,24 @@ test("FREE tools (read) and SOFT_QUOTA tools (bash) produce no state write withi
   const beforeCount = existsSync(stateFile)
     ? JSON.parse(readFileSync(stateFile, "utf-8"))?.lifetime?.warn_count ?? 0
     : 0
+  const errs = []
+  const origError = console.error
+  console.error = (...args) => { errs.push(args.map(String).join(" ")) }
 
-  // read is FREE — passes silently with no state write
-  await hooks["tool.execute.before"]({ tool: "read" })
-  // bash is SOFT_QUOTA — first call just logs progress (n=1/5), no state write
-  await hooks["tool.execute.before"]({ tool: "bash" })
+  try {
+    // read is FREE — passes silently with no state write or alert spam
+    await hooks["tool.execute.before"]({ tool: "read" })
+    // bash is SOFT_QUOTA — still silent within the limit
+    await hooks["tool.execute.before"]({ tool: "bash" })
+  } finally {
+    console.error = origError
+  }
 
   const afterCount = existsSync(stateFile)
     ? JSON.parse(readFileSync(stateFile, "utf-8"))?.lifetime?.warn_count ?? 0
     : 0
   assert.equal(afterCount, beforeCount, "no warn recorded for FREE/SOFT_QUOTA within limit")
+  assert.equal(errs.filter((line) => /(?:\bread\b|\bbash\b)\s+1\/5\b/.test(line)).length, 0, "no per-call progress alert within quota")
 })
 
 test("WARN_ON_DIRECT (write) records savings + does NOT throw", async () => {

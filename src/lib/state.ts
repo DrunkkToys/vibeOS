@@ -333,7 +333,9 @@ function updateState(mutator: (state: any) => any): any {
       return result
     } catch (err) {
       if (attempt === MAX_RETRIES - 1) {
-        console.error(`[vibeOS] updateState failed after ${MAX_RETRIES} retries: ${err.message}`)
+        if (process.env.VIBEOS_DEBUG_INTERNALS === "1") {
+          console.error(`[vibeOS] updateState failed after ${MAX_RETRIES} retries: ${err.message}`)
+        }
         return null
       }
     }

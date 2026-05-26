@@ -53,6 +53,7 @@ import { SAVE_EST, WARN_ON_DIRECT, SOFT_QUOTA, FREE, MONITOR } from "../constant
 
 const BYTES_PER_TOKEN = 4
 const CACHE_SAVED_PER_1M_INPUT_TOKENS = 0.10
+const DEBUG_INTERNALS = process.env.VIBEOS_DEBUG_INTERNALS === "1"
 
 function getVibeOSHome() {
   return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude")
@@ -256,7 +257,9 @@ export const onToolExecuteBefore = async (input, output) => {
           const cacheSaved = recordCacheSaving(t, _cacheSave, { hash: hit.hash })
           const sumNote = hit.summaryPath ? ` (summary: ${hit.summaryPath})` : ""
           const cacheNote = cacheSaved ? `, cache+$${(cacheSaved.lifetime || 0).toFixed(3)} lt` : ""
-          console.error(`[vibeOS] 📦 scratchpad hit for ${t}: ${hit.fullPath} ${hit.sizeBytes}B ${hit.ageSec}s old${sumNote} — total observed: ${total ?? "?"}${cacheNote}`)
+          if (DEBUG_INTERNALS) {
+            console.error(`[vibeOS] 📦 scratchpad hit for ${t}: ${hit.fullPath} ${hit.sizeBytes}B ${hit.ageSec}s old${sumNote} — total observed: ${total ?? "?"}${cacheNote}`)
+          }
         }
         // Smart cache: learn from this observation + predict future reuse.
         if (ML_ENABLED) {
@@ -275,13 +278,15 @@ export const onToolExecuteBefore = async (input, output) => {
               recordCacheStats(_cacheDb, t, !!hit, hit ? _cacheSave : 0)
               if (!hit) {
                 const prediction = predictCacheHit(_cacheDb, t, promptText)
-                if (prediction.shouldWarm && prediction.confidence >= 0.6) {
+                if (prediction.shouldWarm && prediction.confidence >= 0.6 && DEBUG_INTERNALS) {
                   console.error(`[vibeOS] 🔮 Smart cache: ${t} may benefit from caching — ${prediction.reason} (conf: ${(prediction.confidence * 100).toFixed(0)}%)`)
                 }
               }
             }
           } catch (scErr) {
-            console.error(`[vibeOS] Smart cache error: ${scErr.message}`)
+            if (DEBUG_INTERNALS) {
+              console.error(`[vibeOS] Smart cache error: ${scErr.message}`)
+            }
           }
         }
       }
@@ -527,8 +532,6 @@ export const onToolExecuteBefore = async (input, output) => {
         if (n === SOFT_QUOTA_LIMIT + 1) {
           const total = recordSaving(t, `soft quota exceeded (limit ${SOFT_QUOTA_LIMIT})`, SAVE_EST.SOFT_QUOTA)
           console.error(`[vibeOS] Bash usage high (${n}/${SOFT_QUOTA_LIMIT}) — delegate to Task subagent.`)
-        } else if (n <= SOFT_QUOTA_LIMIT) {
-          console.error(`[vibeOS] ${t} ${n}/${SOFT_QUOTA_LIMIT}`)
         }
         return
       }
