@@ -4267,6 +4267,561 @@ function applySlot2(slot) {
 import { readFileSync as readFileSync6, writeFileSync as writeFileSync6, existsSync as existsSync7, mkdirSync as mkdirSync6, renameSync as renameSync5 } from "node:fs";
 import { join as join6, dirname as dirname7 } from "node:path";
 
+// src/vibeOS-lib/blackbox/resolution-tracker.js
+var ResolutionTracker = class _ResolutionTracker {
+  static SUB_REGIMES = ["INIT", "DIVERGENT", "EXPLORING", "REFINING", "CONVERGING", "CLOSED", "LOOPING"];
+  sessionId;
+  maxHistory;
+  history;
+  loopCount;
+  pivotHistory;
+  outcomeHistory;
+  calibratedWeights;
+  constructor(sessionId, maxHistory = 10) {
+    this.sessionId = sessionId;
+    this.maxHistory = maxHistory;
+    this.history = [];
+    this.loopCount = 0;
+    this.pivotHistory = [];
+    this.outcomeHistory = [];
+    this.calibratedWeights = null;
+  }
+  update(userText, features, action, entropy, uncertainty, embedding = null) {
+    const entry = {
+      text: userText,
+      features: { ...features },
+      action,
+      entropy,
+      uncertainty,
+      embedding: embedding ? [...embedding] : null,
+      timestamp: Date.now() / 1e3
+    };
+    if (this.history.length >= 2) {
+      entry.is_pivot = this.detectPivotSignal(entry, this.history[this.history.length - 1]);
+      if (entry.is_pivot) {
+        this.pivotHistory.push(this.history.length);
+      }
+    }
+    this.history.push(entry);
+    if (this.history.length > this.maxHistory) {
+      this.history.shift();
+    }
+    const state = this.computeState();
+    if (state.is_looping) {
+      this.loopCount++;
+      this.history[this.history.length - 1].outcome = this.history[this.history.length - 1].outcome || "loop_detected";
+    } else if (state.sub_regime !== "LOOPING") {
+      this.loopCount = Math.max(0, this.loopCount - 1);
+    }
+    return state;
+  }
+  detectPivotSignal(current, previous) {
+    const drift = this.history.length >= 4 ? this.computeIntentState().drift_rate : 0;
+    const repeatRatio = current.features?.repetition || 0;
+    const instructionChange = Math.abs((current.features?.instruction_density || 0.6) - (previous.features?.instruction_density || 0.6));
+    const lengthRatio = previous.text.length > 0 ? Math.abs(current.text.length - previous.text.length) / previous.text.length : 0;
+    const pivotScore = drift * 0.35 + repeatRatio * 0.15 + instructionChange * 0.25 + lengthRatio * 0.25;
+    return pivotScore > 0.45;
+  }
+  computeState() {
+    const n = this.history.length;
+    if (n < 1) {
+      return {
+        sub_regime: "INIT",
+        resolution: "unresolved",
+        momentum: 0,
+        signals: { action_consistency: 1, entropy_trend: 0, feature_contradiction: 0, embedding_delta: 0 },
+        intent_state: { volatility_score: 0, drift_rate: 0, core_goal_embedding: null },
+        continuity_state: "HIGH",
+        is_looping: false,
+        loop_consecutive: 0,
+        loop_intervention_level: "none",
+        pivot_detected: false,
+        pivot_score: 0,
+        outcome: null,
+        n_interactions: 0
+      };
+    }
+    const actionConsistency = this.calcActionConsistency();
+    const entropyTrend = this.calcEntropyTrend();
+    const featureContradiction = this.calcFeatureContradiction();
+    const embeddingDelta = this.calcEmbeddingDelta();
+    const isLooping = this.detectLoop();
+    const intentState = this.computeIntentState();
+    const continuityState = this.continuityState(intentState);
+    let subRegime;
+    if (n === 1) {
+      subRegime = "INIT";
+    } else if (isLooping) {
+      subRegime = "LOOPING";
+    } else if (this.isClosed(actionConsistency, embeddingDelta, featureContradiction)) {
+      subRegime = "CLOSED";
+    } else if (this.isDivergent(entropyTrend, featureContradiction, actionConsistency)) {
+      subRegime = "DIVERGENT";
+    } else if (this.isExploring(featureContradiction, entropyTrend, actionConsistency)) {
+      subRegime = "EXPLORING";
+    } else if (this.isRefining(featureContradiction, embeddingDelta, actionConsistency, entropyTrend)) {
+      subRegime = "REFINING";
+    } else if (this.isConverging(actionConsistency, embeddingDelta, entropyTrend)) {
+      subRegime = "CONVERGING";
+    } else {
+      subRegime = "EXPLORING";
+    }
+    let resolution;
+    if (isLooping) {
+      resolution = "looping";
+    } else if (subRegime === "CLOSED") {
+      resolution = "solved";
+    } else if (subRegime === "CONVERGING" && actionConsistency > 0.5) {
+      resolution = "converging";
+    } else {
+      resolution = "unresolved";
+    }
+    const lastEntry = this.history[this.history.length - 1];
+    const momentum = this.calcMomentum(entropyTrend, actionConsistency, embeddingDelta, isLooping, lastEntry.action, lastEntry.entropy);
+    let loopLevel = "none";
+    if (isLooping) {
+      if (this.loopCount >= 4)
+        loopLevel = "escalated";
+      else if (this.loopCount >= 3)
+        loopLevel = "assertive";
+      else if (this.loopCount >= 2)
+        loopLevel = "suggestive";
+      else
+        loopLevel = "gentle";
+    }
+    const pivotDetected = lastEntry.is_pivot || false;
+    const pivotScore = pivotDetected ? 1 : intentState.drift_rate * 0.6 + intentState.volatility_score * 0.4;
+    return {
+      sub_regime: subRegime,
+      resolution,
+      momentum: Math.round(momentum * 1e4) / 1e4,
+      signals: {
+        action_consistency: Math.round(actionConsistency * 1e4) / 1e4,
+        entropy_trend: Math.round(entropyTrend * 1e4) / 1e4,
+        feature_contradiction: Math.round(featureContradiction * 1e4) / 1e4,
+        embedding_delta: Math.round(embeddingDelta * 1e4) / 1e4
+      },
+      intent_state: {
+        volatility_score: Math.round(intentState.volatility_score * 1e4) / 1e4,
+        drift_rate: Math.round(intentState.drift_rate * 1e4) / 1e4,
+        core_goal_embedding: intentState.core_goal_embedding
+      },
+      continuity_state: continuityState,
+      is_looping: isLooping,
+      loop_consecutive: this.loopCount,
+      loop_intervention_level: loopLevel,
+      pivot_detected: pivotDetected,
+      pivot_score: Math.round(pivotScore * 1e4) / 1e4,
+      outcome: lastEntry.outcome || null,
+      n_interactions: n
+    };
+  }
+  calcActionConsistency() {
+    if (this.history.length < 2)
+      return 1;
+    const recent = this.history.slice(-5).map((e) => e.action);
+    const counts = {};
+    for (const a of recent) {
+      counts[a] = (counts[a] || 0) + 1;
+    }
+    let mostCommonCount = 0;
+    for (const count of Object.values(counts)) {
+      if (count > mostCommonCount)
+        mostCommonCount = count;
+    }
+    return mostCommonCount / recent.length;
+  }
+  calcEntropyTrend() {
+    if (this.history.length < 2)
+      return 0;
+    const entropies = this.history.slice(-5).map((e) => e.entropy);
+    if (entropies.length < 2)
+      return 0;
+    return linearTrend(entropies);
+  }
+  calcFeatureContradiction() {
+    if (this.history.length < 2)
+      return 0;
+    const current = this.history[this.history.length - 1].features;
+    const prev = this.history[this.history.length - 2].features;
+    let contradictionCount = 0;
+    for (const key of Object.keys(current)) {
+      if (key in prev) {
+        const delta = Math.abs(current[key] - prev[key]);
+        if (delta > 0.2) {
+          contradictionCount++;
+        }
+      }
+    }
+    return Math.min(1, contradictionCount / 6);
+  }
+  calcEmbeddingDelta() {
+    if (this.history.length < 2)
+      return 0;
+    const embPrev = this.history[this.history.length - 2].embedding;
+    const embCurr = this.history[this.history.length - 1].embedding;
+    if (!embPrev || !embCurr)
+      return 0;
+    const similarity = cosineSimilarity2(embPrev, embCurr);
+    return 1 - similarity;
+  }
+  detectLoop(k = 3, threshold = 0.6) {
+    const effectiveThreshold = this.calibratedWeights?.loopJaccard ?? threshold;
+    const effectiveK = this.calibratedWeights?.loopK ?? k;
+    if (this.history.length < effectiveK + 1)
+      return false;
+    const currWords = new Set(this.history[this.history.length - 1].text.toLowerCase().split(/\s+/));
+    const pastWords = new Set(this.history[this.history.length - (effectiveK + 1)].text.toLowerCase().split(/\s+/));
+    if (currWords.size === 0 || pastWords.size === 0)
+      return false;
+    const intersection = new Set([...currWords].filter((w) => pastWords.has(w)));
+    const union = /* @__PURE__ */ new Set([...currWords, ...pastWords]);
+    const jaccard = intersection.size / Math.max(union.size, 1);
+    const infoGain = this.history[this.history.length - 1].entropy < this.history[this.history.length - (k + 1)].entropy;
+    return jaccard > effectiveThreshold && !infoGain;
+  }
+  isExploring(contradiction, entropyTrend, _actionConsistency = 0) {
+    const ec = this.calibratedWeights?.exploringContradiction ?? 0.2;
+    const ee = this.calibratedWeights?.exploringEntropyTrend ?? 5e-3;
+    return contradiction > ec || entropyTrend > ee;
+  }
+  isRefining(contradiction, delta, actionConsistency = 0, entropyTrend = 0) {
+    return contradiction < 0.2 && delta < 0.3 && actionConsistency > 0.3 && entropyTrend > -0.01;
+  }
+  isConverging(consistency, delta, entropyTrend) {
+    return consistency >= 0.5 && delta < 0.2 && entropyTrend < 0;
+  }
+  isClosed(consistency, delta, contradiction) {
+    if (this.history.length === 0)
+      return false;
+    const lastAction = this.history[this.history.length - 1].action;
+    const lastEntropy = this.history[this.history.length - 1].entropy;
+    const ccThreshold = this.calibratedWeights?.closureConfidence ?? 0.7;
+    const cd = this.calibratedWeights?.closedDelta ?? 0.1;
+    const cc = this.calibratedWeights?.closedContradiction ?? 0.1;
+    const ce = this.calibratedWeights?.closedEntropy ?? 0.5;
+    return consistency > ccThreshold && delta < cd && contradiction < cc && ["act", "commit"].includes(lastAction) && lastEntropy < ce;
+  }
+  isDivergent(entropyTrend, contradiction, actionConsistency) {
+    const de = this.calibratedWeights?.divergentEntropyTrend ?? 0.03;
+    const dc = this.calibratedWeights?.divergentContradiction ?? 0.3;
+    return entropyTrend > de && (contradiction > dc || actionConsistency < 0.3);
+  }
+  computeIntentState() {
+    if (this.history.length < 2) {
+      return { volatility_score: 0, drift_rate: 0, core_goal_embedding: null };
+    }
+    const actionIndices = { observe: 0, defer: 1, explore: 2, act: 3, commit: 4, change: 5 };
+    const actions = this.history.slice(-5).map((e) => e.action);
+    const indices = actions.map((a) => actionIndices[a] ?? 2);
+    const actionVar = variance(indices) / 6;
+    const embs = this.history.slice(-5).map((e) => e.embedding).filter((e) => e !== null);
+    let embVar = 0;
+    if (embs.length >= 3) {
+      const embMean = embs[0].map((_, i) => embs.reduce((sum, e) => sum + e[i], 0) / embs.length);
+      embVar = embs.reduce((sum, e) => sum + euclideanDistance(e, embMean), 0) / embs.length;
+    }
+    const volatility = Math.min(1, actionVar * 0.6 + embVar * 0.4);
+    let drift = 0;
+    if (embs.length >= 4) {
+      const mid = Math.floor(embs.length / 2);
+      const firstHalf = embs.slice(0, mid);
+      const secondHalf = embs.slice(mid);
+      const firstMean = firstHalf[0].map((_, i) => firstHalf.reduce((sum, e) => sum + e[i], 0) / firstHalf.length);
+      const secondMean = secondHalf[0].map((_, i) => secondHalf.reduce((sum, e) => sum + e[i], 0) / secondHalf.length);
+      drift = 1 - cosineSimilarity2(firstMean, secondMean);
+    }
+    const coreGoal = embs.length > 0 ? embs[0].map((_, i) => embs.reduce((sum, e) => sum + e[i], 0) / embs.length) : null;
+    return {
+      volatility_score: Math.round(volatility * 1e4) / 1e4,
+      drift_rate: Math.round(drift * 1e4) / 1e4,
+      core_goal_embedding: coreGoal ? coreGoal.map((v) => Math.round(v * 1e4) / 1e4) : null
+    };
+  }
+  continuityState(intentState) {
+    const drift = intentState.drift_rate;
+    const volatility = intentState.volatility_score;
+    if (drift < 0.15 && volatility < 0.3)
+      return "HIGH";
+    if (drift > 0.4 || volatility > 0.6)
+      return "LOW";
+    return "MEDIUM";
+  }
+  static detectOverconfident(diagnostics) {
+    const confidence = diagnostics.confidence ?? 0.5;
+    const entropy = diagnostics.entropy ?? 1;
+    return confidence > 0.7 && entropy > 1.5;
+  }
+  calcMomentum(entropyTrend, actionConsistency, embeddingDelta, isLooping = false, action = "", entropy = 0) {
+    if (isLooping)
+      return -1;
+    const w = this.calibratedWeights?.momentum || [-0.3, 0.5, 0.2];
+    const entropyComponent = entropyTrend * w[0];
+    const consistencyComponent = actionConsistency * w[1];
+    const deltaComponent = (1 - Math.min(1, embeddingDelta)) * w[2];
+    let momentum = entropyComponent + consistencyComponent + deltaComponent;
+    if (["commit", "change"].includes(action) && entropy > 0.8) {
+      momentum -= 0.05;
+    } else if (["observe", "defer"].includes(action) && entropy < 0.5) {
+      momentum += 0.05;
+    }
+    return Math.max(-1, Math.min(1, momentum));
+  }
+  reset() {
+    this.history = [];
+    this.loopCount = 0;
+    this.pivotHistory = [];
+    this.outcomeHistory = [];
+  }
+  recordOutcome(outcome) {
+    const entry = this.history[this.history.length - 1];
+    if (entry) {
+      entry.outcome = outcome;
+      this.outcomeHistory.push({
+        turn: this.history.length,
+        outcome,
+        timestamp: Date.now() / 1e3
+      });
+    }
+  }
+  getLoopIntervention() {
+    const state = this.snapshot();
+    if (!state.is_looping)
+      return null;
+    const interventions = {
+      gentle: {
+        directive: "You may be repeating yourself \u2014 try rephrasing the core question differently or approaching from a new angle.",
+        resetSuggested: false
+      },
+      suggestive: {
+        directive: "The conversation is looping. Step back and identify what new information you need. Consider asking a different question or taking a break from this topic.",
+        resetSuggested: false
+      },
+      assertive: {
+        directive: "You are stuck in a loop. The current approach is not productive. PIVOT: list 3 alternative approaches you haven't tried and pick one.",
+        resetSuggested: false
+      },
+      escalated: {
+        directive: "CRITICAL: You have been looping for several turns. STOP the current approach entirely. Either SWITCH to a completely different topic or reset your strategy. Continued looping wastes time and tokens.",
+        resetSuggested: true
+      }
+    };
+    return {
+      level: state.loop_intervention_level,
+      ...interventions[state.loop_intervention_level] || interventions.gentle
+    };
+  }
+  getPivotDirective() {
+    const state = this.snapshot();
+    if (!state.pivot_detected)
+      return null;
+    return "PIVOT DETECTED: The conversation has shifted context. The previous resolution state may no longer apply. Acknowledge the context change and adapt your guidance accordingly. If the new topic is entirely unrelated to the project, confirm the scope change before proceeding.";
+  }
+  setCalibratedWeights(weights) {
+    this.calibratedWeights = weights;
+  }
+  snapshot() {
+    return this.computeState();
+  }
+  getHistory() {
+    return [...this.history];
+  }
+  getOutcomeHistory() {
+    return [...this.outcomeHistory];
+  }
+  serialize() {
+    return {
+      sessionId: this.sessionId,
+      maxHistory: this.maxHistory,
+      history: this.history,
+      loopCount: this.loopCount,
+      pivotHistory: this.pivotHistory,
+      outcomeHistory: this.outcomeHistory,
+      calibratedWeights: this.calibratedWeights
+    };
+  }
+  static deserialize(data) {
+    const tracker = new _ResolutionTracker(data.sessionId, data.maxHistory);
+    tracker.history = data.history || [];
+    tracker.loopCount = data.loopCount || 0;
+    tracker.pivotHistory = data.pivotHistory || [];
+    tracker.outcomeHistory = data.outcomeHistory || [];
+    tracker.calibratedWeights = data.calibratedWeights || null;
+    return tracker;
+  }
+  static extractFeatures(text) {
+    if (!text || typeof text !== "string")
+      return {};
+    const len = text.length;
+    const words = text.split(/\s+/).filter((w) => w.length > 0);
+    const wordCount = words.length;
+    const sentences = text.split(/[.!?]+/).filter((s) => s.trim().length > 0);
+    const sentenceCount = sentences.length;
+    const avgWordLen = wordCount > 0 ? words.reduce((s, w) => s + w.length, 0) / wordCount : 0;
+    const questions = (text.match(/\?/g) || []).length;
+    const questionRatio = sentenceCount > 0 ? questions / sentenceCount : 0;
+    const codeBlocks = (text.match(/```/g) || []).length / 2;
+    const urgency = /urgent|asap|immediately|critical|broken|failing|crash|error|bug/i.test(text) ? 1 : 0;
+    const repetition = wordCount > 5 ? (text.toLowerCase().match(/(\b\w+\b).*?\1/g) || []).length / wordCount : 0;
+    const sentimentInds = /thanks|great|perfect|awesome/i.test(text) ? 0.2 : /frustrat|annoy|not working|doesn't work|stupid|useless/i.test(text) ? 0.8 : 0.5;
+    const complexity = /complex|difficult|hard|confusing|trick|subtle|nuance/i.test(text) ? 1 : 0;
+    const instructionDensity = /do not|must|should|always|never|critical/i.test(text) ? 1 : /please|could you|maybe|perhaps/i.test(text) ? 0.3 : 0.6;
+    return {
+      length: Math.min(1, len / 5e3),
+      word_count: Math.min(1, wordCount / 500),
+      sentence_count: Math.min(1, sentenceCount / 50),
+      avg_word_length: Math.min(1, avgWordLen / 10),
+      question_ratio: Math.min(1, questionRatio),
+      code_blocks: Math.min(1, codeBlocks / 5),
+      urgency,
+      repetition: Math.min(1, repetition * 10),
+      sentiment: sentimentInds,
+      complexity,
+      instruction_density: instructionDensity
+    };
+  }
+};
+function linearTrend(values) {
+  const n = values.length;
+  if (n < 2)
+    return 0;
+  const xMean = (n - 1) / 2;
+  const yMean = values.reduce((a, b) => a + b, 0) / n;
+  let numerator = 0;
+  let denominator = 0;
+  for (let i = 0; i < n; i++) {
+    const xi = i - xMean;
+    numerator += xi * (values[i] - yMean);
+    denominator += xi * xi;
+  }
+  return denominator === 0 ? 0 : numerator / denominator;
+}
+function cosineSimilarity2(a, b) {
+  if (a.length !== b.length || a.length === 0)
+    return 0;
+  let dot = 0;
+  let normA = 0;
+  let normB = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    normA += a[i] * a[i];
+    normB += b[i] * b[i];
+  }
+  const denom = Math.sqrt(normA) * Math.sqrt(normB);
+  return denom === 0 ? 0 : dot / denom;
+}
+function euclideanDistance(a, b) {
+  let sum = 0;
+  for (let i = 0; i < a.length; i++) {
+    const diff = a[i] - b[i];
+    sum += diff * diff;
+  }
+  return Math.sqrt(sum);
+}
+function variance(values) {
+  if (values.length === 0)
+    return 0;
+  const mean = values.reduce((a, b) => a + b, 0) / values.length;
+  return values.reduce((sum, v) => sum + (v - mean) * (v - mean), 0) / values.length;
+}
+
+// src/vibeOS-lib/blackbox/meta-controller.js
+var REGIME_CONTROL = {
+  INIT: {
+    enforcement_mode: "normal",
+    enforcement_reason: "fresh session \u2014 baseline enforcement",
+    flow_mode: "normal",
+    flow_focus: [],
+    tdd_mode: "normal",
+    tdd_focus: [],
+    tier_bias: "auto",
+    thinking_mode: "auto",
+    stress_multiplier: 1,
+    context7_urgency: "preferred",
+    wbp_verbosity: "normal"
+  },
+  DIVERGENT: {
+    enforcement_mode: "relaxed",
+    enforcement_reason: "signals scattered \u2014 avoid interrupting exploration",
+    flow_mode: "audit",
+    flow_focus: ["no-write-without-clarification"],
+    tdd_mode: "lazy",
+    tdd_focus: [],
+    tier_bias: "medium",
+    thinking_mode: "off",
+    stress_multiplier: 0.5,
+    context7_urgency: "optional",
+    wbp_verbosity: "detailed"
+  },
+  EXPLORING: {
+    enforcement_mode: "relaxed",
+    enforcement_reason: "user researching \u2014 minimal enforcement, save brain for real work",
+    flow_mode: "audit",
+    flow_focus: [],
+    tdd_mode: "lazy",
+    tdd_focus: [],
+    tier_bias: "cheap",
+    thinking_mode: "off",
+    stress_multiplier: 0.7,
+    context7_urgency: "optional",
+    wbp_verbosity: "detailed"
+  },
+  REFINING: {
+    enforcement_mode: "normal",
+    enforcement_reason: "user narrowing down \u2014 balanced mode",
+    flow_mode: "normal",
+    flow_focus: [],
+    tdd_mode: "normal",
+    tdd_focus: [],
+    tier_bias: "auto",
+    thinking_mode: "auto",
+    stress_multiplier: 1,
+    context7_urgency: "preferred",
+    wbp_verbosity: "normal"
+  },
+  CONVERGING: {
+    enforcement_mode: "strict",
+    enforcement_reason: "user about to commit \u2014 full enforcement, catch violations",
+    flow_mode: "strict",
+    flow_focus: ["write-edit-check", "no-untouched-files"],
+    tdd_mode: "strict",
+    tdd_focus: ["skeleton-on-write", "assertion-check"],
+    tier_bias: "brain",
+    thinking_mode: "brief",
+    stress_multiplier: 1.5,
+    context7_urgency: "required",
+    wbp_verbosity: "minimal"
+  },
+  LOOPING: {
+    enforcement_mode: "relaxed",
+    enforcement_reason: "user stuck \u2014 relax all enforcement, fresh perspective",
+    flow_mode: "audit",
+    flow_focus: ["suggest-alternative"],
+    tdd_mode: "lazy",
+    tdd_focus: [],
+    tier_bias: "medium",
+    thinking_mode: "off",
+    stress_multiplier: 0.3,
+    context7_urgency: "optional",
+    wbp_verbosity: "detailed"
+  },
+  CLOSED: {
+    enforcement_mode: "strict",
+    enforcement_reason: "finalizing \u2014 full enforcement, max stress sensitivity",
+    flow_mode: "strict",
+    flow_focus: ["write-edit-check", "no-untouched-files", "no-lgtm"],
+    tdd_mode: "quality",
+    tdd_focus: ["full-coverage", "edge-cases"],
+    tier_bias: "brain",
+    thinking_mode: "brief",
+    stress_multiplier: 2,
+    context7_urgency: "required",
+    wbp_verbosity: "minimal"
+  }
+};
+var DEFAULT_CONTROL = REGIME_CONTROL.EXPLORING;
+
 // src/lib/classifiers.js
 function detectOutcomeSignal(text) {
   if (!text)
@@ -4469,7 +5024,7 @@ async function selectOptimizationModeRemote(subRegime, stressMultiplier, fallbac
   }
   return fallback;
 }
-function computeControlVector(_state, _action, _optimizationMode) {
+function computeControlVector2(_state, _action, _optimizationMode) {
   const mode = resolveOptimizationMode(_state?.sub_regime, _state?.latest_stress_multiplier, _optimizationMode);
   const isStrict = mode === "quality";
   const isRelaxed = mode === "budget" || mode === "speed";
@@ -4491,7 +5046,7 @@ function computeControlVector(_state, _action, _optimizationMode) {
     directives: []
   };
 }
-function buildControlHistoryEntry(turn, regime, control, reward = null) {
+function buildControlHistoryEntry2(turn, regime, control, reward = null) {
   return {
     turn,
     regime,
@@ -4508,23 +5063,108 @@ function buildControlHistoryEntry(turn, regime, control, reward = null) {
     reward
   };
 }
+function classifyBlackboxAction(text) {
+  if (/refactor|change|replace|switch|pivot|migrate/i.test(text))
+    return "change";
+  if (/commit|save|push|merge|release|finalize/i.test(text))
+    return "commit";
+  if (/write|create|build|make|add|implement|generate/i.test(text))
+    return "act";
+  if (/explain|why|how|what|analyze|review|check|find|search|look/i.test(text))
+    return "explore";
+  if (/show|list|get|read|see|view|display|print/i.test(text))
+    return "observe";
+  return "explore";
+}
+function computeBlackboxEntropy(features) {
+  const questionRatio = Number(features?.question_ratio || 0);
+  const complexity = Number(features?.complexity || 0);
+  const repetition = Number(features?.repetition || 0);
+  const instructionDensity = Number(features?.instruction_density || 0);
+  return Math.min(2.58, 0.5 + questionRatio * 0.5 + complexity * 0.8 + repetition * 0.6 + instructionDensity * 0.4);
+}
+function computeBlackboxUncertainty(features) {
+  const questionRatio = Number(features?.question_ratio || 0);
+  const codeBlocks = Number(features?.code_blocks || 0);
+  const sentiment = Number(features?.sentiment || 0.5);
+  const urgency = Number(features?.urgency || 0);
+  return Math.min(100, Math.max(10, 50 + questionRatio * 40 - codeBlocks * 10 + sentiment * 30 - urgency * 20));
+}
+function normalizeBlackboxFeatures(text) {
+  const features = ResolutionTracker.extractFeatures(text);
+  return {
+    features,
+    action: classifyBlackboxAction(text),
+    entropy: computeBlackboxEntropy(features),
+    uncertainty: computeBlackboxUncertainty(features)
+  };
+}
+function normalizeBlackboxHistoryEntry(entry) {
+  const text = typeof entry?.text === "string" ? entry.text : "";
+  const fallback = normalizeBlackboxFeatures(text);
+  const entryFeatures = entry?.features && typeof entry.features === "object" ? { ...fallback.features, ...entry.features } : fallback.features;
+  return {
+    text,
+    features: entryFeatures,
+    action: typeof entry?.action === "string" && entry.action ? entry.action : fallback.action,
+    entropy: Number.isFinite(Number(entry?.entropy)) ? Number(entry.entropy) : fallback.entropy,
+    uncertainty: Number.isFinite(Number(entry?.uncertainty)) ? Number(entry.uncertainty) : fallback.uncertainty,
+    embedding: Array.isArray(entry?.embedding) ? [...entry.embedding] : null,
+    timestamp: Number.isFinite(Number(entry?.timestamp)) ? Number(entry.timestamp) : Date.now() / 1e3,
+    is_pivot: Boolean(entry?.is_pivot),
+    outcome: typeof entry?.outcome === "string" ? entry.outcome : entry?.outcome ?? null
+  };
+}
+function normalizeBlackboxHistory(history) {
+  if (!Array.isArray(history))
+    return [];
+  return history.map(normalizeBlackboxHistoryEntry);
+}
+function createResolutionTracker(data) {
+  const tracker = new ResolutionTracker(data?.sessionId || _OC_SID, data?.maxHistory || 10);
+  tracker.history = normalizeBlackboxHistory(data?.history || []);
+  tracker.loopCount = Number(data?.loopCount || 0);
+  tracker.pivotHistory = Array.isArray(data?.pivotHistory) ? [...data.pivotHistory] : [];
+  tracker.outcomeHistory = Array.isArray(data?.outcomeHistory) ? [...data.outcomeHistory] : [];
+  tracker.calibratedWeights = data?.calibratedWeights || null;
+  return tracker;
+}
 var _BlackboxStub = class __BlackboxStub {
-  history;
-  currentRegime;
+  tracker;
   static deserialize(data) {
-    const s = new __BlackboxStub();
-    s.history = data?.history || [];
-    s.currentRegime = data?.currentRegime || "INIT";
-    return s;
+    return new __BlackboxStub(data);
   }
-  update(_text) {
-    return { sub_regime: this.currentRegime || "INIT" };
+  constructor(data = null) {
+    this.tracker = createResolutionTracker(data);
+  }
+  update(text) {
+    const normalized = normalizeBlackboxFeatures(text);
+    const state = this.tracker.update(text, normalized.features, normalized.action, normalized.entropy, normalized.uncertainty);
+    return { ...state, ...normalized };
   }
   snapshot() {
-    return { sub_regime: this.currentRegime || "INIT", resolution: "unresolved", momentum: 0, signals: {} };
+    return this.tracker.snapshot();
   }
   serialize() {
-    return { history: this.history, currentRegime: this.currentRegime };
+    return this.tracker.serialize();
+  }
+  recordOutcome(outcome) {
+    this.tracker.recordOutcome(outcome);
+  }
+  getLoopIntervention() {
+    return this.tracker.getLoopIntervention();
+  }
+  getPivotDirective() {
+    return this.tracker.getPivotDirective();
+  }
+  setCalibratedWeights(weights) {
+    this.tracker.setCalibratedWeights(weights);
+  }
+  getHistory() {
+    return this.tracker.getHistory();
+  }
+  getOutcomeHistory() {
+    return this.tracker.getOutcomeHistory();
   }
 };
 var _blackboxTracker = null;
@@ -7401,7 +8041,7 @@ async function apiComputeControlVector(state, action, optimizationMode) {
       return res.control_vector;
   } catch {
   }
-  return computeControlVector(state, action, optimizationMode);
+  return computeControlVector2(state, action, optimizationMode);
 }
 function observeUserCorrection(text) {
   if (!text || typeof text !== "string")
@@ -7653,7 +8293,7 @@ async function trackBlackbox(messages) {
       stress: st || 0
     });
     const cv = await apiComputeControlVector(localState, void 0, modePreview.mode);
-    state.sessions[sid].control_history.push(buildControlHistoryEntry(state.sessions[sid].control_history.length + 1, localState.sub_regime || "INIT", cv));
+    state.sessions[sid].control_history.push(buildControlHistoryEntry2(state.sessions[sid].control_history.length + 1, localState.sub_regime || "INIT", cv));
     if (state.sessions[sid].control_history.length > 100) {
       state.sessions[sid].control_history = state.sessions[sid].control_history.slice(-100);
     }
@@ -7984,16 +8624,17 @@ async function _appendFooter(input, output, directory3) {
   let _footerStress = 0;
   if (latestUserIntent)
     _footerStress = scoreStress(latestUserIntent);
-  if (!currentModel) {
-    try {
-      const cfg = await client.config.get("model");
-      if (cfg) {
-        setCurrentModel(String(cfg));
-        setCurrentTier(classify(String(cfg)));
+  try {
+    const cfg = await client.config.get("model");
+    if (cfg) {
+      const cfgModel = String(cfg);
+      if (cfgModel !== currentModel) {
+        setCurrentModel(cfgModel);
+        setCurrentTier(classify(cfgModel));
         console.error(`[vibeOS] client-detected model: ${currentModel} (tier=${currentTier})`);
       }
-    } catch {
     }
+  } catch {
   }
   try {
     const messageID = input?.messageID || input?.messageId || input?.message?.id || output?.messageID || output?.messageId || output?.message?.id || null;
@@ -8010,12 +8651,23 @@ async function _appendFooter(input, output, directory3) {
     const sessionSlot = loadSessionSlot(_OC_SID5);
     const slot = sessionSlot || loadSelection3().active_slot || "brain";
     const brainModel = slot === "brain" ? TRINITY_BRAIN || currentModel : slot === "medium" ? TRINITY_MEDIUM || currentModel : TRINITY_CHEAP || currentModel || "";
-    let modelTag = `[${shortModelName(brainModel)}]`;
+    let liveModel = "";
+    try {
+      const cfg = await client.config.get("model");
+      if (cfg)
+        liveModel = String(cfg);
+    } catch {
+    }
+    if (!liveModel) {
+      liveModel = readConfig(directory3) || readConfig(join14(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || "";
+    }
+    const displayModel = liveModel || currentModel || brainModel;
+    let modelTag = `[${shortModelName(displayModel)}]`;
     const _workerModel = slot === "brain" ? TRINITY_MEDIUM : null;
     const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0);
     if (_workerModel && _workerModel !== brainModel) {
       const brainPct = Math.round((sesModelTurns?.brain || 0) / (totalTurns || 1) * 100);
-      modelTag = `[${shortModelName(brainModel)} ${brainPct}% \u2192 ${shortModelName(_workerModel)} ${100 - brainPct}%]`;
+      modelTag = `[${shortModelName(displayModel)} ${brainPct}% \u2192 ${shortModelName(_workerModel)} ${100 - brainPct}%]`;
     }
     _autoReportCount = (_autoReportCount || 0) + 1;
     if (_autoReportCount % 5 === 0) {
@@ -8078,19 +8730,9 @@ async function _appendFooter(input, output, directory3) {
     if (stripped !== text)
       return;
     const ltTotal = ltTasks + ltCache;
-    const modeVerbMap = {
-      balanced: "routing",
-      budget: "saving",
-      quality: "focusing",
-      speed: "moving",
-      longrun: "pacing",
-      auto: "vibing",
-      "web-research": "researching",
-      forensic: "investigating"
-    };
     const optMode = (resolvedMode || "budget").toLowerCase();
-    const modeVerb = modeVerbMap[optMode] || "vibing";
-    let vibeLine = `\u2014 ${flashIcon ? `${flashIcon} ` : ""}${modeVerb} on ${shortModelName(brainModel)}`;
+    const modeLabel = optMode === "quality" ? "quality" : optMode === "speed" ? "speed" : optMode === "longrun" ? "longrun" : "";
+    let vibeLine = `\u2014 ${flashIcon ? `${flashIcon} ` : ""}run: ${shortModelName(displayModel)}`;
     if (ltTotal > 0) {
       vibeLine += ` | $${formatUsd(ltTotal)} saved`;
     }
@@ -8102,6 +8744,8 @@ async function _appendFooter(input, output, directory3) {
     } else if (problemStreak > 0) {
       vibeLine += ` | recovery ${problemStreak}`;
     }
+    if (modeLabel)
+      vibeLine += ` | ${modeLabel}`;
     vibeLine += ` | VIBE${flashIcon ? " \u26A1" : ""}`;
     if (_footerStress > 0.4) {
       const stressLabel = _footerStress > 0.7 ? "high" : "elevated";
@@ -10012,8 +10656,19 @@ var onToolExecuteAfter = async (input, output) => {
         stressTag = ` stress:${label}`;
       }
     }
+    let liveModel = "";
+    try {
+      const cfg = await client.config.get("model");
+      if (cfg)
+        liveModel = String(cfg);
+    } catch {
+    }
+    if (!liveModel) {
+      liveModel = readConfig(projectDirectory) || readConfig(join16(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || "";
+    }
+    const displayModel = liveModel || currentModel;
     if (ltTotal > 0) {
-      _footerText = `\u2014 ${flashIcon ? `${flashIcon} ` : ""}saving on ${shortModelName(currentModel)} | $${formatUsd(ltTotal)} saved | VIBE${flashIcon ? " \u26A1" : ""} \u2014
+      _footerText = `\u2014 ${flashIcon ? `${flashIcon} ` : ""}run: ${shortModelName(displayModel)} | $${formatUsd(ltTotal)} saved | VIBE${flashIcon ? " \u26A1" : ""} \u2014
 
 `;
     } else {

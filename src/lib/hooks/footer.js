@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { readFileSync, appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { classify, _refreshModel, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, roundUsd, formatUsd } from "../pricing.js";
+import { classify, _refreshModel, readConfig, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, roundUsd, formatUsd } from "../pricing.js";
 import { latestUserIntent } from "./chat-transform.js";
 import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, loadOptimizationMode, classifyTurnSimple } from "../turn-classify.js";
 import { peekBudgetFirstMode, recordBudgetFirstOutcome } from "../mode-policy.js";
@@ -139,18 +139,19 @@ async function _appendFooter(input, output, directory) {
     let _footerStress = 0;
     if (latestUserIntent)
         _footerStress = scoreStress(latestUserIntent);
-    // Lazy model detection: try client API once
-    if (!currentModel) {
-        try {
-            const cfg = await client.config.get("model");
-            if (cfg) {
-                setCurrentModel(String(cfg));
-                setCurrentTier(classify(String(cfg)));
+    // Always prefer the live OpenCode model setting when available.
+    try {
+        const cfg = await client.config.get("model");
+        if (cfg) {
+            const cfgModel = String(cfg);
+            if (cfgModel !== currentModel) {
+                setCurrentModel(cfgModel);
+                setCurrentTier(classify(cfgModel));
                 console.error(`[vibeOS] client-detected model: ${currentModel} (tier=${currentTier})`);
             }
         }
-        catch { /* client.config may not be available */ }
     }
+    catch { /* client.config may not be available */ }
     try {
         const messageID = input?.messageID ||
             input?.messageId ||
@@ -175,12 +176,23 @@ async function _appendFooter(input, output, directory) {
         const sessionSlot = loadSessionSlot(_OC_SID);
         const slot = sessionSlot || loadSelection().active_slot || "brain";
         const brainModel = slot === "brain" ? (TRINITY_BRAIN || currentModel) : slot === "medium" ? (TRINITY_MEDIUM || currentModel) : (TRINITY_CHEAP || currentModel || "");
-        let modelTag = `[${shortModelName(brainModel)}]`;
+        let liveModel = "";
+        try {
+            const cfg = await client.config.get("model");
+            if (cfg)
+                liveModel = String(cfg);
+        }
+        catch { }
+        if (!liveModel) {
+            liveModel = readConfig(directory) || readConfig(join(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || "";
+        }
+        const displayModel = liveModel || currentModel || brainModel;
+        let modelTag = `[${shortModelName(displayModel)}]`;
         const _workerModel = slot === "brain" ? TRINITY_MEDIUM : null;
         const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0);
         if (_workerModel && _workerModel !== brainModel) {
             const brainPct = Math.round(((sesModelTurns?.brain || 0) / (totalTurns || 1)) * 100);
-            modelTag = `[${shortModelName(brainModel)} ${brainPct}% → ${shortModelName(_workerModel)} ${100 - brainPct}%]`;
+            modelTag = `[${shortModelName(displayModel)} ${brainPct}% → ${shortModelName(_workerModel)} ${100 - brainPct}%]`;
         }
         _autoReportCount = (_autoReportCount || 0) + 1;
         if (_autoReportCount % 5 === 0) {
@@ -248,19 +260,9 @@ async function _appendFooter(input, output, directory) {
             return;
         const ltTotal = ltTasks + ltCache;
         // Build dopamine footer
-        const modeVerbMap = {
-            balanced: 'routing',
-            budget: 'saving',
-            quality: 'focusing',
-            speed: 'moving',
-            longrun: 'pacing',
-            auto: 'vibing',
-            'web-research': 'researching',
-            forensic: 'investigating',
-        };
         const optMode = (resolvedMode || 'budget').toLowerCase();
-        const modeVerb = modeVerbMap[optMode] || 'vibing';
-        let vibeLine = `— ${flashIcon ? `${flashIcon} ` : ""}${modeVerb} on ${shortModelName(brainModel)}`;
+        const modeLabel = optMode === "quality" ? "quality" : optMode === "speed" ? "speed" : optMode === "longrun" ? "longrun" : "";
+        let vibeLine = `— ${flashIcon ? `${flashIcon} ` : ""}run: ${shortModelName(displayModel)}`;
         if (ltTotal > 0) {
             vibeLine += ` | $${formatUsd(ltTotal)} saved`;
         }
@@ -273,6 +275,8 @@ async function _appendFooter(input, output, directory) {
         else if (problemStreak > 0) {
             vibeLine += ` | recovery ${problemStreak}`;
         }
+        if (modeLabel)
+            vibeLine += ` | ${modeLabel}`;
         vibeLine += ` | VIBE${flashIcon ? ' ⚡' : ''}`;
         if (_footerStress > 0.4) {
             const stressLabel = _footerStress > 0.7 ? 'high' : 'elevated';
