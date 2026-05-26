@@ -583,12 +583,11 @@ export const onSystemTransform = async (_input, output) => {
         latest_stress_multiplier: latestUserIntent ? scoreStress(latestUserIntent) : undefined,
       }, undefined, optimizationMode)
     }
-    syncControlSettings(_controlVector, { persistOptimizationMode: optimizationDecision.shouldPersistRequestedMode })
-
     const system = output?.system
     if (!Array.isArray(system)) return
 
     const sel = loadSelection()
+    syncControlSettings(_controlVector, { persistOptimizationMode: optimizationDecision.shouldPersistRequestedMode })
     const fp = projectFingerprint(hookDirectory || currentProjectFingerprint || "")
     const rawStress = latestUserIntent ? scoreStress(latestUserIntent) : 0
     const stressScore = rawStress * (_controlVector?.stress_multiplier ?? 1)

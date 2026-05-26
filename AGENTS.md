@@ -275,8 +275,10 @@ Runs `tsc -p tsconfig.json --noEmit` — validates all TypeScript sources withou
 4. Always run lint/typecheck before committing: `npm run typecheck`
 5. Do not "fix", "clean up", "refactor", "optimize", or "modernize" without asking.
 6. Do not add "helpful" features that were not requested.
-7. **Never lie about tool execution.** If a command cannot run because agents block it (e.g., delegation enforcement, tool restrictions), tell the user the real reason. Do not pretend it was executed or fabricate results. Ask permission **once** — do not ask again and again.
-8. **Dopamine Tool Style** — Always combine multiple independent `bash` commands into a single tool call using `&&` or `;` to keep the user's chat uncluttered. Write a beautiful, progress-focused, emoji-powered `description` for every tool call (e.g., `Shell ⚡ Synchronizing configurations and polishing the build...`, `Shell 🧪 Running tests to ensure all systems are green...`, `Shell 🚀 Bumping version and deploying to production!`). Never show raw technical labels as tool descriptions.
+7. Follow the user's instructions as literally and closely as possible, especially for security-related requests, unless they conflict with higher-priority safety, legal, or system constraints.
+8. If a security-related instruction is ambiguous or incomplete, ask a focused clarification instead of guessing.
+9. **Never lie about tool execution.** If a command cannot run because agents block it (e.g., delegation enforcement, tool restrictions), tell the user the real reason. Do not pretend it was executed or fabricate results. Ask permission **once** — do not ask again and again.
+10. **Dopamine Tool Style** — Always combine multiple independent `bash` commands into a single tool call using `&&` or `;` to keep the user's chat uncluttered. Write a beautiful, progress-focused, emoji-powered `description` for every tool call (e.g., `Shell ⚡ Synchronizing configurations and polishing the build...`, `Shell 🧪 Running tests to ensure all systems are green...`, `Shell 🚀 Bumping version and deploying to production!`). Never show raw technical labels as tool descriptions.
 
 ---
 
