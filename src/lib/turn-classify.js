@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from "node:fs";
 import { join, dirname } from "node:path";
+import { ResolutionTracker } from "../vibeOS-lib/blackbox/index.js";
 import { safeJsonParse, _blackboxEnabled, setBlackboxEnabled as _setGlobalBlackboxEnabled, _OC_SID, currentProjectFingerprint, setCurrentProjectFingerprint, withFileLock, readJsonOrEmpty, validateState, loadBlackboxState, saveBlackboxState, loadGlobalLearning, updateGlobalLearning, getLearnedExploratoryWords, projectFingerprint, loadProjectState, saveProjectState, detectTechStack, ensureProjectBucket, recordMissedContext7 } from "./state.js";
 import { loadSessionOptMode, writeSessionOptMode } from "./selection-manager.js";
 import { getApiClient, isApiFallback } from "./api-client.js";
@@ -121,23 +122,108 @@ function buildControlHistoryEntry(turn, regime, control, reward = null) {
         reward,
     };
 }
+function classifyBlackboxAction(text) {
+    if (/refactor|change|replace|switch|pivot|migrate/i.test(text))
+        return "change";
+    if (/commit|save|push|merge|release|finalize/i.test(text))
+        return "commit";
+    if (/write|create|build|make|add|implement|generate/i.test(text))
+        return "act";
+    if (/explain|why|how|what|analyze|review|check|find|search|look/i.test(text))
+        return "explore";
+    if (/show|list|get|read|see|view|display|print/i.test(text))
+        return "observe";
+    return "explore";
+}
+function computeBlackboxEntropy(features) {
+    const questionRatio = Number(features?.question_ratio || 0);
+    const complexity = Number(features?.complexity || 0);
+    const repetition = Number(features?.repetition || 0);
+    const instructionDensity = Number(features?.instruction_density || 0);
+    return Math.min(2.58, 0.5 + questionRatio * 0.5 + complexity * 0.8 + repetition * 0.6 + instructionDensity * 0.4);
+}
+function computeBlackboxUncertainty(features) {
+    const questionRatio = Number(features?.question_ratio || 0);
+    const codeBlocks = Number(features?.code_blocks || 0);
+    const sentiment = Number(features?.sentiment || 0.5);
+    const urgency = Number(features?.urgency || 0);
+    return Math.min(100, Math.max(10, 50 + questionRatio * 40 - codeBlocks * 10 + sentiment * 30 - urgency * 20));
+}
+function normalizeBlackboxFeatures(text) {
+    const features = ResolutionTracker.extractFeatures(text);
+    return {
+        features,
+        action: classifyBlackboxAction(text),
+        entropy: computeBlackboxEntropy(features),
+        uncertainty: computeBlackboxUncertainty(features),
+    };
+}
+function normalizeBlackboxHistoryEntry(entry) {
+    const text = typeof entry?.text === "string" ? entry.text : "";
+    const fallback = normalizeBlackboxFeatures(text);
+    const entryFeatures = entry?.features && typeof entry.features === "object" ? { ...fallback.features, ...entry.features } : fallback.features;
+    return {
+        text,
+        features: entryFeatures,
+        action: typeof entry?.action === "string" && entry.action ? entry.action : fallback.action,
+        entropy: Number.isFinite(Number(entry?.entropy)) ? Number(entry.entropy) : fallback.entropy,
+        uncertainty: Number.isFinite(Number(entry?.uncertainty)) ? Number(entry.uncertainty) : fallback.uncertainty,
+        embedding: Array.isArray(entry?.embedding) ? [...entry.embedding] : null,
+        timestamp: Number.isFinite(Number(entry?.timestamp)) ? Number(entry.timestamp) : Date.now() / 1000,
+        is_pivot: Boolean(entry?.is_pivot),
+        outcome: typeof entry?.outcome === "string" ? entry.outcome : (entry?.outcome ?? null),
+    };
+}
+function normalizeBlackboxHistory(history) {
+    if (!Array.isArray(history))
+        return [];
+    return history.map(normalizeBlackboxHistoryEntry);
+}
+function createResolutionTracker(data) {
+    const tracker = new ResolutionTracker(data?.sessionId || _OC_SID, data?.maxHistory || 10);
+    tracker.history = normalizeBlackboxHistory(data?.history || []);
+    tracker.loopCount = Number(data?.loopCount || 0);
+    tracker.pivotHistory = Array.isArray(data?.pivotHistory) ? [...data.pivotHistory] : [];
+    tracker.outcomeHistory = Array.isArray(data?.outcomeHistory) ? [...data.outcomeHistory] : [];
+    tracker.calibratedWeights = data?.calibratedWeights || null;
+    return tracker;
+}
 class _BlackboxStub {
-    history;
-    currentRegime;
+    tracker;
     static deserialize(data) {
-        const s = new _BlackboxStub();
-        s.history = data?.history || [];
-        s.currentRegime = data?.currentRegime || "INIT";
-        return s;
+        return new _BlackboxStub(data);
     }
-    update(_text) {
-        return { sub_regime: this.currentRegime || "INIT" };
+    constructor(data = null) {
+        this.tracker = createResolutionTracker(data);
+    }
+    update(text) {
+        const normalized = normalizeBlackboxFeatures(text);
+        const state = this.tracker.update(text, normalized.features, normalized.action, normalized.entropy, normalized.uncertainty);
+        return { ...state, ...normalized };
     }
     snapshot() {
-        return { sub_regime: this.currentRegime || "INIT", resolution: "unresolved", momentum: 0, signals: {} };
+        return this.tracker.snapshot();
     }
     serialize() {
-        return { history: this.history, currentRegime: this.currentRegime };
+        return this.tracker.serialize();
+    }
+    recordOutcome(outcome) {
+        this.tracker.recordOutcome(outcome);
+    }
+    getLoopIntervention() {
+        return this.tracker.getLoopIntervention();
+    }
+    getPivotDirective() {
+        return this.tracker.getPivotDirective();
+    }
+    setCalibratedWeights(weights) {
+        this.tracker.setCalibratedWeights(weights);
+    }
+    getHistory() {
+        return this.tracker.getHistory();
+    }
+    getOutcomeHistory() {
+        return this.tracker.getOutcomeHistory();
     }
 }
 let _blackboxTracker = null;

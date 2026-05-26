@@ -394,7 +394,7 @@ async function trackBlackbox(messages: any[]): Promise<void> {
     const sid = _OC_SID
     ensureProjectContext(process.cwd() || "")
     const serialized = tracker.serialize()
-    serialized.project_fingerprint = currentProjectFingerprint || ""
+    const existingSession = state.sessions[sid] || {}
     if (!state.sessions[sid]) state.sessions[sid] = {}
     state.sessions[sid].control_history ??= []
 
@@ -418,7 +418,28 @@ async function trackBlackbox(messages: any[]): Promise<void> {
     if (state.sessions[sid].control_history.length > 100) {
       state.sessions[sid].control_history = state.sessions[sid].control_history.slice(-100)
     }
-    state.sessions[sid] = serialized
+    state.sessions[sid] = {
+      ...existingSession,
+      ...serialized,
+      project_fingerprint: currentProjectFingerprint || existingSession.project_fingerprint || "",
+      sub_regime: localState.sub_regime || existingSession.sub_regime || "INIT",
+      regime: localState.sub_regime || existingSession.regime || "INIT",
+      resolution: localState.resolution || existingSession.resolution || "unresolved",
+      momentum: localState.momentum ?? existingSession.momentum ?? 0,
+      signals: localState.signals || existingSession.signals || {},
+      intent_state: localState.intent_state || existingSession.intent_state || {},
+      continuity_state: localState.continuity_state || existingSession.continuity_state || "HIGH",
+      is_looping: localState.is_looping ?? existingSession.is_looping ?? false,
+      loop_consecutive: localState.loop_consecutive ?? existingSession.loop_consecutive ?? 0,
+      loop_intervention_level: localState.loop_intervention_level || existingSession.loop_intervention_level || "none",
+      pivot_detected: localState.pivot_detected ?? existingSession.pivot_detected ?? false,
+      pivot_score: localState.pivot_score ?? existingSession.pivot_score ?? 0,
+      outcome: localState.outcome || existingSession.outcome || null,
+      control_history: state.sessions[sid].control_history,
+      optimization_mode: existingSession.optimization_mode || null,
+      active_slot: existingSession.active_slot || null,
+      turn_counter: existingSession.turn_counter || 0,
+    }
     saveBlackboxStateToCtx(state)
     _latestBlackboxState = localState
     fetchBlackboxEnrichment(sid, localState).then(enriched => {

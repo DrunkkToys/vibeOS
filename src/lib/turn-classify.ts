@@ -4,6 +4,7 @@ import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, sta
 import { join, dirname, basename } from "node:path"
 import { homedir, tmpdir } from "node:os"
 import { createHash } from "node:crypto"
+import { ResolutionTracker } from "../vibeOS-lib/blackbox/index.js"
 import { safeJsonParse, _blackboxEnabled, setBlackboxEnabled as _setGlobalBlackboxEnabled, USER_HOME, FILE_LOCK_DIR, DELEGATION_STATE_FILE as STATE_FILE, GLOBAL_LEARNING_FILE, BLACKBOX_STATE_FILE, PROJECT_STATE_FILE, _OC_SID, currentProjectFingerprint, setCurrentProjectFingerprint, _handleStateCorruption, _lockPathFor, withFileLock, readJsonOrEmpty, validateState, loadBlackboxState, saveBlackboxState, loadGlobalLearning, updateGlobalLearning, getLearnedExploratoryWords, projectFingerprint, loadProjectState, saveProjectState, detectTechStack, ensureProjectBucket, recordMissedContext7, VIBEOS_HOME } from "./state.js"
 import { loadSessionOptMode, writeSessionOptMode, loadSessionSlot } from "./selection-manager.js"
 import { getApiClient, isApiFallback } from "./api-client.js"
@@ -145,23 +146,109 @@ function buildControlHistoryEntry(
   }
 }
 
-class _BlackboxStub {
-  history: any[]
-  currentRegime: string
-  static deserialize(data: any): _BlackboxStub {
-    const s = new _BlackboxStub()
-    s.history = data?.history || []
-    s.currentRegime = data?.currentRegime || "INIT"
-    return s
+function classifyBlackboxAction(text: string): string {
+  if (/refactor|change|replace|switch|pivot|migrate/i.test(text)) return "change"
+  if (/commit|save|push|merge|release|finalize/i.test(text)) return "commit"
+  if (/write|create|build|make|add|implement|generate/i.test(text)) return "act"
+  if (/explain|why|how|what|analyze|review|check|find|search|look/i.test(text)) return "explore"
+  if (/show|list|get|read|see|view|display|print/i.test(text)) return "observe"
+  return "explore"
+}
+
+function computeBlackboxEntropy(features: any): number {
+  const questionRatio = Number(features?.question_ratio || 0)
+  const complexity = Number(features?.complexity || 0)
+  const repetition = Number(features?.repetition || 0)
+  const instructionDensity = Number(features?.instruction_density || 0)
+  return Math.min(2.58, 0.5 + questionRatio * 0.5 + complexity * 0.8 + repetition * 0.6 + instructionDensity * 0.4)
+}
+
+function computeBlackboxUncertainty(features: any): number {
+  const questionRatio = Number(features?.question_ratio || 0)
+  const codeBlocks = Number(features?.code_blocks || 0)
+  const sentiment = Number(features?.sentiment || 0.5)
+  const urgency = Number(features?.urgency || 0)
+  return Math.min(100, Math.max(10, 50 + questionRatio * 40 - codeBlocks * 10 + sentiment * 30 - urgency * 20))
+}
+
+function normalizeBlackboxFeatures(text: string): any {
+  const features = ResolutionTracker.extractFeatures(text)
+  return {
+    features,
+    action: classifyBlackboxAction(text),
+    entropy: computeBlackboxEntropy(features),
+    uncertainty: computeBlackboxUncertainty(features),
   }
-  update(_text: string): any {
-    return { sub_regime: this.currentRegime || "INIT" }
+}
+
+function normalizeBlackboxHistoryEntry(entry: any): any {
+  const text = typeof entry?.text === "string" ? entry.text : ""
+  const fallback = normalizeBlackboxFeatures(text)
+  const entryFeatures = entry?.features && typeof entry.features === "object" ? { ...fallback.features, ...entry.features } : fallback.features
+  return {
+    text,
+    features: entryFeatures,
+    action: typeof entry?.action === "string" && entry.action ? entry.action : fallback.action,
+    entropy: Number.isFinite(Number(entry?.entropy)) ? Number(entry.entropy) : fallback.entropy,
+    uncertainty: Number.isFinite(Number(entry?.uncertainty)) ? Number(entry.uncertainty) : fallback.uncertainty,
+    embedding: Array.isArray(entry?.embedding) ? [...entry.embedding] : null,
+    timestamp: Number.isFinite(Number(entry?.timestamp)) ? Number(entry.timestamp) : Date.now() / 1000,
+    is_pivot: Boolean(entry?.is_pivot),
+    outcome: typeof entry?.outcome === "string" ? entry.outcome : (entry?.outcome ?? null),
+  }
+}
+
+function normalizeBlackboxHistory(history: any[]): any[] {
+  if (!Array.isArray(history)) return []
+  return history.map(normalizeBlackboxHistoryEntry)
+}
+
+function createResolutionTracker(data: any): ResolutionTracker {
+  const tracker = new ResolutionTracker(data?.sessionId || _OC_SID, data?.maxHistory || 10)
+  tracker.history = normalizeBlackboxHistory(data?.history || [])
+  tracker.loopCount = Number(data?.loopCount || 0)
+  tracker.pivotHistory = Array.isArray(data?.pivotHistory) ? [...data.pivotHistory] : []
+  tracker.outcomeHistory = Array.isArray(data?.outcomeHistory) ? [...data.outcomeHistory] : []
+  tracker.calibratedWeights = data?.calibratedWeights || null
+  return tracker
+}
+
+class _BlackboxStub {
+  tracker: ResolutionTracker
+  static deserialize(data: any): _BlackboxStub {
+    return new _BlackboxStub(data)
+  }
+  constructor(data: any = null) {
+    this.tracker = createResolutionTracker(data)
+  }
+  update(text: string): any {
+    const normalized = normalizeBlackboxFeatures(text)
+    const state = this.tracker.update(text, normalized.features, normalized.action, normalized.entropy, normalized.uncertainty)
+    return { ...state, ...normalized }
   }
   snapshot(): any {
-    return { sub_regime: this.currentRegime || "INIT", resolution: "unresolved", momentum: 0, signals: {} }
+    return this.tracker.snapshot()
   }
   serialize(): any {
-    return { history: this.history, currentRegime: this.currentRegime }
+    return this.tracker.serialize()
+  }
+  recordOutcome(outcome: any): void {
+    this.tracker.recordOutcome(outcome)
+  }
+  getLoopIntervention(): any {
+    return this.tracker.getLoopIntervention()
+  }
+  getPivotDirective(): any {
+    return this.tracker.getPivotDirective()
+  }
+  setCalibratedWeights(weights: any): void {
+    this.tracker.setCalibratedWeights(weights)
+  }
+  getHistory(): any[] {
+    return this.tracker.getHistory()
+  }
+  getOutcomeHistory(): any[] {
+    return this.tracker.getOutcomeHistory()
   }
 }
 
