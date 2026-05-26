@@ -18,6 +18,7 @@ import {
   loadGlobalLearning, updateGlobalLearning, DFLT_GL,
   getLearnedExploratoryWords,
   setCurrentModel, setCurrentTier,
+  setCurrentProjectFingerprint, setCurrentProjectName,
   stableJson, TOOL_NAME_NORMALIZE,
 } from '../state.js'
 import {
@@ -58,6 +59,16 @@ function getVibeOSHome() {
 
 function getOpenCodeHome() {
   return process.env.VIBEOS_OPENCODE_HOME || join(process.env.HOME || "", ".config", "opencode")
+}
+
+function ensureProjectContext(hookDirectory: string): string {
+  const resolved = projectFingerprint(hookDirectory || currentProjectFingerprint || process.cwd() || "")
+  if (resolved && resolved !== currentProjectFingerprint) setCurrentProjectFingerprint(resolved)
+  if (hookDirectory) {
+    const name = hookDirectory.split("/").filter(Boolean).pop() || "unknown"
+    if (name && name !== currentProjectName) setCurrentProjectName(name)
+  }
+  return resolved
 }
 
 let latestUserIntent = null
@@ -381,6 +392,7 @@ async function trackBlackbox(messages: any[]): Promise<void> {
     const localState = tracker.update(latestUserIntent)
     const state = loadBlackboxStateFromCtx()
     const sid = _OC_SID
+    ensureProjectContext(process.cwd() || "")
     const serialized = tracker.serialize()
     serialized.project_fingerprint = currentProjectFingerprint || ""
     if (!state.sessions[sid]) state.sessions[sid] = {}
@@ -566,6 +578,7 @@ export const onSystemTransform = async (_input, output) => {
     })
     const optimizationMode = optimizationDecision.mode
     let _controlVector = null
+    ensureProjectContext(hookDirectory)
     if (_latestBlackboxState) {
       const st = latestUserIntent ? scoreStress(latestUserIntent) : 0
       if (st) _latestBlackboxState.latest_stress_multiplier = st
@@ -583,13 +596,12 @@ export const onSystemTransform = async (_input, output) => {
         latest_stress_multiplier: latestUserIntent ? scoreStress(latestUserIntent) : undefined,
       }, undefined, optimizationMode)
     }
-    syncControlSettings(_controlVector, { persistOptimizationMode: optimizationDecision.shouldPersistRequestedMode })
-
     const system = output?.system
     if (!Array.isArray(system)) return
 
     const sel = loadSelection()
-    const fp = projectFingerprint(hookDirectory || currentProjectFingerprint || "")
+    syncControlSettings(_controlVector, { persistOptimizationMode: optimizationDecision.shouldPersistRequestedMode })
+    const fp = ensureProjectContext(hookDirectory)
     const rawStress = latestUserIntent ? scoreStress(latestUserIntent) : 0
     const stressScore = rawStress * (_controlVector?.stress_multiplier ?? 1)
     const credit = loadCredit()

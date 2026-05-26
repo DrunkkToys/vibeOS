@@ -118,7 +118,6 @@ export function applyBudgetFirstMode(input = {}) {
     }
     return withFileLock(BLACKBOX_STATE_FILE, () => {
         const { state, session, policy } = loadSessionPolicy();
-        const interactions = Number(input.nInteractions ?? state.sessions?.[_OC_SID]?.n_interactions ?? 0);
         const regime = normalizeRegime(input.subRegime || policy.last_sub_regime);
         const stress = Number(input.stress ?? policy.last_stress ?? 0);
         const suggested = normalizeMode(input.suggestedMode);
@@ -129,7 +128,8 @@ export function applyBudgetFirstMode(input = {}) {
         if (policy.active && policy.active_mode && normalizeMode(policy.active_mode) !== BASELINE_MODE) {
             return persistSessionPolicy(state, session, policy, policy.active_mode);
         }
-        const shouldStartEpisode = (LOOP_REGIMES.has(regime) && interactions >= 2) ||
+        const shouldStartEpisode = LOOP_REGIMES.has(regime) ||
+            suggested === "speed" ||
             QUALITY_REGIMES.has(regime) ||
             Number(policy.problem_streak || 0) >= 2 ||
             (Number(policy.problem_streak || 0) >= 1 && stress > 1.5);
