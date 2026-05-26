@@ -6,7 +6,7 @@ import { latestUserIntent } from "./chat-transform.js"
 import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, loadOptimizationMode, classifyTurnSimple } from "../turn-classify.js"
 import { peekBudgetFirstMode, recordBudgetFirstOutcome } from "../mode-policy.js"
 import { saveReport } from "../reporting.js"
-import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, _modelLocked, _blackboxEnabled, _latestBlackboxState, writeSelection, reconcileStateFromLedger, safeJsonParse, loadTodos, VIBEOS_HOME } from "../state.js"
+import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, _modelLocked, _blackboxEnabled, _latestBlackboxState, writeSelection, reconcileStateFromLedger, safeJsonParse, loadTodos, loadBlackboxState, VIBEOS_HOME } from "../state.js"
 import { loadSessionSlot, writeSessionSlot } from "../selection-manager.js"
 import { remoteCall, VIBEOS_API_ENABLED } from "../api-client.js"
 import { SAVE_EST } from "../constants.js"
@@ -112,6 +112,20 @@ function scoreTaskQuality(outputText, promptText) {
   return Math.max(0, Math.min(100, score))
 }
 
+function readRewardSignals() {
+  try {
+    const state = loadBlackboxState()
+    const session = state?.sessions?.[_OC_SID] || {}
+    const policy = session?.mode_policy || {}
+    return {
+      stableStreak: Math.max(0, Number(policy.stable_streak || 0)),
+      problemStreak: Math.max(0, Number(policy.problem_streak || 0)),
+    }
+  } catch {
+    return { stableStreak: 0, problemStreak: 0 }
+  }
+}
+
 async function _appendFooter(input, output, directory) {
     _refreshModel(directory)
     let _footerStress = 0
@@ -148,6 +162,7 @@ async function _appendFooter(input, output, directory) {
         return
       }
       const { ltTasks, ltCache, ltCost, count, sesTasks, sesEdit, sesCredit, sesC7, sesQuota, sesCache, sesTaskDelegations, sesDuration, sesRatePerHour, sesTrend, sesToolBreakdown, sesModelTurns, quality_avg } = readLifetimeSavings()
+      const { stableStreak, problemStreak } = readRewardSignals()
 
       const sessionSlot = loadSessionSlot(_OC_SID)
       const slot = sessionSlot || loadSelection().active_slot || "brain"
@@ -233,9 +248,20 @@ async function _appendFooter(input, output, directory) {
       const modeVerb = modeVerbMap[optMode] || 'vibing'
       let vibeLine = `— ${modeVerb} on ${shortModelName(brainModel)}`
       if (ltTotal > 0) {
-        vibeLine += ` ✨ $${formatUsd(ltTotal)} saved`
+        vibeLine += ` | $${formatUsd(ltTotal)} saved`
       }
-      vibeLine += `, VIBE${flashIcon ? ' ⚡' : ''}`
+      if (sesRatePerHour > 0) {
+        vibeLine += ` | pace $${formatUsd(sesRatePerHour)}/hr`
+      }
+      if (quality_avg > 0) {
+        vibeLine += ` | quality ${Math.round(quality_avg)}%`
+      }
+      if (stableStreak > 0) {
+        vibeLine += ` | streak ${stableStreak}`
+      } else if (problemStreak > 0) {
+        vibeLine += ` | recovery ${problemStreak}`
+      }
+      vibeLine += ` | VIBE${flashIcon ? ' ⚡' : ''}`
       if (_footerStress > 0.4) {
         const stressLabel = _footerStress > 0.7 ? 'high' : 'elevated'
         vibeLine += ` · ${stressLabel}`
@@ -284,4 +310,4 @@ async function _appendFooter(input, output, directory) {
     }
   }
 
-export { _appendFooter, scoreTaskQuality }
+export { _appendFooter, scoreTaskQuality, readRewardSignals }

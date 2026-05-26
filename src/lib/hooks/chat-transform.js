@@ -146,6 +146,7 @@ export function syncControlSettings(cv, options = {}) {
     try {
         const sid = _OC_SID;
         const persistOptimizationMode = options.persistOptimizationMode !== false;
+        const persistDesktopConfig = options.persistDesktopConfig === true;
         const currentSel = loadSelection();
         const compatibilityMode = currentSel.onboarding_mode === "assist";
         const writeIf = (key, val) => {
@@ -188,17 +189,17 @@ export function syncControlSettings(cv, options = {}) {
             }
         }
         const slot = cv.tier_bias;
-        if (slot && slot !== "auto") {
+        if (persistDesktopConfig && slot && slot !== "auto") {
             const existingSlot = loadSessionSlot(sid);
             if (existingSlot !== slot) {
                 writeSessionSlot(sid, slot);
-                const applied = applySlot(slot);
+                const applied = applySlot(slot, { mutateDesktopConfig: true });
                 if (!applied?.ok) {
                     console.error(`[vibeOS] failed to apply slot ${slot}: ${applied?.reason || "unknown"}`);
                 }
             }
         }
-        if (cv.agent_mode) {
+        if (persistDesktopConfig && cv.agent_mode) {
             try {
                 const OC_CONFIG = TRINITY_OPENCODE_CONFIG || join(getOpenCodeHome(), "opencode.json");
                 if (existsSync(OC_CONFIG)) {
@@ -210,21 +211,21 @@ export function syncControlSettings(cv, options = {}) {
                 }
             }
             catch { }
-        }
-        if (cv.agent_mode === "plan" && latestUserIntent) {
-            const planDone = /^(yes|go ahead|proceed|looks? good|do it|sounds? good|perfect|great|nice|ok|okay|let.s do it|implement|execute|make it|build it|write it|start)\b/i.test(latestUserIntent.trim());
-            if (planDone) {
-                try {
-                    const OC_CONFIG = TRINITY_OPENCODE_CONFIG || join(getOpenCodeHome(), "opencode.json");
-                    if (existsSync(OC_CONFIG)) {
-                        const oc = safeJsonParse(readFileSync(OC_CONFIG, "utf-8"));
-                        if (oc.default_agent === "plan") {
-                            oc.default_agent = "orchestrator";
-                            writeFileSync(OC_CONFIG, JSON.stringify(oc, null, 2) + "\n");
+            if (cv.agent_mode === "plan" && latestUserIntent) {
+                const planDone = /^(yes|go ahead|proceed|looks? good|do it|sounds? good|perfect|great|nice|ok|okay|let.s do it|implement|execute|make it|build it|write it|start)\b/i.test(latestUserIntent.trim());
+                if (planDone) {
+                    try {
+                        const OC_CONFIG = TRINITY_OPENCODE_CONFIG || join(getOpenCodeHome(), "opencode.json");
+                        if (existsSync(OC_CONFIG)) {
+                            const oc = safeJsonParse(readFileSync(OC_CONFIG, "utf-8"));
+                            if (oc.default_agent === "plan") {
+                                oc.default_agent = "orchestrator";
+                                writeFileSync(OC_CONFIG, JSON.stringify(oc, null, 2) + "\n");
+                            }
                         }
                     }
+                    catch { }
                 }
-                catch { }
             }
         }
     }
@@ -537,7 +538,10 @@ export const onSystemTransform = async (_input, output) => {
                 latest_stress_multiplier: latestUserIntent ? scoreStress(latestUserIntent) : undefined,
             }, undefined, optimizationMode);
         }
-        syncControlSettings(_controlVector, { persistOptimizationMode: optimizationDecision.shouldPersistRequestedMode });
+        syncControlSettings(_controlVector, {
+            persistOptimizationMode: optimizationDecision.shouldPersistRequestedMode,
+            persistDesktopConfig: false,
+        });
         const system = output?.system;
         if (!Array.isArray(system))
             return;

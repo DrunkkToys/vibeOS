@@ -1,13 +1,16 @@
 // @ts-nocheck
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
-import { markApiConnected, markApiDisconnected, resetApiConnection } from "./runtime-state.js";
+import { isApiConnected as isRuntimeApiConnected, markApiConnected, markApiDisconnected, resetApiConnection } from "./runtime-state.js";
 const DEFAULT_API_URL = "https://api.vibetheog.com";
 const REQUEST_TIMEOUT = 10000;
 const MAX_RETRIES = 3;
 const BASE_RETRY_DELAY = 1000;
+const ALPHA_BUILD_CHANNEL = String(process.env.VIBEOS_BUILD_CHANNEL || "alpha").toLowerCase();
+const BOOTSTRAP_EXCHANGE_PATH = "/api/v1/auth/bootstrap/exchange";
+const BOOTSTRAP_RETRY_COOLDOWN_MS = 60_000;
 export class VibeOSAuthError extends Error {
     statusCode;
     code;
@@ -108,6 +111,45 @@ export class VibeOSApiClient {
         }
         this.fallbackMode = true;
         throw new VibeOSNetworkError("Failed to reach API after " + MAX_RETRIES + " retries: " + (lastError ? lastError.message : "unknown error"));
+    }
+    async exchangeBootstrapToken(bootstrapToken, buildChannel = ALPHA_BUILD_CHANNEL) {
+        const token = String(bootstrapToken || "").trim();
+        if (!token) {
+            throw new Error("VIBEOS_API_BOOTSTRAP_TOKEN is not set");
+        }
+        const url = this.baseUrl + BOOTSTRAP_EXCHANGE_PATH;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+        try {
+            const res = await fetch(url, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: "Bearer " + token,
+                },
+                body: JSON.stringify({
+                    build_channel: buildChannel,
+                    client: "opencode",
+                }),
+                signal: controller.signal,
+            });
+            if (res.status === 401 || res.status === 403) {
+                const errorBody = await res.json().catch(() => ({}));
+                throw new VibeOSAuthError(errorBody.message || "Bootstrap exchange failed", res.status, errorBody.code);
+            }
+            if (!res.ok) {
+                const errorBody = await res.json().catch(() => ({}));
+                throw new Error("API error " + res.status + ": " + (errorBody.error || res.statusText));
+            }
+            const data = await res.json().catch(() => ({}));
+            const apiToken = String(data?.api_token || data?.token || data?.access_token || "").trim();
+            if (!apiToken)
+                throw new Error("Bootstrap exchange returned no API token");
+            return apiToken;
+        }
+        finally {
+            clearTimeout(timeoutId);
+        }
     }
     async delegateCheck(tool, tier, model, prompt, dynamicCache = {}) {
         return this.request("/api/v1/delegate/check", { tool, tier, model, prompt, dynamic_cache: dynamicCache });
@@ -262,6 +304,7 @@ export class VibeOSApiClient {
 export const VIBEOS_API_URL = process.env.VIBEOS_API_URL || "https://api.vibetheog.com";
 const _apiDir = typeof __dirname !== "undefined" ? __dirname : dirname(fileURLToPath(import.meta.url));
 const _envPaths = [homedir() + "/.claude", _apiDir, process.cwd(), homedir()];
+const _bootstrapEnvPath = _envPaths[0] + "/.env.alpha";
 function readTokenFromDisk() {
     for (const dir of _envPaths) {
         try {
@@ -274,8 +317,39 @@ function readTokenFromDisk() {
     }
     return "";
 }
+function readBootstrapTokenFromDisk() {
+    try {
+        const env = readFileSync(_bootstrapEnvPath, "utf8");
+        const m = env.match(/^VIBEOS_API_BOOTSTRAP_TOKEN=(.+)$/m);
+        if (m)
+            return m[1].trim();
+    }
+    catch { }
+    return "";
+}
 export let VIBEOS_API_TOKEN = readTokenFromDisk() || process.env.VIBEOS_API_TOKEN || "";
-export let VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && !!VIBEOS_API_TOKEN;
+export let VIBEOS_API_BOOTSTRAP_TOKEN = readBootstrapTokenFromDisk() || process.env.VIBEOS_API_BOOTSTRAP_TOKEN || "";
+export let VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
+function persistBootstrapToken(token) {
+    const clean = String(token || "").trim();
+    try {
+        if (!clean) {
+            try {
+                if (existsSync(_bootstrapEnvPath))
+                    rmSync(_bootstrapEnvPath, { force: true });
+            }
+            catch { }
+            return;
+        }
+        const parentDir = _envPaths[0];
+        if (!existsSync(parentDir))
+            mkdirSync(parentDir, { recursive: true });
+        writeFileSync(_bootstrapEnvPath, `VIBEOS_API_BOOTSTRAP_TOKEN=${clean}\n`, "utf8");
+    }
+    catch (diskErr) {
+        console.error("[vibeOS] Failed to persist alpha bootstrap token:", diskErr.message);
+    }
+}
 export function setApiToken(newToken) {
     try {
         VIBEOS_API_TOKEN = String(newToken || "").trim();
@@ -308,20 +382,79 @@ export function setApiToken(newToken) {
         console.error("[vibeOS] Failed to update API token:", e.message);
     }
 }
+export function setApiBootstrapToken(newToken) {
+    try {
+        VIBEOS_API_BOOTSTRAP_TOKEN = String(newToken || "").trim();
+        VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
+        persistBootstrapToken(VIBEOS_API_BOOTSTRAP_TOKEN);
+        console.error("[vibeOS] Alpha bootstrap token updated");
+    }
+    catch (e) {
+        console.error("[vibeOS] Failed to update alpha bootstrap token:", e.message);
+    }
+}
 let _apiClient = null;
 let _apiFallbackMode = false;
 let _apiFallbackSince = null;
+let _bootstrapExchangeInFlight = null;
+let _bootstrapExchangeFailedAt = 0;
+export async function ensureBootstrapExchange() {
+    syncApiTokenFromDisk();
+    if (VIBEOS_API_TOKEN)
+        return true;
+    if (!VIBEOS_API_BOOTSTRAP_TOKEN)
+        return false;
+    if (ALPHA_BUILD_CHANNEL !== "alpha")
+        return false;
+    const now = Date.now();
+    if (_bootstrapExchangeInFlight)
+        return _bootstrapExchangeInFlight;
+    if (_bootstrapExchangeFailedAt && now - _bootstrapExchangeFailedAt < BOOTSTRAP_RETRY_COOLDOWN_MS)
+        return false;
+    _bootstrapExchangeInFlight = (async () => {
+        try {
+            const client = new VibeOSApiClient({
+                baseUrl: VIBEOS_API_URL,
+                timeout: 5000,
+            });
+            const apiToken = await client.exchangeBootstrapToken(VIBEOS_API_BOOTSTRAP_TOKEN, ALPHA_BUILD_CHANNEL);
+            if (!apiToken)
+                return false;
+            setApiToken(apiToken);
+            markApiConnected();
+            return true;
+        }
+        catch (err) {
+            _bootstrapExchangeFailedAt = Date.now();
+            console.error("[vibeOS] Alpha bootstrap exchange failed:", err.message);
+            return false;
+        }
+        finally {
+            _bootstrapExchangeInFlight = null;
+        }
+    })();
+    return _bootstrapExchangeInFlight;
+}
 function syncApiTokenFromDisk() {
     const diskToken = readTokenFromDisk() || "";
+    const diskBootstrapToken = readBootstrapTokenFromDisk() || "";
     const envToken = process.env.VIBEOS_API_TOKEN || "";
     if (diskToken && diskToken !== VIBEOS_API_TOKEN) {
         VIBEOS_API_TOKEN = diskToken;
-        VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && !!VIBEOS_API_TOKEN;
+        VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
         _apiClient = null;
         _apiFallbackMode = false;
         _apiFallbackSince = null;
         resetApiConnection();
         console.error("[vibeOS] API token synced from disk (disk is newer)");
+    }
+    else if (diskBootstrapToken && diskBootstrapToken !== VIBEOS_API_BOOTSTRAP_TOKEN) {
+        VIBEOS_API_BOOTSTRAP_TOKEN = diskBootstrapToken;
+        VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
+        _apiFallbackMode = false;
+        _apiFallbackSince = null;
+        resetApiConnection();
+        console.error("[vibeOS] Alpha bootstrap token synced from disk (disk is newer)");
     }
     else if (!diskToken && VIBEOS_API_TOKEN) {
         const primaryPath = _envPaths[0] + "/.env.production";
@@ -351,16 +484,16 @@ function syncApiTokenFromDisk() {
     }
     else if (envToken && !diskToken && !VIBEOS_API_TOKEN) {
         VIBEOS_API_TOKEN = envToken;
-        VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && !!VIBEOS_API_TOKEN;
+        VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
         console.error("[vibeOS] API token loaded from VIBEOS_API_TOKEN env var");
     }
     else {
-        VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && !!VIBEOS_API_TOKEN;
+        VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
     }
 }
 export function getApiClient() {
     syncApiTokenFromDisk();
-    if (!_apiClient && VIBEOS_API_ENABLED) {
+    if (!_apiClient && VIBEOS_API_ENABLED && VIBEOS_API_TOKEN) {
         _apiClient = new VibeOSApiClient({
             baseUrl: VIBEOS_API_URL,
             apiToken: VIBEOS_API_TOKEN,
@@ -373,10 +506,14 @@ export function isApiFallback() {
     return _apiFallbackMode || !VIBEOS_API_ENABLED;
 }
 export function isApiConnected() {
-    return VIBEOS_API_ENABLED && !_apiFallbackMode;
+    return isRuntimeApiConnected() && VIBEOS_API_ENABLED && !_apiFallbackMode;
 }
 export async function remoteCall(method, args, fallbackFn) {
     syncApiTokenFromDisk();
+    if (!VIBEOS_API_TOKEN && VIBEOS_API_BOOTSTRAP_TOKEN) {
+        await ensureBootstrapExchange();
+        syncApiTokenFromDisk();
+    }
     if (!VIBEOS_API_ENABLED || _apiFallbackMode) {
         if (fallbackFn)
             return fallbackFn();

@@ -10,19 +10,19 @@
 
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, statSync, readdirSync, openSync, readSync, closeSync, rmSync, copyFileSync, renameSync } from "node:fs"
 import { join, dirname, relative, basename } from "node:path"
-import { homedir, tmpdir } from "node:os"
-import { spawn } from "node:child_process"
+import { tmpdir } from "node:os"
 import { createHash } from "node:crypto"
 import { checkFlowRules, getFlowWarns, ensureProjectDocs, getFlowTodos, syncFlowTodosToNative } from "./vibeOS-lib/flow-enforcer.js"
 import { computeSessionMetrics } from "./vibeOS-lib/session-metrics.js"
 import { createMcpServer } from "./lib/vibeos-mcp-server.js"
 
-import { getApiClient, remoteCall, isApiFallback, setApiToken, VIBEOS_API_URL } from "./lib/api-client.js"
+import { getApiClient, remoteCall, isApiFallback, isApiConnected, setApiToken, setApiBootstrapToken, ensureBootstrapExchange, VIBEOS_API_URL } from "./lib/api-client.js"
 import {
   applySlot, modelCostPerTurn, isModelFree, isDocsTarget, detectContext7, modelToSlotLabel,
   shortModelName, roundUsd, formatUsd, classify, _refreshModel, loadTierRegexes,
   HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, readConfig,
   getTrinitySlotOrder,
+  loadTrinitySlotsFromTiersFile,
   TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP,
   setTrinityBrain, setTrinityMedium, setTrinityCheap,
 } from "./lib/pricing.js"
@@ -32,7 +32,7 @@ import {
   isLikelyOffTopic, detectTechStack, loadBlackboxState, saveBlackboxState,
   getBlackboxTracker, getBlackboxResolution, detectOutcomeSignal,
   fetchBlackboxEnrichment, loadGlobalLearning, updateGlobalLearning,
-  saveOptimizationMode, bootstrapOptimizationSession,
+  saveOptimizationMode,
 } from "./lib/turn-classify.js"
 import {
   safeJsonParse, readFullState, updateState, loadSelection, writeSelection,
@@ -105,6 +105,12 @@ function getStateFile() {
   return join(getVibeOSHome(), "delegation-state.json")
 }
 
+function ensureDeferredBootstrap() {
+  if (_deferredBootstrapDone || _modelLocked) return
+  _deferredBootstrapDone = true
+  try { _runDeferredStartupBootstrap?.() } catch {}
+}
+
 // ── Remote API client state ──────────────────────────────────────────
 let _apiClient: any = null
 let _apiFallbackMode = false
@@ -114,8 +120,11 @@ let activeJob: any = null
 let fp = ""
 let _mcpServerRuntime: any = null
 let _mcpServerHooked = false
+let _mcpServerStartupPromise: Promise<void> | null = null
 let context7Seen = new Set()
 let _prevOutputText = ""
+let _deferredBootstrapDone = false
+let _runDeferredStartupBootstrap: null | (() => void) = null
 
 const SAVE_EST = {
   WRITE_EDIT:   0.005,
@@ -148,11 +157,6 @@ async function _resolveBootstrapModel(client: any, directory?: string): Promise<
 
   const projectModel = normalize(readConfig(directory))
   if (projectModel) return { model: projectModel, source: "project-config" }
-
-  try {
-    const apiModel = normalize(await client?.config?.get?.("model"))
-    if (apiModel) return { model: apiModel, source: "opencode-api" }
-  } catch {}
 
   const home = process.env.HOME || ""
   if (home) {
@@ -279,182 +283,25 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
     console.error("[vibeOS] NO MODEL — enforcement disabled, will auto-detect on first hook")
   }
 
-  // Auto-configure model-tiers.json
   console.error(`[vibeOS] auto-config guard: currentModel=${currentModel ? "SET" : "NONE"}, TIERS_FILE=${getTiersFile()}, exists=${existsSync(getTiersFile())}`)
-  const _compatBootstrap = !!client && !existsSync(getTiersFile())
-  if (_compatBootstrap || (currentModel && String(currentModel).trim().length > 0) || existsSync(getTiersFile())) {
-    try {
-      let _tiersData
-      let _wasCorrupted = false
-      if (existsSync(getTiersFile())) {
-        try { _tiersData = safeJsonParse(readFileSync(getTiersFile(), "utf-8")) } catch {
-          _tiersData = { selection: _compatBootstrap
-            ? { enabled: true, active_slot: currentModel ? "brain" : "medium", delegation_enforce: false, flow_enabled: false, flow_enforce: false, tdd_enforce: false, tdd_strict: false, tdd_quality: false, thinking_level: "off", onboarding_mode: "assist" }
-            : { enabled: true, active_slot: "brain", delegation_enforce: true, tdd_strict: true },
-            trinity: {} }
-          _wasCorrupted = true
-        }
-        const _defaultSlots = getTrinitySlotOrder(_tiersData)
-        if (!_wasCorrupted && !_tiersData?.trinity) _wasCorrupted = true
-        if (!_wasCorrupted) {
-          for (const slot of _defaultSlots) {
-            if (!_tiersData?.trinity?.[slot] || _tiersData.trinity[slot] === null || typeof _tiersData.trinity[slot].oc !== "string") {
-              _wasCorrupted = true
-              break
-            }
-          }
-        }
-      } else {
-        const _defaultSlots = getTrinitySlotOrder()
-        _tiersData = {
-          selection: _compatBootstrap
-            ? { enabled: true, active_slot: currentModel ? "brain" : "medium", delegation_enforce: false, flow_enabled: false, flow_enforce: false, tdd_enforce: false, tdd_strict: false, tdd_quality: false, thinking_level: "off", onboarding_mode: "assist" }
-            : { enabled: true, active_slot: _defaultSlots[0] || "brain", delegation_enforce: true, tdd_strict: true, tdd_quality: true, flow_enabled: false, flow_enforce: false, tdd_enforce: false, thinking_level: "off" },
-          trinity: {},
-        }
-      }
-      const _providers = _loadOpenCodeProviders()
-      const _allModels = collectConfiguredProviderModels(_providers)
-      if (!_allModels.some(m => m.id === currentModel)) {
-        _allModels.push({ id: currentModel, cost: _modelCost(currentModel), tier: _modelTier(currentModel) })
-      }
-      const _ranked = classifyAndRankModels(_allModels)
-      const _brain  = _ranked?.brain  || { id: currentModel, cost: _modelCost(currentModel), tier: _modelTier(currentModel) }
-      let _medium: any = _ranked?.medium
-      let _cheap: any  = _ranked?.cheap
-      const _existing = _tiersData?.trinity || {}
-      const _existingMedium = _existing.medium?.oc || ""
-      const _existingCheap  = _existing.cheap?.oc  || ""
-      const _isPlaceholder = (id: string) => !id || PLACEHOLDER_RE.test(id)
-      const _preferExistingOrRanked = (ranked: any, existingId: string) => {
-        if (ranked && ranked.id) return ranked
-        if (_isPlaceholder(existingId)) return null
-        if (!existingId) return null
-        return { id: existingId, cost: _modelCost(existingId), tier: _modelTier(existingId) }
-      }
-      if (!_medium || _medium.id === _brain.id) {
-        _medium = _preferExistingOrRanked(_medium, _existingMedium) || _medium
-      }
-      if (!_cheap || _cheap.id === _brain.id || (_medium && _cheap && _cheap.id === _medium.id)) {
-        _cheap = _preferExistingOrRanked(_cheap, _existingCheap) || _cheap
-      }
-      if (_medium?.id === _brain.id) _medium = { ..._brain }
-      if (_cheap?.id === _brain.id || _cheap?.id === _medium?.id) _cheap = { ..._brain }
-      let _didWrite = false
-      const _existingBrain = _existing.brain?.oc || ""
-      if (_compatBootstrap) {
-        _tiersData.selection.onboarding_mode = "assist"
-        _tiersData.selection.delegation_enforce = false
-        _tiersData.selection.flow_enabled = false
-        _tiersData.selection.flow_enforce = false
-        _tiersData.selection.tdd_enforce = false
-        _tiersData.selection.tdd_strict = false
-        _tiersData.selection.tdd_quality = false
-        _tiersData.selection.thinking_level = "off"
-      }
-      if (_brain.id && _isPlaceholder(_existingBrain)) {
-        _tiersData.trinity.brain = { oc: _brain.id, cc: modelToCcAlias(_brain.id) }
-        _didWrite = true
-      }
-      if (_medium && _medium.id && _isPlaceholder(_existingMedium)) {
-        _tiersData.trinity.medium = { oc: _medium.id, cc: modelToCcAlias(_medium.id) }
-        _didWrite = true
-      }
-      if (_cheap && _cheap.id && _isPlaceholder(_existingCheap)) {
-        _tiersData.trinity.cheap = { oc: _cheap.id, cc: modelToCcAlias(_cheap.id) }
-        _didWrite = true
-      }
-      if (_tiersData) {
-        _tiersData.selection ??= {}
-        for (const _sk of ["mcp_port", "optimization_mode", "enforcement_enabled", "flow_enforce_level", "tdd_quality", "thinking_mode", "blackbox_regime", "_mode_changed_at", "_mode_source"]) {
-          if (_sk in _tiersData) delete (_tiersData as any)[_sk]
-        }
-        mkdirSync(dirname(getTiersFile()), { recursive: true })
-        const _tmp = getTiersFile() + ".tmp." + Date.now()
-        writeFileSync(_tmp, JSON.stringify(_tiersData, null, 2) + "\n", "utf-8")
-        renameSync(_tmp, getTiersFile())
-        if (_compatBootstrap) {
-          try {
-            const _bbState = loadBlackboxState()
-            _bbState.enabled = false
-            saveBlackboxState(_bbState)
-            setBlackboxEnabled(false)
-          } catch {}
-        }
-        console.error(`[vibeOS] auto-synced model-tiers.json: primary=${_brain.id} medium=${_tiersData.trinity?.medium?.oc || ""} cheap=${_tiersData.trinity?.cheap?.oc || ""}`)
-        const _tiersCfg = safeJsonParse(readFileSync(getTiersFile(), "utf-8"))
-        const _b = _tiersCfg?.trinity?.brain?.oc
-        const _m = _tiersCfg?.trinity?.medium?.oc
-        const _c = _tiersCfg?.trinity?.cheap?.oc
-        setTrinityBrain(_b || _brain.id)
-        setTrinityCheap(_c || _cheap?.id || null)
-        setTrinityMedium(_m || _medium?.id || null)
-        if (_didWrite || _wasCorrupted) {
-          console.error(`[vibeOS] WRITE: _didWrite=${_didWrite} _wasCorrupted=${_wasCorrupted} brain=${_brain?.id}`)
-        } else {
-          console.error(`[vibeOS] SKIP WRITE: _didWrite=${_didWrite} _wasCorrupted=${_wasCorrupted} existingBrain=${_existingBrain} brainId=${_brain?.id}`)
-        }
-      }
-    } catch {}
-  }
-
-  // Ensure stale root keys are cleaned (only selection + trinity belong at root)
   try {
-    const _mt = safeJsonParse(readFileSync(getTiersFile(), "utf-8"))
-    let _dirty = false
-    for (const _sk of ["mcp_port", "optimization_mode", "enforcement_enabled", "flow_enforce_level", "tdd_quality", "thinking_mode", "blackbox_regime", "_mode_changed_at", "_mode_source"]) {
-      if (_sk in _mt) { delete (_mt as any)[_sk]; _dirty = true }
+    if (!existsSync(getTiersFile())) {
+      console.error(`[vibeOS] model-tiers.json missing at load; will seed on first hook`)
     }
-    if (_dirty) {
-      const _tmp = getTiersFile() + ".tmp." + Date.now()
-      writeFileSync(_tmp, JSON.stringify(_mt, null, 2) + "\n", "utf-8")
-      renameSync(_tmp, getTiersFile())
-    }
+    loadTrinitySlotsFromTiersFile()
   } catch {}
+
   if (detectContext7()) console.error(`[vibeOS] context7 detected — docs nudge enabled`)
 
-  // ── Project memory ────────────────────────────────────────────────
+  // ── Startup safety ──────────────────────────────────────────────────
+  // Keep load-time side effects minimal: defer any slot/catalog writes until
+  // the first real hook runs after OpenCode is fully ready.
+
   fp = projectFingerprint(directory)
   setCurrentProjectFingerprint(fp)
   setCurrentProjectName(directory ? directory.split("/").pop() : "unknown")
   activeJob = getActiveJobForProject(fp)
-  try {
-    const state = loadProjectState()
-    const bucket = ensureProjectBucket(state, fp)
-    bucket.totalSessions = (bucket.totalSessions || 0) + 1
-    bucket.lastSeen = new Date().toISOString()
-    saveProjectState(state)
-  } catch (err) {
-    console.error(`[vibeOS] project-memory init failed for ${fp}: ${(err as Error).message}`)
-  }
-
-  // ── Project Guard ─────────────────────────────────────────────────
-  try {
-    if (directory && existsSync(directory)) {
-      const techStack = detectTechStack(directory)
-      const result = ensureProjectDocs(directory, techStack)
-      if (result.created.length > 0) console.error(`[vibeOS] Project Guard: created ${result.created.join(", ")}`)
-      const skillResult = ensureProjectSkill(directory, fp)
-      if (skillResult.created) {
-        console.error(`[vibeOS] Project Guard: created ${skillResult.path}`)
-      }
-    }
-  } catch (err) {
-    console.error(`[vibeOS] Project Guard init failed: ${(err as Error).message}`)
-  }
-
-  // ── Auto-enable on load ──────────────────────────────────────────────
-  try { writeSelection("enabled", true) } catch {}
-  try {
-    const bootstrap = bootstrapOptimizationSession()
-    if (!_modelLocked) {
-      const applied = applySlot(bootstrap.slot)
-      if (applied?.ok) {
-        console.error(`[vibeOS] bootstrap slot → ${bootstrap.slot} (${applied.ocModel})`)
-      }
-    }
-    void remoteCall("blackboxSelectMode", ["INIT", 0], null).catch(() => {})
-  } catch {}
+  _runDeferredStartupBootstrap = () => {}
 
   // ── Plugin hooks ──────────────────────────────────────────────────
     // trinity tool dependency injection
@@ -479,6 +326,8 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
       setBlackboxEnabled, loadBlackboxState, saveBlackboxState,
       reportsIndex, saveReportsIndex, backupFile, writeSessionSlot, _refreshModel,
       setApiToken,
+      setApiBootstrapToken,
+      ensureBootstrapExchange,
       loadTodos, upsertTodo, getTodos, markTodoDone, syncFlowTodosToNative,
       get _blackboxTracker() { return getBlackboxTracker() },
       set _blackboxTracker(v) { resetBlackboxTracker() },
@@ -487,6 +336,7 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
     }
   const pluginHooks = {
     "tool.execute.before": async (input: any, output: any) => {
+      ensureDeferredBootstrap();
       (onToolExecuteBefore as any)._directory = directory
       return onToolExecuteBefore(input, output)
     },
@@ -495,6 +345,7 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
       return onToolExecuteAfter(input, output)
     },
     "experimental.chat.messages.transform": async (_input: any, output: any) => {
+      ensureDeferredBootstrap()
       return onMessagesTransform(_input, output)
     },
 
@@ -502,6 +353,7 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
       return onSessionCompacting(_input, output)
     },
     "experimental.chat.system.transform": async (_input: any, output: any) => {
+      ensureDeferredBootstrap()
       return onSystemTransform(_input, output)
     },
     "shell.env": async (_input: any, output: any) => {
@@ -509,9 +361,11 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
       return onShellEnv(_input, output)
     },
     "experimental.text.complete": async (_input: any, output: any) => {
+      ensureDeferredBootstrap()
       await _appendFooter(_input, output, directory)
     },
     "message.updated": async (_input: any, output: any) => {
+      ensureDeferredBootstrap()
       await _appendFooter(_input, output, directory)
     },
     tool: {
@@ -611,75 +465,78 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
 
   // ── MCP server startup ─────────────────────────────────────────────
   const _inTestEnv = process.env.VIBEOS_MCP_PORT === "0" || !client || Object.keys((client as any) || {}).length === 0
-  try {
-    const port = loadMcpPort()
-    if (port !== 0 && !_inTestEnv) {
-      if (!_mcpServerRuntime) {
-        _mcpServerRuntime = createMcpServer({
-          getState: () => ({
-            ...buildStatusPayload({
-              selection: loadSelection(),
-              tiersData: (() => { try { return safeJsonParse(readFileSync(getTiersFile(), "utf-8")) } catch { return {} } })(),
-              currentModel: currentModel || "",
-              creditPercent: loadCredit(),
-              version: readPackageVersion(),
-              todos: loadTodos(),
-              fallbackThinking: thinkingLevel(loadCredit()),
-              backendConnected: isApiConnected(),
-              backendHealthUrl: `${VIBEOS_API_URL}/health`,
-              modelLocked: _modelLocked,
-              lockedSlot: _lockedSlot,
-              lockedModel: _lockedModel,
+  if (!_mcpServerStartupPromise && !_inTestEnv) {
+    _mcpServerStartupPromise = Promise.resolve().then(async () => {
+      try {
+        const port = loadMcpPort()
+        if (port === 0) return
+        if (!_mcpServerRuntime) {
+          _mcpServerRuntime = createMcpServer({
+            getState: () => ({
+              ...buildStatusPayload({
+                selection: loadSelection(),
+                tiersData: (() => { try { return safeJsonParse(readFileSync(getTiersFile(), "utf-8")) } catch { return {} } })(),
+                currentModel: currentModel || "",
+                creditPercent: loadCredit(),
+                version: readPackageVersion(),
+                todos: loadTodos(),
+                fallbackThinking: thinkingLevel(loadCredit()),
+                backendConnected: isApiConnected(),
+                backendHealthUrl: `${VIBEOS_API_URL}/health`,
+                modelLocked: _modelLocked,
+                lockedSlot: _lockedSlot,
+                lockedModel: _lockedModel,
+              }),
+              sessions_raw: readFullState()?.sessions || {},
             }),
-            sessions_raw: readFullState()?.sessions || {},
-          }),
-          getSavings: () => buildSavingsPayload({
-            lifetime: readLifetimeSavings(),
-            session: readFullState()?.sessions?.[_OC_SID] || {},
-          }),
-          getSessionMetrics: () => computeSessionMetrics(readFullState(), _OC_SID),
-          getTodos: () => loadTodos(),
-          listReports: (filter: any) => {
-            if (!existsSync(getReportsDir())) { const e: any = new Error("reports dir not found"); e.status = 404; throw e }
-            return listReports(filter || {})
-          },
-          readReport: (rvId: string) => readReport(rvId),
-          runDiagnose: async () => diagnoseStructuredFromText(await pluginHooks.tool.trinity.execute({ action: "diagnose" }), loadCredit()),
-          runProject: async () => projectStructuredFromText(await pluginHooks.tool.trinity.execute({ action: "project" }), loadSelection(), loadCredit()),
-          runTrinity: async (rvAction: string, params: any = {}) => pluginHooks.tool.trinity.execute({ action: rvAction, slot: params.slot, level: params.level }),
-          runResearchAudit: (hours: number) => researchAudit({ hours: hours ?? 24 }),
-          saveReport: (data: any) => saveReport(data),
-          getCurrentSessionId: () => _OC_SID,
-          generateSessionCheckout: () => {
-            const state = readFullState()
-            const metrics = computeSessionMetrics(state, _OC_SID)
-            const session = state?.sessions?.[_OC_SID] || {}
-            const flowWarns = getFlowWarns().filter((w: any) => String(w?.sid || "") === String(process.pid || ""))
-            const checkout = buildSessionCheckout({
-              sessionId: _OC_SID,
-              metrics,
-              session,
-              flowWarns,
-            })
-            const reportId = saveReport(checkout.report)
-            return { ok: true, summary: checkout.summary, report_id: reportId }
-          },
-        })
+            getSavings: () => buildSavingsPayload({
+              lifetime: readLifetimeSavings(),
+              session: readFullState()?.sessions?.[_OC_SID] || {},
+            }),
+            getSessionMetrics: () => computeSessionMetrics(readFullState(), _OC_SID),
+            getTodos: () => loadTodos(),
+            listReports: (filter: any) => {
+              if (!existsSync(getReportsDir())) { const e: any = new Error("reports dir not found"); e.status = 404; throw e }
+              return listReports(filter || {})
+            },
+            readReport: (rvId: string) => readReport(rvId),
+            runDiagnose: async () => diagnoseStructuredFromText(await pluginHooks.tool.trinity.execute({ action: "diagnose" }), loadCredit()),
+            runProject: async () => projectStructuredFromText(await pluginHooks.tool.trinity.execute({ action: "project" }), loadSelection(), loadCredit()),
+            runTrinity: async (rvAction: string, params: any = {}) => pluginHooks.tool.trinity.execute({ action: rvAction, slot: params.slot, level: params.level }),
+            runResearchAudit: (hours: number) => researchAudit({ hours: hours ?? 24 }),
+            saveReport: (data: any) => saveReport(data),
+            getCurrentSessionId: () => _OC_SID,
+            generateSessionCheckout: () => {
+              const state = readFullState()
+              const metrics = computeSessionMetrics(state, _OC_SID)
+              const session = state?.sessions?.[_OC_SID] || {}
+              const flowWarns = getFlowWarns().filter((w: any) => String(w?.sid || "") === String(process.pid || ""))
+              const checkout = buildSessionCheckout({
+                sessionId: _OC_SID,
+                metrics,
+                session,
+                flowWarns,
+              })
+              const reportId = saveReport(checkout.report)
+              return { ok: true, summary: checkout.summary, report_id: reportId }
+            },
+          })
+        }
+        const mcpServer = await _mcpServerRuntime.start(port)
+        const actualPort = Number(mcpServer?.address?.()?.port || port)
+        if (actualPort && actualPort !== port) persistMcpPort(actualPort)
+        console.error(`[vibeOS] MCP server on http://127.0.0.1:${actualPort}`)
+        if (actualPort) console.error(`[vibeOS] Dashboard at http://127.0.0.1:${actualPort}/`)
+        console.error(`[vibeOS] Dashboard at http://127.0.0.1:${actualPort}/`)
+        if (!_mcpServerHooked) {
+          _mcpServerHooked = true
+          process.on("SIGTERM", () => { try { _mcpServerRuntime?.close() } catch {} })
+          process.on("SIGINT", () => { try { _mcpServerRuntime?.close() } catch {} })
+        }
+      } catch (err) {
+        console.error(`[vibeOS] MCP startup failed: ${(err as Error).message}`)
       }
-      const mcpServer = await _mcpServerRuntime.start(port)
-      const actualPort = Number(mcpServer?.address?.()?.port || port)
-      if (actualPort && actualPort !== port) persistMcpPort(actualPort)
-      console.error(`[vibeOS] MCP server on http://127.0.0.1:${actualPort}`)
-      if (actualPort) console.error(`[vibeOS] Dashboard at http://127.0.0.1:${actualPort}/`)
-      console.error(`[vibeOS] Dashboard at http://127.0.0.1:${actualPort}/`)
-      if (!_mcpServerHooked) {
-        _mcpServerHooked = true
-        process.on("SIGTERM", () => { try { _mcpServerRuntime?.close() } catch {} })
-        process.on("SIGINT", () => { try { _mcpServerRuntime?.close() } catch {} })
-      }
-    }
-  } catch (err) {
-    console.error(`[vibeOS] MCP startup failed: ${(err as Error).message}`)
+    })
   }
 
   return pluginHooks
@@ -688,21 +545,6 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
 export const id = "vibeOS"
 export const server = DelegationEnforcer
 export const VERSION = readPackageVersion()
-
-// ── Auto-update on load ─────────────────────────────────────────────
-{
-  try {
-    const pluginsDir = join(homedir(), ".config", "opencode", "plugins")
-    if (existsSync(pluginsDir)) {
-      const sub = spawn("npm", ["install", "vibeostheog@latest"], {
-        stdio: "ignore", detached: true, cwd: pluginsDir,
-      })
-      sub.unref()
-    }
-  } catch {
-    // auto-update is best-effort
-  }
-}
 
 export default { id: "vibeOS", server: DelegationEnforcer }
 
