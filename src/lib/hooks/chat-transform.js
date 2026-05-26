@@ -2,7 +2,7 @@
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { createHash } from 'node:crypto';
-import { currentModel, currentProjectFingerprint, currentProjectName, _blackboxEnabled, loadSelection, writeSelection, safeJsonParse, applyDecadence, getSessionScratchpadDir, ensureSessionScratchpadDirs, indexAppend, briefedProjects, getActiveJobForProject, loadTodos, promotedProjectPatterns, detectTechStack, TRINITY_OPENCODE_CONFIG, TIERS_FILE, loadGlobalLearning, stableJson, TOOL_NAME_NORMALIZE, } from '../state.js';
+import { currentModel, currentProjectFingerprint, currentProjectName, _blackboxEnabled, loadSelection, writeSelection, safeJsonParse, applyDecadence, getSessionScratchpadDir, ensureSessionScratchpadDirs, indexAppend, briefedProjects, getActiveJobForProject, loadTodos, promotedProjectPatterns, detectTechStack, projectFingerprint, TRINITY_OPENCODE_CONFIG, TIERS_FILE, loadGlobalLearning, stableJson, TOOL_NAME_NORMALIZE, } from '../state.js';
 import { applySlot, TRINITY_CHEAP, TRINITY_MEDIUM, } from '../pricing.js';
 import { scoreStress, classifyTurnSimple, loadOptimizationMode, saveOptimizationMode, selectOptimizationModeRemote, computeControlVector, getBlackboxTracker, loadBlackboxState as loadBlackboxStateFromCtx, saveBlackboxState as saveBlackboxStateToCtx, extractLastUserText, isLikelyOffTopic, fetchBlackboxEnrichment, estimateContextBudget, buildControlHistoryEntry, } from '../turn-classify.js';
 import { applyBudgetFirstMode, peekBudgetFirstMode } from '../mode-policy.js';
@@ -146,7 +146,6 @@ export function syncControlSettings(cv, options = {}) {
     try {
         const sid = _OC_SID;
         const persistOptimizationMode = options.persistOptimizationMode !== false;
-        const persistDesktopConfig = options.persistDesktopConfig === true;
         const currentSel = loadSelection();
         const compatibilityMode = currentSel.onboarding_mode === "assist";
         const writeIf = (key, val) => {
@@ -189,17 +188,17 @@ export function syncControlSettings(cv, options = {}) {
             }
         }
         const slot = cv.tier_bias;
-        if (persistDesktopConfig && slot && slot !== "auto") {
+        if (slot && slot !== "auto") {
             const existingSlot = loadSessionSlot(sid);
             if (existingSlot !== slot) {
                 writeSessionSlot(sid, slot);
-                const applied = applySlot(slot, { mutateDesktopConfig: true });
+                const applied = applySlot(slot);
                 if (!applied?.ok) {
                     console.error(`[vibeOS] failed to apply slot ${slot}: ${applied?.reason || "unknown"}`);
                 }
             }
         }
-        if (persistDesktopConfig && cv.agent_mode) {
+        if (cv.agent_mode) {
             try {
                 const OC_CONFIG = TRINITY_OPENCODE_CONFIG || join(getOpenCodeHome(), "opencode.json");
                 if (existsSync(OC_CONFIG)) {
@@ -211,21 +210,21 @@ export function syncControlSettings(cv, options = {}) {
                 }
             }
             catch { }
-            if (cv.agent_mode === "plan" && latestUserIntent) {
-                const planDone = /^(yes|go ahead|proceed|looks? good|do it|sounds? good|perfect|great|nice|ok|okay|let.s do it|implement|execute|make it|build it|write it|start)\b/i.test(latestUserIntent.trim());
-                if (planDone) {
-                    try {
-                        const OC_CONFIG = TRINITY_OPENCODE_CONFIG || join(getOpenCodeHome(), "opencode.json");
-                        if (existsSync(OC_CONFIG)) {
-                            const oc = safeJsonParse(readFileSync(OC_CONFIG, "utf-8"));
-                            if (oc.default_agent === "plan") {
-                                oc.default_agent = "orchestrator";
-                                writeFileSync(OC_CONFIG, JSON.stringify(oc, null, 2) + "\n");
-                            }
+        }
+        if (cv.agent_mode === "plan" && latestUserIntent) {
+            const planDone = /^(yes|go ahead|proceed|looks? good|do it|sounds? good|perfect|great|nice|ok|okay|let.s do it|implement|execute|make it|build it|write it|start)\b/i.test(latestUserIntent.trim());
+            if (planDone) {
+                try {
+                    const OC_CONFIG = TRINITY_OPENCODE_CONFIG || join(getOpenCodeHome(), "opencode.json");
+                    if (existsSync(OC_CONFIG)) {
+                        const oc = safeJsonParse(readFileSync(OC_CONFIG, "utf-8"));
+                        if (oc.default_agent === "plan") {
+                            oc.default_agent = "orchestrator";
+                            writeFileSync(OC_CONFIG, JSON.stringify(oc, null, 2) + "\n");
                         }
                     }
-                    catch { }
                 }
+                catch { }
             }
         }
     }
@@ -237,9 +236,10 @@ function pushSystem(output, text) {
     }
 }
 function oneShot(key) {
-    if (briefedProjects.has(key))
+    const scoped = onSystemTransform._briefedProjects || briefedProjects;
+    if (scoped.has(key))
         return true;
-    briefedProjects.add(key);
+    scoped.add(key);
     return false;
 }
 // -- Context compression --------------------------------------------
@@ -502,6 +502,7 @@ export const onSystemTransform = async (_input, output) => {
     if (!loadSelection().enabled)
         return;
     try {
+        const hookDirectory = String(onSystemTransform._directory || "");
         const userText = extractLastUserText(_input) || extractLastUserText(output);
         if (typeof userText === "string" && userText.trim())
             latestUserIntent = userText;
@@ -538,15 +539,12 @@ export const onSystemTransform = async (_input, output) => {
                 latest_stress_multiplier: latestUserIntent ? scoreStress(latestUserIntent) : undefined,
             }, undefined, optimizationMode);
         }
-        syncControlSettings(_controlVector, {
-            persistOptimizationMode: optimizationDecision.shouldPersistRequestedMode,
-            persistDesktopConfig: false,
-        });
+        syncControlSettings(_controlVector, { persistOptimizationMode: optimizationDecision.shouldPersistRequestedMode });
         const system = output?.system;
         if (!Array.isArray(system))
             return;
         const sel = loadSelection();
-        const fp = currentProjectFingerprint || "";
+        const fp = projectFingerprint(hookDirectory || currentProjectFingerprint || "");
         const rawStress = latestUserIntent ? scoreStress(latestUserIntent) : 0;
         const stressScore = rawStress * (_controlVector?.stress_multiplier ?? 1);
         const credit = loadCredit();
@@ -614,7 +612,7 @@ export const onSystemTransform = async (_input, output) => {
             }
         }
         // ── Job focus ──
-        const projectJob2 = getActiveJobForProject();
+        const projectJob2 = onSystemTransform._activeJob || getActiveJobForProject(fp);
         if (latestUserIntent && projectJob2 && isLikelyOffTopic(latestUserIntent, projectJob2)) {
             pushSystem(output, "[job-focus] Active job context exists: \"" + ((projectJob2.prompt || "").slice(0, 140)) + "...\". " +
                 "The latest user request appears off-topic relative to this running job. " +
@@ -674,9 +672,9 @@ export const onSystemTransform = async (_input, output) => {
                 "Strip the '[vibeOS-dashboard]' marker line before displaying.");
         }
         if (!oneShot("vibeos_dopamine_style_" + fp)) {
-            pushSystem(output, "[tool style: dopamine] When calling the bash tool, use an emoji-prefixed, progress-focused " +
-                "description. Combine independent bash commands into a single call with && or ;. " +
-                "Never use raw technical labels as tool descriptions.");
+            pushSystem(output, "[tool style: dopamine] When calling the bash tool, use a short, progress-focused description " +
+                "that names the user-visible milestone being advanced. Combine independent bash commands into a single " +
+                "call with && or ;. Never use raw technical labels as tool descriptions.");
         }
     }
     catch (err) {

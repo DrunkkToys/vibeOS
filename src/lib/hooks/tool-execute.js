@@ -13,7 +13,7 @@ import { computeDifficulty, addRouteEdge, predictBestModel, hashQuery } from '..
 import { addCacheEntry, recordCacheStats, predictCacheHit } from '../../vibeOS-lib/smart-cache.js';
 import { buildTestReminder, enforceTestFile } from '../tdd-enforcer.js';
 import { setActiveJobFromTaskPrompt, observeToolPattern, compressText, recordSaving } from '../index-helpers.js';
-import { scoreTaskQuality } from './footer.js';
+import { scoreTaskQuality, readRewardSignals } from './footer.js';
 import { SAVE_EST, WARN_ON_DIRECT, SOFT_QUOTA, FREE, MONITOR } from "../constants.js";
 const BYTES_PER_TOKEN = 4;
 const CACHE_SAVED_PER_1M_INPUT_TOKENS = 0.10;
@@ -232,10 +232,6 @@ export const onToolExecuteBefore = async (input, output) => {
         cache_hit: false,
     };
     _pendingTelemetryStarts.push(telemetryStart);
-    const setPendingUiNote = (note) => {
-        pendingUiNote = note;
-        telemetryStart.uiNote = note;
-    };
     let _cacheSave = 0;
     let _prompt = "";
     // Scratchpad observation (all tiers) — read-only, never blocks.
@@ -440,7 +436,7 @@ export const onToolExecuteBefore = async (input, output) => {
             _mutateBlockedToolArgs(t, argSources, checkPath, output);
             if (shouldLogWarn(`${t}|protect|${checkPath}`))
                 console.error(`[vibeOS] [protection] BLOCKED direct ${t} in self-protected directory: ${checkPath}`);
-            setPendingUiNote(`🛡 Self-modification blocked: ${basename(checkPath)} is in a protected project tree. Use manual git workflow.`);
+            pendingUiNote = `🛡 Self-modification blocked: ${basename(checkPath)} is in a protected project tree. Use manual git workflow.`;
             enforcementBlocked = true;
             return;
         }
@@ -452,7 +448,7 @@ export const onToolExecuteBefore = async (input, output) => {
         const msg = `⚠ [vibeOS] Credit: ${_credit}% — switching to medium saves ~$${_estOpus.toFixed(3)}/turn. Run \`trinity medium\`.`;
         if (shouldLogWarn(`${t}|credit|${_tierWord}`))
             console.error(`[vibeOS] [delegation] ${msg}`);
-        setPendingUiNote(msg);
+        pendingUiNote = msg;
         return;
     }
     // Write/Edit/NotebookEdit: enforce delegation on high tier when delegation_enforce is on.
@@ -474,7 +470,7 @@ export const onToolExecuteBefore = async (input, output) => {
             if (isBlocked) {
                 _mutateBlockedToolArgs(tLower, argSources, originalPath, output);
                 const total = recordSaving(t, "delegation enforced", savings, { firstWord: _firstWord });
-                setPendingUiNote(`[vibeOS] 🚫 Brain tier direct ${t} blocked → delegate via Task or run \`trinity medium\`.`);
+                pendingUiNote = `🚫 Brain tier direct ${t} blocked → delegate via Task or run \`trinity medium\`.`;
                 enforcementBlocked = true;
                 if (shouldLogWarn(`${t}|enforced|${_tierWord}`))
                     console.error(`[vibeOS] [enforcement] BLOCKED direct ${t} on high tier → delegate via Task`);
@@ -486,7 +482,7 @@ export const onToolExecuteBefore = async (input, output) => {
             const msg = `[vibeOS] ${_tierWord} tier direct ${t} — save ~$${_estEdit.toFixed(3)} by delegating to Task. Run \`trinity medium\`.`;
             if (shouldLogWarn(`${t}|direct|${_tierWord}`))
                 console.error(`[vibeOS] [delegation] ${msg}`);
-            setPendingUiNote(msg);
+            pendingUiNote = msg;
             return;
         }
     }
@@ -535,9 +531,9 @@ export const onToolExecuteBefore = async (input, output) => {
 };
 export const onToolExecuteAfter = async (input, output) => {
     _refreshModel(projectDirectory);
-    const telemetryStart = _dequeueTelemetryStart(input?.tool);
     try {
-        if (telemetryStart) {
+        const start = _dequeueTelemetryStart(input?.tool);
+        if (start) {
             const outputText = typeof output?.result === "string" ? output.result
                 : typeof output?.text === "string" ? output.text
                     : typeof output?.content === "string" ? output.content
@@ -550,14 +546,14 @@ export const onToolExecuteAfter = async (input, output) => {
             recordPrivacyTelemetry({
                 session_id: _OC_SID,
                 tool: input?.tool ?? "unknown",
-                tier: telemetryStart.tier || currentTier || "unknown",
-                slot: telemetryStart.slot || loadSelection().active_slot || "unknown",
-                kind: telemetryStart.kind || _toolKind(input?.tool, input?.args || {}),
-                prompt_size_bucket: telemetryStart.prompt_size_bucket || "unknown",
+                tier: start.tier || currentTier || "unknown",
+                slot: start.slot || loadSelection().active_slot || "unknown",
+                kind: start.kind || _toolKind(input?.tool, input?.args || {}),
+                prompt_size_bucket: start.prompt_size_bucket || "unknown",
                 output_size_bucket: _bucketChars(String(outputText || "").length),
-                duration_bucket: _bucketMs(Date.now() - Number(telemetryStart.startedAt || Date.now())),
+                duration_bucket: _bucketMs(Date.now() - Number(start.startedAt || Date.now())),
                 result,
-                cache_hit: telemetryStart.cache_hit === true,
+                cache_hit: start.cache_hit === true,
                 enforcement: loadSelection().delegation_enforce ? "on" : "off",
                 flow: loadSelection().flow_enforce ? "on" : "off",
                 tdd: loadSelection().tdd_enforce ? "on" : "off",
@@ -568,7 +564,8 @@ export const onToolExecuteAfter = async (input, output) => {
     // ── Generate footer alert (prepended to tool result, visible in chat) ──
     let _footerText = "";
     try {
-        const { ltTasks, ltCache, ltCost, sesTrend, sesModelTurns } = readLifetimeSavings();
+        const { ltTasks, ltCache, ltCost, sesTrend, sesModelTurns, sesRatePerHour, quality_avg } = readLifetimeSavings();
+        const { stableStreak, problemStreak } = readRewardSignals();
         const ltTotal = ltTasks + ltCache;
         const trendIcon = sesTrend === "down" ? "↓" : sesTrend === "up" ? "↑" : "→";
         const selNow = loadSelection();
@@ -609,6 +606,18 @@ export const onToolExecuteAfter = async (input, output) => {
         }
         else {
             _footerText = `${statusLine}${stressTag}\n\n`;
+        }
+        const rewardBits = [];
+        if (sesRatePerHour > 0)
+            rewardBits.push(`pace ${formatUsd(sesRatePerHour)}/hr`);
+        if (quality_avg > 0)
+            rewardBits.push(`quality ${Math.round(quality_avg)}%`);
+        if (stableStreak > 0)
+            rewardBits.push(`streak ${stableStreak}`);
+        else if (problemStreak > 0)
+            rewardBits.push(`recovery ${problemStreak}`);
+        if (rewardBits.length > 0) {
+            _footerText = _footerText.replace(/\n\n$/, ` | ${rewardBits.join(" | ")}\n\n`);
         }
         output.title = _footerText.trim();
         if (typeof output?.output === "string")
@@ -704,21 +713,20 @@ export const onToolExecuteAfter = async (input, output) => {
     }
     // Inject pending delegation UI note (set in tool.execute.before).
     // This surfaces the warning in the OC chat transcript, not just stderr.
-    const uiNote = pendingUiNote || telemetryStart?.uiNote || null;
-    if (uiNote) {
+    if (pendingUiNote) {
         if (enforcementBlocked) {
-            const note = `\n\n${uiNote}`;
+            const note = `[vibeOS] ${pendingUiNote}`;
             if (typeof output?.result === "string")
-                output.result += note;
+                output.result += `\n\n${note}`;
             else if (typeof output?.text === "string")
-                output.text += note;
+                output.text += `\n\n${note}`;
             else if (typeof output?.content === "string")
-                output.content += note;
+                output.content += `\n\n${note}`;
             else
-                output.result = uiNote;
+                output.result = pendingUiNote;
         }
         else {
-            const note = `\n\n${uiNote}`;
+            const note = `\n\n${pendingUiNote}`;
             if (typeof output?.result === "string")
                 output.result += note;
             else if (typeof output?.text === "string")
@@ -726,11 +734,9 @@ export const onToolExecuteAfter = async (input, output) => {
             else if (typeof output?.content === "string")
                 output.content += note;
             else
-                output.result = uiNote;
+                output.result = pendingUiNote;
         }
         pendingUiNote = null;
-        if (telemetryStart)
-            telemetryStart.uiNote = null;
     }
     // Restore original slot after a forced task-slot workaround.
     if (t === "task" && taskSlotRestore) {

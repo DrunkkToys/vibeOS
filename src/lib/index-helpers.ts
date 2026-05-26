@@ -31,6 +31,7 @@ import {
   updateGlobalLearning,
   updateState,
   roundUsd,
+  getCurrentSessionId,
   WARN_DEDUPE_WINDOW_MS,
   _ledgerBuffer,
   _flushLedgerBuffer,
@@ -91,7 +92,7 @@ export function noteProjectPattern(kind, key, summary, meta = {}) {
     row.kind = kind
     row.summary = summary
     row.count = Number(row.count || 0) + 1
-    row.sessions = [...new Set([...(row.sessions || []), _OC_SID])].slice(-10)
+    row.sessions = [...new Set([...(row.sessions || []), getCurrentSessionId()])].slice(-10)
     row.lastSeen = now
     if (meta.family) row.family = meta.family
     if (meta.path) row.path = meta.path
@@ -351,4 +352,3 @@ export function recordSaving(tool, reason, saveEst, meta = {}) {
     return 0
   }
 }
-

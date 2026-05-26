@@ -479,7 +479,7 @@ export const onToolExecuteBefore = async (input, output) => {
           if (isBlocked) {
             _mutateBlockedToolArgs(tLower, argSources, originalPath, output)
             const total = recordSaving(t, "delegation enforced", savings, { firstWord: _firstWord })
-            pendingUiNote = `🚫 Direct ${t} blocked on Brain tier → delegate via Task or run \`trinity medium\`.`
+            pendingUiNote = `🚫 Brain tier direct ${t} blocked → delegate via Task or run \`trinity medium\`.`
             enforcementBlocked = true
             if (shouldLogWarn(`${t}|enforced|${_tierWord}`)) console.error(`[vibeOS] [enforcement] BLOCKED direct ${t} on high tier → delegate via Task`)
             return
@@ -702,9 +702,10 @@ export const onToolExecuteAfter = async (input, output) => {
       // This surfaces the warning in the OC chat transcript, not just stderr.
       if (pendingUiNote) {
         if (enforcementBlocked) {
-          if (typeof output?.result === "string") output.result = pendingUiNote
-          else if (typeof output?.text === "string") output.text = pendingUiNote
-          else if (typeof output?.content === "string") output.content = pendingUiNote
+          const note = `[vibeOS] ${pendingUiNote}`
+          if (typeof output?.result === "string") output.result += `\n\n${note}`
+          else if (typeof output?.text === "string") output.text += `\n\n${note}`
+          else if (typeof output?.content === "string") output.content += `\n\n${note}`
           else output.result = pendingUiNote
         } else {
           const note = `\n\n${pendingUiNote}`

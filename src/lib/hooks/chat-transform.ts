@@ -275,8 +275,9 @@ function pushSystem(output: any, text: string | null): void {
 }
 
 function oneShot(key: string): boolean {
-  if (briefedProjects.has(key)) return true
-  briefedProjects.add(key)
+  const scoped = (onSystemTransform as any)._briefedProjects || briefedProjects
+  if (scoped.has(key)) return true
+  scoped.add(key)
   return false
 }
 
@@ -545,6 +546,7 @@ function contextBudgetDirective(_input: any, output: any): string | null {
 export const onSystemTransform = async (_input, output) => {
   if (!loadSelection().enabled) return
   try {
+    const hookDirectory = String((onSystemTransform as any)._directory || "")
     const userText = extractLastUserText(_input) || extractLastUserText(output)
     if (typeof userText === "string" && userText.trim()) latestUserIntent = userText
     else if (!latestUserIntent) latestUserIntent = null
@@ -587,7 +589,7 @@ export const onSystemTransform = async (_input, output) => {
     if (!Array.isArray(system)) return
 
     const sel = loadSelection()
-    const fp = currentProjectFingerprint || ""
+    const fp = projectFingerprint(hookDirectory || currentProjectFingerprint || "")
     const rawStress = latestUserIntent ? scoreStress(latestUserIntent) : 0
     const stressScore = rawStress * (_controlVector?.stress_multiplier ?? 1)
     const credit = loadCredit()
@@ -663,7 +665,7 @@ export const onSystemTransform = async (_input, output) => {
     }
 
     // ── Job focus ──
-    const projectJob2 = getActiveJobForProject()
+    const projectJob2 = (onSystemTransform as any)._activeJob || getActiveJobForProject(fp)
     if (latestUserIntent && projectJob2 && isLikelyOffTopic(latestUserIntent, projectJob2)) {
       pushSystem(output, "[job-focus] Active job context exists: \"" + ((projectJob2.prompt || "").slice(0, 140)) + "...\". " +
         "The latest user request appears off-topic relative to this running job. " +

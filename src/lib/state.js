@@ -4,6 +4,7 @@ import { join, dirname, basename } from "node:path";
 import { spawn } from "node:child_process";
 import { homedir, tmpdir } from "node:os";
 import { createHash } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { loadSelection, writeSelection, DFLT_SEL } from "./selection-manager.js";
 import { mergeProjectBucket, _computeSessionMetrics, _pruneOldSessions } from "./pattern-helpers.js";
 import { getOcSessionId } from "./runtime-state.js";
@@ -14,6 +15,7 @@ const USER_HOME = (() => { try {
 catch {
     return tmpdir();
 } })();
+const VIBEOS_CONTEXT = new AsyncLocalStorage();
 const VIBEOS_HOME = process.env.VIBEOS_HOME || join(USER_HOME, ".claude");
 const OPENCODE_HOME = process.env.VIBEOS_OPENCODE_HOME || join(USER_HOME, ".config", "opencode");
 const FILE_LOCK_DIR = join(VIBEOS_HOME, ".vibeOS-locks");
@@ -24,10 +26,7 @@ const PRICING_CACHE_FILE = join(VIBEOS_HOME, "model-pricing-cache.json");
 const BLACKBOX_STATE_FILE = join(VIBEOS_HOME, "blackbox-state.json");
 const PROJECT_STATE_FILE = join(VIBEOS_HOME, "project-states.json");
 const TIERS_FILE = join(VIBEOS_HOME, "model-tiers.json");
-function getActiveJobsFile() {
-    return join(getVibeOSHome(), "active-jobs.json");
-}
-const ACTIVE_JOBS_FILE = getActiveJobsFile();
+const ACTIVE_JOBS_FILE = join(VIBEOS_HOME, "active-jobs.json");
 const AUTH_F = join(USER_HOME, ".local", "share", "opencode", "auth.json");
 const CREDIT_CACHE_F = join(VIBEOS_HOME, "credit-snapshot.json");
 const FLOW_TODO_QUEUE_FILE = join(VIBEOS_HOME, ".flow-todo-queue.jsonl");
@@ -49,10 +48,13 @@ const MAX_SCRATCHPAD_BYTES = 10 * 1024 * 1024;
 const MAX_SESSION_SCRATCHPAD_FILES = 200;
 const MAX_SESSION_SCRATCHPAD_BYTES = 2 * 1024 * 1024;
 function getVibeOSHome() {
-    return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude");
+    return VIBEOS_CONTEXT.getStore()?.home || process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude");
 }
 function getOpenCodeHome() {
-    return process.env.VIBEOS_OPENCODE_HOME || join(process.env.HOME || USER_HOME, ".config", "opencode");
+    return process.env.VIBEOS_OPENCODE_HOME || join(VIBEOS_CONTEXT.getStore()?.home || process.env.HOME || USER_HOME, ".config", "opencode");
+}
+export function setVibeOSHomeContext(home) {
+    VIBEOS_CONTEXT.enterWith({ home: String(home || "") });
 }
 // ── Scratchpad decadence thresholds ──────────────────────────────────
 const DECADENCE_FRESH_MS = 5 * 60 * 1000;
@@ -79,6 +81,7 @@ const MAX_LOG_LINES = 500;
 const SOFT_QUOTA_LIMIT = 5;
 // ── Session identity ─────────────────────────────────────────────────
 const _OC_SID = getOcSessionId();
+let currentSessionId = _OC_SID;
 const _sessionStart = Date.now();
 const _sessionTimer = function () { return Date.now() - _sessionStart; };
 function getSessionTimer() { return Date.now() - _sessionStart; }
@@ -91,6 +94,8 @@ export function setCurrentTier(v) { currentTier = v; }
 export function setCurrentModel(v) { currentModel = v; }
 export function setCurrentProjectFingerprint(v) { currentProjectFingerprint = v; }
 export function setCurrentProjectName(v) { currentProjectName = v; }
+export function setCurrentSessionId(v) { currentSessionId = String(v || _OC_SID); }
+export function getCurrentSessionId() { return currentSessionId || _OC_SID; }
 const textCompletePainted = new Set();
 const softQuotaCounts = {};
 // ── Warning/coalescing state ─────────────────────────────────────────
@@ -1109,7 +1114,6 @@ function pruneScratchpadOnce() {
 }
 // ── Active jobs ──────────────────────────────────────────────────────
 function loadActiveJobs() {
-    const ACTIVE_JOBS_FILE = getActiveJobsFile();
     try {
         if (!existsSync(ACTIVE_JOBS_FILE))
             return {};
@@ -1141,7 +1145,6 @@ function saveActiveJobForProject(job, fp = currentProjectFingerprint) {
     if (!fp || !job || typeof job !== "object")
         return;
     try {
-        const ACTIVE_JOBS_FILE = getActiveJobsFile();
         const jobs = loadActiveJobs();
         jobs[fp] = job;
         mkdirSync(dirname(ACTIVE_JOBS_FILE), { recursive: true });
@@ -1153,7 +1156,6 @@ function saveActiveJobForProject(job, fp = currentProjectFingerprint) {
 }
 function saveJobRecord(jobId, record) {
     try {
-        const ACTIVE_JOBS_FILE = getActiveJobsFile();
         const jobs = loadActiveJobs();
         jobs[jobId] = record;
         mkdirSync(dirname(ACTIVE_JOBS_FILE), { recursive: true });
