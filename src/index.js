@@ -8090,15 +8090,12 @@ async function _appendFooter(input, output, directory3) {
     };
     const optMode = (resolvedMode || "budget").toLowerCase();
     const modeVerb = modeVerbMap[optMode] || "vibing";
-    let vibeLine = `\u2014 ${modeVerb} on ${shortModelName(brainModel)}`;
+    let vibeLine = `\u2014 ${flashIcon ? `${flashIcon} ` : ""}${modeVerb} on ${shortModelName(brainModel)}`;
     if (ltTotal > 0) {
       vibeLine += ` | $${formatUsd(ltTotal)} saved`;
     }
     if (sesRatePerHour > 0) {
       vibeLine += ` | pace $${formatUsd(sesRatePerHour)}/hr`;
-    }
-    if (quality_avg > 0) {
-      vibeLine += ` | quality ${Math.round(quality_avg)}%`;
     }
     if (stableStreak > 0) {
       vibeLine += ` | streak ${stableStreak}`;
@@ -9982,6 +9979,7 @@ var onToolExecuteAfter = async (input, output) => {
     const { stableStreak, problemStreak } = readRewardSignals();
     const ltTotal = ltTasks + ltCache;
     const trendIcon = sesTrend === "down" ? "\u2193" : sesTrend === "up" ? "\u2191" : "\u2192";
+    const flashIcon = VIBEOS_API_ENABLED ? "\u26A1" : "";
     const selNow = loadSelection();
     const tags = [`[${shortModelName(currentModel)}]`];
     const bbMode = resolveEnforcementMode();
@@ -10015,27 +10013,13 @@ var onToolExecuteAfter = async (input, output) => {
       }
     }
     if (ltTotal > 0) {
-      _footerText = `vibeOS: ${formatUsd(ltTotal)} saved ${trendIcon} | ${statusLine}${stressTag}
+      _footerText = `\u2014 ${flashIcon ? `${flashIcon} ` : ""}saving on ${shortModelName(currentModel)} | $${formatUsd(ltTotal)} saved | VIBE${flashIcon ? " \u26A1" : ""} \u2014
 
 `;
     } else {
       _footerText = `${statusLine}${stressTag}
 
 `;
-    }
-    const rewardBits = [];
-    if (sesRatePerHour > 0)
-      rewardBits.push(`pace ${formatUsd(sesRatePerHour)}/hr`);
-    if (quality_avg > 0)
-      rewardBits.push(`quality ${Math.round(quality_avg)}%`);
-    if (stableStreak > 0)
-      rewardBits.push(`streak ${stableStreak}`);
-    else if (problemStreak > 0)
-      rewardBits.push(`recovery ${problemStreak}`);
-    if (rewardBits.length > 0) {
-      _footerText = _footerText.replace(/\n\n$/, ` | ${rewardBits.join(" | ")}
-
-`);
     }
     output.title = _footerText.trim();
     if (typeof output?.output === "string")

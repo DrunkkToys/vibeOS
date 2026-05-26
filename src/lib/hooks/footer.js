@@ -260,15 +260,12 @@ async function _appendFooter(input, output, directory) {
         };
         const optMode = (resolvedMode || 'budget').toLowerCase();
         const modeVerb = modeVerbMap[optMode] || 'vibing';
-        let vibeLine = `— ${modeVerb} on ${shortModelName(brainModel)}`;
+        let vibeLine = `— ${flashIcon ? `${flashIcon} ` : ""}${modeVerb} on ${shortModelName(brainModel)}`;
         if (ltTotal > 0) {
             vibeLine += ` | $${formatUsd(ltTotal)} saved`;
         }
         if (sesRatePerHour > 0) {
             vibeLine += ` | pace $${formatUsd(sesRatePerHour)}/hr`;
-        }
-        if (quality_avg > 0) {
-            vibeLine += ` | quality ${Math.round(quality_avg)}%`;
         }
         if (stableStreak > 0) {
             vibeLine += ` | streak ${stableStreak}`;

@@ -7,7 +7,7 @@ import { latestUserIntent } from './chat-transform.js';
 import { scoreStress, extractFirstWordFromArgs, shouldLogWarn, isUserAskingForTests, resolveEnforcementMode, getLearnedExploratoryWords, noteTaskRoutingLearning, } from '../turn-classify.js';
 import { saveReport } from '../reporting.js';
 import { loadCredit } from '../credit-api.js';
-import { remoteCall } from '../api-client.js';
+import { remoteCall, VIBEOS_API_ENABLED } from '../api-client.js';
 import { checkFlowRules } from '../../vibeOS-lib/flow-enforcer.js';
 import { computeDifficulty, addRouteEdge, predictBestModel, hashQuery } from '../../vibeOS-lib/ml-router.js';
 import { addCacheEntry, recordCacheStats, predictCacheHit } from '../../vibeOS-lib/smart-cache.js';
@@ -570,6 +570,7 @@ export const onToolExecuteAfter = async (input, output) => {
         const { stableStreak, problemStreak } = readRewardSignals();
         const ltTotal = ltTasks + ltCache;
         const trendIcon = sesTrend === "down" ? "↓" : sesTrend === "up" ? "↑" : "→";
+        const flashIcon = VIBEOS_API_ENABLED ? "⚡" : "";
         const selNow = loadSelection();
         const tags = [`[${shortModelName(currentModel)}]`];
         const bbMode = resolveEnforcementMode();
@@ -604,22 +605,10 @@ export const onToolExecuteAfter = async (input, output) => {
             }
         }
         if (ltTotal > 0) {
-            _footerText = `vibeOS: ${formatUsd(ltTotal)} saved ${trendIcon} | ${statusLine}${stressTag}\n\n`;
+            _footerText = `— ${flashIcon ? `${flashIcon} ` : ""}saving on ${shortModelName(currentModel)} | $${formatUsd(ltTotal)} saved | VIBE${flashIcon ? " ⚡" : ""} —\n\n`;
         }
         else {
             _footerText = `${statusLine}${stressTag}\n\n`;
-        }
-        const rewardBits = [];
-        if (sesRatePerHour > 0)
-            rewardBits.push(`pace ${formatUsd(sesRatePerHour)}/hr`);
-        if (quality_avg > 0)
-            rewardBits.push(`quality ${Math.round(quality_avg)}%`);
-        if (stableStreak > 0)
-            rewardBits.push(`streak ${stableStreak}`);
-        else if (problemStreak > 0)
-            rewardBits.push(`recovery ${problemStreak}`);
-        if (rewardBits.length > 0) {
-            _footerText = _footerText.replace(/\n\n$/, ` | ${rewardBits.join(" | ")}\n\n`);
         }
         output.title = _footerText.trim();
         if (typeof output?.output === "string")
