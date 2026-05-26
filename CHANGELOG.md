@@ -1,3 +1,17 @@
+## 0.19.8
+- fix: shorten live footer alerts
+- fix: add /g flag and \b word boundaries to ERROR_SIGNAL_WORDS regex
+- build: refresh release-candidate bundle
+Fix local blackbox tracker hydration
+Add model refresh silence regression test
+Fix blackbox session context
+Fix thinking directive precedence
+Merge pull request #58 from DrunkkToys/codex/fix-home-context
+Fix session state home context
+Merge pull request #57 from DrunkkToys/codex/fix-opencode-launch-config
+Fix OpenCode launch config
+
+
 ## 0.19.7
 - feat: use native opencode model lists
 - fix: make OpenCode footer agnostic
