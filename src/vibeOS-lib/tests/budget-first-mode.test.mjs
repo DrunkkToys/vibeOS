@@ -49,7 +49,7 @@ test("bootstrapOptimizationSession resets a fresh restart to budget", async () =
   assert.equal(disk.sessions[sid].optimization_mode, "budget")
 })
 
-test("applyBudgetFirstMode ignores loop speed on the first interaction", async () => {
+test("applyBudgetFirstMode activates loop speed even before interaction counters settle", async () => {
   const home = makeSandbox("loop-gate")
   process.env.HOME = home
   const turn = await import(`../../lib/turn-classify.js?turn=${Date.now()}`)
@@ -72,7 +72,8 @@ test("applyBudgetFirstMode ignores loop speed on the first interaction", async (
     stress: 0,
     nInteractions: 1,
   })
-  assert.equal(first.mode, "budget")
+  assert.equal(first.mode, "speed")
+  assert.equal(first.active, true)
 
   const second = modePolicy.applyBudgetFirstMode({
     requestedMode: "budget",
@@ -82,4 +83,5 @@ test("applyBudgetFirstMode ignores loop speed on the first interaction", async (
     nInteractions: 2,
   })
   assert.equal(second.mode, "speed")
+  assert.equal(second.active, true)
 })

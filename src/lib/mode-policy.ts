@@ -161,7 +161,8 @@ export function applyBudgetFirstMode(input: ModeInput = {}): ModeDecision {
     }
 
     const shouldStartEpisode =
-      (LOOP_REGIMES.has(regime) && interactions >= 2) ||
+      LOOP_REGIMES.has(regime) ||
+      suggested === "speed" ||
       QUALITY_REGIMES.has(regime) ||
       Number(policy.problem_streak || 0) >= 2 ||
       (Number(policy.problem_streak || 0) >= 1 && stress > 1.5)

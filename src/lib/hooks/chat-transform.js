@@ -2,7 +2,7 @@
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { createHash } from 'node:crypto';
-import { currentModel, currentProjectFingerprint, currentProjectName, _blackboxEnabled, loadSelection, writeSelection, safeJsonParse, applyDecadence, getSessionScratchpadDir, ensureSessionScratchpadDirs, indexAppend, briefedProjects, getActiveJobForProject, loadTodos, promotedProjectPatterns, detectTechStack, projectFingerprint, TRINITY_OPENCODE_CONFIG, TIERS_FILE, loadGlobalLearning, stableJson, TOOL_NAME_NORMALIZE, } from '../state.js';
+import { currentModel, currentProjectFingerprint, currentProjectName, _blackboxEnabled, loadSelection, writeSelection, safeJsonParse, applyDecadence, getSessionScratchpadDir, ensureSessionScratchpadDirs, indexAppend, briefedProjects, getActiveJobForProject, loadTodos, promotedProjectPatterns, detectTechStack, projectFingerprint, TRINITY_OPENCODE_CONFIG, TIERS_FILE, loadGlobalLearning, setCurrentProjectFingerprint, setCurrentProjectName, stableJson, TOOL_NAME_NORMALIZE, } from '../state.js';
 import { applySlot, TRINITY_CHEAP, TRINITY_MEDIUM, } from '../pricing.js';
 import { scoreStress, classifyTurnSimple, loadOptimizationMode, saveOptimizationMode, selectOptimizationModeRemote, computeControlVector, getBlackboxTracker, loadBlackboxState as loadBlackboxStateFromCtx, saveBlackboxState as saveBlackboxStateToCtx, extractLastUserText, isLikelyOffTopic, fetchBlackboxEnrichment, estimateContextBudget, buildControlHistoryEntry, } from '../turn-classify.js';
 import { applyBudgetFirstMode, peekBudgetFirstMode } from '../mode-policy.js';
@@ -18,6 +18,17 @@ function getVibeOSHome() {
 }
 function getOpenCodeHome() {
     return process.env.VIBEOS_OPENCODE_HOME || join(process.env.HOME || "", ".config", "opencode");
+}
+function ensureProjectContext(hookDirectory) {
+    const resolved = projectFingerprint(hookDirectory || currentProjectFingerprint || process.cwd() || "");
+    if (resolved && resolved !== currentProjectFingerprint)
+        setCurrentProjectFingerprint(resolved);
+    if (hookDirectory) {
+        const name = hookDirectory.split("/").filter(Boolean).pop() || "unknown";
+        if (name && name !== currentProjectName)
+            setCurrentProjectName(name);
+    }
+    return resolved;
 }
 let latestUserIntent = null;
 let _OC_SID = 'opencode-' + (process.pid || 'x') + '-' + Date.now();
@@ -341,6 +352,7 @@ async function trackBlackbox(messages) {
         const localState = tracker.update(latestUserIntent);
         const state = loadBlackboxStateFromCtx();
         const sid = _OC_SID;
+        ensureProjectContext(process.cwd() || "");
         const serialized = tracker.serialize();
         serialized.project_fingerprint = currentProjectFingerprint || "";
         if (!state.sessions[sid])
@@ -520,6 +532,7 @@ export const onSystemTransform = async (_input, output) => {
         });
         const optimizationMode = optimizationDecision.mode;
         let _controlVector = null;
+        ensureProjectContext(hookDirectory);
         if (_latestBlackboxState) {
             const st = latestUserIntent ? scoreStress(latestUserIntent) : 0;
             if (st)
@@ -544,7 +557,7 @@ export const onSystemTransform = async (_input, output) => {
             return;
         const sel = loadSelection();
         syncControlSettings(_controlVector, { persistOptimizationMode: optimizationDecision.shouldPersistRequestedMode });
-        const fp = projectFingerprint(hookDirectory || currentProjectFingerprint || "");
+        const fp = ensureProjectContext(hookDirectory);
         const rawStress = latestUserIntent ? scoreStress(latestUserIntent) : 0;
         const stressScore = rawStress * (_controlVector?.stress_multiplier ?? 1);
         const credit = loadCredit();
