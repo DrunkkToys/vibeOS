@@ -1,8 +1,13 @@
-import { test } from "node:test"
+import { test as nodeTest } from "node:test"
 import assert from "node:assert/strict"
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+
+const test = (name, options, fn) =>
+  typeof options === "function"
+    ? nodeTest(name, { concurrency: false }, options)
+    : nodeTest(name, { concurrency: false, ...(options || {}) }, fn)
 
 async function loadPlugin() {
   return import("../src/index.js?t=" + Date.now())
@@ -132,7 +137,7 @@ test("tigerteam 19: saveReport/listReports/readReport roundtrip in sandbox HOME"
   process.env.HOME = sandboxHome
   try {
     const { saveReport, listReports, readReport } = await loadPlugin()
-    const id = saveReport({ type: "manual", summary: "Tiger team report", tags: ["release"] })
+    const id = saveReport({ type: "manual", summary: `Tiger team report ${Date.now()}`, tags: ["release"] })
     assert.ok(id)
     const listed = listReports({ type: "manual", hours: 168 })
     assert.ok(Array.isArray(listed))
@@ -168,7 +173,7 @@ test("tigerteam 20b: report-read accepts valid alphanumeric ID", async () => {
   process.env.HOME = sandboxHome
   try {
     const { saveReport, readReport } = await loadPlugin()
-    const id = saveReport({ type: "manual", summary: "Test report" })
+    const id = saveReport({ type: "manual", summary: `Test report ${Date.now()}` })
     assert.ok(id)
     const report = readReport(id)
     assert.ok(report)

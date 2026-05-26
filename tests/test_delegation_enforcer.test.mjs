@@ -1368,6 +1368,19 @@ test("text.complete: no longer writes session-reports.log", async () => {
 
 // ── new: modelToSlotLabel uses effectiveTier (brain-slot override) ────────────
 test("text.complete: sonnet-as-brain footer shows correct model name (effectiveTier fix)", async () => {
+  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+    trinity: {
+      brain:  { oc: "anthropic/claude-sonnet-4-6" },
+      medium: { oc: "deepseek/deepseek-v4-flash" },
+      cheap:  { oc: "deepseek/deepseek-chat" },
+    },
+    selection: { enabled: true, active_slot: "brain", delegation_enforce: true },
+    tiers: {
+      high:   { regex: "opus|deepseek.*v4.*pro" },
+      mid:    { regex: "claude.*sonnet|sonnet|deepseek.*v4.*flash" },
+      budget: { regex: ".*" },
+    },
+  }))
   const { DelegationEnforcer, readReport, loadSelection, saveReport } = await loadPlugin()
   const dir = join(sandbox, ".opencode-sonneticon")
   mkdirSync(dir, { recursive: true })
@@ -1461,8 +1474,8 @@ test("tool.execute.after: pendingUiNote consumed once — no double-inject on se
   // Second after-hook call without a preceding before — pendingUiNote must be null.
   const second = { result: "Written again." }
   await hooks["tool.execute.after"]({ tool: "write", args: { filePath: "/tmp/b.py" } }, second)
-  assert.ok(!second.result.includes("[vibeOS]"),
-    "second call: note NOT injected (pendingUiNote was cleared after first consumption)")
+  assert.ok(!second.result.includes("delegate via Task"),
+    "second call: delegation note NOT injected (pendingUiNote was cleared after first consumption)")
 })
 
 // ════════════════════════════════════════════════════════════════════════════

@@ -47,7 +47,7 @@ import { computeDifficulty, cascadeDecide, createPatternGraph, ensureNode, addRo
 import { createCacheDatabase, addCacheEntry, recordCacheStats, predictCacheHit, compositeSimilarity, evictStaleEntries, deserializeCacheDb } from '../../vibeOS-lib/smart-cache.js'
 import { buildTestReminder, enforceTestFile } from '../tdd-enforcer.js'
 import { setActiveJobFromTaskPrompt, observeToolPattern, compressText, recordSaving } from '../index-helpers.js'
-import { scoreTaskQuality } from './footer.js'
+import { scoreTaskQuality, readRewardSignals } from './footer.js'
 import { checkFlowRules as _checkFlowRules, recordFlowTodo } from '../../vibeOS-lib/flow-enforcer.js'
 import { SAVE_EST, WARN_ON_DIRECT, SOFT_QUOTA, FREE, MONITOR } from "../constants.js"
 
@@ -569,7 +569,8 @@ export const onToolExecuteAfter = async (input, output) => {
       // ── Generate footer alert (prepended to tool result, visible in chat) ──
       let _footerText = ""
       try {
-        const { ltTasks, ltCache, ltCost, sesTrend, sesModelTurns } = readLifetimeSavings()
+        const { ltTasks, ltCache, ltCost, sesTrend, sesModelTurns, sesRatePerHour, quality_avg } = readLifetimeSavings()
+        const { stableStreak, problemStreak } = readRewardSignals()
         const ltTotal = ltTasks + ltCache
         const trendIcon = sesTrend === "down" ? "↓" : sesTrend === "up" ? "↑" : "→"
         const selNow = loadSelection()
@@ -603,6 +604,14 @@ export const onToolExecuteAfter = async (input, output) => {
           _footerText = `vibeOS: ${formatUsd(ltTotal)} saved ${trendIcon} | ${statusLine}${stressTag}\n\n`
         } else {
           _footerText = `${statusLine}${stressTag}\n\n`
+        }
+        const rewardBits = []
+        if (sesRatePerHour > 0) rewardBits.push(`pace ${formatUsd(sesRatePerHour)}/hr`)
+        if (quality_avg > 0) rewardBits.push(`quality ${Math.round(quality_avg)}%`)
+        if (stableStreak > 0) rewardBits.push(`streak ${stableStreak}`)
+        else if (problemStreak > 0) rewardBits.push(`recovery ${problemStreak}`)
+        if (rewardBits.length > 0) {
+          _footerText = _footerText.replace(/\n\n$/, ` | ${rewardBits.join(" | ")}\n\n`)
         }
         output.title = _footerText.trim()
         if (typeof output?.output === "string") output.output = _footerText + output.output

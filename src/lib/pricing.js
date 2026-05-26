@@ -33,7 +33,9 @@ function getVibeOSHome() {
 function getOpenCodeHome() {
     return process.env.VIBEOS_OPENCODE_HOME || join(process.env.HOME || homedir(), ".config", "opencode");
 }
-const TIERS_FILE = join(getVibeOSHome(), "model-tiers.json");
+function getTiersFile() {
+    return join(getVibeOSHome(), "model-tiers.json");
+}
 function _handleStateCorruption(path) {
     const backupDir = join(getVibeOSHome(), ".backups");
     mkdirSync(backupDir, { recursive: true });
@@ -194,6 +196,7 @@ const MODEL_USD_PER_TURN = {
 };
 let _pricingOverridesCache = null;
 let _pricingOverridesLoadedAt = 0;
+let _pricingOverridesLoadedPath = "";
 const TURN_BLEND_INPUT_TOKENS = 700;
 const TURN_BLEND_OUTPUT_TOKENS = 300;
 let _dynamicPricingCache = null;
@@ -294,7 +297,8 @@ function _getNormalizedCostMap() {
 }
 function _loadPricingOverrides() {
     const now = Date.now();
-    if (_pricingOverridesCache && (now - _pricingOverridesLoadedAt) < 10_000)
+    const TIERS_FILE = getTiersFile();
+    if (_pricingOverridesCache && (now - _pricingOverridesLoadedAt) < 10_000 && _pricingOverridesLoadedPath === TIERS_FILE)
         return _pricingOverridesCache;
     _pricingOverridesLoadedAt = now;
     try {
@@ -333,10 +337,12 @@ function _loadPricingOverrides() {
                 out[bare] = cost;
         }
         _pricingOverridesCache = out;
+        _pricingOverridesLoadedPath = TIERS_FILE;
     }
     catch {
         _handleStateCorruption(TIERS_FILE);
         _pricingOverridesCache = {};
+        _pricingOverridesLoadedPath = TIERS_FILE;
     }
     return _pricingOverridesCache;
 }
@@ -518,6 +524,209 @@ function readOpenCodeConfigObject(dir) {
     }
     return {};
 }
+function readOpenCodeProviders() {
+    try {
+        const merged = {};
+        const dirs = [join(process.cwd(), "."), getOpenCodeHome()];
+        for (const dir of dirs) {
+            const cfg = readOpenCodeConfigObject(dir);
+            const providers = cfg?.provider || {};
+            for (const [providerName, providerCfg] of Object.entries(providers)) {
+                if (!merged[providerName])
+                    merged[providerName] = {};
+                merged[providerName] = {
+                    ...merged[providerName],
+                    ...providerCfg,
+                    models: {
+                        ...(merged[providerName]?.models || {}),
+                        ...(providerCfg?.models || {}),
+                    },
+                };
+            }
+        }
+        return merged;
+    }
+    catch {
+        return {};
+    }
+}
+function collectConfiguredProviderModels(providers) {
+    const all = [];
+    const seen = new Set();
+    for (const [providerName, cfg] of Object.entries(providers || {})) {
+        const models = cfg?.models || {};
+        for (const rawId of Object.keys(models)) {
+            const id = String(rawId || "").trim();
+            if (!id)
+                continue;
+            const fullId = id.includes("/") ? id : `${providerName}/${id}`;
+            if (seen.has(fullId))
+                continue;
+            seen.add(fullId);
+            all.push({
+                id: fullId,
+                provider: providerName,
+                cost: modelCostPerTurn(fullId) ?? 0,
+                tier: classify(fullId),
+            });
+        }
+    }
+    return all;
+}
+function rankTrinityCandidates(models) {
+    const tierRank = (tier) => tier === "high" ? 3 : tier === "mid" ? 2 : 1;
+    return [...models].sort((a, b) => tierRank(b.tier) - tierRank(a.tier) ||
+        Number(b.cost || 0) - Number(a.cost || 0) ||
+        String(a.id).localeCompare(String(b.id)));
+}
+function modelToCcAliasLocal(modelId) {
+    if (!modelId)
+        return "haiku";
+    let m = String(modelId).toLowerCase()
+        .replace(/\./g, "-")
+        .replace(/^(openrouter|opencode|deepseek|anthropic|google)\//, "");
+    m = m.replace(/^(anthropic|google|openai|meta-llama|mistralai|qwen)\//, "");
+    const map = {
+        "deepseek-v4-pro": "deepseek-reasoner",
+        "deepseek-v4-flash": "haiku",
+        "deepseek-chat": "haiku",
+        "deepseek-reasoner": "deepseek-reasoner",
+        "deepseek-r1": "deepseek-reasoner",
+        "sonnet": "sonnet",
+        "claude-sonnet": "sonnet",
+        "opus": "opus",
+        "claude-opus": "opus",
+        "haiku": "haiku",
+        "claude-haiku": "haiku",
+        "gemini": "sonnet",
+        "gpt": "sonnet",
+        "qwq": "sonnet",
+    };
+    if (map[m])
+        return map[m];
+    if (m.length < 3)
+        return "haiku";
+    if (/opus|sonnet|haiku|reasoner|reasoning|gemini|gpt|qwq|deepseek/i.test(m)) {
+        if (m.includes("opus"))
+            return "opus";
+        if (m.includes("sonnet"))
+            return "sonnet";
+        if (m.includes("haiku"))
+            return "haiku";
+        if (m.includes("reason"))
+            return "deepseek-reasoner";
+        if (m.includes("gemini"))
+            return "sonnet";
+        if (m.includes("gpt"))
+            return "sonnet";
+        if (m.includes("qwq"))
+            return "sonnet";
+        if (m.includes("deepseek"))
+            return "haiku";
+    }
+    return "haiku";
+}
+export function syncTrinityCatalogFromModel(directory, selectedModel, reason = "refresh") {
+    try {
+        const model = String(selectedModel || "").trim();
+        if (!model || PLACEHOLDER_RE.test(model))
+            return false;
+        const TIERS_FILE = join(getVibeOSHome(), "model-tiers.json");
+        const providers = readOpenCodeProviders();
+        const candidates = collectConfiguredProviderModels(providers)
+            .filter((entry) => entry?.id && entry.id !== model && !PLACEHOLDER_RE.test(entry.id));
+        const current = existsSync(TIERS_FILE)
+            ? safeJsonParse(readFileSync(TIERS_FILE, "utf-8")) || {}
+            : {};
+        const existing = current?.trinity || {};
+        const ranked = rankTrinityCandidates(candidates);
+        const existingBrain = String(existing.brain?.oc || "").trim();
+        const existingMedium = String(existing.medium?.oc || "").trim();
+        const existingCheap = String(existing.cheap?.oc || "").trim();
+        const hasBrain = !!existingBrain && !PLACEHOLDER_RE.test(existingBrain);
+        const hasMedium = !!existingMedium && !PLACEHOLDER_RE.test(existingMedium);
+        const hasCheap = !!existingCheap && !PLACEHOLDER_RE.test(existingCheap);
+        const nextBrain = hasBrain ? existingBrain : model;
+        const nextMedium = hasMedium
+            ? existingMedium
+            : ranked.find((entry) => entry.id !== nextBrain)?.id || nextBrain;
+        const nextCheap = hasCheap
+            ? existingCheap
+            : ranked.find((entry) => entry.id !== nextBrain && entry.id !== nextMedium)?.id || nextMedium || nextBrain;
+        const activeSlot = Object.entries(existing).find(([, entry]) => entry?.oc === model)?.[0]
+            || "brain";
+        const next = {
+            ...current,
+            selection: { ...(current?.selection || {}) },
+            trinity: { ...(current?.trinity || {}) },
+        };
+        next.selection.enabled = current?.selection?.enabled !== false;
+        next.selection.active_slot = activeSlot;
+        next.selection.delegation_enforce = next.selection.delegation_enforce !== false;
+        next.selection.flow_enabled = next.selection.flow_enabled === true;
+        next.selection.flow_enforce = next.selection.flow_enforce === true;
+        next.selection.tdd_enforce = next.selection.tdd_enforce === true;
+        next.selection.tdd_strict = next.selection.tdd_strict === true;
+        next.selection.tdd_quality = next.selection.tdd_quality !== false;
+        next.selection.thinking_level = next.selection.thinking_level || "off";
+        next.trinity.brain = { oc: nextBrain, cc: modelToCcAliasLocal(nextBrain) };
+        if (nextMedium)
+            next.trinity.medium = { oc: nextMedium, cc: modelToCcAliasLocal(nextMedium) };
+        if (nextCheap)
+            next.trinity.cheap = { oc: nextCheap, cc: modelToCcAliasLocal(nextCheap) };
+        const before = JSON.stringify(current);
+        const after = JSON.stringify(next);
+        if (before === after)
+            return false;
+        mkdirSync(dirname(TIERS_FILE), { recursive: true });
+        if (existsSync(TIERS_FILE)) {
+            const backupPath = TIERS_FILE + ".bak-" + Date.now();
+            try {
+                writeFileSync(backupPath, readFileSync(TIERS_FILE));
+            }
+            catch { }
+        }
+        const tmp = TIERS_FILE + ".tmp." + Date.now();
+        writeFileSync(tmp, JSON.stringify(next, null, 2) + "\n", "utf-8");
+        renameSync(tmp, TIERS_FILE);
+        setTrinityBrain(nextBrain);
+        setTrinityMedium(next.trinity.medium?.oc || null);
+        setTrinityCheap(next.trinity.cheap?.oc || null);
+        console.error(`[vibeOS] trinity sync (${reason}) → brain=${nextBrain} medium=${next.trinity.medium?.oc || ""} cheap=${next.trinity.cheap?.oc || ""} slot=${activeSlot}`);
+        return true;
+    }
+    catch (err) {
+        console.error(`[vibeOS] trinity sync failed (${reason}): ${err.message}`);
+        return false;
+    }
+}
+function _setTrinitySlotsFromTiers(tiersData) {
+    const brain = String(tiersData?.trinity?.brain?.oc || "").trim();
+    const medium = String(tiersData?.trinity?.medium?.oc || "").trim();
+    const cheap = String(tiersData?.trinity?.cheap?.oc || "").trim();
+    setTrinityBrain(brain && !PLACEHOLDER_RE.test(brain) ? brain : null);
+    setTrinityMedium(medium && !PLACEHOLDER_RE.test(medium) ? medium : null);
+    setTrinityCheap(cheap && !PLACEHOLDER_RE.test(cheap) ? cheap : null);
+    return { brain: TRINITY_BRAIN, medium: TRINITY_MEDIUM, cheap: TRINITY_CHEAP };
+}
+export function loadTrinitySlotsFromTiersFile() {
+    try {
+        const TIERS_FILE = getTiersFile();
+        if (!existsSync(TIERS_FILE))
+            return false;
+        const st = statSync(TIERS_FILE);
+        if (st.size > 10485760) {
+            _handleStateCorruption(TIERS_FILE);
+            return false;
+        }
+        const tiersData = safeJsonParse(readFileSync(TIERS_FILE, "utf-8")) || {};
+        _setTrinitySlotsFromTiers(tiersData);
+        return true;
+    }
+    catch {
+        return false;
+    }
+}
 // Refresh currentModel/currentTier from disk config.
 // Called per-hook so trinity slot changes take effect without restart.
 export const PLACEHOLDER_RE = /^[^/]+\/[a-z-]+-model$/i;
@@ -537,6 +746,7 @@ export function _refreshModel(directory) {
         if (!sel.enabled)
             return;
         const tiersData = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"));
+        _setTrinitySlotsFromTiers(tiersData);
         const slotOrder = getTrinitySlotOrder(tiersData);
         const activeSlot = slotOrder.includes(sel.active_slot) ? sel.active_slot : (slotOrder[0] || "brain");
         let slotOcModel = tiersData?.trinity?.[activeSlot]?.oc || "";
@@ -579,31 +789,34 @@ export function _refreshModel(directory) {
                 setCurrentModel(cfgModel);
                 setCurrentTier(classify(cfgModel));
                 console.error(`[vibeOS] model refresh (config): ${oldModel}(${oldTier}) → ${currentModel}(${currentTier})`);
-                try {
-                    if (existsSync(TIERS_FILE)) {
-                        const t = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"));
-                        for (const s of getTrinitySlotOrder(t)) {
-                            if (t?.trinity?.[s]?.oc === cfgModel) {
-                                t.selection.active_slot = s;
-                                const _tmp = TIERS_FILE + ".tmp." + Date.now();
-                                writeFileSync(_tmp, JSON.stringify(t, null, 2) + "\n", "utf-8");
-                                renameSync(_tmp, TIERS_FILE);
-                                console.error(`[vibeOS] model refresh (config): synced active_slot → ${s}`);
-                                break;
-                            }
-                        }
-                    }
-                }
-                catch { }
             }
         }
     }
     catch { }
 }
-export function applySlot(slot) {
+export function applySlot(slot, options = {}) {
     try {
+        const mutateDesktopConfig = options.mutateDesktopConfig !== false;
         const TIERS_FILE = join(getVibeOSHome(), "model-tiers.json");
-        const j = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"));
+        const j = existsSync(TIERS_FILE)
+            ? (safeJsonParse(readFileSync(TIERS_FILE, "utf-8")) || {})
+            : {
+                selection: {
+                    enabled: true,
+                    active_slot: slot,
+                    delegation_enforce: true,
+                    flow_enabled: false,
+                    flow_enforce: false,
+                    tdd_enforce: false,
+                    tdd_strict: false,
+                    tdd_quality: true,
+                    thinking_level: "off",
+                    onboarding_mode: "assist",
+                },
+                trinity: {},
+            };
+        j.selection ??= {};
+        j.trinity ??= {};
         const ocModel = j?.trinity?.[slot]?.oc;
         if (!ocModel)
             return { ok: false, reason: `slot '${slot}' has no oc model` };
@@ -611,15 +824,17 @@ export function applySlot(slot) {
         const _tmp = TIERS_FILE + ".tmp." + Date.now();
         writeFileSync(_tmp, JSON.stringify(j, null, 2) + "\n", "utf-8");
         renameSync(_tmp, TIERS_FILE);
-        // Prefer project-local config to avoid mutating global provider/dropdown config.
-        const localOcConfig = join(process.cwd(), "opencode.json");
-        const ocConfig = existsSync(localOcConfig)
-            ? localOcConfig
-            : join(getOpenCodeHome(), "opencode.json");
-        if (existsSync(ocConfig)) {
-            const oc = safeJsonParse(readFileSync(ocConfig, "utf-8"));
-            oc.model = ocModel;
-            writeFileSync(ocConfig, JSON.stringify(oc, null, 2) + "\n");
+        if (mutateDesktopConfig) {
+            // Prefer project-local config to avoid mutating global provider/dropdown config.
+            const localOcConfig = join(process.cwd(), "opencode.json");
+            const ocConfig = existsSync(localOcConfig)
+                ? localOcConfig
+                : join(getOpenCodeHome(), "opencode.json");
+            if (existsSync(ocConfig)) {
+                const oc = safeJsonParse(readFileSync(ocConfig, "utf-8"));
+                oc.model = ocModel;
+                writeFileSync(ocConfig, JSON.stringify(oc, null, 2) + "\n");
+            }
         }
         _refreshModel(process.cwd());
         return { ok: true, ocModel };

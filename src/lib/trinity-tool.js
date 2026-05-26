@@ -18,9 +18,10 @@ export function createTrinityTool(deps) {
             "Use action='project' to show per-project analytics and optimization suggestions. " +
             "Use action='patterns' to inspect learned project patterns or slot='clear' to clear them. " +
             "Use action='guard' to ensure AGENTS.md and README.md exist and stay current. Use action='api-token' with token='<new_token>' to update the API token and re-enable remote control-vector " +
+            "Use action='api-bootstrap-token' with token='<new_token>' to store an alpha bootstrap token and exchange it for a normal API token on alpha builds. " +
             "Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', 'trinity status'.",
         args: {
-            action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "setup", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard", "api-token", "todo", "todo-done", "todo-sync"]).optional(),
+            action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "setup", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard", "api-token", "api-bootstrap-token", "todo", "todo-done", "todo-sync"]).optional(),
             slot: deps.tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings"]).optional(),
             level: deps.tool.schema.enum(["full", "brief", "off", "on"]).optional(),
             token: deps.tool.schema.string().optional(),
@@ -705,6 +706,15 @@ export function createTrinityTool(deps) {
                     return "Usage: trinity api-token <token>\nProvide a valid VIBEOS_API_TOKEN to enable remote control-vector computation.";
                 deps.setApiToken(token);
                 return "[vibeOS] API token updated. Remote API re-enabled.";
+            }
+            if (action === "api-bootstrap-token") {
+                if (!token)
+                    return "Usage: trinity api-bootstrap-token <token>\nProvide an alpha bootstrap token to exchange for a normal API token on alpha builds.";
+                deps.setApiBootstrapToken(token);
+                const ok = typeof deps.ensureBootstrapExchange === "function" ? await deps.ensureBootstrapExchange() : false;
+                if (ok)
+                    return "[vibeOS] Alpha bootstrap token exchanged successfully. Remote API re-enabled.";
+                return "[vibeOS] Alpha bootstrap token saved. Remote API will retry the exchange on the next call.";
             }
             if (action === "rebuild") {
                 const providers = deps._loadOpenCodeProviders();

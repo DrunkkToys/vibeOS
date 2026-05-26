@@ -24,7 +24,10 @@ const PRICING_CACHE_FILE = join(VIBEOS_HOME, "model-pricing-cache.json");
 const BLACKBOX_STATE_FILE = join(VIBEOS_HOME, "blackbox-state.json");
 const PROJECT_STATE_FILE = join(VIBEOS_HOME, "project-states.json");
 const TIERS_FILE = join(VIBEOS_HOME, "model-tiers.json");
-const ACTIVE_JOBS_FILE = join(VIBEOS_HOME, "active-jobs.json");
+function getActiveJobsFile() {
+    return join(getVibeOSHome(), "active-jobs.json");
+}
+const ACTIVE_JOBS_FILE = getActiveJobsFile();
 const AUTH_F = join(USER_HOME, ".local", "share", "opencode", "auth.json");
 const CREDIT_CACHE_F = join(VIBEOS_HOME, "credit-snapshot.json");
 const FLOW_TODO_QUEUE_FILE = join(VIBEOS_HOME, ".flow-todo-queue.jsonl");
@@ -1106,6 +1109,7 @@ function pruneScratchpadOnce() {
 }
 // ── Active jobs ──────────────────────────────────────────────────────
 function loadActiveJobs() {
+    const ACTIVE_JOBS_FILE = getActiveJobsFile();
     try {
         if (!existsSync(ACTIVE_JOBS_FILE))
             return {};
@@ -1137,6 +1141,7 @@ function saveActiveJobForProject(job, fp = currentProjectFingerprint) {
     if (!fp || !job || typeof job !== "object")
         return;
     try {
+        const ACTIVE_JOBS_FILE = getActiveJobsFile();
         const jobs = loadActiveJobs();
         jobs[fp] = job;
         mkdirSync(dirname(ACTIVE_JOBS_FILE), { recursive: true });
@@ -1148,6 +1153,7 @@ function saveActiveJobForProject(job, fp = currentProjectFingerprint) {
 }
 function saveJobRecord(jobId, record) {
     try {
+        const ACTIVE_JOBS_FILE = getActiveJobsFile();
         const jobs = loadActiveJobs();
         jobs[jobId] = record;
         mkdirSync(dirname(ACTIVE_JOBS_FILE), { recursive: true });

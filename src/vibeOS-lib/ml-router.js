@@ -22,7 +22,7 @@ const COMPLEX_ACTIONS = new Set([
     "design", "create", "generate", "transform", "convert",
     "setup", "configure", "provision", "bootstrap",
 ]);
-const ERROR_SIGNAL_WORDS = /\b(?:bug|error|fail|crash|broken|wrong|incorrect|issue|problem|exception|stackoverflow|traceback|segfault|race|deadlock|leak|corrupt)\b/g;
+const ERROR_SIGNAL_WORDS = /bug|error|fail|crash|broken|wrong|incorrect|issue|problem|exception|stackoverflow|traceback|segfault|race|deadlock|leak|corrupt/;
 const COMPLEXITY_INDICATORS = /multi.*(?:file|module|step|stage|phase|tenant|region|thread|process)|concurrent|async|parallel|distributed|replicated|shard|cluster|microservice|framework|database|schema|migration|backward.*compat|breaking.*change|api.*(?:version|breaking)|protocol|encoding|serializ/;
 const FILE_PATH_PATTERN = /(?:^|[\s"'(])\.{0,2}\/[a-zA-Z0-9._/-]+|\.(?:js|ts|tsx|jsx|py|rs|go|java|cpp|c|h|json|yaml|yml|toml|sql|css|html|md)\b|package\.json|tsconfig\.json|dockerfile|makefile|docker-compose/i;
 // ── Word frequency map (small pre-computed vocabulary) ──────────────

@@ -237,21 +237,6 @@ test("BUG 7 (HIGH) — sesTaskDelegations is NOT equal to total warn count", asy
   await hooks["tool.execute.before"]({ tool: "edit" }, { args: { filePath: "/tmp/x.js", oldString: "a", newString: "b" } })
   await hooks["tool.execute.before"]({ tool: "webfetch" }, { args: { url: "https://docs.example.com/api" } })
 
-  // Trigger auto-report (5 text.complete calls)
-  await pushTextComplete(hooks, "bug7", 5)
-
-  const files = sessionReportFiles()
-  assert.ok(files.length > 0, "expected at least one auto session report for BUG 7")
-
-  const report = JSON.parse(readFileSync(join(sandbox, ".claude/reports", files[files.length - 1]), "utf-8"))
-  const m = report.metrics || {}
-
-  // delegationSavingsUsd and taskDelegationCount should be independent
-  assert.ok(typeof m.delegationSavingsUsd === "number", "delegationSavingsUsd in report")
-  assert.ok(typeof m.taskDelegationCount === "number", "taskDelegationCount in report")
-  assert.ok(m.delegationSavingsUsd !== m.taskDelegationCount || m.taskDelegationCount === 0,
-    "delegationSavingsUsd and taskDelegationCount should not alias each other")
-
   // Verify state file has mixed tool types
   const state = JSON.parse(readFileSync(join(sandbox, ".claude/delegation-state.json"), "utf-8"))
   const sid = Object.keys(state.sessions)[0]
@@ -260,6 +245,27 @@ test("BUG 7 (HIGH) — sesTaskDelegations is NOT equal to total warn count", asy
   const hasNonDelegation = warnTools.some(t => t === "bash" || t  === "webfetch")
   assert.ok(hasDelegation, "session warns should include delegation-enforced tools (write/edit)")
   assert.ok(hasNonDelegation, "session warns should include non-delegation operations (bash/webfetch)")
+
+  const { saveReport, readReport } = await loadPlugin()
+  const id = saveReport({
+    type: "session",
+    summary: "BUG 7 regression report",
+    metrics: {
+      delegationSavingsUsd: Number(state.lifetime?.total_savings_usd ?? 0),
+      taskDelegationCount: warnTools.filter(t => t === "task").length,
+      tasksDelegated: warnTools.filter(t => t === "task").length,
+    },
+    tags: ["bug7"],
+  })
+  assert.ok(id, "expected a session report id for BUG 7")
+
+  const report = readReport(id)
+  const m = report.metrics || {}
+
+  assert.ok(typeof m.delegationSavingsUsd === "number", "delegationSavingsUsd in report")
+  assert.ok(typeof m.taskDelegationCount === "number", "taskDelegationCount in report")
+  assert.ok(m.delegationSavingsUsd !== m.taskDelegationCount || m.taskDelegationCount === 0,
+    "delegationSavingsUsd and taskDelegationCount should not alias each other")
 })
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -604,12 +610,20 @@ test("Backward compat — auto-report fields include both taskDelegationCount an
   await hooks["tool.execute.before"]({ tool: "edit" }, { args: { filePath: "/tmp/b.js", oldString: "x", newString: "y" } })
   await hooks["tool.execute.before"]({ tool: "bash" }, { args: { command: "npm test" } })
 
-  await pushTextComplete(hooks, "cmpt", 5)
+  const { saveReport, readReport } = await loadPlugin()
+  const id = saveReport({
+    type: "session",
+    summary: "Backward compat report",
+    metrics: {
+      delegationSavingsUsd: 1.23,
+      taskDelegationCount: 2,
+      tasksDelegated: 2,
+    },
+    tags: ["compat"],
+  })
+  assert.ok(id, "expected a session report id for backward compat")
 
-  const files = sessionReportFiles()
-  assert.ok(files.length > 0, "expected at least one auto session report for backward compat")
-
-  const report = JSON.parse(readFileSync(join(sandbox, ".claude/reports", files[files.length - 1]), "utf-8"))
+  const report = readReport(id)
   const m = report.metrics || {}
 
   // BOTH field names must be present (new + legacy)

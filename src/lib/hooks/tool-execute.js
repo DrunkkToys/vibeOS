@@ -232,6 +232,10 @@ export const onToolExecuteBefore = async (input, output) => {
         cache_hit: false,
     };
     _pendingTelemetryStarts.push(telemetryStart);
+    const setPendingUiNote = (note) => {
+        pendingUiNote = note;
+        telemetryStart.uiNote = note;
+    };
     let _cacheSave = 0;
     let _prompt = "";
     // Scratchpad observation (all tiers) — read-only, never blocks.
@@ -436,7 +440,7 @@ export const onToolExecuteBefore = async (input, output) => {
             _mutateBlockedToolArgs(t, argSources, checkPath, output);
             if (shouldLogWarn(`${t}|protect|${checkPath}`))
                 console.error(`[vibeOS] [protection] BLOCKED direct ${t} in self-protected directory: ${checkPath}`);
-            pendingUiNote = `🛡 Self-modification blocked: ${basename(checkPath)} is in a protected project tree. Use manual git workflow.`;
+            setPendingUiNote(`🛡 Self-modification blocked: ${basename(checkPath)} is in a protected project tree. Use manual git workflow.`);
             enforcementBlocked = true;
             return;
         }
@@ -448,7 +452,7 @@ export const onToolExecuteBefore = async (input, output) => {
         const msg = `⚠ [vibeOS] Credit: ${_credit}% — switching to medium saves ~$${_estOpus.toFixed(3)}/turn. Run \`trinity medium\`.`;
         if (shouldLogWarn(`${t}|credit|${_tierWord}`))
             console.error(`[vibeOS] [delegation] ${msg}`);
-        pendingUiNote = msg;
+        setPendingUiNote(msg);
         return;
     }
     // Write/Edit/NotebookEdit: enforce delegation on high tier when delegation_enforce is on.
@@ -470,7 +474,7 @@ export const onToolExecuteBefore = async (input, output) => {
             if (isBlocked) {
                 _mutateBlockedToolArgs(tLower, argSources, originalPath, output);
                 const total = recordSaving(t, "delegation enforced", savings, { firstWord: _firstWord });
-                pendingUiNote = `🚫 Direct ${t} blocked on Brain tier → delegate via Task or run \`trinity medium\`.`;
+                setPendingUiNote(`[vibeOS] 🚫 Brain tier direct ${t} blocked → delegate via Task or run \`trinity medium\`.`);
                 enforcementBlocked = true;
                 if (shouldLogWarn(`${t}|enforced|${_tierWord}`))
                     console.error(`[vibeOS] [enforcement] BLOCKED direct ${t} on high tier → delegate via Task`);
@@ -482,7 +486,7 @@ export const onToolExecuteBefore = async (input, output) => {
             const msg = `[vibeOS] ${_tierWord} tier direct ${t} — save ~$${_estEdit.toFixed(3)} by delegating to Task. Run \`trinity medium\`.`;
             if (shouldLogWarn(`${t}|direct|${_tierWord}`))
                 console.error(`[vibeOS] [delegation] ${msg}`);
-            pendingUiNote = msg;
+            setPendingUiNote(msg);
             return;
         }
     }
@@ -531,9 +535,9 @@ export const onToolExecuteBefore = async (input, output) => {
 };
 export const onToolExecuteAfter = async (input, output) => {
     _refreshModel(projectDirectory);
+    const telemetryStart = _dequeueTelemetryStart(input?.tool);
     try {
-        const start = _dequeueTelemetryStart(input?.tool);
-        if (start) {
+        if (telemetryStart) {
             const outputText = typeof output?.result === "string" ? output.result
                 : typeof output?.text === "string" ? output.text
                     : typeof output?.content === "string" ? output.content
@@ -546,14 +550,14 @@ export const onToolExecuteAfter = async (input, output) => {
             recordPrivacyTelemetry({
                 session_id: _OC_SID,
                 tool: input?.tool ?? "unknown",
-                tier: start.tier || currentTier || "unknown",
-                slot: start.slot || loadSelection().active_slot || "unknown",
-                kind: start.kind || _toolKind(input?.tool, input?.args || {}),
-                prompt_size_bucket: start.prompt_size_bucket || "unknown",
+                tier: telemetryStart.tier || currentTier || "unknown",
+                slot: telemetryStart.slot || loadSelection().active_slot || "unknown",
+                kind: telemetryStart.kind || _toolKind(input?.tool, input?.args || {}),
+                prompt_size_bucket: telemetryStart.prompt_size_bucket || "unknown",
                 output_size_bucket: _bucketChars(String(outputText || "").length),
-                duration_bucket: _bucketMs(Date.now() - Number(start.startedAt || Date.now())),
+                duration_bucket: _bucketMs(Date.now() - Number(telemetryStart.startedAt || Date.now())),
                 result,
-                cache_hit: start.cache_hit === true,
+                cache_hit: telemetryStart.cache_hit === true,
                 enforcement: loadSelection().delegation_enforce ? "on" : "off",
                 flow: loadSelection().flow_enforce ? "on" : "off",
                 tdd: loadSelection().tdd_enforce ? "on" : "off",
@@ -700,19 +704,10 @@ export const onToolExecuteAfter = async (input, output) => {
     }
     // Inject pending delegation UI note (set in tool.execute.before).
     // This surfaces the warning in the OC chat transcript, not just stderr.
-    if (pendingUiNote) {
+    const uiNote = pendingUiNote || telemetryStart?.uiNote || null;
+    if (uiNote) {
         if (enforcementBlocked) {
-            if (typeof output?.result === "string")
-                output.result = pendingUiNote;
-            else if (typeof output?.text === "string")
-                output.text = pendingUiNote;
-            else if (typeof output?.content === "string")
-                output.content = pendingUiNote;
-            else
-                output.result = pendingUiNote;
-        }
-        else {
-            const note = `\n\n${pendingUiNote}`;
+            const note = `\n\n${uiNote}`;
             if (typeof output?.result === "string")
                 output.result += note;
             else if (typeof output?.text === "string")
@@ -720,9 +715,22 @@ export const onToolExecuteAfter = async (input, output) => {
             else if (typeof output?.content === "string")
                 output.content += note;
             else
-                output.result = pendingUiNote;
+                output.result = uiNote;
+        }
+        else {
+            const note = `\n\n${uiNote}`;
+            if (typeof output?.result === "string")
+                output.result += note;
+            else if (typeof output?.text === "string")
+                output.text += note;
+            else if (typeof output?.content === "string")
+                output.content += note;
+            else
+                output.result = uiNote;
         }
         pendingUiNote = null;
+        if (telemetryStart)
+            telemetryStart.uiNote = null;
     }
     // Restore original slot after a forced task-slot workaround.
     if (t === "task" && taskSlotRestore) {
