@@ -1,3 +1,6 @@
+## 0.19.9
+- fix: show live run model in footer
+
 ## 0.19.8
 - fix: shorten live footer alerts
 - fix: add /g flag and \b word boundaries to ERROR_SIGNAL_WORDS regex
