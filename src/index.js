@@ -8624,16 +8624,17 @@ async function _appendFooter(input, output, directory3) {
   let _footerStress = 0;
   if (latestUserIntent)
     _footerStress = scoreStress(latestUserIntent);
-  if (!currentModel) {
-    try {
-      const cfg = await client.config.get("model");
-      if (cfg) {
-        setCurrentModel(String(cfg));
-        setCurrentTier(classify(String(cfg)));
+  try {
+    const cfg = await client.config.get("model");
+    if (cfg) {
+      const cfgModel = String(cfg);
+      if (cfgModel !== currentModel) {
+        setCurrentModel(cfgModel);
+        setCurrentTier(classify(cfgModel));
         console.error(`[vibeOS] client-detected model: ${currentModel} (tier=${currentTier})`);
       }
-    } catch {
     }
+  } catch {
   }
   try {
     const messageID = input?.messageID || input?.messageId || input?.message?.id || output?.messageID || output?.messageId || output?.message?.id || null;
@@ -8650,12 +8651,23 @@ async function _appendFooter(input, output, directory3) {
     const sessionSlot = loadSessionSlot(_OC_SID5);
     const slot = sessionSlot || loadSelection3().active_slot || "brain";
     const brainModel = slot === "brain" ? TRINITY_BRAIN || currentModel : slot === "medium" ? TRINITY_MEDIUM || currentModel : TRINITY_CHEAP || currentModel || "";
-    let modelTag = `[${shortModelName(brainModel)}]`;
+    let liveModel = "";
+    try {
+      const cfg = await client.config.get("model");
+      if (cfg)
+        liveModel = String(cfg);
+    } catch {
+    }
+    if (!liveModel) {
+      liveModel = readConfig(directory3) || readConfig(join14(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || "";
+    }
+    const displayModel = liveModel || currentModel || brainModel;
+    let modelTag = `[${shortModelName(displayModel)}]`;
     const _workerModel = slot === "brain" ? TRINITY_MEDIUM : null;
     const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0);
     if (_workerModel && _workerModel !== brainModel) {
       const brainPct = Math.round((sesModelTurns?.brain || 0) / (totalTurns || 1) * 100);
-      modelTag = `[${shortModelName(brainModel)} ${brainPct}% \u2192 ${shortModelName(_workerModel)} ${100 - brainPct}%]`;
+      modelTag = `[${shortModelName(displayModel)} ${brainPct}% \u2192 ${shortModelName(_workerModel)} ${100 - brainPct}%]`;
     }
     _autoReportCount = (_autoReportCount || 0) + 1;
     if (_autoReportCount % 5 === 0) {
@@ -8718,19 +8730,9 @@ async function _appendFooter(input, output, directory3) {
     if (stripped !== text)
       return;
     const ltTotal = ltTasks + ltCache;
-    const modeVerbMap = {
-      balanced: "routing",
-      budget: "saving",
-      quality: "focusing",
-      speed: "moving",
-      longrun: "pacing",
-      auto: "vibing",
-      "web-research": "researching",
-      forensic: "investigating"
-    };
     const optMode = (resolvedMode || "budget").toLowerCase();
-    const modeVerb = modeVerbMap[optMode] || "vibing";
-    let vibeLine = `\u2014 ${flashIcon ? `${flashIcon} ` : ""}${modeVerb} on ${shortModelName(brainModel)}`;
+    const modeLabel = optMode === "quality" ? "quality" : optMode === "speed" ? "speed" : optMode === "longrun" ? "longrun" : "";
+    let vibeLine = `\u2014 ${flashIcon ? `${flashIcon} ` : ""}run: ${shortModelName(displayModel)}`;
     if (ltTotal > 0) {
       vibeLine += ` | $${formatUsd(ltTotal)} saved`;
     }
@@ -8742,6 +8744,8 @@ async function _appendFooter(input, output, directory3) {
     } else if (problemStreak > 0) {
       vibeLine += ` | recovery ${problemStreak}`;
     }
+    if (modeLabel)
+      vibeLine += ` | ${modeLabel}`;
     vibeLine += ` | VIBE${flashIcon ? " \u26A1" : ""}`;
     if (_footerStress > 0.4) {
       const stressLabel = _footerStress > 0.7 ? "high" : "elevated";
@@ -10652,8 +10656,19 @@ var onToolExecuteAfter = async (input, output) => {
         stressTag = ` stress:${label}`;
       }
     }
+    let liveModel = "";
+    try {
+      const cfg = await client.config.get("model");
+      if (cfg)
+        liveModel = String(cfg);
+    } catch {
+    }
+    if (!liveModel) {
+      liveModel = readConfig(projectDirectory) || readConfig(join16(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || "";
+    }
+    const displayModel = liveModel || currentModel;
     if (ltTotal > 0) {
-      _footerText = `\u2014 ${flashIcon ? `${flashIcon} ` : ""}saving on ${shortModelName(currentModel)} | $${formatUsd(ltTotal)} saved | VIBE${flashIcon ? " \u26A1" : ""} \u2014
+      _footerText = `\u2014 ${flashIcon ? `${flashIcon} ` : ""}run: ${shortModelName(displayModel)} | $${formatUsd(ltTotal)} saved | VIBE${flashIcon ? " \u26A1" : ""} \u2014
 
 `;
     } else {
