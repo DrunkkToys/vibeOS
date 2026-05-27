@@ -7,6 +7,8 @@ import { homedir } from "node:os"
 import { isApiConnected as isRuntimeApiConnected, markApiConnected, markApiDisconnected, resetApiConnection } from "./runtime-state.js"
 
 const DEFAULT_API_URL = "https://api.vibetheog.com"
+// Alpha-only onboarding token: intentionally embedded so fresh installs work
+// without manual setup. This is a bootstrap credential, not a secrecy boundary.
 const EMBEDDED_API_TOKEN = "vos_8d73804b13bb46711b9a47f036dba7b4d026fd9583d96960e663716e62815a69"
 const API_TOKEN_RE = /^vos_[a-f0-9]{64}$/i
 const API_DISABLED_RE = /^(1|true|yes|on)$/i

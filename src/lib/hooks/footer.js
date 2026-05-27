@@ -8,7 +8,7 @@ import { peekBudgetFirstMode, recordBudgetFirstOutcome } from "../mode-policy.js
 import { saveReport } from "../reporting.js";
 import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, _modelLocked, _blackboxEnabled, _latestBlackboxState, reconcileStateFromLedger, safeJsonParse, loadBlackboxState } from "../state.js";
 import { loadSessionSlot } from "../selection-manager.js";
-import { remoteCall, VIBEOS_API_ENABLED } from "../api-client.js";
+import { remoteCall, isApiConnected } from "../api-client.js";
 const IS_CLI_RUNTIME = Boolean(process.stdout?.isTTY || process.stderr?.isTTY || process.stdin?.isTTY);
 const IS_TEST_RUNTIME = process.env.VIBEOS_MCP_PORT === "0" || process.env.NODE_ENV === "test" || process.env.CI === "true";
 const FOOTER_DEBUG_STDERR = process.env.VIBEOS_DEBUG_FOOTER === "1" || (!IS_CLI_RUNTIME && !IS_TEST_RUNTIME);
@@ -45,7 +45,9 @@ async function apiAutoSelectMode(regime, stress) {
             return res.mode;
         }
     }
-    catch (e) { footerDebug("[vibeOS] apiAutoSelectMode error:", e.message); }
+    catch (e) {
+        footerDebug("[vibeOS] apiAutoSelectMode error:", e.message);
+    }
     const fallback = regimeToMode(regime, stress);
     if (!_cachedAutoMode || _cachedAutoMode === "balanced")
         _cachedAutoMode = fallback;
@@ -147,15 +149,15 @@ async function _appendFooter(input, output, directory) {
     // Always prefer the live OpenCode model setting when available.
     try {
         const cfg = await client.config.get("model");
-            if (cfg) {
-                const cfgModel = String(cfg);
-                if (cfgModel !== currentModel) {
-                    setCurrentModel(cfgModel);
-                    setCurrentTier(classify(cfgModel));
-                    footerDebug(`[vibeOS] client-detected model: ${currentModel} (tier=${currentTier})`);
-                }
+        if (cfg) {
+            const cfgModel = String(cfg);
+            if (cfgModel !== currentModel) {
+                setCurrentModel(cfgModel);
+                setCurrentTier(classify(cfgModel));
+                footerDebug(`[vibeOS] client-detected model: ${currentModel} (tier=${currentTier})`);
             }
         }
+    }
     catch { /* client.config may not be available */ }
     try {
         const messageID = input?.messageID ||
@@ -226,7 +228,9 @@ async function _appendFooter(input, output, directory) {
                     tags: ["auto", "cost"],
                 });
             }
-            catch (e) { footerDebug("[vibeOS] auto-report:", e.message); }
+            catch (e) {
+                footerDebug("[vibeOS] auto-report:", e.message);
+            }
         }
         // Enforcement state tags for footer — dynamically adjusted by control vector
         const selNowFooter = loadSelection();
@@ -253,7 +257,7 @@ async function _appendFooter(input, output, directory) {
             enfSuffixFooter = ` QA:${Math.round(quality_avg)}% ${enfTagsFooter.join(" ")}`;
         }
         // Optimization mode resolver — keep the dopamine footer format.
-        const flashIcon = VIBEOS_API_ENABLED ? "⚡" : "";
+        const flashIcon = isApiConnected() ? "⚡" : "";
         const resolvedMode = peekBudgetFirstMode({
             requestedMode: optModeFooter,
             subRegime: _latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""),
