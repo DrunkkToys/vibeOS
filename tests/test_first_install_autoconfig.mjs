@@ -187,3 +187,44 @@ test("first install: does NOT overwrite existing model-tiers.json with real mode
     rmSync(sb, { recursive: true, force: true })
   }
 })
+
+// ── Regression: footer dedup — _appendFooter strips existing vibeOS footer ──
+test("regression: _appendFooter strips existing vibeOS footer to prevent double footer", async () => {
+  const { _appendFooter } = await import("../src/lib/hooks/footer.js?t=" + Date.now())
+  const textWithFooter = `Hello world
+
+— ⚡ Quality: Brain | Provider: DeepSeek | Model: ds-pro | .23 saved | VIBE ⚡ —`
+  const output = { text: textWithFooter }
+  await _appendFooter({ messageID: "test" }, output, join(sandbox, "my-test-project"))
+  const matches = String(output.text || "").match(/VIBE/g)
+  assert.ok(matches, "footer should contain VIBE")
+  assert.equal(matches.length, 1, "must NOT contain duplicate VIBE footers")
+})
+
+// ── Regression: footer shows slot model not stale currentModel ──
+test("regression: footer shows slot model not stale currentModel", async () => {
+  const { DelegationEnforcer } = await loadPlugin()
+  const { setCurrentModel } = await import("../src/lib/state.js?t=" + Date.now())
+  setCurrentModel("deepseek/deepseek-chat")
+  const hooks = await DelegationEnforcer({ client: {}, directory: join(sandbox, "my-test-project") })
+  const envOut = { env: {} }
+  await hooks["shell.env"]({}, envOut)
+  assert.equal(envOut.env.OPENCODE_MODEL, "deepseek/deepseek-v4-pro", "model must be slot model, not stale")
+  assert.equal(envOut.env.OPENCODE_MODEL_TIER, "high", "tier must stay high")
+})
+
+// ── Regression: no [vibeOS] [delegation] stderr in CLI mode ──
+test("regression: no [vibeOS] [delegation] stderr in CLI mode by default", async () => {
+  const { spawnSync } = await import("node:child_process")
+  const result = spawnSync(process.execPath, [
+    "--input-type=module",
+    "-e", "import('../src/index.js?t='+Date.now())"
+  ], {
+    env: { ...process.env, HOME: sandbox, VIBEOS_DEBUG_DELEGATION: "" },
+    cwd: import.meta.dirname || __dirname,
+    timeout: 10000
+  })
+  const lines = (result.stderr.toString() + result.stdout.toString()).split('\n').filter(l => l.includes('[vibeOS] [delegation]'))
+  assert.equal(lines.length, 0, 'no delegation stderr lines should appear without VIBEOS_DEBUG_DELEGATION')
+})
+

@@ -184,8 +184,8 @@ async function _appendFooter(input, output, directory) {
     if (!liveModel) {
       liveModel = readConfig(directory) || readConfig(join(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || ""
     }
-    const displayModel = resolveDisplayModelId(liveModel || currentModel || brainModel || "", directory) || liveModel || currentModel || brainModel
-    const execution = resolveExecutionIdentity(input?.args?.model || liveModel || currentModel || brainModel || displayModel || "", directory)
+    const displayModel = resolveDisplayModelId(liveModel || brainModel || currentModel || "", directory) || liveModel || brainModel || currentModel
+    const execution = resolveExecutionIdentity(input?.args?.model || liveModel || brainModel || currentModel || displayModel || "", directory)
     let modelTag = `[${shortModelName(displayModel)}]`
     const _workerModel = slot === "brain" ? TRINITY_MEDIUM : null
     const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0)
@@ -248,7 +248,7 @@ async function _appendFooter(input, output, directory) {
       subRegime: _latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""),
       stress: _footerStress,
     }).mode
-    const stripped = text.replace(/\n\n— .+(?: —)?$/, "")
+    const stripped = text.replace(/— .+?VIBE[^—]*—\s*/g, "").trimEnd()
     if (stripped !== text) return
     const ltTotal = ltTasks + ltCache
 
