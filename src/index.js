@@ -3816,15 +3816,15 @@ var MODEL_USD_PER_TURN = {
   "google/gemini-2.5-pro": 39e-4,
   "google/gemini-2.5-flash": 96e-5,
   "google/gemini-2.0-flash": 19e-5,
-  "google/gemini-3-pro-preview": 0.005,
-  "google/gemini-3-1-pro-preview": 0.005,
-  "google/gemini-3-pro": 0.005,
-  "google/gemini-3-1-pro": 0.005,
-  "google/gemini-3-pro-image-preview": 0.005,
-  "google/gemini-3-flash-preview": 0.00125,
-  "google/gemini-3-5-flash-preview": 0.00125,
-  "google/gemini-3-flash": 0.00125,
-  "google/gemini-3-5-flash": 0.00125,
+  "google/gemini-3-pro-preview": 5e-3,
+  "google/gemini-3-1-pro-preview": 5e-3,
+  "google/gemini-3-pro": 5e-3,
+  "google/gemini-3-1-pro": 5e-3,
+  "google/gemini-3-pro-image-preview": 5e-3,
+  "google/gemini-3-flash-preview": 125e-5,
+  "google/gemini-3-5-flash-preview": 125e-5,
+  "google/gemini-3-flash": 125e-5,
+  "google/gemini-3-5-flash": 125e-5,
   // ── OpenAI ───────────────────────────────────────────────
   "openai/gpt-4o": 475e-5,
   "openai/gpt-4.1": 38e-4,
@@ -3902,7 +3902,7 @@ function _writeDynamicPricingCache(modelsMap) {
       mkdirSync5(dirname6(PRICING_CACHE_FILE2), { recursive: true });
       let merged = {};
       try {
-        if (existsSync5(PRICING_CACHE_FILE2)) {
+        if (existsSync6(PRICING_CACHE_FILE2)) {
           const raw = safeJsonParse3(readFileSync5(PRICING_CACHE_FILE2, "utf-8"));
           const existing = raw?.models && typeof raw.models === "object" ? raw.models : {};
           merged = { ...existing };
