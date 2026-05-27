@@ -1,3 +1,8 @@
+## 0.20.3
+- fix: embed valid alpha token fallback
+Merge pull request #69 from DrunkkToys/codex/alpha-token-release
+
+
 ## 0.20.2
 - fix: restore embedded api token fallback
 Merge pull request #68 from DrunkkToys/codex/embed-api-token
