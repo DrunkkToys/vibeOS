@@ -11,6 +11,12 @@ import { loadSessionSlot, writeSessionSlot } from "../selection-manager.js"
 import { remoteCall, VIBEOS_API_ENABLED } from "../api-client.js"
 import { SAVE_EST } from "../constants.js"
 
+const FOOTER_DEBUG_STDERR = process.env.VIBEOS_DEBUG_FOOTER === "1"
+
+function footerDebug(...args: any[]) {
+  if (FOOTER_DEBUG_STDERR) console.error(...args)
+}
+
 function getVibeOSHome() {
   return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude")
 }
@@ -41,7 +47,7 @@ async function apiAutoSelectMode(regime, stress) {
       _cachedAutoModeTs = now
       return res.mode
     }
-  } catch (e) { console.error("[vibeOS] apiAutoSelectMode error:", e.message) }
+  } catch (e) { footerDebug("[vibeOS] apiAutoSelectMode error:", e.message) }
   const fallback = regimeToMode(regime, stress)
   if (!_cachedAutoMode || _cachedAutoMode === "balanced") _cachedAutoMode = fallback
   return _cachedAutoMode || fallback || "balanced"
@@ -132,16 +138,16 @@ async function _appendFooter(input, output, directory) {
   if (latestUserIntent) _footerStress = scoreStress(latestUserIntent)
   // Always prefer the live OpenCode model setting when available.
   try {
-    const cfg = await client.config.get("model")
-    if (cfg) {
-      const cfgModel = String(cfg)
-      if (cfgModel !== currentModel) {
-        setCurrentModel(cfgModel)
-        setCurrentTier(classify(cfgModel))
-        console.error(`[vibeOS] client-detected model: ${currentModel} (tier=${currentTier})`)
+      const cfg = await client.config.get("model")
+      if (cfg) {
+        const cfgModel = String(cfg)
+        if (cfgModel !== currentModel) {
+          setCurrentModel(cfgModel)
+          setCurrentTier(classify(cfgModel))
+          footerDebug(`[vibeOS] client-detected model: ${currentModel} (tier=${currentTier})`)
+        }
       }
-    }
-  } catch { /* client.config may not be available */ }
+    } catch { /* client.config may not be available */ }
   try {
     const messageID =
       input?.messageID ||
@@ -211,7 +217,7 @@ async function _appendFooter(input, output, directory) {
           },
           tags: ["auto", "cost"],
         })
-      } catch (e) { console.error("[vibeOS] auto-report:", e.message) }
+      } catch (e) { footerDebug("[vibeOS] auto-report:", e.message) }
     }
 
     // Enforcement state tags for footer — dynamically adjusted by control vector
@@ -304,7 +310,7 @@ async function _appendFooter(input, output, directory) {
       for (let i = 0; i < 100; i++) textCompletePainted.delete(it.next().value)
     }
   } catch (err) {
-    console.error(`[vibeOS] footer failed: ${err.message}`)
+    footerDebug(`[vibeOS] footer failed: ${err.message}`)
   }
 }
 
