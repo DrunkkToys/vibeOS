@@ -1,3 +1,12 @@
+## 0.20.7
+- fix: ship compiled OpenCode plugin bundle
+- fix: always show model label in tool.execute.after footer, even with zero savings
+- fix: always show model label in tool.execute.after footer, even with zero savings
+- fix: restore release tarball pack step
+Merge pull request #74 from DrunkkToys/codex/release-live-bundle
+Merge pull request #72 from DrunkkToys/codex/alpha-token-install-validation
+
+
 ## 0.20.6
 - fix: quiet delegation warnings in CLI stderr
 - fix: keep delegation note in the chat transcript only
