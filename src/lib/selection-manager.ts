@@ -17,13 +17,13 @@ function _handleStateCorruption(path: string): void {
 }
 
 function safeJsonParse(raw: string): any {
-  if (raw == null || raw === '') return null
+  if (raw == null || raw === "") return null
   try { return JSON.parse(raw) } catch {}
 
   let cleaned = raw
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/\/\/.*$/gm, '')
-    .replace(/,\s*([}\]])/g, '$1')
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\/\/.*$/gm, "")
+    .replace(/,\s*([}\]])/g, "$1")
   try { return JSON.parse(cleaned) } catch (e) { throw e }
 }
 

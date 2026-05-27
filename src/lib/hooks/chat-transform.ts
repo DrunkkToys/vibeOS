@@ -1,7 +1,7 @@
 // @ts-nocheck
-import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync } from 'node:fs'
-import { join, dirname, basename } from 'node:path'
-import { createHash } from 'node:crypto'
+import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync } from "node:fs"
+import { join, dirname, basename } from "node:path"
+import { createHash } from "node:crypto"
 import {
   currentTier, currentModel, currentProjectFingerprint, currentProjectName,
   _OC_SID, _modelLocked, _blackboxEnabled,
@@ -20,11 +20,11 @@ import {
   setCurrentModel, setCurrentTier,
   setCurrentProjectFingerprint, setCurrentProjectName,
   stableJson, TOOL_NAME_NORMALIZE,
-} from '../state.js'
+} from "../state.js"
 import {
   classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget,
   shortModelName, formatUsd, _refreshModel, applySlot, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN,
-} from '../pricing.js'
+} from "../pricing.js"
 import {
   scoreStress, classifyTurnSimple, loadOptimizationMode,
   saveOptimizationMode,
@@ -39,19 +39,19 @@ import {
   fetchBlackboxEnrichment,
   estimateContextBudget,
   buildControlHistoryEntry,
-} from '../turn-classify.js'
-import { applyBudgetFirstMode, peekBudgetFirstMode } from '../mode-policy.js'
-import { getApiClient, remoteCall } from '../api-client.js'
-import { loadCredit } from '../credit-api.js'
-import { saveReport } from '../reporting.js'
-import { checkFlowRules, recordFlowTodo } from '../../vibeOS-lib/flow-enforcer.js'
-import { ensureProjectDocs } from '../../vibeOS-lib/flow-enforcer.js'
-import { computeDifficulty } from '../../vibeOS-lib/ml-router.js'
-import { loadSessionOptMode, loadSessionSlot, writeSessionSlot } from '../selection-manager.js'
-import { noteProjectPattern } from '../index-helpers.js'
-import { saveSessionStress } from '../index-helpers.js'
+} from "../turn-classify.js"
+import { applyBudgetFirstMode, peekBudgetFirstMode } from "../mode-policy.js"
+import { getApiClient, remoteCall } from "../api-client.js"
+import { loadCredit } from "../credit-api.js"
+import { saveReport } from "../reporting.js"
+import { checkFlowRules, recordFlowTodo } from "../../vibeOS-lib/flow-enforcer.js"
+import { ensureProjectDocs } from "../../vibeOS-lib/flow-enforcer.js"
+import { computeDifficulty } from "../../vibeOS-lib/ml-router.js"
+import { loadSessionOptMode, loadSessionSlot, writeSessionSlot } from "../selection-manager.js"
+import { noteProjectPattern } from "../index-helpers.js"
+import { saveSessionStress } from "../index-helpers.js"
 import { COMPRESS_THRESHOLD, KEEP_HOT, COMPRESS_MARKER, PROTOCOL_MARKER, PROTOCOL_TEXT } from "../constants.js"
-import { TEMPLATES, DEFAULT_TEMPLATE, resolveTemplate, detectLoopSignal, detectStressSpike, shouldInjectTemplate } from '../templates.js'
+import { TEMPLATES, DEFAULT_TEMPLATE, resolveTemplate, detectLoopSignal, detectStressSpike, shouldInjectTemplate } from "../templates.js"
 
 function getVibeOSHome() {
   return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude")
@@ -72,11 +72,11 @@ function ensureProjectContext(hookDirectory: string): string {
 }
 
 let latestUserIntent = null
-let _OC_SID = 'opencode-' + (process.pid || 'x') + '-' + Date.now()
+let _OC_SID = "opencode-" + (process.pid || "x") + "-" + Date.now()
 let _latestBlackboxState = null
 let _latestBlackboxLoopMsg = null
 let _latestBlackboxPivotMsg = null
-let _prevOutputText = ''
+let _prevOutputText = ""
 let _prevBlackboxRegime = null
 let _currentTemplate = DEFAULT_TEMPLATE
 let _prevTemplate = null
@@ -85,7 +85,7 @@ const correctionSeenKeys = new Set()
 
 async function apiComputeControlVector(state: any, action: any, optimizationMode: any): Promise<any> {
   try {
-    const res = await remoteCall('blackboxControlVector', [state, action, optimizationMode], null)
+    const res = await remoteCall("blackboxControlVector", [state, action, optimizationMode], null)
     if (res?.control_vector) return res.control_vector
   } catch {}
   return computeControlVector(state, action, optimizationMode)
@@ -143,7 +143,7 @@ export function ensureProjectSkill(dir: string, fp: string): { created: boolean;
   const globalLearning = loadGlobalLearning()
   const promotedRoutines: string[] = globalLearning.promotedRoutines || []
 
-  const skillName = `project-${projectName.replace(/[^a-z0-9-]/gi, '-').toLowerCase()}`
+  const skillName = `project-${projectName.replace(/[^a-z0-9-]/gi, "-").toLowerCase()}`
 
   let content = `---\n`
   content += `name: ${skillName}\n`
@@ -153,25 +153,25 @@ export function ensureProjectSkill(dir: string, fp: string): { created: boolean;
 
   if (techStack.length > 0) {
     content += `## Tech Stack\n\n`
-    content += techStack.map((t: string) => `- ${t}`).join('\n') + '\n\n'
+    content += techStack.map((t: string) => `- ${t}`).join("\n") + "\n\n"
   }
 
-  const routines = promoted.filter((p: any) => p.label === 'routine')
+  const routines = promoted.filter((p: any) => p.label === "routine")
   if (routines.length > 0) {
     content += `## Routines (established workflows)\n\n`
     for (const r of routines) {
       content += `- ${r.summary} (${r.sessions} sessions)\n`
     }
-    content += '\n'
+    content += "\n"
   }
 
-  const frictions = promoted.filter((p: any) => p.label === 'friction')
+  const frictions = promoted.filter((p: any) => p.label === "friction")
   if (frictions.length > 0) {
     content += `## Frictions (patterns to avoid)\n\n`
     for (const f of frictions) {
       content += `- ${f.summary} (${f.sessions} sessions)\n`
     }
-    content += '\n'
+    content += "\n"
   }
 
   if (promotedRoutines.length > 0) {
@@ -179,12 +179,12 @@ export function ensureProjectSkill(dir: string, fp: string): { created: boolean;
     for (const pair of promotedRoutines) {
       content += `- ${pair}\n`
     }
-    content += '\n'
+    content += "\n"
   }
 
   try {
     mkdirSync(skillDir, { recursive: true })
-    writeFileSync(skillPath, content, 'utf-8')
+    writeFileSync(skillPath, content, "utf-8")
     console.error(`[vibeOS] Project Guard: created .opencode/skills/${projectName}/SKILL.md`)
     return { created: true, path: skillPath, skipped: false }
   } catch (err: any) {
@@ -321,7 +321,7 @@ function compressToolOutputs(messages: any[]): number {
 
           // Create pointer file for input-hash-based lookup
           const invPart = parts.slice(0, parts.indexOf(part)).reverse().find(
-            (p: any) => p?.type === "tool" && p?.tool === (part as any).tool && p?.state?.input && p?.state?.status !== "completed"
+            (p: any) => p?.type === "tool" && p?.tool === (part as any).tool && p?.state?.input && p?.state?.status !== "completed",
           )
           if (invPart?.state?.input) {
             const toolKey = TOOL_NAME_NORMALIZE[(part as any).tool] || (part as any).tool
@@ -544,8 +544,8 @@ function flowTodosDirective(): string | null {
 function patternDirective(fp: string): string | null {
   const patterns = promotedProjectPatterns(fp)
   if (!patterns || patterns.length === 0) return null
-  const routines = patterns.filter(p => p.label === 'routine')
-  const frictions = patterns.filter(p => p.label === 'friction')
+  const routines = patterns.filter(p => p.label === "routine")
+  const frictions = patterns.filter(p => p.label === "friction")
   const parts = []
   if (routines.length > 0) {
     parts.push("Routines: " + routines.map(r => r.summary).join("; "))

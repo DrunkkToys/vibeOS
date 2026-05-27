@@ -1,7 +1,6 @@
 // @ts-nocheck
-import { join } from 'node:path'
-import { writeFileSync } from 'node:fs'
-
+import { join } from "node:path"
+import { writeFileSync } from "node:fs"
 
 import {
   applyDecadence,
@@ -40,21 +39,21 @@ import {
   setLedgerBufferTimer,
   LEDGER_BUFFER_FLUSH_MS,
   saveSessionCheckpoint,
-} from './state.js'
+} from "./state.js"
 
 import {
   normalizeObservedPath,
   commandFamily,
   commandFailed,
   _pruneOldSessions,
-} from './pattern-helpers.js'
+} from "./pattern-helpers.js"
 
-import { TRINITY_CHEAP, TRINITY_MEDIUM } from './pricing.js'
+import { TRINITY_CHEAP, TRINITY_MEDIUM } from "./pricing.js"
 import {
   topKeywords,
   extractFirstWordFromArgs,
   noteTaskRoutingLearning,
-} from './turn-classify.js'
+} from "./turn-classify.js"
 
 let activeJob = null
 
@@ -208,13 +207,13 @@ export function observeToolPattern(toolName, input, output, directory) {
           recordFrictionPattern(
             `post-edit-failure:${lastMutationEvent.path}:${family}`,
             `After editing ${lastMutationEvent.path}, ${family} failed soon after.`,
-            { family, path: lastMutationEvent.path }
+            { family, path: lastMutationEvent.path },
           )
         } else if (["syntax-check", "typecheck", "test", "build", "git-status"].includes(family) && !commandFailed(output)) {
           recordRoutinePattern(
             `post-edit-routine:${lastMutationEvent.path}:${family}`,
             `After editing ${lastMutationEvent.path}, ${family} is a recurring verification step.`,
-            { family, path: lastMutationEvent.path }
+            { family, path: lastMutationEvent.path },
           )
         }
       }
@@ -246,9 +245,9 @@ export function observeToolPattern(toolName, input, output, directory) {
 
     // Track project-type tool patterns
     if (currentProjectName) {
-      const ext = currentProjectName.endsWith('.tsx') || currentProjectName.endsWith('.jsx') ? 'frontend' :
-                  currentProjectName.endsWith('.go') || currentProjectName.endsWith('.rs') ? 'backend' :
-                  currentProjectName.endsWith('.py') ? 'data' : 'unknown'
+      const ext = currentProjectName.endsWith(".tsx") || currentProjectName.endsWith(".jsx") ? "frontend" :
+        currentProjectName.endsWith(".go") || currentProjectName.endsWith(".rs") ? "backend" :
+          currentProjectName.endsWith(".py") ? "data" : "unknown"
       updateGlobalLearning((gl: any) => {
         gl.projectTypeToolCount ??= {}
         const ptc = gl.projectTypeToolCount

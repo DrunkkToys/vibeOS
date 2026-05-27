@@ -25,7 +25,7 @@ export const TEMPLATES: Record<string, Template> = {
     directive: "[SAVE mode] Cost efficiency. Minimize token usage. " +
       "Combine independent tool calls with && or ;. " +
       "Prefer context7 over WebSearch/WebFetch for docs. " +
-      "Skip unnecessary verification. Batch parallel Task subagents."
+      "Skip unnecessary verification. Batch parallel Task subagents.",
   },
   quality: {
     tier_bias: "brain",
@@ -39,7 +39,7 @@ export const TEMPLATES: Record<string, Template> = {
     directive: "[QUALITY mode] High quality output. " +
       "Full verification of all results. Production-grade code. " +
       "Write tests covering all paths and edge cases. " +
-      "Validate outputs before presenting. Do not cut corners."
+      "Validate outputs before presenting. Do not cut corners.",
   },
   security: {
     tier_bias: "brain",
@@ -54,59 +54,59 @@ export const TEMPLATES: Record<string, Template> = {
       "Define the threat model before writing code. " +
       "Validate all inputs. Never expose secrets or credentials. " +
       "Verify each defense handles its threat. " +
-      "Consider: injection, broken auth, data exposure, logic errors, race conditions."
-  }
-};
+      "Consider: injection, broken auth, data exposure, logic errors, race conditions.",
+  },
+}
 
-export const DEFAULT_TEMPLATE = "save";
+export const DEFAULT_TEMPLATE = "save"
 
-const SEC_KEYWORDS = /\b(security|vuln|exploit|injection|xss|csrf|secret|credential|token leak|auth bypass|privacy|breach|backdoor|sql injection|cve)\b/i;
+const SEC_KEYWORDS = /\b(security|vuln|exploit|injection|xss|csrf|secret|credential|token leak|auth bypass|privacy|breach|backdoor|sql injection|cve)\b/i
 
 export function detectSecuritySignal(text: string | undefined): boolean {
-  if (!text || typeof text !== "string") return false;
-  return SEC_KEYWORDS.test(text);
+  if (!text || typeof text !== "string") return false
+  return SEC_KEYWORDS.test(text)
 }
 
 export function detectBudgetSignal(creditPercent: number): boolean {
-  return creditPercent < 40;
+  return creditPercent < 40
 }
 
-const _recentTools: string[] = [];
+const _recentTools: string[] = []
 export function detectLoopSignal(toolName: string): boolean {
-  _recentTools.push(toolName);
-  if (_recentTools.length > 8) _recentTools.shift();
-  const last = _recentTools[_recentTools.length - 1];
-  const count = _recentTools.filter(t => t === last).length;
-  return count >= 3;
+  _recentTools.push(toolName)
+  if (_recentTools.length > 8) _recentTools.shift()
+  const last = _recentTools[_recentTools.length - 1]
+  const count = _recentTools.filter(t => t === last).length
+  return count >= 3
 }
 
-let _prevStress = 0;
+let _prevStress = 0
 export function detectStressSpike(stressScore: number): boolean {
-  const delta = stressScore - _prevStress;
-  _prevStress = stressScore;
-  return delta > 0.3 && stressScore > 0.5;
+  const delta = stressScore - _prevStress
+  _prevStress = stressScore
+  return delta > 0.3 && stressScore > 0.5
 }
 
 export function resolveTemplate(
   prevTemplate: string | null,
   stressScore: number,
   userText: string | undefined,
-  creditPercent: number
+  creditPercent: number,
 ): string {
-  if (detectSecuritySignal(userText)) return "security";
-  if (detectBudgetSignal(creditPercent)) return "save";
-  if (detectStressSpike(stressScore)) return "quality";
-  return prevTemplate || DEFAULT_TEMPLATE;
+  if (detectSecuritySignal(userText)) return "security"
+  if (detectBudgetSignal(creditPercent)) return "save"
+  if (detectStressSpike(stressScore)) return "quality"
+  return prevTemplate || DEFAULT_TEMPLATE
 }
 
-let _turnCount = 0;
+let _turnCount = 0
 export function shouldInjectTemplate(template: string, prevTemplate: string | null): boolean {
-  _turnCount++;
-  if (template !== prevTemplate) return true;
-  if (_turnCount % 10 === 0) return true;
-  return false;
+  _turnCount++
+  if (template !== prevTemplate) return true
+  if (_turnCount % 10 === 0) return true
+  return false
 }
 
 export function getTurnCount(): number {
-  return _turnCount;
+  return _turnCount
 }

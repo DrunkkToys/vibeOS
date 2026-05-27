@@ -35,7 +35,7 @@ async function apiAutoSelectMode(regime, stress) {
   const now = Date.now()
   if (_cachedAutoMode && now - _cachedAutoModeTs < AUTO_CACHE_TTL) return _cachedAutoMode
   try {
-    const res = await remoteCall('blackboxSelectMode', [regime, stress], null)
+    const res = await remoteCall("blackboxSelectMode", [regime, stress], null)
     if (res?.mode) {
       _cachedAutoMode = res.mode
       _cachedAutoModeTs = now
@@ -127,184 +127,184 @@ function readRewardSignals() {
 }
 
 async function _appendFooter(input, output, directory) {
-    _refreshModel(directory)
-    let _footerStress = 0
-    if (latestUserIntent) _footerStress = scoreStress(latestUserIntent)
-    // Always prefer the live OpenCode model setting when available.
-    try {
-      const cfg = await client.config.get("model")
-      if (cfg) {
-        const cfgModel = String(cfg)
-        if (cfgModel !== currentModel) {
-          setCurrentModel(cfgModel)
-          setCurrentTier(classify(cfgModel))
-          console.error(`[vibeOS] client-detected model: ${currentModel} (tier=${currentTier})`)
-        }
+  _refreshModel(directory)
+  let _footerStress = 0
+  if (latestUserIntent) _footerStress = scoreStress(latestUserIntent)
+  // Always prefer the live OpenCode model setting when available.
+  try {
+    const cfg = await client.config.get("model")
+    if (cfg) {
+      const cfgModel = String(cfg)
+      if (cfgModel !== currentModel) {
+        setCurrentModel(cfgModel)
+        setCurrentTier(classify(cfgModel))
+        console.error(`[vibeOS] client-detected model: ${currentModel} (tier=${currentTier})`)
       }
-    } catch { /* client.config may not be available */ }
-    try {
-      const messageID =
-        input?.messageID ||
+    }
+  } catch { /* client.config may not be available */ }
+  try {
+    const messageID =
+      input?.messageID ||
         input?.messageId ||
         input?.message?.id ||
         output?.messageID ||
         output?.messageId ||
         output?.message?.id ||
         null
-      if (messageID && textCompletePainted.has(messageID)) return
+    if (messageID && textCompletePainted.has(messageID)) return
 
-      const text =
-        typeof output?.text === "string" ? output.text :
+    const text =
+      typeof output?.text === "string" ? output.text :
         typeof output?.result === "string" ? output.result :
-        typeof output?.content === "string" ? output.content :
-        ""
-      if (!text) {
-        if (messageID) textCompletePainted.add(messageID)
-        return
-      }
-      const { ltTasks, ltCache, ltCost, count, sesTasks, sesEdit, sesCredit, sesC7, sesQuota, sesCache, sesTaskDelegations, sesDuration, sesRatePerHour, sesTrend, sesToolBreakdown, sesModelTurns, quality_avg } = readLifetimeSavings()
-      const { stableStreak, problemStreak } = readRewardSignals()
-
-      const sessionSlot = loadSessionSlot(_OC_SID)
-      const slot = sessionSlot || loadSelection().active_slot || "brain"
-      const brainModel = slot === "brain" ? (TRINITY_BRAIN || currentModel) : slot === "medium" ? (TRINITY_MEDIUM || currentModel) : (TRINITY_CHEAP || currentModel || "")
-      let liveModel = ""
-      try {
-        const cfg = await client.config.get("model")
-        if (cfg) liveModel = String(cfg)
-      } catch {}
-      if (!liveModel) {
-        liveModel = readConfig(directory) || readConfig(join(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || ""
-      }
-      const displayModel = resolveDisplayModelId(liveModel || currentModel || brainModel || "", directory) || liveModel || currentModel || brainModel
-      let modelTag = `[${shortModelName(displayModel)}]`
-      const _workerModel = slot === "brain" ? TRINITY_MEDIUM : null
-      const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0)
-      if (_workerModel && _workerModel !== brainModel) {
-        const brainPct = Math.round(((sesModelTurns?.brain || 0) / (totalTurns || 1)) * 100)
-        modelTag = `[${shortModelName(displayModel)} ${brainPct}% → ${shortModelName(_workerModel)} ${100 - brainPct}%]`
-      }
-
-      _autoReportCount = (_autoReportCount || 0) + 1
-      if (_autoReportCount % 5 === 0) {
-        try {
-          saveReport({
-            type: "session",
-            summary: "Session cost: $" + formatUsd(ltCost) + " | cache saved: $" + formatUsd(ltCache) + " | delegation saved: $" + formatUsd(Number(sesTasks || 0)) + " | task delegations: " + Number(sesTaskDelegations || 0),
-            metrics: {
-              sessionId: _OC_SID,
-              projectFingerprint: currentProjectFingerprint || "unknown",
-              projectName: currentProjectName || "unknown",
-              sessionCost: ltCost,
-              cacheSavings: ltCache,
-              delegationSavingsUsd: sesTasks,
-              taskDelegationCount: sesTaskDelegations,
-              // Backward compatibility (legacy field historically misnamed)
-              tasksDelegated: sesTaskDelegations,
-              model: currentModel,
-              slot: loadSelection().active_slot || "unknown",
-              editSavings: sesEdit,
-              creditSavings: sesCredit,
-              context7Savings: sesC7,
-              quotaSavings: sesQuota,
-            },
-            tags: ["auto", "cost"],
-          })
-        } catch (e) { console.error("[vibeOS] auto-report:", e.message) }
-      }
-
-      // Enforcement state tags for footer — dynamically adjusted by control vector
-      const selNowFooter = loadSelection()
-      const enfTagsFooter = []
-      const bbMode = resolveEnforcementMode()
-      const optModeFooter = loadOptimizationMode()
-      if (bbMode === "relaxed") {
-        enfTagsFooter.push("[Q&A]")
-      } else {
-        if (selNowFooter.delegation_enforce) enfTagsFooter.push("[ENF ON]")
-        if (selNowFooter.flow_enforce) enfTagsFooter.push("[FLOW ON]")
-        if (selNowFooter.tdd_enforce) enfTagsFooter.push("[TDD ON]")
-        
-        if (bbMode === "strict") enfTagsFooter.push("[STRICT]")
-      }
-      if (_modelLocked) enfTagsFooter.push("[LOCK ON]")
-      let enfSuffixFooter = enfTagsFooter.length > 0 ? ` ${enfTagsFooter.join(" ")}` : ""
-      if (quality_avg > 0) {
-        enfSuffixFooter = ` QA:${Math.round(quality_avg)}% ${enfTagsFooter.join(" ")}`
-      }
-      // Optimization mode resolver — keep the dopamine footer format.
-      const flashIcon = VIBEOS_API_ENABLED ? "⚡" : ""
-      const resolvedMode = peekBudgetFirstMode({
-        requestedMode: optModeFooter,
-        subRegime: _latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""),
-        stress: _footerStress,
-      }).mode
-      const stripped = text.replace(/\n\n— .+(?: —)?$/, "")
-      if (stripped !== text) return
-      const ltTotal = ltTasks + ltCache
-
-      const optMode = (resolvedMode || 'budget').toLowerCase()
-      const modeLabel = optMode === "quality" ? "quality" : optMode === "speed" ? "speed" : optMode === "longrun" ? "longrun" : ""
-      let vibeLine = `— ${flashIcon ? `${flashIcon} ` : ""}run: ${displayModel}`
-      if (ltTotal > 0) {
-        vibeLine += ` | $${formatUsd(ltTotal)} saved`
-      }
-      if (sesRatePerHour > 0) {
-        vibeLine += ` | pace $${formatUsd(sesRatePerHour)}/hr`
-      }
-      if (stableStreak > 0) {
-        vibeLine += ` | streak ${stableStreak}`
-      } else if (problemStreak > 0) {
-        vibeLine += ` | recovery ${problemStreak}`
-      }
-      if (modeLabel) vibeLine += ` | ${modeLabel}`
-      vibeLine += ` | VIBE${flashIcon ? ' ⚡' : ''}`
-      if (_footerStress > 0.4) {
-        const stressLabel = _footerStress > 0.7 ? 'high' : 'elevated'
-        vibeLine += ` · ${stressLabel}`
-      }
-      const footerText = stripped + `\n\n${vibeLine} —`
-
-      if (_blackboxEnabled) {
-        try {
-          const prevText = _prevOutputText
-          _prevOutputText = typeof output?.text === "string" ? output.text : typeof output?.result === "string" ? output.result : ""
-          if (_prevOutputText && prevText && _prevOutputText !== prevText) {
-            const outcome = detectOutcomeSignal(_prevOutputText)
-            if (outcome) {
-              recordBudgetFirstOutcome({
-                outcome,
-                subRegime: _latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""),
-                stress: _footerStress,
-              })
-              const tracker = getBlackboxTracker()
-              tracker.recordOutcome(outcome)
-              syncOutcomeToApi(outcome)
-              // Write outcome to calibration log
-              try {
-                            mkdirSync(getVibeOSHome(), { recursive: true })
-                appendFileSync(
-                  join(getVibeOSHome(), "calibration-data.jsonl"),
-                  JSON.stringify({ ts: new Date().toISOString(), event: "outcome", sid: _OC_SID, outcome }) + "\n"
-                )
-              } catch {}
-            }
-          }
-        } catch {}
-      }
-      if (typeof output?.text === "string") output.text = footerText
-      else if (typeof output?.result === "string") output.result = footerText
-      else if (typeof output?.content === "string") output.content = footerText
-      else output.text = footerText
-
-      textCompletePainted.add(messageID)
-      if (textCompletePainted.size > 500) {
-        const it = textCompletePainted.values()
-        for (let i = 0; i < 100; i++) textCompletePainted.delete(it.next().value)
-      }
-    } catch (err) {
-      console.error(`[vibeOS] footer failed: ${err.message}`)
+          typeof output?.content === "string" ? output.content :
+            ""
+    if (!text) {
+      if (messageID) textCompletePainted.add(messageID)
+      return
     }
+    const { ltTasks, ltCache, ltCost, count, sesTasks, sesEdit, sesCredit, sesC7, sesQuota, sesCache, sesTaskDelegations, sesDuration, sesRatePerHour, sesTrend, sesToolBreakdown, sesModelTurns, quality_avg } = readLifetimeSavings()
+    const { stableStreak, problemStreak } = readRewardSignals()
+
+    const sessionSlot = loadSessionSlot(_OC_SID)
+    const slot = sessionSlot || loadSelection().active_slot || "brain"
+    const brainModel = slot === "brain" ? (TRINITY_BRAIN || currentModel) : slot === "medium" ? (TRINITY_MEDIUM || currentModel) : (TRINITY_CHEAP || currentModel || "")
+    let liveModel = ""
+    try {
+      const cfg = await client.config.get("model")
+      if (cfg) liveModel = String(cfg)
+    } catch {}
+    if (!liveModel) {
+      liveModel = readConfig(directory) || readConfig(join(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || ""
+    }
+    const displayModel = resolveDisplayModelId(liveModel || currentModel || brainModel || "", directory) || liveModel || currentModel || brainModel
+    let modelTag = `[${shortModelName(displayModel)}]`
+    const _workerModel = slot === "brain" ? TRINITY_MEDIUM : null
+    const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0)
+    if (_workerModel && _workerModel !== brainModel) {
+      const brainPct = Math.round(((sesModelTurns?.brain || 0) / (totalTurns || 1)) * 100)
+      modelTag = `[${shortModelName(displayModel)} ${brainPct}% → ${shortModelName(_workerModel)} ${100 - brainPct}%]`
+    }
+
+    _autoReportCount = (_autoReportCount || 0) + 1
+    if (_autoReportCount % 5 === 0) {
+      try {
+        saveReport({
+          type: "session",
+          summary: "Session cost: $" + formatUsd(ltCost) + " | cache saved: $" + formatUsd(ltCache) + " | delegation saved: $" + formatUsd(Number(sesTasks || 0)) + " | task delegations: " + Number(sesTaskDelegations || 0),
+          metrics: {
+            sessionId: _OC_SID,
+            projectFingerprint: currentProjectFingerprint || "unknown",
+            projectName: currentProjectName || "unknown",
+            sessionCost: ltCost,
+            cacheSavings: ltCache,
+            delegationSavingsUsd: sesTasks,
+            taskDelegationCount: sesTaskDelegations,
+            // Backward compatibility (legacy field historically misnamed)
+            tasksDelegated: sesTaskDelegations,
+            model: currentModel,
+            slot: loadSelection().active_slot || "unknown",
+            editSavings: sesEdit,
+            creditSavings: sesCredit,
+            context7Savings: sesC7,
+            quotaSavings: sesQuota,
+          },
+          tags: ["auto", "cost"],
+        })
+      } catch (e) { console.error("[vibeOS] auto-report:", e.message) }
+    }
+
+    // Enforcement state tags for footer — dynamically adjusted by control vector
+    const selNowFooter = loadSelection()
+    const enfTagsFooter = []
+    const bbMode = resolveEnforcementMode()
+    const optModeFooter = loadOptimizationMode()
+    if (bbMode === "relaxed") {
+      enfTagsFooter.push("[Q&A]")
+    } else {
+      if (selNowFooter.delegation_enforce) enfTagsFooter.push("[ENF ON]")
+      if (selNowFooter.flow_enforce) enfTagsFooter.push("[FLOW ON]")
+      if (selNowFooter.tdd_enforce) enfTagsFooter.push("[TDD ON]")
+
+      if (bbMode === "strict") enfTagsFooter.push("[STRICT]")
+    }
+    if (_modelLocked) enfTagsFooter.push("[LOCK ON]")
+    let enfSuffixFooter = enfTagsFooter.length > 0 ? ` ${enfTagsFooter.join(" ")}` : ""
+    if (quality_avg > 0) {
+      enfSuffixFooter = ` QA:${Math.round(quality_avg)}% ${enfTagsFooter.join(" ")}`
+    }
+    // Optimization mode resolver — keep the dopamine footer format.
+    const flashIcon = VIBEOS_API_ENABLED ? "⚡" : ""
+    const resolvedMode = peekBudgetFirstMode({
+      requestedMode: optModeFooter,
+      subRegime: _latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""),
+      stress: _footerStress,
+    }).mode
+    const stripped = text.replace(/\n\n— .+(?: —)?$/, "")
+    if (stripped !== text) return
+    const ltTotal = ltTasks + ltCache
+
+    const optMode = (resolvedMode || "budget").toLowerCase()
+    const modeLabel = optMode === "quality" ? "quality" : optMode === "speed" ? "speed" : optMode === "longrun" ? "longrun" : ""
+    let vibeLine = `— ${flashIcon ? `${flashIcon} ` : ""}run: ${displayModel}`
+    if (ltTotal > 0) {
+      vibeLine += ` | $${formatUsd(ltTotal)} saved`
+    }
+    if (sesRatePerHour > 0) {
+      vibeLine += ` | pace $${formatUsd(sesRatePerHour)}/hr`
+    }
+    if (stableStreak > 0) {
+      vibeLine += ` | streak ${stableStreak}`
+    } else if (problemStreak > 0) {
+      vibeLine += ` | recovery ${problemStreak}`
+    }
+    if (modeLabel) vibeLine += ` | ${modeLabel}`
+    vibeLine += ` | VIBE${flashIcon ? " ⚡" : ""}`
+    if (_footerStress > 0.4) {
+      const stressLabel = _footerStress > 0.7 ? "high" : "elevated"
+      vibeLine += ` · ${stressLabel}`
+    }
+    const footerText = stripped + `\n\n${vibeLine} —`
+
+    if (_blackboxEnabled) {
+      try {
+        const prevText = _prevOutputText
+        _prevOutputText = typeof output?.text === "string" ? output.text : typeof output?.result === "string" ? output.result : ""
+        if (_prevOutputText && prevText && _prevOutputText !== prevText) {
+          const outcome = detectOutcomeSignal(_prevOutputText)
+          if (outcome) {
+            recordBudgetFirstOutcome({
+              outcome,
+              subRegime: _latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""),
+              stress: _footerStress,
+            })
+            const tracker = getBlackboxTracker()
+            tracker.recordOutcome(outcome)
+            syncOutcomeToApi(outcome)
+            // Write outcome to calibration log
+            try {
+              mkdirSync(getVibeOSHome(), { recursive: true })
+              appendFileSync(
+                join(getVibeOSHome(), "calibration-data.jsonl"),
+                JSON.stringify({ ts: new Date().toISOString(), event: "outcome", sid: _OC_SID, outcome }) + "\n",
+              )
+            } catch {}
+          }
+        }
+      } catch {}
+    }
+    if (typeof output?.text === "string") output.text = footerText
+    else if (typeof output?.result === "string") output.result = footerText
+    else if (typeof output?.content === "string") output.content = footerText
+    else output.text = footerText
+
+    textCompletePainted.add(messageID)
+    if (textCompletePainted.size > 500) {
+      const it = textCompletePainted.values()
+      for (let i = 0; i < 100; i++) textCompletePainted.delete(it.next().value)
+    }
+  } catch (err) {
+    console.error(`[vibeOS] footer failed: ${err.message}`)
   }
+}
 
 export { _appendFooter, scoreTaskQuality, readRewardSignals }

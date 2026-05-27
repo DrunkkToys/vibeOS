@@ -444,36 +444,36 @@ export async function DelegationEnforcer({ client, directory }: { client?: unkno
   _runDeferredStartupBootstrap = () => {}
 
   // ── Plugin hooks ──────────────────────────────────────────────────
-    // trinity tool dependency injection
-    const _tiersData = (() => { try { return safeJsonParse(readFileSync(getTiersFile(), "utf-8")) } catch { return {} } })()
-    const trinityDeps = {
-      tool, _lazyRefresh, _readAuth, _tiersData,
-      _loadOpenCodeProviders, _modelCost, _modelTier,
-      _modelLocked, _latestBlackboxState,
-      currentModel, currentTier, currentProjectFingerprint, currentProjectName,
-      get latestUserIntent() { return latestUserIntent }, directory,
-      safeJsonParse, readFileSync, writeFileSync, existsSync, renameSync, mkdirSync,
-      get TIERS_FILE() { return hookTiersFile }, USER_HOME, get STATE_FILE() { return hookStateFile }, CREDIT_CACHE_F,
-      SAVINGS_LEDGER_FILE, PROJECT_STATE_FILE: hookProjectStateFile, get REPORTS_DIR() { return hookReportsDir }, get REPORTS_INDEX() { return hookReportsIndex },
-      get OPENCODE_HOME() { return getOpenCodeHome() }, get VIBEOS_HOME() { return hookVibeHome },
-      loadSelection, writeSelection, loadCredit, thinkingLevel,
-      readLifetimeSavings, readFullState, _OC_SID, formatUsd,
-      getBlackboxResolution, scoreStress, applySlot, saveOptimizationMode,
-      getFlowWarns, projectFingerprint, loadProjectState: loadProjectStateStable, saveProjectState: saveProjectStateStable,
-      ensureProjectBucket, mergeProjectBucket, clearProjectPatterns,
-      projectPatternRows, promotedProjectPatterns, detectTechStack, ensureProjectDocs,
-      discoverAvailableModels, classifyAndRankModels, modelToCcAlias, probeModel,
-      setBlackboxEnabled, loadBlackboxState, saveBlackboxState,
-      reportsIndex: reportsIndexStable, saveReportsIndex: saveReportsIndexStable, backupFile: backupFileStable, writeSessionSlot, _refreshModel,
-      setApiToken,
-      setApiBootstrapToken,
-      ensureBootstrapExchange,
-      loadTodos, upsertTodo, getTodos, markTodoDone, syncFlowTodosToNative,
-      get _blackboxTracker() { return getBlackboxTracker() },
-      set _blackboxTracker(v) { resetBlackboxTracker() },
-      get _blackboxEnabled() { return _blackboxEnabled },
-      set _blackboxEnabled(v) { setBlackboxEnabled(v) },
-    }
+  // trinity tool dependency injection
+  const _tiersData = (() => { try { return safeJsonParse(readFileSync(getTiersFile(), "utf-8")) } catch { return {} } })()
+  const trinityDeps = {
+    tool, _lazyRefresh, _readAuth, _tiersData,
+    _loadOpenCodeProviders, _modelCost, _modelTier,
+    _modelLocked, _latestBlackboxState,
+    currentModel, currentTier, currentProjectFingerprint, currentProjectName,
+    get latestUserIntent() { return latestUserIntent }, directory,
+    safeJsonParse, readFileSync, writeFileSync, existsSync, renameSync, mkdirSync,
+    get TIERS_FILE() { return hookTiersFile }, USER_HOME, get STATE_FILE() { return hookStateFile }, CREDIT_CACHE_F,
+    SAVINGS_LEDGER_FILE, PROJECT_STATE_FILE: hookProjectStateFile, get REPORTS_DIR() { return hookReportsDir }, get REPORTS_INDEX() { return hookReportsIndex },
+    get OPENCODE_HOME() { return getOpenCodeHome() }, get VIBEOS_HOME() { return hookVibeHome },
+    loadSelection, writeSelection, loadCredit, thinkingLevel,
+    readLifetimeSavings, readFullState, _OC_SID, formatUsd,
+    getBlackboxResolution, scoreStress, applySlot, saveOptimizationMode,
+    getFlowWarns, projectFingerprint, loadProjectState: loadProjectStateStable, saveProjectState: saveProjectStateStable,
+    ensureProjectBucket, mergeProjectBucket, clearProjectPatterns,
+    projectPatternRows, promotedProjectPatterns, detectTechStack, ensureProjectDocs,
+    discoverAvailableModels, classifyAndRankModels, modelToCcAlias, probeModel,
+    setBlackboxEnabled, loadBlackboxState, saveBlackboxState,
+    reportsIndex: reportsIndexStable, saveReportsIndex: saveReportsIndexStable, backupFile: backupFileStable, writeSessionSlot, _refreshModel,
+    setApiToken,
+    setApiBootstrapToken,
+    ensureBootstrapExchange,
+    loadTodos, upsertTodo, getTodos, markTodoDone, syncFlowTodosToNative,
+    get _blackboxTracker() { return getBlackboxTracker() },
+    set _blackboxTracker(v) { resetBlackboxTracker() },
+    get _blackboxEnabled() { return _blackboxEnabled },
+    set _blackboxEnabled(v) { setBlackboxEnabled(v) },
+  }
   const pluginHooks = {
     "tool.execute.before": async (input: any, output: any) => {
       setVibeOSHomeContext(hookVibeHome)
@@ -732,9 +732,9 @@ export {
 export { getScratchpadHit, getSessionScratchpadDir, getSessionIndexPath } from "./lib/state.js"
 export { extractExports, buildTestSkeleton, enforceTestFile, buildTestReminder } from "./lib/tdd-enforcer.js"
 export { classifyAndRankModels, modelToCcAlias } from "./lib/trinity-rebuild.js"
-export { scoreStress, detectTechStack, loadBlackboxState, saveBlackboxState, getBlackboxResolution, } from "./lib/turn-classify.js"
+export { scoreStress, detectTechStack, loadBlackboxState, saveBlackboxState, getBlackboxResolution } from "./lib/turn-classify.js"
 export { remoteCall } from "./lib/api-client.js"
-export { observeToolPattern, noteProjectPattern, recordSaving, compressText, } from "./lib/index-helpers.js"
+export { observeToolPattern, noteProjectPattern, recordSaving, compressText } from "./lib/index-helpers.js"
 
 export function closeMcpServer() {
   try {
