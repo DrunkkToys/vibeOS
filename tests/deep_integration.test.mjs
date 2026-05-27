@@ -85,7 +85,8 @@ const mod = await import("../src/index.js?deep=" + Date.now())
 const { DelegationEnforcer, applySlot, classifyAndRankModels, modelToCcAlias,
         modelCostPerTurn, isModelFree, saveReport, listReports, readReport,
         researchAudit, getScratchpadHit, buildTestReminder } = mod
-const { collectConfiguredProviderModels } = await import("../src/lib/trinity-rebuild.js?deep=" + Date.now())
+const { collectConfiguredProviderModels, discoverAvailableModels, _extractModelsDevPricingMap } = await import("../src/lib/trinity-rebuild.js?deep=" + Date.now())
+const { _writeDynamicPricingCache } = await import("../src/lib/pricing.js?deep=" + Date.now())
 
 async function freshPlugin(dir = projectDir) {
   return await DelegationEnforcer({ client: {}, directory: dir })
@@ -123,6 +124,60 @@ test("collectConfiguredProviderModels: arbitrary OpenCode dropdown providers are
     "mistral/mistral-medium-latest",
     "custom/provider-model",
   ])
+})
+
+test("dynamic pricing cache merges instead of overwriting", () => {
+  const cachePath = join(sandbox, ".claude/model-pricing-cache.json")
+  writeFileSync(cachePath, JSON.stringify({
+    ts: Date.now(),
+    source: "seed",
+    models: {
+      "existing/model": 0.01,
+    },
+  }, null, 2) + "\n")
+  _writeDynamicPricingCache({
+    "new/model": 0.02,
+  })
+  const cache = JSON.parse(readFileSync(cachePath, "utf-8"))
+  assert.equal(cache.models["existing/model"], 0.01)
+  assert.equal(cache.models["new/model"], 0.02)
+})
+
+test("discoverAvailableModels: models.dev fills Google and opencode pricing", async () => {
+  const prevFetch = global.fetch
+  global.fetch = async (url) => {
+    const s = String(url)
+    if (s.includes("models.dev/api.json")) {
+      return {
+        ok: true,
+        json: async () => ({
+          google: {
+            models: {
+              "gemini-3-pro-preview": { cost: { input: 2, output: 12 } },
+            },
+          },
+          opencode: {
+            models: {
+              "native-model": { cost: { input: 0.3, output: 1.2 } },
+            },
+          },
+        }),
+      }
+    }
+    throw new Error("unexpected fetch: " + s)
+  }
+
+  try {
+    const discovered = await discoverAvailableModels({
+      google: { models: { "gemini-3-pro-preview": {} } },
+      opencode: { models: { "native-model": {} } },
+    }, {})
+    assert.ok(discovered.some(m => m.id === "google/gemini-3-pro-preview"))
+    assert.equal(modelCostPerTurn("google/gemini-3-pro-preview"), 0.005)
+    assert.equal(modelCostPerTurn("opencode/native-model"), 0.00057)
+  } finally {
+    global.fetch = prevFetch
+  }
 })
 
 test("classifyAndRankModels: full set, mixed providers, two models, dedup, empty", () => {

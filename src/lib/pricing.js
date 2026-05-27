@@ -188,6 +188,15 @@ const MODEL_USD_PER_TURN = {
     "google/gemini-2.5-pro": 0.0039,
     "google/gemini-2.5-flash": 0.00096,
     "google/gemini-2.0-flash": 0.00019,
+    "google/gemini-3-pro-preview": 0.005,
+    "google/gemini-3-1-pro-preview": 0.005,
+    "google/gemini-3-pro": 0.005,
+    "google/gemini-3-1-pro": 0.005,
+    "google/gemini-3-pro-image-preview": 0.005,
+    "google/gemini-3-flash-preview": 0.00125,
+    "google/gemini-3-5-flash-preview": 0.00125,
+    "google/gemini-3-flash": 0.00125,
+    "google/gemini-3-5-flash": 0.00125,
     // ── OpenAI ───────────────────────────────────────────────
     "openai/gpt-4o": 0.00475,
     "openai/gpt-4.1": 0.0038,
@@ -264,15 +273,26 @@ export function _writeDynamicPricingCache(modelsMap) {
     try {
         withFileLock(PRICING_CACHE_FILE, () => {
             mkdirSync(dirname(PRICING_CACHE_FILE), { recursive: true });
+            let merged = {};
+            try {
+                if (existsSync(PRICING_CACHE_FILE)) {
+                    const raw = safeJsonParse(readFileSync(PRICING_CACHE_FILE, "utf-8"));
+                    const existing = raw?.models && typeof raw.models === "object" ? raw.models : {};
+                    merged = { ...existing };
+                }
+            }
+            catch {
+            }
+            merged = { ...merged, ...modelsMap };
             const tmp = PRICING_CACHE_FILE + ".tmp";
             writeFileSync(tmp, JSON.stringify({
                 ts: Date.now(),
-                source: "openrouter-models",
-                models: modelsMap,
+                source: "dynamic-model-pricing",
+                models: merged,
             }, null, 2) + "\n");
             renameSync(tmp, PRICING_CACHE_FILE);
         });
-        _dynamicPricingCache = modelsMap;
+        _dynamicPricingCache = { ..._loadDynamicPricingCache(), ...modelsMap };
         _dynamicPricingCacheLoadedAt = Date.now();
     }
     catch { }

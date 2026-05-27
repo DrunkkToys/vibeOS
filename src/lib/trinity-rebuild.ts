@@ -94,6 +94,62 @@ function providerApiKey(providerName, providerCfg, auth) {
   return ""
 }
 
+function _parseModelsDevTurnCost(modelRow) {
+  const cost = modelRow?.cost || modelRow?.pricing || {}
+  const input = Number(cost?.input ?? cost?.prompt ?? cost?.request)
+  const output = Number(cost?.output ?? cost?.completion ?? cost?.response)
+  if (Number.isFinite(input) && Number.isFinite(output)) {
+    return (input * 700 + output * 300) / 1_000_000
+  }
+  const single = Number(cost?.price ?? cost?.total ?? cost?.usd ?? cost?.turn_usd)
+  if (Number.isFinite(single)) return single
+  return null
+}
+
+export function _extractModelsDevPricingMap(payload, wantedIds = null) {
+  const wanted = wantedIds instanceof Set ? wantedIds : null
+  const out = {}
+  if (!payload || typeof payload !== "object") return out
+
+  const providerEntries = []
+  if (payload.providers && typeof payload.providers === "object") {
+    if (Array.isArray(payload.providers)) {
+      for (const provider of payload.providers) {
+        if (!provider || typeof provider !== "object") continue
+        const providerName = String(provider.id || provider.name || provider.provider || "").trim()
+        if (!providerName) continue
+        providerEntries.push([providerName, provider])
+      }
+    } else {
+      providerEntries.push(...Object.entries(payload.providers))
+    }
+  } else {
+    for (const [providerName, provider] of Object.entries(payload)) {
+      if (!provider || typeof provider !== "object") continue
+      if (!provider.models || typeof provider.models !== "object") continue
+      providerEntries.push([providerName, provider])
+    }
+  }
+
+  for (const [providerName, provider] of providerEntries) {
+    const models = provider?.models
+    if (!models || typeof models !== "object") continue
+    for (const [rawId, modelRow] of Object.entries(models)) {
+      const raw = String(rawId || "").trim()
+      if (!raw) continue
+      const fullId = raw.includes("/") ? raw : `${providerName}/${raw}`
+      const normalized = normalizeModelId(fullId)
+      if (wanted && !wanted.has(normalized) && !wanted.has(fullId) && !wanted.has(raw)) continue
+      const cost = _parseModelsDevTurnCost(modelRow)
+      if (cost != null && Number.isFinite(cost)) {
+        out[normalized] = cost
+      }
+    }
+  }
+
+  return out
+}
+
 export function collectConfiguredProviderModels(providers) {
   const all = []
   const seen = new Set()
@@ -154,11 +210,22 @@ function _modelTier(id) {
 export async function discoverAvailableModels(providers, auth) {
   const all = collectConfiguredProviderModels(providers)
   const seen = new Set(all.map((m) => m.id))
+  const wantedIds = new Set(all.map((m) => normalizeModelId(m.id)))
 
   const pushIfNew = (id, provider) => {
     if (seen.has(id)) return
     seen.add(id)
     all.push({ id, provider, cost: _modelCost(id), tier: _modelTier(id) })
+  }
+
+  const mergePricing = (pricingMap) => {
+    if (!pricingMap || typeof pricingMap !== "object") return
+    const next = {}
+    for (const [key, value] of Object.entries(pricingMap)) {
+      if (!Number.isFinite(Number(value))) continue
+      next[normalizeModelId(key)] = Number(value)
+    }
+    if (Object.keys(next).length > 0) _writeDynamicPricingCache(next)
   }
 
   if (auth.deepseek?.key) {
@@ -204,6 +271,23 @@ export async function discoverAvailableModels(providers, auth) {
       }
     } catch (e) {
       console.error("[vibeOS] OpenRouter probe failed:", e.message)
+    }
+  }
+
+  const wantsModelsDev = Object.keys(providers || {}).some((name) => /^(google|opencode|qwen)$/i.test(name))
+    || all.some((m) => /^(google|opencode|qwen)\//i.test(m.id))
+  if (wantsModelsDev) {
+    try {
+      const res = await fetch("https://models.dev/api.json", {
+        signal: AbortSignal.timeout(5000)
+      })
+      if (res.ok) {
+        const body = await res.json()
+        const pricingMap = _extractModelsDevPricingMap(body, wantedIds)
+        mergePricing(pricingMap)
+      }
+    } catch (e) {
+      console.error("[vibeOS] models.dev pricing probe failed:", e.message)
     }
   }
 

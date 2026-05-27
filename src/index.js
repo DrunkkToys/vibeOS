@@ -3816,6 +3816,15 @@ var MODEL_USD_PER_TURN = {
   "google/gemini-2.5-pro": 39e-4,
   "google/gemini-2.5-flash": 96e-5,
   "google/gemini-2.0-flash": 19e-5,
+  "google/gemini-3-pro-preview": 0.005,
+  "google/gemini-3-1-pro-preview": 0.005,
+  "google/gemini-3-pro": 0.005,
+  "google/gemini-3-1-pro": 0.005,
+  "google/gemini-3-pro-image-preview": 0.005,
+  "google/gemini-3-flash-preview": 0.00125,
+  "google/gemini-3-5-flash-preview": 0.00125,
+  "google/gemini-3-flash": 0.00125,
+  "google/gemini-3-5-flash": 0.00125,
   // ── OpenAI ───────────────────────────────────────────────
   "openai/gpt-4o": 475e-5,
   "openai/gpt-4.1": 38e-4,
@@ -3891,15 +3900,25 @@ function _writeDynamicPricingCache(modelsMap) {
   try {
     withFileLock2(PRICING_CACHE_FILE2, () => {
       mkdirSync5(dirname6(PRICING_CACHE_FILE2), { recursive: true });
+      let merged = {};
+      try {
+        if (existsSync5(PRICING_CACHE_FILE2)) {
+          const raw = safeJsonParse3(readFileSync5(PRICING_CACHE_FILE2, "utf-8"));
+          const existing = raw?.models && typeof raw.models === "object" ? raw.models : {};
+          merged = { ...existing };
+        }
+      } catch {
+      }
+      merged = { ...merged, ...modelsMap };
       const tmp = PRICING_CACHE_FILE2 + ".tmp";
       writeFileSync5(tmp, JSON.stringify({
         ts: Date.now(),
-        source: "openrouter-models",
-        models: modelsMap
+        source: "dynamic-model-pricing",
+        models: merged
       }, null, 2) + "\n");
       renameSync4(tmp, PRICING_CACHE_FILE2);
     });
-    _dynamicPricingCache = modelsMap;
+    _dynamicPricingCache = { ..._loadDynamicPricingCache(), ...modelsMap };
     _dynamicPricingCacheLoadedAt = Date.now();
   } catch {
   }
@@ -7328,6 +7347,66 @@ function providerApiKey(providerName, providerCfg, auth) {
     return scoped;
   return "";
 }
+function _parseModelsDevTurnCost(modelRow) {
+  const cost = modelRow?.cost || modelRow?.pricing || {};
+  const input = Number(cost?.input ?? cost?.prompt ?? cost?.request);
+  const output = Number(cost?.output ?? cost?.completion ?? cost?.response);
+  if (Number.isFinite(input) && Number.isFinite(output)) {
+    return (input * 700 + output * 300) / 1e6;
+  }
+  const single = Number(cost?.price ?? cost?.total ?? cost?.usd ?? cost?.turn_usd);
+  if (Number.isFinite(single))
+    return single;
+  return null;
+}
+function _extractModelsDevPricingMap(payload, wantedIds = null) {
+  const wanted = wantedIds instanceof Set ? wantedIds : null;
+  const out = {};
+  if (!payload || typeof payload !== "object")
+    return out;
+  const providerEntries = [];
+  if (payload.providers && typeof payload.providers === "object") {
+    if (Array.isArray(payload.providers)) {
+      for (const provider of payload.providers) {
+        if (!provider || typeof provider !== "object")
+          continue;
+        const providerName = String(provider.id || provider.name || provider.provider || "").trim();
+        if (!providerName)
+          continue;
+        providerEntries.push([providerName, provider]);
+      }
+    } else {
+      providerEntries.push(...Object.entries(payload.providers));
+    }
+  } else {
+    for (const [providerName, provider] of Object.entries(payload)) {
+      if (!provider || typeof provider !== "object")
+        continue;
+      if (!provider.models || typeof provider.models !== "object")
+        continue;
+      providerEntries.push([providerName, provider]);
+    }
+  }
+  for (const [providerName, provider] of providerEntries) {
+    const models = provider?.models;
+    if (!models || typeof models !== "object")
+      continue;
+    for (const [rawId, modelRow] of Object.entries(models)) {
+      const raw = String(rawId || "").trim();
+      if (!raw)
+        continue;
+      const fullId = raw.includes("/") ? raw : `${providerName}/${raw}`;
+      const normalized = normalizeModelId(fullId);
+      if (wanted && !wanted.has(normalized) && !wanted.has(fullId) && !wanted.has(raw))
+        continue;
+      const cost = _parseModelsDevTurnCost(modelRow);
+      if (cost != null && Number.isFinite(cost)) {
+        out[normalized] = cost;
+      }
+    }
+  }
+  return out;
+}
 function collectConfiguredProviderModels(providers) {
   const all = [];
   const seen = /* @__PURE__ */ new Set();
@@ -7364,11 +7443,24 @@ function _modelTier(id2) {
 async function discoverAvailableModels(providers, auth) {
   const all = collectConfiguredProviderModels(providers);
   const seen = new Set(all.map((m) => m.id));
+  const wantedIds = new Set(all.map((m) => normalizeModelId(m.id)));
   const pushIfNew = (id2, provider) => {
     if (seen.has(id2))
       return;
     seen.add(id2);
     all.push({ id: id2, provider, cost: _modelCost(id2), tier: _modelTier(id2) });
+  };
+  const mergePricing = (pricingMap) => {
+    if (!pricingMap || typeof pricingMap !== "object")
+      return;
+    const next = {};
+    for (const [key, value] of Object.entries(pricingMap)) {
+      if (!Number.isFinite(Number(value)))
+        continue;
+      next[normalizeModelId(key)] = Number(value);
+    }
+    if (Object.keys(next).length > 0)
+      _writeDynamicPricingCache(next);
   };
   if (auth.deepseek?.key) {
     try {
@@ -7416,6 +7508,21 @@ async function discoverAvailableModels(providers, auth) {
       }
     } catch (e) {
       console.error("[vibeOS] OpenRouter probe failed:", e.message);
+    }
+  }
+  const wantsModelsDev = Object.keys(providers || {}).some((name) => /^(google|opencode|qwen)$/i.test(name)) || all.some((m) => /^(google|opencode|qwen)\//i.test(m.id));
+  if (wantsModelsDev) {
+    try {
+      const res = await fetch("https://models.dev/api.json", {
+        signal: AbortSignal.timeout(5e3)
+      });
+      if (res.ok) {
+        const body = await res.json();
+        const pricingMap = _extractModelsDevPricingMap(body, wantedIds);
+        mergePricing(pricingMap);
+      }
+    } catch (e) {
+      console.error("[vibeOS] models.dev pricing probe failed:", e.message);
     }
   }
   return all;
