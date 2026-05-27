@@ -144,6 +144,7 @@ export function formatUsd(v) {
 // These skip enforcement entirely to avoid noise.
 // deepseek-chat is DEPRECATED by DeepSeek — now maps to v4-flash ($0.000182/turn).
 // No DeepSeek models are free. Only local models (Ollama) qualify.
+const FREE_MODEL_TURN_USD = 1e-10
 const FREE_MODELS = new Set([
 ])
 
@@ -341,6 +342,7 @@ export function modelCostPerTurn(model) {
   const dyn = _dynamicCostFor(model)
   if (dyn != null) return dyn
   const key = normalizeModelId(model)
+  if (key.endsWith("-free")) return FREE_MODEL_TURN_USD
   const overrides = _loadPricingOverrides()
   if (Object.prototype.hasOwnProperty.call(overrides, key)) return overrides[key]
   if (Object.prototype.hasOwnProperty.call(overrides, model)) return overrides[model]
@@ -362,7 +364,7 @@ export function isModelFree(model) {
   if (FREE_MODELS.has(model)) return true
   if (FREE_MODELS.has(normalizeModelId(model))) return true
   const cost = modelCostPerTurn(model)
-  return cost !== null && cost === 0
+  return cost !== null && cost <= FREE_MODEL_TURN_USD
 }
 
 // Context7 detection — scan known config files for the string "context7".

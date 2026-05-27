@@ -114,6 +114,13 @@ test("isModelFree: correctly identifies", () => {
   assert.equal(isModelFree("anthropic/claude-opus-4-7"), false)
 })
 
+test("isModelFree: any -free OpenCode model is treated as zero-cost", () => {
+  assert.equal(modelCostPerTurn("opencode/big-pickle-free"), 1e-10)
+  assert.equal(modelCostPerTurn("opencode-go/nemotron-3-super-free"), 1e-10)
+  assert.equal(isModelFree("opencode/deepseek-v4-flash-free"), true)
+  assert.equal(isModelFree("opencode-go/nemotron-3-super-free"), true)
+})
+
 test("collectConfiguredProviderModels: arbitrary OpenCode dropdown providers are preserved", () => {
   const models = collectConfiguredProviderModels({
     mistral: { models: { "mistral-large-latest": {}, "mistral-medium-latest": {} } },

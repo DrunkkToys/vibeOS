@@ -3794,6 +3794,7 @@ function formatUsd(v) {
   return n.toFixed(4);
 }
 var FREE_MODELS = /* @__PURE__ */ new Set([]);
+var FREE_MODEL_TURN_USD = 1e-10;
 var MODEL_USD_PER_TURN = {
   // ── Anthropic (Claude Code direct API) ─────────────────────
   "anthropic/claude-opus-4-7": 0.033,
@@ -4000,6 +4001,8 @@ function modelCostPerTurn(model) {
   if (dyn != null)
     return dyn;
   const key = normalizeModelId(model);
+  if (key.endsWith("-free"))
+    return FREE_MODEL_TURN_USD;
   const overrides = _loadPricingOverrides();
   if (Object.prototype.hasOwnProperty.call(overrides, key))
     return overrides[key];
@@ -4026,7 +4029,7 @@ function isModelFree(model) {
   if (FREE_MODELS.has(normalizeModelId(model)))
     return true;
   const cost = modelCostPerTurn(model);
-  return cost !== null && cost === 0;
+  return cost !== null && cost <= FREE_MODEL_TURN_USD;
 }
 var CONTEXT7_CONFIG_FILES = [
   join5(getVibeOSHome4(), "settings.json"),
