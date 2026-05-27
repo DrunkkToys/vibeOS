@@ -563,7 +563,7 @@ function json(res, statusCode, data) {
   res.end(JSON.stringify(data));
 }
 function parseBody(req) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve2, reject) => {
     let raw = "";
     req.on("data", (chunk) => {
       raw += String(chunk || "");
@@ -573,11 +573,11 @@ function parseBody(req) {
     });
     req.on("end", () => {
       if (!raw.trim()) {
-        resolve({});
+        resolve2({});
         return;
       }
       try {
-        resolve(JSON.parse(raw));
+        resolve2(JSON.parse(raw));
       } catch {
         reject(new Error("invalid request"));
       }
@@ -823,14 +823,14 @@ function createMcpServer(deps) {
         return server2;
       if (startPromise)
         return startPromise;
-      startPromise = new Promise((resolve, reject) => {
+      startPromise = new Promise((resolve2, reject) => {
         const srv = http.createServer((req, res) => {
           void handler(req, res);
         });
         srv.once("error", reject);
         srv.listen(port, () => {
           server2 = srv;
-          resolve(srv);
+          resolve2(srv);
         });
       });
       try {
@@ -844,8 +844,8 @@ function createMcpServer(deps) {
         return;
       if (closePromise)
         return closePromise;
-      closePromise = new Promise((resolve, reject) => {
-        server2?.close((err) => err ? reject(err) : resolve());
+      closePromise = new Promise((resolve2, reject) => {
+        server2?.close((err) => err ? reject(err) : resolve2());
       });
       try {
         await closePromise;
@@ -1441,7 +1441,7 @@ async function remoteCall(method, args, fallbackFn) {
 
 // src/lib/pricing.js
 import { readFileSync as readFileSync5, writeFileSync as writeFileSync5, appendFileSync as appendFileSync4, existsSync as existsSync6, mkdirSync as mkdirSync5, statSync as statSync5, copyFileSync as copyFileSync3, renameSync as renameSync4, openSync as openSync2, closeSync as closeSync2, rmSync as rmSync3, readdirSync as readdirSync2 } from "node:fs";
-import { join as join5, dirname as dirname6, basename as basename4 } from "node:path";
+import { join as join5, dirname as dirname6, basename as basename4, resolve } from "node:path";
 import { homedir as homedir4, tmpdir as tmpdir3 } from "node:os";
 import { createHash as createHash2 } from "node:crypto";
 
@@ -3684,6 +3684,9 @@ function getVibeOSHome4() {
 function getOpenCodeHome() {
   return process.env.VIBEOS_OPENCODE_HOME || join5(process.env.HOME || homedir4(), ".config", "opencode");
 }
+function getOpenCodeDesktopHome() {
+  return process.env.VIBEOS_OPENCODE_DESKTOP_HOME || join5(process.env.HOME || homedir4(), "Library", "Application Support", "ai.opencode.desktop");
+}
 var TIERS_FILE2 = join5(getVibeOSHome4(), "model-tiers.json");
 function _handleStateCorruption3(path) {
   const backupDir = join5(getVibeOSHome4(), ".backups");
@@ -4114,8 +4117,88 @@ function loadSelection2() {
 var DFLT_SEL2 = { enabled: true, active_slot: null, thinking_level: "off", flow_enabled: false, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: false, delegation_enforce: true };
 function readConfig(dir) {
   try {
-    const c = readOpenCodeConfigObject(dir);
-    return c?.agent?.build?.model || c?.model || "";
+    const configs = [];
+    const workspaceModel = readWorkspaceSessionModel(dir);
+    if (workspaceModel)
+      return workspaceModel;
+    const projectCfg = readOpenCodeConfigObject(dir);
+    if (projectCfg && typeof projectCfg === "object")
+      configs.push(projectCfg);
+    const homeDir = getOpenCodeHome();
+    if (dir !== homeDir) {
+      const homeCfg = readOpenCodeConfigObject(homeDir);
+      if (homeCfg && typeof homeCfg === "object")
+        configs.push(homeCfg);
+    }
+    const selectedCfg = configs[0] || {};
+    const selectedModel = selectedCfg?.agent?.build?.model || selectedCfg?.model || "";
+    return resolveConfiguredModelId(selectedModel, configs);
+  } catch {
+    return "";
+  }
+}
+function readWorkspaceSessionModel(directory3 = "") {
+  const sid = readLatestOpenCodeSessionId(directory3);
+  if (!sid)
+    return "";
+  const roots = [getOpenCodeDesktopHome(), getOpenCodeHome()];
+  for (const root of roots) {
+    try {
+      if (!existsSync6(root) || !statSync5(root).isDirectory())
+        continue;
+      const files = readdirSync2(root).filter((name) => /^opencode\.workspace\..*\.dat$/i.test(name)).map((name) => join5(root, name)).sort((a, b) => statSync5(b).mtimeMs - statSync5(a).mtimeMs);
+      for (const file of files) {
+        try {
+          const raw = readFileSync5(file, "utf-8");
+          if (!raw.includes(sid) || !raw.includes("workspace:model-selection"))
+            continue;
+          const match = raw.match(/"workspace:model-selection"\s*:\s*"((?:\\.|[^"\\])*)"/s);
+          if (!match)
+            continue;
+          const decoded = JSON.parse(`"${match[1]}"`);
+          const parsed = safeJsonParse3(decoded);
+          const session = parsed?.session?.[sid];
+          const providerID = String(session?.model?.providerID || "").trim();
+          const modelID = String(session?.model?.modelID || "").trim();
+          if (providerID && modelID)
+            return `${providerID}/${modelID}`;
+          if (modelID)
+            return modelID;
+        } catch {
+        }
+      }
+    } catch {
+    }
+  }
+  return "";
+}
+function readLatestOpenCodeSessionId(directory3 = "") {
+  try {
+    const globalPath = join5(getOpenCodeDesktopHome(), "opencode.global.dat");
+    if (!existsSync6(globalPath))
+      return "";
+    const st = statSync5(globalPath);
+    if (!st.isFile() || st.size > 10485760)
+      return "";
+    const raw = safeJsonParse3(readFileSync5(globalPath, "utf-8"));
+    const notifications = typeof raw?.notification === "string" ? safeJsonParse3(raw.notification) : raw?.notification;
+    const list = Array.isArray(notifications?.list) ? notifications.list : [];
+    const targetDir = directory3 ? resolve(directory3) : "";
+    const rows = list.filter((entry) => {
+      const entryDir = String(entry?.directory || "").trim();
+      const session = String(entry?.session || "").trim();
+      if (!entryDir || !session)
+        return false;
+      if (!targetDir)
+        return true;
+      try {
+        return resolve(entryDir) === targetDir;
+      } catch {
+        return entryDir === targetDir;
+      }
+    });
+    rows.sort((a, b) => Number(b?.time || 0) - Number(a?.time || 0));
+    return String(rows[0]?.session || "").trim();
   } catch {
     return "";
   }
@@ -4136,6 +4219,53 @@ function readOpenCodeConfigObject(dir) {
     return parseJsonc(readFileSync5(jsoncPath, "utf-8"));
   }
   return {};
+}
+function collectConfiguredProviderModelsFromConfig(cfg) {
+  const out = [];
+  const providers = cfg?.provider || {};
+  for (const [providerName, providerCfg] of Object.entries(providers)) {
+    const models = providerCfg?.models || {};
+    for (const rawId of Object.keys(models)) {
+      const id2 = String(rawId || "").trim();
+      if (!id2)
+        continue;
+      out.push(id2.includes("/") ? id2 : `${providerName}/${id2}`);
+    }
+  }
+  return out;
+}
+function resolveConfiguredModelId(model, configs = []) {
+  const raw = String(model || "").trim();
+  if (!raw)
+    return "";
+  if (raw.includes("/"))
+    return raw;
+  const normalized = normalizeModelId(raw);
+  const matches = /* @__PURE__ */ new Set();
+  for (const cfg of configs) {
+    for (const id2 of collectConfiguredProviderModelsFromConfig(cfg)) {
+      const bare = String(id2 || "").includes("/") ? String(id2).split("/").pop() : id2;
+      if (normalizeModelId(id2) === normalized || normalizeModelId(bare) === normalized)
+        matches.add(id2);
+    }
+  }
+  return matches.size === 1 ? [...matches][0] : raw;
+}
+function resolveDisplayModelId(model, directory3 = "") {
+  const raw = String(model || "").trim();
+  if (!raw)
+    return "";
+  if (raw.includes("/"))
+    return raw;
+  const configs = [];
+  const projectCfg = readOpenCodeConfigObject(directory3);
+  if (projectCfg && typeof projectCfg === "object")
+    configs.push(projectCfg);
+  const homeDir = getOpenCodeHome();
+  const homeCfg = readOpenCodeConfigObject(homeDir);
+  if (homeCfg && typeof homeCfg === "object")
+    configs.push(homeCfg);
+  return resolveConfiguredModelId(raw, configs);
 }
 function _setTrinitySlotsFromTiers(tiersData) {
   const brain = String(tiersData?.trinity?.brain?.oc || "").trim();
@@ -6190,7 +6320,7 @@ function createTrinityTool(deps) {
         }
         const auth = deps._readAuth();
         try {
-          const ok = await deps.probeModel(targetModel, auth);
+          const ok = await deps.probeModel(targetModel, auth, deps._loadOpenCodeProviders());
           if (!ok)
             console.error("[vibeOS] WARN: " + targetModel + " probe failed - switching anyway");
         } catch (e) {
@@ -6770,7 +6900,7 @@ ${L.repeat(40)}`);
         for (const id2 of candidates) {
           if (probed.brain)
             break;
-          const ok = await deps.probeModel(id2, auth);
+          const ok = await deps.probeModel(id2, auth, providers);
           if (ok)
             probed.brain = models.find((m) => m.id === id2) || { id: id2, cost: deps._modelCost(id2), tier: deps._modelTier(id2) };
           else
@@ -6782,7 +6912,7 @@ ${L.repeat(40)}`);
             break;
           if (m.id === probed.brain?.id)
             continue;
-          const ok = await deps.probeModel(m.id, auth);
+          const ok = await deps.probeModel(m.id, auth, providers);
           if (ok)
             probed.cheap = m;
           else if (!failed.some((f) => f.endsWith(m.id)))
@@ -6793,7 +6923,7 @@ ${L.repeat(40)}`);
             break;
           if (id2 === probed.brain?.id || id2 === probed.cheap?.id)
             continue;
-          const ok = await deps.probeModel(id2, auth);
+          const ok = await deps.probeModel(id2, auth, providers);
           if (ok)
             probed.medium = models.find((m) => m.id === id2) || { id: id2, cost: deps._modelCost(id2), tier: deps._modelTier(id2) };
           else if (!failed.some((f) => f.endsWith(id2)))
@@ -6876,7 +7006,7 @@ ${L.repeat(40)}`);
         if (deps.currentModel || !deps.existsSync(deps.TIERS_FILE)) {
           try {
             const auth = deps._readAuth();
-            const ok = await deps.probeModel(deps.currentModel, auth);
+            const ok = await deps.probeModel(deps.currentModel, auth, deps._loadOpenCodeProviders());
             results.push({
               ok,
               okLabel: ok ? "\u2705" : "\u274C",
@@ -7154,6 +7284,50 @@ function normalizeProviderModels(providerName, models) {
   }
   return out;
 }
+function resolveProviderModel(modelId, providers) {
+  const raw = String(modelId || "").trim();
+  if (!raw)
+    return null;
+  const normalized = normalizeModelId(raw);
+  const entries = Object.entries(providers || {});
+  for (const [providerName, providerCfg] of entries) {
+    const ids = normalizeProviderModels(providerName, providerCfg?.models);
+    for (const id2 of ids) {
+      const bare = String(id2 || "").includes("/") ? String(id2).split("/").slice(1).join("/") : String(id2);
+      if (normalizeModelId(id2) === normalized || normalizeModelId(bare) === normalized) {
+        return { providerName, providerCfg, id: id2 };
+      }
+    }
+  }
+  const prefix = raw.includes("/") ? raw.split("/")[0] : "";
+  if (prefix && providers?.[prefix]) {
+    return { providerName: prefix, providerCfg: providers[prefix], id: raw };
+  }
+  return null;
+}
+function providerApiBaseURL(providerName, providerCfg) {
+  const options = providerCfg?.options || {};
+  const baseURL = String(options?.baseURL || options?.baseUrl || providerCfg?.baseURL || providerCfg?.baseUrl || providerCfg?.url || "").trim();
+  if (baseURL)
+    return baseURL.replace(/\/+$/, "");
+  if (providerName === "deepseek")
+    return "https://api.deepseek.com/v1";
+  if (providerName === "openrouter")
+    return "https://openrouter.ai/api/v1";
+  if (providerName === "google")
+    return "https://generativelanguage.googleapis.com/v1beta";
+  return "";
+}
+function providerApiKey(providerName, providerCfg, auth) {
+  const options = providerCfg?.options || {};
+  const direct = String(options?.apiKey || providerCfg?.apiKey || providerCfg?.key || "").trim();
+  if (direct)
+    return direct;
+  const scoped = String(auth?.[providerName]?.key || "").trim();
+  if (scoped)
+    return scoped;
+  return "";
+}
 function collectConfiguredProviderModels(providers) {
   const all = [];
   const seen = /* @__PURE__ */ new Set();
@@ -7306,40 +7480,47 @@ function modelToCcAlias(modelId) {
   }
   return "haiku";
 }
-async function probeModel(modelId, auth) {
+async function probeModel(modelId, auth, providers = null) {
   if (!modelId || !auth)
     return true;
   const id2 = String(modelId || "");
   if (id2.startsWith("opencode/"))
     return true;
-  let apiUrl, apiKey, reqModel;
-  if (id2.startsWith("deepseek/")) {
-    apiUrl = "https://api.deepseek.com/chat/completions";
-    apiKey = auth.deepseek?.key;
-    reqModel = id2.replace("deepseek/", "");
-  } else if (id2.startsWith("openrouter/")) {
-    apiUrl = "https://openrouter.ai/api/v1/chat/completions";
-    apiKey = auth.openrouter?.key;
-    reqModel = id2.replace("openrouter/", "");
-  } else {
+  const provider = resolveProviderModel(id2, providers);
+  const providerName = provider?.providerName || (id2.includes("/") ? id2.split("/")[0] : "");
+  const providerCfg = provider?.providerCfg || providers?.[providerName] || {};
+  const reqModel = provider?.id ? provider.id.includes("/") ? provider.id.split("/").slice(1).join("/") : provider.id : id2.includes("/") ? id2.split("/").slice(1).join("/") : id2;
+  const apiKey = providerApiKey(providerName, providerCfg, auth);
+  const baseURL = providerApiBaseURL(providerName, providerCfg);
+  if (!providerName || !reqModel) {
     return true;
   }
   if (!apiKey) {
     console.error("[vibeOS] probeModel: no API key for " + id2);
     return false;
   }
+  if (!baseURL && providerName !== "google") {
+    return true;
+  }
   try {
+    const isGoogleDirect = providerName === "google" && !String(baseURL || "").includes("chat/completions");
+    const apiUrl = isGoogleDirect ? `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(reqModel)}:generateContent?key=${encodeURIComponent(apiKey)}` : `${baseURL || providerApiBaseURL(providerName, providerCfg) || ""}/chat/completions`;
+    const headers = isGoogleDirect ? { "Content-Type": "application/json", "x-goog-api-key": apiKey } : {
+      "Authorization": "Bearer " + apiKey,
+      "Content-Type": "application/json"
+    };
+    const body = isGoogleDirect ? JSON.stringify({
+      contents: [{ role: "user", parts: [{ text: "ok" }] }],
+      generationConfig: { maxOutputTokens: 1 }
+    }) : JSON.stringify({
+      model: reqModel,
+      messages: [{ role: "user", content: "ok" }],
+      max_tokens: 1
+    });
     const res = await fetch(apiUrl, {
       method: "POST",
-      headers: {
-        "Authorization": "Bearer " + apiKey,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model: reqModel,
-        messages: [{ role: "user", content: "ok" }],
-        max_tokens: 1
-      }),
+      headers,
+      body,
       signal: AbortSignal.timeout(8e3)
     });
     if (!res.ok) {
@@ -8661,7 +8842,7 @@ async function _appendFooter(input, output, directory3) {
     if (!liveModel) {
       liveModel = readConfig(directory3) || readConfig(join14(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || "";
     }
-    const displayModel = liveModel || currentModel || brainModel;
+    const displayModel = resolveDisplayModelId(liveModel || currentModel || brainModel || "", directory3) || liveModel || currentModel || brainModel;
     let modelTag = `[${shortModelName(displayModel)}]`;
     const _workerModel = slot === "brain" ? TRINITY_MEDIUM : null;
     const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0);
@@ -8732,7 +8913,7 @@ async function _appendFooter(input, output, directory3) {
     const ltTotal = ltTasks + ltCache;
     const optMode = (resolvedMode || "budget").toLowerCase();
     const modeLabel = optMode === "quality" ? "quality" : optMode === "speed" ? "speed" : optMode === "longrun" ? "longrun" : "";
-    let vibeLine = `\u2014 ${flashIcon ? `${flashIcon} ` : ""}run: ${shortModelName(displayModel)}`;
+    let vibeLine = `\u2014 ${flashIcon ? `${flashIcon} ` : ""}run: ${displayModel}`;
     if (ltTotal > 0) {
       vibeLine += ` | $${formatUsd(ltTotal)} saved`;
     }
@@ -10666,9 +10847,9 @@ var onToolExecuteAfter = async (input, output) => {
     if (!liveModel) {
       liveModel = readConfig(projectDirectory) || readConfig(join16(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || "";
     }
-    const displayModel = liveModel || currentModel;
+    const displayModel = resolveDisplayModelId(liveModel || currentModel || "", projectDirectory) || liveModel || currentModel;
     if (ltTotal > 0) {
-      _footerText = `\u2014 ${flashIcon ? `${flashIcon} ` : ""}run: ${shortModelName(displayModel)} | $${formatUsd(ltTotal)} saved | VIBE${flashIcon ? " \u26A1" : ""} \u2014
+      _footerText = `\u2014 ${flashIcon ? `${flashIcon} ` : ""}run: ${displayModel} | $${formatUsd(ltTotal)} saved | VIBE${flashIcon ? " \u26A1" : ""} \u2014
 
 `;
     } else {

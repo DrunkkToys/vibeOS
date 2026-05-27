@@ -142,7 +142,7 @@ export function createTrinityTool(deps) {
                 }
                 const auth = deps._readAuth();
                 try {
-                    const ok = await deps.probeModel(targetModel, auth);
+                    const ok = await deps.probeModel(targetModel, auth, deps._loadOpenCodeProviders());
                     if (!ok)
                         console.error("[vibeOS] WARN: " + targetModel + " probe failed - switching anyway");
                 }
@@ -730,7 +730,7 @@ export function createTrinityTool(deps) {
                 for (const id of candidates) {
                     if (probed.brain)
                         break;
-                    const ok = await deps.probeModel(id, auth);
+                    const ok = await deps.probeModel(id, auth, providers);
                     if (ok)
                         probed.brain = models.find(m => m.id === id) || { id, cost: deps._modelCost(id), tier: deps._modelTier(id) };
                     else
@@ -742,7 +742,7 @@ export function createTrinityTool(deps) {
                         break;
                     if (m.id === probed.brain?.id)
                         continue;
-                    const ok = await deps.probeModel(m.id, auth);
+                    const ok = await deps.probeModel(m.id, auth, providers);
                     if (ok)
                         probed.cheap = m;
                     else if (!failed.some(f => f.endsWith(m.id)))
@@ -753,7 +753,7 @@ export function createTrinityTool(deps) {
                         break;
                     if (id === probed.brain?.id || id === probed.cheap?.id)
                         continue;
-                    const ok = await deps.probeModel(id, auth);
+                    const ok = await deps.probeModel(id, auth, providers);
                     if (ok)
                         probed.medium = models.find(m => m.id === id) || { id, cost: deps._modelCost(id), tier: deps._modelTier(id) };
                     else if (!failed.some(f => f.endsWith(id)))
@@ -838,7 +838,7 @@ export function createTrinityTool(deps) {
                 if (deps.currentModel || !deps.existsSync(deps.TIERS_FILE)) {
                     try {
                         const auth = deps._readAuth();
-                        const ok = await deps.probeModel(deps.currentModel, auth);
+                        const ok = await deps.probeModel(deps.currentModel, auth, deps._loadOpenCodeProviders());
                         results.push({
                             ok, okLabel: ok ? "\u2705" : "\u274c",
                             label: "model probe",

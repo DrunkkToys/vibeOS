@@ -15,7 +15,7 @@ export function setTrinityCheap(v) { TRINITY_CHEAP = v; }
  * context7 detection, per-turn cost estimation, and slot management.
  */
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, statSync, copyFileSync, renameSync, openSync, closeSync, rmSync, readdirSync } from "node:fs";
-import { join, dirname, basename } from "node:path";
+import { join, dirname, basename, resolve } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { currentModel, currentTier, setCurrentModel, setCurrentTier, safeJsonParse, HIGH_TIER_RE, MID_TIER_RE, loadTierRegexes, _modelLocked } from "./state.js";
@@ -33,6 +33,9 @@ function getVibeOSHome() {
 }
 function getOpenCodeHome() {
     return process.env.VIBEOS_OPENCODE_HOME || join(process.env.HOME || homedir(), ".config", "opencode");
+}
+function getOpenCodeDesktopHome() {
+    return process.env.VIBEOS_OPENCODE_DESKTOP_HOME || join(process.env.HOME || homedir(), "Library", "Application Support", "ai.opencode.desktop");
 }
 const TIERS_FILE = join(getVibeOSHome(), "model-tiers.json");
 function _handleStateCorruption(path) {
@@ -502,8 +505,95 @@ function loadSelection() {
 const DFLT_SEL = { enabled: true, active_slot: null, thinking_level: "off", flow_enabled: false, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: false, delegation_enforce: true };
 export function readConfig(dir) {
     try {
-        const c = readOpenCodeConfigObject(dir);
-        return c?.agent?.build?.model || c?.model || "";
+        const configs = [];
+        const workspaceModel = readWorkspaceSessionModel(dir);
+        if (workspaceModel)
+            return workspaceModel;
+        const projectCfg = readOpenCodeConfigObject(dir);
+        if (projectCfg && typeof projectCfg === "object")
+            configs.push(projectCfg);
+        const homeDir = getOpenCodeHome();
+        if (dir !== homeDir) {
+            const homeCfg = readOpenCodeConfigObject(homeDir);
+            if (homeCfg && typeof homeCfg === "object")
+                configs.push(homeCfg);
+        }
+        const selectedCfg = configs[0] || {};
+        const selectedModel = selectedCfg?.agent?.build?.model || selectedCfg?.model || "";
+        return resolveConfiguredModelId(selectedModel, configs);
+    }
+    catch {
+        return "";
+    }
+}
+function readWorkspaceSessionModel(directory = "") {
+    const sid = readLatestOpenCodeSessionId(directory);
+    if (!sid)
+        return "";
+    const roots = [getOpenCodeDesktopHome(), getOpenCodeHome()];
+    for (const root of roots) {
+        try {
+            if (!existsSync(root) || !statSync(root).isDirectory())
+                continue;
+            const files = readdirSync(root)
+                .filter((name) => /^opencode\.workspace\..*\.dat$/i.test(name))
+                .map((name) => join(root, name))
+                .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
+            for (const file of files) {
+                try {
+                    const raw = readFileSync(file, "utf-8");
+                    if (!raw.includes(sid) || !raw.includes("workspace:model-selection"))
+                        continue;
+                    const match = raw.match(/"workspace:model-selection"\s*:\s*"((?:\\.|[^"\\])*)"/s);
+                    if (!match)
+                        continue;
+                    const decoded = JSON.parse(`"${match[1]}"`);
+                    const parsed = safeJsonParse(decoded);
+                    const session = parsed?.session?.[sid];
+                    const providerID = String(session?.model?.providerID || "").trim();
+                    const modelID = String(session?.model?.modelID || "").trim();
+                    if (providerID && modelID)
+                        return `${providerID}/${modelID}`;
+                    if (modelID)
+                        return modelID;
+                }
+                catch { }
+            }
+        }
+        catch { }
+    }
+    return "";
+}
+function readLatestOpenCodeSessionId(directory = "") {
+    try {
+        const globalPath = join(getOpenCodeDesktopHome(), "opencode.global.dat");
+        if (!existsSync(globalPath))
+            return "";
+        const st = statSync(globalPath);
+        if (!st.isFile() || st.size > 10485760)
+            return "";
+        const raw = safeJsonParse(readFileSync(globalPath, "utf-8"));
+        const notifications = typeof raw?.notification === "string"
+            ? safeJsonParse(raw.notification)
+            : raw?.notification;
+        const list = Array.isArray(notifications?.list) ? notifications.list : [];
+        const targetDir = directory ? resolve(directory) : "";
+        const rows = list.filter((entry) => {
+            const entryDir = String(entry?.directory || "").trim();
+            const session = String(entry?.session || "").trim();
+            if (!entryDir || !session)
+                return false;
+            if (!targetDir)
+                return true;
+            try {
+                return resolve(entryDir) === targetDir;
+            }
+            catch {
+                return entryDir === targetDir;
+            }
+        });
+        rows.sort((a, b) => Number(b?.time || 0) - Number(a?.time || 0));
+        return String(rows[0]?.session || "").trim();
     }
     catch {
         return "";
@@ -525,6 +615,53 @@ function readOpenCodeConfigObject(dir) {
         return parseJsonc(readFileSync(jsoncPath, "utf-8"));
     }
     return {};
+}
+function collectConfiguredProviderModelsFromConfig(cfg) {
+    const out = [];
+    const providers = cfg?.provider || {};
+    for (const [providerName, providerCfg] of Object.entries(providers)) {
+        const models = providerCfg?.models || {};
+        for (const rawId of Object.keys(models)) {
+            const id = String(rawId || "").trim();
+            if (!id)
+                continue;
+            out.push(id.includes("/") ? id : `${providerName}/${id}`);
+        }
+    }
+    return out;
+}
+function resolveConfiguredModelId(model, configs = []) {
+    const raw = String(model || "").trim();
+    if (!raw)
+        return "";
+    if (raw.includes("/"))
+        return raw;
+    const normalized = normalizeModelId(raw);
+    const matches = new Set();
+    for (const cfg of configs) {
+        for (const id of collectConfiguredProviderModelsFromConfig(cfg)) {
+            const bare = String(id || "").includes("/") ? String(id).split("/").pop() : id;
+            if (normalizeModelId(id) === normalized || normalizeModelId(bare) === normalized)
+                matches.add(id);
+        }
+    }
+    return matches.size === 1 ? [...matches][0] : raw;
+}
+export function resolveDisplayModelId(model, directory = "") {
+    const raw = String(model || "").trim();
+    if (!raw)
+        return "";
+    if (raw.includes("/"))
+        return raw;
+    const configs = [];
+    const projectCfg = readOpenCodeConfigObject(directory);
+    if (projectCfg && typeof projectCfg === "object")
+        configs.push(projectCfg);
+    const homeDir = getOpenCodeHome();
+    const homeCfg = readOpenCodeConfigObject(homeDir);
+    if (homeCfg && typeof homeCfg === "object")
+        configs.push(homeCfg);
+    return resolveConfiguredModelId(raw, configs);
 }
 function _setTrinitySlotsFromTiers(tiersData) {
     const brain = String(tiersData?.trinity?.brain?.oc || "").trim();

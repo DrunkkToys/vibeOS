@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, statSync, readdirSync, copyFileSync } from "node:fs"
 import { join, dirname, basename } from "node:path"
-import { classify, modelCostPerTurn, _refreshModel, readConfig, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, roundUsd, formatUsd } from "../pricing.js"
+import { classify, modelCostPerTurn, _refreshModel, readConfig, resolveDisplayModelId, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, roundUsd, formatUsd } from "../pricing.js"
 import { latestUserIntent } from "./chat-transform.js"
 import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, loadOptimizationMode, classifyTurnSimple } from "../turn-classify.js"
 import { peekBudgetFirstMode, recordBudgetFirstOutcome } from "../mode-policy.js"
@@ -176,7 +176,7 @@ async function _appendFooter(input, output, directory) {
       if (!liveModel) {
         liveModel = readConfig(directory) || readConfig(join(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || ""
       }
-      const displayModel = liveModel || currentModel || brainModel
+      const displayModel = resolveDisplayModelId(liveModel || currentModel || brainModel || "", directory) || liveModel || currentModel || brainModel
       let modelTag = `[${shortModelName(displayModel)}]`
       const _workerModel = slot === "brain" ? TRINITY_MEDIUM : null
       const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0)
@@ -245,7 +245,7 @@ async function _appendFooter(input, output, directory) {
 
       const optMode = (resolvedMode || 'budget').toLowerCase()
       const modeLabel = optMode === "quality" ? "quality" : optMode === "speed" ? "speed" : optMode === "longrun" ? "longrun" : ""
-      let vibeLine = `— ${flashIcon ? `${flashIcon} ` : ""}run: ${shortModelName(displayModel)}`
+      let vibeLine = `— ${flashIcon ? `${flashIcon} ` : ""}run: ${displayModel}`
       if (ltTotal > 0) {
         vibeLine += ` | $${formatUsd(ltTotal)} saved`
       }
