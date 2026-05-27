@@ -1,3 +1,11 @@
+## 0.20.4
+- fix: add alpha token invalidate switch
+- fix: prefer valid api tokens over placeholder env
+- fix: gate footer stderr by runtime
+- fix: quiet footer stderr noise
+Merge pull request #70 from DrunkkToys/codex/alpha-token-kill-switch
+
+
 ## 0.20.3
 - fix: embed valid alpha token fallback
 Merge pull request #69 from DrunkkToys/codex/alpha-token-release
