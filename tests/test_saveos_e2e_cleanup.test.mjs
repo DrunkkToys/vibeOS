@@ -416,7 +416,7 @@ test("saveOS FOOTER: flash icon stays hidden when backend is disabled", async ()
 test("saveOS API: ~/.claude token wins over repo token", async () => {
   const tokenSandbox = mkdtempSync(join(tmpdir(), "saveos-token-pref-"))
   mkdirSync(join(tokenSandbox, ".claude"), { recursive: true })
-  const preferredToken = "vos_test_preferred_token_0123456789abcdef"
+  const preferredToken = "vos_" + "a".repeat(64)
   writeFileSync(join(tokenSandbox, ".claude", ".env.production"), `VIBEOS_API_TOKEN=${preferredToken}\n`)
   const apiUrl = pathToFileURL(join(process.cwd(), "src/lib/api-client.js")).href
   const script = `

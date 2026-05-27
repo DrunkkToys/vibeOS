@@ -138,7 +138,7 @@ Savings are persisted in `~/.claude/delegation-state.json`.
 | Variable | Default | Purpose |
 |---|---|---|
 | `VIBEOS_API_URL` | `https://api.vibetheog.com` | Remote API server URL |
-| `VIBEOS_API_TOKEN` | unset | vos_a51ffe2cdda8f52f8f3cc66064508999cc6831699309ba661a850865af07c020 |
+| `VIBEOS_API_TOKEN` | unset | vos_8d73804b13bb46711b9a47f036dba7b4d026fd9583d96960e663716e62815a69 |
 | `VIBEOS_API_BOOTSTRAP_TOKEN` | unset | Alpha bootstrap token for initial auth exchange |
 | `VIBEOS_API_ENABLED` | `true` | Set to `false` for local-only mode |
 | `CLAUDE_CREDIT_PERCENT` | `100` | Credit override |

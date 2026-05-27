@@ -7,7 +7,8 @@ import { homedir } from "node:os"
 import { isApiConnected as isRuntimeApiConnected, markApiConnected, markApiDisconnected, resetApiConnection } from "./runtime-state.js"
 
 const DEFAULT_API_URL = "https://api.vibetheog.com"
-const EMBEDDED_API_TOKEN = "vos_a51ffe2cdda8f52f8f3cc66064508999cc6831699309ba661a850865af07c020"
+const EMBEDDED_API_TOKEN = "vos_8d73804b13bb46711b9a47f036dba7b4d026fd9583d96960e663716e62815a69"
+const API_TOKEN_RE = /^vos_[a-f0-9]{64}$/i
 const REQUEST_TIMEOUT = 10000
 const MAX_RETRIES = 3
 const BASE_RETRY_DELAY = 1000
@@ -59,6 +60,11 @@ export class VibeOSNetworkError extends Error {
   }
 }
 
+function normalizeApiToken(token: string | null | undefined, fallback = ""): string {
+  const clean = String(token || "").trim()
+  return API_TOKEN_RE.test(clean) ? clean : fallback
+}
+
 export class VibeOSApiClient {
   baseUrl: string
   apiToken: string | null
@@ -69,7 +75,8 @@ export class VibeOSApiClient {
 
   constructor(options: ApiClientOptions = {}) {
     this.baseUrl = options.baseUrl || process.env.VIBEOS_API_URL || DEFAULT_API_URL
-    this.apiToken = options.apiToken || process.env.VIBEOS_API_TOKEN || null
+    this.apiToken = normalizeApiToken(options.apiToken || process.env.VIBEOS_API_TOKEN || "", "")
+      || null
     this.masterKey = options.masterKey || process.env.VIBEOS_API_MASTER_KEY || null
     this.timeout = options.timeout || REQUEST_TIMEOUT
     this.fallbackMode = false
@@ -390,7 +397,10 @@ function readTokenFromDisk(): string {
     try {
       const env = readFileSync(dir + "/.env.production", "utf8")
       const m = env.match(/^VIBEOS_API_TOKEN=(.+)$/m)
-      if (m) return m[1].trim()
+      if (m) {
+        const clean = normalizeApiToken(m[1], "")
+        if (clean) return clean
+      }
     } catch {}
   }
   return ""
@@ -405,7 +415,7 @@ function readBootstrapTokenFromDisk(): string {
   return ""
 }
 
-export let VIBEOS_API_TOKEN = readTokenFromDisk() || process.env.VIBEOS_API_TOKEN || EMBEDDED_API_TOKEN
+export let VIBEOS_API_TOKEN = readTokenFromDisk() || normalizeApiToken(process.env.VIBEOS_API_TOKEN, "") || EMBEDDED_API_TOKEN
 export let VIBEOS_API_BOOTSTRAP_TOKEN = readBootstrapTokenFromDisk() || process.env.VIBEOS_API_BOOTSTRAP_TOKEN || ""
 export let VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN)
 
@@ -428,7 +438,7 @@ function persistBootstrapToken(token: string): void {
 
 export function setApiToken(newToken) {
   try {
-    VIBEOS_API_TOKEN = String(newToken || "").trim() || EMBEDDED_API_TOKEN
+    VIBEOS_API_TOKEN = normalizeApiToken(newToken, EMBEDDED_API_TOKEN)
     VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && !!VIBEOS_API_TOKEN
     const primaryPath = _envPaths[0] + "/.env.production"
     try {
@@ -506,7 +516,7 @@ export async function ensureBootstrapExchange(): Promise<boolean> {
 function syncApiTokenFromDisk(): void {
   const diskToken = readTokenFromDisk() || ""
   const diskBootstrapToken = readBootstrapTokenFromDisk() || ""
-  const envToken = process.env.VIBEOS_API_TOKEN || ""
+  const envToken = normalizeApiToken(process.env.VIBEOS_API_TOKEN, "")
 
   if (diskToken && diskToken !== VIBEOS_API_TOKEN) {
     VIBEOS_API_TOKEN = diskToken
