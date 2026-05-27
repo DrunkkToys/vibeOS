@@ -458,7 +458,7 @@ export const onToolExecuteBefore = async (input, output) => {
     const total = recordSaving(t, "credit<40% high-tier", _estOpus, { firstWord: _firstWord })
     const trend = trendDisplay(readLifetimeSavings().sesTrend)
     const msg = `⚠ [vibeOS] Credit: ${_credit}% — switching to medium saves ~$${_estOpus.toFixed(3)}/turn. Run \`trinity medium\`.`
-    if (shouldLogWarn(`${t}|credit|${_tierWord}`) && (!IS_CLI_RUNTIME || process.env.VIBEOS_DEBUG_DELEGATION === "1")) {
+    if (shouldLogWarn(`${t}|credit|${_tierWord}`) && process.env.VIBEOS_DEBUG_DELEGATION === "1") {
       console.error(`[vibeOS] [delegation] ${msg}`)
     }
     pendingUiNote = msg
@@ -468,7 +468,7 @@ export const onToolExecuteBefore = async (input, output) => {
   // Write/Edit/NotebookEdit: enforce delegation on high tier when delegation_enforce is on.
   if (WARN_ON_DIRECT.has(String(t || "").toLowerCase())) {
     const argSources = _toolArgSources(input, output)
-    console.error(`[vibeOS] [enforce-debug] tool=${t} tier=${currentTier} enforce=${sel?.delegation_enforce} argsType=${typeof args} argsExists=${argSources.length > 0}`)
+    if (process.env.VIBEOS_DEBUG_DELEGATION === "1") console.error(`[vibeOS] [enforce-debug] tool=${t} tier=${currentTier} enforce=${sel?.delegation_enforce} argsType=${typeof args} argsExists=${argSources.length > 0}`)
     const tLower = String(t || "").toLowerCase()
     if (!compatibilityMode && sel.delegation_enforce && currentTier === "high" && argSources.length > 0) {
       const originalPath = argSources
@@ -496,7 +496,7 @@ export const onToolExecuteBefore = async (input, output) => {
     const total = recordSaving(t, "direct edit", _estEdit, { firstWord: _firstWord })
     if (!compatibilityMode) {
       const msg = `[vibeOS] ${_tierWord} tier direct ${t} — save ~$${_estEdit.toFixed(3)} by delegating to Task. Run \`trinity medium\`.`
-      if (shouldLogWarn(`${t}|direct|${_tierWord}`) && (!IS_CLI_RUNTIME || process.env.VIBEOS_DEBUG_DELEGATION === "1")) {
+      if (shouldLogWarn(`${t}|direct|${_tierWord}`) && process.env.VIBEOS_DEBUG_DELEGATION === "1") {
         console.error(`[vibeOS] [delegation] ${msg}`)
       }
       pendingUiNote = msg
@@ -621,8 +621,6 @@ export const onToolExecuteAfter = async (input, output) => {
     if (ltTotal > 0) {
       const execution = resolveExecutionIdentity(input?.args?.model || liveModel || currentModel || displayModel || "", projectDirectory)
       _footerText = `— ${flashIcon ? `${flashIcon} ` : ""}Quality: ${formatQualityName(execution.quality)} | Provider: ${formatProviderName(execution.provider)} | Model: ${execution.model} | $${formatUsd(ltTotal)} saved | VIBE${flashIcon ? " ⚡" : ""} —\n\n`
-    } else {
-      _footerText = `${statusLine}${stressTag}\n\n`
     }
     output.title = _footerText.trim()
     if (typeof output?.output === "string") output.output = _footerText + output.output
