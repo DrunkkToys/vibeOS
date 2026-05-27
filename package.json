@@ -21,7 +21,11 @@
     "codex:hook:summary": "bash plugins/vibetheog-codex/hooks/post-command-summary.sh",
     "precommit": "node scripts/pre-commit.mjs",
     "audit-state": "node scripts/audit-state.mjs",
-    "migrate-ledger": "node scripts/migrate-ledger.mjs"
+    "migrate-ledger": "node scripts/migrate-ledger.mjs",
+    "lint": "eslint src/",
+    "lint:fix": "eslint src/ --fix",
+    "test:coverage": "c8 --reporter=text --reporter=html npm test",
+    "typecheck:strict": "tsc -p tsconfig.strict.json --noEmit"
   },
   "type": "module",
   "main": "./src/index.js",
@@ -70,11 +74,15 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.60.0",
+    "@stylistic/eslint-plugin": "^5.10.0",
     "@types/express": "^5.0.6",
     "@types/node": "^22.15.30",
+    "@typescript-eslint/eslint-plugin": "^8.60.0",
+    "@typescript-eslint/parser": "^8.60.0",
+    "c8": "^11.0.0",
     "esbuild": "^0.28.0",
+    "eslint": "^10.4.0",
     "express": "^5.2.1",
     "typescript": "^5.9.3"
-  },
-  "dependencies": {}
+  }
 }

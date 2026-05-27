@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "strictNullChecks": true,
+    "composite": true,
+    "declaration": true,
+    "declarationMap": true
+  },
+  "include": [
+    "src/lib/constants.ts",
+    "src/utils/math.ts",
+    "src/utils/cost-formatter.ts"
+  ],
+  "exclude": []
+}

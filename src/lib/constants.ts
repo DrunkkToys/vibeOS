@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: MIT
-// @ts-nocheck
 
 export const SAVE_EST = {
   // Realistic: v4-pro (0.00057) - v4-flash (0.000182) = 0.000388/turn
