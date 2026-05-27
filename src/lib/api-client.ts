@@ -7,7 +7,7 @@ import { homedir } from "node:os"
 import { isApiConnected as isRuntimeApiConnected, markApiConnected, markApiDisconnected, resetApiConnection } from "./runtime-state.js"
 
 const DEFAULT_API_URL = "https://api.vibetheog.com"
-const EMBEDDED_API_TOKEN = "vos_ffa6c7dacb244a03"
+const EMBEDDED_API_TOKEN = "vos_a51ffe2cdda8f52f8f3cc66064508999cc6831699309ba661a850865af07c020"
 const REQUEST_TIMEOUT = 10000
 const MAX_RETRIES = 3
 const BASE_RETRY_DELAY = 1000
