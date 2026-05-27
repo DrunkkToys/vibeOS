@@ -180,7 +180,7 @@ const tool = Object.assign((def) => def, {
         string: (o) => _zType({ kind: "string", ...(o || {}) }),
         number: (o) => _zType({ kind: "number", ...(o || {}) }),
         enum: (values) => _zType({ kind: "enum", values }),
-    }
+    },
 });
 // ── State corruption handler ─────────────────────────────────────────
 function _handleStateCorruption(path) {
@@ -248,16 +248,16 @@ function withFileLock(filePath, fn, opts = {}) {
 }
 // ── JSONC-tolerant JSON.parse ────────────────────────────────────────
 function safeJsonParse(raw) {
-    if (raw == null || raw === '')
+    if (raw == null || raw === "")
         return null;
     try {
         return JSON.parse(raw);
     }
     catch { }
     let cleaned = raw
-        .replace(/\/\*[\s\S]*?\*\//g, '')
-        .replace(/\/\/.*$/gm, '')
-        .replace(/,\s*([}\]])/g, '$1');
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/\/\/.*$/gm, "")
+        .replace(/,\s*([}\]])/g, "$1");
     try {
         return JSON.parse(cleaned);
     }
@@ -267,7 +267,7 @@ function safeJsonParse(raw) {
 }
 // ── State validation ─────────────────────────────────────────────────
 function validateState(state, path) {
-    if (!state || typeof state !== 'object') {
+    if (!state || typeof state !== "object") {
         console.error(`[vibeOS] State validation failed: not an object at ${path}`);
         return;
     }
@@ -283,7 +283,7 @@ function validateState(state, path) {
         console.error(`[vibeOS] State validation warning: sessions is invalid type at ${path}, resetting`);
         state.sessions = {};
     }
-    if (state.lifetime && typeof state.lifetime !== 'object') {
+    if (state.lifetime && typeof state.lifetime !== "object") {
         console.error(`[vibeOS] State validation warning: lifetime is not object at ${path}, resetting`);
         state.lifetime = {};
     }

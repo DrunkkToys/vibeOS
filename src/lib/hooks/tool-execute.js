@@ -1,19 +1,19 @@
 // @ts-nocheck
-import { writeFileSync, appendFileSync, existsSync, mkdirSync } from 'node:fs';
-import { join, dirname, basename } from 'node:path';
-import { currentTier, currentModel, setCurrentModel, setCurrentTier, _OC_SID, _modelLocked, loadSelection, readLifetimeSavings, recordCacheSaving, recordMissedContext7, getScratchpadHit, recordScratchpadObservation, recordPrivacyTelemetry, updateState, SAVINGS_LEDGER_FILE, CONTEXT7_INSTALL_FLAG, SOFT_QUOTA_LIMIT, upsertTodo, ML_ENABLED, _mlGraph, _cacheDb, _mlSavePending, ML_CONFIDENCE_THRESHOLD, setMlSavePending, saveMLState, SCRATCHPAD_TOOLS, applyDecadence, } from '../state.js';
-import { classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget, shortModelName, formatUsd, _refreshModel, readConfig, resolveDisplayModelId, TRINITY_CHEAP, TRINITY_MEDIUM, trendDisplay, modelToSlotLabel, } from '../pricing.js';
-import { latestUserIntent } from './chat-transform.js';
-import { scoreStress, extractFirstWordFromArgs, shouldLogWarn, isUserAskingForTests, resolveEnforcementMode, getLearnedExploratoryWords, noteTaskRoutingLearning, } from '../turn-classify.js';
-import { saveReport } from '../reporting.js';
-import { loadCredit } from '../credit-api.js';
-import { remoteCall, VIBEOS_API_ENABLED } from '../api-client.js';
-import { checkFlowRules } from '../../vibeOS-lib/flow-enforcer.js';
-import { computeDifficulty, addRouteEdge, predictBestModel, hashQuery } from '../../vibeOS-lib/ml-router.js';
-import { addCacheEntry, recordCacheStats, predictCacheHit } from '../../vibeOS-lib/smart-cache.js';
-import { buildTestReminder, enforceTestFile } from '../tdd-enforcer.js';
-import { setActiveJobFromTaskPrompt, observeToolPattern, compressText, recordSaving } from '../index-helpers.js';
-import { scoreTaskQuality, readRewardSignals } from './footer.js';
+import { writeFileSync, appendFileSync, existsSync, mkdirSync } from "node:fs";
+import { join, dirname, basename } from "node:path";
+import { currentTier, currentModel, setCurrentModel, setCurrentTier, _OC_SID, _modelLocked, loadSelection, readLifetimeSavings, recordCacheSaving, recordMissedContext7, getScratchpadHit, recordScratchpadObservation, recordPrivacyTelemetry, updateState, SAVINGS_LEDGER_FILE, CONTEXT7_INSTALL_FLAG, SOFT_QUOTA_LIMIT, upsertTodo, ML_ENABLED, _mlGraph, _cacheDb, _mlSavePending, ML_CONFIDENCE_THRESHOLD, setMlSavePending, saveMLState, SCRATCHPAD_TOOLS, applyDecadence, } from "../state.js";
+import { classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget, shortModelName, formatUsd, _refreshModel, readConfig, resolveDisplayModelId, TRINITY_CHEAP, TRINITY_MEDIUM, trendDisplay, modelToSlotLabel, resolveExecutionIdentity, formatProviderName, formatQualityName, } from "../pricing.js";
+import { latestUserIntent } from "./chat-transform.js";
+import { scoreStress, extractFirstWordFromArgs, shouldLogWarn, isUserAskingForTests, resolveEnforcementMode, getLearnedExploratoryWords, noteTaskRoutingLearning, } from "../turn-classify.js";
+import { saveReport } from "../reporting.js";
+import { loadCredit } from "../credit-api.js";
+import { remoteCall, VIBEOS_API_ENABLED } from "../api-client.js";
+import { checkFlowRules } from "../../vibeOS-lib/flow-enforcer.js";
+import { computeDifficulty, addRouteEdge, predictBestModel, hashQuery } from "../../vibeOS-lib/ml-router.js";
+import { addCacheEntry, recordCacheStats, predictCacheHit } from "../../vibeOS-lib/smart-cache.js";
+import { buildTestReminder, enforceTestFile } from "../tdd-enforcer.js";
+import { setActiveJobFromTaskPrompt, observeToolPattern, compressText, recordSaving } from "../index-helpers.js";
+import { scoreTaskQuality, readRewardSignals } from "./footer.js";
 import { SAVE_EST, WARN_ON_DIRECT, SOFT_QUOTA, FREE, MONITOR } from "../constants.js";
 const BYTES_PER_TOKEN = 4;
 const CACHE_SAVED_PER_1M_INPUT_TOKENS = 0.10;
@@ -31,7 +31,7 @@ let softQuotaCounts = {};
 let context7AlertedThisSession = false;
 let context7Seen = new Set();
 let _cacheSave = 0;
-let _prompt = '';
+let _prompt = "";
 let _autoReportCount = 0;
 let _pendingTodoArgs = null;
 let _pendingTelemetryStarts = [];
@@ -616,7 +616,8 @@ export const onToolExecuteAfter = async (input, output) => {
         }
         const displayModel = resolveDisplayModelId(liveModel || currentModel || "", projectDirectory) || liveModel || currentModel;
         if (ltTotal > 0) {
-            _footerText = `— ${flashIcon ? `${flashIcon} ` : ""}run: ${displayModel} | $${formatUsd(ltTotal)} saved | VIBE${flashIcon ? " ⚡" : ""} —\n\n`;
+            const execution = resolveExecutionIdentity(input?.args?.model || liveModel || currentModel || displayModel || "", projectDirectory);
+            _footerText = `— ${flashIcon ? `${flashIcon} ` : ""}Quality: ${formatQualityName(execution.quality)} | Provider: ${formatProviderName(execution.provider)} | Model: ${execution.model_label} | $${formatUsd(ltTotal)} saved | VIBE${flashIcon ? " ⚡" : ""} —\n\n`;
         }
         else {
             _footerText = `${statusLine}${stressTag}\n\n`;
@@ -701,7 +702,7 @@ export const onToolExecuteAfter = async (input, output) => {
                 score: quality,
                 tool: t,
                 sid: _OC_SID,
-                v: 2
+                v: 2,
             }) + "\n");
         }
         catch { }
@@ -779,8 +780,8 @@ export const onToolExecuteAfter = async (input, output) => {
                 if (sel.tdd_enforce && !isTestPath) {
                     const createdPath = enforceTestFile(fp);
                     if (createdPath) {
-                        const ext = createdPath.split('.').pop();
-                        const fileName = createdPath.split('/').pop();
+                        const ext = createdPath.split(".").pop();
+                        const fileName = createdPath.split("/").pop();
                         const enforceNote = "\n\n[test-enforced] Created skeleton at " + createdPath + "\n  NEXT: 1) Open " + fileName + "  2) Replace TODO/FIXME markers with real assertions  3) Run `npx vitest run " + createdPath + "` (or language-equivalent)  4) Confirm tests pass";
                         if (typeof output?.text === "string")
                             output.text += enforceNote;
@@ -813,8 +814,8 @@ export const onToolExecuteAfter = async (input, output) => {
         if (sel.tdd_enforce && !isTestPath) {
             const createdPath = enforceTestFile(fp);
             if (createdPath) {
-                const ext = createdPath.split('.').pop();
-                const fileName = createdPath.split('/').pop();
+                const ext = createdPath.split(".").pop();
+                const fileName = createdPath.split("/").pop();
                 const enforceNote = `\n\n[test-enforced] Created skeleton at ${createdPath}\n  NEXT: 1) Open ${fileName}  2) Replace TODO/FIXME markers with real assertions  3) Run \`npx vitest run ${createdPath}\` (or language-equivalent)  4) Confirm tests pass`;
                 if (typeof output?.text === "string")
                     output.text += enforceNote;

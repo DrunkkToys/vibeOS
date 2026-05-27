@@ -29,7 +29,7 @@ import {
 import {
   classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget,
   shortModelName, formatUsd, _refreshModel, readConfig, resolveDisplayModelId, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN,
-  trendDisplay, modelToSlotLabel,
+  trendDisplay, modelToSlotLabel, resolveExecutionIdentity, formatProviderName, formatQualityName,
 } from "../pricing.js"
 import { latestUserIntent } from "./chat-transform.js"
 import {
@@ -614,7 +614,8 @@ export const onToolExecuteAfter = async (input, output) => {
     }
     const displayModel = resolveDisplayModelId(liveModel || currentModel || "", projectDirectory) || liveModel || currentModel
     if (ltTotal > 0) {
-      _footerText = `— ${flashIcon ? `${flashIcon} ` : ""}run: ${displayModel} | $${formatUsd(ltTotal)} saved | VIBE${flashIcon ? " ⚡" : ""} —\n\n`
+      const execution = resolveExecutionIdentity(input?.args?.model || liveModel || currentModel || displayModel || "", projectDirectory)
+      _footerText = `— ${flashIcon ? `${flashIcon} ` : ""}Quality: ${formatQualityName(execution.quality)} | Provider: ${formatProviderName(execution.provider)} | Model: ${execution.model_label} | $${formatUsd(ltTotal)} saved | VIBE${flashIcon ? " ⚡" : ""} —\n\n`
     } else {
       _footerText = `${statusLine}${stressTag}\n\n`
     }

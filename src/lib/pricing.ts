@@ -25,6 +25,7 @@ export { HIGH_TIER_RE, MID_TIER_RE, loadTierRegexes }
 
 const USER_HOME = (() => { try { return homedir() } catch { return tmpdir() } })()
 const DEFAULT_TRINITY_SLOTS = ["brain", "medium", "cheap"]
+export const LABEL_MODES = ["Fast", "Balanced", "High Quality", "Cheap"]
 const DEBUG_INTERNALS = process.env.VIBEOS_DEBUG_INTERNALS === "1"
 
 function getVibeOSHome() {
@@ -101,6 +102,126 @@ export function modelToSlotLabel(modelId: string, effectiveTier?: string) {
   const tier = effectiveTier ?? classify(modelId)
   const icon = tier === "high" ? "🧠" : tier === "mid" ? "⚙" : "⚡"
   return `[${icon} ${tier.charAt(0).toUpperCase() + tier.slice(1)}]`
+}
+
+export function getModelProvider(modelId: string) {
+  const raw = String(modelId || "").trim()
+  if (!raw) return ""
+  const idx = raw.indexOf("/")
+  return idx > 0 ? raw.slice(0, idx) : ""
+}
+
+export function formatProviderName(providerName: string) {
+  const raw = String(providerName || "").trim()
+  if (!raw) return "Unknown"
+  if (raw === "openai") return "OpenAI"
+  if (raw === "openrouter") return "OpenRouter"
+  if (raw === "anthropic") return "Anthropic"
+  if (raw === "google") return "Google"
+  return raw.charAt(0).toUpperCase() + raw.slice(1)
+}
+
+export function formatQualityName(quality: string) {
+  const raw = String(quality || "").trim().toLowerCase()
+  if (raw === "brain" || raw === "high") return "Brain"
+  if (raw === "medium" || raw === "mid") return "Medium"
+  if (raw === "cheap" || raw === "budget") return "Cheap"
+  if (raw === "free") return "Free"
+  return raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : "Unknown"
+}
+
+export function resolveExecutionIdentity(modelId: string, directory = "") {
+  const raw = String(modelId || "").trim()
+  const resolved = resolveDisplayModelId(raw, directory) || raw
+  const provider = getModelProvider(resolved) || getModelProvider(raw) || ""
+  const normalized = normalizeModelId(resolved || raw)
+  const quality = isModelFree(resolved || raw)
+    ? "free"
+    : HIGH_TIER_RE.test(normalized)
+      ? "brain"
+      : MID_TIER_RE.test(normalized)
+        ? "medium"
+        : "cheap"
+  return {
+    provider,
+    provider_label: formatProviderName(provider),
+    quality,
+    quality_label: formatQualityName(quality),
+    model: resolved || raw,
+    model_label: shortModelName(resolved || raw),
+  }
+}
+
+export function _providerOfModel(modelId: string, fallbackProvider = "") {
+  const provider = getModelProvider(modelId)
+  return provider || String(fallbackProvider || "").trim()
+}
+
+export function _sortByQualityDesc(models: any[] = []) {
+  return [...models].sort((a, b) => {
+    const ar = classify(a?.id) === "high" ? 3 : classify(a?.id) === "mid" ? 2 : 1
+    const br = classify(b?.id) === "high" ? 3 : classify(b?.id) === "mid" ? 2 : 1
+    if (br !== ar) return br - ar
+    const ac = Number(a?.cost ?? 0)
+    const bc = Number(b?.cost ?? 0)
+    if (bc !== ac) return bc - ac
+    return String(a?.id || "").localeCompare(String(b?.id || ""))
+  })
+}
+
+export function _sortByCostAsc(models: any[] = []) {
+  return [...models].sort((a, b) => {
+    const af = isModelFree(a?.id) ? 0 : 1
+    const bf = isModelFree(b?.id) ? 0 : 1
+    if (af !== bf) return af - bf
+    const ac = Number(a?.cost ?? 0)
+    const bc = Number(b?.cost ?? 0)
+    if (ac !== bc) return ac - bc
+    const ar = classify(a?.id) === "high" ? 3 : classify(a?.id) === "mid" ? 2 : 1
+    const br = classify(b?.id) === "high" ? 3 : classify(b?.id) === "mid" ? 2 : 1
+    if (ar !== br) return ar - br
+    return String(a?.id || "").localeCompare(String(b?.id || ""))
+  })
+}
+
+export function buildDeterministicTrinity(models: any[], options: {
+  selectedModelId?: string
+  selectedTier?: string
+  provider?: string
+} = {}) {
+  const list = Array.isArray(models) ? models.filter((m) => m && typeof m === "object" && String(m.id || "").trim()) : []
+  if (list.length === 0) return null
+
+  const selectedTier = String(options.selectedTier || "brain").toLowerCase()
+  const selectedModelId = String(options.selectedModelId || "").trim()
+  const providerHint = String(options.provider || "").trim()
+  const selectedModel = selectedModelId
+    ? list.find((m) => m.id === selectedModelId || normalizeModelId(m.id) === normalizeModelId(selectedModelId)) || null
+    : null
+  const provider = _providerOfModel(selectedModel?.id || selectedModelId, providerHint)
+    || _providerOfModel(list[0]?.id || "", providerHint)
+  const providerModels = list.filter((m) => _providerOfModel(m.id, provider) === provider)
+  const scoped = providerModels.length > 0 ? providerModels : list
+  const qualityRanked = _sortByQualityDesc(scoped)
+  const costRanked = _sortByCostAsc(scoped)
+  const selected = selectedModel || qualityRanked[0] || costRanked[0] || scoped[0] || list[0]
+  const brain = selectedTier === "medium" || selectedTier === "cheap" || selectedTier === "free"
+    ? selected
+    : qualityRanked[0] || selected
+  const medium = selectedTier === "brain"
+    ? qualityRanked.find((m) => m.id !== brain?.id) || brain || selected
+    : selected
+  const cheap = costRanked[0] || selected
+
+  return {
+    provider,
+    selected_tier: selectedTier,
+    selected_model: selected?.id || selectedModelId || "",
+    brain: brain?.id || "",
+    medium: medium?.id || "",
+    cheap: cheap?.id || "",
+    label_modes: [...LABEL_MODES],
+  }
 }
 
 export function shortModelName(modelId) {
@@ -455,10 +576,16 @@ function loadSelection() {
       tdd_quality:        j?.selection?.tdd_quality !== false,
       flow_enforce:       j?.selection?.flow_enforce === true,
       delegation_enforce: true,
+      selected_provider:  j?.selection?.selected_provider || null,
+      selected_quality_tier: j?.selection?.selected_quality_tier || null,
+      selected_model:     j?.selection?.selected_model || null,
+      executed_provider:  j?.selection?.executed_provider || null,
+      executed_quality_tier: j?.selection?.executed_quality_tier || null,
+      executed_model:     j?.selection?.executed_model || null,
     }
   } catch { _handleStateCorruption(TIERS_FILE); return DFLT_SEL }
 }
-const DFLT_SEL = { enabled: true, active_slot: null, thinking_level: "off", flow_enabled: false, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: false, delegation_enforce: true }
+const DFLT_SEL = { enabled: true, active_slot: null, thinking_level: "off", flow_enabled: false, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: false, delegation_enforce: true, selected_provider: null, selected_quality_tier: null, selected_model: null, executed_provider: null, executed_quality_tier: null, executed_model: null }
 
 export function readConfig(dir) {
   try {

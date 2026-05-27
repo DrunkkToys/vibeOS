@@ -12,9 +12,9 @@ function safeJsonParse(raw) {
     }
     catch { }
     let cleaned = raw
-        .replace(/\/\*[\s\S]*?\*\//g, '')
-        .replace(/\/\/.*$/gm, '')
-        .replace(/,\s*([}\]])/g, '$1');
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/\/\/.*$/gm, "")
+        .replace(/,\s*([}\]])/g, "$1");
     try {
         return JSON.parse(cleaned);
     }
@@ -29,12 +29,12 @@ const BALANCE_APIS = {
         parse(d) {
             const b = d?.balance_infos?.find(b => b.currency === "USD");
             return b ? parseFloat(b.total_balance) : 0;
-        }
+        },
     },
     openrouter: {
         url: "https://openrouter.ai/api/v1/credits",
-        parse(d) { return parseFloat(d?.data?.total_credits) || 0; }
-    }
+        parse(d) { return parseFloat(d?.data?.total_credits) || 0; },
+    },
 };
 let _creditTimer = null;
 export function closeMcpServer() {
@@ -59,7 +59,7 @@ async function _fetchBal(provider, key) {
     try {
         const res = await fetch(api.url, {
             headers: { Authorization: `Bearer ${key}` },
-            signal: AbortSignal.timeout(5000)
+            signal: AbortSignal.timeout(5000),
         });
         if (!res.ok)
             return { provider, balance: 0 };

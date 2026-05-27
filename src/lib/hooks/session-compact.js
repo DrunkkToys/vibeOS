@@ -1,7 +1,7 @@
 // @ts-nocheck
-import { readFileSync, existsSync } from 'node:fs';
-import { loadSelection, getSessionScratchpadDir, getSessionIndexPath } from '../state.js';
-import { getTurnCounter } from '../turn-classify.js';
+import { readFileSync, existsSync } from "node:fs";
+import { loadSelection, getSessionScratchpadDir, getSessionIndexPath } from "../state.js";
+import { getTurnCounter } from "../turn-classify.js";
 export const onSessionCompacting = async (_input, output) => {
     if (!loadSelection().enabled)
         return;

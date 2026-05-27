@@ -11,9 +11,9 @@ function safeJsonParse(raw) {
     }
     catch { }
     let cleaned = raw
-        .replace(/\/\*[\s\S]*?\*\//g, '')
-        .replace(/\/\/.*$/gm, '')
-        .replace(/,\s*([}\]])/g, '$1');
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/\/\/.*$/gm, "")
+        .replace(/,\s*([}\]])/g, "$1");
     try {
         return JSON.parse(cleaned);
     }
@@ -99,7 +99,7 @@ function _parseModelsDevTurnCost(modelRow) {
     const input = Number(cost?.input ?? cost?.prompt ?? cost?.request);
     const output = Number(cost?.output ?? cost?.completion ?? cost?.response);
     if (Number.isFinite(input) && Number.isFinite(output)) {
-        return (input * 700 + output * 300) / 1000000;
+        return (input * 700 + output * 300) / 1_000_000;
     }
     const single = Number(cost?.price ?? cost?.total ?? cost?.usd ?? cost?.turn_usd);
     if (Number.isFinite(single))
@@ -242,7 +242,7 @@ export async function discoverAvailableModels(providers, auth) {
         try {
             const res = await fetch("https://api.deepseek.com/models", {
                 headers: { Authorization: "Bearer " + auth.deepseek.key },
-                signal: AbortSignal.timeout(4000)
+                signal: AbortSignal.timeout(4000),
             });
             if (res.ok) {
                 const body = await res.json();
@@ -262,7 +262,7 @@ export async function discoverAvailableModels(providers, auth) {
         try {
             const res = await fetch("https://openrouter.ai/api/v1/models", {
                 headers: { Authorization: "Bearer " + auth.openrouter.key },
-                signal: AbortSignal.timeout(5000)
+                signal: AbortSignal.timeout(5000),
             });
             if (res.ok) {
                 const body = await res.json();
@@ -292,7 +292,7 @@ export async function discoverAvailableModels(providers, auth) {
     if (wantsModelsDev) {
         try {
             const res = await fetch("https://models.dev/api.json", {
-                signal: AbortSignal.timeout(5000)
+                signal: AbortSignal.timeout(5000),
             });
             if (res.ok) {
                 const body = await res.json();
@@ -319,17 +319,28 @@ export function classifyAndRankModels(models) {
     }
     if (unique.length === 0)
         return null;
+    const normalizeModelId = (id) => String(id || "").toLowerCase()
+        .replace(/\./g, "-")
+        .replace(/^(openrouter|opencode|deepseek|anthropic|google)\//, "");
+    const isDeprecatedDeepseekChat = (id) => normalizeModelId(id).includes("deepseek-chat");
+    const hasReplacementDeepseek = unique.some((m) => {
+        const raw = normalizeModelId(m.id);
+        return raw.startsWith("deepseek-") && !raw.includes("deepseek-chat");
+    });
+    const ranked = hasReplacementDeepseek
+        ? unique.filter((m) => !isDeprecatedDeepseekChat(m.id))
+        : unique;
+    if (ranked.length === 0)
+        return null;
     const modelPreference = (id) => {
-        const raw = String(id || "").toLowerCase()
-            .replace(/\./g, "-")
-            .replace(/^(openrouter|opencode|deepseek|anthropic|google)\//, "");
+        const raw = normalizeModelId(id);
         if (raw.includes("deepseek-v4-flash"))
             return 2;
         if (raw.includes("deepseek-chat"))
-            return 1;
+            return -1;
         return 0;
     };
-    unique.sort((a, b) => {
+    ranked.sort((a, b) => {
         const ra = MODEL_RANK[a.tier] || 0;
         const rb = MODEL_RANK[b.tier] || 0;
         if (rb !== ra)
@@ -337,15 +348,15 @@ export function classifyAndRankModels(models) {
         const pref = modelPreference(b.id) - modelPreference(a.id);
         return pref !== 0 ? pref : b.cost - a.cost;
     });
-    const cheapest = [...unique].sort((a, b) => {
+    const cheapest = [...ranked].sort((a, b) => {
         if (a.cost !== b.cost)
             return a.cost - b.cost;
         const pref = modelPreference(b.id) - modelPreference(a.id);
         return pref !== 0 ? pref : (MODEL_RANK[b.tier] || 0) - (MODEL_RANK[a.tier] || 0);
     });
     return {
-        brain: unique[0],
-        medium: unique.length > 1 ? unique[1] : unique[0],
+        brain: ranked[0],
+        medium: ranked.length > 1 ? ranked[1] : ranked[0],
         cheap: cheapest[0],
     };
 }

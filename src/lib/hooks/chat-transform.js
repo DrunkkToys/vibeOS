@@ -1,18 +1,18 @@
 // @ts-nocheck
-import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync } from 'node:fs';
-import { join, basename } from 'node:path';
-import { createHash } from 'node:crypto';
-import { currentModel, currentProjectFingerprint, currentProjectName, _blackboxEnabled, loadSelection, writeSelection, safeJsonParse, applyDecadence, getSessionScratchpadDir, ensureSessionScratchpadDirs, indexAppend, briefedProjects, getActiveJobForProject, loadTodos, promotedProjectPatterns, detectTechStack, projectFingerprint, TRINITY_OPENCODE_CONFIG, TIERS_FILE, loadGlobalLearning, setCurrentProjectFingerprint, setCurrentProjectName, stableJson, TOOL_NAME_NORMALIZE, } from '../state.js';
-import { applySlot, TRINITY_CHEAP, TRINITY_MEDIUM, } from '../pricing.js';
-import { scoreStress, classifyTurnSimple, loadOptimizationMode, saveOptimizationMode, selectOptimizationModeRemote, computeControlVector, getBlackboxTracker, loadBlackboxState as loadBlackboxStateFromCtx, saveBlackboxState as saveBlackboxStateToCtx, extractLastUserText, isLikelyOffTopic, fetchBlackboxEnrichment, estimateContextBudget, buildControlHistoryEntry, } from '../turn-classify.js';
-import { applyBudgetFirstMode, peekBudgetFirstMode } from '../mode-policy.js';
-import { remoteCall } from '../api-client.js';
-import { loadCredit } from '../credit-api.js';
-import { loadSessionOptMode, loadSessionSlot, writeSessionSlot } from '../selection-manager.js';
-import { noteProjectPattern } from '../index-helpers.js';
-import { saveSessionStress } from '../index-helpers.js';
+import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync } from "node:fs";
+import { join, basename } from "node:path";
+import { createHash } from "node:crypto";
+import { currentModel, currentProjectFingerprint, currentProjectName, _blackboxEnabled, loadSelection, writeSelection, safeJsonParse, applyDecadence, getSessionScratchpadDir, ensureSessionScratchpadDirs, indexAppend, briefedProjects, getActiveJobForProject, loadTodos, promotedProjectPatterns, detectTechStack, projectFingerprint, TRINITY_OPENCODE_CONFIG, TIERS_FILE, loadGlobalLearning, setCurrentProjectFingerprint, setCurrentProjectName, stableJson, TOOL_NAME_NORMALIZE, } from "../state.js";
+import { applySlot, TRINITY_CHEAP, TRINITY_MEDIUM, } from "../pricing.js";
+import { scoreStress, classifyTurnSimple, loadOptimizationMode, saveOptimizationMode, selectOptimizationModeRemote, computeControlVector, getBlackboxTracker, loadBlackboxState as loadBlackboxStateFromCtx, saveBlackboxState as saveBlackboxStateToCtx, extractLastUserText, isLikelyOffTopic, fetchBlackboxEnrichment, estimateContextBudget, buildControlHistoryEntry, } from "../turn-classify.js";
+import { applyBudgetFirstMode, peekBudgetFirstMode } from "../mode-policy.js";
+import { remoteCall } from "../api-client.js";
+import { loadCredit } from "../credit-api.js";
+import { loadSessionOptMode, loadSessionSlot, writeSessionSlot } from "../selection-manager.js";
+import { noteProjectPattern } from "../index-helpers.js";
+import { saveSessionStress } from "../index-helpers.js";
 import { COMPRESS_THRESHOLD, KEEP_HOT, COMPRESS_MARKER, PROTOCOL_MARKER, PROTOCOL_TEXT } from "../constants.js";
-import { TEMPLATES, DEFAULT_TEMPLATE, resolveTemplate, shouldInjectTemplate } from '../templates.js';
+import { TEMPLATES, DEFAULT_TEMPLATE, resolveTemplate, shouldInjectTemplate } from "../templates.js";
 function getVibeOSHome() {
     return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude");
 }
@@ -31,11 +31,11 @@ function ensureProjectContext(hookDirectory) {
     return resolved;
 }
 let latestUserIntent = null;
-let _OC_SID = 'opencode-' + (process.pid || 'x') + '-' + Date.now();
+let _OC_SID = "opencode-" + (process.pid || "x") + "-" + Date.now();
 let _latestBlackboxState = null;
 let _latestBlackboxLoopMsg = null;
 let _latestBlackboxPivotMsg = null;
-let _prevOutputText = '';
+let _prevOutputText = "";
 let _prevBlackboxRegime = null;
 let _currentTemplate = DEFAULT_TEMPLATE;
 let _prevTemplate = null;
@@ -43,7 +43,7 @@ let _turnCountInject = 0;
 const correctionSeenKeys = new Set();
 async function apiComputeControlVector(state, action, optimizationMode) {
     try {
-        const res = await remoteCall('blackboxControlVector', [state, action, optimizationMode], null);
+        const res = await remoteCall("blackboxControlVector", [state, action, optimizationMode], null);
         if (res?.control_vector)
             return res.control_vector;
     }
@@ -107,7 +107,7 @@ export function ensureProjectSkill(dir, fp) {
     const techStack = detectTechStack(dir);
     const globalLearning = loadGlobalLearning();
     const promotedRoutines = globalLearning.promotedRoutines || [];
-    const skillName = `project-${projectName.replace(/[^a-z0-9-]/gi, '-').toLowerCase()}`;
+    const skillName = `project-${projectName.replace(/[^a-z0-9-]/gi, "-").toLowerCase()}`;
     let content = `---\n`;
     content += `name: ${skillName}\n`;
     content += `description: Project-specific conventions, patterns, and workflows for ${projectName}. Auto-generated by vibeOS.\n`;
@@ -115,34 +115,34 @@ export function ensureProjectSkill(dir, fp) {
     content += `# ${projectName} Conventions\n\n`;
     if (techStack.length > 0) {
         content += `## Tech Stack\n\n`;
-        content += techStack.map((t) => `- ${t}`).join('\n') + '\n\n';
+        content += techStack.map((t) => `- ${t}`).join("\n") + "\n\n";
     }
-    const routines = promoted.filter((p) => p.label === 'routine');
+    const routines = promoted.filter((p) => p.label === "routine");
     if (routines.length > 0) {
         content += `## Routines (established workflows)\n\n`;
         for (const r of routines) {
             content += `- ${r.summary} (${r.sessions} sessions)\n`;
         }
-        content += '\n';
+        content += "\n";
     }
-    const frictions = promoted.filter((p) => p.label === 'friction');
+    const frictions = promoted.filter((p) => p.label === "friction");
     if (frictions.length > 0) {
         content += `## Frictions (patterns to avoid)\n\n`;
         for (const f of frictions) {
             content += `- ${f.summary} (${f.sessions} sessions)\n`;
         }
-        content += '\n';
+        content += "\n";
     }
     if (promotedRoutines.length > 0) {
         content += `## Common Tool Chains\n\n`;
         for (const pair of promotedRoutines) {
             content += `- ${pair}\n`;
         }
-        content += '\n';
+        content += "\n";
     }
     try {
         mkdirSync(skillDir, { recursive: true });
-        writeFileSync(skillPath, content, 'utf-8');
+        writeFileSync(skillPath, content, "utf-8");
         console.error(`[vibeOS] Project Guard: created .opencode/skills/${projectName}/SKILL.md`);
         return { created: true, path: skillPath, skipped: false };
     }
@@ -354,7 +354,7 @@ async function trackBlackbox(messages) {
         const sid = _OC_SID;
         ensureProjectContext(process.cwd() || "");
         const serialized = tracker.serialize();
-        serialized.project_fingerprint = currentProjectFingerprint || "";
+        const existingSession = state.sessions[sid] || {};
         if (!state.sessions[sid])
             state.sessions[sid] = {};
         state.sessions[sid].control_history ??= [];
@@ -373,7 +373,28 @@ async function trackBlackbox(messages) {
         if (state.sessions[sid].control_history.length > 100) {
             state.sessions[sid].control_history = state.sessions[sid].control_history.slice(-100);
         }
-        state.sessions[sid] = serialized;
+        state.sessions[sid] = {
+            ...existingSession,
+            ...serialized,
+            project_fingerprint: currentProjectFingerprint || existingSession.project_fingerprint || "",
+            sub_regime: localState.sub_regime || existingSession.sub_regime || "INIT",
+            regime: localState.sub_regime || existingSession.regime || "INIT",
+            resolution: localState.resolution || existingSession.resolution || "unresolved",
+            momentum: localState.momentum ?? existingSession.momentum ?? 0,
+            signals: localState.signals || existingSession.signals || {},
+            intent_state: localState.intent_state || existingSession.intent_state || {},
+            continuity_state: localState.continuity_state || existingSession.continuity_state || "HIGH",
+            is_looping: localState.is_looping ?? existingSession.is_looping ?? false,
+            loop_consecutive: localState.loop_consecutive ?? existingSession.loop_consecutive ?? 0,
+            loop_intervention_level: localState.loop_intervention_level || existingSession.loop_intervention_level || "none",
+            pivot_detected: localState.pivot_detected ?? existingSession.pivot_detected ?? false,
+            pivot_score: localState.pivot_score ?? existingSession.pivot_score ?? 0,
+            outcome: localState.outcome || existingSession.outcome || null,
+            control_history: state.sessions[sid].control_history,
+            optimization_mode: existingSession.optimization_mode || null,
+            active_slot: existingSession.active_slot || null,
+            turn_counter: existingSession.turn_counter || 0,
+        };
         saveBlackboxStateToCtx(state);
         _latestBlackboxState = localState;
         fetchBlackboxEnrichment(sid, localState).then(enriched => {
@@ -476,8 +497,8 @@ function patternDirective(fp) {
     const patterns = promotedProjectPatterns(fp);
     if (!patterns || patterns.length === 0)
         return null;
-    const routines = patterns.filter(p => p.label === 'routine');
-    const frictions = patterns.filter(p => p.label === 'friction');
+    const routines = patterns.filter(p => p.label === "routine");
+    const frictions = patterns.filter(p => p.label === "friction");
     const parts = [];
     if (routines.length > 0) {
         parts.push("Routines: " + routines.map(r => r.summary).join("; "));

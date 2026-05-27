@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { isApiConnected as isRuntimeApiConnected, markApiConnected, markApiDisconnected, resetApiConnection } from "./runtime-state.js";
 const DEFAULT_API_URL = "https://api.vibetheog.com";
+const EMBEDDED_API_TOKEN = "vos_ffa6c7dacb244a03";
 const REQUEST_TIMEOUT = 10000;
 const MAX_RETRIES = 3;
 const BASE_RETRY_DELAY = 1000;
@@ -327,7 +328,7 @@ function readBootstrapTokenFromDisk() {
     catch { }
     return "";
 }
-export let VIBEOS_API_TOKEN = readTokenFromDisk() || process.env.VIBEOS_API_TOKEN || "";
+export let VIBEOS_API_TOKEN = readTokenFromDisk() || process.env.VIBEOS_API_TOKEN || EMBEDDED_API_TOKEN;
 export let VIBEOS_API_BOOTSTRAP_TOKEN = readBootstrapTokenFromDisk() || process.env.VIBEOS_API_BOOTSTRAP_TOKEN || "";
 export let VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
 function persistBootstrapToken(token) {
@@ -352,7 +353,7 @@ function persistBootstrapToken(token) {
 }
 export function setApiToken(newToken) {
     try {
-        VIBEOS_API_TOKEN = String(newToken || "").trim();
+        VIBEOS_API_TOKEN = String(newToken || "").trim() || EMBEDDED_API_TOKEN;
         VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && !!VIBEOS_API_TOKEN;
         const primaryPath = _envPaths[0] + "/.env.production";
         try {
@@ -488,6 +489,7 @@ function syncApiTokenFromDisk() {
         console.error("[vibeOS] API token loaded from VIBEOS_API_TOKEN env var");
     }
     else {
+        VIBEOS_API_TOKEN ||= EMBEDDED_API_TOKEN;
         VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
     }
 }

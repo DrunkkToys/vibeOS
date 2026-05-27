@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { LABEL_MODES, resolveExecutionIdentity } from "./pricing.js";
 function normalizeTrend(trend) {
     return trend === "up" || trend === "down" ? trend : "flat";
 }
@@ -11,6 +12,7 @@ export function buildStatusPayload({ selection, tiersData, currentModel, creditP
     const lockActive = Boolean(modelLocked);
     const resolvedLockedSlot = lockActive ? (lockedSlot || activeSlot) : null;
     const resolvedLockedModel = lockActive ? (lockedModel || current || null) : null;
+    const execution = resolveExecutionIdentity(current || currentModel || "", "");
     return {
         enabled: selection?.enabled !== false,
         active_slot: activeSlot,
@@ -21,6 +23,8 @@ export function buildStatusPayload({ selection, tiersData, currentModel, creditP
         tdd_strict: selection?.tdd_strict !== false,
         thinking: selection?.thinking_level || fallbackThinking || "brief",
         current_model: current,
+        current_provider: execution.provider_label,
+        current_quality_tier: execution.quality_label,
         credit_percent: creditPercent,
         version,
         todos: { total: totalTodos, pending: pendingTodos },
@@ -29,6 +33,7 @@ export function buildStatusPayload({ selection, tiersData, currentModel, creditP
         model_locked: lockActive,
         locked_slot: resolvedLockedSlot,
         locked_model: resolvedLockedModel,
+        label_modes: [...LABEL_MODES],
     };
 }
 export function buildSavingsPayload({ lifetime, session, }) {

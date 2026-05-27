@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { readFileSync, appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { classify, _refreshModel, readConfig, resolveDisplayModelId, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, roundUsd, formatUsd } from "../pricing.js";
+import { classify, _refreshModel, readConfig, resolveDisplayModelId, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, roundUsd, formatUsd, resolveExecutionIdentity, formatQualityName } from "../pricing.js";
 import { latestUserIntent } from "./chat-transform.js";
 import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, loadOptimizationMode, classifyTurnSimple } from "../turn-classify.js";
 import { peekBudgetFirstMode, recordBudgetFirstOutcome } from "../mode-policy.js";
@@ -31,7 +31,7 @@ async function apiAutoSelectMode(regime, stress) {
     if (_cachedAutoMode && now - _cachedAutoModeTs < AUTO_CACHE_TTL)
         return _cachedAutoMode;
     try {
-        const res = await remoteCall('blackboxSelectMode', [regime, stress], null);
+        const res = await remoteCall("blackboxSelectMode", [regime, stress], null);
         if (res?.mode) {
             _cachedAutoMode = res.mode;
             _cachedAutoModeTs = now;
@@ -187,6 +187,7 @@ async function _appendFooter(input, output, directory) {
             liveModel = readConfig(directory) || readConfig(join(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || "";
         }
         const displayModel = resolveDisplayModelId(liveModel || currentModel || brainModel || "", directory) || liveModel || currentModel || brainModel;
+        const execution = resolveExecutionIdentity(input?.args?.model || liveModel || currentModel || brainModel || displayModel || "", directory);
         let modelTag = `[${shortModelName(displayModel)}]`;
         const _workerModel = slot === "brain" ? TRINITY_MEDIUM : null;
         const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0);
@@ -259,10 +260,9 @@ async function _appendFooter(input, output, directory) {
         if (stripped !== text)
             return;
         const ltTotal = ltTasks + ltCache;
-        // Build dopamine footer
-        const optMode = (resolvedMode || 'budget').toLowerCase();
+        const optMode = (resolvedMode || "budget").toLowerCase();
         const modeLabel = optMode === "quality" ? "quality" : optMode === "speed" ? "speed" : optMode === "longrun" ? "longrun" : "";
-        let vibeLine = `— ${flashIcon ? `${flashIcon} ` : ""}run: ${displayModel}`;
+        let vibeLine = `— ${flashIcon ? `${flashIcon} ` : ""}Quality: ${execution.quality_label} | Provider: ${execution.provider_label} | Model: ${execution.model_label}`;
         if (ltTotal > 0) {
             vibeLine += ` | $${formatUsd(ltTotal)} saved`;
         }
@@ -276,10 +276,10 @@ async function _appendFooter(input, output, directory) {
             vibeLine += ` | recovery ${problemStreak}`;
         }
         if (modeLabel)
-            vibeLine += ` | ${modeLabel}`;
-        vibeLine += ` | VIBE${flashIcon ? ' ⚡' : ''}`;
+            vibeLine += ` | ${formatQualityName(modeLabel)}`;
+        vibeLine += ` | VIBE${flashIcon ? " ⚡" : ""}`;
         if (_footerStress > 0.4) {
-            const stressLabel = _footerStress > 0.7 ? 'high' : 'elevated';
+            const stressLabel = _footerStress > 0.7 ? "high" : "elevated";
             vibeLine += ` · ${stressLabel}`;
         }
         const footerText = stripped + `\n\n${vibeLine} —`;

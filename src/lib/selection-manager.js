@@ -25,16 +25,16 @@ function _handleStateCorruption(path) {
     catch { }
 }
 function safeJsonParse(raw) {
-    if (raw == null || raw === '')
+    if (raw == null || raw === "")
         return null;
     try {
         return JSON.parse(raw);
     }
     catch { }
     let cleaned = raw
-        .replace(/\/\*[\s\S]*?\*\//g, '')
-        .replace(/\/\/.*$/gm, '')
-        .replace(/,\s*([}\]])/g, '$1');
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/\/\/.*$/gm, "")
+        .replace(/,\s*([}\]])/g, "$1");
     try {
         return JSON.parse(cleaned);
     }
@@ -42,7 +42,7 @@ function safeJsonParse(raw) {
         throw e;
     }
 }
-const DFLT_SEL = { enabled: true, active_slot: null, thinking_level: "off", flow_enabled: false, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: false, delegation_enforce: true, onboarding_mode: null };
+const DFLT_SEL = { enabled: true, active_slot: null, thinking_level: "off", flow_enabled: false, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: false, delegation_enforce: true, onboarding_mode: null, selected_provider: null, selected_quality_tier: null, selected_model: null, executed_provider: null, executed_quality_tier: null, executed_model: null };
 export function loadSelection() {
     const TIERS_FILE = join(getVibeOSHome(), "model-tiers.json");
     try {
@@ -65,6 +65,12 @@ export function loadSelection() {
             flow_enforce: j?.selection?.flow_enforce === true,
             delegation_enforce: j?.selection?.delegation_enforce !== false,
             onboarding_mode: j?.selection?.onboarding_mode || null,
+            selected_provider: j?.selection?.selected_provider || null,
+            selected_quality_tier: j?.selection?.selected_quality_tier || null,
+            selected_model: j?.selection?.selected_model || null,
+            executed_provider: j?.selection?.executed_provider || null,
+            executed_quality_tier: j?.selection?.executed_quality_tier || null,
+            executed_model: j?.selection?.executed_model || null,
         };
     }
     catch {

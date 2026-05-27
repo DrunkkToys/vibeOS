@@ -1672,7 +1672,7 @@ test("classifyAndRankModels: deepseek-only ranked brain>medium>cheap", async () 
   assert.ok(result, "result not null")
   assert.equal(result.brain.id, "deepseek/deepseek-v4-pro",   "brain = v4-pro (high tier, highest cost)")
   assert.equal(result.medium.id, "deepseek/deepseek-v4-flash", "medium = v4-flash (mid tier)")
-  assert.equal(result.cheap.id, "deepseek/deepseek-chat",      "cheap = chat (budget, lowest cost)")
+  assert.equal(result.cheap.id, "deepseek/deepseek-v4-flash",  "cheap = v4-flash (chat is deprecated)")
 })
 
 test("classifyAndRankModels: single model → all slots same", async () => {
@@ -1696,8 +1696,8 @@ test("classifyAndRankModels: mid+tier ranked correctly (no high)", async () => {
   const result = classifyAndRankModels(models)
   assert.ok(result, "result not null")
   assert.equal(result.brain.id, "deepseek/deepseek-v4-flash", "brain = v4-flash (only mid-tier)")
-  assert.equal(result.medium.id, "deepseek/deepseek-chat", "medium = chat (second strongest)")
-  assert.equal(result.cheap.id, "deepseek/deepseek-chat", "cheap = chat (cheapest)")
+  assert.equal(result.medium.id, "deepseek/deepseek-v4-flash", "medium = v4-flash (chat deprecated)")
+  assert.equal(result.cheap.id, "deepseek/deepseek-v4-flash", "cheap = v4-flash (chat deprecated)")
 })
 
 test("classifyAndRankModels: equal-cost deepseek-flash beats deepseek-chat", async () => {
@@ -1709,8 +1709,8 @@ test("classifyAndRankModels: equal-cost deepseek-flash beats deepseek-chat", asy
   const result = classifyAndRankModels(models)
   assert.ok(result, "result not null")
   assert.equal(result.brain.id, "deepseek/deepseek-v4-flash", "brain = v4-flash")
-  assert.equal(result.medium.id, "deepseek/deepseek-chat", "medium = chat")
-  assert.equal(result.cheap.id, "deepseek/deepseek-v4-flash", "cheap prefers v4-flash over chat at equal cost")
+  assert.equal(result.medium.id, "deepseek/deepseek-v4-flash", "medium = v4-flash")
+  assert.equal(result.cheap.id, "deepseek/deepseek-v4-flash", "cheap prefers v4-flash; chat stays deprecated")
 })
 
 test("classifyAndRankModels: dedup by id", async () => {
@@ -1723,7 +1723,7 @@ test("classifyAndRankModels: dedup by id", async () => {
   const result = classifyAndRankModels(models)
   assert.ok(result, "result not null")
   assert.equal(result.brain.id, "deepseek/deepseek-v4-pro", "brain = v4-pro")
-  assert.equal(result.cheap.id, "deepseek/deepseek-chat", "cheap = chat")
+  assert.equal(result.cheap.id, "deepseek/deepseek-v4-pro", "cheap = v4-pro because chat is deprecated")
 })
 
 test("classifyAndRankModels: null/empty → null", async () => {
