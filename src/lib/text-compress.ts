@@ -78,7 +78,7 @@ export function compressText(text) {
   if (result.length > COMPRESS_THRESHOLD) {
     const targetChars = Math.max(
       Math.round(result.length * COMPRESS_RATIO),
-      COMPRESS_THRESHOLD
+      COMPRESS_THRESHOLD,
     )
     const minLines = Math.max(1, Math.round(collapsed.length * MIN_KEPT_LINES_RATIO))
     const bulletLines = extractBulletLines(collapsed, targetChars, minLines)

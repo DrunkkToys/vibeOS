@@ -200,7 +200,7 @@ const tool: any = Object.assign((def: any) => def, {
     string: (o?: any) => _zType({ kind: "string", ...(o || {}) }),
     number: (o?: any) => _zType({ kind: "number", ...(o || {}) }),
     enum: (values: string[]) => _zType({ kind: "enum", values }),
-  }
+  },
 })
 
 // ── State corruption handler ─────────────────────────────────────────
@@ -251,15 +251,15 @@ function withFileLock(filePath: string, fn: () => any, opts: { staleMs?: number,
 
 // ── JSONC-tolerant JSON.parse ────────────────────────────────────────
 function safeJsonParse(raw: string): any {
-  if (raw == null || raw === '') return null
+  if (raw == null || raw === "") return null
   try {
     return JSON.parse(raw)
   } catch {}
 
   let cleaned = raw
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/\/\/.*$/gm, '')
-    .replace(/,\s*([}\]])/g, '$1')
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\/\/.*$/gm, "")
+    .replace(/,\s*([}\]])/g, "$1")
   try {
     return JSON.parse(cleaned)
   } catch {
@@ -269,7 +269,7 @@ function safeJsonParse(raw: string): any {
 
 // ── State validation ─────────────────────────────────────────────────
 function validateState(state: any, path: string): void {
-  if (!state || typeof state !== 'object') {
+  if (!state || typeof state !== "object") {
     console.error(`[vibeOS] State validation failed: not an object at ${path}`)
     return
   }
@@ -284,7 +284,7 @@ function validateState(state: any, path: string): void {
     console.error(`[vibeOS] State validation warning: sessions is invalid type at ${path}, resetting`)
     state.sessions = {}
   }
-  if (state.lifetime && typeof state.lifetime !== 'object') {
+  if (state.lifetime && typeof state.lifetime !== "object") {
     console.error(`[vibeOS] State validation warning: lifetime is not object at ${path}, resetting`)
     state.lifetime = {}
   }
@@ -951,22 +951,22 @@ function runDecadenceCycle(): void {
   } catch {}
 }
 function applyDecadence() {
-    const now = Date.now();
-    if (now - _lastDecadenceRun >= DECADENCE_THROTTLE_MS) {
-        _lastDecadenceRun = now;
-        try {
-            const ses = _pruneScratchpadDir(getSessionScratchpadDir(), {
-                maxFiles: MAX_SESSION_SCRATCHPAD_FILES,
-                maxBytes: MAX_SESSION_SCRATCHPAD_BYTES,
-                rotate: false,
-            });
-            if (ses.deleted > 0) {
-                console.error(`[vibeOS] session-decadence: deleted=${ses.deleted} (${ses.dataFiles} files, ${Math.round(ses.totalBytes / 1024)}KB)`);
-            }
-        } catch (err) {
-            console.error(`[vibeOS] session decadence error: ${err.message}`);
-        }
+  const now = Date.now()
+  if (now - _lastDecadenceRun >= DECADENCE_THROTTLE_MS) {
+    _lastDecadenceRun = now
+    try {
+      const ses = _pruneScratchpadDir(getSessionScratchpadDir(), {
+        maxFiles: MAX_SESSION_SCRATCHPAD_FILES,
+        maxBytes: MAX_SESSION_SCRATCHPAD_BYTES,
+        rotate: false,
+      })
+      if (ses.deleted > 0) {
+        console.error(`[vibeOS] session-decadence: deleted=${ses.deleted} (${ses.dataFiles} files, ${Math.round(ses.totalBytes / 1024)}KB)`)
+      }
+    } catch (err) {
+      console.error(`[vibeOS] session decadence error: ${err.message}`)
     }
+  }
 }
 
 // ── Cleanup stale session scratchpads ──────────────────────────────────────
@@ -1381,13 +1381,13 @@ function recordMissedContext7(saveEst: number): any {
     const state = updateState((s: any) => {
       s.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" }
       s.lifetime.missed_context7_usd = Math.round(
-        ((s.lifetime.missed_context7_usd || 0) + saveEst) * 100
+        ((s.lifetime.missed_context7_usd || 0) + saveEst) * 100,
       ) / 100
       s.sessions ??= {}
       const sid = _OC_SID
       s.sessions[sid] ??= { total_savings_usd: 0, cache_savings_usd: 0, project_name: "", warns: [], cache_hits: [], seenWarnKeys: {} }
       s.sessions[sid].context7_missed_usd = Math.round(
-        ((s.sessions[sid].context7_missed_usd || 0) + saveEst) * 100
+        ((s.sessions[sid].context7_missed_usd || 0) + saveEst) * 100,
       ) / 100
       return s
     })
@@ -1460,7 +1460,7 @@ function upsertTodo(entry: Partial<TodoEntry> & { content: string }): void {
   const todos = loadTodos()
   const existing = todos.findIndex(t =>
     t.content === entry.content &&
-    (entry.filePath ? t.filePath === entry.filePath : true)
+    (entry.filePath ? t.filePath === entry.filePath : true),
   )
   const newEntry: TodoEntry = {
     id: entry.id || crypto.randomUUID?.() || "todo-" + Date.now(),

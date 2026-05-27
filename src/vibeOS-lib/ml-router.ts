@@ -315,9 +315,9 @@ export function addRouteEdge(
 
   const normalizedTier: "cheap" | "medium" | "brain" =
     tier === "budget" || tier === "low" ? "cheap"
-    : tier === "mid" ? "medium"
-    : tier === "high" ? "brain"
-    : (tier as "cheap" | "medium" | "brain")
+      : tier === "mid" ? "medium"
+        : tier === "high" ? "brain"
+          : (tier as "cheap" | "medium" | "brain")
   graph.tiers[normalizedTier] ??= []
   if (!graph.tiers[normalizedTier].includes(modelName)) {
     graph.tiers[normalizedTier].push(modelName)

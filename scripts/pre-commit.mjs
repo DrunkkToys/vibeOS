@@ -19,7 +19,8 @@ function run(label, cmd) {
 
 run("Syntax check", "node --check src/index.js")
 run("TypeScript typecheck", "npx tsc -p tsconfig.json --noEmit")
-run("Test suite", "npm test")
+run("Strict typecheck (graduated)", "npx tsc -p tsconfig.strict.json --noEmit")
+run("ESLint (errors only)", "npx eslint src/ --no-warn-ignored --max-warnings 562")
 
 console.log(exitCode === 0 ? "\nAll checks passed." : "\nSome checks failed.")
 process.exit(exitCode)

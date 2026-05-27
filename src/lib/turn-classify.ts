@@ -43,7 +43,7 @@ export function resolveOptimizationSlot(mode: OptimizationMode | string | undefi
   const normalized = String(mode || "budget").toLowerCase()
   return normalized === "speed" ? "medium"
     : normalized === "quality" || normalized === "longrun" ? "brain"
-    : "cheap"
+      : "cheap"
 }
 
 export function bootstrapOptimizationSession(): { mode: OptimizationMode; slot: "brain" | "medium" | "cheap" } {
@@ -102,9 +102,9 @@ function computeControlVector(
   const isRelaxed = mode === "budget" || mode === "speed"
   const tierBias = mode === "quality" ? "brain"
     : mode === "speed" ? "medium"
-    : mode === "longrun" ? "brain"
-    : mode === "balanced" ? "auto"
-    : "cheap"
+      : mode === "longrun" ? "brain"
+        : mode === "balanced" ? "auto"
+          : "cheap"
   return {
     enforcement_mode: isStrict ? "strict" : isRelaxed ? "relaxed" : "normal",
     enforcement_reason: `[optimize: ${mode}] using safe offline defaults`,
@@ -265,11 +265,6 @@ const WARN_MAX_PER_SESSION = 3
 const WARN_COALESCE_THRESHOLD = 10
 const warnCoalesceCounters = new Map()
 
-
-
-
-
-
 function updateState(mutator) {
   const stateFile = join(getVibeOSHome(), "delegation-state.json")
   const MAX_RETRIES = 3
@@ -369,8 +364,6 @@ export function resolveEnforcementMode() {
   return "normal"
 }
 
-
-
 async function syncOutcomeToApi(outcome) {
   try {
     const client = getApiClient()
@@ -420,7 +413,7 @@ function extractFirstWordFromArgs(tool, args) {
     const pick = (...vals) => vals.find(v => typeof v === "string" && v.trim())
     const raw = pick(
       args.prompt, args.query, args.url, args.command, args.cmd,
-      args.oldString, args.newString, args.filePath, args.file_path
+      args.oldString, args.newString, args.filePath, args.file_path,
     )
     if (!raw) return null
     const token = String(raw).trim().toLowerCase().split(/\s+/)[0] || ""
@@ -459,7 +452,6 @@ function shouldLogWarn(key, windowMs = WARN_DEDUPE_WINDOW_MS) {
   warnPerSession.set(cat, ps + 1)
   return true
 }
-
 
 function noteTaskRoutingLearning(firstWord, targetModel, reason) {
   if (!firstWord || !/^[a-z][a-z0-9_-]{1,24}$/.test(firstWord)) return

@@ -67,7 +67,7 @@ export function computeSessionMetrics(state: unknown, sessionId: string) {
     sesTasks: 0, sesEdit: 0, sesCredit: 0, sesC7: 0, sesQuota: 0,
     sesTaskDelegations: 0,
     sesDuration: 0, sesRatePerHour: 0, sesTrend: "stable",
-    sesToolBreakdown: {} as Record<string, number>, sesModelTurns: { brain: 0, worker: 0 }
+    sesToolBreakdown: {} as Record<string, number>, sesModelTurns: { brain: 0, worker: 0 },
   }
 
   if (!s) return empty
@@ -110,7 +110,7 @@ export function computeSessionMetrics(state: unknown, sessionId: string) {
   const sesC7 = aggregateWarns(warns, w => Boolean(w.reason?.includes("context7")))
   const sesQuota = aggregateWarns(warns, w => Boolean(w.reason?.includes("quota")))
   const sesTaskDelegationCount = warns.filter(w =>
-    Boolean(w.reason?.includes("delegation")) || Boolean(w.reason?.includes("enforced")) || Boolean(w.reason?.includes("direct"))
+    Boolean(w.reason?.includes("delegation")) || Boolean(w.reason?.includes("enforced")) || Boolean(w.reason?.includes("direct")),
   ).reduce((sum, w) => sum + (Number(w.count) || 1), 0)
 
   // Per-tool breakdown

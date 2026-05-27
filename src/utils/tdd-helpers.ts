@@ -77,20 +77,20 @@ export function generateTestCaseNames(funcName, _type, quality = false) {
 export function inferFunctionParams(sourceContent, funcName) {
   if (!sourceContent || !funcName) return []
   const patterns = [
-    new RegExp(`(?:export\\s+)?(?:async\\s+)?function\\s+${funcName}\\s*\\(([^)]*)\\)`, 'm'),
-    new RegExp(`(?:export\\s+)?const\\s+${funcName}\\s*[:=]\\s*(?:async\\s+)?\\(([^)]*)\\)`, 'm'),
-    new RegExp(`(?:export\\s+)?const\\s+${funcName}\\s*[:=]\\s*(?:async\\s+)?function\\s*\\(([^)]*)\\)`, 'm'),
-    new RegExp(`def\\s+${funcName}\\s*\\(([^)]*)\\)`, 'm'),
-    new RegExp(`fun\\s+${funcName}\\s*\\(([^)]*)\\)`, 'm'),
+    new RegExp(`(?:export\\s+)?(?:async\\s+)?function\\s+${funcName}\\s*\\(([^)]*)\\)`, "m"),
+    new RegExp(`(?:export\\s+)?const\\s+${funcName}\\s*[:=]\\s*(?:async\\s+)?\\(([^)]*)\\)`, "m"),
+    new RegExp(`(?:export\\s+)?const\\s+${funcName}\\s*[:=]\\s*(?:async\\s+)?function\\s*\\(([^)]*)\\)`, "m"),
+    new RegExp(`def\\s+${funcName}\\s*\\(([^)]*)\\)`, "m"),
+    new RegExp(`fun\\s+${funcName}\\s*\\(([^)]*)\\)`, "m"),
   ]
   for (const pat of patterns) {
     const m = sourceContent.match(pat)
     if (m) {
-      return m[1].split(',').map(s => {
+      return m[1].split(",").map(s => {
         const trimmed = s.trim()
         if (!trimmed) return null
         const nameMatch = trimmed.match(/^\s*((?:public|protected)|static|final|val|var|let|const)?\s*(?:readonly\s+)?(?:[_$a-zA-Z][_$a-zA-Z0-9]*)\s*(?::|(?=\s*=)|(?=\s*[,)]))/)
-        const rawName = trimmed.replace(/^[^a-zA-Z_$]*/, '').replace(/[=:].*$/, '').replace(/\s+.*$/, '').trim()
+        const rawName = trimmed.replace(/^[^a-zA-Z_$]*/, "").replace(/[=:].*$/, "").replace(/\s+.*$/, "").trim()
         const defaultMatch = trimmed.match(/=\s*(.+)$/)
         const typeMatch = trimmed.match(/:\s*(\w+)/)
         return {
@@ -210,8 +210,8 @@ export function buildQualityAssertionsForFunc(funcName, params, lang, indent) {
 
 export function isSkeletonUseless(content) {
   if (!content) return true
-  const lines = content.split('\n').filter(l => l.trim() && !l.trim().startsWith('//') && !l.trim().startsWith('#') && !l.trim().startsWith('/*') && !l.trim().startsWith('*'))
-  const todoLines = content.split('\n').filter(l => /TODO|placeholder|smoke|is exported|module loads/.test(l))
+  const lines = content.split("\n").filter(l => l.trim() && !l.trim().startsWith("//") && !l.trim().startsWith("#") && !l.trim().startsWith("/*") && !l.trim().startsWith("*"))
+  const todoLines = content.split("\n").filter(l => /TODO|placeholder|smoke|is exported|module loads/.test(l))
   const meaningfulLines = lines.filter(l => !/TODO|placeholder|smoke|is exported|module loads|throw new Error|raise AssertionError|pytest\.skip|assert.*true/.test(l))
   return meaningfulLines.length < 2
 }

@@ -1,8 +1,8 @@
 // @ts-nocheck
-import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, statSync, readdirSync, copyFileSync, renameSync } from 'node:fs'
-import { join, dirname, basename } from 'node:path'
-import { createHash } from 'node:crypto'
-import { spawn } from 'node:child_process'
+import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, statSync, readdirSync, copyFileSync, renameSync } from "node:fs"
+import { join, dirname, basename } from "node:path"
+import { createHash } from "node:crypto"
+import { spawn } from "node:child_process"
 import {
   currentTier, currentModel, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName,
   textCompletePainted, softQuotaCounts, enforcementBlocked, taskSlotRestore,
@@ -25,30 +25,30 @@ import {
   readJsonOrEmpty, _handleStateCorruption, _lockPathFor,
   SCRATCHPAD_TOOLS, applyDecadence,
   VIBEOS_HOME,
-} from '../state.js'
+} from "../state.js"
 import {
   classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget,
   shortModelName, formatUsd, _refreshModel, readConfig, resolveDisplayModelId, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN,
   trendDisplay, modelToSlotLabel,
-} from '../pricing.js'
-import { latestUserIntent } from './chat-transform.js'
+} from "../pricing.js"
+import { latestUserIntent } from "./chat-transform.js"
 import {
   scoreStress, extractFirstWordFromArgs, shouldLogWarn,
   isUserAskingForTests, isLikelyOffTopic, resolveEnforcementMode,
   getBlackboxTracker, loadBlackboxState, saveBlackboxState,
   loadGlobalLearning, updateGlobalLearning, getLearnedExploratoryWords,
   noteTaskRoutingLearning,
-} from '../turn-classify.js'
-import { saveReport } from '../reporting.js'
-import { loadCredit } from '../credit-api.js'
-import { getApiClient, remoteCall, isApiFallback, VIBEOS_API_ENABLED } from '../api-client.js'
-import { checkFlowRules, recordFlowTodo } from '../../vibeOS-lib/flow-enforcer.js'
-import { computeDifficulty, cascadeDecide, createPatternGraph, ensureNode, addRouteEdge, predictBestModel, hashQuery, deserializeGraph } from '../../vibeOS-lib/ml-router.js'
-import { createCacheDatabase, addCacheEntry, recordCacheStats, predictCacheHit, compositeSimilarity, evictStaleEntries, deserializeCacheDb } from '../../vibeOS-lib/smart-cache.js'
-import { buildTestReminder, enforceTestFile } from '../tdd-enforcer.js'
-import { setActiveJobFromTaskPrompt, observeToolPattern, compressText, recordSaving } from '../index-helpers.js'
-import { scoreTaskQuality, readRewardSignals } from './footer.js'
-import { checkFlowRules as _checkFlowRules, recordFlowTodo } from '../../vibeOS-lib/flow-enforcer.js'
+} from "../turn-classify.js"
+import { saveReport } from "../reporting.js"
+import { loadCredit } from "../credit-api.js"
+import { getApiClient, remoteCall, isApiFallback, VIBEOS_API_ENABLED } from "../api-client.js"
+import { checkFlowRules, recordFlowTodo } from "../../vibeOS-lib/flow-enforcer.js"
+import { computeDifficulty, cascadeDecide, createPatternGraph, ensureNode, addRouteEdge, predictBestModel, hashQuery, deserializeGraph } from "../../vibeOS-lib/ml-router.js"
+import { createCacheDatabase, addCacheEntry, recordCacheStats, predictCacheHit, compositeSimilarity, evictStaleEntries, deserializeCacheDb } from "../../vibeOS-lib/smart-cache.js"
+import { buildTestReminder, enforceTestFile } from "../tdd-enforcer.js"
+import { setActiveJobFromTaskPrompt, observeToolPattern, compressText, recordSaving } from "../index-helpers.js"
+import { scoreTaskQuality, readRewardSignals } from "./footer.js"
+import { checkFlowRules as _checkFlowRules, recordFlowTodo } from "../../vibeOS-lib/flow-enforcer.js"
 import { SAVE_EST, WARN_ON_DIRECT, SOFT_QUOTA, FREE, MONITOR } from "../constants.js"
 
 const BYTES_PER_TOKEN = 4
@@ -69,7 +69,7 @@ let softQuotaCounts = {}
 let context7AlertedThisSession = false
 let context7Seen = new Set()
 let _cacheSave = 0
-let _prompt = ''
+let _prompt = ""
 let _autoReportCount = 0
 let _pendingTodoArgs = null
 let _pendingTelemetryStarts = []
@@ -224,681 +224,681 @@ function _dequeueTelemetryStart(tool) {
 export const setToolDirectory = (dir) => { projectDirectory = dir || "" }
 
 export const onToolExecuteBefore = async (input, output) => {
-      if (!loadSelection().enabled) return
-      _refreshModel(projectDirectory)
-      const t = input?.tool ?? ""
-      const args = output?.args
-      const inArgs = input?.args
-      const telemetryStart = {
-        tool: t,
-        startedAt: Date.now(),
-        kind: _toolKind(t, args || inArgs || {}),
-        prompt_size_bucket: _argSizeBucket(t, args || inArgs || {}),
-        slot: loadSelection().active_slot || "unknown",
-        tier: currentTier || "unknown",
-        cache_hit: false,
-      }
-      _pendingTelemetryStarts.push(telemetryStart)
-      let _cacheSave = 0
-      let _prompt = ""
+  if (!loadSelection().enabled) return
+  _refreshModel(projectDirectory)
+  const t = input?.tool ?? ""
+  const args = output?.args
+  const inArgs = input?.args
+  const telemetryStart = {
+    tool: t,
+    startedAt: Date.now(),
+    kind: _toolKind(t, args || inArgs || {}),
+    prompt_size_bucket: _argSizeBucket(t, args || inArgs || {}),
+    slot: loadSelection().active_slot || "unknown",
+    tier: currentTier || "unknown",
+    cache_hit: false,
+  }
+  _pendingTelemetryStarts.push(telemetryStart)
+  let _cacheSave = 0
+  let _prompt = ""
 
-      // Scratchpad observation (all tiers) — read-only, never blocks.
-      if (SCRATCHPAD_TOOLS.has(t)) {
-        const hit = getScratchpadHit(t, args)
-        if (hit && !scratchpadHitsSeen.has(hit.hash)) {
-          scratchpadHitsSeen.add(hit.hash)
-          telemetryStart.cache_hit = true
-          const total = recordScratchpadObservation(t, args, hit.sizeBytes, { hash: hit.hash })
-          // Persist cache savings as a first-class savings type.
-          // Compute from actual scratchpad file size: inputs that would
-          // have been charged at miss rate are served from cache.
-          const _inputTokens = Math.max(1, Math.round(hit.sizeBytes / BYTES_PER_TOKEN))
-          _cacheSave = Math.max(0.0001, Math.round(_inputTokens * CACHE_SAVED_PER_1M_INPUT_TOKENS / 1_000_000 * 10000) / 10000)
-          const cacheSaved = recordCacheSaving(t, _cacheSave, { hash: hit.hash })
-          const sumNote = hit.summaryPath ? ` (summary: ${hit.summaryPath})` : ""
-          const cacheNote = cacheSaved ? `, cache+$${(cacheSaved.lifetime || 0).toFixed(3)} lt` : ""
-          if (DEBUG_INTERNALS) {
-            console.error(`[vibeOS] 📦 scratchpad hit for ${t}: ${hit.fullPath} ${hit.sizeBytes}B ${hit.ageSec}s old${sumNote} — total observed: ${total ?? "?"}${cacheNote}`)
-          }
-        }
-        // Smart cache: learn from this observation + predict future reuse.
-        if (ML_ENABLED) {
-          try {
-            const rawArgs = args || inArgs || {}
-            const promptText = typeof rawArgs.prompt === "string" ? rawArgs.prompt
-              : typeof rawArgs.filePath === "string" ? `${t}:${rawArgs.filePath}`
-              : typeof rawArgs.command === "string" ? rawArgs.command
+  // Scratchpad observation (all tiers) — read-only, never blocks.
+  if (SCRATCHPAD_TOOLS.has(t)) {
+    const hit = getScratchpadHit(t, args)
+    if (hit && !scratchpadHitsSeen.has(hit.hash)) {
+      scratchpadHitsSeen.add(hit.hash)
+      telemetryStart.cache_hit = true
+      const total = recordScratchpadObservation(t, args, hit.sizeBytes, { hash: hit.hash })
+      // Persist cache savings as a first-class savings type.
+      // Compute from actual scratchpad file size: inputs that would
+      // have been charged at miss rate are served from cache.
+      const _inputTokens = Math.max(1, Math.round(hit.sizeBytes / BYTES_PER_TOKEN))
+      _cacheSave = Math.max(0.0001, Math.round(_inputTokens * CACHE_SAVED_PER_1M_INPUT_TOKENS / 1_000_000 * 10000) / 10000)
+      const cacheSaved = recordCacheSaving(t, _cacheSave, { hash: hit.hash })
+      const sumNote = hit.summaryPath ? ` (summary: ${hit.summaryPath})` : ""
+      const cacheNote = cacheSaved ? `, cache+$${(cacheSaved.lifetime || 0).toFixed(3)} lt` : ""
+      if (DEBUG_INTERNALS) {
+        console.error(`[vibeOS] 📦 scratchpad hit for ${t}: ${hit.fullPath} ${hit.sizeBytes}B ${hit.ageSec}s old${sumNote} — total observed: ${total ?? "?"}${cacheNote}`)
+      }
+    }
+    // Smart cache: learn from this observation + predict future reuse.
+    if (ML_ENABLED) {
+      try {
+        const rawArgs = args || inArgs || {}
+        const promptText = typeof rawArgs.prompt === "string" ? rawArgs.prompt
+          : typeof rawArgs.filePath === "string" ? `${t}:${rawArgs.filePath}`
+            : typeof rawArgs.command === "string" ? rawArgs.command
               : typeof rawArgs.url === "string" ? rawArgs.url
-              : typeof rawArgs.pattern === "string" ? rawArgs.pattern
-              : typeof rawArgs.query === "string" ? rawArgs.query
-              : ""
-            if (promptText) {
-              const keyStr = `${t}:${String(promptText).slice(0, 120)}`
-              addCacheEntry(_cacheDb, hit ? hit.hash : hashQuery(keyStr), t, promptText, hit ? hit.sizeBytes : 0, hit ? hit.ageSec : 0)
-              recordCacheStats(_cacheDb, t, !!hit, hit ? _cacheSave : 0)
-              if (!hit) {
-                const prediction = predictCacheHit(_cacheDb, t, promptText)
-                if (prediction.shouldWarm && prediction.confidence >= 0.6 && DEBUG_INTERNALS) {
-                  console.error(`[vibeOS] 🔮 Smart cache: ${t} may benefit from caching — ${prediction.reason} (conf: ${(prediction.confidence * 100).toFixed(0)}%)`)
-                }
-              }
-            }
-          } catch (scErr) {
-            if (DEBUG_INTERNALS) {
-              console.error(`[vibeOS] Smart cache error: ${scErr.message}`)
+                : typeof rawArgs.pattern === "string" ? rawArgs.pattern
+                  : typeof rawArgs.query === "string" ? rawArgs.query
+                    : ""
+        if (promptText) {
+          const keyStr = `${t}:${String(promptText).slice(0, 120)}`
+          addCacheEntry(_cacheDb, hit ? hit.hash : hashQuery(keyStr), t, promptText, hit ? hit.sizeBytes : 0, hit ? hit.ageSec : 0)
+          recordCacheStats(_cacheDb, t, !!hit, hit ? _cacheSave : 0)
+          if (!hit) {
+            const prediction = predictCacheHit(_cacheDb, t, promptText)
+            if (prediction.shouldWarm && prediction.confidence >= 0.6 && DEBUG_INTERNALS) {
+              console.error(`[vibeOS] 🔮 Smart cache: ${t} may benefit from caching — ${prediction.reason} (conf: ${(prediction.confidence * 100).toFixed(0)}%)`)
             }
           }
         }
-      }
-
-      // Credit < 40% + Task: force to cheap slot (mirrors CC's rwh path).
-      const _credit = loadCredit()
-      if (_credit < 40 && t === "task" && TRINITY_CHEAP && args && typeof args === "object") {
-        if (args.model !== TRINITY_CHEAP) {
-          args.model = TRINITY_CHEAP
-          console.error(`[vibeOS] 🔀 Credit ${_credit}%: forcing Task → cheap slot (${TRINITY_CHEAP})`)
+      } catch (scErr) {
+        if (DEBUG_INTERNALS) {
+          console.error(`[vibeOS] Smart cache error: ${scErr.message}`)
         }
-        return
       }
+    }
+  }
 
-      // Trinity rule: route Task subagents based on orchestrator tier.
-      // Exploratory first-word detection → cheap (mirrors CC exploratory routing).
-      // Then: high-tier brain → medium slot; mid-tier brain → cheap slot.
-      if (t === "task" && currentModel && ((args && typeof args === "object") || (inArgs && typeof inArgs === "object"))) {
-        // OpenCode versions differ on where task args are consumed and what
-        // key name is used for model. Update both input/output arg objects and
-        // all known key variants so routing sticks.
-        const targetArgs = (
-          args ? args
-          : input?.args ? input.args
+  // Credit < 40% + Task: force to cheap slot (mirrors CC's rwh path).
+  const _credit = loadCredit()
+  if (_credit < 40 && t === "task" && TRINITY_CHEAP && args && typeof args === "object") {
+    if (args.model !== TRINITY_CHEAP) {
+      args.model = TRINITY_CHEAP
+      console.error(`[vibeOS] 🔀 Credit ${_credit}%: forcing Task → cheap slot (${TRINITY_CHEAP})`)
+    }
+    return
+  }
+
+  // Trinity rule: route Task subagents based on orchestrator tier.
+  // Exploratory first-word detection → cheap (mirrors CC exploratory routing).
+  // Then: high-tier brain → medium slot; mid-tier brain → cheap slot.
+  if (t === "task" && currentModel && ((args && typeof args === "object") || (inArgs && typeof inArgs === "object"))) {
+    // OpenCode versions differ on where task args are consumed and what
+    // key name is used for model. Update both input/output arg objects and
+    // all known key variants so routing sticks.
+    const targetArgs = (
+      args ? args
+        : input?.args ? input.args
           : {}
-        )
-        _prompt = (targetArgs?.prompt ?? "").trim().toLowerCase()
-        if (typeof targetArgs?.prompt === "string") setActiveJobFromTaskPrompt(targetArgs.prompt)
-        const _firstWord = _prompt.split(/\s+/)[0]
-        const BASE_EXPLORATORY = new Set(["check","find","list","search","does","verify","look","count","show","get","read","grep","scan","detect","inspect"])
-        const LEARNED_EXPLORATORY = getLearnedExploratoryWords()
-        const EXPLORATORY = new Set([...BASE_EXPLORATORY, ...LEARNED_EXPLORATORY])
-        const _exploratoryTarget = EXPLORATORY.has(_firstWord) ? TRINITY_CHEAP : null
-        const _tierTarget = (currentTier === "high" && TRINITY_MEDIUM && TRINITY_MEDIUM !== currentModel) ? TRINITY_MEDIUM
-                          : TRINITY_CHEAP && TRINITY_CHEAP !== currentModel ? TRINITY_CHEAP
-                          : null
-        let _target = _exploratoryTarget ?? _tierTarget
+    )
+    _prompt = (targetArgs?.prompt ?? "").trim().toLowerCase()
+    if (typeof targetArgs?.prompt === "string") setActiveJobFromTaskPrompt(targetArgs.prompt)
+    const _firstWord = _prompt.split(/\s+/)[0]
+    const BASE_EXPLORATORY = new Set(["check","find","list","search","does","verify","look","count","show","get","read","grep","scan","detect","inspect"])
+    const LEARNED_EXPLORATORY = getLearnedExploratoryWords()
+    const EXPLORATORY = new Set([...BASE_EXPLORATORY, ...LEARNED_EXPLORATORY])
+    const _exploratoryTarget = EXPLORATORY.has(_firstWord) ? TRINITY_CHEAP : null
+    const _tierTarget = (currentTier === "high" && TRINITY_MEDIUM && TRINITY_MEDIUM !== currentModel) ? TRINITY_MEDIUM
+      : TRINITY_CHEAP && TRINITY_CHEAP !== currentModel ? TRINITY_CHEAP
+        : null
+    let _target = _exploratoryTarget ?? _tierTarget
 
-        const stressScore = latestUserIntent ? scoreStress(latestUserIntent) : 0
-        const apiRoute = await remoteCall("routeModel", [_prompt, currentTier, TRINITY_CHEAP, TRINITY_MEDIUM, LEARNED_EXPLORATORY, stressScore], null)
-        if (apiRoute?.target) {
-          _target = apiRoute.target
-        } else if (_target === TRINITY_CHEAP && TRINITY_MEDIUM) {
-          if (stressScore > 0.5) {
-            _target = TRINITY_MEDIUM
-            console.error(`[vibeOS] 🧘 Stress ${stressScore.toFixed(2)} → preserving medium tier for Task quality`)
-          }
-        }
-
-        // ML Router: difficulty prediction + confidence cascading.
-        if (ML_ENABLED) {
-          try {
-            const mlDifficulty = computeDifficulty(_prompt)
-            const mlHash = hashQuery(_prompt)
-            const mlGraphPrediction = predictBestModel(_mlGraph, _firstWord, currentTier)
-            if (mlDifficulty.confidence >= ML_CONFIDENCE_THRESHOLD && mlDifficulty.level !== "moderate") {
-              const mlTarget = mlDifficulty.suggestedTier === "cheap" ? TRINITY_CHEAP
-                : mlDifficulty.suggestedTier === "medium" ? TRINITY_MEDIUM
-                : null
-              if (mlTarget && mlTarget !== currentModel) {
-                const tierRank = { budget: 0, cheap: 1, mid: 2, medium: 2, high: 3, brain: 3 }
-                const mlRank = tierRank[mlDifficulty.suggestedTier] || 0
-                const curRank = _target ? (tierRank[classify(_target)] || 0) : 0
-                if (!_target) {
-                  _target = mlTarget
-                  console.error(`[vibeOS] 🧠 ML difficulty: ${mlDifficulty.level} (score ${mlDifficulty.score.toFixed(2)}, conf ${mlDifficulty.confidence.toFixed(2)}) → ${mlTarget}`)
-                } else if (mlRank > curRank && mlDifficulty.confidence >= 0.75) {
-                  _target = mlTarget
-                  console.error(`[vibeOS] 🧠 ML upgrade: ${mlDifficulty.level} (score ${mlDifficulty.score.toFixed(2)}, conf ${mlDifficulty.confidence.toFixed(2)}) → ${mlTarget}`)
-                }
-              }
-            }
-            if (mlGraphPrediction && mlGraphPrediction !== currentModel) {
-              const graphNode = _mlGraph.nodes[_firstWord]
-              if (graphNode && graphNode.count >= 3) {
-                if (!_target) {
-                  _target = mlGraphPrediction
-                  console.error(`[vibeOS] 🕸 ML graph: ${_firstWord} → ${mlGraphPrediction} (${graphNode.count} samples)`)
-                }
-              }
-            }
-            if (_target) {
-              const _mlTier = classify(_target) === "budget" ? "cheap" : classify(_target) === "mid" ? "medium" : classify(_target)
-              addRouteEdge(_mlGraph, _firstWord, _target, _mlTier, true)
-            }
-          } catch (mlErr) {
-            console.error(`[vibeOS] ML router error: ${mlErr.message}`)
-          }
-        }
-
-        if (_target) noteTaskRoutingLearning(_firstWord, _target, _exploratoryTarget ? "exploratory" : `tier:${currentTier}`)
-        if (_target && targetArgs?.model !== _target) {
-          const _reason = _exploratoryTarget ? `exploratory ('${_firstWord}')` : `tier=${currentTier}`
-          const _setModel = (obj) => {
-            if (!obj || typeof obj !== "object") return
-            obj.model = _target
-            obj.modelID = _target
-            obj.modelId = _target
-          }
-          _setModel(targetArgs)
-          _setModel(args)
-          _setModel(inArgs)
-          // Workaround: some OpenCode builds ignore per-task model args.
-          // Force delegation by temporarily switching global slot for this task.
-          try {
-            const selNow = loadSelection()
-            const desiredSlot = _target === TRINITY_CHEAP ? "cheap" : _target === TRINITY_MEDIUM ? "medium" : null
-            if (selNow.delegation_enforce && currentTier === "high" && desiredSlot && selNow.active_slot !== desiredSlot) {
-              taskSlotRestore = selNow.active_slot || "brain"
-              const switched = applySlot(desiredSlot)
-              if (switched?.ok) {
-                setCurrentModel(switched.ocModel)
-                setCurrentTier(classify(switched.ocModel))
-                console.error(`[vibeOS] 🔁 task workaround: switched global slot ${taskSlotRestore} → ${desiredSlot}`)
-              } else {
-                taskSlotRestore = null
-              }
-            }
-          } catch {}
-          console.error(`[vibeOS] 🔀 Task → ${_target} (${_reason}, orchestrator: ${currentModel})`)
-        }
-      }
-
-      if (FREE.has(t)) return
-      if (MONITOR.has(t)) {
-        const todosArg = args?.todos || inArgs?.todos || []
-        _pendingTodoArgs = Array.isArray(todosArg) ? todosArg : [todosArg]
-        return
-      }
-      // Free models have no per-turn cost — no savings to enforce.
-      if (isModelFree(currentModel)) return
-
-      // Dynamic save estimates derived from actual model pricing.
-      const _brainCost  = modelCostPerTurn(currentModel)
-      const _workerModel = TRINITY_CHEAP || TRINITY_MEDIUM || null
-      const _workerCost  = _workerModel ? (modelCostPerTurn(_workerModel) ?? 0) : 0
-      // Keep precision high to avoid dropping tiny but real per-event savings to zero.
-      const _rawEdit    = _brainCost !== null
-        ? Math.max(0, _brainCost - _workerCost)
-        : SAVE_EST.WRITE_EDIT
-      const _estEdit    = Math.max(_rawEdit, SAVE_EST.WRITE_EDIT * 0.1)
-      const _estOpus    = _brainCost !== null ? Math.max(_brainCost, _estEdit) : SAVE_EST.OPUS_DISABLE
-      const _estC7      = _brainCost !== null ? Math.max(_brainCost, SAVE_EST.CONTEXT7) : SAVE_EST.CONTEXT7
-      const _tierWord   = currentTier === "high" ? "Brain" : currentTier === "mid" ? "Medium" : "Budget"
-      const _firstWord = extractFirstWordFromArgs(t, args || inArgs)
-      const sel = loadSelection()
-      const compatibilityMode = sel.onboarding_mode === "assist"
-
-      // Self-modification protection: never allow writes to project source trees.
-      // This must run before credit gating so protected files are blocked even
-      // when the session is in low-credit mode.
-      if (WARN_ON_DIRECT.has(String(t || "").toLowerCase())) {
-        const argSources = _toolArgSources(input, output)
-        const checkPath = argSources
-          .flatMap((src) => [src?.filePath, src?.file_path, src?.path])
-          .find((v) => typeof v === "string" && v.trim()) || ""
-        if (_isProtectedToolPath(checkPath)) {
-          _mutateBlockedToolArgs(t, argSources, checkPath, output)
-          if (shouldLogWarn(`${t}|protect|${checkPath}`)) console.error(`[vibeOS] [protection] BLOCKED direct ${t} in self-protected directory: ${checkPath}`)
-          pendingUiNote = `🛡 Self-modification blocked: ${basename(checkPath)} is in a protected project tree. Use manual git workflow.`
-          enforcementBlocked = true
-          return
-        }
-      }
-
-      // Credit < 40%: non-task tool — record and nudge to step aside.
-      if (_credit < 40 && !compatibilityMode) {
-        const total = recordSaving(t, "credit<40% high-tier", _estOpus, { firstWord: _firstWord })
-        const trend = trendDisplay(readLifetimeSavings().sesTrend)
-        const msg = `⚠ [vibeOS] Credit: ${_credit}% — switching to medium saves ~$${_estOpus.toFixed(3)}/turn. Run \`trinity medium\`.`
-        if (shouldLogWarn(`${t}|credit|${_tierWord}`)) console.error(`[vibeOS] [delegation] ${msg}`)
-        pendingUiNote = msg
-        return
-      }
-
-      // Write/Edit/NotebookEdit: enforce delegation on high tier when delegation_enforce is on.
-      if (WARN_ON_DIRECT.has(String(t || "").toLowerCase())) {
-        const argSources = _toolArgSources(input, output)
-        console.error(`[vibeOS] [enforce-debug] tool=${t} tier=${currentTier} enforce=${sel?.delegation_enforce} argsType=${typeof args} argsExists=${argSources.length > 0}`)
-        const tLower = String(t || "").toLowerCase()
-        if (!compatibilityMode && sel.delegation_enforce && currentTier === "high" && argSources.length > 0) {
-          const originalPath = argSources
-            .flatMap((src) => [src?.filePath, src?.file_path, src?.path])
-            .find((v) => typeof v === "string" && v.trim()) || ""
-          const basename = originalPath.split("/").pop() || "blocked"
-
-          const apiResult = await remoteCall("delegateCheck", [tLower, currentTier, currentModel, _prompt], () => ({
-            blocked: true,
-            savings: _estEdit,
-          }))
-
-          const isBlocked = apiResult?.blocked !== false
-          const savings = apiResult?.savings ?? _estEdit
-
-          if (isBlocked) {
-            _mutateBlockedToolArgs(tLower, argSources, originalPath, output)
-            const total = recordSaving(t, "delegation enforced", savings, { firstWord: _firstWord })
-            pendingUiNote = `🚫 Brain tier direct ${t} blocked → delegate via Task or run \`trinity medium\`.`
-            enforcementBlocked = true
-            if (shouldLogWarn(`${t}|enforced|${_tierWord}`)) console.error(`[vibeOS] [enforcement] BLOCKED direct ${t} on high tier → delegate via Task`)
-            return
-          }
-        }
-        const total = recordSaving(t, "direct edit", _estEdit, { firstWord: _firstWord })
-        if (!compatibilityMode) {
-          const msg = `[vibeOS] ${_tierWord} tier direct ${t} — save ~$${_estEdit.toFixed(3)} by delegating to Task. Run \`trinity medium\`.`
-          if (shouldLogWarn(`${t}|direct|${_tierWord}`)) console.error(`[vibeOS] [delegation] ${msg}`)
-          pendingUiNote = msg
-          return
-        }
-      }
-
-      if (SOFT_QUOTA.has(t)) {
-        // Context7 nudge / install-suggestion / per-session alert (WebFetch/WebSearch only).
-        if (t !== "bash") {
-          const target = args?.url || args?.query || ""
-          if (isDocsTarget(target) && !context7Seen.has(target)) {
-            context7Seen.add(target)
-            // Re-check each time — context7 might be added mid-session
-            if (detectContext7()) {
-              const missed = recordMissedContext7(SAVE_EST.CONTEXT7)
-              if (shouldLogWarn(`context7-bypass|${t}|${_firstWord || "?"}`)) {
-                console.error(`[vibeOS] [cost policy] Context7 available but bypassed — webfetch on docs target instead. ~$${SAVE_EST.CONTEXT7.toFixed(4)}/turn missed.`)
-              }
-            } else {
-              const missed = recordMissedContext7(_estC7)
-              if (!existsSync(CONTEXT7_INSTALL_FLAG)) {
-                try {
-                  mkdirSync(dirname(CONTEXT7_INSTALL_FLAG), { recursive: true })
-                  writeFileSync(CONTEXT7_INSTALL_FLAG, "")
-                } catch {}
-                console.error(`[vibeOS] 💡 Install context7 MCP to save ~$0.06/turn on docs: \`claude mcp add context7 npx @upstash/context7-mcp\``)
-              } else if (!context7AlertedThisSession) {
-                context7AlertedThisSession = true
-                console.error(`[vibeOS] 💸 context7 not installed — missed ~$${(missed ?? 0).toFixed(2)} savings this session.`)
-              }
-            }
-          }
-        }
-        // Soft quota: track per-tool, fire exactly once at QUOTA+1 (tool still runs).
-        softQuotaCounts[t] = (softQuotaCounts[t] ?? 0) + 1
-        const n = softQuotaCounts[t]
-        if (n === SOFT_QUOTA_LIMIT + 1) {
-          const total = recordSaving(t, `soft quota exceeded (limit ${SOFT_QUOTA_LIMIT})`, SAVE_EST.SOFT_QUOTA)
-          console.error(`[vibeOS] Bash usage high (${n}/${SOFT_QUOTA_LIMIT}) — delegate to Task subagent.`)
-        }
-        return
+    const stressScore = latestUserIntent ? scoreStress(latestUserIntent) : 0
+    const apiRoute = await remoteCall("routeModel", [_prompt, currentTier, TRINITY_CHEAP, TRINITY_MEDIUM, LEARNED_EXPLORATORY, stressScore], null)
+    if (apiRoute?.target) {
+      _target = apiRoute.target
+    } else if (_target === TRINITY_CHEAP && TRINITY_MEDIUM) {
+      if (stressScore > 0.5) {
+        _target = TRINITY_MEDIUM
+        console.error(`[vibeOS] 🧘 Stress ${stressScore.toFixed(2)} → preserving medium tier for Task quality`)
       }
     }
 
-export const onToolExecuteAfter = async (input, output) => {
-      _refreshModel(projectDirectory)
+    // ML Router: difficulty prediction + confidence cascading.
+    if (ML_ENABLED) {
       try {
-        const start = _dequeueTelemetryStart(input?.tool)
-        if (start) {
-          const outputText = typeof output?.result === "string" ? output.result
-            : typeof output?.text === "string" ? output.text
-            : typeof output?.content === "string" ? output.content
-            : typeof output?.data === "string" ? output.data
-            : ""
-          const result = output?.error || output?.isError || output?.status === "error" || output?.exitCode > 0
-            ? "error"
-            : enforcementBlocked ? "blocked"
-            : "ok"
-          recordPrivacyTelemetry({
-            session_id: _OC_SID,
-            tool: input?.tool ?? "unknown",
-            tier: start.tier || currentTier || "unknown",
-            slot: start.slot || loadSelection().active_slot || "unknown",
-            kind: start.kind || _toolKind(input?.tool, input?.args || {}),
-            prompt_size_bucket: start.prompt_size_bucket || "unknown",
-            output_size_bucket: _bucketChars(String(outputText || "").length),
-            duration_bucket: _bucketMs(Date.now() - Number(start.startedAt || Date.now())),
-            result,
-            cache_hit: start.cache_hit === true,
-            enforcement: loadSelection().delegation_enforce ? "on" : "off",
-            flow: loadSelection().flow_enforce ? "on" : "off",
-            tdd: loadSelection().tdd_enforce ? "on" : "off",
-          })
-        }
-      } catch {}
-
-      // ── Generate footer alert (prepended to tool result, visible in chat) ──
-      let _footerText = ""
-      try {
-        const { ltTasks, ltCache, ltCost, sesTrend, sesModelTurns, sesRatePerHour, quality_avg } = readLifetimeSavings()
-        const { stableStreak, problemStreak } = readRewardSignals()
-        const ltTotal = ltTasks + ltCache
-        const trendIcon = sesTrend === "down" ? "↓" : sesTrend === "up" ? "↑" : "→"
-        const flashIcon = VIBEOS_API_ENABLED ? "⚡" : ""
-        const selNow = loadSelection()
-        const tags = [`[${shortModelName(currentModel)}]`]
-        const bbMode = resolveEnforcementMode()
-        if (bbMode === "relaxed") {
-          tags.push("[Q&A]")
-        } else {
-          if (selNow.delegation_enforce) tags.push("[ENF ON]")
-          if (selNow.flow_enforce) tags.push("[FLOW ON]")
-          if (selNow.tdd_enforce) tags.push("[TDD ON]")
-          if (bbMode === "strict") tags.push("[STRICT]")
-        }
-        if (_modelLocked) tags.push("[LOCK ON]")
-        const workerModel = (currentTier === "high" && TRINITY_MEDIUM) ? TRINITY_MEDIUM : TRINITY_CHEAP
-        const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0)
-        if (totalTurns > 0 && workerModel && workerModel !== currentModel) {
-          const brainPct = Math.round((sesModelTurns.brain / totalTurns) * 100)
-          tags[0] = `[${shortModelName(currentModel)} ${brainPct}% > ${shortModelName(workerModel)} ${100 - brainPct}%]`
-        }
-        const statusLine = tags.join(" ")
-        let stressTag = ""
-        if (latestUserIntent) {
-          const ss = scoreStress(latestUserIntent)
-          if (ss > 0.1) {
-            const label = ss > 0.7 ? "high" : ss > 0.4 ? "elevated" : "calm"
-            stressTag = ` stress:${label}`
-          }
-        }
-        let liveModel = ""
-        try {
-          const cfg = await client.config.get("model")
-          if (cfg) liveModel = String(cfg)
-        } catch {}
-        if (!liveModel) {
-          liveModel = readConfig(projectDirectory) || readConfig(join(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || ""
-        }
-        const displayModel = resolveDisplayModelId(liveModel || currentModel || "", projectDirectory) || liveModel || currentModel
-        if (ltTotal > 0) {
-          _footerText = `— ${flashIcon ? `${flashIcon} ` : ""}run: ${displayModel} | $${formatUsd(ltTotal)} saved | VIBE${flashIcon ? " ⚡" : ""} —\n\n`
-        } else {
-          _footerText = `${statusLine}${stressTag}\n\n`
-        }
-        output.title = _footerText.trim()
-        if (typeof output?.output === "string") output.output = _footerText + output.output
-        else if (typeof output?.result === "string") output.result = _footerText + output.result
-        else if (typeof output?.text === "string") output.text = _footerText + output.text
-        else if (typeof output?.content === "string") output.content = _footerText + output.content
-        else output.output = _footerText
-
-        _autoReportCount = (_autoReportCount || 0) + 1
-        if (_autoReportCount % 5 === 0 && ltTotal > 0) {
-          saveReport({
-            type: "session", summary: `Session cost: $${formatUsd(ltCost)} | cache saved: $${formatUsd(ltCache)} | delegation saved: $${formatUsd(ltTasks)}`,
-            metrics: { sessionId: _OC_SID, sessionCost: ltCost, cacheSavings: ltCache, delegationSavingsUsd: ltTasks, model: currentModel, slot: selNow.active_slot || "unknown" },
-            tags: ["auto", "cost"],
-          })
-        }
-      } catch {}
-      // ── End footer ──
-
-      const t = input?.tool ?? ""
-
-      if (t === "trinity") {
-        const trinityArgs = input?.args || {}
-        const trinityAction = trinityArgs?.action || trinityArgs?.todo || ""
-        if (trinityAction === "todo") {
-          try {
-            const flowTodoFilePath = join(getVibeOSHome(), ".flow-todo-queue.jsonl")
-            let todoLines: string[] = []
-            if (require("fs").existsSync(flowTodoFilePath)) {
-              const raw = require("fs").readFileSync(flowTodoFilePath, "utf-8").trim()
-              todoLines = raw ? raw.split("\n").filter(Boolean) : []
+        const mlDifficulty = computeDifficulty(_prompt)
+        const mlHash = hashQuery(_prompt)
+        const mlGraphPrediction = predictBestModel(_mlGraph, _firstWord, currentTier)
+        if (mlDifficulty.confidence >= ML_CONFIDENCE_THRESHOLD && mlDifficulty.level !== "moderate") {
+          const mlTarget = mlDifficulty.suggestedTier === "cheap" ? TRINITY_CHEAP
+            : mlDifficulty.suggestedTier === "medium" ? TRINITY_MEDIUM
+              : null
+          if (mlTarget && mlTarget !== currentModel) {
+            const tierRank = { budget: 0, cheap: 1, mid: 2, medium: 2, high: 3, brain: 3 }
+            const mlRank = tierRank[mlDifficulty.suggestedTier] || 0
+            const curRank = _target ? (tierRank[classify(_target)] || 0) : 0
+            if (!_target) {
+              _target = mlTarget
+              console.error(`[vibeOS] 🧠 ML difficulty: ${mlDifficulty.level} (score ${mlDifficulty.score.toFixed(2)}, conf ${mlDifficulty.confidence.toFixed(2)}) → ${mlTarget}`)
+            } else if (mlRank > curRank && mlDifficulty.confidence >= 0.75) {
+              _target = mlTarget
+              console.error(`[vibeOS] 🧠 ML upgrade: ${mlDifficulty.level} (score ${mlDifficulty.score.toFixed(2)}, conf ${mlDifficulty.confidence.toFixed(2)}) → ${mlTarget}`)
             }
-            let todoList = todoLines.map((l, i) => {
-              try { const p = JSON.parse(l); return "  " + (i+1) + ". " + (p.text || l) }
-              catch { return "  " + (i+1) + ". " + l }
-            }).join("\n")
-            const todoNote = "[vibeOS] Flow TODO Queue: " + todoLines.length + " item(s)\n" + (todoList || "  (no pending TODOs)")
-            if (typeof output?.text === "string")
-              output.text = todoNote + "\n\n" + output.text
-            else if (typeof output?.result === "string")
-              output.result = todoNote + "\n\n" + output.result
-          } catch (e) {
-            console.error("[vibeOS] trinity todo error:", e)
           }
         }
+        if (mlGraphPrediction && mlGraphPrediction !== currentModel) {
+          const graphNode = _mlGraph.nodes[_firstWord]
+          if (graphNode && graphNode.count >= 3) {
+            if (!_target) {
+              _target = mlGraphPrediction
+              console.error(`[vibeOS] 🕸 ML graph: ${_firstWord} → ${mlGraphPrediction} (${graphNode.count} samples)`)
+            }
+          }
+        }
+        if (_target) {
+          const _mlTier = classify(_target) === "budget" ? "cheap" : classify(_target) === "mid" ? "medium" : classify(_target)
+          addRouteEdge(_mlGraph, _firstWord, _target, _mlTier, true)
+        }
+      } catch (mlErr) {
+        console.error(`[vibeOS] ML router error: ${mlErr.message}`)
+      }
+    }
+
+    if (_target) noteTaskRoutingLearning(_firstWord, _target, _exploratoryTarget ? "exploratory" : `tier:${currentTier}`)
+    if (_target && targetArgs?.model !== _target) {
+      const _reason = _exploratoryTarget ? `exploratory ('${_firstWord}')` : `tier=${currentTier}`
+      const _setModel = (obj) => {
+        if (!obj || typeof obj !== "object") return
+        obj.model = _target
+        obj.modelID = _target
+        obj.modelId = _target
+      }
+      _setModel(targetArgs)
+      _setModel(args)
+      _setModel(inArgs)
+      // Workaround: some OpenCode builds ignore per-task model args.
+      // Force delegation by temporarily switching global slot for this task.
+      try {
+        const selNow = loadSelection()
+        const desiredSlot = _target === TRINITY_CHEAP ? "cheap" : _target === TRINITY_MEDIUM ? "medium" : null
+        if (selNow.delegation_enforce && currentTier === "high" && desiredSlot && selNow.active_slot !== desiredSlot) {
+          taskSlotRestore = selNow.active_slot || "brain"
+          const switched = applySlot(desiredSlot)
+          if (switched?.ok) {
+            setCurrentModel(switched.ocModel)
+            setCurrentTier(classify(switched.ocModel))
+            console.error(`[vibeOS] 🔁 task workaround: switched global slot ${taskSlotRestore} → ${desiredSlot}`)
+          } else {
+            taskSlotRestore = null
+          }
+        }
+      } catch {}
+      console.error(`[vibeOS] 🔀 Task → ${_target} (${_reason}, orchestrator: ${currentModel})`)
+    }
+  }
+
+  if (FREE.has(t)) return
+  if (MONITOR.has(t)) {
+    const todosArg = args?.todos || inArgs?.todos || []
+    _pendingTodoArgs = Array.isArray(todosArg) ? todosArg : [todosArg]
+    return
+  }
+  // Free models have no per-turn cost — no savings to enforce.
+  if (isModelFree(currentModel)) return
+
+  // Dynamic save estimates derived from actual model pricing.
+  const _brainCost  = modelCostPerTurn(currentModel)
+  const _workerModel = TRINITY_CHEAP || TRINITY_MEDIUM || null
+  const _workerCost  = _workerModel ? (modelCostPerTurn(_workerModel) ?? 0) : 0
+  // Keep precision high to avoid dropping tiny but real per-event savings to zero.
+  const _rawEdit    = _brainCost !== null
+    ? Math.max(0, _brainCost - _workerCost)
+    : SAVE_EST.WRITE_EDIT
+  const _estEdit    = Math.max(_rawEdit, SAVE_EST.WRITE_EDIT * 0.1)
+  const _estOpus    = _brainCost !== null ? Math.max(_brainCost, _estEdit) : SAVE_EST.OPUS_DISABLE
+  const _estC7      = _brainCost !== null ? Math.max(_brainCost, SAVE_EST.CONTEXT7) : SAVE_EST.CONTEXT7
+  const _tierWord   = currentTier === "high" ? "Brain" : currentTier === "mid" ? "Medium" : "Budget"
+  const _firstWord = extractFirstWordFromArgs(t, args || inArgs)
+  const sel = loadSelection()
+  const compatibilityMode = sel.onboarding_mode === "assist"
+
+  // Self-modification protection: never allow writes to project source trees.
+  // This must run before credit gating so protected files are blocked even
+  // when the session is in low-credit mode.
+  if (WARN_ON_DIRECT.has(String(t || "").toLowerCase())) {
+    const argSources = _toolArgSources(input, output)
+    const checkPath = argSources
+      .flatMap((src) => [src?.filePath, src?.file_path, src?.path])
+      .find((v) => typeof v === "string" && v.trim()) || ""
+    if (_isProtectedToolPath(checkPath)) {
+      _mutateBlockedToolArgs(t, argSources, checkPath, output)
+      if (shouldLogWarn(`${t}|protect|${checkPath}`)) console.error(`[vibeOS] [protection] BLOCKED direct ${t} in self-protected directory: ${checkPath}`)
+      pendingUiNote = `🛡 Self-modification blocked: ${basename(checkPath)} is in a protected project tree. Use manual git workflow.`
+      enforcementBlocked = true
+      return
+    }
+  }
+
+  // Credit < 40%: non-task tool — record and nudge to step aside.
+  if (_credit < 40 && !compatibilityMode) {
+    const total = recordSaving(t, "credit<40% high-tier", _estOpus, { firstWord: _firstWord })
+    const trend = trendDisplay(readLifetimeSavings().sesTrend)
+    const msg = `⚠ [vibeOS] Credit: ${_credit}% — switching to medium saves ~$${_estOpus.toFixed(3)}/turn. Run \`trinity medium\`.`
+    if (shouldLogWarn(`${t}|credit|${_tierWord}`)) console.error(`[vibeOS] [delegation] ${msg}`)
+    pendingUiNote = msg
+    return
+  }
+
+  // Write/Edit/NotebookEdit: enforce delegation on high tier when delegation_enforce is on.
+  if (WARN_ON_DIRECT.has(String(t || "").toLowerCase())) {
+    const argSources = _toolArgSources(input, output)
+    console.error(`[vibeOS] [enforce-debug] tool=${t} tier=${currentTier} enforce=${sel?.delegation_enforce} argsType=${typeof args} argsExists=${argSources.length > 0}`)
+    const tLower = String(t || "").toLowerCase()
+    if (!compatibilityMode && sel.delegation_enforce && currentTier === "high" && argSources.length > 0) {
+      const originalPath = argSources
+        .flatMap((src) => [src?.filePath, src?.file_path, src?.path])
+        .find((v) => typeof v === "string" && v.trim()) || ""
+      const basename = originalPath.split("/").pop() || "blocked"
+
+      const apiResult = await remoteCall("delegateCheck", [tLower, currentTier, currentModel, _prompt], () => ({
+        blocked: true,
+        savings: _estEdit,
+      }))
+
+      const isBlocked = apiResult?.blocked !== false
+      const savings = apiResult?.savings ?? _estEdit
+
+      if (isBlocked) {
+        _mutateBlockedToolArgs(tLower, argSources, originalPath, output)
+        const total = recordSaving(t, "delegation enforced", savings, { firstWord: _firstWord })
+        pendingUiNote = `🚫 Brain tier direct ${t} blocked → delegate via Task or run \`trinity medium\`.`
+        enforcementBlocked = true
+        if (shouldLogWarn(`${t}|enforced|${_tierWord}`)) console.error(`[vibeOS] [enforcement] BLOCKED direct ${t} on high tier → delegate via Task`)
         return
       }
+    }
+    const total = recordSaving(t, "direct edit", _estEdit, { firstWord: _firstWord })
+    if (!compatibilityMode) {
+      const msg = `[vibeOS] ${_tierWord} tier direct ${t} — save ~$${_estEdit.toFixed(3)} by delegating to Task. Run \`trinity medium\`.`
+      if (shouldLogWarn(`${t}|direct|${_tierWord}`)) console.error(`[vibeOS] [delegation] ${msg}`)
+      pendingUiNote = msg
+      return
+    }
+  }
 
-      // Save ML state after Task or key tools (throttled to avoid excessive I/O).
-      if ((t === "task" || t === "bash" || t === "edit" || t === "write") && !_mlSavePending) {
-        setMlSavePending(true)
-        setTimeout(() => { saveMLState(); setMlSavePending(false) }, 5000)
-      }
-
-      // Show human-friendly slot label in the UI title for Task subagents.
-      if (t === "task") {
-        const m = input?.args?.model
-        if (m && typeof output?.title === "string") {
-          const label = modelToSlotLabel(m)
-          output.title = output.title.replace(/\[agent\]|\[general\]/gi, label)
-          if (!output.title.includes(label)) output.title = `${output.title} ${label}`
-        }
-      }
-
-      // Quality scoring for task outputs
-      if (t === "task") {
-        const quality = scoreTaskQuality(output?.result || output?.text || "", input?.args?.prompt || "")
-        try {
-          appendFileSync(SAVINGS_LEDGER_FILE, JSON.stringify({
-            at: new Date().toISOString(),
-            kind: "quality",
-            score: quality,
-            tool: t,
-            sid: _OC_SID,
-            v: 2
-          }) + "\n")
-        } catch {}
-        updateState((s) => {
-          s.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" }
-          s.lifetime.quality_total_score = (s.lifetime.quality_total_score || 0) + quality
-          s.lifetime.quality_total_count = (s.lifetime.quality_total_count || 0) + 1
-          s.lifetime.last_updated = new Date().toISOString()
-          return s
-        })
-      }
-
-      // Inject pending delegation UI note (set in tool.execute.before).
-      // This surfaces the warning in the OC chat transcript, not just stderr.
-      if (pendingUiNote) {
-        if (enforcementBlocked) {
-          const note = `[vibeOS] ${pendingUiNote}`
-          if (typeof output?.result === "string") output.result += `\n\n${note}`
-          else if (typeof output?.text === "string") output.text += `\n\n${note}`
-          else if (typeof output?.content === "string") output.content += `\n\n${note}`
-          else output.result = pendingUiNote
+  if (SOFT_QUOTA.has(t)) {
+    // Context7 nudge / install-suggestion / per-session alert (WebFetch/WebSearch only).
+    if (t !== "bash") {
+      const target = args?.url || args?.query || ""
+      if (isDocsTarget(target) && !context7Seen.has(target)) {
+        context7Seen.add(target)
+        // Re-check each time — context7 might be added mid-session
+        if (detectContext7()) {
+          const missed = recordMissedContext7(SAVE_EST.CONTEXT7)
+          if (shouldLogWarn(`context7-bypass|${t}|${_firstWord || "?"}`)) {
+            console.error(`[vibeOS] [cost policy] Context7 available but bypassed — webfetch on docs target instead. ~$${SAVE_EST.CONTEXT7.toFixed(4)}/turn missed.`)
+          }
         } else {
-          const note = `\n\n${pendingUiNote}`
-          if (typeof output?.result === "string") output.result += note
-          else if (typeof output?.text === "string") output.text += note
-          else if (typeof output?.content === "string") output.content += note
-          else output.result = pendingUiNote
-        }
-        pendingUiNote = null
-      }
-
-      // Restore original slot after a forced task-slot workaround.
-      if (t === "task" && taskSlotRestore) {
-        try {
-          const back = applySlot(taskSlotRestore)
-          if (back?.ok) {
-            setCurrentModel(back.ocModel)
-            setCurrentTier(classify(back.ocModel))
-            console.error(`[vibeOS] 🔁 task workaround: restored global slot → ${taskSlotRestore}`)
-          }
-        } catch {}
-        taskSlotRestore = null
-      }
-
-      // Skip test-reminder, TDD, flow enforcement, and compression for blocked tools
-      if (enforcementBlocked) { enforcementBlocked = false; return }
-      observeToolPattern(t, input, output, projectDirectory)
-
-      // TDD enforcement for task subagent results: scan task output for
-      // file paths with source extensions and create skeletons (same logic
-      // as the write/edit handler below, but for files written by subagents).
-      if (t === "task") {
-        const outputText = (output?.result ?? output?.text ?? output?.content ?? "")
-        if (typeof outputText === "string" && outputText.length > 0) {
-          const TASK_FILE_RE = /((?:\.?[\w@][\w.\-]*\/)+[\w.\-]+\.(?:py|js|ts|mjs|tsx|jsx|cjs|mts|sh|go|rs|rb|java|kt))/gi
-          const sel = loadSelection()
-          const explicitTestIntent = isUserAskingForTests(latestUserIntent)
-          const seen = new Set()
-          let match
-          while ((match = TASK_FILE_RE.exec(outputText)) !== null) {
-            const fp = match[1]
-            if (seen.has(fp)) continue
-            seen.add(fp)
-            const isTestPath = /(^|\/)(tests?|spec)\//i.test(fp) || /\.(test|spec)\./i.test(fp)
-            if (sel.tdd_enforce && !isTestPath) {
-              const createdPath = enforceTestFile(fp)
-              if (createdPath) {
-                const ext = createdPath.split('.').pop()
-                const fileName = createdPath.split('/').pop()
-                const enforceNote = "\n\n[test-enforced] Created skeleton at " + createdPath + "\n  NEXT: 1) Open " + fileName + "  2) Replace TODO/FIXME markers with real assertions  3) Run `npx vitest run " + createdPath + "` (or language-equivalent)  4) Confirm tests pass"
-                if (typeof output?.text === "string") output.text += enforceNote
-                else if (typeof output?.result === "string") output.result += enforceNote
-              }
-            }
+          const missed = recordMissedContext7(_estC7)
+          if (!existsSync(CONTEXT7_INSTALL_FLAG)) {
+            try {
+              mkdirSync(dirname(CONTEXT7_INSTALL_FLAG), { recursive: true })
+              writeFileSync(CONTEXT7_INSTALL_FLAG, "")
+            } catch {}
+            console.error(`[vibeOS] 💡 Install context7 MCP to save ~$0.06/turn on docs: \`claude mcp add context7 npx @upstash/context7-mcp\``)
+          } else if (!context7AlertedThisSession) {
+            context7AlertedThisSession = true
+            console.error(`[vibeOS] 💸 context7 not installed — missed ~$${(missed ?? 0).toFixed(2)} savings this session.`)
           }
         }
       }
+    }
+    // Soft quota: track per-tool, fire exactly once at QUOTA+1 (tool still runs).
+    softQuotaCounts[t] = (softQuotaCounts[t] ?? 0) + 1
+    const n = softQuotaCounts[t]
+    if (n === SOFT_QUOTA_LIMIT + 1) {
+      const total = recordSaving(t, `soft quota exceeded (limit ${SOFT_QUOTA_LIMIT})`, SAVE_EST.SOFT_QUOTA)
+      console.error(`[vibeOS] Bash usage high (${n}/${SOFT_QUOTA_LIMIT}) — delegate to Task subagent.`)
+    }
+    return
+  }
+}
 
-      // Test-reminder: nudge when source code is written/edited.
-      if (t === "write" || t === "edit" || t === "multiedit") {
-        const fp = input?.args?.filePath || input?.args?.file_path || input?.args?.path || ""
-        const reminder = buildTestReminder(fp)
-        if (reminder) {
-          // Surface as a side note via the output; OpenCode renders the
-          // tool's text/result in the transcript. We append a short line.
-          const note = `\n\n[test-reminder] ${reminder}`
-          if (typeof output?.text === "string") output.text += note
-          else if (typeof output?.result === "string") output.result += note
-          else console.error(`[vibeOS] ${reminder}`)
+export const onToolExecuteAfter = async (input, output) => {
+  _refreshModel(projectDirectory)
+  try {
+    const start = _dequeueTelemetryStart(input?.tool)
+    if (start) {
+      const outputText = typeof output?.result === "string" ? output.result
+        : typeof output?.text === "string" ? output.text
+          : typeof output?.content === "string" ? output.content
+            : typeof output?.data === "string" ? output.data
+              : ""
+      const result = output?.error || output?.isError || output?.status === "error" || output?.exitCode > 0
+        ? "error"
+        : enforcementBlocked ? "blocked"
+          : "ok"
+      recordPrivacyTelemetry({
+        session_id: _OC_SID,
+        tool: input?.tool ?? "unknown",
+        tier: start.tier || currentTier || "unknown",
+        slot: start.slot || loadSelection().active_slot || "unknown",
+        kind: start.kind || _toolKind(input?.tool, input?.args || {}),
+        prompt_size_bucket: start.prompt_size_bucket || "unknown",
+        output_size_bucket: _bucketChars(String(outputText || "").length),
+        duration_bucket: _bucketMs(Date.now() - Number(start.startedAt || Date.now())),
+        result,
+        cache_hit: start.cache_hit === true,
+        enforcement: loadSelection().delegation_enforce ? "on" : "off",
+        flow: loadSelection().flow_enforce ? "on" : "off",
+        tdd: loadSelection().tdd_enforce ? "on" : "off",
+      })
+    }
+  } catch {}
+
+  // ── Generate footer alert (prepended to tool result, visible in chat) ──
+  let _footerText = ""
+  try {
+    const { ltTasks, ltCache, ltCost, sesTrend, sesModelTurns, sesRatePerHour, quality_avg } = readLifetimeSavings()
+    const { stableStreak, problemStreak } = readRewardSignals()
+    const ltTotal = ltTasks + ltCache
+    const trendIcon = sesTrend === "down" ? "↓" : sesTrend === "up" ? "↑" : "→"
+    const flashIcon = VIBEOS_API_ENABLED ? "⚡" : ""
+    const selNow = loadSelection()
+    const tags = [`[${shortModelName(currentModel)}]`]
+    const bbMode = resolveEnforcementMode()
+    if (bbMode === "relaxed") {
+      tags.push("[Q&A]")
+    } else {
+      if (selNow.delegation_enforce) tags.push("[ENF ON]")
+      if (selNow.flow_enforce) tags.push("[FLOW ON]")
+      if (selNow.tdd_enforce) tags.push("[TDD ON]")
+      if (bbMode === "strict") tags.push("[STRICT]")
+    }
+    if (_modelLocked) tags.push("[LOCK ON]")
+    const workerModel = (currentTier === "high" && TRINITY_MEDIUM) ? TRINITY_MEDIUM : TRINITY_CHEAP
+    const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0)
+    if (totalTurns > 0 && workerModel && workerModel !== currentModel) {
+      const brainPct = Math.round((sesModelTurns.brain / totalTurns) * 100)
+      tags[0] = `[${shortModelName(currentModel)} ${brainPct}% > ${shortModelName(workerModel)} ${100 - brainPct}%]`
+    }
+    const statusLine = tags.join(" ")
+    let stressTag = ""
+    if (latestUserIntent) {
+      const ss = scoreStress(latestUserIntent)
+      if (ss > 0.1) {
+        const label = ss > 0.7 ? "high" : ss > 0.4 ? "elevated" : "calm"
+        stressTag = ` stress:${label}`
+      }
+    }
+    let liveModel = ""
+    try {
+      const cfg = await client.config.get("model")
+      if (cfg) liveModel = String(cfg)
+    } catch {}
+    if (!liveModel) {
+      liveModel = readConfig(projectDirectory) || readConfig(join(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || ""
+    }
+    const displayModel = resolveDisplayModelId(liveModel || currentModel || "", projectDirectory) || liveModel || currentModel
+    if (ltTotal > 0) {
+      _footerText = `— ${flashIcon ? `${flashIcon} ` : ""}run: ${displayModel} | $${formatUsd(ltTotal)} saved | VIBE${flashIcon ? " ⚡" : ""} —\n\n`
+    } else {
+      _footerText = `${statusLine}${stressTag}\n\n`
+    }
+    output.title = _footerText.trim()
+    if (typeof output?.output === "string") output.output = _footerText + output.output
+    else if (typeof output?.result === "string") output.result = _footerText + output.result
+    else if (typeof output?.text === "string") output.text = _footerText + output.text
+    else if (typeof output?.content === "string") output.content = _footerText + output.content
+    else output.output = _footerText
+
+    _autoReportCount = (_autoReportCount || 0) + 1
+    if (_autoReportCount % 5 === 0 && ltTotal > 0) {
+      saveReport({
+        type: "session", summary: `Session cost: $${formatUsd(ltCost)} | cache saved: $${formatUsd(ltCache)} | delegation saved: $${formatUsd(ltTasks)}`,
+        metrics: { sessionId: _OC_SID, sessionCost: ltCost, cacheSavings: ltCache, delegationSavingsUsd: ltTasks, model: currentModel, slot: selNow.active_slot || "unknown" },
+        tags: ["auto", "cost"],
+      })
+    }
+  } catch {}
+  // ── End footer ──
+
+  const t = input?.tool ?? ""
+
+  if (t === "trinity") {
+    const trinityArgs = input?.args || {}
+    const trinityAction = trinityArgs?.action || trinityArgs?.todo || ""
+    if (trinityAction === "todo") {
+      try {
+        const flowTodoFilePath = join(getVibeOSHome(), ".flow-todo-queue.jsonl")
+        let todoLines: string[] = []
+        if (require("fs").existsSync(flowTodoFilePath)) {
+          const raw = require("fs").readFileSync(flowTodoFilePath, "utf-8").trim()
+          todoLines = raw ? raw.split("\n").filter(Boolean) : []
         }
+        let todoList = todoLines.map((l, i) => {
+          try { const p = JSON.parse(l); return "  " + (i+1) + ". " + (p.text || l) }
+          catch { return "  " + (i+1) + ". " + l }
+        }).join("\n")
+        const todoNote = "[vibeOS] Flow TODO Queue: " + todoLines.length + " item(s)\n" + (todoList || "  (no pending TODOs)")
+        if (typeof output?.text === "string")
+          output.text = todoNote + "\n\n" + output.text
+        else if (typeof output?.result === "string")
+          output.result = todoNote + "\n\n" + output.result
+      } catch (e) {
+        console.error("[vibeOS] trinity todo error:", e)
+      }
+    }
+    return
+  }
 
-        // TDD enforcement: auto-create skeleton test if enabled and no test exists.
-        const sel = loadSelection()
-        const explicitTestIntent = isUserAskingForTests(latestUserIntent)
+  // Save ML state after Task or key tools (throttled to avoid excessive I/O).
+  if ((t === "task" || t === "bash" || t === "edit" || t === "write") && !_mlSavePending) {
+    setMlSavePending(true)
+    setTimeout(() => { saveMLState(); setMlSavePending(false) }, 5000)
+  }
+
+  // Show human-friendly slot label in the UI title for Task subagents.
+  if (t === "task") {
+    const m = input?.args?.model
+    if (m && typeof output?.title === "string") {
+      const label = modelToSlotLabel(m)
+      output.title = output.title.replace(/\[agent\]|\[general\]/gi, label)
+      if (!output.title.includes(label)) output.title = `${output.title} ${label}`
+    }
+  }
+
+  // Quality scoring for task outputs
+  if (t === "task") {
+    const quality = scoreTaskQuality(output?.result || output?.text || "", input?.args?.prompt || "")
+    try {
+      appendFileSync(SAVINGS_LEDGER_FILE, JSON.stringify({
+        at: new Date().toISOString(),
+        kind: "quality",
+        score: quality,
+        tool: t,
+        sid: _OC_SID,
+        v: 2,
+      }) + "\n")
+    } catch {}
+    updateState((s) => {
+      s.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" }
+      s.lifetime.quality_total_score = (s.lifetime.quality_total_score || 0) + quality
+      s.lifetime.quality_total_count = (s.lifetime.quality_total_count || 0) + 1
+      s.lifetime.last_updated = new Date().toISOString()
+      return s
+    })
+  }
+
+  // Inject pending delegation UI note (set in tool.execute.before).
+  // This surfaces the warning in the OC chat transcript, not just stderr.
+  if (pendingUiNote) {
+    if (enforcementBlocked) {
+      const note = `[vibeOS] ${pendingUiNote}`
+      if (typeof output?.result === "string") output.result += `\n\n${note}`
+      else if (typeof output?.text === "string") output.text += `\n\n${note}`
+      else if (typeof output?.content === "string") output.content += `\n\n${note}`
+      else output.result = pendingUiNote
+    } else {
+      const note = `\n\n${pendingUiNote}`
+      if (typeof output?.result === "string") output.result += note
+      else if (typeof output?.text === "string") output.text += note
+      else if (typeof output?.content === "string") output.content += note
+      else output.result = pendingUiNote
+    }
+    pendingUiNote = null
+  }
+
+  // Restore original slot after a forced task-slot workaround.
+  if (t === "task" && taskSlotRestore) {
+    try {
+      const back = applySlot(taskSlotRestore)
+      if (back?.ok) {
+        setCurrentModel(back.ocModel)
+        setCurrentTier(classify(back.ocModel))
+        console.error(`[vibeOS] 🔁 task workaround: restored global slot → ${taskSlotRestore}`)
+      }
+    } catch {}
+    taskSlotRestore = null
+  }
+
+  // Skip test-reminder, TDD, flow enforcement, and compression for blocked tools
+  if (enforcementBlocked) { enforcementBlocked = false; return }
+  observeToolPattern(t, input, output, projectDirectory)
+
+  // TDD enforcement for task subagent results: scan task output for
+  // file paths with source extensions and create skeletons (same logic
+  // as the write/edit handler below, but for files written by subagents).
+  if (t === "task") {
+    const outputText = (output?.result ?? output?.text ?? output?.content ?? "")
+    if (typeof outputText === "string" && outputText.length > 0) {
+      const TASK_FILE_RE = /((?:\.?[\w@][\w.\-]*\/)+[\w.\-]+\.(?:py|js|ts|mjs|tsx|jsx|cjs|mts|sh|go|rs|rb|java|kt))/gi
+      const sel = loadSelection()
+      const explicitTestIntent = isUserAskingForTests(latestUserIntent)
+      const seen = new Set()
+      let match
+      while ((match = TASK_FILE_RE.exec(outputText)) !== null) {
+        const fp = match[1]
+        if (seen.has(fp)) continue
+        seen.add(fp)
         const isTestPath = /(^|\/)(tests?|spec)\//i.test(fp) || /\.(test|spec)\./i.test(fp)
         if (sel.tdd_enforce && !isTestPath) {
           const createdPath = enforceTestFile(fp)
           if (createdPath) {
-            const ext = createdPath.split('.').pop()
-            const fileName = createdPath.split('/').pop()
-            const enforceNote = `\n\n[test-enforced] Created skeleton at ${createdPath}\n  NEXT: 1) Open ${fileName}  2) Replace TODO/FIXME markers with real assertions  3) Run \`npx vitest run ${createdPath}\` (or language-equivalent)  4) Confirm tests pass`
+            const ext = createdPath.split(".").pop()
+            const fileName = createdPath.split("/").pop()
+            const enforceNote = "\n\n[test-enforced] Created skeleton at " + createdPath + "\n  NEXT: 1) Open " + fileName + "  2) Replace TODO/FIXME markers with real assertions  3) Run `npx vitest run " + createdPath + "` (or language-equivalent)  4) Confirm tests pass"
             if (typeof output?.text === "string") output.text += enforceNote
             else if (typeof output?.result === "string") output.result += enforceNote
           }
         }
-
-        // Detect test-file follow-up edits (telemetry)
-        if (t === "edit" || t === "write") {
-          const testExtRe = /\.(test|spec)\./i
-          if (testExtRe.test(fp)) {
-            try {
-              updateState((state) => {
-                state.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" }
-                state.lifetime.tdd_followup_completions = (state.lifetime.tdd_followup_completions || 0) + 1
-                state.lifetime.last_updated = new Date().toISOString()
-                return state
-              })
-            } catch {}
-          }
-        }
-
-        // Project Guard: check edits to protected doc files (AGENTS.md / README.md)
-        {
-          const fp = input?.args?.filePath || input?.args?.file_path || input?.args?.path || ""
-          const guardRe = /(?:^|\/)(AGENTS|README)\.md$/i
-          if (guardRe.test(fp)) {
-            const guardIcons = { flag: "!", warn: "!!", hint: "_" }
-            const guardIcon = guardIcons.flag || "!"
-            const fn = basename(fp)
-            console.error(`[flow-enforcer] ${guardIcon} [guard] ${fn}: protected project doc modified — verify user intent`)
-          }
-        }
-
-        // Flow enforcer: check Write/Edit against development-flow rules.
-        if (sel.flow_enabled) {
-          const toolName = t === "edit" ? "edit" : "write"
-          const filePath = input?.args?.filePath || input?.args?.file_path || input?.args?.path || ""
-          const content = t === "edit" ? (input?.args?.newString || "") : (input?.args?.content || "")
-          const flowHits = checkFlowRules({ tool: toolName, filePath, content })
-          for (const h of flowHits) {
-            if (h.deduped) continue
-            const icon = h.severity === "warn" ? "⚠" : "💡"
-            console.error(`[flow-enforcer] ${icon} [${h.severity}] ${h.id}: ${h.description} — ${filePath}`)
-          }
-          // Flow enforcement: extract TODO/FIXME to queue when flow_enforce is on.
-          if (sel.flow_enforce) {
-            const { recordFlowTodo } = await import("../../vibeOS-lib/flow-enforcer.js")
-            for (const h of flowHits) {
-              if (h.id === "todo-comment" && !h.deduped) {
-                recordFlowTodo({ filePath, content })
-              }
-            }
-          }
-            let todoCount = 0
-            for (const h of flowHits) {
-              if (h.id === "todo-comment" && !h.deduped) todoCount++
-            }
-            if (todoCount > 0) {
-              const todoPushNote = "[todo-push] Auto-extracted " + todoCount + " TODO(s) from " + filePath + ". Call todowrite to add them to your task list."
-              if (typeof output?.text === "string")
-                output.text += "\n\n" + todoPushNote
-              else if (typeof output?.result === "string")
-                output.result += "\n\n" + todoPushNote
-            }
-        }
       }
-
-      // Compress verbose tool outputs before they bloat context.
-      // Only webfetch — task results contain synthesized data the brain needs verbatim.
-      if (t !== "webfetch") {
-        // Run decadence even for non-webfetch tools (opportunistic maintenance)
-        applyDecadence()
-        return
-      }
-
-      // Try multiple output paths (plugin API may vary)
-      const raw = output?.result ?? output?.text ?? output?.content ?? output?.data
-      if (!raw || typeof raw !== "string") { applyDecadence(); return }
-
-      const processed = compressText(raw)
-      // Note: the Worker-to-Brain protocol is now injected via the
-      // `experimental.chat.messages.transform` hook below as a separate
-      // text content block, not prepended to the worker output. This keeps
-      // worker output and orchestrator directive cleanly separated.
-
-      if (processed !== raw) {
-        // Write back to whichever field held the original
-        if (output.result !== undefined) output.result = processed
-        else if (output.text !== undefined) output.text = processed
-        else if (output.content !== undefined) output.content = processed
-        else if (output.data !== undefined) output.data = processed
-      }
-      // ── todowrite result parsing ──
-      if (t === "todowrite" && _pendingTodoArgs && _pendingTodoArgs.length > 0) {
-        try {
-          for (const entry of _pendingTodoArgs) {
-            if (entry && entry.content) {
-              upsertTodo({
-                content: entry.content,
-                filePath: entry.filePath || "",
-                priority: entry.priority || "medium",
-                source: "intercepted",
-              })
-            }
-          }
-          console.error("[vibeOS] tracked " + _pendingTodoArgs.length + " todo(s) from todowrite call")
-        } catch {}
-        _pendingTodoArgs = null
-      }
-      applyDecadence()
     }
+  }
+
+  // Test-reminder: nudge when source code is written/edited.
+  if (t === "write" || t === "edit" || t === "multiedit") {
+    const fp = input?.args?.filePath || input?.args?.file_path || input?.args?.path || ""
+    const reminder = buildTestReminder(fp)
+    if (reminder) {
+      // Surface as a side note via the output; OpenCode renders the
+      // tool's text/result in the transcript. We append a short line.
+      const note = `\n\n[test-reminder] ${reminder}`
+      if (typeof output?.text === "string") output.text += note
+      else if (typeof output?.result === "string") output.result += note
+      else console.error(`[vibeOS] ${reminder}`)
+    }
+
+    // TDD enforcement: auto-create skeleton test if enabled and no test exists.
+    const sel = loadSelection()
+    const explicitTestIntent = isUserAskingForTests(latestUserIntent)
+    const isTestPath = /(^|\/)(tests?|spec)\//i.test(fp) || /\.(test|spec)\./i.test(fp)
+    if (sel.tdd_enforce && !isTestPath) {
+      const createdPath = enforceTestFile(fp)
+      if (createdPath) {
+        const ext = createdPath.split(".").pop()
+        const fileName = createdPath.split("/").pop()
+        const enforceNote = `\n\n[test-enforced] Created skeleton at ${createdPath}\n  NEXT: 1) Open ${fileName}  2) Replace TODO/FIXME markers with real assertions  3) Run \`npx vitest run ${createdPath}\` (or language-equivalent)  4) Confirm tests pass`
+        if (typeof output?.text === "string") output.text += enforceNote
+        else if (typeof output?.result === "string") output.result += enforceNote
+      }
+    }
+
+    // Detect test-file follow-up edits (telemetry)
+    if (t === "edit" || t === "write") {
+      const testExtRe = /\.(test|spec)\./i
+      if (testExtRe.test(fp)) {
+        try {
+          updateState((state) => {
+            state.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" }
+            state.lifetime.tdd_followup_completions = (state.lifetime.tdd_followup_completions || 0) + 1
+            state.lifetime.last_updated = new Date().toISOString()
+            return state
+          })
+        } catch {}
+      }
+    }
+
+    // Project Guard: check edits to protected doc files (AGENTS.md / README.md)
+    {
+      const fp = input?.args?.filePath || input?.args?.file_path || input?.args?.path || ""
+      const guardRe = /(?:^|\/)(AGENTS|README)\.md$/i
+      if (guardRe.test(fp)) {
+        const guardIcons = { flag: "!", warn: "!!", hint: "_" }
+        const guardIcon = guardIcons.flag || "!"
+        const fn = basename(fp)
+        console.error(`[flow-enforcer] ${guardIcon} [guard] ${fn}: protected project doc modified — verify user intent`)
+      }
+    }
+
+    // Flow enforcer: check Write/Edit against development-flow rules.
+    if (sel.flow_enabled) {
+      const toolName = t === "edit" ? "edit" : "write"
+      const filePath = input?.args?.filePath || input?.args?.file_path || input?.args?.path || ""
+      const content = t === "edit" ? (input?.args?.newString || "") : (input?.args?.content || "")
+      const flowHits = checkFlowRules({ tool: toolName, filePath, content })
+      for (const h of flowHits) {
+        if (h.deduped) continue
+        const icon = h.severity === "warn" ? "⚠" : "💡"
+        console.error(`[flow-enforcer] ${icon} [${h.severity}] ${h.id}: ${h.description} — ${filePath}`)
+      }
+      // Flow enforcement: extract TODO/FIXME to queue when flow_enforce is on.
+      if (sel.flow_enforce) {
+        const { recordFlowTodo } = await import("../../vibeOS-lib/flow-enforcer.js")
+        for (const h of flowHits) {
+          if (h.id === "todo-comment" && !h.deduped) {
+            recordFlowTodo({ filePath, content })
+          }
+        }
+      }
+      let todoCount = 0
+      for (const h of flowHits) {
+        if (h.id === "todo-comment" && !h.deduped) todoCount++
+      }
+      if (todoCount > 0) {
+        const todoPushNote = "[todo-push] Auto-extracted " + todoCount + " TODO(s) from " + filePath + ". Call todowrite to add them to your task list."
+        if (typeof output?.text === "string")
+          output.text += "\n\n" + todoPushNote
+        else if (typeof output?.result === "string")
+          output.result += "\n\n" + todoPushNote
+      }
+    }
+  }
+
+  // Compress verbose tool outputs before they bloat context.
+  // Only webfetch — task results contain synthesized data the brain needs verbatim.
+  if (t !== "webfetch") {
+    // Run decadence even for non-webfetch tools (opportunistic maintenance)
+    applyDecadence()
+    return
+  }
+
+  // Try multiple output paths (plugin API may vary)
+  const raw = output?.result ?? output?.text ?? output?.content ?? output?.data
+  if (!raw || typeof raw !== "string") { applyDecadence(); return }
+
+  const processed = compressText(raw)
+  // Note: the Worker-to-Brain protocol is now injected via the
+  // `experimental.chat.messages.transform` hook below as a separate
+  // text content block, not prepended to the worker output. This keeps
+  // worker output and orchestrator directive cleanly separated.
+
+  if (processed !== raw) {
+    // Write back to whichever field held the original
+    if (output.result !== undefined) output.result = processed
+    else if (output.text !== undefined) output.text = processed
+    else if (output.content !== undefined) output.content = processed
+    else if (output.data !== undefined) output.data = processed
+  }
+  // ── todowrite result parsing ──
+  if (t === "todowrite" && _pendingTodoArgs && _pendingTodoArgs.length > 0) {
+    try {
+      for (const entry of _pendingTodoArgs) {
+        if (entry && entry.content) {
+          upsertTodo({
+            content: entry.content,
+            filePath: entry.filePath || "",
+            priority: entry.priority || "medium",
+            source: "intercepted",
+          })
+        }
+      }
+      console.error("[vibeOS] tracked " + _pendingTodoArgs.length + " todo(s) from todowrite call")
+    } catch {}
+    _pendingTodoArgs = null
+  }
+  applyDecadence()
+}

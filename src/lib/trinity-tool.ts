@@ -24,8 +24,8 @@ export function createTrinityTool(deps) {
       "Use action='api-bootstrap-token' with token='<new_token>' to store an alpha bootstrap token and exchange it for a normal API token on alpha builds. " +
       "Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', 'trinity status'.",
     args: {
-            action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "setup", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard", "api-token", "api-bootstrap-token", "todo", "todo-done", "todo-sync"]).optional(),
-            slot: deps.tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings"]).optional(),
+      action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "setup", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard", "api-token", "api-bootstrap-token", "todo", "todo-done", "todo-sync"]).optional(),
+      slot: deps.tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings"]).optional(),
       level: deps.tool.schema.enum(["full", "brief", "off", "on"]).optional(),
       token: deps.tool.schema.string().optional(),
     },
@@ -59,7 +59,7 @@ export function createTrinityTool(deps) {
         const lockedModel = deps._lockedModel || null
         const onboardingMode = sel.onboarding_mode || "strict"
 
-    const stressScore = deps.latestUserIntent ? deps.scoreStress(deps.latestUserIntent) : 0
+        const stressScore = deps.latestUserIntent ? deps.scoreStress(deps.latestUserIntent) : 0
         const stressBar = stressScore > 0.85 ? "█" : stressScore > 0.7 ? "▆" : stressScore > 0.5 ? "▅" : stressScore > 0.3 ? "▃" : stressScore > 0.1 ? "▂" : "▁"
         const stressLabel = stressScore > 0.7 ? "high" : stressScore > 0.4 ? "elevated" : stressScore > 0.1 ? "calm" : "none"
 
@@ -75,7 +75,7 @@ export function createTrinityTool(deps) {
         if (deps._blackboxEnabled) {
           try {
             const res = deps._latestBlackboxState || deps.getBlackboxResolution()
-      if (res && res.n_interactions > 3) {
+            if (res && res.n_interactions > 3) {
               const momentumIcon = res.momentum > 0.3 ? "up up" : res.momentum > 0 ? "up" : res.momentum < -0.3 ? "down down" : res.momentum < 0 ? "down" : "flat"
               const loopTag = res.is_looping ? " (loop)" : ""
               decisionLine = `${res.resolution} ${res.sub_regime} ${momentumIcon}${loopTag}`
@@ -776,7 +776,7 @@ export function createTrinityTool(deps) {
           }
         }
 
-  if (deps.currentModel || !deps.existsSync(deps.TIERS_FILE)) {
+        if (deps.currentModel || !deps.existsSync(deps.TIERS_FILE)) {
           try {
             const auth = deps._readAuth()
             const ok = await deps.probeModel(deps.currentModel, auth, deps._loadOpenCodeProviders())
@@ -837,7 +837,7 @@ export function createTrinityTool(deps) {
         const lines = [
           "\ud83d\udd0d  vibeOS \u2014 Self Diagnostic",
           "=".repeat(40),
-          ""
+          "",
         ]
         for (const r of results) {
           lines.push(`  ${r.okLabel} ${r.label}: ${r.detail}`)
@@ -988,7 +988,7 @@ export function createTrinityTool(deps) {
         return `\u274c Use \`trinity blackbox on|off|status|reset\``
       }
 
-        if (action === "help") {
+      if (action === "help") {
         return [
           "vibeOS \u2014 trinity commands",
           "",
@@ -1010,8 +1010,8 @@ export function createTrinityTool(deps) {
           "  trinity tdd on/off        Toggle auto test skeleton creation",
           "  trinity setup             Create a compatibility profile for new users",
           "  trinity guard             Ensure AGENTS.md/README.md exist and are current",
-  "  trinity api-token        Update VIBEOS_API_TOKEN and re-enable remote API",
-  "  trinity api-token        Update VIBEOS_API_TOKEN and re-enable remote API",
+          "  trinity api-token        Update VIBEOS_API_TOKEN and re-enable remote API",
+          "  trinity api-token        Update VIBEOS_API_TOKEN and re-enable remote API",
           "  trinity flow              Show flow violations this session",
           "",
           "DIAGNOSTICS:",

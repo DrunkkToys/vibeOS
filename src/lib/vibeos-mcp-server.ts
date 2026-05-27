@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 vibeOS <https://github.com/DrunkkToys/vibeOS>
 
 import http from "node:http"
-import { IncomingMessage, ServerResponse } from "node:http"
+import type { IncomingMessage, ServerResponse } from "node:http"
 import { parse as parseUrl } from "node:url"
 import { createReadStream, existsSync, statSync } from "node:fs"
 import { extname, join, dirname } from "node:path"

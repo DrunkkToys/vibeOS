@@ -62,7 +62,7 @@ export function sessionDuration(customPath?: string): DurationParts {
 
 export function formatDuration(arg: number | Partial<DurationParts> | null | undefined): string {
   let hours, minutes, seconds
-  if (typeof arg === 'number') {
+  if (typeof arg === "number") {
     const total = Math.floor(arg)
     hours = Math.floor(total / 3600)
     minutes = Math.floor((total % 3600) / 60)

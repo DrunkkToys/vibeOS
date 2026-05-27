@@ -14,9 +14,9 @@ function safeJsonParse(raw) {
   } catch {}
 
   let cleaned = raw
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/\/\/.*$/gm, '')
-    .replace(/,\s*([}\]])/g, '$1')
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\/\/.*$/gm, "")
+    .replace(/,\s*([}\]])/g, "$1")
   try {
     return JSON.parse(cleaned)
   } catch (e) {
@@ -232,7 +232,7 @@ export async function discoverAvailableModels(providers, auth) {
     try {
       const res = await fetch("https://api.deepseek.com/models", {
         headers: { Authorization: "Bearer " + auth.deepseek.key },
-        signal: AbortSignal.timeout(4000)
+        signal: AbortSignal.timeout(4000),
       })
       if (res.ok) {
         const body = await res.json()
@@ -251,7 +251,7 @@ export async function discoverAvailableModels(providers, auth) {
     try {
       const res = await fetch("https://openrouter.ai/api/v1/models", {
         headers: { Authorization: "Bearer " + auth.openrouter.key },
-        signal: AbortSignal.timeout(5000)
+        signal: AbortSignal.timeout(5000),
       })
       if (res.ok) {
         const body = await res.json()
@@ -279,7 +279,7 @@ export async function discoverAvailableModels(providers, auth) {
   if (wantsModelsDev) {
     try {
       const res = await fetch("https://models.dev/api.json", {
-        signal: AbortSignal.timeout(5000)
+        signal: AbortSignal.timeout(5000),
       })
       if (res.ok) {
         const body = await res.json()
@@ -390,19 +390,19 @@ export async function probeModel(modelId, auth, providers = null) {
     const headers = isGoogleDirect
       ? { "Content-Type": "application/json", "x-goog-api-key": apiKey }
       : {
-          "Authorization": "Bearer " + apiKey,
-          "Content-Type": "application/json",
-        }
+        "Authorization": "Bearer " + apiKey,
+        "Content-Type": "application/json",
+      }
     const body = isGoogleDirect
       ? JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: "ok" }] }],
-          generationConfig: { maxOutputTokens: 1 },
-        })
+        contents: [{ role: "user", parts: [{ text: "ok" }] }],
+        generationConfig: { maxOutputTokens: 1 },
+      })
       : JSON.stringify({
-          model: reqModel,
-          messages: [{ role: "user", content: "ok" }],
-          max_tokens: 1,
-        })
+        model: reqModel,
+        messages: [{ role: "user", content: "ok" }],
+        max_tokens: 1,
+      })
     const res = await fetch(apiUrl, {
       method: "POST",
       headers,
