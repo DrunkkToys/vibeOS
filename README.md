@@ -30,6 +30,7 @@ Without a token, vibeOS keeps running in local-only mode with bundled algorithms
 ### Requires Remote API
 
 - Bootstrap token exchange (required for initial API setup)
+- Alpha seat issuance is currently uncapped in the admin tooling
 - Advanced VibeBoX decision engine with full session history tracking
 - Dynamic per-prompt delegation decisions (local fallback uses a safe "block all writes on high tier" default)
 - Learned subagent routing patterns across projects (local fallback uses a static exploratory keyword list)
@@ -111,7 +112,7 @@ The most common controls are:
 - `trinity repair-state preview|apply` - fix state fingerprint collisions
 - `trinity VibeBoX on|off|status|reset` - control the decision engine
 - `trinity guard` - refresh AGENTS.md and README.md checks
-- `trinity api-token <token>` - update the remote API token
+- `trinity api-token <token|invalidate>` - update the remote API token, or invalidate the current alpha token and disable remote API
 - `trinity api-bootstrap-token <token>` - store an alpha bootstrap token and exchange it for a normal API token on alpha builds
 
 Additional reporting commands:
@@ -139,6 +140,7 @@ Savings are persisted in `~/.claude/delegation-state.json`.
 |---|---|---|
 | `VIBEOS_API_URL` | `https://api.vibetheog.com` | Remote API server URL |
 | `VIBEOS_API_TOKEN` | unset | vos_8d73804b13bb46711b9a47f036dba7b4d026fd9583d96960e663716e62815a69 |
+| `VIBEOS_API_DISABLED` | `false` | Set to `true` to invalidate the embedded alpha token and keep remote API off until re-enabled |
 | `VIBEOS_API_BOOTSTRAP_TOKEN` | unset | Alpha bootstrap token for initial auth exchange |
 | `VIBEOS_API_ENABLED` | `true` | Set to `false` for local-only mode |
 | `CLAUDE_CREDIT_PERCENT` | `100` | Credit override |
@@ -154,7 +156,7 @@ Without a token, vibeOS keeps running in local-only mode with bundled algorithms
 - If the model will not switch, run `trinity rebuild` and then `trinity set brain|medium|cheap`.
 - If writes or edits are blocked, that is usually delegation enforcement working as intended on the brain tier.
 - If the footer is missing, check that the plugin is enabled and that the current OpenCode session is receiving assistant completions.
-- If the remote API is down or the token is invalid, use `trinity api-token <token>` or `trinity api-bootstrap-token <token>` on alpha builds, or rely on local-only mode.
+- If the remote API is down or the token is invalid, use `trinity api-token <token>` or `trinity api-bootstrap-token <token>` on alpha builds. Use `trinity api-token invalidate` when you want to intentionally revoke the alpha token and stay local-only.
 - If the dashboard does not load, rebuild the plugin with `npm run build` and restart OpenCode.
 - If state or config looks inconsistent, run `trinity diagnose` and `trinity guard`.
 
