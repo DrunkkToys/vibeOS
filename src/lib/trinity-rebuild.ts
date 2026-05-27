@@ -54,6 +54,46 @@ function normalizeProviderModels(providerName, models) {
   return out
 }
 
+function resolveProviderModel(modelId, providers) {
+  const raw = String(modelId || "").trim()
+  if (!raw) return null
+  const normalized = normalizeModelId(raw)
+  const entries = Object.entries(providers || {})
+  for (const [providerName, providerCfg] of entries) {
+    const ids = normalizeProviderModels(providerName, providerCfg?.models)
+    for (const id of ids) {
+      const bare = String(id || "").includes("/") ? String(id).split("/").slice(1).join("/") : String(id)
+      if (normalizeModelId(id) === normalized || normalizeModelId(bare) === normalized) {
+        return { providerName, providerCfg, id }
+      }
+    }
+  }
+  const prefix = raw.includes("/") ? raw.split("/")[0] : ""
+  if (prefix && providers?.[prefix]) {
+    return { providerName: prefix, providerCfg: providers[prefix], id: raw }
+  }
+  return null
+}
+
+function providerApiBaseURL(providerName, providerCfg) {
+  const options = providerCfg?.options || {}
+  const baseURL = String(options?.baseURL || options?.baseUrl || providerCfg?.baseURL || providerCfg?.baseUrl || providerCfg?.url || "").trim()
+  if (baseURL) return baseURL.replace(/\/+$/, "")
+  if (providerName === "deepseek") return "https://api.deepseek.com/v1"
+  if (providerName === "openrouter") return "https://openrouter.ai/api/v1"
+  if (providerName === "google") return "https://generativelanguage.googleapis.com/v1beta"
+  return ""
+}
+
+function providerApiKey(providerName, providerCfg, auth) {
+  const options = providerCfg?.options || {}
+  const direct = String(options?.apiKey || providerCfg?.apiKey || providerCfg?.key || "").trim()
+  if (direct) return direct
+  const scoped = String(auth?.[providerName]?.key || "").trim()
+  if (scoped) return scoped
+  return ""
+}
+
 export function collectConfiguredProviderModels(providers) {
   const all = []
   const seen = new Set()
@@ -233,25 +273,20 @@ export function modelToCcAlias(modelId) {
   return "haiku"
 }
 
-export async function probeModel(modelId, auth) {
+export async function probeModel(modelId, auth, providers = null) {
   if (!modelId || !auth) return true
 
   const id = String(modelId || "")
   if (id.startsWith("opencode/")) return true
 
-  let apiUrl, apiKey, reqModel
+  const provider = resolveProviderModel(id, providers)
+  const providerName = provider?.providerName || (id.includes("/") ? id.split("/")[0] : "")
+  const providerCfg = provider?.providerCfg || providers?.[providerName] || {}
+  const reqModel = provider?.id ? (provider.id.includes("/") ? provider.id.split("/").slice(1).join("/") : provider.id) : (id.includes("/") ? id.split("/").slice(1).join("/") : id)
+  const apiKey = providerApiKey(providerName, providerCfg, auth)
+  const baseURL = providerApiBaseURL(providerName, providerCfg)
 
-  if (id.startsWith("deepseek/")) {
-    apiUrl = "https://api.deepseek.com/chat/completions"
-    apiKey = auth.deepseek?.key
-    reqModel = id.replace("deepseek/", "")
-  }
-
- else if (id.startsWith("openrouter/")) {
-    apiUrl = "https://openrouter.ai/api/v1/chat/completions"
-    apiKey = auth.openrouter?.key
-    reqModel = id.replace("openrouter/", "")
-  } else {
+  if (!providerName || !reqModel) {
     return true
   }
 
@@ -259,19 +294,35 @@ export async function probeModel(modelId, auth) {
     console.error("[vibeOS] probeModel: no API key for " + id)
     return false
   }
+  if (!baseURL && providerName !== "google") {
+    return true
+  }
 
   try {
+    const isGoogleDirect = providerName === "google" && !String(baseURL || "").includes("chat/completions")
+    const apiUrl = isGoogleDirect
+      ? `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(reqModel)}:generateContent?key=${encodeURIComponent(apiKey)}`
+      : `${baseURL || providerApiBaseURL(providerName, providerCfg) || ""}/chat/completions`
+    const headers = isGoogleDirect
+      ? { "Content-Type": "application/json", "x-goog-api-key": apiKey }
+      : {
+          "Authorization": "Bearer " + apiKey,
+          "Content-Type": "application/json",
+        }
+    const body = isGoogleDirect
+      ? JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: "ok" }] }],
+          generationConfig: { maxOutputTokens: 1 },
+        })
+      : JSON.stringify({
+          model: reqModel,
+          messages: [{ role: "user", content: "ok" }],
+          max_tokens: 1,
+        })
     const res = await fetch(apiUrl, {
       method: "POST",
-      headers: {
-        "Authorization": "Bearer " + apiKey,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: reqModel,
-        messages: [{ role: "user", content: "ok" }],
-        max_tokens: 1,
-      }),
+      headers,
+      body,
       signal: AbortSignal.timeout(8000),
     })
     if (!res.ok) {

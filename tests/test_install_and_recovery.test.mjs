@@ -12,6 +12,10 @@ import { tmpdir } from "node:os"
 import { fileURLToPath } from "node:url"
 import { describe, test } from "node:test"
 import assert from "node:assert"
+import { readConfig } from "../src/lib/pricing.js"
+import { probeModel } from "../src/lib/trinity-rebuild.js"
+import { _appendFooter } from "../src/lib/hooks/footer.js"
+import { _OC_SID } from "../src/lib/state.js"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, "..")
@@ -215,6 +219,175 @@ test("autoconfig: opencode.jsonc with comments and trailing commas works", async
     assert.ok(existsSync(join(sb, ".claude/model-tiers.json")) || hooks !== undefined,
       "model-tiers.json created or plugin loaded from JSONC config")
   } finally {
+    process.env.HOME = prevHome
+    rmSync(sb, { recursive: true, force: true })
+  }
+})
+
+test("autoconfig: readConfig resolves provider-scoped model ids from short dropdown values", async () => {
+  const sb = freshSandbox()
+  const prevHome = process.env.HOME
+  process.env.HOME = sb
+  try {
+    writeFileSync(join(sb, ".config/opencode/opencode.json"), JSON.stringify({
+      provider: {
+        google: {
+          name: "Google",
+          api: "openai",
+          models: {
+            "gemini-2.5-flash": { name: "Gemini 2.5 Flash" }
+          }
+        }
+      }
+    }, null, 2))
+
+    const projectDir = join(sb, "project")
+    mkdirSync(projectDir, { recursive: true })
+    writeFileSync(join(projectDir, "opencode.json"), JSON.stringify({
+      model: "gemini-2.5-flash"
+    }, null, 2))
+
+    assert.equal(readConfig(projectDir), "google/gemini-2.5-flash")
+  } finally {
+    process.env.HOME = prevHome
+    rmSync(sb, { recursive: true, force: true })
+  }
+})
+
+test("autoconfig: readConfig prefers current OpenCode workspace session model over stale project config", { concurrency: false }, async () => {
+  const sb = freshSandbox()
+  const prevHome = process.env.HOME
+  const prevDesktopHome = process.env.VIBEOS_OPENCODE_DESKTOP_HOME
+  process.env.HOME = sb
+  try {
+    const opencodeHome = join(sb, "Library", "Application Support", "ai.opencode.desktop")
+    process.env.VIBEOS_OPENCODE_DESKTOP_HOME = opencodeHome
+    mkdirSync(opencodeHome, { recursive: true })
+    const projectDir = join(sb, "project")
+    mkdirSync(projectDir, { recursive: true })
+    const liveSessionId = "ses_live_gemini"
+    const workspaceSelection = JSON.stringify({
+      session: {
+        [liveSessionId]: {
+          agent: "build",
+          model: { providerID: "google", modelID: "gemini-3.5-flash" },
+          variant: null,
+        },
+      },
+    })
+    writeFileSync(join(opencodeHome, "opencode.workspace.active.dat"), `{
+\t"workspace:model-selection": ${JSON.stringify(workspaceSelection)}
+}`)
+    writeFileSync(join(opencodeHome, "opencode.global.dat"), JSON.stringify({
+      notification: JSON.stringify({
+        list: [
+          {
+            directory: projectDir,
+            time: Date.now(),
+            viewed: true,
+            type: "turn-complete",
+            session: liveSessionId,
+          },
+        ],
+      }),
+    }, null, 2))
+    writeFileSync(join(projectDir, "opencode.json"), JSON.stringify({
+      model: "deepseek/deepseek-chat"
+    }, null, 2))
+
+    assert.equal(readConfig(projectDir), "google/gemini-3.5-flash")
+  } finally {
+    process.env.HOME = prevHome
+    if (prevDesktopHome === undefined) delete process.env.VIBEOS_OPENCODE_DESKTOP_HOME
+    else process.env.VIBEOS_OPENCODE_DESKTOP_HOME = prevDesktopHome
+    rmSync(sb, { recursive: true, force: true })
+  }
+})
+
+test("autoconfig: probeModel follows provider config for Gemini and generic provider blocks", async () => {
+  const providers = {
+    google: {
+      options: {
+        apiKey: "sk-google",
+        baseURL: "https://generativelanguage.googleapis.com/v1beta",
+      },
+      models: {
+        "gemini-2.5-flash": {},
+      },
+    },
+    "oc-zen": {
+      options: {
+        apiKey: "sk-zen",
+        baseURL: "https://zen.example/v1",
+      },
+      models: {
+        "zen-1": {},
+      },
+    },
+  }
+
+  const prevFetch = globalThis.fetch
+  const calls = []
+  globalThis.fetch = async (url, init = {}) => {
+    calls.push({
+      url: String(url),
+      headers: init.headers || {},
+      body: init.body ? JSON.parse(init.body) : null,
+    })
+    return {
+      ok: true,
+      text: async () => "",
+      json: async () => ({}),
+    }
+  }
+
+  try {
+    assert.equal(await probeModel("google/gemini-2.5-flash", {}, providers), true)
+    assert.match(calls[0].url, /generativelanguage\.googleapis\.com/)
+    assert.equal(calls[0].headers["x-goog-api-key"], "sk-google")
+    assert.equal(calls[0].body.contents[0].parts[0].text, "ok")
+
+    assert.equal(await probeModel("oc-zen/zen-1", {}, providers), true)
+    assert.equal(calls[1].url, "https://zen.example/v1/chat/completions")
+    assert.equal(calls[1].headers.Authorization, "Bearer sk-zen")
+    assert.equal(calls[1].body.model, "zen-1")
+  } finally {
+    globalThis.fetch = prevFetch
+  }
+})
+
+test("footer: run label keeps provider prefix instead of flattening to bare model", async () => {
+  const sb = freshSandbox()
+  const prevHome = process.env.HOME
+  const prevClient = globalThis.client
+  process.env.HOME = sb
+  writeFileSync(join(sb, ".config/opencode/opencode.json"), JSON.stringify({
+    provider: {
+      google: {
+        options: { apiKey: "sk-google", baseURL: "https://generativelanguage.googleapis.com/v1beta" },
+        models: { "gemini-2.5-flash": {} },
+      },
+    },
+  }, null, 2))
+  writeFileSync(join(sb, ".claude/model-tiers.json"), JSON.stringify({
+    selection: { active_slot: "brain", enabled: true, delegation_enforce: true, flow_enabled: false, flow_enforce: false, tdd_enforce: false, tdd_strict: false },
+    trinity: {
+      brain: { oc: "google/gemini-2.5-flash" },
+      medium: { oc: "google/gemini-2.5-flash" },
+      cheap: { oc: "google/gemini-2.5-flash" },
+    },
+  }, null, 2))
+  writeFileSync(join(sb, ".claude/delegation-state.json"), JSON.stringify({
+    lifetime: { total_savings_usd: 1.89, cache_savings_usd: 0, warn_count: 0 },
+    sessions: { "m1": { total_savings_usd: 1.89, cache_savings_usd: 0, warns: [] } },
+  }, null, 2))
+  globalThis.client = { config: { get: async () => "gemini-2.5-flash" } }
+  try {
+    const output = { text: "hello" }
+    await _appendFooter({ messageID: "m1" }, output, join(sb, "project"))
+    assert.match(output.text, /run: google\/gemini-2\.5-flash/, output.text)
+  } finally {
+    globalThis.client = prevClient
     process.env.HOME = prevHome
     rmSync(sb, { recursive: true, force: true })
   }

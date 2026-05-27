@@ -1,18 +1,18 @@
 # vibeOS for OpenCode
 
-> **Alpha Release** — This is the first alpha milestone of vibeOS. See [CHANGELOG.md](CHANGELOG.md) for release notes.
-vibeOS is the cost-aware routing layer for OpenCode Desktop. It keeps high-tier models focused on orchestration, pushes implementation work to cheaper tiers, and makes the savings visible in real time through the live footer and dashboard.
+> **Alpha Omega Launch** - This release is the first major public launch of vibeOS. See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
+vibeOS is the cost-aware control plane for OpenCode Desktop. It helps individuals and teams keep expensive models focused on strategy, move implementation work to cheaper tiers, and make the resulting savings visible in real time through the live footer and dashboard.
 
-It also adds guardrails: delegation enforcement, flow and TDD controls, pattern learning, stress-aware routing, blackbox decision tracking, reporting, and remote API protection for the core algorithms.
+For teams, vibeOS adds practical guardrails: delegation enforcement, flow and TDD controls, pattern learning, stress-aware routing, blackbox decision tracking, reporting, and remote API protection for the core algorithms.
 
-## Why Teams Use It
+## What We Offer
 
-- Routes work to the right model tier without manual babysitting
-- Tracks delegation savings and cache savings separately
-- Shows live status in chat, the footer, and the web dashboard
-- Adds runtime controls for flow, TDD, model locking, and blackbox mode
-- Falls back to local algorithms if the remote API is unavailable
+- Model routing that matches the job to the right provider and tier
+- Live savings visibility in chat, the footer, and the web dashboard
+- Separate tracking for delegation savings and cache savings
+- Runtime controls for flow, TDD, model locking, and blackbox mode
+- A local fallback path if the remote API is unavailable
 
 ## Install
 
@@ -99,7 +99,7 @@ Additional reporting commands:
 
 The footer shows:
 
-- the active model split
+- the active provider/model in use for the current run
 - cumulative delegation savings
 - cache savings
 - stress level

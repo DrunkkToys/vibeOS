@@ -2,7 +2,7 @@
 import { writeFileSync, appendFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join, dirname, basename } from 'node:path';
 import { currentTier, currentModel, setCurrentModel, setCurrentTier, _OC_SID, _modelLocked, loadSelection, readLifetimeSavings, recordCacheSaving, recordMissedContext7, getScratchpadHit, recordScratchpadObservation, recordPrivacyTelemetry, updateState, SAVINGS_LEDGER_FILE, CONTEXT7_INSTALL_FLAG, SOFT_QUOTA_LIMIT, upsertTodo, ML_ENABLED, _mlGraph, _cacheDb, _mlSavePending, ML_CONFIDENCE_THRESHOLD, setMlSavePending, saveMLState, SCRATCHPAD_TOOLS, applyDecadence, } from '../state.js';
-import { classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget, shortModelName, formatUsd, _refreshModel, readConfig, TRINITY_CHEAP, TRINITY_MEDIUM, trendDisplay, modelToSlotLabel, } from '../pricing.js';
+import { classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget, shortModelName, formatUsd, _refreshModel, readConfig, resolveDisplayModelId, TRINITY_CHEAP, TRINITY_MEDIUM, trendDisplay, modelToSlotLabel, } from '../pricing.js';
 import { latestUserIntent } from './chat-transform.js';
 import { scoreStress, extractFirstWordFromArgs, shouldLogWarn, isUserAskingForTests, resolveEnforcementMode, getLearnedExploratoryWords, noteTaskRoutingLearning, } from '../turn-classify.js';
 import { saveReport } from '../reporting.js';
@@ -614,9 +614,9 @@ export const onToolExecuteAfter = async (input, output) => {
         if (!liveModel) {
             liveModel = readConfig(projectDirectory) || readConfig(join(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || "";
         }
-        const displayModel = liveModel || currentModel;
+        const displayModel = resolveDisplayModelId(liveModel || currentModel || "", projectDirectory) || liveModel || currentModel;
         if (ltTotal > 0) {
-            _footerText = `— ${flashIcon ? `${flashIcon} ` : ""}run: ${shortModelName(displayModel)} | $${formatUsd(ltTotal)} saved | VIBE${flashIcon ? " ⚡" : ""} —\n\n`;
+            _footerText = `— ${flashIcon ? `${flashIcon} ` : ""}run: ${displayModel} | $${formatUsd(ltTotal)} saved | VIBE${flashIcon ? " ⚡" : ""} —\n\n`;
         }
         else {
             _footerText = `${statusLine}${stressTag}\n\n`;
