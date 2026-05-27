@@ -9,7 +9,9 @@ import { saveReport } from "../reporting.js";
 import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, _modelLocked, _blackboxEnabled, _latestBlackboxState, reconcileStateFromLedger, safeJsonParse, loadBlackboxState } from "../state.js";
 import { loadSessionSlot } from "../selection-manager.js";
 import { remoteCall, VIBEOS_API_ENABLED } from "../api-client.js";
-const FOOTER_DEBUG_STDERR = process.env.VIBEOS_DEBUG_FOOTER === "1";
+const IS_CLI_RUNTIME = Boolean(process.stdout?.isTTY || process.stderr?.isTTY || process.stdin?.isTTY);
+const IS_TEST_RUNTIME = process.env.VIBEOS_MCP_PORT === "0" || process.env.NODE_ENV === "test" || process.env.CI === "true";
+const FOOTER_DEBUG_STDERR = process.env.VIBEOS_DEBUG_FOOTER === "1" || (!IS_CLI_RUNTIME && !IS_TEST_RUNTIME);
 function footerDebug(...args) {
     if (FOOTER_DEBUG_STDERR)
         console.error(...args);
