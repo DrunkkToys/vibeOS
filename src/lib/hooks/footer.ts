@@ -246,7 +246,7 @@ async function _appendFooter(input, output, directory) {
 
     const optMode = (resolvedMode || "budget").toLowerCase()
     const modeLabel = optMode === "quality" ? "quality" : optMode === "speed" ? "speed" : optMode === "longrun" ? "longrun" : ""
-    let vibeLine = `— ${flashIcon ? `${flashIcon} ` : ""}Quality: ${execution.quality_label} | Provider: ${execution.provider_label} | Model: ${execution.model_label}`
+    let vibeLine = `— ${flashIcon ? `${flashIcon} ` : ""}Quality: ${execution.quality_label} | Provider: ${execution.provider_label} | Model: ${execution.model}`
     if (ltTotal > 0) {
       vibeLine += ` | $${formatUsd(ltTotal)} saved`
     }
