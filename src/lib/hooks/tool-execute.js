@@ -18,6 +18,7 @@ import { SAVE_EST, WARN_ON_DIRECT, SOFT_QUOTA, FREE, MONITOR } from "../constant
 const BYTES_PER_TOKEN = 4;
 const CACHE_SAVED_PER_1M_INPUT_TOKENS = 0.10;
 const DEBUG_INTERNALS = process.env.VIBEOS_DEBUG_INTERNALS === "1";
+const IS_CLI_RUNTIME = Boolean(process.stdout?.isTTY || process.stderr?.isTTY || process.stdin?.isTTY);
 function getVibeOSHome() {
     return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude");
 }
@@ -451,8 +452,9 @@ export const onToolExecuteBefore = async (input, output) => {
         const total = recordSaving(t, "credit<40% high-tier", _estOpus, { firstWord: _firstWord });
         const trend = trendDisplay(readLifetimeSavings().sesTrend);
         const msg = `⚠ [vibeOS] Credit: ${_credit}% — switching to medium saves ~$${_estOpus.toFixed(3)}/turn. Run \`trinity medium\`.`;
-        if (shouldLogWarn(`${t}|credit|${_tierWord}`))
+        if (shouldLogWarn(`${t}|credit|${_tierWord}`) && (!IS_CLI_RUNTIME || process.env.VIBEOS_DEBUG_DELEGATION === "1")) {
             console.error(`[vibeOS] [delegation] ${msg}`);
+        }
         pendingUiNote = msg;
         return;
     }
@@ -485,8 +487,9 @@ export const onToolExecuteBefore = async (input, output) => {
         const total = recordSaving(t, "direct edit", _estEdit, { firstWord: _firstWord });
         if (!compatibilityMode) {
             const msg = `[vibeOS] ${_tierWord} tier direct ${t} — save ~$${_estEdit.toFixed(3)} by delegating to Task. Run \`trinity medium\`.`;
-            if (shouldLogWarn(`${t}|direct|${_tierWord}`))
+            if (shouldLogWarn(`${t}|direct|${_tierWord}`) && (!IS_CLI_RUNTIME || process.env.VIBEOS_DEBUG_DELEGATION === "1")) {
                 console.error(`[vibeOS] [delegation] ${msg}`);
+            }
             pendingUiNote = msg;
             return;
         }
