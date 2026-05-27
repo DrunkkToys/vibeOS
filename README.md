@@ -4,15 +4,41 @@
 
 vibeOS is the cost-aware control plane for OpenCode Desktop. It helps individuals and teams keep expensive models focused on strategy, move implementation work to cheaper tiers, and make the resulting savings visible in real time through the live footer and dashboard.
 
-For teams, vibeOS adds practical guardrails: delegation enforcement, flow and TDD controls, pattern learning, stress-aware routing, blackbox decision tracking, reporting, and remote API protection for the core algorithms.
+For teams, vibeOS adds practical guardrails: delegation enforcement, flow and TDD controls, pattern learning, stress-aware routing, VibeBoX decision tracking, reporting, and remote API protection for the core algorithms.
 
 ## What We Offer
 
 - Model routing that matches the job to the right provider and tier
 - Live savings visibility in chat, the footer, and the web dashboard
 - Separate tracking for delegation savings and cache savings
-- Runtime controls for flow, TDD, model locking, and blackbox mode
+- Runtime controls for flow, TDD, model locking, and VibeBoX mode
 - A local fallback path if the remote API is unavailable
+
+## Local Fallback Mode
+
+Without a token, vibeOS keeps running in local-only mode with bundled algorithms. Here's what works locally versus what requires the remote API.
+
+### Fully Functional Locally
+
+- Model tier classification (brain / medium / cheap)
+- Static pricing for ~20 common models
+- Stress scoring, context budget estimation, and turn classification
+- TDD skeleton generation, text compression, and flow enforcement
+- Savings ledger, session metrics, reports, and footer/dashboard rendering
+- Session-scoped smart cache for duplicate tool output detection
+
+### Requires Remote API
+
+- Bootstrap token exchange (required for initial API setup)
+- Advanced VibeBoX decision engine with full session history tracking
+- Dynamic per-prompt delegation decisions (local fallback uses a safe "block all writes on high tier" default)
+- Learned subagent routing patterns across projects (local fallback uses a static exploratory keyword list)
+- Optimization mode selection via advanced VibeBoX (local fallback uses rule-based selection)
+- Aggregated cross-session calibration and model retraining
+- Live pricing fetch for models beyond the hardcoded map
+
+When the remote API is unreachable, the plugin degrades gracefully to rule-based local algorithms. Core enforcement features continue working — the plugin stays functional and safe, just less adaptive in its routing and mode decisions.
+
 
 ## Install
 
@@ -83,7 +109,7 @@ The most common controls are:
 - `trinity patterns` / `trinity patterns clear` - inspect or reset learned patterns
 - `trinity diagnose` - run a health check
 - `trinity repair-state preview|apply` - fix state fingerprint collisions
-- `trinity blackbox on|off|status|reset` - control the decision engine
+- `trinity VibeBoX on|off|status|reset` - control the decision engine
 - `trinity guard` - refresh AGENTS.md and README.md checks
 - `trinity api-token <token>` - update the remote API token
 - `trinity api-bootstrap-token <token>` - store an alpha bootstrap token and exchange it for a normal API token on alpha builds
