@@ -1700,6 +1700,19 @@ test("classifyAndRankModels: mid+tier ranked correctly (no high)", async () => {
   assert.equal(result.cheap.id, "deepseek/deepseek-chat", "cheap = chat (cheapest)")
 })
 
+test("classifyAndRankModels: equal-cost deepseek-flash beats deepseek-chat", async () => {
+  const { classifyAndRankModels } = await import("../src/index.js?t=" + Date.now())
+  const models = [
+    { id: "deepseek/deepseek-chat", provider: "deepseek", cost: 0.000182, tier: "budget" },
+    { id: "deepseek/deepseek-v4-flash", provider: "deepseek", cost: 0.000182, tier: "mid" },
+  ]
+  const result = classifyAndRankModels(models)
+  assert.ok(result, "result not null")
+  assert.equal(result.brain.id, "deepseek/deepseek-v4-flash", "brain = v4-flash")
+  assert.equal(result.medium.id, "deepseek/deepseek-chat", "medium = chat")
+  assert.equal(result.cheap.id, "deepseek/deepseek-v4-flash", "cheap prefers v4-flash over chat at equal cost")
+})
+
 test("classifyAndRankModels: dedup by id", async () => {
   const { classifyAndRankModels } = await import("../src/index.js?t=" + Date.now())
   const models = [

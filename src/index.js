@@ -6207,6 +6207,29 @@ function loadCredit() {
   }
   return 50;
 }
+function estimateTurnsRemaining(balanceUsd, modelId) {
+  const balance = Number(balanceUsd || 0);
+  const normalized = String(modelId || "").trim();
+  if (!normalized || normalized === "(unset)" || normalized === "unknown") {
+    return { balanceUsd: balance > 0 ? balance : 0, costPerTurn: null, turnsRemaining: null, unlimited: false };
+  }
+  const costPerTurn = modelCostPerTurn(modelId);
+  if (!Number.isFinite(balance) || balance <= 0) {
+    return { balanceUsd: 0, costPerTurn, turnsRemaining: 0, unlimited: costPerTurn === 0 };
+  }
+  if (costPerTurn === 0) {
+    return { balanceUsd: balance, costPerTurn: 0, turnsRemaining: Number.POSITIVE_INFINITY, unlimited: true };
+  }
+  if (costPerTurn == null || !Number.isFinite(costPerTurn) || costPerTurn <= 0) {
+    return { balanceUsd: balance, costPerTurn: null, turnsRemaining: null, unlimited: false };
+  }
+  return {
+    balanceUsd: balance,
+    costPerTurn,
+    turnsRemaining: Math.floor(balance / costPerTurn),
+    unlimited: false
+  };
+}
 function thinkingLevel(credit) {
   if (credit >= 70)
     return "full";
@@ -7041,11 +7064,13 @@ ${L.repeat(40)}`);
         } else {
           results.push({ ok: false, okLabel: "\u274C", label: "model probe", detail: "no current model detected" });
         }
+        let cheapModel = "(unset)";
         const credit = deps.loadCredit();
         let budget = 50;
         let totalBal = 0;
         try {
           const j = deps.safeJsonParse(deps.readFileSync(deps.TIERS_FILE, "utf-8"));
+          cheapModel = j?.trinity?.cheap?.oc || cheapModel;
           if (j?.selection?.monthly_budget_usd)
             budget = j.selection.monthly_budget_usd;
         } catch {
@@ -7056,7 +7081,8 @@ ${L.repeat(40)}`);
             totalBal = cache.total;
         } catch {
         }
-        const remaining = budget > 0 ? (Math.min(credit, 150) / 100 * budget).toFixed(2) : "?";
+        const runway = typeof deps.estimateTurnsRemaining === "function" ? deps.estimateTurnsRemaining(totalBal, cheapModel) : { balanceUsd: totalBal, costPerTurn: deps.modelCostPerTurn?.(cheapModel) ?? null, turnsRemaining: null, unlimited: false };
+        const runwayText = runway.costPerTurn === 0 ? `unlimited on ${cheapModel}` : runway.turnsRemaining != null && runway.costPerTurn != null ? `${Number(runway.turnsRemaining).toLocaleString()} turns on ${cheapModel} @ $${deps.formatUsd(runway.costPerTurn)}/turn` : "n/a";
         const creditOk = credit >= 40;
         results.push({
           ok: creditOk,
@@ -7064,6 +7090,13 @@ ${L.repeat(40)}`);
           label: "credits",
           detail: `${credit}%${totalBal > 0 ? ` ($${totalBal.toFixed(2)} of $${budget})` : ` (of $${budget})`}`,
           fix: creditOk ? null : "run `trinity medium` to reduce spend"
+        });
+        results.push({
+          ok: runway.turnsRemaining != null || runway.costPerTurn === 0,
+          okLabel: runway.turnsRemaining != null || runway.costPerTurn === 0 ? "\u2705" : "\u274C",
+          label: "runway",
+          detail: totalBal > 0 ? `$${totalBal.toFixed(2)} left -> ${runwayText}` : "no cached balance yet",
+          fix: runway.turnsRemaining == null && runway.costPerTurn !== 0 ? "wait for a balance snapshot or configure a known cheap slot" : null
         });
         try {
           const state = deps.safeJsonParse(deps.readFileSync(deps.STATE_FILE, "utf-8"));
@@ -7543,13 +7576,27 @@ function classifyAndRankModels(models) {
   }
   if (unique.length === 0)
     return null;
+  const modelPreference = (id) => {
+    const raw = String(id || "").toLowerCase().replace(/\./g, "-").replace(/^(openrouter|opencode|deepseek|anthropic|google)\//, "");
+    if (raw.includes("deepseek-v4-flash"))
+      return 2;
+    if (raw.includes("deepseek-chat"))
+      return 1;
+    return 0;
+  };
   unique.sort((a, b) => {
     const ra = MODEL_RANK[a.tier] || 0;
     const rb = MODEL_RANK[b.tier] || 0;
-    return rb !== ra ? rb - ra : b.cost - a.cost;
+    if (rb !== ra)
+      return rb - ra;
+    const pref = modelPreference(b.id) - modelPreference(a.id);
+    return pref !== 0 ? pref : b.cost - a.cost;
   });
   const cheapest = [...unique].sort((a, b) => {
-    return a.cost !== b.cost ? a.cost - b.cost : (MODEL_RANK[b.tier] || 0) - (MODEL_RANK[a.tier] || 0);
+    if (a.cost !== b.cost)
+      return a.cost - b.cost;
+    const pref = modelPreference(b.id) - modelPreference(a.id);
+    return pref !== 0 ? pref : (MODEL_RANK[b.tier] || 0) - (MODEL_RANK[a.tier] || 0);
   });
   return {
     brain: unique[0],
@@ -11698,6 +11745,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     loadSelection,
     writeSelection,
     loadCredit,
+    estimateTurnsRemaining,
     thinkingLevel,
     readLifetimeSavings,
     readFullState,

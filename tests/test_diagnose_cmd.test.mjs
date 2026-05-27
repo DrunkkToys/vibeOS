@@ -98,6 +98,7 @@ test("diagnose: all checks pass with full config", async () => {
   assert.ok(output.includes("probe") || output.includes("model"), "model probe present")
   assert.ok(output.includes("credits") || output.includes("Credits"), "credits check present: " + output)
   assert.ok(output.includes("88%"), "credits shows 88%: " + output)
+  assert.ok(output.includes("runway") || output.includes("turns"), "runway estimate shown: " + output)
   assert.ok(output.includes("warn") || output.includes("delegate") || output.includes("rate") || output.includes("slot"), "diagnosis shows stats: " + output.slice(-100))
   assert.ok(output.includes("delegate") || output.includes("delegat") || output.includes("warn"), "delegation count shown")
   assert.ok(output.includes("TDD") || output.includes("passed") || output.includes("OK") || output.includes("/"), "TDD count or pass stats shown: " + output.slice(-120))

@@ -37,6 +37,7 @@ export function createTrinityTool(deps) {
         const sel = deps.loadSelection()
         let tiers = {}
         try { tiers = deps.safeJsonParse(deps.readFileSync(deps.TIERS_FILE, "utf-8")).trinity || {} } catch {}
+        let cheapModel = "(unset)"
         const credit = deps.loadCredit()
         const effectiveLevel = sel.thinking_level || deps.thinkingLevel(credit)
 
@@ -53,7 +54,7 @@ export function createTrinityTool(deps) {
 
         const brainModel = tiers?.brain?.oc || "(unset)"
         const mediumModel = tiers?.medium?.oc || "(unset)"
-        const cheapModel = tiers?.cheap?.oc || "(unset)"
+        cheapModel = tiers?.cheap?.oc || cheapModel
         const activeSlot = sel.active_slot || "brain"
         const lockedSlot = deps._lockedSlot || null
         const lockedModel = deps._lockedModel || null
@@ -797,19 +798,34 @@ export function createTrinityTool(deps) {
         let totalBal = 0
         try {
           const j = deps.safeJsonParse(deps.readFileSync(deps.TIERS_FILE, "utf-8"))
+          cheapModel = j?.trinity?.cheap?.oc || cheapModel
           if (j?.selection?.monthly_budget_usd) budget = j.selection.monthly_budget_usd
         } catch {}
         try {
           const cache = deps.safeJsonParse(deps.readFileSync(deps.CREDIT_CACHE_F, "utf-8"))
           if (cache?.total != null) totalBal = cache.total
         } catch {}
-        const remaining = budget > 0 ? ((Math.min(credit, 150) / 100) * budget).toFixed(2) : "?"
+        const runway = typeof deps.estimateTurnsRemaining === "function"
+          ? deps.estimateTurnsRemaining(totalBal, cheapModel)
+          : { balanceUsd: totalBal, costPerTurn: deps.modelCostPerTurn?.(cheapModel) ?? null, turnsRemaining: null, unlimited: false }
+        const runwayText = runway.costPerTurn === 0
+          ? `unlimited on ${cheapModel}`
+          : runway.turnsRemaining != null && runway.costPerTurn != null
+            ? `${Number(runway.turnsRemaining).toLocaleString()} turns on ${cheapModel} @ $${deps.formatUsd(runway.costPerTurn)}/turn`
+            : "n/a"
         const creditOk = credit >= 40
         results.push({
           ok: creditOk, okLabel: creditOk ? "\u2705" : "\u274c",
           label: "credits",
           detail: `${credit}%${totalBal > 0 ? ` ($${totalBal.toFixed(2)} of $${budget})` : ` (of $${budget})`}`,
           fix: creditOk ? null : "run \`trinity medium\` to reduce spend",
+        })
+        results.push({
+          ok: runway.turnsRemaining != null || runway.costPerTurn === 0,
+          okLabel: runway.turnsRemaining != null || runway.costPerTurn === 0 ? "\u2705" : "\u274c",
+          label: "runway",
+          detail: totalBal > 0 ? `$${totalBal.toFixed(2)} left -> ${runwayText}` : "no cached balance yet",
+          fix: runway.turnsRemaining == null && runway.costPerTurn !== 0 ? "wait for a balance snapshot or configure a known cheap slot" : null,
         })
 
         try {

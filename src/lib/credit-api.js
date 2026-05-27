@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { modelCostPerTurn } from "./pricing.js";
 import { AUTH_F, CREDIT_CACHE_F } from "./state.js";
 function getVibeOSHome() {
     return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude");
@@ -138,6 +139,29 @@ export function loadCredit() {
     }
     catch { }
     return 50;
+}
+export function estimateTurnsRemaining(balanceUsd, modelId) {
+    const balance = Number(balanceUsd || 0);
+    const normalized = String(modelId || "").trim();
+    if (!normalized || normalized === "(unset)" || normalized === "unknown") {
+        return { balanceUsd: balance > 0 ? balance : 0, costPerTurn: null, turnsRemaining: null, unlimited: false };
+    }
+    const costPerTurn = modelCostPerTurn(modelId);
+    if (!Number.isFinite(balance) || balance <= 0) {
+        return { balanceUsd: 0, costPerTurn, turnsRemaining: 0, unlimited: costPerTurn === 0 };
+    }
+    if (costPerTurn === 0) {
+        return { balanceUsd: balance, costPerTurn: 0, turnsRemaining: Number.POSITIVE_INFINITY, unlimited: true };
+    }
+    if (costPerTurn == null || !Number.isFinite(costPerTurn) || costPerTurn <= 0) {
+        return { balanceUsd: balance, costPerTurn: null, turnsRemaining: null, unlimited: false };
+    }
+    return {
+        balanceUsd: balance,
+        costPerTurn,
+        turnsRemaining: Math.floor(balance / costPerTurn),
+        unlimited: false,
+    };
 }
 export function thinkingLevel(credit) {
     if (credit >= 70)

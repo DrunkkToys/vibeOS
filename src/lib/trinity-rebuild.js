@@ -319,13 +319,29 @@ export function classifyAndRankModels(models) {
     }
     if (unique.length === 0)
         return null;
+    const modelPreference = (id) => {
+        const raw = String(id || "").toLowerCase()
+            .replace(/\./g, "-")
+            .replace(/^(openrouter|opencode|deepseek|anthropic|google)\//, "");
+        if (raw.includes("deepseek-v4-flash"))
+            return 2;
+        if (raw.includes("deepseek-chat"))
+            return 1;
+        return 0;
+    };
     unique.sort((a, b) => {
         const ra = MODEL_RANK[a.tier] || 0;
         const rb = MODEL_RANK[b.tier] || 0;
-        return rb !== ra ? rb - ra : b.cost - a.cost;
+        if (rb !== ra)
+            return rb - ra;
+        const pref = modelPreference(b.id) - modelPreference(a.id);
+        return pref !== 0 ? pref : b.cost - a.cost;
     });
     const cheapest = [...unique].sort((a, b) => {
-        return a.cost !== b.cost ? a.cost - b.cost : (MODEL_RANK[b.tier] || 0) - (MODEL_RANK[a.tier] || 0);
+        if (a.cost !== b.cost)
+            return a.cost - b.cost;
+        const pref = modelPreference(b.id) - modelPreference(a.id);
+        return pref !== 0 ? pref : (MODEL_RANK[b.tier] || 0) - (MODEL_RANK[a.tier] || 0);
     });
     return {
         brain: unique[0],
