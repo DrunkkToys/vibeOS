@@ -1,3 +1,8 @@
+## 0.20.2
+- fix: restore embedded api token fallback
+Merge pull request #68 from DrunkkToys/codex/embed-api-token
+
+
 ## 0.20.1
 - docs: rename blackbox to VibeBoX and document local fallback features
 
