@@ -1,3 +1,12 @@
+## 0.20.6
+- fix: quiet delegation warnings in CLI stderr
+- fix: keep delegation note in the chat transcript only
+
+## 0.20.5
+- fix: validate embedded alpha token on install
+- fix: keep alpha token embedded for seamless onboarding
+- fix: only show footer flash after live backend success
+
 ## 0.20.4
 - fix: add alpha token invalidate switch
 - fix: prefer valid api tokens over placeholder env
