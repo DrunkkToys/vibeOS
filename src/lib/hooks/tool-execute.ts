@@ -618,10 +618,12 @@ export const onToolExecuteAfter = async (input, output) => {
       liveModel = readConfig(projectDirectory) || readConfig(join(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || ""
     }
     const displayModel = resolveDisplayModelId(liveModel || currentModel || "", projectDirectory) || liveModel || currentModel
+    const execution = resolveExecutionIdentity(input?.args?.model || liveModel || currentModel || displayModel || "", projectDirectory)
+    _footerText = `— ${flashIcon ? `${flashIcon} ` : ""}Quality: ${formatQualityName(execution.quality)} | Provider: ${formatProviderName(execution.provider)} | Model: ${execution.model}`
     if (ltTotal > 0) {
-      const execution = resolveExecutionIdentity(input?.args?.model || liveModel || currentModel || displayModel || "", projectDirectory)
-      _footerText = `— ${flashIcon ? `${flashIcon} ` : ""}Quality: ${formatQualityName(execution.quality)} | Provider: ${formatProviderName(execution.provider)} | Model: ${execution.model} | $${formatUsd(ltTotal)} saved | VIBE${flashIcon ? " ⚡" : ""} —\n\n`
+      _footerText += ` | $${formatUsd(ltTotal)} saved`
     }
+    _footerText += ` | VIBE${flashIcon ? " ⚡" : ""} —\n\n`
     output.title = _footerText.trim()
     if (typeof output?.output === "string") output.output = _footerText + output.output
     else if (typeof output?.result === "string") output.result = _footerText + output.result
