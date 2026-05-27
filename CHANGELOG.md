@@ -1,3 +1,9 @@
+## 0.20.0
+- fix: resolve live OpenCode model and refresh README launch copy
+Merge pull request #61 from DrunkkToys/codex/release-candidate-blackbox-footer
+Merge pull request #59 from DrunkkToys/codex/fix-thinking-directive-precedence
+
+
 ## 0.19.9
 - fix: show live run model in footer
 
