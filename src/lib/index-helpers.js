@@ -1,10 +1,10 @@
 // @ts-nocheck
-import { join } from 'node:path';
-import { writeFileSync } from 'node:fs';
-import { _patternFiredKeys, recentToolEvents, lastMutationEvent, setLastMutationEvent, frictionSessionKeys, routineSessionKeys, getSessionScratchpadDir, saveActiveJobForProject, currentProjectFingerprint, currentProjectName, _OC_SID, loadProjectState, saveProjectState, ensureProjectBucket, updateGlobalLearning, updateState, roundUsd, getCurrentSessionId, WARN_DEDUPE_WINDOW_MS, _ledgerBuffer, _flushLedgerBuffer, LEDGER_BUFFER_MAX, _ledgerBufferTimer, setLedgerBufferTimer, LEDGER_BUFFER_FLUSH_MS, saveSessionCheckpoint, } from './state.js';
-import { normalizeObservedPath, commandFamily, commandFailed, _pruneOldSessions, } from './pattern-helpers.js';
-import { TRINITY_CHEAP, TRINITY_MEDIUM } from './pricing.js';
-import { topKeywords, extractFirstWordFromArgs, noteTaskRoutingLearning, } from './turn-classify.js';
+import { join } from "node:path";
+import { writeFileSync } from "node:fs";
+import { _patternFiredKeys, recentToolEvents, lastMutationEvent, setLastMutationEvent, frictionSessionKeys, routineSessionKeys, getSessionScratchpadDir, saveActiveJobForProject, currentProjectFingerprint, currentProjectName, _OC_SID, loadProjectState, saveProjectState, ensureProjectBucket, updateGlobalLearning, updateState, roundUsd, getCurrentSessionId, WARN_DEDUPE_WINDOW_MS, _ledgerBuffer, _flushLedgerBuffer, LEDGER_BUFFER_MAX, _ledgerBufferTimer, setLedgerBufferTimer, LEDGER_BUFFER_FLUSH_MS, saveSessionCheckpoint, } from "./state.js";
+import { normalizeObservedPath, commandFamily, commandFailed, _pruneOldSessions, } from "./pattern-helpers.js";
+import { TRINITY_CHEAP, TRINITY_MEDIUM } from "./pricing.js";
+import { topKeywords, extractFirstWordFromArgs, noteTaskRoutingLearning, } from "./turn-classify.js";
 let activeJob = null;
 import { VERBOSE_LINE_RE, BULLET_PATTERNS, COMPRESS_RATIO, COMPRESS_THRESHOLD, MIN_KEPT_LINES_RATIO, extractBulletLines, compressText } from "./text-compress.js";
 export { VERBOSE_LINE_RE, BULLET_PATTERNS, COMPRESS_RATIO, COMPRESS_THRESHOLD, MIN_KEPT_LINES_RATIO, extractBulletLines, compressText };
@@ -192,9 +192,9 @@ export function observeToolPattern(toolName, input, output, directory) {
         }
         // Track project-type tool patterns
         if (currentProjectName) {
-            const ext = currentProjectName.endsWith('.tsx') || currentProjectName.endsWith('.jsx') ? 'frontend' :
-                currentProjectName.endsWith('.go') || currentProjectName.endsWith('.rs') ? 'backend' :
-                    currentProjectName.endsWith('.py') ? 'data' : 'unknown';
+            const ext = currentProjectName.endsWith(".tsx") || currentProjectName.endsWith(".jsx") ? "frontend" :
+                currentProjectName.endsWith(".go") || currentProjectName.endsWith(".rs") ? "backend" :
+                    currentProjectName.endsWith(".py") ? "data" : "unknown";
             updateGlobalLearning((gl) => {
                 gl.projectTypeToolCount ??= {};
                 const ptc = gl.projectTypeToolCount;

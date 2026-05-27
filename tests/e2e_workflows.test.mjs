@@ -16,7 +16,7 @@ function makeSandbox(name) {
 
   writeFileSync(join(home, '.config/opencode/opencode.json'), JSON.stringify({
     model: 'deepseek/deepseek-v4-flash',
-    provider: { deepseek: { models: { 'deepseek-v4-flash': {}, 'deepseek-v4-pro': {}, 'deepseek-chat': {} } } }
+    provider: { deepseek: { models: { 'deepseek-v4-flash': {}, 'deepseek-v4-pro': {} } } }
   }, null, 2) + '\n')
 
   writeFileSync(join(home, '.claude/model-tiers.json'), JSON.stringify({
@@ -33,7 +33,7 @@ function makeSandbox(name) {
     trinity: {
       brain: { oc: 'deepseek/deepseek-v4-pro', cc: 'haiku' },
       medium: { oc: 'deepseek/deepseek-v4-flash', cc: 'haiku' },
-      cheap: { oc: 'deepseek/deepseek-chat', cc: 'haiku' }
+      cheap: { oc: 'deepseek/deepseek-v4-flash', cc: 'haiku' }
     }
   }, null, 2) + '\n')
 

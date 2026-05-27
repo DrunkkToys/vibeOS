@@ -7,13 +7,13 @@ function getVibeOSHome() {
     return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude");
 }
 function safeJsonParse(raw) {
-    if (raw == null || raw === '')
+    if (raw == null || raw === "")
         return null;
     try {
         return JSON.parse(raw);
     }
     catch { }
-    let cleaned = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '').replace(/,\s*([}\]])/g, '$1');
+    let cleaned = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "").replace(/,\s*([}\]])/g, "$1");
     try {
         return JSON.parse(cleaned);
     }

@@ -1,8 +1,8 @@
 // @ts-nocheck
-import { currentTier, currentModel } from '../state.js';
-import { _refreshModel } from '../pricing.js';
-let directory = '';
-export const setShellDirectory = (dir) => { directory = dir || ''; };
+import { currentTier, currentModel } from "../state.js";
+import { _refreshModel } from "../pricing.js";
+let directory = "";
+export const setShellDirectory = (dir) => { directory = dir || ""; };
 export const onShellEnv = async (_input, output) => {
     try {
         _refreshModel(directory || process.cwd());

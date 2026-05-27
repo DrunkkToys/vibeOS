@@ -21,7 +21,7 @@ function baseDirs() {
 function writeOpenCodeConfig() {
   writeFileSync(join(HOME, ".config/opencode/opencode.json"), JSON.stringify({
     model: "deepseek/deepseek-v4-flash",
-    provider: { deepseek: { models: { "deepseek-v4-pro": {}, "deepseek-v4-flash": {}, "deepseek-chat": {} } } }
+    provider: { deepseek: { models: { "deepseek-v4-pro": {}, "deepseek-v4-flash": {} } } }
   }, null, 2) + "\n")
 }
 
@@ -31,7 +31,7 @@ function writeTiers(trinity, sel = {}) {
     trinity: {
       brain:  { oc: "deepseek/deepseek-v4-pro",  cc: "haiku" },
       medium: { oc: "deepseek/deepseek-v4-flash", cc: "haiku" },
-      cheap:  { oc: "deepseek/deepseek-chat",     cc: "haiku" },
+      cheap:  { oc: "deepseek/deepseek-v4-flash", cc: "haiku" },
       ...(trinity || {})
     }
   }, null, 2) + "\n")
@@ -94,7 +94,7 @@ test("diagnose: all checks pass with full config", async () => {
   assert.ok(output.includes("delegation-state.json") && output.includes("exists"), "delegation-state.json check")
   assert.ok(output.includes("brain") && output.includes("deepseek-v4-pro"), "brain slot populated: " + output)
   assert.ok(output.includes("medium") && output.includes("deepseek-v4-flash"), "medium slot populated: " + output)
-  assert.ok(output.includes("cheap") && output.includes("deepseek-chat"), "cheap slot populated: " + output)
+  assert.ok(output.includes("cheap") && output.includes("deepseek-v4-flash"), "cheap slot populated: " + output)
   assert.ok(output.includes("probe") || output.includes("model"), "model probe present")
   assert.ok(output.includes("credits") || output.includes("Credits"), "credits check present: " + output)
   assert.ok(output.includes("88%"), "credits shows 88%: " + output)

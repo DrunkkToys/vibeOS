@@ -56,7 +56,7 @@ export function sessionDuration(customPath) {
 }
 export function formatDuration(arg) {
     let hours, minutes, seconds;
-    if (typeof arg === 'number') {
+    if (typeof arg === "number") {
         const total = Math.floor(arg);
         hours = Math.floor(total / 3600);
         minutes = Math.floor((total % 3600) / 60);
