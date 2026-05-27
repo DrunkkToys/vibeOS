@@ -2,6 +2,7 @@
 
 import { join } from "node:path"
 import { LABEL_MODES, buildDeterministicTrinity, formatProviderName, formatQualityName, resolveExecutionIdentity } from "./pricing.js"
+import { invalidateApiToken } from "./api-client.js"
 
 export function createTrinityTool(deps) {
   return {
@@ -21,7 +22,7 @@ export function createTrinityTool(deps) {
       "Use action='setup' to create a compatibility profile for first-time users. " +
       "Use action='project' to show per-project analytics and optimization suggestions. " +
       "Use action='patterns' to inspect learned project patterns or slot='clear' to clear them. " +
-      "Use action='guard' to ensure AGENTS.md and README.md exist and stay current. Use action='api-token' with token='<new_token>' to update the API token and re-enable remote control-vector " +
+      "Use action='guard' to ensure AGENTS.md and README.md exist and stay current. Use action='api-token' with token='<new_token>' to update the API token and re-enable remote control-vector, or token='invalidate' to disable the embedded alpha token " +
       "Use action='api-bootstrap-token' with token='<new_token>' to store an alpha bootstrap token and exchange it for a normal API token on alpha builds. " +
       "Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', 'trinity status'.",
     args: {
@@ -684,7 +685,12 @@ export function createTrinityTool(deps) {
       }
 
       if (action === "api-token") {
-        if (!token) return "Usage: trinity api-token <token>\nProvide a valid VIBEOS_API_TOKEN to enable remote control-vector computation."
+        if (!token) return "Usage: trinity api-token <token|invalidate>\nProvide a valid VIBEOS_API_TOKEN to enable remote control-vector computation, or 'invalidate' to disable it for alpha."
+        const cleanToken = String(token).trim()
+        if (["invalidate", "disable", "clear", "revoke"].includes(cleanToken.toLowerCase())) {
+          invalidateApiToken()
+          return "[vibeOS] API token invalidated. Remote API disabled until a new token is set."
+        }
         deps.setApiToken(token)
         return "[vibeOS] API token updated. Remote API re-enabled."
       }
@@ -1043,8 +1049,8 @@ export function createTrinityTool(deps) {
           "  trinity tdd on/off        Toggle auto test skeleton creation",
           "  trinity setup             Create a compatibility profile for new users",
           "  trinity guard             Ensure AGENTS.md/README.md exist and are current",
-          "  trinity api-token        Update VIBEOS_API_TOKEN and re-enable remote API",
-          "  trinity api-token        Update VIBEOS_API_TOKEN and re-enable remote API",
+          "  trinity api-token <token|invalidate>  Update or invalidate VIBEOS_API_TOKEN",
+          "  trinity api-token <token|invalidate>  Update or invalidate VIBEOS_API_TOKEN",
           "  trinity flow              Show flow violations this session",
           "",
           "DIAGNOSTICS:",
