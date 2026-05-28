@@ -1,19 +1,10 @@
-// SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 vibeOS <https://github.com/DrunkkToys/vibeOS>
 // @ts-nocheck
-// VibeMaX — ML-powered budget optimization pipeline.
-// Duplicates the ML AUTO random forest then overrides mode→config mapping
-// to achieve ~97% quality at ~37% cost by replacing brain-tier predictions
-// with medium-tier+full-quality equivalents.
-
-import { extractRoutingFeatures, selectBlackboxMode } from "./blackbox-rf.js";
-import { scoreStress } from "./stress.js";
-import { MODE_DELTAS } from "./meta-controller.js";
+import { MODE_DELTAS, autoSelectMode } from "./meta-controller.js";
 import { PivotCache } from "./pivot-cache.js";
-
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MODEL_PATH = process.env.VIBEOS_VIBEMAX_MODEL_PATH || resolve(__dirname, "..", "..", "..", "data", "vibemax-model.json");
@@ -92,11 +83,11 @@ export function resetVibeMaXPipeline() {
 }
 
 export function vibemaxSelectMode(input = {}) {
-  const auto = selectBlackboxMode(input);
-  const pm = auto.mode || auto.class || fallback(input.sub_regime, input.user_text || input.prompt || "");
+  const stress = Number(input.stress_multiplier || input.stress || 0);
+  const pm = autoSelectMode(input.sub_regime, stress) || fallback(input.sub_regime, input.user_text || input.prompt || "");
   const vm = VIBEMAX_MAP[pm] || "optimized";
   if (vm === "budget") {
-    return { mode: "budget", source: "vibemax", source_prediction: pm, confidence: auto.confidence || 0, auto_result: auto, ...BUDGET_CFG, cost: 0.1 };
+    return { mode: "budget", source: "vibemax", source_prediction: pm, confidence: 0, auto_result: null, ...BUDGET_CFG, cost: 0.1 };
   }
   const cfg = loadVibeMaXModel()?.config || { think: "full", wbp: "normal", kp: [3, 6] };
   const text = input.user_text || input.prompt || "";
@@ -111,7 +102,7 @@ export function vibemaxSelectMode(input = {}) {
 
   return {
     mode: "vibemax", source: "vibemax", source_prediction: pm, confidence: auto.confidence || 0,
-    auto_result: auto, tier: "medium", thinking: think, tdd: "quality", flow: "strict",
+    auto_result: null, tier: "medium", thinking: think, tdd: "quality", flow: "strict",
     enforcement: "strict", wbp: cfg.wbp || "normal", c7: "required", kp: cfg.kp || [3, 6],
     tc: 0.3, amode: "plan", cost: 0.3,
     pivot: isPivotBack ? { matchedId: pivotBack.matchedId, confidence: pivotBack.confidence, injection } : null,
@@ -155,9 +146,18 @@ export function predictVibeMaX(input = {}) {
 }
 
 function extractVibeMaXFeatures(text, sr) {
-  const f = extractRoutingFeatures({ user_text: text, prompt: text, stress_multiplier: scoreStress(text), sub_regime: sr });
   const t = (text || "").toLowerCase();
   const words = t.split(/\s+/).filter(Boolean);
+  const f = {
+    length: text.length / 5000,
+    word_count: words.length / 500,
+    sentence_count: (text.split(/[.!?]+/).filter(s => s.trim()).length) / 50,
+    question_ratio: (text.match(/\?/g) || []).length / Math.max(text.split(/[.!?]+/).length, 1),
+    code_blocks: (text.match(/```/g) || []).length / 10,
+    urgency: /urgent|asap|immediately|critical|broken|failing|crash|error|bug/i.test(text) ? 1.0 : 0.0,
+    complexity: /complex|difficult|hard|confusing|trick|subtle|nuance/i.test(text) ? 1.0 : 0.0,
+    instruction_density: /do not|must|should|always|never|critical/i.test(text) ? 1.0 : /please|could you|maybe|perhaps/i.test(text) ? 0.3 : 0.6,
+  };
   return {
     ...Object.fromEntries(Object.entries(f).filter(([_, v]) => typeof v === "number")),
     word_count: words.length,
