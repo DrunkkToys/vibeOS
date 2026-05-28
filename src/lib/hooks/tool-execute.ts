@@ -23,7 +23,7 @@ import {
   ML_ENABLED, _mlGraph, _cacheDb, _mlSavePending, ML_CONFIDENCE_THRESHOLD, setMlSavePending,
   loadMLState, saveMLState,
   readJsonOrEmpty, _handleStateCorruption, _lockPathFor,
-  SCRATCHPAD_TOOLS, applyDecadence,
+  SCRATCHPAD_TOOLS, SCRATCHPAD_GLOBAL_DIR, TOOL_NAME_NORMALIZE, stableJson, applyDecadence,
   VIBEOS_HOME,
 } from "../state.js"
 import {
@@ -279,8 +279,44 @@ export const onToolExecuteBefore = async (input, output) => {
           recordCacheStats(_cacheDb, t, !!hit, hit ? _cacheSave : 0)
           if (!hit) {
             const prediction = predictCacheHit(_cacheDb, t, promptText)
-            if (prediction.shouldWarm && prediction.confidence >= 0.6 && DEBUG_INTERNALS) {
-              console.error(`[vibeOS] 🔮 Smart cache: ${t} may benefit from caching — ${prediction.reason} (conf: ${(prediction.confidence * 100).toFixed(0)}%)`)
+            if (prediction.shouldWarm && prediction.confidence >= 0.6 && prediction.similarEntries.length > 0) {
+              try {
+                const titleCase = TOOL_NAME_NORMALIZE[t]
+                if (titleCase) {
+                  const argsJson = stableJson(args ?? inArgs ?? {})
+                  const curHash = createHash("sha256").update(`${titleCase}\n${argsJson}\n`).digest("hex").slice(0, 16)
+                  const sessionDir = getSessionScratchpadDir()
+                  const globalDir = SCRATCHPAD_GLOBAL_DIR
+                  const ptrPath = join(sessionDir, `${curHash}.ptr`)
+                  if (!existsSync(ptrPath)) {
+                    for (const similar of prediction.similarEntries) {
+                      const targetHash = similar.entry.hash
+                      if (targetHash.length < 16) continue
+                      const cachedFile = join(sessionDir, `${targetHash}.txt`)
+                      const globalFile = join(globalDir, `${targetHash}.txt`)
+                      if (existsSync(cachedFile) || existsSync(globalFile)) {
+                        ensureSessionScratchpadDirs()
+                        writeFileSync(ptrPath, JSON.stringify({
+                          contentHash: targetHash,
+                          tool: titleCase,
+                          warmed: true,
+                          at: new Date().toISOString(),
+                          confidence: prediction.confidence,
+                          reason: prediction.reason,
+                        }))
+                        if (DEBUG_INTERNALS) {
+                          console.error(`[vibeOS] 🔮 Smart cache: warmed ${t} → ${targetHash.slice(0,8)} (conf: ${(prediction.confidence * 100).toFixed(0)}%)`)
+                        }
+                        break
+                      }
+                    }
+                  }
+                }
+              } catch (warmErr) {
+                if (DEBUG_INTERNALS) {
+                  console.error(`[vibeOS] Smart cache warming error: ${warmErr.message}`)
+                }
+              }
             }
           }
         }
