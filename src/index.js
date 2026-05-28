@@ -14,7 +14,7 @@ import { computeSessionMetrics } from "./vibeOS-lib/session-metrics.js";
 import { createMcpServer } from "./lib/vibeos-mcp-server.js";
 import { isApiConnected, setApiToken, setApiBootstrapToken, ensureBootstrapExchange, VIBEOS_API_URL } from "./lib/api-client.js";
 import { applySlot, modelCostPerTurn, detectContext7, formatUsd, classify, _refreshModel, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, readConfig, getTrinitySlotOrder, loadTrinitySlotsFromTiersFile, } from "./lib/pricing.js";
-import { scoreStress, detectTechStack, loadBlackboxState, saveBlackboxState, getBlackboxTracker, getBlackboxResolution, saveOptimizationMode, incrementTurnCounter, } from "./lib/turn-classify.js";
+import { scoreStress, detectTechStack, loadBlackboxState, saveBlackboxState, getBlackboxTracker, getBlackboxResolution, saveOptimizationMode, } from "./lib/turn-classify.js";
 import { safeJsonParse, readFullState, loadSelection, writeSelection, readLifetimeSavings, _OC_SID, _modelLocked, _blackboxEnabled, setBlackboxEnabled, _lockedSlot, _lockedModel, currentTier, currentModel, currentProjectFingerprint, currentProjectName, setCurrentTier, setCurrentModel, setCurrentProjectFingerprint, setCurrentProjectName, setCurrentSessionId, briefedProjects, _latestBlackboxState, getActiveJobForProject, projectFingerprint, loadProjectState, saveProjectState, ensureProjectBucket, mergeProjectBucket, setVibeOSHomeContext, SAVINGS_LEDGER_FILE, USER_HOME, CREDIT_CACHE_F, pruneScratchpadOnce, registerSessionCleanupHandlers, promotedProjectPatterns, projectPatternRows, clearProjectPatterns, loadTodos, getTodos, upsertTodo, markTodoDone, tool, } from "./lib/state.js";
 import { researchAudit } from "./lib/research-audit.js";
 import { buildStatusPayload, buildSavingsPayload, buildSessionCheckout, diagnoseStructuredFromText, projectStructuredFromText, } from "./lib/runtime-surface.js";
@@ -55,42 +55,6 @@ function ensureDeferredBootstrap() {
     }
     catch { }
 }
-async function requestOpenCodeCompaction(client, sessionID, messageId) {
-    const compactSessionID = String(sessionID || "").trim();
-    if (!compactSessionID)
-        return false;
-    const completedMessageID = String(messageId || "").trim();
-    if (completedMessageID) {
-        if (_seenCompletedMessageIds.has(completedMessageID))
-            return false;
-        _seenCompletedMessageIds.add(completedMessageID);
-    }
-    const turnCount = incrementTurnCounter();
-    if (turnCount < 7 || turnCount - _lastCompactRequestTurn < 7)
-        return false;
-    _lastCompactRequestTurn = turnCount;
-    try {
-        if (typeof client?.session?.rpc?.compaction?.compact === "function") {
-            await client.session.rpc.compaction.compact();
-        }
-        else if (typeof client?.rpc?.compaction?.compact === "function") {
-            await client.rpc.compaction.compact();
-        }
-        else if (typeof client?.post === "function") {
-            await client.post(`/session/${compactSessionID}/command`, {
-                body: { command: "compact", arguments: "" },
-            });
-        }
-        else {
-            return false;
-        }
-        return true;
-    }
-    catch (err) {
-        console.error(`[vibeOS] compact request failed: ${err?.message || err}`);
-        return false;
-    }
-}
 // ── Remote API client state ──────────────────────────────────────────
 let _apiClient = null;
 let _apiFallbackMode = false;
@@ -104,8 +68,6 @@ let context7Seen = new Set();
 let _prevOutputText = "";
 let _deferredBootstrapDone = false;
 let _runDeferredStartupBootstrap = null;
-let _lastCompactRequestTurn = 0;
-const _seenCompletedMessageIds = new Set();
 const SAVE_EST = {
     WRITE_EDIT: 0.005,
     SOFT_QUOTA: 0.0003,
@@ -535,7 +497,6 @@ export async function DelegationEnforcer({ client, directory } = {}) {
             }
             ensureDeferredBootstrap();
             await _appendFooter(_input, output, directory);
-            await requestOpenCodeCompaction(client, _OC_SID, _input?.messageId);
         },
         "message.updated": async (_input, output) => {
             setVibeOSHomeContext(hookVibeHome);
@@ -545,7 +506,6 @@ export async function DelegationEnforcer({ client, directory } = {}) {
             }
             ensureDeferredBootstrap();
             await _appendFooter(_input, output, directory);
-            await requestOpenCodeCompaction(client, _OC_SID, _input?.messageId);
         },
         tool: {
             trinity: tool(createTrinityTool(trinityDeps)),
