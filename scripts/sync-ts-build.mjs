@@ -95,6 +95,14 @@ const mappings = [
     from: join("dist-ts", "vibeOS-lib", "blackbox", "taxonomy.js"),
     to: join("src", "vibeOS-lib", "blackbox", "taxonomy.js"),
   },
+  {
+    from: join("dist-ts", "vibeOS-lib", "blackbox", "vibemax.js"),
+    to: join("src", "vibeOS-lib", "blackbox", "vibemax.js"),
+  },
+  {
+    from: join("dist-ts", "vibeOS-lib", "blackbox", "pivot-cache.js"),
+    to: join("src", "vibeOS-lib", "blackbox", "pivot-cache.js"),
+  },
 ]
 
 for (const { from, to } of mappings) {
