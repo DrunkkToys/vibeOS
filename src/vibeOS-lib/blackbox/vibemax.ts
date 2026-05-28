@@ -101,7 +101,7 @@ export function vibemaxSelectMode(input = {}) {
   const injection = isPivotBack ? pc.buildInjection(pivotBack.matchedId) : "";
 
   return {
-    mode: "vibemax", source: "vibemax", source_prediction: pm, confidence: auto.confidence || 0,
+    mode: "vibemax", source: "vibemax", source_prediction: pm, confidence: 0,
     auto_result: null, tier: "medium", thinking: think, tdd: "quality", flow: "strict",
     enforcement: "strict", wbp: cfg.wbp || "normal", c7: "required", kp: cfg.kp || [3, 6],
     tc: 0.3, amode: "plan", cost: 0.3,
