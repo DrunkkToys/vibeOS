@@ -318,6 +318,11 @@ async function _appendFooter(input, output, directory) {
     }
     _setFooter(output, footerText)
 
+    // CLI/pipe mode: stdout is already rendered, write footer to stderr
+    if (!process.stdout?.isTTY) {
+      console.error(`\n${vibeLine} —`)
+    }
+
     textCompletePainted.add(messageID)
     if (textCompletePainted.size > 500) {
       const it = textCompletePainted.values()
