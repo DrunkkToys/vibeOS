@@ -414,3 +414,27 @@ test("message.updated: CLI edge empty parts", async () => {
   assert.ok(Array.isArray(o.content), "empty content array survives hook")
   assert.equal(o.content.length, 0, "empty Content[] stays empty - no footer for empty messages")
 })
+
+test("regression: message.updated empty content does not poison text.complete dedup", async () => {
+  const hooks = await freshPlugin()
+  await hooks["message.updated"]({ messageID: "poison-test" }, { content: [] })
+  const o = { text: "This is a real assistant response that should receive the vibeOS footer in its complete form. Long enough definitely." }
+  await hooks["experimental.text.complete"]({ messageID: "poison-test" }, o)
+  assert.ok(o.text.includes("VIBE") || o.text.includes("deepseek") || o.text.includes("AUTO→"), "footer despite prior empty msg.updated: " + o.text.slice(-80))
+})
+
+test("regression: footer writes to stderr when stdout not TTY", async () => {
+  const hooks = await freshPlugin()
+  const stderrChunks = []
+  const origWrite = process.stderr.write.bind(process.stderr)
+  process.stderr.write = (chunk) => { stderrChunks.push(chunk.toString()); return true }
+  try {
+    await hooks["experimental.text.complete"]({ messageID: "stderr-test" }, {
+      text: "This is a long enough assistant response to trigger the footer writing mechanism in the vibeOS plugin. Quite long indeed."
+    })
+    const all = stderrChunks.join("")
+    assert.ok(all.includes("VIBE") || all.includes("deepseek") || all.includes("AUTO→"), "footer on stderr: " + all.slice(-80))
+  } finally {
+    process.stderr.write = origWrite
+  }
+})
