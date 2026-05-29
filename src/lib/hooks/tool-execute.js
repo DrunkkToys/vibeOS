@@ -1,23 +1,25 @@
 // @ts-nocheck
-import { writeFileSync, appendFileSync, existsSync, mkdirSync } from 'node:fs';
-import { join, dirname, basename } from 'node:path';
-import { currentTier, currentModel, setCurrentModel, setCurrentTier, _OC_SID, _modelLocked, loadSelection, readLifetimeSavings, recordCacheSaving, recordMissedContext7, getScratchpadHit, recordScratchpadObservation, recordPrivacyTelemetry, updateState, SAVINGS_LEDGER_FILE, CONTEXT7_INSTALL_FLAG, SOFT_QUOTA_LIMIT, upsertTodo, ML_ENABLED, _mlGraph, _cacheDb, _mlSavePending, ML_CONFIDENCE_THRESHOLD, setMlSavePending, saveMLState, SCRATCHPAD_TOOLS, applyDecadence, } from '../state.js';
-import { classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget, shortModelName, formatUsd, _refreshModel, readConfig, resolveDisplayModelId, TRINITY_CHEAP, TRINITY_MEDIUM, trendDisplay, modelToSlotLabel, } from '../pricing.js';
-import { latestUserIntent } from './chat-transform.js';
-import { scoreStress, extractFirstWordFromArgs, shouldLogWarn, isUserAskingForTests, resolveEnforcementMode, getLearnedExploratoryWords, noteTaskRoutingLearning, } from '../turn-classify.js';
-import { saveReport } from '../reporting.js';
-import { loadCredit } from '../credit-api.js';
-import { remoteCall, VIBEOS_API_ENABLED } from '../api-client.js';
-import { checkFlowRules } from '../../vibeOS-lib/flow-enforcer.js';
-import { computeDifficulty, addRouteEdge, predictBestModel, hashQuery } from '../../vibeOS-lib/ml-router.js';
-import { addCacheEntry, recordCacheStats, predictCacheHit } from '../../vibeOS-lib/smart-cache.js';
-import { buildTestReminder, enforceTestFile } from '../tdd-enforcer.js';
-import { setActiveJobFromTaskPrompt, observeToolPattern, compressText, recordSaving } from '../index-helpers.js';
-import { scoreTaskQuality, readRewardSignals } from './footer.js';
+import { writeFileSync, appendFileSync, existsSync, mkdirSync } from "node:fs";
+import { join, dirname, basename } from "node:path";
+import { createHash } from "node:crypto";
+import { currentTier, currentModel, setCurrentModel, setCurrentTier, _OC_SID, _modelLocked, loadSelection, readLifetimeSavings, recordCacheSaving, recordMissedContext7, getScratchpadHit, recordScratchpadObservation, recordPrivacyTelemetry, updateState, getSessionScratchpadDir, ensureSessionScratchpadDirs, SAVINGS_LEDGER_FILE, CONTEXT7_INSTALL_FLAG, SOFT_QUOTA_LIMIT, upsertTodo, ML_ENABLED, _mlGraph, _cacheDb, _mlSavePending, ML_CONFIDENCE_THRESHOLD, setMlSavePending, saveMLState, SCRATCHPAD_TOOLS, SCRATCHPAD_GLOBAL_DIR, TOOL_NAME_NORMALIZE, stableJson, applyDecadence, } from "../state.js";
+import { classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget, shortModelName, formatUsd, _refreshModel, readConfig, resolveDisplayModelId, TRINITY_CHEAP, TRINITY_MEDIUM, trendDisplay, modelToSlotLabel, resolveExecutionIdentity, formatProviderName, formatQualityName, } from "../pricing.js";
+import { latestUserIntent } from "./chat-transform.js";
+import { scoreStress, extractFirstWordFromArgs, shouldLogWarn, isUserAskingForTests, resolveEnforcementMode, getLearnedExploratoryWords, noteTaskRoutingLearning, } from "../turn-classify.js";
+import { saveReport } from "../reporting.js";
+import { loadCredit } from "../credit-api.js";
+import { remoteCall, VIBEOS_API_ENABLED } from "../api-client.js";
+import { checkFlowRules } from "../../vibeOS-lib/flow-enforcer.js";
+import { computeDifficulty, addRouteEdge, predictBestModel, hashQuery } from "../../vibeOS-lib/ml-router.js";
+import { addCacheEntry, recordCacheStats, predictCacheHit } from "../../vibeOS-lib/smart-cache.js";
+import { buildTestReminder, enforceTestFile } from "../tdd-enforcer.js";
+import { setActiveJobFromTaskPrompt, observeToolPattern, compressText, recordSaving } from "../index-helpers.js";
+import { scoreTaskQuality, readRewardSignals } from "./footer.js";
 import { SAVE_EST, WARN_ON_DIRECT, SOFT_QUOTA, FREE, MONITOR } from "../constants.js";
 const BYTES_PER_TOKEN = 4;
 const CACHE_SAVED_PER_1M_INPUT_TOKENS = 0.10;
 const DEBUG_INTERNALS = process.env.VIBEOS_DEBUG_INTERNALS === "1";
+const IS_CLI_RUNTIME = Boolean(process.stdout?.isTTY || process.stderr?.isTTY || process.stdin?.isTTY);
 function getVibeOSHome() {
     return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude");
 }
@@ -31,7 +33,7 @@ let softQuotaCounts = {};
 let context7AlertedThisSession = false;
 let context7Seen = new Set();
 let _cacheSave = 0;
-let _prompt = '';
+let _prompt = "";
 let _autoReportCount = 0;
 let _pendingTodoArgs = null;
 let _pendingTelemetryStarts = [];
@@ -271,8 +273,46 @@ export const onToolExecuteBefore = async (input, output) => {
                     recordCacheStats(_cacheDb, t, !!hit, hit ? _cacheSave : 0);
                     if (!hit) {
                         const prediction = predictCacheHit(_cacheDb, t, promptText);
-                        if (prediction.shouldWarm && prediction.confidence >= 0.6 && DEBUG_INTERNALS) {
-                            console.error(`[vibeOS] 🔮 Smart cache: ${t} may benefit from caching — ${prediction.reason} (conf: ${(prediction.confidence * 100).toFixed(0)}%)`);
+                        if (prediction.shouldWarm && prediction.confidence >= 0.6 && prediction.similarEntries.length > 0) {
+                            try {
+                                const titleCase = TOOL_NAME_NORMALIZE[t];
+                                if (titleCase) {
+                                    const argsJson = stableJson(args ?? inArgs ?? {});
+                                    const curHash = createHash("sha256").update(`${titleCase}\n${argsJson}\n`).digest("hex").slice(0, 16);
+                                    const sessionDir = getSessionScratchpadDir();
+                                    const globalDir = SCRATCHPAD_GLOBAL_DIR;
+                                    const ptrPath = join(sessionDir, `${curHash}.ptr`);
+                                    if (!existsSync(ptrPath)) {
+                                        for (const similar of prediction.similarEntries) {
+                                            const targetHash = similar.entry.hash;
+                                            if (targetHash.length < 16)
+                                                continue;
+                                            const cachedFile = join(sessionDir, `${targetHash}.txt`);
+                                            const globalFile = join(globalDir, `${targetHash}.txt`);
+                                            if (existsSync(cachedFile) || existsSync(globalFile)) {
+                                                ensureSessionScratchpadDirs();
+                                                writeFileSync(ptrPath, JSON.stringify({
+                                                    contentHash: targetHash,
+                                                    tool: titleCase,
+                                                    warmed: true,
+                                                    at: new Date().toISOString(),
+                                                    confidence: prediction.confidence,
+                                                    reason: prediction.reason,
+                                                }));
+                                                if (DEBUG_INTERNALS) {
+                                                    console.error(`[vibeOS] 🔮 Smart cache: warmed ${t} → ${targetHash.slice(0, 8)} (conf: ${(prediction.confidence * 100).toFixed(0)}%)`);
+                                                }
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            catch (warmErr) {
+                                if (DEBUG_INTERNALS) {
+                                    console.error(`[vibeOS] Smart cache warming error: ${warmErr.message}`);
+                                }
+                            }
                         }
                     }
                 }
@@ -419,12 +459,10 @@ export const onToolExecuteBefore = async (input, output) => {
     const _workerModel = TRINITY_CHEAP || TRINITY_MEDIUM || null;
     const _workerCost = _workerModel ? (modelCostPerTurn(_workerModel) ?? 0) : 0;
     // Keep precision high to avoid dropping tiny but real per-event savings to zero.
-    const _rawEdit = _brainCost !== null
-        ? Math.max(0, _brainCost - _workerCost)
-        : SAVE_EST.WRITE_EDIT;
+    const _rawEdit = Math.max(0, _brainCost - _workerCost);
     const _estEdit = Math.max(_rawEdit, SAVE_EST.WRITE_EDIT * 0.1);
-    const _estOpus = _brainCost !== null ? Math.max(_brainCost, _estEdit) : SAVE_EST.OPUS_DISABLE;
-    const _estC7 = _brainCost !== null ? Math.max(_brainCost, SAVE_EST.CONTEXT7) : SAVE_EST.CONTEXT7;
+    const _estOpus = Math.max(_brainCost, _estEdit);
+    const _estC7 = Math.max(_brainCost, SAVE_EST.CONTEXT7);
     const _tierWord = currentTier === "high" ? "Brain" : currentTier === "mid" ? "Medium" : "Budget";
     const _firstWord = extractFirstWordFromArgs(t, args || inArgs);
     const sel = loadSelection();
@@ -451,15 +489,17 @@ export const onToolExecuteBefore = async (input, output) => {
         const total = recordSaving(t, "credit<40% high-tier", _estOpus, { firstWord: _firstWord });
         const trend = trendDisplay(readLifetimeSavings().sesTrend);
         const msg = `⚠ [vibeOS] Credit: ${_credit}% — switching to medium saves ~$${_estOpus.toFixed(3)}/turn. Run \`trinity medium\`.`;
-        if (shouldLogWarn(`${t}|credit|${_tierWord}`))
+        if (shouldLogWarn(`${t}|credit|${_tierWord}`) && process.env.VIBEOS_DEBUG_DELEGATION === "1") {
             console.error(`[vibeOS] [delegation] ${msg}`);
+        }
         pendingUiNote = msg;
         return;
     }
     // Write/Edit/NotebookEdit: enforce delegation on high tier when delegation_enforce is on.
     if (WARN_ON_DIRECT.has(String(t || "").toLowerCase())) {
         const argSources = _toolArgSources(input, output);
-        console.error(`[vibeOS] [enforce-debug] tool=${t} tier=${currentTier} enforce=${sel?.delegation_enforce} argsType=${typeof args} argsExists=${argSources.length > 0}`);
+        if (process.env.VIBEOS_DEBUG_DELEGATION === "1")
+            console.error(`[vibeOS] [enforce-debug] tool=${t} tier=${currentTier} enforce=${sel?.delegation_enforce} argsType=${typeof args} argsExists=${argSources.length > 0}`);
         const tLower = String(t || "").toLowerCase();
         if (!compatibilityMode && sel.delegation_enforce && currentTier === "high" && argSources.length > 0) {
             const originalPath = argSources
@@ -485,8 +525,9 @@ export const onToolExecuteBefore = async (input, output) => {
         const total = recordSaving(t, "direct edit", _estEdit, { firstWord: _firstWord });
         if (!compatibilityMode) {
             const msg = `[vibeOS] ${_tierWord} tier direct ${t} — save ~$${_estEdit.toFixed(3)} by delegating to Task. Run \`trinity medium\`.`;
-            if (shouldLogWarn(`${t}|direct|${_tierWord}`))
+            if (shouldLogWarn(`${t}|direct|${_tierWord}`) && process.env.VIBEOS_DEBUG_DELEGATION === "1") {
                 console.error(`[vibeOS] [delegation] ${msg}`);
+            }
             pendingUiNote = msg;
             return;
         }
@@ -615,12 +656,12 @@ export const onToolExecuteAfter = async (input, output) => {
             liveModel = readConfig(projectDirectory) || readConfig(join(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || "";
         }
         const displayModel = resolveDisplayModelId(liveModel || currentModel || "", projectDirectory) || liveModel || currentModel;
+        const execution = resolveExecutionIdentity(input?.args?.model || liveModel || currentModel || displayModel || "", projectDirectory);
+        _footerText = `— ${flashIcon ? `${flashIcon} ` : ""}Quality: ${formatQualityName(execution.quality)} | Provider: ${formatProviderName(execution.provider)} | Model: ${execution.model}`;
         if (ltTotal > 0) {
-            _footerText = `— ${flashIcon ? `${flashIcon} ` : ""}run: ${displayModel} | $${formatUsd(ltTotal)} saved | VIBE${flashIcon ? " ⚡" : ""} —\n\n`;
+            _footerText += ` | $${formatUsd(ltTotal)} saved`;
         }
-        else {
-            _footerText = `${statusLine}${stressTag}\n\n`;
-        }
+        _footerText += ` | VIBE${flashIcon ? " ⚡" : ""} —\n\n`;
         output.title = _footerText.trim();
         if (typeof output?.output === "string")
             output.output = _footerText + output.output;
@@ -701,7 +742,7 @@ export const onToolExecuteAfter = async (input, output) => {
                 score: quality,
                 tool: t,
                 sid: _OC_SID,
-                v: 2
+                v: 2,
             }) + "\n");
         }
         catch { }
@@ -779,8 +820,8 @@ export const onToolExecuteAfter = async (input, output) => {
                 if (sel.tdd_enforce && !isTestPath) {
                     const createdPath = enforceTestFile(fp);
                     if (createdPath) {
-                        const ext = createdPath.split('.').pop();
-                        const fileName = createdPath.split('/').pop();
+                        const ext = createdPath.split(".").pop();
+                        const fileName = createdPath.split("/").pop();
                         const enforceNote = "\n\n[test-enforced] Created skeleton at " + createdPath + "\n  NEXT: 1) Open " + fileName + "  2) Replace TODO/FIXME markers with real assertions  3) Run `npx vitest run " + createdPath + "` (or language-equivalent)  4) Confirm tests pass";
                         if (typeof output?.text === "string")
                             output.text += enforceNote;
@@ -813,8 +854,8 @@ export const onToolExecuteAfter = async (input, output) => {
         if (sel.tdd_enforce && !isTestPath) {
             const createdPath = enforceTestFile(fp);
             if (createdPath) {
-                const ext = createdPath.split('.').pop();
-                const fileName = createdPath.split('/').pop();
+                const ext = createdPath.split(".").pop();
+                const fileName = createdPath.split("/").pop();
                 const enforceNote = `\n\n[test-enforced] Created skeleton at ${createdPath}\n  NEXT: 1) Open ${fileName}  2) Replace TODO/FIXME markers with real assertions  3) Run \`npx vitest run ${createdPath}\` (or language-equivalent)  4) Confirm tests pass`;
                 if (typeof output?.text === "string")
                     output.text += enforceNote;

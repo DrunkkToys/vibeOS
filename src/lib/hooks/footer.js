@@ -1,14 +1,21 @@
 // @ts-nocheck
 import { readFileSync, appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { classify, _refreshModel, readConfig, resolveDisplayModelId, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, roundUsd, formatUsd } from "../pricing.js";
+import { classify, _refreshModel, readConfig, resolveDisplayModelId, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, roundUsd, formatUsd, resolveExecutionIdentity, formatQualityName } from "../pricing.js";
 import { latestUserIntent } from "./chat-transform.js";
 import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, loadOptimizationMode, classifyTurnSimple } from "../turn-classify.js";
 import { peekBudgetFirstMode, recordBudgetFirstOutcome } from "../mode-policy.js";
 import { saveReport } from "../reporting.js";
 import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, _modelLocked, _blackboxEnabled, _latestBlackboxState, reconcileStateFromLedger, safeJsonParse, loadBlackboxState } from "../state.js";
 import { loadSessionSlot } from "../selection-manager.js";
-import { remoteCall, VIBEOS_API_ENABLED } from "../api-client.js";
+import { remoteCall, isApiConnected } from "../api-client.js";
+const IS_CLI_RUNTIME = Boolean(process.stdout?.isTTY || process.stderr?.isTTY || process.stdin?.isTTY);
+const IS_TEST_RUNTIME = process.env.VIBEOS_MCP_PORT === "0" || process.env.NODE_ENV === "test" || process.env.CI === "true";
+const FOOTER_DEBUG_STDERR = process.env.VIBEOS_DEBUG_FOOTER === "1" || (!IS_CLI_RUNTIME && !IS_TEST_RUNTIME);
+function footerDebug(...args) {
+    if (FOOTER_DEBUG_STDERR)
+        console.error(...args);
+}
 function getVibeOSHome() {
     return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude");
 }
@@ -31,7 +38,7 @@ async function apiAutoSelectMode(regime, stress) {
     if (_cachedAutoMode && now - _cachedAutoModeTs < AUTO_CACHE_TTL)
         return _cachedAutoMode;
     try {
-        const res = await remoteCall('blackboxSelectMode', [regime, stress], null);
+        const res = await remoteCall("blackboxSelectMode", [regime, stress], null);
         if (res?.mode) {
             _cachedAutoMode = res.mode;
             _cachedAutoModeTs = now;
@@ -39,7 +46,7 @@ async function apiAutoSelectMode(regime, stress) {
         }
     }
     catch (e) {
-        console.error("[vibeOS] apiAutoSelectMode error:", e.message);
+        footerDebug("[vibeOS] apiAutoSelectMode error:", e.message);
     }
     const fallback = regimeToMode(regime, stress);
     if (!_cachedAutoMode || _cachedAutoMode === "balanced")
@@ -147,7 +154,7 @@ async function _appendFooter(input, output, directory) {
             if (cfgModel !== currentModel) {
                 setCurrentModel(cfgModel);
                 setCurrentTier(classify(cfgModel));
-                console.error(`[vibeOS] client-detected model: ${currentModel} (tier=${currentTier})`);
+                footerDebug(`[vibeOS] client-detected model: ${currentModel} (tier=${currentTier})`);
             }
         }
     }
@@ -186,7 +193,8 @@ async function _appendFooter(input, output, directory) {
         if (!liveModel) {
             liveModel = readConfig(directory) || readConfig(join(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || "";
         }
-        const displayModel = resolveDisplayModelId(liveModel || currentModel || brainModel || "", directory) || liveModel || currentModel || brainModel;
+        const displayModel = resolveDisplayModelId(liveModel || brainModel || currentModel || "", directory) || liveModel || brainModel || currentModel;
+        const execution = resolveExecutionIdentity(input?.args?.model || liveModel || brainModel || currentModel || displayModel || "", directory);
         let modelTag = `[${shortModelName(displayModel)}]`;
         const _workerModel = slot === "brain" ? TRINITY_MEDIUM : null;
         const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0);
@@ -221,7 +229,7 @@ async function _appendFooter(input, output, directory) {
                 });
             }
             catch (e) {
-                console.error("[vibeOS] auto-report:", e.message);
+                footerDebug("[vibeOS] auto-report:", e.message);
             }
         }
         // Enforcement state tags for footer — dynamically adjusted by control vector
@@ -249,20 +257,19 @@ async function _appendFooter(input, output, directory) {
             enfSuffixFooter = ` QA:${Math.round(quality_avg)}% ${enfTagsFooter.join(" ")}`;
         }
         // Optimization mode resolver — keep the dopamine footer format.
-        const flashIcon = VIBEOS_API_ENABLED ? "⚡" : "";
+        const flashIcon = isApiConnected() ? "⚡" : "";
         const resolvedMode = peekBudgetFirstMode({
             requestedMode: optModeFooter,
             subRegime: _latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""),
             stress: _footerStress,
         }).mode;
-        const stripped = text.replace(/\n\n— .+(?: —)?$/, "");
+        const stripped = text.replace(/— .+?VIBE[^—]*—\s*/g, "").trimEnd();
         if (stripped !== text)
             return;
         const ltTotal = ltTasks + ltCache;
-        // Build dopamine footer
-        const optMode = (resolvedMode || 'budget').toLowerCase();
+        const optMode = (resolvedMode || "budget").toLowerCase();
         const modeLabel = optMode === "quality" ? "quality" : optMode === "speed" ? "speed" : optMode === "longrun" ? "longrun" : "";
-        let vibeLine = `— ${flashIcon ? `${flashIcon} ` : ""}run: ${displayModel}`;
+        let vibeLine = `— ${flashIcon ? `${flashIcon} ` : ""}Quality: ${execution.quality_label} | Provider: ${execution.provider_label} | Model: ${execution.model}`;
         if (ltTotal > 0) {
             vibeLine += ` | $${formatUsd(ltTotal)} saved`;
         }
@@ -276,10 +283,10 @@ async function _appendFooter(input, output, directory) {
             vibeLine += ` | recovery ${problemStreak}`;
         }
         if (modeLabel)
-            vibeLine += ` | ${modeLabel}`;
-        vibeLine += ` | VIBE${flashIcon ? ' ⚡' : ''}`;
+            vibeLine += ` | ${formatQualityName(modeLabel)}`;
+        vibeLine += ` | VIBE${flashIcon ? " ⚡" : ""}`;
         if (_footerStress > 0.4) {
-            const stressLabel = _footerStress > 0.7 ? 'high' : 'elevated';
+            const stressLabel = _footerStress > 0.7 ? "high" : "elevated";
             vibeLine += ` · ${stressLabel}`;
         }
         const footerText = stripped + `\n\n${vibeLine} —`;
@@ -325,7 +332,7 @@ async function _appendFooter(input, output, directory) {
         }
     }
     catch (err) {
-        console.error(`[vibeOS] footer failed: ${err.message}`);
+        footerDebug(`[vibeOS] footer failed: ${err.message}`);
     }
 }
 export { _appendFooter, scoreTaskQuality, readRewardSignals };

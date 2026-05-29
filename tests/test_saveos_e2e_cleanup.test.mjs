@@ -416,7 +416,7 @@ test("saveOS FOOTER: flash icon stays hidden when backend is disabled", async ()
 test("saveOS API: ~/.claude token wins over repo token", async () => {
   const tokenSandbox = mkdtempSync(join(tmpdir(), "saveos-token-pref-"))
   mkdirSync(join(tokenSandbox, ".claude"), { recursive: true })
-  const preferredToken = "vos_test_preferred_token_0123456789abcdef"
+  const preferredToken = "vos_" + "a".repeat(64)
   writeFileSync(join(tokenSandbox, ".claude", ".env.production"), `VIBEOS_API_TOKEN=${preferredToken}\n`)
   const apiUrl = pathToFileURL(join(process.cwd(), "src/lib/api-client.js")).href
   const script = `
@@ -436,6 +436,75 @@ test("saveOS API: ~/.claude token wins over repo token", async () => {
   })
   assert.equal(child.status, 0, child.stderr)
   assert.equal(String(child.stdout || "").trim(), preferredToken)
+})
+
+test("saveOS API: embedded alpha token is valid on install", async () => {
+  const apiUrl = pathToFileURL(join(process.cwd(), "src/lib/api-client.js")).href
+  const script = `
+    process.env.VIBEOS_API_TOKEN = ""
+    process.env.VIBEOS_API_ENABLED = "true"
+    const mod = await import(${JSON.stringify(apiUrl)} + "?install=" + Date.now())
+    const token = String(mod.VIBEOS_API_TOKEN || "")
+    const client = mod.getApiClient()
+    const probe = await client.blackboxSelectMode("INIT", 0)
+    process.stdout.write(JSON.stringify({
+      token,
+      valid: /^vos_[a-f0-9]{64}$/i.test(token),
+      placeholder: token === "your_token_here",
+      probeOk: !!probe && typeof probe === "object" && probe.ok === true,
+    }))
+  `
+  const child = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
+    env: {
+      ...process.env,
+      HOME: sandbox,
+      VIBEOS_API_TOKEN: "",
+      VIBEOS_API_ENABLED: "true",
+    },
+    encoding: "utf-8",
+  })
+  assert.equal(child.status, 0, child.stderr)
+  const state = JSON.parse(String(child.stdout || "{}"))
+  assert.equal(state.placeholder, false, "install token is not the placeholder")
+  assert.equal(state.valid, true, "install token matches the expected alpha token shape")
+  assert.equal(state.token.length, 68, "install token has the alpha token length")
+  assert.equal(state.probeOk, true, "embedded alpha token can call the live API on install")
+})
+
+test("saveOS API: invalidate switch disables the embedded fallback token", async () => {
+  const tokenSandbox = mkdtempSync(join(tmpdir(), "saveos-token-invalidate-"))
+  mkdirSync(join(tokenSandbox, ".claude"), { recursive: true })
+  const preferredToken = "vos_" + "b".repeat(64)
+  writeFileSync(join(tokenSandbox, ".claude", ".env.production"), `VIBEOS_API_TOKEN=${preferredToken}\n`)
+  const apiUrl = pathToFileURL(join(process.cwd(), "src/lib/api-client.js")).href
+  const script = `
+    process.env.VIBEOS_API_TOKEN = ""
+    process.env.VIBEOS_API_ENABLED = "true"
+    const mod = await import(${JSON.stringify(apiUrl)} + "?invalidate=" + Date.now())
+    mod.invalidateApiToken()
+    process.stdout.write(JSON.stringify({
+      disabled: mod.VIBEOS_API_DISABLED,
+      token: mod.VIBEOS_API_TOKEN,
+      enabled: mod.VIBEOS_API_ENABLED,
+    }))
+  `
+  const child = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
+    env: {
+      ...process.env,
+      HOME: tokenSandbox,
+      VIBEOS_API_TOKEN: "",
+      VIBEOS_API_ENABLED: "true",
+    },
+    encoding: "utf-8",
+  })
+  assert.equal(child.status, 0, child.stderr)
+  const state = JSON.parse(String(child.stdout || "{}"))
+  assert.equal(state.disabled, true)
+  assert.equal(state.enabled, false)
+  assert.equal(state.token, "")
+  const persisted = readFileSync(join(tokenSandbox, ".claude", ".env.production"), "utf-8")
+  assert.match(persisted, /VIBEOS_API_DISABLED=true/)
+  assert.ok(!/^VIBEOS_API_TOKEN=/m.test(persisted), "token line removed when invalidated")
 })
 
 test("saveOS FOOTER: message.updated fallback hook", async () => {

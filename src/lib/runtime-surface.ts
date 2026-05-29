@@ -1,5 +1,7 @@
 // @ts-nocheck
 
+import { LABEL_MODES, resolveExecutionIdentity } from "./pricing.js"
+
 type SelectionLike = {
   enabled?: boolean
   active_slot?: string
@@ -60,6 +62,7 @@ export function buildStatusPayload({
   const lockActive = Boolean(modelLocked)
   const resolvedLockedSlot = lockActive ? (lockedSlot || activeSlot) : null
   const resolvedLockedModel = lockActive ? (lockedModel || current || null) : null
+  const execution = resolveExecutionIdentity(current || currentModel || "", "")
   return {
     enabled: selection?.enabled !== false,
     active_slot: activeSlot,
@@ -70,6 +73,8 @@ export function buildStatusPayload({
     tdd_strict: selection?.tdd_strict !== false,
     thinking: selection?.thinking_level || fallbackThinking || "brief",
     current_model: current,
+    current_provider: execution.provider_label,
+    current_quality_tier: execution.quality_label,
     credit_percent: creditPercent,
     version,
     todos: { total: totalTodos, pending: pendingTodos },
@@ -78,6 +83,7 @@ export function buildStatusPayload({
     model_locked: lockActive,
     locked_slot: resolvedLockedSlot,
     locked_model: resolvedLockedModel,
+    label_modes: [...LABEL_MODES],
   }
 }
 

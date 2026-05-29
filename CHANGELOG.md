@@ -1,3 +1,43 @@
+## 0.20.7
+- fix: ship compiled OpenCode plugin bundle
+- fix: always show model label in tool.execute.after footer, even with zero savings
+- fix: always show model label in tool.execute.after footer, even with zero savings
+- fix: restore release tarball pack step
+Merge pull request #74 from DrunkkToys/codex/release-live-bundle
+Merge pull request #72 from DrunkkToys/codex/alpha-token-install-validation
+
+
+## 0.20.6
+- fix: quiet delegation warnings in CLI stderr
+- fix: keep delegation note in the chat transcript only
+
+## 0.20.5
+- fix: validate embedded alpha token on install
+- fix: keep alpha token embedded for seamless onboarding
+- fix: only show footer flash after live backend success
+
+## 0.20.4
+- fix: add alpha token invalidate switch
+- fix: prefer valid api tokens over placeholder env
+- fix: gate footer stderr by runtime
+- fix: quiet footer stderr noise
+Merge pull request #70 from DrunkkToys/codex/alpha-token-kill-switch
+
+
+## 0.20.3
+- fix: embed valid alpha token fallback
+Merge pull request #69 from DrunkkToys/codex/alpha-token-release
+
+
+## 0.20.2
+- fix: restore embedded api token fallback
+Merge pull request #68 from DrunkkToys/codex/embed-api-token
+
+
+## 0.20.1
+- docs: rename blackbox to VibeBoX and document local fallback features
+
+
 ## 0.20.0
 - fix: resolve live OpenCode model and refresh README launch copy
 Merge pull request #61 from DrunkkToys/codex/release-candidate-blackbox-footer

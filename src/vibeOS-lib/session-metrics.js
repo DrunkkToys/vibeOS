@@ -33,7 +33,7 @@ export function computeSessionMetrics(state, sessionId) {
         sesTasks: 0, sesEdit: 0, sesCredit: 0, sesC7: 0, sesQuota: 0,
         sesTaskDelegations: 0,
         sesDuration: 0, sesRatePerHour: 0, sesTrend: "stable",
-        sesToolBreakdown: {}, sesModelTurns: { brain: 0, worker: 0 }
+        sesToolBreakdown: {}, sesModelTurns: { brain: 0, worker: 0 },
     };
     if (!s)
         return empty;

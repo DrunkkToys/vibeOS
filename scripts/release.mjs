@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execSync } from "node:child_process"
-import { readFileSync, writeFileSync, mkdtempSync, rmSync } from "node:fs"
+import { readFileSync, writeFileSync, mkdtempSync, rmSync, readdirSync, unlinkSync } from "node:fs"
 import { join, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 import { tmpdir, homedir } from "node:os"
@@ -208,6 +208,27 @@ sh(`git add CHANGELOG.md package.json`)
 sh(`git commit --no-verify -m "chore(release): v${newVer}"`)
 
 log(`${GREEN}✓${RESET} chore(release): v${newVer} committed`)
+
+// ── PACK LOCAL TARBALL ────────────────────────────────────────
+
+for (const entry of readdirSync(ROOT)) {
+  if (entry.endsWith(".tgz")) {
+    unlinkSync(join(ROOT, entry))
+  }
+}
+
+const npmCacheDir = mkdtempSync(join(tmpdir(), "vibetheog-npm-cache-"))
+try {
+  const packOutput = sh("npm pack", {
+    env: {
+      ...process.env,
+      npm_config_cache: npmCacheDir,
+    },
+  })
+  log(`${GREEN}✓${RESET} local npm pack artifact created: ${packOutput}`)
+} finally {
+  rmSync(npmCacheDir, { recursive: true, force: true })
+}
 
 // ── TAG ────────────────────────────────────────────────────────
 

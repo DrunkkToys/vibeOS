@@ -213,6 +213,8 @@ function renderModelInfo(s) {
   el.innerHTML = `
     <div class="row"><span class="label">Active Slot</span><span class="value">${s.active_slot || '-'}</span></div>
     <div class="row"><span class="label">Current Tier</span><span class="value">${s.current_tier || '-'}</span></div>
+    <div class="row"><span class="label">Provider</span><span class="value">${s.current_provider || '-'}</span></div>
+    <div class="row"><span class="label">Labels</span><span class="value">${Array.isArray(s.label_modes) ? s.label_modes.join(', ') : '-'}</span></div>
     <div class="row"><span class="label">Model Locked</span><span class="value ${s.model_locked ? 'green' : ''}">${s.model_locked ? s.locked_model : 'No'}</span></div>
     <div class="row"><span class="label">Credit</span><span class="value ${(s.credit_percent ?? 100) < 30 ? 'red' : (s.credit_percent ?? 100) < 60 ? 'yellow' : 'green'}">${s.credit_percent ?? '-'}%</span></div>
     <div class="row"><span class="label">Mode</span><span class="value">${s.mode || '-'}</span></div>

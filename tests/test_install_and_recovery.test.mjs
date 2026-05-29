@@ -356,7 +356,7 @@ test("autoconfig: probeModel follows provider config for Gemini and generic prov
   }
 })
 
-test("footer: run label keeps provider prefix instead of flattening to bare model", async () => {
+test("footer: model label keeps provider prefix instead of flattening to bare model", async () => {
   const sb = freshSandbox()
   const prevHome = process.env.HOME
   const prevClient = globalThis.client
@@ -385,7 +385,7 @@ test("footer: run label keeps provider prefix instead of flattening to bare mode
   try {
     const output = { text: "hello" }
     await _appendFooter({ messageID: "m1" }, output, join(sb, "project"))
-    assert.match(output.text, /run: google\/gemini-2\.5-flash/, output.text)
+    assert.match(output.text, /Model: google\/gemini-2\.5-flash/, output.text)
   } finally {
     globalThis.client = prevClient
     process.env.HOME = prevHome

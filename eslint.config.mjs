@@ -34,7 +34,7 @@ export default [
       "@typescript-eslint/no-unused-vars": ["warn", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
       "@typescript-eslint/no-explicit-any": "warn",
       "@typescript-eslint/consistent-type-imports": ["warn", { prefer: "type-imports" }],
-      "no-console": ["warn", { allow: ["warn", "error"] }],
+      "no-console": ["error", { allow: ["warn", "error"] }],
       "@stylistic/semi": ["warn", "never"],
       "@stylistic/quotes": ["warn", "double", { avoidEscape: true, allowTemplateLiterals: true }],
       "@stylistic/indent": ["warn", 2, { SwitchCase: 1 }],

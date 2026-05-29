@@ -3,17 +3,50 @@
 import { readFileSync, existsSync, mkdirSync, writeFileSync, statSync, appendFileSync, renameSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+const VIBEOS_STDERR_DEBUG = process.env.VIBEOS_DEBUG_STDERR === "1" || process.env.VIBEOS_DEBUG_LOGS === "1";
+const VIBEOS_CONSOLE_ERROR_GUARD = "__vibeOSConsoleErrorGuard";
+const globalConsoleState = globalThis;
+if (!VIBEOS_STDERR_DEBUG && !globalConsoleState[VIBEOS_CONSOLE_ERROR_GUARD]) {
+    const originalConsoleError = console.error.bind(console);
+    console.error = (...args) => {
+        let text = "";
+        for (const arg of args) {
+            if (typeof arg === "string") {
+                text += arg;
+            }
+            else if (arg instanceof Error) {
+                text += `${arg.name}: ${arg.message}`;
+            }
+            else if (arg && typeof arg === "object") {
+                try {
+                    text += JSON.stringify(arg);
+                }
+                catch {
+                    text += String(arg);
+                }
+            }
+            else {
+                text += String(arg);
+            }
+            text += " ";
+        }
+        if (text.includes("[vibeOS]") || text.includes("[flow-enforcer]") || text.includes("[delegation]"))
+            return;
+        originalConsoleError(...args);
+    };
+    globalConsoleState[VIBEOS_CONSOLE_ERROR_GUARD] = true;
+}
 function getVibeOSHome() {
     return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude");
 }
 function safeJsonParse(raw) {
-    if (raw == null || raw === '')
+    if (raw == null || raw === "")
         return null;
     try {
         return JSON.parse(raw);
     }
     catch { }
-    let cleaned = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '').replace(/,\s*([}\]])/g, '$1');
+    let cleaned = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "").replace(/,\s*([}\]])/g, "$1");
     try {
         return JSON.parse(cleaned);
     }

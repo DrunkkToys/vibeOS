@@ -307,16 +307,30 @@ export function classifyAndRankModels(models) {
 
   if (unique.length === 0) return null
 
+  const normalizeModelId = (id) => String(id || "").toLowerCase()
+    .replace(/\./g, "-")
+    .replace(/^(openrouter|opencode|deepseek|anthropic|google)\//, "")
+
+  const isDeprecatedDeepseekChat = (id) => normalizeModelId(id).includes("deepseek-chat")
+  const hasReplacementDeepseek = unique.some((m) => {
+    const raw = normalizeModelId(m.id)
+    return raw.startsWith("deepseek-") && !raw.includes("deepseek-chat")
+  })
+
+  const ranked = hasReplacementDeepseek
+    ? unique.filter((m) => !isDeprecatedDeepseekChat(m.id))
+    : unique
+
+  if (ranked.length === 0) return null
+
   const modelPreference = (id) => {
-    const raw = String(id || "").toLowerCase()
-      .replace(/\./g, "-")
-      .replace(/^(openrouter|opencode|deepseek|anthropic|google)\//, "")
+    const raw = normalizeModelId(id)
     if (raw.includes("deepseek-v4-flash")) return 2
-    if (raw.includes("deepseek-chat")) return 1
+    if (raw.includes("deepseek-chat")) return -1
     return 0
   }
 
-  unique.sort((a, b) => {
+  ranked.sort((a, b) => {
     const ra = MODEL_RANK[a.tier] || 0
     const rb = MODEL_RANK[b.tier] || 0
     if (rb !== ra) return rb - ra
@@ -324,15 +338,15 @@ export function classifyAndRankModels(models) {
     return pref !== 0 ? pref : b.cost - a.cost
   })
 
-  const cheapest = [...unique].sort((a, b) => {
+  const cheapest = [...ranked].sort((a, b) => {
     if (a.cost !== b.cost) return a.cost - b.cost
     const pref = modelPreference(b.id) - modelPreference(a.id)
     return pref !== 0 ? pref : (MODEL_RANK[b.tier] || 0) - (MODEL_RANK[a.tier] || 0)
   })
 
   return {
-    brain: unique[0],
-    medium: unique.length > 1 ? unique[1] : unique[0],
+    brain: ranked[0],
+    medium: ranked.length > 1 ? ranked[1] : ranked[0],
     cheap: cheapest[0],
   }
 }

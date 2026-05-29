@@ -9,9 +9,13 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, "..")
 
 const srcPath = join(ROOT, "src", "index.js")
+const srcLibPath = join(ROOT, "src", "lib")
+const srcUtilsPath = join(ROOT, "src", "utils")
 const srcLibDir = join(ROOT, "src", "vibeOS-lib")
 const pluginDir = join(homedir(), ".config", "opencode", "plugins")
 const destPath = join(pluginDir, "vibeOS.js")
+const destLibPath = join(pluginDir, "lib")
+const destUtilsPath = join(pluginDir, "utils")
 const destLibDir = join(pluginDir, "vibeOS-lib")
 
 // vibeOS-api-server, vibeOS-mcp-server, and dashboard now live in vibeOScore package
@@ -28,6 +32,16 @@ try {
   const src = readFileSync(srcPath)
   writeFileSync(destPath, src)
   process.stderr.write(`[vibeOS deploy] src/index.js -> ~/.config/opencode/plugins/vibeOS.js (${src.length} bytes)\n`)
+
+  if (existsSync(srcLibPath)) {
+    cpSync(srcLibPath, destLibPath, { recursive: true, force: true })
+    process.stderr.write(`[vibeOS deploy] src/lib/ -> ~/.config/opencode/plugins/lib/\n`)
+  }
+
+  if (existsSync(srcUtilsPath)) {
+    cpSync(srcUtilsPath, destUtilsPath, { recursive: true, force: true })
+    process.stderr.write(`[vibeOS deploy] src/utils/ -> ~/.config/opencode/plugins/utils/\n`)
+  }
 
   // Copy vibeOS-lib directory recursively (includes blackbox, utils, etc.)
   // Copy vibeOS-lib directory recursively (includes blackbox, utils, etc.)

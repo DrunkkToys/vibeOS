@@ -52,8 +52,16 @@ const mappings = [
     to: join("src", "utils", "math.js"),
   },
   {
-    from: join("dist-ts", "vibeOS-mcp-server.js"),
-    to: join("src", "vibeOS-mcp-server.js"),
+    from: join("dist-ts", "vibeOS-lib", "ml-router.js"),
+    to: join("src", "vibeOS-lib", "ml-router.js"),
+  },
+  {
+    from: join("dist-ts", "vibeOS-lib", "smart-cache.js"),
+    to: join("src", "vibeOS-lib", "smart-cache.js"),
+  },
+  {
+    from: join("dist-ts", "lib", "vibeos-mcp-server.js"),
+    to: join("src", "lib", "vibeos-mcp-server.js"),
   },
   {
     from: join("dist-ts", "vibeOS-lib", "blackbox", "index.js"),
@@ -72,6 +80,14 @@ const mappings = [
     to: join("src", "vibeOS-lib", "blackbox", "exposure-model.js"),
   },
   {
+    from: join("dist-ts", "vibeOS-lib", "blackbox", "local-stub.js"),
+    to: join("src", "vibeOS-lib", "blackbox", "local-stub.js"),
+  },
+  {
+    from: join("dist-ts", "vibeOS-lib", "blackbox", "meta-controller.js"),
+    to: join("src", "vibeOS-lib", "blackbox", "meta-controller.js"),
+  },
+  {
     from: join("dist-ts", "vibeOS-lib", "blackbox", "resolution-tracker.js"),
     to: join("src", "vibeOS-lib", "blackbox", "resolution-tracker.js"),
   },
@@ -80,24 +96,12 @@ const mappings = [
     to: join("src", "vibeOS-lib", "blackbox", "taxonomy.js"),
   },
   {
-    from: join("dist-ts", "vibeOS-lib", "blackbox", "meta-controller.js"),
-    to: join("src", "vibeOS-lib", "blackbox", "meta-controller.js"),
+    from: join("dist-ts", "vibeOS-lib", "blackbox", "vibemax.js"),
+    to: join("src", "vibeOS-lib", "blackbox", "vibemax.js"),
   },
   {
-    from: join("dist-ts", "vibeOS-lib", "ml-router.js"),
-    to: join("src", "vibeOS-lib", "ml-router.js"),
-  },
-  {
-    from: join("dist-ts", "vibeOS-lib", "smart-cache.js"),
-    to: join("src", "vibeOS-lib", "smart-cache.js"),
-  },
-  {
-    from: join("dist-ts", "vibeOS-lib", "blackbox", "local-stub.js"),
-    to: join("src", "vibeOS-lib", "blackbox", "local-stub.js"),
-  },
-  {
-    from: join("dist-ts", "vibeOS-api-server", "client.js"),
-    to: join("src", "vibeOS-api-server", "client.js"),
+    from: join("dist-ts", "vibeOS-lib", "blackbox", "pivot-cache.js"),
+    to: join("src", "vibeOS-lib", "blackbox", "pivot-cache.js"),
   },
 ]
 

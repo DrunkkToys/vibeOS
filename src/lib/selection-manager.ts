@@ -27,7 +27,7 @@ function safeJsonParse(raw: string): any {
   try { return JSON.parse(cleaned) } catch (e) { throw e }
 }
 
-const DFLT_SEL = { enabled: true, active_slot: null, thinking_level: "off", flow_enabled: false, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: false, delegation_enforce: true, onboarding_mode: null }
+const DFLT_SEL = { enabled: true, active_slot: null, thinking_level: "off", flow_enabled: false, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: false, delegation_enforce: true, onboarding_mode: null, selected_provider: null, selected_quality_tier: null, selected_model: null, executed_provider: null, executed_quality_tier: null, executed_model: null }
 
 export function loadSelection(): any {
   const TIERS_FILE = join(getVibeOSHome(), "model-tiers.json")
@@ -47,6 +47,12 @@ export function loadSelection(): any {
       flow_enforce:       j?.selection?.flow_enforce === true,
       delegation_enforce: j?.selection?.delegation_enforce !== false,
       onboarding_mode:    j?.selection?.onboarding_mode || null,
+      selected_provider:  j?.selection?.selected_provider || null,
+      selected_quality_tier: j?.selection?.selected_quality_tier || null,
+      selected_model:     j?.selection?.selected_model || null,
+      executed_provider:  j?.selection?.executed_provider || null,
+      executed_quality_tier: j?.selection?.executed_quality_tier || null,
+      executed_model:     j?.selection?.executed_model || null,
     }
   } catch { _handleStateCorruption(TIERS_FILE); return DFLT_SEL }
 }

@@ -23,13 +23,13 @@ import {
   ML_ENABLED, _mlGraph, _cacheDb, _mlSavePending, ML_CONFIDENCE_THRESHOLD, setMlSavePending,
   loadMLState, saveMLState,
   readJsonOrEmpty, _handleStateCorruption, _lockPathFor,
-  SCRATCHPAD_TOOLS, applyDecadence,
+  SCRATCHPAD_TOOLS, SCRATCHPAD_GLOBAL_DIR, TOOL_NAME_NORMALIZE, stableJson, applyDecadence,
   VIBEOS_HOME,
 } from "../state.js"
 import {
   classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget,
   shortModelName, formatUsd, _refreshModel, readConfig, resolveDisplayModelId, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN,
-  trendDisplay, modelToSlotLabel,
+  trendDisplay, modelToSlotLabel, resolveExecutionIdentity, formatProviderName, formatQualityName,
 } from "../pricing.js"
 import { latestUserIntent } from "./chat-transform.js"
 import {
@@ -54,6 +54,7 @@ import { SAVE_EST, WARN_ON_DIRECT, SOFT_QUOTA, FREE, MONITOR } from "../constant
 const BYTES_PER_TOKEN = 4
 const CACHE_SAVED_PER_1M_INPUT_TOKENS = 0.10
 const DEBUG_INTERNALS = process.env.VIBEOS_DEBUG_INTERNALS === "1"
+const IS_CLI_RUNTIME = Boolean(process.stdout?.isTTY || process.stderr?.isTTY || process.stdin?.isTTY)
 
 function getVibeOSHome() {
   return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude")
@@ -278,8 +279,44 @@ export const onToolExecuteBefore = async (input, output) => {
           recordCacheStats(_cacheDb, t, !!hit, hit ? _cacheSave : 0)
           if (!hit) {
             const prediction = predictCacheHit(_cacheDb, t, promptText)
-            if (prediction.shouldWarm && prediction.confidence >= 0.6 && DEBUG_INTERNALS) {
-              console.error(`[vibeOS] 🔮 Smart cache: ${t} may benefit from caching — ${prediction.reason} (conf: ${(prediction.confidence * 100).toFixed(0)}%)`)
+            if (prediction.shouldWarm && prediction.confidence >= 0.6 && prediction.similarEntries.length > 0) {
+              try {
+                const titleCase = TOOL_NAME_NORMALIZE[t]
+                if (titleCase) {
+                  const argsJson = stableJson(args ?? inArgs ?? {})
+                  const curHash = createHash("sha256").update(`${titleCase}\n${argsJson}\n`).digest("hex").slice(0, 16)
+                  const sessionDir = getSessionScratchpadDir()
+                  const globalDir = SCRATCHPAD_GLOBAL_DIR
+                  const ptrPath = join(sessionDir, `${curHash}.ptr`)
+                  if (!existsSync(ptrPath)) {
+                    for (const similar of prediction.similarEntries) {
+                      const targetHash = similar.entry.hash
+                      if (targetHash.length < 16) continue
+                      const cachedFile = join(sessionDir, `${targetHash}.txt`)
+                      const globalFile = join(globalDir, `${targetHash}.txt`)
+                      if (existsSync(cachedFile) || existsSync(globalFile)) {
+                        ensureSessionScratchpadDirs()
+                        writeFileSync(ptrPath, JSON.stringify({
+                          contentHash: targetHash,
+                          tool: titleCase,
+                          warmed: true,
+                          at: new Date().toISOString(),
+                          confidence: prediction.confidence,
+                          reason: prediction.reason,
+                        }))
+                        if (DEBUG_INTERNALS) {
+                          console.error(`[vibeOS] 🔮 Smart cache: warmed ${t} → ${targetHash.slice(0,8)} (conf: ${(prediction.confidence * 100).toFixed(0)}%)`)
+                        }
+                        break
+                      }
+                    }
+                  }
+                }
+              } catch (warmErr) {
+                if (DEBUG_INTERNALS) {
+                  console.error(`[vibeOS] Smart cache warming error: ${warmErr.message}`)
+                }
+              }
             }
           }
         }
@@ -424,12 +461,10 @@ export const onToolExecuteBefore = async (input, output) => {
   const _workerModel = TRINITY_CHEAP || TRINITY_MEDIUM || null
   const _workerCost  = _workerModel ? (modelCostPerTurn(_workerModel) ?? 0) : 0
   // Keep precision high to avoid dropping tiny but real per-event savings to zero.
-  const _rawEdit    = _brainCost !== null
-    ? Math.max(0, _brainCost - _workerCost)
-    : SAVE_EST.WRITE_EDIT
+  const _rawEdit    = Math.max(0, _brainCost - _workerCost)
   const _estEdit    = Math.max(_rawEdit, SAVE_EST.WRITE_EDIT * 0.1)
-  const _estOpus    = _brainCost !== null ? Math.max(_brainCost, _estEdit) : SAVE_EST.OPUS_DISABLE
-  const _estC7      = _brainCost !== null ? Math.max(_brainCost, SAVE_EST.CONTEXT7) : SAVE_EST.CONTEXT7
+  const _estOpus    = Math.max(_brainCost, _estEdit)
+  const _estC7      = Math.max(_brainCost, SAVE_EST.CONTEXT7)
   const _tierWord   = currentTier === "high" ? "Brain" : currentTier === "mid" ? "Medium" : "Budget"
   const _firstWord = extractFirstWordFromArgs(t, args || inArgs)
   const sel = loadSelection()
@@ -457,7 +492,9 @@ export const onToolExecuteBefore = async (input, output) => {
     const total = recordSaving(t, "credit<40% high-tier", _estOpus, { firstWord: _firstWord })
     const trend = trendDisplay(readLifetimeSavings().sesTrend)
     const msg = `⚠ [vibeOS] Credit: ${_credit}% — switching to medium saves ~$${_estOpus.toFixed(3)}/turn. Run \`trinity medium\`.`
-    if (shouldLogWarn(`${t}|credit|${_tierWord}`)) console.error(`[vibeOS] [delegation] ${msg}`)
+    if (shouldLogWarn(`${t}|credit|${_tierWord}`) && process.env.VIBEOS_DEBUG_DELEGATION === "1") {
+      console.error(`[vibeOS] [delegation] ${msg}`)
+    }
     pendingUiNote = msg
     return
   }
@@ -465,7 +502,7 @@ export const onToolExecuteBefore = async (input, output) => {
   // Write/Edit/NotebookEdit: enforce delegation on high tier when delegation_enforce is on.
   if (WARN_ON_DIRECT.has(String(t || "").toLowerCase())) {
     const argSources = _toolArgSources(input, output)
-    console.error(`[vibeOS] [enforce-debug] tool=${t} tier=${currentTier} enforce=${sel?.delegation_enforce} argsType=${typeof args} argsExists=${argSources.length > 0}`)
+    if (process.env.VIBEOS_DEBUG_DELEGATION === "1") console.error(`[vibeOS] [enforce-debug] tool=${t} tier=${currentTier} enforce=${sel?.delegation_enforce} argsType=${typeof args} argsExists=${argSources.length > 0}`)
     const tLower = String(t || "").toLowerCase()
     if (!compatibilityMode && sel.delegation_enforce && currentTier === "high" && argSources.length > 0) {
       const originalPath = argSources
@@ -493,7 +530,9 @@ export const onToolExecuteBefore = async (input, output) => {
     const total = recordSaving(t, "direct edit", _estEdit, { firstWord: _firstWord })
     if (!compatibilityMode) {
       const msg = `[vibeOS] ${_tierWord} tier direct ${t} — save ~$${_estEdit.toFixed(3)} by delegating to Task. Run \`trinity medium\`.`
-      if (shouldLogWarn(`${t}|direct|${_tierWord}`)) console.error(`[vibeOS] [delegation] ${msg}`)
+      if (shouldLogWarn(`${t}|direct|${_tierWord}`) && process.env.VIBEOS_DEBUG_DELEGATION === "1") {
+        console.error(`[vibeOS] [delegation] ${msg}`)
+      }
       pendingUiNote = msg
       return
     }
@@ -613,11 +652,12 @@ export const onToolExecuteAfter = async (input, output) => {
       liveModel = readConfig(projectDirectory) || readConfig(join(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || ""
     }
     const displayModel = resolveDisplayModelId(liveModel || currentModel || "", projectDirectory) || liveModel || currentModel
+    const execution = resolveExecutionIdentity(input?.args?.model || liveModel || currentModel || displayModel || "", projectDirectory)
+    _footerText = `— ${flashIcon ? `${flashIcon} ` : ""}Quality: ${formatQualityName(execution.quality)} | Provider: ${formatProviderName(execution.provider)} | Model: ${execution.model}`
     if (ltTotal > 0) {
-      _footerText = `— ${flashIcon ? `${flashIcon} ` : ""}run: ${displayModel} | $${formatUsd(ltTotal)} saved | VIBE${flashIcon ? " ⚡" : ""} —\n\n`
-    } else {
-      _footerText = `${statusLine}${stressTag}\n\n`
+      _footerText += ` | $${formatUsd(ltTotal)} saved`
     }
+    _footerText += ` | VIBE${flashIcon ? " ⚡" : ""} —\n\n`
     output.title = _footerText.trim()
     if (typeof output?.output === "string") output.output = _footerText + output.output
     else if (typeof output?.result === "string") output.result = _footerText + output.result

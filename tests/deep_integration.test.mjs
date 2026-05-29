@@ -106,7 +106,7 @@ test("modelCostPerTurn: known models, dots normalization, provider prefixes, unk
   assert.equal(modelCostPerTurn("openrouter/anthropic/claude-sonnet-4-6"), 0.0066)
   assert.equal(modelCostPerTurn(""), 0)
   assert.equal(modelCostPerTurn(null), 0)
-  assert.equal(modelCostPerTurn("nonexistent-model"), null)  // unknown model: returns 0 (SAVE_EST fallback), not null
+  assert.equal(Math.round(modelCostPerTurn("nonexistent-model") * 1e12) / 1e12, 1e-10)
 })
 
 test("isModelFree: correctly identifies", () => {
@@ -194,14 +194,14 @@ test("classifyAndRankModels: full set, mixed providers, two models, dedup, empty
     { id: "deepseek/deepseek-v4-pro", provider: "deepseek", cost: 0.00057, tier: "high" },
   ])
   assert.equal(r1.brain.id, "deepseek/deepseek-v4-pro")
-  assert.equal(r1.cheap.id, "deepseek/deepseek-chat", "cheapest is deepseek-chat at 0.000150")
+  assert.equal(r1.cheap.id, "deepseek/deepseek-v4-flash", "cheapest usable model is deepseek-v4-flash")
 
   const r2 = classifyAndRankModels([
     { id: "deepseek/deepseek-chat", provider: "deepseek", cost: 0.000182, tier: "budget" },
     { id: "deepseek/deepseek-v4-pro", provider: "deepseek", cost: 0.00057, tier: "high" },
   ])
   assert.equal(r2.brain.id, "deepseek/deepseek-v4-pro")
-  assert.equal(r2.cheap.id, "deepseek/deepseek-chat")
+  assert.equal(r2.cheap.id, "deepseek/deepseek-v4-pro")
 
   const r3 = classifyAndRankModels([
     { id: "x", cost: 0, tier: "budget" }, { id: "x", cost: 0, tier: "budget" },

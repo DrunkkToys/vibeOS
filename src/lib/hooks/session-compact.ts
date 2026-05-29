@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { readFileSync, existsSync } from "node:fs"
-import { loadSelection, _OC_SID, getSessionScratchpadDir, getSessionIndexPath } from "../state.js"
+import { loadSelection, _OC_SID, updateState, getSessionScratchpadDir, getSessionIndexPath } from "../state.js"
 import { getTurnCounter } from "../turn-classify.js"
 
 export const onSessionCompacting = async (_input, output) => {
@@ -55,6 +55,24 @@ export const onSessionCompacting = async (_input, output) => {
       for (const e of contextEntries) output.context.push(e)
     } else if (output) {
       output.context = contextEntries
+    }
+
+    // Persist last_compacted_at so telemetry reflects actual compaction
+    if (needsCompact && output) {
+      try {
+        updateState((state) => {
+          const now = new Date().toISOString()
+          state.sessions ??= {}
+          const sid = _OC_SID
+          state.sessions[sid] ??= {}
+          state.sessions[sid].telemetry ??= {}
+          state.sessions[sid].telemetry.last_compacted_at = now
+          state.lifetime ??= {}
+          state.lifetime.telemetry ??= {}
+          state.lifetime.telemetry.last_compacted_at = now
+          return state
+        })
+      } catch {}
     }
   } catch (err) {
     console.error(`[vibeOS] session.compacting failed: ${err.message}`)
