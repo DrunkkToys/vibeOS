@@ -8,7 +8,7 @@
 //
 import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, rmSync, existsSync } from "node:fs"
 import { join, dirname } from "node:path"
-import { tmpdir } from "node:os"
+import { homedir, tmpdir } from "node:os"
 import { fileURLToPath } from "node:url"
 import { describe, test } from "node:test"
 import assert from "node:assert"
@@ -520,7 +520,15 @@ test("recovery: model-tiers.json with null values in slots recovers", async () =
 test("bootstrap: OpenCode API model seeds trinity slots when local config is missing", async () => {
   const sb = freshSandbox()
   const prevHome = process.env.HOME
+  const prevOcModel = process.env.OPENCODE_MODEL
+
+  // Mock auth and clear OPENCODE_MODEL so real config/env don't affect discovery
+  const { AUTH_F } = await import("../src/lib/state.js")
+  const origAuth = existsSync(AUTH_F) ? readFileSync(AUTH_F, "utf-8") : null
+  writeFileSync(AUTH_F, "{}")
+  delete process.env.OPENCODE_MODEL
   process.env.HOME = sb
+
   try {
     const dir = join(sb, "project")
     mkdirSync(dir, { recursive: true })
@@ -546,6 +554,12 @@ test("bootstrap: OpenCode API model seeds trinity slots when local config is mis
     }
   } finally {
     process.env.HOME = prevHome
+    if (prevOcModel !== undefined) process.env.OPENCODE_MODEL = prevOcModel
+    if (origAuth !== null) {
+      writeFileSync(AUTH_F, origAuth)
+    } else {
+      try { rmSync(AUTH_F) } catch {}
+    }
     rmSync(sb, { recursive: true, force: true })
   }
 })
