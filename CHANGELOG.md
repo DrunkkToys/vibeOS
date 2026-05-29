@@ -1,3 +1,23 @@
+## 0.20.15
+- feat: dashboard blackbox telemetry — bidirectional BE/FE sync
+- fix: mock auth and clear OPENCODE_MODEL in bootstrap test, commit blackbox .js for CI
+- fix: mock auth and clear OPENCODE_MODEL in bootstrap test, commit blackbox .js for CI
+- docs: fix speed mode quality rating in comparison table (#83)
+- docs: fix token defaults in env vars table
+- docs: update README to reflect actual features and fix inaccuracies
+- chore: fix auto-fixable ESLint warnings project-wide (453 fixed, 899 -> 446)
+- chore: restore vibeoscore-1.0.2.tgz
+Add vibemax and vibeqmax mode aliases to trinity mode command
+Fix VibeMaX recognized as manual mode, route to medium tier
+Fix VibeMaX routing to use medium tier, not brain
+List vibeOS-lib tests explicitly in test:ci to fix CI glob resolution
+Exclude blackbox TS from compilation to prevent CI clobbering JS sources
+Fix test:ci glob pattern for CI compatibility
+Remove VibeMaX auto-gate from meta-controller.ts
+Move VibeMaX ML pipeline to backend API
+revert: remove temporary release bypass
+
+
 ## 0.20.14
 - chore: temporary bypass for release
 - chore: add vibeoscore-1.0.2.tgz for CI install
