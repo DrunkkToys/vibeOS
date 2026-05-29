@@ -9,6 +9,7 @@ interface PivotContext {
   files: string[]
   code_snippets: string[]
   blockers: string[]
+  toolOutputs?: { hash: string; tool: string; prompt: string; sizeBytes?: number; ageSec?: number }[]
 }
 
 interface PivotEntry {
@@ -20,6 +21,7 @@ interface PivotEntry {
   files: string[]
   code_snippets: string[]
   blockers: string[]
+  toolOutputs?: { hash: string; tool: string; prompt: string; sizeBytes?: number; ageSec?: number }[]
   access_count: number
   useful_sections: string[]
   skip_sections: string[]
@@ -109,6 +111,7 @@ export class PivotCache {
       access_count: 0,
       useful_sections: ["decisions", "files"],
       skip_sections: [],
+      toolOutputs: context.toolOutputs || [],
     }
     this.store.pivots[workflowId] = entry
     if (!this.pivotSequence.includes(workflowId)) {
@@ -158,15 +161,41 @@ export class PivotCache {
     if (!entry) return ""
     const parts: string[] = []
     const skip = new Set(entry.skip_sections)
-    if (!skip.has("decisions") && entry.decisions.length > 0) {
-      parts.push(`[${workflowId}] ${entry.decisions.slice(0, 3).join(" | ")}`)
+
+    // Intent — what was this workflow about
+    const intent = entry.intent || entry.tokens.join(", ") || ""
+    if (intent) {
+      parts.push(`[PIVOT BACK] Returning to workflow: "${intent}". Context from previous session follows.`)
     }
-    if (entry.blockers.length > 0 && !skip.has("blockers")) {
+
+    // Files — what was being modified
+    if (!skip.has("files") && entry.files.length > 0) {
+      parts.push(`[files modified] ${entry.files.slice(0, 6).join(", ")}`)
+    }
+
+    // Decisions — key choices made
+    if (!skip.has("decisions") && entry.decisions.length > 0) {
+      const filtered = entry.decisions.filter(d => d !== "previous workflow captured at pivot point")
+      if (filtered.length > 0) {
+        parts.push(`[decisions] ${filtered.slice(0, 3).join(" | ")}`)
+      }
+    }
+
+    // Blockers — what was blocking progress
+    if (!skip.has("blockers") && entry.blockers.length > 0) {
       parts.push(`[blockers] ${entry.blockers.slice(0, 2).join(" | ")}`)
     }
+
+    // Code snippets — relevant context
     if (entry.code_snippets.length > 0 && entry.useful_sections.includes("code") && !skip.has("code")) {
-      parts.push(`[code] ${entry.code_snippets.slice(0, 2).join(" | ")}`)
+      parts.push(`[code context] ${entry.code_snippets.slice(0, 2).join(" | ")}`)
     }
+
+    // If nothing useful, return a minimal note
+    if (parts.length <= 1 && entry.tokens.length > 0) {
+      return `[PIVOT BACK] Returning to workflow tagged: ${entry.tokens.join(", ")}. Intent: ${intent}`
+    }
+
     return parts.join("\n")
   }
 

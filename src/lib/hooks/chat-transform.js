@@ -2,10 +2,12 @@
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { join, basename } from "node:path";
 import { createHash } from "node:crypto";
-import { currentModel, currentProjectFingerprint, currentProjectName, _blackboxEnabled, loadSelection, writeSelection, safeJsonParse, applyDecadence, getSessionScratchpadDir, ensureSessionScratchpadDirs, indexAppend, briefedProjects, getActiveJobForProject, loadTodos, promotedProjectPatterns, detectTechStack, projectFingerprint, TRINITY_OPENCODE_CONFIG, TIERS_FILE, loadGlobalLearning, setCurrentProjectFingerprint, setCurrentProjectName, stableJson, TOOL_NAME_NORMALIZE, } from "../state.js";
+import { currentModel, currentProjectFingerprint, currentProjectName, _blackboxEnabled, loadSelection, writeSelection, safeJsonParse, applyDecadence, getSessionScratchpadDir, ensureSessionScratchpadDirs, indexAppend, briefedProjects, getActiveJobForProject, loadTodos, promotedProjectPatterns, detectTechStack, projectFingerprint, TRINITY_OPENCODE_CONFIG, TIERS_FILE, loadGlobalLearning, setCurrentProjectFingerprint, setCurrentProjectName, stableJson, TOOL_NAME_NORMALIZE, _cacheDb, } from "../state.js";
 import { applySlot, TRINITY_CHEAP, TRINITY_MEDIUM, } from "../pricing.js";
 import { scoreStress, classifyTurnSimple, loadOptimizationMode, saveOptimizationMode, selectOptimizationModeRemote, computeControlVector, getBlackboxTracker, loadBlackboxState as loadBlackboxStateFromCtx, saveBlackboxState as saveBlackboxStateToCtx, extractLastUserText, isLikelyOffTopic, fetchBlackboxEnrichment, estimateContextBudget, buildControlHistoryEntry, } from "../turn-classify.js";
 import { applyBudgetFirstMode, peekBudgetFirstMode } from "../mode-policy.js";
+import { vibemaxPipeline } from "../../vibeOS-lib/blackbox/vibemax.js";
+import { addCacheEntry, extractRecentCacheOutputs } from "../../vibeOS-lib/smart-cache.js";
 import { remoteCall } from "../api-client.js";
 import { loadCredit } from "../credit-api.js";
 import { loadSessionOptMode, loadSessionSlot, writeSessionSlot } from "../selection-manager.js";
@@ -583,6 +585,33 @@ export const onSystemTransform = async (_input, output) => {
         const stressScore = rawStress * (_controlVector?.stress_multiplier ?? 1);
         const credit = loadCredit();
         _turnCountInject++;
+        // ── Pivot detection and PIVOT BACK injection ──
+        if (latestUserIntent && _blackboxEnabled !== false) {
+            try {
+                const pivotResult = await vibemaxPipeline({
+                    user_text: latestUserIntent,
+                    _pivotContext: {
+                        files: onSystemTransform._recentFiles || [],
+                        decisions: onSystemTransform._recentDecisions || [],
+                        blockers: onSystemTransform._recentBlockers || [],
+                        toolOutputs: _cacheDb ? extractRecentCacheOutputs(_cacheDb, 10) : [],
+                    }
+                });
+                if (pivotResult?.pivot?.injection) {
+                    pushSystem(output, pivotResult.pivot.injection);
+                    // Warm smart cache with workflow tool outputs
+                    if (pivotResult.pivot.workflowId && pivotResult.pivot.toolOutputs?.length > 0) {
+                        try {
+                            for (const entry of pivotResult.pivot.toolOutputs) {
+                                addCacheEntry(_cacheDb, entry.hash, entry.tool, entry.prompt, entry.sizeBytes || 1024, entry.ageSec || 3600);
+                            }
+                        }
+                        catch { /* cache warming is best-effort */ }
+                    }
+                }
+            }
+            catch { /* pivot pipeline is best-effort */ }
+        }
         const stressMitigationDirective = rawStress > 0.7
             ? "[stress mitigation: CRITICAL] The user's message shows very high stress indicators. " +
                 "Stay calm, structured, and thorough. Use proper markdown formatting with code blocks, " +

@@ -20,6 +20,7 @@ import {
   setCurrentModel, setCurrentTier,
   setCurrentProjectFingerprint, setCurrentProjectName,
   stableJson, TOOL_NAME_NORMALIZE,
+  _cacheDb,
 } from "../state.js"
 import {
   classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget,
@@ -41,6 +42,8 @@ import {
   buildControlHistoryEntry,
 } from "../turn-classify.js"
 import { applyBudgetFirstMode, peekBudgetFirstMode } from "../mode-policy.js"
+import { vibemaxPipeline } from "../../vibeOS-lib/blackbox/vibemax.js";
+import { addCacheEntry, extractRecentCacheOutputs } from "../../vibeOS-lib/smart-cache.js";
 import { getApiClient, remoteCall } from "../api-client.js"
 import { loadCredit } from "../credit-api.js"
 import { saveReport } from "../reporting.js"
@@ -627,6 +630,35 @@ export const onSystemTransform = async (_input, output) => {
     const stressScore = rawStress * (_controlVector?.stress_multiplier ?? 1)
     const credit = loadCredit()
     _turnCountInject++
+
+    // ── Pivot detection and PIVOT BACK injection ──
+    if (latestUserIntent && _blackboxEnabled !== false) {
+      try {
+        const pivotResult = await vibemaxPipeline({
+          user_text: latestUserIntent,
+          _pivotContext: {
+            files: (onSystemTransform as any)._recentFiles || [],
+            decisions: (onSystemTransform as any)._recentDecisions || [],
+            blockers: (onSystemTransform as any)._recentBlockers || [],
+            toolOutputs: _cacheDb ? extractRecentCacheOutputs(_cacheDb, 10) : [],
+          }
+        })
+        if (pivotResult?.pivot?.injection) {
+          pushSystem(output, pivotResult.pivot.injection)
+          // Warm smart cache with workflow tool outputs
+          if (pivotResult.pivot.workflowId && pivotResult.pivot.toolOutputs?.length > 0) {
+            try {
+              for (const entry of pivotResult.pivot.toolOutputs) {
+                addCacheEntry(
+                  _cacheDb, entry.hash, entry.tool, entry.prompt,
+                  entry.sizeBytes || 1024, entry.ageSec || 3600
+                )
+              }
+            } catch { /* cache warming is best-effort */ }
+          }
+        }
+      } catch { /* pivot pipeline is best-effort */ }
+    }
     const stressMitigationDirective = rawStress > 0.7
       ? "[stress mitigation: CRITICAL] The user's message shows very high stress indicators. " +
         "Stay calm, structured, and thorough. Use proper markdown formatting with code blocks, " +

@@ -91,6 +91,21 @@ export function compositeSimilarity(a, b) {
         cosineSimilarity(a, b) * 0.35 +
         keywordOverlapScore(a, b) * 0.30);
 }
+// ── Cache tool output export for PIVOT snapshot ────────────────────
+export function extractRecentCacheOutputs(db, limit = 10) {
+    if (!db?.entries || !Array.isArray(db.entries))
+        return [];
+    const now = Date.now();
+    return db.entries
+        .slice(-limit)
+        .map(e => ({
+        hash: e.hash || "",
+        tool: e.tool || "",
+        prompt: e.prompt?.slice(0, 120) || "",
+        sizeBytes: e.sizeBytes || 1024,
+        ageSec: e.at ? Math.round((now - new Date(e.at).getTime()) / 1000) : 3600,
+    }));
+}
 // ── Cache database management ───────────────────────────────────────
 export function createCacheDatabase() {
     return { entries: [], stats: {} };

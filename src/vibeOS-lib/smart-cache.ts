@@ -151,6 +151,22 @@ export function compositeSimilarity(a: string, b: string): number {
   )
 }
 
+// ── Cache tool output export for PIVOT snapshot ────────────────────
+
+export function extractRecentCacheOutputs(db: CacheDatabase, limit: number = 10): { hash: string; tool: string; prompt: string; sizeBytes: number; ageSec: number }[] {
+  if (!db?.entries || !Array.isArray(db.entries)) return []
+  const now = Date.now()
+  return db.entries
+    .slice(-limit)
+    .map(e => ({
+      hash: e.hash || "",
+      tool: e.tool || "",
+      prompt: e.prompt?.slice(0, 120) || "",
+      sizeBytes: e.sizeBytes || 1024,
+      ageSec: e.at ? Math.round((now - new Date(e.at).getTime()) / 1000) : 3600,
+    }))
+}
+
 // ── Cache database management ───────────────────────────────────────
 
 export function createCacheDatabase(): CacheDatabase {

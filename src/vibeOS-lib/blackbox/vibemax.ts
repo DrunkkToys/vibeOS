@@ -82,6 +82,7 @@ export function resetVibeMaXPipeline() {
   if (pivotCache) pivotCache.resetSequence();
 }
 
+export { getPivotCache }
 export function vibemaxSelectMode(input = {}) {
   const stress = Number(input.stress_multiplier || input.stress || 0);
   const pm = autoSelectMode(input.sub_regime, stress) || fallback(input.sub_regime, input.user_text || input.prompt || "");
@@ -105,7 +106,13 @@ export function vibemaxSelectMode(input = {}) {
     auto_result: null, tier: "medium", thinking: think, tdd: "quality", flow: "strict",
     enforcement: "strict", wbp: cfg.wbp || "normal", c7: "required", kp: cfg.kp || [3, 6],
     tc: 0.3, amode: "plan", cost: 0.3,
-    pivot: isPivotBack ? { matchedId: pivotBack.matchedId, confidence: pivotBack.confidence, injection } : null,
+    pivot: isPivotBack ? {
+      matchedId: pivotBack.matchedId,
+      confidence: pivotBack.confidence,
+      injection,
+      intent: pivotBack.intent,
+      toolOutputs: (pc.read(pivotBack.matchedId)?.toolOutputs || []),
+    } : null,
   };
 }
 
@@ -123,8 +130,13 @@ export function vibemaxPipeline(input = {}) {
     pc.snapshot(prevId, {
       tokens: [...prevTokens],
       intent: prevMessage.substring(0, 60),
-      decisions: ["previous workflow captured at pivot point"],
-      files: [], code_snippets: [], blockers: [],
+      decisions: (input as any)._pivotContext?.decisions?.length
+        ? (input as any)._pivotContext.decisions
+        : [`workflow: ${prevMessage.substring(0, 80)}`],
+      files: (input as any)._pivotContext?.files || [],
+      code_snippets: (input as any)._pivotContext?.code_snippets || [],
+      blockers: (input as any)._pivotContext?.blockers || [],
+      toolOutputs: (input as any)._pivotContext?.toolOutputs || [],
     });
   }
 
