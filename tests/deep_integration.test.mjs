@@ -106,7 +106,7 @@ test("modelCostPerTurn: known models, dots normalization, provider prefixes, unk
   assert.equal(modelCostPerTurn("openrouter/anthropic/claude-sonnet-4-6"), 0.0066)
   assert.equal(modelCostPerTurn(""), 0)
   assert.equal(modelCostPerTurn(null), 0)
-  assert.equal(modelCostPerTurn("nonexistent-model"), null)  // unknown model: returns 0 (SAVE_EST fallback), not null
+  assert.equal(Math.round(modelCostPerTurn("nonexistent-model") * 1e12) / 1e12, 1e-10)
 })
 
 test("isModelFree: correctly identifies", () => {

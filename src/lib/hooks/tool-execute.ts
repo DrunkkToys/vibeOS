@@ -461,12 +461,10 @@ export const onToolExecuteBefore = async (input, output) => {
   const _workerModel = TRINITY_CHEAP || TRINITY_MEDIUM || null
   const _workerCost  = _workerModel ? (modelCostPerTurn(_workerModel) ?? 0) : 0
   // Keep precision high to avoid dropping tiny but real per-event savings to zero.
-  const _rawEdit    = _brainCost !== null
-    ? Math.max(0, _brainCost - _workerCost)
-    : SAVE_EST.WRITE_EDIT
+  const _rawEdit    = Math.max(0, _brainCost - _workerCost)
   const _estEdit    = Math.max(_rawEdit, SAVE_EST.WRITE_EDIT * 0.1)
-  const _estOpus    = _brainCost !== null ? Math.max(_brainCost, _estEdit) : SAVE_EST.OPUS_DISABLE
-  const _estC7      = _brainCost !== null ? Math.max(_brainCost, SAVE_EST.CONTEXT7) : SAVE_EST.CONTEXT7
+  const _estOpus    = Math.max(_brainCost, _estEdit)
+  const _estC7      = Math.max(_brainCost, SAVE_EST.CONTEXT7)
   const _tierWord   = currentTier === "high" ? "Brain" : currentTier === "mid" ? "Medium" : "Budget"
   const _firstWord = extractFirstWordFromArgs(t, args || inArgs)
   const sel = loadSelection()
