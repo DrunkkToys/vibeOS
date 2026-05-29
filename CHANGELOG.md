@@ -1,3 +1,7 @@
+## 0.20.10
+- feat: wire PIVOT BACK with rich context injection and smart cache warming
+
+
 ## 0.20.9
 - feat: hard-block console.log/debug/info in eslint (warn->error)
 - fix: update constants.js OPUS_DISABLE to 1e-10 (dead code, matches TS source)
