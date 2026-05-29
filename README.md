@@ -4,7 +4,7 @@
 
 Cost-aware control plane for OpenCode Desktop. Keeps expensive models on strategy, routes implementation to cheaper tiers, surfaces savings in real time.
 
----
+For teams, vibeOS adds practical guardrails: delegation enforcement, flow and TDD controls, pattern learning, stress-aware routing, VibeBoX decision tracking, reporting, and remote API protection for the core algorithms.
 
 ## Delegation Enforcement
 
@@ -81,6 +81,33 @@ Model tier classification, static pricing (~20 models), stress scoring, context 
 Bootstrap token exchange, advanced VibeBoX with full session history, dynamic per-prompt delegation, cross-session calibration, live pricing fetch beyond static map.
 
 ---
+
+
+## Local Fallback Mode
+
+Without a token, vibeOS keeps running in local-only mode with bundled algorithms. Here's what works locally versus what requires the remote API.
+
+### Fully Functional Locally
+
+- Model tier classification (brain / medium / cheap)
+- Static pricing for ~20 common models
+- Stress scoring, context budget estimation, and turn classification
+- TDD skeleton generation, text compression, and flow enforcement
+- Savings ledger, session metrics, reports, and footer/dashboard rendering
+- Session-scoped smart cache for duplicate tool output detection
+
+### Requires Remote API
+
+- Bootstrap token exchange (required for initial API setup)
+- Advanced VibeBoX decision engine with full session history tracking
+- Dynamic per-prompt delegation decisions (local fallback uses a safe "block all writes on high tier" default)
+- Learned subagent routing patterns across projects (local fallback uses a static exploratory keyword list)
+- Optimization mode selection via advanced VibeBoX (local fallback uses rule-based selection)
+- Aggregated cross-session calibration and model retraining
+- Live pricing fetch for models beyond the hardcoded map
+
+When the remote API is unreachable, the plugin degrades gracefully to rule-based local algorithms. Core enforcement features continue working — the plugin stays functional and safe, just less adaptive in its routing and mode decisions.
+
 
 ## Install
 
@@ -167,7 +194,9 @@ Single-file runtime `src/index.js` (5529+ lines). TypeScript source of truth at 
 
 ### VibeBoX Decision Engine
 
+
 7 sub-regimes (INIT, DIVERGENT, EXPLORING, REFINING, CONVERGING, CLOSED, LOOPING). Classification via entropy trends, action consistency, feature contradiction, embedding drift. 11 derived features per turn. 4 loop intervention levels. PIVOT/SWITCH detection. Outcome tracking from satisfaction signals.
+
 
 Regime→mode mapping via `syncControlSettings()`:
 
