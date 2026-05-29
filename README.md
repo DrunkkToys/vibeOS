@@ -18,7 +18,7 @@ Every `write`/`edit`/`notebookedit` on the **brain tier** is intercepted, cost-e
 | Medium | `claude-sonnet-4-6` | **$0.0066** | **$0.66** | saves 80% |
 | Cheap | `claude-haiku-4-5` | **$0.0022** | **$0.22** | saves 93% |
 
-*Source: `src/lib/pricing.ts`. Conservative estimates — actual OpenRouter live: Opus $0.011, Sonnet $0.0066, Haiku $0.0022 per turn. The plugin over-estimates brain cost so savings are always understated.*
+*Source: `src/lib/pricing.ts:279-285`. Conservative estimates — actual OpenRouter live: Opus $0.011, Sonnet $0.0066, Haiku $0.0022 per turn. The plugin over-estimates brain cost so savings are always understated.*
 
 ### Savings per Delegation
 
@@ -70,9 +70,9 @@ Quality
 
 ### Branded Modes
 
-**VibeQMaX (Premium)** — Routes all turns through `deepseek/deepseek-v4-pro` with full thinking, strict enforcement, TDD quality, and loop prevention. No cost optimization — pure output quality. Best for: complex debugging, architecture, security review, production code.
+**VibeQMaX (Quality Max)** — The highest-assurance configuration. Routes strategic turns through `deepseek/deepseek-v4-pro` with full thinking, strict enforcement, strict flow checks, and quality TDD. Write/edit turns are delegated to cheaper tiers per enforcement rules, yielding an **effective blended cost of ~$0.00029/turn (≈50% of Raw Top Tier)**. Guardrails include: delegation enforcement blocks costly mistakes, flow pattern validation prevents structural issues, TDD skeleton generation ensures test coverage, and context7 optimization reduces context waste. VibeQMaX maps to the system's **quality** mode — brain-tier settings with the full vibeOS control plane active.
 
-**VibeMaX (ML-Optimized)** — Routes through `deepseek/deepseek-v4-flash` (medium tier). A random forest classifier (29 trees, gini-split, trained on session telemetry) decides each turn whether to apply full quality or budget treatment. Features: message length, code block density, urgency, complexity, instruction density, question ratio. Trained via `trainVibeMaXModelFromTelemetry()` with bootstrap fallback. PivotCache integration restores prior context on return-to-workflow. ~70% of Raw Top Tier quality at 37% of the cost.
+**VibeMaX (ML-Optimized)** — The intelligent cost-quality sweet spot. Routes through `deepseek/deepseek-v4-flash` (medium tier) and uses a random forest classifier (29 trees, gini-split, trained on telemetry) to decide each turn whether to apply optimized (full quality) or budget (fast/cheap) treatment. Classifies on 11 derived features: message length, code block density, urgency signals, complexity, instruction density, question ratio, and more. Trained via `trainVibeMaXModelFromTelemetry()` on real session data with bootstrap fallback. PivotCache integration detects return-to-workflow patterns and restores prior context. Benchmarked at **~70% of Raw Top Tier quality at 37% of the cost**.
 
 ### Benchmark Details
 
@@ -86,7 +86,7 @@ All tests run with `deepseek/deepseek-v4-pro` (brain), `deepseek/deepseek-v4-fla
 |---------|-------------|
 | **Delegation enforcement** | Blocks write/edit on brain tier. Routes to medium or cheap. |
 | **Live savings footer** | Model, provider, cumulative savings, cache savings, stress gauge, lock/enforcement tags. |
-| **Web dashboard** | Vanilla HTML/JS SPA with SSE real-time push. Model split, savings, session history, trinity controls. |
+| **Web dashboard** | SolidJS SPA with SSE real-time push. Model split, savings, session history, trinity controls. |
 | **Trinity runtime** | `trinity set brain\|medium\|cheap`. Switch tiers mid-session. Change optimization mode. |
 | **Flow enforcer** | Pattern-rule checks on write/edit. Extracts TODO/FIXME into an append-only queue. |
 | **TDD enforcer** | Auto-creates test skeletons for changed source. Strict mode: TODO tests fail. |
@@ -258,11 +258,11 @@ Stress > 1.5 escalates any regime to quality.
 
 ### Remote API Server
 
-Fastify + SQLite at `api.vibetheog.com` (deployed separately). Client: `src/lib/api-client.ts` with automatic local fallback. Endpoints: delegation check, tier routing, stress scoring, VibeBoX analysis/calibration, TDD skeleton gen, pattern observation, pricing fetch, context compression. Auth via `VIBEOS_API_TOKEN`.
+`src/vibeOS-api-server/` — Fastify + SQLite at `api.vibetheog.com`. Endpoints: delegation check, tier routing, stress scoring, VibeBoX analysis/calibration, TDD skeleton gen, pattern observation, pricing fetch, context compression. Auth via `VIBEOS_API_TOKEN`. Client: `src/vibeOS-api-server/client.js` with automatic local fallback.
 
 ### Dashboard
 
-Vanilla HTML/JS SPA at `src/lib/dashboard/dist/index.html`. Served by the MCP server. SSE `/events` for real-time push (model split, savings, session history, stress, VibeBoX state).
+SolidJS SPA at `src/dashboard/`. Build: `npm run build:dashboard` (vite). Served by MCP server or standalone. SSE `/events` for real-time push (model split, savings, session history, stress, VibeBoX state).
 
 ---
 
