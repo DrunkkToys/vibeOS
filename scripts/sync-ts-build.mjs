@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync } from "node:fs"
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 
 // Build the list of lib modules to sync
@@ -108,6 +108,12 @@ const mappings = [
 for (const { from, to } of mappings) {
   if (!existsSync(from)) {
     process.stderr.write(`[sync-ts-build] Skipping missing build output: ${from}\n`)
+    continue
+  }
+  const jsContent = readFileSync(from, "utf-8")
+  const trimmed = jsContent.trim()
+  if (trimmed === "export {};" || trimmed === "export {}") {
+    process.stderr.write(`[sync-ts-build] Skipping empty stub: ${from}\n`)
     continue
   }
   mkdirSync(dirname(to), { recursive: true })

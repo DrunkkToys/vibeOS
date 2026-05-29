@@ -20,6 +20,7 @@
   "exclude": [
     "src/**/*.test.ts",
     "src/experiments",
-    "src/dashboard"
+    "src/dashboard",
+    "src/vibeOS-lib/blackbox"
   ]
 }
