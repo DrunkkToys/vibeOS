@@ -193,11 +193,6 @@ export function computeControlVector(state, action, optimizationMode) {
     if (effectiveMode === "auto") {
         effectiveMode = autoSelectMode(regime, state.latest_stress_multiplier);
     }
-    if (effectiveMode === "vibemax") {
-        const baseMode = autoSelectMode(regime, state.latest_stress_multiplier);
-        const vibemaxQuality = ["quality", "longrun", "audit"];
-        effectiveMode = vibemaxQuality.includes(baseMode) ? "vibemax" : "budget";
-    }
     // Apply mode deltas on top of base (only for non-balanced modes)
     const delta = effectiveMode !== "balanced" ? (MODE_DELTAS[effectiveMode] || {}) : {};
     const overridden = {
