@@ -1,3 +1,11 @@
+## 0.20.9
+- feat: hard-block console.log/debug/info in eslint (warn->error)
+- fix: update constants.js OPUS_DISABLE to 1e-10 (dead code, matches TS source)
+- fix: modelCostPerTurn returns FREE_MODEL_TURN_USD for unknown models
+- docs: rename blackbox to VibeBoX and document local fallback
+- docs: dopamine-style README reformat with OPUS->SONNET->HAIKU pricing
+
+
 ## 0.20.7
 - fix: ship compiled OpenCode plugin bundle
 - fix: always show model label in tool.execute.after footer, even with zero savings
