@@ -49,7 +49,7 @@ Benchmarked on the DeepSeek v4 family — the default model stack for vibeOS.
 | **Raw Top Tier** | v4 Pro | full | — | — | — | baseline | $0.00057 | 1.00x | — |
 | **VibeQMaX**  (quality) | v4 Pro | full | strict | strict | quality | ~baseline | $0.00029 | 0.50x | **50%** |
 | **VibeMaX** ⭐ | v4 Flash | full | strict | strict | quality | ~70% | $0.00021 | 0.37x | **63%** |
-| **speed** | v4 Flash | off | relaxed | audit | lazy | ~70% | $0.00018 | 0.32x | 68% |
+| **speed** | v4 Flash | off | relaxed | audit | lazy | ~55% | $0.00018 | 0.32x | 68% |
 | **budget** | DeepSeek Chat | off | relaxed | audit | lazy | ~40% | $0.00015 | 0.26x | 74% |
 | **auto** | varies | auto | auto | auto | auto | varies | varies | varies | varies |
 
@@ -60,7 +60,8 @@ The raw model (v4 Pro, full thinking) sets the quality baseline. VibeQMaX uses t
 ```
 Quality
   baseline  ● Raw Top Tier · VibeQMaX
-  ~70%      │   ● VibeMaX ⭐ · speed
+  ~70%      │   ● VibeMaX ⭐
+  ~55%      │   ● speed
   ~40%      │   ● budget
             │
             └────────────────────────
