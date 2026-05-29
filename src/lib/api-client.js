@@ -274,6 +274,21 @@ export class VibeOSApiClient {
     async blackboxSelectMode(subRegime, stressMultiplier) {
         return this.request("/api/v1/blackbox/select-mode", { sub_regime: subRegime, stress_multiplier: stressMultiplier });
     }
+    async vibemaxSelect(input = {}) {
+        return this.request("/api/v1/vibemax/select", input);
+    }
+    async vibemaxPipeline(input = {}) {
+        return this.request("/api/v1/vibemax/pipeline", input);
+    }
+    async vibemaxReset() {
+        return this.request("/api/v1/vibemax/reset", null);
+    }
+    async vibemaxModel() {
+        return this.request("/api/v1/vibemax/model", null);
+    }
+    async vibemaxTrain(telemetryPath = null) {
+        return this.request("/api/v1/vibemax/train", { telemetry_path: telemetryPath });
+    }
     async tddExports(sourceContent, ext) {
         return this.request("/api/v1/tdd/exports", { source_content: sourceContent, ext });
     }

@@ -324,6 +324,26 @@ export class VibeOSApiClient {
     return this.request("/api/v1/blackbox/select-mode", { sub_regime: subRegime, stress_multiplier: stressMultiplier })
   }
 
+  async vibemaxSelect(input: Record<string, unknown> = {}): Promise<unknown> {
+    return this.request("/api/v1/vibemax/select", input)
+  }
+
+  async vibemaxPipeline(input: Record<string, unknown> = {}): Promise<unknown> {
+    return this.request("/api/v1/vibemax/pipeline", input)
+  }
+
+  async vibemaxReset(): Promise<unknown> {
+    return this.request("/api/v1/vibemax/reset", null)
+  }
+
+  async vibemaxModel(): Promise<unknown> {
+    return this.request("/api/v1/vibemax/model", null)
+  }
+
+  async vibemaxTrain(telemetryPath: string | null = null): Promise<unknown> {
+    return this.request("/api/v1/vibemax/train", { telemetry_path: telemetryPath })
+  }
+
   async tddExports(sourceContent: string, ext: string): Promise<unknown> {
     return this.request("/api/v1/tdd/exports", { source_content: sourceContent, ext })
   }

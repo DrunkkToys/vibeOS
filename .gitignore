@@ -39,7 +39,6 @@ src/tests/
 test_blackbox_state.mjs
 
 # Blackbox protected algorithms — source not included in public repo
-src/vibeOS-lib/blackbox/
 
 # vibeOS API server runtime data
 src/vibeOS-api-server/data/
