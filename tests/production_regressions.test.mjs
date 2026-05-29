@@ -687,3 +687,132 @@ test("readReport returns complete data from saveReport round-trip", async () => 
   assert.ok(report.tags.includes("test"), "tags should include 'test'")
   assert.ok(report.tags.includes("round-trip"), "tags should include 'round-trip'")
 })
+
+
+// ═══════════════════════════════════════════════════════════════════════
+// Section: v0.20.11 — PIVOT BACK, free deepseek-chat, auto-bootstrap
+// ═══════════════════════════════════════════════════════════════════════
+
+// ── v0.20.11: deepseek-chat is free ($1e-12) ──
+test("v0.20.11 — deepseek-chat costs $1e-12 and isModelFree returns true", async () => {
+  const { modelCostPerTurn, isModelFree } = await loadPlugin()
+
+  assert.equal(Math.round(modelCostPerTurn("deepseek-chat") * 1e15) / 1e15,
+    0.000000000001, "deepseek-chat short form = $1e-12")
+  assert.equal(Math.round(modelCostPerTurn("deepseek/deepseek-chat") * 1e15) / 1e15,
+    0.000000000001, "deepseek/deepseek-chat full = $1e-12")
+  assert.equal(isModelFree("deepseek-chat"), true, "deepseek-chat is free")
+  assert.equal(isModelFree("deepseek/deepseek-chat"), true, "deepseek/deepseek-chat is free")
+})
+
+// ── v0.20.11: deepseek-v4-flash is premium (not free) ──
+test("v0.20.11 — deepseek-v4-flash is NOT free, costs $0.000182", async () => {
+  const { modelCostPerTurn, isModelFree } = await loadPlugin()
+
+  assert.equal(modelCostPerTurn("deepseek/deepseek-v4-flash"), 0.000182,
+    "v4-flash costs $0.000182/turn")
+  assert.equal(isModelFree("deepseek/deepseek-v4-flash"), false,
+    "v4-flash is NOT free")
+  assert.equal(isModelFree("deepseek/deepseek-v4-pro"), false,
+    "v4-pro is NOT free")
+})
+
+// ── v0.20.11: modelCostPerTurn returns FREE_MODEL_TURN_USD for unknown models ──
+test("v0.20.11 — unknown models return FREE_MODEL_TURN_USD (1e-10), not null", async () => {
+  const { modelCostPerTurn, isModelFree } = await loadPlugin()
+
+  const unknowns = ["nonexistent/vendor-xyz", "totally/unknown-model"]
+  for (const model of unknowns) {
+    const cost = modelCostPerTurn(model)
+    assert.equal(Math.round(cost * 1e12) / 1e12, 1e-10,
+      `unknown model "${model}" should return 1e-10, got ${cost}`)
+    assert.equal(isModelFree(model), true,
+      `unknown model "${model}" should be treated as free`)
+  }
+})
+
+// ── v0.20.11: SAVE_EST.OPUS_DISABLE is no longer present in constants ──
+test("v0.20.11 — OPUS_DISABLE constant is removed", async () => {
+  const { SAVE_EST } = await import("../src/lib/constants.js?t=" + Date.now())
+
+  assert.ok(SAVE_EST, "SAVE_EST should exist")
+  assert.equal("OPUS_DISABLE" in SAVE_EST, false,
+    "OPUS_DISABLE should NOT exist in SAVE_EST")
+  assert.equal(SAVE_EST.WRITE_EDIT, 0.0004, "WRITE_EDIT should still be 0.0004")
+  assert.equal(SAVE_EST.CONTEXT7, 0.00014, "CONTEXT7 should still be 0.00014")
+})
+
+// ── v0.20.11: PIVOT BACK pipeline is importable and functional ──
+test("v0.20.11 — vibemaxPipeline exports and runs without throwing", async () => {
+  const { vibemaxPipeline, resetVibeMaXPipeline, getPivotCache } =
+    await import("../src/vibeOS-lib/blackbox/vibemax.js?t=" + Date.now())
+
+  assert.equal(typeof vibemaxPipeline, "function", "vibemaxPipeline is a function")
+  assert.equal(typeof resetVibeMaXPipeline, "function", "resetVibeMaXPipeline is a function")
+  assert.equal(typeof getPivotCache, "function", "getPivotCache is a function")
+
+  resetVibeMaXPipeline()
+
+  // First message should not detect pivot
+  const r1 = await vibemaxPipeline({ user_text: "write a unit test" })
+  assert.equal(r1.pivot_detected, false, "first message: no pivot")
+
+  // Different message should detect pivot
+  const r2 = await vibemaxPipeline({ user_text: "deploy to production" })
+  assert.equal(r2.pivot_detected, true, "second message: pivot detected")
+  assert.equal(r2.mode, "budget", "pivot should route to budget mode")
+})
+
+// ── v0.20.11: PivotCache buildInjection produces useful output ──
+test("v0.20.11 — PivotCache buildInjection produces PIVOT BACK context", async () => {
+  const { PivotCache } = await import("../src/vibeOS-lib/blackbox/pivot-cache.js?t=" + Date.now())
+  const { mkdtempSync, rmSync } = await import("node:fs")
+  const { tmpdir } = await import("node:os")
+
+  const tmp = mkdtempSync(join(tmpdir(), "pivot-test-"))
+  try {
+    const cache = new PivotCache(tmp)
+    const tokens = cache.tokenize("fix the validation bug in auth module")
+    cache.snapshot("wf-test-1", {
+      tokens: [...tokens],
+      intent: "fix the validation bug in auth module",
+      decisions: ["validate inputs before processing", "use zod for schema validation"],
+      files: ["src/lib/validation.ts", "tests/validation.test.ts"],
+      code_snippets: [],
+      blockers: ["missing import in auth module", "circular dependency in validation"],
+      toolOutputs: [],
+    })
+
+    const injection = cache.buildInjection("wf-test-1")
+    assert.ok(injection.includes("PIVOT BACK"), "injection should contain PIVOT BACK marker")
+    assert.ok(injection.includes("fix the validation bug"), "injection should contain intent")
+    assert.ok(injection.includes("src/lib/validation.ts"), "injection should contain filenames")
+    assert.ok(injection.includes("validate inputs before processing"), "injection should contain decisions")
+    assert.ok(injection.includes("missing import in auth module"), "injection should contain blockers")
+    assert.ok(!injection.includes("previous workflow captured at pivot point"),
+      "injection should NOT contain placeholder text")
+  } finally {
+    rmSync(tmp, { recursive: true, force: true })
+  }
+})
+
+// ── v0.20.11: _seedModelTiersIfMissing has sensible defaults ──
+test("v0.20.11 — auto-bootstrap fallback exists in plugin source", async () => {
+  const { readFileSync } = await import("node:fs")
+  const { join, dirname } = await import("node:path")
+  const { fileURLToPath } = await import("node:url")
+
+  const projectRoot = join(dirname(fileURLToPath(import.meta.url)), "..")
+  const deployed = readFileSync(
+    join(projectRoot, "src", "index.js"), "utf-8"
+  )
+
+  assert.ok(deployed.includes("deepseek/deepseek-v4-pro"),
+    "default tier: v4-pro should be in deployed bundle")
+  assert.ok(deployed.includes("deepseek/deepseek-v4-flash"),
+    "default tier: v4-flash should be in deployed bundle")
+  assert.ok(deployed.includes("deepseek/deepseek-chat"),
+    "default tier: v4-chat should be in deployed bundle")
+  assert.ok(deployed.includes("no providers detected"),
+    "should log when falling back to defaults")
+})
