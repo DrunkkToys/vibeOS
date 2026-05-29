@@ -24,7 +24,7 @@ export function resolveOptimizationMode(subRegime, stressMultiplier, optimizatio
     const normalized = String(optimizationMode || "auto").toLowerCase();
     if (normalized === "auto" || normalized === "")
         return autoSelectMode(subRegime || "INIT", stressMultiplier);
-    if (normalized === "balanced" || normalized === "budget" || normalized === "quality" || normalized === "speed" || normalized === "longrun") {
+    if (normalized === "balanced" || normalized === "budget" || normalized === "quality" || normalized === "speed" || normalized === "longrun" || normalized === "vibemax") {
         return normalized;
     }
     return "budget";

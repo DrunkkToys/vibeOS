@@ -2,7 +2,7 @@ import { BLACKBOX_STATE_FILE, _OC_SID, loadBlackboxState, saveBlackboxState, wit
 const BASELINE_MODE = "budget";
 const LOOP_REGIMES = new Set(["LOOPING", "DIVERGENT"]);
 const QUALITY_REGIMES = new Set(["CONVERGING", "CLOSED"]);
-const MANUAL_MODES = new Set(["balanced", "quality", "speed", "longrun"]);
+const MANUAL_MODES = new Set(["balanced", "quality", "speed", "longrun", "vibemax"]);
 function normalizeMode(mode) {
     const normalized = String(mode || BASELINE_MODE).toLowerCase();
     if (normalized === "auto" || normalized === "")
