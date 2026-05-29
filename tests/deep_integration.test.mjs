@@ -97,7 +97,7 @@ async function freshPlugin(dir = projectDir) {
 test("modelCostPerTurn: known models, dots normalization, provider prefixes, unknown", () => {
   assert.equal(modelCostPerTurn("deepseek/deepseek-v4-pro"), 0.00057)
   assert.equal(modelCostPerTurn("deepseek/deepseek-v4-flash"), 0.000182)
-  assert.equal(modelCostPerTurn("deepseek/deepseek-chat"), 0.000182, "deepseek-chat costs 0.000182")
+  assert.equal(Math.round(modelCostPerTurn("deepseek/deepseek-chat") * 1e15) / 1e15, 0.000000000001, "deepseek-chat is free (1e-12)")
   assert.equal(modelCostPerTurn("anthropic/claude-opus-4-7"), 0.033)
   assert.equal(modelCostPerTurn("mistral/mistral-large-latest"), 0.123, "config override cost")
   // anthropic prefix + dots: normalization strips dots but not anthropic/ prefix
@@ -197,7 +197,7 @@ test("classifyAndRankModels: full set, mixed providers, two models, dedup, empty
   assert.equal(r1.cheap.id, "deepseek/deepseek-v4-flash", "cheapest usable model is deepseek-v4-flash")
 
   const r2 = classifyAndRankModels([
-    { id: "deepseek/deepseek-chat", provider: "deepseek", cost: 0.000182, tier: "budget" },
+    { id: "deepseek/deepseek-chat", provider: "deepseek", cost: 0.000000000001, tier: "budget" },
     { id: "deepseek/deepseek-v4-pro", provider: "deepseek", cost: 0.00057, tier: "high" },
   ])
   assert.equal(r2.brain.id, "deepseek/deepseek-v4-pro")

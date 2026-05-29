@@ -1253,20 +1253,20 @@ test("modelCostPerTurn: known models return expected $/turn", async () => {
   const { modelCostPerTurn } = await loadPlugin()
   assert.equal(modelCostPerTurn("anthropic/claude-opus-4-7"), 0.033, "opus = $0.033/turn")
   assert.equal(modelCostPerTurn("anthropic/claude-haiku-4-5"), 0.0022, "haiku = $0.0022/turn")
-  assert.equal(modelCostPerTurn("deepseek/deepseek-chat"), 0.000182, "deepseek-chat = $0.000182/turn")
-  assert.equal(modelCostPerTurn("deepseek-chat"), 0.000182, "deepseek-chat short form = $0.000182/turn")
+  assert.equal(Math.round(modelCostPerTurn("deepseek/deepseek-chat") * 1e15) / 1e15, 0.000000000001, "deepseek-chat = $1e-12/turn (free)")
+  assert.equal(Math.round(modelCostPerTurn("deepseek-chat") * 1e15) / 1e15, 0.000000000001, "deepseek-chat short = $1e-12/turn (free)")
   assert.equal(modelCostPerTurn(null), 0, "null → 0")
 })
 
-test("modelCostPerTurn: unknown model returns null (falls back to SAVE_EST)", async () => {
+test("modelCostPerTurn: unknown model returns FREE_MODEL_TURN_USD (1e-10)", async () => {
   const { modelCostPerTurn } = await loadPlugin()
   assert.equal(modelCostPerTurn("some/unknown-model-xyz"), 1e-10)
 })
 
 test("isModelFree: deepseek-chat is free; opus is not", async () => {
   const { isModelFree } = await loadPlugin()
-  assert.equal(isModelFree("deepseek/deepseek-chat"), false)
-  assert.equal(isModelFree("deepseek-chat"), false)
+  assert.equal(isModelFree("deepseek/deepseek-chat"), true, "deepseek-chat is free")
+  assert.equal(isModelFree("deepseek-chat"), true, "deepseek-chat short form is free")
   assert.equal(isModelFree("anthropic/claude-opus-4-7"), false)
   assert.equal(isModelFree("anthropic/claude-haiku-4-5"), false)
   assert.equal(isModelFree("some/unknown-model"), true, "unknown model is free (FREE_MODEL_TURN_USD)")
@@ -1301,8 +1301,8 @@ test("free-model brain: no enforcement warnings even at high tier", async () => 
   const afterCount = existsSync(stateFile)
     ? JSON.parse(readFileSync(stateFile, "utf-8"))?.lifetime?.warn_count ?? 0
     : 0
-  assert.equal(afterCount, beforeCount + 3,
-    "3 warns recorded when brain is not free (deepseek-chat dynamic pricing)")
+  assert.equal(afterCount, beforeCount,
+    "0 warns — deepseek-chat is free ($1e-12), enforcement skipped")
 })
 
 test("dynamic estimate: opus brain + haiku worker → brain_cost - worker_cost", async () => {
