@@ -121,7 +121,8 @@ export function createMcpServer(deps) {
             if (method === "GET" && path === "/status") {
                 const state = deps.getState();
                 const ok = await probeBackendHealth();
-                json(res, 200, { ...state, backend_connected: ok === true, backend_health_url: BACKEND_HEALTH_URL });
+                const bb = deps.getBlackboxState();
+                json(res, 200, { ...state, backend_connected: ok === true, backend_health_url: BACKEND_HEALTH_URL, blackbox: bb ?? null });
                 return;
             }
             if (method === "GET" && path === "/savings") {
@@ -191,6 +192,10 @@ export function createMcpServer(deps) {
                 json(res, 200, deps.runProject());
                 return;
             }
+            if (method === "GET" && path === "/blackbox") {
+                json(res, 200, deps.getBlackboxState() || {});
+                return;
+            }
             if (method === "POST" && path === "/trinity") {
                 let body;
                 try {
@@ -258,6 +263,32 @@ export function createMcpServer(deps) {
             if (method === "POST" && path === "/sessions/checkout") {
                 const result = deps.generateSessionCheckout();
                 json(res, 200, result);
+                return;
+            }
+            if (method === "POST" && path === "/blackbox/vector") {
+                let body;
+                try {
+                    body = await parseBody(req);
+                }
+                catch {
+                    json(res, 400, { error: "invalid request", status: 400 });
+                    return;
+                }
+                deps.saveBlackboxVector(body);
+                json(res, 200, { ok: true });
+                return;
+            }
+            if (method === "POST" && path === "/blackbox/outcome") {
+                let body;
+                try {
+                    body = await parseBody(req);
+                }
+                catch {
+                    json(res, 400, { error: "invalid request", status: 400 });
+                    return;
+                }
+                deps.saveBlackboxOutcome(body);
+                json(res, 200, { ok: true });
                 return;
             }
             if (method === "GET" && path === "/") {

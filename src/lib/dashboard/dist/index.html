@@ -49,6 +49,15 @@ select,textarea{background:var(--surface2);color:var(--text);border:1px solid va
 textarea{min-height:80px;resize:vertical}
 .form-row{display:flex;gap:8px;margin-bottom:8px}
 .form-row>*{flex:1}
+
+.signal-row, .feature-row { display: flex; justify-content: space-between; padding: 2px 0; }
+.signal-key, .feature-key { color: #8b949e; font-size: 12px; }
+.signal-val, .feature-val { color: #e6edf3; font-family: monospace; font-size: 12px; }
+.fb-btn { margin: 0 4px; padding: 4px 10px; border: 1px solid #30363d; border-radius: 4px; background: #161b22; color: #e6edf3; cursor: pointer; }
+.fb-btn.active { border-color: #58a6ff; background: #1f2937; }
+#bb-momentum-bar { height: 6px; border-radius: 3px; transition: width 0.3s; }
+#bb-stress-gauge { font-size: 24px; letter-spacing: 2px; }
+
 </style>
 </head>
 <body>
@@ -67,6 +76,7 @@ textarea{min-height:80px;resize:vertical}
   <button class="tab" data-tab="sessions">Sessions</button>
   <button class="tab" data-tab="reports">Reports</button>
   <button class="tab" data-tab="controls">Controls</button>
+  <button class="tab" data-tab="blackbox-panel">Blackbox</button>
 </nav>
 
 <div id="panel-status" class="panel active">
@@ -125,6 +135,75 @@ textarea{min-height:80px;resize:vertical}
     <pre id="projectOutput" style="background:var(--surface2);padding:12px;border-radius:4px;font-size:12px;white-space:pre-wrap;color:var(--text2);min-height:60px"></pre>
   </div>
 </div>
+<div id="blackbox-panel" class="panel content">
+  <div class="grid">
+    <div class="card">
+      <h3>Regime &amp; Resolution</h3>
+      <div class="row"><span class="label">Sub-Regime</span><span class="value"><span id="bb-regime-badge" style="padding:2px 8px;border-radius:10px;font-size:11px;color:#fff">INIT</span></span></div>
+      <div class="row"><span class="label">Resolution</span><span class="value" id="bb-resolution">INIT</span></div>
+      <div class="row"><span class="label">Continuity</span><span class="value" id="bb-continuity">-</span></div>
+      <div style="margin-top:8px"><span class="label">Momentum</span>
+        <div style="background:var(--surface2);height:6px;border-radius:3px;margin-top:4px;position:relative">
+          <div id="bb-momentum-bar" style="width:0%;height:6px;border-radius:3px;background:#198754;transition:width 0.3s;margin-left:50%"></div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <h3>Loop Detection</h3>
+      <div class="row"><span class="label">Status</span><span class="value" id="bb-loop-active">inactive</span></div>
+      <div class="row"><span class="label">Intervention</span><span class="value" id="bb-loop-level">Level 0</span></div>
+      <div class="row"><span class="label">Consecutive</span><span class="value" id="bb-loop-count">consecutive: 0</span></div>
+      <div class="row"><span class="label">Message</span><span class="value" id="bb-loop-msg" style="font-size:12px">-</span></div>
+    </div>
+    <div class="card">
+      <h3>Pivot Detection</h3>
+      <div class="row"><span class="label">Status</span><span class="value" id="bb-pivot-detected">none</span></div>
+      <div class="row"><span class="label">Message</span><span class="value" id="bb-pivot-msg" style="font-size:12px">-</span></div>
+    </div>
+    <div class="card">
+      <h3>Stress Gauge</h3>
+      <div style="text-align:center">
+        <div id="bb-stress-gauge" style="font-size:24px;letter-spacing:2px"></div>
+        <div class="value" id="bb-stress-level" style="font-size:18px">0</div>
+      </div>
+    </div>
+    <div class="card full">
+      <h3>Signals</h3>
+      <div id="bb-signals"><p class="loading">No data</p></div>
+    </div>
+    <div class="card full">
+      <h3>Features</h3>
+      <div id="bb-features"><p class="loading">No data</p></div>
+    </div>
+    <div class="card full">
+      <h3>Feedback</h3>
+      <div class="form-row">
+        <span class="label" style="line-height:2">Satisfaction:</span>
+        <button class="fb-btn" id="bb-fb-positive">&#x1f44d; positive</button>
+        <button class="fb-btn" id="bb-fb-neutral">neutral</button>
+        <button class="fb-btn" id="bb-fb-negative">&#x1f44e; negative</button>
+      </div>
+      <div class="form-row">
+        <span class="label">Stress Level:</span>
+        <select id="bb-fb-stress">
+          <option value="0">-</option>
+          <option value="1">1</option>
+          <option value="2">2</option>
+          <option value="3">3</option>
+          <option value="4">4</option>
+          <option value="5">5</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label style="display:flex;align-items:center;gap:4px">
+          <input type="checkbox" id="bb-fb-loop"> Stuck in a loop?
+        </label>
+      </div>
+      <textarea id="bb-fb-notes" placeholder="Notes..."></textarea>
+      <button class="action" id="bb-fb-submit" onclick="sendBlackboxFeedback()">Send Feedback</button>
+    </div>
+  </div>
+</div>
 
 <div class="last-update" id="lastUpdate"></div>
 
@@ -144,6 +223,7 @@ document.querySelectorAll('[data-tab]').forEach(btn => {
     if (tab === 'reports') loadReports();
     if (tab === 'controls') { loadDiagnose(); loadProject(); }
     if (tab === 'sessions') loadSessions();
+    if (tab === 'blackbox-panel') fetchBlackbox();
   });
 });
 
@@ -387,6 +467,113 @@ async function loadSessions() {
 // Initial load
 refreshAll();
 setInterval(refreshAll, 10000);
+setInterval(fetchBlackbox, 15000);
+async function fetchBlackbox() {
+    try {
+        const resp = await fetch('/blackbox');
+        if (!resp.ok) return;
+        const data = await resp.json();
+        updateBlackboxPanel(data);
+    } catch (_) {}
+}
+
+function updateBlackboxPanel(bb) {
+    if (!bb) return;
+    const el = (id) => document.getElementById(id);
+
+    const r = bb.sub_regime || 'INIT';
+    const b = el('bb-regime-badge');
+    if (b) {
+        b.textContent = r;
+        const colors = { INIT: '#6c757d', EXPLORING: '#0d6efd', DIVERGENT: '#0d6efd', REFINING: '#0dcaf0', CONVERGING: '#198754', CLOSED: '#198754', LOOPING: '#dc3545' };
+        b.style.background = colors[r] || '#6c757d';
+    }
+
+    const res = el('bb-resolution');
+    if (res) res.textContent = bb.resolution || 'INIT';
+
+    const mom = el('bb-momentum-bar');
+    if (mom) {
+        const v = Math.max(-1, Math.min(1, bb.momentum ?? 0));
+        mom.style.width = Math.abs(v * 100) + '%';
+        mom.style.background = v >= 0 ? '#198754' : '#dc3545';
+        mom.style.marginLeft = v >= 0 ? '50%' : (50 - Math.abs(v * 50)) + '%';
+    }
+
+    updateById('bb-continuity', bb.continuity_state || '-');
+
+    const loop = bb.loop || {};
+    updateById('bb-loop-active', loop.active ? 'ACTIVE' : 'inactive');
+    updateById('bb-loop-level', 'Level ' + (loop.intervention_level || 0));
+    updateById('bb-loop-count', 'consecutive: ' + (loop.consecutive_loops || 0));
+    updateById('bb-loop-msg', loop.message || '-');
+
+    const pivot = bb.pivot || {};
+    updateById('bb-pivot-detected', pivot.detected ? 'PIVOT DETECTED' : 'none');
+    updateById('bb-pivot-msg', pivot.message || '-');
+
+    const stress = bb.stress_level ?? 0;
+    updateById('bb-stress-level', String(stress));
+    const gauge = el('bb-stress-gauge');
+    if (gauge) {
+        const blocks = ['', '\u2581', '\u2582', '\u2583', '\u2585', '\u2586', '\u2588'];
+        gauge.textContent = blocks[Math.min(Math.round(stress * 2), 5)] || '';
+    }
+
+    const signals = el('bb-signals');
+    if (signals && bb.signals) {
+        signals.innerHTML = Object.entries(bb.signals).map(([k, v]) => {
+            const val = typeof v === 'number' ? v.toFixed(3) : String(v);
+            return '<div class="signal-row"><span class="signal-key">' + k + '</span><span class="signal-val">' + val + '</span></div>';
+        }).join('');
+    }
+
+    const features = el('bb-features');
+    if (features && bb.features) {
+        features.innerHTML = Object.entries(bb.features).filter(([k]) => typeof k === 'string' && !k.startsWith('_')).slice(0, 12).map(([k, v]) => {
+            const val = typeof v === 'number' ? v.toFixed(3) : String(v);
+            return '<div class="feature-row"><span class="feature-key">' + k + '</span><span class="feature-val">' + val + '</span></div>';
+        }).join('');
+    }
+}
+
+function updateById(id, text) {
+    const e = document.getElementById(id);
+    if (e) e.textContent = text;
+}
+
+async function sendBlackboxFeedback() {
+    const el = (id) => document.getElementById(id);
+    const satisfaction = el('bb-fb-positive')?.classList.contains('active') ? 'positive'
+        : el('bb-fb-negative')?.classList.contains('active') ? 'negative' : 'neutral';
+    const stress = parseInt(el('bb-fb-stress')?.value || '0');
+    const isLooping = el('bb-fb-loop')?.checked || false;
+    const notes = el('bb-fb-notes')?.value || '';
+
+    const vector = { type: 'dashboard_feedback', satisfaction, stress_level: stress, is_looping: isLooping, notes };
+    const outcome = { satisfaction };
+
+    try {
+        await Promise.all([
+            fetch('/blackbox/vector', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(vector) }),
+            fetch('/blackbox/outcome', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(outcome) }),
+        ]);
+        if (el('bb-fb-submit')) el('bb-fb-submit').textContent = 'Sent!';
+        setTimeout(() => { if (el('bb-fb-submit')) el('bb-fb-submit').textContent = 'Send Feedback'; }, 2000);
+    } catch (_) {
+        if (el('bb-fb-submit')) el('bb-fb-submit').textContent = 'Error';
+    }
+}
+
+// Blackbox satisfaction button toggle
+['positive', 'negative'].forEach(type => {
+    const btn = document.getElementById('bb-fb-' + type);
+    if (btn) btn.addEventListener('click', () => {
+        document.querySelectorAll('.fb-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+    });
+});
+
 </script>
 </body>
 </html>
