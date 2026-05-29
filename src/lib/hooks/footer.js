@@ -169,15 +169,22 @@ async function _appendFooter(input, output, directory) {
             null;
         if (messageID && textCompletePainted.has(messageID))
             return;
-        const text = typeof output?.text === "string" ? output.text :
-            typeof output?.result === "string" ? output.result :
-                typeof output?.content === "string" ? output.content :
-                    "";
-        if (!text) {
-            if (messageID)
-                textCompletePainted.add(messageID);
-            return;
+        function _extractText(obj) {
+            if (typeof obj?.text === "string")
+                return obj.text;
+            if (typeof obj?.result === "string")
+                return obj.result;
+            if (typeof obj?.content === "string")
+                return obj.content;
+            if (Array.isArray(obj?.content))
+                return obj.content.filter(p => p?.type === "text").map(p => p.text).filter(Boolean).join("\n");
+            if (Array.isArray(obj?.parts))
+                return obj.parts.filter(p => p?.type === "text").map(p => p.text).filter(Boolean).join("\n");
+            return "";
         }
+        const text = _extractText(output);
+        if (!text)
+            return;
         const { ltTasks, ltCache, ltCost, count, sesTasks, sesEdit, sesCredit, sesC7, sesQuota, sesCache, sesTaskDelegations, sesDuration, sesRatePerHour, sesTrend, sesToolBreakdown, sesModelTurns, quality_avg } = readLifetimeSavings();
         const { stableStreak, problemStreak } = readRewardSignals();
         const sessionSlot = loadSessionSlot(_OC_SID);
@@ -293,7 +300,7 @@ async function _appendFooter(input, output, directory) {
         if (_blackboxEnabled) {
             try {
                 const prevText = _prevOutputText;
-                _prevOutputText = typeof output?.text === "string" ? output.text : typeof output?.result === "string" ? output.result : "";
+                _prevOutputText = _extractText(output) || "";
                 if (_prevOutputText && prevText && _prevOutputText !== prevText) {
                     const outcome = detectOutcomeSignal(_prevOutputText);
                     if (outcome) {
@@ -316,14 +323,35 @@ async function _appendFooter(input, output, directory) {
             }
             catch { }
         }
-        if (typeof output?.text === "string")
-            output.text = footerText;
-        else if (typeof output?.result === "string")
-            output.result = footerText;
-        else if (typeof output?.content === "string")
-            output.content = footerText;
-        else
-            output.text = footerText;
+        function _setFooter(obj, text) {
+            if (typeof obj?.text === "string")
+                obj.text = text;
+            else if (typeof obj?.result === "string")
+                obj.result = text;
+            else if (typeof obj?.content === "string")
+                obj.content = text;
+            else if (Array.isArray(obj?.content)) {
+                const textParts = obj.content.filter(p => p?.type === "text");
+                if (textParts.length > 0)
+                    textParts[textParts.length - 1].text = text;
+                else
+                    obj.content.push({ type: "text", text });
+            }
+            else if (Array.isArray(obj?.parts)) {
+                const textParts = obj.parts.filter(p => p?.type === "text");
+                if (textParts.length > 0)
+                    textParts[textParts.length - 1].text = text;
+                else
+                    obj.parts.push({ type: "text", text });
+            }
+            else
+                obj.text = text;
+        }
+        _setFooter(output, footerText);
+        // CLI/pipe mode: stdout is already rendered, write footer to stderr
+        if (!process.stdout?.isTTY) {
+            console.error(`\n${vibeLine} —`);
+        }
         textCompletePainted.add(messageID);
         if (textCompletePainted.size > 500) {
             const it = textCompletePainted.values();

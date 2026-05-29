@@ -380,3 +380,61 @@ test("edge: corrupted config, missing files, empty state, stress", async () => {
 })
 
 console.log("\n\u2705 All deep integration tests complete")
+
+test("message.updated: CLI output shape with content array (Part[])", async () => {
+  const hooks = await freshPlugin()
+  const o = { content: [{ type: "text", text: "Hello from CLI mode. This is long enough to trigger the vibeOS footer. Really quite long indeed." }] }
+  await hooks["message.updated"]({ messageID: "cli-1" }, o)
+  const extracted = o.content.filter(p => p.type === "text").map(p => p.text).join("\n")
+  assert.ok(extracted.includes("deepseek") || extracted.includes("AUTO→") || extracted.includes("VIBE"), "footer on Content[]: " + extracted.slice(-60))
+})
+
+test("message.updated: CLI output shape with parts array", async () => {
+  const hooks = await freshPlugin()
+  const o = { parts: [{ type: "text", text: "Another CLI message that should get the vibeOS footer treatment appended properly here." }] }
+  await hooks["message.updated"]({ messageID: "cli-2" }, o)
+  const extracted = o.parts.filter(p => p.type === "text").map(p => p.text).join("\n")
+  assert.ok(extracted.includes("deepseek") || extracted.includes("AUTO→") || extracted.includes("VIBE"), "footer on Parts[]: " + extracted.slice(-60))
+})
+
+test("message.updated: CLI dedup with content array", async () => {
+  const hooks = await freshPlugin()
+  const o = { content: [{ type: "text", text: "This is a CLI message that is long enough to get the vibeOS footer appended. Definitely." }] }
+  await hooks["message.updated"]({ messageID: "cli-dedup" }, o)
+  const before = o.content.filter(p => p.type === "text").map(p => p.text).join("\n")
+  const o2 = { content: [{ type: "text", text: "Shorter msg." }] }
+  await hooks["message.updated"]({ messageID: "cli-dedup" }, o2)
+  assert.equal(o2.content[0].text, "Shorter msg.", "dedup: same msgID not processed twice on Content[]")
+})
+
+test("message.updated: CLI edge empty parts", async () => {
+  const hooks = await freshPlugin()
+  const o = { content: [] }
+  await hooks["message.updated"]({ messageID: "cli-edge" }, o)
+  assert.ok(Array.isArray(o.content), "empty content array survives hook")
+  assert.equal(o.content.length, 0, "empty Content[] stays empty - no footer for empty messages")
+})
+
+test("regression: message.updated empty content does not poison text.complete dedup", async () => {
+  const hooks = await freshPlugin()
+  await hooks["message.updated"]({ messageID: "poison-test" }, { content: [] })
+  const o = { text: "This is a real assistant response that should receive the vibeOS footer in its complete form. Long enough definitely." }
+  await hooks["experimental.text.complete"]({ messageID: "poison-test" }, o)
+  assert.ok(o.text.includes("VIBE") || o.text.includes("deepseek") || o.text.includes("AUTO→"), "footer despite prior empty msg.updated: " + o.text.slice(-80))
+})
+
+test("regression: footer writes to stderr when stdout not TTY", async () => {
+  const hooks = await freshPlugin()
+  const stderrChunks = []
+  const origWrite = process.stderr.write.bind(process.stderr)
+  process.stderr.write = (chunk) => { stderrChunks.push(chunk.toString()); return true }
+  try {
+    await hooks["experimental.text.complete"]({ messageID: "stderr-test" }, {
+      text: "This is a long enough assistant response to trigger the footer writing mechanism in the vibeOS plugin. Quite long indeed."
+    })
+    const all = stderrChunks.join("")
+    assert.ok(all.includes("VIBE") || all.includes("deepseek") || all.includes("AUTO→"), "footer on stderr: " + all.slice(-80))
+  } finally {
+    process.stderr.write = origWrite
+  }
+})

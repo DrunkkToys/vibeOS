@@ -1,3 +1,7 @@
+## 0.20.13
+- fix: holistic CLI footer — plugin load (const→let), dedup poisoning, Part[] shape, stderr fallback
+- test: add regression tests for esbuild compilation, dedup poison, stderr fallback
+
 ## 0.20.10
 - feat: wire PIVOT BACK with rich context injection and smart cache warming
 

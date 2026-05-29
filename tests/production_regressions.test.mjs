@@ -816,3 +816,22 @@ test("v0.20.11 — auto-bootstrap fallback exists in plugin source", async () =>
   assert.ok(deployed.includes("no providers detected"),
     "should log when falling back to defaults")
 })
+
+// ── v0.20.12: esbuild const-assignment regression ──
+test("v0.20.12 — esbuild compiles plugin without const assignment errors", async () => {
+  const { execSync } = await import("node:child_process")
+  const { readFileSync } = await import("node:fs")
+  const { join, dirname } = await import("node:path")
+  const { fileURLToPath } = await import("node:url")
+  const projectRoot = join(dirname(fileURLToPath(import.meta.url)), "..")
+  const src = readFileSync(join(projectRoot, "src", "index.js"), "utf-8")
+  try {
+    execSync(
+      `npx esbuild "${join(projectRoot, "src", "index.js")}" --bundle --platform=node --format=esm --target=node22 --external:node:* --external:vibeOScore`,
+      { cwd: projectRoot, encoding: "utf-8", timeout: 30000, shell: true }
+    )
+  } catch (e) {
+    const stderr = e.stderr || ""
+    assert.ok(!stderr.includes("Cannot assign"), "esbuild const assignment error: " + stderr.slice(0, 300))
+  }
+})
