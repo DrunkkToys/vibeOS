@@ -42,7 +42,7 @@ import {
   buildControlHistoryEntry,
 } from "../turn-classify.js"
 import { applyBudgetFirstMode, peekBudgetFirstMode } from "../mode-policy.js"
-import { addCacheEntry, extractRecentCacheOutputs } from "../../vibeOS-lib/smart-cache.js";
+import { addCacheEntry, extractRecentCacheOutputs } from "../../vibeOS-lib/smart-cache.js"
 import { getApiClient, remoteCall } from "../api-client.js"
 import { loadCredit } from "../credit-api.js"
 import { saveReport } from "../reporting.js"
@@ -642,7 +642,7 @@ export const onSystemTransform = async (_input, output) => {
               decisions: (onSystemTransform as any)._recentDecisions || [],
               blockers: (onSystemTransform as any)._recentBlockers || [],
               toolOutputs: _cacheDb ? extractRecentCacheOutputs(_cacheDb, 10) : [],
-            }
+            },
           }], null)
           if (remote?.pivot) pivotResult = remote
         } catch { /* remote vibemax pipeline */ }
@@ -655,7 +655,7 @@ export const onSystemTransform = async (_input, output) => {
               decisions: (onSystemTransform as any)._recentDecisions || [],
               blockers: (onSystemTransform as any)._recentBlockers || [],
               toolOutputs: _cacheDb ? extractRecentCacheOutputs(_cacheDb, 10) : [],
-            }
+            },
           })
         }
         if (pivotResult?.pivot?.injection) {
@@ -666,7 +666,7 @@ export const onSystemTransform = async (_input, output) => {
               for (const entry of pivotResult.pivot.toolOutputs) {
                 addCacheEntry(
                   _cacheDb, entry.hash, entry.tool, entry.prompt,
-                  entry.sizeBytes || 1024, entry.ageSec || 3600
+                  entry.sizeBytes || 1024, entry.ageSec || 3600,
                 )
               }
             } catch { /* cache warming is best-effort */ }

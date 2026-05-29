@@ -716,7 +716,7 @@ export function createTrinityTool(deps) {
         const probed = {
           brain: models.find(m => m.id === trinity.brain) || { id: trinity.brain, cost: deps._modelCost(trinity.brain), tier: deps._modelTier(trinity.brain) },
           medium: models.find(m => m.id === trinity.medium) || { id: trinity.medium, cost: deps._modelCost(trinity.medium), tier: deps._modelTier(trinity.medium) },
-          cheap: models.find(m => m.id === trinity.cheap) || { id: trinity.cheap, cost: deps._modelCost(trinity.cheap), tier: deps._modelTier(trinity.cheap) }
+          cheap: models.find(m => m.id === trinity.cheap) || { id: trinity.cheap, cost: deps._modelCost(trinity.cheap), tier: deps._modelTier(trinity.cheap) },
         }
         const failed = []
         for (const slot of ["brain", "medium", "cheap"]) {

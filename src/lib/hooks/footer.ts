@@ -140,16 +140,16 @@ async function _appendFooter(input, output, directory) {
   if (latestUserIntent) _footerStress = scoreStress(latestUserIntent)
   // Always prefer the live OpenCode model setting when available.
   try {
-      const cfg = await client.config.get("model")
-      if (cfg) {
-        const cfgModel = String(cfg)
-        if (cfgModel !== currentModel) {
-          setCurrentModel(cfgModel)
-          setCurrentTier(classify(cfgModel))
-          footerDebug(`[vibeOS] client-detected model: ${currentModel} (tier=${currentTier})`)
-        }
+    const cfg = await client.config.get("model")
+    if (cfg) {
+      const cfgModel = String(cfg)
+      if (cfgModel !== currentModel) {
+        setCurrentModel(cfgModel)
+        setCurrentTier(classify(cfgModel))
+        footerDebug(`[vibeOS] client-detected model: ${currentModel} (tier=${currentTier})`)
       }
-    } catch { /* client.config may not be available */ }
+    }
+  } catch { /* client.config may not be available */ }
   try {
     const messageID =
       input?.messageID ||
