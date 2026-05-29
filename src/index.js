@@ -164,8 +164,12 @@ async function _seedModelTiersIfMissing(directory) {
     const brain = ranked?.brain?.id || fallbackModel;
     const medium = ranked?.medium?.id || brain;
     const cheap = ranked?.cheap?.id || medium || brain;
-    if (!brain)
-        return false;
+    if (!brain) {
+        brain  = "deepseek/deepseek-v4-pro";
+        medium = "deepseek/deepseek-v4-flash";
+        cheap  = "deepseek/deepseek-chat";
+        console.error("[vibeOS] no providers detected — using default model tiers (brain=v4-pro, medium=v4-flash, cheap=v4-chat)");
+      }
     const tiers = {
         selection: {
             enabled: true,
