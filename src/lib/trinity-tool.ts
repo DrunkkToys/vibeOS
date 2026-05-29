@@ -174,12 +174,15 @@ export function createTrinityTool(deps) {
         return `\u2705 Switched to ${slot} slot (${result.ocModel}). Active now (no restart needed).`
       }
       if (action === "mode") {
-        if (!slot || !["budget", "quality", "speed", "longrun", "auto"].includes(slot)) {
-          return `Provide mode: budget | quality | speed | longrun | auto`
+        if (!slot) return `Provide mode: budget | quality | speed | longrun | vibemax | vibeqmax | auto`
+        const modeAlias = { vibemax: "vibemax", vibeqmax: "quality" }
+        const resolvedSlot = modeAlias[slot] || slot
+        if (!["budget", "quality", "speed", "longrun", "vibemax", "auto"].includes(resolvedSlot)) {
+          return `Provide mode: budget | quality | speed | longrun | vibemax | vibeqmax | auto`
         }
-        const ok = deps.saveOptimizationMode(slot)
+        const ok = deps.saveOptimizationMode(resolvedSlot)
         if (!ok) return `Failed to write mode`
-        const tierMap = { budget: "cheap", quality: "brain", speed: "medium", longrun: "brain" }
+        const tierMap = { budget: "cheap", quality: "brain", speed: "medium", longrun: "brain", vibemax: "medium" }
         const tierSlot = tierMap[slot] || "cheap"
         deps.writeSelection("active_slot", tierSlot)
         deps.writeSelection("onboarding_mode", slot === "quality" || slot === "longrun" ? "strict" : "assist")
