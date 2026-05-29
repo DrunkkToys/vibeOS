@@ -83,7 +83,7 @@ export async function selectOptimizationModeRemote(
       if (client) {
         const res = await client.blackboxSelectMode(subRegime || "INIT", Number(stressMultiplier ?? 0))
         const selected = String((res as any)?.mode || "").toLowerCase()
-        if (selected === "balanced" || selected === "budget" || selected === "quality" || selected === "speed" || selected === "longrun") {
+        if (selected === "balanced" || selected === "budget" || selected === "quality" || selected === "speed" || selected === "longrun" || selected === "vibemax") {
           return selected as OptimizationMode
         }
       }
@@ -98,13 +98,14 @@ function computeControlVector(
   _optimizationMode?: OptimizationMode,
 ): any {
   const mode = resolveOptimizationMode(_state?.sub_regime, _state?.latest_stress_multiplier, _optimizationMode)
-  const isStrict = mode === "quality"
+  const isStrict = mode === "quality" || mode === "vibemax"
   const isRelaxed = mode === "budget" || mode === "speed"
   const tierBias = mode === "quality" ? "brain"
     : mode === "speed" ? "medium"
-      : mode === "longrun" ? "brain"
-        : mode === "balanced" ? "auto"
-          : "cheap"
+      : mode === "vibemax" ? "medium"
+        : mode === "longrun" ? "brain"
+          : mode === "balanced" ? "auto"
+            : "cheap"
   return {
     enforcement_mode: isStrict ? "strict" : isRelaxed ? "relaxed" : "normal",
     enforcement_reason: `[optimize: ${mode}] using safe offline defaults`,
