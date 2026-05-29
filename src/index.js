@@ -161,9 +161,9 @@ async function _seedModelTiersIfMissing(directory) {
     }
     catch { }
     const fallbackModel = currentModel || readConfig(directory) || readConfig(getOpenCodeHome()) || process?.env?.OPENCODE_MODEL || "";
-    const brain = ranked?.brain?.id || fallbackModel;
-    const medium = ranked?.medium?.id || brain;
-    const cheap = ranked?.cheap?.id || medium || brain;
+    let brain = ranked?.brain?.id || fallbackModel;
+    let medium = ranked?.medium?.id || brain;
+    let cheap = ranked?.cheap?.id || medium || brain;
     if (!brain) {
         brain  = "deepseek/deepseek-v4-pro";
         medium = "deepseek/deepseek-v4-flash";

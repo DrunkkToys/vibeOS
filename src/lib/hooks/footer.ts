@@ -170,10 +170,7 @@ async function _appendFooter(input, output, directory) {
       return ""
     }
     const text = _extractText(output)
-    if (!text) {
-      if (messageID) textCompletePainted.add(messageID)
-      return
-    }
+    if (!text) return
     const { ltTasks, ltCache, ltCost, count, sesTasks, sesEdit, sesCredit, sesC7, sesQuota, sesCache, sesTaskDelegations, sesDuration, sesRatePerHour, sesTrend, sesToolBreakdown, sesModelTurns, quality_avg } = readLifetimeSavings()
     const { stableStreak, problemStreak } = readRewardSignals()
 
