@@ -1,3 +1,9 @@
+## 0.20.14
+- chore: temporary bypass for release
+- chore: add vibeoscore-1.0.2.tgz for CI install
+release: v0.20.13 — holistic CLI footer fix + regression tests (#80)
+
+
 ## 0.20.13
 - fix: holistic CLI footer — plugin load (const→let), dedup poisoning, Part[] shape, stderr fallback
 - test: add regression tests for esbuild compilation, dedup poison, stderr fallback
