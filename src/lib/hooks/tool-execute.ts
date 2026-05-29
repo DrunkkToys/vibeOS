@@ -23,7 +23,7 @@ import {
   ML_ENABLED, _mlGraph, _cacheDb, _mlSavePending, ML_CONFIDENCE_THRESHOLD, setMlSavePending,
   loadMLState, saveMLState,
   readJsonOrEmpty, _handleStateCorruption, _lockPathFor,
-  SCRATCHPAD_TOOLS, applyDecadence,
+  SCRATCHPAD_TOOLS, SCRATCHPAD_GLOBAL_DIR, TOOL_NAME_NORMALIZE, stableJson, applyDecadence,
   VIBEOS_HOME,
 } from "../state.js"
 import {
@@ -279,8 +279,44 @@ export const onToolExecuteBefore = async (input, output) => {
           recordCacheStats(_cacheDb, t, !!hit, hit ? _cacheSave : 0)
           if (!hit) {
             const prediction = predictCacheHit(_cacheDb, t, promptText)
-            if (prediction.shouldWarm && prediction.confidence >= 0.6 && DEBUG_INTERNALS) {
-              console.error(`[vibeOS] 🔮 Smart cache: ${t} may benefit from caching — ${prediction.reason} (conf: ${(prediction.confidence * 100).toFixed(0)}%)`)
+            if (prediction.shouldWarm && prediction.confidence >= 0.6 && prediction.similarEntries.length > 0) {
+              try {
+                const titleCase = TOOL_NAME_NORMALIZE[t]
+                if (titleCase) {
+                  const argsJson = stableJson(args ?? inArgs ?? {})
+                  const curHash = createHash("sha256").update(`${titleCase}\n${argsJson}\n`).digest("hex").slice(0, 16)
+                  const sessionDir = getSessionScratchpadDir()
+                  const globalDir = SCRATCHPAD_GLOBAL_DIR
+                  const ptrPath = join(sessionDir, `${curHash}.ptr`)
+                  if (!existsSync(ptrPath)) {
+                    for (const similar of prediction.similarEntries) {
+                      const targetHash = similar.entry.hash
+                      if (targetHash.length < 16) continue
+                      const cachedFile = join(sessionDir, `${targetHash}.txt`)
+                      const globalFile = join(globalDir, `${targetHash}.txt`)
+                      if (existsSync(cachedFile) || existsSync(globalFile)) {
+                        ensureSessionScratchpadDirs()
+                        writeFileSync(ptrPath, JSON.stringify({
+                          contentHash: targetHash,
+                          tool: titleCase,
+                          warmed: true,
+                          at: new Date().toISOString(),
+                          confidence: prediction.confidence,
+                          reason: prediction.reason,
+                        }))
+                        if (DEBUG_INTERNALS) {
+                          console.error(`[vibeOS] 🔮 Smart cache: warmed ${t} → ${targetHash.slice(0,8)} (conf: ${(prediction.confidence * 100).toFixed(0)}%)`)
+                        }
+                        break
+                      }
+                    }
+                  }
+                }
+              } catch (warmErr) {
+                if (DEBUG_INTERNALS) {
+                  console.error(`[vibeOS] Smart cache warming error: ${warmErr.message}`)
+                }
+              }
             }
           }
         }
@@ -425,12 +461,10 @@ export const onToolExecuteBefore = async (input, output) => {
   const _workerModel = TRINITY_CHEAP || TRINITY_MEDIUM || null
   const _workerCost  = _workerModel ? (modelCostPerTurn(_workerModel) ?? 0) : 0
   // Keep precision high to avoid dropping tiny but real per-event savings to zero.
-  const _rawEdit    = _brainCost !== null
-    ? Math.max(0, _brainCost - _workerCost)
-    : SAVE_EST.WRITE_EDIT
+  const _rawEdit    = Math.max(0, _brainCost - _workerCost)
   const _estEdit    = Math.max(_rawEdit, SAVE_EST.WRITE_EDIT * 0.1)
-  const _estOpus    = _brainCost !== null ? Math.max(_brainCost, _estEdit) : SAVE_EST.OPUS_DISABLE
-  const _estC7      = _brainCost !== null ? Math.max(_brainCost, SAVE_EST.CONTEXT7) : SAVE_EST.CONTEXT7
+  const _estOpus    = Math.max(_brainCost, _estEdit)
+  const _estC7      = Math.max(_brainCost, SAVE_EST.CONTEXT7)
   const _tierWord   = currentTier === "high" ? "Brain" : currentTier === "mid" ? "Medium" : "Budget"
   const _firstWord = extractFirstWordFromArgs(t, args || inArgs)
   const sel = loadSelection()

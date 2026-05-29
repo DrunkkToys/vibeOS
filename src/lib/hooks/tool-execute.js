@@ -1,7 +1,8 @@
 // @ts-nocheck
 import { writeFileSync, appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { join, dirname, basename } from "node:path";
-import { currentTier, currentModel, setCurrentModel, setCurrentTier, _OC_SID, _modelLocked, loadSelection, readLifetimeSavings, recordCacheSaving, recordMissedContext7, getScratchpadHit, recordScratchpadObservation, recordPrivacyTelemetry, updateState, SAVINGS_LEDGER_FILE, CONTEXT7_INSTALL_FLAG, SOFT_QUOTA_LIMIT, upsertTodo, ML_ENABLED, _mlGraph, _cacheDb, _mlSavePending, ML_CONFIDENCE_THRESHOLD, setMlSavePending, saveMLState, SCRATCHPAD_TOOLS, applyDecadence, } from "../state.js";
+import { createHash } from "node:crypto";
+import { currentTier, currentModel, setCurrentModel, setCurrentTier, _OC_SID, _modelLocked, loadSelection, readLifetimeSavings, recordCacheSaving, recordMissedContext7, getScratchpadHit, recordScratchpadObservation, recordPrivacyTelemetry, updateState, getSessionScratchpadDir, ensureSessionScratchpadDirs, SAVINGS_LEDGER_FILE, CONTEXT7_INSTALL_FLAG, SOFT_QUOTA_LIMIT, upsertTodo, ML_ENABLED, _mlGraph, _cacheDb, _mlSavePending, ML_CONFIDENCE_THRESHOLD, setMlSavePending, saveMLState, SCRATCHPAD_TOOLS, SCRATCHPAD_GLOBAL_DIR, TOOL_NAME_NORMALIZE, stableJson, applyDecadence, } from "../state.js";
 import { classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget, shortModelName, formatUsd, _refreshModel, readConfig, resolveDisplayModelId, TRINITY_CHEAP, TRINITY_MEDIUM, trendDisplay, modelToSlotLabel, resolveExecutionIdentity, formatProviderName, formatQualityName, } from "../pricing.js";
 import { latestUserIntent } from "./chat-transform.js";
 import { scoreStress, extractFirstWordFromArgs, shouldLogWarn, isUserAskingForTests, resolveEnforcementMode, getLearnedExploratoryWords, noteTaskRoutingLearning, } from "../turn-classify.js";
@@ -272,8 +273,46 @@ export const onToolExecuteBefore = async (input, output) => {
                     recordCacheStats(_cacheDb, t, !!hit, hit ? _cacheSave : 0);
                     if (!hit) {
                         const prediction = predictCacheHit(_cacheDb, t, promptText);
-                        if (prediction.shouldWarm && prediction.confidence >= 0.6 && DEBUG_INTERNALS) {
-                            console.error(`[vibeOS] 🔮 Smart cache: ${t} may benefit from caching — ${prediction.reason} (conf: ${(prediction.confidence * 100).toFixed(0)}%)`);
+                        if (prediction.shouldWarm && prediction.confidence >= 0.6 && prediction.similarEntries.length > 0) {
+                            try {
+                                const titleCase = TOOL_NAME_NORMALIZE[t];
+                                if (titleCase) {
+                                    const argsJson = stableJson(args ?? inArgs ?? {});
+                                    const curHash = createHash("sha256").update(`${titleCase}\n${argsJson}\n`).digest("hex").slice(0, 16);
+                                    const sessionDir = getSessionScratchpadDir();
+                                    const globalDir = SCRATCHPAD_GLOBAL_DIR;
+                                    const ptrPath = join(sessionDir, `${curHash}.ptr`);
+                                    if (!existsSync(ptrPath)) {
+                                        for (const similar of prediction.similarEntries) {
+                                            const targetHash = similar.entry.hash;
+                                            if (targetHash.length < 16)
+                                                continue;
+                                            const cachedFile = join(sessionDir, `${targetHash}.txt`);
+                                            const globalFile = join(globalDir, `${targetHash}.txt`);
+                                            if (existsSync(cachedFile) || existsSync(globalFile)) {
+                                                ensureSessionScratchpadDirs();
+                                                writeFileSync(ptrPath, JSON.stringify({
+                                                    contentHash: targetHash,
+                                                    tool: titleCase,
+                                                    warmed: true,
+                                                    at: new Date().toISOString(),
+                                                    confidence: prediction.confidence,
+                                                    reason: prediction.reason,
+                                                }));
+                                                if (DEBUG_INTERNALS) {
+                                                    console.error(`[vibeOS] 🔮 Smart cache: warmed ${t} → ${targetHash.slice(0, 8)} (conf: ${(prediction.confidence * 100).toFixed(0)}%)`);
+                                                }
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            catch (warmErr) {
+                                if (DEBUG_INTERNALS) {
+                                    console.error(`[vibeOS] Smart cache warming error: ${warmErr.message}`);
+                                }
+                            }
                         }
                     }
                 }
@@ -420,12 +459,10 @@ export const onToolExecuteBefore = async (input, output) => {
     const _workerModel = TRINITY_CHEAP || TRINITY_MEDIUM || null;
     const _workerCost = _workerModel ? (modelCostPerTurn(_workerModel) ?? 0) : 0;
     // Keep precision high to avoid dropping tiny but real per-event savings to zero.
-    const _rawEdit = _brainCost !== null
-        ? Math.max(0, _brainCost - _workerCost)
-        : SAVE_EST.WRITE_EDIT;
+    const _rawEdit = Math.max(0, _brainCost - _workerCost);
     const _estEdit = Math.max(_rawEdit, SAVE_EST.WRITE_EDIT * 0.1);
-    const _estOpus = _brainCost !== null ? Math.max(_brainCost, _estEdit) : SAVE_EST.OPUS_DISABLE;
-    const _estC7 = _brainCost !== null ? Math.max(_brainCost, SAVE_EST.CONTEXT7) : SAVE_EST.CONTEXT7;
+    const _estOpus = Math.max(_brainCost, _estEdit);
+    const _estC7 = Math.max(_brainCost, SAVE_EST.CONTEXT7);
     const _tierWord = currentTier === "high" ? "Brain" : currentTier === "mid" ? "Medium" : "Budget";
     const _firstWord = extractFirstWordFromArgs(t, args || inArgs);
     const sel = loadSelection();

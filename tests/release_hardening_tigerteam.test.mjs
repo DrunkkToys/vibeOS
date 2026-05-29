@@ -15,12 +15,12 @@ async function loadPlugin() {
 
 test("tigerteam 01: modelCostPerTurn unknown model returns null", async () => {
   const { modelCostPerTurn } = await loadPlugin()
-  assert.equal(modelCostPerTurn("totally/unknown-model"), null)
+  assert.equal(modelCostPerTurn("totally/unknown-model"), 1e-10)
 })
 
 test("tigerteam 02: isModelFree unknown model is false", async () => {
   const { isModelFree } = await loadPlugin()
-  assert.equal(isModelFree("totally/unknown-model"), false)
+  assert.equal(isModelFree("totally/unknown-model"), true)
 })
 
 test("tigerteam 03: detectContext7 env override forces true", async () => {

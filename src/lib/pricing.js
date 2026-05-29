@@ -521,7 +521,7 @@ export function modelCostPerTurn(model) {
     }
     // Log unknown models so we can add entries
     console.error(`[vibeOS] modelCostPerTurn: unknown model '${model}' (normalized: '${key}') — add to MODEL_USD_PER_TURN`);
-    return null; // unknown — callers fall back to SAVE_EST constants
+    return FREE_MODEL_TURN_USD;
 }
 export function isModelFree(model) {
     if (!model || typeof model !== "string")
@@ -531,7 +531,7 @@ export function isModelFree(model) {
     if (FREE_MODELS.has(normalizeModelId(model)))
         return true;
     const cost = modelCostPerTurn(model);
-    return cost !== null && cost <= FREE_MODEL_TURN_USD;
+    return cost <= FREE_MODEL_TURN_USD;
 }
 // Context7 detection — scan known config files for the string "context7".
 // Cheap (one-time at module load); falsy → docs nudge stays dormant.
