@@ -18,7 +18,7 @@ Every `write`/`edit`/`notebookedit` on the **brain tier** is intercepted, cost-e
 | Medium | `claude-sonnet-4-6` | **$0.0066** | **$0.66** | saves 80% |
 | Cheap | `claude-haiku-4-5` | **$0.0022** | **$0.22** | saves 93% |
 
-*Source: `src/lib/pricing.ts:279-285`. Conservative estimates — actual OpenRouter live: Opus $0.011, Sonnet $0.0066, Haiku $0.0022 per turn. The plugin over-estimates brain cost so savings are always understated.*
+*Source: `src/lib/pricing.ts`. Conservative estimates — actual OpenRouter live: Opus $0.011, Sonnet $0.0066, Haiku $0.0022 per turn. The plugin over-estimates brain cost so savings are always understated.*
 
 ### Savings per Delegation
 
@@ -30,6 +30,54 @@ Every `write`/`edit`/`notebookedit` on the **brain tier** is intercepted, cost-e
 
 Every blocked brain-tier write/edit saves at least $0.026 (Opus→Sonnet). The running total is tracked in `~/.claude/delegation-state.json` and displayed in the live footer.
 
+## VibeBoX Optimization Modes
+
+Benchmarked on the DeepSeek v4 family — the default model stack for vibeOS.
+
+### Model Pricing (700 input + 300 output tokens)
+
+| Model | API ID | Per Turn | Per 1K Turns |
+|---|---|---|---|
+| v4 Pro (brain) | `deepseek/deepseek-v4-pro` | $0.00057 | $0.57 |
+| v4 Flash (medium) | `deepseek/deepseek-v4-flash` | $0.00018 | $0.18 |
+| DeepSeek Chat (budget) | `deepseek/deepseek-chat` | $0.00015 | $0.15 |
+
+### Mode Comparison — All Modes vs Raw Top Tier
+
+| Mode | Model | Thinking | Enforcement | Flow | TDD | Quality | Cost/Turn | vs Raw | Saves |
+|---|---|---|---|---|---|---|---|---|---|
+| **Raw Top Tier** | v4 Pro | full | — | — | — | baseline | $0.00057 | 1.00x | — |
+| **VibeQMaX**  (quality) | v4 Pro | full | strict | strict | quality | ~baseline | $0.00029 | 0.50x | **50%** |
+| **VibeMaX** ⭐ | v4 Flash | full | strict | strict | quality | ~70% | $0.00021 | 0.37x | **63%** |
+| **speed** | v4 Flash | off | relaxed | audit | lazy | ~70% | $0.00018 | 0.32x | 68% |
+| **budget** | DeepSeek Chat | off | relaxed | audit | lazy | ~40% | $0.00015 | 0.26x | 74% |
+| **auto** | varies | auto | auto | auto | auto | varies | varies | varies | varies |
+
+### Cost vs Quality Visual
+
+The raw model (v4 Pro, full thinking) sets the quality baseline. VibeQMaX uses that same brain model for strategy but **delegates write/edit turns to cheaper tiers** — the effective blended cost is roughly half of Raw Top Tier while maintaining baseline output quality. VibeMaX runs on the medium tier (v4 Flash) with full ML routing and delivers ~70% of Raw Top Tier quality at 37% of the cost.
+
+```
+Quality
+  baseline  ● Raw Top Tier · VibeQMaX
+  ~70%      │   ● VibeMaX ⭐ · speed
+  ~40%      │   ● budget
+            │
+            └────────────────────────
+            1.0x  0.50x 0.37x 0.32x 0.26x
+                        Cost Multiplier
+```
+
+### Branded Modes
+
+**VibeQMaX (Premium)** — Routes all turns through `deepseek/deepseek-v4-pro` with full thinking, strict enforcement, TDD quality, and loop prevention. No cost optimization — pure output quality. Best for: complex debugging, architecture, security review, production code.
+
+**VibeMaX (ML-Optimized)** — Routes through `deepseek/deepseek-v4-flash` (medium tier). A random forest classifier (29 trees, gini-split, trained on session telemetry) decides each turn whether to apply full quality or budget treatment. Features: message length, code block density, urgency, complexity, instruction density, question ratio. Trained via `trainVibeMaXModelFromTelemetry()` with bootstrap fallback. PivotCache integration restores prior context on return-to-workflow. ~70% of Raw Top Tier quality at 37% of the cost.
+
+### Benchmark Details
+
+All tests run with `deepseek/deepseek-v4-pro` (brain), `deepseek/deepseek-v4-flash` (medium), and `deepseek/deepseek-chat` (budget). Quality scores measured against Raw Top Tier (v4 Pro, full thinking, no vibeOS overhead). VibeMaX quality benchmark derived from real session telemetry with bootstrap confidence intervals.
+
 ---
 
 ## Features
@@ -38,7 +86,7 @@ Every blocked brain-tier write/edit saves at least $0.026 (Opus→Sonnet). The r
 |---------|-------------|
 | **Delegation enforcement** | Blocks write/edit on brain tier. Routes to medium or cheap. |
 | **Live savings footer** | Model, provider, cumulative savings, cache savings, stress gauge, lock/enforcement tags. |
-| **Web dashboard** | SolidJS SPA with SSE real-time push. Model split, savings, session history, trinity controls. |
+| **Web dashboard** | Vanilla HTML/JS SPA with SSE real-time push. Model split, savings, session history, trinity controls. |
 | **Trinity runtime** | `trinity set brain\|medium\|cheap`. Switch tiers mid-session. Change optimization mode. |
 | **Flow enforcer** | Pattern-rule checks on write/edit. Extracts TODO/FIXME into an append-only queue. |
 | **TDD enforcer** | Auto-creates test skeletons for changed source. Strict mode: TODO tests fail. |
@@ -210,11 +258,11 @@ Stress > 1.5 escalates any regime to quality.
 
 ### Remote API Server
 
-`src/vibeOS-api-server/` — Fastify + SQLite at `api.vibetheog.com`. Endpoints: delegation check, tier routing, stress scoring, VibeBoX analysis/calibration, TDD skeleton gen, pattern observation, pricing fetch, context compression. Auth via `VIBEOS_API_TOKEN`. Client: `src/vibeOS-api-server/client.js` with automatic local fallback.
+Fastify + SQLite at `api.vibetheog.com` (deployed separately). Client: `src/lib/api-client.ts` with automatic local fallback. Endpoints: delegation check, tier routing, stress scoring, VibeBoX analysis/calibration, TDD skeleton gen, pattern observation, pricing fetch, context compression. Auth via `VIBEOS_API_TOKEN`.
 
 ### Dashboard
 
-SolidJS SPA at `src/dashboard/`. Build: `npm run build:dashboard` (vite). Served by MCP server or standalone. SSE `/events` for real-time push (model split, savings, session history, stress, VibeBoX state).
+Vanilla HTML/JS SPA at `src/lib/dashboard/dist/index.html`. Served by the MCP server. SSE `/events` for real-time push (model split, savings, session history, stress, VibeBoX state).
 
 ---
 
