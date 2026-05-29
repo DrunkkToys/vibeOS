@@ -6,7 +6,6 @@ import { currentModel, currentProjectFingerprint, currentProjectName, _blackboxE
 import { applySlot, TRINITY_CHEAP, TRINITY_MEDIUM, } from "../pricing.js";
 import { scoreStress, classifyTurnSimple, loadOptimizationMode, saveOptimizationMode, selectOptimizationModeRemote, computeControlVector, getBlackboxTracker, loadBlackboxState as loadBlackboxStateFromCtx, saveBlackboxState as saveBlackboxStateToCtx, extractLastUserText, isLikelyOffTopic, fetchBlackboxEnrichment, estimateContextBudget, buildControlHistoryEntry, } from "../turn-classify.js";
 import { applyBudgetFirstMode, peekBudgetFirstMode } from "../mode-policy.js";
-import { vibemaxPipeline } from "../../vibeOS-lib/blackbox/vibemax.js";
 import { addCacheEntry, extractRecentCacheOutputs } from "../../vibeOS-lib/smart-cache.js";
 import { remoteCall } from "../api-client.js";
 import { loadCredit } from "../credit-api.js";
@@ -588,15 +587,33 @@ export const onSystemTransform = async (_input, output) => {
         // ── Pivot detection and PIVOT BACK injection ──
         if (latestUserIntent && _blackboxEnabled !== false) {
             try {
-                const pivotResult = await vibemaxPipeline({
-                    user_text: latestUserIntent,
-                    _pivotContext: {
-                        files: onSystemTransform._recentFiles || [],
-                        decisions: onSystemTransform._recentDecisions || [],
-                        blockers: onSystemTransform._recentBlockers || [],
-                        toolOutputs: _cacheDb ? extractRecentCacheOutputs(_cacheDb, 10) : [],
-                    }
-                });
+                let pivotResult = null;
+                try {
+                    const remote = await remoteCall("vibemaxPipeline", [{
+                            user_text: latestUserIntent,
+                            _pivotContext: {
+                                files: onSystemTransform._recentFiles || [],
+                                decisions: onSystemTransform._recentDecisions || [],
+                                blockers: onSystemTransform._recentBlockers || [],
+                                toolOutputs: _cacheDb ? extractRecentCacheOutputs(_cacheDb, 10) : [],
+                            }
+                        }], null);
+                    if (remote?.pivot)
+                        pivotResult = remote;
+                }
+                catch { /* remote vibemax pipeline */ }
+                if (!pivotResult) {
+                    const { vibemaxPipeline: localPipeline } = await import("../../vibeOS-lib/blackbox/vibemax.js");
+                    pivotResult = await localPipeline({
+                        user_text: latestUserIntent,
+                        _pivotContext: {
+                            files: onSystemTransform._recentFiles || [],
+                            decisions: onSystemTransform._recentDecisions || [],
+                            blockers: onSystemTransform._recentBlockers || [],
+                            toolOutputs: _cacheDb ? extractRecentCacheOutputs(_cacheDb, 10) : [],
+                        }
+                    });
+                }
                 if (pivotResult?.pivot?.injection) {
                     pushSystem(output, pivotResult.pivot.injection);
                     // Warm smart cache with workflow tool outputs
