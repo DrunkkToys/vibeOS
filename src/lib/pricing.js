@@ -260,17 +260,37 @@ export function trendDisplay(sesTrend) {
 const CACHE_SAVED_PER_1M_INPUT_TOKENS = 0.10;
 // Approximate bytes per token for JSON/text content (varies 3-6, use 4 as safe estimate).
 const BYTES_PER_TOKEN = 4;
+export function parseOpenRouterInputPer1M(modelRow) {
+    const p = modelRow?.pricing || {};
+    const inTok = Number(p.prompt ?? p.input ?? p.request);
+    if (Number.isFinite(inTok) && inTok > 0) {
+        return Math.round(inTok * 1_000_000 * 10000) / 10000;
+    }
+    return null;
+}
 export function cacheSavePer1MInputTokens(model) {
     if (!model)
         return CACHE_SAVED_PER_1M_INPUT_TOKENS;
+    if (isModelFree(model))
+        return 0;
     try {
-        const key = normalizeModelId(model);
         const cache = _loadDynamicPricingCache();
-        const entry = cache[key] || cache[model];
-        if (entry?.pricing?.prompt) {
-            const inputPricePerToken = Number(entry.pricing.prompt);
-            if (Number.isFinite(inputPricePerToken) && inputPricePerToken > 0) {
-                return Math.round(inputPricePerToken * 1_000_000 * 10000) / 10000;
+        const key = normalizeModelId(model);
+        const rawKey = String(model || "");
+        const rawNoPrefix = rawKey.includes("/") ? rawKey.split("/")[rawKey.split("/").length - 1] : rawKey;
+        // Try exact match (prefixed + unprefixed) in dynamic cache
+        for (const candidate of [rawKey, key, rawNoPrefix]) {
+            const entry = cache[candidate];
+            const rate = parseOpenRouterInputPer1M(entry);
+            if (rate !== null)
+                return rate;
+        }
+        // Try partial match: find any cache entry whose key ends with the model name
+        for (const [ck, cv] of Object.entries(cache)) {
+            if (ck.endsWith("/" + rawNoPrefix)) {
+                const rate = parseOpenRouterInputPer1M(cv);
+                if (rate !== null)
+                    return rate;
             }
         }
     }
