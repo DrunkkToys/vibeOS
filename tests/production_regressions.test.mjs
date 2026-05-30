@@ -865,20 +865,26 @@ test("v0.22.1 — branded modes listed in mode error message", async () => {
   assert.ok(helpResult.includes("vibeultrax"), "help lists vibeultrax: " + helpResult)
 })
 
-// ── v0.22.1: Anomaly detection ──
-test("v0.22.1 — setAnomalyDetection is exported and toggleable", async () => {
-  const mod = await loadPlugin()
-  // Import api-client directly for the exported function
-  const api = await import("../src/lib/api-client.js?ani=" + Date.now())
-  assert.equal(typeof api.setAnomalyDetection, "function", "setAnomalyDetection exported")
-  // Should not throw
-  api.setAnomalyDetection(false)
-  api.setAnomalyDetection(true)
+// ── v0.22.1: Cost anomaly detection ──
+test("v0.22.1 — setCostAnomalyDetection is exported and toggleable", async () => {
+  const ca = await import("../src/lib/cost-anomaly.js?cani=" + Date.now())
+  assert.equal(typeof ca.setCostAnomalyDetection, "function", "setCostAnomalyDetection exported")
+  ca.setCostAnomalyDetection(false)
+  ca.setCostAnomalyDetection(true)
 })
 
-test("v0.22.1 — anomaly detector respects warmup period", async () => {
-  const api = await import("../src/lib/api-client.js?ani2=" + Date.now())
-  assert.equal(typeof api.setAnomalyDetection, "function", "module loads")
+test("v0.22.1 — cost anomaly detector warmup and check", async () => {
+  const ca = await import("../src/lib/cost-anomaly.js?cani2=" + Date.now())
+  const detector = ca.getCostAnomalyDetector()
+  assert.ok(detector, "detector returned")
+  detector.record(0.001)
+  detector.record(0.001)
+  detector.record(0.001)
+  detector.record(0.001)
+  detector.record(0.001)
+  assert.equal(detector.checkAnomaly("test/model", 0.050), true, "3x spike detected")
+  assert.equal(detector.checkAnomaly("test/model", 0.001), false, "normal cost not flagged")
+  detector.reset()
 })
 
 test("v0.22.1 — mode-router BRANDED_MODES includes vibeultrax", async () => {

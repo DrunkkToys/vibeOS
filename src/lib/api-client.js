@@ -704,8 +704,8 @@ export async function remoteCall(method, args, fallbackFn) {
     const detector = getAnomalyDetector();
     detector.record();
     if (detector.throttleIfAnomalous()) {
-        console.error(`[vibeOS] Anomaly throttle active — falling back for ${method}`);
-        _apiFallbackMode = true;
+        // Don't set _apiFallbackMode — detector's own cooldown resets it.
+        // This lets the API retry naturally after the throttle window.
         if (fallbackFn)
             return fallbackFn();
         return null;

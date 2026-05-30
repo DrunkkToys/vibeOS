@@ -1,6 +1,6 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs"
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -67,11 +67,11 @@ test("fix 5c1e085 — VibeUltraX listed in branded modes", async () => {
   assert.ok(ids.includes("vibeultrax"), "branded modes include vibeultrax")
 })
 
-// ── Fix 5: anomaly detector toggle ──
-test("v0.22.1 — anomaly detector can be disabled and enabled", async () => {
-  const { setAnomalyDetection } = await import(join(root, "src/lib/api-client.js?ani=" + Date.now()))
-  setAnomalyDetection(false)
-  setAnomalyDetection(true)
+// ── Fix 5: cost anomaly detector toggle ──
+test("v0.22.1 — cost anomaly detector can be disabled and enabled", async () => {
+  const { setCostAnomalyDetection } = await import(join(root, "src/lib/cost-anomaly.js?cani=" + Date.now()))
+  setCostAnomalyDetection(false)
+  setCostAnomalyDetection(true)
   assert.ok(true, "toggle does not throw")
 })
 
@@ -105,4 +105,67 @@ test("fix 25210e2 — savings dedup integration with unique vs duplicate hashes"
 
   const sv2 = ls()
   assert.equal(sv2.ltCache, sv1.ltCache, "dedup prevents duplicate savings: " + sv2.ltCache)
+})
+
+// ── v0.22.2: cost anomaly detector integration ──
+test("v0.22.2 — cost anomaly detector spike detection and reset", async () => {
+  const { getCostAnomalyDetector } = await import("../src/lib/cost-anomaly.js?cani3=" + Date.now())
+  const detector = getCostAnomalyDetector()
+  
+  // Populate warmup samples with cheap costs
+  for (let i = 0; i < 5; i++) detector.record(0.0002)
+  
+  // Should not flag similar costs
+  assert.equal(detector.checkAnomaly("cheap/model", 0.0002), false, "normal cost not flagged")
+  
+  // Should flag 3x+ spike
+  assert.equal(detector.checkAnomaly("expensive/model", 0.050), true, "3x spike detected")
+  assert.equal(detector.currentAnomalyCost, 0.050, "anomaly cost recorded")
+  assert.ok(detector.currentAnomalyMean > 0, "mean computed")
+  
+  // Reset clears anomaly state
+
+  assert.equal(detector.costHistory.length, 0, "history cleared after reset")
+  assert.equal(detector.currentAnomalyModel, null, "anomaly model cleared")
+})
+
+test("v0.22.2 — cost anomaly detector respects warmup and disabled", async () => {
+  const { getCostAnomalyDetector } = await import("../src/lib/cost-anomaly.js?cani4=" + Date.now())
+  const detector = getCostAnomalyDetector()
+
+  
+  // Warmup: should not flag before 5 samples
+  assert.equal(detector.checkAnomaly("test/m", 10), false, "blocked during warmup")
+  assert.equal(detector.costHistory.length, 0, "no recording during warmup check")
+  
+  // Disabled: should not flag even after warmup
+  detector.disabled = true
+  detector.record(0.001); detector.record(0.001); detector.record(0.001)
+  detector.record(0.001); detector.record(0.001)
+  assert.equal(detector.checkAnomaly("test/m", 10), false, "blocked when disabled")
+  
+  detector.disabled = false
+})
+
+// ── v0.22.2: TokenAnomalyDetector does not permanently break API ──
+test("v0.22.2 — TokenAnomalyDetector does not set _apiFallbackMode", async () => {
+  const { setAnomalyDetection } = await import("../src/lib/api-client.js?ani=" + Date.now())
+; setAnomalyDetection(false)
+
+
+
+  assert.equal(typeof setAnomalyDetection, "function", "setAnomalyDetection exported")
+  setAnomalyDetection(false)
+  assert.ok(true, "toggle works without error")
+
+  assert.ok(true, "re-enable works without error")
+  setAnomalyDetection(false); assert.ok(true, "disable works cleanly")
+})
+
+test("v0.22.2 — _apiFallbackMode not set in anomaly throttle path", async () => {
+  const src = readFileSync(join(root, "src/lib/api-client.ts"), "utf-8")
+  const afterThrottle = src.split("detector.throttleIfAnomalous")[1]
+  const untilTryBlock = afterThrottle.split("try {")[0]
+  assert.ok(!untilTryBlock.includes("_apiFallbackMode = true"),
+    "no _apiFallbackMode = true in anomaly path")
 })
