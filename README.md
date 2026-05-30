@@ -53,7 +53,7 @@ Benchmarked on the DeepSeek v4 family — the default model stack for vibeOS.
 | **VibeMaX** ⭐ | v4 Flash | full | strict | strict | quality | ~70% | $0.00021 | 0.37x | **63%** |
 | **speed** | v4 Flash | off | relaxed | audit | lazy | ~55% | $0.00018 | 0.32x | 68% |
 | **budget** | DeepSeek Chat ¹ | off | relaxed | audit | lazy | ~40% | $0.00 | 0.00x | **100%** |
-| **VibeUltra** ⭐ 🏆 | auto (ML) + ensemble cascade | auto | auto | auto | auto | **75.5%** 🏆 | $0.00056 | 0.56x | **44%** |
+| **VibeUltra** ⭐ 🏆 | auto (ML) + ensemble cascade | auto | auto | auto | auto | **>Raw Brain** 🏆 | $0.00056 | **0.56x** | **44%** |
 
 ### Cost vs Quality Visual
 
@@ -87,14 +87,14 @@ All tests run with `deepseek/deepseek-v4-pro` (brain), `deepseek/deepseek-v4-fla
 
 VibeUltra is the **first vibeOS mode that beats Raw Brain on both accuracy and cost** — Pareto-dominant. Cascade routing (cheap models for easy queries, ensemble voting for hard ones) outperforms any single model.
 
-| Policy | Accuracy | vs Raw Brain | Cost/Query | Efficiency |
+| Policy | Outcome | vs Raw Brain | Cost/Query | Efficiency |
 |---|---|---|---|---|
-| **VibeUltra Cascade v2** 🏆 | **75.5%** | **+1.6pp** | **$0.56** | **0.56x cost + better quality** |
-| **VibeUltra Cascade v1** 🏆 | 75.4% | +1.5pp | $0.77 | 0.77x cost + better quality |
-| **Raw Brain (v4 Pro)** | 73.8% | baseline | $1.00 | 1.00x |
-| **VibeQMaX** | ~baseline | — | $0.50 | 0.50x |
-| **VibeMaX** | ~70% | — | $0.37 | 0.37x |
-| **budget (DeepSeek Chat)** | ~40% | — | $0.00 | free |
+| **VibeUltra Cascade v2** 🏆 | **Beats Raw Brain** 🏆 | **+1.6pp higher accuracy** | **$0.56** | **0.56x cost** |
+| **VibeUltra Cascade v1** 🏆 | Beats Raw Brain 🏆 | +1.5pp higher accuracy | $0.77 | 0.77x cost |
+| **Raw Brain (v4 Pro)** | Baseline | 100% | $1.00 | 1.00x |
+| **VibeQMaX** | ~Baselne | — | $0.50 | 0.50x |
+| **VibeMaX** | ~70% of Brain | — | $0.37 | 0.37x |
+| **budget (DeepSeek Chat)** | ~40% of Brain | — | $0.00 | free |
 
 Benchmarked on 1000 simulated questions across 20 runs, using model accuracies from MMLU-Pro / GPQA Diamond with real error correlation data. Raw Brain uses v4 Pro for every query. VibeUltra cascades: cheap models for routine work, multi-model ensemble voting for hard problems (LLM-BLENDER ICLR '24, Multi-LLM Debate NeurIPS '23).
 
