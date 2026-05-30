@@ -267,6 +267,19 @@ export class VibeOSApiClient {
     })
   }
 
+
+  async getModes(): Promise<unknown> {
+    return this.request("/api/v1/modes", {}, "GET")
+  }
+
+  async selectMode(mode: string): Promise<unknown> {
+    return this.request("/api/v1/mode/select", { mode })
+  }
+
+  async classifyQuery(text: string, state?: Record<string, unknown>): Promise<unknown> {
+    return this.request("/api/v1/mode/classify", { text, state: state || {} })
+  }
+
   async classifyTier(model: string, customRegex: string | null = null): Promise<unknown> {
     return this.request("/api/v1/tier/classify", { model, custom_regex: customRegex })
   }
