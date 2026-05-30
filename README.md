@@ -84,23 +84,22 @@ Quality
 All tests run with `deepseek/deepseek-v4-pro` (brain), `deepseek/deepseek-v4-flash` (medium), and `deepseek/deepseek-chat` (budget, $0 via DeepSeek provider). Quality scores measured against Raw Top Tier (v4 Pro, full thinking, no vibeOS overhead). VibeMaX quality benchmark derived from real session telemetry with bootstrap confidence intervals. Pareto frontier computed from 70 holdout scenarios across 170 training samples via hyperparameter sweep.
 
 **VibeUltra** is the Pareto-optimal Auto ML policy — renamed from ML AUTO (hparam t41d10) — achieving Q=93.8% with C=85.1% cost efficiency, the closest to the Q=100, C=66% target.
+### Pareto Frontier — All Algorithms vs Raw Brain
+
+| Policy | Category | Quality | Cost Efficiency | vs Raw | Distance to Target (Q=100, C=66%) |
+|---|---|---|---|---|---|
+| **Raw Brain** | baseline | 100% | 100% | 1.00x | 34.0 |
+| **VibeUltra** (t41d10) | auto-ml | **93.8%** | 85.1% | 0.42x | **20.1** |
+| **VibeUltra** (t11d5) | auto-ml | 95.6% | 87.3% | — | 21.7 |
+| **VibeQMaX** | auto | ~baseline | ~50% | 0.50x | — |
+| **VibeMaX** | auto | ~70% | ~37% | 0.37x | — |
+| Budget Only | baseline | 12% | 0.6% | 0.26x | 85.3 |
+
+Benchmarked on 70 holdout scenarios across 170 training samples. VibeUltra (t41d10) is the Pareto-optimal policy: Q=93.8% at C=85.1%, closest to the Q=100, C=66% target.
+
 
 ---
 
-
-### ML Enhancement — Research-Backed Optimizations
-
-vibeOScore ships three ML performance enhancements validated against academic research:
-
-| Enhancement | Research | Actual | Benefit |
-|---|---|---|---|
-| **INT8 Vector Quantization** | Aeon '25 / CARVQ '25 | 3-6x speedup, 75% mem reduction | Cosine similarity on 384-dim embeddings: FP32 1.5KB → INT8 384B, <0.001 avg precision loss |
-| **LSH Approximate Cache** | Proximity '25 (Middleware) | 90.9% hit rate on repeated queries | LSH-based fuzzy cache catches semantically similar queries — 77% fewer vector DB calls |
-| **SPI Multi-Resolution Index** | Semantic Pyramid Indexing '25 | Adaptive resolution selection | Simple queries use coarse 64-dim index (5.7x faster), complex queries escalate to full 384-dim |
-
-**VibeUltra** is the Pareto-optimal Auto ML policy (hparam t41d10) — Q=93.8% at C=85.1% cost efficiency, closest to the Q=100, C=66% target.
-
-**References:** SPI (arXiv:2511.16681), Proximity (arXiv:2503.05530), Aeon (arXiv:2601.15311), CARVQ (arXiv:2510.12721), syftr (arXiv:2505.20266), CoMoE (arXiv:2508.09208).
 
 ## Features
 
