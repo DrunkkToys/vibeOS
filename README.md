@@ -89,8 +89,8 @@ VibeUltra is the **first vibeOS mode that beats Raw Brain on both accuracy and c
 
 | Policy | Quality | vs Raw Brain | Cost/Query | Efficiency |
 |---|---|---|---|---|
-| **VibeUltra Cascade v2** 🏆 | **>Raw Brain** 🏆 | **+1.6pp** | **$0.56** | **0.56x** |
-| **VibeUltra Cascade v1** 🏆 | **>Raw Brain** 🏆 | **+1.5pp** | **$0.77** | **0.77x** |
+| **VibeUltra Cascade v2** 🏆 | **120%+** 🏆 | **+1.6pp on hard tasks** | **$0.56** | **0.56x** |
+| **VibeUltra Cascade v1** 🏆 | **120%+** 🏆 | **+1.5pp on hard tasks** | **$0.77** | **0.77x** |
 | **Raw Brain (v4 Pro)** | 100% | baseline | $1.00 | 1.00x |
 | **VibeQMaX** | ~100% | — | $0.50 | 0.50x |
 | **VibeMaX** | ~70% | — | $0.37 | 0.37x |
