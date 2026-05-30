@@ -63,6 +63,70 @@ export class VibeOSNetworkError extends Error {
   }
 }
 
+const ANOMALY_BURST_WINDOW_MS = 5000
+const ANOMALY_BURST_THRESHOLD = 10
+const ANOMALY_FREQ_WINDOW_MS = 600_000
+const ANOMALY_STDDEV_FACTOR = 3
+const ANOMALY_WARMUP_MS = 30_000
+const ANOMALY_COOLDOWN_MS = 120_000
+
+class TokenAnomalyDetector {
+  burstHistory: number[] = []
+  freqHistory: number[] = []
+  lastWarnTime = 0
+  anomalyTriggered = false
+  disabled = false
+  startedAt = Date.now()
+
+  get isWarmup(): boolean {
+    return Date.now() - this.startedAt < ANOMALY_WARMUP_MS
+  }
+
+  record(): void {
+    if (this.disabled || this.isWarmup) return
+    const now = Date.now()
+    this.burstHistory = this.burstHistory.filter(t => now - t < ANOMALY_BURST_WINDOW_MS)
+    this.burstHistory.push(now)
+    this.freqHistory.push(now)
+  }
+
+  checkBurst(): boolean {
+    return this.burstHistory.length > ANOMALY_BURST_THRESHOLD
+  }
+
+  checkFrequency(): boolean {
+    const now = Date.now()
+    const window = this.freqHistory.filter(t => now - t < ANOMALY_FREQ_WINDOW_MS)
+    if (window.length < 10) return false
+    const mean = window.length / (ANOMALY_FREQ_WINDOW_MS / 60_000)
+    const recent = this.burstHistory.length / (ANOMALY_BURST_WINDOW_MS / 1000)
+    return recent > mean * ANOMALY_STDDEV_FACTOR
+  }
+
+  throttleIfAnomalous(): boolean {
+    const now = Date.now()
+    if (this.disabled || this.isWarmup) return false
+    if (this.anomalyTriggered) return true
+    if (this.checkBurst() || this.checkFrequency()) {
+      this.anomalyTriggered = true
+      this.lastWarnTime = now
+      console.error("[vibeOS] Token anomaly detected — throttling API calls")
+      return true
+    }
+    if (this.lastWarnTime && now - this.lastWarnTime > ANOMALY_COOLDOWN_MS) {
+      this.anomalyTriggered = false
+    }
+    return this.anomalyTriggered
+  }
+
+  reset(): void {
+    this.burstHistory = []
+    this.freqHistory = []
+    this.anomalyTriggered = false
+    this.lastWarnTime = 0
+  }
+}
+
 function normalizeApiToken(token: string | null | undefined, fallback = ""): string {
   const clean = String(token || "").trim()
   return API_TOKEN_RE.test(clean) ? clean : fallback
