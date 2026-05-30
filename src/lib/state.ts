@@ -1334,7 +1334,6 @@ function recordCacheSaving(tool: string, saveEst: number, meta: any = {}): any {
       const now = new Date().toISOString()
       const delta = Number(saveEst || 0)
       s.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" }
-      s.lifetime.cache_savings_usd = roundUsd(Number(s.lifetime.cache_savings_usd || 0) + delta)
       s.lifetime.last_updated = now
       s.sessions ??= {}
       const sid = _OC_SID
@@ -1343,19 +1342,25 @@ function recordCacheSaving(tool: string, saveEst: number, meta: any = {}): any {
       if (currentProjectName) s.sessions[sid].project_name = currentProjectName
       s.sessions[sid].session_cache_dir = getSessionScratchpadDir()
       s.sessions[sid].tool_counts[tool] = (s.sessions[sid].tool_counts[tool] || 0) + 1
-      s.sessions[sid].cache_savings_usd = roundUsd(Number(s.sessions[sid].cache_savings_usd || 0) + delta)
       if (meta?.hash) {
         s.sessions[sid].cache_hits ??= []
-        s.sessions[sid].cache_hits.push({
-          at: now,
-          tool,
-          hash: meta.hash,
-          est_savings_usd: roundUsd(delta),
-        })
-        if (s.sessions[sid].cache_hits.length > 200) {
-          console.error(`[vibeOS] session cache_hits truncated from ${s.sessions[sid].cache_hits.length} to 200 for ${sid}`)
-          s.sessions[sid].cache_hits = s.sessions[sid].cache_hits.slice(-200)
+        if (!s.sessions[sid].cache_hits.some((h: any) => h.hash === meta.hash)) {
+          s.sessions[sid].cache_hits.push({
+            at: now,
+            tool,
+            hash: meta.hash,
+            est_savings_usd: roundUsd(delta),
+          })
+          s.sessions[sid].cache_savings_usd = roundUsd(Number(s.sessions[sid].cache_savings_usd || 0) + delta)
+          s.lifetime.cache_savings_usd = roundUsd(Number(s.lifetime.cache_savings_usd || 0) + delta)
+          if (s.sessions[sid].cache_hits.length > 200) {
+            console.error(`[vibeOS] session cache_hits truncated from ${s.sessions[sid].cache_hits.length} to 200 for ${sid}`)
+            s.sessions[sid].cache_hits = s.sessions[sid].cache_hits.slice(-200)
+          }
         }
+      } else {
+        s.sessions[sid].cache_savings_usd = roundUsd(Number(s.sessions[sid].cache_savings_usd || 0) + delta)
+        s.lifetime.cache_savings_usd = roundUsd(Number(s.lifetime.cache_savings_usd || 0) + delta)
       }
       _pruneOldSessions(s)
       return s

@@ -315,7 +315,6 @@ function compressToolOutputs(messages: any[]): number {
       if (!raw || typeof raw !== "string" || raw.length < COMPRESS_THRESHOLD) continue
       if (raw.includes(COMPRESS_MARKER)) continue
 
-      let wasNew = false
       const hash = createHash("sha256")
         .update(`tool_result\n${raw}\n`).digest("hex").slice(0, 16)
       const fullPath = join(getSessionScratchpadDir(), `${hash}.txt`)
@@ -324,7 +323,6 @@ function compressToolOutputs(messages: any[]): number {
         if (!existsSync(fullPath)) {
           writeFileSync(fullPath, raw)
           indexAppend(hash, part.tool, raw.length)
-          wasNew = true
 
           // Create pointer file for input-hash-based lookup
           const invPart = parts.slice(0, parts.indexOf(part)).reverse().find(
@@ -357,7 +355,7 @@ function compressToolOutputs(messages: any[]): number {
       compressedBytes += raw.length - ref.length
       const toolKey = TOOL_NAME_NORMALIZE[(part as any).tool] || (part as any).tool
       const rate = cacheSavePer1MInputTokens(currentModel)
-      if (rate > 0 && wasNew) {
+      if (rate > 0) {
         const inputTokens = Math.max(1, Math.round((raw.length - ref.length) / BYTES_PER_TOKEN))
         const saveEst = Math.max(0.0001, Math.round(inputTokens * rate / 1_000_000 * 10000) / 10000)
         recordCacheSaving(toolKey, saveEst, { hash })
