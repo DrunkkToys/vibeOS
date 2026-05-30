@@ -769,6 +769,20 @@ describe('pricing', () => {
     expect(rate).toBe(0)
   });
 
+  it('modelCostPerTurn: derives from MODEL_PRICING_PER_1M for known model', () => {
+    const turn = mod.modelCostPerTurn("deepseek/deepseek-v4-pro")
+    // input=0.435, output=0.870 per 1M. Turn=(0.435*700+0.870*300)/1M = 0.0005655
+    expect(turn).toBeGreaterThan(0.0005)
+    expect(turn).toBeLessThan(0.001)
+  });
+
+  it('modelCostPerTurn: computes correct blended from input/output pricing', () => {
+    const turn = mod.modelCostPerTurn("openai/gpt-4o")
+    // input=2.50, output=10.0 per 1M. Turn=(2.5*700+10*300)/1M = 0.00475
+    expect(turn).toBeGreaterThan(0.004)
+    expect(turn).toBeLessThan(0.006)
+  });
+
   it('PLACEHOLDER_RE: raises gracefully on invalid/malformed input', () => {
     // TODO: implement PLACEHOLDER_RE: raises gracefully on invalid/malformed input
     expect(true).toBe(true);

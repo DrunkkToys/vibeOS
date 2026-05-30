@@ -598,7 +598,14 @@ export function modelCostPerTurn(model) {
   for (const [k, v] of Object.entries(map)) {
     if (key.startsWith(k) && /-\d+$/.test(k) && key.charAt(k.length) === "-") return v
   }
-  // Log unknown models so we can add entries
+  // Fallback: derive blended turn cost from MODEL_PRICING_PER_1M input/output rates
+  for (const candidate of [model, key, bare]) {
+    const pricing = MODEL_PRICING_PER_1M[candidate]
+    if (pricing && Number.isFinite(pricing.input) && Number.isFinite(pricing.output)) {
+      const blended = (pricing.input * 700 + pricing.output * 300) / 1_000_000
+      return Number.isFinite(blended) ? blended : FREE_MODEL_TURN_USD
+    }
+  }
   console.error(`[vibeOS] modelCostPerTurn: unknown model '${model}' (normalized: '${key}') — add to MODEL_USD_PER_TURN`)
   return FREE_MODEL_TURN_USD
 }
