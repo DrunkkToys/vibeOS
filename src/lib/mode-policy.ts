@@ -26,12 +26,12 @@ type OutcomeInput = {
 const BASELINE_MODE: AdaptiveMode = "budget"
 const LOOP_REGIMES = new Set(["LOOPING", "DIVERGENT"])
 const QUALITY_REGIMES = new Set(["CONVERGING", "CLOSED"])
-const MANUAL_MODES = new Set(["balanced", "quality", "speed", "longrun", "vibemax"])
+const MANUAL_MODES = new Set(["balanced", "quality", "speed", "longrun", "vibemax", "vibeqmax", "vibeultrax"])
 
 function normalizeMode(mode?: string | null): string {
   const normalized = String(mode || BASELINE_MODE).toLowerCase()
   if (normalized === "auto" || normalized === "") return BASELINE_MODE
-  if (normalized === "budget" || normalized === "quality" || normalized === "speed" || normalized === "longrun" || normalized === "balanced" || normalized === "vibemax") {
+  if (normalized === "budget" || normalized === "quality" || normalized === "speed" || normalized === "longrun" || normalized === "balanced" || normalized === "vibemax" || normalized === "vibeqmax" || normalized === "vibeultrax") {
     return normalized
   }
   return BASELINE_MODE
@@ -45,9 +45,10 @@ function isManualOverride(mode?: string | null): boolean {
   return MANUAL_MODES.has(normalizeMode(mode))
 }
 
-function chooseEpisodeMode(regime: string, suggestedMode: string, stress: number): AdaptiveMode {
+function chooseEpisodeMode(regime: string, suggestedMode: string, stress: number): string {
   if (LOOP_REGIMES.has(regime) || suggestedMode === "speed") return "speed"
   if (QUALITY_REGIMES.has(regime) || suggestedMode === "quality") return "quality"
+  if (suggestedMode === "vibeultrax" || suggestedMode === "vibeqmax") return suggestedMode
   return stress > 1.5 ? "quality" : "budget"
 }
 
@@ -71,7 +72,7 @@ function defaultPolicy() {
 function modeToSlot(mode: string): "brain" | "medium" | "cheap" {
   const normalized = normalizeMode(mode)
   if (normalized === "speed") return "medium"
-  if (normalized === "quality" || normalized === "longrun") return "brain"
+  if (normalized === "quality" || normalized === "longrun" || normalized === "vibeultrax" || normalized === "vibeqmax") return "brain"
   return "cheap"
 }
 
