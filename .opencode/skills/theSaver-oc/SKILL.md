@@ -15,17 +15,21 @@ description: Project-specific conventions, current command surface, and workspac
 - This repo is the OpenCode plugin workspace.
 - The backend lives in the Desktop sibling folder `../vibeOScore`.
 - `README.md` is the PM-style public guide for install and troubleshooting.
+- `AGENTS.md` contains the immutable laws governing development.
 
 ## Routines
 
 - After editing `src/*.ts`, run the build and typecheck path before you treat the change as done.
 - After updating `README.md`, `AGENTS.md`, or `.opencode/skills/*`, verify the command names against the live `trinity help` surface.
 - Keep docs aligned with the sibling backend root instead of assuming the backend lives inside this repo.
+- Always run `npm run typecheck` before committing.
+- Never modify `.js` files directly; only edit the corresponding `.ts` source files.
 
 ## Frictions
 
 - Repeated read calls against `src/*.ts` in one session.
 - Repeated edit calls against `src/*.ts` in one session.
+- Forgetting to update corresponding `.ts` files when modifying `.js` files.
 
 ## Common Tool Chains
 
@@ -38,3 +42,42 @@ description: Project-specific conventions, current command surface, and workspac
 - todowrite→todowrite
 - report-save→report-save
 - task→task
+- webfetch→webfetch (when context7 tools unavailable)
+- websearch→websearch (for external research)
+
+## Key Features (from AGENTS.md)
+
+- Cost-aware delegation enforcement
+- Cache savings tracking (separate `cache_savings_usd` category)
+- Live footer showing model split, savings, and stress gauge
+- Complete trinity runtime controls:
+  - Model slots: `set brain|medium|cheap`, shorthand commands
+  - Optimization modes: `mode budget|quality|speed|longrun|auto`
+  - Thinking modes: `thinking full|brief|off`
+  - Enforcement toggles: `enforce on|off`
+  - Model locking: `lock on|off`
+  - Flow toggles: `flow on|off`, `flow enforce on|off`
+  - TDD toggles: `tdd on|off`, `tdd strict on|off`, `tdd quality on|off`
+  - Project introspection: `project`, `patterns`, `patterns clear`
+  - State management: `repair-state preview|apply`
+  - Reporting: `report-save`, `report-list`, `report-read`, `research-audit`
+  - API management: `api-token`
+  - Diagnostics: `diagnose`
+  - Help: `help`
+- Stress mitigation pipeline:
+  - `scoreStress()` user stress signal detection
+  - Live stress footer gauge (`▁▂▃▅▆█`)
+  - System prompt inoculation
+  - Stress-aware tier routing
+- Context7 cost optimization directive injection
+- Worker-to-Brain (WBP) protocol
+- JSONC-tolerant config parsing via `safeJsonParse()`
+- File-based locking via `~/.claude/.vibeOS-locks/`
+- Per-session warning caps and coalescing
+- Pattern learner with runtime controls (`trinity patterns`)
+- vibeOS MCP server for extended tool capabilities
+- TUI dashboard sidebar for real-time plugin status
+- Remote API protection with seat/license management
+- Per-session model locking (`trinity lock on|off`)
+- Web dashboard served by MCP server
+- Blackbox decision engine with 7 sub-regimes and loop prevention

@@ -837,7 +837,7 @@ function getScratchpadHit(toolLower: string, args: any, baseDir: string | null =
   const globalDir = SCRATCHPAD_GLOBAL_DIR
   const sessionPath = join(sessionDir, `${hash}.txt`)
   const globalPath = join(globalDir, `${hash}.txt`)
-  let fullPath = existsSync(sessionPath) ? sessionPath : (existsSync(globalPath) ? globalPath : null)
+  let fullPath = existsSync(globalPath) ? globalPath : (existsSync(sessionPath) ? sessionPath : null)
   if (!fullPath) {
     // Try pointer files (created by compressToolOutputs mapping input hash -> content hash)
     const ptrSessionPath = join(sessionDir, `${hash}.ptr`)
@@ -851,7 +851,7 @@ function getScratchpadHit(toolLower: string, args: any, baseDir: string | null =
           resolvedHash = ptrData.contentHash
           const rSessionPath = join(sessionDir, `${resolvedHash}.txt`)
           const rGlobalPath = join(globalDir, `${resolvedHash}.txt`)
-          fullPath = existsSync(rSessionPath) ? rSessionPath : (existsSync(rGlobalPath) ? rGlobalPath : null)
+          fullPath = existsSync(rGlobalPath) ? rGlobalPath : (existsSync(rSessionPath) ? rSessionPath : null)
         }
       } catch {}
     }
