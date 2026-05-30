@@ -45,18 +45,20 @@ export function bootstrapOptimizationSession() {
         const state = loadBlackboxState();
         if (!state.sessions)
             state.sessions = {};
-        if (!state.sessions[sid])
-            state.sessions[sid] = {};
-        state.sessions[sid].optimization_mode = resolvedMode;
-        state.sessions[sid].active_slot = resolvedSlot;
-        state.sessions[sid].sub_regime = state.sessions[sid].sub_regime || "INIT";
-        state.sessions[sid].regime = state.sessions[sid].regime || "INIT";
-        state.sessions[sid].resolution = state.sessions[sid].resolution || "unresolved";
-        state.sessions[sid].momentum = Number(state.sessions[sid].momentum || 0);
-        state.sessions[sid].loop_count = Number(state.sessions[sid].loop_count || 0);
-        state.sessions[sid].loop_intervention_level = state.sessions[sid].loop_intervention_level || "none";
-        state.sessions[sid].loop_start_turn = Number(state.sessions[sid].loop_start_turn || 0);
-        state.sessions[sid].loop_pattern_count = Number(state.sessions[sid].loop_pattern_count || 0);
+        if (sid && sid !== "undefined") {
+            if (!state.sessions[sid])
+                state.sessions[sid] = {};
+            state.sessions[sid].optimization_mode = resolvedMode;
+            state.sessions[sid].active_slot = resolvedSlot;
+            state.sessions[sid].sub_regime = state.sessions[sid].sub_regime || "INIT";
+            state.sessions[sid].regime = state.sessions[sid].regime || "INIT";
+            state.sessions[sid].resolution = state.sessions[sid].resolution || "unresolved";
+            state.sessions[sid].momentum = Number(state.sessions[sid].momentum || 0);
+            state.sessions[sid].loop_count = Number(state.sessions[sid].loop_count || 0);
+            state.sessions[sid].loop_intervention_level = state.sessions[sid].loop_intervention_level || "none";
+            state.sessions[sid].loop_start_turn = Number(state.sessions[sid].loop_start_turn || 0);
+            state.sessions[sid].loop_pattern_count = Number(state.sessions[sid].loop_pattern_count || 0);
+        }
         saveBlackboxState(state);
     }
     catch { }
@@ -314,11 +316,11 @@ export function getBlackboxTracker() {
         if (state.enabled !== undefined)
             _setGlobalBlackboxEnabled(state.enabled);
         const sid = _OC_SID;
-        if (state.sessions?.[sid]?.history) {
+        if (sid && sid !== "undefined" && state.sessions?.[sid]?.history) {
             _blackboxTracker = _BlackboxStub.deserialize(state.sessions[sid]);
         }
-        else if (currentProjectFingerprint) {
-            const projectKeys = Object.keys(state.sessions || {}).filter(k => state.sessions[k].project_fingerprint === currentProjectFingerprint);
+        else if (currentProjectFingerprint && sid && sid !== "undefined") {
+            const projectKeys = Object.keys(state.sessions || {}).filter(k => state.sessions[k].project_fingerprint === currentProjectFingerprint && k !== "undefined" && k !== null && k.trim() !== "");
             const latest = projectKeys.sort().slice(-1)[0];
             if (latest && state.sessions[latest]?.history) {
                 const data = state.sessions[latest];
@@ -589,12 +591,14 @@ export function incrementTurnCounter() {
         const sid = _OC_SID;
         if (!state.sessions)
             state.sessions = {};
-        if (!state.sessions[sid])
-            state.sessions[sid] = {};
-        const next = (state.sessions[sid].turn_counter || 0) + 1;
-        state.sessions[sid].turn_counter = next;
+        if (sid && sid !== "undefined") {
+            if (!state.sessions[sid])
+                state.sessions[sid] = {};
+            const next = (state.sessions[sid].turn_counter || 0) + 1;
+            state.sessions[sid].turn_counter = next;
+        }
         saveBlackboxState(state);
-        return next;
+        return 0;
     }
     catch {
         return 0;

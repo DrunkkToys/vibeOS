@@ -1314,9 +1314,9 @@ function recordDelegation(tool: string, saveEst: number, meta: any = {}): any {
       const sid = _OC_SID
       s.sessions[sid] ??= { started: now, session_started_at: now, source: "opencode", tool_counts: {}, warns: [] }
 
-      if (currentProjectFingerprint) s.sessions[sid].project_fingerprint = currentProjectFingerprint
+      if (currentProjectFingerprint && !s.sessions[sid].project_fingerprint) s.sessions[sid].project_fingerprint = currentProjectFingerprint
 
-      if (currentProjectName) s.sessions[sid].project_name = currentProjectName
+      if (currentProjectName && !s.sessions[sid].project_name) s.sessions[sid].project_name = currentProjectName
 
       s.sessions[sid].total_savings_usd = roundUsd(Number(s.sessions[sid].total_savings_usd || 0) + delta)
       _pruneOldSessions(s)
@@ -1338,8 +1338,8 @@ function recordCacheSaving(tool: string, saveEst: number, meta: any = {}): any {
       s.sessions ??= {}
       const sid = _OC_SID
       s.sessions[sid] ??= { started: now, session_started_at: now, source: "opencode", tool_counts: {}, warns: [] }
-      if (currentProjectFingerprint) s.sessions[sid].project_fingerprint = currentProjectFingerprint
-      if (currentProjectName) s.sessions[sid].project_name = currentProjectName
+      if (currentProjectFingerprint && !s.sessions[sid].project_fingerprint) s.sessions[sid].project_fingerprint = currentProjectFingerprint
+      if (currentProjectName && !s.sessions[sid].project_name) s.sessions[sid].project_name = currentProjectName
       s.sessions[sid].session_cache_dir = getSessionScratchpadDir()
       s.sessions[sid].tool_counts[tool] = (s.sessions[sid].tool_counts[tool] || 0) + 1
       if (meta?.hash) {
