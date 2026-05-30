@@ -35,22 +35,25 @@ Benchmarked on the DeepSeek v4 family. Prices based on 700 input + 300 output to
 
 ## Optimization Modes
 
-### Mode Comparison — Sorted by Quality Descending
+### Policy Comparison — Sorted by Quality Descending
 
-| # | Mode | Pipeline | Quality vs Brain | Cost vs Brain | Cost/Turn | Saves |
-|---|------|----------|-----------------|--------------|-----------|-------|
-| 1 | **Raw Brain** | v4 Pro (no framework) | baseline | 1.00x | $0.00057 | - |
-| 2 | **VibeQMaX** (quality) | v4 Pro + full guardrails | ~baseline | 0.50x | $0.00029 | 50% |
-| 3 | **VibeUltraX** | MagicCoder:7b -> v4 Flash -> v4 Pro (debate) | **107%** | 0.58x | $0.00033 | 42% |
-| 4 | **VibeMaX** (default) | medium (auto-escalate via trained cascade) | ~75% | 0.18x | $0.00010 | 82% |
-| 5 | **Speed** | v4 Flash | ~55% | 0.32x | $0.000182 | 68% |
-| 6 | **Budget** | DeepSeek Chat | ~40% | 0.00x | $0.00 | 100% |
+| Policy | Quality vs Brain | Cost vs Brain | Savings | Method |
+|--------|-----------------|--------------|---------|--------|
+| VibeUltraX | 107% | 0.58x | 42% | local -> Flash -> Pro cascade |
+| VibeQMaX | ~100% | 0.50x | 50% | same model, framework optimizations |
+| Raw Brain | 100% | 1.00x | - | baseline |
+| VibeMaX | ~75% | 0.18x | 82% | trained cascade (conservative escalate) |
+| Budget | ~40% | 0.00x | 100% | direct routing |
+
+**VibeUltraX** — Cascade pipeline: MagicCoder:7b (local Ollama) proposes, v4 Flash reviews, v4 Pro refines. Benchmarked at **107% of Brain quality** at 58% cost (local inference is free, only Flash/Pro API calls cost).
 
 **VibeQMaX (Quality Max)** — Routes strategic turns through v4 Pro with full thinking, strict enforcement, strict flow checks, and quality TDD. Write/edit turns delegated to cheaper tiers per enforcement rules. Effective blended cost ~$0.00029/turn (50% of Raw Brain).
 
+**Raw Brain** — v4 Pro (no framework). Baseline for all comparisons. 100% quality at 1.00x cost.
+
 **VibeMaX (ML-Optimized, Default)** — Intelligent cost-quality sweet spot. Routes through v4 Flash (medium) and uses a random forest classifier (29 trees, gini-split, trained on telemetry) to decide each turn. Classifies on 11 derived features: message length, code block density, urgency, complexity, repetition, question ratio, and more. Benchmarked at ~75% of Brain quality at 18% of cost.
 
-**VibeUltraX** — Cascade pipeline: MagicCoder:7b (local Ollama) proposes, v4 Flash reviews, v4 Pro refines. Benchmarked at **107% of Brain quality** at 58% cost (local inference is free, only Flash/Pro API calls cost).
+**Budget** — DeepSeek Chat. Direct routing. ~40% quality at 0.00x cost. 100% savings.
 
 ### Cost vs Quality Visual
 
@@ -73,7 +76,7 @@ Quality
 |------|-------|----------|-------------|------|-----|
 | Raw Brain | v4 Pro | full | - | - | - |
 | VibeQMaX | v4 Pro | full | strict | strict | quality |
-| VibeUltraX | cascade (local->Flash->Pro) | auto | auto | auto | auto | **107%** |
+| VibeUltraX | cascade (local->Flash->Pro) | auto | auto | auto | auto |
 | VibeMaX | v4 Flash (auto-escalate) | auto | auto | auto | auto |
 | Speed | v4 Flash | off | relaxed | audit | lazy |
 | Budget | DeepSeek Chat | off | relaxed | audit | lazy |
@@ -81,14 +84,6 @@ Quality
 ### Benchmark Details
 
 All tests run with DeepSeek v4 family. Quality scores measured against Raw Brain (v4 Pro, full thinking, no vibeOS overhead). VibeMaX quality benchmark derived from real session telemetry with bootstrap confidence intervals (36 bootstrap samples). Pareto frontier computed from 70 holdout scenarios across 170 training samples via hyperparameter sweep. VibeUltra is the first mode that beats Raw Brain on both accuracy and cost — Pareto-dominant.
-
-| Policy | Quality vs Brain | Cost vs Brain | Savings | Method |
-|--------|-----------------|--------------|---------|--------|
-| VibeUltraX | **107%** | 0.58x | 42% | local -> Flash -> Pro cascade |
-| VibeMaX | ~75% | 0.18x | 82% | trained cascade (conservative escalate) |
-| VibeQMaX | ~100% | 0.50x | 50% | same model, framework optimizations |
-| Raw Brain | 100% | 1.00x | - | baseline |
-| Budget | ~40% | 0.00x | 100% | direct routing |
 
 Benchmarked on 1000 simulated questions across 20 runs, using model accuracies from MMLU-Pro / GPQA Diamond with real error correlation data.
 
