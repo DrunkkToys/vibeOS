@@ -260,6 +260,50 @@ export function trendDisplay(sesTrend) {
 const CACHE_SAVED_PER_1M_INPUT_TOKENS = 0.10;
 // Approximate bytes per token for JSON/text content (varies 3-6, use 4 as safe estimate).
 const BYTES_PER_TOKEN = 4;
+export function parseOpenRouterInputPer1M(modelRow) {
+    const p = modelRow?.pricing || {};
+    const inTok = Number(p.prompt ?? p.input ?? p.request);
+    if (Number.isFinite(inTok) && inTok > 0) {
+        return Math.round(inTok * 1_000_000 * 10000) / 10000;
+    }
+    return null;
+}
+export function cacheSavePer1MInputTokens(model) {
+    if (!model)
+        return CACHE_SAVED_PER_1M_INPUT_TOKENS;
+    if (isModelFree(model))
+        return 0;
+    const rawKey = String(model || "");
+    const key = normalizeModelId(model);
+    const rawNoPrefix = rawKey.includes("/") ? rawKey.split("/")[rawKey.split("/").length - 1] : rawKey;
+    try {
+        const cache = _loadDynamicPricingCache();
+        for (const candidate of [rawKey, key, rawNoPrefix]) {
+            const entry = cache[candidate];
+            const rate = parseOpenRouterInputPer1M(entry);
+            if (rate !== null)
+                return rate;
+        }
+        for (const [ck, cv] of Object.entries(cache)) {
+            if (ck.endsWith("/" + rawNoPrefix)) {
+                const rate = parseOpenRouterInputPer1M(cv);
+                if (rate !== null)
+                    return rate;
+            }
+        }
+    }
+    catch { }
+    for (const candidate of [rawKey, key, rawNoPrefix]) {
+        const known = MODEL_PRICING_PER_1M[candidate];
+        if (known && Number.isFinite(known.input))
+            return known.input;
+    }
+    const turnCost = modelCostPerTurn(model);
+    if (Number.isFinite(turnCost) && turnCost > 0) {
+        return Math.round(turnCost * 375 * 100) / 100;
+    }
+    return CACHE_SAVED_PER_1M_INPUT_TOKENS;
+}
 export function roundUsd(v, precision = 6) {
     const n = Number(v ?? 0);
     if (!Number.isFinite(n))
@@ -284,6 +328,89 @@ export function formatUsd(v) {
 // deepseek-chat is free with a DeepSeek API token — priced at $1e-12 (near-zero).
 const FREE_MODEL_TURN_USD = 1e-10;
 const FREE_MODELS = new Set([]);
+// Actual input / output pricing per 1M tokens, sourced from provider API pages
+// and OpenRouter /api/v1/models. Format: USD per 1 million tokens.
+// Entries with provider/ prefix = OpenRouter route; without prefix = native provider.
+const MODEL_PRICING_PER_1M = {
+    // ── Anthropic (native + OpenRouter) ─────────────────────
+    "anthropic/claude-opus-4-8-fast": { input: 10.0, output: 50.0 },
+    "anthropic/claude-opus-4-8": { input: 5.0, output: 25.0 },
+    "anthropic/claude-opus-4-7-fast": { input: 30.0, output: 150.0 },
+    "anthropic/claude-opus-4-7": { input: 5.0, output: 25.0 },
+    "anthropic/claude-opus-4-6-fast": { input: 30.0, output: 150.0 },
+    "anthropic/claude-opus-4-6": { input: 5.0, output: 25.0 },
+    "anthropic/claude-opus-4-5": { input: 5.0, output: 25.0 },
+    "anthropic/claude-opus-4.1": { input: 15.0, output: 75.0 },
+    "anthropic/claude-opus-4": { input: 15.0, output: 75.0 },
+    "anthropic/claude-sonnet-4-6": { input: 3.0, output: 15.0 },
+    "anthropic/claude-sonnet-4-5": { input: 3.0, output: 15.0 },
+    "anthropic/claude-sonnet-4": { input: 3.0, output: 15.0 },
+    "anthropic/claude-haiku-4-5": { input: 1.0, output: 5.0 },
+    "anthropic/claude-3.5-haiku": { input: 0.80, output: 4.0 },
+    "anthropic/claude-3-haiku": { input: 0.25, output: 1.25 },
+    "haiku": { input: 0.80, output: 4.0 },
+    // ── DeepSeek (native — free for chat, paid for pro/flash/r1) ──
+    "deepseek-chat": { input: 0, output: 0 }, // native → free
+    "deepseek-reasoner": { input: 0.55, output: 2.19 }, // native r1
+    // ── DeepSeek (OpenRouter route) ────────────────────────
+    "deepseek/deepseek-v4-pro": { input: 0.435, output: 0.870 },
+    "deepseek/deepseek-v4-flash": { input: 0.098, output: 0.197 },
+    "deepseek/deepseek-chat": { input: 0.229, output: 0.914 },
+    "deepseek/deepseek-v3.2": { input: 0.252, output: 0.378 },
+    "deepseek/deepseek-v3.2-exp": { input: 0.270, output: 0.410 },
+    "deepseek/deepseek-chat-v3.1": { input: 0.210, output: 0.790 },
+    "deepseek/deepseek-chat-v3-0324": { input: 0.200, output: 0.770 },
+    "deepseek/deepseek-v3.1-terminus": { input: 0.270, output: 0.950 },
+    "deepseek/deepseek-r1-0528": { input: 0.500, output: 2.150 },
+    "deepseek/deepseek-r1": { input: 0.700, output: 2.500 },
+    "deepseek/deepseek-r1-distill-qwen-32b": { input: 0.290, output: 0.290 },
+    "deepseek/deepseek-r1-distill-llama-70b": { input: 0.70, output: 0.80 },
+    "deepseek/deepseek-v3": { input: 0.252, output: 0.378 },
+    "deepseek/haiku": { input: 0.80, output: 4.0 },
+    // ── Google Gemini (OpenRouter route) ──────────────────
+    "google/gemini-2.5-pro": { input: 1.25, output: 10.0 },
+    "google/gemini-2.5-flash": { input: 0.30, output: 2.50 },
+    "google/gemini-2.5-flash-lite": { input: 0.10, output: 0.40 },
+    "google/gemini-2.0-flash-001": { input: 0.10, output: 0.40 },
+    "google/gemini-2.0-flash-lite-001": { input: 0.075, output: 0.30 },
+    "google/gemma-4-31b-it": { input: 0.12, output: 0.37 },
+    "google/gemma-4-26b-a4b-it": { input: 0.06, output: 0.33 },
+    // ── OpenAI (OpenRouter route) ─────────────────────────
+    "openai/gpt-5.5-pro": { input: 30.0, output: 180.0 },
+    "openai/gpt-5.5": { input: 5.0, output: 30.0 },
+    "openai/gpt-5.4-pro": { input: 30.0, output: 180.0 },
+    "openai/gpt-5.4": { input: 2.50, output: 15.0 },
+    "openai/gpt-5.4-mini": { input: 0.75, output: 4.50 },
+    "openai/gpt-5.4-nano": { input: 0.20, output: 1.25 },
+    "openai/gpt-5.3-chat": { input: 1.75, output: 14.0 },
+    "openai/gpt-5.3-codex": { input: 1.75, output: 14.0 },
+    "openai/gpt-5.2": { input: 1.75, output: 14.0 },
+    "openai/gpt-5.2-pro": { input: 21.0, output: 168.0 },
+    "openai/gpt-5.1": { input: 1.25, output: 10.0 },
+    "openai/gpt-5": { input: 1.25, output: 10.0 },
+    "openai/gpt-5-mini": { input: 0.25, output: 2.00 },
+    "openai/gpt-5-nano": { input: 0.05, output: 0.40 },
+    "openai/gpt-4o": { input: 2.50, output: 10.0 },
+    "openai/gpt-4o-mini": { input: 0.15, output: 0.60 },
+    "openai/gpt-4.1": { input: 2.00, output: 8.00 },
+    "openai/gpt-4.1-mini": { input: 0.40, output: 1.60 },
+    "openai/gpt-4.1-nano": { input: 0.10, output: 0.40 },
+    "openai/o4-mini": { input: 1.10, output: 4.40 },
+    "openai/o4-mini-high": { input: 1.10, output: 4.40 },
+    "openai/o3-pro": { input: 20.0, output: 80.0 },
+    "openai/o3": { input: 2.00, output: 8.00 },
+    "openai/o3-mini": { input: 1.10, output: 4.40 },
+    "openai/o1-pro": { input: 150.0, output: 600.0 },
+    "openai/o1": { input: 15.0, output: 60.0 },
+    "openai/gpt-4-turbo": { input: 10.0, output: 30.0 },
+    "openai/gpt-4": { input: 30.0, output: 60.0 },
+    "openai/gpt-3.5-turbo": { input: 0.50, output: 1.50 },
+    // ── Mistral (OpenRouter route) ────────────────────────
+    "mistralai/mistral-medium-3-5": { input: 1.50, output: 7.50 },
+    "mistralai/mistral-large-2512": { input: 0.50, output: 1.50 },
+    "mistralai/mistral-small-2603": { input: 0.15, output: 0.60 },
+    "mistralai/mistral-nemo": { input: 0.02, output: 0.03 },
+};
 // Approximate USD per typical ~1 K-token turn (blended input+output).
 // Blend: 700 input + 300 output tokens per turn (line 272-273).
 // Sources: provider API pricing pages, OpenRouter /api/v1/models.

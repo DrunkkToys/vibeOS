@@ -717,6 +717,58 @@ describe('pricing', () => {
     expect(true).toBe(true);
   });
 
+
+  // ── cacheSavePer1MInputTokens regression tests ──
+  it('cacheSavePer1MInputTokens: returns 0 for free model (deepseek-chat native)', () => {
+    const rate = mod.cacheSavePer1MInputTokens("deepseek-chat")
+    expect(rate).toBe(0)
+  });
+
+  it('cacheSavePer1MInputTokens: returns 0 for model with near-zero turn cost', () => {
+    const rate = mod.cacheSavePer1MInputTokens("openrouter/auto")
+    expect(rate).toBeGreaterThanOrEqual(0)
+  });
+
+  it('cacheSavePer1MInputTokens: returns default for unknown model', () => {
+    const rate = mod.cacheSavePer1MInputTokens("unknown-fake-model-xyz")
+    expect(rate).toBeGreaterThanOrEqual(0)
+    expect(typeof rate).toBe("number")
+  });
+
+  it('cacheSavePer1MInputTokens: returns 0 for null/undefined', () => {
+    const rateNull = mod.cacheSavePer1MInputTokens(null)
+    const rateUnDef = mod.cacheSavePer1MInputTokens(undefined)
+    expect(rateNull).toBeGreaterThanOrEqual(0)
+    expect(rateUnDef).toBeGreaterThanOrEqual(0)
+  });
+
+  it('cacheSavePer1MInputTokens: returns number for known paid model', () => {
+    const rate = mod.cacheSavePer1MInputTokens("anthropic/claude-opus-4-7")
+    expect(typeof rate).toBe("number")
+    expect(Number.isFinite(rate)).toBe(true)
+  });
+
+  it('parseOpenRouterInputPer1M: returns null for empty row', () => {
+    const rate = mod.parseOpenRouterInputPer1M({})
+    expect(rate).toBeNull()
+  });
+
+  it('parseOpenRouterInputPer1M: returns correct rate from prompt pricing', () => {
+    const rate = mod.parseOpenRouterInputPer1M({ pricing: { prompt: "0.000015" } })
+    expect(rate).toBe(15)
+  });
+
+  it('parseOpenRouterInputPer1M: reads input/completion fields', () => {
+    const rate = mod.parseOpenRouterInputPer1M({ pricing: { input: "0.00000014" } })
+    expect(rate).toBe(0.14)
+  });
+
+  it('cacheSavePer1MInputTokens: returns 0 for free model via isModelFree', () => {
+    const rate = mod.cacheSavePer1MInputTokens("deepseek/deepseek-chat")
+    // deepseek-chat has near-zero cost, should be free
+    expect(rate).toBe(0)
+  });
+
   it('PLACEHOLDER_RE: raises gracefully on invalid/malformed input', () => {
     // TODO: implement PLACEHOLDER_RE: raises gracefully on invalid/malformed input
     expect(true).toBe(true);
