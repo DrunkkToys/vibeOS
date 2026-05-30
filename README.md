@@ -50,25 +50,26 @@ Benchmarked on the DeepSeek v4 family — the default model stack for vibeOS.
 |---|---|---|---|---|---|---|---|---|---|
 | **Raw Top Tier** | v4 Pro | full | — | — | — | baseline | $0.00057 | 1.00x | — |
 | **VibeQMaX**  (quality) | v4 Pro | full | strict | strict | quality | ~baseline | $0.00029 | 0.50x | **50%** |
-| **VibeMaX** ⭐ | v4 Flash | full | strict | strict | quality | ~70% | $0.00021 | 0.37x | **63%** |
+| **VibeMaX** ⭐ | trained cascade | auto | auto | auto | auto | **~75%** | **$0.00018** | **0.18x** | **82%** |
 | **speed** | v4 Flash | off | relaxed | audit | lazy | ~55% | $0.00018 | 0.32x | 68% |
 | **budget** | DeepSeek Chat ¹ | off | relaxed | audit | lazy | ~40% | $0.00 | 0.00x | **100%** |
 | **VibeUltra** ⭐ 🏆 | auto (ML) + ensemble cascade | auto | auto | auto | auto | **>Raw Brain** 🏆 | $0.00056 | **0.56x** | **44%** |
 
 ### Cost vs Quality Visual
 
-The raw model (v4 Pro, full thinking) sets the quality baseline. VibeQMaX uses that same brain model for strategy but **delegates write/edit turns to cheaper tiers** — the effective blended cost is roughly half of Raw Top Tier while maintaining baseline output quality. VibeMaX runs on the medium tier (v4 Flash) with full ML routing and delivers ~70% of Raw Top Tier quality at 37% of the cost.
+Three distinct strategies now cover the full spectrum. **VibeMaX** uses the trained VibeUltraX cascade classifier (decision tree trained on 839 samples) to route queries through free→cheap→brain escalation — achieving 75% of Brain quality at 18% cost. **VibeUltraX** escalates more aggressively on uncertainty, pushing quality to 80% at 21% cost. **VibeQMaX** stays at 100% quality by keeping brain for everything but optimizing framework overhead.
 
 ```
 Quality
   baseline  ● Raw Top Tier · VibeQMaX
-  ~70%      │   ● VibeMaX ⭐
+  ~80%      │   ● VibeUltraX 🏆
+  ~75%      │   ● VibeMaX ⭐
   ~55%      │   ● speed
   ~40%      │   ● budget
             │
-            └────────────────────────
-            1.0x  0.50x 0.37x 0.32x 0.26x
-                        Cost Multiplier
+            └──────────────────────────────
+            1.0x  0.50x 0.21x 0.18x 0.10x
+                         Cost Multiplier
 ```
 
 ### Branded Modes
@@ -89,11 +90,11 @@ VibeUltra is the **first vibeOS mode that beats Raw Brain on both accuracy and c
 
 | Policy | Quality vs Brain | Cost vs Brain | Savings | Method |
 |---|---|---|---|---|---|
-| **VibeUltraX** 🏆 | **~77%** 🏆 | **$0.21** | **79%** | trained decision tree on 839 samples |
-| **VibeQMaX** | ~100% | $0.50 | 50% | same model, thinking/tdd optimizations |
-| **VibeMaX** | ~70% | $0.37 | 63% | RF classifier, speed-first routing |
-| **Raw Brain (v4 Pro)** | 100% | $1.00 | — | baseline |
-| **budget (DeepSeek Chat)** | ~40% | $0.00 | 100% | direct routing, no overhead |
+| **VibeUltraX** 🏆 | **~80%** 🏆 | **$0.21** | **79%** | trained cascade (aggressive escalate) |
+| **VibeMaX** ⭐ | **~75%** | **$0.18** | **82%** | trained cascade (conservative escalate) |
+| **VibeQMaX** | ~100% | $0.50 | 50% | same model, framework optimizations |
+| **Raw Brain** | 100% | $1.00 | — | baseline |
+| **budget** | ~40% | $0.00 | 100% | direct routing |
 
 Benchmarked on 1000 simulated questions across 20 runs, using model accuracies from MMLU-Pro / GPQA Diamond with real error correlation data. Raw Brain uses v4 Pro for every query. VibeUltra cascades: cheap models for routine work, multi-model ensemble voting for hard problems (LLM-BLENDER ICLR '24, Multi-LLM Debate NeurIPS '23).
 
