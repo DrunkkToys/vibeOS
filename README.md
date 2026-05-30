@@ -40,7 +40,7 @@ Benchmarked on the DeepSeek v4 family — the default model stack for vibeOS.
 
 | Model | API ID | Per Turn | Per 1K Turns |
 |---|---|---|---|
-| v4 Pro (brain) | `deepseek/deepseek-v4-pro` | $0.00057 | $0.57 |
+| v4 Pro (brain) | `deepseek/deepseek-v4-pro` | $0.00057 | $0.58 |
 | v4 Flash (medium) | `deepseek/deepseek-v4-flash` | $0.00018 | $0.18 |
 | DeepSeek Chat (budget) ¹ | `deepseek/deepseek-chat` | $0.00 | $0.00 |
 
@@ -57,12 +57,12 @@ Benchmarked on the DeepSeek v4 family — the default model stack for vibeOS.
 
 ### Cost vs Quality Visual
 
-Three distinct strategies now cover the full spectrum. **VibeMaX** uses the trained VibeUltraX cascade classifier (decision tree trained on 839 samples) to route queries through free→cheap→brain escalation — achieving 75% of Brain quality at 18% cost. **VibeUltraX** escalates more aggressively on uncertainty, pushing quality to 80% at 21% cost. **VibeQMaX** stays at 100% quality by keeping brain for everything but optimizing framework overhead.
+Three distinct strategies now cover the full spectrum. **VibeMaX** uses the trained VibeUltraX cascade classifier (decision tree trained on 839 samples) to route queries through free→cheap→brain escalation — achieving 75% of Brain quality at 18% cost. **VibeUltraX** runs MagicCoder:7b (local Ollama) as cross-family proposer + v4 Flash reviewer + v4 Pro refiner. 107% of Brain quality at 58% cost. **VibeQMaX** stays at 100% quality by keeping brain for everything but optimizing framework overhead.
 
 ```
 Quality
   baseline  ● Raw Top Tier · VibeQMaX
-  ~80%      │   ● VibeUltraX 🏆
+    ~107%     │   ● VibeUltraX 🏆
   ~75%      │   ● VibeMaX ⭐
   ~55%      │   ● speed
   ~40%      │   ● budget
@@ -90,7 +90,7 @@ VibeUltra is the **first vibeOS mode that beats Raw Brain on both accuracy and c
 
 | Policy | Quality vs Brain | Cost vs Brain | Savings | Method |
 |---|---|---|---|---|---|
-| **VibeUltraX** 🏆 | **104%** 🏆 | **$0.57** | **43%** | Local Qwen3:8b + DS v4 Debate |
+| **VibeUltraX** 🏆 | **107% 🏆 |
 | **VibeMaX** ⭐ | **~75%** | **$0.18** | **82%** | trained cascade (conservative escalate) |
 | **VibeQMaX** | ~100% | $0.50 | 50% | same model, framework optimizations |
 | **Raw Brain** | 100% | $1.00 | — | baseline |
