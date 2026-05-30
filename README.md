@@ -87,15 +87,13 @@ All tests run with `deepseek/deepseek-v4-pro` (brain), `deepseek/deepseek-v4-fla
 
 VibeUltra is the **first vibeOS mode that beats Raw Brain on both accuracy and cost** — Pareto-dominant. Cascade routing (cheap models for easy queries, ensemble voting for hard ones) outperforms any single model.
 
-| Policy | Quality | vs Raw Brain | Cost/Query | Cost Ratio |
+| Policy | Quality vs Brain | Cost vs Brain | Savings | Method |
 |---|---|---|---|---|---|
-| **VibeUltra (escalate cascade)** 🏆 | **128%** 🏆 | **+21.3pp on hard tasks** | **$0.24** | **0.24x** |
-| **VibeUltra (bestof3)** 🏆 | **126%** 🏆 | **+19.6pp** | **$1.00** | **1.00x** |
-| **VibeUltra (cheap→brain escalate)** 🏆 | **123%** 🏆 | **+17.0pp** | **$0.53** | **0.53x** |
-| **Raw Brain (v4 Pro)** | 100% | baseline | $1.00 | 1.00x |
-| **VibeQMaX** | ~100% | — | $0.50 | 0.50x |
-| **VibeMaX** | ~70% | — | $0.37 | 0.37x |
-| **budget (DeepSeek Chat)** | ~40% | — | $0.00 | free |
+| **VibeUltraX** 🏆 | **~77%** 🏆 | **$0.21** | **79%** | trained decision tree on 839 samples |
+| **VibeQMaX** | ~100% | $0.50 | 50% | same model, thinking/tdd optimizations |
+| **VibeMaX** | ~70% | $0.37 | 63% | RF classifier, speed-first routing |
+| **Raw Brain (v4 Pro)** | 100% | $1.00 | — | baseline |
+| **budget (DeepSeek Chat)** | ~40% | $0.00 | 100% | direct routing, no overhead |
 
 Benchmarked on 1000 simulated questions across 20 runs, using model accuracies from MMLU-Pro / GPQA Diamond with real error correlation data. Raw Brain uses v4 Pro for every query. VibeUltra cascades: cheap models for routine work, multi-model ensemble voting for hard problems (LLM-BLENDER ICLR '24, Multi-LLM Debate NeurIPS '23).
 
