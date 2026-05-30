@@ -1,3 +1,16 @@
+## 0.20.16
+- fix: skip cache savings for free models + add modelCostPerTurn fallback + regression tests
+- fix: wire incrementTurnCounter into onToolExecuteAfter so session compaction fires at turn 7+
+- fix: make tests resilient in CI environment
+- perf: add MODEL_PRICING_PER_1M with per-provider input/output rates
+- perf: provider-aware cache savings with isModelFree gate + regression tests
+- perf: dynamic cache savings rate from per-model input pricing
+- perf: record cache savings for compressed tool outputs (write path)
+- ci: retrigger checks for merge
+Merge pull request #92 from DrunkkToys/pr/regression-tests-cache-savings
+Merge pull request #91 from DrunkkToys/pr/cache-write-savings
+
+
 ## 0.20.15
 - feat: dashboard blackbox telemetry — bidirectional BE/FE sync
 - fix: mock auth and clear OPENCODE_MODEL in bootstrap test, commit blackbox .js for CI
