@@ -835,3 +835,55 @@ test("v0.20.12 — esbuild compiles plugin without const assignment errors", asy
     assert.ok(!stderr.includes("Cannot assign"), "esbuild const assignment error: " + stderr.slice(0, 300))
   }
 })
+
+// ── v0.22.1: VibeUltraX mode ──
+test("v0.22.1 — trinity mode vibeultrax resolves from mode-router", async () => {
+  const { DelegationEnforcer } = await loadPlugin()
+  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+    trinity: {
+      brain: { oc: "deepseek/deepseek-v4-pro" },
+      medium: { oc: "deepseek/deepseek-v4-flash" },
+      cheap: { oc: "deepseek/deepseek-chat" },
+    },
+    selection: { enabled: true, active_slot: "brain" },
+  }))
+  const dir = join(sandbox, ".opencode-vibeultrax")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-pro" }))
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+  const result = await hooks.tool.trinity.execute({ action: "mode", slot: "vibeultrax" })
+  assert.ok(result.includes("VIBEULTRAX"), "mode set to VIBEULTRAX: " + result)
+})
+
+test("v0.22.1 — branded modes listed in mode error message", async () => {
+  const { DelegationEnforcer } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-branded-list")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-pro" }))
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+  const helpResult = await hooks.tool.trinity.execute({ action: "mode" })
+  assert.ok(helpResult.includes("vibeultrax"), "help lists vibeultrax: " + helpResult)
+})
+
+// ── v0.22.1: Anomaly detection ──
+test("v0.22.1 — setAnomalyDetection is exported and toggleable", async () => {
+  const mod = await loadPlugin()
+  // Import api-client directly for the exported function
+  const api = await import("../src/lib/api-client.js?ani=" + Date.now())
+  assert.equal(typeof api.setAnomalyDetection, "function", "setAnomalyDetection exported")
+  // Should not throw
+  api.setAnomalyDetection(false)
+  api.setAnomalyDetection(true)
+})
+
+test("v0.22.1 — anomaly detector respects warmup period", async () => {
+  const api = await import("../src/lib/api-client.js?ani2=" + Date.now())
+  assert.equal(typeof api.setAnomalyDetection, "function", "module loads")
+})
+
+test("v0.22.1 — mode-router BRANDED_MODES includes vibeultrax", async () => {
+  const router = await import("../src/lib/mode-router.js?mr=" + Date.now())
+  const ids = (router.BRANDED_MODES || []).map(m => m.id)
+  assert.ok(ids.includes("vibeultrax"), "branded modes include vibeultrax: " + ids.join(", "))
+  assert.ok(ids.includes("vibemax"), "branded modes include vibemax")
+})

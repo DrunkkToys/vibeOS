@@ -2,6 +2,7 @@
 
 import { join } from "node:path"
 import { LABEL_MODES, buildDeterministicTrinity, formatProviderName, formatQualityName, resolveExecutionIdentity } from "./pricing.js"
+import { BRANDED_MODES, RUNTIME_MODES } from "./mode-router.js"
 import { invalidateApiToken } from "./api-client.js"
 
 export function createTrinityTool(deps) {
@@ -27,7 +28,7 @@ export function createTrinityTool(deps) {
       "Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', 'trinity status'.",
     args: {
       action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "setup", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard", "api-token", "api-bootstrap-token", "todo", "todo-done", "todo-sync"]).optional(),
-      slot: deps.tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings"]).optional(),
+      slot: deps.tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "vibeultrax", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings"]).optional(),
       level: deps.tool.schema.enum(["full", "brief", "off", "on"]).optional(),
       token: deps.tool.schema.string().optional(),
     },
@@ -174,38 +175,37 @@ export function createTrinityTool(deps) {
         return `\u2705 Switched to ${slot} slot (${result.ocModel}). Active now (no restart needed).`
       }
       if (action === "mode") {
-        if (!slot) return `Provide mode: budget | quality | speed | longrun | vibemax | vibeqmax | auto`
+        const builtInIds = ["budget", "quality", "speed", "longrun"]
+        const brandedIds = BRANDED_MODES.map(m => m.id)
+        const allModeIds = [...builtInIds, "auto", ...brandedIds]
+        if (!slot) return `Provide mode: ${builtInIds.join(" | ")} | auto | ${brandedIds.join(" | ")}`
         const modeAlias = { vibemax: "vibemax", vibeqmax: "quality" }
         const resolvedSlot = modeAlias[slot] || slot
-        if (!["budget", "quality", "speed", "longrun", "vibemax", "auto"].includes(resolvedSlot)) {
-          return `Provide mode: budget | quality | speed | longrun | vibemax | vibeqmax | auto`
+        if (!allModeIds.includes(resolvedSlot)) {
+          return `Provide mode: ${builtInIds.join(" | ")} | auto | ${brandedIds.join(" | ")}`
         }
         const ok = deps.saveOptimizationMode(resolvedSlot)
         if (!ok) return `Failed to write mode`
-        const tierMap = { budget: "cheap", quality: "brain", speed: "medium", longrun: "brain", vibemax: "medium" }
-        const tierSlot = tierMap[slot] || "cheap"
-        deps.writeSelection("active_slot", tierSlot)
-        deps.writeSelection("onboarding_mode", slot === "quality" || slot === "longrun" ? "strict" : "assist")
-        if (slot === "budget") {
-          deps.writeSelection("delegation_enforce", false)
-          deps.writeSelection("flow_enabled", false)
-          deps.writeSelection("flow_enforce", false)
-          deps.writeSelection("tdd_enforce", false)
-          deps.writeSelection("thinking_level", "off")
-        } else if (slot === "quality") {
-          deps.writeSelection("delegation_enforce", true)
-          deps.writeSelection("flow_enabled", true)
-          deps.writeSelection("flow_enforce", true)
-          deps.writeSelection("tdd_enforce", true)
-          deps.writeSelection("thinking_level", "full")
-        } else if (slot === "speed") {
-          deps.writeSelection("delegation_enforce", false)
-          deps.writeSelection("flow_enabled", false)
-          deps.writeSelection("flow_enforce", false)
-          deps.writeSelection("tdd_enforce", false)
-          deps.writeSelection("thinking_level", "off")
+
+        const allEntries = [...BRANDED_MODES, ...RUNTIME_MODES]
+        const modeEntry = allEntries.find(e => e.id === slot)
+        if (modeEntry) {
+          const tierSlot = modeEntry.pipeline[0] || "cheap"
+          deps.writeSelection("active_slot", tierSlot)
+          deps.writeSelection("onboarding_mode",
+            modeEntry.tdd === "quality" || modeEntry.enforcement === "strict" ? "strict" : "assist")
+          deps.writeSelection("delegation_enforce",
+            modeEntry.enforcement === "strict" || modeEntry.enforcement === "on")
+          deps.writeSelection("flow_enabled",
+            modeEntry.flow === "strict" || modeEntry.flow === "on" || modeEntry.flow === "audit")
+          deps.writeSelection("flow_enforce",
+            modeEntry.flow === "strict" || modeEntry.flow === "on")
+          deps.writeSelection("tdd_enforce",
+            modeEntry.tdd === "quality" || modeEntry.tdd === "on" || modeEntry.tdd === "strict")
+          deps.writeSelection("thinking_level", modeEntry.thinking)
+          return `Mode set to ${slot.toUpperCase()}. Tier: ${tierSlot}.`
         }
-        return `Mode set to ${slot.toUpperCase()}. Tier: ${tierSlot}.`
+        return `Mode set to ${slot.toUpperCase()}.`
       }
       if (action === "thinking") {
         if (!level || !["full", "brief", "off"].includes(level)) {
@@ -1045,6 +1045,7 @@ export function createTrinityTool(deps) {
           "  trinity enable/disable    Toggle vibeOS plugin on/off",
           "  trinity enforce on        Block brain-tier writes/edits (save $$)",
           "  trinity lock on/off       Lock model at session start (skip auto-reconcile)",
+          "  trinity mode <profile>   Set optimization profile (built-in + branded modes)",
           "  trinity thinking full|brief|off  Set reasoning depth",
           "",
           "GUARDRAILS:",

@@ -38,6 +38,66 @@ export class VibeOSNetworkError extends Error {
         this.name = "VibeOSNetworkError";
     }
 }
+const ANOMALY_BURST_WINDOW_MS = 5000;
+const ANOMALY_BURST_THRESHOLD = 10;
+const ANOMALY_FREQ_WINDOW_MS = 600_000;
+const ANOMALY_STDDEV_FACTOR = 3;
+const ANOMALY_WARMUP_MS = 30_000;
+const ANOMALY_COOLDOWN_MS = 120_000;
+class TokenAnomalyDetector {
+    burstHistory = [];
+    freqHistory = [];
+    lastWarnTime = 0;
+    anomalyTriggered = false;
+    disabled = false;
+    startedAt = Date.now();
+    get isWarmup() {
+        return Date.now() - this.startedAt < ANOMALY_WARMUP_MS;
+    }
+    record() {
+        if (this.disabled || this.isWarmup)
+            return;
+        const now = Date.now();
+        this.burstHistory = this.burstHistory.filter(t => now - t < ANOMALY_BURST_WINDOW_MS);
+        this.burstHistory.push(now);
+        this.freqHistory.push(now);
+    }
+    checkBurst() {
+        return this.burstHistory.length > ANOMALY_BURST_THRESHOLD;
+    }
+    checkFrequency() {
+        const now = Date.now();
+        const window = this.freqHistory.filter(t => now - t < ANOMALY_FREQ_WINDOW_MS);
+        if (window.length < 10)
+            return false;
+        const mean = window.length / (ANOMALY_FREQ_WINDOW_MS / 60_000);
+        const recent = this.burstHistory.length / (ANOMALY_BURST_WINDOW_MS / 1000);
+        return recent > mean * ANOMALY_STDDEV_FACTOR;
+    }
+    throttleIfAnomalous() {
+        const now = Date.now();
+        if (this.disabled || this.isWarmup)
+            return false;
+        if (this.anomalyTriggered)
+            return true;
+        if (this.checkBurst() || this.checkFrequency()) {
+            this.anomalyTriggered = true;
+            this.lastWarnTime = now;
+            console.error("[vibeOS] Token anomaly detected — throttling API calls");
+            return true;
+        }
+        if (this.lastWarnTime && now - this.lastWarnTime > ANOMALY_COOLDOWN_MS) {
+            this.anomalyTriggered = false;
+        }
+        return this.anomalyTriggered;
+    }
+    reset() {
+        this.burstHistory = [];
+        this.freqHistory = [];
+        this.anomalyTriggered = false;
+        this.lastWarnTime = 0;
+    }
+}
 function normalizeApiToken(token, fallback = "") {
     const clean = String(token || "").trim();
     return API_TOKEN_RE.test(clean) ? clean : fallback;
@@ -433,6 +493,19 @@ export let VIBEOS_API_DISABLED = readApiDisabledFromDisk() || isTruthyFlag(proce
 export let VIBEOS_API_TOKEN = VIBEOS_API_DISABLED ? "" : (readTokenFromDisk() || normalizeApiToken(process.env.VIBEOS_API_TOKEN, "") || EMBEDDED_API_TOKEN);
 export let VIBEOS_API_BOOTSTRAP_TOKEN = VIBEOS_API_DISABLED ? "" : (readBootstrapTokenFromDisk() || process.env.VIBEOS_API_BOOTSTRAP_TOKEN || "");
 export let VIBEOS_API_ENABLED = !VIBEOS_API_DISABLED && process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
+let _anomalyDetector = null;
+function getAnomalyDetector() {
+    if (!_anomalyDetector)
+        _anomalyDetector = new TokenAnomalyDetector();
+    return _anomalyDetector;
+}
+export function setAnomalyDetection(enabled) {
+    const d = getAnomalyDetector();
+    d.disabled = !enabled;
+    if (enabled)
+        d.reset();
+    console.error(`[vibeOS] Anomaly detection ${enabled ? "enabled" : "disabled"}`);
+}
 function persistBootstrapToken(token) {
     const clean = String(token || "").trim();
     try {
@@ -460,6 +533,8 @@ export function setApiToken(newToken) {
         VIBEOS_API_BOOTSTRAP_TOKEN = readBootstrapTokenFromDisk() || VIBEOS_API_BOOTSTRAP_TOKEN;
         VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
         persistPrimaryApiEnvState({ token: VIBEOS_API_TOKEN, disabled: false });
+        if (_anomalyDetector)
+            _anomalyDetector.reset();
         console.error("[vibeOS] API token updated via setApiToken");
     }
     catch (e) {
@@ -475,6 +550,8 @@ export function invalidateApiToken() {
         _apiClient = null;
         _apiFallbackMode = false;
         _apiFallbackSince = null;
+        if (_anomalyDetector)
+            _anomalyDetector.reset();
         persistBootstrapToken("");
         persistPrimaryApiEnvState({ token: "", disabled: true });
         resetApiConnection();
@@ -620,6 +697,15 @@ export async function remoteCall(method, args, fallbackFn) {
         syncApiTokenFromDisk();
     }
     if (!VIBEOS_API_ENABLED || _apiFallbackMode) {
+        if (fallbackFn)
+            return fallbackFn();
+        return null;
+    }
+    const detector = getAnomalyDetector();
+    detector.record();
+    if (detector.throttleIfAnomalous()) {
+        console.error(`[vibeOS] Anomaly throttle active — falling back for ${method}`);
+        _apiFallbackMode = true;
         if (fallbackFn)
             return fallbackFn();
         return null;

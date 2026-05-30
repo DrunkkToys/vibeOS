@@ -6,7 +6,7 @@ const libModules = [
   "api-client", "pricing", "state", "turn-classify", "tdd-enforcer",
   "index-helpers", "research-audit", "reporting", "credit-api", "selection-manager",
   "runtime-surface",
-  "trinity-rebuild", "trinity-tool",
+  "mode-router", "trinity-rebuild", "trinity-tool",
 ]
 
 const hookModules = [
