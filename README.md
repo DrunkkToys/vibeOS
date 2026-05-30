@@ -83,19 +83,29 @@ Quality
 
 All tests run with `deepseek/deepseek-v4-pro` (brain), `deepseek/deepseek-v4-flash` (medium), and `deepseek/deepseek-chat` (budget, $0 via DeepSeek provider). Quality scores measured against Raw Top Tier (v4 Pro, full thinking, no vibeOS overhead). VibeMaX quality benchmark derived from real session telemetry with bootstrap confidence intervals. Pareto frontier computed from 70 holdout scenarios across 170 training samples via hyperparameter sweep.
 
-### Pareto Frontier — Why This Matters
+### Pareto Frontier — The Real Tradeoff
 
-Think of it as a tuning knob: turn one dial (cost goes up), turn the other (quality goes down). The Pareto frontier finds the settings where you cannot improve one without hurting the other.
+"Raw Brain is 100% quality, VibeUltra is 93.8%" so Raw Brain wins, right? Not if you pay the bill.
 
-| Policy | Category | Quality | vs Raw | Blended Cost/Turn | Savings vs Brain |
-|---|---|---|---|---|---|
-| **Raw Brain** | baseline | 100% | 1.00x | $0.00057 | — |
-| **VibeUltra** (t41d10) | auto-ml | **93.8%** | **0.42x** | **$0.00024** | **58%** |
-| **VibeQMaX** | auto | ~baseline | 0.50x | $0.00029 | 50% |
-| **VibeMaX** | auto | ~70% | 0.37x | $0.00021 | 63% |
-| **budget** | baseline | ~40% | 0.00x | $0.00 | 100% |
+The question isnt which policy is best. Its **what does the last 6.2% of quality cost you?**
 
-VibeUltra sits at the knee of the curve. Pushing quality past 93.8% requires a disproportionate cost increase — Raw Brain gets you that last 6.2% but doubles the spend. VibeUltra (93.8% quality at 0.42x cost) is the policy that gives you almost everything while spending less than half. Benchmarked on 70 holdout scenarios across 170 training samples via hyperparameter sweep. The mode comparison table above shows full operational settings — this table strips it to the tradeoff that matters: what you get vs what you spend.
+| | Quality | Cost/Turn | You pay for... |
+|---|---|---|---|
+| Raw Brain | 100% | $0.00057 | everything |
+| VibeUltra | 93.8% | $0.00024 | **almost everything** |
+| | | saves $0.00033/turn | |
+
+VibeUltra delivers 93.8% of Raw Brain quality at **58% lower cost**. The remaining 6.2 percentage points cost $0.00033 per turn — more than all 93.8% combined. Thats the Pareto tradeoff: you can have it all, or you can have almost all of it for less than half the price.
+
+| Policy | Quality | vs Raw | Cost/Turn | You Save |
+|---|---|---|---|---|
+| **Raw Brain** | 100% | 1.00x | $0.00057 | — |
+| **VibeUltra** | **93.8%** | **0.42x** | **$0.00024** | **58%** |
+| **VibeQMaX** | ~baseline | 0.50x | $0.00029 | 50% |
+| **VibeMaX** | ~70% | 0.37x | $0.00021 | 63% |
+| **budget** | ~40% | 0.00x | $0.00 | 100% |
+
+VibeUltra sits at the **knee of the curve** — the point where spending more buys disproportionately less quality gain. Past 93.8%, every percentage point costs more than the one before it. Benchmarked on 70 holdout scenarios across 170 training samples.
 
 
 ---
