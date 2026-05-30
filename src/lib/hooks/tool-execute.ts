@@ -39,6 +39,7 @@ import {
   getBlackboxTracker, loadBlackboxState, saveBlackboxState,
   loadGlobalLearning, updateGlobalLearning, getLearnedExploratoryWords,
   noteTaskRoutingLearning,
+  incrementTurnCounter,
 } from "../turn-classify.js"
 import { saveReport } from "../reporting.js"
 import { loadCredit } from "../credit-api.js"
@@ -608,6 +609,9 @@ export const onToolExecuteAfter = async (input, output) => {
     }
   } catch {}
 
+  // ── Increment turn counter for compaction trigger ──
+  try { incrementTurnCounter() } catch {}
+
   // ── Generate footer alert (prepended to tool result, visible in chat) ──
   let _footerText = ""
   try {
@@ -674,6 +678,9 @@ export const onToolExecuteAfter = async (input, output) => {
       })
     }
   } catch {}
+
+  // ── Increment turn counter for compaction trigger ──
+  try { incrementTurnCounter() } catch {}
   // ── End footer ──
 
   const t = input?.tool ?? ""

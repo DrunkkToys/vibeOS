@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { currentTier, currentModel, setCurrentModel, setCurrentTier, _OC_SID, _modelLocked, loadSelection, readLifetimeSavings, recordCacheSaving, recordMissedContext7, getScratchpadHit, recordScratchpadObservation, recordPrivacyTelemetry, updateState, getSessionScratchpadDir, ensureSessionScratchpadDirs, SAVINGS_LEDGER_FILE, CONTEXT7_INSTALL_FLAG, SOFT_QUOTA_LIMIT, upsertTodo, ML_ENABLED, _mlGraph, _cacheDb, _mlSavePending, ML_CONFIDENCE_THRESHOLD, setMlSavePending, saveMLState, SCRATCHPAD_TOOLS, SCRATCHPAD_GLOBAL_DIR, TOOL_NAME_NORMALIZE, stableJson, applyDecadence, } from "../state.js";
 import { classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget, shortModelName, formatUsd, _refreshModel, readConfig, resolveDisplayModelId, TRINITY_CHEAP, TRINITY_MEDIUM, cacheSavePer1MInputTokens, trendDisplay, modelToSlotLabel, resolveExecutionIdentity, formatProviderName, formatQualityName, } from "../pricing.js";
 import { latestUserIntent } from "./chat-transform.js";
-import { scoreStress, extractFirstWordFromArgs, shouldLogWarn, isUserAskingForTests, resolveEnforcementMode, getLearnedExploratoryWords, noteTaskRoutingLearning, } from "../turn-classify.js";
+import { scoreStress, extractFirstWordFromArgs, shouldLogWarn, isUserAskingForTests, resolveEnforcementMode, getLearnedExploratoryWords, noteTaskRoutingLearning, incrementTurnCounter, } from "../turn-classify.js";
 import { saveReport } from "../reporting.js";
 import { loadCredit } from "../credit-api.js";
 import { remoteCall, VIBEOS_API_ENABLED } from "../api-client.js";
@@ -603,6 +603,9 @@ export const onToolExecuteAfter = async (input, output) => {
         }
     }
     catch { }
+
+    // ── Increment turn counter for compaction trigger ──
+    try { incrementTurnCounter() } catch {}
     // ── Generate footer alert (prepended to tool result, visible in chat) ──
     let _footerText = "";
     try {
@@ -682,6 +685,9 @@ export const onToolExecuteAfter = async (input, output) => {
         }
     }
     catch { }
+
+    // ── Increment turn counter for compaction trigger ──
+    try { incrementTurnCounter() } catch {}
     // ── End footer ──
     const t = input?.tool ?? "";
     if (t === "trinity") {
