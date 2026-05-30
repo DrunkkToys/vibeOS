@@ -151,7 +151,7 @@ npx vibeostheog setup --project      # per-project
 npx vibeostheog setup                 # global ~/.config/opencode/
 ```
 
-Adds `vibeostheog` to opencode.json. Restart OpenCode Desktop.
+One-command setup: deploys plugin files and registers in opencode.json. Restart OpenCode Desktop.
 
 Local dev checkout:
 
