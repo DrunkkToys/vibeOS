@@ -44,6 +44,7 @@ import {
 import { saveReport } from "../reporting.js"
 import { loadCredit } from "../credit-api.js"
 import { getApiClient, remoteCall, isApiFallback, VIBEOS_API_ENABLED } from "../api-client.js"
+import { getCostAnomalyDetector } from "../cost-anomaly.js"
 import { checkFlowRules, recordFlowTodo } from "../../vibeOS-lib/flow-enforcer.js"
 import { computeDifficulty, cascadeDecide, createPatternGraph, ensureNode, addRouteEdge, predictBestModel, hashQuery, deserializeGraph } from "../../vibeOS-lib/ml-router.js"
 import { createCacheDatabase, addCacheEntry, recordCacheStats, predictCacheHit, compositeSimilarity, evictStaleEntries, deserializeCacheDb } from "../../vibeOS-lib/smart-cache.js"
@@ -490,6 +491,26 @@ export const onToolExecuteBefore = async (input, output) => {
       enforcementBlocked = true
       return
     }
+  }
+
+  // Cost anomaly detection: warn if this model's per-turn cost spikes
+  // significantly above the session rolling average.
+  const costDetector = getCostAnomalyDetector()
+  if (!costDetector.disabled && currentModel) {
+    const modelCost = modelCostPerTurn(currentModel)
+    const fullModelName = currentModel
+    if (costDetector.checkAnomaly(fullModelName, modelCost)) {
+      const avg = costDetector.currentAnomalyMean
+      const ratio = avg > 0 ? (modelCost / avg).toFixed(1) : "?"
+      const msg = `Cost spike: ${shortModelName(fullModelName)} at $${modelCost.toFixed(4)}/turn — ${ratio}x higher than recent avg of $${avg.toFixed(4)}. Run \`trinity cheap\` or \`trinity medium\` to save.`
+      if (shouldLogWarn(`${t}|cost-anomaly|${fullModelName}|${modelCost.toFixed(4)}`)) {
+        console.error(`[vibeOS] [cost-anomaly] ${msg}`)
+      }
+      pendingUiNote = `🚨 ${msg}`
+      enforcementBlocked = true
+      return
+    }
+    costDetector.record(modelCost)
   }
 
   // Credit < 40%: non-task tool — record and nudge to step aside.
