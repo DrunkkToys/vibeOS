@@ -229,6 +229,15 @@ export class VibeOSApiClient {
             stress_score: stressScore,
         });
     }
+    async getModes() {
+        return this.request("/api/v1/modes", {}, "GET");
+    }
+    async selectMode(mode) {
+        return this.request("/api/v1/mode/select", { mode });
+    }
+    async classifyQuery(text, state) {
+        return this.request("/api/v1/mode/classify", { text, state: state || {} });
+    }
     async classifyTier(model, customRegex = null) {
         return this.request("/api/v1/tier/classify", { model, custom_regex: customRegex });
     }
