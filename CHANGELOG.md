@@ -1,3 +1,22 @@
+## 0.22.6
+- feat: wire CostAnomalyDetector into tool-execute hook
+- feat: replace TokenAnomalyDetector with CostAnomalyDetector
+- feat: replace TokenAnomalyDetector with CostAnomalyDetector
+- fix: bin/setup.js now delegates to deploy.mjs for proper plugin install
+- fix: restore anomaly detector class in TS source, add mega regression tests
+- fix: read path prefers global scratchpad over stale session-local copies
+- fix: cross-session cache corruptions and hallucinations
+- fix: VibeUltraX mode, anomaly token guard, regression suite
+- chore: bump to 0.22.5
+- chore: bump to 0.22.3
+- chore: add regression tests for anomaly throttle permanent break fix
+- chore: bump to 0.22.2
+Merge pull request #103 from DrunkkToys/fix/anomaly-class-ts-source
+Merge pull request #101 from DrunkkToys/fix/anomaly-throttle-permanent-break
+Merge pull request #100 from DrunkkToys/fix/cross-session-corruptions
+reorder policy comparison table by quality descending; deduplicate VibeUltraX formatting fix
+
+
 ## 0.20.16
 - fix: skip cache savings for free models + add modelCostPerTurn fallback + regression tests
 - fix: wire incrementTurnCounter into onToolExecuteAfter so session compaction fires at turn 7+
