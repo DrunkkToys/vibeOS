@@ -124,6 +124,7 @@ test("v0.22.2 — cost anomaly detector spike detection and reset", async () => 
   assert.ok(detector.currentAnomalyMean > 0, "mean computed")
   
   // Reset clears anomaly state
+  detector.reset()
 
   assert.equal(detector.costHistory.length, 0, "history cleared after reset")
   assert.equal(detector.currentAnomalyModel, null, "anomaly model cleared")
