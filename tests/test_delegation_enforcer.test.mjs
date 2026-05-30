@@ -973,6 +973,97 @@ test("tool.execute.after: webfetch output IS compressed", async () => {
   assert.ok(out.result.length < longText.length, "webfetch output compressed")
 })
 
+// ── Cache savings from compression regression ────────────────────────────
+test("messages.transform: compression records cache savings for paid model", async () => {
+  const { DelegationEnforcer } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-compress-save")
+  mkdirSync(dir, { recursive: true })
+  mkdirSync(join(sandbox, ".claude/scratch"), { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-pro" }))
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+
+  // read pre-transform cache savings
+  const statePath = join(sandbox, ".claude/delegation-state.json")
+  let preSavings = 0
+  try {
+    const pre = JSON.parse(readFileSync(statePath, "utf-8"))
+    preSavings = pre?.lifetime?.cache_savings_usd || 0
+  } catch {}
+
+  // Build a compressible message (large output in cold zone)
+  const largeOutput = "X".repeat(5000)
+  const toolMsg = {
+    info: { role: "assistant" },
+    parts: [{
+      type: "tool", tool: "bash", callID: "c1",
+      state: { status: "completed", output: largeOutput }
+    }]
+  }
+  const fillerMsgs = Array.from({ length: 11 }, () =>
+    ({ info: { role: "user" }, parts: [{ type: "text", text: "." }] })
+  )
+  const messages = [toolMsg, ...fillerMsgs, { info: { role: "user" }, parts: [{ type: "text", text: "ok" }] }]
+
+  await hooks["experimental.chat.messages.transform"]({}, { messages })
+
+  // Verify compression happened
+  const toolPart = messages[0].parts.find(p => p?.type === "tool")
+  assert.ok(toolPart, "tool part exists")
+  assert.ok(toolPart.state.output.includes("cold storage"), "compression marker present")
+
+  // Verify cache savings were recorded
+  let postSavings = 0
+  try {
+    const post = JSON.parse(readFileSync(statePath, "utf-8"))
+    postSavings = post?.lifetime?.cache_savings_usd || 0
+  } catch {}
+
+  assert.ok(postSavings > preSavings,
+    `cache savings increased: ${preSavings.toFixed(6)} → ${postSavings.toFixed(6)}`)
+  assert.ok(postSavings >= 0.0001,
+    `cache savings ≥ min threshold: ${postSavings.toFixed(6)}`)
+})
+
+test("messages.transform: no cache savings recorded for free model", async () => {
+  const { DelegationEnforcer } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-compress-free")
+  mkdirSync(dir, { recursive: true })
+  mkdirSync(join(sandbox, ".claude/scratch"), { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "deepseek-chat" }))
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+
+  const statePath = join(sandbox, ".claude/delegation-state.json")
+  let preSavings = 0
+  try {
+    const pre = JSON.parse(readFileSync(statePath, "utf-8"))
+    preSavings = pre?.lifetime?.cache_savings_usd || 0
+  } catch {}
+
+  const largeOutput = "X".repeat(5000)
+  const toolMsg = {
+    info: { role: "assistant" },
+    parts: [{
+      type: "tool", tool: "bash", callID: "c2",
+      state: { status: "completed", output: largeOutput }
+    }]
+  }
+  const fillerMsgs = Array.from({ length: 11 }, () =>
+    ({ info: { role: "user" }, parts: [{ type: "text", text: "." }] })
+  )
+  const messages = [toolMsg, ...fillerMsgs, { info: { role: "user" }, parts: [{ type: "text", text: "ok" }] }]
+
+  await hooks["experimental.chat.messages.transform"]({}, { messages })
+
+  let postSavings = 0
+  try {
+    const post = JSON.parse(readFileSync(statePath, "utf-8"))
+    postSavings = post?.lifetime?.cache_savings_usd || 0
+  } catch {}
+
+  assert.equal(postSavings, preSavings,
+    `free model should not accumulate cache savings: ${preSavings.toFixed(6)} → ${postSavings.toFixed(6)}`)
+})
+
 // ── Flow enforcer tests ──────────────────────────────────────────────────────
 
 test("flow: Write .md file triggers new-md-file warn", async () => {

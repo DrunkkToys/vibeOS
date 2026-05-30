@@ -354,9 +354,12 @@ function compressToolOutputs(messages: any[]): number {
       state.output = ref
       compressedBytes += raw.length - ref.length
       const toolKey = TOOL_NAME_NORMALIZE[(part as any).tool] || (part as any).tool
-      const inputTokens = Math.max(1, Math.round((raw.length - ref.length) / BYTES_PER_TOKEN))
-      const saveEst = Math.max(0.0001, Math.round(inputTokens * cacheSavePer1MInputTokens(currentModel) / 1_000_000 * 10000) / 10000)
-      recordCacheSaving(toolKey, saveEst, { hash })
+      const rate = cacheSavePer1MInputTokens(currentModel)
+      if (rate > 0) {
+        const inputTokens = Math.max(1, Math.round((raw.length - ref.length) / BYTES_PER_TOKEN))
+        const saveEst = Math.max(0.0001, Math.round(inputTokens * rate / 1_000_000 * 10000) / 10000)
+        recordCacheSaving(toolKey, saveEst, { hash })
+      }
       console.error(`[vibeOS] ctx-compress: ${raw.length}\u2192${ref.length} chars (hash: ${hash})`)
     }
   }
