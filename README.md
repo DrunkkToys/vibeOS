@@ -14,9 +14,6 @@ Every `write`/`edit`/`notebookedit` on the **brain tier** is intercepted, cost-e
 
 | Tier | Model | Per Turn | Per 100 Turns | vs Opus |
 |------|-------|----------|---------------|---------|
-| Brain | `claude-opus-4-7` | **$0.0330** | **$3.30** | — |
-| Medium | `claude-sonnet-4-6` | **$0.0066** | **$0.66** | saves 80% |
-| Cheap | `claude-haiku-4-5` | **$0.0022** | **$0.22** | saves 93% |
 
 *Source: `src/lib/pricing.ts:279-285`. Conservative estimates — actual OpenRouter live: Opus $0.011, Sonnet $0.0066, Haiku $0.0022 per turn. The plugin over-estimates brain cost so savings are always understated.*
 
@@ -45,6 +42,16 @@ Benchmarked on the DeepSeek v4 family — the default model stack for vibeOS.
 | DeepSeek Chat (budget) ¹ | `deepseek/deepseek-chat` | $0.00 | $0.00 |
 
 ### Mode Comparison — All Modes vs Raw Top Tier
+
+| # | Mode | Tier Pipeline | Quality vs Raw Brain | Cost vs Raw Brain |
+|---|---|---|---|---|
+| 1 | 🏆 **VibeUltraX** | local → medium → brain (debate) | **107%** 🏆 | 58% |
+| 2 | ⭐ **VibeQMaX** | brain | 100% | 50% |
+| 3 | ⚡ **VibeMaX** [DEFAULT] | medium (auto-escalate) | ~75% | 18% |
+| 4 | 🚀 **Speed** | medium | ~55% | 32% |
+| 5 | 💸 **Budget** | cheap | ~40% | 0% |
+| 6 | 🧠 **Raw Brain** | brain (no framework) | 100% | 0% |
+
 
 | Mode | Model | Thinking | Enforcement | Flow | TDD | Quality | Cost/Turn | vs Raw | Saves |
 |---|---|---|---|---|---|---|---|---|---|
