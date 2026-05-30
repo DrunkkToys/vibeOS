@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync } from "node:fs"
+import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, rmSync } from "node:fs"
 import { join, dirname, basename } from "node:path"
 import { createHash } from "node:crypto"
 import {
@@ -14,6 +14,7 @@ import {
   promotedProjectPatterns,
   detectTechStack, projectFingerprint,
   loadMLState, saveMLState,
+  SCRATCHPAD_ROOT,
   TRINITY_OPENCODE_CONFIG, TRINITY_OPENCODE_CONFIGC, TIERS_FILE, VIBEOS_HOME, OPENCODE_HOME,
   loadGlobalLearning, updateGlobalLearning, DFLT_GL,
   getLearnedExploratoryWords,
@@ -317,12 +318,18 @@ function compressToolOutputs(messages: any[]): number {
 
       const hash = createHash("sha256")
         .update(`tool_result\n${raw}\n`).digest("hex").slice(0, 16)
-      const fullPath = join(getSessionScratchpadDir(), `${hash}.txt`)
+      const globalDir = join(SCRATCHPAD_ROOT, "by-hash")
+      const sessPath = join(getSessionScratchpadDir(), `${hash}.txt`)
+      const globalPath = join(globalDir, `${hash}.txt`)
       try {
+        mkdirSync(globalDir, { recursive: true })
         ensureSessionScratchpadDirs()
-        if (!existsSync(fullPath)) {
-          writeFileSync(fullPath, raw)
+        if (!existsSync(globalPath)) {
+          writeFileSync(globalPath, raw)
           indexAppend(hash, part.tool, raw.length)
+          // Clean up any existing session-local copy
+          if (existsSync(sessPath)) rmSync(sessPath, { force: true })
+        }
 
           // Create pointer file for input-hash-based lookup
           const invPart = parts.slice(0, parts.indexOf(part)).reverse().find(
@@ -337,9 +344,8 @@ function compressToolOutputs(messages: any[]): number {
             try {
               writeFileSync(ptrPath, JSON.stringify({ contentHash: hash, tool: (part as any).tool }))
             } catch {}
-          }
-        }
-      } catch (err) {
+            }
+        } catch (err) {
         console.error(`[vibeOS] ctx-compress write failed: ${err.message}`)
         continue
       }
@@ -348,7 +354,7 @@ function compressToolOutputs(messages: any[]): number {
 
       const summary = raw.slice(0, 200).replace(/\n+/g, " ").trim() + (raw.length > 200 ? "\u2026" : "")
       const ref =
-        `${COMPRESS_MARKER} [${raw.length} chars compressed -- cold storage at ${fullPath}] ` +
+        `${COMPRESS_MARKER} [${raw.length} chars compressed -- cold storage at ${globalPath}] ` +
         `[summary] ${summary}`
 
       state.output = ref

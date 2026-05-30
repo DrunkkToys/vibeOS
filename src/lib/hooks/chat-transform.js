@@ -1,8 +1,8 @@
 // @ts-nocheck
-import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { join, basename } from "node:path";
 import { createHash } from "node:crypto";
-import { currentModel, currentProjectFingerprint, currentProjectName, _blackboxEnabled, loadSelection, writeSelection, safeJsonParse, applyDecadence, getSessionScratchpadDir, ensureSessionScratchpadDirs, indexAppend, briefedProjects, getActiveJobForProject, loadTodos, promotedProjectPatterns, detectTechStack, projectFingerprint, TRINITY_OPENCODE_CONFIG, TIERS_FILE, loadGlobalLearning, setCurrentProjectFingerprint, setCurrentProjectName, stableJson, TOOL_NAME_NORMALIZE, _cacheDb, recordCacheSaving, } from "../state.js";
+import { currentModel, currentProjectFingerprint, currentProjectName, _blackboxEnabled, loadSelection, writeSelection, safeJsonParse, applyDecadence, getSessionScratchpadDir, ensureSessionScratchpadDirs, indexAppend, briefedProjects, getActiveJobForProject, loadTodos, promotedProjectPatterns, detectTechStack, projectFingerprint, SCRATCHPAD_ROOT, TRINITY_OPENCODE_CONFIG, TIERS_FILE, loadGlobalLearning, setCurrentProjectFingerprint, setCurrentProjectName, stableJson, TOOL_NAME_NORMALIZE, _cacheDb, recordCacheSaving, } from "../state.js";
 import { applySlot, TRINITY_CHEAP, TRINITY_MEDIUM, cacheSavePer1MInputTokens, } from "../pricing.js";
 import { scoreStress, classifyTurnSimple, loadOptimizationMode, saveOptimizationMode, selectOptimizationModeRemote, computeControlVector, getBlackboxTracker, loadBlackboxState as loadBlackboxStateFromCtx, saveBlackboxState as saveBlackboxStateToCtx, extractLastUserText, isLikelyOffTopic, fetchBlackboxEnrichment, estimateContextBudget, buildControlHistoryEntry, } from "../turn-classify.js";
 import { applyBudgetFirstMode, peekBudgetFirstMode } from "../mode-policy.js";
@@ -277,25 +277,31 @@ function compressToolOutputs(messages) {
                 continue;
             const hash = createHash("sha256")
                 .update(`tool_result\n${raw}\n`).digest("hex").slice(0, 16);
-            const fullPath = join(getSessionScratchpadDir(), `${hash}.txt`);
+            const globalDir = join(SCRATCHPAD_ROOT, "by-hash");
+            const sessPath = join(getSessionScratchpadDir(), `${hash}.txt`);
+            const globalPath = join(globalDir, `${hash}.txt`);
             try {
+                mkdirSync(globalDir, { recursive: true });
                 ensureSessionScratchpadDirs();
-                if (!existsSync(fullPath)) {
-                    writeFileSync(fullPath, raw);
+                if (!existsSync(globalPath)) {
+                    writeFileSync(globalPath, raw);
                     indexAppend(hash, part.tool, raw.length);
-                    // Create pointer file for input-hash-based lookup
-                    const invPart = parts.slice(0, parts.indexOf(part)).reverse().find((p) => p?.type === "tool" && p?.tool === part.tool && p?.state?.input && p?.state?.status !== "completed");
-                    if (invPart?.state?.input) {
-                        const toolKey = TOOL_NAME_NORMALIZE[part.tool] || part.tool;
-                        const inputHash = createHash("sha256")
-                            .update(`${toolKey}\n${stableJson(invPart.state.input)}\n`)
-                            .digest("hex").slice(0, 16);
-                        const ptrPath = join(getSessionScratchpadDir(), `${inputHash}.ptr`);
-                        try {
-                            writeFileSync(ptrPath, JSON.stringify({ contentHash: hash, tool: part.tool }));
-                        }
-                        catch { }
+                    // Clean up any existing session-local copy
+                    if (existsSync(sessPath))
+                        rmSync(sessPath, { force: true });
+                }
+                // Create pointer file for input-hash-based lookup
+                const invPart = parts.slice(0, parts.indexOf(part)).reverse().find((p) => p?.type === "tool" && p?.tool === part.tool && p?.state?.input && p?.state?.status !== "completed");
+                if (invPart?.state?.input) {
+                    const toolKey = TOOL_NAME_NORMALIZE[part.tool] || part.tool;
+                    const inputHash = createHash("sha256")
+                        .update(`${toolKey}\n${stableJson(invPart.state.input)}\n`)
+                        .digest("hex").slice(0, 16);
+                    const ptrPath = join(getSessionScratchpadDir(), `${inputHash}.ptr`);
+                    try {
+                        writeFileSync(ptrPath, JSON.stringify({ contentHash: hash, tool: part.tool }));
                     }
+                    catch { }
                 }
             }
             catch (err) {
@@ -305,7 +311,7 @@ function compressToolOutputs(messages) {
             if (!isCold)
                 continue;
             const summary = raw.slice(0, 200).replace(/\n+/g, " ").trim() + (raw.length > 200 ? "\u2026" : "");
-            const ref = `${COMPRESS_MARKER} [${raw.length} chars compressed -- cold storage at ${fullPath}] ` +
+            const ref = `${COMPRESS_MARKER} [${raw.length} chars compressed -- cold storage at ${globalPath}] ` +
                 `[summary] ${summary}`;
             state.output = ref;
             compressedBytes += raw.length - ref.length;
