@@ -90,7 +90,7 @@ VibeUltra is the **first vibeOS mode that beats Raw Brain on both accuracy and c
 
 | Policy | Quality vs Brain | Cost vs Brain | Savings | Method |
 |---|---|---|---|---|---|
-| **VibeUltraX** 🏆 | **112%** 🏆 | **$1.20** | **-20%** | Multiagent Debate (Flash→Pro) |
+| **VibeUltraX** 🏆 | **104%** 🏆 | **$0.57** | **43%** | Local Qwen3:8b + DS v4 Debate |
 | **VibeMaX** ⭐ | **~75%** | **$0.18** | **82%** | trained cascade (conservative escalate) |
 | **VibeQMaX** | ~100% | $0.50 | 50% | same model, framework optimizations |
 | **Raw Brain** | 100% | $1.00 | — | baseline |
