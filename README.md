@@ -83,19 +83,19 @@ Quality
 
 All tests run with `deepseek/deepseek-v4-pro` (brain), `deepseek/deepseek-v4-flash` (medium), and `deepseek/deepseek-chat` (budget, $0 via DeepSeek provider). Quality scores measured against Raw Top Tier (v4 Pro, full thinking, no vibeOS overhead). VibeMaX quality benchmark derived from real session telemetry with bootstrap confidence intervals. Pareto frontier computed from 70 holdout scenarios across 170 training samples via hyperparameter sweep.
 
-**VibeUltra** is the Pareto-optimal Auto ML policy — renamed from ML AUTO (hparam t41d10) — achieving Q=93.8% with C=85.1% cost efficiency, the closest to the Q=100, C=66% target.
-### Pareto Frontier — All Algorithms vs Raw Brain
+### Pareto Frontier — Why This Matters
 
-| Policy | Category | Quality | Cost Efficiency | vs Raw | Distance to Target (Q=100, C=66%) |
+Think of it as a tuning knob: turn one dial (cost goes up), turn the other (quality goes down). The Pareto frontier finds the settings where you cannot improve one without hurting the other.
+
+| Policy | Category | Quality | vs Raw | Blended Cost/Turn | Savings vs Brain |
 |---|---|---|---|---|---|
-| **Raw Brain** | baseline | 100% | 100% | 1.00x | 34.0 |
-| **VibeUltra** (t41d10) | auto-ml | **93.8%** | 85.1% | 0.42x | **20.1** |
-| **VibeUltra** (t11d5) | auto-ml | 95.6% | 87.3% | — | 21.7 |
-| **VibeQMaX** | auto | ~baseline | ~50% | 0.50x | — |
-| **VibeMaX** | auto | ~70% | ~37% | 0.37x | — |
-| Budget Only | baseline | 12% | 0.6% | 0.26x | 85.3 |
+| **Raw Brain** | baseline | 100% | 1.00x | $0.00057 | — |
+| **VibeUltra** (t41d10) | auto-ml | **93.8%** | **0.42x** | **$0.00024** | **58%** |
+| **VibeQMaX** | auto | ~baseline | 0.50x | $0.00029 | 50% |
+| **VibeMaX** | auto | ~70% | 0.37x | $0.00021 | 63% |
+| **budget** | baseline | ~40% | 0.00x | $0.00 | 100% |
 
-Benchmarked on 70 holdout scenarios across 170 training samples. VibeUltra (t41d10) is the Pareto-optimal policy: Q=93.8% at C=85.1%, closest to the Q=100, C=66% target.
+VibeUltra sits at the knee of the curve. Pushing quality past 93.8% requires a disproportionate cost increase — Raw Brain gets you that last 6.2% but doubles the spend. VibeUltra (93.8% quality at 0.42x cost) is the policy that gives you almost everything while spending less than half. Benchmarked on 70 holdout scenarios across 170 training samples via hyperparameter sweep. The mode comparison table above shows full operational settings — this table strips it to the tradeoff that matters: what you get vs what you spend.
 
 
 ---
