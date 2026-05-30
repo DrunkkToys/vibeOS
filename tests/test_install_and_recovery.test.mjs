@@ -525,6 +525,7 @@ test("bootstrap: OpenCode API model seeds trinity slots when local config is mis
   // Mock auth and clear OPENCODE_MODEL so real config/env don't affect discovery
   const { AUTH_F } = await import("../src/lib/state.js")
   const origAuth = existsSync(AUTH_F) ? readFileSync(AUTH_F, "utf-8") : null
+  mkdirSync(dirname(AUTH_F), { recursive: true })
   writeFileSync(AUTH_F, "{}")
   delete process.env.OPENCODE_MODEL
   process.env.HOME = sb
