@@ -25,6 +25,7 @@ import {
 import {
   classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget,
   shortModelName, formatUsd, _refreshModel, applySlot, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN,
+  cacheSavePer1MInputTokens,
 } from "../pricing.js"
 import {
   scoreStress, classifyTurnSimple, loadOptimizationMode,
@@ -56,7 +57,6 @@ import { COMPRESS_THRESHOLD, KEEP_HOT, COMPRESS_MARKER, PROTOCOL_MARKER, PROTOCO
 import { TEMPLATES, DEFAULT_TEMPLATE, resolveTemplate, detectLoopSignal, detectStressSpike, shouldInjectTemplate } from "../templates.js"
 
 const BYTES_PER_TOKEN = 4
-const CACHE_SAVED_PER_1M_INPUT_TOKENS = 0.10
 
 function getVibeOSHome() {
   return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude")
@@ -355,7 +355,7 @@ function compressToolOutputs(messages: any[]): number {
       compressedBytes += raw.length - ref.length
       const toolKey = TOOL_NAME_NORMALIZE[(part as any).tool] || (part as any).tool
       const inputTokens = Math.max(1, Math.round((raw.length - ref.length) / BYTES_PER_TOKEN))
-      const saveEst = Math.max(0.0001, Math.round(inputTokens * CACHE_SAVED_PER_1M_INPUT_TOKENS / 1_000_000 * 10000) / 10000)
+      const saveEst = Math.max(0.0001, Math.round(inputTokens * cacheSavePer1MInputTokens(currentModel) / 1_000_000 * 10000) / 10000)
       recordCacheSaving(toolKey, saveEst, { hash })
       console.error(`[vibeOS] ctx-compress: ${raw.length}\u2192${ref.length} chars (hash: ${hash})`)
     }

@@ -3,7 +3,7 @@ import { writeFileSync, appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { join, dirname, basename } from "node:path";
 import { createHash } from "node:crypto";
 import { currentTier, currentModel, setCurrentModel, setCurrentTier, _OC_SID, _modelLocked, loadSelection, readLifetimeSavings, recordCacheSaving, recordMissedContext7, getScratchpadHit, recordScratchpadObservation, recordPrivacyTelemetry, updateState, getSessionScratchpadDir, ensureSessionScratchpadDirs, SAVINGS_LEDGER_FILE, CONTEXT7_INSTALL_FLAG, SOFT_QUOTA_LIMIT, upsertTodo, ML_ENABLED, _mlGraph, _cacheDb, _mlSavePending, ML_CONFIDENCE_THRESHOLD, setMlSavePending, saveMLState, SCRATCHPAD_TOOLS, SCRATCHPAD_GLOBAL_DIR, TOOL_NAME_NORMALIZE, stableJson, applyDecadence, } from "../state.js";
-import { classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget, shortModelName, formatUsd, _refreshModel, readConfig, resolveDisplayModelId, TRINITY_CHEAP, TRINITY_MEDIUM, trendDisplay, modelToSlotLabel, resolveExecutionIdentity, formatProviderName, formatQualityName, } from "../pricing.js";
+import { classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget, shortModelName, formatUsd, _refreshModel, readConfig, resolveDisplayModelId, TRINITY_CHEAP, TRINITY_MEDIUM, cacheSavePer1MInputTokens, trendDisplay, modelToSlotLabel, resolveExecutionIdentity, formatProviderName, formatQualityName, } from "../pricing.js";
 import { latestUserIntent } from "./chat-transform.js";
 import { scoreStress, extractFirstWordFromArgs, shouldLogWarn, isUserAskingForTests, resolveEnforcementMode, getLearnedExploratoryWords, noteTaskRoutingLearning, } from "../turn-classify.js";
 import { saveReport } from "../reporting.js";
@@ -17,7 +17,6 @@ import { setActiveJobFromTaskPrompt, observeToolPattern, compressText, recordSav
 import { scoreTaskQuality, readRewardSignals } from "./footer.js";
 import { SAVE_EST, WARN_ON_DIRECT, SOFT_QUOTA, FREE, MONITOR } from "../constants.js";
 const BYTES_PER_TOKEN = 4;
-const CACHE_SAVED_PER_1M_INPUT_TOKENS = 0.10;
 const DEBUG_INTERNALS = process.env.VIBEOS_DEBUG_INTERNALS === "1";
 const IS_CLI_RUNTIME = Boolean(process.stdout?.isTTY || process.stderr?.isTTY || process.stdin?.isTTY);
 function getVibeOSHome() {
@@ -248,7 +247,7 @@ export const onToolExecuteBefore = async (input, output) => {
             // Compute from actual scratchpad file size: inputs that would
             // have been charged at miss rate are served from cache.
             const _inputTokens = Math.max(1, Math.round(hit.sizeBytes / BYTES_PER_TOKEN));
-            _cacheSave = Math.max(0.0001, Math.round(_inputTokens * CACHE_SAVED_PER_1M_INPUT_TOKENS / 1_000_000 * 10000) / 10000);
+            _cacheSave = Math.max(0.0001, Math.round(_inputTokens * cacheSavePer1MInputTokens(currentModel) / 1_000_000 * 10000) / 10000);
             const cacheSaved = recordCacheSaving(t, _cacheSave, { hash: hit.hash });
             const sumNote = hit.summaryPath ? ` (summary: ${hit.summaryPath})` : "";
             const cacheNote = cacheSaved ? `, cache+$${(cacheSaved.lifetime || 0).toFixed(3)} lt` : "";

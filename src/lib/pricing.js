@@ -260,6 +260,28 @@ export function trendDisplay(sesTrend) {
 const CACHE_SAVED_PER_1M_INPUT_TOKENS = 0.10;
 // Approximate bytes per token for JSON/text content (varies 3-6, use 4 as safe estimate).
 const BYTES_PER_TOKEN = 4;
+export function cacheSavePer1MInputTokens(model) {
+    if (!model)
+        return CACHE_SAVED_PER_1M_INPUT_TOKENS;
+    try {
+        const key = normalizeModelId(model);
+        const cache = _loadDynamicPricingCache();
+        const entry = cache[key] || cache[model];
+        if (entry?.pricing?.prompt) {
+            const inputPricePerToken = Number(entry.pricing.prompt);
+            if (Number.isFinite(inputPricePerToken) && inputPricePerToken > 0) {
+                return Math.round(inputPricePerToken * 1_000_000 * 10000) / 10000;
+            }
+        }
+    }
+    catch { }
+    const turnCost = modelCostPerTurn(model);
+    if (Number.isFinite(turnCost) && turnCost > 0) {
+        // Input portion ~35-40% of blended 1K-token turn cost, normalized to 1M
+        return Math.round(turnCost * 375 * 100) / 100;
+    }
+    return CACHE_SAVED_PER_1M_INPUT_TOKENS;
+}
 export function roundUsd(v, precision = 6) {
     const n = Number(v ?? 0);
     if (!Number.isFinite(n))

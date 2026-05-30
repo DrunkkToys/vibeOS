@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync } fr
 import { join, basename } from "node:path";
 import { createHash } from "node:crypto";
 import { currentModel, currentProjectFingerprint, currentProjectName, _blackboxEnabled, loadSelection, writeSelection, safeJsonParse, applyDecadence, getSessionScratchpadDir, ensureSessionScratchpadDirs, indexAppend, briefedProjects, getActiveJobForProject, loadTodos, promotedProjectPatterns, detectTechStack, projectFingerprint, TRINITY_OPENCODE_CONFIG, TIERS_FILE, loadGlobalLearning, setCurrentProjectFingerprint, setCurrentProjectName, stableJson, TOOL_NAME_NORMALIZE, _cacheDb, recordCacheSaving, } from "../state.js";
-import { applySlot, TRINITY_CHEAP, TRINITY_MEDIUM, } from "../pricing.js";
+import { applySlot, TRINITY_CHEAP, TRINITY_MEDIUM, cacheSavePer1MInputTokens, } from "../pricing.js";
 import { scoreStress, classifyTurnSimple, loadOptimizationMode, saveOptimizationMode, selectOptimizationModeRemote, computeControlVector, getBlackboxTracker, loadBlackboxState as loadBlackboxStateFromCtx, saveBlackboxState as saveBlackboxStateToCtx, extractLastUserText, isLikelyOffTopic, fetchBlackboxEnrichment, estimateContextBudget, buildControlHistoryEntry, } from "../turn-classify.js";
 import { applyBudgetFirstMode, peekBudgetFirstMode } from "../mode-policy.js";
 import { addCacheEntry, extractRecentCacheOutputs } from "../../vibeOS-lib/smart-cache.js";
@@ -15,7 +15,6 @@ import { saveSessionStress } from "../index-helpers.js";
 import { COMPRESS_THRESHOLD, KEEP_HOT, COMPRESS_MARKER, PROTOCOL_MARKER, PROTOCOL_TEXT } from "../constants.js";
 import { TEMPLATES, DEFAULT_TEMPLATE, resolveTemplate, shouldInjectTemplate } from "../templates.js";
 const BYTES_PER_TOKEN = 4;
-const CACHE_SAVED_PER_1M_INPUT_TOKENS = 0.10;
 function getVibeOSHome() {
     return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude");
 }
@@ -312,7 +311,7 @@ function compressToolOutputs(messages) {
             compressedBytes += raw.length - ref.length;
             const toolKey = TOOL_NAME_NORMALIZE[part.tool] || part.tool;
             const inputTokens = Math.max(1, Math.round((raw.length - ref.length) / BYTES_PER_TOKEN));
-            const saveEst = Math.max(0.0001, Math.round(inputTokens * CACHE_SAVED_PER_1M_INPUT_TOKENS / 1_000_000 * 10000) / 10000);
+            const saveEst = Math.max(0.0001, Math.round(inputTokens * cacheSavePer1MInputTokens(currentModel) / 1_000_000 * 10000) / 10000);
             recordCacheSaving(toolKey, saveEst, { hash });
             console.error(`[vibeOS] ctx-compress: ${raw.length}\u2192${ref.length} chars (hash: ${hash})`);
         }
