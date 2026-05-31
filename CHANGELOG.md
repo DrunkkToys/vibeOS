@@ -1,3 +1,6 @@
+## 0.22.11
+- fix: harden blackbox pivot detection and add regression coverage
+
 ## 0.22.10
 - fix: append enforcement tags (ENF, FLOW, TDD, LOCK) to live footer
 - fix: flow-todo-queue path inconsistency and loadRules loop bug (#105)
