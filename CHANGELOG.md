@@ -3,6 +3,9 @@
 - fix: prefer session cache over global cache in getScratchpadHit()
   swap lookup order on direct-hash and pointer-resolved paths
   so session-scoped outputs always take priority
+- fix: remove user-wide cache fallback from getScratchpadHit()
+  no more SCRATCHPAD_GLOBAL_DIR — cache scope is session only
+  (callers may pass project-scoped baseDir for project-level cache)
 - fix: setApiToken() now resets _apiFallbackMode / _apiClient / runtime connection state
   so a token update breaks out of permanent API-fallback deadlock
 - fix: syncApiTokenFromDisk() else branch also clears fallback state
