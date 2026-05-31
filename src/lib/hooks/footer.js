@@ -201,7 +201,12 @@ async function _appendFooter(input, output, directory) {
             liveModel = readConfig(directory) || readConfig(join(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || "";
         }
         const displayModel = resolveDisplayModelId(liveModel || brainModel || currentModel || "", directory) || liveModel || brainModel || currentModel;
-        const execution = resolveExecutionIdentity(input?.args?.model || liveModel || brainModel || currentModel || displayModel || "", directory);
+        const resolvedModel = displayModel || liveModel || brainModel || currentModel || "";
+        if (resolvedModel && resolvedModel !== currentModel) {
+            setCurrentModel(resolvedModel);
+            setCurrentTier(classify(resolvedModel));
+        }
+        const execution = resolveExecutionIdentity(input?.args?.model || resolvedModel || "", directory);
         let modelTag = `[${shortModelName(displayModel)}]`;
         const _workerModel = slot === "brain" ? TRINITY_MEDIUM : null;
         const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0);
@@ -215,21 +220,21 @@ async function _appendFooter(input, output, directory) {
                 saveReport({
                     type: "session",
                     summary: "Session cost: $" + formatUsd(ltCost) + " | cache saved: $" + formatUsd(ltCache) + " | delegation saved: $" + formatUsd(Number(sesTasks || 0)) + " | task delegations: " + Number(sesTaskDelegations || 0),
-                    metrics: {
-                        sessionId: _OC_SID,
-                        projectFingerprint: currentProjectFingerprint || "unknown",
-                        projectName: currentProjectName || "unknown",
-                        sessionCost: ltCost,
+                metrics: {
+                    sessionId: _OC_SID,
+                    projectFingerprint: currentProjectFingerprint || "unknown",
+                    projectName: currentProjectName || "unknown",
+                    sessionCost: ltCost,
                         cacheSavings: ltCache,
                         delegationSavingsUsd: sesTasks,
-                        taskDelegationCount: sesTaskDelegations,
-                        // Backward compatibility (legacy field historically misnamed)
-                        tasksDelegated: sesTaskDelegations,
-                        model: currentModel,
-                        slot: loadSelection().active_slot || "unknown",
-                        editSavings: sesEdit,
-                        creditSavings: sesCredit,
-                        context7Savings: sesC7,
+                    taskDelegationCount: sesTaskDelegations,
+                    // Backward compatibility (legacy field historically misnamed)
+                    tasksDelegated: sesTaskDelegations,
+                    model: resolvedModel || currentModel,
+                    slot: loadSelection().active_slot || "unknown",
+                    editSavings: sesEdit,
+                    creditSavings: sesCredit,
+                    context7Savings: sesC7,
                         quotaSavings: sesQuota,
                     },
                     tags: ["auto", "cost"],

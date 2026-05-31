@@ -117,3 +117,24 @@ test("blackbox regression: pivot detection ignores text-only instruction and len
 
   assert.equal(realPivot.pivot_detected, true, "embedding-backed topic change should still detect pivot")
 })
+
+test("blackbox regression: repeated identical prompts trigger early loop prevention", async () => {
+  const { ResolutionTracker } = await import("../blackbox/index.js?t=" + Date.now())
+
+  const tracker = new ResolutionTracker("repeat-loop-regression", 10)
+  const text = "Please stop repeating the same answer path and give a fresh option."
+  const features = ResolutionTracker.extractFeatures(text)
+
+  const first = tracker.update(text, features, "act", 1.0, 50, null)
+  assert.equal(first.is_looping, false)
+
+  const second = tracker.update(text, features, "act", 1.0, 50, null)
+  assert.equal(second.is_looping, true)
+  assert.equal(second.repeat_streak, 2)
+  assert.equal(second.loop_intervention_level, "assertive")
+
+  const third = tracker.update(text, features, "act", 1.0, 50, null)
+  assert.equal(third.is_looping, true)
+  assert.equal(third.repeat_streak, 3)
+  assert.equal(third.loop_intervention_level, "escalated")
+})

@@ -186,7 +186,12 @@ async function _appendFooter(input, output, directory) {
       liveModel = readConfig(directory) || readConfig(join(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || ""
     }
     const displayModel = resolveDisplayModelId(liveModel || brainModel || currentModel || "", directory) || liveModel || brainModel || currentModel
-    const execution = resolveExecutionIdentity(input?.args?.model || liveModel || brainModel || currentModel || displayModel || "", directory)
+    const resolvedModel = displayModel || liveModel || brainModel || currentModel || ""
+    if (resolvedModel && resolvedModel !== currentModel) {
+      setCurrentModel(resolvedModel)
+      setCurrentTier(classify(resolvedModel))
+    }
+    const execution = resolveExecutionIdentity(input?.args?.model || resolvedModel || "", directory)
     let modelTag = `[${shortModelName(displayModel)}]`
     const _workerModel = slot === "brain" ? TRINITY_MEDIUM : null
     const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0)
@@ -211,7 +216,7 @@ async function _appendFooter(input, output, directory) {
             taskDelegationCount: sesTaskDelegations,
             // Backward compatibility (legacy field historically misnamed)
             tasksDelegated: sesTaskDelegations,
-            model: currentModel,
+            model: resolvedModel || currentModel,
             slot: loadSelection().active_slot || "unknown",
             editSavings: sesEdit,
             creditSavings: sesCredit,

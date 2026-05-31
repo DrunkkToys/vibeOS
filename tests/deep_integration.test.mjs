@@ -2,7 +2,7 @@
 import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 import { closeMcpServer } from '../src/index.js'
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, renameSync, copyFileSync, unlinkSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, renameSync, copyFileSync, unlinkSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
@@ -82,6 +82,7 @@ mkdirSync(projectDir, { recursive: true })
 writeFileSync(join(projectDir, "opencode.json"), JSON.stringify({ "model": "deepseek/deepseek-v4-flash" }) + "\n")
 
 const mod = await import("../src/index.js?deep=" + Date.now())
+const state = await import("../src/lib/state.js?deep=" + Date.now())
 const { DelegationEnforcer, applySlot, classifyAndRankModels, modelToCcAlias,
         modelCostPerTurn, isModelFree, saveReport, listReports, readReport,
         researchAudit, getScratchpadHit, buildTestReminder } = mod
@@ -300,6 +301,9 @@ test("system.transform: context7 + welcome banner (one-shot)", async () => {
 })
 
 test("text.complete: footer + auto-save + dedup", async () => {
+  state.setCurrentModel("anthropic/claude-haiku-4-5")
+  state.setCurrentTier("cheap")
+  const reportsBefore = new Set(readdirSync(join(sandbox, ".claude/reports")))
   const hooks = await freshPlugin()
   const o1 = { text: "Hello. This is a longer message that will trigger the vibeOS footer mechanism requiring at least fifty characters of text." }
   await hooks["experimental.text.complete"]({ messageID: "d1" }, o1)
@@ -310,6 +314,10 @@ test("text.complete: footer + auto-save + dedup", async () => {
   for (let i = 1; i <= 5; i++) {
     await hooks["experimental.text.complete"]({ messageID: "auto-" + i }, { text: "Ok. This message is also long enough to pass the vibeOS footer length check and increment the auto report counter." })
   }
+  const reportsAfter = readdirSync(join(sandbox, ".claude/reports")).filter(name => name.endsWith(".json") && !reportsBefore.has(name))
+  assert.ok(reportsAfter.length >= 1, "new auto report created")
+  const latestReport = readReport(reportsAfter.sort().at(-1).replace(/\.json$/, ""))
+  assert.equal(latestReport.metrics.model, "deepseek/deepseek-v4-flash", "auto report should use live config model, not stale in-memory model")
 })
 
 test("shell.env: sets tier and model", async () => {

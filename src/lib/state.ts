@@ -776,21 +776,56 @@ function indexAppend(hash: string, tool: string, size: number, extra?: any): voi
 // ── Scratchpad hit detection ─────────────────────────────────────────
 const scratchpadHitsSeen = new Set<string>()
 
+function scanRecentScratchpad(dir: string, titleCase: string, maxScan: number = 2000): any {
+  try {
+    if (!existsSync(dir)) return null
+    const entries = readdirSync(dir)
+    const ptrFiles = entries.filter(e => e.endsWith(".ptr"))
+    const ptrCandidates: Array<{ ptrPath: string, mtimeMs: number }> = []
+    for (const pf of ptrFiles) {
+      if (ptrCandidates.length >= 50) break
+      try {
+        const st = statSync(join(dir, pf))
+        ptrCandidates.push({ ptrPath: join(dir, pf), mtimeMs: st.mtimeMs })
+      } catch {}
+    }
+    ptrCandidates.sort((a, b) => b.mtimeMs - a.mtimeMs)
+    let scanned = 0
+    for (const { ptrPath } of ptrCandidates) {
+      if (scanned++ >= maxScan) break
+      try {
+        const ptrData = safeJsonParse(readFileSync(ptrPath, "utf-8"))
+        if (!ptrData?.contentHash) continue
+        const ptrTool = typeof ptrData.tool === "string" ? (TOOL_NAME_NORMALIZE[ptrData.tool] || ptrData.tool) : null
+        if (titleCase && ptrTool && ptrTool !== titleCase) continue
+        const contentHash = String(ptrData.contentHash)
+        const f = join(dir, `${contentHash}.txt`)
+        if (!existsSync(f)) continue
+        const st = statSync(f)
+        const ageSec = (Date.now() - st.mtimeMs) / 1000
+        if (ageSec > SCRATCHPAD_MAX_AGE_SEC) continue
+        const sumPath = join(dir, `${contentHash}.summary.txt`)
+        return { hash: contentHash, fullPath: f, sizeBytes: st.size, ageSec: Math.round(ageSec), summaryPath: existsSync(sumPath) ? sumPath : null }
+      } catch {}
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
 function getScratchpadHit(toolLower: string, args: any, baseDir: string | null = null): any {
   if (!SCRATCHPAD_TOOLS.has(toolLower)) return null
   const titleCase = TOOL_NAME_NORMALIZE[toolLower]
   const inputJson = stableJson(args ?? {})
   const hash = createHash("sha256").update(`${titleCase}\n${inputJson}\n`).digest("hex").slice(0, 16)
   const sessionDir = baseDir || getSessionScratchpadDir()
-  const globalDir = SCRATCHPAD_GLOBAL_DIR
   const sessionPath = join(sessionDir, `${hash}.txt`)
-  const globalPath = join(globalDir, `${hash}.txt`)
-  let fullPath = existsSync(globalPath) ? globalPath : (existsSync(sessionPath) ? sessionPath : null)
+  let fullPath = existsSync(sessionPath) ? sessionPath : null
   if (!fullPath) {
     // Try pointer files (created by compressToolOutputs mapping input hash -> content hash)
     const ptrSessionPath = join(sessionDir, `${hash}.ptr`)
-    const ptrGlobalPath = join(globalDir, `${hash}.ptr`)
-    const ptrPath = existsSync(ptrSessionPath) ? ptrSessionPath : (existsSync(ptrGlobalPath) ? ptrGlobalPath : null)
+    const ptrPath = existsSync(ptrSessionPath) ? ptrSessionPath : null
     let resolvedHash = hash
     if (ptrPath) {
       try {
@@ -798,12 +833,13 @@ function getScratchpadHit(toolLower: string, args: any, baseDir: string | null =
         if (ptrData?.contentHash) {
           resolvedHash = ptrData.contentHash
           const rSessionPath = join(sessionDir, `${resolvedHash}.txt`)
-          const rGlobalPath = join(globalDir, `${resolvedHash}.txt`)
-          fullPath = existsSync(rGlobalPath) ? rGlobalPath : (existsSync(rSessionPath) ? rSessionPath : null)
+          fullPath = existsSync(rSessionPath) ? rSessionPath : null
         }
       } catch {}
     }
     if (!fullPath) {
+      const recent = scanRecentScratchpad(sessionDir, titleCase, 2000)
+      if (recent) return recent
       return null
     }
   }
@@ -811,12 +847,11 @@ function getScratchpadHit(toolLower: string, args: any, baseDir: string | null =
     const st = statSync(fullPath)
     const ageSec = (Date.now() - st.mtimeMs) / 1000
     if (ageSec > SCRATCHPAD_MAX_AGE_SEC) return null
-    const sessionSummaryPath = join(sessionDir, `${hash}.summary.txt`)
-    const globalSummaryPath = join(globalDir, `${hash}.summary.txt`)
-    const summaryPath = existsSync(sessionSummaryPath) ? sessionSummaryPath : (existsSync(globalSummaryPath) ? globalSummaryPath : null)
+    const summaryPath = join(sessionDir, `${hash}.summary.txt`)
+    const finalSummary = existsSync(summaryPath) ? summaryPath : null
     return {
       hash, fullPath, sizeBytes: st.size, ageSec: Math.round(ageSec),
-      summaryPath,
+      summaryPath: finalSummary,
     }
   } catch { return null }
 }
@@ -1730,6 +1765,7 @@ export {
 
   // Scratchpad hits
   scratchpadHitsSeen,
+  scanRecentScratchpad,
   getScratchpadHit,
   recordScratchpadObservation,
   _pruneScratchpadDir,
