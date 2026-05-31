@@ -1,3 +1,10 @@
+## 0.22.15
+
+- fix: setApiToken() now resets _apiFallbackMode / _apiClient / runtime connection state
+  so a token update breaks out of permanent API-fallback deadlock
+- fix: syncApiTokenFromDisk() else branch also clears fallback state
+- test: add regression tests for fallback-mode reset behavior
+
 ## 0.22.14
 
 
