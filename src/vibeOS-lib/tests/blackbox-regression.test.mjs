@@ -44,3 +44,76 @@ test("blackbox regression: legacy stub session hydrates real tracker and leaves 
   assert.ok(typeof after.loop_intervention_level === "string")
   assert.ok(typeof after.pivot_detected === "boolean")
 })
+
+test("blackbox regression: pivot detection ignores text-only instruction and length swings without embeddings", async () => {
+  const { ResolutionTracker } = await import("../blackbox/index.js?t=" + Date.now())
+
+  const tracker = new ResolutionTracker("pivot-regression", 10)
+  const embeddingA = [1, 0, 0, 0]
+  const embeddingB = [0, 1, 0, 0]
+
+  tracker.update(
+    "Please keep the current approach and write the next step carefully.",
+    ResolutionTracker.extractFeatures("Please keep the current approach and write the next step carefully."),
+    "act",
+    1.1,
+    50,
+    embeddingA,
+  )
+  tracker.update(
+    "Please keep the current approach and write the next step carefully but with more detail and extra explanation.",
+    ResolutionTracker.extractFeatures("Please keep the current approach and write the next step carefully but with more detail and extra explanation."),
+    "act",
+    1.1,
+    50,
+    embeddingA,
+  )
+
+  const falsePositive = tracker.update(
+    "Switch to auth jwt express now and change the implementation path entirely.",
+    ResolutionTracker.extractFeatures("Switch to auth jwt express now and change the implementation path entirely."),
+    "change",
+    1.1,
+    50,
+    null,
+  )
+
+  assert.equal(falsePositive.pivot_detected, false, "text-only swings should not trigger pivot detection")
+
+  tracker.reset()
+  tracker.update(
+    "Please keep the current approach and write the next step carefully.",
+    ResolutionTracker.extractFeatures("Please keep the current approach and write the next step carefully."),
+    "act",
+    1.1,
+    50,
+    embeddingA,
+  )
+  tracker.update(
+    "Please keep the current approach and write the next step carefully but with more detail and extra explanation.",
+    ResolutionTracker.extractFeatures("Please keep the current approach and write the next step carefully but with more detail and extra explanation."),
+    "act",
+    1.1,
+    50,
+    embeddingA,
+  )
+  tracker.update(
+    "Please keep the current approach and write the next step carefully yet again with a tighter scope.",
+    ResolutionTracker.extractFeatures("Please keep the current approach and write the next step carefully yet again with a tighter scope."),
+    "act",
+    1.1,
+    50,
+    embeddingA,
+  )
+
+  const realPivot = tracker.update(
+    "Switch to auth jwt express now and change the implementation path entirely.",
+    ResolutionTracker.extractFeatures("Switch to auth jwt express now and change the implementation path entirely."),
+    "change",
+    1.1,
+    50,
+    embeddingB,
+  )
+
+  assert.equal(realPivot.pivot_detected, true, "embedding-backed topic change should still detect pivot")
+})

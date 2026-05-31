@@ -268,6 +268,7 @@ async function _appendFooter(input, output, directory) {
       vibeLine += ` | recovery ${problemStreak}`
     }
     if (modeLabel) vibeLine += ` | ${formatQualityName(modeLabel)}`
+    vibeLine += enfSuffixFooter
     vibeLine += ` | VIBE${flashIcon ? " ⚡" : ""}`
     if (_footerStress > 0.4) {
       const stressLabel = _footerStress > 0.7 ? "high" : "elevated"

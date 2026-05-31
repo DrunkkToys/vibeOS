@@ -291,6 +291,7 @@ async function _appendFooter(input, output, directory) {
         }
         if (modeLabel)
             vibeLine += ` | ${formatQualityName(modeLabel)}`;
+        vibeLine += enfSuffixFooter;
         vibeLine += ` | VIBE${flashIcon ? " ⚡" : ""}`;
         if (_footerStress > 0.4) {
             const stressLabel = _footerStress > 0.7 ? "high" : "elevated";

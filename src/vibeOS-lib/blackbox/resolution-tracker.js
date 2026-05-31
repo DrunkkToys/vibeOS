@@ -52,6 +52,10 @@ export class ResolutionTracker {
         return state;
     }
     detectPivotSignal(current, previous) {
+        if (!current.embedding || !previous.embedding) {
+            return false;
+        }
+        const embeddingDelta = 1.0 - cosineSimilarity(current.embedding, previous.embedding);
         const drift = this.history.length >= 4
             ? this.computeIntentState().drift_rate
             : 0;
@@ -60,8 +64,8 @@ export class ResolutionTracker {
         const lengthRatio = previous.text.length > 0
             ? Math.abs(current.text.length - previous.text.length) / previous.text.length
             : 0;
-        const pivotScore = drift * 0.35 + repeatRatio * 0.15 + instructionChange * 0.25 + lengthRatio * 0.25;
-        return pivotScore > 0.45;
+        const pivotScore = drift * 0.2 + embeddingDelta * 0.35 + repeatRatio * 0.1 + instructionChange * 0.15 + lengthRatio * 0.2;
+        return pivotScore > 0.4;
     }
     computeState() {
         const n = this.history.length;
