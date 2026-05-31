@@ -1,3 +1,7 @@
+## 0.22.12
+- fix: harden scratchpad cache
+
+
 ## 0.22.11
 - fix: harden blackbox pivot detection and add regression coverage
 
