@@ -1,3 +1,8 @@
+## 0.22.8
+- fix: flow-todo-queue path inconsistency (missing dot prefix broke trinity todo visibility)
+- fix: getSessionFlowCounts calling loadRules() inside loop (redundant statSync per entry)
+- chore: bump to 0.22.8
+
 ## 0.22.6
 - feat: wire CostAnomalyDetector into tool-execute hook
 - feat: replace TokenAnomalyDetector with CostAnomalyDetector
