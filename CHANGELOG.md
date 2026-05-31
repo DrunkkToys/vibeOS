@@ -2,7 +2,7 @@
 
 - test: add 12 cache isolation scenarios (no cross-session/project hallucination)
 - test: add 3 regression tests for setApiToken fallback-mode reset
-- chore: remove codex branding
+- chore: remove old branding from guard plugin
 
 ## 0.22.15
 
