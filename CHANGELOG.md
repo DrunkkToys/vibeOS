@@ -1,3 +1,9 @@
+## 0.22.10
+- fix: append enforcement tags (ENF, FLOW, TDD, LOCK) to live footer
+- fix: flow-todo-queue path inconsistency and loadRules loop bug (#105)
+- chore: bump to 0.22.8 (#106)
+
+
 ## 0.22.8
 - fix: flow-todo-queue path inconsistency (missing dot prefix broke trinity todo visibility)
 - fix: getSessionFlowCounts calling loadRules() inside loop (redundant statSync per entry)
