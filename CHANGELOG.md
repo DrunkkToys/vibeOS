@@ -1,3 +1,9 @@
+## 0.22.16
+
+- test: add 12 cache isolation scenarios (no cross-session/project hallucination)
+- test: add 3 regression tests for setApiToken fallback-mode reset
+- chore: remove codex branding
+
 ## 0.22.15
 
 - fix: remove user-wide cache fallback from getScratchpadHit()
