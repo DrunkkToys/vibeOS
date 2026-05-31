@@ -831,6 +831,53 @@ function indexAppend(hash, tool, size, extra) {
 }
 // ── Scratchpad hit detection ─────────────────────────────────────────
 const scratchpadHitsSeen = new Set();
+function scanRecentScratchpad(dir, titleCase, maxScan = 2000) {
+    try {
+        if (!existsSync(dir))
+            return null;
+        const entries = readdirSync(dir);
+        const ptrFiles = entries.filter(e => e.endsWith(".ptr"));
+        const ptrCandidates = [];
+        for (const pf of ptrFiles) {
+            if (ptrCandidates.length >= 50)
+                break;
+            try {
+                const st = statSync(join(dir, pf));
+                ptrCandidates.push({ ptrPath: join(dir, pf), mtimeMs: st.mtimeMs });
+            }
+            catch { }
+        }
+        ptrCandidates.sort((a, b) => b.mtimeMs - a.mtimeMs);
+        let scanned = 0;
+        for (const { ptrPath } of ptrCandidates) {
+            if (scanned++ >= maxScan)
+                break;
+            try {
+                const ptrData = safeJsonParse(readFileSync(ptrPath, "utf-8"));
+                if (!ptrData?.contentHash)
+                    continue;
+                const ptrTool = typeof ptrData.tool === "string" ? (TOOL_NAME_NORMALIZE[ptrData.tool] || ptrData.tool) : null;
+                if (titleCase && ptrTool && ptrTool !== titleCase)
+                    continue;
+                const contentHash = String(ptrData.contentHash);
+                const f = join(dir, `${contentHash}.txt`);
+                if (!existsSync(f))
+                    continue;
+                const st = statSync(f);
+                const ageSec = (Date.now() - st.mtimeMs) / 1000;
+                if (ageSec > SCRATCHPAD_MAX_AGE_SEC)
+                    continue;
+                const sumPath = join(dir, `${contentHash}.summary.txt`);
+                return { hash: contentHash, fullPath: f, sizeBytes: st.size, ageSec: Math.round(ageSec), summaryPath: existsSync(sumPath) ? sumPath : null };
+            }
+            catch { }
+        }
+        return null;
+    }
+    catch {
+        return null;
+    }
+}
 function getScratchpadHit(toolLower, args, baseDir = null) {
     if (!SCRATCHPAD_TOOLS.has(toolLower))
         return null;
@@ -859,11 +906,14 @@ function getScratchpadHit(toolLower, args, baseDir = null) {
                 }
             }
             catch { }
-        }
-        if (!fullPath) {
-            return null;
-        }
     }
+    if (!fullPath) {
+        const recent = scanRecentScratchpad(sessionDir, titleCase, 2000) || scanRecentScratchpad(globalDir, titleCase, 2000);
+        if (recent)
+            return recent;
+        return null;
+    }
+}
     try {
         const st = statSync(fullPath);
         const ageSec = (Date.now() - st.mtimeMs) / 1000;
@@ -1740,7 +1790,7 @@ LEDGER_BUFFER_MAX, LEDGER_BUFFER_FLUSH_MS, _ledgerBuffer, _ledgerBufferTimer, _f
 // Stable JSON
 stableJson, _readHead, indexAppend, 
 // Scratchpad hits
-scratchpadHitsSeen, getScratchpadHit, recordScratchpadObservation, _pruneScratchpadDir, runDecadenceCycle, applyDecadence, cleanupStaleSessionScratchpads, pruneScratchpadOnce, 
+scratchpadHitsSeen, scanRecentScratchpad, getScratchpadHit, recordScratchpadObservation, _pruneScratchpadDir, runDecadenceCycle, applyDecadence, cleanupStaleSessionScratchpads, pruneScratchpadOnce, 
 // Active jobs
 loadActiveJobs, getActiveJobForProject, saveActiveJobForProject, saveJobRecord, loadJobRecord, 
 // Project memory

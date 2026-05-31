@@ -10,6 +10,28 @@ class LocalBlackboxStub {
         this.history = [];
         this.loopCount = 0;
     }
+    normalizeText(text) {
+        return (text || "")
+            .toLowerCase()
+            .replace(/[^a-z0-9\s]+/g, " ")
+            .replace(/\s+/g, " ")
+            .trim();
+    }
+    getRepeatStreak() {
+        if (this.history.length < 2)
+            return 0;
+        const normalizedLast = this.normalizeText(this.history[this.history.length - 1].text);
+        if (!normalizedLast)
+            return 0;
+        let streak = 1;
+        for (let i = this.history.length - 2; i >= 0; i--) {
+            const normalized = this.normalizeText(this.history[i].text);
+            if (!normalized || normalized !== normalizedLast)
+                break;
+            streak++;
+        }
+        return streak;
+    }
     extractFeatures(text) {
         if (!text || typeof text !== "string")
             return {};
@@ -78,10 +100,11 @@ class LocalBlackboxStub {
         const action = this.classifyAction(text);
         const entropy = this.computeEntropy(features);
         const uncertainty = this.computeUncertainty(features);
-        const isLooping = this.detectBasicLoop(text);
         this.history.push({ text, timestamp: Date.now() / 1000 });
         if (this.history.length > 10)
             this.history.shift();
+        const repeatStreak = this.getRepeatStreak();
+        const isLooping = repeatStreak >= 2 || this.detectBasicLoop(text);
         if (isLooping)
             this.loopCount++;
         else
@@ -95,7 +118,8 @@ class LocalBlackboxStub {
             continuity_state: "MEDIUM",
             is_looping: isLooping,
             loop_consecutive: this.loopCount,
-            loop_intervention_level: this.loopCount >= 3 ? "escalated" : this.loopCount >= 2 ? "assertive" : this.loopCount >= 1 ? "gentle" : "none",
+            repeat_streak: repeatStreak,
+            loop_intervention_level: repeatStreak >= 3 || this.loopCount >= 3 ? "escalated" : repeatStreak >= 2 || this.loopCount >= 2 ? "assertive" : this.loopCount >= 1 ? "gentle" : "none",
             pivot_detected: false,
             pivot_score: 0.0,
             outcome: null,
@@ -109,8 +133,8 @@ class LocalBlackboxStub {
     detectBasicLoop(text, threshold = 0.5) {
         if (this.history.length < 3)
             return false;
-        const currWords = new Set(text.toLowerCase().split(/\s+/).filter(w => w.length > 3));
-        const pastWords = new Set(this.history[this.history.length - 3].text.toLowerCase().split(/\s+/).filter(w => w.length > 3));
+        const currWords = new Set(this.normalizeText(text).split(/\s+/).filter(w => w.length > 3));
+        const pastWords = new Set(this.normalizeText(this.history[this.history.length - 3].text).split(/\s+/).filter(w => w.length > 3));
         if (currWords.size === 0 || pastWords.size === 0)
             return false;
         const intersection = new Set([...currWords].filter(w => pastWords.has(w)));
@@ -121,11 +145,11 @@ class LocalBlackboxStub {
         if (this.loopCount < 1)
             return null;
         const interventions = {
-            gentle: { level: "gentle", directive: "You may be repeating yourself — try rephrasing the core question.", resetSuggested: false },
-            assertive: { level: "assertive", directive: "You are stuck in a loop. List 3 alternative approaches.", resetSuggested: false },
-            escalated: { level: "escalated", directive: "CRITICAL: Loop detected. STOP the current approach and SWITCH topics.", resetSuggested: true },
+            gentle: { level: "gentle", directive: "You may be repeating the same answer path — stop and restate the core question from a new angle.", resetSuggested: false },
+            assertive: { level: "assertive", directive: "You are stuck in a loop. STOP repeating the current answer path and list 3 alternative approaches.", resetSuggested: false },
+            escalated: { level: "escalated", directive: "CRITICAL: repeated loop detected. STOP the current approach entirely and SWITCH topics or reset strategy.", resetSuggested: true },
         };
-        return this.loopCount >= 3 ? interventions.escalated : this.loopCount >= 2 ? interventions.assertive : interventions.gentle;
+        return this.getRepeatStreak() >= 3 || this.loopCount >= 3 ? interventions.escalated : this.getRepeatStreak() >= 2 || this.loopCount >= 2 ? interventions.assertive : interventions.gentle;
     }
     getPivotDirective() { return null; }
     recordOutcome(_outcome) { }

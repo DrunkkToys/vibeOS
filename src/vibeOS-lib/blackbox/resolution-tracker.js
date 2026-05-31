@@ -21,6 +21,28 @@ export class ResolutionTracker {
         this.outcomeHistory = [];
         this.calibratedWeights = null;
     }
+    normalizeText(text) {
+        return (text || "")
+            .toLowerCase()
+            .replace(/[^a-z0-9\s]+/g, " ")
+            .replace(/\s+/g, " ")
+            .trim();
+    }
+    getRepeatStreak() {
+        if (this.history.length < 2)
+            return 0;
+        const normalizedLast = this.normalizeText(this.history[this.history.length - 1].text);
+        if (!normalizedLast)
+            return 0;
+        let streak = 1;
+        for (let i = this.history.length - 2; i >= 0; i--) {
+            const normalized = this.normalizeText(this.history[i].text);
+            if (!normalized || normalized !== normalizedLast)
+                break;
+            streak++;
+        }
+        return streak;
+    }
     update(userText, features, action, entropy, uncertainty, embedding = null) {
         const entry = {
             text: userText,
@@ -90,6 +112,7 @@ export class ResolutionTracker {
         const entropyTrend = this.calcEntropyTrend();
         const featureContradiction = this.calcFeatureContradiction();
         const embeddingDelta = this.calcEmbeddingDelta();
+        const repeatStreak = this.getRepeatStreak();
         const isLooping = this.detectLoop();
         const intentState = this.computeIntentState();
         const continuityState = this.continuityState(intentState);
@@ -135,9 +158,9 @@ export class ResolutionTracker {
         const momentum = this.calcMomentum(entropyTrend, actionConsistency, embeddingDelta, isLooping, lastEntry.action, lastEntry.entropy);
         let loopLevel = "none";
         if (isLooping) {
-            if (this.loopCount >= 4)
+            if (repeatStreak >= 3 || this.loopCount >= 4)
                 loopLevel = "escalated";
-            else if (this.loopCount >= 3)
+            else if (repeatStreak >= 2 || this.loopCount >= 3)
                 loopLevel = "assertive";
             else if (this.loopCount >= 2)
                 loopLevel = "suggestive";
@@ -165,6 +188,7 @@ export class ResolutionTracker {
             continuity_state: continuityState,
             is_looping: isLooping,
             loop_consecutive: this.loopCount,
+            repeat_streak: repeatStreak,
             loop_intervention_level: loopLevel,
             pivot_detected: pivotDetected,
             pivot_score: Math.round(pivotScore * 10000) / 10000,
@@ -224,10 +248,13 @@ export class ResolutionTracker {
     detectLoop(k = 3, threshold = 0.6) {
         const effectiveThreshold = this.calibratedWeights?.loopJaccard ?? threshold;
         const effectiveK = this.calibratedWeights?.loopK ?? k;
+        const repeatStreak = this.getRepeatStreak();
+        if (repeatStreak >= 2)
+            return true;
         if (this.history.length < effectiveK + 1)
             return false;
-        const currWords = new Set(this.history[this.history.length - 1].text.toLowerCase().split(/\s+/));
-        const pastWords = new Set(this.history[this.history.length - (effectiveK + 1)].text.toLowerCase().split(/\s+/));
+        const currWords = new Set(this.normalizeText(this.history[this.history.length - 1].text).split(/\s+/).filter(Boolean));
+        const pastWords = new Set(this.normalizeText(this.history[this.history.length - (effectiveK + 1)].text).split(/\s+/).filter(Boolean));
         if (currWords.size === 0 || pastWords.size === 0)
             return false;
         const intersection = new Set([...currWords].filter(w => pastWords.has(w)));
@@ -353,19 +380,19 @@ export class ResolutionTracker {
             return null;
         const interventions = {
             gentle: {
-                directive: "You may be repeating yourself — try rephrasing the core question differently or approaching from a new angle.",
+                directive: "You may be repeating the same answer path — stop and restate the core question from a new angle before continuing.",
                 resetSuggested: false,
             },
             suggestive: {
-                directive: "The conversation is looping. Step back and identify what new information you need. Consider asking a different question or taking a break from this topic.",
+                directive: "The conversation is looping. Do not continue the same answer path. Step back, identify what new information is missing, and ask for a different constraint or approach.",
                 resetSuggested: false,
             },
             assertive: {
-                directive: "You are stuck in a loop. The current approach is not productive. PIVOT: list 3 alternative approaches you haven't tried and pick one.",
+                directive: "You are stuck in a loop. STOP repeating the current answer path. PIVOT: list 3 alternative approaches you have not tried and choose one.",
                 resetSuggested: false,
             },
             escalated: {
-                directive: "CRITICAL: You have been looping for several turns. STOP the current approach entirely. Either SWITCH to a completely different topic or reset your strategy. Continued looping wastes time and tokens.",
+                directive: "CRITICAL: repeated loop detected. STOP the current approach entirely. Reset the strategy, SWITCH topics or scope, and do not continue the same line of reasoning.",
                 resetSuggested: true,
             },
         };

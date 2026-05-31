@@ -270,7 +270,8 @@ function buildDirectives(cv, regime, state, action, optimizationMode) {
   if (state.is_looping && state.loop_intervention_level && state.loop_intervention_level !== "none") {
     const severity = state.loop_intervention_level === "escalated" ? "CRITICAL"
       : state.loop_intervention_level === "assertive" ? "WARNING" : "NOTICE"
-    d.push(`[loop prevention: ${severity}] The conversation may be looping — try a different approach. (level: ${state.loop_intervention_level})`)
+    const repeatNote = state.repeat_streak >= 2 ? ` Repeated prompt streak: ${state.repeat_streak}.` : ""
+    d.push(`[loop prevention: ${severity}] The conversation may be looping — stop repeating the same answer path and try a different approach.${repeatNote} (level: ${state.loop_intervention_level})`)
   }
   if (optimizationMode && optimizationMode !== "balanced") {
     d.push(`[optimization: ${optimizationMode}] Session optimization mode is "${optimizationMode}". This overrides default per-regime behavior.`)

@@ -681,7 +681,12 @@ export const onToolExecuteAfter = async (input, output) => {
       liveModel = readConfig(projectDirectory) || readConfig(join(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || ""
     }
     const displayModel = resolveDisplayModelId(liveModel || currentModel || "", projectDirectory) || liveModel || currentModel
-    const execution = resolveExecutionIdentity(input?.args?.model || liveModel || currentModel || displayModel || "", projectDirectory)
+    const resolvedModel = displayModel || liveModel || currentModel || ""
+    if (resolvedModel && resolvedModel !== currentModel) {
+      setCurrentModel(resolvedModel)
+      setCurrentTier(classify(resolvedModel))
+    }
+    const execution = resolveExecutionIdentity(input?.args?.model || resolvedModel || "", projectDirectory)
     _footerText = `— ${flashIcon ? `${flashIcon} ` : ""}Quality: ${formatQualityName(execution.quality)} | Provider: ${formatProviderName(execution.provider)} | Model: ${execution.model}`
     if (ltTotal > 0) {
       _footerText += ` | $${formatUsd(ltTotal)} saved`
@@ -698,7 +703,7 @@ export const onToolExecuteAfter = async (input, output) => {
     if (_autoReportCount % 5 === 0 && ltTotal > 0) {
       saveReport({
         type: "session", summary: `Session cost: $${formatUsd(ltCost)} | cache saved: $${formatUsd(ltCache)} | delegation saved: $${formatUsd(ltTasks)}`,
-        metrics: { sessionId: _OC_SID, sessionCost: ltCost, cacheSavings: ltCache, delegationSavingsUsd: ltTasks, model: currentModel, slot: selNow.active_slot || "unknown" },
+        metrics: { sessionId: _OC_SID, sessionCost: ltCost, cacheSavings: ltCache, delegationSavingsUsd: ltTasks, model: resolvedModel || currentModel, slot: selNow.active_slot || "unknown" },
         tags: ["auto", "cost"],
       })
     }
