@@ -1,15 +1,15 @@
 ## 0.22.15
 
+- fix: remove user-wide cache fallback from getScratchpadHit()
+  no more SCRATCHPAD_GLOBAL_DIR — cache scope is session/project only
 - fix: prefer session cache over global cache in getScratchpadHit()
   swap lookup order on direct-hash and pointer-resolved paths
-  so session-scoped outputs always take priority
-- fix: remove user-wide cache fallback from getScratchpadHit()
-  no more SCRATCHPAD_GLOBAL_DIR — cache scope is session only
-  (callers may pass project-scoped baseDir for project-level cache)
-- fix: setApiToken() now resets _apiFallbackMode / _apiClient / runtime connection state
-  so a token update breaks out of permanent API-fallback deadlock
+- fix: setApiToken() now resets _apiFallbackMode so a token update
+  breaks out of permanent API-fallback deadlock
 - fix: syncApiTokenFromDisk() else branch also clears fallback state
-- test: add regression tests for fallback-mode reset behavior
+- test: add 12 cache isolation scenarios (no cross-session hallucination)
+- test: 3 regression tests for setApiToken fallback-mode reset
+- test: add cache isolation test suite (15 total regression tests)
 
 ## 0.22.14
 
@@ -37,7 +37,6 @@
 
 ## 0.22.6
 - feat: wire CostAnomalyDetector into tool-execute hook
-- feat: replace TokenAnomalyDetector with CostAnomalyDetector
 - feat: replace TokenAnomalyDetector with CostAnomalyDetector
 - fix: bin/setup.js now delegates to deploy.mjs for proper plugin install
 - fix: restore anomaly detector class in TS source, add mega regression tests
@@ -69,7 +68,6 @@ Merge pull request #91 from DrunkkToys/pr/cache-write-savings
 
 ## 0.20.15
 - feat: dashboard blackbox telemetry — bidirectional BE/FE sync
-- fix: mock auth and clear OPENCODE_MODEL in bootstrap test, commit blackbox .js for CI
 - fix: mock auth and clear OPENCODE_MODEL in bootstrap test, commit blackbox .js for CI
 - docs: fix speed mode quality rating in comparison table (#83)
 - docs: fix token defaults in env vars table
@@ -111,7 +109,6 @@ release: v0.20.13 — holistic CLI footer fix + regression tests (#80)
 
 ## 0.20.7
 - fix: ship compiled OpenCode plugin bundle
-- fix: always show model label in tool.execute.after footer, even with zero savings
 - fix: always show model label in tool.execute.after footer, even with zero savings
 - fix: restore release tarball pack step
 Merge pull request #74 from DrunkkToys/feature/release-live-bundle
@@ -242,14 +239,12 @@ Fix budget-first mode and stabilize tests
 - fix: trinity slots now authoritative over opencode.json model
 
 ## 0.18.5
-- fix: trinity slots now authoritative over opencode.json model
 
 
 ## 0.18.4
 - fix: quality tracking now computes avg from lifetime score/count instead of hardcoding 0
 - fix: savings rate shown with 4 decimal precision (was rounding to $0.00/hr)
 - fix: cache savings minimum enforced at $0.0001 per scratchpad hit (was rounding to $0)
-- fix: ledger reconciliation flushes buffer before reading + uses Math.max() to prevent state drops
 - fix: model lock no longer overridden by bogus opencode.json model
 
 ## 0.18.3
@@ -265,7 +260,6 @@ Fix budget-first mode and stabilize tests
 - fix: local project opencode.json added to CONTEXT7_CONFIG_FILES search list
 
 ## 0.16.0
-- feat: dopamine-style footer + natural language system directives
 - feat: dopamine-style footer + natural language system directives
 - feat: turn-aware compaction directive at turn 7+
 - feat: add forensic/web-research modes + 1084-datapoint benchmark
@@ -308,7 +302,6 @@ footer: TDD tag controlled by blackbox, VIBE replaces AUTO
 
 ## 0.15.10
 - fix: prevent empty footer from message.updated blocking text.complete
-- fix: prevent empty footer from message.updated blocking text.complete
 - fix: deploy copies .env.production alongside plugin
 
 
@@ -340,7 +333,6 @@ Build: self-contained bundle (vibeOScore resolved)
 ## 0.15.3
 - fix: remove sticky fallback flag that kills auto mode after single API failure
 - refactor: architecture simplification and scale readiness
-- docs: update vibeOS skills to match current plugin behavior
 - docs: update vibeOS skills to match current plugin behavior
 - chore: finalize cleanup
 - chore: update import paths for vibeOScore monorepo migration
@@ -384,15 +376,6 @@ Merge pull request #21 from DrunkkToys/fix/api-token-and-blackbox-control-vector
 
 
 ## 0.14.4
-- fix: add contents:write permission to release workflow
-- fix: add test:ci script for fast unit tests, separate from integration tests
-- fix: configure git identity in release workflow
-- fix: exclude slow delegation enforcer test from npm test
-- fix: increase test-timeout to 120s for slow delegation enforcer test
-- fix: exclude dashboard test from test suite and add --test-timeout=60000
-- fix: add --test-timeout=60000 to prevent cancelledByParent test failures in CI
-- fix: exclude dashboard from tsconfig to resolve CI build failure
-- fix: update API token and add blackboxControlVector client method
 Merge pull request #24 from DrunkkToys/fix/ci-test-exclude-dashboard
 Merge pull request #23 from DrunkkToys/fix/ci-test-timeout
 Merge pull request #22 from DrunkkToys/fix/ci-exclude-dashboard
@@ -552,7 +535,6 @@ Merge pull request #21 from DrunkkToys/fix/api-token-and-blackbox-control-vector
 - fix: resolution-tracker thresholds - isConverging >=0.5, detectLoop Jaccard 0.6, isRefining >-0.01
 - perf: conditional directive injection — skip TDD/FLOW/orchestrator when control vector signals relaxed mode
 - refactor: merge extracted modules into src/index.ts (6656→1061 lines)
-- refactor: extract 16 modules (7207 lines) from src/index.ts into src/lib/
 - refactor: swap blackbox import to LocalBlackboxStub (forensic)
 - refactor: blackbox moved to API-server-only — plugin uses local stub
 - refactor: rename CodeX MCP server to vibeOS MCP server
@@ -580,74 +562,6 @@ test api put
 
 
 ## 0.13.3
-- feat: blackbox dynamically controls thinking mode per sub-regime for cost savings
-- feat: complete remote API migration — dual-path scoreStress, patternsObserve/Record, TDD exports with local fallback + neutral env test
-- feat: complete remote API migration — dual-path scoreStress, patternsObserve/Record, TDD exports with local fallback
-- feat: blackbox ML enhancements — real features, loop prevention, pivot detection, outcome tracking, calibration
-- feat: v0.10.0 — 6 enhancement phases implemented
-- feat: WordPress integration - atomic seat+token creation
-- feat: Phase 2 - Integrate remote API client into plugin runtime
-- feat: Phase 1 - Remote API server for protected algorithms
-- feat: CodeX MCP server and dashboard sidebar plugin integration
-- feat: vibeOS TUI dashboard sidebar plugin
-- fix: release.mjs — add missing closing brace for deploy else block
-- fix: stabilize refactored modules — ES module bindings, setters, missing imports
-- fix: flow-enforcer race condition, blackbox default ON, dynamic footer
-- fix: lock model name, enforcement logging, TDD framework detection, cache display rounding
-- fix: validateState sessions object, remove stale report writes, drop dead code
-- fix: state validation, flow TODO dedup, session checkpointing, fetch verification
-- fix: _appendFooter full model names, → arrow, inline stress; 361/362 pass
-- fix: atomic state writes, safeJsonParse in flow-enforcer, hook error handling (#15)
-- fix: model split always shown, stress inline in footer, not separate line
-- fix: footer uses slot model name, → arrow, inline stress always, remove session-report writes, disable blackbox default
-- fix: sync second footer builder in tool.execute.after with new template
-- fix: compact footer with inline stress gauge, full model names, robust test assertions
-- fix: footer uses trinity tier model name, all 362 tests pass
-- fix: resolve pricing cache corruption, improve TODO extraction, and tune delegation savings
-- fix: use dynamic mcp port fallback
-- fix: handle mcp server close-reopen race
-- fix: await mcp server startup
-- fix: harden prompt send and unblock typecheck
-- fix: sync opencode.json model with brain tier, restore footer icons (trend arrows, stress gauge)
-- fix: deploy script missing vibeOS-api-server/ directory
-- fix: footer prepended to output.output, fix tests, remove stale vibeOS/ directory
-- fix: migrate footer from context-polluting text.complete to UI-only output.title
-- fix: restore experimental.text.complete and message.updated hooks lost during stash
-- fix: ensure model-tiers.json is created when no model is detected
-- fix: update trinity status test for new dashboard format
-- fix: compute cache savings from actual file size, remove /bin/zsh.001 floor, fix state corruption from flow_warns overwrite
-- fix: add proper named export for auto-discovery, fix function closure
-- fix: add startup toast to verify TUI plugin function execution
-- fix: add auto-activation to sync script, add sidebar widget diagnostics
-- fix: restore vibeOS sidebar dashboard widget, fix plugin path in opencode config
-- fix: add size guard to readJsonOrEmpty to prevent OOM on massive state files
-- fix: add generation counter + concurrent-write detection to updateState
-- fix: dedup double footer from competing message.updated / text.complete hooks
-- fix: append ledger entry in recordSaving() and recordCacheSaving()
-- fix: make MCP server close() async, export closeMcpServer for test cleanup
-- fix: isolate tests from real config (chdir sandbox, VIBEOS_MCP_PORT=0, HOME cleanup)
-- fix: release/deploy synced lib deps - blackbox missing caused footer (and all hooks) to disappear
-- fix: resolution-tracker thresholds - isConverging >=0.5, detectLoop Jaccard 0.6, isRefining >-0.01
-- perf: conditional directive injection — skip TDD/FLOW/orchestrator when control vector signals relaxed mode
-- refactor: merge extracted modules into src/index.ts (6656→1061 lines)
-- refactor: extract 16 modules (7207 lines) from src/index.ts into src/lib/
-- refactor: swap blackbox import to LocalBlackboxStub (forensic)
-- refactor: blackbox moved to API-server-only — plugin uses local stub
-- refactor: rename CodeX MCP server to vibeOS MCP server
-- docs: add final stabilization campaign report (#14)
-- docs: add stabilization audit reports for sessions 02-06 and 09 (#13)
-- docs: add stabilization baseline report (#12)
-- docs: update README and AGENTS for remote API protection (Phase 1+2)
-- docs: fix brand name, update AGENTS line count, document shell.env hook
-- docs: update README and AGENTS for v0.9.1 features
-- test: add cross-session restart E2E test (BUG 10)
-- chore: remove TDD auto-generated test artifacts
-- chore: hardcode public VIBEOS_API_TOKEN as default
-- chore: bump to 0.11.0 — blackbox ML engine, loop prevention, pivot detection, API-only architecture
-- chore: replace diagnostic log with visible toast
-- chore: add secrets to .gitignore (.env.production, PRODUCTION-CREDENTIALS.md)
-- ci: add vibeOS test workflow
-- chore: v0.9.1
 bump 0.13.2 — state.ts stub exports, fix ESM import errors
 bump 0.13.1 — trinity optimize (5 modes + auto), compaction every 10 turns, state.ts stub exports
 Merge pull request #18 from DrunkkToys/revert/low-value-api-migration
@@ -676,11 +590,7 @@ test api put
 ## 0.13.0
 
 - refactor: extract 16 modules from src/index.ts into src/lib/ (state, pricing, trinity, TDD, hooks, reporting, research-audit, api-client, credit-api, turn-classify, index-helpers)
-- feat: blackbox dynamically controls thinking mode per sub-regime for cost savings
 - fix: flow-enforcer race condition, blackbox default ON, dynamic footer improvement
-- fix: lock model name, enforcement logging, TDD framework detection, cache display rounding
-- perf: conditional directive injection — skip TDD/FLOW/orchestrator when control vector signals relaxed mode
-- fix: model split always shown, stress inline in footer, not separate line
 - fix: atomic state writes, safeJsonParse in flow-enforcer, hook error handling
 - perf: inline stress in footer, remove session-report writes, disable blackbox default
 - docs: AGENTS.md updated — 8 hooks (added session.compacting), new src/lib/ architecture
@@ -734,7 +644,6 @@ test api put
 
 ## 0.9.1
 - feat: vibeOS MCP server HTTP API
-- feat: vibeOS TUI dashboard sidebar plugin
 - chore: sync-ts-build and flow-enforcer enhancements
 
 ## 0.9.0
