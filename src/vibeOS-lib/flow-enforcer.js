@@ -144,7 +144,7 @@ function getStateFile() {
     return join(getVibeOSHome(), "delegation-state.json");
 }
 function getFlowTodoFile() {
-    return join(getVibeOSHome(), "flow-todo-queue.jsonl");
+    return join(getVibeOSHome(), ".flow-todo-queue.jsonl");
 }
 const FLOW_DEDUP_FILE = join(getVibeOSHome(), ".flow-dedup-keys.json");
 const MAX_FLOW_TODOS = 200;
@@ -295,8 +295,8 @@ export function getFlowWarns() {
 }
 export function getSessionFlowCounts() {
     const counts = { warn: 0, hint: 0, flag: 0 };
+    const rules = loadRules();
     for (const key of _flowWarnsSeen) {
-        const rules = loadRules();
         const [ruleId] = key.split("::");
         const rule = rules.find((r) => r.id === ruleId);
         if (rule && counts[rule.severity] !== undefined)
@@ -369,7 +369,7 @@ export function recordFlowTodo({ filePath, content }) {
             }
         }
         catch { }
-        console.error(`[flow-enforcer] 📋 Extracted ${todos.length} TODO(s) from ${filePath} → flow-todo-queue.jsonl`);
+        console.error(`[flow-enforcer] 📋 Extracted ${todos.length} TODO(s) from ${filePath} → .flow-todo-queue.jsonl`);
         return todos.length;
     }
     catch {

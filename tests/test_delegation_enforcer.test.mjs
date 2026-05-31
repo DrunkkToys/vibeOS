@@ -2685,7 +2685,7 @@ test("recordFlowTodo: extracts TODO/FIXME from content", async () => {
       content: "// TODO: fix this later\n// FIXME: broken\nconst x = 1; // HACK: workaround",
     })
     assert.equal(count, 3, "3 TODOs extracted")
-    const todoFile = join(sb, ".claude/flow-todo-queue.jsonl")
+    const todoFile = join(sb, ".claude/.flow-todo-queue.jsonl")
     assert.ok(existsSync(todoFile), "todo queue created")
     const lines = readFileSync(todoFile, "utf-8").trim().split("\n").filter(Boolean)
     assert.equal(lines.length, 1, "one entry written")

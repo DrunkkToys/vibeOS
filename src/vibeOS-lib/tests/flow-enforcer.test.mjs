@@ -18,7 +18,7 @@ import {
 const _origHome = process.env.HOME
 process.env.HOME = join(tmpdir(), `flow-enforcer-test-${Date.now()}`)
 mkdirSync(join(process.env.HOME, ".claude"), { recursive: true })
-writeFileSync(join(process.env.HOME, ".claude/flow-todo-queue.jsonl"), "", { flag: "w" })
+writeFileSync(join(process.env.HOME, ".claude/.flow-todo-queue.jsonl"), "", { flag: "w" })
 
 describe("flow-enforcer smoke — getFlowWarns", () => {
   it("is exported as a function", () => {
@@ -46,7 +46,7 @@ describe("flow-enforcer smoke — recordFlowTodo", () => {
     resetForTest([])
     // Clear the flow todo queue for this test
     try {
-      const testFile = join(process.env.HOME || homedir(), ".claude/flow-todo-queue.jsonl")
+      const testFile = join(process.env.HOME || homedir(), ".claude/.flow-todo-queue.jsonl")
       writeFileSync(testFile, "")
     } catch {}
     const content = "// TODO: fix this\nconst x = 1\n// FIXME: also this"

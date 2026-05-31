@@ -177,7 +177,7 @@ function getStateFile(): string {
 }
 
 function getFlowTodoFile(): string {
-  return join(getVibeOSHome(), "flow-todo-queue.jsonl")
+  return join(getVibeOSHome(), ".flow-todo-queue.jsonl")
 }
 
 const FLOW_DEDUP_FILE = join(getVibeOSHome(), ".flow-dedup-keys.json")
@@ -313,8 +313,8 @@ export function getFlowWarns(): any[] {
 
 export function getSessionFlowCounts(): Record<FlowSeverity, number> {
   const counts: Record<FlowSeverity, number> = { warn: 0, hint: 0, flag: 0 }
+  const rules = loadRules()
   for (const key of _flowWarnsSeen) {
-    const rules = loadRules()
     const [ruleId] = key.split("::")
     const rule = rules.find((r) => r.id === ruleId)
     if (rule && counts[rule.severity] !== undefined) counts[rule.severity]++
@@ -385,7 +385,7 @@ export function recordFlowTodo({ filePath, content }: FlowTodoInput): number {
         writeFileSync(flowTodoFile, lines.slice(-Math.floor(MAX_FLOW_TODOS / 2)).join("\n") + "\n")
       }
     } catch {}
-    console.error(`[flow-enforcer] 📋 Extracted ${todos.length} TODO(s) from ${filePath} → flow-todo-queue.jsonl`)
+    console.error(`[flow-enforcer] 📋 Extracted ${todos.length} TODO(s) from ${filePath} → .flow-todo-queue.jsonl`)
     return todos.length
   } catch { return 0 }
 }
