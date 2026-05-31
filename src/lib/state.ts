@@ -128,7 +128,7 @@ function invalidateSavingsCache(): void {
 
 // ── ML Router state ──────────────────────────────────────────────────
 import { createPatternGraph, deserializeGraph, addRouteEdge, ensureNode, computeDifficulty, cascadeDecide, predictBestModel, hashQuery } from "../vibeOS-lib/ml-router.js"
-import { createCacheDatabase, addCacheEntry, recordCacheStats, predictCacheHit, compositeSimilarity, evictStaleEntries, deserializeCacheDb } from "../vibeOS-lib/smart-cache.js"
+import { createCacheDatabase, addCacheEntry, recordCacheStats, predictCacheHit, evictStaleEntries, deserializeCacheDb } from "../vibeOS-lib/smart-cache.js"
 
 let _mlGraph: any = createPatternGraph()
 let _cacheDb: any = createCacheDatabase()
@@ -776,58 +776,6 @@ function indexAppend(hash: string, tool: string, size: number, extra?: any): voi
 // ── Scratchpad hit detection ─────────────────────────────────────────
 const scratchpadHitsSeen = new Set<string>()
 
-function scanRecentScratchpad(dir: string, titleCase: string, maxScan: number = 2000): any {
-  try {
-    if (!existsSync(dir)) return null
-    const entries = readdirSync(dir)
-    const ptrFiles = entries.filter(e => e.endsWith(".ptr"))
-    // Try .ptr files first (created by compressToolOutputs mapping input hash -> content hash)
-    const ptrCandidates: Array<{ptrPath: string, mtimeMs: number}> = []
-    for (const pf of ptrFiles) {
-      if (ptrCandidates.length >= 50) break
-      try {
-        const st = statSync(join(dir, pf))
-        ptrCandidates.push({ ptrPath: join(dir, pf), mtimeMs: st.mtimeMs })
-      } catch {}
-    }
-    ptrCandidates.sort((a, b) => b.mtimeMs - a.mtimeMs)
-    for (const { ptrPath } of ptrCandidates) {
-      try {
-        const ptrData = safeJsonParse(readFileSync(ptrPath, "utf-8"))
-        if (!ptrData?.contentHash) continue
-        if (titleCase && ptrData.tool && TOOL_NAME_NORMALIZE[ptrData.tool] !== titleCase) continue
-        const contentHash = ptrData.contentHash
-        const f = join(dir, `${contentHash}.txt`)
-        if (!existsSync(f)) continue
-        const st = statSync(f)
-        const ageSec = (Date.now() - st.mtimeMs) / 1000
-        if (ageSec > SCRATCHPAD_MAX_AGE_SEC) continue
-        const sumPath = join(dir, `${contentHash}.summary.txt`)
-        return { hash: contentHash, fullPath: f, sizeBytes: st.size, ageSec: Math.round(ageSec), summaryPath: existsSync(sumPath) ? sumPath : null }
-      } catch {}
-    }
-    // Fallback: scan .txt files
-    const txtFiles = entries.filter(e => e.endsWith(".txt") && !e.endsWith(".summary.txt"))
-    if (txtFiles.length === 0) return null
-    const candidateHashes: string[] = []
-    for (let i = txtFiles.length - 1; i >= 0; i--) {
-      const f = txtFiles[i]
-      if (candidateHashes.length > 50) break
-      candidateHashes.push(f.replace(/\.txt$/, ""))
-    }
-    for (const hash of candidateHashes) {
-      const f = join(dir, `${hash}.txt`)
-      if (!existsSync(f)) continue
-      const st = statSync(f)
-      const ageSec = (Date.now() - st.mtimeMs) / 1000
-      if (ageSec > SCRATCHPAD_MAX_AGE_SEC) continue
-      const sumPath = join(dir, `${hash}.summary.txt`)
-      return { hash, fullPath: f, sizeBytes: st.size, ageSec: Math.round(ageSec), summaryPath: existsSync(sumPath) ? sumPath : null }
-    }
-    return null
-  } catch { return null }
-}
-
 function getScratchpadHit(toolLower: string, args: any, baseDir: string | null = null): any {
   if (!SCRATCHPAD_TOOLS.has(toolLower)) return null
   const titleCase = TOOL_NAME_NORMALIZE[toolLower]
@@ -856,8 +804,6 @@ function getScratchpadHit(toolLower: string, args: any, baseDir: string | null =
       } catch {}
     }
     if (!fullPath) {
-      const recent = scanRecentScratchpad(sessionDir, titleCase, 2000) || scanRecentScratchpad(globalDir, titleCase, 2000)
-      if (recent) return recent
       return null
     }
   }
@@ -1784,7 +1730,6 @@ export {
 
   // Scratchpad hits
   scratchpadHitsSeen,
-  scanRecentScratchpad,
   getScratchpadHit,
   recordScratchpadObservation,
   _pruneScratchpadDir,

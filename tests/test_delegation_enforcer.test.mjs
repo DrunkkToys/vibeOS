@@ -500,32 +500,40 @@ test("buildTestReminder: language-appropriate suggestions", async () => {
 test("context7 absent + docs URL: creates one-time install flag + accumulates missed savings", async () => {
   const prevPath = process.env.PATH
   const prevC7 = process.env.CLAUDE_CONTEXT7_AVAILABLE
+  const prevOpenCodeHome = process.env.VIBEOS_OPENCODE_HOME
+  const prevCwd = process.cwd()
   const flag = join(sandbox, ".claude/.context7-install-suggested")
   rmSync(flag, { force: true })
   process.env.PATH = ""
   delete process.env.CLAUDE_CONTEXT7_AVAILABLE
   try {
-    const mod = await loadPlugin()
-    const { DelegationEnforcer } = mod
+    const openCodeHome = join(sandbox, ".clean-opencode-home")
+    process.env.VIBEOS_OPENCODE_HOME = openCodeHome
     const dir = join(sandbox, ".opencode-c7-suggest")
     mkdirSync(dir, { recursive: true })
     writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "anthropic/claude-opus-4-7" }))
+    process.chdir(dir)
+    const mod = await loadPlugin()
+    const { DelegationEnforcer } = mod
     const hooks = await DelegationEnforcer({ client: {}, directory: dir })
     assert.equal(existsSync(flag), false, "flag absent before first docs hit")
 
     await loadPlugin()
 
-    await hooks["tool.execute.before"]({ tool: "webfetch", args: { url: "https://docs.python.org/3/" } }, {})
+    await hooks["tool.execute.before"]({ tool: "webfetch" }, { args: { url: "https://docs.python.org/3/" } })
     const statePath = join(sandbox, ".claude/delegation-state.json")
     assert.equal(existsSync(statePath), true, "delegation state should be written")
 
-    await hooks["tool.execute.before"]({ tool: "webfetch", args: { url: "https://docs.python.org/3/library/os.html" } }, {})
+    await hooks["tool.execute.before"]({ tool: "webfetch" }, { args: { url: "https://docs.python.org/3/library/os.html" } })
     await new Promise(resolve => setTimeout(resolve, 5200))
     assert.equal(existsSync(join(sandbox, ".claude/savings-ledger.jsonl")), true, "savings ledger should be written")
   } finally {
+    process.chdir(prevCwd)
     process.env.PATH = prevPath
     if (prevC7 === undefined) delete process.env.CLAUDE_CONTEXT7_AVAILABLE
     else process.env.CLAUDE_CONTEXT7_AVAILABLE = prevC7
+    if (prevOpenCodeHome === undefined) delete process.env.VIBEOS_OPENCODE_HOME
+    else process.env.VIBEOS_OPENCODE_HOME = prevOpenCodeHome
     rmSync(flag, { force: true })
   }
 })
@@ -610,6 +618,42 @@ test("getScratchpadHit: matches bash-written hash format", async () => {
 test("getScratchpadHit: returns null when no cache file", async () => {
   const { getScratchpadHit } = await loadPlugin()
   const tmp = mkdtempSync(join(tmpdir(), "scratchpad-empty-"))
+  assert.equal(getScratchpadHit("read", { file_path: "/x" }, tmp), null)
+})
+
+test("getScratchpadHit: resolves valid pointer targets", async () => {
+  const { createHash } = await import("node:crypto")
+  const { getScratchpadHit } = await loadPlugin()
+  const tmp = mkdtempSync(join(tmpdir(), "scratchpad-ptr-"))
+  const args = { command: "ls" }
+  const inputHash = createHash("sha256").update(`Bash\n${JSON.stringify(args)}\n`).digest("hex").slice(0, 16)
+  const contentHash = "cafebabecafebabe"
+  writeFileSync(join(tmp, `${contentHash}.txt`), "z".repeat(1536))
+  writeFileSync(join(tmp, `${inputHash}.ptr`), JSON.stringify({ contentHash, tool: "bash" }))
+
+  const hit = getScratchpadHit("bash", args, tmp)
+  assert.ok(hit, "pointer hit detected")
+  assert.equal(hit.hash, inputHash)
+  assert.equal(hit.fullPath.endsWith(`${contentHash}.txt`), true)
+  assert.equal(hit.sizeBytes, 1536)
+})
+
+test("getScratchpadHit: ignores dangling pointer files", async () => {
+  const { createHash } = await import("node:crypto")
+  const { getScratchpadHit } = await loadPlugin()
+  const tmp = mkdtempSync(join(tmpdir(), "scratchpad-dangling-"))
+  const args = { command: "ls" }
+  const inputHash = createHash("sha256").update(`Bash\n${JSON.stringify(args)}\n`).digest("hex").slice(0, 16)
+  writeFileSync(join(tmp, `${inputHash}.ptr`), JSON.stringify({ contentHash: "deadbeefdeadbeef", tool: "bash" }))
+
+  assert.equal(getScratchpadHit("bash", args, tmp), null)
+})
+
+test("getScratchpadHit: does not reuse unrelated recent scratchpad content", async () => {
+  const { getScratchpadHit } = await loadPlugin()
+  const tmp = mkdtempSync(join(tmpdir(), "scratchpad-recent-"))
+  writeFileSync(join(tmp, "unrelated.txt"), "This is a totally unrelated cached output from another task.")
+
   assert.equal(getScratchpadHit("read", { file_path: "/x" }, tmp), null)
 })
 
