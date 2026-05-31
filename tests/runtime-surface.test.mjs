@@ -39,6 +39,8 @@ test("buildStatusPayload assembles dashboard state from injected inputs", () => 
     tdd_strict: false,
     thinking: "full",
     current_model: "model-medium",
+    current_provider: "Unknown",
+    current_quality_tier: "Free",
     credit_percent: 73,
     version: "1.2.3",
     todos: { total: 2, pending: 1 },
@@ -47,6 +49,7 @@ test("buildStatusPayload assembles dashboard state from injected inputs", () => 
     model_locked: false,
     locked_slot: null,
     locked_model: null,
+    label_modes: ["Fast", "Balanced", "High Quality", "Cheap"],
   })
 })
 
