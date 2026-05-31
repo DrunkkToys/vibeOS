@@ -1,0 +1,35 @@
+{
+  "name": "vibetheog-guard",
+  "version": "0.1.0",
+  "description": "Companion plugin for VibeTheOG: reusable guard scripts, hook entrypoints, and cost/safety workflow conventions.",
+  "author": {
+    "name": "VibeTheOG"
+  },
+  "homepage": "https://github.com/DrunkkToys/VibeTheOG+",
+  "repository": "https://github.com/DrunkkToys/VibeTheOG+",
+  "license": "MIT",
+  "keywords": [
+    "plugin",
+    "hooks",
+    "vibetheog",
+    "guardrails"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "VibeTheOG Guard",
+    "shortDescription": "Hook and guardrail toolkit for VibeTheOG workflows",
+    "longDescription": "Adds lightweight hook scripts and usage guidance to enforce consistent, low-risk coding workflows with VibeTheOG conventions.",
+    "developerName": "VibeTheOG",
+    "category": "Engineering",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/DrunkkToys/VibeTheOG+",
+    "defaultPrompt": [
+      "Run VibeTheOG pre-commit guard",
+      "Summarize staged changes with VibeTheOG hook"
+    ],
+    "brandColor": "#1f6feb"
+  }
+}

@@ -12,7 +12,7 @@ src/dashboard/dist/
 src/dashboard/node_modules/
 
 # Local state
-.codex-logs/
+.vibeos-logs/
 .experiment/
 .vibetheog-cx/
 .agents/

@@ -114,8 +114,8 @@ release: v0.20.13 — holistic CLI footer fix + regression tests (#80)
 - fix: always show model label in tool.execute.after footer, even with zero savings
 - fix: always show model label in tool.execute.after footer, even with zero savings
 - fix: restore release tarball pack step
-Merge pull request #74 from DrunkkToys/codex/release-live-bundle
-Merge pull request #72 from DrunkkToys/codex/alpha-token-install-validation
+Merge pull request #74 from DrunkkToys/feature/release-live-bundle
+Merge pull request #72 from DrunkkToys/feature/alpha-token-install-validation
 
 
 ## 0.20.6
@@ -132,17 +132,17 @@ Merge pull request #72 from DrunkkToys/codex/alpha-token-install-validation
 - fix: prefer valid api tokens over placeholder env
 - fix: gate footer stderr by runtime
 - fix: quiet footer stderr noise
-Merge pull request #70 from DrunkkToys/codex/alpha-token-kill-switch
+Merge pull request #70 from DrunkkToys/feature/alpha-token-kill-switch
 
 
 ## 0.20.3
 - fix: embed valid alpha token fallback
-Merge pull request #69 from DrunkkToys/codex/alpha-token-release
+Merge pull request #69 from DrunkkToys/feature/alpha-token-release
 
 
 ## 0.20.2
 - fix: restore embedded api token fallback
-Merge pull request #68 from DrunkkToys/codex/embed-api-token
+Merge pull request #68 from DrunkkToys/feature/embed-api-token
 
 
 ## 0.20.1
@@ -151,8 +151,8 @@ Merge pull request #68 from DrunkkToys/codex/embed-api-token
 
 ## 0.20.0
 - fix: resolve live OpenCode model and refresh README launch copy
-Merge pull request #61 from DrunkkToys/codex/release-candidate-blackbox-footer
-Merge pull request #59 from DrunkkToys/codex/fix-thinking-directive-precedence
+Merge pull request #61 from DrunkkToys/feature/release-candidate-blackbox-footer
+Merge pull request #59 from DrunkkToys/feature/fix-thinking-directive-precedence
 
 
 ## 0.19.9
@@ -166,9 +166,9 @@ Fix local blackbox tracker hydration
 Add model refresh silence regression test
 Fix blackbox session context
 Fix thinking directive precedence
-Merge pull request #58 from DrunkkToys/codex/fix-home-context
+Merge pull request #58 from DrunkkToys/feature/fix-home-context
 Fix session state home context
-Merge pull request #57 from DrunkkToys/codex/fix-opencode-launch-config
+Merge pull request #57 from DrunkkToys/feature/fix-opencode-launch-config
 Fix OpenCode launch config
 
 
@@ -176,9 +176,9 @@ Fix OpenCode launch config
 - feat: use native opencode model lists
 - fix: make OpenCode footer agnostic
 - fix: make vibeOS compatibility paths dynamic
-Merge pull request #56 from DrunkkToys/codex/agnostic-opencode-release
-Merge pull request #55 from DrunkkToys/codex/agnostic-opencode-models
-merge: origin/master into codex/agnostic-opencode-models
+Merge pull request #56 from DrunkkToys/feature/agnostic-opencode-release
+Merge pull request #55 from DrunkkToys/feature/agnostic-opencode-models
+merge: origin/master into feature/agnostic-opencode-models
 Bootstrap trinity tiers from OpenCode model
 
 
@@ -203,7 +203,7 @@ Bootstrap trinity tiers from OpenCode model
 - fix: make README and runtime self-contained
 - test: add 59 integration + e2e tests for cross-module behavior and user workflows
 Merge pull request #49 from DrunkkToys/oc-desktop-live-savings-refresh
-Merge pull request #48 from DrunkkToys/codex/live-savings-refresh
+Merge pull request #48 from DrunkkToys/feature/live-savings-refresh
 Invalidate savings cache on state writes
 
 
@@ -213,7 +213,7 @@ Invalidate savings cache on state writes
 - fix: stress mitigation directive uses raw stress score, not API-scaled
 - fix: _refreshModel respects project-local opencode.json over bootstrap default slot
 - docs: mark v0.19.0 as alpha milestone release
-Merge pull request #47 from DrunkkToys/codex/status-lock-backend-fix
+Merge pull request #47 from DrunkkToys/feature/status-lock-backend-fix
 Expose status lock and backend state
 Fix stress mitigation and TDD smoke coverage
 Rebuild bundle after telemetry merge
