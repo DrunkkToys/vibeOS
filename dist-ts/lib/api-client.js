@@ -38,246 +38,410 @@ export class VibeOSNetworkError extends Error {
         this.name = "VibeOSNetworkError";
     }
 }
-async;
-getModes();
-Promise < unknown > {
-    return: this.request("/api/v1/modes", {}, "GET")
-};
-async;
-selectMode(mode, string);
-Promise < unknown > {
-    return: this.request("/api/v1/mode/select", { mode })
-};
-async;
-classifyQuery(text, string, state ?  : Record);
-Promise < unknown > {
-    return: this.request("/api/v1/mode/classify", { text, state: state || {} })
-};
-async;
-classifyTier(model, string, customRegex, string | null, null);
-Promise < unknown > {
-    return: this.request("/api/v1/tier/classify", { model, custom_regex: customRegex })
-};
-async;
-isExploratory(prompt, string, learnedExploratory, string[] = []);
-Promise < unknown > {
-    return: this.request("/api/v1/tier/exploratory", { prompt, learned_exploratory: learnedExploratory })
-};
-async;
-scoreStress(text, string);
-Promise < unknown > {
-    return: this.request("/api/v1/stress/score", { text })
-};
-async;
-stressLevel(score, number);
-Promise < unknown > {
-    return: this.request("/api/v1/stress/level", { score })
-};
-async;
-blackboxAnalyze(sessionId, string, entry, BlackboxEntry);
-Promise < unknown > {
-    return: this.request("/api/v1/blackbox/analyze", {
-        session_id: sessionId,
-        project_id: entry.project_id || null,
-        user_text: entry.userText || "",
-        features: entry.features || {},
-        action: entry.action || "explore",
-        entropy: entry.entropy ?? 1.0,
-        uncertainty: entry.uncertainty ?? 50,
-        embedding: entry.embedding || null,
-    })
-};
-async;
-blackboxState(sessionId, string);
-Promise < unknown > {
-    return: this.request("/api/v1/blackbox/state", { session_id: sessionId })
-};
-async;
-blackboxReset(sessionId, string);
-Promise < unknown > {
-    return: this.request("/api/v1/blackbox/reset", { session_id: sessionId })
-};
-async;
-blackboxOutcome(sessionId, string, outcome, unknown);
-Promise < unknown > {
-    return: this.request("/api/v1/blackbox/outcome", { session_id: sessionId, outcome })
-};
-async;
-blackboxCalibrate(projectId, string);
-Promise < unknown > {
-    return: this.request("/api/v1/blackbox/calibrate", { project_id: projectId || "global" })
-};
-async;
-blackboxCalibration(projectId, string);
-Promise < unknown > {
-    return: this.request("/api/v1/blackbox/calibration?project_id=" + (projectId || "global"), null)
-};
-async;
-blackboxControlVector(state, unknown, action, unknown, optimizationMode, string);
-Promise < unknown > {
-    return: this.request("/api/v1/blackbox/control-vector", { ...state, action, optimization_mode: optimizationMode })
-};
-async;
-blackboxSelectMode(subRegime, string, stressMultiplier, number);
-Promise < unknown > {
-    return: this.request("/api/v1/blackbox/select-mode", { sub_regime: subRegime, stress_multiplier: stressMultiplier })
-};
-async;
-vibemaxSelect(input, (Record) = {});
-Promise < unknown > {
-    return: this.request("/api/v1/vibemax/select", input)
-};
-async;
-vibemaxPipeline(input, (Record) = {});
-Promise < unknown > {
-    return: this.request("/api/v1/vibemax/pipeline", input)
-};
-async;
-vibemaxReset();
-Promise < unknown > {
-    return: this.request("/api/v1/vibemax/reset", null)
-};
-async;
-vibemaxModel();
-Promise < unknown > {
-    return: this.request("/api/v1/vibemax/model", null)
-};
-async;
-vibemaxTrain(telemetryPath, string | null, null);
-Promise < unknown > {
-    return: this.request("/api/v1/vibemax/train", { telemetry_path: telemetryPath })
-};
-async;
-tddExports(sourceContent, string, ext, string);
-Promise < unknown > {
-    return: this.request("/api/v1/tdd/exports", { source_content: sourceContent, ext })
-};
-async;
-tddParams(sourceContent, string, funcName, string);
-Promise < unknown > {
-    return: this.request("/api/v1/tdd/params", { source_content: sourceContent, func_name: funcName })
-};
-async;
-tddInferType(paramName, string, defaultValue, unknown);
-Promise < unknown > {
-    return: this.request("/api/v1/tdd/infer-type", { param_name: paramName, default_value: defaultValue })
-};
-async;
-tddSkeleton(language, string, fileName, string, exports, unknown[], options, (Record) = {});
-Promise < unknown > {
-    return: this.request("/api/v1/tdd/skeleton", { language, file_name: fileName, exports, options })
-};
-async;
-patternsObserve(sessionId, string, toolName, string, input, unknown, output, unknown, directory, string);
-Promise < unknown > {
-    return: this.request("/api/v1/patterns/observe", {
-        session_id: sessionId,
-        tool_name: toolName,
-        input,
-        output,
-        directory,
-    })
-};
-async;
-patternsRecord(sessionId, string, kind, string, key, string, summary, string, meta, (Record) = {});
-Promise < unknown > {
-    return: this.request("/api/v1/patterns/record", {
-        session_id: sessionId,
-        kind,
-        key,
-        summary,
-        meta,
-    })
-};
-async;
-patternsQuery(sessionId, string, kind, string | null, null);
-Promise < unknown > {
-    return: this.request("/api/v1/patterns/query?kind=" + (kind || ""), null)
-};
-async;
-patternsExploratoryWords(sessionId, string);
-Promise < unknown > {
-    return: this.request("/api/v1/patterns/exploratory-words", null)
-};
-async;
-patternsClear(sessionId, string);
-Promise < unknown > {
-    return: this.request("/api/v1/patterns/clear", { session_id: sessionId })
-};
-async;
-pricingFetch(openrouterKey, string, force = false);
-Promise < unknown > {
-    return: this.request("/api/v1/pricing/fetch", { openrouter_key: openrouterKey, force })
-};
-async;
-pricingLookup(model, string);
-Promise < unknown > {
-    return: this.request("/api/v1/pricing/lookup", { model })
-};
-async;
-pricingStatic();
-Promise < unknown > {
-    return: this.request("/api/v1/pricing/static", null)
-};
-async;
-compressContext(text, string, threshold = 2000);
-Promise < unknown > {
-    return: this.request("/api/v1/compress/context", { text, threshold })
-};
-async;
-adminCreateSeat(name, string, email, string);
-Promise < unknown > {
-    return: this.request("/admin/seats", { name, email }, true)
-};
-async;
-adminCreateSeatWithToken(name, string, email, string, tokenLabel, string | null, null);
-Promise < unknown > {
-    return: this.request("/admin/seats", { name, email, with_token: tokenLabel || true }, true)
-};
-async;
-adminListSeats();
-Promise < unknown > {
-    return: this.request("/admin/seats", null, true)
-};
-async;
-adminUpdateSeat(seatId, string, status, string);
-Promise < unknown > {
-    return: this.request("/admin/seats/" + seatId, { status }, true)
-};
-async;
-adminCreateToken(seatId, string, label, string, expiresAt, string);
-Promise < unknown > {
-    return: this.request("/admin/tokens", { seat_id: seatId, label, expires_at: expiresAt }, true)
-};
-async;
-adminListTokens();
-Promise < unknown > {
-    return: this.request("/admin/tokens", null, true)
-};
-async;
-adminUpdateToken(tokenId, string, status, string);
-Promise < unknown > {
-    return: this.request("/admin/tokens/" + tokenId, { status }, true)
-};
-async;
-adminDeleteToken(tokenId, string);
-Promise < unknown > {
-    return: this.request("/admin/tokens/" + tokenId, null, true)
-};
-async;
-adminUsage(days = 30);
-Promise < unknown > {
-    return: this.request("/admin/usage?days=" + days, null, true)
-};
-async;
-health();
-Promise < unknown > {
-    return: this.request("/health", null, false)
-};
-isFallback();
-boolean;
-{
-    return this.fallbackMode;
+const ANOMALY_BURST_WINDOW_MS = 5000;
+const ANOMALY_BURST_THRESHOLD = 10;
+const ANOMALY_FREQ_WINDOW_MS = 600_000;
+const ANOMALY_STDDEV_FACTOR = 3;
+const ANOMALY_WARMUP_MS = 30_000;
+const ANOMALY_COOLDOWN_MS = 120_000;
+class TokenAnomalyDetector {
+    burstHistory = [];
+    freqHistory = [];
+    lastWarnTime = 0;
+    anomalyTriggered = false;
+    disabled = false;
+    startedAt = Date.now();
+    get isWarmup() {
+        return Date.now() - this.startedAt < ANOMALY_WARMUP_MS;
+    }
+    record() {
+        if (this.disabled || this.isWarmup)
+            return;
+        const now = Date.now();
+        this.burstHistory = this.burstHistory.filter(t => now - t < ANOMALY_BURST_WINDOW_MS);
+        this.burstHistory.push(now);
+        this.freqHistory.push(now);
+    }
+    checkBurst() {
+        return this.burstHistory.length > ANOMALY_BURST_THRESHOLD;
+    }
+    checkFrequency() {
+        const now = Date.now();
+        const window = this.freqHistory.filter(t => now - t < ANOMALY_FREQ_WINDOW_MS);
+        if (window.length < 10)
+            return false;
+        const mean = window.length / (ANOMALY_FREQ_WINDOW_MS / 60_000);
+        const recent = this.burstHistory.length / (ANOMALY_BURST_WINDOW_MS / 1000);
+        return recent > mean * ANOMALY_STDDEV_FACTOR;
+    }
+    throttleIfAnomalous() {
+        const now = Date.now();
+        if (this.disabled || this.isWarmup)
+            return false;
+        if (this.anomalyTriggered)
+            return true;
+        if (this.checkBurst() || this.checkFrequency()) {
+            this.anomalyTriggered = true;
+            this.lastWarnTime = now;
+            console.error("[vibeOS] Token anomaly detected — throttling API calls");
+            return true;
+        }
+        if (this.lastWarnTime && now - this.lastWarnTime > ANOMALY_COOLDOWN_MS) {
+            this.anomalyTriggered = false;
+        }
+        return this.anomalyTriggered;
+    }
+    reset() {
+        this.burstHistory = [];
+        this.freqHistory = [];
+        this.anomalyTriggered = false;
+        this.lastWarnTime = 0;
+    }
+}
+function normalizeApiToken(token, fallback = "") {
+    const clean = String(token || "").trim();
+    return API_TOKEN_RE.test(clean) ? clean : fallback;
+}
+function isTruthyFlag(value) {
+    return API_DISABLED_RE.test(String(value || "").trim());
+}
+function editEnvLine(content, key, value) {
+    const lines = String(content || "").split(/\r?\n/);
+    const next = [];
+    let found = false;
+    for (const line of lines) {
+        if (line.startsWith(`${key}=`)) {
+            found = true;
+            if (value !== null)
+                next.push(`${key}=${value}`);
+            continue;
+        }
+        next.push(line);
+    }
+    if (!found && value !== null)
+        next.push(`${key}=${value}`);
+    while (next.length > 0 && next[next.length - 1] === "")
+        next.pop();
+    return next.join("\n") + "\n";
+}
+function persistPrimaryApiEnvState(next) {
+    const primaryPath = _envPaths[0] + "/.env.production";
+    try {
+        let envContent = existsSync(primaryPath) ? readFileSync(primaryPath, "utf8") : "";
+        if (next.disabled !== undefined) {
+            envContent = editEnvLine(envContent, "VIBEOS_API_DISABLED", next.disabled ? "true" : null);
+        }
+        if (next.token !== undefined) {
+            envContent = editEnvLine(envContent, "VIBEOS_API_TOKEN", next.token ? String(next.token).trim() : null);
+        }
+        if (!envContent.trim()) {
+            try {
+                if (existsSync(primaryPath))
+                    rmSync(primaryPath, { force: true });
+            }
+            catch { }
+            return;
+        }
+        const parentDir = _envPaths[0];
+        if (!existsSync(parentDir))
+            mkdirSync(parentDir, { recursive: true });
+        writeFileSync(primaryPath, envContent.endsWith("\n") ? envContent : envContent + "\n", "utf8");
+    }
+    catch (diskErr) {
+        console.error("[vibeOS] Failed to persist API env state:", diskErr.message);
+    }
+}
+export class VibeOSApiClient {
+    baseUrl;
+    apiToken;
+    masterKey;
+    timeout;
+    fallbackMode;
+    fallbackStubs;
+    constructor(options = {}) {
+        this.baseUrl = options.baseUrl || process.env.VIBEOS_API_URL || DEFAULT_API_URL;
+        this.apiToken = normalizeApiToken(options.apiToken || process.env.VIBEOS_API_TOKEN || "", "")
+            || null;
+        this.masterKey = options.masterKey || process.env.VIBEOS_API_MASTER_KEY || null;
+        this.timeout = options.timeout || REQUEST_TIMEOUT;
+        this.fallbackMode = false;
+        this.fallbackStubs = options.fallbackStubs || null;
+    }
+    async request(path, body = null, isAdmin = false) {
+        if (!this.apiToken && !isAdmin) {
+            throw new Error("VIBEOS_API_TOKEN is not set");
+        }
+        const url = this.baseUrl + path;
+        const headers = {
+            "Content-Type": "application/json",
+            Authorization: "Bearer " + (isAdmin ? this.masterKey : this.apiToken),
+        };
+        let lastError = null;
+        let attempt = 0;
+        while (attempt <= MAX_RETRIES) {
+            if (attempt > 0) {
+                const delay = BASE_RETRY_DELAY * Math.pow(2, attempt - 1);
+                await new Promise(r => setTimeout(r, delay));
+            }
+            attempt++;
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+                const res = await fetch(url, {
+                    method: body ? "POST" : "GET",
+                    headers,
+                    body: body ? JSON.stringify(body) : null,
+                    signal: controller.signal,
+                });
+                clearTimeout(timeoutId);
+                if (res.status === 401 || res.status === 403) {
+                    const errorBody = await res.json().catch(() => ({}));
+                    this.fallbackMode = true;
+                    throw new VibeOSAuthError(errorBody.message || "Authentication failed", res.status, errorBody.code);
+                }
+                if (!res.ok) {
+                    const errorBody = await res.json().catch(() => ({}));
+                    if (res.status >= 500 && attempt <= MAX_RETRIES) {
+                        lastError = new Error("API error " + res.status + ": " + (errorBody.error || res.statusText));
+                        continue;
+                    }
+                    throw new Error("API error " + res.status + ": " + (errorBody.error || res.statusText));
+                }
+                this.fallbackMode = false;
+                return res.json();
+            }
+            catch (err) {
+                if (err instanceof VibeOSAuthError)
+                    throw err;
+                const error = err;
+                if (error.name === "AbortError") {
+                    if (attempt <= MAX_RETRIES) {
+                        lastError = new VibeOSTimeoutError("Request to " + url + " timed out after " + this.timeout + "ms");
+                        continue;
+                    }
+                    this.fallbackMode = true;
+                    throw new VibeOSTimeoutError("Request to " + url + " timed out after " + this.timeout + "ms");
+                }
+                lastError = err;
+                if (attempt <= MAX_RETRIES && error.message && (error.message.includes("fetch") || error.message.includes("network") || error.message.includes("ECONNREFUSED"))) {
+                    continue;
+                }
+            }
+        }
+        this.fallbackMode = true;
+        throw new VibeOSNetworkError("Failed to reach API after " + MAX_RETRIES + " retries: " + (lastError ? lastError.message : "unknown error"));
+    }
+    async exchangeBootstrapToken(bootstrapToken, buildChannel = ALPHA_BUILD_CHANNEL) {
+        const token = String(bootstrapToken || "").trim();
+        if (!token) {
+            throw new Error("VIBEOS_API_BOOTSTRAP_TOKEN is not set");
+        }
+        const url = this.baseUrl + BOOTSTRAP_EXCHANGE_PATH;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+        try {
+            const res = await fetch(url, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: "Bearer " + token,
+                },
+                body: JSON.stringify({
+                    build_channel: buildChannel,
+                    client: "opencode",
+                }),
+                signal: controller.signal,
+            });
+            if (res.status === 401 || res.status === 403) {
+                const errorBody = await res.json().catch(() => ({}));
+                throw new VibeOSAuthError(errorBody.message || "Bootstrap exchange failed", res.status, errorBody.code);
+            }
+            if (!res.ok) {
+                const errorBody = await res.json().catch(() => ({}));
+                throw new Error("API error " + res.status + ": " + (errorBody.error || res.statusText));
+            }
+            const data = await res.json().catch(() => ({}));
+            const apiToken = String(data?.api_token || data?.token || data?.access_token || "").trim();
+            if (!apiToken)
+                throw new Error("Bootstrap exchange returned no API token");
+            return apiToken;
+        }
+        finally {
+            clearTimeout(timeoutId);
+        }
+    }
+    async delegateCheck(tool, tier, model, prompt, dynamicCache = {}) {
+        return this.request("/api/v1/delegate/check", { tool, tier, model, prompt, dynamic_cache: dynamicCache });
+    }
+    async delegateSoftQuota(tool, currentCount, limit = 5) {
+        return this.request("/api/v1/delegate/soft-quota", { tool, current_count: currentCount, limit });
+    }
+    async delegateCost(model, dynamicCache = {}) {
+        return this.request("/api/v1/delegation/cost", { model, dynamic_cache: dynamicCache });
+    }
+    async routeModel(prompt, currentTier, trinityCheap, trinityMedium, learnedExploratory = [], stressScore = 0) {
+        return this.request("/api/v1/route/model", {
+            prompt,
+            current_tier: currentTier,
+            trinity_cheap: trinityCheap,
+            trinity_medium: trinityMedium,
+            learned_exploratory: learnedExploratory,
+            stress_score: stressScore,
+        });
+    }
+    async getModes() {
+        return this.request("/api/v1/modes", {}, "GET");
+    }
+    async selectMode(mode) {
+        return this.request("/api/v1/mode/select", { mode });
+    }
+    async classifyQuery(text, state) {
+        return this.request("/api/v1/mode/classify", { text, state: state || {} });
+    }
+    async classifyTier(model, customRegex = null) {
+        return this.request("/api/v1/tier/classify", { model, custom_regex: customRegex });
+    }
+    async isExploratory(prompt, learnedExploratory = []) {
+        return this.request("/api/v1/tier/exploratory", { prompt, learned_exploratory: learnedExploratory });
+    }
+    async scoreStress(text) {
+        return this.request("/api/v1/stress/score", { text });
+    }
+    async stressLevel(score) {
+        return this.request("/api/v1/stress/level", { score });
+    }
+    async blackboxAnalyze(sessionId, entry) {
+        return this.request("/api/v1/blackbox/analyze", {
+            session_id: sessionId,
+            project_id: entry.project_id || null,
+            user_text: entry.userText || "",
+            features: entry.features || {},
+            action: entry.action || "explore",
+            entropy: entry.entropy ?? 1.0,
+            uncertainty: entry.uncertainty ?? 50,
+            embedding: entry.embedding || null,
+        });
+    }
+    async blackboxState(sessionId) {
+        return this.request("/api/v1/blackbox/state", { session_id: sessionId });
+    }
+    async blackboxReset(sessionId) {
+        return this.request("/api/v1/blackbox/reset", { session_id: sessionId });
+    }
+    async blackboxOutcome(sessionId, outcome) {
+        return this.request("/api/v1/blackbox/outcome", { session_id: sessionId, outcome });
+    }
+    async blackboxCalibrate(projectId) {
+        return this.request("/api/v1/blackbox/calibrate", { project_id: projectId || "global" });
+    }
+    async blackboxCalibration(projectId) {
+        return this.request("/api/v1/blackbox/calibration?project_id=" + (projectId || "global"), null);
+    }
+    async blackboxControlVector(state, action, optimizationMode) {
+        return this.request("/api/v1/blackbox/control-vector", { ...state, action, optimization_mode: optimizationMode });
+    }
+    async blackboxSelectMode(subRegime, stressMultiplier) {
+        return this.request("/api/v1/blackbox/select-mode", { sub_regime: subRegime, stress_multiplier: stressMultiplier });
+    }
+    async vibemaxSelect(input = {}) {
+        return this.request("/api/v1/vibemax/select", input);
+    }
+    async vibemaxPipeline(input = {}) {
+        return this.request("/api/v1/vibemax/pipeline", input);
+    }
+    async vibemaxReset() {
+        return this.request("/api/v1/vibemax/reset", null);
+    }
+    async vibemaxModel() {
+        return this.request("/api/v1/vibemax/model", null);
+    }
+    async vibemaxTrain(telemetryPath = null) {
+        return this.request("/api/v1/vibemax/train", { telemetry_path: telemetryPath });
+    }
+    async tddExports(sourceContent, ext) {
+        return this.request("/api/v1/tdd/exports", { source_content: sourceContent, ext });
+    }
+    async tddParams(sourceContent, funcName) {
+        return this.request("/api/v1/tdd/params", { source_content: sourceContent, func_name: funcName });
+    }
+    async tddInferType(paramName, defaultValue) {
+        return this.request("/api/v1/tdd/infer-type", { param_name: paramName, default_value: defaultValue });
+    }
+    async tddSkeleton(language, fileName, exports, options = {}) {
+        return this.request("/api/v1/tdd/skeleton", { language, file_name: fileName, exports, options });
+    }
+    async patternsObserve(sessionId, toolName, input, output, directory) {
+        return this.request("/api/v1/patterns/observe", {
+            session_id: sessionId,
+            tool_name: toolName,
+            input,
+            output,
+            directory,
+        });
+    }
+    async patternsRecord(sessionId, kind, key, summary, meta = {}) {
+        return this.request("/api/v1/patterns/record", {
+            session_id: sessionId,
+            kind,
+            key,
+            summary,
+            meta,
+        });
+    }
+    async patternsQuery(sessionId, kind = null) {
+        return this.request("/api/v1/patterns/query?kind=" + (kind || ""), null);
+    }
+    async patternsExploratoryWords(sessionId) {
+        return this.request("/api/v1/patterns/exploratory-words", null);
+    }
+    async patternsClear(sessionId) {
+        return this.request("/api/v1/patterns/clear", { session_id: sessionId });
+    }
+    async pricingFetch(openrouterKey, force = false) {
+        return this.request("/api/v1/pricing/fetch", { openrouter_key: openrouterKey, force });
+    }
+    async pricingLookup(model) {
+        return this.request("/api/v1/pricing/lookup", { model });
+    }
+    async pricingStatic() {
+        return this.request("/api/v1/pricing/static", null);
+    }
+    async compressContext(text, threshold = 2000) {
+        return this.request("/api/v1/compress/context", { text, threshold });
+    }
+    async adminCreateSeat(name, email) {
+        return this.request("/admin/seats", { name, email }, true);
+    }
+    async adminCreateSeatWithToken(name, email, tokenLabel = null) {
+        return this.request("/admin/seats", { name, email, with_token: tokenLabel || true }, true);
+    }
+    async adminListSeats() {
+        return this.request("/admin/seats", null, true);
+    }
+    async adminUpdateSeat(seatId, status) {
+        return this.request("/admin/seats/" + seatId, { status }, true);
+    }
+    async adminCreateToken(seatId, label, expiresAt) {
+        return this.request("/admin/tokens", { seat_id: seatId, label, expires_at: expiresAt }, true);
+    }
+    async adminListTokens() {
+        return this.request("/admin/tokens", null, true);
+    }
+    async adminUpdateToken(tokenId, status) {
+        return this.request("/admin/tokens/" + tokenId, { status }, true);
+    }
+    async adminDeleteToken(tokenId) {
+        return this.request("/admin/tokens/" + tokenId, null, true);
+    }
+    async adminUsage(days = 30) {
+        return this.request("/admin/usage?days=" + days, null, true);
+    }
+    async health() {
+        return this.request("/health", null, false);
+    }
+    isFallback() {
+        return this.fallbackMode;
+    }
 }
 // ── Remote API client (Phase 2) ─────────────────────────────────────
 export const VIBEOS_API_URL = process.env.VIBEOS_API_URL || "https://api.vibetheog.com";
@@ -329,6 +493,19 @@ export let VIBEOS_API_DISABLED = readApiDisabledFromDisk() || isTruthyFlag(proce
 export let VIBEOS_API_TOKEN = VIBEOS_API_DISABLED ? "" : (readTokenFromDisk() || normalizeApiToken(process.env.VIBEOS_API_TOKEN, "") || EMBEDDED_API_TOKEN);
 export let VIBEOS_API_BOOTSTRAP_TOKEN = VIBEOS_API_DISABLED ? "" : (readBootstrapTokenFromDisk() || process.env.VIBEOS_API_BOOTSTRAP_TOKEN || "");
 export let VIBEOS_API_ENABLED = !VIBEOS_API_DISABLED && process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
+let _anomalyDetector = null;
+function getAnomalyDetector() {
+    if (!_anomalyDetector)
+        _anomalyDetector = new TokenAnomalyDetector();
+    return _anomalyDetector;
+}
+export function setAnomalyDetection(enabled) {
+    const d = getAnomalyDetector();
+    d.disabled = !enabled;
+    if (enabled)
+        d.reset();
+    console.error(`[vibeOS] Anomaly detection ${enabled ? "enabled" : "disabled"}`);
+}
 function persistBootstrapToken(token) {
     const clean = String(token || "").trim();
     try {
@@ -356,6 +533,8 @@ export function setApiToken(newToken) {
         VIBEOS_API_BOOTSTRAP_TOKEN = readBootstrapTokenFromDisk() || VIBEOS_API_BOOTSTRAP_TOKEN;
         VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
         persistPrimaryApiEnvState({ token: VIBEOS_API_TOKEN, disabled: false });
+        if (_anomalyDetector)
+            _anomalyDetector.reset();
         console.error("[vibeOS] API token updated via setApiToken");
     }
     catch (e) {
@@ -371,6 +550,8 @@ export function invalidateApiToken() {
         _apiClient = null;
         _apiFallbackMode = false;
         _apiFallbackSince = null;
+        if (_anomalyDetector)
+            _anomalyDetector.reset();
         persistBootstrapToken("");
         persistPrimaryApiEnvState({ token: "", disabled: true });
         resetApiConnection();
@@ -516,6 +697,15 @@ export async function remoteCall(method, args, fallbackFn) {
         syncApiTokenFromDisk();
     }
     if (!VIBEOS_API_ENABLED || _apiFallbackMode) {
+        if (fallbackFn)
+            return fallbackFn();
+        return null;
+    }
+    const detector = getAnomalyDetector();
+    detector.record();
+    if (detector.throttleIfAnomalous()) {
+        // Don't set _apiFallbackMode — detector's own cooldown resets it.
+        // This lets the API retry naturally after the throttle window.
         if (fallbackFn)
             return fallbackFn();
         return null;
