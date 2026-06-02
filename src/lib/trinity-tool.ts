@@ -190,7 +190,8 @@ export function createTrinityTool(deps) {
         const allEntries = [...BRANDED_MODES, ...RUNTIME_MODES]
         const modeEntry = allEntries.find(e => e.id === slot)
         if (modeEntry) {
-          const tierSlot = modeEntry.pipeline[0] || "cheap"
+          const rawTier = modeEntry.pipeline[0] || "cheap"
+          const tierSlot = new Set(["brain", "medium", "cheap"]).has(rawTier) ? rawTier : "cheap"
           deps.writeSelection("active_slot", tierSlot)
           deps.writeSelection("onboarding_mode",
             modeEntry.tdd === "quality" || modeEntry.enforcement === "strict" ? "strict" : "assist")
