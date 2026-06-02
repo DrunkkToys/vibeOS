@@ -26,3 +26,5 @@ scripts/calibrate*
 scripts/checkpoint*
 scripts/release*
 scripts/demo/
+*.tgz
+vibeoscore*
