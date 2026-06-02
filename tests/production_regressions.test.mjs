@@ -893,3 +893,28 @@ test("v0.22.1 — mode-router BRANDED_MODES includes vibeultrax", async () => {
   assert.ok(ids.includes("vibeultrax"), "branded modes include vibeultrax: " + ids.join(", "))
   assert.ok(ids.includes("vibemax"), "branded modes include vibemax")
 })
+
+test('v0.22.17 — vibeultrax mode writes valid active_slot (not local)', async () => {
+  const { DelegationEnforcer } = await loadPlugin()
+  const dir = join(sandbox, '.opencode-vibeultrax-slot')
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'opencode.json'), JSON.stringify({ model: 'deepseek/deepseek-v4-pro' }))
+  writeFileSync(join(sandbox, '.claude/model-tiers.json'), JSON.stringify({
+    trinity: {
+      brain: { oc: 'deepseek/deepseek-v4-pro' },
+      medium: { oc: 'deepseek/deepseek-v4-flash' },
+      cheap: { oc: 'deepseek/deepseek-chat' },
+    },
+    selection: { enabled: true, active_slot: 'brain', onboarding_mode: 'assist' },
+  }))
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+  const result = await hooks.tool.trinity.execute({ action: 'mode', slot: 'vibeultrax' })
+  assert.ok(result.includes('VIBEULTRAX'), 'mode set to VIBEULTRAX: ' + result)
+  const tiers = JSON.parse(readFileSync(join(sandbox, '.claude/model-tiers.json'), 'utf8'))
+  const slot = tiers.selection.active_slot
+  assert.ok(['brain', 'medium', 'cheap'].includes(slot),
+    'active_slot should be brain/medium/cheap, got: ' + slot)
+  assert.ok(tiers.selection.onboarding_mode === 'strict',
+    'onboarding_mode should be strict for vibeultrax, got: ' + tiers.selection.onboarding_mode)
+})
+
