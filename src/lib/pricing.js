@@ -111,6 +111,12 @@ export function classify(m) {
         return "high";
     if (MID_TIER_RE.test(s))
         return "mid";
+    // Fallback: strip provider prefix and test bare name
+    const bare = s.includes("/") ? s.split("/").slice(1).join("/") : s;
+    if (HIGH_TIER_RE.test(bare))
+        return "high";
+    if (MID_TIER_RE.test(bare))
+        return "mid";
     return "budget";
 }
 // Map a model ID to a human-readable label with tier icon.
@@ -160,9 +166,9 @@ export function resolveExecutionIdentity(modelId, directory = "") {
     const normalized = normalizeModelId(resolved || raw);
     const quality = isModelFree(resolved || raw)
         ? "free"
-        : HIGH_TIER_RE.test(normalized)
+        : classify(resolved || raw) === "high"
             ? "brain"
-            : MID_TIER_RE.test(normalized)
+            : classify(resolved || raw) === "mid"
                 ? "medium"
                 : "cheap";
     return {
@@ -260,6 +266,8 @@ export function trendDisplay(sesTrend) {
 const CACHE_SAVED_PER_1M_INPUT_TOKENS = 0.10;
 // Approximate bytes per token for JSON/text content (varies 3-6, use 4 as safe estimate).
 const BYTES_PER_TOKEN = 4;
+// Average tokens per turn for cost estimation heuristic.
+const AVG_TOKENS_PER_TURN = 375;
 export function parseOpenRouterInputPer1M(modelRow) {
     const p = modelRow?.pricing || {};
     const inTok = Number(p.prompt ?? p.input ?? p.request);
@@ -300,7 +308,7 @@ export function cacheSavePer1MInputTokens(model) {
     }
     const turnCost = modelCostPerTurn(model);
     if (Number.isFinite(turnCost) && turnCost > 0) {
-        return Math.round(turnCost * 375 * 100) / 100;
+        return Math.round(turnCost * AVG_TOKENS_PER_TURN * 100) / 100;
     }
     return CACHE_SAVED_PER_1M_INPUT_TOKENS;
 }
@@ -929,7 +937,13 @@ function resolveConfiguredModelId(model, configs = []) {
                 matches.add(id);
         }
     }
-    return matches.size === 1 ? [...matches][0] : raw;
+    if (matches.size === 0)
+        return raw;
+    if (matches.size === 1)
+        return [...matches][0];
+    // Multiple providers have this model — prefer provider-qualified name over bare
+    const qualified = [...matches].find(m => m.includes("/"));
+    return qualified || raw;
 }
 export function resolveDisplayModelId(model, directory = "") {
     const raw = String(model || "").trim();

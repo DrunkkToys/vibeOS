@@ -210,11 +210,20 @@ function _modelCost(id) {
 function _modelTier(id) {
     if (!id)
         return "budget";
+    // Test both the full provider-qualified ID and the bare name
     const high = HIGH_TIER_RE?.test?.(id);
     if (high)
         return "high";
     const mid = MID_TIER_RE?.test?.(id);
-    return mid ? "mid" : "budget";
+    if (mid)
+        return "mid";
+    // Fallback: strip provider prefix and test bare name
+    const bare = String(id).includes("/") ? String(id).split("/").slice(1).join("/") : String(id);
+    if (HIGH_TIER_RE?.test?.(bare))
+        return "high";
+    if (MID_TIER_RE?.test?.(bare))
+        return "mid";
+    return "budget";
 }
 export async function discoverAvailableModels(providers, auth) {
     const all = collectConfiguredProviderModels(providers);
@@ -319,12 +328,12 @@ export function classifyAndRankModels(models) {
     }
     if (unique.length === 0)
         return null;
-    const normalizeModelId = (id) => String(id || "").toLowerCase()
+    const normalizeModelIdLocal = (id) => String(id || "").toLowerCase()
         .replace(/\./g, "-")
         .replace(/^(openrouter|opencode|deepseek|anthropic|google)\//, "");
-    const isDeprecatedDeepseekChat = (id) => normalizeModelId(id).includes("deepseek-chat");
+    const isDeprecatedDeepseekChat = (id) => normalizeModelIdLocal(id).includes("deepseek-chat");
     const hasReplacementDeepseek = unique.some((m) => {
-        const raw = normalizeModelId(m.id);
+        const raw = normalizeModelIdLocal(m.id);
         return raw.startsWith("deepseek-") && !raw.includes("deepseek-chat");
     });
     const ranked = hasReplacementDeepseek
@@ -333,7 +342,7 @@ export function classifyAndRankModels(models) {
     if (ranked.length === 0)
         return null;
     const modelPreference = (id) => {
-        const raw = normalizeModelId(id);
+        const raw = normalizeModelIdLocal(id);
         if (raw.includes("deepseek-v4-flash"))
             return 2;
         if (raw.includes("deepseek-chat"))
