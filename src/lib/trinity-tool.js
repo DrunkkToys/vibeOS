@@ -3,6 +3,16 @@ import { join } from "node:path";
 import { LABEL_MODES, buildDeterministicTrinity, resolveExecutionIdentity } from "./pricing.js";
 import { BRANDED_MODES, RUNTIME_MODES } from "./mode-router.js";
 import { invalidateApiToken } from "./api-client.js";
+// ── Named constants (magic number extraction) ────────────────────────
+const MIN_TOOL_BREAKDOWN_THRESHOLD = 0.005;
+const STRESS_GAUGE_CRITICAL = 0.85;
+const STRESS_GAUGE_HIGH = 0.7;
+const STRESS_GAUGE_ELEVATED = 0.5;
+const STRESS_GAUGE_CALM = 0.3;
+const STRESS_GAUGE_MIN = 0.1;
+const MOMENTUM_SIGNIFICANT_THRESHOLD = 0.3;
+const DIAGNOSE_BUDGET_LINES = 50;
+const CREDIT_MIN_OK = 40;
 export function createTrinityTool(deps) {
     return {
         description: "Control the vibeOS plugin and active model slot. " +
@@ -57,7 +67,7 @@ export function createTrinityTool(deps) {
                 const sesRate = sv.sesRatePerHour || 0;
                 const missedC7 = sv.missedC7 || 0;
                 const toolBreakdown = sv.sesToolBreakdown || {};
-                const topTools = Object.entries(toolBreakdown).filter(([, v]) => v > 0.005).sort((a, b) => b[1] - a[1]).slice(0, 5);
+                const topTools = Object.entries(toolBreakdown).filter(([, v]) => v > MIN_TOOL_BREAKDOWN_THRESHOLD).sort((a, b) => b[1] - a[1]).slice(0, 5);
                 const brainModel = tiers?.brain?.oc || "(unset)";
                 const mediumModel = tiers?.medium?.oc || "(unset)";
                 cheapModel = tiers?.cheap?.oc || cheapModel;
@@ -66,8 +76,8 @@ export function createTrinityTool(deps) {
                 const lockedModel = deps._lockedModel || null;
                 const onboardingMode = sel.onboarding_mode || "strict";
                 const stressScore = deps.latestUserIntent ? deps.scoreStress(deps.latestUserIntent) : 0;
-                const stressBar = stressScore > 0.85 ? "█" : stressScore > 0.7 ? "▆" : stressScore > 0.5 ? "▅" : stressScore > 0.3 ? "▃" : stressScore > 0.1 ? "▂" : "▁";
-                const stressLabel = stressScore > 0.7 ? "high" : stressScore > 0.4 ? "elevated" : stressScore > 0.1 ? "calm" : "none";
+                const stressBar = stressScore > STRESS_GAUGE_CRITICAL ? "█" : stressScore > STRESS_GAUGE_HIGH ? "▆" : stressScore > STRESS_GAUGE_ELEVATED ? "▅" : stressScore > STRESS_GAUGE_CALM ? "▃" : stressScore > STRESS_GAUGE_MIN ? "▂" : "▁";
+                const stressLabel = stressScore > STRESS_GAUGE_HIGH ? "high" : stressScore > 0.4 ? "elevated" : stressScore > STRESS_GAUGE_MIN ? "calm" : "none";
                 const totalTurns = (sv.sesModelTurns?.brain || 0) + (sv.sesModelTurns?.worker || 0);
                 const brainPct = totalTurns > 0 ? Math.round((sv.sesModelTurns.brain / totalTurns) * 100) : 0;
                 const workerPct = 100 - brainPct;
@@ -80,7 +90,7 @@ export function createTrinityTool(deps) {
                     try {
                         const res = deps._latestBlackboxState || deps.getBlackboxResolution();
                         if (res && res.n_interactions > 3) {
-                            const momentumIcon = res.momentum > 0.3 ? "up up" : res.momentum > 0 ? "up" : res.momentum < -0.3 ? "down down" : res.momentum < 0 ? "down" : "flat";
+                            const momentumIcon = res.momentum > MOMENTUM_SIGNIFICANT_THRESHOLD ? "up up" : res.momentum > 0 ? "up" : res.momentum < -MOMENTUM_SIGNIFICANT_THRESHOLD ? "down down" : res.momentum < 0 ? "down" : "flat";
                             const loopTag = res.is_looping ? " (loop)" : "";
                             decisionLine = `${res.resolution} ${res.sub_regime} ${momentumIcon}${loopTag}`;
                         }
@@ -863,7 +873,7 @@ export function createTrinityTool(deps) {
                     results.push({ ok: false, okLabel: "\u274c", label: "model probe", detail: "no current model detected" });
                 }
                 const credit = deps.loadCredit();
-                let budget = 50;
+                let budget = DIAGNOSE_BUDGET_LINES;
                 let totalBal = 0;
                 try {
                     const j = deps.safeJsonParse(deps.readFileSync(deps.TIERS_FILE, "utf-8"));
@@ -886,7 +896,7 @@ export function createTrinityTool(deps) {
                     : runway.turnsRemaining != null && runway.costPerTurn != null
                         ? `${Number(runway.turnsRemaining).toLocaleString()} turns on ${cheapModel} @ $${deps.formatUsd(runway.costPerTurn)}/turn`
                         : "n/a";
-                const creditOk = credit >= 40;
+                const creditOk = credit >= CREDIT_MIN_OK;
                 results.push({
                     ok: creditOk, okLabel: creditOk ? "\u2705" : "\u274c",
                     label: "credits",

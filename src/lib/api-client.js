@@ -535,10 +535,6 @@ export function setApiToken(newToken) {
         persistPrimaryApiEnvState({ token: VIBEOS_API_TOKEN, disabled: false });
         if (_anomalyDetector)
             _anomalyDetector.reset();
-        _apiClient = null;
-        _apiFallbackMode = false;
-        _apiFallbackSince = null;
-        resetApiConnection();
         console.error("[vibeOS] API token updated via setApiToken");
     }
     catch (e) {
@@ -675,8 +671,6 @@ function syncApiTokenFromDisk() {
         VIBEOS_API_DISABLED = false;
         VIBEOS_API_TOKEN ||= EMBEDDED_API_TOKEN;
         VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
-        _apiFallbackMode = false;
-        _apiFallbackSince = null;
     }
 }
 export function getApiClient() {

@@ -331,7 +331,6 @@ export class VibeOSApiClient {
     })
   }
 
-
   async getModes(): Promise<unknown> {
     return this.request("/api/v1/modes", {}, "GET")
   }

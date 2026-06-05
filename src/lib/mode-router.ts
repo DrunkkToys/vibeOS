@@ -29,7 +29,7 @@ export const TIERS: Record<string, TierInfo> = {
   medium: { cost: 0.000182,  desc: "v4 Flash tier — balanced" },
   cheap:  { cost: 0,         desc: "Chat tier — free" },
   local:  { cost: 0,         desc: "Ollama local model" },
-};
+}
 
 export const BRANDED_MODES: ModeEntry[] = [
   {
@@ -53,7 +53,7 @@ export const BRANDED_MODES: ModeEntry[] = [
     qualityVsBrain: 75, costVsBrain: 18, default: true,
     desc: "Default mode. Medium tier auto-escalate. Speed-first.",
   },
-];
+]
 
 export const RUNTIME_MODES: ModeEntry[] = [
   {
@@ -98,7 +98,7 @@ export const RUNTIME_MODES: ModeEntry[] = [
     qualityVsBrain: 100, costVsBrain: 70,
     desc: "Brain tier extended session. Full context.",
   },
-];
+]
 
 export const RAW_MODE: ModeEntry = {
   id: "raw", index: 10, name: "Raw Brain", icon: "\u{1F9E0}",
@@ -106,30 +106,30 @@ export const RAW_MODE: ModeEntry = {
   thinking: "full", tdd: "\u2014", enforcement: "\u2014", flow: "\u2014",
   qualityVsBrain: 100, costVsBrain: 0,
   desc: "Pure v4 Pro baseline. No vibeOS overhead.",
-};
+}
 
-export const ALL_MODES: ModeEntry[] = [...BRANDED_MODES, ...RUNTIME_MODES, RAW_MODE];
+export const ALL_MODES: ModeEntry[] = [...BRANDED_MODES, ...RUNTIME_MODES, RAW_MODE]
 
 export function getMode(id: string): ModeEntry {
-  return ALL_MODES.find(m => m.id === id) ?? getDefault();
+  return ALL_MODES.find(m => m.id === id) ?? getDefault()
 }
 
 export function getDefault(): ModeEntry {
-  return BRANDED_MODES.find(m => m.default)!;
+  return BRANDED_MODES.find(m => m.default)!
 }
 
 export function getDefaultRuntime(): ModeEntry {
-  return RUNTIME_MODES.find(m => m.defaultRuntime)!;
+  return RUNTIME_MODES.find(m => m.defaultRuntime)!
 }
 
-export function getBrandedModes(): ModeEntry[] { return BRANDED_MODES; }
-export function getRuntimeModes(): ModeEntry[] { return RUNTIME_MODES; }
+export function getBrandedModes(): ModeEntry[] { return BRANDED_MODES }
+export function getRuntimeModes(): ModeEntry[] { return RUNTIME_MODES }
 
 export function resolveTierModels(
   mode: ModeEntry,
   tierMap: Record<string, string>,
 ): { models: string[]; totalCost: number } {
-  const models = mode.pipeline.map(t => tierMap[t] ?? t);
-  const costs = mode.pipeline.map(t => TIERS[t]?.cost ?? 0);
-  return { models, totalCost: costs.reduce((s, c) => s + c, 0) };
+  const models = mode.pipeline.map(t => tierMap[t] ?? t)
+  const costs = mode.pipeline.map(t => TIERS[t]?.cost ?? 0)
+  return { models, totalCost: costs.reduce((s, c) => s + c, 0) }
 }

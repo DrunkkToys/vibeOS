@@ -331,21 +331,21 @@ function compressToolOutputs(messages: any[]): number {
           if (existsSync(sessPath)) rmSync(sessPath, { force: true })
         }
 
-          // Create pointer file for input-hash-based lookup
-          const invPart = parts.slice(0, parts.indexOf(part)).reverse().find(
-            (p: any) => p?.type === "tool" && p?.tool === (part as any).tool && p?.state?.input && p?.state?.status !== "completed",
-          )
-          if (invPart?.state?.input) {
-            const toolKey = TOOL_NAME_NORMALIZE[(part as any).tool] || (part as any).tool
-            const inputHash = createHash("sha256")
-              .update(`${toolKey}\n${stableJson(invPart.state.input)}\n`)
-              .digest("hex").slice(0, 16)
-            const ptrPath = join(getSessionScratchpadDir(), `${inputHash}.ptr`)
-            try {
-              writeFileSync(ptrPath, JSON.stringify({ contentHash: hash, tool: (part as any).tool }))
-            } catch {}
-            }
-        } catch (err) {
+        // Create pointer file for input-hash-based lookup
+        const invPart = parts.slice(0, parts.indexOf(part)).reverse().find(
+          (p: any) => p?.type === "tool" && p?.tool === (part as any).tool && p?.state?.input && p?.state?.status !== "completed",
+        )
+        if (invPart?.state?.input) {
+          const toolKey = TOOL_NAME_NORMALIZE[(part as any).tool] || (part as any).tool
+          const inputHash = createHash("sha256")
+            .update(`${toolKey}\n${stableJson(invPart.state.input)}\n`)
+            .digest("hex").slice(0, 16)
+          const ptrPath = join(getSessionScratchpadDir(), `${inputHash}.ptr`)
+          try {
+            writeFileSync(ptrPath, JSON.stringify({ contentHash: hash, tool: (part as any).tool }))
+          } catch {}
+        }
+      } catch (err) {
         console.error(`[vibeOS] ctx-compress write failed: ${err.message}`)
         continue
       }

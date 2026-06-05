@@ -44,6 +44,8 @@ const MAX_SCRATCHPAD_FILES  = 1000
 const MAX_SCRATCHPAD_BYTES  = 10 * 1024 * 1024
 const MAX_SESSION_SCRATCHPAD_FILES = 200
 const MAX_SESSION_SCRATCHPAD_BYTES = 2 * 1024 * 1024
+const MAX_PTR_CANDIDATES = 50
+const SUMMARY_HEAD_TRUNCATE = 500
 
 function getVibeOSHome(): string {
   return VIBEOS_CONTEXT.getStore()?.home || process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude")
@@ -783,7 +785,7 @@ function scanRecentScratchpad(dir: string, titleCase: string, maxScan: number = 
     const ptrFiles = entries.filter(e => e.endsWith(".ptr"))
     const ptrCandidates: Array<{ ptrPath: string, mtimeMs: number }> = []
     for (const pf of ptrFiles) {
-      if (ptrCandidates.length >= 50) break
+      if (ptrCandidates.length >= MAX_PTR_CANDIDATES) break
       try {
         const st = statSync(join(dir, pf))
         ptrCandidates.push({ ptrPath: join(dir, pf), mtimeMs: st.mtimeMs })
@@ -910,7 +912,7 @@ function _pruneScratchpadDir(targetDir: string, opts: { maxFiles?: number, maxBy
       const summaryPath = join(targetDir, hash + ".summary.txt")
       if (!existsSync(summaryPath)) try {
         const content = readFileSync(fullPath, "utf-8")
-        writeFileSync(summaryPath, content.slice(0, 500).replace(/\n+/g, " ").trim() + (content.length > 500 ? "…" : ""))
+        writeFileSync(summaryPath, content.slice(0, SUMMARY_HEAD_TRUNCATE).replace(/\n+/g, " ").trim() + (content.length > SUMMARY_HEAD_TRUNCATE ? "…" : ""))
       } catch {}
       const head = _readHead(fullPath)
       if (!head.includes("[warm-storage]") && !head.includes("[cold-storage]")) try {

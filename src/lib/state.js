@@ -47,6 +47,8 @@ const MAX_SCRATCHPAD_FILES = 1000;
 const MAX_SCRATCHPAD_BYTES = 10 * 1024 * 1024;
 const MAX_SESSION_SCRATCHPAD_FILES = 200;
 const MAX_SESSION_SCRATCHPAD_BYTES = 2 * 1024 * 1024;
+const MAX_PTR_CANDIDATES = 50;
+const SUMMARY_HEAD_TRUNCATE = 500;
 function getVibeOSHome() {
     return VIBEOS_CONTEXT.getStore()?.home || process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude");
 }
@@ -839,7 +841,7 @@ function scanRecentScratchpad(dir, titleCase, maxScan = 2000) {
         const ptrFiles = entries.filter(e => e.endsWith(".ptr"));
         const ptrCandidates = [];
         for (const pf of ptrFiles) {
-            if (ptrCandidates.length >= 50)
+            if (ptrCandidates.length >= MAX_PTR_CANDIDATES)
                 break;
             try {
                 const st = statSync(join(dir, pf));
@@ -902,14 +904,14 @@ function getScratchpadHit(toolLower, args, baseDir = null) {
                 }
             }
             catch { }
+        }
+        if (!fullPath) {
+            const recent = scanRecentScratchpad(sessionDir, titleCase, 2000);
+            if (recent)
+                return recent;
+            return null;
+        }
     }
-    if (!fullPath) {
-        const recent = scanRecentScratchpad(sessionDir, titleCase, 2000);
-        if (recent)
-            return recent;
-        return null;
-    }
-}
     try {
         const st = statSync(fullPath);
         const ageSec = (Date.now() - st.mtimeMs) / 1000;
@@ -1011,7 +1013,7 @@ function _pruneScratchpadDir(targetDir, opts = {}) {
             if (!existsSync(summaryPath))
                 try {
                     const content = readFileSync(fullPath, "utf-8");
-                    writeFileSync(summaryPath, content.slice(0, 500).replace(/\n+/g, " ").trim() + (content.length > 500 ? "…" : ""));
+                    writeFileSync(summaryPath, content.slice(0, SUMMARY_HEAD_TRUNCATE).replace(/\n+/g, " ").trim() + (content.length > SUMMARY_HEAD_TRUNCATE ? "…" : ""));
                 }
                 catch { }
             const head = _readHead(fullPath);

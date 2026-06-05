@@ -11,7 +11,7 @@ function getRuntimeState(): RuntimeState {
   const g = globalThis as any
   if (!g[RUNTIME_KEY]) {
     g[RUNTIME_KEY] = {
-      apiConnected: false,
+      apiConnected: true,
       apiFallbackMode: false,
       apiFallbackSince: null,
       sessionId: "opencode-" + (process.pid || "x") + "-" + Date.now(),

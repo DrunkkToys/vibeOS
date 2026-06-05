@@ -1,5 +1,8 @@
 import { BLACKBOX_STATE_FILE, _OC_SID, loadBlackboxState, saveBlackboxState, withFileLock } from "./state.js"
 
+// ── Named constants ──────────────────────────────────────────────────
+const STRESS_QUALITY_THRESHOLD = 1.5
+
 type AdaptiveMode = "budget" | "speed" | "quality"
 
 type ModeDecision = {
@@ -49,7 +52,7 @@ function chooseEpisodeMode(regime: string, suggestedMode: string, stress: number
   if (LOOP_REGIMES.has(regime) || suggestedMode === "speed") return "speed"
   if (QUALITY_REGIMES.has(regime) || suggestedMode === "quality") return "quality"
   if (suggestedMode === "vibeultrax" || suggestedMode === "vibeqmax") return suggestedMode
-  return stress > 1.5 ? "quality" : "budget"
+  return stress > STRESS_QUALITY_THRESHOLD ? "quality" : "budget"
 }
 
 function defaultPolicy() {

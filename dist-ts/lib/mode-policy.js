@@ -1,4 +1,6 @@
 import { BLACKBOX_STATE_FILE, _OC_SID, loadBlackboxState, saveBlackboxState, withFileLock } from "./state.js";
+// ── Named constants ──────────────────────────────────────────────────
+const STRESS_QUALITY_THRESHOLD = 1.5;
 const BASELINE_MODE = "budget";
 const LOOP_REGIMES = new Set(["LOOPING", "DIVERGENT"]);
 const QUALITY_REGIMES = new Set(["CONVERGING", "CLOSED"]);
@@ -25,7 +27,7 @@ function chooseEpisodeMode(regime, suggestedMode, stress) {
         return "quality";
     if (suggestedMode === "vibeultrax" || suggestedMode === "vibeqmax")
         return suggestedMode;
-    return stress > 1.5 ? "quality" : "budget";
+    return stress > STRESS_QUALITY_THRESHOLD ? "quality" : "budget";
 }
 function defaultPolicy() {
     return {
