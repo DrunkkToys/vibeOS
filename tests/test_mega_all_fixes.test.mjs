@@ -167,6 +167,90 @@ test("9 — mode-router listed in sync-ts-build.mjs libModules", () => {
   assert.ok(syncScript.includes('"mode-router"'), "mode-router in libModules")
 })
 
+// ── GROUP 10A: Model name resolution regression (v0.22.25) ──
+test("10a — _resolveConfiguredModelId returns qualified name when bare model matches", async () => {
+  const { _resolveConfiguredModelId } = await import(join(root, "src/lib/pricing.js?mrr=" + Date.now()))
+  const configs = [{
+    provider: {
+      deepseek: { models: { "deepseek-v4-pro": {}, "deepseek-v4-flash": {}, "deepseek-chat": {} } }
+    }
+  }]
+  // Exact bare match → provider-qualified
+  const result = _resolveConfiguredModelId("deepseek-chat", configs)
+  assert.equal(result, "deepseek/deepseek-chat", "bare name resolved to provider-qualified")
+})
+
+test("10b — _resolveConfiguredModelId returns empty string for unresolvable bare name", async () => {
+  const { _resolveConfiguredModelId } = await import(join(root, "src/lib/pricing.js?mrr2=" + Date.now()))
+  const configs = [{
+    provider: {
+      deepseek: { models: { "deepseek-v4-pro": {}, "deepseek-v4-flash": {} } }
+    }
+  }]
+  // No match → empty string (not bare name — prevents garbage propagation)
+  const result = _resolveConfiguredModelId("haiku", configs)
+  assert.equal(result, "", "unresolvable bare name returns empty string")
+})
+
+test("10c — _resolveConfiguredModelId returns qualified name on suffix/prefix match", async () => {
+  const { _resolveConfiguredModelId } = await import(join(root, "src/lib/pricing.js?mrr3=" + Date.now()))
+  const configs = [{
+    provider: {
+      deepseek: { models: { "deepseek-v4-pro": {}, "deepseek-v4-flash": {} } }
+    }
+  }]
+  // Suffix fuzzy match → provider-qualified
+  const result = _resolveConfiguredModelId("v4-flash", configs)
+  assert.equal(result, "deepseek/deepseek-v4-flash", "fuzzy suffix match resolves to qualified")
+})
+
+test("10d — _resolveConfiguredModelId prefers qualified name over bare when multiple matches", async () => {
+  const { _resolveConfiguredModelId } = await import(join(root, "src/lib/pricing.js?mrr4=" + Date.now()))
+  const configs = [{
+    provider: {
+      deepseek: { models: { "deepseek-chat": {} } },
+      openrouter: { models: { "openrouter/deepseek-chat": {} } }
+    }
+  }]
+  // Multiple matches → prefer first qualified
+  const result = _resolveConfiguredModelId("deepseek-chat", configs)
+  assert.ok(result.includes("/"), "result is provider-qualified: " + result)
+})
+
+test("10e — readConfig respects provider resolution for workspace models", async () => {
+  const { readConfig } = await import(join(root, "src/lib/pricing.js?mrr5=" + Date.now()))
+  const dir = join(sandbox, "proj-workspace-test")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({
+    model: "deepseek-chat",
+    provider: { deepseek: { models: { "deepseek-chat": {} } } }
+  }) + "\n")
+  const model = readConfig(dir)
+  assert.ok(model, "readConfig returns a model: " + model)
+  assert.ok(model.includes("/"), "model is provider-qualified: " + model)
+})
+
+test("10f — classify handles both bare and provider-qualified names", async () => {
+  const { classify } = await import(join(root, "src/lib/pricing.js?mrr6=" + Date.now()))
+  assert.equal(classify("deepseek/deepseek-v4-pro"), "high", "qualified pro → high")
+  assert.equal(classify("deepseek/deepseek-v4-flash"), "mid", "qualified flash → mid")
+  // Bare name fallback: regex now has \b alternatives for bare deepseek-v4-pro/flash
+  assert.equal(classify("deepseek-v4-pro"), "high", "bare pro → high (fallback)")
+  assert.equal(classify("deepseek-v4-flash"), "mid", "bare flash → mid (fallback)")
+})
+
+test("10g — null-safe _collectConfiguredProviderModelsFromConfig", async () => {
+  const mod = await import(join(root, "src/lib/pricing.js?mrr7=" + Date.now()))
+  const cfg = mod._collectConfiguredProviderModelsFromConfig
+  if (typeof cfg === "function") {
+    assert.deepEqual(cfg(null), [], "null config returns empty array")
+    assert.deepEqual(cfg(undefined), [], "undefined config returns empty array")
+    assert.deepEqual(cfg({}), [], "empty config returns empty array")
+  } else {
+    assert.ok(true, "function not exported — internal only")
+  }
+})
+
 // ── GROUP 10: All regression test files runnable ──
 test("10 — all fix regression files exist and have valid syntax", () => {
   const files = [

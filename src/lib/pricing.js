@@ -1001,6 +1001,9 @@ export function loadTrinitySlotsFromTiersFile() {
 // Refresh currentModel/currentTier from disk config.
 // Called per-hook so trinity slot changes take effect without restart.
 export const PLACEHOLDER_RE = /^[^/]+\/[a-z-]+-model$/i;
+// Test-only exports for regression coverage
+export function _resolveConfiguredModelId(model, configs = []) { return resolveConfiguredModelId(model, configs); }
+export function _collectConfiguredProviderModelsFromConfig(cfg) { return collectConfiguredProviderModelsFromConfig(cfg); }
 export function getTrinitySlotOrder(tiersData = null) {
     const configured = Array.isArray(tiersData?.selection?.slot_order)
         ? tiersData.selection.slot_order

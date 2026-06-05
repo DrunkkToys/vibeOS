@@ -377,8 +377,8 @@ function roundUsd(v: number): number {
 }
 
 // ── Tier regexes ─────────────────────────────────────────────────────
-const FALLBACK_HIGH = /opus|gemini-.*-pro|deepseek\/deepseek-v4-pro|gpt-5|(^|\/)o[134]($|-|\/)/i
-const FALLBACK_MID  = /deepseek\/deepseek-v4-flash|claude.*sonnet|gemini-.*-flash|gpt-4o(?!-mini)/i
+const FALLBACK_HIGH = /opus|gemini-.*-pro|deepseek\/deepseek-v4-pro|\bdeepseek-v4-pro\b|gpt-5|(^|\/)o[134]($|-|\/)/i
+const FALLBACK_MID  = /deepseek\/deepseek-v4-flash|\bdeepseek-v4-flash\b|claude.*sonnet|gemini-.*-flash|gpt-4o(?!-mini)/i
 export function _safeRegex(cfg: any, fallback: RegExp, label: string): RegExp {
   if (!cfg) return fallback
   try { return new RegExp(cfg, "i") }

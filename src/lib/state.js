@@ -386,8 +386,8 @@ function roundUsd(v) {
     return Math.round((Number(v) || 0) * 10000) / 10000;
 }
 // ── Tier regexes ─────────────────────────────────────────────────────
-const FALLBACK_HIGH = /opus|gemini-.*-pro|deepseek\/deepseek-v4-pro|gpt-5|(^|\/)o[134]($|-|\/)/i;
-const FALLBACK_MID = /deepseek\/deepseek-v4-flash|claude.*sonnet|gemini-.*-flash|gpt-4o(?!-mini)/i;
+const FALLBACK_HIGH = /opus|gemini-.*-pro|deepseek\/deepseek-v4-pro|\bdeepseek-v4-pro\b|gpt-5|(^|\/)o[134]($|-|\/)/i;
+const FALLBACK_MID = /deepseek\/deepseek-v4-flash|\bdeepseek-v4-flash\b|claude.*sonnet|gemini-.*-flash|gpt-4o(?!-mini)/i;
 export function _safeRegex(cfg, fallback, label) {
     if (!cfg)
         return fallback;
