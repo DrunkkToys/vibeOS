@@ -726,8 +726,6 @@ const DFLT_SEL = { enabled: true, active_slot: null, thinking_level: "off", flow
 export function readConfig(dir) {
   try {
     const configs = []
-    const workspaceModel = readWorkspaceSessionModel(dir)
-    if (workspaceModel) return workspaceModel
     const projectCfg = readOpenCodeConfigObject(dir)
     if (projectCfg && typeof projectCfg === "object") configs.push(projectCfg)
     const homeDir = getOpenCodeHome()
@@ -735,6 +733,8 @@ export function readConfig(dir) {
       const homeCfg = readOpenCodeConfigObject(homeDir)
       if (homeCfg && typeof homeCfg === "object") configs.push(homeCfg)
     }
+    const workspaceModel = readWorkspaceSessionModel(dir)
+    if (workspaceModel) return resolveConfiguredModelId(workspaceModel, configs) || workspaceModel
     const selectedCfg = configs[0] || {}
     const selectedModel = selectedCfg?.agent?.build?.model || selectedCfg?.model || ""
     return resolveConfiguredModelId(selectedModel, configs)
@@ -819,7 +819,7 @@ function readOpenCodeConfigObject(dir) {
 
 function collectConfiguredProviderModelsFromConfig(cfg) {
   const out = []
-  const providers = cfg?.provider || {}
+  const providers = (cfg && typeof cfg === "object") ? (cfg?.provider || {}) : {}
   for (const [providerName, providerCfg] of Object.entries(providers)) {
     const models = providerCfg?.models || {}
     for (const rawId of Object.keys(models)) {
@@ -843,9 +843,18 @@ function resolveConfiguredModelId(model, configs = []) {
       if (normalizeModelId(id) === normalized || normalizeModelId(bare) === normalized) matches.add(id)
     }
   }
-  if (matches.size === 0) return raw
+  if (matches.size === 0) {
+    // No exact match — try suffix/prefix match against bare model names
+    for (const cfg of configs) {
+      for (const id of collectConfiguredProviderModelsFromConfig(cfg)) {
+        const bare = String(id || "").includes("/") ? String(id).split("/").pop() : id
+        const nb = normalizeModelId(bare)
+        if (nb.includes(normalized) || normalized.includes(nb)) matches.add(id)
+      }
+    }
+  }
+  if (matches.size === 0) return ""
   if (matches.size === 1) return [...matches][0]
-  // Multiple providers have this model — prefer provider-qualified name over bare
   const qualified = [...matches].find(m => m.includes("/"))
   return qualified || raw
 }
@@ -941,11 +950,11 @@ export function _refreshModel(directory) {
       }
     }
     // Reconcile with the directory's opencode.json config.
-    // The trinity slot is authoritative UNLESS the directory config specifies a different model.
+    // The trinity slot is authoritative UNLESS the directory config specifies a resolveable model.
     // This prevents the bootstrap's default slot from overriding a project-local model choice.
     if (!_modelLocked) {
       const cfgModel = readConfig(directory) || readConfig(getOpenCodeHome()) || ""
-      if (cfgModel && cfgModel !== currentModel) {
+      if (cfgModel && cfgModel.includes("/") && cfgModel !== currentModel) {
         const oldModel = currentModel
         const oldTier = currentTier
         setCurrentModel(cfgModel)
