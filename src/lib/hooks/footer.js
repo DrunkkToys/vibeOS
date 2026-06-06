@@ -58,6 +58,7 @@ const SAVINGS_LEDGER_FILE = join(getVibeOSHome(), "savings-ledger.jsonl");
 let _prevOutputText = "";
 let _autoReportCount = 0;
 const textCompletePainted = new Set();
+let _lastStrippedText = "";
 function loadSelection() {
     try {
         const raw = readFileSync(join(getVibeOSHome(), "model-tiers.json"), "utf-8");
@@ -277,6 +278,8 @@ async function _appendFooter(input, output, directory) {
         const stripped = text.replace(/— .+?VIBE[^—]*—\s*/g, "").trimEnd();
         if (stripped !== text)
             return;
+        if (stripped === _lastStrippedText)
+            return;
         const ltTotal = ltTasks + ltCache;
         const modeCapitalized = (mode) => mode.charAt(0).toUpperCase() + mode.slice(1);
         const optMode = (resolvedMode || "budget").toLowerCase();
@@ -343,6 +346,7 @@ async function _appendFooter(input, output, directory) {
                 obj.text = text;
         }
         _setFooter(output, footerText);
+        _lastStrippedText = stripped;
         // CLI/pipe mode: stdout is already rendered, write footer to stderr
         if (!process.stdout?.isTTY) {
             console.error(`\n${vibeLine} —`);
