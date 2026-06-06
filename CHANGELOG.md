@@ -1,3 +1,7 @@
+## 0.23.1
+- fix: footer dedup — content hash fallback prevents double-append from message.updated vs text.complete shape mismatch
+
+
 ## 0.22.16
 
 - test: add 12 cache isolation scenarios (no cross-session/project hallucination)
