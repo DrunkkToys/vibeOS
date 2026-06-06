@@ -385,7 +385,7 @@ test("footer: model label keeps provider prefix instead of flattening to bare mo
   try {
     const output = { text: "hello" }
     await _appendFooter({ messageID: "m1" }, output, join(sb, "project"))
-    assert.match(output.text, /Model: google\/gemini-2\.5-flash/, output.text)
+    assert.match(output.text, /medium.*Google.*gemini-2\.5-flash/, output.text)
   } finally {
     globalThis.client = prevClient
     process.env.HOME = prevHome

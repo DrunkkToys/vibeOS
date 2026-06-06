@@ -1,14 +1,14 @@
 // @ts-nocheck
 import { readFileSync, appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { classify, _refreshModel, readConfig, resolveDisplayModelId, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, roundUsd, formatUsd, resolveExecutionIdentity, formatQualityName } from "../pricing.js";
+import { classify, _refreshModel, readConfig, resolveDisplayModelId, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, roundUsd, formatUsd, resolveExecutionIdentity } from "../pricing.js";
 import { latestUserIntent } from "./chat-transform.js";
 import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, loadOptimizationMode, classifyTurnSimple } from "../turn-classify.js";
 import { peekBudgetFirstMode, recordBudgetFirstOutcome } from "../mode-policy.js";
 import { saveReport } from "../reporting.js";
 import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, _modelLocked, _blackboxEnabled, _latestBlackboxState, reconcileStateFromLedger, safeJsonParse, loadBlackboxState } from "../state.js";
 import { loadSessionSlot } from "../selection-manager.js";
-import { remoteCall, isApiConnected } from "../api-client.js";
+import { remoteCall } from "../api-client.js";
 const IS_CLI_RUNTIME = Boolean(process.stdout?.isTTY || process.stderr?.isTTY || process.stdin?.isTTY);
 const IS_TEST_RUNTIME = process.env.VIBEOS_MCP_PORT === "0" || process.env.NODE_ENV === "test" || process.env.CI === "true";
 const FOOTER_DEBUG_STDERR = process.env.VIBEOS_DEBUG_FOOTER === "1" || (!IS_CLI_RUNTIME && !IS_TEST_RUNTIME);
@@ -269,7 +269,6 @@ async function _appendFooter(input, output, directory) {
             enfSuffixFooter = ` QA:${Math.round(quality_avg)}% ${enfTagsFooter.join(" ")}`;
         }
         // Optimization mode resolver — keep the dopamine footer format.
-        const flashIcon = isApiConnected() ? "⚡" : "";
         const resolvedMode = peekBudgetFirstMode({
             requestedMode: optModeFooter,
             subRegime: _latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""),
@@ -279,29 +278,15 @@ async function _appendFooter(input, output, directory) {
         if (stripped !== text)
             return;
         const ltTotal = ltTasks + ltCache;
+        const modeCapitalized = (mode) => mode.charAt(0).toUpperCase() + mode.slice(1);
         const optMode = (resolvedMode || "budget").toLowerCase();
-        const modeLabel = optMode === "quality" ? "quality" : optMode === "speed" ? "speed" : optMode === "longrun" ? "longrun" : "";
-        let vibeLine = `— ${flashIcon ? `${flashIcon} ` : ""}Quality: ${execution.quality_label} | Provider: ${execution.provider_label} | Model: ${execution.model}`;
+        const modeLabel = optMode === "vibemax" ? "VibeMaX" : modeCapitalized(optMode);
+        const qualityIcon = execution.quality === "brain" ? "🧠" : execution.quality === "medium" ? "⚙" : "⚡";
+        let vibeLine = `— ${qualityIcon} ${execution.quality} | ${execution.provider_label} | ${execution.model_label}`;
         if (ltTotal > 0) {
-            vibeLine += ` | $${formatUsd(ltTotal)} saved`;
+            vibeLine += ` | $${formatUsd(ltTotal)}`;
         }
-        if (sesRatePerHour > 0) {
-            vibeLine += ` | pace $${formatUsd(sesRatePerHour)}/hr`;
-        }
-        if (stableStreak > 0) {
-            vibeLine += ` | streak ${stableStreak}`;
-        }
-        else if (problemStreak > 0) {
-            vibeLine += ` | recovery ${problemStreak}`;
-        }
-        if (modeLabel)
-            vibeLine += ` | ${formatQualityName(modeLabel)}`;
-        vibeLine += enfSuffixFooter;
-        vibeLine += ` | VIBE${flashIcon ? " ⚡" : ""}`;
-        if (_footerStress > 0.4) {
-            const stressLabel = _footerStress > 0.7 ? "high" : "elevated";
-            vibeLine += ` · ${stressLabel}`;
-        }
+        vibeLine += ` | VIBE ◉ ${modeLabel}`;
         const footerText = stripped + `\n\n${vibeLine} —`;
         if (_blackboxEnabled) {
             try {
