@@ -1,6 +1,12 @@
 # vibeOS for OpenCode
 
-Cost-aware control plane for OpenCode Desktop. Keeps expensive models on strategy, routes implementation to cheaper tiers, surfaces savings in real time.
+Cost-aware control plane for OpenCode Desktop.
+
+> ## v0.23.0 — Disintegration Milestone
+> Compact footer format: `🦠 brain | Deepseek | V4 Pro | $12.57 | VibeMaX ⚡ Budget`
+> VibeMaX is now the default optimization mode. Model display names cleaned up (V4 Pro, Sonnet, 2.5 Flash).
+> Install: `npx vibeostheog setup --project` or `npx vibeostheog setup`
+ Keeps expensive models on strategy, routes implementation to cheaper tiers, surfaces savings in real time.
 
 For teams, vibeOS adds practical guardrails: delegation enforcement, flow and TDD controls, pattern learning, stress-aware routing, VibeBoX decision tracking, reporting, and remote API protection for the core algorithms.
 
@@ -51,7 +57,7 @@ Benchmarked on the DeepSeek v4 family. Prices based on 700 input + 300 output to
 
 **Raw Brain** — v4 Pro (no framework). Baseline for all comparisons. 100% quality at 1.00x cost.
 
-**VibeMaX (ML-Optimized, Default)** — Intelligent cost-quality sweet spot. Routes through v4 Flash (medium) and uses a random forest classifier (29 trees, gini-split, trained on telemetry) to decide each turn. Classifies on 11 derived features: message length, code block density, urgency, complexity, repetition, question ratio, and more. Benchmarked at ~75% of Brain quality at 18% of cost.
+**VibeMaX (ML-Optimized, v0.23 Default)** — Intelligent cost-quality sweet spot. Routes through v4 Flash (medium) and uses a random forest classifier (29 trees, gini-split, trained on telemetry) to decide each turn. Classifies on 11 derived features: message length, code block density, urgency, complexity, repetition, question ratio, and more. Benchmarked at ~75% of Brain quality at 18% of cost.
 
 **Budget** — DeepSeek Chat. Direct routing. ~40% quality at 0.00x cost. 100% savings.
 
@@ -92,7 +98,7 @@ Benchmarked on 1000 simulated questions across 20 runs, using model accuracies f
 | Feature | What it does |
 |---------|-------------|
 | **Delegation enforcement** | Blocks write/edit on brain tier. Routes to medium or cheap. |
-| **Live savings footer** | Model, provider, cumulative savings, cache savings, stress level, lock/enforcement tags. |
+| **Live savings footer** | Compact format: tier icon, provider, short model name, total savings, VibeBrand + mode. |
 | **Web dashboard** | SolidJS SPA with SSE real-time push. Model split, savings, session history, trinity controls. |
 | **Trinity runtime** | Switch tiers mid-session. Change optimization mode. Flow/TDD/enforcement toggles. |
 | **Flow enforcer** | Pattern-rule checks on write/edit. Extracts TODO/FIXME into append-only queue. |
@@ -147,8 +153,9 @@ To use **MagicCoder:7b** or other local models with vibeOS and OpenCode Desktop:
 ## Install
 
 ```bash
-npx vibeostheog setup --project      # per-project
-npx vibeostheog setup                 # global ~/.config/opencode/
+npx vibeostheog setup --project        # per-project
+npx vibeostheog setup                   # global ~/.config/opencode/
+npx vibeostheog setup --help             # full usage
 ```
 
 One-command setup: deploys plugin files and registers in opencode.json. Restart OpenCode Desktop.
@@ -193,10 +200,10 @@ Local dev checkout:
 ## Live Footer
 
 ```
-— Model: claude-sonnet-4-6 | Provider: Anthropic | $4.82 saved | $1.20 cached | ENFORCE | LOCK | Quality | VIBE —
+— 🦠 brain | Deepseek | V4 Pro | $12.57 | VibeMaX ⚡ Budget
 ```
 
-Provider, model, delegation savings, cache savings, stress level (low/elevated/high), lock/enforcement tags, optimization mode. Persisted in ~/.claude/delegation-state.json.
+Tier icon + lowercase quality (🦠 brain / ⚙ medium / ⚡ cheap), provider label, cleaned model name, total savings, VibeBrand + flash icon + mode. Persisted in ~/.claude/delegation-state.json.
 
 ## Architecture
 
@@ -237,7 +244,7 @@ Regime -> mode mapping via syncControlSettings():
 
 | Regime | Mode | Enforce | Flow | TDD | Tier | Think |
 |--------|------|---------|------|-----|------|-------|
-| INIT / DIVERGENT / EXPLORING / REFINING | budget | relaxed | audit | lazy | cheap | off |
+| INIT / DIVERGENT / EXPLORING / REFINING | vibemax (default) | relaxed | audit | lazy | cheap | off |
 | CONVERGING / CLOSED | quality | strict | strict | quality | brain | full |
 | LOOPING | speed | relaxed | audit | lazy | medium | off |
 

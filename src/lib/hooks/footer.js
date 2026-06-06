@@ -1,14 +1,14 @@
 // @ts-nocheck
 import { readFileSync, appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { classify, _refreshModel, readConfig, resolveDisplayModelId, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, roundUsd, formatUsd, resolveExecutionIdentity } from "../pricing.js";
+import { classify, _refreshModel, readConfig, resolveDisplayModelId, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, roundUsd, formatUsd, resolveExecutionIdentity, modelDisplayName } from "../pricing.js";
 import { latestUserIntent } from "./chat-transform.js";
 import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, loadOptimizationMode, classifyTurnSimple } from "../turn-classify.js";
 import { peekBudgetFirstMode, recordBudgetFirstOutcome } from "../mode-policy.js";
 import { saveReport } from "../reporting.js";
 import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, _modelLocked, _blackboxEnabled, _latestBlackboxState, reconcileStateFromLedger, safeJsonParse, loadBlackboxState } from "../state.js";
 import { loadSessionSlot } from "../selection-manager.js";
-import { remoteCall } from "../api-client.js";
+import { remoteCall, isApiConnected } from "../api-client.js";
 const IS_CLI_RUNTIME = Boolean(process.stdout?.isTTY || process.stderr?.isTTY || process.stdin?.isTTY);
 const IS_TEST_RUNTIME = process.env.VIBEOS_MCP_PORT === "0" || process.env.NODE_ENV === "test" || process.env.CI === "true";
 const FOOTER_DEBUG_STDERR = process.env.VIBEOS_DEBUG_FOOTER === "1" || (!IS_CLI_RUNTIME && !IS_TEST_RUNTIME);
@@ -23,15 +23,15 @@ let _cachedAutoMode = null;
 let _cachedAutoModeTs = 0;
 const AUTO_CACHE_TTL = 60000;
 const DEFAULT_REGIME_MAP = {
-    LOOPING: "speed", DIVERGENT: "budget",
-    EXPLORING: "budget", INIT: "budget",
-    REFINING: "budget",
+    LOOPING: "vibemax", DIVERGENT: "vibemax",
+    EXPLORING: "vibemax", INIT: "vibemax",
+    REFINING: "vibemax",
     CONVERGING: "quality", CLOSED: "quality",
 };
 function regimeToMode(regime, stress) {
     if (stress > 1.5)
         return "quality";
-    return DEFAULT_REGIME_MAP[regime] || "budget";
+    return DEFAULT_REGIME_MAP[regime] || "vibemax";
 }
 async function apiAutoSelectMode(regime, stress) {
     const now = Date.now();
@@ -280,13 +280,17 @@ async function _appendFooter(input, output, directory) {
         const ltTotal = ltTasks + ltCache;
         const modeCapitalized = (mode) => mode.charAt(0).toUpperCase() + mode.slice(1);
         const optMode = (resolvedMode || "budget").toLowerCase();
-        const modeLabel = optMode === "vibemax" ? "VibeMaX" : modeCapitalized(optMode);
+        const vibeBrand = optMode === "vibemax" ? "VibeMaX" : optMode === "vibeultrax" ? "VibeUltraX" : optMode === "quality" ? "VibeQMaX" : "VibeMaX";
+        const modeLabel = modeCapitalized(optMode);
         const qualityIcon = execution.quality === "brain" ? "🧠" : execution.quality === "medium" ? "⚙" : "⚡";
-        let vibeLine = `— ${qualityIcon} ${execution.quality} | ${execution.provider_label} | ${execution.model_label}`;
+        const flashIcon = isApiConnected() ? " ⚡" : "";
+        let vibeLine = `— ${qualityIcon} ${execution.quality} | ${execution.provider_label} | ${modelDisplayName(execution.model)}`;
         if (ltTotal > 0) {
             vibeLine += ` | $${formatUsd(ltTotal)}`;
         }
-        vibeLine += ` | VIBE ◉ ${modeLabel}`;
+        if (isApiConnected()) {
+            vibeLine += ` | ${vibeBrand}${flashIcon} ${modeLabel}`;
+        }
         const footerText = stripped + `\n\n${vibeLine} —`;
         if (_blackboxEnabled) {
             try {
