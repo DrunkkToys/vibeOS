@@ -1594,8 +1594,8 @@ test("text.complete: sonnet-as-brain footer shows correct model name (effectiveT
   const longText = "Detailed analysis of the system architecture with recommendations for performance optimization across all modules and services."
   const out = { text: longText }
   await hooks["experimental.text.complete"]({ messageID: "msg-sonnet-icon1" }, out)
-  assert.ok(out.text.includes("sonnet") || out.text.includes("claude-sonnet"),
-    `footer must contain model name for sonnet-as-brain; got: ${out.text.slice(0, 200)}`)
+  assert.ok(out.text.toLowerCase().includes("sonnet"),
+    "footer must contain model name for sonnet-as-brain; got: " + out.text.slice(0, 200))
   assert.ok(!out.text.includes("haiku"),
     `footer must NOT show haiku when sonnet is the brain slot; got: ${out.text.slice(0, 200)}`)
 })
@@ -1832,8 +1832,7 @@ test("integration: full simulated OC session with sonnet-as-brain", async () => 
   const longText = "Based on the analysis, here is the plan for implementation across all identified components with expected timelines and deliverables."
   const textOut = { text: longText }
   await hooks["experimental.text.complete"]({ messageID: "msg-integ-1" }, textOut)
-  assert.ok(textOut.text.includes("sonnet") || textOut.text.includes("claude-sonnet") || textOut.text.includes("deepseek") || textOut.text.includes("brain"),
-    "text.complete: footer shows model name (not tier) for sonnet-as-brain: " + textOut.text.slice(0, 200))
+  assert.ok(textOut.text.toLowerCase().includes("sonnet") || textOut.text.toLowerCase().includes("brain"), "text.complete: footer shows model name: " + textOut.text.slice(0, 200))
   assert.ok(textOut.text.includes("\$") || textOut.text.includes("VIBE"),
     "text.complete: footer shows savings label: " + textOut.text)
   assert.ok(textOut.text.startsWith("Based on the analysis"),

@@ -235,6 +235,18 @@ export function shortModelName(modelId) {
   return parts[parts.length - 1] || raw
 }
 
+const MODEL_DISPLAY_PREFIXES = /^(deepseek|claude|gemini|gpt|davinci|llama|qwq|qwen)-/i
+
+export function modelDisplayName(modelId) {
+  const short = shortModelName(modelId)
+  const cleaned = short.replace(MODEL_DISPLAY_PREFIXES, "")
+  if (!cleaned) return short
+  return cleaned
+    .split(/[-_]/)
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ")
+}
+
 export function trendDisplay(sesTrend) {
   const t = sesTrend === "up" || sesTrend === "down" ? sesTrend : "stable"
   const icon = t === "up" ? "↑" : t === "down" ? "↓" : "→"
