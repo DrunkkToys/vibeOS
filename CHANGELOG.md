@@ -1,3 +1,7 @@
+## 0.23.2
+- fix: footer regex case-sensitivity — /VIBE/i matches VibeMaX to prevent double-append
+
+
 ## 0.23.1
 - fix: footer dedup — content hash fallback prevents double-append from message.updated vs text.complete shape mismatch
 
