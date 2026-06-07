@@ -202,6 +202,7 @@ export function createTrinityTool(deps) {
                 const ok = deps.saveOptimizationMode(resolvedSlot);
                 if (!ok)
                     return `Failed to write mode`;
+                deps.writeSessionSlot(deps._OC_SID + "_opt", resolvedSlot);
                 const allEntries = [...BRANDED_MODES, ...RUNTIME_MODES];
                 const modeEntry = allEntries.find(e => e.id === slot);
                 if (modeEntry) {
