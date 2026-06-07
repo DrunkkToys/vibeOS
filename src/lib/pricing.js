@@ -799,7 +799,10 @@ export function modelCostPerTurn(model) {
         }
     }
     console.error(`[vibeOS] modelCostPerTurn: unknown model '${model}' (normalized: '${key}') — add to MODEL_USD_PER_TURN`);
-    return 0.00001; // unknown model default — cheap, but not free
+    // Fallback by tier: use median cost of all known models in the same tier
+    const tier = classify(model);
+    const TIER_FALLBACK = { high: 0.01175, mid: 0.00660, budget: 0.00144 };
+    return TIER_FALLBACK[tier] ?? 0.00144;
 }
 export function isModelFree(model) {
     if (!model || typeof model !== "string")
