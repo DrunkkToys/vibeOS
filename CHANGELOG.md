@@ -1,3 +1,7 @@
+## 0.23.7
+- fix: footer brand uses raw optModeFooter not normalized optMode
+
+
 ## 0.23.6
 - fix: trinity mode persistence — write to sid+_opt key, respect user's explicit mode
 
