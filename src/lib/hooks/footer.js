@@ -283,7 +283,7 @@ async function _appendFooter(input, output, directory) {
         const ltTotal = ltTasks + ltCache;
         const modeCapitalized = (mode) => mode.charAt(0).toUpperCase() + mode.slice(1);
         const optMode = (resolvedMode || "budget").toLowerCase();
-        const vibeBrand = optMode === "vibemax" ? "VibeMaX" : optMode === "vibeultrax" ? "VibeUltraX" : optMode === "quality" ? "VibeQMaX" : "VibeMaX";
+        const vibeBrand = optModeFooter === "vibeultrax" ? "VibeUltraX" : (optModeFooter === "vibeqmax" || optModeFooter === "quality") ? "VibeQMaX" : "VibeMaX";
         const modeLabel = modeCapitalized(optMode);
         const qualityIcon = execution.quality === "brain" ? "🧠" : execution.quality === "medium" ? "⚙" : execution.quality === "free" ? "🎁" : "⚡";
         const flashIcon = isApiConnected() ? " ⚡" : "";
