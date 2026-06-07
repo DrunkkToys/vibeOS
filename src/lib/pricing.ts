@@ -328,6 +328,16 @@ export function formatUsd(v) {
 // deepseek-chat is free with a DeepSeek API token — priced at $1e-12 (near-zero).
 const FREE_MODEL_TURN_USD = 1e-10
 const FREE_MODELS = new Set([
+  // OpenCode Zen free models
+  "opencode/big-pickle",
+  "opencode/mimo-v2.5-free",
+  "opencode/deepseek-v4-flash-free",
+  "opencode/nemotron-3-ultra-free",
+  // Normalized variants (after opencode/ prefix stripped)
+  "big-pickle",
+  "mimo-v2.5-free",
+  "deepseek-v4-flash-free",
+  "nemotron-3-ultra-free",
 ])
 
 // Actual input / output pricing per 1M tokens, sourced from provider API pages
@@ -412,6 +422,61 @@ const MODEL_PRICING_PER_1M = {
   "mistralai/mistral-large-2512":       { input: 0.50,  output: 1.50  },
   "mistralai/mistral-small-2603":       { input: 0.15,  output: 0.60  },
   "mistralai/mistral-nemo":             { input: 0.02,  output: 0.03  },
+  // ── OpenCode Go ─────────────────────────────
+  "opencode-go/glm-5.1":                { input: 1.40,  output: 4.40  },
+  "opencode-go/glm-5":                  { input: 1.00,  output: 3.20  },
+  "opencode-go/kimi-k2.6":              { input: 0.95,  output: 4.00  },
+  "opencode-go/kimi-k2.5":              { input: 0.60,  output: 3.00  },
+  "opencode-go/mimo-v2.5":              { input: 0.14,  output: 0.28  },
+  "opencode-go/mimo-v2.5-pro":          { input: 1.74,  output: 3.48  },
+  "opencode-go/minimax-m3":             { input: 0.60,  output: 2.40  },
+  "opencode-go/minimax-m2.7":           { input: 0.30,  output: 1.20  },
+  "opencode-go/minimax-m2.5":           { input: 0.30,  output: 1.20  },
+  "opencode-go/qwen3.7-max":            { input: 2.50,  output: 7.50  },
+  "opencode-go/qwen3.7-plus":           { input: 0.40,  output: 1.60  },
+  "opencode-go/qwen3.6-plus":           { input: 0.50,  output: 3.00  },
+  // ── OpenCode Zen (bare model names, opencode/ prefix stripped) ──
+  "minimax-m2.7":                       { input: 0.30,  output: 1.20  },
+  "minimax-m2.5":                       { input: 0.30,  output: 1.20  },
+  "glm-5.1":                            { input: 1.40,  output: 4.40  },
+  "glm-5":                              { input: 1.00,  output: 3.20  },
+  "kimi-k2.5":                          { input: 0.60,  output: 3.00  },
+  "kimi-k2.6":                          { input: 0.95,  output: 4.00  },
+  "qwen3.7-max":                        { input: 2.50,  output: 7.50  },
+  "qwen3.7-plus":                       { input: 0.40,  output: 1.60  },
+  "qwen3.6-plus":                       { input: 0.50,  output: 3.00  },
+  "qwen3.5-plus":                       { input: 0.20,  output: 1.20  },
+  "deepseek-v4-flash":                  { input: 0.14,  output: 0.28  },
+  "grok-build-0.1":                     { input: 1.00,  output: 2.00  },
+  "claude-opus-4-8":                    { input: 5.00,  output: 25.00 },
+  "claude-opus-4-7":                    { input: 5.00,  output: 25.00 },
+  "claude-opus-4-6":                    { input: 5.00,  output: 25.00 },
+  "claude-opus-4-5":                    { input: 5.00,  output: 25.00 },
+  "claude-opus-4-1":                    { input: 15.00, output: 75.00 },
+  "claude-sonnet-4-6":                  { input: 3.00,  output: 15.00 },
+  "claude-sonnet-4-5":                  { input: 3.00,  output: 15.00 },
+  "claude-sonnet-4":                    { input: 3.00,  output: 15.00 },
+  "claude-haiku-4-5":                   { input: 1.00,  output: 5.00  },
+  "gemini-3.5-flash":                   { input: 1.50,  output: 9.00  },
+  "gemini-3.1-pro":                     { input: 2.00,  output: 12.00 },
+  "gemini-3-flash":                     { input: 0.50,  output: 3.00  },
+  "gpt-5.5":                            { input: 5.00,  output: 30.00 },
+  "gpt-5.5-pro":                        { input: 30.00, output: 180.00},
+  "gpt-5.4":                            { input: 2.50,  output: 15.00 },
+  "gpt-5.4-pro":                        { input: 30.00, output: 180.00},
+  "gpt-5.4-mini":                       { input: 0.75,  output: 4.50  },
+  "gpt-5.4-nano":                       { input: 0.20,  output: 1.25  },
+  "gpt-5.3-codex-spark":                { input: 1.75,  output: 14.00 },
+  "gpt-5.3-codex":                      { input: 1.75,  output: 14.00 },
+  "gpt-5.2":                            { input: 1.75,  output: 14.00 },
+  "gpt-5.2-codex":                      { input: 1.75,  output: 14.00 },
+  "gpt-5.1":                            { input: 1.07,  output: 8.50  },
+  "gpt-5.1-codex":                      { input: 1.07,  output: 8.50  },
+  "gpt-5.1-codex-max":                  { input: 1.25,  output: 10.00 },
+  "gpt-5.1-codex-mini":                 { input: 0.25,  output: 2.00  },
+  "gpt-5":                              { input: 1.07,  output: 8.50  },
+  "gpt-5-codex":                        { input: 1.07,  output: 8.50  },
+  "gpt-5-nano":                         { input: 0.05,  output: 0.40  },
 }
 
 // Approximate USD per typical ~1 K-token turn (blended input+output).
@@ -457,6 +522,61 @@ const MODEL_USD_PER_TURN = {
   "openai/gpt-4.1-mini":                  0.00019,
   "openai/o3":                            0.0038,
   "openai/o4-mini":                       0.0021,
+  // ── OpenCode Go ─────────────────────────────
+  "opencode-go/glm-5.1":                 0.00230,
+  "opencode-go/glm-5":                   0.00166,
+  "opencode-go/kimi-k2.6":               0.00187,
+  "opencode-go/kimi-k2.5":               0.00132,
+  "opencode-go/mimo-v2.5":               0.000182,
+  "opencode-go/mimo-v2.5-pro":           0.00226,
+  "opencode-go/minimax-m3":              0.00114,
+  "opencode-go/minimax-m2.7":            0.00057,
+  "opencode-go/minimax-m2.5":            0.00057,
+  "opencode-go/qwen3.7-max":             0.00400,
+  "opencode-go/qwen3.7-plus":            0.00076,
+  "opencode-go/qwen3.6-plus":            0.00125,
+  // ── OpenCode Zen (bare model names, opencode/ prefix stripped by normalizeModelId) ──
+  "minimax-m2.7":                        0.00057,
+  "minimax-m2.5":                        0.00057,
+  "glm-5.1":                             0.00230,
+  "glm-5":                               0.00166,
+  "kimi-k2.5":                           0.00132,
+  "kimi-k2.6":                           0.00187,
+  "qwen3.7-max":                         0.00400,
+  "qwen3.7-plus":                        0.00076,
+  "qwen3.6-plus":                        0.00125,
+  "qwen3.5-plus":                        0.00050,
+  "deepseek-v4-flash":                   0.000182,
+  "grok-build-0.1":                      0.00130,
+  "claude-opus-4-8":                     0.01100,
+  "claude-opus-4-7":                     0.01100,
+  "claude-opus-4-6":                     0.01100,
+  "claude-opus-4-5":                     0.01100,
+  "claude-opus-4-1":                     0.03300,
+  "claude-sonnet-4-6":                   0.00660,
+  "claude-sonnet-4-5":                   0.00660,
+  "claude-sonnet-4":                     0.00660,
+  "claude-haiku-4-5":                    0.00220,
+  "gemini-3.5-flash":                    0.00375,
+  "gemini-3.1-pro":                      0.00500,
+  "gemini-3-flash":                      0.00125,
+  "gpt-5.5":                             0.01250,
+  "gpt-5.5-pro":                         0.07500,
+  "gpt-5.4":                             0.00625,
+  "gpt-5.4-pro":                         0.07500,
+  "gpt-5.4-mini":                        0.00188,
+  "gpt-5.4-nano":                        0.00052,
+  "gpt-5.3-codex-spark":                 0.00543,
+  "gpt-5.3-codex":                       0.00543,
+  "gpt-5.2":                             0.00543,
+  "gpt-5.2-codex":                       0.00543,
+  "gpt-5.1":                             0.00330,
+  "gpt-5.1-codex":                       0.00330,
+  "gpt-5.1-codex-max":                   0.00388,
+  "gpt-5.1-codex-mini":                  0.00078,
+  "gpt-5":                               0.00330,
+  "gpt-5-codex":                         0.00330,
+  "gpt-5-nano":                          0.00016,
 }
 let _pricingOverridesCache = null
 let _pricingOverridesLoadedAt = 0
@@ -629,7 +749,7 @@ export function modelCostPerTurn(model) {
     }
   }
   console.error(`[vibeOS] modelCostPerTurn: unknown model '${model}' (normalized: '${key}') — add to MODEL_USD_PER_TURN`)
-  return FREE_MODEL_TURN_USD
+  return 0.00001 // unknown model default — cheap, but not free
 }
 
 export function isModelFree(model) {

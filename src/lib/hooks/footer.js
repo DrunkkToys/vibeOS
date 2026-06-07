@@ -275,7 +275,7 @@ async function _appendFooter(input, output, directory) {
             subRegime: _latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""),
             stress: _footerStress,
         }).mode;
-        const stripped = text.replace(/— .+?VIBE[^—]*—\s*/gi, "").trimEnd();
+        const stripped = text.replace(/— [^—]+ —\s*/g, "").trimEnd();
         if (stripped !== text)
             return;
         if (stripped === _lastStrippedText)
