@@ -1,3 +1,7 @@
+## 0.23.4
+- fix: add complete OpenCode Go + Zen pricing maps, footer dedup/regex fix, free icon
+
+
 ## 0.23.3
 - fix: footer model display — OpenCode Go alias, generic -free suffix handling, 🎁 free icon
 
