@@ -1,3 +1,7 @@
+## 0.23.5
+- fix: tier-based median cost fallback for unknown models
+
+
 ## 0.23.4
 - fix: add complete OpenCode Go + Zen pricing maps, footer dedup/regex fix, free icon
 
