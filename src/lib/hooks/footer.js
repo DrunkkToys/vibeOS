@@ -285,7 +285,7 @@ async function _appendFooter(input, output, directory) {
         const optMode = (resolvedMode || "budget").toLowerCase();
         const vibeBrand = optMode === "vibemax" ? "VibeMaX" : optMode === "vibeultrax" ? "VibeUltraX" : optMode === "quality" ? "VibeQMaX" : "VibeMaX";
         const modeLabel = modeCapitalized(optMode);
-        const qualityIcon = execution.quality === "brain" ? "🧠" : execution.quality === "medium" ? "⚙" : "⚡";
+        const qualityIcon = execution.quality === "brain" ? "🧠" : execution.quality === "medium" ? "⚙" : execution.quality === "free" ? "🎁" : "⚡";
         const flashIcon = isApiConnected() ? " ⚡" : "";
         let vibeLine = `— ${qualityIcon} ${execution.quality} | ${execution.provider_label} | ${modelDisplayName(execution.model)}`;
         if (ltTotal > 0) {

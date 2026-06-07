@@ -145,6 +145,8 @@ export function formatProviderName(providerName) {
         return "Anthropic";
     if (raw === "google")
         return "Google";
+    if (raw === "opencode-go")
+        return "OpenCode Go";
     return raw.charAt(0).toUpperCase() + raw.slice(1);
 }
 export function formatQualityName(quality) {
@@ -258,13 +260,16 @@ export function shortModelName(modelId) {
 const MODEL_DISPLAY_PREFIXES = /^(deepseek|claude|gemini|gpt|davinci|llama|qwq|qwen)-/i;
 export function modelDisplayName(modelId) {
     const short = shortModelName(modelId);
-    const cleaned = short.replace(MODEL_DISPLAY_PREFIXES, "");
+    const isFree = short.endsWith("-free");
+    const base = isFree ? short.slice(0, -5) : short;
+    const cleaned = base.replace(MODEL_DISPLAY_PREFIXES, "");
     if (!cleaned)
         return short;
-    return cleaned
+    const display = cleaned
         .split(/[-_]/)
         .map(w => w.charAt(0).toUpperCase() + w.slice(1))
         .join(" ");
+    return isFree ? `${display} Free` : display;
 }
 export function trendDisplay(sesTrend) {
     const t = sesTrend === "up" || sesTrend === "down" ? sesTrend : "stable";
