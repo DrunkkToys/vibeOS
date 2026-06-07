@@ -1,3 +1,7 @@
+## 0.23.3
+- fix: footer model display — OpenCode Go alias, generic -free suffix handling, 🎁 free icon
+
+
 ## 0.23.2
 - fix: footer regex case-sensitivity — /VIBE/i matches VibeMaX to prevent double-append
 
