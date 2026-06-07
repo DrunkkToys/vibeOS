@@ -1,3 +1,7 @@
+## 0.23.6
+- fix: trinity mode persistence — write to sid+_opt key, respect user's explicit mode
+
+
 ## 0.23.5
 - fix: tier-based median cost fallback for unknown models
 
