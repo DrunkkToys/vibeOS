@@ -20,6 +20,8 @@ export function createTrinityTool(deps) {
             "Use action='enable' or 'disable' to toggle the plugin (takes effect immediately, no restart needed). " +
             "Use action='set' with slot='brain'|'medium'|'cheap' to switch model tiers " +
             "(writes opencode.json — active immediately). " +
+            "Use action='mode' with slot='vibeultrax'|'vibeqmax'|'vibemax'|'budget'|'quality'|'speed'|'longrun'|'auto'|'balanced'|'audit'|'forensic' to switch optimization mode. " +
+            "Use action='thinking' with level='full'|'brief'|'off'. " +
             "Use action='rebuild' to auto-detect available models from all configured providers and reassign brain/medium/cheap slots. " +
             "Use action='flow' with slot='on'|'off' to toggle flow enforcer, or action='flow' alone for audit. " +
             "Use action='flow' with slot='enforce' and level='on'|'off' to toggle auto-extract TODOs. " +
@@ -47,6 +49,20 @@ export function createTrinityTool(deps) {
             if (["brain", "medium", "cheap"].includes(action)) {
                 slot = action;
                 action = "set";
+            }
+            const _brandedModeIds = ["vibeultrax", "vibeqmax", "vibemax"];
+            const _builtInModeIds = ["budget", "quality", "speed", "longrun", "auto", "balanced", "audit", "forensic"];
+            if (!action || action === "status") { }
+            else if (_brandedModeIds.includes(action) || _builtInModeIds.includes(action)) {
+                slot = action;
+                action = "mode";
+            }
+            else if (["full", "brief", "off"].includes(action)) {
+                level = action;
+                action = "thinking";
+            }
+            else if (["on", "off"].includes(action) && !slot) {
+                slot = action;
             }
             if (action === "status") {
                 const sel = deps.loadSelection();

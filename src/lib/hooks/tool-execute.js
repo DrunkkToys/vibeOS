@@ -702,7 +702,7 @@ export const onToolExecuteAfter = async (input, output) => {
         const currentSel = loadSelection();
         const currentSid = _OC_SID;
         const optModeFooter = loadSessionOptMode(currentSid + "_opt") || loadOptimizationMode() || "budget";
-        const vibeBrand = brandMap[optModeFooter] || (optModeFooter === "quality" ? "VibeQMaX" : "VibeMaX");
+        const vibeBrand = brandMap[optModeFooter] || (execution.quality === "brain" ? "VibeQMaX" : "VibeMaX");
         const qualityIcon = execution.quality === "brain" ? "\u{1F9E0}" : execution.quality === "medium" ? "\u2699" : execution.quality === "free" ? "\u{1F381}" : "\u26A1";
         const modeLabel = modeCapitalized(optModeFooter);
         _footerText = `— ${qualityIcon} ${execution.quality} | ${execution.provider_label} | ${modelDisplayName(execution.model)}`;

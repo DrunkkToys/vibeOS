@@ -60,7 +60,7 @@ VIBEOS_API_ENABLED=true
 | `trinity brain|medium|cheap` | Shorthand slot switch |
 | `trinity rebuild` | Re-detect models and repopulate slots |
 | `trinity enable` / `trinity disable` | Toggle the plugin |
-| `trinity mode budget|quality|speed|longrun|auto` | Change the optimization mode |
+| `trinity mode budget|quality|speed|longrun|auto|balanced|audit|vibeultrax|vibeqmax|vibemax|forensic` | Change the optimization mode |
 | `trinity thinking full|brief|off` | Set reasoning depth |
 | `trinity enforce on|off` | Toggle delegation enforcement |
 | `trinity lock on|off` | Freeze the active model for the session |
