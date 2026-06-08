@@ -38,5 +38,5 @@
       }
     }
   },
-  "model": "haiku"
+  "model": "openrouter/anthropic/claude-sonnet-4.6"
 }
