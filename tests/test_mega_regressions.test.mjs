@@ -357,3 +357,95 @@ test("FIX 20: Known model costs are within expected ranges", async () => {
     assert.ok(cost <= max, `${model} cost ${cost} should be <= ${max}`)
   }
 })
+
+// ═══════════════════════════════════════════════════════════════════
+// REAL END-TO-END TEST: trinity mode → syncControlSettings → persists
+// ═══════════════════════════════════════════════════════════════════
+
+test("E2E: trinity mode vibeultrax → syncControlSettings does NOT overwrite", async () => {
+  // Setup
+  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+    trinity: { brain: { oc: "anthropic/claude-opus-4-7" }, medium: { oc: "deepseek/deepseek-v4-flash" }, cheap: { oc: "deepseek/deepseek-chat" } },
+    selection: { enabled: true, active_slot: "cheap", delegation_enforce: false, flow_enabled: false, tdd_enforce: false, thinking_level: "off" },
+  }))
+  writeFileSync(join(sandbox, ".claude/blackbox-state.json"), JSON.stringify({ enabled: true, sessions: {} }))
+
+  const mod = await loadPlugin()
+  const dir = join(sandbox, ".opencode-e2e-mode")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-flash" }))
+  const hooks = await mod.DelegationEnforcer({ client: {}, directory: dir })
+
+  // Step 1: Set trinity mode to vibeultrax
+  const modeResult = await hooks.tool.trinity.execute({ action: "mode", slot: "vibeultrax" })
+  assert.ok(modeResult.includes("VIBEULTRAX") || modeResult.includes("vibeultrax"), "mode should be set to vibeultrax: " + modeResult)
+
+  // Step 2: Verify settings were written by trinity handler
+  const sel1 = JSON.parse(readFileSync(join(sandbox, ".claude/model-tiers.json"), "utf-8")).selection
+  assert.equal(sel1.delegation_enforce, true, "vibeultrax: delegation_enforce should be true (strict)")
+  assert.equal(sel1.flow_enabled, true, "vibeultrax: flow_enabled should be true")
+  assert.equal(sel1.tdd_enforce, true, "vibeultrax: tdd_enforce should be true")
+  assert.equal(sel1.thinking_level, "full", "vibeultrax: thinking_level should be full")
+
+  // Step 3: Verify mode was persisted to blackbox-state.json
+  const bb = JSON.parse(readFileSync(join(sandbox, ".claude/blackbox-state.json"), "utf-8"))
+  const sessions = Object.keys(bb.sessions)
+  const baseSession = sessions.find(s => !s.endsWith("_opt"))
+  assert.ok(baseSession, "should have a base session key")
+  const optMode = bb.sessions[baseSession]?.optimization_mode
+  assert.equal(optMode, "vibeultrax", "optimization_mode should be vibeultrax in blackbox state")
+
+  // Step 4: Verify the _opt session key was written correctly
+  const optSessionKey = baseSession + "_opt"
+  const optSession = bb.sessions[optSessionKey]
+  assert.ok(optSession, "_opt session key should exist")
+  assert.equal(optSession.optimization_mode, "vibeultrax", "_opt session should have vibeultrax")
+
+  // Step 5: Verify settings match VibeUltraX spec from BRANDED_MODES
+  const { BRANDED_MODES } = await import("../src/lib/mode-router.js")
+  const ultraX = BRANDED_MODES.find(m => m.id === "vibeultrax")
+  assert.equal(sel1.delegation_enforce, ultraX.enforcement === "strict" || ultraX.enforcement === "on", "delegation_enforce matches VibeUltraX spec")
+  assert.equal(sel1.flow_enabled, ultraX.flow === "strict" || ultraX.flow === "on" || ultraX.flow === "audit", "flow_enabled matches VibeUltraX spec")
+  assert.equal(sel1.tdd_enforce, ultraX.tdd === "quality" || ultraX.tdd === "on" || ultraX.tdd === "strict", "tdd_enforce matches VibeUltraX spec")
+  assert.equal(sel1.thinking_level, ultraX.thinking, "thinking_level matches VibeUltraX spec")
+})
+
+test("E2E: trinity mode budget → syncControlSettings respects budget defaults", async () => {
+  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+    trinity: { brain: { oc: "anthropic/claude-opus-4-7" }, medium: { oc: "deepseek/deepseek-v4-flash" }, cheap: { oc: "deepseek/deepseek-chat" } },
+    selection: { enabled: true, active_slot: "cheap", delegation_enforce: true, flow_enabled: true, tdd_enforce: true, thinking_level: "full" },
+  }))
+  writeFileSync(join(sandbox, ".claude/blackbox-state.json"), JSON.stringify({ enabled: true, sessions: {} }))
+
+  const mod = await loadPlugin()
+  const dir = join(sandbox, ".opencode-e2e-budget")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-flash" }))
+  const hooks = await mod.DelegationEnforcer({ client: {}, directory: dir })
+
+  // Set to budget mode
+  const modeResult = await hooks.tool.trinity.execute({ action: "mode", slot: "budget" })
+  assert.ok(modeResult.includes("BUDGET"), "mode should be set to budget: " + modeResult)
+
+  // Budget mode has enforcement:off, flow:audit, tdd:off, thinking:off
+  const sel1 = JSON.parse(readFileSync(join(sandbox, ".claude/model-tiers.json"), "utf-8")).selection
+  // budget mode: enforcement off, flow audit, tdd off
+  assert.equal(sel1.delegation_enforce, false, "budget: delegation_enforce should be false")
+  assert.equal(sel1.flow_enabled, false, "budget: flow_enabled should be false (audit = off)")
+  assert.equal(sel1.tdd_enforce, false, "budget: tdd_enforce should be false")
+
+  // Verify mode was persisted to blackbox-state.json
+  const bb = JSON.parse(readFileSync(join(sandbox, ".claude/blackbox-state.json"), "utf-8"))
+  const sessions = Object.keys(bb.sessions)
+  const baseSession = sessions.find(s => !s.endsWith("_opt"))
+  assert.ok(baseSession, "should have a base session key")
+  const optMode = bb.sessions[baseSession]?.optimization_mode
+  assert.equal(optMode, "budget", "optimization_mode should be budget in blackbox state")
+
+  // Verify settings match Budget mode spec from RUNTIME_MODES
+  const { RUNTIME_MODES } = await import("../src/lib/mode-router.js")
+  const budgetMode = RUNTIME_MODES.find(m => m.id === "budget")
+  assert.equal(sel1.delegation_enforce, budgetMode.enforcement === "strict" || budgetMode.enforcement === "on", "delegation_enforce matches Budget spec")
+  assert.equal(sel1.flow_enabled, budgetMode.flow === "strict" || budgetMode.flow === "on" || budgetMode.flow === "audit", "flow_enabled matches Budget spec")
+  assert.equal(sel1.tdd_enforce, budgetMode.tdd === "quality" || budgetMode.tdd === "on" || budgetMode.tdd === "strict", "tdd_enforce matches Budget spec")
+})

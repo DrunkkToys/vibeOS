@@ -19,7 +19,7 @@ import { safeJsonParse, readFullState, loadSelection, writeSelection, readLifeti
 import { researchAudit } from "./lib/research-audit.js";
 import { buildStatusPayload, buildSavingsPayload, buildSessionCheckout, diagnoseStructuredFromText, projectStructuredFromText, } from "./lib/runtime-surface.js";
 import { saveReport, listReports, readReport } from "./lib/reporting.js";
-import { writeSessionSlot } from "./lib/selection-manager.js";
+import { writeSessionSlot, writeSessionOptMode } from "./lib/selection-manager.js";
 import { loadCredit, thinkingLevel, _lazyRefresh, _readAuth } from "./lib/credit-api.js";
 import { createTrinityTool } from "./lib/trinity-tool.js";
 import { classifyAndRankModels, modelToCcAlias, discoverAvailableModels, probeModel } from "./lib/trinity-rebuild.js";
@@ -434,7 +434,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
         projectPatternRows, promotedProjectPatterns, detectTechStack, ensureProjectDocs,
         discoverAvailableModels, classifyAndRankModels, modelToCcAlias, probeModel,
         setBlackboxEnabled, loadBlackboxState, saveBlackboxState,
-        reportsIndex: reportsIndexStable, saveReportsIndex: saveReportsIndexStable, backupFile: backupFileStable, writeSessionSlot, _refreshModel,
+        reportsIndex: reportsIndexStable, saveReportsIndex: saveReportsIndexStable, backupFile: backupFileStable, writeSessionSlot, writeSessionOptMode, _refreshModel,
         setApiToken,
         setApiBootstrapToken,
         ensureBootstrapExchange,
