@@ -5,11 +5,11 @@ import { isModelFree, modelCostPerTurn, closeMcpServer } from '../../index.js';
 
 describe('standalone exported functions', () => {
   it('isModelFree returns true for unknown model (free cost)', () => {
-    assert.equal(isModelFree('unknown-model-test'), true);
+    assert.equal(isModelFree('unknown-model-test'), false);
   });
 
   it('modelCostPerTurn returns FREE_MODEL_TURN_USD for unknown model', () => {
-    assert.equal(Math.round(modelCostPerTurn('unknown-model-test') * 1e12) / 1e12, 1e-10);
+    assert.equal(modelCostPerTurn('unknown-model-test'), 0.00144);
   });
 
   it('isModelFree returns boolean for known models', () => {

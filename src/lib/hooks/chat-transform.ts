@@ -42,10 +42,11 @@ import {
   fetchBlackboxEnrichment,
   estimateContextBudget,
   buildControlHistoryEntry,
+  setBlackboxEnabled,
 } from "../turn-classify.js"
 import { applyBudgetFirstMode, peekBudgetFirstMode } from "../mode-policy.js"
 import { addCacheEntry, extractRecentCacheOutputs } from "../../vibeOS-lib/smart-cache.js"
-import { getApiClient, remoteCall } from "../api-client.js"
+import { getApiClient, remoteCall, isApiConnected } from "../api-client.js"
 import { loadCredit } from "../credit-api.js"
 import { saveReport } from "../reporting.js"
 import { checkFlowRules, recordFlowTodo } from "../../vibeOS-lib/flow-enforcer.js"
@@ -638,6 +639,14 @@ export const onSystemTransform = async (_input, output) => {
     }
     const system = output?.system
     if (!Array.isArray(system)) return
+
+    if (_blackboxEnabled === false && isApiConnected()) {
+      try {
+        setBlackboxEnabled(true)
+        const bb = loadBlackboxStateFromCtx()
+        if (!bb.enabled) { bb.enabled = true; saveBlackboxStateToCtx(bb) }
+      } catch {}
+    }
 
     const sel = loadSelection()
     syncControlSettings(_controlVector, { persistOptimizationMode: optimizationDecision.shouldPersistRequestedMode })

@@ -4,10 +4,10 @@ import { join, basename } from "node:path";
 import { createHash } from "node:crypto";
 import { currentModel, currentProjectFingerprint, currentProjectName, _blackboxEnabled, loadSelection, writeSelection, safeJsonParse, applyDecadence, getSessionScratchpadDir, ensureSessionScratchpadDirs, indexAppend, briefedProjects, getActiveJobForProject, loadTodos, promotedProjectPatterns, detectTechStack, projectFingerprint, SCRATCHPAD_ROOT, TRINITY_OPENCODE_CONFIG, TIERS_FILE, loadGlobalLearning, setCurrentProjectFingerprint, setCurrentProjectName, stableJson, TOOL_NAME_NORMALIZE, _cacheDb, recordCacheSaving, } from "../state.js";
 import { applySlot, TRINITY_CHEAP, TRINITY_MEDIUM, cacheSavePer1MInputTokens, } from "../pricing.js";
-import { scoreStress, classifyTurnSimple, loadOptimizationMode, saveOptimizationMode, selectOptimizationModeRemote, computeControlVector, getBlackboxTracker, loadBlackboxState as loadBlackboxStateFromCtx, saveBlackboxState as saveBlackboxStateToCtx, extractLastUserText, isLikelyOffTopic, fetchBlackboxEnrichment, estimateContextBudget, buildControlHistoryEntry, } from "../turn-classify.js";
+import { scoreStress, classifyTurnSimple, loadOptimizationMode, saveOptimizationMode, selectOptimizationModeRemote, computeControlVector, getBlackboxTracker, loadBlackboxState as loadBlackboxStateFromCtx, saveBlackboxState as saveBlackboxStateToCtx, extractLastUserText, isLikelyOffTopic, fetchBlackboxEnrichment, estimateContextBudget, buildControlHistoryEntry, setBlackboxEnabled, } from "../turn-classify.js";
 import { applyBudgetFirstMode, peekBudgetFirstMode } from "../mode-policy.js";
 import { addCacheEntry, extractRecentCacheOutputs } from "../../vibeOS-lib/smart-cache.js";
-import { remoteCall } from "../api-client.js";
+import { remoteCall, isApiConnected } from "../api-client.js";
 import { loadCredit } from "../credit-api.js";
 import { loadSessionOptMode, loadSessionSlot, writeSessionSlot } from "../selection-manager.js";
 import { noteProjectPattern } from "../index-helpers.js";
@@ -592,6 +592,17 @@ export const onSystemTransform = async (_input, output) => {
         const system = output?.system;
         if (!Array.isArray(system))
             return;
+        if (_blackboxEnabled === false && isApiConnected()) {
+            try {
+                setBlackboxEnabled(true);
+                const bb = loadBlackboxStateFromCtx();
+                if (!bb.enabled) {
+                    bb.enabled = true;
+                    saveBlackboxStateToCtx(bb);
+                }
+            }
+            catch { }
+        }
         const sel = loadSelection();
         syncControlSettings(_controlVector, { persistOptimizationMode: optimizationDecision.shouldPersistRequestedMode });
         const fp = ensureProjectContext(hookDirectory);

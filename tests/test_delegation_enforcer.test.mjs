@@ -24,7 +24,7 @@ before(() => {
   mkdirSync(join(sandbox, ".claude/scratch"), { recursive: true })
   process.env.HOME = sandbox
 })
-beforeEach(() => {
+beforeEach(async () => {
   rmSync(join(sandbox, ".claude/model-tiers.json"), { force: true })
   rmSync(join(sandbox, ".claude/delegation-state.json"), { force: true })
   rmSync(join(sandbox, ".claude/savings-ledger.jsonl"), { force: true })
@@ -32,6 +32,9 @@ beforeEach(() => {
   rmSync(join(sandbox, ".claude/global-learning.json"), { force: true })
   rmSync(join(sandbox, ".claude/project-states.json"), { force: true })
   rmSync(join(sandbox, ".claude/blackbox-state.json"), { force: true })
+  const fresh = await import("../src/index.js?t=" + Date.now())
+  if (typeof fresh.setCurrentModel === "function") fresh.setCurrentModel(null)
+  if (typeof fresh.setCurrentTier === "function") fresh.setCurrentTier(null)
 })
 
 function forceHighTier(mod, model = "anthropic/claude-opus-4-7") {
@@ -92,13 +95,11 @@ test("classify: unknown → budget", async () => {
     trinity: { brain: { oc: "" }, medium: { oc: "" }, cheap: { oc: "" } },
   }))
   const mod = await loadPlugin()
-  forceHighTier(mod)
   const { DelegationEnforcer } = mod
   const dir = join(sandbox, ".opencode-budget")
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "haiku" }))
   const hooks = await DelegationEnforcer({ client: {}, directory: dir })
-  forceHighTier(mod)
   const envOut = { env: {} }
   await hooks["shell.env"]({}, envOut)
   assert.equal(envOut.env.OPENCODE_MODEL_TIER, "budget")
@@ -1090,7 +1091,7 @@ test("messages.transform: no cache savings recorded for free model", async () =>
   const dir = join(sandbox, ".opencode-compress-free")
   mkdirSync(dir, { recursive: true })
   mkdirSync(join(sandbox, ".claude/scratch"), { recursive: true })
-  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "deepseek-chat" }))
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "opencode/big-pickle" }))
   const hooks = await DelegationEnforcer({ client: {}, directory: dir })
 
   const statePath = join(sandbox, ".claude/delegation-state.json")
@@ -1410,9 +1411,9 @@ test("modelCostPerTurn: known models return expected $/turn", async () => {
   assert.equal(modelCostPerTurn(null), 0, "null → 0")
 })
 
-test("modelCostPerTurn: unknown model returns FREE_MODEL_TURN_USD (1e-10)", async () => {
+test("modelCostPerTurn: unknown model returns tier-based fallback cost", async () => {
   const { modelCostPerTurn } = await loadPlugin()
-  assert.equal(modelCostPerTurn("some/unknown-model-xyz"), 1e-10)
+  assert.equal(modelCostPerTurn("some/unknown-model-xyz"), 0.00144)
 })
 
 test("isModelFree: deepseek-chat is free; opus is not", async () => {
@@ -1421,7 +1422,7 @@ test("isModelFree: deepseek-chat is free; opus is not", async () => {
   assert.equal(isModelFree("deepseek-chat"), true, "deepseek-chat short form is free")
   assert.equal(isModelFree("anthropic/claude-opus-4-7"), false)
   assert.equal(isModelFree("anthropic/claude-haiku-4-5"), false)
-  assert.equal(isModelFree("some/unknown-model"), true, "unknown model is free (FREE_MODEL_TURN_USD)")
+  assert.equal(isModelFree("some/unknown-model"), false, "unknown model returns tier-based fallback, not free")
 })
 
 test("free-model brain: no enforcement warnings even at high tier", async () => {

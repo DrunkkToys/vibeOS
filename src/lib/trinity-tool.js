@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { LABEL_MODES, buildDeterministicTrinity, resolveExecutionIdentity } from "./pricing.js";
 import { BRANDED_MODES, RUNTIME_MODES } from "./mode-router.js";
 import { invalidateApiToken } from "./api-client.js";
@@ -408,16 +408,6 @@ export function createTrinityTool(deps) {
                     tiers.trinity.cheap = { oc: cheap, cc: deps.modelToCcAlias(cheap) };
                 deps.mkdirSync(dirname(deps.TIERS_FILE), { recursive: true });
                 deps.writeFileSync(deps.TIERS_FILE, JSON.stringify(tiers, null, 2) + "\n");
-                try {
-                    const bbState = deps.loadBlackboxState();
-                    bbState.enabled = false;
-                    deps.saveBlackboxState(bbState);
-                    if (typeof deps.setBlackboxEnabled === "function")
-                        deps.setBlackboxEnabled(false);
-                    else
-                        deps._blackboxEnabled = false;
-                }
-                catch { }
                 if (typeof deps._refreshModel === "function")
                     deps._refreshModel(deps.directory);
                 const lines = [
@@ -428,7 +418,7 @@ export function createTrinityTool(deps) {
                     `  Delegation: off`,
                     `  Flow: off`,
                     `  TDD: off`,
-                    `  Blackbox: off`,
+                    `  Blackbox: on`,
                 ];
                 if (discovered.length > 0)
                     lines.push(`  Discovered models: ${discovered.length}`);

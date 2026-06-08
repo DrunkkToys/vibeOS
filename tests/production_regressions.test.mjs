@@ -718,16 +718,16 @@ test("v0.20.11 — deepseek-v4-flash is NOT free, costs $0.000182", async () => 
 })
 
 // ── v0.20.11: modelCostPerTurn returns FREE_MODEL_TURN_USD for unknown models ──
-test("v0.20.11 — unknown models return FREE_MODEL_TURN_USD (1e-10), not null", async () => {
+test("v0.20.11 — unknown models return tier-based fallback cost (0.00144), not null", async () => {
   const { modelCostPerTurn, isModelFree } = await loadPlugin()
 
   const unknowns = ["nonexistent/vendor-xyz", "totally/unknown-model"]
   for (const model of unknowns) {
     const cost = modelCostPerTurn(model)
-    assert.equal(Math.round(cost * 1e12) / 1e12, 1e-10,
-      `unknown model "${model}" should return 1e-10, got ${cost}`)
-    assert.equal(isModelFree(model), true,
-      `unknown model "${model}" should be treated as free`)
+    assert.equal(cost, 0.00144,
+      `unknown model "${model}" should return 0.00144, got ${cost}`)
+    assert.equal(isModelFree(model), false,
+      `unknown model "${model}" should not be treated as free`)
   }
 })
 
