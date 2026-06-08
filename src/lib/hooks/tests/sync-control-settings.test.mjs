@@ -4,7 +4,7 @@ import assert from "node:assert/strict"
 const mapCV = (cv) => {
   if (!cv) return null
   const out = {}
-  out.delegation_enforce = true
+  out.delegation_enforce = cv.enforcement_mode !== "relaxed"
   if (cv.flow_mode === "audit") {
     out.flow_enabled = false; out.flow_enforce = false
   } else {
@@ -26,8 +26,8 @@ test("enforcement_mode: strict → true", () => {
 test("enforcement_mode: normal → true", () => {
   assert.deepStrictEqual(mapCV({ enforcement_mode: "normal" }).delegation_enforce, true)
 })
-test("enforcement_mode: relaxed → true", () => {
-  assert.deepStrictEqual(mapCV({ enforcement_mode: "relaxed" }).delegation_enforce, true)
+test("enforcement_mode: relaxed → false", () => {
+  assert.deepStrictEqual(mapCV({ enforcement_mode: "relaxed" }).delegation_enforce, false)
 })
 test("flow_mode: strict → flow_enabled=true, flow_enforce=true", () => {
   const r = mapCV({ flow_mode: "strict" })
@@ -76,7 +76,7 @@ test("thinking_mode: off → thinking_level=off", () => {
 test("full budget delta — all 5 fields", () => {
   const r = mapCV({ enforcement_mode: "relaxed", flow_mode: "audit", tdd_mode: "lazy", thinking_mode: "off" })
   assert.deepStrictEqual(r, {
-    delegation_enforce: true, flow_enabled: false, flow_enforce: false,
+    delegation_enforce: false, flow_enabled: false, flow_enforce: false,
     tdd_enforce: false, tdd_strict: false, thinking_level: "off"
   })
 })
