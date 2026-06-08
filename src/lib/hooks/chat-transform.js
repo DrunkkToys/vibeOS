@@ -6,6 +6,7 @@ import { currentModel, currentProjectFingerprint, currentProjectName, _blackboxE
 import { applySlot, TRINITY_CHEAP, TRINITY_MEDIUM, cacheSavePer1MInputTokens, } from "../pricing.js";
 import { scoreStress, classifyTurnSimple, loadOptimizationMode, saveOptimizationMode, selectOptimizationModeRemote, computeControlVector, getBlackboxTracker, loadBlackboxState as loadBlackboxStateFromCtx, saveBlackboxState as saveBlackboxStateToCtx, extractLastUserText, isLikelyOffTopic, fetchBlackboxEnrichment, estimateContextBudget, buildControlHistoryEntry, setBlackboxEnabled, } from "../turn-classify.js";
 import { applyBudgetFirstMode, peekBudgetFirstMode } from "../mode-policy.js";
+import { BRANDED_MODES, RUNTIME_MODES } from "../mode-router.js";
 import { addCacheEntry, extractRecentCacheOutputs } from "../../vibeOS-lib/smart-cache.js";
 import { remoteCall, isApiConnected } from "../api-client.js";
 import { loadCredit } from "../credit-api.js";
@@ -160,12 +161,29 @@ export function syncControlSettings(cv, options = {}) {
         const sid = _OC_SID;
         const persistOptimizationMode = options.persistOptimizationMode !== false;
         const currentSel = loadSelection();
-        const compatibilityMode = currentSel.onboarding_mode === "assist";
+        const userSetMode = loadSessionOptMode(sid + "_opt");
+        const userOptMode = userSetMode || loadOptimizationMode();
+        const isManualMode = userSetMode && userOptMode !== "auto";
         const writeIf = (key, val) => {
             const sel = loadSelection();
             if (sel[key] !== val)
                 writeSelection(key, val);
         };
+        if (isManualMode) {
+            const allEntries = [...BRANDED_MODES, ...RUNTIME_MODES];
+            const modeEntry = allEntries.find((e) => e.id === userOptMode);
+            if (modeEntry) {
+                writeIf("delegation_enforce", modeEntry.enforcement === "strict" || modeEntry.enforcement === "on");
+                writeIf("flow_enabled", modeEntry.flow === "strict" || modeEntry.flow === "on" || modeEntry.flow === "audit");
+                writeIf("flow_enforce", modeEntry.flow === "strict" || modeEntry.flow === "on");
+                writeIf("tdd_enforce", modeEntry.tdd === "quality" || modeEntry.tdd === "on" || modeEntry.tdd === "strict");
+                writeIf("tdd_strict", modeEntry.tdd === "strict");
+                if (modeEntry.thinking)
+                    writeIf("thinking_level", modeEntry.thinking);
+                return;
+            }
+        }
+        const compatibilityMode = currentSel.onboarding_mode === "assist";
         writeIf("delegation_enforce", compatibilityMode ? cv.enforcement_mode === "strict" : true);
         if (compatibilityMode) {
             writeIf("flow_enabled", cv.flow_mode === "strict");
@@ -193,8 +211,6 @@ export function syncControlSettings(cv, options = {}) {
         }
         if (cv.thinking_mode && currentSel.thinking_level !== "full")
             writeIf("thinking_level", cv.thinking_mode);
-        const userSetMode = loadSessionOptMode(sid + "_opt");
-        const userOptMode = userSetMode || loadOptimizationMode();
         if (persistOptimizationMode && cv.optimization_mode && userOptMode !== "auto") {
             if (userOptMode !== cv.optimization_mode && !userSetMode) {
                 writeSessionSlot(sid + "_opt", cv.optimization_mode);
