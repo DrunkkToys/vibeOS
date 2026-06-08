@@ -1,4 +1,4 @@
-// Mode Router — 11 modes, 4 tiers. Full type-safe hierarchy.
+// Mode Router — 10 modes, 4 tiers. Full type-safe hierarchy.
 // Branded modes: user-selected strategy + tier pipeline.
 // Runtime modes: classifier-selected behavior per query.
 export const TIERS = {
@@ -28,13 +28,6 @@ export const BRANDED_MODES = [
         thinking: "off", tdd: "lazy", enforcement: "relaxed", flow: "audit",
         qualityVsBrain: 75, costVsBrain: 18, default: true,
         desc: "Default mode. Medium tier auto-escalate. Speed-first.",
-    },
-    {
-        id: "forensic", index: 4, name: "VibeForensic", icon: "\u{1F52C}",
-        pipeline: ["brain"],
-        thinking: "full", tdd: "quality", enforcement: "strict", flow: "strict",
-        qualityVsBrain: 100, costVsBrain: 65,
-        desc: "Deep analysis and web research. Full audit trail.",
     },
 ];
 export const RUNTIME_MODES = [
@@ -74,11 +67,18 @@ export const RUNTIME_MODES = [
         desc: "Brain tier security audit. OWASP validation.",
     },
     {
-        id: "longrun", index: 9, name: "Longrun", icon: "\u{1F3C3}",
+        id: "longrun", index: 6, name: "Longrun", icon: "\u{1F4C8}",
+        pipeline: ["cheap"],
+        thinking: "off", tdd: "off", enforcement: "off", flow: "off",
+        qualityVsBrain: 15, costVsBrain: 100,
+        desc: "Extended sessions. Cheap tier only.",
+    },
+    {
+        id: "forensic", index: 7, name: "Forensic", icon: "\u{1F52C}",
         pipeline: ["brain"],
         thinking: "full", tdd: "quality", enforcement: "strict", flow: "strict",
-        qualityVsBrain: 100, costVsBrain: 70,
-        desc: "Brain tier extended session. Full context.",
+        qualityVsBrain: 100, costVsBrain: 65,
+        desc: "Deep analysis and web research. Full audit trail.",
     },
 ];
 export const RAW_MODE = {
