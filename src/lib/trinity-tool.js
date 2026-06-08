@@ -87,11 +87,22 @@ export function createTrinityTool(deps) {
                                 cheap: models.find(m => m.id === trinity.cheap) || { id: trinity.cheap, cost: deps._modelCost(trinity.cheap), tier: deps._modelTier(trinity.cheap) },
                             };
                             const tiersData = deps.safeJsonParse(deps.readFileSync(deps.TIERS_FILE, "utf-8"));
-                            tiersData.trinity = {
-                                brain: { oc: probed.brain.id, cc: deps.modelToCcAlias(probed.brain.id) },
-                                medium: { oc: probed.medium.id, cc: deps.modelToCcAlias(probed.medium.id) },
-                                cheap: { oc: probed.cheap.id, cc: deps.modelToCcAlias(probed.cheap.id) },
-                            };
+                            const oldTiers = tiersData.trinity || {};
+                            const oldProvider = tiersData.selection?.selected_provider || "";
+                            const newProvider = trinity.provider || resolveExecutionIdentity(deps.currentModel, deps.directory)?.provider || "";
+                            tiersData.trinity ??= {};
+                            const slots = ["brain", "medium", "cheap"];
+                            for (const s of slots) {
+                                const autoModel = probed[s].id;
+                                const oldModel = oldTiers[s]?.oc || "";
+                                const oldModelProvider = oldModel.includes("/") ? oldModel.split("/")[0] : "";
+                                if (oldModelProvider && oldModelProvider !== oldProvider && oldModelProvider !== newProvider) {
+                                    tiersData.trinity[s] = oldTiers[s];
+                                }
+                                else {
+                                    tiersData.trinity[s] = { oc: autoModel, cc: deps.modelToCcAlias(autoModel) };
+                                }
+                            }
                             tiersData.selection ??= {};
                             tiersData.selection.selected_provider = trinity.provider || resolveExecutionIdentity(deps.currentModel, deps.directory)?.provider || "";
                             tiersData.selection.selected_model = deps.currentModel;

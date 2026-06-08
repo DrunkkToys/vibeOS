@@ -918,3 +918,67 @@ test('v0.22.17 — vibeultrax mode writes valid active_slot (not local)', async 
     'onboarding_mode should be strict for vibeultrax, got: ' + tiers.selection.onboarding_mode)
 })
 
+
+test('v0.23.13 — footer coherence: tier icon matches model provider (integration)', async () => {
+  const { DelegationEnforcer } = await loadPlugin()
+  const dir = join(sandbox, '.opencode-footer-coherence')
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'opencode.json'), JSON.stringify({ model: 'deepseek/deepseek-v4-pro' }))
+  seedTierFile({
+    trinity: {
+      brain: { oc: 'deepseek/deepseek-v4-pro', cc: 'deepseek-reasoner' },
+      medium: { oc: 'opencode-go/mimo-v2.5', cc: 'mimo-v2.5' },
+      cheap: { oc: 'deepseek/deepseek-v4-flash', cc: 'haiku' },
+    },
+    selection: {
+      enabled: true,
+      active_slot: 'brain',
+      delegation_enforce: true,
+      selected_provider: 'deepseek',
+      selected_model: 'deepseek/deepseek-v4-pro',
+      executed_provider: 'deepseek',
+      executed_model: 'deepseek/deepseek-v4-pro',
+      optimization_mode: 'vibeultrax',
+      active_pipeline: ['local', 'medium', 'brain'],
+    },
+  })
+  const hooks = await DelegationEnforcer({ client: { model: 'deepseek/deepseek-v4-pro' }, directory: dir })
+
+  // Push text.complete to trigger footer build
+  await hooks['experimental.text.complete'](
+    { messageID: 'footer-coherence-1' },
+    { text: '[vibeOS] footer integration test — model: brain — savings: $0.00' }
+  )
+
+  // Read back model-tiers.json to verify selection is coherent
+  const tiers = JSON.parse(readFileSync(join(sandbox, '.claude/model-tiers.json'), 'utf8'))
+  const sel = tiers.selection
+
+  // Assert: selected provider must match the trinity brain model's provider
+  assert.ok(sel.selected_provider, 'selected_provider must be set')
+  assert.ok(sel.selected_provider === 'deepseek', 'selected_provider should be deepseek, got: ' + sel.selected_provider)
+
+  // Assert: executed provider matches selected provider
+  assert.ok(sel.executed_provider === sel.selected_provider,
+    'executed_provider must match selected_provider')
+
+  // Assert: selected model matches executed model
+  assert.ok(sel.selected_model === sel.executed_model,
+    'selected_model must match executed_model: ' + sel.selected_model + ' vs ' + sel.executed_model)
+
+  // Assert: medium slot preserves manually-set cross-provider model
+  assert.ok(tiers.trinity.medium.oc === 'opencode-go/mimo-v2.5',
+    'medium slot must preserve manually-set Mimo V2.5, got: ' + tiers.trinity.medium.oc)
+
+  // Assert: brain tier model matches deepseek provider
+  assert.ok(tiers.trinity.brain.oc === 'deepseek/deepseek-v4-pro',
+    'brain slot must be deepseek v4 pro, got: ' + tiers.trinity.brain.oc)
+
+  // Assert: optimization_mode persists
+  assert.ok(sel.optimization_mode === 'vibeultrax',
+    'optimization_mode must be vibeultrax, got: ' + sel.optimization_mode)
+
+  // Assert: active_pipeline exists
+  assert.ok(Array.isArray(sel.active_pipeline) && sel.active_pipeline.length === 3,
+    'active_pipeline must be [local,medium,brain], got: ' + JSON.stringify(sel.active_pipeline))
+})
