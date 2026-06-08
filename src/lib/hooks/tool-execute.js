@@ -3,8 +3,15 @@ import { writeFileSync, appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { join, dirname, basename } from "node:path";
 import { createHash } from "node:crypto";
 import { currentTier, currentModel, setCurrentModel, setCurrentTier, _OC_SID, _modelLocked, loadSelection, readLifetimeSavings, recordCacheSaving, recordMissedContext7, getScratchpadHit, recordScratchpadObservation, recordPrivacyTelemetry, updateState, getSessionScratchpadDir, ensureSessionScratchpadDirs, SAVINGS_LEDGER_FILE, CONTEXT7_INSTALL_FLAG, SOFT_QUOTA_LIMIT, upsertTodo, ML_ENABLED, _mlGraph, _cacheDb, _mlSavePending, ML_CONFIDENCE_THRESHOLD, setMlSavePending, saveMLState, SCRATCHPAD_TOOLS, SCRATCHPAD_GLOBAL_DIR, TOOL_NAME_NORMALIZE, stableJson, applyDecadence, } from "../state.js";
-import { classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget, shortModelName, formatUsd, _refreshModel, readConfig, resolveDisplayModelId, TRINITY_CHEAP, TRINITY_MEDIUM, cacheSavePer1MInputTokens, trendDisplay, modelToSlotLabel, resolveExecutionIdentity, formatProviderName, formatQualityName, } from "../pricing.js";
+import { classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget, shortModelName, formatUsd, _refreshModel, readConfig, resolveDisplayModelId, TRINITY_CHEAP, TRINITY_MEDIUM, cacheSavePer1MInputTokens, trendDisplay, modelToSlotLabel, resolveExecutionIdentity, modelDisplayName, } from "../pricing.js";
 import { latestUserIntent } from "./chat-transform.js";
+import { loadSessionOptMode } from "../selection-manager.js";
+import { loadOptimizationMode } from "../turn-classify.js";
+function modeCapitalized(mode) {
+    if (!mode)
+        return "Budget";
+    return mode.charAt(0).toUpperCase() + mode.slice(1);
+}
 import { scoreStress, extractFirstWordFromArgs, shouldLogWarn, isUserAskingForTests, resolveEnforcementMode, getLearnedExploratoryWords, noteTaskRoutingLearning, incrementTurnCounter, } from "../turn-classify.js";
 import { saveReport } from "../reporting.js";
 import { loadCredit } from "../credit-api.js";
@@ -690,11 +697,19 @@ export const onToolExecuteAfter = async (input, output) => {
             setCurrentTier(classify(resolvedModel));
         }
         const execution = resolveExecutionIdentity(input?.args?.model || resolvedModel || "", projectDirectory);
-        _footerText = `— ${flashIcon ? `${flashIcon} ` : ""}Quality: ${formatQualityName(execution.quality)} | Provider: ${formatProviderName(execution.provider)} | Model: ${execution.model}`;
+        const { BRANDED_MODES, RUNTIME_MODES } = await import("../mode-router.js");
+        const brandMap = { vibeultrax: "VibeUltraX", vibeqmax: "VibeQMaX", vibemax: "VibeMaX" };
+        const currentSel = loadSelection();
+        const currentSid = _OC_SID;
+        const optModeFooter = loadSessionOptMode(currentSid + "_opt") || loadOptimizationMode() || "budget";
+        const vibeBrand = brandMap[optModeFooter] || (optModeFooter === "quality" ? "VibeQMaX" : "VibeMaX");
+        const qualityIcon = execution.quality === "brain" ? "\u{1F9E0}" : execution.quality === "medium" ? "\u2699" : execution.quality === "free" ? "\u{1F381}" : "\u26A1";
+        const modeLabel = modeCapitalized(optModeFooter);
+        _footerText = `— ${qualityIcon} ${execution.quality} | ${execution.provider_label} | ${modelDisplayName(execution.model)}`;
         if (ltTotal > 0) {
-            _footerText += ` | $${formatUsd(ltTotal)} saved`;
+            _footerText += ` | $${formatUsd(ltTotal)}`;
         }
-        _footerText += ` | VIBE${flashIcon ? " ⚡" : ""} —\n\n`;
+        _footerText += ` | ${vibeBrand}${flashIcon} ${modeLabel} —\n\n`;
         output.title = _footerText.trim();
         if (typeof output?.output === "string")
             output.output = _footerText + output.output;

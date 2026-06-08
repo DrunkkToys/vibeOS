@@ -30,9 +30,16 @@ import {
   classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget,
   shortModelName, formatUsd, _refreshModel, readConfig, resolveDisplayModelId, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN,
   cacheSavePer1MInputTokens,
-  trendDisplay, modelToSlotLabel, resolveExecutionIdentity, formatProviderName, formatQualityName,
+  trendDisplay, modelToSlotLabel, resolveExecutionIdentity, formatProviderName, formatQualityName, modelDisplayName,
 } from "../pricing.js"
 import { latestUserIntent } from "./chat-transform.js"
+import { loadSessionOptMode } from "../selection-manager.js"
+import { loadOptimizationMode } from "../turn-classify.js"
+
+function modeCapitalized(mode: string): string {
+  if (!mode) return "Budget"
+  return mode.charAt(0).toUpperCase() + mode.slice(1)
+}
 import {
   scoreStress, extractFirstWordFromArgs, shouldLogWarn,
   isUserAskingForTests, isLikelyOffTopic, resolveEnforcementMode,
@@ -687,11 +694,19 @@ export const onToolExecuteAfter = async (input, output) => {
       setCurrentTier(classify(resolvedModel))
     }
     const execution = resolveExecutionIdentity(input?.args?.model || resolvedModel || "", projectDirectory)
-    _footerText = `— ${flashIcon ? `${flashIcon} ` : ""}Quality: ${formatQualityName(execution.quality)} | Provider: ${formatProviderName(execution.provider)} | Model: ${execution.model}`
+    const { BRANDED_MODES, RUNTIME_MODES } = await import("../mode-router.js")
+    const brandMap: Record<string, string> = { vibeultrax: "VibeUltraX", vibeqmax: "VibeQMaX", vibemax: "VibeMaX" }
+    const currentSel = loadSelection()
+    const currentSid = _OC_SID
+    const optModeFooter = loadSessionOptMode(currentSid + "_opt") || loadOptimizationMode() || "budget"
+    const vibeBrand = brandMap[optModeFooter] || (optModeFooter === "quality" ? "VibeQMaX" : "VibeMaX")
+    const qualityIcon = execution.quality === "brain" ? "\u{1F9E0}" : execution.quality === "medium" ? "\u2699" : execution.quality === "free" ? "\u{1F381}" : "\u26A1"
+    const modeLabel = modeCapitalized(optModeFooter)
+    _footerText = `— ${qualityIcon} ${execution.quality} | ${execution.provider_label} | ${modelDisplayName(execution.model)}`
     if (ltTotal > 0) {
-      _footerText += ` | $${formatUsd(ltTotal)} saved`
+      _footerText += ` | $${formatUsd(ltTotal)}`
     }
-    _footerText += ` | VIBE${flashIcon ? " ⚡" : ""} —\n\n`
+    _footerText += ` | ${vibeBrand}${flashIcon} ${modeLabel} —\n\n`
     output.title = _footerText.trim()
     if (typeof output?.output === "string") output.output = _footerText + output.output
     else if (typeof output?.result === "string") output.result = _footerText + output.result
