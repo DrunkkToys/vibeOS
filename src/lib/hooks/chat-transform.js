@@ -173,19 +173,7 @@ export function syncControlSettings(cv, options = {}) {
             const allEntries = [...BRANDED_MODES, ...RUNTIME_MODES];
             const modeEntry = allEntries.find((e) => e.id === userOptMode);
             if (modeEntry) {
-                writeIf("delegation_enforce", modeEntry.enforcement === "strict" || modeEntry.enforcement === "on");
-                writeIf("flow_enabled", modeEntry.flow === "strict" || modeEntry.flow === "on" || modeEntry.flow === "audit");
-                writeIf("flow_enforce", modeEntry.flow === "strict" || modeEntry.flow === "on");
-                writeIf("tdd_enforce", modeEntry.tdd === "quality" || modeEntry.tdd === "on" || modeEntry.tdd === "strict");
-                writeIf("tdd_strict", modeEntry.tdd === "strict");
-                if (modeEntry.thinking)
-                    writeIf("thinking_level", modeEntry.thinking);
-                const rawTier = modeEntry.pipeline[0] || "cheap";
-                const allowedTiers = new Set(["brain", "medium", "cheap"]);
-                const slot = allowedTiers.has(rawTier) ? rawTier : "cheap";
-                writeIf("active_slot", slot);
                 writeIf("active_pipeline", JSON.stringify(modeEntry.pipeline));
-                return;
             }
         }
         const compatibilityMode = currentSel.onboarding_mode === "assist";
