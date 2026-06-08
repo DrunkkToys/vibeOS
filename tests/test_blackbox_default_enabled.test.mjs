@@ -201,3 +201,106 @@ test("live session: trinity setup does not disable blackbox", async () => {
   const state = indexMod.loadBlackboxState()
   assert.strictEqual(state.enabled, true, "blackbox should remain enabled after setup")
 })
+
+// ═══════════════════════════════════════════════════════════════════
+// REAL INTEGRATION TESTS — full end-to-end flows
+// ═══════════════════════════════════════════════════════════════════
+
+test("E2E: system.transform hook auto-enables blackbox when persisted state is disabled + API connected", async () => {
+  baseDirs()
+  writeOpenCodeConfig()
+  writeTiers()
+  writeState()
+  writeBlackboxState({ enabled: false, sessions: {} })
+
+  const { isApiConnected } = await import("../src/lib/api-client.js?t=" + Date.now())
+  if (!isApiConnected()) return
+
+  const hooks = await freshPlugin()
+  const input = { messageID: "test-e2e-1" }
+  const output = { system: ["You are vibeOS."] }
+  await hooks["experimental.chat.system.transform"](input, output)
+
+  const indexMod = await import("../src/index.js?t=" + Date.now())
+  const state = indexMod.loadBlackboxState()
+  assert.strictEqual(state.enabled, true, "system.transform should have auto-enabled blackbox from persisted disabled state")
+})
+
+test("E2E: trinity setup → blackbox stays on → ML routing returns valid mode", async () => {
+  baseDirs()
+  writeOpenCodeConfig()
+  writeTiers()
+  writeState()
+  writeBlackboxState({ enabled: true, sessions: {} })
+
+  const { isApiConnected, remoteCall } = await import("../src/lib/api-client.js?t=" + Date.now())
+  if (!isApiConnected()) return
+
+  const hooks = await freshPlugin()
+  await hooks.tool.trinity.execute({ action: "setup", slot: "" })
+
+  const indexMod = await import("../src/index.js?t=" + Date.now())
+  const state = indexMod.loadBlackboxState()
+  assert.strictEqual(state.enabled, true, "blackbox should remain on after setup")
+
+  const result = await remoteCall("blackboxSelectMode", ["CONVERGING", 0.5], null)
+  assert.ok(result.mode, "ML should return a mode after setup")
+  assert.ok(["budget", "quality", "speed"].includes(result.mode), "mode should be valid")
+})
+
+test("E2E: shell.env returns correct env vars with blackbox enabled", async () => {
+  baseDirs()
+  writeOpenCodeConfig()
+  writeTiers()
+  writeState()
+  writeBlackboxState({ enabled: true, sessions: {} })
+
+  const hooks = await freshPlugin()
+  const envOut = { env: {} }
+  await hooks["shell.env"]({}, envOut)
+
+  assert.ok(envOut.env.OPENCODE_MODEL_TIER, "should set OPENCODE_MODEL_TIER")
+  assert.ok(envOut.env.OPENCODE_MODEL, "should set OPENCODE_MODEL")
+  assert.ok(["high", "mid", "budget", "unknown"].includes(envOut.env.OPENCODE_MODEL_TIER), "tier should be valid")
+})
+
+test("E2E: tool.execute.before does not throw on write tool", async () => {
+  baseDirs()
+  writeOpenCodeConfig()
+  writeTiers()
+  writeState()
+  writeBlackboxState({ enabled: true, sessions: {} })
+
+  const hooks = await freshPlugin()
+  const input = { tool: "write", args: { file_path: "/tmp/test.txt" } }
+  const output = {}
+  await hooks["tool.execute.before"](input, output)
+
+  assert.ok(true, "tool.execute.before should not throw")
+})
+
+test("E2E: full lifecycle — fresh start → blackbox on → mode policy → trinity status", async () => {
+  baseDirs()
+  writeOpenCodeConfig()
+  writeTiers()
+  writeState()
+
+  const mod = await import("../src/index.js?t=" + Date.now())
+  const bb = mod.loadBlackboxState()
+  assert.strictEqual(bb.enabled, true, "1. fresh start: blackbox defaults to enabled")
+
+  const hooks = await freshPlugin()
+  const status = await hooks.tool.trinity.execute({ action: "status", slot: "" })
+  assert.ok(typeof status === "string", "2. trinity status returns string")
+  assert.ok(status.length > 10, "3. trinity status is non-trivial")
+
+  const envOut = { env: {} }
+  await hooks["shell.env"]({}, envOut)
+  assert.ok(envOut.env.OPENCODE_MODEL_TIER, "4. shell.env sets tier")
+
+  const { isApiConnected, remoteCall } = await import("../src/lib/api-client.js?t=" + Date.now())
+  if (isApiConnected()) {
+    const r = await remoteCall("blackboxSelectMode", ["INIT", 0.1], null)
+    assert.ok(r.mode, "5. ML routing returns mode")
+  }
+})
