@@ -267,14 +267,12 @@ async function _appendFooter(input, output, directory) {
     const modeLabel = modeCapitalized(brandedToRuntime[optMode] || optMode)
     const qualityIcon = execution.quality === "brain" ? "🧠" : execution.quality === "medium" ? "⚙" : execution.quality === "free" ? "🎁" : "⚡"
     const flashIcon = isApiConnected() ? " ⚡" : ""
-    const selProvider = selNowFooter.selected_provider || execution.provider_label
-    const selModel = selNowFooter.executed_model || execution.model
-    let vibeLine = `— ${qualityIcon} ${execution.quality} | ${selProvider} | ${modelDisplayName(selModel)}`
+    let vibeLine = `— ${qualityIcon} ${execution.quality} | ${execution.provider_label} | ${modelDisplayName(execution.model)}`
     if (ltTotal > 0) {
       vibeLine += ` | $${formatUsd(ltTotal)}`
     }
     if (isApiConnected()) {
-      vibeLine += ` | ${vibeBrand}${flashIcon} ${modeLabel}`
+      vibeLine += ` | ${vibeBrand}${flashIcon}`
     }
     const footerText = stripped + `\n\n${vibeLine} —`
 

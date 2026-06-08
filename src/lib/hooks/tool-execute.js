@@ -733,11 +733,11 @@ export const onToolExecuteAfter = async (input, output) => {
         const vibeBrand = brandMap[optModeFooter] || (execution.quality === "brain" ? "VibeQMaX" : "VibeMaX");
         const qualityIcon = execution.quality === "brain" ? "\u{1F9E0}" : execution.quality === "medium" ? "\u2699" : execution.quality === "free" ? "\u{1F381}" : "\u26A1";
         const modeLabel = modeCapitalized(brandedToRuntime[optModeFooter] || optModeFooter);
-        _footerText = `— ${qualityIcon} ${execution.quality} | ${currentSel.selected_provider || execution.provider_label} | ${modelDisplayName(currentSel.executed_model || execution.model)}`;
+        _footerText = `— ${qualityIcon} ${execution.quality} | ${execution.provider_label} | ${modelDisplayName(execution.model)}`;
         if (ltTotal > 0) {
             _footerText += ` | $${formatUsd(ltTotal)}`;
         }
-        _footerText += ` | ${vibeBrand}${flashIcon} ${modeLabel} —\n\n`;
+        _footerText += ` | ${vibeBrand}${flashIcon} —\n\n`;
         output.title = _footerText.trim();
         if (typeof output?.output === "string")
             output.output = _footerText + output.output;
