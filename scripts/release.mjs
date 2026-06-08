@@ -66,6 +66,26 @@ if (lastTagDate && (Date.now() - lastTagDate.getTime() < minReleaseGapMs)) {
 const forceBump = ["patch", "minor", "major"].find(t => process.argv.includes(t)) || null
 const autoYes = process.argv.includes("--yes") || process.argv.includes("-y")
 
+// ── TEST GATE ──────────────────────────────────────────────────
+log("")
+log(`${BOLD}🧪 Running tests before release...${RESET}`)
+try {
+  sh("npm run test:ci", { stdio: "inherit" })
+  log(`${GREEN}✓${RESET} all tests passed`)
+} catch {
+  die("tests failed — release blocked. Fix failing tests before releasing.")
+}
+
+// ── BUILD GATE ──────────────────────────────────────────────────
+log("")
+log(`${BOLD}🔨 Building before release...${RESET}`)
+try {
+  sh("npm run build", { stdio: "inherit" })
+  log(`${GREEN}✓${RESET} build succeeded`)
+} catch {
+  die("build failed — release blocked. Fix build errors before releasing.")
+}
+
 // ── SYNC MODEL PRICING ──────────────────────────────────────────
 log("")
 log(`${BOLD}💰 Syncing model pricing...${RESET}`)
