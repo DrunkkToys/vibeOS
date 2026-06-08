@@ -286,7 +286,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
     console.error(`[vibeOS] LOADED cwd=${directory}`);
     const hookHome = process.env.HOME || USER_HOME;
     const hookFp = projectFingerprint(directory || "");
-    const hookSessionId = `opencode-${process.pid || "x"}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    if (!globalThis.__vibeOS_sessionId) { globalThis.__vibeOS_sessionId = `opencode-${process.pid || "x"}-${Date.now()}`; } const hookSessionId = globalThis.__vibeOS_sessionId;
     setVibeOSHomeContext(join(hookHome, ".claude"));
     setCurrentSessionId(hookSessionId);
     if (hookFp) {
