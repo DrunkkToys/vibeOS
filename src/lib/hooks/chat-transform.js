@@ -180,6 +180,11 @@ export function syncControlSettings(cv, options = {}) {
                 writeIf("tdd_strict", modeEntry.tdd === "strict");
                 if (modeEntry.thinking)
                     writeIf("thinking_level", modeEntry.thinking);
+                const rawTier = modeEntry.pipeline[0] || "cheap";
+                const allowedTiers = new Set(["brain", "medium", "cheap"]);
+                const slot = allowedTiers.has(rawTier) ? rawTier : "cheap";
+                writeIf("active_slot", slot);
+                writeIf("active_pipeline", JSON.stringify(modeEntry.pipeline));
                 return;
             }
         }

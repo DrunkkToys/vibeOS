@@ -57,6 +57,8 @@ export function loadSelection() {
         return {
             enabled: j?.selection?.enabled !== false,
             active_slot: j?.selection?.active_slot || null,
+            active_pipeline: j?.selection?.active_pipeline || null,
+            optimization_mode: j?.selection?.optimization_mode || null,
             thinking_level: j?.selection?.thinking_level || "off",
             flow_enabled: j?.selection?.flow_enabled === true,
             tdd_enforce: j?.selection?.tdd_enforce === true,
@@ -139,6 +141,18 @@ export function loadSessionOptMode(sid) {
     catch {
         return null;
     }
+}
+export function loadGlobalOptMode() {
+    try {
+        const sel = loadSelection();
+        return sel.optimization_mode || null;
+    }
+    catch {
+        return null;
+    }
+}
+export function saveGlobalOptMode(mode) {
+    return writeSelection("optimization_mode", mode);
 }
 export function writeSessionOptMode(sid, mode) {
     const BLACKBOX_FILE = join(getVibeOSHome(), "blackbox-state.json");

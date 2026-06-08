@@ -3,7 +3,7 @@ import { writeFileSync, appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { join, dirname, basename } from "node:path";
 import { createHash } from "node:crypto";
 import { currentTier, currentModel, setCurrentModel, setCurrentTier, _OC_SID, _modelLocked, loadSelection, readLifetimeSavings, recordCacheSaving, recordMissedContext7, getScratchpadHit, recordScratchpadObservation, recordPrivacyTelemetry, updateState, getSessionScratchpadDir, ensureSessionScratchpadDirs, SAVINGS_LEDGER_FILE, CONTEXT7_INSTALL_FLAG, SOFT_QUOTA_LIMIT, upsertTodo, ML_ENABLED, _mlGraph, _cacheDb, _mlSavePending, ML_CONFIDENCE_THRESHOLD, setMlSavePending, saveMLState, SCRATCHPAD_TOOLS, SCRATCHPAD_GLOBAL_DIR, TOOL_NAME_NORMALIZE, stableJson, applyDecadence, } from "../state.js";
-import { classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget, shortModelName, formatUsd, _refreshModel, readConfig, resolveDisplayModelId, TRINITY_CHEAP, TRINITY_MEDIUM, cacheSavePer1MInputTokens, trendDisplay, modelToSlotLabel, resolveExecutionIdentity, modelDisplayName, } from "../pricing.js";
+import { classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget, shortModelName, formatUsd, _refreshModel, readConfig, resolveDisplayModelId, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN, cacheSavePer1MInputTokens, trendDisplay, modelToSlotLabel, resolveExecutionIdentity, modelDisplayName, } from "../pricing.js";
 import { latestUserIntent } from "./chat-transform.js";
 import { loadSessionOptMode } from "../selection-manager.js";
 import { loadOptimizationMode } from "../turn-classify.js";
@@ -18,7 +18,7 @@ import { loadCredit } from "../credit-api.js";
 import { remoteCall, VIBEOS_API_ENABLED } from "../api-client.js";
 import { getCostAnomalyDetector } from "../cost-anomaly.js";
 import { checkFlowRules } from "../../vibeOS-lib/flow-enforcer.js";
-import { computeDifficulty, addRouteEdge, predictBestModel, hashQuery } from "../../vibeOS-lib/ml-router.js";
+import { computeDifficulty, cascadeDecide, addRouteEdge, predictBestModel, hashQuery } from "../../vibeOS-lib/ml-router.js";
 import { addCacheEntry, recordCacheStats, predictCacheHit } from "../../vibeOS-lib/smart-cache.js";
 import { buildTestReminder, enforceTestFile } from "../tdd-enforcer.js";
 import { setActiveJobFromTaskPrompt, observeToolPattern, compressText, recordSaving } from "../index-helpers.js";
@@ -419,6 +419,33 @@ export const onToolExecuteBefore = async (input, output) => {
                 console.error(`[vibeOS] ML router error: ${mlErr.message}`);
             }
         }
+        const activePipeline = loadSelection().active_pipeline;
+        if (activePipeline && Array.isArray(activePipeline) && activePipeline.length > 1 && TRINITY_CHEAP && TRINITY_MEDIUM) {
+            try {
+                const cheapCost = 0.001;
+                const mediumCost = 0.005;
+                const brainCost = 0.02;
+                const cascadeResult = cascadeDecide(_prompt, cheapCost, mediumCost, brainCost, 0.85);
+                const tierMap = { cheap: TRINITY_CHEAP, medium: TRINITY_MEDIUM, brain: TRINITY_BRAIN || TRINITY_MEDIUM, local: TRINITY_CHEAP };
+                const pipelineModels = activePipeline.map(t => tierMap[t] || TRINITY_CHEAP);
+                if (cascadeResult.escalate && pipelineModels.length > 1) {
+                    const escalated = pipelineModels[1];
+                    if (escalated && escalated !== currentModel && (!_target || escalated !== _target)) {
+                        _target = escalated;
+                        console.error(`[vibeOS] 🔀 Cascade escalate: ${cascadeResult.reason} → ${escalated}`);
+                    }
+                }
+                else if (cascadeResult.useCheap && !_target) {
+                    _target = pipelineModels[0];
+                    if (_target && _target !== currentModel) {
+                        console.error(`[vibeOS] 🔀 Cascade cheap: ${cascadeResult.reason} → ${_target}`);
+                    }
+                }
+            }
+            catch (cascadeErr) {
+                console.error(`[vibeOS] Cascade router error: ${cascadeErr.message}`);
+            }
+        }
         if (_target)
             noteTaskRoutingLearning(_firstWord, _target, _exploratoryTarget ? "exploratory" : `tier:${currentTier}`);
         if (_target && targetArgs?.model !== _target) {
@@ -699,13 +726,14 @@ export const onToolExecuteAfter = async (input, output) => {
         const execution = resolveExecutionIdentity(input?.args?.model || resolvedModel || "", projectDirectory);
         const { BRANDED_MODES, RUNTIME_MODES } = await import("../mode-router.js");
         const brandMap = { vibeultrax: "VibeUltraX", vibeqmax: "VibeQMaX", vibemax: "VibeMaX" };
+        const brandedToRuntime = { vibeultrax: "Quality", vibeqmax: "Quality", vibemax: "Speed" };
         const currentSel = loadSelection();
         const currentSid = _OC_SID;
         const optModeFooter = loadSessionOptMode(currentSid + "_opt") || loadOptimizationMode() || "budget";
         const vibeBrand = brandMap[optModeFooter] || (execution.quality === "brain" ? "VibeQMaX" : "VibeMaX");
         const qualityIcon = execution.quality === "brain" ? "\u{1F9E0}" : execution.quality === "medium" ? "\u2699" : execution.quality === "free" ? "\u{1F381}" : "\u26A1";
-        const modeLabel = modeCapitalized(optModeFooter);
-        _footerText = `— ${qualityIcon} ${execution.quality} | ${execution.provider_label} | ${modelDisplayName(execution.model)}`;
+        const modeLabel = modeCapitalized(brandedToRuntime[optModeFooter] || optModeFooter);
+        _footerText = `— ${qualityIcon} ${execution.quality} | ${currentSel.selected_provider || execution.provider_label} | ${modelDisplayName(currentSel.executed_model || execution.model)}`;
         if (ltTotal > 0) {
             _footerText += ` | $${formatUsd(ltTotal)}`;
         }

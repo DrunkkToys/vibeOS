@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from "
 import { join, dirname } from "node:path";
 import { ResolutionTracker } from "../vibeOS-lib/blackbox/index.js";
 import { safeJsonParse, _blackboxEnabled, setBlackboxEnabled as _setGlobalBlackboxEnabled, _OC_SID, currentProjectFingerprint, setCurrentProjectFingerprint, withFileLock, readJsonOrEmpty, validateState, loadBlackboxState, saveBlackboxState, loadGlobalLearning, updateGlobalLearning, getLearnedExploratoryWords, projectFingerprint, loadProjectState, saveProjectState, detectTechStack, ensureProjectBucket, recordMissedContext7 } from "./state.js";
-import { loadSessionOptMode, writeSessionOptMode } from "./selection-manager.js";
+import { loadSessionOptMode, loadGlobalOptMode, saveGlobalOptMode, writeSessionOptMode } from "./selection-manager.js";
 import { getApiClient, isApiFallback } from "./api-client.js";
 export { scoreStress, estimateContextBudget, classifyTurnSimple, tokenizeWords, topKeywords, extractLastUserText, isUserAskingForTests, isLikelyOffTopic, detectOutcomeSignal } from "./classifiers.js";
 function getVibeOSHome() {
@@ -557,7 +557,12 @@ const DFLT_OPTIMIZATION_MODE = "budget";
 export function loadOptimizationMode() {
     try {
         const mode = loadSessionOptMode(_OC_SID);
-        return mode && mode !== "auto" ? mode : DFLT_OPTIMIZATION_MODE;
+        if (mode && mode !== "auto")
+            return mode;
+        const global = loadGlobalOptMode();
+        if (global && global !== "auto")
+            return global;
+        return DFLT_OPTIMIZATION_MODE;
     }
     catch {
         return DFLT_OPTIMIZATION_MODE;
@@ -565,7 +570,10 @@ export function loadOptimizationMode() {
 }
 export function saveOptimizationMode(mode) {
     try {
-        return writeSessionOptMode(_OC_SID, mode);
+        writeSessionOptMode(_OC_SID, mode);
+        if (mode && mode !== "auto")
+            saveGlobalOptMode(mode);
+        return true;
     }
     catch (err) {
         console.error("[vibeOS] saveOptimizationMode failed: " + err.message);

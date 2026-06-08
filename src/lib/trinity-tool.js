@@ -74,6 +74,41 @@ export function createTrinityTool(deps) {
                 let cheapModel = "(unset)";
                 const credit = deps.loadCredit();
                 const effectiveLevel = sel.thinking_level || deps.thinkingLevel(credit);
+                if (deps.currentModel && sel.selected_model && deps.currentModel !== sel.selected_model) {
+                    try {
+                        const providers = deps._loadOpenCodeProviders();
+                        const auth = deps._readAuth();
+                        const models = await deps.discoverAvailableModels(providers, auth);
+                        const trinity = buildDeterministicTrinity(models, { selectedModelId: deps.currentModel, selectedTier: sel.active_slot || "brain" });
+                        if (trinity && trinity.brain) {
+                            const probed = {
+                                brain: models.find(m => m.id === trinity.brain) || { id: trinity.brain, cost: deps._modelCost(trinity.brain), tier: deps._modelTier(trinity.brain) },
+                                medium: models.find(m => m.id === trinity.medium) || { id: trinity.medium, cost: deps._modelCost(trinity.medium), tier: deps._modelTier(trinity.medium) },
+                                cheap: models.find(m => m.id === trinity.cheap) || { id: trinity.cheap, cost: deps._modelCost(trinity.cheap), tier: deps._modelTier(trinity.cheap) },
+                            };
+                            const tiersData = deps.safeJsonParse(deps.readFileSync(deps.TIERS_FILE, "utf-8"));
+                            tiersData.trinity = {
+                                brain: { oc: probed.brain.id, cc: deps.modelToCcAlias(probed.brain.id) },
+                                medium: { oc: probed.medium.id, cc: deps.modelToCcAlias(probed.medium.id) },
+                                cheap: { oc: probed.cheap.id, cc: deps.modelToCcAlias(probed.cheap.id) },
+                            };
+                            tiersData.selection ??= {};
+                            tiersData.selection.selected_provider = trinity.provider || resolveExecutionIdentity(deps.currentModel, deps.directory)?.provider || "";
+                            tiersData.selection.selected_model = deps.currentModel;
+                            tiersData.selection.executed_provider = tiersData.selection.selected_provider;
+                            tiersData.selection.executed_model = deps.currentModel;
+                            const _tmp = deps.TIERS_FILE + ".tmp." + Date.now();
+                            deps.writeFileSync(_tmp, JSON.stringify(tiersData, null, 2) + "\n", "utf-8");
+                            deps.renameSync(_tmp, deps.TIERS_FILE);
+                            tiers = tiersData.trinity;
+                            sel.selected_provider = tiersData.selection.selected_provider;
+                            sel.selected_model = deps.currentModel;
+                        }
+                    }
+                    catch (e) {
+                        console.error("[vibeOS] auto-rebuild on model change failed:", e.message);
+                    }
+                }
                 const sv = deps.readLifetimeSavings();
                 const ltTotal = (sv.ltTasks || 0) + (sv.ltCache || 0);
                 const sesTasks = sv.sesTasks || 0;
@@ -225,13 +260,15 @@ export function createTrinityTool(deps) {
                     const rawTier = modeEntry.pipeline[0] || "cheap";
                     const tierSlot = new Set(["brain", "medium", "cheap"]).has(rawTier) ? rawTier : "cheap";
                     deps.writeSelection("active_slot", tierSlot);
+                    deps.writeSelection("active_pipeline", modeEntry.pipeline);
                     deps.writeSelection("onboarding_mode", modeEntry.tdd === "quality" || modeEntry.enforcement === "strict" ? "strict" : "assist");
                     deps.writeSelection("delegation_enforce", modeEntry.enforcement === "strict" || modeEntry.enforcement === "on");
                     deps.writeSelection("flow_enabled", modeEntry.flow === "strict" || modeEntry.flow === "on" || modeEntry.flow === "audit");
                     deps.writeSelection("flow_enforce", modeEntry.flow === "strict" || modeEntry.flow === "on");
                     deps.writeSelection("tdd_enforce", modeEntry.tdd === "quality" || modeEntry.tdd === "on" || modeEntry.tdd === "strict");
                     deps.writeSelection("thinking_level", modeEntry.thinking);
-                    return `Mode set to ${slot.toUpperCase()}. Tier: ${tierSlot}.`;
+                    const pipelineStr = modeEntry.pipeline.join(" → ");
+                    return `Mode set to ${slot.toUpperCase()}. Tier: ${tierSlot}. Pipeline: ${pipelineStr}`;
                 }
                 return `Mode set to ${slot.toUpperCase()}.`;
             }

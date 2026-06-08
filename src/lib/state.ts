@@ -122,6 +122,14 @@ const warnCoalesceCounters = new Map<string, number>()
 let _savingsCache: any = null
 let _savingsCacheMtime = 0
 let _ledgerReconciledMtime = 0
+let _ledgerTotalsCache = {
+  mtime: 0,
+  size: 0,
+  delegation: 0,
+  cache: 0,
+  context7: 0,
+  entries: 0,
+}
 
 function invalidateSavingsCache(): void {
   _savingsCache = null
@@ -1482,14 +1490,77 @@ function getTodos(): TodoEntry[] {
 function readLedgerTotals(): { delegation: number, cache: number, context7: number, total: number, entries: number } {
   const empty = { delegation: 0, cache: 0, context7: 0, total: 0, entries: 0 }
   try {
-    if (!existsSync(SAVINGS_LEDGER_FILE)) return empty
-    const raw = readFileSync(SAVINGS_LEDGER_FILE, "utf-8")
-    if (!raw.trim()) return empty
+    if (!existsSync(SAVINGS_LEDGER_FILE)) {
+      _ledgerTotalsCache = { mtime: 0, size: 0, delegation: 0, cache: 0, context7: 0, entries: 0 }
+      return empty
+    }
+    const st = statSync(SAVINGS_LEDGER_FILE)
+    if (st.size > 10485760) {
+      _handleStateCorruption(SAVINGS_LEDGER_FILE)
+      return empty
+    }
+    if (st.size === 0) {
+      _ledgerTotalsCache = { mtime: st.mtimeMs, size: 0, delegation: 0, cache: 0, context7: 0, entries: 0 }
+      return empty
+    }
+    if (_ledgerTotalsCache.mtime === st.mtimeMs && _ledgerTotalsCache.size === st.size) {
+      return {
+        delegation: Math.round(_ledgerTotalsCache.delegation * 1000) / 1000,
+        cache: Math.round(_ledgerTotalsCache.cache * 1000) / 1000,
+        context7: Math.round(_ledgerTotalsCache.context7 * 1000) / 1000,
+        total: Math.round((_ledgerTotalsCache.delegation + _ledgerTotalsCache.cache) * 1000) / 1000,
+        entries: _ledgerTotalsCache.entries,
+      }
+    }
+
     let delegation = 0
     let cache = 0
     let context7 = 0
     let entries = 0
-    for (const line of raw.split("\n")) {
+    let raw = ""
+    let incremental = _ledgerTotalsCache.size > 0 && st.size >= _ledgerTotalsCache.size && _ledgerTotalsCache.mtime > 0
+    if (incremental) {
+      const deltaSize = st.size - _ledgerTotalsCache.size
+      if (deltaSize > 0) {
+        const fd = openSync(SAVINGS_LEDGER_FILE, "r")
+        try {
+          const buf = Buffer.allocUnsafe(deltaSize)
+          const bytesRead = readSync(fd, buf, 0, deltaSize, _ledgerTotalsCache.size)
+          raw = buf.toString("utf-8", 0, bytesRead)
+        } finally {
+          try { closeSync(fd) } catch {}
+        }
+      } else {
+        incremental = false
+      }
+      delegation = _ledgerTotalsCache.delegation
+      cache = _ledgerTotalsCache.cache
+      context7 = _ledgerTotalsCache.context7
+      entries = _ledgerTotalsCache.entries
+    }
+    if (!incremental) {
+      raw = readFileSync(SAVINGS_LEDGER_FILE, "utf-8")
+    }
+    if (!raw.trim()) {
+      _ledgerTotalsCache = {
+        mtime: st.mtimeMs,
+        size: st.size,
+        delegation,
+        cache,
+        context7,
+        entries,
+      }
+      return {
+        delegation: Math.round(delegation * 1000) / 1000,
+        cache: Math.round(cache * 1000) / 1000,
+        context7: Math.round(context7 * 1000) / 1000,
+        total: Math.round((delegation + cache) * 1000) / 1000,
+        entries,
+      }
+    }
+    const lines = raw.split("\n")
+    if (raw.endsWith("\n")) lines.pop()
+    for (const line of lines) {
       const ln = line.trim()
       if (!ln) continue
       let rec: any = null
@@ -1504,6 +1575,7 @@ function readLedgerTotals(): { delegation: number, cache: number, context7: numb
       else if (kind.includes("context7")) context7 += amt
       else delegation += amt
     }
+    _ledgerTotalsCache = { mtime: st.mtimeMs, size: st.size, delegation, cache, context7, entries }
     const total = delegation + cache
     return {
       delegation: Math.round(delegation * 1000) / 1000,
@@ -1519,8 +1591,10 @@ function readLedgerTotals(): { delegation: number, cache: number, context7: numb
 
 function reconcileStateFromLedger(): void {
   try {
-    const ledgerMtime = existsSync(SAVINGS_LEDGER_FILE) ? statSync(SAVINGS_LEDGER_FILE).mtimeMs : 0
-    if (ledgerMtime === _ledgerReconciledMtime) return
+    const ledgerStat = existsSync(SAVINGS_LEDGER_FILE) ? statSync(SAVINGS_LEDGER_FILE) : null
+    const ledgerMtime = ledgerStat?.mtimeMs || 0
+    const ledgerSize = ledgerStat?.size || 0
+    if (ledgerMtime === _ledgerReconciledMtime && ledgerSize === (_savingsCache?._ledgerSize || 0)) return
     _ledgerReconciledMtime = ledgerMtime
     _flushLedgerBuffer()
     const l = readLedgerTotals()
@@ -1542,6 +1616,8 @@ function reconcileStateFromLedger(): void {
       s.lifetime.ledger_entries_reconciled = l.entries
       return s
     })
+    _savingsCache = null
+    _savingsCacheMtime = 0
     invalidateSavingsCache()
   } catch {}
 }
@@ -1555,7 +1631,8 @@ function readLifetimeSavings(): any {
     const mtime = statSync(delegationStateFile).mtimeMs
     if (_savingsCache && mtime === _savingsCacheMtime) return _savingsCache
     const s = safeJsonParse(readFileSync(delegationStateFile, "utf-8"))
-    _savingsCache = { ..._computeSessionMetrics(s, _OC_SID), telemetry: readTelemetrySummary(s, _OC_SID) }
+    const ledgerSize = existsSync(SAVINGS_LEDGER_FILE) ? statSync(SAVINGS_LEDGER_FILE).size : 0
+    _savingsCache = { ..._computeSessionMetrics(s, _OC_SID), telemetry: readTelemetrySummary(s, _OC_SID), _ledgerSize: ledgerSize }
     _savingsCacheMtime = mtime
     return _savingsCache
   } catch { return empty }

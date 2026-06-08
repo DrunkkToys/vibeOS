@@ -6,7 +6,7 @@ import { homedir, tmpdir } from "node:os"
 import { createHash } from "node:crypto"
 import { ResolutionTracker } from "../vibeOS-lib/blackbox/index.js"
 import { safeJsonParse, _blackboxEnabled, setBlackboxEnabled as _setGlobalBlackboxEnabled, USER_HOME, FILE_LOCK_DIR, DELEGATION_STATE_FILE as STATE_FILE, GLOBAL_LEARNING_FILE, BLACKBOX_STATE_FILE, PROJECT_STATE_FILE, _OC_SID, currentProjectFingerprint, setCurrentProjectFingerprint, _handleStateCorruption, _lockPathFor, withFileLock, readJsonOrEmpty, validateState, loadBlackboxState, saveBlackboxState, loadGlobalLearning, updateGlobalLearning, getLearnedExploratoryWords, projectFingerprint, loadProjectState, saveProjectState, detectTechStack, ensureProjectBucket, recordMissedContext7, VIBEOS_HOME } from "./state.js"
-import { loadSessionOptMode, writeSessionOptMode, loadSessionSlot } from "./selection-manager.js"
+import { loadSessionOptMode, loadGlobalOptMode, saveGlobalOptMode, writeSessionOptMode, loadSessionSlot } from "./selection-manager.js"
 import { getApiClient, isApiFallback } from "./api-client.js"
 import { scoreStress, estimateContextBudget, classifyTurnSimple, tokenizeWords, topKeywords, extractLastUserText, isUserAskingForTests, isLikelyOffTopic, detectOutcomeSignal } from "./classifiers.js"
 export { scoreStress, estimateContextBudget, classifyTurnSimple, tokenizeWords, topKeywords, extractLastUserText, isUserAskingForTests, isLikelyOffTopic, detectOutcomeSignal } from "./classifiers.js"
@@ -570,13 +570,18 @@ const DFLT_OPTIMIZATION_MODE = "budget"
 export function loadOptimizationMode(): string {
   try {
     const mode = loadSessionOptMode(_OC_SID)
-    return mode && mode !== "auto" ? mode : DFLT_OPTIMIZATION_MODE
+    if (mode && mode !== "auto") return mode
+    const global = loadGlobalOptMode()
+    if (global && global !== "auto") return global
+    return DFLT_OPTIMIZATION_MODE
   } catch { return DFLT_OPTIMIZATION_MODE }
 }
 
 export function saveOptimizationMode(mode: string): boolean {
   try {
-    return writeSessionOptMode(_OC_SID, mode)
+    writeSessionOptMode(_OC_SID, mode)
+    if (mode && mode !== "auto") saveGlobalOptMode(mode)
+    return true
   } catch (err) {
     console.error("[vibeOS] saveOptimizationMode failed: " + err.message)
     return false

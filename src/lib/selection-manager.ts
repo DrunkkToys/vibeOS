@@ -39,6 +39,8 @@ export function loadSelection(): any {
     return {
       enabled:            j?.selection?.enabled !== false,
       active_slot:        j?.selection?.active_slot || null,
+      active_pipeline:    j?.selection?.active_pipeline || null,
+      optimization_mode:  j?.selection?.optimization_mode || null,
       thinking_level:     j?.selection?.thinking_level || "off",
       flow_enabled:       j?.selection?.flow_enabled === true,
       tdd_enforce:        j?.selection?.tdd_enforce === true,
@@ -108,6 +110,17 @@ export function loadSessionOptMode(sid: string): string | null {
     const j = safeJsonParse(readFileSync(BLACKBOX_FILE, "utf-8"))
     return j?.sessions?.[sid]?.optimization_mode || null
   } catch { return null }
+}
+
+export function loadGlobalOptMode(): string | null {
+  try {
+    const sel = loadSelection()
+    return sel.optimization_mode || null
+  } catch { return null }
+}
+
+export function saveGlobalOptMode(mode: string): boolean {
+  return writeSelection("optimization_mode", mode)
 }
 
 export function writeSessionOptMode(sid: string, mode: string): boolean {

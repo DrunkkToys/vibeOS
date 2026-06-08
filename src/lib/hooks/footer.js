@@ -284,11 +284,14 @@ async function _appendFooter(input, output, directory) {
         const modeCapitalized = (mode) => mode.charAt(0).toUpperCase() + mode.slice(1);
         const optMode = (resolvedMode || "budget").toLowerCase();
         const brandMap = { vibeultrax: "VibeUltraX", vibeqmax: "VibeQMaX", vibemax: "VibeMaX" };
+        const brandedToRuntime = { vibeultrax: "Quality", vibeqmax: "Quality", vibemax: "Speed" };
         const vibeBrand = brandMap[optModeFooter] || (execution.quality === "brain" ? "VibeQMaX" : "VibeMaX");
-        const modeLabel = modeCapitalized(optMode);
+        const modeLabel = modeCapitalized(brandedToRuntime[optMode] || optMode);
         const qualityIcon = execution.quality === "brain" ? "🧠" : execution.quality === "medium" ? "⚙" : execution.quality === "free" ? "🎁" : "⚡";
         const flashIcon = isApiConnected() ? " ⚡" : "";
-        let vibeLine = `— ${qualityIcon} ${execution.quality} | ${execution.provider_label} | ${modelDisplayName(execution.model)}`;
+        const selProvider = selNowFooter.selected_provider || execution.provider_label;
+        const selModel = selNowFooter.executed_model || execution.model;
+        let vibeLine = `— ${qualityIcon} ${execution.quality} | ${selProvider} | ${modelDisplayName(selModel)}`;
         if (ltTotal > 0) {
             vibeLine += ` | $${formatUsd(ltTotal)}`;
         }
