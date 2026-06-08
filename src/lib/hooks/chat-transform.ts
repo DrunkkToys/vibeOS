@@ -640,11 +640,13 @@ export const onSystemTransform = async (_input, output) => {
     const system = output?.system
     if (!Array.isArray(system)) return
 
-    if (_blackboxEnabled === false && isApiConnected()) {
+    if (isApiConnected()) {
       try {
-        setBlackboxEnabled(true)
         const bb = loadBlackboxStateFromCtx()
-        if (!bb.enabled) { bb.enabled = true; saveBlackboxStateToCtx(bb) }
+        if (!bb.enabled || _blackboxEnabled === false) {
+          setBlackboxEnabled(true)
+          if (!bb.enabled) { bb.enabled = true; saveBlackboxStateToCtx(bb) }
+        }
       } catch {}
     }
 
