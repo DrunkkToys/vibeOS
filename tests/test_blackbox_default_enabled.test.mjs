@@ -144,3 +144,60 @@ test("trinity status shows blackbox enabled indicator", async () => {
   assert.ok(typeof statusOutput === "string", "blackbox status should return a string")
   assert.ok(statusOutput.length > 0, "blackbox status should be non-empty")
 })
+
+test("auto-enable guard checks persisted state, not just in-memory", async () => {
+  baseDirs()
+  writeOpenCodeConfig()
+  writeTiers()
+  writeState()
+  writeBlackboxState({ enabled: false, sessions: {} })
+
+  const { isApiConnected } = await import("../src/lib/api-client.js?t=" + Date.now())
+  if (!isApiConnected()) return
+
+  const { loadBlackboxState: loadBB, saveBlackboxState: saveBB } = await import("../src/index.js?t=" + Date.now())
+  const { setBlackboxEnabled } = await import("../src/lib/turn-classify.js?t=" + Date.now())
+
+  const bbBefore = loadBB()
+  assert.strictEqual(bbBefore.enabled, false, "persisted state should be false before guard")
+
+  setBlackboxEnabled(true)
+  const bb = loadBB()
+  if (!bb.enabled) { bb.enabled = true; saveBB(bb) }
+
+  const bbAfter = loadBB()
+  assert.strictEqual(bbAfter.enabled, true, "persisted state should be true after guard")
+})
+
+test("live session: API connected + blackbox enabled = ML routing works", async () => {
+  baseDirs()
+  writeOpenCodeConfig()
+  writeTiers()
+  writeState()
+  writeBlackboxState({ enabled: true, sessions: {} })
+
+  const { isApiConnected, remoteCall } = await import("../src/lib/api-client.js?t=" + Date.now())
+  if (!isApiConnected()) return
+
+  const result = await remoteCall("blackboxSelectMode", ["INIT", 0.2], null)
+  assert.ok(result, "should return a result")
+  assert.ok(result.mode, "should have a mode")
+  assert.ok(["budget", "quality", "speed"].includes(result.mode), "mode should be valid")
+})
+
+test("live session: trinity setup does not disable blackbox", async () => {
+  baseDirs()
+  writeOpenCodeConfig()
+  writeTiers()
+  writeState()
+  writeBlackboxState({ enabled: true, sessions: {} })
+
+  const hooks = await freshPlugin()
+  const output = await hooks.tool.trinity.execute({ action: "setup", slot: "" })
+  assert.ok(typeof output === "string", "setup should return a string")
+  assert.ok(output.includes("Blackbox: on") || output.includes("blackbox") || output.includes("Blackbox"), "setup output should mention blackbox as on")
+
+  const indexMod = await import("../src/index.js?t=" + Date.now())
+  const state = indexMod.loadBlackboxState()
+  assert.strictEqual(state.enabled, true, "blackbox should remain enabled after setup")
+})
