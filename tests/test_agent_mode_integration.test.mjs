@@ -198,6 +198,57 @@ test("syncControlSettings drops stuck full thinking when the vector cools down",
   }
 })
 
+test("applySlot clears a paused desktop followup session when build resumes", async () => {
+  const home = mkdtempSync(join(tmpdir(), "vib-followup-"))
+  const prevHome = process.env.HOME
+  process.env.HOME = home
+  try {
+    mkdirSync(join(home, ".config/opencode"), { recursive: true })
+    mkdirSync(join(home, ".claude"), { recursive: true })
+    mkdirSync(join(home, "Library/Application Support/ai.opencode.desktop"), { recursive: true })
+    writeFileSync(join(home, ".config/opencode/opencode.json"), JSON.stringify({ default_agent: "build" }, null, 2))
+    writeFileSync(join(home, ".claude/model-tiers.json"), JSON.stringify({
+      selection: { active_slot: "medium" },
+      trinity: { medium: { oc: "deepseek/deepseek-v4-flash", cc: "haiku" } },
+    }, null, 2))
+
+    const moduleUrl = pathToFileURL(join(process.cwd(), "src/lib/pricing.js")).href
+    const script = `
+      const fs = await import("node:fs");
+      const path = await import("node:path");
+      const mod = await import(${JSON.stringify(moduleUrl)} + "?followup=" + Date.now());
+      const state = await import(${JSON.stringify(pathToFileURL(join(process.cwd(), "src/lib/state.js")).href)});
+      const home = process.env.HOME;
+      const sid = state._OC_SID;
+      const desktopDir = path.join(home, "Library", "Application Support", "ai.opencode.desktop");
+      const workspacePath = path.join(desktopDir, "opencode.workspace.test.dat");
+      const outer = {
+        "workspace:model-selection": JSON.stringify({
+          session: { [sid]: { agent: "build", model: { providerID: "deepseek", modelID: "deepseek-v4-flash" }, variant: null } }
+        }),
+        "workspace:followup": JSON.stringify({
+          items: {},
+          failed: {},
+          paused: { [sid]: true },
+          edit: {}
+        }),
+      };
+      fs.writeFileSync(workspacePath, JSON.stringify(outer, null, 2) + "\\n");
+      mod.applySlot("medium");
+      const updated = JSON.parse(fs.readFileSync(workspacePath, "utf8"));
+      const followup = JSON.parse(updated["workspace:followup"]);
+      console.log(JSON.stringify({ paused: Boolean(followup.paused?.[sid]) }));
+    `
+    const result = JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", script], {
+      env: { ...process.env, HOME: home },
+      encoding: "utf8",
+    }).trim())
+    assert.equal(result.paused, false)
+  } finally {
+    process.env.HOME = prevHome
+  }
+})
+
 // ── Verify other CV fields unaffected ──
 test("CV: enforcement_mode still present", () => {
   const cv = turn.computeControlVector(

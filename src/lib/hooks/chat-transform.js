@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, rmS
 import { join, dirname, basename } from "node:path";
 import { createHash } from "node:crypto";
 import { currentModel, currentProjectFingerprint, currentProjectName, _blackboxEnabled, loadSelection, writeSelection, safeJsonParse, applyDecadence, getSessionScratchpadDir, ensureSessionScratchpadDirs, indexAppend, briefedProjects, getActiveJobForProject, loadTodos, promotedProjectPatterns, detectTechStack, projectFingerprint, SCRATCHPAD_ROOT, TRINITY_OPENCODE_CONFIG, TIERS_FILE, loadGlobalLearning, setCurrentProjectFingerprint, setCurrentProjectName, stableJson, TOOL_NAME_NORMALIZE, _cacheDb, recordCacheSaving, } from "../state.js";
-import { applySlot, TRINITY_CHEAP, TRINITY_MEDIUM, cacheSavePer1MInputTokens, } from "../pricing.js";
+import { applySlot, TRINITY_CHEAP, TRINITY_MEDIUM, cacheSavePer1MInputTokens, clearWorkspaceFollowupPauseForSession, } from "../pricing.js";
 import { scoreStress, classifyTurnSimple, loadOptimizationMode, selectOptimizationModeRemote, computeControlVector, getBlackboxTracker, loadBlackboxState as loadBlackboxStateFromCtx, saveBlackboxState as saveBlackboxStateToCtx, extractLastUserText, isLikelyOffTopic, fetchBlackboxEnrichment, estimateContextBudget, buildControlHistoryEntry, setBlackboxEnabled, } from "../turn-classify.js";
 import { applyBudgetFirstMode, peekBudgetFirstMode } from "../mode-policy.js";
 import { BRANDED_MODES, RUNTIME_MODES } from "../mode-router.js";
@@ -187,6 +187,12 @@ export function syncControlSettings(cv, options = {}) {
         return;
     try {
         const sid = _OC_SID;
+        if (!cv.agent_mode) {
+            try {
+                clearWorkspaceFollowupPauseForSession(sid);
+            }
+            catch { }
+        }
         const persistOptimizationMode = options.persistOptimizationMode !== false;
         const currentSel = loadSelection();
         const userSetMode = loadSessionOptMode(sid + "_opt");

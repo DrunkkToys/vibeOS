@@ -27,6 +27,7 @@ import {
   classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget,
   shortModelName, formatUsd, _refreshModel, applySlot, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN,
   cacheSavePer1MInputTokens,
+  clearWorkspaceFollowupPauseForSession,
 } from "../pricing.js"
 import {
   scoreStress, classifyTurnSimple, loadOptimizationMode,
@@ -234,6 +235,11 @@ export function syncControlSettings(cv: any, options: { persistOptimizationMode?
   if (!cv) return
   try {
     const sid = _OC_SID
+    if (!cv.agent_mode) {
+      try {
+        clearWorkspaceFollowupPauseForSession(sid)
+      } catch {}
+    }
     const persistOptimizationMode = options.persistOptimizationMode !== false
     const currentSel = loadSelection()
     const userSetMode = loadSessionOptMode(sid + "_opt")

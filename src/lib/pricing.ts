@@ -19,7 +19,7 @@ import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, sta
 import { join, dirname, basename, resolve } from "node:path"
 import { homedir, tmpdir } from "node:os"
 import { createHash } from "node:crypto"
-import { currentModel, currentTier, setCurrentModel, setCurrentTier, safeJsonParse, HIGH_TIER_RE, MID_TIER_RE, loadTierRegexes, _modelLocked, VIBEOS_HOME, OPENCODE_HOME } from "./state.js"
+import { currentModel, currentTier, setCurrentModel, setCurrentTier, safeJsonParse, HIGH_TIER_RE, MID_TIER_RE, loadTierRegexes, _modelLocked, VIBEOS_HOME, OPENCODE_HOME, getCurrentSessionId } from "./state.js"
 
 export { HIGH_TIER_RE, MID_TIER_RE, loadTierRegexes }
 
@@ -911,6 +911,35 @@ function readWorkspaceSessionModel(directory = "") {
   return ""
 }
 
+export function clearWorkspaceFollowupPauseForSession(sessionId = ""): boolean {
+  const sid = String(sessionId || "").trim()
+  if (!sid) return false
+  let changed = false
+  const roots = [getOpenCodeDesktopHome(), getOpenCodeHome()]
+  for (const root of roots) {
+    try {
+      if (!existsSync(root) || !statSync(root).isDirectory()) continue
+      const files = readdirSync(root)
+        .filter((name) => /^opencode\.workspace\..*\.dat$/i.test(name))
+        .map((name) => join(root, name))
+        .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)
+      for (const file of files) {
+        try {
+          const outer = safeJsonParse(readFileSync(file, "utf-8"))
+          const followupRaw = outer?.["workspace:followup"]
+          const followup = typeof followupRaw === "string" ? safeJsonParse(followupRaw) : followupRaw
+          if (!followup || typeof followup !== "object" || !followup.paused || !followup.paused[sid]) continue
+          delete followup.paused[sid]
+          outer["workspace:followup"] = JSON.stringify(followup)
+          writeFileSync(file, JSON.stringify(outer, null, 2) + "\n")
+          changed = true
+        } catch {}
+      }
+    } catch {}
+  }
+  return changed
+}
+
 function readLatestOpenCodeSessionId(directory = "") {
   try {
     const globalPath = join(getOpenCodeDesktopHome(), "opencode.global.dat")
@@ -1143,6 +1172,7 @@ export function applySlot(slot: string, projectDir = "") {
       oc.model = ocModel
       writeFileSync(ocConfig, JSON.stringify(oc, null, 2) + "\n")
     }
+    clearWorkspaceFollowupPauseForSession(getCurrentSessionId())
     _refreshModel(process.cwd())
     return { ok: true, ocModel }
   } catch (err) {
