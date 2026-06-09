@@ -1,3 +1,7 @@
+## 0.23.43
+- fix: support desktop footer alert chain
+
+
 ## 0.23.42
 Fix paused build followup recovery
 Fix stuck startup plan restore
