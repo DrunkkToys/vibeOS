@@ -67,8 +67,9 @@ export function bootstrapOptimizationSession() {
     return { mode: resolvedMode, slot: resolvedSlot };
 }
 export async function selectOptimizationModeRemote(subRegime, stressMultiplier, fallbackMode) {
-    if (!isApiFallback()) return autoSelectMode(subRegime || "INIT", stressMultiplier);
     const fallback = resolveOptimizationMode(subRegime, stressMultiplier, fallbackMode);
+    if (!isApiFallback())
+        return autoSelectMode(subRegime || "INIT", stressMultiplier);
     try {
         if (!isApiFallback()) {
             const client = getApiClient();

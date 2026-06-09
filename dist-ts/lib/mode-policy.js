@@ -21,12 +21,12 @@ function isManualOverride(mode) {
     return MANUAL_MODES.has(normalizeMode(mode));
 }
 function chooseEpisodeMode(regime, suggestedMode, stress) {
+    if (suggestedMode === "vibeultrax" || suggestedMode === "vibeqmax" || suggestedMode === "vibemax")
+        return suggestedMode;
     if (LOOP_REGIMES.has(regime) || suggestedMode === "speed")
         return "speed";
     if (QUALITY_REGIMES.has(regime) || suggestedMode === "quality")
         return "quality";
-    if (suggestedMode === "vibeultrax" || suggestedMode === "vibeqmax")
-        return suggestedMode;
     return stress > STRESS_QUALITY_THRESHOLD ? "quality" : "budget";
 }
 function defaultPolicy() {

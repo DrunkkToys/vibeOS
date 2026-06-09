@@ -263,7 +263,7 @@ async function _appendFooter(input, output, directory) {
     const optMode = (resolvedMode || "budget").toLowerCase()
     const brandMap: Record<string, string> = { vibeultrax: "VibeUltraX", vibeqmax: "VibeQMaX", vibemax: "VibeMaX", quality: "VibeQMaX", audit: "VibeQMaX", forensic: "VibeQMaX" }
     const brandedToRuntime: Record<string, string> = { vibeultrax: "Quality", vibeqmax: "Quality", vibemax: "Speed" }
-    const activeSlot = selNowFooter.active_slot || "brain"
+    const activeSlot = selNowFooter.vector_changed_slot || selNowFooter.active_slot || "brain"
     const vibeBrand = brandMap[optModeFooter] || (activeSlot === "brain" ? "VibeQMaX" : "VibeMaX")
     const modeLabel = modeCapitalized(brandedToRuntime[optMode] || optMode)
     const tierIcon = activeSlot === "brain" ? "🧠" : activeSlot === "medium" ? "⚙" : activeSlot === "cheap" ? "🎁" : "⚡"
@@ -275,16 +275,13 @@ async function _appendFooter(input, output, directory) {
     if (isApiConnected()) {
       vibeLine += ` | ${vibeBrand}${flashIcon}`
     }
-    try {
-      const bb = _latestBlackboxState
-      if (bb?.sub_regime) vibeLine += ` | ${bb.sub_regime}`
-    } catch {}
-    try {
-      const sel = loadSelection()
-      if (sel?.vector_changed_slot && sel?.vector_changed_at && (Date.now() - sel.vector_changed_at < 60000)) {
-        vibeLine += ` | → ${sel.vector_changed_slot}`
-      }
-    } catch {}
+    const displayMode = selNowFooter?.optimization_mode || optMode || "auto"
+    if (displayMode && displayMode !== "auto") {
+      vibeLine += ` | ${displayMode}`
+    }
+    if (selNowFooter?.vector_changed_slot) {
+      vibeLine += ` | → ${selNowFooter.vector_changed_slot}`
+    }
     const footerText = stripped + `\n\n${vibeLine} —`
 
     if (_blackboxEnabled) {

@@ -4,7 +4,7 @@ import { join, basename } from "node:path";
 import { createHash } from "node:crypto";
 import { currentModel, currentProjectFingerprint, currentProjectName, _blackboxEnabled, loadSelection, writeSelection, safeJsonParse, applyDecadence, getSessionScratchpadDir, ensureSessionScratchpadDirs, indexAppend, briefedProjects, getActiveJobForProject, loadTodos, promotedProjectPatterns, detectTechStack, projectFingerprint, SCRATCHPAD_ROOT, TRINITY_OPENCODE_CONFIG, TIERS_FILE, loadGlobalLearning, setCurrentProjectFingerprint, setCurrentProjectName, stableJson, TOOL_NAME_NORMALIZE, _cacheDb, recordCacheSaving, } from "../state.js";
 import { applySlot, TRINITY_CHEAP, TRINITY_MEDIUM, cacheSavePer1MInputTokens, } from "../pricing.js";
-import { scoreStress, classifyTurnSimple, loadOptimizationMode, saveOptimizationMode, selectOptimizationModeRemote, computeControlVector, getBlackboxTracker, loadBlackboxState as loadBlackboxStateFromCtx, saveBlackboxState as saveBlackboxStateToCtx, extractLastUserText, isLikelyOffTopic, fetchBlackboxEnrichment, estimateContextBudget, buildControlHistoryEntry, setBlackboxEnabled, } from "../turn-classify.js";
+import { scoreStress, classifyTurnSimple, loadOptimizationMode, selectOptimizationModeRemote, computeControlVector, getBlackboxTracker, loadBlackboxState as loadBlackboxStateFromCtx, saveBlackboxState as saveBlackboxStateToCtx, extractLastUserText, isLikelyOffTopic, fetchBlackboxEnrichment, estimateContextBudget, buildControlHistoryEntry, setBlackboxEnabled, } from "../turn-classify.js";
 import { applyBudgetFirstMode, peekBudgetFirstMode } from "../mode-policy.js";
 import { BRANDED_MODES, RUNTIME_MODES } from "../mode-router.js";
 import { addCacheEntry, extractRecentCacheOutputs } from "../../vibeOS-lib/smart-cache.js";
@@ -49,7 +49,7 @@ async function apiComputeControlVector(state, action, optimizationMode) {
         const res = await remoteCall("blackboxControlVector", [state, action, optimizationMode], null);
         if (res?.control_vector) {
             const local = computeControlVector(state, action, optimizationMode);
-            return { ...res.control_vector, tier_bias: local.tier_bias };
+            return { ...res.control_vector, tier_bias: local.tier_bias, optimization_mode: local.optimization_mode };
         }
     }
     catch { }
@@ -218,7 +218,7 @@ export function syncControlSettings(cv, options = {}) {
                 writeSessionSlot(sid, slot);
                 writeIf("vector_changed_slot", slot);
                 writeIf("vector_changed_at", Date.now());
-                const applied = applySlot(slot, onSystemTransform._directory || "");
+                const applied = applySlot(slot);
                 if (!applied?.ok) {
                     console.error(`[vibeOS] failed to apply slot ${slot}: ${applied?.reason || "unknown"}`);
                 }

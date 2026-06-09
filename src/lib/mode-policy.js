@@ -79,7 +79,7 @@ function persistSessionPolicy(state, session, policy, mode) {
         active: !!policy.active,
         mode,
         reason: policy.reason || BASELINE_MODE,
-        shouldPersistRequestedMode: false,
+        shouldPersistRequestedMode: true,
     };
 }
 export function peekBudgetFirstMode(input = {}) {
@@ -90,14 +90,14 @@ export function peekBudgetFirstMode(input = {}) {
             active: true,
             mode: normalizeMode(policy.active_mode),
             reason: policy.reason || "episode",
-            shouldPersistRequestedMode: false,
+            shouldPersistRequestedMode: true,
         };
     }
     return {
         active: false,
         mode: BASELINE_MODE,
         reason: "budget",
-        shouldPersistRequestedMode: false,
+        shouldPersistRequestedMode: true,
     };
 }
 export function applyBudgetFirstMode(input = {}) {

@@ -288,9 +288,9 @@ async function _appendFooter(input, output, directory) {
         const activeSlot = selNowFooter.vector_changed_slot || selNowFooter.active_slot || "brain";
         const vibeBrand = brandMap[optModeFooter] || (activeSlot === "brain" ? "VibeQMaX" : "VibeMaX");
         const modeLabel = modeCapitalized(brandedToRuntime[optMode] || optMode);
-        const tierIcon = activeSlot === "brain" ? "\ud83e\udde0" : activeSlot === "medium" ? "\u2699" : activeSlot === "cheap" ? "\ud83c\udf81" : "\u26a1";
-        const flashIcon = isApiConnected() ? " \u26a1" : "";
-        let vibeLine = `\u2014 ${tierIcon} ${activeSlot} | ${execution.provider_label} | ${modelDisplayName(execution.model)}`;
+        const tierIcon = activeSlot === "brain" ? "🧠" : activeSlot === "medium" ? "⚙" : activeSlot === "cheap" ? "🎁" : "⚡";
+        const flashIcon = isApiConnected() ? " ⚡" : "";
+        let vibeLine = `— ${tierIcon} ${activeSlot} | ${execution.provider_label} | ${modelDisplayName(execution.model)}`;
         if (ltTotal > 0) {
             vibeLine += ` | $${formatUsd(ltTotal)}`;
         }
@@ -304,7 +304,6 @@ async function _appendFooter(input, output, directory) {
         if (selNowFooter?.vector_changed_slot) {
             vibeLine += ` | → ${selNowFooter.vector_changed_slot}`;
         }
-
         const footerText = stripped + `\n\n${vibeLine} —`;
         if (_blackboxEnabled) {
             try {

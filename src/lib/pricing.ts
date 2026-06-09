@@ -1108,7 +1108,7 @@ export function _refreshModel(directory) {
             for (const s of getTrinitySlotOrder(t)) {
               if (t?.trinity?.[s]?.oc === cfgModel) {
                 t.selection.active_slot = s
-                const _tmp = TIERS_FILE + ".tmp." + Date.now()
+    const _tmp = TIERS_FILE + ".tmp." + Date.now() + "." + Math.random().toString(36).slice(2, 8)
                 writeFileSync(_tmp, JSON.stringify(t, null, 2) + "\n", "utf-8")
                 renameSync(_tmp, TIERS_FILE)
                 if (DEBUG_INTERNALS) console.error(`[vibeOS] model refresh (config): synced active_slot → ${s}`)
@@ -1122,7 +1122,7 @@ export function _refreshModel(directory) {
   } catch {}
 }
 
-export function applySlot(slot) {
+export function applySlot(slot: string, projectDir = "") {
   try {
     const TIERS_FILE = join(getVibeOSHome(), "model-tiers.json")
     const j = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
@@ -1133,7 +1133,8 @@ export function applySlot(slot) {
     writeFileSync(_tmp, JSON.stringify(j, null, 2) + "\n", "utf-8")
     renameSync(_tmp, TIERS_FILE)
     // Prefer project-local config to avoid mutating global provider/dropdown config.
-    const localOcConfig = join(process.cwd(), "opencode.json")
+    const dir = projectDir || process.cwd()
+    const localOcConfig = join(dir, "opencode.json")
     const ocConfig = existsSync(localOcConfig)
       ? localOcConfig
       : join(getOpenCodeHome(), "opencode.json")

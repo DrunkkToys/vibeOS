@@ -81,6 +81,7 @@ export async function selectOptimizationModeRemote(
   fallbackMode: OptimizationMode | string | undefined,
 ): Promise<OptimizationMode> {
   const fallback = resolveOptimizationMode(subRegime, stressMultiplier, fallbackMode)
+  if (!isApiFallback()) return autoSelectMode(subRegime || "INIT", stressMultiplier) as OptimizationMode
   try {
     if (!isApiFallback()) {
       const client = getApiClient()

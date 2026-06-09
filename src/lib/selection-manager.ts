@@ -65,7 +65,7 @@ export function writeSelection(key: string, value: any): boolean {
     const j = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
     if (!j.selection) j.selection = {}
     j.selection[key] = value
-    const tmp = TIERS_FILE + ".tmp"
+    const tmp = TIERS_FILE + ".tmp." + Date.now() + "." + Math.random().toString(36).slice(2, 8)
     writeFileSync(tmp, JSON.stringify(j, null, 2) + "\n")
     renameSync(tmp, TIERS_FILE)
     return true

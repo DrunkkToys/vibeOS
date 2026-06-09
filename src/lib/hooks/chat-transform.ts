@@ -94,7 +94,10 @@ const correctionSeenKeys = new Set()
 async function apiComputeControlVector(state: any, action: any, optimizationMode: any): Promise<any> {
   try {
     const res = await remoteCall("blackboxControlVector", [state, action, optimizationMode], null)
-    if (res?.control_vector) return res.control_vector
+    if (res?.control_vector) {
+      const local = computeControlVector(state, action, optimizationMode)
+      return { ...res.control_vector, tier_bias: local.tier_bias, optimization_mode: local.optimization_mode }
+    }
   } catch {}
   return computeControlVector(state, action, optimizationMode)
 }
@@ -252,13 +255,8 @@ export function syncControlSettings(cv: any, options: { persistOptimizationMode?
     if (cv.thinking_mode && currentSel.thinking_level !== "full") writeIf("thinking_level", cv.thinking_mode)
 
     if (persistOptimizationMode && cv.optimization_mode && userOptMode !== "auto") {
-      if (userOptMode !== cv.optimization_mode && !userSetMode) {
-        const globalMode = loadGlobalOptMode()
-        const brandedModes = ["vibeultrax", "vibeqmax", "vibemax"]
-        if (!globalMode || !brandedModes.includes(globalMode)) {
-          writeSessionSlot(sid + "_opt", cv.optimization_mode)
-          saveOptimizationMode(cv.optimization_mode)
-        }
+      if (userOptMode !== cv.optimization_mode) {
+        writeIf("optimization_mode", cv.optimization_mode)
       }
     }
 
