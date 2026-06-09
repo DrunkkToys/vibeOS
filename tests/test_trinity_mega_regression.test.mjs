@@ -55,12 +55,14 @@ test("set brain", async () => {
 })
 
 test("set medium", async () => {
+  process.env.VIBEOS_HOME = join(sandbox, ".claude")
   setTiers()
   await (await getHooks()).tool.trinity.execute({ action: "set", slot: "medium" })
   assert.equal(readSel().active_slot, "medium")
 })
 
 test("set cheap", async () => {
+  process.env.VIBEOS_HOME = join(sandbox, ".claude")
   setTiers()
   await (await getHooks()).tool.trinity.execute({ action: "set", slot: "cheap" })
   assert.equal(readSel().active_slot, "cheap")
