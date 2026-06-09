@@ -44,8 +44,8 @@ export function resolveOptimizationMode(
 
 export function resolveOptimizationSlot(mode: OptimizationMode | string | undefined): "brain" | "medium" | "cheap" {
   const normalized = String(mode || "budget").toLowerCase()
-  return normalized === "speed" ? "medium"
-    : normalized === "quality" || normalized === "longrun" ? "brain"
+  return normalized === "speed" || normalized === "vibemax" ? "medium"
+    : normalized === "quality" || normalized === "longrun" || normalized === "vibeultrax" || normalized === "vibeqmax" ? "brain"
       : "cheap"
 }
 

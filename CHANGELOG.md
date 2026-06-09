@@ -1,3 +1,18 @@
+## 0.23.44
+- fix: force-add run-test-suite.mjs for CI release workflow
+- fix: restart stale startup plan agent and clear workspace followup pause
+- chore: sync package-lock version
+
+
+## 0.23.43
+- fix: support desktop footer alert chain
+
+
+## 0.23.42
+Fix paused build followup recovery
+Fix stuck startup plan restore
+
+
 ## 0.23.40
 - fix: bypass remote selector for manual modes
 - fix: ML pipeline — autoselect unification, branded mode passthrough, vibeultrax/vibeqmax MODE_DELTAS

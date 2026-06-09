@@ -426,6 +426,18 @@ test("message.updated: CLI edge empty parts", async () => {
   assert.equal(o.content.length, 0, "empty Content[] stays empty - no footer for empty messages")
 })
 
+test("message.updated: nested message payload also receives the footer", async () => {
+  const hooks = await freshPlugin()
+  const o = {
+    message: {
+      content: [{ type: "text", text: "Nested CLI message payload that should still get the vibeOS footer appended correctly." }],
+    },
+  }
+  await hooks["message.updated"]({ messageID: "cli-nested" }, o)
+  const extracted = o.message.content.filter(p => p.type === "text").map(p => p.text).join("\n")
+  assert.ok(extracted.includes("Deepseek"), "nested message payload gets footer: " + extracted.slice(-80))
+})
+
 test("regression: message.updated empty content does not poison text.complete dedup", async () => {
   const hooks = await freshPlugin()
   await hooks["message.updated"]({ messageID: "poison-test" }, { content: [] })

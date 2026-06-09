@@ -1,9 +1,9 @@
 // @ts-nocheck
-import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, rmSync } from "node:fs";
-import { join, basename } from "node:path";
+import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, rmSync, readdirSync, statSync } from "node:fs";
+import { join, dirname, basename } from "node:path";
 import { createHash } from "node:crypto";
 import { currentModel, currentProjectFingerprint, currentProjectName, _blackboxEnabled, loadSelection, writeSelection, safeJsonParse, applyDecadence, getSessionScratchpadDir, ensureSessionScratchpadDirs, indexAppend, briefedProjects, getActiveJobForProject, loadTodos, promotedProjectPatterns, detectTechStack, projectFingerprint, SCRATCHPAD_ROOT, TRINITY_OPENCODE_CONFIG, TIERS_FILE, loadGlobalLearning, setCurrentProjectFingerprint, setCurrentProjectName, stableJson, TOOL_NAME_NORMALIZE, _cacheDb, recordCacheSaving, } from "../state.js";
-import { applySlot, TRINITY_CHEAP, TRINITY_MEDIUM, cacheSavePer1MInputTokens, } from "../pricing.js";
+import { applySlot, TRINITY_CHEAP, TRINITY_MEDIUM, cacheSavePer1MInputTokens, clearWorkspaceFollowupPauseForSession, } from "../pricing.js";
 import { scoreStress, classifyTurnSimple, loadOptimizationMode, selectOptimizationModeRemote, computeControlVector, getBlackboxTracker, loadBlackboxState as loadBlackboxStateFromCtx, saveBlackboxState as saveBlackboxStateToCtx, extractLastUserText, isLikelyOffTopic, fetchBlackboxEnrichment, estimateContextBudget, buildControlHistoryEntry, setBlackboxEnabled, } from "../turn-classify.js";
 import { applyBudgetFirstMode, peekBudgetFirstMode } from "../mode-policy.js";
 import { BRANDED_MODES, RUNTIME_MODES } from "../mode-router.js";
@@ -18,6 +18,32 @@ import { TEMPLATES, DEFAULT_TEMPLATE, resolveTemplate, shouldInjectTemplate } fr
 const BYTES_PER_TOKEN = 4;
 function getVibeOSHome() {
     return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude");
+}
+function resolveRestorableOpenCodeAgent(currentSel) {
+    const remembered = typeof currentSel?.previous_default_agent === "string" ? currentSel.previous_default_agent.trim() : "";
+    if (remembered && remembered !== "plan")
+        return remembered;
+    try {
+        const configDir = dirname(TRINITY_OPENCODE_CONFIG || join(process.env.HOME || "", ".config/opencode/opencode.json"));
+        const candidates = readdirSync(configDir)
+            .filter((name) => /^opencode\.json\.bak/.test(name))
+            .map((name) => {
+            const path = join(configDir, name);
+            return { path, mtime: statSync(path).mtimeMs };
+        })
+            .sort((a, b) => b.mtime - a.mtime);
+        for (const candidate of candidates) {
+            try {
+                const snapshot = safeJsonParse(readFileSync(candidate.path, "utf-8"));
+                const agent = typeof snapshot?.default_agent === "string" ? snapshot.default_agent.trim() : "";
+                if (agent && agent !== "plan")
+                    return agent;
+            }
+            catch { }
+        }
+    }
+    catch { }
+    return null;
 }
 function getOpenCodeHome() {
     return process.env.VIBEOS_OPENCODE_HOME || join(process.env.HOME || "", ".config", "opencode");
@@ -161,6 +187,12 @@ export function syncControlSettings(cv, options = {}) {
         return;
     try {
         const sid = _OC_SID;
+        if (!cv.agent_mode) {
+            try {
+                clearWorkspaceFollowupPauseForSession(sid);
+            }
+            catch { }
+        }
         const persistOptimizationMode = options.persistOptimizationMode !== false;
         const currentSel = loadSelection();
         const userSetMode = loadSessionOptMode(sid + "_opt");
@@ -248,11 +280,13 @@ export function syncControlSettings(cv, options = {}) {
                 const OC_CONFIG = TRINITY_OPENCODE_CONFIG || join(getOpenCodeHome(), "opencode.json");
                 if (existsSync(OC_CONFIG)) {
                     const oc = safeJsonParse(readFileSync(OC_CONFIG, "utf-8"));
-                    const previousAgent = currentSel.previous_default_agent;
-                    if (oc.default_agent === "plan" && previousAgent && previousAgent !== "plan") {
-                        oc.default_agent = previousAgent;
+                    const restoreAgent = oc.default_agent === "plan" ? resolveRestorableOpenCodeAgent(currentSel) : null;
+                    if (restoreAgent && oc.default_agent === "plan") {
+                        oc.default_agent = restoreAgent;
                         writeFileSync(OC_CONFIG, JSON.stringify(oc, null, 2) + "\n");
-                        writeSelection("previous_default_agent", null);
+                        clearWorkspaceFollowupPauseForSession(sid);
+                        if (currentSel.previous_default_agent)
+                            writeSelection("previous_default_agent", null);
                     }
                 }
             }
