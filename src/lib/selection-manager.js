@@ -42,7 +42,7 @@ function safeJsonParse(raw) {
         throw e;
     }
 }
-const DFLT_SEL = { enabled: true, active_slot: null, thinking_level: "off", flow_enabled: false, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: false, delegation_enforce: true, onboarding_mode: null, selected_provider: null, selected_quality_tier: null, selected_model: null, executed_provider: null, executed_quality_tier: null, executed_model: null };
+const DFLT_SEL = { enabled: true, active_slot: null, thinking_level: "off", flow_enabled: false, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: false, delegation_enforce: true, onboarding_mode: null, selected_provider: null, selected_quality_tier: null, selected_model: null, executed_provider: null, executed_quality_tier: null, executed_model: null, previous_default_agent: null };
 export function loadSelection() {
     const TIERS_FILE = join(getVibeOSHome(), "model-tiers.json");
     try {
@@ -73,6 +73,7 @@ export function loadSelection() {
             executed_provider: j?.selection?.executed_provider || null,
             executed_quality_tier: j?.selection?.executed_quality_tier || null,
             executed_model: j?.selection?.executed_model || null,
+            previous_default_agent: j?.selection?.previous_default_agent || null,
         };
     }
     catch {

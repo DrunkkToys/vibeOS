@@ -230,6 +230,9 @@ export function syncControlSettings(cv, options = {}) {
                 if (existsSync(OC_CONFIG)) {
                     const oc = safeJsonParse(readFileSync(OC_CONFIG, "utf-8"));
                     if (oc.default_agent !== cv.agent_mode) {
+                        if (cv.agent_mode === "plan" && oc.default_agent && oc.default_agent !== "plan") {
+                            writeSelection("previous_default_agent", oc.default_agent);
+                        }
                         oc.default_agent = cv.agent_mode;
                         writeFileSync(OC_CONFIG, JSON.stringify(oc, null, 2) + "\n");
                     }
@@ -237,21 +240,20 @@ export function syncControlSettings(cv, options = {}) {
             }
             catch { }
         }
-        if (cv.agent_mode === "plan" && latestUserIntent) {
-            const planDone = /^(yes|go ahead|proceed|looks? good|do it|sounds? good|perfect|great|nice|ok|okay|let.s do it|implement|execute|make it|build it|write it|start)\b/i.test(latestUserIntent.trim());
-            if (planDone) {
-                try {
-                    const OC_CONFIG = TRINITY_OPENCODE_CONFIG || join(getOpenCodeHome(), "opencode.json");
-                    if (existsSync(OC_CONFIG)) {
-                        const oc = safeJsonParse(readFileSync(OC_CONFIG, "utf-8"));
-                        if (oc.default_agent === "plan") {
-                            oc.default_agent = "orchestrator";
-                            writeFileSync(OC_CONFIG, JSON.stringify(oc, null, 2) + "\n");
-                        }
+        else {
+            try {
+                const OC_CONFIG = TRINITY_OPENCODE_CONFIG || join(getOpenCodeHome(), "opencode.json");
+                if (existsSync(OC_CONFIG)) {
+                    const oc = safeJsonParse(readFileSync(OC_CONFIG, "utf-8"));
+                    const previousAgent = currentSel.previous_default_agent;
+                    if (oc.default_agent === "plan" && previousAgent && previousAgent !== "plan") {
+                        oc.default_agent = previousAgent;
+                        writeFileSync(OC_CONFIG, JSON.stringify(oc, null, 2) + "\n");
+                        writeSelection("previous_default_agent", null);
                     }
                 }
-                catch { }
             }
+            catch { }
         }
     }
     catch { /* noop -- non-critical sync */ }
