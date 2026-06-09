@@ -1,3 +1,7 @@
+## 0.23.27
+- fix: ML-chosen optimization_mode dances in footer + → arrow
+
+
 ## 0.23.26
 - fix: footer primary tier = ML decision (vector_changed_slot), ✓ when applied
 
