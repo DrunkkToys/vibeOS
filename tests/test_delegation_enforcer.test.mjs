@@ -2704,7 +2704,6 @@ test("tdd-enforce gate: creates skeleton on source write, idempotent on re-write
   mkdirSync(join(dir, "src"), { recursive: true })
   writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-flash" }))
   const srcFile = join(dir, "src", "gate-worker.js")
-  const testFile = join(dir, "src", "tests", "gate-worker.test.js")
   writeFileSync(srcFile, "module.exports = { run: () => 1 };\n")
   writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
     selection: { enabled: true, active_slot: "medium", tdd_enforce: true, tdd_strict: true, tdd_quality: true },
@@ -2715,21 +2714,24 @@ test("tdd-enforce gate: creates skeleton on source write, idempotent on re-write
     },
   }))
   const { setToolDirectory, onToolExecuteAfter } = await import("../src/lib/hooks/tool-execute.js?tdd=" + Date.now())
+  const { buildTestSkeleton } = await loadPlugin()
   setToolDirectory(dir)
+  const skeleton = buildTestSkeleton(srcFile, readFileSync(srcFile, "utf-8"), { strict: true, quality: true })
+  assert.ok(skeleton?.path, "should resolve a test skeleton path for the source file")
 
   // TDD fires on any source file write (no explicit intent needed).
   await onToolExecuteAfter(
     { tool: "write", args: { filePath: srcFile } },
     { result: "ok" }
   )
-  assert.equal(existsSync(testFile), true, "should auto-create skeleton on any source file write")
+  assert.equal(existsSync(skeleton.path), true, "should auto-create skeleton on any source file write")
 
   // Second write is idempotent — skeleton already exists.
   await onToolExecuteAfter(
     { tool: "write", args: { filePath: srcFile } },
     { result: "ok" }
   )
-  assert.equal(existsSync(testFile), true, "skeleton persists after re-write")
+  assert.equal(existsSync(skeleton.path), true, "skeleton persists after re-write")
 })
 
 // ════════════════════════════════════════════════════════════════════════════

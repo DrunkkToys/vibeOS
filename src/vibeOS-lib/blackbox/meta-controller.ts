@@ -175,14 +175,43 @@ const MODE_DELTAS = {
     api_enrichment: true,
     outcome_detection: true,
   },
+  vibeultrax: {
+    tier_bias: "brain",
+    thinking_mode: "full",
+    tdd_mode: "quality",
+    tdd_focus: ["full-coverage", "edge-cases", "property-based"],
+    flow_mode: "strict",
+    flow_focus: ["write-edit-check", "no-untouched-files", "no-lgtm", "suggest-alternative"],
+    enforcement_mode: "strict",
+    wbp_verbosity: "detailed",
+    context7_urgency: "required",
+    stress_multiplier: 2.5,
+    loop_threshold: 0.3,
+    api_enrichment: true,
+    outcome_detection: true,
+  },
+  vibeqmax: {
+    tier_bias: "brain",
+    thinking_mode: "full",
+    tdd_mode: "quality",
+    tdd_focus: ["skeleton-on-write", "assertion-check", "edge-cases"],
+    flow_mode: "strict",
+    flow_focus: ["write-edit-check", "no-lgtm", "check-debug-artifacts"],
+    enforcement_mode: "strict",
+    wbp_verbosity: "normal",
+    context7_urgency: "required",
+    stress_multiplier: 1.5,
+    loop_threshold: 0.5,
+    api_enrichment: true,
+    outcome_detection: true,
+  },
 }
 export function autoSelectMode(subRegime, stressMultiplier) {
-  if (subRegime === "CONVERGING" || subRegime === "CLOSED")
-    return "quality"
-  if (subRegime === "LOOPING")
-    return "speed"
-  if (stressMultiplier && stressMultiplier > 0.5)
-    return "quality"
+  const regime = String(subRegime || "INIT").toUpperCase()
+  if (regime === "AUDIT" || regime === "FORENSIC") return regime.toLowerCase()
+  if (regime === "LOOPING") return "speed"
+  if (regime === "CONVERGING" || regime === "CLOSED") return "quality"
+  if (stressMultiplier && stressMultiplier > 1.5) return "quality"
   return "budget"
 }
 export function computeControlVector(state, action, optimizationMode) {

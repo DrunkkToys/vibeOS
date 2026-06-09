@@ -220,38 +220,64 @@ test('e2e: simulated full session hook sequence does not crash', async () => {
   const { home, sandbox } = makeSandbox('full-session')
   const projectDir = join(sandbox, 'proj')
   mkdirSync(projectDir, { recursive: true })
-  writeFileSync(join(projectDir, 'opencode.json'), JSON.stringify({ model: 'deepseek/deepseek-v4-pro' }))
+  const opencodeHome = join(home, '.config', 'opencode')
+  const prevOpencodeHome = process.env.VIBEOS_OPENCODE_HOME
+  process.env.VIBEOS_OPENCODE_HOME = opencodeHome
+  writeFileSync(join(opencodeHome, 'opencode.json'), JSON.stringify({ model: 'deepseek/deepseek-v4-flash', default_agent: 'build' }))
   process.env.HOME = home
 
-  const mod = await import('../src/index.js?ful1=' + Date.now())
-  const hooks = await mod.DelegationEnforcer({ directory: projectDir })
+  try {
+    const mod = await import('../src/index.js?ful1=' + Date.now())
+    const hooks = await mod.DelegationEnforcer({ directory: projectDir })
 
-  await hooks['experimental.chat.system.transform'](
-    { message: { role: 'user', content: 'I need help writing a TypeScript function.' } },
-    { system: [] }
-  )
+    const userText = 'fix this production bug in the payment pipeline'
 
-  await hooks['tool.execute.before']({ tool: 'write' }, { args: { filePath: join(projectDir, 'src/foo.ts') } })
-  await hooks['tool.execute.before']({ tool: 'bash' }, { args: 'npm test' })
+    await hooks['experimental.chat.messages.transform'](
+      {},
+      { messages: [{ info: { role: 'user' }, parts: [{ type: 'text', text: userText }] }] }
+    )
 
-  await hooks['tool.execute.after'](
-    { tool: 'write', filePath: join(projectDir, 'src/foo.ts') },
-    { result: 'export function foo(): string { return "hello" }' }
-  )
+    await hooks['experimental.chat.system.transform'](
+      { message: { role: 'user', content: userText } },
+      { system: [] }
+    )
 
-  const textOutput = { text: 'Here is your function. It does the thing with proper types and handles edge cases.' }
-  await hooks['experimental.text.complete']({ messageID: 'msg-' + Date.now() }, textOutput)
+    const blackboxState = JSON.parse(readFileSync(join(home, '.claude', 'blackbox-state.json'), 'utf-8'))
+    const sessionKey = Object.keys(blackboxState.sessions).find(s => !s.endsWith('_opt'))
+    assert.ok(sessionKey, 'blackbox session should exist')
 
-  await hooks['experimental.chat.messages.transform']({}, { messages: [{ role: 'assistant', content: 'Done' }] })
+    const selectionState = JSON.parse(readFileSync(join(home, '.claude', 'model-tiers.json'), 'utf-8')).selection
+    const expectedSlot = selectionState.vector_changed_slot || blackboxState.sessions[sessionKey].active_slot || 'cheap'
+    assert.ok(['cheap', 'medium', 'brain'].includes(expectedSlot), 'ML turn should persist a real slot')
 
-  await hooks['message.updated']({ messageID: 'mu-' + Date.now() }, { text: 'Updated message that has enough content for vibeOS footer.' })
+    const toolInput = { tool: 'write', args: { filePath: join(projectDir, 'src/foo.ts') } }
+    const beforeOut = { args: { filePath: join(projectDir, 'src/foo.ts') } }
+    await hooks['tool.execute.before'](toolInput, beforeOut)
 
-  const env = {}
-  await hooks['shell.env']({}, { env })
+    const toolResult = { result: 'export function foo(): string { return "hello" }' }
+    await hooks['tool.execute.after'](toolInput, toolResult)
+    assert.ok(toolResult.result.startsWith('—'), 'tool footer alert should be prepended')
+    assert.ok(toolResult.result.includes('Vibe'), 'tool footer alert should include the vibeOS brand line')
 
-  await hooks['experimental.session.compacting']({}, { messages: [{ role: 'user', content: 'Compacted context' }] })
+    const textOutput = { text: 'Here is your function. It does the thing with proper types and handles edge cases.' }
+    await hooks['experimental.text.complete']({ messageID: 'msg-' + Date.now() }, textOutput)
+    const liveFooter = textOutput.text.slice(-200)
+    assert.ok(liveFooter.includes(expectedSlot), 'live footer should show the selected slot')
+    assert.ok(liveFooter.toLowerCase().includes('budget'), 'live footer should show optimization mode')
 
-  assert.ok(true, 'full hook sequence completes without crash')
+    await hooks['experimental.chat.messages.transform']({}, { messages: [{ role: 'assistant', content: 'Done' }] })
+
+    await hooks['message.updated']({ messageID: 'mu-' + Date.now() }, { text: 'Updated message that has enough content for vibeOS footer.' })
+
+    const env = {}
+    await hooks['shell.env']({}, { env })
+
+    await hooks['experimental.session.compacting']({}, { messages: [{ role: 'user', content: 'Compacted context' }] })
+
+    assert.ok(true, 'full hook sequence completes without crash')
+  } finally {
+    process.env.VIBEOS_OPENCODE_HOME = prevOpencodeHome
+  }
 })
 
 // E2E: Additional Trinity Commands

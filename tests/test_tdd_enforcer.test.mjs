@@ -10,7 +10,7 @@ test("buildTestSkeleton: generates skeleton path for .ts", async () => {
   assert.ok(skeleton !== null, "skeleton is not null")
   assert.ok(typeof skeleton.path === "string", "skeleton.path is a string")
   assert.ok(typeof skeleton.content === "string", "skeleton.content is a string")
-  assert.ok(skeleton.path.includes("worker.test.js"), `path: ${skeleton.path}`)
+  assert.ok(skeleton.path.includes("worker.test.ts"), `path: ${skeleton.path}`)
 })
 
 test("buildTestSkeleton: generates skeleton for .cjs", async () => {

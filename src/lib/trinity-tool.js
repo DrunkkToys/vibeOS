@@ -753,7 +753,8 @@ export function createTrinityTool(deps) {
                 if (_fp) {
                     try {
                         deps.ensureProjectSkill(deps.directory, _fp);
-                    } catch (_e) {}
+                    }
+                    catch (_e) { }
                 }
                 if (result.created.length === 0 && result.skipped.length > 0) {
                     return `AGENTS.md and README.md already exist. Use \`trinity guard\` to check for missing features.`;
