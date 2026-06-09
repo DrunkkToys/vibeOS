@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, rmSync } from "node:fs"
+import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, rmSync, readdirSync, statSync } from "node:fs"
 import { join, dirname, basename } from "node:path"
 import { createHash } from "node:crypto"
 import {
@@ -63,6 +63,32 @@ const BYTES_PER_TOKEN = 4
 
 function getVibeOSHome() {
   return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude")
+}
+
+function resolveRestorableOpenCodeAgent(currentSel: any): string | null {
+  const remembered = typeof currentSel?.previous_default_agent === "string" ? currentSel.previous_default_agent.trim() : ""
+  if (remembered && remembered !== "plan") return remembered
+
+  try {
+    const configDir = dirname(TRINITY_OPENCODE_CONFIG || join(process.env.HOME || "", ".config/opencode/opencode.json"))
+    const candidates = readdirSync(configDir)
+      .filter((name) => /^opencode\.json\.bak/.test(name))
+      .map((name) => {
+        const path = join(configDir, name)
+        return { path, mtime: statSync(path).mtimeMs }
+      })
+      .sort((a, b) => b.mtime - a.mtime)
+
+    for (const candidate of candidates) {
+      try {
+        const snapshot = safeJsonParse(readFileSync(candidate.path, "utf-8"))
+        const agent = typeof snapshot?.default_agent === "string" ? snapshot.default_agent.trim() : ""
+        if (agent && agent !== "plan") return agent
+      } catch {}
+    }
+  } catch {}
+
+  return null
 }
 
 function getOpenCodeHome() {
@@ -295,11 +321,11 @@ export function syncControlSettings(cv: any, options: { persistOptimizationMode?
         const OC_CONFIG = TRINITY_OPENCODE_CONFIG || join(getOpenCodeHome(), "opencode.json")
         if (existsSync(OC_CONFIG)) {
           const oc = safeJsonParse(readFileSync(OC_CONFIG, "utf-8"))
-          const previousAgent = currentSel.previous_default_agent
-          if (oc.default_agent === "plan" && previousAgent && previousAgent !== "plan") {
-            oc.default_agent = previousAgent
+          const restoreAgent = oc.default_agent === "plan" ? resolveRestorableOpenCodeAgent(currentSel) : null
+          if (restoreAgent && oc.default_agent === "plan") {
+            oc.default_agent = restoreAgent
             writeFileSync(OC_CONFIG, JSON.stringify(oc, null, 2) + "\n")
-            writeSelection("previous_default_agent", null)
+            if (currentSel.previous_default_agent) writeSelection("previous_default_agent", null)
           }
         }
       } catch {}
