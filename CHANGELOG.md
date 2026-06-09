@@ -1,3 +1,7 @@
+## 0.23.24
+- fix: ML-driven tier pipeline end-to-end
+
+
 ## 0.23.23
 - fix: apiComputeControlVector overrides server tier_bias with local regime-driven value
 
