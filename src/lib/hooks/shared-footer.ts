@@ -3,6 +3,7 @@
 
 export interface FooterLineInput {
   activeSlot: string
+  sessionSlot?: string
   providerLabel: string
   modelName: string
   ltTotal: number
@@ -57,7 +58,7 @@ export function buildEnforcementTags(opts: {
 }
 
 export function buildFooterLine(input: FooterLineInput): string {
-  const { activeSlot, providerLabel, modelName, ltTotal, vibeBrand, optMode, flashIcon, enfTags, vectorChangedSlot } = input
+  const { activeSlot, sessionSlot, providerLabel, modelName, ltTotal, vibeBrand, optMode, flashIcon, enfTags, vectorChangedSlot } = input
 
   const tierIcon = resolveTierIcon(activeSlot)
   let line = `\u2014 ${tierIcon} ${activeSlot} | ${providerLabel} | ${modelName}`
@@ -80,6 +81,10 @@ export function buildFooterLine(input: FooterLineInput): string {
     line += ` ${enfTags.join(" ")}`
   }
 
+  line += ` | slot:${activeSlot}`
+  if (sessionSlot && sessionSlot !== activeSlot) {
+    line += ` | session:${sessionSlot}`
+  }
   line += " \u2014"
 
   return line

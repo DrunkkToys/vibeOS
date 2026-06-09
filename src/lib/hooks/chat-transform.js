@@ -655,6 +655,17 @@ export const onSystemTransform = async (_input, output) => {
             }
             catch { }
         }
+        else if (_blackboxEnabled === false) {
+            try {
+                const bb = loadBlackboxStateFromCtx();
+                if (!bb.enabled) {
+                    bb.enabled = true;
+                    saveBlackboxStateToCtx(bb);
+                }
+                setBlackboxEnabled(true);
+            }
+            catch { }
+        }
         const sel = loadSelection();
         syncControlSettings(_controlVector, { persistOptimizationMode: optimizationDecision.shouldPersistRequestedMode });
         const fp = ensureProjectContext(hookDirectory);

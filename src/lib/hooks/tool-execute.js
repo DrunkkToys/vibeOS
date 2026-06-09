@@ -806,7 +806,9 @@ export const onToolExecuteAfter = async (input, output) => {
     }
     // Quality scoring for task outputs
     if (t === "task") {
-        const quality = scoreTaskQuality(output?.result || output?.text || "", input?.args?.prompt || "");
+        const taskOutput = output?.result || output?.text || output?.state?.output || output?.state?.result || "";
+        const taskPrompt = input?.args?.prompt || input?.args?.description || "";
+        const quality = scoreTaskQuality(taskOutput, taskPrompt);
         try {
             appendFileSync(SAVINGS_LEDGER_FILE, JSON.stringify({
                 at: new Date().toISOString(),

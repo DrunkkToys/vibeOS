@@ -250,16 +250,24 @@ function recordFlowWarn(hit: RecordFlowWarnInput): void {
       mkdirSync(dirname(stateFile), { recursive: true })
     }
     state.flow_warns ??= []
-    state.flow_warns.push({
-      at: new Date().toISOString(),
-      sid: process.pid || "?",
-      rule_id: hit.id,
-      severity: hit.severity,
-      filePath: hit.filePath,
-      description: hit.description,
+    const dedupKey = `${hit.id}|${hit.filePath}`
+    const recent = state.flow_warns.filter((w: any) => {
+      const wKey = `${w.rule_id}|${w.filePath}`
+      const wTime = new Date(w.at || 0).getTime()
+      return wKey === dedupKey && (Date.now() - wTime) < 300000
     })
-    if (state.flow_warns.length > 500) {
-      state.flow_warns = state.flow_warns.slice(-500)
+    if (recent.length === 0) {
+      state.flow_warns.push({
+        at: new Date().toISOString(),
+        sid: process.pid || "?",
+        rule_id: hit.id,
+        severity: hit.severity,
+        filePath: hit.filePath,
+        description: hit.description,
+      })
+    }
+    if (state.flow_warns.length > 200) {
+      state.flow_warns = state.flow_warns.slice(-200)
     }
     const fp = { flow_warns: state.flow_warns }
     if (_stateWriter) _stateWriter(fp)

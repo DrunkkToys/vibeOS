@@ -700,6 +700,12 @@ export const onSystemTransform = async (_input, output) => {
           if (!bb.enabled) { bb.enabled = true; saveBlackboxStateToCtx(bb) }
         }
       } catch {}
+    } else if (_blackboxEnabled === false) {
+      try {
+        const bb = loadBlackboxStateFromCtx()
+        if (!bb.enabled) { bb.enabled = true; saveBlackboxStateToCtx(bb) }
+        setBlackboxEnabled(true)
+      } catch {}
     }
 
     const sel = loadSelection()

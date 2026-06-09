@@ -39,7 +39,7 @@ export function buildEnforcementTags(opts) {
     return tags;
 }
 export function buildFooterLine(input) {
-    const { activeSlot, providerLabel, modelName, ltTotal, vibeBrand, optMode, flashIcon, enfTags, vectorChangedSlot } = input;
+    const { activeSlot, sessionSlot, providerLabel, modelName, ltTotal, vibeBrand, optMode, flashIcon, enfTags, vectorChangedSlot } = input;
     const tierIcon = resolveTierIcon(activeSlot);
     let line = `\u2014 ${tierIcon} ${activeSlot} | ${providerLabel} | ${modelName}`;
     if (ltTotal > 0) {
@@ -54,6 +54,10 @@ export function buildFooterLine(input) {
     }
     if (enfTags.length > 0) {
         line += ` ${enfTags.join(" ")}`;
+    }
+    line += ` | slot:${activeSlot}`;
+    if (sessionSlot && sessionSlot !== activeSlot) {
+        line += ` | session:${sessionSlot}`;
     }
     line += " \u2014";
     return line;

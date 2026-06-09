@@ -269,6 +269,7 @@ async function _appendFooter(input, output, directory) {
       optMode: displayMode,
       flashIcon,
       enfTags,
+      sessionSlot,
       vectorChangedSlot: selNowFooter?.vector_changed_slot,
     })
     const footerText = stripped + `\n\n${vibeLine}`
