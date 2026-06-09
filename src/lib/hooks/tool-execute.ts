@@ -36,6 +36,7 @@ import { latestUserIntent } from "./chat-transform.js"
 import { loadSessionOptMode } from "../selection-manager.js"
 import { loadOptimizationMode } from "../turn-classify.js"
 import { loadCredit, refreshCreditSnapshot } from "../credit-api.js"
+import { buildFooterLine, buildEnforcementTags, resolveBrand } from "./shared-footer.js"
 
 function modeCapitalized(mode: string): string {
   if (!mode) return "Budget"
@@ -684,38 +685,17 @@ export const onToolExecuteAfter = async (input, output) => {
   // ── Generate footer alert (prepended to tool result, visible in chat) ──
   let _footerText = ""
   try {
-    const { ltTasks, ltCache, ltCost, sesTrend, sesModelTurns, sesRatePerHour, quality_avg } = readLifetimeSavings()
-    const { stableStreak, problemStreak } = readRewardSignals()
+    const { ltTasks, ltCache, ltCost } = readLifetimeSavings()
     const ltTotal = ltTasks + ltCache
-    const trendIcon = sesTrend === "down" ? "↓" : sesTrend === "up" ? "↑" : "→"
-    const flashIcon = VIBEOS_API_ENABLED ? "⚡" : ""
     const selNow = loadSelection()
-    const tags = [`[${shortModelName(currentModel)}]`]
     const bbMode = resolveEnforcementMode()
-    if (bbMode === "relaxed") {
-      tags.push("[Q&A]")
-    } else {
-      if (selNow.delegation_enforce) tags.push("[ENF ON]")
-      if (selNow.flow_enforce) tags.push("[FLOW ON]")
-      if (selNow.tdd_enforce) tags.push("[TDD ON]")
-      if (bbMode === "strict") tags.push("[STRICT]")
-    }
-    if (_modelLocked) tags.push("[LOCK ON]")
-    const workerModel = (currentTier === "high" && TRINITY_MEDIUM) ? TRINITY_MEDIUM : TRINITY_CHEAP
-    const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0)
-    if (totalTurns > 0 && workerModel && workerModel !== currentModel) {
-      const brainPct = Math.round((sesModelTurns.brain / totalTurns) * 100)
-      tags[0] = `[${shortModelName(currentModel)} ${brainPct}% > ${shortModelName(workerModel)} ${100 - brainPct}%]`
-    }
-    const statusLine = tags.join(" ")
-    let stressTag = ""
-    if (latestUserIntent) {
-      const ss = scoreStress(latestUserIntent)
-      if (ss > 0.1) {
-        const label = ss > 0.7 ? "high" : ss > 0.4 ? "elevated" : "calm"
-        stressTag = ` stress:${label}`
-      }
-    }
+    const enfTags = buildEnforcementTags({
+      delegationEnforce: selNow.delegation_enforce,
+      flowEnforce: selNow.flow_enforce,
+      tddEnforce: selNow.tdd_enforce,
+      bbMode,
+      modelLocked: _modelLocked,
+    })
     let liveModel = ""
     try {
       const cfg = await client.config.get("model")
@@ -731,20 +711,21 @@ export const onToolExecuteAfter = async (input, output) => {
       setCurrentTier(classify(resolvedModel))
     }
     const execution = resolveExecutionIdentity(input?.args?.model || resolvedModel || "", projectDirectory)
-    const { BRANDED_MODES, RUNTIME_MODES } = await import("../mode-router.js")
-    const brandMap: Record<string, string> = { vibeultrax: "VibeUltraX", vibeqmax: "VibeQMaX", vibemax: "VibeMaX" }
-    const brandedToRuntime: Record<string, string> = { vibeultrax: "Quality", vibeqmax: "Quality", vibemax: "Speed" }
-    const currentSel = loadSelection()
     const currentSid = _OC_SID
     const optModeFooter = loadSessionOptMode(currentSid + "_opt") || loadOptimizationMode() || "budget"
-    const vibeBrand = brandMap[optModeFooter] || (execution.quality === "brain" ? "VibeQMaX" : "VibeMaX")
-    const qualityIcon = execution.quality === "brain" ? "\u{1F9E0}" : execution.quality === "medium" ? "\u2699" : execution.quality === "free" ? "\u{1F381}" : "\u26A1"
-    const modeLabel = modeCapitalized(brandedToRuntime[optModeFooter] || optModeFooter)
-    _footerText = `— ${qualityIcon} ${execution.quality} | ${execution.provider_label} | ${modelDisplayName(execution.model)}`
-    if (ltTotal > 0) {
-      _footerText += ` | $${formatUsd(ltTotal)}`
-    }
-    _footerText += ` | ${vibeBrand}${flashIcon} —\n\n`
+    const activeSlot = execution.quality === "brain" ? "brain" : execution.quality === "medium" ? "medium" : "cheap"
+    const vibeBrand = resolveBrand(optModeFooter, activeSlot)
+    const flashIcon = VIBEOS_API_ENABLED ? " \u26A1" : ""
+    _footerText = buildFooterLine({
+      activeSlot,
+      providerLabel: execution.provider_label,
+      modelName: modelDisplayName(execution.model),
+      ltTotal,
+      vibeBrand,
+      optMode: optModeFooter,
+      flashIcon,
+      enfTags,
+    }) + "\n\n"
     const footerTarget = _payload(output)
     output.title = _footerText.trim()
     if (footerTarget !== output && footerTarget && typeof footerTarget === "object") {
@@ -817,7 +798,9 @@ export const onToolExecuteAfter = async (input, output) => {
 
   // Quality scoring for task outputs
   if (t === "task") {
-    const quality = scoreTaskQuality(output?.result || output?.text || "", input?.args?.prompt || "")
+    const taskOutput = output?.result || output?.text || output?.state?.output || output?.state?.result || ""
+    const taskPrompt = input?.args?.prompt || input?.args?.description || ""
+    const quality = scoreTaskQuality(taskOutput, taskPrompt)
     try {
       appendFileSync(SAVINGS_LEDGER_FILE, JSON.stringify({
         at: new Date().toISOString(),

@@ -284,7 +284,6 @@ export function syncControlSettings(cv, options = {}) {
                     if (restoreAgent && oc.default_agent === "plan") {
                         oc.default_agent = restoreAgent;
                         writeFileSync(OC_CONFIG, JSON.stringify(oc, null, 2) + "\n");
-                        clearWorkspaceFollowupPauseForSession(sid);
                         if (currentSel.previous_default_agent)
                             writeSelection("previous_default_agent", null);
                     }
@@ -653,6 +652,17 @@ export const onSystemTransform = async (_input, output) => {
                         saveBlackboxStateToCtx(bb);
                     }
                 }
+            }
+            catch { }
+        }
+        else if (_blackboxEnabled === false) {
+            try {
+                const bb = loadBlackboxStateFromCtx();
+                if (!bb.enabled) {
+                    bb.enabled = true;
+                    saveBlackboxStateToCtx(bb);
+                }
+                setBlackboxEnabled(true);
             }
             catch { }
         }

@@ -10,6 +10,7 @@ import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProj
 import { loadSessionSlot, writeSessionSlot } from "../selection-manager.js"
 import { remoteCall, isApiConnected } from "../api-client.js"
 import { SAVE_EST } from "../constants.js"
+import { buildFooterLine, buildEnforcementTags, resolveBrand } from "./shared-footer.js"
 
 const IS_CLI_RUNTIME = Boolean(process.stdout?.isTTY || process.stderr?.isTTY || process.stdin?.isTTY)
 const IS_TEST_RUNTIME = process.env.VIBEOS_MCP_PORT === "0" || process.env.NODE_ENV === "test" || process.env.CI === "true"
@@ -181,7 +182,7 @@ async function _appendFooter(input, output, directory) {
     const { ltTasks, ltCache, ltCost, count, sesTasks, sesEdit, sesCredit, sesC7, sesQuota, sesCache, sesTaskDelegations, sesDuration, sesRatePerHour, sesTrend, sesToolBreakdown, sesModelTurns, quality_avg } = readLifetimeSavings()
     const { stableStreak, problemStreak } = readRewardSignals()
 
-    const sessionSlot = loadSessionSlot(_OC_SID)
+    const sessionSlot = loadBlackboxState()?.sessions?.[_OC_SID]?.active_slot || loadSessionSlot(_OC_SID)
     const slot = sessionSlot || loadSelection().active_slot || "brain"
     const brainModel = slot === "brain" ? (TRINITY_BRAIN || currentModel) : slot === "medium" ? (TRINITY_MEDIUM || currentModel) : (TRINITY_CHEAP || currentModel || "")
     let liveModel = ""
@@ -235,60 +236,43 @@ async function _appendFooter(input, output, directory) {
       } catch (e) { footerDebug("[vibeOS] auto-report:", e.message) }
     }
 
-    // Enforcement state tags for footer — dynamically adjusted by control vector
     const selNowFooter = loadSelection()
-    const enfTagsFooter = []
     const bbMode = resolveEnforcementMode()
     const optModeFooter = loadOptimizationMode()
-    if (bbMode === "relaxed") {
-      enfTagsFooter.push("[Q&A]")
-    } else {
-      if (selNowFooter.delegation_enforce) enfTagsFooter.push("[ENF ON]")
-      if (selNowFooter.flow_enforce) enfTagsFooter.push("[FLOW ON]")
-      if (selNowFooter.tdd_enforce) enfTagsFooter.push("[TDD ON]")
-
-      if (bbMode === "strict") enfTagsFooter.push("[STRICT]")
-    }
-    if (_modelLocked) enfTagsFooter.push("[LOCK ON]")
-    let enfSuffixFooter = enfTagsFooter.length > 0 ? ` ${enfTagsFooter.join(" ")}` : ""
-    if (quality_avg > 0) {
-      enfSuffixFooter = ` QA:${Math.round(quality_avg)}% ${enfTagsFooter.join(" ")}`
-    }
-    // Optimization mode resolver — keep the dopamine footer format.
+    const enfTags = buildEnforcementTags({
+      delegationEnforce: selNowFooter.delegation_enforce,
+      flowEnforce: selNowFooter.flow_enforce,
+      tddEnforce: selNowFooter.tdd_enforce,
+      bbMode,
+      modelLocked: _modelLocked,
+    })
     const resolvedMode = peekBudgetFirstMode({
       requestedMode: optModeFooter,
       subRegime: _latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""),
       stress: _footerStress,
     }).mode
-    const stripped = text.replace(/— [^—]+ —\s*/g, "").trimEnd()
+    const stripped = text.replace(/\u2014 [^\u2014]+ \u2014\s*/g, "").trimEnd()
     if (stripped !== text) return
     if (stripped === _lastStrippedText) return
     const ltTotal = ltTasks + ltCache
-
-    const modeCapitalized = (mode: string) => mode.charAt(0).toUpperCase() + mode.slice(1)
-    const optMode = (resolvedMode || "budget").toLowerCase()
-    const brandMap: Record<string, string> = { vibeultrax: "VibeUltraX", vibeqmax: "VibeQMaX", vibemax: "VibeMaX", quality: "VibeQMaX", audit: "VibeQMaX", forensic: "VibeQMaX" }
-    const brandedToRuntime: Record<string, string> = { vibeultrax: "Quality", vibeqmax: "Quality", vibemax: "Speed" }
     const activeSlot = selNowFooter.vector_changed_slot || selNowFooter.active_slot || "brain"
-    const vibeBrand = brandMap[optModeFooter] || (activeSlot === "brain" ? "VibeQMaX" : "VibeMaX")
-    const modeLabel = modeCapitalized(brandedToRuntime[optMode] || optMode)
-    const tierIcon = activeSlot === "brain" ? "🧠" : activeSlot === "medium" ? "⚙" : activeSlot === "cheap" ? "🎁" : "⚡"
-    const flashIcon = isApiConnected() ? " ⚡" : ""
-    let vibeLine = `— ${tierIcon} ${activeSlot} | ${execution.provider_label} | ${modelDisplayName(execution.model)}`
-    if (ltTotal > 0) {
-      vibeLine += ` | $${formatUsd(ltTotal)}`
-    }
-    if (isApiConnected()) {
-      vibeLine += ` | ${vibeBrand}${flashIcon}`
-    }
+    const optMode = (resolvedMode || "budget").toLowerCase()
+    const vibeBrand = resolveBrand(optModeFooter, activeSlot)
+    const flashIcon = isApiConnected() ? " \u26A1" : ""
     const displayMode = selNowFooter?.optimization_mode || optMode || "auto"
-    if (displayMode && displayMode !== "auto") {
-      vibeLine += ` | ${displayMode}`
-    }
-    if (selNowFooter?.vector_changed_slot) {
-      vibeLine += ` | → ${selNowFooter.vector_changed_slot}`
-    }
-    const footerText = stripped + `\n\n${vibeLine} —`
+    const vibeLine = buildFooterLine({
+      activeSlot,
+      providerLabel: execution.provider_label,
+      modelName: modelDisplayName(execution.model),
+      ltTotal,
+      vibeBrand,
+      optMode: displayMode,
+      flashIcon,
+      enfTags,
+      sessionSlot,
+      vectorChangedSlot: selNowFooter?.vector_changed_slot,
+    })
+    const footerText = stripped + `\n\n${vibeLine}`
 
     if (_blackboxEnabled) {
       try {

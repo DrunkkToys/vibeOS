@@ -181,8 +181,8 @@ export function observeToolPattern(toolName, input, output, directory) {
       recordFrictionPattern(`repeat-tool:${t}:${target}`, `Repeated ${t} calls against ${target} in one session.`, { family: t, path: target })
       _patternFiredKeys.add(`repeat-tool:${t}:${target}`)
     }
-    if (repeat > 3) {
-      // User keeps doing the same thing after pattern fired -- ignored suggestion
+    if (repeat > 8) {
+      // User keeps doing the same thing well after pattern fired -- ignored suggestion
       try {
         updateGlobalLearning((gl) => {
           gl.patternQuality ??= { ignoredCount: 0, trustedCount: 0 }

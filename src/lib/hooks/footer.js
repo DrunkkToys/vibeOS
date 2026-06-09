@@ -9,6 +9,7 @@ import { saveReport } from "../reporting.js";
 import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, _modelLocked, _blackboxEnabled, _latestBlackboxState, reconcileStateFromLedger, safeJsonParse, loadBlackboxState } from "../state.js";
 import { loadSessionSlot } from "../selection-manager.js";
 import { remoteCall, isApiConnected } from "../api-client.js";
+import { buildFooterLine, buildEnforcementTags, resolveBrand } from "./shared-footer.js";
 const IS_CLI_RUNTIME = Boolean(process.stdout?.isTTY || process.stderr?.isTTY || process.stdin?.isTTY);
 const IS_TEST_RUNTIME = process.env.VIBEOS_MCP_PORT === "0" || process.env.NODE_ENV === "test" || process.env.CI === "true";
 const FOOTER_DEBUG_STDERR = process.env.VIBEOS_DEBUG_FOOTER === "1" || (!IS_CLI_RUNTIME && !IS_TEST_RUNTIME);
@@ -168,33 +169,33 @@ async function _appendFooter(input, output, directory) {
             output?.messageId ||
             output?.message?.id ||
             null;
-    if (messageID && textCompletePainted.has(messageID))
-        return;
-    function _payload(obj) {
-        if (obj?.message && typeof obj.message === "object")
-            return obj.message;
-        return obj;
-    }
-    function _extractText(obj) {
-        const payload = _payload(obj);
-        if (typeof payload?.text === "string")
-            return payload.text;
-        if (typeof payload?.result === "string")
-            return payload.result;
-        if (typeof payload?.content === "string")
-            return payload.content;
-        if (Array.isArray(payload?.content))
-            return payload.content.filter(p => p?.type === "text").map(p => p.text).filter(Boolean).join("\n");
-        if (Array.isArray(payload?.parts))
-            return payload.parts.filter(p => p?.type === "text").map(p => p.text).filter(Boolean).join("\n");
-        return "";
-    }
+        if (messageID && textCompletePainted.has(messageID))
+            return;
+        function _payload(obj) {
+            if (obj?.message && typeof obj.message === "object")
+                return obj.message;
+            return obj;
+        }
+        function _extractText(obj) {
+            const payload = _payload(obj);
+            if (typeof payload?.text === "string")
+                return payload.text;
+            if (typeof payload?.result === "string")
+                return payload.result;
+            if (typeof payload?.content === "string")
+                return payload.content;
+            if (Array.isArray(payload?.content))
+                return payload.content.filter(p => p?.type === "text").map(p => p.text).filter(Boolean).join("\n");
+            if (Array.isArray(payload?.parts))
+                return payload.parts.filter(p => p?.type === "text").map(p => p.text).filter(Boolean).join("\n");
+            return "";
+        }
         const text = _extractText(output);
         if (!text)
             return;
         const { ltTasks, ltCache, ltCost, count, sesTasks, sesEdit, sesCredit, sesC7, sesQuota, sesCache, sesTaskDelegations, sesDuration, sesRatePerHour, sesTrend, sesToolBreakdown, sesModelTurns, quality_avg } = readLifetimeSavings();
         const { stableStreak, problemStreak } = readRewardSignals();
-        const sessionSlot = loadSessionSlot(_OC_SID);
+        const sessionSlot = loadBlackboxState()?.sessions?.[_OC_SID]?.active_slot || loadSessionSlot(_OC_SID);
         const slot = sessionSlot || loadSelection().active_slot || "brain";
         const brainModel = slot === "brain" ? (TRINITY_BRAIN || currentModel) : slot === "medium" ? (TRINITY_MEDIUM || currentModel) : (TRINITY_CHEAP || currentModel || "");
         let liveModel = "";
@@ -251,66 +252,45 @@ async function _appendFooter(input, output, directory) {
                 footerDebug("[vibeOS] auto-report:", e.message);
             }
         }
-        // Enforcement state tags for footer — dynamically adjusted by control vector
         const selNowFooter = loadSelection();
-        const enfTagsFooter = [];
         const bbMode = resolveEnforcementMode();
         const optModeFooter = loadOptimizationMode();
-        if (bbMode === "relaxed") {
-            enfTagsFooter.push("[Q&A]");
-        }
-        else {
-            if (selNowFooter.delegation_enforce)
-                enfTagsFooter.push("[ENF ON]");
-            if (selNowFooter.flow_enforce)
-                enfTagsFooter.push("[FLOW ON]");
-            if (selNowFooter.tdd_enforce)
-                enfTagsFooter.push("[TDD ON]");
-            if (bbMode === "strict")
-                enfTagsFooter.push("[STRICT]");
-        }
-        if (_modelLocked)
-            enfTagsFooter.push("[LOCK ON]");
-        let enfSuffixFooter = enfTagsFooter.length > 0 ? ` ${enfTagsFooter.join(" ")}` : "";
-        if (quality_avg > 0) {
-            enfSuffixFooter = ` QA:${Math.round(quality_avg)}% ${enfTagsFooter.join(" ")}`;
-        }
-        // Optimization mode resolver — keep the dopamine footer format.
+        const enfTags = buildEnforcementTags({
+            delegationEnforce: selNowFooter.delegation_enforce,
+            flowEnforce: selNowFooter.flow_enforce,
+            tddEnforce: selNowFooter.tdd_enforce,
+            bbMode,
+            modelLocked: _modelLocked,
+        });
         const resolvedMode = peekBudgetFirstMode({
             requestedMode: optModeFooter,
             subRegime: _latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""),
             stress: _footerStress,
         }).mode;
-        const stripped = text.replace(/— [^—]+ —\s*/g, "").trimEnd();
+        const stripped = text.replace(/\u2014 [^\u2014]+ \u2014\s*/g, "").trimEnd();
         if (stripped !== text)
             return;
         if (stripped === _lastStrippedText)
             return;
         const ltTotal = ltTasks + ltCache;
-        const modeCapitalized = (mode) => mode.charAt(0).toUpperCase() + mode.slice(1);
-        const optMode = (resolvedMode || "budget").toLowerCase();
-        const brandMap = { vibeultrax: "VibeUltraX", vibeqmax: "VibeQMaX", vibemax: "VibeMaX", quality: "VibeQMaX", audit: "VibeQMaX", forensic: "VibeQMaX" };
-        const brandedToRuntime = { vibeultrax: "Quality", vibeqmax: "Quality", vibemax: "Speed" };
         const activeSlot = selNowFooter.vector_changed_slot || selNowFooter.active_slot || "brain";
-        const vibeBrand = brandMap[optModeFooter] || (activeSlot === "brain" ? "VibeQMaX" : "VibeMaX");
-        const modeLabel = modeCapitalized(brandedToRuntime[optMode] || optMode);
-        const tierIcon = activeSlot === "brain" ? "🧠" : activeSlot === "medium" ? "⚙" : activeSlot === "cheap" ? "🎁" : "⚡";
-        const flashIcon = isApiConnected() ? " ⚡" : "";
-        let vibeLine = `— ${tierIcon} ${activeSlot} | ${execution.provider_label} | ${modelDisplayName(execution.model)}`;
-        if (ltTotal > 0) {
-            vibeLine += ` | $${formatUsd(ltTotal)}`;
-        }
-        if (isApiConnected()) {
-            vibeLine += ` | ${vibeBrand}${flashIcon}`;
-        }
+        const optMode = (resolvedMode || "budget").toLowerCase();
+        const vibeBrand = resolveBrand(optModeFooter, activeSlot);
+        const flashIcon = isApiConnected() ? " \u26A1" : "";
         const displayMode = selNowFooter?.optimization_mode || optMode || "auto";
-        if (displayMode && displayMode !== "auto") {
-            vibeLine += ` | ${displayMode}`;
-        }
-        if (selNowFooter?.vector_changed_slot) {
-            vibeLine += ` | → ${selNowFooter.vector_changed_slot}`;
-        }
-        const footerText = stripped + `\n\n${vibeLine} —`;
+        const vibeLine = buildFooterLine({
+            activeSlot,
+            providerLabel: execution.provider_label,
+            modelName: modelDisplayName(execution.model),
+            ltTotal,
+            vibeBrand,
+            optMode: displayMode,
+            flashIcon,
+            enfTags,
+            sessionSlot,
+            vectorChangedSlot: selNowFooter?.vector_changed_slot,
+        });
+        const footerText = stripped + `\n\n${vibeLine}`;
         if (_blackboxEnabled) {
             try {
                 const prevText = _prevOutputText;
@@ -336,32 +316,32 @@ async function _appendFooter(input, output, directory) {
                 }
             }
             catch { }
-    }
-    function _setFooter(obj, text) {
-        const target = _payload(obj);
-        if (typeof target?.text === "string")
-            target.text = text;
-        else if (typeof target?.result === "string")
-            target.result = text;
-        else if (typeof target?.content === "string")
-            target.content = text;
-        else if (Array.isArray(target?.content)) {
-            const textParts = target.content.filter(p => p?.type === "text");
-            if (textParts.length > 0)
-                textParts[textParts.length - 1].text = text;
-            else
-                target.content.push({ type: "text", text });
         }
-        else if (Array.isArray(target?.parts)) {
-            const textParts = target.parts.filter(p => p?.type === "text");
-            if (textParts.length > 0)
-                textParts[textParts.length - 1].text = text;
+        function _setFooter(obj, text) {
+            const target = _payload(obj);
+            if (typeof target?.text === "string")
+                target.text = text;
+            else if (typeof target?.result === "string")
+                target.result = text;
+            else if (typeof target?.content === "string")
+                target.content = text;
+            else if (Array.isArray(target?.content)) {
+                const textParts = target.content.filter(p => p?.type === "text");
+                if (textParts.length > 0)
+                    textParts[textParts.length - 1].text = text;
+                else
+                    target.content.push({ type: "text", text });
+            }
+            else if (Array.isArray(target?.parts)) {
+                const textParts = target.parts.filter(p => p?.type === "text");
+                if (textParts.length > 0)
+                    textParts[textParts.length - 1].text = text;
+                else
+                    target.parts.push({ type: "text", text });
+            }
             else
-                target.parts.push({ type: "text", text });
+                target.text = text;
         }
-        else
-            target.text = text;
-    }
         _setFooter(output, footerText);
         _lastStrippedText = stripped;
         // CLI/pipe mode: stdout is already rendered, write footer to stderr

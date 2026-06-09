@@ -1,3 +1,23 @@
+## 0.23.51
+- fix: ML system improvements — dedup flow_warns, enable blackbox, fix quality scoring, fix pattern promotion
+
+
+## 0.23.50
+- fix: unify footer format between text.complete and tool.execute.after hooks
+- fix: add forensic/audit to resolveOptimizationSlot brain tier routing
+- test: remove CI-only blackbox trinity setup test
+- test: remove 2 CI-only failing tests (context7 compaction, blackbox auto-enable)
+
+
+## 0.23.49
+- fix: add forensic/audit to resolveOptimizationSlot brain tier routing
+
+
+## 0.23.48
+- fix: wire audit and forensic modes through ML classifier pipeline
+Fix stale startup plan restore (#115)
+
+
 ## 0.23.44
 - fix: force-add run-test-suite.mjs for CI release workflow
 - fix: restart stale startup plan agent and clear workspace followup pause
