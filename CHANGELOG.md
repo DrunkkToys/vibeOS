@@ -1,3 +1,7 @@
+## 0.23.33
+- feat: wire forensic + audit into ML pipeline — classifyTurnSimple detects security/forensic intent, autoSelectMode returns audit/forensic mode
+
+
 ## 0.23.32
 - test: 14 agent_mode integration tests — plan only for complex regimes, stress-gated
 
