@@ -1,3 +1,7 @@
+## 0.23.17
+- chore: sync release numbering
+
+
 ## 0.23.16
 v0.23.22: Dynamic tier_bias from regime + vector change notifications in footer
 
