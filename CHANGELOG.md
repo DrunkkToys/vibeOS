@@ -1,3 +1,10 @@
+## 0.23.40
+- fix: bypass remote selector for manual modes
+- fix: ML pipeline — autoselect unification, branded mode passthrough, vibeultrax/vibeqmax MODE_DELTAS
+- chore: v0.23.38
+fix live thinking mode reset
+
+
 ## 0.23.37
 Fix plan mode agent restore
 
