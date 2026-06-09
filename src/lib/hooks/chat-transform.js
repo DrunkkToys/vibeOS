@@ -47,8 +47,10 @@ const correctionSeenKeys = new Set();
 async function apiComputeControlVector(state, action, optimizationMode) {
     try {
         const res = await remoteCall("blackboxControlVector", [state, action, optimizationMode], null);
-        if (res?.control_vector)
-            return res.control_vector;
+        if (res?.control_vector) {
+            const local = computeControlVector(state, action, optimizationMode);
+            return { ...res.control_vector, tier_bias: local.tier_bias };
+        }
     }
     catch { }
     return computeControlVector(state, action, optimizationMode);
