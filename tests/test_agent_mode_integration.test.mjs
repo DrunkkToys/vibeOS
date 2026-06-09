@@ -139,6 +139,34 @@ test("syncControlSettings restores the previous OpenCode agent after plan mode e
   }
 })
 
+test("syncControlSettings drops stuck full thinking when the vector cools down", async () => {
+  const home = mkdtempSync(join(tmpdir(), "vib-thinking-"))
+  const prevHome = process.env.HOME
+  process.env.HOME = home
+  try {
+    mkdirSync(join(home, ".claude"), { recursive: true })
+    writeFileSync(join(home, ".claude/model-tiers.json"), JSON.stringify({ selection: { thinking_level: "full" } }, null, 2))
+
+    const moduleUrl = pathToFileURL(join(process.cwd(), "src/lib/hooks/chat-transform.js")).href
+    const script = `
+      const mod = await import(${JSON.stringify(moduleUrl)} + "?thinking=" + Date.now());
+      mod.syncControlSettings({ thinking_mode: "off" });
+      const fs = await import("node:fs");
+      const path = await import("node:path");
+      const home = process.env.HOME;
+      const tiers = JSON.parse(fs.readFileSync(path.join(home, ".claude/model-tiers.json"), "utf8"));
+      console.log(JSON.stringify({ thinking: tiers.selection.thinking_level }));
+    `
+    const result = JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", script], {
+      env: { ...process.env, HOME: home },
+      encoding: "utf8",
+    }).trim())
+    assert.equal(result.thinking, "off")
+  } finally {
+    process.env.HOME = prevHome
+  }
+})
+
 // ── Verify other CV fields unaffected ──
 test("CV: enforcement_mode still present", () => {
   const cv = turn.computeControlVector(

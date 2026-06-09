@@ -252,7 +252,10 @@ export function syncControlSettings(cv: any, options: { persistOptimizationMode?
       writeIf("tdd_strict", cv.tdd_mode === "strict")
     }
 
-    if (cv.thinking_mode && currentSel.thinking_level !== "full") writeIf("thinking_level", cv.thinking_mode)
+    if (cv.thinking_mode) {
+      const nextThinking = cv.thinking_mode === "auto" ? "off" : cv.thinking_mode
+      if (currentSel.thinking_level !== nextThinking) writeIf("thinking_level", nextThinking)
+    }
 
     if (persistOptimizationMode && cv.optimization_mode && userOptMode !== "auto") {
       if (userOptMode !== cv.optimization_mode) {
