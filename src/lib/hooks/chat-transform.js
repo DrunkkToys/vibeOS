@@ -219,7 +219,7 @@ export function syncControlSettings(cv, options = {}) {
                 writeSessionSlot(sid, slot);
                 writeIf("vector_changed_slot", slot);
                 writeIf("vector_changed_at", Date.now());
-                const applied = applySlot(slot);
+                const applied = applySlot(slot, onSystemTransform._directory || "");
                 if (!applied?.ok) {
                     console.error(`[vibeOS] failed to apply slot ${slot}: ${applied?.reason || "unknown"}`);
                 }
