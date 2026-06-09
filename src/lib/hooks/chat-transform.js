@@ -75,11 +75,15 @@ async function apiComputeControlVector(state, action, optimizationMode) {
         const res = await remoteCall("blackboxControlVector", [state, action, optimizationMode], null);
         if (res?.control_vector) {
             const local = computeControlVector(state, action, optimizationMode);
-            return { agent_mode: local.agent_mode, ...res.control_vector, tier_bias: local.tier_bias, optimization_mode: local.optimization_mode };
+            const cv = { agent_mode: local.agent_mode, ...res.control_vector, tier_bias: local.tier_bias, optimization_mode: local.optimization_mode };
+            delete cv.agent_mode;
+            return cv;
         }
     }
     catch { }
-    return computeControlVector(state, action, optimizationMode);
+    const fallbackCv = computeControlVector(state, action, optimizationMode);
+    delete fallbackCv.agent_mode;
+    return fallbackCv;
 }
 function observeUserCorrection(text) {
     if (!text || typeof text !== "string")
@@ -284,7 +288,6 @@ export function syncControlSettings(cv, options = {}) {
                     if (restoreAgent && oc.default_agent === "plan") {
                         oc.default_agent = restoreAgent;
                         writeFileSync(OC_CONFIG, JSON.stringify(oc, null, 2) + "\n");
-                        clearWorkspaceFollowupPauseForSession(sid);
                         if (currentSel.previous_default_agent)
                             writeSelection("previous_default_agent", null);
                     }

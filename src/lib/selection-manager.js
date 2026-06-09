@@ -13,8 +13,7 @@ function getVibeOSHome() {
 function _handleStateCorruption(path) {
     const backupDir = join(getVibeOSHome(), ".backups");
     mkdirSync(backupDir, { recursive: true });
-    const ts = Date.now();
-    const backupPath = join(backupDir, basename(path) + ".corrupted." + ts);
+    const backupPath = join(backupDir, basename(path) + ".corrupted." + Date.now());
     try {
         copyFileSync(path, backupPath);
     }
@@ -22,10 +21,6 @@ function _handleStateCorruption(path) {
     const logPath = join(getVibeOSHome(), ".state-corruption-log.jsonl");
     try {
         appendFileSync(logPath, JSON.stringify({ ts: new Date().toISOString(), path, backup: backupPath }) + "\n");
-    }
-    catch { }
-    try {
-        renameSync(path, path + ".archived." + ts);
     }
     catch { }
 }
