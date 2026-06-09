@@ -1,3 +1,8 @@
+## 0.23.42
+Fix paused build followup recovery
+Fix stuck startup plan restore
+
+
 ## 0.23.40
 - fix: bypass remote selector for manual modes
 - fix: ML pipeline — autoselect unification, branded mode passthrough, vibeultrax/vibeqmax MODE_DELTAS
