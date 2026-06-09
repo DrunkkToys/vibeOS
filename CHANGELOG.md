@@ -1,3 +1,8 @@
+## 0.23.53
+- fix: add vibelitex to VIBEMAX_MAP in vibemax.js
+rename: litex → vibelitex for consistency with mode-router id
+
+
 ## 0.23.52
 - feat: VibeLiteX — local fallback mode with enforcement + local pivot detection + local calibration
 - fix: align footer with blackbox session slot
