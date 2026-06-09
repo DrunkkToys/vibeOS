@@ -1,8 +1,10 @@
 import { test as nodeTest, before, beforeEach, after } from "node:test"
 import assert from "node:assert/strict"
+import { execFileSync } from "node:child_process"
 import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { pathToFileURL } from "node:url"
 
 const test = (name, options, fn) =>
   typeof options === "function"
@@ -981,4 +983,153 @@ test('v0.23.13 — footer coherence: tier icon matches model provider (integrati
   // Assert: active_pipeline exists
   assert.ok(Array.isArray(sel.active_pipeline) && sel.active_pipeline.length === 3,
     'active_pipeline must be [local,medium,brain], got: ' + JSON.stringify(sel.active_pipeline))
+})
+
+// ═══════════════════════════════════════════════════════════════════════
+// Section: v0.23.48 — agent_mode passthrough (plan mode fix)
+// ═══════════════════════════════════════════════════════════════════════
+
+test("v0.23.48 — syncControlSettings writes default_agent=plan when agent_mode is present", async () => {
+  const home = mkdtempSync(join(tmpdir(), "vib-am-plan-"))
+  const prevHome = process.env.HOME
+  const prevVibeHome = process.env.VIBEOS_HOME
+  const prevOCHome = process.env.VIBEOS_OPENCODE_HOME
+  process.env.HOME = home
+  process.env.VIBEOS_HOME = join(home, ".claude")
+  process.env.VIBEOS_OPENCODE_HOME = join(home, ".config/opencode")
+  try {
+    mkdirSync(join(home, ".config/opencode"), { recursive: true })
+    mkdirSync(join(home, ".claude"), { recursive: true })
+    writeFileSync(join(home, ".config/opencode/opencode.json"), JSON.stringify({ default_agent: "build" }, null, 2))
+    writeFileSync(join(home, ".claude/model-tiers.json"), JSON.stringify({ selection: {} }, null, 2))
+
+    const moduleUrl = join(process.cwd(), "src/lib/hooks/chat-transform.js")
+    const script = `
+      const fs = await import("node:fs");
+      const path = await import("node:path");
+      const mod = await import(${JSON.stringify(moduleUrl)} + "?am-plan=" + Date.now());
+      mod.syncControlSettings({ agent_mode: "plan" });
+      const home = process.env.HOME;
+      const oc = JSON.parse(fs.readFileSync(path.join(home, ".config/opencode/opencode.json"), "utf8"));
+      console.log(JSON.stringify({ agent: oc.default_agent }));
+    `
+    const result = JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", script], {
+      env: { ...process.env, HOME: home },
+      encoding: "utf8",
+    }).trim())
+    assert.equal(result.agent, "plan",
+      "syncControlSettings must write default_agent=plan when cv.agent_mode is 'plan'")
+  } finally {
+    process.env.HOME = prevHome
+    process.env.VIBEOS_HOME = prevVibeHome
+    process.env.VIBEOS_OPENCODE_HOME = prevOCHome
+  }
+})
+
+test("v0.23.48 — syncControlSettings restores previous agent when agent_mode is absent", async () => {
+  const home = mkdtempSync(join(tmpdir(), "vib-am-restore-"))
+  const prevHome = process.env.HOME
+  const prevVibeHome = process.env.VIBEOS_HOME
+  const prevOCHome = process.env.VIBEOS_OPENCODE_HOME
+  process.env.HOME = home
+  process.env.VIBEOS_HOME = join(home, ".claude")
+  process.env.VIBEOS_OPENCODE_HOME = join(home, ".config/opencode")
+  try {
+    mkdirSync(join(home, ".config/opencode"), { recursive: true })
+    mkdirSync(join(home, ".claude"), { recursive: true })
+    writeFileSync(join(home, ".config/opencode/opencode.json"), JSON.stringify({ default_agent: "build" }, null, 2))
+    writeFileSync(join(home, ".claude/model-tiers.json"), JSON.stringify({ selection: { previous_default_agent: "build" } }, null, 2))
+
+    const moduleUrl = join(process.cwd(), "src/lib/hooks/chat-transform.js")
+    const script = `
+      const fs = await import("node:fs");
+      const path = await import("node:path");
+      const mod = await import(${JSON.stringify(moduleUrl)} + "?am-restore=" + Date.now());
+      mod.syncControlSettings({ agent_mode: "plan" });
+      mod.syncControlSettings({});
+      const home = process.env.HOME;
+      const oc = JSON.parse(fs.readFileSync(path.join(home, ".config/opencode/opencode.json"), "utf8"));
+      const tiers = JSON.parse(fs.readFileSync(path.join(home, ".claude/model-tiers.json"), "utf8"));
+      console.log(JSON.stringify({ agent: oc.default_agent, restored: tiers.selection.previous_default_agent }));
+    `
+    const result = JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", script], {
+      env: { ...process.env, HOME: home },
+      encoding: "utf8",
+    }).trim())
+    assert.equal(result.agent, "build",
+      "after plan ends, syncControlSettings must restore previous agent (build)")
+    assert.equal(result.restored, null,
+      "previous_default_agent must be cleared after restore")
+  } finally {
+    process.env.HOME = prevHome
+    process.env.VIBEOS_HOME = prevVibeHome
+    process.env.VIBEOS_OPENCODE_HOME = prevOCHome
+  }
+})
+
+test("v0.23.48 — computeControlVector returns agent_mode=plan for REFINING regime", async () => {
+  const { computeControlVector } = await import("../src/lib/turn-classify.js?am-cv=" + Date.now())
+  const cv = computeControlVector(
+    { sub_regime: "REFINING", latest_stress_multiplier: 0 },
+    undefined, "budget"
+  )
+  assert.equal(cv.agent_mode, "plan",
+    "computeControlVector must set agent_mode=plan for REFINING with low stress")
+})
+
+test("v0.23.48 — computeControlVector returns agent_mode=undefined for INIT regime", async () => {
+  const { computeControlVector } = await import("../src/lib/turn-classify.js?am-cv2=" + Date.now())
+  const cv = computeControlVector(
+    { sub_regime: "INIT", latest_stress_multiplier: 0 },
+    undefined, "budget"
+  )
+  assert.equal(cv.agent_mode, undefined,
+    "computeControlVector must NOT set agent_mode for INIT regime")
+})
+
+test("v0.23.48 — computeControlVector blocks plan when stress > 1.5", async () => {
+  const { computeControlVector } = await import("../src/lib/turn-classify.js?am-cv3=" + Date.now())
+  const cv = computeControlVector(
+    { sub_regime: "REFINING", latest_stress_multiplier: 1.8 },
+    undefined, "quality"
+  )
+  assert.equal(cv.agent_mode, undefined,
+    "computeControlVector must NOT set agent_mode when stress > 1.5")
+})
+
+test("v0.23.48 — syncControlSettings clears followup pause when agent_mode is absent", async () => {
+  const home = mkdtempSync(join(tmpdir(), "vib-am-pause-"))
+  const prevHome = process.env.HOME
+  const prevVibeHome = process.env.VIBEOS_HOME
+  const prevOCHome = process.env.VIBEOS_OPENCODE_HOME
+  process.env.HOME = home
+  process.env.VIBEOS_HOME = join(home, ".claude")
+  process.env.VIBEOS_OPENCODE_HOME = join(home, ".config/opencode")
+  try {
+    mkdirSync(join(home, ".config/opencode"), { recursive: true })
+    mkdirSync(join(home, ".claude"), { recursive: true })
+    writeFileSync(join(home, ".config/opencode/opencode.json"), JSON.stringify({ default_agent: "plan" }, null, 2))
+    writeFileSync(join(home, ".claude/model-tiers.json"), JSON.stringify({ selection: { previous_default_agent: "build" } }, null, 2))
+
+    const moduleUrl = join(process.cwd(), "src/lib/hooks/chat-transform.js")
+    const script = `
+      const mod = await import(${JSON.stringify(moduleUrl)} + "?am-pause=" + Date.now());
+      mod.syncControlSettings({});
+      const fs = await import("node:fs");
+      const path = await import("node:path");
+      const home = process.env.HOME;
+      const oc = JSON.parse(fs.readFileSync(path.join(home, ".config/opencode/opencode.json"), "utf8"));
+      console.log(JSON.stringify({ agent: oc.default_agent }));
+    `
+    const result = JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", script], {
+      env: { ...process.env, HOME: home },
+      encoding: "utf8",
+    }).trim())
+    assert.equal(result.agent, "build",
+      "syncControlSettings({}) must restore previous agent from previous_default_agent")
+  } finally {
+    process.env.HOME = prevHome
+    process.env.VIBEOS_HOME = prevVibeHome
+    process.env.VIBEOS_OPENCODE_HOME = prevOCHome
+  }
 })

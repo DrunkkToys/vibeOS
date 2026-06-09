@@ -75,15 +75,12 @@ async function apiComputeControlVector(state, action, optimizationMode) {
         const res = await remoteCall("blackboxControlVector", [state, action, optimizationMode], null);
         if (res?.control_vector) {
             const local = computeControlVector(state, action, optimizationMode);
-            const cv = { agent_mode: local.agent_mode, ...res.control_vector, tier_bias: local.tier_bias, optimization_mode: local.optimization_mode };
-            delete cv.agent_mode;
+            const cv = { ...res.control_vector, agent_mode: local.agent_mode, tier_bias: local.tier_bias, optimization_mode: local.optimization_mode };
             return cv;
         }
     }
     catch { }
-    const fallbackCv = computeControlVector(state, action, optimizationMode);
-    delete fallbackCv.agent_mode;
-    return fallbackCv;
+    return computeControlVector(state, action, optimizationMode);
 }
 function observeUserCorrection(text) {
     if (!text || typeof text !== "string")
