@@ -25,7 +25,7 @@ import { createTrinityTool } from "./lib/trinity-tool.js";
 import { classifyAndRankModels, modelToCcAlias, discoverAvailableModels, probeModel } from "./lib/trinity-rebuild.js";
 import { _appendFooter } from "./lib/hooks/footer.js";
 import { onToolExecuteBefore, onToolExecuteAfter, setToolDirectory } from "./lib/hooks/tool-execute.js";
-import { onMessagesTransform, onSystemTransform, latestUserIntent } from "./lib/hooks/chat-transform.js";
+import { onMessagesTransform, onSystemTransform, latestUserIntent, ensureProjectSkill } from "./lib/hooks/chat-transform.js";
 import { onSessionCompacting } from "./lib/hooks/session-compact.js";
 import { onShellEnv, setShellDirectory } from "./lib/hooks/shell-env.js";
 function getVibeOSHome() {
@@ -67,6 +67,7 @@ let _mcpServerStartupPromise = null;
 let context7Seen = new Set();
 let _prevOutputText = "";
 let _deferredBootstrapDone = false;
+let _skillsEnsured = new Set();
 let _runDeferredStartupBootstrap = null;
 const SAVE_EST = {
     WRITE_EDIT: 0.005,
@@ -431,7 +432,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
         getBlackboxResolution, scoreStress, applySlot, saveOptimizationMode,
         getFlowWarns, projectFingerprint, loadProjectState: loadProjectStateStable, saveProjectState: saveProjectStateStable,
         ensureProjectBucket, mergeProjectBucket, clearProjectPatterns,
-        projectPatternRows, promotedProjectPatterns, detectTechStack, ensureProjectDocs,
+        projectPatternRows, promotedProjectPatterns, detectTechStack, ensureProjectDocs, ensureProjectSkill,
         discoverAvailableModels, classifyAndRankModels, modelToCcAlias, probeModel,
         setBlackboxEnabled, loadBlackboxState, saveBlackboxState,
         reportsIndex: reportsIndexStable, saveReportsIndex: saveReportsIndexStable, backupFile: backupFileStable, writeSessionSlot, writeSessionOptMode, _refreshModel,
@@ -452,6 +453,12 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                 setCurrentProjectName(directory ? directory.split("/").pop() : "unknown");
             }
             ensureDeferredBootstrap();
+            if (directory && hookFp && !_skillsEnsured.has(hookFp)) {
+                try {
+                    ensureProjectSkill(directory, hookFp);
+                    _skillsEnsured.add(hookFp);
+                } catch (_e) {}
+            }
             onToolExecuteBefore._directory = directory;
             return onToolExecuteBefore(input, output);
         },

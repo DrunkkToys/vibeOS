@@ -711,6 +711,10 @@ export function createTrinityTool(deps) {
         if (!deps.directory || !deps.existsSync(deps.directory)) return "Working directory not accessible."
         const techStack = deps.detectTechStack(deps.directory)
         const result = deps.ensureProjectDocs(deps.directory, techStack)
+        const _fp = deps.projectFingerprint(deps.directory)
+        if (_fp) {
+          try { deps.ensureProjectSkill(deps.directory, _fp) } catch (_e) {}
+        }
         if (result.created.length === 0 && result.skipped.length > 0) {
           return `AGENTS.md and README.md already exist. Use \`trinity guard\` to check for missing features.`
         }
