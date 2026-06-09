@@ -1,3 +1,7 @@
+## 0.23.18
+- fix: ML always drives — remove isManualOverride from budget-first mode, branded modes pass to autoSelectMode, resolveOptimizationMode yields to regime when API connected
+
+
 ## 0.23.17
 - chore: sync release numbering
 
