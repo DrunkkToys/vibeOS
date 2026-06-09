@@ -1,3 +1,8 @@
+## 0.23.48
+- fix: wire audit and forensic modes through ML classifier pipeline
+Fix stale startup plan restore (#115)
+
+
 ## 0.23.44
 - fix: force-add run-test-suite.mjs for CI release workflow
 - fix: restart stale startup plan agent and clear workspace followup pause
