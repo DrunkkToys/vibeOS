@@ -1,3 +1,8 @@
+## 0.23.34
+- fix: restore footer ML-driven display + 6 integration tests calling _appendFooter directly to prevent regression from stale .ts compilation
+- fix: wire ensureProjectSkill into tool.execute.before and trinity guard
+
+
 ## 0.23.33
 - feat: wire forensic + audit into ML pipeline — classifyTurnSimple detects security/forensic intent, autoSelectMode returns audit/forensic mode
 
