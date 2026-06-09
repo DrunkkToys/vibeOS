@@ -1,3 +1,7 @@
+## 0.23.46
+- fix: strip agent_mode from control vector to prevent ML plan-mode breakage
+
+
 ## 0.23.45
 - fix: propagate local agent_mode as fallback when remote CV omits it
 
