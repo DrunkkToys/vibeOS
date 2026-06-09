@@ -15,11 +15,12 @@ function getVibeOSHome(): string {
   return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude")
 }
 
-type OptimizationMode = "balanced" | "budget" | "quality" | "speed" | "longrun" | "auto"
+type OptimizationMode = "balanced" | "budget" | "quality" | "speed" | "longrun" | "auto" | "forensic" | "audit" | "vibeultrax" | "vibeqmax" | "vibemax"
 
 function autoSelectMode(subRegime: string, stressMultiplier?: number): OptimizationMode {
   const regime = String(subRegime || "INIT").toUpperCase()
   const stress = Number(stressMultiplier ?? 0)
+  if (regime === "AUDIT" || regime === "FORENSIC") return regime.toLowerCase() as OptimizationMode
   if (regime === "LOOPING") return "speed"
   if (regime === "CONVERGING" || regime === "CLOSED") return "quality"
   if (stress > 1.5) return "quality"

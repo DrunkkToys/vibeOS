@@ -12,6 +12,8 @@ function getVibeOSHome() {
 function autoSelectMode(subRegime, stressMultiplier) {
     const regime = String(subRegime || "INIT").toUpperCase();
     const stress = Number(stressMultiplier ?? 0);
+    if (regime === "AUDIT" || regime === "FORENSIC")
+        return regime.toLowerCase();
     if (regime === "LOOPING")
         return "speed";
     if (regime === "CONVERGING" || regime === "CLOSED")
