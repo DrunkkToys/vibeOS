@@ -15,7 +15,7 @@ function getVibeOSHome(): string {
   return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude")
 }
 
-type OptimizationMode = "balanced" | "budget" | "quality" | "speed" | "longrun" | "auto" | "forensic" | "audit" | "vibeultrax" | "vibeqmax" | "vibemax" | "litex"
+type OptimizationMode = "balanced" | "budget" | "quality" | "speed" | "longrun" | "auto" | "forensic" | "audit" | "vibeultrax" | "vibeqmax" | "vibemax" | "vibelitex"
 const QUALITY_STRESS_THRESHOLD = 1.5
 function autoSelectMode(subRegime: string, stressMultiplier?: number): OptimizationMode {
   const regime = String(subRegime || "INIT").toUpperCase()
@@ -24,7 +24,7 @@ function autoSelectMode(subRegime: string, stressMultiplier?: number): Optimizat
   if (regime === "LOOPING") return "speed"
   if (regime === "CONVERGING" || regime === "CLOSED") return "quality"
   if (stress > QUALITY_STRESS_THRESHOLD) return "quality"
-  return "litex"
+  return "vibelitex"
 }
 
 export function resolveOptimizationMode(
@@ -35,8 +35,8 @@ export function resolveOptimizationMode(
   const normalized = String(optimizationMode || "auto").toLowerCase()
   if (normalized === "auto" || normalized === "")
     return autoSelectMode(subRegime || "INIT", stressMultiplier) as OptimizationMode
-  if (isApiFallback()) return "litex"
-  if (normalized === "balanced" || normalized === "budget" || normalized === "quality" || normalized === "speed" || normalized === "longrun" || normalized === "audit" || normalized === "forensic" || normalized === "vibeultrax" || normalized === "vibeqmax" || normalized === "vibemax" || normalized === "litex") {
+  if (isApiFallback()) return "vibelitex"
+  if (normalized === "balanced" || normalized === "budget" || normalized === "quality" || normalized === "speed" || normalized === "longrun" || normalized === "audit" || normalized === "forensic" || normalized === "vibeultrax" || normalized === "vibeqmax" || normalized === "vibemax" || normalized === "vibelitex") {
     return normalized as OptimizationMode
   }
   return "budget"
@@ -44,7 +44,7 @@ export function resolveOptimizationMode(
 
 export function resolveOptimizationSlot(mode: OptimizationMode | string | undefined): "brain" | "medium" | "cheap" {
   const normalized = String(mode || "budget").toLowerCase()
-  return normalized === "speed" || normalized === "vibemax" || normalized === "litex" ? "medium"
+  return normalized === "speed" || normalized === "vibemax" || normalized === "vibelitex" ? "medium"
     : normalized === "quality" || normalized === "longrun" || normalized === "vibeultrax" || normalized === "vibeqmax" || normalized === "forensic" || normalized === "audit" ? "brain"
       : "cheap"
 }
@@ -112,7 +112,7 @@ function computeControlVector(
     : subRegime === "CONVERGING" || subRegime === "CLOSED" ? "brain"
     : subRegime === "REFINING" || subRegime === "LOOPING" ? "medium"
     : mode === "quality" || mode === "longrun" || mode === "forensic" || mode === "audit" ? "brain"
-    : mode === "speed" || mode === "vibemax" || mode === "litex" ? "medium"
+    : mode === "speed" || mode === "vibemax" || mode === "vibelitex" ? "medium"
     : mode === "balanced" ? "auto"
     : "cheap"
   return {

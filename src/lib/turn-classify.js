@@ -21,22 +21,22 @@ function autoSelectMode(subRegime, stressMultiplier) {
         return "quality";
     if (stress > QUALITY_STRESS_THRESHOLD)
         return "quality";
-    return "litex";
+    return "vibelitex";
 }
 export function resolveOptimizationMode(subRegime, stressMultiplier, optimizationMode) {
     const normalized = String(optimizationMode || "auto").toLowerCase();
     if (normalized === "auto" || normalized === "")
         return autoSelectMode(subRegime || "INIT", stressMultiplier);
     if (isApiFallback())
-        return "litex";
-    if (normalized === "balanced" || normalized === "budget" || normalized === "quality" || normalized === "speed" || normalized === "longrun" || normalized === "audit" || normalized === "forensic" || normalized === "vibeultrax" || normalized === "vibeqmax" || normalized === "vibemax" || normalized === "litex") {
+        return "vibelitex";
+    if (normalized === "balanced" || normalized === "budget" || normalized === "quality" || normalized === "speed" || normalized === "longrun" || normalized === "audit" || normalized === "forensic" || normalized === "vibeultrax" || normalized === "vibeqmax" || normalized === "vibemax" || normalized === "vibelitex") {
         return normalized;
     }
     return "budget";
 }
 export function resolveOptimizationSlot(mode) {
     const normalized = String(mode || "budget").toLowerCase();
-    return normalized === "speed" || normalized === "vibemax" || normalized === "litex" ? "medium"
+    return normalized === "speed" || normalized === "vibemax" || normalized === "vibelitex" ? "medium"
         : normalized === "quality" || normalized === "longrun" || normalized === "vibeultrax" || normalized === "vibeqmax" || normalized === "forensic" || normalized === "audit" ? "brain"
             : "cheap";
 }
@@ -99,7 +99,7 @@ function computeControlVector(_state, _action, _optimizationMode) {
         : subRegime === "CONVERGING" || subRegime === "CLOSED" ? "brain"
             : subRegime === "REFINING" || subRegime === "LOOPING" ? "medium"
                 : mode === "quality" || mode === "longrun" || mode === "forensic" || mode === "audit" ? "brain"
-                    : mode === "speed" || mode === "vibemax" || mode === "litex" ? "medium"
+                    : mode === "speed" || mode === "vibemax" || mode === "vibelitex" ? "medium"
                         : mode === "balanced" ? "auto"
                             : "cheap";
     return {

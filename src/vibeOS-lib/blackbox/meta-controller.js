@@ -288,7 +288,7 @@ export function autoSelectMode(subRegime, stressMultiplier) {
         return "quality";
     if (stressMultiplier && stressMultiplier > QUALITY_STRESS_THRESHOLD)
         return "quality";
-    return "litex";
+    return "vibelitex";
 }
 export function computeControlVector(state, action, optimizationMode) {
     const regime = state.sub_regime || "INIT";

@@ -118,7 +118,7 @@ test("footer: brand fallback follows active_slot", async () => {
 test("E2E: regime DIVERGENT → autoSelectMode → litex", async () => {
   const turn = await import("../src/lib/turn-classify.js?e2e-1=" + Date.now())
   const mode = turn.autoSelectMode("DIVERGENT", 0.1)
-  assert.equal(mode, "litex")
+  assert.equal(mode, "vibelitex")
 })
 
 test("E2E: regime CONVERGING → autoSelectMode → quality", async () => {

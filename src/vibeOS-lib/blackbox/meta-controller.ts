@@ -284,7 +284,7 @@ export function autoSelectMode(subRegime, stressMultiplier) {
   if (regime === "LOOPING") return "speed"
   if (regime === "CONVERGING" || regime === "CLOSED") return "quality"
   if (stressMultiplier && stressMultiplier > QUALITY_STRESS_THRESHOLD) return "quality"
-  return "litex"
+  return "vibelitex"
 }
 export function computeControlVector(state, action, optimizationMode) {
   const regime = state.sub_regime || "INIT"
