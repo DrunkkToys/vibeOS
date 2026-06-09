@@ -299,14 +299,17 @@ async function _appendFooter(input, output, directory) {
         }
         try {
             const bb = _latestBlackboxState;
-            if (bb?.sub_regime)
-                vibeLine += ` | ${bb.sub_regime}`;
+            const regime = bb?.sub_regime || "INIT";
+            vibeLine += ` | ${regime}`;
         }
         catch { }
         try {
             const sel = loadSelection();
-            if (sel?.vector_changed_slot && sel?.vector_changed_at && (Date.now() - sel.vector_changed_at < 60000)) {
+            if (sel?.vector_changed_slot) {
                 vibeLine += ` | → ${sel.vector_changed_slot}`;
+            }
+            if (sel?.optimization_mode && sel.optimization_mode !== "auto") {
+                vibeLine += ` | ${sel.optimization_mode}`;
             }
         }
         catch { }
