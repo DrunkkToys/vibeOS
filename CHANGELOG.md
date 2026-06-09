@@ -1,3 +1,9 @@
+## 0.23.54
+- test: make blackboxSelectMode test resilient to API response format
+- test: fix e2e tests for vibelitex mode (budget → vibelitex)
+- chore: add TS source files for blackbox JS modules (crew-constants, exposure-model, taxonomy, local-stub, resolution-tracker)
+
+
 ## 0.23.53
 - fix: add vibelitex to VIBEMAX_MAP in vibemax.js
 rename: litex → vibelitex for consistency with mode-router id
