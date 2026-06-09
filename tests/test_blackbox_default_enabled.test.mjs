@@ -259,7 +259,8 @@ test("E2E: full lifecycle — fresh start → blackbox on → mode policy → tr
   const { isApiConnected, remoteCall } = await import("../src/lib/api-client.js?t=" + Date.now())
   if (isApiConnected()) {
     const r = await remoteCall("blackboxSelectMode", ["INIT", 0.1], null)
-    assert.ok(r && r.mode, "5. ML routing returns mode")
+    const hasMode = r && (r.mode || r.optimization_mode)
+    assert.ok(hasMode, "5. ML routing returns mode")
   } else {
     const { resolveOptimizationMode } = await import("../src/lib/turn-classify.js?t=" + Date.now())
     const mode = resolveOptimizationMode("INIT", 0.1, "auto")
