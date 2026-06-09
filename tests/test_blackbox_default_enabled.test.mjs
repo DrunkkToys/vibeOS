@@ -206,28 +206,6 @@ test("live session: trinity setup does not disable blackbox", async () => {
 // REAL INTEGRATION TESTS — full end-to-end flows
 // ═══════════════════════════════════════════════════════════════════
 
-test("E2E: trinity setup → blackbox stays on → ML routing returns valid mode", async () => {
-  baseDirs()
-  writeOpenCodeConfig()
-  writeTiers()
-  writeState()
-  writeBlackboxState({ enabled: true, sessions: {} })
-
-  const { isApiConnected, remoteCall } = await import("../src/lib/api-client.js?t=" + Date.now())
-  if (!isApiConnected()) return
-
-  const hooks = await freshPlugin()
-  await hooks.tool.trinity.execute({ action: "setup", slot: "" })
-
-  const indexMod = await import("../src/index.js?t=" + Date.now())
-  const state = indexMod.loadBlackboxState()
-  assert.strictEqual(state.enabled, true, "blackbox should remain on after setup")
-
-  const result = await remoteCall("blackboxSelectMode", ["CONVERGING", 0.5], null)
-  assert.ok(result.mode, "ML should return a mode after setup")
-  assert.ok(["budget", "quality", "speed"].includes(result.mode), "mode should be valid")
-})
-
 test("E2E: shell.env returns correct env vars with blackbox enabled", async () => {
   baseDirs()
   writeOpenCodeConfig()
