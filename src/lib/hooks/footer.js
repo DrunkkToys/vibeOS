@@ -285,12 +285,12 @@ async function _appendFooter(input, output, directory) {
         const optMode = (resolvedMode || "budget").toLowerCase();
         const brandMap = { vibeultrax: "VibeUltraX", vibeqmax: "VibeQMaX", vibemax: "VibeMaX", quality: "VibeQMaX", audit: "VibeQMaX", forensic: "VibeQMaX" };
         const brandedToRuntime = { vibeultrax: "Quality", vibeqmax: "Quality", vibemax: "Speed" };
-        const activeSlot = selNowFooter.active_slot || "brain";
+        const activeSlot = selNowFooter.vector_changed_slot || selNowFooter.active_slot || "brain";
         const vibeBrand = brandMap[optModeFooter] || (activeSlot === "brain" ? "VibeQMaX" : "VibeMaX");
         const modeLabel = modeCapitalized(brandedToRuntime[optMode] || optMode);
-        const tierIcon = activeSlot === "brain" ? "🧠" : activeSlot === "medium" ? "⚙" : activeSlot === "cheap" ? "🎁" : "⚡";
-        const flashIcon = isApiConnected() ? " ⚡" : "";
-        let vibeLine = `— ${tierIcon} ${activeSlot} | ${execution.provider_label} | ${modelDisplayName(execution.model)}`;
+        const tierIcon = activeSlot === "brain" ? "\ud83e\udde0" : activeSlot === "medium" ? "\u2699" : activeSlot === "cheap" ? "\ud83c\udf81" : "\u26a1";
+        const flashIcon = isApiConnected() ? " \u26a1" : "";
+        let vibeLine = `\u2014 ${tierIcon} ${activeSlot} | ${execution.provider_label} | ${modelDisplayName(execution.model)}`;
         if (ltTotal > 0) {
             vibeLine += ` | $${formatUsd(ltTotal)}`;
         }
@@ -298,18 +298,26 @@ async function _appendFooter(input, output, directory) {
             vibeLine += ` | ${vibeBrand}${flashIcon}`;
         }
         try {
-            const bb = _latestBlackboxState;
-            const regime = bb?.sub_regime || "INIT";
-            vibeLine += ` | ${regime}`;
+            const sel = loadSelection();
+            const realSlot = sel?.active_slot || "brain";
+            const wantedSlot = sel?.vector_changed_slot;
+            if (wantedSlot) {
+                if (wantedSlot !== realSlot) {
+                    vibeLine += ` | \u2192 ${wantedSlot}`;
+                } else {
+                    vibeLine += ` | \u2713`;
+                }
+            }
         }
         catch { }
         try {
             const sel = loadSelection();
             if (sel?.vector_changed_slot) {
-                vibeLine += ` | → ${sel.vector_changed_slot}`;
-            }
-            if (sel?.optimization_mode && sel.optimization_mode !== "auto") {
-                vibeLine += ` | ${sel.optimization_mode}`;
+                if (sel.vector_changed_slot !== activeSlot) {
+                    vibeLine += ` | → ${sel.vector_changed_slot}`;
+                } else {
+                    vibeLine += ` | ✓`;
+                }
             }
         }
         catch { }
