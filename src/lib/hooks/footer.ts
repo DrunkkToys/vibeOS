@@ -182,7 +182,7 @@ async function _appendFooter(input, output, directory) {
     const { ltTasks, ltCache, ltCost, count, sesTasks, sesEdit, sesCredit, sesC7, sesQuota, sesCache, sesTaskDelegations, sesDuration, sesRatePerHour, sesTrend, sesToolBreakdown, sesModelTurns, quality_avg } = readLifetimeSavings()
     const { stableStreak, problemStreak } = readRewardSignals()
 
-    const sessionSlot = loadSessionSlot(_OC_SID)
+    const sessionSlot = loadBlackboxState()?.sessions?.[_OC_SID]?.active_slot || loadSessionSlot(_OC_SID)
     const slot = sessionSlot || loadSelection().active_slot || "brain"
     const brainModel = slot === "brain" ? (TRINITY_BRAIN || currentModel) : slot === "medium" ? (TRINITY_MEDIUM || currentModel) : (TRINITY_CHEAP || currentModel || "")
     let liveModel = ""
