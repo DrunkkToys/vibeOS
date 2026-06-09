@@ -22,9 +22,11 @@ function autoSelectMode(subRegime, stressMultiplier) {
 }
 export function resolveOptimizationMode(subRegime, stressMultiplier, optimizationMode) {
     const normalized = String(optimizationMode || "auto").toLowerCase();
-    if (normalized === "auto" || normalized === "")
+    if (!isApiFallback())
         return autoSelectMode(subRegime || "INIT", stressMultiplier);
-    if (normalized === "balanced" || normalized === "budget" || normalized === "quality" || normalized === "speed" || normalized === "longrun" || normalized === "vibemax") {
+    if (normalized === "auto" || normalized === "" || normalized === "vibeultrax" || normalized === "vibeqmax" || normalized === "vibemax")
+        return autoSelectMode(subRegime || "INIT", stressMultiplier);
+    if (normalized === "balanced" || normalized === "budget" || normalized === "quality" || normalized === "speed" || normalized === "longrun") {
         return normalized;
     }
     return "budget";

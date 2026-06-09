@@ -2,7 +2,7 @@ import { BLACKBOX_STATE_FILE, _OC_SID, loadBlackboxState, saveBlackboxState, wit
 const BASELINE_MODE = "budget";
 const LOOP_REGIMES = new Set(["LOOPING", "DIVERGENT"]);
 const QUALITY_REGIMES = new Set(["CONVERGING", "CLOSED"]);
-const MANUAL_MODES = new Set(["balanced", "quality", "speed", "longrun", "vibemax"]);
+const MANUAL_MODES = new Set(["balanced", "quality", "speed", "longrun"]);
 function normalizeMode(mode) {
     const normalized = String(mode || BASELINE_MODE).toLowerCase();
     if (normalized === "auto" || normalized === "")
@@ -82,14 +82,6 @@ function persistSessionPolicy(state, session, policy, mode) {
 }
 export function peekBudgetFirstMode(input = {}) {
     const requestedMode = normalizeMode(input.requestedMode);
-    if (isManualOverride(requestedMode)) {
-        return {
-            active: false,
-            mode: requestedMode,
-            reason: "manual",
-            shouldPersistRequestedMode: true,
-        };
-    }
     const { policy } = loadSessionPolicy();
     if (policy.active && policy.active_mode && normalizeMode(policy.active_mode) !== BASELINE_MODE) {
         return {
@@ -108,14 +100,6 @@ export function peekBudgetFirstMode(input = {}) {
 }
 export function applyBudgetFirstMode(input = {}) {
     const requestedMode = normalizeMode(input.requestedMode);
-    if (isManualOverride(requestedMode)) {
-        return {
-            active: false,
-            mode: requestedMode,
-            reason: "manual",
-            shouldPersistRequestedMode: true,
-        };
-    }
     return withFileLock(BLACKBOX_STATE_FILE, () => {
         const { state, session, policy } = loadSessionPolicy();
         const regime = normalizeRegime(input.subRegime || policy.last_sub_regime);

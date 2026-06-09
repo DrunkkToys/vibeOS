@@ -11,11 +11,12 @@ test("blackbox smoke: regime map stays stable", () => {
   assert.equal(turn.autoSelectMode("REFINING", 1.8), "quality")
 })
 
-test("blackbox smoke: resolveOptimizationMode respects auto and explicit modes", () => {
+test("blackbox smoke: resolveOptimizationMode — ML drives, explicit modes respected only in fallback", () => {
   assert.equal(turn.resolveOptimizationMode("LOOPING", 0.1, "auto"), "speed")
   assert.equal(turn.resolveOptimizationMode("CONVERGING", 0.1, "auto"), "quality")
-  assert.equal(turn.resolveOptimizationMode("INIT", 0.1, "budget"), "budget")
-  assert.equal(turn.resolveOptimizationMode("INIT", 0.1, "speed"), "speed")
+  assert.equal(turn.resolveOptimizationMode("DIVERGENT", 0.1, "auto"), "budget")
+  assert.equal(turn.resolveOptimizationMode("LOOPING", 0.1, "speed"), "speed")
+  assert.equal(turn.resolveOptimizationMode("CONVERGING", 0.1, "quality"), "quality")
 })
 
 test("blackbox smoke: classifyTurnSimple covers qna and implementation intents", () => {

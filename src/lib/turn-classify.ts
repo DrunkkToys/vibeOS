@@ -32,8 +32,10 @@ export function resolveOptimizationMode(
   optimizationMode: OptimizationMode | string | undefined,
 ): OptimizationMode {
   const normalized = String(optimizationMode || "auto").toLowerCase()
-  if (normalized === "auto" || normalized === "") return autoSelectMode(subRegime || "INIT", stressMultiplier)
-  if (normalized === "balanced" || normalized === "budget" || normalized === "quality" || normalized === "speed" || normalized === "longrun" || normalized === "vibemax") {
+  if (!isApiFallback()) return autoSelectMode(subRegime || "INIT", stressMultiplier) as OptimizationMode
+  if (normalized === "auto" || normalized === "" || normalized === "vibeultrax" || normalized === "vibeqmax" || normalized === "vibemax")
+    return autoSelectMode(subRegime || "INIT", stressMultiplier) as OptimizationMode
+  if (normalized === "balanced" || normalized === "budget" || normalized === "quality" || normalized === "speed" || normalized === "longrun") {
     return normalized as OptimizationMode
   }
   return "budget"
