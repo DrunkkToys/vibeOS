@@ -81,17 +81,17 @@ export async function selectOptimizationModeRemote(
   stressMultiplier: number | undefined,
   fallbackMode: OptimizationMode | string | undefined,
 ): Promise<OptimizationMode> {
+  const normalizedRequestedMode = String(fallbackMode || "auto").toLowerCase()
   const fallback = resolveOptimizationMode(subRegime, stressMultiplier, fallbackMode)
-  if (!isApiFallback()) return autoSelectMode(subRegime || "INIT", stressMultiplier) as OptimizationMode
+  if (normalizedRequestedMode !== "auto" && normalizedRequestedMode !== "") return fallback
+  if (isApiFallback()) return fallback
   try {
-    if (!isApiFallback()) {
-      const client = getApiClient()
-      if (client) {
-        const res = await client.blackboxSelectMode(subRegime || "INIT", Number(stressMultiplier ?? 0))
-        const selected = String((res as any)?.mode || "").toLowerCase()
-        if (selected === "balanced" || selected === "budget" || selected === "quality" || selected === "speed" || selected === "longrun" || selected === "vibemax") {
-          return selected as OptimizationMode
-        }
+    const client = getApiClient()
+    if (client) {
+      const res = await client.blackboxSelectMode(subRegime || "INIT", Number(stressMultiplier ?? 0))
+      const selected = String((res as any)?.mode || "").toLowerCase()
+      if (selected === "balanced" || selected === "budget" || selected === "quality" || selected === "speed" || selected === "longrun" || selected === "audit" || selected === "forensic" || selected === "vibeultrax" || selected === "vibeqmax" || selected === "vibemax") {
+        return selected as OptimizationMode
       }
     }
   } catch {}

@@ -47,6 +47,9 @@ test("resolveOptimizationMode: vibeqmax + CONVERGING -> passes through directly 
 test("resolveOptimizationMode: vibeultrax + EXPLORING -> passes through directly = vibeultrax", () => {
   assert.equal(turn.resolveOptimizationMode("EXPLORING", 0, "vibeultrax"), "vibeultrax")
 })
+test("selectOptimizationModeRemote: manual branded mode bypasses remote selector", async () => {
+  assert.equal(await turn.selectOptimizationModeRemote("EXPLORING", 0, "vibeqmax"), "vibeqmax")
+})
 
 // ── Phase 4: computeControlVector – mode + regime -> tier_bias ──
 test("computeControlVector: EXPLORING + budget -> tier_bias cheap", () => {
