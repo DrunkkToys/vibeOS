@@ -67,23 +67,33 @@ const forceBump = ["patch", "minor", "major"].find(t => process.argv.includes(t)
 const autoYes = process.argv.includes("--yes") || process.argv.includes("-y")
 
 // ── TEST GATE ──────────────────────────────────────────────────
-log("")
-log(`${BOLD}🧪 Running tests before release...${RESET}`)
-try {
-  sh("npm run test:ci", { stdio: "inherit" })
-  log(`${GREEN}✓${RESET} all tests passed`)
-} catch {
-  die("tests failed — release blocked. Fix failing tests before releasing.")
+if (process.argv.includes("--ci")) {
+  log("")
+  log(`${GREEN}✓${RESET} skipping test gate (CI already ran tests)`)
+} else {
+  log("")
+  log(`${BOLD}🧪 Running tests before release...${RESET}`)
+  try {
+    sh("npm run test:ci", { stdio: "inherit" })
+    log(`${GREEN}✓${RESET} all tests passed`)
+  } catch {
+    die("tests failed — release blocked. Fix failing tests before releasing.")
+  }
 }
 
 // ── BUILD GATE ──────────────────────────────────────────────────
-log("")
-log(`${BOLD}🔨 Building before release...${RESET}`)
-try {
-  sh("npm run build", { stdio: "inherit" })
-  log(`${GREEN}✓${RESET} build succeeded`)
-} catch {
-  die("build failed — release blocked. Fix build errors before releasing.")
+if (process.argv.includes("--ci")) {
+  log("")
+  log(`${GREEN}✓${RESET} skipping build gate (CI already built)`)
+} else {
+  log("")
+  log(`${BOLD}🔨 Building before release...${RESET}`)
+  try {
+    sh("npm run build", { stdio: "inherit" })
+    log(`${GREEN}✓${RESET} build succeeded`)
+  } catch {
+    die("build failed — release blocked. Fix build errors before releasing.")
+  }
 }
 
 // ── SYNC MODEL PRICING ──────────────────────────────────────────
