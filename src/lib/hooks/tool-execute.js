@@ -7,6 +7,7 @@ import { classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget, 
 import { latestUserIntent } from "./chat-transform.js";
 import { loadSessionOptMode } from "../selection-manager.js";
 import { loadOptimizationMode } from "../turn-classify.js";
+import { loadCredit, refreshCreditSnapshot } from "../credit-api.js";
 function modeCapitalized(mode) {
     if (!mode)
         return "Budget";
@@ -14,7 +15,6 @@ function modeCapitalized(mode) {
 }
 import { scoreStress, extractFirstWordFromArgs, shouldLogWarn, isUserAskingForTests, resolveEnforcementMode, getLearnedExploratoryWords, noteTaskRoutingLearning, incrementTurnCounter, } from "../turn-classify.js";
 import { saveReport } from "../reporting.js";
-import { loadCredit } from "../credit-api.js";
 import { remoteCall, VIBEOS_API_ENABLED } from "../api-client.js";
 import { getCostAnomalyDetector } from "../cost-anomaly.js";
 import { checkFlowRules } from "../../vibeOS-lib/flow-enforcer.js";
@@ -336,7 +336,15 @@ export const onToolExecuteBefore = async (input, output) => {
         }
     }
     // Credit < 40% + Task: force to cheap slot (mirrors CC's rwh path).
-    const _credit = loadCredit();
+    let _credit = loadCredit();
+    if (_credit < 40) {
+        try {
+            const refreshed = await refreshCreditSnapshot();
+            if (Number.isFinite(refreshed))
+                _credit = refreshed;
+        }
+        catch { }
+    }
     if (_credit < 40 && t === "task" && TRINITY_CHEAP && args && typeof args === "object") {
         if (args.model !== TRINITY_CHEAP) {
             args.model = TRINITY_CHEAP;
@@ -370,6 +378,10 @@ export const onToolExecuteBefore = async (input, output) => {
         const apiRoute = await remoteCall("routeModel", [_prompt, currentTier, TRINITY_CHEAP, TRINITY_MEDIUM, LEARNED_EXPLORATORY, stressScore], null);
         if (apiRoute?.target) {
             _target = apiRoute.target;
+            if (currentTier === "high" && !_exploratoryTarget && TRINITY_MEDIUM && _target === TRINITY_CHEAP) {
+                _target = TRINITY_MEDIUM;
+                console.error(`[vibeOS] 🔀 Task floor: preserving medium tier for high-tier brain task`);
+            }
         }
         else if (_target === TRINITY_CHEAP && TRINITY_MEDIUM) {
             if (stressScore > 0.5) {
@@ -738,17 +750,21 @@ export const onToolExecuteAfter = async (input, output) => {
             _footerText += ` | $${formatUsd(ltTotal)}`;
         }
         _footerText += ` | ${vibeBrand}${flashIcon} —\n\n`;
+        const footerTarget = _payload(output);
         output.title = _footerText.trim();
-        if (typeof output?.output === "string")
-            output.output = _footerText + output.output;
-        else if (typeof output?.result === "string")
-            output.result = _footerText + output.result;
-        else if (typeof output?.text === "string")
-            output.text = _footerText + output.text;
-        else if (typeof output?.content === "string")
-            output.content = _footerText + output.content;
+        if (footerTarget !== output && footerTarget && typeof footerTarget === "object") {
+            footerTarget.title = _footerText.trim();
+        }
+        if (typeof footerTarget?.output === "string")
+            footerTarget.output = _footerText + footerTarget.output;
+        else if (typeof footerTarget?.result === "string")
+            footerTarget.result = _footerText + footerTarget.result;
+        else if (typeof footerTarget?.text === "string")
+            footerTarget.text = _footerText + footerTarget.text;
+        else if (typeof footerTarget?.content === "string")
+            footerTarget.content = _footerText + footerTarget.content;
         else
-            output.output = _footerText;
+            footerTarget.output = _footerText;
         _autoReportCount = (_autoReportCount || 0) + 1;
         if (_autoReportCount % 5 === 0 && ltTotal > 0) {
             saveReport({
@@ -835,30 +851,36 @@ export const onToolExecuteAfter = async (input, output) => {
             return s;
         });
     }
+    function _payload(obj) {
+        if (obj?.message && typeof obj.message === "object")
+            return obj.message;
+        return obj;
+    }
     // Inject pending delegation UI note (set in tool.execute.before).
     // This surfaces the warning in the OC chat transcript, not just stderr.
     if (pendingUiNote) {
+        const target = _payload(output);
         if (enforcementBlocked) {
             const note = `[vibeOS] ${pendingUiNote}`;
-            if (typeof output?.result === "string")
-                output.result += `\n\n${note}`;
-            else if (typeof output?.text === "string")
-                output.text += `\n\n${note}`;
-            else if (typeof output?.content === "string")
-                output.content += `\n\n${note}`;
+            if (typeof target?.result === "string")
+                target.result += `\n\n${note}`;
+            else if (typeof target?.text === "string")
+                target.text += `\n\n${note}`;
+            else if (typeof target?.content === "string")
+                target.content += `\n\n${note}`;
             else
-                output.result = pendingUiNote;
+                target.result = pendingUiNote;
         }
         else {
             const note = `\n\n${pendingUiNote}`;
-            if (typeof output?.result === "string")
-                output.result += note;
-            else if (typeof output?.text === "string")
-                output.text += note;
-            else if (typeof output?.content === "string")
-                output.content += note;
+            if (typeof target?.result === "string")
+                target.result += note;
+            else if (typeof target?.text === "string")
+                target.text += note;
+            else if (typeof target?.content === "string")
+                target.content += note;
             else
-                output.result = pendingUiNote;
+                target.result = pendingUiNote;
         }
         pendingUiNote = null;
     }

@@ -274,6 +274,108 @@ test('footer: message.updated fallback hook exists and does not crash', async ()
   assert.ok(true, 'message.updated hook does not crash')
 })
 
+test('footer alert chain: write warning survives tool result and later footer append', async () => {
+  const { home, sandbox } = makeSandbox('footer-chain')
+  const projectDir = join(sandbox, 'proj')
+  mkdirSync(projectDir, { recursive: true })
+  writeFileSync(join(projectDir, 'opencode.json'), JSON.stringify({ model: 'deepseek/deepseek-v4-pro' }))
+  writeFileSync(join(home, '.claude/delegation-state.json'), JSON.stringify({
+    lifetime: { warn_count: 0, total_savings_usd: 1.25, cache_savings_usd: 0, total_cost_usd: 0 },
+    sessions: {},
+  }, null, 2) + '\n')
+  process.env.HOME = home
+
+  const mod = await import('../src/index.js?ftr-chain=' + Date.now())
+  const hooks = await mod.DelegationEnforcer({ directory: projectDir })
+
+  const toolInput = { tool: 'write', args: { filePath: join(projectDir, 'src/app.ts') } }
+  const beforeOut = { args: { filePath: join(projectDir, 'src/app.ts') } }
+  await hooks['tool.execute.before'](toolInput, beforeOut)
+
+  const toolResult = { result: 'export const app = true' }
+  await hooks['tool.execute.after'](toolInput, toolResult)
+  assert.ok(toolResult.result.startsWith('—'), 'tool alert footer is prepended to the tool result')
+  assert.ok(
+    toolResult.result.includes('delegate via Task') || toolResult.result.includes('trinity medium'),
+    'tool alert footer keeps the delegation warning visible'
+  )
+
+  const assistantOut = { text: 'This assistant reply is long enough to trigger the standard vibeOS footer after the tool alert chain has already run.' }
+  await hooks['experimental.text.complete']({ messageID: 'footer-chain-1' }, assistantOut)
+  assert.ok(assistantOut.text.includes('Vibe'), 'assistant footer still renders after the tool alert chain')
+})
+
+test('footer alert chain: desktop message wrapper keeps tool warning and footer visible', async () => {
+  const { home, sandbox } = makeSandbox('footer-chain-desktop')
+  const projectDir = join(sandbox, 'proj')
+  mkdirSync(projectDir, { recursive: true })
+  writeFileSync(join(projectDir, 'opencode.json'), JSON.stringify({ model: 'deepseek/deepseek-v4-pro' }))
+  writeFileSync(join(home, '.claude/delegation-state.json'), JSON.stringify({
+    lifetime: { warn_count: 0, total_savings_usd: 1.25, cache_savings_usd: 0, total_cost_usd: 0 },
+    sessions: {},
+  }, null, 2) + '\n')
+  process.env.HOME = home
+
+  const mod = await import('../src/index.js?ftr-chain-desktop=' + Date.now())
+  const hooks = await mod.DelegationEnforcer({ directory: projectDir })
+
+  const toolInput = { tool: 'write', args: { filePath: join(projectDir, 'src/app.ts') } }
+  const beforeOut = { args: { filePath: join(projectDir, 'src/app.ts') } }
+  await hooks['tool.execute.before'](toolInput, beforeOut)
+
+  const desktopToolResult = {
+    message: {
+      text: 'export const app = true',
+    },
+  }
+  await hooks['tool.execute.after'](toolInput, desktopToolResult)
+  assert.ok(desktopToolResult.message.text.startsWith('—'), 'desktop wrapper keeps tool alert footer visible')
+  assert.ok(
+    desktopToolResult.message.text.includes('delegate via Task') || desktopToolResult.message.text.includes('trinity medium'),
+    'desktop wrapper keeps delegation warning visible'
+  )
+
+  const desktopAssistantOut = {
+    message: {
+      text: 'This assistant reply is long enough to trigger the standard vibeOS footer after the desktop tool alert chain has already run.',
+    },
+  }
+  await hooks['message.updated']({ messageID: 'footer-chain-desktop-1' }, desktopAssistantOut)
+  assert.ok(desktopAssistantOut.message.text.includes('Vibe'), 'desktop wrapper footer still renders after the tool alert chain')
+})
+
+test('pivot cache: pivot and counter-pivot both resolve to the cached workflow', async () => {
+  const { PivotCache } = await import('../src/vibeOS-lib/blackbox/pivot-cache.js?pivot=' + Date.now())
+  const { home, sandbox } = makeSandbox('pivot-cache')
+  const cache = new PivotCache(join(home, '.claude'))
+
+  const workflowA = 'build a login form with password validation'
+  const workflowB = 'check the weather forecast for today'
+  cache.snapshot('wf-login', {
+    tokens: [...cache.tokenize(workflowA)],
+    intent: workflowA,
+    decisions: ['use a focused validation flow'],
+    files: ['src/login.ts'],
+    blockers: ['password rule coverage'],
+    toolOutputs: [],
+  })
+  cache.snapshot('wf-weather', {
+    tokens: [...cache.tokenize(workflowB)],
+    intent: workflowB,
+    decisions: ['use a weather API'],
+    files: ['src/weather.ts'],
+    blockers: ['API key not configured'],
+    toolOutputs: [],
+  })
+
+  const pivot = cache.detectPivot(workflowB, workflowA)
+  assert.equal(pivot.isPivot, true, 'workflow switch should be treated as a pivot')
+
+  const counterPivot = cache.detectPivotBack(cache.tokenize(workflowA))
+  assert.equal(counterPivot.matchedId, 'wf-login', 'returning to the earlier workflow should match the cached pivot')
+  assert.ok(cache.buildInjection('wf-login').includes('[PIVOT BACK]'), 'pivot cache should still build a PIVOT BACK injection')
+})
+
 // Section 7: State Corruption Recovery
 
 test('state-recovery: corrupted delegation-state.json does not crash plugin', async () => {
@@ -316,6 +418,35 @@ test('state-recovery: missing delegation-state.json boots cleanly', async () => 
   assert.doesNotThrow(async () => {
     await mod.DelegationEnforcer({ directory: projectDir })
   }, 'plugin boots without delegation-state.json')
+})
+
+test('system.transform: context7 survives session compaction rotation', async () => {
+  const { home, sandbox } = makeSandbox('context7-rotation')
+  const projectDir = join(sandbox, 'proj')
+  mkdirSync(projectDir, { recursive: true })
+  process.env.HOME = home
+
+  const mod = await import('../src/index.js?rot1=' + Date.now())
+  const hooks = await mod.DelegationEnforcer({ directory: projectDir })
+
+  for (let i = 0; i < 7; i++) {
+    await hooks['tool.execute.after']({ tool: 'read', args: { path: join(projectDir, 'file-' + i + '.ts') } }, { result: 'ok' })
+  }
+
+  const compacted = { messages: [{ role: 'user', content: 'Compacted context for a long-running project.' }] }
+  await hooks['experimental.session.compacting']({}, compacted)
+  assert.ok(Array.isArray(compacted.context), 'session.compacting should populate context')
+  assert.ok(compacted.context.some((e) => typeof e?.content === 'string' && e.content.includes('context-compressed')),
+    'compaction should add the rotation notice')
+
+  const systemOut = { system: [] }
+  await hooks['experimental.chat.system.transform'](
+    { message: { role: 'user', content: 'build a login form with password validation' } },
+    systemOut
+  )
+  const sysText = systemOut.system.join(' ')
+  assert.ok(sysText.includes('mcp__context7__resolve-library-id'), 'context7 policy should remain in the system prompt after compaction')
+  assert.ok(sysText.includes('context budget') || sysText.includes('budget'), 'system prompt should still include the context budget path after rotation')
 })
 
 // Section 8: WBP Protocol
