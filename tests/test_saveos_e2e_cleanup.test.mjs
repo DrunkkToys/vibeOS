@@ -127,14 +127,14 @@ test("saveOS AUTO MODE: syncControlSettings writes controls to tiers file", asyn
   assert.ok("tdd_enabled" in tiers.selection, "tdd setting present")
 })
 
-test("saveOS AUTO MODE: fresh session seeds budget", async () => {
+test("saveOS AUTO MODE: fresh session seeds litex", async () => {
   const { mod, hooks } = await freshPlugin()
   const turnClassify = await import("../src/lib/turn-classify.js?" + Date.now())
   assert.equal(turnClassify.loadOptimizationMode(), "budget")
-  assert.equal(turnClassify.autoSelectMode("INIT"), "budget")
+  assert.equal(turnClassify.autoSelectMode("INIT"), "litex")
   const cv = turnClassify.computeControlVector({ sub_regime: "INIT", latest_stress_multiplier: 0.2 }, undefined, "auto")
-  assert.equal(cv.optimization_mode, "budget")
-  assert.equal(cv.tier_bias, "cheap")
+  assert.equal(cv.optimization_mode, "litex")
+  assert.equal(cv.tier_bias, "medium")
   await hooks["experimental.chat.system.transform"]({}, { system: [] })
 })
 

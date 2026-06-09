@@ -99,7 +99,7 @@ function computeControlVector(_state, _action, _optimizationMode) {
         : subRegime === "CONVERGING" || subRegime === "CLOSED" ? "brain"
             : subRegime === "REFINING" || subRegime === "LOOPING" ? "medium"
                 : mode === "quality" || mode === "longrun" || mode === "forensic" || mode === "audit" ? "brain"
-                    : mode === "speed" || mode === "vibemax" ? "medium"
+                    : mode === "speed" || mode === "vibemax" || mode === "litex" ? "medium"
                         : mode === "balanced" ? "auto"
                             : "cheap";
     return {
