@@ -1,3 +1,7 @@
+## 0.23.26
+- fix: footer primary tier = ML decision (vector_changed_slot), ✓ when applied
+
+
 ## 0.23.25
 - fix: footer always shows regime + vector_changed + optimization_mode — no expiry, no hidden conditions
 
