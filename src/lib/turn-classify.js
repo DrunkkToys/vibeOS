@@ -110,7 +110,7 @@ function computeControlVector(_state, _action, _optimizationMode) {
         stress_multiplier: 1.0,
         context7_urgency: isStrict ? "required" : "preferred",
         wbp_verbosity: isStrict ? "verbose" : isRelaxed ? "minimal" : "normal",
-        agent_mode: isStrict ? "plan" : "auto",
+        agent_mode: (subRegime === "REFINING" || subRegime === "CONVERGING" || subRegime === "CLOSED") && stress <= 1.5 ? "plan" : undefined,
         optimization_mode: mode,
         directives: [],
     };
