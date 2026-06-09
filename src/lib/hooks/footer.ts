@@ -261,7 +261,7 @@ async function _appendFooter(input, output, directory) {
 
     const modeCapitalized = (mode: string) => mode.charAt(0).toUpperCase() + mode.slice(1)
     const optMode = (resolvedMode || "budget").toLowerCase()
-    const brandMap: Record<string, string> = { vibeultrax: "VibeUltraX", vibeqmax: "VibeQMaX", vibemax: "VibeMaX" }
+    const brandMap: Record<string, string> = { vibeultrax: "VibeUltraX", vibeqmax: "VibeQMaX", vibemax: "VibeMaX", quality: "VibeQMaX", audit: "VibeQMaX", forensic: "VibeQMaX" }
     const brandedToRuntime: Record<string, string> = { vibeultrax: "Quality", vibeqmax: "Quality", vibemax: "Speed" }
     const vibeBrand = brandMap[optModeFooter] || (execution.quality === "brain" ? "VibeQMaX" : "VibeMaX")
     const modeLabel = modeCapitalized(brandedToRuntime[optMode] || optMode)

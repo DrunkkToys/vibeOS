@@ -62,13 +62,13 @@ test("1e — runtime modes have valid pipeline", async () => {
   }
 })
 
-test("1f — budget->cheap quality->brain speed->medium longrun->brain", async () => {
+test("1f — budget->cheap quality->brain speed->medium longrun->cheap", async () => {
   const { RUNTIME_MODES } = await import(join(root, "src/lib/mode-router.js?mr4=" + Date.now()))
   const f = (id) => RUNTIME_MODES.find(m => m.id === id)
   assert.equal(f("budget")?.pipeline?.[0], "cheap")
   assert.equal(f("quality")?.pipeline?.[0], "brain")
   assert.equal(f("speed")?.pipeline?.[0], "medium")
-  assert.equal(f("longrun")?.pipeline?.[0], "brain")
+  assert.equal(f("longrun")?.pipeline?.[0], "cheap")
 })
 
 test("1g — ALL_MODES + getMode", async () => {
