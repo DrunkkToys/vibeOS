@@ -306,7 +306,7 @@ async function _appendFooter(input, output, directory) {
         try {
             const sel = loadSelection();
             if (sel?.vector_changed_slot && sel?.vector_changed_at && (Date.now() - sel.vector_changed_at < 60000)) {
-                vibeLine += ` | →${sel.vector_changed_slot}`;
+                vibeLine += ` | → ${sel.vector_changed_slot}`;
             }
         }
         catch { }
