@@ -53,7 +53,7 @@ import { saveReport } from "../reporting.js"
 import { checkFlowRules, recordFlowTodo } from "../../vibeOS-lib/flow-enforcer.js"
 import { ensureProjectDocs } from "../../vibeOS-lib/flow-enforcer.js"
 import { computeDifficulty } from "../../vibeOS-lib/ml-router.js"
-import { loadSessionOptMode, loadSessionSlot, writeSessionSlot } from "../selection-manager.js"
+import { loadSessionOptMode, loadSessionSlot, writeSessionSlot, loadGlobalOptMode } from "../selection-manager.js"
 import { noteProjectPattern } from "../index-helpers.js"
 import { saveSessionStress } from "../index-helpers.js"
 import { COMPRESS_THRESHOLD, KEEP_HOT, COMPRESS_MARKER, PROTOCOL_MARKER, PROTOCOL_TEXT } from "../constants.js"
@@ -253,8 +253,12 @@ export function syncControlSettings(cv: any, options: { persistOptimizationMode?
 
     if (persistOptimizationMode && cv.optimization_mode && userOptMode !== "auto") {
       if (userOptMode !== cv.optimization_mode && !userSetMode) {
-        writeSessionSlot(sid + "_opt", cv.optimization_mode)
-        saveOptimizationMode(cv.optimization_mode)
+        const globalMode = loadGlobalOptMode()
+        const brandedModes = ["vibeultrax", "vibeqmax", "vibemax"]
+        if (!globalMode || !brandedModes.includes(globalMode)) {
+          writeSessionSlot(sid + "_opt", cv.optimization_mode)
+          saveOptimizationMode(cv.optimization_mode)
+        }
       }
     }
 

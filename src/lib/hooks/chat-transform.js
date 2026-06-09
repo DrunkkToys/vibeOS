@@ -10,7 +10,7 @@ import { BRANDED_MODES, RUNTIME_MODES } from "../mode-router.js";
 import { addCacheEntry, extractRecentCacheOutputs } from "../../vibeOS-lib/smart-cache.js";
 import { remoteCall, isApiConnected } from "../api-client.js";
 import { loadCredit } from "../credit-api.js";
-import { loadSessionOptMode, loadSessionSlot, writeSessionSlot } from "../selection-manager.js";
+import { loadSessionOptMode, loadSessionSlot, writeSessionSlot, loadGlobalOptMode } from "../selection-manager.js";
 import { noteProjectPattern } from "../index-helpers.js";
 import { saveSessionStress } from "../index-helpers.js";
 import { COMPRESS_THRESHOLD, KEEP_HOT, COMPRESS_MARKER, PROTOCOL_MARKER, PROTOCOL_TEXT } from "../constants.js";
@@ -206,8 +206,12 @@ export function syncControlSettings(cv, options = {}) {
             writeIf("thinking_level", cv.thinking_mode);
         if (persistOptimizationMode && cv.optimization_mode && userOptMode !== "auto") {
             if (userOptMode !== cv.optimization_mode && !userSetMode) {
-                writeSessionSlot(sid + "_opt", cv.optimization_mode);
-                saveOptimizationMode(cv.optimization_mode);
+                const globalMode = loadGlobalOptMode();
+                const brandedModes = ["vibeultrax", "vibeqmax", "vibemax"];
+                if (!globalMode || !brandedModes.includes(globalMode)) {
+                    writeSessionSlot(sid + "_opt", cv.optimization_mode);
+                    saveOptimizationMode(cv.optimization_mode);
+                }
             }
         }
         const slot = cv.tier_bias;
