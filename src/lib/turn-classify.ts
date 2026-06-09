@@ -16,14 +16,14 @@ function getVibeOSHome(): string {
 }
 
 type OptimizationMode = "balanced" | "budget" | "quality" | "speed" | "longrun" | "auto" | "forensic" | "audit" | "vibeultrax" | "vibeqmax" | "vibemax"
-
+const QUALITY_STRESS_THRESHOLD = 1.5
 function autoSelectMode(subRegime: string, stressMultiplier?: number): OptimizationMode {
   const regime = String(subRegime || "INIT").toUpperCase()
   const stress = Number(stressMultiplier ?? 0)
   if (regime === "AUDIT" || regime === "FORENSIC") return regime.toLowerCase() as OptimizationMode
   if (regime === "LOOPING") return "speed"
   if (regime === "CONVERGING" || regime === "CLOSED") return "quality"
-  if (stress > 1.5) return "quality"
+  if (stress > QUALITY_STRESS_THRESHOLD) return "quality"
   return "budget"
 }
 
@@ -33,10 +33,10 @@ export function resolveOptimizationMode(
   optimizationMode: OptimizationMode | string | undefined,
 ): OptimizationMode {
   const normalized = String(optimizationMode || "auto").toLowerCase()
-  if (!isApiFallback()) return autoSelectMode(subRegime || "INIT", stressMultiplier) as OptimizationMode
-  if (normalized === "auto" || normalized === "" || normalized === "vibeultrax" || normalized === "vibeqmax" || normalized === "vibemax")
+  if (normalized === "auto" || normalized === "")
     return autoSelectMode(subRegime || "INIT", stressMultiplier) as OptimizationMode
-  if (normalized === "balanced" || normalized === "budget" || normalized === "quality" || normalized === "speed" || normalized === "longrun") {
+  if (isApiFallback()) return "budget"
+  if (normalized === "balanced" || normalized === "budget" || normalized === "quality" || normalized === "speed" || normalized === "longrun" || normalized === "audit" || normalized === "forensic" || normalized === "vibeultrax" || normalized === "vibeqmax" || normalized === "vibemax") {
     return normalized as OptimizationMode
   }
   return "budget"
@@ -108,7 +108,7 @@ function computeControlVector(
   const isRelaxed = mode === "budget" || mode === "speed"
   const subRegime = _state?.sub_regime || "INIT"
   const stress = Number(_state?.latest_stress_multiplier ?? 0)
-  const tierBias = stress > 1.5 ? "brain"
+  const tierBias = stress > QUALITY_STRESS_THRESHOLD ? "brain"
     : subRegime === "CONVERGING" || subRegime === "CLOSED" ? "brain"
     : subRegime === "REFINING" || subRegime === "LOOPING" ? "medium"
     : mode === "quality" || mode === "longrun" ? "brain"
@@ -127,7 +127,7 @@ function computeControlVector(
     stress_multiplier: 1.0,
     context7_urgency: isStrict ? "required" : "preferred",
     wbp_verbosity: isStrict ? "verbose" : isRelaxed ? "minimal" : "normal",
-    agent_mode: (subRegime === "REFINING" || subRegime === "CONVERGING" || subRegime === "CLOSED") && stress <= 1.5 ? "plan" : undefined as any,
+    agent_mode: (subRegime === "REFINING" || subRegime === "CONVERGING" || subRegime === "CLOSED") && stress <= QUALITY_STRESS_THRESHOLD ? "plan" : undefined as any,
     optimization_mode: mode,
     directives: [],
   }

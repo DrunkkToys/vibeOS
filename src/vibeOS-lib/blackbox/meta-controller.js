@@ -98,6 +98,7 @@ const REGIME_CONTROL = {
     },
 };
 const DEFAULT_CONTROL = REGIME_CONTROL.EXPLORING;
+const QUALITY_STRESS_THRESHOLD = 1.5;
 const MODE_DELTAS = {
     balanced: {},
     budget: {
@@ -211,7 +212,7 @@ export function autoSelectMode(subRegime, stressMultiplier) {
     if (regime === "AUDIT" || regime === "FORENSIC") return regime.toLowerCase();
     if (regime === "LOOPING") return "speed";
     if (regime === "CONVERGING" || regime === "CLOSED") return "quality";
-    if (stressMultiplier && stressMultiplier > 1.5) return "quality";
+    if (stressMultiplier && stressMultiplier > QUALITY_STRESS_THRESHOLD) return "quality";
     return "budget";
 }
 export function computeControlVector(state, action, optimizationMode) {

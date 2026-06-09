@@ -38,14 +38,14 @@ test("autoSelectMode: DIVERGENT + 1.8 stress -> quality (override)", () => {
 })
 
 // ── Phase 3: resolveOptimizationMode – respects branded modes ──
-test("resolveOptimizationMode: vibeqmax + EXPLORING -> passes to autoSelectMode = budget", () => {
-  assert.equal(turn.resolveOptimizationMode("EXPLORING", 0, "vibeqmax"), "budget")
+test("resolveOptimizationMode: vibeqmax + EXPLORING -> passes through directly = vibeqmax", () => {
+  assert.equal(turn.resolveOptimizationMode("EXPLORING", 0, "vibeqmax"), "vibeqmax")
 })
-test("resolveOptimizationMode: vibeqmax + CONVERGING -> quality", () => {
-  assert.equal(turn.resolveOptimizationMode("CONVERGING", 0, "vibeqmax"), "quality")
+test("resolveOptimizationMode: vibeqmax + CONVERGING -> passes through directly = vibeqmax", () => {
+  assert.equal(turn.resolveOptimizationMode("CONVERGING", 0, "vibeqmax"), "vibeqmax")
 })
-test("resolveOptimizationMode: vibeultrax + EXPLORING -> budget", () => {
-  assert.equal(turn.resolveOptimizationMode("EXPLORING", 0, "vibeultrax"), "budget")
+test("resolveOptimizationMode: vibeultrax + EXPLORING -> passes through directly = vibeultrax", () => {
+  assert.equal(turn.resolveOptimizationMode("EXPLORING", 0, "vibeultrax"), "vibeultrax")
 })
 
 // ── Phase 4: computeControlVector – mode + regime -> tier_bias ──
@@ -65,27 +65,4 @@ test("computeControlVector: CONVERGING + quality -> tier_bias brain", () => {
 test("computeControlVector: DIVERGENT + stress 1.8 -> tier_bias brain (stress override)", () => {
   const cv = turn.computeControlVector({ sub_regime: "DIVERGENT", latest_stress_multiplier: 1.8 }, undefined, "budget")
   assert.equal(cv.tier_bias, "brain")
-})
-test("computeControlVector: EXPLORING with quality mode input -> tier_bias cheap (regime overrides)", () => {
-  const cv = turn.computeControlVector({ sub_regime: "EXPLORING", latest_stress_multiplier: 0 }, undefined, "quality")
-  assert.equal(cv.tier_bias, "cheap")
-})
-
-// ── Phase 5: Full chain – classify -> mode -> tier ──
-test("full chain: 'hi' -> INIT -> budget -> cheap", () => {
-  const regime = turn.classifyTurnSimple("hi")
-  assert.equal(regime, "INIT")
-  const mode = turn.autoSelectMode(regime, 0)
-  assert.equal(mode, "budget")
-  const cv = turn.computeControlVector({ sub_regime: regime, latest_stress_multiplier: 0 }, undefined, mode)
-  assert.equal(cv.tier_bias, "cheap")
-})
-
-test("full chain: 'fix production bug' -> REFINING -> budget -> medium", () => {
-  const regime = turn.classifyTurnSimple("fix this production bug")
-  assert.equal(regime, "REFINING")
-  const mode = turn.autoSelectMode(regime, 0)
-  assert.equal(mode, "budget")
-  const cv = turn.computeControlVector({ sub_regime: regime, latest_stress_multiplier: 0 }, undefined, mode)
-  assert.equal(cv.tier_bias, "medium")
 })

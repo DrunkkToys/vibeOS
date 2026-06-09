@@ -9,6 +9,7 @@ export { scoreStress, estimateContextBudget, classifyTurnSimple, tokenizeWords, 
 function getVibeOSHome() {
     return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude");
 }
+const QUALITY_STRESS_THRESHOLD = 1.5;
 function autoSelectMode(subRegime, stressMultiplier) {
     const regime = String(subRegime || "INIT").toUpperCase();
     const stress = Number(stressMultiplier ?? 0);
@@ -18,17 +19,17 @@ function autoSelectMode(subRegime, stressMultiplier) {
         return "speed";
     if (regime === "CONVERGING" || regime === "CLOSED")
         return "quality";
-    if (stress > 1.5)
+    if (stress > QUALITY_STRESS_THRESHOLD)
         return "quality";
     return "budget";
 }
 export function resolveOptimizationMode(subRegime, stressMultiplier, optimizationMode) {
     const normalized = String(optimizationMode || "auto").toLowerCase();
-    if (!isApiFallback())
+    if (normalized === "auto" || normalized === "")
         return autoSelectMode(subRegime || "INIT", stressMultiplier);
-    if (normalized === "auto" || normalized === "" || normalized === "vibeultrax" || normalized === "vibeqmax" || normalized === "vibemax")
-        return autoSelectMode(subRegime || "INIT", stressMultiplier);
-    if (normalized === "balanced" || normalized === "budget" || normalized === "quality" || normalized === "speed" || normalized === "longrun") {
+    if (isApiFallback())
+        return "budget";
+    if (normalized === "balanced" || normalized === "budget" || normalized === "quality" || normalized === "speed" || normalized === "longrun" || normalized === "audit" || normalized === "forensic" || normalized === "vibeultrax" || normalized === "vibeqmax" || normalized === "vibemax") {
         return normalized;
     }
     return "budget";
@@ -93,7 +94,7 @@ function computeControlVector(_state, _action, _optimizationMode) {
     const isRelaxed = mode === "budget" || mode === "speed";
     const subRegime = _state?.sub_regime || "INIT";
     const stress = Number(_state?.latest_stress_multiplier ?? 0);
-    const tierBias = stress > 1.5 ? "brain"
+    const tierBias = stress > QUALITY_STRESS_THRESHOLD ? "brain"
         : subRegime === "CONVERGING" || subRegime === "CLOSED" ? "brain"
             : subRegime === "REFINING" || subRegime === "LOOPING" ? "medium"
                 : mode === "quality" || mode === "longrun" ? "brain"
@@ -112,7 +113,7 @@ function computeControlVector(_state, _action, _optimizationMode) {
         stress_multiplier: 1.0,
         context7_urgency: isStrict ? "required" : "preferred",
         wbp_verbosity: isStrict ? "verbose" : isRelaxed ? "minimal" : "normal",
-        agent_mode: (subRegime === "REFINING" || subRegime === "CONVERGING" || subRegime === "CLOSED") && stress <= 1.5 ? "plan" : undefined,
+        agent_mode: (subRegime === "REFINING" || subRegime === "CONVERGING" || subRegime === "CLOSED") && stress <= QUALITY_STRESS_THRESHOLD ? "plan" : undefined,
         optimization_mode: mode,
         directives: [],
     };

@@ -147,10 +147,10 @@ test("E2E: computeControlVector — tier_bias from regime not mode", async () =>
   assert.equal(cv.tier_bias, "brain")
 })
 
-test("E2E: computeControlVector — DIVERGENT → cheap even with quality mode input", async () => {
+test("E2E: computeControlVector — DIVERGENT → brain with quality mode input", async () => {
   const turn = await import("../src/lib/turn-classify.js?e2e-6=" + Date.now())
   const cv = turn.computeControlVector({ sub_regime: "DIVERGENT", latest_stress_multiplier: 0 }, undefined, "quality")
-  assert.equal(cv.tier_bias, "cheap")
+  assert.equal(cv.tier_bias, "brain")
 })
 
 test("E2E: resolveOptimizationMode — ML path always uses regime when connected", async () => {

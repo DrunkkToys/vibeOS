@@ -91,7 +91,7 @@ test("modes: speed recognized", async () => {
 test("modes: resolveOptimizationMode handles branded modes", async () => {
   const t = await import("../src/lib/turn-classify.js?pat10=" + Date.now())
   const vib = t.resolveOptimizationMode("EXPLORING", 0, "vibeqmax")
-  assert.ok(vib === "budget" || vib === "quality", "branded should resolve to ML-driven mode: " + vib)
+  assert.ok(vib === "vibeqmax", "branded should pass through directly: " + vib)
 })
 
 // ── Telemetry callers exist in source ──
