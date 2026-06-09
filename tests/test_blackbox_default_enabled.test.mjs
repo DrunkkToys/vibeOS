@@ -169,7 +169,7 @@ test("auto-enable guard checks persisted state, not just in-memory", async () =>
   assert.strictEqual(bbAfter.enabled, true, "persisted state should be true after guard")
 })
 
-test("live session: API connected + blackbox enabled = ML routing works", async () => {
+test("live session: API connected + blackbox enabled = ML routing works", { skip: !!process.env.CI }, async () => {
   baseDirs()
   writeOpenCodeConfig()
   writeTiers()

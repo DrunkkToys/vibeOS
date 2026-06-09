@@ -279,7 +279,7 @@ test("FIX 15: scoreStress returns numeric value", async () => {
 // ═══════════════════════════════════════════════════════════════════
 // FIX 16: Blackbox ML routing works end-to-end
 // ═══════════════════════════════════════════════════════════════════
-test("FIX 16: remoteCall blackboxSelectMode works", async () => {
+test("FIX 16: remoteCall blackboxSelectMode works", { skip: !!process.env.CI }, async () => {
   const { isApiConnected, remoteCall } = await import("../src/lib/api-client.js")
   if (!isApiConnected()) {
     console.log("  SKIP: API not connected")

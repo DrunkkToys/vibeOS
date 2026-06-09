@@ -394,7 +394,7 @@ test("message.updated: CLI output shape with content array (Part[])", async () =
   const o = { content: [{ type: "text", text: "Hello from CLI mode. This is long enough to trigger the vibeOS footer. Really quite long indeed." }] }
   await hooks["message.updated"]({ messageID: "cli-1" }, o)
   const extracted = o.content.filter(p => p.type === "text").map(p => p.text).join("\n")
-  assert.ok(extracted.includes("⚡"), "footer on Content[]: " + extracted.slice(-60))
+  assert.ok(extracted.includes("Deepseek"), "footer on Content[]: " + extracted.slice(-60))
 })
 
 test("message.updated: CLI output shape with parts array", async () => {
@@ -402,7 +402,7 @@ test("message.updated: CLI output shape with parts array", async () => {
   const o = { parts: [{ type: "text", text: "Another CLI message that should get the vibeOS footer treatment appended properly here." }] }
   await hooks["message.updated"]({ messageID: "cli-2" }, o)
   const extracted = o.parts.filter(p => p.type === "text").map(p => p.text).join("\n")
-  assert.ok(extracted.includes("⚡"), "footer on Parts[]: " + extracted.slice(-60))
+  assert.ok(extracted.includes("Deepseek"), "footer on Parts[]: " + extracted.slice(-60))
 })
 
 test("message.updated: CLI dedup with content array", async () => {
