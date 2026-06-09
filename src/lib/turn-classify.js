@@ -37,7 +37,7 @@ export function resolveOptimizationMode(subRegime, stressMultiplier, optimizatio
 export function resolveOptimizationSlot(mode) {
     const normalized = String(mode || "budget").toLowerCase();
     return normalized === "speed" || normalized === "vibemax" ? "medium"
-        : normalized === "quality" || normalized === "longrun" || normalized === "vibeultrax" || normalized === "vibeqmax" ? "brain"
+        : normalized === "quality" || normalized === "longrun" || normalized === "vibeultrax" || normalized === "vibeqmax" || normalized === "forensic" || normalized === "audit" ? "brain"
             : "cheap";
 }
 export function bootstrapOptimizationSession() {
