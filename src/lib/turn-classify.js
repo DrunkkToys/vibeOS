@@ -85,12 +85,15 @@ function computeControlVector(_state, _action, _optimizationMode) {
     const mode = resolveOptimizationMode(_state?.sub_regime, _state?.latest_stress_multiplier, _optimizationMode);
     const isStrict = mode === "quality" || mode === "vibemax";
     const isRelaxed = mode === "budget" || mode === "speed";
-    const tierBias = mode === "quality" ? "brain"
-        : mode === "speed" ? "medium"
-            : mode === "vibemax" ? "medium"
-                : mode === "longrun" ? "brain"
-                    : mode === "balanced" ? "auto"
-                        : "cheap";
+    const subRegime = _state?.sub_regime || "INIT";
+    const stress = Number(_state?.latest_stress_multiplier ?? 0);
+    const tierBias = stress > 1.5 ? "brain"
+        : subRegime === "CONVERGING" || subRegime === "CLOSED" ? "brain"
+            : subRegime === "REFINING" || subRegime === "LOOPING" ? "medium"
+                : mode === "quality" || mode === "longrun" ? "brain"
+                    : mode === "speed" || mode === "vibemax" ? "medium"
+                        : mode === "balanced" ? "auto"
+                            : "cheap";
     return {
         enforcement_mode: isStrict ? "strict" : isRelaxed ? "relaxed" : "normal",
         enforcement_reason: `[optimize: ${mode}] using safe offline defaults`,

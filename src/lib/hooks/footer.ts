@@ -274,6 +274,16 @@ async function _appendFooter(input, output, directory) {
     if (isApiConnected()) {
       vibeLine += ` | ${vibeBrand}${flashIcon}`
     }
+    try {
+      const bb = _latestBlackboxState
+      if (bb?.sub_regime) vibeLine += ` | ${bb.sub_regime}`
+    } catch {}
+    try {
+      const sel = loadSelection()
+      if (sel?.vector_changed_slot && sel?.vector_changed_at && (Date.now() - sel.vector_changed_at < 60000)) {
+        vibeLine += ` | →${sel.vector_changed_slot}`
+      }
+    } catch {}
     const footerText = stripped + `\n\n${vibeLine} —`
 
     if (_blackboxEnabled) {

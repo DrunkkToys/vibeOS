@@ -215,6 +215,8 @@ export function syncControlSettings(cv, options = {}) {
             const existingSlot = loadSessionSlot(sid);
             if (existingSlot !== slot) {
                 writeSessionSlot(sid, slot);
+                writeIf("vector_changed_slot", slot);
+                writeIf("vector_changed_at", Date.now());
                 const applied = applySlot(slot);
                 if (!applied?.ok) {
                     console.error(`[vibeOS] failed to apply slot ${slot}: ${applied?.reason || "unknown"}`);
