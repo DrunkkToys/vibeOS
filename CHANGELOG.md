@@ -1,3 +1,7 @@
+## 0.23.49
+- fix: add forensic/audit to resolveOptimizationSlot brain tier routing
+
+
 ## 0.23.48
 - fix: wire audit and forensic modes through ML classifier pipeline
 Fix stale startup plan restore (#115)
