@@ -66,6 +66,14 @@ function recordFrictionPattern(key, summary, meta = {}) {
         return;
     frictionSessionKeys.add(sessionKey);
     noteProjectPattern("friction", key, summary, meta);
+    try {
+        const client = getApiClient();
+        if (client && _OC_SID) {
+            client.patternsObserve(_OC_SID, meta?.family || meta?.path || "unknown", summary, key, currentProjectFingerprint || "")
+                .catch(() => { });
+        }
+    }
+    catch { }
 }
 function recordRoutinePattern(key, summary, meta = {}) {
     const sessionKey = `routine:${key}`;
