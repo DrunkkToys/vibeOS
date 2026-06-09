@@ -91,14 +91,14 @@ export async function selectOptimizationModeRemote(subRegime, stressMultiplier, 
 }
 function computeControlVector(_state, _action, _optimizationMode) {
     const mode = resolveOptimizationMode(_state?.sub_regime, _state?.latest_stress_multiplier, _optimizationMode);
-    const isStrict = mode === "quality" || mode === "vibemax";
+    const isStrict = mode === "quality" || mode === "vibemax" || mode === "forensic" || mode === "audit";
     const isRelaxed = mode === "budget" || mode === "speed";
     const subRegime = _state?.sub_regime || "INIT";
     const stress = Number(_state?.latest_stress_multiplier ?? 0);
     const tierBias = stress > QUALITY_STRESS_THRESHOLD ? "brain"
         : subRegime === "CONVERGING" || subRegime === "CLOSED" ? "brain"
             : subRegime === "REFINING" || subRegime === "LOOPING" ? "medium"
-                : mode === "quality" || mode === "longrun" ? "brain"
+                : mode === "quality" || mode === "longrun" || mode === "forensic" || mode === "audit" ? "brain"
                     : mode === "speed" || mode === "vibemax" ? "medium"
                         : mode === "balanced" ? "auto"
                             : "cheap";

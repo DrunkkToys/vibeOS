@@ -333,35 +333,35 @@ async function _appendFooter(input, output, directory) {
                         }
                         catch { }
                     }
-                }
             }
-            catch { }
         }
-        function _setFooter(obj, text) {
-            const target = _payload(obj);
-            if (typeof target?.text === "string")
-                target.text = text;
-            else if (typeof target?.result === "string")
-                target.result = text;
-            else if (typeof target?.content === "string")
-                target.content = text;
-            else if (Array.isArray(target?.content)) {
-                const textParts = target.content.filter(p => p?.type === "text");
-                if (textParts.length > 0)
-                    textParts[textParts.length - 1].text = text;
-                else
-                    target.content.push({ type: "text", text });
-            }
-            else if (Array.isArray(target?.parts)) {
-                const textParts = target.parts.filter(p => p?.type === "text");
-                if (textParts.length > 0)
-                    textParts[textParts.length - 1].text = text;
-                else
-                    target.parts.push({ type: "text", text });
-            }
+        catch { }
+    }
+    function _setFooter(obj, text) {
+        const target = _payload(obj);
+        if (typeof target?.text === "string")
+            target.text = text;
+        else if (typeof target?.result === "string")
+            target.result = text;
+        else if (typeof target?.content === "string")
+            target.content = text;
+        else if (Array.isArray(target?.content)) {
+            const textParts = target.content.filter(p => p?.type === "text");
+            if (textParts.length > 0)
+                textParts[textParts.length - 1].text = text;
             else
-                target.text = text;
+                target.content.push({ type: "text", text });
         }
+        else if (Array.isArray(target?.parts)) {
+            const textParts = target.parts.filter(p => p?.type === "text");
+            if (textParts.length > 0)
+                textParts[textParts.length - 1].text = text;
+            else
+                target.parts.push({ type: "text", text });
+        }
+        else
+            target.text = text;
+    }
         _setFooter(output, footerText);
         _lastStrippedText = stripped;
         // CLI/pipe mode: stdout is already rendered, write footer to stderr

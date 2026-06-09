@@ -38,5 +38,5 @@
       }
     }
   },
-  "model": "openrouter/anthropic/claude-sonnet-4.6"
+  "model": "deepseek/deepseek-v4-pro"
 }

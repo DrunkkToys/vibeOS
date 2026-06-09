@@ -285,6 +285,7 @@ export function syncControlSettings(cv, options = {}) {
                     if (restoreAgent && oc.default_agent === "plan") {
                         oc.default_agent = restoreAgent;
                         writeFileSync(OC_CONFIG, JSON.stringify(oc, null, 2) + "\n");
+                        clearWorkspaceFollowupPauseForSession(sid);
                         if (currentSel.previous_default_agent)
                             writeSelection("previous_default_agent", null);
                     }
