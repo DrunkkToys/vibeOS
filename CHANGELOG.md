@@ -1,3 +1,7 @@
+## 0.23.19
+- fix: ML-driven footer + 16 integration tests guarding blackbox, CV vectors, and tier pipeline
+
+
 ## 0.23.18
 - fix: ML always drives — remove isManualOverride from budget-first mode, branded modes pass to autoSelectMode, resolveOptimizationMode yields to regime when API connected
 
