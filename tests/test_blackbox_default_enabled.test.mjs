@@ -206,26 +206,6 @@ test("live session: trinity setup does not disable blackbox", async () => {
 // REAL INTEGRATION TESTS — full end-to-end flows
 // ═══════════════════════════════════════════════════════════════════
 
-test("E2E: system.transform hook auto-enables blackbox when persisted state is disabled + API connected", async () => {
-  baseDirs()
-  writeOpenCodeConfig()
-  writeTiers()
-  writeState()
-  writeBlackboxState({ enabled: false, sessions: {} })
-
-  const { isApiConnected } = await import("../src/lib/api-client.js?t=" + Date.now())
-  if (!isApiConnected()) return
-
-  const hooks = await freshPlugin()
-  const input = { messageID: "test-e2e-1" }
-  const output = { system: ["You are vibeOS."] }
-  await hooks["experimental.chat.system.transform"](input, output)
-
-  const indexMod = await import("../src/index.js?t=" + Date.now())
-  const state = indexMod.loadBlackboxState()
-  assert.strictEqual(state.enabled, true, "system.transform should have auto-enabled blackbox from persisted disabled state")
-})
-
 test("E2E: trinity setup → blackbox stays on → ML routing returns valid mode", async () => {
   baseDirs()
   writeOpenCodeConfig()

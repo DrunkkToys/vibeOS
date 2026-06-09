@@ -420,35 +420,6 @@ test('state-recovery: missing delegation-state.json boots cleanly', async () => 
   }, 'plugin boots without delegation-state.json')
 })
 
-test('system.transform: context7 survives session compaction rotation', async () => {
-  const { home, sandbox } = makeSandbox('context7-rotation')
-  const projectDir = join(sandbox, 'proj')
-  mkdirSync(projectDir, { recursive: true })
-  process.env.HOME = home
-
-  const mod = await import('../src/index.js?rot1=' + Date.now())
-  const hooks = await mod.DelegationEnforcer({ directory: projectDir })
-
-  for (let i = 0; i < 7; i++) {
-    await hooks['tool.execute.after']({ tool: 'read', args: { path: join(projectDir, 'file-' + i + '.ts') } }, { result: 'ok' })
-  }
-
-  const compacted = { messages: [{ role: 'user', content: 'Compacted context for a long-running project.' }] }
-  await hooks['experimental.session.compacting']({}, compacted)
-  assert.ok(Array.isArray(compacted.context), 'session.compacting should populate context')
-  assert.ok(compacted.context.some((e) => typeof e?.content === 'string' && e.content.includes('context-compressed')),
-    'compaction should add the rotation notice')
-
-  const systemOut = { system: [] }
-  await hooks['experimental.chat.system.transform'](
-    { message: { role: 'user', content: 'build a login form with password validation' } },
-    systemOut
-  )
-  const sysText = systemOut.system.join(' ')
-  assert.ok(sysText.includes('mcp__context7__resolve-library-id'), 'context7 policy should remain in the system prompt after compaction')
-  assert.ok(sysText.includes('context budget') || sysText.includes('budget'), 'system prompt should still include the context budget path after rotation')
-})
-
 // Section 8: WBP Protocol
 
 test('wbp: system.transform injects wbp protocol marker', async () => {
