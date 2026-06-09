@@ -41,7 +41,7 @@ export function createTrinityTool(deps) {
       "Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', 'trinity status'.",
     args: {
       action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "setup", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard", "api-token", "api-bootstrap-token", "todo", "todo-done", "todo-sync"]).optional(),
-      slot: deps.tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "vibeultrax", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings"]).optional(),
+      slot: deps.tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "balanced", "audit", "forensic", "vibeultrax", "vibeqmax", "vibemax", "litex", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings"]).optional(),
       level: deps.tool.schema.enum(["full", "brief", "off", "on"]).optional(),
       token: deps.tool.schema.string().optional(),
     },
@@ -49,7 +49,7 @@ export function createTrinityTool(deps) {
       if (typeof deps._lazyRefresh === "function") deps._lazyRefresh()
       if (!action) action = "status"
       if (["brain", "medium", "cheap"].includes(action)) { slot = action; action = "set" }
-      const _brandedModeIds = ["vibeultrax", "vibeqmax", "vibemax"]
+      const _brandedModeIds = ["vibeultrax", "vibeqmax", "vibemax", "litex"]
       const _builtInModeIds = ["budget", "quality", "speed", "longrun", "auto", "balanced", "audit", "forensic"]
       if (!action || action === "status") {} 
       else if (_brandedModeIds.includes(action) || _builtInModeIds.includes(action)) { slot = action; action = "mode" }

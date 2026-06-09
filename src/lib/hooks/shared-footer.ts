@@ -18,6 +18,7 @@ const BRAND_MAP: Record<string, string> = {
   vibeultrax: "VibeUltraX",
   vibeqmax: "VibeQMaX",
   vibemax: "VibeMaX",
+  litex: "VibeLiteX",
   quality: "VibeQMaX",
   audit: "VibeQMaX",
   forensic: "VibeQMaX",

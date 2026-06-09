@@ -75,7 +75,19 @@ export class ResolutionTracker {
     }
     detectPivotSignal(current, previous) {
         if (!current.embedding || !previous.embedding) {
-            return false;
+            const currWords = new Set((current.text || "").toLowerCase().split(/\s+/).filter(w => w.length > 3));
+            const prevWords = new Set((previous.text || "").toLowerCase().split(/\s+/).filter(w => w.length > 3));
+            if (currWords.size === 0 || prevWords.size === 0) return false;
+            const intersection = new Set([...currWords].filter(w => prevWords.has(w)));
+            const union = new Set([...currWords, ...prevWords]);
+            const jaccardSim = intersection.size / Math.max(union.size, 1);
+            const instructionChange = Math.abs((current.features?.instruction_density || 0.6) - (previous.features?.instruction_density || 0.6));
+            const lengthRatio = previous.text.length > 0
+                ? Math.abs(current.text.length - previous.text.length) / previous.text.length
+                : 0;
+            const actionChange = current.action !== previous.action ? 0.3 : 0;
+            const pivotScore = (1.0 - jaccardSim) * 0.4 + instructionChange * 0.2 + Math.min(lengthRatio, 1.0) * 0.2 + actionChange * 0.2;
+            return pivotScore > 0.45;
         }
         const embeddingDelta = 1.0 - cosineSimilarity(current.embedding, previous.embedding);
         const drift = this.history.length >= 4

@@ -4,6 +4,7 @@ const BRAND_MAP = {
     vibeultrax: "VibeUltraX",
     vibeqmax: "VibeQMaX",
     vibemax: "VibeMaX",
+    litex: "VibeLiteX",
     quality: "VibeQMaX",
     audit: "VibeQMaX",
     forensic: "VibeQMaX",
