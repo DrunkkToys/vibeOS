@@ -38,5 +38,5 @@
       }
     }
   },
-  "model": "haiku"
+  "model": "openrouter/nonexistent/fake-model"
 }

@@ -14,6 +14,8 @@
     "checkpoint:validate": "node scripts/checkpoint-validate.mjs",
     "test:scripts": "node --test scripts/tests/checkpoint-validate.test.mjs tests/release-pack.test.mjs",
     "ts:audit": "node scripts/ts-audit.mjs",
+    "test:unit": "node scripts/run-test-suite.mjs unit",
+    "test:integration": "node scripts/run-test-suite.mjs integration",
     "test": "node scripts/run-test-suite.mjs full",
     "test:ci": "node scripts/run-test-suite.mjs ci",
     "guard": "bash plugins/vibetheog-guard/scripts/run-guard.sh",
