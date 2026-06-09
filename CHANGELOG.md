@@ -1,3 +1,9 @@
+## 0.23.52
+- feat: VibeLiteX — local fallback mode with enforcement + local pivot detection + local calibration
+- fix: align footer with blackbox session slot
+- test: update tests for VibeLiteX default mode (budget → litex)
+
+
 ## 0.23.51
 - fix: ML system improvements — dedup flow_warns, enable blackbox, fix quality scoring, fix pattern promotion
 
