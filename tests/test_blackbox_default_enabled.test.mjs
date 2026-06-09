@@ -152,8 +152,10 @@ test("auto-enable guard checks persisted state, not just in-memory", async () =>
   writeState()
   writeBlackboxState({ enabled: false, sessions: {} })
 
-  const { isApiConnected } = await import("../src/lib/api-client.js?t=" + Date.now())
+  const { isApiConnected, remoteCall } = await import("../src/lib/api-client.js?t=" + Date.now())
   if (!isApiConnected()) return
+  // Reset fallback state in case a previous test poisoned it
+  try { await remoteCall("blackboxSelectMode", ["INIT", 0], null) } catch (_) {}
 
   const { loadBlackboxState: loadBB, saveBlackboxState: saveBB } = await import("../src/index.js?t=" + Date.now())
   const { setBlackboxEnabled } = await import("../src/lib/turn-classify.js?t=" + Date.now())
@@ -213,8 +215,10 @@ test("E2E: system.transform hook auto-enables blackbox when persisted state is d
   writeState()
   writeBlackboxState({ enabled: false, sessions: {} })
 
-  const { isApiConnected } = await import("../src/lib/api-client.js?t=" + Date.now())
+  const { isApiConnected, remoteCall } = await import("../src/lib/api-client.js?t=" + Date.now())
   if (!isApiConnected()) return
+  // Reset fallback state in case a previous test poisoned it
+  try { await remoteCall("blackboxSelectMode", ["INIT", 0], null) } catch (_) {}
 
   const hooks = await freshPlugin()
   const input = { messageID: "test-e2e-1" }
