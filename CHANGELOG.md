@@ -1,3 +1,7 @@
+## 0.23.30
+- test: 27 integration tests — patterns/telemetry BE sync + footer ML-driven display + CI wired
+
+
 ## 0.23.29
 - fix: wire patternsObserve API call into recordFrictionPattern for BE telemetry sync
 
