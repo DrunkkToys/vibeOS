@@ -1,3 +1,7 @@
+## 0.23.31
+- fix: agent_mode regime-driven not mode-driven — plan only for REFINING/CONVERGING/CLOSED with low stress
+
+
 ## 0.23.30
 - test: 27 integration tests — patterns/telemetry BE sync + footer ML-driven display + CI wired
 
