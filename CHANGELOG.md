@@ -1,3 +1,9 @@
+## 0.23.47
+- fix: harden integration tests against module-level state leakage
+- fix: revert test-suite runner to original static list
+- chore: sync release artifacts and test-suite scripts
+
+
 ## 0.23.46
 - fix: strip agent_mode from control vector to prevent ML plan-mode breakage
 
