@@ -1,3 +1,7 @@
+## 0.23.28
+- fix: sync all .ts sources + 21 ML pipeline integration tests (805/0)
+
+
 ## 0.23.27
 - fix: ML-chosen optimization_mode dances in footer + → arrow
 
