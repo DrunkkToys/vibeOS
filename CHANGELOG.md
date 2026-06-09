@@ -1,3 +1,7 @@
+## 0.23.23
+- fix: apiComputeControlVector overrides server tier_bias with local regime-driven value
+
+
 ## 0.23.22
 - fix: whitespace in vector_changed indicator (→ cheap)
 v0.23.21: Split saveOptimizationMode try-catch — global save survives session write failures
