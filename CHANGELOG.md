@@ -1,3 +1,7 @@
+## 0.23.25
+- fix: footer always shows regime + vector_changed + optimization_mode — no expiry, no hidden conditions
+
+
 ## 0.23.24
 - fix: ML-driven tier pipeline end-to-end
 
