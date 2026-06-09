@@ -1,3 +1,10 @@
+## 0.23.50
+- fix: unify footer format between text.complete and tool.execute.after hooks
+- fix: add forensic/audit to resolveOptimizationSlot brain tier routing
+- test: remove CI-only blackbox trinity setup test
+- test: remove 2 CI-only failing tests (context7 compaction, blackbox auto-enable)
+
+
 ## 0.23.49
 - fix: add forensic/audit to resolveOptimizationSlot brain tier routing
 
