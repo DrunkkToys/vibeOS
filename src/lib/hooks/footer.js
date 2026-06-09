@@ -297,30 +297,14 @@ async function _appendFooter(input, output, directory) {
         if (isApiConnected()) {
             vibeLine += ` | ${vibeBrand}${flashIcon}`;
         }
-        try {
-            const sel = loadSelection();
-            const realSlot = sel?.active_slot || "brain";
-            const wantedSlot = sel?.vector_changed_slot;
-            if (wantedSlot) {
-                if (wantedSlot !== realSlot) {
-                    vibeLine += ` | \u2192 ${wantedSlot}`;
-                } else {
-                    vibeLine += ` | \u2713`;
-                }
-            }
+        const displayMode = selNowFooter?.optimization_mode || optMode || "auto";
+        if (displayMode && displayMode !== "auto") {
+            vibeLine += ` | ${displayMode}`;
         }
-        catch { }
-        try {
-            const sel = loadSelection();
-            if (sel?.vector_changed_slot) {
-                if (sel.vector_changed_slot !== activeSlot) {
-                    vibeLine += ` | → ${sel.vector_changed_slot}`;
-                } else {
-                    vibeLine += ` | ✓`;
-                }
-            }
+        if (selNowFooter?.vector_changed_slot) {
+            vibeLine += ` | → ${selNowFooter.vector_changed_slot}`;
         }
-        catch { }
+
         const footerText = stripped + `\n\n${vibeLine} —`;
         if (_blackboxEnabled) {
             try {

@@ -207,9 +207,8 @@ export function syncControlSettings(cv, options = {}) {
         if (cv.thinking_mode && currentSel.thinking_level !== "full")
             writeIf("thinking_level", cv.thinking_mode);
         if (persistOptimizationMode && cv.optimization_mode && userOptMode !== "auto") {
-            if (userOptMode !== cv.optimization_mode && !userSetMode) {
-                writeSessionSlot(sid + "_opt", cv.optimization_mode);
-                saveOptimizationMode(cv.optimization_mode);
+            if (userOptMode !== cv.optimization_mode) {
+                writeIf("optimization_mode", cv.optimization_mode);
             }
         }
         const slot = cv.tier_bias;
