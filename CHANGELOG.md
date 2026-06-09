@@ -1,3 +1,7 @@
+## 0.23.16
+v0.23.22: Dynamic tier_bias from regime + vector change notifications in footer
+
+
 ## 0.23.15
 - feat: add VibeEvolve and VibeForensic modes
 - feat: bump v0.23.8 — blackbox integration tests + live session verification
