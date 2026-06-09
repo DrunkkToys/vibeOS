@@ -32,6 +32,8 @@ beforeEach(async () => {
   rmSync(join(sandbox, ".claude/global-learning.json"), { force: true })
   rmSync(join(sandbox, ".claude/project-states.json"), { force: true })
   rmSync(join(sandbox, ".claude/blackbox-state.json"), { force: true })
+  rmSync(join(sandbox, ".claude/credit-snapshot.json"), { force: true })
+  rmSync(join(sandbox, ".claude/credit-percent"), { force: true })
   const fresh = await import("../src/index.js?t=" + Date.now())
   if (typeof fresh.setCurrentModel === "function") fresh.setCurrentModel(null)
   if (typeof fresh.setCurrentTier === "function") fresh.setCurrentTier(null)
@@ -1477,6 +1479,7 @@ test("dynamic estimate: opus brain + haiku worker → brain_cost - worker_cost",
   const dir = join(sandbox, ".opencode-dyn-est")
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "anthropic/claude-opus-4-7" }))
+  writeFileSync(join(sandbox, ".claude/credit-percent"), "90")
   const hooks = await DelegationEnforcer({ client: {}, directory: dir })
   mod.applySlot("brain")
 
@@ -1626,6 +1629,7 @@ test("tool.execute.after: delegation warning injected into output.result", async
   const dir = join(sandbox, ".opencode-uinote")
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "openrouter/anthropic/claude-sonnet-4.6" }))
+  writeFileSync(join(sandbox, ".claude/credit-percent"), "90")
   const hooks = await DelegationEnforcer({ client: {}, directory: dir })
 
   // Clear state so warn_count starts at 0.

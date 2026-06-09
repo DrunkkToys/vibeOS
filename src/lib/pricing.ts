@@ -912,9 +912,11 @@ function readWorkspaceSessionModel(directory = "") {
 }
 
 export function clearWorkspaceFollowupPauseForSession(sessionId = ""): boolean {
-  const sid = String(sessionId || "").trim()
-  if (!sid) return false
   let changed = false
+  const sid = String(sessionId || "").trim()
+  const latestSid = String(readLatestOpenCodeSessionId() || "").trim()
+  const candidates = [...new Set([sid, latestSid].filter(Boolean))]
+  if (candidates.length === 0) return false
   const roots = [getOpenCodeDesktopHome(), getOpenCodeHome()]
   for (const root of roots) {
     try {
@@ -928,8 +930,15 @@ export function clearWorkspaceFollowupPauseForSession(sessionId = ""): boolean {
           const outer = safeJsonParse(readFileSync(file, "utf-8"))
           const followupRaw = outer?.["workspace:followup"]
           const followup = typeof followupRaw === "string" ? safeJsonParse(followupRaw) : followupRaw
-          if (!followup || typeof followup !== "object" || !followup.paused || !followup.paused[sid]) continue
-          delete followup.paused[sid]
+          if (!followup || typeof followup !== "object" || !followup.paused) continue
+          let touched = false
+          for (const candidate of candidates) {
+            if (followup.paused[candidate]) {
+              delete followup.paused[candidate]
+              touched = true
+            }
+          }
+          if (!touched) continue
           outer["workspace:followup"] = JSON.stringify(followup)
           writeFileSync(file, JSON.stringify(outer, null, 2) + "\n")
           changed = true

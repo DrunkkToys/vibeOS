@@ -209,10 +209,14 @@ const MODE_DELTAS = {
 };
 export function autoSelectMode(subRegime, stressMultiplier) {
     const regime = String(subRegime || "INIT").toUpperCase();
-    if (regime === "AUDIT" || regime === "FORENSIC") return regime.toLowerCase();
-    if (regime === "LOOPING") return "speed";
-    if (regime === "CONVERGING" || regime === "CLOSED") return "quality";
-    if (stressMultiplier && stressMultiplier > QUALITY_STRESS_THRESHOLD) return "quality";
+    if (regime === "AUDIT" || regime === "FORENSIC")
+        return regime.toLowerCase();
+    if (regime === "LOOPING")
+        return "speed";
+    if (regime === "CONVERGING" || regime === "CLOSED")
+        return "quality";
+    if (stressMultiplier && stressMultiplier > QUALITY_STRESS_THRESHOLD)
+        return "quality";
     return "budget";
 }
 export function computeControlVector(state, action, optimizationMode) {

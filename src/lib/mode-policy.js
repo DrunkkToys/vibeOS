@@ -2,12 +2,12 @@ import { BLACKBOX_STATE_FILE, _OC_SID, loadBlackboxState, saveBlackboxState, wit
 const BASELINE_MODE = "budget";
 const LOOP_REGIMES = new Set(["LOOPING", "DIVERGENT"]);
 const QUALITY_REGIMES = new Set(["CONVERGING", "CLOSED"]);
-const MANUAL_MODES = new Set(["balanced", "quality", "speed", "longrun"]);
+const MANUAL_MODES = new Set(["balanced", "quality", "speed", "longrun", "vibemax", "vibeqmax", "vibeultrax"]);
 function normalizeMode(mode) {
     const normalized = String(mode || BASELINE_MODE).toLowerCase();
     if (normalized === "auto" || normalized === "")
         return BASELINE_MODE;
-    if (normalized === "budget" || normalized === "quality" || normalized === "speed" || normalized === "longrun" || normalized === "balanced") {
+    if (normalized === "budget" || normalized === "quality" || normalized === "speed" || normalized === "longrun" || normalized === "balanced" || normalized === "vibemax" || normalized === "vibeqmax" || normalized === "vibeultrax") {
         return normalized;
     }
     return BASELINE_MODE;
@@ -84,20 +84,28 @@ function persistSessionPolicy(state, session, policy, mode) {
 }
 export function peekBudgetFirstMode(input = {}) {
     const requestedMode = normalizeMode(input.requestedMode);
+    if (isManualOverride(requestedMode)) {
+        return {
+            active: false,
+            mode: requestedMode,
+            reason: "manual",
+            shouldPersistRequestedMode: true,
+        };
+    }
     const { policy } = loadSessionPolicy();
     if (policy.active && policy.active_mode && normalizeMode(policy.active_mode) !== BASELINE_MODE) {
         return {
             active: true,
             mode: normalizeMode(policy.active_mode),
             reason: policy.reason || "episode",
-            shouldPersistRequestedMode: true,
+            shouldPersistRequestedMode: false,
         };
     }
     return {
         active: false,
         mode: BASELINE_MODE,
         reason: "budget",
-        shouldPersistRequestedMode: true,
+        shouldPersistRequestedMode: false,
     };
 }
 export function applyBudgetFirstMode(input = {}) {

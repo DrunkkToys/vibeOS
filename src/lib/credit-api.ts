@@ -100,6 +100,11 @@ export function _lazyRefresh() {
   if (_creditTimer.unref) _creditTimer.unref()
 }
 
+export async function refreshCreditSnapshot() {
+  await _snapshot()
+  return loadCredit()
+}
+
 export function loadCredit() {
   const pct = _cachedPct()
   if (pct !== null) return pct
