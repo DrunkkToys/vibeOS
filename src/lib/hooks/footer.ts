@@ -263,11 +263,12 @@ async function _appendFooter(input, output, directory) {
     const optMode = (resolvedMode || "budget").toLowerCase()
     const brandMap: Record<string, string> = { vibeultrax: "VibeUltraX", vibeqmax: "VibeQMaX", vibemax: "VibeMaX", quality: "VibeQMaX", audit: "VibeQMaX", forensic: "VibeQMaX" }
     const brandedToRuntime: Record<string, string> = { vibeultrax: "Quality", vibeqmax: "Quality", vibemax: "Speed" }
-    const vibeBrand = brandMap[optModeFooter] || (execution.quality === "brain" ? "VibeQMaX" : "VibeMaX")
+    const activeSlot = selNowFooter.active_slot || "brain"
+    const vibeBrand = brandMap[optModeFooter] || (activeSlot === "brain" ? "VibeQMaX" : "VibeMaX")
     const modeLabel = modeCapitalized(brandedToRuntime[optMode] || optMode)
-    const qualityIcon = execution.quality === "brain" ? "🧠" : execution.quality === "medium" ? "⚙" : execution.quality === "free" ? "🎁" : "⚡"
+    const tierIcon = activeSlot === "brain" ? "🧠" : activeSlot === "medium" ? "⚙" : activeSlot === "cheap" ? "🎁" : "⚡"
     const flashIcon = isApiConnected() ? " ⚡" : ""
-    let vibeLine = `— ${qualityIcon} ${execution.quality} | ${execution.provider_label} | ${modelDisplayName(execution.model)}`
+    let vibeLine = `— ${tierIcon} ${activeSlot} | ${execution.provider_label} | ${modelDisplayName(execution.model)}`
     if (ltTotal > 0) {
       vibeLine += ` | $${formatUsd(ltTotal)}`
     }
