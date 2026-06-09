@@ -1,3 +1,9 @@
+## 0.23.22
+- fix: whitespace in vector_changed indicator (→ cheap)
+v0.23.21: Split saveOptimizationMode try-catch — global save survives session write failures
+v0.23.20: Fix chooseEpisodeMode overwriting branded modes with quality
+
+
 ## 0.23.19
 - fix: ML-driven footer + 16 integration tests guarding blackbox, CV vectors, and tier pipeline
 
