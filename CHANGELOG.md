@@ -1,3 +1,7 @@
+## 0.23.45
+- fix: propagate local agent_mode as fallback when remote CV omits it
+
+
 ## 0.23.44
 - fix: force-add run-test-suite.mjs for CI release workflow
 - fix: restart stale startup plan agent and clear workspace followup pause
