@@ -94,7 +94,10 @@ export function estimateContextBudget(_input, output) {
 export function classifyTurnSimple(userText) {
   const lower = String(userText || "").trim()
   if (!lower) return "INIT"
-  if (/(security|vulnerability|audit|owasp|inject|exploit|penetration|cve|attack|threat|compliance|gdpr|privacy|encrypt|xss|csrf|authn|authz|pentest|forensic|research|analyze dependencies|license audit|deep analysis|investigate|root cause|reverse engineer|disassemble|memory dump|core dump)/i.test(lower)) {
+  if (/(security|vulnerability|audit|owasp|compliance|gdpr|privacy|analyze dependencies|license audit)/i.test(lower)) {
+    return "AUDIT"
+  }
+  if (/(inject|exploit|penetration|cve|attack|threat|encrypt|xss|csrf|authn|authz|pentest|forensic|research|deep analysis|investigate|root cause|reverse engineer|disassemble|memory dump|core dump)/i.test(lower)) {
     return "FORENSIC"
   }
   // Q&A / research patterns -> EXPLORING (relaxed enforcement)

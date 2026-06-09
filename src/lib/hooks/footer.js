@@ -168,27 +168,27 @@ async function _appendFooter(input, output, directory) {
             output?.messageId ||
             output?.message?.id ||
             null;
-    if (messageID && textCompletePainted.has(messageID))
-        return;
-    function _payload(obj) {
-        if (obj?.message && typeof obj.message === "object")
-            return obj.message;
-        return obj;
-    }
-    function _extractText(obj) {
-        const payload = _payload(obj);
-        if (typeof payload?.text === "string")
-            return payload.text;
-        if (typeof payload?.result === "string")
-            return payload.result;
-        if (typeof payload?.content === "string")
-            return payload.content;
-        if (Array.isArray(payload?.content))
-            return payload.content.filter(p => p?.type === "text").map(p => p.text).filter(Boolean).join("\n");
-        if (Array.isArray(payload?.parts))
-            return payload.parts.filter(p => p?.type === "text").map(p => p.text).filter(Boolean).join("\n");
-        return "";
-    }
+        if (messageID && textCompletePainted.has(messageID))
+            return;
+        function _payload(obj) {
+            if (obj?.message && typeof obj.message === "object")
+                return obj.message;
+            return obj;
+        }
+        function _extractText(obj) {
+            const payload = _payload(obj);
+            if (typeof payload?.text === "string")
+                return payload.text;
+            if (typeof payload?.result === "string")
+                return payload.result;
+            if (typeof payload?.content === "string")
+                return payload.content;
+            if (Array.isArray(payload?.content))
+                return payload.content.filter(p => p?.type === "text").map(p => p.text).filter(Boolean).join("\n");
+            if (Array.isArray(payload?.parts))
+                return payload.parts.filter(p => p?.type === "text").map(p => p.text).filter(Boolean).join("\n");
+            return "";
+        }
         const text = _extractText(output);
         if (!text)
             return;
@@ -336,32 +336,32 @@ async function _appendFooter(input, output, directory) {
                 }
             }
             catch { }
-    }
-    function _setFooter(obj, text) {
-        const target = _payload(obj);
-        if (typeof target?.text === "string")
-            target.text = text;
-        else if (typeof target?.result === "string")
-            target.result = text;
-        else if (typeof target?.content === "string")
-            target.content = text;
-        else if (Array.isArray(target?.content)) {
-            const textParts = target.content.filter(p => p?.type === "text");
-            if (textParts.length > 0)
-                textParts[textParts.length - 1].text = text;
-            else
-                target.content.push({ type: "text", text });
         }
-        else if (Array.isArray(target?.parts)) {
-            const textParts = target.parts.filter(p => p?.type === "text");
-            if (textParts.length > 0)
-                textParts[textParts.length - 1].text = text;
+        function _setFooter(obj, text) {
+            const target = _payload(obj);
+            if (typeof target?.text === "string")
+                target.text = text;
+            else if (typeof target?.result === "string")
+                target.result = text;
+            else if (typeof target?.content === "string")
+                target.content = text;
+            else if (Array.isArray(target?.content)) {
+                const textParts = target.content.filter(p => p?.type === "text");
+                if (textParts.length > 0)
+                    textParts[textParts.length - 1].text = text;
+                else
+                    target.content.push({ type: "text", text });
+            }
+            else if (Array.isArray(target?.parts)) {
+                const textParts = target.parts.filter(p => p?.type === "text");
+                if (textParts.length > 0)
+                    textParts[textParts.length - 1].text = text;
+                else
+                    target.parts.push({ type: "text", text });
+            }
             else
-                target.parts.push({ type: "text", text });
+                target.text = text;
         }
-        else
-            target.text = text;
-    }
         _setFooter(output, footerText);
         _lastStrippedText = stripped;
         // CLI/pipe mode: stdout is already rendered, write footer to stderr
