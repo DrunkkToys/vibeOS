@@ -577,12 +577,17 @@ export function loadOptimizationMode() {
 export function saveOptimizationMode(mode) {
     try {
         writeSessionOptMode(_OC_SID, mode);
+    }
+    catch (e) {
+        console.error("[vibeOS] saveOptimizationMode session write failed: " + e.message);
+    }
+    try {
         if (mode && mode !== "auto")
             saveGlobalOptMode(mode);
         return true;
     }
-    catch (err) {
-        console.error("[vibeOS] saveOptimizationMode failed: " + err.message);
+    catch (e) {
+        console.error("[vibeOS] saveOptimizationMode global write failed: " + e.message);
         return false;
     }
 }
