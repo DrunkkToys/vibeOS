@@ -10,7 +10,7 @@ const libModules = [
 ]
 
 const hookModules = [
-  "footer", "tool-execute", "chat-transform", "session-compact", "shell-env",
+  "footer", "tool-execute", "chat-transform", "session-compact", "shell-env", "shared-footer",
 ]
 
 const syncPairs = []
