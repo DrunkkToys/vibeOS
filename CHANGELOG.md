@@ -1,3 +1,7 @@
+## 0.23.32
+- test: 14 agent_mode integration tests — plan only for complex regimes, stress-gated
+
+
 ## 0.23.31
 - fix: agent_mode regime-driven not mode-driven — plan only for REFINING/CONVERGING/CLOSED with low stress
 
