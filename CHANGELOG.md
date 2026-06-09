@@ -1,3 +1,7 @@
+## 0.23.51
+- fix: ML system improvements — dedup flow_warns, enable blackbox, fix quality scoring, fix pattern promotion
+
+
 ## 0.23.50
 - fix: unify footer format between text.complete and tool.execute.after hooks
 - fix: add forensic/audit to resolveOptimizationSlot brain tier routing
