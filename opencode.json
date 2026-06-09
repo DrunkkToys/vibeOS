@@ -38,5 +38,5 @@
       }
     }
   },
-  "model": "openrouter/nonexistent/fake-model"
+  "model": "openrouter/anthropic/claude-sonnet-4.6"
 }
