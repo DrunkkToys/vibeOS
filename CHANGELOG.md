@@ -1,3 +1,7 @@
+## 0.23.37
+Fix plan mode agent restore
+
+
 ## 0.23.34
 - fix: restore footer ML-driven display + 6 integration tests calling _appendFooter directly to prevent regression from stale .ts compilation
 - fix: wire ensureProjectSkill into tool.execute.before and trinity guard
