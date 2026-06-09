@@ -1,3 +1,7 @@
+## 0.23.29
+- fix: wire patternsObserve API call into recordFrictionPattern for BE telemetry sync
+
+
 ## 0.23.28
 - fix: sync all .ts sources + 21 ML pipeline integration tests (805/0)
 
