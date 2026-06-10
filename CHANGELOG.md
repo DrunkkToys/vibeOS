@@ -1,3 +1,8 @@
+## 0.24.5
+- fix: cap saveEst at  to prevent runaway pricing data corruption
+- chore: v0.24.4
+
+
 ## 0.23.61
 - chore: clean TS source warnings and bump patch
 
