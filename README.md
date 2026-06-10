@@ -2,11 +2,11 @@
 
 Cost-aware control plane for OpenCode Desktop.
 
-> ## v0.23.0 — Disintegration Milestone
+> ## v0.23.61 — Return
 > Compact footer format: `🦠 brain | Deepseek | V4 Pro | $12.57 | VibeMaX ⚡ Budget`
 > VibeMaX is now the default optimization mode. Model display names cleaned up (V4 Pro, Sonnet, 2.5 Flash).
 > Install: `npx vibeostheog setup --project` or `npx vibeostheog setup`
- Keeps expensive models on strategy, routes implementation to cheaper tiers, surfaces savings in real time.
+> Keeps expensive models on strategy, routes implementation to cheaper tiers, surfaces savings in real time.
 
 For teams, vibeOS adds practical guardrails: delegation enforcement, flow and TDD controls, pattern learning, stress-aware routing, VibeBoX decision tracking, reporting, and remote API protection for the core algorithms.
 
@@ -164,7 +164,7 @@ Local dev checkout:
 
 ```json
 {
-  "plugin": ["/absolute/path/to/theSaver-oc/src/index.js"]
+  "plugin": ["/absolute/path/to/theSaver-oc/dist/vibeOS.js"]
 }
 ```
 
@@ -209,7 +209,7 @@ Tier icon + lowercase quality (🦠 brain / ⚙ medium / ⚡ cheap), provider la
 
 ### Plugin Source
 
-Single-file runtime `src/index.js` (generated from `src/index.ts`). TypeScript source of truth at `src/index.ts`, `src/vibeOS-lib/*.ts`, and `src/utils/*.ts`. Build: `npm run build` (tsc compile + sync-ts-build + deploy script).
+Single-file runtime `dist/vibeOS.js` (generated from `src/index.ts`). TypeScript source of truth at `src/index.ts`, `src/vibeOS-lib/*.ts`, and `src/utils/*.ts`. Build: `npm run build` (tsc compile + sync-ts-build + bundle + deploy script).
 
 ### State Files (~/.claude/)
 
