@@ -1,6 +1,6 @@
 {
   "name": "vibeostheog",
-  "version": "0.24.3",
+  "version": "0.24.4",
   "description": "Cost-aware delegation enforcer for OpenCode. Tracks model usage, routes Task subagents to cheaper tiers, surfaces cumulative savings in chat. Includes research audit, reporting framework, project memory, progressive scratchpad decadence, and trinity CLI for brain/medium/cheap slot switching.",
   "scripts": {
     "release": "node scripts/release.mjs",
