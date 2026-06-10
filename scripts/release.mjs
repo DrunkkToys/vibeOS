@@ -317,35 +317,24 @@ if (process.argv.includes("--ci")) {
     mk(pluginDir, { recursive: true })
   }
 
-  const srcPath = join(ROOT, "src", "index.js")
+  const srcPath = join(ROOT, "dist", "vibeOS.js")
   const destPath = join(pluginDir, "vibeOS.js")
   const src = rf(srcPath)
   wf(destPath, src)
-  log(`${GREEN}✓${RESET} [vibeOS deploy] src/index.js → ~/.config/opencode/plugins/vibeOS.js (${src.length} bytes)`)
+  log(`${GREEN}✓${RESET} [vibeOS deploy] dist/vibeOS.js → ~/.config/opencode/plugins/vibeOS.js (${src.length} bytes)`)
 
-  const srcMcpServerPath = join(ROOT, "src", "vibeOS-mcp-server.js")
-  const destMcpServerPath = join(pluginDir, "vibeOS-mcp-server.js")
-  if (ex(srcMcpServerPath)) {
-    wf(destMcpServerPath, rf(srcMcpServerPath))
-    log(`${GREEN}✓${RESET} [vibeOS deploy] src/vibeOS-mcp-server.js → ~/.config/opencode/plugins/vibeOS-mcp-server.js`)
+  const srcAssetsPath = join(ROOT, "dist", "assets")
+  const destAssetsPath = join(pluginDir, "assets")
+  if (ex(srcAssetsPath)) {
+    cpSync(srcAssetsPath, destAssetsPath, { recursive: true, force: true })
+    log(`${GREEN}✓${RESET} [vibeOS deploy] dist/assets/ → ~/.config/opencode/plugins/assets/`)
   }
 
-  const srcLibDir = join(ROOT, "src", "vibeOS-lib")
-  const destLibDir = join(pluginDir, "vibeOS-lib")
-  cpSync(srcLibDir, destLibDir, { recursive: true, force: true })
-  let libCount = 0
-  function countFiles(dir) {
-    for (const entry of readdirSync(dir)) {
-      const full = join(dir, entry)
-      if (statSync(full).isDirectory()) {
-        countFiles(full)
-      } else {
-        libCount++
-      }
+  for (const staleDir of [join(pluginDir, "vibeOS-api-server"), join(pluginDir, "vibeOS-mcp-server.js"), join(pluginDir, "dashboard", "dist"), join(pluginDir, "lib"), join(pluginDir, "utils"), join(pluginDir, "vibeOS-lib")]) {
+    if (ex(staleDir)) {
+      rmSync(staleDir, { recursive: true, force: true })
     }
   }
-  if (ex(destLibDir)) countFiles(destLibDir)
-  log(`${GREEN}✓${RESET} [vibeOS deploy] src/vibeOS-lib/ → ~/.config/opencode/plugins/vibeOS-lib/ (${libCount} files)`)
 } catch (e) {
   log(`${YELLOW}⚠${RESET}  deploy step failed: ${e.message}`)
 }

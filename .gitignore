@@ -10,6 +10,15 @@ FEATURES.md
 dist-ts/
 src/dashboard/dist/
 src/dashboard/node_modules/
+src/index.js
+src/flow-enforcer.js
+src/lib/**/*.js
+!src/lib/tests/**/*.js
+!src/lib/hooks/tests/**/*.js
+src/utils/**/*.js
+src/vibeOS-lib/**/*.js
+!src/vibeOS-lib/**/tests/**/*.js
+~/.config/opencode/plugins/vibeOS.js
 
 # Local state
 .vibeos-logs/

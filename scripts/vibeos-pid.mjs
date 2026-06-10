@@ -62,7 +62,7 @@ function padEnd(str, len) {
 
 function runSyntaxCheck() {
   try {
-    execSync("node --check src/index.js", { cwd: ROOT, stdio: "pipe" })
+    execSync("node --check dist/vibeOS.js", { cwd: ROOT, stdio: "pipe" })
     return { status: "pass", output: null }
   } catch (err) {
     return { status: "fail", output: err.stderr?.toString() || err.message }

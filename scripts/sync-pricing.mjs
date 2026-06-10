@@ -4,7 +4,7 @@
 // and write the merged cache to ~/.claude/model-pricing-cache.json.
 //
 // Run before every release to ensure the plugin has fresh fallback data.
-// Also updates the hardcoded MODEL_USD_PER_TURN entries in src/index.js
+// Also updates the hardcoded MODEL_USD_PER_TURN entries in src/index.ts
 // for models that have changed by more than 5%.
 //
 
@@ -16,7 +16,7 @@ import { homedir } from "node:os"
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, "..")
 const CACHE_PATH = join(homedir(), ".claude", "model-pricing-cache.json")
-const INDEX_PATH = join(ROOT, "src", "index.js")
+const INDEX_PATH = join(ROOT, "src", "index.ts")
 
 const TURN_INPUT = 700
 const TURN_OUTPUT = 300
@@ -74,7 +74,7 @@ function writeCache(map) {
   log(`cache written to ${CACHE_PATH}`)
 }
 
-// ── Update hardcoded entries in src/index.js ─────────────────────
+// ── Update hardcoded entries in src/index.ts ─────────────────────
 function updateHardcoded(map) {
   let src = readFileSync(INDEX_PATH, "utf-8")
   let changes = 0
@@ -104,7 +104,7 @@ function updateHardcoded(map) {
 
   if (changes > 0) {
     writeFileSync(INDEX_PATH, src)
-    log(`updated ${changes} entries in src/index.js`)
+    log(`updated ${changes} entries in src/index.ts`)
   } else {
     log("no hardcoded entries needed updating (all within 5%)")
   }

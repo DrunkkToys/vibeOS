@@ -1093,7 +1093,7 @@ var init_vibemax = __esm({
   }
 });
 
-// src/index.js
+// src/index.ts
 init_flow_enforcer();
 import { readFileSync as readFileSync17, writeFileSync as writeFileSync15, existsSync as existsSync18, mkdirSync as mkdirSync14, copyFileSync as copyFileSync5, renameSync as renameSync6 } from "node:fs";
 import { join as join18, dirname as dirname13, basename as basename8 } from "node:path";
@@ -13598,7 +13598,7 @@ var onShellEnv = async (_input, output) => {
   }
 };
 
-// src/index.js
+// src/index.ts
 function getVibeOSHome13() {
   return process.env.VIBEOS_HOME || join18(process.env.HOME || "", ".claude");
 }
@@ -14065,7 +14065,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
         try {
           ensureProjectSkill(directory3, hookFp);
           _skillsEnsured.add(hookFp);
-        } catch (_e) {
+        } catch {
         }
       }
       onToolExecuteBefore._directory = directory3;
@@ -14317,7 +14317,7 @@ ${report.narrative}`);
               return { ok: true, summary: checkout.summary, report_id: reportId };
             },
             getBlackboxState: () => {
-              const tracker = getBlackboxTracker();
+              getBlackboxTracker();
               const res = getBlackboxResolution();
               return {
                 sub_regime: res?.sub_regime || _latestBlackboxState?.sub_regime || "INIT",
