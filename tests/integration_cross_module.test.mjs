@@ -299,7 +299,7 @@ test('footer alert chain: write warning survives tool result and later footer ap
 
   const assistantOut = { text: 'This assistant reply is long enough to trigger the standard vibeOS footer after the tool alert chain has already run.' }
   await hooks['experimental.text.complete']({ messageID: 'footer-chain-1' }, assistantOut)
-  assert.ok(assistantOut.text.includes('—') && assistantOut.text.includes('slot:'), 'assistant footer still renders after the tool alert chain')
+  assert.ok(assistantOut.text.includes('—') && (assistantOut.text.includes('🧠') || assistantOut.text.includes('◐') || assistantOut.text.includes('⚡')), 'assistant footer still renders after the tool alert chain')
 })
 
 test('footer alert chain: desktop message wrapper keeps tool warning and footer visible', async () => {

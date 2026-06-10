@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { buildEnforcementTags, buildFooterLine, formatSavingsPulse, formatVectorPulse, resolveBrand, resolveTierIcon, trendGlyph } from "../shared-footer.js"
+import { buildEnforcementTags, buildFooterLine, formatEnforcementPulse, formatSavingsPulse, formatVectorPulse, resolveBrand, resolveTierIcon, trendGlyph } from "../shared-footer.js"
 
 test("shared-footer resolves the expected brand names", () => {
   assert.equal(resolveBrand("vibemax", "brain"), "VibeMaX")
@@ -55,6 +55,11 @@ test("shared-footer keeps the footer compact while showing savings and slot stat
   assert.ok(line.includes("◐ medium"))
   assert.ok(line.includes("$12.57 saved ↗"))
   assert.ok(line.includes("VibeMaX ⚡"))
-  assert.ok(line.includes("[ENF ON]"))
+  assert.ok(line.includes("guarded"))
   assert.ok(line.includes("⟡ cheap"))
+})
+
+test("shared-footer softens enforcement tags into a compact pulse", () => {
+  assert.equal(formatEnforcementPulse(["[ENF ON]", "[TDD ON]"]), "guarded · tests live")
+  assert.equal(formatEnforcementPulse(["[Q&A]", "[LOCK ON]"]), "quiet mode · locked")
 })

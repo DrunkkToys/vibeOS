@@ -26,6 +26,24 @@ export function formatVectorPulse(vectorChangedSlot) {
         return "";
     return `⟡ ${vectorChangedSlot}`;
 }
+export function formatEnforcementPulse(enfTags) {
+    const tags = new Set(enfTags || []);
+    const parts = [];
+    if (tags.has("[Q&A]")) {
+        parts.push("quiet mode");
+    }
+    else {
+        if (tags.has("[ENF ON]") || tags.has("[STRICT]"))
+            parts.push("guarded");
+        if (tags.has("[FLOW ON]"))
+            parts.push("flow steady");
+        if (tags.has("[TDD ON]"))
+            parts.push("tests live");
+    }
+    if (tags.has("[LOCK ON]"))
+        parts.push("locked");
+    return parts.join(" · ");
+}
 export function trendGlyph(trend) {
     if (trend === "up")
         return "↗";
@@ -75,10 +93,10 @@ export function buildFooterLine(input) {
     if (vectorChangedSlot && vectorChangedSlot !== activeSlot) {
         line += ` | ${formatVectorPulse(vectorChangedSlot)}`;
     }
-    if (enfTags.length > 0) {
-        line += ` ${enfTags.join(" ")}`;
+    const enforcementPulse = formatEnforcementPulse(enfTags);
+    if (enforcementPulse) {
+        line += ` | ${enforcementPulse}`;
     }
-    line += ` | slot:${activeSlot}`;
     if (sessionSlot && sessionSlot !== activeSlot) {
         line += ` | session:${sessionSlot}`;
     }
