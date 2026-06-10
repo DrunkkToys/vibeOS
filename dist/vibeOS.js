@@ -6081,7 +6081,7 @@ function classifyTurnSimple(userText) {
   if (new RegExp("^I (need|want|would like) to (" + IMPL_VERBS + ")\\b", "i").test(lower)) {
     return "REFINING";
   }
-  if (/^(the |there is |there are |i think |looks like |seems like |i see |why (is|are|does|did) )/.test(lower)) {
+  if (/^(the |there is |there are |i think |looks like |seems like |i see |why (is|are|does|did) )/i.test(lower)) {
     return "EXPLORING";
   }
   if (/^(how|what|why|when|where|who|can you|could you|let me|tell me|explain|describe|show|list|check|is there|are there|does|do you|summarize|elaborate|clarify|inspect|trace|find|search|look|read|show me|dump|debug)/i.test(lower)) {
@@ -7480,6 +7480,15 @@ function createTrinityTool(deps) {
       const _brandedModeIds = ["vibeultrax", "vibeqmax", "vibemax", "vibelitex"];
       const _builtInModeIds = ["budget", "quality", "speed", "longrun", "auto", "balanced", "audit", "forensic"];
       if (!action || action === "status") {
+        if (slot && (_brandedModeIds.includes(slot) || _builtInModeIds.includes(slot))) {
+          action = "mode";
+        } else if (["brain", "medium", "cheap"].includes(slot)) {
+          action = "set";
+        } else if (["full", "brief", "off"].includes(slot)) {
+          action = "thinking";
+          level = slot;
+          slot = void 0;
+        }
       } else if (_brandedModeIds.includes(action) || _builtInModeIds.includes(action)) {
         slot = action;
         action = "mode";
@@ -9371,9 +9380,11 @@ function observeToolPattern(toolName, input, output, directory3) {
   } catch {
   }
 }
+var MAX_SAVE_EST_PER_WARN = 5;
 function recordSaving(tool2, reason, saveEst, meta = {}) {
   try {
     if (!saveEst || saveEst <= 0) return 0;
+    if (saveEst > MAX_SAVE_EST_PER_WARN) saveEst = MAX_SAVE_EST_PER_WARN;
     const firstWord = meta?.firstWord || tool2 || "";
     updateState((s) => {
       s.lifetime ??= { total_savings_usd: 0, cache_savings_usd: 0, missed_context7_usd: 0, session_count: 0, warn_count: 0 };
@@ -9597,7 +9608,7 @@ async function apiComputeControlVector(state, action, optimizationMode) {
     const res = await remoteCall("blackboxControlVector", [state, action, optimizationMode], null);
     if (res?.control_vector) {
       const local = computeControlVector2(state, action, optimizationMode);
-      return { ...res.control_vector, tier_bias: local.tier_bias, optimization_mode: local.optimization_mode };
+      return { ...res.control_vector, tier_bias: local.tier_bias, optimization_mode: local.optimization_mode, enforcement_mode: local.enforcement_mode, flow_mode: local.flow_mode, tdd_mode: local.tdd_mode, thinking_mode: local.thinking_mode };
     }
   } catch {
   }
@@ -10268,6 +10279,17 @@ var onSystemTransform = async (_input, output) => {
 };
 
 // src/lib/hooks/shared-footer.ts
+var REGIME_TAG = {
+  INIT: "INIT",
+  DIVERGENT: "DVRG",
+  EXPLORING: "XPLR",
+  REFINING: "RFNE",
+  CONVERGING: "CVGE",
+  CLOSED: "CLSD",
+  LOOPING: "LOOP",
+  AUDIT: "AUDT",
+  FORENSIC: "FRNC"
+};
 var BRAND_MAP = {
   vibeultrax: "VibeUltraX",
   vibeqmax: "VibeQMaX",
@@ -10331,9 +10353,10 @@ function buildEnforcementTags(opts) {
   return tags;
 }
 function buildFooterLine(input) {
-  const { activeSlot, sessionSlot, providerLabel, modelName, ltTotal, ltTrend, vibeBrand, optMode, flashIcon, enfTags, vectorChangedSlot } = input;
+  const { activeSlot, sessionSlot, providerLabel, modelName, ltTotal, ltTrend, vibeBrand, optMode, flashIcon, enfTags, vectorChangedSlot, subRegime } = input;
   const tierIcon = resolveTierIcon(activeSlot);
-  let line = `\u2014 ${tierIcon} ${activeSlot} | ${providerLabel} | ${modelName}`;
+  const regimeTag = subRegime ? REGIME_TAG[subRegime] || subRegime.slice(0, 4) : null;
+  let line = `\u2014 ${tierIcon} ${activeSlot} | ${providerLabel} | ${modelName}${regimeTag ? ` \u25B6 ${regimeTag}` : ""}`;
   if (ltTotal > 0) {
     const savingsPulse = formatSavingsPulse(ltTotal, ltTrend);
     if (savingsPulse) line += ` | ${savingsPulse}`;
@@ -10568,6 +10591,7 @@ async function _appendFooter(input, output, directory3) {
     const vibeBrand = resolveBrand(optModeFooter, activeSlot);
     const flashIcon = isApiConnected2() ? " \u26A1" : "";
     const displayMode = selNowFooter?.optimization_mode || optMode || "auto";
+    const currentSubRegime = _latestBlackboxState?.sub_regime || classifyTurnSimple2(latestUserIntent || "");
     const vibeLine = buildFooterLine({
       activeSlot,
       providerLabel: execution.provider_label,
@@ -10579,7 +10603,8 @@ async function _appendFooter(input, output, directory3) {
       flashIcon,
       enfTags,
       sessionSlot,
-      vectorChangedSlot: selNowFooter?.vector_changed_slot
+      vectorChangedSlot: selNowFooter?.vector_changed_slot,
+      subRegime: currentSubRegime
     });
     const footerText = stripped + `
 

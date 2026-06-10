@@ -352,6 +352,50 @@ test("trinity tool: status, set, shortcuts, thinking, flow, help", async () => {
   assert.ok(help.includes("trinity") && (help.includes("rebuild") || help.includes("brain")))
 })
 
+test("trinity mode vibeultrax switches optimization mode", async () => {
+  const hooks = await freshPlugin()
+  const t = hooks.tool.trinity
+
+  // Test 1: explicit action="mode" + slot="vibeultrax"
+  const r1 = await t.execute({ action: "mode", slot: "vibeultrax" })
+  assert.ok(r1.toLowerCase().includes("vibeultrax") || r1.toLowerCase().includes("ultrax"),
+    "mode vibeultrax should confirm switch: " + r1.slice(0, 80))
+
+  // Test 2: slot="vibeultrax" without explicit action — should infer mode
+  const r2 = await t.execute({ slot: "vibeultrax" })
+  assert.ok(r2.toLowerCase().includes("vibeultrax") || r2.toLowerCase().includes("ultrax") || r2.toLowerCase().includes("mode"),
+    "slot vibeultrax without action should infer mode: " + r2.slice(0, 80))
+
+  // Test 3: shorthand — action="vibeultrax" as mode name
+  const r3 = await t.execute({ action: "vibeultrax" })
+  assert.ok(r3.toLowerCase().includes("vibeultrax") || r3.toLowerCase().includes("ultrax"),
+    "shorthand vibeultrax should work: " + r3.slice(0, 80))
+})
+
+test("trinity mode vibeqmax switches optimization mode", async () => {
+  const hooks = await freshPlugin()
+  const t = hooks.tool.trinity
+  const r = await t.execute({ action: "mode", slot: "vibeqmax" })
+  assert.ok(r.toLowerCase().includes("vibeqmax") || r.toLowerCase().includes("qmax") || r.toLowerCase().includes("qmax"),
+    "mode vibeqmax should confirm switch: " + r.slice(0, 80))
+})
+
+test("trinity mode speed switches optimization mode", async () => {
+  const hooks = await freshPlugin()
+  const t = hooks.tool.trinity
+  const r = await t.execute({ action: "mode", slot: "speed" })
+  assert.ok(r.toLowerCase().includes("speed"),
+    "mode speed should confirm switch: " + r.slice(0, 80))
+})
+
+test("trinity mode quality switches optimization mode", async () => {
+  const hooks = await freshPlugin()
+  const t = hooks.tool.trinity
+  const r = await t.execute({ action: "mode", slot: "quality" })
+  assert.ok(r.toLowerCase().includes("quality"),
+    "mode quality should confirm switch: " + r.slice(0, 80))
+})
+
 test("trinity set: probes and blocks invalid model", async () => {
   const tiers = JSON.parse(readFileSync(join(sandbox, ".claude/model-tiers.json"), "utf-8"))
   tiers.trinity.brain.oc = "openrouter/nonexistent/fake-model"
