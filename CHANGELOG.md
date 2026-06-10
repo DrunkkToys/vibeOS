@@ -1,3 +1,9 @@
+## 0.23.60
+- fix: computeControlVector tier_bias, AUDIT/FORENSIC regex, litex slot (#118)
+- fix: align footer with blackbox session slot
+Merge pull request #117 from DrunkkToys/fix/audit-forensic-ml-routing
+
+
 ## 0.23.59
 - chore: soften footer enforcement copy
 - chore: align medium icon legend
