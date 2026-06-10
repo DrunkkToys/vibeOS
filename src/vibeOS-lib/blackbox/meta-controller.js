@@ -262,6 +262,21 @@ const MODE_DELTAS = {
         api_enrichment: true,
         outcome_detection: true,
     },
+    litex: {
+        tier_bias: "medium",
+        thinking_mode: "brief",
+        tdd_mode: "lazy",
+        tdd_focus: [],
+        flow_mode: "audit",
+        flow_focus: [],
+        enforcement_mode: "normal",
+        wbp_verbosity: "normal",
+        context7_urgency: "preferred",
+        stress_multiplier: 1.0,
+        loop_threshold: 0.6,
+        api_enrichment: false,
+        outcome_detection: true,
+    },
 };
 export function autoSelectMode(subRegime, stressMultiplier) {
     const regime = String(subRegime || "INIT").toUpperCase();
@@ -273,7 +288,7 @@ export function autoSelectMode(subRegime, stressMultiplier) {
         return "quality";
     if (stressMultiplier && stressMultiplier > QUALITY_STRESS_THRESHOLD)
         return "quality";
-    return "budget";
+    return "vibelitex";
 }
 export function computeControlVector(state, action, optimizationMode) {
     const regime = state.sub_regime || "INIT";

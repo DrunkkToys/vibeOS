@@ -71,6 +71,7 @@ test("classify: opus → high", async () => {
   const hooks2 = await DelegationEnforcer({ client: {}, directory: opencodeDir })
   await hooks2["shell.env"]({}, envOut)
   assert.equal(envOut.env.OPENCODE_MODEL_TIER, "high")
+  assert.ok(String(envOut.env.VIBEOS_SHELL_BADGE || "").includes("🧠"), "shell badge should carry the brain icon")
 })
 
 test("classify: deepseek-flash → mid", async () => {
@@ -844,8 +845,7 @@ test("tool.execute.after: does not set output.result/text/content/data (wrong fi
   const longText = "B".repeat(3500)
   const out = { title: "task result", output: longText, metadata: {} }
   await hooks["tool.execute.after"]({ tool: "task", callID: "c3", args: {} }, out)
-  assert.ok(typeof out.output === "string" && out.output.length > longText.length, "output.output has footer prepended")
-  assert.ok(out.output.endsWith(longText), "original output preserved after footer")
+  assert.equal(out.output, longText, "output.output stays untouched")
   assert.equal(out.result, undefined, "output.result must remain undefined")
   assert.equal(out.text, undefined, "output.text must remain undefined")
   assert.equal(out.content, undefined, "output.content must remain undefined")
@@ -886,8 +886,8 @@ test("system.transform: thinking directive injected by default (brief for cost s
   const out = { system: [] }
   await hooks["experimental.chat.system.transform"]({}, out)
   const allText = out.system.join(" ")
-  assert.ok(allText.includes("when looking up"), "context7 directive present")
-  assert.ok(allText.includes("brief reasoning") || allText.includes("brief") || allText.includes("BRIEF") || allText.includes("Reasoning depth") || allText.includes("Extended thinking is off"), "thinking directive defaults to brief: " + allText.slice(0, 200))
+  assert.ok(allText.includes("Use the cheapest accurate source first."), "context7 directive present")
+  assert.ok(allText.includes("Reasoning depth: OFF") || allText.includes("Respond directly, avoid extra scratch work"), "thinking directive defaults to brief: " + allText.slice(0, 200))
 })
 
 test("system.transform: thinking directive injected when manually set to off", async () => {
@@ -906,9 +906,9 @@ test("system.transform: thinking directive injected when manually set to off", a
   const out = { system: [] }
   await hooks["experimental.chat.system.transform"]({}, out)
   const allText = out.system.join(" ")
-  assert.ok(allText.includes("Skip extended thinking entirely"), "thinking directive injected")
+  assert.ok(allText.includes("Respond directly, avoid extra scratch work"), "thinking directive injected")
   assert.ok(/off/i.test(allText), "off level mentioned")
-  assert.ok(allText.includes("Respond directly and concisely"),
+  assert.ok(allText.includes("Respond directly, avoid extra scratch work"),
     "off directive says to respond directly")
 })
 
@@ -1023,8 +1023,7 @@ test("tool.execute.after: task output NOT compressed (only webfetch)", async () 
   const longText = "A".repeat(3500)
   const out = { title: "task result", result: longText, metadata: {} }
   await hooks["tool.execute.after"]({ tool: "task", callID: "c1", args: {} }, out)
-  assert.ok(out.result.length > longText.length, "task output has footer prepended")
-  assert.ok(out.result.endsWith(longText), "task output preserved after footer")
+  assert.equal(out.result, longText, "task output stays untouched")
 })
 
 test("tool.execute.after: webfetch output IS compressed", async () => {
@@ -1646,8 +1645,8 @@ test("tool.execute.after: delegation warning injected into output.result", async
 
   assert.ok(afterOutput.result.includes("[vibeOS]"),
     `output.result must contain [vibeOS] delegation note; got: ${afterOutput.result}`)
-  assert.ok(afterOutput.result.includes("tier direct edit"),
-    `output.result must describe the action; got: ${afterOutput.result}`)
+  assert.ok(afterOutput.result.includes("delegate via Task") || afterOutput.result.includes("brain paused"),
+    `output.result must describe the handoff; got: ${afterOutput.result}`)
   assert.ok(afterOutput.result.includes("File edited successfully."),
     "original tool result must be preserved")
 })

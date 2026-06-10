@@ -29,6 +29,13 @@ export const BRANDED_MODES = [
         qualityVsBrain: 75, costVsBrain: 18, default: true,
         desc: "Default mode. Medium tier auto-escalate. Speed-first.",
     },
+    {
+        id: "vibelitex", index: 4, name: "VibeLiteX", icon: "\u{1F4A1}",
+        pipeline: ["medium"],
+        thinking: "brief", tdd: "lazy", enforcement: "normal", flow: "audit",
+        qualityVsBrain: 65, costVsBrain: 20,
+        desc: "Local fallback. Medium tier with enforcement. No API required.",
+    },
 ];
 export const RUNTIME_MODES = [
     {

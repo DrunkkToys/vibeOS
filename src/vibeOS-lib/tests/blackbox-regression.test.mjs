@@ -45,7 +45,7 @@ test("blackbox regression: legacy stub session hydrates real tracker and leaves 
   assert.ok(typeof after.pivot_detected === "boolean")
 })
 
-test("blackbox regression: pivot detection ignores text-only instruction and length swings without embeddings", async () => {
+test("blackbox regression: pivot detection detects text-only topic shifts without embeddings", async () => {
   const { ResolutionTracker } = await import("../blackbox/index.js?t=" + Date.now())
 
   const tracker = new ResolutionTracker("pivot-regression", 10)
@@ -69,7 +69,7 @@ test("blackbox regression: pivot detection ignores text-only instruction and len
     embeddingA,
   )
 
-  const falsePositive = tracker.update(
+  const textPivot = tracker.update(
     "Switch to auth jwt express now and change the implementation path entirely.",
     ResolutionTracker.extractFeatures("Switch to auth jwt express now and change the implementation path entirely."),
     "change",
@@ -78,7 +78,7 @@ test("blackbox regression: pivot detection ignores text-only instruction and len
     null,
   )
 
-  assert.equal(falsePositive.pivot_detected, false, "text-only swings should not trigger pivot detection")
+  assert.equal(textPivot.pivot_detected, true, "text-only topic shifts should now trigger pivot detection via Jaccard similarity")
 
   tracker.reset()
   tracker.update(

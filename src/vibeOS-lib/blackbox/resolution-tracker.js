@@ -21,6 +21,43 @@ export class ResolutionTracker {
         this.outcomeHistory = [];
         this.calibratedWeights = null;
     }
+    static extractFeatures(text) {
+        if (!text || typeof text !== "string")
+            return {};
+        const len = text.length;
+        const words = text.split(/\s+/).filter(w => w.length > 0);
+        const wordCount = words.length;
+        const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0);
+        const sentenceCount = sentences.length;
+        const avgWordLen = wordCount > 0 ? words.reduce((sum, word) => sum + word.length, 0) / wordCount : 0;
+        const questions = (text.match(/\?/g) || []).length;
+        const questionRatio = sentenceCount > 0 ? questions / sentenceCount : 0;
+        const codeBlocks = (text.match(/```/g) || []).length / 2;
+        const urgency = /urgent|asap|immediately|critical|broken|failing|crash|error|bug/i.test(text) ? 1.0 : 0.0;
+        const repetition = wordCount > 5
+            ? (text.toLowerCase().match(/(\b\w+\b).*?\1/g) || []).length / wordCount
+            : 0;
+        const sentimentInds = /thanks|great|perfect|awesome/i.test(text) ? 0.2
+            : /frustrat|annoy|not working|doesn't work|stupid|useless/i.test(text) ? 0.8
+                : 0.5;
+        const complexity = /complex|difficult|hard|confusing|trick|subtle|nuance/i.test(text) ? 1.0 : 0.0;
+        const instructionDensity = /do not|must|should|always|never|critical/i.test(text) ? 1.0
+            : /please|could you|maybe|perhaps/i.test(text) ? 0.3
+                : 0.6;
+        return {
+            length: Math.min(1.0, len / 5000),
+            word_count: Math.min(1.0, wordCount / 500),
+            sentence_count: Math.min(1.0, sentenceCount / 50),
+            avg_word_length: Math.min(1.0, avgWordLen / 10),
+            question_ratio: Math.min(1.0, questionRatio),
+            code_blocks: Math.min(1.0, codeBlocks / 5),
+            urgency,
+            repetition: Math.min(1.0, repetition * 10),
+            sentiment: sentimentInds,
+            complexity,
+            instruction_density: instructionDensity,
+        };
+    }
     normalizeText(text) {
         return (text || "")
             .toLowerCase()
@@ -75,7 +112,20 @@ export class ResolutionTracker {
     }
     detectPivotSignal(current, previous) {
         if (!current.embedding || !previous.embedding) {
-            return false;
+            const currWords = new Set((current.text || "").toLowerCase().split(/\s+/).filter(w => w.length > 3));
+            const prevWords = new Set((previous.text || "").toLowerCase().split(/\s+/).filter(w => w.length > 3));
+            if (currWords.size === 0 || prevWords.size === 0)
+                return false;
+            const intersection = new Set([...currWords].filter(w => prevWords.has(w)));
+            const union = new Set([...currWords, ...prevWords]);
+            const jaccardSim = intersection.size / Math.max(union.size, 1);
+            const instructionChange = Math.abs((current.features?.instruction_density || 0.6) - (previous.features?.instruction_density || 0.6));
+            const lengthRatio = previous.text.length > 0
+                ? Math.abs(current.text.length - previous.text.length) / previous.text.length
+                : 0;
+            const actionChange = current.action !== previous.action ? 0.3 : 0;
+            const pivotScore = (1.0 - jaccardSim) * 0.4 + instructionChange * 0.2 + Math.min(lengthRatio, 1.0) * 0.2 + actionChange * 0.2;
+            return pivotScore > 0.45;
         }
         const embeddingDelta = 1.0 - cosineSimilarity(current.embedding, previous.embedding);
         const drift = this.history.length >= 4
@@ -214,148 +264,72 @@ export class ResolutionTracker {
     calcEntropyTrend() {
         if (this.history.length < 2)
             return 0.0;
-        const entropies = this.history.slice(-5).map(e => e.entropy);
-        if (entropies.length < 2)
+        const recent = this.history.slice(-4).map(e => e.entropy || 0);
+        if (recent.length < 2)
             return 0.0;
-        return linearTrend(entropies);
+        const deltas = [];
+        for (let i = 1; i < recent.length; i++) {
+            deltas.push(recent[i] - recent[i - 1]);
+        }
+        return deltas.reduce((a, b) => a + b, 0) / deltas.length;
     }
     calcFeatureContradiction() {
         if (this.history.length < 2)
             return 0.0;
-        const current = this.history[this.history.length - 1].features;
-        const prev = this.history[this.history.length - 2].features;
-        let contradictionCount = 0;
-        for (const key of Object.keys(current)) {
-            if (key in prev) {
-                const delta = Math.abs(current[key] - prev[key]);
-                if (delta > 0.2) {
-                    contradictionCount++;
-                }
-            }
-        }
-        return Math.min(1.0, contradictionCount / 6.0);
+        const recent = this.history.slice(-4);
+        const values = recent.map(e => e.features?.instruction_density || 0);
+        const mean = values.reduce((a, b) => a + b, 0) / values.length;
+        const variance = values.reduce((a, b) => a + ((b - mean) ** 2), 0) / values.length;
+        return Math.min(1.0, Math.sqrt(variance) * 1.5);
     }
     calcEmbeddingDelta() {
         if (this.history.length < 2)
             return 0.0;
-        const embPrev = this.history[this.history.length - 2].embedding;
-        const embCurr = this.history[this.history.length - 1].embedding;
-        if (!embPrev || !embCurr)
+        const a = this.history[this.history.length - 1].embedding;
+        const b = this.history[this.history.length - 2].embedding;
+        if (!a || !b)
             return 0.0;
-        const similarity = cosineSimilarity(embPrev, embCurr);
-        return 1.0 - similarity;
+        return 1.0 - cosineSimilarity(a, b);
     }
-    detectLoop(k = 3, threshold = 0.6) {
-        const effectiveThreshold = this.calibratedWeights?.loopJaccard ?? threshold;
-        const effectiveK = this.calibratedWeights?.loopK ?? k;
-        const repeatStreak = this.getRepeatStreak();
-        if (repeatStreak >= 2)
-            return true;
-        if (this.history.length < effectiveK + 1)
-            return false;
-        const currWords = new Set(this.normalizeText(this.history[this.history.length - 1].text).split(/\s+/).filter(Boolean));
-        const pastWords = new Set(this.normalizeText(this.history[this.history.length - (effectiveK + 1)].text).split(/\s+/).filter(Boolean));
-        if (currWords.size === 0 || pastWords.size === 0)
-            return false;
-        const intersection = new Set([...currWords].filter(w => pastWords.has(w)));
-        const union = new Set([...currWords, ...pastWords]);
-        const jaccard = intersection.size / Math.max(union.size, 1);
-        const infoGain = this.history[this.history.length - 1].entropy < this.history[this.history.length - (k + 1)].entropy;
-        return jaccard > effectiveThreshold && !infoGain;
-    }
-    isExploring(contradiction, entropyTrend, _actionConsistency = 0.0) {
-        const ec = this.calibratedWeights?.exploringContradiction ?? 0.2;
-        const ee = this.calibratedWeights?.exploringEntropyTrend ?? 0.005;
-        return contradiction > ec || entropyTrend > ee;
-    }
-    isRefining(contradiction, delta, actionConsistency = 0.0, entropyTrend = 0.0) {
-        return contradiction < 0.2 && delta < 0.3 && actionConsistency > 0.3 && entropyTrend > -0.01;
-    }
-    isConverging(consistency, delta, entropyTrend) {
-        return consistency >= 0.5 && delta < 0.2 && entropyTrend < 0;
-    }
-    isClosed(consistency, delta, contradiction) {
-        if (this.history.length === 0)
-            return false;
-        const lastAction = this.history[this.history.length - 1].action;
-        const lastEntropy = this.history[this.history.length - 1].entropy;
-        const ccThreshold = this.calibratedWeights?.closureConfidence ?? 0.7;
-        const cd = this.calibratedWeights?.closedDelta ?? 0.1;
-        const cc = this.calibratedWeights?.closedContradiction ?? 0.1;
-        const ce = this.calibratedWeights?.closedEntropy ?? 0.5;
-        return (consistency > ccThreshold &&
-            delta < cd &&
-            contradiction < cc &&
-            ["act", "commit"].includes(lastAction) &&
-            lastEntropy < ce);
-    }
-    isDivergent(entropyTrend, contradiction, actionConsistency) {
-        const de = this.calibratedWeights?.divergentEntropyTrend ?? 0.03;
-        const dc = this.calibratedWeights?.divergentContradiction ?? 0.3;
-        return entropyTrend > de && (contradiction > dc || actionConsistency < 0.3);
+    detectLoop() {
+        return this.loopCount >= 2 || this.getRepeatStreak() >= 2;
     }
     computeIntentState() {
-        if (this.history.length < 2) {
-            return { volatility_score: 0.0, drift_rate: 0.0, core_goal_embedding: null };
-        }
-        const actionIndices = { observe: 0, defer: 1, explore: 2, act: 3, commit: 4, change: 5 };
-        const actions = this.history.slice(-5).map(e => e.action);
-        const indices = actions.map(a => actionIndices[a] ?? 2);
-        const actionVar = variance(indices) / 6.0;
-        const embs = this.history.slice(-5).map(e => e.embedding).filter((e) => e !== null);
-        let embVar = 0.0;
-        if (embs.length >= 3) {
-            const embMean = embs[0].map((_, i) => embs.reduce((sum, e) => sum + e[i], 0) / embs.length);
-            embVar = embs.reduce((sum, e) => sum + euclideanDistance(e, embMean), 0) / embs.length;
-        }
-        const volatility = Math.min(1.0, actionVar * 0.6 + embVar * 0.4);
-        let drift = 0.0;
-        if (embs.length >= 4) {
-            const mid = Math.floor(embs.length / 2);
-            const firstHalf = embs.slice(0, mid);
-            const secondHalf = embs.slice(mid);
-            const firstMean = firstHalf[0].map((_, i) => firstHalf.reduce((sum, e) => sum + e[i], 0) / firstHalf.length);
-            const secondMean = secondHalf[0].map((_, i) => secondHalf.reduce((sum, e) => sum + e[i], 0) / secondHalf.length);
-            drift = 1.0 - cosineSimilarity(firstMean, secondMean);
-        }
-        const coreGoal = embs.length > 0
-            ? embs[0].map((_, i) => embs.reduce((sum, e) => sum + e[i], 0) / embs.length)
-            : null;
+        const last = this.history[this.history.length - 1];
+        const prev = this.history[this.history.length - 2];
+        const driftRate = prev ? Math.min(1.0, Math.abs((last?.features?.instruction_density || 0.6) - (prev?.features?.instruction_density || 0.6)) * 2) : 0.0;
+        const volatilityScore = Math.min(1.0, (this.getRepeatStreak() / 5) + driftRate * 0.5);
         return {
-            volatility_score: Math.round(volatility * 10000) / 10000,
-            drift_rate: Math.round(drift * 10000) / 10000,
-            core_goal_embedding: coreGoal ? coreGoal.map(v => Math.round(v * 10000) / 10000) : null,
+            volatility_score: volatilityScore,
+            drift_rate: driftRate,
+            core_goal_embedding: null,
         };
     }
     continuityState(intentState) {
-        const drift = intentState.drift_rate;
-        const volatility = intentState.volatility_score;
-        if (drift < 0.15 && volatility < 0.3)
-            return "HIGH";
-        if (drift > 0.4 || volatility > 0.6)
+        if (intentState.volatility_score > 0.7)
             return "LOW";
-        return "MEDIUM";
+        if (intentState.volatility_score > 0.35)
+            return "MEDIUM";
+        return "HIGH";
     }
-    static detectOverconfident(diagnostics) {
-        const confidence = diagnostics.confidence ?? 0.5;
-        const entropy = diagnostics.entropy ?? 1.0;
-        return confidence > 0.7 && entropy > 1.5;
+    isClosed(actionConsistency, embeddingDelta, featureContradiction) {
+        return actionConsistency > 0.85 && embeddingDelta < 0.15 && featureContradiction < 0.2;
     }
-    calcMomentum(entropyTrend, actionConsistency, embeddingDelta, isLooping = false, action = "", entropy = 0.0) {
-        if (isLooping)
-            return -1.0;
-        const w = this.calibratedWeights?.momentum || [-0.3, 0.5, 0.2];
-        const entropyComponent = entropyTrend * w[0];
-        const consistencyComponent = actionConsistency * w[1];
-        const deltaComponent = (1.0 - Math.min(1.0, embeddingDelta)) * w[2];
-        let momentum = entropyComponent + consistencyComponent + deltaComponent;
-        if (["commit", "change"].includes(action) && entropy > 0.8) {
-            momentum -= 0.05;
-        }
-        else if (["observe", "defer"].includes(action) && entropy < 0.5) {
-            momentum += 0.05;
-        }
-        return Math.max(-1.0, Math.min(1.0, momentum));
+    isDivergent(entropyTrend, featureContradiction, actionConsistency) {
+        return entropyTrend > 0.1 && featureContradiction > 0.3 && actionConsistency < 0.75;
+    }
+    isExploring(featureContradiction, entropyTrend, actionConsistency) {
+        return featureContradiction > 0.15 && entropyTrend >= -0.05 && actionConsistency < 0.9;
+    }
+    isRefining(featureContradiction, embeddingDelta, actionConsistency, entropyTrend) {
+        return actionConsistency > 0.55 && actionConsistency < 0.95 && embeddingDelta < 0.35 && featureContradiction < 0.45 && entropyTrend <= 0.2;
+    }
+    isConverging(actionConsistency, embeddingDelta, entropyTrend) {
+        return actionConsistency > 0.7 && embeddingDelta < 0.25 && entropyTrend <= 0.15;
+    }
+    calcMomentum(entropyTrend, actionConsistency, embeddingDelta, isLooping, action, entropy) {
+        const base = actionConsistency * 0.4 + (1.0 - Math.min(1.0, embeddingDelta)) * 0.3 + Math.max(0.0, 0.3 - Math.abs(entropyTrend)) * 0.3;
+        return isLooping ? Math.max(-1.0, base - 0.6) : Math.min(1.0, base + 0.1);
     }
     reset() {
         this.history = [];
@@ -434,93 +408,24 @@ export class ResolutionTracker {
         };
     }
     static deserialize(data) {
-        const tracker = new ResolutionTracker(data.sessionId, data.maxHistory);
-        tracker.history = data.history || [];
-        tracker.loopCount = data.loopCount || 0;
-        tracker.pivotHistory = data.pivotHistory || [];
-        tracker.outcomeHistory = data.outcomeHistory || [];
+        const tracker = new ResolutionTracker(data.sessionId || "session", data.maxHistory || 10);
+        tracker.history = Array.isArray(data.history) ? data.history : [];
+        tracker.loopCount = Number(data.loopCount || 0);
+        tracker.pivotHistory = Array.isArray(data.pivotHistory) ? data.pivotHistory : [];
+        tracker.outcomeHistory = Array.isArray(data.outcomeHistory) ? data.outcomeHistory : [];
         tracker.calibratedWeights = data.calibratedWeights || null;
         return tracker;
     }
-    static extractFeatures(text) {
-        if (!text || typeof text !== "string")
-            return {};
-        const len = text.length;
-        const words = text.split(/\s+/).filter(w => w.length > 0);
-        const wordCount = words.length;
-        const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0);
-        const sentenceCount = sentences.length;
-        const avgWordLen = wordCount > 0 ? words.reduce((s, w) => s + w.length, 0) / wordCount : 0;
-        const questions = (text.match(/\?/g) || []).length;
-        const questionRatio = sentenceCount > 0 ? questions / sentenceCount : 0;
-        const codeBlocks = (text.match(/```/g) || []).length / 2;
-        const urgency = /urgent|asap|immediately|critical|broken|failing|crash|error|bug/i.test(text) ? 1.0 : 0.0;
-        const repetition = wordCount > 5
-            ? (text.toLowerCase().match(/(\b\w+\b).*?\1/g) || []).length / wordCount
-            : 0;
-        const sentimentInds = /thanks|great|perfect|awesome/i.test(text) ? 0.2
-            : /frustrat|annoy|not working|doesn't work|stupid|useless/i.test(text) ? 0.8
-                : 0.5;
-        const complexity = /complex|difficult|hard|confusing|trick|subtle|nuance/i.test(text) ? 1.0 : 0.0;
-        const instructionDensity = /do not|must|should|always|never|critical/i.test(text) ? 1.0
-            : /please|could you|maybe|perhaps/i.test(text) ? 0.3
-                : 0.6;
-        return {
-            length: Math.min(1.0, len / 5000),
-            word_count: Math.min(1.0, wordCount / 500),
-            sentence_count: Math.min(1.0, sentenceCount / 50),
-            avg_word_length: Math.min(1.0, avgWordLen / 10),
-            question_ratio: Math.min(1.0, questionRatio),
-            code_blocks: Math.min(1.0, codeBlocks / 5),
-            urgency,
-            repetition: Math.min(1.0, repetition * 10),
-            sentiment: sentimentInds,
-            complexity,
-            instruction_density: instructionDensity,
-        };
-    }
-}
-// ── Math Helpers ───────────────────────────────────────────────────────────
-function linearTrend(values) {
-    const n = values.length;
-    if (n < 2)
-        return 0.0;
-    const xMean = (n - 1) / 2;
-    const yMean = values.reduce((a, b) => a + b, 0) / n;
-    let numerator = 0;
-    let denominator = 0;
-    for (let i = 0; i < n; i++) {
-        const xi = i - xMean;
-        numerator += xi * (values[i] - yMean);
-        denominator += xi * xi;
-    }
-    return denominator === 0 ? 0.0 : numerator / denominator;
 }
 function cosineSimilarity(a, b) {
-    if (a.length !== b.length || a.length === 0)
-        return 0.0;
-    let dot = 0;
-    let normA = 0;
-    let normB = 0;
-    for (let i = 0; i < a.length; i++) {
+    const len = Math.min(a.length, b.length);
+    let dot = 0, normA = 0, normB = 0;
+    for (let i = 0; i < len; i++) {
         dot += a[i] * b[i];
         normA += a[i] * a[i];
         normB += b[i] * b[i];
     }
-    const denom = Math.sqrt(normA) * Math.sqrt(normB);
-    return denom === 0 ? 0.0 : dot / denom;
-}
-function euclideanDistance(a, b) {
-    let sum = 0;
-    for (let i = 0; i < a.length; i++) {
-        const diff = a[i] - b[i];
-        sum += diff * diff;
-    }
-    return Math.sqrt(sum);
-}
-function variance(values) {
-    if (values.length === 0)
-        return 0.0;
-    const mean = values.reduce((a, b) => a + b, 0) / values.length;
-    return values.reduce((sum, v) => sum + (v - mean) * (v - mean), 0) / values.length;
+    if (normA === 0 || normB === 0)
+        return 0;
+    return dot / (Math.sqrt(normA) * Math.sqrt(normB));
 }

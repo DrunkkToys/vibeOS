@@ -75,7 +75,7 @@ test("patterns: global-learning.json can be written and read", async () => {
 // ── Mode variety: all modes recognized ──
 test("modes: budget recognized", async () => {
   const t = await import("../src/lib/turn-classify.js?pat7=" + Date.now())
-  assert.equal(t.autoSelectMode("EXPLORING", 0), "budget")
+  assert.equal(t.autoSelectMode("EXPLORING", 0), "vibelitex")
 })
 
 test("modes: quality recognized", async () => {

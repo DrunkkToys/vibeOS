@@ -38,5 +38,5 @@
       }
     }
   },
-  "model": "haiku"
+  "model": "deepseek/deepseek-chat"
 }

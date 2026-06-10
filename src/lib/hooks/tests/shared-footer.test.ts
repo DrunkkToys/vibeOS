@@ -1,150 +1,65 @@
-// [vibeOS-enforced] Skeleton test — replace with real assertions
-import { test, expect, describe, it } from 'vitest';
-import * as mod from '../shared-footer';
+import test from "node:test"
+import assert from "node:assert/strict"
+import { buildEnforcementTags, buildFooterLine, formatEnforcementPulse, formatSavingsPulse, formatVectorPulse, resolveBrand, resolveTierIcon, trendGlyph } from "../shared-footer.js"
 
-describe('shared-footer', () => {
-  it('smoke: module loads', () => {
-    expect(mod).toBeDefined();
-  });
+test("shared-footer resolves the expected brand names", () => {
+  assert.equal(resolveBrand("vibemax", "brain"), "VibeMaX")
+  assert.equal(resolveBrand("quality", "medium"), "VibeQMaX")
+  assert.equal(resolveBrand("unknown", "cheap"), "VibeMaX")
+})
 
-  // TODO: implement tests for resolveBrand
-  it('resolveBrand is exported', () => {
-    expect(typeof mod.resolveBrand).toBe('function');
-  });
+test("shared-footer keeps tier icons compact and stable", () => {
+  assert.equal(resolveTierIcon("brain"), "🧠")
+  assert.equal(resolveTierIcon("medium"), "◐")
+  assert.equal(resolveTierIcon("cheap"), "⚡")
+  assert.equal(resolveTierIcon("free"), "🎁")
+})
 
-  it('resolveBrand: works correctly with typical valid input', () => {
-    // TODO: implement resolveBrand: works correctly with typical valid input
-    expect(true).toBe(true);
-  });
+test("shared-footer formats a compact vector pulse", () => {
+  assert.equal(formatVectorPulse("cheap"), "⟡ cheap")
+  assert.equal(formatVectorPulse(undefined), "")
+})
 
-  it('resolveBrand: raises gracefully on invalid/malformed input', () => {
-    // TODO: implement resolveBrand: raises gracefully on invalid/malformed input
-    expect(true).toBe(true);
-  });
+test("shared-footer formats a subtle savings pulse with trend cues", () => {
+  assert.equal(formatSavingsPulse(12.57, "up"), "$12.57 saved ↗")
+  assert.equal(formatSavingsPulse(4.2, "down"), "$4.20 saved ↘")
+  assert.equal(formatSavingsPulse(0, "up"), "")
+  assert.equal(trendGlyph("flat"), "→")
+})
 
-  it('resolveBrand: handles boundary and edge-case values', () => {
-    // TODO: implement resolveBrand: handles boundary and edge-case values
-    expect(true).toBe(true);
-  });
+test("shared-footer builds short enforcement tags", () => {
+  assert.deepEqual(buildEnforcementTags({
+    delegationEnforce: true,
+    flowEnforce: true,
+    tddEnforce: true,
+    bbMode: "strict",
+    modelLocked: true,
+  }), ["[ENF ON]", "[FLOW ON]", "[TDD ON]", "[STRICT]", "[LOCK ON]"])
+})
 
-  it('resolveBrand: handles valid input', () => {
-    const result = mod.resolveBrand("sample_input", "sample_input");
-    expect(result).toBeDefined();
-  });
+test("shared-footer keeps the footer compact while showing savings and slot state", () => {
+  const line = buildFooterLine({
+    activeSlot: "medium",
+    sessionSlot: "medium",
+    providerLabel: "DeepSeek",
+    modelName: "v4-flash",
+    ltTotal: 12.57,
+    ltTrend: "up",
+    vibeBrand: "VibeMaX",
+    optMode: "budget",
+    flashIcon: " ⚡",
+    enfTags: ["[ENF ON]"],
+    vectorChangedSlot: "cheap",
+  })
 
-  it('resolveBrand: rejects invalid input', () => {
-    // TODO: replace with expected error type
-    expect(() => mod.resolveBrand(null)).toThrow();
-  });
+  assert.ok(line.includes("◐ medium"))
+  assert.ok(line.includes("$12.57 saved ↗"))
+  assert.ok(line.includes("VibeMaX ⚡"))
+  assert.ok(line.includes("guarded"))
+  assert.ok(line.includes("⟡ cheap"))
+})
 
-  it('resolveBrand: handles edge cases', () => {
-    const result = mod.resolveBrand("", "");
-    expect(result).toBeDefined();
-  });
-
-  // TODO: implement tests for resolveTierIcon
-  it('resolveTierIcon is exported', () => {
-    expect(typeof mod.resolveTierIcon).toBe('function');
-  });
-
-  it('resolveTierIcon: works correctly with typical valid input', () => {
-    // TODO: implement resolveTierIcon: works correctly with typical valid input
-    expect(true).toBe(true);
-  });
-
-  it('resolveTierIcon: raises gracefully on invalid/malformed input', () => {
-    // TODO: implement resolveTierIcon: raises gracefully on invalid/malformed input
-    expect(true).toBe(true);
-  });
-
-  it('resolveTierIcon: handles boundary and edge-case values', () => {
-    // TODO: implement resolveTierIcon: handles boundary and edge-case values
-    expect(true).toBe(true);
-  });
-
-  it('resolveTierIcon: handles valid input', () => {
-    const result = mod.resolveTierIcon("sample_input");
-    expect(result).toBeDefined();
-  });
-
-  it('resolveTierIcon: rejects invalid input', () => {
-    // TODO: replace with expected error type
-    expect(() => mod.resolveTierIcon(null)).toThrow();
-  });
-
-  it('resolveTierIcon: handles edge cases', () => {
-    const result = mod.resolveTierIcon("");
-    expect(result).toBeDefined();
-  });
-
-  // TODO: implement tests for buildEnforcementTags
-  it('buildEnforcementTags is exported', () => {
-    expect(typeof mod.buildEnforcementTags).toBe('function');
-  });
-
-  it('buildEnforcementTags: works correctly with typical valid input', () => {
-    // TODO: implement buildEnforcementTags: works correctly with typical valid input
-    expect(true).toBe(true);
-  });
-
-  it('buildEnforcementTags: raises gracefully on invalid/malformed input', () => {
-    // TODO: implement buildEnforcementTags: raises gracefully on invalid/malformed input
-    expect(true).toBe(true);
-  });
-
-  it('buildEnforcementTags: handles boundary and edge-case values', () => {
-    // TODO: implement buildEnforcementTags: handles boundary and edge-case values
-    expect(true).toBe(true);
-  });
-
-  it('buildEnforcementTags: handles valid input', () => {
-    const result = mod.buildEnforcementTags(true);
-    expect(result).toBeDefined();
-  });
-
-  it('buildEnforcementTags: rejects invalid input', () => {
-    // TODO: replace with expected error type
-    expect(() => mod.buildEnforcementTags(null)).toThrow();
-  });
-
-  it('buildEnforcementTags: handles edge cases', () => {
-    const result = mod.buildEnforcementTags(false);
-    expect(result).toBeDefined();
-  });
-
-  // TODO: implement tests for buildFooterLine
-  it('buildFooterLine is exported', () => {
-    expect(typeof mod.buildFooterLine).toBe('function');
-  });
-
-  it('buildFooterLine: works correctly with typical valid input', () => {
-    // TODO: implement buildFooterLine: works correctly with typical valid input
-    expect(true).toBe(true);
-  });
-
-  it('buildFooterLine: raises gracefully on invalid/malformed input', () => {
-    // TODO: implement buildFooterLine: raises gracefully on invalid/malformed input
-    expect(true).toBe(true);
-  });
-
-  it('buildFooterLine: handles boundary and edge-case values', () => {
-    // TODO: implement buildFooterLine: handles boundary and edge-case values
-    expect(true).toBe(true);
-  });
-
-  it('buildFooterLine: handles valid input', () => {
-    const result = mod.buildFooterLine("test");
-    expect(result).toBeDefined();
-  });
-
-  it('buildFooterLine: rejects invalid input', () => {
-    // TODO: replace with expected error type
-    expect(() => mod.buildFooterLine(null)).toThrow();
-  });
-
-  it('buildFooterLine: handles edge cases', () => {
-    const result = mod.buildFooterLine(undefined);
-    expect(result).toBeDefined();
-  });
-
-});
+test("shared-footer softens enforcement tags into a compact pulse", () => {
+  assert.equal(formatEnforcementPulse(["[ENF ON]", "[TDD ON]"]), "guarded · tests live")
+  assert.equal(formatEnforcementPulse(["[Q&A]", "[LOCK ON]"]), "quiet mode · locked")
+})

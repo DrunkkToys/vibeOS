@@ -36,7 +36,7 @@ import { latestUserIntent } from "./chat-transform.js"
 import { loadSessionOptMode } from "../selection-manager.js"
 import { loadOptimizationMode } from "../turn-classify.js"
 import { loadCredit, refreshCreditSnapshot } from "../credit-api.js"
-import { buildFooterLine, buildEnforcementTags, resolveBrand } from "./shared-footer.js"
+import { buildFooterLine, buildEnforcementTags, resolveBrand, resolveTierIcon } from "./shared-footer.js"
 
 function modeCapitalized(mode: string): string {
   if (!mode) return "Budget"
@@ -532,7 +532,7 @@ export const onToolExecuteBefore = async (input, output) => {
     if (_isProtectedToolPath(checkPath)) {
       _mutateBlockedToolArgs(t, argSources, checkPath, output)
       if (shouldLogWarn(`${t}|protect|${checkPath}`)) console.error(`[vibeOS] [protection] BLOCKED direct ${t} in self-protected directory: ${checkPath}`)
-      pendingUiNote = `🛡 Self-modification blocked: ${basename(checkPath)} is in a protected project tree. Use manual git workflow.`
+      pendingUiNote = `[LOCK] Self-modification paused: ${basename(checkPath)} is in a protected project tree. Use a manual git workflow.`
       enforcementBlocked = true
       return
     }
@@ -547,11 +547,11 @@ export const onToolExecuteBefore = async (input, output) => {
     if (costDetector.checkAnomaly(fullModelName, modelCost)) {
       const avg = costDetector.currentAnomalyMean
       const ratio = avg > 0 ? (modelCost / avg).toFixed(1) : "?"
-      const msg = `Cost spike: ${shortModelName(fullModelName)} at $${modelCost.toFixed(4)}/turn — ${ratio}x higher than recent avg of $${avg.toFixed(4)}. Run \`trinity cheap\` or \`trinity medium\` to save.`
+      const msg = `Cost spike: ${shortModelName(fullModelName)} at $${modelCost.toFixed(4)}/turn — ${ratio}x above the recent average of $${avg.toFixed(4)}. Switch to \`trinity medium\` or \`trinity cheap\` to keep momentum.`
       if (shouldLogWarn(`${t}|cost-anomaly|${fullModelName}|${modelCost.toFixed(4)}`)) {
         console.error(`[vibeOS] [cost-anomaly] ${msg}`)
       }
-      pendingUiNote = `🚨 ${msg}`
+      pendingUiNote = `[SLOW DOWN] ${msg}`
       enforcementBlocked = true
       return
     }
@@ -561,8 +561,7 @@ export const onToolExecuteBefore = async (input, output) => {
   // Credit < 40%: non-task tool — record and nudge to step aside.
   if (_credit < 40 && !compatibilityMode) {
     const total = recordSaving(t, "credit<40% high-tier", _estOpus, { firstWord: _firstWord })
-    const trend = trendDisplay(readLifetimeSavings().sesTrend)
-    const msg = `⚠ [vibeOS] Credit: ${_credit}% — switching to medium saves ~$${_estOpus.toFixed(3)}/turn. Run \`trinity medium\`.`
+      const msg = `[vibeOS] Quick win: ${resolveTierIcon("cheap")} cheap lane open · switch to ${resolveTierIcon("medium")} medium to save about ~$${_estOpus.toFixed(3)}/turn.`
     if (shouldLogWarn(`${t}|credit|${_tierWord}`) && process.env.VIBEOS_DEBUG_DELEGATION === "1") {
       console.error(`[vibeOS] [delegation] ${msg}`)
     }
@@ -592,7 +591,7 @@ export const onToolExecuteBefore = async (input, output) => {
       if (isBlocked) {
         _mutateBlockedToolArgs(tLower, argSources, originalPath, output)
         const total = recordSaving(t, "delegation enforced", savings, { firstWord: _firstWord })
-        pendingUiNote = `🚫 Brain tier direct ${t} blocked → delegate via Task or run \`trinity medium\`.`
+        pendingUiNote = `[ENF] ${resolveTierIcon("brain")} brain paused · delegate via Task or switch to ${resolveTierIcon("medium")} medium.`
         enforcementBlocked = true
         if (shouldLogWarn(`${t}|enforced|${_tierWord}`)) console.error(`[vibeOS] [enforcement] BLOCKED direct ${t} on high tier → delegate via Task`)
         return
@@ -600,7 +599,7 @@ export const onToolExecuteBefore = async (input, output) => {
     }
     const total = recordSaving(t, "direct edit", _estEdit, { firstWord: _firstWord })
     if (!compatibilityMode) {
-      const msg = `[vibeOS] ${_tierWord} tier direct ${t} — save ~$${_estEdit.toFixed(3)} by delegating to Task. Run \`trinity medium\`.`
+      const msg = `[vibeOS] ${resolveTierIcon("cheap")} cheap lane · save about ~$${_estEdit.toFixed(3)} by delegating to Task. Try ${resolveTierIcon("medium")} medium.`
       if (shouldLogWarn(`${t}|direct|${_tierWord}`) && process.env.VIBEOS_DEBUG_DELEGATION === "1") {
         console.error(`[vibeOS] [delegation] ${msg}`)
       }
@@ -616,32 +615,32 @@ export const onToolExecuteBefore = async (input, output) => {
       if (isDocsTarget(target) && !context7Seen.has(target)) {
         context7Seen.add(target)
         // Re-check each time — context7 might be added mid-session
-        if (detectContext7()) {
-          const missed = recordMissedContext7(SAVE_EST.CONTEXT7)
-          if (shouldLogWarn(`context7-bypass|${t}|${_firstWord || "?"}`)) {
-            console.error(`[vibeOS] [cost policy] Context7 available but bypassed — webfetch on docs target instead. ~$${SAVE_EST.CONTEXT7.toFixed(4)}/turn missed.`)
-          }
-        } else {
-          const missed = recordMissedContext7(_estC7)
-          if (!existsSync(CONTEXT7_INSTALL_FLAG)) {
-            try {
-              mkdirSync(dirname(CONTEXT7_INSTALL_FLAG), { recursive: true })
-              writeFileSync(CONTEXT7_INSTALL_FLAG, "")
-            } catch {}
-            console.error(`[vibeOS] 💡 Install context7 MCP to save ~$0.06/turn on docs: \`claude mcp add context7 npx @upstash/context7-mcp\``)
-          } else if (!context7AlertedThisSession) {
-            context7AlertedThisSession = true
-            console.error(`[vibeOS] 💸 context7 not installed — missed ~$${(missed ?? 0).toFixed(2)} savings this session.`)
+          if (detectContext7()) {
+            const missed = recordMissedContext7(SAVE_EST.CONTEXT7)
+            if (shouldLogWarn(`context7-bypass|${t}|${_firstWord || "?"}`)) {
+              console.error(`[vibeOS] [cost policy] Context7 available but bypassed — webfetch on docs target instead. ~$${SAVE_EST.CONTEXT7.toFixed(4)}/turn missed.`)
+            }
+          } else {
+            const missed = recordMissedContext7(_estC7)
+            if (!existsSync(CONTEXT7_INSTALL_FLAG)) {
+              try {
+                mkdirSync(dirname(CONTEXT7_INSTALL_FLAG), { recursive: true })
+                writeFileSync(CONTEXT7_INSTALL_FLAG, "")
+              } catch {}
+              console.error(`[vibeOS] Small win: install context7 MCP to save about ~$0.06/turn on docs: \`claude mcp add context7 npx @upstash/context7-mcp\``)
+            } else if (!context7AlertedThisSession) {
+              context7AlertedThisSession = true
+              console.error(`[vibeOS] context7 is still off — about ~$${(missed ?? 0).toFixed(2)} in savings slipped this session.`)
+            }
           }
         }
-      }
     }
     // Soft quota: track per-tool, fire exactly once at QUOTA+1 (tool still runs).
     softQuotaCounts[t] = (softQuotaCounts[t] ?? 0) + 1
     const n = softQuotaCounts[t]
     if (n === SOFT_QUOTA_LIMIT + 1) {
       const total = recordSaving(t, `soft quota exceeded (limit ${SOFT_QUOTA_LIMIT})`, SAVE_EST.SOFT_QUOTA)
-      console.error(`[vibeOS] Bash usage high (${n}/${SOFT_QUOTA_LIMIT}) — delegate to Task subagent.`)
+      console.error(`[vibeOS] Bash usage is getting heavy (${n}/${SOFT_QUOTA_LIMIT}) — hand the next step to a Task subagent.`)
     }
     return
   }
@@ -685,65 +684,69 @@ export const onToolExecuteAfter = async (input, output) => {
   // ── Generate footer alert (prepended to tool result, visible in chat) ──
   let _footerText = ""
   try {
-    const { ltTasks, ltCache, ltCost } = readLifetimeSavings()
-    const ltTotal = ltTasks + ltCache
-    const selNow = loadSelection()
-    const bbMode = resolveEnforcementMode()
-    const enfTags = buildEnforcementTags({
-      delegationEnforce: selNow.delegation_enforce,
-      flowEnforce: selNow.flow_enforce,
-      tddEnforce: selNow.tdd_enforce,
-      bbMode,
-      modelLocked: _modelLocked,
-    })
-    let liveModel = ""
-    try {
-      const cfg = await client.config.get("model")
-      if (cfg) liveModel = String(cfg)
-    } catch {}
-    if (!liveModel) {
-      liveModel = readConfig(projectDirectory) || readConfig(join(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || ""
-    }
-    const displayModel = resolveDisplayModelId(liveModel || currentModel || "", projectDirectory) || liveModel || currentModel
-    const resolvedModel = displayModel || liveModel || currentModel || ""
-    if (resolvedModel && resolvedModel !== currentModel) {
-      setCurrentModel(resolvedModel)
-      setCurrentTier(classify(resolvedModel))
-    }
-    const execution = resolveExecutionIdentity(input?.args?.model || resolvedModel || "", projectDirectory)
-    const currentSid = _OC_SID
-    const optModeFooter = loadSessionOptMode(currentSid + "_opt") || loadOptimizationMode() || "budget"
-    const activeSlot = execution.quality === "brain" ? "brain" : execution.quality === "medium" ? "medium" : "cheap"
-    const vibeBrand = resolveBrand(optModeFooter, activeSlot)
-    const flashIcon = VIBEOS_API_ENABLED ? " \u26A1" : ""
-    _footerText = buildFooterLine({
-      activeSlot,
-      providerLabel: execution.provider_label,
-      modelName: modelDisplayName(execution.model),
-      ltTotal,
-      vibeBrand,
-      optMode: optModeFooter,
-      flashIcon,
-      enfTags,
-    }) + "\n\n"
-    const footerTarget = _payload(output)
-    output.title = _footerText.trim()
-    if (footerTarget !== output && footerTarget && typeof footerTarget === "object") {
-      footerTarget.title = _footerText.trim()
-    }
-    if (typeof footerTarget?.output === "string") footerTarget.output = _footerText + footerTarget.output
-    else if (typeof footerTarget?.result === "string") footerTarget.result = _footerText + footerTarget.result
-    else if (typeof footerTarget?.text === "string") footerTarget.text = _footerText + footerTarget.text
-    else if (typeof footerTarget?.content === "string") footerTarget.content = _footerText + footerTarget.content
-    else footerTarget.output = _footerText
-
-    _autoReportCount = (_autoReportCount || 0) + 1
-    if (_autoReportCount % 5 === 0 && ltTotal > 0) {
-      saveReport({
-        type: "session", summary: `Session cost: $${formatUsd(ltCost)} | cache saved: $${formatUsd(ltCache)} | delegation saved: $${formatUsd(ltTasks)}`,
-        metrics: { sessionId: _OC_SID, sessionCost: ltCost, cacheSavings: ltCache, delegationSavingsUsd: ltTasks, model: resolvedModel || currentModel, slot: selNow.active_slot || "unknown" },
-        tags: ["auto", "cost"],
+    if (t !== "task") {
+      const { ltTasks, ltCache, ltCost, sesTrend } = readLifetimeSavings()
+      const ltTotal = ltTasks + ltCache
+      const selNow = loadSelection()
+      const bbMode = resolveEnforcementMode()
+      const enfTags = buildEnforcementTags({
+        delegationEnforce: selNow.delegation_enforce,
+        flowEnforce: selNow.flow_enforce,
+        tddEnforce: selNow.tdd_enforce,
+        bbMode,
+        modelLocked: _modelLocked,
       })
+      let liveModel = ""
+      try {
+        const cfg = await client.config.get("model")
+        if (cfg) liveModel = String(cfg)
+      } catch {}
+      if (!liveModel) {
+        liveModel = readConfig(projectDirectory) || readConfig(join(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || ""
+      }
+      const displayModel = resolveDisplayModelId(liveModel || currentModel || "", projectDirectory) || liveModel || currentModel
+      const resolvedModel = displayModel || liveModel || currentModel || ""
+      if (resolvedModel && resolvedModel !== currentModel) {
+        setCurrentModel(resolvedModel)
+        setCurrentTier(classify(resolvedModel))
+      }
+      const execution = resolveExecutionIdentity(input?.args?.model || resolvedModel || "", projectDirectory)
+      const currentSid = _OC_SID
+      const optModeFooter = loadSessionOptMode(currentSid + "_opt") || loadOptimizationMode() || "budget"
+      const activeSlot = selNow.active_slot || (execution.quality === "brain" ? "brain" : execution.quality === "medium" ? "medium" : "cheap")
+      const vibeBrand = resolveBrand(optModeFooter, activeSlot)
+      const flashIcon = VIBEOS_API_ENABLED ? " \u26A1" : ""
+      _footerText = buildFooterLine({
+        activeSlot,
+        providerLabel: execution.provider_label,
+        modelName: modelDisplayName(execution.model),
+        ltTotal,
+        ltTrend: sesTrend || "",
+        vibeBrand,
+        optMode: optModeFooter,
+        flashIcon,
+        enfTags,
+        vectorChangedSlot: selNow.vector_changed_slot,
+      }) + "\n\n"
+      const footerTarget = _payload(output)
+      output.title = _footerText.trim()
+      if (footerTarget !== output && footerTarget && typeof footerTarget === "object") {
+        footerTarget.title = _footerText.trim()
+      }
+      if (typeof footerTarget?.output === "string") footerTarget.output = _footerText + footerTarget.output
+      else if (typeof footerTarget?.result === "string") footerTarget.result = _footerText + footerTarget.result
+      else if (typeof footerTarget?.text === "string") footerTarget.text = _footerText + footerTarget.text
+      else if (typeof footerTarget?.content === "string") footerTarget.content = _footerText + footerTarget.content
+      else footerTarget.output = _footerText
+
+      _autoReportCount = (_autoReportCount || 0) + 1
+      if (_autoReportCount % 5 === 0 && ltTotal > 0) {
+        saveReport({
+          type: "session", summary: `Session cost: $${formatUsd(ltCost)} | cache saved: $${formatUsd(ltCache)} | delegation saved: $${formatUsd(ltTasks)}`,
+          metrics: { sessionId: _OC_SID, sessionCost: ltCost, cacheSavings: ltCache, delegationSavingsUsd: ltTasks, model: resolvedModel || currentModel, slot: selNow.active_slot || "unknown" },
+          tags: ["auto", "cost"],
+        })
+      }
     }
   } catch {}
 

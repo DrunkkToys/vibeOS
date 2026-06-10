@@ -15,7 +15,7 @@ function getVibeOSHome(): string {
   return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude")
 }
 
-type OptimizationMode = "balanced" | "budget" | "quality" | "speed" | "longrun" | "auto" | "forensic" | "audit" | "vibeultrax" | "vibeqmax" | "vibemax"
+type OptimizationMode = "balanced" | "budget" | "quality" | "speed" | "longrun" | "auto" | "forensic" | "audit" | "vibeultrax" | "vibeqmax" | "vibemax" | "vibelitex"
 const QUALITY_STRESS_THRESHOLD = 1.5
 function autoSelectMode(subRegime: string, stressMultiplier?: number): OptimizationMode {
   const regime = String(subRegime || "INIT").toUpperCase()
@@ -24,7 +24,7 @@ function autoSelectMode(subRegime: string, stressMultiplier?: number): Optimizat
   if (regime === "LOOPING") return "speed"
   if (regime === "CONVERGING" || regime === "CLOSED") return "quality"
   if (stress > QUALITY_STRESS_THRESHOLD) return "quality"
-  return "budget"
+  return "vibelitex"
 }
 
 export function resolveOptimizationMode(
@@ -35,8 +35,8 @@ export function resolveOptimizationMode(
   const normalized = String(optimizationMode || "auto").toLowerCase()
   if (normalized === "auto" || normalized === "")
     return autoSelectMode(subRegime || "INIT", stressMultiplier) as OptimizationMode
-  if (isApiFallback()) return "budget"
-  if (normalized === "balanced" || normalized === "budget" || normalized === "quality" || normalized === "speed" || normalized === "longrun" || normalized === "audit" || normalized === "forensic" || normalized === "vibeultrax" || normalized === "vibeqmax" || normalized === "vibemax") {
+  if (isApiFallback()) return "vibelitex"
+  if (normalized === "balanced" || normalized === "budget" || normalized === "quality" || normalized === "speed" || normalized === "longrun" || normalized === "audit" || normalized === "forensic" || normalized === "vibeultrax" || normalized === "vibeqmax" || normalized === "vibemax" || normalized === "vibelitex") {
     return normalized as OptimizationMode
   }
   return "budget"
@@ -44,7 +44,7 @@ export function resolveOptimizationMode(
 
 export function resolveOptimizationSlot(mode: OptimizationMode | string | undefined): "brain" | "medium" | "cheap" {
   const normalized = String(mode || "budget").toLowerCase()
-  return normalized === "speed" || normalized === "vibemax" ? "medium"
+  return normalized === "speed" || normalized === "vibemax" || normalized === "vibelitex" || normalized === "litex" ? "medium"
     : normalized === "quality" || normalized === "longrun" || normalized === "vibeultrax" || normalized === "vibeqmax" || normalized === "forensic" || normalized === "audit" ? "brain"
       : "cheap"
 }
@@ -104,15 +104,15 @@ function computeControlVector(
   _optimizationMode?: OptimizationMode,
 ): any {
   const mode = resolveOptimizationMode(_state?.sub_regime, _state?.latest_stress_multiplier, _optimizationMode)
-  const isStrict = mode === "quality" || mode === "vibemax" || mode === "forensic" || mode === "audit"
+  const isStrict = mode === "quality" || mode === "vibemax" || mode === "vibeqmax" || mode === "vibeultrax" || mode === "forensic" || mode === "audit"
   const isRelaxed = mode === "budget" || mode === "speed"
   const subRegime = _state?.sub_regime || "INIT"
   const stress = Number(_state?.latest_stress_multiplier ?? 0)
   const tierBias = stress > QUALITY_STRESS_THRESHOLD ? "brain"
     : subRegime === "CONVERGING" || subRegime === "CLOSED" ? "brain"
     : subRegime === "REFINING" || subRegime === "LOOPING" ? "medium"
-    : mode === "quality" || mode === "longrun" || mode === "forensic" || mode === "audit" ? "brain"
-    : mode === "speed" || mode === "vibemax" ? "medium"
+    : mode === "quality" || mode === "longrun" || mode === "vibeultrax" || mode === "vibeqmax" || mode === "forensic" || mode === "audit" ? "brain"
+    : mode === "speed" || mode === "vibemax" || mode === "vibelitex" ? "medium"
     : mode === "balanced" ? "auto"
     : "cheap"
   return {
@@ -356,6 +356,10 @@ export function getBlackboxTracker() {
     } else {
       _blackboxTracker = new _BlackboxStub()
     }
+    const localCal = computeLocalCalibration()
+    if (localCal && _blackboxTracker?.setCalibratedWeights) {
+      _blackboxTracker.setCalibratedWeights(localCal)
+    }
   }
   return _blackboxTracker
 }
@@ -364,6 +368,34 @@ function getBlackboxResolution() {
   try {
     const tracker = getBlackboxTracker()
     return tracker.snapshot()
+  } catch { return null }
+}
+
+function computeLocalCalibration(): any {
+  try {
+    const calFile = join(getVibeOSHome(), "calibration-data.jsonl")
+    if (!existsSync(calFile)) return null
+    const lines = readFileSync(calFile, "utf-8").trim().split("\n").filter(Boolean)
+    if (lines.length < 10) return null
+    const recent = lines.slice(-50)
+    const state = loadBlackboxState()
+    const allOutcomes = []
+    for (const [sid, session] of Object.entries(state.sessions || {})) {
+      if (session?.outcomeHistory?.length) {
+        for (const o of session.outcomeHistory) {
+          allOutcomes.push({ sid, outcome: o.outcome, turn: o.turn })
+        }
+      }
+    }
+    if (allOutcomes.length < 5) return null
+    const positiveCount = allOutcomes.filter(o => o.outcome === "positive").length
+    const ratio = positiveCount / allOutcomes.length
+    return {
+      loopJaccard: ratio > 0.7 ? 0.55 : 0.65,
+      closureConfidence: ratio > 0.7 ? 0.75 : 0.65,
+      exploringContradiction: ratio > 0.7 ? 0.15 : 0.25,
+      momentum: [-0.3, 0.5, 0.2],
+    }
   } catch { return null }
 }
 

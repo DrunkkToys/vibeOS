@@ -1,0 +1,39 @@
+{
+  "rules": [
+    {
+      "id": "new-md-file",
+      "severity": "warn",
+      "trigger": "Write",
+      "pattern": "\\.md$",
+      "description": "New markdown file created without explicit user request"
+    },
+    {
+      "id": "new-file-outside-src",
+      "severity": "hint",
+      "trigger": "Write",
+      "pattern": "^(?!src/|\\.)",
+      "description": "New file created outside src/ or hidden file — verify intent"
+    },
+    {
+      "id": "compat-shim",
+      "severity": "warn",
+      "trigger": "Edit",
+      "pattern": "_old|_legacy|# removed",
+      "description": "Backwards-compat shim pattern detected"
+    },
+    {
+      "id": "todo-comment",
+      "severity": "hint",
+      "trigger": "Edit",
+      "pattern": "TODO|FIXME|HACK",
+      "description": "TODO/FIXME left in output"
+    },
+    {
+      "id": "detect-secrets",
+      "severity": "flag",
+      "trigger": "Edit",
+      "pattern": "(?<![a-zA-Z0-9])(sk-[a-zA-Z0-9_-]{10,}|gh[pousr]_[a-zA-Z0-9]{15,}|github_pat_[a-zA-Z0-9_]{15,}|xox[bpras]-[a-zA-Z0-9-]{10,}|-----BEGIN (?:RSA|EC|OPENSSH|ENCRYPTED) PRIVATE KEY-----)",
+      "description": "Potential secret/API key detected in content"
+    }
+  ]
+}

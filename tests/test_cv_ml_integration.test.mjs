@@ -91,7 +91,7 @@ test("footer: active_slot is read from selection, not executed_model", async () 
 
 test("footer: tier icon matches active_slot", async () => {
   ensureSandbox()
-  const icons = { brain: "🧠", medium: "⚙", cheap: "🎁" }
+  const icons = { brain: "🧠", medium: "◐", cheap: "⚡", free: "🎁" }
   for (const [slot, icon] of Object.entries(icons)) {
     writeTiers({ active_slot: slot })
     const activeSlot = readSelection().active_slot
@@ -115,10 +115,10 @@ test("footer: brand fallback follows active_slot", async () => {
 })
 
 // ── Phase E: Full regime → mode → tier pipeline ──
-test("E2E: regime DIVERGENT → autoSelectMode → budget", async () => {
+test("E2E: regime DIVERGENT → autoSelectMode → litex", async () => {
   const turn = await import("../src/lib/turn-classify.js?e2e-1=" + Date.now())
   const mode = turn.autoSelectMode("DIVERGENT", 0.1)
-  assert.equal(mode, "budget")
+  assert.equal(mode, "vibelitex")
 })
 
 test("E2E: regime CONVERGING → autoSelectMode → quality", async () => {

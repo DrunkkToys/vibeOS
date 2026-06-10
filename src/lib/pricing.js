@@ -123,7 +123,7 @@ export function classify(m) {
 // Provider prefix is stripped before matching (everything before last "/").
 export function modelToSlotLabel(modelId, effectiveTier) {
     const tier = effectiveTier ?? classify(modelId);
-    const icon = tier === "high" ? "🧠" : tier === "mid" ? "⚙" : "⚡";
+    const icon = tier === "high" ? "🧠" : tier === "mid" ? "◐" : "⚡";
     return `[${icon} ${tier.charAt(0).toUpperCase() + tier.slice(1)}]`;
 }
 export function getModelProvider(modelId) {

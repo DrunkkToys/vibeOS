@@ -1,3 +1,39 @@
+## 0.23.59
+- chore: soften footer enforcement copy
+- chore: align medium icon legend
+- chore: v0.23.57
+Merge remote-tracking branch 'origin/master' into fix/audit-forensic-ml-routing
+Merge pull request #117 from DrunkkToys/fix/audit-forensic-ml-routing
+
+
+## 0.23.57
+- fix: keep the dopamine footer compact, add flash/free tier icons, and make shell/enforcement copy feel calmer
+
+## 0.23.56
+- fix: softer dopamine-style communication layer with compact vector-change storytelling and calmer footer pulses
+
+
+## 0.23.55
+- feat: add single-file bundle build (esbuild) + fix vibelitex schema deployment
+
+
+## 0.23.54
+- test: make blackboxSelectMode test resilient to API response format
+- test: fix e2e tests for vibelitex mode (budget → vibelitex)
+- chore: add TS source files for blackbox JS modules (crew-constants, exposure-model, taxonomy, local-stub, resolution-tracker)
+
+
+## 0.23.53
+- fix: add vibelitex to VIBEMAX_MAP in vibemax.js
+rename: litex → vibelitex for consistency with mode-router id
+
+
+## 0.23.52
+- feat: VibeLiteX — local fallback mode with enforcement + local pivot detection + local calibration
+- fix: align footer with blackbox session slot
+- test: update tests for VibeLiteX default mode (budget → litex)
+
+
 ## 0.23.51
 - fix: ML system improvements — dedup flow_warns, enable blackbox, fix quality scoring, fix pattern promotion
 

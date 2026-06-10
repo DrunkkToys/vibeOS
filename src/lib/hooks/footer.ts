@@ -255,7 +255,7 @@ async function _appendFooter(input, output, directory) {
     if (stripped !== text) return
     if (stripped === _lastStrippedText) return
     const ltTotal = ltTasks + ltCache
-    const activeSlot = selNowFooter.vector_changed_slot || selNowFooter.active_slot || "brain"
+    const activeSlot = selNowFooter.active_slot || "brain"
     const optMode = (resolvedMode || "budget").toLowerCase()
     const vibeBrand = resolveBrand(optModeFooter, activeSlot)
     const flashIcon = isApiConnected() ? " \u26A1" : ""
@@ -265,6 +265,7 @@ async function _appendFooter(input, output, directory) {
       providerLabel: execution.provider_label,
       modelName: modelDisplayName(execution.model),
       ltTotal,
+      ltTrend: sesTrend,
       vibeBrand,
       optMode: displayMode,
       flashIcon,

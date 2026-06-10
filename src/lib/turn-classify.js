@@ -21,22 +21,22 @@ function autoSelectMode(subRegime, stressMultiplier) {
         return "quality";
     if (stress > QUALITY_STRESS_THRESHOLD)
         return "quality";
-    return "budget";
+    return "vibelitex";
 }
 export function resolveOptimizationMode(subRegime, stressMultiplier, optimizationMode) {
     const normalized = String(optimizationMode || "auto").toLowerCase();
     if (normalized === "auto" || normalized === "")
         return autoSelectMode(subRegime || "INIT", stressMultiplier);
     if (isApiFallback())
-        return "budget";
-    if (normalized === "balanced" || normalized === "budget" || normalized === "quality" || normalized === "speed" || normalized === "longrun" || normalized === "audit" || normalized === "forensic" || normalized === "vibeultrax" || normalized === "vibeqmax" || normalized === "vibemax") {
+        return "vibelitex";
+    if (normalized === "balanced" || normalized === "budget" || normalized === "quality" || normalized === "speed" || normalized === "longrun" || normalized === "audit" || normalized === "forensic" || normalized === "vibeultrax" || normalized === "vibeqmax" || normalized === "vibemax" || normalized === "vibelitex") {
         return normalized;
     }
     return "budget";
 }
 export function resolveOptimizationSlot(mode) {
     const normalized = String(mode || "budget").toLowerCase();
-    return normalized === "speed" || normalized === "vibemax" ? "medium"
+    return normalized === "speed" || normalized === "vibemax" || normalized === "vibelitex" ? "medium"
         : normalized === "quality" || normalized === "longrun" || normalized === "vibeultrax" || normalized === "vibeqmax" || normalized === "forensic" || normalized === "audit" ? "brain"
             : "cheap";
 }
@@ -99,7 +99,7 @@ function computeControlVector(_state, _action, _optimizationMode) {
         : subRegime === "CONVERGING" || subRegime === "CLOSED" ? "brain"
             : subRegime === "REFINING" || subRegime === "LOOPING" ? "medium"
                 : mode === "quality" || mode === "longrun" || mode === "forensic" || mode === "audit" ? "brain"
-                    : mode === "speed" || mode === "vibemax" ? "medium"
+                    : mode === "speed" || mode === "vibemax" || mode === "vibelitex" ? "medium"
                         : mode === "balanced" ? "auto"
                             : "cheap";
     return {
@@ -344,6 +344,10 @@ export function getBlackboxTracker() {
         else {
             _blackboxTracker = new _BlackboxStub();
         }
+        const localCal = computeLocalCalibration();
+        if (localCal && _blackboxTracker?.setCalibratedWeights) {
+            _blackboxTracker.setCalibratedWeights(localCal);
+        }
     }
     return _blackboxTracker;
 }
@@ -351,6 +355,39 @@ function getBlackboxResolution() {
     try {
         const tracker = getBlackboxTracker();
         return tracker.snapshot();
+    }
+    catch {
+        return null;
+    }
+}
+function computeLocalCalibration() {
+    try {
+        const calFile = join(getVibeOSHome(), "calibration-data.jsonl");
+        if (!existsSync(calFile))
+            return null;
+        const lines = readFileSync(calFile, "utf-8").trim().split("\n").filter(Boolean);
+        if (lines.length < 10)
+            return null;
+        const recent = lines.slice(-50);
+        const state = loadBlackboxState();
+        const allOutcomes = [];
+        for (const [sid, session] of Object.entries(state.sessions || {})) {
+            if (session?.outcomeHistory?.length) {
+                for (const o of session.outcomeHistory) {
+                    allOutcomes.push({ sid, outcome: o.outcome, turn: o.turn });
+                }
+            }
+        }
+        if (allOutcomes.length < 5)
+            return null;
+        const positiveCount = allOutcomes.filter(o => o.outcome === "positive").length;
+        const ratio = positiveCount / allOutcomes.length;
+        return {
+            loopJaccard: ratio > 0.7 ? 0.55 : 0.65,
+            closureConfidence: ratio > 0.7 ? 0.75 : 0.65,
+            exploringContradiction: ratio > 0.7 ? 0.15 : 0.25,
+            momentum: [-0.3, 0.5, 0.2],
+        };
     }
     catch {
         return null;

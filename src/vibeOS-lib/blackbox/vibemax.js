@@ -137,6 +137,15 @@ export function vibemaxPipeline(input = {}) {
         });
     }
     const result = vibemaxSelectMode(input);
+    if (isPivot.isPivot) {
+        result.mode = "budget";
+        result.tier = "cheap";
+        result.thinking = "off";
+        result.flow = "audit";
+        result.enforcement = "relaxed";
+        result.tdd = "normal";
+        result.cost = 0.1;
+    }
     if (text)
         prevMessage = text;
     return {

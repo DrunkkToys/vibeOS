@@ -7,6 +7,7 @@ export interface FooterLineInput {
   providerLabel: string
   modelName: string
   ltTotal: number
+  ltTrend?: string
   vibeBrand: string
   optMode: string
   flashIcon: string
@@ -18,6 +19,7 @@ const BRAND_MAP: Record<string, string> = {
   vibeultrax: "VibeUltraX",
   vibeqmax: "VibeQMaX",
   vibemax: "VibeMaX",
+  litex: "VibeLiteX",
   quality: "VibeQMaX",
   audit: "VibeQMaX",
   forensic: "VibeQMaX",
@@ -25,8 +27,9 @@ const BRAND_MAP: Record<string, string> = {
 
 const TIER_ICON: Record<string, string> = {
   brain: "\u{1F9E0}",
-  medium: "\u2699\uFE0F",
-  cheap: "\u{1F381}",
+  medium: "\u25D0",
+  cheap: "\u26A1",
+  free: "\u{1F381}",
 }
 
 export function resolveBrand(optMode: string, activeSlot: string): string {
@@ -35,6 +38,41 @@ export function resolveBrand(optMode: string, activeSlot: string): string {
 
 export function resolveTierIcon(slot: string): string {
   return TIER_ICON[slot] || "\u26A1"
+}
+
+export function formatVectorPulse(vectorChangedSlot?: string): string {
+  if (!vectorChangedSlot) return ""
+  return `⟡ ${vectorChangedSlot}`
+}
+
+export function formatEnforcementPulse(enfTags: string[]): string {
+  const tags = new Set(enfTags || [])
+  const parts: string[] = []
+
+  if (tags.has("[Q&A]")) {
+    parts.push("quiet mode")
+  } else {
+    if (tags.has("[ENF ON]") || tags.has("[STRICT]")) parts.push("guarded")
+    if (tags.has("[FLOW ON]")) parts.push("flow steady")
+    if (tags.has("[TDD ON]")) parts.push("tests live")
+  }
+
+  if (tags.has("[LOCK ON]")) parts.push("locked")
+
+  return parts.join(" · ")
+}
+
+export function trendGlyph(trend?: string): string {
+  if (trend === "up") return "↗"
+  if (trend === "down") return "↘"
+  return "→"
+}
+
+export function formatSavingsPulse(amountUsd: number, trend?: string): string {
+  const amount = Number(amountUsd || 0)
+  if (!Number.isFinite(amount) || amount <= 0) return ""
+  const arrow = trendGlyph(trend)
+  return `$${amount.toFixed(2)} saved${arrow !== "→" ? ` ${arrow}` : ""}`
 }
 
 export function buildEnforcementTags(opts: {
@@ -58,13 +96,14 @@ export function buildEnforcementTags(opts: {
 }
 
 export function buildFooterLine(input: FooterLineInput): string {
-  const { activeSlot, sessionSlot, providerLabel, modelName, ltTotal, vibeBrand, optMode, flashIcon, enfTags, vectorChangedSlot } = input
+  const { activeSlot, sessionSlot, providerLabel, modelName, ltTotal, ltTrend, vibeBrand, optMode, flashIcon, enfTags, vectorChangedSlot } = input
 
   const tierIcon = resolveTierIcon(activeSlot)
   let line = `\u2014 ${tierIcon} ${activeSlot} | ${providerLabel} | ${modelName}`
 
   if (ltTotal > 0) {
-    line += ` | $${ltTotal.toFixed(2)}`
+    const savingsPulse = formatSavingsPulse(ltTotal, ltTrend)
+    if (savingsPulse) line += ` | ${savingsPulse}`
   }
 
   line += ` | ${vibeBrand}${flashIcon}`
@@ -73,15 +112,15 @@ export function buildFooterLine(input: FooterLineInput): string {
     line += ` ${optMode}`
   }
 
-  if (vectorChangedSlot) {
-    line += ` | \u2192 ${vectorChangedSlot}`
+  if (vectorChangedSlot && vectorChangedSlot !== activeSlot) {
+    line += ` | ${formatVectorPulse(vectorChangedSlot)}`
   }
 
-  if (enfTags.length > 0) {
-    line += ` ${enfTags.join(" ")}`
+  const enforcementPulse = formatEnforcementPulse(enfTags)
+  if (enforcementPulse) {
+    line += ` | ${enforcementPulse}`
   }
 
-  line += ` | slot:${activeSlot}`
   if (sessionSlot && sessionSlot !== activeSlot) {
     line += ` | session:${sessionSlot}`
   }
