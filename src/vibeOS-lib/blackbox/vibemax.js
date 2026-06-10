@@ -70,7 +70,7 @@ function predictTree(tree, features) {
 }
 const VIBEMAX_CFG = { tier: "medium", thinking: "full", tdd: "quality", flow: "strict", enforcement: "strict", wbp: "normal", c7: "required", kp: [3, 6], tc: 0.3, amode: "plan" };
 const BUDGET_CFG = { tier: "cheap", thinking: "off", tdd: "normal", flow: "audit", enforcement: "relaxed", wbp: "minimal", c7: "skippable", kp: [1, 3], tc: 0.1, amode: "build" };
-const VIBEMAX_MAP = { quality: "optimized", longrun: "optimized", audit: "optimized", speed: "budget", budget: "budget", vibelitex: "budget" };
+const VIBEMAX_MAP = { quality: "optimized", longrun: "optimized", audit: "optimized", speed: "budget", budget: "budget" };
 // PivotCache instance
 let pivotCache = null;
 function getPivotCache() {
@@ -137,6 +137,15 @@ export function vibemaxPipeline(input = {}) {
         });
     }
     const result = vibemaxSelectMode(input);
+    if (isPivot.isPivot) {
+        result.mode = "budget";
+        result.tier = "cheap";
+        result.thinking = "off";
+        result.flow = "audit";
+        result.enforcement = "relaxed";
+        result.tdd = "normal";
+        result.cost = 0.1;
+    }
     if (text)
         prevMessage = text;
     return {
