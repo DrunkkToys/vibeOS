@@ -6,6 +6,7 @@ import { homedir } from 'os';
 const ROOT = process.cwd();
 const SRC = join(ROOT, 'src');
 const DIST = join(ROOT, 'dist');
+const SRC_OUT = join(ROOT, 'src');
 const PLUGIN_DIR = join(homedir(), '.config', 'opencode', 'plugins');
 
 console.log('[bundle] Building single-file bundle...');
@@ -45,6 +46,10 @@ if (existsSync(dashboardSrc)) {
   copyDirRecursive(dashboardSrc, dashboardDest);
   console.log('[bundle] Copied dashboard');
 }
+
+// Copy to src/index.js for CI validation
+copyFileSync(join(DIST, 'vibeOS.js'), join(SRC, 'index.js'));
+console.log('[bundle] Copied to src/index.js for CI validation');
 
 // Deploy to plugin directory
 if (!existsSync(PLUGIN_DIR)) mkdirSync(PLUGIN_DIR, { recursive: true });
