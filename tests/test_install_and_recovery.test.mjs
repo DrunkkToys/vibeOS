@@ -72,7 +72,7 @@ test("upgrade: old v0.5.x schema (no delegation_enforce, no tdd_strict, no tiers
       },
       "tiers": {
         "high":   { "label": "brain", "icon": "🧠", "regex": "opus" },
-        "mid":    { "label": "medium", "icon": "⚙", "regex": "sonnet" },
+        "mid":    { "label": "medium", "icon": "◐", "regex": "sonnet" },
         "budget": { "label": "cheap", "icon": "⚡", "regex": "haiku" }
       }
       // NOTE: no pricing block
@@ -129,7 +129,7 @@ test("upgrade: v0.7.x schema (has delegation_enforce, no tdd_quality, no flow_en
       },
       "tiers": {
         "high":   { "label": "brain", "icon": "🧠", "regex": "deepseek.*v4.*pro" },
-        "mid":    { "label": "medium", "icon": "⚙", "regex": "deepseek.*v4.*flash" },
+        "mid":    { "label": "medium", "icon": "◐", "regex": "deepseek.*v4.*flash" },
         "budget": { "label": "cheap", "icon": "⚡", "regex": "deepseek.*chat" }
       }
     }))

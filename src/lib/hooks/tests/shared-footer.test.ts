@@ -10,7 +10,7 @@ test("shared-footer resolves the expected brand names", () => {
 
 test("shared-footer keeps tier icons compact and stable", () => {
   assert.equal(resolveTierIcon("brain"), "🧠")
-  assert.equal(resolveTierIcon("medium"), "⚙️")
+  assert.equal(resolveTierIcon("medium"), "◐")
   assert.equal(resolveTierIcon("cheap"), "⚡")
   assert.equal(resolveTierIcon("free"), "🎁")
 })
@@ -52,7 +52,7 @@ test("shared-footer keeps the footer compact while showing savings and slot stat
     vectorChangedSlot: "cheap",
   })
 
-  assert.ok(line.includes("⚙️ medium"))
+  assert.ok(line.includes("◐ medium"))
   assert.ok(line.includes("$12.57 saved ↗"))
   assert.ok(line.includes("VibeMaX ⚡"))
   assert.ok(line.includes("[ENF ON]"))

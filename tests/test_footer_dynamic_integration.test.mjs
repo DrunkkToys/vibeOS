@@ -27,28 +27,28 @@ test("SETUP: sandbox ready", () => {
 test("footer: tier icon brain -> 🧠", () => {
   writeTiers({ active_slot: "brain" })
   const sel = JSON.parse(readFileSync(join(sandbox, ".claude", "model-tiers.json"), "utf8")).selection
-  const icon = sel.active_slot === "brain" ? "🧠" : sel.active_slot === "medium" ? "⚙" : sel.active_slot === "cheap" ? "⚡" : "🎁"
+  const icon = sel.active_slot === "brain" ? "🧠" : sel.active_slot === "medium" ? "◐" : sel.active_slot === "cheap" ? "⚡" : "🎁"
   assert.equal(icon, "🧠")
 })
 
-test("footer: tier icon medium -> ⚙", () => {
+test("footer: tier icon medium -> ◐", () => {
   writeTiers({ active_slot: "medium" })
   const sel = JSON.parse(readFileSync(join(sandbox, ".claude", "model-tiers.json"), "utf8")).selection
-  const icon = sel.active_slot === "brain" ? "🧠" : sel.active_slot === "medium" ? "⚙" : sel.active_slot === "cheap" ? "⚡" : "🎁"
-  assert.equal(icon, "⚙")
+  const icon = sel.active_slot === "brain" ? "🧠" : sel.active_slot === "medium" ? "◐" : sel.active_slot === "cheap" ? "⚡" : "🎁"
+  assert.equal(icon, "◐")
 })
 
 test("footer: tier icon cheap -> ⚡", () => {
   writeTiers({ active_slot: "cheap" })
   const sel = JSON.parse(readFileSync(join(sandbox, ".claude", "model-tiers.json"), "utf8")).selection
-  const icon = sel.active_slot === "brain" ? "🧠" : sel.active_slot === "medium" ? "⚙" : sel.active_slot === "cheap" ? "⚡" : "🎁"
+  const icon = sel.active_slot === "brain" ? "🧠" : sel.active_slot === "medium" ? "◐" : sel.active_slot === "cheap" ? "⚡" : "🎁"
   assert.equal(icon, "⚡")
 })
 
 test("footer: tier icon free -> 🎁", () => {
   writeTiers({ active_slot: "free" })
   const sel = JSON.parse(readFileSync(join(sandbox, ".claude", "model-tiers.json"), "utf8")).selection
-  const icon = sel.active_slot === "brain" ? "🧠" : sel.active_slot === "medium" ? "⚙" : sel.active_slot === "cheap" ? "⚡" : "🎁"
+  const icon = sel.active_slot === "brain" ? "🧠" : sel.active_slot === "medium" ? "◐" : sel.active_slot === "cheap" ? "⚡" : "🎁"
   assert.equal(icon, "🎁")
 })
 

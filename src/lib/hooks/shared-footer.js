@@ -11,7 +11,7 @@ const BRAND_MAP = {
 };
 const TIER_ICON = {
     brain: "\u{1F9E0}",
-    medium: "\u2699\uFE0F",
+    medium: "\u25D0",
     cheap: "\u26A1",
     free: "\u{1F381}",
 };

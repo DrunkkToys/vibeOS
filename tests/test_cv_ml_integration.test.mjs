@@ -91,7 +91,7 @@ test("footer: active_slot is read from selection, not executed_model", async () 
 
 test("footer: tier icon matches active_slot", async () => {
   ensureSandbox()
-  const icons = { brain: "🧠", medium: "⚙", cheap: "⚡", free: "🎁" }
+  const icons = { brain: "🧠", medium: "◐", cheap: "⚡", free: "🎁" }
   for (const [slot, icon] of Object.entries(icons)) {
     writeTiers({ active_slot: slot })
     const activeSlot = readSelection().active_slot

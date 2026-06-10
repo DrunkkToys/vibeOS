@@ -262,7 +262,10 @@ test('e2e: simulated full session hook sequence does not crash', async () => {
     const textOutput = { text: 'Here is your function. It does the thing with proper types and handles edge cases.' }
     await hooks['experimental.text.complete']({ messageID: 'msg-' + Date.now() }, textOutput)
     const liveFooter = textOutput.text.slice(-200)
-    assert.ok(liveFooter.includes(expectedSlot), 'live footer should show the selected slot')
+    assert.ok(liveFooter.includes(selectionState.active_slot), 'live footer should show the selected slot')
+    if (selectionState.vector_changed_slot && selectionState.vector_changed_slot !== selectionState.active_slot) {
+      assert.ok(liveFooter.includes(`⟡ ${selectionState.vector_changed_slot}`), 'live footer should show the vector pulse')
+    }
     assert.ok(liveFooter.toLowerCase().includes('vibelitex') || liveFooter.toLowerCase().includes('budget'), 'live footer should show optimization mode')
 
     await hooks['experimental.chat.messages.transform']({}, { messages: [{ role: 'assistant', content: 'Done' }] })

@@ -27,7 +27,7 @@ const BRAND_MAP: Record<string, string> = {
 
 const TIER_ICON: Record<string, string> = {
   brain: "\u{1F9E0}",
-  medium: "\u2699\uFE0F",
+  medium: "\u25D0",
   cheap: "\u26A1",
   free: "\u{1F381}",
 }
