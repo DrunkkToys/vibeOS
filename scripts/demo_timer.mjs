@@ -1,6 +1,6 @@
 // FIXME: handle when state file is corrupt
 
-import { startTimer, elapsed, sessionDuration, formatDuration } from "../src/utils/timer.js"
+import { startTimer, elapsed, sessionDuration, formatDuration } from "../dist-ts/utils/timer.js"
 // removed: old elapsed signature
 
 const t = startTimer()

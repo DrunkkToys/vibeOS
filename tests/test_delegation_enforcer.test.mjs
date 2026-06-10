@@ -1689,7 +1689,7 @@ test("tool.execute.after: pendingUiNote consumed once — no double-inject on se
 })
 
 test("tool.execute.before: delegation warning stays out of CLI stderr", async () => {
-  const toolUrl = new URL("../src/index.js", import.meta.url).href
+  const toolUrl = new URL("../dist/vibeOS.js", import.meta.url).href
   const script = `
     import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs"
     import { join } from "node:path"

@@ -406,7 +406,7 @@ test("saveOS MCP: live endpoints persist blackbox vectors and return structured 
     process.env.VIBEOS_OPENCODE_HOME = opencodeHome;
     process.env.VIBEOS_MCP_PORT = String(port);
     process.env.VIBEOS_BACKEND_HEALTH_URL = "http://127.0.0.1:" + healthPort + "/health";
-    const mod = await import(${JSON.stringify(pathToFileURL(join(process.cwd(), "src/index.js")).href)} + "?live-mcp=" + Date.now());
+    const mod = await import(${JSON.stringify(pathToFileURL(join(process.cwd(), "dist/vibeOS.js")).href)} + "?live-mcp=" + Date.now());
     const hooks = await mod.DelegationEnforcer({ client: { live: true }, directory: projectDir });
     const waitFor = async (url) => {
       const start = Date.now();
@@ -586,7 +586,7 @@ test("saveOS FOOTER: flash icon shows only after live backend success", { skip: 
 })
 
 test("saveOS FOOTER: flash icon stays hidden when backend is disabled", async () => {
-  const footerUrl = pathToFileURL(join(process.cwd(), "src/lib/hooks/footer.js")).href
+  const footerUrl = pathToFileURL(join(process.cwd(), "dist-ts/lib/hooks/footer.js")).href
   const script = `
     import { _appendFooter } from ${JSON.stringify(footerUrl)}
     const output = { text: "test output" }
@@ -611,7 +611,7 @@ test("saveOS API: ~/.claude token wins over repo token", async () => {
   mkdirSync(join(tokenSandbox, ".claude"), { recursive: true })
   const preferredToken = "vos_" + "a".repeat(64)
   writeFileSync(join(tokenSandbox, ".claude", ".env.production"), `VIBEOS_API_TOKEN=${preferredToken}\n`)
-  const apiUrl = pathToFileURL(join(process.cwd(), "src/lib/api-client.js")).href
+  const apiUrl = pathToFileURL(join(process.cwd(), "dist-ts/lib/api-client.js")).href
   const script = `
     process.env.VIBEOS_API_TOKEN = ""
     process.env.VIBEOS_API_ENABLED = "true"
@@ -632,7 +632,7 @@ test("saveOS API: ~/.claude token wins over repo token", async () => {
 })
 
 test("saveOS API: embedded alpha token is valid on install", async () => {
-  const apiUrl = pathToFileURL(join(process.cwd(), "src/lib/api-client.js")).href
+  const apiUrl = pathToFileURL(join(process.cwd(), "dist-ts/lib/api-client.js")).href
   const script = `
     process.env.VIBEOS_API_TOKEN = ""
     process.env.VIBEOS_API_ENABLED = "true"
@@ -677,7 +677,7 @@ test("saveOS API: invalidate switch disables the embedded fallback token", async
   mkdirSync(join(tokenSandbox, ".claude"), { recursive: true })
   const preferredToken = "vos_" + "b".repeat(64)
   writeFileSync(join(tokenSandbox, ".claude", ".env.production"), `VIBEOS_API_TOKEN=${preferredToken}\n`)
-  const apiUrl = pathToFileURL(join(process.cwd(), "src/lib/api-client.js")).href
+  const apiUrl = pathToFileURL(join(process.cwd(), "dist-ts/lib/api-client.js")).href
   const script = `
     process.env.VIBEOS_API_TOKEN = ""
     process.env.VIBEOS_API_ENABLED = "true"

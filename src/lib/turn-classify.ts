@@ -661,14 +661,8 @@ export function incrementTurnCounter(): number {
 export { OptimizationMode, autoSelectMode, computeControlVector, buildControlHistoryEntry }
 
 export {
-  loadOptimizationMode,
-  saveOptimizationMode,
-  getTurnCounter,
-  incrementTurnCounter,
   // Blackbox
-  getBlackboxTracker,
   getBlackboxResolution,
-  resolveEnforcementMode,
   syncOutcomeToApi,
   fetchBlackboxEnrichment,
   // Warnings
