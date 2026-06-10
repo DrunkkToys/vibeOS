@@ -259,6 +259,8 @@ export function syncControlSettings(cv: any, options: { persistOptimizationMode?
       }
     }
 
+    writeIf("enabled", true)
+
     const compatibilityMode = currentSel.onboarding_mode === "assist"
     writeIf("delegation_enforce", compatibilityMode ? cv.enforcement_mode === "strict" : cv.enforcement_mode !== "relaxed")
 
