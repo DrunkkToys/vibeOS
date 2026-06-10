@@ -804,7 +804,7 @@ test("v0.20.11 — auto-bootstrap fallback exists in plugin source", async () =>
 
   const projectRoot = join(dirname(fileURLToPath(import.meta.url)), "..")
   const deployed = readFileSync(
-    join(projectRoot, "src", "index.js"), "utf-8"
+    join(projectRoot, "dist-ts", "index.js"), "utf-8"
   )
 
   assert.ok(deployed.includes("deepseek/deepseek-v4-pro"),
@@ -824,10 +824,10 @@ test("v0.20.12 — esbuild compiles plugin without const assignment errors", asy
   const { join, dirname } = await import("node:path")
   const { fileURLToPath } = await import("node:url")
   const projectRoot = join(dirname(fileURLToPath(import.meta.url)), "..")
-  const src = readFileSync(join(projectRoot, "src", "index.js"), "utf-8")
+  const src = readFileSync(join(projectRoot, "src", "index.ts"), "utf-8")
   try {
     execSync(
-      `npx esbuild "${join(projectRoot, "src", "index.js")}" --bundle --platform=node --format=esm --target=node22 --external:node:* --external:vibeOScore`,
+      `npx esbuild "${join(projectRoot, "src", "index.ts")}" --bundle --platform=node --format=esm --target=node22 --external:node:* --external:vibeOScore`,
       { cwd: projectRoot, encoding: "utf-8", timeout: 30000, shell: true }
     )
   } catch (e) {

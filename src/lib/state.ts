@@ -1735,17 +1735,13 @@ export {
   currentModel,
   currentProjectFingerprint,
   currentProjectName,
-  setCurrentTier,
-  setCurrentModel,
-  setCurrentProjectFingerprint,
-  setCurrentProjectName,
   textCompletePainted,
   softQuotaCounts,
   warnLogThrottle,
   recentToolEvents,
   frictionSessionKeys,
   routineSessionKeys,
-  lastMutationEvent, setLastMutationEvent,
+  lastMutationEvent,
   warnPerSession,
   warnCoalesceCounters,
   enforcementBlocked,
@@ -1896,7 +1892,6 @@ export {
   readLedgerTotals,
   reconcileStateFromLedger,
   readLifetimeSavings,
-  recordPrivacyTelemetry,
   readTelemetrySummary,
   readPackageVersion,
   saveSessionCheckpoint,
@@ -1909,23 +1904,9 @@ export {
 
   // Status/savings payload — re-exported from index.ts at runtime.
   // These satisfy ESM import in index.ts before its own inline definitions shadow them.
-  computeStatusPayload,
-  computeSavingsPayload,
-  computeSessionCheckout,
-  diagnoseStructuredFromText,
-  projectStructuredFromText,
-  loadMcpPort,
-  persistMcpPort,
 }
 
 // ── Status / Savings Payload Stubs ────────────────────────────────────
 // These are defined inline in index.ts but imported from state.js.
 // The import in index.ts evaluates first; index.ts then shadows with its own definitions.
 // These stubs throw if index.ts is not loaded (isolated module test).
-export function computeStatusPayload() { throw new Error("computeStatusPayload not initialized — import from index.ts") }
-export function computeSavingsPayload() { throw new Error("computeSavingsPayload not initialized — import from index.ts") }
-export function computeSessionCheckout() { throw new Error("computeSessionCheckout not initialized — import from index.ts") }
-export function diagnoseStructuredFromText(raw: any) { throw new Error("diagnoseStructuredFromText not initialized — import from index.ts") }
-export function projectStructuredFromText(raw: any) { throw new Error("projectStructuredFromText not initialized — import from index.ts") }
-export function loadMcpPort(): number { throw new Error("loadMcpPort not initialized — import from index.ts") }
-export function persistMcpPort(port: number): void { throw new Error("persistMcpPort not initialized — import from index.ts") }

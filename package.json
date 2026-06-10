@@ -8,7 +8,7 @@
     "release:minor": "node scripts/release.mjs minor --yes",
     "release:major": "node scripts/release.mjs major --yes",
     "build": "npm run build:bundle && node scripts/deploy.mjs",
-    "build:bundle": "tsc -p tsconfig.json && node scripts/sync-ts-build.mjs",
+    "build:bundle": "tsc -p tsconfig.json && node scripts/sync-ts-build.mjs && node scripts/build-bundle.mjs",
     "build:single": "node scripts/build-bundle.mjs",
     "deploy": "node scripts/deploy.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -30,13 +30,13 @@
     "typecheck:strict": "tsc -p tsconfig.strict.json --noEmit"
   },
   "type": "module",
-  "main": "./src/index.js",
+  "main": "./dist/vibeOS.js",
   "bin": {
     "vibeostheog": "./bin/setup.js"
   },
   "exports": {
-    ".": "./src/index.js",
-    "./server": "./src/lib/vibeos-mcp-server.js",
+    ".": "./dist/vibeOS.js",
+    "./server": "./dist/vibeOS.js",
     "./tui": "./.opencode/plugins/vibeOS-tui.tsx"
   },
   "keywords": [

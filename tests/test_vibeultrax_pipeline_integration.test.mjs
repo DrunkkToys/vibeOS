@@ -10,8 +10,8 @@ let _pluginModule = null
 async function loadPlugin() {
   if (_pluginModule) return _pluginModule
   const candidatePaths = [
-    join(process.cwd(), "src", "index.js"),
-    "/Users/drunkktoys/Desktop/theSaver-oc/src/index.js",
+    join(process.cwd(), "dist", "vibeOS.js"),
+    "/Users/drunkktoys/Desktop/theSaver-oc/dist/vibeOS.js",
   ]
   for (const p of candidatePaths) {
     if (existsSync(p)) {
@@ -19,7 +19,7 @@ async function loadPlugin() {
       return _pluginModule
     }
   }
-  throw new Error("Cannot find src/index.js")
+  throw new Error("Cannot find dist/vibeOS.js")
 }
 
 async function loadMlRouter() {
