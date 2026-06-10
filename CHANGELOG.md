@@ -1,3 +1,7 @@
+## 0.23.55
+- feat: add single-file bundle build (esbuild) + fix vibelitex schema deployment
+
+
 ## 0.23.54
 - test: make blackboxSelectMode test resilient to API response format
 - test: fix e2e tests for vibelitex mode (budget → vibelitex)
