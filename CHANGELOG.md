@@ -1,3 +1,11 @@
+## 0.23.59
+- chore: soften footer enforcement copy
+- chore: align medium icon legend
+- chore: v0.23.57
+Merge remote-tracking branch 'origin/master' into fix/audit-forensic-ml-routing
+Merge pull request #117 from DrunkkToys/fix/audit-forensic-ml-routing
+
+
 ## 0.23.57
 - fix: keep the dopamine footer compact, add flash/free tier icons, and make shell/enforcement copy feel calmer
 
