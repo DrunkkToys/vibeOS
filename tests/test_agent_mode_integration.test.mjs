@@ -120,7 +120,7 @@ test("syncControlSettings restores the previous OpenCode agent after plan mode e
     writeFileSync(join(home, ".config/opencode/opencode.json"), JSON.stringify({ default_agent: "build" }, null, 2))
     writeFileSync(join(home, ".claude/model-tiers.json"), JSON.stringify({ selection: { previous_default_agent: "build" } }, null, 2))
 
-    const moduleUrl = pathToFileURL(join(process.cwd(), "src/lib/hooks/chat-transform.js")).href
+    const moduleUrl = pathToFileURL(join(process.cwd(), "dist-ts/lib/hooks/chat-transform.js")).href
     const script = `
       const fs = await import("node:fs");
       const path = await import("node:path");
@@ -160,7 +160,7 @@ test("syncControlSettings restores a stuck startup plan agent from the latest Op
     writeFileSync(join(home, ".config/opencode/opencode.json.bak-restore-001"), JSON.stringify({ default_agent: "auto" }, null, 2))
     writeFileSync(join(home, ".claude/model-tiers.json"), JSON.stringify({ selection: {} }, null, 2))
 
-    const moduleUrl = pathToFileURL(join(process.cwd(), "src/lib/hooks/chat-transform.js")).href
+    const moduleUrl = pathToFileURL(join(process.cwd(), "dist-ts/lib/hooks/chat-transform.js")).href
     const script = `
       const mod = await import(${JSON.stringify(moduleUrl)} + "?restore-backup=" + Date.now());
       mod.syncControlSettings({});
@@ -194,7 +194,7 @@ test("syncControlSettings drops stuck full thinking when the vector cools down",
     mkdirSync(join(home, ".claude"), { recursive: true })
     writeFileSync(join(home, ".claude/model-tiers.json"), JSON.stringify({ selection: { thinking_level: "full" } }, null, 2))
 
-    const moduleUrl = pathToFileURL(join(process.cwd(), "src/lib/hooks/chat-transform.js")).href
+    const moduleUrl = pathToFileURL(join(process.cwd(), "dist-ts/lib/hooks/chat-transform.js")).href
     const script = `
       const mod = await import(${JSON.stringify(moduleUrl)} + "?thinking=" + Date.now());
       mod.syncControlSettings({ thinking_mode: "off" });
@@ -230,12 +230,12 @@ test("applySlot leaves a paused desktop followup session alone while plan is act
       trinity: { medium: { oc: "deepseek/deepseek-v4-flash", cc: "haiku" } },
     }, null, 2))
 
-    const moduleUrl = pathToFileURL(join(process.cwd(), "src/lib/pricing.js")).href
+    const moduleUrl = pathToFileURL(join(process.cwd(), "dist-ts/lib/pricing.js")).href
     const script = `
       const fs = await import("node:fs");
       const path = await import("node:path");
       const mod = await import(${JSON.stringify(moduleUrl)} + "?followup=" + Date.now());
-      const state = await import(${JSON.stringify(pathToFileURL(join(process.cwd(), "src/lib/state.js")).href)});
+      const state = await import(${JSON.stringify(pathToFileURL(join(process.cwd(), "dist-ts/lib/state.js")).href)});
       const home = process.env.HOME;
       const sid = state._OC_SID;
       const desktopDir = path.join(home, "Library", "Application Support", "ai.opencode.desktop");
@@ -281,7 +281,7 @@ test("refreshCreditSnapshot updates stale low credits before the cheap fallback"
     writeFileSync(join(home, ".local/share/opencode/auth.json"), JSON.stringify({ deepseek: { key: "test-key" } }, null, 2))
     writeFileSync(join(home, ".claude/credit-snapshot.json"), JSON.stringify({ total: 0, providers: [], ts: Date.now() }, null, 2))
 
-    const moduleUrl = pathToFileURL(join(process.cwd(), "src/lib/credit-api.js")).href
+    const moduleUrl = pathToFileURL(join(process.cwd(), "dist-ts/lib/credit-api.js")).href
     const script = `
       globalThis.fetch = async () => ({
         ok: true,

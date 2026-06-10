@@ -22,7 +22,7 @@ export function createTrinityTool(deps) {
       "Control the vibeOS plugin and active model slot. " +
       "Use action='status' to see the current state. " +
       "Use action='enable' or 'disable' to toggle the plugin immediately. " +
-      "Use action='set' with slot='brain'|'medium'|'cheap' to switch model tiers (writes opencode.json). " +
+      "Use action='set' with slot='brain'|'medium'|'cheap' to switch model tiers (writes opencode.json). Optionally pass model='<model_id>' to set a custom model for that slot. " +
       "Use action='mode' with slot='vibeultrax'|'vibeqmax'|'vibemax'|'budget'|'quality'|'speed'|'longrun'|'auto'|'balanced'|'audit'|'forensic' to switch optimization mode. " +
       "Use action='thinking' with level='full'|'brief'|'off'. " +
       "Use action='rebuild' to detect available models from configured providers and reassign brain/medium/cheap slots. " +
@@ -43,9 +43,10 @@ export function createTrinityTool(deps) {
       action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "setup", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard", "api-token", "api-bootstrap-token", "todo", "todo-done", "todo-sync"]).optional(),
       slot: deps.tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "balanced", "audit", "forensic", "vibeultrax", "vibeqmax", "vibemax", "vibelitex", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings"]).optional(),
       level: deps.tool.schema.enum(["full", "brief", "off", "on"]).optional(),
+      model: deps.tool.schema.string().optional(),
       token: deps.tool.schema.string().optional(),
     },
-    async execute({ action, slot, level, token }: { action?: string; slot?: string; level?: string; token?: string } = {}) {
+    async execute({ action, slot, level, model, token }: { action?: string; slot?: string; level?: string; model?: string; token?: string } = {}) {
       if (typeof deps._lazyRefresh === "function") deps._lazyRefresh()
       if (!action) action = "status"
       if (["brain", "medium", "cheap"].includes(action)) { slot = action; action = "set" }
@@ -201,6 +202,20 @@ export function createTrinityTool(deps) {
       if (action === "set") {
         if (!slot || !["brain", "medium", "cheap"].includes(slot)) {
           return `\u274c Provide slot: brain | medium | cheap`
+        }
+        if (model) {
+          try {
+            const tiers = deps.safeJsonParse(deps.readFileSync(deps.TIERS_FILE, "utf-8"))
+            if (!tiers.trinity) tiers.trinity = {}
+            if (!tiers.trinity[slot]) tiers.trinity[slot] = {}
+            tiers.trinity[slot].oc = model
+            tiers.trinity[slot].cc = model
+            const _tmp = deps.TIERS_FILE + ".tmp." + Date.now() + "." + Math.random().toString(36).slice(2, 8)
+            deps.writeFileSync(_tmp, JSON.stringify(tiers, null, 2) + "\n")
+            deps.renameSync(_tmp, deps.TIERS_FILE)
+          } catch (e) {
+            return `\u274c Failed to write model to tiers: ${e.message}`
+          }
         }
         let targetModel = ""
         try {

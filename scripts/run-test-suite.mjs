@@ -3,6 +3,7 @@
 import { readdirSync } from "node:fs"
 import { join } from "node:path"
 import { spawnSync } from "node:child_process"
+import { pathToFileURL } from "node:url"
 
 const mode = (process.argv[2] || "full").toLowerCase()
 const timeout = mode === "ci" ? 120000 : 240000
@@ -72,7 +73,8 @@ const tests = [
 
 const uniqueTests = [...new Set(tests)]
 
-const result = spawnSync(process.execPath, ["--test", `--test-timeout=${timeout}`, ...uniqueTests], {
+const loader = pathToFileURL(join(process.cwd(), "scripts", "ts-src-loader.mjs")).href
+const result = spawnSync(process.execPath, ["--loader", loader, "--test", `--test-timeout=${timeout}`, ...uniqueTests], {
   stdio: "inherit",
   env: {
     ...process.env,

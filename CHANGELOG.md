@@ -1,6 +1,10 @@
 ## 0.23.61
 - chore: clean TS source warnings and bump patch
 
+## 0.23.60
+- fix: computeControlVector tier_bias, AUDIT/FORENSIC regex, litex slot (#118)
+- fix: align footer with blackbox session slot
+
 ## 0.23.59
 - chore: soften footer enforcement copy
 - chore: align medium icon legend

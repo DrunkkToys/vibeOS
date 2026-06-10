@@ -42,7 +42,7 @@ test("1b — VibeUltraX listed when trinity mode called without args", async () 
 
 test("1c — fast trinity mode switch reads from BRANDED_MODES not hardcoded list", async () => {
   // Verify the handler uses BRANDED_MODES dynamically
-  const tool = readFileSync(join(root, "src/lib/trinity-tool.js"), "utf-8")
+  const tool = readFileSync(join(root, "src/lib/trinity-tool.ts"), "utf-8")
   const hasBrandedModes = tool.includes("BRANDED_MODES")
   assert.ok(hasBrandedModes, "trinity-tool imports BRANDED_MODES dynamically")
   assert.ok(!tool.includes('"vibemax", "vibeqmax", "vibeultrax"'),
@@ -101,14 +101,14 @@ test("4a — no 'undefined' session key in blackbox", async () => {
 })
 
 test("4b — turn-classify guards undefined SID", async () => {
-  const ts = readFileSync(join(root, "src/lib/turn-classify.js"), "utf-8")
+  const ts = readFileSync(join(root, "src/lib/turn-classify.ts"), "utf-8")
   const guardCount = (ts.match(/sid\s*&&\s*sid\s*!==\s*"undefined"/g) || []).length
   assert.ok(guardCount >= 4, "at least 4 undefined-SID guards in turn-classify.js: " + guardCount)
 })
 
 // ── GROUP 5: Project fingerprint write-once ──
 test("5 — project_fingerprint set once per session", async () => {
-  const st = readFileSync(join(root, "src/lib/state.js"), "utf-8")
+  const st = readFileSync(join(root, "src/lib/state.ts"), "utf-8")
   const guardCount = (st.match(/!s\.sessions.*project_fingerprint/g) || []).length
   assert.ok(guardCount >= 2, "write-once guard present: " + guardCount)
 })
@@ -124,7 +124,7 @@ test("6a — setAnomalyDetection exported and toggleable", async () => {
 })
 
 test("6b — no _apiFallbackMode in anomaly throttle path", async () => {
-  const src = readFileSync(join(root, "src/lib/api-client.js"), "utf-8")
+  const src = readFileSync(join(root, "src/lib/api-client.ts"), "utf-8")
   const afterThrottle = src.split("throttleIfAnomalous")[1]
   const untilTryBlock = afterThrottle.split("try {")[0]
   assert.ok(!untilTryBlock.includes("_apiFallbackMode = true"),

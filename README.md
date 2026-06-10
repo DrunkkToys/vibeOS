@@ -2,11 +2,11 @@
 
 Cost-aware control plane for OpenCode Desktop.
 
-> ## v0.24.0 — Return
+> ## v0.23.61 — Return
 > Compact footer format: `🦠 brain | Deepseek | V4 Pro | $12.57 | VibeMaX ⚡ Budget`
 > VibeMaX is now the default optimization mode. Model display names cleaned up (V4 Pro, Sonnet, 2.5 Flash).
 > Install: `npx vibeostheog setup --project` or `npx vibeostheog setup`
- Keeps expensive models on strategy, routes implementation to cheaper tiers, surfaces savings in real time.
+> Keeps expensive models on strategy, routes implementation to cheaper tiers, surfaces savings in real time.
 
 For teams, vibeOS adds practical guardrails: delegation enforcement, flow and TDD controls, pattern learning, stress-aware routing, VibeBoX decision tracking, reporting, and remote API protection for the core algorithms.
 

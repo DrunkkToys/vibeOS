@@ -43,7 +43,7 @@ test("setLastMutationEvent: function is defined and exported from state.js", asy
 // ── C) index-helpers does NOT directly assign to imported lastMutationEvent ──
 test("index-helpers: source does not contain direct assignment to imported lastMutationEvent", async () => {
   const { readFileSync } = await import("node:fs")
-  const src = readFileSync(join(ROOT, "src/lib/index-helpers.js"), "utf-8")
+  const src = readFileSync(join(ROOT, "src/lib/index-helpers.ts"), "utf-8")
   // The source must use setLastMutationEvent(...), never `lastMutationEvent =`
   const directAssignment = /[^s]lastMutationEvent\s*=\s*\{/.test(src)
   if (directAssignment) {
@@ -129,7 +129,7 @@ test("shell-env: onShellEnv is importable and callable", async () => {
 // ── H) pricing.js does not have orphaned local currentTier/currentModel declarations ──
 test("pricing.js: no orphaned local currentTier/currentModel (imports from state.js)", async () => {
   const { readFileSync } = await import("node:fs")
-  const src = readFileSync(join(ROOT, "src/lib/pricing.js"), "utf-8")
+  const src = readFileSync(join(ROOT, "src/lib/pricing.ts"), "utf-8")
   // After the fix, pricing.js imports these from state.js and does NOT declare them locally
   assert.ok(src.includes("import { currentModel, currentTier, setCurrentModel, setCurrentTier") 
     && src.includes("from \"./state.js\""), 
@@ -145,7 +145,7 @@ test("regression: no direct assignment to imported state vars in hooks", async (
   const { readFileSync } = await import("node:fs")
   const hooksDir = join(ROOT, "src/lib/hooks")
   const hookFiles = [
-    "tool-execute.js", "footer.js", "chat-transform.js", "shell-env.js", "session-compact.js"
+    "tool-execute.ts", "footer.ts", "chat-transform.ts", "shell-env.ts", "session-compact.ts"
   ]
 
   for (const file of hookFiles) {

@@ -86,10 +86,18 @@ function safeJsonParse(raw: string): any {
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const RULES_PATH = join(__dirname, "flow-rules.json")
+const RULES_PATH_CANDIDATES = [
+  join(process.cwd(), "src", "vibeOS-lib", "flow-rules.json"),
+  join(process.cwd(), "dist-ts", "vibeOS-lib", "flow-rules.json"),
+  join(process.cwd(), "dist", "assets", "flow-rules.json"),
+  join(__dirname, "flow-rules.json"),
+]
 
 export function resolveRulesPath(): string {
-  return RULES_PATH
+  for (const candidate of RULES_PATH_CANDIDATES) {
+    if (existsSync(candidate)) return candidate
+  }
+  return RULES_PATH_CANDIDATES[0]
 }
 
 const GUARD_AGENTS_TEMPLATE = [
