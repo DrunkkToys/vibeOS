@@ -2,7 +2,7 @@
 
 Cost-aware control plane for OpenCode Desktop.
 
-> ## v0.23.61 — Return
+> ## v0.24.0 — Return
 > Compact footer format: `🦠 brain | Deepseek | V4 Pro | $12.57 | VibeMaX ⚡ Budget`
 > VibeMaX is now the default optimization mode. Model display names cleaned up (V4 Pro, Sonnet, 2.5 Flash).
 > Install: `npx vibeostheog setup --project` or `npx vibeostheog setup`
