@@ -175,7 +175,7 @@ Local dev checkout:
 | Command | Effect |
 |---------|--------|
 | `trinity status` | Tier, enforcement, savings, stress, lock state |
-| `trinity set brain\|medium\|cheap` | Switch active model tier |
+| `trinity set brain\|medium\|cheap [model=<model_id>]` | Switch active model tier or override the slot model |
 | `trinity brain\|medium\|cheap` | Shorthand tier switch |
 | `trinity enable\|disable` | Toggle plugin on/off |
 | `trinity mode budget\|quality\|speed\|longrun\|auto` | Set optimization mode |
