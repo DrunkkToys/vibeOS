@@ -1,3 +1,6 @@
+## 0.23.61
+- chore: clean TS source warnings and bump patch
+
 ## 0.23.59
 - chore: soften footer enforcement copy
 - chore: align medium icon legend

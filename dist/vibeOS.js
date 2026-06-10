@@ -925,6 +925,15 @@ function vibemaxPipeline(input = {}) {
     });
   }
   const result = vibemaxSelectMode(input);
+  if (isPivot.isPivot) {
+    result.mode = "budget";
+    result.tier = "cheap";
+    result.thinking = "off";
+    result.flow = "audit";
+    result.enforcement = "relaxed";
+    result.tdd = "normal";
+    result.cost = 0.1;
+  }
   if (text)
     prevMessage = text;
   return {
@@ -1078,7 +1087,7 @@ var init_vibemax = __esm({
     __dirname3 = dirname7(fileURLToPath4(import.meta.url));
     MODEL_PATH = process.env.VIBEOS_VIBEMAX_MODEL_PATH || resolve2(__dirname3, "..", "..", "..", "data", "vibemax-model.json");
     BUDGET_CFG = { tier: "cheap", thinking: "off", tdd: "normal", flow: "audit", enforcement: "relaxed", wbp: "minimal", c7: "skippable", kp: [1, 3], tc: 0.1, amode: "build" };
-    VIBEMAX_MAP = { quality: "optimized", longrun: "optimized", audit: "optimized", speed: "budget", budget: "budget", vibelitex: "budget" };
+    VIBEMAX_MAP = { quality: "optimized", longrun: "optimized", audit: "optimized", speed: "budget", budget: "budget" };
     pivotCache = null;
     prevMessage = "";
   }
@@ -4798,7 +4807,7 @@ function classify(m) {
 }
 function modelToSlotLabel(modelId, effectiveTier) {
   const tier = effectiveTier ?? classify(modelId);
-  const icon = tier === "high" ? "\u{1F9E0}" : tier === "mid" ? "\u2699" : "\u26A1";
+  const icon = tier === "high" ? "\u{1F9E0}" : tier === "mid" ? "\u25D0" : "\u26A1";
   return `[${icon} ${tier.charAt(0).toUpperCase() + tier.slice(1)}]`;
 }
 function getModelProvider(modelId) {
@@ -5919,6 +5928,37 @@ var ResolutionTracker = class _ResolutionTracker {
     this.outcomeHistory = [];
     this.calibratedWeights = null;
   }
+  static extractFeatures(text) {
+    if (!text || typeof text !== "string")
+      return {};
+    const len = text.length;
+    const words = text.split(/\s+/).filter((w) => w.length > 0);
+    const wordCount = words.length;
+    const sentences = text.split(/[.!?]+/).filter((s) => s.trim().length > 0);
+    const sentenceCount = sentences.length;
+    const avgWordLen = wordCount > 0 ? words.reduce((sum, word) => sum + word.length, 0) / wordCount : 0;
+    const questions = (text.match(/\?/g) || []).length;
+    const questionRatio = sentenceCount > 0 ? questions / sentenceCount : 0;
+    const codeBlocks = (text.match(/```/g) || []).length / 2;
+    const urgency = /urgent|asap|immediately|critical|broken|failing|crash|error|bug/i.test(text) ? 1 : 0;
+    const repetition = wordCount > 5 ? (text.toLowerCase().match(/(\b\w+\b).*?\1/g) || []).length / wordCount : 0;
+    const sentimentInds = /thanks|great|perfect|awesome/i.test(text) ? 0.2 : /frustrat|annoy|not working|doesn't work|stupid|useless/i.test(text) ? 0.8 : 0.5;
+    const complexity = /complex|difficult|hard|confusing|trick|subtle|nuance/i.test(text) ? 1 : 0;
+    const instructionDensity = /do not|must|should|always|never|critical/i.test(text) ? 1 : /please|could you|maybe|perhaps/i.test(text) ? 0.3 : 0.6;
+    return {
+      length: Math.min(1, len / 5e3),
+      word_count: Math.min(1, wordCount / 500),
+      sentence_count: Math.min(1, sentenceCount / 50),
+      avg_word_length: Math.min(1, avgWordLen / 10),
+      question_ratio: Math.min(1, questionRatio),
+      code_blocks: Math.min(1, codeBlocks / 5),
+      urgency,
+      repetition: Math.min(1, repetition * 10),
+      sentiment: sentimentInds,
+      complexity,
+      instruction_density: instructionDensity
+    };
+  }
   normalizeText(text) {
     return (text || "").toLowerCase().replace(/[^a-z0-9\s]+/g, " ").replace(/\s+/g, " ").trim();
   }
@@ -5970,7 +6010,8 @@ var ResolutionTracker = class _ResolutionTracker {
     if (!current.embedding || !previous.embedding) {
       const currWords = new Set((current.text || "").toLowerCase().split(/\s+/).filter((w) => w.length > 3));
       const prevWords = new Set((previous.text || "").toLowerCase().split(/\s+/).filter((w) => w.length > 3));
-      if (currWords.size === 0 || prevWords.size === 0) return false;
+      if (currWords.size === 0 || prevWords.size === 0)
+        return false;
       const intersection = new Set([...currWords].filter((w) => prevWords.has(w)));
       const union = /* @__PURE__ */ new Set([...currWords, ...prevWords]);
       const jaccardSim = intersection.size / Math.max(union.size, 1);
@@ -6102,141 +6143,72 @@ var ResolutionTracker = class _ResolutionTracker {
   calcEntropyTrend() {
     if (this.history.length < 2)
       return 0;
-    const entropies = this.history.slice(-5).map((e) => e.entropy);
-    if (entropies.length < 2)
+    const recent = this.history.slice(-4).map((e) => e.entropy || 0);
+    if (recent.length < 2)
       return 0;
-    return linearTrend(entropies);
+    const deltas = [];
+    for (let i = 1; i < recent.length; i++) {
+      deltas.push(recent[i] - recent[i - 1]);
+    }
+    return deltas.reduce((a, b) => a + b, 0) / deltas.length;
   }
   calcFeatureContradiction() {
     if (this.history.length < 2)
       return 0;
-    const current = this.history[this.history.length - 1].features;
-    const prev = this.history[this.history.length - 2].features;
-    let contradictionCount = 0;
-    for (const key of Object.keys(current)) {
-      if (key in prev) {
-        const delta = Math.abs(current[key] - prev[key]);
-        if (delta > 0.2) {
-          contradictionCount++;
-        }
-      }
-    }
-    return Math.min(1, contradictionCount / 6);
+    const recent = this.history.slice(-4);
+    const values = recent.map((e) => e.features?.instruction_density || 0);
+    const mean = values.reduce((a, b) => a + b, 0) / values.length;
+    const variance = values.reduce((a, b) => a + (b - mean) ** 2, 0) / values.length;
+    return Math.min(1, Math.sqrt(variance) * 1.5);
   }
   calcEmbeddingDelta() {
     if (this.history.length < 2)
       return 0;
-    const embPrev = this.history[this.history.length - 2].embedding;
-    const embCurr = this.history[this.history.length - 1].embedding;
-    if (!embPrev || !embCurr)
+    const a = this.history[this.history.length - 1].embedding;
+    const b = this.history[this.history.length - 2].embedding;
+    if (!a || !b)
       return 0;
-    const similarity = cosineSimilarity2(embPrev, embCurr);
-    return 1 - similarity;
+    return 1 - cosineSimilarity2(a, b);
   }
-  detectLoop(k = 3, threshold = 0.6) {
-    const effectiveThreshold = this.calibratedWeights?.loopJaccard ?? threshold;
-    const effectiveK = this.calibratedWeights?.loopK ?? k;
-    const repeatStreak = this.getRepeatStreak();
-    if (repeatStreak >= 2)
-      return true;
-    if (this.history.length < effectiveK + 1)
-      return false;
-    const currWords = new Set(this.normalizeText(this.history[this.history.length - 1].text).split(/\s+/).filter(Boolean));
-    const pastWords = new Set(this.normalizeText(this.history[this.history.length - (effectiveK + 1)].text).split(/\s+/).filter(Boolean));
-    if (currWords.size === 0 || pastWords.size === 0)
-      return false;
-    const intersection = new Set([...currWords].filter((w) => pastWords.has(w)));
-    const union = /* @__PURE__ */ new Set([...currWords, ...pastWords]);
-    const jaccard = intersection.size / Math.max(union.size, 1);
-    const infoGain = this.history[this.history.length - 1].entropy < this.history[this.history.length - (k + 1)].entropy;
-    return jaccard > effectiveThreshold && !infoGain;
-  }
-  isExploring(contradiction, entropyTrend, _actionConsistency = 0) {
-    const ec = this.calibratedWeights?.exploringContradiction ?? 0.2;
-    const ee = this.calibratedWeights?.exploringEntropyTrend ?? 5e-3;
-    return contradiction > ec || entropyTrend > ee;
-  }
-  isRefining(contradiction, delta, actionConsistency = 0, entropyTrend = 0) {
-    return contradiction < 0.2 && delta < 0.3 && actionConsistency > 0.3 && entropyTrend > -0.01;
-  }
-  isConverging(consistency, delta, entropyTrend) {
-    return consistency >= 0.5 && delta < 0.2 && entropyTrend < 0;
-  }
-  isClosed(consistency, delta, contradiction) {
-    if (this.history.length === 0)
-      return false;
-    const lastAction = this.history[this.history.length - 1].action;
-    const lastEntropy = this.history[this.history.length - 1].entropy;
-    const ccThreshold = this.calibratedWeights?.closureConfidence ?? 0.7;
-    const cd = this.calibratedWeights?.closedDelta ?? 0.1;
-    const cc = this.calibratedWeights?.closedContradiction ?? 0.1;
-    const ce = this.calibratedWeights?.closedEntropy ?? 0.5;
-    return consistency > ccThreshold && delta < cd && contradiction < cc && ["act", "commit"].includes(lastAction) && lastEntropy < ce;
-  }
-  isDivergent(entropyTrend, contradiction, actionConsistency) {
-    const de = this.calibratedWeights?.divergentEntropyTrend ?? 0.03;
-    const dc = this.calibratedWeights?.divergentContradiction ?? 0.3;
-    return entropyTrend > de && (contradiction > dc || actionConsistency < 0.3);
+  detectLoop() {
+    return this.loopCount >= 2 || this.getRepeatStreak() >= 2;
   }
   computeIntentState() {
-    if (this.history.length < 2) {
-      return { volatility_score: 0, drift_rate: 0, core_goal_embedding: null };
-    }
-    const actionIndices = { observe: 0, defer: 1, explore: 2, act: 3, commit: 4, change: 5 };
-    const actions = this.history.slice(-5).map((e) => e.action);
-    const indices = actions.map((a) => actionIndices[a] ?? 2);
-    const actionVar = variance(indices) / 6;
-    const embs = this.history.slice(-5).map((e) => e.embedding).filter((e) => e !== null);
-    let embVar = 0;
-    if (embs.length >= 3) {
-      const embMean = embs[0].map((_, i) => embs.reduce((sum, e) => sum + e[i], 0) / embs.length);
-      embVar = embs.reduce((sum, e) => sum + euclideanDistance(e, embMean), 0) / embs.length;
-    }
-    const volatility = Math.min(1, actionVar * 0.6 + embVar * 0.4);
-    let drift = 0;
-    if (embs.length >= 4) {
-      const mid = Math.floor(embs.length / 2);
-      const firstHalf = embs.slice(0, mid);
-      const secondHalf = embs.slice(mid);
-      const firstMean = firstHalf[0].map((_, i) => firstHalf.reduce((sum, e) => sum + e[i], 0) / firstHalf.length);
-      const secondMean = secondHalf[0].map((_, i) => secondHalf.reduce((sum, e) => sum + e[i], 0) / secondHalf.length);
-      drift = 1 - cosineSimilarity2(firstMean, secondMean);
-    }
-    const coreGoal = embs.length > 0 ? embs[0].map((_, i) => embs.reduce((sum, e) => sum + e[i], 0) / embs.length) : null;
+    const last = this.history[this.history.length - 1];
+    const prev = this.history[this.history.length - 2];
+    const driftRate = prev ? Math.min(1, Math.abs((last?.features?.instruction_density || 0.6) - (prev?.features?.instruction_density || 0.6)) * 2) : 0;
+    const volatilityScore = Math.min(1, this.getRepeatStreak() / 5 + driftRate * 0.5);
     return {
-      volatility_score: Math.round(volatility * 1e4) / 1e4,
-      drift_rate: Math.round(drift * 1e4) / 1e4,
-      core_goal_embedding: coreGoal ? coreGoal.map((v) => Math.round(v * 1e4) / 1e4) : null
+      volatility_score: volatilityScore,
+      drift_rate: driftRate,
+      core_goal_embedding: null
     };
   }
   continuityState(intentState) {
-    const drift = intentState.drift_rate;
-    const volatility = intentState.volatility_score;
-    if (drift < 0.15 && volatility < 0.3)
-      return "HIGH";
-    if (drift > 0.4 || volatility > 0.6)
+    if (intentState.volatility_score > 0.7)
       return "LOW";
-    return "MEDIUM";
+    if (intentState.volatility_score > 0.35)
+      return "MEDIUM";
+    return "HIGH";
   }
-  static detectOverconfident(diagnostics) {
-    const confidence = diagnostics.confidence ?? 0.5;
-    const entropy = diagnostics.entropy ?? 1;
-    return confidence > 0.7 && entropy > 1.5;
+  isClosed(actionConsistency, embeddingDelta, featureContradiction) {
+    return actionConsistency > 0.85 && embeddingDelta < 0.15 && featureContradiction < 0.2;
   }
-  calcMomentum(entropyTrend, actionConsistency, embeddingDelta, isLooping = false, action = "", entropy = 0) {
-    if (isLooping)
-      return -1;
-    const w = this.calibratedWeights?.momentum || [-0.3, 0.5, 0.2];
-    const entropyComponent = entropyTrend * w[0];
-    const consistencyComponent = actionConsistency * w[1];
-    const deltaComponent = (1 - Math.min(1, embeddingDelta)) * w[2];
-    let momentum = entropyComponent + consistencyComponent + deltaComponent;
-    if (["commit", "change"].includes(action) && entropy > 0.8) {
-      momentum -= 0.05;
-    } else if (["observe", "defer"].includes(action) && entropy < 0.5) {
-      momentum += 0.05;
-    }
-    return Math.max(-1, Math.min(1, momentum));
+  isDivergent(entropyTrend, featureContradiction, actionConsistency) {
+    return entropyTrend > 0.1 && featureContradiction > 0.3 && actionConsistency < 0.75;
+  }
+  isExploring(featureContradiction, entropyTrend, actionConsistency) {
+    return featureContradiction > 0.15 && entropyTrend >= -0.05 && actionConsistency < 0.9;
+  }
+  isRefining(featureContradiction, embeddingDelta, actionConsistency, entropyTrend) {
+    return actionConsistency > 0.55 && actionConsistency < 0.95 && embeddingDelta < 0.35 && featureContradiction < 0.45 && entropyTrend <= 0.2;
+  }
+  isConverging(actionConsistency, embeddingDelta, entropyTrend) {
+    return actionConsistency > 0.7 && embeddingDelta < 0.25 && entropyTrend <= 0.15;
+  }
+  calcMomentum(entropyTrend, actionConsistency, embeddingDelta, isLooping, action, entropy) {
+    const base = actionConsistency * 0.4 + (1 - Math.min(1, embeddingDelta)) * 0.3 + Math.max(0, 0.3 - Math.abs(entropyTrend)) * 0.3;
+    return isLooping ? Math.max(-1, base - 0.6) : Math.min(1, base + 0.1);
   }
   reset() {
     this.history = [];
@@ -6312,88 +6284,26 @@ var ResolutionTracker = class _ResolutionTracker {
     };
   }
   static deserialize(data) {
-    const tracker = new _ResolutionTracker(data.sessionId, data.maxHistory);
-    tracker.history = data.history || [];
-    tracker.loopCount = data.loopCount || 0;
-    tracker.pivotHistory = data.pivotHistory || [];
-    tracker.outcomeHistory = data.outcomeHistory || [];
+    const tracker = new _ResolutionTracker(data.sessionId || "session", data.maxHistory || 10);
+    tracker.history = Array.isArray(data.history) ? data.history : [];
+    tracker.loopCount = Number(data.loopCount || 0);
+    tracker.pivotHistory = Array.isArray(data.pivotHistory) ? data.pivotHistory : [];
+    tracker.outcomeHistory = Array.isArray(data.outcomeHistory) ? data.outcomeHistory : [];
     tracker.calibratedWeights = data.calibratedWeights || null;
     return tracker;
   }
-  static extractFeatures(text) {
-    if (!text || typeof text !== "string")
-      return {};
-    const len = text.length;
-    const words = text.split(/\s+/).filter((w) => w.length > 0);
-    const wordCount = words.length;
-    const sentences = text.split(/[.!?]+/).filter((s) => s.trim().length > 0);
-    const sentenceCount = sentences.length;
-    const avgWordLen = wordCount > 0 ? words.reduce((s, w) => s + w.length, 0) / wordCount : 0;
-    const questions = (text.match(/\?/g) || []).length;
-    const questionRatio = sentenceCount > 0 ? questions / sentenceCount : 0;
-    const codeBlocks = (text.match(/```/g) || []).length / 2;
-    const urgency = /urgent|asap|immediately|critical|broken|failing|crash|error|bug/i.test(text) ? 1 : 0;
-    const repetition = wordCount > 5 ? (text.toLowerCase().match(/(\b\w+\b).*?\1/g) || []).length / wordCount : 0;
-    const sentimentInds = /thanks|great|perfect|awesome/i.test(text) ? 0.2 : /frustrat|annoy|not working|doesn't work|stupid|useless/i.test(text) ? 0.8 : 0.5;
-    const complexity = /complex|difficult|hard|confusing|trick|subtle|nuance/i.test(text) ? 1 : 0;
-    const instructionDensity = /do not|must|should|always|never|critical/i.test(text) ? 1 : /please|could you|maybe|perhaps/i.test(text) ? 0.3 : 0.6;
-    return {
-      length: Math.min(1, len / 5e3),
-      word_count: Math.min(1, wordCount / 500),
-      sentence_count: Math.min(1, sentenceCount / 50),
-      avg_word_length: Math.min(1, avgWordLen / 10),
-      question_ratio: Math.min(1, questionRatio),
-      code_blocks: Math.min(1, codeBlocks / 5),
-      urgency,
-      repetition: Math.min(1, repetition * 10),
-      sentiment: sentimentInds,
-      complexity,
-      instruction_density: instructionDensity
-    };
-  }
 };
-function linearTrend(values) {
-  const n = values.length;
-  if (n < 2)
-    return 0;
-  const xMean = (n - 1) / 2;
-  const yMean = values.reduce((a, b) => a + b, 0) / n;
-  let numerator = 0;
-  let denominator = 0;
-  for (let i = 0; i < n; i++) {
-    const xi = i - xMean;
-    numerator += xi * (values[i] - yMean);
-    denominator += xi * xi;
-  }
-  return denominator === 0 ? 0 : numerator / denominator;
-}
 function cosineSimilarity2(a, b) {
-  if (a.length !== b.length || a.length === 0)
-    return 0;
-  let dot = 0;
-  let normA = 0;
-  let normB = 0;
-  for (let i = 0; i < a.length; i++) {
+  const len = Math.min(a.length, b.length);
+  let dot = 0, normA = 0, normB = 0;
+  for (let i = 0; i < len; i++) {
     dot += a[i] * b[i];
     normA += a[i] * a[i];
     normB += b[i] * b[i];
   }
-  const denom = Math.sqrt(normA) * Math.sqrt(normB);
-  return denom === 0 ? 0 : dot / denom;
-}
-function euclideanDistance(a, b) {
-  let sum = 0;
-  for (let i = 0; i < a.length; i++) {
-    const diff = a[i] - b[i];
-    sum += diff * diff;
-  }
-  return Math.sqrt(sum);
-}
-function variance(values) {
-  if (values.length === 0)
+  if (normA === 0 || normB === 0)
     return 0;
-  const mean = values.reduce((a, b) => a + b, 0) / values.length;
-  return values.reduce((sum, v) => sum + (v - mean) * (v - mean), 0) / values.length;
+  return dot / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 
 // src/vibeOS-lib/blackbox/index.js
@@ -6496,10 +6406,10 @@ function classifyTurnSimple(userText) {
   const lower = String(userText || "").trim();
   if (!lower)
     return "INIT";
-  if (/(security|vulnerability|audit|owasp|compliance|gdpr|privacy|analyze dependencies|license audit)/i.test(lower)) {
+  if (/(security|vulnerability|audit|owasp|compliance|gdpr|privacy|analyze dependencies|license audit|xss|csrf|authn|authz|pentest)/i.test(lower)) {
     return "AUDIT";
   }
-  if (/(inject|exploit|penetration|cve|attack|threat|encrypt|xss|csrf|authn|authz|pentest|forensic|research|deep analysis|investigate|root cause|reverse engineer|disassemble|memory dump|core dump)/i.test(lower)) {
+  if (/(inject|exploit|penetration|cve|attack|threat|encrypt|forensic|research|deep analysis|investigate|root cause|reverse engineer|disassemble|memory dump|core dump)/i.test(lower)) {
     return "FORENSIC";
   }
   if (/^(how|what|why|when|where|who|can you|could you|tell me|explain|describe|show|list|check|is there|are there|does|do you|summarize|elaborate|clarify|inspect|trace|find|search|look|read|show me|dump)/i.test(lower)) {
@@ -6619,11 +6529,11 @@ async function selectOptimizationModeRemote(subRegime, stressMultiplier, fallbac
 }
 function computeControlVector2(_state, _action, _optimizationMode) {
   const mode = resolveOptimizationMode(_state?.sub_regime, _state?.latest_stress_multiplier, _optimizationMode);
-  const isStrict = mode === "quality" || mode === "vibemax" || mode === "forensic" || mode === "audit";
+  const isStrict = mode === "quality" || mode === "vibemax" || mode === "vibeqmax" || mode === "vibeultrax" || mode === "forensic" || mode === "audit";
   const isRelaxed = mode === "budget" || mode === "speed";
   const subRegime = _state?.sub_regime || "INIT";
   const stress = Number(_state?.latest_stress_multiplier ?? 0);
-  const tierBias = stress > QUALITY_STRESS_THRESHOLD2 ? "brain" : subRegime === "CONVERGING" || subRegime === "CLOSED" ? "brain" : subRegime === "REFINING" || subRegime === "LOOPING" ? "medium" : mode === "quality" || mode === "longrun" || mode === "forensic" || mode === "audit" ? "brain" : mode === "speed" || mode === "vibemax" || mode === "vibelitex" ? "medium" : mode === "balanced" ? "auto" : "cheap";
+  const tierBias = stress > QUALITY_STRESS_THRESHOLD2 ? "brain" : subRegime === "CONVERGING" || subRegime === "CLOSED" ? "brain" : subRegime === "REFINING" || subRegime === "LOOPING" ? "medium" : mode === "quality" || mode === "longrun" || mode === "vibeultrax" || mode === "vibeqmax" || mode === "forensic" || mode === "audit" ? "brain" : mode === "speed" || mode === "vibemax" || mode === "vibelitex" ? "medium" : mode === "balanced" ? "auto" : "cheap";
   return {
     enforcement_mode: isStrict ? "strict" : isRelaxed ? "relaxed" : "normal",
     enforcement_reason: `[optimize: ${mode}] using safe offline defaults`,
@@ -7927,7 +7837,7 @@ var DIAGNOSE_BUDGET_LINES = 50;
 var CREDIT_MIN_OK = 40;
 function createTrinityTool(deps) {
   return {
-    description: "Control the vibeOS plugin and active model slot. Use action='status' to see current state. Use action='enable' or 'disable' to toggle the plugin (takes effect immediately, no restart needed). Use action='set' with slot='brain'|'medium'|'cheap' to switch model tiers (writes opencode.json \u2014 active immediately). Use action='mode' with slot='vibeultrax'|'vibeqmax'|'vibemax'|'budget'|'quality'|'speed'|'longrun'|'auto'|'balanced'|'audit'|'forensic' to switch optimization mode. Use action='thinking' with level='full'|'brief'|'off'. Use action='rebuild' to auto-detect available models from all configured providers and reassign brain/medium/cheap slots. Use action='flow' with slot='on'|'off' to toggle flow enforcer, or action='flow' alone for audit. Use action='flow' with slot='enforce' and level='on'|'off' to toggle auto-extract TODOs. Use action='enforce' with slot='on'|'off' to toggle delegation enforcement (blocks direct writes/edits on brain tier). Use action='tdd' with slot='on'|'off' to toggle auto-create test skeletons. Use action='tdd' with slot='strict' and level='on'|'off' to toggle strict failing TODO test templates. Use action='tdd' alone for audit. Use action='setup' to create a compatibility profile for first-time users. Use action='project' to show per-project analytics and optimization suggestions. Use action='patterns' to inspect learned project patterns or slot='clear' to clear them. Use action='guard' to ensure AGENTS.md and README.md exist and stay current. Use action='api-token' with token='<new_token>' to update the API token and re-enable remote control-vector, or token='invalidate' to disable the embedded alpha token Use action='api-bootstrap-token' with token='<new_token>' to store an alpha bootstrap token and exchange it for a normal API token on alpha builds. Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', 'trinity status'.",
+    description: "Control the vibeOS plugin and active model slot. Use action='status' to see the current state. Use action='enable' or 'disable' to toggle the plugin immediately. Use action='set' with slot='brain'|'medium'|'cheap' to switch model tiers (writes opencode.json). Use action='mode' with slot='vibeultrax'|'vibeqmax'|'vibemax'|'budget'|'quality'|'speed'|'longrun'|'auto'|'balanced'|'audit'|'forensic' to switch optimization mode. Use action='thinking' with level='full'|'brief'|'off'. Use action='rebuild' to detect available models from configured providers and reassign brain/medium/cheap slots. Use action='flow' with slot='on'|'off' to toggle flow enforcer, or action='flow' alone for audit. Use action='flow' with slot='enforce' and level='on'|'off' to toggle auto-extract TODOs. Use action='enforce' with slot='on'|'off' to toggle delegation enforcement. Use action='tdd' with slot='on'|'off' to toggle auto-create test skeletons. Use action='tdd' with slot='strict' and level='on'|'off' to toggle strict failing TODO test templates. Use action='tdd' alone for audit. Use action='setup' to create a compatibility profile for first-time users. Use action='project' to show per-project analytics and optimization suggestions. Use action='patterns' to inspect learned project patterns or slot='clear' to clear them. Use action='guard' to keep AGENTS.md and README.md current. Use action='api-token' with token='<new_token>' to update the API token or token='invalidate' to disable the embedded alpha token. Use action='api-bootstrap-token' with token='<new_token>' to store an alpha bootstrap token and exchange it for a normal API token on alpha builds. Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', or 'trinity status'.",
     args: {
       action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "setup", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard", "api-token", "api-bootstrap-token", "todo", "todo-done", "todo-sync"]).optional(),
       slot: deps.tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "balanced", "audit", "forensic", "vibeultrax", "vibeqmax", "vibemax", "vibelitex", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings"]).optional(),
@@ -8041,7 +7951,7 @@ function createTrinityTool(deps) {
           try {
             const res = deps._latestBlackboxState || deps.getBlackboxResolution();
             if (res && res.n_interactions > 3) {
-              const momentumIcon = res.momentum > MOMENTUM_SIGNIFICANT_THRESHOLD ? "up up" : res.momentum > 0 ? "up" : res.momentum < -MOMENTUM_SIGNIFICANT_THRESHOLD ? "down down" : res.momentum < 0 ? "down" : "flat";
+              const momentumIcon = res.momentum > MOMENTUM_SIGNIFICANT_THRESHOLD ? "\u2197" : res.momentum > 0 ? "\u2191" : res.momentum < -MOMENTUM_SIGNIFICANT_THRESHOLD ? "\u2198" : res.momentum < 0 ? "\u2193" : "\u2192";
               const loopTag = res.is_looping ? " (loop)" : "";
               decisionLine = `${res.resolution} ${res.sub_regime} ${momentumIcon}${loopTag}`;
             }
@@ -8066,7 +7976,7 @@ function createTrinityTool(deps) {
           `  Flow: ${sel.flow_enabled !== false ? "ON" : "OFF"}${sel.flow_enforce ? " (extract)" : ""}`,
           `  TDD: ${sel.tdd_enforce ? "ON" : "OFF"}${sel.tdd_strict !== false ? " strict" : ""}${sel.tdd_quality !== false ? " quality" : ""}`,
           `  Enforce: ${sel.delegation_enforce ? "ON" : "OFF"}${sel.onboarding_mode === "assist" ? " (compatibility)" : " (mandatory)"}`,
-          `  Lock: ${deps._modelLocked ? `\u{1F512} ON${lockedSlot ? ` (${lockedSlot})` : ""}${lockedModel ? ` ${lockedModel}` : ""}` : "\u{1F513} OFF"}`,
+          `  Lock: ${deps._modelLocked ? `LOCK ON${lockedSlot ? ` (${lockedSlot})` : ""}${lockedModel ? ` ${lockedModel}` : ""}` : "LOCK OFF"}`,
           `  Compatibility: ${onboardingMode === "assist" ? "ASSIST (soft defaults, progressive activation)" : "STRICT (full guardrails)"}`,
           `|`,
           `All-time savings:`,
@@ -8232,7 +8142,7 @@ function createTrinityTool(deps) {
           const ok = deps.writeSelection("delegation_enforce", true);
           if (ok)
             deps.writeSelection("onboarding_mode", "strict");
-          return ok ? `\u{1F6AB} Delegation enforcement ENABLED \u2014 direct writes/edits BLOCKED on brain tier` : `\u274C Failed to write model-tiers.json`;
+          return ok ? `Delegation enforcement ENABLED \u2014 direct writes/edits are blocked on brain tier` : `\u274C Failed to write model-tiers.json`;
         }
         const sel = deps.loadSelection();
         return `\u{1F6AB} Delegation enforcement: ON (mandatory, blocks direct writes/edits on brain tier)
@@ -8246,14 +8156,14 @@ Use \`trinity enforce on\` to reapply the guard if needed.`;
           deps._lockedSlot = lockSlot;
           deps._lockedModel = lockModel;
           console.error(`[vibeOS] model LOCKED \u2014 ${lockModel} (${deps.currentTier}) will not auto-reconcile with config`);
-          return `\u{1F512} Model LOCKED \u2014 ${lockModel} will not change unless you force with \`trinity set\` or \`trinity lock off\`.`;
+          return `LOCK ON \u2014 ${lockModel} will not change unless you force with \`trinity set\` or \`trinity lock off\`.`;
         }
         if (slot === "off") {
           deps._modelLocked = false;
           deps._lockedSlot = null;
           deps._lockedModel = null;
           console.error(`[vibeOS] model UNLOCKED \u2014 auto-reconcile re-enabled`);
-          return `\u{1F513} Model UNLOCKED \u2014 will auto-follow OpenCode config changes.`;
+          return `LOCK OFF \u2014 will auto-follow OpenCode config changes.`;
         }
         return `\u{1F512} Model lock: ${deps._modelLocked ? "ON (fixed per session)" : "OFF (follows config)"}
 Use \`trinity lock on\` or \`trinity lock off\` to toggle.
@@ -8467,12 +8377,12 @@ Learned patterns:`);
         }
         if (suggestions.length > 0) {
           lines.push(`
-\u{1F3AF} Optimization suggestions:`);
+Small wins:`);
           for (const s of suggestions)
             lines.push(`  ${s}`);
         } else {
           lines.push(`
-\u2705 No optimization suggestions \u2014 looking good!`);
+\u2705 No optimization suggestions \u2014 looking good.`);
         }
         lines.push(`
 ${L.repeat(40)}`);
@@ -10591,21 +10501,21 @@ var C7_URGENCY = {
 };
 function context7Directive(cv) {
   const urgency = cv?.context7_urgency || "preferred";
-  return "[cost policy] If mcp__context7__resolve-library-id and mcp__context7__get-library-docs tools are available in this session, ALWAYS use them instead of WebFetch or WebSearch when looking up library or framework documentation (docs.*, readthedocs.*, npmjs.com/package/*, pypi.org/project/*, pkg.go.dev, /api/reference/). Do not fetch those URLs directly when context7 can serve the same content. This saves ~$0.06/turn on average." + (C7_URGENCY[urgency] || "");
+  return "[cost policy] If mcp__context7__resolve-library-id and mcp__context7__get-library-docs are available, prefer them over WebFetch/WebSearch for library and framework docs (docs.*, readthedocs.*, npmjs.com/package/*, pypi.org/project/*, pkg.go.dev, /api/reference/). Use the cheapest accurate source first. This usually saves about $0.06/turn." + (C7_URGENCY[urgency] || "");
 }
 function thinkingDirective(level) {
   const credit = loadCredit();
   const creditNote = `credit ${credit}%`;
   if (level === "brief") {
-    return `[thinking policy] Reasoning depth: BRIEF (manually set, ${creditNote}). Use extended thinking only for genuinely complex multi-step problems. Keep reasoning concise -- skip exploratory scratch work and restatement.`;
+    return `[thinking policy] Reasoning depth: BRIEF (manually set, ${creditNote}). Keep the answer crisp and only expand when the task truly needs it.`;
   }
-  return `[thinking policy] Reasoning depth: OFF (manually set, ${creditNote}). Skip extended thinking entirely. Respond directly and concisely. Every thinking token costs money -- save it for when the user explicitly asks.`;
+  return `[thinking policy] Reasoning depth: OFF (manually set, ${creditNote}). Respond directly, avoid extra scratch work, and reserve extended thinking for when the user asks for it.`;
 }
 function flowTodosDirective() {
   const pendingTodos = loadTodos().filter((t) => t.status === "pending").length;
   if (pendingTodos === 0)
     return null;
-  return "[vibeOS] " + pendingTodos + " extracted TODO/FIXME items are pending. Consider calling `todowrite` to add them to the native task list.";
+  return "[vibeOS] " + pendingTodos + " extracted TODO/FIXME items are waiting. If useful, call `todowrite` so they land in the native task list.";
 }
 function patternDirective(fp2) {
   const patterns = promotedProjectPatterns(fp2);
@@ -10633,14 +10543,14 @@ function welcomeDirective() {
   }
   const active = sel.active_slot || "medium";
   const current = currentModel || "(unknown)";
-  return "[vibeOS] Active plugin. Slot: " + active + " (" + current + "). Use trinity command to switch slots, rebuild, or check status. Run `trinity help` for all commands.";
+  return "[vibeOS] Active plugin. Slot: " + active + " (" + current + "). Use `trinity status` for a quick check, `trinity help` for the full command list, or `trinity set`, `trinity mode`, and `trinity rebuild` to move forward.";
 }
 function contextBudgetDirective(_input, output) {
   const ctxBudget = estimateContextBudget(_input, output);
   if (!ctxBudget || ctxBudget.pct <= 70)
     return null;
   const severity = ctxBudget.pct > 90 ? "CRITICAL" : "WARNING";
-  return `[context budget: ${severity}] Context window is ${ctxBudget.pct}% full (~${ctxBudget.estimatedTokens} tokens). Consider using Task subagents for heavy work, compressing tool outputs, or starting a new session to avoid context overflow.`;
+  return `[context budget: ${severity}] Context window is ${ctxBudget.pct}% full (~${ctxBudget.estimatedTokens} tokens). Use Task subagents for heavy work, compress tool output, or start a fresh session before context gets cramped.`;
 }
 var onSystemTransform = async (_input, output) => {
   if (!loadSelection().enabled)
@@ -10759,7 +10669,7 @@ var onSystemTransform = async (_input, output) => {
       } catch {
       }
     }
-    const stressMitigationDirective = rawStress > 0.7 ? "[stress mitigation: CRITICAL] The user's message shows very high stress indicators. Stay calm, structured, and thorough. Use proper markdown formatting with code blocks, lists, and organized structure. Do NOT mirror the user's tone or brevity. This is the most important directive in your system prompt for this turn." : rawStress > 0.4 ? "[stress mitigation: elevated] The user's message has elevated stress indicators. Maintain structured, well-formatted responses with markdown and code blocks." : null;
+    const stressMitigationDirective = rawStress > 0.7 ? "[stress mitigation: CRITICAL] The user's message shows very high stress indicators. Stay calm, structured, and thorough. Lead with the answer, keep steps explicit, and avoid playful language or overload. Do not mirror the user's urgency." : rawStress > 0.4 ? "[stress mitigation: elevated] The user's message has elevated stress indicators. Keep the response structured, readable, and lightly reassuring." : null;
     if (stressMitigationDirective) {
       pushSystem(output, stressMitigationDirective);
     }
@@ -10769,13 +10679,13 @@ var onSystemTransform = async (_input, output) => {
       const tpl = TEMPLATES[_currentTemplate] || TEMPLATES[DEFAULT_TEMPLATE];
       let fused = tpl.directive;
       if (sel.delegation_enforce && _controlVector?.enforcement_mode !== "relaxed") {
-        fused += " CRITICAL: Write/Edit tools are BLOCKED on brain tier. Delegate ALL implementation to Task subagents. Use parallel invocation for independent tasks.";
+        fused += " Write/Edit stays blocked on brain tier. Delegate implementation to Task subagents and use parallel calls for independent work.";
       }
       if (sel.tdd_enforce && _controlVector?.tdd_mode !== "lazy") {
-        fused += " Auto-create test skeletons for changed source files.";
+        fused += " Keep test skeletons ready for changed source files.";
       }
       if (sel.flow_enabled && _controlVector?.flow_mode !== "audit") {
-        fused += " Follow existing code conventions and project patterns.";
+        fused += " Stay close to existing code conventions and project patterns.";
       }
       pushSystem(output, fused);
     }
@@ -10793,7 +10703,7 @@ var onSystemTransform = async (_input, output) => {
       const currentRegime = res.sub_regime || "EXPLORING";
       if (currentRegime !== prevRegime) {
         _prevBlackboxRegime = currentRegime;
-        pushSystem(output, "[decision engine] Resolution: " + (res.resolution || "unresolved") + " (" + currentRegime + "). Momentum: " + ((res.momentum || 0) > 0 ? "positive" : (res.momentum || 0) < 0 ? "negative" : "neutral") + ".");
+        pushSystem(output, "[decision engine] Resolution: " + (res.resolution || "unresolved") + " (" + currentRegime + "). Momentum: " + ((res.momentum || 0) > 0 ? "\u2197 positive" : (res.momentum || 0) < 0 ? "\u2198 negative" : "\u2192 steady") + ".");
         if (res.is_looping && res.loop_intervention_level && res.loop_intervention_level !== "none") {
           const severity = res.loop_intervention_level === "escalated" ? "CRITICAL" : res.loop_intervention_level === "assertive" ? "WARNING" : "NOTICE";
           pushSystem(output, "[loop prevention: " + severity + "] " + (_latestBlackboxLoopMsg3 || "The conversation may be looping \u2014 try a different approach.") + " (level: " + res.loop_intervention_level + ")");
@@ -10847,10 +10757,10 @@ var onSystemTransform = async (_input, output) => {
     } catch {
     }
     if (!oneShot("vibeos_dashboard_instruct")) {
-      pushSystem(output, "[vibeOS dashboard display] When the trinity tool returns output starting with '[vibeOS-dashboard]', you MUST use the question tool to display that data in a clean, human-readable format. Use the question field (not the header) to show the dashboard data. Format it with clear sections separated by blank lines, aligned columns with spaces, and plain text only (no emojis, no markdown). The header should be 'vibeOS Dashboard'. Include only one option in options: {label: 'Dismiss', description: ''}. Strip the '[vibeOS-dashboard]' marker line before displaying.");
+      pushSystem(output, "[vibeOS dashboard display] When the trinity tool returns output starting with '[vibeOS-dashboard]', use the question tool to display that data in a clean, human-readable format. Use the question field (not the header) to show the dashboard data. Format it with clear sections separated by blank lines, aligned columns with spaces, and plain text only. The header should be 'vibeOS Dashboard'. Include only one option in options: {label: 'Dismiss', description: ''}. Strip the '[vibeOS-dashboard]' marker line before displaying.");
     }
     if (!oneShot("vibeos_dopamine_style_" + fp2)) {
-      pushSystem(output, "[tool style: dopamine] When calling the bash tool, use a short, progress-focused description that names the user-visible milestone being advanced. Combine independent bash commands into a single call with && or ;. Never use raw technical labels as tool descriptions.");
+      pushSystem(output, "[tool style: dopamine] When calling the bash tool, use a short, calm, progress-focused description that names the user-visible milestone being advanced. Combine independent bash commands into a single call with && or ;. Keep the wording human and avoid hype or raw technical labels.");
     }
   } catch (err) {
     console.error(`[vibeOS] system.transform failed: ${err.message}`);
@@ -10869,14 +10779,51 @@ var BRAND_MAP = {
 };
 var TIER_ICON = {
   brain: "\u{1F9E0}",
-  medium: "\u2699\uFE0F",
-  cheap: "\u{1F381}"
+  medium: "\u25D0",
+  cheap: "\u26A1",
+  free: "\u{1F381}"
 };
 function resolveBrand(optMode, activeSlot) {
   return BRAND_MAP[optMode] || (activeSlot === "brain" ? "VibeQMaX" : "VibeMaX");
 }
 function resolveTierIcon(slot) {
   return TIER_ICON[slot] || "\u26A1";
+}
+function formatVectorPulse(vectorChangedSlot) {
+  if (!vectorChangedSlot)
+    return "";
+  return `\u27E1 ${vectorChangedSlot}`;
+}
+function formatEnforcementPulse(enfTags) {
+  const tags = new Set(enfTags || []);
+  const parts = [];
+  if (tags.has("[Q&A]")) {
+    parts.push("quiet mode");
+  } else {
+    if (tags.has("[ENF ON]") || tags.has("[STRICT]"))
+      parts.push("guarded");
+    if (tags.has("[FLOW ON]"))
+      parts.push("flow steady");
+    if (tags.has("[TDD ON]"))
+      parts.push("tests live");
+  }
+  if (tags.has("[LOCK ON]"))
+    parts.push("locked");
+  return parts.join(" \xB7 ");
+}
+function trendGlyph(trend) {
+  if (trend === "up")
+    return "\u2197";
+  if (trend === "down")
+    return "\u2198";
+  return "\u2192";
+}
+function formatSavingsPulse(amountUsd, trend) {
+  const amount = Number(amountUsd || 0);
+  if (!Number.isFinite(amount) || amount <= 0)
+    return "";
+  const arrow = trendGlyph(trend);
+  return `$${amount.toFixed(2)} saved${arrow !== "\u2192" ? ` ${arrow}` : ""}`;
 }
 function buildEnforcementTags(opts) {
   const tags = [];
@@ -10897,23 +10844,25 @@ function buildEnforcementTags(opts) {
   return tags;
 }
 function buildFooterLine(input) {
-  const { activeSlot, sessionSlot, providerLabel, modelName, ltTotal, vibeBrand, optMode, flashIcon, enfTags, vectorChangedSlot } = input;
+  const { activeSlot, sessionSlot, providerLabel, modelName, ltTotal, ltTrend, vibeBrand, optMode, flashIcon, enfTags, vectorChangedSlot } = input;
   const tierIcon = resolveTierIcon(activeSlot);
   let line = `\u2014 ${tierIcon} ${activeSlot} | ${providerLabel} | ${modelName}`;
   if (ltTotal > 0) {
-    line += ` | $${ltTotal.toFixed(2)}`;
+    const savingsPulse = formatSavingsPulse(ltTotal, ltTrend);
+    if (savingsPulse)
+      line += ` | ${savingsPulse}`;
   }
   line += ` | ${vibeBrand}${flashIcon}`;
   if (optMode && optMode !== "auto") {
     line += ` ${optMode}`;
   }
-  if (vectorChangedSlot) {
-    line += ` | \u2192 ${vectorChangedSlot}`;
+  if (vectorChangedSlot && vectorChangedSlot !== activeSlot) {
+    line += ` | ${formatVectorPulse(vectorChangedSlot)}`;
   }
-  if (enfTags.length > 0) {
-    line += ` ${enfTags.join(" ")}`;
+  const enforcementPulse = formatEnforcementPulse(enfTags);
+  if (enforcementPulse) {
+    line += ` | ${enforcementPulse}`;
   }
-  line += ` | slot:${activeSlot}`;
   if (sessionSlot && sessionSlot !== activeSlot) {
     line += ` | session:${sessionSlot}`;
   }
@@ -11160,7 +11109,7 @@ async function _appendFooter(input, output, directory3) {
     if (stripped === _lastStrippedText)
       return;
     const ltTotal = ltTasks + ltCache;
-    const activeSlot = selNowFooter.vector_changed_slot || selNowFooter.active_slot || "brain";
+    const activeSlot = selNowFooter.active_slot || "brain";
     const optMode = (resolvedMode || "budget").toLowerCase();
     const vibeBrand = resolveBrand(optModeFooter, activeSlot);
     const flashIcon = isApiConnected2() ? " \u26A1" : "";
@@ -11170,6 +11119,7 @@ async function _appendFooter(input, output, directory3) {
       providerLabel: execution.provider_label,
       modelName: modelDisplayName(execution.model),
       ltTotal,
+      ltTrend: sesTrend,
       vibeBrand,
       optMode: displayMode,
       flashIcon,
@@ -13071,7 +13021,7 @@ ${argsJson}
       _mutateBlockedToolArgs(t, argSources, checkPath, output);
       if (shouldLogWarn(`${t}|protect|${checkPath}`))
         console.error(`[vibeOS] [protection] BLOCKED direct ${t} in self-protected directory: ${checkPath}`);
-      pendingUiNote = `\u{1F6E1} Self-modification blocked: ${basename7(checkPath)} is in a protected project tree. Use manual git workflow.`;
+      pendingUiNote = `[LOCK] Self-modification paused: ${basename7(checkPath)} is in a protected project tree. Use a manual git workflow.`;
       enforcementBlocked = true;
       return;
     }
@@ -13083,11 +13033,11 @@ ${argsJson}
     if (costDetector.checkAnomaly(fullModelName, modelCost)) {
       const avg = costDetector.currentAnomalyMean;
       const ratio = avg > 0 ? (modelCost / avg).toFixed(1) : "?";
-      const msg = `Cost spike: ${shortModelName(fullModelName)} at $${modelCost.toFixed(4)}/turn \u2014 ${ratio}x higher than recent avg of $${avg.toFixed(4)}. Run \`trinity cheap\` or \`trinity medium\` to save.`;
+      const msg = `Cost spike: ${shortModelName(fullModelName)} at $${modelCost.toFixed(4)}/turn \u2014 ${ratio}x above the recent average of $${avg.toFixed(4)}. Switch to \`trinity medium\` or \`trinity cheap\` to keep momentum.`;
       if (shouldLogWarn(`${t}|cost-anomaly|${fullModelName}|${modelCost.toFixed(4)}`)) {
         console.error(`[vibeOS] [cost-anomaly] ${msg}`);
       }
-      pendingUiNote = `\u{1F6A8} ${msg}`;
+      pendingUiNote = `[SLOW DOWN] ${msg}`;
       enforcementBlocked = true;
       return;
     }
@@ -13095,8 +13045,7 @@ ${argsJson}
   }
   if (_credit < 40 && !compatibilityMode) {
     const total = recordSaving(t, "credit<40% high-tier", _estOpus, { firstWord: _firstWord });
-    const trend = trendDisplay(readLifetimeSavings().sesTrend);
-    const msg = `\u26A0 [vibeOS] Credit: ${_credit}% \u2014 switching to medium saves ~$${_estOpus.toFixed(3)}/turn. Run \`trinity medium\`.`;
+    const msg = `[vibeOS] Quick win: ${resolveTierIcon("cheap")} cheap lane open \xB7 switch to ${resolveTierIcon("medium")} medium to save about ~$${_estOpus.toFixed(3)}/turn.`;
     if (shouldLogWarn(`${t}|credit|${_tierWord}`) && process.env.VIBEOS_DEBUG_DELEGATION === "1") {
       console.error(`[vibeOS] [delegation] ${msg}`);
     }
@@ -13120,7 +13069,7 @@ ${argsJson}
       if (isBlocked) {
         _mutateBlockedToolArgs(tLower, argSources, originalPath, output);
         const total2 = recordSaving(t, "delegation enforced", savings, { firstWord: _firstWord });
-        pendingUiNote = `\u{1F6AB} Brain tier direct ${t} blocked \u2192 delegate via Task or run \`trinity medium\`.`;
+        pendingUiNote = `[ENF] ${resolveTierIcon("brain")} brain paused \xB7 delegate via Task or switch to ${resolveTierIcon("medium")} medium.`;
         enforcementBlocked = true;
         if (shouldLogWarn(`${t}|enforced|${_tierWord}`))
           console.error(`[vibeOS] [enforcement] BLOCKED direct ${t} on high tier \u2192 delegate via Task`);
@@ -13129,7 +13078,7 @@ ${argsJson}
     }
     const total = recordSaving(t, "direct edit", _estEdit, { firstWord: _firstWord });
     if (!compatibilityMode) {
-      const msg = `[vibeOS] ${_tierWord} tier direct ${t} \u2014 save ~$${_estEdit.toFixed(3)} by delegating to Task. Run \`trinity medium\`.`;
+      const msg = `[vibeOS] ${resolveTierIcon("cheap")} cheap lane \xB7 save about ~$${_estEdit.toFixed(3)} by delegating to Task. Try ${resolveTierIcon("medium")} medium.`;
       if (shouldLogWarn(`${t}|direct|${_tierWord}`) && process.env.VIBEOS_DEBUG_DELEGATION === "1") {
         console.error(`[vibeOS] [delegation] ${msg}`);
       }
@@ -13155,10 +13104,10 @@ ${argsJson}
               writeFileSync14(CONTEXT7_INSTALL_FLAG, "");
             } catch {
             }
-            console.error(`[vibeOS] \u{1F4A1} Install context7 MCP to save ~$0.06/turn on docs: \`claude mcp add context7 npx @upstash/context7-mcp\``);
+            console.error(`[vibeOS] Small win: install context7 MCP to save about ~$0.06/turn on docs: \`claude mcp add context7 npx @upstash/context7-mcp\``);
           } else if (!context7AlertedThisSession) {
             context7AlertedThisSession = true;
-            console.error(`[vibeOS] \u{1F4B8} context7 not installed \u2014 missed ~$${(missed ?? 0).toFixed(2)} savings this session.`);
+            console.error(`[vibeOS] context7 is still off \u2014 about ~$${(missed ?? 0).toFixed(2)} in savings slipped this session.`);
           }
         }
       }
@@ -13167,7 +13116,7 @@ ${argsJson}
     const n = softQuotaCounts[t];
     if (n === SOFT_QUOTA_LIMIT + 1) {
       const total = recordSaving(t, `soft quota exceeded (limit ${SOFT_QUOTA_LIMIT})`, SAVE_EST.SOFT_QUOTA);
-      console.error(`[vibeOS] Bash usage high (${n}/${SOFT_QUOTA_LIMIT}) \u2014 delegate to Task subagent.`);
+      console.error(`[vibeOS] Bash usage is getting heavy (${n}/${SOFT_QUOTA_LIMIT}) \u2014 hand the next step to a Task subagent.`);
     }
     return;
   }
@@ -13203,72 +13152,76 @@ var onToolExecuteAfter = async (input, output) => {
   }
   let _footerText = "";
   try {
-    const { ltTasks, ltCache, ltCost } = readLifetimeSavings();
-    const ltTotal = ltTasks + ltCache;
-    const selNow = loadSelection();
-    const bbMode = resolveEnforcementMode();
-    const enfTags = buildEnforcementTags({
-      delegationEnforce: selNow.delegation_enforce,
-      flowEnforce: selNow.flow_enforce,
-      tddEnforce: selNow.tdd_enforce,
-      bbMode,
-      modelLocked: _modelLocked
-    });
-    let liveModel = "";
-    try {
-      const cfg = await client.config.get("model");
-      if (cfg)
-        liveModel = String(cfg);
-    } catch {
-    }
-    if (!liveModel) {
-      liveModel = readConfig(projectDirectory) || readConfig(join17(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || "";
-    }
-    const displayModel = resolveDisplayModelId(liveModel || currentModel || "", projectDirectory) || liveModel || currentModel;
-    const resolvedModel = displayModel || liveModel || currentModel || "";
-    if (resolvedModel && resolvedModel !== currentModel) {
-      setCurrentModel(resolvedModel);
-      setCurrentTier(classify(resolvedModel));
-    }
-    const execution = resolveExecutionIdentity(input?.args?.model || resolvedModel || "", projectDirectory);
-    const currentSid = _OC_SID;
-    const optModeFooter = loadSessionOptMode(currentSid + "_opt") || loadOptimizationMode() || "budget";
-    const activeSlot = execution.quality === "brain" ? "brain" : execution.quality === "medium" ? "medium" : "cheap";
-    const vibeBrand = resolveBrand(optModeFooter, activeSlot);
-    const flashIcon = VIBEOS_API_ENABLED ? " \u26A1" : "";
-    _footerText = buildFooterLine({
-      activeSlot,
-      providerLabel: execution.provider_label,
-      modelName: modelDisplayName(execution.model),
-      ltTotal,
-      vibeBrand,
-      optMode: optModeFooter,
-      flashIcon,
-      enfTags
-    }) + "\n\n";
-    const footerTarget = _payload(output);
-    output.title = _footerText.trim();
-    if (footerTarget !== output && footerTarget && typeof footerTarget === "object") {
-      footerTarget.title = _footerText.trim();
-    }
-    if (typeof footerTarget?.output === "string")
-      footerTarget.output = _footerText + footerTarget.output;
-    else if (typeof footerTarget?.result === "string")
-      footerTarget.result = _footerText + footerTarget.result;
-    else if (typeof footerTarget?.text === "string")
-      footerTarget.text = _footerText + footerTarget.text;
-    else if (typeof footerTarget?.content === "string")
-      footerTarget.content = _footerText + footerTarget.content;
-    else
-      footerTarget.output = _footerText;
-    _autoReportCount2 = (_autoReportCount2 || 0) + 1;
-    if (_autoReportCount2 % 5 === 0 && ltTotal > 0) {
-      saveReport({
-        type: "session",
-        summary: `Session cost: $${formatUsd(ltCost)} | cache saved: $${formatUsd(ltCache)} | delegation saved: $${formatUsd(ltTasks)}`,
-        metrics: { sessionId: _OC_SID, sessionCost: ltCost, cacheSavings: ltCache, delegationSavingsUsd: ltTasks, model: resolvedModel || currentModel, slot: selNow.active_slot || "unknown" },
-        tags: ["auto", "cost"]
+    if (t !== "task") {
+      const { ltTasks, ltCache, ltCost, sesTrend } = readLifetimeSavings();
+      const ltTotal = ltTasks + ltCache;
+      const selNow = loadSelection();
+      const bbMode = resolveEnforcementMode();
+      const enfTags = buildEnforcementTags({
+        delegationEnforce: selNow.delegation_enforce,
+        flowEnforce: selNow.flow_enforce,
+        tddEnforce: selNow.tdd_enforce,
+        bbMode,
+        modelLocked: _modelLocked
       });
+      let liveModel = "";
+      try {
+        const cfg = await client.config.get("model");
+        if (cfg)
+          liveModel = String(cfg);
+      } catch {
+      }
+      if (!liveModel) {
+        liveModel = readConfig(projectDirectory) || readConfig(join17(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || "";
+      }
+      const displayModel = resolveDisplayModelId(liveModel || currentModel || "", projectDirectory) || liveModel || currentModel;
+      const resolvedModel = displayModel || liveModel || currentModel || "";
+      if (resolvedModel && resolvedModel !== currentModel) {
+        setCurrentModel(resolvedModel);
+        setCurrentTier(classify(resolvedModel));
+      }
+      const execution = resolveExecutionIdentity(input?.args?.model || resolvedModel || "", projectDirectory);
+      const currentSid = _OC_SID;
+      const optModeFooter = loadSessionOptMode(currentSid + "_opt") || loadOptimizationMode() || "budget";
+      const activeSlot = selNow.active_slot || (execution.quality === "brain" ? "brain" : execution.quality === "medium" ? "medium" : "cheap");
+      const vibeBrand = resolveBrand(optModeFooter, activeSlot);
+      const flashIcon = VIBEOS_API_ENABLED ? " \u26A1" : "";
+      _footerText = buildFooterLine({
+        activeSlot,
+        providerLabel: execution.provider_label,
+        modelName: modelDisplayName(execution.model),
+        ltTotal,
+        ltTrend: sesTrend || "",
+        vibeBrand,
+        optMode: optModeFooter,
+        flashIcon,
+        enfTags,
+        vectorChangedSlot: selNow.vector_changed_slot
+      }) + "\n\n";
+      const footerTarget = _payload(output);
+      output.title = _footerText.trim();
+      if (footerTarget !== output && footerTarget && typeof footerTarget === "object") {
+        footerTarget.title = _footerText.trim();
+      }
+      if (typeof footerTarget?.output === "string")
+        footerTarget.output = _footerText + footerTarget.output;
+      else if (typeof footerTarget?.result === "string")
+        footerTarget.result = _footerText + footerTarget.result;
+      else if (typeof footerTarget?.text === "string")
+        footerTarget.text = _footerText + footerTarget.text;
+      else if (typeof footerTarget?.content === "string")
+        footerTarget.content = _footerText + footerTarget.content;
+      else
+        footerTarget.output = _footerText;
+      _autoReportCount2 = (_autoReportCount2 || 0) + 1;
+      if (_autoReportCount2 % 5 === 0 && ltTotal > 0) {
+        saveReport({
+          type: "session",
+          summary: `Session cost: $${formatUsd(ltCost)} | cache saved: $${formatUsd(ltCache)} | delegation saved: $${formatUsd(ltTasks)}`,
+          metrics: { sessionId: _OC_SID, sessionCost: ltCost, cacheSavings: ltCache, delegationSavingsUsd: ltTasks, model: resolvedModel || currentModel, slot: selNow.active_slot || "unknown" },
+          tags: ["auto", "cost"]
+        });
+      }
     }
   } catch {
   }
@@ -13638,6 +13591,8 @@ var onShellEnv = async (_input, output) => {
     output.env ??= {};
     output.env.OPENCODE_MODEL_TIER = currentTier || "unknown";
     output.env.OPENCODE_MODEL = currentModel || "unknown";
+    const shellTier = currentTier === "high" ? "brain" : currentTier === "mid" ? "medium" : currentTier === "budget" ? "cheap" : currentTier === "free" ? "free" : currentTier || "unknown";
+    output.env.VIBEOS_SHELL_BADGE = `${resolveTierIcon(shellTier)} ${shellTier} | ${currentModel || "unknown"}`;
   } catch (e) {
     console.error("[vibeOS] shell.env error:", e);
   }
@@ -14390,9 +14345,12 @@ ${report.narrative}`);
             saveBlackboxVector: (vector) => {
               const state = loadBlackboxState() || {};
               const sid = getCurrentSessionId() || _OC_SID;
-              if (!state.sessions) state.sessions = {};
-              if (!state.sessions[sid]) state.sessions[sid] = {};
-              if (!state.sessions[sid].dashboard_vectors) state.sessions[sid].dashboard_vectors = [];
+              if (!state.sessions)
+                state.sessions = {};
+              if (!state.sessions[sid])
+                state.sessions[sid] = {};
+              if (!state.sessions[sid].dashboard_vectors)
+                state.sessions[sid].dashboard_vectors = [];
               state.sessions[sid].dashboard_vectors.push({
                 timestamp: Date.now(),
                 received_at: (/* @__PURE__ */ new Date()).toISOString(),
@@ -14403,9 +14361,12 @@ ${report.narrative}`);
             saveBlackboxOutcome: (outcome) => {
               const state = loadBlackboxState() || {};
               const sid = getCurrentSessionId() || _OC_SID;
-              if (!state.sessions) state.sessions = {};
-              if (!state.sessions[sid]) state.sessions[sid] = {};
-              if (!state.sessions[sid].dashboard_outcomes) state.sessions[sid].dashboard_outcomes = [];
+              if (!state.sessions)
+                state.sessions = {};
+              if (!state.sessions[sid])
+                state.sessions[sid] = {};
+              if (!state.sessions[sid].dashboard_outcomes)
+                state.sessions[sid].dashboard_outcomes = [];
               state.sessions[sid].dashboard_outcomes.push({
                 timestamp: Date.now(),
                 received_at: (/* @__PURE__ */ new Date()).toISOString(),

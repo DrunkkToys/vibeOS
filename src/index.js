@@ -13,11 +13,11 @@ import { getFlowWarns, ensureProjectDocs, syncFlowTodosToNative } from "./vibeOS
 import { computeSessionMetrics } from "./vibeOS-lib/session-metrics.js";
 import { createMcpServer } from "./lib/vibeos-mcp-server.js";
 import { isApiConnected, setApiToken, setApiBootstrapToken, ensureBootstrapExchange, VIBEOS_API_URL } from "./lib/api-client.js";
-import { applySlot, modelCostPerTurn, detectContext7, formatUsd, classify, _refreshModel, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, readConfig, getTrinitySlotOrder, loadTrinitySlotsFromTiersFile, } from "./lib/pricing.js";
-import { scoreStress, detectTechStack, loadBlackboxState, saveBlackboxState, getBlackboxTracker, getBlackboxResolution, saveOptimizationMode, } from "./lib/turn-classify.js";
-import { safeJsonParse, readFullState, loadSelection, writeSelection, readLifetimeSavings, _OC_SID, _modelLocked, _blackboxEnabled, setBlackboxEnabled, _lockedSlot, _lockedModel, currentTier, currentModel, currentProjectFingerprint, currentProjectName, setCurrentTier, setCurrentModel, setCurrentProjectFingerprint, setCurrentProjectName, setCurrentSessionId, getCurrentSessionId, briefedProjects, _latestBlackboxState, _latestBlackboxLoopMsg, _latestBlackboxPivotMsg, getActiveJobForProject, projectFingerprint, loadProjectState, saveProjectState, ensureProjectBucket, mergeProjectBucket, setVibeOSHomeContext, SAVINGS_LEDGER_FILE, USER_HOME, CREDIT_CACHE_F, pruneScratchpadOnce, registerSessionCleanupHandlers, promotedProjectPatterns, projectPatternRows, clearProjectPatterns, loadTodos, getTodos, upsertTodo, markTodoDone, tool, } from "./lib/state.js";
+import { applySlot, modelCostPerTurn, detectContext7, formatUsd, classify, _refreshModel, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, readConfig, getTrinitySlotOrder, loadTrinitySlotsFromTiersFile } from "./lib/pricing.js";
+import { scoreStress, detectTechStack, loadBlackboxState, saveBlackboxState, getBlackboxTracker, getBlackboxResolution, saveOptimizationMode } from "./lib/turn-classify.js";
+import { safeJsonParse, readFullState, loadSelection, writeSelection, readLifetimeSavings, _OC_SID, _modelLocked, _blackboxEnabled, setBlackboxEnabled, _lockedSlot, _lockedModel, currentTier, currentModel, currentProjectFingerprint, currentProjectName, setCurrentTier, setCurrentModel, setCurrentProjectFingerprint, setCurrentProjectName, setCurrentSessionId, getCurrentSessionId, briefedProjects, _latestBlackboxState, _latestBlackboxLoopMsg, _latestBlackboxPivotMsg, getActiveJobForProject, projectFingerprint, loadProjectState, saveProjectState, ensureProjectBucket, mergeProjectBucket, setVibeOSHomeContext, SAVINGS_LEDGER_FILE, USER_HOME, CREDIT_CACHE_F, pruneScratchpadOnce, registerSessionCleanupHandlers, promotedProjectPatterns, projectPatternRows, clearProjectPatterns, loadTodos, getTodos, upsertTodo, markTodoDone, tool } from "./lib/state.js";
 import { researchAudit } from "./lib/research-audit.js";
-import { buildStatusPayload, buildSavingsPayload, buildSessionCheckout, diagnoseStructuredFromText, projectStructuredFromText, } from "./lib/runtime-surface.js";
+import { buildStatusPayload, buildSavingsPayload, buildSessionCheckout, diagnoseStructuredFromText, projectStructuredFromText } from "./lib/runtime-surface.js";
 import { saveReport, listReports, readReport } from "./lib/reporting.js";
 import { writeSessionSlot, writeSessionOptMode } from "./lib/selection-manager.js";
 import { loadCredit, thinkingLevel, _lazyRefresh, _readAuth } from "./lib/credit-api.js";
@@ -40,12 +40,6 @@ function getTiersFile() {
 function getReportsDir() {
     return join(getVibeOSHome(), "reports");
 }
-function getReportsIndex() {
-    return join(getReportsDir(), "index.json");
-}
-function getStateFile() {
-    return join(getVibeOSHome(), "delegation-state.json");
-}
 function ensureDeferredBootstrap() {
     if (_deferredBootstrapDone || _modelLocked)
         return;
@@ -64,12 +58,11 @@ let fp = "";
 let _mcpServerRuntime = null;
 let _mcpServerHooked = false;
 let _mcpServerStartupPromise = null;
-let context7Seen = new Set();
 let _prevOutputText = "";
 let _deferredBootstrapDone = false;
 let _skillsEnsured = new Set();
 let _runDeferredStartupBootstrap = null;
-const SAVE_EST = {
+const _SAVE_EST = {
     WRITE_EDIT: 0.005,
     SOFT_QUOTA: 0.0003,
     CONTEXT7: 0.002,
@@ -218,20 +211,6 @@ function _modelTier(id) {
         return "high";
     const mid = MID_TIER_RE?.test?.(id);
     return mid ? "mid" : "budget";
-}
-function backupFile(path, label) {
-    try {
-        if (!existsSync(path))
-            return null;
-        const bkDir = join(getVibeOSHome(), ".backups");
-        mkdirSync(bkDir, { recursive: true });
-        const bk = join(bkDir, `${basename(path)}.${label}.${Date.now()}.bak`);
-        copyFileSync(path, bk);
-        return bk;
-    }
-    catch {
-        return null;
-    }
 }
 function readPackageVersion() {
     try {
@@ -463,7 +442,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                     ensureProjectSkill(directory, hookFp);
                     _skillsEnsured.add(hookFp);
                 }
-                catch (_e) { }
+                catch { }
             }
             onToolExecuteBefore._directory = directory;
             return onToolExecuteBefore(input, output);
@@ -717,7 +696,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                             return { ok: true, summary: checkout.summary, report_id: reportId };
                         },
                         getBlackboxState: () => {
-                            const tracker = getBlackboxTracker();
+                            getBlackboxTracker();
                             const res = getBlackboxResolution();
                             return {
                                 sub_regime: res?.sub_regime || _latestBlackboxState?.sub_regime || "INIT",
@@ -813,13 +792,13 @@ export const VERSION = readPackageVersion();
 export default { id: "vibeOS", server: DelegationEnforcer };
 export { researchAudit } from "./lib/research-audit.js";
 export { saveReport, listReports, readReport } from "./lib/reporting.js";
-export { applySlot, modelCostPerTurn, isModelFree, isDocsTarget, detectContext7, loadTierRegexes, classify, _refreshModel, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, setTrinityBrain, setTrinityMedium, setTrinityCheap, trendDisplay, } from "./lib/pricing.js";
+export { applySlot, modelCostPerTurn, isModelFree, isDocsTarget, detectContext7, loadTierRegexes, classify, _refreshModel, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, setTrinityBrain, setTrinityMedium, setTrinityCheap, trendDisplay } from "./lib/pricing.js";
 export { getScratchpadHit, getSessionScratchpadDir, getSessionIndexPath, setCurrentModel, setCurrentTier } from "./lib/state.js";
 export { extractExports, buildTestSkeleton, enforceTestFile, buildTestReminder } from "./lib/tdd-enforcer.js";
 export { classifyAndRankModels, modelToCcAlias } from "./lib/trinity-rebuild.js";
-export { scoreStress, detectTechStack, loadBlackboxState, saveBlackboxState, getBlackboxResolution, } from "./lib/turn-classify.js";
+export { scoreStress, detectTechStack, loadBlackboxState, saveBlackboxState, getBlackboxResolution } from "./lib/turn-classify.js";
 export { remoteCall } from "./lib/api-client.js";
-export { observeToolPattern, noteProjectPattern, recordSaving, compressText, } from "./lib/index-helpers.js";
+export { observeToolPattern, noteProjectPattern, recordSaving, compressText } from "./lib/index-helpers.js";
 export function closeMcpServer() {
     try {
         if (_mcpServerRuntime) {
