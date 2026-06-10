@@ -40,7 +40,12 @@ PRODUCTION-CREDENTIALS.md
 AGENTS.md
 .opencode/
 .githooks/
-scripts/
+scripts/pre-commit.mjs
+scripts/audit-state.mjs
+scripts/migrate-ledger.mjs
+scripts/checkpoint-validate.mjs
+scripts/ts-audit.mjs
+scripts/tests/
 test-scripts/
 .github/
 plugins/
