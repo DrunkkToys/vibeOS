@@ -209,7 +209,7 @@ Tier icon + lowercase quality (🦠 brain / ⚙ medium / ⚡ cheap), provider la
 
 ### Plugin Source
 
-Single-file runtime `src/index.js` (5529+ lines). TypeScript source of truth at `src/vibeOS-lib/*.ts` and `src/utils/*.ts`. Build: `npm run build` (tsc compile + sync-ts-build + deploy script).
+Single-file runtime `src/index.js` (generated from `src/index.ts`). TypeScript source of truth at `src/index.ts`, `src/vibeOS-lib/*.ts`, and `src/utils/*.ts`. Build: `npm run build` (tsc compile + sync-ts-build + deploy script).
 
 ### State Files (~/.claude/)
 
