@@ -284,7 +284,7 @@ export function autoSelectMode(subRegime, stressMultiplier) {
   if (regime === "LOOPING") return "speed"
   if (regime === "CONVERGING" || regime === "CLOSED") return "quality"
   if (stressMultiplier && stressMultiplier > QUALITY_STRESS_THRESHOLD) return "quality"
-  return "vibelitex"
+  return "litex"
 }
 export function computeControlVector(state, action, optimizationMode) {
   const regime = state.sub_regime || "INIT"
@@ -376,6 +376,9 @@ function buildDirectives(cv, regime, state, action, optimizationMode) {
   }
   if (optimizationMode && optimizationMode !== "balanced") {
     d.push(`[optimization: ${optimizationMode}] Session optimization mode is "${optimizationMode}". This overrides default per-regime behavior.`)
+  }
+  if (optimizationMode === "speed" || optimizationMode === "budget" || optimizationMode === "litex") {
+    d.push(`[speed guard] VERIFY BEFORE ACT - Speed-oriented mode "${optimizationMode}" is active. Before modifying files or executing commands, first verify the current state. When a request is ambiguous between "check and report" vs "fix", always choose CHECK FIRST. Treat "look at", "check", "investigate", "tell me about" as requests for information, not action items.`)
   }
   return d
 }

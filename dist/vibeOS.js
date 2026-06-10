@@ -436,7 +436,7 @@ function autoSelectMode(subRegime, stressMultiplier) {
   if (regime === "LOOPING") return "speed";
   if (regime === "CONVERGING" || regime === "CLOSED") return "quality";
   if (stressMultiplier && stressMultiplier > QUALITY_STRESS_THRESHOLD) return "quality";
-  return "vibelitex";
+  return "litex";
 }
 var REGIME_CONTROL, DEFAULT_CONTROL, QUALITY_STRESS_THRESHOLD;
 var init_meta_controller = __esm({
@@ -6074,8 +6074,21 @@ function classifyTurnSimple(userText) {
   if (/(inject|exploit|penetration|cve|attack|threat|encrypt|forensic|research|deep analysis|investigate|root cause|reverse engineer|disassemble|memory dump|core dump)/i.test(lower)) {
     return "FORENSIC";
   }
-  if (/^(how|what|why|when|where|who|can you|could you|tell me|explain|describe|show|list|check|is there|are there|does|do you|summarize|elaborate|clarify|inspect|trace|find|search|look|read|show me|dump)/i.test(lower)) {
+  const IMPL_VERBS = "fix|write|create|build|implement|change|edit|modify|update|refactor|generate|delete|remove|migrate|deploy|commit|push";
+  if (new RegExp("^(can you|could you|tell me|we should|we need to|please) (" + IMPL_VERBS + ")\\b", "i").test(lower)) {
+    return "REFINING";
+  }
+  if (new RegExp("^I (need|want|would like) to (" + IMPL_VERBS + ")\\b", "i").test(lower)) {
+    return "REFINING";
+  }
+  if (/^(the |there is |there are |i think |looks like |seems like |i see |why (is|are|does|did) )/.test(lower)) {
     return "EXPLORING";
+  }
+  if (/^(how|what|why|when|where|who|can you|could you|let me|tell me|explain|describe|show|list|check|is there|are there|does|do you|summarize|elaborate|clarify|inspect|trace|find|search|look|read|show me|dump|debug)/i.test(lower)) {
+    return "EXPLORING";
+  }
+  if (new RegExp("\\b(" + IMPL_VERBS + ")\\b", "i").test(lower)) {
+    return "REFINING";
   }
   if (/^(write|create|add|build|implement|fix|change|edit|modify|update|refactor|generate|make|commit|push|deploy|release|publish|install|remove|delete|rename|move|copy|transform|convert|migrate)/i.test(lower)) {
     return "REFINING";
@@ -6128,6 +6141,21 @@ function isLikelyOffTopic(userText, job) {
 }
 
 // src/lib/turn-classify.ts
+function classifyTurnSimple2(userText) {
+  return classifyTurnSimple(userText);
+}
+async function classifyTurnRemote(text) {
+  try {
+    const client2 = getApiClient2();
+    if (!client2 || isApiFallback()) return classifyTurnSimple(text);
+    const res = await client2.classifyQuery(text);
+    if (res && typeof res === "object" && "sub_regime" in res) {
+      return res.sub_regime;
+    }
+  } catch {
+  }
+  return classifyTurnSimple(text);
+}
 function getVibeOSHome5() {
   return process.env.VIBEOS_HOME || join7(process.env.HOME || "", ".claude");
 }
@@ -6190,7 +6218,9 @@ function computeControlVector2(_state, _action, _optimizationMode) {
     wbp_verbosity: isStrict ? "verbose" : isRelaxed ? "minimal" : "normal",
     agent_mode: (subRegime === "REFINING" || subRegime === "CONVERGING" || subRegime === "CLOSED") && stress <= QUALITY_STRESS_THRESHOLD2 ? "plan" : void 0,
     optimization_mode: mode,
-    directives: []
+    directives: isRelaxed && (subRegime === "EXPLORING" || subRegime === "INIT" || subRegime === "AUDIT" || subRegime === "FORENSIC" || subRegime === "LOOPING") ? [
+      `[speed guard] VERIFY BEFORE ACT - Speed-oriented mode "${mode}" is active and user intent is ${subRegime}. Before modifying files or executing commands, first verify the current state. When a request is ambiguous between "check and report" vs "fix", always choose CHECK FIRST. Treat "look at", "check", "investigate", "tell me about" as requests for information, not action items.`
+    ] : []
   };
 }
 function buildControlHistoryEntry2(turn, regime, control, reward = null) {
@@ -9359,9 +9389,6 @@ function recordSaving(tool2, reason, saveEst, meta = {}) {
         }
       }
       const ses = s.sessions[sid];
-      ses.total_savings_usd = roundUsd(Number(ses.total_savings_usd || 0) + saveEst);
-      s.lifetime.total_savings_usd = roundUsd(Number(s.lifetime.total_savings_usd || 0) + saveEst);
-      s.lifetime.warn_count = (s.lifetime.warn_count || 0) + 1;
       if (reason && firstWord) {
         const now = Date.now();
         const warnKey = `${_OC_SID}:${firstWord}`;
@@ -9371,13 +9398,13 @@ function recordSaving(tool2, reason, saveEst, meta = {}) {
           const w = ses.warns[i];
           if (w?.key === warnKey && now - w.ts < WARN_DEDUPE_WINDOW_MS) {
             w.count = (w.count || 1) + 1;
-            w.reason = reason;
-            w.saveEst = (w.saveEst || 0) + saveEst;
-            w.est_savings_usd = (w.est_savings_usd || 0) + saveEst;
             deduped = true;
           }
         }
         if (!deduped) {
+          ses.total_savings_usd = roundUsd(Number(ses.total_savings_usd || 0) + saveEst);
+          s.lifetime.total_savings_usd = roundUsd(Number(s.lifetime.total_savings_usd || 0) + saveEst);
+          s.lifetime.warn_count = (s.lifetime.warn_count || 0) + 1;
           ses.warns.push({ key: warnKey, reason, saveEst, est_savings_usd: saveEst, firstWord, ts: now, count: 1, tool: tool2 });
         }
         if (!ses.seenWarnKeys[warnKey]) {
@@ -10025,15 +10052,16 @@ var onSystemTransform = async (_input, output) => {
     if (typeof userText === "string" && userText.trim()) latestUserIntent = userText;
     else if (!latestUserIntent) latestUserIntent = null;
     if (latestUserIntent) observeUserCorrection(latestUserIntent);
+    const classifiedRegime = _latestBlackboxState3?.sub_regime || (latestUserIntent ? await classifyTurnRemote(latestUserIntent) : "INIT");
     const optimizationSuggestion = await selectOptimizationModeRemote(
-      _latestBlackboxState3?.sub_regime || (latestUserIntent ? classifyTurnSimple(latestUserIntent) : "INIT"),
+      classifiedRegime,
       latestUserIntent ? scoreStress(latestUserIntent) : 0,
       loadOptimizationMode()
     );
     const optimizationDecision = applyBudgetFirstMode({
       requestedMode: loadOptimizationMode(),
       suggestedMode: optimizationSuggestion,
-      subRegime: _latestBlackboxState3?.sub_regime || (latestUserIntent ? classifyTurnSimple(latestUserIntent) : "INIT"),
+      subRegime: classifiedRegime,
       stress: latestUserIntent ? scoreStress(latestUserIntent) : 0,
       nInteractions: _latestBlackboxState3?.n_interactions ?? 0
     });
@@ -10047,7 +10075,7 @@ var onSystemTransform = async (_input, output) => {
     } else if (latestUserIntent) {
       const st = scoreStress(latestUserIntent);
       _controlVector = await apiComputeControlVector({
-        sub_regime: classifyTurnSimple(latestUserIntent),
+        sub_regime: classifiedRegime,
         latest_stress_multiplier: st || void 0
       }, void 0, optimizationMode);
     }
@@ -10208,7 +10236,7 @@ var onSystemTransform = async (_input, output) => {
     }
     const calDir = getVibeOSHome9();
     const calFile = join14(calDir, "calibration-data.jsonl");
-    const regime2 = _latestBlackboxState3?.sub_regime || classifyTurnSimple(latestUserIntent || "");
+    const regime2 = _latestBlackboxState3?.sub_regime || classifyTurnSimple2(latestUserIntent || "");
     const calRecord = JSON.stringify({
       ts: (/* @__PURE__ */ new Date()).toISOString(),
       sid: _OC_SID4,
@@ -10528,7 +10556,7 @@ async function _appendFooter(input, output, directory3) {
     });
     const resolvedMode = peekBudgetFirstMode({
       requestedMode: optModeFooter,
-      subRegime: _latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""),
+      subRegime: _latestBlackboxState?.sub_regime || classifyTurnSimple2(latestUserIntent || ""),
       stress: _footerStress
     }).mode;
     const stripped = text.replace(/\u2014 [^\u2014]+ \u2014\s*/g, "").trimEnd();
@@ -10565,7 +10593,7 @@ ${vibeLine}`;
           if (outcome) {
             recordBudgetFirstOutcome({
               outcome,
-              subRegime: _latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""),
+              subRegime: _latestBlackboxState?.sub_regime || classifyTurnSimple2(latestUserIntent || ""),
               stress: _footerStress
             });
             const tracker = getBlackboxTracker();

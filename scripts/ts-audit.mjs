@@ -9,16 +9,13 @@ const ALLOWED_JS = new Set([
   "src/lib/tests/api-client.test.js",
   "src/lib/tests/mode-policy.test.js",
   "src/lib/tests/pricing.test.js",
-  "src/lib/tests/selection-manager.test.js",
   "src/lib/tests/state.test.js",
   "src/lib/tests/trinity-tool.test.js",
   "src/lib/tests/turn-classify.test.js",
   "src/lib/hooks/tests/chat-transform-cv-gate.test.js",
-  "src/lib/hooks/tests/chat-transform.test.js",
   "src/lib/hooks/tests/footer.test.js",
   "src/lib/hooks/tests/tool-execute.test.js",
   "src/vibeOS-lib/blackbox/tests/resolution-tracker.test.js",
-  "src/vibeOS-lib/blackbox/tests/vibemax.test.js",
 ])
 
 const jsFiles = execSync("git ls-files '*.js'", { cwd: ROOT, encoding: "utf-8" })

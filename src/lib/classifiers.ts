@@ -100,11 +100,28 @@ export function classifyTurnSimple(userText) {
   if (/(inject|exploit|penetration|cve|attack|threat|encrypt|forensic|research|deep analysis|investigate|root cause|reverse engineer|disassemble|memory dump|core dump)/i.test(lower)) {
     return "FORENSIC"
   }
-  // Q&A / research patterns -> EXPLORING (relaxed enforcement)
-  if (/^(how|what|why|when|where|who|can you|could you|tell me|explain|describe|show|list|check|is there|are there|does|do you|summarize|elaborate|clarify|inspect|trace|find|search|look|read|show me|dump)/i.test(lower)) {
+  const IMPL_VERBS = "fix|write|create|build|implement|change|edit|modify|update|refactor|generate|delete|remove|migrate|deploy|commit|push"
+  // "can you fix/rewrite/..." are implementation requests phrased as questions
+  if (new RegExp("^(can you|could you|tell me|we should|we need to|please) (" + IMPL_VERBS + ")\\b", "i").test(lower)) {
+    return "REFINING"
+  }
+  // "I need to fix/update/..." — implementation intent
+  if (new RegExp("^I (need|want|would like) to (" + IMPL_VERBS + ")\\b", "i").test(lower)) {
+    return "REFINING"
+  }
+  // Problem-description patterns — user is investigating/reporting, not commanding
+  if (/^(the |there is |there are |i think |looks like |seems like |i see |why (is|are|does|did) )/.test(lower)) {
     return "EXPLORING"
   }
-  // Implementation / write patterns -> REFINING (normal enforcement)
+  // Q&A / research patterns -> EXPLORING
+  if (/^(how|what|why|when|where|who|can you|could you|let me|tell me|explain|describe|show|list|check|is there|are there|does|do you|summarize|elaborate|clarify|inspect|trace|find|search|look|read|show me|dump|debug)/i.test(lower)) {
+    return "EXPLORING"
+  }
+  // Full-text scan for implementation verbs — catches "I need to fix", "we should fix" without leading patterns
+  if (new RegExp("\\b(" + IMPL_VERBS + ")\\b", "i").test(lower)) {
+    return "REFINING"
+  }
+  // Implementation / write patterns (leading verb) -> REFINING
   if (/^(write|create|add|build|implement|fix|change|edit|modify|update|refactor|generate|make|commit|push|deploy|release|publish|install|remove|delete|rename|move|copy|transform|convert|migrate)/i.test(lower)) {
     return "REFINING"
   }

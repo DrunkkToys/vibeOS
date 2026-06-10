@@ -8,8 +8,24 @@ import { ResolutionTracker } from "../vibeOS-lib/blackbox/index.js"
 import { safeJsonParse, _blackboxEnabled, setBlackboxEnabled as _setGlobalBlackboxEnabled, USER_HOME, FILE_LOCK_DIR, DELEGATION_STATE_FILE as STATE_FILE, GLOBAL_LEARNING_FILE, BLACKBOX_STATE_FILE, PROJECT_STATE_FILE, _OC_SID, currentProjectFingerprint, setCurrentProjectFingerprint, _handleStateCorruption, _lockPathFor, withFileLock, readJsonOrEmpty, validateState, loadBlackboxState, saveBlackboxState, loadGlobalLearning, updateGlobalLearning, getLearnedExploratoryWords, projectFingerprint, loadProjectState, saveProjectState, detectTechStack, ensureProjectBucket, recordMissedContext7, VIBEOS_HOME } from "./state.js"
 import { loadSessionOptMode, loadGlobalOptMode, saveGlobalOptMode, writeSessionOptMode, loadSessionSlot } from "./selection-manager.js"
 import { getApiClient, isApiFallback } from "./api-client.js"
-import { scoreStress, estimateContextBudget, classifyTurnSimple, tokenizeWords, topKeywords, extractLastUserText, isUserAskingForTests, isLikelyOffTopic, detectOutcomeSignal } from "./classifiers.js"
-export { scoreStress, estimateContextBudget, classifyTurnSimple, tokenizeWords, topKeywords, extractLastUserText, isUserAskingForTests, isLikelyOffTopic, detectOutcomeSignal } from "./classifiers.js"
+import { scoreStress, estimateContextBudget, classifyTurnSimple as _classifyTurnSimple, tokenizeWords, topKeywords, extractLastUserText, isUserAskingForTests, isLikelyOffTopic, detectOutcomeSignal } from "./classifiers.js"
+export { scoreStress, estimateContextBudget, tokenizeWords, topKeywords, extractLastUserText, isUserAskingForTests, isLikelyOffTopic, detectOutcomeSignal } from "./classifiers.js"
+
+export function classifyTurnSimple(userText: string): string {
+  return _classifyTurnSimple(userText)
+}
+
+export async function classifyTurnRemote(text: string): Promise<string> {
+  try {
+    const client = getApiClient()
+    if (!client || isApiFallback()) return _classifyTurnSimple(text)
+    const res = await client.classifyQuery(text)
+    if (res && typeof res === "object" && "sub_regime" in (res as Record<string, unknown>)) {
+      return (res as Record<string, string>).sub_regime
+    }
+  } catch {}
+  return _classifyTurnSimple(text)
+}
 
 function getVibeOSHome(): string {
   return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude")
@@ -129,7 +145,9 @@ function computeControlVector(
     wbp_verbosity: isStrict ? "verbose" : isRelaxed ? "minimal" : "normal",
     agent_mode: (subRegime === "REFINING" || subRegime === "CONVERGING" || subRegime === "CLOSED") && stress <= QUALITY_STRESS_THRESHOLD ? "plan" : undefined as any,
     optimization_mode: mode,
-    directives: [],
+    directives: isRelaxed && (subRegime === "EXPLORING" || subRegime === "INIT" || subRegime === "AUDIT" || subRegime === "FORENSIC" || subRegime === "LOOPING") ? [
+      `[speed guard] VERIFY BEFORE ACT - Speed-oriented mode "${mode}" is active and user intent is ${subRegime}. Before modifying files or executing commands, first verify the current state. When a request is ambiguous between "check and report" vs "fix", always choose CHECK FIRST. Treat "look at", "check", "investigate", "tell me about" as requests for information, not action items.`
+    ] : [],
   }
 }
 

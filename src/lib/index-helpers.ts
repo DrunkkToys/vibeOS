@@ -286,9 +286,6 @@ export function recordSaving(tool, reason, saveEst, meta = {}) {
         }
       }
       const ses = s.sessions[sid]
-      ses.total_savings_usd = roundUsd(Number(ses.total_savings_usd || 0) + saveEst)
-      s.lifetime.total_savings_usd = roundUsd(Number(s.lifetime.total_savings_usd || 0) + saveEst)
-      s.lifetime.warn_count = (s.lifetime.warn_count || 0) + 1
 
       if (reason && firstWord) {
         const now = Date.now()
@@ -299,13 +296,13 @@ export function recordSaving(tool, reason, saveEst, meta = {}) {
           const w = ses.warns[i]
           if (w?.key === warnKey && (now - w.ts) < WARN_DEDUPE_WINDOW_MS) {
             w.count = (w.count || 1) + 1
-            w.reason = reason
-            w.saveEst = (w.saveEst || 0) + saveEst
-            w.est_savings_usd = (w.est_savings_usd || 0) + saveEst
             deduped = true
           }
         }
         if (!deduped) {
+          ses.total_savings_usd = roundUsd(Number(ses.total_savings_usd || 0) + saveEst)
+          s.lifetime.total_savings_usd = roundUsd(Number(s.lifetime.total_savings_usd || 0) + saveEst)
+          s.lifetime.warn_count = (s.lifetime.warn_count || 0) + 1
           ses.warns.push({ key: warnKey, reason, saveEst, est_savings_usd: saveEst, firstWord, ts: now, count: 1, tool })
         }
         if (!ses.seenWarnKeys[warnKey]) {

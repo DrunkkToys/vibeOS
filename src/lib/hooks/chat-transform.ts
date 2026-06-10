@@ -30,7 +30,7 @@ import {
   clearWorkspaceFollowupPauseForSession,
 } from "../pricing.js"
 import {
-  scoreStress, classifyTurnSimple, loadOptimizationMode,
+  scoreStress, classifyTurnSimple, classifyTurnRemote, loadOptimizationMode,
   saveOptimizationMode,
   selectOptimizationModeRemote,
   computeControlVector,
@@ -123,8 +123,7 @@ async function apiComputeControlVector(state: any, action: any, optimizationMode
       const res = await remoteCall("blackboxControlVector", [state, action, optimizationMode], null)
       if (res?.control_vector) {
         const local = computeControlVector(state, action, optimizationMode)
-        // Remote API informs tier & context — local ML enforces policy invariants
-        return { ...res.control_vector, tier_bias: local.tier_bias, optimization_mode: local.optimization_mode, enforcement_mode: local.enforcement_mode, flow_mode: local.flow_mode, tdd_mode: local.tdd_mode, thinking_mode: local.thinking_mode }
+        return { ...res.control_vector, tier_bias: local.tier_bias, optimization_mode: local.optimization_mode }
       }
   } catch {}
   return computeControlVector(state, action, optimizationMode)
@@ -659,15 +658,16 @@ export const onSystemTransform = async (_input, output) => {
     else if (!latestUserIntent) latestUserIntent = null
     if (latestUserIntent) observeUserCorrection(latestUserIntent)
 
+    const classifiedRegime = _latestBlackboxState?.sub_regime || (latestUserIntent ? await classifyTurnRemote(latestUserIntent) : "INIT")
     const optimizationSuggestion = await selectOptimizationModeRemote(
-      _latestBlackboxState?.sub_regime || (latestUserIntent ? classifyTurnSimple(latestUserIntent) : "INIT"),
+      classifiedRegime,
       latestUserIntent ? scoreStress(latestUserIntent) : 0,
       loadOptimizationMode(),
     )
     const optimizationDecision = applyBudgetFirstMode({
       requestedMode: loadOptimizationMode(),
       suggestedMode: optimizationSuggestion,
-      subRegime: _latestBlackboxState?.sub_regime || (latestUserIntent ? classifyTurnSimple(latestUserIntent) : "INIT"),
+      subRegime: classifiedRegime,
       stress: latestUserIntent ? scoreStress(latestUserIntent) : 0,
       nInteractions: _latestBlackboxState?.n_interactions ?? 0,
     })
@@ -681,7 +681,7 @@ export const onSystemTransform = async (_input, output) => {
     } else if (latestUserIntent) {
       const st = scoreStress(latestUserIntent)
       _controlVector = await apiComputeControlVector({
-        sub_regime: classifyTurnSimple(latestUserIntent),
+        sub_regime: classifiedRegime,
         latest_stress_multiplier: st || undefined,
       }, undefined, optimizationMode)
     }
