@@ -20,25 +20,25 @@ export function createTrinityTool(deps) {
   return {
     description:
       "Control the vibeOS plugin and active model slot. " +
-      "Use action='status' to see current state. " +
-      "Use action='enable' or 'disable' to toggle the plugin (takes effect immediately, no restart needed). " +
-      "Use action='set' with slot='brain'|'medium'|'cheap' to switch model tiers " +
-      "(writes opencode.json — active immediately). " +
+      "Use action='status' to see the current state. " +
+      "Use action='enable' or 'disable' to toggle the plugin immediately. " +
+      "Use action='set' with slot='brain'|'medium'|'cheap' to switch model tiers (writes opencode.json). " +
       "Use action='mode' with slot='vibeultrax'|'vibeqmax'|'vibemax'|'budget'|'quality'|'speed'|'longrun'|'auto'|'balanced'|'audit'|'forensic' to switch optimization mode. " +
       "Use action='thinking' with level='full'|'brief'|'off'. " +
-      "Use action='rebuild' to auto-detect available models from all configured providers and reassign brain/medium/cheap slots. " +
+      "Use action='rebuild' to detect available models from configured providers and reassign brain/medium/cheap slots. " +
       "Use action='flow' with slot='on'|'off' to toggle flow enforcer, or action='flow' alone for audit. " +
       "Use action='flow' with slot='enforce' and level='on'|'off' to toggle auto-extract TODOs. " +
-      "Use action='enforce' with slot='on'|'off' to toggle delegation enforcement (blocks direct writes/edits on brain tier). " +
+      "Use action='enforce' with slot='on'|'off' to toggle delegation enforcement. " +
       "Use action='tdd' with slot='on'|'off' to toggle auto-create test skeletons. " +
       "Use action='tdd' with slot='strict' and level='on'|'off' to toggle strict failing TODO test templates. " +
       "Use action='tdd' alone for audit. " +
       "Use action='setup' to create a compatibility profile for first-time users. " +
       "Use action='project' to show per-project analytics and optimization suggestions. " +
       "Use action='patterns' to inspect learned project patterns or slot='clear' to clear them. " +
-      "Use action='guard' to ensure AGENTS.md and README.md exist and stay current. Use action='api-token' with token='<new_token>' to update the API token and re-enable remote control-vector, or token='invalidate' to disable the embedded alpha token " +
+      "Use action='guard' to keep AGENTS.md and README.md current. " +
+      "Use action='api-token' with token='<new_token>' to update the API token or token='invalidate' to disable the embedded alpha token. " +
       "Use action='api-bootstrap-token' with token='<new_token>' to store an alpha bootstrap token and exchange it for a normal API token on alpha builds. " +
-      "Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', 'trinity status'.",
+      "Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', or 'trinity status'.",
     args: {
       action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "setup", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard", "api-token", "api-bootstrap-token", "todo", "todo-done", "todo-sync"]).optional(),
       slot: deps.tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "balanced", "audit", "forensic", "vibeultrax", "vibeqmax", "vibemax", "vibelitex", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings"]).optional(),
@@ -142,7 +142,7 @@ export function createTrinityTool(deps) {
           try {
             const res = deps._latestBlackboxState || deps.getBlackboxResolution()
             if (res && res.n_interactions > 3) {
-              const momentumIcon = res.momentum > MOMENTUM_SIGNIFICANT_THRESHOLD ? "up up" : res.momentum > 0 ? "up" : res.momentum < -MOMENTUM_SIGNIFICANT_THRESHOLD ? "down down" : res.momentum < 0 ? "down" : "flat"
+              const momentumIcon = res.momentum > MOMENTUM_SIGNIFICANT_THRESHOLD ? "↗" : res.momentum > 0 ? "↑" : res.momentum < -MOMENTUM_SIGNIFICANT_THRESHOLD ? "↘" : res.momentum < 0 ? "↓" : "→"
               const loopTag = res.is_looping ? " (loop)" : ""
               decisionLine = `${res.resolution} ${res.sub_regime} ${momentumIcon}${loopTag}`
             }
@@ -167,7 +167,7 @@ export function createTrinityTool(deps) {
           `  Flow: ${sel.flow_enabled !== false ? "ON" : "OFF"}${sel.flow_enforce ? " (extract)" : ""}`,
           `  TDD: ${sel.tdd_enforce ? "ON" : "OFF"}${sel.tdd_strict !== false ? " strict" : ""}${sel.tdd_quality !== false ? " quality" : ""}`,
           `  Enforce: ${sel.delegation_enforce ? "ON" : "OFF"}${sel.onboarding_mode === "assist" ? " (compatibility)" : " (mandatory)"}`,
-          `  Lock: ${deps._modelLocked ? `\u{1F512} ON${lockedSlot ? ` (${lockedSlot})` : ""}${lockedModel ? ` ${lockedModel}` : ""}` : "\u{1F513} OFF"}`,
+          `  Lock: ${deps._modelLocked ? `LOCK ON${lockedSlot ? ` (${lockedSlot})` : ""}${lockedModel ? ` ${lockedModel}` : ""}` : "LOCK OFF"}`,
           `  Compatibility: ${onboardingMode === "assist" ? "ASSIST (soft defaults, progressive activation)" : "STRICT (full guardrails)"}`,
           `|`,
           `All-time savings:`,
@@ -292,7 +292,7 @@ export function createTrinityTool(deps) {
         if (slot === "on" || slot === "off") {
           const ok = deps.writeSelection("flow_enabled", slot === "on")
           if (ok && slot === "on") deps.writeSelection("onboarding_mode", "strict")
-          return ok
+        return ok
             ? `\u2705 Flow enforcer ${slot === "on" ? "ENABLED" : "DISABLED"}`
             : `\u274c Failed to write model-tiers.json`
         }
@@ -336,7 +336,7 @@ export function createTrinityTool(deps) {
           const ok = deps.writeSelection("delegation_enforce", true)
           if (ok) deps.writeSelection("onboarding_mode", "strict")
           return ok
-            ? `\u{1F6AB} Delegation enforcement ENABLED \u2014 direct writes/edits BLOCKED on brain tier`
+            ? `Delegation enforcement ENABLED \u2014 direct writes/edits are blocked on brain tier`
             : `\u274c Failed to write model-tiers.json`
         }
         const sel = deps.loadSelection()
@@ -351,14 +351,14 @@ export function createTrinityTool(deps) {
           deps._lockedSlot = lockSlot
           deps._lockedModel = lockModel
           console.error(`[vibeOS] model LOCKED \u2014 ${lockModel} (${deps.currentTier}) will not auto-reconcile with config`)
-          return `\u{1F512} Model LOCKED \u2014 ${lockModel} will not change unless you force with \`trinity set\` or \`trinity lock off\`.`
+          return `LOCK ON \u2014 ${lockModel} will not change unless you force with \`trinity set\` or \`trinity lock off\`.`
         }
         if (slot === "off") {
           deps._modelLocked = false
           deps._lockedSlot = null
           deps._lockedModel = null
           console.error(`[vibeOS] model UNLOCKED \u2014 auto-reconcile re-enabled`)
-          return `\u{1F513} Model UNLOCKED \u2014 will auto-follow OpenCode config changes.`
+          return `LOCK OFF \u2014 will auto-follow OpenCode config changes.`
         }
         return `\u{1F512} Model lock: ${deps._modelLocked ? "ON (fixed per session)" : "OFF (follows config)"}\nUse \`trinity lock on\` or \`trinity lock off\` to toggle.\nLock is per-session (resets on restart).`
       }
@@ -567,10 +567,10 @@ export function createTrinityTool(deps) {
         }
 
         if (suggestions.length > 0) {
-          lines.push(`\n\ud83c\udfaf Optimization suggestions:`)
+          lines.push(`\nSmall wins:`)
           for (const s of suggestions) lines.push(`  ${s}`)
         } else {
-          lines.push(`\n\u2705 No optimization suggestions \u2014 looking good!`)
+          lines.push(`\n\u2705 No optimization suggestions \u2014 looking good.`)
         }
 
         lines.push(`\n${L.repeat(40)}`)

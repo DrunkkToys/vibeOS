@@ -20,6 +20,20 @@ export function resolveBrand(optMode, activeSlot) {
 export function resolveTierIcon(slot) {
     return TIER_ICON[slot] || "\u26A1";
 }
+export function trendGlyph(trend) {
+    if (trend === "up")
+        return "↗";
+    if (trend === "down")
+        return "↘";
+    return "→";
+}
+export function formatSavingsPulse(amountUsd, trend) {
+    const amount = Number(amountUsd || 0);
+    if (!Number.isFinite(amount) || amount <= 0)
+        return "";
+    const arrow = trendGlyph(trend);
+    return `$${amount.toFixed(2)} saved${arrow !== "→" ? ` ${arrow}` : ""}`;
+}
 export function buildEnforcementTags(opts) {
     const tags = [];
     if (opts.bbMode === "relaxed") {
@@ -40,11 +54,13 @@ export function buildEnforcementTags(opts) {
     return tags;
 }
 export function buildFooterLine(input) {
-    const { activeSlot, sessionSlot, providerLabel, modelName, ltTotal, vibeBrand, optMode, flashIcon, enfTags, vectorChangedSlot } = input;
+    const { activeSlot, sessionSlot, providerLabel, modelName, ltTotal, ltTrend, vibeBrand, optMode, flashIcon, enfTags, vectorChangedSlot } = input;
     const tierIcon = resolveTierIcon(activeSlot);
     let line = `\u2014 ${tierIcon} ${activeSlot} | ${providerLabel} | ${modelName}`;
     if (ltTotal > 0) {
-        line += ` | $${ltTotal.toFixed(2)}`;
+        const savingsPulse = formatSavingsPulse(ltTotal, ltTrend);
+        if (savingsPulse)
+            line += ` | ${savingsPulse}`;
     }
     line += ` | ${vibeBrand}${flashIcon}`;
     if (optMode && optMode !== "auto") {

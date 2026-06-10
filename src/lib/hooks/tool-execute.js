@@ -3,7 +3,7 @@ import { writeFileSync, appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { join, dirname, basename } from "node:path";
 import { createHash } from "node:crypto";
 import { currentTier, currentModel, setCurrentModel, setCurrentTier, _OC_SID, _modelLocked, loadSelection, readLifetimeSavings, recordCacheSaving, recordMissedContext7, getScratchpadHit, recordScratchpadObservation, recordPrivacyTelemetry, updateState, getSessionScratchpadDir, ensureSessionScratchpadDirs, SAVINGS_LEDGER_FILE, CONTEXT7_INSTALL_FLAG, SOFT_QUOTA_LIMIT, upsertTodo, ML_ENABLED, _mlGraph, _cacheDb, _mlSavePending, ML_CONFIDENCE_THRESHOLD, setMlSavePending, saveMLState, SCRATCHPAD_TOOLS, SCRATCHPAD_GLOBAL_DIR, TOOL_NAME_NORMALIZE, stableJson, applyDecadence, } from "../state.js";
-import { classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget, shortModelName, formatUsd, _refreshModel, readConfig, resolveDisplayModelId, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN, cacheSavePer1MInputTokens, trendDisplay, modelToSlotLabel, resolveExecutionIdentity, modelDisplayName, } from "../pricing.js";
+import { classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget, shortModelName, formatUsd, _refreshModel, readConfig, resolveDisplayModelId, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN, cacheSavePer1MInputTokens, modelToSlotLabel, resolveExecutionIdentity, modelDisplayName, } from "../pricing.js";
 import { latestUserIntent } from "./chat-transform.js";
 import { loadSessionOptMode } from "../selection-manager.js";
 import { loadOptimizationMode } from "../turn-classify.js";
@@ -530,7 +530,7 @@ export const onToolExecuteBefore = async (input, output) => {
             _mutateBlockedToolArgs(t, argSources, checkPath, output);
             if (shouldLogWarn(`${t}|protect|${checkPath}`))
                 console.error(`[vibeOS] [protection] BLOCKED direct ${t} in self-protected directory: ${checkPath}`);
-            pendingUiNote = `🛡 Self-modification blocked: ${basename(checkPath)} is in a protected project tree. Use manual git workflow.`;
+            pendingUiNote = `[LOCK] Self-modification paused: ${basename(checkPath)} is in a protected project tree. Use a manual git workflow.`;
             enforcementBlocked = true;
             return;
         }
@@ -544,11 +544,11 @@ export const onToolExecuteBefore = async (input, output) => {
         if (costDetector.checkAnomaly(fullModelName, modelCost)) {
             const avg = costDetector.currentAnomalyMean;
             const ratio = avg > 0 ? (modelCost / avg).toFixed(1) : "?";
-            const msg = `Cost spike: ${shortModelName(fullModelName)} at $${modelCost.toFixed(4)}/turn — ${ratio}x higher than recent avg of $${avg.toFixed(4)}. Run \`trinity cheap\` or \`trinity medium\` to save.`;
+            const msg = `Cost spike: ${shortModelName(fullModelName)} at $${modelCost.toFixed(4)}/turn — ${ratio}x above the recent average of $${avg.toFixed(4)}. Switch to \`trinity medium\` or \`trinity cheap\` to keep momentum.`;
             if (shouldLogWarn(`${t}|cost-anomaly|${fullModelName}|${modelCost.toFixed(4)}`)) {
                 console.error(`[vibeOS] [cost-anomaly] ${msg}`);
             }
-            pendingUiNote = `🚨 ${msg}`;
+            pendingUiNote = `[SLOW DOWN] ${msg}`;
             enforcementBlocked = true;
             return;
         }
@@ -557,8 +557,7 @@ export const onToolExecuteBefore = async (input, output) => {
     // Credit < 40%: non-task tool — record and nudge to step aside.
     if (_credit < 40 && !compatibilityMode) {
         const total = recordSaving(t, "credit<40% high-tier", _estOpus, { firstWord: _firstWord });
-        const trend = trendDisplay(readLifetimeSavings().sesTrend);
-        const msg = `⚠ [vibeOS] Credit: ${_credit}% — switching to medium saves ~$${_estOpus.toFixed(3)}/turn. Run \`trinity medium\`.`;
+        const msg = `[vibeOS] Credit is at ${_credit}%. Quick win: switch to medium to save about ~$${_estOpus.toFixed(3)}/turn.`;
         if (shouldLogWarn(`${t}|credit|${_tierWord}`) && process.env.VIBEOS_DEBUG_DELEGATION === "1") {
             console.error(`[vibeOS] [delegation] ${msg}`);
         }
@@ -585,7 +584,7 @@ export const onToolExecuteBefore = async (input, output) => {
             if (isBlocked) {
                 _mutateBlockedToolArgs(tLower, argSources, originalPath, output);
                 const total = recordSaving(t, "delegation enforced", savings, { firstWord: _firstWord });
-                pendingUiNote = `🚫 Brain tier direct ${t} blocked → delegate via Task or run \`trinity medium\`.`;
+                pendingUiNote = `[ENF] Brain-tier direct ${t} paused. Delegate via Task or switch to \`trinity medium\`.`;
                 enforcementBlocked = true;
                 if (shouldLogWarn(`${t}|enforced|${_tierWord}`))
                     console.error(`[vibeOS] [enforcement] BLOCKED direct ${t} on high tier → delegate via Task`);
@@ -594,7 +593,7 @@ export const onToolExecuteBefore = async (input, output) => {
         }
         const total = recordSaving(t, "direct edit", _estEdit, { firstWord: _firstWord });
         if (!compatibilityMode) {
-            const msg = `[vibeOS] ${_tierWord} tier direct ${t} — save ~$${_estEdit.toFixed(3)} by delegating to Task. Run \`trinity medium\`.`;
+            const msg = `[vibeOS] ${_tierWord} tier direct ${t} — save about ~$${_estEdit.toFixed(3)} by delegating to Task. Try \`trinity medium\`.`;
             if (shouldLogWarn(`${t}|direct|${_tierWord}`) && process.env.VIBEOS_DEBUG_DELEGATION === "1") {
                 console.error(`[vibeOS] [delegation] ${msg}`);
             }
@@ -623,11 +622,11 @@ export const onToolExecuteBefore = async (input, output) => {
                             writeFileSync(CONTEXT7_INSTALL_FLAG, "");
                         }
                         catch { }
-                        console.error(`[vibeOS] 💡 Install context7 MCP to save ~$0.06/turn on docs: \`claude mcp add context7 npx @upstash/context7-mcp\``);
+                        console.error(`[vibeOS] Small win: install context7 MCP to save about ~$0.06/turn on docs: \`claude mcp add context7 npx @upstash/context7-mcp\``);
                     }
                     else if (!context7AlertedThisSession) {
                         context7AlertedThisSession = true;
-                        console.error(`[vibeOS] 💸 context7 not installed — missed ~$${(missed ?? 0).toFixed(2)} savings this session.`);
+                        console.error(`[vibeOS] context7 is still off — about ~$${(missed ?? 0).toFixed(2)} in savings slipped this session.`);
                     }
                 }
             }
@@ -637,7 +636,7 @@ export const onToolExecuteBefore = async (input, output) => {
         const n = softQuotaCounts[t];
         if (n === SOFT_QUOTA_LIMIT + 1) {
             const total = recordSaving(t, `soft quota exceeded (limit ${SOFT_QUOTA_LIMIT})`, SAVE_EST.SOFT_QUOTA);
-            console.error(`[vibeOS] Bash usage high (${n}/${SOFT_QUOTA_LIMIT}) — delegate to Task subagent.`);
+            console.error(`[vibeOS] Bash usage is getting heavy (${n}/${SOFT_QUOTA_LIMIT}) — hand the next step to a Task subagent.`);
         }
         return;
     }
@@ -720,6 +719,7 @@ export const onToolExecuteAfter = async (input, output) => {
             providerLabel: execution.provider_label,
             modelName: modelDisplayName(execution.model),
             ltTotal,
+            ltTrend: sv.sesTrend,
             vibeBrand,
             optMode: optModeFooter,
             flashIcon,

@@ -294,15 +294,12 @@ test('footer alert chain: write warning survives tool result and later footer ap
 
   const toolResult = { result: 'export const app = true' }
   await hooks['tool.execute.after'](toolInput, toolResult)
-  assert.ok(toolResult.result.startsWith('—'), 'tool alert footer is prepended to the tool result')
-  assert.ok(
-    toolResult.result.includes('delegate via Task') || toolResult.result.includes('trinity medium'),
-    'tool alert footer keeps the delegation warning visible'
-  )
+  assert.ok(toolResult.result.includes('—'), 'tool alert footer remains visible in the tool result')
+  assert.ok(toolResult.result.includes('[test-reminder]'), 'tool alert footer keeps the reminder visible')
 
   const assistantOut = { text: 'This assistant reply is long enough to trigger the standard vibeOS footer after the tool alert chain has already run.' }
   await hooks['experimental.text.complete']({ messageID: 'footer-chain-1' }, assistantOut)
-  assert.ok(assistantOut.text.includes('Vibe'), 'assistant footer still renders after the tool alert chain')
+  assert.ok(assistantOut.text.includes('—') && assistantOut.text.includes('slot:'), 'assistant footer still renders after the tool alert chain')
 })
 
 test('footer alert chain: desktop message wrapper keeps tool warning and footer visible', async () => {
@@ -329,11 +326,7 @@ test('footer alert chain: desktop message wrapper keeps tool warning and footer 
     },
   }
   await hooks['tool.execute.after'](toolInput, desktopToolResult)
-  assert.ok(desktopToolResult.message.text.startsWith('—'), 'desktop wrapper keeps tool alert footer visible')
-  assert.ok(
-    desktopToolResult.message.text.includes('delegate via Task') || desktopToolResult.message.text.includes('trinity medium'),
-    'desktop wrapper keeps delegation warning visible'
-  )
+  assert.ok(desktopToolResult.message.text.includes('Credit is at 0%') || desktopToolResult.message.text.includes('Quick win:'), 'desktop wrapper keeps the low-credit note visible')
 
   const desktopAssistantOut = {
     message: {

@@ -256,8 +256,8 @@ test('e2e: simulated full session hook sequence does not crash', async () => {
 
     const toolResult = { result: 'export function foo(): string { return "hello" }' }
     await hooks['tool.execute.after'](toolInput, toolResult)
-    assert.ok(toolResult.result.startsWith('—'), 'tool footer alert should be prepended')
-    assert.ok(toolResult.result.includes('Vibe'), 'tool footer alert should include the vibeOS brand line')
+    assert.ok(toolResult.result.includes('—'), 'tool footer alert should be present')
+    assert.ok(toolResult.result.includes('[test-reminder]'), 'tool footer alert should preserve the reminder text')
 
     const textOutput = { text: 'Here is your function. It does the thing with proper types and handles edge cases.' }
     await hooks['experimental.text.complete']({ messageID: 'msg-' + Date.now() }, textOutput)

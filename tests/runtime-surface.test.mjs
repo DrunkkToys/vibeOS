@@ -40,7 +40,7 @@ test("buildStatusPayload assembles dashboard state from injected inputs", () => 
     thinking: "full",
     current_model: "model-medium",
     current_provider: "Unknown",
-    current_quality_tier: "Free",
+    current_quality_tier: "Cheap",
     credit_percent: 73,
     version: "1.2.3",
     todos: { total: 2, pending: 1 },

@@ -7,6 +7,7 @@ export interface FooterLineInput {
   providerLabel: string
   modelName: string
   ltTotal: number
+  ltTrend?: string
   vibeBrand: string
   optMode: string
   flashIcon: string
@@ -38,6 +39,19 @@ export function resolveTierIcon(slot: string): string {
   return TIER_ICON[slot] || "\u26A1"
 }
 
+export function trendGlyph(trend?: string): string {
+  if (trend === "up") return "↗"
+  if (trend === "down") return "↘"
+  return "→"
+}
+
+export function formatSavingsPulse(amountUsd: number, trend?: string): string {
+  const amount = Number(amountUsd || 0)
+  if (!Number.isFinite(amount) || amount <= 0) return ""
+  const arrow = trendGlyph(trend)
+  return `$${amount.toFixed(2)} saved${arrow !== "→" ? ` ${arrow}` : ""}`
+}
+
 export function buildEnforcementTags(opts: {
   delegationEnforce: boolean
   flowEnforce: boolean
@@ -59,13 +73,14 @@ export function buildEnforcementTags(opts: {
 }
 
 export function buildFooterLine(input: FooterLineInput): string {
-  const { activeSlot, sessionSlot, providerLabel, modelName, ltTotal, vibeBrand, optMode, flashIcon, enfTags, vectorChangedSlot } = input
+  const { activeSlot, sessionSlot, providerLabel, modelName, ltTotal, ltTrend, vibeBrand, optMode, flashIcon, enfTags, vectorChangedSlot } = input
 
   const tierIcon = resolveTierIcon(activeSlot)
   let line = `\u2014 ${tierIcon} ${activeSlot} | ${providerLabel} | ${modelName}`
 
   if (ltTotal > 0) {
-    line += ` | $${ltTotal.toFixed(2)}`
+    const savingsPulse = formatSavingsPulse(ltTotal, ltTrend)
+    if (savingsPulse) line += ` | ${savingsPulse}`
   }
 
   line += ` | ${vibeBrand}${flashIcon}`

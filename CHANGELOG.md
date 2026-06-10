@@ -1,3 +1,7 @@
+## 0.23.56
+- fix: softer dopamine-style communication layer with compact vector-change storytelling and calmer footer pulses
+
+
 ## 0.23.55
 - feat: add single-file bundle build (esbuild) + fix vibelitex schema deployment
 

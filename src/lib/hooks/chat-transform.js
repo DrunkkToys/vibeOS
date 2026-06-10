@@ -497,20 +497,19 @@ const C7_URGENCY = {
 function context7Directive(cv) {
     const urgency = cv?.context7_urgency || "preferred";
     return "[cost policy] If mcp__context7__resolve-library-id and mcp__context7__get-library-docs " +
-        "tools are available in this session, ALWAYS use them instead of WebFetch or WebSearch " +
-        "when looking up library or framework documentation " +
+        "are available, prefer them over WebFetch/WebSearch for library and framework docs " +
         "(docs.*, readthedocs.*, npmjs.com/package/*, pypi.org/project/*, pkg.go.dev, /api/reference/). " +
-        "Do not fetch those URLs directly when context7 can serve the same content. " +
-        "This saves ~$0.06/turn on average." +
+        "Use the cheapest accurate source first. " +
+        "This usually saves about $0.06/turn." +
         (C7_URGENCY[urgency] || "");
 }
 function thinkingDirective(level) {
     const credit = loadCredit();
     const creditNote = `credit ${credit}%`;
     if (level === "brief") {
-        return `[thinking policy] Reasoning depth: BRIEF (manually set, ${creditNote}). Use extended thinking only for genuinely complex multi-step problems. Keep reasoning concise -- skip exploratory scratch work and restatement.`;
+        return `[thinking policy] Reasoning depth: BRIEF (manually set, ${creditNote}). Keep the answer crisp and only expand when the task truly needs it.`;
     }
-    return `[thinking policy] Reasoning depth: OFF (manually set, ${creditNote}). Skip extended thinking entirely. Respond directly and concisely. Every thinking token costs money -- save it for when the user explicitly asks.`;
+    return `[thinking policy] Reasoning depth: OFF (manually set, ${creditNote}). Respond directly, avoid extra scratch work, and reserve extended thinking for when the user asks for it.`;
 }
 function orchestratorDirective(cv, sel) {
     const tierBias = cv?.tier_bias || "auto";
@@ -525,10 +524,10 @@ function orchestratorDirective(cv, sel) {
     const compatibilityMode = sel?.onboarding_mode === "assist";
     return `[AI ORCHESTRATOR AGENT] You are an AI orchestrator agent. ` +
         `Delegate heavy work to Task subagents (runs on ${targetModel}). ` +
-        `Your role: verify, fill gaps, synthesize. ` +
+        `Your role is to verify, fill gaps, and synthesize cleanly. ` +
         (compatibilityMode
-            ? "Compatibility mode is active: direct Write/Edit is allowed until the user enables strict guardrails."
-            : "CRITICAL: Write/Edit tools are BLOCKED on this tier. You MUST delegate ALL implementation work to Task subagents.") +
+            ? "Compatibility mode is active, so direct Write/Edit stays available until strict guardrails are enabled."
+            : "Write/Edit tools are blocked on this tier; delegate implementation work to Task subagents.") +
         ` Always display the vibeOS cost footer.` +
         (tierBias !== "auto" ? ` [tier routing] This turn is biased toward ${tierBias} tier.` : "");
 }
@@ -541,8 +540,8 @@ function tddDirective(cv, sel) {
     const tddMode = cv?.tdd_mode || (sel.tdd_strict ? "strict" : "normal");
     const tddFocus = cv?.tdd_focus || [];
     const focusNote = tddFocus.length > 0 ? ` Focus: ${tddFocus.join(", ")}.` : "";
-    return `[tdd enforcement: ${tddMode}] Auto-create skeleton tests for source files being written/edited.${TDD_NOTES[tddMode] || ""}${focusNote} ` +
-        "When creating or modifying source files, ensure corresponding test files exist with proper assertions.";
+    return `[tdd enforcement: ${tddMode}] Auto-create skeleton tests for source files being written or edited.${TDD_NOTES[tddMode] || ""}${focusNote} ` +
+        "When the work changes code, keep the test path visible and make the next test step obvious.";
 }
 function flowDirective(cv, sel) {
     const flowMode = cv?.flow_mode || (sel.flow_enforce ? "normal" : "audit");
@@ -550,14 +549,14 @@ function flowDirective(cv, sel) {
     const enforceNote = sel.flow_enforce ? " TODO/FIXME extraction is active." : "";
     const focusNote = flowFocus.length > 0 ? ` Focus rules: ${flowFocus.join(", ")}.` : "";
     return `[flow enforcement: ${flowMode}] Development flow rules are active: write/edit operations are checked against project conventions.${enforceNote}${focusNote} ` +
-        "Follow existing code patterns, naming conventions, and project structure.";
+        "Stay close to the existing code patterns, naming style, and project structure.";
 }
 function flowTodosDirective() {
     const pendingTodos = loadTodos().filter((t) => t.status === "pending").length;
     if (pendingTodos === 0)
         return null;
-    return "[vibeOS] " + pendingTodos + " extracted TODO/FIXME items are pending. " +
-        "Consider calling `todowrite` to add them to the native task list.";
+    return "[vibeOS] " + pendingTodos + " extracted TODO/FIXME items are waiting. " +
+        "If useful, call `todowrite` so they land in the native task list.";
 }
 function patternDirective(fp) {
     const patterns = promotedProjectPatterns(fp);
@@ -586,8 +585,8 @@ function welcomeDirective() {
     const active = sel.active_slot || "medium";
     const current = currentModel || "(unknown)";
     return "[vibeOS] Active plugin. Slot: " + active + " (" + current + "). " +
-        "Use trinity command to switch slots, rebuild, or check status. " +
-        "Run `trinity help` for all commands.";
+        "Use `trinity status` for a quick check, `trinity help` for the full command list, " +
+        "or `trinity set`, `trinity mode`, and `trinity rebuild` to move forward.";
 }
 function contextBudgetDirective(_input, output) {
     const ctxBudget = estimateContextBudget(_input, output);
@@ -595,7 +594,7 @@ function contextBudgetDirective(_input, output) {
         return null;
     const severity = ctxBudget.pct > 90 ? "CRITICAL" : "WARNING";
     return `[context budget: ${severity}] Context window is ${ctxBudget.pct}% full (~${ctxBudget.estimatedTokens} tokens). ` +
-        "Consider using Task subagents for heavy work, compressing tool outputs, or starting a new session to avoid context overflow.";
+        "Use Task subagents for heavy work, compress tool output, or start a fresh session before context gets cramped.";
 }
 export const onSystemTransform = async (_input, output) => {
     if (!loadSelection().enabled)
@@ -720,12 +719,11 @@ export const onSystemTransform = async (_input, output) => {
         }
         const stressMitigationDirective = rawStress > 0.7
             ? "[stress mitigation: CRITICAL] The user's message shows very high stress indicators. " +
-                "Stay calm, structured, and thorough. Use proper markdown formatting with code blocks, " +
-                "lists, and organized structure. Do NOT mirror the user's tone or brevity. " +
-                "This is the most important directive in your system prompt for this turn."
+                "Stay calm, structured, and thorough. Lead with the answer, keep steps explicit, and avoid playful language or overload. " +
+                "Do not mirror the user's urgency."
             : rawStress > 0.4
                 ? "[stress mitigation: elevated] The user's message has elevated stress indicators. " +
-                    "Maintain structured, well-formatted responses with markdown and code blocks."
+                    "Keep the response structured, readable, and lightly reassuring."
                 : null;
         if (stressMitigationDirective) {
             pushSystem(output, stressMitigationDirective);
@@ -738,13 +736,13 @@ export const onSystemTransform = async (_input, output) => {
             const tpl = TEMPLATES[_currentTemplate] || TEMPLATES[DEFAULT_TEMPLATE];
             let fused = tpl.directive;
             if (sel.delegation_enforce && _controlVector?.enforcement_mode !== "relaxed") {
-                fused += " CRITICAL: Write/Edit tools are BLOCKED on brain tier. Delegate ALL implementation to Task subagents. Use parallel invocation for independent tasks.";
+                fused += " Write/Edit stays blocked on brain tier. Delegate implementation to Task subagents and use parallel calls for independent work.";
             }
             if (sel.tdd_enforce && _controlVector?.tdd_mode !== "lazy") {
-                fused += " Auto-create test skeletons for changed source files.";
+                fused += " Keep test skeletons ready for changed source files.";
             }
             if (sel.flow_enabled && _controlVector?.flow_mode !== "audit") {
-                fused += " Follow existing code conventions and project patterns.";
+                fused += " Stay close to existing code conventions and project patterns.";
             }
             pushSystem(output, fused);
         }
@@ -768,7 +766,7 @@ export const onSystemTransform = async (_input, output) => {
             if (currentRegime !== prevRegime) {
                 _prevBlackboxRegime = currentRegime;
                 pushSystem(output, "[decision engine] Resolution: " + (res.resolution || "unresolved") + " " +
-                    "(" + currentRegime + "). Momentum: " + ((res.momentum || 0) > 0 ? "positive" : (res.momentum || 0) < 0 ? "negative" : "neutral") + ".");
+                    "(" + currentRegime + "). Momentum: " + ((res.momentum || 0) > 0 ? "↗ positive" : (res.momentum || 0) < 0 ? "↘ negative" : "→ steady") + ".");
                 if (res.is_looping && res.loop_intervention_level && res.loop_intervention_level !== "none") {
                     const severity = res.loop_intervention_level === "escalated" ? "CRITICAL"
                         : res.loop_intervention_level === "assertive" ? "WARNING" : "NOTICE";
@@ -832,18 +830,18 @@ export const onSystemTransform = async (_input, output) => {
         catch { }
         if (!oneShot("vibeos_dashboard_instruct")) {
             pushSystem(output, "[vibeOS dashboard display] When the trinity tool returns output starting with '[vibeOS-dashboard]', " +
-                "you MUST use the question tool to display that data in a clean, human-readable format. " +
+                "use the question tool to display that data in a clean, human-readable format. " +
                 "Use the question field (not the header) to show the dashboard data. " +
                 "Format it with clear sections separated by blank lines, aligned columns with spaces, " +
-                "and plain text only (no emojis, no markdown). " +
+                "and plain text only. " +
                 "The header should be 'vibeOS Dashboard'. " +
                 "Include only one option in options: {label: 'Dismiss', description: ''}. " +
                 "Strip the '[vibeOS-dashboard]' marker line before displaying.");
         }
         if (!oneShot("vibeos_dopamine_style_" + fp)) {
-            pushSystem(output, "[tool style: dopamine] When calling the bash tool, use a short, progress-focused description " +
+            pushSystem(output, "[tool style: dopamine] When calling the bash tool, use a short, calm, progress-focused description " +
                 "that names the user-visible milestone being advanced. Combine independent bash commands into a single " +
-                "call with && or ;. Never use raw technical labels as tool descriptions.");
+                "call with && or ;. Keep the wording human and avoid hype or raw technical labels.");
         }
     }
     catch (err) {

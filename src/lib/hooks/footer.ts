@@ -265,6 +265,7 @@ async function _appendFooter(input, output, directory) {
       providerLabel: execution.provider_label,
       modelName: modelDisplayName(execution.model),
       ltTotal,
+      ltTrend: sesTrend,
       vibeBrand,
       optMode: displayMode,
       flashIcon,
