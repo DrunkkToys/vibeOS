@@ -12,6 +12,9 @@ let sandbox
 test.before(() => {
   sandbox = mkdtempSync(join(tmpdir(), "vibeos-mega-"))
   process.env.HOME = sandbox
+  process.env.VIBEOS_HOME = join(sandbox, ".claude")
+  mkdirSync(join(sandbox, ".opencode"), { recursive: true })
+  writeFileSync(join(sandbox, ".opencode/opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-pro" }))
   mkdirSync(join(sandbox, ".claude/scratch/by-hash"), { recursive: true })
   mkdirSync(join(sandbox, ".claude/scratch/sessions/sess-A/by-hash"), { recursive: true })
   mkdirSync(join(sandbox, ".claude/scratch/sessions/sess-B/by-hash"), { recursive: true })
@@ -23,6 +26,39 @@ test.before(() => {
 test.after(() => {
   try { rmSync(sandbox, { recursive: true, force: true }) } catch {}
 })
+
+function setTiers() {
+  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+    $schema_version: 1,
+    trinity: {
+      brain: { oc: "deepseek/deepseek-v4-pro", cc: "deepseek-reasoner" },
+      medium: { oc: "deepseek/deepseek-v4-flash", cc: "haiku" },
+      cheap: { oc: "deepseek/deepseek-v4-flash", cc: "haiku" },
+    },
+    selection: {
+      enabled: true,
+      active_slot: "brain",
+      delegation_enforce: true,
+      tdd_strict: false,
+      flow_enabled: false,
+      flow_enforce: false,
+      tdd_enforce: false,
+      tdd_quality: false,
+      thinking_level: "off",
+      onboarding_mode: "assist",
+    },
+    tiers: {
+      high: { regex: "opus|gemini-.*-pro|deepseek.*v4.*pro|deepseek.*r1|deepseek.*reasoner|gpt-5|o1|o3|o4" },
+      mid: { regex: "claude.*sonnet|sonnet|deepseek.*v4.*flash|gemini-.*-flash|gpt-4o" },
+      budget: { regex: ".*" },
+    },
+  }, null, 2))
+}
+
+async function getHooks() {
+  const mod = await import(join(root, "src/index.js?t=" + Date.now()))
+  return mod.DelegationEnforcer({ client: {}, directory: join(sandbox, ".opencode") })
+}
 
 // ── GROUP 1: VibeUltraX mode (Wired dynamic, not hardcoded) ──
 test("1a — VibeUltraX exists in BRANDED_MODES with 107% quality", async () => {
@@ -47,6 +83,26 @@ test("1c — fast trinity mode switch reads from BRANDED_MODES not hardcoded lis
   assert.ok(hasBrandedModes, "trinity-tool imports BRANDED_MODES dynamically")
   assert.ok(!tool.includes('"vibemax", "vibeqmax", "vibeultrax"'),
     "mode list not hardcoded — uses BRANDED_MODES array")
+})
+
+test("1d — trinity set model override rewrites the slot map but leaves live config untouched", async () => {
+  setTiers()
+  const targetModel = "magicoder:7b"
+  const hooks = await getHooks()
+  const result = await hooks.tool.trinity.execute({
+    action: "set",
+    slot: "cheap",
+    model: targetModel,
+  })
+  const tiers = JSON.parse(readFileSync(join(sandbox, ".claude/model-tiers.json"), "utf8"))
+  const sel = tiers.selection
+  const oc = JSON.parse(readFileSync(join(sandbox, ".opencode/opencode.json"), "utf8"))
+  assert.equal(sel.active_slot, "brain", "active slot stays on the previously selected brain tier")
+  assert.equal(tiers.trinity.cheap.oc, targetModel, "cheap slot model persisted in tier map")
+  assert.equal(oc.model, "deepseek/deepseek-v4-pro", "OpenCode config remains unchanged on this code path")
+  assert.equal(sel.selected_model, undefined, "selected_model is not written by this path")
+  assert.equal(sel.executed_model, undefined, "executed_model is not written by this path")
+  assert.ok(result.includes(targetModel), "response mentions overridden model: " + result.slice(0, 120))
 })
 
 // ── GROUP 2: Phantom savings dedup ──
