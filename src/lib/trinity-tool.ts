@@ -52,8 +52,11 @@ export function createTrinityTool(deps) {
       if (["brain", "medium", "cheap"].includes(action)) { slot = action; action = "set" }
       const _brandedModeIds = ["vibeultrax", "vibeqmax", "vibemax", "vibelitex"]
       const _builtInModeIds = ["budget", "quality", "speed", "longrun", "auto", "balanced", "audit", "forensic"]
-      if (!action || action === "status") {} 
-      else if (_brandedModeIds.includes(action) || _builtInModeIds.includes(action)) { slot = action; action = "mode" }
+      if (!action || action === "status") {
+        if (slot && (_brandedModeIds.includes(slot) || _builtInModeIds.includes(slot))) { action = "mode" }
+        else if (["brain", "medium", "cheap"].includes(slot)) { action = "set" }
+        else if (["full", "brief", "off"].includes(slot)) { action = "thinking"; level = slot; slot = undefined }
+      } else if (_brandedModeIds.includes(action) || _builtInModeIds.includes(action)) { slot = action; action = "mode" }
       else if (["full", "brief", "off"].includes(action)) { level = action; action = "thinking" }
       else if (["on", "off"].includes(action) && !slot) { slot = action }
       if (action === "status") {
