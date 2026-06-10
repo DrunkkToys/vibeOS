@@ -268,9 +268,12 @@ export function observeToolPattern(toolName, input, output, directory) {
 
 // ── recordSaving ──────────────────────────────────────────────────────
 
+const MAX_SAVE_EST_PER_WARN = 5
+
 export function recordSaving(tool, reason, saveEst, meta = {}) {
   try {
     if (!saveEst || saveEst <= 0) return 0
+    if (saveEst > MAX_SAVE_EST_PER_WARN) saveEst = MAX_SAVE_EST_PER_WARN
     const firstWord = meta?.firstWord || tool || ""
     updateState((s) => {
       s.lifetime ??= { total_savings_usd: 0, cache_savings_usd: 0, missed_context7_usd: 0, session_count: 0, warn_count: 0 }
