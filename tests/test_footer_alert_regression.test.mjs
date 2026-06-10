@@ -40,14 +40,15 @@ after(() => {
 
 test("SETUP: sandbox ready", () => assert.ok(true))
 
-// ── Test 1: tier icon uses vector_changed_slot priority ──
-test("footer: tier = vector_changed_slot when ML decision differs from active_slot", async () => {
+// ── Test 1: tier icon follows active_slot while vector_changed is shown separately ──
+test("footer: tier = active_slot when ML decision differs from active_slot", async () => {
     writeTiers({ active_slot: "brain", vector_changed_slot: "cheap" })
     const { _appendFooter } = await import("../src/lib/hooks/footer.js?ftr1=" + Date.now())
     const o = { text: "This is a test message that is long enough to trigger the vibeOS footer mechanism and verify the ML pipeline." }
     await _appendFooter({ args: { model: "deepseek/v4-flash" } }, o)
-    // The footer should use vector_changed_slot (cheap) as the primary tier
-    assert.ok(o.text.includes("🎁 cheap") || o.text.includes("cheap"), "footer should show cheap from vector_changed: " + o.text.slice(-150))
+    // The footer should keep brain first and show the vector move at the end.
+    assert.ok(o.text.includes("🧠 brain"), "footer should show brain from active_slot: " + o.text.slice(-150))
+    assert.ok(o.text.includes("⟡ cheap"), "footer should show cheap as the vector move: " + o.text.slice(-150))
 })
 
 // ── Test 2: optimization_mode appears in footer ──
@@ -65,7 +66,7 @@ test("footer: → arrow when ML wants different tier", async () => {
     const { _appendFooter } = await import("../src/lib/hooks/footer.js?ftr3=" + Date.now())
     const o = { text: "Testing the arrow indicator when the ML wants to change the tier from brain to medium in a long message." }
     await _appendFooter({ args: { model: "deepseek/v4-flash" } }, o)
-    assert.ok(o.text.includes("→ medium"), "footer should show → medium arrow: " + o.text.slice(-150))
+    assert.ok(o.text.includes("⟡ medium"), "footer should show ⟡ medium pulse: " + o.text.slice(-150))
 })
 
 // ── Test 4: footer drops redundant mode label ──
@@ -84,9 +85,9 @@ test("footer: full ML pipeline — tier + mode + arrow in one line", async () =>
     const o = { text: "Full pipeline test to verify tier icon, mode display, and arrow all appear in the vibeOS footer." }
     await _appendFooter({ args: { model: "deepseek/v4-flash" } }, o)
     const footer = o.text.slice(-200)
-    assert.ok(footer.includes("🧠") || footer.includes("⚙") || footer.includes("🎁") || footer.includes("cheap") || footer.includes("medium") || footer.includes("brain"), "has tier: " + footer)
+    assert.ok(footer.includes("🧠") || footer.includes("⚙") || footer.includes("⚡") || footer.includes("🎁") || footer.includes("cheap") || footer.includes("medium") || footer.includes("brain"), "has tier: " + footer)
     assert.ok(footer.includes("budget"), "has mode: " + footer)
-    assert.ok(footer.includes("→ cheap"), "has arrow: " + footer)
+    assert.ok(footer.includes("⟡ cheap"), "has vector pulse: " + footer)
 })
 
 // ── Test 6: enforcement tags preserved ──
@@ -96,5 +97,5 @@ test("footer: enforcement state preserved in dynamic display", async () => {
     const o = { text: "Testing that enforcement settings are preserved in the footer alert display for vibeOS." }
     await _appendFooter({ args: { model: "deepseek/v4-flash" } }, o)
     // Footer should not crash, enforcement tags should render
-    assert.ok(o.text.includes("⚙") || o.text.includes("medium") || o.text.includes("cheap") || o.text.includes("brain") || o.text.includes("🧠"), "footer renders: " + o.text.slice(-150))
+    assert.ok(o.text.includes("⚙") || o.text.includes("medium") || o.text.includes("cheap") || o.text.includes("brain") || o.text.includes("🧠") || o.text.includes("⚡"), "footer renders: " + o.text.slice(-150))
 })

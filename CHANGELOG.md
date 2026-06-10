@@ -1,3 +1,6 @@
+## 0.23.57
+- fix: keep the dopamine footer compact, add flash/free tier icons, and make shell/enforcement copy feel calmer
+
 ## 0.23.56
 - fix: softer dopamine-style communication layer with compact vector-change storytelling and calmer footer pulses
 

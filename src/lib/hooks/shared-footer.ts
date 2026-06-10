@@ -28,7 +28,8 @@ const BRAND_MAP: Record<string, string> = {
 const TIER_ICON: Record<string, string> = {
   brain: "\u{1F9E0}",
   medium: "\u2699\uFE0F",
-  cheap: "\u{1F381}",
+  cheap: "\u26A1",
+  free: "\u{1F381}",
 }
 
 export function resolveBrand(optMode: string, activeSlot: string): string {
@@ -37,6 +38,11 @@ export function resolveBrand(optMode: string, activeSlot: string): string {
 
 export function resolveTierIcon(slot: string): string {
   return TIER_ICON[slot] || "\u26A1"
+}
+
+export function formatVectorPulse(vectorChangedSlot?: string): string {
+  if (!vectorChangedSlot) return ""
+  return `⟡ ${vectorChangedSlot}`
 }
 
 export function trendGlyph(trend?: string): string {
@@ -89,8 +95,8 @@ export function buildFooterLine(input: FooterLineInput): string {
     line += ` ${optMode}`
   }
 
-  if (vectorChangedSlot) {
-    line += ` | \u2192 ${vectorChangedSlot}`
+  if (vectorChangedSlot && vectorChangedSlot !== activeSlot) {
+    line += ` | ${formatVectorPulse(vectorChangedSlot)}`
   }
 
   if (enfTags.length > 0) {

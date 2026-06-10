@@ -12,13 +12,19 @@ const BRAND_MAP = {
 const TIER_ICON = {
     brain: "\u{1F9E0}",
     medium: "\u2699\uFE0F",
-    cheap: "\u{1F381}",
+    cheap: "\u26A1",
+    free: "\u{1F381}",
 };
 export function resolveBrand(optMode, activeSlot) {
     return BRAND_MAP[optMode] || (activeSlot === "brain" ? "VibeQMaX" : "VibeMaX");
 }
 export function resolveTierIcon(slot) {
     return TIER_ICON[slot] || "\u26A1";
+}
+export function formatVectorPulse(vectorChangedSlot) {
+    if (!vectorChangedSlot)
+        return "";
+    return `⟡ ${vectorChangedSlot}`;
 }
 export function trendGlyph(trend) {
     if (trend === "up")
@@ -66,8 +72,8 @@ export function buildFooterLine(input) {
     if (optMode && optMode !== "auto") {
         line += ` ${optMode}`;
     }
-    if (vectorChangedSlot) {
-        line += ` | \u2192 ${vectorChangedSlot}`;
+    if (vectorChangedSlot && vectorChangedSlot !== activeSlot) {
+        line += ` | ${formatVectorPulse(vectorChangedSlot)}`;
     }
     if (enfTags.length > 0) {
         line += ` ${enfTags.join(" ")}`;

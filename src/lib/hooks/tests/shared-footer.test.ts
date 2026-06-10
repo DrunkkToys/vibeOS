@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { buildEnforcementTags, buildFooterLine, formatSavingsPulse, resolveBrand, resolveTierIcon, trendGlyph } from "../shared-footer.js"
+import { buildEnforcementTags, buildFooterLine, formatSavingsPulse, formatVectorPulse, resolveBrand, resolveTierIcon, trendGlyph } from "../shared-footer.js"
 
 test("shared-footer resolves the expected brand names", () => {
   assert.equal(resolveBrand("vibemax", "brain"), "VibeMaX")
@@ -11,7 +11,13 @@ test("shared-footer resolves the expected brand names", () => {
 test("shared-footer keeps tier icons compact and stable", () => {
   assert.equal(resolveTierIcon("brain"), "🧠")
   assert.equal(resolveTierIcon("medium"), "⚙️")
-  assert.equal(resolveTierIcon("cheap"), "🎁")
+  assert.equal(resolveTierIcon("cheap"), "⚡")
+  assert.equal(resolveTierIcon("free"), "🎁")
+})
+
+test("shared-footer formats a compact vector pulse", () => {
+  assert.equal(formatVectorPulse("cheap"), "⟡ cheap")
+  assert.equal(formatVectorPulse(undefined), "")
 })
 
 test("shared-footer formats a subtle savings pulse with trend cues", () => {
@@ -43,10 +49,12 @@ test("shared-footer keeps the footer compact while showing savings and slot stat
     optMode: "budget",
     flashIcon: " ⚡",
     enfTags: ["[ENF ON]"],
+    vectorChangedSlot: "cheap",
   })
 
   assert.ok(line.includes("⚙️ medium"))
   assert.ok(line.includes("$12.57 saved ↗"))
   assert.ok(line.includes("VibeMaX ⚡"))
   assert.ok(line.includes("[ENF ON]"))
+  assert.ok(line.includes("⟡ cheap"))
 })

@@ -71,6 +71,7 @@ test("classify: opus → high", async () => {
   const hooks2 = await DelegationEnforcer({ client: {}, directory: opencodeDir })
   await hooks2["shell.env"]({}, envOut)
   assert.equal(envOut.env.OPENCODE_MODEL_TIER, "high")
+  assert.ok(String(envOut.env.VIBEOS_SHELL_BADGE || "").includes("🧠"), "shell badge should carry the brain icon")
 })
 
 test("classify: deepseek-flash → mid", async () => {
@@ -1644,8 +1645,8 @@ test("tool.execute.after: delegation warning injected into output.result", async
 
   assert.ok(afterOutput.result.includes("[vibeOS]"),
     `output.result must contain [vibeOS] delegation note; got: ${afterOutput.result}`)
-  assert.ok(afterOutput.result.includes("tier direct edit"),
-    `output.result must describe the action; got: ${afterOutput.result}`)
+  assert.ok(afterOutput.result.includes("delegate via Task") || afterOutput.result.includes("brain paused"),
+    `output.result must describe the handoff; got: ${afterOutput.result}`)
   assert.ok(afterOutput.result.includes("File edited successfully."),
     "original tool result must be preserved")
 })

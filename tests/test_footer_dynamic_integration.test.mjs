@@ -27,21 +27,28 @@ test("SETUP: sandbox ready", () => {
 test("footer: tier icon brain -> 🧠", () => {
   writeTiers({ active_slot: "brain" })
   const sel = JSON.parse(readFileSync(join(sandbox, ".claude", "model-tiers.json"), "utf8")).selection
-  const icon = sel.active_slot === "brain" ? "🧠" : sel.active_slot === "medium" ? "⚙" : sel.active_slot === "cheap" ? "🎁" : "⚡"
+  const icon = sel.active_slot === "brain" ? "🧠" : sel.active_slot === "medium" ? "⚙" : sel.active_slot === "cheap" ? "⚡" : "🎁"
   assert.equal(icon, "🧠")
 })
 
 test("footer: tier icon medium -> ⚙", () => {
   writeTiers({ active_slot: "medium" })
   const sel = JSON.parse(readFileSync(join(sandbox, ".claude", "model-tiers.json"), "utf8")).selection
-  const icon = sel.active_slot === "brain" ? "🧠" : sel.active_slot === "medium" ? "⚙" : sel.active_slot === "cheap" ? "🎁" : "⚡"
+  const icon = sel.active_slot === "brain" ? "🧠" : sel.active_slot === "medium" ? "⚙" : sel.active_slot === "cheap" ? "⚡" : "🎁"
   assert.equal(icon, "⚙")
 })
 
-test("footer: tier icon cheap -> 🎁", () => {
+test("footer: tier icon cheap -> ⚡", () => {
   writeTiers({ active_slot: "cheap" })
   const sel = JSON.parse(readFileSync(join(sandbox, ".claude", "model-tiers.json"), "utf8")).selection
-  const icon = sel.active_slot === "brain" ? "🧠" : sel.active_slot === "medium" ? "⚙" : sel.active_slot === "cheap" ? "🎁" : "⚡"
+  const icon = sel.active_slot === "brain" ? "🧠" : sel.active_slot === "medium" ? "⚙" : sel.active_slot === "cheap" ? "⚡" : "🎁"
+  assert.equal(icon, "⚡")
+})
+
+test("footer: tier icon free -> 🎁", () => {
+  writeTiers({ active_slot: "free" })
+  const sel = JSON.parse(readFileSync(join(sandbox, ".claude", "model-tiers.json"), "utf8")).selection
+  const icon = sel.active_slot === "brain" ? "🧠" : sel.active_slot === "medium" ? "⚙" : sel.active_slot === "cheap" ? "⚡" : "🎁"
   assert.equal(icon, "🎁")
 })
 
@@ -70,9 +77,9 @@ test("footer: → arrow appears when vector_changed differs from active_slot", (
   const sel = JSON.parse(readFileSync(join(sandbox, ".claude", "model-tiers.json"), "utf8")).selection
   assert.equal(sel.vector_changed_slot, "cheap")
   assert.notEqual(sel.vector_changed_slot, sel.active_slot)
-  // Arrow logic: if vector_changed_slot exists, show → ${vector_changed_slot}
-  const arrow = sel.vector_changed_slot ? ` → ${sel.vector_changed_slot}` : ""
-  assert.ok(arrow.includes("cheap"))
+  // Vector pulse logic: if vector_changed_slot exists and differs, show ⟡ ${vector_changed_slot}
+  const pulse = sel.vector_changed_slot && sel.vector_changed_slot !== sel.active_slot ? ` ⟡ ${sel.vector_changed_slot}` : ""
+  assert.ok(pulse.includes("cheap"))
 })
 
 test("footer: vector_changed_slot priority for tier display", () => {
