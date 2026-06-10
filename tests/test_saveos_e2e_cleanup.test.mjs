@@ -15,6 +15,8 @@ import assert from "node:assert/strict"
 import {
   mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync,
 } from "node:fs"
+import http from "node:http"
+import net from "node:net"
 import { join } from "node:path"
 import { homedir, tmpdir } from "node:os"
 import { spawnSync } from "node:child_process"
@@ -107,6 +109,34 @@ async function freshPlugin(dir = projectDir) {
   const mod = await loadPlugin()
   const hooks = await mod.DelegationEnforcer({ client: {}, directory: dir })
   return { mod, hooks }
+}
+
+async function getFreePort() {
+  return await new Promise((resolve, reject) => {
+    const server = net.createServer()
+    server.once("error", reject)
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address()
+      const port = typeof address === "object" && address ? address.port : 0
+      server.close((err) => err ? reject(err) : resolve(port))
+    })
+  })
+}
+
+async function waitForUrl(url, timeoutMs = 8000) {
+  const start = Date.now()
+  let lastErr = null
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const res = await fetch(url)
+      if (res.ok) return true
+      lastErr = new Error(`status ${res.status}`)
+    } catch (err) {
+      lastErr = err
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  throw lastErr || new Error(`timed out waiting for ${url}`)
 }
 
 // -- 1. AUTO MODE --
@@ -303,6 +333,169 @@ test("saveOS REPORTS: research-audit scans for anti-patterns", async () => {
     const result = await mod.researchAudit()
     assert.ok(result !== undefined, "researchAudit returns a result")
   }
+})
+
+test("saveOS MCP: live endpoints persist blackbox vectors and return structured pages", async () => {
+  const script = `
+    import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+    import { join } from "node:path";
+    import { tmpdir } from "node:os";
+    import http from "node:http";
+    const sandbox = mkdtempSync(join(tmpdir(), "saveos-live-mcp-"));
+    const home = sandbox;
+    const vibeHome = join(home, ".claude");
+    const opencodeHome = join(home, ".config/opencode");
+    const projectDir = join(sandbox, "project");
+    const liveId = String(Date.now());
+    const liveModels = {
+      brain: "sandbox/brain-" + liveId,
+      medium: "sandbox/medium-" + liveId,
+      cheap: "sandbox/cheap-" + liveId,
+    };
+    const providerModels = Object.fromEntries(Object.values(liveModels).map((modelId) => [modelId.split("/")[1], {}]));
+    mkdirSync(vibeHome, { recursive: true });
+    mkdirSync(join(vibeHome, "reports"), { recursive: true });
+    mkdirSync(join(vibeHome, "scratch"), { recursive: true });
+    mkdirSync(opencodeHome, { recursive: true });
+    mkdirSync(projectDir, { recursive: true });
+    writeFileSync(join(opencodeHome, "opencode.json"), JSON.stringify({
+      model: liveModels.medium,
+      provider: { sandbox: { models: providerModels } },
+    }, null, 2) + "\\n");
+    writeFileSync(join(vibeHome, "model-tiers.json"), JSON.stringify({
+      selection: { enabled: true, active_slot: "medium", delegation_enforce: true, flow_enabled: true, tdd_enforce: true, thinking_level: "off" },
+      trinity: {
+        brain: { oc: liveModels.brain, cc: "brain" },
+        medium: { oc: liveModels.medium, cc: "medium" },
+        cheap: { oc: liveModels.cheap, cc: "cheap" },
+      },
+      tiers: {
+        high: { regex: "sandbox/brain-.*" },
+        mid: { regex: "sandbox/medium-.*" },
+        budget: { regex: ".*" },
+      },
+    }, null, 2) + "\\n");
+    writeFileSync(join(vibeHome, "delegation-state.json"), JSON.stringify({
+      lifetime: { warn_count: 2, cache_savings_usd: 2.1, missed_context7_usd: 0.3, total_savings_usd: 3.0 },
+      sessions: {},
+    }, null, 2) + "\\n");
+    const healthServer = http.createServer((req, res) => {
+      if (req.url === "/health") {
+        res.statusCode = 200;
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify({ ok: true }));
+        return;
+      }
+      res.statusCode = 404;
+      res.end("not found");
+    });
+    const healthPort = await new Promise((resolve, reject) => {
+      healthServer.once("error", reject);
+      healthServer.listen(0, "127.0.0.1", () => resolve(healthServer.address().port));
+    });
+    const port = await new Promise((resolve, reject) => {
+      const probe = http.createServer();
+      probe.once("error", reject);
+      probe.listen(0, "127.0.0.1", () => {
+        const p = probe.address().port;
+        probe.close((err) => err ? reject(err) : resolve(p));
+      });
+    });
+    process.env.HOME = home;
+    process.env.VIBEOS_HOME = vibeHome;
+    process.env.VIBEOS_OPENCODE_HOME = opencodeHome;
+    process.env.VIBEOS_MCP_PORT = String(port);
+    process.env.VIBEOS_BACKEND_HEALTH_URL = "http://127.0.0.1:" + healthPort + "/health";
+    const mod = await import(${JSON.stringify(pathToFileURL(join(process.cwd(), "src/index.js")).href)} + "?live-mcp=" + Date.now());
+    const hooks = await mod.DelegationEnforcer({ client: { live: true }, directory: projectDir });
+    const waitFor = async (url) => {
+      const start = Date.now();
+      while (Date.now() - start < 8000) {
+        try {
+          const res = await fetch(url);
+          if (res.ok) return true;
+        } catch {}
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      throw new Error("timeout");
+    };
+    await waitFor("http://127.0.0.1:" + healthPort + "/health");
+    const status = await (await fetch("http://127.0.0.1:" + port + "/status")).json();
+    const savings = await (await fetch("http://127.0.0.1:" + port + "/savings")).json();
+    const reportsBefore = await (await fetch("http://127.0.0.1:" + port + "/reports")).json();
+    const createRes = await fetch("http://127.0.0.1:" + port + "/reports", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        summary: "live report " + Date.now(),
+        findings: ["ok"],
+        metrics: { live: true },
+        narrative: "live report",
+        tags: ["live"],
+      }),
+    });
+    const createJson = await createRes.json();
+    const readJson = await (await fetch("http://127.0.0.1:" + port + "/reports/" + createJson.id)).json();
+    const diag = await (await fetch("http://127.0.0.1:" + port + "/diagnose")).json();
+    const proj = await (await fetch("http://127.0.0.1:" + port + "/project")).json();
+    const vectorRes = await fetch("http://127.0.0.1:" + port + "/blackbox/vector", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ satisfaction: 0.7, stress_level: 0.2, notes: "live vector" }),
+    });
+    const outcomeRes = await fetch("http://127.0.0.1:" + port + "/blackbox/outcome", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ satisfaction: "positive", notes: "live outcome" }),
+    });
+    const blackbox = JSON.parse(readFileSync(join(vibeHome, "blackbox-state.json"), "utf-8"));
+    const sid = Object.keys(blackbox.sessions || {})[0];
+    const trinityStatus = await hooks.tool.trinity.execute({ action: "status" });
+    const result = {
+      status_backend_connected: status.backend_connected,
+      status_backend_health_url: status.backend_health_url,
+      status_model_locked: status.model_locked,
+      savings_cache_usd: savings.lifetime?.cache_usd,
+      reports_before_count: Array.isArray(reportsBefore) ? reportsBefore.length : -1,
+      report_id: createJson.id,
+      report_roundtrip: readJson?.meta?.id === createJson.id,
+      diag_is_object: diag && typeof diag === "object" && !Array.isArray(diag),
+      proj_is_object: proj && typeof proj === "object" && !Array.isArray(proj),
+      vector_status: vectorRes.status,
+      outcome_status: outcomeRes.status,
+      blackbox_session_id: sid,
+      blackbox_vector_count: blackbox.sessions?.[sid]?.dashboard_vectors?.length || 0,
+      blackbox_outcome_count: blackbox.sessions?.[sid]?.dashboard_outcomes?.length || 0,
+      trinity_status_has_dashboard: String(trinityStatus).includes("vibeOS") || String(trinityStatus).includes("dashboard"),
+    };
+    console.log(JSON.stringify(result));
+    await mod.closeMcpServer();
+    await new Promise((resolve) => healthServer.close(() => resolve()));
+    try { rmSync(sandbox, { recursive: true, force: true }); } catch {}
+  `;
+
+  const child = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
+    env: { ...process.env },
+    encoding: "utf-8",
+  })
+
+  assert.equal(child.status, 0, child.stderr || child.stdout)
+  const result = JSON.parse(String(child.stdout || "").trim())
+  assert.equal(result.status_backend_connected, true)
+  assert.equal(result.status_backend_health_url.includes("/health"), true)
+  assert.equal(result.status_model_locked, false)
+  assert.equal(result.savings_cache_usd, 2.1)
+  assert.ok(result.reports_before_count >= 0)
+  assert.ok(result.report_id)
+  assert.equal(result.report_roundtrip, true)
+  assert.equal(result.diag_is_object, true)
+  assert.equal(result.proj_is_object, true)
+  assert.equal(result.vector_status, 200)
+  assert.equal(result.outcome_status, 200)
+  assert.ok(result.blackbox_session_id)
+  assert.equal(result.blackbox_vector_count, 1)
+  assert.equal(result.blackbox_outcome_count, 1)
+  assert.equal(result.trinity_status_has_dashboard, true)
 })
 
 // -- 10. PROJECT GUARD --
