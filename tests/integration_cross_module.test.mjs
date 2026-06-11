@@ -526,6 +526,64 @@ test('report: saveReport deduplicates within 5 minutes', async () => {
   assert.equal(id2, null, 'second duplicate save returns null')
 })
 
+test('integration: saveReport prefers explicit metrics context over stale cached report state', async () => {
+  const { home } = makeSandbox('report-context')
+  process.env.HOME = home
+
+  const mod = await import('../src/index.js?rpt4=' + Date.now())
+  mod.setCurrentProjectFingerprint('stale-fp-should-not-win')
+  mod.setCurrentProjectName('stale-project-should-not-win')
+  mod.setCurrentSessionId('stale-session-should-not-win')
+
+  const id = mod.saveReport({
+    type: 'session',
+    summary: 'Integration report context test',
+    metrics: {
+      sessionId: 'opencode-int-123',
+      projectName: 'integration-project',
+      projectFingerprint: 'fp-int-123',
+      value: 1,
+    },
+  })
+
+  const report = mod.readReport(id)
+  assert.equal(report.meta.sessionId, 'opencode-int-123', 'metrics session should win over stale cached context')
+  assert.equal(report.meta.project, 'integration-project', 'metrics project should win over stale cached context')
+  assert.equal(report.meta.fingerprint, 'fp-int-123', 'metrics fingerprint should win over stale cached context')
+
+  const pstate = JSON.parse(readFileSync(join(home, '.claude/project-states.json'), 'utf-8'))
+  const bucket = pstate.project_hashes?.['fp-int-123']
+  assert.ok(bucket, 'project bucket should exist for integration report')
+  assert.ok(bucket.sessions.includes('opencode-int-123'), 'project bucket should keep the explicit session id')
+  assert.ok(bucket.reports.includes(id), 'project bucket should keep the report id')
+  assert.equal(bucket.projectName, 'integration-project', 'project bucket should keep the explicit project name')
+})
+
+test('integration: recordSaving stamps the live project bucket with session references', async () => {
+  const { home } = makeSandbox('saving-bucket')
+  process.env.HOME = home
+
+  const mod = await import('../src/index.js?rpt5=' + Date.now())
+  mod.setCurrentProjectFingerprint('fp-saving-456')
+  mod.setCurrentProjectName('saving-project')
+  mod.setCurrentSessionId('session-saving-456')
+  mod.setCurrentTier('high')
+
+  assert.doesNotThrow(() => mod.recordSaving('bash', 'integration save path', 0.25, {
+    firstWord: 'bash',
+    projectFingerprint: 'fp-saving-456',
+    projectName: 'saving-project',
+    sessionId: 'session-saving-456',
+  }))
+
+  const pstate = JSON.parse(readFileSync(join(home, '.claude/project-states.json'), 'utf-8'))
+  const bucket = pstate.project_hashes?.['fp-saving-456']
+  assert.ok(bucket, 'project bucket should exist after recordSaving')
+  assert.ok(bucket.sessions.includes('session-saving-456'), 'recordSaving should stamp the live session id')
+  assert.equal(bucket.projectName, 'saving-project', 'recordSaving should keep the live project name')
+  assert.ok(bucket.commonTopics.some((topic) => topic === 'bash' || topic === 'integration save path'), 'recordSaving should note a topic')
+})
+
 // Section 13: Research Audit
 
 test('researchAudit: returns structured output with expected keys', async () => {

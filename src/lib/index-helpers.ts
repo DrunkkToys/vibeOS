@@ -27,6 +27,7 @@ import {
   loadProjectState,
   saveProjectState,
   ensureProjectBucket,
+  touchProjectBucket,
   updateGlobalLearning,
   updateState,
   roundUsd,
@@ -96,6 +97,11 @@ export function noteProjectPattern(kind, key, summary, meta = {}) {
     if (meta.family) row.family = meta.family
     if (meta.path) row.path = meta.path
     target[key] = row
+    touchProjectBucket(pstate, currentProjectFingerprint, {
+      sessionId: getCurrentSessionId(),
+      projectName: currentProjectName || "",
+      topic: key,
+    })
     const entries = Object.entries(target)
     if (entries.length > 50) {
       entries.sort((a, b) => String(b[1]?.lastSeen || "").localeCompare(String(a[1]?.lastSeen || "")))
@@ -344,6 +350,15 @@ export function recordSaving(tool, reason, saveEst, meta = {}) {
     })
 
     // Buffer ledger entry
+    const projectFingerprint = typeof meta?.projectFingerprint === "string" && meta.projectFingerprint.trim()
+      ? meta.projectFingerprint.trim()
+      : currentProjectFingerprint || ""
+    const projectName = typeof meta?.projectName === "string" && meta.projectName.trim()
+      ? meta.projectName.trim()
+      : currentProjectName || ""
+    const sessionId = typeof meta?.sessionId === "string" && meta.sessionId.trim()
+      ? meta.sessionId.trim()
+      : getCurrentSessionId() || _OC_SID
     const entry = JSON.stringify({
       ts: new Date().toISOString(),
       usd: saveEst,
@@ -351,9 +366,20 @@ export function recordSaving(tool, reason, saveEst, meta = {}) {
       tool,
       reason,
       saveEst,
-      fgp: currentProjectFingerprint || "",
+      fgp: projectFingerprint,
     })
     _ledgerBuffer.push(entry)
+    try {
+      if (projectFingerprint) {
+        const pstate = loadProjectState()
+        touchProjectBucket(pstate, projectFingerprint, {
+          sessionId,
+          projectName,
+          topic: tool || reason || "saving",
+        })
+        saveProjectState(pstate)
+      }
+    } catch {}
     if (_ledgerBuffer.length >= LEDGER_BUFFER_MAX) _flushLedgerBuffer()
     else if (!_ledgerBufferTimer) setLedgerBufferTimer(setTimeout(_flushLedgerBuffer, LEDGER_BUFFER_FLUSH_MS))
 

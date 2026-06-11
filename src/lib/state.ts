@@ -46,9 +46,9 @@ const MAX_SESSION_SCRATCHPAD_FILES = 200
 const MAX_SESSION_SCRATCHPAD_BYTES = 2 * 1024 * 1024
 const CORRUPTION_BACKUP_MAX = 5
 const CORRUPTION_BACKUP_TTL_MS = 24 * 60 * 60 * 1000
-const LEDGER_ROTATE_MAX_BYTES = 1 * 1024 * 1024
-const LEDGER_ROTATE_MAX_LINES = 50_000
-const LEDGER_ROTATE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
+const LEDGER_ROTATE_MAX_BYTES = 256 * 1024
+const LEDGER_ROTATE_MAX_LINES = 10_000
+const LEDGER_ROTATE_MAX_AGE_MS = 48 * 60 * 60 * 1000
 const ACTIVE_JOBS_STALE_MS = 72 * 60 * 60 * 1000
 const MAX_PTR_CANDIDATES = 50
 const SUMMARY_HEAD_TRUNCATE = 500
@@ -243,6 +243,19 @@ function _pruneCorruptionBackups(backupDir: string): void {
         try { rmSync(backup.path, { force: true }) } catch {}
       }
     }
+  } catch {}
+}
+
+let _startupMaintenanceHome = ""
+
+export function runStartupMaintenanceOnce(): void {
+  try {
+    const home = getVibeOSHome()
+    if (!home || home === _startupMaintenanceHome) return
+    _startupMaintenanceHome = home
+    _pruneCorruptionBackups(join(home, ".backups"))
+    loadActiveJobs()
+    _compactSavingsLedgerIfNeeded()
   } catch {}
 }
 
@@ -520,16 +533,68 @@ function loadBlackboxState(): any {
     if (!existsSync(blackboxFile)) return { enabled: true, sessions: {} }
     const st = statSync(blackboxFile)
     if (st.size > 10485760) { _handleStateCorruption(blackboxFile); return { enabled: false, sessions: {} } }
-    return safeJsonParse(readFileSync(blackboxFile, "utf-8")) || { enabled: false, sessions: {} }
+    const raw = safeJsonParse(readFileSync(blackboxFile, "utf-8")) || { enabled: false, sessions: {} }
+    if (!raw.sessions || typeof raw.sessions !== "object") raw.sessions = {}
+    const now = Date.now()
+    let changed = false
+    for (const [sid, session] of Object.entries(raw.sessions)) {
+      if (!session || typeof session !== "object") continue
+      const next = { ...(session as any) }
+      const createdAtRaw = typeof next.createdAt === "string" ? next.createdAt : ""
+      const updatedAtRaw = typeof next.updatedAt === "string" ? next.updatedAt : ""
+      const startedRaw = typeof next.started === "string" ? next.started : ""
+      const sessionStartedRaw = typeof next.session_started_at === "string" ? next.session_started_at : ""
+      const anchorRaw = [createdAtRaw, updatedAtRaw, startedRaw, sessionStartedRaw].find((v) => v && !Number.isNaN(Date.parse(v)))
+      const anchorMs = anchorRaw ? Date.parse(anchorRaw) : NaN
+      if (!Number.isFinite(Date.parse(createdAtRaw))) {
+        next.createdAt = Number.isFinite(anchorMs) ? new Date(anchorMs).toISOString() : new Date(now).toISOString()
+        changed = true
+      }
+      if (!Number.isFinite(Date.parse(updatedAtRaw))) {
+        next.updatedAt = next.createdAt || new Date(now).toISOString()
+        changed = true
+      }
+      if (typeof next.sessionId !== "string" || !next.sessionId.trim()) {
+        next.sessionId = String(sid || "")
+        changed = true
+      }
+      raw.sessions[sid] = next
+    }
+    if (changed) {
+      try { saveBlackboxState(raw) } catch {}
+    }
+    return raw
   } catch { _handleStateCorruption(blackboxFile); return { enabled: false, sessions: {} } }
 }
 
 function saveBlackboxState(state: any): void {
   const blackboxFile = join(getVibeOSHome(), "blackbox-state.json")
   try {
+    const next = state && typeof state === "object" ? state : { enabled: true, sessions: {} }
+    next.sessions ??= {}
+    const now = Date.now()
+    for (const [sid, session] of Object.entries(next.sessions)) {
+      if (!session || typeof session !== "object") continue
+      const record = session as any
+      const createdAtRaw = typeof record.createdAt === "string" ? record.createdAt : ""
+      const updatedAtRaw = typeof record.updatedAt === "string" ? record.updatedAt : ""
+      const startedRaw = typeof record.started === "string" ? record.started : ""
+      const sessionStartedRaw = typeof record.session_started_at === "string" ? record.session_started_at : ""
+      const anchorRaw = [createdAtRaw, updatedAtRaw, startedRaw, sessionStartedRaw].find((v) => v && !Number.isNaN(Date.parse(v)))
+      const anchorMs = anchorRaw ? Date.parse(anchorRaw) : NaN
+      if (!Number.isFinite(Date.parse(createdAtRaw))) {
+        record.createdAt = Number.isFinite(anchorMs) ? new Date(anchorMs).toISOString() : new Date(now).toISOString()
+      }
+      if (!Number.isFinite(Date.parse(updatedAtRaw))) {
+        record.updatedAt = record.createdAt || new Date(now).toISOString()
+      }
+      if (typeof record.sessionId !== "string" || !record.sessionId.trim()) {
+        record.sessionId = String(sid || "")
+      }
+    }
     mkdirSync(dirname(blackboxFile), { recursive: true })
     const tmp = blackboxFile + ".tmp"
-    writeFileSync(tmp, JSON.stringify(state, null, 2) + "\n")
+    writeFileSync(tmp, JSON.stringify(next, null, 2) + "\n")
     renameSync(tmp, blackboxFile)
   } catch (err) {
     console.error(`[vibeOS] saveBlackboxState failed: ${err.message}`)
@@ -1186,10 +1251,48 @@ function ensureProjectBucket(state: any, fp: string): any {
       researchChains: 0,
       context7Bypasses: 0,
       commonTopics: [],
+      sessions: [],
+      reports: [],
+      updatedAt: null,
+      lastSeen: null,
       techStack: detectTechStack(process.cwd()),
     }
   }
   return state.project_hashes[fp]
+}
+
+export function touchProjectBucket(state: any, fp: string, meta: { sessionId?: string; reportId?: string; topic?: string; projectName?: string } = {}): any {
+  if (!fp || fp === "unknown") return null
+  const bucket = ensureProjectBucket(state, fp)
+  const now = new Date().toISOString()
+  bucket.updatedAt = now
+  bucket.lastSeen = now
+  if (typeof meta.projectName === "string" && meta.projectName.trim()) {
+    bucket.projectName = meta.projectName.trim()
+  }
+  if (typeof meta.sessionId === "string" && meta.sessionId.trim()) {
+    bucket.sessions ??= []
+    if (!bucket.sessions.includes(meta.sessionId)) {
+      bucket.sessions.push(meta.sessionId)
+      bucket.sessions = bucket.sessions.slice(-30)
+    }
+    bucket.totalSessions = Math.max(Number(bucket.totalSessions || 0), bucket.sessions.length)
+  }
+  if (typeof meta.reportId === "string" && meta.reportId.trim()) {
+    bucket.reports ??= []
+    if (!bucket.reports.includes(meta.reportId)) {
+      bucket.reports.push(meta.reportId)
+      bucket.reports = bucket.reports.slice(-50)
+    }
+  }
+  if (typeof meta.topic === "string" && meta.topic.trim()) {
+    bucket.commonTopics ??= []
+    if (!bucket.commonTopics.includes(meta.topic)) {
+      bucket.commonTopics.push(meta.topic)
+      bucket.commonTopics = bucket.commonTopics.slice(-20)
+    }
+  }
+  return bucket
 }
 
 // ── Tech stack detection ─────────────────────────────────────────────
@@ -1411,6 +1514,16 @@ function recordDelegation(tool: string, saveEst: number, meta: any = {}): any {
       if (currentProjectName && !s.sessions[sid].project_name) s.sessions[sid].project_name = currentProjectName
 
       s.sessions[sid].total_savings_usd = roundUsd(Number(s.sessions[sid].total_savings_usd || 0) + delta)
+      try {
+        if (currentProjectFingerprint) {
+          const pstate = loadProjectState()
+          touchProjectBucket(pstate, currentProjectFingerprint, {
+            sessionId: sid,
+            projectName: currentProjectName || "",
+          })
+          saveProjectState(pstate)
+        }
+      } catch {}
       _pruneOldSessions(s)
       return s
     })
@@ -1454,6 +1567,17 @@ function recordCacheSaving(tool: string, saveEst: number, meta: any = {}): any {
         s.sessions[sid].cache_savings_usd = roundUsd(Number(s.sessions[sid].cache_savings_usd || 0) + delta)
         s.lifetime.cache_savings_usd = roundUsd(Number(s.lifetime.cache_savings_usd || 0) + delta)
       }
+      try {
+        if (currentProjectFingerprint) {
+          const pstate = loadProjectState()
+          touchProjectBucket(pstate, currentProjectFingerprint, {
+            sessionId: sid,
+            projectName: currentProjectName || "",
+            topic: meta?.hash ? String(meta.hash).slice(0, 16) : "cache",
+          })
+          saveProjectState(pstate)
+        }
+      } catch {}
       _pruneOldSessions(s)
       return s
     })
@@ -1486,6 +1610,18 @@ function recordMissedContext7(saveEst: number): any {
       s.sessions[sid].context7_missed_usd = Math.round(
         ((s.sessions[sid].context7_missed_usd || 0) + saveEst) * 100,
       ) / 100
+      try {
+        if (currentProjectFingerprint) {
+          const pstate = loadProjectState()
+          const bucket = touchProjectBucket(pstate, currentProjectFingerprint, {
+            sessionId: sid,
+            projectName: currentProjectName || "",
+            topic: "context7",
+          })
+          if (bucket) bucket.context7Bypasses = (bucket.context7Bypasses || 0) + 1
+          saveProjectState(pstate)
+        }
+      } catch {}
       return s
     })
     try {
@@ -1500,15 +1636,6 @@ function recordMissedContext7(saveEst: number): any {
       }) + "\n")
       if (_ledgerBuffer.length >= LEDGER_BUFFER_MAX) _flushLedgerBuffer()
       else if (!_ledgerBufferTimer) _ledgerBufferTimer = setTimeout(_flushLedgerBuffer, LEDGER_BUFFER_FLUSH_MS)
-    } catch {}
-    try {
-      if (currentProjectFingerprint) {
-        const pstate = loadProjectState()
-        const bucket = ensureProjectBucket(pstate, currentProjectFingerprint)
-        bucket.context7Bypasses = (bucket.context7Bypasses || 0) + 1
-        bucket.lastSeen = new Date().toISOString()
-        saveProjectState(pstate)
-      }
     } catch {}
     try {
       updateGlobalLearning((gl: any) => {

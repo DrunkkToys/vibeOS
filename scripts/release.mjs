@@ -29,6 +29,17 @@ function die(msg) {
   process.exit(1)
 }
 
+function releaseSeriesName(version) {
+  const parts = String(version || "").split(".").map(Number)
+  if (parts.length >= 2 && parts[0] === 0 && parts[1] === 24) return "Return"
+  return ""
+}
+
+function formatReleaseTitle(version) {
+  const name = releaseSeriesName(version)
+  return name ? `${name} v${version}` : `v${version}`
+}
+
 // ── ENSURE GH CLI ──────────────────────────────────────────────
 try {
   sh("gh --version", { stdio: "pipe" })
@@ -193,6 +204,7 @@ log(`${BOLD}📦 Release Preview${RESET}`)
 log(`   Version:  ${CYAN}${oldVer}${RESET} → ${GREEN}${newVer}${RESET}`)
 log(`   Bump:     ${YELLOW}${bump}${RESET}${forceBump ? ` (forced)` : ``}`)
 log(`   Tag:      ${GREEN}v${newVer}${RESET}`)
+log(`   Name:     ${GREEN}${formatReleaseTitle(newVer)}${RESET}`)
 log(`   Branch:   ${CYAN}${branch}${RESET}`)
 log(`   Commits:  ${entries.length}`)
 log("")
@@ -301,13 +313,14 @@ log(`${GREEN}✓${RESET} pushed tag v${newVer}`)
 {
   const tmpDir = mkdtempSync(join(tmpdir(), "vibetheog-release-"))
   const notesPath = join(tmpDir, "release-notes.md")
-  writeFileSync(notesPath, `## What's Changed\n\n${changelogBlock}`)
+  const releaseTitle = formatReleaseTitle(newVer)
+  writeFileSync(notesPath, `## ${releaseTitle}\n\n## What's Changed\n\n${changelogBlock}`)
   try {
-    sh(`gh release create "v${newVer}" --title "v${newVer}" --notes-file "${notesPath}"`)
+    sh(`gh release create "v${newVer}" --title "${releaseTitle}" --notes-file "${notesPath}"`)
     log(`${GREEN}✓${RESET} GitHub Release v${newVer} created`)
   } catch (e) {
     log(`${YELLOW}⚠${RESET}  GitHub Release creation failed: ${e.message}`)
-    log(`   run manually: gh release create v${newVer} --notes-file "${notesPath}"`)
+    log(`   run manually: gh release create v${newVer} --title "${releaseTitle}" --notes-file "${notesPath}"`)
   }
   rmSync(tmpDir, { recursive: true })
 }
