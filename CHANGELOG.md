@@ -1,3 +1,22 @@
+## 0.24.15
+- feat: smooth delegation UX — conversational reasoning over error injection
+- fix: preserve local agent mode in remote control merge
+- fix: harden live regression paths (#140)
+- fix: write npm auth for github release publish
+- fix: reset api fallback on token refresh (#138)
+- fix: _prevBlackboxState -> _latestBlackboxState, update pattern key test
+- fix: sync-ts-build was cleaning JS artifacts without copying compiled output back
+- fix: forensic anti-lying + quality enforcement pipeline
+- docs: add cross-project index, DEV ONLY markers, ESLint cleanup
+- test: add 13 cascade integration tests for forensic quality pipeline
+- chore: v0.24.14
+- chore: sync package version to v0.24.12
+- chore: sync package version to latest github release
+- chore: sync package version to latest release
+Fix live regressions and add integration coverage (#139)
+Merge pull request #136 from DrunkkToys/release/v0.24.8-merge
+
+
 ## 0.24.14
 - feat: smooth delegation UX — conversational reasoning over error injection
 - fix: preserve local agent mode in remote control merge
