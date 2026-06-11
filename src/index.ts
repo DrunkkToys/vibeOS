@@ -13,7 +13,7 @@ import { getFlowWarns, ensureProjectDocs, syncFlowTodosToNative } from "./vibeOS
 import { computeSessionMetrics } from "./vibeOS-lib/session-metrics.js";
 import { createMcpServer } from "./lib/vibeos-mcp-server.js";
 import { isApiConnected, setApiToken, setApiBootstrapToken, ensureBootstrapExchange, VIBEOS_API_URL } from "./lib/api-client.js";
-import { applySlot, modelCostPerTurn, detectContext7, formatUsd, classify, _refreshModel, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, readConfig, getTrinitySlotOrder, loadTrinitySlotsFromTiersFile, } from "./lib/pricing.js";
+import { applySlot, modelCostPerTurn, detectContext7, formatUsd, classify, _refreshModel, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, readConfig, getTrinitySlotOrder, loadTrinitySlotsFromTiersFile, buildDeterministicTrinity, } from "./lib/pricing.js";
 import { scoreStress, detectTechStack, loadBlackboxState, saveBlackboxState, getBlackboxTracker, getBlackboxResolution, saveOptimizationMode, } from "./lib/turn-classify.js";
 import { safeJsonParse, readFullState, loadSelection, writeSelection, readLifetimeSavings, _OC_SID, _modelLocked, _blackboxEnabled, setBlackboxEnabled, _lockedSlot, _lockedModel, currentTier, currentModel, currentProjectFingerprint, currentProjectName, setCurrentTier, setCurrentModel, setCurrentProjectFingerprint, setCurrentProjectName, setCurrentSessionId, getCurrentSessionId, briefedProjects, _latestBlackboxState, _latestBlackboxLoopMsg, _latestBlackboxPivotMsg, getActiveJobForProject, projectFingerprint, loadProjectState, saveProjectState, ensureProjectBucket, mergeProjectBucket, setVibeOSHomeContext, SAVINGS_LEDGER_FILE, USER_HOME, CREDIT_CACHE_F, pruneScratchpadOnce, registerSessionCleanupHandlers, promotedProjectPatterns, projectPatternRows, clearProjectPatterns, loadTodos, getTodos, upsertTodo, markTodoDone, tool, } from "./lib/state.js";
 import { researchAudit } from "./lib/research-audit.js";
@@ -156,15 +156,14 @@ async function _seedModelTiersIfMissing(directory) {
         discovered = await discoverAvailableModels(providers, auth);
     }
     catch { }
-    let ranked = null;
+    let trinity = null;
     try {
-        ranked = classifyAndRankModels(discovered);
+        trinity = buildDeterministicTrinity(discovered, { selectedModelId: currentModel });
     }
     catch { }
-    const fallbackModel = currentModel || readConfig(directory) || readConfig(getOpenCodeHome()) || process?.env?.OPENCODE_MODEL || "";
-    let brain = ranked?.brain?.id || fallbackModel;
-    let medium = ranked?.medium?.id || brain;
-    let cheap = ranked?.cheap?.id || medium || brain;
+    let brain = trinity?.brain || currentModel || readConfig(directory) || readConfig(getOpenCodeHome()) || process?.env?.OPENCODE_MODEL || "";
+    let medium = trinity?.medium || brain;
+    let cheap = trinity?.cheap || medium || brain;
     if (!brain) {
         brain = "deepseek/deepseek-v4-pro";
         medium = "deepseek/deepseek-v4-flash";

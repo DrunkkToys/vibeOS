@@ -191,13 +191,11 @@ export function _sortByCostAsc(models: any[] = []) {
 
 export function buildDeterministicTrinity(models: any[], options: {
   selectedModelId?: string
-  selectedTier?: string
   provider?: string
 } = {}) {
   const list = Array.isArray(models) ? models.filter((m) => m && typeof m === "object" && String(m.id || "").trim()) : []
   if (list.length === 0) return null
 
-  const selectedTier = String(options.selectedTier || "brain").toLowerCase()
   const selectedModelId = String(options.selectedModelId || "").trim()
   const providerHint = String(options.provider || "").trim()
   const selectedModel = selectedModelId
@@ -209,19 +207,21 @@ export function buildDeterministicTrinity(models: any[], options: {
   const scoped = providerModels.length > 0 ? providerModels : list
   const qualityRanked = _sortByQualityDesc(scoped)
   const costRanked = _sortByCostAsc(scoped)
-  const selected = selectedModel || qualityRanked[0] || costRanked[0] || scoped[0] || list[0]
-  const brain = selectedTier === "medium" || selectedTier === "cheap" || selectedTier === "free"
-    ? selected
-    : qualityRanked[0] || selected
-  const medium = selectedTier === "brain"
-    ? qualityRanked.find((m) => m.id !== brain?.id) || brain || selected
-    : selected
-  const cheap = costRanked[0] || selected
+
+  // brain = user's selected model (always)
+  const brain = selectedModel || qualityRanked[0] || costRanked[0] || scoped[0] || list[0]
+  // medium = next best quality from same provider
+  const medium = qualityRanked.find((m) => m.id !== brain?.id) || brain
+  // cheap = free model (preferred), else cheapest
+  const freeModel = scoped.find((m) => isModelFree(m.id))
+  const cheap = freeModel || costRanked[0] || medium
+
+  const brainClass = isModelFree(brain?.id) ? "free" : classify(brain?.id)
 
   return {
     provider,
-    selected_tier: selectedTier,
-    selected_model: selected?.id || selectedModelId || "",
+    selected_tier: brainClass,
+    selected_model: brain?.id || selectedModelId || "",
     brain: brain?.id || "",
     medium: medium?.id || "",
     cheap: cheap?.id || "",
@@ -1132,8 +1132,10 @@ export function _refreshModel(directory) {
     // Reconcile with the directory's opencode.json config.
     // The trinity slot is authoritative UNLESS the directory config specifies a resolveable model.
     // This prevents the bootstrap's default slot from overriding a project-local model choice.
+    // Manual slots (set via `trinity set <slot> <model>`) are always authoritative.
     if (!_modelLocked) {
-      const cfgModel = readConfig(directory) || readConfig(getOpenCodeHome()) || ""
+      const activeIsManual = tiersData?.trinity?.[activeSlot]?.manual === true
+      const cfgModel = activeIsManual ? "" : (readConfig(directory) || readConfig(getOpenCodeHome()) || "")
       if (cfgModel && cfgModel.includes("/") && cfgModel !== currentModel) {
         const oldModel = currentModel
         const oldTier = currentTier
