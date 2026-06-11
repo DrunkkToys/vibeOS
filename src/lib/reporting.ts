@@ -3,6 +3,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync, copyFileSync, rmSync } from "node:fs"
 import { join, basename } from "node:path"
 import { withFileLock, safeJsonParse, VIBEOS_HOME, currentProjectFingerprint as liveProjectFingerprint, currentProjectName as liveProjectName, getCurrentSessionId, _handleStateCorruption } from "./state.js"
+import { getOcSessionId } from "./runtime-state.js"
 
 // Report data:
 //   meta: { id, project, fingerprint, type, created, sessionId }
@@ -150,15 +151,21 @@ export function saveReport({ type = "manual", summary = "", findings = null, met
   // Auto-parse findings + metrics (supports array, JSON string, plain-text lines)
   const parsedFindings = _parseFindings(findings)
   const parsedMetrics = _parseMetrics(metrics)
+  const metricsObject = parsedMetrics && typeof parsedMetrics === "object" && !Array.isArray(parsedMetrics) ? parsedMetrics : {}
+  const metricsSessionId = typeof metricsObject.sessionId === "string" && metricsObject.sessionId.trim() ? metricsObject.sessionId.trim() : ""
+  const metricsProjectName = typeof metricsObject.projectName === "string" && metricsObject.projectName.trim() ? metricsObject.projectName.trim() : ""
+  const metricsProjectFingerprint = typeof metricsObject.projectFingerprint === "string" && metricsObject.projectFingerprint.trim() ? metricsObject.projectFingerprint.trim() : ""
 
   // Dedup: skip if last same-type report has same summary within 5 min
   if (_wouldBeDuplicate(type, summary)) return null
 
-  const metricProjectFingerprint = typeof parsedMetrics?.projectFingerprint === "string" ? parsedMetrics.projectFingerprint : ""
-  const metricProjectName = typeof parsedMetrics?.projectName === "string" ? parsedMetrics.projectName : ""
-  const fp = fingerprint || currentProjectFingerprint || liveProjectFingerprint || metricProjectFingerprint || "unknown"
-  const projectName = currentProjectName || liveProjectName || metricProjectName || "unknown"
-  const sessionId = currentSessionId || getCurrentSessionId() || "unknown"
+  if (!currentProjectFingerprint && metricsProjectFingerprint) currentProjectFingerprint = metricsProjectFingerprint
+  if (!currentProjectName && metricsProjectName) currentProjectName = metricsProjectName
+  if (!currentSessionId && metricsSessionId) currentSessionId = metricsSessionId
+
+  const fp = fingerprint || currentProjectFingerprint || liveProjectFingerprint || metricsProjectFingerprint || "unknown"
+  const projectName = currentProjectName || liveProjectName || metricsProjectName || "unknown"
+  const sessionId = currentSessionId || metricsSessionId || getCurrentSessionId() || getOcSessionId() || "unknown"
   const id = generateReportId(type, fp)
   const report = {
     meta: { id, project: projectName, fingerprint: fp, type, created: new Date().toISOString(), sessionId },
