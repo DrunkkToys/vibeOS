@@ -229,7 +229,7 @@ function _lockPathFor(filePath: string): string {
   return join(FILE_LOCK_DIR, `${hash}.lock`)
 }
 
-function withFileLock(filePath: string, fn: () => any, opts: { staleMs?: number, timeoutMs?: number } = {}): any {
+export function withFileLock(filePath: string, fn: () => any, opts: { staleMs?: number, timeoutMs?: number } = {}): any {
   const staleMs = Number(opts.staleMs || 30_000)
   const timeoutMs = Number(opts.timeoutMs || 2_000)
   const lockPath = _lockPathFor(filePath)
@@ -993,14 +993,72 @@ function pruneScratchpadOnce(): void {
 }
 
 // ── Active jobs ──────────────────────────────────────────────────────
-function loadActiveJobs(): any {
+const ACTIVE_JOBS_STALE_MS = 14 * 24 * 60 * 60 * 1000
+
+function _readActiveJobsRaw(): any {
   try {
     if (!existsSync(ACTIVE_JOBS_FILE)) return {}
-    const st = statSync(ACTIVE_JOBS_FILE)
-    if (st.size > 10485760) { _handleStateCorruption(ACTIVE_JOBS_FILE); return {} }
     const raw = safeJsonParse(readFileSync(ACTIVE_JOBS_FILE, "utf-8"))
-    if (!raw || typeof raw !== "object") return {}
-    return raw
+    return raw && typeof raw === "object" ? raw : {}
+  } catch {
+    _handleStateCorruption(ACTIVE_JOBS_FILE)
+    return {}
+  }
+}
+
+function _writeActiveJobsRaw(jobs: any): void {
+  try {
+    mkdirSync(dirname(ACTIVE_JOBS_FILE), { recursive: true })
+    const tmp = ACTIVE_JOBS_FILE + ".tmp"
+    writeFileSync(tmp, JSON.stringify(jobs, null, 2) + "\n")
+    renameSync(tmp, ACTIVE_JOBS_FILE)
+  } catch {}
+}
+
+function _normalizeActiveJobRecord(record: any, now: number = Date.now()): { record: any | null, changed: boolean, stale: boolean } {
+  if (!record || typeof record !== "object") return { record: null, changed: false, stale: false }
+  const next = { ...record }
+  let changed = false
+  const updatedAtRaw = typeof next.updatedAt === "string" ? next.updatedAt : ""
+  const createdAtRaw = typeof next.createdAt === "string" ? next.createdAt : ""
+  const updatedAtMs = Date.parse(updatedAtRaw)
+  const createdAtMs = Date.parse(createdAtRaw)
+  const stale = Number.isFinite(updatedAtMs) && now - updatedAtMs > ACTIVE_JOBS_STALE_MS
+  if (!Number.isFinite(createdAtMs)) {
+    next.createdAt = Number.isFinite(updatedAtMs) ? new Date(updatedAtMs).toISOString() : new Date(now).toISOString()
+    changed = true
+  }
+  if (!Number.isFinite(updatedAtMs)) {
+    next.updatedAt = next.createdAt || new Date(now).toISOString()
+    changed = true
+  }
+  if (typeof next.status !== "string" || !next.status.trim()) {
+    next.status = "active"
+    changed = true
+  }
+  return { record: next, changed, stale }
+}
+
+function loadActiveJobs(): any {
+  try {
+    return withFileLock(ACTIVE_JOBS_FILE, () => {
+      const raw = _readActiveJobsRaw()
+      const next: Record<string, any> = {}
+      let changed = false
+      const now = Date.now()
+      for (const [key, value] of Object.entries(raw || {})) {
+        const norm = _normalizeActiveJobRecord(value, now)
+        if (norm.stale) {
+          changed = true
+          continue
+        }
+        if (norm.record) next[key] = norm.record
+        else changed = true
+        if (norm.changed) changed = true
+      }
+      if (changed) _writeActiveJobsRaw(next)
+      return next
+    })
   } catch {
     _handleStateCorruption(ACTIVE_JOBS_FILE)
     return {}
@@ -1018,23 +1076,23 @@ function getActiveJobForProject(fp: string = currentProjectFingerprint): any {
 function saveActiveJobForProject(job: any, fp: string = currentProjectFingerprint): void {
   if (!fp || !job || typeof job !== "object") return
   try {
-    const jobs = loadActiveJobs()
-    jobs[fp] = job
-    mkdirSync(dirname(ACTIVE_JOBS_FILE), { recursive: true })
-    const tmp = ACTIVE_JOBS_FILE + ".tmp"
-    writeFileSync(tmp, JSON.stringify(jobs, null, 2))
-    renameSync(tmp, ACTIVE_JOBS_FILE)
+    withFileLock(ACTIVE_JOBS_FILE, () => {
+      const jobs = _readActiveJobsRaw()
+      const norm = _normalizeActiveJobRecord(job)
+      jobs[fp] = norm.record || job
+      _writeActiveJobsRaw(jobs)
+    })
   } catch {}
 }
 
 function saveJobRecord(jobId: string, record: any): void {
   try {
-    const jobs = loadActiveJobs()
-    jobs[jobId] = record
-    mkdirSync(dirname(ACTIVE_JOBS_FILE), { recursive: true })
-    const tmp = ACTIVE_JOBS_FILE + ".tmp"
-    writeFileSync(tmp, JSON.stringify(jobs, null, 2))
-    renameSync(tmp, ACTIVE_JOBS_FILE)
+    withFileLock(ACTIVE_JOBS_FILE, () => {
+      const jobs = _readActiveJobsRaw()
+      const norm = _normalizeActiveJobRecord(record)
+      jobs[jobId] = norm.record || record
+      _writeActiveJobsRaw(jobs)
+    })
   } catch {}
 }
 
@@ -1495,10 +1553,6 @@ function readLedgerTotals(): { delegation: number, cache: number, context7: numb
       return empty
     }
     const st = statSync(SAVINGS_LEDGER_FILE)
-    if (st.size > 10485760) {
-      _handleStateCorruption(SAVINGS_LEDGER_FILE)
-      return empty
-    }
     if (st.size === 0) {
       _ledgerTotalsCache = { mtime: st.mtimeMs, size: 0, delegation: 0, cache: 0, context7: 0, entries: 0 }
       return empty

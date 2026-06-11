@@ -2451,14 +2451,16 @@ function loadSelection() {
 function writeSelection(key, value) {
   const TIERS_FILE3 = join3(getVibeOSHome2(), "model-tiers.json");
   try {
-    const j = safeJsonParse2(readFileSync3(TIERS_FILE3, "utf-8"));
-    if (!j.selection)
-      j.selection = {};
-    j.selection[key] = value;
-    const tmp = TIERS_FILE3 + ".tmp." + Date.now() + "." + Math.random().toString(36).slice(2, 8);
-    writeFileSync3(tmp, JSON.stringify(j, null, 2) + "\n");
-    renameSync2(tmp, TIERS_FILE3);
-    return true;
+    return withFileLock(TIERS_FILE3, () => {
+      const j = safeJsonParse2(readFileSync3(TIERS_FILE3, "utf-8"));
+      if (!j.selection)
+        j.selection = {};
+      j.selection[key] = value;
+      const tmp = TIERS_FILE3 + ".tmp." + Date.now() + "." + Math.random().toString(36).slice(2, 8);
+      writeFileSync3(tmp, JSON.stringify(j, null, 2) + "\n");
+      renameSync2(tmp, TIERS_FILE3);
+      return true;
+    });
   } catch (err) {
     console.error(`[vibeOS] writeSelection failed: ${err.message}`);
     return false;
@@ -4179,19 +4181,75 @@ function pruneScratchpadOnce() {
   }
   cleanupStaleSessionScratchpads();
 }
-function loadActiveJobs() {
+var ACTIVE_JOBS_STALE_MS = 14 * 24 * 60 * 60 * 1e3;
+function _readActiveJobsRaw() {
   try {
     if (!existsSync5(ACTIVE_JOBS_FILE))
       return {};
-    const st = statSync4(ACTIVE_JOBS_FILE);
-    if (st.size > 10485760) {
-      _handleStateCorruption2(ACTIVE_JOBS_FILE);
-      return {};
-    }
     const raw = safeJsonParse3(readFileSync4(ACTIVE_JOBS_FILE, "utf-8"));
-    if (!raw || typeof raw !== "object")
-      return {};
-    return raw;
+    return raw && typeof raw === "object" ? raw : {};
+  } catch {
+    _handleStateCorruption2(ACTIVE_JOBS_FILE);
+    return {};
+  }
+}
+function _writeActiveJobsRaw(jobs) {
+  try {
+    mkdirSync4(dirname4(ACTIVE_JOBS_FILE), { recursive: true });
+    const tmp = ACTIVE_JOBS_FILE + ".tmp";
+    writeFileSync4(tmp, JSON.stringify(jobs, null, 2) + "\n");
+    renameSync3(tmp, ACTIVE_JOBS_FILE);
+  } catch {
+  }
+}
+function _normalizeActiveJobRecord(record, now = Date.now()) {
+  if (!record || typeof record !== "object")
+    return { record: null, changed: false, stale: false };
+  const next = { ...record };
+  let changed = false;
+  const updatedAtRaw = typeof next.updatedAt === "string" ? next.updatedAt : "";
+  const createdAtRaw = typeof next.createdAt === "string" ? next.createdAt : "";
+  const updatedAtMs = Date.parse(updatedAtRaw);
+  const createdAtMs = Date.parse(createdAtRaw);
+  const stale = Number.isFinite(updatedAtMs) && now - updatedAtMs > ACTIVE_JOBS_STALE_MS;
+  if (!Number.isFinite(createdAtMs)) {
+    next.createdAt = Number.isFinite(updatedAtMs) ? new Date(updatedAtMs).toISOString() : new Date(now).toISOString();
+    changed = true;
+  }
+  if (!Number.isFinite(updatedAtMs)) {
+    next.updatedAt = next.createdAt || new Date(now).toISOString();
+    changed = true;
+  }
+  if (typeof next.status !== "string" || !next.status.trim()) {
+    next.status = "active";
+    changed = true;
+  }
+  return { record: next, changed, stale };
+}
+function loadActiveJobs() {
+  try {
+    return withFileLock(ACTIVE_JOBS_FILE, () => {
+      const raw = _readActiveJobsRaw();
+      const next = {};
+      let changed = false;
+      const now = Date.now();
+      for (const [key, value] of Object.entries(raw || {})) {
+        const norm = _normalizeActiveJobRecord(value, now);
+        if (norm.stale) {
+          changed = true;
+          continue;
+        }
+        if (norm.record)
+          next[key] = norm.record;
+        else
+          changed = true;
+        if (norm.changed)
+          changed = true;
+      }
+      if (changed)
+        _writeActiveJobsRaw(next);
+      return next;
+    });
   } catch {
     _handleStateCorruption2(ACTIVE_JOBS_FILE);
     return {};
@@ -4210,12 +4268,12 @@ function saveActiveJobForProject(job, fp2 = currentProjectFingerprint) {
   if (!fp2 || !job || typeof job !== "object")
     return;
   try {
-    const jobs = loadActiveJobs();
-    jobs[fp2] = job;
-    mkdirSync4(dirname4(ACTIVE_JOBS_FILE), { recursive: true });
-    const tmp = ACTIVE_JOBS_FILE + ".tmp";
-    writeFileSync4(tmp, JSON.stringify(jobs, null, 2));
-    renameSync3(tmp, ACTIVE_JOBS_FILE);
+    withFileLock(ACTIVE_JOBS_FILE, () => {
+      const jobs = _readActiveJobsRaw();
+      const norm = _normalizeActiveJobRecord(job);
+      jobs[fp2] = norm.record || job;
+      _writeActiveJobsRaw(jobs);
+    });
   } catch {
   }
 }
@@ -4524,10 +4582,6 @@ function readLedgerTotals() {
       return empty;
     }
     const st = statSync4(SAVINGS_LEDGER_FILE);
-    if (st.size > 10485760) {
-      _handleStateCorruption2(SAVINGS_LEDGER_FILE);
-      return empty;
-    }
     if (st.size === 0) {
       _ledgerTotalsCache = { mtime: st.mtimeMs, size: 0, delegation: 0, cache: 0, context7: 0, entries: 0 };
       return empty;
@@ -5874,18 +5928,20 @@ function _refreshModel(directory3) {
           console.error(`[vibeOS] model refresh (config): ${oldModel}(${oldTier}) \u2192 ${currentModel}(${currentTier})`);
         try {
           if (existsSync6(TIERS_FILE3)) {
-            const t = safeJsonParse3(readFileSync5(TIERS_FILE3, "utf-8"));
-            for (const s of getTrinitySlotOrder(t)) {
-              if (t?.trinity?.[s]?.oc === cfgModel) {
-                t.selection.active_slot = s;
-                const _tmp = TIERS_FILE3 + ".tmp." + Date.now() + "." + Math.random().toString(36).slice(2, 8);
-                writeFileSync5(_tmp, JSON.stringify(t, null, 2) + "\n", "utf-8");
-                renameSync4(_tmp, TIERS_FILE3);
-                if (DEBUG_INTERNALS)
-                  console.error(`[vibeOS] model refresh (config): synced active_slot \u2192 ${s}`);
-                break;
+            withFileLock2(TIERS_FILE3, () => {
+              const t = safeJsonParse3(readFileSync5(TIERS_FILE3, "utf-8"));
+              for (const s of getTrinitySlotOrder(t)) {
+                if (t?.trinity?.[s]?.oc === cfgModel) {
+                  t.selection.active_slot = s;
+                  const _tmp = TIERS_FILE3 + ".tmp." + Date.now() + "." + Math.random().toString(36).slice(2, 8);
+                  writeFileSync5(_tmp, JSON.stringify(t, null, 2) + "\n", "utf-8");
+                  renameSync4(_tmp, TIERS_FILE3);
+                  if (DEBUG_INTERNALS)
+                    console.error(`[vibeOS] model refresh (config): synced active_slot \u2192 ${s}`);
+                  break;
+                }
               }
-            }
+            });
           }
         } catch {
         }
@@ -5897,25 +5953,27 @@ function _refreshModel(directory3) {
 function applySlot2(slot, projectDir = "") {
   try {
     const TIERS_FILE3 = join5(getVibeOSHome4(), "model-tiers.json");
-    const j = safeJsonParse3(readFileSync5(TIERS_FILE3, "utf-8"));
-    const ocModel = j?.trinity?.[slot]?.oc;
-    if (!ocModel)
-      return { ok: false, reason: `slot '${slot}' has no oc model` };
-    j.selection.active_slot = slot;
-    const _tmp = TIERS_FILE3 + ".tmp." + Date.now();
-    writeFileSync5(_tmp, JSON.stringify(j, null, 2) + "\n", "utf-8");
-    renameSync4(_tmp, TIERS_FILE3);
-    const dir = projectDir || process.cwd();
-    const localOcConfig = join5(dir, "opencode.json");
-    const ocConfig = existsSync6(localOcConfig) ? localOcConfig : join5(getOpenCodeHome(), "opencode.json");
-    if (existsSync6(ocConfig)) {
-      const oc = safeJsonParse3(readFileSync5(ocConfig, "utf-8"));
-      oc.model = ocModel;
-      writeFileSync5(ocConfig, JSON.stringify(oc, null, 2) + "\n");
-    }
-    clearWorkspaceFollowupPauseForSession(getCurrentSessionId());
-    _refreshModel(dir);
-    return { ok: true, ocModel };
+    return withFileLock2(TIERS_FILE3, () => {
+      const j = safeJsonParse3(readFileSync5(TIERS_FILE3, "utf-8"));
+      const ocModel = j?.trinity?.[slot]?.oc;
+      if (!ocModel)
+        return { ok: false, reason: `slot '${slot}' has no oc model` };
+      j.selection.active_slot = slot;
+      const _tmp = TIERS_FILE3 + ".tmp." + Date.now();
+      writeFileSync5(_tmp, JSON.stringify(j, null, 2) + "\n", "utf-8");
+      renameSync4(_tmp, TIERS_FILE3);
+      const dir = projectDir || process.cwd();
+      const localOcConfig = join5(dir, "opencode.json");
+      const ocConfig = existsSync6(localOcConfig) ? localOcConfig : join5(getOpenCodeHome(), "opencode.json");
+      if (existsSync6(ocConfig)) {
+        const oc = safeJsonParse3(readFileSync5(ocConfig, "utf-8"));
+        oc.model = ocModel;
+        writeFileSync5(ocConfig, JSON.stringify(oc, null, 2) + "\n");
+      }
+      clearWorkspaceFollowupPauseForSession(getCurrentSessionId());
+      _refreshModel(dir);
+      return { ok: true, ocModel };
+    });
   } catch (err) {
     return { ok: false, reason: err.message };
   }
