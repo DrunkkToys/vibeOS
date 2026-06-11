@@ -1,3 +1,7 @@
+## 0.24.9
+- fix: preserve live metrics context in reports
+
+
 ## 0.24.5
 - fix: cap saveEst at  to prevent runaway pricing data corruption
 - chore: v0.24.4
