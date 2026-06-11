@@ -1,3 +1,15 @@
+## 0.24.21
+- feat: pass user_text to RF prediction engine via control-vector API (#146)
+- feat: pass user_text to RF prediction engine via control-vector API
+- fix: extend ci test timeout
+- fix: use EMBEDDED_API_TOKEN as bootstrap token fallback instead of direct API token (#148)
+- fix: repair reload recovery and fallback mode state (#147)
+- test: cover cold start maintenance user flow (#144)
+- chore: v0.24.20
+- chore: v0.24.19 (#145)
+Prune stale active jobs and stabilize report tests
+
+
 ## 0.24.19
 - test: cover cold start maintenance user flow (#144)
 Prune stale active jobs and stabilize report tests
