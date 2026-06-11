@@ -164,6 +164,7 @@ async function _seedModelTiersIfMissing(directory) {
     let brain = trinity?.brain || currentModel || readConfig(directory) || readConfig(getOpenCodeHome()) || process?.env?.OPENCODE_MODEL || "";
     let medium = trinity?.medium || brain;
     let cheap = trinity?.cheap || medium || brain;
+    // DEV ONLY: fallback for dev machine when trinity rebuild has not been run
     if (!brain) {
         brain = "deepseek/deepseek-v4-pro";
         medium = "deepseek/deepseek-v4-flash";
