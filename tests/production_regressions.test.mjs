@@ -688,6 +688,35 @@ test("readReport returns complete data from saveReport round-trip", async () => 
   assert.ok(report.tags.includes("round-trip"), "tags should include 'round-trip'")
 })
 
+test("saveReport preserves live session/project context from metrics", async () => {
+  const { saveReport, readReport, listReports } = await loadPlugin()
+
+  const id = saveReport({
+    type: "session",
+    summary: "Context propagation regression test",
+    metrics: {
+      sessionId: "opencode-live-123",
+      projectName: "theSaver-oc",
+      projectFingerprint: "fp-live-123",
+      taskDelegationCount: 0,
+      delegationSavingsUsd: 0,
+      cacheSavings: 0,
+    },
+    tags: ["regression", "context"],
+  })
+
+  assert.ok(typeof id === "string", "saveReport should return an id")
+
+  const report = readReport(id)
+  assert.equal(report.meta.sessionId, "opencode-live-123", "report meta sessionId should match live metrics context")
+  assert.equal(report.meta.project, "theSaver-oc", "report meta project should match live metrics context")
+  assert.equal(report.meta.fingerprint, "fp-live-123", "report meta fingerprint should match live metrics context")
+
+  const listed = listReports({ type: "session", project: "theSaver-oc", hours: 24 })
+  assert.ok(listed.some((entry) => entry.id === id), "report-list should retain the real project name for filtering")
+  assert.ok(listed.every((entry) => entry.project === "theSaver-oc"), "listed report project names should stay aligned")
+})
+
 
 // ═══════════════════════════════════════════════════════════════════════
 // Section: v0.20.11 — PIVOT BACK, free deepseek-chat, auto-bootstrap

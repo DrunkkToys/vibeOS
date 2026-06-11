@@ -7350,7 +7350,6 @@ function getReportsIndexPath() {
 }
 var REPORTS_DIR2 = getReportsDir();
 var REPORTS_INDEX = getReportsIndexPath();
-var _OC_SID3 = "opencode-" + (process.pid || "x") + "-" + Date.now();
 var currentProjectFingerprint2 = "";
 var currentProjectName2 = "";
 function _handleStateCorruption4(path) {
@@ -7483,12 +7482,22 @@ function _parseMetrics(v) {
 function saveReport({ type = "manual", summary = "", findings = null, metrics = null, narrative = "", tags = [], fingerprint = null, status = "pending", task_description = "", outcome_verified = false } = {}) {
   const parsedFindings = _parseFindings(findings);
   const parsedMetrics = _parseMetrics(metrics);
+  const metricsObject = parsedMetrics && typeof parsedMetrics === "object" && !Array.isArray(parsedMetrics) ? parsedMetrics : {};
+  const metricsSessionId = typeof metricsObject.sessionId === "string" && metricsObject.sessionId.trim() ? metricsObject.sessionId.trim() : "";
+  const metricsProjectName = typeof metricsObject.projectName === "string" && metricsObject.projectName.trim() ? metricsObject.projectName.trim() : "";
+  const metricsProjectFingerprint = typeof metricsObject.projectFingerprint === "string" && metricsObject.projectFingerprint.trim() ? metricsObject.projectFingerprint.trim() : "";
   if (_wouldBeDuplicate(type, summary))
     return null;
-  const fp2 = fingerprint || currentProjectFingerprint2 || "unknown";
+  if (!currentProjectFingerprint2 && metricsProjectFingerprint)
+    currentProjectFingerprint2 = metricsProjectFingerprint;
+  if (!currentProjectName2 && metricsProjectName)
+    currentProjectName2 = metricsProjectName;
+  const fp2 = fingerprint || metricsProjectFingerprint || currentProjectFingerprint2 || "unknown";
+  const sessionId = metricsSessionId || getOcSessionId();
+  const projectName = metricsProjectName || currentProjectName2 || "unknown";
   const id2 = generateReportId(type, fp2);
   const report = {
-    meta: { id: id2, project: currentProjectName2 || "unknown", fingerprint: fp2, type, created: (/* @__PURE__ */ new Date()).toISOString(), sessionId: _OC_SID3 },
+    meta: { id: id2, project: projectName, fingerprint: fp2, type, created: (/* @__PURE__ */ new Date()).toISOString(), sessionId },
     summary,
     findings: parsedFindings,
     metrics: parsedMetrics,
@@ -10171,7 +10180,7 @@ function ensureProjectContext(hookDirectory) {
   return resolved;
 }
 var latestUserIntent = null;
-var _OC_SID4 = "opencode-" + (process.pid || "x") + "-" + Date.now();
+var _OC_SID3 = "opencode-" + (process.pid || "x") + "-" + Date.now();
 var _latestBlackboxState3 = null;
 var _latestBlackboxLoopMsg3 = null;
 var _latestBlackboxPivotMsg3 = null;
@@ -10313,7 +10322,7 @@ function syncControlSettings(cv, options = {}) {
   if (!cv)
     return;
   try {
-    const sid = _OC_SID4;
+    const sid = _OC_SID3;
     if (!cv.agent_mode) {
       try {
         clearWorkspaceFollowupPauseForSession(sid);
@@ -10533,7 +10542,7 @@ async function trackBlackbox(messages) {
     const tracker = getBlackboxTracker();
     const localState = tracker.update(latestUserIntent);
     const state = loadBlackboxState();
-    const sid = _OC_SID4;
+    const sid = _OC_SID3;
     ensureProjectContext(process.cwd() || "");
     const serialized = tracker.serialize();
     const existingSession = state.sessions[sid] || {};
@@ -10861,7 +10870,7 @@ var onSystemTransform = async (_input, output) => {
     const regime2 = _latestBlackboxState3?.sub_regime || classifyTurnSimple2(latestUserIntent || "");
     const calRecord = JSON.stringify({
       ts: (/* @__PURE__ */ new Date()).toISOString(),
-      sid: _OC_SID4,
+      sid: _OC_SID3,
       mode: _currentTemplate,
       regime: regime2,
       stress: stressScore,
@@ -11028,7 +11037,7 @@ function readLifetimeSavings2() {
     reconcileStateFromLedger();
     const raw = readFileSync14(STATE_FILE2, "utf-8");
     const state = safeJsonParse3(raw);
-    const ses = state?.sessions?.[typeof _OC_SID5 !== "undefined" ? _OC_SID5 : ""] || {};
+    const ses = state?.sessions?.[typeof _OC_SID4 !== "undefined" ? _OC_SID4 : ""] || {};
     return {
       ltTasks: roundUsd2(state?.lifetime?.total_savings_usd || 0),
       ltCache: roundUsd2(state?.lifetime?.cache_savings_usd || 0),
@@ -11056,7 +11065,7 @@ function readLifetimeSavings2() {
     return { ltTasks: 0, ltCache: 0, ltCost: 0, count: 0, sesTasks: 0, sesCache: 0, sesTaskDelegations: 0, sesDuration: 0, sesRatePerHour: 0, sesTrend: "", sesToolBreakdown: {}, sesModelTurns: {}, quality_avg: 0 };
   }
 }
-var _OC_SID5 = "opencode-" + (process.pid || "x") + "-" + Date.now();
+var _OC_SID4 = "opencode-" + (process.pid || "x") + "-" + Date.now();
 function scoreTaskQuality(outputText, promptText) {
   if (typeof outputText !== "string" || outputText.length === 0)
     return 0;
@@ -11083,7 +11092,7 @@ function scoreTaskQuality(outputText, promptText) {
 function readRewardSignals() {
   try {
     const state = loadBlackboxState();
-    const session = state?.sessions?.[_OC_SID5] || {};
+    const session = state?.sessions?.[_OC_SID4] || {};
     const policy = session?.mode_policy || {};
     return {
       stableStreak: Math.max(0, Number(policy.stable_streak || 0)),
@@ -11160,7 +11169,7 @@ async function _appendFooter(input, output, directory3) {
       return;
     const { ltTasks, ltCache, ltCost, count, sesTasks, sesEdit, sesCredit, sesC7, sesQuota, sesCache, sesTaskDelegations, sesDuration, sesRatePerHour, sesTrend, sesToolBreakdown, sesModelTurns, quality_avg } = readLifetimeSavings2();
     const { stableStreak, problemStreak } = readRewardSignals();
-    const sessionSlot = loadBlackboxState()?.sessions?.[_OC_SID5]?.active_slot || loadSessionSlot(_OC_SID5);
+    const sessionSlot = loadBlackboxState()?.sessions?.[_OC_SID4]?.active_slot || loadSessionSlot(_OC_SID4);
     const slot = sessionSlot || loadSelection3().active_slot || "brain";
     const brainModel = slot === "brain" ? TRINITY_BRAIN || currentModel : slot === "medium" ? TRINITY_MEDIUM || currentModel : TRINITY_CHEAP || currentModel || "";
     let liveModel = "";
@@ -11194,7 +11203,7 @@ async function _appendFooter(input, output, directory3) {
           type: "session",
           summary: "Session cost: $" + formatUsd(ltCost) + " | cache saved: $" + formatUsd(ltCache) + " | delegation saved: $" + formatUsd(Number(sesTasks || 0)) + " | task delegations: " + Number(sesTaskDelegations || 0),
           metrics: {
-            sessionId: _OC_SID5,
+            sessionId: _OC_SID4,
             projectFingerprint: currentProjectFingerprint || "unknown",
             projectName: currentProjectName || "unknown",
             sessionCost: ltCost,
@@ -11283,7 +11292,7 @@ ${vibeLine}`;
             syncOutcomeToApi(finalOutcome);
             try {
               mkdirSync11(getVibeOSHome10(), { recursive: true });
-              appendFileSync6(join15(getVibeOSHome10(), "calibration-data.jsonl"), JSON.stringify({ ts: (/* @__PURE__ */ new Date()).toISOString(), event: "outcome", sid: _OC_SID5, outcome: finalOutcome }) + "\n");
+              appendFileSync6(join15(getVibeOSHome10(), "calibration-data.jsonl"), JSON.stringify({ ts: (/* @__PURE__ */ new Date()).toISOString(), event: "outcome", sid: _OC_SID4, outcome: finalOutcome }) + "\n");
             } catch {
             }
           }
