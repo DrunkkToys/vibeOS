@@ -1,3 +1,8 @@
+## 0.24.18
+- fix: keep Return codename through 0.24 patch releases (#143)
+- fix: preserve live metrics context in reports (#137)
+
+
 ## 0.24.16
 - fix: serialize model tiers writes
 - test: add concurrent tiers write regression
