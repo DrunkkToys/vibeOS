@@ -5,7 +5,7 @@
  */
 import { test, before, after, beforeEach } from "node:test"
 import assert from "node:assert/strict"
-import { spawn } from "node:child_process"
+import { spawn, spawnSync } from "node:child_process"
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, mkdirSync, readdirSync, utimesSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -427,6 +427,93 @@ test("FIX 13g: active jobs GC runs on init and drops malformed entries", async (
   assert.equal(persisted.malformedJob, undefined, "malformed job should be pruned")
   assert.equal(persisted.staleJob.status, "completed", "stale job should be marked completed")
   assert.ok(persisted.staleJob.completedAt, "stale job should get completedAt")
+})
+
+test("FIX 13h: cold start maintenance cleans dirty disk state before the first report flow", async () => {
+  const coldHome = mkdtempSync(join(tmpdir(), "mega-startup-"))
+  const childScript = `
+    const fs = await import("node:fs")
+    const { join } = await import("node:path")
+    const home = process.env.HOME
+    const claude = join(home, ".claude")
+    const projectDir = join(home, "project")
+    const backupsDir = join(claude, ".backups")
+    const ledgerPath = join(claude, "savings-ledger.jsonl")
+    const activePath = join(claude, "active-jobs.json")
+    fs.mkdirSync(backupsDir, { recursive: true })
+    fs.mkdirSync(join(claude, "reports"), { recursive: true })
+    fs.mkdirSync(join(home, ".config/opencode"), { recursive: true })
+    fs.mkdirSync(projectDir, { recursive: true })
+    const staleAt = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString()
+    fs.writeFileSync(activePath, JSON.stringify({
+      staleJob: { prompt: "stale", keywords: ["boot"], status: "active", createdAt: staleAt, updatedAt: staleAt },
+      malformedJob: { prompt: "bad", keywords: ["boot"], updatedAt: staleAt },
+    }, null, 2))
+    for (let i = 0; i < 7; i++) {
+      fs.writeFileSync(join(backupsDir, "savings-ledger.jsonl.corrupted." + i), "backup-" + i)
+    }
+    const entry = JSON.stringify({ v: 2, at: new Date().toISOString(), kind: "cache", amount_usd: 0.0001, sid: "boot-flow", tool: "Read" })
+    fs.writeFileSync(ledgerPath, Array.from({ length: 14000 }, () => entry).join("\\n") + "\\n")
+    fs.writeFileSync(join(claude, "model-tiers.json"), JSON.stringify({
+      trinity: {
+        brain: { oc: "anthropic/claude-opus-4-7" },
+        medium: { oc: "deepseek/deepseek-v4-flash" },
+        cheap: { oc: "deepseek/deepseek-chat" },
+      },
+      selection: { enabled: true, active_slot: "brain", delegation_enforce: true },
+      tiers: {
+        high: { regex: "opus" },
+        mid: { regex: "sonnet|flash" },
+        budget: { regex: ".*" },
+      },
+    }, null, 2))
+    fs.writeFileSync(join(projectDir, "opencode.json"), JSON.stringify({
+      model: "deepseek/deepseek-v4-flash",
+    }, null, 2))
+    const mod = await import(${JSON.stringify(join(process.cwd(), "src/index.js"))} + "?t=" + Date.now())
+    const state = await import(${JSON.stringify(join(process.cwd(), "src/lib/state.js"))} + "?t=" + Date.now())
+    await mod.DelegationEnforcer({ client: {}, directory: projectDir })
+    const jobs = JSON.parse(fs.readFileSync(activePath, "utf8"))
+    const remainingBackups = fs.readdirSync(backupsDir).filter((f) => f.includes(".corrupted."))
+    const sv = state.readLifetimeSavings()
+    mod.setCurrentProjectFingerprint("boot-flow-fingerprint")
+    mod.setCurrentProjectName("saveOS")
+    mod.setCurrentSessionId("boot-flow-session")
+    const reportId = mod.saveReport({
+      type: "session",
+      summary: "boot flow report " + Date.now(),
+      metrics: { value: 1 },
+    })
+    const report = mod.readReport(reportId)
+    const listed = mod.listReports({ project: "saveOS", hours: 24 })
+    process.stdout.write(JSON.stringify({
+      remainingBackups: remainingBackups.length,
+      malformedJobPresent: Object.prototype.hasOwnProperty.call(jobs, "malformedJob"),
+      staleJobStatus: jobs.staleJob?.status || "",
+      savings: sv.ltCache,
+      reportProject: report.meta?.project || "",
+      reportSessionId: report.meta?.sessionId || "",
+      reportListed: listed.some((r) => r.id === reportId),
+    }))
+  `
+  const result = spawnSync(process.execPath, ["--input-type=module", "-e", childScript], {
+    env: {
+      ...process.env,
+      HOME: coldHome,
+      VIBEOS_HOME: join(coldHome, ".claude"),
+      VIBEOS_OPENCODE_HOME: join(coldHome, ".config", "opencode"),
+    },
+    encoding: "utf8",
+  })
+  assert.equal(result.status, 0, result.stderr || result.stdout)
+  const payload = JSON.parse(result.stdout || "{}")
+  assert.ok(payload.remainingBackups <= 5, "startup maintenance should prune old corruption backups")
+  assert.equal(payload.malformedJobPresent, false, "startup maintenance should drop malformed jobs")
+  assert.equal(payload.staleJobStatus, "completed", "startup maintenance should complete stale jobs")
+  assert.ok(payload.savings > 0, "boot flow should still be able to read the savings ledger")
+  assert.equal(payload.reportProject, "saveOS", "report flow should still use live project context after startup maintenance")
+  assert.equal(payload.reportSessionId, "boot-flow-session", "report flow should keep live session context after startup maintenance")
+  assert.equal(payload.reportListed, true, "report should still be listable after startup maintenance")
 })
 
 // ═══════════════════════════════════════════════════════════════════
