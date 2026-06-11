@@ -2,7 +2,7 @@
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync, copyFileSync, rmSync } from "node:fs"
 import { join, basename } from "node:path"
-import { withFileLock, safeJsonParse, VIBEOS_HOME, currentProjectFingerprint as liveProjectFingerprint, currentProjectName as liveProjectName, getCurrentSessionId } from "./state.js"
+import { withFileLock, safeJsonParse, VIBEOS_HOME, currentProjectFingerprint as liveProjectFingerprint, currentProjectName as liveProjectName, getCurrentSessionId, _handleStateCorruption } from "./state.js"
 
 // Report data:
 //   meta: { id, project, fingerprint, type, created, sessionId }
@@ -37,13 +37,6 @@ export function setReportingContext({ fingerprint, projectName, sessionId }: { f
   if (fingerprint !== undefined) currentProjectFingerprint = fingerprint
   if (projectName !== undefined) currentProjectName = projectName
   if (sessionId !== undefined) currentSessionId = sessionId
-}
-
-function _handleStateCorruption(path) {
-  const backupDir = join(getVibeOSHome(), ".backups")
-  mkdirSync(backupDir, { recursive: true })
-  const backupPath = join(backupDir, basename(path) + ".corrupted." + Date.now())
-  try { copyFileSync(path, backupPath) } catch {}
 }
 
 function readJsonOrEmpty(filePath) {

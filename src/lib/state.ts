@@ -44,6 +44,12 @@ const MAX_SCRATCHPAD_FILES  = 1000
 const MAX_SCRATCHPAD_BYTES  = 10 * 1024 * 1024
 const MAX_SESSION_SCRATCHPAD_FILES = 200
 const MAX_SESSION_SCRATCHPAD_BYTES = 2 * 1024 * 1024
+const CORRUPTION_BACKUP_MAX = 5
+const CORRUPTION_BACKUP_TTL_MS = 24 * 60 * 60 * 1000
+const LEDGER_ROTATE_MAX_BYTES = 1 * 1024 * 1024
+const LEDGER_ROTATE_MAX_LINES = 50_000
+const LEDGER_ROTATE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
+const ACTIVE_JOBS_STALE_MS = 72 * 60 * 60 * 1000
 const MAX_PTR_CANDIDATES = 50
 const SUMMARY_HEAD_TRUNCATE = 500
 
@@ -214,13 +220,41 @@ const tool: any = Object.assign((def: any) => def, {
 })
 
 // ── State corruption handler ─────────────────────────────────────────
-function _handleStateCorruption(path: string): void {
+function _pruneCorruptionBackups(backupDir: string): void {
+  try {
+    if (!existsSync(backupDir)) return
+    const now = Date.now()
+    const backups = readdirSync(backupDir)
+      .map((name) => {
+        const path = join(backupDir, name)
+        try {
+          const st = statSync(path)
+          return { name, path, mtimeMs: st.mtimeMs }
+        } catch {
+          return null
+        }
+      })
+      .filter((entry): entry is { name: string, path: string, mtimeMs: number } => !!entry && entry.name.includes(".corrupted."))
+      .sort((a, b) => b.mtimeMs - a.mtimeMs)
+    const keep = new Set(backups.slice(0, CORRUPTION_BACKUP_MAX).map((b) => b.path))
+    for (const backup of backups) {
+      const isExpired = now - backup.mtimeMs > CORRUPTION_BACKUP_TTL_MS
+      if (isExpired || !keep.has(backup.path)) {
+        try { rmSync(backup.path, { force: true }) } catch {}
+      }
+    }
+  } catch {}
+}
+
+function _handleStateCorruption(path: string): string | null {
   const backupDir = join(VIBEOS_HOME, ".backups")
   mkdirSync(backupDir, { recursive: true })
   const backupPath = join(backupDir, basename(path) + ".corrupted." + Date.now())
   try { copyFileSync(path, backupPath) } catch {}
   const logPath = join(VIBEOS_HOME, ".state-corruption-log.jsonl")
   try { appendFileSync(logPath, JSON.stringify({ ts: new Date().toISOString(), path, backup: backupPath }) + "\n") } catch {}
+  _pruneCorruptionBackups(backupDir)
+  return backupPath
 }
 
 // ── File locking ─────────────────────────────────────────────────────
@@ -566,7 +600,10 @@ function _flushLedgerBuffer(): void {
   const batch = _ledgerBuffer.splice(0)
   const lines = batch.map(e => typeof e === "string" ? e.trimEnd() : String(e).trimEnd())
   const joined = lines.filter(Boolean).map(l => l + "\n").join("")
-  try { appendFileSync(SAVINGS_LEDGER_FILE, joined) } catch {}
+  try {
+    appendFileSync(SAVINGS_LEDGER_FILE, joined)
+    _compactSavingsLedgerIfNeeded()
+  } catch {}
 }
 
 function recordSavingsLedgerEntry(entry: any): void {
@@ -993,7 +1030,7 @@ function pruneScratchpadOnce(): void {
 }
 
 // ── Active jobs ──────────────────────────────────────────────────────
-const ACTIVE_JOBS_STALE_MS = 14 * 24 * 60 * 60 * 1000
+// active jobs older than this are considered finished and no longer active
 
 function _readActiveJobsRaw(): any {
   try {
@@ -1015,7 +1052,7 @@ function _writeActiveJobsRaw(jobs: any): void {
   } catch {}
 }
 
-function _normalizeActiveJobRecord(record: any, now: number = Date.now()): { record: any | null, changed: boolean, stale: boolean } {
+function _normalizeActiveJobRecord(record: any, now: number = Date.now(), strict: boolean = false): { record: any | null, changed: boolean, stale: boolean } {
   if (!record || typeof record !== "object") return { record: null, changed: false, stale: false }
   const next = { ...record }
   let changed = false
@@ -1023,9 +1060,12 @@ function _normalizeActiveJobRecord(record: any, now: number = Date.now()): { rec
   const createdAtRaw = typeof next.createdAt === "string" ? next.createdAt : ""
   const updatedAtMs = Date.parse(updatedAtRaw)
   const createdAtMs = Date.parse(createdAtRaw)
-  const stale = Number.isFinite(updatedAtMs) && now - updatedAtMs > ACTIVE_JOBS_STALE_MS
+  const anchorMs = Number.isFinite(updatedAtMs) ? updatedAtMs : createdAtMs
+  const stale = Number.isFinite(anchorMs) && now - anchorMs > ACTIVE_JOBS_STALE_MS
+  if (strict && (!next.status || typeof next.status !== "string" || !next.status.trim())) return { record: null, changed: false, stale }
+  if (strict && !Number.isFinite(createdAtMs)) return { record: null, changed: false, stale }
   if (!Number.isFinite(createdAtMs)) {
-    next.createdAt = Number.isFinite(updatedAtMs) ? new Date(updatedAtMs).toISOString() : new Date(now).toISOString()
+    next.createdAt = Number.isFinite(anchorMs) ? new Date(anchorMs).toISOString() : new Date(now).toISOString()
     changed = true
   }
   if (!Number.isFinite(updatedAtMs)) {
@@ -1034,6 +1074,11 @@ function _normalizeActiveJobRecord(record: any, now: number = Date.now()): { rec
   }
   if (typeof next.status !== "string" || !next.status.trim()) {
     next.status = "active"
+    changed = true
+  }
+  if (stale && next.status !== "completed") {
+    next.status = "completed"
+    next.completedAt = new Date(now).toISOString()
     changed = true
   }
   return { record: next, changed, stale }
@@ -1047,13 +1092,9 @@ function loadActiveJobs(): any {
       let changed = false
       const now = Date.now()
       for (const [key, value] of Object.entries(raw || {})) {
-        const norm = _normalizeActiveJobRecord(value, now)
-        if (norm.stale) {
-          changed = true
-          continue
-        }
-        if (norm.record) next[key] = norm.record
-        else changed = true
+        const norm = _normalizeActiveJobRecord(value, now, true)
+        if (!norm.record) { changed = true; continue }
+        next[key] = norm.record
         if (norm.changed) changed = true
       }
       if (changed) _writeActiveJobsRaw(next)
@@ -1102,6 +1143,8 @@ function loadJobRecord(jobId: string): any {
     return jobs[jobId] || null
   } catch { return null }
 }
+
+try { loadActiveJobs() } catch {}
 
 // ── Project memory ───────────────────────────────────────────────────
 function projectFingerprint(dir: string): string {
@@ -1544,6 +1587,47 @@ function getTodos(): TodoEntry[] {
   return loadTodos()
 }
 
+function _compactSavingsLedgerIfNeeded(): void {
+  try {
+    if (!existsSync(SAVINGS_LEDGER_FILE)) return
+    const st = statSync(SAVINGS_LEDGER_FILE)
+    if (st.size <= LEDGER_ROTATE_MAX_BYTES) return
+    withFileLock(SAVINGS_LEDGER_FILE, () => {
+      if (!existsSync(SAVINGS_LEDGER_FILE)) return
+      const lockedStat = statSync(SAVINGS_LEDGER_FILE)
+      if (lockedStat.size <= LEDGER_ROTATE_MAX_BYTES) return
+      const raw = readFileSync(SAVINGS_LEDGER_FILE, "utf-8")
+      if (!raw.trim()) return
+      const now = Date.now()
+      const rows = raw.split("\n").filter(Boolean).map((line) => {
+        let rec: any = null
+        try { rec = JSON.parse(line) } catch { rec = null }
+        const atRaw = rec && typeof rec === "object" ? String(rec.at || rec.ts || "") : ""
+        const atMs = Date.parse(atRaw)
+        return { raw: line.trim(), atMs: Number.isFinite(atMs) ? atMs : null }
+      }).filter((row) => row.raw)
+      const recent = rows.filter((row) => row.atMs != null && now - Number(row.atMs) <= LEDGER_ROTATE_MAX_AGE_MS)
+      const pool = recent.length > 0 ? recent : rows
+      const capped = pool.length > LEDGER_ROTATE_MAX_LINES ? pool.slice(-LEDGER_ROTATE_MAX_LINES) : pool
+      let size = 0
+      const kept: string[] = []
+      for (let i = capped.length - 1; i >= 0; i--) {
+        const line = capped[i].raw
+        const lineBytes = Buffer.byteLength(line + "\n", "utf-8")
+        if (kept.length > 0 && size + lineBytes > LEDGER_ROTATE_MAX_BYTES) break
+        kept.push(line)
+        size += lineBytes
+      }
+      const compacted = kept.reverse().join("\n") + "\n"
+      if (compacted.trim() && compacted !== raw) {
+        const tmp = SAVINGS_LEDGER_FILE + ".tmp." + Date.now()
+        writeFileSync(tmp, compacted, "utf-8")
+        renameSync(tmp, SAVINGS_LEDGER_FILE)
+      }
+    }, { timeoutMs: 4000 })
+  } catch {}
+}
+
 // ── Savings ledger reconciliation ────────────────────────────────────
 function readLedgerTotals(): { delegation: number, cache: number, context7: number, total: number, entries: number } {
   const empty = { delegation: 0, cache: 0, context7: 0, total: 0, entries: 0 }
@@ -1557,7 +1641,15 @@ function readLedgerTotals(): { delegation: number, cache: number, context7: numb
       _ledgerTotalsCache = { mtime: st.mtimeMs, size: 0, delegation: 0, cache: 0, context7: 0, entries: 0 }
       return empty
     }
-    if (_ledgerTotalsCache.mtime === st.mtimeMs && _ledgerTotalsCache.size === st.size) {
+    if (st.size > LEDGER_ROTATE_MAX_BYTES) {
+      _compactSavingsLedgerIfNeeded()
+    }
+    const currentStat = statSync(SAVINGS_LEDGER_FILE)
+    if (currentStat.size === 0) {
+      _ledgerTotalsCache = { mtime: currentStat.mtimeMs, size: 0, delegation: 0, cache: 0, context7: 0, entries: 0 }
+      return empty
+    }
+    if (_ledgerTotalsCache.mtime === currentStat.mtimeMs && _ledgerTotalsCache.size === currentStat.size) {
       return {
         delegation: Math.round(_ledgerTotalsCache.delegation * 1000) / 1000,
         cache: Math.round(_ledgerTotalsCache.cache * 1000) / 1000,
@@ -1572,9 +1664,9 @@ function readLedgerTotals(): { delegation: number, cache: number, context7: numb
     let context7 = 0
     let entries = 0
     let raw = ""
-    let incremental = _ledgerTotalsCache.size > 0 && st.size >= _ledgerTotalsCache.size && _ledgerTotalsCache.mtime > 0
+    let incremental = _ledgerTotalsCache.size > 0 && currentStat.size >= _ledgerTotalsCache.size && _ledgerTotalsCache.mtime > 0
     if (incremental) {
-      const deltaSize = st.size - _ledgerTotalsCache.size
+      const deltaSize = currentStat.size - _ledgerTotalsCache.size
       if (deltaSize > 0) {
         const fd = openSync(SAVINGS_LEDGER_FILE, "r")
         try {
@@ -1597,8 +1689,8 @@ function readLedgerTotals(): { delegation: number, cache: number, context7: numb
     }
     if (!raw.trim()) {
       _ledgerTotalsCache = {
-        mtime: st.mtimeMs,
-        size: st.size,
+        mtime: currentStat.mtimeMs,
+        size: currentStat.size,
         delegation,
         cache,
         context7,
@@ -1629,7 +1721,7 @@ function readLedgerTotals(): { delegation: number, cache: number, context7: numb
       else if (kind.includes("context7")) context7 += amt
       else delegation += amt
     }
-    _ledgerTotalsCache = { mtime: st.mtimeMs, size: st.size, delegation, cache, context7, entries }
+    _ledgerTotalsCache = { mtime: currentStat.mtimeMs, size: currentStat.size, delegation, cache, context7, entries }
     const total = delegation + cache
     return {
       delegation: Math.round(delegation * 1000) / 1000,

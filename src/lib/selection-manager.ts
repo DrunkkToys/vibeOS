@@ -1,20 +1,11 @@
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, statSync, copyFileSync, renameSync } from "node:fs"
 import { join, basename } from "node:path"
 import { homedir, tmpdir } from "node:os"
-import { withFileLock } from "./state.js"
+import { withFileLock, _handleStateCorruption } from "./state.js"
 
 const USER_HOME = (() => { try { return homedir() } catch { return tmpdir() } })()
 function getVibeOSHome() {
   return process.env.VIBEOS_HOME || join(process.env.HOME || homedir(), ".claude")
-}
-
-function _handleStateCorruption(path: string): void {
-  const backupDir = join(getVibeOSHome(), ".backups")
-  mkdirSync(backupDir, { recursive: true })
-  const backupPath = join(backupDir, basename(path) + ".corrupted." + Date.now())
-  try { copyFileSync(path, backupPath) } catch {}
-  const logPath = join(getVibeOSHome(), ".state-corruption-log.jsonl")
-  try { appendFileSync(logPath, JSON.stringify({ ts: new Date().toISOString(), path, backup: backupPath }) + "\n") } catch {}
 }
 
 function safeJsonParse(raw: string): any {
