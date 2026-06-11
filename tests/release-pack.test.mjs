@@ -10,4 +10,5 @@ const releaseScript = readFileSync(join(ROOT, "..", "scripts", "release.mjs"), "
 test("release script produces a local npm pack artifact", () => {
   assert.match(releaseScript, /npm pack/)
   assert.match(releaseScript, /local npm pack artifact created/)
+  assert.match(releaseScript, /NODE_AUTH_TOKEN|NPM_TOKEN|npm_config_userconfig/)
 })
