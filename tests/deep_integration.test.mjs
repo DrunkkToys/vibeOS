@@ -441,7 +441,7 @@ test("message.updated: CLI output shape with content array (Part[])", async () =
   const o = { content: [{ type: "text", text: "Hello from CLI mode. This is long enough to trigger the vibeOS footer. Really quite long indeed." }] }
   await hooks["message.updated"]({ messageID: "cli-1" }, o)
   const extracted = o.content.filter(p => p.type === "text").map(p => p.text).join("\n")
-  assert.ok(extracted.includes("Deepseek"), "footer on Content[]: " + extracted.slice(-60))
+  assert.ok(/Vibe(?:MaX|QMaX|UltraX|LiteX)/i.test(extracted) && extracted.includes("—"), "footer on Content[]: " + extracted.slice(-60))
 })
 
 test("message.updated: CLI output shape with parts array", async () => {
@@ -449,7 +449,7 @@ test("message.updated: CLI output shape with parts array", async () => {
   const o = { parts: [{ type: "text", text: "Another CLI message that should get the vibeOS footer treatment appended properly here." }] }
   await hooks["message.updated"]({ messageID: "cli-2" }, o)
   const extracted = o.parts.filter(p => p.type === "text").map(p => p.text).join("\n")
-  assert.ok(extracted.includes("Deepseek"), "footer on Parts[]: " + extracted.slice(-60))
+  assert.ok(/Vibe(?:MaX|QMaX|UltraX|LiteX)/i.test(extracted) && extracted.includes("—"), "footer on Parts[]: " + extracted.slice(-60))
 })
 
 test("message.updated: CLI dedup with content array", async () => {
@@ -479,7 +479,7 @@ test("message.updated: nested message payload also receives the footer", async (
   }
   await hooks["message.updated"]({ messageID: "cli-nested" }, o)
   const extracted = o.message.content.filter(p => p.type === "text").map(p => p.text).join("\n")
-  assert.ok(extracted.includes("Deepseek"), "nested message payload gets footer: " + extracted.slice(-80))
+  assert.ok(/Vibe(?:MaX|QMaX|UltraX|LiteX)/i.test(extracted) && extracted.includes("—"), "nested message payload gets footer: " + extracted.slice(-80))
 })
 
 test("regression: message.updated empty content does not poison text.complete dedup", async () => {
@@ -487,7 +487,7 @@ test("regression: message.updated empty content does not poison text.complete de
   await hooks["message.updated"]({ messageID: "poison-test" }, { content: [] })
   const o = { text: "This is a real assistant response that should receive the vibeOS footer in its complete form. Long enough definitely." }
   await hooks["experimental.text.complete"]({ messageID: "poison-test" }, o)
-  assert.ok(o.text.includes("Deepseek"), "footer despite prior empty msg.updated: " + o.text.slice(-80))
+  assert.ok(/Vibe(?:MaX|QMaX|UltraX|LiteX)/i.test(o.text) && o.text.includes("—"), "footer despite prior empty msg.updated: " + o.text.slice(-80))
 })
 
 test("regression: footer writes to stderr when stdout not TTY", async () => {
@@ -500,7 +500,7 @@ test("regression: footer writes to stderr when stdout not TTY", async () => {
       text: "This is a long enough assistant response to trigger the footer writing mechanism in the vibeOS plugin. Quite long indeed."
     })
     const all = stderrChunks.join("")
-    assert.ok(all.includes("Deepseek"), "footer on stderr: " + all.slice(-80))
+    assert.ok(/Vibe(?:MaX|QMaX|UltraX|LiteX)/i.test(all) && all.includes("—"), "footer on stderr: " + all.slice(-80))
   } finally {
     process.stderr.write = origWrite
   }
