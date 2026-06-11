@@ -320,7 +320,7 @@ export function createTrinityTool(deps) {
         if (slot === "on" || slot === "off") {
           const ok = deps.writeSelection("flow_enabled", slot === "on")
           if (ok && slot === "on") deps.writeSelection("onboarding_mode", "strict")
-        return ok
+          return ok
             ? `\u2705 Flow enforcer ${slot === "on" ? "ENABLED" : "DISABLED"}`
             : `\u274c Failed to write model-tiers.json`
         }

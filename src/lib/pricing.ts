@@ -1148,7 +1148,7 @@ export function _refreshModel(directory) {
             for (const s of getTrinitySlotOrder(t)) {
               if (t?.trinity?.[s]?.oc === cfgModel) {
                 t.selection.active_slot = s
-    const _tmp = TIERS_FILE + ".tmp." + Date.now() + "." + Math.random().toString(36).slice(2, 8)
+                const _tmp = TIERS_FILE + ".tmp." + Date.now() + "." + Math.random().toString(36).slice(2, 8)
                 writeFileSync(_tmp, JSON.stringify(t, null, 2) + "\n", "utf-8")
                 renameSync(_tmp, TIERS_FILE)
                 if (DEBUG_INTERNALS) console.error(`[vibeOS] model refresh (config): synced active_slot → ${s}`)
