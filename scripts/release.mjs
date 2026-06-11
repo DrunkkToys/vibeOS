@@ -316,12 +316,26 @@ log(`${GREEN}✓${RESET} pushed tag v${newVer}`)
 
 log("")
 log(`${BOLD}📦 Publishing to npm...${RESET}`)
+const npmToken = process.env.NPM_TOKEN || process.env.NODE_AUTH_TOKEN || ""
+let npmUserConfigDir = ""
+let npmPublishEnv = process.env
+if (npmToken) {
+  npmUserConfigDir = mkdtempSync(join(tmpdir(), "vibetheog-npmrc-"))
+  const npmUserConfigPath = join(npmUserConfigDir, ".npmrc")
+  writeFileSync(
+    npmUserConfigPath,
+    `//registry.npmjs.org/:_authToken=${npmToken}\nregistry=https://registry.npmjs.org/\nalways-auth=true\n`
+  )
+  npmPublishEnv = { ...process.env, npm_config_userconfig: npmUserConfigPath }
+}
 try {
-  sh(`npm publish`)
+  sh(`npm publish`, { env: npmPublishEnv })
   log(`${GREEN}✓${RESET} v${newVer} published to npm`)
 } catch (e) {
   log(`${YELLOW}⚠${RESET}  npm publish failed: ${e.message}`)
   log(`   run manually: npm publish`)
+} finally {
+  if (npmUserConfigDir) rmSync(npmUserConfigDir, { recursive: true, force: true })
 }
 
 // ── DEPLOY TO LOCAL PLUGIN DIR ─────────────────────────────────
