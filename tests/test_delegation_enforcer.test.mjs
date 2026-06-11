@@ -2225,9 +2225,9 @@ test("pattern learner: detects repeated same tool target", async () => {
 
   const fp = createHash("sha256").update(dir).digest("hex").slice(0, 12)
   const state = JSON.parse(readFileSync(join(sandbox, ".claude/project-states.json"), "utf-8"))
-  const row = state.project_hashes[fp].userPatterns.friction["repeat-tool:bash:git-status"]
+  const row = state.project_hashes[fp].userPatterns.friction["pattern:bash:git-status"]
   assert.ok(row, "repeat-tool pattern recorded")
-  assert.equal(row.summary, "Repeated bash calls against git-status in one session.")
+  assert.equal(row.summary, "Pattern detected: repeated bash calls (git-status) — git-status")
   assert.equal(row.count, 1, "repeat-tool pattern should be deduped within the session")
 })
 

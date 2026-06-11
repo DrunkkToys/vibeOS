@@ -650,6 +650,7 @@ function contextBudgetDirective(_input: any, output: any): string | null {
 }
 
 export const onSystemTransform = async (_input, output) => {
+try { require("fs").appendFileSync("/tmp/st_debug", "ENTER_ON_SYSTEM_TRANSFORM\n") } catch(e) {}
   if (!loadSelection().enabled) return
   try {
     const hookDirectory = String((onSystemTransform as any)._directory || "")
@@ -777,7 +778,7 @@ export const onSystemTransform = async (_input, output) => {
 
     // ── Template resolution ──
     _prevTemplate = _currentTemplate
-    _currentTemplate = resolveTemplate(_prevTemplate, stressScore, latestUserIntent, credit, _prevBlackboxState?.sub_regime)
+    _currentTemplate = resolveTemplate(_prevTemplate, stressScore, latestUserIntent, credit, _latestBlackboxState?.sub_regime)
 
     // ── Gated template directive (only on transition or periodic) ──
     if (shouldInjectTemplate(_currentTemplate, _prevTemplate)) {
