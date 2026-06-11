@@ -5,9 +5,11 @@
  */
 import { test, before, after, beforeEach } from "node:test"
 import assert from "node:assert/strict"
+import { spawn } from "node:child_process"
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, mkdirSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { pathToFileURL } from "node:url"
 
 let sandbox
 before(() => {
@@ -35,6 +37,57 @@ function seedTiers(overrides = {}) {
     selection: { enabled: true, active_slot: "brain", delegation_enforce: true },
     ...overrides,
   }, null, 2))
+}
+
+async function runChildMutation(home, kind, readyPath, releasePath) {
+  const pricingUrl = pathToFileURL(join(process.cwd(), "src/lib/pricing.js")).href
+  const selectionUrl = pathToFileURL(join(process.cwd(), "src/lib/selection-manager.js")).href
+  const script = `
+    const fs = await import("node:fs")
+    const kind = ${JSON.stringify(kind)}
+    const readyPath = ${JSON.stringify(readyPath)}
+    const releasePath = ${JSON.stringify(releasePath)}
+    const pricing = await import(${JSON.stringify(pricingUrl)} + "?race=" + Date.now())
+    const selection = await import(${JSON.stringify(selectionUrl)} + "?race=" + Date.now())
+    fs.writeFileSync(readyPath, String(process.pid))
+    while (!fs.existsSync(releasePath)) {
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
+    let result
+    if (kind === "write-slot") {
+      result = selection.writeSelection("active_slot", "medium")
+    } else if (kind === "write-thinking") {
+      result = selection.writeSelection("thinking_level", "full")
+    } else if (kind === "write-flow") {
+      result = selection.writeSelection("flow_enabled", false)
+    } else {
+      throw new Error("unknown mutation: " + kind)
+    }
+    console.log(JSON.stringify({ kind, result }))
+  `
+  return await new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ["--input-type=module", "-e", script], {
+      env: {
+        ...process.env,
+        HOME: home,
+        VIBEOS_HOME: join(home, ".claude"),
+        VIBEOS_OPENCODE_HOME: join(home, ".config/opencode"),
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    })
+    let stdout = ""
+    let stderr = ""
+    child.stdout.on("data", (chunk) => { stdout += chunk })
+    child.stderr.on("data", (chunk) => { stderr += chunk })
+    child.on("error", reject)
+    child.on("close", (code) => {
+      if (code !== 0) {
+        reject(new Error(`mutation child failed (${kind}) with code ${code}\nstdout:\n${stdout}\nstderr:\n${stderr}`))
+        return
+      }
+      resolve({ stdout, stderr })
+    })
+  })
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -251,6 +304,38 @@ test("FIX 13: index.js exports setCurrentModel and setCurrentTier", async () => 
   const mod = await loadPlugin()
   assert.equal(typeof mod.setCurrentModel, "function", "setCurrentModel should be exported")
   assert.equal(typeof mod.setCurrentTier, "function", "setCurrentTier should be exported")
+})
+
+test("FIX 13b: concurrent slot writes preserve all selection fields", async () => {
+  const rounds = 3
+  const mutations = ["write-slot", "write-thinking", "write-flow"]
+  for (let i = 0; i < rounds; i++) {
+    seedTiers()
+    const readyDir = join(sandbox, `.race-ready-${i}`)
+    const releasePath = join(sandbox, `.race-go-${i}`)
+    mkdirSync(readyDir, { recursive: true })
+    const readyPaths = mutations.map((kind) => join(readyDir, `${kind}.ready`))
+    const childRuns = mutations.map((kind, idx) => runChildMutation(sandbox, kind, readyPaths[idx], releasePath))
+    const deadline = Date.now() + 5000
+    while (!readyPaths.every((p) => existsSync(p))) {
+      if (Date.now() > deadline) {
+        throw new Error("timed out waiting for concurrent writers to start")
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    writeFileSync(releasePath, "go")
+    await Promise.all(childRuns)
+    const tiers = JSON.parse(readFileSync(join(sandbox, ".claude/model-tiers.json"), "utf8"))
+    assert.equal(tiers.selection.active_slot, "medium")
+    assert.equal(tiers.selection.thinking_level, "full")
+    assert.equal(tiers.selection.flow_enabled, false)
+    assert.equal(tiers.selection.enabled, true)
+    assert.equal(tiers.trinity.brain.oc, "anthropic/claude-opus-4-7")
+    assert.equal(tiers.trinity.medium.oc, "deepseek/deepseek-v4-flash")
+    assert.equal(tiers.trinity.cheap.oc, "deepseek/deepseek-chat")
+    rmSync(readyDir, { recursive: true, force: true })
+    rmSync(releasePath, { force: true })
+  }
 })
 
 // ═══════════════════════════════════════════════════════════════════
