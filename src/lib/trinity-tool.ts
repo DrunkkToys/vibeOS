@@ -2,7 +2,7 @@
 
 import { join, dirname } from "node:path"
 import { LABEL_MODES, buildDeterministicTrinity, formatProviderName, formatQualityName, resolveExecutionIdentity } from "./pricing.js"
-import { BRANDED_MODES, RUNTIME_MODES } from "./mode-router.js"
+import { BRANDED_MODES, RUNTIME_MODES, resolveCascadeSlot } from "./mode-router.js"
 import { invalidateApiToken } from "./api-client.js"
 
 // ── Named constants (magic number extraction) ────────────────────────
@@ -286,8 +286,7 @@ export function createTrinityTool(deps) {
         const allEntries = [...BRANDED_MODES, ...RUNTIME_MODES]
         const modeEntry = allEntries.find(e => e.id === slot)
         if (modeEntry) {
-          const rawTier = modeEntry.pipeline[0] || "cheap"
-          const tierSlot = new Set(["brain", "medium", "cheap"]).has(rawTier) ? rawTier : "cheap"
+          const tierSlot = resolveCascadeSlot(modeEntry.pipeline)
           deps.writeSessionSlot(deps._OC_SID, tierSlot)
           deps.writeSelection("slot_locked", resolvedSlot !== "auto")
           deps.writeSelection("active_slot", tierSlot)

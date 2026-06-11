@@ -139,6 +139,13 @@ export function getDefaultRuntime(): ModeEntry {
 export function getBrandedModes(): ModeEntry[] { return BRANDED_MODES }
 export function getRuntimeModes(): ModeEntry[] { return RUNTIME_MODES }
 
+export function resolveCascadeSlot(pipeline: string[] = []): "brain" | "medium" | "cheap" {
+  const normalized = Array.isArray(pipeline) ? pipeline.map((t) => String(t || "").toLowerCase()) : []
+  if (normalized.includes("brain")) return "brain"
+  if (normalized.includes("medium")) return "medium"
+  return "cheap"
+}
+
 export function resolveTierModels(
   mode: ModeEntry,
   tierMap: Record<string, string>,

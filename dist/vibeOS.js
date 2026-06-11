@@ -7946,6 +7946,14 @@ var RAW_MODE = {
   desc: "Pure v4 Pro baseline. No vibeOS overhead."
 };
 var ALL_MODES = [...BRANDED_MODES, ...RUNTIME_MODES, RAW_MODE];
+function resolveCascadeSlot(pipeline = []) {
+  const normalized = Array.isArray(pipeline) ? pipeline.map((t) => String(t || "").toLowerCase()) : [];
+  if (normalized.includes("brain"))
+    return "brain";
+  if (normalized.includes("medium"))
+    return "medium";
+  return "cheap";
+}
 
 // src/lib/trinity-tool.js
 var MIN_TOOL_BREAKDOWN_THRESHOLD = 5e-3;
@@ -8229,8 +8237,7 @@ function createTrinityTool(deps) {
         const allEntries = [...BRANDED_MODES, ...RUNTIME_MODES];
         const modeEntry = allEntries.find((e) => e.id === slot);
         if (modeEntry) {
-          const rawTier = modeEntry.pipeline[0] || "cheap";
-          const tierSlot = (/* @__PURE__ */ new Set(["brain", "medium", "cheap"])).has(rawTier) ? rawTier : "cheap";
+          const tierSlot = resolveCascadeSlot(modeEntry.pipeline);
           deps.writeSessionSlot(deps._OC_SID, tierSlot);
           deps.writeSelection("slot_locked", resolvedSlot !== "auto");
           deps.writeSelection("active_slot", tierSlot);

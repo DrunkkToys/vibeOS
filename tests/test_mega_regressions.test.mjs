@@ -504,6 +504,7 @@ test("E2E: trinity mode vibeultrax → syncControlSettings does NOT overwrite", 
 
   // Step 2: Verify settings were written by trinity handler
   const sel1 = JSON.parse(readFileSync(join(sandbox, ".claude/model-tiers.json"), "utf-8")).selection
+  assert.equal(sel1.active_slot, "brain", "vibeultrax should resolve cascade slot to brain")
   assert.equal(sel1.delegation_enforce, true, "vibeultrax: delegation_enforce should be true (strict)")
   assert.equal(sel1.flow_enabled, true, "vibeultrax: flow_enabled should be true")
   assert.equal(sel1.tdd_enforce, true, "vibeultrax: tdd_enforce should be true")

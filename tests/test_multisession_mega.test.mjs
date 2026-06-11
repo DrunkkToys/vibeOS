@@ -101,7 +101,7 @@ test("[TRINITY] set medium+cheap slot cycle", async () => {
 test("[TRINITY] mode quality → brain", async () => { tiers(); await (await hooks()).tool.trinity.execute({ action:"mode",slot:"quality" }); assert.equal(sel().active_slot, "brain") })
 test("[TRINITY] mode speed → medium", async () => { tiers(); await (await hooks()).tool.trinity.execute({ action:"mode",slot:"speed" }); assert.equal(sel().active_slot, "medium") })
 test("[TRINITY] mode budget → cheap", async () => { tiers(); await (await hooks()).tool.trinity.execute({ action:"mode",slot:"budget" }); assert.equal(sel().active_slot, "cheap") })
-test("[TRINITY] mode vibeultrax → valid slot", async () => { tiers(); await (await hooks()).tool.trinity.execute({ action:"mode",slot:"vibeultrax" }); const s=sel().active_slot; assert.ok(["brain","medium","cheap"].includes(s), "got:"+s); assert.notEqual(s,"local") })
+test("[TRINITY] mode vibeultrax → brain", async () => { tiers(); await (await hooks()).tool.trinity.execute({ action:"mode",slot:"vibeultrax" }); assert.equal(sel().active_slot, "brain") })
 test("[TRINITY] mode vibeqmax → brain", async () => { tiers(); await (await hooks()).tool.trinity.execute({ action:"mode",slot:"vibeqmax" }); assert.equal(sel().active_slot, "brain") })
 test("[TRINITY] mode vibemax → medium", async () => { tiers(); await (await hooks()).tool.trinity.execute({ action:"mode",slot:"vibemax" }); assert.equal(sel().active_slot, "medium") })
 test("[TRINITY] enable/disable", async () => { tiers(); const h=await hooks(); await h.tool.trinity.execute({ action:"disable" }); assert.equal(sel().enabled, false); await h.tool.trinity.execute({ action:"enable" }); assert.equal(sel().enabled, true) })
