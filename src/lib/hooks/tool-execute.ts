@@ -561,7 +561,7 @@ export const onToolExecuteBefore = async (input, output) => {
   // Credit < 40%: non-task tool — record and nudge to step aside.
   if (_credit < 40 && !compatibilityMode) {
     const total = recordSaving(t, "credit<40% high-tier", _estOpus, { firstWord: _firstWord })
-      const msg = `[vibeOS] Quick win: ${resolveTierIcon("cheap")} cheap lane open · switch to ${resolveTierIcon("medium")} medium to save about ~$${_estOpus.toFixed(3)}/turn.`
+    const msg = `[vibeOS] Quick win: ${resolveTierIcon("cheap")} cheap lane open · switch to ${resolveTierIcon("medium")} medium to save about ~$${_estOpus.toFixed(3)}/turn.`
     if (shouldLogWarn(`${t}|credit|${_tierWord}`) && process.env.VIBEOS_DEBUG_DELEGATION === "1") {
       console.error(`[vibeOS] [delegation] ${msg}`)
     }
@@ -614,25 +614,25 @@ export const onToolExecuteBefore = async (input, output) => {
       if (isDocsTarget(target) && !context7Seen.has(target)) {
         context7Seen.add(target)
         // Re-check each time — context7 might be added mid-session
-          if (detectContext7()) {
-            const missed = recordMissedContext7(SAVE_EST.CONTEXT7)
-            if (shouldLogWarn(`context7-bypass|${t}|${_firstWord || "?"}`)) {
-              console.error(`[vibeOS] [cost policy] Context7 available but bypassed — webfetch on docs target instead. ~$${SAVE_EST.CONTEXT7.toFixed(4)}/turn missed.`)
-            }
-          } else {
-            const missed = recordMissedContext7(_estC7)
-            if (!existsSync(CONTEXT7_INSTALL_FLAG)) {
-              try {
-                mkdirSync(dirname(CONTEXT7_INSTALL_FLAG), { recursive: true })
-                writeFileSync(CONTEXT7_INSTALL_FLAG, "")
-              } catch {}
-              console.error(`[vibeOS] Small win: install context7 MCP to save about ~$0.06/turn on docs: \`claude mcp add context7 npx @upstash/context7-mcp\``)
-            } else if (!context7AlertedThisSession) {
-              context7AlertedThisSession = true
-              console.error(`[vibeOS] context7 is still off — about ~$${(missed ?? 0).toFixed(2)} in savings slipped this session.`)
-            }
+        if (detectContext7()) {
+          const missed = recordMissedContext7(SAVE_EST.CONTEXT7)
+          if (shouldLogWarn(`context7-bypass|${t}|${_firstWord || "?"}`)) {
+            console.error(`[vibeOS] [cost policy] Context7 available but bypassed — webfetch on docs target instead. ~$${SAVE_EST.CONTEXT7.toFixed(4)}/turn missed.`)
+          }
+        } else {
+          const missed = recordMissedContext7(_estC7)
+          if (!existsSync(CONTEXT7_INSTALL_FLAG)) {
+            try {
+              mkdirSync(dirname(CONTEXT7_INSTALL_FLAG), { recursive: true })
+              writeFileSync(CONTEXT7_INSTALL_FLAG, "")
+            } catch {}
+            console.error(`[vibeOS] Small win: install context7 MCP to save about ~$0.06/turn on docs: \`claude mcp add context7 npx @upstash/context7-mcp\``)
+          } else if (!context7AlertedThisSession) {
+            context7AlertedThisSession = true
+            console.error(`[vibeOS] context7 is still off — about ~$${(missed ?? 0).toFixed(2)} in savings slipped this session.`)
           }
         }
+      }
     }
     // Soft quota: track per-tool, fire exactly once at QUOTA+1 (tool still runs).
     softQuotaCounts[t] = (softQuotaCounts[t] ?? 0) + 1

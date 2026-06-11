@@ -126,11 +126,11 @@ function computeControlVector(
   const stress = Number(_state?.latest_stress_multiplier ?? 0)
   const tierBias = stress > QUALITY_STRESS_THRESHOLD ? "brain"
     : subRegime === "CONVERGING" || subRegime === "CLOSED" ? "brain"
-    : subRegime === "REFINING" || subRegime === "LOOPING" ? "medium"
-    : mode === "quality" || mode === "longrun" || mode === "vibeultrax" || mode === "vibeqmax" || mode === "forensic" || mode === "audit" ? "brain"
-    : mode === "speed" || mode === "vibemax" || mode === "vibelitex" ? "medium"
-    : mode === "balanced" ? "auto"
-    : "cheap"
+      : subRegime === "REFINING" || subRegime === "LOOPING" ? "medium"
+        : mode === "quality" || mode === "longrun" || mode === "vibeultrax" || mode === "vibeqmax" || mode === "forensic" || mode === "audit" ? "brain"
+          : mode === "speed" || mode === "vibemax" || mode === "vibelitex" ? "medium"
+            : mode === "balanced" ? "auto"
+              : "cheap"
   return {
     enforcement_mode: isStrict ? "strict" : isRelaxed ? "relaxed" : "normal",
     enforcement_reason: `[optimize: ${mode}] using safe offline defaults`,
@@ -146,7 +146,7 @@ function computeControlVector(
     agent_mode: (subRegime === "REFINING" || subRegime === "CONVERGING" || subRegime === "CLOSED") && stress <= QUALITY_STRESS_THRESHOLD ? "plan" : undefined as any,
     optimization_mode: mode,
     directives: isRelaxed && (subRegime === "EXPLORING" || subRegime === "INIT" || subRegime === "AUDIT" || subRegime === "FORENSIC" || subRegime === "LOOPING") ? [
-      `[speed guard] VERIFY BEFORE ACT - Speed-oriented mode "${mode}" is active and user intent is ${subRegime}. Before modifying files or executing commands, first verify the current state. When a request is ambiguous between "check and report" vs "fix", always choose CHECK FIRST. Treat "look at", "check", "investigate", "tell me about" as requests for information, not action items.`
+      `[speed guard] VERIFY BEFORE ACT - Speed-oriented mode "${mode}" is active and user intent is ${subRegime}. Before modifying files or executing commands, first verify the current state. When a request is ambiguous between "check and report" vs "fix", always choose CHECK FIRST. Treat "look at", "check", "investigate", "tell me about" as requests for information, not action items.`,
     ] : [],
   }
 }
