@@ -1,3 +1,8 @@
+## 0.24.16
+- fix: serialize model tiers writes
+- test: add concurrent tiers write regression
+
+
 ## 0.24.15
 - feat: smooth delegation UX — conversational reasoning over error injection
 - fix: preserve local agent mode in remote control merge
