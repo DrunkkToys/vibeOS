@@ -2451,14 +2451,16 @@ function loadSelection() {
 function writeSelection(key, value) {
   const TIERS_FILE3 = join3(getVibeOSHome2(), "model-tiers.json");
   try {
-    const j = safeJsonParse2(readFileSync3(TIERS_FILE3, "utf-8"));
-    if (!j.selection)
-      j.selection = {};
-    j.selection[key] = value;
-    const tmp = TIERS_FILE3 + ".tmp." + Date.now() + "." + Math.random().toString(36).slice(2, 8);
-    writeFileSync3(tmp, JSON.stringify(j, null, 2) + "\n");
-    renameSync2(tmp, TIERS_FILE3);
-    return true;
+    return withFileLock(TIERS_FILE3, () => {
+      const j = safeJsonParse2(readFileSync3(TIERS_FILE3, "utf-8"));
+      if (!j.selection)
+        j.selection = {};
+      j.selection[key] = value;
+      const tmp = TIERS_FILE3 + ".tmp." + Date.now() + "." + Math.random().toString(36).slice(2, 8);
+      writeFileSync3(tmp, JSON.stringify(j, null, 2) + "\n");
+      renameSync2(tmp, TIERS_FILE3);
+      return true;
+    });
   } catch (err) {
     console.error(`[vibeOS] writeSelection failed: ${err.message}`);
     return false;
@@ -5874,18 +5876,20 @@ function _refreshModel(directory3) {
           console.error(`[vibeOS] model refresh (config): ${oldModel}(${oldTier}) \u2192 ${currentModel}(${currentTier})`);
         try {
           if (existsSync6(TIERS_FILE3)) {
-            const t = safeJsonParse3(readFileSync5(TIERS_FILE3, "utf-8"));
-            for (const s of getTrinitySlotOrder(t)) {
-              if (t?.trinity?.[s]?.oc === cfgModel) {
-                t.selection.active_slot = s;
-                const _tmp = TIERS_FILE3 + ".tmp." + Date.now() + "." + Math.random().toString(36).slice(2, 8);
-                writeFileSync5(_tmp, JSON.stringify(t, null, 2) + "\n", "utf-8");
-                renameSync4(_tmp, TIERS_FILE3);
-                if (DEBUG_INTERNALS)
-                  console.error(`[vibeOS] model refresh (config): synced active_slot \u2192 ${s}`);
-                break;
+            withFileLock2(TIERS_FILE3, () => {
+              const t = safeJsonParse3(readFileSync5(TIERS_FILE3, "utf-8"));
+              for (const s of getTrinitySlotOrder(t)) {
+                if (t?.trinity?.[s]?.oc === cfgModel) {
+                  t.selection.active_slot = s;
+                  const _tmp = TIERS_FILE3 + ".tmp." + Date.now() + "." + Math.random().toString(36).slice(2, 8);
+                  writeFileSync5(_tmp, JSON.stringify(t, null, 2) + "\n", "utf-8");
+                  renameSync4(_tmp, TIERS_FILE3);
+                  if (DEBUG_INTERNALS)
+                    console.error(`[vibeOS] model refresh (config): synced active_slot \u2192 ${s}`);
+                  break;
+                }
               }
-            }
+            });
           }
         } catch {
         }
@@ -5897,25 +5901,27 @@ function _refreshModel(directory3) {
 function applySlot2(slot, projectDir = "") {
   try {
     const TIERS_FILE3 = join5(getVibeOSHome4(), "model-tiers.json");
-    const j = safeJsonParse3(readFileSync5(TIERS_FILE3, "utf-8"));
-    const ocModel = j?.trinity?.[slot]?.oc;
-    if (!ocModel)
-      return { ok: false, reason: `slot '${slot}' has no oc model` };
-    j.selection.active_slot = slot;
-    const _tmp = TIERS_FILE3 + ".tmp." + Date.now();
-    writeFileSync5(_tmp, JSON.stringify(j, null, 2) + "\n", "utf-8");
-    renameSync4(_tmp, TIERS_FILE3);
-    const dir = projectDir || process.cwd();
-    const localOcConfig = join5(dir, "opencode.json");
-    const ocConfig = existsSync6(localOcConfig) ? localOcConfig : join5(getOpenCodeHome(), "opencode.json");
-    if (existsSync6(ocConfig)) {
-      const oc = safeJsonParse3(readFileSync5(ocConfig, "utf-8"));
-      oc.model = ocModel;
-      writeFileSync5(ocConfig, JSON.stringify(oc, null, 2) + "\n");
-    }
-    clearWorkspaceFollowupPauseForSession(getCurrentSessionId());
-    _refreshModel(dir);
-    return { ok: true, ocModel };
+    return withFileLock2(TIERS_FILE3, () => {
+      const j = safeJsonParse3(readFileSync5(TIERS_FILE3, "utf-8"));
+      const ocModel = j?.trinity?.[slot]?.oc;
+      if (!ocModel)
+        return { ok: false, reason: `slot '${slot}' has no oc model` };
+      j.selection.active_slot = slot;
+      const _tmp = TIERS_FILE3 + ".tmp." + Date.now();
+      writeFileSync5(_tmp, JSON.stringify(j, null, 2) + "\n", "utf-8");
+      renameSync4(_tmp, TIERS_FILE3);
+      const dir = projectDir || process.cwd();
+      const localOcConfig = join5(dir, "opencode.json");
+      const ocConfig = existsSync6(localOcConfig) ? localOcConfig : join5(getOpenCodeHome(), "opencode.json");
+      if (existsSync6(ocConfig)) {
+        const oc = safeJsonParse3(readFileSync5(ocConfig, "utf-8"));
+        oc.model = ocModel;
+        writeFileSync5(ocConfig, JSON.stringify(oc, null, 2) + "\n");
+      }
+      clearWorkspaceFollowupPauseForSession(getCurrentSessionId());
+      _refreshModel(dir);
+      return { ok: true, ocModel };
+    });
   } catch (err) {
     return { ok: false, reason: err.message };
   }

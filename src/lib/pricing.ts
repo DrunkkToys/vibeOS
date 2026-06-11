@@ -19,7 +19,7 @@ import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, sta
 import { join, dirname, basename, resolve } from "node:path"
 import { homedir, tmpdir } from "node:os"
 import { createHash } from "node:crypto"
-import { currentModel, currentTier, setCurrentModel, setCurrentTier, safeJsonParse, HIGH_TIER_RE, MID_TIER_RE, loadTierRegexes, _modelLocked, VIBEOS_HOME, OPENCODE_HOME, getCurrentSessionId } from "./state.js"
+import { currentModel, currentTier, setCurrentModel, setCurrentTier, safeJsonParse, HIGH_TIER_RE, MID_TIER_RE, loadTierRegexes, _modelLocked, VIBEOS_HOME, OPENCODE_HOME, getCurrentSessionId, withFileLock } from "./state.js"
 
 export { HIGH_TIER_RE, MID_TIER_RE, loadTierRegexes }
 
@@ -1145,17 +1145,19 @@ export function _refreshModel(directory) {
         if (DEBUG_INTERNALS) console.error(`[vibeOS] model refresh (config): ${oldModel}(${oldTier}) → ${currentModel}(${currentTier})`)
         try {
           if (existsSync(TIERS_FILE)) {
-            const t = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
-            for (const s of getTrinitySlotOrder(t)) {
-              if (t?.trinity?.[s]?.oc === cfgModel) {
-                t.selection.active_slot = s
-                const _tmp = TIERS_FILE + ".tmp." + Date.now() + "." + Math.random().toString(36).slice(2, 8)
-                writeFileSync(_tmp, JSON.stringify(t, null, 2) + "\n", "utf-8")
-                renameSync(_tmp, TIERS_FILE)
-                if (DEBUG_INTERNALS) console.error(`[vibeOS] model refresh (config): synced active_slot → ${s}`)
-                break
+            withFileLock(TIERS_FILE, () => {
+              const t = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
+              for (const s of getTrinitySlotOrder(t)) {
+                if (t?.trinity?.[s]?.oc === cfgModel) {
+                  t.selection.active_slot = s
+                  const _tmp = TIERS_FILE + ".tmp." + Date.now() + "." + Math.random().toString(36).slice(2, 8)
+                  writeFileSync(_tmp, JSON.stringify(t, null, 2) + "\n", "utf-8")
+                  renameSync(_tmp, TIERS_FILE)
+                  if (DEBUG_INTERNALS) console.error(`[vibeOS] model refresh (config): synced active_slot → ${s}`)
+                  break
+                }
               }
-            }
+            })
           }
         } catch {}
       }
@@ -1166,27 +1168,29 @@ export function _refreshModel(directory) {
 export function applySlot(slot: string, projectDir = "") {
   try {
     const TIERS_FILE = join(getVibeOSHome(), "model-tiers.json")
-    const j = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
-    const ocModel = j?.trinity?.[slot]?.oc
-    if (!ocModel) return { ok: false, reason: `slot '${slot}' has no oc model` }
-    j.selection.active_slot = slot
-    const _tmp = TIERS_FILE + ".tmp." + Date.now()
-    writeFileSync(_tmp, JSON.stringify(j, null, 2) + "\n", "utf-8")
-    renameSync(_tmp, TIERS_FILE)
-    // Prefer project-local config to avoid mutating global provider/dropdown config.
-    const dir = projectDir || process.cwd()
-    const localOcConfig = join(dir, "opencode.json")
-    const ocConfig = existsSync(localOcConfig)
-      ? localOcConfig
-      : join(getOpenCodeHome(), "opencode.json")
-    if (existsSync(ocConfig)) {
-      const oc = safeJsonParse(readFileSync(ocConfig, "utf-8"))
-      oc.model = ocModel
-      writeFileSync(ocConfig, JSON.stringify(oc, null, 2) + "\n")
-    }
-    clearWorkspaceFollowupPauseForSession(getCurrentSessionId())
-    _refreshModel(dir)
-    return { ok: true, ocModel }
+    return withFileLock(TIERS_FILE, () => {
+      const j = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
+      const ocModel = j?.trinity?.[slot]?.oc
+      if (!ocModel) return { ok: false, reason: `slot '${slot}' has no oc model` }
+      j.selection.active_slot = slot
+      const _tmp = TIERS_FILE + ".tmp." + Date.now()
+      writeFileSync(_tmp, JSON.stringify(j, null, 2) + "\n", "utf-8")
+      renameSync(_tmp, TIERS_FILE)
+      // Prefer project-local config to avoid mutating global provider/dropdown config.
+      const dir = projectDir || process.cwd()
+      const localOcConfig = join(dir, "opencode.json")
+      const ocConfig = existsSync(localOcConfig)
+        ? localOcConfig
+        : join(getOpenCodeHome(), "opencode.json")
+      if (existsSync(ocConfig)) {
+        const oc = safeJsonParse(readFileSync(ocConfig, "utf-8"))
+        oc.model = ocModel
+        writeFileSync(ocConfig, JSON.stringify(oc, null, 2) + "\n")
+      }
+      clearWorkspaceFollowupPauseForSession(getCurrentSessionId())
+      _refreshModel(dir)
+      return { ok: true, ocModel }
+    })
   } catch (err) {
     return { ok: false, reason: err.message }
   }

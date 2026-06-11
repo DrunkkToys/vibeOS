@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, statSync, copyFileSync, renameSync } from "node:fs"
 import { join, basename } from "node:path"
 import { homedir, tmpdir } from "node:os"
+import { withFileLock } from "./state.js"
 
 const USER_HOME = (() => { try { return homedir() } catch { return tmpdir() } })()
 function getVibeOSHome() {
@@ -64,13 +65,15 @@ export function loadSelection(): any {
 export function writeSelection(key: string, value: any): boolean {
   const TIERS_FILE = join(getVibeOSHome(), "model-tiers.json")
   try {
-    const j = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
-    if (!j.selection) j.selection = {}
-    j.selection[key] = value
-    const tmp = TIERS_FILE + ".tmp." + Date.now() + "." + Math.random().toString(36).slice(2, 8)
-    writeFileSync(tmp, JSON.stringify(j, null, 2) + "\n")
-    renameSync(tmp, TIERS_FILE)
-    return true
+    return withFileLock(TIERS_FILE, () => {
+      const j = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
+      if (!j.selection) j.selection = {}
+      j.selection[key] = value
+      const tmp = TIERS_FILE + ".tmp." + Date.now() + "." + Math.random().toString(36).slice(2, 8)
+      writeFileSync(tmp, JSON.stringify(j, null, 2) + "\n")
+      renameSync(tmp, TIERS_FILE)
+      return true
+    })
   } catch (err) {
     console.error(`[vibeOS] writeSelection failed: ${err.message}`)
     return false

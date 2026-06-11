@@ -229,7 +229,7 @@ function _lockPathFor(filePath: string): string {
   return join(FILE_LOCK_DIR, `${hash}.lock`)
 }
 
-function withFileLock(filePath: string, fn: () => any, opts: { staleMs?: number, timeoutMs?: number } = {}): any {
+export function withFileLock(filePath: string, fn: () => any, opts: { staleMs?: number, timeoutMs?: number } = {}): any {
   const staleMs = Number(opts.staleMs || 30_000)
   const timeoutMs = Number(opts.timeoutMs || 2_000)
   const lockPath = _lockPathFor(filePath)
