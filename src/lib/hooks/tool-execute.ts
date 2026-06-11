@@ -560,27 +560,29 @@ export const onToolExecuteBefore = async (input, output) => {
 
   const tLower = String(t || "").toLowerCase()
 
+  const lowCreditNudge = _credit < 40 && !compatibilityMode
+
   // Credit < 40%: non-direct-write tools get a nudge to step aside.
-  if (_credit < 40 && !compatibilityMode && !WARN_ON_DIRECT.has(tLower)) {
-    const total = recordSaving(t, "credit<40% high-tier", _estOpus, {
+  if (lowCreditNudge) {
+    const total = recordSaving(t, "credit<40% high-tier", _estEdit, {
       firstWord: _firstWord,
       projectFingerprint: currentProjectFingerprint,
       projectName: currentProjectName || "",
       sessionId: getCurrentSessionId(),
     })
-    const msg = `[vibeOS] Quick win: ${resolveTierIcon("cheap")} cheap lane open · switch to ${resolveTierIcon("medium")} medium to save about ~$${_estOpus.toFixed(3)}/turn.`
+    const msg = `[vibeOS] Quick win: ${resolveTierIcon("cheap")} cheap lane open · switch to ${resolveTierIcon("medium")} medium to save about ~$${_estEdit.toFixed(3)}/turn.`
     if (shouldLogWarn(`${t}|credit|${_tierWord}`) && process.env.VIBEOS_DEBUG_DELEGATION === "1") {
       console.error(`[vibeOS] [delegation] ${msg}`)
     }
     pendingUiNote = msg
-    return
+    if (!WARN_ON_DIRECT.has(tLower)) return
   }
 
   // Write/Edit/NotebookEdit: enforce delegation on high tier when delegation_enforce is on.
   if (WARN_ON_DIRECT.has(tLower)) {
     const argSources = _toolArgSources(input, output)
     if (process.env.VIBEOS_DEBUG_DELEGATION === "1") console.error(`[vibeOS] [enforce-debug] tool=${t} tier=${currentTier} enforce=${sel?.delegation_enforce} argsType=${typeof args} argsExists=${argSources.length > 0}`)
-    if (!compatibilityMode && sel.delegation_enforce && currentTier === "high" && argSources.length > 0) {
+    if (!compatibilityMode && sel.delegation_enforce && currentTier === "high") {
       const originalPath = argSources
         .flatMap((src) => [src?.filePath, src?.file_path, src?.path])
         .find((v) => typeof v === "string" && v.trim()) || ""
@@ -595,31 +597,35 @@ export const onToolExecuteBefore = async (input, output) => {
       const savings = apiResult?.savings ?? _estEdit
 
       if (isBlocked) {
-        const total = recordSaving(t, "delegation enforced", savings, {
-          firstWord: _firstWord,
-          projectFingerprint: currentProjectFingerprint,
-          projectName: currentProjectName || "",
-          sessionId: getCurrentSessionId(),
-        })
+        if (!lowCreditNudge) {
+          const total = recordSaving(t, "delegation enforced", savings, {
+            firstWord: _firstWord,
+            projectFingerprint: currentProjectFingerprint,
+            projectName: currentProjectName || "",
+            sessionId: getCurrentSessionId(),
+          })
+        }
         pendingUiNote = `[delegation] This is a good candidate for a Task subagent — ${resolveTierIcon("brain")} brain handles orchestration, let cheaper tiers do the write/edit. Switch to ${resolveTierIcon("medium")} medium with \`trinity medium\` if you'd rather do it directly.`
         enforcementBlocked = true
         if (shouldLogWarn(`${t}|enforced|${_tierWord}`)) console.error(`[vibeOS] [enforcement] BLOCKED direct ${t} on high tier → delegate via Task`)
         return
       }
-    }
-    const total = recordSaving(t, "direct edit", _estEdit, {
-      firstWord: _firstWord,
-      projectFingerprint: currentProjectFingerprint,
-      projectName: currentProjectName || "",
-      sessionId: getCurrentSessionId(),
-    })
-    if (!compatibilityMode) {
-      const msg = `[vibeOS] ${resolveTierIcon("cheap")} cheap lane · save about ~$${_estEdit.toFixed(3)} by delegating to Task. Try ${resolveTierIcon("medium")} medium.`
-      if (shouldLogWarn(`${t}|direct|${_tierWord}`) && process.env.VIBEOS_DEBUG_DELEGATION === "1") {
-        console.error(`[vibeOS] [delegation] ${msg}`)
+      if (!lowCreditNudge) {
+        const total = recordSaving(t, "direct edit", _estEdit, {
+          firstWord: _firstWord,
+          projectFingerprint: currentProjectFingerprint,
+          projectName: currentProjectName || "",
+          sessionId: getCurrentSessionId(),
+        })
       }
-      pendingUiNote = msg
-      return
+      if (!compatibilityMode) {
+        const msg = `[vibeOS] ${resolveTierIcon("cheap")} cheap lane · save about ~$${_estEdit.toFixed(3)} by delegating to Task. Try ${resolveTierIcon("medium")} medium.`
+        if (shouldLogWarn(`${t}|direct|${_tierWord}`) && process.env.VIBEOS_DEBUG_DELEGATION === "1") {
+          console.error(`[vibeOS] [delegation] ${msg}`)
+        }
+        pendingUiNote = msg
+        return
+      }
     }
   }
 
