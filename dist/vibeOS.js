@@ -2309,7 +2309,7 @@ function safeJsonParse2(raw) {
     throw e;
   }
 }
-var DFLT_SEL = { enabled: true, active_slot: null, thinking_level: "off", flow_enabled: false, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: false, delegation_enforce: true, onboarding_mode: null, selected_provider: null, selected_quality_tier: null, selected_model: null, executed_provider: null, executed_quality_tier: null, executed_model: null, previous_default_agent: null };
+var DFLT_SEL = { enabled: true, active_slot: null, thinking_level: "off", flow_enabled: true, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: true, delegation_enforce: true, onboarding_mode: null, selected_provider: null, selected_quality_tier: null, selected_model: null, executed_provider: null, executed_quality_tier: null, executed_model: null, previous_default_agent: null };
 function loadSelection() {
   const TIERS_FILE3 = join3(getVibeOSHome2(), "model-tiers.json");
   try {
@@ -5299,7 +5299,7 @@ function loadSelection2() {
     return DFLT_SEL2;
   }
 }
-var DFLT_SEL2 = { enabled: true, active_slot: null, thinking_level: "off", flow_enabled: false, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: false, delegation_enforce: true, selected_provider: null, selected_quality_tier: null, selected_model: null, executed_provider: null, executed_quality_tier: null, executed_model: null };
+var DFLT_SEL2 = { enabled: true, active_slot: null, thinking_level: "off", flow_enabled: true, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: true, delegation_enforce: true, selected_provider: null, selected_quality_tier: null, selected_model: null, executed_provider: null, executed_quality_tier: null, executed_model: null };
 function readConfig(dir) {
   try {
     const configs = [];
@@ -9345,8 +9345,11 @@ function observeToolPattern(toolName, input, output, directory3) {
       repeat++;
     }
     if (repeat === 3) {
-      recordFrictionPattern(`repeat-tool:${t}:${target}`, `Repeated ${t} calls against ${target} in one session.`, { family: t, path: target });
-      _patternFiredKeys.add(`repeat-tool:${t}:${target}`);
+      const family = t === "bash" ? commandFamily(args.command || args.cmd || args.script || "") : t;
+      const generalizedKey = `pattern:${t}:${family}`;
+      const summary = `Pattern detected: repeated ${t} calls (${family}) \u2014 ${target}`;
+      recordFrictionPattern(generalizedKey, summary, { family: family || t, path: target, tool: t });
+      _patternFiredKeys.add(generalizedKey);
     }
     if (repeat > 8) {
       try {
@@ -9568,6 +9571,17 @@ var TEMPLATES = {
     wbp_verbosity: "normal",
     agent_mode: "plan",
     directive: "[SECURITY mode] Defense-in-depth. Define the threat model before writing code. Validate all inputs. Never expose secrets or credentials. Verify each defense handles its threat. Consider: injection, broken auth, data exposure, logic errors, race conditions."
+  },
+  speed: {
+    tier_bias: "medium",
+    thinking_mode: "off",
+    enforcement_mode: "relaxed",
+    flow_mode: "audit",
+    tdd_mode: "lazy",
+    context7_urgency: "preferred",
+    wbp_verbosity: "minimal",
+    agent_mode: "auto",
+    directive: "[SPEED mode] Break the loop. Try a different approach. Verify each step before proceeding. If stuck, step back and reassess assumptions. Do NOT repeat the same failing strategy. Prioritize getting a working solution over optimal code. Use Task subagents to parallelize exploration. After 3 failed attempts, explicitly ask the user for guidance."
   }
 };
 var DEFAULT_TEMPLATE = "save";
@@ -9586,11 +9600,15 @@ function detectStressSpike(stressScore) {
   _prevStress = stressScore;
   return delta > 0.3 && stressScore > 0.5;
 }
-function resolveTemplate(prevTemplate, stressScore, userText, creditPercent) {
+function resolveTemplate(prevTemplate, stressScore, userText, creditPercent, subRegime) {
   if (detectSecuritySignal(userText))
     return "security";
-  if (detectBudgetSignal(creditPercent))
+  if (detectBudgetSignal(creditPercent)) {
+    const regime = String(subRegime || "").toUpperCase();
+    if (regime === "LOOPING" || regime === "DIVERGENT")
+      return "speed";
     return "save";
+  }
   if (detectStressSpike(stressScore))
     return "quality";
   return prevTemplate || DEFAULT_TEMPLATE;
@@ -9806,11 +9824,11 @@ function syncControlSettings(cv, options = {}) {
       writeIf("flow_enabled", cv.flow_mode === "strict");
       writeIf("flow_enforce", cv.flow_mode === "strict");
     } else if (cv.flow_mode === "audit") {
-      writeIf("flow_enabled", false);
+      writeIf("flow_enabled", true);
       writeIf("flow_enforce", false);
     } else {
       writeIf("flow_enabled", true);
-      writeIf("flow_enforce", cv.flow_mode === "strict");
+      writeIf("flow_enforce", true);
     }
     if (compatibilityMode) {
       writeIf("tdd_enforce", cv.tdd_mode === "strict");
@@ -10232,7 +10250,7 @@ var onSystemTransform = async (_input, output) => {
       pushSystem(output, stressMitigationDirective);
     }
     _prevTemplate = _currentTemplate;
-    _currentTemplate = resolveTemplate(_prevTemplate, stressScore, latestUserIntent, credit);
+    _currentTemplate = resolveTemplate(_prevTemplate, stressScore, latestUserIntent, credit, _prevBlackboxState?.sub_regime);
     if (shouldInjectTemplate(_currentTemplate, _prevTemplate)) {
       const tpl = TEMPLATES[_currentTemplate] || TEMPLATES[DEFAULT_TEMPLATE];
       let fused = tpl.directive;
@@ -10283,6 +10301,7 @@ var onSystemTransform = async (_input, output) => {
     if (_turnCountInject % 5 === 0) {
       pushSystem(output, "[project guard: CRITICAL] AGENTS.md and README.md are protected by vibeOS. Do NOT modify either file without explicit user permission. AGENTS.md defines that AI agents must ask before changing code.");
     }
+    pushSystem(output, "[anti-fabrication] Always work honestly \u2014 do NOT make up tool names, file paths, function signatures, code snippets, or exact outputs. If you must explain something you cannot verify, say 'I cannot verify that' and propose how to verify it. Under NO circumstance invent tool invocations, file contents, or final results. If you must correct an earlier response, say exactly what was wrong and then provide the corrected response. DO NOT LGTM.");
     const budgetDirective = contextBudgetDirective(_input, output);
     if (budgetDirective) pushSystem(output, budgetDirective);
     if (!oneShot(fp2)) {
@@ -10448,9 +10467,9 @@ var _lastStrippedText = "";
 function loadSelection3() {
   try {
     const raw = readFileSync14(join15(getVibeOSHome10(), "model-tiers.json"), "utf-8");
-    return safeJsonParse3(raw)?.selection || { active_slot: "medium", enabled: true, delegation_enforce: true, flow_enabled: false, flow_enforce: false, tdd_enforce: false, tdd_strict: false };
+    return safeJsonParse3(raw)?.selection || { active_slot: "medium", enabled: true, delegation_enforce: true, flow_enabled: true, flow_enforce: true, tdd_enforce: false, tdd_strict: false };
   } catch {
-    return { active_slot: "medium", enabled: true, delegation_enforce: true, flow_enabled: false, flow_enforce: false, tdd_enforce: false, tdd_strict: false };
+    return { active_slot: "medium", enabled: true, delegation_enforce: true, flow_enabled: true, flow_enforce: true, tdd_enforce: false, tdd_strict: false };
   }
 }
 function readLifetimeSavings3() {
@@ -10665,20 +10684,26 @@ ${vibeLine}`;
         _prevOutputText = _extractText2(output) || "";
         if (_prevOutputText && prevText && _prevOutputText !== prevText) {
           const outcome = detectOutcomeSignal(_prevOutputText);
-          if (outcome) {
+          const regime = _latestBlackboxState?.sub_regime || classifyTurnSimple2(latestUserIntent || "");
+          const stress = _footerStress;
+          const isLooping = String(regime || "").toUpperCase() === "LOOPING";
+          const isStressed = Number(stress || 0) > 0.3;
+          const passiveNegative = isLooping && isStressed && !outcome ? "negative" : null;
+          const finalOutcome = outcome || passiveNegative;
+          if (finalOutcome) {
             recordBudgetFirstOutcome({
-              outcome,
-              subRegime: _latestBlackboxState?.sub_regime || classifyTurnSimple2(latestUserIntent || ""),
-              stress: _footerStress
+              outcome: finalOutcome,
+              subRegime: regime,
+              stress
             });
             const tracker = getBlackboxTracker();
-            tracker.recordOutcome(outcome);
-            syncOutcomeToApi(outcome);
+            tracker.recordOutcome(finalOutcome);
+            syncOutcomeToApi(finalOutcome);
             try {
               mkdirSync12(getVibeOSHome10(), { recursive: true });
               appendFileSync7(
                 join15(getVibeOSHome10(), "calibration-data.jsonl"),
-                JSON.stringify({ ts: (/* @__PURE__ */ new Date()).toISOString(), event: "outcome", sid: _OC_SID5, outcome }) + "\n"
+                JSON.stringify({ ts: (/* @__PURE__ */ new Date()).toISOString(), event: "outcome", sid: _OC_SID5, outcome: finalOutcome }) + "\n"
               );
             } catch {
             }

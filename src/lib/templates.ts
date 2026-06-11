@@ -56,6 +56,23 @@ export const TEMPLATES: Record<string, Template> = {
       "Verify each defense handles its threat. " +
       "Consider: injection, broken auth, data exposure, logic errors, race conditions.",
   },
+  speed: {
+    tier_bias: "medium",
+    thinking_mode: "off",
+    enforcement_mode: "relaxed",
+    flow_mode: "audit",
+    tdd_mode: "lazy",
+    context7_urgency: "preferred",
+    wbp_verbosity: "minimal",
+    agent_mode: "auto",
+    directive: "[SPEED mode] Break the loop. Try a different approach. " +
+      "Verify each step before proceeding. " +
+      "If stuck, step back and reassess assumptions. " +
+      "Do NOT repeat the same failing strategy. " +
+      "Prioritize getting a working solution over optimal code. " +
+      "Use Task subagents to parallelize exploration. " +
+      "After 3 failed attempts, explicitly ask the user for guidance.",
+  },
 }
 
 export const DEFAULT_TEMPLATE = "save"
@@ -92,9 +109,15 @@ export function resolveTemplate(
   stressScore: number,
   userText: string | undefined,
   creditPercent: number,
+  subRegime?: string | null,
 ): string {
   if (detectSecuritySignal(userText)) return "security"
-  if (detectBudgetSignal(creditPercent)) return "save"
+  if (detectBudgetSignal(creditPercent)) {
+    // Only return "save" if not in LOOPING regime (looping needs quality focus, not cost-cutting)
+    const regime = String(subRegime || "").toUpperCase()
+    if (regime === "LOOPING" || regime === "DIVERGENT") return "speed" // Override: looping needs correction, not cost-cutting
+    return "save"
+  }
   if (detectStressSpike(stressScore)) return "quality"
   return prevTemplate || DEFAULT_TEMPLATE
 }

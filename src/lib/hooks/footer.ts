@@ -67,8 +67,8 @@ let _lastStrippedText = ""
 function loadSelection() {
   try {
     const raw = readFileSync(join(getVibeOSHome(), "model-tiers.json"), "utf-8")
-    return safeJsonParse(raw)?.selection || { active_slot: "medium", enabled: true, delegation_enforce: true, flow_enabled: false, flow_enforce: false, tdd_enforce: false, tdd_strict: false }
-  } catch { return { active_slot: "medium", enabled: true, delegation_enforce: true, flow_enabled: false, flow_enforce: false, tdd_enforce: false, tdd_strict: false } }
+    return safeJsonParse(raw)?.selection || { active_slot: "medium", enabled: true, delegation_enforce: true, flow_enabled: true, flow_enforce: true, tdd_enforce: false, tdd_strict: false }
+  } catch { return { active_slot: "medium", enabled: true, delegation_enforce: true, flow_enabled: true, flow_enforce: true, tdd_enforce: false, tdd_strict: false } }
 }
 
 function readLifetimeSavings() {
@@ -283,21 +283,28 @@ async function _appendFooter(input, output, directory) {
         _prevOutputText = _extractText(output) || ""
         if (_prevOutputText && prevText && _prevOutputText !== prevText) {
           const outcome = detectOutcomeSignal(_prevOutputText)
-          if (outcome) {
+          const regime = _latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || "")
+          const stress = _footerStress
+          // Passive negative outcome: LOOPING regime + elevated stress = auto-negative
+          const isLooping = String(regime || "").toUpperCase() === "LOOPING"
+          const isStressed = Number(stress || 0) > 0.3
+          const passiveNegative = (isLooping && isStressed) && !outcome ? "negative" : null
+          const finalOutcome = outcome || passiveNegative
+          if (finalOutcome) {
             recordBudgetFirstOutcome({
-              outcome,
-              subRegime: _latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""),
-              stress: _footerStress,
+              outcome: finalOutcome,
+              subRegime: regime,
+              stress,
             })
             const tracker = getBlackboxTracker()
-            tracker.recordOutcome(outcome)
-            syncOutcomeToApi(outcome)
+            tracker.recordOutcome(finalOutcome)
+            syncOutcomeToApi(finalOutcome)
             // Write outcome to calibration log
             try {
               mkdirSync(getVibeOSHome(), { recursive: true })
               appendFileSync(
                 join(getVibeOSHome(), "calibration-data.jsonl"),
-                JSON.stringify({ ts: new Date().toISOString(), event: "outcome", sid: _OC_SID, outcome }) + "\n",
+                JSON.stringify({ ts: new Date().toISOString(), event: "outcome", sid: _OC_SID, outcome: finalOutcome }) + "\n",
               )
             } catch {}
           }

@@ -268,11 +268,11 @@ export function syncControlSettings(cv: any, options: { persistOptimizationMode?
       writeIf("flow_enabled", cv.flow_mode === "strict")
       writeIf("flow_enforce", cv.flow_mode === "strict")
     } else if (cv.flow_mode === "audit") {
-      writeIf("flow_enabled", false)
+      writeIf("flow_enabled", true)
       writeIf("flow_enforce", false)
     } else {
       writeIf("flow_enabled", true)
-      writeIf("flow_enforce", cv.flow_mode === "strict")
+      writeIf("flow_enforce", true)
     }
 
     if (compatibilityMode) {
@@ -777,7 +777,7 @@ export const onSystemTransform = async (_input, output) => {
 
     // ── Template resolution ──
     _prevTemplate = _currentTemplate
-    _currentTemplate = resolveTemplate(_prevTemplate, stressScore, latestUserIntent, credit)
+    _currentTemplate = resolveTemplate(_prevTemplate, stressScore, latestUserIntent, credit, _prevBlackboxState?.sub_regime)
 
     // ── Gated template directive (only on transition or periodic) ──
     if (shouldInjectTemplate(_currentTemplate, _prevTemplate)) {
@@ -852,6 +852,9 @@ export const onSystemTransform = async (_input, output) => {
         "Do NOT modify either file without explicit user permission. " +
         "AGENTS.md defines that AI agents must ask before changing code.")
     }
+
+    // ── Anti-fabrication enforcement ──
+    pushSystem(output, "[anti-fabrication] Always work honestly — do NOT make up tool names, file paths, function signatures, code snippets, or exact outputs. If you must explain something you cannot verify, say 'I cannot verify that' and propose how to verify it. Under NO circumstance invent tool invocations, file contents, or final results. If you must correct an earlier response, say exactly what was wrong and then provide the corrected response. DO NOT LGTM.")
 
     // ── Context budget ──
     const budgetDirective = contextBudgetDirective(_input, output)
