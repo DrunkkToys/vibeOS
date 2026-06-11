@@ -10190,6 +10190,18 @@ var BYTES_PER_TOKEN = 4;
 function getVibeOSHome9() {
   return process.env.VIBEOS_HOME || join14(process.env.HOME || "", ".claude");
 }
+function mergeRemoteControlVector(remoteControlVector, localControlVector) {
+  return {
+    ...remoteControlVector,
+    agent_mode: localControlVector?.agent_mode,
+    tier_bias: localControlVector?.tier_bias,
+    optimization_mode: localControlVector?.optimization_mode,
+    enforcement_mode: localControlVector?.enforcement_mode,
+    flow_mode: localControlVector?.flow_mode,
+    tdd_mode: localControlVector?.tdd_mode,
+    thinking_mode: localControlVector?.thinking_mode
+  };
+}
 function resolveRestorableOpenCodeAgent(currentSel) {
   const remembered = typeof currentSel?.previous_default_agent === "string" ? currentSel.previous_default_agent.trim() : "";
   if (remembered && remembered !== "plan")
@@ -10242,7 +10254,7 @@ async function apiComputeControlVector(state, action, optimizationMode) {
     const res = await remoteCall("blackboxControlVector", [state, action, optimizationMode], null);
     if (res?.control_vector) {
       const local = computeControlVector2(state, action, optimizationMode);
-      return { ...res.control_vector, tier_bias: local.tier_bias, optimization_mode: local.optimization_mode, enforcement_mode: local.enforcement_mode, flow_mode: local.flow_mode, tdd_mode: local.tdd_mode, thinking_mode: local.thinking_mode };
+      return mergeRemoteControlVector(res.control_vector, local);
     }
   } catch {
   }

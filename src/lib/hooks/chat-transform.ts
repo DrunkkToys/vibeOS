@@ -66,6 +66,19 @@ function getVibeOSHome() {
   return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude")
 }
 
+export function mergeRemoteControlVector(remoteControlVector: any, localControlVector: any): any {
+  return {
+    ...remoteControlVector,
+    agent_mode: localControlVector?.agent_mode,
+    tier_bias: localControlVector?.tier_bias,
+    optimization_mode: localControlVector?.optimization_mode,
+    enforcement_mode: localControlVector?.enforcement_mode,
+    flow_mode: localControlVector?.flow_mode,
+    tdd_mode: localControlVector?.tdd_mode,
+    thinking_mode: localControlVector?.thinking_mode,
+  }
+}
+
 function resolveRestorableOpenCodeAgent(currentSel: any): string | null {
   const remembered = typeof currentSel?.previous_default_agent === "string" ? currentSel.previous_default_agent.trim() : ""
   if (remembered && remembered !== "plan") return remembered
@@ -123,7 +136,7 @@ async function apiComputeControlVector(state: any, action: any, optimizationMode
     const res = await remoteCall("blackboxControlVector", [state, action, optimizationMode], null)
     if (res?.control_vector) {
       const local = computeControlVector(state, action, optimizationMode)
-      return { ...res.control_vector, tier_bias: local.tier_bias, optimization_mode: local.optimization_mode, enforcement_mode: local.enforcement_mode, flow_mode: local.flow_mode, tdd_mode: local.tdd_mode, thinking_mode: local.thinking_mode }
+      return mergeRemoteControlVector(res.control_vector, local)
     }
   } catch {}
   return computeControlVector(state, action, optimizationMode)

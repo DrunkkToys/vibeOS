@@ -182,6 +182,18 @@ test("syncControlSettings restores a stuck startup plan agent from the latest Op
   }
 })
 
+test("mergeRemoteControlVector preserves local agent_mode over remote control vector", async () => {
+  const moduleUrl = pathToFileURL(join(process.cwd(), "dist-ts/lib/hooks/chat-transform.js")).href
+  const mod = await import(moduleUrl + "?merge-agent=" + Date.now())
+  const merged = mod.mergeRemoteControlVector(
+    { enforcement_mode: "normal", flow_mode: "normal", tier_bias: "cheap", optimization_mode: "budget" },
+    { agent_mode: "plan", tier_bias: "brain", optimization_mode: "quality", enforcement_mode: "strict", flow_mode: "strict", tdd_mode: "strict", thinking_mode: "full" }
+  )
+  assert.equal(merged.agent_mode, "plan")
+  assert.equal(merged.tier_bias, "brain")
+  assert.equal(merged.optimization_mode, "quality")
+})
+
 test("syncControlSettings drops stuck full thinking when the vector cools down", async () => {
   const home = mkdtempSync(join(tmpdir(), "vib-thinking-"))
   const prevHome = process.env.HOME
