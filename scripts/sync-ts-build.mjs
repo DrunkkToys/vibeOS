@@ -1,4 +1,4 @@
-import { existsSync, unlinkSync } from "node:fs"
+import { existsSync, unlinkSync, copyFileSync } from "node:fs"
 import { join } from "node:path"
 
 // Build the list of lib modules to sync
@@ -50,3 +50,24 @@ for (const target of cleanupPaths) {
 }
 
 console.log("Cleaned generated JS artifacts from src/")
+
+// Now copy compiled JS from dist-ts/ to src/
+const ROOT = new URL("..", import.meta.url).pathname
+const distTsDir = join(ROOT, "dist-ts")
+let copied = 0
+for (const target of cleanupPaths) {
+  const srcPath = join(ROOT, target)
+  const relPath = target.replace(/^src\//, "")
+  const distTsPath = join(distTsDir, relPath)
+  if (existsSync(distTsPath)) {
+    try {
+      copyFileSync(distTsPath, srcPath)
+      copied++
+    } catch (error) {
+      process.stderr.write(`[sync-ts-build] Failed to copy: ${distTsPath} -> ${srcPath}
+`)
+      throw error
+    }
+  }
+}
+console.log(`Synced ${copied} compiled JS artifacts to src/`)
