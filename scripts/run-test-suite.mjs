@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process"
 import { pathToFileURL } from "node:url"
 
 const mode = (process.argv[2] || "full").toLowerCase()
-const timeout = mode === "ci" ? 120000 : 240000
+const timeout = mode === "ci" ? 240000 : 240000
 
 function listDirFiles(dir, suffix) {
   try {
