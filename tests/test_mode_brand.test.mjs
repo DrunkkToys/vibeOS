@@ -11,6 +11,8 @@ const BRAND_EXPECTATIONS = {
   vibemax: "VibeMaX",
   vibeultrax: "VibeUltraX",
   vibeqmax: "VibeQMaX",
+  audit: "VibeQMaX",
+  forensic: "VibeQMaX",
   budget: "VibeMaX",
   quality: "VibeQMaX",
   speed: "VibeMaX",
@@ -22,6 +24,8 @@ const MODE_LOAD_EXPECTATIONS = {
   vibemax: "vibemax",
   vibeultrax: "vibeultrax",
   vibeqmax: "vibeqmax",
+  audit: "audit",
+  forensic: "forensic",
   budget: "budget",
   quality: "quality",
   speed: "speed",
@@ -88,3 +92,17 @@ for (const modeId of Object.keys(BRAND_EXPECTATIONS)) {
       `footer should contain brand "${expectedBrand}" for mode "${modeId}"`);
   });
 }
+
+test("mode policy keeps audit/forensic as manual overrides", async () => {
+  const { applyBudgetFirstMode } = await import("../src/lib/mode-policy.js?t=" + Date.now());
+
+  const audit = applyBudgetFirstMode({ requestedMode: "audit" });
+  assert.equal(audit.active, false);
+  assert.equal(audit.mode, "audit");
+  assert.equal(audit.shouldPersistRequestedMode, true);
+
+  const forensic = applyBudgetFirstMode({ requestedMode: "forensic" });
+  assert.equal(forensic.active, false);
+  assert.equal(forensic.mode, "forensic");
+  assert.equal(forensic.shouldPersistRequestedMode, true);
+});

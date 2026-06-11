@@ -2409,7 +2409,7 @@ function safeJsonParse2(raw) {
     throw e;
   }
 }
-var DFLT_SEL = { enabled: true, active_slot: null, thinking_level: "off", flow_enabled: true, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: true, delegation_enforce: true, onboarding_mode: null, selected_provider: null, selected_quality_tier: null, selected_model: null, executed_provider: null, executed_quality_tier: null, executed_model: null, previous_default_agent: null };
+var DFLT_SEL = { enabled: true, active_slot: null, slot_locked: false, thinking_level: "off", flow_enabled: true, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: true, delegation_enforce: true, onboarding_mode: null, selected_provider: null, selected_quality_tier: null, selected_model: null, executed_provider: null, executed_quality_tier: null, executed_model: null, previous_default_agent: null };
 function loadSelection() {
   const TIERS_FILE3 = join3(getVibeOSHome2(), "model-tiers.json");
   try {
@@ -2424,6 +2424,7 @@ function loadSelection() {
     return {
       enabled: j?.selection?.enabled !== false,
       active_slot: j?.selection?.active_slot || null,
+      slot_locked: j?.selection?.slot_locked === true,
       active_pipeline: j?.selection?.active_pipeline || null,
       optimization_mode: j?.selection?.optimization_mode || null,
       thinking_level: j?.selection?.thinking_level || "off",
@@ -5563,6 +5564,7 @@ function loadSelection2() {
     return {
       enabled: j?.selection?.enabled !== false,
       active_slot: j?.selection?.active_slot || null,
+      slot_locked: j?.selection?.slot_locked === true,
       thinking_level: j?.selection?.thinking_level || "off",
       flow_enabled: j?.selection?.flow_enabled === true,
       tdd_enforce: j?.selection?.tdd_enforce === true,
@@ -5582,7 +5584,7 @@ function loadSelection2() {
     return DFLT_SEL2;
   }
 }
-var DFLT_SEL2 = { enabled: true, active_slot: null, thinking_level: "off", flow_enabled: true, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: true, delegation_enforce: true, selected_provider: null, selected_quality_tier: null, selected_model: null, executed_provider: null, executed_quality_tier: null, executed_model: null };
+var DFLT_SEL2 = { enabled: true, active_slot: null, slot_locked: false, thinking_level: "off", flow_enabled: true, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: true, delegation_enforce: true, selected_provider: null, selected_quality_tier: null, selected_model: null, executed_provider: null, executed_quality_tier: null, executed_model: null };
 function readConfig(dir) {
   try {
     const configs = [];
@@ -7502,8 +7504,10 @@ function saveReport({ type = "manual", summary = "", findings = null, metrics = 
   const parsedMetrics = _parseMetrics(metrics);
   if (_wouldBeDuplicate(type, summary))
     return null;
-  const fp2 = fingerprint || currentProjectFingerprint2 || currentProjectFingerprint || "unknown";
-  const projectName = currentProjectName2 || currentProjectName || "unknown";
+  const metricProjectFingerprint = typeof parsedMetrics?.projectFingerprint === "string" ? parsedMetrics.projectFingerprint : "";
+  const metricProjectName = typeof parsedMetrics?.projectName === "string" ? parsedMetrics.projectName : "";
+  const fp2 = fingerprint || currentProjectFingerprint2 || currentProjectFingerprint || metricProjectFingerprint || "unknown";
+  const projectName = currentProjectName2 || currentProjectName || metricProjectName || "unknown";
   const sessionId = currentSessionId2 || getCurrentSessionId() || "unknown";
   const id2 = generateReportId(type, fp2);
   const report = {
@@ -7945,7 +7949,11 @@ function createTrinityTool(deps) {
         let cheapModel = "(unset)";
         const credit = deps.loadCredit();
         const effectiveLevel = sel.thinking_level || deps.thinkingLevel(credit);
-        if (deps.currentModel && sel.selected_model && deps.currentModel !== sel.selected_model) {
+        const apiFallbackActive = typeof deps.isApiFallback === "function" ? deps.isApiFallback() : false;
+        const currentProvider = String(deps.currentModel || "").split("/")[0] || "";
+        const selectedProvider = String(sel.selected_provider || "").split("/")[0] || "";
+        const fallbackModelGuard = currentProvider === "opencode" && selectedProvider !== "opencode";
+        if (deps.currentModel && sel.selected_model && deps.currentModel !== sel.selected_model && !apiFallbackActive && !fallbackModelGuard) {
           try {
             const providers = deps._loadOpenCodeProviders();
             const auth = deps._readAuth();
@@ -8126,6 +8134,7 @@ function createTrinityTool(deps) {
           console.error("[vibeOS] WARN: probe error for " + targetModel + ": " + e.message + " - switching anyway");
         }
         deps.writeSessionSlot(deps._OC_SID, slot);
+        deps.writeSelection("slot_locked", true);
         const result = deps.applySlot(slot, deps.directory);
         if (!result.ok)
           return `\u274C Failed to set slot: ${result.reason}`;
@@ -8164,6 +8173,8 @@ function createTrinityTool(deps) {
         if (modeEntry) {
           const rawTier = modeEntry.pipeline[0] || "cheap";
           const tierSlot = (/* @__PURE__ */ new Set(["brain", "medium", "cheap"])).has(rawTier) ? rawTier : "cheap";
+          deps.writeSessionSlot(deps._OC_SID, tierSlot);
+          deps.writeSelection("slot_locked", resolvedSlot !== "auto");
           deps.writeSelection("active_slot", tierSlot);
           deps.writeSelection("active_pipeline", modeEntry.pipeline);
           deps.writeSelection("onboarding_mode", modeEntry.tdd === "quality" || modeEntry.enforcement === "strict" ? "strict" : "assist");
@@ -8174,6 +8185,9 @@ function createTrinityTool(deps) {
           deps.writeSelection("thinking_level", modeEntry.thinking);
           const pipelineStr = modeEntry.pipeline.join(" \u2192 ");
           return `Mode set to ${slot.toUpperCase()}. Tier: ${tierSlot}. Pipeline: ${pipelineStr}`;
+        }
+        if (resolvedSlot === "auto") {
+          deps.writeSelection("slot_locked", false);
         }
         return `Mode set to ${slot.toUpperCase()}.`;
       }
@@ -8776,6 +8790,7 @@ ${L.repeat(40)}`);
       if (action === "diagnose") {
         const results = [];
         const ocConfig = join11(deps.OPENCODE_HOME, "opencode.json");
+        const apiFallbackActive = typeof deps.isApiFallback === "function" ? deps.isApiFallback() : false;
         const checks = [
           { path: deps.TIERS_FILE, label: "model-tiers.json" },
           { path: ocConfig, label: "opencode.json" },
@@ -8808,7 +8823,15 @@ ${L.repeat(40)}`);
             results.push({ ok: false, okLabel: "\u274C", label: `${s} slot`, detail: "cannot read model-tiers.json", fix: "run `trinity rebuild` to create it" });
           }
         }
-        if (deps.currentModel || !deps.existsSync(deps.TIERS_FILE)) {
+        if (apiFallbackActive) {
+          results.push({
+            ok: false,
+            okLabel: "\u26A0",
+            label: "model probe",
+            detail: "API fallback active",
+            fix: "re-enter `trinity api-token <token>` to retry the remote API"
+          });
+        } else if (deps.currentModel || !deps.existsSync(deps.TIERS_FILE)) {
           try {
             const auth = deps._readAuth();
             const ok = await deps.probeModel(deps.currentModel, auth, deps._loadOpenCodeProviders());
@@ -8841,7 +8864,6 @@ ${L.repeat(40)}`);
             totalBal = cache.total;
         } catch {
         }
-        const apiFallbackActive = typeof deps.isApiFallback === "function" ? deps.isApiFallback() : false;
         const apiFallbackSince = deps._apiFallbackSince || null;
         results.push({
           ok: !apiFallbackActive,
@@ -9011,7 +9033,10 @@ ${L.repeat(40)}`);
           return "\u23F8 Blackbox decision engine DISABLED.";
         }
         if (mode === "reset") {
-          deps._blackboxTracker = null;
+          if (typeof deps.resetBlackboxTracker === "function")
+            deps.resetBlackboxTracker();
+          else
+            deps._blackboxTracker = null;
           const state = deps.loadBlackboxState();
           const sid = deps._OC_SID;
           delete state.sessions[sid];
@@ -9493,12 +9518,12 @@ var STRESS_QUALITY_THRESHOLD = 1.5;
 var BASELINE_MODE = "budget";
 var LOOP_REGIMES = /* @__PURE__ */ new Set(["LOOPING", "DIVERGENT"]);
 var QUALITY_REGIMES = /* @__PURE__ */ new Set(["CONVERGING", "CLOSED"]);
-var MANUAL_MODES = /* @__PURE__ */ new Set(["balanced", "quality", "speed", "longrun", "vibemax", "vibeqmax", "vibeultrax"]);
+var MANUAL_MODES = /* @__PURE__ */ new Set(["balanced", "quality", "speed", "longrun", "audit", "forensic", "vibemax", "vibeqmax", "vibeultrax"]);
 function normalizeMode(mode) {
   const normalized = String(mode || BASELINE_MODE).toLowerCase();
   if (normalized === "auto" || normalized === "")
     return BASELINE_MODE;
-  if (normalized === "budget" || normalized === "quality" || normalized === "speed" || normalized === "longrun" || normalized === "balanced" || normalized === "vibemax" || normalized === "vibeqmax" || normalized === "vibeultrax") {
+  if (normalized === "budget" || normalized === "quality" || normalized === "speed" || normalized === "longrun" || normalized === "balanced" || normalized === "audit" || normalized === "forensic" || normalized === "vibemax" || normalized === "vibeqmax" || normalized === "vibeultrax") {
     return normalized;
   }
   return BASELINE_MODE;
@@ -9510,7 +9535,7 @@ function isManualOverride(mode) {
   return MANUAL_MODES.has(normalizeMode(mode));
 }
 function chooseEpisodeMode(regime, suggestedMode, stress) {
-  if (suggestedMode === "vibeultrax" || suggestedMode === "vibeqmax" || suggestedMode === "vibemax")
+  if (suggestedMode === "vibeultrax" || suggestedMode === "vibeqmax" || suggestedMode === "vibemax" || suggestedMode === "audit" || suggestedMode === "forensic")
     return suggestedMode;
   if (LOOP_REGIMES.has(regime) || suggestedMode === "speed")
     return "speed";
@@ -9538,7 +9563,7 @@ function modeToSlot(mode) {
   const normalized = normalizeMode(mode);
   if (normalized === "speed")
     return "medium";
-  if (normalized === "quality" || normalized === "longrun" || normalized === "vibeultrax" || normalized === "vibeqmax")
+  if (normalized === "quality" || normalized === "longrun" || normalized === "audit" || normalized === "forensic" || normalized === "vibeultrax" || normalized === "vibeqmax")
     return "brain";
   return "cheap";
 }
@@ -10406,7 +10431,8 @@ function syncControlSettings(cv, options = {}) {
       }
     }
     const slot = cv.tier_bias;
-    if (slot && slot !== "auto") {
+    const slotLocked = currentSel.slot_locked === true;
+    if (slot && slot !== "auto" && !slotLocked) {
       const existingSlot = loadSessionSlot(sid);
       if (existingSlot !== slot) {
         writeSessionSlot2(sid, slot);
@@ -14238,6 +14264,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     getTodos,
     markTodoDone,
     syncFlowTodosToNative,
+    resetBlackboxTracker,
     get _blackboxTracker() {
       return getBlackboxTracker();
     },

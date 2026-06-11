@@ -29,12 +29,12 @@ type OutcomeInput = {
 const BASELINE_MODE: AdaptiveMode = "budget"
 const LOOP_REGIMES = new Set(["LOOPING", "DIVERGENT"])
 const QUALITY_REGIMES = new Set(["CONVERGING", "CLOSED"])
-const MANUAL_MODES = new Set(["balanced", "quality", "speed", "longrun", "vibemax", "vibeqmax", "vibeultrax"])
+const MANUAL_MODES = new Set(["balanced", "quality", "speed", "longrun", "audit", "forensic", "vibemax", "vibeqmax", "vibeultrax"])
 
 function normalizeMode(mode?: string | null): string {
   const normalized = String(mode || BASELINE_MODE).toLowerCase()
   if (normalized === "auto" || normalized === "") return BASELINE_MODE
-  if (normalized === "budget" || normalized === "quality" || normalized === "speed" || normalized === "longrun" || normalized === "balanced" || normalized === "vibemax" || normalized === "vibeqmax" || normalized === "vibeultrax") {
+  if (normalized === "budget" || normalized === "quality" || normalized === "speed" || normalized === "longrun" || normalized === "balanced" || normalized === "audit" || normalized === "forensic" || normalized === "vibemax" || normalized === "vibeqmax" || normalized === "vibeultrax") {
     return normalized
   }
   return BASELINE_MODE
@@ -49,7 +49,7 @@ function isManualOverride(mode?: string | null): boolean {
 }
 
 function chooseEpisodeMode(regime: string, suggestedMode: string, stress: number): string {
-  if (suggestedMode === "vibeultrax" || suggestedMode === "vibeqmax" || suggestedMode === "vibemax") return suggestedMode
+  if (suggestedMode === "vibeultrax" || suggestedMode === "vibeqmax" || suggestedMode === "vibemax" || suggestedMode === "audit" || suggestedMode === "forensic") return suggestedMode
   if (LOOP_REGIMES.has(regime) || suggestedMode === "speed") return "speed"
   if (QUALITY_REGIMES.has(regime) || suggestedMode === "quality") return "quality"
   return stress > STRESS_QUALITY_THRESHOLD ? "quality" : "budget"
@@ -75,7 +75,7 @@ function defaultPolicy() {
 function modeToSlot(mode: string): "brain" | "medium" | "cheap" {
   const normalized = normalizeMode(mode)
   if (normalized === "speed") return "medium"
-  if (normalized === "quality" || normalized === "longrun" || normalized === "vibeultrax" || normalized === "vibeqmax") return "brain"
+  if (normalized === "quality" || normalized === "longrun" || normalized === "audit" || normalized === "forensic" || normalized === "vibeultrax" || normalized === "vibeqmax") return "brain"
   return "cheap"
 }
 

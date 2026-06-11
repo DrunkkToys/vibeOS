@@ -156,6 +156,69 @@ test("Core — saveReport uses live project/session context instead of unknown f
   assert.ok(listed.some(r => r.id === id), "report-list should find the live-context report")
 })
 
+test("Core — saveReport falls back to metrics project identity when live context is unknown", async () => {
+  seedTierFile()
+  const mod = await loadPlugin()
+  mod.setCurrentProjectFingerprint("")
+  mod.setCurrentProjectName("")
+  mod.setCurrentSessionId("opencode-metrics-456")
+
+  const id = mod.saveReport({
+    type: "session",
+    summary: "metrics fallback regression " + Date.now(),
+    metrics: { projectName: "VibeBrainUltra", projectFingerprint: "e0b3eba46a6c", sessionId: "opencode-metrics-456", value: 2 },
+  })
+
+  const report = mod.readReport(id)
+  assert.equal(report.meta.project, "VibeBrainUltra", "project name should fall back to metrics.projectName")
+  assert.equal(report.meta.fingerprint, "e0b3eba46a6c", "fingerprint should fall back to metrics.projectFingerprint")
+  assert.equal(report.meta.sessionId, "opencode-metrics-456", "session id should remain stable")
+  assert.ok(!report.meta.id.includes("unknow"), "report id should not use typo fallback: " + report.meta.id)
+  const listed = mod.listReports({ project: "VibeBrainUltra", fingerprint: "e0b3eba46a6c", hours: 24 })
+  assert.ok(listed.some(r => r.id === id), "report-list should find the metrics-fallback report")
+})
+
+test("Core — trinity status does not rewrite slots from fallback opencode models", async () => {
+  seedTierFile({
+    selection: {
+      enabled: true,
+      active_slot: "brain",
+      delegation_enforce: true,
+      selected_provider: "deepseek",
+      selected_model: "deepseek/deepseek-v4-flash",
+      executed_provider: "deepseek",
+      executed_model: "deepseek/deepseek-v4-flash",
+    },
+  })
+  const opencodeDir = join(sandbox, ".opencode-fallback")
+  mkdirSync(opencodeDir, { recursive: true })
+  writeFileSync(join(opencodeDir, "opencode.json"), JSON.stringify({
+    model: "opencode/big-pickle",
+    provider: {
+      opencode: {
+        models: {
+          "big-pickle": {},
+          "mimo-v2.5": {},
+        },
+      },
+    },
+  }, null, 2))
+
+  const mod = await loadPlugin()
+  mod.setCurrentModel("opencode/big-pickle")
+  mod.setCurrentTier("mid")
+
+  const hooks = await mod.DelegationEnforcer({ client: { model: "opencode/big-pickle" }, directory: opencodeDir })
+  const before = JSON.parse(readFileSync(join(sandbox, ".claude/model-tiers.json"), "utf-8"))
+  const status = await hooks.tool.trinity.execute({ action: "status" })
+  assert.ok(typeof status === "string" && status.length > 0, "status should still return text")
+
+  const after = JSON.parse(readFileSync(join(sandbox, ".claude/model-tiers.json"), "utf-8"))
+  assert.deepEqual(after.trinity, before.trinity, "fallback opencode status must not rewrite the trinity slots")
+  assert.equal(after.selection.selected_model, before.selection.selected_model, "selected_model should stay stable")
+  assert.equal(after.selection.active_slot, "brain", "active slot should remain brain")
+})
+
 // ═══════════════════════════════════════════════════════════════════════
 // Section: Telemetry Integrity — Stress + Accuracy
 // ═══════════════════════════════════════════════════════════════════════

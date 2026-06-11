@@ -67,7 +67,11 @@ export function createTrinityTool(deps) {
         const credit = deps.loadCredit()
         const effectiveLevel = sel.thinking_level || deps.thinkingLevel(credit)
 
-        if (deps.currentModel && sel.selected_model && deps.currentModel !== sel.selected_model) {
+        const apiFallbackActive = typeof deps.isApiFallback === "function" ? deps.isApiFallback() : false
+        const currentProvider = String(deps.currentModel || "").split("/")[0] || ""
+        const selectedProvider = String(sel.selected_provider || "").split("/")[0] || ""
+        const fallbackModelGuard = currentProvider === "opencode" && selectedProvider !== "opencode"
+        if (deps.currentModel && sel.selected_model && deps.currentModel !== sel.selected_model && !apiFallbackActive && !fallbackModelGuard) {
           try {
             const providers = deps._loadOpenCodeProviders()
             const auth = deps._readAuth()
@@ -248,6 +252,7 @@ export function createTrinityTool(deps) {
           console.error("[vibeOS] WARN: probe error for " + targetModel + ": " + e.message + " - switching anyway")
         }
         deps.writeSessionSlot(deps._OC_SID, slot)
+        deps.writeSelection("slot_locked", true)
         const result = deps.applySlot(slot, deps.directory)
         if (!result.ok) return `\u274c Failed to set slot: ${result.reason}`
         try {
@@ -283,6 +288,8 @@ export function createTrinityTool(deps) {
         if (modeEntry) {
           const rawTier = modeEntry.pipeline[0] || "cheap"
           const tierSlot = new Set(["brain", "medium", "cheap"]).has(rawTier) ? rawTier : "cheap"
+          deps.writeSessionSlot(deps._OC_SID, tierSlot)
+          deps.writeSelection("slot_locked", resolvedSlot !== "auto")
           deps.writeSelection("active_slot", tierSlot)
           deps.writeSelection("active_pipeline", modeEntry.pipeline)
           deps.writeSelection("onboarding_mode",
@@ -298,6 +305,9 @@ export function createTrinityTool(deps) {
           deps.writeSelection("thinking_level", modeEntry.thinking)
           const pipelineStr = modeEntry.pipeline.join(" → ")
           return `Mode set to ${slot.toUpperCase()}. Tier: ${tierSlot}. Pipeline: ${pipelineStr}`
+        }
+        if (resolvedSlot === "auto") {
+          deps.writeSelection("slot_locked", false)
         }
         return `Mode set to ${slot.toUpperCase()}.`
       }
@@ -869,6 +879,7 @@ export function createTrinityTool(deps) {
       if (action === "diagnose") {
         const results = []
         const ocConfig = join(deps.OPENCODE_HOME, "opencode.json")
+        const apiFallbackActive = typeof deps.isApiFallback === "function" ? deps.isApiFallback() : false
 
         const checks = [
           { path: deps.TIERS_FILE,                                        label: "model-tiers.json"       },
@@ -903,7 +914,15 @@ export function createTrinityTool(deps) {
           }
         }
 
-        if (deps.currentModel || !deps.existsSync(deps.TIERS_FILE)) {
+        if (apiFallbackActive) {
+          results.push({
+            ok: false,
+            okLabel: "\u26A0",
+            label: "model probe",
+            detail: "API fallback active",
+            fix: "re-enter `trinity api-token <token>` to retry the remote API",
+          })
+        } else if (deps.currentModel || !deps.existsSync(deps.TIERS_FILE)) {
           try {
             const auth = deps._readAuth()
             const ok = await deps.probeModel(deps.currentModel, auth, deps._loadOpenCodeProviders())
@@ -932,7 +951,6 @@ export function createTrinityTool(deps) {
           const cache = deps.safeJsonParse(deps.readFileSync(deps.CREDIT_CACHE_F, "utf-8"))
           if (cache?.total != null) totalBal = cache.total
         } catch {}
-        const apiFallbackActive = typeof deps.isApiFallback === "function" ? deps.isApiFallback() : false
         const apiFallbackSince = deps._apiFallbackSince || null
         results.push({
           ok: !apiFallbackActive,
@@ -1109,7 +1127,8 @@ export function createTrinityTool(deps) {
           return "\u23F8 Blackbox decision engine DISABLED."
         }
         if (mode === "reset") {
-          deps._blackboxTracker = null
+          if (typeof deps.resetBlackboxTracker === "function") deps.resetBlackboxTracker()
+          else deps._blackboxTracker = null
           const state = deps.loadBlackboxState()
           const sid = deps._OC_SID
           delete state.sessions[sid]
