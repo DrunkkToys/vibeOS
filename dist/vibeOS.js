@@ -3279,9 +3279,9 @@ var MAX_SESSION_SCRATCHPAD_FILES = 200;
 var MAX_SESSION_SCRATCHPAD_BYTES = 2 * 1024 * 1024;
 var CORRUPTION_BACKUP_MAX = 5;
 var CORRUPTION_BACKUP_TTL_MS = 24 * 60 * 60 * 1e3;
-var LEDGER_ROTATE_MAX_BYTES = 1 * 1024 * 1024;
-var LEDGER_ROTATE_MAX_LINES = 5e4;
-var LEDGER_ROTATE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1e3;
+var LEDGER_ROTATE_MAX_BYTES = 256 * 1024;
+var LEDGER_ROTATE_MAX_LINES = 1e4;
+var LEDGER_ROTATE_MAX_AGE_MS = 48 * 60 * 60 * 1e3;
 var ACTIVE_JOBS_STALE_MS = 72 * 60 * 60 * 1e3;
 var MAX_PTR_CANDIDATES = 50;
 var SUMMARY_HEAD_TRUNCATE = 500;
@@ -3437,6 +3437,19 @@ function _pruneCorruptionBackups(backupDir) {
         }
       }
     }
+  } catch {
+  }
+}
+var _startupMaintenanceHome = "";
+function runStartupMaintenanceOnce() {
+  try {
+    const home = getVibeOSHome3();
+    if (!home || home === _startupMaintenanceHome)
+      return;
+    _startupMaintenanceHome = home;
+    _pruneCorruptionBackups(join4(home, ".backups"));
+    loadActiveJobs();
+    _compactSavingsLedgerIfNeeded();
   } catch {
   }
 }
@@ -3724,7 +3737,42 @@ function loadBlackboxState() {
       _handleStateCorruption(blackboxFile);
       return { enabled: false, sessions: {} };
     }
-    return safeJsonParse3(readFileSync4(blackboxFile, "utf-8")) || { enabled: false, sessions: {} };
+    const raw = safeJsonParse3(readFileSync4(blackboxFile, "utf-8")) || { enabled: false, sessions: {} };
+    if (!raw.sessions || typeof raw.sessions !== "object")
+      raw.sessions = {};
+    const now = Date.now();
+    let changed = false;
+    for (const [sid, session] of Object.entries(raw.sessions)) {
+      if (!session || typeof session !== "object")
+        continue;
+      const next = { ...session };
+      const createdAtRaw = typeof next.createdAt === "string" ? next.createdAt : "";
+      const updatedAtRaw = typeof next.updatedAt === "string" ? next.updatedAt : "";
+      const startedRaw = typeof next.started === "string" ? next.started : "";
+      const sessionStartedRaw = typeof next.session_started_at === "string" ? next.session_started_at : "";
+      const anchorRaw = [createdAtRaw, updatedAtRaw, startedRaw, sessionStartedRaw].find((v) => v && !Number.isNaN(Date.parse(v)));
+      const anchorMs = anchorRaw ? Date.parse(anchorRaw) : NaN;
+      if (!Number.isFinite(Date.parse(createdAtRaw))) {
+        next.createdAt = Number.isFinite(anchorMs) ? new Date(anchorMs).toISOString() : new Date(now).toISOString();
+        changed = true;
+      }
+      if (!Number.isFinite(Date.parse(updatedAtRaw))) {
+        next.updatedAt = next.createdAt || new Date(now).toISOString();
+        changed = true;
+      }
+      if (typeof next.sessionId !== "string" || !next.sessionId.trim()) {
+        next.sessionId = String(sid || "");
+        changed = true;
+      }
+      raw.sessions[sid] = next;
+    }
+    if (changed) {
+      try {
+        saveBlackboxState(raw);
+      } catch {
+      }
+    }
+    return raw;
   } catch {
     _handleStateCorruption(blackboxFile);
     return { enabled: false, sessions: {} };
@@ -3733,9 +3781,32 @@ function loadBlackboxState() {
 function saveBlackboxState(state) {
   const blackboxFile = join4(getVibeOSHome3(), "blackbox-state.json");
   try {
+    const next = state && typeof state === "object" ? state : { enabled: true, sessions: {} };
+    next.sessions ??= {};
+    const now = Date.now();
+    for (const [sid, session] of Object.entries(next.sessions)) {
+      if (!session || typeof session !== "object")
+        continue;
+      const record = session;
+      const createdAtRaw = typeof record.createdAt === "string" ? record.createdAt : "";
+      const updatedAtRaw = typeof record.updatedAt === "string" ? record.updatedAt : "";
+      const startedRaw = typeof record.started === "string" ? record.started : "";
+      const sessionStartedRaw = typeof record.session_started_at === "string" ? record.session_started_at : "";
+      const anchorRaw = [createdAtRaw, updatedAtRaw, startedRaw, sessionStartedRaw].find((v) => v && !Number.isNaN(Date.parse(v)));
+      const anchorMs = anchorRaw ? Date.parse(anchorRaw) : NaN;
+      if (!Number.isFinite(Date.parse(createdAtRaw))) {
+        record.createdAt = Number.isFinite(anchorMs) ? new Date(anchorMs).toISOString() : new Date(now).toISOString();
+      }
+      if (!Number.isFinite(Date.parse(updatedAtRaw))) {
+        record.updatedAt = record.createdAt || new Date(now).toISOString();
+      }
+      if (typeof record.sessionId !== "string" || !record.sessionId.trim()) {
+        record.sessionId = String(sid || "");
+      }
+    }
     mkdirSync3(dirname4(blackboxFile), { recursive: true });
     const tmp = blackboxFile + ".tmp";
-    writeFileSync4(tmp, JSON.stringify(state, null, 2) + "\n");
+    writeFileSync4(tmp, JSON.stringify(next, null, 2) + "\n");
     renameSync3(tmp, blackboxFile);
   } catch (err) {
     console.error(`[vibeOS] saveBlackboxState failed: ${err.message}`);
@@ -4347,10 +4418,48 @@ function ensureProjectBucket(state, fp2) {
       researchChains: 0,
       context7Bypasses: 0,
       commonTopics: [],
+      sessions: [],
+      reports: [],
+      updatedAt: null,
+      lastSeen: null,
       techStack: detectTechStack(process.cwd())
     };
   }
   return state.project_hashes[fp2];
+}
+function touchProjectBucket(state, fp2, meta = {}) {
+  if (!fp2 || fp2 === "unknown")
+    return null;
+  const bucket = ensureProjectBucket(state, fp2);
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  bucket.updatedAt = now;
+  bucket.lastSeen = now;
+  if (typeof meta.projectName === "string" && meta.projectName.trim()) {
+    bucket.projectName = meta.projectName.trim();
+  }
+  if (typeof meta.sessionId === "string" && meta.sessionId.trim()) {
+    bucket.sessions ??= [];
+    if (!bucket.sessions.includes(meta.sessionId)) {
+      bucket.sessions.push(meta.sessionId);
+      bucket.sessions = bucket.sessions.slice(-30);
+    }
+    bucket.totalSessions = Math.max(Number(bucket.totalSessions || 0), bucket.sessions.length);
+  }
+  if (typeof meta.reportId === "string" && meta.reportId.trim()) {
+    bucket.reports ??= [];
+    if (!bucket.reports.includes(meta.reportId)) {
+      bucket.reports.push(meta.reportId);
+      bucket.reports = bucket.reports.slice(-50);
+    }
+  }
+  if (typeof meta.topic === "string" && meta.topic.trim()) {
+    bucket.commonTopics ??= [];
+    if (!bucket.commonTopics.includes(meta.topic)) {
+      bucket.commonTopics.push(meta.topic);
+      bucket.commonTopics = bucket.commonTopics.slice(-20);
+    }
+  }
+  return bucket;
 }
 function detectTechStack(dir) {
   const stacks = [];
@@ -4482,6 +4591,18 @@ function recordCacheSaving(tool2, saveEst, meta = {}) {
         s.sessions[sid2].cache_savings_usd = roundUsd(Number(s.sessions[sid2].cache_savings_usd || 0) + delta);
         s.lifetime.cache_savings_usd = roundUsd(Number(s.lifetime.cache_savings_usd || 0) + delta);
       }
+      try {
+        if (currentProjectFingerprint) {
+          const pstate = loadProjectState();
+          touchProjectBucket(pstate, currentProjectFingerprint, {
+            sessionId: sid2,
+            projectName: currentProjectName || "",
+            topic: meta?.hash ? String(meta.hash).slice(0, 16) : "cache"
+          });
+          saveProjectState(pstate);
+        }
+      } catch {
+      }
       _pruneOldSessions(s);
       return s;
     });
@@ -4512,6 +4633,20 @@ function recordMissedContext7(saveEst) {
       const sid = _OC_SID;
       s.sessions[sid] ??= { total_savings_usd: 0, cache_savings_usd: 0, project_name: "", warns: [], cache_hits: [], seenWarnKeys: {} };
       s.sessions[sid].context7_missed_usd = Math.round(((s.sessions[sid].context7_missed_usd || 0) + saveEst) * 100) / 100;
+      try {
+        if (currentProjectFingerprint) {
+          const pstate = loadProjectState();
+          const bucket = touchProjectBucket(pstate, currentProjectFingerprint, {
+            sessionId: sid,
+            projectName: currentProjectName || "",
+            topic: "context7"
+          });
+          if (bucket)
+            bucket.context7Bypasses = (bucket.context7Bypasses || 0) + 1;
+          saveProjectState(pstate);
+        }
+      } catch {
+      }
       return s;
     });
     try {
@@ -4528,16 +4663,6 @@ function recordMissedContext7(saveEst) {
         _flushLedgerBuffer();
       else if (!_ledgerBufferTimer)
         _ledgerBufferTimer = setTimeout(_flushLedgerBuffer, LEDGER_BUFFER_FLUSH_MS);
-    } catch {
-    }
-    try {
-      if (currentProjectFingerprint) {
-        const pstate = loadProjectState();
-        const bucket = ensureProjectBucket(pstate, currentProjectFingerprint);
-        bucket.context7Bypasses = (bucket.context7Bypasses || 0) + 1;
-        bucket.lastSeen = (/* @__PURE__ */ new Date()).toISOString();
-        saveProjectState(pstate);
-      }
     } catch {
     }
     try {
@@ -7640,9 +7765,10 @@ function saveReport({ type = "manual", summary = "", findings = null, metrics = 
     currentProjectName2 = metricsProjectName;
   if (!currentSessionId2 && metricsSessionId)
     currentSessionId2 = metricsSessionId;
-  const fp2 = fingerprint || currentProjectFingerprint2 || currentProjectFingerprint || metricsProjectFingerprint || "unknown";
-  const projectName = currentProjectName2 || currentProjectName || metricsProjectName || "unknown";
-  const sessionId = currentSessionId2 || metricsSessionId || getCurrentSessionId() || getOcSessionId() || "unknown";
+  const liveSessionId = getCurrentSessionId() || getOcSessionId() || "";
+  const fp2 = fingerprint || metricsProjectFingerprint || currentProjectFingerprint || currentProjectFingerprint2 || "unknown";
+  const projectName = metricsProjectName || currentProjectName || currentProjectName2 || "unknown";
+  const sessionId = metricsSessionId || liveSessionId || currentSessionId2 || "unknown";
   const id2 = generateReportId(type, fp2);
   const report = {
     meta: { id: id2, project: projectName, fingerprint: fp2, type, created: (/* @__PURE__ */ new Date()).toISOString(), sessionId },
@@ -7666,6 +7792,19 @@ function saveReport({ type = "manual", summary = "", findings = null, metrics = 
       idx.reports.push({ id: id2, type, project: report.meta.project, fingerprint: fp2, created: report.meta.created, summary: _sum });
       writeFileSync9(reportsIndexPath, JSON.stringify(idx, null, 2) + "\n");
     });
+    try {
+      if (fp2 && fp2 !== "unknown") {
+        const pstate = loadProjectState();
+        touchProjectBucket(pstate, fp2, {
+          sessionId,
+          projectName: projectName || "",
+          reportId: id2,
+          topic: type || "report"
+        });
+        saveProjectState(pstate);
+      }
+    } catch {
+    }
   } catch (err) {
     console.error(`[vibeOS] report/index write failed: ${err.message}`);
     return null;
@@ -9965,6 +10104,11 @@ function noteProjectPattern(kind, key, summary, meta = {}) {
     if (meta.path)
       row.path = meta.path;
     target[key] = row;
+    touchProjectBucket(pstate, currentProjectFingerprint, {
+      sessionId: getCurrentSessionId(),
+      projectName: currentProjectName || "",
+      topic: key
+    });
     const entries = Object.entries(target);
     if (entries.length > 50) {
       entries.sort((a, b) => String(b[1]?.lastSeen || "").localeCompare(String(a[1]?.lastSeen || "")));
@@ -10198,6 +10342,9 @@ function recordSaving(tool2, reason, saveEst, meta = {}) {
       s.last_updated = (/* @__PURE__ */ new Date()).toISOString();
       _pruneOldSessions(s);
     });
+    const projectFingerprint2 = typeof meta?.projectFingerprint === "string" && meta.projectFingerprint.trim() ? meta.projectFingerprint.trim() : currentProjectFingerprint || "";
+    const projectName = typeof meta?.projectName === "string" && meta.projectName.trim() ? meta.projectName.trim() : currentProjectName || "";
+    const sessionId = typeof meta?.sessionId === "string" && meta.sessionId.trim() ? meta.sessionId.trim() : getCurrentSessionId() || _OC_SID;
     const entry = JSON.stringify({
       ts: (/* @__PURE__ */ new Date()).toISOString(),
       usd: saveEst,
@@ -10205,9 +10352,21 @@ function recordSaving(tool2, reason, saveEst, meta = {}) {
       tool: tool2,
       reason,
       saveEst,
-      fgp: currentProjectFingerprint || ""
+      fgp: projectFingerprint2
     });
     _ledgerBuffer.push(entry);
+    try {
+      if (projectFingerprint2) {
+        const pstate = loadProjectState();
+        touchProjectBucket(pstate, projectFingerprint2, {
+          sessionId,
+          projectName,
+          topic: tool2 || reason || "saving"
+        });
+        saveProjectState(pstate);
+      }
+    } catch {
+    }
     if (_ledgerBuffer.length >= LEDGER_BUFFER_MAX)
       _flushLedgerBuffer();
     else if (!_ledgerBufferTimer)
@@ -10377,6 +10536,17 @@ function ensureProjectContext(hookDirectory) {
     const name = hookDirectory.split("/").filter(Boolean).pop() || "unknown";
     if (name && name !== currentProjectName)
       setCurrentProjectName(name);
+  }
+  try {
+    if (resolved) {
+      const pstate = loadProjectState();
+      touchProjectBucket(pstate, resolved, {
+        sessionId: _OC_SID3,
+        projectName: currentProjectName || (hookDirectory ? hookDirectory.split("/").filter(Boolean).pop() || "" : "")
+      });
+      saveProjectState(pstate);
+    }
+  } catch {
   }
   return resolved;
 }
@@ -13401,7 +13571,12 @@ ${argsJson}
     costDetector.record(modelCost);
   }
   if (_credit < 40 && !compatibilityMode) {
-    const total = recordSaving(t, "credit<40% high-tier", _estOpus, { firstWord: _firstWord });
+    const total = recordSaving(t, "credit<40% high-tier", _estOpus, {
+      firstWord: _firstWord,
+      projectFingerprint: currentProjectFingerprint,
+      projectName: currentProjectName || "",
+      sessionId: getCurrentSessionId()
+    });
     const msg = `[vibeOS] Quick win: ${resolveTierIcon("cheap")} cheap lane open \xB7 switch to ${resolveTierIcon("medium")} medium to save about ~$${_estOpus.toFixed(3)}/turn.`;
     if (shouldLogWarn(`${t}|credit|${_tierWord}`) && process.env.VIBEOS_DEBUG_DELEGATION === "1") {
       console.error(`[vibeOS] [delegation] ${msg}`);
@@ -13424,7 +13599,12 @@ ${argsJson}
       const isBlocked = apiResult?.blocked !== false;
       const savings = apiResult?.savings ?? _estEdit;
       if (isBlocked) {
-        const total2 = recordSaving(t, "delegation enforced", savings, { firstWord: _firstWord });
+        const total2 = recordSaving(t, "delegation enforced", savings, {
+          firstWord: _firstWord,
+          projectFingerprint: currentProjectFingerprint,
+          projectName: currentProjectName || "",
+          sessionId: getCurrentSessionId()
+        });
         pendingUiNote = `[delegation] This is a good candidate for a Task subagent \u2014 ${resolveTierIcon("brain")} brain handles orchestration, let cheaper tiers do the write/edit. Switch to ${resolveTierIcon("medium")} medium with \`trinity medium\` if you'd rather do it directly.`;
         enforcementBlocked = true;
         if (shouldLogWarn(`${t}|enforced|${_tierWord}`))
@@ -13432,7 +13612,12 @@ ${argsJson}
         return;
       }
     }
-    const total = recordSaving(t, "direct edit", _estEdit, { firstWord: _firstWord });
+    const total = recordSaving(t, "direct edit", _estEdit, {
+      firstWord: _firstWord,
+      projectFingerprint: currentProjectFingerprint,
+      projectName: currentProjectName || "",
+      sessionId: getCurrentSessionId()
+    });
     if (!compatibilityMode) {
       const msg = `[vibeOS] ${resolveTierIcon("cheap")} cheap lane \xB7 save about ~$${_estEdit.toFixed(3)} by delegating to Task. Try ${resolveTierIcon("medium")} medium.`;
       if (shouldLogWarn(`${t}|direct|${_tierWord}`) && process.env.VIBEOS_DEBUG_DELEGATION === "1") {
@@ -13471,7 +13656,11 @@ ${argsJson}
     softQuotaCounts[t] = (softQuotaCounts[t] ?? 0) + 1;
     const n = softQuotaCounts[t];
     if (n === SOFT_QUOTA_LIMIT + 1) {
-      const total = recordSaving(t, `soft quota exceeded (limit ${SOFT_QUOTA_LIMIT})`, SAVE_EST.SOFT_QUOTA);
+      const total = recordSaving(t, `soft quota exceeded (limit ${SOFT_QUOTA_LIMIT})`, SAVE_EST.SOFT_QUOTA, {
+        projectFingerprint: currentProjectFingerprint,
+        projectName: currentProjectName || "",
+        sessionId: getCurrentSessionId()
+      });
       console.error(`[vibeOS] Bash usage is getting heavy (${n}/${SOFT_QUOTA_LIMIT}) \u2014 hand the next step to a Task subagent.`);
     }
     return;
@@ -14212,6 +14401,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     setShellDirectory(directory3 || "");
   registerSessionCleanupHandlers();
   pruneScratchpadOnce();
+  runStartupMaintenanceOnce();
   const _bootstrapModel = await _resolveBootstrapModel(client2, directory3);
   if (_bootstrapModel.model) {
     setCurrentModel(_bootstrapModel.model);

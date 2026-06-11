@@ -4,7 +4,7 @@ import { join, dirname, basename } from "node:path"
 import { createHash } from "node:crypto"
 import { spawn } from "node:child_process"
 import {
-  currentTier, currentModel, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName,
+  currentTier, currentModel, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, getCurrentSessionId,
   textCompletePainted, softQuotaCounts, enforcementBlocked, taskSlotRestore,
   pendingUiNote, briefedProjects, _OC_SID, _modelLocked, _blackboxEnabled,
   _autoReportCount, scratchpadHitsSeen, context7AlertedThisSession,
@@ -560,7 +560,12 @@ export const onToolExecuteBefore = async (input, output) => {
 
   // Credit < 40%: non-task tool — record and nudge to step aside.
   if (_credit < 40 && !compatibilityMode) {
-    const total = recordSaving(t, "credit<40% high-tier", _estOpus, { firstWord: _firstWord })
+    const total = recordSaving(t, "credit<40% high-tier", _estOpus, {
+      firstWord: _firstWord,
+      projectFingerprint: currentProjectFingerprint,
+      projectName: currentProjectName || "",
+      sessionId: getCurrentSessionId(),
+    })
     const msg = `[vibeOS] Quick win: ${resolveTierIcon("cheap")} cheap lane open · switch to ${resolveTierIcon("medium")} medium to save about ~$${_estOpus.toFixed(3)}/turn.`
     if (shouldLogWarn(`${t}|credit|${_tierWord}`) && process.env.VIBEOS_DEBUG_DELEGATION === "1") {
       console.error(`[vibeOS] [delegation] ${msg}`)
@@ -589,14 +594,24 @@ export const onToolExecuteBefore = async (input, output) => {
       const savings = apiResult?.savings ?? _estEdit
 
       if (isBlocked) {
-        const total = recordSaving(t, "delegation enforced", savings, { firstWord: _firstWord })
+        const total = recordSaving(t, "delegation enforced", savings, {
+          firstWord: _firstWord,
+          projectFingerprint: currentProjectFingerprint,
+          projectName: currentProjectName || "",
+          sessionId: getCurrentSessionId(),
+        })
         pendingUiNote = `[delegation] This is a good candidate for a Task subagent — ${resolveTierIcon("brain")} brain handles orchestration, let cheaper tiers do the write/edit. Switch to ${resolveTierIcon("medium")} medium with \`trinity medium\` if you'd rather do it directly.`
         enforcementBlocked = true
         if (shouldLogWarn(`${t}|enforced|${_tierWord}`)) console.error(`[vibeOS] [enforcement] BLOCKED direct ${t} on high tier → delegate via Task`)
         return
       }
     }
-    const total = recordSaving(t, "direct edit", _estEdit, { firstWord: _firstWord })
+    const total = recordSaving(t, "direct edit", _estEdit, {
+      firstWord: _firstWord,
+      projectFingerprint: currentProjectFingerprint,
+      projectName: currentProjectName || "",
+      sessionId: getCurrentSessionId(),
+    })
     if (!compatibilityMode) {
       const msg = `[vibeOS] ${resolveTierIcon("cheap")} cheap lane · save about ~$${_estEdit.toFixed(3)} by delegating to Task. Try ${resolveTierIcon("medium")} medium.`
       if (shouldLogWarn(`${t}|direct|${_tierWord}`) && process.env.VIBEOS_DEBUG_DELEGATION === "1") {
@@ -638,7 +653,11 @@ export const onToolExecuteBefore = async (input, output) => {
     softQuotaCounts[t] = (softQuotaCounts[t] ?? 0) + 1
     const n = softQuotaCounts[t]
     if (n === SOFT_QUOTA_LIMIT + 1) {
-      const total = recordSaving(t, `soft quota exceeded (limit ${SOFT_QUOTA_LIMIT})`, SAVE_EST.SOFT_QUOTA)
+      const total = recordSaving(t, `soft quota exceeded (limit ${SOFT_QUOTA_LIMIT})`, SAVE_EST.SOFT_QUOTA, {
+        projectFingerprint: currentProjectFingerprint,
+        projectName: currentProjectName || "",
+        sessionId: getCurrentSessionId(),
+      })
       console.error(`[vibeOS] Bash usage is getting heavy (${n}/${SOFT_QUOTA_LIMIT}) — hand the next step to a Task subagent.`)
     }
     return

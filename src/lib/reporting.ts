@@ -2,7 +2,7 @@
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync, copyFileSync, rmSync } from "node:fs"
 import { join, basename } from "node:path"
-import { withFileLock, safeJsonParse, VIBEOS_HOME, currentProjectFingerprint as liveProjectFingerprint, currentProjectName as liveProjectName, getCurrentSessionId, _handleStateCorruption } from "./state.js"
+import { withFileLock, safeJsonParse, VIBEOS_HOME, currentProjectFingerprint as liveProjectFingerprint, currentProjectName as liveProjectName, getCurrentSessionId, _handleStateCorruption, loadProjectState, saveProjectState, touchProjectBucket } from "./state.js"
 import { getOcSessionId } from "./runtime-state.js"
 
 // Report data:
@@ -163,9 +163,10 @@ export function saveReport({ type = "manual", summary = "", findings = null, met
   if (!currentProjectName && metricsProjectName) currentProjectName = metricsProjectName
   if (!currentSessionId && metricsSessionId) currentSessionId = metricsSessionId
 
-  const fp = fingerprint || currentProjectFingerprint || liveProjectFingerprint || metricsProjectFingerprint || "unknown"
-  const projectName = currentProjectName || liveProjectName || metricsProjectName || "unknown"
-  const sessionId = currentSessionId || metricsSessionId || getCurrentSessionId() || getOcSessionId() || "unknown"
+  const liveSessionId = getCurrentSessionId() || getOcSessionId() || ""
+  const fp = fingerprint || metricsProjectFingerprint || liveProjectFingerprint || currentProjectFingerprint || "unknown"
+  const projectName = metricsProjectName || liveProjectName || currentProjectName || "unknown"
+  const sessionId = metricsSessionId || liveSessionId || currentSessionId || "unknown"
   const id = generateReportId(type, fp)
   const report = {
     meta: { id, project: projectName, fingerprint: fp, type, created: new Date().toISOString(), sessionId },
@@ -182,6 +183,18 @@ export function saveReport({ type = "manual", summary = "", findings = null, met
       idx.reports.push({ id, type, project: report.meta.project, fingerprint: fp, created: report.meta.created, summary: _sum })
       writeFileSync(reportsIndexPath, JSON.stringify(idx, null, 2) + "\n")
     })
+    try {
+      if (fp && fp !== "unknown") {
+        const pstate = loadProjectState()
+        touchProjectBucket(pstate, fp, {
+          sessionId,
+          projectName: projectName || "",
+          reportId: id,
+          topic: type || "report",
+        })
+        saveProjectState(pstate)
+      }
+    } catch {}
   } catch (err) {
     console.error(`[vibeOS] report/index write failed: ${err.message}`)
     return null

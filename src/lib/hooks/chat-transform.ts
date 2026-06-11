@@ -11,6 +11,7 @@ import {
   indexAppend, scratchpadHitsSeen, briefedProjects,
   loadActiveJobs, getActiveJobForProject, loadTodos,
   loadProjectState, saveProjectState, ensureProjectBucket,
+  touchProjectBucket,
   promotedProjectPatterns,
   detectTechStack, projectFingerprint,
   loadMLState, saveMLState,
@@ -116,6 +117,16 @@ function ensureProjectContext(hookDirectory: string): string {
     const name = hookDirectory.split("/").filter(Boolean).pop() || "unknown"
     if (name && name !== currentProjectName) setCurrentProjectName(name)
   }
+  try {
+    if (resolved) {
+      const pstate = loadProjectState()
+      touchProjectBucket(pstate, resolved, {
+        sessionId: _OC_SID,
+        projectName: currentProjectName || (hookDirectory ? hookDirectory.split("/").filter(Boolean).pop() || "" : ""),
+      })
+      saveProjectState(pstate)
+    }
+  } catch {}
   return resolved
 }
 

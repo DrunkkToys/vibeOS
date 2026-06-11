@@ -178,6 +178,29 @@ test("Core — saveReport falls back to metrics project identity when live conte
   assert.ok(listed.some(r => r.id === id), "report-list should find the metrics-fallback report")
 })
 
+test("Core — project memory keeps live session and report references", async () => {
+  seedTierFile()
+  const mod = await loadPlugin()
+  mod.setCurrentProjectFingerprint("cafefeed1234")
+  mod.setCurrentProjectName("theSaver-oc")
+  mod.setCurrentSessionId("opencode-project-xyz")
+
+  mod.recordSaving("bash", "project memory regression", 0.25, {})
+  const reportId = mod.saveReport({
+    type: "session",
+    summary: "project memory report " + Date.now(),
+    metrics: { value: 3 },
+  })
+
+  const pstate = JSON.parse(readFileSync(join(sandbox, ".claude/project-states.json"), "utf-8"))
+  const bucket = pstate.project_hashes?.cafefeed1234
+  assert.ok(bucket, "project bucket should exist")
+  assert.ok(Array.isArray(bucket.sessions) && bucket.sessions.includes("opencode-project-xyz"), "project bucket should keep the live session id")
+  assert.ok(Array.isArray(bucket.reports) && bucket.reports.includes(reportId), "project bucket should keep the report id")
+  assert.equal(bucket.projectName, "theSaver-oc", "project bucket should keep the live project name")
+  assert.ok(bucket.lastSeen, "project bucket should be touched")
+})
+
 test("Core — trinity status does not rewrite slots from fallback opencode models", async () => {
   seedTierFile({
     selection: {
@@ -217,6 +240,28 @@ test("Core — trinity status does not rewrite slots from fallback opencode mode
   assert.deepEqual(after.trinity, before.trinity, "fallback opencode status must not rewrite the trinity slots")
   assert.equal(after.selection.selected_model, before.selection.selected_model, "selected_model should stay stable")
   assert.equal(after.selection.active_slot, "brain", "active slot should remain brain")
+})
+
+test("Core — blackbox state gets createdAt and updatedAt timestamps on save", async () => {
+  seedTierFile()
+  const mod = await loadPlugin()
+  const sid = "opencode-blackbox-ts"
+  mod.saveBlackboxState({
+    enabled: true,
+    sessions: {
+      [sid]: {
+        regime: "LOOPING",
+        sub_regime: "LOOPING",
+        project_fingerprint: "abc123",
+      },
+    },
+  })
+
+  const state = mod.loadBlackboxState()
+  assert.ok(state.sessions?.[sid], "blackbox session should exist")
+  assert.ok(typeof state.sessions[sid].createdAt === "string" && state.sessions[sid].createdAt.length > 0, "createdAt should be stamped")
+  assert.ok(typeof state.sessions[sid].updatedAt === "string" && state.sessions[sid].updatedAt.length > 0, "updatedAt should be stamped")
+  assert.equal(state.sessions[sid].sessionId, sid, "sessionId should be filled in")
 })
 
 // ═══════════════════════════════════════════════════════════════════════
