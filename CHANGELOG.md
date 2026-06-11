@@ -1,3 +1,8 @@
+## 0.24.19
+- test: cover cold start maintenance user flow (#144)
+Prune stale active jobs and stabilize report tests
+
+
 ## 0.24.18
 - fix: keep Return codename through 0.24 patch releases (#143)
 - fix: preserve live metrics context in reports (#137)
