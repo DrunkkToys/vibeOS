@@ -33,7 +33,7 @@ import {
   trendDisplay, modelToSlotLabel, resolveExecutionIdentity, formatProviderName, formatQualityName, modelDisplayName,
 } from "../pricing.js"
 import { latestUserIntent } from "./chat-transform.js"
-import { loadSessionOptMode } from "../selection-manager.js"
+import { loadSessionOptMode, loadSessionSlot } from "../selection-manager.js"
 import { loadOptimizationMode } from "../turn-classify.js"
 import { loadCredit, refreshCreditSnapshot } from "../credit-api.js"
 import { buildFooterLine, buildEnforcementTags, resolveBrand, resolveTierIcon } from "./shared-footer.js"
@@ -43,7 +43,7 @@ function modeCapitalized(mode: string): string {
   return mode.charAt(0).toUpperCase() + mode.slice(1)
 }
 import {
-  scoreStress, extractFirstWordFromArgs, shouldLogWarn,
+  scoreStress, extractFirstWordFromArgs, shouldLogWarn, classifyTurnSimple,
   isUserAskingForTests, isLikelyOffTopic, resolveEnforcementMode,
   getBlackboxTracker, loadBlackboxState, saveBlackboxState,
   loadGlobalLearning, updateGlobalLearning, getLearnedExploratoryWords,
@@ -52,7 +52,7 @@ import {
 } from "../turn-classify.js"
 import { saveReport } from "../reporting.js"
 import { loadCredit } from "../credit-api.js"
-import { getApiClient, remoteCall, isApiFallback, VIBEOS_API_ENABLED } from "../api-client.js"
+import { getApiClient, remoteCall, isApiFallback, isApiConnected } from "../api-client.js"
 import { getCostAnomalyDetector } from "../cost-anomaly.js"
 import { checkFlowRules, recordFlowTodo } from "../../vibeOS-lib/flow-enforcer.js"
 import { computeDifficulty, cascadeDecide, createPatternGraph, ensureNode, addRouteEdge, predictBestModel, hashQuery, deserializeGraph } from "../../vibeOS-lib/ml-router.js"
@@ -715,7 +715,10 @@ export const onToolExecuteAfter = async (input, output) => {
       const optModeFooter = loadSessionOptMode(currentSid + "_opt") || loadOptimizationMode() || "budget"
       const activeSlot = selNow.active_slot || (execution.quality === "brain" ? "brain" : execution.quality === "medium" ? "medium" : "cheap")
       const vibeBrand = resolveBrand(optModeFooter, activeSlot)
-      const flashIcon = VIBEOS_API_ENABLED ? " \u26A1" : ""
+      const sessionSlot = loadSessionSlot(currentSid)
+      const displayMode = selNow.optimization_mode || optModeFooter || "auto"
+      const currentSubRegime = loadBlackboxState()?.sessions?.[currentSid]?.sub_regime || classifyTurnSimple(latestUserIntent || "")
+      const flashIcon = isApiConnected() ? " \u26A1" : ""
       _footerText = buildFooterLine({
         activeSlot,
         providerLabel: execution.provider_label,
@@ -723,10 +726,12 @@ export const onToolExecuteAfter = async (input, output) => {
         ltTotal,
         ltTrend: sesTrend || "",
         vibeBrand,
-        optMode: optModeFooter,
+        optMode: displayMode,
         flashIcon,
         enfTags,
+        sessionSlot,
         vectorChangedSlot: selNow.vector_changed_slot,
+        subRegime: currentSubRegime,
       }) + "\n\n"
       const footerTarget = _payload(output)
       output.title = _footerText.trim()

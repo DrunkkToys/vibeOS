@@ -304,8 +304,8 @@ test("budget-tier tool calls DO record warns (all tiers enforce)", async () => {
     ? JSON.parse(readFileSync(stateFile, "utf-8"))?.lifetime?.warn_count ?? 0
     : 0
 
-  await hooks["tool.execute.before"]({ tool: "write" })
-  await hooks["tool.execute.before"]({ tool: "edit" })
+  await hooks["tool.execute.before"]({ tool: "write" }, { args: { command: "write-config" } })
+  await hooks["tool.execute.before"]({ tool: "edit" }, { args: { command: "edit-config" } })
 
   const after = existsSync(stateFile) ? JSON.parse(readFileSync(stateFile, "utf-8")) : { lifetime: { warn_count: beforeCount } }
   assert.ok(after.lifetime.warn_count > beforeCount, "warns now recorded for all tiers (not just high)")
@@ -2228,6 +2228,7 @@ test("pattern learner: detects repeated same tool target", async () => {
   const row = state.project_hashes[fp].userPatterns.friction["repeat-tool:bash:git-status"]
   assert.ok(row, "repeat-tool pattern recorded")
   assert.equal(row.summary, "Repeated bash calls against git-status in one session.")
+  assert.equal(row.count, 1, "repeat-tool pattern should be deduped within the session")
 })
 
 test("pattern learner: detects correction language in system transform", async () => {

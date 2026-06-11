@@ -110,7 +110,7 @@ export function classifyTurnSimple(userText) {
     return "REFINING"
   }
   // Problem-description patterns — user is investigating/reporting, not commanding
-  if (/^(the |there is |there are |i think |looks like |seems like |i see |why (is|are|does|did) )/.test(lower)) {
+  if (/^(the |there is |there are |i think |looks like |seems like |i see |why (is|are|does|did) )/i.test(lower)) {
     return "EXPLORING"
   }
   // Q&A / research patterns -> EXPLORING

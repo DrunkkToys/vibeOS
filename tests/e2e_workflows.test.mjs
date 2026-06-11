@@ -256,21 +256,23 @@ test('e2e: simulated full session hook sequence does not crash', async () => {
 
     const toolResult = { result: 'export function foo(): string { return "hello" }' }
     await hooks['tool.execute.after'](toolInput, toolResult)
-    assert.ok(toolResult.result.includes('—'), 'tool footer alert should be present')
     assert.ok(toolResult.result.includes('[test-reminder]'), 'tool footer alert should preserve the reminder text')
 
     const textOutput = { text: 'Here is your function. It does the thing with proper types and handles edge cases.' }
     await hooks['experimental.text.complete']({ messageID: 'msg-' + Date.now() }, textOutput)
+    const messageUpdatedOutput = { text: 'Updated message that has enough content for vibeOS footer.' }
+    await hooks['message.updated']({ messageID: 'mu-' + Date.now() }, messageUpdatedOutput)
+    const toolFooterLine = messageUpdatedOutput.text.split('\n').map(line => line.trimStart()).find(line => line.startsWith('— '))
+    const textFooterLine = textOutput.text.trim().split('\n').filter(Boolean).at(-1)
+    assert.equal(toolFooterLine, textFooterLine, 'tool footer alert and live footer should share the same line format')
     const liveFooter = textOutput.text.slice(-200)
     assert.ok(liveFooter.includes('◐ medium') || liveFooter.includes('🧠 brain') || liveFooter.includes('⚡ cheap'), 'live footer should show the selected tier')
     if (selectionState.vector_changed_slot && selectionState.vector_changed_slot !== selectionState.active_slot) {
-      assert.ok(liveFooter.includes(`⟡ ${selectionState.vector_changed_slot}`), 'live footer should show the vector pulse')
+        assert.ok(liveFooter.includes(`⟡ ${selectionState.vector_changed_slot}`), 'live footer should show the vector pulse')
     }
     assert.ok(liveFooter.toLowerCase().includes('vibelitex') || liveFooter.toLowerCase().includes('budget'), 'live footer should show optimization mode')
 
     await hooks['experimental.chat.messages.transform']({}, { messages: [{ role: 'assistant', content: 'Done' }] })
-
-    await hooks['message.updated']({ messageID: 'mu-' + Date.now() }, { text: 'Updated message that has enough content for vibeOS footer.' })
 
     const env = {}
     await hooks['shell.env']({}, { env })

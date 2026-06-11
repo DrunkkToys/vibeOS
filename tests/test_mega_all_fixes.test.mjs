@@ -13,8 +13,7 @@ test.before(() => {
   sandbox = mkdtempSync(join(tmpdir(), "vibeos-mega-"))
   process.env.HOME = sandbox
   process.env.VIBEOS_HOME = join(sandbox, ".claude")
-  mkdirSync(join(sandbox, ".opencode"), { recursive: true })
-  writeFileSync(join(sandbox, ".opencode/opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-pro" }))
+  writeFileSync(join(sandbox, "opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-pro" }))
   mkdirSync(join(sandbox, ".claude/scratch/by-hash"), { recursive: true })
   mkdirSync(join(sandbox, ".claude/scratch/sessions/sess-A/by-hash"), { recursive: true })
   mkdirSync(join(sandbox, ".claude/scratch/sessions/sess-B/by-hash"), { recursive: true })
@@ -57,7 +56,7 @@ function setTiers() {
 
 async function getHooks() {
   const mod = await import(join(root, "src/index.js?t=" + Date.now()))
-  return mod.DelegationEnforcer({ client: {}, directory: join(sandbox, ".opencode") })
+  return mod.DelegationEnforcer({ client: {}, directory: sandbox })
 }
 
 // ── GROUP 1: VibeUltraX mode (Wired dynamic, not hardcoded) ──
@@ -85,7 +84,7 @@ test("1c — fast trinity mode switch reads from BRANDED_MODES not hardcoded lis
     "mode list not hardcoded — uses BRANDED_MODES array")
 })
 
-test("1d — trinity set model override rewrites the slot map but leaves live config untouched", async () => {
+test("1d — trinity set model override rewrites the slot map and live config for the project", async () => {
   setTiers()
   const targetModel = "magicoder:7b"
   const hooks = await getHooks()
@@ -96,12 +95,12 @@ test("1d — trinity set model override rewrites the slot map but leaves live co
   })
   const tiers = JSON.parse(readFileSync(join(sandbox, ".claude/model-tiers.json"), "utf8"))
   const sel = tiers.selection
-  const oc = JSON.parse(readFileSync(join(sandbox, ".opencode/opencode.json"), "utf8"))
-  assert.equal(sel.active_slot, "brain", "active slot stays on the previously selected brain tier")
+  const oc = JSON.parse(readFileSync(join(sandbox, "opencode.json"), "utf8"))
+  assert.equal(sel.active_slot, "cheap", "active slot switches to the requested cheap tier")
   assert.equal(tiers.trinity.cheap.oc, targetModel, "cheap slot model persisted in tier map")
-  assert.equal(oc.model, "deepseek/deepseek-v4-pro", "OpenCode config remains unchanged on this code path")
-  assert.equal(sel.selected_model, undefined, "selected_model is not written by this path")
-  assert.equal(sel.executed_model, undefined, "executed_model is not written by this path")
+  assert.equal(oc.model, targetModel, "OpenCode config switches to the overridden model")
+  assert.equal(sel.selected_model, targetModel, "selected_model is persisted for the overridden model")
+  assert.equal(sel.executed_model, targetModel, "executed_model is persisted for the overridden model")
   assert.ok(result.includes(targetModel), "response mentions overridden model: " + result.slice(0, 120))
 })
 

@@ -13,6 +13,19 @@ export interface FooterLineInput {
   flashIcon: string
   enfTags: string[]
   vectorChangedSlot?: string
+  subRegime?: string
+}
+
+const REGIME_TAG: Record<string, string> = {
+  INIT: "INIT",
+  DIVERGENT: "DVRG",
+  EXPLORING: "XPLR",
+  REFINING: "RFNE",
+  CONVERGING: "CVGE",
+  CLOSED: "CLSD",
+  LOOPING: "LOOP",
+  AUDIT: "AUDT",
+  FORENSIC: "FRNC",
 }
 
 const BRAND_MAP: Record<string, string> = {
@@ -96,10 +109,11 @@ export function buildEnforcementTags(opts: {
 }
 
 export function buildFooterLine(input: FooterLineInput): string {
-  const { activeSlot, sessionSlot, providerLabel, modelName, ltTotal, ltTrend, vibeBrand, optMode, flashIcon, enfTags, vectorChangedSlot } = input
+  const { activeSlot, sessionSlot, providerLabel, modelName, ltTotal, ltTrend, vibeBrand, optMode, flashIcon, enfTags, vectorChangedSlot, subRegime } = input
 
   const tierIcon = resolveTierIcon(activeSlot)
-  let line = `\u2014 ${tierIcon} ${activeSlot} | ${providerLabel} | ${modelName}`
+  const regimeTag = subRegime ? REGIME_TAG[subRegime] || subRegime.slice(0, 4) : null
+  let line = `\u2014 ${tierIcon} ${activeSlot} | ${providerLabel} | ${modelName}${regimeTag ? ` \u25B6 ${regimeTag}` : ""}`
 
   if (ltTotal > 0) {
     const savingsPulse = formatSavingsPulse(ltTotal, ltTrend)

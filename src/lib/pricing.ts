@@ -1182,7 +1182,7 @@ export function applySlot(slot: string, projectDir = "") {
       writeFileSync(ocConfig, JSON.stringify(oc, null, 2) + "\n")
     }
     clearWorkspaceFollowupPauseForSession(getCurrentSessionId())
-    _refreshModel(process.cwd())
+    _refreshModel(dir)
     return { ok: true, ocModel }
   } catch (err) {
     return { ok: false, reason: err.message }

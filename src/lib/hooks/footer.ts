@@ -260,6 +260,7 @@ async function _appendFooter(input, output, directory) {
     const vibeBrand = resolveBrand(optModeFooter, activeSlot)
     const flashIcon = isApiConnected() ? " \u26A1" : ""
     const displayMode = selNowFooter?.optimization_mode || optMode || "auto"
+    const currentSubRegime = _latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || "")
     const vibeLine = buildFooterLine({
       activeSlot,
       providerLabel: execution.provider_label,
@@ -272,6 +273,7 @@ async function _appendFooter(input, output, directory) {
       enfTags,
       sessionSlot,
       vectorChangedSlot: selNowFooter?.vector_changed_slot,
+      subRegime: currentSubRegime,
     })
     const footerText = stripped + `\n\n${vibeLine}`
 

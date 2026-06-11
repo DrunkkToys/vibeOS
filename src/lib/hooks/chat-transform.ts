@@ -123,7 +123,7 @@ async function apiComputeControlVector(state: any, action: any, optimizationMode
       const res = await remoteCall("blackboxControlVector", [state, action, optimizationMode], null)
       if (res?.control_vector) {
         const local = computeControlVector(state, action, optimizationMode)
-        return { ...res.control_vector, tier_bias: local.tier_bias, optimization_mode: local.optimization_mode }
+        return { ...res.control_vector, tier_bias: local.tier_bias, optimization_mode: local.optimization_mode, enforcement_mode: local.enforcement_mode, flow_mode: local.flow_mode, tdd_mode: local.tdd_mode, thinking_mode: local.thinking_mode }
       }
   } catch {}
   return computeControlVector(state, action, optimizationMode)

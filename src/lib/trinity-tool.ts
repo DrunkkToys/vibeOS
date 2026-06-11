@@ -236,12 +236,10 @@ export function createTrinityTool(deps) {
           console.error("[vibeOS] WARN: probe error for " + targetModel + ": " + e.message + " - switching anyway")
         }
         deps.writeSessionSlot(deps._OC_SID, slot)
-        const result = deps.applySlot(slot)
+        const result = deps.applySlot(slot, deps.directory)
         if (!result.ok) return `\u274c Failed to set slot: ${result.reason}`
         try {
-          const selected = typeof deps.resolveExecutionIdentity === "function"
-            ? deps.resolveExecutionIdentity(result.ocModel, deps.directory)
-            : null
+          const selected = resolveExecutionIdentity(result.ocModel, deps.directory)
           if (selected) {
             deps.writeSelection("selected_provider", selected.provider || "")
             deps.writeSelection("selected_quality_tier", selected.quality || slot)
