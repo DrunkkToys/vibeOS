@@ -366,11 +366,10 @@ test("FIX 13d: active jobs are normalized and stale entries are pruned", async (
   }, null, 2))
   const jobs = loadActiveJobs()
   assert.equal(jobs.malformedJob, undefined, "malformed active job should be pruned")
-  assert.equal(jobs.staleJob.status, "completed", "stale active job should be marked completed")
-  assert.ok(jobs.staleJob.completedAt, "stale active job should gain completedAt")
+  assert.equal(jobs.staleJob, undefined, "stale active job should be removed after completion")
   const persisted = JSON.parse(readFileSync(activePath, "utf8"))
   assert.equal(persisted.malformedJob, undefined, "malformed job should not remain on disk")
-  assert.equal(persisted.staleJob.status, "completed", "completed job should be persisted")
+  assert.equal(persisted.staleJob, undefined, "completed stale job should not remain on disk")
 })
 
 test("FIX 13e: corruption backups are capped at 5 and stale entries are pruned", async () => {
@@ -425,8 +424,7 @@ test("FIX 13g: active jobs GC runs on init and drops malformed entries", async (
   await import("../src/lib/state.js?t=" + Date.now())
   const persisted = JSON.parse(readFileSync(activePath, "utf8"))
   assert.equal(persisted.malformedJob, undefined, "malformed job should be pruned")
-  assert.equal(persisted.staleJob.status, "completed", "stale job should be marked completed")
-  assert.ok(persisted.staleJob.completedAt, "stale job should get completedAt")
+  assert.equal(persisted.staleJob, undefined, "stale job should be removed after completion")
 })
 
 test("FIX 13h: cold start maintenance cleans dirty disk state before the first report flow", async () => {
@@ -489,7 +487,7 @@ test("FIX 13h: cold start maintenance cleans dirty disk state before the first r
     process.stdout.write(JSON.stringify({
       remainingBackups: remainingBackups.length,
       malformedJobPresent: Object.prototype.hasOwnProperty.call(jobs, "malformedJob"),
-      staleJobStatus: jobs.staleJob?.status || "",
+      staleJobPresent: Object.prototype.hasOwnProperty.call(jobs, "staleJob"),
       savings: sv.ltCache,
       reportProject: report.meta?.project || "",
       reportSessionId: report.meta?.sessionId || "",
@@ -509,7 +507,7 @@ test("FIX 13h: cold start maintenance cleans dirty disk state before the first r
   const payload = JSON.parse(result.stdout || "{}")
   assert.ok(payload.remainingBackups <= 5, "startup maintenance should prune old corruption backups")
   assert.equal(payload.malformedJobPresent, false, "startup maintenance should drop malformed jobs")
-  assert.equal(payload.staleJobStatus, "completed", "startup maintenance should complete stale jobs")
+  assert.equal(payload.staleJobPresent, false, "startup maintenance should remove stale completed jobs")
   assert.ok(payload.savings > 0, "boot flow should still be able to read the savings ledger")
   assert.equal(payload.reportProject, "saveOS", "report flow should still use live project context after startup maintenance")
   assert.equal(payload.reportSessionId, "boot-flow-session", "report flow should keep live session context after startup maintenance")

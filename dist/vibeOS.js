@@ -4337,7 +4337,7 @@ function loadActiveJobs() {
       const now = Date.now();
       for (const [key, value] of Object.entries(raw || {})) {
         const norm = _normalizeActiveJobRecord(value, now, true);
-        if (!norm.record) {
+        if (!norm.record || norm.stale && norm.record.status === "completed" && norm.record.completedAt) {
           changed = true;
           continue;
         }

@@ -10,25 +10,33 @@ const test = (name, options, fn) =>
     : nodeTest(name, { concurrency: false, ...(options || {}) }, fn)
 
 let sandbox
+let loadPluginSeq = 0
 before(() => {
   sandbox = mkdtempSync(join(tmpdir(), "delegation-prod-reg-"))
   mkdirSync(join(sandbox, ".claude/scratch"), { recursive: true })
   process.env.HOME = sandbox
 })
 
-beforeEach(() => {
+beforeEach(async () => {
   rmSync(join(sandbox, ".claude/model-tiers.json"), { force: true })
   rmSync(join(sandbox, ".claude/delegation-state.json"), { force: true })
   rmSync(join(sandbox, ".claude/global-learning.json"), { force: true })
   rmSync(join(sandbox, ".claude/reports"), { recursive: true, force: true })
   rmSync(join(sandbox, ".claude/savings-ledger.jsonl"), { force: true })
   delete process.env.CLAUDE_CREDIT_PERCENT
+  const state = await import("../src/lib/state.js")
+  state.setCurrentModel(null)
+  state.setCurrentTier(null)
+  state.setCurrentProjectFingerprint("")
+  state.setCurrentProjectName("")
+  state.setCurrentSessionId("")
+  state.setBlackboxEnabled(true)
 })
 
 after(() => rmSync(sandbox, { recursive: true, force: true }))
 
 async function loadPlugin() {
-  return import("../src/index.js?t=" + Date.now())
+  return import("../src/index.js?t=" + Date.now() + "-" + (++loadPluginSeq))
 }
 
 function seedTierFile(overrides = {}) {
