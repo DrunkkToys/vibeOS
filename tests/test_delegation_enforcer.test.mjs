@@ -2415,6 +2415,33 @@ test("tool.execute.before: relative src/index.js write is blocked on the brain t
   assert.match(String(output.error || ""), /blocked direct write/i, "blocking reason surfaced")
 })
 
+test("tool.execute.before: low-credit brain tier still blocks direct write enforcement", async () => {
+  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+    trinity: {
+      brain: { oc: "deepseek/deepseek-v4-pro" },
+      medium: { oc: "deepseek/deepseek-v4-flash" },
+      cheap: { oc: "deepseek/deepseek-chat" },
+    },
+    selection: { enabled: true, active_slot: "brain", delegation_enforce: true },
+  }))
+  writeFileSync(join(sandbox, ".claude/credit-snapshot.json"), JSON.stringify({
+    total: 12,
+    providers: [],
+    ts: Date.now(),
+  }))
+  const { DelegationEnforcer } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-protect-low-credit")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-pro" }))
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+  const input = { tool: "write", args: { filePath: "src/index.js", content: "console.log('oops')" } }
+  const output = { args: { filePath: "src/index.js", content: "console.log('oops')" } }
+  await hooks["tool.execute.before"](input, output)
+  assert.equal(output.blocked, true, "low-credit direct write should still be blocked")
+  assert.match(String(output.error || ""), /blocked direct write/i, "low-credit write still surfaces block reason")
+  assert.notEqual(String(output.error || ""), "", "low-credit write should not silently pass through")
+})
+
 test("tool.execute.after: blocked edit surfaces enforcement note instead of oldString error", async () => {
   writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
     trinity: {

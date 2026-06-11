@@ -558,8 +558,10 @@ export const onToolExecuteBefore = async (input, output) => {
     costDetector.record(modelCost)
   }
 
-  // Credit < 40%: non-task tool — record and nudge to step aside.
-  if (_credit < 40 && !compatibilityMode) {
+  const tLower = String(t || "").toLowerCase()
+
+  // Credit < 40%: non-direct-write tools get a nudge to step aside.
+  if (_credit < 40 && !compatibilityMode && !WARN_ON_DIRECT.has(tLower)) {
     const total = recordSaving(t, "credit<40% high-tier", _estOpus, {
       firstWord: _firstWord,
       projectFingerprint: currentProjectFingerprint,
@@ -575,10 +577,9 @@ export const onToolExecuteBefore = async (input, output) => {
   }
 
   // Write/Edit/NotebookEdit: enforce delegation on high tier when delegation_enforce is on.
-  if (WARN_ON_DIRECT.has(String(t || "").toLowerCase())) {
+  if (WARN_ON_DIRECT.has(tLower)) {
     const argSources = _toolArgSources(input, output)
     if (process.env.VIBEOS_DEBUG_DELEGATION === "1") console.error(`[vibeOS] [enforce-debug] tool=${t} tier=${currentTier} enforce=${sel?.delegation_enforce} argsType=${typeof args} argsExists=${argSources.length > 0}`)
-    const tLower = String(t || "").toLowerCase()
     if (!compatibilityMode && sel.delegation_enforce && currentTier === "high" && argSources.length > 0) {
       const originalPath = argSources
         .flatMap((src) => [src?.filePath, src?.file_path, src?.path])

@@ -7,7 +7,7 @@
  * control, live savings footer, TDD enforcer, flow enforcer, project guard,
  * research audit, reporting, decision engine, context7 optimization, and more.
  */
-import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, renameSync } from "node:fs"
+import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, renameSync, statSync } from "node:fs"
 import { join, dirname, basename } from "node:path"
 import { getFlowWarns, ensureProjectDocs, syncFlowTodosToNative } from "./vibeOS-lib/flow-enforcer.js"
 import { computeSessionMetrics } from "./vibeOS-lib/session-metrics.js"
@@ -145,9 +145,30 @@ function _loadActiveJobForProject(directory, fp = "") {
   }
   return getActiveJobForProject(fp)
 }
-async function _seedModelTiersIfMissing(directory) {
+function _tiersNeedRepair(tiers) {
+  const slots = ["brain", "medium", "cheap"]
+  if (!tiers || typeof tiers !== "object") return true
+  return slots.some((slot) => {
+    const oc = String(tiers?.trinity?.[slot]?.oc || "").trim()
+    return !oc || PLACEHOLDER_RE.test(oc)
+  })
+}
+async function _seedOrRepairModelTiers(directory) {
   const TIERS_FILE = getTiersFile()
-  if (existsSync(TIERS_FILE))
+  let existing = null
+  if (existsSync(TIERS_FILE)) {
+    try {
+      const st = statSync(TIERS_FILE)
+      if (st.size > 10485760) {
+        _handleStateCorruption(TIERS_FILE)
+        return false
+      }
+      existing = safeJsonParse(readFileSync(TIERS_FILE, "utf-8")) || {}
+    } catch {
+      existing = null
+    }
+  }
+  if (existing && !_tiersNeedRepair(existing))
     return false
   const providers = _loadOpenCodeProviders(directory)
   const auth = typeof _readAuth === "function" ? _readAuth() : {}
@@ -171,25 +192,39 @@ async function _seedModelTiersIfMissing(directory) {
     cheap = "deepseek/deepseek-chat"
     console.error("[vibeOS] no providers detected — using default model tiers (brain=v4-pro, medium=v4-flash, cheap=v4-chat)")
   }
+  const existingSelection = existing?.selection && typeof existing.selection === "object" ? existing.selection : {}
+  const existingTrinity = existing?.trinity && typeof existing.trinity === "object" ? existing.trinity : {}
+  const nextTrinity = {
+    brain: existingTrinity.brain?.manual === true && String(existingTrinity.brain?.oc || "").trim() && !PLACEHOLDER_RE.test(String(existingTrinity.brain?.oc || ""))
+      ? { ...existingTrinity.brain, cc: existingTrinity.brain?.cc || modelToCcAlias(String(existingTrinity.brain?.oc || "")) }
+      : { oc: brain, cc: modelToCcAlias(brain) },
+    medium: existingTrinity.medium?.manual === true && String(existingTrinity.medium?.oc || "").trim() && !PLACEHOLDER_RE.test(String(existingTrinity.medium?.oc || ""))
+      ? { ...existingTrinity.medium, cc: existingTrinity.medium?.cc || modelToCcAlias(String(existingTrinity.medium?.oc || "")) }
+      : { oc: medium, cc: modelToCcAlias(medium) },
+    cheap: existingTrinity.cheap?.manual === true && String(existingTrinity.cheap?.oc || "").trim() && !PLACEHOLDER_RE.test(String(existingTrinity.cheap?.oc || ""))
+      ? { ...existingTrinity.cheap, cc: existingTrinity.cheap?.cc || modelToCcAlias(String(existingTrinity.cheap?.oc || "")) }
+      : { oc: cheap, cc: modelToCcAlias(cheap) },
+  }
+  const activeSlot = ["brain", "medium", "cheap"].includes(String(existingSelection.active_slot || "").trim())
+    ? String(existingSelection.active_slot)
+    : "brain"
   const tiers = {
+    ...existing,
     selection: {
-      enabled: true,
-      active_slot: "brain",
-      thinking_level: "off",
-      flow_enabled: false,
-      flow_enforce: false,
-      tdd_enforce: false,
-      tdd_strict: false,
-      tdd_quality: false,
-      delegation_enforce: true,
-      onboarding_mode: "assist",
-      setup_completed_at: new Date().toISOString(),
+      ...existingSelection,
+      enabled: existingSelection.enabled !== false,
+      active_slot: activeSlot,
+      thinking_level: existingSelection.thinking_level || "off",
+      delegation_enforce: existingSelection.delegation_enforce !== false,
+      flow_enabled: existingSelection.flow_enabled === true,
+      flow_enforce: existingSelection.flow_enforce === true,
+      tdd_enforce: existingSelection.tdd_enforce === true,
+      tdd_strict: existingSelection.tdd_strict === true,
+      tdd_quality: existingSelection.tdd_quality !== false,
+      onboarding_mode: existingSelection.onboarding_mode || "assist",
+      setup_completed_at: existingSelection.setup_completed_at || new Date().toISOString(),
     },
-    trinity: {
-      brain: { oc: brain, cc: modelToCcAlias(brain) },
-      medium: { oc: medium, cc: modelToCcAlias(medium) },
-      cheap: { oc: cheap, cc: modelToCcAlias(cheap) },
-    },
+    trinity: nextTrinity,
   }
   mkdirSync(dirname(TIERS_FILE), { recursive: true })
   writeFileSync(TIERS_FILE, JSON.stringify(tiers, null, 2) + "\n", "utf-8")
@@ -340,7 +375,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
     if (!existsSync(getTiersFile())) {
       console.error(`[vibeOS] model-tiers.json missing at load; will seed on first hook`)
     }
-    await _seedModelTiersIfMissing(directory)
+    await _seedOrRepairModelTiers(directory)
     loadTrinitySlotsFromTiersFile()
   }
   catch { }

@@ -182,6 +182,80 @@ test("syncControlSettings restores a stuck startup plan agent from the latest Op
   }
 })
 
+test("syncControlSettings does not overwrite a pre-outage optimization mode with vibelitex fallback", async () => {
+  const home = mkdtempSync(join(tmpdir(), "vib-opt-fallback-"))
+  const prevHome = process.env.HOME
+  const prevVibeHome = process.env.VIBEOS_HOME
+  const prevOCHome = process.env.VIBEOS_OPENCODE_HOME
+  const prevApiUrl = process.env.VIBEOS_API_URL
+  const prevApiToken = process.env.VIBEOS_API_TOKEN
+  process.env.HOME = home
+  process.env.VIBEOS_HOME = join(home, ".claude")
+  process.env.VIBEOS_OPENCODE_HOME = join(home, ".config/opencode")
+  process.env.VIBEOS_API_URL = "http://127.0.0.1:1"
+  process.env.VIBEOS_API_TOKEN = "vos_" + "a".repeat(64)
+  try {
+    mkdirSync(join(home, ".config/opencode"), { recursive: true })
+    mkdirSync(join(home, ".claude"), { recursive: true })
+    writeFileSync(join(home, ".config/opencode/opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-pro" }, null, 2))
+    writeFileSync(join(home, ".claude/model-tiers.json"), JSON.stringify({
+      selection: {
+        enabled: true,
+        active_slot: "brain",
+        optimization_mode: "quality",
+        delegation_enforce: true,
+        onboarding_mode: "strict",
+      },
+      trinity: {
+        brain: { oc: "deepseek/deepseek-v4-pro", cc: "deepseek-reasoner" },
+        medium: { oc: "deepseek/deepseek-v4-flash", cc: "haiku" },
+        cheap: { oc: "deepseek/deepseek-chat", cc: "haiku" },
+      },
+    }, null, 2))
+
+    const api = await import("../src/lib/api-client.js?fallback-opt=" + Date.now())
+    const mod = await import("../src/lib/hooks/chat-transform.js?fallback-opt=" + Date.now())
+
+    await api.remoteCall("health", [], () => "fallback")
+    assert.equal(api.isApiFallback(), true, "API must be in fallback for the regression path")
+
+    mod.syncControlSettings({
+      enforcement_mode: "normal",
+      flow_mode: "audit",
+      tdd_mode: "lazy",
+      thinking_mode: "brief",
+      tier_bias: "medium",
+      optimization_mode: "vibelitex",
+    })
+
+    let tiers = JSON.parse(readFileSync(join(home, ".claude/model-tiers.json"), "utf8"))
+    assert.equal(tiers.selection.optimization_mode, "quality", "fallback must not overwrite the pre-outage mode")
+
+    api.setApiToken("vos_" + "b".repeat(64))
+    assert.equal(api.isApiFallback(), false, "fallback clears after token reset")
+
+    mod.syncControlSettings({
+      enforcement_mode: "strict",
+      flow_mode: "strict",
+      tdd_mode: "strict",
+      thinking_mode: "full",
+      tier_bias: "brain",
+      optimization_mode: "quality",
+    })
+
+    tiers = JSON.parse(readFileSync(join(home, ".claude/model-tiers.json"), "utf8"))
+    assert.equal(tiers.selection.optimization_mode, "quality", "recovered session should still resolve back to the pre-outage mode")
+  } finally {
+    process.env.HOME = prevHome
+    process.env.VIBEOS_HOME = prevVibeHome
+    process.env.VIBEOS_OPENCODE_HOME = prevOCHome
+    if (prevApiUrl === undefined) delete process.env.VIBEOS_API_URL
+    else process.env.VIBEOS_API_URL = prevApiUrl
+    if (prevApiToken === undefined) delete process.env.VIBEOS_API_TOKEN
+    else process.env.VIBEOS_API_TOKEN = prevApiToken
+  }
+})
+
 test("mergeRemoteControlVector preserves local agent_mode over remote control vector", async () => {
   const moduleUrl = pathToFileURL(join(process.cwd(), "dist-ts/lib/hooks/chat-transform.js")).href
   const mod = await import(moduleUrl + "?merge-agent=" + Date.now())
