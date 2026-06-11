@@ -614,8 +614,12 @@ export function setApiToken(newToken) {
     VIBEOS_API_TOKEN = normalizeApiToken(newToken, EMBEDDED_API_TOKEN)
     VIBEOS_API_BOOTSTRAP_TOKEN = readBootstrapTokenFromDisk() || VIBEOS_API_BOOTSTRAP_TOKEN
     VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN)
+    _apiClient = null
+    _apiFallbackMode = false
+    _apiFallbackSince = null
     persistPrimaryApiEnvState({ token: VIBEOS_API_TOKEN, disabled: false })
     if (_anomalyDetector) _anomalyDetector.reset()
+    resetApiConnection()
     console.error("[vibeOS] API token updated via setApiToken")
   } catch(e) {
     console.error("[vibeOS] Failed to update API token:", e.message)
