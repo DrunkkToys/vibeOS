@@ -1,0 +1,15 @@
+file '/Users/drunkktoys/Desktop/theSaver-oc/scripts/demo/output/frames/social_ss0.png'
+duration 2
+file '/Users/drunkktoys/Desktop/theSaver-oc/scripts/demo/output/frames/social_ss1.png'
+duration 3
+file '/Users/drunkktoys/Desktop/theSaver-oc/scripts/demo/output/frames/social_ss2.png'
+duration 4
+file '/Users/drunkktoys/Desktop/theSaver-oc/scripts/demo/output/frames/social_ss3.png'
+duration 4
+file '/Users/drunkktoys/Desktop/theSaver-oc/scripts/demo/output/frames/social_ss4.png'
+duration 3
+file '/Users/drunkktoys/Desktop/theSaver-oc/scripts/demo/output/frames/social_ss5.png'
+duration 3
+file '/Users/drunkktoys/Desktop/theSaver-oc/scripts/demo/output/frames/social_ss6.png'
+duration 4
+file '/Users/drunkktoys/Desktop/theSaver-oc/scripts/demo/output/frames/social_ss6.png'

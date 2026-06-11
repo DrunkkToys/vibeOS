@@ -1636,16 +1636,16 @@ test("tool.execute.after: delegation warning injected into output.result", async
   if (existsSync(stateFile)) rmSync(stateFile)
 
   // Step 1: before-hook records the warning and sets pendingUiNote.
-  const beforeOutput = { args: {} }
+  const beforeOutput = { args: { filePath: "/tmp/test.py" } }
   await hooks["tool.execute.before"]({ tool: "edit" }, beforeOutput)
 
   // Step 2: after-hook must inject the note into output.result.
   const afterOutput = { result: "File edited successfully." }
   await hooks["tool.execute.after"]({ tool: "edit", args: { filePath: "/tmp/foo.py" } }, afterOutput)
 
-  assert.ok(afterOutput.result.includes("[vibeOS]"),
-    `output.result must contain [vibeOS] delegation note; got: ${afterOutput.result}`)
-  assert.ok(afterOutput.result.includes("delegate via Task") || afterOutput.result.includes("brain paused"),
+  assert.ok(afterOutput.result.includes("[delegation]"),
+    `output.result must contain [delegation] note; got: ${afterOutput.result}`)
+  assert.ok(afterOutput.result.includes("good candidate for a Task subagent") || afterOutput.result.includes("brain handles orchestration"),
     `output.result must describe the handoff; got: ${afterOutput.result}`)
   assert.ok(afterOutput.result.includes("File edited successfully."),
     "original tool result must be preserved")
@@ -1676,10 +1676,10 @@ test("tool.execute.after: pendingUiNote consumed once — no double-inject on se
   if (existsSync(stateFile)) rmSync(stateFile)
 
   // Fire before+after once (consumes pendingUiNote).
-  await hooks["tool.execute.before"]({ tool: "write" }, { args: {} })
+  await hooks["tool.execute.before"]({ tool: "write" }, { args: { filePath: "/tmp/b.py" } })
   const first = { result: "Written." }
   await hooks["tool.execute.after"]({ tool: "write", args: { filePath: "/tmp/a.py" } }, first)
-  assert.ok(first.result.includes("[vibeOS]"), "first call: note injected")
+  assert.ok(first.result.includes("[delegation]"), "first call: note injected")
 
   // Second after-hook call without a preceding before — pendingUiNote must be null.
   const second = { result: "Written again." }
@@ -1726,7 +1726,7 @@ test("tool.execute.before: delegation warning stays out of CLI stderr", async ()
     mkdirSync(dir, { recursive: true })
     writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "openrouter/anthropic/claude-sonnet-4.6" }))
     const hooks = await DelegationEnforcer({ client: {}, directory: dir })
-    const beforeOutput = { args: {} }
+    const beforeOutput = { args: { filePath: "/tmp/test.py" } }
     await hooks["tool.execute.before"]({ tool: "edit" }, beforeOutput)
     const afterOutput = { result: "File edited successfully." }
     await hooks["tool.execute.after"]({ tool: "edit", args: { filePath: "/tmp/foo.py" } }, afterOutput)
@@ -1744,7 +1744,7 @@ test("tool.execute.before: delegation warning stays out of CLI stderr", async ()
   })
   assert.equal(child.status, 0, child.stderr)
   const out = JSON.parse(String(child.stdout || "{}"))
-  assert.ok(out.result.includes("[vibeOS]"), "delegation note still reaches the UI transcript")
+  assert.ok(out.result.includes("[delegation]"), "delegation note still reaches the UI transcript")
   assert.ok(!out.errs.some((line) => line.includes("[delegation]")), "CLI stderr stays quiet for delegation warnings")
 })
 

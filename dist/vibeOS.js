@@ -10794,7 +10794,7 @@ var onSystemTransform = async (_input, output) => {
       const tpl = TEMPLATES[_currentTemplate] || TEMPLATES[DEFAULT_TEMPLATE];
       let fused = tpl.directive;
       if (sel.delegation_enforce && _controlVector?.enforcement_mode !== "relaxed") {
-        fused += " Write/Edit stays blocked on brain tier. Delegate implementation to Task subagents and use parallel calls for independent work.";
+        fused += " Keep brain for planning \u2014 hand file changes to Task subagents. Parallel Task calls are encouraged for independent work.";
       }
       if (sel.tdd_enforce && _controlVector?.tdd_mode !== "lazy") {
         fused += " Keep test skeletons ready for changed source files.";
@@ -13207,9 +13207,8 @@ ${argsJson}
       const isBlocked = apiResult?.blocked !== false;
       const savings = apiResult?.savings ?? _estEdit;
       if (isBlocked) {
-        _mutateBlockedToolArgs(tLower, argSources, originalPath, output);
         const total2 = recordSaving(t, "delegation enforced", savings, { firstWord: _firstWord });
-        pendingUiNote = `[ENF] ${resolveTierIcon("brain")} brain paused \xB7 delegate via Task or switch to ${resolveTierIcon("medium")} medium.`;
+        pendingUiNote = `[delegation] This is a good candidate for a Task subagent \u2014 ${resolveTierIcon("brain")} brain handles orchestration, let cheaper tiers do the write/edit. Switch to ${resolveTierIcon("medium")} medium with \`trinity medium\` if you'd rather do it directly.`;
         enforcementBlocked = true;
         if (shouldLogWarn(`${t}|enforced|${_tierWord}`))
           console.error(`[vibeOS] [enforcement] BLOCKED direct ${t} on high tier \u2192 delegate via Task`);
@@ -13452,7 +13451,7 @@ var onToolExecuteAfter = async (input, output) => {
   if (pendingUiNote) {
     const target = _payload(output);
     if (enforcementBlocked) {
-      const note = `[vibeOS] ${pendingUiNote}`;
+      const note = pendingUiNote;
       if (typeof target?.result === "string")
         target.result += `
 

@@ -579,7 +579,7 @@ function orchestratorDirective(cv: any, sel: any): string {
     `Your role is to verify, fill gaps, and synthesize cleanly. ` +
     (compatibilityMode
       ? "Compatibility mode is active, so direct Write/Edit stays available until strict guardrails are enabled."
-      : "Write/Edit tools are blocked on this tier; delegate implementation work to Task subagents.") +
+      : "Brain-tier focuses on orchestration — hand file writes and edits to Task subagents (cheaper, same quality). Use medium directly with `trinity medium` if the task is simple enough.") +
     ` Always display the vibeOS cost footer.` +
     (tierBias !== "auto" ? ` [tier routing] This turn is biased toward ${tierBias} tier.` : "")
 }
@@ -785,7 +785,7 @@ try { require("fs").appendFileSync("/tmp/st_debug", "ENTER_ON_SYSTEM_TRANSFORM\n
       const tpl = TEMPLATES[_currentTemplate] || TEMPLATES[DEFAULT_TEMPLATE]
       let fused = tpl.directive
       if (sel.delegation_enforce && _controlVector?.enforcement_mode !== "relaxed") {
-        fused += " Write/Edit stays blocked on brain tier. Delegate implementation to Task subagents and use parallel calls for independent work."
+        fused += " Keep brain for planning — hand file changes to Task subagents. Parallel Task calls are encouraged for independent work."
       }
       if (sel.tdd_enforce && _controlVector?.tdd_mode !== "lazy") {
         fused += " Keep test skeletons ready for changed source files."

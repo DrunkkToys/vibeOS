@@ -10,7 +10,7 @@ vibeOS is a cost-aware routing and enforcement layer for OpenCode. It keeps orch
 ## Install
 
 ```bash
-npm install vibeOS
+npm install vibeostheog
 ```
 
 Then add the plugin in `~/.config/opencode/opencode.json`:

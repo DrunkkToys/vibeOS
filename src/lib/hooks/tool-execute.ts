@@ -589,9 +589,8 @@ export const onToolExecuteBefore = async (input, output) => {
       const savings = apiResult?.savings ?? _estEdit
 
       if (isBlocked) {
-        _mutateBlockedToolArgs(tLower, argSources, originalPath, output)
         const total = recordSaving(t, "delegation enforced", savings, { firstWord: _firstWord })
-        pendingUiNote = `[ENF] ${resolveTierIcon("brain")} brain paused · delegate via Task or switch to ${resolveTierIcon("medium")} medium.`
+        pendingUiNote = `[delegation] This is a good candidate for a Task subagent — ${resolveTierIcon("brain")} brain handles orchestration, let cheaper tiers do the write/edit. Switch to ${resolveTierIcon("medium")} medium with \`trinity medium\` if you'd rather do it directly.`
         enforcementBlocked = true
         if (shouldLogWarn(`${t}|enforced|${_tierWord}`)) console.error(`[vibeOS] [enforcement] BLOCKED direct ${t} on high tier → delegate via Task`)
         return
@@ -838,7 +837,7 @@ export const onToolExecuteAfter = async (input, output) => {
   if (pendingUiNote) {
     const target = _payload(output)
     if (enforcementBlocked) {
-      const note = `[vibeOS] ${pendingUiNote}`
+      const note = pendingUiNote
       if (typeof target?.result === "string") target.result += `\n\n${note}`
       else if (typeof target?.text === "string") target.text += `\n\n${note}`
       else if (typeof target?.content === "string") target.content += `\n\n${note}`

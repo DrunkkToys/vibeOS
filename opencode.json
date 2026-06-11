@@ -38,5 +38,5 @@
       }
     }
   },
-  "model": "haiku"
+  "model": "deepseek/deepseek-v4-pro"
 }
