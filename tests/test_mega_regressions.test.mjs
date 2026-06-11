@@ -338,6 +338,43 @@ test("FIX 13b: concurrent slot writes preserve all selection fields", async () =
   }
 })
 
+test("FIX 13c: large savings ledger remains readable without corruption logging", async () => {
+  const { readLifetimeSavings } = await import("../src/lib/state.js?t=" + Date.now())
+  const ledgerPath = join(sandbox, ".claude/savings-ledger.jsonl")
+  const logPath = join(sandbox, ".claude/.state-corruption-log.jsonl")
+  writeFileSync(join(sandbox, ".claude/delegation-state.json"), JSON.stringify({
+    lifetime: { warn_count: 0, total_savings_usd: 0, cache_savings_usd: 0, missed_context7_usd: 0 },
+  }, null, 2))
+  const entry = JSON.stringify({ v: 2, at: new Date().toISOString(), kind: "cache", amount_usd: 0.0001, sid: "ledger-large-test", tool: "Read" })
+  const targetBytes = 11 * 1024 * 1024
+  const repeats = Math.ceil(targetBytes / (entry.length + 1))
+  writeFileSync(ledgerPath, Array.from({ length: repeats }, () => entry).join("\n") + "\n")
+  const before = existsSync(logPath) ? readFileSync(logPath, "utf8").trim().split("\n").filter(Boolean).length : 0
+  const sv = readLifetimeSavings()
+  const after = existsSync(logPath) ? readFileSync(logPath, "utf8").trim().split("\n").filter(Boolean).length : 0
+  assert.ok(sv.ltCache > 0, "large ledger should still contribute cache savings")
+  assert.equal(after, before, "reading a large ledger should not record corruption")
+})
+
+test("FIX 13d: active jobs are normalized and stale entries are pruned", async () => {
+  const { loadActiveJobs } = await import("../src/lib/state.js?t=" + Date.now())
+  const activePath = join(sandbox, ".claude/active-jobs.json")
+  const staleAt = new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString()
+  const freshAt = new Date().toISOString()
+  writeFileSync(activePath, JSON.stringify({
+    staleJob: { prompt: "stale", keywords: ["a"], updatedAt: staleAt },
+    freshJob: { prompt: "fresh", keywords: ["b"], updatedAt: freshAt },
+  }, null, 2))
+  const jobs = loadActiveJobs()
+  assert.equal(jobs.staleJob, undefined, "stale active job should be pruned")
+  assert.equal(jobs.freshJob.status, "active", "fresh active job should be normalized")
+  assert.ok(jobs.freshJob.createdAt, "fresh active job should gain createdAt")
+  assert.ok(jobs.freshJob.updatedAt, "fresh active job should retain updatedAt")
+  const persisted = JSON.parse(readFileSync(activePath, "utf8"))
+  assert.equal(persisted.staleJob, undefined, "pruned stale job should not remain on disk")
+  assert.equal(persisted.freshJob.status, "active", "normalized job should be persisted")
+})
+
 // ═══════════════════════════════════════════════════════════════════
 // FIX 14: Mode policy — budget-first mode works
 // ═══════════════════════════════════════════════════════════════════
