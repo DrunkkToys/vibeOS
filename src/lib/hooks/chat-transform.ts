@@ -301,7 +301,8 @@ export function syncControlSettings(cv: any, options: { persistOptimizationMode?
     }
 
     const slot = cv.tier_bias
-    if (slot && slot !== "auto") {
+    const slotLocked = currentSel.slot_locked === true
+    if (slot && slot !== "auto" && !slotLocked) {
       const existingSlot = loadSessionSlot(sid)
       if (existingSlot !== slot) {
         writeSessionSlot(sid, slot)

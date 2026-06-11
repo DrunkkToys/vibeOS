@@ -448,6 +448,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
     setApiBootstrapToken,
     ensureBootstrapExchange,
     loadTodos, upsertTodo, getTodos, markTodoDone, syncFlowTodosToNative,
+    resetBlackboxTracker,
     get _blackboxTracker() { return getBlackboxTracker() },
     set _blackboxTracker(v) { resetBlackboxTracker() },
     get _blackboxEnabled() { return _blackboxEnabled },

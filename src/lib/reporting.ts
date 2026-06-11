@@ -161,8 +161,10 @@ export function saveReport({ type = "manual", summary = "", findings = null, met
   // Dedup: skip if last same-type report has same summary within 5 min
   if (_wouldBeDuplicate(type, summary)) return null
 
-  const fp = fingerprint || currentProjectFingerprint || liveProjectFingerprint || "unknown"
-  const projectName = currentProjectName || liveProjectName || "unknown"
+  const metricProjectFingerprint = typeof parsedMetrics?.projectFingerprint === "string" ? parsedMetrics.projectFingerprint : ""
+  const metricProjectName = typeof parsedMetrics?.projectName === "string" ? parsedMetrics.projectName : ""
+  const fp = fingerprint || currentProjectFingerprint || liveProjectFingerprint || metricProjectFingerprint || "unknown"
+  const projectName = currentProjectName || liveProjectName || metricProjectName || "unknown"
   const sessionId = currentSessionId || getCurrentSessionId() || "unknown"
   const id = generateReportId(type, fp)
   const report = {

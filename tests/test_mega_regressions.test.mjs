@@ -449,3 +449,32 @@ test("E2E: trinity mode budget → syncControlSettings respects budget defaults"
   assert.equal(sel1.flow_enabled, budgetMode.flow === "strict" || budgetMode.flow === "on" || budgetMode.flow === "audit", "flow_enabled matches Budget spec")
   assert.equal(sel1.tdd_enforce, budgetMode.tdd === "quality" || budgetMode.tdd === "on" || budgetMode.tdd === "strict", "tdd_enforce matches Budget spec")
 })
+
+test("E2E: trinity set brain keeps manual slot after system.transform auto-sync", async () => {
+  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+    trinity: { brain: { oc: "anthropic/claude-opus-4-7" }, medium: { oc: "deepseek/deepseek-v4-flash" }, cheap: { oc: "deepseek/deepseek-chat" } },
+    selection: { enabled: true, active_slot: "cheap", slot_locked: false, delegation_enforce: true, flow_enabled: true, tdd_enforce: true, thinking_level: "off" },
+  }))
+  writeFileSync(join(sandbox, ".claude/blackbox-state.json"), JSON.stringify({ enabled: true, sessions: {} }))
+
+  const mod = await loadPlugin()
+  const dir = join(sandbox, ".opencode-e2e-manual-slot")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-flash" }))
+  const hooks = await mod.DelegationEnforcer({ client: {}, directory: dir })
+
+  const setResult = await hooks.tool.trinity.execute({ action: "set", slot: "brain" })
+  assert.ok(setResult.includes("brain") || setResult.includes("BRAIN"), "manual set should succeed: " + setResult)
+
+  const before = JSON.parse(readFileSync(join(sandbox, ".claude/model-tiers.json"), "utf-8")).selection
+  assert.equal(before.active_slot, "brain", "manual set should write brain slot")
+  assert.equal(before.slot_locked, true, "manual set should lock the slot")
+
+  const out = { system: [] }
+  await hooks["experimental.chat.system.transform"]({}, out)
+  assert.ok(out.system.length > 0, "system.transform should still produce directives")
+
+  const after = JSON.parse(readFileSync(join(sandbox, ".claude/model-tiers.json"), "utf-8")).selection
+  assert.equal(after.active_slot, "brain", "system.transform must not overwrite a manual brain slot")
+  assert.equal(after.slot_locked, true, "manual slot lock should persist after syncControlSettings")
+})
