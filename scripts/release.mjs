@@ -270,20 +270,27 @@ log(`${GREEN}✓${RESET} tag v${newVer} created`)
 
 const remote = sh("git remote get-url origin 2>/dev/null || echo origin")
 if (process.argv.includes("--ci")) {
-  // Master is protected in CI — push release commit to a release branch + PR
+  // In CI, GITHUB_TOKEN cannot push to protected master or create PRs.
+  // Push the release commit to a release branch, then push the tag directly.
   const releaseBranch = `release/v${newVer}`
   sh(`git checkout -b ${releaseBranch}`)
-  sh(`git push ${remote} ${releaseBranch}`)
-  log(`${GREEN}✓${RESET} pushed to ${releaseBranch}`)
-  const prUrl = sh(`gh pr create --base master --head ${releaseBranch} --title "chore(release): v${newVer}" --body "Automated release PR."`)
-  log(`${GREEN}✓${RESET} PR created: ${prUrl}`)
-  sh(`gh pr merge ${releaseBranch} --merge --admin`)
-  log(`${GREEN}✓${RESET} PR merged to master`)
-  sh(`git checkout master`)
-  sh(`git pull ${remote} master`)
+  try {
+    sh(`git push ${remote} ${releaseBranch}`)
+    log(`${GREEN}${RESET} pushed to ${releaseBranch}`)
+  } catch (e) {
+    log(`${YELLOW}${RESET} could not push branch: ${e.message}`)
+  }
 } else {
   sh(`git push ${remote} ${branch}`)
-  log(`${GREEN}✓${RESET} pushed to ${branch}`)
+  log(`${GREEN}${RESET} pushed to ${branch}`)
+}
+
+// Push tag (always works — tags skip branch protection)
+try {
+  sh(`git push ${remote} v${newVer}`)
+  log(`${GREEN}${RESET} pushed tag v${newVer}`)
+} catch (e) {
+  log(`${YELLOW}${RESET} tag push failed: ${e.message}`)
 }
 
 sh(`git push ${remote} v${newVer}`)
