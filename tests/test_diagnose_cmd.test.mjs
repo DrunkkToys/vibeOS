@@ -150,6 +150,7 @@ test("diagnose: shows api fallback and non-failing runway when balance exists", 
     const output = await hooks.tool.trinity.execute({ action: "diagnose" })
 
     assert.ok(output.toLowerCase().includes("api fallback"), "fallback line present: " + output)
+    assert.ok(!output.includes("API responsive"), "diagnose should not claim API responsive while fallback is active: " + output)
     assert.ok(output.includes("78.52") && output.includes("runway"), "runway line present with live balance: " + output)
     assert.ok(!output.includes("n/a") || output.includes("balance snapshot present"), "runway no longer collapses to n/a: " + output)
   } finally {

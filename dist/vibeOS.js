@@ -8790,6 +8790,7 @@ ${L.repeat(40)}`);
       if (action === "diagnose") {
         const results = [];
         const ocConfig = join11(deps.OPENCODE_HOME, "opencode.json");
+        const apiFallbackActive = typeof deps.isApiFallback === "function" ? deps.isApiFallback() : false;
         const checks = [
           { path: deps.TIERS_FILE, label: "model-tiers.json" },
           { path: ocConfig, label: "opencode.json" },
@@ -8822,7 +8823,15 @@ ${L.repeat(40)}`);
             results.push({ ok: false, okLabel: "\u274C", label: `${s} slot`, detail: "cannot read model-tiers.json", fix: "run `trinity rebuild` to create it" });
           }
         }
-        if (deps.currentModel || !deps.existsSync(deps.TIERS_FILE)) {
+        if (apiFallbackActive) {
+          results.push({
+            ok: false,
+            okLabel: "\u26A0",
+            label: "model probe",
+            detail: "API fallback active",
+            fix: "re-enter `trinity api-token <token>` to retry the remote API"
+          });
+        } else if (deps.currentModel || !deps.existsSync(deps.TIERS_FILE)) {
           try {
             const auth = deps._readAuth();
             const ok = await deps.probeModel(deps.currentModel, auth, deps._loadOpenCodeProviders());
@@ -8855,7 +8864,6 @@ ${L.repeat(40)}`);
             totalBal = cache.total;
         } catch {
         }
-        const apiFallbackActive = typeof deps.isApiFallback === "function" ? deps.isApiFallback() : false;
         const apiFallbackSince = deps._apiFallbackSince || null;
         results.push({
           ok: !apiFallbackActive,
@@ -9510,12 +9518,12 @@ var STRESS_QUALITY_THRESHOLD = 1.5;
 var BASELINE_MODE = "budget";
 var LOOP_REGIMES = /* @__PURE__ */ new Set(["LOOPING", "DIVERGENT"]);
 var QUALITY_REGIMES = /* @__PURE__ */ new Set(["CONVERGING", "CLOSED"]);
-var MANUAL_MODES = /* @__PURE__ */ new Set(["balanced", "quality", "speed", "longrun", "vibemax", "vibeqmax", "vibeultrax"]);
+var MANUAL_MODES = /* @__PURE__ */ new Set(["balanced", "quality", "speed", "longrun", "audit", "forensic", "vibemax", "vibeqmax", "vibeultrax"]);
 function normalizeMode(mode) {
   const normalized = String(mode || BASELINE_MODE).toLowerCase();
   if (normalized === "auto" || normalized === "")
     return BASELINE_MODE;
-  if (normalized === "budget" || normalized === "quality" || normalized === "speed" || normalized === "longrun" || normalized === "balanced" || normalized === "vibemax" || normalized === "vibeqmax" || normalized === "vibeultrax") {
+  if (normalized === "budget" || normalized === "quality" || normalized === "speed" || normalized === "longrun" || normalized === "balanced" || normalized === "audit" || normalized === "forensic" || normalized === "vibemax" || normalized === "vibeqmax" || normalized === "vibeultrax") {
     return normalized;
   }
   return BASELINE_MODE;
@@ -9527,7 +9535,7 @@ function isManualOverride(mode) {
   return MANUAL_MODES.has(normalizeMode(mode));
 }
 function chooseEpisodeMode(regime, suggestedMode, stress) {
-  if (suggestedMode === "vibeultrax" || suggestedMode === "vibeqmax" || suggestedMode === "vibemax")
+  if (suggestedMode === "vibeultrax" || suggestedMode === "vibeqmax" || suggestedMode === "vibemax" || suggestedMode === "audit" || suggestedMode === "forensic")
     return suggestedMode;
   if (LOOP_REGIMES.has(regime) || suggestedMode === "speed")
     return "speed";
@@ -9555,7 +9563,7 @@ function modeToSlot(mode) {
   const normalized = normalizeMode(mode);
   if (normalized === "speed")
     return "medium";
-  if (normalized === "quality" || normalized === "longrun" || normalized === "vibeultrax" || normalized === "vibeqmax")
+  if (normalized === "quality" || normalized === "longrun" || normalized === "audit" || normalized === "forensic" || normalized === "vibeultrax" || normalized === "vibeqmax")
     return "brain";
   return "cheap";
 }

@@ -879,6 +879,7 @@ export function createTrinityTool(deps) {
       if (action === "diagnose") {
         const results = []
         const ocConfig = join(deps.OPENCODE_HOME, "opencode.json")
+        const apiFallbackActive = typeof deps.isApiFallback === "function" ? deps.isApiFallback() : false
 
         const checks = [
           { path: deps.TIERS_FILE,                                        label: "model-tiers.json"       },
@@ -913,7 +914,15 @@ export function createTrinityTool(deps) {
           }
         }
 
-        if (deps.currentModel || !deps.existsSync(deps.TIERS_FILE)) {
+        if (apiFallbackActive) {
+          results.push({
+            ok: false,
+            okLabel: "\u26A0",
+            label: "model probe",
+            detail: "API fallback active",
+            fix: "re-enter `trinity api-token <token>` to retry the remote API",
+          })
+        } else if (deps.currentModel || !deps.existsSync(deps.TIERS_FILE)) {
           try {
             const auth = deps._readAuth()
             const ok = await deps.probeModel(deps.currentModel, auth, deps._loadOpenCodeProviders())
@@ -942,7 +951,6 @@ export function createTrinityTool(deps) {
           const cache = deps.safeJsonParse(deps.readFileSync(deps.CREDIT_CACHE_F, "utf-8"))
           if (cache?.total != null) totalBal = cache.total
         } catch {}
-        const apiFallbackActive = typeof deps.isApiFallback === "function" ? deps.isApiFallback() : false
         const apiFallbackSince = deps._apiFallbackSince || null
         results.push({
           ok: !apiFallbackActive,
