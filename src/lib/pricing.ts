@@ -860,7 +860,7 @@ function loadSelection() {
     }
   } catch { _handleStateCorruption(TIERS_FILE); return DFLT_SEL }
 }
-const DFLT_SEL = { enabled: true, active_slot: null, thinking_level: "off", flow_enabled: false, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: false, delegation_enforce: true, selected_provider: null, selected_quality_tier: null, selected_model: null, executed_provider: null, executed_quality_tier: null, executed_model: null }
+const DFLT_SEL = { enabled: true, active_slot: null, thinking_level: "off", flow_enabled: true, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: true, delegation_enforce: true, selected_provider: null, selected_quality_tier: null, selected_model: null, executed_provider: null, executed_quality_tier: null, executed_model: null }
 
 export function readConfig(dir) {
   try {

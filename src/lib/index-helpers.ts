@@ -178,8 +178,13 @@ export function observeToolPattern(toolName, input, output, directory) {
       repeat++
     }
     if (repeat === 3) {
-      recordFrictionPattern(`repeat-tool:${t}:${target}`, `Repeated ${t} calls against ${target} in one session.`, { family: t, path: target })
-      _patternFiredKeys.add(`repeat-tool:${t}:${target}`)
+      // Generalize key to enable cross-session pattern matching
+      // Strip file path to match patterns across different files
+      const family = t === "bash" ? commandFamily(args.command || args.cmd || args.script || "") : t
+      const generalizedKey = `pattern:${t}:${family}`
+      const summary = `Pattern detected: repeated ${t} calls (${family}) — ${target}`
+      recordFrictionPattern(generalizedKey, summary, { family: family || t, path: target, tool: t })
+      _patternFiredKeys.add(generalizedKey)
     }
     if (repeat > 8) {
       // User keeps doing the same thing well after pattern fired -- ignored suggestion
