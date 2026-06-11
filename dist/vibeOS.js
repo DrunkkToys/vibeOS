@@ -7628,13 +7628,21 @@ function _parseMetrics(v) {
 function saveReport({ type = "manual", summary = "", findings = null, metrics = null, narrative = "", tags = [], fingerprint = null, status = "pending", task_description = "", outcome_verified = false } = {}) {
   const parsedFindings = _parseFindings(findings);
   const parsedMetrics = _parseMetrics(metrics);
+  const metricsObject = parsedMetrics && typeof parsedMetrics === "object" && !Array.isArray(parsedMetrics) ? parsedMetrics : {};
+  const metricsSessionId = typeof metricsObject.sessionId === "string" && metricsObject.sessionId.trim() ? metricsObject.sessionId.trim() : "";
+  const metricsProjectName = typeof metricsObject.projectName === "string" && metricsObject.projectName.trim() ? metricsObject.projectName.trim() : "";
+  const metricsProjectFingerprint = typeof metricsObject.projectFingerprint === "string" && metricsObject.projectFingerprint.trim() ? metricsObject.projectFingerprint.trim() : "";
   if (_wouldBeDuplicate(type, summary))
     return null;
-  const metricProjectFingerprint = typeof parsedMetrics?.projectFingerprint === "string" ? parsedMetrics.projectFingerprint : "";
-  const metricProjectName = typeof parsedMetrics?.projectName === "string" ? parsedMetrics.projectName : "";
-  const fp2 = fingerprint || currentProjectFingerprint2 || currentProjectFingerprint || metricProjectFingerprint || "unknown";
-  const projectName = currentProjectName2 || currentProjectName || metricProjectName || "unknown";
-  const sessionId = currentSessionId2 || getCurrentSessionId() || "unknown";
+  if (!currentProjectFingerprint2 && metricsProjectFingerprint)
+    currentProjectFingerprint2 = metricsProjectFingerprint;
+  if (!currentProjectName2 && metricsProjectName)
+    currentProjectName2 = metricsProjectName;
+  if (!currentSessionId2 && metricsSessionId)
+    currentSessionId2 = metricsSessionId;
+  const fp2 = fingerprint || currentProjectFingerprint2 || currentProjectFingerprint || metricsProjectFingerprint || "unknown";
+  const projectName = currentProjectName2 || currentProjectName || metricsProjectName || "unknown";
+  const sessionId = currentSessionId2 || metricsSessionId || getCurrentSessionId() || getOcSessionId() || "unknown";
   const id2 = generateReportId(type, fp2);
   const report = {
     meta: { id: id2, project: projectName, fingerprint: fp2, type, created: (/* @__PURE__ */ new Date()).toISOString(), sessionId },
