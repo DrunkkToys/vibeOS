@@ -10565,7 +10565,11 @@ async function apiComputeControlVector(state, action, optimizationMode) {
     const res = await remoteCall("blackboxControlVector", [state, action, optimizationMode], null);
     if (res?.control_vector) {
       const local = computeControlVector2(state, action, optimizationMode);
-      return mergeRemoteControlVector(res.control_vector, local);
+      const merged = mergeRemoteControlVector(res.control_vector, local);
+      if (res.rf_prediction?.mode && res.rf_prediction.mode !== res.control_vector?.optimization_mode) {
+        merged.optimization_mode = res.rf_prediction.mode;
+      }
+      return merged;
     }
   } catch {
   }
@@ -10929,6 +10933,7 @@ async function trackBlackbox(messages) {
       localState.latest_stress_multiplier = st;
       saveSessionStress(st, st > 1.5 ? "critical" : st > 0.7 ? "elevated" : st > 0.3 ? "moderate" : "none");
     }
+    localState.user_text = latestUserIntent;
     const modePreview = peekBudgetFirstMode({
       requestedMode: loadOptimizationMode(),
       subRegime: localState.sub_regime || "INIT",
@@ -11083,13 +11088,15 @@ var onSystemTransform = async (_input, output) => {
       const st = scoreStress(latestUserIntent);
       _controlVector = await apiComputeControlVector({
         sub_regime: classifiedRegime,
-        latest_stress_multiplier: st || void 0
+        latest_stress_multiplier: st || void 0,
+        user_text: latestUserIntent
       }, void 0, optimizationMode);
     }
     if (!_controlVector) {
       _controlVector = await apiComputeControlVector({
         sub_regime: "INIT",
-        latest_stress_multiplier: latestUserIntent ? scoreStress(latestUserIntent) : void 0
+        latest_stress_multiplier: latestUserIntent ? scoreStress(latestUserIntent) : void 0,
+        user_text: latestUserIntent || void 0
       }, void 0, optimizationMode);
     }
     const system = output?.system;
