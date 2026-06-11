@@ -1,3 +1,15 @@
+## 0.24.11
+- feat: smooth delegation UX — conversational reasoning over error injection
+- fix: reset api fallback on token refresh (#138)
+- fix: _prevBlackboxState -> _latestBlackboxState, update pattern key test
+- fix: sync-ts-build was cleaning JS artifacts without copying compiled output back
+- fix: forensic anti-lying + quality enforcement pipeline
+- docs: add cross-project index, DEV ONLY markers, ESLint cleanup
+- test: add 13 cascade integration tests for forensic quality pipeline
+- chore: sync package version to latest release
+Merge pull request #136 from DrunkkToys/release/v0.24.8-merge
+
+
 ## 0.24.5
 - fix: cap saveEst at  to prevent runaway pricing data corruption
 - chore: v0.24.4
