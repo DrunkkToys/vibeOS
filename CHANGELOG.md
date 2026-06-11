@@ -1,3 +1,7 @@
+## 0.24.10
+- fix: wire npm auth for GitHub releases
+
+
 ## 0.24.9
 - fix: preserve live metrics context in reports
 
