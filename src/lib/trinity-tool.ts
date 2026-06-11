@@ -72,7 +72,7 @@ export function createTrinityTool(deps) {
             const providers = deps._loadOpenCodeProviders()
             const auth = deps._readAuth()
             const models = await deps.discoverAvailableModels(providers, auth)
-            const trinity = buildDeterministicTrinity(models, { selectedModelId: deps.currentModel, selectedTier: sel.active_slot || "brain" })
+            const trinity = buildDeterministicTrinity(models, { selectedModelId: deps.currentModel })
             if (trinity && trinity.brain) {
               const probed = {
                 brain: models.find(m => m.id === trinity.brain) || { id: trinity.brain, cost: deps._modelCost(trinity.brain), tier: deps._modelTier(trinity.brain) },
@@ -213,12 +213,24 @@ export function createTrinityTool(deps) {
             if (!tiers.trinity[slot]) tiers.trinity[slot] = {}
             tiers.trinity[slot].oc = model
             tiers.trinity[slot].cc = model
+            tiers.trinity[slot].manual = true
             const _tmp = deps.TIERS_FILE + ".tmp." + Date.now() + "." + Math.random().toString(36).slice(2, 8)
             deps.writeFileSync(_tmp, JSON.stringify(tiers, null, 2) + "\n")
             deps.renameSync(_tmp, deps.TIERS_FILE)
           } catch (e) {
             return `\u274c Failed to write model to tiers: ${e.message}`
           }
+        } else {
+          // set without custom model — clear manual flag so rebuild can auto-manage
+          try {
+            const tiers = deps.safeJsonParse(deps.readFileSync(deps.TIERS_FILE, "utf-8"))
+            if (tiers?.trinity?.[slot]?.manual) {
+              delete tiers.trinity[slot].manual
+              const _tmp = deps.TIERS_FILE + ".tmp." + Date.now() + "." + Math.random().toString(36).slice(2, 8)
+              deps.writeFileSync(_tmp, JSON.stringify(tiers, null, 2) + "\n")
+              deps.renameSync(_tmp, deps.TIERS_FILE)
+            }
+          } catch {}
         }
         let targetModel = ""
         try {
@@ -438,8 +450,7 @@ export function createTrinityTool(deps) {
           }
         } catch {}
         const selectedModel = deps.currentModel || existing?.selection?.selected_model || existing?.selection?.executed_model || ""
-        const selectedTier = existing?.selection?.active_slot || "brain"
-        const trinity = buildDeterministicTrinity(discovered, { selectedModelId: selectedModel, selectedTier })
+        const trinity = buildDeterministicTrinity(discovered, { selectedModelId: selectedModel })
         const brain = trinity?.brain || existing?.trinity?.brain?.oc || selectedModel || ""
         const medium = trinity?.medium || existing?.trinity?.medium?.oc || brain
         const cheap = trinity?.cheap || existing?.trinity?.cheap?.oc || medium || brain
@@ -458,14 +469,14 @@ export function createTrinityTool(deps) {
         tiers.selection.thinking_level = "off"
         tiers.selection.setup_completed_at = now
         tiers.selection.selected_provider = trinity?.provider || resolveExecutionIdentity(selectedModel, deps.directory)?.provider || ""
-        tiers.selection.selected_quality_tier = trinity?.selected_tier || selectedTier || "brain"
+        tiers.selection.selected_quality_tier = trinity?.selected_tier || "brain"
         tiers.selection.selected_model = trinity?.selected_model || selectedModel || ""
         tiers.selection.executed_provider = tiers.selection.selected_provider
         tiers.selection.executed_quality_tier = tiers.selection.selected_quality_tier
         tiers.selection.executed_model = tiers.selection.selected_model
-        if (brain) tiers.trinity.brain = { oc: brain, cc: deps.modelToCcAlias(brain) }
-        if (medium) tiers.trinity.medium = { oc: medium, cc: deps.modelToCcAlias(medium) }
-        if (cheap) tiers.trinity.cheap = { oc: cheap, cc: deps.modelToCcAlias(cheap) }
+        if (brain && existing?.trinity?.brain?.manual !== true) tiers.trinity.brain = { oc: brain, cc: deps.modelToCcAlias(brain) }
+        if (medium && existing?.trinity?.medium?.manual !== true) tiers.trinity.medium = { oc: medium, cc: deps.modelToCcAlias(medium) }
+        if (cheap && existing?.trinity?.cheap?.manual !== true) tiers.trinity.cheap = { oc: cheap, cc: deps.modelToCcAlias(cheap) }
         deps.mkdirSync(dirname(deps.TIERS_FILE), { recursive: true })
         deps.writeFileSync(deps.TIERS_FILE, JSON.stringify(tiers, null, 2) + "\n")
         if (typeof deps._refreshModel === "function") deps._refreshModel(deps.directory)
@@ -790,8 +801,7 @@ export function createTrinityTool(deps) {
         const auth = deps._readAuth()
         const models = await deps.discoverAvailableModels(providers, auth)
         const selectedModel = deps.currentModel || deps.loadSelection?.().selected_model || deps.loadSelection?.().executed_model || ""
-        const selectedTier = deps.loadSelection?.().active_slot || "brain"
-        const trinity = buildDeterministicTrinity(models, { selectedModelId: selectedModel, selectedTier })
+        const trinity = buildDeterministicTrinity(models, { selectedModelId: selectedModel })
         if (!trinity) {
           return "\u274c No models discovered from any configured provider."
         }
@@ -812,14 +822,21 @@ export function createTrinityTool(deps) {
         }
         try {
           const tiers = deps.safeJsonParse(deps.readFileSync(deps.TIERS_FILE, "utf-8"))
+          const existing = tiers.trinity || {}
           tiers.trinity = {
-            brain: { oc: probed.brain.id, cc: deps.modelToCcAlias(probed.brain.id) },
-            medium: { oc: probed.medium.id, cc: deps.modelToCcAlias(probed.medium.id) },
-            cheap: { oc: probed.cheap.id, cc: deps.modelToCcAlias(probed.cheap.id) },
+            brain: existing.brain?.manual === true
+              ? { ...existing.brain }
+              : { oc: probed.brain.id, cc: deps.modelToCcAlias(probed.brain.id) },
+            medium: existing.medium?.manual === true
+              ? { ...existing.medium }
+              : { oc: probed.medium.id, cc: deps.modelToCcAlias(probed.medium.id) },
+            cheap: existing.cheap?.manual === true
+              ? { ...existing.cheap }
+              : { oc: probed.cheap.id, cc: deps.modelToCcAlias(probed.cheap.id) },
           }
           tiers.selection ??= {}
           tiers.selection.selected_provider = trinity.provider || resolveExecutionIdentity(selectedModel, deps.directory)?.provider || ""
-          tiers.selection.selected_quality_tier = trinity.selected_tier || selectedTier || "brain"
+          tiers.selection.selected_quality_tier = trinity.selected_tier || "brain"
           tiers.selection.selected_model = trinity.selected_model || selectedModel || ""
           tiers.selection.executed_provider = tiers.selection.selected_provider
           tiers.selection.executed_quality_tier = tiers.selection.selected_quality_tier
@@ -831,11 +848,14 @@ export function createTrinityTool(deps) {
           return "\u274c Failed to write model-tiers.json: " + err.message
         }
         try { deps.applySlot("brain") } catch (e) { console.error("[vibeOS] auto-activate brain failed:", e.message) }
+        const _finalTiers = deps.safeJsonParse(deps.readFileSync(deps.TIERS_FILE, "utf-8"))
+        const _trinity = _finalTiers?.trinity || {}
+        const _pMan = (s) => _trinity[s]?.manual === true ? " [manual, preserved]" : ""
         const lines = [
           `\ud83d\udd0d Auto-detected models from provider: ${trinity.provider || "unknown"}`,
-          "  \ud83e\udde0 brain  \u2192 " + probed.brain.id + " (tier: " + probed.brain.tier + ", $" + probed.brain.cost.toFixed(4) + "/turn) \u2705",
-          "  \u2699  medium \u2192 " + probed.medium.id + " (tier: " + probed.medium.tier + ", $" + probed.medium.cost.toFixed(4) + "/turn) \u2705",
-          "  \u26a1 cheap  \u2192 " + probed.cheap.id + " (tier: " + probed.cheap.tier + ", $" + probed.cheap.cost.toFixed(4) + "/turn) \u2705",
+          "  \ud83e\udde0 brain  \u2192 " + probed.brain.id + " (tier: " + probed.brain.tier + ", $" + probed.brain.cost.toFixed(4) + "/turn) \u2705" + _pMan("brain"),
+          "  \u2699  medium \u2192 " + probed.medium.id + " (tier: " + probed.medium.tier + ", $" + probed.medium.cost.toFixed(4) + "/turn) \u2705" + _pMan("medium"),
+          "  \u26a1 cheap  \u2192 " + probed.cheap.id + " (tier: " + probed.cheap.tier + ", $" + probed.cheap.cost.toFixed(4) + "/turn) \u2705" + _pMan("cheap"),
         ]
         if (failed.length > 0) {
           lines.push("", "Probe failures (skipped):")
