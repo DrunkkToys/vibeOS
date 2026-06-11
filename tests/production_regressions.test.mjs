@@ -134,6 +134,28 @@ test("Core [existing] — auto session report uses semantic metrics fields for d
   assert.equal(m.tasksDelegated, m.taskDelegationCount, "legacy tasksDelegated field should map to count")
 })
 
+test("Core — saveReport uses live project/session context instead of unknown fallbacks", async () => {
+  seedTierFile()
+  const mod = await loadPlugin()
+  mod.setCurrentProjectFingerprint("deadbeefcaf0")
+  mod.setCurrentProjectName("theSaver-oc")
+  mod.setCurrentSessionId("opencode-live-123")
+
+  const id = mod.saveReport({
+    type: "manual",
+    summary: "live context regression " + Date.now(),
+    metrics: { value: 1 },
+  })
+
+  const report = mod.readReport(id)
+  assert.equal(report.meta.project, "theSaver-oc", "project name should come from live state")
+  assert.equal(report.meta.fingerprint, "deadbeefcaf0", "fingerprint should come from live state")
+  assert.equal(report.meta.sessionId, "opencode-live-123", "session id should come from live state")
+  assert.ok(!report.meta.id.includes("unknow"), "report id should not use typo fallback: " + report.meta.id)
+  const listed = mod.listReports({ project: "theSaver-oc", hours: 24 })
+  assert.ok(listed.some(r => r.id === id), "report-list should find the live-context report")
+})
+
 // ═══════════════════════════════════════════════════════════════════════
 // Section: Telemetry Integrity — Stress + Accuracy
 // ═══════════════════════════════════════════════════════════════════════

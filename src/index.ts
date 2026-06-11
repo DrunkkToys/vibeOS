@@ -12,9 +12,9 @@ import { join, dirname, basename } from "node:path"
 import { getFlowWarns, ensureProjectDocs, syncFlowTodosToNative } from "./vibeOS-lib/flow-enforcer.js"
 import { computeSessionMetrics } from "./vibeOS-lib/session-metrics.js"
 import { createMcpServer } from "./lib/vibeos-mcp-server.js"
-import { isApiConnected, setApiToken, setApiBootstrapToken, ensureBootstrapExchange, VIBEOS_API_URL } from "./lib/api-client.js"
+import { isApiConnected, isApiFallback, setApiToken, setApiBootstrapToken, ensureBootstrapExchange, VIBEOS_API_URL } from "./lib/api-client.js"
 import { applySlot, modelCostPerTurn, detectContext7, formatUsd, classify, _refreshModel, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, readConfig, getTrinitySlotOrder, loadTrinitySlotsFromTiersFile, buildDeterministicTrinity } from "./lib/pricing.js"
-import { scoreStress, detectTechStack, loadBlackboxState, saveBlackboxState, getBlackboxTracker, getBlackboxResolution, saveOptimizationMode } from "./lib/turn-classify.js"
+import { scoreStress, detectTechStack, loadBlackboxState, saveBlackboxState, getBlackboxTracker, getBlackboxResolution, saveOptimizationMode, resetBlackboxTracker } from "./lib/turn-classify.js"
 import { safeJsonParse, readFullState, loadSelection, writeSelection, readLifetimeSavings, _OC_SID, _modelLocked, _blackboxEnabled, setBlackboxEnabled, _lockedSlot, _lockedModel, currentTier, currentModel, currentProjectFingerprint, currentProjectName, setCurrentTier, setCurrentModel, setCurrentProjectFingerprint, setCurrentProjectName, setCurrentSessionId, getCurrentSessionId, briefedProjects, _latestBlackboxState, _latestBlackboxLoopMsg, _latestBlackboxPivotMsg, getActiveJobForProject, projectFingerprint, loadProjectState, saveProjectState, ensureProjectBucket, mergeProjectBucket, setVibeOSHomeContext, SAVINGS_LEDGER_FILE, USER_HOME, CREDIT_CACHE_F, pruneScratchpadOnce, registerSessionCleanupHandlers, promotedProjectPatterns, projectPatternRows, clearProjectPatterns, loadTodos, getTodos, upsertTodo, markTodoDone, tool } from "./lib/state.js"
 import { researchAudit } from "./lib/research-audit.js"
 import { buildStatusPayload, buildSavingsPayload, buildSessionCheckout, diagnoseStructuredFromText, projectStructuredFromText } from "./lib/runtime-surface.js"
@@ -441,6 +441,8 @@ export async function DelegationEnforcer({ client, directory } = {}) {
     projectPatternRows, promotedProjectPatterns, detectTechStack, ensureProjectDocs, ensureProjectSkill,
     discoverAvailableModels, classifyAndRankModels, modelToCcAlias, probeModel,
     setBlackboxEnabled, loadBlackboxState, saveBlackboxState,
+    isApiFallback: () => isApiFallback(),
+    get _apiFallbackSince() { return _apiFallbackSince },
     reportsIndex: reportsIndexStable, saveReportsIndex: saveReportsIndexStable, backupFile: backupFileStable, writeSessionSlot, writeSessionOptMode, _refreshModel,
     setApiToken,
     setApiBootstrapToken,
@@ -676,6 +678,8 @@ export async function DelegationEnforcer({ client, directory } = {}) {
                 fallbackThinking: thinkingLevel(loadCredit()),
                 backendConnected: isApiConnected(),
                 backendHealthUrl: `${VIBEOS_API_URL}/health`,
+                apiFallbackMode: isApiFallback(),
+                apiFallbackSince: _apiFallbackSince,
                 modelLocked: _modelLocked,
                 lockedSlot: _lockedSlot,
                 lockedModel: _lockedModel,
@@ -815,7 +819,7 @@ export default { id: "vibeOS", server: DelegationEnforcer }
 export { researchAudit } from "./lib/research-audit.js"
 export { saveReport, listReports, readReport } from "./lib/reporting.js"
 export { applySlot, modelCostPerTurn, isModelFree, isDocsTarget, detectContext7, loadTierRegexes, classify, _refreshModel, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, setTrinityBrain, setTrinityMedium, setTrinityCheap, trendDisplay } from "./lib/pricing.js"
-export { getScratchpadHit, getSessionScratchpadDir, getSessionIndexPath, setCurrentModel, setCurrentTier } from "./lib/state.js"
+export { getScratchpadHit, getSessionScratchpadDir, getSessionIndexPath, setCurrentModel, setCurrentTier, setCurrentSessionId, setCurrentProjectFingerprint, setCurrentProjectName, getCurrentSessionId } from "./lib/state.js"
 export { extractExports, buildTestSkeleton, enforceTestFile, buildTestReminder } from "./lib/tdd-enforcer.js"
 export { classifyAndRankModels, modelToCcAlias } from "./lib/trinity-rebuild.js"
 export { scoreStress, detectTechStack, loadBlackboxState, saveBlackboxState, getBlackboxResolution } from "./lib/turn-classify.js"

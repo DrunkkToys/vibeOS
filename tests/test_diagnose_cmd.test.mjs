@@ -109,6 +109,60 @@ test("diagnose: all checks pass with full config", async () => {
   assert.ok(passCount + okCount >= 6, "diagnose passes: " + output.slice(0, 120))
 })
 
+test("diagnose: shows api fallback and non-failing runway when balance exists", async () => {
+  baseDirs()
+  writeOpenCodeConfig()
+  writeTiers()
+  writeState()
+  mkdirSync(join(HOME, "test-project"), { recursive: true })
+
+  const prev = {
+    VIBEOS_API_URL: process.env.VIBEOS_API_URL,
+    VIBEOS_API_TOKEN: process.env.VIBEOS_API_TOKEN,
+    VIBEOS_API_DISABLED: process.env.VIBEOS_API_DISABLED,
+    fetch: globalThis.fetch,
+  }
+  process.env.VIBEOS_API_URL = "http://127.0.0.1:1"
+  process.env.VIBEOS_API_TOKEN = "vos_diagnose_fallback_0000000000000000000000000000000000000000000000000000000000000000"
+  delete process.env.VIBEOS_API_DISABLED
+  globalThis.fetch = async (url) => {
+    const href = String(url || "")
+    if (href.includes("127.0.0.1:1")) {
+      throw new Error("remote api unavailable")
+    }
+    if (href.includes("api.deepseek.com/user/balance")) {
+      await new Promise(resolve => setTimeout(resolve, 20))
+      return {
+        ok: true,
+        json: async () => ({ balance_infos: [{ currency: "USD", total_balance: "78.52" }] }),
+      }
+    }
+    throw new Error(`unexpected fetch: ${href}`)
+  }
+
+  try {
+    const mod = await import("../src/index.js?diagfb=" + Date.now())
+    await mod.remoteCall("health", [], () => "fallback")
+    const hooks = await mod.DelegationEnforcer({ client: {}, directory: join(HOME, "test-project") })
+    await hooks.tool.trinity.execute({ action: "status" })
+    await new Promise(resolve => setTimeout(resolve, 50))
+    writeCredit(78.52, 50)
+    const output = await hooks.tool.trinity.execute({ action: "diagnose" })
+
+    assert.ok(output.toLowerCase().includes("api fallback"), "fallback line present: " + output)
+    assert.ok(output.includes("78.52") && output.includes("runway"), "runway line present with live balance: " + output)
+    assert.ok(!output.includes("n/a") || output.includes("balance snapshot present"), "runway no longer collapses to n/a: " + output)
+  } finally {
+    if (prev.VIBEOS_API_URL === undefined) delete process.env.VIBEOS_API_URL
+    else process.env.VIBEOS_API_URL = prev.VIBEOS_API_URL
+    if (prev.VIBEOS_API_TOKEN === undefined) delete process.env.VIBEOS_API_TOKEN
+    else process.env.VIBEOS_API_TOKEN = prev.VIBEOS_API_TOKEN
+    if (prev.VIBEOS_API_DISABLED === undefined) delete process.env.VIBEOS_API_DISABLED
+    else process.env.VIBEOS_API_DISABLED = prev.VIBEOS_API_DISABLED
+    globalThis.fetch = prev.fetch
+  }
+})
+
 test("diagnose: missing files reported as ❌", async () => {
   baseDirs()
   writeOpenCodeConfig()

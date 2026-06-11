@@ -206,6 +206,10 @@ test("full blackbox and stress pipeline", async (t) => {
     assert.ok(highStress > 0.4, `high stress text scored ${highStress}, expected > 0.4`)
     console.error(`scoreStress("fuck this broken shit...") = ${highStress}`)
 
+    const urgentStress = scoreStress("this is urgent and I'm stressed because the broken flow is terrible")
+    assert.ok(urgentStress > 0.7, `urgent stressed text scored ${urgentStress}, expected > 0.7`)
+    console.error(`scoreStress("this is urgent and I'm stressed...") = ${urgentStress}`)
+
     const lowStress = scoreStress("help me understand how this works")
     assert.ok(lowStress < 0.1, `low stress text scored ${lowStress}, expected < 0.1`)
     console.error(`scoreStress("help me understand...") = ${lowStress}`)

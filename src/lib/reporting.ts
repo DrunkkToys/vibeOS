@@ -2,7 +2,7 @@
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync, copyFileSync, rmSync } from "node:fs"
 import { join, basename } from "node:path"
-import { withFileLock, safeJsonParse, VIBEOS_HOME } from "./state.js"
+import { withFileLock, safeJsonParse, VIBEOS_HOME, currentProjectFingerprint as liveProjectFingerprint, currentProjectName as liveProjectName, getCurrentSessionId } from "./state.js"
 
 // Report data:
 //   meta: { id, project, fingerprint, type, created, sessionId }
@@ -29,13 +29,14 @@ function getReportsIndexPath() {
 export const REPORTS_DIR = getReportsDir()
 export const REPORTS_INDEX = getReportsIndexPath()
 
-const _OC_SID = "opencode-" + (process.pid || "x") + "-" + Date.now()
 export let currentProjectFingerprint = ""
 export let currentProjectName = ""
+export let currentSessionId = ""
 
-export function setReportingContext({ fingerprint, projectName }: { fingerprint?: string; projectName?: string } = {}) {
+export function setReportingContext({ fingerprint, projectName, sessionId }: { fingerprint?: string; projectName?: string; sessionId?: string } = {}) {
   if (fingerprint !== undefined) currentProjectFingerprint = fingerprint
   if (projectName !== undefined) currentProjectName = projectName
+  if (sessionId !== undefined) currentSessionId = sessionId
 }
 
 function _handleStateCorruption(path) {
@@ -160,10 +161,12 @@ export function saveReport({ type = "manual", summary = "", findings = null, met
   // Dedup: skip if last same-type report has same summary within 5 min
   if (_wouldBeDuplicate(type, summary)) return null
 
-  const fp = fingerprint || currentProjectFingerprint || "unknown"
+  const fp = fingerprint || currentProjectFingerprint || liveProjectFingerprint || "unknown"
+  const projectName = currentProjectName || liveProjectName || "unknown"
+  const sessionId = currentSessionId || getCurrentSessionId() || "unknown"
   const id = generateReportId(type, fp)
   const report = {
-    meta: { id, project: currentProjectName || "unknown", fingerprint: fp, type, created: new Date().toISOString(), sessionId: _OC_SID },
+    meta: { id, project: projectName, fingerprint: fp, type, created: new Date().toISOString(), sessionId },
     summary, findings: parsedFindings, metrics: parsedMetrics, narrative, tags, status, task_description, outcome_verified,
   }
   try {

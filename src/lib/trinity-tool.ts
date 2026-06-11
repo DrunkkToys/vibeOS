@@ -168,9 +168,9 @@ export function createTrinityTool(deps) {
           `Stress: ${stressBar} (${stressLabel})`,
           `|`,
           `Guards:`,
-          `  Flow: ${sel.flow_enabled !== false ? "ON" : "OFF"}${sel.flow_enforce ? " (extract)" : ""}`,
+          `  Flow: ${sel.flow_enabled !== false ? "ON" : "OFF"}${sel.flow_enabled !== false && sel.flow_enforce ? " (extract)" : ""}`,
           `  TDD: ${sel.tdd_enforce ? "ON" : "OFF"}${sel.tdd_strict !== false ? " strict" : ""}${sel.tdd_quality !== false ? " quality" : ""}`,
-          `  Enforce: ${sel.delegation_enforce ? "ON" : "OFF"}${sel.onboarding_mode === "assist" ? " (compatibility)" : " (mandatory)"}`,
+          `  Enforce: ${sel.delegation_enforce ? "ON (mandatory)" : "OFF (compatibility)"}`,
           `  Lock: ${deps._modelLocked ? `LOCK ON${lockedSlot ? ` (${lockedSlot})` : ""}${lockedModel ? ` ${lockedModel}` : ""}` : "LOCK OFF"}`,
           `  Compatibility: ${onboardingMode === "assist" ? "ASSIST (soft defaults, progressive activation)" : "STRICT (full guardrails)"}`,
           `|`,
@@ -265,7 +265,7 @@ export function createTrinityTool(deps) {
         return `\u2705 Switched to ${slot} slot (${result.ocModel}). Active now (no restart needed).`
       }
       if (action === "mode") {
-        const builtInIds = ["budget", "quality", "speed", "longrun"]
+        const builtInIds = ["balanced", "budget", "quality", "speed", "longrun", "audit", "forensic"]
         const brandedIds = BRANDED_MODES.map(m => m.id)
         const allModeIds = [...builtInIds, "auto", ...brandedIds]
         if (!slot) return `Provide mode: ${builtInIds.join(" | ")} | auto | ${brandedIds.join(" | ")}`
@@ -319,6 +319,7 @@ export function createTrinityTool(deps) {
       if (action === "flow") {
         if (slot === "on" || slot === "off") {
           const ok = deps.writeSelection("flow_enabled", slot === "on")
+          if (ok) deps.writeSelection("flow_enforce", slot === "on")
           if (ok && slot === "on") deps.writeSelection("onboarding_mode", "strict")
           return ok
             ? `\u2705 Flow enforcer ${slot === "on" ? "ENABLED" : "DISABLED"}`
@@ -921,6 +922,7 @@ export function createTrinityTool(deps) {
         const credit = deps.loadCredit()
         let budget = DIAGNOSE_BUDGET_LINES
         let totalBal = 0
+        let cheapModel = ""
         try {
           const j = deps.safeJsonParse(deps.readFileSync(deps.TIERS_FILE, "utf-8"))
           cheapModel = j?.trinity?.cheap?.oc || cheapModel
@@ -930,6 +932,17 @@ export function createTrinityTool(deps) {
           const cache = deps.safeJsonParse(deps.readFileSync(deps.CREDIT_CACHE_F, "utf-8"))
           if (cache?.total != null) totalBal = cache.total
         } catch {}
+        const apiFallbackActive = typeof deps.isApiFallback === "function" ? deps.isApiFallback() : false
+        const apiFallbackSince = deps._apiFallbackSince || null
+        results.push({
+          ok: !apiFallbackActive,
+          okLabel: !apiFallbackActive ? "\u2705" : "\u26A0",
+          label: "api fallback",
+          detail: apiFallbackActive
+            ? `active${apiFallbackSince ? ` since ${apiFallbackSince}` : ""}`
+            : "off",
+          fix: apiFallbackActive ? "re-enter `trinity api-token <token>` to retry the remote API" : null,
+        })
         const runway = typeof deps.estimateTurnsRemaining === "function"
           ? deps.estimateTurnsRemaining(totalBal, cheapModel)
           : { balanceUsd: totalBal, costPerTurn: deps.modelCostPerTurn?.(cheapModel) ?? null, turnsRemaining: null, unlimited: false }
@@ -937,7 +950,10 @@ export function createTrinityTool(deps) {
           ? `unlimited on ${cheapModel}`
           : runway.turnsRemaining != null && runway.costPerTurn != null
             ? `${Number(runway.turnsRemaining).toLocaleString()} turns on ${cheapModel} @ $${deps.formatUsd(runway.costPerTurn)}/turn`
-            : "n/a"
+            : totalBal > 0
+              ? `balance snapshot present; turn estimate unavailable for ${cheapModel || "cheap slot"}`
+              : "n/a"
+        const runwayOk = totalBal > 0 || runway.turnsRemaining != null || runway.costPerTurn === 0
         const creditOk = credit >= CREDIT_MIN_OK
         results.push({
           ok: creditOk, okLabel: creditOk ? "\u2705" : "\u274c",
@@ -946,11 +962,11 @@ export function createTrinityTool(deps) {
           fix: creditOk ? null : "run \`trinity medium\` to reduce spend",
         })
         results.push({
-          ok: runway.turnsRemaining != null || runway.costPerTurn === 0,
-          okLabel: runway.turnsRemaining != null || runway.costPerTurn === 0 ? "\u2705" : "\u274c",
+          ok: runwayOk,
+          okLabel: runwayOk ? "\u2705" : "\u274c",
           label: "runway",
           detail: totalBal > 0 ? `$${totalBal.toFixed(2)} left -> ${runwayText}` : "no cached balance yet",
-          fix: runway.turnsRemaining == null && runway.costPerTurn !== 0 ? "wait for a balance snapshot or configure a known cheap slot" : null,
+          fix: runwayOk ? null : "wait for a balance snapshot or configure a known cheap slot",
         })
 
         try {
@@ -1144,7 +1160,7 @@ export function createTrinityTool(deps) {
           "  trinity enable/disable    Toggle vibeOS plugin on/off",
           "  trinity enforce on        Block brain-tier writes/edits (save $$)",
           "  trinity lock on/off       Lock model at session start (skip auto-reconcile)",
-          "  trinity mode <profile>   Set optimization profile (built-in + branded modes)",
+          "  trinity mode <profile>   Set optimization profile (balanced|budget|quality|speed|longrun|audit|forensic|auto + branded modes)",
           "  trinity thinking full|brief|off  Set reasoning depth",
           "",
           "GUARDRAILS:",
