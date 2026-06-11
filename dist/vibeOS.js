@@ -1104,7 +1104,7 @@ var init_vibemax = __esm({
 
 // src/index.ts
 init_flow_enforcer();
-import { readFileSync as readFileSync17, writeFileSync as writeFileSync15, existsSync as existsSync18, mkdirSync as mkdirSync13, copyFileSync as copyFileSync2, renameSync as renameSync6 } from "node:fs";
+import { readFileSync as readFileSync17, writeFileSync as writeFileSync15, existsSync as existsSync18, mkdirSync as mkdirSync13, copyFileSync as copyFileSync2, renameSync as renameSync6, statSync as statSync9 } from "node:fs";
 import { join as join18, dirname as dirname13, basename as basename5 } from "node:path";
 
 // src/vibeOS-lib/session-metrics.js
@@ -2299,7 +2299,7 @@ function getApiClient2() {
   }
   return _apiClient;
 }
-function isApiFallback() {
+function isApiFallback2() {
   return _apiFallbackMode || !VIBEOS_API_ENABLED;
 }
 function isApiConnected2() {
@@ -2403,7 +2403,7 @@ function loadSelection() {
       return DFLT_SEL;
     const st = statSync3(TIERS_FILE3);
     if (st.size > 10485760) {
-      _handleStateCorruption(TIERS_FILE3);
+      _handleStateCorruption2(TIERS_FILE3);
       return DFLT_SEL;
     }
     const j = safeJsonParse2(readFileSync3(TIERS_FILE3, "utf-8"));
@@ -2430,7 +2430,7 @@ function loadSelection() {
       previous_default_agent: j?.selection?.previous_default_agent || null
     };
   } catch {
-    _handleStateCorruption(TIERS_FILE3);
+    _handleStateCorruption2(TIERS_FILE3);
     return DFLT_SEL;
   }
 }
@@ -3453,7 +3453,7 @@ function runStartupMaintenanceOnce() {
   } catch {
   }
 }
-function _handleStateCorruption(path) {
+function _handleStateCorruption2(path) {
   const backupDir = join4(VIBEOS_HOME, ".backups");
   mkdirSync3(backupDir, { recursive: true });
   const backupPath = join4(backupDir, basename2(path) + ".corrupted." + Date.now());
@@ -3558,12 +3558,12 @@ function readJsonOrEmpty(filePath) {
       return {};
     const st = statSync4(filePath);
     if (st.size > 10485760) {
-      _handleStateCorruption(filePath);
+      _handleStateCorruption2(filePath);
       return {};
     }
     return safeJsonParse3(readFileSync4(filePath, "utf-8"));
   } catch {
-    _handleStateCorruption(filePath);
+    _handleStateCorruption2(filePath);
     return {};
   }
 }
@@ -3614,12 +3614,12 @@ function readFullState() {
       return {};
     const st = statSync4(delegationStateFile);
     if (st.size > 10485760) {
-      _handleStateCorruption(delegationStateFile);
+      _handleStateCorruption2(delegationStateFile);
       return {};
     }
     return safeJsonParse3(readFileSync4(delegationStateFile, "utf-8"));
   } catch {
-    _handleStateCorruption(delegationStateFile);
+    _handleStateCorruption2(delegationStateFile);
     return {};
   }
 }
@@ -3659,7 +3659,7 @@ function loadGlobalLearning() {
       return DFLT_GL;
     const st = statSync4(globalLearningFile);
     if (st.size > 10485760) {
-      _handleStateCorruption(globalLearningFile);
+      _handleStateCorruption2(globalLearningFile);
       return DFLT_GL;
     }
     const j = safeJsonParse3(readFileSync4(globalLearningFile, "utf-8"));
@@ -3672,7 +3672,7 @@ function loadGlobalLearning() {
     j.context7_last_seen ??= null;
     return j;
   } catch {
-    _handleStateCorruption(globalLearningFile);
+    _handleStateCorruption2(globalLearningFile);
     return DFLT_GL;
   }
 }
@@ -3734,7 +3734,7 @@ function loadBlackboxState() {
       return { enabled: true, sessions: {} };
     const st = statSync4(blackboxFile);
     if (st.size > 10485760) {
-      _handleStateCorruption(blackboxFile);
+      _handleStateCorruption2(blackboxFile);
       return { enabled: false, sessions: {} };
     }
     const raw = safeJsonParse3(readFileSync4(blackboxFile, "utf-8")) || { enabled: false, sessions: {} };
@@ -3774,7 +3774,7 @@ function loadBlackboxState() {
     }
     return raw;
   } catch {
-    _handleStateCorruption(blackboxFile);
+    _handleStateCorruption2(blackboxFile);
     return { enabled: false, sessions: {} };
   }
 }
@@ -4281,7 +4281,7 @@ function _readActiveJobsRaw() {
     const raw = safeJsonParse3(readFileSync4(ACTIVE_JOBS_FILE, "utf-8"));
     return raw && typeof raw === "object" ? raw : {};
   } catch {
-    _handleStateCorruption(ACTIVE_JOBS_FILE);
+    _handleStateCorruption2(ACTIVE_JOBS_FILE);
     return {};
   }
 }
@@ -4350,7 +4350,7 @@ function loadActiveJobs() {
       return next;
     });
   } catch {
-    _handleStateCorruption(ACTIVE_JOBS_FILE);
+    _handleStateCorruption2(ACTIVE_JOBS_FILE);
     return {};
   }
 }
@@ -5543,7 +5543,7 @@ function _loadDynamicPricingCache() {
       return {};
     const st = statSync5(PRICING_CACHE_FILE2);
     if (st.size > 10485760) {
-      _handleStateCorruption(PRICING_CACHE_FILE2);
+      _handleStateCorruption2(PRICING_CACHE_FILE2);
       _dynamicPricingCache = {};
       return {};
     }
@@ -5551,7 +5551,7 @@ function _loadDynamicPricingCache() {
     const map = raw?.models && typeof raw.models === "object" ? raw.models : {};
     _dynamicPricingCache = map;
   } catch {
-    _handleStateCorruption(PRICING_CACHE_FILE2);
+    _handleStateCorruption2(PRICING_CACHE_FILE2);
     _dynamicPricingCache = {};
   }
   return _dynamicPricingCache;
@@ -5646,7 +5646,7 @@ function _loadPricingOverrides() {
       return {};
     const st = statSync5(tiersFile);
     if (st.size > 10485760) {
-      _handleStateCorruption(tiersFile);
+      _handleStateCorruption2(tiersFile);
       _pricingOverridesCache = {};
       return {};
     }
@@ -5677,7 +5677,7 @@ function _loadPricingOverrides() {
     }
     _pricingOverridesCache = out;
   } catch {
-    _handleStateCorruption(join5(home, "model-tiers.json"));
+    _handleStateCorruption2(join5(home, "model-tiers.json"));
     _pricingOverridesCache = {};
   }
   return _pricingOverridesCache;
@@ -5813,7 +5813,7 @@ function loadSelection2() {
       return DFLT_SEL2;
     const st = statSync5(TIERS_FILE3);
     if (st.size > 10485760) {
-      _handleStateCorruption(TIERS_FILE3);
+      _handleStateCorruption2(TIERS_FILE3);
       return DFLT_SEL2;
     }
     const j = safeJsonParse3(readFileSync5(TIERS_FILE3, "utf-8"));
@@ -5836,7 +5836,7 @@ function loadSelection2() {
       executed_model: j?.selection?.executed_model || null
     };
   } catch {
-    _handleStateCorruption(TIERS_FILE3);
+    _handleStateCorruption2(TIERS_FILE3);
     return DFLT_SEL2;
   }
 }
@@ -6064,7 +6064,7 @@ function loadTrinitySlotsFromTiersFile() {
       return false;
     const st = statSync5(TIERS_FILE3);
     if (st.size > 10485760) {
-      _handleStateCorruption(TIERS_FILE3);
+      _handleStateCorruption2(TIERS_FILE3);
       return false;
     }
     const tiersData = safeJsonParse3(readFileSync5(TIERS_FILE3, "utf-8")) || {};
@@ -6774,7 +6774,7 @@ function classifyTurnSimple2(userText) {
 async function classifyTurnRemote(text) {
   try {
     const client2 = getApiClient2();
-    if (!client2 || isApiFallback())
+    if (!client2 || isApiFallback2())
       return classifyTurnSimple(text);
     const res = await client2.classifyQuery(text);
     if (res && typeof res === "object" && "sub_regime" in res) {
@@ -6805,7 +6805,7 @@ function resolveOptimizationMode(subRegime, stressMultiplier, optimizationMode) 
   const normalized = String(optimizationMode || "auto").toLowerCase();
   if (normalized === "auto" || normalized === "")
     return autoSelectMode2(subRegime || "INIT", stressMultiplier);
-  if (isApiFallback())
+  if (isApiFallback2())
     return "vibelitex";
   if (normalized === "balanced" || normalized === "budget" || normalized === "quality" || normalized === "speed" || normalized === "longrun" || normalized === "audit" || normalized === "forensic" || normalized === "vibeultrax" || normalized === "vibeqmax" || normalized === "vibemax" || normalized === "vibelitex") {
     return normalized;
@@ -6817,7 +6817,7 @@ async function selectOptimizationModeRemote(subRegime, stressMultiplier, fallbac
   const fallback2 = resolveOptimizationMode(subRegime, stressMultiplier, fallbackMode);
   if (normalizedRequestedMode !== "auto" && normalizedRequestedMode !== "")
     return fallback2;
-  if (isApiFallback())
+  if (isApiFallback2())
     return fallback2;
   try {
     const client2 = getApiClient2();
@@ -7085,7 +7085,7 @@ function resolveEnforcementMode() {
 async function syncOutcomeToApi(outcome) {
   try {
     const client2 = getApiClient2();
-    if (!client2 || isApiFallback())
+    if (!client2 || isApiFallback2())
       return;
     await client2.blackboxOutcome(_OC_SID, outcome);
   } catch {
@@ -7094,7 +7094,7 @@ async function syncOutcomeToApi(outcome) {
 async function fetchBlackboxEnrichment(sessionId, localState) {
   try {
     const client2 = getApiClient2();
-    if (!client2 || isApiFallback())
+    if (!client2 || isApiFallback2())
       return null;
     const result = await client2.blackboxAnalyze(sessionId, {
       userText: "",
@@ -7638,12 +7638,12 @@ function readJsonOrEmpty2(filePath) {
       return {};
     const st = statSync6(filePath);
     if (st.size > 10485760) {
-      _handleStateCorruption(filePath);
+      _handleStateCorruption2(filePath);
       return {};
     }
     return safeJsonParse3(readFileSync10(filePath, "utf-8"));
   } catch {
-    _handleStateCorruption(filePath);
+    _handleStateCorruption2(filePath);
     return {};
   }
 }
@@ -10753,7 +10753,8 @@ function syncControlSettings(cv, options = {}) {
         writeIf("thinking_level", nextThinking);
     }
     if (persistOptimizationMode && cv.optimization_mode && userOptMode !== "auto") {
-      if (userOptMode !== cv.optimization_mode) {
+      const fallbackPinned = isApiFallback() && cv.optimization_mode === "vibelitex" && currentSel.optimization_mode !== "vibelitex";
+      if (!fallbackPinned && userOptMode !== cv.optimization_mode) {
         writeIf("optimization_mode", cv.optimization_mode);
       }
     }
@@ -13577,7 +13578,8 @@ ${argsJson}
     }
     costDetector.record(modelCost);
   }
-  if (_credit < 40 && !compatibilityMode) {
+  const tLower = String(t || "").toLowerCase();
+  if (_credit < 40 && !compatibilityMode && !WARN_ON_DIRECT.has(tLower)) {
     const total = recordSaving(t, "credit<40% high-tier", _estOpus, {
       firstWord: _firstWord,
       projectFingerprint: currentProjectFingerprint,
@@ -13591,11 +13593,10 @@ ${argsJson}
     pendingUiNote = msg;
     return;
   }
-  if (WARN_ON_DIRECT.has(String(t || "").toLowerCase())) {
+  if (WARN_ON_DIRECT.has(tLower)) {
     const argSources = _toolArgSources(input, output);
     if (process.env.VIBEOS_DEBUG_DELEGATION === "1")
       console.error(`[vibeOS] [enforce-debug] tool=${t} tier=${currentTier} enforce=${sel?.delegation_enforce} argsType=${typeof args} argsExists=${argSources.length > 0}`);
-    const tLower = String(t || "").toLowerCase();
     if (!compatibilityMode && sel.delegation_enforce && currentTier === "high" && argSources.length > 0) {
       const originalPath = argSources.flatMap((src) => [src?.filePath, src?.file_path, src?.path]).find((v) => typeof v === "string" && v.trim()) || "";
       const basename6 = originalPath.split("/").pop() || "blocked";
@@ -14267,9 +14268,30 @@ function _loadActiveJobForProject(directory3, fp2 = "") {
   }
   return getActiveJobForProject(fp2);
 }
-async function _seedModelTiersIfMissing(directory3) {
+function _tiersNeedRepair(tiers) {
+  const slots = ["brain", "medium", "cheap"];
+  if (!tiers || typeof tiers !== "object") return true;
+  return slots.some((slot) => {
+    const oc = String(tiers?.trinity?.[slot]?.oc || "").trim();
+    return !oc || PLACEHOLDER_RE.test(oc);
+  });
+}
+async function _seedOrRepairModelTiers(directory3) {
   const TIERS_FILE3 = getTiersFile();
-  if (existsSync18(TIERS_FILE3))
+  let existing = null;
+  if (existsSync18(TIERS_FILE3)) {
+    try {
+      const st = statSync9(TIERS_FILE3);
+      if (st.size > 10485760) {
+        _handleStateCorruption(TIERS_FILE3);
+        return false;
+      }
+      existing = safeJsonParse3(readFileSync17(TIERS_FILE3, "utf-8")) || {};
+    } catch {
+      existing = null;
+    }
+  }
+  if (existing && !_tiersNeedRepair(existing))
     return false;
   const providers = _loadOpenCodeProviders(directory3);
   const auth = typeof _readAuth === "function" ? _readAuth() : {};
@@ -14292,25 +14314,31 @@ async function _seedModelTiersIfMissing(directory3) {
     cheap = "deepseek/deepseek-chat";
     console.error("[vibeOS] no providers detected \u2014 using default model tiers (brain=v4-pro, medium=v4-flash, cheap=v4-chat)");
   }
+  const existingSelection = existing?.selection && typeof existing.selection === "object" ? existing.selection : {};
+  const existingTrinity = existing?.trinity && typeof existing.trinity === "object" ? existing.trinity : {};
+  const nextTrinity = {
+    brain: existingTrinity.brain?.manual === true && String(existingTrinity.brain?.oc || "").trim() && !PLACEHOLDER_RE.test(String(existingTrinity.brain?.oc || "")) ? { ...existingTrinity.brain, cc: existingTrinity.brain?.cc || modelToCcAlias(String(existingTrinity.brain?.oc || "")) } : { oc: brain, cc: modelToCcAlias(brain) },
+    medium: existingTrinity.medium?.manual === true && String(existingTrinity.medium?.oc || "").trim() && !PLACEHOLDER_RE.test(String(existingTrinity.medium?.oc || "")) ? { ...existingTrinity.medium, cc: existingTrinity.medium?.cc || modelToCcAlias(String(existingTrinity.medium?.oc || "")) } : { oc: medium, cc: modelToCcAlias(medium) },
+    cheap: existingTrinity.cheap?.manual === true && String(existingTrinity.cheap?.oc || "").trim() && !PLACEHOLDER_RE.test(String(existingTrinity.cheap?.oc || "")) ? { ...existingTrinity.cheap, cc: existingTrinity.cheap?.cc || modelToCcAlias(String(existingTrinity.cheap?.oc || "")) } : { oc: cheap, cc: modelToCcAlias(cheap) }
+  };
+  const activeSlot = ["brain", "medium", "cheap"].includes(String(existingSelection.active_slot || "").trim()) ? String(existingSelection.active_slot) : "brain";
   const tiers = {
+    ...existing,
     selection: {
-      enabled: true,
-      active_slot: "brain",
-      thinking_level: "off",
-      flow_enabled: false,
-      flow_enforce: false,
-      tdd_enforce: false,
-      tdd_strict: false,
-      tdd_quality: false,
-      delegation_enforce: true,
-      onboarding_mode: "assist",
-      setup_completed_at: (/* @__PURE__ */ new Date()).toISOString()
+      ...existingSelection,
+      enabled: existingSelection.enabled !== false,
+      active_slot: activeSlot,
+      thinking_level: existingSelection.thinking_level || "off",
+      delegation_enforce: existingSelection.delegation_enforce !== false,
+      flow_enabled: existingSelection.flow_enabled === true,
+      flow_enforce: existingSelection.flow_enforce === true,
+      tdd_enforce: existingSelection.tdd_enforce === true,
+      tdd_strict: existingSelection.tdd_strict === true,
+      tdd_quality: existingSelection.tdd_quality !== false,
+      onboarding_mode: existingSelection.onboarding_mode || "assist",
+      setup_completed_at: existingSelection.setup_completed_at || (/* @__PURE__ */ new Date()).toISOString()
     },
-    trinity: {
-      brain: { oc: brain, cc: modelToCcAlias(brain) },
-      medium: { oc: medium, cc: modelToCcAlias(medium) },
-      cheap: { oc: cheap, cc: modelToCcAlias(cheap) }
-    }
+    trinity: nextTrinity
   };
   mkdirSync13(dirname13(TIERS_FILE3), { recursive: true });
   writeFileSync15(TIERS_FILE3, JSON.stringify(tiers, null, 2) + "\n", "utf-8");
@@ -14442,7 +14470,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     if (!existsSync18(getTiersFile())) {
       console.error(`[vibeOS] model-tiers.json missing at load; will seed on first hook`);
     }
-    await _seedModelTiersIfMissing(directory3);
+    await _seedOrRepairModelTiers(directory3);
     loadTrinitySlotsFromTiersFile();
   } catch {
   }
@@ -14596,7 +14624,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     setBlackboxEnabled,
     loadBlackboxState,
     saveBlackboxState,
-    isApiFallback: () => isApiFallback(),
+    isApiFallback: () => isApiFallback2(),
     get _apiFallbackSince() {
       return _apiFallbackSince2;
     },
@@ -14850,7 +14878,7 @@ ${report.narrative}`);
                 fallbackThinking: thinkingLevel(loadCredit()),
                 backendConnected: isApiConnected2(),
                 backendHealthUrl: `${VIBEOS_API_URL}/health`,
-                apiFallbackMode: isApiFallback(),
+                apiFallbackMode: isApiFallback2(),
                 apiFallbackSince: _apiFallbackSince2,
                 modelLocked: _modelLocked,
                 lockedSlot: _lockedSlot,

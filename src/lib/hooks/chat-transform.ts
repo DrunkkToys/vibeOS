@@ -323,7 +323,8 @@ export function syncControlSettings(cv: any, options: { persistOptimizationMode?
     }
 
     if (persistOptimizationMode && cv.optimization_mode && userOptMode !== "auto") {
-      if (userOptMode !== cv.optimization_mode) {
+      const fallbackPinned = isApiFallback() && cv.optimization_mode === "vibelitex" && currentSel.optimization_mode !== "vibelitex"
+      if (!fallbackPinned && userOptMode !== cv.optimization_mode) {
         writeIf("optimization_mode", cv.optimization_mode)
       }
     }

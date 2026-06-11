@@ -413,6 +413,55 @@ test('state-recovery: missing delegation-state.json boots cleanly', async () => 
   }, 'plugin boots without delegation-state.json')
 })
 
+test('startup repair: empty tiers file is healed on reload and enforcement stays active', async () => {
+  const { home, sandbox } = makeSandbox('dirty-reload')
+  const projectDir = join(sandbox, 'proj')
+  mkdirSync(projectDir, { recursive: true })
+  process.env.HOME = home
+
+  writeFileSync(join(projectDir, 'opencode.json'), JSON.stringify({
+    model: 'deepseek/deepseek-v4-pro',
+    provider: {
+      deepseek: {
+        models: {
+          'deepseek-v4-pro': {},
+          'deepseek-v4-flash': {},
+          'deepseek-chat': {},
+        },
+      },
+    },
+  }, null, 2) + '\n')
+
+  writeFileSync(join(home, '.claude/model-tiers.json'), JSON.stringify({
+    selection: {
+      enabled: true,
+      active_slot: 'brain',
+      delegation_enforce: true,
+      onboarding_mode: 'strict',
+    },
+    trinity: {
+      brain: { oc: '', cc: '' },
+      medium: { oc: 'placeholder-to-replace', cc: 'haiku' },
+      cheap: { oc: '', cc: '' },
+    },
+  }, null, 2) + '\n')
+
+  const mod = await import('../src/index.js?dirty-reload=' + Date.now())
+  const hooks = await mod.DelegationEnforcer({ directory: projectDir })
+
+  const tiers = JSON.parse(readFileSync(join(home, '.claude/model-tiers.json'), 'utf-8'))
+  for (const slot of ['brain', 'medium', 'cheap']) {
+    const model = String(tiers?.trinity?.[slot]?.oc || '').trim()
+    assert.ok(model && !model.includes('placeholder'), `${slot} slot should be repaired`)
+  }
+  assert.equal(tiers.selection.active_slot, 'brain', 'active slot stays on brain after repair')
+
+  const envOut = { env: {} }
+  await hooks['shell.env']({}, envOut)
+  assert.equal(envOut.env.OPENCODE_MODEL, 'deepseek/deepseek-v4-pro', 'live shell env uses repaired brain model')
+  assert.equal(envOut.env.OPENCODE_MODEL_TIER, 'high', 'repaired boot still enforces brain tier')
+})
+
 // Section 8: WBP Protocol
 
 test('wbp: system.transform injects wbp protocol marker', async () => {
