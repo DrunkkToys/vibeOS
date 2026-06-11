@@ -19,7 +19,7 @@ import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, sta
 import { join, dirname, basename, resolve } from "node:path"
 import { homedir, tmpdir } from "node:os"
 import { createHash } from "node:crypto"
-import { currentModel, currentTier, setCurrentModel, setCurrentTier, safeJsonParse, HIGH_TIER_RE, MID_TIER_RE, loadTierRegexes, _modelLocked, VIBEOS_HOME, OPENCODE_HOME, getCurrentSessionId, withFileLock } from "./state.js"
+import { currentModel, currentTier, setCurrentModel, setCurrentTier, safeJsonParse, HIGH_TIER_RE, MID_TIER_RE, loadTierRegexes, _modelLocked, VIBEOS_HOME, OPENCODE_HOME, getCurrentSessionId, withFileLock, _handleStateCorruption } from "./state.js"
 
 export { HIGH_TIER_RE, MID_TIER_RE, loadTierRegexes }
 
@@ -39,15 +39,6 @@ function getOpenCodeDesktopHome() {
 }
 
 const TIERS_FILE = join(getVibeOSHome(), "model-tiers.json")
-
-function _handleStateCorruption(path) {
-  const backupDir = join(getVibeOSHome(), ".backups")
-  mkdirSync(backupDir, { recursive: true })
-  const backupPath = join(backupDir, basename(path) + ".corrupted." + Date.now())
-  try { copyFileSync(path, backupPath) } catch {}
-  const logPath = join(getVibeOSHome(), ".state-corruption-log.jsonl")
-  try { appendFileSync(logPath, JSON.stringify({ ts: new Date().toISOString(), path, backup: backupPath }) + "\n") } catch {}
-}
 
 // ── State paths ─────────────────────────────────────────────────────
 // ── File locking ────────────────────────────────────────────────────

@@ -6,7 +6,7 @@
 import { test, before, after, beforeEach } from "node:test"
 import assert from "node:assert/strict"
 import { spawn } from "node:child_process"
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, mkdirSync } from "node:fs"
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, mkdirSync, readdirSync, utimesSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -360,19 +360,73 @@ test("FIX 13d: active jobs are normalized and stale entries are pruned", async (
   const { loadActiveJobs } = await import("../src/lib/state.js?t=" + Date.now())
   const activePath = join(sandbox, ".claude/active-jobs.json")
   const staleAt = new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString()
-  const freshAt = new Date().toISOString()
   writeFileSync(activePath, JSON.stringify({
-    staleJob: { prompt: "stale", keywords: ["a"], updatedAt: staleAt },
-    freshJob: { prompt: "fresh", keywords: ["b"], updatedAt: freshAt },
+    staleJob: { prompt: "stale", keywords: ["a"], status: "active", createdAt: staleAt, updatedAt: staleAt },
+    malformedJob: { prompt: "fresh", keywords: ["b"], updatedAt: staleAt },
   }, null, 2))
   const jobs = loadActiveJobs()
-  assert.equal(jobs.staleJob, undefined, "stale active job should be pruned")
-  assert.equal(jobs.freshJob.status, "active", "fresh active job should be normalized")
-  assert.ok(jobs.freshJob.createdAt, "fresh active job should gain createdAt")
-  assert.ok(jobs.freshJob.updatedAt, "fresh active job should retain updatedAt")
+  assert.equal(jobs.malformedJob, undefined, "malformed active job should be pruned")
+  assert.equal(jobs.staleJob.status, "completed", "stale active job should be marked completed")
+  assert.ok(jobs.staleJob.completedAt, "stale active job should gain completedAt")
   const persisted = JSON.parse(readFileSync(activePath, "utf8"))
-  assert.equal(persisted.staleJob, undefined, "pruned stale job should not remain on disk")
-  assert.equal(persisted.freshJob.status, "active", "normalized job should be persisted")
+  assert.equal(persisted.malformedJob, undefined, "malformed job should not remain on disk")
+  assert.equal(persisted.staleJob.status, "completed", "completed job should be persisted")
+})
+
+test("FIX 13e: corruption backups are capped at 5 and stale entries are pruned", async () => {
+  const { _handleStateCorruption } = await import("../src/lib/state.js?t=" + Date.now())
+  const backupDir = join(sandbox, ".claude/.backups")
+  mkdirSync(backupDir, { recursive: true })
+  const target = join(sandbox, ".claude/broken.json")
+  writeFileSync(target, "broken")
+  const oldBackup = join(backupDir, "broken.json.corrupted.1")
+  writeFileSync(oldBackup, "old")
+  const oldTime = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000)
+  utimesSync(oldBackup, oldTime, oldTime)
+  for (let i = 0; i < 7; i++) {
+    writeFileSync(target, `broken-${i}`)
+    _handleStateCorruption(target)
+    await new Promise((r) => setTimeout(r, 2))
+  }
+  const backups = readdirSync(backupDir).filter((f) => f.includes(".corrupted."))
+  assert.ok(backups.length <= 5, `expected at most 5 backups, got ${backups.length}`)
+  assert.equal(backups.includes("broken.json.corrupted.1"), false, "stale backup should be pruned")
+})
+
+test("FIX 13f: large savings ledger compacts on read", async () => {
+  const { readLifetimeSavings } = await import("../src/lib/state.js?t=" + Date.now())
+  const ledgerPath = join(sandbox, ".claude/savings-ledger.jsonl")
+  const base = {
+    v: 2,
+    at: new Date().toISOString(),
+    kind: "cache",
+    amount_usd: 0.0001,
+    sid: "ledger-rotate-test",
+    tool: "Read",
+    note: "x".repeat(80),
+  }
+  const entry = JSON.stringify(base)
+  writeFileSync(ledgerPath, Array.from({ length: 12000 }, () => entry).join("\n") + "\n")
+  const beforeSize = readFileSync(ledgerPath).length
+  const sv = readLifetimeSavings()
+  const afterSize = readFileSync(ledgerPath).length
+  assert.ok(sv.ltCache > 0, "large ledger should still contribute cache savings")
+  assert.ok(afterSize < beforeSize, `ledger should compact, before=${beforeSize} after=${afterSize}`)
+  assert.ok(afterSize <= 1_048_576, `ledger should stay near 1MB, got ${afterSize}`)
+})
+
+test("FIX 13g: active jobs GC runs on init and drops malformed entries", async () => {
+  const activePath = join(sandbox, ".claude/active-jobs.json")
+  const staleAt = new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString()
+  writeFileSync(activePath, JSON.stringify({
+    staleJob: { prompt: "stale", keywords: ["a"], status: "active", createdAt: staleAt, updatedAt: staleAt },
+    malformedJob: { prompt: "bad", keywords: ["b"], updatedAt: staleAt },
+  }, null, 2))
+  await import("../src/lib/state.js?t=" + Date.now())
+  const persisted = JSON.parse(readFileSync(activePath, "utf8"))
+  assert.equal(persisted.malformedJob, undefined, "malformed job should be pruned")
+  assert.equal(persisted.staleJob.status, "completed", "stale job should be marked completed")
+  assert.ok(persisted.staleJob.completedAt, "stale job should get completedAt")
 })
 
 // ═══════════════════════════════════════════════════════════════════
