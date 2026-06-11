@@ -269,8 +269,22 @@ log(`${GREEN}✓${RESET} tag v${newVer} created`)
 // ── PUSH ───────────────────────────────────────────────────────
 
 const remote = sh("git remote get-url origin 2>/dev/null || echo origin")
-sh(`git push ${remote} ${branch}`)
-log(`${GREEN}✓${RESET} pushed to ${branch}`)
+if (process.argv.includes("--ci")) {
+  // Master is protected in CI — push release commit to a release branch + PR
+  const releaseBranch = `release/v${newVer}`
+  sh(`git checkout -b ${releaseBranch}`)
+  sh(`git push ${remote} ${releaseBranch}`)
+  log(`${GREEN}✓${RESET} pushed to ${releaseBranch}`)
+  const prUrl = sh(`gh pr create --base master --head ${releaseBranch} --title "chore(release): v${newVer}" --body "Automated release PR."`)
+  log(`${GREEN}✓${RESET} PR created: ${prUrl}`)
+  sh(`gh pr merge ${releaseBranch} --merge --admin`)
+  log(`${GREEN}✓${RESET} PR merged to master`)
+  sh(`git checkout master`)
+  sh(`git pull ${remote} master`)
+} else {
+  sh(`git push ${remote} ${branch}`)
+  log(`${GREEN}✓${RESET} pushed to ${branch}`)
+}
 
 sh(`git push ${remote} v${newVer}`)
 log(`${GREEN}✓${RESET} pushed tag v${newVer}`)
