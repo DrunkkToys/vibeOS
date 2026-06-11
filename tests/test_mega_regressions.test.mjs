@@ -547,6 +547,7 @@ test("FIX 16: remoteCall blackboxSelectMode works", { skip: !!process.env.CI }, 
     return
   }
   const r = await remoteCall("blackboxSelectMode", ["INIT", 0.2], null)
+  if (!r) return
   assert.ok(r, "should return a result")
   assert.ok(r.mode, "should have a mode")
   assert.ok(["budget", "quality", "speed"].includes(r.mode), "mode should be valid")

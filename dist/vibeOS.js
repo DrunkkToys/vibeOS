@@ -2117,8 +2117,8 @@ function readBootstrapTokenFromDisk() {
   return "";
 }
 var VIBEOS_API_DISABLED = readApiDisabledFromDisk() || isTruthyFlag(process.env.VIBEOS_API_DISABLED);
-var VIBEOS_API_TOKEN = VIBEOS_API_DISABLED ? "" : readTokenFromDisk() || normalizeApiToken(process.env.VIBEOS_API_TOKEN, "") || EMBEDDED_API_TOKEN;
-var VIBEOS_API_BOOTSTRAP_TOKEN = VIBEOS_API_DISABLED ? "" : readBootstrapTokenFromDisk() || process.env.VIBEOS_API_BOOTSTRAP_TOKEN || "";
+var VIBEOS_API_TOKEN = VIBEOS_API_DISABLED ? "" : readTokenFromDisk() || normalizeApiToken(process.env.VIBEOS_API_TOKEN, "");
+var VIBEOS_API_BOOTSTRAP_TOKEN = VIBEOS_API_DISABLED ? "" : readBootstrapTokenFromDisk() || process.env.VIBEOS_API_BOOTSTRAP_TOKEN || EMBEDDED_API_TOKEN;
 var VIBEOS_API_ENABLED = !VIBEOS_API_DISABLED && process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
 var _anomalyDetector = null;
 function getAnomalyDetector() {
@@ -2284,7 +2284,7 @@ function syncApiTokenFromDisk() {
     console.error("[vibeOS] API token loaded from VIBEOS_API_TOKEN env var");
   } else {
     VIBEOS_API_DISABLED = false;
-    VIBEOS_API_TOKEN ||= EMBEDDED_API_TOKEN;
+    VIBEOS_API_BOOTSTRAP_TOKEN ||= EMBEDDED_API_TOKEN;
     VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
   }
 }
@@ -13579,25 +13579,27 @@ ${argsJson}
     costDetector.record(modelCost);
   }
   const tLower = String(t || "").toLowerCase();
-  if (_credit < 40 && !compatibilityMode && !WARN_ON_DIRECT.has(tLower)) {
-    const total = recordSaving(t, "credit<40% high-tier", _estOpus, {
+  const lowCreditNudge = _credit < 40 && !compatibilityMode;
+  if (lowCreditNudge) {
+    const total = recordSaving(t, "credit<40% high-tier", _estEdit, {
       firstWord: _firstWord,
       projectFingerprint: currentProjectFingerprint,
       projectName: currentProjectName || "",
       sessionId: getCurrentSessionId()
     });
-    const msg = `[vibeOS] Quick win: ${resolveTierIcon("cheap")} cheap lane open \xB7 switch to ${resolveTierIcon("medium")} medium to save about ~$${_estOpus.toFixed(3)}/turn.`;
+    const msg = `[vibeOS] Quick win: ${resolveTierIcon("cheap")} cheap lane open \xB7 switch to ${resolveTierIcon("medium")} medium to save about ~$${_estEdit.toFixed(3)}/turn.`;
     if (shouldLogWarn(`${t}|credit|${_tierWord}`) && process.env.VIBEOS_DEBUG_DELEGATION === "1") {
       console.error(`[vibeOS] [delegation] ${msg}`);
     }
     pendingUiNote = msg;
-    return;
+    if (!WARN_ON_DIRECT.has(tLower))
+      return;
   }
   if (WARN_ON_DIRECT.has(tLower)) {
     const argSources = _toolArgSources(input, output);
     if (process.env.VIBEOS_DEBUG_DELEGATION === "1")
       console.error(`[vibeOS] [enforce-debug] tool=${t} tier=${currentTier} enforce=${sel?.delegation_enforce} argsType=${typeof args} argsExists=${argSources.length > 0}`);
-    if (!compatibilityMode && sel.delegation_enforce && currentTier === "high" && argSources.length > 0) {
+    if (!compatibilityMode && sel.delegation_enforce && currentTier === "high") {
       const originalPath = argSources.flatMap((src) => [src?.filePath, src?.file_path, src?.path]).find((v) => typeof v === "string" && v.trim()) || "";
       const basename6 = originalPath.split("/").pop() || "blocked";
       const apiResult = await remoteCall("delegateCheck", [tLower, currentTier, currentModel, _prompt], () => ({
@@ -13607,32 +13609,36 @@ ${argsJson}
       const isBlocked = apiResult?.blocked !== false;
       const savings = apiResult?.savings ?? _estEdit;
       if (isBlocked) {
-        const total2 = recordSaving(t, "delegation enforced", savings, {
-          firstWord: _firstWord,
-          projectFingerprint: currentProjectFingerprint,
-          projectName: currentProjectName || "",
-          sessionId: getCurrentSessionId()
-        });
+        if (!lowCreditNudge) {
+          const total = recordSaving(t, "delegation enforced", savings, {
+            firstWord: _firstWord,
+            projectFingerprint: currentProjectFingerprint,
+            projectName: currentProjectName || "",
+            sessionId: getCurrentSessionId()
+          });
+        }
         pendingUiNote = `[delegation] This is a good candidate for a Task subagent \u2014 ${resolveTierIcon("brain")} brain handles orchestration, let cheaper tiers do the write/edit. Switch to ${resolveTierIcon("medium")} medium with \`trinity medium\` if you'd rather do it directly.`;
         enforcementBlocked = true;
         if (shouldLogWarn(`${t}|enforced|${_tierWord}`))
           console.error(`[vibeOS] [enforcement] BLOCKED direct ${t} on high tier \u2192 delegate via Task`);
         return;
       }
-    }
-    const total = recordSaving(t, "direct edit", _estEdit, {
-      firstWord: _firstWord,
-      projectFingerprint: currentProjectFingerprint,
-      projectName: currentProjectName || "",
-      sessionId: getCurrentSessionId()
-    });
-    if (!compatibilityMode) {
-      const msg = `[vibeOS] ${resolveTierIcon("cheap")} cheap lane \xB7 save about ~$${_estEdit.toFixed(3)} by delegating to Task. Try ${resolveTierIcon("medium")} medium.`;
-      if (shouldLogWarn(`${t}|direct|${_tierWord}`) && process.env.VIBEOS_DEBUG_DELEGATION === "1") {
-        console.error(`[vibeOS] [delegation] ${msg}`);
+      if (!lowCreditNudge) {
+        const total = recordSaving(t, "direct edit", _estEdit, {
+          firstWord: _firstWord,
+          projectFingerprint: currentProjectFingerprint,
+          projectName: currentProjectName || "",
+          sessionId: getCurrentSessionId()
+        });
       }
-      pendingUiNote = msg;
-      return;
+      if (!compatibilityMode) {
+        const msg = `[vibeOS] ${resolveTierIcon("cheap")} cheap lane \xB7 save about ~$${_estEdit.toFixed(3)} by delegating to Task. Try ${resolveTierIcon("medium")} medium.`;
+        if (shouldLogWarn(`${t}|direct|${_tierWord}`) && process.env.VIBEOS_DEBUG_DELEGATION === "1") {
+          console.error(`[vibeOS] [delegation] ${msg}`);
+        }
+        pendingUiNote = msg;
+        return;
+      }
     }
   }
   if (SOFT_QUOTA.has(t)) {

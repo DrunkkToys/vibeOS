@@ -11,11 +11,14 @@ const test = (name, options, fn) =>
 
 let sandbox
 let DelegationEnforcer
+let originalHome
 
 nodeTest("SETUP", { concurrency: false }, async (t) => {
   sandbox = mkdtempSync(join(tmpdir(), "trinity-mega-"))
   mkdirSync(join(sandbox, ".opencode"), { recursive: true })
   writeFileSync(join(sandbox, ".opencode/opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-pro" }))
+  originalHome = process.env.HOME
+  process.env.HOME = sandbox
   process.env.VIBEOS_HOME = join(sandbox, ".claude")
   mkdirSync(join(sandbox, ".claude"), { recursive: true })
   const mod = await import("../src/index.js?t=" + Date.now())
@@ -23,6 +26,7 @@ nodeTest("SETUP", { concurrency: false }, async (t) => {
 })
 
 after(() => {
+  if (originalHome !== undefined) process.env.HOME = originalHome
   delete process.env.VIBEOS_HOME
   if (sandbox && existsSync(sandbox)) rmSync(sandbox, { recursive: true, force: true })
 })
@@ -34,8 +38,8 @@ function setTiers(brain, medium, cheap) {
   }))
 }
 
-async function getHooks() {
-  return await DelegationEnforcer({ client: {}, directory: join(sandbox, ".opencode") })
+async function getHooks(directory = join(sandbox, ".opencode")) {
+  return await DelegationEnforcer({ client: {}, directory })
 }
 
 function readSel() {
@@ -240,4 +244,84 @@ test("rebuild survives", async () => {
   } catch (e) {
     assert.ok(!!e.message)
   }
+})
+
+test("guard creates project docs on first run", async () => {
+  const projectDir = join(sandbox, "guard-project")
+  mkdirSync(projectDir, { recursive: true })
+  const hooks = await getHooks(projectDir)
+  const r = await hooks.tool.trinity.execute({ action: "guard" }, { directory: projectDir })
+  assert.ok(r.includes("Created") || r.includes("already exist"), r.slice(0, 120))
+  assert.ok(existsSync(join(projectDir, "AGENTS.md")), "guard should create AGENTS.md")
+  assert.ok(existsSync(join(projectDir, "README.md")), "guard should create README.md")
+})
+
+test("todo, todo-done, and todo-sync cover the native todo bridge", async () => {
+  setTiers()
+  const hooks = await getHooks()
+  const todosPath = join(sandbox, ".claude/todos.json")
+  writeFileSync(todosPath, JSON.stringify([
+    {
+      id: "todo-1",
+      content: "Fix report context mismatch",
+      status: "pending",
+      filePath: "src/lib/reporting.ts",
+      priority: "high",
+      source: "manual",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
+  ], null, 2))
+
+  const list = await hooks.tool.trinity.execute({ action: "todo" })
+  assert.ok(list.includes("Fix report context mismatch"), list.slice(0, 120))
+
+  const done = await hooks.tool.trinity.execute({ action: "todo-done", slot: "todo-1" })
+  assert.ok(done.includes("marked done"), done.slice(0, 120))
+
+  const saved = JSON.parse(readFileSync(todosPath, "utf8"))
+  assert.equal(saved[0].status, "done", "todo-done should persist completed status")
+
+  const flowQueuePath = join(sandbox, ".claude/.flow-todo-queue.jsonl")
+  writeFileSync(flowQueuePath, JSON.stringify({
+    at: new Date().toISOString(),
+    filePath: "src/lib/hooks/tool-execute.ts",
+    todos: [{ type: "FIXME", text: "cover cascade command bridge" }],
+  }) + "\n")
+
+  const synced = await hooks.tool.trinity.execute({ action: "todo-sync" })
+  assert.ok(synced.includes("Synced"), synced.slice(0, 120))
+
+  const syncedTodos = JSON.parse(readFileSync(todosPath, "utf8"))
+  assert.ok(
+    syncedTodos.some((t) => t.content.includes("cover cascade command bridge") && t.source === "flow"),
+    "todo-sync should bridge flow TODOs into the native todo list",
+  )
+})
+
+test("api-token and api-bootstrap-token persist and invalidate local auth state", async () => {
+  setTiers()
+  const prevChannel = process.env.VIBEOS_BUILD_CHANNEL
+  process.env.VIBEOS_BUILD_CHANNEL = "beta"
+  const hooks = await getHooks()
+
+  const token = "vos_" + "a".repeat(64)
+  const setResult = await hooks.tool.trinity.execute({ action: "api-token", token })
+  assert.ok(setResult.includes("updated"), setResult.slice(0, 120))
+
+  const envProd = readFileSync(join(sandbox, ".claude/.env.production"), "utf8")
+  assert.ok(envProd.includes("VIBEOS_API_TOKEN="), "api-token should persist to .env.production")
+
+  const invalidateResult = await hooks.tool.trinity.execute({ action: "api-token", token: "invalidate" })
+  assert.ok(invalidateResult.includes("invalidated"), invalidateResult.slice(0, 120))
+  const envProdAfter = readFileSync(join(sandbox, ".claude/.env.production"), "utf8")
+  assert.ok(!envProdAfter.includes("VIBEOS_API_TOKEN="), "invalidate should remove token from .env.production")
+
+  const bootstrap = "vos_" + "b".repeat(64)
+  const bootstrapResult = await hooks.tool.trinity.execute({ action: "api-bootstrap-token", token: bootstrap })
+  assert.ok(bootstrapResult.includes("bootstrap token"), bootstrapResult.slice(0, 120))
+  assert.ok(existsSync(join(sandbox, ".claude/.env.alpha")), "bootstrap token should persist to .env.alpha")
+
+  if (prevChannel === undefined) delete process.env.VIBEOS_BUILD_CHANNEL
+  else process.env.VIBEOS_BUILD_CHANNEL = prevChannel
 })
