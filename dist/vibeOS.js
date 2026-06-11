@@ -2533,42 +2533,56 @@ function writeSessionOptMode(sid, mode) {
   }
 }
 
-// src/lib/pattern-helpers.ts
+// src/lib/pattern-helpers.js
 import { relative, basename as basename2 } from "node:path";
 function normalizeObservedPath(filePath, directory3) {
-  if (!filePath || typeof filePath !== "string") return "unknown";
+  if (!filePath || typeof filePath !== "string")
+    return "unknown";
   let p = filePath;
   try {
     if (directory3 && p.startsWith("/")) {
       const rel = relative(directory3, p);
-      if (rel && !rel.startsWith("..") && !rel.startsWith("/")) p = rel;
+      if (rel && !rel.startsWith("..") && !rel.startsWith("/"))
+        p = rel;
     }
   } catch {
   }
   p = p.replace(/\\/g, "/").replace(/^\.\/+/, "");
-  if (/^(src\/index\.js|package\.json|README\.md|CHANGELOG\.md|tsconfig\.json)$/i.test(p)) return p;
+  if (/^(src\/index\.js|package\.json|README\.md|CHANGELOG\.md|tsconfig\.json)$/i.test(p))
+    return p;
   const m = p.match(/\.([a-z0-9]+)$/i);
-  if (p.startsWith("src/") && m) return `src/*.${m[1].toLowerCase()}`;
-  if (p.startsWith("tests/") && m) return `tests/*.${m[1].toLowerCase()}`;
+  if (p.startsWith("src/") && m)
+    return `src/*.${m[1].toLowerCase()}`;
+  if (p.startsWith("tests/") && m)
+    return `tests/*.${m[1].toLowerCase()}`;
   return basename2(p) || "unknown";
 }
 function commandFamily(command) {
   const c = String(command || "").trim().toLowerCase();
-  if (!c) return "unknown";
-  if (/\bnode\s+--check\b/.test(c)) return "syntax-check";
-  if (/\bnpm\s+run\s+typecheck\b|\btsc\b.*--noemit/.test(c)) return "typecheck";
-  if (/\bnpm\s+test\b|\bnode\s+--test\b|\bvitest\b|\bjest\b|\bpytest\b/.test(c)) return "test";
-  if (/\bnpm\s+run\s+build\b|\btsc\s+-p\b/.test(c)) return "build";
-  if (/\bgit\s+status\b/.test(c)) return "git-status";
-  if (/\bgit\s+commit\b/.test(c)) return "git-commit";
+  if (!c)
+    return "unknown";
+  if (/\bnode\s+--check\b/.test(c))
+    return "syntax-check";
+  if (/\bnpm\s+run\s+typecheck\b|\btsc\b.*--noemit/.test(c))
+    return "typecheck";
+  if (/\bnpm\s+test\b|\bnode\s+--test\b|\bvitest\b|\bjest\b|\bpytest\b/.test(c))
+    return "test";
+  if (/\bnpm\s+run\s+build\b|\btsc\s+-p\b/.test(c))
+    return "build";
+  if (/\bgit\s+status\b/.test(c))
+    return "git-status";
+  if (/\bgit\s+commit\b/.test(c))
+    return "git-commit";
   const first = c.replace(/^[a-z_][a-z0-9_]*=\S+\s+/g, "").split(/\s+/)[0];
   return /^[a-z0-9._/-]{1,30}$/.test(first) ? first : "command";
 }
 function commandFailed(output) {
   const code = output?.exitCode ?? output?.statusCode ?? output?.code;
-  if (Number.isFinite(Number(code)) && Number(code) !== 0) return true;
+  if (Number.isFinite(Number(code)) && Number(code) !== 0)
+    return true;
   const raw = output?.result ?? output?.text ?? output?.content ?? output?.data ?? "";
-  if (typeof raw !== "string") return false;
+  if (typeof raw !== "string")
+    return false;
   return /\b(exit code|exited with code)\s*[:=]?\s*[1-9]\b|\b(assertionerror|syntaxerror|typeerror|referenceerror)\b|\b(failed|error:|err!)\b/i.test(raw);
 }
 function mergeProjectBucket(dst, src) {
@@ -2585,7 +2599,8 @@ function mergeProjectBucket(dst, src) {
         row.sessions = [.../* @__PURE__ */ new Set([...row.sessions || [], ...v?.sessions || []])].slice(-10);
         row.lastSeen = [row.lastSeen, v?.lastSeen].filter(Boolean).sort().slice(-1)[0] || null;
         row.summary = row.summary || v?.summary || "";
-        if (v?.kind) row.kind = v.kind;
+        if (v?.kind)
+          row.kind = v.kind;
         out[key] = row;
       }
     }
@@ -2604,9 +2619,11 @@ function mergeProjectBucket(dst, src) {
   };
 }
 function _pruneOldSessions(state) {
-  if (!state?.sessions) return;
+  if (!state?.sessions)
+    return;
   const entries = Object.entries(state.sessions);
-  if (entries.length <= 30) return;
+  if (entries.length <= 30)
+    return;
   entries.sort((a, b) => {
     const da = a[1]?.started || a[1]?.last_costed || "";
     const db = b[1]?.started || b[1]?.last_costed || "";
@@ -6327,42 +6344,42 @@ function scoreStress(text) {
   for (const w of aggressive) {
     const re = new RegExp("\\b" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "gi");
     const hits = (t.match(re) || []).length;
-    score += hits * 0.14;
+    score += hits * 0.18;
   }
-  const urgency = ["fix", "now", "fast", "urgent", "important", "critical", "hurry", "immediately", "asap"];
+  const urgency = ["fix", "now", "fast", "urgent", "important", "critical", "hurry", "immediately", "asap", "stressed", "stress", "frustrated", "overwhelmed", "panic", "panicked", "anxious"];
   for (const w of urgency) {
     const re = new RegExp("\\b" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "gi");
     const hits = (t.match(re) || []).length;
-    score += hits * 0.06;
+    score += hits * 0.16;
   }
   const negative = ["no", "not", "don't", "can't", "won't", "doesn't", "isn't", "shouldn't", "never", "stop"];
   for (const w of negative) {
     const re = new RegExp("\\b" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "gi");
     const hits = (t.match(re) || []).length;
-    score += hits * 0.04;
+    score += hits * 0.06;
   }
   const capsAcronyms = /* @__PURE__ */ new Set(["ai", "ui", "api", "cli", "ssh", "dns", "http", "url", "json", "xml", "css", "html", "sql", "csv", "yaml", "ide", "tdd", "pr", "ci", "cd", "env", "os", "sdk", "gui", "crud", "rest", "crlf", "utf", "ascii"]);
   const words = text.split(/\s+/);
   for (const w of words) {
     if (w.length >= 3 && /^[A-Z]+$/.test(w) && !capsAcronyms.has(w.toLowerCase())) {
-      score += 0.02;
+      score += 0.05;
     }
   }
   const exclamParts = text.match(/!{2,}/g);
   if (exclamParts)
-    score += exclamParts.length * 0.03;
+    score += exclamParts.length * 0.08;
   const qmarkParts = text.match(/\?{2,}/g);
   if (qmarkParts)
-    score += qmarkParts.length * 0.02;
+    score += qmarkParts.length * 0.05;
   const qeCombos = text.match(/\?!|!\?/g);
   if (qeCombos)
-    score += qeCombos.length * 0.05;
+    score += qeCombos.length * 0.1;
   if (text.length < 30)
-    score += 0.05;
+    score += 0.06;
   else if (text.length < 80)
-    score += 0.03;
+    score += 0.05;
   else if (text.length < 150)
-    score += 0.01;
+    score += 0.03;
   return Math.min(score, 0.95);
 }
 function estimateContextBudget(_input, output) {
@@ -7022,6 +7039,9 @@ function incrementTurnCounter() {
     return 0;
   }
 }
+function resetBlackboxTracker() {
+  _blackboxTracker = null;
+}
 
 // src/lib/research-audit.js
 import { readFileSync as readFileSync9, existsSync as existsSync10 } from "node:fs";
@@ -7142,7 +7162,7 @@ function researchAudit({ hours = 24, session: sessionFilter } = {}) {
 function normalizeTrend(trend) {
   return trend === "up" || trend === "down" ? trend : "flat";
 }
-function buildStatusPayload({ selection, tiersData, currentModel: currentModel3, creditPercent, version, todos, backendConnected, backendHealthUrl, modelLocked, lockedSlot, lockedModel }) {
+function buildStatusPayload({ selection, tiersData, currentModel: currentModel3, creditPercent, version, todos, backendConnected, backendHealthUrl, apiFallbackMode, apiFallbackSince, modelLocked, lockedSlot, lockedModel }) {
   const activeSlot = selection?.active_slot || "brain";
   const todoList = Array.isArray(todos) ? todos : [];
   const pendingTodos = todoList.filter((t) => t?.status === "pending").length;
@@ -7169,6 +7189,8 @@ function buildStatusPayload({ selection, tiersData, currentModel: currentModel3,
     todos: { total: totalTodos, pending: pendingTodos },
     backend_connected: Boolean(backendConnected),
     backend_health_url: backendHealthUrl || null,
+    api_fallback: Boolean(apiFallbackMode),
+    api_fallback_since: apiFallbackSince || null,
     model_locked: lockActive,
     locked_slot: resolvedLockedSlot,
     locked_model: resolvedLockedModel,
@@ -7274,6 +7296,7 @@ function diagnoseStructuredFromText(raw, creditPercent = 0) {
   const lines = text.split("\n");
   const files = [];
   const model_probes = [];
+  let apiFallback = { active: false, since: null };
   const suggestions = [];
   let credit = { percent: Number(creditPercent || 0), ok: true, fix: null };
   for (const line of lines) {
@@ -7288,6 +7311,12 @@ function diagnoseStructuredFromText(raw, creditPercent = 0) {
     if (/model-tiers\.json|opencode\.json|delegation-state\.json|auth\.json/i.test(trimmed)) {
       files.push({ path: trimmed, exists: trimmed.includes("\u2705"), ok: trimmed.includes("\u2705"), fix: trimmed.includes("\u2192") ? trimmed.split("\u2192")[1].trim() : void 0 });
     }
+    if (/api fallback/i.test(trimmed)) {
+      apiFallback = {
+        active: /\b(on|active|true)\b/i.test(trimmed) && !/\boff\b/i.test(trimmed),
+        since: trimmed.includes("since") ? trimmed.split(/since/i)[1].trim() : null
+      };
+    }
     if (/credit/i.test(trimmed)) {
       const m = trimmed.match(/(\d+)%/);
       if (m)
@@ -7301,6 +7330,7 @@ function diagnoseStructuredFromText(raw, creditPercent = 0) {
     files,
     model_probes,
     credit,
+    api_fallback: apiFallback,
     locks_clean: true,
     suggestions
   };
@@ -7337,9 +7367,9 @@ function getReportsIndexPath() {
 }
 var REPORTS_DIR2 = getReportsDir();
 var REPORTS_INDEX = getReportsIndexPath();
-var _OC_SID3 = "opencode-" + (process.pid || "x") + "-" + Date.now();
 var currentProjectFingerprint2 = "";
 var currentProjectName2 = "";
+var currentSessionId2 = "";
 function _handleStateCorruption4(path) {
   const backupDir = join9(getVibeOSHome7(), ".backups");
   mkdirSync9(backupDir, { recursive: true });
@@ -7472,10 +7502,12 @@ function saveReport({ type = "manual", summary = "", findings = null, metrics = 
   const parsedMetrics = _parseMetrics(metrics);
   if (_wouldBeDuplicate(type, summary))
     return null;
-  const fp2 = fingerprint || currentProjectFingerprint2 || "unknown";
+  const fp2 = fingerprint || currentProjectFingerprint2 || currentProjectFingerprint || "unknown";
+  const projectName = currentProjectName2 || currentProjectName || "unknown";
+  const sessionId = currentSessionId2 || getCurrentSessionId() || "unknown";
   const id2 = generateReportId(type, fp2);
   const report = {
-    meta: { id: id2, project: currentProjectName2 || "unknown", fingerprint: fp2, type, created: (/* @__PURE__ */ new Date()).toISOString(), sessionId: _OC_SID3 },
+    meta: { id: id2, project: projectName, fingerprint: fp2, type, created: (/* @__PURE__ */ new Date()).toISOString(), sessionId },
     summary,
     findings: parsedFindings,
     metrics: parsedMetrics,
@@ -7910,7 +7942,7 @@ function createTrinityTool(deps) {
           tiers = deps.safeJsonParse(deps.readFileSync(deps.TIERS_FILE, "utf-8")).trinity || {};
         } catch {
         }
-        let cheapModel2 = "(unset)";
+        let cheapModel = "(unset)";
         const credit = deps.loadCredit();
         const effectiveLevel = sel.thinking_level || deps.thinkingLevel(credit);
         if (deps.currentModel && sel.selected_model && deps.currentModel !== sel.selected_model) {
@@ -7969,7 +8001,7 @@ function createTrinityTool(deps) {
         const topTools = Object.entries(toolBreakdown).filter(([, v]) => v > MIN_TOOL_BREAKDOWN_THRESHOLD).sort((a, b) => b[1] - a[1]).slice(0, 5);
         const brainModel = tiers?.brain?.oc || "(unset)";
         const mediumModel = tiers?.medium?.oc || "(unset)";
-        cheapModel2 = tiers?.cheap?.oc || cheapModel2;
+        cheapModel = tiers?.cheap?.oc || cheapModel;
         const activeSlot = sel.active_slot || "brain";
         const lockedSlot = deps._lockedSlot || null;
         const lockedModel = deps._lockedModel || null;
@@ -8011,9 +8043,9 @@ function createTrinityTool(deps) {
           `Stress: ${stressBar} (${stressLabel})`,
           `|`,
           `Guards:`,
-          `  Flow: ${sel.flow_enabled !== false ? "ON" : "OFF"}${sel.flow_enforce ? " (extract)" : ""}`,
+          `  Flow: ${sel.flow_enabled !== false ? "ON" : "OFF"}${sel.flow_enabled !== false && sel.flow_enforce ? " (extract)" : ""}`,
           `  TDD: ${sel.tdd_enforce ? "ON" : "OFF"}${sel.tdd_strict !== false ? " strict" : ""}${sel.tdd_quality !== false ? " quality" : ""}`,
-          `  Enforce: ${sel.delegation_enforce ? "ON" : "OFF"}${sel.onboarding_mode === "assist" ? " (compatibility)" : " (mandatory)"}`,
+          `  Enforce: ${sel.delegation_enforce ? "ON (mandatory)" : "OFF (compatibility)"}`,
           `  Lock: ${deps._modelLocked ? `LOCK ON${lockedSlot ? ` (${lockedSlot})` : ""}${lockedModel ? ` ${lockedModel}` : ""}` : "LOCK OFF"}`,
           `  Compatibility: ${onboardingMode === "assist" ? "ASSIST (soft defaults, progressive activation)" : "STRICT (full guardrails)"}`,
           `|`,
@@ -8032,7 +8064,7 @@ function createTrinityTool(deps) {
           `Tiers:`,
           `  brain:  ${brainModel}${activeSlot === "brain" ? "  *" : ""}`,
           `  medium: ${mediumModel}${activeSlot === "medium" ? "  *" : ""}`,
-          `  cheap:  ${cheapModel2}${activeSlot === "cheap" ? "  *" : ""}`,
+          `  cheap:  ${cheapModel}${activeSlot === "cheap" ? "  *" : ""}`,
           `  Labels: ${(LABEL_MODES || []).join(", ")}`
         ];
         return lines.join("\n");
@@ -8113,7 +8145,7 @@ function createTrinityTool(deps) {
         return `\u2705 Switched to ${slot} slot (${result.ocModel}). Active now (no restart needed).`;
       }
       if (action === "mode") {
-        const builtInIds = ["budget", "quality", "speed", "longrun"];
+        const builtInIds = ["balanced", "budget", "quality", "speed", "longrun", "audit", "forensic"];
         const brandedIds = BRANDED_MODES.map((m) => m.id);
         const allModeIds = [...builtInIds, "auto", ...brandedIds];
         if (!slot)
@@ -8163,6 +8195,8 @@ function createTrinityTool(deps) {
       if (action === "flow") {
         if (slot === "on" || slot === "off") {
           const ok = deps.writeSelection("flow_enabled", slot === "on");
+          if (ok)
+            deps.writeSelection("flow_enforce", slot === "on");
           if (ok && slot === "on")
             deps.writeSelection("onboarding_mode", "strict");
           return ok ? `\u2705 Flow enforcer ${slot === "on" ? "ENABLED" : "DISABLED"}` : `\u274C Failed to write model-tiers.json`;
@@ -8793,6 +8827,7 @@ ${L.repeat(40)}`);
         const credit = deps.loadCredit();
         let budget = DIAGNOSE_BUDGET_LINES;
         let totalBal = 0;
+        let cheapModel = "";
         try {
           const j = deps.safeJsonParse(deps.readFileSync(deps.TIERS_FILE, "utf-8"));
           cheapModel = j?.trinity?.cheap?.oc || cheapModel;
@@ -8806,8 +8841,18 @@ ${L.repeat(40)}`);
             totalBal = cache.total;
         } catch {
         }
+        const apiFallbackActive = typeof deps.isApiFallback === "function" ? deps.isApiFallback() : false;
+        const apiFallbackSince = deps._apiFallbackSince || null;
+        results.push({
+          ok: !apiFallbackActive,
+          okLabel: !apiFallbackActive ? "\u2705" : "\u26A0",
+          label: "api fallback",
+          detail: apiFallbackActive ? `active${apiFallbackSince ? ` since ${apiFallbackSince}` : ""}` : "off",
+          fix: apiFallbackActive ? "re-enter `trinity api-token <token>` to retry the remote API" : null
+        });
         const runway = typeof deps.estimateTurnsRemaining === "function" ? deps.estimateTurnsRemaining(totalBal, cheapModel) : { balanceUsd: totalBal, costPerTurn: deps.modelCostPerTurn?.(cheapModel) ?? null, turnsRemaining: null, unlimited: false };
-        const runwayText = runway.costPerTurn === 0 ? `unlimited on ${cheapModel}` : runway.turnsRemaining != null && runway.costPerTurn != null ? `${Number(runway.turnsRemaining).toLocaleString()} turns on ${cheapModel} @ $${deps.formatUsd(runway.costPerTurn)}/turn` : "n/a";
+        const runwayText = runway.costPerTurn === 0 ? `unlimited on ${cheapModel}` : runway.turnsRemaining != null && runway.costPerTurn != null ? `${Number(runway.turnsRemaining).toLocaleString()} turns on ${cheapModel} @ $${deps.formatUsd(runway.costPerTurn)}/turn` : totalBal > 0 ? `balance snapshot present; turn estimate unavailable for ${cheapModel || "cheap slot"}` : "n/a";
+        const runwayOk = totalBal > 0 || runway.turnsRemaining != null || runway.costPerTurn === 0;
         const creditOk = credit >= CREDIT_MIN_OK;
         results.push({
           ok: creditOk,
@@ -8817,11 +8862,11 @@ ${L.repeat(40)}`);
           fix: creditOk ? null : "run `trinity medium` to reduce spend"
         });
         results.push({
-          ok: runway.turnsRemaining != null || runway.costPerTurn === 0,
-          okLabel: runway.turnsRemaining != null || runway.costPerTurn === 0 ? "\u2705" : "\u274C",
+          ok: runwayOk,
+          okLabel: runwayOk ? "\u2705" : "\u274C",
           label: "runway",
           detail: totalBal > 0 ? `$${totalBal.toFixed(2)} left -> ${runwayText}` : "no cached balance yet",
-          fix: runway.turnsRemaining == null && runway.costPerTurn !== 0 ? "wait for a balance snapshot or configure a known cheap slot" : null
+          fix: runwayOk ? null : "wait for a balance snapshot or configure a known cheap slot"
         });
         try {
           const state = deps.safeJsonParse(deps.readFileSync(deps.STATE_FILE, "utf-8"));
@@ -9017,7 +9062,7 @@ ${L.repeat(40)}`);
           "  trinity enable/disable    Toggle vibeOS plugin on/off",
           "  trinity enforce on        Block brain-tier writes/edits (save $$)",
           "  trinity lock on/off       Lock model at session start (skip auto-reconcile)",
-          "  trinity mode <profile>   Set optimization profile (built-in + branded modes)",
+          "  trinity mode <profile>   Set optimization profile (balanced|budget|quality|speed|longrun|audit|forensic|auto + branded modes)",
           "  trinity thinking full|brief|off  Set reasoning depth",
           "",
           "GUARDRAILS:",
@@ -9443,7 +9488,7 @@ import { readFileSync as readFileSync13, writeFileSync as writeFileSync12, appen
 import { join as join14, dirname as dirname10, basename as basename6 } from "node:path";
 import { createHash as createHash3 } from "node:crypto";
 
-// src/lib/mode-policy.ts
+// src/lib/mode-policy.js
 var STRESS_QUALITY_THRESHOLD = 1.5;
 var BASELINE_MODE = "budget";
 var LOOP_REGIMES = /* @__PURE__ */ new Set(["LOOPING", "DIVERGENT"]);
@@ -9451,7 +9496,8 @@ var QUALITY_REGIMES = /* @__PURE__ */ new Set(["CONVERGING", "CLOSED"]);
 var MANUAL_MODES = /* @__PURE__ */ new Set(["balanced", "quality", "speed", "longrun", "vibemax", "vibeqmax", "vibeultrax"]);
 function normalizeMode(mode) {
   const normalized = String(mode || BASELINE_MODE).toLowerCase();
-  if (normalized === "auto" || normalized === "") return BASELINE_MODE;
+  if (normalized === "auto" || normalized === "")
+    return BASELINE_MODE;
   if (normalized === "budget" || normalized === "quality" || normalized === "speed" || normalized === "longrun" || normalized === "balanced" || normalized === "vibemax" || normalized === "vibeqmax" || normalized === "vibeultrax") {
     return normalized;
   }
@@ -9464,9 +9510,12 @@ function isManualOverride(mode) {
   return MANUAL_MODES.has(normalizeMode(mode));
 }
 function chooseEpisodeMode(regime, suggestedMode, stress) {
-  if (suggestedMode === "vibeultrax" || suggestedMode === "vibeqmax" || suggestedMode === "vibemax") return suggestedMode;
-  if (LOOP_REGIMES.has(regime) || suggestedMode === "speed") return "speed";
-  if (QUALITY_REGIMES.has(regime) || suggestedMode === "quality") return "quality";
+  if (suggestedMode === "vibeultrax" || suggestedMode === "vibeqmax" || suggestedMode === "vibemax")
+    return suggestedMode;
+  if (LOOP_REGIMES.has(regime) || suggestedMode === "speed")
+    return "speed";
+  if (QUALITY_REGIMES.has(regime) || suggestedMode === "quality")
+    return "quality";
   return stress > STRESS_QUALITY_THRESHOLD ? "quality" : "budget";
 }
 function defaultPolicy() {
@@ -9487,15 +9536,19 @@ function defaultPolicy() {
 }
 function modeToSlot(mode) {
   const normalized = normalizeMode(mode);
-  if (normalized === "speed") return "medium";
-  if (normalized === "quality" || normalized === "longrun" || normalized === "vibeultrax" || normalized === "vibeqmax") return "brain";
+  if (normalized === "speed")
+    return "medium";
+  if (normalized === "quality" || normalized === "longrun" || normalized === "vibeultrax" || normalized === "vibeqmax")
+    return "brain";
   return "cheap";
 }
 function loadSessionPolicy() {
   const state = loadBlackboxState();
-  if (!state.sessions || typeof state.sessions !== "object") state.sessions = {};
+  if (!state.sessions || typeof state.sessions !== "object")
+    state.sessions = {};
   const sid = _OC_SID;
-  if (!state.sessions[sid] || typeof state.sessions[sid] !== "object") state.sessions[sid] = {};
+  if (!state.sessions[sid] || typeof state.sessions[sid] !== "object")
+    state.sessions[sid] = {};
   const session = state.sessions[sid];
   if (!session.mode_policy || typeof session.mode_policy !== "object") {
     session.mode_policy = defaultPolicy();
@@ -9623,7 +9676,7 @@ function recordBudgetFirstOutcome(input = {}) {
 import { join as join13 } from "node:path";
 import { writeFileSync as writeFileSync11 } from "node:fs";
 
-// src/lib/text-compress.ts
+// src/lib/text-compress.js
 var VERBOSE_LINE_RE = [
   /^[\s#*/\\\-_=+|~:;'"`@\$%^&<>{}\[\]()!?.,0-9]+$/,
   /^(Filed|Created|Modified|Deleted|Updated|Renamed|Copied|Moved|Changed):/,
@@ -9640,12 +9693,15 @@ function extractBulletLines(lines, targetChars, minLines) {
   const keyLines = [];
   const otherLines = [];
   for (const line of lines) {
-    if (BULLET_PATTERNS.some((re) => re.test(line))) keyLines.push(line);
-    else otherLines.push(line);
+    if (BULLET_PATTERNS.some((re) => re.test(line)))
+      keyLines.push(line);
+    else
+      otherLines.push(line);
   }
   const selected = [...keyLines];
   for (const line of otherLines) {
-    if (selected.length >= minLines && selected.join("\n").length >= targetChars) break;
+    if (selected.length >= minLines && selected.join("\n").length >= targetChars)
+      break;
     selected.push(line);
   }
   while (selected.length > minLines && selected.join("\n").length > targetChars * 2) {
@@ -9654,7 +9710,8 @@ function extractBulletLines(lines, targetChars, minLines) {
   return selected;
 }
 function compressText(text) {
-  if (!text || typeof text !== "string") return text;
+  if (!text || typeof text !== "string")
+    return text;
   let lines = text.split("\n");
   let removed = 0;
   const out = [];
@@ -9667,14 +9724,16 @@ function compressText(text) {
         break;
       }
     }
-    if (!skip) out.push(line);
+    if (!skip)
+      out.push(line);
   }
   const collapsed = [];
   let blanks = 0;
   for (const line of out) {
     if (line.trim() === "") {
       blanks++;
-      if (blanks <= 2) collapsed.push(line);
+      if (blanks <= 2)
+        collapsed.push(line);
     } else {
       blanks = 0;
       collapsed.push(line);
@@ -9682,10 +9741,7 @@ function compressText(text) {
   }
   let result = collapsed.join("\n").trim();
   if (result.length > COMPRESS_THRESHOLD) {
-    const targetChars = Math.max(
-      Math.round(result.length * COMPRESS_RATIO),
-      COMPRESS_THRESHOLD
-    );
+    const targetChars = Math.max(Math.round(result.length * COMPRESS_RATIO), COMPRESS_THRESHOLD);
     const minLines = Math.max(1, Math.round(collapsed.length * MIN_KEPT_LINES_RATIO));
     const bulletLines = extractBulletLines(collapsed, targetChars, minLines);
     result = bulletLines.join("\n").trim();
@@ -10000,7 +10056,7 @@ function recordSaving(tool2, reason, saveEst, meta = {}) {
   }
 }
 
-// src/lib/constants.ts
+// src/lib/constants.js
 var SAVE_EST = {
   // Realistic: v4-pro (0.00057) - v4-flash (0.000182) = 0.000388/turn
   WRITE_EDIT: 4e-4,
@@ -10018,7 +10074,7 @@ var COMPRESS_MARKER = "[ctx-compressed-v1]";
 var PROTOCOL_MARKER = "[wbp-v1]";
 var PROTOCOL_TEXT = PROTOCOL_MARKER + " [Worker-to-Brain Report Protocol] When synthesizing the preceding Task output: 1) EXTRACT core findings/data. 2) REFORMAT into bullet points. 3) VERIFY against the original ask. 4) SYNTHESIZE into final response.";
 
-// src/lib/templates.ts
+// src/lib/templates.js
 var TEMPLATES = {
   save: {
     tier_bias: "cheap",
@@ -10068,7 +10124,8 @@ var TEMPLATES = {
 var DEFAULT_TEMPLATE = "save";
 var SEC_KEYWORDS = /\b(security|vuln|exploit|injection|xss|csrf|secret|credential|token leak|auth bypass|privacy|breach|backdoor|sql injection|cve)\b/i;
 function detectSecuritySignal(text) {
-  if (!text || typeof text !== "string") return false;
+  if (!text || typeof text !== "string")
+    return false;
   return SEC_KEYWORDS.test(text);
 }
 function detectBudgetSignal(creditPercent) {
@@ -10081,20 +10138,25 @@ function detectStressSpike(stressScore) {
   return delta > 0.3 && stressScore > 0.5;
 }
 function resolveTemplate(prevTemplate, stressScore, userText, creditPercent, subRegime) {
-  if (detectSecuritySignal(userText)) return "security";
+  if (detectSecuritySignal(userText))
+    return "security";
   if (detectBudgetSignal(creditPercent)) {
     const regime = String(subRegime || "").toUpperCase();
-    if (regime === "LOOPING" || regime === "DIVERGENT") return "speed";
+    if (regime === "LOOPING" || regime === "DIVERGENT")
+      return "speed";
     return "save";
   }
-  if (detectStressSpike(stressScore)) return "quality";
+  if (detectStressSpike(stressScore))
+    return "quality";
   return prevTemplate || DEFAULT_TEMPLATE;
 }
 var _turnCount = 0;
 function shouldInjectTemplate(template, prevTemplate) {
   _turnCount++;
-  if (template !== prevTemplate) return true;
-  if (_turnCount % 10 === 0) return true;
+  if (template !== prevTemplate)
+    return true;
+  if (_turnCount % 10 === 0)
+    return true;
   return false;
 }
 
@@ -10141,7 +10203,7 @@ function ensureProjectContext(hookDirectory) {
   return resolved;
 }
 var latestUserIntent = null;
-var _OC_SID4 = "opencode-" + (process.pid || "x") + "-" + Date.now();
+var _OC_SID3 = "opencode-" + (process.pid || "x") + "-" + Date.now();
 var _latestBlackboxState3 = null;
 var _latestBlackboxLoopMsg3 = null;
 var _latestBlackboxPivotMsg3 = null;
@@ -10283,7 +10345,7 @@ function syncControlSettings(cv, options = {}) {
   if (!cv)
     return;
   try {
-    const sid = _OC_SID4;
+    const sid = _OC_SID3;
     if (!cv.agent_mode) {
       try {
         clearWorkspaceFollowupPauseForSession(sid);
@@ -10309,16 +10371,19 @@ function syncControlSettings(cv, options = {}) {
     }
     writeIf("enabled", true);
     const compatibilityMode = currentSel.onboarding_mode === "assist";
+    const flowManuallyDisabled = currentSel.flow_enabled === false && currentSel.flow_enforce === false;
     writeIf("delegation_enforce", compatibilityMode ? cv.enforcement_mode === "strict" : cv.enforcement_mode !== "relaxed");
-    if (compatibilityMode) {
-      writeIf("flow_enabled", cv.flow_mode === "strict");
-      writeIf("flow_enforce", cv.flow_mode === "strict");
-    } else if (cv.flow_mode === "audit") {
-      writeIf("flow_enabled", true);
-      writeIf("flow_enforce", false);
-    } else {
-      writeIf("flow_enabled", true);
-      writeIf("flow_enforce", true);
+    if (!flowManuallyDisabled) {
+      if (compatibilityMode) {
+        writeIf("flow_enabled", cv.flow_mode === "strict");
+        writeIf("flow_enforce", cv.flow_mode === "strict");
+      } else if (cv.flow_mode === "audit") {
+        writeIf("flow_enabled", true);
+        writeIf("flow_enforce", false);
+      } else {
+        writeIf("flow_enabled", true);
+        writeIf("flow_enforce", true);
+      }
     }
     if (compatibilityMode) {
       writeIf("tdd_enforce", cv.tdd_mode === "strict");
@@ -10503,7 +10568,7 @@ async function trackBlackbox(messages) {
     const tracker = getBlackboxTracker();
     const localState = tracker.update(latestUserIntent);
     const state = loadBlackboxState();
-    const sid = _OC_SID4;
+    const sid = _OC_SID3;
     ensureProjectContext(process.cwd() || "");
     const serialized = tracker.serialize();
     const existingSession = state.sessions[sid] || {};
@@ -10831,7 +10896,7 @@ var onSystemTransform = async (_input, output) => {
     const regime2 = _latestBlackboxState3?.sub_regime || classifyTurnSimple2(latestUserIntent || "");
     const calRecord = JSON.stringify({
       ts: (/* @__PURE__ */ new Date()).toISOString(),
-      sid: _OC_SID4,
+      sid: _OC_SID3,
       mode: _currentTemplate,
       regime: regime2,
       stress: stressScore,
@@ -10998,7 +11063,7 @@ function readLifetimeSavings2() {
     reconcileStateFromLedger();
     const raw = readFileSync14(STATE_FILE2, "utf-8");
     const state = safeJsonParse3(raw);
-    const ses = state?.sessions?.[typeof _OC_SID5 !== "undefined" ? _OC_SID5 : ""] || {};
+    const ses = state?.sessions?.[getSessionId()] || {};
     return {
       ltTasks: roundUsd2(state?.lifetime?.total_savings_usd || 0),
       ltCache: roundUsd2(state?.lifetime?.cache_savings_usd || 0),
@@ -11026,7 +11091,9 @@ function readLifetimeSavings2() {
     return { ltTasks: 0, ltCache: 0, ltCost: 0, count: 0, sesTasks: 0, sesCache: 0, sesTaskDelegations: 0, sesDuration: 0, sesRatePerHour: 0, sesTrend: "", sesToolBreakdown: {}, sesModelTurns: {}, quality_avg: 0 };
   }
 }
-var _OC_SID5 = "opencode-" + (process.pid || "x") + "-" + Date.now();
+function getSessionId() {
+  return getCurrentSessionId();
+}
 function scoreTaskQuality(outputText, promptText) {
   if (typeof outputText !== "string" || outputText.length === 0)
     return 0;
@@ -11053,7 +11120,7 @@ function scoreTaskQuality(outputText, promptText) {
 function readRewardSignals() {
   try {
     const state = loadBlackboxState();
-    const session = state?.sessions?.[_OC_SID5] || {};
+    const session = state?.sessions?.[getSessionId()] || {};
     const policy = session?.mode_policy || {};
     return {
       stableStreak: Math.max(0, Number(policy.stable_streak || 0)),
@@ -11130,7 +11197,8 @@ async function _appendFooter(input, output, directory3) {
       return;
     const { ltTasks, ltCache, ltCost, count, sesTasks, sesEdit, sesCredit, sesC7, sesQuota, sesCache, sesTaskDelegations, sesDuration, sesRatePerHour, sesTrend, sesToolBreakdown, sesModelTurns, quality_avg } = readLifetimeSavings2();
     const { stableStreak, problemStreak } = readRewardSignals();
-    const sessionSlot = loadBlackboxState()?.sessions?.[_OC_SID5]?.active_slot || loadSessionSlot(_OC_SID5);
+    const sid = getSessionId();
+    const sessionSlot = loadBlackboxState()?.sessions?.[sid]?.active_slot || loadSessionSlot(sid);
     const slot = sessionSlot || loadSelection3().active_slot || "brain";
     const brainModel = slot === "brain" ? TRINITY_BRAIN || currentModel : slot === "medium" ? TRINITY_MEDIUM || currentModel : TRINITY_CHEAP || currentModel || "";
     let liveModel = "";
@@ -11164,7 +11232,7 @@ async function _appendFooter(input, output, directory3) {
           type: "session",
           summary: "Session cost: $" + formatUsd(ltCost) + " | cache saved: $" + formatUsd(ltCache) + " | delegation saved: $" + formatUsd(Number(sesTasks || 0)) + " | task delegations: " + Number(sesTaskDelegations || 0),
           metrics: {
-            sessionId: _OC_SID5,
+            sessionId: sid,
             projectFingerprint: currentProjectFingerprint || "unknown",
             projectName: currentProjectName || "unknown",
             sessionCost: ltCost,
@@ -11253,7 +11321,7 @@ ${vibeLine}`;
             syncOutcomeToApi(finalOutcome);
             try {
               mkdirSync11(getVibeOSHome10(), { recursive: true });
-              appendFileSync6(join15(getVibeOSHome10(), "calibration-data.jsonl"), JSON.stringify({ ts: (/* @__PURE__ */ new Date()).toISOString(), event: "outcome", sid: _OC_SID5, outcome: finalOutcome }) + "\n");
+              appendFileSync6(join15(getVibeOSHome10(), "calibration-data.jsonl"), JSON.stringify({ ts: (/* @__PURE__ */ new Date()).toISOString(), event: "outcome", sid: getSessionId(), outcome: finalOutcome }) + "\n");
             } catch {
             }
           }
@@ -11283,7 +11351,7 @@ import { writeFileSync as writeFileSync14, appendFileSync as appendFileSync8, ex
 import { join as join17, dirname as dirname12, basename as basename7 } from "node:path";
 import { createHash as createHash5 } from "node:crypto";
 
-// src/lib/cost-anomaly.ts
+// src/lib/cost-anomaly.js
 var COST_WINDOW_SIZE = 20;
 var COST_ANOMALY_THRESHOLD = 3;
 var COST_WARMUP_SAMPLES = 5;
@@ -11294,21 +11362,26 @@ var CostAnomalyDetector = class {
   currentAnomalyCost = 0;
   currentAnomalyMean = 0;
   record(cost) {
-    if (this.disabled) return;
+    if (this.disabled)
+      return;
     this.costHistory.push(cost);
     if (this.costHistory.length > COST_WINDOW_SIZE) {
       this.costHistory.shift();
     }
   }
   get mean() {
-    if (this.costHistory.length === 0) return 0;
+    if (this.costHistory.length === 0)
+      return 0;
     return this.costHistory.reduce((a, b) => a + b, 0) / this.costHistory.length;
   }
   checkAnomaly(model, cost) {
-    if (this.disabled) return false;
-    if (this.costHistory.length < COST_WARMUP_SAMPLES) return false;
+    if (this.disabled)
+      return false;
+    if (this.costHistory.length < COST_WARMUP_SAMPLES)
+      return false;
     const avg = this.mean;
-    if (avg <= 0 || cost <= avg) return false;
+    if (avg <= 0 || cost <= avg)
+      return false;
     const ratio = cost / avg;
     if (ratio > COST_ANOMALY_THRESHOLD) {
       this.currentAnomalyModel = model;
@@ -11330,7 +11403,8 @@ var CostAnomalyDetector = class {
 };
 var _costDetector = null;
 function getCostAnomalyDetector() {
-  if (!_costDetector) _costDetector = new CostAnomalyDetector();
+  if (!_costDetector)
+    _costDetector = new CostAnomalyDetector();
   return _costDetector;
 }
 
@@ -11342,9 +11416,10 @@ import { readFileSync as readFileSync15, writeFileSync as writeFileSync13, appen
 import { join as join16, dirname as dirname11 } from "node:path";
 import { createHash as createHash4 } from "node:crypto";
 
-// src/utils/tdd-helpers.ts
+// src/utils/tdd-helpers.js
 function extractExports(sourceContent, ext) {
-  if (!sourceContent || typeof sourceContent !== "string") return [];
+  if (!sourceContent || typeof sourceContent !== "string")
+    return [];
   const exports = [];
   const seen = /* @__PURE__ */ new Set();
   const add = (name, type = "function") => {
@@ -11355,51 +11430,69 @@ function extractExports(sourceContent, ext) {
   };
   switch (ext) {
     case "py": {
-      for (const m of sourceContent.matchAll(/^def\s+([a-zA-Z]\w*)\s*\(/gm)) add(m[1]);
-      for (const m of sourceContent.matchAll(/^class\s+([a-zA-Z_]\w*)\s*[\(:]/gm)) add(m[1], "class");
+      for (const m of sourceContent.matchAll(/^def\s+([a-zA-Z]\w*)\s*\(/gm))
+        add(m[1]);
+      for (const m of sourceContent.matchAll(/^class\s+([a-zA-Z_]\w*)\s*[\(:]/gm))
+        add(m[1], "class");
       break;
     }
     case "js":
     case "mjs":
     case "jsx": {
-      for (const m of sourceContent.matchAll(/export\s+(?:async\s+)?function\s+([a-zA-Z_$]\w*)\s*\(/g)) add(m[1]);
-      for (const m of sourceContent.matchAll(/export\s+const\s+([a-zA-Z_$]\w*)\s*=/g)) add(m[1]);
+      for (const m of sourceContent.matchAll(/export\s+(?:async\s+)?function\s+([a-zA-Z_$]\w*)\s*\(/g))
+        add(m[1]);
+      for (const m of sourceContent.matchAll(/export\s+const\s+([a-zA-Z_$]\w*)\s*=/g))
+        add(m[1]);
       if (exports.length === 0) {
-        for (const m of sourceContent.matchAll(/^(?:async\s+)?function\s+([a-zA-Z_$]\w*)\s*\(/gm)) add(m[1]);
+        for (const m of sourceContent.matchAll(/^(?:async\s+)?function\s+([a-zA-Z_$]\w*)\s*\(/gm))
+          add(m[1]);
       }
       break;
     }
     case "ts":
     case "tsx": {
-      for (const m of sourceContent.matchAll(/export\s+(?:async\s+)?function\s+([a-zA-Z_$]\w*)\s*\(/g)) add(m[1]);
-      for (const m of sourceContent.matchAll(/export\s+const\s+([a-zA-Z_$]\w*)\s*[:=]/g)) add(m[1]);
-      for (const m of sourceContent.matchAll(/export\s+class\s+([a-zA-Z_$]\w*)/g)) add(m[1], "class");
+      for (const m of sourceContent.matchAll(/export\s+(?:async\s+)?function\s+([a-zA-Z_$]\w*)\s*\(/g))
+        add(m[1]);
+      for (const m of sourceContent.matchAll(/export\s+const\s+([a-zA-Z_$]\w*)\s*[:=]/g))
+        add(m[1]);
+      for (const m of sourceContent.matchAll(/export\s+class\s+([a-zA-Z_$]\w*)/g))
+        add(m[1], "class");
       break;
     }
     case "go": {
-      for (const m of sourceContent.matchAll(/func\s+(?:\([^)]+\)\s+)?([A-Z]\w*)\s*\(/g)) add(m[1]);
+      for (const m of sourceContent.matchAll(/func\s+(?:\([^)]+\)\s+)?([A-Z]\w*)\s*\(/g))
+        add(m[1]);
       break;
     }
     case "rs": {
-      for (const m of sourceContent.matchAll(/pub\s+fn\s+([a-zA-Z_]\w*)\s*</g)) add(m[1]);
-      for (const m of sourceContent.matchAll(/pub\s+fn\s+([a-zA-Z_]\w*)\s*\(/g)) add(m[1]);
-      for (const m of sourceContent.matchAll(/pub\s+struct\s+([a-zA-Z_]\w*)/g)) add(m[1], "struct");
+      for (const m of sourceContent.matchAll(/pub\s+fn\s+([a-zA-Z_]\w*)\s*</g))
+        add(m[1]);
+      for (const m of sourceContent.matchAll(/pub\s+fn\s+([a-zA-Z_]\w*)\s*\(/g))
+        add(m[1]);
+      for (const m of sourceContent.matchAll(/pub\s+struct\s+([a-zA-Z_]\w*)/g))
+        add(m[1], "struct");
       break;
     }
     case "rb": {
-      for (const m of sourceContent.matchAll(/def\s+(?:self\.)?([a-zA-Z_]\w*[?!=]?)/g)) add(m[1]);
-      for (const m of sourceContent.matchAll(/class\s+([A-Z]\w*)/g)) add(m[1], "class");
+      for (const m of sourceContent.matchAll(/def\s+(?:self\.)?([a-zA-Z_]\w*[?!=]?)/g))
+        add(m[1]);
+      for (const m of sourceContent.matchAll(/class\s+([A-Z]\w*)/g))
+        add(m[1], "class");
       break;
     }
     case "java":
     case "kt": {
-      for (const m of sourceContent.matchAll(/(?:public|protected)\s+(?:static\s+)?(?:final\s+)?\S+\s+([a-zA-Z_$]\w*)\s*\(/g)) add(m[1]);
-      for (const m of sourceContent.matchAll(/fun\s+([a-zA-Z_$]\w*)\s*\(/g)) add(m[1]);
+      for (const m of sourceContent.matchAll(/(?:public|protected)\s+(?:static\s+)?(?:final\s+)?\S+\s+([a-zA-Z_$]\w*)\s*\(/g))
+        add(m[1]);
+      for (const m of sourceContent.matchAll(/fun\s+([a-zA-Z_$]\w*)\s*\(/g))
+        add(m[1]);
       break;
     }
     case "sh": {
-      for (const m of sourceContent.matchAll(/^(?:function\s+)?([a-zA-Z_]\w*)\s*\(\)\s*\{/gm)) add(m[1]);
-      for (const m of sourceContent.matchAll(/^function\s+([a-zA-Z_]\w*)/gm)) add(m[1]);
+      for (const m of sourceContent.matchAll(/^(?:function\s+)?([a-zA-Z_]\w*)\s*\(\)\s*\{/gm))
+        add(m[1]);
+      for (const m of sourceContent.matchAll(/^function\s+([a-zA-Z_]\w*)/gm))
+        add(m[1]);
       break;
     }
   }
@@ -11421,7 +11514,8 @@ function generateTestCaseNames(funcName, _type, quality = false) {
   ];
 }
 function inferFunctionParams(sourceContent, funcName) {
-  if (!sourceContent || !funcName) return [];
+  if (!sourceContent || !funcName)
+    return [];
   const patterns = [
     new RegExp(`(?:export\\s+)?(?:async\\s+)?function\\s+${funcName}\\s*\\(([^)]*)\\)`, "m"),
     new RegExp(`(?:export\\s+)?const\\s+${funcName}\\s*[:=]\\s*(?:async\\s+)?\\(([^)]*)\\)`, "m"),
@@ -11434,7 +11528,8 @@ function inferFunctionParams(sourceContent, funcName) {
     if (m) {
       return m[1].split(",").map((s) => {
         const trimmed = s.trim();
-        if (!trimmed) return null;
+        if (!trimmed)
+          return null;
         const nameMatch = trimmed.match(/^\s*((?:public|protected)|static|final|val|var|let|const)?\s*(?:readonly\s+)?(?:[_$a-zA-Z][_$a-zA-Z0-9]*)\s*(?::|(?=\s*=)|(?=\s*[,)]))/);
         const rawName = trimmed.replace(/^[^a-zA-Z_$]*/, "").replace(/[=:].*$/, "").replace(/\s+.*$/, "").trim();
         const defaultMatch = trimmed.match(/=\s*(.+)$/);
@@ -11450,22 +11545,35 @@ function inferFunctionParams(sourceContent, funcName) {
   return [];
 }
 function inferTypeFromName(paramName, defaultValue) {
-  if (!paramName) return "any";
+  if (!paramName)
+    return "any";
   const name = paramName.toLowerCase();
   if (defaultValue !== null && defaultValue !== void 0) {
-    if (/^["']/.test(defaultValue)) return "string";
-    if (/^\d+\.?\d*$/.test(defaultValue)) return "number";
-    if (/^(true|false)$/i.test(defaultValue)) return "boolean";
-    if (/^\[/.test(defaultValue)) return "array";
-    if (/^\{/.test(defaultValue)) return "object";
-    if (/^null$/i.test(defaultValue)) return "null";
+    if (/^["']/.test(defaultValue))
+      return "string";
+    if (/^\d+\.?\d*$/.test(defaultValue))
+      return "number";
+    if (/^(true|false)$/i.test(defaultValue))
+      return "boolean";
+    if (/^\[/.test(defaultValue))
+      return "array";
+    if (/^\{/.test(defaultValue))
+      return "object";
+    if (/^null$/i.test(defaultValue))
+      return "null";
   }
-  if (/^(is|has|can|should|will|did|was|are|contains?_|[A-Z])/.test(name)) return "boolean";
-  if (/^(count|index|limit|offset|max|min|size|length|total|num|age)_?/.test(name)) return "number";
-  if (/^(name|title|label|msg|message|text|str|prefix|suffix|path|url|email|id)_?/.test(name)) return "string";
-  if (/^(items|list|arr|entries|data|values|args)_?/.test(name)) return "array";
-  if (/^(obj|config|opts|options|settings|params|props)_?/.test(name)) return "object";
-  if (/^(fn|cb|callback|handler|on[A-Z])/.test(name)) return "function";
+  if (/^(is|has|can|should|will|did|was|are|contains?_|[A-Z])/.test(name))
+    return "boolean";
+  if (/^(count|index|limit|offset|max|min|size|length|total|num|age)_?/.test(name))
+    return "number";
+  if (/^(name|title|label|msg|message|text|str|prefix|suffix|path|url|email|id)_?/.test(name))
+    return "string";
+  if (/^(items|list|arr|entries|data|values|args)_?/.test(name))
+    return "array";
+  if (/^(obj|config|opts|options|settings|params|props)_?/.test(name))
+    return "object";
+  if (/^(fn|cb|callback|handler|on[A-Z])/.test(name))
+    return "function";
   return "any";
 }
 function _langComment(lang) {
@@ -11478,14 +11586,22 @@ function buildQualityAssertionsForFunc(funcName, params, lang, indent) {
   let block = "";
   const testValues = params.map((p) => {
     const t = p.type || inferTypeFromName(p.name, p.defaultValue);
-    if (t === "string" || t === "String") return '"sample_input"';
-    if (t === "number" || t === "int" || t === "float" || t === "Number") return "42";
-    if (t === "boolean" || t === "bool" || t === "Boolean") return "true";
-    if (t === "array" || t === "Array" || t === "list" || t === "List") return "[]";
-    if (t === "object" || t === "Object" || t === "dict" || t === "Dict") return "{}";
-    if (t === "function" || t === "Function") return "() => {}";
-    if (t === "any") return '"test"';
-    if (t === "null") return "null";
+    if (t === "string" || t === "String")
+      return '"sample_input"';
+    if (t === "number" || t === "int" || t === "float" || t === "Number")
+      return "42";
+    if (t === "boolean" || t === "bool" || t === "Boolean")
+      return "true";
+    if (t === "array" || t === "Array" || t === "list" || t === "List")
+      return "[]";
+    if (t === "object" || t === "Object" || t === "dict" || t === "Dict")
+      return "{}";
+    if (t === "function" || t === "Function")
+      return "() => {}";
+    if (t === "any")
+      return '"test"';
+    if (t === "null")
+      return "null";
     return '"test"';
   });
   const args = testValues.join(", ");
@@ -11515,8 +11631,10 @@ function buildQualityAssertionsForFunc(funcName, params, lang, indent) {
 `;
       const ecArgs = params.map((p) => {
         const t = p.type || inferTypeFromName(p.name, p.defaultValue);
-        if (t === "string") return '""';
-        if (t === "number" || t === "int" || t === "float") return "0";
+        if (t === "string")
+          return '""';
+        if (t === "number" || t === "int" || t === "float")
+          return "0";
         return '"edge"';
       }).join(", ");
       block += `${indent}    result = ${funcName}(${ecArgs})
@@ -11554,11 +11672,16 @@ function buildQualityAssertionsForFunc(funcName, params, lang, indent) {
 `;
       const ecArgsJS = params.map((p) => {
         const t = p.type || inferTypeFromName(p.name, p.defaultValue);
-        if (t === "string") return '""';
-        if (t === "number" || t === "int" || t === "float") return "0";
-        if (t === "boolean") return "false";
-        if (t === "array") return "[]";
-        if (t === "object") return "{}";
+        if (t === "string")
+          return '""';
+        if (t === "number" || t === "int" || t === "float")
+          return "0";
+        if (t === "boolean")
+          return "false";
+        if (t === "array")
+          return "[]";
+        if (t === "object")
+          return "{}";
         return "undefined";
       }).join(", ");
       block += `${indent}  const result = mod.${funcName}(${ecArgsJS});
@@ -11591,14 +11714,15 @@ function buildQualityAssertionsForFunc(funcName, params, lang, indent) {
   return block;
 }
 function isSkeletonUseless(content) {
-  if (!content) return true;
+  if (!content)
+    return true;
   const lines = content.split("\n").filter((l) => l.trim() && !l.trim().startsWith("//") && !l.trim().startsWith("#") && !l.trim().startsWith("/*") && !l.trim().startsWith("*"));
   const todoLines = content.split("\n").filter((l) => /TODO|placeholder|smoke|is exported|module loads/.test(l));
   const meaningfulLines = lines.filter((l) => !/TODO|placeholder|smoke|is exported|module loads|throw new Error|raise AssertionError|pytest\.skip|assert.*true/.test(l));
   return meaningfulLines.length < 2;
 }
 
-// src/lib/test-skeletons.ts
+// src/lib/test-skeletons.js
 var TEST_SKELETONS = {
   py: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => {
     const moduleImport = name.replace(/-/g, "_");
@@ -11626,7 +11750,8 @@ var TEST_SKELETONS = {
 
 `;
       for (const exp of exports) {
-        if (exp.type === "class") continue;
+        if (exp.type === "class")
+          continue;
         const cases = generateTestCaseNames(exp.name, exp.type, quality);
         content += `# TODO: implement tests for ${exp.name}
 `;
@@ -11634,10 +11759,12 @@ var TEST_SKELETONS = {
           const caseFunc = caseName.replace(/[^a-zA-Z0-9_]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "");
           content += `def test_${caseFunc}():
 `;
-          if (strict) content += `    raise AssertionError("TODO: implement ${caseName}")
+          if (strict)
+            content += `    raise AssertionError("TODO: implement ${caseName}")
 
 `;
-          else content += `    pytest.skip("TODO: implement ${caseName}")
+          else
+            content += `    pytest.skip("TODO: implement ${caseName}")
 
 `;
         }
@@ -11649,10 +11776,12 @@ var TEST_SKELETONS = {
       if (exports.length === 0) {
         content += `def test_${name}_placeholder():
 `;
-        if (strict) content += `    raise AssertionError("TODO: implement tests for ${name}")
+        if (strict)
+          content += `    raise AssertionError("TODO: implement tests for ${name}")
 
 `;
-        else content += `    pytest.skip("TODO: implement tests for ${name}")
+        else
+          content += `    pytest.skip("TODO: implement tests for ${name}")
 
 `;
       }
@@ -11686,7 +11815,8 @@ var TEST_SKELETONS = {
 
 `;
       for (const exp of exports) {
-        if (exp.type === "class") continue;
+        if (exp.type === "class")
+          continue;
         const cases = generateTestCaseNames(exp.name, exp.type, quality);
         content += `  // TODO: implement tests for ${exp.name}
 `;
@@ -11702,9 +11832,11 @@ var TEST_SKELETONS = {
 `;
           content += `    // TODO: implement ${caseName}
 `;
-          if (strict) content += `    throw new Error('TODO: implement ${caseName}');
+          if (strict)
+            content += `    throw new Error('TODO: implement ${caseName}');
 `;
-          else content += `    expect(true).toBe(true);
+          else
+            content += `    expect(true).toBe(true);
 `;
           content += `  });
 
@@ -11757,7 +11889,8 @@ var TEST_SKELETONS = {
 
 `;
       for (const exp of exports) {
-        if (exp.type === "class") continue;
+        if (exp.type === "class")
+          continue;
         const cases = generateTestCaseNames(exp.name, exp.type, quality);
         content += `  // TODO: implement tests for ${exp.name}
 `;
@@ -11773,9 +11906,11 @@ var TEST_SKELETONS = {
 `;
           content += `    // TODO: implement ${caseName}
 `;
-          if (strict) content += `    throw new Error('TODO: implement ${caseName}');
+          if (strict)
+            content += `    throw new Error('TODO: implement ${caseName}');
 `;
-          else content += `    expect(true).toBe(true);
+          else
+            content += `    expect(true).toBe(true);
 `;
           content += `  });
 
@@ -11828,7 +11963,8 @@ var TEST_SKELETONS = {
 
 `;
       for (const exp of exports) {
-        if (exp.type === "class") continue;
+        if (exp.type === "class")
+          continue;
         const cases = generateTestCaseNames(exp.name, exp.type, quality);
         content += `  // TODO: implement tests for ${exp.name}
 `;
@@ -11844,9 +11980,11 @@ var TEST_SKELETONS = {
 `;
           content += `    // TODO: implement ${caseName}
 `;
-          if (strict) content += `    throw new Error('TODO: implement ${caseName}');
+          if (strict)
+            content += `    throw new Error('TODO: implement ${caseName}');
 `;
-          else content += `    expect(true).toBe(true);
+          else
+            content += `    expect(true).toBe(true);
 `;
           content += `  });
 
@@ -11906,7 +12044,8 @@ var TEST_SKELETONS = {
 
 `;
       for (const exp of exports) {
-        if (exp.type === "class") continue;
+        if (exp.type === "class")
+          continue;
         const cases = generateTestCaseNames(exp.name, exp.type, quality);
         const expCap = exp.name.charAt(0).toUpperCase() + exp.name.slice(1);
         content += `// TODO: implement tests for ${exp.name}
@@ -11915,9 +12054,11 @@ var TEST_SKELETONS = {
           const caseFunc = caseName.replace(/[^a-zA-Z0-9_]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "");
           content += `func Test${cap}_${caseFunc}(t *testing.T) {
 `;
-          if (strict) content += `	t.Error("TODO: implement ${caseName}")
+          if (strict)
+            content += `	t.Error("TODO: implement ${caseName}")
 `;
-          else content += `	t.Skip("TODO: implement ${caseName}")
+          else
+            content += `	t.Skip("TODO: implement ${caseName}")
 `;
           content += `}
 
@@ -11937,9 +12078,11 @@ var TEST_SKELETONS = {
       if (exports.length === 0) {
         content += `func Test${cap}_Placeholder(t *testing.T) {
 `;
-        if (strict) content += `	t.Error("TODO: implement tests for ${name}")
+        if (strict)
+          content += `	t.Error("TODO: implement tests for ${name}")
 `;
-        else content += `	t.Skip("TODO: implement tests for ${name}")
+        else
+          content += `	t.Skip("TODO: implement tests for ${name}")
 `;
         content += `}
 `;
@@ -11972,9 +12115,11 @@ var TEST_SKELETONS = {
 `;
           content += `    echo "TODO: implement ${caseName}"
 `;
-          if (strict) content += `    exit 1
+          if (strict)
+            content += `    exit 1
 `;
-          else content += `    echo "SKIP: ${caseName}"
+          else
+            content += `    echo "SKIP: ${caseName}"
 `;
           content += `}
 
@@ -11988,9 +12133,11 @@ var TEST_SKELETONS = {
       if (exports.length === 0) {
         content += `function test_smoke {
 `;
-        if (strict) content += `    echo "TODO: implement tests for ${name}" && exit 1
+        if (strict)
+          content += `    echo "TODO: implement tests for ${name}" && exit 1
 `;
-        else content += `    echo "TODO: implement tests for ${name}"
+        else
+          content += `    echo "TODO: implement tests for ${name}"
 `;
         content += `}
 `;
@@ -12030,7 +12177,8 @@ mod tests {
 
 `;
       for (const exp of exports) {
-        if (exp.type === "class") continue;
+        if (exp.type === "class")
+          continue;
         const cases = generateTestCaseNames(exp.name, exp.type, quality);
         content += `    // TODO: implement tests for ${exp.name}
 `;
@@ -12039,9 +12187,11 @@ mod tests {
           content += `    #[test]
     fn test_${caseFunc}() {
 `;
-          if (strict) content += `        panic!("TODO: implement ${caseName}");
+          if (strict)
+            content += `        panic!("TODO: implement ${caseName}");
 `;
-          else content += `        // TODO: implement ${caseName}
+          else
+            content += `        // TODO: implement ${caseName}
 `;
           content += `    }
 
@@ -12056,9 +12206,11 @@ mod tests {
         content += `    #[test]
     fn ${name}_placeholder() {
 `;
-        if (strict) content += `        panic!("TODO: implement tests for ${name}");
+        if (strict)
+          content += `        panic!("TODO: implement tests for ${name}");
 `;
-        else content += `        // TODO: implement tests for ${name}
+        else
+          content += `        // TODO: implement tests for ${name}
 `;
         content += `    }
 `;
@@ -12098,7 +12250,8 @@ mod tests {
 
 `;
       for (const exp of exports) {
-        if (exp.type === "class") continue;
+        if (exp.type === "class")
+          continue;
         const cases = generateTestCaseNames(exp.name, exp.type, quality);
         content += `  # TODO: implement tests for ${exp.name}
 `;
@@ -12106,9 +12259,11 @@ mod tests {
           const caseFunc = caseName.replace(/[^a-zA-Z0-9_]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "");
           content += `  def test_${caseFunc}
 `;
-          if (strict) content += `    flunk "TODO: implement ${caseName}"
+          if (strict)
+            content += `    flunk "TODO: implement ${caseName}"
 `;
-          else content += `    # TODO: implement ${caseName}
+          else
+            content += `    # TODO: implement ${caseName}
 `;
           content += `  end
 
@@ -12122,9 +12277,11 @@ mod tests {
       if (exports.length === 0) {
         content += `  def test_placeholder
 `;
-        if (strict) content += `    flunk "TODO: implement tests for ${name}"
+        if (strict)
+          content += `    flunk "TODO: implement tests for ${name}"
 `;
-        else content += `    # TODO: implement tests for ${name}
+        else
+          content += `    # TODO: implement tests for ${name}
 `;
         content += `  end
 `;
@@ -12170,15 +12327,18 @@ mod tests {
         const cases = generateTestCaseNames(exp.name, exp.type, quality);
         for (const caseName of cases) {
           const testFunc = caseName.replace(/[^a-zA-Z0-9_]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "");
-          if (!strict) content += `    // @Disabled("TODO")
+          if (!strict)
+            content += `    // @Disabled("TODO")
 `;
           content += `    @Test
 `;
           content += `    void test${testFunc.charAt(0).toUpperCase() + testFunc.slice(1)}() {
 `;
-          if (strict) content += `        fail("TODO: implement ${caseName}");
+          if (strict)
+            content += `        fail("TODO: implement ${caseName}");
 `;
-          else content += `        assertTrue(true); // TODO: implement ${caseName}
+          else
+            content += `        assertTrue(true); // TODO: implement ${caseName}
 `;
           content += `    }
 
@@ -12240,15 +12400,18 @@ mod tests {
         const cases = generateTestCaseNames(exp.name, exp.type, quality);
         for (const caseName of cases) {
           const testFunc = caseName.replace(/[^a-zA-Z0-9_]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "");
-          if (!strict) content += `    // @Disabled("TODO")
+          if (!strict)
+            content += `    // @Disabled("TODO")
 `;
           content += `    @Test
 `;
           content += `    fun test${testFunc.charAt(0).toUpperCase() + testFunc.slice(1)}() {
 `;
-          if (strict) content += `        fail("TODO: implement ${caseName}")
+          if (strict)
+            content += `        fail("TODO: implement ${caseName}")
 `;
-          else content += `        assertTrue(true) // TODO: implement ${caseName}
+          else
+            content += `        assertTrue(true) // TODO: implement ${caseName}
 `;
           content += `    }
 
@@ -13323,6 +13486,18 @@ var onToolExecuteAfter = async (input, output) => {
       return obj.message;
     return obj;
   }
+  if (enforcementBlocked) {
+    const target = _payload(output);
+    const blockMsg = pendingUiNote || `[delegation] ${String(input?.tool || "tool")} blocked by enforcement`;
+    const replaceIfNeeded = (key) => {
+      if (typeof target?.[key] === "string" && /oldString not found/i.test(target[key]))
+        target[key] = blockMsg;
+    };
+    replaceIfNeeded("error");
+    replaceIfNeeded("result");
+    replaceIfNeeded("text");
+    replaceIfNeeded("content");
+  }
   if (pendingUiNote) {
     const target = _payload(output);
     if (enforcementBlocked) {
@@ -13639,6 +13814,7 @@ function ensureDeferredBootstrap() {
   } catch {
   }
 }
+var _apiFallbackSince2 = null;
 var activeJob2 = null;
 var fp = "";
 var _mcpServerRuntime = null;
@@ -14044,6 +14220,10 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     setBlackboxEnabled,
     loadBlackboxState,
     saveBlackboxState,
+    isApiFallback: () => isApiFallback(),
+    get _apiFallbackSince() {
+      return _apiFallbackSince2;
+    },
     reportsIndex: reportsIndexStable,
     saveReportsIndex: saveReportsIndexStable,
     backupFile: backupFileStable,
@@ -14293,6 +14473,8 @@ ${report.narrative}`);
                 fallbackThinking: thinkingLevel(loadCredit()),
                 backendConnected: isApiConnected2(),
                 backendHealthUrl: `${VIBEOS_API_URL}/health`,
+                apiFallbackMode: isApiFallback(),
+                apiFallbackSince: _apiFallbackSince2,
                 modelLocked: _modelLocked,
                 lockedSlot: _lockedSlot,
                 lockedModel: _lockedModel
@@ -14460,6 +14642,7 @@ export {
   enforceTestFile,
   extractExports,
   getBlackboxResolution,
+  getCurrentSessionId,
   getScratchpadHit,
   getSessionIndexPath,
   getSessionScratchpadDir,
@@ -14482,6 +14665,9 @@ export {
   scoreStress,
   server,
   setCurrentModel,
+  setCurrentProjectFingerprint,
+  setCurrentProjectName,
+  setCurrentSessionId,
   setCurrentTier,
   setTrinityBrain,
   setTrinityCheap,

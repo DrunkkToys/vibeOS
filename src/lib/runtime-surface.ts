@@ -37,6 +37,8 @@ export function buildStatusPayload({
   todos,
   backendConnected,
   backendHealthUrl,
+  apiFallbackMode,
+  apiFallbackSince,
   modelLocked,
   lockedSlot,
   lockedModel,
@@ -50,6 +52,8 @@ export function buildStatusPayload({
   fallbackThinking?: string
   backendConnected?: boolean
   backendHealthUrl?: string | null
+  apiFallbackMode?: boolean
+  apiFallbackSince?: string | null
   modelLocked?: boolean
   lockedSlot?: string | null
   lockedModel?: string | null
@@ -80,6 +84,8 @@ export function buildStatusPayload({
     todos: { total: totalTodos, pending: pendingTodos },
     backend_connected: Boolean(backendConnected),
     backend_health_url: backendHealthUrl || null,
+    api_fallback: Boolean(apiFallbackMode),
+    api_fallback_since: apiFallbackSince || null,
     model_locked: lockActive,
     locked_slot: resolvedLockedSlot,
     locked_model: resolvedLockedModel,
@@ -202,6 +208,7 @@ export function diagnoseStructuredFromText(raw: string, creditPercent = 0): any 
   const lines = text.split("\n")
   const files: Array<any> = []
   const model_probes: Array<any> = []
+  let apiFallback = { active: false, since: null as string | null }
   const suggestions: string[] = []
   let credit = { percent: Number(creditPercent || 0), ok: true, fix: null as string | null }
   for (const line of lines) {
@@ -213,6 +220,12 @@ export function diagnoseStructuredFromText(raw: string, creditPercent = 0): any 
     }
     if (/model-tiers\.json|opencode\.json|delegation-state\.json|auth\.json/i.test(trimmed)) {
       files.push({ path: trimmed, exists: trimmed.includes("✅"), ok: trimmed.includes("✅"), fix: trimmed.includes("→") ? trimmed.split("→")[1].trim() : undefined })
+    }
+    if (/api fallback/i.test(trimmed)) {
+      apiFallback = {
+        active: /\b(on|active|true)\b/i.test(trimmed) && !/\boff\b/i.test(trimmed),
+        since: trimmed.includes("since") ? trimmed.split(/since/i)[1].trim() : null,
+      }
     }
     if (/credit/i.test(trimmed)) {
       const m = trimmed.match(/(\d+)%/)
@@ -226,6 +239,7 @@ export function diagnoseStructuredFromText(raw: string, creditPercent = 0): any 
     files,
     model_probes,
     credit,
+    api_fallback: apiFallback,
     locks_clean: true,
     suggestions,
   }

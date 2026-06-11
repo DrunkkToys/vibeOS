@@ -832,6 +832,18 @@ export const onToolExecuteAfter = async (input, output) => {
     return obj
   }
 
+  if (enforcementBlocked) {
+    const target = _payload(output)
+    const blockMsg = pendingUiNote || `[delegation] ${String(input?.tool || "tool")} blocked by enforcement`
+    const replaceIfNeeded = (key) => {
+      if (typeof target?.[key] === "string" && /oldString not found/i.test(target[key])) target[key] = blockMsg
+    }
+    replaceIfNeeded("error")
+    replaceIfNeeded("result")
+    replaceIfNeeded("text")
+    replaceIfNeeded("content")
+  }
+
   // Inject pending delegation UI note (set in tool.execute.before).
   // This surfaces the warning in the OC chat transcript, not just stderr.
   if (pendingUiNote) {

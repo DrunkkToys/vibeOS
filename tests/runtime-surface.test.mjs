@@ -46,6 +46,8 @@ test("buildStatusPayload assembles dashboard state from injected inputs", () => 
     todos: { total: 2, pending: 1 },
     backend_connected: false,
     backend_health_url: null,
+    api_fallback: false,
+    api_fallback_since: null,
     model_locked: false,
     locked_slot: null,
     locked_model: null,
@@ -145,6 +147,7 @@ test("diagnoseStructuredFromText extracts the actionable maintenance hints", () 
     [
       "✅ model-tiers.json",
       "brain slot → keep brain stable",
+      "API fallback: active since 2026-06-11T00:00:00.000Z",
       "credit 82%",
       "❌ something else",
     ].join("\n"),
@@ -156,6 +159,7 @@ test("diagnoseStructuredFromText extracts the actionable maintenance hints", () 
   assert.deepEqual(payload.suggestions, ["brain slot → keep brain stable"])
   assert.equal(payload.files[0].path, "✅ model-tiers.json")
   assert.equal(payload.model_probes[0].slot, "brain slot → keep brain stable")
+  assert.equal(payload.api_fallback.active, true)
 })
 
 test("projectStructuredFromText captures route split and enforcement state", () => {

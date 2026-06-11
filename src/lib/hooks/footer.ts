@@ -6,7 +6,7 @@ import { latestUserIntent } from "./chat-transform.js"
 import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, loadOptimizationMode, classifyTurnSimple } from "../turn-classify.js"
 import { peekBudgetFirstMode, recordBudgetFirstOutcome } from "../mode-policy.js"
 import { saveReport } from "../reporting.js"
-import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, _modelLocked, _blackboxEnabled, _latestBlackboxState, writeSelection, reconcileStateFromLedger, safeJsonParse, loadTodos, loadBlackboxState, VIBEOS_HOME } from "../state.js"
+import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, getCurrentSessionId, _modelLocked, _blackboxEnabled, _latestBlackboxState, writeSelection, reconcileStateFromLedger, safeJsonParse, loadTodos, loadBlackboxState, VIBEOS_HOME } from "../state.js"
 import { loadSessionSlot, writeSessionSlot } from "../selection-manager.js"
 import { remoteCall, isApiConnected } from "../api-client.js"
 import { SAVE_EST } from "../constants.js"
@@ -76,7 +76,7 @@ function readLifetimeSavings() {
     reconcileStateFromLedger()
     const raw = readFileSync(STATE_FILE, "utf-8")
     const state = safeJsonParse(raw)
-    const ses = state?.sessions?.[(typeof _OC_SID !== "undefined" ? _OC_SID : "")] || {}
+    const ses = state?.sessions?.[getSessionId()] || {}
     return {
       ltTasks: roundUsd(state?.lifetime?.total_savings_usd || 0),
       ltCache: roundUsd(state?.lifetime?.cache_savings_usd || 0),
@@ -103,7 +103,9 @@ function readLifetimeSavings() {
   } catch { return { ltTasks: 0, ltCache: 0, ltCost: 0, count: 0, sesTasks: 0, sesCache: 0, sesTaskDelegations: 0, sesDuration: 0, sesRatePerHour: 0, sesTrend: "", sesToolBreakdown: {}, sesModelTurns: {}, quality_avg: 0 } }
 }
 
-let _OC_SID = "opencode-" + (process.pid || "x") + "-" + Date.now()
+function getSessionId() {
+  return getCurrentSessionId()
+}
 
 function scoreTaskQuality(outputText, promptText) {
   if (typeof outputText !== "string" || outputText.length === 0) return 0
@@ -125,7 +127,7 @@ function scoreTaskQuality(outputText, promptText) {
 function readRewardSignals() {
   try {
     const state = loadBlackboxState()
-    const session = state?.sessions?.[_OC_SID] || {}
+    const session = state?.sessions?.[getSessionId()] || {}
     const policy = session?.mode_policy || {}
     return {
       stableStreak: Math.max(0, Number(policy.stable_streak || 0)),
@@ -182,7 +184,8 @@ async function _appendFooter(input, output, directory) {
     const { ltTasks, ltCache, ltCost, count, sesTasks, sesEdit, sesCredit, sesC7, sesQuota, sesCache, sesTaskDelegations, sesDuration, sesRatePerHour, sesTrend, sesToolBreakdown, sesModelTurns, quality_avg } = readLifetimeSavings()
     const { stableStreak, problemStreak } = readRewardSignals()
 
-    const sessionSlot = loadBlackboxState()?.sessions?.[_OC_SID]?.active_slot || loadSessionSlot(_OC_SID)
+    const sid = getSessionId()
+    const sessionSlot = loadBlackboxState()?.sessions?.[sid]?.active_slot || loadSessionSlot(sid)
     const slot = sessionSlot || loadSelection().active_slot || "brain"
     const brainModel = slot === "brain" ? (TRINITY_BRAIN || currentModel) : slot === "medium" ? (TRINITY_MEDIUM || currentModel) : (TRINITY_CHEAP || currentModel || "")
     let liveModel = ""
@@ -215,7 +218,7 @@ async function _appendFooter(input, output, directory) {
           type: "session",
           summary: "Session cost: $" + formatUsd(ltCost) + " | cache saved: $" + formatUsd(ltCache) + " | delegation saved: $" + formatUsd(Number(sesTasks || 0)) + " | task delegations: " + Number(sesTaskDelegations || 0),
           metrics: {
-            sessionId: _OC_SID,
+            sessionId: sid,
             projectFingerprint: currentProjectFingerprint || "unknown",
             projectName: currentProjectName || "unknown",
             sessionCost: ltCost,
@@ -304,7 +307,7 @@ async function _appendFooter(input, output, directory) {
               mkdirSync(getVibeOSHome(), { recursive: true })
               appendFileSync(
                 join(getVibeOSHome(), "calibration-data.jsonl"),
-                JSON.stringify({ ts: new Date().toISOString(), event: "outcome", sid: _OC_SID, outcome: finalOutcome }) + "\n",
+                JSON.stringify({ ts: new Date().toISOString(), event: "outcome", sid: getSessionId(), outcome: finalOutcome }) + "\n",
               )
             } catch {}
           }

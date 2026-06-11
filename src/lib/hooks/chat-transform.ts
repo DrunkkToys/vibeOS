@@ -262,17 +262,20 @@ export function syncControlSettings(cv: any, options: { persistOptimizationMode?
     writeIf("enabled", true)
 
     const compatibilityMode = currentSel.onboarding_mode === "assist"
+    const flowManuallyDisabled = currentSel.flow_enabled === false && currentSel.flow_enforce === false
     writeIf("delegation_enforce", compatibilityMode ? cv.enforcement_mode === "strict" : cv.enforcement_mode !== "relaxed")
 
-    if (compatibilityMode) {
-      writeIf("flow_enabled", cv.flow_mode === "strict")
-      writeIf("flow_enforce", cv.flow_mode === "strict")
-    } else if (cv.flow_mode === "audit") {
-      writeIf("flow_enabled", true)
-      writeIf("flow_enforce", false)
-    } else {
-      writeIf("flow_enabled", true)
-      writeIf("flow_enforce", true)
+    if (!flowManuallyDisabled) {
+      if (compatibilityMode) {
+        writeIf("flow_enabled", cv.flow_mode === "strict")
+        writeIf("flow_enforce", cv.flow_mode === "strict")
+      } else if (cv.flow_mode === "audit") {
+        writeIf("flow_enabled", true)
+        writeIf("flow_enforce", false)
+      } else {
+        writeIf("flow_enabled", true)
+        writeIf("flow_enforce", true)
+      }
     }
 
     if (compatibilityMode) {

@@ -17,43 +17,43 @@ export function scoreStress(text) {
   for (const w of aggressive) {
     const re = new RegExp("\\b" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "gi")
     const hits = (t.match(re) || []).length
-    score += hits * 0.14
+    score += hits * 0.18
   }
 
-  const urgency = ["fix","now","fast","urgent","important","critical","hurry","immediately","asap"]
+  const urgency = ["fix","now","fast","urgent","important","critical","hurry","immediately","asap","stressed","stress","frustrated","overwhelmed","panic","panicked","anxious"]
   for (const w of urgency) {
     const re = new RegExp("\\b" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "gi")
     const hits = (t.match(re) || []).length
-    score += hits * 0.06
+    score += hits * 0.16
   }
 
   const negative = ["no","not","don't","can't","won't","doesn't","isn't","shouldn't","never","stop"]
   for (const w of negative) {
     const re = new RegExp("\\b" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "gi")
     const hits = (t.match(re) || []).length
-    score += hits * 0.04
+    score += hits * 0.06
   }
 
   const capsAcronyms = new Set(["ai","ui","api","cli","ssh","dns","http","url","json","xml","css","html","sql","csv","yaml","ide","tdd","pr","ci","cd","env","os","sdk","gui","crud","rest","crlf","utf","ascii"])
   const words = text.split(/\s+/)
   for (const w of words) {
     if (w.length >= 3 && /^[A-Z]+$/.test(w) && !capsAcronyms.has(w.toLowerCase())) {
-      score += 0.02
+      score += 0.05
     }
   }
 
   const exclamParts = text.match(/!{2,}/g)
-  if (exclamParts) score += exclamParts.length * 0.03
+  if (exclamParts) score += exclamParts.length * 0.08
 
   const qmarkParts = text.match(/\?{2,}/g)
-  if (qmarkParts) score += qmarkParts.length * 0.02
+  if (qmarkParts) score += qmarkParts.length * 0.05
 
   const qeCombos = text.match(/\?!|!\?/g)
-  if (qeCombos) score += qeCombos.length * 0.05
+  if (qeCombos) score += qeCombos.length * 0.1
 
-  if (text.length < 30) score += 0.05
-  else if (text.length < 80) score += 0.03
-  else if (text.length < 150) score += 0.01
+  if (text.length < 30) score += 0.06
+  else if (text.length < 80) score += 0.05
+  else if (text.length < 150) score += 0.03
 
   return Math.min(score, 0.95)
 }

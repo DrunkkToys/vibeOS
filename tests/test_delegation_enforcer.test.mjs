@@ -2415,6 +2415,33 @@ test("tool.execute.before: relative src/index.js write is blocked on the brain t
   assert.match(String(output.error || ""), /blocked direct write/i, "blocking reason surfaced")
 })
 
+test("tool.execute.after: blocked edit surfaces enforcement note instead of oldString error", async () => {
+  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+    trinity: {
+      brain: { oc: "deepseek/deepseek-v4-pro" },
+      medium: { oc: "deepseek/deepseek-v4-flash" },
+      cheap: { oc: "deepseek/deepseek-chat" },
+    },
+    selection: { enabled: true, active_slot: "brain", delegation_enforce: true },
+  }))
+  writeFileSync(join(sandbox, ".claude/credit-snapshot.json"), JSON.stringify({
+    total: 50,
+    providers: [],
+    ts: Date.now(),
+  }))
+  const { DelegationEnforcer } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-protect-edit")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-pro" }))
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+  const input = { tool: "edit", args: { filePath: "notes/plan.txt", oldString: "x", newString: "y" } }
+  const output = { error: "oldString not found", args: { filePath: "notes/plan.txt", oldString: "x", newString: "y" } }
+  await hooks["tool.execute.before"](input, output)
+  await hooks["tool.execute.after"](input, output)
+  assert.match(String(output.error || ""), /blocked by enforcement|delegation/i, "blocked edit shows enforcement note")
+  assert.doesNotMatch(String(output.error || ""), /oldString not found/i, "oldString error should be replaced")
+})
+
 // ════════════════════════════════════════════════════════════════════════════
 // NEW: Auto-save session reports every 5 messages
 // ════════════════════════════════════════════════════════════════════════════
@@ -2860,6 +2887,49 @@ test("trinity flow: enable/disable enforcement", async () => {
   assert.ok(status.includes("Flow: ON"), "flow enforce in status: " + status)
   const disable = await t.execute({ action: "flow", slot: "enforce", level: "off" })
   assert.ok(disable.includes("DISABLED") || disable.includes("OFF"), "flow enforce off: " + disable)
+  const flowOff = await t.execute({ action: "flow", slot: "off" })
+  assert.ok(flowOff.includes("DISABLED") || flowOff.includes("OFF"), "flow off: " + flowOff)
+  const sysOut = { system: [] }
+  await hooks["experimental.chat.system.transform"](
+    { message: { role: "user", content: "Please keep the flow enforcer off for this session." } },
+    sysOut
+  )
+  const status2 = await t.execute({ action: "status" })
+  assert.ok(status2.includes("Flow: OFF"), "flow off persists in status after sync: " + status2)
+})
+
+test("trinity enforce: off status stays consistent with compatibility mode", async () => {
+  const { DelegationEnforcer } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-enforce-status")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "haiku" }))
+  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+    trinity: { brain: { oc: "haiku" } },
+    selection: { enabled: true, delegation_enforce: false, onboarding_mode: "assist" },
+  }))
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+  const t = hooks.tool.trinity
+  const status = await t.execute({ action: "status" })
+  assert.ok(status.includes("Enforce: OFF (compatibility)") || status.includes("Enforce: OFF"), "status shows compatibility off: " + status)
+})
+
+test("trinity mode: balanced, audit, and forensic are accepted", async () => {
+  const { DelegationEnforcer } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-mode-accept")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "haiku" }))
+  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+    trinity: { brain: { oc: "haiku" } },
+    selection: { enabled: true, active_slot: "brain" },
+  }))
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+  const t = hooks.tool.trinity
+  const balanced = await t.execute({ action: "mode", slot: "balanced" })
+  const audit = await t.execute({ action: "mode", slot: "audit" })
+  const forensic = await t.execute({ action: "mode", slot: "forensic" })
+  assert.ok(balanced.includes("Mode set") || balanced.includes("BALANCED"), "balanced mode accepted: " + balanced)
+  assert.ok(audit.includes("Mode set") || audit.includes("AUDIT"), "audit mode accepted: " + audit)
+  assert.ok(forensic.includes("Mode set") || forensic.includes("FORENSIC"), "forensic mode accepted: " + forensic)
 })
 
 test("trinity tdd: audit shows stats", async () => {
@@ -3212,4 +3282,3 @@ test("cascade: system.transform recovers after explicit flow_enabled: false", as
   // Verify anti-fabrication is always injected regardless of flow state
   assert.ok(out.system.some(s => s.includes("anti-fabrication")), "anti-fabrication injected despite flow being off")
 })
-
