@@ -813,19 +813,28 @@ export async function remoteCall(method, args, fallbackFn) {
     const client = getApiClient()
     if (!client) { if (fallbackFn) return fallbackFn(); return null }
     const result = await client[method](...args)
+    if (_apiFallbackMode) {
+      _apiFallbackMode = false
+      _apiFallbackSince = null
+      console.warn(`[vibeOS] API reconnected — ${method} OK`)
+    }
     _apiFallbackMode = false
     _apiFallbackSince = null
     markApiConnected()
     return result
   } catch (err) {
+    const status = err?.statusCode || err?.status || 0
+    const body = err?.response?.body || err?.body || ""
+    const bodyPreview = typeof body === "string" ? body.substring(0, 120) : String(body).substring(0, 120)
+    const detail = status ? `status=${status} body=${bodyPreview}` : `message=${err?.message || err}`
     if (!_apiFallbackMode) {
       _apiFallbackMode = true
       _apiFallbackSince = new Date().toISOString()
-      console.error(`[vibeOS] API fallback activated: ${err.message}`)
+      console.error(`[vibeOS] API fallback activated (${method}): ${detail}`)
     }
     markApiDisconnected()
     if (fallbackFn) {
-      try { return fallbackFn() } catch (fe) { console.error(`[vibeOS] fallback also failed: ${fe.message}`) }
+      try { return fallbackFn() } catch (fe) { console.error(`[vibeOS] fallback also failed: ${fe?.message || fe}`) }
     }
     return null
   }

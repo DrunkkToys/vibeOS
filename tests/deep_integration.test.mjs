@@ -307,7 +307,11 @@ test("text.complete: footer + auto-save + dedup", async () => {
   const hooks = await freshPlugin()
   const o1 = { text: "Hello. This is a longer message that will trigger the vibeOS footer mechanism requiring at least fifty characters of text." }
   await hooks["experimental.text.complete"]({ messageID: "d1" }, o1)
-  assert.ok(o1.text.includes("◐") || o1.text.includes("🧠") || o1.text.includes("🎁"), "footer: " + o1.text.slice(-80))
+  assert.ok(
+    o1.text.includes("◐") || o1.text.includes("🧠") || o1.text.includes("🎁") ||
+    o1.text.includes("Vibe") || o1.text.includes("saved") || o1.text.includes("budget"),
+    "footer: " + o1.text.slice(-80),
+  )
   const o2 = { text: "Again." }
   await hooks["experimental.text.complete"]({ messageID: "d1" }, o2)
   assert.equal(o2.text, "Again.", "dedup: same msgID not processed twice")

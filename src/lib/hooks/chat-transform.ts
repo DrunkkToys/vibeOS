@@ -333,9 +333,13 @@ export function syncControlSettings(cv: any, options: { persistOptimizationMode?
       const canRestorePrevious = !!restoreMode && cv.optimization_mode !== "vibelitex" && (previousOptMode !== null || sessionPreviousOptMode !== null)
 
       if (fallbackPinned) {
-        if (currentSel.optimization_mode !== "vibelitex") {
-          writeIf("previous_optimization_mode", currentSel.optimization_mode)
-          writeSessionOptMode(prevSessionKey, currentSel.optimization_mode || "")
+        const snapshotMode =
+          currentSel.optimization_mode && currentSel.optimization_mode !== "vibelitex"
+            ? currentSel.optimization_mode
+            : previousOptMode || sessionPreviousOptMode || inferredRecoveryMode
+        if (snapshotMode && snapshotMode !== "vibelitex") {
+          writeIf("previous_optimization_mode", snapshotMode)
+          writeSessionOptMode(prevSessionKey, snapshotMode)
         }
       } else if (canRestorePrevious) {
         writeIf("optimization_mode", restoreMode)

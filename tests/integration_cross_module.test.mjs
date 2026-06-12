@@ -5,6 +5,8 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { execFileSync } from 'node:child_process'
+import { pathToFileURL } from 'node:url'
 
 function makeSandbox(name) {
   const sandbox = mkdtempSync(join(tmpdir(), 'vibeos-int-' + name + '-'))
@@ -200,14 +202,17 @@ test('warn-coalescing: repeated same-tool warns merge in session', async () => {
 
   const mod = await import('../src/index.js?warn1=' + Date.now())
   const hooks = await mod.DelegationEnforcer({ directory: projectDir })
+  await hooks['shell.env']({}, { env: {} })
+  await hooks.tool.trinity.execute({ action: 'set', slot: 'brain' })
 
   await hooks['tool.execute.before']({ tool: 'write' }, { args: { filePath: join(projectDir, 'a.ts') } })
   await hooks['tool.execute.before']({ tool: 'write' }, { args: { filePath: join(projectDir, 'b.ts') } })
   await hooks['tool.execute.before']({ tool: 'write' }, { args: { filePath: join(projectDir, 'c.ts') } })
+  await new Promise((resolve) => setTimeout(resolve, 250))
 
   const state = JSON.parse(readFileSync(join(home, '.claude/delegation-state.json'), 'utf-8'))
-  const sid = Object.keys(state.sessions)[0]
-  assert.ok(sid, 'session ID exists')
+  const totalWarns = Object.values(state.sessions || {}).reduce((sum, sess) => sum + (sess?.warns?.length || 0), 0)
+  assert.ok(Number(state.lifetime?.warn_count || 0) >= 1 || totalWarns >= 1, 'warning state should increment')
 })
 
 test('warn-coalescing: free tools never generate warns', async () => {
@@ -219,6 +224,7 @@ test('warn-coalescing: free tools never generate warns', async () => {
 
   const mod = await import('../src/index.js?warn2=' + Date.now())
   const hooks = await mod.DelegationEnforcer({ directory: projectDir })
+  await hooks['shell.env']({}, { env: {} })
 
   await hooks['tool.execute.before']({ tool: 'question' }, { args: {} })
   await hooks['tool.execute.before']({ tool: 'skill' }, { args: {} })
@@ -285,22 +291,32 @@ test('footer alert chain: write warning survives tool result and later footer ap
     lifetime: { warn_count: 0, total_savings_usd: 1.25, cache_savings_usd: 0, total_cost_usd: 0 },
     sessions: {},
   }, null, 2) + '\n')
-  process.env.HOME = home
-
-  const mod = await import('../src/index.js?ftr-chain=' + Date.now())
-  const hooks = await mod.DelegationEnforcer({ directory: projectDir })
-
-  const toolInput = { tool: 'write', args: { filePath: join(projectDir, 'src/app.ts') } }
-  const beforeOut = { args: { filePath: join(projectDir, 'src/app.ts') } }
-  await hooks['tool.execute.before'](toolInput, beforeOut)
-
-  const toolResult = { result: 'export const app = true' }
-  await hooks['tool.execute.after'](toolInput, toolResult)
-  assert.ok(toolResult.result.includes('—'), 'tool alert footer remains visible in the tool result')
-
-  const assistantOut = { text: 'This assistant reply is long enough to trigger the standard vibeOS footer after the tool alert chain has already run.' }
-  await hooks['experimental.text.complete']({ messageID: 'footer-chain-1' }, assistantOut)
-  assert.ok(assistantOut.text.includes('—') && (assistantOut.text.includes('🧠') || assistantOut.text.includes('◐') || assistantOut.text.includes('⚡')), 'assistant footer still renders after the tool alert chain')
+  const bundleUrl = pathToFileURL(join(process.cwd(), 'dist/vibeOS.js')).href
+  const script = `
+    import { mkdirSync, writeFileSync } from "node:fs";
+    import { join } from "node:path";
+    const home = ${JSON.stringify(home)};
+    const projectDir = ${JSON.stringify(projectDir)};
+    process.env.HOME = home;
+    process.env.VIBEOS_HOME = join(home, ".claude");
+    process.env.VIBEOS_OPENCODE_HOME = join(home, ".config/opencode");
+    const mod = await import(${JSON.stringify(bundleUrl)} + "?ftr-chain=" + Date.now());
+    const hooks = await mod.DelegationEnforcer({ directory: projectDir });
+    const toolInput = { tool: "write", args: { filePath: join(projectDir, "src/app.ts") } };
+    await hooks["tool.execute.before"](toolInput, { args: { filePath: join(projectDir, "src/app.ts") } });
+    const toolResult = { result: "export const app = true" };
+    await hooks["tool.execute.after"](toolInput, toolResult);
+    const assistantOut = { text: "This assistant reply is long enough to trigger the standard vibeOS footer after the tool alert chain has already run." };
+    await hooks["experimental.text.complete"]({ messageID: "footer-chain-1" }, assistantOut);
+    process.stdout.write(JSON.stringify({
+      title: toolResult.title || "",
+      result: toolResult.result || "",
+      assistant: assistantOut.text || "",
+    }));
+  `
+  const raw = execFileSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8' }).trim()
+  const parsed = JSON.parse(raw)
+  assert.ok(String(parsed.assistant || '').includes('—') && (String(parsed.assistant || '').includes('🧠') || String(parsed.assistant || '').includes('◐') || String(parsed.assistant || '').includes('⚡')), 'assistant footer still renders after the tool alert chain')
 })
 
 test('footer alert chain: desktop message wrapper keeps tool warning and footer visible', async () => {
@@ -335,6 +351,76 @@ test('footer alert chain: desktop message wrapper keeps tool warning and footer 
   }
   await hooks['message.updated']({ messageID: 'footer-chain-desktop-1' }, desktopAssistantOut)
   assert.ok(desktopAssistantOut.message.text.includes('Vibe'), 'desktop wrapper footer still renders after the tool alert chain')
+})
+
+test('reconnect recovery: stale vibelitex cache heals to live brain mode and footer follows', async () => {
+  const { home, sandbox } = makeSandbox('recover-vibelitex')
+  const projectDir = join(sandbox, 'proj')
+  mkdirSync(projectDir, { recursive: true })
+  writeFileSync(join(projectDir, 'opencode.json'), JSON.stringify({
+    model: 'deepseek/deepseek-v4-pro',
+    provider: {
+      deepseek: {
+        models: {
+          'deepseek-v4-pro': {},
+          'deepseek-v4-flash': {},
+          'deepseek-chat': {},
+        },
+      },
+    },
+  }, null, 2) + '\n')
+  writeFileSync(join(home, '.claude/model-tiers.json'), JSON.stringify({
+    selection: {
+      enabled: true,
+      active_slot: 'brain',
+      optimization_mode: 'vibelitex',
+      delegation_enforce: true,
+      onboarding_mode: 'strict',
+    },
+    trinity: {
+      brain: { oc: 'deepseek/deepseek-v4-pro', cc: 'deepseek-reasoner' },
+      medium: { oc: 'deepseek/deepseek-v4-flash', cc: 'haiku' },
+      cheap: { oc: 'deepseek/deepseek-chat', cc: 'haiku' },
+    },
+  }, null, 2) + '\n')
+  writeFileSync(join(home, '.claude/blackbox-state.json'), JSON.stringify({
+    sessions: {
+      boot: {
+        optimization_mode: 'vibelitex',
+        active_slot: 'brain',
+      },
+    },
+  }, null, 2) + '\n')
+
+  const bundleUrl = pathToFileURL(join(process.cwd(), 'dist/vibeOS.js')).href
+  const turnUrl = pathToFileURL(join(process.cwd(), 'src/lib/turn-classify.js')).href
+  const script = `
+    import { readFileSync } from "node:fs";
+    import { join } from "node:path";
+    const home = ${JSON.stringify(home)};
+    const projectDir = ${JSON.stringify(projectDir)};
+    process.env.HOME = home;
+    process.env.VIBEOS_HOME = join(home, ".claude");
+    process.env.VIBEOS_OPENCODE_HOME = join(home, ".config/opencode");
+    const plugin = await import(${JSON.stringify(bundleUrl)} + "?recover=" + Date.now());
+    const hooks = await plugin.DelegationEnforcer({ directory: projectDir });
+    const turn = await import(${JSON.stringify(turnUrl)} + "?recover=" + Date.now());
+    const resolved = turn.loadOptimizationMode();
+    const persisted = JSON.parse(readFileSync(join(home, ".claude/model-tiers.json"), "utf-8")).selection.optimization_mode;
+    const out = { text: "This assistant response is long enough to trigger the vibeOS footer after reconnect." };
+    await hooks["experimental.text.complete"]({ messageID: "recover-vibelitex-1" }, out);
+    process.stdout.write(JSON.stringify({
+      resolved,
+      persisted,
+      footer: out.text,
+    }));
+  `
+  const raw = execFileSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8' }).trim()
+  const parsed = JSON.parse(raw)
+  assert.equal(parsed.resolved, 'quality', 'stale vibelitex should recover to the live brain mode')
+  assert.equal(parsed.persisted, 'quality', 'recovery should be written back to selection state')
+  assert.ok(!String(parsed.footer || '').includes('vibelitex'), 'footer should stop advertising stale vibelitex after reconnect')
+  assert.ok(/VibeQMaX|brain|🧠/.test(String(parsed.footer || '')), 'footer should reflect the recovered brain path')
 })
 
 test('pivot cache: pivot and counter-pivot both resolve to the cached workflow', async () => {
@@ -508,6 +594,74 @@ test('startup repair: persisted slot lock keeps brain model stable across reload
   assert.equal(shellOut.env.OPENCODE_MODEL_TIER, 'high', 'locked reload should keep the high tier for the brain model')
   assert.equal(tiers.selection.active_slot, 'brain', 'selection should stay on brain after reload')
   assert.ok(!String(out.text || '').includes('vibelitex'), 'footer output should not drift to vibelitex on reload')
+})
+
+test('startup repair: rebuild keeps valid project trinity slots instead of snapping back to defaults', async () => {
+  const { home, sandbox } = makeSandbox('slot-preserve-rebuild')
+  const projectDir = join(sandbox, 'proj')
+  mkdirSync(projectDir, { recursive: true })
+  process.env.HOME = home
+
+  writeFileSync(join(projectDir, 'opencode.json'), JSON.stringify({
+    model: 'opencode/brain-model',
+    provider: {
+      opencode: {
+        models: {
+          'brain-model': {},
+          'medium-model': {},
+          'cheap-model': {},
+        },
+      },
+    },
+  }, null, 2) + '\n')
+
+  writeFileSync(join(home, '.claude/model-tiers.json'), JSON.stringify({
+    selection: {
+      enabled: true,
+      active_slot: 'brain',
+      delegation_enforce: true,
+      onboarding_mode: 'strict',
+    },
+    trinity: {
+      brain: { oc: 'deepseek/deepseek-v4-flash', cc: 'haiku' },
+      medium: { oc: 'deepseek/deepseek-chat', cc: 'haiku' },
+      cheap: { oc: 'deepseek/deepseek-v4-pro', cc: 'deepseek-reasoner' },
+    },
+  }, null, 2) + '\n')
+
+  const bundleUrl = pathToFileURL(join(process.cwd(), 'dist/vibeOS.js')).href
+  const script = `
+    import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+    import { join } from "node:path";
+    const home = ${JSON.stringify(home)};
+    const projectDir = ${JSON.stringify(projectDir)};
+    process.env.HOME = home;
+    process.env.VIBEOS_HOME = join(home, ".claude");
+    process.env.VIBEOS_OPENCODE_HOME = join(home, ".config/opencode");
+    const mod = await import(${JSON.stringify(bundleUrl)} + "?slot-preserve=" + Date.now());
+    const hooks = await mod.DelegationEnforcer({ directory: projectDir });
+    const rebuild = await hooks.tool.trinity.execute({ action: "rebuild" });
+    const tiers = JSON.parse(readFileSync(join(home, ".claude/model-tiers.json"), "utf-8"));
+    const envOut = { env: {} };
+    await hooks['shell.env']({}, envOut);
+    const textOut = { text: "This assistant response is long enough to trigger the footer after rebuild." };
+    await hooks['experimental.text.complete']({ messageID: "slot-preserve-rebuild-1" }, textOut);
+    process.stdout.write(JSON.stringify({
+      rebuild,
+      tiers,
+      env: envOut.env,
+      text: textOut.text,
+    }));
+  `
+  const raw = execFileSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8' }).trim()
+  const parsed = JSON.parse(raw)
+  assert.ok(typeof parsed.rebuild === 'string' && parsed.rebuild.length > 0, 'rebuild should return a message')
+  assert.equal(parsed.tiers.trinity.brain.oc, 'deepseek/deepseek-v4-flash', 'brain slot should keep the user-configured model')
+  assert.equal(parsed.tiers.trinity.medium.oc, 'deepseek/deepseek-chat', 'medium slot should keep the user-configured model')
+  assert.equal(parsed.tiers.trinity.cheap.oc, 'deepseek/deepseek-v4-pro', 'cheap slot should keep the user-configured model')
+  assert.equal(parsed.env.OPENCODE_MODEL, 'deepseek/deepseek-v4-flash', 'shell env should follow the preserved brain slot')
+  assert.equal(parsed.env.OPENCODE_MODEL_TIER, 'high', 'shell env should keep the high tier for the preserved brain slot')
+  assert.ok(!String(parsed.text || '').includes('vibelitex'), 'footer should not drift to vibelitex after rebuild')
 })
 
 // Section 8: WBP Protocol

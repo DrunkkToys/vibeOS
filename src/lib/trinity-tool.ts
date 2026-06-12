@@ -50,6 +50,13 @@ export function createTrinityTool(deps) {
       if (typeof deps._lazyRefresh === "function") deps._lazyRefresh()
       if (!action) action = "status"
       if (["brain", "medium", "cheap"].includes(action)) { slot = action; action = "set" }
+      const keepExistingTrinitySlot = (existingSlot: any, nextModel: string) => {
+        const currentOc = String(existingSlot?.oc || "").trim()
+        if (currentOc && !/placeholder/i.test(currentOc) && !/^[^/]+\/[a-z-]+-model$/i.test(currentOc)) {
+          return { ...existingSlot, cc: existingSlot?.cc || deps.modelToCcAlias(currentOc) }
+        }
+        return { oc: nextModel, cc: deps.modelToCcAlias(nextModel) }
+      }
       const _brandedModeIds = ["vibeultrax", "vibeqmax", "vibemax", "vibelitex"]
       const _builtInModeIds = ["budget", "quality", "speed", "longrun", "auto", "balanced", "audit", "forensic"]
       if (!action || action === "status") {
@@ -73,7 +80,9 @@ export function createTrinityTool(deps) {
         const fallbackModelGuard = currentProvider === "opencode" && selectedProvider !== "opencode"
         if (deps.currentModel && sel.selected_model && deps.currentModel !== sel.selected_model && !apiFallbackActive && !fallbackModelGuard) {
           try {
-            const providers = deps._loadOpenCodeProviders()
+            const providers = typeof deps._loadOpenCodeProviders === "function"
+              ? deps._loadOpenCodeProviders(deps.directory)
+              : {}
             const auth = deps._readAuth()
             const models = await deps.discoverAvailableModels(providers, auth)
             const trinity = buildDeterministicTrinity(models, { selectedModelId: deps.currentModel })
@@ -91,13 +100,7 @@ export function createTrinityTool(deps) {
               const slots = ["brain", "medium", "cheap"] as const
               for (const s of slots) {
                 const autoModel = probed[s].id
-                const oldModel = oldTiers[s]?.oc || ""
-                const oldModelProvider = oldModel.includes("/") ? oldModel.split("/")[0] : ""
-                if (oldModelProvider && oldModelProvider !== oldProvider && oldModelProvider !== newProvider) {
-                  tiersData.trinity[s] = oldTiers[s]
-                } else {
-                  tiersData.trinity[s] = { oc: autoModel, cc: deps.modelToCcAlias(autoModel) }
-                }
+                tiersData.trinity[s] = keepExistingTrinitySlot(oldTiers[s], autoModel)
               }
               tiersData.selection ??= {}
               tiersData.selection.selected_provider = trinity.provider || resolveExecutionIdentity(deps.currentModel, deps.directory)?.provider || ""
@@ -451,7 +454,9 @@ export function createTrinityTool(deps) {
         const existing = deps.existsSync(deps.TIERS_FILE)
           ? (deps.safeJsonParse(deps.readFileSync(deps.TIERS_FILE, "utf-8")) || {})
           : {}
-        const providers = typeof deps._loadOpenCodeProviders === "function" ? deps._loadOpenCodeProviders() : {}
+        const providers = typeof deps._loadOpenCodeProviders === "function"
+          ? deps._loadOpenCodeProviders(deps.directory)
+          : {}
         const auth = typeof deps._readAuth === "function" ? deps._readAuth() : {}
         let discovered = []
         try {
@@ -484,9 +489,9 @@ export function createTrinityTool(deps) {
         tiers.selection.executed_provider = tiers.selection.selected_provider
         tiers.selection.executed_quality_tier = tiers.selection.selected_quality_tier
         tiers.selection.executed_model = tiers.selection.selected_model
-        if (brain && existing?.trinity?.brain?.manual !== true) tiers.trinity.brain = { oc: brain, cc: deps.modelToCcAlias(brain) }
-        if (medium && existing?.trinity?.medium?.manual !== true) tiers.trinity.medium = { oc: medium, cc: deps.modelToCcAlias(medium) }
-        if (cheap && existing?.trinity?.cheap?.manual !== true) tiers.trinity.cheap = { oc: cheap, cc: deps.modelToCcAlias(cheap) }
+        if (brain) tiers.trinity.brain = keepExistingTrinitySlot(existing?.trinity?.brain, brain)
+        if (medium) tiers.trinity.medium = keepExistingTrinitySlot(existing?.trinity?.medium, medium)
+        if (cheap) tiers.trinity.cheap = keepExistingTrinitySlot(existing?.trinity?.cheap, cheap)
         deps.mkdirSync(dirname(deps.TIERS_FILE), { recursive: true })
         deps.writeFileSync(deps.TIERS_FILE, JSON.stringify(tiers, null, 2) + "\n")
         if (typeof deps._refreshModel === "function") deps._refreshModel(deps.directory)
@@ -807,7 +812,9 @@ export function createTrinityTool(deps) {
       }
 
       if (action === "rebuild") {
-        const providers = deps._loadOpenCodeProviders()
+        const providers = typeof deps._loadOpenCodeProviders === "function"
+          ? deps._loadOpenCodeProviders(deps.directory)
+          : {}
         const auth = deps._readAuth()
         const models = await deps.discoverAvailableModels(providers, auth)
         const selectedModel = deps.currentModel || deps.loadSelection?.().selected_model || deps.loadSelection?.().executed_model || ""
@@ -834,15 +841,9 @@ export function createTrinityTool(deps) {
           const tiers = deps.safeJsonParse(deps.readFileSync(deps.TIERS_FILE, "utf-8"))
           const existing = tiers.trinity || {}
           tiers.trinity = {
-            brain: existing.brain?.manual === true
-              ? { ...existing.brain }
-              : { oc: probed.brain.id, cc: deps.modelToCcAlias(probed.brain.id) },
-            medium: existing.medium?.manual === true
-              ? { ...existing.medium }
-              : { oc: probed.medium.id, cc: deps.modelToCcAlias(probed.medium.id) },
-            cheap: existing.cheap?.manual === true
-              ? { ...existing.cheap }
-              : { oc: probed.cheap.id, cc: deps.modelToCcAlias(probed.cheap.id) },
+            brain: keepExistingTrinitySlot(existing.brain, probed.brain.id),
+            medium: keepExistingTrinitySlot(existing.medium, probed.medium.id),
+            cheap: keepExistingTrinitySlot(existing.cheap, probed.cheap.id),
           }
           tiers.selection ??= {}
           tiers.selection.selected_provider = trinity.provider || resolveExecutionIdentity(selectedModel, deps.directory)?.provider || ""
@@ -924,7 +925,11 @@ export function createTrinityTool(deps) {
         } else if (deps.currentModel || !deps.existsSync(deps.TIERS_FILE)) {
           try {
             const auth = deps._readAuth()
-            const ok = await deps.probeModel(deps.currentModel, auth, deps._loadOpenCodeProviders())
+            const ok = await deps.probeModel(
+              deps.currentModel,
+              auth,
+              typeof deps._loadOpenCodeProviders === "function" ? deps._loadOpenCodeProviders(deps.directory) : {},
+            )
             results.push({
               ok, okLabel: ok ? "\u2705" : "\u274c",
               label: "model probe",

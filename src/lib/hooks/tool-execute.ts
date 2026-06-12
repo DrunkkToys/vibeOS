@@ -607,6 +607,7 @@ export const onToolExecuteBefore = async (input, output) => {
         }
         pendingUiNote = `[delegation] This is a good candidate for a Task subagent — ${resolveTierIcon("brain")} brain handles orchestration, let cheaper tiers do the write/edit. Switch to ${resolveTierIcon("medium")} medium with \`trinity medium\` if you'd rather do it directly.`
         enforcementBlocked = true
+        _mutateBlockedToolArgs(t, argSources, originalPath, output)
         if (shouldLogWarn(`${t}|enforced|${_tierWord}`)) console.error(`[vibeOS] [enforcement] BLOCKED direct ${t} on high tier → delegate via Task`)
         return
       }

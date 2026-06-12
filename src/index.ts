@@ -194,16 +194,17 @@ async function _seedOrRepairModelTiers(directory) {
   }
   const existingSelection = existing?.selection && typeof existing.selection === "object" ? existing.selection : {}
   const existingTrinity = existing?.trinity && typeof existing.trinity === "object" ? existing.trinity : {}
+  const keepExistingSlot = (slotRow: any, fallbackModel: string) => {
+    const currentOc = String(slotRow?.oc || "").trim()
+    if (currentOc && !PLACEHOLDER_RE.test(currentOc) && !/placeholder/i.test(currentOc)) {
+      return { ...slotRow, cc: slotRow?.cc || modelToCcAlias(currentOc) }
+    }
+    return { oc: fallbackModel, cc: modelToCcAlias(fallbackModel) }
+  }
   const nextTrinity = {
-    brain: existingTrinity.brain?.manual === true && String(existingTrinity.brain?.oc || "").trim() && !PLACEHOLDER_RE.test(String(existingTrinity.brain?.oc || ""))
-      ? { ...existingTrinity.brain, cc: existingTrinity.brain?.cc || modelToCcAlias(String(existingTrinity.brain?.oc || "")) }
-      : { oc: brain, cc: modelToCcAlias(brain) },
-    medium: existingTrinity.medium?.manual === true && String(existingTrinity.medium?.oc || "").trim() && !PLACEHOLDER_RE.test(String(existingTrinity.medium?.oc || ""))
-      ? { ...existingTrinity.medium, cc: existingTrinity.medium?.cc || modelToCcAlias(String(existingTrinity.medium?.oc || "")) }
-      : { oc: medium, cc: modelToCcAlias(medium) },
-    cheap: existingTrinity.cheap?.manual === true && String(existingTrinity.cheap?.oc || "").trim() && !PLACEHOLDER_RE.test(String(existingTrinity.cheap?.oc || ""))
-      ? { ...existingTrinity.cheap, cc: existingTrinity.cheap?.cc || modelToCcAlias(String(existingTrinity.cheap?.oc || "")) }
-      : { oc: cheap, cc: modelToCcAlias(cheap) },
+    brain: keepExistingSlot(existingTrinity.brain, brain),
+    medium: keepExistingSlot(existingTrinity.medium, medium),
+    cheap: keepExistingSlot(existingTrinity.cheap, cheap),
   }
   const activeSlot = ["brain", "medium", "cheap"].includes(String(existingSelection.active_slot || "").trim())
     ? String(existingSelection.active_slot)

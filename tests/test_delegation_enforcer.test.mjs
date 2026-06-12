@@ -145,7 +145,7 @@ test("slot switch updates tier even when model ID is unchanged", async () => {
   assert.equal(secondEnv.env.OPENCODE_MODEL_TIER, "high")
 })
 
-test("shell.env keeps model refresh logs silent while still reconciling config changes", async () => {
+test("shell.env keeps model refresh logs silent while preserving slot-selected model", async () => {
   const tiersPath = join(sandbox, ".claude/model-tiers.json")
   writeFileSync(tiersPath, JSON.stringify({
     trinity: {
@@ -173,13 +173,14 @@ test("shell.env keeps model refresh logs silent while still reconciling config c
     writeFileSync(configPath, JSON.stringify({ model: "deepseek/deepseek-v4-pro" }))
     const envOut = { env: {} }
     await hooks["shell.env"]({}, envOut)
-    assert.equal(envOut.env.OPENCODE_MODEL_TIER, "high")
+    assert.equal(envOut.env.OPENCODE_MODEL_TIER, "budget")
+    assert.equal(envOut.env.OPENCODE_MODEL, "deepseek/deepseek-chat")
   } finally {
     console.error = origError
   }
 
   assert.equal(errs.filter((line) => line.includes("[delegation]")).length, 0,
-    "delegation warnings stay out of stderr in normal mode")
+    "model refresh stays out of stderr in normal mode")
 })
 
 // ── tool.execute.before — memory mode ────────────────────────────────
