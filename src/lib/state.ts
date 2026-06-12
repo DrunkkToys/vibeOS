@@ -1375,7 +1375,8 @@ function promotedProjectPatterns(fp: string): any[] {
       for (const row of Object.values(rows || {})) {
         const r = row as any
         const sessions = new Set(r?.sessions || [])
-        if (sessions.size >= 3) out.push({ label, summary: r.summary, sessions: sessions.size, lastSeen: r.lastSeen || "" })
+        const minSessions = label === "routine" ? 2 : 3
+        if (sessions.size >= minSessions) out.push({ label, summary: r.summary, sessions: sessions.size, lastSeen: r.lastSeen || "" })
       }
     }
     collect(p?.userPatterns?.friction, "friction")
