@@ -335,6 +335,71 @@ test("syncControlSettings restores a stuck vibelitex optimization mode back to t
   }
 })
 
+test("loadOptimizationMode recovers vibelitex from live brain tier after boot", async () => {
+  const home = mkdtempSync(join(tmpdir(), "vib-opt-live-"))
+  try {
+    const script = `
+      import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
+      import { join } from "node:path";
+      const home = ${JSON.stringify(home)};
+      process.env.HOME = home;
+      process.env.VIBEOS_HOME = join(home, ".claude");
+      process.env.VIBEOS_OPENCODE_HOME = join(home, ".config/opencode");
+      mkdirSync(join(home, ".config/opencode"), { recursive: true });
+      mkdirSync(join(home, ".claude"), { recursive: true });
+      writeFileSync(join(home, ".config/opencode/opencode.json"), JSON.stringify({
+        model: "deepseek/deepseek-v4-pro",
+        provider: {
+          deepseek: {
+            models: {
+              "deepseek-v4-pro": {},
+              "deepseek-v4-flash": {},
+              "deepseek-chat": {},
+            },
+          },
+        },
+      }, null, 2));
+      writeFileSync(join(home, ".claude/model-tiers.json"), JSON.stringify({
+        selection: {
+          enabled: true,
+          active_slot: "brain",
+          optimization_mode: "vibelitex",
+          delegation_enforce: true,
+          onboarding_mode: "strict",
+        },
+        trinity: {
+          brain: { oc: "deepseek/deepseek-v4-pro", cc: "deepseek-reasoner" },
+          medium: { oc: "deepseek/deepseek-v4-flash", cc: "haiku" },
+          cheap: { oc: "deepseek/deepseek-chat", cc: "haiku" },
+        },
+      }, null, 2));
+      mkdirSync(join(home, "proj"), { recursive: true });
+      const mod = await import("./src/index.js");
+      const hooks = await mod.DelegationEnforcer({ client: {}, directory: ${JSON.stringify(join(home, "proj"))} });
+      const turn = await import("./src/lib/turn-classify.js");
+      const resolved = turn.loadOptimizationMode();
+      const tiers = JSON.parse(readFileSync(join(home, ".claude/model-tiers.json"), "utf8"));
+      const out = { text: "This assistant response is long enough to trigger the footer after a reconnect." };
+      await hooks["experimental.text.complete"]({ messageID: "live-vibelitex-recovery" }, out);
+      process.stdout.write(JSON.stringify({
+        resolved,
+        persisted: tiers.selection.optimization_mode,
+        footer: out.text,
+      }));
+    `;
+    const raw = execFileSync(process.execPath, ["--input-type=module", "-e", script], {
+      env: { ...process.env, HOME: home },
+      encoding: "utf8",
+    }).trim()
+    const result = JSON.parse(raw)
+    assert.equal(result.resolved, "quality", "live brain tier should recover the mode from vibelitex")
+    assert.equal(result.persisted, "quality", "recovered mode should be written back to selection state")
+    assert.ok(!String(result.footer || "").includes("vibelitex"), "footer should not display stale vibelitex after recovery")
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
 test("mergeRemoteControlVector preserves local agent_mode over remote control vector", async () => {
   const moduleUrl = pathToFileURL(join(process.cwd(), "dist-ts/lib/hooks/chat-transform.js")).href
   const mod = await import(moduleUrl + "?merge-agent=" + Date.now())

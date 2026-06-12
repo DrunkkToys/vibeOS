@@ -2348,22 +2348,31 @@ async function remoteCall(method, args, fallbackFn) {
       return null;
     }
     const result = await client2[method](...args);
+    if (_apiFallbackMode) {
+      _apiFallbackMode = false;
+      _apiFallbackSince = null;
+      console.warn(`[vibeOS] API reconnected \u2014 ${method} OK`);
+    }
     _apiFallbackMode = false;
     _apiFallbackSince = null;
     markApiConnected();
     return result;
   } catch (err) {
+    const status = err?.statusCode || err?.status || 0;
+    const body = err?.response?.body || err?.body || "";
+    const bodyPreview = typeof body === "string" ? body.substring(0, 120) : String(body).substring(0, 120);
+    const detail = status ? `status=${status} body=${bodyPreview}` : `message=${err?.message || err}`;
     if (!_apiFallbackMode) {
       _apiFallbackMode = true;
       _apiFallbackSince = (/* @__PURE__ */ new Date()).toISOString();
-      console.error(`[vibeOS] API fallback activated: ${err.message}`);
+      console.error(`[vibeOS] API fallback activated (${method}): ${detail}`);
     }
     markApiDisconnected();
     if (fallbackFn) {
       try {
         return fallbackFn();
       } catch (fe) {
-        console.error(`[vibeOS] fallback also failed: ${fe.message}`);
+        console.error(`[vibeOS] fallback also failed: ${fe?.message || fe}`);
       }
     }
     return null;
@@ -6147,32 +6156,35 @@ function _refreshModel(directory3) {
     }
     if (!(_modelLocked || sel.slot_locked === true)) {
       const activeIsManual = tiersData?.trinity?.[activeSlot]?.manual === true;
-      const cfgModel = activeIsManual ? "" : readConfig(directory3) || readConfig(getOpenCodeHome()) || "";
-      if (cfgModel && cfgModel.includes("/") && cfgModel !== currentModel) {
-        const oldModel = currentModel;
-        const oldTier = currentTier;
-        setCurrentModel(cfgModel);
-        setCurrentTier(classify(cfgModel));
-        if (DEBUG_INTERNALS)
-          console.error(`[vibeOS] model refresh (config): ${oldModel}(${oldTier}) \u2192 ${currentModel}(${currentTier})`);
-        try {
-          if (existsSync6(TIERS_FILE3)) {
-            withFileLock2(TIERS_FILE3, () => {
-              const t = safeJsonParse3(readFileSync5(TIERS_FILE3, "utf-8"));
-              for (const s of getTrinitySlotOrder(t)) {
-                if (t?.trinity?.[s]?.oc === cfgModel) {
-                  t.selection.active_slot = s;
-                  const _tmp = TIERS_FILE3 + ".tmp." + Date.now() + "." + Math.random().toString(36).slice(2, 8);
-                  writeFileSync5(_tmp, JSON.stringify(t, null, 2) + "\n", "utf-8");
-                  renameSync4(_tmp, TIERS_FILE3);
-                  if (DEBUG_INTERNALS)
-                    console.error(`[vibeOS] model refresh (config): synced active_slot \u2192 ${s}`);
-                  break;
+      const currentSlotModel = activeIsManual ? "" : slotOcModel;
+      if (!currentSlotModel) {
+        const cfgModel = readConfig(directory3) || readConfig(getOpenCodeHome()) || "";
+        if (cfgModel && cfgModel.includes("/") && cfgModel !== currentModel) {
+          const oldModel = currentModel;
+          const oldTier = currentTier;
+          setCurrentModel(cfgModel);
+          setCurrentTier(classify(cfgModel));
+          if (DEBUG_INTERNALS)
+            console.error(`[vibeOS] model refresh (config fallback): ${oldModel}(${oldTier}) \u2192 ${currentModel}(${currentTier})`);
+          try {
+            if (existsSync6(TIERS_FILE3)) {
+              withFileLock2(TIERS_FILE3, () => {
+                const t = safeJsonParse3(readFileSync5(TIERS_FILE3, "utf-8"));
+                for (const s of getTrinitySlotOrder(t)) {
+                  if (t?.trinity?.[s]?.oc === cfgModel) {
+                    t.selection.active_slot = s;
+                    const _tmp = TIERS_FILE3 + ".tmp." + Date.now() + "." + Math.random().toString(36).slice(2, 8);
+                    writeFileSync5(_tmp, JSON.stringify(t, null, 2) + "\n", "utf-8");
+                    renameSync4(_tmp, TIERS_FILE3);
+                    if (DEBUG_INTERNALS)
+                      console.error(`[vibeOS] model refresh (config fallback): synced active_slot \u2192 ${s}`);
+                    break;
+                  }
                 }
-              }
-            });
+              });
+            }
+          } catch {
           }
-        } catch {
         }
       }
     }
@@ -7283,15 +7295,33 @@ function recoverOptimizationModeFromSelection(sel) {
     return "budget";
   return "budget";
 }
+function recoverOptimizationModeFromLiveState(sel) {
+  const liveTier = String(currentTier || "").toLowerCase();
+  if (liveTier === "high")
+    return "quality";
+  if (liveTier === "mid")
+    return "vibemax";
+  if (liveTier === "cheap" || liveTier === "budget")
+    return "budget";
+  return recoverOptimizationModeFromSelection(sel);
+}
 function loadOptimizationMode() {
   try {
     const sel = loadSelection();
     const persistedMode = sel.optimization_mode || null;
-    if (persistedMode === "vibelitex") {
-      const prevKey = `${_OC_SID}_prev_opt`;
-      const sessionMode = loadSessionOptMode(_OC_SID);
-      const globalMode = loadGlobalOptMode();
-      const recoveryMode = sel.previous_optimization_mode || loadSessionOptMode(prevKey) || (sessionMode && sessionMode !== "vibelitex" ? sessionMode : "") || (globalMode && globalMode !== "vibelitex" ? globalMode : "") || recoverOptimizationModeFromSelection(sel);
+    const prevKey = `${_OC_SID}_prev_opt`;
+    const sessionMode = loadSessionOptMode(_OC_SID);
+    const globalMode = loadGlobalOptMode();
+    const liveRecovery = recoverOptimizationModeFromLiveState(sel);
+    const storedModes = [
+      persistedMode,
+      sel.previous_optimization_mode,
+      loadSessionOptMode(prevKey),
+      sessionMode,
+      globalMode
+    ].map((mode) => String(mode || "").toLowerCase());
+    if (storedModes.includes("vibelitex")) {
+      const recoveryMode = (sel.previous_optimization_mode && sel.previous_optimization_mode !== "vibelitex" ? sel.previous_optimization_mode : "") || loadSessionOptMode(prevKey) || (sessionMode && sessionMode !== "vibelitex" ? sessionMode : "") || (globalMode && globalMode !== "vibelitex" ? globalMode : "") || liveRecovery;
       if (recoveryMode && recoveryMode !== "vibelitex") {
         try {
           writeSelection("optimization_mode", recoveryMode);
@@ -7312,12 +7342,10 @@ function loadOptimizationMode() {
         return recoveryMode;
       }
     }
-    const mode = loadSessionOptMode(_OC_SID);
-    if (mode && mode !== "auto")
-      return mode;
-    const global = loadGlobalOptMode();
-    if (global && global !== "auto")
-      return global;
+    if (sessionMode && sessionMode !== "auto")
+      return sessionMode;
+    if (globalMode && globalMode !== "auto")
+      return globalMode;
     return DFLT_OPTIMIZATION_MODE;
   } catch {
     return DFLT_OPTIMIZATION_MODE;
@@ -8263,6 +8291,13 @@ function createTrinityTool(deps) {
         slot = action;
         action = "set";
       }
+      const keepExistingTrinitySlot = (existingSlot, nextModel) => {
+        const currentOc = String(existingSlot?.oc || "").trim();
+        if (currentOc && !/placeholder/i.test(currentOc) && !/^[^/]+\/[a-z-]+-model$/i.test(currentOc)) {
+          return { ...existingSlot, cc: existingSlot?.cc || deps.modelToCcAlias(currentOc) };
+        }
+        return { oc: nextModel, cc: deps.modelToCcAlias(nextModel) };
+      };
       const _brandedModeIds = ["vibeultrax", "vibeqmax", "vibemax", "vibelitex"];
       const _builtInModeIds = ["budget", "quality", "speed", "longrun", "auto", "balanced", "audit", "forensic"];
       if (!action || action === "status") {
@@ -8300,7 +8335,7 @@ function createTrinityTool(deps) {
         const fallbackModelGuard = currentProvider === "opencode" && selectedProvider !== "opencode";
         if (deps.currentModel && sel.selected_model && deps.currentModel !== sel.selected_model && !apiFallbackActive && !fallbackModelGuard) {
           try {
-            const providers = deps._loadOpenCodeProviders();
+            const providers = typeof deps._loadOpenCodeProviders === "function" ? deps._loadOpenCodeProviders(deps.directory) : {};
             const auth = deps._readAuth();
             const models = await deps.discoverAvailableModels(providers, auth);
             const trinity = buildDeterministicTrinity(models, { selectedModelId: deps.currentModel });
@@ -8318,13 +8353,7 @@ function createTrinityTool(deps) {
               const slots = ["brain", "medium", "cheap"];
               for (const s of slots) {
                 const autoModel = probed[s].id;
-                const oldModel = oldTiers[s]?.oc || "";
-                const oldModelProvider = oldModel.includes("/") ? oldModel.split("/")[0] : "";
-                if (oldModelProvider && oldModelProvider !== oldProvider && oldModelProvider !== newProvider) {
-                  tiersData.trinity[s] = oldTiers[s];
-                } else {
-                  tiersData.trinity[s] = { oc: autoModel, cc: deps.modelToCcAlias(autoModel) };
-                }
+                tiersData.trinity[s] = keepExistingTrinitySlot(oldTiers[s], autoModel);
               }
               tiersData.selection ??= {};
               tiersData.selection.selected_provider = trinity.provider || resolveExecutionIdentity(deps.currentModel, deps.directory)?.provider || "";
@@ -8672,7 +8701,7 @@ Lock is per-session (resets on restart).`;
       if (action === "setup") {
         const now = (/* @__PURE__ */ new Date()).toISOString();
         const existing = deps.existsSync(deps.TIERS_FILE) ? deps.safeJsonParse(deps.readFileSync(deps.TIERS_FILE, "utf-8")) || {} : {};
-        const providers = typeof deps._loadOpenCodeProviders === "function" ? deps._loadOpenCodeProviders() : {};
+        const providers = typeof deps._loadOpenCodeProviders === "function" ? deps._loadOpenCodeProviders(deps.directory) : {};
         const auth = typeof deps._readAuth === "function" ? deps._readAuth() : {};
         let discovered = [];
         try {
@@ -8706,12 +8735,12 @@ Lock is per-session (resets on restart).`;
         tiers.selection.executed_provider = tiers.selection.selected_provider;
         tiers.selection.executed_quality_tier = tiers.selection.selected_quality_tier;
         tiers.selection.executed_model = tiers.selection.selected_model;
-        if (brain && existing?.trinity?.brain?.manual !== true)
-          tiers.trinity.brain = { oc: brain, cc: deps.modelToCcAlias(brain) };
-        if (medium && existing?.trinity?.medium?.manual !== true)
-          tiers.trinity.medium = { oc: medium, cc: deps.modelToCcAlias(medium) };
-        if (cheap && existing?.trinity?.cheap?.manual !== true)
-          tiers.trinity.cheap = { oc: cheap, cc: deps.modelToCcAlias(cheap) };
+        if (brain)
+          tiers.trinity.brain = keepExistingTrinitySlot(existing?.trinity?.brain, brain);
+        if (medium)
+          tiers.trinity.medium = keepExistingTrinitySlot(existing?.trinity?.medium, medium);
+        if (cheap)
+          tiers.trinity.cheap = keepExistingTrinitySlot(existing?.trinity?.cheap, cheap);
         deps.mkdirSync(dirname9(deps.TIERS_FILE), { recursive: true });
         deps.writeFileSync(deps.TIERS_FILE, JSON.stringify(tiers, null, 2) + "\n");
         if (typeof deps._refreshModel === "function")
@@ -9063,7 +9092,7 @@ ${L.repeat(40)}`);
         return "[vibeOS] Alpha bootstrap token saved. Remote API will retry the exchange on the next call.";
       }
       if (action === "rebuild") {
-        const providers = deps._loadOpenCodeProviders();
+        const providers = typeof deps._loadOpenCodeProviders === "function" ? deps._loadOpenCodeProviders(deps.directory) : {};
         const auth = deps._readAuth();
         const models = await deps.discoverAvailableModels(providers, auth);
         const selectedModel = deps.currentModel || deps.loadSelection?.().selected_model || deps.loadSelection?.().executed_model || "";
@@ -9092,9 +9121,9 @@ ${L.repeat(40)}`);
           const tiers = deps.safeJsonParse(deps.readFileSync(deps.TIERS_FILE, "utf-8"));
           const existing = tiers.trinity || {};
           tiers.trinity = {
-            brain: existing.brain?.manual === true ? { ...existing.brain } : { oc: probed.brain.id, cc: deps.modelToCcAlias(probed.brain.id) },
-            medium: existing.medium?.manual === true ? { ...existing.medium } : { oc: probed.medium.id, cc: deps.modelToCcAlias(probed.medium.id) },
-            cheap: existing.cheap?.manual === true ? { ...existing.cheap } : { oc: probed.cheap.id, cc: deps.modelToCcAlias(probed.cheap.id) }
+            brain: keepExistingTrinitySlot(existing.brain, probed.brain.id),
+            medium: keepExistingTrinitySlot(existing.medium, probed.medium.id),
+            cheap: keepExistingTrinitySlot(existing.cheap, probed.cheap.id)
           };
           tiers.selection ??= {};
           tiers.selection.selected_provider = trinity.provider || resolveExecutionIdentity(selectedModel, deps.directory)?.provider || "";
@@ -9178,7 +9207,7 @@ ${L.repeat(40)}`);
         } else if (deps.currentModel || !deps.existsSync(deps.TIERS_FILE)) {
           try {
             const auth = deps._readAuth();
-            const ok = await deps.probeModel(deps.currentModel, auth, deps._loadOpenCodeProviders());
+            const ok = await deps.probeModel(deps.currentModel, auth, typeof deps._loadOpenCodeProviders === "function" ? deps._loadOpenCodeProviders(deps.directory) : {});
             results.push({
               ok,
               okLabel: ok ? "\u2705" : "\u274C",
@@ -10826,9 +10855,10 @@ function syncControlSettings(cv, options = {}) {
       const restoreMode = sessionPreviousOptMode || previousOptMode2 || inferredRecoveryMode;
       const canRestorePrevious = !!restoreMode && cv.optimization_mode !== "vibelitex" && (previousOptMode2 !== null || sessionPreviousOptMode !== null);
       if (fallbackPinned) {
-        if (currentSel.optimization_mode !== "vibelitex") {
-          writeIf("previous_optimization_mode", currentSel.optimization_mode);
-          writeSessionOptMode(prevSessionKey2, currentSel.optimization_mode || "");
+        const snapshotMode = currentSel.optimization_mode && currentSel.optimization_mode !== "vibelitex" ? currentSel.optimization_mode : previousOptMode2 || sessionPreviousOptMode || inferredRecoveryMode;
+        if (snapshotMode && snapshotMode !== "vibelitex") {
+          writeIf("previous_optimization_mode", snapshotMode);
+          writeSessionOptMode(prevSessionKey2, snapshotMode);
         }
       } else if (canRestorePrevious) {
         writeIf("optimization_mode", restoreMode);
@@ -14418,10 +14448,17 @@ async function _seedOrRepairModelTiers(directory3) {
   }
   const existingSelection = existing?.selection && typeof existing.selection === "object" ? existing.selection : {};
   const existingTrinity = existing?.trinity && typeof existing.trinity === "object" ? existing.trinity : {};
+  const keepExistingSlot = (slotRow, fallbackModel) => {
+    const currentOc = String(slotRow?.oc || "").trim();
+    if (currentOc && !PLACEHOLDER_RE.test(currentOc) && !/placeholder/i.test(currentOc)) {
+      return { ...slotRow, cc: slotRow?.cc || modelToCcAlias(currentOc) };
+    }
+    return { oc: fallbackModel, cc: modelToCcAlias(fallbackModel) };
+  };
   const nextTrinity = {
-    brain: existingTrinity.brain?.manual === true && String(existingTrinity.brain?.oc || "").trim() && !PLACEHOLDER_RE.test(String(existingTrinity.brain?.oc || "")) ? { ...existingTrinity.brain, cc: existingTrinity.brain?.cc || modelToCcAlias(String(existingTrinity.brain?.oc || "")) } : { oc: brain, cc: modelToCcAlias(brain) },
-    medium: existingTrinity.medium?.manual === true && String(existingTrinity.medium?.oc || "").trim() && !PLACEHOLDER_RE.test(String(existingTrinity.medium?.oc || "")) ? { ...existingTrinity.medium, cc: existingTrinity.medium?.cc || modelToCcAlias(String(existingTrinity.medium?.oc || "")) } : { oc: medium, cc: modelToCcAlias(medium) },
-    cheap: existingTrinity.cheap?.manual === true && String(existingTrinity.cheap?.oc || "").trim() && !PLACEHOLDER_RE.test(String(existingTrinity.cheap?.oc || "")) ? { ...existingTrinity.cheap, cc: existingTrinity.cheap?.cc || modelToCcAlias(String(existingTrinity.cheap?.oc || "")) } : { oc: cheap, cc: modelToCcAlias(cheap) }
+    brain: keepExistingSlot(existingTrinity.brain, brain),
+    medium: keepExistingSlot(existingTrinity.medium, medium),
+    cheap: keepExistingSlot(existingTrinity.cheap, cheap)
   };
   const activeSlot = ["brain", "medium", "cheap"].includes(String(existingSelection.active_slot || "").trim()) ? String(existingSelection.active_slot) : "brain";
   const tiers = {

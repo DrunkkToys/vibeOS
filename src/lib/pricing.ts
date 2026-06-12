@@ -1121,36 +1121,39 @@ export function _refreshModel(directory) {
         if (DEBUG_INTERNALS) console.error(`[vibeOS] auto-detected model: ${currentModel} (tier=${currentTier})`)
       }
     }
-    // Reconcile with the directory's opencode.json config.
-    // The trinity slot is authoritative UNLESS the directory config specifies a resolveable model.
-    // This prevents the bootstrap's default slot from overriding a project-local model choice.
-    // Manual slots (set via `trinity set <slot> <model>`) are always authoritative.
+    // Reconcile with the directory's opencode.json config only when the
+    // selected trinity slot is missing or placeholder-like. Existing trinity
+    // slots are treated as authoritative so user-defined brain/medium/cheap
+    // choices survive restarts and reinstall/repair cycles.
     if (!(_modelLocked || sel.slot_locked === true)) {
       const activeIsManual = tiersData?.trinity?.[activeSlot]?.manual === true
-      const cfgModel = activeIsManual ? "" : (readConfig(directory) || readConfig(getOpenCodeHome()) || "")
-      if (cfgModel && cfgModel.includes("/") && cfgModel !== currentModel) {
-        const oldModel = currentModel
-        const oldTier = currentTier
-        setCurrentModel(cfgModel)
-        setCurrentTier(classify(cfgModel))
-        if (DEBUG_INTERNALS) console.error(`[vibeOS] model refresh (config): ${oldModel}(${oldTier}) → ${currentModel}(${currentTier})`)
-        try {
-          if (existsSync(TIERS_FILE)) {
-            withFileLock(TIERS_FILE, () => {
-              const t = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
-              for (const s of getTrinitySlotOrder(t)) {
-                if (t?.trinity?.[s]?.oc === cfgModel) {
-                  t.selection.active_slot = s
-                  const _tmp = TIERS_FILE + ".tmp." + Date.now() + "." + Math.random().toString(36).slice(2, 8)
-                  writeFileSync(_tmp, JSON.stringify(t, null, 2) + "\n", "utf-8")
-                  renameSync(_tmp, TIERS_FILE)
-                  if (DEBUG_INTERNALS) console.error(`[vibeOS] model refresh (config): synced active_slot → ${s}`)
-                  break
+      const currentSlotModel = activeIsManual ? "" : slotOcModel
+      if (!currentSlotModel) {
+        const cfgModel = readConfig(directory) || readConfig(getOpenCodeHome()) || ""
+        if (cfgModel && cfgModel.includes("/") && cfgModel !== currentModel) {
+          const oldModel = currentModel
+          const oldTier = currentTier
+          setCurrentModel(cfgModel)
+          setCurrentTier(classify(cfgModel))
+          if (DEBUG_INTERNALS) console.error(`[vibeOS] model refresh (config fallback): ${oldModel}(${oldTier}) → ${currentModel}(${currentTier})`)
+          try {
+            if (existsSync(TIERS_FILE)) {
+              withFileLock(TIERS_FILE, () => {
+                const t = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
+                for (const s of getTrinitySlotOrder(t)) {
+                  if (t?.trinity?.[s]?.oc === cfgModel) {
+                    t.selection.active_slot = s
+                    const _tmp = TIERS_FILE + ".tmp." + Date.now() + "." + Math.random().toString(36).slice(2, 8)
+                    writeFileSync(_tmp, JSON.stringify(t, null, 2) + "\n", "utf-8")
+                    renameSync(_tmp, TIERS_FILE)
+                    if (DEBUG_INTERNALS) console.error(`[vibeOS] model refresh (config fallback): synced active_slot → ${s}`)
+                    break
+                  }
                 }
-              }
-            })
-          }
-        } catch {}
+              })
+            }
+          } catch {}
+        }
       }
     }
   } catch {}

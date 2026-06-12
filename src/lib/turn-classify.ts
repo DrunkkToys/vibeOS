@@ -5,7 +5,7 @@ import { join, dirname, basename } from "node:path"
 import { homedir, tmpdir } from "node:os"
 import { createHash } from "node:crypto"
 import { ResolutionTracker } from "../vibeOS-lib/blackbox/index.js"
-import { safeJsonParse, _blackboxEnabled, setBlackboxEnabled as _setGlobalBlackboxEnabled, USER_HOME, FILE_LOCK_DIR, DELEGATION_STATE_FILE as STATE_FILE, GLOBAL_LEARNING_FILE, BLACKBOX_STATE_FILE, PROJECT_STATE_FILE, _OC_SID, currentProjectFingerprint, setCurrentProjectFingerprint, _handleStateCorruption, _lockPathFor, withFileLock, readJsonOrEmpty, validateState, loadBlackboxState, saveBlackboxState, loadGlobalLearning, updateGlobalLearning, getLearnedExploratoryWords, projectFingerprint, loadProjectState, saveProjectState, detectTechStack, ensureProjectBucket, recordMissedContext7, VIBEOS_HOME } from "./state.js"
+import { safeJsonParse, _blackboxEnabled, setBlackboxEnabled as _setGlobalBlackboxEnabled, USER_HOME, FILE_LOCK_DIR, DELEGATION_STATE_FILE as STATE_FILE, GLOBAL_LEARNING_FILE, BLACKBOX_STATE_FILE, PROJECT_STATE_FILE, _OC_SID, currentProjectFingerprint, currentTier, setCurrentProjectFingerprint, _handleStateCorruption, _lockPathFor, withFileLock, readJsonOrEmpty, validateState, loadBlackboxState, saveBlackboxState, loadGlobalLearning, updateGlobalLearning, getLearnedExploratoryWords, projectFingerprint, loadProjectState, saveProjectState, detectTechStack, ensureProjectBucket, recordMissedContext7, VIBEOS_HOME } from "./state.js"
 import { loadSelection, loadSessionOptMode, loadGlobalOptMode, saveGlobalOptMode, writeSelection, writeSessionOptMode, loadSessionSlot } from "./selection-manager.js"
 import { getApiClient, isApiFallback } from "./api-client.js"
 import { scoreStress, estimateContextBudget, classifyTurnSimple as _classifyTurnSimple, tokenizeWords, topKeywords, extractLastUserText, isUserAskingForTests, isLikelyOffTopic, detectOutcomeSignal } from "./classifiers.js"
@@ -632,20 +632,36 @@ function recoverOptimizationModeFromSelection(sel: any): string {
   return "budget"
 }
 
+function recoverOptimizationModeFromLiveState(sel: any): string {
+  const liveTier = String(currentTier || "").toLowerCase()
+  if (liveTier === "high") return "quality"
+  if (liveTier === "mid") return "vibemax"
+  if (liveTier === "cheap" || liveTier === "budget") return "budget"
+  return recoverOptimizationModeFromSelection(sel)
+}
+
 export function loadOptimizationMode(): string {
   try {
     const sel = loadSelection()
     const persistedMode = sel.optimization_mode || null
-    if (persistedMode === "vibelitex") {
-      const prevKey = `${_OC_SID}_prev_opt`
-      const sessionMode = loadSessionOptMode(_OC_SID)
-      const globalMode = loadGlobalOptMode()
+    const prevKey = `${_OC_SID}_prev_opt`
+    const sessionMode = loadSessionOptMode(_OC_SID)
+    const globalMode = loadGlobalOptMode()
+    const liveRecovery = recoverOptimizationModeFromLiveState(sel)
+    const storedModes = [
+      persistedMode,
+      sel.previous_optimization_mode,
+      loadSessionOptMode(prevKey),
+      sessionMode,
+      globalMode,
+    ].map(mode => String(mode || "").toLowerCase())
+    if (storedModes.includes("vibelitex")) {
       const recoveryMode =
-        sel.previous_optimization_mode ||
+        (sel.previous_optimization_mode && sel.previous_optimization_mode !== "vibelitex" ? sel.previous_optimization_mode : "") ||
         loadSessionOptMode(prevKey) ||
         (sessionMode && sessionMode !== "vibelitex" ? sessionMode : "") ||
         (globalMode && globalMode !== "vibelitex" ? globalMode : "") ||
-        recoverOptimizationModeFromSelection(sel)
+        liveRecovery
       if (recoveryMode && recoveryMode !== "vibelitex") {
         try { writeSelection("optimization_mode", recoveryMode) } catch {}
         try { writeSelection("previous_optimization_mode", null) } catch {}
@@ -654,10 +670,8 @@ export function loadOptimizationMode(): string {
         return recoveryMode
       }
     }
-    const mode = loadSessionOptMode(_OC_SID)
-    if (mode && mode !== "auto") return mode
-    const global = loadGlobalOptMode()
-    if (global && global !== "auto") return global
+    if (sessionMode && sessionMode !== "auto") return sessionMode
+    if (globalMode && globalMode !== "auto") return globalMode
     return DFLT_OPTIMIZATION_MODE
   } catch { return DFLT_OPTIMIZATION_MODE }
 }
