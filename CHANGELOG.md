@@ -1,3 +1,7 @@
+## 0.24.30
+- fix: prefer trinity slot in footer
+
+
 ## 0.24.29
 - feat: promote data-backed experimental regimes (#158)
 - feat: promote data-backed experimental regimes
