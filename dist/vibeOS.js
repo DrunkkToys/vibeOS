@@ -14913,6 +14913,10 @@ var fp = "";
 var _mcpServerRuntime = null;
 var _mcpServerHooked = false;
 var _mcpServerStartupPromise = null;
+var _mcpServerRestartTimer = null;
+var _mcpServerShouldRun = false;
+var _mcpServerClosing = false;
+var _pluginHooksRuntime = null;
 var _deferredBootstrapDone = false;
 var _skillsEnsured = /* @__PURE__ */ new Set();
 var _runDeferredStartupBootstrap = null;
@@ -15139,6 +15143,223 @@ function persistMcpPort(port) {
     renameSync6(tmp, getTiersFile());
   } catch {
   }
+}
+function clearMcpRestartTimer() {
+  if (_mcpServerRestartTimer != null) {
+    clearTimeout(_mcpServerRestartTimer);
+    _mcpServerRestartTimer = null;
+  }
+}
+function scheduleMcpServerRestart() {
+  if (_mcpServerClosing || !_mcpServerShouldRun)
+    return;
+  if (_mcpServerRestartTimer != null)
+    return;
+  _mcpServerRestartTimer = setTimeout(() => {
+    _mcpServerRestartTimer = null;
+    void ensureMcpServerRunning();
+  }, 500);
+}
+function attachMcpServerWatchdog(server2) {
+  server2?.once?.("close", () => {
+    if (_mcpServerClosing)
+      return;
+    _mcpServerRuntime = null;
+    scheduleMcpServerRestart();
+  });
+  server2?.once?.("error", () => {
+    if (_mcpServerClosing)
+      return;
+    _mcpServerRuntime = null;
+    scheduleMcpServerRestart();
+  });
+}
+async function ensureMcpServerRunning() {
+  const port = loadMcpPort();
+  if (port === 0)
+    return null;
+  if (_mcpServerRuntime)
+    return _mcpServerRuntime;
+  if (_mcpServerStartupPromise)
+    return _mcpServerStartupPromise;
+  _mcpServerClosing = false;
+  _mcpServerShouldRun = true;
+  _mcpServerStartupPromise = Promise.resolve().then(async () => {
+    try {
+      if (!_mcpServerRuntime) {
+        _mcpServerRuntime = createMcpServer({
+          getState: () => ({
+            ...buildStatusPayload({
+              selection: loadSelection(),
+              tiersData: (() => {
+                try {
+                  return safeJsonParse3(readFileSync17(getTiersFile(), "utf-8"));
+                } catch {
+                  return {};
+                }
+              })(),
+              currentModel: currentModel || "",
+              creditPercent: loadCredit(),
+              version: readPackageVersion(),
+              todos: loadTodos(),
+              fallbackThinking: thinkingLevel(loadCredit()),
+              backendConnected: isApiConnected2(),
+              backendHealthUrl: `${VIBEOS_API_URL}/health`,
+              backendVersion: getBackendVersion(),
+              apiFallbackMode: isApiFallback2(),
+              apiFallbackSince: _apiFallbackSince2,
+              modelLocked: _modelLocked,
+              lockedSlot: _lockedSlot,
+              lockedModel: _lockedModel
+            }),
+            sessions_raw: readFullState()?.sessions || {}
+          }),
+          getSavings: () => buildSavingsPayload({
+            lifetime: readLifetimeSavings(),
+            session: readFullState()?.sessions?.[_OC_SID] || {}
+          }),
+          getSessionMetrics: () => computeSessionMetrics(readFullState(), _OC_SID),
+          getTodos: () => loadTodos(),
+          listReports: (filter) => {
+            if (!existsSync18(getReportsDir2())) {
+              const e = new Error("reports dir not found");
+              e.status = 404;
+              throw e;
+            }
+            return listReports(filter || {});
+          },
+          readReport: (rvId) => readReport(rvId),
+          runDiagnose: async () => {
+            const trinity = _pluginHooksRuntime?.tool?.trinity;
+            if (!trinity?.execute)
+              return { error: "trinity runtime unavailable" };
+            return diagnoseStructuredFromText(await trinity.execute({ action: "diagnose" }), loadCredit());
+          },
+          runProject: async () => {
+            const trinity = _pluginHooksRuntime?.tool?.trinity;
+            if (!trinity?.execute)
+              return { error: "trinity runtime unavailable" };
+            return projectStructuredFromText(await trinity.execute({ action: "project" }), loadSelection(), loadCredit());
+          },
+          runTrinity: async (rvAction, params = {}) => {
+            const trinity = _pluginHooksRuntime?.tool?.trinity;
+            if (!trinity?.execute)
+              return { error: "trinity runtime unavailable" };
+            return trinity.execute({ action: rvAction, slot: params.slot, level: params.level });
+          },
+          runResearchAudit: (hours) => researchAudit({ hours: hours ?? 24 }),
+          saveReport: (data) => saveReport(data),
+          getCurrentSessionId: () => _OC_SID,
+          generateSessionCheckout: () => {
+            const state = readFullState();
+            const metrics = computeSessionMetrics(state, _OC_SID);
+            const session = state?.sessions?.[_OC_SID] || {};
+            const flowWarns = getFlowWarns().filter((w) => String(w?.sid || "") === String(process.pid || ""));
+            const checkout = buildSessionCheckout({
+              sessionId: _OC_SID,
+              metrics,
+              session,
+              flowWarns
+            });
+            const reportId = saveReport(checkout.report);
+            return { ok: true, summary: checkout.summary, report_id: reportId };
+          },
+          getBlackboxState: () => {
+            const tracker = getBlackboxTracker();
+            const res = getBlackboxResolution();
+            return {
+              sub_regime: res?.sub_regime || _latestBlackboxState?.sub_regime || "INIT",
+              resolution: res?.resolution || "INIT",
+              momentum: res?.momentum ?? 0,
+              features: _latestBlackboxState?.features || {},
+              signals: _latestBlackboxState?.signals || {},
+              loop: {
+                active: _latestBlackboxLoopMsg !== null,
+                message: _latestBlackboxLoopMsg,
+                intervention_level: _latestBlackboxLoopMsg?.intervention_level || _latestBlackboxState?.loop?.intervention_level || 0,
+                consecutive_loops: _latestBlackboxState?.loop?.consecutive_loops || 0
+              },
+              pivot: {
+                detected: _latestBlackboxPivotMsg !== null,
+                message: _latestBlackboxPivotMsg
+              },
+              continuity_state: _latestBlackboxState?.continuity_state || null,
+              turn_index: _latestBlackboxState?.turn_index ?? 0,
+              stress_level: _latestBlackboxState?.stress_level ?? 0,
+              session_id: _OC_SID,
+              project_fingerprint: currentProjectFingerprint
+            };
+          },
+          saveBlackboxVector: (vector) => {
+            const state = loadBlackboxState() || {};
+            const sid = getCurrentSessionId() || _OC_SID;
+            if (!state.sessions)
+              state.sessions = {};
+            if (!state.sessions[sid])
+              state.sessions[sid] = {};
+            if (!state.sessions[sid].dashboard_vectors)
+              state.sessions[sid].dashboard_vectors = [];
+            state.sessions[sid].dashboard_vectors.push({
+              timestamp: Date.now(),
+              received_at: (/* @__PURE__ */ new Date()).toISOString(),
+              ...vector
+            });
+            saveBlackboxState(state);
+          },
+          saveBlackboxOutcome: (outcome) => {
+            const state = loadBlackboxState() || {};
+            const sid = getCurrentSessionId() || _OC_SID;
+            if (!state.sessions)
+              state.sessions = {};
+            if (!state.sessions[sid])
+              state.sessions[sid] = {};
+            if (!state.sessions[sid].dashboard_outcomes)
+              state.sessions[sid].dashboard_outcomes = [];
+            state.sessions[sid].dashboard_outcomes.push({
+              timestamp: Date.now(),
+              received_at: (/* @__PURE__ */ new Date()).toISOString(),
+              ...outcome
+            });
+            saveBlackboxState(state);
+          }
+        });
+      }
+      const mcpServer = await _mcpServerRuntime.start(port);
+      const actualPort = Number(mcpServer?.address?.()?.port || port);
+      if (actualPort && actualPort !== port)
+        persistMcpPort(actualPort);
+      console.error(`[vibeOS] MCP server on http://127.0.0.1:${actualPort}`);
+      if (actualPort)
+        console.error(`[vibeOS] Dashboard at http://127.0.0.1:${actualPort}/`);
+      if (!_mcpServerHooked) {
+        _mcpServerHooked = true;
+        process.on("SIGTERM", () => {
+          try {
+            _mcpServerRuntime?.close();
+          } catch {
+          }
+        });
+        process.on("SIGINT", () => {
+          try {
+            _mcpServerRuntime?.close();
+          } catch {
+          }
+        });
+      }
+      clearMcpRestartTimer();
+      attachMcpServerWatchdog(mcpServer);
+      return mcpServer;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err || "unknown error");
+      console.error(`[vibeOS] MCP startup failed: ${msg}`);
+      _mcpServerRuntime = null;
+      scheduleMcpServerRestart();
+      return null;
+    } finally {
+      _mcpServerStartupPromise = null;
+    }
+  });
+  return _mcpServerStartupPromise;
 }
 async function DelegationEnforcer({ client: client2, directory: directory3 } = {}) {
   console.error(`[vibeOS] LOADED cwd=${directory3}`);
@@ -15614,164 +15835,10 @@ ${report.narrative}`);
       })
     }
   };
+  _pluginHooksRuntime = pluginHooks;
   const _inTestEnv = process.env.VIBEOS_MCP_PORT === "0" || !client2 || Object.keys(client2 || {}).length === 0;
-  if (!_mcpServerStartupPromise && !_inTestEnv) {
-    _mcpServerStartupPromise = Promise.resolve().then(async () => {
-      try {
-        const port = loadMcpPort();
-        if (port === 0)
-          return;
-        if (!_mcpServerRuntime) {
-          _mcpServerRuntime = createMcpServer({
-            getState: () => ({
-              ...buildStatusPayload({
-                selection: loadSelection(),
-                tiersData: (() => {
-                  try {
-                    return safeJsonParse3(readFileSync17(getTiersFile(), "utf-8"));
-                  } catch {
-                    return {};
-                  }
-                })(),
-                currentModel: currentModel || "",
-                creditPercent: loadCredit(),
-                version: readPackageVersion(),
-                todos: loadTodos(),
-                fallbackThinking: thinkingLevel(loadCredit()),
-                backendConnected: isApiConnected2(),
-                backendHealthUrl: `${VIBEOS_API_URL}/health`,
-                backendVersion: getBackendVersion(),
-                apiFallbackMode: isApiFallback2(),
-                apiFallbackSince: _apiFallbackSince2,
-                modelLocked: _modelLocked,
-                lockedSlot: _lockedSlot,
-                lockedModel: _lockedModel
-              }),
-              sessions_raw: readFullState()?.sessions || {}
-            }),
-            getSavings: () => buildSavingsPayload({
-              lifetime: readLifetimeSavings(),
-              session: readFullState()?.sessions?.[_OC_SID] || {}
-            }),
-            getSessionMetrics: () => computeSessionMetrics(readFullState(), _OC_SID),
-            getTodos: () => loadTodos(),
-            listReports: (filter) => {
-              if (!existsSync18(getReportsDir2())) {
-                const e = new Error("reports dir not found");
-                e.status = 404;
-                throw e;
-              }
-              return listReports(filter || {});
-            },
-            readReport: (rvId) => readReport(rvId),
-            runDiagnose: async () => diagnoseStructuredFromText(await pluginHooks.tool.trinity.execute({ action: "diagnose" }), loadCredit()),
-            runProject: async () => projectStructuredFromText(await pluginHooks.tool.trinity.execute({ action: "project" }), loadSelection(), loadCredit()),
-            runTrinity: async (rvAction, params = {}) => pluginHooks.tool.trinity.execute({ action: rvAction, slot: params.slot, level: params.level }),
-            runResearchAudit: (hours) => researchAudit({ hours: hours ?? 24 }),
-            saveReport: (data) => saveReport(data),
-            getCurrentSessionId: () => _OC_SID,
-            generateSessionCheckout: () => {
-              const state = readFullState();
-              const metrics = computeSessionMetrics(state, _OC_SID);
-              const session = state?.sessions?.[_OC_SID] || {};
-              const flowWarns = getFlowWarns().filter((w) => String(w?.sid || "") === String(process.pid || ""));
-              const checkout = buildSessionCheckout({
-                sessionId: _OC_SID,
-                metrics,
-                session,
-                flowWarns
-              });
-              const reportId = saveReport(checkout.report);
-              return { ok: true, summary: checkout.summary, report_id: reportId };
-            },
-            getBlackboxState: () => {
-              const tracker = getBlackboxTracker();
-              const res = getBlackboxResolution();
-              return {
-                sub_regime: res?.sub_regime || _latestBlackboxState?.sub_regime || "INIT",
-                resolution: res?.resolution || "INIT",
-                momentum: res?.momentum ?? 0,
-                features: _latestBlackboxState?.features || {},
-                signals: _latestBlackboxState?.signals || {},
-                loop: {
-                  active: _latestBlackboxLoopMsg !== null,
-                  message: _latestBlackboxLoopMsg,
-                  intervention_level: _latestBlackboxLoopMsg?.intervention_level || _latestBlackboxState?.loop?.intervention_level || 0,
-                  consecutive_loops: _latestBlackboxState?.loop?.consecutive_loops || 0
-                },
-                pivot: {
-                  detected: _latestBlackboxPivotMsg !== null,
-                  message: _latestBlackboxPivotMsg
-                },
-                continuity_state: _latestBlackboxState?.continuity_state || null,
-                turn_index: _latestBlackboxState?.turn_index ?? 0,
-                stress_level: _latestBlackboxState?.stress_level ?? 0,
-                session_id: _OC_SID,
-                project_fingerprint: currentProjectFingerprint
-              };
-            },
-            saveBlackboxVector: (vector) => {
-              const state = loadBlackboxState() || {};
-              const sid = getCurrentSessionId() || _OC_SID;
-              if (!state.sessions)
-                state.sessions = {};
-              if (!state.sessions[sid])
-                state.sessions[sid] = {};
-              if (!state.sessions[sid].dashboard_vectors)
-                state.sessions[sid].dashboard_vectors = [];
-              state.sessions[sid].dashboard_vectors.push({
-                timestamp: Date.now(),
-                received_at: (/* @__PURE__ */ new Date()).toISOString(),
-                ...vector
-              });
-              saveBlackboxState(state);
-            },
-            saveBlackboxOutcome: (outcome) => {
-              const state = loadBlackboxState() || {};
-              const sid = getCurrentSessionId() || _OC_SID;
-              if (!state.sessions)
-                state.sessions = {};
-              if (!state.sessions[sid])
-                state.sessions[sid] = {};
-              if (!state.sessions[sid].dashboard_outcomes)
-                state.sessions[sid].dashboard_outcomes = [];
-              state.sessions[sid].dashboard_outcomes.push({
-                timestamp: Date.now(),
-                received_at: (/* @__PURE__ */ new Date()).toISOString(),
-                ...outcome
-              });
-              saveBlackboxState(state);
-            }
-          });
-        }
-        const mcpServer = await _mcpServerRuntime.start(port);
-        const actualPort = Number(mcpServer?.address?.()?.port || port);
-        if (actualPort && actualPort !== port)
-          persistMcpPort(actualPort);
-        console.error(`[vibeOS] MCP server on http://127.0.0.1:${actualPort}`);
-        if (actualPort)
-          console.error(`[vibeOS] Dashboard at http://127.0.0.1:${actualPort}/`);
-        console.error(`[vibeOS] Dashboard at http://127.0.0.1:${actualPort}/`);
-        if (!_mcpServerHooked) {
-          _mcpServerHooked = true;
-          process.on("SIGTERM", () => {
-            try {
-              _mcpServerRuntime?.close();
-            } catch {
-            }
-          });
-          process.on("SIGINT", () => {
-            try {
-              _mcpServerRuntime?.close();
-            } catch {
-            }
-          });
-        }
-      } catch (err) {
-        console.error(`[vibeOS] MCP startup failed: ${err.message}`);
-      }
-    });
-  }
+  if (!_inTestEnv)
+    void ensureMcpServerRunning();
   return pluginHooks;
 }
 var id = "vibeOS";
@@ -15780,6 +15847,9 @@ var VERSION = readPackageVersion();
 var index_default = { id: "vibeOS", server: DelegationEnforcer };
 function closeMcpServer() {
   try {
+    _mcpServerClosing = true;
+    _mcpServerShouldRun = false;
+    clearMcpRestartTimer();
     if (_mcpServerRuntime) {
       _mcpServerRuntime.close();
       _mcpServerRuntime = null;
