@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, sta
 import { join, dirname, basename } from "node:path"
 import { classify, modelCostPerTurn, _refreshModel, readConfig, resolveDisplayModelId, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, roundUsd, formatUsd, resolveExecutionIdentity, modelDisplayName } from "../pricing.js"
 import { latestUserIntent } from "./chat-transform.js"
-import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, classifyTurnSimple, autoSelectMode } from "../turn-classify.js"
+import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, classifyTurnSimple, autoSelectMode, loadOptimizationMode } from "../turn-classify.js"
 import { recordBudgetFirstOutcome } from "../mode-policy.js"
 import { saveReport } from "../reporting.js"
 import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, getCurrentSessionId, _modelLocked, _blackboxEnabled, _latestBlackboxState, writeSelection, reconcileStateFromLedger, safeJsonParse, loadTodos, loadBlackboxState, VIBEOS_HOME } from "../state.js"
@@ -257,7 +257,7 @@ async function _appendFooter(input, output, directory) {
     const activeSlot = selNowFooter.active_slot || "brain"
     const flashIcon = isApiConnected() ? " \u26A1" : ""
     const displayMode = autoSelectMode(currentSubRegime, _footerStress)
-    const vibeBrand = resolveBrand(displayMode, activeSlot)
+    const vibeBrand = resolveBrand(loadOptimizationMode() || displayMode, activeSlot)
     const vibeLine = buildFooterLine({
       activeSlot,
       providerLabel: execution.provider_label,
