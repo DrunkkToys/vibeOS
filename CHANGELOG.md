@@ -1,3 +1,23 @@
+## 0.24.32
+- feat: promote data-backed experimental regimes (#158)
+- feat: promote data-backed experimental regimes
+- fix: make footer state truthful
+- test: add live lifecycle regression
+- chore: v0.24.31 (#163)
+- chore: v0.24.28
+Merge pull request #162 from DrunkkToys/codex/test-production-proof
+Merge pull request #160 from DrunkkToys/codex/release-patch-0.24.28
+Fix clean CI sync for generated modules
+Fix CI sync for generated modules
+Fix CI artifact sync
+Sync generated flow rules
+Merge remote-tracking branch 'origin/master' into codex/release-patch-0.24.28
+Fix release CI regressions
+Merge pull request #159 from DrunkkToys/codex/release-patch-0.24.28
+Strengthen cascade lifecycle coverage
+Merge branch 'master' of https://github.com/DrunkkToys/vibeOS into codex/release-patch-0.24.28
+
+
 ## 0.24.31
 - fix: make footer state truthful
 - fix: quiet greetings should not inherit stale tdd tags
