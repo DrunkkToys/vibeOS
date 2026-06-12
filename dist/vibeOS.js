@@ -3489,9 +3489,30 @@ function runStartupMaintenanceOnce() {
   } catch {
   }
 }
+function _ensureVibeOSHomeDir() {
+  try {
+    if (!existsSync5(VIBEOS_HOME)) {
+      mkdirSync3(VIBEOS_HOME, { recursive: true });
+      return VIBEOS_HOME;
+    }
+    const st = statSync4(VIBEOS_HOME);
+    if (!st.isDirectory()) {
+      const backup = VIBEOS_HOME + ".backup." + Date.now();
+      renameSync3(VIBEOS_HOME, backup);
+      mkdirSync3(VIBEOS_HOME, { recursive: true });
+    }
+    return VIBEOS_HOME;
+  } catch {
+    return VIBEOS_HOME;
+  }
+}
 function _handleStateCorruption2(path) {
+  _ensureVibeOSHomeDir();
   const backupDir = join4(VIBEOS_HOME, ".backups");
-  mkdirSync3(backupDir, { recursive: true });
+  try {
+    mkdirSync3(backupDir, { recursive: true });
+  } catch {
+  }
   const backupPath = join4(backupDir, basename2(path) + ".corrupted." + Date.now());
   try {
     copyFileSync(path, backupPath);
@@ -4478,8 +4499,9 @@ function touchProjectBucket(state, fp2, meta = {}) {
     if (!bucket.sessions.includes(meta.sessionId)) {
       bucket.sessions.push(meta.sessionId);
       bucket.sessions = bucket.sessions.slice(-30);
+      bucket.totalSessions = Number(bucket.totalSessions || 0) + 1;
     }
-    bucket.totalSessions = Math.max(Number(bucket.totalSessions || 0), bucket.sessions.length);
+    bucket.totalSessions = Math.max(Number(bucket.totalSessions || 0), bucket.sessions.length, 1);
   }
   if (typeof meta.reportId === "string" && meta.reportId.trim()) {
     bucket.reports ??= [];
@@ -7763,10 +7785,10 @@ function generateReportId(type, fp2) {
   return `${ts}-${(fp2 || "unknown").slice(0, 6)}-${type}-${rnd}`;
 }
 var _reportDedupWindow = /* @__PURE__ */ new Map();
-function _wouldBeDuplicate(type, summary) {
+function _wouldBeDuplicate(type, summary, scope) {
   if (typeof summary !== "string")
     return false;
-  const key = `${getVibeOSHome7()}::${type || ""}::${summary}`;
+  const key = `${getVibeOSHome7()}::${type || ""}::${String(scope || "unknown")}::${summary}`;
   const last = _reportDedupWindow.get(key);
   if (last && Date.now() - last < 5 * 60 * 1e3)
     return true;
@@ -7849,7 +7871,8 @@ function saveReport({ type = "manual", summary = "", findings = null, metrics = 
   const metricsSessionId = typeof metricsObject.sessionId === "string" && metricsObject.sessionId.trim() ? metricsObject.sessionId.trim() : "";
   const metricsProjectName = typeof metricsObject.projectName === "string" && metricsObject.projectName.trim() ? metricsObject.projectName.trim() : "";
   const metricsProjectFingerprint = typeof metricsObject.projectFingerprint === "string" && metricsObject.projectFingerprint.trim() ? metricsObject.projectFingerprint.trim() : "";
-  if (_wouldBeDuplicate(type, summary))
+  const dedupScope = fingerprint || metricsProjectFingerprint || currentProjectFingerprint || currentProjectFingerprint2 || metricsProjectName || currentProjectName || currentProjectName2 || "unknown";
+  if (_wouldBeDuplicate(type, summary, dedupScope))
     return null;
   if (!currentProjectFingerprint2 && metricsProjectFingerprint)
     currentProjectFingerprint2 = metricsProjectFingerprint;

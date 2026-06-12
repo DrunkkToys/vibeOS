@@ -262,9 +262,28 @@ export function runStartupMaintenanceOnce(): void {
   } catch {}
 }
 
+function _ensureVibeOSHomeDir(): string {
+  try {
+    if (!existsSync(VIBEOS_HOME)) {
+      mkdirSync(VIBEOS_HOME, { recursive: true })
+      return VIBEOS_HOME
+    }
+    const st = statSync(VIBEOS_HOME)
+    if (!st.isDirectory()) {
+      const backup = VIBEOS_HOME + ".backup." + Date.now()
+      renameSync(VIBEOS_HOME, backup)
+      mkdirSync(VIBEOS_HOME, { recursive: true })
+    }
+    return VIBEOS_HOME
+  } catch {
+    return VIBEOS_HOME
+  }
+}
+
 function _handleStateCorruption(path: string): string | null {
+  _ensureVibeOSHomeDir()
   const backupDir = join(VIBEOS_HOME, ".backups")
-  mkdirSync(backupDir, { recursive: true })
+  try { mkdirSync(backupDir, { recursive: true }) } catch {}
   const backupPath = join(backupDir, basename(path) + ".corrupted." + Date.now())
   try { copyFileSync(path, backupPath) } catch {}
   const logPath = join(VIBEOS_HOME, ".state-corruption-log.jsonl")
@@ -1278,8 +1297,9 @@ export function touchProjectBucket(state: any, fp: string, meta: { sessionId?: s
     if (!bucket.sessions.includes(meta.sessionId)) {
       bucket.sessions.push(meta.sessionId)
       bucket.sessions = bucket.sessions.slice(-30)
+      bucket.totalSessions = Number(bucket.totalSessions || 0) + 1
     }
-    bucket.totalSessions = Math.max(Number(bucket.totalSessions || 0), bucket.sessions.length)
+    bucket.totalSessions = Math.max(Number(bucket.totalSessions || 0), bucket.sessions.length, 1)
   }
   if (typeof meta.reportId === "string" && meta.reportId.trim()) {
     bucket.reports ??= []
