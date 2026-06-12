@@ -1734,6 +1734,10 @@ function normalizeApiToken(token, fallback2 = "") {
   const clean = String(token || "").trim();
   return API_TOKEN_RE.test(clean) ? clean : fallback2;
 }
+function normalizeDirectApiToken(token) {
+  const clean = normalizeApiToken(token, "");
+  return clean && clean !== EMBEDDED_API_TOKEN ? clean : "";
+}
 function isTruthyFlag(value) {
   return API_DISABLED_RE.test(String(value || "").trim());
 }
@@ -2095,7 +2099,7 @@ function readTokenFromDisk() {
       const env = readFileSync2(dir + "/.env.production", "utf8");
       const m = env.match(/^VIBEOS_API_TOKEN=(.+)$/m);
       if (m) {
-        const clean = normalizeApiToken(m[1], "");
+        const clean = normalizeDirectApiToken(m[1]);
         if (clean)
           return clean;
       }
@@ -2103,6 +2107,16 @@ function readTokenFromDisk() {
     }
   }
   return "";
+}
+function hasPrimaryTokenOnDisk() {
+  if (readApiDisabledFromDisk())
+    return false;
+  try {
+    const env = readFileSync2(_envPaths[0] + "/.env.production", "utf8");
+    return /^VIBEOS_API_TOKEN=/m.test(env);
+  } catch {
+    return false;
+  }
 }
 function readBootstrapTokenFromDisk() {
   if (readApiDisabledFromDisk())
@@ -2117,7 +2131,7 @@ function readBootstrapTokenFromDisk() {
   return "";
 }
 var VIBEOS_API_DISABLED = readApiDisabledFromDisk() || isTruthyFlag(process.env.VIBEOS_API_DISABLED);
-var VIBEOS_API_TOKEN = VIBEOS_API_DISABLED ? "" : readTokenFromDisk() || normalizeApiToken(process.env.VIBEOS_API_TOKEN, "");
+var VIBEOS_API_TOKEN = VIBEOS_API_DISABLED ? "" : readTokenFromDisk() || normalizeDirectApiToken(process.env.VIBEOS_API_TOKEN) || (!hasPrimaryTokenOnDisk() ? EMBEDDED_API_TOKEN : "");
 var VIBEOS_API_BOOTSTRAP_TOKEN = VIBEOS_API_DISABLED ? "" : readBootstrapTokenFromDisk() || process.env.VIBEOS_API_BOOTSTRAP_TOKEN || EMBEDDED_API_TOKEN;
 var VIBEOS_API_ENABLED = !VIBEOS_API_DISABLED && process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
 var _anomalyDetector = null;
@@ -2149,7 +2163,7 @@ function persistBootstrapToken(token) {
 function setApiToken(newToken) {
   try {
     VIBEOS_API_DISABLED = false;
-    VIBEOS_API_TOKEN = normalizeApiToken(newToken, EMBEDDED_API_TOKEN);
+    VIBEOS_API_TOKEN = normalizeDirectApiToken(newToken);
     VIBEOS_API_BOOTSTRAP_TOKEN = readBootstrapTokenFromDisk() || VIBEOS_API_BOOTSTRAP_TOKEN;
     VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
     _apiClient = null;
@@ -2241,7 +2255,7 @@ function syncApiTokenFromDisk() {
   const diskDisabled = readApiDisabledFromDisk() || isTruthyFlag(process.env.VIBEOS_API_DISABLED);
   const diskToken = readTokenFromDisk() || "";
   const diskBootstrapToken = readBootstrapTokenFromDisk() || "";
-  const envToken = normalizeApiToken(process.env.VIBEOS_API_TOKEN, "");
+  const envToken = normalizeDirectApiToken(process.env.VIBEOS_API_TOKEN);
   if (diskDisabled) {
     if (!VIBEOS_API_DISABLED || VIBEOS_API_TOKEN || VIBEOS_API_BOOTSTRAP_TOKEN || VIBEOS_API_ENABLED) {
       VIBEOS_API_DISABLED = true;
@@ -2284,6 +2298,9 @@ function syncApiTokenFromDisk() {
     console.error("[vibeOS] API token loaded from VIBEOS_API_TOKEN env var");
   } else {
     VIBEOS_API_DISABLED = false;
+    if (!VIBEOS_API_TOKEN && !hasPrimaryTokenOnDisk()) {
+      VIBEOS_API_TOKEN = EMBEDDED_API_TOKEN;
+    }
     VIBEOS_API_BOOTSTRAP_TOKEN ||= EMBEDDED_API_TOKEN;
     VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
   }
@@ -2395,7 +2412,7 @@ function safeJsonParse2(raw) {
     throw e;
   }
 }
-var DFLT_SEL = { enabled: true, active_slot: null, slot_locked: false, thinking_level: "off", flow_enabled: true, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: true, delegation_enforce: true, onboarding_mode: null, selected_provider: null, selected_quality_tier: null, selected_model: null, executed_provider: null, executed_quality_tier: null, executed_model: null, previous_default_agent: null };
+var DFLT_SEL = { enabled: true, active_slot: null, slot_locked: false, thinking_level: "off", flow_enabled: true, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: true, delegation_enforce: true, onboarding_mode: null, selected_provider: null, selected_quality_tier: null, selected_model: null, executed_provider: null, executed_quality_tier: null, executed_model: null, previous_default_agent: null, previous_optimization_mode: null };
 function loadSelection() {
   const TIERS_FILE3 = join3(getVibeOSHome2(), "model-tiers.json");
   try {
@@ -2427,14 +2444,15 @@ function loadSelection() {
       executed_provider: j?.selection?.executed_provider || null,
       executed_quality_tier: j?.selection?.executed_quality_tier || null,
       executed_model: j?.selection?.executed_model || null,
-      previous_default_agent: j?.selection?.previous_default_agent || null
+      previous_default_agent: j?.selection?.previous_default_agent || null,
+      previous_optimization_mode: j?.selection?.previous_optimization_mode || null
     };
   } catch {
     _handleStateCorruption2(TIERS_FILE3);
     return DFLT_SEL;
   }
 }
-function writeSelection(key, value) {
+function writeSelection2(key, value) {
   const TIERS_FILE3 = join3(getVibeOSHome2(), "model-tiers.json");
   try {
     return withFileLock(TIERS_FILE3, () => {
@@ -2501,9 +2519,9 @@ function loadGlobalOptMode() {
   }
 }
 function saveGlobalOptMode(mode) {
-  return writeSelection("optimization_mode", mode);
+  return writeSelection2("optimization_mode", mode);
 }
-function writeSessionOptMode(sid, mode) {
+function writeSessionOptMode2(sid, mode) {
   const BLACKBOX_FILE = join3(getVibeOSHome2(), "blackbox-state.json");
   try {
     const j = existsSync4(BLACKBOX_FILE) ? safeJsonParse2(readFileSync3(BLACKBOX_FILE, "utf-8")) : {};
@@ -7248,6 +7266,27 @@ function setBlackboxEnabled2(val) {
 var DFLT_OPTIMIZATION_MODE = "budget";
 function loadOptimizationMode() {
   try {
+    const sel = loadSelection();
+    const persistedMode = sel.optimization_mode || null;
+    if (persistedMode === "vibelitex" && !isApiFallback2()) {
+      const prevKey = `${_OC_SID}_prev_opt`;
+      const recoveryMode = sel.previous_optimization_mode || loadSessionOptMode(prevKey);
+      if (recoveryMode && recoveryMode !== "vibelitex") {
+        try {
+          writeSelection("previous_optimization_mode", null);
+        } catch {
+        }
+        try {
+          writeSessionOptMode2(_OC_SID, recoveryMode);
+        } catch {
+        }
+        try {
+          writeSessionOptMode2(prevKey, "");
+        } catch {
+        }
+        return recoveryMode;
+      }
+    }
     const mode = loadSessionOptMode(_OC_SID);
     if (mode && mode !== "auto")
       return mode;
@@ -7261,7 +7300,7 @@ function loadOptimizationMode() {
 }
 function saveOptimizationMode(mode) {
   try {
-    writeSessionOptMode(_OC_SID, mode);
+    writeSessionOptMode2(_OC_SID, mode);
   } catch (e) {
     console.error("[vibeOS] saveOptimizationMode session write failed: " + e.message);
   }
@@ -10712,7 +10751,7 @@ function syncControlSettings(cv, options = {}) {
     const writeIf = (key, val) => {
       const sel = loadSelection();
       if (sel[key] !== val)
-        writeSelection(key, val);
+        writeSelection2(key, val);
     };
     if (isManualMode) {
       const allEntries = [...BRANDED_MODES, ...RUNTIME_MODES];
@@ -10753,9 +10792,26 @@ function syncControlSettings(cv, options = {}) {
         writeIf("thinking_level", nextThinking);
     }
     if (persistOptimizationMode && cv.optimization_mode && userOptMode !== "auto") {
-      const fallbackPinned = isApiFallback() && cv.optimization_mode === "vibelitex" && currentSel.optimization_mode !== "vibelitex";
-      if (!fallbackPinned && userOptMode !== cv.optimization_mode) {
+      const fallbackPinned = isApiFallback() && cv.optimization_mode === "vibelitex";
+      const previousOptMode2 = typeof currentSel.previous_optimization_mode === "string" ? currentSel.previous_optimization_mode : null;
+      const prevSessionKey2 = `${sid}_prev_opt`;
+      const sessionPreviousOptMode = loadSessionOptMode(prevSessionKey2);
+      const restoreMode = sessionPreviousOptMode || previousOptMode2;
+      const canRestorePrevious = !isApiFallback() && !!restoreMode && cv.optimization_mode !== "vibelitex" && (previousOptMode2 !== null || sessionPreviousOptMode !== null);
+      if (fallbackPinned) {
+        if (currentSel.optimization_mode !== "vibelitex") {
+          writeIf("previous_optimization_mode", currentSel.optimization_mode);
+          writeSessionOptMode(prevSessionKey2, currentSel.optimization_mode || "");
+        }
+      } else if (canRestorePrevious) {
+        writeIf("optimization_mode", restoreMode);
+        writeIf("previous_optimization_mode", null);
+        writeSessionOptMode(sid, restoreMode);
+        writeSessionOptMode(prevSessionKey2, "");
+      } else if (userOptMode !== cv.optimization_mode) {
         writeIf("optimization_mode", cv.optimization_mode);
+        if (previousOptMode2)
+          writeIf("previous_optimization_mode", null);
       }
     }
     const slot = cv.tier_bias;
@@ -10779,7 +10835,7 @@ function syncControlSettings(cv, options = {}) {
           const oc = safeJsonParse3(readFileSync13(OC_CONFIG, "utf-8"));
           if (oc.default_agent !== cv.agent_mode) {
             if (cv.agent_mode === "plan" && oc.default_agent && oc.default_agent !== "plan") {
-              writeSelection("previous_default_agent", oc.default_agent);
+              writeSelection2("previous_default_agent", oc.default_agent);
             }
             oc.default_agent = cv.agent_mode;
             writeFileSync12(OC_CONFIG, JSON.stringify(oc, null, 2) + "\n");
@@ -10797,10 +10853,22 @@ function syncControlSettings(cv, options = {}) {
             oc.default_agent = restoreAgent;
             writeFileSync12(OC_CONFIG, JSON.stringify(oc, null, 2) + "\n");
             if (currentSel.previous_default_agent)
-              writeSelection("previous_default_agent", null);
+              writeSelection2("previous_default_agent", null);
           }
         }
       } catch {
+      }
+    }
+    if (!isApiFallback() && cv.optimization_mode && cv.optimization_mode !== "vibelitex") {
+      const finalSel = loadSelection();
+      if (finalSel.optimization_mode === "vibelitex") {
+        const restoreCandidate = finalSel.previous_optimization_mode || loadSessionOptMode(prevSessionKey) || previousOptMode;
+        if (restoreCandidate && restoreCandidate !== "vibelitex") {
+          writeSelection2("optimization_mode", restoreCandidate);
+          writeSelection2("previous_optimization_mode", null);
+          writeSessionOptMode(sid, restoreCandidate);
+          writeSessionOptMode(prevSessionKey, "");
+        }
       }
     }
   } catch {
@@ -14600,7 +14668,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
       return hookVibeHome;
     },
     loadSelection,
-    writeSelection,
+    writeSelection: writeSelection2,
     loadCredit,
     thinkingLevel,
     readLifetimeSavings,
@@ -14638,7 +14706,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     saveReportsIndex: saveReportsIndexStable,
     backupFile: backupFileStable,
     writeSessionSlot: writeSessionSlot2,
-    writeSessionOptMode,
+    writeSessionOptMode: writeSessionOptMode2,
     _refreshModel,
     setApiToken,
     setApiBootstrapToken,

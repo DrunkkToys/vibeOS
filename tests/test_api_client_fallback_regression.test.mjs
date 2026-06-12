@@ -6,12 +6,13 @@
 
 import test from "node:test"
 import assert from "node:assert/strict"
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs"
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 
 const sandboxes = []
 let stamp = 0
+const EMBEDDED_BOOTSTRAP_TOKEN = "vos_8d73804b13bb46711b9a47f036dba7b4d026fd9583d96960e663716e62815a69"
 
 // Force a dead API endpoint so remoteCall() fails and sets _apiFallbackMode.
 // Use VIBEOS_API_DISABLED=false + explicit token to ensure the client is created,
@@ -34,7 +35,7 @@ function fresh() {
   env.HOME = home
   env.VIBEOS_API_URL = "http://127.0.0.1:1"
   delete env.VIBEOS_API_DISABLED
-  env.VIBEOS_API_TOKEN = "vos_sandbox_test_" + stamp
+  env.VIBEOS_API_TOKEN = "vos_" + "a".repeat(64)
   env.VIBEOS_MCP_PORT = "0"
   delete globalThis.__vibeOSRuntimeState
 
@@ -50,6 +51,22 @@ async function restore(ctx) {
   else env.VIBEOS_API_DISABLED = ctx.snap.VIBEOS_API_DISABLED
   if (ctx.snap.VIBEOS_API_TOKEN === undefined) delete env.VIBEOS_API_TOKEN
   else env.VIBEOS_API_TOKEN = ctx.snap.VIBEOS_API_TOKEN
+  if (ctx.snap.VIBEOS_MCP_PORT === undefined) delete env.VIBEOS_MCP_PORT
+  else env.VIBEOS_MCP_PORT = ctx.snap.VIBEOS_MCP_PORT
+  delete globalThis.__vibeOSRuntimeState
+}
+
+async function restoreFull(ctx) {
+  const env = process.env
+  env.HOME = ctx.snap.HOME
+  if (ctx.snap.VIBEOS_API_URL === undefined) delete env.VIBEOS_API_URL
+  else env.VIBEOS_API_URL = ctx.snap.VIBEOS_API_URL
+  if (ctx.snap.VIBEOS_API_DISABLED === undefined) delete env.VIBEOS_API_DISABLED
+  else env.VIBEOS_API_DISABLED = ctx.snap.VIBEOS_API_DISABLED
+  if (ctx.snap.VIBEOS_API_TOKEN === undefined) delete env.VIBEOS_API_TOKEN
+  else env.VIBEOS_API_TOKEN = ctx.snap.VIBEOS_API_TOKEN
+  if (ctx.snap.VIBEOS_API_BOOTSTRAP_TOKEN === undefined) delete env.VIBEOS_API_BOOTSTRAP_TOKEN
+  else env.VIBEOS_API_BOOTSTRAP_TOKEN = ctx.snap.VIBEOS_API_BOOTSTRAP_TOKEN
   if (ctx.snap.VIBEOS_MCP_PORT === undefined) delete env.VIBEOS_MCP_PORT
   else env.VIBEOS_MCP_PORT = ctx.snap.VIBEOS_MCP_PORT
   delete globalThis.__vibeOSRuntimeState
@@ -113,5 +130,70 @@ test("syncApiTokenFromDisk else branch also clears fallback (via setApiToken wit
     assert.equal(api.isApiFallback(), false, "fallback cleared after setApiToken with same token")
   } finally {
     await restore(ctx)
+  }
+})
+
+test("embedded bootstrap token stays in bootstrap lane and exchanges before remoteCall", async () => {
+  stamp++
+  const home = mkdtempSync(join(tmpdir(), `vibeos-bootstrap-${stamp}-`))
+  sandboxes.push(home)
+  mkdirSync(join(home, ".claude"), { recursive: true })
+
+  const env = process.env
+  const snap = {
+    HOME: env.HOME,
+    VIBEOS_API_URL: env.VIBEOS_API_URL,
+    VIBEOS_API_DISABLED: env.VIBEOS_API_DISABLED,
+    VIBEOS_API_TOKEN: env.VIBEOS_API_TOKEN,
+    VIBEOS_API_BOOTSTRAP_TOKEN: env.VIBEOS_API_BOOTSTRAP_TOKEN,
+    VIBEOS_MCP_PORT: env.VIBEOS_MCP_PORT,
+  }
+
+  env.HOME = home
+  env.VIBEOS_API_URL = "https://api.example.invalid"
+  delete env.VIBEOS_API_DISABLED
+  delete env.VIBEOS_API_TOKEN
+  delete env.VIBEOS_API_BOOTSTRAP_TOKEN
+  env.VIBEOS_MCP_PORT = "0"
+  delete globalThis.__vibeOSRuntimeState
+
+  const prevFetch = global.fetch
+  const calls = []
+  global.fetch = async (url, init = {}) => {
+    calls.push({ url: String(url), auth: init?.headers?.Authorization || "" })
+    if (String(url).includes("/api/v1/auth/bootstrap/exchange")) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ api_token: "vos_" + "e".repeat(64) }),
+      }
+    }
+    if (String(url).endsWith("/health")) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ ok: true }),
+      }
+    }
+    throw new Error("unexpected fetch " + url)
+  }
+
+  try {
+    writeFileSync(join(home, ".claude", ".env.production"), `VIBEOS_API_TOKEN=${EMBEDDED_BOOTSTRAP_TOKEN}\n`)
+    const api = await import(`../src/lib/api-client.js?r=bootstrap-${stamp}`)
+    assert.equal(api.VIBEOS_API_TOKEN, "", "embedded bootstrap token must not load as direct API token")
+    assert.ok(api.VIBEOS_API_BOOTSTRAP_TOKEN, "bootstrap token should still be available")
+
+    const result = await api.remoteCall("health", [], () => "fallback")
+    assert.deepEqual(result, { ok: true })
+    assert.equal(calls[0]?.url.includes("/api/v1/auth/bootstrap/exchange"), true, "first call should exchange bootstrap token")
+    assert.equal(calls[0]?.auth, `Bearer ${EMBEDDED_BOOTSTRAP_TOKEN}`)
+    assert.equal(calls[1]?.url.endsWith("/health"), true, "second call should hit the API with the exchanged token")
+    assert.equal(calls[1]?.auth, `Bearer vos_${"e".repeat(64)}`)
+    assert.equal(api.VIBEOS_API_TOKEN, `vos_${"e".repeat(64)}`)
+  } finally {
+    global.fetch = prevFetch
+    await restoreFull({ snap })
+    rmSync(home, { recursive: true, force: true })
   }
 })
