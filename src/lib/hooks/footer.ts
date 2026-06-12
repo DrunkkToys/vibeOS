@@ -71,6 +71,11 @@ function loadSelection() {
   } catch { return { active_slot: "medium", enabled: true, delegation_enforce: true, flow_enabled: true, flow_enforce: true, tdd_enforce: false, tdd_strict: false } }
 }
 
+function isGreetingLike(text) {
+  const value = String(text || "").trim().toLowerCase()
+  return value === "hi" || value === "hello" || value === "hey" || value === "yo" || /^hi[!.?\s]*$/.test(value) || /^hello[!.?\s]*$/.test(value) || /^hey[!.?\s]*$/.test(value)
+}
+
 function readLifetimeSavings() {
   try {
     reconcileStateFromLedger()
@@ -249,6 +254,7 @@ async function _appendFooter(input, output, directory) {
       tddEnforce: selNowFooter.tdd_enforce,
       bbMode,
       modelLocked: _modelLocked,
+      quietIntent: isGreetingLike(latestUserIntent || ""),
     })
     const stripped = text.replace(/\u2014 [^\u2014]+ \u2014\s*/g, "").trimEnd()
     if (stripped !== text) return
