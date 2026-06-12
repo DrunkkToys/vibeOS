@@ -13,7 +13,7 @@
     "deploy": "node scripts/deploy.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "checkpoint:validate": "node scripts/checkpoint-validate.mjs",
-    "test:scripts": "node --test scripts/tests/checkpoint-validate.test.mjs tests/release-pack.test.mjs",
+    "test:scripts": "node scripts/run-test-suite.mjs scripts",
     "ts:audit": "node scripts/ts-audit.mjs",
     "test": "npm run build:bundle && node scripts/run-test-suite.mjs full",
     "test:ci": "npm run build:bundle && node scripts/run-test-suite.mjs ci",
