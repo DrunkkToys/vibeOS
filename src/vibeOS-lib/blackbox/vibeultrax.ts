@@ -2,7 +2,8 @@
 // SPDX-FileCopyrightText: 2026 vibeOS <https://github.com/DrunkkToys/vibeOS>
 // @ts-nocheck
 
-import { cascadeDecide } from "../ml-router.js"
+import { cascadeDecide, predictBestModel } from "../ml-router.js"
+import { _mlGraph } from "../../lib/state.js"
 import { PivotCache } from "./pivot-cache.js"
 
 const CHEAP = 0.0001
@@ -13,10 +14,48 @@ function normalizeText(input = {}) {
   return String(input.user_text || input.prompt || input.text || "").trim()
 }
 
-function profileFromCascade(decision) {
+function tierFromModelName(modelName) {
+  const lower = String(modelName || "").toLowerCase()
+  if (!lower) return null
+  if (/_?chat\b/.test(lower) || /(^|\/)deepseek\/deepseek-chat$/.test(lower)) return "cheap"
+  if (/_?flash\b/.test(lower) || /(^|\/)deepseek\/deepseek-v4-flash$/.test(lower)) return "medium"
+  return "brain"
+}
+
+function supportForPrediction(graph, firstWord, modelName) {
+  const node = graph?.nodes?.[firstWord]
+  const modelNode = graph?.nodes?.[modelName]
+  if (!node || !modelNode) return 0
+  const totalRoutes = Object.values(node.edges || {}).reduce((sum, count) => sum + Number(count || 0), 0)
+  if (!totalRoutes) return 0
+  const routeSupport = Number(node.edges?.[modelName] || 0) / totalRoutes
+  const okEdges = Object.entries(modelNode.edges || {})
+    .filter(([key]) => String(key).endsWith("::ok"))
+    .reduce((sum, [, count]) => sum + Number(count || 0), 0)
+  const totalEdges = Object.values(modelNode.edges || {}).reduce((sum, count) => sum + Number(count || 0), 0) || 0
+  const successRate = totalEdges > 0 ? okEdges / totalEdges : 0
+  return (routeSupport * 0.45) + (successRate * 0.55)
+}
+
+function learnedRouteFromGraph(text) {
+  const firstWord = String(text || "").trim().split(/\s+/)[0]?.toLowerCase() || ""
+  if (!firstWord || !_mlGraph?.nodes) return null
+  const predictedModel = predictBestModel(_mlGraph, firstWord, "brain")
+  if (!predictedModel) return null
+  const learnedTier = tierFromModelName(predictedModel)
+  if (!learnedTier) return null
+  const support = supportForPrediction(_mlGraph, firstWord, predictedModel)
+  if (support < 0.5) return null
+  return { firstWord, predictedModel, learnedTier, support }
+}
+
+function profileFromCascade(decision, learned = null) {
+  if (learned?.learnedTier === "cheap") return { profile: "direct", cascade_depth: 1, pipeline_root: ["local"], tier_bias: "cheap" }
+  if (learned?.learnedTier === "medium") return { profile: "standard", cascade_depth: 2, pipeline_root: ["medium", "brain"], tier_bias: "medium" }
+  if (learned?.learnedTier === "brain") return { profile: "deep", cascade_depth: 3, pipeline_root: ["local", "medium", "brain"], tier_bias: "brain" }
   if (decision.useCheap && decision.escalate) return { profile: "deep", cascade_depth: 3, pipeline_root: ["local", "medium", "brain"], tier_bias: "brain" }
   if (decision.escalate) return { profile: "standard", cascade_depth: 2, pipeline_root: ["medium", "brain"], tier_bias: "brain" }
-  return { profile: "direct", cascade_depth: 1, pipeline_root: ["brain"], tier_bias: "brain" }
+  return { profile: "direct", cascade_depth: 1, pipeline_root: ["local"], tier_bias: "cheap" }
 }
 
 function getPivotCache() {
@@ -27,7 +66,8 @@ function getPivotCache() {
 export function vibeultraxControlVector(input = {}) {
   const text = normalizeText(input)
   const cascade = cascadeDecide(text, CHEAP, MEDIUM, BRAIN, 0.85)
-  const profile = profileFromCascade(cascade)
+  const learned = learnedRouteFromGraph(text)
+  const profile = profileFromCascade(cascade, learned)
 
   return {
     optimization_mode: "vibeultrax",
@@ -47,7 +87,10 @@ export function vibeultraxControlVector(input = {}) {
     ultrax_confidence: cascade.confidence,
     ultrax_reason: cascade.reason,
     ultrax_estimated_savings: cascade.estimatedSavings,
-    directives: [`[ultrax root] cascade profile=${profile.profile}; reason=${cascade.reason}`],
+    ultrax_learned_model: learned?.predictedModel || null,
+    ultrax_learned_tier: learned?.learnedTier || null,
+    ultrax_learned_support: learned?.support || 0,
+    directives: [`[ultrax root] cascade profile=${profile.profile}; reason=${cascade.reason}${learned ? `; learned=${learned.predictedModel}` : ""}`],
   }
 }
 
@@ -55,7 +98,8 @@ export function vibeultraxPipeline(input = {}) {
   const text = normalizeText(input)
   const pc = getPivotCache()
   const cascade = cascadeDecide(text, CHEAP, MEDIUM, BRAIN, 0.85)
-  const profile = profileFromCascade(cascade)
+  const learned = learnedRouteFromGraph(text)
+  const profile = profileFromCascade(cascade, learned)
   const tokens = text ? pc.tokenize(text) : new Set()
   const pivotBack = text && tokens.size > 0 ? pc.detectPivotBack(tokens, 0.5) : { matchedId: null, confidence: 0, reason: "no_text" }
   const isPivotBack = pivotBack.matchedId !== null
@@ -65,6 +109,10 @@ export function vibeultraxPipeline(input = {}) {
     mode: "vibeultrax",
     source: "vibeultrax",
     profile: profile.profile,
+    source_strategy: learned ? "learned" : "cascade",
+    learned_model: learned?.predictedModel || null,
+    learned_tier: learned?.learnedTier || null,
+    learned_support: learned?.support || 0,
     pivot: isPivotBack ? {
       matchedId: pivotBack.matchedId,
       confidence: pivotBack.confidence,

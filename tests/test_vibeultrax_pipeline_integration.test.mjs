@@ -149,6 +149,60 @@ test("real cascade: task routing escalates from cheap to medium on complex promp
   }
 })
 
+test("real cascade: vibeultrax uses learned graph routing when history exists", async (t) => {
+  const dir = isolatedSandbox()
+  const prevHome = process.env.HOME
+  process.env.HOME = dir
+  try {
+    const claudeDir = join(dir, ".claude")
+    mkdirSync(claudeDir, { recursive: true })
+    writeFileSync(join(claudeDir, "model-tiers.json"), JSON.stringify({
+      trinity: {
+        brain: { oc: "deepseek/deepseek-v4-pro" },
+        medium: { oc: "deepseek/deepseek-v4-flash" },
+        cheap: { oc: "deepseek/deepseek-chat" },
+      },
+      selection: {
+        enabled: true,
+        active_slot: "brain",
+        delegation_enforce: true,
+        flow_enabled: true,
+        tdd_enforce: false,
+        optimization_mode: "vibeultrax",
+        active_pipeline: ["local", "medium", "brain"],
+      },
+    }, null, 2))
+    writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-pro" }))
+
+    const state = await import("../src/lib/state.js")
+    const mlRouter = await import("../src/vibeOS-lib/ml-router.js")
+    const graph = state._mlGraph
+    const snapshot = JSON.parse(JSON.stringify(graph))
+    graph.nodes = {}
+    graph.tiers = { cheap: [], medium: [], brain: [] }
+    mlRouter.addRouteEdge(graph, "implement", "deepseek/deepseek-chat", "cheap", true)
+    state.saveMLState()
+
+    try {
+      const ultrax = await import("../src/vibeOS-lib/blackbox/vibeultrax.js?ultra=" + Date.now())
+      const result = ultrax.vibeultraxPipeline({
+        user_text: "implement a login flow with auth, refresh tokens, and recovery handling",
+      })
+
+      assert.equal(result.source_strategy, "learned", "learned graph should take priority once history exists")
+      assert.equal(result.learned_tier, "cheap", "learned graph should start from the cheap tier for implement prompts")
+      assert.equal(result.pipeline[0], "local", "learned cheap route should begin locally")
+      assert.equal(result.tier_bias, "cheap", "learned route should bias toward the cheap tier")
+    } finally {
+      graph.nodes = snapshot.nodes
+      graph.tiers = snapshot.tiers
+      state.saveMLState()
+    }
+  } finally {
+    process.env.HOME = prevHome
+  }
+})
+
 test("main pipeline: vibeqmax stays analyzable while the live cascade still routes work", async (t) => {
   const dir = isolatedSandbox()
   const prevHome = process.env.HOME
