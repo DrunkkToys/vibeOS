@@ -186,6 +186,55 @@ test("Core — saveReport falls back to metrics project identity when live conte
   assert.ok(listed.some(r => r.id === id), "report-list should find the metrics-fallback report")
 })
 
+test("Core — production claims stay unverified without live session/report evidence", async () => {
+  seedTierFile()
+  const mod = await loadPlugin()
+  mod.setCurrentProjectFingerprint("feedfaceb00c")
+  mod.setCurrentProjectName("theSaver-oc")
+  mod.setCurrentSessionId("opencode-prod-no-evidence")
+
+  const id = mod.saveReport({
+    type: "manual",
+    summary: "worked in production and shipped it",
+    narrative: "merged from a PR, but no live session artifact was attached",
+    metrics: { projectName: "theSaver-oc", projectFingerprint: "feedfaceb00c" },
+    outcome_verified: true,
+  })
+
+  const report = mod.readReport(id)
+  assert.equal(report.outcome_verified, false, "production claims without live evidence must not be verified")
+  assert.equal(report.verification?.kind, "production", "production claims should be annotated")
+  assert.equal(report.verification?.verified, false, "claim should remain unverified")
+  assert.ok(String(report.verification?.note || "").includes("live session/report artifact"), "verification note should explain the missing evidence")
+})
+
+test("Core — production claims can be verified when a live artifact is present", async () => {
+  seedTierFile()
+  const mod = await loadPlugin()
+  mod.setCurrentProjectFingerprint("feedfaceb00d")
+  mod.setCurrentProjectName("theSaver-oc")
+  mod.setCurrentSessionId("opencode-prod-live")
+
+  const id = mod.saveReport({
+    type: "session",
+    summary: "deployed to production with live evidence",
+    narrative: "the report references a live session artifact",
+    metrics: {
+      sessionId: "opencode-prod-live",
+      projectName: "theSaver-oc",
+      projectFingerprint: "feedfaceb00d",
+      reportId: "report-live-123",
+    },
+    outcome_verified: true,
+  })
+
+  const report = mod.readReport(id)
+  assert.equal(report.outcome_verified, true, "live evidence should keep the claim verified")
+  assert.equal(report.verification?.kind, "production", "production claims should be annotated")
+  assert.equal(report.verification?.verified, true, "live evidence should verify the claim")
+  assert.ok(["session", "report"].includes(report.verification?.evidence), "verification should identify the evidence source")
+})
+
 test("Core — project memory keeps live session and report references", async () => {
   seedTierFile()
   const mod = await loadPlugin()
