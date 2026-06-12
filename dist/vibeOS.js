@@ -4815,7 +4815,8 @@ function promotedProjectPatterns(fp2) {
       for (const row of Object.values(rows || {})) {
         const r = row;
         const sessions = new Set(r?.sessions || []);
-        if (sessions.size >= 3)
+        const minSessions = label === "routine" ? 2 : 3;
+        if (sessions.size >= minSessions)
           out.push({ label, summary: r.summary, sessions: sessions.size, lastSeen: r.lastSeen || "" });
       }
     };
@@ -10843,18 +10844,20 @@ function observeToolPattern(toolName, input, output, directory3) {
     const ev = { tool: t, at: Date.now() };
     if (recentToolEvents.length > 0) {
       const prev = recentToolEvents[recentToolEvents.length - 1];
-      const pairKey = `${prev.tool}\u2192${ev.tool}`;
-      updateGlobalLearning((gl) => {
-        gl.toolPairs ??= {};
-        gl.toolPairs[pairKey] = (gl.toolPairs[pairKey] || 0) + 1;
-        if (gl.toolPairs[pairKey] >= 3 && !gl.promotedRoutines?.includes(pairKey)) {
-          gl.promotedRoutines ??= [];
-          if (!gl.promotedRoutines.includes(pairKey))
-            gl.promotedRoutines.push(pairKey);
-          recordRoutinePattern(`pair:${pairKey}`, `Recurring tool pair ${pairKey} detected across projects.`, { pair: pairKey });
-        }
-        return gl;
-      });
+      if (prev.tool !== ev.tool) {
+        const pairKey = `${prev.tool}\u2192${ev.tool}`;
+        updateGlobalLearning((gl) => {
+          gl.toolPairs ??= {};
+          gl.toolPairs[pairKey] = (gl.toolPairs[pairKey] || 0) + 1;
+          if (gl.toolPairs[pairKey] >= 3 && !gl.promotedRoutines?.includes(pairKey)) {
+            gl.promotedRoutines ??= [];
+            if (!gl.promotedRoutines.includes(pairKey))
+              gl.promotedRoutines.push(pairKey);
+            recordRoutinePattern(`pair:${pairKey}`, `Recurring tool pair ${pairKey} detected across projects.`, { pair: pairKey });
+          }
+          return gl;
+        });
+      }
     }
     if (currentProjectName) {
       const ext = currentProjectName.endsWith(".tsx") || currentProjectName.endsWith(".jsx") ? "frontend" : currentProjectName.endsWith(".go") || currentProjectName.endsWith(".rs") ? "backend" : currentProjectName.endsWith(".py") ? "data" : "unknown";
@@ -11678,6 +11681,10 @@ function flowTodosDirective() {
 function patternDirective(fp2) {
   const patterns = promotedProjectPatterns(fp2);
   if (!patterns || patterns.length === 0)
+    return null;
+  const gl = loadGlobalLearning();
+  const pq = gl.patternQuality || { ignoredCount: 0, trustedCount: 0 };
+  if (pq.ignoredCount > 0 && (pq.trustedCount === 0 || pq.ignoredCount >= pq.trustedCount * 5))
     return null;
   const routines = patterns.filter((p) => p.label === "routine");
   const frictions = patterns.filter((p) => p.label === "friction");

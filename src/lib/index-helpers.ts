@@ -248,17 +248,19 @@ export function observeToolPattern(toolName, input, output, directory) {
 
     if (recentToolEvents.length > 0) {
       const prev = recentToolEvents[recentToolEvents.length - 1]
-      const pairKey = `${prev.tool}→${ev.tool}`
-      updateGlobalLearning((gl: any) => {
-        gl.toolPairs ??= {}
-        gl.toolPairs[pairKey] = (gl.toolPairs[pairKey] || 0) + 1
-        if (gl.toolPairs[pairKey] >= 3 && !gl.promotedRoutines?.includes(pairKey)) {
-          gl.promotedRoutines ??= []
-          if (!gl.promotedRoutines.includes(pairKey)) gl.promotedRoutines.push(pairKey)
-          recordRoutinePattern(`pair:${pairKey}`, `Recurring tool pair ${pairKey} detected across projects.`, { pair: pairKey })
-        }
-        return gl
-      })
+      if (prev.tool !== ev.tool) {
+        const pairKey = `${prev.tool}→${ev.tool}`
+        updateGlobalLearning((gl: any) => {
+          gl.toolPairs ??= {}
+          gl.toolPairs[pairKey] = (gl.toolPairs[pairKey] || 0) + 1
+          if (gl.toolPairs[pairKey] >= 3 && !gl.promotedRoutines?.includes(pairKey)) {
+            gl.promotedRoutines ??= []
+            if (!gl.promotedRoutines.includes(pairKey)) gl.promotedRoutines.push(pairKey)
+            recordRoutinePattern(`pair:${pairKey}`, `Recurring tool pair ${pairKey} detected across projects.`, { pair: pairKey })
+          }
+          return gl
+        })
+      }
     }
 
     // Track project-type tool patterns

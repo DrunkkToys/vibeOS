@@ -719,6 +719,9 @@ function flowTodosDirective(): string | null {
 function patternDirective(fp: string): string | null {
   const patterns = promotedProjectPatterns(fp)
   if (!patterns || patterns.length === 0) return null
+  const gl = loadGlobalLearning()
+  const pq = (gl as any).patternQuality || { ignoredCount: 0, trustedCount: 0 }
+  if (pq.ignoredCount > 0 && (pq.trustedCount === 0 || pq.ignoredCount >= pq.trustedCount * 5)) return null
   const routines = patterns.filter(p => p.label === "routine")
   const frictions = patterns.filter(p => p.label === "friction")
   const parts = []
