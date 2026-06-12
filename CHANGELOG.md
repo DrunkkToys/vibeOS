@@ -1,3 +1,20 @@
+## 0.24.29
+- feat: promote data-backed experimental regimes (#158)
+- feat: promote data-backed experimental regimes
+- test: add live lifecycle regression
+- chore: v0.24.28
+Merge pull request #160 from DrunkkToys/codex/release-patch-0.24.28
+Fix clean CI sync for generated modules
+Fix CI sync for generated modules
+Fix CI artifact sync
+Sync generated flow rules
+Merge remote-tracking branch 'origin/master' into codex/release-patch-0.24.28
+Fix release CI regressions
+Merge pull request #159 from DrunkkToys/codex/release-patch-0.24.28
+Strengthen cascade lifecycle coverage
+Merge branch 'master' of https://github.com/DrunkkToys/vibeOS into codex/release-patch-0.24.28
+
+
 ## 0.24.25
 - fix: heal stale vibelitex recovery across cascade
 
