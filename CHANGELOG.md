@@ -1,3 +1,28 @@
+## 0.25.2
+- fix: keep the dashboard MCP server alive
+- docs: README rewrite for Innocence v0.25.0 (UX + ML narrative)
+- test: cover INIT footer icon in e2e
+- test: production-proof regression suite — cleanup 37 dead files, add 11 real-world tests
+Merge pull request #170 from DrunkkToys/codex/dashboard-watchdog
+Fix dashboard local connectivity
+Surface backend version in client status
+Merge pull request #169 from DrunkkToys/codex/clean-production-claim
+Add main-suite cascade regression
+Use experiment router for qmax and ultrax
+Split branded mode roots
+Add production claim verification guard
+Revert "Merge pull request #168 from DrunkkToys/codex/init-footer-icon-regression"
+Merge pull request #168 from DrunkkToys/codex/init-footer-icon-regression
+Refine footer cost storytelling
+Add production claim verification guard
+Strengthen cascade pipeline integration coverage (#167)
+Strengthen cascade pipeline integration coverage
+Merge pull request #166 from DrunkkToys/codex/init-footer-icon-regression
+Clarify vibeqmax mode analysis
+Merge pull request #165 from DrunkkToys/codex/init-footer-icon-regression
+Merge remote-tracking branch 'origin/master' into codex/init-footer-icon-regression
+
+
 ## 0.24.31
 - fix: make footer state truthful
 - fix: quiet greetings should not inherit stale tdd tags
