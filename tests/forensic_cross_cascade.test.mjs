@@ -8,6 +8,7 @@ import { pathToFileURL, fileURLToPath } from "node:url"
 
 const ROOT = join(fileURLToPath(new URL(".", import.meta.url)), "..")
 const BUNDLE_URL = pathToFileURL(join(ROOT, "src/index.js")).href
+const CHAT_TRANSFORM_URL = pathToFileURL(join(ROOT, "src/lib/hooks/chat-transform.js")).href
 const STALE_MS = 72 * 60 * 60 * 1000
 
 function sandbox() {
@@ -111,6 +112,59 @@ test("cc3: slot lock persists across rebuild and status", async () => {
     process.stdout.write(JSON.stringify({ slot_locked: tiers.selection.slot_locked === true }));
   `)
   assert.ok(result.slot_locked, "slot_locked persists after lock on + rebuild")
+  rmSync(sb, { recursive: true, force: true })
+})
+
+test("cc3b: model lock blocks cascade slot rewrites during syncControlSettings", async () => {
+  const sb = sandbox()
+  mkdirSync(join(sb, ".claude"), { recursive: true })
+  const tiersPath = join(sb, ".claude", "model-tiers.json")
+  writeFileSync(tiersPath, JSON.stringify({
+    trinity: {
+      brain: { oc: "deepseek/deepseek-v4-pro", cc: "deepseek/deepseek-v4-pro" },
+      medium: { oc: "deepseek/deepseek-v4-flash", cc: "deepseek/deepseek-v4-flash" },
+      cheap: { oc: "deepseek/deepseek-chat", cc: "deepseek/deepseek-chat" },
+    },
+    selection: {
+      enabled: true,
+      active_slot: "brain",
+      slot_locked: false,
+      delegation_enforce: true,
+      flow_enabled: true,
+      flow_enforce: true,
+      tdd_enforce: true,
+      tdd_strict: true,
+      tdd_quality: true,
+      thinking_level: "full",
+      optimization_mode: "quality",
+    },
+  }, null, 2) + "\n")
+  const result = run(sb, `
+    await hooks.tool.trinity.execute({ action: "lock", slot: "on" });
+    const ht = await import(${JSON.stringify(CHAT_TRANSFORM_URL)} + "?lock=" + Date.now());
+    ht.syncControlSettings({
+      tier_bias: "medium",
+      optimization_mode: "speed",
+      enforcement_mode: "relaxed",
+      flow_mode: "audit",
+      tdd_mode: "lazy",
+      thinking_mode: "off",
+    });
+    const tiers = JSON.parse(readFileSync(${JSON.stringify(tiersPath)}, "utf8"));
+    const status = await hooks.tool.trinity.execute({ action: "status" });
+    process.stdout.write(JSON.stringify({
+      active_slot: tiers.selection?.active_slot,
+      brain: tiers.trinity?.brain?.oc,
+      medium: tiers.trinity?.medium?.oc,
+      cheap: tiers.trinity?.cheap?.oc,
+      locked: String(status || "").includes("LOCK ON"),
+    }));
+  `)
+  assert.equal(result.active_slot, "brain", "locked session should not auto-switch to medium")
+  assert.equal(result.brain, "deepseek/deepseek-v4-pro", "brain slot should stay intact")
+  assert.equal(result.medium, "deepseek/deepseek-v4-flash", "medium slot should stay intact")
+  assert.equal(result.cheap, "deepseek/deepseek-chat", "cheap slot should stay intact")
+  assert.ok(result.locked, "status should still reflect the live lock state")
   rmSync(sb, { recursive: true, force: true })
 })
 

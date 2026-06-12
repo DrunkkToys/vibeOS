@@ -78,7 +78,7 @@ export function createTrinityTool(deps) {
         const currentProvider = String(deps.currentModel || "").split("/")[0] || ""
         const selectedProvider = String(sel.selected_provider || "").split("/")[0] || ""
         const fallbackModelGuard = currentProvider === "opencode" && selectedProvider !== "opencode"
-        if (deps.currentModel && sel.selected_model && deps.currentModel !== sel.selected_model && !apiFallbackActive && !fallbackModelGuard) {
+        if (deps.currentModel && sel.selected_model && deps.currentModel !== sel.selected_model && !apiFallbackActive && !fallbackModelGuard && !deps._modelLocked) {
           try {
             const providers = typeof deps._loadOpenCodeProviders === "function"
               ? deps._loadOpenCodeProviders(deps.directory)

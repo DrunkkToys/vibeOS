@@ -8835,7 +8835,7 @@ function createTrinityTool(deps) {
         const currentProvider = String(deps.currentModel || "").split("/")[0] || "";
         const selectedProvider = String(sel.selected_provider || "").split("/")[0] || "";
         const fallbackModelGuard = currentProvider === "opencode" && selectedProvider !== "opencode";
-        if (deps.currentModel && sel.selected_model && deps.currentModel !== sel.selected_model && !apiFallbackActive && !fallbackModelGuard) {
+        if (deps.currentModel && sel.selected_model && deps.currentModel !== sel.selected_model && !apiFallbackActive && !fallbackModelGuard && !deps._modelLocked) {
           try {
             const providers = typeof deps._loadOpenCodeProviders === "function" ? deps._loadOpenCodeProviders(deps.directory) : {};
             const auth = deps._readAuth();
@@ -11383,7 +11383,7 @@ function syncControlSettings(cv, options = {}) {
     }
     const slot = cv.tier_bias;
     const slotLocked = currentSel.slot_locked === true;
-    if (slot && slot !== "auto" && !slotLocked) {
+    if (slot && slot !== "auto" && !slotLocked && !_modelLocked) {
       const existingSlot = loadSessionSlot(sid);
       if (existingSlot !== slot) {
         writeSessionSlot2(sid, slot);
