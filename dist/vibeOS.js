@@ -454,6 +454,12 @@ function autoSelectMode(subRegime, stressMultiplier) {
     return "speed";
   if (regime === "CONVERGING" || regime === "CLOSED")
     return "quality";
+  if (regime === "IMPLEMENTING")
+    return "quality";
+  if (regime === "RESEARCH" || regime === "DESIGNING")
+    return "longrun";
+  if (regime === "REVIEWING")
+    return "audit";
   if (stressMultiplier && stressMultiplier > QUALITY_STRESS_THRESHOLD)
     return "quality";
   return "litex";
@@ -514,6 +520,58 @@ var init_meta_controller = __esm({
         stress_multiplier: 1,
         context7_urgency: "preferred",
         wbp_verbosity: "normal"
+      },
+      IMPLEMENTING: {
+        enforcement_mode: "strict",
+        enforcement_reason: "implementation work \u2014 validate code changes and keep tests on",
+        flow_mode: "strict",
+        flow_focus: ["write-edit-check", "no-untouched-files"],
+        tdd_mode: "strict",
+        tdd_focus: ["skeleton-on-write", "assertion-check"],
+        tier_bias: "brain",
+        thinking_mode: "brief",
+        stress_multiplier: 1.3,
+        context7_urgency: "required",
+        wbp_verbosity: "normal"
+      },
+      RESEARCH: {
+        enforcement_mode: "normal",
+        enforcement_reason: "research mode \u2014 collect evidence before changing anything",
+        flow_mode: "audit",
+        flow_focus: ["trace-audit"],
+        tdd_mode: "lazy",
+        tdd_focus: [],
+        tier_bias: "brain",
+        thinking_mode: "full",
+        stress_multiplier: 1.2,
+        context7_urgency: "required",
+        wbp_verbosity: "detailed"
+      },
+      REVIEWING: {
+        enforcement_mode: "strict",
+        enforcement_reason: "review mode \u2014 validate diffs and surface risks",
+        flow_mode: "strict",
+        flow_focus: ["write-edit-check", "no-untouched-files", "no-lgtm"],
+        tdd_mode: "quality",
+        tdd_focus: ["full-coverage", "edge-cases"],
+        tier_bias: "brain",
+        thinking_mode: "brief",
+        stress_multiplier: 1.1,
+        context7_urgency: "required",
+        wbp_verbosity: "normal"
+      },
+      DESIGNING: {
+        enforcement_mode: "normal",
+        enforcement_reason: "design mode \u2014 explore architecture and tradeoffs",
+        flow_mode: "audit",
+        flow_focus: ["trace-audit"],
+        tdd_mode: "normal",
+        tdd_focus: [],
+        tier_bias: "brain",
+        thinking_mode: "full",
+        stress_multiplier: 1.1,
+        context7_urgency: "required",
+        wbp_verbosity: "detailed"
       },
       CONVERGING: {
         enforcement_mode: "strict",
@@ -6292,7 +6350,7 @@ import { join as join7, dirname as dirname8 } from "node:path";
 
 // src/vibeOS-lib/blackbox/resolution-tracker.js
 var ResolutionTracker = class _ResolutionTracker {
-  static SUB_REGIMES = ["INIT", "DIVERGENT", "EXPLORING", "REFINING", "CONVERGING", "CLOSED", "LOOPING"];
+  static SUB_REGIMES = ["INIT", "DIVERGENT", "EXPLORING", "REFINING", "IMPLEMENTING", "RESEARCH", "REVIEWING", "DESIGNING", "CONVERGING", "CLOSED", "LOOPING"];
   sessionId;
   maxHistory;
   history;
@@ -6902,6 +6960,12 @@ function autoSelectMode2(subRegime, stressMultiplier) {
     return "speed";
   if (regime === "CONVERGING" || regime === "CLOSED")
     return "quality";
+  if (regime === "IMPLEMENTING")
+    return "quality";
+  if (regime === "RESEARCH" || regime === "DESIGNING")
+    return "longrun";
+  if (regime === "REVIEWING")
+    return "audit";
   if (stress > QUALITY_STRESS_THRESHOLD2)
     return "quality";
   return "vibelitex";
@@ -11474,6 +11538,10 @@ var REGIME_TAG = {
   DIVERGENT: "DVRG",
   EXPLORING: "XPLR",
   REFINING: "RFNE",
+  IMPLEMENTING: "IMPL",
+  RESEARCH: "RSCH",
+  REVIEWING: "RVW",
+  DESIGNING: "DSGN",
   CONVERGING: "CVGE",
   CLOSED: "CLSD",
   LOOPING: "LOOP",
@@ -11500,6 +11568,28 @@ function resolveBrand(optMode, activeSlot) {
 }
 function resolveTierIcon(slot) {
   return TIER_ICON[slot] || "\u26A1";
+}
+function formatModeLabel(optMode) {
+  const normalized = String(optMode || "").toLowerCase();
+  if (!normalized)
+    return "";
+  if (normalized === "vibemax" || normalized === "vibelitex" || normalized === "budget")
+    return "Budget";
+  if (normalized === "vibeqmax" || normalized === "quality")
+    return "Quality";
+  if (normalized === "vibeultrax")
+    return "VibeUltraX";
+  if (normalized === "speed")
+    return "Speed";
+  if (normalized === "longrun")
+    return "Longrun";
+  if (normalized === "audit")
+    return "Audit";
+  if (normalized === "forensic")
+    return "Forensic";
+  if (normalized === "balanced")
+    return "Balanced";
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 }
 function formatVectorPulse(vectorChangedSlot) {
   if (!vectorChangedSlot)
@@ -11559,6 +11649,7 @@ function buildFooterLine(input) {
   const { activeSlot, sessionSlot, providerLabel, modelName, ltTotal, ltTrend, vibeBrand, optMode, flashIcon, enfTags, vectorChangedSlot, subRegime } = input;
   const tierIcon = resolveTierIcon(activeSlot);
   const regimeTag = subRegime ? REGIME_TAG[subRegime] || subRegime.slice(0, 4) : null;
+  const modeLabel = formatModeLabel(optMode);
   let line = `\u2014 ${tierIcon} ${activeSlot} | ${providerLabel} | ${modelName}${regimeTag ? ` \u25B6 ${regimeTag}` : ""}`;
   if (ltTotal > 0) {
     const savingsPulse = formatSavingsPulse(ltTotal, ltTrend);
@@ -11567,7 +11658,7 @@ function buildFooterLine(input) {
   }
   line += ` | ${vibeBrand}${flashIcon}`;
   if (optMode && optMode !== "auto") {
-    line += ` ${optMode}`;
+    line += ` ${modeLabel}`;
   }
   if (vectorChangedSlot && vectorChangedSlot !== activeSlot) {
     line += ` | ${formatVectorPulse(vectorChangedSlot)}`;

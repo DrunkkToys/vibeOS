@@ -4,7 +4,7 @@
 // Resolution Tracker — state-of-progress estimator for dialogue trajectory.
 // Ported from theWay: src/decision/resolution_tracker.py
 export class ResolutionTracker {
-  static SUB_REGIMES = ["INIT", "DIVERGENT", "EXPLORING", "REFINING", "CONVERGING", "CLOSED", "LOOPING"]
+  static SUB_REGIMES = ["INIT", "DIVERGENT", "EXPLORING", "REFINING", "IMPLEMENTING", "RESEARCH", "REVIEWING", "DESIGNING", "CONVERGING", "CLOSED", "LOOPING"]
   sessionId
   maxHistory
   history

@@ -30,6 +30,12 @@ test("autoSelectMode: REFINING + 0 stress -> litex", () => {
 test("autoSelectMode: CONVERGING + 0 stress -> quality", () => {
   assert.equal(turn.autoSelectMode("CONVERGING", 0), "quality")
 })
+test("autoSelectMode: IMPLEMENTING + 0 stress -> quality", () => {
+  assert.equal(turn.autoSelectMode("IMPLEMENTING", 0), "quality")
+})
+test("autoSelectMode: RESEARCH + 0 stress -> longrun", () => {
+  assert.equal(turn.autoSelectMode("RESEARCH", 0), "longrun")
+})
 test("autoSelectMode: LOOPING + 0 stress -> speed", () => {
   assert.equal(turn.autoSelectMode("LOOPING", 0), "speed")
 })
