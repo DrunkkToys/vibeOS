@@ -1,14 +1,9 @@
-// [vibeOS-enforced] Skeleton test — replace with real assertions
-import { test, expect, describe, it } from 'vitest';
-import * as mod from '../footer';
+import test from "node:test"
+import assert from "node:assert/strict"
+import * as mod from "../footer.js"
 
-describe('footer', () => {
-  it('smoke: module loads', () => {
-    expect(mod).toBeDefined();
-  });
-
-  it('placeholder', () => {
-    // TODO: implement tests for footer
-    expect(true).toBe(true);
-  });
-});
+test("footer hook exports the live helpers", () => {
+  assert.equal(typeof mod._appendFooter, "function")
+  assert.equal(typeof mod.scoreTaskQuality, "function")
+  assert.equal(typeof mod.readRewardSignals, "function")
+})

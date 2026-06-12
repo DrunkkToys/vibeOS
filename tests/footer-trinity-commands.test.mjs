@@ -233,7 +233,7 @@ test("footer: buildFooterLine format matches required pattern", () => {
   assert.ok(line.includes("| v4-flash"))
   assert.ok(line.includes("| $183.50 saved \u2197"))
   assert.ok(line.includes("| VibeMaX \u26A1"))
-  assert.ok(line.includes("speed"))
+  assert.ok(line.includes("Speed"))
   assert.ok(line.includes("guarded"))
   assert.ok(line.includes("tests live"))
   assert.ok(!line.includes("slot:medium"))
@@ -256,7 +256,7 @@ test("footer: buildFooterLine with vibeultrax mode", () => {
 
   assert.ok(line.includes("\u{1F9E0} brain"))
   assert.ok(line.includes("| VibeUltraX"))
-  assert.ok(line.includes("vibeultrax"))
+  assert.ok(line.includes("VibeUltraX"))
   assert.ok(line.includes("guarded"))
   assert.ok(line.includes("flow steady"))
   assert.ok(line.includes("tests live"))
@@ -279,7 +279,7 @@ test("footer: buildFooterLine with vibeqmax mode", () => {
 
   assert.ok(line.includes("\u26A1 cheap"))
   assert.ok(line.includes("| VibeQMaX"))
-  assert.ok(line.includes("vibeqmax"))
+  assert.ok(line.includes("Quality"))
   assert.ok(line.includes("$42.00 saved \u2198"))
 })
 
@@ -300,7 +300,7 @@ test("footer: buildFooterLine with vibemax mode on cheap slot", () => {
 
   assert.ok(line.includes("\u26A1 cheap"))
   assert.ok(line.includes("| VibeMaX"))
-  assert.ok(line.includes("vibemax"))
+  assert.ok(line.includes("Budget"))
   assert.ok(line.includes("$99.99 saved"))
 })
 

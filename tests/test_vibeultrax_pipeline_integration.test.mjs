@@ -97,10 +97,53 @@ test("footer brand is VibeUltraX when vibeultrax mode active", async (t) => {
     writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "anthropic/claude-opus-4.5" }))
     const mod = await loadPlugin()
     const hooks = await mod.DelegationEnforcer({ client: { model: "anthropic/claude-opus-4.5" }, directory: dir })
-    const output = { text: "brand check" }
+    const output = { text: "Brand check with enough content to trigger the live footer and surface the active mode, slot, and savings line in the rendered output for VibeUltraX." }
     await hooks["experimental.text.complete"]({ messageID: "brand-" + randomUUID().slice(0, 6) }, output)
     const captured = output.text || ""
     assert.ok(captured.includes("VibeUltraX"), "footer must contain VibeUltraX brand")
+  } finally {
+    process.env.HOME = prevHome
+  }
+})
+
+test("real cascade: task routing escalates from cheap to medium on complex prompts", async (t) => {
+  const dir = isolatedSandbox()
+  const prevHome = process.env.HOME
+  process.env.HOME = dir
+  try {
+    const claudeDir = join(dir, ".claude")
+    mkdirSync(claudeDir, { recursive: true })
+    writeFileSync(join(claudeDir, "model-tiers.json"), JSON.stringify({
+      trinity: {
+        brain: { oc: "deepseek/deepseek-v4-pro" },
+        medium: { oc: "deepseek/deepseek-v4-flash" },
+        cheap: { oc: "deepseek/deepseek-chat" },
+      },
+      selection: {
+        enabled: true,
+        active_slot: "cheap",
+        delegation_enforce: true,
+        flow_enabled: true,
+        tdd_enforce: false,
+        optimization_mode: "budget",
+        active_pipeline: ["local", "medium", "brain"],
+      },
+    }, null, 2))
+    writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "deepseek/deepseek-chat" }))
+
+    const mod = await loadPlugin()
+    const hooks = await mod.DelegationEnforcer({ client: { model: "deepseek/deepseek-chat" }, directory: dir })
+
+    const cheapTask = { model: null, prompt: "check status" }
+    await hooks["tool.execute.before"]({ tool: "task" }, { args: cheapTask })
+    assert.equal(cheapTask.model, "deepseek/deepseek-chat", "simple task should stay on the cheap model")
+
+    const complexTask = {
+      model: null,
+      prompt: "implement a distributed microservice pipeline with database migration, retries, observability, and rollbacks",
+    }
+    await hooks["tool.execute.before"]({ tool: "task" }, { args: complexTask })
+    assert.equal(complexTask.model, "deepseek/deepseek-v4-flash", "complex task should escalate to medium through the live cascade pipeline")
   } finally {
     process.env.HOME = prevHome
   }
