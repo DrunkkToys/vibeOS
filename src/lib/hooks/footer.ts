@@ -3,8 +3,8 @@ import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, sta
 import { join, dirname, basename } from "node:path"
 import { classify, modelCostPerTurn, _refreshModel, readConfig, resolveDisplayModelId, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, roundUsd, formatUsd, resolveExecutionIdentity, modelDisplayName } from "../pricing.js"
 import { latestUserIntent } from "./chat-transform.js"
-import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, loadOptimizationMode, classifyTurnSimple } from "../turn-classify.js"
-import { peekBudgetFirstMode, recordBudgetFirstOutcome } from "../mode-policy.js"
+import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, classifyTurnSimple, autoSelectMode } from "../turn-classify.js"
+import { recordBudgetFirstOutcome } from "../mode-policy.js"
 import { saveReport } from "../reporting.js"
 import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, getCurrentSessionId, _modelLocked, _blackboxEnabled, _latestBlackboxState, writeSelection, reconcileStateFromLedger, safeJsonParse, loadTodos, loadBlackboxState, VIBEOS_HOME } from "../state.js"
 import { loadSessionSlot, writeSessionSlot } from "../selection-manager.js"
@@ -240,8 +240,9 @@ async function _appendFooter(input, output, directory) {
     }
 
     const selNowFooter = loadSelection()
+    const normalizedIntent = classifyTurnSimple(latestUserIntent || "")
+    const currentSubRegime = _latestBlackboxState?.sub_regime || normalizedIntent
     const bbMode = resolveEnforcementMode()
-    const optModeFooter = loadOptimizationMode()
     const enfTags = buildEnforcementTags({
       delegationEnforce: selNowFooter.delegation_enforce,
       flowEnforce: selNowFooter.flow_enforce,
@@ -249,21 +250,14 @@ async function _appendFooter(input, output, directory) {
       bbMode,
       modelLocked: _modelLocked,
     })
-    const resolvedMode = peekBudgetFirstMode({
-      requestedMode: optModeFooter,
-      subRegime: _latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""),
-      stress: _footerStress,
-    }).mode
     const stripped = text.replace(/\u2014 [^\u2014]+ \u2014\s*/g, "").trimEnd()
     if (stripped !== text) return
     if (stripped === _lastStrippedText) return
     const ltTotal = ltTasks + ltCache
     const activeSlot = selNowFooter.active_slot || "brain"
-    const optMode = (resolvedMode || "budget").toLowerCase()
     const flashIcon = isApiConnected() ? " \u26A1" : ""
-    const displayMode = resolvedMode || optModeFooter || optMode || selNowFooter?.optimization_mode || "auto"
+    const displayMode = autoSelectMode(currentSubRegime, _footerStress)
     const vibeBrand = resolveBrand(displayMode, activeSlot)
-    const currentSubRegime = _latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || "")
     const vibeLine = buildFooterLine({
       activeSlot,
       providerLabel: execution.provider_label,

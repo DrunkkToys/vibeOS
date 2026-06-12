@@ -561,26 +561,9 @@ function loadBlackboxState(): any {
     let changed = false
     for (const [sid, session] of Object.entries(raw.sessions)) {
       if (!session || typeof session !== "object") continue
-      const next = { ...(session as any) }
-      const createdAtRaw = typeof next.createdAt === "string" ? next.createdAt : ""
-      const updatedAtRaw = typeof next.updatedAt === "string" ? next.updatedAt : ""
-      const startedRaw = typeof next.started === "string" ? next.started : ""
-      const sessionStartedRaw = typeof next.session_started_at === "string" ? next.session_started_at : ""
-      const anchorRaw = [createdAtRaw, updatedAtRaw, startedRaw, sessionStartedRaw].find((v) => v && !Number.isNaN(Date.parse(v)))
-      const anchorMs = anchorRaw ? Date.parse(anchorRaw) : NaN
-      if (!Number.isFinite(Date.parse(createdAtRaw))) {
-        next.createdAt = Number.isFinite(anchorMs) ? new Date(anchorMs).toISOString() : new Date(now).toISOString()
-        changed = true
-      }
-      if (!Number.isFinite(Date.parse(updatedAtRaw))) {
-        next.updatedAt = next.createdAt || new Date(now).toISOString()
-        changed = true
-      }
-      if (typeof next.sessionId !== "string" || !next.sessionId.trim()) {
-        next.sessionId = String(sid || "")
-        changed = true
-      }
+      const { record: next, changed: recordChanged } = normalizeBlackboxRecord(session as any, sid, now)
       raw.sessions[sid] = next
+      if (recordChanged) changed = true
     }
     if (changed) {
       try { saveBlackboxState(raw) } catch {}
@@ -597,22 +580,7 @@ function saveBlackboxState(state: any): void {
     const now = Date.now()
     for (const [sid, session] of Object.entries(next.sessions)) {
       if (!session || typeof session !== "object") continue
-      const record = session as any
-      const createdAtRaw = typeof record.createdAt === "string" ? record.createdAt : ""
-      const updatedAtRaw = typeof record.updatedAt === "string" ? record.updatedAt : ""
-      const startedRaw = typeof record.started === "string" ? record.started : ""
-      const sessionStartedRaw = typeof record.session_started_at === "string" ? record.session_started_at : ""
-      const anchorRaw = [createdAtRaw, updatedAtRaw, startedRaw, sessionStartedRaw].find((v) => v && !Number.isNaN(Date.parse(v)))
-      const anchorMs = anchorRaw ? Date.parse(anchorRaw) : NaN
-      if (!Number.isFinite(Date.parse(createdAtRaw))) {
-        record.createdAt = Number.isFinite(anchorMs) ? new Date(anchorMs).toISOString() : new Date(now).toISOString()
-      }
-      if (!Number.isFinite(Date.parse(updatedAtRaw))) {
-        record.updatedAt = record.createdAt || new Date(now).toISOString()
-      }
-      if (typeof record.sessionId !== "string" || !record.sessionId.trim()) {
-        record.sessionId = String(sid || "")
-      }
+      next.sessions[sid] = normalizeBlackboxRecord(session as any, sid, now).record
     }
     mkdirSync(dirname(blackboxFile), { recursive: true })
     const tmp = blackboxFile + ".tmp"
@@ -629,6 +597,61 @@ function getBlackboxTracker(): any {
 
 function getBlackboxResolution(): any {
   return _blackboxTracker?.resolution || null
+}
+
+function normalizeBlackboxRecord(record: any, sid: string, now: number): { record: any; changed: boolean } {
+  const next = { ...(record || {}) }
+  let changed = false
+  const createdAtRaw = typeof next.createdAt === "string" ? next.createdAt : ""
+  const updatedAtRaw = typeof next.updatedAt === "string" ? next.updatedAt : ""
+  const startedRaw = typeof next.started === "string" ? next.started : ""
+  const sessionStartedRaw = typeof next.session_started_at === "string" ? next.session_started_at : ""
+  const anchorRaw = [createdAtRaw, updatedAtRaw, startedRaw, sessionStartedRaw].find((v) => v && !Number.isNaN(Date.parse(v)))
+  const anchorMs = anchorRaw ? Date.parse(anchorRaw) : NaN
+  if (!Number.isFinite(Date.parse(createdAtRaw))) {
+    next.createdAt = Number.isFinite(anchorMs) ? new Date(anchorMs).toISOString() : new Date(now).toISOString()
+    changed = true
+  }
+  if (!Number.isFinite(Date.parse(updatedAtRaw))) {
+    next.updatedAt = next.createdAt || new Date(now).toISOString()
+    changed = true
+  }
+  if (typeof next.sessionId !== "string" || !next.sessionId.trim()) {
+    next.sessionId = String(sid || "")
+    changed = true
+  }
+  if (typeof next.project_fingerprint !== "string" || !next.project_fingerprint.trim()) {
+    if (typeof currentProjectFingerprint === "string" && currentProjectFingerprint.trim()) {
+      next.project_fingerprint = currentProjectFingerprint.trim()
+      changed = true
+    }
+  }
+  if (typeof next.project_name !== "string" || !next.project_name.trim()) {
+    if (typeof currentProjectName === "string" && currentProjectName.trim()) {
+      next.project_name = currentProjectName.trim()
+      changed = true
+    }
+  }
+  if (typeof next.regime !== "string" || !next.regime.trim()) {
+    next.regime = typeof next.sub_regime === "string" && next.sub_regime.trim() ? next.sub_regime.trim() : "INIT"
+    changed = true
+  }
+  if (typeof next.sub_regime !== "string" || !next.sub_regime.trim()) {
+    next.sub_regime = "INIT"
+    changed = true
+  }
+  if (typeof next.resolution !== "string" || !next.resolution.trim()) {
+    next.resolution = "unresolved"
+    changed = true
+  }
+  if (!Number.isFinite(Number(next.momentum))) { next.momentum = 0; changed = true }
+  if (!Number.isFinite(Number(next.turn_counter))) { next.turn_counter = 0; changed = true }
+  if (!Number.isFinite(Number(next.loopCount))) { next.loopCount = 0; changed = true }
+  if (!Number.isFinite(Number(next.loop_consecutive))) { next.loop_consecutive = Number(next.loopCount || 0); changed = true }
+  if (!Array.isArray(next.history)) { next.history = []; changed = true }
+  if (!Array.isArray(next.pivotHistory)) { next.pivotHistory = []; changed = true }
+  if (!Array.isArray(next.outcomeHistory)) { next.outcomeHistory = []; changed = true }
+  return { record: next, changed }
 }
 
 // ── Session scratchpad helpers ──────────────────────────────────────

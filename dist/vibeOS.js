@@ -3802,26 +3802,10 @@ function loadBlackboxState() {
     for (const [sid, session] of Object.entries(raw.sessions)) {
       if (!session || typeof session !== "object")
         continue;
-      const next = { ...session };
-      const createdAtRaw = typeof next.createdAt === "string" ? next.createdAt : "";
-      const updatedAtRaw = typeof next.updatedAt === "string" ? next.updatedAt : "";
-      const startedRaw = typeof next.started === "string" ? next.started : "";
-      const sessionStartedRaw = typeof next.session_started_at === "string" ? next.session_started_at : "";
-      const anchorRaw = [createdAtRaw, updatedAtRaw, startedRaw, sessionStartedRaw].find((v) => v && !Number.isNaN(Date.parse(v)));
-      const anchorMs = anchorRaw ? Date.parse(anchorRaw) : NaN;
-      if (!Number.isFinite(Date.parse(createdAtRaw))) {
-        next.createdAt = Number.isFinite(anchorMs) ? new Date(anchorMs).toISOString() : new Date(now).toISOString();
-        changed = true;
-      }
-      if (!Number.isFinite(Date.parse(updatedAtRaw))) {
-        next.updatedAt = next.createdAt || new Date(now).toISOString();
-        changed = true;
-      }
-      if (typeof next.sessionId !== "string" || !next.sessionId.trim()) {
-        next.sessionId = String(sid || "");
-        changed = true;
-      }
+      const { record: next, changed: recordChanged } = normalizeBlackboxRecord(session, sid, now);
       raw.sessions[sid] = next;
+      if (recordChanged)
+        changed = true;
     }
     if (changed) {
       try {
@@ -3844,22 +3828,7 @@ function saveBlackboxState(state) {
     for (const [sid, session] of Object.entries(next.sessions)) {
       if (!session || typeof session !== "object")
         continue;
-      const record = session;
-      const createdAtRaw = typeof record.createdAt === "string" ? record.createdAt : "";
-      const updatedAtRaw = typeof record.updatedAt === "string" ? record.updatedAt : "";
-      const startedRaw = typeof record.started === "string" ? record.started : "";
-      const sessionStartedRaw = typeof record.session_started_at === "string" ? record.session_started_at : "";
-      const anchorRaw = [createdAtRaw, updatedAtRaw, startedRaw, sessionStartedRaw].find((v) => v && !Number.isNaN(Date.parse(v)));
-      const anchorMs = anchorRaw ? Date.parse(anchorRaw) : NaN;
-      if (!Number.isFinite(Date.parse(createdAtRaw))) {
-        record.createdAt = Number.isFinite(anchorMs) ? new Date(anchorMs).toISOString() : new Date(now).toISOString();
-      }
-      if (!Number.isFinite(Date.parse(updatedAtRaw))) {
-        record.updatedAt = record.createdAt || new Date(now).toISOString();
-      }
-      if (typeof record.sessionId !== "string" || !record.sessionId.trim()) {
-        record.sessionId = String(sid || "");
-      }
+      next.sessions[sid] = normalizeBlackboxRecord(session, sid, now).record;
     }
     mkdirSync3(dirname4(blackboxFile), { recursive: true });
     const tmp = blackboxFile + ".tmp";
@@ -3868,6 +3837,81 @@ function saveBlackboxState(state) {
   } catch (err) {
     console.error(`[vibeOS] saveBlackboxState failed: ${err.message}`);
   }
+}
+function normalizeBlackboxRecord(record, sid, now) {
+  const next = { ...record || {} };
+  let changed = false;
+  const createdAtRaw = typeof next.createdAt === "string" ? next.createdAt : "";
+  const updatedAtRaw = typeof next.updatedAt === "string" ? next.updatedAt : "";
+  const startedRaw = typeof next.started === "string" ? next.started : "";
+  const sessionStartedRaw = typeof next.session_started_at === "string" ? next.session_started_at : "";
+  const anchorRaw = [createdAtRaw, updatedAtRaw, startedRaw, sessionStartedRaw].find((v) => v && !Number.isNaN(Date.parse(v)));
+  const anchorMs = anchorRaw ? Date.parse(anchorRaw) : NaN;
+  if (!Number.isFinite(Date.parse(createdAtRaw))) {
+    next.createdAt = Number.isFinite(anchorMs) ? new Date(anchorMs).toISOString() : new Date(now).toISOString();
+    changed = true;
+  }
+  if (!Number.isFinite(Date.parse(updatedAtRaw))) {
+    next.updatedAt = next.createdAt || new Date(now).toISOString();
+    changed = true;
+  }
+  if (typeof next.sessionId !== "string" || !next.sessionId.trim()) {
+    next.sessionId = String(sid || "");
+    changed = true;
+  }
+  if (typeof next.project_fingerprint !== "string" || !next.project_fingerprint.trim()) {
+    if (typeof currentProjectFingerprint === "string" && currentProjectFingerprint.trim()) {
+      next.project_fingerprint = currentProjectFingerprint.trim();
+      changed = true;
+    }
+  }
+  if (typeof next.project_name !== "string" || !next.project_name.trim()) {
+    if (typeof currentProjectName === "string" && currentProjectName.trim()) {
+      next.project_name = currentProjectName.trim();
+      changed = true;
+    }
+  }
+  if (typeof next.regime !== "string" || !next.regime.trim()) {
+    next.regime = typeof next.sub_regime === "string" && next.sub_regime.trim() ? next.sub_regime.trim() : "INIT";
+    changed = true;
+  }
+  if (typeof next.sub_regime !== "string" || !next.sub_regime.trim()) {
+    next.sub_regime = "INIT";
+    changed = true;
+  }
+  if (typeof next.resolution !== "string" || !next.resolution.trim()) {
+    next.resolution = "unresolved";
+    changed = true;
+  }
+  if (!Number.isFinite(Number(next.momentum))) {
+    next.momentum = 0;
+    changed = true;
+  }
+  if (!Number.isFinite(Number(next.turn_counter))) {
+    next.turn_counter = 0;
+    changed = true;
+  }
+  if (!Number.isFinite(Number(next.loopCount))) {
+    next.loopCount = 0;
+    changed = true;
+  }
+  if (!Number.isFinite(Number(next.loop_consecutive))) {
+    next.loop_consecutive = Number(next.loopCount || 0);
+    changed = true;
+  }
+  if (!Array.isArray(next.history)) {
+    next.history = [];
+    changed = true;
+  }
+  if (!Array.isArray(next.pivotHistory)) {
+    next.pivotHistory = [];
+    changed = true;
+  }
+  if (!Array.isArray(next.outcomeHistory)) {
+    next.outcomeHistory = [];
+    changed = true;
+  }
+  return { record: next, changed };
 }
 function getSessionRoot() {
   return join4(SCRATCHPAD_SESSIONS_DIR, _OC_SID);
@@ -11761,8 +11805,9 @@ async function _appendFooter(input, output, directory3) {
       }
     }
     const selNowFooter = loadSelection3();
+    const normalizedIntent = classifyTurnSimple2(latestUserIntent || "");
+    const currentSubRegime = _latestBlackboxState?.sub_regime || normalizedIntent;
     const bbMode = resolveEnforcementMode();
-    const optModeFooter = loadOptimizationMode();
     const enfTags = buildEnforcementTags({
       delegationEnforce: selNowFooter.delegation_enforce,
       flowEnforce: selNowFooter.flow_enforce,
@@ -11770,11 +11815,6 @@ async function _appendFooter(input, output, directory3) {
       bbMode,
       modelLocked: _modelLocked
     });
-    const resolvedMode = peekBudgetFirstMode({
-      requestedMode: optModeFooter,
-      subRegime: _latestBlackboxState?.sub_regime || classifyTurnSimple2(latestUserIntent || ""),
-      stress: _footerStress
-    }).mode;
     const stripped = text.replace(/\u2014 [^\u2014]+ \u2014\s*/g, "").trimEnd();
     if (stripped !== text)
       return;
@@ -11782,11 +11822,9 @@ async function _appendFooter(input, output, directory3) {
       return;
     const ltTotal = ltTasks + ltCache;
     const activeSlot = selNowFooter.active_slot || "brain";
-    const optMode = (resolvedMode || "budget").toLowerCase();
     const flashIcon = isApiConnected2() ? " \u26A1" : "";
-    const displayMode = resolvedMode || optModeFooter || optMode || selNowFooter?.optimization_mode || "auto";
+    const displayMode = autoSelectMode2(currentSubRegime, _footerStress);
     const vibeBrand = resolveBrand(displayMode, activeSlot);
-    const currentSubRegime = _latestBlackboxState?.sub_regime || classifyTurnSimple2(latestUserIntent || "");
     const vibeLine = buildFooterLine({
       activeSlot,
       providerLabel: execution.provider_label,
@@ -13865,14 +13903,6 @@ var onToolExecuteAfter = async (input, output) => {
       const { ltTasks, ltCache, ltCost, sesTrend } = readLifetimeSavings();
       const ltTotal = ltTasks + ltCache;
       const selNow = loadSelection();
-      const bbMode = resolveEnforcementMode();
-      const enfTags = buildEnforcementTags({
-        delegationEnforce: selNow.delegation_enforce,
-        flowEnforce: selNow.flow_enforce,
-        tddEnforce: selNow.tdd_enforce,
-        bbMode,
-        modelLocked: _modelLocked
-      });
       let liveModel = "";
       try {
         const cfg = await client.config.get("model");
@@ -13891,12 +13921,19 @@ var onToolExecuteAfter = async (input, output) => {
       }
       const execution = resolveExecutionIdentity(input?.args?.model || resolvedModel || "", projectDirectory);
       const currentSid = _OC_SID;
-      const optModeFooter = loadSessionOptMode(currentSid + "_opt") || loadOptimizationMode() || "budget";
-      const activeSlot = selNow.active_slot || (execution.quality === "brain" ? "brain" : execution.quality === "medium" ? "medium" : "cheap");
-      const vibeBrand = resolveBrand(optModeFooter, activeSlot);
-      const sessionSlot = loadSessionSlot(currentSid);
-      const displayMode = selNow.optimization_mode || optModeFooter || "auto";
       const currentSubRegime = loadBlackboxState()?.sessions?.[currentSid]?.sub_regime || classifyTurnSimple2(latestUserIntent || "");
+      const bbMode = resolveEnforcementMode();
+      const enfTags = buildEnforcementTags({
+        delegationEnforce: selNow.delegation_enforce,
+        flowEnforce: selNow.flow_enforce,
+        tddEnforce: selNow.tdd_enforce,
+        bbMode,
+        modelLocked: _modelLocked
+      });
+      const activeSlot = selNow.active_slot || (execution.quality === "brain" ? "brain" : execution.quality === "medium" ? "medium" : "cheap");
+      const displayMode = autoSelectMode2(currentSubRegime, latestUserIntent ? scoreStress(latestUserIntent) : 0);
+      const vibeBrand = resolveBrand(displayMode, activeSlot);
+      const sessionSlot = loadSessionSlot(currentSid);
       const flashIcon = isApiConnected2() ? " \u26A1" : "";
       _footerText = buildFooterLine({
         activeSlot,

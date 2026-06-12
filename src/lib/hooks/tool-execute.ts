@@ -33,8 +33,7 @@ import {
   trendDisplay, modelToSlotLabel, resolveExecutionIdentity, formatProviderName, formatQualityName, modelDisplayName,
 } from "../pricing.js"
 import { latestUserIntent } from "./chat-transform.js"
-import { loadSessionOptMode, loadSessionSlot } from "../selection-manager.js"
-import { loadOptimizationMode } from "../turn-classify.js"
+import { loadSessionSlot } from "../selection-manager.js"
 import { loadCredit, refreshCreditSnapshot } from "../credit-api.js"
 import { buildFooterLine, buildEnforcementTags, resolveBrand, resolveTierIcon } from "./shared-footer.js"
 
@@ -43,7 +42,7 @@ function modeCapitalized(mode: string): string {
   return mode.charAt(0).toUpperCase() + mode.slice(1)
 }
 import {
-  scoreStress, extractFirstWordFromArgs, shouldLogWarn, classifyTurnSimple,
+  scoreStress, extractFirstWordFromArgs, shouldLogWarn, classifyTurnSimple, autoSelectMode,
   isUserAskingForTests, isLikelyOffTopic, resolveEnforcementMode,
   getBlackboxTracker, loadBlackboxState, saveBlackboxState,
   loadGlobalLearning, updateGlobalLearning, getLearnedExploratoryWords,
@@ -714,14 +713,6 @@ export const onToolExecuteAfter = async (input, output) => {
       const { ltTasks, ltCache, ltCost, sesTrend } = readLifetimeSavings()
       const ltTotal = ltTasks + ltCache
       const selNow = loadSelection()
-      const bbMode = resolveEnforcementMode()
-      const enfTags = buildEnforcementTags({
-        delegationEnforce: selNow.delegation_enforce,
-        flowEnforce: selNow.flow_enforce,
-        tddEnforce: selNow.tdd_enforce,
-        bbMode,
-        modelLocked: _modelLocked,
-      })
       let liveModel = ""
       try {
         const cfg = await client.config.get("model")
@@ -738,12 +729,19 @@ export const onToolExecuteAfter = async (input, output) => {
       }
       const execution = resolveExecutionIdentity(input?.args?.model || resolvedModel || "", projectDirectory)
       const currentSid = _OC_SID
-      const optModeFooter = loadSessionOptMode(currentSid + "_opt") || loadOptimizationMode() || "budget"
-      const activeSlot = selNow.active_slot || (execution.quality === "brain" ? "brain" : execution.quality === "medium" ? "medium" : "cheap")
-      const vibeBrand = resolveBrand(optModeFooter, activeSlot)
-      const sessionSlot = loadSessionSlot(currentSid)
-      const displayMode = selNow.optimization_mode || optModeFooter || "auto"
       const currentSubRegime = loadBlackboxState()?.sessions?.[currentSid]?.sub_regime || classifyTurnSimple(latestUserIntent || "")
+      const bbMode = resolveEnforcementMode()
+      const enfTags = buildEnforcementTags({
+        delegationEnforce: selNow.delegation_enforce,
+        flowEnforce: selNow.flow_enforce,
+        tddEnforce: selNow.tdd_enforce,
+        bbMode,
+        modelLocked: _modelLocked,
+      })
+      const activeSlot = selNow.active_slot || (execution.quality === "brain" ? "brain" : execution.quality === "medium" ? "medium" : "cheap")
+      const displayMode = autoSelectMode(currentSubRegime, latestUserIntent ? scoreStress(latestUserIntent) : 0)
+      const vibeBrand = resolveBrand(displayMode, activeSlot)
+      const sessionSlot = loadSessionSlot(currentSid)
       const flashIcon = isApiConnected() ? " \u26A1" : ""
       _footerText = buildFooterLine({
         activeSlot,

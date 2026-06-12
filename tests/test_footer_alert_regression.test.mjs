@@ -51,13 +51,13 @@ test("footer: tier = active_slot when ML decision differs from active_slot", asy
     assert.ok(o.text.includes("⟡ cheap"), "footer should show cheap as the vector move: " + o.text.slice(-150))
 })
 
-// ── Test 2: optimization_mode appears in footer ──
-test("footer: shows optimization_mode from selection", async () => {
+// ── Test 2: optimization_mode follows the current regime vector ──
+test("footer: shows regime-derived mode instead of sticky selection", async () => {
     writeTiers({ optimization_mode: "speed", vector_changed_slot: undefined })
     const { _appendFooter } = await import("../src/lib/hooks/footer.js?ftr2=" + Date.now())
     const o = { text: "Another test message that is sufficiently long to trigger the vibeOS footer and verify mode display." }
     await _appendFooter({ args: { model: "deepseek/v4-flash" } }, o)
-    assert.ok(o.text.includes("speed"), "footer should show optimization_mode speed: " + o.text.slice(-150))
+    assert.ok(o.text.includes("vibelitex"), "footer should show the INIT-derived mode: " + o.text.slice(-150))
 })
 
 // ── Test 3: → arrow shows when vector_changed differs ──
@@ -86,7 +86,7 @@ test("footer: full ML pipeline — tier + mode + arrow in one line", async () =>
     await _appendFooter({ args: { model: "deepseek/v4-flash" } }, o)
     const footer = o.text.slice(-200)
     assert.ok(footer.includes("🧠") || footer.includes("◐") || footer.includes("⚡") || footer.includes("🎁"), "has tier: " + footer)
-    assert.ok(footer.includes("budget"), "has mode: " + footer)
+    assert.ok(footer.includes("vibelitex"), "has regime-derived mode: " + footer)
     assert.ok(footer.includes("⟡ cheap"), "has vector pulse: " + footer)
     assert.ok(!footer.includes("slot:"), "footer should not repeat the slot label: " + footer)
 })
@@ -99,4 +99,22 @@ test("footer: enforcement state preserved in dynamic display", async () => {
     await _appendFooter({ args: { model: "deepseek/v4-flash" } }, o)
     // Footer should not crash, enforcement tags should render
     assert.ok(o.text.includes("guarded") || o.text.includes("flow steady") || o.text.includes("tests live"), "footer renders: " + o.text.slice(-150))
+})
+
+// ── Test 7: greetings stay quiet and do not inherit sticky quality mode ──
+test("footer: 'hi' stays quiet instead of inheriting quality/guarded state", async () => {
+    writeTiers({
+        active_slot: "brain",
+        optimization_mode: "quality",
+        delegation_enforce: true,
+        flow_enforce: true,
+        tdd_enforce: true,
+        vector_changed_slot: undefined,
+    })
+    const { _appendFooter } = await import("../src/lib/hooks/footer.js?ftr7=" + Date.now())
+    const o = { text: "Hi. How can I help you? This greeting should stay quiet and not inherit a stale quality episode." }
+    await _appendFooter({ args: { model: "deepseek/v4-pro" } }, o)
+    const footer = o.text.split("\n").pop() || ""
+    assert.ok(footer.includes("vibelitex"), "greeting footer should follow INIT regime mode: " + footer)
+    assert.ok(!footer.includes("quality"), "greeting footer should not inherit quality: " + footer)
 })
