@@ -46,6 +46,10 @@
     {
       "pattern": "TODO",
       "action": "warn"
+    },
+    {
+      "pattern": "TODO",
+      "action": "warn"
     }
   ]
 }
