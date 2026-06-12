@@ -1,3 +1,9 @@
+## 0.24.24
+- fix: restore persisted slot lock on reload (#151)
+- chore: v0.24.23 (#150)
+Merge remote-tracking branch 'origin/master'
+
+
 ## 0.24.23
 - fix: heal stale vibelitex reconnect state
 
