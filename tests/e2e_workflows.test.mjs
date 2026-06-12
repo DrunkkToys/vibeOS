@@ -285,6 +285,34 @@ test('e2e: simulated full session hook sequence does not crash', async () => {
   }
 })
 
+test('e2e: INIT live footer keeps the regime icon visible', async () => {
+  const { home, sandbox } = makeSandbox('init-footer')
+  const projectDir = join(sandbox, 'proj')
+  mkdirSync(projectDir, { recursive: true })
+  process.env.HOME = home
+
+  const mod = await import('../src/index.js?init1=' + Date.now())
+  const hooks = await mod.DelegationEnforcer({ directory: projectDir })
+
+  const userText = 'hi'
+  await hooks['experimental.chat.messages.transform'](
+    {},
+    { messages: [{ info: { role: 'user' }, parts: [{ type: 'text', text: userText }] }] }
+  )
+
+  await hooks['experimental.chat.system.transform'](
+    { message: { role: 'user', content: userText } },
+    { system: [] }
+  )
+
+  const out = { text: 'This is a long enough response to trigger the live footer in the INIT regime path.' }
+  await hooks['experimental.text.complete']({ messageID: 'init-' + Date.now() }, out)
+  const footer = String(out.text || '').split('\n').filter(Boolean).at(-1) || ''
+
+  assert.ok(footer.includes('▶ ◌ INIT'), 'INIT footer should show the regime icon and tag: ' + footer)
+  assert.ok(footer.includes('Budget') || footer.includes('VibeMaX'), 'INIT footer should stay in the budget lane: ' + footer)
+})
+
 // E2E: Additional Trinity Commands
 
 test('e2e: trinity help returns non-empty string', async () => {
