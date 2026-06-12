@@ -94,9 +94,14 @@ const RULES_PATH_CANDIDATES = [
 ]
 
 export function resolveRulesPath(): string {
+  if (process.env.VIBEOS_FLOW_RULES_PATH && existsSync(process.env.VIBEOS_FLOW_RULES_PATH)) {
+    return process.env.VIBEOS_FLOW_RULES_PATH
+  }
   for (const candidate of RULES_PATH_CANDIDATES) {
     if (existsSync(candidate)) return candidate
   }
+  const override = process.env.VIBEOS_FLOW_RULES_PATH
+  if (override) return override
   return RULES_PATH_CANDIDATES[0]
 }
 
