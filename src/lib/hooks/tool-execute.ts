@@ -28,7 +28,7 @@ import {
 } from "../state.js"
 import {
   classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget,
-  shortModelName, formatUsd, _refreshModel, readConfig, resolveDisplayModelId, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN,
+  shortModelName, formatUsd, _refreshModel, readConfig, resolveTrinityDisplayModel, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN,
   cacheSavePer1MInputTokens,
   trendDisplay, modelToSlotLabel, resolveExecutionIdentity, formatProviderName, formatQualityName, modelDisplayName,
 } from "../pricing.js"
@@ -595,10 +595,13 @@ export const onToolExecuteBefore = async (input, output) => {
       const apiResult = await remoteCall("delegateCheck", [tLower, currentTier, currentModel, _prompt], () => ({
         blocked: true,
         savings: _estEdit,
+        _fallback: true,
       }))
 
-      const isBlocked = apiResult?.blocked !== false
       const savings = apiResult?.savings ?? _estEdit
+      const MIN_MEANINGFUL_SAVINGS = 0.001
+      const isFallback = apiResult?._fallback === true
+      const isBlocked = apiResult?.blocked !== false && (isFallback || savings >= MIN_MEANINGFUL_SAVINGS)
 
       if (isBlocked) {
         if (!lowCreditNudge) {
@@ -726,13 +729,13 @@ export const onToolExecuteAfter = async (input, output) => {
       if (!liveModel) {
         liveModel = readConfig(projectDirectory) || readConfig(join(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || ""
       }
-      const displayModel = resolveDisplayModelId(liveModel || currentModel || "", projectDirectory) || liveModel || currentModel
+      const displayModel = resolveTrinityDisplayModel(projectDirectory, selNow.active_slot || "", liveModel, currentModel) || liveModel || currentModel
       const resolvedModel = displayModel || liveModel || currentModel || ""
       if (resolvedModel && resolvedModel !== currentModel) {
         setCurrentModel(resolvedModel)
         setCurrentTier(classify(resolvedModel))
       }
-      const execution = resolveExecutionIdentity(input?.args?.model || resolvedModel || "", projectDirectory)
+      const execution = resolveExecutionIdentity(displayModel || resolvedModel || "", projectDirectory)
       const currentSid = _OC_SID
       const currentSubRegime = loadBlackboxState()?.sessions?.[currentSid]?.sub_regime || classifyTurnSimple(latestUserIntent || "")
       const bbMode = resolveEnforcementMode()
@@ -928,7 +931,9 @@ export const onToolExecuteAfter = async (input, output) => {
         if (seen.has(fp)) continue
         seen.add(fp)
         const isTestPath = /(^|\/)(tests?|spec)\//i.test(fp) || /\.(test|spec)\./i.test(fp)
-        if (sel.tdd_enforce && !isTestPath) {
+        const intentClass2 = classifyTurnSimple(latestUserIntent)
+        const isResearchSession2 = intentClass2 === "EXPLORING" || intentClass2 === "DIVERGENT"
+        if (sel.tdd_enforce && !isTestPath && !isResearchSession2) {
           const createdPath = enforceTestFile(fp)
           if (createdPath) {
             const ext = createdPath.split(".").pop()
@@ -959,7 +964,9 @@ export const onToolExecuteAfter = async (input, output) => {
     const sel = loadSelection()
     const explicitTestIntent = isUserAskingForTests(latestUserIntent)
     const isTestPath = /(^|\/)(tests?|spec)\//i.test(fp) || /\.(test|spec)\./i.test(fp)
-    if (sel.tdd_enforce && !isTestPath) {
+    const intentClass = classifyTurnSimple(latestUserIntent)
+    const isResearchSession = intentClass === "EXPLORING" || intentClass === "DIVERGENT"
+    if (sel.tdd_enforce && !isTestPath && !isResearchSession) {
       const createdPath = enforceTestFile(fp)
       if (createdPath) {
         const ext = createdPath.split(".").pop()

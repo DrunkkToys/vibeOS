@@ -555,13 +555,24 @@ async function trackBlackbox(messages: any[]): Promise<void> {
       stress: st || 0,
     })
     const cv = await apiComputeControlVector(localState, undefined, modePreview.mode)
-    state.sessions[sid].control_history.push(buildControlHistoryEntry(
-      state.sessions[sid].control_history.length + 1,
-      localState.sub_regime || "INIT",
-      cv,
-    ))
-    if (state.sessions[sid].control_history.length > 100) {
-      state.sessions[sid].control_history = state.sessions[sid].control_history.slice(-100)
+    const lastEntry = state.sessions[sid].control_history?.[state.sessions[sid].control_history.length - 1]
+    const cvFingerprint = JSON.stringify({ regime: localState.sub_regime, mode: cv?.enforcement_mode })
+    const isDuplicate = lastEntry && (
+      lastEntry.fingerprint === cvFingerprint ||
+      (lastEntry.regime === localState.sub_regime && lastEntry.enforcement === cv?.enforcement_mode)
+    )
+    if (!isDuplicate) {
+      const turnNum = (existingSession.turn_counter || 0) + 1
+      const entry = buildControlHistoryEntry(
+        turnNum,
+        localState.sub_regime || "INIT",
+        cv,
+      )
+      entry.fingerprint = cvFingerprint
+      state.sessions[sid].control_history.push(entry)
+      if (state.sessions[sid].control_history.length > 100) {
+        state.sessions[sid].control_history = state.sessions[sid].control_history.slice(-100)
+      }
     }
     state.sessions[sid] = {
       ...existingSession,
@@ -583,7 +594,7 @@ async function trackBlackbox(messages: any[]): Promise<void> {
       control_history: state.sessions[sid].control_history,
       optimization_mode: existingSession.optimization_mode || null,
       active_slot: existingSession.active_slot || null,
-      turn_counter: existingSession.turn_counter || 0,
+      turn_counter: (existingSession.turn_counter || 0) + 1,
     }
     saveBlackboxStateToCtx(state)
     _latestBlackboxState = localState
