@@ -15,18 +15,22 @@ describe("resolveRulesPath", () => {
   it("returns a string path", () => {
     const path = resolveRulesPath()
     assert.ok(typeof path === "string", `expected string, got ${typeof path}`)
+    assert.ok(path.length > 0, "path should not be empty")
+    assert.ok(path.startsWith("/"), `expected absolute path, got ${path}`)
   })
 
   it("returns an absolute or resolvable relative path", () => {
     const path = resolveRulesPath()
     assert.ok(path.length > 0, "path should not be empty")
     assert.ok(path.includes("flow-rules.json"), "path should reference flow-rules.json")
+    assert.ok(path.endsWith("flow-rules.json"), "path should end with flow-rules.json")
   })
 })
 
 describe("addFlowRule", () => {
   it("exists as a callable function", () => {
     assert.strictEqual(typeof addFlowRule, "function")
+    assert.strictEqual(addFlowRule.name, "addFlowRule")
   })
 })
 
@@ -41,21 +45,26 @@ describe("getSessionFlowCounts stale cache after resetForTest", () => {
     }])
     const counts = getSessionFlowCounts()
     assert.ok(counts !== undefined, "counts should be defined after resetForTest")
+    assert.strictEqual(typeof counts, "object")
+    assert.ok(counts === null || typeof counts === "object", "counts should be object or null")
   })
 })
 
 describe("resetAll", () => {
   it("exists as a callable function", () => {
     assert.strictEqual(typeof resetAll, "function")
+    assert.strictEqual(resetAll.name, "resetAll")
   })
 
   it("resets internal state without throwing", () => {
     assert.doesNotThrow(() => resetAll())
+    const counts = getSessionFlowCounts()
+    assert.ok(typeof counts === "object" || counts === null)
   })
 })
 
 describe("detect-secrets flow rule", () => {
-  it("sk- prefix (OpenAI key) in edit content → flag detected", () => {
+  it("sk- prefix (OpenAI key) in edit content -> flag detected", () => {
     resetForTest([SECRETS_RULE])
     const hits = checkFlowRules({
       tool: "Edit",
@@ -66,9 +75,11 @@ describe("detect-secrets flow rule", () => {
     assert.equal(hits[0].id, "detect-secrets")
     assert.equal(hits[0].severity, "flag")
     assert.equal(hits[0].deduped, false)
+    assert.ok(typeof hits[0].filePath === "string", "filePath should be present")
+    assert.equal(hits[0].filePath, "src/config.ts")
   })
 
-  it("ghp_ prefix (GitHub token) in edit content → flag detected", () => {
+  it("ghp_ prefix (GitHub token) in edit content -> flag detected", () => {
     resetForTest([SECRETS_RULE])
     const hits = checkFlowRules({
       tool: "Edit",
@@ -78,9 +89,11 @@ describe("detect-secrets flow rule", () => {
     assert.equal(hits.length, 1)
     assert.equal(hits[0].id, "detect-secrets")
     assert.equal(hits[0].severity, "flag")
+    assert.equal(hits[0].deduped, false)
+    assert.equal(hits[0].filePath, "src/main.js")
   })
 
-  it("-----BEGIN RSA PRIVATE KEY----- in edit content → flag detected", () => {
+  it("-----BEGIN RSA PRIVATE KEY----- in edit content -> flag detected", () => {
     resetForTest([SECRETS_RULE])
     const hits = checkFlowRules({
       tool: "Edit",
@@ -89,9 +102,11 @@ describe("detect-secrets flow rule", () => {
     })
     assert.equal(hits.length, 1)
     assert.equal(hits[0].id, "detect-secrets")
+    assert.equal(hits[0].severity, "flag")
+    assert.equal(hits[0].deduped, false)
   })
 
-  it("-----BEGIN EC PRIVATE KEY----- in edit content → flag detected", () => {
+  it("-----BEGIN EC PRIVATE KEY----- in edit content -> flag detected", () => {
     resetForTest([SECRETS_RULE])
     const hits = checkFlowRules({
       tool: "Edit",
@@ -100,9 +115,10 @@ describe("detect-secrets flow rule", () => {
     })
     assert.equal(hits.length, 1)
     assert.equal(hits[0].id, "detect-secrets")
+    assert.equal(hits[0].deduped, false)
   })
 
-  it("-----BEGIN OPENSSH PRIVATE KEY----- in edit content → flag detected", () => {
+  it("-----BEGIN OPENSSH PRIVATE KEY----- in edit content -> flag detected", () => {
     resetForTest([SECRETS_RULE])
     const hits = checkFlowRules({
       tool: "Edit",
@@ -111,9 +127,10 @@ describe("detect-secrets flow rule", () => {
     })
     assert.equal(hits.length, 1)
     assert.equal(hits[0].id, "detect-secrets")
+    assert.equal(hits[0].deduped, false)
   })
 
-  it("github_pat_ prefix (GitHub fine-grained token) in edit content → flag detected", () => {
+  it("github_pat_ prefix (GitHub fine-grained token) in edit content -> flag detected", () => {
     resetForTest([SECRETS_RULE])
     const hits = checkFlowRules({
       tool: "Edit",
@@ -122,9 +139,10 @@ describe("detect-secrets flow rule", () => {
     })
     assert.equal(hits.length, 1)
     assert.equal(hits[0].id, "detect-secrets")
+    assert.equal(hits[0].deduped, false)
   })
 
-  it("xoxb- prefix (Slack bot token) in edit content → flag detected", () => {
+  it("xoxb- prefix (Slack bot token) in edit content -> flag detected", () => {
     resetForTest([SECRETS_RULE])
     const hits = checkFlowRules({
       tool: "Edit",
@@ -133,9 +151,10 @@ describe("detect-secrets flow rule", () => {
     })
     assert.equal(hits.length, 1)
     assert.equal(hits[0].id, "detect-secrets")
+    assert.equal(hits[0].deduped, false)
   })
 
-  it("normal comment about password policies → NO flag", () => {
+  it("normal comment about password policies -> NO flag", () => {
     resetForTest([SECRETS_RULE])
     const hits = checkFlowRules({
       tool: "Edit",
@@ -143,9 +162,10 @@ describe("detect-secrets flow rule", () => {
       content: "This is a normal comment about password policies and key rotation.",
     })
     assert.equal(hits.length, 0)
+    assert.ok(Array.isArray(hits))
   })
 
-  it("const apiKey = process.env.OPENAI_KEY → NO flag (env var reference)", () => {
+  it("const apiKey = process.env.OPENAI_KEY -> NO flag (env var reference)", () => {
     resetForTest([SECRETS_RULE])
     const hits = checkFlowRules({
       tool: "Edit",
@@ -153,9 +173,10 @@ describe("detect-secrets flow rule", () => {
       content: "const apiKey = process.env.OPENAI_KEY;",
     })
     assert.equal(hits.length, 0)
+    assert.ok(Array.isArray(hits))
   })
 
-  it("variable named publicKey → NO flag", () => {
+  it("variable named publicKey -> NO flag", () => {
     resetForTest([SECRETS_RULE])
     const hits = checkFlowRules({
       tool: "Edit",
@@ -163,9 +184,10 @@ describe("detect-secrets flow rule", () => {
       content: "const publicKey = '-----BEGIN PUBLIC KEY-----\n...';",
     })
     assert.equal(hits.length, 0)
+    assert.ok(Array.isArray(hits))
   })
 
-  it("normal file path with 'key' in name → NO flag", () => {
+  it("normal file path with 'key' in name -> NO flag", () => {
     resetForTest([SECRETS_RULE])
     const hits = checkFlowRules({
       tool: "Edit",
@@ -173,6 +195,7 @@ describe("detect-secrets flow rule", () => {
       content: "import { readFileSync } from 'fs';\nconst cert = readFileSync('/etc/ssl/key.pem');",
     })
     assert.equal(hits.length, 0)
+    assert.ok(Array.isArray(hits))
   })
 
   it("Write trigger does NOT match (rule is Edit-only)", () => {
@@ -183,6 +206,7 @@ describe("detect-secrets flow rule", () => {
       content: "SECRET=sk-proj-abc123xyz",
     })
     assert.equal(hits.length, 0)
+    assert.ok(Array.isArray(hits))
   })
 
   it("dedup: second call for same rule+file is deduped", () => {
@@ -194,6 +218,7 @@ describe("detect-secrets flow rule", () => {
     })
     assert.equal(h1.length, 1)
     assert.equal(h1[0].deduped, false)
+    assert.equal(h1[0].id, "detect-secrets")
     const h2 = checkFlowRules({
       tool: "Edit",
       filePath: "src/auth.ts",
@@ -201,5 +226,7 @@ describe("detect-secrets flow rule", () => {
     })
     assert.equal(h2.length, 1)
     assert.equal(h2[0].deduped, true)
+    assert.equal(h2[0].id, "detect-secrets")
+    assert.equal(h2[0].filePath, "src/auth.ts")
   })
 })
