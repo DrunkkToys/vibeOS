@@ -808,6 +808,14 @@ export async function remoteCall(method, args, fallbackFn) {
     await ensureBootstrapExchange()
     syncApiTokenFromDisk()
   }
+  if (_apiFallbackMode && _apiFallbackSince) {
+    const elapsed = Date.now() - new Date(_apiFallbackSince).getTime()
+    if (elapsed > 60_000) {
+      _apiFallbackMode = false
+      _apiFallbackSince = null
+      logger.warn("[vibeOS] API fallback cooldown expired — retrying API")
+    }
+  }
   if (!VIBEOS_API_ENABLED || _apiFallbackMode) {
     if (fallbackFn) return fallbackFn()
     return null
