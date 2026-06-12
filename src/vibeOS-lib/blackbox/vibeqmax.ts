@@ -1,64 +1,80 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2026 vibeOS <https://github.com/DrunkkToys/vibeOS>
 // @ts-nocheck
-const QUALITY_STRESS_THRESHOLD = 1.5
 
-function normalizeText(text) {
-  return String(text || "").trim()
+import { computeDifficulty } from "../ml-router.js"
+
+function normalizeText(input = {}) {
+  return String(input.user_text || input.prompt || input.text || "").trim()
 }
 
-function extractFeatures(text) {
-  const value = normalizeText(text).toLowerCase()
-  const words = value.split(/\s+/).filter(Boolean)
-  const sentences = value.split(/[.!?]+/).map((part) => part.trim()).filter(Boolean)
+function qmaxStrategyFromDifficulty(diff, text) {
+  const lower = String(text || "").toLowerCase()
+  if (/audit|security|compliance|legal|vulnerability|owasp|cve|csrf|xss|auth|permission|privacy/.test(lower)) return "audit"
+  if (diff.level === "complex" || diff.features.fileMentions >= 2 || diff.features.errorSignals >= 2) return "longrun"
+  if (diff.features.questionDensity > 0.02 || diff.features.length > 120 || /research|analyze|compare|investigate|review|explain|why|how/.test(lower)) return "longrun"
+  return "quality"
+}
+
+function qmaxControlBlock(strategy) {
+  if (strategy === "audit") {
+    return {
+      enforcement_mode: "strict",
+      flow_mode: "strict",
+      tdd_mode: "quality",
+      thinking_mode: "full",
+      tier_bias: "brain",
+      context7_urgency: "required",
+      wbp_verbosity: "detailed",
+    }
+  }
+  if (strategy === "longrun") {
+    return {
+      enforcement_mode: "strict",
+      flow_mode: "strict",
+      tdd_mode: "quality",
+      thinking_mode: "full",
+      tier_bias: "brain",
+      context7_urgency: "required",
+      wbp_verbosity: "detailed",
+    }
+  }
   return {
-    length: value.length / 5000,
-    word_count: words.length / 500,
-    sentence_count: sentences.length / 50,
-    question_ratio: (value.match(/\?/g) || []).length / Math.max(sentences.length, 1),
-    code_blocks: (value.match(/```/g) || []).length / 10,
-    urgency: /urgent|asap|immediately|critical|broken|failing|crash|error|bug/i.test(value) ? 1 : 0,
-    complexity: /complex|difficult|hard|confusing|subtle|nuance|architecture|design/i.test(value) ? 1 : 0,
-    instruction_density: /must|should|always|never|critical|need to|please|could you/i.test(value) ? 1 : 0.5,
-    repetition: /again|same|repeat|loop|stuck/i.test(value) ? 1 : 0,
+    enforcement_mode: "strict",
+    flow_mode: "strict",
+    tdd_mode: "quality",
+    thinking_mode: "full",
+    tier_bias: "brain",
+    context7_urgency: "required",
+    wbp_verbosity: "normal",
   }
 }
 
-function scoreQMax(features, stress) {
-  const raw =
-    0.2 +
-    features.length * 0.1 +
-    features.word_count * 0.2 +
-    features.sentence_count * 0.15 +
-    features.question_ratio * 0.2 +
-    features.code_blocks * 0.25 +
-    features.urgency * 0.15 +
-    features.complexity * 0.2 +
-    features.instruction_density * 0.1 +
-    features.repetition * 0.05 +
-    Math.min(0.3, Number(stress || 0) / 10)
-  return Math.max(0, Math.min(1, raw))
-}
-
 export function vibeqmaxSelectMode(input = {}) {
-  const text = normalizeText(input.user_text || input.prompt || "")
-  const stress = Number(input.stress_multiplier || input.stress || 0)
-  const features = extractFeatures(text)
-  const confidence = scoreQMax(features, stress)
-  const sourcePrediction = confidence > 0.72 ? "quality" : confidence > 0.42 ? "vibeqmax" : "budget"
+  const text = normalizeText(input)
+  const diff = computeDifficulty(text)
+  const strategy = qmaxStrategyFromDifficulty(diff, text)
+  const block = qmaxControlBlock(strategy)
+
   return {
     mode: "vibeqmax",
     source: "vibeqmax",
     mode_root: "vibeqmax",
-    source_prediction: sourcePrediction,
-    confidence,
-    tier: "brain",
-    thinking: "full",
-    tdd: "quality",
-    flow: "strict",
-    enforcement: "strict",
-    wbp: "detailed",
-    c7: "required",
-    stress_multiplier: Math.max(QUALITY_STRESS_THRESHOLD, stress || QUALITY_STRESS_THRESHOLD),
-    qmax_features: features,
+    mode_family: "brain-ml",
+    cascade_depth: 1,
+    pipeline_root: ["brain"],
+    qmax_strategy: strategy,
+    qmax_difficulty_score: diff.score,
+    qmax_difficulty_level: diff.level,
+    qmax_confidence: diff.confidence,
+    qmax_suggested_tier: diff.suggestedTier,
+    qmax_features: diff.features,
+    qmax_reason: strategy === "audit"
+      ? "audit-sensitive prompt"
+      : strategy === "longrun"
+        ? "long-context or multi-step prompt"
+        : "brain-tier quality prompt",
+    ...block,
   }
 }
 
@@ -68,28 +84,36 @@ export function vibeqmaxControlVector(input = {}) {
     optimization_mode: "vibeqmax",
     mode_root: "vibeqmax",
     mode_family: "brain-ml",
-    tier_bias: "brain",
-    thinking_mode: "full",
-    tdd_mode: "quality",
-    tdd_focus: ["full-coverage", "edge-cases", "property-based"],
-    flow_mode: "strict",
-    flow_focus: ["write-edit-check", "no-untouched-files", "check-debug-artifacts"],
-    enforcement_mode: "strict",
-    context7_urgency: "required",
-    wbp_verbosity: "detailed",
-    stress_multiplier: selected.stress_multiplier,
-    qmax_confidence: selected.confidence,
-    qmax_source_prediction: selected.source_prediction,
+    cascade_depth: 1,
+    pipeline_root: ["brain"],
+    enforcement_mode: selected.enforcement_mode,
+    enforcement_reason: "[optimize: vibeqmax] difficulty-driven brain route",
+    flow_mode: selected.flow_mode,
+    flow_focus: [],
+    tdd_mode: selected.tdd_mode,
+    tdd_focus: [],
+    tier_bias: selected.tier_bias,
+    thinking_mode: selected.thinking_mode,
+    stress_multiplier: Number(input.stress_multiplier ?? input.stress ?? 0),
+    context7_urgency: selected.context7_urgency,
+    wbp_verbosity: selected.wbp_verbosity,
+    qmax_strategy: selected.qmax_strategy,
+    qmax_difficulty_score: selected.qmax_difficulty_score,
+    qmax_difficulty_level: selected.qmax_difficulty_level,
+    qmax_confidence: selected.qmax_confidence,
+    qmax_suggested_tier: selected.qmax_suggested_tier,
+    qmax_features: selected.qmax_features,
+    directives: [`[qmax root] difficulty=${selected.qmax_difficulty_level}; strategy=${selected.qmax_strategy}`],
   }
 }
 
 export function predictVibeQMax(input = {}) {
   const selected = vibeqmaxSelectMode(input)
   return {
-    label: selected.mode,
-    confidence: selected.confidence,
-    source: selected.source,
-    source_prediction: selected.source_prediction,
-    mode_root: selected.mode_root,
+    label: selected.qmax_strategy,
+    confidence: selected.qmax_confidence,
+    source: "vibeqmax",
+    difficulty: selected.qmax_difficulty_score,
+    tier: selected.qmax_suggested_tier,
   }
 }

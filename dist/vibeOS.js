@@ -445,6 +445,386 @@ var init_flow_enforcer = __esm({
   }
 });
 
+// src/vibeOS-lib/ml-router.js
+function extractFeatures(prompt) {
+  const s = String(prompt || "").trim();
+  const words = s.split(/\s+/);
+  const lower = s.toLowerCase();
+  const fileMentions = (lower.match(FILE_PATH_PATTERN) || []).length;
+  const errorSignals = (lower.match(ERROR_SIGNAL_WORDS) || []).length;
+  let complexityWords = 0;
+  for (const w of words) {
+    if (COMPLEXITY_INDICATORS.test(w.toLowerCase()))
+      complexityWords++;
+  }
+  let actionDensity = 0;
+  for (const w of words.slice(0, 8)) {
+    if (COMPLEX_ACTIONS.has(w.toLowerCase())) {
+      actionDensity += 0.15;
+    } else if (SIMPLE_ACTIONS.has(w.toLowerCase())) {
+      actionDensity -= 0.05;
+    }
+  }
+  actionDensity = Math.max(0, Math.min(1, actionDensity));
+  const questionDensity = (lower.match(/\?/g) || []).length / Math.max(1, words.length);
+  return {
+    length: s.length,
+    wordCount: words.length,
+    fileMentions,
+    errorSignals,
+    actionDensity,
+    argCount: (s.match(/-{1,2}[a-zA-Z][\w-]*/g) || []).length,
+    complexityWords,
+    questionDensity
+  };
+}
+function sigmoid(x) {
+  return 1 / (1 + Math.exp(-x));
+}
+function wordComplexityScore(words) {
+  let score = 0;
+  let count = 0;
+  for (const w of words.slice(0, 20)) {
+    const lw = w.toLowerCase();
+    const freq = WORD_FREQUENCY[lw];
+    if (freq !== void 0) {
+      score += freq;
+      count++;
+    }
+  }
+  return count > 0 ? score / count : 0.3;
+}
+function computeDifficulty(prompt) {
+  const features = extractFeatures(prompt);
+  const s = String(prompt || "").trim();
+  const words = s.split(/\s+/);
+  const lower = s.toLowerCase();
+  let score = 0;
+  score += sigmoid((words.length - 20) / 30) * 0.2;
+  if (features.fileMentions >= 5)
+    score += 0.12;
+  else if (features.fileMentions >= 3)
+    score += 0.08;
+  else if (features.fileMentions >= 1)
+    score += 0.04;
+  if (features.errorSignals >= 3)
+    score += 0.15;
+  else if (features.errorSignals >= 1)
+    score += 0.07;
+  score += features.actionDensity * 0.18;
+  if (features.complexityWords >= 4)
+    score += 0.15;
+  else if (features.complexityWords >= 2)
+    score += 0.08;
+  else if (features.complexityWords >= 1)
+    score += 0.04;
+  score += features.questionDensity * 0.08;
+  score += sigmoid((features.argCount - 3) / 5) * 0.07;
+  const wcs = wordComplexityScore(words);
+  score += wcs * 0.15;
+  const firstWord = words[0]?.toLowerCase() || "";
+  if (COMPLEX_ACTIONS.has(firstWord))
+    score += 0.05;
+  let level;
+  if (score < 0.3)
+    level = "simple";
+  else if (score < 0.55)
+    level = "moderate";
+  else
+    level = "complex";
+  let suggestedTier;
+  if (level === "simple")
+    suggestedTier = "cheap";
+  else if (level === "moderate")
+    suggestedTier = "medium";
+  else
+    suggestedTier = "brain";
+  let confidence;
+  if (score < 0.15 || score > 0.75)
+    confidence = 0.85;
+  else if (score < 0.25 || score > 0.65)
+    confidence = 0.7;
+  else
+    confidence = 0.5;
+  return { score, level, features, confidence, suggestedTier };
+}
+function cascadeDecide(prompt, cheapModelCost, mediumModelCost, brainModelCost, cheapSuccessRate) {
+  const diff = computeDifficulty(prompt);
+  if (diff.level === "simple" && diff.confidence >= 0.7) {
+    const savings2 = brainModelCost - cheapModelCost;
+    return {
+      useCheap: true,
+      escalate: false,
+      confidence: diff.confidence,
+      reason: `simple query (difficulty ${diff.score.toFixed(2)})`,
+      estimatedSavings: Math.max(0, savings2)
+    };
+  }
+  if (diff.level === "complex" && diff.confidence >= 0.7) {
+    return {
+      useCheap: false,
+      escalate: true,
+      confidence: diff.confidence,
+      reason: `complex query (difficulty ${diff.score.toFixed(2)})`,
+      estimatedSavings: 0
+    };
+  }
+  const expectedCheapCost = cheapModelCost / (cheapSuccessRate || 0.01);
+  const cascadeCost = cheapModelCost + (1 - cheapSuccessRate) * brainModelCost;
+  if (expectedCheapCost < cascadeCost && diff.level !== "complex") {
+    const savings2 = Math.max(0, brainModelCost - cheapModelCost);
+    return {
+      useCheap: true,
+      escalate: true,
+      confidence: diff.confidence,
+      reason: `cascade: cheap (${cheapModelCost}) \u2192 escalate if fail`,
+      estimatedSavings: savings2 * cheapSuccessRate
+    };
+  }
+  const tierCost = diff.level === "simple" ? cheapModelCost : mediumModelCost;
+  const savings = Math.max(0, brainModelCost - tierCost);
+  return {
+    useCheap: diff.level === "simple",
+    escalate: diff.level !== "complex",
+    confidence: diff.confidence,
+    reason: `tier match: ${diff.level} (difficulty ${diff.score.toFixed(2)})`,
+    estimatedSavings: savings
+  };
+}
+function createPatternGraph() {
+  return {
+    nodes: {},
+    tiers: { cheap: [], medium: [], brain: [] }
+  };
+}
+function ensureNode(graph, id2, kind) {
+  graph.nodes[id2] ??= { id: id2, kind, count: 0, lastSeen: "", edges: {} };
+  return graph.nodes[id2];
+}
+function addRouteEdge(graph, queryWord, modelName, tier, success) {
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const key = `${queryWord}::${modelName}`;
+  ensureNode(graph, queryWord, "query");
+  ensureNode(graph, modelName, "model");
+  const outcomeNode = ensureNode(graph, `${key}::${success ? "ok" : "fail"}`, "outcome");
+  const queryNode = graph.nodes[queryWord];
+  queryNode.count++;
+  queryNode.lastSeen = now;
+  queryNode.edges[modelName] = (queryNode.edges[modelName] || 0) + 1;
+  const modelNode = graph.nodes[modelName];
+  modelNode.count++;
+  modelNode.lastSeen = now;
+  modelNode.edges[outcomeNode.id] = (modelNode.edges[outcomeNode.id] || 0) + 1;
+  outcomeNode.count++;
+  outcomeNode.lastSeen = now;
+  const normalizedTier = tier === "budget" || tier === "low" ? "cheap" : tier === "mid" ? "medium" : tier === "high" ? "brain" : tier;
+  graph.tiers[normalizedTier] ??= [];
+  if (!graph.tiers[normalizedTier].includes(modelName)) {
+    graph.tiers[normalizedTier].push(modelName);
+    graph.tiers[normalizedTier].sort();
+  }
+}
+function predictBestModel(graph, firstWord, tierPreference) {
+  const node = graph.nodes[firstWord];
+  if (!node || Object.keys(node.edges).length === 0)
+    return null;
+  const edges = node.edges;
+  let bestModel = "";
+  let bestScore = 0;
+  for (const [model, count] of Object.entries(edges)) {
+    const modelNode = graph.nodes[model];
+    if (!modelNode)
+      continue;
+    const okEdges = Object.entries(modelNode.edges).filter(([k]) => k.endsWith("::ok")).reduce((sum, [, c]) => sum + c, 0);
+    const totalEdges = Object.values(modelNode.edges).reduce((a, b) => a + b, 0) || 1;
+    const successRate = totalEdges > 0 ? okEdges / totalEdges : 0.5;
+    const tierBoost = graph.tiers.brain.includes(model) ? 0.1 : graph.tiers.medium.includes(model) ? 0.05 : 0;
+    const prefBoost = model.includes(tierPreference) ? 0.05 : 0;
+    const score = count * 0.3 + successRate * 0.5 + tierBoost + prefBoost;
+    if (score > bestScore) {
+      bestScore = score;
+      bestModel = model;
+    }
+  }
+  return bestModel || null;
+}
+function deserializeGraph(raw) {
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && parsed.nodes && parsed.tiers) {
+      return parsed;
+    }
+  } catch {
+  }
+  return createPatternGraph();
+}
+function hashQuery(prompt) {
+  const s = String(prompt || "").trim().toLowerCase();
+  let hash = 0;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s.charCodeAt(i);
+    hash = (hash << 5) - hash + ch;
+    hash |= 0;
+  }
+  return Math.abs(hash).toString(16).slice(0, 8);
+}
+var SIMPLE_ACTIONS, COMPLEX_ACTIONS, ERROR_SIGNAL_WORDS, COMPLEXITY_INDICATORS, FILE_PATH_PATTERN, WORD_FREQUENCY;
+var init_ml_router = __esm({
+  "src/vibeOS-lib/ml-router.js"() {
+    "use strict";
+    SIMPLE_ACTIONS = /* @__PURE__ */ new Set([
+      "check",
+      "find",
+      "list",
+      "search",
+      "look",
+      "count",
+      "show",
+      "get",
+      "read",
+      "grep",
+      "scan",
+      "detect",
+      "inspect",
+      "ls",
+      "cat",
+      "head",
+      "tail",
+      "which",
+      "where",
+      "describe",
+      "explain",
+      "summarize",
+      "what",
+      "how",
+      "does",
+      "is",
+      "are",
+      "can",
+      "will"
+    ]);
+    COMPLEX_ACTIONS = /* @__PURE__ */ new Set([
+      "implement",
+      "refactor",
+      "migrate",
+      "redesign",
+      "architect",
+      "optimize",
+      "debug",
+      "diagnose",
+      "fix",
+      "resolve",
+      "patch",
+      "build",
+      "deploy",
+      "integrate",
+      "orchestrate",
+      "pipeline",
+      "benchmark",
+      "profile",
+      "secure",
+      "harden",
+      "audit",
+      "design",
+      "create",
+      "generate",
+      "transform",
+      "convert",
+      "setup",
+      "configure",
+      "provision",
+      "bootstrap"
+    ]);
+    ERROR_SIGNAL_WORDS = /\b(?:bug|error|fail|crash|broken|wrong|incorrect|issue|problem|exception|stackoverflow|traceback|segfault|race|deadlock|leak|corrupt)\b/g;
+    COMPLEXITY_INDICATORS = /multi.*(?:file|module|step|stage|phase|tenant|region|thread|process)|concurrent|async|parallel|distributed|replicated|shard|cluster|microservice|framework|database|schema|migration|backward.*compat|breaking.*change|api.*(?:version|breaking)|protocol|encoding|serializ/;
+    FILE_PATH_PATTERN = /(?:^|[\s"'(])\.{0,2}\/[a-zA-Z0-9._/-]+|\.(?:js|ts|tsx|jsx|py|rs|go|java|cpp|c|h|json|yaml|yml|toml|sql|css|html|md)\b|package\.json|tsconfig\.json|dockerfile|makefile|docker-compose/i;
+    WORD_FREQUENCY = {
+      "test": 1,
+      "tests": 1,
+      "unit": 1,
+      "integration": 1,
+      "e2e": 1,
+      "coverage": 1,
+      "type": 0.9,
+      "interface": 0.8,
+      "class": 0.7,
+      "function": 0.5,
+      "method": 0.5,
+      "async": 0.5,
+      "await": 0.5,
+      "promise": 0.5,
+      "callback": 0.6,
+      "import": 0.4,
+      "export": 0.4,
+      "require": 0.3,
+      "module": 0.5,
+      "api": 0.7,
+      "endpoint": 0.7,
+      "route": 0.6,
+      "middleware": 0.7,
+      "handler": 0.5,
+      "database": 0.8,
+      "query": 0.5,
+      "migration": 0.8,
+      "schema": 0.7,
+      "index": 0.4,
+      "docker": 0.7,
+      "container": 0.7,
+      "compose": 0.8,
+      "kubernetes": 0.9,
+      "deploy": 0.7,
+      "ci": 0.7,
+      "cd": 0.7,
+      "pipeline": 0.7,
+      "workflow": 0.4,
+      "action": 0.3,
+      "auth": 0.7,
+      "authn": 0.9,
+      "authz": 0.9,
+      "token": 0.6,
+      "jwt": 0.7,
+      "oauth": 0.8,
+      "security": 0.8,
+      "vuln": 1,
+      "exploit": 1,
+      "injection": 0.9,
+      "xss": 0.9,
+      "csrf": 0.8,
+      "cache": 0.6,
+      "redis": 0.7,
+      "memcache": 0.7,
+      "persist": 0.6,
+      "session": 0.5,
+      "refactor": 0.7,
+      "migrate": 0.8,
+      "upgrade": 0.5,
+      "deprecate": 0.6,
+      "performance": 0.7,
+      "latency": 0.7,
+      "throughput": 0.8,
+      "bottleneck": 0.8,
+      "log": 0.3,
+      "error": 0.4,
+      "debug": 0.5,
+      "trace": 0.6,
+      "monitor": 0.5,
+      "alert": 0.5,
+      "commit": 0.3,
+      "branch": 0.4,
+      "merge": 0.4,
+      "rebase": 0.5,
+      "pr": 0.3,
+      "review": 0.4,
+      "npm": 0.3,
+      "yarn": 0.3,
+      "pnpm": 0.3,
+      "install": 0.2,
+      "build": 0.4,
+      "lint": 0.4
+    };
+  }
+});
+
 // src/vibeOS-lib/blackbox/meta-controller.js
 function autoSelectMode(subRegime, stressMultiplier) {
   const regime = String(subRegime || "INIT").toUpperCase();
@@ -1166,75 +1546,85 @@ __export(vibeultrax_exports, {
   vibeultraxControlVector: () => vibeultraxControlVector,
   vibeultraxPipeline: () => vibeultraxPipeline
 });
+function normalizeText2(input = {}) {
+  return String(input.user_text || input.prompt || input.text || "").trim();
+}
+function profileFromCascade(decision) {
+  if (decision.useCheap && decision.escalate)
+    return { profile: "deep", cascade_depth: 3, pipeline_root: ["local", "medium", "brain"], tier_bias: "brain" };
+  if (decision.escalate)
+    return { profile: "standard", cascade_depth: 2, pipeline_root: ["medium", "brain"], tier_bias: "brain" };
+  return { profile: "direct", cascade_depth: 1, pipeline_root: ["brain"], tier_bias: "brain" };
+}
 function getPivotCache2() {
-  if (!pivotCache2)
-    pivotCache2 = new PivotCache();
-  return pivotCache2;
+  if (!globalThis.__vibeultraxPivotCache)
+    globalThis.__vibeultraxPivotCache = new PivotCache();
+  return globalThis.__vibeultraxPivotCache;
 }
 function vibeultraxControlVector(input = {}) {
+  const text = normalizeText2(input);
+  const cascade = cascadeDecide(text, CHEAP, MEDIUM, BRAIN, 0.85);
+  const profile = profileFromCascade(cascade);
   return {
     optimization_mode: "vibeultrax",
     mode_root: "vibeultrax",
     mode_family: "cascade",
-    tier_bias: "brain",
-    thinking_mode: "full",
-    tdd_mode: "quality",
-    flow_mode: "strict",
+    cascade_depth: profile.cascade_depth,
+    pipeline_root: profile.pipeline_root,
+    tier_bias: profile.tier_bias,
     enforcement_mode: "strict",
+    flow_mode: "strict",
+    tdd_mode: "quality",
+    thinking_mode: profile.profile === "direct" ? "brief" : "full",
+    stress_multiplier: 1,
     context7_urgency: "required",
-    wbp_verbosity: "detailed",
-    stress_multiplier: 2.5,
-    cascade_depth: 3,
-    cascade_stages: ["local", "medium", "brain"],
-    pivot_threshold: 0.45,
-    prompt_length: String(input.user_text || input.prompt || "").length
+    wbp_verbosity: profile.profile === "deep" ? "detailed" : "normal",
+    ultrax_profile: profile.profile,
+    ultrax_confidence: cascade.confidence,
+    ultrax_reason: cascade.reason,
+    ultrax_estimated_savings: cascade.estimatedSavings,
+    directives: [`[ultrax root] cascade profile=${profile.profile}; reason=${cascade.reason}`]
   };
 }
 function vibeultraxPipeline(input = {}) {
-  const text = String(input.user_text || input.prompt || "");
+  const text = normalizeText2(input);
   const pc = getPivotCache2();
-  const tokens = pc.tokenize(text);
-  const pivotBack = text && tokens.size > 0 ? pc.detectPivotBack(tokens, 0.45) : { matchedId: null, confidence: 0, reason: "no_text" };
+  const cascade = cascadeDecide(text, CHEAP, MEDIUM, BRAIN, 0.85);
+  const profile = profileFromCascade(cascade);
+  const tokens = text ? pc.tokenize(text) : /* @__PURE__ */ new Set();
+  const pivotBack = text && tokens.size > 0 ? pc.detectPivotBack(tokens, 0.5) : { matchedId: null, confidence: 0, reason: "no_text" };
   const isPivotBack = pivotBack.matchedId !== null;
-  const localStage = {
-    tier: "local",
-    tokens: [...tokens],
-    intent: text.slice(0, 80)
-  };
-  const mediumStage = {
-    tier: "medium",
-    matched: isPivotBack,
-    confidence: pivotBack.confidence,
-    reason: pivotBack.reason
-  };
-  const brainStage = {
-    tier: "brain",
-    action: isPivotBack ? "restore-pivot" : "refine",
-    injection: isPivotBack ? pc.buildInjection(pivotBack.matchedId) : ""
-  };
   return {
+    ...vibeultraxControlVector(input),
     mode: "vibeultrax",
     source: "vibeultrax",
-    mode_root: "vibeultrax",
-    tier: "brain",
-    pipeline: ["local", "medium", "brain"],
-    cascade_depth: 3,
-    cascade_stages: [localStage, mediumStage, brainStage],
+    profile: profile.profile,
     pivot: isPivotBack ? {
       matchedId: pivotBack.matchedId,
       confidence: pivotBack.confidence,
       reason: pivotBack.reason,
-      injection: brainStage.injection,
-      toolOutputs: input?._pivotContext?.toolOutputs || []
-    } : null
+      injection: pc.buildInjection(pivotBack.matchedId),
+      toolOutputs: pc.read(pivotBack.matchedId)?.toolOutputs || []
+    } : null,
+    pivot_detected: isPivotBack,
+    pivot_confidence: pivotBack.confidence || 0,
+    pivot_reason: pivotBack.reason || null,
+    pipeline: profile.pipeline_root,
+    cascade_depth: profile.cascade_depth,
+    ultrax_reason: cascade.reason,
+    ultrax_confidence: cascade.confidence,
+    ultrax_estimated_savings: cascade.estimatedSavings
   };
 }
-var pivotCache2;
+var CHEAP, MEDIUM, BRAIN;
 var init_vibeultrax = __esm({
   "src/vibeOS-lib/blackbox/vibeultrax.js"() {
     "use strict";
+    init_ml_router();
     init_pivot_cache();
-    pivotCache2 = null;
+    CHEAP = 1e-4;
+    MEDIUM = 1e-3;
+    BRAIN = 0.01;
   }
 });
 
@@ -2810,379 +3200,8 @@ function _computeSessionMetrics(state, sid) {
   };
 }
 
-// src/vibeOS-lib/ml-router.js
-var SIMPLE_ACTIONS = /* @__PURE__ */ new Set([
-  "check",
-  "find",
-  "list",
-  "search",
-  "look",
-  "count",
-  "show",
-  "get",
-  "read",
-  "grep",
-  "scan",
-  "detect",
-  "inspect",
-  "ls",
-  "cat",
-  "head",
-  "tail",
-  "which",
-  "where",
-  "describe",
-  "explain",
-  "summarize",
-  "what",
-  "how",
-  "does",
-  "is",
-  "are",
-  "can",
-  "will"
-]);
-var COMPLEX_ACTIONS = /* @__PURE__ */ new Set([
-  "implement",
-  "refactor",
-  "migrate",
-  "redesign",
-  "architect",
-  "optimize",
-  "debug",
-  "diagnose",
-  "fix",
-  "resolve",
-  "patch",
-  "build",
-  "deploy",
-  "integrate",
-  "orchestrate",
-  "pipeline",
-  "benchmark",
-  "profile",
-  "secure",
-  "harden",
-  "audit",
-  "design",
-  "create",
-  "generate",
-  "transform",
-  "convert",
-  "setup",
-  "configure",
-  "provision",
-  "bootstrap"
-]);
-var ERROR_SIGNAL_WORDS = /\b(?:bug|error|fail|crash|broken|wrong|incorrect|issue|problem|exception|stackoverflow|traceback|segfault|race|deadlock|leak|corrupt)\b/g;
-var COMPLEXITY_INDICATORS = /multi.*(?:file|module|step|stage|phase|tenant|region|thread|process)|concurrent|async|parallel|distributed|replicated|shard|cluster|microservice|framework|database|schema|migration|backward.*compat|breaking.*change|api.*(?:version|breaking)|protocol|encoding|serializ/;
-var FILE_PATH_PATTERN = /(?:^|[\s"'(])\.{0,2}\/[a-zA-Z0-9._/-]+|\.(?:js|ts|tsx|jsx|py|rs|go|java|cpp|c|h|json|yaml|yml|toml|sql|css|html|md)\b|package\.json|tsconfig\.json|dockerfile|makefile|docker-compose/i;
-var WORD_FREQUENCY = {
-  "test": 1,
-  "tests": 1,
-  "unit": 1,
-  "integration": 1,
-  "e2e": 1,
-  "coverage": 1,
-  "type": 0.9,
-  "interface": 0.8,
-  "class": 0.7,
-  "function": 0.5,
-  "method": 0.5,
-  "async": 0.5,
-  "await": 0.5,
-  "promise": 0.5,
-  "callback": 0.6,
-  "import": 0.4,
-  "export": 0.4,
-  "require": 0.3,
-  "module": 0.5,
-  "api": 0.7,
-  "endpoint": 0.7,
-  "route": 0.6,
-  "middleware": 0.7,
-  "handler": 0.5,
-  "database": 0.8,
-  "query": 0.5,
-  "migration": 0.8,
-  "schema": 0.7,
-  "index": 0.4,
-  "docker": 0.7,
-  "container": 0.7,
-  "compose": 0.8,
-  "kubernetes": 0.9,
-  "deploy": 0.7,
-  "ci": 0.7,
-  "cd": 0.7,
-  "pipeline": 0.7,
-  "workflow": 0.4,
-  "action": 0.3,
-  "auth": 0.7,
-  "authn": 0.9,
-  "authz": 0.9,
-  "token": 0.6,
-  "jwt": 0.7,
-  "oauth": 0.8,
-  "security": 0.8,
-  "vuln": 1,
-  "exploit": 1,
-  "injection": 0.9,
-  "xss": 0.9,
-  "csrf": 0.8,
-  "cache": 0.6,
-  "redis": 0.7,
-  "memcache": 0.7,
-  "persist": 0.6,
-  "session": 0.5,
-  "refactor": 0.7,
-  "migrate": 0.8,
-  "upgrade": 0.5,
-  "deprecate": 0.6,
-  "performance": 0.7,
-  "latency": 0.7,
-  "throughput": 0.8,
-  "bottleneck": 0.8,
-  "log": 0.3,
-  "error": 0.4,
-  "debug": 0.5,
-  "trace": 0.6,
-  "monitor": 0.5,
-  "alert": 0.5,
-  "commit": 0.3,
-  "branch": 0.4,
-  "merge": 0.4,
-  "rebase": 0.5,
-  "pr": 0.3,
-  "review": 0.4,
-  "npm": 0.3,
-  "yarn": 0.3,
-  "pnpm": 0.3,
-  "install": 0.2,
-  "build": 0.4,
-  "lint": 0.4
-};
-function extractFeatures(prompt) {
-  const s = String(prompt || "").trim();
-  const words = s.split(/\s+/);
-  const lower = s.toLowerCase();
-  const fileMentions = (lower.match(FILE_PATH_PATTERN) || []).length;
-  const errorSignals = (lower.match(ERROR_SIGNAL_WORDS) || []).length;
-  let complexityWords = 0;
-  for (const w of words) {
-    if (COMPLEXITY_INDICATORS.test(w.toLowerCase()))
-      complexityWords++;
-  }
-  let actionDensity = 0;
-  for (const w of words.slice(0, 8)) {
-    if (COMPLEX_ACTIONS.has(w.toLowerCase())) {
-      actionDensity += 0.15;
-    } else if (SIMPLE_ACTIONS.has(w.toLowerCase())) {
-      actionDensity -= 0.05;
-    }
-  }
-  actionDensity = Math.max(0, Math.min(1, actionDensity));
-  const questionDensity = (lower.match(/\?/g) || []).length / Math.max(1, words.length);
-  return {
-    length: s.length,
-    wordCount: words.length,
-    fileMentions,
-    errorSignals,
-    actionDensity,
-    argCount: (s.match(/-{1,2}[a-zA-Z][\w-]*/g) || []).length,
-    complexityWords,
-    questionDensity
-  };
-}
-function sigmoid(x) {
-  return 1 / (1 + Math.exp(-x));
-}
-function wordComplexityScore(words) {
-  let score = 0;
-  let count = 0;
-  for (const w of words.slice(0, 20)) {
-    const lw = w.toLowerCase();
-    const freq = WORD_FREQUENCY[lw];
-    if (freq !== void 0) {
-      score += freq;
-      count++;
-    }
-  }
-  return count > 0 ? score / count : 0.3;
-}
-function computeDifficulty(prompt) {
-  const features = extractFeatures(prompt);
-  const s = String(prompt || "").trim();
-  const words = s.split(/\s+/);
-  const lower = s.toLowerCase();
-  let score = 0;
-  score += sigmoid((words.length - 20) / 30) * 0.2;
-  if (features.fileMentions >= 5)
-    score += 0.12;
-  else if (features.fileMentions >= 3)
-    score += 0.08;
-  else if (features.fileMentions >= 1)
-    score += 0.04;
-  if (features.errorSignals >= 3)
-    score += 0.15;
-  else if (features.errorSignals >= 1)
-    score += 0.07;
-  score += features.actionDensity * 0.18;
-  if (features.complexityWords >= 4)
-    score += 0.15;
-  else if (features.complexityWords >= 2)
-    score += 0.08;
-  else if (features.complexityWords >= 1)
-    score += 0.04;
-  score += features.questionDensity * 0.08;
-  score += sigmoid((features.argCount - 3) / 5) * 0.07;
-  const wcs = wordComplexityScore(words);
-  score += wcs * 0.15;
-  const firstWord = words[0]?.toLowerCase() || "";
-  if (COMPLEX_ACTIONS.has(firstWord))
-    score += 0.05;
-  let level;
-  if (score < 0.3)
-    level = "simple";
-  else if (score < 0.55)
-    level = "moderate";
-  else
-    level = "complex";
-  let suggestedTier;
-  if (level === "simple")
-    suggestedTier = "cheap";
-  else if (level === "moderate")
-    suggestedTier = "medium";
-  else
-    suggestedTier = "brain";
-  let confidence;
-  if (score < 0.15 || score > 0.75)
-    confidence = 0.85;
-  else if (score < 0.25 || score > 0.65)
-    confidence = 0.7;
-  else
-    confidence = 0.5;
-  return { score, level, features, confidence, suggestedTier };
-}
-function cascadeDecide(prompt, cheapModelCost, mediumModelCost, brainModelCost, cheapSuccessRate) {
-  const diff = computeDifficulty(prompt);
-  if (diff.level === "simple" && diff.confidence >= 0.7) {
-    const savings2 = brainModelCost - cheapModelCost;
-    return {
-      useCheap: true,
-      escalate: false,
-      confidence: diff.confidence,
-      reason: `simple query (difficulty ${diff.score.toFixed(2)})`,
-      estimatedSavings: Math.max(0, savings2)
-    };
-  }
-  if (diff.level === "complex" && diff.confidence >= 0.7) {
-    return {
-      useCheap: false,
-      escalate: true,
-      confidence: diff.confidence,
-      reason: `complex query (difficulty ${diff.score.toFixed(2)})`,
-      estimatedSavings: 0
-    };
-  }
-  const expectedCheapCost = cheapModelCost / (cheapSuccessRate || 0.01);
-  const cascadeCost = cheapModelCost + (1 - cheapSuccessRate) * brainModelCost;
-  if (expectedCheapCost < cascadeCost && diff.level !== "complex") {
-    const savings2 = Math.max(0, brainModelCost - cheapModelCost);
-    return {
-      useCheap: true,
-      escalate: true,
-      confidence: diff.confidence,
-      reason: `cascade: cheap (${cheapModelCost}) \u2192 escalate if fail`,
-      estimatedSavings: savings2 * cheapSuccessRate
-    };
-  }
-  const tierCost = diff.level === "simple" ? cheapModelCost : mediumModelCost;
-  const savings = Math.max(0, brainModelCost - tierCost);
-  return {
-    useCheap: diff.level === "simple",
-    escalate: diff.level !== "complex",
-    confidence: diff.confidence,
-    reason: `tier match: ${diff.level} (difficulty ${diff.score.toFixed(2)})`,
-    estimatedSavings: savings
-  };
-}
-function createPatternGraph() {
-  return {
-    nodes: {},
-    tiers: { cheap: [], medium: [], brain: [] }
-  };
-}
-function ensureNode(graph, id2, kind) {
-  graph.nodes[id2] ??= { id: id2, kind, count: 0, lastSeen: "", edges: {} };
-  return graph.nodes[id2];
-}
-function addRouteEdge(graph, queryWord, modelName, tier, success) {
-  const now = (/* @__PURE__ */ new Date()).toISOString();
-  const key = `${queryWord}::${modelName}`;
-  ensureNode(graph, queryWord, "query");
-  ensureNode(graph, modelName, "model");
-  const outcomeNode = ensureNode(graph, `${key}::${success ? "ok" : "fail"}`, "outcome");
-  const queryNode = graph.nodes[queryWord];
-  queryNode.count++;
-  queryNode.lastSeen = now;
-  queryNode.edges[modelName] = (queryNode.edges[modelName] || 0) + 1;
-  const modelNode = graph.nodes[modelName];
-  modelNode.count++;
-  modelNode.lastSeen = now;
-  modelNode.edges[outcomeNode.id] = (modelNode.edges[outcomeNode.id] || 0) + 1;
-  outcomeNode.count++;
-  outcomeNode.lastSeen = now;
-  const normalizedTier = tier === "budget" || tier === "low" ? "cheap" : tier === "mid" ? "medium" : tier === "high" ? "brain" : tier;
-  graph.tiers[normalizedTier] ??= [];
-  if (!graph.tiers[normalizedTier].includes(modelName)) {
-    graph.tiers[normalizedTier].push(modelName);
-    graph.tiers[normalizedTier].sort();
-  }
-}
-function predictBestModel(graph, firstWord, tierPreference) {
-  const node = graph.nodes[firstWord];
-  if (!node || Object.keys(node.edges).length === 0)
-    return null;
-  const edges = node.edges;
-  let bestModel = "";
-  let bestScore = 0;
-  for (const [model, count] of Object.entries(edges)) {
-    const modelNode = graph.nodes[model];
-    if (!modelNode)
-      continue;
-    const okEdges = Object.entries(modelNode.edges).filter(([k]) => k.endsWith("::ok")).reduce((sum, [, c]) => sum + c, 0);
-    const totalEdges = Object.values(modelNode.edges).reduce((a, b) => a + b, 0) || 1;
-    const successRate = totalEdges > 0 ? okEdges / totalEdges : 0.5;
-    const tierBoost = graph.tiers.brain.includes(model) ? 0.1 : graph.tiers.medium.includes(model) ? 0.05 : 0;
-    const prefBoost = model.includes(tierPreference) ? 0.05 : 0;
-    const score = count * 0.3 + successRate * 0.5 + tierBoost + prefBoost;
-    if (score > bestScore) {
-      bestScore = score;
-      bestModel = model;
-    }
-  }
-  return bestModel || null;
-}
-function deserializeGraph(raw) {
-  try {
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object" && parsed.nodes && parsed.tiers) {
-      return parsed;
-    }
-  } catch {
-  }
-  return createPatternGraph();
-}
-function hashQuery(prompt) {
-  const s = String(prompt || "").trim().toLowerCase();
-  let hash = 0;
-  for (let i = 0; i < s.length; i++) {
-    const ch = s.charCodeAt(i);
-    hash = (hash << 5) - hash + ch;
-    hash |= 0;
-  }
-  return Math.abs(hash).toString(16).slice(0, 8);
-}
+// src/lib/state.js
+init_ml_router();
 
 // src/vibeOS-lib/smart-cache.js
 function tokenize(text) {
@@ -6829,51 +6848,73 @@ init_meta_controller();
 init_vibemax();
 
 // src/vibeOS-lib/blackbox/vibeqmax.js
-var QUALITY_STRESS_THRESHOLD2 = 1.5;
-function normalizeText(text) {
-  return String(text || "").trim();
+init_ml_router();
+function normalizeText(input = {}) {
+  return String(input.user_text || input.prompt || input.text || "").trim();
 }
-function extractFeatures2(text) {
-  const value = normalizeText(text).toLowerCase();
-  const words = value.split(/\s+/).filter(Boolean);
-  const sentences = value.split(/[.!?]+/).map((part) => part.trim()).filter(Boolean);
+function qmaxStrategyFromDifficulty(diff, text) {
+  const lower = String(text || "").toLowerCase();
+  if (/audit|security|compliance|legal|vulnerability|owasp|cve|csrf|xss|auth|permission|privacy/.test(lower))
+    return "audit";
+  if (diff.level === "complex" || diff.features.fileMentions >= 2 || diff.features.errorSignals >= 2)
+    return "longrun";
+  if (diff.features.questionDensity > 0.02 || diff.features.length > 120 || /research|analyze|compare|investigate|review|explain|why|how/.test(lower))
+    return "longrun";
+  return "quality";
+}
+function qmaxControlBlock(strategy) {
+  if (strategy === "audit") {
+    return {
+      enforcement_mode: "strict",
+      flow_mode: "strict",
+      tdd_mode: "quality",
+      thinking_mode: "full",
+      tier_bias: "brain",
+      context7_urgency: "required",
+      wbp_verbosity: "detailed"
+    };
+  }
+  if (strategy === "longrun") {
+    return {
+      enforcement_mode: "strict",
+      flow_mode: "strict",
+      tdd_mode: "quality",
+      thinking_mode: "full",
+      tier_bias: "brain",
+      context7_urgency: "required",
+      wbp_verbosity: "detailed"
+    };
+  }
   return {
-    length: value.length / 5e3,
-    word_count: words.length / 500,
-    sentence_count: sentences.length / 50,
-    question_ratio: (value.match(/\?/g) || []).length / Math.max(sentences.length, 1),
-    code_blocks: (value.match(/```/g) || []).length / 10,
-    urgency: /urgent|asap|immediately|critical|broken|failing|crash|error|bug/i.test(value) ? 1 : 0,
-    complexity: /complex|difficult|hard|confusing|subtle|nuance|architecture|design/i.test(value) ? 1 : 0,
-    instruction_density: /must|should|always|never|critical|need to|please|could you/i.test(value) ? 1 : 0.5,
-    repetition: /again|same|repeat|loop|stuck/i.test(value) ? 1 : 0
+    enforcement_mode: "strict",
+    flow_mode: "strict",
+    tdd_mode: "quality",
+    thinking_mode: "full",
+    tier_bias: "brain",
+    context7_urgency: "required",
+    wbp_verbosity: "normal"
   };
 }
-function scoreQMax(features, stress) {
-  const raw = 0.2 + features.length * 0.1 + features.word_count * 0.2 + features.sentence_count * 0.15 + features.question_ratio * 0.2 + features.code_blocks * 0.25 + features.urgency * 0.15 + features.complexity * 0.2 + features.instruction_density * 0.1 + features.repetition * 0.05 + Math.min(0.3, Number(stress || 0) / 10);
-  return Math.max(0, Math.min(1, raw));
-}
 function vibeqmaxSelectMode(input = {}) {
-  const text = normalizeText(input.user_text || input.prompt || "");
-  const stress = Number(input.stress_multiplier || input.stress || 0);
-  const features = extractFeatures2(text);
-  const confidence = scoreQMax(features, stress);
-  const sourcePrediction = confidence > 0.72 ? "quality" : confidence > 0.42 ? "vibeqmax" : "budget";
+  const text = normalizeText(input);
+  const diff = computeDifficulty(text);
+  const strategy = qmaxStrategyFromDifficulty(diff, text);
+  const block = qmaxControlBlock(strategy);
   return {
     mode: "vibeqmax",
     source: "vibeqmax",
     mode_root: "vibeqmax",
-    source_prediction: sourcePrediction,
-    confidence,
-    tier: "brain",
-    thinking: "full",
-    tdd: "quality",
-    flow: "strict",
-    enforcement: "strict",
-    wbp: "detailed",
-    c7: "required",
-    stress_multiplier: Math.max(QUALITY_STRESS_THRESHOLD2, stress || QUALITY_STRESS_THRESHOLD2),
-    qmax_features: features
+    mode_family: "brain-ml",
+    cascade_depth: 1,
+    pipeline_root: ["brain"],
+    qmax_strategy: strategy,
+    qmax_difficulty_score: diff.score,
+    qmax_difficulty_level: diff.level,
+    qmax_confidence: diff.confidence,
+    qmax_suggested_tier: diff.suggestedTier,
+    qmax_features: diff.features,
+    qmax_reason: strategy === "audit" ? "audit-sensitive prompt" : strategy === "longrun" ? "long-context or multi-step prompt" : "brain-tier quality prompt",
+    ...block
   };
 }
 function vibeqmaxControlVector(input = {}) {
@@ -6882,18 +6923,26 @@ function vibeqmaxControlVector(input = {}) {
     optimization_mode: "vibeqmax",
     mode_root: "vibeqmax",
     mode_family: "brain-ml",
-    tier_bias: "brain",
-    thinking_mode: "full",
-    tdd_mode: "quality",
-    tdd_focus: ["full-coverage", "edge-cases", "property-based"],
-    flow_mode: "strict",
-    flow_focus: ["write-edit-check", "no-untouched-files", "check-debug-artifacts"],
-    enforcement_mode: "strict",
-    context7_urgency: "required",
-    wbp_verbosity: "detailed",
-    stress_multiplier: selected.stress_multiplier,
-    qmax_confidence: selected.confidence,
-    qmax_source_prediction: selected.source_prediction
+    cascade_depth: 1,
+    pipeline_root: ["brain"],
+    enforcement_mode: selected.enforcement_mode,
+    enforcement_reason: "[optimize: vibeqmax] difficulty-driven brain route",
+    flow_mode: selected.flow_mode,
+    flow_focus: [],
+    tdd_mode: selected.tdd_mode,
+    tdd_focus: [],
+    tier_bias: selected.tier_bias,
+    thinking_mode: selected.thinking_mode,
+    stress_multiplier: Number(input.stress_multiplier ?? input.stress ?? 0),
+    context7_urgency: selected.context7_urgency,
+    wbp_verbosity: selected.wbp_verbosity,
+    qmax_strategy: selected.qmax_strategy,
+    qmax_difficulty_score: selected.qmax_difficulty_score,
+    qmax_difficulty_level: selected.qmax_difficulty_level,
+    qmax_confidence: selected.qmax_confidence,
+    qmax_suggested_tier: selected.qmax_suggested_tier,
+    qmax_features: selected.qmax_features,
+    directives: [`[qmax root] difficulty=${selected.qmax_difficulty_level}; strategy=${selected.qmax_strategy}`]
   };
 }
 
@@ -7082,6 +7131,7 @@ function isLikelyOffTopic(userText, job) {
 }
 
 // src/lib/turn-classify.js
+init_vibeultrax();
 function classifyTurnSimple2(userText) {
   return classifyTurnSimple(userText);
 }
@@ -7101,7 +7151,7 @@ async function classifyTurnRemote(text) {
 function getVibeOSHome5() {
   return process.env.VIBEOS_HOME || join7(process.env.HOME || "", ".claude");
 }
-var QUALITY_STRESS_THRESHOLD3 = 1.5;
+var QUALITY_STRESS_THRESHOLD2 = 1.5;
 function autoSelectMode2(subRegime, stressMultiplier) {
   const regime = String(subRegime || "INIT").toUpperCase();
   const stress = Number(stressMultiplier ?? 0);
@@ -7117,7 +7167,7 @@ function autoSelectMode2(subRegime, stressMultiplier) {
     return "longrun";
   if (regime === "REVIEWING")
     return "audit";
-  if (stress > QUALITY_STRESS_THRESHOLD3)
+  if (stress > QUALITY_STRESS_THRESHOLD2)
     return "quality";
   return "vibelitex";
 }
@@ -7154,15 +7204,20 @@ async function selectOptimizationModeRemote(subRegime, stressMultiplier, fallbac
 }
 function computeControlVector2(_state, _action, _optimizationMode) {
   const mode = resolveOptimizationMode(_state?.sub_regime, _state?.latest_stress_multiplier, _optimizationMode);
-  const modeRoot = mode === "vibeultrax" ? { mode_root: "vibeultrax", mode_family: "cascade", cascade_depth: 3, pipeline_root: ["local", "medium", "brain"] } : mode === "vibeqmax" ? { mode_root: "vibeqmax", mode_family: "brain-ml", cascade_depth: 1, pipeline_root: ["brain"] } : mode === "vibemax" ? { mode_root: "vibemax", mode_family: "medium-ml", cascade_depth: 1, pipeline_root: ["medium"] } : mode === "quality" ? { mode_root: "quality", mode_family: "brain-runtime", cascade_depth: 1, pipeline_root: ["brain"] } : { mode_root: mode, mode_family: "runtime", cascade_depth: 1, pipeline_root: mode === "speed" ? ["medium"] : mode === "budget" || mode === "balanced" || mode === "longrun" ? ["cheap"] : ["cheap"] };
+  const modeRoot = mode === "vibeultrax" ? vibeultraxControlVector({
+    user_text: _state?.user_text || _state?.prompt || "",
+    stress_multiplier: _state?.latest_stress_multiplier ?? 0,
+    sub_regime: _state?.sub_regime || "INIT"
+  }) : mode === "vibeqmax" ? { mode_root: "vibeqmax", mode_family: "brain-ml", cascade_depth: 1, pipeline_root: ["brain"] } : mode === "vibemax" ? { mode_root: "vibemax", mode_family: "medium-ml", cascade_depth: 1, pipeline_root: ["medium"] } : mode === "quality" ? { mode_root: "quality", mode_family: "brain-runtime", cascade_depth: 1, pipeline_root: ["brain"] } : { mode_root: mode, mode_family: "runtime", cascade_depth: 1, pipeline_root: mode === "speed" ? ["medium"] : mode === "budget" || mode === "balanced" || mode === "longrun" ? ["cheap"] : ["cheap"] };
   if (mode === "vibeqmax") {
     const qmax = vibeqmaxControlVector({
       sub_regime: _state?.sub_regime || "INIT",
-      stress_multiplier: _state?.latest_stress_multiplier ?? 0
+      stress_multiplier: _state?.latest_stress_multiplier ?? 0,
+      user_text: _state?.user_text || _state?.prompt || ""
     });
     return {
       enforcement_mode: qmax.enforcement_mode,
-      enforcement_reason: `[optimize: vibeqmax] brain-tier ML root`,
+      enforcement_reason: `[optimize: vibeqmax] difficulty-driven brain root`,
       flow_mode: qmax.flow_mode,
       flow_focus: qmax.flow_focus || [],
       tdd_mode: qmax.tdd_mode,
@@ -7172,22 +7227,58 @@ function computeControlVector2(_state, _action, _optimizationMode) {
       stress_multiplier: qmax.stress_multiplier,
       context7_urgency: qmax.context7_urgency,
       wbp_verbosity: qmax.wbp_verbosity,
-      agent_mode: (String(_state?.sub_regime || "").toUpperCase() === "REFINING" || String(_state?.sub_regime || "").toUpperCase() === "CONVERGING" || String(_state?.sub_regime || "").toUpperCase() === "CLOSED") && Number(_state?.latest_stress_multiplier ?? 0) <= QUALITY_STRESS_THRESHOLD3 ? "plan" : void 0,
+      agent_mode: (String(_state?.sub_regime || "").toUpperCase() === "REFINING" || String(_state?.sub_regime || "").toUpperCase() === "CONVERGING" || String(_state?.sub_regime || "").toUpperCase() === "CLOSED") && Number(_state?.latest_stress_multiplier ?? 0) <= QUALITY_STRESS_THRESHOLD2 ? "plan" : void 0,
       optimization_mode: "vibeqmax",
       mode_root: qmax.mode_root,
       mode_family: qmax.mode_family,
       cascade_depth: qmax.cascade_depth || 1,
       pipeline_root: qmax.pipeline_root || ["brain"],
+      qmax_strategy: qmax.qmax_strategy,
+      qmax_difficulty_score: qmax.qmax_difficulty_score,
+      qmax_difficulty_level: qmax.qmax_difficulty_level,
       qmax_confidence: qmax.qmax_confidence,
-      qmax_source_prediction: qmax.qmax_source_prediction,
+      qmax_source_prediction: qmax.qmax_strategy,
+      qmax_suggested_tier: qmax.qmax_suggested_tier,
+      qmax_features: qmax.qmax_features,
       directives: [`[qmax root] Dedicated brain-ml root active for ${_state?.sub_regime || "INIT"}.`]
+    };
+  }
+  if (mode === "vibeultrax") {
+    const ultra = vibeultraxControlVector({
+      sub_regime: _state?.sub_regime || "INIT",
+      stress_multiplier: _state?.latest_stress_multiplier ?? 0,
+      user_text: _state?.user_text || _state?.prompt || ""
+    });
+    return {
+      enforcement_mode: ultra.enforcement_mode,
+      enforcement_reason: `[optimize: vibeultrax] cascade root`,
+      flow_mode: ultra.flow_mode,
+      flow_focus: [],
+      tdd_mode: ultra.tdd_mode,
+      tdd_focus: [],
+      tier_bias: ultra.tier_bias,
+      thinking_mode: ultra.thinking_mode,
+      stress_multiplier: ultra.stress_multiplier,
+      context7_urgency: ultra.context7_urgency,
+      wbp_verbosity: ultra.wbp_verbosity,
+      agent_mode: ultra.ultrax_profile === "deep" ? "plan" : void 0,
+      optimization_mode: "vibeultrax",
+      mode_root: ultra.mode_root,
+      mode_family: ultra.mode_family,
+      cascade_depth: ultra.cascade_depth,
+      pipeline_root: ultra.pipeline_root,
+      ultrax_profile: ultra.ultrax_profile,
+      ultrax_confidence: ultra.ultrax_confidence,
+      ultrax_reason: ultra.ultrax_reason,
+      ultrax_estimated_savings: ultra.ultrax_estimated_savings,
+      directives: [`[ultrax root] Dedicated cascade root active for ${_state?.sub_regime || "INIT"}.`]
     };
   }
   const isStrict = mode === "quality" || mode === "vibemax" || mode === "vibeqmax" || mode === "vibeultrax" || mode === "forensic" || mode === "audit";
   const isRelaxed = mode === "budget" || mode === "speed";
   const subRegime = _state?.sub_regime || "INIT";
   const stress = Number(_state?.latest_stress_multiplier ?? 0);
-  const tierBias = stress > QUALITY_STRESS_THRESHOLD3 ? "brain" : subRegime === "CONVERGING" || subRegime === "CLOSED" ? "brain" : subRegime === "REFINING" || subRegime === "LOOPING" ? "medium" : mode === "quality" || mode === "longrun" || mode === "vibeultrax" || mode === "vibeqmax" || mode === "forensic" || mode === "audit" ? "brain" : mode === "speed" || mode === "vibemax" || mode === "vibelitex" ? "medium" : mode === "balanced" ? "auto" : "cheap";
+  const tierBias = stress > QUALITY_STRESS_THRESHOLD2 ? "brain" : subRegime === "CONVERGING" || subRegime === "CLOSED" ? "brain" : subRegime === "REFINING" || subRegime === "LOOPING" ? "medium" : mode === "quality" || mode === "longrun" || mode === "vibeultrax" || mode === "vibeqmax" || mode === "forensic" || mode === "audit" ? "brain" : mode === "speed" || mode === "vibemax" || mode === "vibelitex" ? "medium" : mode === "balanced" ? "auto" : "cheap";
   return {
     enforcement_mode: isStrict ? "strict" : isRelaxed ? "relaxed" : "normal",
     enforcement_reason: `[optimize: ${mode}] using safe offline defaults`,
@@ -7200,7 +7291,7 @@ function computeControlVector2(_state, _action, _optimizationMode) {
     stress_multiplier: 1,
     context7_urgency: isStrict ? "required" : "preferred",
     wbp_verbosity: isStrict ? "verbose" : isRelaxed ? "minimal" : "normal",
-    agent_mode: (subRegime === "REFINING" || subRegime === "CONVERGING" || subRegime === "CLOSED") && stress <= QUALITY_STRESS_THRESHOLD3 ? "plan" : void 0,
+    agent_mode: (subRegime === "REFINING" || subRegime === "CONVERGING" || subRegime === "CLOSED") && stress <= QUALITY_STRESS_THRESHOLD2 ? "plan" : void 0,
     optimization_mode: mode,
     ...modeRoot,
     directives: isRelaxed && (subRegime === "EXPLORING" || subRegime === "INIT" || subRegime === "AUDIT" || subRegime === "FORENSIC" || subRegime === "LOOPING") ? [
@@ -8890,9 +8981,9 @@ function createTrinityTool(deps) {
         const allModeIds = [...builtInIds, "auto", ...brandedIds];
         if (!slot)
           return `Provide mode: ${builtInIds.join(" | ")} | auto | ${brandedIds.join(" | ")}`;
-        const modeAlias = { vibemax: "vibemax", vibeqmax: "quality" };
+        const modeAlias = { vibemax: "vibemax" };
         const resolvedSlot = modeAlias[slot] || slot;
-        const requestedMode = slot === resolvedSlot ? null : slot;
+        const requestedMode = ["vibeultrax", "vibeqmax", "vibemax", "vibelitex"].includes(slot) ? slot : slot === resolvedSlot ? null : slot;
         if (!allModeIds.includes(resolvedSlot)) {
           return `Provide mode: ${builtInIds.join(" | ")} | auto | ${brandedIds.join(" | ")}`;
         }
@@ -12325,6 +12416,7 @@ function getCostAnomalyDetector() {
 
 // src/lib/hooks/tool-execute.js
 init_flow_enforcer();
+init_ml_router();
 
 // src/lib/tdd-enforcer.js
 import { readFileSync as readFileSync15, writeFileSync as writeFileSync13, appendFileSync as appendFileSync5, existsSync as existsSync15, mkdirSync as mkdirSync11, statSync as statSync8, readdirSync as readdirSync4, rmSync as rmSync6, openSync as openSync3 } from "node:fs";

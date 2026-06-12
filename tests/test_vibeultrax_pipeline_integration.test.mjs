@@ -193,7 +193,7 @@ test("main pipeline: vibeqmax stays analyzable while the live cascade still rout
 
     const tiersAfterMode = JSON.parse(readFileSync(join(claudeDir, "model-tiers.json"), "utf8"))
     assert.equal(tiersAfterMode.selection.active_slot, "brain", "vibeqmax should resolve to the brain slot")
-    assert.equal(tiersAfterMode.selection.optimization_mode, "quality", "effective mode should remain quality")
+    assert.equal(tiersAfterMode.selection.optimization_mode, "vibeqmax", "effective mode should remain branded as vibeqmax")
     assert.equal(tiersAfterMode.selection.requested_optimization_mode, "vibeqmax", "requested mode should stay visible for analysis")
 
     const statusOut = await hooks.tool.trinity.execute({ action: "status" })

@@ -278,9 +278,9 @@ export function createTrinityTool(deps) {
         const brandedIds = BRANDED_MODES.map(m => m.id)
         const allModeIds = [...builtInIds, "auto", ...brandedIds]
         if (!slot) return `Provide mode: ${builtInIds.join(" | ")} | auto | ${brandedIds.join(" | ")}`
-        const modeAlias = { vibemax: "vibemax", vibeqmax: "quality" }
+        const modeAlias = { vibemax: "vibemax" }
         const resolvedSlot = modeAlias[slot] || slot
-        const requestedMode = slot === resolvedSlot ? null : slot
+        const requestedMode = ["vibeultrax", "vibeqmax", "vibemax", "vibelitex"].includes(slot) ? slot : (slot === resolvedSlot ? null : slot)
         if (!allModeIds.includes(resolvedSlot)) {
           return `Provide mode: ${builtInIds.join(" | ")} | auto | ${brandedIds.join(" | ")}`
         }
