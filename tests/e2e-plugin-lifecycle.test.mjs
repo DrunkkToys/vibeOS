@@ -24,10 +24,10 @@ before(() => {
     $schema: "https://opencode.ai/config.json",
     instructions: ["~/.config/opencode/AGENTS.md"],
     plugin: ["./plugins/vibeOS"],
-    model: "deepseek/deepseek-v4-pro",
+    model: "anthropic/claude-opus-4-7",
     provider: {
-      deepseek: {
-        models: { "deepseek-v4-pro": {}, "deepseek-v4-flash": {}, "deepseek-chat": {} }
+      anthropic: {
+        models: { "claude-opus-4-7": {}, "claude-sonnet-4-1": {}, "claude-haiku-4-1": {} }
       }
     }
   }, null, 2) + "\n");
@@ -44,7 +44,7 @@ before(() => {
       budget: { regex: ".*" }
     },
     trinity: {
-      brain: { oc: "deepseek/deepseek-v4-pro", cc: "haiku" },
+      brain: { oc: "anthropic/claude-opus-4-7", cc: "haiku" },
       medium: { oc: "deepseek/deepseek-v4-flash", cc: "haiku" },
       cheap: { oc: "deepseek/deepseek-chat", cc: "haiku" }
     }
@@ -60,11 +60,12 @@ function freshMod() {
   return import("../src/index.js?t=" + ts);
 }
 
-describe("E2E: Full Plugin Lifecycle", () => {
+describe("E2E: Full Plugin Lifecycle", { concurrency: false }, () => {
+  let mod;
   let hooks;
 
   before(async () => {
-    const mod = await freshMod();
+    mod = await freshMod();
     hooks = await mod.DelegationEnforcer({ client: {}, directory: sandbox });
   });
 
@@ -84,9 +85,8 @@ describe("E2E: Full Plugin Lifecycle", () => {
   });
 
   it("3. tool.execute.before — blocks write on brain high-tier", async () => {
-    const { setCurrentModel, setCurrentTier } = await import("../src/lib/state.js?t=" + Date.now());
-    setCurrentModel("deepseek/deepseek-v4-pro");
-    setCurrentTier("high");
+    await hooks.tool.trinity.execute({ action: "set", slot: "brain" });
+
     const input = { tool: "write", args: { filePath: "/tmp/test.txt", content: "test" } };
     const out = { args: { filePath: "/tmp/test.txt", content: "test" } };
     await hooks["tool.execute.before"](input, out);
@@ -109,7 +109,7 @@ describe("E2E: Full Plugin Lifecycle", () => {
     const input = { messageID: "lifecycle-test-1" };
     const out = { text: "This is a long enough assistant response to trigger the vibeOS footer mechanism. Definitely long enough to pass the fifty character threshold." };
     await hooks["experimental.text.complete"](input, out);
-    assert.ok(out.text.includes("Deepseek") || out.text.includes("deepseek") || out.text.includes("$"), "footer appended: " + out.text.slice(-80));
+    assert.ok(out.text.includes("Anthropic") || out.text.includes("Opus") || out.text.includes("$"), "footer appended: " + out.text.slice(-80));
   });
 
   it("6. experimental.session.compacting — compaction context populated", async () => {
