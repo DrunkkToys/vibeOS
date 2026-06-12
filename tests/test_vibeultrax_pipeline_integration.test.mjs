@@ -149,6 +149,64 @@ test("real cascade: task routing escalates from cheap to medium on complex promp
   }
 })
 
+test("main pipeline: vibeqmax stays analyzable while the live cascade still routes work", async (t) => {
+  const dir = isolatedSandbox()
+  const prevHome = process.env.HOME
+  process.env.HOME = dir
+  try {
+    const claudeDir = join(dir, ".claude")
+    mkdirSync(claudeDir, { recursive: true })
+    writeFileSync(join(claudeDir, "model-tiers.json"), JSON.stringify({
+      trinity: {
+        brain: { oc: "anthropic/claude-opus-4.5" },
+        medium: { oc: "deepseek/deepseek-v4-flash" },
+        cheap: { oc: "deepseek/deepseek-chat" },
+      },
+      selection: {
+        enabled: true,
+        active_slot: "cheap",
+        delegation_enforce: true,
+        flow_enabled: true,
+        tdd_enforce: false,
+        optimization_mode: "budget",
+        active_pipeline: ["local", "medium", "brain"],
+      },
+    }, null, 2))
+    writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "deepseek/deepseek-chat" }))
+
+    const mod = await loadPlugin()
+    const hooks = await mod.DelegationEnforcer({ client: { model: "deepseek/deepseek-chat" }, directory: dir })
+
+    const simpleTask = { model: null, prompt: "check status" }
+    await hooks["tool.execute.before"]({ tool: "task" }, { args: simpleTask })
+    assert.equal(simpleTask.model, "deepseek/deepseek-chat", "simple task should stay on the cheap model")
+
+    const complexTask = {
+      model: null,
+      prompt: "implement a distributed microservice pipeline with database migration, retries, observability, and rollbacks",
+    }
+    await hooks["tool.execute.before"]({ tool: "task" }, { args: complexTask })
+    assert.equal(complexTask.model, "deepseek/deepseek-v4-flash", "complex task should escalate to medium through the live cascade pipeline")
+
+    const modeOut = await hooks.tool.trinity.execute({ action: "mode", slot: "vibeqmax" })
+    assert.ok(String(modeOut || "").includes("Mode set"), "vibeqmax mode should be accepted")
+
+    const tiersAfterMode = JSON.parse(readFileSync(join(claudeDir, "model-tiers.json"), "utf8"))
+    assert.equal(tiersAfterMode.selection.active_slot, "brain", "vibeqmax should resolve to the brain slot")
+    assert.equal(tiersAfterMode.selection.optimization_mode, "quality", "effective mode should remain quality")
+    assert.equal(tiersAfterMode.selection.requested_optimization_mode, "vibeqmax", "requested mode should stay visible for analysis")
+
+    const statusOut = await hooks.tool.trinity.execute({ action: "status" })
+    assert.ok(String(statusOut || "").includes("Requested mode: vibeqmax"), "status should surface the requested branded mode")
+
+    const footer = { text: "pipeline integration check that should print the live footer and make the mode state obvious." }
+    await hooks["experimental.text.complete"]({ messageID: "main-" + randomUUID().slice(0, 6) }, footer)
+    assert.ok(String(footer.text || "").includes("Vibe"), "footer should still render the live brand line")
+  } finally {
+    process.env.HOME = prevHome
+  }
+})
+
 test("footer drops redundant mode label", async (t) => {
   const dir = isolatedSandbox()
   const prevHome = process.env.HOME
