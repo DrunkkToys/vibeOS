@@ -80,9 +80,9 @@ export function generateReportId(type, fp) {
 // Dedup: skip save if last report of same type has identical summary within 5 min
 const _reportDedupWindow = new Map()
 
-function _wouldBeDuplicate(type, summary) {
+function _wouldBeDuplicate(type, summary, scope) {
   if (typeof summary !== "string") return false
-  const key = `${getVibeOSHome()}::${type || ""}::${summary}`
+  const key = `${getVibeOSHome()}::${type || ""}::${String(scope || "unknown")}::${summary}`
   const last = _reportDedupWindow.get(key)
   if (last && (Date.now() - last) < 5 * 60 * 1000) return true
   _reportDedupWindow.set(key, Date.now())
@@ -155,9 +155,10 @@ export function saveReport({ type = "manual", summary = "", findings = null, met
   const metricsSessionId = typeof metricsObject.sessionId === "string" && metricsObject.sessionId.trim() ? metricsObject.sessionId.trim() : ""
   const metricsProjectName = typeof metricsObject.projectName === "string" && metricsObject.projectName.trim() ? metricsObject.projectName.trim() : ""
   const metricsProjectFingerprint = typeof metricsObject.projectFingerprint === "string" && metricsObject.projectFingerprint.trim() ? metricsObject.projectFingerprint.trim() : ""
+  const dedupScope = fingerprint || metricsProjectFingerprint || liveProjectFingerprint || currentProjectFingerprint || metricsProjectName || liveProjectName || currentProjectName || "unknown"
 
   // Dedup: skip if last same-type report has same summary within 5 min
-  if (_wouldBeDuplicate(type, summary)) return null
+  if (_wouldBeDuplicate(type, summary, dedupScope)) return null
 
   if (!currentProjectFingerprint && metricsProjectFingerprint) currentProjectFingerprint = metricsProjectFingerprint
   if (!currentProjectName && metricsProjectName) currentProjectName = metricsProjectName
