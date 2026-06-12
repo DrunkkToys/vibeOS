@@ -1012,6 +1012,23 @@ test("v0.20.11 — vibemaxPipeline exports and runs without throwing", async () 
   assert.equal(r2.mode, "budget", "pivot should route to budget mode")
 })
 
+test("v0.20.11 — vibeultraxPipeline exports and keeps a three-stage cascade root", async () => {
+  const { vibeultraxPipeline, vibeultraxControlVector } =
+    await import("../src/vibeOS-lib/blackbox/vibeultrax.js?t=" + Date.now())
+
+  assert.equal(typeof vibeultraxPipeline, "function", "vibeultraxPipeline is a function")
+  assert.equal(typeof vibeultraxControlVector, "function", "vibeultraxControlVector is a function")
+
+  const cv = vibeultraxControlVector({ user_text: "implement a multi-step migration with rollback" })
+  assert.equal(cv.mode_root, "vibeultrax", "cascade root should stay distinct")
+  assert.equal(cv.cascade_depth, 3, "ultrax root should keep three stages")
+
+  const r = vibeultraxPipeline({ user_text: "implement a multi-step migration with rollback" })
+  assert.equal(r.mode, "vibeultrax", "pipeline should identify the ultrax mode")
+  assert.equal(r.cascade_depth, 3, "pipeline should preserve the three-stage cascade")
+  assert.ok(Array.isArray(r.pipeline) && r.pipeline.join(",") === "local,medium,brain", "pipeline should be the cascade root")
+})
+
 // ── v0.20.11: PivotCache buildInjection produces useful output ──
 test("v0.20.11 — PivotCache buildInjection produces PIVOT BACK context", async () => {
   const { PivotCache } = await import("../src/vibeOS-lib/blackbox/pivot-cache.js?t=" + Date.now())

@@ -140,6 +140,14 @@ test("computeControlVector: every mode produces correct tier_bias, enforcement_m
     assertOkAndLog(cv.optimization_mode, "computeControlVector", `${mode}.optimization_mode`, { mode })
     assertEqualAndLog(cv.optimization_mode, mode, "computeControlVector", `${mode}.optimization_mode_value`, { mode })
   }
+  const qmax = computeControlVector(baseState, "write", "vibeqmax")
+  const ultra = computeControlVector(baseState, "write", "vibeultrax")
+  assertEqualAndLog(qmax.mode_root, "vibeqmax", "computeControlVector", "vibeqmax.mode_root")
+  assertEqualAndLog(qmax.mode_family, "brain-ml", "computeControlVector", "vibeqmax.mode_family")
+  assertEqualAndLog(qmax.pipeline_root.join(","), "brain", "computeControlVector", "vibeqmax.pipeline_root")
+  assertEqualAndLog(ultra.mode_root, "vibeultrax", "computeControlVector", "vibeultrax.mode_root")
+  assertEqualAndLog(ultra.mode_family, "cascade", "computeControlVector", "vibeultrax.mode_family")
+  assertEqualAndLog(ultra.cascade_depth, 3, "computeControlVector", "vibeultrax.cascade_depth")
 })
 
 // ── COMPUTE CONTROL VECTOR: regime-based stress override ──

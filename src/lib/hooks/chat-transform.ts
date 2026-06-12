@@ -827,8 +827,9 @@ export const onSystemTransform = async (_input, output) => {
     if (latestUserIntent && _blackboxEnabled !== false) {
       try {
         let pivotResult = null
+        const pivotPipeline = String(optimizationMode || "").toLowerCase() === "vibeultrax" ? "vibeultraxPipeline" : "vibemaxPipeline"
         try {
-          const remote = await remoteCall("vibemaxPipeline", [{
+          const remote = await remoteCall(pivotPipeline, [{
             user_text: latestUserIntent,
             _pivotContext: {
               files: (onSystemTransform as any)._recentFiles || [],
@@ -838,9 +839,14 @@ export const onSystemTransform = async (_input, output) => {
             },
           }], null)
           if (remote?.pivot) pivotResult = remote
-        } catch { /* remote vibemax pipeline */ }
+        } catch { /* remote pivot pipeline */ }
         if (!pivotResult) {
-          const { vibemaxPipeline: localPipeline } = await import("../../vibeOS-lib/blackbox/vibemax.js")
+          const localModule = pivotPipeline === "vibeultraxPipeline"
+            ? await import("../../vibeOS-lib/blackbox/vibeultrax.js")
+            : await import("../../vibeOS-lib/blackbox/vibemax.js")
+          const localPipeline = pivotPipeline === "vibeultraxPipeline"
+            ? localModule.vibeultraxPipeline
+            : localModule.vibemaxPipeline
           pivotResult = await localPipeline({
             user_text: latestUserIntent,
             _pivotContext: {

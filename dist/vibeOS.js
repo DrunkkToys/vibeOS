@@ -1160,6 +1160,84 @@ var init_vibemax = __esm({
   }
 });
 
+// src/vibeOS-lib/blackbox/vibeultrax.js
+var vibeultrax_exports = {};
+__export(vibeultrax_exports, {
+  vibeultraxControlVector: () => vibeultraxControlVector,
+  vibeultraxPipeline: () => vibeultraxPipeline
+});
+function getPivotCache2() {
+  if (!pivotCache2)
+    pivotCache2 = new PivotCache();
+  return pivotCache2;
+}
+function vibeultraxControlVector(input = {}) {
+  return {
+    optimization_mode: "vibeultrax",
+    mode_root: "vibeultrax",
+    mode_family: "cascade",
+    tier_bias: "brain",
+    thinking_mode: "full",
+    tdd_mode: "quality",
+    flow_mode: "strict",
+    enforcement_mode: "strict",
+    context7_urgency: "required",
+    wbp_verbosity: "detailed",
+    stress_multiplier: 2.5,
+    cascade_depth: 3,
+    cascade_stages: ["local", "medium", "brain"],
+    pivot_threshold: 0.45,
+    prompt_length: String(input.user_text || input.prompt || "").length
+  };
+}
+function vibeultraxPipeline(input = {}) {
+  const text = String(input.user_text || input.prompt || "");
+  const pc = getPivotCache2();
+  const tokens = pc.tokenize(text);
+  const pivotBack = text && tokens.size > 0 ? pc.detectPivotBack(tokens, 0.45) : { matchedId: null, confidence: 0, reason: "no_text" };
+  const isPivotBack = pivotBack.matchedId !== null;
+  const localStage = {
+    tier: "local",
+    tokens: [...tokens],
+    intent: text.slice(0, 80)
+  };
+  const mediumStage = {
+    tier: "medium",
+    matched: isPivotBack,
+    confidence: pivotBack.confidence,
+    reason: pivotBack.reason
+  };
+  const brainStage = {
+    tier: "brain",
+    action: isPivotBack ? "restore-pivot" : "refine",
+    injection: isPivotBack ? pc.buildInjection(pivotBack.matchedId) : ""
+  };
+  return {
+    mode: "vibeultrax",
+    source: "vibeultrax",
+    mode_root: "vibeultrax",
+    tier: "brain",
+    pipeline: ["local", "medium", "brain"],
+    cascade_depth: 3,
+    cascade_stages: [localStage, mediumStage, brainStage],
+    pivot: isPivotBack ? {
+      matchedId: pivotBack.matchedId,
+      confidence: pivotBack.confidence,
+      reason: pivotBack.reason,
+      injection: brainStage.injection,
+      toolOutputs: input?._pivotContext?.toolOutputs || []
+    } : null
+  };
+}
+var pivotCache2;
+var init_vibeultrax = __esm({
+  "src/vibeOS-lib/blackbox/vibeultrax.js"() {
+    "use strict";
+    init_pivot_cache();
+    pivotCache2 = null;
+  }
+});
+
 // src/index.ts
 init_flow_enforcer();
 import { readFileSync as readFileSync17, writeFileSync as writeFileSync15, existsSync as existsSync18, mkdirSync as mkdirSync13, copyFileSync as copyFileSync2, renameSync as renameSync6, statSync as statSync9 } from "node:fs";
@@ -5879,24 +5957,6 @@ function modelCostPerTurn(model) {
   const TIER_FALLBACK = { high: 0.01175, mid: 66e-4, budget: 144e-5 };
   return TIER_FALLBACK[tier] ?? 144e-5;
 }
-function _normalizeCostModelId(model) {
-  const normalized = normalizeModelId(model);
-  const parts = normalized.split("/");
-  if (parts.length !== 2)
-    return normalized;
-  const [provider, name] = parts;
-  if (provider === "deepseek" && name && !name.startsWith("deepseek-")) {
-    return `${provider}/deepseek-${name}`;
-  }
-  return normalized;
-}
-function compareModelCosts(currentModel3, targetModel) {
-  const currentCost = modelCostPerTurn(_normalizeCostModelId(currentModel3));
-  const targetCost = modelCostPerTurn(_normalizeCostModelId(targetModel));
-  const deltaUsd = currentCost - targetCost;
-  const direction = deltaUsd > 0 ? "up" : deltaUsd < 0 ? "down" : "stable";
-  return { currentCost, targetCost, deltaUsd, direction };
-}
 function isModelFree(model) {
   if (!model || typeof model !== "string")
     return false;
@@ -6767,6 +6827,78 @@ function cosineSimilarity2(a, b) {
 // src/vibeOS-lib/blackbox/index.js
 init_meta_controller();
 init_vibemax();
+
+// src/vibeOS-lib/blackbox/vibeqmax.js
+var QUALITY_STRESS_THRESHOLD2 = 1.5;
+function normalizeText(text) {
+  return String(text || "").trim();
+}
+function extractFeatures2(text) {
+  const value = normalizeText(text).toLowerCase();
+  const words = value.split(/\s+/).filter(Boolean);
+  const sentences = value.split(/[.!?]+/).map((part) => part.trim()).filter(Boolean);
+  return {
+    length: value.length / 5e3,
+    word_count: words.length / 500,
+    sentence_count: sentences.length / 50,
+    question_ratio: (value.match(/\?/g) || []).length / Math.max(sentences.length, 1),
+    code_blocks: (value.match(/```/g) || []).length / 10,
+    urgency: /urgent|asap|immediately|critical|broken|failing|crash|error|bug/i.test(value) ? 1 : 0,
+    complexity: /complex|difficult|hard|confusing|subtle|nuance|architecture|design/i.test(value) ? 1 : 0,
+    instruction_density: /must|should|always|never|critical|need to|please|could you/i.test(value) ? 1 : 0.5,
+    repetition: /again|same|repeat|loop|stuck/i.test(value) ? 1 : 0
+  };
+}
+function scoreQMax(features, stress) {
+  const raw = 0.2 + features.length * 0.1 + features.word_count * 0.2 + features.sentence_count * 0.15 + features.question_ratio * 0.2 + features.code_blocks * 0.25 + features.urgency * 0.15 + features.complexity * 0.2 + features.instruction_density * 0.1 + features.repetition * 0.05 + Math.min(0.3, Number(stress || 0) / 10);
+  return Math.max(0, Math.min(1, raw));
+}
+function vibeqmaxSelectMode(input = {}) {
+  const text = normalizeText(input.user_text || input.prompt || "");
+  const stress = Number(input.stress_multiplier || input.stress || 0);
+  const features = extractFeatures2(text);
+  const confidence = scoreQMax(features, stress);
+  const sourcePrediction = confidence > 0.72 ? "quality" : confidence > 0.42 ? "vibeqmax" : "budget";
+  return {
+    mode: "vibeqmax",
+    source: "vibeqmax",
+    mode_root: "vibeqmax",
+    source_prediction: sourcePrediction,
+    confidence,
+    tier: "brain",
+    thinking: "full",
+    tdd: "quality",
+    flow: "strict",
+    enforcement: "strict",
+    wbp: "detailed",
+    c7: "required",
+    stress_multiplier: Math.max(QUALITY_STRESS_THRESHOLD2, stress || QUALITY_STRESS_THRESHOLD2),
+    qmax_features: features
+  };
+}
+function vibeqmaxControlVector(input = {}) {
+  const selected = vibeqmaxSelectMode(input);
+  return {
+    optimization_mode: "vibeqmax",
+    mode_root: "vibeqmax",
+    mode_family: "brain-ml",
+    tier_bias: "brain",
+    thinking_mode: "full",
+    tdd_mode: "quality",
+    tdd_focus: ["full-coverage", "edge-cases", "property-based"],
+    flow_mode: "strict",
+    flow_focus: ["write-edit-check", "no-untouched-files", "check-debug-artifacts"],
+    enforcement_mode: "strict",
+    context7_urgency: "required",
+    wbp_verbosity: "detailed",
+    stress_multiplier: selected.stress_multiplier,
+    qmax_confidence: selected.confidence,
+    qmax_source_prediction: selected.source_prediction
+  };
+}
+
+// src/vibeOS-lib/blackbox/index.js
+init_vibeultrax();
 init_pivot_cache();
 
 // src/lib/classifiers.js
@@ -6969,7 +7101,7 @@ async function classifyTurnRemote(text) {
 function getVibeOSHome5() {
   return process.env.VIBEOS_HOME || join7(process.env.HOME || "", ".claude");
 }
-var QUALITY_STRESS_THRESHOLD2 = 1.5;
+var QUALITY_STRESS_THRESHOLD3 = 1.5;
 function autoSelectMode2(subRegime, stressMultiplier) {
   const regime = String(subRegime || "INIT").toUpperCase();
   const stress = Number(stressMultiplier ?? 0);
@@ -6985,7 +7117,7 @@ function autoSelectMode2(subRegime, stressMultiplier) {
     return "longrun";
   if (regime === "REVIEWING")
     return "audit";
-  if (stress > QUALITY_STRESS_THRESHOLD2)
+  if (stress > QUALITY_STRESS_THRESHOLD3)
     return "quality";
   return "vibelitex";
 }
@@ -7022,11 +7154,40 @@ async function selectOptimizationModeRemote(subRegime, stressMultiplier, fallbac
 }
 function computeControlVector2(_state, _action, _optimizationMode) {
   const mode = resolveOptimizationMode(_state?.sub_regime, _state?.latest_stress_multiplier, _optimizationMode);
+  const modeRoot = mode === "vibeultrax" ? { mode_root: "vibeultrax", mode_family: "cascade", cascade_depth: 3, pipeline_root: ["local", "medium", "brain"] } : mode === "vibeqmax" ? { mode_root: "vibeqmax", mode_family: "brain-ml", cascade_depth: 1, pipeline_root: ["brain"] } : mode === "vibemax" ? { mode_root: "vibemax", mode_family: "medium-ml", cascade_depth: 1, pipeline_root: ["medium"] } : mode === "quality" ? { mode_root: "quality", mode_family: "brain-runtime", cascade_depth: 1, pipeline_root: ["brain"] } : { mode_root: mode, mode_family: "runtime", cascade_depth: 1, pipeline_root: mode === "speed" ? ["medium"] : mode === "budget" || mode === "balanced" || mode === "longrun" ? ["cheap"] : ["cheap"] };
+  if (mode === "vibeqmax") {
+    const qmax = vibeqmaxControlVector({
+      sub_regime: _state?.sub_regime || "INIT",
+      stress_multiplier: _state?.latest_stress_multiplier ?? 0
+    });
+    return {
+      enforcement_mode: qmax.enforcement_mode,
+      enforcement_reason: `[optimize: vibeqmax] brain-tier ML root`,
+      flow_mode: qmax.flow_mode,
+      flow_focus: qmax.flow_focus || [],
+      tdd_mode: qmax.tdd_mode,
+      tdd_focus: qmax.tdd_focus || [],
+      tier_bias: qmax.tier_bias,
+      thinking_mode: qmax.thinking_mode,
+      stress_multiplier: qmax.stress_multiplier,
+      context7_urgency: qmax.context7_urgency,
+      wbp_verbosity: qmax.wbp_verbosity,
+      agent_mode: (String(_state?.sub_regime || "").toUpperCase() === "REFINING" || String(_state?.sub_regime || "").toUpperCase() === "CONVERGING" || String(_state?.sub_regime || "").toUpperCase() === "CLOSED") && Number(_state?.latest_stress_multiplier ?? 0) <= QUALITY_STRESS_THRESHOLD3 ? "plan" : void 0,
+      optimization_mode: "vibeqmax",
+      mode_root: qmax.mode_root,
+      mode_family: qmax.mode_family,
+      cascade_depth: qmax.cascade_depth || 1,
+      pipeline_root: qmax.pipeline_root || ["brain"],
+      qmax_confidence: qmax.qmax_confidence,
+      qmax_source_prediction: qmax.qmax_source_prediction,
+      directives: [`[qmax root] Dedicated brain-ml root active for ${_state?.sub_regime || "INIT"}.`]
+    };
+  }
   const isStrict = mode === "quality" || mode === "vibemax" || mode === "vibeqmax" || mode === "vibeultrax" || mode === "forensic" || mode === "audit";
   const isRelaxed = mode === "budget" || mode === "speed";
   const subRegime = _state?.sub_regime || "INIT";
   const stress = Number(_state?.latest_stress_multiplier ?? 0);
-  const tierBias = stress > QUALITY_STRESS_THRESHOLD2 ? "brain" : subRegime === "CONVERGING" || subRegime === "CLOSED" ? "brain" : subRegime === "REFINING" || subRegime === "LOOPING" ? "medium" : mode === "quality" || mode === "longrun" || mode === "vibeultrax" || mode === "vibeqmax" || mode === "forensic" || mode === "audit" ? "brain" : mode === "speed" || mode === "vibemax" || mode === "vibelitex" ? "medium" : mode === "balanced" ? "auto" : "cheap";
+  const tierBias = stress > QUALITY_STRESS_THRESHOLD3 ? "brain" : subRegime === "CONVERGING" || subRegime === "CLOSED" ? "brain" : subRegime === "REFINING" || subRegime === "LOOPING" ? "medium" : mode === "quality" || mode === "longrun" || mode === "vibeultrax" || mode === "vibeqmax" || mode === "forensic" || mode === "audit" ? "brain" : mode === "speed" || mode === "vibemax" || mode === "vibelitex" ? "medium" : mode === "balanced" ? "auto" : "cheap";
   return {
     enforcement_mode: isStrict ? "strict" : isRelaxed ? "relaxed" : "normal",
     enforcement_reason: `[optimize: ${mode}] using safe offline defaults`,
@@ -7039,8 +7200,9 @@ function computeControlVector2(_state, _action, _optimizationMode) {
     stress_multiplier: 1,
     context7_urgency: isStrict ? "required" : "preferred",
     wbp_verbosity: isStrict ? "verbose" : isRelaxed ? "minimal" : "normal",
-    agent_mode: (subRegime === "REFINING" || subRegime === "CONVERGING" || subRegime === "CLOSED") && stress <= QUALITY_STRESS_THRESHOLD2 ? "plan" : void 0,
+    agent_mode: (subRegime === "REFINING" || subRegime === "CONVERGING" || subRegime === "CLOSED") && stress <= QUALITY_STRESS_THRESHOLD3 ? "plan" : void 0,
     optimization_mode: mode,
+    ...modeRoot,
     directives: isRelaxed && (subRegime === "EXPLORING" || subRegime === "INIT" || subRegime === "AUDIT" || subRegime === "FORENSIC" || subRegime === "LOOPING") ? [
       `[speed guard] VERIFY BEFORE ACT - Speed-oriented mode "${mode}" is active and user intent is ${subRegime}. Before modifying files or executing commands, first verify the current state. When a request is ambiguous between "check and report" vs "fix", always choose CHECK FIRST. Treat "look at", "check", "investigate", "tell me about" as requests for information, not action items.`
     ] : []
@@ -11485,8 +11647,9 @@ var onSystemTransform = async (_input, output) => {
     if (latestUserIntent && _blackboxEnabled !== false) {
       try {
         let pivotResult = null;
+        const pivotPipeline = String(optimizationMode || "").toLowerCase() === "vibeultrax" ? "vibeultraxPipeline" : "vibemaxPipeline";
         try {
-          const remote = await remoteCall("vibemaxPipeline", [{
+          const remote = await remoteCall(pivotPipeline, [{
             user_text: latestUserIntent,
             _pivotContext: {
               files: onSystemTransform._recentFiles || [],
@@ -11500,7 +11663,8 @@ var onSystemTransform = async (_input, output) => {
         } catch {
         }
         if (!pivotResult) {
-          const { vibemaxPipeline: localPipeline } = await Promise.resolve().then(() => (init_vibemax(), vibemax_exports));
+          const localModule = pivotPipeline === "vibeultraxPipeline" ? await Promise.resolve().then(() => (init_vibeultrax(), vibeultrax_exports)) : await Promise.resolve().then(() => (init_vibemax(), vibemax_exports));
+          const localPipeline = pivotPipeline === "vibeultraxPipeline" ? localModule.vibeultraxPipeline : localModule.vibemaxPipeline;
           pivotResult = await localPipeline({
             user_text: latestUserIntent,
             _pivotContext: {
@@ -11723,18 +11887,19 @@ function formatEnforcementPulse(enfTags) {
     parts.push("locked");
   return parts.join(" \xB7 ");
 }
-function formatCostDeltaChip(amountUsd) {
-  const amount = Number(amountUsd ?? 0);
-  if (!Number.isFinite(amount))
-    return "";
-  if (Math.abs(amount) < 5e-3)
-    return "\u2192";
-  const arrow = amount > 0 ? "\u2197" : "\u2198";
-  return `${arrow} $${Math.abs(amount).toFixed(2)}`;
+function trendGlyph(trend) {
+  if (trend === "up")
+    return "\u2197";
+  if (trend === "down")
+    return "\u2198";
+  return "\u2192";
 }
 function formatSavingsPulse(amountUsd, trend) {
-  void trend;
-  return formatCostDeltaChip(amountUsd);
+  const amount = Number(amountUsd || 0);
+  if (!Number.isFinite(amount) || amount <= 0)
+    return "";
+  const arrow = trendGlyph(trend);
+  return `$${amount.toFixed(2)} saved${arrow !== "\u2192" ? ` ${arrow}` : ""}`;
 }
 function buildEnforcementTags(opts) {
   const tags = [];
@@ -11761,9 +11926,11 @@ function buildFooterLine(input) {
   const regimeIcon = subRegime ? resolveRegimeIcon(subRegime) : null;
   const modeLabel = formatModeLabel(optMode);
   let line = `\u2014 ${tierIcon} ${activeSlot} | ${providerLabel} | ${modelName}${regimeTag ? ` \u25B6 ${regimeIcon} ${regimeTag}` : ""}`;
-  const savingsPulse = formatSavingsPulse(ltTotal, ltTrend);
-  if (savingsPulse)
-    line += ` | ${savingsPulse}`;
+  if (ltTotal > 0) {
+    const savingsPulse = formatSavingsPulse(ltTotal, ltTrend);
+    if (savingsPulse)
+      line += ` | ${savingsPulse}`;
+  }
   line += ` | ${vibeBrand}${flashIcon}`;
   if (optMode && optMode !== "auto") {
     line += ` ${modeLabel}`;
@@ -13489,25 +13656,6 @@ function isGreetingLike2(text) {
   const value = String(text || "").trim().toLowerCase();
   return value === "hi" || value === "hello" || value === "hey" || value === "yo" || /^hi[!.?\s]*$/.test(value) || /^hello[!.?\s]*$/.test(value) || /^hey[!.?\s]*$/.test(value);
 }
-function _routeDeltaChip(fromModel, toModel) {
-  if (!fromModel || !toModel)
-    return "";
-  return formatCostDeltaChip(compareModelCosts(fromModel, toModel).deltaUsd);
-}
-function _delegationTargetSlot(targetModel) {
-  if (!targetModel)
-    return "cheap";
-  if (targetModel === TRINITY_MEDIUM)
-    return "medium";
-  if (targetModel === TRINITY_CHEAP)
-    return "cheap";
-  const tier = classify(targetModel);
-  if (tier === "high")
-    return "brain";
-  if (tier === "mid")
-    return "medium";
-  return "cheap";
-}
 var BYTES_PER_TOKEN2 = 4;
 var DEBUG_INTERNALS2 = process.env.VIBEOS_DEBUG_INTERNALS === "1";
 var IS_CLI_RUNTIME2 = Boolean(process.stdout?.isTTY || process.stderr?.isTTY || process.stdin?.isTTY);
@@ -13525,7 +13673,6 @@ var context7Seen = /* @__PURE__ */ new Set();
 var _autoReportCount2 = 0;
 var _pendingTodoArgs = null;
 var _pendingTelemetryStarts = [];
-var _taskRouteOverageUsd = 0;
 function _bucketChars(n) {
   const size = Number(n || 0);
   if (!Number.isFinite(size) || size <= 0)
@@ -13941,12 +14088,7 @@ ${argsJson}
         }
       } catch {
       }
-      const routeDeltaInfo = compareModelCosts(currentModel, _target);
-      const routeDelta = formatCostDeltaChip(routeDeltaInfo.deltaUsd);
-      if (Number.isFinite(routeDeltaInfo.deltaUsd) && routeDeltaInfo.deltaUsd < 0) {
-        _taskRouteOverageUsd += Math.abs(routeDeltaInfo.deltaUsd);
-      }
-      console.error(`[vibeOS] \u{1F500} Task \u2192 ${_target}${routeDelta ? ` \xB7 ${routeDelta}` : ""} (${_reason}, orchestrator: ${currentModel})`);
+      console.error(`[vibeOS] \u{1F500} Task \u2192 ${_target} (${_reason}, orchestrator: ${currentModel})`);
     }
   }
   if (FREE.has(t))
@@ -14007,10 +14149,7 @@ ${argsJson}
       projectName: currentProjectName || "",
       sessionId: getCurrentSessionId()
     });
-    const targetModel = TRINITY_MEDIUM || TRINITY_CHEAP || currentModel;
-    const targetSlot = _delegationTargetSlot(targetModel);
-    const deltaChip = _routeDeltaChip(currentModel, targetModel);
-    const msg = `[vibeOS] ${resolveTierIcon("cheap")} cheap lane open \xB7 Task via ${resolveTierIcon(targetSlot)} ${targetSlot} \xB7 ${deltaChip || "\u2192"}`;
+    const msg = `[vibeOS] Quick win: ${resolveTierIcon("cheap")} cheap lane open \xB7 switch to ${resolveTierIcon("medium")} medium to save about ~$${_estEdit.toFixed(3)}/turn.`;
     if (shouldLogWarn(`${t}|credit|${_tierWord}`) && process.env.VIBEOS_DEBUG_DELEGATION === "1") {
       console.error(`[vibeOS] [delegation] ${msg}`);
     }
@@ -14040,10 +14179,7 @@ ${argsJson}
             sessionId: getCurrentSessionId()
           });
         }
-        const targetModel = TRINITY_MEDIUM || TRINITY_CHEAP || currentModel;
-        const targetSlot = _delegationTargetSlot(targetModel);
-        const deltaChip = _routeDeltaChip(currentModel, targetModel);
-        pendingUiNote = `[delegation] ${resolveTierIcon("brain")} brain \xB7 Task via ${resolveTierIcon(targetSlot)} ${targetSlot} \xB7 ${deltaChip || "\u2192"}`;
+        pendingUiNote = `[delegation] This is a good candidate for a Task subagent \u2014 ${resolveTierIcon("brain")} brain handles orchestration, let cheaper tiers do the write/edit. Switch to ${resolveTierIcon("medium")} medium with \`trinity medium\` if you'd rather do it directly.`;
         enforcementBlocked = true;
         _mutateBlockedToolArgs(t, argSources, originalPath, output);
         if (shouldLogWarn(`${t}|enforced|${_tierWord}`))
@@ -14059,10 +14195,7 @@ ${argsJson}
         });
       }
       if (!compatibilityMode) {
-        const targetModel = TRINITY_MEDIUM || TRINITY_CHEAP || currentModel;
-        const targetSlot = _delegationTargetSlot(targetModel);
-        const deltaChip = _routeDeltaChip(currentModel, targetModel);
-        const msg = `[vibeOS] ${resolveTierIcon("cheap")} cheap lane \xB7 Task via ${resolveTierIcon(targetSlot)} ${targetSlot} \xB7 ${deltaChip || "\u2192"}`;
+        const msg = `[vibeOS] ${resolveTierIcon("cheap")} cheap lane \xB7 save about ~$${_estEdit.toFixed(3)} by delegating to Task. Try ${resolveTierIcon("medium")} medium.`;
         if (shouldLogWarn(`${t}|direct|${_tierWord}`) && process.env.VIBEOS_DEBUG_DELEGATION === "1") {
           console.error(`[vibeOS] [delegation] ${msg}`);
         }
@@ -14211,8 +14344,8 @@ var onToolExecuteAfter = async (input, output) => {
       if (_autoReportCount2 % 5 === 0 && ltTotal > 0) {
         saveReport({
           type: "session",
-          summary: `Session cost: $${formatUsd(ltCost)} | cache saved: $${formatUsd(ltCache)} | delegation saved: $${formatUsd(ltTasks)}${_taskRouteOverageUsd > 0 ? ` | delegation overage: $${formatUsd(_taskRouteOverageUsd)}` : ""}`,
-          metrics: { sessionId: _OC_SID, sessionCost: ltCost, cacheSavings: ltCache, delegationSavingsUsd: ltTasks, delegationOverageUsd: _taskRouteOverageUsd, model: resolvedModel || currentModel, slot: selNow.active_slot || "unknown" },
+          summary: `Session cost: $${formatUsd(ltCost)} | cache saved: $${formatUsd(ltCache)} | delegation saved: $${formatUsd(ltTasks)}`,
+          metrics: { sessionId: _OC_SID, sessionCost: ltCost, cacheSavings: ltCache, delegationSavingsUsd: ltTasks, model: resolvedModel || currentModel, slot: selNow.active_slot || "unknown" },
           tags: ["auto", "cost"]
         });
       }
