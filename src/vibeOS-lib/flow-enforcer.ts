@@ -259,12 +259,11 @@ function recordFlowWarn(hit: RecordFlowWarnInput): void {
     }
     state.flow_warns ??= []
     const dedupKey = `${hit.id}|${hit.filePath}`
-    const recent = state.flow_warns.filter((w: any) => {
+    const anyExisting = state.flow_warns.some((w: any) => {
       const wKey = `${w.rule_id}|${w.filePath}`
-      const wTime = new Date(w.at || 0).getTime()
-      return wKey === dedupKey && (Date.now() - wTime) < 300000
+      return wKey === dedupKey
     })
-    if (recent.length === 0) {
+    if (!anyExisting) {
       state.flow_warns.push({
         at: new Date().toISOString(),
         sid: process.pid || "?",

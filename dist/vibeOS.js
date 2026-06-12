@@ -172,12 +172,11 @@ function recordFlowWarn(hit) {
     }
     state.flow_warns ??= [];
     const dedupKey = `${hit.id}|${hit.filePath}`;
-    const recent = state.flow_warns.filter((w) => {
+    const anyExisting = state.flow_warns.some((w) => {
       const wKey = `${w.rule_id}|${w.filePath}`;
-      const wTime = new Date(w.at || 0).getTime();
-      return wKey === dedupKey && Date.now() - wTime < 3e5;
+      return wKey === dedupKey;
     });
-    if (recent.length === 0) {
+    if (!anyExisting) {
       state.flow_warns.push({
         at: (/* @__PURE__ */ new Date()).toISOString(),
         sid: process.pid || "?",
@@ -5442,6 +5441,12 @@ function resolveExecutionIdentity(modelId, directory3 = "") {
     model: resolved || raw,
     model_label: shortModelName(resolved || raw)
   };
+}
+function resolveTrinityDisplayModel(directory3 = "", activeSlot = "", liveModel = "", currentModelId = "") {
+  const slot = String(activeSlot || "").trim();
+  const slotModel = slot === "brain" ? TRINITY_BRAIN || "" : slot === "medium" ? TRINITY_MEDIUM || "" : slot === "cheap" ? TRINITY_CHEAP || "" : "";
+  const raw = [slotModel, liveModel, currentModelId].map((value) => String(value || "").trim()).find(Boolean) || "";
+  return resolveDisplayModelId(raw, directory3) || raw;
 }
 function _providerOfModel(modelId, fallbackProvider = "") {
   const provider = getModelProvider(modelId);
@@ -11580,9 +11585,17 @@ async function trackBlackbox(messages) {
       stress: st || 0
     });
     const cv = await apiComputeControlVector(localState, void 0, modePreview.mode);
-    state.sessions[sid].control_history.push(buildControlHistoryEntry2(state.sessions[sid].control_history.length + 1, localState.sub_regime || "INIT", cv));
-    if (state.sessions[sid].control_history.length > 100) {
-      state.sessions[sid].control_history = state.sessions[sid].control_history.slice(-100);
+    const lastEntry = state.sessions[sid].control_history?.[state.sessions[sid].control_history.length - 1];
+    const cvFingerprint = JSON.stringify({ regime: localState.sub_regime, mode: cv?.enforcement_mode });
+    const isDuplicate = lastEntry && (lastEntry.fingerprint === cvFingerprint || lastEntry.regime === localState.sub_regime && lastEntry.enforcement === cv?.enforcement_mode);
+    if (!isDuplicate) {
+      const turnNum = (existingSession.turn_counter || 0) + 1;
+      const entry = buildControlHistoryEntry2(turnNum, localState.sub_regime || "INIT", cv);
+      entry.fingerprint = cvFingerprint;
+      state.sessions[sid].control_history.push(entry);
+      if (state.sessions[sid].control_history.length > 100) {
+        state.sessions[sid].control_history = state.sessions[sid].control_history.slice(-100);
+      }
     }
     state.sessions[sid] = {
       ...existingSession,
@@ -11604,7 +11617,7 @@ async function trackBlackbox(messages) {
       control_history: state.sessions[sid].control_history,
       optimization_mode: existingSession.optimization_mode || null,
       active_slot: existingSession.active_slot || null,
-      turn_counter: existingSession.turn_counter || 0
+      turn_counter: (existingSession.turn_counter || 0) + 1
     };
     saveBlackboxState(state);
     _latestBlackboxState3 = localState;
@@ -12285,13 +12298,13 @@ async function _appendFooter(input, output, directory3) {
     if (!liveModel) {
       liveModel = readConfig(directory3) || readConfig(join15(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || "";
     }
-    const displayModel = resolveDisplayModelId(liveModel || brainModel || currentModel || "", directory3) || liveModel || brainModel || currentModel;
+    const displayModel = resolveTrinityDisplayModel(directory3, slot, liveModel, currentModel) || brainModel || liveModel || currentModel;
     const resolvedModel = displayModel || liveModel || brainModel || currentModel || "";
     if (resolvedModel && resolvedModel !== currentModel) {
       setCurrentModel(resolvedModel);
       setCurrentTier(classify(resolvedModel));
     }
-    const execution = resolveExecutionIdentity(input?.args?.model || resolvedModel || "", directory3);
+    const execution = resolveExecutionIdentity(displayModel || resolvedModel || "", directory3);
     let modelTag = `[${shortModelName(displayModel)}]`;
     const _workerModel = slot === "brain" ? TRINITY_MEDIUM : null;
     const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0);
@@ -14321,10 +14334,13 @@ ${argsJson}
       const basename6 = originalPath.split("/").pop() || "blocked";
       const apiResult = await remoteCall("delegateCheck", [tLower, currentTier, currentModel, _prompt], () => ({
         blocked: true,
-        savings: _estEdit
+        savings: _estEdit,
+        _fallback: true
       }));
-      const isBlocked = apiResult?.blocked !== false;
       const savings = apiResult?.savings ?? _estEdit;
+      const MIN_MEANINGFUL_SAVINGS = 1e-3;
+      const isFallback = apiResult?._fallback === true;
+      const isBlocked = apiResult?.blocked !== false && (isFallback || savings >= MIN_MEANINGFUL_SAVINGS);
       if (isBlocked) {
         if (!lowCreditNudge) {
           const total = recordSaving(t, "delegation enforced", savings, {
@@ -14443,13 +14459,13 @@ var onToolExecuteAfter = async (input, output) => {
       if (!liveModel) {
         liveModel = readConfig(projectDirectory) || readConfig(join17(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || "";
       }
-      const displayModel = resolveDisplayModelId(liveModel || currentModel || "", projectDirectory) || liveModel || currentModel;
+      const displayModel = resolveTrinityDisplayModel(projectDirectory, selNow.active_slot || "", liveModel, currentModel) || liveModel || currentModel;
       const resolvedModel = displayModel || liveModel || currentModel || "";
       if (resolvedModel && resolvedModel !== currentModel) {
         setCurrentModel(resolvedModel);
         setCurrentTier(classify(resolvedModel));
       }
-      const execution = resolveExecutionIdentity(input?.args?.model || resolvedModel || "", projectDirectory);
+      const execution = resolveExecutionIdentity(displayModel || resolvedModel || "", projectDirectory);
       const currentSid = _OC_SID;
       const currentSubRegime2 = loadBlackboxState()?.sessions?.[currentSid]?.sub_regime || classifyTurnSimple2(latestUserIntent || "");
       const bbMode = resolveEnforcementMode();
@@ -14662,7 +14678,9 @@ ${pendingUiNote}`;
           continue;
         seen.add(fp2);
         const isTestPath = /(^|\/)(tests?|spec)\//i.test(fp2) || /\.(test|spec)\./i.test(fp2);
-        if (sel.tdd_enforce && !isTestPath) {
+        const intentClass2 = classifyTurnSimple2(latestUserIntent);
+        const isResearchSession2 = intentClass2 === "EXPLORING" || intentClass2 === "DIVERGENT";
+        if (sel.tdd_enforce && !isTestPath && !isResearchSession2) {
           const createdPath = enforceTestFile(fp2);
           if (createdPath) {
             const ext = createdPath.split(".").pop();
@@ -14694,7 +14712,9 @@ ${pendingUiNote}`;
     const sel = loadSelection();
     const explicitTestIntent = isUserAskingForTests(latestUserIntent);
     const isTestPath = /(^|\/)(tests?|spec)\//i.test(fp2) || /\.(test|spec)\./i.test(fp2);
-    if (sel.tdd_enforce && !isTestPath) {
+    const intentClass = classifyTurnSimple2(latestUserIntent);
+    const isResearchSession = intentClass === "EXPLORING" || intentClass === "DIVERGENT";
+    if (sel.tdd_enforce && !isTestPath && !isResearchSession) {
       const createdPath = enforceTestFile(fp2);
       if (createdPath) {
         const ext = createdPath.split(".").pop();
