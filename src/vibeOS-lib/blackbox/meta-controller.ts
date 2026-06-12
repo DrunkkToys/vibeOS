@@ -57,6 +57,58 @@ const REGIME_CONTROL = {
     context7_urgency: "preferred",
     wbp_verbosity: "normal",
   },
+  IMPLEMENTING: {
+    enforcement_mode: "strict",
+    enforcement_reason: "implementation work — validate code changes and keep tests on",
+    flow_mode: "strict",
+    flow_focus: ["write-edit-check", "no-untouched-files"],
+    tdd_mode: "strict",
+    tdd_focus: ["skeleton-on-write", "assertion-check"],
+    tier_bias: "brain",
+    thinking_mode: "brief",
+    stress_multiplier: 1.3,
+    context7_urgency: "required",
+    wbp_verbosity: "normal",
+  },
+  RESEARCH: {
+    enforcement_mode: "normal",
+    enforcement_reason: "research mode — collect evidence before changing anything",
+    flow_mode: "audit",
+    flow_focus: ["trace-audit"],
+    tdd_mode: "lazy",
+    tdd_focus: [],
+    tier_bias: "brain",
+    thinking_mode: "full",
+    stress_multiplier: 1.2,
+    context7_urgency: "required",
+    wbp_verbosity: "detailed",
+  },
+  REVIEWING: {
+    enforcement_mode: "strict",
+    enforcement_reason: "review mode — validate diffs and surface risks",
+    flow_mode: "strict",
+    flow_focus: ["write-edit-check", "no-untouched-files", "no-lgtm"],
+    tdd_mode: "quality",
+    tdd_focus: ["full-coverage", "edge-cases"],
+    tier_bias: "brain",
+    thinking_mode: "brief",
+    stress_multiplier: 1.1,
+    context7_urgency: "required",
+    wbp_verbosity: "normal",
+  },
+  DESIGNING: {
+    enforcement_mode: "normal",
+    enforcement_reason: "design mode — explore architecture and tradeoffs",
+    flow_mode: "audit",
+    flow_focus: ["trace-audit"],
+    tdd_mode: "normal",
+    tdd_focus: [],
+    tier_bias: "brain",
+    thinking_mode: "full",
+    stress_multiplier: 1.1,
+    context7_urgency: "required",
+    wbp_verbosity: "detailed",
+  },
   CONVERGING: {
     enforcement_mode: "strict",
     enforcement_reason: "user about to commit — full enforcement, catch violations",
@@ -283,6 +335,9 @@ export function autoSelectMode(subRegime, stressMultiplier) {
   if (regime === "AUDIT" || regime === "FORENSIC") return regime.toLowerCase()
   if (regime === "LOOPING") return "speed"
   if (regime === "CONVERGING" || regime === "CLOSED") return "quality"
+  if (regime === "IMPLEMENTING") return "quality"
+  if (regime === "RESEARCH" || regime === "DESIGNING") return "longrun"
+  if (regime === "REVIEWING") return "audit"
   if (stressMultiplier && stressMultiplier > QUALITY_STRESS_THRESHOLD) return "quality"
   return "litex"
 }

@@ -21,6 +21,10 @@ const REGIME_TAG: Record<string, string> = {
   DIVERGENT: "DVRG",
   EXPLORING: "XPLR",
   REFINING: "RFNE",
+  IMPLEMENTING: "IMPL",
+  RESEARCH: "RSCH",
+  REVIEWING: "RVW",
+  DESIGNING: "DSGN",
   CONVERGING: "CVGE",
   CLOSED: "CLSD",
   LOOPING: "LOOP",
@@ -51,6 +55,20 @@ export function resolveBrand(optMode: string, activeSlot: string): string {
 
 export function resolveTierIcon(slot: string): string {
   return TIER_ICON[slot] || "\u26A1"
+}
+
+export function formatModeLabel(optMode: string): string {
+  const normalized = String(optMode || "").toLowerCase()
+  if (!normalized) return ""
+  if (normalized === "vibemax" || normalized === "vibelitex" || normalized === "budget") return "Budget"
+  if (normalized === "vibeqmax" || normalized === "quality") return "Quality"
+  if (normalized === "vibeultrax") return "VibeUltraX"
+  if (normalized === "speed") return "Speed"
+  if (normalized === "longrun") return "Longrun"
+  if (normalized === "audit") return "Audit"
+  if (normalized === "forensic") return "Forensic"
+  if (normalized === "balanced") return "Balanced"
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1)
 }
 
 export function formatVectorPulse(vectorChangedSlot?: string): string {
@@ -113,6 +131,7 @@ export function buildFooterLine(input: FooterLineInput): string {
 
   const tierIcon = resolveTierIcon(activeSlot)
   const regimeTag = subRegime ? REGIME_TAG[subRegime] || subRegime.slice(0, 4) : null
+  const modeLabel = formatModeLabel(optMode)
   let line = `\u2014 ${tierIcon} ${activeSlot} | ${providerLabel} | ${modelName}${regimeTag ? ` \u25B6 ${regimeTag}` : ""}`
 
   if (ltTotal > 0) {
@@ -123,7 +142,7 @@ export function buildFooterLine(input: FooterLineInput): string {
   line += ` | ${vibeBrand}${flashIcon}`
 
   if (optMode && optMode !== "auto") {
-    line += ` ${optMode}`
+    line += ` ${modeLabel}`
   }
 
   if (vectorChangedSlot && vectorChangedSlot !== activeSlot) {

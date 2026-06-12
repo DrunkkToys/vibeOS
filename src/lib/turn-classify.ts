@@ -39,6 +39,9 @@ function autoSelectMode(subRegime: string, stressMultiplier?: number): Optimizat
   if (regime === "AUDIT" || regime === "FORENSIC") return regime.toLowerCase() as OptimizationMode
   if (regime === "LOOPING") return "speed"
   if (regime === "CONVERGING" || regime === "CLOSED") return "quality"
+  if (regime === "IMPLEMENTING") return "quality"
+  if (regime === "RESEARCH" || regime === "DESIGNING") return "longrun"
+  if (regime === "REVIEWING") return "audit"
   if (stress > QUALITY_STRESS_THRESHOLD) return "quality"
   return "vibelitex"
 }
