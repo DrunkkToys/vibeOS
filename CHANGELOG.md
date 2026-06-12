@@ -1,3 +1,9 @@
+## 0.24.31
+- fix: make footer state truthful
+- fix: quiet greetings should not inherit stale tdd tags
+- test: add live regression for stale config footer mismatch
+
+
 ## 0.24.25
 - fix: heal stale vibelitex recovery across cascade
 

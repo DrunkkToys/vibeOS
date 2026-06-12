@@ -637,6 +637,37 @@ function thinkingDirective(level: string): string {
   return `[thinking policy] Reasoning depth: OFF (manually set, ${creditNote}). Respond directly, avoid extra scratch work, and reserve extended thinking for when the user asks for it.`
 }
 
+export function regimeAwareToolStyleDirective(regime: string, mode: string, stress: number): string {
+  const normalizedRegime = String(regime || "INIT").toUpperCase()
+  const normalizedMode = String(mode || "budget").toLowerCase()
+  const stressLabel = stress > 1.5 ? "high stress"
+    : stress > 0.4 ? "elevated stress"
+      : "calm"
+
+  const regimeToneByName: Record<string, string> = {
+    INIT: "The session is starting, so keep descriptions lightweight, status-oriented, and easy to scan.",
+    DIVERGENT: "The session is branching, so keep descriptions exploratory and open to alternatives without sounding vague.",
+    EXPLORING: "The session is investigating, so keep descriptions discovery-oriented, specific, and lightweight.",
+    REFINING: "The session is polishing implementation, so keep descriptions action-oriented, concrete, and tied to the next visible code step.",
+    IMPLEMENTING: "The session is executing implementation work, so keep descriptions exact, build-focused, and next-step driven.",
+    RESEARCH: "The session is researching, so keep descriptions evidence-seeking, careful, and explicit about what was checked.",
+    REVIEWING: "The session is reviewing, so keep descriptions audit-style, traceable, and focused on proof.",
+    DESIGNING: "The session is designing, so keep descriptions structured, intent-driven, and aligned to the target shape.",
+    CONVERGING: "The session is converging, so keep descriptions closure-oriented, exact, and ready for final verification.",
+    CLOSED: "The session is closing, so keep descriptions final, concise, and clearly outcome-focused.",
+    LOOPING: "The session is looping, so keep descriptions verification-first, state-aware, and loop-breaking.",
+    AUDIT: "The session is auditing, so keep descriptions evidence-first, compliance-aware, and traceable.",
+    FORENSIC: "The session is doing forensic work, so keep descriptions investigative, reproducible, and proof-heavy.",
+  }
+  const regimeTone = regimeToneByName[normalizedRegime] || "The session should stay aligned to the active regime and avoid generic filler."
+
+  return `[tool style: dopamine] Active regime: ${normalizedRegime}; mode: ${normalizedMode}; stress: ${stressLabel}. ` +
+    `When calling the bash tool, use a short, calm, progress-focused description that matches the current regime. ` +
+    `${regimeTone} ` +
+    `Name the user-visible milestone being advanced, keep the wording human, and avoid hype or raw technical labels. ` +
+    `Combine independent bash commands into a single call with && or ;.`
+}
+
 function orchestratorDirective(cv: any, sel: any): string {
   const tierBias = cv?.tier_bias || "auto"
   let brainModel = "(brain)"
@@ -970,10 +1001,7 @@ export const onSystemTransform = async (_input, output) => {
     }
 
     if (!oneShot("vibeos_dopamine_style_" + fp)) {
-      pushSystem(output,
-        "[tool style: dopamine] When calling the bash tool, use a short, calm, progress-focused description " +
-        "that names the user-visible milestone being advanced. Combine independent bash commands into a single " +
-        "call with && or ;. Keep the wording human and avoid hype or raw technical labels.")
+      pushSystem(output, regimeAwareToolStyleDirective(currentSubRegime, displayMode, stressScore))
     }
 
   } catch (err) {

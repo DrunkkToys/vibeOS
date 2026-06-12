@@ -41,6 +41,11 @@ function modeCapitalized(mode: string): string {
   if (!mode) return "Budget"
   return mode.charAt(0).toUpperCase() + mode.slice(1)
 }
+
+function isGreetingLike(text: string): boolean {
+  const value = String(text || "").trim().toLowerCase()
+  return value === "hi" || value === "hello" || value === "hey" || value === "yo" || /^hi[!.?\s]*$/.test(value) || /^hello[!.?\s]*$/.test(value) || /^hey[!.?\s]*$/.test(value)
+}
 import {
   scoreStress, extractFirstWordFromArgs, shouldLogWarn, classifyTurnSimple, autoSelectMode,
   isUserAskingForTests, isLikelyOffTopic, resolveEnforcementMode,
@@ -737,6 +742,7 @@ export const onToolExecuteAfter = async (input, output) => {
         tddEnforce: selNow.tdd_enforce,
         bbMode,
         modelLocked: _modelLocked,
+        quietIntent: isGreetingLike(latestUserIntent || ""),
       })
       const activeSlot = selNow.active_slot || (execution.quality === "brain" ? "brain" : execution.quality === "medium" ? "medium" : "cheap")
       const displayMode = autoSelectMode(currentSubRegime, latestUserIntent ? scoreStress(latestUserIntent) : 0)

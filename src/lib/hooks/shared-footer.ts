@@ -32,6 +32,22 @@ const REGIME_TAG: Record<string, string> = {
   FORENSIC: "FRNC",
 }
 
+const REGIME_ICON: Record<string, string> = {
+  INIT: "◌",
+  DIVERGENT: "⇄",
+  EXPLORING: "⌕",
+  REFINING: "✎",
+  IMPLEMENTING: "⚙",
+  RESEARCH: "⌁",
+  REVIEWING: "✓",
+  DESIGNING: "◫",
+  CONVERGING: "⟲",
+  CLOSED: "◆",
+  LOOPING: "↻",
+  AUDIT: "☑",
+  FORENSIC: "⟁",
+}
+
 const BRAND_MAP: Record<string, string> = {
   vibeultrax: "VibeUltraX",
   vibeqmax: "VibeQMaX",
@@ -55,6 +71,10 @@ export function resolveBrand(optMode: string, activeSlot: string): string {
 
 export function resolveTierIcon(slot: string): string {
   return TIER_ICON[slot] || "\u26A1"
+}
+
+export function resolveRegimeIcon(subRegime: string): string {
+  return REGIME_ICON[String(subRegime || "").toUpperCase()] || "◦"
 }
 
 export function formatModeLabel(optMode: string): string {
@@ -112,9 +132,10 @@ export function buildEnforcementTags(opts: {
   tddEnforce: boolean
   bbMode: string
   modelLocked: boolean
+  quietIntent?: boolean
 }): string[] {
   const tags: string[] = []
-  if (opts.bbMode === "relaxed") {
+  if (opts.quietIntent || opts.bbMode === "relaxed") {
     tags.push("[Q&A]")
   } else {
     if (opts.delegationEnforce) tags.push("[ENF ON]")
@@ -131,8 +152,9 @@ export function buildFooterLine(input: FooterLineInput): string {
 
   const tierIcon = resolveTierIcon(activeSlot)
   const regimeTag = subRegime ? REGIME_TAG[subRegime] || subRegime.slice(0, 4) : null
+  const regimeIcon = subRegime ? resolveRegimeIcon(subRegime) : null
   const modeLabel = formatModeLabel(optMode)
-  let line = `\u2014 ${tierIcon} ${activeSlot} | ${providerLabel} | ${modelName}${regimeTag ? ` \u25B6 ${regimeTag}` : ""}`
+  let line = `\u2014 ${tierIcon} ${activeSlot} | ${providerLabel} | ${modelName}${regimeTag ? ` \u25B6 ${regimeIcon} ${regimeTag}` : ""}`
 
   if (ltTotal > 0) {
     const savingsPulse = formatSavingsPulse(ltTotal, ltTrend)

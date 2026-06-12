@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { buildEnforcementTags, buildFooterLine, formatEnforcementPulse, formatModeLabel, formatSavingsPulse, formatVectorPulse, resolveBrand, resolveTierIcon, trendGlyph } from "../shared-footer.js"
+import { buildEnforcementTags, buildFooterLine, formatEnforcementPulse, formatModeLabel, formatSavingsPulse, formatVectorPulse, resolveBrand, resolveRegimeIcon, resolveTierIcon, trendGlyph } from "../shared-footer.js"
 
 test("shared-footer resolves the expected brand names", () => {
   assert.equal(resolveBrand("vibemax", "brain"), "VibeMaX")
@@ -13,6 +13,26 @@ test("shared-footer keeps tier icons compact and stable", () => {
   assert.equal(resolveTierIcon("medium"), "◐")
   assert.equal(resolveTierIcon("cheap"), "⚡")
   assert.equal(resolveTierIcon("free"), "🎁")
+})
+
+test("shared-footer assigns a unique icon to each regime", () => {
+  const icons = {
+    INIT: resolveRegimeIcon("INIT"),
+    DIVERGENT: resolveRegimeIcon("DIVERGENT"),
+    EXPLORING: resolveRegimeIcon("EXPLORING"),
+    REFINING: resolveRegimeIcon("REFINING"),
+    IMPLEMENTING: resolveRegimeIcon("IMPLEMENTING"),
+    RESEARCH: resolveRegimeIcon("RESEARCH"),
+    REVIEWING: resolveRegimeIcon("REVIEWING"),
+    DESIGNING: resolveRegimeIcon("DESIGNING"),
+    CONVERGING: resolveRegimeIcon("CONVERGING"),
+    CLOSED: resolveRegimeIcon("CLOSED"),
+    LOOPING: resolveRegimeIcon("LOOPING"),
+    AUDIT: resolveRegimeIcon("AUDIT"),
+    FORENSIC: resolveRegimeIcon("FORENSIC"),
+  }
+  const values = Object.values(icons)
+  assert.equal(new Set(values).size, values.length, "regime icons should be unique")
 })
 
 test("shared-footer formats a compact vector pulse", () => {
@@ -41,6 +61,17 @@ test("shared-footer builds short enforcement tags", () => {
     bbMode: "strict",
     modelLocked: true,
   }), ["[ENF ON]", "[FLOW ON]", "[TDD ON]", "[STRICT]", "[LOCK ON]"])
+})
+
+test("shared-footer quiets greetings without carrying tdd tags", () => {
+  assert.deepEqual(buildEnforcementTags({
+    delegationEnforce: true,
+    flowEnforce: true,
+    tddEnforce: true,
+    bbMode: "normal",
+    modelLocked: true,
+    quietIntent: true,
+  }), ["[Q&A]", "[LOCK ON]"])
 })
 
 test("shared-footer keeps the footer compact while showing savings and slot state", () => {
@@ -78,7 +109,7 @@ test("shared-footer renders experimental regime tags cleanly", () => {
     subRegime: "IMPLEMENTING",
   })
 
-  assert.ok(line.includes("IMPL"))
+  assert.ok(line.includes("▶ ⚙ IMPL"))
 })
 
 test("shared-footer softens enforcement tags into a compact pulse", () => {

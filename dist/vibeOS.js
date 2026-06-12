@@ -11272,6 +11272,30 @@ function thinkingDirective(level) {
   }
   return `[thinking policy] Reasoning depth: OFF (manually set, ${creditNote}). Respond directly, avoid extra scratch work, and reserve extended thinking for when the user asks for it.`;
 }
+function regimeAwareToolStyleDirective(regime, mode, stress) {
+  const normalizedRegime = String(regime || "INIT").toUpperCase();
+  const normalizedMode = String(mode || "budget").toLowerCase();
+  const stressLabel = stress > 1.5 ? "high stress" : stress > 0.4 ? "elevated stress" : "calm";
+  const regimeTone = (() => {
+    if (normalizedRegime === "LOOPING") {
+      return "The session is looping, so keep descriptions verification-first, state-aware, and loop-breaking.";
+    }
+    if (normalizedRegime === "CONVERGING" || normalizedRegime === "CLOSED") {
+      return "The session is converging, so keep descriptions closure-oriented, exact, and ready for final verification.";
+    }
+    if (normalizedRegime === "REFINING" || normalizedRegime === "IMPLEMENTING") {
+      return "The session is building, so keep descriptions action-oriented, concrete, and tied to the next visible code step.";
+    }
+    if (normalizedRegime === "REVIEWING" || normalizedRegime === "AUDIT" || normalizedRegime === "FORENSIC") {
+      return "The session is reviewing evidence, so keep descriptions investigative, traceable, and focused on proof.";
+    }
+    if (normalizedRegime === "RESEARCH" || normalizedRegime === "DESIGNING" || normalizedRegime === "EXPLORING" || normalizedRegime === "DIVERGENT" || normalizedRegime === "INIT") {
+      return "The session is exploring, so keep descriptions discovery-oriented, specific, and lightweight.";
+    }
+    return "The session should stay aligned to the active regime and avoid generic filler.";
+  })();
+  return `[tool style: dopamine] Active regime: ${normalizedRegime}; mode: ${normalizedMode}; stress: ${stressLabel}. When calling the bash tool, use a short, calm, progress-focused description that matches the current regime. ${regimeTone} Name the user-visible milestone being advanced, keep the wording human, and avoid hype or raw technical labels. Combine independent bash commands into a single call with && or ;.`;
+}
 function flowTodosDirective() {
   const pendingTodos = loadTodos().filter((t) => t.status === "pending").length;
   if (pendingTodos === 0)
@@ -11529,7 +11553,7 @@ var onSystemTransform = async (_input, output) => {
       pushSystem(output, "[vibeOS dashboard display] When the trinity tool returns output starting with '[vibeOS-dashboard]', use the question tool to display that data in a clean, human-readable format. Use the question field (not the header) to show the dashboard data. Format it with clear sections separated by blank lines, aligned columns with spaces, and plain text only. The header should be 'vibeOS Dashboard'. Include only one option in options: {label: 'Dismiss', description: ''}. Strip the '[vibeOS-dashboard]' marker line before displaying.");
     }
     if (!oneShot("vibeos_dopamine_style_" + fp2)) {
-      pushSystem(output, "[tool style: dopamine] When calling the bash tool, use a short, calm, progress-focused description that names the user-visible milestone being advanced. Combine independent bash commands into a single call with && or ;. Keep the wording human and avoid hype or raw technical labels.");
+      pushSystem(output, regimeAwareToolStyleDirective(currentSubRegime, displayMode, stressScore));
     }
   } catch (err) {
     console.error(`[vibeOS] system.transform failed: ${err.message}`);
@@ -11633,7 +11657,7 @@ function formatSavingsPulse(amountUsd, trend) {
 }
 function buildEnforcementTags(opts) {
   const tags = [];
-  if (opts.bbMode === "relaxed") {
+  if (opts.quietIntent || opts.bbMode === "relaxed") {
     tags.push("[Q&A]");
   } else {
     if (opts.delegationEnforce)
@@ -11702,6 +11726,10 @@ function loadSelection3() {
   } catch {
     return { active_slot: "medium", enabled: true, delegation_enforce: true, flow_enabled: true, flow_enforce: true, tdd_enforce: false, tdd_strict: false };
   }
+}
+function isGreetingLike(text) {
+  const value = String(text || "").trim().toLowerCase();
+  return value === "hi" || value === "hello" || value === "hey" || value === "yo" || /^hi[!.?\s]*$/.test(value) || /^hello[!.?\s]*$/.test(value) || /^hey[!.?\s]*$/.test(value);
 }
 function readLifetimeSavings2() {
   try {
@@ -11901,14 +11929,15 @@ async function _appendFooter(input, output, directory3) {
     }
     const selNowFooter = loadSelection3();
     const normalizedIntent = classifyTurnSimple2(latestUserIntent || "");
-    const currentSubRegime = _latestBlackboxState?.sub_regime || normalizedIntent;
+    const currentSubRegime2 = _latestBlackboxState?.sub_regime || normalizedIntent;
     const bbMode = resolveEnforcementMode();
     const enfTags = buildEnforcementTags({
       delegationEnforce: selNowFooter.delegation_enforce,
       flowEnforce: selNowFooter.flow_enforce,
       tddEnforce: selNowFooter.tdd_enforce,
       bbMode,
-      modelLocked: _modelLocked
+      modelLocked: _modelLocked,
+      quietIntent: isGreetingLike(latestUserIntent || "")
     });
     const stripped = text.replace(/\u2014 [^\u2014]+ \u2014\s*/g, "").trimEnd();
     if (stripped !== text)
@@ -11918,8 +11947,8 @@ async function _appendFooter(input, output, directory3) {
     const ltTotal = ltTasks + ltCache;
     const activeSlot = selNowFooter.active_slot || "brain";
     const flashIcon = isApiConnected2() ? " \u26A1" : "";
-    const displayMode = autoSelectMode2(currentSubRegime, _footerStress);
-    const vibeBrand = resolveBrand(loadOptimizationMode() || displayMode, activeSlot);
+    const displayMode2 = autoSelectMode2(currentSubRegime2, _footerStress);
+    const vibeBrand = resolveBrand(loadOptimizationMode() || displayMode2, activeSlot);
     const vibeLine = buildFooterLine({
       activeSlot,
       providerLabel: execution.provider_label,
@@ -11927,12 +11956,12 @@ async function _appendFooter(input, output, directory3) {
       ltTotal,
       ltTrend: sesTrend,
       vibeBrand,
-      optMode: displayMode,
+      optMode: displayMode2,
       flashIcon,
       enfTags,
       sessionSlot,
       vectorChangedSlot: selNowFooter?.vector_changed_slot,
-      subRegime: currentSubRegime
+      subRegime: currentSubRegime2
     });
     const footerText = stripped + `
 
@@ -13376,6 +13405,10 @@ function buildTestReminder(filePath) {
 }
 
 // src/lib/hooks/tool-execute.js
+function isGreetingLike2(text) {
+  const value = String(text || "").trim().toLowerCase();
+  return value === "hi" || value === "hello" || value === "hey" || value === "yo" || /^hi[!.?\s]*$/.test(value) || /^hello[!.?\s]*$/.test(value) || /^hey[!.?\s]*$/.test(value);
+}
 var BYTES_PER_TOKEN2 = 4;
 var DEBUG_INTERNALS2 = process.env.VIBEOS_DEBUG_INTERNALS === "1";
 var IS_CLI_RUNTIME2 = Boolean(process.stdout?.isTTY || process.stderr?.isTTY || process.stdin?.isTTY);
@@ -14016,18 +14049,19 @@ var onToolExecuteAfter = async (input, output) => {
       }
       const execution = resolveExecutionIdentity(input?.args?.model || resolvedModel || "", projectDirectory);
       const currentSid = _OC_SID;
-      const currentSubRegime = loadBlackboxState()?.sessions?.[currentSid]?.sub_regime || classifyTurnSimple2(latestUserIntent || "");
+      const currentSubRegime2 = loadBlackboxState()?.sessions?.[currentSid]?.sub_regime || classifyTurnSimple2(latestUserIntent || "");
       const bbMode = resolveEnforcementMode();
       const enfTags = buildEnforcementTags({
         delegationEnforce: selNow.delegation_enforce,
         flowEnforce: selNow.flow_enforce,
         tddEnforce: selNow.tdd_enforce,
         bbMode,
-        modelLocked: _modelLocked
+        modelLocked: _modelLocked,
+        quietIntent: isGreetingLike2(latestUserIntent || "")
       });
       const activeSlot = selNow.active_slot || (execution.quality === "brain" ? "brain" : execution.quality === "medium" ? "medium" : "cheap");
-      const displayMode = autoSelectMode2(currentSubRegime, latestUserIntent ? scoreStress(latestUserIntent) : 0);
-      const vibeBrand = resolveBrand(displayMode, activeSlot);
+      const displayMode2 = autoSelectMode2(currentSubRegime2, latestUserIntent ? scoreStress(latestUserIntent) : 0);
+      const vibeBrand = resolveBrand(displayMode2, activeSlot);
       const sessionSlot = loadSessionSlot(currentSid);
       const flashIcon = isApiConnected2() ? " \u26A1" : "";
       _footerText = buildFooterLine({
@@ -14037,12 +14071,12 @@ var onToolExecuteAfter = async (input, output) => {
         ltTotal,
         ltTrend: sesTrend || "",
         vibeBrand,
-        optMode: displayMode,
+        optMode: displayMode2,
         flashIcon,
         enfTags,
         sessionSlot,
         vectorChangedSlot: selNow.vector_changed_slot,
-        subRegime: currentSubRegime
+        subRegime: currentSubRegime2
       }) + "\n\n";
       const footerTarget = _payload(output);
       output.title = _footerText.trim();
