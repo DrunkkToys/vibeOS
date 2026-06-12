@@ -38,5 +38,5 @@
       }
     }
   },
-  "model": "deepseek/deepseek-chat"
+  "model": "deepseek/deepseek-v4-flash"
 }
