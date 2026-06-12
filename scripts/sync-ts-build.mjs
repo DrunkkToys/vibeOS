@@ -5,8 +5,9 @@ import { join } from "node:path"
 const libModules = [
   "api-client", "pricing", "state", "turn-classify", "tdd-enforcer",
   "index-helpers", "research-audit", "reporting", "credit-api", "selection-manager",
-  "runtime-surface", "classifiers",
-  "mode-policy", "mode-router", "trinity-rebuild", "trinity-tool", "runtime-state",
+  "runtime-surface", "classifiers", "test-skeletons", "templates", "text-compress",
+  "mode-policy", "mode-router", "pattern-helpers", "trinity-rebuild", "trinity-tool", "runtime-state",
+  "constants",
 ]
 
 const hookModules = [
@@ -23,6 +24,7 @@ const cleanupPaths = [
   join("src", "utils", "cost-formatter.js"),
   join("src", "utils", "timer.js"),
   join("src", "utils", "math.js"),
+  join("src", "utils", "tdd-helpers.js"),
   join("src", "utils", "fs-helpers.js"),
   join("src", "vibeOS-lib", "ml-router.js"),
   join("src", "vibeOS-lib", "smart-cache.js"),

@@ -310,6 +310,10 @@ export function recordSaving(tool, reason, saveEst, meta = {}) {
           const w = ses.warns[i]
           if (w?.key === warnKey && (now - w.ts) < WARN_DEDUPE_WINDOW_MS) {
             w.count = (w.count || 1) + 1
+            w.est_savings_usd = roundUsd(Number(w.est_savings_usd || 0) + saveEst)
+            w.saveEst = roundUsd(Number(w.saveEst || 0) + saveEst)
+            ses.total_savings_usd = roundUsd(Number(ses.total_savings_usd || 0) + saveEst)
+            s.lifetime.total_savings_usd = roundUsd(Number(s.lifetime.total_savings_usd || 0) + saveEst)
             deduped = true
           }
         }

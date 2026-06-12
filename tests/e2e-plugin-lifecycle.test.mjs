@@ -4,7 +4,6 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, unlinkSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { closeMcpServer } from "../src/index.js";
 
 const sandbox = mkdtempSync(join(tmpdir(), "e2e-lifecycle-"));
 const VIBEOS_HOME = join(sandbox, ".claude");
@@ -18,8 +17,9 @@ before(() => {
   mkdirSync(VIBEOS_HOME, { recursive: true });
   mkdirSync(OPENCODE_CONFIG, { recursive: true });
   mkdirSync(join(VIBEOS_HOME, "reports"), { recursive: true });
-  const origHome = process.env.HOME;
   process.env.HOME = sandbox;
+  process.env.VIBEOS_HOME = VIBEOS_HOME;
+  process.env.VIBEOS_OPENCODE_HOME = OPENCODE_CONFIG;
   writeFileSync(join(OPENCODE_CONFIG, "opencode.json"), JSON.stringify({
     $schema: "https://opencode.ai/config.json",
     instructions: ["~/.config/opencode/AGENTS.md"],
@@ -52,7 +52,7 @@ before(() => {
 });
 
 after(async () => {
-  try { await closeMcpServer(); } catch {}
+  try { await mod?.closeMcpServer?.(); } catch {}
 });
 
 function freshMod() {
@@ -60,10 +60,10 @@ function freshMod() {
   return import("../src/index.js?t=" + ts);
 }
 
-describe("E2E: Full Plugin Lifecycle", { concurrency: false }, () => {
-  let mod;
-  let hooks;
+let mod;
+let hooks;
 
+describe("E2E: Full Plugin Lifecycle", { concurrency: false }, () => {
   before(async () => {
     mod = await freshMod();
     hooks = await mod.DelegationEnforcer({ client: {}, directory: sandbox });
