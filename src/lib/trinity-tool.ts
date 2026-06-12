@@ -166,6 +166,7 @@ export function createTrinityTool(deps) {
           `Model: ${activeSlot} (${tiers?.[activeSlot]?.oc || deps.currentModel || "(unset)"})`,
           `Provider: ${execution.provider_label}`,
           `Quality: ${execution.quality_label}`,
+          ...(sel.requested_optimization_mode ? [`Requested mode: ${sel.requested_optimization_mode}`] : []),
           ...(totalTurns > 0 ? [`Split: brain ${brainPct}% / worker ${workerPct}% (${totalTurns} total)`] : []),
           `Thinking: ${effectiveLevel}`,
           `Credit: ${credit}%`,
@@ -279,12 +280,14 @@ export function createTrinityTool(deps) {
         if (!slot) return `Provide mode: ${builtInIds.join(" | ")} | auto | ${brandedIds.join(" | ")}`
         const modeAlias = { vibemax: "vibemax", vibeqmax: "quality" }
         const resolvedSlot = modeAlias[slot] || slot
+        const requestedMode = slot === resolvedSlot ? null : slot
         if (!allModeIds.includes(resolvedSlot)) {
           return `Provide mode: ${builtInIds.join(" | ")} | auto | ${brandedIds.join(" | ")}`
         }
         const ok = deps.saveOptimizationMode(resolvedSlot)
         if (!ok) return `Failed to write mode`
         deps.writeSessionOptMode(deps._OC_SID + "_opt", resolvedSlot)
+        deps.writeSelection("requested_optimization_mode", requestedMode)
 
         const allEntries = [...BRANDED_MODES, ...RUNTIME_MODES]
         const modeEntry = allEntries.find(e => e.id === slot)
