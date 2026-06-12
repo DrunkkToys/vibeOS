@@ -3395,6 +3395,15 @@ var _latestBlackboxPivotMsg = null;
 var _modelLocked = false;
 var _lockedSlot = null;
 var _lockedModel = null;
+function setModelLocked(val) {
+  _modelLocked = !!val;
+}
+function setLockedSlot(val) {
+  _lockedSlot = val ? String(val) : null;
+}
+function setLockedModel(val) {
+  _lockedModel = val ? String(val) : null;
+}
 var _patternFiredKeys = /* @__PURE__ */ new Set();
 var _sessionCleanupRegistered = false;
 var _sessionCacheCleaned = false;
@@ -6136,7 +6145,7 @@ function _refreshModel(directory3) {
           console.error(`[vibeOS] auto-detected model: ${currentModel} (tier=${currentTier})`);
       }
     }
-    if (!_modelLocked) {
+    if (!(_modelLocked || sel.slot_locked === true)) {
       const activeIsManual = tiersData?.trinity?.[activeSlot]?.manual === true;
       const cfgModel = activeIsManual ? "" : readConfig(directory3) || readConfig(getOpenCodeHome()) || "";
       if (cfgModel && cfgModel.includes("/") && cfgModel !== currentModel) {
@@ -14558,6 +14567,27 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
   } else {
     console.error("[vibeOS] NO MODEL \u2014 enforcement disabled, will auto-detect on first hook");
   }
+  try {
+    const startupSelection = loadSelection();
+    if (startupSelection?.slot_locked === true) {
+      const lockedSlot = ["brain", "medium", "cheap"].includes(String(startupSelection.active_slot || "").trim()) ? String(startupSelection.active_slot) : "brain";
+      let lockedModel = currentModel || null;
+      try {
+        const tiers = safeJsonParse3(readFileSync17(getTiersFile(), "utf-8"));
+        lockedModel = tiers?.trinity?.[lockedSlot]?.oc || lockedModel || null;
+      } catch {
+      }
+      setModelLocked(true);
+      setLockedSlot(lockedSlot);
+      setLockedModel(lockedModel);
+      console.error(`[vibeOS] startup lock restored \u2192 ${lockedSlot}${lockedModel ? ` (${lockedModel})` : ""}`);
+    } else {
+      setModelLocked(false);
+      setLockedSlot(null);
+      setLockedModel(null);
+    }
+  } catch {
+  }
   console.error(`[vibeOS] auto-config guard: currentModel=${currentModel ? "SET" : "NONE"}, TIERS_FILE=${getTiersFile()}, exists=${existsSync18(getTiersFile())}`);
   try {
     if (!existsSync18(getTiersFile())) {
@@ -14648,7 +14678,6 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     _loadOpenCodeProviders,
     _modelCost: _modelCost2,
     _modelTier: _modelTier2,
-    _modelLocked,
     _latestBlackboxState,
     currentModel,
     currentTier,
@@ -14747,6 +14776,24 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     },
     set _blackboxEnabled(v) {
       setBlackboxEnabled(v);
+    },
+    get _modelLocked() {
+      return _modelLocked;
+    },
+    set _modelLocked(v) {
+      setModelLocked(v);
+    },
+    get _lockedSlot() {
+      return _lockedSlot;
+    },
+    set _lockedSlot(v) {
+      setLockedSlot(v);
+    },
+    get _lockedModel() {
+      return _lockedModel;
+    },
+    set _lockedModel(v) {
+      setLockedModel(v);
     }
   };
   const pluginHooks = {
