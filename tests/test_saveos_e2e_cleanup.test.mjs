@@ -503,6 +503,89 @@ test("saveOS MCP: live endpoints persist blackbox vectors and return structured 
   assert.equal(result.trinity_status_has_dashboard, true)
 })
 
+test("saveOS MCP: startup watchdog recovers when the port is briefly blocked", async () => {
+  const script = `
+    import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+    import { join } from "node:path";
+    import { tmpdir } from "node:os";
+    import http from "node:http";
+    const sandbox = mkdtempSync(join(tmpdir(), "saveos-watchdog-"));
+    const home = sandbox;
+    const vibeHome = join(home, ".claude");
+    const opencodeHome = join(home, ".config/opencode");
+    const projectDir = join(sandbox, "project");
+    mkdirSync(vibeHome, { recursive: true });
+    mkdirSync(join(vibeHome, "reports"), { recursive: true });
+    mkdirSync(join(vibeHome, "scratch"), { recursive: true });
+    mkdirSync(opencodeHome, { recursive: true });
+    mkdirSync(projectDir, { recursive: true });
+    writeFileSync(join(opencodeHome, "opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-flash", provider: { deepseek: { models: { "deepseek-v4-flash": {}, "deepseek-chat": {} } } } }, null, 2) + "\\n");
+    writeFileSync(join(vibeHome, "model-tiers.json"), JSON.stringify({ selection: { enabled: true, active_slot: "medium", delegation_enforce: true, flow_enabled: true, tdd_enforce: true, thinking_level: "off" }, trinity: { brain: { oc: "deepseek/deepseek-v4-pro", cc: "brain" }, medium: { oc: "deepseek/deepseek-v4-flash", cc: "medium" }, cheap: { oc: "deepseek/deepseek-chat", cc: "cheap" } }, tiers: { high: { regex: ".*pro.*" }, mid: { regex: ".*flash.*" }, budget: { regex: ".*" } } }, null, 2) + "\\n");
+    writeFileSync(join(vibeHome, "delegation-state.json"), JSON.stringify({ lifetime: { warn_count: 0, cache_savings_usd: 0, missed_context7_usd: 0, total_savings_usd: 0 }, sessions: {} }, null, 2) + "\\n");
+    const healthServer = http.createServer((req, res) => {
+      if (req.url === "/health") {
+        res.statusCode = 200;
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify({ ok: true, version: "retry-test" }));
+        return;
+      }
+      res.statusCode = 404;
+      res.end("not found");
+    });
+    const healthPort = await new Promise((resolve, reject) => {
+      healthServer.once("error", reject);
+      healthServer.listen(0, "127.0.0.1", () => resolve(healthServer.address().port));
+    });
+    const blocker = http.createServer((req, res) => { res.statusCode = 503; res.end("blocked"); });
+    const port = await new Promise((resolve, reject) => {
+      blocker.once("error", reject);
+      blocker.listen(0, "127.0.0.1", () => resolve(blocker.address().port));
+    });
+    process.env.HOME = home;
+    process.env.VIBEOS_HOME = vibeHome;
+    process.env.VIBEOS_OPENCODE_HOME = opencodeHome;
+    process.env.VIBEOS_MCP_PORT = String(port);
+    process.env.VIBEOS_BACKEND_HEALTH_URL = "http://127.0.0.1:" + healthPort + "/health";
+    const mod = await import(${JSON.stringify(pathToFileURL(join(process.cwd(), "dist/vibeOS.js")).href)} + "?watchdog=" + Date.now());
+    const hooks = await mod.DelegationEnforcer({ client: { live: true }, directory: projectDir });
+    setTimeout(() => { try { blocker.close(); } catch {} }, 300);
+    const waitFor = async (url) => {
+      const start = Date.now();
+      while (Date.now() - start < 10000) {
+        try {
+          const res = await fetch(url);
+          if (res.ok) return await res.json();
+        } catch {}
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      throw new Error("timeout");
+    };
+    const status = await waitFor("http://127.0.0.1:" + port + "/status");
+    const result = {
+      status_backend_connected: status.backend_connected,
+      status_backend_version: status.backend_version,
+      status_health_url: status.backend_health_url,
+      trinity_status: String(await hooks.tool.trinity.execute({ action: "status" })),
+    };
+    console.log(JSON.stringify(result));
+    await mod.closeMcpServer();
+    await new Promise((resolve) => healthServer.close(() => resolve()));
+    try { rmSync(sandbox, { recursive: true, force: true }); } catch {}
+  `;
+
+  const child = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
+    env: { ...process.env },
+    encoding: "utf-8",
+  })
+
+  assert.equal(child.status, 0, child.stderr || child.stdout)
+  const result = JSON.parse(String(child.stdout || "").trim())
+  assert.equal(result.status_backend_connected, true)
+  assert.equal(result.status_backend_version, "retry-test")
+  assert.equal(result.status_health_url.includes("/health"), true)
+  assert.equal(result.trinity_status.includes("[vibeOS-dashboard]"), true)
+})
+
 // -- 10. PROJECT GUARD --
 test("saveOS PROJECT GUARD: DelegationEnforcer runs guard on init", async () => {
   await freshPlugin()
