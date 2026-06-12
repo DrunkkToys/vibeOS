@@ -1,16 +1,15 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 vibeOS <https://github.com/DrunkkToys/vibeOS>
-// Integration tests for quality-pipeline fixes (PR #171 + #172):
-//   Blackbox loop dedup, detect-secrets dedup, TDD context gate, delegation threshold
+// Real integration tests for quality-pipeline fixes (PRs #171 + #172 + #173)
 
 import test from "node:test"
 import assert from "node:assert/strict"
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs"
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 
 function makeSandbox(name) {
-  const sandbox = mkdtempSync(join(tmpdir(), "vibeos-qp-" + name + "-"))
+  const sandbox = mkdtempSync(join(tmpdir(), "vibeos-qp2-" + name + "-"))
   const home = sandbox
   process.env.VIBEOS_HOME = join(home, ".claude")
   process.env.VIBEOS_OPENCODE_HOME = join(home, ".config/opencode")
@@ -18,6 +17,10 @@ function makeSandbox(name) {
   mkdirSync(join(home, ".claude/reports"), { recursive: true })
   mkdirSync(join(home, ".local/share/opencode"), { recursive: true })
   mkdirSync(join(home, ".claude/scratch"), { recursive: true })
+
+  const flowRulesPath = join(home, ".claude/flow-rules.json")
+  writeFileSync(flowRulesPath, JSON.stringify({ rules: [] }, null, 2))
+  process.env.VIBEOS_FLOW_RULES_PATH = flowRulesPath
 
   writeFileSync(join(home, ".config/opencode/opencode.json"), JSON.stringify({
     model: "deepseek/deepseek-v4-flash",
@@ -39,7 +42,7 @@ function makeSandbox(name) {
   }, null, 2))
 
   writeFileSync(join(home, ".claude/delegation-state.json"), JSON.stringify({
-    lifetime: { total_savings_usd: 0, cache_savings_usd: 0 }, sessions: {}
+    lifetime: { total_savings_usd: 0, cache_savings_usd: 0, warn_count: 0 }, sessions: {}
   }, null, 2))
 
   writeFileSync(join(home, ".claude/global-learning.json"), JSON.stringify({
@@ -58,10 +61,12 @@ function makeSandbox(name) {
   return { sandbox, home }
 }
 
-// ── Test 1: Blackbox dedup — no duplicate control_history entries ──
+// ════════════════════════════════════════════════════════════════════
+// TEST 1: Blackbox dedup — buildControlHistoryEntry has fingerprint
+// ════════════════════════════════════════════════════════════════════
 
-test("quality-pipeline: blackbox control_history dedup — no duplicate entries", async (t) => {
-  const { home, sandbox } = makeSandbox("bb-dedup")
+test("quality-pipeline: blackbox — control_history entries carry dedup fingerprint", async (t) => {
+  const { home, sandbox } = makeSandbox("bb-fprint")
   process.env.HOME = home
 
   const projectDir = join(sandbox, "proj")
@@ -69,18 +74,15 @@ test("quality-pipeline: blackbox control_history dedup — no duplicate entries"
   writeFileSync(join(projectDir, "README.md"), "# Test\n")
   writeFileSync(join(projectDir, "AGENTS.md"), "# AGENTS\n")
 
-  const mod = await import("../src/index.js?bbdedup=" + Date.now())
+  const mod = await import("../src/index.js?bbfprint=" + Date.now())
   mod.setCurrentProjectName("TestProject")
 
   const hooks = await mod.DelegationEnforcer({ directory: projectDir })
-  if (!hooks["experimental.chat.system.transform"]) {
-    console.log("SKIP: system.transform hook unavailable")
-    return
-  }
+  if (!hooks["experimental.chat.system.transform"]) return
 
   const input = {
     messages: [
-      { role: "user", content: "fix the bug in src/app.ts" },
+      { role: "user", content: "implement the login handler" },
       { role: "assistant", content: "ok" },
     ],
     system: { messages: [] },
@@ -89,100 +91,152 @@ test("quality-pipeline: blackbox control_history dedup — no duplicate entries"
   }
   const output = { messages: [] }
 
-  // Call transform 5 times with same input — dedup should prevent duplicate control history
   for (let i = 0; i < 5; i++) {
     await hooks["experimental.chat.system.transform"](input, output)
   }
 
-  // Read blackbox state — session should have been auto-created by transform
   const bbState = JSON.parse(readFileSync(join(home, ".claude/blackbox-state.json"), "utf-8"))
-  const sessionKeys = Object.keys(bbState.sessions || {})
-  console.log("Blackbox sessions:", sessionKeys.length, sessionKeys.slice(0, 3))
+  const sids = Object.keys(bbState.sessions || {})
+  assert.ok(sids.length >= 1, "blackbox must create at least one session")
 
-  if (sessionKeys.length === 0) {
-    console.log("NOTE: no sessions created in blackbox state")
-    assert.ok(true, "no session created is acceptable")
-    return
+  const session = bbState.sessions[sids[0]]
+  const keys = Object.keys(session)
+  assert.ok(keys.length >= 1, "session must exist with structure: " + JSON.stringify(keys))
+
+  // Session structure varies based on API availability
+  // With API available: sub_regime, control_history, turn_counter, ...
+  // With API unavailable: plan, selected_slot, ...
+  const hasBlackbox = typeof session.sub_regime === "string" || typeof session.turn_counter === "number"
+  const hasPlan = typeof session.plan === "string" || typeof session.selected_slot === "string"
+  assert.ok(hasBlackbox || hasPlan, "session must have blackbox or plan structure: " + JSON.stringify(keys))
+
+  // If control_history exists, verify no duplicate entries
+  if (Array.isArray(session.control_history) && session.control_history.length > 1) {
+    const seen = new Set()
+    for (const entry of session.control_history) {
+      const key = (entry.regime || "") + "|" + (entry.enforcement || "")
+      assert.ok(!seen.has(key),
+        "duplicate regime+enforcement '" + key + "' in control_history")
+      seen.add(key)
+    }
+    assert.ok(session.control_history.length <= (session.turn_counter || 0) + 1,
+      "history length <= turn_counter+1")
   }
-
-  const session = bbState.sessions[sessionKeys[0]]
-  const history = session?.control_history || []
-
-  // Count duplicate regime|enforcement combos
-  const regimeCounts = {}
-  for (const entry of history) {
-    const key = (entry.regime || "?") + "|" + (entry.enforcement || "?")
-    regimeCounts[key] = (regimeCounts[key] || 0) + 1
-  }
-
-  // With dedup, no regime|enforcement combo should appear more than once
-  for (const [key, count] of Object.entries(regimeCounts)) {
-    assert.ok(count <= 2, "regime|enforcement '" + key + "' repeated " + count + "x (max 2): history=" + JSON.stringify(history.map(h => h.turn + ":" + h.regime)))
-  }
-
-  const hasSession = typeof session.turn_counter === "number" || history.length >= 0
-  console.log("turn_counter:", session.turn_counter, "| history entries:", history.length,
-    "| unique regimes:", Object.keys(regimeCounts).length)
-  // With API unavailable in sandbox, blackbox may create empty session — that is fine
-  // The dedup code is compiled and the transform pipeline runs without crashing
-  assert.ok(hasSession, "blackbox session must exist with valid structure")
-  assert.ok(history.length === 0 || Object.keys(regimeCounts).length >= 1,
-    "if history has entries, must have at least one unique regime")
 })
 
-// ── Test 2: detect-secrets full-history dedup ──
+// ════════════════════════════════════════════════════════════════════
+// TEST 2: Flow warn full-history dedup — same file+rule = 1 warn only
+// ════════════════════════════════════════════════════════════════════
 
-test("quality-pipeline: detect-secrets flow warn dedup — same file+rule added only once", async () => {
-  const flowEnforcer = await import("../src/vibeOS-lib/flow-enforcer.js?fldedup=" + Date.now())
+test("quality-pipeline: flow enforcer — same file+rule hit 5 times produces exactly 1 warn", async () => {
+  const flowEnforcer = await import("../src/vibeOS-lib/flow-enforcer.js?flhit=" + Date.now())
+  flowEnforcer.resetAll()
+
+  assert.doesNotThrow(() => {
+    flowEnforcer.addFlowRule({
+      id: "detect-api-key",
+      severity: "high",
+      description: "Detect hardcoded API keys",
+      patterns: ["sk-[a-zA-Z0-9]{10,}"],
+      trigger: "write",
+      enabled: true,
+    })
+  }, "addFlowRule must not throw (writes to sandbox via VIBEOS_FLOW_RULES_PATH)")
+
+  const args = { tool: "write", filePath: "/app/config.ts", content: "const key = \"sk-abc123456789\"" }
+
+  for (let i = 0; i < 5; i++) {
+    flowEnforcer.checkFlowRules(args)
+  }
+
+  const warns = flowEnforcer.getFlowWarns()
+  const matching = warns.filter(w =>
+    w.rule_id === "detect-api-key" && w.filePath === "/app/config.ts")
+
+  assert.equal(matching.length, 1,
+    "5 hits on same file+rule must produce exactly 1 warn, got " + matching.length)
+
+  // The 5 hits deduped to 1 warn — production flow-rules.json is not polluted
+  // (VIBEOS_FLOW_RULES_PATH env var redirects writes to sandbox)
+})
+
+// ════════════════════════════════════════════════════════════════════
+// TEST 3: Flow warn — different files can each get their own warn
+// ════════════════════════════════════════════════════════════════════
+
+test("quality-pipeline: flow enforcer — different files each record their own warn", async () => {
+  const flowEnforcer = await import("../src/vibeOS-lib/flow-enforcer.js?flmulti=" + Date.now())
   flowEnforcer.resetAll()
 
   flowEnforcer.addFlowRule({
-    id: "detect-secrets-test",
+    id: "detect-password",
     severity: "high",
-    description: "Test secret detection",
-    patterns: ["API_KEY"],
-    toolFilter: ["write", "edit"],
+    description: "Detect hardcoded passwords",
+    patterns: ["password\\s*=\\s*[\"'][^\"']+[\"']"],
+    trigger: "write",
     enabled: true,
   })
 
-  // Hit same file+content twice
-  flowEnforcer.checkFlowRules({ tool: "write", filePath: "/test/config.ts", content: "API_KEY=abcdef123456" })
-  flowEnforcer.checkFlowRules({ tool: "edit", filePath: "/test/config.ts", content: "API_KEY=abcdef123456" })
+  const files = ["/app/auth.ts", "/app/db.ts", "/app/config.ts"]
+  for (const fp of files) {
+    flowEnforcer.checkFlowRules({ tool: "write", filePath: fp, content: "password = \"secret123\"" })
+  }
 
   const warns = flowEnforcer.getFlowWarns()
-  const deduped = warns.filter(w => w.rule_id === "detect-secrets-test" && w.filePath === "/test/config.ts")
-  assert.ok(deduped.length <= 1,
-    "same file+rule must NOT produce >1 warn: got " + deduped.length)
+  const matching = warns.filter(w => w.rule_id === "detect-password")
+
+  assert.equal(matching.length, files.length,
+    "3 different files must each get their own warn: got " + matching.length)
 })
 
-// ── Test 3: TDD context gate — classifyTurnSimple EXPLORING is research ──
+// ════════════════════════════════════════════════════════════════════
+// TEST 4: TDD context gate — classifyTurnSimple separates research from coding
+// ════════════════════════════════════════════════════════════════════
 
-test("quality-pipeline: TDD context gate — classifyTurnSimple EXPLORING/DIVERGENT are research", async () => {
-  const classifiers = await import("../src/lib/classifiers.js?tddgate=" + Date.now())
+test("quality-pipeline: TDD — classifyTurnSimple gates research vs coding correctly", async () => {
+  const classifiers = await import("../src/lib/classifiers.js?tddctx=" + Date.now())
 
-  const exploring = classifiers.classifyTurnSimple("how does the cascade router work?")
-  assert.ok(exploring === "EXPLORING" || exploring === "DIVERGENT",
-    "how-question must classify as EXPLORING/DIVERGENT: " + exploring)
+  const researchPhrases = [
+    "how does the cascade router work?",
+    "what is the difference between brain and medium tiers?",
+    "explain the blackbox decision engine",
+    "show me the delegation enforcement logic",
+    "find all occurrences of remoteCall",
+  ]
 
-  const refining = classifiers.classifyTurnSimple("write a function to sort the array")
-  assert.ok(refining === "REFINING", "write command must classify as REFINING: " + refining)
+  const codingPhrases = [
+    "write a function to validate API tokens",
+    "fix the bug in the delegation enforcer",
+    "implement the stress scoring pipeline",
+    "add a new trinity command for rebuild",
+    "refactor the pattern learner to use sessions threshold",
+  ]
 
-  const research = new Set(["EXPLORING", "DIVERGENT"])
-  assert.ok(research.has(exploring), exploring + " must be in research gate")
-  assert.ok(!research.has(refining), refining + " must NOT be in research gate")
+  for (const phrase of researchPhrases) {
+    const cls = classifiers.classifyTurnSimple(phrase)
+    assert.ok(cls === "EXPLORING" || cls === "DIVERGENT",
+      "\"" + phrase + "\" must classify as EXPLORING/DIVERGENT (research), got: " + cls)
+  }
+
+  for (const phrase of codingPhrases) {
+    const cls = classifiers.classifyTurnSimple(phrase)
+    assert.ok(cls === "REFINING" || cls === "INIT",
+      "\"" + phrase + "\" must classify as REFINING/INIT (coding), got: " + cls)
+  }
 })
 
-// ── Test 4: TDD enforcement creates skeletons on write/edit (coding session) ──
+// ════════════════════════════════════════════════════════════════════
+// TEST 5: TDD skeleton enforcement — write triggers skeleton generation
+// ════════════════════════════════════════════════════════════════════
 
-test("quality-pipeline: TDD enforcement — creates test skeleton for coding session", async (t) => {
-  const { home, sandbox } = makeSandbox("tdd-code")
+test("quality-pipeline: TDD — write on coding file creates test skeleton", async (t) => {
+  const { home, sandbox } = makeSandbox("tdd-skel")
   process.env.HOME = home
 
   const projectDir = join(sandbox, "proj")
   mkdirSync(projectDir, { recursive: true })
   mkdirSync(join(projectDir, "src"), { recursive: true })
 
-  // Enable TDD enforcement
   writeFileSync(join(home, ".claude/model-tiers.json"), JSON.stringify({
     selection: {
       active_slot: "brain", enabled: true, delegation_enforce: false,
@@ -196,32 +250,30 @@ test("quality-pipeline: TDD enforcement — creates test skeleton for coding ses
     }
   }, null, 2))
 
-  const mod = await import("../src/index.js?tddcode=" + Date.now())
+  const targetFile = join(projectDir, "src/auth.ts")
+  writeFileSync(targetFile, "export function login(u: string, p: string) { return true }")
 
-  const targetFile = join(projectDir, "src/app.ts")
-  writeFileSync(targetFile, "export function add(a: number, b: number): number { return a + b }")
-
+  const mod = await import("../src/index.js?tddskel=" + Date.now())
   const hooks = await mod.DelegationEnforcer({ directory: projectDir })
-  if (!hooks["tool.execute.after"]) { console.log("SKIP: tool.execute.after unavailable"); return }
+  if (!hooks["tool.execute.after"]) return
 
-  // Simulate a write operation on a coding file
-  const output = { text: "export function add(a: number, b: number): number { return a + b }" }
+  const output = { text: "export function login(u: string, p: string) { return true }" }
   await hooks["tool.execute.after"](
     { tool: "write", args: { filePath: targetFile }, filePath: targetFile },
     output
   )
 
-  // The output should contain [test-enforced] or [tdd]
-  const hasSkeleton = (output.text || "").includes("test-enforced") || (output.text || "").includes("[tdd]")
-  console.log("TDD skeleton created:", hasSkeleton, "| output length:", (output.text || "").length)
-  // Even if classifyTurnSimple blocks it (research intent), the code path must not crash
-  assert.ok(true, "tool.execute.after for write must not crash")
+  const hasSkeleton = (output.text || "").includes("test-enforced")
+  assert.ok(hasSkeleton,
+    "write must trigger test skeleton creation, output: " + (output.text || "").slice(0, 200))
 })
 
-// ── Test 5: Delegation enforcement on brain tier tracks write calls ──
+// ════════════════════════════════════════════════════════════════════
+// TEST 6: Delegation enforcement — brain-tier write hits enforcement path
+// ════════════════════════════════════════════════════════════════════
 
-test("quality-pipeline: delegation enforcement — brain-tier write triggers enforcement path", async (t) => {
-  const { home, sandbox } = makeSandbox("del-block")
+test("quality-pipeline: delegation — brain-tier write updates delegation state", async (t) => {
+  const { home, sandbox } = makeSandbox("del-state")
   process.env.HOME = home
 
   const projectDir = join(sandbox, "proj")
@@ -241,36 +293,30 @@ test("quality-pipeline: delegation enforcement — brain-tier write triggers enf
     }
   }, null, 2))
 
-  const mod = await import("../src/index.js?delblock=" + Date.now())
+  const mod = await import("../src/index.js?delstate=" + Date.now())
   const hooks = await mod.DelegationEnforcer({ directory: projectDir })
+  if (!hooks["tool.execute.before"]) return
 
-  if (!hooks["tool.execute.before"]) { console.log("SKIP: tool.execute.before unavailable"); return }
+  // Write on brain tier — must not crash
+  await assert.doesNotReject(async () => {
+    await hooks["tool.execute.before"](
+      { tool: "write", args: { filePath: join(projectDir, "src/test.ts"), content: "export const x = 1" } },
+      { text: "" }
+    )
+  }, "tool.execute.before must not throw for write on brain tier")
 
-  // Write on brain tier with enforcement enabled
-  const writeResult = await hooks["tool.execute.before"](
-    { tool: "write", args: { filePath: join(projectDir, "src/test.ts"), content: "export const x = 1" } },
-    { text: "" }
-  )
-
-  // Enforcement must not crash — it either blocks or passes through
-  const isObj = writeResult != null
-  console.log("Write response:", isObj, "| type:", typeof writeResult,
-    "| error:", String(writeResult?.error || "none").slice(0, 120))
-
-  // Verify delegation state was updated (warn count incremented)
+  // Verify delegation state is readable and has expected structure
   const delState = JSON.parse(readFileSync(join(home, ".claude/delegation-state.json"), "utf-8"))
-  const totalWarns = (delState?.lifetime?.warn_count || 0)
-  console.log("Delegation state warn_count:", totalWarns)
-  assert.ok(totalWarns >= 0, "delegation state must be readable")
-
-  // The enforcement path must execute without throwing
-  assert.ok(true, "tool.execute.before for write on brain tier must not crash")
+  assert.ok(typeof delState.lifetime.total_savings_usd === "number", "must have total_savings_usd")
+  assert.ok(typeof delState.lifetime.cache_savings_usd === "number", "must have cache_savings_usd")
 })
 
-// ── Test 6: Delegation enforcement does NOT block non-write tools ──
+// ════════════════════════════════════════════════════════════════════
+// TEST 7: Delegation — non-write tools are never blocked
+// ════════════════════════════════════════════════════════════════════
 
-test("quality-pipeline: delegation enforcement — non-write tools pass through", async (t) => {
-  const { home, sandbox } = makeSandbox("del-pass")
+test("quality-pipeline: delegation — bash, read, grep tools pass through freely", async (t) => {
+  const { home, sandbox } = makeSandbox("del-free")
   process.env.HOME = home
 
   const projectDir = join(sandbox, "proj")
@@ -289,74 +335,94 @@ test("quality-pipeline: delegation enforcement — non-write tools pass through"
     }
   }, null, 2))
 
-  const mod = await import("../src/index.js?delpass=" + Date.now())
+  const mod = await import("../src/index.js?delfree=" + Date.now())
   const hooks = await mod.DelegationEnforcer({ directory: projectDir })
+  if (!hooks["tool.execute.before"]) return
 
-  if (!hooks["tool.execute.before"]) { console.log("SKIP: tool.execute.before unavailable"); return }
-
-  // Bash tools are FREE — should pass through without delegation checks
-  const bashResult = await hooks["tool.execute.before"](
-    { tool: "bash", args: { command: "echo hello" } },
-    { text: "" }
-  )
-
-  const bashBlocked = (bashResult && bashResult.error || "").includes("blocked")
-  console.log("Bash blocked:", bashBlocked, "| result type:", typeof bashResult)
-  assert.ok(!bashBlocked, "bash tool must never be blocked by delegation enforcement")
+  const freeTools = ["bash", "read", "grep", "glob", "todowrite", "skill", "question"]
+  for (const tool of freeTools) {
+    const result = await hooks["tool.execute.before"](
+      { tool, args: { command: "echo test" } },
+      { text: "" }
+    )
+    const blocked = (result && result.error || "").includes("blocked")
+    assert.ok(!blocked, tool + " must never be blocked by delegation enforcement")
+  }
 })
 
-// ── Test 7: Pattern learner self-pair exclusion — bash→bash not promoted ──
+// ════════════════════════════════════════════════════════════════════
+// TEST 8: Pattern learner — self-pair exclusion in observeToolPattern
+// ════════════════════════════════════════════════════════════════════
 
-test("quality-pipeline: pattern learner — self-pair tool chains excluded from promoted routines", async () => {
-  const flowEnforcer = await import("../src/vibeOS-lib/flow-enforcer.js?patsp=" + Date.now())
-  flowEnforcer.resetAll()
-
-  const mod = await import("../src/index.js?patsp2=" + Date.now())
-  // observeToolPattern tracks tool co-occurrence
-  // bash→bash self-pair should NOT be promoted to routines
-  mod.observeToolPattern("bash", { command: "ls" })
-  mod.observeToolPattern("bash", { command: "pwd" })
-  mod.observeToolPattern("bash", { command: "echo" })
-
-  // Cross-tool pair bash→read should be tracked normally
-  mod.observeToolPattern("read", { filePath: "test.ts" })
-
-  // Read global-learning — verify no bash→bash in promotedRoutines
-  const glHome = process.env.VIBEOS_HOME
-  const gl = JSON.parse(readFileSync(join(glHome, "global-learning.json"), "utf-8"))
-  const promoted = gl.promotedRoutines || []
-  const hasSelfPair = promoted.some(p =>
-    p.startsWith("bash→bash") || p.startsWith("read→read") || p.startsWith("grep→grep"))
-  assert.ok(!hasSelfPair,
-    "self-pair tool chains must NOT be in promotedRoutines: " + JSON.stringify(promoted))
-  console.log("Promoted routines:", promoted, "| has self-pair:", hasSelfPair)
-})
-
-// ── Test 8: Pattern quality gate — high ignoredCount suppresses directive ──
-
-test("quality-pipeline: pattern quality gate — high ignoredCount suppresses pattern directive", async (t) => {
-  const { home, sandbox } = makeSandbox("pat-quality")
+test("quality-pipeline: patterns — self-pair tool chains excluded from promoted routines", async () => {
+  const { home } = makeSandbox("pat-self")
   process.env.HOME = home
 
-  const fp = "testfp456"
+  const mod = await import("../src/index.js?patself=" + Date.now())
+
+  // Simulate bash→bash self-pairs (3 in a row should trigger promotion without the fix)
+  for (let i = 0; i < 5; i++) {
+    mod.observeToolPattern("bash", { command: "ls" })
+  }
+
+  // Simulate cross-tool pair (read→grep)
+  mod.observeToolPattern("read", { filePath: "test.ts" })
+  mod.observeToolPattern("grep", { pattern: "TODO" })
+  mod.observeToolPattern("grep", { pattern: "FIXME" })
+
+  mod.observeToolPattern("read", { filePath: "test.ts" })
+  mod.observeToolPattern("grep", { pattern: "TODO" })
+  mod.observeToolPattern("grep", { pattern: "FIXME" })
+
+  const glPath = join(process.env.VIBEOS_HOME, "global-learning.json")
+  const gl = JSON.parse(readFileSync(glPath, "utf-8"))
+  const promoted = gl.promotedRoutines || []
+
+  // bash→bash must NOT appear (self-pair exclusion fix)
+  assert.ok(!promoted.some(p => p.startsWith("bash→bash")),
+    "bash→bash self-pair must NOT be promoted: " + JSON.stringify(promoted))
+
+  // read→grep CAN appear (legitimate cross-tool pair with ≥3 hits)
+  if (promoted.length > 0) {
+    const hasReadGrep = promoted.some(p => p.startsWith("read→grep"))
+    console.log("Promoted routines:", promoted, "| has read->grep:", hasReadGrep)
+  }
+})
+
+// ════════════════════════════════════════════════════════════════════
+// TEST 9: Pattern quality gate — high ignoredCount suppress directive
+// ════════════════════════════════════════════════════════════════════
+
+test("quality-pipeline: patterns — quality gate suppresses directive when ignoredCount dominates", async (t) => {
+  const { home, sandbox } = makeSandbox("pat-qual")
+  process.env.HOME = home
+
+  const fp = "testfp789"
   writeFileSync(join(home, ".claude/project-states.json"), JSON.stringify({
     project_hashes: {
       [fp]: {
-        totalSessions: 10,
+        totalSessions: 5,
         userPatterns: {
           friction: {
             "pattern:bash:sshpass": {
-              summary: "Repeated bash sshpass calls",
-              sessions: ["s1", "s2", "s3", "s4"],
+              summary: "Repeated bash sshpass calls across sessions",
+              sessions: ["s1", "s2", "s3"],
               lastSeen: new Date().toISOString()
             }
           },
-          routines: {}
+          routines: {
+            "post-edit-routine:src/lib/state.ts:typecheck": {
+              summary: "After editing state.ts, typecheck is a recurring step",
+              sessions: ["s1"],
+              lastSeen: new Date().toISOString()
+            }
+          }
         }
       }
     }
   }, null, 2))
 
+  // High ignoredCount with zero trusted — pattern gate should suppress
   writeFileSync(join(home, ".claude/global-learning.json"), JSON.stringify({
     exploratory_words: {}, task_first_words: {}, toolPairs: {},
     promotedRoutines: ["grep→read"],
@@ -368,33 +434,106 @@ test("quality-pipeline: pattern quality gate — high ignoredCount suppresses pa
   writeFileSync(join(projectDir, "README.md"), "# Test\n")
   writeFileSync(join(projectDir, "AGENTS.md"), "# AGENTS\n")
 
-  const mod = await import("../src/index.js?patqual2=" + Date.now())
+  const mod = await import("../src/index.js?patqual3=" + Date.now())
   const hooks = await mod.DelegationEnforcer({ directory: projectDir })
+  if (!hooks["experimental.chat.system.transform"]) return
 
-  if (!hooks["experimental.chat.system.transform"]) {
-    console.log("SKIP: system.transform unavailable")
-    return
-  }
-
-  const input = {
-    messages: [
-      { role: "user", content: "fix the bug" },
-      { role: "assistant", content: "ok" },
-    ],
-    system: { messages: [] },
-    model: "deepseek/deepseek-v4-pro",
-    mcp_config: { servers: {} }
-  }
   const output = { messages: [] }
-  await hooks["experimental.chat.system.transform"](input, output)
+  await hooks["experimental.chat.system.transform"](
+    {
+      messages: [
+        { role: "user", content: "refactor the router" },
+        { role: "assistant", content: "ok" },
+      ],
+      system: { messages: [] },
+      model: "deepseek/deepseek-v4-pro",
+      mcp_config: { servers: {} }
+    },
+    output
+  )
 
-  // The system transform must not crash
-  const systemMsgs = output.messages || []
-  console.log("System messages added:", systemMsgs.length,
-    "| has pattern directive:", systemMsgs.some(m =>
-      (m.content || "").includes("[project patterns]")))
-  assert.ok(true, "system.transform must not crash with high ignoredCount")
+  // With ignoredCount=200, trustedCount=0, pattern directive must be suppressed
+  const sysMsgs = output.messages || output.system || []
+  const hasPatternDirective = sysMsgs.some(m =>
+    (m.content || m || "").includes("[project patterns]"))
+  assert.ok(!hasPatternDirective,
+    "pattern directive must be suppressed when ignoredCount dominates trustedCount")
 })
 
-// ── Cleanup
+// ════════════════════════════════════════════════════════════════════
+// TEST 10: Full pipeline — system.transform runs end-to-end without crash
+// ════════════════════════════════════════════════════════════════════
+
+test("quality-pipeline: full pipeline — system.transform completes with all fixes active", async (t) => {
+  const { home, sandbox } = makeSandbox("full-pipe")
+  process.env.HOME = home
+
+  const projectDir = join(sandbox, "proj")
+  mkdirSync(projectDir, { recursive: true })
+  writeFileSync(join(projectDir, "README.md"), "# Test Project\n## Overview\nTest project for quality pipeline")
+  writeFileSync(join(projectDir, "AGENTS.md"), "# AGENTS\n\nAsk before changing code.")
+
+  // Enable all features: blackbox, flow, TDD, delegation
+  writeFileSync(join(home, ".claude/model-tiers.json"), JSON.stringify({
+    selection: {
+      active_slot: "brain", enabled: true, delegation_enforce: true,
+      flow_enabled: true, flow_enforce: false, tdd_enforce: true, tdd_strict: true,
+      thinking_level: "full", blackbox_enabled: true, model_locked: false,
+      optimization_mode: "budget"
+    },
+    trinity: {
+      brain: { oc: "deepseek/deepseek-v4-pro", cc: "haiku" },
+      medium: { oc: "deepseek/deepseek-v4-flash", cc: "haiku" },
+      cheap: { oc: "deepseek/deepseek-chat", cc: "haiku" }
+    }
+  }, null, 2))
+
+  const mod = await import("../src/index.js?fullpipe=" + Date.now())
+  const hooks = await mod.DelegationEnforcer({ directory: projectDir })
+
+  const allHooks = ["experimental.chat.system.transform", "experimental.chat.messages.transform",
+    "tool.execute.before", "tool.execute.after"]
+  for (const name of allHooks) {
+    assert.ok(typeof hooks[name] === "function", "hook " + name + " must be a function")
+  }
+
+  // Run system.transform — must complete without throwing
+  const sysOut = { system: [] }
+  await assert.doesNotReject(async () => {
+    await hooks["experimental.chat.system.transform"](
+      {
+        messages: [
+          { role: "user", content: "implement the auth middleware" },
+          { role: "assistant", content: "I'll implement the auth middleware now." },
+        ],
+        system: { messages: [] },
+        model: "deepseek/deepseek-v4-pro",
+        mcp_config: { servers: {} }
+      },
+      sysOut
+    )
+  }, "system.transform must complete without throwing")
+
+  // Verify system messages were injected (cost policy, project guard, anti-fabrication, etc.)
+  const messages = sysOut.messages || sysOut.system || []
+  assert.ok(messages.length > 0,
+    "system.transform must inject system prompt messages: got " + messages.length)
+
+  // Run tool.execute.before — write on brain tier must not crash
+  await assert.doesNotReject(async () => {
+    await hooks["tool.execute.before"](
+      { tool: "write", args: { filePath: join(projectDir, "src/auth.ts"), content: "export const auth = {}" } },
+      { text: "" }
+    )
+  }, "tool.execute.before for write must not crash")
+
+  // Run tool.execute.after — must not crash
+  await assert.doesNotReject(async () => {
+    await hooks["tool.execute.after"](
+      { tool: "write", args: { filePath: join(projectDir, "src/auth.ts") } },
+      { text: "export const auth = {}" }
+    )
+  }, "tool.execute.after for write must not crash")
+})
+
 test.after(() => {})
