@@ -2479,7 +2479,7 @@ function safeJsonParse2(raw) {
     throw e;
   }
 }
-var DFLT_SEL = { enabled: true, active_slot: null, slot_locked: false, thinking_level: "off", flow_enabled: true, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: true, delegation_enforce: true, onboarding_mode: null, selected_provider: null, selected_quality_tier: null, selected_model: null, executed_provider: null, executed_quality_tier: null, executed_model: null, previous_default_agent: null, previous_optimization_mode: null };
+var DFLT_SEL = { enabled: true, active_slot: null, slot_locked: false, thinking_level: "off", flow_enabled: true, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: true, delegation_enforce: true, onboarding_mode: null, selected_provider: null, selected_quality_tier: null, selected_model: null, executed_provider: null, executed_quality_tier: null, executed_model: null, requested_optimization_mode: null, previous_default_agent: null, previous_optimization_mode: null };
 function loadSelection() {
   const TIERS_FILE3 = join3(getVibeOSHome2(), "model-tiers.json");
   try {
@@ -2511,6 +2511,7 @@ function loadSelection() {
       executed_provider: j?.selection?.executed_provider || null,
       executed_quality_tier: j?.selection?.executed_quality_tier || null,
       executed_model: j?.selection?.executed_model || null,
+      requested_optimization_mode: j?.selection?.requested_optimization_mode || null,
       previous_default_agent: j?.selection?.previous_default_agent || null,
       previous_optimization_mode: j?.selection?.previous_optimization_mode || null
     };
@@ -8547,6 +8548,7 @@ function createTrinityTool(deps) {
           `Model: ${activeSlot} (${tiers?.[activeSlot]?.oc || deps.currentModel || "(unset)"})`,
           `Provider: ${execution.provider_label}`,
           `Quality: ${execution.quality_label}`,
+          ...sel.requested_optimization_mode ? [`Requested mode: ${sel.requested_optimization_mode}`] : [],
           ...totalTurns > 0 ? [`Split: brain ${brainPct}% / worker ${workerPct}% (${totalTurns} total)`] : [],
           `Thinking: ${effectiveLevel}`,
           `Credit: ${credit}%`,
@@ -8666,6 +8668,7 @@ function createTrinityTool(deps) {
           return `Provide mode: ${builtInIds.join(" | ")} | auto | ${brandedIds.join(" | ")}`;
         const modeAlias = { vibemax: "vibemax", vibeqmax: "quality" };
         const resolvedSlot = modeAlias[slot] || slot;
+        const requestedMode = slot === resolvedSlot ? null : slot;
         if (!allModeIds.includes(resolvedSlot)) {
           return `Provide mode: ${builtInIds.join(" | ")} | auto | ${brandedIds.join(" | ")}`;
         }
@@ -8673,6 +8676,7 @@ function createTrinityTool(deps) {
         if (!ok)
           return `Failed to write mode`;
         deps.writeSessionOptMode(deps._OC_SID + "_opt", resolvedSlot);
+        deps.writeSelection("requested_optimization_mode", requestedMode);
         const allEntries = [...BRANDED_MODES, ...RUNTIME_MODES];
         const modeEntry = allEntries.find((e) => e.id === slot);
         if (modeEntry) {
@@ -11276,24 +11280,22 @@ function regimeAwareToolStyleDirective(regime, mode, stress) {
   const normalizedRegime = String(regime || "INIT").toUpperCase();
   const normalizedMode = String(mode || "budget").toLowerCase();
   const stressLabel = stress > 1.5 ? "high stress" : stress > 0.4 ? "elevated stress" : "calm";
-  const regimeTone = (() => {
-    if (normalizedRegime === "LOOPING") {
-      return "The session is looping, so keep descriptions verification-first, state-aware, and loop-breaking.";
-    }
-    if (normalizedRegime === "CONVERGING" || normalizedRegime === "CLOSED") {
-      return "The session is converging, so keep descriptions closure-oriented, exact, and ready for final verification.";
-    }
-    if (normalizedRegime === "REFINING" || normalizedRegime === "IMPLEMENTING") {
-      return "The session is building, so keep descriptions action-oriented, concrete, and tied to the next visible code step.";
-    }
-    if (normalizedRegime === "REVIEWING" || normalizedRegime === "AUDIT" || normalizedRegime === "FORENSIC") {
-      return "The session is reviewing evidence, so keep descriptions investigative, traceable, and focused on proof.";
-    }
-    if (normalizedRegime === "RESEARCH" || normalizedRegime === "DESIGNING" || normalizedRegime === "EXPLORING" || normalizedRegime === "DIVERGENT" || normalizedRegime === "INIT") {
-      return "The session is exploring, so keep descriptions discovery-oriented, specific, and lightweight.";
-    }
-    return "The session should stay aligned to the active regime and avoid generic filler.";
-  })();
+  const regimeToneByName = {
+    INIT: "The session is starting, so keep descriptions lightweight, status-oriented, and easy to scan.",
+    DIVERGENT: "The session is branching, so keep descriptions exploratory and open to alternatives without sounding vague.",
+    EXPLORING: "The session is investigating, so keep descriptions discovery-oriented, specific, and lightweight.",
+    REFINING: "The session is polishing implementation, so keep descriptions action-oriented, concrete, and tied to the next visible code step.",
+    IMPLEMENTING: "The session is executing implementation work, so keep descriptions exact, build-focused, and next-step driven.",
+    RESEARCH: "The session is researching, so keep descriptions evidence-seeking, careful, and explicit about what was checked.",
+    REVIEWING: "The session is reviewing, so keep descriptions audit-style, traceable, and focused on proof.",
+    DESIGNING: "The session is designing, so keep descriptions structured, intent-driven, and aligned to the target shape.",
+    CONVERGING: "The session is converging, so keep descriptions closure-oriented, exact, and ready for final verification.",
+    CLOSED: "The session is closing, so keep descriptions final, concise, and clearly outcome-focused.",
+    LOOPING: "The session is looping, so keep descriptions verification-first, state-aware, and loop-breaking.",
+    AUDIT: "The session is auditing, so keep descriptions evidence-first, compliance-aware, and traceable.",
+    FORENSIC: "The session is doing forensic work, so keep descriptions investigative, reproducible, and proof-heavy."
+  };
+  const regimeTone = regimeToneByName[normalizedRegime] || "The session should stay aligned to the active regime and avoid generic filler.";
   return `[tool style: dopamine] Active regime: ${normalizedRegime}; mode: ${normalizedMode}; stress: ${stressLabel}. When calling the bash tool, use a short, calm, progress-focused description that matches the current regime. ${regimeTone} Name the user-visible milestone being advanced, keep the wording human, and avoid hype or raw technical labels. Combine independent bash commands into a single call with && or ;.`;
 }
 function flowTodosDirective() {
@@ -11576,6 +11578,21 @@ var REGIME_TAG = {
   AUDIT: "AUDT",
   FORENSIC: "FRNC"
 };
+var REGIME_ICON = {
+  INIT: "\u25CC",
+  DIVERGENT: "\u21C4",
+  EXPLORING: "\u2315",
+  REFINING: "\u270E",
+  IMPLEMENTING: "\u2699",
+  RESEARCH: "\u2301",
+  REVIEWING: "\u2713",
+  DESIGNING: "\u25EB",
+  CONVERGING: "\u27F2",
+  CLOSED: "\u25C6",
+  LOOPING: "\u21BB",
+  AUDIT: "\u2611",
+  FORENSIC: "\u27C1"
+};
 var BRAND_MAP = {
   vibeultrax: "VibeUltraX",
   vibeqmax: "VibeQMaX",
@@ -11596,6 +11613,9 @@ function resolveBrand(optMode, activeSlot) {
 }
 function resolveTierIcon(slot) {
   return TIER_ICON[slot] || "\u26A1";
+}
+function resolveRegimeIcon(subRegime) {
+  return REGIME_ICON[String(subRegime || "").toUpperCase()] || "\u25E6";
 }
 function formatModeLabel(optMode) {
   const normalized = String(optMode || "").toLowerCase();
@@ -11677,8 +11697,9 @@ function buildFooterLine(input) {
   const { activeSlot, sessionSlot, providerLabel, modelName, ltTotal, ltTrend, vibeBrand, optMode, flashIcon, enfTags, vectorChangedSlot, subRegime } = input;
   const tierIcon = resolveTierIcon(activeSlot);
   const regimeTag = subRegime ? REGIME_TAG[subRegime] || subRegime.slice(0, 4) : null;
+  const regimeIcon = subRegime ? resolveRegimeIcon(subRegime) : null;
   const modeLabel = formatModeLabel(optMode);
-  let line = `\u2014 ${tierIcon} ${activeSlot} | ${providerLabel} | ${modelName}${regimeTag ? ` \u25B6 ${regimeTag}` : ""}`;
+  let line = `\u2014 ${tierIcon} ${activeSlot} | ${providerLabel} | ${modelName}${regimeTag ? ` \u25B6 ${regimeIcon} ${regimeTag}` : ""}`;
   if (ltTotal > 0) {
     const savingsPulse = formatSavingsPulse(ltTotal, ltTrend);
     if (savingsPulse)

@@ -192,7 +192,7 @@ test("1i — trinity mode covers all live optimization modes", async () => {
     { slot: "audit", active: "brain" },
     { slot: "forensic", active: "brain" },
     { slot: "vibeultrax", active: "brain" },
-    { slot: "vibeqmax", active: "brain", mode: "quality" },
+    { slot: "vibeqmax", active: "brain", mode: "quality", requested: "vibeqmax" },
     { slot: "vibemax", active: "medium" },
   ]
   for (const c of cases) {
@@ -207,6 +207,7 @@ test("1i — trinity mode covers all live optimization modes", async () => {
     }
     assert.equal(sel.active_slot, c.active, `${c.slot} should resolve to ${c.active}`)
     assert.equal(sel.optimization_mode, c.mode || c.slot, `${c.slot} should persist as the optimization mode`)
+    if (c.requested) assert.equal(sel.requested_optimization_mode, c.requested, `${c.slot} should persist requested mode separately`)
     assert.ok(out.includes("Mode set"), `${c.slot} response should be affirmative: ` + out)
   }
 })
