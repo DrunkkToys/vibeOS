@@ -2452,7 +2452,7 @@ function loadSelection() {
     return DFLT_SEL;
   }
 }
-function writeSelection2(key, value) {
+function writeSelection(key, value) {
   const TIERS_FILE3 = join3(getVibeOSHome2(), "model-tiers.json");
   try {
     return withFileLock(TIERS_FILE3, () => {
@@ -2519,7 +2519,7 @@ function loadGlobalOptMode() {
   }
 }
 function saveGlobalOptMode(mode) {
-  return writeSelection2("optimization_mode", mode);
+  return writeSelection("optimization_mode", mode);
 }
 function writeSessionOptMode2(sid, mode) {
   const BLACKBOX_FILE = join3(getVibeOSHome2(), "blackbox-state.json");
@@ -7264,14 +7264,30 @@ function setBlackboxEnabled2(val) {
   setBlackboxEnabled(val);
 }
 var DFLT_OPTIMIZATION_MODE = "budget";
+function recoverOptimizationModeFromSelection(sel) {
+  const slot = String(sel?.active_slot || "").toLowerCase();
+  if (slot === "brain")
+    return "quality";
+  if (slot === "medium")
+    return "vibemax";
+  if (slot === "cheap")
+    return "budget";
+  return "budget";
+}
 function loadOptimizationMode() {
   try {
     const sel = loadSelection();
     const persistedMode = sel.optimization_mode || null;
-    if (persistedMode === "vibelitex" && !isApiFallback2()) {
+    if (persistedMode === "vibelitex") {
       const prevKey = `${_OC_SID}_prev_opt`;
-      const recoveryMode = sel.previous_optimization_mode || loadSessionOptMode(prevKey);
+      const sessionMode = loadSessionOptMode(_OC_SID);
+      const globalMode = loadGlobalOptMode();
+      const recoveryMode = sel.previous_optimization_mode || loadSessionOptMode(prevKey) || (sessionMode && sessionMode !== "vibelitex" ? sessionMode : "") || (globalMode && globalMode !== "vibelitex" ? globalMode : "") || recoverOptimizationModeFromSelection(sel);
       if (recoveryMode && recoveryMode !== "vibelitex") {
+        try {
+          writeSelection("optimization_mode", recoveryMode);
+        } catch {
+        }
         try {
           writeSelection("previous_optimization_mode", null);
         } catch {
@@ -10751,7 +10767,7 @@ function syncControlSettings(cv, options = {}) {
     const writeIf = (key, val) => {
       const sel = loadSelection();
       if (sel[key] !== val)
-        writeSelection2(key, val);
+        writeSelection(key, val);
     };
     if (isManualMode) {
       const allEntries = [...BRANDED_MODES, ...RUNTIME_MODES];
@@ -10796,8 +10812,10 @@ function syncControlSettings(cv, options = {}) {
       const previousOptMode2 = typeof currentSel.previous_optimization_mode === "string" ? currentSel.previous_optimization_mode : null;
       const prevSessionKey2 = `${sid}_prev_opt`;
       const sessionPreviousOptMode = loadSessionOptMode(prevSessionKey2);
-      const restoreMode = sessionPreviousOptMode || previousOptMode2;
-      const canRestorePrevious = !isApiFallback() && !!restoreMode && cv.optimization_mode !== "vibelitex" && (previousOptMode2 !== null || sessionPreviousOptMode !== null);
+      const liveSlot = String(currentSel.active_slot || cv.tier_bias || "").toLowerCase();
+      const inferredRecoveryMode = liveSlot === "brain" ? "quality" : liveSlot === "medium" ? "vibemax" : "budget";
+      const restoreMode = sessionPreviousOptMode || previousOptMode2 || inferredRecoveryMode;
+      const canRestorePrevious = !!restoreMode && cv.optimization_mode !== "vibelitex" && (previousOptMode2 !== null || sessionPreviousOptMode !== null);
       if (fallbackPinned) {
         if (currentSel.optimization_mode !== "vibelitex") {
           writeIf("previous_optimization_mode", currentSel.optimization_mode);
@@ -10835,7 +10853,7 @@ function syncControlSettings(cv, options = {}) {
           const oc = safeJsonParse3(readFileSync13(OC_CONFIG, "utf-8"));
           if (oc.default_agent !== cv.agent_mode) {
             if (cv.agent_mode === "plan" && oc.default_agent && oc.default_agent !== "plan") {
-              writeSelection2("previous_default_agent", oc.default_agent);
+              writeSelection("previous_default_agent", oc.default_agent);
             }
             oc.default_agent = cv.agent_mode;
             writeFileSync12(OC_CONFIG, JSON.stringify(oc, null, 2) + "\n");
@@ -10853,19 +10871,20 @@ function syncControlSettings(cv, options = {}) {
             oc.default_agent = restoreAgent;
             writeFileSync12(OC_CONFIG, JSON.stringify(oc, null, 2) + "\n");
             if (currentSel.previous_default_agent)
-              writeSelection2("previous_default_agent", null);
+              writeSelection("previous_default_agent", null);
           }
         }
       } catch {
       }
     }
-    if (!isApiFallback() && cv.optimization_mode && cv.optimization_mode !== "vibelitex") {
+    if (cv.optimization_mode && cv.optimization_mode !== "vibelitex") {
       const finalSel = loadSelection();
       if (finalSel.optimization_mode === "vibelitex") {
-        const restoreCandidate = finalSel.previous_optimization_mode || loadSessionOptMode(prevSessionKey) || previousOptMode;
+        const liveSlot = String(finalSel.active_slot || currentSel.active_slot || cv.tier_bias || "").toLowerCase();
+        const restoreCandidate = finalSel.previous_optimization_mode || loadSessionOptMode(prevSessionKey) || previousOptMode || (liveSlot === "brain" ? "quality" : liveSlot === "medium" ? "vibemax" : "budget");
         if (restoreCandidate && restoreCandidate !== "vibelitex") {
-          writeSelection2("optimization_mode", restoreCandidate);
-          writeSelection2("previous_optimization_mode", null);
+          writeSelection("optimization_mode", restoreCandidate);
+          writeSelection("previous_optimization_mode", null);
           writeSessionOptMode(sid, restoreCandidate);
           writeSessionOptMode(prevSessionKey, "");
         }
@@ -11702,9 +11721,9 @@ async function _appendFooter(input, output, directory3) {
     const ltTotal = ltTasks + ltCache;
     const activeSlot = selNowFooter.active_slot || "brain";
     const optMode = (resolvedMode || "budget").toLowerCase();
-    const vibeBrand = resolveBrand(optModeFooter, activeSlot);
     const flashIcon = isApiConnected2() ? " \u26A1" : "";
-    const displayMode = selNowFooter?.optimization_mode || optMode || "auto";
+    const displayMode = resolvedMode || optModeFooter || optMode || selNowFooter?.optimization_mode || "auto";
+    const vibeBrand = resolveBrand(displayMode, activeSlot);
     const currentSubRegime = _latestBlackboxState?.sub_regime || classifyTurnSimple2(latestUserIntent || "");
     const vibeLine = buildFooterLine({
       activeSlot,
@@ -14668,7 +14687,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
       return hookVibeHome;
     },
     loadSelection,
-    writeSelection: writeSelection2,
+    writeSelection,
     loadCredit,
     thinkingLevel,
     readLifetimeSavings,

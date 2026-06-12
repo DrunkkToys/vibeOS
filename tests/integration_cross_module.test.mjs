@@ -3,6 +3,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
@@ -460,6 +461,141 @@ test('startup repair: empty tiers file is healed on reload and enforcement stays
   await hooks['shell.env']({}, envOut)
   assert.equal(envOut.env.OPENCODE_MODEL, 'deepseek/deepseek-v4-pro', 'live shell env uses repaired brain model')
   assert.equal(envOut.env.OPENCODE_MODEL_TIER, 'high', 'repaired boot still enforces brain tier')
+})
+
+test('reconnect repair: stale vibelitex footer state heals back to the live quality tier', async () => {
+  const { home, sandbox } = makeSandbox('reconnect-repair')
+  const projectDir = join(sandbox, 'proj')
+  mkdirSync(projectDir, { recursive: true })
+  writeFileSync(join(projectDir, 'opencode.json'), JSON.stringify({
+    model: 'deepseek/deepseek-v4-pro',
+    provider: {
+      deepseek: {
+        models: {
+          'deepseek-v4-pro': {},
+          'deepseek-v4-flash': {},
+          'deepseek-chat': {},
+        },
+      },
+    },
+  }, null, 2) + '\n')
+  writeFileSync(join(home, '.claude/model-tiers.json'), JSON.stringify({
+    selection: {
+      enabled: true,
+      active_slot: 'brain',
+      optimization_mode: 'vibelitex',
+      delegation_enforce: true,
+      flow_enabled: true,
+      tdd_enforce: false,
+      thinking_level: 'off',
+    },
+    trinity: {
+      brain: { oc: 'deepseek/deepseek-v4-pro', cc: 'deepseek-reasoner' },
+      medium: { oc: 'deepseek/deepseek-v4-flash', cc: 'haiku' },
+      cheap: { oc: 'deepseek/deepseek-chat', cc: 'haiku' },
+    },
+  }, null, 2) + '\n')
+  writeFileSync(join(home, '.claude/blackbox-state.json'), JSON.stringify({
+    enabled: true,
+    sessions: {},
+  }, null, 2) + '\n')
+
+  const script = `
+    import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
+    import { join } from "node:path";
+    const home = ${JSON.stringify(home)};
+    process.env.HOME = home;
+    process.env.VIBEOS_HOME = join(home, ".claude");
+    process.env.VIBEOS_OPENCODE_HOME = join(home, ".config/opencode");
+    process.env.VIBEOS_API_URL = "https://api.example.invalid";
+    process.env.VIBEOS_API_TOKEN = "vos_" + "c".repeat(64);
+    process.env.VIBEOS_API_ENABLED = "true";
+    mkdirSync(join(home, ".config/opencode"), { recursive: true });
+    const mod = await import("./src/index.js?reconnect-repair=" + Date.now());
+    const hooks = await mod.DelegationEnforcer({ directory: ${JSON.stringify(projectDir)} });
+    const out = { text: "This assistant response is long enough to trigger the footer after reconnect repair." };
+    await hooks["experimental.text.complete"]({ messageID: "reconnect-repair-1" }, out);
+    const tiers = JSON.parse(readFileSync(join(home, ".claude", "model-tiers.json"), "utf8"));
+    process.stdout.write(JSON.stringify({
+      text: out.text,
+      opt: tiers.selection.optimization_mode,
+      prev: tiers.selection.previous_optimization_mode ?? null,
+    }));
+  `
+
+  const raw = execFileSync(process.execPath, ["--input-type=module", "-e", script], {
+    env: { ...process.env, HOME: home },
+    encoding: 'utf-8',
+  }).trim()
+  const result = JSON.parse(raw)
+  assert.equal(result.opt, 'quality', 'live reconnect should heal the stale footer cache to quality')
+  assert.equal(result.prev, null, 'reconnect repair should clear the breadcrumb after recovery')
+  assert.ok(!String(result.text || '').includes('vibelitex'), 'footer output should stop advertising vibelitex after reconnect')
+})
+
+test('reconnect repair: fallback-latched stale vibelitex still heals to quality on boot', async () => {
+  const { home, sandbox } = makeSandbox('reconnect-repair-fallback')
+  const projectDir = join(sandbox, 'proj')
+  mkdirSync(projectDir, { recursive: true })
+  writeFileSync(join(projectDir, 'opencode.json'), JSON.stringify({
+    model: 'deepseek/deepseek-v4-pro',
+    provider: {
+      deepseek: {
+        models: {
+          'deepseek-v4-pro': {},
+          'deepseek-v4-flash': {},
+          'deepseek-chat': {},
+        },
+      },
+    },
+  }, null, 2) + '\n')
+  writeFileSync(join(home, '.claude/model-tiers.json'), JSON.stringify({
+    selection: {
+      enabled: true,
+      active_slot: 'brain',
+      optimization_mode: 'vibelitex',
+      previous_optimization_mode: null,
+      delegation_enforce: true,
+      flow_enabled: true,
+      tdd_enforce: false,
+      thinking_level: 'off',
+    },
+    trinity: {
+      brain: { oc: 'deepseek/deepseek-v4-pro', cc: 'deepseek-reasoner' },
+      medium: { oc: 'deepseek/deepseek-v4-flash', cc: 'haiku' },
+      cheap: { oc: 'deepseek/deepseek-chat', cc: 'haiku' },
+    },
+  }, null, 2) + '\n')
+
+  const script = `
+    import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
+    import { join } from "node:path";
+    const home = ${JSON.stringify(home)};
+    process.env.HOME = home;
+    process.env.VIBEOS_HOME = join(home, ".claude");
+    process.env.VIBEOS_OPENCODE_HOME = join(home, ".config/opencode");
+    process.env.VIBEOS_API_ENABLED = "false";
+    mkdirSync(join(home, ".config/opencode"), { recursive: true });
+    const mod = await import("./src/index.js?reconnect-repair-fallback=" + Date.now());
+    const hooks = await mod.DelegationEnforcer({ directory: ${JSON.stringify(projectDir)} });
+    const out = { text: "This assistant response is long enough to trigger the footer after reconnect repair." };
+    await hooks["experimental.text.complete"]({ messageID: "reconnect-repair-fallback-1" }, out);
+    const tiers = JSON.parse(readFileSync(join(home, ".claude", "model-tiers.json"), "utf8"));
+    process.stdout.write(JSON.stringify({
+      text: out.text,
+      opt: tiers.selection.optimization_mode,
+      prev: tiers.selection.previous_optimization_mode ?? null,
+    }));
+  `
+
+  const raw = execFileSync(process.execPath, ["--input-type=module", "-e", script], {
+    env: { ...process.env, HOME: home },
+    encoding: 'utf-8',
+  }).trim()
+  const result = JSON.parse(raw)
+  assert.equal(result.opt, 'quality', 'fallback-latched reconnect should still heal the stale mode to quality')
+  assert.equal(result.prev, null, 'fallback-latched recovery should clear the breadcrumb')
+  assert.ok(!String(result.text || '').includes('vibelitex'), 'footer output should not keep the stale vibelitex label')
 })
 
 // Section 8: WBP Protocol

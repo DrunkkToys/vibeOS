@@ -327,8 +327,10 @@ export function syncControlSettings(cv: any, options: { persistOptimizationMode?
       const previousOptMode = typeof currentSel.previous_optimization_mode === "string" ? currentSel.previous_optimization_mode : null
       const prevSessionKey = `${sid}_prev_opt`
       const sessionPreviousOptMode = loadSessionOptMode(prevSessionKey)
-      const restoreMode = sessionPreviousOptMode || previousOptMode
-      const canRestorePrevious = !isApiFallback() && !!restoreMode && cv.optimization_mode !== "vibelitex" && (previousOptMode !== null || sessionPreviousOptMode !== null)
+      const liveSlot = String(currentSel.active_slot || cv.tier_bias || "").toLowerCase()
+      const inferredRecoveryMode = liveSlot === "brain" ? "quality" : liveSlot === "medium" ? "vibemax" : "budget"
+      const restoreMode = sessionPreviousOptMode || previousOptMode || inferredRecoveryMode
+      const canRestorePrevious = !!restoreMode && cv.optimization_mode !== "vibelitex" && (previousOptMode !== null || sessionPreviousOptMode !== null)
 
       if (fallbackPinned) {
         if (currentSel.optimization_mode !== "vibelitex") {
@@ -389,10 +391,11 @@ export function syncControlSettings(cv: any, options: { persistOptimizationMode?
       } catch {}
     }
 
-    if (!isApiFallback() && cv.optimization_mode && cv.optimization_mode !== "vibelitex") {
+    if (cv.optimization_mode && cv.optimization_mode !== "vibelitex") {
       const finalSel = loadSelection()
       if (finalSel.optimization_mode === "vibelitex") {
-        const restoreCandidate = finalSel.previous_optimization_mode || loadSessionOptMode(prevSessionKey) || previousOptMode
+        const liveSlot = String(finalSel.active_slot || currentSel.active_slot || cv.tier_bias || "").toLowerCase()
+        const restoreCandidate = finalSel.previous_optimization_mode || loadSessionOptMode(prevSessionKey) || previousOptMode || (liveSlot === "brain" ? "quality" : liveSlot === "medium" ? "vibemax" : "budget")
         if (restoreCandidate && restoreCandidate !== "vibelitex") {
           writeSelection("optimization_mode", restoreCandidate)
           writeSelection("previous_optimization_mode", null)
