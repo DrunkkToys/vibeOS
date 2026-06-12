@@ -3,10 +3,11 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { pathToFileURL } from "node:url"
+import { _OC_SID } from "../src/lib/state.js"
 
 const turn = await import("../src/lib/turn-classify.js?agent-test=" + Date.now())
 
@@ -184,75 +185,153 @@ test("syncControlSettings restores a stuck startup plan agent from the latest Op
 
 test("syncControlSettings does not overwrite a pre-outage optimization mode with vibelitex fallback", async () => {
   const home = mkdtempSync(join(tmpdir(), "vib-opt-fallback-"))
-  const prevHome = process.env.HOME
-  const prevVibeHome = process.env.VIBEOS_HOME
-  const prevOCHome = process.env.VIBEOS_OPENCODE_HOME
-  const prevApiUrl = process.env.VIBEOS_API_URL
-  const prevApiToken = process.env.VIBEOS_API_TOKEN
-  process.env.HOME = home
-  process.env.VIBEOS_HOME = join(home, ".claude")
-  process.env.VIBEOS_OPENCODE_HOME = join(home, ".config/opencode")
-  process.env.VIBEOS_API_URL = "http://127.0.0.1:1"
-  process.env.VIBEOS_API_TOKEN = "vos_" + "a".repeat(64)
   try {
-    mkdirSync(join(home, ".config/opencode"), { recursive: true })
-    mkdirSync(join(home, ".claude"), { recursive: true })
-    writeFileSync(join(home, ".config/opencode/opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-pro" }, null, 2))
-    writeFileSync(join(home, ".claude/model-tiers.json"), JSON.stringify({
-      selection: {
-        enabled: true,
-        active_slot: "brain",
+    const script = `
+      import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
+      import { join } from "node:path";
+      import { tmpdir } from "node:os";
+      const home = ${JSON.stringify(home)};
+      process.env.HOME = home;
+      process.env.VIBEOS_HOME = join(home, ".claude");
+      process.env.VIBEOS_OPENCODE_HOME = join(home, ".config/opencode");
+      process.env.VIBEOS_API_URL = "http://127.0.0.1:1";
+      process.env.VIBEOS_API_TOKEN = "vos_" + "a".repeat(64);
+      mkdirSync(join(home, ".config/opencode"), { recursive: true });
+      mkdirSync(join(home, ".claude"), { recursive: true });
+      writeFileSync(join(home, ".config/opencode/opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-pro" }, null, 2));
+      writeFileSync(join(home, ".claude/model-tiers.json"), JSON.stringify({
+        selection: {
+          enabled: true,
+          active_slot: "brain",
+          optimization_mode: "quality",
+          delegation_enforce: true,
+          onboarding_mode: "strict",
+        },
+        trinity: {
+          brain: { oc: "deepseek/deepseek-v4-pro", cc: "deepseek-reasoner" },
+          medium: { oc: "deepseek/deepseek-v4-flash", cc: "haiku" },
+          cheap: { oc: "deepseek/deepseek-chat", cc: "haiku" },
+        },
+      }, null, 2));
+      const prevFetch = globalThis.fetch;
+      globalThis.fetch = async (url) => {
+        const u = String(url);
+        if (u.endsWith("/health")) throw new Error("simulated outage");
+        throw new Error("unexpected fetch " + u);
+      };
+      const api = await import("./src/lib/api-client.js");
+      const mod = await import("./src/lib/hooks/chat-transform.js");
+      const beforeFallback = await api.remoteCall("health", [], () => "fallback");
+      const fallbackActive = api.isApiFallback();
+      mod.syncControlSettings({
+        enforcement_mode: "normal",
+        flow_mode: "audit",
+        tdd_mode: "lazy",
+        thinking_mode: "brief",
+        tier_bias: "medium",
+        optimization_mode: "vibelitex",
+      });
+      const tiersAfterFallback = JSON.parse(readFileSync(join(home, ".claude/model-tiers.json"), "utf8"));
+      api.setApiToken("vos_" + "b".repeat(64));
+      const afterReset = api.isApiFallback();
+      mod.syncControlSettings({
+        enforcement_mode: "strict",
+        flow_mode: "strict",
+        tdd_mode: "strict",
+        thinking_mode: "full",
+        tier_bias: "brain",
         optimization_mode: "quality",
-        delegation_enforce: true,
-        onboarding_mode: "strict",
-      },
-      trinity: {
-        brain: { oc: "deepseek/deepseek-v4-pro", cc: "deepseek-reasoner" },
-        medium: { oc: "deepseek/deepseek-v4-flash", cc: "haiku" },
-        cheap: { oc: "deepseek/deepseek-chat", cc: "haiku" },
-      },
-    }, null, 2))
-
-    const api = await import("../src/lib/api-client.js?fallback-opt=" + Date.now())
-    const mod = await import("../src/lib/hooks/chat-transform.js?fallback-opt=" + Date.now())
-
-    await api.remoteCall("health", [], () => "fallback")
-    assert.equal(api.isApiFallback(), true, "API must be in fallback for the regression path")
-
-    mod.syncControlSettings({
-      enforcement_mode: "normal",
-      flow_mode: "audit",
-      tdd_mode: "lazy",
-      thinking_mode: "brief",
-      tier_bias: "medium",
-      optimization_mode: "vibelitex",
-    })
-
-    let tiers = JSON.parse(readFileSync(join(home, ".claude/model-tiers.json"), "utf8"))
-    assert.equal(tiers.selection.optimization_mode, "quality", "fallback must not overwrite the pre-outage mode")
-
-    api.setApiToken("vos_" + "b".repeat(64))
-    assert.equal(api.isApiFallback(), false, "fallback clears after token reset")
-
-    mod.syncControlSettings({
-      enforcement_mode: "strict",
-      flow_mode: "strict",
-      tdd_mode: "strict",
-      thinking_mode: "full",
-      tier_bias: "brain",
-      optimization_mode: "quality",
-    })
-
-    tiers = JSON.parse(readFileSync(join(home, ".claude/model-tiers.json"), "utf8"))
-    assert.equal(tiers.selection.optimization_mode, "quality", "recovered session should still resolve back to the pre-outage mode")
+      });
+      const tiersAfterRecovery = JSON.parse(readFileSync(join(home, ".claude/model-tiers.json"), "utf8"));
+      globalThis.fetch = prevFetch;
+      process.stdout.write(JSON.stringify({
+        beforeFallback,
+        fallbackActive,
+        afterReset,
+        tiersAfterFallback,
+        tiersAfterRecovery,
+      }));
+    `;
+    const raw = execFileSync(process.execPath, ["--input-type=module", "-e", script], {
+      env: { ...process.env, HOME: home },
+      encoding: "utf8",
+    }).trim()
+    const result = JSON.parse(raw)
+    assert.equal(result.beforeFallback, "fallback", "dead API should return the fallback payload")
+    assert.equal(result.fallbackActive, true, "API must be in fallback for the regression path")
+    assert.equal(result.tiersAfterFallback.selection.optimization_mode, "quality", "fallback must not overwrite the pre-outage mode")
+    assert.equal(result.afterReset, false, "fallback clears after token reset")
+    assert.equal(result.tiersAfterRecovery.selection.optimization_mode, "quality", "recovered session should still resolve back to the pre-outage mode")
   } finally {
-    process.env.HOME = prevHome
-    process.env.VIBEOS_HOME = prevVibeHome
-    process.env.VIBEOS_OPENCODE_HOME = prevOCHome
-    if (prevApiUrl === undefined) delete process.env.VIBEOS_API_URL
-    else process.env.VIBEOS_API_URL = prevApiUrl
-    if (prevApiToken === undefined) delete process.env.VIBEOS_API_TOKEN
-    else process.env.VIBEOS_API_TOKEN = prevApiToken
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test("syncControlSettings restores a stuck vibelitex optimization mode back to the prior mode after reconnect", async () => {
+  const home = mkdtempSync(join(tmpdir(), "vib-opt-restore-"))
+  try {
+    const script = `
+      import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
+      import { join } from "node:path";
+      const home = ${JSON.stringify(home)};
+      process.env.HOME = home;
+      process.env.VIBEOS_HOME = join(home, ".claude");
+      process.env.VIBEOS_OPENCODE_HOME = join(home, ".config/opencode");
+      process.env.VIBEOS_API_URL = "https://api.example.invalid";
+      process.env.VIBEOS_API_TOKEN = "vos_" + "b".repeat(64);
+      mkdirSync(join(home, ".config/opencode"), { recursive: true });
+      mkdirSync(join(home, ".claude"), { recursive: true });
+      writeFileSync(join(home, ".config/opencode/opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-pro" }, null, 2));
+      writeFileSync(join(home, ".claude/model-tiers.json"), JSON.stringify({
+        selection: {
+          enabled: true,
+          active_slot: "brain",
+          optimization_mode: "vibelitex",
+          previous_optimization_mode: "quality",
+          delegation_enforce: true,
+          onboarding_mode: "strict",
+        },
+        trinity: {
+          brain: { oc: "deepseek/deepseek-v4-pro", cc: "deepseek-reasoner" },
+          medium: { oc: "deepseek/deepseek-v4-flash", cc: "haiku" },
+          cheap: { oc: "deepseek/deepseek-chat", cc: "haiku" },
+        },
+      }, null, 2));
+      writeFileSync(join(home, ".claude/blackbox-state.json"), JSON.stringify({
+        enabled: true,
+        sessions: {
+          ${JSON.stringify(_OC_SID)}: { optimization_mode: "vibelitex" },
+        },
+      }, null, 2));
+      const api = await import("./src/lib/api-client.js");
+      const mod = await import("./src/lib/hooks/chat-transform.js");
+      const turn = await import("./src/lib/turn-classify.js");
+      api.setApiToken("vos_" + "c".repeat(64));
+      mod.syncControlSettings({
+        enforcement_mode: "strict",
+        flow_mode: "strict",
+        tdd_mode: "strict",
+        thinking_mode: "full",
+        tier_bias: "brain",
+        optimization_mode: "quality",
+      });
+      const tiers = JSON.parse(readFileSync(join(home, ".claude/model-tiers.json"), "utf8"));
+      process.stdout.write(JSON.stringify({
+        fallback: api.isApiFallback(),
+        resolved_optimization_mode: turn.loadOptimizationMode(),
+        optimization_mode: tiers.selection.optimization_mode,
+        previous_optimization_mode: tiers.selection.previous_optimization_mode ?? null,
+      }));
+    `;
+    const raw = execFileSync(process.execPath, ["--input-type=module", "-e", script], {
+      env: { ...process.env, HOME: home },
+      encoding: "utf8",
+    }).trim()
+    const result = JSON.parse(raw)
+    assert.equal(result.fallback, false, "reconnect should clear API fallback")
+    assert.equal(result.resolved_optimization_mode, "quality", "stuck vibelitex should resolve back to the previous optimization mode for the live footer")
+  } finally {
+    rmSync(home, { recursive: true, force: true })
   }
 })
 

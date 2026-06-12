@@ -6,7 +6,7 @@ import { homedir, tmpdir } from "node:os"
 import { createHash } from "node:crypto"
 import { ResolutionTracker } from "../vibeOS-lib/blackbox/index.js"
 import { safeJsonParse, _blackboxEnabled, setBlackboxEnabled as _setGlobalBlackboxEnabled, USER_HOME, FILE_LOCK_DIR, DELEGATION_STATE_FILE as STATE_FILE, GLOBAL_LEARNING_FILE, BLACKBOX_STATE_FILE, PROJECT_STATE_FILE, _OC_SID, currentProjectFingerprint, setCurrentProjectFingerprint, _handleStateCorruption, _lockPathFor, withFileLock, readJsonOrEmpty, validateState, loadBlackboxState, saveBlackboxState, loadGlobalLearning, updateGlobalLearning, getLearnedExploratoryWords, projectFingerprint, loadProjectState, saveProjectState, detectTechStack, ensureProjectBucket, recordMissedContext7, VIBEOS_HOME } from "./state.js"
-import { loadSessionOptMode, loadGlobalOptMode, saveGlobalOptMode, writeSessionOptMode, loadSessionSlot } from "./selection-manager.js"
+import { loadSelection, loadSessionOptMode, loadGlobalOptMode, saveGlobalOptMode, writeSessionOptMode, loadSessionSlot } from "./selection-manager.js"
 import { getApiClient, isApiFallback } from "./api-client.js"
 import { scoreStress, estimateContextBudget, classifyTurnSimple as _classifyTurnSimple, tokenizeWords, topKeywords, extractLastUserText, isUserAskingForTests, isLikelyOffTopic, detectOutcomeSignal } from "./classifiers.js"
 export { scoreStress, estimateContextBudget, tokenizeWords, topKeywords, extractLastUserText, isUserAskingForTests, isLikelyOffTopic, detectOutcomeSignal } from "./classifiers.js"
@@ -626,6 +626,18 @@ const DFLT_OPTIMIZATION_MODE = "budget"
 
 export function loadOptimizationMode(): string {
   try {
+    const sel = loadSelection()
+    const persistedMode = sel.optimization_mode || null
+    if (persistedMode === "vibelitex" && !isApiFallback()) {
+      const prevKey = `${_OC_SID}_prev_opt`
+      const recoveryMode = sel.previous_optimization_mode || loadSessionOptMode(prevKey)
+      if (recoveryMode && recoveryMode !== "vibelitex") {
+        try { writeSelection("previous_optimization_mode", null) } catch {}
+        try { writeSessionOptMode(_OC_SID, recoveryMode) } catch {}
+        try { writeSessionOptMode(prevKey, "") } catch {}
+        return recoveryMode
+      }
+    }
     const mode = loadSessionOptMode(_OC_SID)
     if (mode && mode !== "auto") return mode
     const global = loadGlobalOptMode()

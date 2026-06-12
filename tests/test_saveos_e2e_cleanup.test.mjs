@@ -637,7 +637,7 @@ test("saveOS API: embedded alpha token is valid on install", async () => {
     process.env.VIBEOS_API_TOKEN = ""
     process.env.VIBEOS_API_ENABLED = "true"
     const mod = await import(${JSON.stringify(apiUrl)} + "?install=" + Date.now())
-    const token = String(mod.VIBEOS_API_TOKEN || "")
+    const token = String(mod.VIBEOS_API_TOKEN || mod.VIBEOS_API_BOOTSTRAP_TOKEN || "")
     const client = mod.getApiClient()
     let probeOk = false
     try {
@@ -646,6 +646,8 @@ test("saveOS API: embedded alpha token is valid on install", async () => {
     } catch {}
     process.stdout.write(JSON.stringify({
       token,
+      directToken: String(mod.VIBEOS_API_TOKEN || ""),
+      bootstrapToken: String(mod.VIBEOS_API_BOOTSTRAP_TOKEN || ""),
       valid: /^vos_[a-f0-9]{64}$/i.test(token),
       placeholder: token === "your_token_here",
       probeOk,
@@ -655,6 +657,8 @@ test("saveOS API: embedded alpha token is valid on install", async () => {
     env: {
       ...process.env,
       HOME: sandbox,
+      VIBEOS_API_DISABLED: "",
+      VIBEOS_API_BOOTSTRAP_TOKEN: "",
       VIBEOS_API_TOKEN: "",
       VIBEOS_API_ENABLED: "true",
     },

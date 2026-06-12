@@ -323,9 +323,26 @@ export function syncControlSettings(cv: any, options: { persistOptimizationMode?
     }
 
     if (persistOptimizationMode && cv.optimization_mode && userOptMode !== "auto") {
-      const fallbackPinned = isApiFallback() && cv.optimization_mode === "vibelitex" && currentSel.optimization_mode !== "vibelitex"
-      if (!fallbackPinned && userOptMode !== cv.optimization_mode) {
+      const fallbackPinned = isApiFallback() && cv.optimization_mode === "vibelitex"
+      const previousOptMode = typeof currentSel.previous_optimization_mode === "string" ? currentSel.previous_optimization_mode : null
+      const prevSessionKey = `${sid}_prev_opt`
+      const sessionPreviousOptMode = loadSessionOptMode(prevSessionKey)
+      const restoreMode = sessionPreviousOptMode || previousOptMode
+      const canRestorePrevious = !isApiFallback() && !!restoreMode && cv.optimization_mode !== "vibelitex" && (previousOptMode !== null || sessionPreviousOptMode !== null)
+
+      if (fallbackPinned) {
+        if (currentSel.optimization_mode !== "vibelitex") {
+          writeIf("previous_optimization_mode", currentSel.optimization_mode)
+          writeSessionOptMode(prevSessionKey, currentSel.optimization_mode || "")
+        }
+      } else if (canRestorePrevious) {
+        writeIf("optimization_mode", restoreMode)
+        writeIf("previous_optimization_mode", null)
+        writeSessionOptMode(sid, restoreMode)
+        writeSessionOptMode(prevSessionKey, "")
+      } else if (userOptMode !== cv.optimization_mode) {
         writeIf("optimization_mode", cv.optimization_mode)
+        if (previousOptMode) writeIf("previous_optimization_mode", null)
       }
     }
 
@@ -370,6 +387,19 @@ export function syncControlSettings(cv: any, options: { persistOptimizationMode?
           }
         }
       } catch {}
+    }
+
+    if (!isApiFallback() && cv.optimization_mode && cv.optimization_mode !== "vibelitex") {
+      const finalSel = loadSelection()
+      if (finalSel.optimization_mode === "vibelitex") {
+        const restoreCandidate = finalSel.previous_optimization_mode || loadSessionOptMode(prevSessionKey) || previousOptMode
+        if (restoreCandidate && restoreCandidate !== "vibelitex") {
+          writeSelection("optimization_mode", restoreCandidate)
+          writeSelection("previous_optimization_mode", null)
+          writeSessionOptMode(sid, restoreCandidate)
+          writeSessionOptMode(prevSessionKey, "")
+        }
+      }
     }
   } catch { /* noop -- non-critical sync */ }
 }

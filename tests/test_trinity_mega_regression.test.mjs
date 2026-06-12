@@ -246,6 +246,41 @@ test("rebuild survives", async () => {
   }
 })
 
+test("rebuild preserves manual trinity slots and only refreshes auto slots", async () => {
+  setTiers("legacy-brain", "legacy-medium", "legacy-cheap")
+  const tiersPath = join(sandbox, ".claude/model-tiers.json")
+  const tiers = JSON.parse(readFileSync(tiersPath, "utf8"))
+  tiers.trinity.medium.manual = true
+  tiers.trinity.cheap.manual = true
+  tiers.selection.selected_model = "deepseek/deepseek-v4-pro"
+  tiers.selection.executed_model = "deepseek/deepseek-v4-pro"
+  writeFileSync(tiersPath, JSON.stringify(tiers, null, 2) + "\n")
+
+  const ocPath = join(sandbox, ".opencode/opencode.json")
+  writeFileSync(ocPath, JSON.stringify({
+    model: "deepseek/deepseek-v4-pro",
+    provider: {
+      deepseek: {
+        models: {
+          "deepseek-v4-pro": { name: "DeepSeek V4 Pro" },
+          "deepseek-v4-flash": { name: "DeepSeek V4 Flash" },
+          "deepseek-chat": { name: "DeepSeek Chat" },
+        },
+      },
+    },
+  }, null, 2))
+
+  const result = await (await getHooks()).tool.trinity.execute({ action: "rebuild" })
+  assert.ok(typeof result === "string" && result.length > 0, "rebuild should return a status string")
+
+  const after = JSON.parse(readFileSync(tiersPath, "utf8"))
+  assert.equal(after.trinity.medium.manual, true, "manual medium slot should survive rebuild")
+  assert.equal(after.trinity.cheap.manual, true, "manual cheap slot should survive rebuild")
+  assert.equal(after.trinity.medium.oc, "legacy-medium", "manual medium slot should not be replaced")
+  assert.equal(after.trinity.cheap.oc, "legacy-cheap", "manual cheap slot should not be replaced")
+  assert.ok(after.trinity.brain.oc, "brain slot should still be populated after rebuild")
+})
+
 test("guard creates project docs on first run", async () => {
   const projectDir = join(sandbox, "guard-project")
   mkdirSync(projectDir, { recursive: true })
