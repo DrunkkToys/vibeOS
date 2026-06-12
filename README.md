@@ -104,7 +104,7 @@ Benchmarked on 1000 simulated questions across 20 runs, using model accuracies f
 | **Flow enforcer** | Pattern-rule checks on write/edit. Extracts TODO/FIXME into append-only queue. |
 | **TDD enforcer** | Auto-creates test skeletons for changed source. Strict mode: TODO tests fail. |
 | **Pattern learner** | Tracks recurring struggle/routine patterns per project. |
-| **VibeBoX** | 7 sub-regimes, 11 features per turn, 4 loop intervention levels, PIVOT/SWITCH detection. Auto-mode maps regime to optimization mode. |
+| **VibeBoX** | 7 canonical sub-regimes plus promoted ML/runtime regimes (IMPLEMENTING, RESEARCH, REVIEWING, DESIGNING, AUDIT, FORENSIC), 11 features per turn, 4 loop intervention levels, PIVOT/SWITCH detection. Auto-mode maps regime to optimization mode. |
 | **Stress-aware routing** | Stress gauge in footer. Stress > 1.5 escalates to quality mode. |
 | **Cache savings** | Separate cache_savings_usd tracking for scratchpad cache hits. |
 | **Report tools** | report-save, report-list, report-read, research-audit. |
@@ -238,15 +238,20 @@ When the remote API is unreachable, the plugin degrades gracefully to rule-based
 
 ### VibeBoX Decision Engine
 
-7 sub-regimes (INIT, DIVERGENT, EXPLORING, REFINING, CONVERGING, CLOSED, LOOPING). Classification via entropy trends, action consistency, feature contradiction, embedding drift. 11 derived features per turn. 4 loop intervention levels. PIVOT/SWITCH detection. Outcome tracking from satisfaction signals.
+Canonical blackbox core: 7 sub-regimes (INIT, DIVERGENT, EXPLORING, REFINING, CONVERGING, CLOSED, LOOPING). The runtime and ML layers also surface promoted regime tags for real workflow signals: IMPLEMENTING, RESEARCH, REVIEWING, DESIGNING, AUDIT, and FORENSIC. Classification uses entropy trends, action consistency, feature contradiction, and embedding drift. 11 derived features per turn. 4 loop intervention levels. PIVOT/SWITCH detection. Outcome tracking from satisfaction signals.
 
 Regime -> mode mapping via syncControlSettings():
 
 | Regime | Mode | Enforce | Flow | TDD | Tier | Think |
 |--------|------|---------|------|-----|------|-------|
 | INIT / DIVERGENT / EXPLORING / REFINING | vibemax (default) | relaxed | audit | lazy | cheap | off |
+| IMPLEMENTING | quality | strict | strict | quality | brain | full |
+| RESEARCH / DESIGNING | longrun | relaxed | audit | lazy | medium | off |
+| REVIEWING | audit | relaxed | audit | lazy | medium | brief |
 | CONVERGING / CLOSED | quality | strict | strict | quality | brain | full |
 | LOOPING | speed | relaxed | audit | lazy | medium | off |
+| AUDIT | audit | relaxed | audit | lazy | medium | brief |
+| FORENSIC | forensic | relaxed | audit | lazy | medium | full |
 
 Stress > 1.5 escalates any regime to quality.
 

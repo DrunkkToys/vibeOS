@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, statSync, readdirSync, copyFileSync } from "node:fs"
 import { join, dirname, basename } from "node:path"
-import { classify, modelCostPerTurn, _refreshModel, readConfig, resolveDisplayModelId, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, roundUsd, formatUsd, resolveExecutionIdentity, modelDisplayName } from "../pricing.js"
+import { classify, modelCostPerTurn, _refreshModel, readConfig, resolveTrinityDisplayModel, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, roundUsd, formatUsd, resolveExecutionIdentity, modelDisplayName } from "../pricing.js"
 import { latestUserIntent } from "./chat-transform.js"
 import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, classifyTurnSimple, autoSelectMode, loadOptimizationMode } from "../turn-classify.js"
 import { recordBudgetFirstOutcome } from "../mode-policy.js"
@@ -196,13 +196,13 @@ async function _appendFooter(input, output, directory) {
     if (!liveModel) {
       liveModel = readConfig(directory) || readConfig(join(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || ""
     }
-    const displayModel = resolveDisplayModelId(liveModel || brainModel || currentModel || "", directory) || liveModel || brainModel || currentModel
+    const displayModel = resolveTrinityDisplayModel(directory, slot, liveModel, currentModel) || brainModel || liveModel || currentModel
     const resolvedModel = displayModel || liveModel || brainModel || currentModel || ""
     if (resolvedModel && resolvedModel !== currentModel) {
       setCurrentModel(resolvedModel)
       setCurrentTier(classify(resolvedModel))
     }
-    const execution = resolveExecutionIdentity(input?.args?.model || resolvedModel || "", directory)
+    const execution = resolveExecutionIdentity(displayModel || resolvedModel || "", directory)
     let modelTag = `[${shortModelName(displayModel)}]`
     const _workerModel = slot === "brain" ? TRINITY_MEDIUM : null
     const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0)

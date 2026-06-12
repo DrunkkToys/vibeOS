@@ -17,14 +17,15 @@ const prevHome = process.env.HOME
 process.env.HOME = sandbox
 
 function writeTiers(overrides = {}) {
+    const { trinity = null, ...selectionOverrides } = overrides
     writeFileSync(join(sandbox, ".claude", "model-tiers.json"), JSON.stringify({
         selection: {
             enabled: true, active_slot: "brain", onboarding_mode: "strict",
             optimization_mode: "vibeqmax", vector_changed_slot: "cheap",
             delegation_enforce: true, flow_enforce: true, tdd_enforce: true, tdd_strict: false,
-            ...overrides
+            ...selectionOverrides
         },
-        trinity: { brain: { oc: "deepseek/v4-pro" }, medium: { oc: "deepseek/v4-flash" }, cheap: { oc: "deepseek/v4-flash" } }
+        trinity: trinity || { brain: { oc: "deepseek/v4-pro" }, medium: { oc: "deepseek/v4-flash" }, cheap: { oc: "deepseek/v4-flash" } }
     }))
 }
 
@@ -117,4 +118,30 @@ test("footer: 'hi' stays quiet instead of inheriting quality/guarded state", asy
     const footer = o.text.split("\n").pop() || ""
     assert.ok(footer.includes("Budget"), "greeting footer should follow INIT regime mode label: " + footer)
     assert.ok(!footer.includes("quality"), "greeting footer should not inherit quality: " + footer)
+})
+
+test("footer: active brain slot beats stale OpenCode model config", async () => {
+    writeFileSync(join(sandbox, ".config", "opencode", "opencode.json"), JSON.stringify({
+        model: "deepseek/deepseek-v4-flash",
+        plugin: ["vibeOS"]
+    }))
+    writeTiers({
+        active_slot: "brain",
+        optimization_mode: "quality",
+        delegation_enforce: true,
+        flow_enforce: true,
+        tdd_enforce: true,
+        vector_changed_slot: undefined,
+        trinity: {
+            brain: { oc: "anthropic/claude-opus-4-7" },
+            medium: { oc: "deepseek/deepseek-v4-flash" },
+            cheap: { oc: "deepseek/deepseek-chat" },
+        },
+    })
+    const { _appendFooter } = await import("../src/lib/hooks/footer.js?ftr8=" + Date.now())
+    const o = { text: "This response is long enough to trigger the footer and must reflect the active brain slot, not the stale config model." }
+    await _appendFooter({ args: { model: "deepseek/deepseek-v4-flash" } }, o)
+    const footer = o.text.split("\n").pop() || ""
+    assert.ok(footer.includes("Anthropic") || footer.includes("Opus"), "footer should show the brain model: " + footer)
+    assert.ok(!footer.includes("Deepseek"), "footer should not show the stale config model: " + footer)
 })

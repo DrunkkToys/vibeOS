@@ -5290,6 +5290,12 @@ function resolveExecutionIdentity(modelId, directory3 = "") {
     model_label: shortModelName(resolved || raw)
   };
 }
+function resolveTrinityDisplayModel(directory3 = "", activeSlot = "", liveModel = "", currentModelId = "") {
+  const slot = String(activeSlot || "").trim();
+  const slotModel = slot === "brain" ? TRINITY_BRAIN || "" : slot === "medium" ? TRINITY_MEDIUM || "" : slot === "cheap" ? TRINITY_CHEAP || "" : "";
+  const raw = [slotModel, liveModel, currentModelId].map((value) => String(value || "").trim()).find(Boolean) || "";
+  return resolveDisplayModelId(raw, directory3) || raw;
+}
 function _providerOfModel(modelId, fallbackProvider = "") {
   const provider = getModelProvider(modelId);
   return provider || String(fallbackProvider || "").trim();
@@ -11856,13 +11862,13 @@ async function _appendFooter(input, output, directory3) {
     if (!liveModel) {
       liveModel = readConfig(directory3) || readConfig(join15(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || "";
     }
-    const displayModel = resolveDisplayModelId(liveModel || brainModel || currentModel || "", directory3) || liveModel || brainModel || currentModel;
+    const displayModel = resolveTrinityDisplayModel(directory3, slot, liveModel, currentModel) || brainModel || liveModel || currentModel;
     const resolvedModel = displayModel || liveModel || brainModel || currentModel || "";
     if (resolvedModel && resolvedModel !== currentModel) {
       setCurrentModel(resolvedModel);
       setCurrentTier(classify(resolvedModel));
     }
-    const execution = resolveExecutionIdentity(input?.args?.model || resolvedModel || "", directory3);
+    const execution = resolveExecutionIdentity(displayModel || resolvedModel || "", directory3);
     let modelTag = `[${shortModelName(displayModel)}]`;
     const _workerModel = slot === "brain" ? TRINITY_MEDIUM : null;
     const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0);
@@ -14008,13 +14014,13 @@ var onToolExecuteAfter = async (input, output) => {
       if (!liveModel) {
         liveModel = readConfig(projectDirectory) || readConfig(join17(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || "";
       }
-      const displayModel = resolveDisplayModelId(liveModel || currentModel || "", projectDirectory) || liveModel || currentModel;
+      const displayModel = resolveTrinityDisplayModel(projectDirectory, selNow.active_slot || "", liveModel, currentModel) || liveModel || currentModel;
       const resolvedModel = displayModel || liveModel || currentModel || "";
       if (resolvedModel && resolvedModel !== currentModel) {
         setCurrentModel(resolvedModel);
         setCurrentTier(classify(resolvedModel));
       }
-      const execution = resolveExecutionIdentity(input?.args?.model || resolvedModel || "", projectDirectory);
+      const execution = resolveExecutionIdentity(displayModel || resolvedModel || "", projectDirectory);
       const currentSid = _OC_SID;
       const currentSubRegime = loadBlackboxState()?.sessions?.[currentSid]?.sub_regime || classifyTurnSimple2(latestUserIntent || "");
       const bbMode = resolveEnforcementMode();

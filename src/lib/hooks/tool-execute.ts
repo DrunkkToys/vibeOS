@@ -28,7 +28,7 @@ import {
 } from "../state.js"
 import {
   classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget,
-  shortModelName, formatUsd, _refreshModel, readConfig, resolveDisplayModelId, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN,
+  shortModelName, formatUsd, _refreshModel, readConfig, resolveTrinityDisplayModel, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN,
   cacheSavePer1MInputTokens,
   trendDisplay, modelToSlotLabel, resolveExecutionIdentity, formatProviderName, formatQualityName, modelDisplayName,
 } from "../pricing.js"
@@ -721,13 +721,13 @@ export const onToolExecuteAfter = async (input, output) => {
       if (!liveModel) {
         liveModel = readConfig(projectDirectory) || readConfig(join(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || ""
       }
-      const displayModel = resolveDisplayModelId(liveModel || currentModel || "", projectDirectory) || liveModel || currentModel
+      const displayModel = resolveTrinityDisplayModel(projectDirectory, selNow.active_slot || "", liveModel, currentModel) || liveModel || currentModel
       const resolvedModel = displayModel || liveModel || currentModel || ""
       if (resolvedModel && resolvedModel !== currentModel) {
         setCurrentModel(resolvedModel)
         setCurrentTier(classify(resolvedModel))
       }
-      const execution = resolveExecutionIdentity(input?.args?.model || resolvedModel || "", projectDirectory)
+      const execution = resolveExecutionIdentity(displayModel || resolvedModel || "", projectDirectory)
       const currentSid = _OC_SID
       const currentSubRegime = loadBlackboxState()?.sessions?.[currentSid]?.sub_regime || classifyTurnSimple(latestUserIntent || "")
       const bbMode = resolveEnforcementMode()
