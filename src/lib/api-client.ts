@@ -526,7 +526,9 @@ export class VibeOSApiClient {
   }
 
   async health(): Promise<unknown> {
-    return this.request("/health", null, false)
+    const result = await this.request("/health", null, false)
+    recordBackendVersion(result)
+    return result
   }
 
   isFallback(): boolean {
@@ -678,6 +680,13 @@ let _apiFallbackMode = false
 let _apiFallbackSince = null
 let _bootstrapExchangeInFlight: Promise<boolean> | null = null
 let _bootstrapExchangeFailedAt = 0
+let _backendVersion = ""
+
+function recordBackendVersion(payload: unknown): void {
+  if (!payload || typeof payload !== "object") return
+  const version = String((payload as { version?: unknown }).version || "").trim()
+  if (version) _backendVersion = version
+}
 
 export async function ensureBootstrapExchange(): Promise<boolean> {
   syncApiTokenFromDisk()
@@ -789,6 +798,10 @@ export function isApiConnected() {
   return isRuntimeApiConnected() && VIBEOS_API_ENABLED && !_apiFallbackMode
 }
 
+export function getBackendVersion(): string {
+  return _backendVersion
+}
+
 export async function remoteCall(method, args, fallbackFn) {
   syncApiTokenFromDisk()
   if (!VIBEOS_API_TOKEN && VIBEOS_API_BOOTSTRAP_TOKEN) {
@@ -813,6 +826,7 @@ export async function remoteCall(method, args, fallbackFn) {
     const client = getApiClient()
     if (!client) { if (fallbackFn) return fallbackFn(); return null }
     const result = await client[method](...args)
+    if (method === "health") recordBackendVersion(result)
     if (_apiFallbackMode) {
       _apiFallbackMode = false
       _apiFallbackSince = null

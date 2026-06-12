@@ -46,6 +46,7 @@ test("buildStatusPayload assembles dashboard state from injected inputs", () => 
     todos: { total: 2, pending: 1 },
     backend_connected: false,
     backend_health_url: null,
+    backend_version: null,
     api_fallback: false,
     api_fallback_since: null,
     model_locked: false,

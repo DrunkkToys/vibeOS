@@ -37,6 +37,7 @@ export function buildStatusPayload({
   todos,
   backendConnected,
   backendHealthUrl,
+  backendVersion,
   apiFallbackMode,
   apiFallbackSince,
   modelLocked,
@@ -52,6 +53,7 @@ export function buildStatusPayload({
   fallbackThinking?: string
   backendConnected?: boolean
   backendHealthUrl?: string | null
+  backendVersion?: string | null
   apiFallbackMode?: boolean
   apiFallbackSince?: string | null
   modelLocked?: boolean
@@ -84,6 +86,7 @@ export function buildStatusPayload({
     todos: { total: totalTodos, pending: pendingTodos },
     backend_connected: Boolean(backendConnected),
     backend_health_url: backendHealthUrl || null,
+    backend_version: backendVersion || null,
     api_fallback: Boolean(apiFallbackMode),
     api_fallback_since: apiFallbackSince || null,
     model_locked: lockActive,

@@ -197,3 +197,54 @@ test("embedded bootstrap token stays in bootstrap lane and exchanges before remo
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test("health responses cache the backend version for status surfaces", async () => {
+  stamp++
+  const home = mkdtempSync(join(tmpdir(), `vibeos-health-${stamp}-`))
+  sandboxes.push(home)
+  mkdirSync(join(home, ".claude"), { recursive: true })
+
+  const env = process.env
+  const snap = {
+    HOME: env.HOME,
+    VIBEOS_API_URL: env.VIBEOS_API_URL,
+    VIBEOS_API_DISABLED: env.VIBEOS_API_DISABLED,
+    VIBEOS_API_TOKEN: env.VIBEOS_API_TOKEN,
+    VIBEOS_MCP_PORT: env.VIBEOS_MCP_PORT,
+  }
+
+  env.HOME = home
+  env.VIBEOS_API_URL = "https://api.example.invalid"
+  delete env.VIBEOS_API_DISABLED
+  env.VIBEOS_API_TOKEN = "vos_" + "f".repeat(64)
+  env.VIBEOS_MCP_PORT = "0"
+  delete globalThis.__vibeOSRuntimeState
+
+  const prevFetch = global.fetch
+  global.fetch = async (url) => {
+    if (String(url).endsWith("/health")) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ status: "ok", version: "1.0.29" }),
+      }
+    }
+    throw new Error("unexpected fetch " + url)
+  }
+
+  try {
+    const api = await import(`../src/lib/api-client.js?r=health-${stamp}`)
+    const client = new api.VibeOSApiClient({
+      baseUrl: "https://api.example.invalid",
+      apiToken: "vos_" + "f".repeat(64),
+      timeout: 1000,
+    })
+    const health = await client.health()
+    assert.deepEqual(health, { status: "ok", version: "1.0.29" })
+    assert.equal(api.getBackendVersion(), "1.0.29", "backend version should be cached after health probe")
+  } finally {
+    global.fetch = prevFetch
+    await restore({ snap })
+    rmSync(home, { recursive: true, force: true })
+  }
+})

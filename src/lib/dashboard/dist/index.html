@@ -305,6 +305,7 @@ function renderBackendInfo(s) {
   const el = document.getElementById('backendInfo');
   el.innerHTML = `
     <div class="row"><span class="label">Connected</span><span class="value ${s.backend_connected ? 'green' : 'red'}">${s.backend_connected ? 'Yes' : 'No'}</span></div>
+    <div class="row"><span class="label">Backend Version</span><span class="value">${s.backend_version || '-'}</span></div>
     <div class="row"><span class="label">Health URL</span><span class="value" style="font-size:12px">${s.backend_health_url || '-'}</span></div>
   `;
 }

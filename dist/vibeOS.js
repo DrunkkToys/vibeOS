@@ -2595,7 +2595,9 @@ var VibeOSApiClient = class {
     return this.request("/admin/usage?days=" + days, null, true);
   }
   async health() {
-    return this.request("/health", null, false);
+    const result = await this.request("/health", null, false);
+    recordBackendVersion(result);
+    return result;
   }
   isFallback() {
     return this.fallbackMode;
@@ -2740,6 +2742,14 @@ var _apiFallbackMode = false;
 var _apiFallbackSince = null;
 var _bootstrapExchangeInFlight = null;
 var _bootstrapExchangeFailedAt = 0;
+var _backendVersion = "";
+function recordBackendVersion(payload) {
+  if (!payload || typeof payload !== "object")
+    return;
+  const version = String(payload.version || "").trim();
+  if (version)
+    _backendVersion = version;
+}
 async function ensureBootstrapExchange() {
   syncApiTokenFromDisk();
   if (VIBEOS_API_DISABLED)
@@ -2848,6 +2858,9 @@ function isApiFallback2() {
 function isApiConnected2() {
   return isApiConnected() && VIBEOS_API_ENABLED && !_apiFallbackMode;
 }
+function getBackendVersion() {
+  return _backendVersion;
+}
 async function remoteCall(method, args, fallbackFn) {
   syncApiTokenFromDisk();
   if (!VIBEOS_API_TOKEN && VIBEOS_API_BOOTSTRAP_TOKEN) {
@@ -2874,6 +2887,8 @@ async function remoteCall(method, args, fallbackFn) {
       return null;
     }
     const result = await client2[method](...args);
+    if (method === "health")
+      recordBackendVersion(result);
     if (_apiFallbackMode) {
       _apiFallbackMode = false;
       _apiFallbackSince = null;
@@ -7918,7 +7933,7 @@ function researchAudit({ hours = 24, session: sessionFilter } = {}) {
 function normalizeTrend(trend) {
   return trend === "up" || trend === "down" ? trend : "flat";
 }
-function buildStatusPayload({ selection, tiersData, currentModel: currentModel3, creditPercent, version, todos, backendConnected, backendHealthUrl, apiFallbackMode, apiFallbackSince, modelLocked, lockedSlot, lockedModel }) {
+function buildStatusPayload({ selection, tiersData, currentModel: currentModel3, creditPercent, version, todos, backendConnected, backendHealthUrl, backendVersion, apiFallbackMode, apiFallbackSince, modelLocked, lockedSlot, lockedModel }) {
   const activeSlot = selection?.active_slot || "brain";
   const todoList = Array.isArray(todos) ? todos : [];
   const pendingTodos = todoList.filter((t) => t?.status === "pending").length;
@@ -7945,6 +7960,7 @@ function buildStatusPayload({ selection, tiersData, currentModel: currentModel3,
     todos: { total: totalTodos, pending: pendingTodos },
     backend_connected: Boolean(backendConnected),
     backend_health_url: backendHealthUrl || null,
+    backend_version: backendVersion || null,
     api_fallback: Boolean(apiFallbackMode),
     api_fallback_since: apiFallbackSince || null,
     model_locked: lockActive,
@@ -8863,6 +8879,7 @@ function createTrinityTool(deps) {
           `Model: ${activeSlot} (${tiers?.[activeSlot]?.oc || deps.currentModel || "(unset)"})`,
           `Provider: ${execution.provider_label}`,
           `Quality: ${execution.quality_label}`,
+          ...isApiConnected2() ? [`Backend: connected${getBackendVersion() ? ` (${getBackendVersion()})` : ""}`] : [`Backend: offline`],
           ...sel.requested_optimization_mode ? [`Requested mode: ${sel.requested_optimization_mode}`] : [],
           ...totalTurns > 0 ? [`Split: brain ${brainPct}% / worker ${workerPct}% (${totalTurns} total)`] : [],
           `Thinking: ${effectiveLevel}`,
@@ -15584,6 +15601,7 @@ ${report.narrative}`);
                 fallbackThinking: thinkingLevel(loadCredit()),
                 backendConnected: isApiConnected2(),
                 backendHealthUrl: `${VIBEOS_API_URL}/health`,
+                backendVersion: getBackendVersion(),
                 apiFallbackMode: isApiFallback2(),
                 apiFallbackSince: _apiFallbackSince2,
                 modelLocked: _modelLocked,

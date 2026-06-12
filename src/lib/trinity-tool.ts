@@ -3,7 +3,7 @@
 import { join, dirname } from "node:path"
 import { LABEL_MODES, buildDeterministicTrinity, formatProviderName, formatQualityName, resolveExecutionIdentity } from "./pricing.js"
 import { BRANDED_MODES, RUNTIME_MODES, resolveCascadeSlot } from "./mode-router.js"
-import { invalidateApiToken } from "./api-client.js"
+import { getBackendVersion, invalidateApiToken, isApiConnected } from "./api-client.js"
 
 // ── Named constants (magic number extraction) ────────────────────────
 const MIN_TOOL_BREAKDOWN_THRESHOLD = 0.005
@@ -166,6 +166,7 @@ export function createTrinityTool(deps) {
           `Model: ${activeSlot} (${tiers?.[activeSlot]?.oc || deps.currentModel || "(unset)"})`,
           `Provider: ${execution.provider_label}`,
           `Quality: ${execution.quality_label}`,
+          ...(isApiConnected() ? [`Backend: connected${getBackendVersion() ? ` (${getBackendVersion()})` : ""}`] : [`Backend: offline`]),
           ...(sel.requested_optimization_mode ? [`Requested mode: ${sel.requested_optimization_mode}`] : []),
           ...(totalTurns > 0 ? [`Split: brain ${brainPct}% / worker ${workerPct}% (${totalTurns} total)`] : []),
           `Thinking: ${effectiveLevel}`,
