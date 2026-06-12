@@ -353,6 +353,54 @@ test('footer alert chain: desktop message wrapper keeps tool warning and footer 
   assert.ok(desktopAssistantOut.message.text.includes('Vibe'), 'desktop wrapper footer still renders after the tool alert chain')
 })
 
+test('main pipeline: branded qmax request stays visible while ultrax still runs a real cascade', async () => {
+  const { home, sandbox } = makeSandbox('cascade-main')
+  const projectDir = join(sandbox, 'proj')
+  mkdirSync(projectDir, { recursive: true })
+  writeFileSync(join(projectDir, 'opencode.json'), JSON.stringify({
+    model: 'deepseek/deepseek-v4-pro',
+    provider: {
+      deepseek: {
+        models: {
+          'deepseek-v4-pro': {},
+          'deepseek-v4-flash': {},
+          'deepseek-chat': {},
+        },
+      },
+    },
+  }, null, 2) + '\n')
+  process.env.HOME = home
+
+  const mod = await import('../src/index.js?cascade-main=' + Date.now())
+  const hooks = await mod.DelegationEnforcer({ directory: projectDir })
+  const modeResult = await hooks.tool.trinity.execute({ action: 'mode', slot: 'vibeqmax' })
+  const status = await hooks.tool.trinity.execute({ action: 'status' })
+
+  const qmax = await import('../src/vibeOS-lib/blackbox/vibeqmax.js?cascade-main=' + Date.now())
+  const qmaxVector = qmax.vibeqmaxControlVector({
+    sub_regime: 'REFINING',
+    stress_multiplier: 0.2,
+    user_text: 'fix this broken error and write tests for the pipeline',
+  })
+
+  const ultrax = await import('../src/vibeOS-lib/blackbox/vibeultrax.js?cascade-main=' + Date.now())
+  const ultra = ultrax.vibeultraxPipeline({
+    user_text: 'implement a login form with validation and tests',
+  })
+
+  assert.match(modeResult, /Mode set to VIBEQMAX/i)
+  assert.match(modeResult, /Pipeline: brain/i)
+  assert.match(status, /Requested mode: vibeqmax/i)
+  assert.equal(qmaxVector.mode_root, 'vibeqmax')
+  assert.equal(qmaxVector.optimization_mode, 'vibeqmax')
+  assert.equal(qmaxVector.pipeline_root[0], 'brain')
+  assert.ok(String(qmaxVector.qmax_strategy || '').length > 0, 'qmax strategy is recorded')
+  assert.equal(ultra.mode_root, 'vibeultrax')
+  assert.deepEqual(ultra.pipeline, ['local', 'medium', 'brain'])
+  assert.equal(ultra.cascade_depth, 3)
+  assert.equal(ultra.ultrax_profile, 'deep')
+})
+
 test('reconnect recovery: stale vibelitex cache heals to live brain mode and footer follows', async () => {
   const { home, sandbox } = makeSandbox('recover-vibelitex')
   const projectDir = join(sandbox, 'proj')

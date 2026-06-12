@@ -10,7 +10,6 @@ import { tmpdir } from "node:os"
 import {
   buildFooterLine,
   buildEnforcementTags,
-  formatCostDeltaChip,
   formatEnforcementPulse,
   resolveBrand,
   resolveTierIcon,
@@ -232,7 +231,7 @@ test("footer: buildFooterLine format matches required pattern", () => {
   assert.ok(line.includes("◐ medium"))
   assert.ok(line.includes("| DeepSeek"))
   assert.ok(line.includes("| v4-flash"))
-  assert.ok(line.includes("| \u2197 $183.50"))
+  assert.ok(line.includes("| $183.50 saved \u2197"))
   assert.ok(line.includes("| VibeMaX \u26A1"))
   assert.ok(line.includes("Speed"))
   assert.ok(line.includes("guarded"))
@@ -281,7 +280,7 @@ test("footer: buildFooterLine with vibeqmax mode", () => {
   assert.ok(line.includes("\u26A1 cheap"))
   assert.ok(line.includes("| VibeQMaX"))
   assert.ok(line.includes("Quality"))
-  assert.ok(line.includes("\u2197 $42.00"))
+  assert.ok(line.includes("$42.00 saved \u2198"))
 })
 
 test("footer: buildFooterLine with vibemax mode on cheap slot", () => {
@@ -302,7 +301,7 @@ test("footer: buildFooterLine with vibemax mode on cheap slot", () => {
   assert.ok(line.includes("\u26A1 cheap"))
   assert.ok(line.includes("| VibeMaX"))
   assert.ok(line.includes("Budget"))
-  assert.ok(line.includes("\u2197 $99.99"))
+  assert.ok(line.includes("$99.99 saved"))
 })
 
 test("footer: buildFooterLine shows session slot when different", () => {
@@ -324,7 +323,7 @@ test("footer: buildFooterLine shows session slot when different", () => {
   assert.ok(line.includes("⟡ brain") || line.includes("\u27A1 brain"))
 })
 
-test("footer: buildFooterLine zero savings shows a neutral chip", () => {
+test("footer: buildFooterLine zero savings hides savings section", () => {
   const line = buildFooterLine({
     activeSlot: "medium",
     sessionSlot: "medium",
@@ -339,7 +338,8 @@ test("footer: buildFooterLine zero savings shows a neutral chip", () => {
     vectorChangedSlot: undefined,
   })
 
-  assert.ok(line.includes("\u2192"))
+  assert.ok(!line.includes("$"))
+  assert.ok(!line.includes("saved"))
 })
 
 test("footer: buildFooterLine auto mode omits mode text", () => {
@@ -440,15 +440,14 @@ test("footer: trendGlyph returns correct arrows", () => {
   assert.equal(trendGlyph(undefined), "\u2192")
 })
 
-test("footer: delta chips are compact and direction-aware", () => {
-  assert.equal(formatCostDeltaChip(0), "\u2192")
-  assert.equal(formatCostDeltaChip(-1), "\u2198 $1.00")
-  assert.equal(formatCostDeltaChip(NaN), "")
-  assert.equal(formatCostDeltaChip(Infinity), "")
-  assert.equal(formatCostDeltaChip(5.50), "\u2197 $5.50")
-  assert.equal(formatSavingsPulse(3.00, "down"), "\u2197 $3.00")
-  assert.equal(formatSavingsPulse(10.00, "stable"), "\u2197 $10.00")
-  assert.equal(formatSavingsPulse(10.00, "down"), "\u2197 $10.00")
+test("footer: formatSavingsPulse edge cases", () => {
+  assert.equal(formatSavingsPulse(0, "up"), "")
+  assert.equal(formatSavingsPulse(-1, "up"), "")
+  assert.equal(formatSavingsPulse(NaN, "up"), "")
+  assert.equal(formatSavingsPulse(Infinity, "up"), "")
+  assert.equal(formatSavingsPulse(5.50, "up"), "$5.50 saved \u2197")
+  assert.equal(formatSavingsPulse(3.00, "down"), "$3.00 saved \u2198")
+  assert.equal(formatSavingsPulse(10.00, "stable"), "$10.00 saved")
 })
 
 test("footer: formatVectorPulse edge cases", () => {

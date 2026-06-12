@@ -267,7 +267,6 @@ test('e2e: simulated full session hook sequence does not crash', async () => {
     assert.equal(toolFooterLine, textFooterLine, 'tool footer alert and live footer should share the same line format')
     const liveFooter = textOutput.text.slice(-200)
     assert.ok(liveFooter.includes('◐ medium') || liveFooter.includes('🧠 brain') || liveFooter.includes('⚡ cheap'), 'live footer should show the selected tier')
-    assert.ok(/[↗↘→]/.test(liveFooter), 'live footer should show the compact delta chip')
     if (selectionState.vector_changed_slot && selectionState.vector_changed_slot !== selectionState.active_slot) {
         assert.ok(liveFooter.includes(`⟡ ${selectionState.vector_changed_slot}`), 'live footer should show the vector pulse')
     }

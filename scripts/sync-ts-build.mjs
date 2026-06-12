@@ -38,6 +38,8 @@ const cleanupPaths = [
   join("src", "vibeOS-lib", "blackbox", "resolution-tracker.js"),
   join("src", "vibeOS-lib", "blackbox", "taxonomy.js"),
   join("src", "vibeOS-lib", "blackbox", "vibemax.js"),
+  join("src", "vibeOS-lib", "blackbox", "vibeqmax.js"),
+  join("src", "vibeOS-lib", "blackbox", "vibeultrax.js"),
   join("src", "vibeOS-lib", "blackbox", "pivot-cache.js"),
 ]
 

@@ -177,6 +177,18 @@ const REGIME_CONTROL = {
 }
 const DEFAULT_CONTROL = REGIME_CONTROL.EXPLORING
 const QUALITY_STRESS_THRESHOLD = 1.5
+function resolveModeRoot(mode) {
+  const normalized = String(mode || "").toLowerCase()
+  if (normalized === "vibeultrax") return { mode_root: "vibeultrax", mode_family: "cascade", cascade_depth: 3, pipeline_root: ["local", "medium", "brain"] }
+  if (normalized === "vibeqmax") return { mode_root: "vibeqmax", mode_family: "brain-ml", cascade_depth: 1, pipeline_root: ["brain"] }
+  if (normalized === "vibemax") return { mode_root: "vibemax", mode_family: "medium-ml", cascade_depth: 1, pipeline_root: ["medium"] }
+  if (normalized === "quality") return { mode_root: "quality", mode_family: "brain-runtime", cascade_depth: 1, pipeline_root: ["brain"] }
+  if (normalized === "speed") return { mode_root: "speed", mode_family: "medium-runtime", cascade_depth: 1, pipeline_root: ["medium"] }
+  if (normalized === "budget") return { mode_root: "budget", mode_family: "runtime", cascade_depth: 1, pipeline_root: ["cheap"] }
+  if (normalized === "longrun") return { mode_root: "longrun", mode_family: "runtime", cascade_depth: 1, pipeline_root: ["cheap"] }
+  if (normalized === "balanced") return { mode_root: "balanced", mode_family: "runtime", cascade_depth: 1, pipeline_root: ["cheap"] }
+  return { mode_root: normalized || "budget", mode_family: "runtime", cascade_depth: 1, pipeline_root: ["cheap"] }
+}
 const MODE_DELTAS = {
   balanced: {},
   budget: {
@@ -351,6 +363,7 @@ export function computeControlVector(state, action, optimizationMode) {
   }
   // Apply mode deltas on top of base (only for non-balanced modes)
   const delta = effectiveMode !== "balanced" ? (MODE_DELTAS[effectiveMode] || {}) : {}
+  const modeRoot = resolveModeRoot(effectiveMode)
   const overridden = {
     optimization_mode: effectiveMode,
     enforcement_mode: delta.enforcement_mode ?? base.enforcement_mode,
@@ -366,6 +379,10 @@ export function computeControlVector(state, action, optimizationMode) {
     stress_multiplier: delta.stress_multiplier ?? base.stress_multiplier,
     context7_urgency: delta.context7_urgency ?? base.context7_urgency,
     wbp_verbosity: delta.wbp_verbosity ?? base.wbp_verbosity,
+    mode_root: modeRoot.mode_root,
+    mode_family: modeRoot.mode_family,
+    cascade_depth: modeRoot.cascade_depth,
+    pipeline_root: modeRoot.pipeline_root,
   }
   const directives = buildDirectives(overridden, regime, state, action, effectiveMode)
   return {

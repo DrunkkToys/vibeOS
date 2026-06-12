@@ -1012,6 +1012,42 @@ test("v0.20.11 — vibemaxPipeline exports and runs without throwing", async () 
   assert.equal(r2.mode, "budget", "pivot should route to budget mode")
 })
 
+test("v0.20.11 — vibeultraxPipeline exports and keeps a three-stage cascade root", async () => {
+  const { vibeultraxPipeline, vibeultraxControlVector } =
+    await import("../src/vibeOS-lib/blackbox/vibeultrax.js?t=" + Date.now())
+
+  assert.equal(typeof vibeultraxPipeline, "function", "vibeultraxPipeline is a function")
+  assert.equal(typeof vibeultraxControlVector, "function", "vibeultraxControlVector is a function")
+
+  const cv = vibeultraxControlVector({ user_text: "implement a multi-step migration with rollback" })
+  assert.equal(cv.mode_root, "vibeultrax", "cascade root should stay distinct")
+  assert.equal(cv.cascade_depth, 3, "ultrax root should keep three stages")
+
+  const r = vibeultraxPipeline({ user_text: "implement a multi-step migration with rollback" })
+  assert.equal(r.mode, "vibeultrax", "pipeline should identify the ultrax mode")
+  assert.equal(r.cascade_depth, 3, "pipeline should preserve the three-stage cascade")
+  assert.ok(Array.isArray(r.pipeline) && r.pipeline.join(",") === "local,medium,brain", "pipeline should be the cascade root")
+})
+
+test("v0.20.11 — vibeqmax exports the experiment router strategy", async () => {
+  const { vibeqmaxSelectMode, vibeqmaxControlVector, predictVibeQMax } =
+    await import("../src/vibeOS-lib/blackbox/vibeqmax.js?t=" + Date.now())
+
+  assert.equal(typeof vibeqmaxSelectMode, "function", "vibeqmaxSelectMode is a function")
+  assert.equal(typeof vibeqmaxControlVector, "function", "vibeqmaxControlVector is a function")
+  assert.equal(typeof predictVibeQMax, "function", "predictVibeQMax is a function")
+
+  const audit = vibeqmaxSelectMode({ user_text: "audit auth.ts, middleware.ts, routes.ts, and app.ts for CSRF, XSS, authz, retry logic, logging gaps, and data leaks across the request path" })
+  assert.equal(audit.mode_root, "vibeqmax", "qmax should stay on its own root")
+  assert.equal(audit.qmax_strategy, "audit", "audit prompts should be classified as audit")
+  assert.equal(typeof audit.qmax_difficulty_score, "number", "audit prompts should report a numeric difficulty score")
+  assert.ok(audit.qmax_features?.fileMentions >= 1, "audit prompts should expose the feature bag that drives the router")
+
+  const prediction = predictVibeQMax({ user_text: "research this design and compare alternatives" })
+  assert.ok(["quality", "longrun"].includes(prediction.label), "prediction should use the experiment router strategy")
+  assert.ok(prediction.confidence >= 0 && prediction.confidence <= 1, "prediction confidence should be normalized")
+})
+
 // ── v0.20.11: PivotCache buildInjection produces useful output ──
 test("v0.20.11 — PivotCache buildInjection produces PIVOT BACK context", async () => {
   const { PivotCache } = await import("../src/vibeOS-lib/blackbox/pivot-cache.js?t=" + Date.now())

@@ -9,6 +9,8 @@ import { safeJsonParse, _blackboxEnabled, setBlackboxEnabled as _setGlobalBlackb
 import { loadSelection, loadSessionOptMode, loadGlobalOptMode, saveGlobalOptMode, writeSelection, writeSessionOptMode, loadSessionSlot } from "./selection-manager.js"
 import { getApiClient, isApiFallback } from "./api-client.js"
 import { scoreStress, estimateContextBudget, classifyTurnSimple as _classifyTurnSimple, tokenizeWords, topKeywords, extractLastUserText, isUserAskingForTests, isLikelyOffTopic, detectOutcomeSignal } from "./classifiers.js"
+import { vibeqmaxControlVector } from "../vibeOS-lib/blackbox/vibeqmax.js"
+import { vibeultraxControlVector } from "../vibeOS-lib/blackbox/vibeultrax.js"
 export { scoreStress, estimateContextBudget, tokenizeWords, topKeywords, extractLastUserText, isUserAskingForTests, isLikelyOffTopic, detectOutcomeSignal } from "./classifiers.js"
 
 export function classifyTurnSimple(userText: string): string {
@@ -123,6 +125,84 @@ function computeControlVector(
   _optimizationMode?: OptimizationMode,
 ): any {
   const mode = resolveOptimizationMode(_state?.sub_regime, _state?.latest_stress_multiplier, _optimizationMode)
+  const modeRoot = mode === "vibeultrax"
+    ? vibeultraxControlVector({
+      user_text: _state?.user_text || _state?.prompt || "",
+      stress_multiplier: _state?.latest_stress_multiplier ?? 0,
+      sub_regime: _state?.sub_regime || "INIT",
+    })
+    : mode === "vibeqmax"
+      ? { mode_root: "vibeqmax", mode_family: "brain-ml", cascade_depth: 1, pipeline_root: ["brain"] }
+      : mode === "vibemax"
+        ? { mode_root: "vibemax", mode_family: "medium-ml", cascade_depth: 1, pipeline_root: ["medium"] }
+        : mode === "quality"
+          ? { mode_root: "quality", mode_family: "brain-runtime", cascade_depth: 1, pipeline_root: ["brain"] }
+          : { mode_root: mode, mode_family: "runtime", cascade_depth: 1, pipeline_root: mode === "speed" ? ["medium"] : mode === "budget" || mode === "balanced" || mode === "longrun" ? ["cheap"] : ["cheap"] }
+  if (mode === "vibeqmax") {
+    const qmax = vibeqmaxControlVector({
+      sub_regime: _state?.sub_regime || "INIT",
+      stress_multiplier: _state?.latest_stress_multiplier ?? 0,
+      user_text: _state?.user_text || _state?.prompt || "",
+    })
+    return {
+      enforcement_mode: qmax.enforcement_mode,
+      enforcement_reason: `[optimize: vibeqmax] difficulty-driven brain root`,
+      flow_mode: qmax.flow_mode,
+      flow_focus: qmax.flow_focus || [],
+      tdd_mode: qmax.tdd_mode,
+      tdd_focus: qmax.tdd_focus || [],
+      tier_bias: qmax.tier_bias,
+      thinking_mode: qmax.thinking_mode,
+      stress_multiplier: qmax.stress_multiplier,
+      context7_urgency: qmax.context7_urgency,
+      wbp_verbosity: qmax.wbp_verbosity,
+      agent_mode: (String(_state?.sub_regime || "").toUpperCase() === "REFINING" || String(_state?.sub_regime || "").toUpperCase() === "CONVERGING" || String(_state?.sub_regime || "").toUpperCase() === "CLOSED") && Number(_state?.latest_stress_multiplier ?? 0) <= QUALITY_STRESS_THRESHOLD ? "plan" : undefined as any,
+      optimization_mode: "vibeqmax",
+      mode_root: qmax.mode_root,
+      mode_family: qmax.mode_family,
+      cascade_depth: qmax.cascade_depth || 1,
+      pipeline_root: qmax.pipeline_root || ["brain"],
+      qmax_strategy: qmax.qmax_strategy,
+      qmax_difficulty_score: qmax.qmax_difficulty_score,
+      qmax_difficulty_level: qmax.qmax_difficulty_level,
+      qmax_confidence: qmax.qmax_confidence,
+      qmax_source_prediction: qmax.qmax_strategy,
+      qmax_suggested_tier: qmax.qmax_suggested_tier,
+      qmax_features: qmax.qmax_features,
+      directives: [`[qmax root] Dedicated brain-ml root active for ${_state?.sub_regime || "INIT"}.`],
+    }
+  }
+  if (mode === "vibeultrax") {
+    const ultra = vibeultraxControlVector({
+      sub_regime: _state?.sub_regime || "INIT",
+      stress_multiplier: _state?.latest_stress_multiplier ?? 0,
+      user_text: _state?.user_text || _state?.prompt || "",
+    })
+    return {
+      enforcement_mode: ultra.enforcement_mode,
+      enforcement_reason: `[optimize: vibeultrax] cascade root`,
+      flow_mode: ultra.flow_mode,
+      flow_focus: [],
+      tdd_mode: ultra.tdd_mode,
+      tdd_focus: [],
+      tier_bias: ultra.tier_bias,
+      thinking_mode: ultra.thinking_mode,
+      stress_multiplier: ultra.stress_multiplier,
+      context7_urgency: ultra.context7_urgency,
+      wbp_verbosity: ultra.wbp_verbosity,
+      agent_mode: ultra.ultrax_profile === "deep" ? "plan" : undefined as any,
+      optimization_mode: "vibeultrax",
+      mode_root: ultra.mode_root,
+      mode_family: ultra.mode_family,
+      cascade_depth: ultra.cascade_depth,
+      pipeline_root: ultra.pipeline_root,
+      ultrax_profile: ultra.ultrax_profile,
+      ultrax_confidence: ultra.ultrax_confidence,
+      ultrax_reason: ultra.ultrax_reason,
+      ultrax_estimated_savings: ultra.ultrax_estimated_savings,
+      directives: [`[ultrax root] Dedicated cascade root active for ${_state?.sub_regime || "INIT"}.`],
+    }
+  }
   const isStrict = mode === "quality" || mode === "vibemax" || mode === "vibeqmax" || mode === "vibeultrax" || mode === "forensic" || mode === "audit"
   const isRelaxed = mode === "budget" || mode === "speed"
   const subRegime = _state?.sub_regime || "INIT"
@@ -148,6 +228,7 @@ function computeControlVector(
     wbp_verbosity: isStrict ? "verbose" : isRelaxed ? "minimal" : "normal",
     agent_mode: (subRegime === "REFINING" || subRegime === "CONVERGING" || subRegime === "CLOSED") && stress <= QUALITY_STRESS_THRESHOLD ? "plan" : undefined as any,
     optimization_mode: mode,
+    ...modeRoot,
     directives: isRelaxed && (subRegime === "EXPLORING" || subRegime === "INIT" || subRegime === "AUDIT" || subRegime === "FORENSIC" || subRegime === "LOOPING") ? [
       `[speed guard] VERIFY BEFORE ACT - Speed-oriented mode "${mode}" is active and user intent is ${subRegime}. Before modifying files or executing commands, first verify the current state. When a request is ambiguous between "check and report" vs "fix", always choose CHECK FIRST. Treat "look at", "check", "investigate", "tell me about" as requests for information, not action items.`,
     ] : [],
