@@ -147,6 +147,52 @@ function _parseMetrics(v) {
   return result
 }
 
+function _textHasProductionClaim(text) {
+  const lower = String(text || "").toLowerCase()
+  return (
+    /\bproduction[-\s]?ready\b/.test(lower) ||
+    /\bread(y|ied) for production\b/.test(lower) ||
+    /\bworked in production\b/.test(lower) ||
+    /\bworks in production\b/.test(lower) ||
+    /\bshipped to production\b/.test(lower) ||
+    /\bdeployed to production\b/.test(lower) ||
+    /\bproduction claim\b/.test(lower) ||
+    /\bproduction proof\b/.test(lower) ||
+    /\bproduction verified\b/.test(lower) ||
+    /\bin production\b/.test(lower) && /\b(worked|works|verified|proven|proved|shipped|deployed|confirmed|validated|fixed|passed)\b/.test(lower)
+  )
+}
+
+function _productionEvidenceKind(metricsObject, tags = []) {
+  const reportId = String(metricsObject?.reportId || metricsObject?.report_id || "").trim()
+  if (reportId && reportId !== "unknown") return "report"
+
+  const sessionId = String(metricsObject?.sessionId || metricsObject?.session_id || "").trim()
+  if (sessionId && sessionId !== "unknown") return "session"
+
+  if (metricsObject?.liveArtifact === true || metricsObject?.productionArtifact === true) return "artifact"
+
+  const tagList = Array.isArray(tags) ? tags.map((tag) => String(tag || "").toLowerCase()) : []
+  if (tagList.includes("live") || tagList.includes("session") || tagList.includes("production")) return "tag"
+
+  return null
+}
+
+export function verifyProductionClaim({ summary = "", narrative = "", tags = [], metrics = {}, outcome_verified = false } = {}) {
+  const claimDetected = _textHasProductionClaim(summary) || _textHasProductionClaim(narrative) || (Array.isArray(tags) && tags.some((tag) => _textHasProductionClaim(tag)))
+  const metricsObject = metrics && typeof metrics === "object" && !Array.isArray(metrics) ? metrics : {}
+  const evidence = _productionEvidenceKind(metricsObject, tags)
+  const verified = claimDetected ? Boolean(evidence) : Boolean(outcome_verified)
+  return {
+    claimDetected,
+    evidence,
+    verified,
+    note: claimDetected
+      ? (evidence ? `production claim backed by ${evidence} evidence` : "production claims require a live session/report artifact")
+      : null,
+  }
+}
+
 export function saveReport({ type = "manual", summary = "", findings = null, metrics = null, narrative = "", tags = [], fingerprint = null, status = "pending", task_description = "", outcome_verified = false }: { type?: string; summary?: string; findings?: unknown; metrics?: unknown; narrative?: string; tags?: unknown[]; fingerprint?: string | null; status?: string; task_description?: string; outcome_verified?: boolean } = {}) {
   // Auto-parse findings + metrics (supports array, JSON string, plain-text lines)
   const parsedFindings = _parseFindings(findings)
@@ -168,10 +214,26 @@ export function saveReport({ type = "manual", summary = "", findings = null, met
   const fp = fingerprint || metricsProjectFingerprint || liveProjectFingerprint || currentProjectFingerprint || "unknown"
   const projectName = metricsProjectName || liveProjectName || currentProjectName || "unknown"
   const sessionId = metricsSessionId || liveSessionId || currentSessionId || "unknown"
+  const productionVerification = verifyProductionClaim({
+    summary,
+    narrative,
+    tags,
+    metrics: metricsObject,
+    outcome_verified,
+  })
+  const normalizedOutcomeVerified = productionVerification.claimDetected
+    ? productionVerification.verified
+    : Boolean(outcome_verified)
   const id = generateReportId(type, fp)
   const report = {
     meta: { id, project: projectName, fingerprint: fp, type, created: new Date().toISOString(), sessionId },
-    summary, findings: parsedFindings, metrics: parsedMetrics, narrative, tags, status, task_description, outcome_verified,
+    summary, findings: parsedFindings, metrics: parsedMetrics, narrative, tags, status, task_description, outcome_verified: normalizedOutcomeVerified,
+    verification: productionVerification.claimDetected ? {
+      kind: "production",
+      evidence: productionVerification.evidence,
+      note: productionVerification.note,
+      verified: productionVerification.verified,
+    } : null,
   }
   try {
     const reportsIndexPath = getReportsIndexPath()

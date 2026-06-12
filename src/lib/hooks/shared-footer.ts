@@ -119,11 +119,17 @@ export function trendGlyph(trend?: string): string {
   return "→"
 }
 
+export function formatCostDeltaChip(amountUsd: number): string {
+  const amount = Number(amountUsd ?? 0)
+  if (!Number.isFinite(amount)) return ""
+  if (Math.abs(amount) < 0.005) return "→"
+  const arrow = amount > 0 ? "↗" : "↘"
+  return `${arrow} $${Math.abs(amount).toFixed(2)}`
+}
+
 export function formatSavingsPulse(amountUsd: number, trend?: string): string {
-  const amount = Number(amountUsd || 0)
-  if (!Number.isFinite(amount) || amount <= 0) return ""
-  const arrow = trendGlyph(trend)
-  return `$${amount.toFixed(2)} saved${arrow !== "→" ? ` ${arrow}` : ""}`
+  void trend
+  return formatCostDeltaChip(amountUsd)
 }
 
 export function buildEnforcementTags(opts: {
@@ -156,10 +162,8 @@ export function buildFooterLine(input: FooterLineInput): string {
   const modeLabel = formatModeLabel(optMode)
   let line = `\u2014 ${tierIcon} ${activeSlot} | ${providerLabel} | ${modelName}${regimeTag ? ` \u25B6 ${regimeIcon} ${regimeTag}` : ""}`
 
-  if (ltTotal > 0) {
-    const savingsPulse = formatSavingsPulse(ltTotal, ltTrend)
-    if (savingsPulse) line += ` | ${savingsPulse}`
-  }
+  const savingsPulse = formatSavingsPulse(ltTotal, ltTrend)
+  if (savingsPulse) line += ` | ${savingsPulse}`
 
   line += ` | ${vibeBrand}${flashIcon}`
 

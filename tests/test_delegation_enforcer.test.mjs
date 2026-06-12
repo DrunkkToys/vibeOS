@@ -737,7 +737,7 @@ test("text.complete: appends savings tag to assistant text", async () => {
   const longText = "Thank you for completing the task. Here is the summary of what was accomplished with detailed analysis of the results across all parameters."
   const out = { text: longText }
   await hooks["experimental.text.complete"]({ messageID: "msg-1" }, out)
-  assert.ok(out.text.includes("$0.40"), "savings amount in footer; got: " + out.text.slice(0, 200))
+  assert.ok(out.text.includes("↗ $0.40") || out.text.includes("→"), "delta chip in footer; got: " + out.text.slice(0, 200))
   assert.doesNotMatch(out.text, /flow \d+w|edit -\$|cache -\$|\$.*\/hr/, "no verbose breakdown in footer")
 })
 
@@ -782,7 +782,7 @@ test("text.complete: footer format is stable and compact (immutable contract)", 
   const longText = "This is the comprehensive analysis of the system performance across all components including bottlenecks and resolution strategies."
   const out = { text: longText }
   await hooks["experimental.text.complete"]({ messageID: "msg-format-1" }, out)
-  assert.ok(out.text.includes("$0.27"), "savings amount in footer; got: " + out.text.slice(0, 200))
+  assert.ok(out.text.includes("↗ $0.27") || out.text.includes("→"), "delta chip in footer; got: " + out.text.slice(0, 200))
   assert.doesNotMatch(out.text, /\| flow |edit -\$|cache -\$|\(.*m\)|\/hr/, "no verbose fragments")
 })
 
@@ -809,7 +809,7 @@ test("text.complete: auto-rebuilds state from ledger when state total is lower, 
   const longText = "Comprehensive summary of all findings from the system audit including throughput metrics and optimization recommendations."
   const out = { text: longText }
   await hooks["experimental.text.complete"]({ messageID: "msg-ledger-rebuild" }, out)
-  assert.ok(out.text.includes("$") || out.text.includes("saved"), "reconstructed total in footer; got: " + out.text.slice(0, 200))
+  assert.ok(/[↗↘→]/.test(out.text), "reconstructed total in footer; got: " + out.text.slice(0, 200))
 
   const reconciled = JSON.parse(readFileSync(stateFile, "utf-8"))
   assert.equal(reconciled.lifetime.total_savings_usd, 1.25, "delegation savings rebuilt from ledger")
@@ -1664,8 +1664,8 @@ test("tool.execute.after: delegation warning injected into output.result", async
 
   assert.ok(afterOutput.result.includes("[delegation]"),
     `output.result must contain [delegation] note; got: ${afterOutput.result}`)
-  assert.ok(afterOutput.result.includes("good candidate for a Task subagent") || afterOutput.result.includes("brain handles orchestration"),
-    `output.result must describe the handoff; got: ${afterOutput.result}`)
+  assert.ok(afterOutput.result.includes("Task via"), `output.result must describe the handoff; got: ${afterOutput.result}`)
+  assert.ok(/[↗↘→]/.test(afterOutput.result), `output.result must include the compact delta chip; got: ${afterOutput.result}`)
   assert.ok(afterOutput.result.includes("File edited successfully."),
     "original tool result must be preserved")
 })
@@ -1703,7 +1703,7 @@ test("tool.execute.after: pendingUiNote consumed once — no double-inject on se
   // Second after-hook call without a preceding before — pendingUiNote must be null.
   const second = { result: "Written again." }
   await hooks["tool.execute.after"]({ tool: "write", args: { filePath: "/tmp/b.py" } }, second)
-  assert.ok(!second.result.includes("delegate via Task"),
+  assert.ok(!second.result.includes("Task via"),
     "second call: delegation note NOT injected (pendingUiNote was cleared after first consumption)")
 })
 
@@ -2548,10 +2548,11 @@ test("report-list/read: auto-report shown with cost/savings metrics", async () =
   // Manually save a session report with the same format as auto-save
   const id = saveReport({
     type: "session",
-    summary: "Session cost: $0.42 | saved: $1.80 | 12 tasks",
+    summary: "Session cost: $0.42 | saved: $1.80 | delegation overage: $0.22 | 12 tasks",
     metrics: {
       sessionCost: 0.42,
       cacheSavings: 1.80,
+      delegationOverageUsd: 0.22,
       tasksDelegated: 12,
       model: "deepseek/deepseek-v4-pro",
       slot: "brain",
@@ -2575,6 +2576,7 @@ test("report-list/read: auto-report shown with cost/savings metrics", async () =
   assert.ok(full, "report readable")
   assert.equal(full.metrics.sessionCost, 0.42, "metrics.sessionCost")
   assert.equal(full.metrics.cacheSavings, 1.80, "metrics.cacheSavings")
+  assert.equal(full.metrics.delegationOverageUsd, 0.22, "metrics.delegationOverageUsd")
   assert.equal(full.metrics.tasksDelegated, 12, "metrics.tasksDelegated")
   assert.equal(full.metrics.model, "deepseek/deepseek-v4-pro", "metrics.model")
   assert.equal(full.metrics.slot, "brain", "metrics.slot")

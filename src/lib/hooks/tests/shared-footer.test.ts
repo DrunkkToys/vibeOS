@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { buildEnforcementTags, buildFooterLine, formatEnforcementPulse, formatModeLabel, formatSavingsPulse, formatVectorPulse, resolveBrand, resolveRegimeIcon, resolveTierIcon, trendGlyph } from "../shared-footer.js"
+import { buildEnforcementTags, buildFooterLine, formatCostDeltaChip, formatEnforcementPulse, formatModeLabel, formatSavingsPulse, formatVectorPulse, resolveBrand, resolveRegimeIcon, resolveTierIcon, trendGlyph } from "../shared-footer.js"
 
 test("shared-footer resolves the expected brand names", () => {
   assert.equal(resolveBrand("vibemax", "brain"), "VibeMaX")
@@ -40,10 +40,17 @@ test("shared-footer formats a compact vector pulse", () => {
   assert.equal(formatVectorPulse(undefined), "")
 })
 
-test("shared-footer formats a subtle savings pulse with trend cues", () => {
-  assert.equal(formatSavingsPulse(12.57, "up"), "$12.57 saved ↗")
-  assert.equal(formatSavingsPulse(4.2, "down"), "$4.20 saved ↘")
-  assert.equal(formatSavingsPulse(0, "up"), "")
+test("shared-footer formats a compact delta chip", () => {
+  assert.equal(formatCostDeltaChip(12.57), "↗ $12.57")
+  assert.equal(formatCostDeltaChip(-4.2), "↘ $4.20")
+  assert.equal(formatCostDeltaChip(0), "→")
+})
+
+test("shared-footer keeps the savings pulse aligned with the delta chip", () => {
+  assert.equal(formatSavingsPulse(12.57, "up"), "↗ $12.57")
+  assert.equal(formatSavingsPulse(4.2, "down"), "↗ $4.20")
+  assert.equal(formatSavingsPulse(-4.2, "down"), "↘ $4.20")
+  assert.equal(formatSavingsPulse(0, "up"), "→")
   assert.equal(trendGlyph("flat"), "→")
 })
 
@@ -90,7 +97,7 @@ test("shared-footer keeps the footer compact while showing savings and slot stat
   })
 
   assert.ok(line.includes("◐ medium"))
-  assert.ok(line.includes("$12.57 saved ↗"))
+  assert.ok(line.includes("↗ $12.57"))
   assert.ok(line.includes("VibeMaX ⚡"))
   assert.ok(line.includes("guarded"))
   assert.ok(line.includes("⟡ cheap"))
