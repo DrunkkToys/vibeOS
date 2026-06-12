@@ -272,6 +272,39 @@ test("Core — blackbox state gets createdAt and updatedAt timestamps on save", 
   assert.equal(state.sessions[sid].sessionId, sid, "sessionId should be filled in")
 })
 
+test("Core — live blackbox turn chain keeps project and regime metadata attached", async () => {
+  seedTierFile()
+  const mod = await loadPlugin()
+  mod.setCurrentProjectFingerprint("fp-live-blackbox")
+  mod.setCurrentProjectName("theSaver-oc")
+  const sid = mod.getCurrentSessionId()
+
+  mod.saveBlackboxState({
+    enabled: true,
+    sessions: {
+      [sid]: {
+        turn_counter: 2,
+        loopCount: 1,
+      },
+    },
+  })
+
+  const turn = await import("../src/lib/turn-classify.js?t=" + Date.now())
+  turn.bootstrapOptimizationSession()
+  turn.incrementTurnCounter()
+  turn.incrementTurnCounter()
+
+  const state = mod.loadBlackboxState()
+  const session = state.sessions?.[sid]
+  assert.ok(session, "blackbox session should exist after live updates")
+  assert.equal(session.sessionId, sid, "session id should stay attached")
+  assert.equal(session.project_fingerprint, "fp-live-blackbox", "project fingerprint should be retained on live updates")
+  assert.equal(session.project_name, "theSaver-oc", "project name should be retained on live updates")
+  assert.equal(session.regime, "INIT", "missing regime should be normalized instead of staying blank")
+  assert.equal(session.sub_regime, "INIT", "missing sub_regime should be normalized instead of staying blank")
+  assert.ok(session.turn_counter >= 4, "turn counter should continue increasing through live updates")
+})
+
 // ═══════════════════════════════════════════════════════════════════════
 // Section: Telemetry Integrity — Stress + Accuracy
 // ═══════════════════════════════════════════════════════════════════════

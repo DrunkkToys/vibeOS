@@ -34,6 +34,26 @@
       "trigger": "Edit",
       "pattern": "(?<![a-zA-Z0-9])(sk-[a-zA-Z0-9_-]{10,}|gh[pousr]_[a-zA-Z0-9]{15,}|github_pat_[a-zA-Z0-9_]{15,}|xox[bpras]-[a-zA-Z0-9-]{10,}|-----BEGIN (?:RSA|EC|OPENSSH|ENCRYPTED) PRIVATE KEY-----)",
       "description": "Potential secret/API key detected in content"
+    },
+    {
+      "pattern": "TODO",
+      "action": "warn"
+    },
+    {
+      "pattern": "TODO",
+      "action": "warn"
+    },
+    {
+      "pattern": "TODO",
+      "action": "warn"
+    },
+    {
+      "pattern": "TODO",
+      "action": "warn"
+    },
+    {
+      "pattern": "TODO",
+      "action": "warn"
     }
   ]
 }

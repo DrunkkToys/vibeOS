@@ -59,6 +59,18 @@ async function getHooks() {
   return mod.DelegationEnforcer({ client: {}, directory: sandbox })
 }
 
+function readTiersFile() {
+  return JSON.parse(readFileSync(join(sandbox, ".claude/model-tiers.json"), "utf8"))
+}
+
+function readBlackboxFile() {
+  return JSON.parse(readFileSync(join(sandbox, ".claude/blackbox-state.json"), "utf8"))
+}
+
+function readProjectStateFile() {
+  return JSON.parse(readFileSync(join(sandbox, ".claude/project-states.json"), "utf8"))
+}
+
 // ── GROUP 1: VibeUltraX mode (Wired dynamic, not hardcoded) ──
 test("1a — VibeUltraX exists in BRANDED_MODES with 107% quality", async () => {
   const { BRANDED_MODES } = await import(join(root, "src/lib/mode-router.js?mr=" + Date.now()))
@@ -102,6 +114,278 @@ test("1d — trinity set model override rewrites the slot map and live config fo
   assert.equal(sel.selected_model, targetModel, "selected_model is persisted for the overridden model")
   assert.equal(sel.executed_model, targetModel, "executed_model is persisted for the overridden model")
   assert.ok(result.includes(targetModel), "response mentions overridden model: " + result.slice(0, 120))
+})
+
+test("1e — trinity set brain model override is live and persisted", async () => {
+  setTiers()
+  const targetModel = "openrouter/brain-live-proof"
+  const hooks = await getHooks()
+  const result = await hooks.tool.trinity.execute({
+    action: "set",
+    slot: "brain",
+    model: targetModel,
+  })
+  const tiers = JSON.parse(readFileSync(join(sandbox, ".claude/model-tiers.json"), "utf8"))
+  const sel = tiers.selection
+  const oc = JSON.parse(readFileSync(join(sandbox, "opencode.json"), "utf8"))
+  assert.equal(sel.active_slot, "brain", "active slot switches to the requested brain tier")
+  assert.equal(tiers.trinity.brain.oc, targetModel, "brain slot model persisted in tier map")
+  assert.equal(tiers.trinity.brain.manual, true, "brain override is marked manual")
+  assert.equal(oc.model, targetModel, "OpenCode config switches to the overridden brain model")
+  assert.equal(sel.selected_model, targetModel, "selected_model is persisted for the overridden brain model")
+  assert.equal(sel.executed_model, targetModel, "executed_model is persisted for the overridden brain model")
+  assert.ok(result.includes(targetModel), "response mentions overridden brain model: " + result.slice(0, 120))
+})
+
+test("1f — trinity set medium model override is live and persisted", async () => {
+  setTiers()
+  const targetModel = "openrouter/medium-live-proof"
+  const hooks = await getHooks()
+  const result = await hooks.tool.trinity.execute({
+    action: "set",
+    slot: "medium",
+    model: targetModel,
+  })
+  const tiers = JSON.parse(readFileSync(join(sandbox, ".claude/model-tiers.json"), "utf8"))
+  const sel = tiers.selection
+  const oc = JSON.parse(readFileSync(join(sandbox, "opencode.json"), "utf8"))
+  assert.equal(sel.active_slot, "medium", "active slot switches to the requested medium tier")
+  assert.equal(tiers.trinity.medium.oc, targetModel, "medium slot model persisted in tier map")
+  assert.equal(tiers.trinity.medium.manual, true, "medium override is marked manual")
+  assert.equal(oc.model, targetModel, "OpenCode config switches to the overridden medium model")
+  assert.equal(sel.selected_model, targetModel, "selected_model is persisted for the overridden medium model")
+  assert.equal(sel.executed_model, targetModel, "executed_model is persisted for the overridden medium model")
+  assert.ok(result.includes(targetModel), "response mentions overridden medium model: " + result.slice(0, 120))
+})
+
+test("1g — trinity status reports the live dashboard fields", async () => {
+  setTiers()
+  const hooks = await getHooks()
+  const out = await hooks.tool.trinity.execute({ action: "status" })
+  assert.ok(out.includes("[vibeOS-dashboard]"), "status should include dashboard header: " + out.slice(0, 160))
+  assert.ok(out.includes("Model:"), "status should include model line: " + out.slice(0, 160))
+  assert.ok(out.includes("Stress:"), "status should include stress line: " + out.slice(0, 160))
+  assert.ok(out.includes("Enforce:"), "status should include enforcement line: " + out.slice(0, 160))
+  assert.ok(out.includes("Lock:"), "status should include lock line: " + out.slice(0, 160))
+  assert.ok(out.includes("All-time savings:"), "status should include savings block: " + out.slice(0, 160))
+  assert.ok(out.includes("Tiers:"), "status should include tier block: " + out.slice(0, 160))
+})
+
+test("1h — trinity enable and disable toggle the live selection flag", async () => {
+  setTiers()
+  const hooks = await getHooks()
+  const enable = await hooks.tool.trinity.execute({ action: "enable" })
+  assert.ok(enable.includes("ENABLED"), "enable response should be affirmative: " + enable)
+  assert.equal(readTiersFile().selection.enabled, true, "enabled flag should persist true after enable")
+  const disable = await hooks.tool.trinity.execute({ action: "disable" })
+  assert.ok(disable.includes("DISABLED"), "disable response should be affirmative: " + disable)
+  assert.equal(readTiersFile().selection.enabled, false, "enabled flag should persist false after disable")
+})
+
+test("1i — trinity mode covers all live optimization modes", async () => {
+  const cases = [
+    { slot: "budget", active: "cheap" },
+    { slot: "speed", active: "medium" },
+    { slot: "quality", active: "brain" },
+    { slot: "longrun", active: "cheap" },
+    { slot: "auto", active: "brain", auto: true },
+    { slot: "audit", active: "brain" },
+    { slot: "forensic", active: "brain" },
+    { slot: "vibeultrax", active: "brain" },
+    { slot: "vibeqmax", active: "brain", mode: "quality" },
+    { slot: "vibemax", active: "medium" },
+  ]
+  for (const c of cases) {
+    setTiers()
+    const hooks = await getHooks()
+    const out = await hooks.tool.trinity.execute({ action: "mode", slot: c.slot })
+    const sel = readTiersFile().selection
+    if (c.auto) {
+      assert.equal(sel.slot_locked, false, "auto should unlock slot locking")
+      assert.ok(out.includes("Mode set to AUTO"), "auto response should be explicit: " + out)
+      continue
+    }
+    assert.equal(sel.active_slot, c.active, `${c.slot} should resolve to ${c.active}`)
+    assert.equal(sel.optimization_mode, c.mode || c.slot, `${c.slot} should persist as the optimization mode`)
+    assert.ok(out.includes("Mode set"), `${c.slot} response should be affirmative: ` + out)
+  }
+})
+
+test("1j — trinity thinking full|brief|off persists reasoning depth", async () => {
+  for (const level of ["full", "brief", "off"]) {
+    setTiers()
+    const hooks = await getHooks()
+    const out = await hooks.tool.trinity.execute({ action: "thinking", level })
+    assert.equal(readTiersFile().selection.thinking_level, level, `${level} should persist in selection`)
+    assert.ok(out.includes(level) || out.includes("thinking"), `${level} response should mention the level: ` + out)
+  }
+})
+
+test("1k — trinity enforce on|off stays consistent with selection state", async () => {
+  setTiers()
+  const hooks = await getHooks()
+  const on = await hooks.tool.trinity.execute({ action: "enforce", slot: "on" })
+  assert.ok(on.includes("ENABLED"), "enforce on should be affirmative: " + on)
+  assert.equal(readTiersFile().selection.delegation_enforce, true, "delegation enforcement should persist true")
+
+  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+    $schema_version: 1,
+    trinity: { brain: { oc: "a" }, medium: { oc: "b" }, cheap: { oc: "c" } },
+    selection: { enabled: true, active_slot: "brain", delegation_enforce: false, onboarding_mode: "assist" },
+  }, null, 2) + "\n")
+  const hooks2 = await getHooks()
+  const off = await hooks2.tool.trinity.execute({ action: "enforce", slot: "off" })
+  assert.ok(off.includes("already OFF") || off.includes("mandatory") || off.includes("compatibility"), "enforce off should report the live status: " + off)
+})
+
+test("1l — trinity lock on|off updates the live lock state in status", async () => {
+  setTiers()
+  const hooks = await getHooks()
+  const on = await hooks.tool.trinity.execute({ action: "lock", slot: "on" })
+  assert.ok(on.includes("LOCK ON"), "lock on should be affirmative: " + on)
+  const statusOn = await hooks.tool.trinity.execute({ action: "status" })
+  assert.ok(statusOn.includes("LOCK ON"), "status should reflect lock on: " + statusOn)
+  const off = await hooks.tool.trinity.execute({ action: "lock", slot: "off" })
+  assert.ok(off.includes("LOCK OFF"), "lock off should be affirmative: " + off)
+  const statusOff = await hooks.tool.trinity.execute({ action: "status" })
+  assert.ok(statusOff.includes("LOCK OFF"), "status should reflect lock off: " + statusOff)
+})
+
+test("1m — trinity flow on|off and flow enforce on|off persist together", async () => {
+  setTiers()
+  const hooks = await getHooks()
+  const flowOn = await hooks.tool.trinity.execute({ action: "flow", slot: "on" })
+  assert.ok(flowOn.includes("ENABLED"), "flow on should be affirmative: " + flowOn)
+  assert.equal(readTiersFile().selection.flow_enabled, true, "flow_enabled should persist true after flow on")
+  const flowEnforceOn = await hooks.tool.trinity.execute({ action: "flow", slot: "enforce", level: "on" })
+  assert.ok(flowEnforceOn.includes("ENABLED"), "flow enforce on should be affirmative: " + flowEnforceOn)
+  assert.equal(readTiersFile().selection.flow_enforce, true, "flow_enforce should persist true after flow enforce on")
+  const flowEnforceOff = await hooks.tool.trinity.execute({ action: "flow", slot: "enforce", level: "off" })
+  assert.ok(flowEnforceOff.includes("DISABLED"), "flow enforce off should be affirmative: " + flowEnforceOff)
+  assert.equal(readTiersFile().selection.flow_enforce, false, "flow_enforce should persist false after flow enforce off")
+  const flowOff = await hooks.tool.trinity.execute({ action: "flow", slot: "off" })
+  assert.ok(flowOff.includes("DISABLED"), "flow off should be affirmative: " + flowOff)
+  assert.equal(readTiersFile().selection.flow_enabled, false, "flow_enabled should persist false after flow off")
+})
+
+test("1n — trinity tdd on|off|strict|quality persists test-enforcement toggles", async () => {
+  setTiers()
+  const hooks = await getHooks()
+  const tddOn = await hooks.tool.trinity.execute({ action: "tdd", slot: "on" })
+  assert.ok(tddOn.includes("ENABLED"), "tdd on should be affirmative: " + tddOn)
+  assert.equal(readTiersFile().selection.tdd_enforce, true, "tdd_enforce should persist true after tdd on")
+  const tddOff = await hooks.tool.trinity.execute({ action: "tdd", slot: "off" })
+  assert.ok(tddOff.includes("DISABLED"), "tdd off should be affirmative: " + tddOff)
+  assert.equal(readTiersFile().selection.tdd_enforce, false, "tdd_enforce should persist false after tdd off")
+  const strictOn = await hooks.tool.trinity.execute({ action: "tdd", slot: "strict", level: "on" })
+  assert.ok(strictOn.includes("ENABLED"), "tdd strict on should be affirmative: " + strictOn)
+  assert.equal(readTiersFile().selection.tdd_strict, true, "tdd_strict should persist true after strict on")
+  const qualityOn = await hooks.tool.trinity.execute({ action: "tdd", slot: "quality", level: "on" })
+  assert.ok(qualityOn.includes("ENABLED"), "tdd quality on should be affirmative: " + qualityOn)
+  assert.equal(readTiersFile().selection.tdd_quality, true, "tdd_quality should persist true after quality on")
+})
+
+test("1o — trinity rebuild and project return live operational output", async () => {
+  setTiers()
+  const hooks = await getHooks()
+  const rebuild = await hooks.tool.trinity.execute({ action: "rebuild" })
+  assert.ok(typeof rebuild === "string" && rebuild.length > 0, "rebuild should return a live response")
+  const project = await hooks.tool.trinity.execute({ action: "project" })
+  assert.ok(project.includes("Project profile") || project.includes("Sessions"), "project should report live analytics: " + project.slice(0, 180))
+})
+
+test("1p — trinity patterns and patterns clear operate on live project memory", async () => {
+  setTiers()
+  writeFileSync(join(sandbox, ".claude/project-states.json"), JSON.stringify({
+    project_hashes: {
+      abc123: {
+        totalSessions: 3,
+        context7Bypasses: 1,
+        researchChains: 2,
+        commonTopics: ["alpha.dev"],
+        userPatterns: {
+          friction: {
+            repeated_shell_loop: { summary: "Repeated shell loop", count: 3, sessions: [1, 2, 3], lastSeen: "2026-06-12T00:00:00.000Z" },
+          },
+        },
+      },
+    },
+  }, null, 2) + "\n")
+  const hooks = await getHooks()
+  const patterns = await hooks.tool.trinity.execute({ action: "patterns" })
+  assert.ok(patterns.includes("Project patterns") || patterns.includes("stored"), "patterns should read live project memory: " + patterns)
+  const cleared = await hooks.tool.trinity.execute({ action: "patterns", slot: "clear" })
+  assert.ok(cleared.includes("cleared"), "patterns clear should be affirmative: " + cleared)
+})
+
+test("1q — trinity diagnose and guard return live health and doc checks", async () => {
+  setTiers()
+  const hooks = await getHooks()
+  const diagnose = await hooks.tool.trinity.execute({ action: "diagnose" })
+  assert.ok(diagnose.includes("Self Diagnostic") || diagnose.includes("checks"), "diagnose should return the live diagnostic report: " + diagnose.slice(0, 220))
+  const guard = await hooks.tool.trinity.execute({ action: "guard" })
+  assert.ok(guard.includes("AGENTS.md") || guard.includes("README.md") || guard.includes("Project Guard"), "guard should report doc state: " + guard)
+})
+
+test("1r — trinity blackbox on|off|status|reset follows the real session file", async () => {
+  setTiers()
+  const hooks = await getHooks()
+  writeFileSync(join(sandbox, ".claude/blackbox-state.json"), JSON.stringify({
+    enabled: false,
+    sessions: {},
+  }, null, 2) + "\n")
+  const on = await hooks.tool.trinity.execute({ action: "blackbox", slot: "on" })
+  assert.ok(on.includes("ENABLED"), "blackbox on should be affirmative: " + on)
+  assert.equal(readBlackboxFile().enabled, true, "blackbox state should persist enabled=true")
+  const status = await hooks.tool.trinity.execute({ action: "blackbox", slot: "status" })
+  assert.ok(status.includes("Blackbox Decision Engine"), "blackbox status should render: " + status)
+  const reset = await hooks.tool.trinity.execute({ action: "blackbox", slot: "reset" })
+  assert.ok(reset.includes("RESET"), "blackbox reset should be affirmative: " + reset)
+  const statusAfter = await hooks.tool.trinity.execute({ action: "blackbox", slot: "status" })
+  assert.ok(statusAfter.includes("No resolution data yet") || statusAfter.includes("Decision Engine"), "blackbox status should still be readable after reset: " + statusAfter)
+  const off = await hooks.tool.trinity.execute({ action: "blackbox", slot: "off" })
+  assert.ok(off.includes("DISABLED"), "blackbox off should be affirmative: " + off)
+  assert.equal(readBlackboxFile().enabled, false, "blackbox state should persist enabled=false")
+})
+
+test("1s — trinity repair-state preview and apply relabel duplicate fingerprints", async () => {
+  setTiers()
+  const { projectFingerprint } = await import(join(root, "src/lib/state.js?repair=" + Date.now()))
+  const dstFp = projectFingerprint(sandbox)
+  const srcFp = "def456"
+  const projectName = sandbox.split("/").pop()
+  mkdirSync(join(sandbox, ".claude/reports"), { recursive: true })
+  writeFileSync(join(sandbox, ".claude/project-states.json"), JSON.stringify({
+    project_hashes: {
+      [dstFp]: { totalSessions: 1, context7Bypasses: 0, researchChains: 0, commonTopics: [], lastSeen: "2026-06-12T00:00:00.000Z" },
+      [srcFp]: { totalSessions: 4, context7Bypasses: 2, researchChains: 3, commonTopics: ["beta.dev"], lastSeen: "2026-06-11T00:00:00.000Z" },
+    },
+  }, null, 2) + "\n")
+  writeFileSync(join(sandbox, ".claude/reports/index.json"), JSON.stringify({
+    reports: [
+      { id: "r1", project: projectName, fingerprint: srcFp },
+      { id: "r2", project: projectName, fingerprint: srcFp },
+    ],
+  }, null, 2) + "\n")
+  const hooks = await getHooks()
+  const preview = await hooks.tool.trinity.execute({ action: "repair-state", slot: "preview" })
+  assert.ok(preview.includes("State repair") || preview.includes("reports to relabel"), "preview should describe the merge: " + preview)
+  const apply = await hooks.tool.trinity.execute({ action: "repair-state", slot: "apply" })
+  assert.ok(apply.includes("Applied") || apply.includes("Relabeled"), "apply should confirm relabeling: " + apply)
+  const pstate = readProjectStateFile()
+  assert.ok(pstate.project_hashes?.[dstFp], "target fingerprint should remain after apply")
+  assert.ok(!pstate.project_hashes?.[srcFp], "source fingerprint should be removed after apply")
+})
+
+test("1t — trinity api-token and api-bootstrap-token persist live auth changes", async () => {
+  setTiers()
+  const hooks = await getHooks()
+  const token = await hooks.tool.trinity.execute({ action: "api-token", token: "live-token-proof" })
+  assert.ok(token.includes("updated") || token.includes("re-enabled"), "api-token should update auth: " + token)
+  const bootstrap = await hooks.tool.trinity.execute({ action: "api-bootstrap-token", token: "bootstrap-proof" })
+  assert.ok(bootstrap.includes("saved") || bootstrap.includes("exchanged") || bootstrap.includes("retry"), "bootstrap token should be handled live: " + bootstrap)
+  const invalidate = await hooks.tool.trinity.execute({ action: "api-token", token: "invalidate" })
+  assert.ok(invalidate.includes("invalidated"), "api-token invalidate should work: " + invalidate)
 })
 
 // ── GROUP 2: Phantom savings dedup ──
