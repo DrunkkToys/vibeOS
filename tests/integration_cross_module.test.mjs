@@ -462,6 +462,54 @@ test('startup repair: empty tiers file is healed on reload and enforcement stays
   assert.equal(envOut.env.OPENCODE_MODEL_TIER, 'high', 'repaired boot still enforces brain tier')
 })
 
+test('startup repair: persisted slot lock keeps brain model stable across reload', async () => {
+  const { home, sandbox } = makeSandbox('slot-lock-reload')
+  const projectDir = join(sandbox, 'proj')
+  mkdirSync(projectDir, { recursive: true })
+  process.env.HOME = home
+
+  writeFileSync(join(projectDir, 'opencode.json'), JSON.stringify({
+    model: 'deepseek/deepseek-v4-flash',
+    provider: {
+      deepseek: {
+        models: {
+          'deepseek-v4-pro': {},
+          'deepseek-v4-flash': {},
+          'deepseek-chat': {},
+        },
+      },
+    },
+  }, null, 2) + '\n')
+
+  writeFileSync(join(home, '.claude/model-tiers.json'), JSON.stringify({
+    selection: {
+      enabled: true,
+      active_slot: 'brain',
+      slot_locked: true,
+      delegation_enforce: true,
+      onboarding_mode: 'strict',
+    },
+    trinity: {
+      brain: { oc: 'deepseek/deepseek-v4-pro', cc: 'deepseek-reasoner' },
+      medium: { oc: 'deepseek/deepseek-v4-flash', cc: 'haiku' },
+      cheap: { oc: 'deepseek/deepseek-chat', cc: 'haiku' },
+    },
+  }, null, 2) + '\n')
+
+  const mod = await import('../src/index.js?slot-lock=' + Date.now())
+  const hooks = await mod.DelegationEnforcer({ directory: projectDir })
+  const out = { text: 'This assistant response is long enough to trigger the footer after reload.' }
+  await hooks['experimental.text.complete']({ messageID: 'slot-lock-reload-1' }, out)
+  const shellOut = { env: {} }
+  await hooks['shell.env']({}, shellOut)
+  const tiers = JSON.parse(readFileSync(join(home, '.claude/model-tiers.json'), 'utf-8'))
+
+  assert.equal(shellOut.env.OPENCODE_MODEL, 'deepseek/deepseek-v4-pro', 'locked reload should keep the brain model in shell env')
+  assert.equal(shellOut.env.OPENCODE_MODEL_TIER, 'high', 'locked reload should keep the high tier for the brain model')
+  assert.equal(tiers.selection.active_slot, 'brain', 'selection should stay on brain after reload')
+  assert.ok(!String(out.text || '').includes('vibelitex'), 'footer output should not drift to vibelitex on reload')
+})
+
 // Section 8: WBP Protocol
 
 test('wbp: system.transform injects wbp protocol marker', async () => {

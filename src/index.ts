@@ -15,7 +15,7 @@ import { createMcpServer } from "./lib/vibeos-mcp-server.js"
 import { isApiConnected, isApiFallback, setApiToken, setApiBootstrapToken, ensureBootstrapExchange, VIBEOS_API_URL } from "./lib/api-client.js"
 import { applySlot, modelCostPerTurn, detectContext7, formatUsd, classify, _refreshModel, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, readConfig, getTrinitySlotOrder, loadTrinitySlotsFromTiersFile, buildDeterministicTrinity } from "./lib/pricing.js"
 import { scoreStress, detectTechStack, loadBlackboxState, saveBlackboxState, getBlackboxTracker, getBlackboxResolution, saveOptimizationMode, resetBlackboxTracker } from "./lib/turn-classify.js"
-import { safeJsonParse, readFullState, loadSelection, writeSelection, readLifetimeSavings, _OC_SID, _modelLocked, _blackboxEnabled, setBlackboxEnabled, _lockedSlot, _lockedModel, currentTier, currentModel, currentProjectFingerprint, currentProjectName, setCurrentTier, setCurrentModel, setCurrentProjectFingerprint, setCurrentProjectName, setCurrentSessionId, getCurrentSessionId, briefedProjects, _latestBlackboxState, _latestBlackboxLoopMsg, _latestBlackboxPivotMsg, getActiveJobForProject, projectFingerprint, loadProjectState, saveProjectState, ensureProjectBucket, mergeProjectBucket, setVibeOSHomeContext, SAVINGS_LEDGER_FILE, USER_HOME, CREDIT_CACHE_F, pruneScratchpadOnce, registerSessionCleanupHandlers, runStartupMaintenanceOnce, promotedProjectPatterns, projectPatternRows, clearProjectPatterns, loadTodos, getTodos, upsertTodo, markTodoDone, tool } from "./lib/state.js"
+import { safeJsonParse, readFullState, loadSelection, writeSelection, readLifetimeSavings, _OC_SID, _modelLocked, _blackboxEnabled, setBlackboxEnabled, _lockedSlot, _lockedModel, setModelLocked, setLockedSlot, setLockedModel, currentTier, currentModel, currentProjectFingerprint, currentProjectName, setCurrentTier, setCurrentModel, setCurrentProjectFingerprint, setCurrentProjectName, setCurrentSessionId, getCurrentSessionId, briefedProjects, _latestBlackboxState, _latestBlackboxLoopMsg, _latestBlackboxPivotMsg, getActiveJobForProject, projectFingerprint, loadProjectState, saveProjectState, ensureProjectBucket, mergeProjectBucket, setVibeOSHomeContext, SAVINGS_LEDGER_FILE, USER_HOME, CREDIT_CACHE_F, pruneScratchpadOnce, registerSessionCleanupHandlers, runStartupMaintenanceOnce, promotedProjectPatterns, projectPatternRows, clearProjectPatterns, loadTodos, getTodos, upsertTodo, markTodoDone, tool } from "./lib/state.js"
 import { researchAudit } from "./lib/research-audit.js"
 import { buildStatusPayload, buildSavingsPayload, buildSessionCheckout, diagnoseStructuredFromText, projectStructuredFromText } from "./lib/runtime-surface.js"
 import { saveReport, listReports, readReport } from "./lib/reporting.js"
@@ -370,6 +370,28 @@ export async function DelegationEnforcer({ client, directory } = {}) {
   else {
     console.error("[vibeOS] NO MODEL — enforcement disabled, will auto-detect on first hook")
   }
+  try {
+    const startupSelection = loadSelection()
+    if (startupSelection?.slot_locked === true) {
+      const lockedSlot = ["brain", "medium", "cheap"].includes(String(startupSelection.active_slot || "").trim())
+        ? String(startupSelection.active_slot)
+        : "brain"
+      let lockedModel = currentModel || null
+      try {
+        const tiers = safeJsonParse(readFileSync(getTiersFile(), "utf-8"))
+        lockedModel = tiers?.trinity?.[lockedSlot]?.oc || lockedModel || null
+      }
+      catch {}
+      setModelLocked(true)
+      setLockedSlot(lockedSlot)
+      setLockedModel(lockedModel)
+      console.error(`[vibeOS] startup lock restored → ${lockedSlot}${lockedModel ? ` (${lockedModel})` : ""}`)
+    } else {
+      setModelLocked(false)
+      setLockedSlot(null)
+      setLockedModel(null)
+    }
+  } catch {}
   console.error(`[vibeOS] auto-config guard: currentModel=${currentModel ? "SET" : "NONE"}, TIERS_FILE=${getTiersFile()}, exists=${existsSync(getTiersFile())}`)
   try {
     if (!existsSync(getTiersFile())) {
@@ -462,7 +484,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
   const trinityDeps = {
     tool, _lazyRefresh, _readAuth, _tiersData,
     _loadOpenCodeProviders, _modelCost, _modelTier,
-    _modelLocked, _latestBlackboxState,
+    _latestBlackboxState,
     currentModel, currentTier, currentProjectFingerprint, currentProjectName,
     get latestUserIntent() { return latestUserIntent }, directory,
     safeJsonParse, readFileSync, writeFileSync, existsSync, renameSync, mkdirSync,
@@ -489,6 +511,12 @@ export async function DelegationEnforcer({ client, directory } = {}) {
     set _blackboxTracker(v) { resetBlackboxTracker() },
     get _blackboxEnabled() { return _blackboxEnabled },
     set _blackboxEnabled(v) { setBlackboxEnabled(v) },
+    get _modelLocked() { return _modelLocked },
+    set _modelLocked(v) { setModelLocked(v) },
+    get _lockedSlot() { return _lockedSlot },
+    set _lockedSlot(v) { setLockedSlot(v) },
+    get _lockedModel() { return _lockedModel },
+    set _lockedModel(v) { setLockedModel(v) },
   }
   const pluginHooks = {
     "tool.execute.before": async (input, output) => {

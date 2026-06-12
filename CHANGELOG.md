@@ -1,3 +1,7 @@
+## 0.24.23
+- fix: heal stale vibelitex reconnect state
+
+
 ## 0.24.22
 - fix: restore bootstrap token and install regression (#149)
 

@@ -260,9 +260,9 @@ async function _appendFooter(input, output, directory) {
     const ltTotal = ltTasks + ltCache
     const activeSlot = selNowFooter.active_slot || "brain"
     const optMode = (resolvedMode || "budget").toLowerCase()
-    const vibeBrand = resolveBrand(optModeFooter, activeSlot)
     const flashIcon = isApiConnected() ? " \u26A1" : ""
-    const displayMode = selNowFooter?.optimization_mode || optMode || "auto"
+    const displayMode = resolvedMode || optModeFooter || optMode || selNowFooter?.optimization_mode || "auto"
+    const vibeBrand = resolveBrand(displayMode, activeSlot)
     const currentSubRegime = _latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || "")
     const vibeLine = buildFooterLine({
       activeSlot,
