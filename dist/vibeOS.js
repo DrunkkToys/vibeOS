@@ -5879,24 +5879,6 @@ function modelCostPerTurn(model) {
   const TIER_FALLBACK = { high: 0.01175, mid: 66e-4, budget: 144e-5 };
   return TIER_FALLBACK[tier] ?? 144e-5;
 }
-function _normalizeCostModelId(model) {
-  const normalized = normalizeModelId(model);
-  const parts = normalized.split("/");
-  if (parts.length !== 2)
-    return normalized;
-  const [provider, name] = parts;
-  if (provider === "deepseek" && name && !name.startsWith("deepseek-")) {
-    return `${provider}/deepseek-${name}`;
-  }
-  return normalized;
-}
-function compareModelCosts(currentModel3, targetModel) {
-  const currentCost = modelCostPerTurn(_normalizeCostModelId(currentModel3));
-  const targetCost = modelCostPerTurn(_normalizeCostModelId(targetModel));
-  const deltaUsd = currentCost - targetCost;
-  const direction = deltaUsd > 0 ? "up" : deltaUsd < 0 ? "down" : "stable";
-  return { currentCost, targetCost, deltaUsd, direction };
-}
 function isModelFree(model) {
   if (!model || typeof model !== "string")
     return false;
@@ -7991,36 +7973,6 @@ function _parseMetrics(v) {
   }
   return result;
 }
-function _textHasProductionClaim(text) {
-  const lower = String(text || "").toLowerCase();
-  return /\bproduction[-\s]?ready\b/.test(lower) || /\bread(y|ied) for production\b/.test(lower) || /\bworked in production\b/.test(lower) || /\bworks in production\b/.test(lower) || /\bshipped to production\b/.test(lower) || /\bdeployed to production\b/.test(lower) || /\bproduction claim\b/.test(lower) || /\bproduction proof\b/.test(lower) || /\bproduction verified\b/.test(lower) || /\bin production\b/.test(lower) && /\b(worked|works|verified|proven|proved|shipped|deployed|confirmed|validated|fixed|passed)\b/.test(lower);
-}
-function _productionEvidenceKind(metricsObject, tags = []) {
-  const reportId = String(metricsObject?.reportId || metricsObject?.report_id || "").trim();
-  if (reportId && reportId !== "unknown")
-    return "report";
-  const sessionId = String(metricsObject?.sessionId || metricsObject?.session_id || "").trim();
-  if (sessionId && sessionId !== "unknown")
-    return "session";
-  if (metricsObject?.liveArtifact === true || metricsObject?.productionArtifact === true)
-    return "artifact";
-  const tagList = Array.isArray(tags) ? tags.map((tag) => String(tag || "").toLowerCase()) : [];
-  if (tagList.includes("live") || tagList.includes("session") || tagList.includes("production"))
-    return "tag";
-  return null;
-}
-function verifyProductionClaim({ summary = "", narrative = "", tags = [], metrics = {}, outcome_verified = false } = {}) {
-  const claimDetected = _textHasProductionClaim(summary) || _textHasProductionClaim(narrative) || Array.isArray(tags) && tags.some((tag) => _textHasProductionClaim(tag));
-  const metricsObject = metrics && typeof metrics === "object" && !Array.isArray(metrics) ? metrics : {};
-  const evidence = _productionEvidenceKind(metricsObject, tags);
-  const verified = claimDetected ? Boolean(evidence) : Boolean(outcome_verified);
-  return {
-    claimDetected,
-    evidence,
-    verified,
-    note: claimDetected ? evidence ? `production claim backed by ${evidence} evidence` : "production claims require a live session/report artifact" : null
-  };
-}
 function saveReport({ type = "manual", summary = "", findings = null, metrics = null, narrative = "", tags = [], fingerprint = null, status = "pending", task_description = "", outcome_verified = false } = {}) {
   const parsedFindings = _parseFindings(findings);
   const parsedMetrics = _parseMetrics(metrics);
@@ -8041,14 +7993,6 @@ function saveReport({ type = "manual", summary = "", findings = null, metrics = 
   const fp2 = fingerprint || metricsProjectFingerprint || currentProjectFingerprint || currentProjectFingerprint2 || "unknown";
   const projectName = metricsProjectName || currentProjectName || currentProjectName2 || "unknown";
   const sessionId = metricsSessionId || liveSessionId || currentSessionId2 || "unknown";
-  const productionVerification = verifyProductionClaim({
-    summary,
-    narrative,
-    tags,
-    metrics: metricsObject,
-    outcome_verified
-  });
-  const normalizedOutcomeVerified = productionVerification.claimDetected ? productionVerification.verified : Boolean(outcome_verified);
   const id2 = generateReportId(type, fp2);
   const report = {
     meta: { id: id2, project: projectName, fingerprint: fp2, type, created: (/* @__PURE__ */ new Date()).toISOString(), sessionId },
@@ -8059,13 +8003,7 @@ function saveReport({ type = "manual", summary = "", findings = null, metrics = 
     tags,
     status,
     task_description,
-    outcome_verified: normalizedOutcomeVerified,
-    verification: productionVerification.claimDetected ? {
-      kind: "production",
-      evidence: productionVerification.evidence,
-      note: productionVerification.note,
-      verified: productionVerification.verified
-    } : null
+    outcome_verified
   };
   try {
     const reportsIndexPath = getReportsIndexPath();
@@ -11723,18 +11661,19 @@ function formatEnforcementPulse(enfTags) {
     parts.push("locked");
   return parts.join(" \xB7 ");
 }
-function formatCostDeltaChip(amountUsd) {
-  const amount = Number(amountUsd ?? 0);
-  if (!Number.isFinite(amount))
-    return "";
-  if (Math.abs(amount) < 5e-3)
-    return "\u2192";
-  const arrow = amount > 0 ? "\u2197" : "\u2198";
-  return `${arrow} $${Math.abs(amount).toFixed(2)}`;
+function trendGlyph(trend) {
+  if (trend === "up")
+    return "\u2197";
+  if (trend === "down")
+    return "\u2198";
+  return "\u2192";
 }
 function formatSavingsPulse(amountUsd, trend) {
-  void trend;
-  return formatCostDeltaChip(amountUsd);
+  const amount = Number(amountUsd || 0);
+  if (!Number.isFinite(amount) || amount <= 0)
+    return "";
+  const arrow = trendGlyph(trend);
+  return `$${amount.toFixed(2)} saved${arrow !== "\u2192" ? ` ${arrow}` : ""}`;
 }
 function buildEnforcementTags(opts) {
   const tags = [];
@@ -11761,9 +11700,11 @@ function buildFooterLine(input) {
   const regimeIcon = subRegime ? resolveRegimeIcon(subRegime) : null;
   const modeLabel = formatModeLabel(optMode);
   let line = `\u2014 ${tierIcon} ${activeSlot} | ${providerLabel} | ${modelName}${regimeTag ? ` \u25B6 ${regimeIcon} ${regimeTag}` : ""}`;
-  const savingsPulse = formatSavingsPulse(ltTotal, ltTrend);
-  if (savingsPulse)
-    line += ` | ${savingsPulse}`;
+  if (ltTotal > 0) {
+    const savingsPulse = formatSavingsPulse(ltTotal, ltTrend);
+    if (savingsPulse)
+      line += ` | ${savingsPulse}`;
+  }
   line += ` | ${vibeBrand}${flashIcon}`;
   if (optMode && optMode !== "auto") {
     line += ` ${modeLabel}`;
@@ -13489,25 +13430,6 @@ function isGreetingLike2(text) {
   const value = String(text || "").trim().toLowerCase();
   return value === "hi" || value === "hello" || value === "hey" || value === "yo" || /^hi[!.?\s]*$/.test(value) || /^hello[!.?\s]*$/.test(value) || /^hey[!.?\s]*$/.test(value);
 }
-function _routeDeltaChip(fromModel, toModel) {
-  if (!fromModel || !toModel)
-    return "";
-  return formatCostDeltaChip(compareModelCosts(fromModel, toModel).deltaUsd);
-}
-function _delegationTargetSlot(targetModel) {
-  if (!targetModel)
-    return "cheap";
-  if (targetModel === TRINITY_MEDIUM)
-    return "medium";
-  if (targetModel === TRINITY_CHEAP)
-    return "cheap";
-  const tier = classify(targetModel);
-  if (tier === "high")
-    return "brain";
-  if (tier === "mid")
-    return "medium";
-  return "cheap";
-}
 var BYTES_PER_TOKEN2 = 4;
 var DEBUG_INTERNALS2 = process.env.VIBEOS_DEBUG_INTERNALS === "1";
 var IS_CLI_RUNTIME2 = Boolean(process.stdout?.isTTY || process.stderr?.isTTY || process.stdin?.isTTY);
@@ -13525,7 +13447,6 @@ var context7Seen = /* @__PURE__ */ new Set();
 var _autoReportCount2 = 0;
 var _pendingTodoArgs = null;
 var _pendingTelemetryStarts = [];
-var _taskRouteOverageUsd = 0;
 function _bucketChars(n) {
   const size = Number(n || 0);
   if (!Number.isFinite(size) || size <= 0)
@@ -13941,12 +13862,7 @@ ${argsJson}
         }
       } catch {
       }
-      const routeDeltaInfo = compareModelCosts(currentModel, _target);
-      const routeDelta = formatCostDeltaChip(routeDeltaInfo.deltaUsd);
-      if (Number.isFinite(routeDeltaInfo.deltaUsd) && routeDeltaInfo.deltaUsd < 0) {
-        _taskRouteOverageUsd += Math.abs(routeDeltaInfo.deltaUsd);
-      }
-      console.error(`[vibeOS] \u{1F500} Task \u2192 ${_target}${routeDelta ? ` \xB7 ${routeDelta}` : ""} (${_reason}, orchestrator: ${currentModel})`);
+      console.error(`[vibeOS] \u{1F500} Task \u2192 ${_target} (${_reason}, orchestrator: ${currentModel})`);
     }
   }
   if (FREE.has(t))
@@ -14007,10 +13923,7 @@ ${argsJson}
       projectName: currentProjectName || "",
       sessionId: getCurrentSessionId()
     });
-    const targetModel = TRINITY_MEDIUM || TRINITY_CHEAP || currentModel;
-    const targetSlot = _delegationTargetSlot(targetModel);
-    const deltaChip = _routeDeltaChip(currentModel, targetModel);
-    const msg = `[vibeOS] ${resolveTierIcon("cheap")} cheap lane open \xB7 Task via ${resolveTierIcon(targetSlot)} ${targetSlot} \xB7 ${deltaChip || "\u2192"}`;
+    const msg = `[vibeOS] Quick win: ${resolveTierIcon("cheap")} cheap lane open \xB7 switch to ${resolveTierIcon("medium")} medium to save about ~$${_estEdit.toFixed(3)}/turn.`;
     if (shouldLogWarn(`${t}|credit|${_tierWord}`) && process.env.VIBEOS_DEBUG_DELEGATION === "1") {
       console.error(`[vibeOS] [delegation] ${msg}`);
     }
@@ -14040,10 +13953,7 @@ ${argsJson}
             sessionId: getCurrentSessionId()
           });
         }
-        const targetModel = TRINITY_MEDIUM || TRINITY_CHEAP || currentModel;
-        const targetSlot = _delegationTargetSlot(targetModel);
-        const deltaChip = _routeDeltaChip(currentModel, targetModel);
-        pendingUiNote = `[delegation] ${resolveTierIcon("brain")} brain \xB7 Task via ${resolveTierIcon(targetSlot)} ${targetSlot} \xB7 ${deltaChip || "\u2192"}`;
+        pendingUiNote = `[delegation] This is a good candidate for a Task subagent \u2014 ${resolveTierIcon("brain")} brain handles orchestration, let cheaper tiers do the write/edit. Switch to ${resolveTierIcon("medium")} medium with \`trinity medium\` if you'd rather do it directly.`;
         enforcementBlocked = true;
         _mutateBlockedToolArgs(t, argSources, originalPath, output);
         if (shouldLogWarn(`${t}|enforced|${_tierWord}`))
@@ -14059,10 +13969,7 @@ ${argsJson}
         });
       }
       if (!compatibilityMode) {
-        const targetModel = TRINITY_MEDIUM || TRINITY_CHEAP || currentModel;
-        const targetSlot = _delegationTargetSlot(targetModel);
-        const deltaChip = _routeDeltaChip(currentModel, targetModel);
-        const msg = `[vibeOS] ${resolveTierIcon("cheap")} cheap lane \xB7 Task via ${resolveTierIcon(targetSlot)} ${targetSlot} \xB7 ${deltaChip || "\u2192"}`;
+        const msg = `[vibeOS] ${resolveTierIcon("cheap")} cheap lane \xB7 save about ~$${_estEdit.toFixed(3)} by delegating to Task. Try ${resolveTierIcon("medium")} medium.`;
         if (shouldLogWarn(`${t}|direct|${_tierWord}`) && process.env.VIBEOS_DEBUG_DELEGATION === "1") {
           console.error(`[vibeOS] [delegation] ${msg}`);
         }
@@ -14211,8 +14118,8 @@ var onToolExecuteAfter = async (input, output) => {
       if (_autoReportCount2 % 5 === 0 && ltTotal > 0) {
         saveReport({
           type: "session",
-          summary: `Session cost: $${formatUsd(ltCost)} | cache saved: $${formatUsd(ltCache)} | delegation saved: $${formatUsd(ltTasks)}${_taskRouteOverageUsd > 0 ? ` | delegation overage: $${formatUsd(_taskRouteOverageUsd)}` : ""}`,
-          metrics: { sessionId: _OC_SID, sessionCost: ltCost, cacheSavings: ltCache, delegationSavingsUsd: ltTasks, delegationOverageUsd: _taskRouteOverageUsd, model: resolvedModel || currentModel, slot: selNow.active_slot || "unknown" },
+          summary: `Session cost: $${formatUsd(ltCost)} | cache saved: $${formatUsd(ltCache)} | delegation saved: $${formatUsd(ltTasks)}`,
+          metrics: { sessionId: _OC_SID, sessionCost: ltCost, cacheSavings: ltCache, delegationSavingsUsd: ltTasks, model: resolvedModel || currentModel, slot: selNow.active_slot || "unknown" },
           tags: ["auto", "cost"]
         });
       }

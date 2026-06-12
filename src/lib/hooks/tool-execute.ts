@@ -27,7 +27,7 @@ import {
   VIBEOS_HOME,
 } from "../state.js"
 import {
-  classify, modelCostPerTurn, compareModelCosts, isModelFree, detectContext7, isDocsTarget,
+  classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget,
   shortModelName, formatUsd, _refreshModel, readConfig, resolveDisplayModelId, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN,
   cacheSavePer1MInputTokens,
   trendDisplay, modelToSlotLabel, resolveExecutionIdentity, formatProviderName, formatQualityName, modelDisplayName,
@@ -35,7 +35,7 @@ import {
 import { latestUserIntent } from "./chat-transform.js"
 import { loadSessionSlot } from "../selection-manager.js"
 import { loadCredit, refreshCreditSnapshot } from "../credit-api.js"
-import { buildFooterLine, buildEnforcementTags, formatCostDeltaChip, resolveBrand, resolveTierIcon } from "./shared-footer.js"
+import { buildFooterLine, buildEnforcementTags, resolveBrand, resolveTierIcon } from "./shared-footer.js"
 
 function modeCapitalized(mode: string): string {
   if (!mode) return "Budget"
@@ -45,21 +45,6 @@ function modeCapitalized(mode: string): string {
 function isGreetingLike(text: string): boolean {
   const value = String(text || "").trim().toLowerCase()
   return value === "hi" || value === "hello" || value === "hey" || value === "yo" || /^hi[!.?\s]*$/.test(value) || /^hello[!.?\s]*$/.test(value) || /^hey[!.?\s]*$/.test(value)
-}
-
-function _routeDeltaChip(fromModel: string | null | undefined, toModel: string | null | undefined): string {
-  if (!fromModel || !toModel) return ""
-  return formatCostDeltaChip(compareModelCosts(fromModel, toModel).deltaUsd)
-}
-
-function _delegationTargetSlot(targetModel: string | null | undefined): string {
-  if (!targetModel) return "cheap"
-  if (targetModel === TRINITY_MEDIUM) return "medium"
-  if (targetModel === TRINITY_CHEAP) return "cheap"
-  const tier = classify(targetModel)
-  if (tier === "high") return "brain"
-  if (tier === "mid") return "medium"
-  return "cheap"
 }
 import {
   scoreStress, extractFirstWordFromArgs, shouldLogWarn, classifyTurnSimple, autoSelectMode,
@@ -104,7 +89,6 @@ let _prompt = ""
 let _autoReportCount = 0
 let _pendingTodoArgs = null
 let _pendingTelemetryStarts = []
-let _taskRouteOverageUsd = 0
 
 function _bucketChars(n) {
   const size = Number(n || 0)
@@ -514,12 +498,7 @@ export const onToolExecuteBefore = async (input, output) => {
           }
         }
       } catch {}
-      const routeDeltaInfo = compareModelCosts(currentModel, _target)
-      const routeDelta = formatCostDeltaChip(routeDeltaInfo.deltaUsd)
-      if (Number.isFinite(routeDeltaInfo.deltaUsd) && routeDeltaInfo.deltaUsd < 0) {
-        _taskRouteOverageUsd += Math.abs(routeDeltaInfo.deltaUsd)
-      }
-      console.error(`[vibeOS] 🔀 Task → ${_target}${routeDelta ? ` · ${routeDelta}` : ""} (${_reason}, orchestrator: ${currentModel})`)
+      console.error(`[vibeOS] 🔀 Task → ${_target} (${_reason}, orchestrator: ${currentModel})`)
     }
   }
 
@@ -595,10 +574,7 @@ export const onToolExecuteBefore = async (input, output) => {
       projectName: currentProjectName || "",
       sessionId: getCurrentSessionId(),
     })
-    const targetModel = TRINITY_MEDIUM || TRINITY_CHEAP || currentModel
-    const targetSlot = _delegationTargetSlot(targetModel)
-    const deltaChip = _routeDeltaChip(currentModel, targetModel)
-    const msg = `[vibeOS] ${resolveTierIcon("cheap")} cheap lane open · Task via ${resolveTierIcon(targetSlot)} ${targetSlot} · ${deltaChip || "→"}`
+    const msg = `[vibeOS] Quick win: ${resolveTierIcon("cheap")} cheap lane open · switch to ${resolveTierIcon("medium")} medium to save about ~$${_estEdit.toFixed(3)}/turn.`
     if (shouldLogWarn(`${t}|credit|${_tierWord}`) && process.env.VIBEOS_DEBUG_DELEGATION === "1") {
       console.error(`[vibeOS] [delegation] ${msg}`)
     }
@@ -625,18 +601,15 @@ export const onToolExecuteBefore = async (input, output) => {
       const savings = apiResult?.savings ?? _estEdit
 
       if (isBlocked) {
-      if (!lowCreditNudge) {
-        const total = recordSaving(t, "delegation enforced", savings, {
-          firstWord: _firstWord,
-          projectFingerprint: currentProjectFingerprint,
-          projectName: currentProjectName || "",
-          sessionId: getCurrentSessionId(),
-        })
-      }
-        const targetModel = TRINITY_MEDIUM || TRINITY_CHEAP || currentModel
-        const targetSlot = _delegationTargetSlot(targetModel)
-        const deltaChip = _routeDeltaChip(currentModel, targetModel)
-        pendingUiNote = `[delegation] ${resolveTierIcon("brain")} brain · Task via ${resolveTierIcon(targetSlot)} ${targetSlot} · ${deltaChip || "→"}`
+        if (!lowCreditNudge) {
+          const total = recordSaving(t, "delegation enforced", savings, {
+            firstWord: _firstWord,
+            projectFingerprint: currentProjectFingerprint,
+            projectName: currentProjectName || "",
+            sessionId: getCurrentSessionId(),
+          })
+        }
+        pendingUiNote = `[delegation] This is a good candidate for a Task subagent — ${resolveTierIcon("brain")} brain handles orchestration, let cheaper tiers do the write/edit. Switch to ${resolveTierIcon("medium")} medium with \`trinity medium\` if you'd rather do it directly.`
         enforcementBlocked = true
         _mutateBlockedToolArgs(t, argSources, originalPath, output)
         if (shouldLogWarn(`${t}|enforced|${_tierWord}`)) console.error(`[vibeOS] [enforcement] BLOCKED direct ${t} on high tier → delegate via Task`)
@@ -651,10 +624,7 @@ export const onToolExecuteBefore = async (input, output) => {
         })
       }
       if (!compatibilityMode) {
-        const targetModel = TRINITY_MEDIUM || TRINITY_CHEAP || currentModel
-        const targetSlot = _delegationTargetSlot(targetModel)
-        const deltaChip = _routeDeltaChip(currentModel, targetModel)
-        const msg = `[vibeOS] ${resolveTierIcon("cheap")} cheap lane · Task via ${resolveTierIcon(targetSlot)} ${targetSlot} · ${deltaChip || "→"}`
+        const msg = `[vibeOS] ${resolveTierIcon("cheap")} cheap lane · save about ~$${_estEdit.toFixed(3)} by delegating to Task. Try ${resolveTierIcon("medium")} medium.`
         if (shouldLogWarn(`${t}|direct|${_tierWord}`) && process.env.VIBEOS_DEBUG_DELEGATION === "1") {
           console.error(`[vibeOS] [delegation] ${msg}`)
         }
@@ -807,8 +777,8 @@ export const onToolExecuteAfter = async (input, output) => {
       _autoReportCount = (_autoReportCount || 0) + 1
       if (_autoReportCount % 5 === 0 && ltTotal > 0) {
         saveReport({
-          type: "session", summary: `Session cost: $${formatUsd(ltCost)} | cache saved: $${formatUsd(ltCache)} | delegation saved: $${formatUsd(ltTasks)}${_taskRouteOverageUsd > 0 ? ` | delegation overage: $${formatUsd(_taskRouteOverageUsd)}` : ""}`,
-          metrics: { sessionId: _OC_SID, sessionCost: ltCost, cacheSavings: ltCache, delegationSavingsUsd: ltTasks, delegationOverageUsd: _taskRouteOverageUsd, model: resolvedModel || currentModel, slot: selNow.active_slot || "unknown" },
+          type: "session", summary: `Session cost: $${formatUsd(ltCost)} | cache saved: $${formatUsd(ltCache)} | delegation saved: $${formatUsd(ltTasks)}`,
+          metrics: { sessionId: _OC_SID, sessionCost: ltCost, cacheSavings: ltCache, delegationSavingsUsd: ltTasks, model: resolvedModel || currentModel, slot: selNow.active_slot || "unknown" },
           tags: ["auto", "cost"],
         })
       }

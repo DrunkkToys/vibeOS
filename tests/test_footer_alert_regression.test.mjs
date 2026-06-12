@@ -49,7 +49,6 @@ test("footer: tier = active_slot when ML decision differs from active_slot", asy
     // The footer should keep brain first and show the vector move at the end.
     assert.ok(o.text.includes("🧠 brain"), "footer should show brain from active_slot: " + o.text.slice(-150))
     assert.ok(o.text.includes("⟡ cheap"), "footer should show cheap as the vector move: " + o.text.slice(-150))
-    assert.ok(/[↗↘→]/.test(o.text), "footer should show the compact delta chip: " + o.text.slice(-150))
 })
 
 // ── Test 2: optimization_mode follows the current regime vector ──
@@ -89,7 +88,6 @@ test("footer: full ML pipeline — tier + mode + arrow in one line", async () =>
     assert.ok(footer.includes("🧠") || footer.includes("◐") || footer.includes("⚡") || footer.includes("🎁"), "has tier: " + footer)
     assert.ok(footer.includes("Budget"), "has regime-derived mode label: " + footer)
     assert.ok(footer.includes("⟡ cheap"), "has vector pulse: " + footer)
-    assert.ok(/[↗↘→]/.test(footer), "has compact delta chip: " + footer)
     assert.ok(!footer.includes("slot:"), "footer should not repeat the slot label: " + footer)
 })
 

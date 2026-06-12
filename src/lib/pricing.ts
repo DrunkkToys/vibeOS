@@ -746,25 +746,6 @@ export function modelCostPerTurn(model) {
   return TIER_FALLBACK[tier] ?? 0.00144
 }
 
-function _normalizeCostModelId(model) {
-  const normalized = normalizeModelId(model)
-  const parts = normalized.split("/")
-  if (parts.length !== 2) return normalized
-  const [provider, name] = parts
-  if (provider === "deepseek" && name && !name.startsWith("deepseek-")) {
-    return `${provider}/deepseek-${name}`
-  }
-  return normalized
-}
-
-export function compareModelCosts(currentModel, targetModel) {
-  const currentCost = modelCostPerTurn(_normalizeCostModelId(currentModel))
-  const targetCost = modelCostPerTurn(_normalizeCostModelId(targetModel))
-  const deltaUsd = currentCost - targetCost
-  const direction = deltaUsd > 0 ? "up" : deltaUsd < 0 ? "down" : "stable"
-  return { currentCost, targetCost, deltaUsd, direction }
-}
-
 export function isModelFree(model) {
   if (!model || typeof model !== "string") return false
   if (FREE_MODELS.has(model)) return true
