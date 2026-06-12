@@ -34,6 +34,8 @@ const tests = [
   ...collectTestFiles("src/lib/hooks/tests", ".test.mjs"),
   ...collectTestFiles("src/lib/hooks/tests", ".test.js"),
   ...collectTestFiles("src/vibeOS-lib/tests", ".test.mjs"),
+  ...collectTestFiles("scripts/tests", ".test.mjs"),
+  ...collectTestFiles("scripts/tests", ".test.js"),
 ]
 
 const loader = pathToFileURL(join(process.cwd(), "scripts", "ts-src-loader.mjs")).href
