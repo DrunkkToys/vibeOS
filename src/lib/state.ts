@@ -163,6 +163,9 @@ let _latestBlackboxPivotMsg: string | null = null
 let _modelLocked = false
 let _lockedSlot: string | null = null
 let _lockedModel: string | null = null
+export function setModelLocked(val: boolean) { _modelLocked = !!val }
+export function setLockedSlot(val: string | null) { _lockedSlot = val ? String(val) : null }
+export function setLockedModel(val: string | null) { _lockedModel = val ? String(val) : null }
 let _detectedFramework: string | null = null
 
 // ── Log rotation mtime guard ─────────────────────────────────────────
@@ -2072,6 +2075,9 @@ export {
   _modelLocked,
   _lockedSlot,
   _lockedModel,
+  setModelLocked,
+  setLockedSlot,
+  setLockedModel,
   _detectedFramework,
 
   // JSONC parsing

@@ -1125,7 +1125,7 @@ export function _refreshModel(directory) {
     // The trinity slot is authoritative UNLESS the directory config specifies a resolveable model.
     // This prevents the bootstrap's default slot from overriding a project-local model choice.
     // Manual slots (set via `trinity set <slot> <model>`) are always authoritative.
-    if (!_modelLocked) {
+    if (!(_modelLocked || sel.slot_locked === true)) {
       const activeIsManual = tiersData?.trinity?.[activeSlot]?.manual === true
       const cfgModel = activeIsManual ? "" : (readConfig(directory) || readConfig(getOpenCodeHome()) || "")
       if (cfgModel && cfgModel.includes("/") && cfgModel !== currentModel) {
