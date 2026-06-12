@@ -38,5 +38,5 @@
       }
     }
   },
-  "model": "deepseek/deepseek-v4-flash"
+  "model": "legacy-brain"
 }
