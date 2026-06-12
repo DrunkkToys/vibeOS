@@ -208,7 +208,17 @@ textarea{min-height:80px;resize:vertical}
 <div class="last-update" id="lastUpdate"></div>
 
 <script>
-const BASE = '';
+function resolveBase() {
+  const params = new URLSearchParams(location.search);
+  const paramBase = params.get('base');
+  if (paramBase) return paramBase.replace(/\/$/, '');
+  try {
+    const stored = localStorage.getItem('vibeos-dashboard-base');
+    if (stored) return stored.replace(/\/$/, '');
+  } catch (_) {}
+  return location.protocol === 'file:' ? 'http://127.0.0.1:3001' : '';
+}
+const BASE = resolveBase();
 let lastStatus = null;
 let lastSavings = null;
 
@@ -248,6 +258,7 @@ async function refreshAll() {
     renderStatus(status);
     renderSavings(savings);
     renderModelInfo(status);
+    renderBackendInfo(status);
     setConnection(status);
     document.getElementById('lastUpdate').textContent = 'Last updated: ' + new Date().toLocaleTimeString();
   } catch (e) {
@@ -471,7 +482,7 @@ setInterval(refreshAll, 10000);
 setInterval(fetchBlackbox, 15000);
 async function fetchBlackbox() {
     try {
-        const resp = await fetch('/blackbox');
+        const resp = await fetch(BASE + '/blackbox');
         if (!resp.ok) return;
         const data = await resp.json();
         updateBlackboxPanel(data);

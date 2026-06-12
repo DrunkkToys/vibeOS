@@ -383,7 +383,7 @@ test("saveOS MCP: live endpoints persist blackbox vectors and return structured 
       if (req.url === "/health") {
         res.statusCode = 200;
         res.setHeader("content-type", "application/json");
-        res.end(JSON.stringify({ ok: true }));
+        res.end(JSON.stringify({ ok: true, version: "9.9.9-test" }));
         return;
       }
       res.statusCode = 404;
@@ -421,6 +421,7 @@ test("saveOS MCP: live endpoints persist blackbox vectors and return structured 
     };
     await waitFor("http://127.0.0.1:" + healthPort + "/health");
     const status = await (await fetch("http://127.0.0.1:" + port + "/status")).json();
+    const statusOptions = await fetch("http://127.0.0.1:" + port + "/status", { method: "OPTIONS" });
     const savings = await (await fetch("http://127.0.0.1:" + port + "/savings")).json();
     const reportsBefore = await (await fetch("http://127.0.0.1:" + port + "/reports")).json();
     const createRes = await fetch("http://127.0.0.1:" + port + "/reports", {
@@ -454,6 +455,8 @@ test("saveOS MCP: live endpoints persist blackbox vectors and return structured 
     const result = {
       status_backend_connected: status.backend_connected,
       status_backend_health_url: status.backend_health_url,
+      status_backend_version: status.backend_version,
+      status_options_cors: statusOptions.headers.get("access-control-allow-origin"),
       status_model_locked: status.model_locked,
       savings_cache_usd: savings.lifetime?.cache_usd,
       reports_before_count: Array.isArray(reportsBefore) ? reportsBefore.length : -1,
@@ -483,6 +486,8 @@ test("saveOS MCP: live endpoints persist blackbox vectors and return structured 
   const result = JSON.parse(String(child.stdout || "").trim())
   assert.equal(result.status_backend_connected, true)
   assert.equal(result.status_backend_health_url.includes("/health"), true)
+  assert.equal(result.status_backend_version, "9.9.9-test")
+  assert.equal(result.status_options_cors, "*")
   assert.equal(result.status_model_locked, false)
   assert.equal(result.savings_cache_usd, 2.1)
   assert.ok(result.reports_before_count >= 0)

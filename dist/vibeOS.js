@@ -1788,6 +1788,9 @@ var MIME_MAP = {
   ".ico": "image/x-icon"
 };
 function json(res, statusCode, data) {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
   res.statusCode = statusCode;
   res.setHeader("Content-Type", "application/json");
   res.end(JSON.stringify(data));
@@ -1828,24 +1831,49 @@ function resolveDashboardDir() {
   return c[0];
 }
 var DASHBOARD_DIR = resolveDashboardDir();
-var BACKEND_HEALTH_URL = process.env.VIBEOS_BACKEND_HEALTH_URL || "http://127.0.0.1:3000/health";
+function resolveBackendHealthUrl() {
+  const explicit = process.env.VIBEOS_BACKEND_HEALTH_URL?.trim();
+  if (explicit)
+    return explicit;
+  const apiBase = process.env.VIBEOS_API_URL?.trim();
+  if (apiBase) {
+    try {
+      return new URL("health", apiBase.endsWith("/") ? apiBase : `${apiBase}/`).href;
+    } catch {
+    }
+  }
+  return "https://api.vibetheog.com/health";
+}
+var BACKEND_HEALTH_URL = resolveBackendHealthUrl();
 var BACKEND_HEALTH_TTL_MS = 5e3;
-var backendHealth = { ok: null, checkedAt: 0 };
+var backendHealth = { ok: null, checkedAt: 0, version: null };
 async function probeBackendHealth(force = false) {
   const now = Date.now();
   if (!force && backendHealth.ok !== null && now - backendHealth.checkedAt < BACKEND_HEALTH_TTL_MS) {
-    return backendHealth.ok;
+    return { ok: backendHealth.ok, version: backendHealth.version };
   }
   try {
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), 1500);
     const res = await fetch(BACKEND_HEALTH_URL, { signal: ctl.signal });
     clearTimeout(timer);
-    backendHealth = { ok: res.ok, checkedAt: now };
-    return res.ok;
+    let version = null;
+    try {
+      const body = await res.clone().json();
+      const candidate = body?.backend_version ?? body?.version ?? null;
+      if (typeof candidate === "string" && candidate.trim())
+        version = candidate.trim();
+    } catch {
+    }
+    if (!version) {
+      const headerVersion = res.headers.get("x-backend-version");
+      version = headerVersion && headerVersion.trim() ? headerVersion.trim() : null;
+    }
+    backendHealth = { ok: res.ok, checkedAt: now, version };
+    return { ok: res.ok, version };
   } catch {
-    backendHealth = { ok: false, checkedAt: now };
-    return false;
+    backendHealth = { ok: false, checkedAt: now, version: null };
+    return { ok: false, version: null };
   }
 }
 function sendFile(res, fp2) {
@@ -1858,6 +1886,9 @@ function sendFile(res, fp2) {
   const ext = extname(fp2).toLowerCase();
   const mime = MIME_MAP[ext] || "application/octet-stream";
   const st = statSync2(fp2);
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
   res.statusCode = 200;
   res.setHeader("Content-Type", mime);
   res.setHeader("Content-Length", st.size);
@@ -1893,11 +1924,19 @@ function createMcpServer(deps) {
       const method = (req.method || "GET").toUpperCase();
       const parsed = parseUrl(req.url || "/", true);
       const path = parsed.pathname || "/";
+      if (method === "OPTIONS") {
+        res.setHeader("Access-Control-Allow-Origin", "*");
+        res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+        res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
+        res.statusCode = 204;
+        res.end();
+        return;
+      }
       if (method === "GET" && path === "/status") {
         const state = deps.getState();
-        const ok = await probeBackendHealth();
+        const probe = await probeBackendHealth();
         const bb = deps.getBlackboxState();
-        json(res, 200, { ...state, backend_connected: ok === true, backend_health_url: BACKEND_HEALTH_URL, blackbox: bb ?? null });
+        json(res, 200, { ...state, backend_connected: probe.ok === true, backend_health_url: BACKEND_HEALTH_URL, backend_version: probe.version, blackbox: bb ?? null });
         return;
       }
       if (method === "GET" && path === "/savings") {
