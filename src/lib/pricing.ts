@@ -148,6 +148,16 @@ export function resolveExecutionIdentity(modelId: string, directory = "") {
   }
 }
 
+export function resolveTrinityDisplayModel(directory = "", activeSlot = "", liveModel = "", currentModelId = "") {
+  const slot = String(activeSlot || "").trim()
+  const slotModel = slot === "brain" ? (TRINITY_BRAIN || "")
+    : slot === "medium" ? (TRINITY_MEDIUM || "")
+      : slot === "cheap" ? (TRINITY_CHEAP || "")
+        : ""
+  const raw = [slotModel, liveModel, currentModelId].map((value) => String(value || "").trim()).find(Boolean) || ""
+  return resolveDisplayModelId(raw, directory) || raw
+}
+
 export function _providerOfModel(modelId: string, fallbackProvider = "") {
   const provider = getModelProvider(modelId)
   return provider || String(fallbackProvider || "").trim()
