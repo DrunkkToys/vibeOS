@@ -598,7 +598,8 @@ export const onToolExecuteBefore = async (input, output) => {
         _fallback: true,
       }))
 
-      const savings = apiResult?.savings ?? _estEdit
+      const remoteSavings = Number(apiResult?.savings)
+      const savings = Number.isFinite(remoteSavings) ? Math.min(remoteSavings, _estEdit) : _estEdit
       const MIN_MEANINGFUL_SAVINGS = 0.001
       const isFallback = apiResult?._fallback === true
       const isBlocked = apiResult?.blocked !== false && (isFallback || savings >= MIN_MEANINGFUL_SAVINGS)

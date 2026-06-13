@@ -40,6 +40,8 @@ function run(home, body, opts = {}) {
     try { mkdirSync(join(home, ".config", "opencode"), { recursive: true }); } catch (e) { if (e.code !== "EEXIST") throw e; }
     try { mkdirSync(projectDir, { recursive: true }); } catch (e) { if (e.code !== "EEXIST") throw e; }
     const mod = await import(${JSON.stringify(BUNDLE_URL)} + "?cc=" + Date.now());
+    mod.setCurrentModel("anthropic/claude-opus-4-7");
+    mod.setCurrentTier("high");
     const hooks = await mod.DelegationEnforcer({ client: {}, directory: projectDir });
     ${body}
   `
@@ -280,7 +282,7 @@ test("cc10: brain-tier write blocked then shell.env still works", async () => {
   const sb = sandbox()
   mkdirSync(join(sb, ".claude"), { recursive: true })
   writeFileSync(join(sb, ".claude", "model-tiers.json"), JSON.stringify({
-    trinity: { brain: { oc: "deepseek/deepseek-v4-pro", cc: "deepseek/deepseek-v4-pro" }, medium: { oc: "deepseek/deepseek-v4-flash", cc: "deepseek/deepseek-v4-flash" }, cheap: { oc: "deepseek/deepseek-chat", cc: "deepseek/deepseek-chat" } },
+    trinity: { brain: { oc: "anthropic/claude-opus-4-7", cc: "anthropic/claude-opus-4-7" }, medium: { oc: "anthropic/claude-sonnet-4-6", cc: "anthropic/claude-sonnet-4-6" }, cheap: { oc: "anthropic/claude-haiku-4-5", cc: "anthropic/claude-haiku-4-5" } },
     selection: { enabled: true, active_slot: "brain", delegation_enforce: true, tdd_strict: true, flow_enabled: true, flow_enforce: true, tdd_enforce: true, tdd_quality: true, thinking_level: "full", optimization_mode: "budget" },
   }, null, 2) + "\n")
   const result = run(sb, `

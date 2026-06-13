@@ -586,6 +586,47 @@ test("saveOS MCP: startup watchdog recovers when the port is briefly blocked", a
   assert.equal(result.trinity_status.includes("[vibeOS-dashboard]"), true)
 })
 
+test("saveOS MCP: starts on the default dashboard port when no MCP port is configured", { concurrency: false }, async () => {
+  const script = `
+    import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+    import { join } from "node:path";
+    import { tmpdir } from "node:os";
+    const sandbox = mkdtempSync(join(tmpdir(), "saveos-default-mcp-"));
+    const home = sandbox;
+    const vibeHome = join(home, ".claude");
+    const opencodeHome = join(home, ".config/opencode");
+    const projectDir = join(sandbox, "project");
+    mkdirSync(vibeHome, { recursive: true });
+    mkdirSync(join(vibeHome, "reports"), { recursive: true });
+    mkdirSync(join(vibeHome, "scratch"), { recursive: true });
+    mkdirSync(opencodeHome, { recursive: true });
+    mkdirSync(projectDir, { recursive: true });
+    writeFileSync(join(opencodeHome, "opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-flash", provider: { deepseek: { models: { "deepseek-v4-flash": {}, "deepseek-chat": {} } } } }, null, 2) + "\\n");
+    writeFileSync(join(vibeHome, "model-tiers.json"), JSON.stringify({ selection: { enabled: true, active_slot: "medium", delegation_enforce: true, flow_enabled: true, tdd_enforce: true, thinking_level: "off" }, trinity: { brain: { oc: "deepseek/deepseek-v4-pro", cc: "brain" }, medium: { oc: "deepseek/deepseek-v4-flash", cc: "medium" }, cheap: { oc: "deepseek/deepseek-chat", cc: "cheap" } }, tiers: { high: { regex: ".*pro.*" }, mid: { regex: ".*flash.*" }, budget: { regex: ".*" } } }, null, 2) + "\\n");
+    writeFileSync(join(vibeHome, "delegation-state.json"), JSON.stringify({ lifetime: { warn_count: 0, cache_savings_usd: 0, missed_context7_usd: 0, total_savings_usd: 0 }, sessions: {} }, null, 2) + "\\n");
+    process.env.HOME = home;
+    process.env.VIBEOS_HOME = vibeHome;
+    process.env.VIBEOS_OPENCODE_HOME = opencodeHome;
+    delete process.env.VIBEOS_MCP_PORT;
+    delete process.env.NODE_TEST_CONTEXT;
+    const mod = await import(${JSON.stringify(pathToFileURL(join(process.cwd(), "dist/vibeOS.js")).href)} + "?default-mcp=" + Date.now());
+    const result = {
+      resolved_port: mod._loadMcpPort(),
+    };
+    console.log(JSON.stringify(result));
+    try { rmSync(sandbox, { recursive: true, force: true }); } catch {}
+  `;
+
+  const child = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
+    env: { ...process.env },
+    encoding: "utf-8",
+  })
+
+  assert.equal(child.status, 0, child.stderr || child.stdout)
+  const result = JSON.parse(String(child.stdout || "").trim())
+  assert.equal(result.resolved_port, 3001)
+})
+
 // -- 10. PROJECT GUARD --
 test("saveOS PROJECT GUARD: DelegationEnforcer runs guard on init", async () => {
   await freshPlugin()

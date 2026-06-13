@@ -303,7 +303,9 @@ function loadMcpPort() {
     }
   }
   catch { }
-  return 0
+  if (process.env.NODE_TEST_CONTEXT)
+    return 0
+  return 3001
 }
 function persistMcpPort(port) {
   try {
@@ -958,6 +960,7 @@ export { getScratchpadHit, getSessionScratchpadDir, getSessionIndexPath, setCurr
 export { extractExports, buildTestSkeleton, enforceTestFile, buildTestReminder } from "./lib/tdd-enforcer.js"
 export { classifyAndRankModels, modelToCcAlias } from "./lib/trinity-rebuild.js"
 export { scoreStress, detectTechStack, loadBlackboxState, saveBlackboxState, getBlackboxResolution } from "./lib/turn-classify.js"
+export { loadMcpPort as _loadMcpPort }
 export { remoteCall } from "./lib/api-client.js"
 export { observeToolPattern, noteProjectPattern, recordSaving, compressText } from "./lib/index-helpers.js"
 export function closeMcpServer() {
