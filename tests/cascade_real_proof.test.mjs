@@ -46,6 +46,8 @@ const classifiers = await import("../src/lib/classifiers.js" + cacheBust)
 const turnClassify = await import("../src/lib/turn-classify.js" + cacheBust)
 const modeRouter = await import("../src/lib/mode-router.js" + cacheBust)
 const vibeultrax = await import("../src/vibeOS-lib/blackbox/vibeultrax.js" + cacheBust)
+const { createTrinityTool } = await import("../src/lib/trinity-tool.js" + cacheBust)
+const { getRealityCheckView } = await import("../src/vibeOS-lib/flow-enforcer.js" + cacheBust)
 const apiClient = await import("../src/lib/api-client.js" + cacheBust)
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -648,6 +650,115 @@ test("cascade: vibeultraxPipeline exports and preserves the three-stage pipeline
   assert.equal(result.cascade_depth, 3)
   assert.ok(Array.isArray(result.pipeline))
   assert.equal(result.pipeline.join(","), "local,medium,brain")
+})
+
+test("cascade: reality-check is wired through the live runtime hooks", async (t) => {
+  const dir = join(SANDBOX, ".opencode-cascade-reality")
+  mkdirSync(dir, { recursive: true })
+  const fp = "cascade-reality-fingerprint"
+
+  writeFileSync(join(claudeDir, "reality-check-settings.json"), JSON.stringify({
+    version: 1,
+    global: {
+      enabled: false,
+      rules: [
+        {
+          id: "require-read-before-claim",
+          severity: "warn",
+          trigger: "Edit",
+          pattern: "(?i)\\b(done|complete|success|trained|ready|works|fixed)\\b",
+          description: "Success claim detected — verify live state before asserting completion",
+        },
+        {
+          id: "verify-state-on-disk",
+          severity: "flag",
+          trigger: "Edit",
+          pattern: "(?i)\\b(assume|guess|probably|likely|maybe|seems|appears)\\b",
+          description: "Inference language detected — verify actual files/state first",
+        },
+        {
+          id: "postmortem-trigger",
+          severity: "warn",
+          trigger: "Edit",
+          pattern: "(?i)\\breality check\\b",
+          description: "Reality check requested — read and verify live state before reporting",
+        },
+      ],
+    },
+    projects: {
+      [fp]: {
+        enabled: true,
+        rules: [
+          {
+            id: "require-read-before-claim",
+            severity: "warn",
+            trigger: "Edit",
+            pattern: "(?i)\\b(done|complete|success|trained|ready|works|fixed)\\b",
+            description: "Success claim detected — verify live state before asserting completion",
+          },
+          {
+            id: "verify-state-on-disk",
+            severity: "flag",
+            trigger: "Edit",
+            pattern: "(?i)\\b(assume|guess|probably|likely|maybe|seems|appears)\\b",
+            description: "Inference language detected — verify actual files/state first",
+          },
+          {
+            id: "postmortem-trigger",
+            severity: "warn",
+            trigger: "Edit",
+            pattern: "(?i)\\breality check\\b",
+            description: "Reality check requested — read and verify live state before reporting",
+          },
+        ],
+      },
+    },
+  }, null, 2))
+
+  const view = getRealityCheckView(fp)
+  assert.equal(view.scope, "project")
+  assert.equal(view.enabled, true)
+  assert.equal(view.rules.length, 3)
+
+  const tool = createTrinityTool({
+    tool: {
+      schema: {
+        enum: (vals) => ({ optional: () => vals }),
+        string: () => ({ optional: () => ({}) }),
+      },
+    },
+    currentProjectFingerprint: fp,
+    currentProjectName: "cascade-reality",
+    projectFingerprint: () => fp,
+    directory: dir,
+    VIBEOS_HOME: claudeDir,
+    STATE_FILE: join(claudeDir, "delegation-state.json"),
+    _OC_SID: "cascade-reality-session",
+    loadProjectState: () => ({
+      project_hashes: {
+        [fp]: {
+          projectName: "cascade-reality",
+          totalSessions: 4,
+        },
+      },
+    }),
+    readFullState: () => ({
+      sessions: {
+        "cascade-reality-session": {
+          warns: [{ tool: "write", est_savings_usd: 0.01 }],
+          cache_savings_usd: 0.5,
+        },
+      },
+    }),
+    existsSync,
+  })
+
+  const reality = await tool.execute({ action: "reality-check" })
+  assert.ok(reality.includes("Verified facts only"), reality.slice(0, 220))
+  assert.ok(reality.includes("Scope: project"), reality.slice(0, 220))
+  assert.ok(reality.includes("Enabled: YES"), reality.slice(0, 220))
+  assert.ok(reality.includes("Rules loaded: 3"), reality.slice(0, 220))
+  assert.ok(reality.includes("require-read-before-claim"), reality.slice(0, 220))
 })
 
 // ── API Client Health Probe Tests ──────────────────────────────────
