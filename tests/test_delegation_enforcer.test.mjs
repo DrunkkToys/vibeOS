@@ -3099,6 +3099,48 @@ test("integration: anti-fabrication co-exists with context7 and thinking directi
   assert.ok(out.system.length >= 2, "at least 2 directives total: " + out.system.length)
 })
 
+test("integration: empirical answer guardrail survives multi-turn correction and compaction", async () => {
+  const { DelegationEnforcer } = await loadPlugin()
+  const { _OC_SID: sid } = await import("../src/lib/state.js?t=" + Date.now())
+  const dir = join(sandbox, ".oc-empirical-cascade")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-flash" }))
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+
+  const bbPath = join(sandbox, ".claude/blackbox-state.json")
+  mkdirSync(join(sandbox, ".claude"), { recursive: true })
+  const bb = existsSync(bbPath)
+    ? JSON.parse(readFileSync(bbPath, "utf-8"))
+    : { enabled: true, sessions: {} }
+  bb.sessions ??= {}
+  bb.sessions[sid] ??= {}
+  bb.sessions[sid].turn_counter = 7
+  bb.sessions[sid].sub_regime = "REFINING"
+  writeFileSync(bbPath, JSON.stringify(bb, null, 2) + "\n")
+
+  const turns = [
+    "I think this is already verified, but I need the exact facts only.",
+    "That earlier statement was wrong. Please correct it using only checked evidence.",
+    "Continue, and keep any uncertainty explicit.",
+  ]
+
+  for (const userText of turns) {
+    const out = { system: [], messages: [{ role: "user", content: userText }] }
+    await hooks["experimental.chat.system.transform"]({}, out)
+    const systemText = out.system.filter((s) => typeof s === "string").join("\n")
+    assert.ok(systemText.includes("anti-fabrication"), "anti-fabrication must remain active")
+    assert.ok(systemText.includes("[empirical answer]"), "empirical answer directive must be injected")
+    assert.ok(systemText.includes("I cannot verify that") || systemText.includes("unverified"),
+      "guardrail must force explicit uncertainty language: " + systemText.slice(0, 240))
+  }
+
+  const compactOut = { context: [] }
+  await hooks["experimental.session.compacting"]({}, compactOut)
+  const compactText = JSON.stringify(compactOut.context)
+  assert.ok(compactText.includes("context-compressed"), "compaction notice present")
+  assert.ok(compactText.includes("unverified"), "compaction must preserve evidence labeling")
+})
+
 // ── 2. Flow enforcement cascade ────────────────────────────────────────────
 test("integration: flow_enabled defaults to true", async () => {
   // The beforeEach already removed model-tiers.json, so loadPlugin uses defaults

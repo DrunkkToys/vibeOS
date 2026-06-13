@@ -43,6 +43,7 @@ export const onSessionCompacting = async (_input, output) => {
               `The preceding conversation has been context-compressed. ` +
               `ALL factual statements, technical details, decisions, code snippets, ` +
               `file paths, and references from prior turns are PRESERVED losslessly. ` +
+              `Any unverified assumption from earlier turns must stay labeled as unverified until checked. ` +
               `Only verbose connectors, restatements, and redundant intros have been removed. ` +
               `Continue the conversation naturally — the full technical context is intact.`,
       })

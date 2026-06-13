@@ -727,6 +727,12 @@ function flowTodosDirective(): string | null {
     "If useful, call `todowrite` so they land in the native task list."
 }
 
+function empiricalAnswerDirective(): string {
+  return "[empirical answer] Prefer verified facts over assumptions. " +
+    "If something is not directly checked against tools, files, logs, or user-provided evidence, label it as unverified or say \"I cannot verify that\". " +
+    "Separate evidence, inference, and suggestions. In multi-turn work, carry forward only evidence-backed facts and keep any guess explicitly marked as a guess."
+}
+
 function patternDirective(fp: string): string | null {
   const patterns = promotedProjectPatterns(fp)
   if (!patterns || patterns.length === 0) return null
@@ -980,6 +986,7 @@ export const onSystemTransform = async (_input, output) => {
 
     // ── Anti-fabrication enforcement ──
     pushSystem(output, "[anti-fabrication] Always work honestly — do NOT make up tool names, file paths, function signatures, code snippets, or exact outputs. If you must explain something you cannot verify, say 'I cannot verify that' and propose how to verify it. Under NO circumstance invent tool invocations, file contents, or final results. If you must correct an earlier response, say exactly what was wrong and then provide the corrected response. DO NOT LGTM.")
+    pushSystem(output, empiricalAnswerDirective())
 
     // ── Context budget ──
     const budgetDirective = contextBudgetDirective(_input, output)
