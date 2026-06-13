@@ -10,9 +10,35 @@ const ROOT = join(__dirname, "..")
 
 const bundlePath = join(ROOT, "dist", "vibeOS.js")
 const assetsPath = join(ROOT, "dist", "assets")
-const pluginDir = join(homedir(), ".config", "opencode", "plugins")
-const destPath = join(pluginDir, "vibeOS.js")
-const destAssets = join(pluginDir, "assets")
+function resolveOpenCodeHomes() {
+  const override = process.env.VIBEOS_OPENCODE_HOME
+  if (override) return [override]
+  const base = homedir()
+  const configHome = join(base, ".config", "opencode")
+  const dotHome = join(base, ".opencode")
+  const roots = [configHome, dotHome]
+  const existing = roots.filter((dir) => existsSync(join(dir, "opencode.json")) || existsSync(join(dir, "opencode.jsonc")) || existsSync(dir))
+  return Array.from(new Set(existing.length > 0 ? existing : roots))
+}
+function registerPluginInConfig(ocConfigPath) {
+  if (!existsSync(ocConfigPath)) return false
+  const raw = readFileSync(ocConfigPath, "utf-8")
+  let config = {}
+  try {
+    const cleaned = raw.replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "")
+    config = JSON.parse(cleaned)
+  } catch {
+    config = {}
+  }
+  if (!Array.isArray(config.plugin)) config.plugin = []
+  const hasVibeOs = config.plugin.some((p) => typeof p === "string" && p.includes("vibeOS"))
+  if (!hasVibeOs) {
+    config.plugin.push("./plugins/vibeOS.js")
+    writeFileSync(ocConfigPath, JSON.stringify(config, null, 2) + "\n")
+    return true
+  }
+  return false
+}
 
 if (!existsSync(bundlePath)) {
   process.stderr.write("[vibeOS deploy] ERROR: dist/vibeOS.js not found\n")
@@ -20,38 +46,45 @@ if (!existsSync(bundlePath)) {
 }
 
 try {
-  if (!existsSync(pluginDir)) {
-    mkdirSync(pluginDir, { recursive: true })
-  }
   const bundle = readFileSync(bundlePath)
-  writeFileSync(destPath, bundle)
-  process.stderr.write(`[vibeOS deploy] dist/vibeOS.js -> ~/.config/opencode/plugins/vibeOS.js (${bundle.length} bytes)\n`)
-
-  if (existsSync(assetsPath)) {
-    cpSync(assetsPath, destAssets, { recursive: true, force: true })
-    process.stderr.write(`[vibeOS deploy] dist/assets/ -> ~/.config/opencode/plugins/assets/\n`)
-  }
-
-  for (const staleDir of [join(pluginDir, "lib"), join(pluginDir, "utils"), join(pluginDir, "vibeOS-lib"), join(pluginDir, "vibeOS-api-server"), join(pluginDir, "dashboard", "dist")]) {
-    if (existsSync(staleDir)) {
-      rmSync(staleDir, { recursive: true, force: true })
+  const openCodeHomes = resolveOpenCodeHomes()
+  for (const home of openCodeHomes) {
+    const pluginDir = join(home, "plugins")
+    const destPath = join(pluginDir, "vibeOS.js")
+    const destAssets = join(pluginDir, "assets")
+    if (!existsSync(pluginDir)) {
+      mkdirSync(pluginDir, { recursive: true })
     }
+    writeFileSync(destPath, bundle)
+    process.stderr.write(`[vibeOS deploy] dist/vibeOS.js -> ${pluginDir}/vibeOS.js (${bundle.length} bytes)\n`)
+
+    if (existsSync(assetsPath)) {
+      cpSync(assetsPath, destAssets, { recursive: true, force: true })
+      process.stderr.write(`[vibeOS deploy] dist/assets/ -> ${pluginDir}/assets/\n`)
+    }
+
+    for (const staleDir of [join(pluginDir, "lib"), join(pluginDir, "utils"), join(pluginDir, "vibeOS-lib"), join(pluginDir, "vibeOS-api-server"), join(pluginDir, "dashboard", "dist")]) {
+      if (existsSync(staleDir)) {
+        rmSync(staleDir, { recursive: true, force: true })
+      }
+    }
+    const rmTsRecursive = (d) => { for (const e of readdirSync(d)) { const f = join(d, e); if (statSync(f).isDirectory()) rmTsRecursive(f); else if (e.endsWith('.ts')) { rmSync(f); } } }
+    rmTsRecursive(pluginDir)
+    process.stderr.write(`[vibeOS deploy] Stripped .ts files from plugin dir\n`)
   }
-  const rmTsRecursive = (d) => { for (const e of readdirSync(d)) { const f = join(d, e); if (statSync(f).isDirectory()) rmTsRecursive(f); else if (e.endsWith('.ts')) { rmSync(f); } } }
-  rmTsRecursive(pluginDir)
-  process.stderr.write(`[vibeOS deploy] Stripped .ts files from plugin dir\n`)
 
   const envSrc = join(ROOT, ".env.production")
   if (existsSync(envSrc)) {
     const envContent = readFileSync(envSrc)
-    const pluginEnvDest = join(pluginDir, ".env.production")
     const homeEnvDir = join(homedir(), ".claude")
     const homeEnvDest = join(homeEnvDir, ".env.production")
 
     mkdirSync(homeEnvDir, { recursive: true })
-    writeFileSync(pluginEnvDest, envContent)
+    for (const home of openCodeHomes) {
+      writeFileSync(join(home, ".env.production"), envContent)
+    }
     writeFileSync(homeEnvDest, envContent)
-    process.stderr.write(`[vibeOS deploy] Synced .env.production to plugin dir and ~/.claude\n`)
+    process.stderr.write(`[vibeOS deploy] Synced .env.production to OpenCode home(s) and ~/.claude\n`)
   }
 
   // ── Install nightly pricing sync cron if not already present ──
@@ -85,24 +118,15 @@ try {
 
   // Auto-register in opencode.json so OpenCode loads the plugin
   try {
-    const ocConfigPath = join(homedir(), ".config", "opencode", "opencode.json")
-    if (existsSync(ocConfigPath)) {
-      const raw = readFileSync(ocConfigPath, "utf-8")
-      let config = {}
-      try {
-        const cleaned = raw.replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "")
-        config = JSON.parse(cleaned)
-      } catch {
-        config = {}
-      }
-      if (!Array.isArray(config.plugin)) config.plugin = []
-      const hasVibeOs = config.plugin.some(p => typeof p === "string" && p.includes("vibeOS"))
-      if (!hasVibeOs) {
-        config.plugin.push("./plugins/vibeOS.js")
-        writeFileSync(ocConfigPath, JSON.stringify(config, null, 2) + "\n")
-        process.stderr.write("[vibeOS deploy] Registered vibeOS in opencode.json\n")
+    let updated = false
+    for (const home of openCodeHomes) {
+      const ocConfigPath = join(home, "opencode.json")
+      if (registerPluginInConfig(ocConfigPath)) {
+        process.stderr.write(`[vibeOS deploy] Registered vibeOS in ${ocConfigPath}\n`)
+        updated = true
       }
     }
+    if (!updated) process.stderr.write("[vibeOS deploy] OpenCode config already registered or missing\n")
   } catch {
     process.stderr.write("[vibeOS deploy] Could not auto-register in opencode.json (plugin may need manual config)\n")
   }

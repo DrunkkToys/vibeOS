@@ -57,8 +57,21 @@ function getVibeOSHome(): string {
   return VIBEOS_CONTEXT.getStore()?.home || process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude")
 }
 
-function getOpenCodeHome(): string {
-  return process.env.VIBEOS_OPENCODE_HOME || join(VIBEOS_CONTEXT.getStore()?.home || process.env.HOME || USER_HOME, ".config", "opencode")
+function hasOpenCodeConfig(dir: string): boolean {
+  return existsSync(join(dir, "opencode.json")) || existsSync(join(dir, "opencode.jsonc"))
+}
+
+export function getOpenCodeHome(): string {
+  const override = process.env.VIBEOS_OPENCODE_HOME
+  if (override) return override
+  const base = VIBEOS_CONTEXT.getStore()?.home || process.env.HOME || USER_HOME
+  const configHome = join(base, ".config", "opencode")
+  const dotHome = join(base, ".opencode")
+  if (hasOpenCodeConfig(configHome)) return configHome
+  if (hasOpenCodeConfig(dotHome)) return dotHome
+  if (existsSync(configHome)) return configHome
+  if (existsSync(dotHome)) return dotHome
+  return configHome
 }
 
 export function setVibeOSHomeContext(home: string): void {

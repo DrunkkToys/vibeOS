@@ -15,7 +15,7 @@ import assert from "node:assert"
 import { readConfig } from "../src/lib/pricing.js"
 import { probeModel } from "../src/lib/trinity-rebuild.js"
 import { _appendFooter } from "../src/lib/hooks/footer.js"
-import { _OC_SID } from "../src/lib/state.js"
+import { _OC_SID, getOpenCodeHome } from "../src/lib/state.js"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, "..")
@@ -220,6 +220,31 @@ test("autoconfig: opencode.jsonc with comments and trailing commas works", async
       "model-tiers.json created or plugin loaded from JSONC config")
   } finally {
     process.env.HOME = prevHome
+    rmSync(sb, { recursive: true, force: true })
+  }
+})
+
+test("autoconfig: prefers ~/.opencode when it is the active OpenCode home", async () => {
+  const sb = freshSandbox()
+  const prevHome = process.env.HOME
+  const prevOverride = process.env.VIBEOS_OPENCODE_HOME
+  process.env.HOME = sb
+  delete process.env.VIBEOS_OPENCODE_HOME
+  try {
+    mkdirSync(join(sb, ".opencode"), { recursive: true })
+    writeFileSync(join(sb, ".opencode/opencode.json"), JSON.stringify({
+      "$schema": "https://opencode.ai/config.json",
+      model: "deepseek/deepseek-v4-pro",
+      provider: {},
+    }, null, 2))
+
+    const home = getOpenCodeHome()
+    assert.strictEqual(home, join(sb, ".opencode"))
+    assert.ok(existsSync(join(home, "opencode.json")))
+  } finally {
+    process.env.HOME = prevHome
+    if (prevOverride === undefined) delete process.env.VIBEOS_OPENCODE_HOME
+    else process.env.VIBEOS_OPENCODE_HOME = prevOverride
     rmSync(sb, { recursive: true, force: true })
   }
 })

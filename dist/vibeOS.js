@@ -15,520 +15,14 @@ var __export = (target, all) => {
     __defProp(target, name, { get: all[name], enumerable: true });
 };
 
-// src/vibeOS-lib/flow-enforcer.js
-var flow_enforcer_exports = {};
-__export(flow_enforcer_exports, {
-  addFlowRule: () => addFlowRule,
-  checkFlowRules: () => checkFlowRules,
-  ensureProjectDocs: () => ensureProjectDocs,
-  getFlowTodos: () => getFlowTodos,
-  getFlowWarns: () => getFlowWarns,
-  getSessionFlowCounts: () => getSessionFlowCounts,
-  recordFlowTodo: () => recordFlowTodo,
-  resetAll: () => resetAll,
-  resetForTest: () => resetForTest,
-  resolveRulesPath: () => resolveRulesPath,
-  setFlowStateWriter: () => setFlowStateWriter,
-  syncFlowTodosToNative: () => syncFlowTodosToNative
-});
-import { readFileSync, existsSync, mkdirSync, writeFileSync, statSync, appendFileSync, renameSync } from "node:fs";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+// src/lib/selection-manager.js
+import { readFileSync, writeFileSync, existsSync, statSync, renameSync } from "node:fs";
+import { join } from "node:path";
+import { homedir, tmpdir } from "node:os";
 function getVibeOSHome() {
-  return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude");
+  return process.env.VIBEOS_HOME || join(process.env.HOME || homedir(), ".claude");
 }
 function safeJsonParse(raw) {
-  if (raw == null || raw === "")
-    return null;
-  try {
-    return JSON.parse(raw);
-  } catch {
-  }
-  let cleaned = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "").replace(/,\s*([}\]])/g, "$1");
-  try {
-    return JSON.parse(cleaned);
-  } catch {
-    return null;
-  }
-}
-function resolveRulesPath() {
-  if (process.env.VIBEOS_FLOW_RULES_PATH && existsSync(process.env.VIBEOS_FLOW_RULES_PATH)) {
-    return process.env.VIBEOS_FLOW_RULES_PATH;
-  }
-  for (const candidate of RULES_PATH_CANDIDATES) {
-    if (existsSync(candidate))
-      return candidate;
-  }
-  const override = process.env.VIBEOS_FLOW_RULES_PATH;
-  if (override)
-    return override;
-  return RULES_PATH_CANDIDATES[0];
-}
-function ensureProjectDocs(dir, techStack) {
-  const created = [];
-  const skipped = [];
-  const agentsPath = join(dir, "AGENTS.md");
-  const readmePath = join(dir, "README.md");
-  try {
-    if (!existsSync(agentsPath)) {
-      try {
-        writeFileSync(agentsPath, GUARD_AGENTS_TEMPLATE, "utf-8");
-        created.push("AGENTS.md");
-        console.error("[vibeOS] Project Guard: created AGENTS.md");
-      } catch (err) {
-        console.error(`[vibeOS] Project Guard: failed to create AGENTS.md: ${err.message}`);
-      }
-    } else {
-      skipped.push("AGENTS.md");
-    }
-  } catch {
-  }
-  try {
-    if (!existsSync(readmePath)) {
-      const name = dir ? dir.split("/").pop() || "Project" : "Project";
-      const stack = techStack || [];
-      const content = GUARD_README_TEMPLATE(name, stack);
-      try {
-        writeFileSync(readmePath, content, "utf-8");
-        created.push("README.md");
-        console.error("[vibeOS] Project Guard: created README.md");
-      } catch (err) {
-        console.error(`[vibeOS] Project Guard: failed to create README.md: ${err.message}`);
-      }
-    } else {
-      skipped.push("README.md");
-    }
-  } catch {
-  }
-  return { created, skipped };
-}
-function getStateFile() {
-  return join(getVibeOSHome(), "delegation-state.json");
-}
-function getFlowTodoFile() {
-  return join(getVibeOSHome(), ".flow-todo-queue.jsonl");
-}
-function setFlowStateWriter(writer) {
-  _stateWriter = typeof writer === "function" ? writer : null;
-}
-function loadFlowDedupKeys() {
-  try {
-    if (existsSync(FLOW_DEDUP_FILE)) {
-      const raw = readFileSync(FLOW_DEDUP_FILE, "utf-8");
-      const keys = safeJsonParse(raw);
-      if (Array.isArray(keys)) {
-        for (const k of keys)
-          _flowWarnsSeen.add(k);
-      }
-    }
-  } catch {
-  }
-}
-function persistFlowDedupKey(key) {
-  try {
-    mkdirSync(dirname(FLOW_DEDUP_FILE), { recursive: true });
-    let keys = [];
-    if (existsSync(FLOW_DEDUP_FILE)) {
-      try {
-        keys = safeJsonParse(readFileSync(FLOW_DEDUP_FILE, "utf-8"));
-      } catch {
-      }
-      if (!Array.isArray(keys))
-        keys = [];
-    }
-    if (!keys.includes(key)) {
-      keys.push(key);
-      if (keys.length > 1e3)
-        keys = keys.slice(-500);
-      writeFileSync(FLOW_DEDUP_FILE, JSON.stringify(keys), "utf-8");
-    }
-  } catch {
-  }
-}
-function loadRules() {
-  const rulesPath = resolveRulesPath();
-  try {
-    const mtime = _cachedRules ? statSync(rulesPath).mtimeMs : 0;
-    if (_cachedRules && mtime === _rulesMtime)
-      return _cachedRules;
-    if (!existsSync(rulesPath)) {
-      _cachedRules = [];
-      return _cachedRules;
-    }
-    const j = safeJsonParse(readFileSync(rulesPath, "utf-8"));
-    _cachedRules = j.rules || [];
-    _rulesMtime = mtime;
-    return _cachedRules;
-  } catch {
-    _cachedRules = [];
-    return _cachedRules;
-  }
-}
-function recordFlowWarn(hit) {
-  try {
-    let state = {};
-    const stateFile = getStateFile();
-    if (existsSync(stateFile)) {
-      try {
-        state = safeJsonParse(readFileSync(stateFile, "utf-8"));
-      } catch {
-      }
-    } else {
-      mkdirSync(dirname(stateFile), { recursive: true });
-    }
-    state.flow_warns ??= [];
-    const dedupKey = `${hit.id}|${hit.filePath}`;
-    const anyExisting = state.flow_warns.some((w) => {
-      const wKey = `${w.rule_id}|${w.filePath}`;
-      return wKey === dedupKey;
-    });
-    if (!anyExisting) {
-      state.flow_warns.push({
-        at: (/* @__PURE__ */ new Date()).toISOString(),
-        sid: process.pid || "?",
-        rule_id: hit.id,
-        severity: hit.severity,
-        filePath: hit.filePath,
-        description: hit.description
-      });
-    }
-    if (state.flow_warns.length > 200) {
-      state.flow_warns = state.flow_warns.slice(-200);
-    }
-    const fp2 = { flow_warns: state.flow_warns };
-    if (_stateWriter)
-      _stateWriter(fp2);
-    else {
-      const stateFile2 = getStateFile();
-      const existing = safeJsonParse(existsSync(stateFile2) ? readFileSync(stateFile2, "utf-8") : "{}");
-      const merged = Object.assign({}, existing, fp2);
-      const tmpFile = stateFile2 + ".tmp." + Date.now();
-      writeFileSync(tmpFile, JSON.stringify(merged, null, 2));
-      renameSync(tmpFile, stateFile2);
-    }
-  } catch {
-  }
-}
-function checkFlowRules({ tool: tool2, filePath, content }) {
-  const rules = loadRules();
-  const hits = [];
-  const toolName = String(tool2 || "").trim().toLowerCase();
-  for (const rule of rules) {
-    const triggerName = String(rule.trigger || "").trim().toLowerCase();
-    if (triggerName !== toolName)
-      continue;
-    const target = toolName === "write" ? filePath || "" : content || filePath || "";
-    let re;
-    try {
-      re = new RegExp(rule.pattern);
-    } catch {
-      continue;
-    }
-    if (!re.test(target))
-      continue;
-    const key = `${rule.id}::${filePath || ""}`;
-    if (_flowWarnsSeen.has(key)) {
-      hits.push({ ...rule, filePath, deduped: true });
-      continue;
-    }
-    _flowWarnsSeen.add(key);
-    persistFlowDedupKey(key);
-    const hit = { ...rule, filePath, deduped: false };
-    hits.push(hit);
-    recordFlowWarn(hit);
-  }
-  return hits;
-}
-function getFlowWarns() {
-  try {
-    const stateFile = getStateFile();
-    if (!existsSync(stateFile))
-      return [];
-    const s = safeJsonParse(readFileSync(stateFile, "utf-8"));
-    return s?.flow_warns || [];
-  } catch {
-    return [];
-  }
-}
-function getSessionFlowCounts() {
-  const counts = { warn: 0, hint: 0, flag: 0 };
-  const rules = loadRules();
-  for (const key of _flowWarnsSeen) {
-    const [ruleId] = key.split("::");
-    const rule = rules.find((r) => r.id === ruleId);
-    if (rule && counts[rule.severity] !== void 0)
-      counts[rule.severity]++;
-  }
-  return counts;
-}
-function resetForTest(rules) {
-  _cachedRules = rules;
-  _flowWarnsSeen.clear();
-  try {
-    _rulesMtime = statSync(resolveRulesPath()).mtimeMs;
-  } catch {
-  }
-}
-function resetAll() {
-  _flowWarnsSeen.clear();
-  _cachedRules = null;
-  _rulesMtime = 0;
-}
-function addFlowRule(rule) {
-  const rules = loadRules();
-  rules.push(rule);
-  writeFileSync(resolveRulesPath(), JSON.stringify({ rules }, null, 2), "utf-8");
-  _cachedRules = rules;
-  _rulesMtime = statSync(resolveRulesPath()).mtimeMs;
-}
-function recordFlowTodo({ filePath, content }) {
-  try {
-    const flowTodoFile = getFlowTodoFile();
-    mkdirSync(dirname(flowTodoFile), { recursive: true });
-    const todoRe = /(?:\/\/\s*|\#\s*)(TODO|FIXME|HACK)[\s:]+(.+)$/i;
-    const todos = [];
-    for (const line of content.split("\n")) {
-      const m = line.match(todoRe);
-      if (m) {
-        todos.push({ type: m[1], text: m[2].trim() });
-      }
-    }
-    if (todos.length === 0)
-      return 0;
-    const dedupKey = `${filePath || ""}::${todos.map((t) => `${t.type}:${t.text}`).join("|")}`;
-    const existingLines = existsSync(flowTodoFile) ? readFileSync(flowTodoFile, "utf-8").trim().split("\n").filter(Boolean) : [];
-    const existingKeys = /* @__PURE__ */ new Set();
-    for (const line of existingLines) {
-      try {
-        const entry2 = safeJsonParse(line);
-        if (entry2 && entry2.filePath && entry2.todos) {
-          const key = `${entry2.filePath}::${entry2.todos.map((t) => `${t.type}:${t.text}`).join("|")}`;
-          existingKeys.add(key);
-        }
-      } catch {
-      }
-    }
-    if (existingKeys.has(dedupKey))
-      return 0;
-    const entry = JSON.stringify({
-      at: (/* @__PURE__ */ new Date()).toISOString(),
-      filePath,
-      todos
-    }) + "\n";
-    appendFileSync(flowTodoFile, entry);
-    try {
-      const lines = readFileSync(flowTodoFile, "utf-8").trim().split("\n").filter(Boolean);
-      if (lines.length > MAX_FLOW_TODOS) {
-        writeFileSync(flowTodoFile, lines.slice(-Math.floor(MAX_FLOW_TODOS / 2)).join("\n") + "\n");
-      }
-    } catch {
-    }
-    console.error(`[flow-enforcer] \u{1F4CB} Extracted ${todos.length} TODO(s) from ${filePath} \u2192 .flow-todo-queue.jsonl`);
-    return todos.length;
-  } catch {
-    return 0;
-  }
-}
-function getFlowTodos() {
-  try {
-    const flowTodoFile = getFlowTodoFile();
-    if (!existsSync(flowTodoFile))
-      return [];
-    const raw = readFileSync(flowTodoFile, "utf-8").trim();
-    if (!raw)
-      return [];
-    return raw.split("\n").filter(Boolean).map((line) => safeJsonParse(line)).filter(Boolean);
-  } catch {
-    return [];
-  }
-}
-function syncFlowTodosToNative(upsertFn) {
-  const entries = getFlowTodos();
-  let count = 0;
-  for (const entry of entries) {
-    for (const todo of entry.todos || []) {
-      const priority = todo.type === "FIXME" ? "high" : todo.type === "HACK" ? "medium" : "low";
-      if (upsertFn) {
-        upsertFn({
-          content: `[${todo.type}] ${todo.text}`,
-          filePath: entry.filePath || "",
-          priority,
-          source: "flow"
-        });
-      }
-      count++;
-    }
-  }
-  return count;
-}
-var VIBEOS_STDERR_DEBUG, VIBEOS_CONSOLE_ERROR_GUARD, globalConsoleState, __dirname2, RULES_PATH_CANDIDATES, GUARD_AGENTS_TEMPLATE, GUARD_README_TEMPLATE, FLOW_DEDUP_FILE, MAX_FLOW_TODOS, _flowWarnsSeen, _stateWriter, _cachedRules, _rulesMtime;
-var init_flow_enforcer = __esm({
-  "src/vibeOS-lib/flow-enforcer.js"() {
-    "use strict";
-    VIBEOS_STDERR_DEBUG = process.env.VIBEOS_DEBUG_STDERR === "1" || process.env.VIBEOS_DEBUG_LOGS === "1";
-    VIBEOS_CONSOLE_ERROR_GUARD = "__vibeOSConsoleErrorGuard";
-    globalConsoleState = globalThis;
-    if (!VIBEOS_STDERR_DEBUG && !globalConsoleState[VIBEOS_CONSOLE_ERROR_GUARD]) {
-      const originalConsoleError = console.error.bind(console);
-      console.error = (...args) => {
-        let text = "";
-        for (const arg of args) {
-          if (typeof arg === "string") {
-            text += arg;
-          } else if (arg instanceof Error) {
-            text += `${arg.name}: ${arg.message}`;
-          } else if (arg && typeof arg === "object") {
-            try {
-              text += JSON.stringify(arg);
-            } catch {
-              text += String(arg);
-            }
-          } else {
-            text += String(arg);
-          }
-          text += " ";
-        }
-        if (text.includes("[vibeOS]") || text.includes("[flow-enforcer]") || text.includes("[delegation]"))
-          return;
-        originalConsoleError(...args);
-      };
-      globalConsoleState[VIBEOS_CONSOLE_ERROR_GUARD] = true;
-    }
-    __dirname2 = dirname(fileURLToPath(import.meta.url));
-    RULES_PATH_CANDIDATES = [
-      join(process.cwd(), "src", "vibeOS-lib", "flow-rules.json"),
-      join(process.cwd(), "dist-ts", "vibeOS-lib", "flow-rules.json"),
-      join(process.cwd(), "dist", "assets", "flow-rules.json"),
-      join(__dirname2, "flow-rules.json")
-    ];
-    GUARD_AGENTS_TEMPLATE = [
-      "# AGENTS.md",
-      "",
-      "> Auto-generated by vibeOS Project Guard. Defines rules for AI agents working on this project.",
-      "",
-      "## CRITICAL \u2014 ASK BEFORE CHANGING CODE",
-      "",
-      "NEVER modify any file without explicit user permission.",
-      'If you are an LLM: DO NOT LGTM, DO NOT "fix", DO NOT "clean up",',
-      'DO NOT "refactor", DO NOT "optimize", DO NOT "modernize". ASK FIRST.',
-      "",
-      "## PROTECTED FILES",
-      "",
-      "Do not modify these files without explicit user permission:",
-      "- AGENTS.md (this file)",
-      "- README.md",
-      ""
-    ].join("\n");
-    GUARD_README_TEMPLATE = (name, techStack) => {
-      const stackLine = techStack.length > 0 ? techStack.map((t) => `\`${t}\``).join(", ") : "(auto-detected on next session)";
-      return [
-        `# ${name}`,
-        "",
-        "## Tech Stack",
-        "",
-        stackLine,
-        "",
-        "## Features",
-        "",
-        "(Feature list maintained by vibeOS \u2014 run `trinity guard` to refresh)",
-        "",
-        "## Getting Started",
-        "",
-        "```bash",
-        "# Clone and install dependencies",
-        "```",
-        ""
-      ].join("\n");
-    };
-    FLOW_DEDUP_FILE = join(getVibeOSHome(), ".flow-dedup-keys.json");
-    MAX_FLOW_TODOS = 200;
-    _flowWarnsSeen = /* @__PURE__ */ new Set();
-    _stateWriter = null;
-    loadFlowDedupKeys();
-    _cachedRules = null;
-    _rulesMtime = 0;
-  }
-});
-
-// src/lib/runtime-state.js
-function getRuntimeState() {
-  const g = globalThis;
-  if (!g[RUNTIME_KEY]) {
-    g[RUNTIME_KEY] = {
-      apiConnected: true,
-      apiFallbackMode: false,
-      apiFallbackSince: null,
-      apiEnabled: true,
-      sessionId: "opencode-" + (process.pid || "x") + "-" + Date.now()
-    };
-  }
-  return g[RUNTIME_KEY];
-}
-function getOcSessionId() {
-  return getRuntimeState().sessionId;
-}
-function markApiConnected() {
-  const state = getRuntimeState();
-  state.apiConnected = true;
-  state.apiFallbackMode = false;
-  state.apiFallbackSince = null;
-}
-function markApiDisconnected() {
-  const state = getRuntimeState();
-  state.apiConnected = false;
-  state.apiFallbackMode = true;
-  if (!state.apiFallbackSince)
-    state.apiFallbackSince = (/* @__PURE__ */ new Date()).toISOString();
-}
-function resetApiConnection() {
-  const state = getRuntimeState();
-  state.apiConnected = false;
-  state.apiFallbackMode = false;
-  state.apiFallbackSince = null;
-}
-function isApiConnected() {
-  const state = getRuntimeState();
-  return state.apiEnabled;
-}
-function isApiFallbackMode() {
-  return getRuntimeState().apiFallbackMode;
-}
-function getApiFallbackSince() {
-  return getRuntimeState().apiFallbackSince;
-}
-function isApiEnabled() {
-  return getRuntimeState().apiEnabled;
-}
-function setApiEnabled(enabled) {
-  getRuntimeState().apiEnabled = enabled;
-}
-function setApiFallbackSince(since) {
-  getRuntimeState().apiFallbackSince = since;
-}
-function setApiFallbackMode(on) {
-  const state = getRuntimeState();
-  state.apiFallbackMode = on;
-  if (on && !state.apiFallbackSince)
-    state.apiFallbackSince = (/* @__PURE__ */ new Date()).toISOString();
-  if (!on)
-    state.apiFallbackSince = null;
-}
-var RUNTIME_KEY;
-var init_runtime_state = __esm({
-  "src/lib/runtime-state.js"() {
-    "use strict";
-    RUNTIME_KEY = "__vibeOSRuntimeState";
-  }
-});
-
-// src/lib/selection-manager.js
-import { readFileSync as readFileSync3, writeFileSync as writeFileSync4, existsSync as existsSync4, statSync as statSync3, renameSync as renameSync2 } from "node:fs";
-import { join as join3 } from "node:path";
-import { homedir as homedir2, tmpdir } from "node:os";
-function getVibeOSHome2() {
-  return process.env.VIBEOS_HOME || join3(process.env.HOME || homedir2(), ".claude");
-}
-function safeJsonParse2(raw) {
   if (raw == null || raw === "")
     return null;
   try {
@@ -543,16 +37,16 @@ function safeJsonParse2(raw) {
   }
 }
 function loadSelection() {
-  const TIERS_FILE3 = join3(getVibeOSHome2(), "model-tiers.json");
+  const TIERS_FILE3 = join(getVibeOSHome(), "model-tiers.json");
   try {
-    if (!existsSync4(TIERS_FILE3))
+    if (!existsSync(TIERS_FILE3))
       return DFLT_SEL;
-    const st = statSync3(TIERS_FILE3);
+    const st = statSync(TIERS_FILE3);
     if (st.size > 10485760) {
       _handleStateCorruption2(TIERS_FILE3);
       return DFLT_SEL;
     }
-    const j = safeJsonParse2(readFileSync3(TIERS_FILE3, "utf-8"));
+    const j = safeJsonParse(readFileSync(TIERS_FILE3, "utf-8"));
     return {
       enabled: j?.selection?.enabled !== false,
       active_slot: j?.selection?.active_slot || null,
@@ -583,16 +77,16 @@ function loadSelection() {
   }
 }
 function writeSelection(key, value) {
-  const TIERS_FILE3 = join3(getVibeOSHome2(), "model-tiers.json");
+  const TIERS_FILE3 = join(getVibeOSHome(), "model-tiers.json");
   try {
     return withFileLock(TIERS_FILE3, () => {
-      const j = safeJsonParse2(readFileSync3(TIERS_FILE3, "utf-8"));
+      const j = safeJsonParse(readFileSync(TIERS_FILE3, "utf-8"));
       if (!j.selection)
         j.selection = {};
       j.selection[key] = value;
       const tmp = TIERS_FILE3 + ".tmp." + Date.now() + "." + Math.random().toString(36).slice(2, 8);
-      writeFileSync4(tmp, JSON.stringify(j, null, 2) + "\n");
-      renameSync2(tmp, TIERS_FILE3);
+      writeFileSync(tmp, JSON.stringify(j, null, 2) + "\n");
+      renameSync(tmp, TIERS_FILE3);
       return true;
     });
   } catch (err) {
@@ -601,28 +95,28 @@ function writeSelection(key, value) {
   }
 }
 function loadSessionSlot(sid) {
-  const BLACKBOX_FILE = join3(getVibeOSHome2(), "blackbox-state.json");
+  const BLACKBOX_FILE = join(getVibeOSHome(), "blackbox-state.json");
   try {
-    if (!existsSync4(BLACKBOX_FILE))
+    if (!existsSync(BLACKBOX_FILE))
       return null;
-    const j = safeJsonParse2(readFileSync3(BLACKBOX_FILE, "utf-8"));
+    const j = safeJsonParse(readFileSync(BLACKBOX_FILE, "utf-8"));
     return j?.sessions?.[sid]?.active_slot || null;
   } catch {
     return null;
   }
 }
 function writeSessionSlot2(sid, slot) {
-  const BLACKBOX_FILE = join3(getVibeOSHome2(), "blackbox-state.json");
+  const BLACKBOX_FILE = join(getVibeOSHome(), "blackbox-state.json");
   try {
-    const j = existsSync4(BLACKBOX_FILE) ? safeJsonParse2(readFileSync3(BLACKBOX_FILE, "utf-8")) : {};
+    const j = existsSync(BLACKBOX_FILE) ? safeJsonParse(readFileSync(BLACKBOX_FILE, "utf-8")) : {};
     if (!j.sessions)
       j.sessions = {};
     if (!j.sessions[sid])
       j.sessions[sid] = {};
     j.sessions[sid].active_slot = slot;
     const tmp = BLACKBOX_FILE + ".tmp";
-    writeFileSync4(tmp, JSON.stringify(j, null, 2) + "\n");
-    renameSync2(tmp, BLACKBOX_FILE);
+    writeFileSync(tmp, JSON.stringify(j, null, 2) + "\n");
+    renameSync(tmp, BLACKBOX_FILE);
     return true;
   } catch (err) {
     console.error("[vibeOS] writeSessionSlot failed: " + err.message);
@@ -630,11 +124,11 @@ function writeSessionSlot2(sid, slot) {
   }
 }
 function loadSessionOptMode(sid) {
-  const BLACKBOX_FILE = join3(getVibeOSHome2(), "blackbox-state.json");
+  const BLACKBOX_FILE = join(getVibeOSHome(), "blackbox-state.json");
   try {
-    if (!existsSync4(BLACKBOX_FILE))
+    if (!existsSync(BLACKBOX_FILE))
       return null;
-    const j = safeJsonParse2(readFileSync3(BLACKBOX_FILE, "utf-8"));
+    const j = safeJsonParse(readFileSync(BLACKBOX_FILE, "utf-8"));
     return j?.sessions?.[sid]?.optimization_mode || null;
   } catch {
     return null;
@@ -652,17 +146,17 @@ function saveGlobalOptMode(mode) {
   return writeSelection("optimization_mode", mode);
 }
 function writeSessionOptMode2(sid, mode) {
-  const BLACKBOX_FILE = join3(getVibeOSHome2(), "blackbox-state.json");
+  const BLACKBOX_FILE = join(getVibeOSHome(), "blackbox-state.json");
   try {
-    const j = existsSync4(BLACKBOX_FILE) ? safeJsonParse2(readFileSync3(BLACKBOX_FILE, "utf-8")) : {};
+    const j = existsSync(BLACKBOX_FILE) ? safeJsonParse(readFileSync(BLACKBOX_FILE, "utf-8")) : {};
     if (!j.sessions)
       j.sessions = {};
     if (!j.sessions[sid])
       j.sessions[sid] = {};
     j.sessions[sid].optimization_mode = mode;
     const tmp = BLACKBOX_FILE + ".tmp";
-    writeFileSync4(tmp, JSON.stringify(j, null, 2) + "\n");
-    renameSync2(tmp, BLACKBOX_FILE);
+    writeFileSync(tmp, JSON.stringify(j, null, 2) + "\n");
+    renameSync(tmp, BLACKBOX_FILE);
     return true;
   } catch (err) {
     console.error("[vibeOS] writeSessionOptMode failed: " + err.message);
@@ -676,7 +170,7 @@ var init_selection_manager = __esm({
     init_state();
     USER_HOME = (() => {
       try {
-        return homedir2();
+        return homedir();
       } catch {
         return tmpdir();
       }
@@ -811,6 +305,77 @@ function _computeSessionMetrics(state, sid) {
 var init_pattern_helpers = __esm({
   "src/lib/pattern-helpers.js"() {
     "use strict";
+  }
+});
+
+// src/lib/runtime-state.js
+function getRuntimeState() {
+  const g = globalThis;
+  if (!g[RUNTIME_KEY]) {
+    g[RUNTIME_KEY] = {
+      apiConnected: true,
+      apiFallbackMode: false,
+      apiFallbackSince: null,
+      apiEnabled: true,
+      sessionId: "opencode-" + (process.pid || "x") + "-" + Date.now()
+    };
+  }
+  return g[RUNTIME_KEY];
+}
+function getOcSessionId() {
+  return getRuntimeState().sessionId;
+}
+function markApiConnected() {
+  const state = getRuntimeState();
+  state.apiConnected = true;
+  state.apiFallbackMode = false;
+  state.apiFallbackSince = null;
+}
+function markApiDisconnected() {
+  const state = getRuntimeState();
+  state.apiConnected = false;
+  state.apiFallbackMode = true;
+  if (!state.apiFallbackSince)
+    state.apiFallbackSince = (/* @__PURE__ */ new Date()).toISOString();
+}
+function resetApiConnection() {
+  const state = getRuntimeState();
+  state.apiConnected = false;
+  state.apiFallbackMode = false;
+  state.apiFallbackSince = null;
+}
+function isApiConnected() {
+  const state = getRuntimeState();
+  return state.apiEnabled;
+}
+function isApiFallbackMode() {
+  return getRuntimeState().apiFallbackMode;
+}
+function getApiFallbackSince() {
+  return getRuntimeState().apiFallbackSince;
+}
+function isApiEnabled() {
+  return getRuntimeState().apiEnabled;
+}
+function setApiEnabled(enabled) {
+  getRuntimeState().apiEnabled = enabled;
+}
+function setApiFallbackSince(since) {
+  getRuntimeState().apiFallbackSince = since;
+}
+function setApiFallbackMode(on) {
+  const state = getRuntimeState();
+  state.apiFallbackMode = on;
+  if (on && !state.apiFallbackSince)
+    state.apiFallbackSince = (/* @__PURE__ */ new Date()).toISOString();
+  if (!on)
+    state.apiFallbackSince = null;
+}
+var RUNTIME_KEY;
+var init_runtime_state = __esm({
+  "src/lib/runtime-state.js"() {
+    "use strict";
+    RUNTIME_KEY = "__vibeOSRuntimeState";
   }
 });
 
@@ -1419,14 +984,34 @@ var init_smart_cache = __esm({
 });
 
 // src/lib/state.js
-import { readFileSync as readFileSync4, writeFileSync as writeFileSync5, appendFileSync as appendFileSync2, existsSync as existsSync5, mkdirSync as mkdirSync4, statSync as statSync4, readdirSync, openSync, readSync, closeSync, rmSync as rmSync2, copyFileSync, renameSync as renameSync3 } from "node:fs";
-import { join as join4, dirname as dirname4, basename as basename2 } from "node:path";
+import { readFileSync as readFileSync2, writeFileSync as writeFileSync2, appendFileSync, existsSync as existsSync2, mkdirSync, statSync as statSync2, readdirSync, openSync, readSync, closeSync, rmSync, copyFileSync, renameSync as renameSync2 } from "node:fs";
+import { join as join2, dirname, basename as basename2 } from "node:path";
 import { spawn } from "node:child_process";
-import { homedir as homedir3, tmpdir as tmpdir2 } from "node:os";
+import { homedir as homedir2, tmpdir as tmpdir2 } from "node:os";
 import { createHash } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
-function getVibeOSHome3() {
-  return VIBEOS_CONTEXT.getStore()?.home || process.env.VIBEOS_HOME || join4(process.env.HOME || "", ".claude");
+function getVibeOSHome2() {
+  return VIBEOS_CONTEXT.getStore()?.home || process.env.VIBEOS_HOME || join2(process.env.HOME || "", ".claude");
+}
+function hasOpenCodeConfig(dir) {
+  return existsSync2(join2(dir, "opencode.json")) || existsSync2(join2(dir, "opencode.jsonc"));
+}
+function getOpenCodeHome() {
+  const override = process.env.VIBEOS_OPENCODE_HOME;
+  if (override)
+    return override;
+  const base = VIBEOS_CONTEXT.getStore()?.home || process.env.HOME || USER_HOME2;
+  const configHome = join2(base, ".config", "opencode");
+  const dotHome = join2(base, ".opencode");
+  if (hasOpenCodeConfig(configHome))
+    return configHome;
+  if (hasOpenCodeConfig(dotHome))
+    return dotHome;
+  if (existsSync2(configHome))
+    return configHome;
+  if (existsSync2(dotHome))
+    return dotHome;
+  return configHome;
 }
 function setVibeOSHomeContext(home) {
   VIBEOS_CONTEXT.enterWith({ home: String(home || "") });
@@ -1483,13 +1068,13 @@ function _zType(base) {
 }
 function _pruneCorruptionBackups(backupDir) {
   try {
-    if (!existsSync5(backupDir))
+    if (!existsSync2(backupDir))
       return;
     const now = Date.now();
     const backups = readdirSync(backupDir).map((name) => {
-      const path = join4(backupDir, name);
+      const path = join2(backupDir, name);
       try {
-        const st = statSync4(path);
+        const st = statSync2(path);
         return { name, path, mtimeMs: st.mtimeMs };
       } catch {
         return null;
@@ -1500,7 +1085,7 @@ function _pruneCorruptionBackups(backupDir) {
       const isExpired = now - backup.mtimeMs > CORRUPTION_BACKUP_TTL_MS;
       if (isExpired || !keep.has(backup.path)) {
         try {
-          rmSync2(backup.path, { force: true });
+          rmSync(backup.path, { force: true });
         } catch {
         }
       }
@@ -1510,11 +1095,11 @@ function _pruneCorruptionBackups(backupDir) {
 }
 function runStartupMaintenanceOnce() {
   try {
-    const home = getVibeOSHome3();
+    const home = getVibeOSHome2();
     if (!home || home === _startupMaintenanceHome)
       return;
     _startupMaintenanceHome = home;
-    _pruneCorruptionBackups(join4(home, ".backups"));
+    _pruneCorruptionBackups(join2(home, ".backups"));
     loadActiveJobs();
     _compactSavingsLedgerIfNeeded();
   } catch {
@@ -1522,15 +1107,15 @@ function runStartupMaintenanceOnce() {
 }
 function _ensureVibeOSHomeDir() {
   try {
-    if (!existsSync5(VIBEOS_HOME)) {
-      mkdirSync4(VIBEOS_HOME, { recursive: true });
+    if (!existsSync2(VIBEOS_HOME)) {
+      mkdirSync(VIBEOS_HOME, { recursive: true });
       return VIBEOS_HOME;
     }
-    const st = statSync4(VIBEOS_HOME);
+    const st = statSync2(VIBEOS_HOME);
     if (!st.isDirectory()) {
       const backup = VIBEOS_HOME + ".backup." + Date.now();
-      renameSync3(VIBEOS_HOME, backup);
-      mkdirSync4(VIBEOS_HOME, { recursive: true });
+      renameSync2(VIBEOS_HOME, backup);
+      mkdirSync(VIBEOS_HOME, { recursive: true });
     }
     return VIBEOS_HOME;
   } catch {
@@ -1539,19 +1124,19 @@ function _ensureVibeOSHomeDir() {
 }
 function _handleStateCorruption2(path) {
   _ensureVibeOSHomeDir();
-  const backupDir = join4(VIBEOS_HOME, ".backups");
+  const backupDir = join2(VIBEOS_HOME, ".backups");
   try {
-    mkdirSync4(backupDir, { recursive: true });
+    mkdirSync(backupDir, { recursive: true });
   } catch {
   }
-  const backupPath = join4(backupDir, basename2(path) + ".corrupted." + Date.now());
+  const backupPath = join2(backupDir, basename2(path) + ".corrupted." + Date.now());
   try {
     copyFileSync(path, backupPath);
   } catch {
   }
-  const logPath = join4(VIBEOS_HOME, ".state-corruption-log.jsonl");
+  const logPath = join2(VIBEOS_HOME, ".state-corruption-log.jsonl");
   try {
-    appendFileSync2(logPath, JSON.stringify({ ts: (/* @__PURE__ */ new Date()).toISOString(), path, backup: backupPath }) + "\n");
+    appendFileSync(logPath, JSON.stringify({ ts: (/* @__PURE__ */ new Date()).toISOString(), path, backup: backupPath }) + "\n");
   } catch {
   }
   _pruneCorruptionBackups(backupDir);
@@ -1559,7 +1144,7 @@ function _handleStateCorruption2(path) {
 }
 function _lockPathFor(filePath) {
   const hash = createHash("sha1").update(String(filePath || "")).digest("hex");
-  return join4(FILE_LOCK_DIR, `${hash}.lock`);
+  return join2(FILE_LOCK_DIR, `${hash}.lock`);
 }
 function withFileLock(filePath, fn, opts = {}) {
   const staleMs = Number(opts.staleMs || 3e4);
@@ -1568,10 +1153,10 @@ function withFileLock(filePath, fn, opts = {}) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
-      mkdirSync4(FILE_LOCK_DIR, { recursive: true });
+      mkdirSync(FILE_LOCK_DIR, { recursive: true });
       const fd = openSync(lockPath, "wx");
       try {
-        writeFileSync5(fd, `${process.pid}
+        writeFileSync2(fd, `${process.pid}
 ${Date.now()}
 `);
       } catch {
@@ -1584,17 +1169,17 @@ ${Date.now()}
         } catch {
         }
         try {
-          rmSync2(lockPath, { force: true });
+          rmSync(lockPath, { force: true });
         } catch {
         }
       }
     } catch (err) {
       try {
-        if (existsSync5(lockPath)) {
-          const age = Date.now() - statSync4(lockPath).mtimeMs;
+        if (existsSync2(lockPath)) {
+          const age = Date.now() - statSync2(lockPath).mtimeMs;
           if (age > staleMs) {
             try {
-              rmSync2(lockPath, { force: true });
+              rmSync(lockPath, { force: true });
             } catch {
             }
           }
@@ -1605,7 +1190,7 @@ ${Date.now()}
   }
   throw new Error(`[vibeOS] lock not acquired for ${filePath} after ${timeoutMs}ms`);
 }
-function safeJsonParse3(raw) {
+function safeJsonParse2(raw) {
   if (raw == null || raw === "")
     return null;
   try {
@@ -1642,21 +1227,21 @@ function validateState(state, path) {
 }
 function readJsonOrEmpty(filePath) {
   try {
-    if (!existsSync5(filePath))
+    if (!existsSync2(filePath))
       return {};
-    const st = statSync4(filePath);
+    const st = statSync2(filePath);
     if (st.size > 10485760) {
       _handleStateCorruption2(filePath);
       return {};
     }
-    return safeJsonParse3(readFileSync4(filePath, "utf-8"));
+    return safeJsonParse2(readFileSync2(filePath, "utf-8"));
   } catch {
     _handleStateCorruption2(filePath);
     return {};
   }
 }
 function updateState(mutator) {
-  const delegationStateFile = join4(getVibeOSHome3(), "delegation-state.json");
+  const delegationStateFile = join2(getVibeOSHome2(), "delegation-state.json");
   const MAX_RETRIES2 = 3;
   for (let attempt = 0; attempt < MAX_RETRIES2; attempt++) {
     try {
@@ -1676,10 +1261,10 @@ function updateState(mutator) {
         state._gen = preGen + 1;
         const next = mutator(state) ?? state;
         validateState(next, delegationStateFile);
-        mkdirSync4(dirname4(delegationStateFile), { recursive: true });
+        mkdirSync(dirname(delegationStateFile), { recursive: true });
         const tmp = delegationStateFile + ".tmp";
-        writeFileSync5(tmp, JSON.stringify(next, null, 2) + "\n");
-        renameSync3(tmp, delegationStateFile);
+        writeFileSync2(tmp, JSON.stringify(next, null, 2) + "\n");
+        renameSync2(tmp, delegationStateFile);
         invalidateSavingsCache();
         return next;
       });
@@ -1696,16 +1281,16 @@ function updateState(mutator) {
   return null;
 }
 function readFullState() {
-  const delegationStateFile = join4(getVibeOSHome3(), "delegation-state.json");
+  const delegationStateFile = join2(getVibeOSHome2(), "delegation-state.json");
   try {
-    if (!existsSync5(delegationStateFile))
+    if (!existsSync2(delegationStateFile))
       return {};
-    const st = statSync4(delegationStateFile);
+    const st = statSync2(delegationStateFile);
     if (st.size > 10485760) {
       _handleStateCorruption2(delegationStateFile);
       return {};
     }
-    return safeJsonParse3(readFileSync4(delegationStateFile, "utf-8"));
+    return safeJsonParse2(readFileSync2(delegationStateFile, "utf-8"));
   } catch {
     _handleStateCorruption2(delegationStateFile);
     return {};
@@ -1726,10 +1311,10 @@ function _safeRegex(cfg, fallback2, label) {
 }
 function loadTierRegexes() {
   try {
-    const p = join4(getVibeOSHome3(), "model-tiers.json");
-    if (!existsSync5(p))
+    const p = join2(getVibeOSHome2(), "model-tiers.json");
+    if (!existsSync2(p))
       return { high: FALLBACK_HIGH, mid: FALLBACK_MID };
-    const j = safeJsonParse3(readFileSync4(p, "utf-8"));
+    const j = safeJsonParse2(readFileSync2(p, "utf-8"));
     const highRe = _safeRegex(j?.tiers?.high?.regex, FALLBACK_HIGH, "high");
     const midRe = _safeRegex(j?.tiers?.mid?.regex, FALLBACK_MID, "mid");
     return { high: highRe, mid: midRe };
@@ -1738,16 +1323,16 @@ function loadTierRegexes() {
   }
 }
 function loadGlobalLearning() {
-  const globalLearningFile = join4(getVibeOSHome3(), "global-learning.json");
+  const globalLearningFile = join2(getVibeOSHome2(), "global-learning.json");
   try {
-    if (!existsSync5(globalLearningFile))
+    if (!existsSync2(globalLearningFile))
       return DFLT_GL;
-    const st = statSync4(globalLearningFile);
+    const st = statSync2(globalLearningFile);
     if (st.size > 10485760) {
       _handleStateCorruption2(globalLearningFile);
       return DFLT_GL;
     }
-    const j = safeJsonParse3(readFileSync4(globalLearningFile, "utf-8"));
+    const j = safeJsonParse2(readFileSync2(globalLearningFile, "utf-8"));
     if (!j || typeof j !== "object")
       return DFLT_GL;
     j.exploratory_words ??= {};
@@ -1762,15 +1347,15 @@ function loadGlobalLearning() {
   }
 }
 function updateGlobalLearning(mutator) {
-  const globalLearningFile = join4(getVibeOSHome3(), "global-learning.json");
+  const globalLearningFile = join2(getVibeOSHome2(), "global-learning.json");
   return withFileLock(globalLearningFile, () => {
     const s = loadGlobalLearning();
     const next = mutator(s) ?? s;
     next.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
-    mkdirSync4(dirname4(globalLearningFile), { recursive: true });
+    mkdirSync(dirname(globalLearningFile), { recursive: true });
     const tmp = globalLearningFile + ".tmp";
-    writeFileSync5(tmp, JSON.stringify(next, null, 2));
-    renameSync3(tmp, globalLearningFile);
+    writeFileSync2(tmp, JSON.stringify(next, null, 2));
+    renameSync2(tmp, globalLearningFile);
     return next;
   });
 }
@@ -1812,16 +1397,16 @@ function saveMLState() {
   }
 }
 function loadBlackboxState() {
-  const blackboxFile = join4(getVibeOSHome3(), "blackbox-state.json");
+  const blackboxFile = join2(getVibeOSHome2(), "blackbox-state.json");
   try {
-    if (!existsSync5(blackboxFile))
+    if (!existsSync2(blackboxFile))
       return { enabled: true, sessions: {} };
-    const st = statSync4(blackboxFile);
+    const st = statSync2(blackboxFile);
     if (st.size > 10485760) {
       _handleStateCorruption2(blackboxFile);
       return { enabled: false, sessions: {} };
     }
-    const raw = safeJsonParse3(readFileSync4(blackboxFile, "utf-8")) || { enabled: false, sessions: {} };
+    const raw = safeJsonParse2(readFileSync2(blackboxFile, "utf-8")) || { enabled: false, sessions: {} };
     if (!raw.sessions || typeof raw.sessions !== "object")
       raw.sessions = {};
     const now = Date.now();
@@ -1847,7 +1432,7 @@ function loadBlackboxState() {
   }
 }
 function saveBlackboxState(state) {
-  const blackboxFile = join4(getVibeOSHome3(), "blackbox-state.json");
+  const blackboxFile = join2(getVibeOSHome2(), "blackbox-state.json");
   try {
     const next = state && typeof state === "object" ? state : { enabled: true, sessions: {} };
     next.sessions ??= {};
@@ -1857,10 +1442,10 @@ function saveBlackboxState(state) {
         continue;
       next.sessions[sid] = normalizeBlackboxRecord(session, sid, now).record;
     }
-    mkdirSync4(dirname4(blackboxFile), { recursive: true });
+    mkdirSync(dirname(blackboxFile), { recursive: true });
     const tmp = blackboxFile + ".tmp";
-    writeFileSync5(tmp, JSON.stringify(next, null, 2) + "\n");
-    renameSync3(tmp, blackboxFile);
+    writeFileSync2(tmp, JSON.stringify(next, null, 2) + "\n");
+    renameSync2(tmp, blackboxFile);
   } catch (err) {
     console.error(`[vibeOS] saveBlackboxState failed: ${err.message}`);
   }
@@ -1941,20 +1526,20 @@ function normalizeBlackboxRecord(record, sid, now) {
   return { record: next, changed };
 }
 function getSessionRoot() {
-  return join4(SCRATCHPAD_SESSIONS_DIR, _OC_SID);
+  return join2(SCRATCHPAD_SESSIONS_DIR, _OC_SID);
 }
 function getSessionScratchpadDir() {
-  return join4(getSessionRoot(), "by-hash");
+  return join2(getSessionRoot(), "by-hash");
 }
 function getSessionIndexPath() {
-  return join4(getSessionRoot(), "index.jsonl");
+  return join2(getSessionRoot(), "index.jsonl");
 }
 function getGlobalIndexPath() {
-  return join4(SCRATCHPAD_ROOT, "index.jsonl");
+  return join2(SCRATCHPAD_ROOT, "index.jsonl");
 }
 function ensureSessionScratchpadDirs() {
   try {
-    mkdirSync4(getSessionScratchpadDir(), { recursive: true });
+    mkdirSync(getSessionScratchpadDir(), { recursive: true });
     return true;
   } catch {
     return false;
@@ -1965,7 +1550,7 @@ function cleanupCurrentSessionScratchpad() {
     return;
   _sessionCacheCleaned = true;
   try {
-    rmSync2(getSessionRoot(), { recursive: true, force: true });
+    rmSync(getSessionRoot(), { recursive: true, force: true });
   } catch {
   }
 }
@@ -1998,7 +1583,7 @@ function _flushLedgerBuffer() {
   const lines = batch.map((e) => typeof e === "string" ? e.trimEnd() : String(e).trimEnd());
   const joined = lines.filter(Boolean).map((l) => l + "\n").join("");
   try {
-    appendFileSync2(SAVINGS_LEDGER_FILE, joined);
+    appendFileSync(SAVINGS_LEDGER_FILE, joined);
     _compactSavingsLedgerIfNeeded();
   } catch {
   }
@@ -2146,17 +1731,17 @@ function indexAppend(hash, tool2, size, extra) {
     const entry = JSON.stringify(entryObj) + "\n";
     const globalIndex = getGlobalIndexPath();
     const sessionIndex = getSessionIndexPath();
-    mkdirSync4(dirname4(globalIndex), { recursive: true });
-    mkdirSync4(dirname4(sessionIndex), { recursive: true });
-    appendFileSync2(globalIndex, entry);
-    appendFileSync2(sessionIndex, entry);
+    mkdirSync(dirname(globalIndex), { recursive: true });
+    mkdirSync(dirname(sessionIndex), { recursive: true });
+    appendFileSync(globalIndex, entry);
+    appendFileSync(sessionIndex, entry);
   } catch (err) {
     console.error(`[vibeOS] index write failed: ${err.message}`);
   }
 }
 function scanRecentScratchpad(dir, titleCase, maxScan = 2e3) {
   try {
-    if (!existsSync5(dir))
+    if (!existsSync2(dir))
       return null;
     const entries = readdirSync(dir);
     const ptrFiles = entries.filter((e) => e.endsWith(".ptr"));
@@ -2165,8 +1750,8 @@ function scanRecentScratchpad(dir, titleCase, maxScan = 2e3) {
       if (ptrCandidates.length >= MAX_PTR_CANDIDATES)
         break;
       try {
-        const st = statSync4(join4(dir, pf));
-        ptrCandidates.push({ ptrPath: join4(dir, pf), mtimeMs: st.mtimeMs });
+        const st = statSync2(join2(dir, pf));
+        ptrCandidates.push({ ptrPath: join2(dir, pf), mtimeMs: st.mtimeMs });
       } catch {
       }
     }
@@ -2176,22 +1761,22 @@ function scanRecentScratchpad(dir, titleCase, maxScan = 2e3) {
       if (scanned++ >= maxScan)
         break;
       try {
-        const ptrData = safeJsonParse3(readFileSync4(ptrPath, "utf-8"));
+        const ptrData = safeJsonParse2(readFileSync2(ptrPath, "utf-8"));
         if (!ptrData?.contentHash)
           continue;
         const ptrTool = typeof ptrData.tool === "string" ? TOOL_NAME_NORMALIZE[ptrData.tool] || ptrData.tool : null;
         if (titleCase && ptrTool && ptrTool !== titleCase)
           continue;
         const contentHash = String(ptrData.contentHash);
-        const f = join4(dir, `${contentHash}.txt`);
-        if (!existsSync5(f))
+        const f = join2(dir, `${contentHash}.txt`);
+        if (!existsSync2(f))
           continue;
-        const st = statSync4(f);
+        const st = statSync2(f);
         const ageSec = (Date.now() - st.mtimeMs) / 1e3;
         if (ageSec > SCRATCHPAD_MAX_AGE_SEC)
           continue;
-        const sumPath = join4(dir, `${contentHash}.summary.txt`);
-        return { hash: contentHash, fullPath: f, sizeBytes: st.size, ageSec: Math.round(ageSec), summaryPath: existsSync5(sumPath) ? sumPath : null };
+        const sumPath = join2(dir, `${contentHash}.summary.txt`);
+        return { hash: contentHash, fullPath: f, sizeBytes: st.size, ageSec: Math.round(ageSec), summaryPath: existsSync2(sumPath) ? sumPath : null };
       } catch {
       }
     }
@@ -2209,19 +1794,19 @@ function getScratchpadHit(toolLower, args, baseDir = null) {
 ${inputJson}
 `).digest("hex").slice(0, 16);
   const sessionDir = baseDir || getSessionScratchpadDir();
-  const sessionPath = join4(sessionDir, `${hash}.txt`);
-  let fullPath = existsSync5(sessionPath) ? sessionPath : null;
+  const sessionPath = join2(sessionDir, `${hash}.txt`);
+  let fullPath = existsSync2(sessionPath) ? sessionPath : null;
   if (!fullPath) {
-    const ptrSessionPath = join4(sessionDir, `${hash}.ptr`);
-    const ptrPath = existsSync5(ptrSessionPath) ? ptrSessionPath : null;
+    const ptrSessionPath = join2(sessionDir, `${hash}.ptr`);
+    const ptrPath = existsSync2(ptrSessionPath) ? ptrSessionPath : null;
     let resolvedHash = hash;
     if (ptrPath) {
       try {
-        const ptrData = safeJsonParse3(readFileSync4(ptrPath, "utf-8"));
+        const ptrData = safeJsonParse2(readFileSync2(ptrPath, "utf-8"));
         if (ptrData?.contentHash) {
           resolvedHash = ptrData.contentHash;
-          const rSessionPath = join4(sessionDir, `${resolvedHash}.txt`);
-          fullPath = existsSync5(rSessionPath) ? rSessionPath : null;
+          const rSessionPath = join2(sessionDir, `${resolvedHash}.txt`);
+          fullPath = existsSync2(rSessionPath) ? rSessionPath : null;
         }
       } catch {
       }
@@ -2234,12 +1819,12 @@ ${inputJson}
     }
   }
   try {
-    const st = statSync4(fullPath);
+    const st = statSync2(fullPath);
     const ageSec = (Date.now() - st.mtimeMs) / 1e3;
     if (ageSec > SCRATCHPAD_MAX_AGE_SEC)
       return null;
-    const summaryPath = join4(sessionDir, `${hash}.summary.txt`);
-    const finalSummary = existsSync5(summaryPath) ? summaryPath : null;
+    const summaryPath = join2(sessionDir, `${hash}.summary.txt`);
+    const finalSummary = existsSync2(summaryPath) ? summaryPath : null;
     return {
       hash,
       fullPath,
@@ -2271,7 +1856,7 @@ ${inputJson}
 function _pruneScratchpadDir(targetDir, opts = {}) {
   const { maxFiles = MAX_SCRATCHPAD_FILES, maxBytes = MAX_SCRATCHPAD_BYTES, rotate = true } = opts;
   const now = Date.now();
-  if (!existsSync5(targetDir))
+  if (!existsSync2(targetDir))
     return { dataFiles: 0, totalBytes: 0, deleted: 0, rotated: 0 };
   const entries = readdirSync(targetDir);
   let dataFiles = 0;
@@ -2281,10 +1866,10 @@ function _pruneScratchpadDir(targetDir, opts = {}) {
   for (const entry of entries) {
     if (entry.endsWith(".meta.json") || entry.endsWith(".summary.txt"))
       continue;
-    const fullPath = join4(targetDir, entry);
+    const fullPath = join2(targetDir, entry);
     let st;
     try {
-      st = statSync4(fullPath);
+      st = statSync2(fullPath);
     } catch {
       continue;
     }
@@ -2292,19 +1877,19 @@ function _pruneScratchpadDir(targetDir, opts = {}) {
     const hash = entry.replace(/\.txt$/, "");
     if (age > DECADENCE_EXPIRE_MS) {
       try {
-        rmSync2(fullPath);
+        rmSync(fullPath);
       } catch {
       }
-      const meta = join4(targetDir, hash + ".meta.json");
-      if (existsSync5(meta))
+      const meta = join2(targetDir, hash + ".meta.json");
+      if (existsSync2(meta))
         try {
-          rmSync2(meta);
+          rmSync(meta);
         } catch {
         }
-      const summary = join4(targetDir, hash + ".summary.txt");
-      if (existsSync5(summary))
+      const summary = join2(targetDir, hash + ".summary.txt");
+      if (existsSync2(summary))
         try {
-          rmSync2(summary);
+          rmSync(summary);
         } catch {
         }
       deleted++;
@@ -2315,34 +1900,34 @@ function _pruneScratchpadDir(targetDir, opts = {}) {
     if (!rotate)
       continue;
     if (age > DECADENCE_COLD_MS) {
-      const summaryPath = join4(targetDir, hash + ".summary.txt");
-      if (!existsSync5(summaryPath))
+      const summaryPath = join2(targetDir, hash + ".summary.txt");
+      if (!existsSync2(summaryPath))
         try {
-          const content = readFileSync4(fullPath, "utf-8");
-          writeFileSync5(summaryPath, content.slice(0, 200).replace(/\n+/g, " ").trim() + (content.length > 200 ? "\u2026" : ""));
+          const content = readFileSync2(fullPath, "utf-8");
+          writeFileSync2(summaryPath, content.slice(0, 200).replace(/\n+/g, " ").trim() + (content.length > 200 ? "\u2026" : ""));
         } catch {
         }
       const head = _readHead(fullPath);
       if (!head.includes("[cold-storage]"))
         try {
-          writeFileSync5(fullPath, `[cold-storage] ${st.size}B original \u2192 ${hash}.summary.txt`);
+          writeFileSync2(fullPath, `[cold-storage] ${st.size}B original \u2192 ${hash}.summary.txt`);
           rotated++;
         } catch {
         }
       continue;
     }
     if (age > DECADENCE_FRESH_MS && st.size > 1024) {
-      const summaryPath = join4(targetDir, hash + ".summary.txt");
-      if (!existsSync5(summaryPath))
+      const summaryPath = join2(targetDir, hash + ".summary.txt");
+      if (!existsSync2(summaryPath))
         try {
-          const content = readFileSync4(fullPath, "utf-8");
-          writeFileSync5(summaryPath, content.slice(0, SUMMARY_HEAD_TRUNCATE).replace(/\n+/g, " ").trim() + (content.length > SUMMARY_HEAD_TRUNCATE ? "\u2026" : ""));
+          const content = readFileSync2(fullPath, "utf-8");
+          writeFileSync2(summaryPath, content.slice(0, SUMMARY_HEAD_TRUNCATE).replace(/\n+/g, " ").trim() + (content.length > SUMMARY_HEAD_TRUNCATE ? "\u2026" : ""));
         } catch {
         }
       const head = _readHead(fullPath);
       if (!head.includes("[warm-storage]") && !head.includes("[cold-storage]"))
         try {
-          writeFileSync5(fullPath, `[warm-storage] ${st.size}B original at ${hash}.summary.txt`);
+          writeFileSync2(fullPath, `[warm-storage] ${st.size}B original at ${hash}.summary.txt`);
           rotated++;
         } catch {
         }
@@ -2370,16 +1955,16 @@ function applyDecadence() {
 }
 function cleanupStaleSessionScratchpads() {
   try {
-    if (!existsSync5(SCRATCHPAD_SESSIONS_DIR))
+    if (!existsSync2(SCRATCHPAD_SESSIONS_DIR))
       return;
     const dirs = readdirSync(SCRATCHPAD_SESSIONS_DIR);
     const now = Date.now();
     for (const d of dirs) {
-      const full = join4(SCRATCHPAD_SESSIONS_DIR, d);
+      const full = join2(SCRATCHPAD_SESSIONS_DIR, d);
       try {
-        const st = statSync4(full);
+        const st = statSync2(full);
         if (now - st.mtimeMs > SCRATCHPAD_SESSION_TTL_MS) {
-          rmSync2(full, { recursive: true, force: true });
+          rmSync(full, { recursive: true, force: true });
         }
       } catch {
       }
@@ -2392,8 +1977,8 @@ function pruneScratchpadOnce() {
     return;
   prunedThisProcess = true;
   try {
-    const script = join4(VIBEOS_HOME, "hooks/scratchpad-prune.sh");
-    if (existsSync5(script)) {
+    const script = join2(VIBEOS_HOME, "hooks/scratchpad-prune.sh");
+    if (existsSync2(script)) {
       const child = spawn("bash", [script], { detached: true, stdio: "ignore" });
       child.unref();
     }
@@ -2403,9 +1988,9 @@ function pruneScratchpadOnce() {
 }
 function _readActiveJobsRaw() {
   try {
-    if (!existsSync5(ACTIVE_JOBS_FILE))
+    if (!existsSync2(ACTIVE_JOBS_FILE))
       return {};
-    const raw = safeJsonParse3(readFileSync4(ACTIVE_JOBS_FILE, "utf-8"));
+    const raw = safeJsonParse2(readFileSync2(ACTIVE_JOBS_FILE, "utf-8"));
     return raw && typeof raw === "object" ? raw : {};
   } catch {
     _handleStateCorruption2(ACTIVE_JOBS_FILE);
@@ -2414,10 +1999,10 @@ function _readActiveJobsRaw() {
 }
 function _writeActiveJobsRaw(jobs) {
   try {
-    mkdirSync4(dirname4(ACTIVE_JOBS_FILE), { recursive: true });
+    mkdirSync(dirname(ACTIVE_JOBS_FILE), { recursive: true });
     const tmp = ACTIVE_JOBS_FILE + ".tmp";
-    writeFileSync5(tmp, JSON.stringify(jobs, null, 2) + "\n");
-    renameSync3(tmp, ACTIVE_JOBS_FILE);
+    writeFileSync2(tmp, JSON.stringify(jobs, null, 2) + "\n");
+    renameSync2(tmp, ACTIVE_JOBS_FILE);
   } catch {
   }
 }
@@ -2509,7 +2094,7 @@ function projectFingerprint(dir) {
   return createHash("sha256").update(dir).digest("hex").slice(0, 12);
 }
 function loadProjectState() {
-  const projectStateFile = join4(getVibeOSHome3(), "project-states.json");
+  const projectStateFile = join2(getVibeOSHome2(), "project-states.json");
   try {
     const state = readJsonOrEmpty(projectStateFile);
     if (state && typeof state === "object") {
@@ -2521,13 +2106,13 @@ function loadProjectState() {
   return { project_hashes: {} };
 }
 function saveProjectState(state) {
-  const projectStateFile = join4(getVibeOSHome3(), "project-states.json");
+  const projectStateFile = join2(getVibeOSHome2(), "project-states.json");
   try {
     withFileLock(projectStateFile, () => {
-      mkdirSync4(dirname4(projectStateFile), { recursive: true });
+      mkdirSync(dirname(projectStateFile), { recursive: true });
       const _tmp = projectStateFile + ".tmp." + Date.now();
-      writeFileSync5(_tmp, JSON.stringify(state, null, 2) + "\n", "utf-8");
-      renameSync3(_tmp, projectStateFile);
+      writeFileSync2(_tmp, JSON.stringify(state, null, 2) + "\n", "utf-8");
+      renameSync2(_tmp, projectStateFile);
     });
   } catch (err) {
     console.error(`[vibeOS] project state write failed: ${err.message}`);
@@ -2588,9 +2173,9 @@ function touchProjectBucket(state, fp2, meta = {}) {
 function detectTechStack(dir) {
   const stacks = [];
   try {
-    const pkg = safeJsonParse3(readFileSync4(join4(dir, "package.json"), "utf-8"));
+    const pkg = safeJsonParse2(readFileSync2(join2(dir, "package.json"), "utf-8"));
     if (pkg) {
-      if (pkg.devDependencies?.typescript || pkg.dependencies?.typescript || existsSync5(join4(dir, "tsconfig.json")))
+      if (pkg.devDependencies?.typescript || pkg.dependencies?.typescript || existsSync2(join2(dir, "tsconfig.json")))
         stacks.push("typescript");
       if (pkg.dependencies?.react || pkg.devDependencies?.react)
         stacks.push("react");
@@ -2599,21 +2184,21 @@ function detectTechStack(dir) {
   } catch {
   }
   try {
-    if (existsSync5(join4(dir, "Cargo.toml")))
+    if (existsSync2(join2(dir, "Cargo.toml")))
       stacks.push("rust");
   } catch {
   }
   try {
-    if (existsSync5(join4(dir, "go.mod")))
+    if (existsSync2(join2(dir, "go.mod")))
       stacks.push("go");
   } catch {
   }
   try {
-    if (existsSync5(join4(dir, "requirements.txt")))
+    if (existsSync2(join2(dir, "requirements.txt")))
       stacks.push("python");
-    if (existsSync5(join4(dir, "setup.py")))
+    if (existsSync2(join2(dir, "setup.py")))
       stacks.push("python");
-    if (existsSync5(join4(dir, "pyproject.toml")))
+    if (existsSync2(join2(dir, "pyproject.toml")))
       stacks.push("python");
   } catch {
   }
@@ -2806,10 +2391,10 @@ function recordMissedContext7(saveEst) {
 }
 function loadTodos() {
   try {
-    if (!existsSync5(TODOS_FILE))
+    if (!existsSync2(TODOS_FILE))
       return [];
-    const raw = readFileSync4(TODOS_FILE, "utf-8");
-    const parsed = safeJsonParse3(raw);
+    const raw = readFileSync2(TODOS_FILE, "utf-8");
+    const parsed = safeJsonParse2(raw);
     return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
@@ -2817,10 +2402,10 @@ function loadTodos() {
 }
 function saveTodos(todos) {
   try {
-    mkdirSync4(dirname4(TODOS_FILE), { recursive: true });
+    mkdirSync(dirname(TODOS_FILE), { recursive: true });
     const tmp = TODOS_FILE + ".tmp." + Date.now();
-    writeFileSync5(tmp, JSON.stringify(todos, null, 2), "utf-8");
-    renameSync3(tmp, TODOS_FILE);
+    writeFileSync2(tmp, JSON.stringify(todos, null, 2), "utf-8");
+    renameSync2(tmp, TODOS_FILE);
   } catch {
   }
 }
@@ -2858,18 +2443,18 @@ function getTodos() {
 }
 function _compactSavingsLedgerIfNeeded() {
   try {
-    if (!existsSync5(SAVINGS_LEDGER_FILE))
+    if (!existsSync2(SAVINGS_LEDGER_FILE))
       return;
-    const st = statSync4(SAVINGS_LEDGER_FILE);
+    const st = statSync2(SAVINGS_LEDGER_FILE);
     if (st.size <= LEDGER_ROTATE_MAX_BYTES)
       return;
     withFileLock(SAVINGS_LEDGER_FILE, () => {
-      if (!existsSync5(SAVINGS_LEDGER_FILE))
+      if (!existsSync2(SAVINGS_LEDGER_FILE))
         return;
-      const lockedStat = statSync4(SAVINGS_LEDGER_FILE);
+      const lockedStat = statSync2(SAVINGS_LEDGER_FILE);
       if (lockedStat.size <= LEDGER_ROTATE_MAX_BYTES)
         return;
-      const raw = readFileSync4(SAVINGS_LEDGER_FILE, "utf-8");
+      const raw = readFileSync2(SAVINGS_LEDGER_FILE, "utf-8");
       if (!raw.trim())
         return;
       const now = Date.now();
@@ -2900,8 +2485,8 @@ function _compactSavingsLedgerIfNeeded() {
       const compacted = kept.reverse().join("\n") + "\n";
       if (compacted.trim() && compacted !== raw) {
         const tmp = SAVINGS_LEDGER_FILE + ".tmp." + Date.now();
-        writeFileSync5(tmp, compacted, "utf-8");
-        renameSync3(tmp, SAVINGS_LEDGER_FILE);
+        writeFileSync2(tmp, compacted, "utf-8");
+        renameSync2(tmp, SAVINGS_LEDGER_FILE);
       }
     }, { timeoutMs: 4e3 });
   } catch {
@@ -2910,11 +2495,11 @@ function _compactSavingsLedgerIfNeeded() {
 function readLedgerTotals() {
   const empty = { delegation: 0, cache: 0, context7: 0, total: 0, entries: 0 };
   try {
-    if (!existsSync5(SAVINGS_LEDGER_FILE)) {
+    if (!existsSync2(SAVINGS_LEDGER_FILE)) {
       _ledgerTotalsCache = { mtime: 0, size: 0, delegation: 0, cache: 0, context7: 0, entries: 0 };
       return empty;
     }
-    const st = statSync4(SAVINGS_LEDGER_FILE);
+    const st = statSync2(SAVINGS_LEDGER_FILE);
     if (st.size === 0) {
       _ledgerTotalsCache = { mtime: st.mtimeMs, size: 0, delegation: 0, cache: 0, context7: 0, entries: 0 };
       return empty;
@@ -2922,7 +2507,7 @@ function readLedgerTotals() {
     if (st.size > LEDGER_ROTATE_MAX_BYTES) {
       _compactSavingsLedgerIfNeeded();
     }
-    const currentStat = statSync4(SAVINGS_LEDGER_FILE);
+    const currentStat = statSync2(SAVINGS_LEDGER_FILE);
     if (currentStat.size === 0) {
       _ledgerTotalsCache = { mtime: currentStat.mtimeMs, size: 0, delegation: 0, cache: 0, context7: 0, entries: 0 };
       return empty;
@@ -2965,7 +2550,7 @@ function readLedgerTotals() {
       entries = _ledgerTotalsCache.entries;
     }
     if (!incremental) {
-      raw = readFileSync4(SAVINGS_LEDGER_FILE, "utf-8");
+      raw = readFileSync2(SAVINGS_LEDGER_FILE, "utf-8");
     }
     if (!raw.trim()) {
       _ledgerTotalsCache = {
@@ -3028,7 +2613,7 @@ function readLedgerTotals() {
 }
 function reconcileStateFromLedger() {
   try {
-    const ledgerStat = existsSync5(SAVINGS_LEDGER_FILE) ? statSync4(SAVINGS_LEDGER_FILE) : null;
+    const ledgerStat = existsSync2(SAVINGS_LEDGER_FILE) ? statSync2(SAVINGS_LEDGER_FILE) : null;
     const ledgerMtime = ledgerStat?.mtimeMs || 0;
     const ledgerSize = ledgerStat?.size || 0;
     if (ledgerMtime === _ledgerReconciledMtime && ledgerSize === (_savingsCache?._ledgerSize || 0))
@@ -3038,7 +2623,7 @@ function reconcileStateFromLedger() {
     const l = readLedgerTotals();
     if (l.total <= 0 && l.context7 <= 0)
       return;
-    const delegationStateFile = join4(getVibeOSHome3(), "delegation-state.json");
+    const delegationStateFile = join2(getVibeOSHome2(), "delegation-state.json");
     const state = readJsonOrEmpty(delegationStateFile);
     const stDelegation = Number(state?.lifetime?.est_savings_usd ?? state?.lifetime?.total_savings_usd ?? 0);
     const stCache = Number(state?.lifetime?.cache_savings_usd ?? 0);
@@ -3066,14 +2651,14 @@ function readLifetimeSavings() {
   const empty = { ltTasks: 0, ltCache: 0, ltCost: 0, count: 0, scratchpadHits: 0, missedC7: 0, sesTasks: 0, sesEdit: 0, sesCredit: 0, sesC7: 0, sesQuota: 0, sesTaskDelegations: 0, sesDuration: 0, sesRatePerHour: 0, sesTrend: "stable", sesToolBreakdown: {}, sesModelTurns: { brain: 0, worker: 0 }, quality_avg: 0, telemetry: readTelemetrySummary({}, _OC_SID) };
   try {
     reconcileStateFromLedger();
-    const delegationStateFile = join4(getVibeOSHome3(), "delegation-state.json");
-    if (!existsSync5(delegationStateFile))
+    const delegationStateFile = join2(getVibeOSHome2(), "delegation-state.json");
+    if (!existsSync2(delegationStateFile))
       return empty;
-    const mtime = statSync4(delegationStateFile).mtimeMs;
+    const mtime = statSync2(delegationStateFile).mtimeMs;
     if (_savingsCache && mtime === _savingsCacheMtime)
       return _savingsCache;
-    const s = safeJsonParse3(readFileSync4(delegationStateFile, "utf-8"));
-    const ledgerSize = existsSync5(SAVINGS_LEDGER_FILE) ? statSync4(SAVINGS_LEDGER_FILE).size : 0;
+    const s = safeJsonParse2(readFileSync2(delegationStateFile, "utf-8"));
+    const ledgerSize = existsSync2(SAVINGS_LEDGER_FILE) ? statSync2(SAVINGS_LEDGER_FILE).size : 0;
     _savingsCache = { ..._computeSessionMetrics(s, _OC_SID), telemetry: readTelemetrySummary(s, _OC_SID), _ledgerSize: ledgerSize };
     _savingsCacheMtime = mtime;
     return _savingsCache;
@@ -3097,15 +2682,15 @@ function saveSessionCheckpoint() {
       warns: session.warns?.length || 0,
       model: session.model || ""
     };
-    const cpPath = join4(getSessionRoot(), "checkpoint.json");
-    mkdirSync4(dirname4(cpPath), { recursive: true });
+    const cpPath = join2(getSessionRoot(), "checkpoint.json");
+    mkdirSync(dirname(cpPath), { recursive: true });
     const tmp = cpPath + ".tmp";
-    writeFileSync5(tmp, JSON.stringify(cp, null, 2) + "\n");
-    renameSync3(tmp, cpPath);
+    writeFileSync2(tmp, JSON.stringify(cp, null, 2) + "\n");
+    renameSync2(tmp, cpPath);
   } catch {
   }
 }
-var USER_HOME2, VIBEOS_CONTEXT, VIBEOS_HOME, OPENCODE_HOME, FILE_LOCK_DIR, DELEGATION_STATE_FILE, SAVINGS_LEDGER_FILE, GLOBAL_LEARNING_FILE, PRICING_CACHE_FILE, BLACKBOX_STATE_FILE, PROJECT_STATE_FILE, TIERS_FILE, ACTIVE_JOBS_FILE, AUTH_F, CREDIT_CACHE_F, FLOW_TODO_QUEUE_FILE, FLOW_DEDUP_FILE2, ENFORCEMENT_COOLDOWN_FILE, TODOS_FILE, REPORTS_DIR, CONTEXT7_INSTALL_FLAG, TRINITY_OPENCODE_CONFIG, TRINITY_OPENCODE_CONFIGC, SCRATCHPAD_ROOT, SCRATCHPAD_GLOBAL_DIR, SCRATCHPAD_SESSIONS_DIR, SCRATCHPAD_SESSION_TTL_MS, SCRATCHPAD_MAX_AGE_SEC, MAX_SCRATCHPAD_FILES, MAX_SCRATCHPAD_BYTES, MAX_SESSION_SCRATCHPAD_FILES, MAX_SESSION_SCRATCHPAD_BYTES, CORRUPTION_BACKUP_MAX, CORRUPTION_BACKUP_TTL_MS, LEDGER_ROTATE_MAX_BYTES, LEDGER_ROTATE_MAX_LINES, LEDGER_ROTATE_MAX_AGE_MS, ACTIVE_JOBS_STALE_MS, MAX_PTR_CANDIDATES, SUMMARY_HEAD_TRUNCATE, DECADENCE_FRESH_MS, DECADENCE_WARM_MS, DECADENCE_COLD_MS, DECADENCE_EXPIRE_MS, DECADENCE_THROTTLE_MS, DECADENCE_GLOBAL_THROTTLE_MS, TOOL_NAME_NORMALIZE, SCRATCHPAD_TOOLS, WARN_DEDUPE_WINDOW_MS, SOFT_QUOTA_LIMIT, _OC_SID, currentSessionId, _sessionStart, currentTier, currentModel, currentProjectFingerprint, currentProjectName, recentToolEvents, frictionSessionKeys, routineSessionKeys, lastMutationEvent, _savingsCache, _savingsCacheMtime, _ledgerReconciledMtime, _ledgerTotalsCache, _mlGraph, _cacheDb, ML_ENABLED, ML_CONFIDENCE_THRESHOLD, _mlSavePending, _blackboxEnabled, _latestBlackboxState, _latestBlackboxLoopMsg, _latestBlackboxPivotMsg, _modelLocked, _lockedSlot, _lockedModel, _patternFiredKeys, _sessionCleanupRegistered, _sessionCacheCleaned, prunedThisProcess, _lastDecadenceRun, briefedProjects, _ledgerBuffer, _ledgerBufferTimer, LEDGER_BUFFER_MAX, LEDGER_BUFFER_FLUSH_MS, testReminderSeen, DFLT_GL, tool, _startupMaintenanceHome, FALLBACK_HIGH, FALLBACK_MID, HIGH_TIER_RE, MID_TIER_RE, scratchpadHitsSeen;
+var USER_HOME2, VIBEOS_CONTEXT, VIBEOS_HOME, OPENCODE_HOME, FILE_LOCK_DIR, DELEGATION_STATE_FILE, SAVINGS_LEDGER_FILE, GLOBAL_LEARNING_FILE, PRICING_CACHE_FILE, BLACKBOX_STATE_FILE, PROJECT_STATE_FILE, TIERS_FILE, ACTIVE_JOBS_FILE, AUTH_F, CREDIT_CACHE_F, FLOW_TODO_QUEUE_FILE, FLOW_DEDUP_FILE, ENFORCEMENT_COOLDOWN_FILE, TODOS_FILE, REPORTS_DIR, CONTEXT7_INSTALL_FLAG, TRINITY_OPENCODE_CONFIG, TRINITY_OPENCODE_CONFIGC, SCRATCHPAD_ROOT, SCRATCHPAD_GLOBAL_DIR, SCRATCHPAD_SESSIONS_DIR, SCRATCHPAD_SESSION_TTL_MS, SCRATCHPAD_MAX_AGE_SEC, MAX_SCRATCHPAD_FILES, MAX_SCRATCHPAD_BYTES, MAX_SESSION_SCRATCHPAD_FILES, MAX_SESSION_SCRATCHPAD_BYTES, CORRUPTION_BACKUP_MAX, CORRUPTION_BACKUP_TTL_MS, LEDGER_ROTATE_MAX_BYTES, LEDGER_ROTATE_MAX_LINES, LEDGER_ROTATE_MAX_AGE_MS, ACTIVE_JOBS_STALE_MS, MAX_PTR_CANDIDATES, SUMMARY_HEAD_TRUNCATE, DECADENCE_FRESH_MS, DECADENCE_WARM_MS, DECADENCE_COLD_MS, DECADENCE_EXPIRE_MS, DECADENCE_THROTTLE_MS, DECADENCE_GLOBAL_THROTTLE_MS, TOOL_NAME_NORMALIZE, SCRATCHPAD_TOOLS, WARN_DEDUPE_WINDOW_MS, SOFT_QUOTA_LIMIT, _OC_SID, currentSessionId, _sessionStart, currentTier, currentModel, currentProjectFingerprint, currentProjectName, recentToolEvents, frictionSessionKeys, routineSessionKeys, lastMutationEvent, _savingsCache, _savingsCacheMtime, _ledgerReconciledMtime, _ledgerTotalsCache, _mlGraph, _cacheDb, ML_ENABLED, ML_CONFIDENCE_THRESHOLD, _mlSavePending, _blackboxEnabled, _latestBlackboxState, _latestBlackboxLoopMsg, _latestBlackboxPivotMsg, _modelLocked, _lockedSlot, _lockedModel, _patternFiredKeys, _sessionCleanupRegistered, _sessionCacheCleaned, prunedThisProcess, _lastDecadenceRun, briefedProjects, _ledgerBuffer, _ledgerBufferTimer, LEDGER_BUFFER_MAX, LEDGER_BUFFER_FLUSH_MS, testReminderSeen, DFLT_GL, tool, _startupMaintenanceHome, FALLBACK_HIGH, FALLBACK_MID, HIGH_TIER_RE, MID_TIER_RE, scratchpadHitsSeen;
 var init_state = __esm({
   "src/lib/state.js"() {
     "use strict";
@@ -3116,36 +2701,36 @@ var init_state = __esm({
     init_smart_cache();
     USER_HOME2 = (() => {
       try {
-        return homedir3();
+        return homedir2();
       } catch {
         return tmpdir2();
       }
     })();
     VIBEOS_CONTEXT = new AsyncLocalStorage();
-    VIBEOS_HOME = process.env.VIBEOS_HOME || join4(USER_HOME2, ".claude");
-    OPENCODE_HOME = process.env.VIBEOS_OPENCODE_HOME || join4(USER_HOME2, ".config", "opencode");
-    FILE_LOCK_DIR = join4(VIBEOS_HOME, ".vibeOS-locks");
-    DELEGATION_STATE_FILE = join4(VIBEOS_HOME, "delegation-state.json");
-    SAVINGS_LEDGER_FILE = join4(VIBEOS_HOME, "savings-ledger.jsonl");
-    GLOBAL_LEARNING_FILE = join4(VIBEOS_HOME, "global-learning.json");
-    PRICING_CACHE_FILE = join4(VIBEOS_HOME, "model-pricing-cache.json");
-    BLACKBOX_STATE_FILE = join4(VIBEOS_HOME, "blackbox-state.json");
-    PROJECT_STATE_FILE = join4(VIBEOS_HOME, "project-states.json");
-    TIERS_FILE = join4(VIBEOS_HOME, "model-tiers.json");
-    ACTIVE_JOBS_FILE = join4(VIBEOS_HOME, "active-jobs.json");
-    AUTH_F = join4(USER_HOME2, ".local", "share", "opencode", "auth.json");
-    CREDIT_CACHE_F = join4(VIBEOS_HOME, "credit-snapshot.json");
-    FLOW_TODO_QUEUE_FILE = join4(VIBEOS_HOME, ".flow-todo-queue.jsonl");
-    FLOW_DEDUP_FILE2 = join4(VIBEOS_HOME, ".flow-dedup-keys.json");
-    ENFORCEMENT_COOLDOWN_FILE = join4(VIBEOS_HOME, ".enforcement-cooldown.jsonl");
-    TODOS_FILE = join4(VIBEOS_HOME, "todos.json");
-    REPORTS_DIR = join4(VIBEOS_HOME, "reports");
-    CONTEXT7_INSTALL_FLAG = join4(VIBEOS_HOME, ".context7-install-suggested");
-    TRINITY_OPENCODE_CONFIG = join4(OPENCODE_HOME, "opencode.json");
-    TRINITY_OPENCODE_CONFIGC = join4(OPENCODE_HOME, "opencode.jsonc");
-    SCRATCHPAD_ROOT = join4(VIBEOS_HOME, "scratch");
-    SCRATCHPAD_GLOBAL_DIR = join4(SCRATCHPAD_ROOT, "by-hash");
-    SCRATCHPAD_SESSIONS_DIR = join4(SCRATCHPAD_ROOT, "sessions");
+    VIBEOS_HOME = process.env.VIBEOS_HOME || join2(USER_HOME2, ".claude");
+    OPENCODE_HOME = process.env.VIBEOS_OPENCODE_HOME || join2(USER_HOME2, ".config", "opencode");
+    FILE_LOCK_DIR = join2(VIBEOS_HOME, ".vibeOS-locks");
+    DELEGATION_STATE_FILE = join2(VIBEOS_HOME, "delegation-state.json");
+    SAVINGS_LEDGER_FILE = join2(VIBEOS_HOME, "savings-ledger.jsonl");
+    GLOBAL_LEARNING_FILE = join2(VIBEOS_HOME, "global-learning.json");
+    PRICING_CACHE_FILE = join2(VIBEOS_HOME, "model-pricing-cache.json");
+    BLACKBOX_STATE_FILE = join2(VIBEOS_HOME, "blackbox-state.json");
+    PROJECT_STATE_FILE = join2(VIBEOS_HOME, "project-states.json");
+    TIERS_FILE = join2(VIBEOS_HOME, "model-tiers.json");
+    ACTIVE_JOBS_FILE = join2(VIBEOS_HOME, "active-jobs.json");
+    AUTH_F = join2(USER_HOME2, ".local", "share", "opencode", "auth.json");
+    CREDIT_CACHE_F = join2(VIBEOS_HOME, "credit-snapshot.json");
+    FLOW_TODO_QUEUE_FILE = join2(VIBEOS_HOME, ".flow-todo-queue.jsonl");
+    FLOW_DEDUP_FILE = join2(VIBEOS_HOME, ".flow-dedup-keys.json");
+    ENFORCEMENT_COOLDOWN_FILE = join2(VIBEOS_HOME, ".enforcement-cooldown.jsonl");
+    TODOS_FILE = join2(VIBEOS_HOME, "todos.json");
+    REPORTS_DIR = join2(VIBEOS_HOME, "reports");
+    CONTEXT7_INSTALL_FLAG = join2(VIBEOS_HOME, ".context7-install-suggested");
+    TRINITY_OPENCODE_CONFIG = join2(OPENCODE_HOME, "opencode.json");
+    TRINITY_OPENCODE_CONFIGC = join2(OPENCODE_HOME, "opencode.jsonc");
+    SCRATCHPAD_ROOT = join2(VIBEOS_HOME, "scratch");
+    SCRATCHPAD_GLOBAL_DIR = join2(SCRATCHPAD_ROOT, "by-hash");
+    SCRATCHPAD_SESSIONS_DIR = join2(SCRATCHPAD_ROOT, "sessions");
     SCRATCHPAD_SESSION_TTL_MS = 48 * 60 * 60 * 1e3;
     SCRATCHPAD_MAX_AGE_SEC = Number(process.env.CLAUDE_SCRATCHPAD_MAX_AGE_SEC || 86400);
     MAX_SCRATCHPAD_FILES = 1e3;
@@ -3251,6 +2836,595 @@ var init_state = __esm({
       loadActiveJobs();
     } catch {
     }
+  }
+});
+
+// src/vibeOS-lib/flow-enforcer.js
+var flow_enforcer_exports = {};
+__export(flow_enforcer_exports, {
+  addFlowRule: () => addFlowRule,
+  checkFlowRules: () => checkFlowRules,
+  ensureProjectDocs: () => ensureProjectDocs,
+  getFlowTodos: () => getFlowTodos,
+  getFlowWarns: () => getFlowWarns,
+  getRealityCheckView: () => getRealityCheckView,
+  getSessionFlowCounts: () => getSessionFlowCounts,
+  recordFlowTodo: () => recordFlowTodo,
+  resetAll: () => resetAll,
+  resetForTest: () => resetForTest,
+  resolveRulesPath: () => resolveRulesPath,
+  setFlowStateWriter: () => setFlowStateWriter,
+  syncFlowTodosToNative: () => syncFlowTodosToNative
+});
+import { readFileSync as readFileSync3, existsSync as existsSync3, mkdirSync as mkdirSync2, writeFileSync as writeFileSync3, statSync as statSync3, appendFileSync as appendFileSync2, renameSync as renameSync3 } from "node:fs";
+import { join as join3, dirname as dirname2 } from "node:path";
+import { fileURLToPath } from "node:url";
+function getVibeOSHome3() {
+  return process.env.VIBEOS_HOME || join3(process.env.HOME || "", ".claude");
+}
+function safeJsonParse3(raw) {
+  if (raw == null || raw === "")
+    return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+  }
+  let cleaned = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "").replace(/,\s*([}\]])/g, "$1");
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    return null;
+  }
+}
+function resolveRulesPath() {
+  if (process.env.VIBEOS_FLOW_RULES_PATH && existsSync3(process.env.VIBEOS_FLOW_RULES_PATH)) {
+    return process.env.VIBEOS_FLOW_RULES_PATH;
+  }
+  for (const candidate of RULES_PATH_CANDIDATES) {
+    if (existsSync3(candidate))
+      return candidate;
+  }
+  const override = process.env.VIBEOS_FLOW_RULES_PATH;
+  if (override)
+    return override;
+  return RULES_PATH_CANDIDATES[0];
+}
+function ensureProjectDocs(dir, techStack) {
+  const created = [];
+  const skipped = [];
+  const agentsPath = join3(dir, "AGENTS.md");
+  const readmePath = join3(dir, "README.md");
+  try {
+    if (!existsSync3(agentsPath)) {
+      try {
+        writeFileSync3(agentsPath, GUARD_AGENTS_TEMPLATE, "utf-8");
+        created.push("AGENTS.md");
+        console.error("[vibeOS] Project Guard: created AGENTS.md");
+      } catch (err) {
+        console.error(`[vibeOS] Project Guard: failed to create AGENTS.md: ${err.message}`);
+      }
+    } else {
+      skipped.push("AGENTS.md");
+    }
+  } catch {
+  }
+  try {
+    if (!existsSync3(readmePath)) {
+      const name = dir ? dir.split("/").pop() || "Project" : "Project";
+      const stack = techStack || [];
+      const content = GUARD_README_TEMPLATE(name, stack);
+      try {
+        writeFileSync3(readmePath, content, "utf-8");
+        created.push("README.md");
+        console.error("[vibeOS] Project Guard: created README.md");
+      } catch (err) {
+        console.error(`[vibeOS] Project Guard: failed to create README.md: ${err.message}`);
+      }
+    } else {
+      skipped.push("README.md");
+    }
+  } catch {
+  }
+  return { created, skipped };
+}
+function getStateFile() {
+  return join3(getVibeOSHome3(), "delegation-state.json");
+}
+function getFlowTodoFile() {
+  return join3(getVibeOSHome3(), ".flow-todo-queue.jsonl");
+}
+function setFlowStateWriter(writer) {
+  _stateWriter = typeof writer === "function" ? writer : null;
+}
+function loadFlowDedupKeys() {
+  try {
+    if (existsSync3(FLOW_DEDUP_FILE2)) {
+      const raw = readFileSync3(FLOW_DEDUP_FILE2, "utf-8");
+      const keys = safeJsonParse3(raw);
+      if (Array.isArray(keys)) {
+        for (const k of keys)
+          _flowWarnsSeen.add(k);
+      }
+    }
+  } catch {
+  }
+}
+function persistFlowDedupKey(key) {
+  try {
+    mkdirSync2(dirname2(FLOW_DEDUP_FILE2), { recursive: true });
+    let keys = [];
+    if (existsSync3(FLOW_DEDUP_FILE2)) {
+      try {
+        keys = safeJsonParse3(readFileSync3(FLOW_DEDUP_FILE2, "utf-8"));
+      } catch {
+      }
+      if (!Array.isArray(keys))
+        keys = [];
+    }
+    if (!keys.includes(key)) {
+      keys.push(key);
+      if (keys.length > 1e3)
+        keys = keys.slice(-500);
+      writeFileSync3(FLOW_DEDUP_FILE2, JSON.stringify(keys), "utf-8");
+    }
+  } catch {
+  }
+}
+function normalizeRule(rule) {
+  if (!rule || typeof rule !== "object")
+    return null;
+  const id2 = String(rule.id || "").trim();
+  const trigger = String(rule.trigger || "").trim();
+  const pattern = String(rule.pattern || "").trim();
+  const severity = String(rule.severity || "").trim();
+  if (!id2 || !trigger || !pattern || !["warn", "hint", "flag"].includes(severity))
+    return null;
+  return {
+    id: id2,
+    trigger,
+    pattern,
+    severity,
+    description: typeof rule.description === "string" ? rule.description : void 0
+  };
+}
+function defaultRealityCheckRules() {
+  return [
+    {
+      id: "require-read-before-claim",
+      severity: "warn",
+      trigger: "Edit",
+      pattern: "(?i)\\b(done|complete|success|trained|ready|works|fixed)\\b",
+      description: "Success claim detected \u2014 verify live state before asserting completion"
+    },
+    {
+      id: "verify-state-on-disk",
+      severity: "flag",
+      trigger: "Edit",
+      pattern: "(?i)\\b(assume|guess|probably|likely|maybe|seems|appears)\\b",
+      description: "Inference language detected \u2014 verify actual files/state first"
+    },
+    {
+      id: "postmortem-trigger",
+      severity: "warn",
+      trigger: "Edit",
+      pattern: "(?i)\\breality check\\b",
+      description: "Reality check requested \u2014 read and verify live state before reporting"
+    }
+  ];
+}
+function readRealityCheckSettings() {
+  const settingsMtime = existsSync3(REALITY_CHECK_SETTINGS_FILE) ? statSync3(REALITY_CHECK_SETTINGS_FILE).mtimeMs : 0;
+  if (_cachedRealityCheck && settingsMtime === _realityCheckMtime) {
+    return _cachedRealityCheck;
+  }
+  let parsed = {};
+  try {
+    if (existsSync3(REALITY_CHECK_SETTINGS_FILE)) {
+      const raw = readFileSync3(REALITY_CHECK_SETTINGS_FILE, "utf-8");
+      const json2 = safeJsonParse3(raw);
+      if (json2 && typeof json2 === "object")
+        parsed = json2;
+    }
+  } catch {
+  }
+  const globalRules = Array.isArray(parsed.global?.rules) ? parsed.global.rules : defaultRealityCheckRules();
+  _cachedRealityCheck = {
+    version: 1,
+    global: {
+      enabled: parsed.global?.enabled !== false,
+      rules: globalRules.map(normalizeRule).filter(Boolean)
+    },
+    projects: parsed.projects && typeof parsed.projects === "object" ? parsed.projects : {}
+  };
+  _realityCheckMtime = settingsMtime;
+  return _cachedRealityCheck;
+}
+function getRealityCheckRulesForProject(projectFingerprint2 = currentProjectFingerprint || "") {
+  const settings = readRealityCheckSettings();
+  const fp2 = String(projectFingerprint2 || "").trim();
+  const project = fp2 && settings.projects?.[fp2] ? settings.projects[fp2] : null;
+  const scope = project ? "project" : "global";
+  const enabled = scope === "project" ? project?.enabled ?? settings.global?.enabled !== false : settings.global?.enabled !== false;
+  const source = scope === "project" ? Array.isArray(project?.rules) && project?.rules.length > 0 ? project.rules : settings.global?.rules || defaultRealityCheckRules() : settings.global?.rules || defaultRealityCheckRules();
+  if (!enabled)
+    return [];
+  const seen = /* @__PURE__ */ new Map();
+  for (const rule of source) {
+    const normalized = normalizeRule(rule);
+    if (!normalized || !REALITY_CHECK_RULE_IDS.has(normalized.id))
+      continue;
+    seen.set(normalized.id, normalized);
+  }
+  if (seen.size === 0) {
+    for (const rule of defaultRealityCheckRules()) {
+      const normalized = normalizeRule(rule);
+      if (normalized && REALITY_CHECK_RULE_IDS.has(normalized.id))
+        seen.set(normalized.id, normalized);
+    }
+  }
+  return Array.from(seen.values());
+}
+function getRealityCheckView(projectFingerprint2 = currentProjectFingerprint || "") {
+  const settings = readRealityCheckSettings();
+  const fp2 = String(projectFingerprint2 || "").trim();
+  const project = fp2 && settings.projects?.[fp2] ? settings.projects[fp2] : null;
+  const scope = project ? "project" : "global";
+  const enabled = scope === "project" ? project?.enabled ?? settings.global?.enabled !== false : settings.global?.enabled !== false;
+  const rules = getRealityCheckRulesForProject(fp2);
+  return {
+    scope,
+    project_id: project ? fp2 : null,
+    enabled,
+    rules
+  };
+}
+function mergeManagedRules(baseRules, managedRules) {
+  const base = baseRules.filter((rule) => !REALITY_CHECK_RULE_IDS.has(rule.id));
+  const seen = new Set(base.map((rule) => rule.id));
+  const merged = [...base];
+  for (const rule of managedRules) {
+    if (!rule || seen.has(rule.id))
+      continue;
+    merged.push(rule);
+    seen.add(rule.id);
+  }
+  return merged;
+}
+function compileFlowPattern(pattern) {
+  const source = String(pattern || "").trim();
+  if (!source)
+    return new RegExp("$^");
+  if (source.startsWith("(?i)")) {
+    return new RegExp(source.slice(4), "i");
+  }
+  return new RegExp(source);
+}
+function loadRules() {
+  const rulesPath = resolveRulesPath();
+  try {
+    const rulesMtime = existsSync3(rulesPath) ? statSync3(rulesPath).mtimeMs : 0;
+    const realityMtime = existsSync3(REALITY_CHECK_SETTINGS_FILE) ? statSync3(REALITY_CHECK_SETTINGS_FILE).mtimeMs : 0;
+    const scopeKey = String(currentProjectFingerprint || "");
+    const cacheKey = `${rulesMtime}:${realityMtime}:${scopeKey}`;
+    if (_cachedRules && _realityCheckCacheKey === "__test__")
+      return _cachedRules;
+    if (_cachedRules && cacheKey === _realityCheckCacheKey)
+      return _cachedRules;
+    if (!existsSync3(rulesPath)) {
+      _cachedRules = mergeManagedRules([], getRealityCheckRulesForProject(scopeKey));
+      _realityCheckCacheKey = cacheKey;
+      return _cachedRules;
+    }
+    const j = safeJsonParse3(readFileSync3(rulesPath, "utf-8"));
+    const baseRules = Array.isArray(j.rules) ? j.rules.map(normalizeRule).filter(Boolean) : [];
+    _cachedRules = mergeManagedRules(baseRules, getRealityCheckRulesForProject(scopeKey));
+    _rulesMtime = rulesMtime;
+    _realityCheckCacheKey = cacheKey;
+    return _cachedRules;
+  } catch {
+    _cachedRules = [];
+    return _cachedRules;
+  }
+}
+function recordFlowWarn(hit) {
+  try {
+    let state = {};
+    const stateFile = getStateFile();
+    if (existsSync3(stateFile)) {
+      try {
+        state = safeJsonParse3(readFileSync3(stateFile, "utf-8"));
+      } catch {
+      }
+    } else {
+      mkdirSync2(dirname2(stateFile), { recursive: true });
+    }
+    state.flow_warns ??= [];
+    const dedupKey = `${hit.id}|${hit.filePath}`;
+    const anyExisting = state.flow_warns.some((w) => {
+      const wKey = `${w.rule_id}|${w.filePath}`;
+      return wKey === dedupKey;
+    });
+    if (!anyExisting) {
+      state.flow_warns.push({
+        at: (/* @__PURE__ */ new Date()).toISOString(),
+        sid: process.pid || "?",
+        rule_id: hit.id,
+        severity: hit.severity,
+        filePath: hit.filePath,
+        description: hit.description
+      });
+    }
+    if (state.flow_warns.length > 200) {
+      state.flow_warns = state.flow_warns.slice(-200);
+    }
+    const fp2 = { flow_warns: state.flow_warns };
+    if (_stateWriter)
+      _stateWriter(fp2);
+    else {
+      const stateFile2 = getStateFile();
+      const existing = safeJsonParse3(existsSync3(stateFile2) ? readFileSync3(stateFile2, "utf-8") : "{}");
+      const merged = Object.assign({}, existing, fp2);
+      const tmpFile = stateFile2 + ".tmp." + Date.now();
+      writeFileSync3(tmpFile, JSON.stringify(merged, null, 2));
+      renameSync3(tmpFile, stateFile2);
+    }
+  } catch {
+  }
+}
+function checkFlowRules({ tool: tool2, filePath, content }) {
+  const rules = loadRules();
+  const hits = [];
+  const toolName = String(tool2 || "").trim().toLowerCase();
+  for (const rule of rules) {
+    const triggerName = String(rule.trigger || "").trim().toLowerCase();
+    if (triggerName !== toolName)
+      continue;
+    const target = toolName === "write" ? filePath || "" : content || filePath || "";
+    let re;
+    try {
+      re = compileFlowPattern(rule.pattern);
+    } catch {
+      continue;
+    }
+    if (!re.test(target))
+      continue;
+    const key = `${rule.id}::${filePath || ""}`;
+    if (_flowWarnsSeen.has(key)) {
+      hits.push({ ...rule, filePath, deduped: true });
+      continue;
+    }
+    _flowWarnsSeen.add(key);
+    persistFlowDedupKey(key);
+    const hit = { ...rule, filePath, deduped: false };
+    hits.push(hit);
+    recordFlowWarn(hit);
+  }
+  return hits;
+}
+function getFlowWarns() {
+  try {
+    const stateFile = getStateFile();
+    if (!existsSync3(stateFile))
+      return [];
+    const s = safeJsonParse3(readFileSync3(stateFile, "utf-8"));
+    return s?.flow_warns || [];
+  } catch {
+    return [];
+  }
+}
+function getSessionFlowCounts() {
+  const counts = { warn: 0, hint: 0, flag: 0 };
+  const rules = loadRules();
+  for (const key of _flowWarnsSeen) {
+    const [ruleId] = key.split("::");
+    const rule = rules.find((r) => r.id === ruleId);
+    if (rule && counts[rule.severity] !== void 0)
+      counts[rule.severity]++;
+  }
+  return counts;
+}
+function resetForTest(rules) {
+  _cachedRules = rules;
+  _flowWarnsSeen.clear();
+  _cachedRealityCheck = null;
+  _realityCheckMtime = 0;
+  _realityCheckCacheKey = "__test__";
+  try {
+    _rulesMtime = statSync3(resolveRulesPath()).mtimeMs;
+  } catch {
+  }
+}
+function resetAll() {
+  _flowWarnsSeen.clear();
+  _cachedRules = null;
+  _rulesMtime = 0;
+  _cachedRealityCheck = null;
+  _realityCheckMtime = 0;
+  _realityCheckCacheKey = "";
+}
+function addFlowRule(rule) {
+  const rules = loadRules();
+  rules.push(rule);
+  writeFileSync3(resolveRulesPath(), JSON.stringify({ rules }, null, 2), "utf-8");
+  _cachedRules = rules;
+  _rulesMtime = statSync3(resolveRulesPath()).mtimeMs;
+}
+function recordFlowTodo({ filePath, content }) {
+  try {
+    const flowTodoFile = getFlowTodoFile();
+    mkdirSync2(dirname2(flowTodoFile), { recursive: true });
+    const todoRe = /(?:\/\/\s*|\#\s*)(TODO|FIXME|HACK)[\s:]+(.+)$/i;
+    const todos = [];
+    for (const line of content.split("\n")) {
+      const m = line.match(todoRe);
+      if (m) {
+        todos.push({ type: m[1], text: m[2].trim() });
+      }
+    }
+    if (todos.length === 0)
+      return 0;
+    const dedupKey = `${filePath || ""}::${todos.map((t) => `${t.type}:${t.text}`).join("|")}`;
+    const existingLines = existsSync3(flowTodoFile) ? readFileSync3(flowTodoFile, "utf-8").trim().split("\n").filter(Boolean) : [];
+    const existingKeys = /* @__PURE__ */ new Set();
+    for (const line of existingLines) {
+      try {
+        const entry2 = safeJsonParse3(line);
+        if (entry2 && entry2.filePath && entry2.todos) {
+          const key = `${entry2.filePath}::${entry2.todos.map((t) => `${t.type}:${t.text}`).join("|")}`;
+          existingKeys.add(key);
+        }
+      } catch {
+      }
+    }
+    if (existingKeys.has(dedupKey))
+      return 0;
+    const entry = JSON.stringify({
+      at: (/* @__PURE__ */ new Date()).toISOString(),
+      filePath,
+      todos
+    }) + "\n";
+    appendFileSync2(flowTodoFile, entry);
+    try {
+      const lines = readFileSync3(flowTodoFile, "utf-8").trim().split("\n").filter(Boolean);
+      if (lines.length > MAX_FLOW_TODOS) {
+        writeFileSync3(flowTodoFile, lines.slice(-Math.floor(MAX_FLOW_TODOS / 2)).join("\n") + "\n");
+      }
+    } catch {
+    }
+    console.error(`[flow-enforcer] \u{1F4CB} Extracted ${todos.length} TODO(s) from ${filePath} \u2192 .flow-todo-queue.jsonl`);
+    return todos.length;
+  } catch {
+    return 0;
+  }
+}
+function getFlowTodos() {
+  try {
+    const flowTodoFile = getFlowTodoFile();
+    if (!existsSync3(flowTodoFile))
+      return [];
+    const raw = readFileSync3(flowTodoFile, "utf-8").trim();
+    if (!raw)
+      return [];
+    return raw.split("\n").filter(Boolean).map((line) => safeJsonParse3(line)).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+function syncFlowTodosToNative(upsertFn) {
+  const entries = getFlowTodos();
+  let count = 0;
+  for (const entry of entries) {
+    for (const todo of entry.todos || []) {
+      const priority = todo.type === "FIXME" ? "high" : todo.type === "HACK" ? "medium" : "low";
+      if (upsertFn) {
+        upsertFn({
+          content: `[${todo.type}] ${todo.text}`,
+          filePath: entry.filePath || "",
+          priority,
+          source: "flow"
+        });
+      }
+      count++;
+    }
+  }
+  return count;
+}
+var VIBEOS_STDERR_DEBUG, VIBEOS_CONSOLE_ERROR_GUARD, globalConsoleState, __dirname2, REALITY_CHECK_SETTINGS_FILE, REALITY_CHECK_RULE_IDS, RULES_PATH_CANDIDATES, GUARD_AGENTS_TEMPLATE, GUARD_README_TEMPLATE, FLOW_DEDUP_FILE2, MAX_FLOW_TODOS, _flowWarnsSeen, _stateWriter, _cachedRules, _rulesMtime, _cachedRealityCheck, _realityCheckMtime, _realityCheckCacheKey;
+var init_flow_enforcer = __esm({
+  "src/vibeOS-lib/flow-enforcer.js"() {
+    "use strict";
+    init_state();
+    VIBEOS_STDERR_DEBUG = process.env.VIBEOS_DEBUG_STDERR === "1" || process.env.VIBEOS_DEBUG_LOGS === "1";
+    VIBEOS_CONSOLE_ERROR_GUARD = "__vibeOSConsoleErrorGuard";
+    globalConsoleState = globalThis;
+    if (!VIBEOS_STDERR_DEBUG && !globalConsoleState[VIBEOS_CONSOLE_ERROR_GUARD]) {
+      const originalConsoleError = console.error.bind(console);
+      console.error = (...args) => {
+        let text = "";
+        for (const arg of args) {
+          if (typeof arg === "string") {
+            text += arg;
+          } else if (arg instanceof Error) {
+            text += `${arg.name}: ${arg.message}`;
+          } else if (arg && typeof arg === "object") {
+            try {
+              text += JSON.stringify(arg);
+            } catch {
+              text += String(arg);
+            }
+          } else {
+            text += String(arg);
+          }
+          text += " ";
+        }
+        if (text.includes("[vibeOS]") || text.includes("[flow-enforcer]") || text.includes("[delegation]"))
+          return;
+        originalConsoleError(...args);
+      };
+      globalConsoleState[VIBEOS_CONSOLE_ERROR_GUARD] = true;
+    }
+    __dirname2 = dirname2(fileURLToPath(import.meta.url));
+    REALITY_CHECK_SETTINGS_FILE = join3(getVibeOSHome3(), "reality-check-settings.json");
+    REALITY_CHECK_RULE_IDS = /* @__PURE__ */ new Set([
+      "require-read-before-claim",
+      "verify-state-on-disk",
+      "postmortem-trigger"
+    ]);
+    RULES_PATH_CANDIDATES = [
+      join3(process.cwd(), "src", "vibeOS-lib", "flow-rules.json"),
+      join3(process.cwd(), "dist-ts", "vibeOS-lib", "flow-rules.json"),
+      join3(process.cwd(), "dist", "assets", "flow-rules.json"),
+      join3(__dirname2, "flow-rules.json")
+    ];
+    GUARD_AGENTS_TEMPLATE = [
+      "# AGENTS.md",
+      "",
+      "> Auto-generated by vibeOS Project Guard. Defines rules for AI agents working on this project.",
+      "",
+      "## CRITICAL \u2014 ASK BEFORE CHANGING CODE",
+      "",
+      "NEVER modify any file without explicit user permission.",
+      'If you are an LLM: DO NOT LGTM, DO NOT "fix", DO NOT "clean up",',
+      'DO NOT "refactor", DO NOT "optimize", DO NOT "modernize". ASK FIRST.',
+      "",
+      "## PROTECTED FILES",
+      "",
+      "Do not modify these files without explicit user permission:",
+      "- AGENTS.md (this file)",
+      "- README.md",
+      ""
+    ].join("\n");
+    GUARD_README_TEMPLATE = (name, techStack) => {
+      const stackLine = techStack.length > 0 ? techStack.map((t) => `\`${t}\``).join(", ") : "(auto-detected on next session)";
+      return [
+        `# ${name}`,
+        "",
+        "## Tech Stack",
+        "",
+        stackLine,
+        "",
+        "## Features",
+        "",
+        "(Feature list maintained by vibeOS \u2014 run `trinity guard` to refresh)",
+        "",
+        "## Getting Started",
+        "",
+        "```bash",
+        "# Clone and install dependencies",
+        "```",
+        ""
+      ].join("\n");
+    };
+    FLOW_DEDUP_FILE2 = join3(getVibeOSHome3(), ".flow-dedup-keys.json");
+    MAX_FLOW_TODOS = 200;
+    _flowWarnsSeen = /* @__PURE__ */ new Set();
+    _stateWriter = null;
+    _cachedRules = null;
+    _rulesMtime = 0;
+    _cachedRealityCheck = null;
+    _realityCheckMtime = 0;
+    _realityCheckCacheKey = "";
+    loadFlowDedupKeys();
   }
 });
 
@@ -4260,8 +4434,8 @@ function computeSessionMetrics(state, sessionId) {
 // src/lib/vibeos-mcp-server.js
 import http from "node:http";
 import { parse as parseUrl } from "node:url";
-import { createReadStream, existsSync as existsSync2, mkdirSync as mkdirSync2, statSync as statSync2, writeFileSync as writeFileSync2 } from "node:fs";
-import { extname, join as join2, dirname as dirname2 } from "node:path";
+import { createReadStream, existsSync as existsSync4, mkdirSync as mkdirSync3, statSync as statSync4, writeFileSync as writeFileSync4 } from "node:fs";
+import { extname, join as join4, dirname as dirname3 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 var MIME_MAP = {
   ".html": "text/html; charset=utf-8",
@@ -4303,29 +4477,29 @@ function parseBody(req) {
   });
 }
 var _MCP_FILENAME = fileURLToPath2(import.meta.url);
-var _MCP_DIR = dirname2(_MCP_FILENAME);
+var _MCP_DIR = dirname3(_MCP_FILENAME);
 function resolveDashboardDir() {
   const c = [
-    join2(_MCP_DIR, "dashboard", "dist"),
-    join2(_MCP_DIR, "assets", "dashboard"),
-    join2(_MCP_DIR, "assets", "dashboard", "dist")
+    join4(_MCP_DIR, "dashboard", "dist"),
+    join4(_MCP_DIR, "assets", "dashboard"),
+    join4(_MCP_DIR, "assets", "dashboard", "dist")
   ];
   for (const p of c) {
-    if (existsSync2(join2(p, "index.html")))
+    if (existsSync4(join4(p, "index.html")))
       return p;
   }
   return c[0];
 }
 var DASHBOARD_DIR = resolveDashboardDir();
-var DASHBOARD_CONFIG_PATH = join2(DASHBOARD_DIR, "vibeos-dashboard-config.js");
+var DASHBOARD_CONFIG_PATH = join4(DASHBOARD_DIR, "vibeos-dashboard-config.js");
 function writeDashboardBaseConfig(baseUrl) {
   try {
     if (!baseUrl)
       return null;
-    mkdirSync2(DASHBOARD_DIR, { recursive: true });
+    mkdirSync3(DASHBOARD_DIR, { recursive: true });
     const payload = `window.__VIBEOS_DASHBOARD_BASE__ = ${JSON.stringify(baseUrl.replace(/\/$/, ""))};
 `;
-    writeFileSync2(DASHBOARD_CONFIG_PATH, payload, "utf-8");
+    writeFileSync4(DASHBOARD_CONFIG_PATH, payload, "utf-8");
     return DASHBOARD_CONFIG_PATH;
   } catch {
     return null;
@@ -4377,7 +4551,7 @@ async function probeBackendHealth(force = false) {
   }
 }
 function sendFile(res, fp2) {
-  if (!existsSync2(fp2)) {
+  if (!existsSync4(fp2)) {
     res.statusCode = 404;
     res.setHeader("Content-Type", "text/plain; charset=utf-8");
     res.end("not found");
@@ -4385,7 +4559,7 @@ function sendFile(res, fp2) {
   }
   const ext = extname(fp2).toLowerCase();
   const mime = MIME_MAP[ext] || "application/octet-stream";
-  const st = statSync2(fp2);
+  const st = statSync4(fp2);
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
@@ -4401,13 +4575,13 @@ function sendFile(res, fp2) {
   });
 }
 function serveDashboard(res, p) {
-  const idx = join2(DASHBOARD_DIR, "index.html");
-  let fp2 = join2(DASHBOARD_DIR, p === "/" ? "index.html" : p);
-  if (existsSync2(fp2) && statSync2(fp2).isFile()) {
+  const idx = join4(DASHBOARD_DIR, "index.html");
+  let fp2 = join4(DASHBOARD_DIR, p === "/" ? "index.html" : p);
+  if (existsSync4(fp2) && statSync4(fp2).isFile()) {
     sendFile(res, fp2);
     return;
   }
-  if (existsSync2(idx)) {
+  if (existsSync4(idx)) {
     sendFile(res, idx);
     return;
   }
@@ -4657,10 +4831,10 @@ function createMcpServer(deps) {
 
 // src/lib/api-client.js
 init_runtime_state();
-import { readFileSync as readFileSync2, writeFileSync as writeFileSync3, existsSync as existsSync3, mkdirSync as mkdirSync3, rmSync } from "node:fs";
-import { dirname as dirname3 } from "node:path";
+import { readFileSync as readFileSync4, writeFileSync as writeFileSync5, existsSync as existsSync5, mkdirSync as mkdirSync4, rmSync as rmSync2 } from "node:fs";
+import { dirname as dirname4 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
-import { homedir } from "node:os";
+import { homedir as homedir3 } from "node:os";
 var DEFAULT_API_URL = "https://api.vibetheog.com";
 var EMBEDDED_API_TOKEN = "vos_8d73804b13bb46711b9a47f036dba7b4d026fd9583d96960e663716e62815a69";
 var API_TOKEN_RE = /^vos_[a-f0-9]{64}$/i;
@@ -4788,7 +4962,7 @@ function editEnvLine(content, key, value) {
 function persistPrimaryApiEnvState(next) {
   const primaryPath = _envPaths[0] + "/.env.production";
   try {
-    let envContent = existsSync3(primaryPath) ? readFileSync2(primaryPath, "utf8") : "";
+    let envContent = existsSync5(primaryPath) ? readFileSync4(primaryPath, "utf8") : "";
     if (next.disabled !== void 0) {
       envContent = editEnvLine(envContent, "VIBEOS_API_DISABLED", next.disabled ? "true" : null);
     }
@@ -4797,16 +4971,16 @@ function persistPrimaryApiEnvState(next) {
     }
     if (!envContent.trim()) {
       try {
-        if (existsSync3(primaryPath))
-          rmSync(primaryPath, { force: true });
+        if (existsSync5(primaryPath))
+          rmSync2(primaryPath, { force: true });
       } catch {
       }
       return;
     }
     const parentDir = _envPaths[0];
-    if (!existsSync3(parentDir))
-      mkdirSync3(parentDir, { recursive: true });
-    writeFileSync3(primaryPath, envContent.endsWith("\n") ? envContent : envContent + "\n", "utf8");
+    if (!existsSync5(parentDir))
+      mkdirSync4(parentDir, { recursive: true });
+    writeFileSync5(primaryPath, envContent.endsWith("\n") ? envContent : envContent + "\n", "utf8");
   } catch (diskErr) {
     console.error("[vibeOS] Failed to persist API env state:", diskErr.message);
   }
@@ -5103,13 +5277,13 @@ var VibeOSApiClient = class {
   }
 };
 var VIBEOS_API_URL = process.env.VIBEOS_API_URL || "https://api.vibetheog.com";
-var _apiDir = typeof __dirname !== "undefined" ? __dirname : dirname3(fileURLToPath3(import.meta.url));
-var _envPaths = [homedir() + "/.claude", _apiDir, process.cwd(), homedir()];
+var _apiDir = typeof __dirname !== "undefined" ? __dirname : dirname4(fileURLToPath3(import.meta.url));
+var _envPaths = [homedir3() + "/.claude", _apiDir, process.cwd(), homedir3()];
 var _bootstrapEnvPath = _envPaths[0] + "/.env.alpha";
 function readApiDisabledFromDisk() {
   for (const dir of _envPaths) {
     try {
-      const env = readFileSync2(dir + "/.env.production", "utf8");
+      const env = readFileSync4(dir + "/.env.production", "utf8");
       const m = env.match(/^VIBEOS_API_DISABLED=(.+)$/m);
       if (m && isTruthyFlag(m[1]))
         return true;
@@ -5123,7 +5297,7 @@ function readTokenFromDisk() {
     return "";
   for (const dir of _envPaths) {
     try {
-      const env = readFileSync2(dir + "/.env.production", "utf8");
+      const env = readFileSync4(dir + "/.env.production", "utf8");
       const m = env.match(/^VIBEOS_API_TOKEN=(.+)$/m);
       if (m) {
         const clean = normalizeDirectApiToken(m[1]);
@@ -5139,7 +5313,7 @@ function readBootstrapTokenFromDisk() {
   if (readApiDisabledFromDisk())
     return "";
   try {
-    const env = readFileSync2(_bootstrapEnvPath, "utf8");
+    const env = readFileSync4(_bootstrapEnvPath, "utf8");
     const m = env.match(/^VIBEOS_API_BOOTSTRAP_TOKEN=(.+)$/m);
     if (m)
       return m[1].trim();
@@ -5162,16 +5336,16 @@ function persistBootstrapToken(token) {
   try {
     if (!clean) {
       try {
-        if (existsSync3(_bootstrapEnvPath))
-          rmSync(_bootstrapEnvPath, { force: true });
+        if (existsSync5(_bootstrapEnvPath))
+          rmSync2(_bootstrapEnvPath, { force: true });
       } catch {
       }
       return;
     }
     const parentDir = _envPaths[0];
-    if (!existsSync3(parentDir))
-      mkdirSync3(parentDir, { recursive: true });
-    writeFileSync3(_bootstrapEnvPath, `VIBEOS_API_BOOTSTRAP_TOKEN=${clean}
+    if (!existsSync5(parentDir))
+      mkdirSync4(parentDir, { recursive: true });
+    writeFileSync5(_bootstrapEnvPath, `VIBEOS_API_BOOTSTRAP_TOKEN=${clean}
 `, "utf8");
   } catch (diskErr) {
     console.error("[vibeOS] Failed to persist alpha bootstrap token:", diskErr.message);
@@ -5500,9 +5674,6 @@ var LABEL_MODES = ["Fast", "Balanced", "High Quality", "Cheap"];
 var DEBUG_INTERNALS = process.env.VIBEOS_DEBUG_INTERNALS === "1";
 function getVibeOSHome4() {
   return process.env.VIBEOS_HOME || join5(process.env.HOME || homedir4(), ".claude");
-}
-function getOpenCodeHome() {
-  return process.env.VIBEOS_OPENCODE_HOME || join5(process.env.HOME || homedir4(), ".config", "opencode");
 }
 function getOpenCodeDesktopHome() {
   return process.env.VIBEOS_OPENCODE_DESKTOP_HOME || join5(process.env.HOME || homedir4(), "Library", "Application Support", "ai.opencode.desktop");
@@ -6047,7 +6218,7 @@ function _loadDynamicPricingCache() {
       _dynamicPricingCache = {};
       return {};
     }
-    const raw = safeJsonParse3(readFileSync5(PRICING_CACHE_FILE2, "utf-8"));
+    const raw = safeJsonParse2(readFileSync5(PRICING_CACHE_FILE2, "utf-8"));
     const map = raw?.models && typeof raw.models === "object" ? raw.models : {};
     _dynamicPricingCache = map;
   } catch {
@@ -6092,7 +6263,7 @@ function _writeDynamicPricingCache(modelsMap) {
       let merged = {};
       try {
         if (existsSync6(PRICING_CACHE_FILE2)) {
-          const raw = safeJsonParse3(readFileSync5(PRICING_CACHE_FILE2, "utf-8"));
+          const raw = safeJsonParse2(readFileSync5(PRICING_CACHE_FILE2, "utf-8"));
           const existing = raw?.models && typeof raw.models === "object" ? raw.models : {};
           merged = { ...existing };
         }
@@ -6150,7 +6321,7 @@ function _loadPricingOverrides() {
       _pricingOverridesCache = {};
       return {};
     }
-    const raw = safeJsonParse3(readFileSync5(tiersFile, "utf-8"));
+    const raw = safeJsonParse2(readFileSync5(tiersFile, "utf-8"));
     const models = raw?.pricing?.models && typeof raw.pricing.models === "object" ? raw.pricing.models : {};
     const out = {};
     for (const [key, value] of Object.entries(models)) {
@@ -6316,7 +6487,7 @@ function loadSelection2() {
       _handleStateCorruption2(TIERS_FILE3);
       return DFLT_SEL2;
     }
-    const j = safeJsonParse3(readFileSync5(TIERS_FILE3, "utf-8"));
+    const j = safeJsonParse2(readFileSync5(TIERS_FILE3, "utf-8"));
     return {
       enabled: j?.selection?.enabled !== false,
       active_slot: j?.selection?.active_slot || null,
@@ -6382,7 +6553,7 @@ function readWorkspaceSessionModel(directory3 = "") {
           if (!match)
             continue;
           const decoded = JSON.parse(`"${match[1]}"`);
-          const parsed = safeJsonParse3(decoded);
+          const parsed = safeJsonParse2(decoded);
           const session = parsed?.session?.[sid];
           const providerID = String(session?.model?.providerID || "").trim();
           const modelID = String(session?.model?.modelID || "").trim();
@@ -6413,9 +6584,9 @@ function clearWorkspaceFollowupPauseForSession(sessionId = "") {
       const files = readdirSync2(root).filter((name) => /^opencode\.workspace\..*\.dat$/i.test(name)).map((name) => join5(root, name)).sort((a, b) => statSync5(b).mtimeMs - statSync5(a).mtimeMs);
       for (const file of files) {
         try {
-          const outer = safeJsonParse3(readFileSync5(file, "utf-8"));
+          const outer = safeJsonParse2(readFileSync5(file, "utf-8"));
           const followupRaw = outer?.["workspace:followup"];
-          const followup = typeof followupRaw === "string" ? safeJsonParse3(followupRaw) : followupRaw;
+          const followup = typeof followupRaw === "string" ? safeJsonParse2(followupRaw) : followupRaw;
           if (!followup || typeof followup !== "object" || !followup.paused)
             continue;
           let touched = false;
@@ -6446,8 +6617,8 @@ function readLatestOpenCodeSessionId(directory3 = "") {
     const st = statSync5(globalPath);
     if (!st.isFile() || st.size > 10485760)
       return "";
-    const raw = safeJsonParse3(readFileSync5(globalPath, "utf-8"));
-    const notifications = typeof raw?.notification === "string" ? safeJsonParse3(raw.notification) : raw?.notification;
+    const raw = safeJsonParse2(readFileSync5(globalPath, "utf-8"));
+    const notifications = typeof raw?.notification === "string" ? safeJsonParse2(raw.notification) : raw?.notification;
     const list = Array.isArray(notifications?.list) ? notifications.list : [];
     const targetDir = directory3 ? resolve(directory3) : "";
     const rows = list.filter((entry) => {
@@ -6473,13 +6644,13 @@ function parseJsonc(raw) {
   const noBlockComments = String(raw || "").replace(/\/\*[\s\S]*?\*\//g, "");
   const noLineComments = noBlockComments.replace(/(^|\s)\/\/.*$/gm, "$1");
   const noTrailingCommas = noLineComments.replace(/,\s*([}\]])/g, "$1");
-  return safeJsonParse3(noTrailingCommas);
+  return safeJsonParse2(noTrailingCommas);
 }
 function readOpenCodeConfigObject(dir) {
   const jsonPath = join5(dir, "opencode.json");
   const jsoncPath = join5(dir, "opencode.jsonc");
   if (existsSync6(jsonPath)) {
-    return safeJsonParse3(readFileSync5(jsonPath, "utf-8"));
+    return safeJsonParse2(readFileSync5(jsonPath, "utf-8"));
   }
   if (existsSync6(jsoncPath)) {
     return parseJsonc(readFileSync5(jsoncPath, "utf-8"));
@@ -6567,7 +6738,7 @@ function loadTrinitySlotsFromTiersFile() {
       _handleStateCorruption2(TIERS_FILE3);
       return false;
     }
-    const tiersData = safeJsonParse3(readFileSync5(TIERS_FILE3, "utf-8")) || {};
+    const tiersData = safeJsonParse2(readFileSync5(TIERS_FILE3, "utf-8")) || {};
     _setTrinitySlotsFromTiers(tiersData);
     return true;
   } catch {
@@ -6586,7 +6757,7 @@ function _refreshModel(directory3) {
     const sel = loadSelection2();
     if (!sel.enabled)
       return;
-    const tiersData = safeJsonParse3(readFileSync5(TIERS_FILE3, "utf-8"));
+    const tiersData = safeJsonParse2(readFileSync5(TIERS_FILE3, "utf-8"));
     _setTrinitySlotsFromTiers(tiersData);
     const slotOrder = getTrinitySlotOrder(tiersData);
     const activeSlot = slotOrder.includes(sel.active_slot) ? sel.active_slot : slotOrder[0] || "brain";
@@ -6633,7 +6804,7 @@ function _refreshModel(directory3) {
           try {
             if (existsSync6(TIERS_FILE3)) {
               withFileLock2(TIERS_FILE3, () => {
-                const t = safeJsonParse3(readFileSync5(TIERS_FILE3, "utf-8"));
+                const t = safeJsonParse2(readFileSync5(TIERS_FILE3, "utf-8"));
                 for (const s of getTrinitySlotOrder(t)) {
                   if (t?.trinity?.[s]?.oc === cfgModel) {
                     t.selection.active_slot = s;
@@ -6659,7 +6830,7 @@ function applySlot2(slot, projectDir = "") {
   try {
     const TIERS_FILE3 = join5(getVibeOSHome4(), "model-tiers.json");
     return withFileLock2(TIERS_FILE3, () => {
-      const j = safeJsonParse3(readFileSync5(TIERS_FILE3, "utf-8"));
+      const j = safeJsonParse2(readFileSync5(TIERS_FILE3, "utf-8"));
       const ocModel = j?.trinity?.[slot]?.oc;
       if (!ocModel)
         return { ok: false, reason: `slot '${slot}' has no oc model` };
@@ -6671,7 +6842,7 @@ function applySlot2(slot, projectDir = "") {
       const localOcConfig = join5(dir, "opencode.json");
       const ocConfig = existsSync6(localOcConfig) ? localOcConfig : join5(getOpenCodeHome(), "opencode.json");
       if (existsSync6(ocConfig)) {
-        const oc = safeJsonParse3(readFileSync5(ocConfig, "utf-8"));
+        const oc = safeJsonParse2(readFileSync5(ocConfig, "utf-8"));
         oc.model = ocModel;
         writeFileSync6(ocConfig, JSON.stringify(oc, null, 2) + "\n");
       }
@@ -7681,7 +7852,7 @@ function loadTrinityModels() {
     const p = join7(getVibeOSHome5(), "model-tiers.json");
     if (!existsSync9(p))
       return { brain: "", cheap: "", medium: "" };
-    const j = safeJsonParse3(readFileSync8(p, "utf-8"));
+    const j = safeJsonParse2(readFileSync8(p, "utf-8"));
     return {
       brain: j?.trinity?.brain?.oc || j?.trinity?.brain || "",
       cheap: j?.trinity?.cheap?.oc || j?.trinity?.cheap || "",
@@ -8142,7 +8313,7 @@ function researchAudit({ hours = 24, session: sessionFilter } = {}) {
   }
   try {
     if (existsSync10(STATE_FILE)) {
-      const state = safeJsonParse3(readFileSync9(STATE_FILE, "utf-8"));
+      const state = safeJsonParse2(readFileSync9(STATE_FILE, "utf-8"));
       for (const [sid, s] of Object.entries(state.sessions || {})) {
         if (sessionFilter && sid !== sessionFilter)
           continue;
@@ -8388,7 +8559,7 @@ function readJsonOrEmpty2(filePath) {
       _handleStateCorruption2(filePath);
       return {};
     }
-    return safeJsonParse3(readFileSync10(filePath, "utf-8"));
+    return safeJsonParse2(readFileSync10(filePath, "utf-8"));
   } catch {
     _handleStateCorruption2(filePath);
     return {};
@@ -8629,7 +8800,7 @@ function readReport(id2) {
   try {
     if (!existsSync11(path))
       return null;
-    return safeJsonParse3(readFileSync10(path, "utf-8"));
+    return safeJsonParse2(readFileSync10(path, "utf-8"));
   } catch {
     return null;
   }
@@ -8967,6 +9138,7 @@ function resolveCascadeSlot(pipeline = []) {
 }
 
 // src/lib/trinity-tool.js
+init_flow_enforcer();
 var MIN_TOOL_BREAKDOWN_THRESHOLD = 5e-3;
 var STRESS_GAUGE_CRITICAL = 0.85;
 var STRESS_GAUGE_HIGH = 0.7;
@@ -8978,9 +9150,9 @@ var DIAGNOSE_BUDGET_LINES = 50;
 var CREDIT_MIN_OK = 40;
 function createTrinityTool(deps) {
   return {
-    description: "Control the vibeOS plugin and active model slot. Use action='status' to see the current state. Use action='enable' or 'disable' to toggle the plugin immediately. Use action='set' with slot='brain'|'medium'|'cheap' to switch model tiers (writes opencode.json). Optionally pass model='<model_id>' to set a custom model for that slot. Use action='mode' with slot='vibeultrax'|'vibeqmax'|'vibemax'|'budget'|'quality'|'speed'|'longrun'|'auto'|'balanced'|'audit'|'forensic' to switch optimization mode. Use action='thinking' with level='full'|'brief'|'off'. Use action='rebuild' to detect available models from configured providers and reassign brain/medium/cheap slots. Use action='flow' with slot='on'|'off' to toggle flow enforcer, or action='flow' alone for audit. Use action='flow' with slot='enforce' and level='on'|'off' to toggle auto-extract TODOs. Use action='enforce' with slot='on'|'off' to toggle delegation enforcement. Use action='tdd' with slot='on'|'off' to toggle auto-create test skeletons. Use action='tdd' with slot='strict' and level='on'|'off' to toggle strict failing TODO test templates. Use action='tdd' alone for audit. Use action='setup' to create a compatibility profile for first-time users. Use action='project' to show per-project analytics and optimization suggestions. Use action='patterns' to inspect learned project patterns or slot='clear' to clear them. Use action='guard' to keep AGENTS.md and README.md current. Use action='api-token' with token='<new_token>' to update the API token or token='invalidate' to disable the embedded alpha token. Use action='api-bootstrap-token' with token='<new_token>' to store an alpha bootstrap token and exchange it for a normal API token on alpha builds. Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', or 'trinity status'.",
+    description: "Control the vibeOS plugin and active model slot. Use action='status' to see the current state. Use action='enable' or 'disable' to toggle the plugin immediately. Use action='set' with slot='brain'|'medium'|'cheap' to switch model tiers (writes opencode.json). Optionally pass model='<model_id>' to set a custom model for that slot. Use action='mode' with slot='vibeultrax'|'vibeqmax'|'vibemax'|'budget'|'quality'|'speed'|'longrun'|'auto'|'balanced'|'audit'|'forensic' to switch optimization mode. Use action='thinking' with level='full'|'brief'|'off'. Use action='rebuild' to detect available models from configured providers and reassign brain/medium/cheap slots. Use action='flow' with slot='on'|'off' to toggle flow enforcer, or action='flow' alone for audit. Use action='flow' with slot='enforce' and level='on'|'off' to toggle auto-extract TODOs. Use action='enforce' with slot='on'|'off' to toggle delegation enforcement. Use action='tdd' with slot='on'|'off' to toggle auto-create test skeletons. Use action='tdd' with slot='strict' and level='on'|'off' to toggle strict failing TODO test templates. Use action='tdd' alone for audit. Use action='setup' to create a compatibility profile for first-time users. Use action='project' to show per-project analytics and optimization suggestions. Use action='patterns' to inspect learned project patterns or slot='clear' to clear them. Use action='guard' to keep AGENTS.md and README.md current. Use action='reality-check' to read verified live state and report only evidence-backed facts. Use action='api-token' with token='<new_token>' to update the API token or token='invalidate' to disable the embedded alpha token. Use action='api-bootstrap-token' with token='<new_token>' to store an alpha bootstrap token and exchange it for a normal API token on alpha builds. Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', or 'trinity status'.",
     args: {
-      action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "setup", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard", "api-token", "api-bootstrap-token", "todo", "todo-done", "todo-sync"]).optional(),
+      action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "setup", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard", "reality-check", "api-token", "api-bootstrap-token", "todo", "todo-done", "todo-sync"]).optional(),
       slot: deps.tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "balanced", "audit", "forensic", "vibeultrax", "vibeqmax", "vibemax", "vibelitex", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings"]).optional(),
       level: deps.tool.schema.enum(["full", "brief", "off", "on"]).optional(),
       model: deps.tool.schema.string().optional(),
@@ -9092,6 +9264,8 @@ function createTrinityTool(deps) {
         const lockedSlot = deps._lockedSlot || null;
         const lockedModel = deps._lockedModel || null;
         const onboardingMode = sel.onboarding_mode || "strict";
+        const currentProjectFingerprint3 = deps.currentProjectFingerprint || (typeof deps.projectFingerprint === "function" ? deps.projectFingerprint(deps.directory || "") : "");
+        const reality = getRealityCheckView(currentProjectFingerprint3);
         const stressScore = deps.latestUserIntent ? deps.scoreStress(deps.latestUserIntent) : 0;
         const stressBar = stressScore > STRESS_GAUGE_CRITICAL ? "\u2588" : stressScore > STRESS_GAUGE_HIGH ? "\u2586" : stressScore > STRESS_GAUGE_ELEVATED ? "\u2585" : stressScore > STRESS_GAUGE_CALM ? "\u2583" : stressScore > STRESS_GAUGE_MIN ? "\u2582" : "\u2581";
         const stressLabel = stressScore > STRESS_GAUGE_HIGH ? "high" : stressScore > 0.4 ? "elevated" : stressScore > STRESS_GAUGE_MIN ? "calm" : "none";
@@ -9135,6 +9309,7 @@ function createTrinityTool(deps) {
           `  TDD: ${sel.tdd_enforce ? "ON" : "OFF"}${sel.tdd_strict !== false ? " strict" : ""}${sel.tdd_quality !== false ? " quality" : ""}`,
           `  Enforce: ${sel.delegation_enforce ? "ON (mandatory)" : "OFF (compatibility)"}`,
           `  Lock: ${deps._modelLocked ? `LOCK ON${lockedSlot ? ` (${lockedSlot})` : ""}${lockedModel ? ` ${lockedModel}` : ""}` : "LOCK OFF"}`,
+          `  Reality-check: ${reality.enabled ? `ON (${reality.scope}${reality.project_id ? `:${reality.project_id}` : ""})` : "OFF"}`,
           `  Compatibility: ${onboardingMode === "assist" ? "ASSIST (soft defaults, progressive activation)" : "STRICT (full guardrails)"}`,
           `|`,
           `All-time savings:`,
@@ -9155,6 +9330,38 @@ function createTrinityTool(deps) {
           `  cheap:  ${cheapModel}${activeSlot === "cheap" ? "  *" : ""}`,
           `  Labels: ${(LABEL_MODES || []).join(", ")}`
         ];
+        return lines.join("\n");
+      }
+      if (action === "reality-check") {
+        const projectFingerprint2 = deps.currentProjectFingerprint || (typeof deps.projectFingerprint === "function" ? deps.projectFingerprint(deps.directory || "") : "");
+        const reality = getRealityCheckView(projectFingerprint2);
+        const projectState = typeof deps.loadProjectState === "function" ? deps.loadProjectState() : {};
+        const projectBucket = projectFingerprint2 ? projectState?.project_hashes?.[projectFingerprint2] : null;
+        const fullState = typeof deps.readFullState === "function" ? deps.readFullState() : {};
+        const session = fullState?.sessions?.[deps._OC_SID] || null;
+        const realityFile = join11(deps.VIBEOS_HOME || join11(process.env.HOME || "", ".claude"), "reality-check-settings.json");
+        const stateFile = deps.STATE_FILE;
+        const projectStateFile = join11(deps.VIBEOS_HOME || join11(process.env.HOME || "", ".claude"), "project-states.json");
+        const lines = ["[vibeOS-reality-check] Verified facts only"];
+        lines.push(`Project: ${deps.currentProjectName || projectBucket?.projectName || projectFingerprint2 || "unknown"}`);
+        lines.push(`Project fingerprint: ${projectFingerprint2 || "(unset)"}`);
+        lines.push(`State files: delegation=${deps.existsSync(stateFile) ? "present" : "missing"}, project=${deps.existsSync(projectStateFile) ? "present" : "missing"}, reality=${deps.existsSync(realityFile) ? "present" : "missing"}`);
+        lines.push(`Scope: ${reality.scope}${reality.project_id ? ` (${reality.project_id})` : ""}`);
+        lines.push(`Enabled: ${reality.enabled ? "YES" : "NO"}`);
+        lines.push(`Rules loaded: ${reality.rules.length}`);
+        for (const rule of reality.rules.slice(0, 8)) {
+          lines.push(`  - ${rule.id}: ${rule.description || rule.pattern}`);
+        }
+        if (projectBucket?.totalSessions != null) {
+          lines.push(`Project sessions: ${projectBucket.totalSessions}`);
+        }
+        if (session) {
+          const warnCount = Array.isArray(session.warns) ? session.warns.length : 0;
+          lines.push(`Session warns: ${warnCount}`);
+          if (session.cache_savings_usd != null) {
+            lines.push(`Session cache savings: $${Number(session.cache_savings_usd || 0).toFixed(2)}`);
+          }
+        }
         return lines.join("\n");
       }
       if (action === "enable" || action === "disable") {
@@ -10176,6 +10383,7 @@ ${L.repeat(40)}`);
           "  trinity tdd on/off        Toggle auto test skeleton creation",
           "  trinity setup             Create a compatibility profile for new users",
           "  trinity guard             Ensure AGENTS.md/README.md exist and are current",
+          "  trinity reality-check     Read live state and report only verified facts",
           "  trinity api-token <token|invalidate>  Update or invalidate VIBEOS_API_TOKEN",
           "  trinity api-token <token|invalidate>  Update or invalidate VIBEOS_API_TOKEN",
           "  trinity flow              Show flow violations this session",
@@ -11301,6 +11509,7 @@ function shouldInjectTemplate(template, prevTemplate) {
 }
 
 // src/lib/hooks/chat-transform.js
+init_flow_enforcer();
 var BYTES_PER_TOKEN = 4;
 function getVibeOSHome9() {
   return process.env.VIBEOS_HOME || join14(process.env.HOME || "", ".claude");
@@ -11329,7 +11538,7 @@ function resolveRestorableOpenCodeAgent(currentSel) {
     }).sort((a, b) => b.mtime - a.mtime);
     for (const candidate of candidates) {
       try {
-        const snapshot = safeJsonParse3(readFileSync13(candidate.path, "utf-8"));
+        const snapshot = safeJsonParse2(readFileSync13(candidate.path, "utf-8"));
         const agent = typeof snapshot?.default_agent === "string" ? snapshot.default_agent.trim() : "";
         if (agent && agent !== "plan")
           return agent;
@@ -11339,9 +11548,6 @@ function resolveRestorableOpenCodeAgent(currentSel) {
   } catch {
   }
   return null;
-}
-function getOpenCodeHome2() {
-  return process.env.VIBEOS_OPENCODE_HOME || join14(process.env.HOME || "", ".config", "opencode");
 }
 function ensureProjectContext(hookDirectory) {
   const resolved = projectFingerprint(hookDirectory || currentProjectFingerprint || process.cwd() || "");
@@ -11609,9 +11815,9 @@ function syncControlSettings(cv, options = {}) {
     }
     if (cv.agent_mode) {
       try {
-        const OC_CONFIG = TRINITY_OPENCODE_CONFIG || join14(getOpenCodeHome2(), "opencode.json");
+        const OC_CONFIG = TRINITY_OPENCODE_CONFIG || join14(getOpenCodeHome(), "opencode.json");
         if (existsSync14(OC_CONFIG)) {
-          const oc = safeJsonParse3(readFileSync13(OC_CONFIG, "utf-8"));
+          const oc = safeJsonParse2(readFileSync13(OC_CONFIG, "utf-8"));
           if (oc.default_agent !== cv.agent_mode) {
             if (cv.agent_mode === "plan" && oc.default_agent && oc.default_agent !== "plan") {
               writeSelection("previous_default_agent", oc.default_agent);
@@ -11624,9 +11830,9 @@ function syncControlSettings(cv, options = {}) {
       }
     } else {
       try {
-        const OC_CONFIG = TRINITY_OPENCODE_CONFIG || join14(getOpenCodeHome2(), "opencode.json");
+        const OC_CONFIG = TRINITY_OPENCODE_CONFIG || join14(getOpenCodeHome(), "opencode.json");
         if (existsSync14(OC_CONFIG)) {
-          const oc = safeJsonParse3(readFileSync13(OC_CONFIG, "utf-8"));
+          const oc = safeJsonParse2(readFileSync13(OC_CONFIG, "utf-8"));
           const restoreAgent = oc.default_agent === "plan" ? resolveRestorableOpenCodeAgent(currentSel) : null;
           if (restoreAgent && oc.default_agent === "plan") {
             oc.default_agent = restoreAgent;
@@ -11898,6 +12104,13 @@ function flowTodosDirective() {
 function empiricalAnswerDirective() {
   return '[empirical answer] Prefer verified facts over assumptions. If something is not directly checked against tools, files, logs, or user-provided evidence, label it as unverified or say "I cannot verify that". Separate evidence, inference, and suggestions. In multi-turn work, carry forward only evidence-backed facts and keep any guess explicitly marked as a guess.';
 }
+function realityCheckDirective() {
+  const view = getRealityCheckView(currentProjectFingerprint || "");
+  if (!view.enabled)
+    return null;
+  const scope = view.scope === "project" && view.project_id ? `project:${view.project_id}` : "global";
+  return `[reality-check ${scope}] Before saying something is done, complete, ready, successful, trained, fixed, or working, verify the actual files and state on disk. If the user asks for a reality check, read the relevant files first and report only verified facts.`;
+}
 function patternDirective(fp2) {
   const patterns = promotedProjectPatterns(fp2);
   if (!patterns || patterns.length === 0)
@@ -11923,7 +12136,7 @@ function welcomeDirective() {
   const sel = loadSelection();
   let tiers = {};
   try {
-    tiers = safeJsonParse3(readFileSync13(TIERS_FILE, "utf-8")).trinity || {};
+    tiers = safeJsonParse2(readFileSync13(TIERS_FILE, "utf-8")).trinity || {};
   } catch {
   }
   const active = sel.active_slot || "medium";
@@ -12122,6 +12335,9 @@ var onSystemTransform = async (_input, output) => {
     }
     pushSystem(output, "[anti-fabrication] Always work honestly \u2014 do NOT make up tool names, file paths, function signatures, code snippets, or exact outputs. If you must explain something you cannot verify, say 'I cannot verify that' and propose how to verify it. Under NO circumstance invent tool invocations, file contents, or final results. If you must correct an earlier response, say exactly what was wrong and then provide the corrected response. DO NOT LGTM.");
     pushSystem(output, empiricalAnswerDirective());
+    const realityDirective = realityCheckDirective();
+    if (realityDirective)
+      pushSystem(output, realityDirective);
     const budgetDirective = contextBudgetDirective(_input, output);
     if (budgetDirective)
       pushSystem(output, budgetDirective);
@@ -12348,7 +12564,7 @@ var _lastStrippedText = "";
 function loadSelection3() {
   try {
     const raw = readFileSync14(join15(getVibeOSHome10(), "model-tiers.json"), "utf-8");
-    return safeJsonParse3(raw)?.selection || { active_slot: "medium", enabled: true, delegation_enforce: true, flow_enabled: true, flow_enforce: true, tdd_enforce: false, tdd_strict: false };
+    return safeJsonParse2(raw)?.selection || { active_slot: "medium", enabled: true, delegation_enforce: true, flow_enabled: true, flow_enforce: true, tdd_enforce: false, tdd_strict: false };
   } catch {
     return { active_slot: "medium", enabled: true, delegation_enforce: true, flow_enabled: true, flow_enforce: true, tdd_enforce: false, tdd_strict: false };
   }
@@ -12361,7 +12577,7 @@ function readLifetimeSavings2() {
   try {
     reconcileStateFromLedger();
     const raw = readFileSync14(STATE_FILE2, "utf-8");
-    const state = safeJsonParse3(raw);
+    const state = safeJsonParse2(raw);
     const ses = state?.sessions?.[getSessionId()] || {};
     return {
       ltTasks: roundUsd2(state?.lifetime?.total_savings_usd || 0),
@@ -15133,11 +15349,9 @@ var onShellEnv = async (_input, output) => {
 
 // src/index.ts
 init_state();
+init_state();
 function getVibeOSHome13() {
   return process.env.VIBEOS_HOME || join18(process.env.HOME || "", ".claude");
-}
-function getOpenCodeHome3() {
-  return process.env.VIBEOS_OPENCODE_HOME || join18(process.env.HOME || "", ".config", "opencode");
 }
 function getTiersFile() {
   return join18(getVibeOSHome13(), "model-tiers.json");
@@ -15170,7 +15384,7 @@ function _readOpenCodeConfigObject(dir) {
   const jsonPath = join18(dir, "opencode.json");
   const jsoncPath = join18(dir, "opencode.jsonc");
   if (existsSync18(jsonPath))
-    return safeJsonParse3(readFileSync17(jsonPath, "utf-8"));
+    return safeJsonParse2(readFileSync17(jsonPath, "utf-8"));
   if (existsSync18(jsoncPath))
     return _parseJsonc(readFileSync17(jsoncPath, "utf-8"));
   return {};
@@ -15178,7 +15392,7 @@ function _readOpenCodeConfigObject(dir) {
 function _loadOpenCodeProviders(directory3) {
   try {
     const merged = {};
-    const dirs = [directory3 ? join18(directory3, ".") : null, getOpenCodeHome3()].filter(Boolean);
+    const dirs = [directory3 ? join18(directory3, ".") : null, getOpenCodeHome()].filter(Boolean);
     for (const dir of dirs) {
       const cfg = _readOpenCodeConfigObject(String(dir));
       const providers = cfg?.provider || {};
@@ -15226,7 +15440,7 @@ function _loadActiveJobForProject(directory3, fp2 = "") {
       const activeJobsPath = join18(String(base), ".claude", "active-jobs.json");
       if (!existsSync18(activeJobsPath))
         continue;
-      const jobs = safeJsonParse3(readFileSync17(activeJobsPath, "utf-8")) || {};
+      const jobs = safeJsonParse2(readFileSync17(activeJobsPath, "utf-8")) || {};
       const job = fp2 ? jobs?.[fp2] : null;
       if (job && typeof job === "object")
         return job;
@@ -15253,7 +15467,7 @@ async function _seedOrRepairModelTiers(directory3) {
         _handleStateCorruption(TIERS_FILE3);
         return false;
       }
-      existing = safeJsonParse3(readFileSync17(TIERS_FILE3, "utf-8")) || {};
+      existing = safeJsonParse2(readFileSync17(TIERS_FILE3, "utf-8")) || {};
     } catch {
       existing = null;
     }
@@ -15272,7 +15486,7 @@ async function _seedOrRepairModelTiers(directory3) {
     trinity = buildDeterministicTrinity(discovered, { selectedModelId: currentModel });
   } catch {
   }
-  let brain = trinity?.brain || currentModel || readConfig(directory3) || readConfig(getOpenCodeHome3()) || process?.env?.OPENCODE_MODEL || "";
+  let brain = trinity?.brain || currentModel || readConfig(directory3) || readConfig(getOpenCodeHome()) || process?.env?.OPENCODE_MODEL || "";
   let medium = trinity?.medium || brain;
   let cheap = trinity?.cheap || medium || brain;
   if (!brain) {
@@ -15322,7 +15536,7 @@ function _parseJsonc(raw) {
   const noBlock = String(raw || "").replace(/\/\*[\s\S]*?\*\//g, "");
   const noLine = noBlock.replace(/(^|\s)\/\/.*$/gm, "$1");
   const noTrailing = noLine.replace(/,\s*([}\]])/g, "$1");
-  return safeJsonParse3(noTrailing);
+  return safeJsonParse2(noTrailing);
 }
 function _modelCost2(id2) {
   if (!id2)
@@ -15344,7 +15558,7 @@ function _modelTier2(id2) {
 }
 function readPackageVersion() {
   try {
-    const pkg = safeJsonParse3(readFileSync17(join18(process.cwd(), "package.json"), "utf-8"));
+    const pkg = safeJsonParse2(readFileSync17(join18(process.cwd(), "package.json"), "utf-8"));
     return String(pkg?.version || "");
   } catch {
     return "";
@@ -15360,7 +15574,7 @@ function loadMcpPort() {
   }
   try {
     if (existsSync18(getTiersFile())) {
-      const tiers = safeJsonParse3(readFileSync17(getTiersFile(), "utf-8"));
+      const tiers = safeJsonParse2(readFileSync17(getTiersFile(), "utf-8"));
       const cfg = tiers?.selection?.mcp_port;
       if (cfg === false || cfg === "disabled" || cfg === 0)
         return 0;
@@ -15376,7 +15590,7 @@ function persistMcpPort(port) {
   try {
     if (!existsSync18(getTiersFile()))
       return;
-    const tiers = safeJsonParse3(readFileSync17(getTiersFile(), "utf-8"));
+    const tiers = safeJsonParse2(readFileSync17(getTiersFile(), "utf-8"));
     tiers.selection ??= {};
     if (Number(tiers.selection.mcp_port) === Number(port) && !("mcp_port" in tiers))
       return;
@@ -15440,7 +15654,7 @@ async function ensureMcpServerRunning() {
               selection: loadSelection(),
               tiersData: (() => {
                 try {
-                  return safeJsonParse3(readFileSync17(getTiersFile(), "utf-8"));
+                  return safeJsonParse2(readFileSync17(getTiersFile(), "utf-8"));
                 } catch {
                   return {};
                 }
@@ -15640,7 +15854,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
   if (currentModel) {
     setCurrentTier(classify(currentModel));
     try {
-      const _tiersData2 = safeJsonParse3(readFileSync17(getTiersFile(), "utf-8"));
+      const _tiersData2 = safeJsonParse2(readFileSync17(getTiersFile(), "utf-8"));
       const _slotOrder = getTrinitySlotOrder(_tiersData2);
       const _primarySlot = _slotOrder[0] || "brain";
       const _activeSlot = _tiersData2?.selection?.active_slot || _primarySlot;
@@ -15666,7 +15880,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
       const lockedSlot = ["brain", "medium", "cheap"].includes(String(startupSelection.active_slot || "").trim()) ? String(startupSelection.active_slot) : "brain";
       let lockedModel = currentModel || null;
       try {
-        const tiers = safeJsonParse3(readFileSync17(getTiersFile(), "utf-8"));
+        const tiers = safeJsonParse2(readFileSync17(getTiersFile(), "utf-8"));
         lockedModel = tiers?.trinity?.[lockedSlot]?.oc || lockedModel || null;
       } catch {
       }
@@ -15706,7 +15920,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
   const hookTiersFile = join18(hookVibeHome, "model-tiers.json");
   const loadProjectStateStable = () => {
     try {
-      const state = safeJsonParse3(readFileSync17(hookProjectStateFile, "utf-8"));
+      const state = safeJsonParse2(readFileSync17(hookProjectStateFile, "utf-8"));
       if (state && typeof state === "object") {
         state.project_hashes ??= {};
         return state;
@@ -15726,7 +15940,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
   };
   const reportsIndexStable = () => {
     try {
-      const idx = safeJsonParse3(readFileSync17(hookReportsIndex, "utf-8"));
+      const idx = safeJsonParse2(readFileSync17(hookReportsIndex, "utf-8"));
       if (!idx || !Array.isArray(idx.reports))
         return { reports: [] };
       return idx;
@@ -15758,7 +15972,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
   };
   const _tiersData = (() => {
     try {
-      return safeJsonParse3(readFileSync17(getTiersFile(), "utf-8"));
+      return safeJsonParse2(readFileSync17(getTiersFile(), "utf-8"));
     } catch {
       return {};
     }
@@ -15780,7 +15994,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
       return latestUserIntent;
     },
     directory: directory3,
-    safeJsonParse: safeJsonParse3,
+    safeJsonParse: safeJsonParse2,
     readFileSync: readFileSync17,
     writeFileSync: writeFileSync16,
     existsSync: existsSync18,
@@ -15803,7 +16017,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
       return hookReportsIndex;
     },
     get OPENCODE_HOME() {
-      return getOpenCodeHome3();
+      return getOpenCodeHome();
     },
     get VIBEOS_HOME() {
       return hookVibeHome;
