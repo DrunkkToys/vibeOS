@@ -164,7 +164,7 @@ export function buildFooterLine(input: FooterLineInput): string {
   line += ` | ${vibeBrand}${flashIcon}`
 
   if (optMode && optMode !== "auto") {
-    line += ` ${modeLabel}`
+    line += ` · ${modeLabel}`
   }
 
   if (vectorChangedSlot && vectorChangedSlot !== activeSlot) {
