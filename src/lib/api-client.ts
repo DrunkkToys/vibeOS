@@ -676,6 +676,7 @@ export function setApiBootstrapToken(newToken) {
 }
 
 let _apiClient = null
+let _startupProbeDone = false
 let _apiFallbackMode = false
 let _apiFallbackSince = null
 let _bootstrapExchangeInFlight: Promise<boolean> | null = null
@@ -694,6 +695,18 @@ function tryResetFallbackCooldown(): boolean {
     return true
   }
   return false
+}
+
+function confirmReconnection(): void {
+  _apiFallbackMode = false
+  _apiFallbackSince = null
+  markApiConnected()
+  console.warn("[vibeOS] API reconnected — health probe passed")
+}
+
+function denyReconnection(detail: string): void {
+  _apiFallbackSince = new Date().toISOString()
+  console.warn(`[vibeOS] API health probe failed during reconnect: ${detail} — staying in fallback`)
 }
 
 function recordBackendVersion(payload: unknown): void {
@@ -817,14 +830,53 @@ export function getBackendVersion(): string {
   return _backendVersion
 }
 
+export function getApiFallbackSince(): string | null {
+  return _apiFallbackSince
+}
+
 export async function remoteCall(method, args, fallbackFn) {
+  if (!_startupProbeDone && !_apiFallbackMode) {
+    _startupProbeDone = true
+    try {
+      syncApiTokenFromDisk()
+      if (VIBEOS_API_ENABLED) {
+        const probeClient = getApiClient()
+        if (probeClient) {
+          await probeClient.health()
+          confirmReconnection()
+        }
+      }
+    } catch {
+      // startup probe failure is non-fatal; remoteCall logic handles fallback
+    }
+  }
   syncApiTokenFromDisk()
   if (!VIBEOS_API_TOKEN && VIBEOS_API_BOOTSTRAP_TOKEN) {
     await ensureBootstrapExchange()
     syncApiTokenFromDisk()
   }
-  if (tryResetFallbackCooldown()) {
-    console.warn("[vibeOS] API fallback cooldown expired — retrying API")
+  if (_apiFallbackMode && _apiFallbackSince) {
+    const elapsed = Date.now() - new Date(_apiFallbackSince).getTime()
+    if (elapsed > FALLBACK_COOLDOWN_MS) {
+      try {
+        const probeClient = getApiClient()
+        if (probeClient) {
+          await probeClient.health()
+          confirmReconnection()
+        } else {
+          denyReconnection("no client")
+          if (fallbackFn) return fallbackFn()
+          return null
+        }
+      } catch (probeErr) {
+        const probeStatus = probeErr?.statusCode || probeErr?.status || 0
+        const probeBody = probeErr?.response?.body || probeErr?.body || ""
+        const probePreview = typeof probeBody === "string" ? probeBody.substring(0, 80) : String(probeBody).substring(0, 80)
+        denyReconnection(probeStatus ? `status=${probeStatus} body=${probePreview}` : `message=${probeErr?.message || probeErr}`)
+        if (fallbackFn) return fallbackFn()
+        return null
+      }
+    }
   }
   if (!VIBEOS_API_ENABLED || _apiFallbackMode) {
     if (fallbackFn) return fallbackFn()

@@ -11,8 +11,8 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, renam
 import { join, dirname, basename } from "node:path"
 import { getFlowWarns, ensureProjectDocs, syncFlowTodosToNative } from "./vibeOS-lib/flow-enforcer.js"
 import { computeSessionMetrics } from "./vibeOS-lib/session-metrics.js"
-import { createMcpServer } from "./lib/vibeos-mcp-server.js"
-import { isApiConnected, isApiFallback, getBackendVersion, setApiToken, setApiBootstrapToken, ensureBootstrapExchange, VIBEOS_API_URL } from "./lib/api-client.js"
+import { createMcpServer, writeDashboardBaseConfig } from "./lib/vibeos-mcp-server.js"
+import { isApiConnected, isApiFallback, getBackendVersion, getApiFallbackSince, setApiToken, setApiBootstrapToken, ensureBootstrapExchange, VIBEOS_API_URL } from "./lib/api-client.js"
 import { applySlot, modelCostPerTurn, detectContext7, formatUsd, classify, _refreshModel, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, readConfig, getTrinitySlotOrder, loadTrinitySlotsFromTiersFile, buildDeterministicTrinity } from "./lib/pricing.js"
 import { scoreStress, detectTechStack, loadBlackboxState, saveBlackboxState, getBlackboxTracker, getBlackboxResolution, saveOptimizationMode, resetBlackboxTracker } from "./lib/turn-classify.js"
 import { safeJsonParse, readFullState, loadSelection, writeSelection, readLifetimeSavings, _OC_SID, _modelLocked, _blackboxEnabled, setBlackboxEnabled, _lockedSlot, _lockedModel, setModelLocked, setLockedSlot, setLockedModel, currentTier, currentModel, currentProjectFingerprint, currentProjectName, setCurrentTier, setCurrentModel, setCurrentProjectFingerprint, setCurrentProjectName, setCurrentSessionId, getCurrentSessionId, briefedProjects, _latestBlackboxState, _latestBlackboxLoopMsg, _latestBlackboxPivotMsg, getActiveJobForProject, projectFingerprint, loadProjectState, saveProjectState, ensureProjectBucket, mergeProjectBucket, setVibeOSHomeContext, SAVINGS_LEDGER_FILE, USER_HOME, CREDIT_CACHE_F, pruneScratchpadOnce, registerSessionCleanupHandlers, runStartupMaintenanceOnce, promotedProjectPatterns, projectPatternRows, clearProjectPatterns, loadTodos, getTodos, upsertTodo, markTodoDone, tool } from "./lib/state.js"
@@ -57,8 +57,7 @@ function ensureDeferredBootstrap() {
 }
 // ── Remote API client state ──────────────────────────────────────────
 let _apiClient = null
-let _apiFallbackMode = false
-let _apiFallbackSince = null
+
 let activeJob = null
 let fp = ""
 let _mcpServerRuntime = null
@@ -303,9 +302,7 @@ function loadMcpPort() {
     }
   }
   catch { }
-  if (process.env.VIBEOS_TEST_CONTEXT)
-    return 0
-  return 3001
+  return null
 }
 function persistMcpPort(port) {
   try {
@@ -389,7 +386,7 @@ async function ensureMcpServerRunning() {
               backendHealthUrl: `${VIBEOS_API_URL}/health`,
               backendVersion: getBackendVersion(),
               apiFallbackMode: isApiFallback(),
-              apiFallbackSince: _apiFallbackSince,
+              apiFallbackSince: getApiFallbackSince(),
               modelLocked: _modelLocked,
               lockedSlot: _lockedSlot,
               lockedModel: _lockedModel,
@@ -506,10 +503,13 @@ async function ensureMcpServerRunning() {
           },
         })
       }
-      const mcpServer = await _mcpServerRuntime.start(port)
-      const actualPort = Number(mcpServer?.address?.()?.port || port)
-      if (actualPort && actualPort !== port)
+      const requestedPort = port == null ? 0 : port
+      const mcpServer = await _mcpServerRuntime.start(requestedPort)
+      const actualPort = Number(mcpServer?.address?.()?.port || requestedPort)
+      if (actualPort && actualPort !== requestedPort)
         persistMcpPort(actualPort)
+      if (actualPort)
+        writeDashboardBaseConfig(`http://127.0.0.1:${actualPort}`)
       console.error(`[vibeOS] MCP server on http://127.0.0.1:${actualPort}`)
       if (actualPort)
         console.error(`[vibeOS] Dashboard at http://127.0.0.1:${actualPort}/`)
@@ -727,7 +727,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
     discoverAvailableModels, classifyAndRankModels, modelToCcAlias, probeModel,
     setBlackboxEnabled, loadBlackboxState, saveBlackboxState,
     isApiFallback: () => isApiFallback(),
-    get _apiFallbackSince() { return _apiFallbackSince },
+    get _apiFallbackSince() { return getApiFallbackSince() },
     reportsIndex: reportsIndexStable, saveReportsIndex: saveReportsIndexStable, backupFile: backupFileStable, writeSessionSlot, writeSessionOptMode, _refreshModel,
     setApiToken,
     setApiBootstrapToken,

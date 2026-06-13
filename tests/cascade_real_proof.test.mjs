@@ -44,6 +44,7 @@ const classifiers = await import("../src/lib/classifiers.js" + cacheBust)
 const turnClassify = await import("../src/lib/turn-classify.js" + cacheBust)
 const modeRouter = await import("../src/lib/mode-router.js" + cacheBust)
 const vibeultrax = await import("../src/vibeOS-lib/blackbox/vibeultrax.js" + cacheBust)
+const apiClient = await import("../src/lib/api-client.js" + cacheBust)
 
 // ── Helpers ──────────────────────────────────────────────────────────
 function makeTracker(sessionId = "cascade-session-1") {
@@ -646,6 +647,135 @@ test("cascade: vibeultraxPipeline exports and preserves the three-stage pipeline
   assert.ok(Array.isArray(result.pipeline))
   assert.equal(result.pipeline.join(","), "local,medium,brain")
 })
+
+// ── API Client Health Probe Tests ──────────────────────────────────
+
+const REAL_DATE_NOW = Date.now
+
+test("cascade: getApiFallbackSince returns null before any failure", (t) => {
+  assert.equal(apiClient.getApiFallbackSince(), null, "no fallback timestamp before any failure")
+})
+
+test("cascade: isApiConnected returns true on fresh module with valid token", (t) => {
+  assert.equal(apiClient.isApiFallback(), false, "no fallback on fresh module")
+})
+
+test("cascade: startup probe fires on first remoteCall and sets connected on success", async (t) => {
+  try {
+    let probeCount = 0
+    global.fetch = async () => {
+      probeCount++
+      return { ok: true, status: 200, json: async () => ({ status: "ok", version: "2.0.0" }) }
+    }
+
+    await apiClient.remoteCall("health", [], () => ({ local: true }))
+    assert.ok(probeCount >= 1, "startup probe was sent")
+    assert.equal(apiClient.isApiConnected(), true, "connected after successful startup probe")
+  } finally {
+    Date.now = REAL_DATE_NOW
+    delete globalThis.__vibeOSRuntimeState
+  }
+})
+
+test("cascade: startup probe failure is non-fatal — remoteCall still proceeds", async (t) => {
+  try {
+    let callCount = 0
+    global.fetch = async () => {
+      callCount++
+      if (callCount === 1) throw new Error("startup probe failed")
+      return { ok: true, status: 200, json: async () => ({ status: "ok" }) }
+    }
+
+    await apiClient.remoteCall("health", [], () => ({ local: true }))
+    assert.ok(callCount >= 2, "at least 2 fetch calls (startup probe + actual call)")
+  } finally {
+    Date.now = REAL_DATE_NOW
+    delete globalThis.__vibeOSRuntimeState
+  }
+})
+
+test("cascade: getApiFallbackSince returns valid ISO timestamp after fallback", async (t) => {
+  global.fetch = async () => { throw new Error("ECONNREFUSED") }
+  try {
+    await apiClient.remoteCall("health", [], () => ({ local: true }))
+    assert.equal(apiClient.isApiFallback(), true, "fallback after network error")
+    const since = apiClient.getApiFallbackSince()
+    assert.ok(since, "getApiFallbackSince returns a value after fallback")
+    assert.ok(!isNaN(Date.parse(since)), "getApiFallbackSince returns valid ISO timestamp")
+  } finally {
+    Date.now = REAL_DATE_NOW
+    delete globalThis.__vibeOSRuntimeState
+  }
+})
+
+test("cascade: cooldown expiry sends health probe — probe OK confirms reconnection", async (t) => {
+  global.fetch = async () => { throw new Error("ECONNREFUSED") }
+  try {
+    await apiClient.remoteCall("health", [], () => ({ local: true }))
+    assert.equal(apiClient.isApiFallback(), true, "fallback after network error")
+
+    const fakeNow = REAL_DATE_NOW() + 61_000
+    Date.now = () => fakeNow
+
+    let probeCalled = false
+    global.fetch = async () => {
+      probeCalled = true
+      return { ok: true, status: 200, json: async () => ({ status: "ok", version: "1.0.0" }) }
+    }
+
+    await apiClient.remoteCall("health", [], () => ({ local: true }))
+    assert.equal(probeCalled, true, "health probe sent during cooldown retry")
+    assert.equal(apiClient.isApiFallback(), false, "fallback cleared after probe OK")
+    assert.equal(apiClient.isApiConnected(), true, "connected after probe OK")
+  } finally {
+    Date.now = REAL_DATE_NOW
+    delete globalThis.__vibeOSRuntimeState
+  }
+})
+
+test("cascade: cooldown expiry health probe FAIL stays in fallback", async (t) => {
+  global.fetch = async () => { throw new Error("ECONNREFUSED") }
+  try {
+    await apiClient.remoteCall("health", [], () => ({ local: true }))
+    assert.equal(apiClient.isApiFallback(), true, "fallback after network error")
+
+    const fakeNow = REAL_DATE_NOW() + 61_000
+    Date.now = () => fakeNow
+
+    global.fetch = async () => { throw new Error("still down") }
+
+    const result = await apiClient.remoteCall("health", [], () => ({ local: true }))
+    assert.equal(result.local, true, "fallback invoked after probe failure")
+    assert.equal(apiClient.isApiFallback(), true, "stays in fallback after probe failure")
+  } finally {
+    Date.now = REAL_DATE_NOW
+    delete globalThis.__vibeOSRuntimeState
+  }
+})
+
+test("cascade: cooldown health probe 401 stays in fallback with refreshed timestamp", async (t) => {
+  global.fetch = async () => { throw new Error("ECONNREFUSED") }
+  try {
+    await apiClient.remoteCall("health", [], () => ({ local: true }))
+    assert.equal(apiClient.isApiFallback(), true, "fallback after network error")
+
+    const fakeNow = REAL_DATE_NOW() + 61_000
+    Date.now = () => fakeNow
+
+    global.fetch = async () => ({
+      ok: false, status: 401, json: async () => ({ message: "invalid token" }),
+    })
+
+    const result = await apiClient.remoteCall("health", [], () => ({ local: true }))
+    assert.equal(result.local, true, "fallback invoked after probe 401")
+    assert.equal(apiClient.isApiFallback(), true, "stays in fallback after probe 401")
+  } finally {
+    Date.now = REAL_DATE_NOW
+    delete globalThis.__vibeOSRuntimeState
+  }
+})
+
+
 
 // ── Cleanup ──────────────────────────────────────────────────────────
 test.after(() => {
