@@ -118,3 +118,20 @@ test("footer: 'hi' stays quiet instead of inheriting quality/guarded state", asy
     assert.ok(footer.includes("Budget"), "greeting footer should follow INIT regime mode label: " + footer)
     assert.ok(!footer.includes("quality"), "greeting footer should not inherit quality: " + footer)
 })
+
+// ── Test 8: sticky branded mode stays visually distinct from the live regime label ──
+test("footer: sticky branded mode stays visually distinct from the live regime label", async () => {
+    writeTiers({
+        active_slot: "brain",
+        optimization_mode: "vibeultrax",
+        delegation_enforce: true,
+        flow_enforce: true,
+        tdd_enforce: true,
+        vector_changed_slot: undefined,
+    })
+    const { _appendFooter } = await import("../src/lib/hooks/footer.js?ftr8=" + Date.now())
+    const o = { text: "This message is long enough to trigger the footer and reproduce the sticky brand leak." }
+    await _appendFooter({ args: { model: "deepseek/v4-pro" } }, o)
+    const footer = o.text.split("\n").pop() || ""
+    assert.ok(footer.includes("VibeUltraX") && footer.includes("· Budget"), "footer should separate brand and regime label: " + footer)
+})
