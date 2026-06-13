@@ -89,7 +89,7 @@ test("setApiToken clears _apiFallbackMode after a failed API call", async () => 
     api.setApiToken("vos_fixed_token")
 
     assert.equal(api.VIBEOS_API_DISABLED, false, "not disabled")
-    assert.equal(api.VIBEOS_API_ENABLED, true, "enabled")
+    assert.equal(api.isApiConnected(), true, "enabled (apiEnabled=true)")
     assert.equal(api.isApiFallback(), false, "fallback cleared by setApiToken")
   } finally {
     await restore(ctx)
@@ -107,7 +107,9 @@ test("after setApiToken, a remoteCall actually tries the API instead of short-ci
     // THE FIX: clear state
     api.setApiToken("vos_new_client_token")
     assert.equal(api.isApiFallback(), false, "fallback cleared")
-    assert.equal(api.isApiConnected(), false, "runtime connection reset")
+    // isApiConnected now only checks apiEnabled, not apiConnected state
+    // After setApiToken, apiEnabled is true, so isApiConnected returns true
+    assert.equal(api.isApiConnected(), true, "apiEnabled still true after setApiToken")
 
     // The next remoteCall must try the fetch (not short-circuit) -> fails -> back to fallback
     const r2 = await api.remoteCall("health", [], () => "fallback2")

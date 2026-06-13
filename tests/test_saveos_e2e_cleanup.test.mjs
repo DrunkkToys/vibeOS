@@ -926,7 +926,7 @@ test("saveOS API: invalidate switch disables the embedded fallback token", async
     process.stdout.write(JSON.stringify({
       disabled: mod.VIBEOS_API_DISABLED,
       token: mod.VIBEOS_API_TOKEN,
-      enabled: mod.VIBEOS_API_ENABLED,
+      enabled: mod.isApiConnected(),
     }))
   `
   const child = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
@@ -941,7 +941,7 @@ test("saveOS API: invalidate switch disables the embedded fallback token", async
   assert.equal(child.status, 0, child.stderr)
   const state = JSON.parse(String(child.stdout || "{}"))
   assert.equal(state.disabled, true)
-  assert.equal(state.enabled, false)
+  assert.equal(state.enabled, false, "apiEnabled should be false after invalidate")
   assert.equal(state.token, "")
   const persisted = readFileSync(join(tokenSandbox, ".claude", ".env.production"), "utf-8")
   assert.match(persisted, /VIBEOS_API_DISABLED=true/)
