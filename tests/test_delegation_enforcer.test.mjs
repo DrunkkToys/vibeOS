@@ -25,6 +25,9 @@ before(() => {
   process.env.HOME = sandbox
 })
 beforeEach(async () => {
+  process.env.HOME = sandbox
+  delete process.env.VIBEOS_HOME
+  delete process.env.VIBEOS_OPENCODE_HOME
   rmSync(join(sandbox, ".claude/model-tiers.json"), { force: true })
   rmSync(join(sandbox, ".claude/delegation-state.json"), { force: true })
   rmSync(join(sandbox, ".claude/savings-ledger.jsonl"), { force: true })
@@ -1632,9 +1635,9 @@ test("tool.execute.after: delegation warning injected into output.result", async
   // so it appears in the OC chat transcript, not just in stderr.
   writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
     trinity: {
-      brain:  { oc: "openrouter/anthropic/claude-sonnet-4.6" },
-      medium: { oc: "deepseek/deepseek-v4-flash" },
-      cheap:  { oc: "deepseek/deepseek-chat" },
+      brain:  { oc: "anthropic/claude-opus-4-7" },
+      medium: { oc: "anthropic/claude-sonnet-4-6" },
+      cheap:  { oc: "anthropic/claude-haiku-4-5" },
     },
     selection: { enabled: true, active_slot: "brain", delegation_enforce: true },
     tiers: {
@@ -1646,7 +1649,7 @@ test("tool.execute.after: delegation warning injected into output.result", async
   const { DelegationEnforcer } = await loadPlugin()
   const dir = join(sandbox, ".opencode-uinote")
   mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "openrouter/anthropic/claude-sonnet-4.6" }))
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "anthropic/claude-opus-4-7" }))
   writeFileSync(join(sandbox, ".claude/credit-percent"), "90")
   const hooks = await DelegationEnforcer({ client: {}, directory: dir })
 
@@ -1674,9 +1677,9 @@ test("tool.execute.after: delegation warning injected into output.result", async
 test("tool.execute.after: pendingUiNote consumed once — no double-inject on second call", async () => {
   writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
     trinity: {
-      brain:  { oc: "openrouter/anthropic/claude-sonnet-4.6" },
-      medium: { oc: "deepseek/deepseek-v4-flash" },
-      cheap:  { oc: "deepseek/deepseek-chat" },
+      brain:  { oc: "anthropic/claude-opus-4-7" },
+      medium: { oc: "anthropic/claude-sonnet-4-6" },
+      cheap:  { oc: "anthropic/claude-haiku-4-5" },
     },
     selection: { enabled: true, active_slot: "brain", delegation_enforce: true },
     tiers: {
@@ -1688,7 +1691,7 @@ test("tool.execute.after: pendingUiNote consumed once — no double-inject on se
   const { DelegationEnforcer } = await loadPlugin()
   const dir = join(sandbox, ".opencode-uinote2")
   mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "openrouter/anthropic/claude-sonnet-4.6" }))
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "anthropic/claude-opus-4-7" }))
   const hooks = await DelegationEnforcer({ client: {}, directory: dir })
 
   const stateFile = join(sandbox, ".claude/delegation-state.json")
@@ -1726,9 +1729,9 @@ test("tool.execute.before: delegation warning stays out of CLI stderr", async ()
     mkdirSync(join(sandbox, ".claude"), { recursive: true })
     writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
       trinity: {
-        brain:  { oc: "openrouter/anthropic/claude-sonnet-4.6" },
-        medium: { oc: "deepseek/deepseek-v4-flash" },
-        cheap:  { oc: "deepseek/deepseek-chat" },
+        brain:  { oc: "anthropic/claude-opus-4-7" },
+        medium: { oc: "anthropic/claude-sonnet-4-6" },
+        cheap:  { oc: "anthropic/claude-haiku-4-5" },
       },
       selection: { enabled: true, active_slot: "brain", delegation_enforce: true },
       tiers: {
@@ -1743,7 +1746,7 @@ test("tool.execute.before: delegation warning stays out of CLI stderr", async ()
     const { DelegationEnforcer } = await import(${JSON.stringify(toolUrl)} + "?cli=" + Date.now())
     const dir = join(sandbox, ".opencode-cli")
     mkdirSync(dir, { recursive: true })
-    writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "openrouter/anthropic/claude-sonnet-4.6" }))
+    writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "anthropic/claude-opus-4-7" }))
     const hooks = await DelegationEnforcer({ client: {}, directory: dir })
     const beforeOutput = { args: { filePath: "/tmp/test.py" } }
     await hooks["tool.execute.before"]({ tool: "edit" }, beforeOutput)
@@ -2464,9 +2467,9 @@ test("tool.execute.before: low-credit brain tier still blocks direct write enfor
 test("tool.execute.after: blocked edit surfaces enforcement note instead of oldString error", async () => {
   writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
     trinity: {
-      brain: { oc: "deepseek/deepseek-v4-pro" },
-      medium: { oc: "deepseek/deepseek-v4-flash" },
-      cheap: { oc: "deepseek/deepseek-chat" },
+      brain: { oc: "anthropic/claude-opus-4-7" },
+      medium: { oc: "anthropic/claude-sonnet-4-6" },
+      cheap: { oc: "anthropic/claude-haiku-4-5" },
     },
     selection: { enabled: true, active_slot: "brain", delegation_enforce: true },
   }))
@@ -2478,7 +2481,7 @@ test("tool.execute.after: blocked edit surfaces enforcement note instead of oldS
   const { DelegationEnforcer } = await loadPlugin()
   const dir = join(sandbox, ".opencode-protect-edit")
   mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-pro" }))
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "anthropic/claude-opus-4-7" }))
   const hooks = await DelegationEnforcer({ client: {}, directory: dir })
   const input = { tool: "edit", args: { filePath: "notes/plan.txt", oldString: "x", newString: "y" } }
   const output = { error: "oldString not found", args: { filePath: "notes/plan.txt", oldString: "x", newString: "y" } }

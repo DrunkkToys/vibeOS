@@ -52,10 +52,16 @@ function safeJsonParse(raw) {
   }
 }
 function resolveRulesPath() {
+  if (process.env.VIBEOS_FLOW_RULES_PATH && existsSync(process.env.VIBEOS_FLOW_RULES_PATH)) {
+    return process.env.VIBEOS_FLOW_RULES_PATH;
+  }
   for (const candidate of RULES_PATH_CANDIDATES) {
     if (existsSync(candidate))
       return candidate;
   }
+  const override = process.env.VIBEOS_FLOW_RULES_PATH;
+  if (override)
+    return override;
   return RULES_PATH_CANDIDATES[0];
 }
 function ensureProjectDocs(dir, techStack) {
@@ -444,6 +450,346 @@ var init_flow_enforcer = __esm({
   }
 });
 
+// src/lib/runtime-state.js
+function getRuntimeState() {
+  const g = globalThis;
+  if (!g[RUNTIME_KEY]) {
+    g[RUNTIME_KEY] = {
+      apiConnected: true,
+      apiFallbackMode: false,
+      apiFallbackSince: null,
+      sessionId: "opencode-" + (process.pid || "x") + "-" + Date.now()
+    };
+  }
+  return g[RUNTIME_KEY];
+}
+function getOcSessionId() {
+  return getRuntimeState().sessionId;
+}
+function markApiConnected() {
+  const state = getRuntimeState();
+  state.apiConnected = true;
+  state.apiFallbackMode = false;
+  state.apiFallbackSince = null;
+}
+function markApiDisconnected() {
+  const state = getRuntimeState();
+  state.apiConnected = false;
+  state.apiFallbackMode = true;
+  if (!state.apiFallbackSince)
+    state.apiFallbackSince = (/* @__PURE__ */ new Date()).toISOString();
+}
+function resetApiConnection() {
+  const state = getRuntimeState();
+  state.apiConnected = false;
+  state.apiFallbackMode = false;
+  state.apiFallbackSince = null;
+}
+function isApiConnected() {
+  const state = getRuntimeState();
+  return state.apiConnected && !state.apiFallbackMode;
+}
+var RUNTIME_KEY;
+var init_runtime_state = __esm({
+  "src/lib/runtime-state.js"() {
+    "use strict";
+    RUNTIME_KEY = "__vibeOSRuntimeState";
+  }
+});
+
+// src/lib/selection-manager.js
+import { readFileSync as readFileSync3, writeFileSync as writeFileSync3, existsSync as existsSync4, statSync as statSync3, renameSync as renameSync2 } from "node:fs";
+import { join as join3 } from "node:path";
+import { homedir as homedir2, tmpdir } from "node:os";
+function getVibeOSHome2() {
+  return process.env.VIBEOS_HOME || join3(process.env.HOME || homedir2(), ".claude");
+}
+function safeJsonParse2(raw) {
+  if (raw == null || raw === "")
+    return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+  }
+  let cleaned = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "").replace(/,\s*([}\]])/g, "$1");
+  try {
+    return JSON.parse(cleaned);
+  } catch (e) {
+    throw e;
+  }
+}
+function loadSelection() {
+  const TIERS_FILE3 = join3(getVibeOSHome2(), "model-tiers.json");
+  try {
+    if (!existsSync4(TIERS_FILE3))
+      return DFLT_SEL;
+    const st = statSync3(TIERS_FILE3);
+    if (st.size > 10485760) {
+      _handleStateCorruption2(TIERS_FILE3);
+      return DFLT_SEL;
+    }
+    const j = safeJsonParse2(readFileSync3(TIERS_FILE3, "utf-8"));
+    return {
+      enabled: j?.selection?.enabled !== false,
+      active_slot: j?.selection?.active_slot || null,
+      slot_locked: j?.selection?.slot_locked === true,
+      active_pipeline: j?.selection?.active_pipeline || null,
+      optimization_mode: j?.selection?.optimization_mode || null,
+      thinking_level: j?.selection?.thinking_level || "off",
+      flow_enabled: j?.selection?.flow_enabled === true,
+      tdd_enforce: j?.selection?.tdd_enforce === true,
+      tdd_strict: j?.selection?.tdd_strict === true,
+      tdd_quality: j?.selection?.tdd_quality !== false,
+      flow_enforce: j?.selection?.flow_enforce === true,
+      delegation_enforce: j?.selection?.delegation_enforce !== false,
+      onboarding_mode: j?.selection?.onboarding_mode || null,
+      selected_provider: j?.selection?.selected_provider || null,
+      selected_quality_tier: j?.selection?.selected_quality_tier || null,
+      selected_model: j?.selection?.selected_model || null,
+      executed_provider: j?.selection?.executed_provider || null,
+      executed_quality_tier: j?.selection?.executed_quality_tier || null,
+      executed_model: j?.selection?.executed_model || null,
+      requested_optimization_mode: j?.selection?.requested_optimization_mode || null,
+      previous_default_agent: j?.selection?.previous_default_agent || null,
+      previous_optimization_mode: j?.selection?.previous_optimization_mode || null
+    };
+  } catch {
+    _handleStateCorruption2(TIERS_FILE3);
+    return DFLT_SEL;
+  }
+}
+function writeSelection(key, value) {
+  const TIERS_FILE3 = join3(getVibeOSHome2(), "model-tiers.json");
+  try {
+    return withFileLock(TIERS_FILE3, () => {
+      const j = safeJsonParse2(readFileSync3(TIERS_FILE3, "utf-8"));
+      if (!j.selection)
+        j.selection = {};
+      j.selection[key] = value;
+      const tmp = TIERS_FILE3 + ".tmp." + Date.now() + "." + Math.random().toString(36).slice(2, 8);
+      writeFileSync3(tmp, JSON.stringify(j, null, 2) + "\n");
+      renameSync2(tmp, TIERS_FILE3);
+      return true;
+    });
+  } catch (err) {
+    console.error(`[vibeOS] writeSelection failed: ${err.message}`);
+    return false;
+  }
+}
+function loadSessionSlot(sid) {
+  const BLACKBOX_FILE = join3(getVibeOSHome2(), "blackbox-state.json");
+  try {
+    if (!existsSync4(BLACKBOX_FILE))
+      return null;
+    const j = safeJsonParse2(readFileSync3(BLACKBOX_FILE, "utf-8"));
+    return j?.sessions?.[sid]?.active_slot || null;
+  } catch {
+    return null;
+  }
+}
+function writeSessionSlot2(sid, slot) {
+  const BLACKBOX_FILE = join3(getVibeOSHome2(), "blackbox-state.json");
+  try {
+    const j = existsSync4(BLACKBOX_FILE) ? safeJsonParse2(readFileSync3(BLACKBOX_FILE, "utf-8")) : {};
+    if (!j.sessions)
+      j.sessions = {};
+    if (!j.sessions[sid])
+      j.sessions[sid] = {};
+    j.sessions[sid].active_slot = slot;
+    const tmp = BLACKBOX_FILE + ".tmp";
+    writeFileSync3(tmp, JSON.stringify(j, null, 2) + "\n");
+    renameSync2(tmp, BLACKBOX_FILE);
+    return true;
+  } catch (err) {
+    console.error("[vibeOS] writeSessionSlot failed: " + err.message);
+    return false;
+  }
+}
+function loadSessionOptMode(sid) {
+  const BLACKBOX_FILE = join3(getVibeOSHome2(), "blackbox-state.json");
+  try {
+    if (!existsSync4(BLACKBOX_FILE))
+      return null;
+    const j = safeJsonParse2(readFileSync3(BLACKBOX_FILE, "utf-8"));
+    return j?.sessions?.[sid]?.optimization_mode || null;
+  } catch {
+    return null;
+  }
+}
+function loadGlobalOptMode() {
+  try {
+    const sel = loadSelection();
+    return sel.optimization_mode || null;
+  } catch {
+    return null;
+  }
+}
+function saveGlobalOptMode(mode) {
+  return writeSelection("optimization_mode", mode);
+}
+function writeSessionOptMode2(sid, mode) {
+  const BLACKBOX_FILE = join3(getVibeOSHome2(), "blackbox-state.json");
+  try {
+    const j = existsSync4(BLACKBOX_FILE) ? safeJsonParse2(readFileSync3(BLACKBOX_FILE, "utf-8")) : {};
+    if (!j.sessions)
+      j.sessions = {};
+    if (!j.sessions[sid])
+      j.sessions[sid] = {};
+    j.sessions[sid].optimization_mode = mode;
+    const tmp = BLACKBOX_FILE + ".tmp";
+    writeFileSync3(tmp, JSON.stringify(j, null, 2) + "\n");
+    renameSync2(tmp, BLACKBOX_FILE);
+    return true;
+  } catch (err) {
+    console.error("[vibeOS] writeSessionOptMode failed: " + err.message);
+    return false;
+  }
+}
+var USER_HOME, DFLT_SEL;
+var init_selection_manager = __esm({
+  "src/lib/selection-manager.js"() {
+    "use strict";
+    init_state();
+    USER_HOME = (() => {
+      try {
+        return homedir2();
+      } catch {
+        return tmpdir();
+      }
+    })();
+    DFLT_SEL = { enabled: true, active_slot: null, slot_locked: false, thinking_level: "off", flow_enabled: true, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: true, delegation_enforce: true, onboarding_mode: null, selected_provider: null, selected_quality_tier: null, selected_model: null, executed_provider: null, executed_quality_tier: null, executed_model: null, requested_optimization_mode: null, previous_default_agent: null, previous_optimization_mode: null };
+  }
+});
+
+// src/lib/pattern-helpers.js
+import { relative, basename } from "node:path";
+function normalizeObservedPath(filePath, directory3) {
+  if (!filePath || typeof filePath !== "string")
+    return "unknown";
+  let p = filePath;
+  try {
+    if (directory3 && p.startsWith("/")) {
+      const rel = relative(directory3, p);
+      if (rel && !rel.startsWith("..") && !rel.startsWith("/"))
+        p = rel;
+    }
+  } catch {
+  }
+  p = p.replace(/\\/g, "/").replace(/^\.\/+/, "");
+  if (/^(src\/index\.js|package\.json|README\.md|CHANGELOG\.md|tsconfig\.json)$/i.test(p))
+    return p;
+  const m = p.match(/\.([a-z0-9]+)$/i);
+  if (p.startsWith("src/") && m)
+    return `src/*.${m[1].toLowerCase()}`;
+  if (p.startsWith("tests/") && m)
+    return `tests/*.${m[1].toLowerCase()}`;
+  return basename(p) || "unknown";
+}
+function commandFamily(command) {
+  const c = String(command || "").trim().toLowerCase();
+  if (!c)
+    return "unknown";
+  if (/\bnode\s+--check\b/.test(c))
+    return "syntax-check";
+  if (/\bnpm\s+run\s+typecheck\b|\btsc\b.*--noemit/.test(c))
+    return "typecheck";
+  if (/\bnpm\s+test\b|\bnode\s+--test\b|\bvitest\b|\bjest\b|\bpytest\b/.test(c))
+    return "test";
+  if (/\bnpm\s+run\s+build\b|\btsc\s+-p\b/.test(c))
+    return "build";
+  if (/\bgit\s+status\b/.test(c))
+    return "git-status";
+  if (/\bgit\s+commit\b/.test(c))
+    return "git-commit";
+  const first = c.replace(/^[a-z_][a-z0-9_]*=\S+\s+/g, "").split(/\s+/)[0];
+  return /^[a-z0-9._/-]{1,30}$/.test(first) ? first : "command";
+}
+function commandFailed(output) {
+  const code = output?.exitCode ?? output?.statusCode ?? output?.code;
+  if (Number.isFinite(Number(code)) && Number(code) !== 0)
+    return true;
+  const raw = output?.result ?? output?.text ?? output?.content ?? output?.data ?? "";
+  if (typeof raw !== "string")
+    return false;
+  return /\b(exit code|exited with code)\s*[:=]?\s*[1-9]\b|\b(assertionerror|syntaxerror|typeerror|referenceerror)\b|\b(failed|error:|err!)\b/i.test(raw);
+}
+function mergeProjectBucket(dst, src) {
+  const a = dst || {};
+  const b = src || {};
+  const topics = [.../* @__PURE__ */ new Set([...a.commonTopics || [], ...b.commonTopics || []])].slice(-20);
+  const mergePatterns = (kind) => {
+    const out = {};
+    for (const srcObj of [a.userPatterns?.[kind], b.userPatterns?.[kind]]) {
+      for (const [key, val] of Object.entries(srcObj || {})) {
+        const v = val;
+        const row = out[key] || { count: 0, sessions: [], lastSeen: null, summary: v?.summary || "" };
+        row.count += Number(v?.count || 0);
+        row.sessions = [.../* @__PURE__ */ new Set([...row.sessions || [], ...v?.sessions || []])].slice(-10);
+        row.lastSeen = [row.lastSeen, v?.lastSeen].filter(Boolean).sort().slice(-1)[0] || null;
+        row.summary = row.summary || v?.summary || "";
+        if (v?.kind)
+          row.kind = v.kind;
+        out[key] = row;
+      }
+    }
+    return out;
+  };
+  return {
+    totalSessions: (a.totalSessions || 0) + (b.totalSessions || 0),
+    researchChains: Math.max(a.researchChains || 0, b.researchChains || 0),
+    context7Bypasses: (a.context7Bypasses || 0) + (b.context7Bypasses || 0),
+    commonTopics: topics,
+    userPatterns: {
+      friction: mergePatterns("friction"),
+      routines: mergePatterns("routines")
+    },
+    lastSeen: [a.lastSeen, b.lastSeen].filter(Boolean).sort().slice(-1)[0] || (/* @__PURE__ */ new Date()).toISOString()
+  };
+}
+function _pruneOldSessions(state) {
+  if (!state?.sessions)
+    return;
+  const entries = Object.entries(state.sessions);
+  if (entries.length <= 30)
+    return;
+  entries.sort((a, b) => {
+    const da = a[1]?.started || a[1]?.last_costed || "";
+    const db = b[1]?.started || b[1]?.last_costed || "";
+    return db.localeCompare(da);
+  });
+  state.sessions = Object.fromEntries(entries.slice(0, 30));
+}
+function _computeSessionMetrics(state, sid) {
+  const session = state?.sessions?.[sid] || {};
+  const warns = Array.isArray(session?.warns) ? session.warns : [];
+  const toolCounts = session?.tool_counts || {};
+  const toolBreakdown = {};
+  for (const [t, c] of Object.entries(toolCounts)) {
+    toolBreakdown[String(t)] = Number(c || 0);
+  }
+  const startedAt = session?.started ? new Date(session.started).getTime() : Date.now();
+  const durationSec = Math.floor((Date.now() - startedAt) / 1e3);
+  const hours = Math.max(durationSec / 3600, 1e-3);
+  return {
+    ltTasks: Number(state?.lifetime?.total_savings_usd || state?.lifetime?.est_savings_usd || 0),
+    ltCache: Number(state?.lifetime?.cache_savings_usd || 0),
+    missedC7: Number(state?.lifetime?.missed_context7_usd || 0),
+    count: warns.length,
+    sesTasks: Number(session?.total_savings_usd || 0),
+    sesDuration: durationSec,
+    sesRatePerHour: Number((((session?.warns?.reduce((sum, w) => sum + Number(w?.est_savings_usd || 0), 0) || 0) + Number(session?.cache_savings_usd || 0)) / hours).toFixed(4)),
+    sesTrend: "stable",
+    sesToolBreakdown: toolBreakdown,
+    sesModelTurns: session?.model_turns || { brain: 0, worker: 0 },
+    quality_avg: state?.lifetime?.quality_total_count > 0 ? Math.round((state?.lifetime?.quality_total_score || 0) / state?.lifetime?.quality_total_count) : 0
+  };
+}
+var init_pattern_helpers = __esm({
+  "src/lib/pattern-helpers.js"() {
+    "use strict";
+  }
+});
+
 // src/vibeOS-lib/ml-router.js
 function extractFeatures(prompt) {
   const s = String(prompt || "").trim();
@@ -821,6 +1167,2066 @@ var init_ml_router = __esm({
       "build": 0.4,
       "lint": 0.4
     };
+  }
+});
+
+// src/vibeOS-lib/smart-cache.js
+function tokenize(text) {
+  return String(text || "").toLowerCase().replace(/[^\w\s]/g, " ").split(/\s+/).filter((w) => w.length > 1);
+}
+function wordSet(words) {
+  return new Set(words);
+}
+function jaccardSimilarity(a, b) {
+  const wa = wordSet(tokenize(a));
+  const wb = wordSet(tokenize(b));
+  if (wa.size === 0 && wb.size === 0)
+    return 0;
+  let intersection = 0;
+  for (const w of wa) {
+    if (wb.has(w))
+      intersection++;
+  }
+  const union = wa.size + wb.size - intersection;
+  return union > 0 ? intersection / union : 0;
+}
+function bigrams(words) {
+  const bg = /* @__PURE__ */ new Set();
+  for (let i = 0; i < words.length - 1; i++) {
+    bg.add(`${words[i]}_${words[i + 1]}`);
+  }
+  return bg;
+}
+function cosineSimilarity(a, b) {
+  const ta = tokenize(a);
+  const tb = tokenize(b);
+  if (ta.length === 0 || tb.length === 0)
+    return 0;
+  const ba = bigrams(ta);
+  const bb = bigrams(tb);
+  if (ba.size === 0 && bb.size === 0)
+    return 0;
+  const allBigrams = /* @__PURE__ */ new Set([...ba, ...bb]);
+  let dotProduct = 0;
+  let magA = 0;
+  let magB = 0;
+  for (const bg of allBigrams) {
+    const inA = ba.has(bg) ? 1 : 0;
+    const inB = bb.has(bg) ? 1 : 0;
+    dotProduct += inA * inB;
+    magA += inA * inA;
+    magB += inB * inB;
+  }
+  const denominator = Math.sqrt(magA) * Math.sqrt(magB);
+  return denominator > 0 ? dotProduct / denominator : 0;
+}
+function keywordOverlapScore(a, b) {
+  const wa = tokenize(a);
+  const wb = tokenize(b);
+  if (wa.length === 0 || wb.length === 0)
+    return 0;
+  let score = 0;
+  let maxScore = 0;
+  for (const w of wa) {
+    const weight = CACHE_HIGH_WEIGHT_WORDS.has(w) ? 3 : 1;
+    maxScore += weight;
+    if (wb.includes(w))
+      score += weight;
+  }
+  return maxScore > 0 ? score / maxScore : 0;
+}
+function compositeSimilarity(a, b) {
+  return jaccardSimilarity(a, b) * 0.35 + cosineSimilarity(a, b) * 0.35 + keywordOverlapScore(a, b) * 0.3;
+}
+function extractRecentCacheOutputs(db, limit = 10) {
+  if (!db?.entries || !Array.isArray(db.entries))
+    return [];
+  const now = Date.now();
+  return db.entries.slice(-limit).map((e) => ({
+    hash: e.hash || "",
+    tool: e.tool || "",
+    prompt: e.prompt?.slice(0, 120) || "",
+    sizeBytes: e.sizeBytes || 1024,
+    ageSec: e.at ? Math.round((now - new Date(e.at).getTime()) / 1e3) : 3600
+  }));
+}
+function createCacheDatabase() {
+  return { entries: [], stats: {} };
+}
+function addCacheEntry(db, hash, tool2, prompt, sizeBytes, ageSec) {
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const idx = db.entries.findIndex((e) => e.hash === hash);
+  if (idx >= 0) {
+    db.entries[idx].at = now;
+    db.entries[idx].ageSec = ageSec;
+    return;
+  }
+  db.entries.push({
+    hash,
+    tool: tool2,
+    prompt,
+    sizeBytes,
+    at: now,
+    ageSec,
+    words: tokenize(prompt)
+  });
+  if (db.entries.length > 500) {
+    db.entries.sort((a, b) => b.at.localeCompare(a.at));
+    db.entries.length = 500;
+  }
+}
+function recordCacheStats(db, tool2, hit, bytesSaved) {
+  db.stats[tool2] ??= { tool: tool2, hits: 0, total: 0, bytesSaved: 0, lastHit: "", hitRate: 0 };
+  const s = db.stats[tool2];
+  s.total++;
+  if (hit) {
+    s.hits++;
+    s.bytesSaved += bytesSaved;
+    s.lastHit = (/* @__PURE__ */ new Date()).toISOString();
+  }
+  s.hitRate = s.total > 0 ? s.hitRate * 0.9 + (hit ? 0.1 : 0) : 0;
+}
+function predictCacheHit(db, tool2, prompt) {
+  const stats = db.stats[tool2];
+  const toolHitRate = stats?.hitRate ?? 0.3;
+  const similarEntries = [];
+  for (const entry of db.entries) {
+    if (entry.tool !== tool2)
+      continue;
+    const score = compositeSimilarity(prompt, entry.prompt);
+    if (score > 0.4) {
+      similarEntries.push({ hash: entry.hash, score, entry });
+    }
+  }
+  similarEntries.sort((a, b) => b.score - a.score);
+  if (similarEntries.length === 0) {
+    return {
+      shouldCache: toolHitRate > 0.4,
+      shouldWarm: false,
+      confidence: toolHitRate,
+      reason: `no similar entries found; tool hit rate: ${(toolHitRate * 100).toFixed(0)}%`,
+      similarEntries: [],
+      estimatedSavings: 0
+    };
+  }
+  const best = similarEntries[0];
+  if (best.score >= 0.75) {
+    return {
+      shouldCache: true,
+      shouldWarm: true,
+      confidence: best.score,
+      reason: `high similarity (${(best.score * 100).toFixed(0)}%) with previous cache entry`,
+      similarEntries: similarEntries.slice(0, 3),
+      estimatedSavings: Math.round(best.entry.sizeBytes / 4 * 0.1 / 1e6 * 1e3) / 1e3
+    };
+  }
+  if (best.score >= 0.5) {
+    return {
+      shouldCache: true,
+      shouldWarm: toolHitRate > 0.5,
+      confidence: best.score,
+      reason: `moderate similarity (${(best.score * 100).toFixed(0)}%) with previous entry`,
+      similarEntries: similarEntries.slice(0, 2),
+      estimatedSavings: Math.round(best.entry.sizeBytes / 4 * 0.1 / 1e6 * 1e3) / 1e3 * 0.5
+    };
+  }
+  return {
+    shouldCache: toolHitRate > 0.3,
+    shouldWarm: false,
+    confidence: Math.max(0.2, toolHitRate),
+    reason: `low similarity, relying on tool hit rate: ${(toolHitRate * 100).toFixed(0)}%`,
+    similarEntries: [],
+    estimatedSavings: 0
+  };
+}
+function evictStaleEntries(db, maxAgeSec) {
+  const now = Date.now();
+  const before = db.entries.length;
+  db.entries = db.entries.filter((e) => {
+    const entryTime = new Date(e.at).getTime();
+    return (now - entryTime) / 1e3 < maxAgeSec;
+  });
+  return before - db.entries.length;
+}
+function deserializeCacheDb(raw) {
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && Array.isArray(parsed.entries)) {
+      return parsed;
+    }
+  } catch {
+  }
+  return createCacheDatabase();
+}
+var CACHE_HIGH_WEIGHT_WORDS;
+var init_smart_cache = __esm({
+  "src/vibeOS-lib/smart-cache.js"() {
+    "use strict";
+    CACHE_HIGH_WEIGHT_WORDS = /* @__PURE__ */ new Set([
+      "test",
+      "tests",
+      "build",
+      "lint",
+      "typecheck",
+      "deploy",
+      "install",
+      "npm",
+      "yarn",
+      "docker",
+      "compose",
+      "api",
+      "endpoint",
+      "schema",
+      "migration",
+      "database",
+      "query",
+      "config",
+      "package.json",
+      "tsconfig",
+      "readme",
+      "changelog",
+      "agent",
+      "index",
+      "main",
+      "app",
+      "server"
+    ]);
+  }
+});
+
+// src/lib/state.js
+import { readFileSync as readFileSync4, writeFileSync as writeFileSync4, appendFileSync as appendFileSync2, existsSync as existsSync5, mkdirSync as mkdirSync3, statSync as statSync4, readdirSync, openSync, readSync, closeSync, rmSync as rmSync2, copyFileSync, renameSync as renameSync3 } from "node:fs";
+import { join as join4, dirname as dirname4, basename as basename2 } from "node:path";
+import { spawn } from "node:child_process";
+import { homedir as homedir3, tmpdir as tmpdir2 } from "node:os";
+import { createHash } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
+function getVibeOSHome3() {
+  return VIBEOS_CONTEXT.getStore()?.home || process.env.VIBEOS_HOME || join4(process.env.HOME || "", ".claude");
+}
+function setVibeOSHomeContext(home) {
+  VIBEOS_CONTEXT.enterWith({ home: String(home || "") });
+}
+function setCurrentTier(v) {
+  currentTier = v;
+}
+function setCurrentModel(v) {
+  currentModel = v;
+}
+function setCurrentProjectFingerprint(v) {
+  currentProjectFingerprint = v;
+}
+function setCurrentProjectName(v) {
+  currentProjectName = v;
+}
+function setCurrentSessionId(v) {
+  currentSessionId = String(v || _OC_SID);
+}
+function getCurrentSessionId() {
+  return currentSessionId || _OC_SID;
+}
+function setLastMutationEvent(v) {
+  lastMutationEvent = v;
+}
+function invalidateSavingsCache() {
+  _savingsCache = null;
+  _savingsCacheMtime = 0;
+}
+function setMlSavePending(v) {
+  _mlSavePending = v;
+}
+function setBlackboxEnabled(val) {
+  _blackboxEnabled = val;
+}
+function setModelLocked(val) {
+  _modelLocked = !!val;
+}
+function setLockedSlot(val) {
+  _lockedSlot = val ? String(val) : null;
+}
+function setLockedModel(val) {
+  _lockedModel = val ? String(val) : null;
+}
+function setLedgerBufferTimer(val) {
+  _ledgerBufferTimer = val;
+}
+function _zType(base) {
+  return Object.assign((...a) => _zType({ ...base, args: a }), {
+    optional: () => _zType({ ...base, optional: true }),
+    _isZod: true,
+    _base: base
+  });
+}
+function _pruneCorruptionBackups(backupDir) {
+  try {
+    if (!existsSync5(backupDir))
+      return;
+    const now = Date.now();
+    const backups = readdirSync(backupDir).map((name) => {
+      const path = join4(backupDir, name);
+      try {
+        const st = statSync4(path);
+        return { name, path, mtimeMs: st.mtimeMs };
+      } catch {
+        return null;
+      }
+    }).filter((entry) => !!entry && entry.name.includes(".corrupted.")).sort((a, b) => b.mtimeMs - a.mtimeMs);
+    const keep = new Set(backups.slice(0, CORRUPTION_BACKUP_MAX).map((b) => b.path));
+    for (const backup of backups) {
+      const isExpired = now - backup.mtimeMs > CORRUPTION_BACKUP_TTL_MS;
+      if (isExpired || !keep.has(backup.path)) {
+        try {
+          rmSync2(backup.path, { force: true });
+        } catch {
+        }
+      }
+    }
+  } catch {
+  }
+}
+function runStartupMaintenanceOnce() {
+  try {
+    const home = getVibeOSHome3();
+    if (!home || home === _startupMaintenanceHome)
+      return;
+    _startupMaintenanceHome = home;
+    _pruneCorruptionBackups(join4(home, ".backups"));
+    loadActiveJobs();
+    _compactSavingsLedgerIfNeeded();
+  } catch {
+  }
+}
+function _ensureVibeOSHomeDir() {
+  try {
+    if (!existsSync5(VIBEOS_HOME)) {
+      mkdirSync3(VIBEOS_HOME, { recursive: true });
+      return VIBEOS_HOME;
+    }
+    const st = statSync4(VIBEOS_HOME);
+    if (!st.isDirectory()) {
+      const backup = VIBEOS_HOME + ".backup." + Date.now();
+      renameSync3(VIBEOS_HOME, backup);
+      mkdirSync3(VIBEOS_HOME, { recursive: true });
+    }
+    return VIBEOS_HOME;
+  } catch {
+    return VIBEOS_HOME;
+  }
+}
+function _handleStateCorruption2(path) {
+  _ensureVibeOSHomeDir();
+  const backupDir = join4(VIBEOS_HOME, ".backups");
+  try {
+    mkdirSync3(backupDir, { recursive: true });
+  } catch {
+  }
+  const backupPath = join4(backupDir, basename2(path) + ".corrupted." + Date.now());
+  try {
+    copyFileSync(path, backupPath);
+  } catch {
+  }
+  const logPath = join4(VIBEOS_HOME, ".state-corruption-log.jsonl");
+  try {
+    appendFileSync2(logPath, JSON.stringify({ ts: (/* @__PURE__ */ new Date()).toISOString(), path, backup: backupPath }) + "\n");
+  } catch {
+  }
+  _pruneCorruptionBackups(backupDir);
+  return backupPath;
+}
+function _lockPathFor(filePath) {
+  const hash = createHash("sha1").update(String(filePath || "")).digest("hex");
+  return join4(FILE_LOCK_DIR, `${hash}.lock`);
+}
+function withFileLock(filePath, fn, opts = {}) {
+  const staleMs = Number(opts.staleMs || 3e4);
+  const timeoutMs = Number(opts.timeoutMs || 2e3);
+  const lockPath = _lockPathFor(filePath);
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try {
+      mkdirSync3(FILE_LOCK_DIR, { recursive: true });
+      const fd = openSync(lockPath, "wx");
+      try {
+        writeFileSync4(fd, `${process.pid}
+${Date.now()}
+`);
+      } catch {
+      }
+      try {
+        return fn();
+      } finally {
+        try {
+          closeSync(fd);
+        } catch {
+        }
+        try {
+          rmSync2(lockPath, { force: true });
+        } catch {
+        }
+      }
+    } catch (err) {
+      try {
+        if (existsSync5(lockPath)) {
+          const age = Date.now() - statSync4(lockPath).mtimeMs;
+          if (age > staleMs) {
+            try {
+              rmSync2(lockPath, { force: true });
+            } catch {
+            }
+          }
+        }
+      } catch {
+      }
+    }
+  }
+  throw new Error(`[vibeOS] lock not acquired for ${filePath} after ${timeoutMs}ms`);
+}
+function safeJsonParse3(raw) {
+  if (raw == null || raw === "")
+    return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+  }
+  let cleaned = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "").replace(/,\s*([}\]])/g, "$1");
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    return null;
+  }
+}
+function validateState(state, path) {
+  if (!state || typeof state !== "object") {
+    console.error(`[vibeOS] State validation failed: not an object at ${path}`);
+    return;
+  }
+  if (state.session_started_at && isNaN(Date.parse(state.session_started_at))) {
+    console.error(`[vibeOS] State validation warning: invalid session_started_at at ${path}, resetting`);
+    state.session_started_at = (/* @__PURE__ */ new Date()).toISOString();
+  }
+  if (state.sessions && Array.isArray(state.sessions)) {
+    console.error(`[vibeOS] State validation: converting legacy sessions array to object at ${path}`);
+    state.sessions = {};
+  } else if (state.sessions && !Array.isArray(state.sessions) && (typeof state.sessions !== "object" || state.sessions === null)) {
+    console.error(`[vibeOS] State validation warning: sessions is invalid type at ${path}, resetting`);
+    state.sessions = {};
+  }
+  if (state.lifetime && typeof state.lifetime !== "object") {
+    console.error(`[vibeOS] State validation warning: lifetime is not object at ${path}, resetting`);
+    state.lifetime = {};
+  }
+}
+function readJsonOrEmpty(filePath) {
+  try {
+    if (!existsSync5(filePath))
+      return {};
+    const st = statSync4(filePath);
+    if (st.size > 10485760) {
+      _handleStateCorruption2(filePath);
+      return {};
+    }
+    return safeJsonParse3(readFileSync4(filePath, "utf-8"));
+  } catch {
+    _handleStateCorruption2(filePath);
+    return {};
+  }
+}
+function updateState(mutator) {
+  const delegationStateFile = join4(getVibeOSHome3(), "delegation-state.json");
+  const MAX_RETRIES2 = 3;
+  for (let attempt = 0; attempt < MAX_RETRIES2; attempt++) {
+    try {
+      const result = withFileLock(delegationStateFile, () => {
+        const preGen = readJsonOrEmpty(delegationStateFile)._gen || 0;
+        let state = readJsonOrEmpty(delegationStateFile);
+        if (!state || typeof state !== "object")
+          state = {};
+        if (!state.session_started_at || state.session_started_at === "not-a-valid-date" || isNaN(Date.parse(state.session_started_at))) {
+          state.session_started_at = (/* @__PURE__ */ new Date()).toISOString();
+        }
+        state.lifetime ??= {};
+        state.lifetime.missed_context7_usd ??= 0;
+        state.lifetime.cache_savings_usd ??= 0;
+        state.lifetime.total_savings_usd ??= 0;
+        state._ledgerFormatVersion ??= 2;
+        state._gen = preGen + 1;
+        const next = mutator(state) ?? state;
+        validateState(next, delegationStateFile);
+        mkdirSync3(dirname4(delegationStateFile), { recursive: true });
+        const tmp = delegationStateFile + ".tmp";
+        writeFileSync4(tmp, JSON.stringify(next, null, 2) + "\n");
+        renameSync3(tmp, delegationStateFile);
+        invalidateSavingsCache();
+        return next;
+      });
+      return result;
+    } catch (err) {
+      if (attempt === MAX_RETRIES2 - 1) {
+        if (process.env.VIBEOS_DEBUG_INTERNALS === "1") {
+          console.error(`[vibeOS] updateState failed after ${MAX_RETRIES2} retries: ${err.message}`);
+        }
+        return null;
+      }
+    }
+  }
+  return null;
+}
+function readFullState() {
+  const delegationStateFile = join4(getVibeOSHome3(), "delegation-state.json");
+  try {
+    if (!existsSync5(delegationStateFile))
+      return {};
+    const st = statSync4(delegationStateFile);
+    if (st.size > 10485760) {
+      _handleStateCorruption2(delegationStateFile);
+      return {};
+    }
+    return safeJsonParse3(readFileSync4(delegationStateFile, "utf-8"));
+  } catch {
+    _handleStateCorruption2(delegationStateFile);
+    return {};
+  }
+}
+function roundUsd(v) {
+  return Math.round((Number(v) || 0) * 1e4) / 1e4;
+}
+function _safeRegex(cfg, fallback2, label) {
+  if (!cfg)
+    return fallback2;
+  try {
+    return new RegExp(cfg, "i");
+  } catch (e) {
+    console.error(`[vibeOS] Invalid ${label}-tier regex in model-tiers.json: ${e.message}. Falling back.`);
+    return fallback2;
+  }
+}
+function loadTierRegexes() {
+  try {
+    const p = join4(getVibeOSHome3(), "model-tiers.json");
+    if (!existsSync5(p))
+      return { high: FALLBACK_HIGH, mid: FALLBACK_MID };
+    const j = safeJsonParse3(readFileSync4(p, "utf-8"));
+    const highRe = _safeRegex(j?.tiers?.high?.regex, FALLBACK_HIGH, "high");
+    const midRe = _safeRegex(j?.tiers?.mid?.regex, FALLBACK_MID, "mid");
+    return { high: highRe, mid: midRe };
+  } catch {
+    return { high: FALLBACK_HIGH, mid: FALLBACK_MID };
+  }
+}
+function loadGlobalLearning() {
+  const globalLearningFile = join4(getVibeOSHome3(), "global-learning.json");
+  try {
+    if (!existsSync5(globalLearningFile))
+      return DFLT_GL;
+    const st = statSync4(globalLearningFile);
+    if (st.size > 10485760) {
+      _handleStateCorruption2(globalLearningFile);
+      return DFLT_GL;
+    }
+    const j = safeJsonParse3(readFileSync4(globalLearningFile, "utf-8"));
+    if (!j || typeof j !== "object")
+      return DFLT_GL;
+    j.exploratory_words ??= {};
+    j.task_first_words ??= {};
+    j.context7_bypasses ??= 0;
+    j.context7_missed_usd ??= 0;
+    j.context7_last_seen ??= null;
+    return j;
+  } catch {
+    _handleStateCorruption2(globalLearningFile);
+    return DFLT_GL;
+  }
+}
+function updateGlobalLearning(mutator) {
+  const globalLearningFile = join4(getVibeOSHome3(), "global-learning.json");
+  return withFileLock(globalLearningFile, () => {
+    const s = loadGlobalLearning();
+    const next = mutator(s) ?? s;
+    next.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+    mkdirSync3(dirname4(globalLearningFile), { recursive: true });
+    const tmp = globalLearningFile + ".tmp";
+    writeFileSync4(tmp, JSON.stringify(next, null, 2));
+    renameSync3(tmp, globalLearningFile);
+    return next;
+  });
+}
+function getLearnedExploratoryWords() {
+  const out = /* @__PURE__ */ new Set();
+  try {
+    const gl = loadGlobalLearning();
+    for (const [w, meta] of Object.entries(gl.exploratory_words || {})) {
+      if (meta?.count >= 1)
+        out.add(String(w));
+    }
+  } catch {
+  }
+  return out;
+}
+function loadMLState() {
+  try {
+    const gl = loadGlobalLearning();
+    if (gl.ml_graph_raw)
+      _mlGraph = deserializeGraph(gl.ml_graph_raw);
+    if (gl.ml_cache_raw)
+      _cacheDb = deserializeCacheDb(gl.ml_cache_raw);
+    evictStaleEntries(_cacheDb, 86400 * 7);
+  } catch {
+  }
+}
+function saveMLState() {
+  if (!ML_ENABLED)
+    return false;
+  try {
+    updateGlobalLearning((gl) => {
+      gl.ml_graph_raw = JSON.stringify(_mlGraph);
+      gl.ml_cache_raw = JSON.stringify(_cacheDb);
+      return gl;
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+function loadBlackboxState() {
+  const blackboxFile = join4(getVibeOSHome3(), "blackbox-state.json");
+  try {
+    if (!existsSync5(blackboxFile))
+      return { enabled: true, sessions: {} };
+    const st = statSync4(blackboxFile);
+    if (st.size > 10485760) {
+      _handleStateCorruption2(blackboxFile);
+      return { enabled: false, sessions: {} };
+    }
+    const raw = safeJsonParse3(readFileSync4(blackboxFile, "utf-8")) || { enabled: false, sessions: {} };
+    if (!raw.sessions || typeof raw.sessions !== "object")
+      raw.sessions = {};
+    const now = Date.now();
+    let changed = false;
+    for (const [sid, session] of Object.entries(raw.sessions)) {
+      if (!session || typeof session !== "object")
+        continue;
+      const { record: next, changed: recordChanged } = normalizeBlackboxRecord(session, sid, now);
+      raw.sessions[sid] = next;
+      if (recordChanged)
+        changed = true;
+    }
+    if (changed) {
+      try {
+        saveBlackboxState(raw);
+      } catch {
+      }
+    }
+    return raw;
+  } catch {
+    _handleStateCorruption2(blackboxFile);
+    return { enabled: false, sessions: {} };
+  }
+}
+function saveBlackboxState(state) {
+  const blackboxFile = join4(getVibeOSHome3(), "blackbox-state.json");
+  try {
+    const next = state && typeof state === "object" ? state : { enabled: true, sessions: {} };
+    next.sessions ??= {};
+    const now = Date.now();
+    for (const [sid, session] of Object.entries(next.sessions)) {
+      if (!session || typeof session !== "object")
+        continue;
+      next.sessions[sid] = normalizeBlackboxRecord(session, sid, now).record;
+    }
+    mkdirSync3(dirname4(blackboxFile), { recursive: true });
+    const tmp = blackboxFile + ".tmp";
+    writeFileSync4(tmp, JSON.stringify(next, null, 2) + "\n");
+    renameSync3(tmp, blackboxFile);
+  } catch (err) {
+    console.error(`[vibeOS] saveBlackboxState failed: ${err.message}`);
+  }
+}
+function normalizeBlackboxRecord(record, sid, now) {
+  const next = { ...record || {} };
+  let changed = false;
+  const createdAtRaw = typeof next.createdAt === "string" ? next.createdAt : "";
+  const updatedAtRaw = typeof next.updatedAt === "string" ? next.updatedAt : "";
+  const startedRaw = typeof next.started === "string" ? next.started : "";
+  const sessionStartedRaw = typeof next.session_started_at === "string" ? next.session_started_at : "";
+  const anchorRaw = [createdAtRaw, updatedAtRaw, startedRaw, sessionStartedRaw].find((v) => v && !Number.isNaN(Date.parse(v)));
+  const anchorMs = anchorRaw ? Date.parse(anchorRaw) : NaN;
+  if (!Number.isFinite(Date.parse(createdAtRaw))) {
+    next.createdAt = Number.isFinite(anchorMs) ? new Date(anchorMs).toISOString() : new Date(now).toISOString();
+    changed = true;
+  }
+  if (!Number.isFinite(Date.parse(updatedAtRaw))) {
+    next.updatedAt = next.createdAt || new Date(now).toISOString();
+    changed = true;
+  }
+  if (typeof next.sessionId !== "string" || !next.sessionId.trim()) {
+    next.sessionId = String(sid || "");
+    changed = true;
+  }
+  if (typeof next.project_fingerprint !== "string" || !next.project_fingerprint.trim()) {
+    if (typeof currentProjectFingerprint === "string" && currentProjectFingerprint.trim()) {
+      next.project_fingerprint = currentProjectFingerprint.trim();
+      changed = true;
+    }
+  }
+  if (typeof next.project_name !== "string" || !next.project_name.trim()) {
+    if (typeof currentProjectName === "string" && currentProjectName.trim()) {
+      next.project_name = currentProjectName.trim();
+      changed = true;
+    }
+  }
+  if (typeof next.regime !== "string" || !next.regime.trim()) {
+    next.regime = typeof next.sub_regime === "string" && next.sub_regime.trim() ? next.sub_regime.trim() : "INIT";
+    changed = true;
+  }
+  if (typeof next.sub_regime !== "string" || !next.sub_regime.trim()) {
+    next.sub_regime = "INIT";
+    changed = true;
+  }
+  if (typeof next.resolution !== "string" || !next.resolution.trim()) {
+    next.resolution = "unresolved";
+    changed = true;
+  }
+  if (!Number.isFinite(Number(next.momentum))) {
+    next.momentum = 0;
+    changed = true;
+  }
+  if (!Number.isFinite(Number(next.turn_counter))) {
+    next.turn_counter = 0;
+    changed = true;
+  }
+  if (!Number.isFinite(Number(next.loopCount))) {
+    next.loopCount = 0;
+    changed = true;
+  }
+  if (!Number.isFinite(Number(next.loop_consecutive))) {
+    next.loop_consecutive = Number(next.loopCount || 0);
+    changed = true;
+  }
+  if (!Array.isArray(next.history)) {
+    next.history = [];
+    changed = true;
+  }
+  if (!Array.isArray(next.pivotHistory)) {
+    next.pivotHistory = [];
+    changed = true;
+  }
+  if (!Array.isArray(next.outcomeHistory)) {
+    next.outcomeHistory = [];
+    changed = true;
+  }
+  return { record: next, changed };
+}
+function getSessionRoot() {
+  return join4(SCRATCHPAD_SESSIONS_DIR, _OC_SID);
+}
+function getSessionScratchpadDir() {
+  return join4(getSessionRoot(), "by-hash");
+}
+function getSessionIndexPath() {
+  return join4(getSessionRoot(), "index.jsonl");
+}
+function getGlobalIndexPath() {
+  return join4(SCRATCHPAD_ROOT, "index.jsonl");
+}
+function ensureSessionScratchpadDirs() {
+  try {
+    mkdirSync3(getSessionScratchpadDir(), { recursive: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+function cleanupCurrentSessionScratchpad() {
+  if (_sessionCacheCleaned)
+    return;
+  _sessionCacheCleaned = true;
+  try {
+    rmSync2(getSessionRoot(), { recursive: true, force: true });
+  } catch {
+  }
+}
+function registerSessionCleanupHandlers() {
+  if (_sessionCleanupRegistered)
+    return;
+  _sessionCleanupRegistered = true;
+  if (process._vibeOS_cleanupRegistered)
+    return;
+  process._vibeOS_cleanupRegistered = true;
+  process.setMaxListeners(20);
+  ensureSessionScratchpadDirs();
+  process.on("exit", () => {
+    _flushLedgerBuffer();
+    cleanupCurrentSessionScratchpad();
+  });
+  process.on("SIGINT", () => {
+    cleanupCurrentSessionScratchpad();
+    process.exit(130);
+  });
+}
+function _flushLedgerBuffer() {
+  if (_ledgerBufferTimer) {
+    clearTimeout(_ledgerBufferTimer);
+    _ledgerBufferTimer = null;
+  }
+  if (_ledgerBuffer.length === 0)
+    return;
+  const batch = _ledgerBuffer.splice(0);
+  const lines = batch.map((e) => typeof e === "string" ? e.trimEnd() : String(e).trimEnd());
+  const joined = lines.filter(Boolean).map((l) => l + "\n").join("");
+  try {
+    appendFileSync2(SAVINGS_LEDGER_FILE, joined);
+    _compactSavingsLedgerIfNeeded();
+  } catch {
+  }
+}
+function _newTelemetryBucket() {
+  return {
+    events: 0,
+    tool_counts: {},
+    tier_counts: {},
+    slot_counts: {},
+    kind_counts: {},
+    prompt_size_buckets: {},
+    output_size_buckets: {},
+    duration_buckets: {},
+    result_counts: {},
+    cache_hit_counts: { hit: 0, miss: 0 },
+    enforcement_counts: {},
+    flow_counts: {},
+    tdd_counts: {},
+    storage_bytes_estimate: 0,
+    retained_sessions: 0,
+    last_seen: null,
+    last_compacted_at: null
+  };
+}
+function _incBucket(map, key, delta = 1) {
+  const bucket = String(key || "unknown");
+  map[bucket] = Number(map[bucket] || 0) + delta;
+}
+function _telemetrySizeEstimate(telemetry) {
+  try {
+    return Buffer.byteLength(JSON.stringify(telemetry || {}), "utf8");
+  } catch {
+    return 0;
+  }
+}
+function recordPrivacyTelemetry(event) {
+  try {
+    if (!event || typeof event !== "object")
+      return null;
+    return updateState((state) => {
+      const now = (/* @__PURE__ */ new Date()).toISOString();
+      state.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" };
+      state.sessions ??= {};
+      const sid = String(event.session_id || _OC_SID || "unknown");
+      state.sessions[sid] ??= { started: now, session_started_at: now, source: "opencode", tool_counts: {}, warns: [], cache_hits: [], seenWarnKeys: {} };
+      const lifetime = state.lifetime.telemetry ??= _newTelemetryBucket();
+      const session = state.sessions[sid].telemetry ??= _newTelemetryBucket();
+      const tool2 = String(event.tool || "unknown").toLowerCase();
+      const tier = String(event.tier || "unknown").toLowerCase();
+      const slot = String(event.slot || "unknown").toLowerCase();
+      const kind = String(event.kind || "unknown").toLowerCase();
+      const promptSize = String(event.prompt_size_bucket || "unknown");
+      const outputSize = String(event.output_size_bucket || "unknown");
+      const duration = String(event.duration_bucket || "unknown");
+      const result = String(event.result || "unknown").toLowerCase();
+      const cache = event.cache_hit === true ? "hit" : event.cache_hit === false ? "miss" : "unknown";
+      const enforcement = String(event.enforcement || "unknown").toLowerCase();
+      const flow = String(event.flow || "unknown").toLowerCase();
+      const tdd = String(event.tdd || "unknown").toLowerCase();
+      const record = (bucket) => {
+        bucket.events = Number(bucket.events || 0) + 1;
+        _incBucket(bucket.tool_counts, tool2);
+        _incBucket(bucket.tier_counts, tier);
+        _incBucket(bucket.slot_counts, slot);
+        _incBucket(bucket.kind_counts, kind);
+        _incBucket(bucket.prompt_size_buckets, promptSize);
+        _incBucket(bucket.output_size_buckets, outputSize);
+        _incBucket(bucket.duration_buckets, duration);
+        _incBucket(bucket.result_counts, result);
+        _incBucket(bucket.enforcement_counts, enforcement);
+        _incBucket(bucket.flow_counts, flow);
+        _incBucket(bucket.tdd_counts, tdd);
+        if (cache === "hit" || cache === "miss") {
+          bucket.cache_hit_counts[cache] = Number(bucket.cache_hit_counts[cache] || 0) + 1;
+        }
+        bucket.last_seen = now;
+        bucket.storage_bytes_estimate = _telemetrySizeEstimate(bucket);
+      };
+      record(lifetime);
+      record(session);
+      lifetime.retained_sessions = Object.values(state.sessions).filter((ses) => Number(ses?.telemetry?.events || 0) > 0).length;
+      session.retained_sessions = 1;
+      state.lifetime.last_updated = now;
+      return state;
+    });
+  } catch {
+    return null;
+  }
+}
+function readTelemetrySummary(state, sid = _OC_SID) {
+  const lifetime = state?.lifetime?.telemetry || {};
+  const session = state?.sessions?.[sid]?.telemetry || {};
+  return {
+    lifetime_events: Number(lifetime.events || 0),
+    current_session_events: Number(session.events || 0),
+    storage_bytes_estimate: Number(lifetime.storage_bytes_estimate || 0),
+    retained_sessions: Number(lifetime.retained_sessions || 0),
+    tool_counts: lifetime.tool_counts || {},
+    tier_counts: lifetime.tier_counts || {},
+    slot_counts: lifetime.slot_counts || {},
+    kind_counts: lifetime.kind_counts || {},
+    prompt_size_buckets: lifetime.prompt_size_buckets || {},
+    output_size_buckets: lifetime.output_size_buckets || {},
+    duration_buckets: lifetime.duration_buckets || {},
+    result_counts: lifetime.result_counts || {},
+    cache_hit_counts: lifetime.cache_hit_counts || { hit: 0, miss: 0 },
+    enforcement_counts: lifetime.enforcement_counts || {},
+    flow_counts: lifetime.flow_counts || {},
+    tdd_counts: lifetime.tdd_counts || {},
+    last_seen: lifetime.last_seen || null,
+    last_compacted_at: lifetime.last_compacted_at || null
+  };
+}
+function stableJson(obj) {
+  if (obj === null || typeof obj !== "object")
+    return JSON.stringify(obj);
+  if (Array.isArray(obj))
+    return "[" + obj.map(stableJson).join(",") + "]";
+  return "{" + Object.keys(obj).sort().map((k) => JSON.stringify(k) + ":" + stableJson(obj[k])).join(",") + "}";
+}
+function _readHead(fullPath) {
+  try {
+    const buf = Buffer.alloc(120);
+    const fd = openSync(fullPath, "r");
+    const { bytesRead } = readSync(fd, buf, 0, 120, 0);
+    closeSync(fd);
+    return buf.toString("utf-8", 0, bytesRead);
+  } catch {
+    return "";
+  }
+}
+function indexAppend(hash, tool2, size, extra) {
+  try {
+    const entryObj = {
+      ts: (/* @__PURE__ */ new Date()).toISOString(),
+      hash,
+      tool: tool2,
+      size,
+      pid: process.pid || 0,
+      session: _OC_SID,
+      source: "opencode",
+      ...extra
+    };
+    const entry = JSON.stringify(entryObj) + "\n";
+    const globalIndex = getGlobalIndexPath();
+    const sessionIndex = getSessionIndexPath();
+    mkdirSync3(dirname4(globalIndex), { recursive: true });
+    mkdirSync3(dirname4(sessionIndex), { recursive: true });
+    appendFileSync2(globalIndex, entry);
+    appendFileSync2(sessionIndex, entry);
+  } catch (err) {
+    console.error(`[vibeOS] index write failed: ${err.message}`);
+  }
+}
+function scanRecentScratchpad(dir, titleCase, maxScan = 2e3) {
+  try {
+    if (!existsSync5(dir))
+      return null;
+    const entries = readdirSync(dir);
+    const ptrFiles = entries.filter((e) => e.endsWith(".ptr"));
+    const ptrCandidates = [];
+    for (const pf of ptrFiles) {
+      if (ptrCandidates.length >= MAX_PTR_CANDIDATES)
+        break;
+      try {
+        const st = statSync4(join4(dir, pf));
+        ptrCandidates.push({ ptrPath: join4(dir, pf), mtimeMs: st.mtimeMs });
+      } catch {
+      }
+    }
+    ptrCandidates.sort((a, b) => b.mtimeMs - a.mtimeMs);
+    let scanned = 0;
+    for (const { ptrPath } of ptrCandidates) {
+      if (scanned++ >= maxScan)
+        break;
+      try {
+        const ptrData = safeJsonParse3(readFileSync4(ptrPath, "utf-8"));
+        if (!ptrData?.contentHash)
+          continue;
+        const ptrTool = typeof ptrData.tool === "string" ? TOOL_NAME_NORMALIZE[ptrData.tool] || ptrData.tool : null;
+        if (titleCase && ptrTool && ptrTool !== titleCase)
+          continue;
+        const contentHash = String(ptrData.contentHash);
+        const f = join4(dir, `${contentHash}.txt`);
+        if (!existsSync5(f))
+          continue;
+        const st = statSync4(f);
+        const ageSec = (Date.now() - st.mtimeMs) / 1e3;
+        if (ageSec > SCRATCHPAD_MAX_AGE_SEC)
+          continue;
+        const sumPath = join4(dir, `${contentHash}.summary.txt`);
+        return { hash: contentHash, fullPath: f, sizeBytes: st.size, ageSec: Math.round(ageSec), summaryPath: existsSync5(sumPath) ? sumPath : null };
+      } catch {
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+function getScratchpadHit(toolLower, args, baseDir = null) {
+  if (!SCRATCHPAD_TOOLS.has(toolLower))
+    return null;
+  const titleCase = TOOL_NAME_NORMALIZE[toolLower];
+  const inputJson = stableJson(args ?? {});
+  const hash = createHash("sha256").update(`${titleCase}
+${inputJson}
+`).digest("hex").slice(0, 16);
+  const sessionDir = baseDir || getSessionScratchpadDir();
+  const sessionPath = join4(sessionDir, `${hash}.txt`);
+  let fullPath = existsSync5(sessionPath) ? sessionPath : null;
+  if (!fullPath) {
+    const ptrSessionPath = join4(sessionDir, `${hash}.ptr`);
+    const ptrPath = existsSync5(ptrSessionPath) ? ptrSessionPath : null;
+    let resolvedHash = hash;
+    if (ptrPath) {
+      try {
+        const ptrData = safeJsonParse3(readFileSync4(ptrPath, "utf-8"));
+        if (ptrData?.contentHash) {
+          resolvedHash = ptrData.contentHash;
+          const rSessionPath = join4(sessionDir, `${resolvedHash}.txt`);
+          fullPath = existsSync5(rSessionPath) ? rSessionPath : null;
+        }
+      } catch {
+      }
+    }
+    if (!fullPath) {
+      const recent = scanRecentScratchpad(sessionDir, titleCase, 2e3);
+      if (recent)
+        return recent;
+      return null;
+    }
+  }
+  try {
+    const st = statSync4(fullPath);
+    const ageSec = (Date.now() - st.mtimeMs) / 1e3;
+    if (ageSec > SCRATCHPAD_MAX_AGE_SEC)
+      return null;
+    const summaryPath = join4(sessionDir, `${hash}.summary.txt`);
+    const finalSummary = existsSync5(summaryPath) ? summaryPath : null;
+    return {
+      hash,
+      fullPath,
+      sizeBytes: st.size,
+      ageSec: Math.round(ageSec),
+      summaryPath: finalSummary
+    };
+  } catch {
+    return null;
+  }
+}
+function recordScratchpadObservation(toolLower, args, fileSize, meta = {}) {
+  if (!SCRATCHPAD_TOOLS.has(toolLower))
+    return;
+  try {
+    const titleCase = TOOL_NAME_NORMALIZE[toolLower];
+    const inputJson = stableJson(args ?? {});
+    const hash = createHash("sha256").update(`${titleCase}
+${inputJson}
+`).digest("hex").slice(0, 16);
+    const dedupeKey = `${toolLower}:${hash}`;
+    if (scratchpadHitsSeen.has(dedupeKey))
+      return;
+    scratchpadHitsSeen.add(dedupeKey);
+    indexAppend(hash, toolLower, fileSize, { ...meta, input: inputJson.slice(0, 200) });
+  } catch {
+  }
+}
+function _pruneScratchpadDir(targetDir, opts = {}) {
+  const { maxFiles = MAX_SCRATCHPAD_FILES, maxBytes = MAX_SCRATCHPAD_BYTES, rotate = true } = opts;
+  const now = Date.now();
+  if (!existsSync5(targetDir))
+    return { dataFiles: 0, totalBytes: 0, deleted: 0, rotated: 0 };
+  const entries = readdirSync(targetDir);
+  let dataFiles = 0;
+  let totalBytes = 0;
+  let deleted = 0;
+  let rotated = 0;
+  for (const entry of entries) {
+    if (entry.endsWith(".meta.json") || entry.endsWith(".summary.txt"))
+      continue;
+    const fullPath = join4(targetDir, entry);
+    let st;
+    try {
+      st = statSync4(fullPath);
+    } catch {
+      continue;
+    }
+    const age = now - st.mtimeMs;
+    const hash = entry.replace(/\.txt$/, "");
+    if (age > DECADENCE_EXPIRE_MS) {
+      try {
+        rmSync2(fullPath);
+      } catch {
+      }
+      const meta = join4(targetDir, hash + ".meta.json");
+      if (existsSync5(meta))
+        try {
+          rmSync2(meta);
+        } catch {
+        }
+      const summary = join4(targetDir, hash + ".summary.txt");
+      if (existsSync5(summary))
+        try {
+          rmSync2(summary);
+        } catch {
+        }
+      deleted++;
+      continue;
+    }
+    dataFiles++;
+    totalBytes += st.size;
+    if (!rotate)
+      continue;
+    if (age > DECADENCE_COLD_MS) {
+      const summaryPath = join4(targetDir, hash + ".summary.txt");
+      if (!existsSync5(summaryPath))
+        try {
+          const content = readFileSync4(fullPath, "utf-8");
+          writeFileSync4(summaryPath, content.slice(0, 200).replace(/\n+/g, " ").trim() + (content.length > 200 ? "\u2026" : ""));
+        } catch {
+        }
+      const head = _readHead(fullPath);
+      if (!head.includes("[cold-storage]"))
+        try {
+          writeFileSync4(fullPath, `[cold-storage] ${st.size}B original \u2192 ${hash}.summary.txt`);
+          rotated++;
+        } catch {
+        }
+      continue;
+    }
+    if (age > DECADENCE_FRESH_MS && st.size > 1024) {
+      const summaryPath = join4(targetDir, hash + ".summary.txt");
+      if (!existsSync5(summaryPath))
+        try {
+          const content = readFileSync4(fullPath, "utf-8");
+          writeFileSync4(summaryPath, content.slice(0, SUMMARY_HEAD_TRUNCATE).replace(/\n+/g, " ").trim() + (content.length > SUMMARY_HEAD_TRUNCATE ? "\u2026" : ""));
+        } catch {
+        }
+      const head = _readHead(fullPath);
+      if (!head.includes("[warm-storage]") && !head.includes("[cold-storage]"))
+        try {
+          writeFileSync4(fullPath, `[warm-storage] ${st.size}B original at ${hash}.summary.txt`);
+          rotated++;
+        } catch {
+        }
+    }
+  }
+  return { dataFiles, totalBytes, deleted, rotated };
+}
+function applyDecadence() {
+  const now = Date.now();
+  if (now - _lastDecadenceRun >= DECADENCE_THROTTLE_MS) {
+    _lastDecadenceRun = now;
+    try {
+      const ses = _pruneScratchpadDir(getSessionScratchpadDir(), {
+        maxFiles: MAX_SESSION_SCRATCHPAD_FILES,
+        maxBytes: MAX_SESSION_SCRATCHPAD_BYTES,
+        rotate: false
+      });
+      if (ses.deleted > 0) {
+        console.error(`[vibeOS] session-decadence: deleted=${ses.deleted} (${ses.dataFiles} files, ${Math.round(ses.totalBytes / 1024)}KB)`);
+      }
+    } catch (err) {
+      console.error(`[vibeOS] session decadence error: ${err.message}`);
+    }
+  }
+}
+function cleanupStaleSessionScratchpads() {
+  try {
+    if (!existsSync5(SCRATCHPAD_SESSIONS_DIR))
+      return;
+    const dirs = readdirSync(SCRATCHPAD_SESSIONS_DIR);
+    const now = Date.now();
+    for (const d of dirs) {
+      const full = join4(SCRATCHPAD_SESSIONS_DIR, d);
+      try {
+        const st = statSync4(full);
+        if (now - st.mtimeMs > SCRATCHPAD_SESSION_TTL_MS) {
+          rmSync2(full, { recursive: true, force: true });
+        }
+      } catch {
+      }
+    }
+  } catch {
+  }
+}
+function pruneScratchpadOnce() {
+  if (prunedThisProcess)
+    return;
+  prunedThisProcess = true;
+  try {
+    const script = join4(VIBEOS_HOME, "hooks/scratchpad-prune.sh");
+    if (existsSync5(script)) {
+      const child = spawn("bash", [script], { detached: true, stdio: "ignore" });
+      child.unref();
+    }
+  } catch {
+  }
+  cleanupStaleSessionScratchpads();
+}
+function _readActiveJobsRaw() {
+  try {
+    if (!existsSync5(ACTIVE_JOBS_FILE))
+      return {};
+    const raw = safeJsonParse3(readFileSync4(ACTIVE_JOBS_FILE, "utf-8"));
+    return raw && typeof raw === "object" ? raw : {};
+  } catch {
+    _handleStateCorruption2(ACTIVE_JOBS_FILE);
+    return {};
+  }
+}
+function _writeActiveJobsRaw(jobs) {
+  try {
+    mkdirSync3(dirname4(ACTIVE_JOBS_FILE), { recursive: true });
+    const tmp = ACTIVE_JOBS_FILE + ".tmp";
+    writeFileSync4(tmp, JSON.stringify(jobs, null, 2) + "\n");
+    renameSync3(tmp, ACTIVE_JOBS_FILE);
+  } catch {
+  }
+}
+function _normalizeActiveJobRecord(record, now = Date.now(), strict = false) {
+  if (!record || typeof record !== "object")
+    return { record: null, changed: false, stale: false };
+  const next = { ...record };
+  let changed = false;
+  const updatedAtRaw = typeof next.updatedAt === "string" ? next.updatedAt : "";
+  const createdAtRaw = typeof next.createdAt === "string" ? next.createdAt : "";
+  const updatedAtMs = Date.parse(updatedAtRaw);
+  const createdAtMs = Date.parse(createdAtRaw);
+  const anchorMs = Number.isFinite(updatedAtMs) ? updatedAtMs : createdAtMs;
+  const stale = Number.isFinite(anchorMs) && now - anchorMs > ACTIVE_JOBS_STALE_MS;
+  if (strict && (!next.status || typeof next.status !== "string" || !next.status.trim()))
+    return { record: null, changed: false, stale };
+  if (strict && !Number.isFinite(createdAtMs))
+    return { record: null, changed: false, stale };
+  if (!Number.isFinite(createdAtMs)) {
+    next.createdAt = Number.isFinite(anchorMs) ? new Date(anchorMs).toISOString() : new Date(now).toISOString();
+    changed = true;
+  }
+  if (!Number.isFinite(updatedAtMs)) {
+    next.updatedAt = next.createdAt || new Date(now).toISOString();
+    changed = true;
+  }
+  if (typeof next.status !== "string" || !next.status.trim()) {
+    next.status = "active";
+    changed = true;
+  }
+  if (stale && next.status !== "completed") {
+    next.status = "completed";
+    next.completedAt = new Date(now).toISOString();
+    changed = true;
+  }
+  return { record: next, changed, stale };
+}
+function loadActiveJobs() {
+  try {
+    return withFileLock(ACTIVE_JOBS_FILE, () => {
+      const raw = _readActiveJobsRaw();
+      const next = {};
+      let changed = false;
+      const now = Date.now();
+      for (const [key, value] of Object.entries(raw || {})) {
+        const norm = _normalizeActiveJobRecord(value, now, true);
+        if (!norm.record || norm.stale && norm.record.status === "completed" && norm.record.completedAt) {
+          changed = true;
+          continue;
+        }
+        next[key] = norm.record;
+        if (norm.changed)
+          changed = true;
+      }
+      if (changed)
+        _writeActiveJobsRaw(next);
+      return next;
+    });
+  } catch {
+    _handleStateCorruption2(ACTIVE_JOBS_FILE);
+    return {};
+  }
+}
+function getActiveJobForProject(fp2 = currentProjectFingerprint) {
+  if (!fp2)
+    return null;
+  const jobs = loadActiveJobs();
+  const job = jobs[fp2];
+  if (!job || typeof job !== "object")
+    return null;
+  return job;
+}
+function saveActiveJobForProject(job, fp2 = currentProjectFingerprint) {
+  if (!fp2 || !job || typeof job !== "object")
+    return;
+  try {
+    withFileLock(ACTIVE_JOBS_FILE, () => {
+      const jobs = _readActiveJobsRaw();
+      const norm = _normalizeActiveJobRecord(job);
+      jobs[fp2] = norm.record || job;
+      _writeActiveJobsRaw(jobs);
+    });
+  } catch {
+  }
+}
+function projectFingerprint(dir) {
+  if (!dir)
+    return "unknown";
+  return createHash("sha256").update(dir).digest("hex").slice(0, 12);
+}
+function loadProjectState() {
+  const projectStateFile = join4(getVibeOSHome3(), "project-states.json");
+  try {
+    const state = readJsonOrEmpty(projectStateFile);
+    if (state && typeof state === "object") {
+      state.project_hashes ??= {};
+      return state;
+    }
+  } catch {
+  }
+  return { project_hashes: {} };
+}
+function saveProjectState(state) {
+  const projectStateFile = join4(getVibeOSHome3(), "project-states.json");
+  try {
+    withFileLock(projectStateFile, () => {
+      mkdirSync3(dirname4(projectStateFile), { recursive: true });
+      const _tmp = projectStateFile + ".tmp." + Date.now();
+      writeFileSync4(_tmp, JSON.stringify(state, null, 2) + "\n", "utf-8");
+      renameSync3(_tmp, projectStateFile);
+    });
+  } catch (err) {
+    console.error(`[vibeOS] project state write failed: ${err.message}`);
+  }
+}
+function ensureProjectBucket(state, fp2) {
+  state.project_hashes ??= {};
+  if (!state.project_hashes[fp2]) {
+    state.project_hashes[fp2] = {
+      totalSessions: 0,
+      researchChains: 0,
+      context7Bypasses: 0,
+      commonTopics: [],
+      sessions: [],
+      reports: [],
+      updatedAt: null,
+      lastSeen: null,
+      techStack: detectTechStack(process.cwd())
+    };
+  }
+  return state.project_hashes[fp2];
+}
+function touchProjectBucket(state, fp2, meta = {}) {
+  if (!fp2 || fp2 === "unknown")
+    return null;
+  const bucket = ensureProjectBucket(state, fp2);
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  bucket.updatedAt = now;
+  bucket.lastSeen = now;
+  if (typeof meta.projectName === "string" && meta.projectName.trim()) {
+    bucket.projectName = meta.projectName.trim();
+  }
+  if (typeof meta.sessionId === "string" && meta.sessionId.trim()) {
+    bucket.sessions ??= [];
+    if (!bucket.sessions.includes(meta.sessionId)) {
+      bucket.sessions.push(meta.sessionId);
+      bucket.sessions = bucket.sessions.slice(-30);
+      bucket.totalSessions = Number(bucket.totalSessions || 0) + 1;
+    }
+    bucket.totalSessions = Math.max(Number(bucket.totalSessions || 0), bucket.sessions.length, 1);
+  }
+  if (typeof meta.reportId === "string" && meta.reportId.trim()) {
+    bucket.reports ??= [];
+    if (!bucket.reports.includes(meta.reportId)) {
+      bucket.reports.push(meta.reportId);
+      bucket.reports = bucket.reports.slice(-50);
+    }
+  }
+  if (typeof meta.topic === "string" && meta.topic.trim()) {
+    bucket.commonTopics ??= [];
+    if (!bucket.commonTopics.includes(meta.topic)) {
+      bucket.commonTopics.push(meta.topic);
+      bucket.commonTopics = bucket.commonTopics.slice(-20);
+    }
+  }
+  return bucket;
+}
+function detectTechStack(dir) {
+  const stacks = [];
+  try {
+    const pkg = safeJsonParse3(readFileSync4(join4(dir, "package.json"), "utf-8"));
+    if (pkg) {
+      if (pkg.devDependencies?.typescript || pkg.dependencies?.typescript || existsSync5(join4(dir, "tsconfig.json")))
+        stacks.push("typescript");
+      if (pkg.dependencies?.react || pkg.devDependencies?.react)
+        stacks.push("react");
+      stacks.push("javascript");
+    }
+  } catch {
+  }
+  try {
+    if (existsSync5(join4(dir, "Cargo.toml")))
+      stacks.push("rust");
+  } catch {
+  }
+  try {
+    if (existsSync5(join4(dir, "go.mod")))
+      stacks.push("go");
+  } catch {
+  }
+  try {
+    if (existsSync5(join4(dir, "requirements.txt")))
+      stacks.push("python");
+    if (existsSync5(join4(dir, "setup.py")))
+      stacks.push("python");
+    if (existsSync5(join4(dir, "pyproject.toml")))
+      stacks.push("python");
+  } catch {
+  }
+  return [...new Set(stacks)];
+}
+function promotedProjectPatterns(fp2) {
+  try {
+    const p = loadProjectState().project_hashes?.[fp2];
+    const out = [];
+    const collect = (rows, label) => {
+      for (const row of Object.values(rows || {})) {
+        const r = row;
+        const sessions = new Set(r?.sessions || []);
+        const minSessions = label === "routine" ? 2 : 3;
+        if (sessions.size >= minSessions)
+          out.push({ label, summary: r.summary, sessions: sessions.size, lastSeen: r.lastSeen || "" });
+      }
+    };
+    collect(p?.userPatterns?.friction, "friction");
+    collect(p?.userPatterns?.routines, "routine");
+    out.sort((a, b) => b.sessions - a.sessions || String(b.lastSeen).localeCompare(String(a.lastSeen)));
+    return out.slice(0, 3);
+  } catch {
+    return [];
+  }
+}
+function projectPatternRows(fp2) {
+  try {
+    const p = loadProjectState().project_hashes?.[fp2];
+    const rows = [];
+    for (const [kind, label] of [["friction", "friction"], ["routines", "routine"]]) {
+      for (const [key, row] of Object.entries(p?.userPatterns?.[kind] || {})) {
+        const r = row;
+        const sessions = new Set(r?.sessions || []);
+        rows.push({
+          key,
+          label,
+          summary: r?.summary || key,
+          count: Number(r?.count || 0),
+          sessions: sessions.size,
+          lastSeen: r?.lastSeen || ""
+        });
+      }
+    }
+    rows.sort((a, b) => b.sessions - a.sessions || b.count - a.count || String(b.lastSeen).localeCompare(String(a.lastSeen)));
+    return rows;
+  } catch {
+    return [];
+  }
+}
+function clearProjectPatterns(fp2) {
+  try {
+    const pstate = loadProjectState();
+    const bucket = pstate.project_hashes?.[fp2];
+    if (!bucket?.userPatterns)
+      return 0;
+    const count = Object.keys(bucket.userPatterns.friction || {}).length + Object.keys(bucket.userPatterns.routines || {}).length;
+    bucket.userPatterns = { friction: {}, routines: {} };
+    bucket.lastSeen = (/* @__PURE__ */ new Date()).toISOString();
+    saveProjectState(pstate);
+    return count;
+  } catch (err) {
+    console.error(`[vibeOS] pattern learner clear failed: ${err.message}`);
+    return 0;
+  }
+}
+function recordCacheSaving(tool2, saveEst, meta = {}) {
+  try {
+    const state = updateState((s) => {
+      const now = (/* @__PURE__ */ new Date()).toISOString();
+      const delta = Number(saveEst || 0);
+      s.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" };
+      s.lifetime.last_updated = now;
+      s.sessions ??= {};
+      const sid2 = _OC_SID;
+      s.sessions[sid2] ??= { started: now, session_started_at: now, source: "opencode", tool_counts: {}, warns: [] };
+      if (currentProjectFingerprint && !s.sessions[sid2].project_fingerprint)
+        s.sessions[sid2].project_fingerprint = currentProjectFingerprint;
+      if (currentProjectName && !s.sessions[sid2].project_name)
+        s.sessions[sid2].project_name = currentProjectName;
+      s.sessions[sid2].session_cache_dir = getSessionScratchpadDir();
+      s.sessions[sid2].tool_counts[tool2] = (s.sessions[sid2].tool_counts[tool2] || 0) + 1;
+      if (meta?.hash) {
+        s.sessions[sid2].cache_hits ??= [];
+        if (!s.sessions[sid2].cache_hits.some((h) => h.hash === meta.hash)) {
+          s.sessions[sid2].cache_hits.push({
+            at: now,
+            tool: tool2,
+            hash: meta.hash,
+            est_savings_usd: roundUsd(delta)
+          });
+          s.sessions[sid2].cache_savings_usd = roundUsd(Number(s.sessions[sid2].cache_savings_usd || 0) + delta);
+          s.lifetime.cache_savings_usd = roundUsd(Number(s.lifetime.cache_savings_usd || 0) + delta);
+          if (s.sessions[sid2].cache_hits.length > 200) {
+            console.error(`[vibeOS] session cache_hits truncated from ${s.sessions[sid2].cache_hits.length} to 200 for ${sid2}`);
+            s.sessions[sid2].cache_hits = s.sessions[sid2].cache_hits.slice(-200);
+          }
+        }
+      } else {
+        s.sessions[sid2].cache_savings_usd = roundUsd(Number(s.sessions[sid2].cache_savings_usd || 0) + delta);
+        s.lifetime.cache_savings_usd = roundUsd(Number(s.lifetime.cache_savings_usd || 0) + delta);
+      }
+      try {
+        if (currentProjectFingerprint) {
+          const pstate = loadProjectState();
+          touchProjectBucket(pstate, currentProjectFingerprint, {
+            sessionId: sid2,
+            projectName: currentProjectName || "",
+            topic: meta?.hash ? String(meta.hash).slice(0, 16) : "cache"
+          });
+          saveProjectState(pstate);
+        }
+      } catch {
+      }
+      _pruneOldSessions(s);
+      return s;
+    });
+    const sid = _OC_SID;
+    try {
+      _ledgerBuffer.push(JSON.stringify({ v: 2, at: (/* @__PURE__ */ new Date()).toISOString(), kind: "cache", amount_usd: Number(saveEst || 0), sid, tool: tool2 }) + "\n");
+      if (_ledgerBuffer.length >= LEDGER_BUFFER_MAX)
+        _flushLedgerBuffer();
+      else if (!_ledgerBufferTimer)
+        _ledgerBufferTimer = setTimeout(_flushLedgerBuffer, LEDGER_BUFFER_FLUSH_MS);
+    } catch {
+    }
+    return {
+      lifetime: state?.lifetime?.cache_savings_usd || 0,
+      session: state?.sessions?.[sid]?.cache_savings_usd || 0
+    };
+  } catch (err) {
+    console.error(`[vibeOS] cache state write failed: ${err.message}`);
+    return null;
+  }
+}
+function recordMissedContext7(saveEst) {
+  try {
+    const state = updateState((s) => {
+      s.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" };
+      s.lifetime.missed_context7_usd = Math.round(((s.lifetime.missed_context7_usd || 0) + saveEst) * 100) / 100;
+      s.sessions ??= {};
+      const sid = _OC_SID;
+      s.sessions[sid] ??= { total_savings_usd: 0, cache_savings_usd: 0, project_name: "", warns: [], cache_hits: [], seenWarnKeys: {} };
+      s.sessions[sid].context7_missed_usd = Math.round(((s.sessions[sid].context7_missed_usd || 0) + saveEst) * 100) / 100;
+      try {
+        if (currentProjectFingerprint) {
+          const pstate = loadProjectState();
+          const bucket = touchProjectBucket(pstate, currentProjectFingerprint, {
+            sessionId: sid,
+            projectName: currentProjectName || "",
+            topic: "context7"
+          });
+          if (bucket)
+            bucket.context7Bypasses = (bucket.context7Bypasses || 0) + 1;
+          saveProjectState(pstate);
+        }
+      } catch {
+      }
+      return s;
+    });
+    try {
+      _ledgerBuffer.push(JSON.stringify({
+        v: 2,
+        at: (/* @__PURE__ */ new Date()).toISOString(),
+        kind: "context7",
+        amount_usd: Number(saveEst || 0),
+        sid: _OC_SID,
+        tool: "context7",
+        reason: "docs bypass"
+      }) + "\n");
+      if (_ledgerBuffer.length >= LEDGER_BUFFER_MAX)
+        _flushLedgerBuffer();
+      else if (!_ledgerBufferTimer)
+        _ledgerBufferTimer = setTimeout(_flushLedgerBuffer, LEDGER_BUFFER_FLUSH_MS);
+    } catch {
+    }
+    try {
+      updateGlobalLearning((gl) => {
+        gl.context7_bypasses = Number(gl.context7_bypasses || 0) + 1;
+        gl.context7_missed_usd = Math.round((Number(gl.context7_missed_usd || 0) + Number(saveEst || 0)) * 100) / 100;
+        gl.context7_last_seen = (/* @__PURE__ */ new Date()).toISOString();
+        return gl;
+      });
+    } catch {
+    }
+    return state?.lifetime?.missed_context7_usd ?? null;
+  } catch {
+    return null;
+  }
+}
+function loadTodos() {
+  try {
+    if (!existsSync5(TODOS_FILE))
+      return [];
+    const raw = readFileSync4(TODOS_FILE, "utf-8");
+    const parsed = safeJsonParse3(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+function saveTodos(todos) {
+  try {
+    mkdirSync3(dirname4(TODOS_FILE), { recursive: true });
+    const tmp = TODOS_FILE + ".tmp." + Date.now();
+    writeFileSync4(tmp, JSON.stringify(todos, null, 2), "utf-8");
+    renameSync3(tmp, TODOS_FILE);
+  } catch {
+  }
+}
+function upsertTodo(entry) {
+  const todos = loadTodos();
+  const existing = todos.findIndex((t) => t.content === entry.content && (entry.filePath ? t.filePath === entry.filePath : true));
+  const newEntry = {
+    id: entry.id || crypto.randomUUID?.() || "todo-" + Date.now(),
+    content: entry.content,
+    status: entry.status || "pending",
+    filePath: entry.filePath || "",
+    priority: entry.priority || "medium",
+    source: entry.source || "manual",
+    createdAt: entry.createdAt || (/* @__PURE__ */ new Date()).toISOString(),
+    updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  if (existing >= 0) {
+    todos[existing] = { ...todos[existing], ...newEntry, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
+  } else {
+    todos.push(newEntry);
+  }
+  saveTodos(todos);
+}
+function markTodoDone(id2) {
+  const todos = loadTodos();
+  const found = todos.find((t) => t.id === id2);
+  if (found) {
+    found.status = "done";
+    found.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+    saveTodos(todos);
+  }
+}
+function getTodos() {
+  return loadTodos();
+}
+function _compactSavingsLedgerIfNeeded() {
+  try {
+    if (!existsSync5(SAVINGS_LEDGER_FILE))
+      return;
+    const st = statSync4(SAVINGS_LEDGER_FILE);
+    if (st.size <= LEDGER_ROTATE_MAX_BYTES)
+      return;
+    withFileLock(SAVINGS_LEDGER_FILE, () => {
+      if (!existsSync5(SAVINGS_LEDGER_FILE))
+        return;
+      const lockedStat = statSync4(SAVINGS_LEDGER_FILE);
+      if (lockedStat.size <= LEDGER_ROTATE_MAX_BYTES)
+        return;
+      const raw = readFileSync4(SAVINGS_LEDGER_FILE, "utf-8");
+      if (!raw.trim())
+        return;
+      const now = Date.now();
+      const rows = raw.split("\n").filter(Boolean).map((line) => {
+        let rec = null;
+        try {
+          rec = JSON.parse(line);
+        } catch {
+          rec = null;
+        }
+        const atRaw = rec && typeof rec === "object" ? String(rec.at || rec.ts || "") : "";
+        const atMs = Date.parse(atRaw);
+        return { raw: line.trim(), atMs: Number.isFinite(atMs) ? atMs : null };
+      }).filter((row) => row.raw);
+      const recent = rows.filter((row) => row.atMs != null && now - Number(row.atMs) <= LEDGER_ROTATE_MAX_AGE_MS);
+      const pool = recent.length > 0 ? recent : rows;
+      const capped = pool.length > LEDGER_ROTATE_MAX_LINES ? pool.slice(-LEDGER_ROTATE_MAX_LINES) : pool;
+      let size = 0;
+      const kept = [];
+      for (let i = capped.length - 1; i >= 0; i--) {
+        const line = capped[i].raw;
+        const lineBytes = Buffer.byteLength(line + "\n", "utf-8");
+        if (kept.length > 0 && size + lineBytes > LEDGER_ROTATE_MAX_BYTES)
+          break;
+        kept.push(line);
+        size += lineBytes;
+      }
+      const compacted = kept.reverse().join("\n") + "\n";
+      if (compacted.trim() && compacted !== raw) {
+        const tmp = SAVINGS_LEDGER_FILE + ".tmp." + Date.now();
+        writeFileSync4(tmp, compacted, "utf-8");
+        renameSync3(tmp, SAVINGS_LEDGER_FILE);
+      }
+    }, { timeoutMs: 4e3 });
+  } catch {
+  }
+}
+function readLedgerTotals() {
+  const empty = { delegation: 0, cache: 0, context7: 0, total: 0, entries: 0 };
+  try {
+    if (!existsSync5(SAVINGS_LEDGER_FILE)) {
+      _ledgerTotalsCache = { mtime: 0, size: 0, delegation: 0, cache: 0, context7: 0, entries: 0 };
+      return empty;
+    }
+    const st = statSync4(SAVINGS_LEDGER_FILE);
+    if (st.size === 0) {
+      _ledgerTotalsCache = { mtime: st.mtimeMs, size: 0, delegation: 0, cache: 0, context7: 0, entries: 0 };
+      return empty;
+    }
+    if (st.size > LEDGER_ROTATE_MAX_BYTES) {
+      _compactSavingsLedgerIfNeeded();
+    }
+    const currentStat = statSync4(SAVINGS_LEDGER_FILE);
+    if (currentStat.size === 0) {
+      _ledgerTotalsCache = { mtime: currentStat.mtimeMs, size: 0, delegation: 0, cache: 0, context7: 0, entries: 0 };
+      return empty;
+    }
+    if (_ledgerTotalsCache.mtime === currentStat.mtimeMs && _ledgerTotalsCache.size === currentStat.size) {
+      return {
+        delegation: Math.round(_ledgerTotalsCache.delegation * 1e3) / 1e3,
+        cache: Math.round(_ledgerTotalsCache.cache * 1e3) / 1e3,
+        context7: Math.round(_ledgerTotalsCache.context7 * 1e3) / 1e3,
+        total: Math.round((_ledgerTotalsCache.delegation + _ledgerTotalsCache.cache) * 1e3) / 1e3,
+        entries: _ledgerTotalsCache.entries
+      };
+    }
+    let delegation = 0;
+    let cache = 0;
+    let context7 = 0;
+    let entries = 0;
+    let raw = "";
+    let incremental = _ledgerTotalsCache.size > 0 && currentStat.size >= _ledgerTotalsCache.size && _ledgerTotalsCache.mtime > 0;
+    if (incremental) {
+      const deltaSize = currentStat.size - _ledgerTotalsCache.size;
+      if (deltaSize > 0) {
+        const fd = openSync(SAVINGS_LEDGER_FILE, "r");
+        try {
+          const buf = Buffer.allocUnsafe(deltaSize);
+          const bytesRead = readSync(fd, buf, 0, deltaSize, _ledgerTotalsCache.size);
+          raw = buf.toString("utf-8", 0, bytesRead);
+        } finally {
+          try {
+            closeSync(fd);
+          } catch {
+          }
+        }
+      } else {
+        incremental = false;
+      }
+      delegation = _ledgerTotalsCache.delegation;
+      cache = _ledgerTotalsCache.cache;
+      context7 = _ledgerTotalsCache.context7;
+      entries = _ledgerTotalsCache.entries;
+    }
+    if (!incremental) {
+      raw = readFileSync4(SAVINGS_LEDGER_FILE, "utf-8");
+    }
+    if (!raw.trim()) {
+      _ledgerTotalsCache = {
+        mtime: currentStat.mtimeMs,
+        size: currentStat.size,
+        delegation,
+        cache,
+        context7,
+        entries
+      };
+      return {
+        delegation: Math.round(delegation * 1e3) / 1e3,
+        cache: Math.round(cache * 1e3) / 1e3,
+        context7: Math.round(context7 * 1e3) / 1e3,
+        total: Math.round((delegation + cache) * 1e3) / 1e3,
+        entries
+      };
+    }
+    const lines = raw.split("\n");
+    if (raw.endsWith("\n"))
+      lines.pop();
+    for (const line of lines) {
+      const ln = line.trim();
+      if (!ln)
+        continue;
+      let rec = null;
+      try {
+        rec = JSON.parse(ln);
+      } catch {
+        continue;
+      }
+      if (!rec || typeof rec !== "object")
+        continue;
+      if (rec.v !== void 0 && rec.v !== 2)
+        continue;
+      const amt = Number(rec.amount_usd ?? rec.est_savings_usd ?? rec.savings_usd ?? rec.usd ?? 0);
+      if (!Number.isFinite(amt) || amt <= 0)
+        continue;
+      entries += 1;
+      const kind = String(rec.kind || rec.type || rec.category || rec.source || "").toLowerCase();
+      if (kind.includes("cache"))
+        cache += amt;
+      else if (kind.includes("context7"))
+        context7 += amt;
+      else
+        delegation += amt;
+    }
+    _ledgerTotalsCache = { mtime: currentStat.mtimeMs, size: currentStat.size, delegation, cache, context7, entries };
+    const total = delegation + cache;
+    return {
+      delegation: Math.round(delegation * 1e3) / 1e3,
+      cache: Math.round(cache * 1e3) / 1e3,
+      context7: Math.round(context7 * 1e3) / 1e3,
+      total: Math.round(total * 1e3) / 1e3,
+      entries
+    };
+  } catch {
+    return empty;
+  }
+}
+function reconcileStateFromLedger() {
+  try {
+    const ledgerStat = existsSync5(SAVINGS_LEDGER_FILE) ? statSync4(SAVINGS_LEDGER_FILE) : null;
+    const ledgerMtime = ledgerStat?.mtimeMs || 0;
+    const ledgerSize = ledgerStat?.size || 0;
+    if (ledgerMtime === _ledgerReconciledMtime && ledgerSize === (_savingsCache?._ledgerSize || 0))
+      return;
+    _ledgerReconciledMtime = ledgerMtime;
+    _flushLedgerBuffer();
+    const l = readLedgerTotals();
+    if (l.total <= 0 && l.context7 <= 0)
+      return;
+    const delegationStateFile = join4(getVibeOSHome3(), "delegation-state.json");
+    const state = readJsonOrEmpty(delegationStateFile);
+    const stDelegation = Number(state?.lifetime?.est_savings_usd ?? state?.lifetime?.total_savings_usd ?? 0);
+    const stCache = Number(state?.lifetime?.cache_savings_usd ?? 0);
+    const stMissedC7 = Number(state?.lifetime?.missed_context7_usd ?? 0);
+    const stTotal = (Number.isFinite(stDelegation) ? stDelegation : 0) + (Number.isFinite(stCache) ? stCache : 0);
+    if (Math.abs(stTotal - l.total) < 5e-4 && Math.abs(stMissedC7 - l.context7) < 5e-4)
+      return;
+    updateState((s) => {
+      s.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" };
+      s.lifetime.total_savings_usd = Math.max(l.delegation, stDelegation);
+      s.lifetime.cache_savings_usd = Math.max(l.cache, stCache);
+      s.lifetime.missed_context7_usd = Math.max(l.context7, stMissedC7);
+      s.lifetime.last_updated = (/* @__PURE__ */ new Date()).toISOString();
+      s.lifetime.rebuilt_from_ledger = true;
+      s.lifetime.ledger_entries_reconciled = l.entries;
+      return s;
+    });
+    _savingsCache = null;
+    _savingsCacheMtime = 0;
+    invalidateSavingsCache();
+  } catch {
+  }
+}
+function readLifetimeSavings() {
+  const empty = { ltTasks: 0, ltCache: 0, ltCost: 0, count: 0, scratchpadHits: 0, missedC7: 0, sesTasks: 0, sesEdit: 0, sesCredit: 0, sesC7: 0, sesQuota: 0, sesTaskDelegations: 0, sesDuration: 0, sesRatePerHour: 0, sesTrend: "stable", sesToolBreakdown: {}, sesModelTurns: { brain: 0, worker: 0 }, quality_avg: 0, telemetry: readTelemetrySummary({}, _OC_SID) };
+  try {
+    reconcileStateFromLedger();
+    const delegationStateFile = join4(getVibeOSHome3(), "delegation-state.json");
+    if (!existsSync5(delegationStateFile))
+      return empty;
+    const mtime = statSync4(delegationStateFile).mtimeMs;
+    if (_savingsCache && mtime === _savingsCacheMtime)
+      return _savingsCache;
+    const s = safeJsonParse3(readFileSync4(delegationStateFile, "utf-8"));
+    const ledgerSize = existsSync5(SAVINGS_LEDGER_FILE) ? statSync4(SAVINGS_LEDGER_FILE).size : 0;
+    _savingsCache = { ..._computeSessionMetrics(s, _OC_SID), telemetry: readTelemetrySummary(s, _OC_SID), _ledgerSize: ledgerSize };
+    _savingsCacheMtime = mtime;
+    return _savingsCache;
+  } catch {
+    return empty;
+  }
+}
+function saveSessionCheckpoint() {
+  try {
+    const state = readFullState();
+    const session = state.sessions?.[_OC_SID];
+    if (!session)
+      return;
+    const cp = {
+      session_id: _OC_SID,
+      ts: (/* @__PURE__ */ new Date()).toISOString(),
+      cost: session.cost_usd || 0,
+      cache_savings: session.cache_savings_usd || 0,
+      total_savings: session.total_savings_usd || 0,
+      tool_counts: session.tool_counts || {},
+      warns: session.warns?.length || 0,
+      model: session.model || ""
+    };
+    const cpPath = join4(getSessionRoot(), "checkpoint.json");
+    mkdirSync3(dirname4(cpPath), { recursive: true });
+    const tmp = cpPath + ".tmp";
+    writeFileSync4(tmp, JSON.stringify(cp, null, 2) + "\n");
+    renameSync3(tmp, cpPath);
+  } catch {
+  }
+}
+var USER_HOME2, VIBEOS_CONTEXT, VIBEOS_HOME, OPENCODE_HOME, FILE_LOCK_DIR, DELEGATION_STATE_FILE, SAVINGS_LEDGER_FILE, GLOBAL_LEARNING_FILE, PRICING_CACHE_FILE, BLACKBOX_STATE_FILE, PROJECT_STATE_FILE, TIERS_FILE, ACTIVE_JOBS_FILE, AUTH_F, CREDIT_CACHE_F, FLOW_TODO_QUEUE_FILE, FLOW_DEDUP_FILE2, ENFORCEMENT_COOLDOWN_FILE, TODOS_FILE, REPORTS_DIR, CONTEXT7_INSTALL_FLAG, TRINITY_OPENCODE_CONFIG, TRINITY_OPENCODE_CONFIGC, SCRATCHPAD_ROOT, SCRATCHPAD_GLOBAL_DIR, SCRATCHPAD_SESSIONS_DIR, SCRATCHPAD_SESSION_TTL_MS, SCRATCHPAD_MAX_AGE_SEC, MAX_SCRATCHPAD_FILES, MAX_SCRATCHPAD_BYTES, MAX_SESSION_SCRATCHPAD_FILES, MAX_SESSION_SCRATCHPAD_BYTES, CORRUPTION_BACKUP_MAX, CORRUPTION_BACKUP_TTL_MS, LEDGER_ROTATE_MAX_BYTES, LEDGER_ROTATE_MAX_LINES, LEDGER_ROTATE_MAX_AGE_MS, ACTIVE_JOBS_STALE_MS, MAX_PTR_CANDIDATES, SUMMARY_HEAD_TRUNCATE, DECADENCE_FRESH_MS, DECADENCE_WARM_MS, DECADENCE_COLD_MS, DECADENCE_EXPIRE_MS, DECADENCE_THROTTLE_MS, DECADENCE_GLOBAL_THROTTLE_MS, TOOL_NAME_NORMALIZE, SCRATCHPAD_TOOLS, WARN_DEDUPE_WINDOW_MS, SOFT_QUOTA_LIMIT, _OC_SID, currentSessionId, _sessionStart, currentTier, currentModel, currentProjectFingerprint, currentProjectName, recentToolEvents, frictionSessionKeys, routineSessionKeys, lastMutationEvent, _savingsCache, _savingsCacheMtime, _ledgerReconciledMtime, _ledgerTotalsCache, _mlGraph, _cacheDb, ML_ENABLED, ML_CONFIDENCE_THRESHOLD, _mlSavePending, _blackboxEnabled, _latestBlackboxState, _latestBlackboxLoopMsg, _latestBlackboxPivotMsg, _modelLocked, _lockedSlot, _lockedModel, _patternFiredKeys, _sessionCleanupRegistered, _sessionCacheCleaned, prunedThisProcess, _lastDecadenceRun, briefedProjects, _ledgerBuffer, _ledgerBufferTimer, LEDGER_BUFFER_MAX, LEDGER_BUFFER_FLUSH_MS, testReminderSeen, DFLT_GL, tool, _startupMaintenanceHome, FALLBACK_HIGH, FALLBACK_MID, HIGH_TIER_RE, MID_TIER_RE, scratchpadHitsSeen;
+var init_state = __esm({
+  "src/lib/state.js"() {
+    "use strict";
+    init_selection_manager();
+    init_pattern_helpers();
+    init_runtime_state();
+    init_ml_router();
+    init_smart_cache();
+    USER_HOME2 = (() => {
+      try {
+        return homedir3();
+      } catch {
+        return tmpdir2();
+      }
+    })();
+    VIBEOS_CONTEXT = new AsyncLocalStorage();
+    VIBEOS_HOME = process.env.VIBEOS_HOME || join4(USER_HOME2, ".claude");
+    OPENCODE_HOME = process.env.VIBEOS_OPENCODE_HOME || join4(USER_HOME2, ".config", "opencode");
+    FILE_LOCK_DIR = join4(VIBEOS_HOME, ".vibeOS-locks");
+    DELEGATION_STATE_FILE = join4(VIBEOS_HOME, "delegation-state.json");
+    SAVINGS_LEDGER_FILE = join4(VIBEOS_HOME, "savings-ledger.jsonl");
+    GLOBAL_LEARNING_FILE = join4(VIBEOS_HOME, "global-learning.json");
+    PRICING_CACHE_FILE = join4(VIBEOS_HOME, "model-pricing-cache.json");
+    BLACKBOX_STATE_FILE = join4(VIBEOS_HOME, "blackbox-state.json");
+    PROJECT_STATE_FILE = join4(VIBEOS_HOME, "project-states.json");
+    TIERS_FILE = join4(VIBEOS_HOME, "model-tiers.json");
+    ACTIVE_JOBS_FILE = join4(VIBEOS_HOME, "active-jobs.json");
+    AUTH_F = join4(USER_HOME2, ".local", "share", "opencode", "auth.json");
+    CREDIT_CACHE_F = join4(VIBEOS_HOME, "credit-snapshot.json");
+    FLOW_TODO_QUEUE_FILE = join4(VIBEOS_HOME, ".flow-todo-queue.jsonl");
+    FLOW_DEDUP_FILE2 = join4(VIBEOS_HOME, ".flow-dedup-keys.json");
+    ENFORCEMENT_COOLDOWN_FILE = join4(VIBEOS_HOME, ".enforcement-cooldown.jsonl");
+    TODOS_FILE = join4(VIBEOS_HOME, "todos.json");
+    REPORTS_DIR = join4(VIBEOS_HOME, "reports");
+    CONTEXT7_INSTALL_FLAG = join4(VIBEOS_HOME, ".context7-install-suggested");
+    TRINITY_OPENCODE_CONFIG = join4(OPENCODE_HOME, "opencode.json");
+    TRINITY_OPENCODE_CONFIGC = join4(OPENCODE_HOME, "opencode.jsonc");
+    SCRATCHPAD_ROOT = join4(VIBEOS_HOME, "scratch");
+    SCRATCHPAD_GLOBAL_DIR = join4(SCRATCHPAD_ROOT, "by-hash");
+    SCRATCHPAD_SESSIONS_DIR = join4(SCRATCHPAD_ROOT, "sessions");
+    SCRATCHPAD_SESSION_TTL_MS = 48 * 60 * 60 * 1e3;
+    SCRATCHPAD_MAX_AGE_SEC = Number(process.env.CLAUDE_SCRATCHPAD_MAX_AGE_SEC || 86400);
+    MAX_SCRATCHPAD_FILES = 1e3;
+    MAX_SCRATCHPAD_BYTES = 10 * 1024 * 1024;
+    MAX_SESSION_SCRATCHPAD_FILES = 200;
+    MAX_SESSION_SCRATCHPAD_BYTES = 2 * 1024 * 1024;
+    CORRUPTION_BACKUP_MAX = 5;
+    CORRUPTION_BACKUP_TTL_MS = 24 * 60 * 60 * 1e3;
+    LEDGER_ROTATE_MAX_BYTES = 256 * 1024;
+    LEDGER_ROTATE_MAX_LINES = 1e4;
+    LEDGER_ROTATE_MAX_AGE_MS = 48 * 60 * 60 * 1e3;
+    ACTIVE_JOBS_STALE_MS = 72 * 60 * 60 * 1e3;
+    MAX_PTR_CANDIDATES = 50;
+    SUMMARY_HEAD_TRUNCATE = 500;
+    DECADENCE_FRESH_MS = 5 * 60 * 1e3;
+    DECADENCE_WARM_MS = 60 * 60 * 1e3;
+    DECADENCE_COLD_MS = 24 * 60 * 60 * 1e3;
+    DECADENCE_EXPIRE_MS = 48 * 60 * 60 * 1e3;
+    DECADENCE_THROTTLE_MS = 60 * 1e3;
+    DECADENCE_GLOBAL_THROTTLE_MS = 5 * 60 * 1e3;
+    TOOL_NAME_NORMALIZE = {
+      read: "Read",
+      bash: "Bash",
+      grep: "Grep",
+      glob: "Glob",
+      webfetch: "WebFetch",
+      websearch: "WebSearch",
+      list: "LS",
+      "context7_query-docs": "Context7QueryDocs",
+      "context7_resolve-library-id": "Context7ResolveLibrary",
+      obsidian: "Obsidian"
+    };
+    SCRATCHPAD_TOOLS = new Set(Object.keys(TOOL_NAME_NORMALIZE));
+    WARN_DEDUPE_WINDOW_MS = 120 * 1e3;
+    SOFT_QUOTA_LIMIT = 5;
+    _OC_SID = getOcSessionId();
+    currentSessionId = _OC_SID;
+    _sessionStart = Date.now();
+    currentTier = null;
+    currentModel = null;
+    currentProjectFingerprint = "";
+    currentProjectName = "";
+    recentToolEvents = [];
+    frictionSessionKeys = /* @__PURE__ */ new Set();
+    routineSessionKeys = /* @__PURE__ */ new Set();
+    lastMutationEvent = null;
+    _savingsCache = null;
+    _savingsCacheMtime = 0;
+    _ledgerReconciledMtime = 0;
+    _ledgerTotalsCache = {
+      mtime: 0,
+      size: 0,
+      delegation: 0,
+      cache: 0,
+      context7: 0,
+      entries: 0
+    };
+    _mlGraph = createPatternGraph();
+    _cacheDb = createCacheDatabase();
+    ML_ENABLED = true;
+    ML_CONFIDENCE_THRESHOLD = 0.6;
+    _mlSavePending = false;
+    _blackboxEnabled = true;
+    _latestBlackboxState = null;
+    _latestBlackboxLoopMsg = null;
+    _latestBlackboxPivotMsg = null;
+    _modelLocked = false;
+    _lockedSlot = null;
+    _lockedModel = null;
+    _patternFiredKeys = /* @__PURE__ */ new Set();
+    _sessionCleanupRegistered = false;
+    _sessionCacheCleaned = false;
+    prunedThisProcess = false;
+    _lastDecadenceRun = 0;
+    briefedProjects = /* @__PURE__ */ new Set();
+    _ledgerBuffer = [];
+    _ledgerBufferTimer = null;
+    LEDGER_BUFFER_MAX = 10;
+    LEDGER_BUFFER_FLUSH_MS = 5e3;
+    testReminderSeen = /* @__PURE__ */ new Set();
+    DFLT_GL = {
+      exploratory_words: {},
+      task_first_words: {},
+      context7_bypasses: 0,
+      context7_missed_usd: 0,
+      context7_last_seen: null,
+      updatedAt: null
+    };
+    tool = Object.assign((def) => def, {
+      schema: {
+        string: (o) => _zType({ kind: "string", ...o || {} }),
+        number: (o) => _zType({ kind: "number", ...o || {} }),
+        enum: (values) => _zType({ kind: "enum", values })
+      }
+    });
+    _startupMaintenanceHome = "";
+    FALLBACK_HIGH = /opus|gemini-.*-pro|deepseek\/deepseek-v4-pro|\bdeepseek-v4-pro\b|gpt-5|(^|\/)o[134]($|-|\/)/i;
+    FALLBACK_MID = /deepseek\/deepseek-v4-flash|\bdeepseek-v4-flash\b|claude.*sonnet|gemini-.*-flash|gpt-4o(?!-mini)/i;
+    ({ high: HIGH_TIER_RE, mid: MID_TIER_RE } = loadTierRegexes());
+    loadMLState();
+    scratchpadHitsSeen = /* @__PURE__ */ new Set();
+    try {
+      loadActiveJobs();
+    } catch {
+    }
   }
 });
 
@@ -1548,12 +3954,57 @@ __export(vibeultrax_exports, {
 function normalizeText2(input = {}) {
   return String(input.user_text || input.prompt || input.text || "").trim();
 }
-function profileFromCascade(decision) {
+function tierFromModelName(modelName) {
+  const lower = String(modelName || "").toLowerCase();
+  if (!lower)
+    return null;
+  if (/_?chat\b/.test(lower) || /(^|\/)deepseek\/deepseek-chat$/.test(lower))
+    return "cheap";
+  if (/_?flash\b/.test(lower) || /(^|\/)deepseek\/deepseek-v4-flash$/.test(lower))
+    return "medium";
+  return "brain";
+}
+function supportForPrediction(graph, firstWord, modelName) {
+  const node = graph?.nodes?.[firstWord];
+  const modelNode = graph?.nodes?.[modelName];
+  if (!node || !modelNode)
+    return 0;
+  const totalRoutes = Object.values(node.edges || {}).reduce((sum, count) => sum + Number(count || 0), 0);
+  if (!totalRoutes)
+    return 0;
+  const routeSupport = Number(node.edges?.[modelName] || 0) / totalRoutes;
+  const okEdges = Object.entries(modelNode.edges || {}).filter(([key]) => String(key).endsWith("::ok")).reduce((sum, [, count]) => sum + Number(count || 0), 0);
+  const totalEdges = Object.values(modelNode.edges || {}).reduce((sum, count) => sum + Number(count || 0), 0) || 0;
+  const successRate = totalEdges > 0 ? okEdges / totalEdges : 0;
+  return routeSupport * 0.45 + successRate * 0.55;
+}
+function learnedRouteFromGraph(text) {
+  const firstWord = String(text || "").trim().split(/\s+/)[0]?.toLowerCase() || "";
+  if (!firstWord || !_mlGraph?.nodes)
+    return null;
+  const predictedModel = predictBestModel(_mlGraph, firstWord, "brain");
+  if (!predictedModel)
+    return null;
+  const learnedTier = tierFromModelName(predictedModel);
+  if (!learnedTier)
+    return null;
+  const support = supportForPrediction(_mlGraph, firstWord, predictedModel);
+  if (support < 0.5)
+    return null;
+  return { firstWord, predictedModel, learnedTier, support };
+}
+function profileFromCascade(decision, learned = null) {
+  if (learned?.learnedTier === "cheap")
+    return { profile: "direct", cascade_depth: 1, pipeline_root: ["local"], tier_bias: "cheap" };
+  if (learned?.learnedTier === "medium")
+    return { profile: "standard", cascade_depth: 2, pipeline_root: ["medium", "brain"], tier_bias: "medium" };
+  if (learned?.learnedTier === "brain")
+    return { profile: "deep", cascade_depth: 3, pipeline_root: ["local", "medium", "brain"], tier_bias: "brain" };
   if (decision.useCheap && decision.escalate)
     return { profile: "deep", cascade_depth: 3, pipeline_root: ["local", "medium", "brain"], tier_bias: "brain" };
   if (decision.escalate)
     return { profile: "standard", cascade_depth: 2, pipeline_root: ["medium", "brain"], tier_bias: "brain" };
-  return { profile: "direct", cascade_depth: 1, pipeline_root: ["brain"], tier_bias: "brain" };
+  return { profile: "direct", cascade_depth: 1, pipeline_root: ["local"], tier_bias: "cheap" };
 }
 function getPivotCache2() {
   if (!globalThis.__vibeultraxPivotCache)
@@ -1563,7 +4014,8 @@ function getPivotCache2() {
 function vibeultraxControlVector(input = {}) {
   const text = normalizeText2(input);
   const cascade = cascadeDecide(text, CHEAP, MEDIUM, BRAIN, 0.85);
-  const profile = profileFromCascade(cascade);
+  const learned = learnedRouteFromGraph(text);
+  const profile = profileFromCascade(cascade, learned);
   return {
     optimization_mode: "vibeultrax",
     mode_root: "vibeultrax",
@@ -1582,14 +4034,18 @@ function vibeultraxControlVector(input = {}) {
     ultrax_confidence: cascade.confidence,
     ultrax_reason: cascade.reason,
     ultrax_estimated_savings: cascade.estimatedSavings,
-    directives: [`[ultrax root] cascade profile=${profile.profile}; reason=${cascade.reason}`]
+    ultrax_learned_model: learned?.predictedModel || null,
+    ultrax_learned_tier: learned?.learnedTier || null,
+    ultrax_learned_support: learned?.support || 0,
+    directives: [`[ultrax root] cascade profile=${profile.profile}; reason=${cascade.reason}${learned ? `; learned=${learned.predictedModel}` : ""}`]
   };
 }
 function vibeultraxPipeline(input = {}) {
   const text = normalizeText2(input);
   const pc = getPivotCache2();
   const cascade = cascadeDecide(text, CHEAP, MEDIUM, BRAIN, 0.85);
-  const profile = profileFromCascade(cascade);
+  const learned = learnedRouteFromGraph(text);
+  const profile = profileFromCascade(cascade, learned);
   const tokens = text ? pc.tokenize(text) : /* @__PURE__ */ new Set();
   const pivotBack = text && tokens.size > 0 ? pc.detectPivotBack(tokens, 0.5) : { matchedId: null, confidence: 0, reason: "no_text" };
   const isPivotBack = pivotBack.matchedId !== null;
@@ -1598,6 +4054,10 @@ function vibeultraxPipeline(input = {}) {
     mode: "vibeultrax",
     source: "vibeultrax",
     profile: profile.profile,
+    source_strategy: learned ? "learned" : "cascade",
+    learned_model: learned?.predictedModel || null,
+    learned_tier: learned?.learnedTier || null,
+    learned_support: learned?.support || 0,
     pivot: isPivotBack ? {
       matchedId: pivotBack.matchedId,
       confidence: pivotBack.confidence,
@@ -1620,6 +4080,7 @@ var init_vibeultrax = __esm({
   "src/vibeOS-lib/blackbox/vibeultrax.js"() {
     "use strict";
     init_ml_router();
+    init_state();
     init_pivot_cache();
     CHEAP = 1e-4;
     MEDIUM = 1e-3;
@@ -2155,53 +4616,11 @@ function createMcpServer(deps) {
 }
 
 // src/lib/api-client.js
+init_runtime_state();
 import { readFileSync as readFileSync2, writeFileSync as writeFileSync2, existsSync as existsSync3, mkdirSync as mkdirSync2, rmSync } from "node:fs";
 import { dirname as dirname3 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 import { homedir } from "node:os";
-
-// src/lib/runtime-state.js
-var RUNTIME_KEY = "__vibeOSRuntimeState";
-function getRuntimeState() {
-  const g = globalThis;
-  if (!g[RUNTIME_KEY]) {
-    g[RUNTIME_KEY] = {
-      apiConnected: true,
-      apiFallbackMode: false,
-      apiFallbackSince: null,
-      sessionId: "opencode-" + (process.pid || "x") + "-" + Date.now()
-    };
-  }
-  return g[RUNTIME_KEY];
-}
-function getOcSessionId() {
-  return getRuntimeState().sessionId;
-}
-function markApiConnected() {
-  const state = getRuntimeState();
-  state.apiConnected = true;
-  state.apiFallbackMode = false;
-  state.apiFallbackSince = null;
-}
-function markApiDisconnected() {
-  const state = getRuntimeState();
-  state.apiConnected = false;
-  state.apiFallbackMode = true;
-  if (!state.apiFallbackSince)
-    state.apiFallbackSince = (/* @__PURE__ */ new Date()).toISOString();
-}
-function resetApiConnection() {
-  const state = getRuntimeState();
-  state.apiConnected = false;
-  state.apiFallbackMode = false;
-  state.apiFallbackSince = null;
-}
-function isApiConnected() {
-  const state = getRuntimeState();
-  return state.apiConnected && !state.apiFallbackMode;
-}
-
-// src/lib/api-client.js
 var DEFAULT_API_URL = "https://api.vibetheog.com";
 var EMBEDDED_API_TOKEN = "vos_8d73804b13bb46711b9a47f036dba7b4d026fd9583d96960e663716e62815a69";
 var API_TOKEN_RE = /^vos_[a-f0-9]{64}$/i;
@@ -2905,6 +5324,14 @@ async function remoteCall(method, args, fallbackFn) {
     await ensureBootstrapExchange();
     syncApiTokenFromDisk();
   }
+  if (_apiFallbackMode && _apiFallbackSince) {
+    const elapsed = Date.now() - new Date(_apiFallbackSince).getTime();
+    if (elapsed > 6e4) {
+      _apiFallbackMode = false;
+      _apiFallbackSince = null;
+      logger.warn("[vibeOS] API fallback cooldown expired \u2014 retrying API");
+    }
+  }
   if (!VIBEOS_API_ENABLED || _apiFallbackMode) {
     if (fallbackFn)
       return fallbackFn();
@@ -2959,2341 +5386,11 @@ async function remoteCall(method, args, fallbackFn) {
 }
 
 // src/lib/pricing.js
+init_state();
 import { readFileSync as readFileSync5, writeFileSync as writeFileSync5, existsSync as existsSync6, mkdirSync as mkdirSync4, statSync as statSync5, renameSync as renameSync4, openSync as openSync2, closeSync as closeSync2, rmSync as rmSync3, readdirSync as readdirSync2 } from "node:fs";
 import { join as join5, dirname as dirname5, resolve } from "node:path";
 import { homedir as homedir4, tmpdir as tmpdir3 } from "node:os";
 import { createHash as createHash2 } from "node:crypto";
-
-// src/lib/state.js
-import { readFileSync as readFileSync4, writeFileSync as writeFileSync4, appendFileSync as appendFileSync2, existsSync as existsSync5, mkdirSync as mkdirSync3, statSync as statSync4, readdirSync, openSync, readSync, closeSync, rmSync as rmSync2, copyFileSync, renameSync as renameSync3 } from "node:fs";
-import { join as join4, dirname as dirname4, basename as basename2 } from "node:path";
-import { spawn } from "node:child_process";
-import { homedir as homedir3, tmpdir as tmpdir2 } from "node:os";
-import { createHash } from "node:crypto";
-import { AsyncLocalStorage } from "node:async_hooks";
-
-// src/lib/selection-manager.js
-import { readFileSync as readFileSync3, writeFileSync as writeFileSync3, existsSync as existsSync4, statSync as statSync3, renameSync as renameSync2 } from "node:fs";
-import { join as join3 } from "node:path";
-import { homedir as homedir2, tmpdir } from "node:os";
-var USER_HOME = (() => {
-  try {
-    return homedir2();
-  } catch {
-    return tmpdir();
-  }
-})();
-function getVibeOSHome2() {
-  return process.env.VIBEOS_HOME || join3(process.env.HOME || homedir2(), ".claude");
-}
-function safeJsonParse2(raw) {
-  if (raw == null || raw === "")
-    return null;
-  try {
-    return JSON.parse(raw);
-  } catch {
-  }
-  let cleaned = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "").replace(/,\s*([}\]])/g, "$1");
-  try {
-    return JSON.parse(cleaned);
-  } catch (e) {
-    throw e;
-  }
-}
-var DFLT_SEL = { enabled: true, active_slot: null, slot_locked: false, thinking_level: "off", flow_enabled: true, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: true, delegation_enforce: true, onboarding_mode: null, selected_provider: null, selected_quality_tier: null, selected_model: null, executed_provider: null, executed_quality_tier: null, executed_model: null, requested_optimization_mode: null, previous_default_agent: null, previous_optimization_mode: null };
-function loadSelection() {
-  const TIERS_FILE3 = join3(getVibeOSHome2(), "model-tiers.json");
-  try {
-    if (!existsSync4(TIERS_FILE3))
-      return DFLT_SEL;
-    const st = statSync3(TIERS_FILE3);
-    if (st.size > 10485760) {
-      _handleStateCorruption2(TIERS_FILE3);
-      return DFLT_SEL;
-    }
-    const j = safeJsonParse2(readFileSync3(TIERS_FILE3, "utf-8"));
-    return {
-      enabled: j?.selection?.enabled !== false,
-      active_slot: j?.selection?.active_slot || null,
-      slot_locked: j?.selection?.slot_locked === true,
-      active_pipeline: j?.selection?.active_pipeline || null,
-      optimization_mode: j?.selection?.optimization_mode || null,
-      thinking_level: j?.selection?.thinking_level || "off",
-      flow_enabled: j?.selection?.flow_enabled === true,
-      tdd_enforce: j?.selection?.tdd_enforce === true,
-      tdd_strict: j?.selection?.tdd_strict === true,
-      tdd_quality: j?.selection?.tdd_quality !== false,
-      flow_enforce: j?.selection?.flow_enforce === true,
-      delegation_enforce: j?.selection?.delegation_enforce !== false,
-      onboarding_mode: j?.selection?.onboarding_mode || null,
-      selected_provider: j?.selection?.selected_provider || null,
-      selected_quality_tier: j?.selection?.selected_quality_tier || null,
-      selected_model: j?.selection?.selected_model || null,
-      executed_provider: j?.selection?.executed_provider || null,
-      executed_quality_tier: j?.selection?.executed_quality_tier || null,
-      executed_model: j?.selection?.executed_model || null,
-      requested_optimization_mode: j?.selection?.requested_optimization_mode || null,
-      previous_default_agent: j?.selection?.previous_default_agent || null,
-      previous_optimization_mode: j?.selection?.previous_optimization_mode || null
-    };
-  } catch {
-    _handleStateCorruption2(TIERS_FILE3);
-    return DFLT_SEL;
-  }
-}
-function writeSelection(key, value) {
-  const TIERS_FILE3 = join3(getVibeOSHome2(), "model-tiers.json");
-  try {
-    return withFileLock(TIERS_FILE3, () => {
-      const j = safeJsonParse2(readFileSync3(TIERS_FILE3, "utf-8"));
-      if (!j.selection)
-        j.selection = {};
-      j.selection[key] = value;
-      const tmp = TIERS_FILE3 + ".tmp." + Date.now() + "." + Math.random().toString(36).slice(2, 8);
-      writeFileSync3(tmp, JSON.stringify(j, null, 2) + "\n");
-      renameSync2(tmp, TIERS_FILE3);
-      return true;
-    });
-  } catch (err) {
-    console.error(`[vibeOS] writeSelection failed: ${err.message}`);
-    return false;
-  }
-}
-function loadSessionSlot(sid) {
-  const BLACKBOX_FILE = join3(getVibeOSHome2(), "blackbox-state.json");
-  try {
-    if (!existsSync4(BLACKBOX_FILE))
-      return null;
-    const j = safeJsonParse2(readFileSync3(BLACKBOX_FILE, "utf-8"));
-    return j?.sessions?.[sid]?.active_slot || null;
-  } catch {
-    return null;
-  }
-}
-function writeSessionSlot2(sid, slot) {
-  const BLACKBOX_FILE = join3(getVibeOSHome2(), "blackbox-state.json");
-  try {
-    const j = existsSync4(BLACKBOX_FILE) ? safeJsonParse2(readFileSync3(BLACKBOX_FILE, "utf-8")) : {};
-    if (!j.sessions)
-      j.sessions = {};
-    if (!j.sessions[sid])
-      j.sessions[sid] = {};
-    j.sessions[sid].active_slot = slot;
-    const tmp = BLACKBOX_FILE + ".tmp";
-    writeFileSync3(tmp, JSON.stringify(j, null, 2) + "\n");
-    renameSync2(tmp, BLACKBOX_FILE);
-    return true;
-  } catch (err) {
-    console.error("[vibeOS] writeSessionSlot failed: " + err.message);
-    return false;
-  }
-}
-function loadSessionOptMode(sid) {
-  const BLACKBOX_FILE = join3(getVibeOSHome2(), "blackbox-state.json");
-  try {
-    if (!existsSync4(BLACKBOX_FILE))
-      return null;
-    const j = safeJsonParse2(readFileSync3(BLACKBOX_FILE, "utf-8"));
-    return j?.sessions?.[sid]?.optimization_mode || null;
-  } catch {
-    return null;
-  }
-}
-function loadGlobalOptMode() {
-  try {
-    const sel = loadSelection();
-    return sel.optimization_mode || null;
-  } catch {
-    return null;
-  }
-}
-function saveGlobalOptMode(mode) {
-  return writeSelection("optimization_mode", mode);
-}
-function writeSessionOptMode2(sid, mode) {
-  const BLACKBOX_FILE = join3(getVibeOSHome2(), "blackbox-state.json");
-  try {
-    const j = existsSync4(BLACKBOX_FILE) ? safeJsonParse2(readFileSync3(BLACKBOX_FILE, "utf-8")) : {};
-    if (!j.sessions)
-      j.sessions = {};
-    if (!j.sessions[sid])
-      j.sessions[sid] = {};
-    j.sessions[sid].optimization_mode = mode;
-    const tmp = BLACKBOX_FILE + ".tmp";
-    writeFileSync3(tmp, JSON.stringify(j, null, 2) + "\n");
-    renameSync2(tmp, BLACKBOX_FILE);
-    return true;
-  } catch (err) {
-    console.error("[vibeOS] writeSessionOptMode failed: " + err.message);
-    return false;
-  }
-}
-
-// src/lib/pattern-helpers.js
-import { relative, basename } from "node:path";
-function normalizeObservedPath(filePath, directory3) {
-  if (!filePath || typeof filePath !== "string")
-    return "unknown";
-  let p = filePath;
-  try {
-    if (directory3 && p.startsWith("/")) {
-      const rel = relative(directory3, p);
-      if (rel && !rel.startsWith("..") && !rel.startsWith("/"))
-        p = rel;
-    }
-  } catch {
-  }
-  p = p.replace(/\\/g, "/").replace(/^\.\/+/, "");
-  if (/^(src\/index\.js|package\.json|README\.md|CHANGELOG\.md|tsconfig\.json)$/i.test(p))
-    return p;
-  const m = p.match(/\.([a-z0-9]+)$/i);
-  if (p.startsWith("src/") && m)
-    return `src/*.${m[1].toLowerCase()}`;
-  if (p.startsWith("tests/") && m)
-    return `tests/*.${m[1].toLowerCase()}`;
-  return basename(p) || "unknown";
-}
-function commandFamily(command) {
-  const c = String(command || "").trim().toLowerCase();
-  if (!c)
-    return "unknown";
-  if (/\bnode\s+--check\b/.test(c))
-    return "syntax-check";
-  if (/\bnpm\s+run\s+typecheck\b|\btsc\b.*--noemit/.test(c))
-    return "typecheck";
-  if (/\bnpm\s+test\b|\bnode\s+--test\b|\bvitest\b|\bjest\b|\bpytest\b/.test(c))
-    return "test";
-  if (/\bnpm\s+run\s+build\b|\btsc\s+-p\b/.test(c))
-    return "build";
-  if (/\bgit\s+status\b/.test(c))
-    return "git-status";
-  if (/\bgit\s+commit\b/.test(c))
-    return "git-commit";
-  const first = c.replace(/^[a-z_][a-z0-9_]*=\S+\s+/g, "").split(/\s+/)[0];
-  return /^[a-z0-9._/-]{1,30}$/.test(first) ? first : "command";
-}
-function commandFailed(output) {
-  const code = output?.exitCode ?? output?.statusCode ?? output?.code;
-  if (Number.isFinite(Number(code)) && Number(code) !== 0)
-    return true;
-  const raw = output?.result ?? output?.text ?? output?.content ?? output?.data ?? "";
-  if (typeof raw !== "string")
-    return false;
-  return /\b(exit code|exited with code)\s*[:=]?\s*[1-9]\b|\b(assertionerror|syntaxerror|typeerror|referenceerror)\b|\b(failed|error:|err!)\b/i.test(raw);
-}
-function mergeProjectBucket(dst, src) {
-  const a = dst || {};
-  const b = src || {};
-  const topics = [.../* @__PURE__ */ new Set([...a.commonTopics || [], ...b.commonTopics || []])].slice(-20);
-  const mergePatterns = (kind) => {
-    const out = {};
-    for (const srcObj of [a.userPatterns?.[kind], b.userPatterns?.[kind]]) {
-      for (const [key, val] of Object.entries(srcObj || {})) {
-        const v = val;
-        const row = out[key] || { count: 0, sessions: [], lastSeen: null, summary: v?.summary || "" };
-        row.count += Number(v?.count || 0);
-        row.sessions = [.../* @__PURE__ */ new Set([...row.sessions || [], ...v?.sessions || []])].slice(-10);
-        row.lastSeen = [row.lastSeen, v?.lastSeen].filter(Boolean).sort().slice(-1)[0] || null;
-        row.summary = row.summary || v?.summary || "";
-        if (v?.kind)
-          row.kind = v.kind;
-        out[key] = row;
-      }
-    }
-    return out;
-  };
-  return {
-    totalSessions: (a.totalSessions || 0) + (b.totalSessions || 0),
-    researchChains: Math.max(a.researchChains || 0, b.researchChains || 0),
-    context7Bypasses: (a.context7Bypasses || 0) + (b.context7Bypasses || 0),
-    commonTopics: topics,
-    userPatterns: {
-      friction: mergePatterns("friction"),
-      routines: mergePatterns("routines")
-    },
-    lastSeen: [a.lastSeen, b.lastSeen].filter(Boolean).sort().slice(-1)[0] || (/* @__PURE__ */ new Date()).toISOString()
-  };
-}
-function _pruneOldSessions(state) {
-  if (!state?.sessions)
-    return;
-  const entries = Object.entries(state.sessions);
-  if (entries.length <= 30)
-    return;
-  entries.sort((a, b) => {
-    const da = a[1]?.started || a[1]?.last_costed || "";
-    const db = b[1]?.started || b[1]?.last_costed || "";
-    return db.localeCompare(da);
-  });
-  state.sessions = Object.fromEntries(entries.slice(0, 30));
-}
-function _computeSessionMetrics(state, sid) {
-  const session = state?.sessions?.[sid] || {};
-  const warns = Array.isArray(session?.warns) ? session.warns : [];
-  const toolCounts = session?.tool_counts || {};
-  const toolBreakdown = {};
-  for (const [t, c] of Object.entries(toolCounts)) {
-    toolBreakdown[String(t)] = Number(c || 0);
-  }
-  const startedAt = session?.started ? new Date(session.started).getTime() : Date.now();
-  const durationSec = Math.floor((Date.now() - startedAt) / 1e3);
-  const hours = Math.max(durationSec / 3600, 1e-3);
-  return {
-    ltTasks: Number(state?.lifetime?.total_savings_usd || state?.lifetime?.est_savings_usd || 0),
-    ltCache: Number(state?.lifetime?.cache_savings_usd || 0),
-    missedC7: Number(state?.lifetime?.missed_context7_usd || 0),
-    count: warns.length,
-    sesTasks: Number(session?.total_savings_usd || 0),
-    sesDuration: durationSec,
-    sesRatePerHour: Number((((session?.warns?.reduce((sum, w) => sum + Number(w?.est_savings_usd || 0), 0) || 0) + Number(session?.cache_savings_usd || 0)) / hours).toFixed(4)),
-    sesTrend: "stable",
-    sesToolBreakdown: toolBreakdown,
-    sesModelTurns: session?.model_turns || { brain: 0, worker: 0 },
-    quality_avg: state?.lifetime?.quality_total_count > 0 ? Math.round((state?.lifetime?.quality_total_score || 0) / state?.lifetime?.quality_total_count) : 0
-  };
-}
-
-// src/lib/state.js
-init_ml_router();
-
-// src/vibeOS-lib/smart-cache.js
-function tokenize(text) {
-  return String(text || "").toLowerCase().replace(/[^\w\s]/g, " ").split(/\s+/).filter((w) => w.length > 1);
-}
-function wordSet(words) {
-  return new Set(words);
-}
-function jaccardSimilarity(a, b) {
-  const wa = wordSet(tokenize(a));
-  const wb = wordSet(tokenize(b));
-  if (wa.size === 0 && wb.size === 0)
-    return 0;
-  let intersection = 0;
-  for (const w of wa) {
-    if (wb.has(w))
-      intersection++;
-  }
-  const union = wa.size + wb.size - intersection;
-  return union > 0 ? intersection / union : 0;
-}
-function bigrams(words) {
-  const bg = /* @__PURE__ */ new Set();
-  for (let i = 0; i < words.length - 1; i++) {
-    bg.add(`${words[i]}_${words[i + 1]}`);
-  }
-  return bg;
-}
-function cosineSimilarity(a, b) {
-  const ta = tokenize(a);
-  const tb = tokenize(b);
-  if (ta.length === 0 || tb.length === 0)
-    return 0;
-  const ba = bigrams(ta);
-  const bb = bigrams(tb);
-  if (ba.size === 0 && bb.size === 0)
-    return 0;
-  const allBigrams = /* @__PURE__ */ new Set([...ba, ...bb]);
-  let dotProduct = 0;
-  let magA = 0;
-  let magB = 0;
-  for (const bg of allBigrams) {
-    const inA = ba.has(bg) ? 1 : 0;
-    const inB = bb.has(bg) ? 1 : 0;
-    dotProduct += inA * inB;
-    magA += inA * inA;
-    magB += inB * inB;
-  }
-  const denominator = Math.sqrt(magA) * Math.sqrt(magB);
-  return denominator > 0 ? dotProduct / denominator : 0;
-}
-var CACHE_HIGH_WEIGHT_WORDS = /* @__PURE__ */ new Set([
-  "test",
-  "tests",
-  "build",
-  "lint",
-  "typecheck",
-  "deploy",
-  "install",
-  "npm",
-  "yarn",
-  "docker",
-  "compose",
-  "api",
-  "endpoint",
-  "schema",
-  "migration",
-  "database",
-  "query",
-  "config",
-  "package.json",
-  "tsconfig",
-  "readme",
-  "changelog",
-  "agent",
-  "index",
-  "main",
-  "app",
-  "server"
-]);
-function keywordOverlapScore(a, b) {
-  const wa = tokenize(a);
-  const wb = tokenize(b);
-  if (wa.length === 0 || wb.length === 0)
-    return 0;
-  let score = 0;
-  let maxScore = 0;
-  for (const w of wa) {
-    const weight = CACHE_HIGH_WEIGHT_WORDS.has(w) ? 3 : 1;
-    maxScore += weight;
-    if (wb.includes(w))
-      score += weight;
-  }
-  return maxScore > 0 ? score / maxScore : 0;
-}
-function compositeSimilarity(a, b) {
-  return jaccardSimilarity(a, b) * 0.35 + cosineSimilarity(a, b) * 0.35 + keywordOverlapScore(a, b) * 0.3;
-}
-function extractRecentCacheOutputs(db, limit = 10) {
-  if (!db?.entries || !Array.isArray(db.entries))
-    return [];
-  const now = Date.now();
-  return db.entries.slice(-limit).map((e) => ({
-    hash: e.hash || "",
-    tool: e.tool || "",
-    prompt: e.prompt?.slice(0, 120) || "",
-    sizeBytes: e.sizeBytes || 1024,
-    ageSec: e.at ? Math.round((now - new Date(e.at).getTime()) / 1e3) : 3600
-  }));
-}
-function createCacheDatabase() {
-  return { entries: [], stats: {} };
-}
-function addCacheEntry(db, hash, tool2, prompt, sizeBytes, ageSec) {
-  const now = (/* @__PURE__ */ new Date()).toISOString();
-  const idx = db.entries.findIndex((e) => e.hash === hash);
-  if (idx >= 0) {
-    db.entries[idx].at = now;
-    db.entries[idx].ageSec = ageSec;
-    return;
-  }
-  db.entries.push({
-    hash,
-    tool: tool2,
-    prompt,
-    sizeBytes,
-    at: now,
-    ageSec,
-    words: tokenize(prompt)
-  });
-  if (db.entries.length > 500) {
-    db.entries.sort((a, b) => b.at.localeCompare(a.at));
-    db.entries.length = 500;
-  }
-}
-function recordCacheStats(db, tool2, hit, bytesSaved) {
-  db.stats[tool2] ??= { tool: tool2, hits: 0, total: 0, bytesSaved: 0, lastHit: "", hitRate: 0 };
-  const s = db.stats[tool2];
-  s.total++;
-  if (hit) {
-    s.hits++;
-    s.bytesSaved += bytesSaved;
-    s.lastHit = (/* @__PURE__ */ new Date()).toISOString();
-  }
-  s.hitRate = s.total > 0 ? s.hitRate * 0.9 + (hit ? 0.1 : 0) : 0;
-}
-function predictCacheHit(db, tool2, prompt) {
-  const stats = db.stats[tool2];
-  const toolHitRate = stats?.hitRate ?? 0.3;
-  const similarEntries = [];
-  for (const entry of db.entries) {
-    if (entry.tool !== tool2)
-      continue;
-    const score = compositeSimilarity(prompt, entry.prompt);
-    if (score > 0.4) {
-      similarEntries.push({ hash: entry.hash, score, entry });
-    }
-  }
-  similarEntries.sort((a, b) => b.score - a.score);
-  if (similarEntries.length === 0) {
-    return {
-      shouldCache: toolHitRate > 0.4,
-      shouldWarm: false,
-      confidence: toolHitRate,
-      reason: `no similar entries found; tool hit rate: ${(toolHitRate * 100).toFixed(0)}%`,
-      similarEntries: [],
-      estimatedSavings: 0
-    };
-  }
-  const best = similarEntries[0];
-  if (best.score >= 0.75) {
-    return {
-      shouldCache: true,
-      shouldWarm: true,
-      confidence: best.score,
-      reason: `high similarity (${(best.score * 100).toFixed(0)}%) with previous cache entry`,
-      similarEntries: similarEntries.slice(0, 3),
-      estimatedSavings: Math.round(best.entry.sizeBytes / 4 * 0.1 / 1e6 * 1e3) / 1e3
-    };
-  }
-  if (best.score >= 0.5) {
-    return {
-      shouldCache: true,
-      shouldWarm: toolHitRate > 0.5,
-      confidence: best.score,
-      reason: `moderate similarity (${(best.score * 100).toFixed(0)}%) with previous entry`,
-      similarEntries: similarEntries.slice(0, 2),
-      estimatedSavings: Math.round(best.entry.sizeBytes / 4 * 0.1 / 1e6 * 1e3) / 1e3 * 0.5
-    };
-  }
-  return {
-    shouldCache: toolHitRate > 0.3,
-    shouldWarm: false,
-    confidence: Math.max(0.2, toolHitRate),
-    reason: `low similarity, relying on tool hit rate: ${(toolHitRate * 100).toFixed(0)}%`,
-    similarEntries: [],
-    estimatedSavings: 0
-  };
-}
-function evictStaleEntries(db, maxAgeSec) {
-  const now = Date.now();
-  const before = db.entries.length;
-  db.entries = db.entries.filter((e) => {
-    const entryTime = new Date(e.at).getTime();
-    return (now - entryTime) / 1e3 < maxAgeSec;
-  });
-  return before - db.entries.length;
-}
-function deserializeCacheDb(raw) {
-  try {
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object" && Array.isArray(parsed.entries)) {
-      return parsed;
-    }
-  } catch {
-  }
-  return createCacheDatabase();
-}
-
-// src/lib/state.js
-var USER_HOME2 = (() => {
-  try {
-    return homedir3();
-  } catch {
-    return tmpdir2();
-  }
-})();
-var VIBEOS_CONTEXT = new AsyncLocalStorage();
-var VIBEOS_HOME = process.env.VIBEOS_HOME || join4(USER_HOME2, ".claude");
-var OPENCODE_HOME = process.env.VIBEOS_OPENCODE_HOME || join4(USER_HOME2, ".config", "opencode");
-var FILE_LOCK_DIR = join4(VIBEOS_HOME, ".vibeOS-locks");
-var DELEGATION_STATE_FILE = join4(VIBEOS_HOME, "delegation-state.json");
-var SAVINGS_LEDGER_FILE = join4(VIBEOS_HOME, "savings-ledger.jsonl");
-var GLOBAL_LEARNING_FILE = join4(VIBEOS_HOME, "global-learning.json");
-var PRICING_CACHE_FILE = join4(VIBEOS_HOME, "model-pricing-cache.json");
-var BLACKBOX_STATE_FILE = join4(VIBEOS_HOME, "blackbox-state.json");
-var PROJECT_STATE_FILE = join4(VIBEOS_HOME, "project-states.json");
-var TIERS_FILE = join4(VIBEOS_HOME, "model-tiers.json");
-var ACTIVE_JOBS_FILE = join4(VIBEOS_HOME, "active-jobs.json");
-var AUTH_F = join4(USER_HOME2, ".local", "share", "opencode", "auth.json");
-var CREDIT_CACHE_F = join4(VIBEOS_HOME, "credit-snapshot.json");
-var FLOW_TODO_QUEUE_FILE = join4(VIBEOS_HOME, ".flow-todo-queue.jsonl");
-var FLOW_DEDUP_FILE2 = join4(VIBEOS_HOME, ".flow-dedup-keys.json");
-var ENFORCEMENT_COOLDOWN_FILE = join4(VIBEOS_HOME, ".enforcement-cooldown.jsonl");
-var TODOS_FILE = join4(VIBEOS_HOME, "todos.json");
-var REPORTS_DIR = join4(VIBEOS_HOME, "reports");
-var CONTEXT7_INSTALL_FLAG = join4(VIBEOS_HOME, ".context7-install-suggested");
-var TRINITY_OPENCODE_CONFIG = join4(OPENCODE_HOME, "opencode.json");
-var TRINITY_OPENCODE_CONFIGC = join4(OPENCODE_HOME, "opencode.jsonc");
-var SCRATCHPAD_ROOT = join4(VIBEOS_HOME, "scratch");
-var SCRATCHPAD_GLOBAL_DIR = join4(SCRATCHPAD_ROOT, "by-hash");
-var SCRATCHPAD_SESSIONS_DIR = join4(SCRATCHPAD_ROOT, "sessions");
-var SCRATCHPAD_SESSION_TTL_MS = 48 * 60 * 60 * 1e3;
-var SCRATCHPAD_MAX_AGE_SEC = Number(process.env.CLAUDE_SCRATCHPAD_MAX_AGE_SEC || 86400);
-var MAX_SCRATCHPAD_FILES = 1e3;
-var MAX_SCRATCHPAD_BYTES = 10 * 1024 * 1024;
-var MAX_SESSION_SCRATCHPAD_FILES = 200;
-var MAX_SESSION_SCRATCHPAD_BYTES = 2 * 1024 * 1024;
-var CORRUPTION_BACKUP_MAX = 5;
-var CORRUPTION_BACKUP_TTL_MS = 24 * 60 * 60 * 1e3;
-var LEDGER_ROTATE_MAX_BYTES = 256 * 1024;
-var LEDGER_ROTATE_MAX_LINES = 1e4;
-var LEDGER_ROTATE_MAX_AGE_MS = 48 * 60 * 60 * 1e3;
-var ACTIVE_JOBS_STALE_MS = 72 * 60 * 60 * 1e3;
-var MAX_PTR_CANDIDATES = 50;
-var SUMMARY_HEAD_TRUNCATE = 500;
-function getVibeOSHome3() {
-  return VIBEOS_CONTEXT.getStore()?.home || process.env.VIBEOS_HOME || join4(process.env.HOME || "", ".claude");
-}
-function setVibeOSHomeContext(home) {
-  VIBEOS_CONTEXT.enterWith({ home: String(home || "") });
-}
-var DECADENCE_FRESH_MS = 5 * 60 * 1e3;
-var DECADENCE_WARM_MS = 60 * 60 * 1e3;
-var DECADENCE_COLD_MS = 24 * 60 * 60 * 1e3;
-var DECADENCE_EXPIRE_MS = 48 * 60 * 60 * 1e3;
-var DECADENCE_THROTTLE_MS = 60 * 1e3;
-var DECADENCE_GLOBAL_THROTTLE_MS = 5 * 60 * 1e3;
-var TOOL_NAME_NORMALIZE = {
-  read: "Read",
-  bash: "Bash",
-  grep: "Grep",
-  glob: "Glob",
-  webfetch: "WebFetch",
-  websearch: "WebSearch",
-  list: "LS",
-  "context7_query-docs": "Context7QueryDocs",
-  "context7_resolve-library-id": "Context7ResolveLibrary",
-  obsidian: "Obsidian"
-};
-var SCRATCHPAD_TOOLS = new Set(Object.keys(TOOL_NAME_NORMALIZE));
-var WARN_DEDUPE_WINDOW_MS = 120 * 1e3;
-var SOFT_QUOTA_LIMIT = 5;
-var _OC_SID = getOcSessionId();
-var currentSessionId = _OC_SID;
-var _sessionStart = Date.now();
-var currentTier = null;
-var currentModel = null;
-var currentProjectFingerprint = "";
-var currentProjectName = "";
-function setCurrentTier(v) {
-  currentTier = v;
-}
-function setCurrentModel(v) {
-  currentModel = v;
-}
-function setCurrentProjectFingerprint(v) {
-  currentProjectFingerprint = v;
-}
-function setCurrentProjectName(v) {
-  currentProjectName = v;
-}
-function setCurrentSessionId(v) {
-  currentSessionId = String(v || _OC_SID);
-}
-function getCurrentSessionId() {
-  return currentSessionId || _OC_SID;
-}
-var recentToolEvents = [];
-var frictionSessionKeys = /* @__PURE__ */ new Set();
-var routineSessionKeys = /* @__PURE__ */ new Set();
-var lastMutationEvent = null;
-function setLastMutationEvent(v) {
-  lastMutationEvent = v;
-}
-var _savingsCache = null;
-var _savingsCacheMtime = 0;
-var _ledgerReconciledMtime = 0;
-var _ledgerTotalsCache = {
-  mtime: 0,
-  size: 0,
-  delegation: 0,
-  cache: 0,
-  context7: 0,
-  entries: 0
-};
-function invalidateSavingsCache() {
-  _savingsCache = null;
-  _savingsCacheMtime = 0;
-}
-var _mlGraph = createPatternGraph();
-var _cacheDb = createCacheDatabase();
-var ML_ENABLED = true;
-var ML_CONFIDENCE_THRESHOLD = 0.6;
-var _mlSavePending = false;
-function setMlSavePending(v) {
-  _mlSavePending = v;
-}
-var _blackboxEnabled = true;
-function setBlackboxEnabled(val) {
-  _blackboxEnabled = val;
-}
-var _latestBlackboxState = null;
-var _latestBlackboxLoopMsg = null;
-var _latestBlackboxPivotMsg = null;
-var _modelLocked = false;
-var _lockedSlot = null;
-var _lockedModel = null;
-function setModelLocked(val) {
-  _modelLocked = !!val;
-}
-function setLockedSlot(val) {
-  _lockedSlot = val ? String(val) : null;
-}
-function setLockedModel(val) {
-  _lockedModel = val ? String(val) : null;
-}
-var _patternFiredKeys = /* @__PURE__ */ new Set();
-var _sessionCleanupRegistered = false;
-var _sessionCacheCleaned = false;
-var prunedThisProcess = false;
-var _lastDecadenceRun = 0;
-var briefedProjects = /* @__PURE__ */ new Set();
-var _ledgerBuffer = [];
-var _ledgerBufferTimer = null;
-function setLedgerBufferTimer(val) {
-  _ledgerBufferTimer = val;
-}
-var LEDGER_BUFFER_MAX = 10;
-var LEDGER_BUFFER_FLUSH_MS = 5e3;
-var testReminderSeen = /* @__PURE__ */ new Set();
-var DFLT_GL = {
-  exploratory_words: {},
-  task_first_words: {},
-  context7_bypasses: 0,
-  context7_missed_usd: 0,
-  context7_last_seen: null,
-  updatedAt: null
-};
-function _zType(base) {
-  return Object.assign((...a) => _zType({ ...base, args: a }), {
-    optional: () => _zType({ ...base, optional: true }),
-    _isZod: true,
-    _base: base
-  });
-}
-var tool = Object.assign((def) => def, {
-  schema: {
-    string: (o) => _zType({ kind: "string", ...o || {} }),
-    number: (o) => _zType({ kind: "number", ...o || {} }),
-    enum: (values) => _zType({ kind: "enum", values })
-  }
-});
-function _pruneCorruptionBackups(backupDir) {
-  try {
-    if (!existsSync5(backupDir))
-      return;
-    const now = Date.now();
-    const backups = readdirSync(backupDir).map((name) => {
-      const path = join4(backupDir, name);
-      try {
-        const st = statSync4(path);
-        return { name, path, mtimeMs: st.mtimeMs };
-      } catch {
-        return null;
-      }
-    }).filter((entry) => !!entry && entry.name.includes(".corrupted.")).sort((a, b) => b.mtimeMs - a.mtimeMs);
-    const keep = new Set(backups.slice(0, CORRUPTION_BACKUP_MAX).map((b) => b.path));
-    for (const backup of backups) {
-      const isExpired = now - backup.mtimeMs > CORRUPTION_BACKUP_TTL_MS;
-      if (isExpired || !keep.has(backup.path)) {
-        try {
-          rmSync2(backup.path, { force: true });
-        } catch {
-        }
-      }
-    }
-  } catch {
-  }
-}
-var _startupMaintenanceHome = "";
-function runStartupMaintenanceOnce() {
-  try {
-    const home = getVibeOSHome3();
-    if (!home || home === _startupMaintenanceHome)
-      return;
-    _startupMaintenanceHome = home;
-    _pruneCorruptionBackups(join4(home, ".backups"));
-    loadActiveJobs();
-    _compactSavingsLedgerIfNeeded();
-  } catch {
-  }
-}
-function _ensureVibeOSHomeDir() {
-  try {
-    if (!existsSync5(VIBEOS_HOME)) {
-      mkdirSync3(VIBEOS_HOME, { recursive: true });
-      return VIBEOS_HOME;
-    }
-    const st = statSync4(VIBEOS_HOME);
-    if (!st.isDirectory()) {
-      const backup = VIBEOS_HOME + ".backup." + Date.now();
-      renameSync3(VIBEOS_HOME, backup);
-      mkdirSync3(VIBEOS_HOME, { recursive: true });
-    }
-    return VIBEOS_HOME;
-  } catch {
-    return VIBEOS_HOME;
-  }
-}
-function _handleStateCorruption2(path) {
-  _ensureVibeOSHomeDir();
-  const backupDir = join4(VIBEOS_HOME, ".backups");
-  try {
-    mkdirSync3(backupDir, { recursive: true });
-  } catch {
-  }
-  const backupPath = join4(backupDir, basename2(path) + ".corrupted." + Date.now());
-  try {
-    copyFileSync(path, backupPath);
-  } catch {
-  }
-  const logPath = join4(VIBEOS_HOME, ".state-corruption-log.jsonl");
-  try {
-    appendFileSync2(logPath, JSON.stringify({ ts: (/* @__PURE__ */ new Date()).toISOString(), path, backup: backupPath }) + "\n");
-  } catch {
-  }
-  _pruneCorruptionBackups(backupDir);
-  return backupPath;
-}
-function _lockPathFor(filePath) {
-  const hash = createHash("sha1").update(String(filePath || "")).digest("hex");
-  return join4(FILE_LOCK_DIR, `${hash}.lock`);
-}
-function withFileLock(filePath, fn, opts = {}) {
-  const staleMs = Number(opts.staleMs || 3e4);
-  const timeoutMs = Number(opts.timeoutMs || 2e3);
-  const lockPath = _lockPathFor(filePath);
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    try {
-      mkdirSync3(FILE_LOCK_DIR, { recursive: true });
-      const fd = openSync(lockPath, "wx");
-      try {
-        writeFileSync4(fd, `${process.pid}
-${Date.now()}
-`);
-      } catch {
-      }
-      try {
-        return fn();
-      } finally {
-        try {
-          closeSync(fd);
-        } catch {
-        }
-        try {
-          rmSync2(lockPath, { force: true });
-        } catch {
-        }
-      }
-    } catch (err) {
-      try {
-        if (existsSync5(lockPath)) {
-          const age = Date.now() - statSync4(lockPath).mtimeMs;
-          if (age > staleMs) {
-            try {
-              rmSync2(lockPath, { force: true });
-            } catch {
-            }
-          }
-        }
-      } catch {
-      }
-    }
-  }
-  throw new Error(`[vibeOS] lock not acquired for ${filePath} after ${timeoutMs}ms`);
-}
-function safeJsonParse3(raw) {
-  if (raw == null || raw === "")
-    return null;
-  try {
-    return JSON.parse(raw);
-  } catch {
-  }
-  let cleaned = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "").replace(/,\s*([}\]])/g, "$1");
-  try {
-    return JSON.parse(cleaned);
-  } catch {
-    return null;
-  }
-}
-function validateState(state, path) {
-  if (!state || typeof state !== "object") {
-    console.error(`[vibeOS] State validation failed: not an object at ${path}`);
-    return;
-  }
-  if (state.session_started_at && isNaN(Date.parse(state.session_started_at))) {
-    console.error(`[vibeOS] State validation warning: invalid session_started_at at ${path}, resetting`);
-    state.session_started_at = (/* @__PURE__ */ new Date()).toISOString();
-  }
-  if (state.sessions && Array.isArray(state.sessions)) {
-    console.error(`[vibeOS] State validation: converting legacy sessions array to object at ${path}`);
-    state.sessions = {};
-  } else if (state.sessions && !Array.isArray(state.sessions) && (typeof state.sessions !== "object" || state.sessions === null)) {
-    console.error(`[vibeOS] State validation warning: sessions is invalid type at ${path}, resetting`);
-    state.sessions = {};
-  }
-  if (state.lifetime && typeof state.lifetime !== "object") {
-    console.error(`[vibeOS] State validation warning: lifetime is not object at ${path}, resetting`);
-    state.lifetime = {};
-  }
-}
-function readJsonOrEmpty(filePath) {
-  try {
-    if (!existsSync5(filePath))
-      return {};
-    const st = statSync4(filePath);
-    if (st.size > 10485760) {
-      _handleStateCorruption2(filePath);
-      return {};
-    }
-    return safeJsonParse3(readFileSync4(filePath, "utf-8"));
-  } catch {
-    _handleStateCorruption2(filePath);
-    return {};
-  }
-}
-function updateState(mutator) {
-  const delegationStateFile = join4(getVibeOSHome3(), "delegation-state.json");
-  const MAX_RETRIES2 = 3;
-  for (let attempt = 0; attempt < MAX_RETRIES2; attempt++) {
-    try {
-      const result = withFileLock(delegationStateFile, () => {
-        const preGen = readJsonOrEmpty(delegationStateFile)._gen || 0;
-        let state = readJsonOrEmpty(delegationStateFile);
-        if (!state || typeof state !== "object")
-          state = {};
-        if (!state.session_started_at || state.session_started_at === "not-a-valid-date" || isNaN(Date.parse(state.session_started_at))) {
-          state.session_started_at = (/* @__PURE__ */ new Date()).toISOString();
-        }
-        state.lifetime ??= {};
-        state.lifetime.missed_context7_usd ??= 0;
-        state.lifetime.cache_savings_usd ??= 0;
-        state.lifetime.total_savings_usd ??= 0;
-        state._ledgerFormatVersion ??= 2;
-        state._gen = preGen + 1;
-        const next = mutator(state) ?? state;
-        validateState(next, delegationStateFile);
-        mkdirSync3(dirname4(delegationStateFile), { recursive: true });
-        const tmp = delegationStateFile + ".tmp";
-        writeFileSync4(tmp, JSON.stringify(next, null, 2) + "\n");
-        renameSync3(tmp, delegationStateFile);
-        invalidateSavingsCache();
-        return next;
-      });
-      return result;
-    } catch (err) {
-      if (attempt === MAX_RETRIES2 - 1) {
-        if (process.env.VIBEOS_DEBUG_INTERNALS === "1") {
-          console.error(`[vibeOS] updateState failed after ${MAX_RETRIES2} retries: ${err.message}`);
-        }
-        return null;
-      }
-    }
-  }
-  return null;
-}
-function readFullState() {
-  const delegationStateFile = join4(getVibeOSHome3(), "delegation-state.json");
-  try {
-    if (!existsSync5(delegationStateFile))
-      return {};
-    const st = statSync4(delegationStateFile);
-    if (st.size > 10485760) {
-      _handleStateCorruption2(delegationStateFile);
-      return {};
-    }
-    return safeJsonParse3(readFileSync4(delegationStateFile, "utf-8"));
-  } catch {
-    _handleStateCorruption2(delegationStateFile);
-    return {};
-  }
-}
-function roundUsd(v) {
-  return Math.round((Number(v) || 0) * 1e4) / 1e4;
-}
-var FALLBACK_HIGH = /opus|gemini-.*-pro|deepseek\/deepseek-v4-pro|\bdeepseek-v4-pro\b|gpt-5|(^|\/)o[134]($|-|\/)/i;
-var FALLBACK_MID = /deepseek\/deepseek-v4-flash|\bdeepseek-v4-flash\b|claude.*sonnet|gemini-.*-flash|gpt-4o(?!-mini)/i;
-function _safeRegex(cfg, fallback2, label) {
-  if (!cfg)
-    return fallback2;
-  try {
-    return new RegExp(cfg, "i");
-  } catch (e) {
-    console.error(`[vibeOS] Invalid ${label}-tier regex in model-tiers.json: ${e.message}. Falling back.`);
-    return fallback2;
-  }
-}
-function loadTierRegexes() {
-  try {
-    const p = join4(getVibeOSHome3(), "model-tiers.json");
-    if (!existsSync5(p))
-      return { high: FALLBACK_HIGH, mid: FALLBACK_MID };
-    const j = safeJsonParse3(readFileSync4(p, "utf-8"));
-    const highRe = _safeRegex(j?.tiers?.high?.regex, FALLBACK_HIGH, "high");
-    const midRe = _safeRegex(j?.tiers?.mid?.regex, FALLBACK_MID, "mid");
-    return { high: highRe, mid: midRe };
-  } catch {
-    return { high: FALLBACK_HIGH, mid: FALLBACK_MID };
-  }
-}
-var { high: HIGH_TIER_RE, mid: MID_TIER_RE } = loadTierRegexes();
-function loadGlobalLearning() {
-  const globalLearningFile = join4(getVibeOSHome3(), "global-learning.json");
-  try {
-    if (!existsSync5(globalLearningFile))
-      return DFLT_GL;
-    const st = statSync4(globalLearningFile);
-    if (st.size > 10485760) {
-      _handleStateCorruption2(globalLearningFile);
-      return DFLT_GL;
-    }
-    const j = safeJsonParse3(readFileSync4(globalLearningFile, "utf-8"));
-    if (!j || typeof j !== "object")
-      return DFLT_GL;
-    j.exploratory_words ??= {};
-    j.task_first_words ??= {};
-    j.context7_bypasses ??= 0;
-    j.context7_missed_usd ??= 0;
-    j.context7_last_seen ??= null;
-    return j;
-  } catch {
-    _handleStateCorruption2(globalLearningFile);
-    return DFLT_GL;
-  }
-}
-function updateGlobalLearning(mutator) {
-  const globalLearningFile = join4(getVibeOSHome3(), "global-learning.json");
-  return withFileLock(globalLearningFile, () => {
-    const s = loadGlobalLearning();
-    const next = mutator(s) ?? s;
-    next.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
-    mkdirSync3(dirname4(globalLearningFile), { recursive: true });
-    const tmp = globalLearningFile + ".tmp";
-    writeFileSync4(tmp, JSON.stringify(next, null, 2));
-    renameSync3(tmp, globalLearningFile);
-    return next;
-  });
-}
-function getLearnedExploratoryWords() {
-  const out = /* @__PURE__ */ new Set();
-  try {
-    const gl = loadGlobalLearning();
-    for (const [w, meta] of Object.entries(gl.exploratory_words || {})) {
-      if (meta?.count >= 1)
-        out.add(String(w));
-    }
-  } catch {
-  }
-  return out;
-}
-function loadMLState() {
-  try {
-    const gl = loadGlobalLearning();
-    if (gl.ml_graph_raw)
-      _mlGraph = deserializeGraph(gl.ml_graph_raw);
-    if (gl.ml_cache_raw)
-      _cacheDb = deserializeCacheDb(gl.ml_cache_raw);
-    evictStaleEntries(_cacheDb, 86400 * 7);
-  } catch {
-  }
-}
-function saveMLState() {
-  if (!ML_ENABLED)
-    return false;
-  try {
-    updateGlobalLearning((gl) => {
-      gl.ml_graph_raw = JSON.stringify(_mlGraph);
-      gl.ml_cache_raw = JSON.stringify(_cacheDb);
-      return gl;
-    });
-    return true;
-  } catch {
-    return false;
-  }
-}
-loadMLState();
-function loadBlackboxState() {
-  const blackboxFile = join4(getVibeOSHome3(), "blackbox-state.json");
-  try {
-    if (!existsSync5(blackboxFile))
-      return { enabled: true, sessions: {} };
-    const st = statSync4(blackboxFile);
-    if (st.size > 10485760) {
-      _handleStateCorruption2(blackboxFile);
-      return { enabled: false, sessions: {} };
-    }
-    const raw = safeJsonParse3(readFileSync4(blackboxFile, "utf-8")) || { enabled: false, sessions: {} };
-    if (!raw.sessions || typeof raw.sessions !== "object")
-      raw.sessions = {};
-    const now = Date.now();
-    let changed = false;
-    for (const [sid, session] of Object.entries(raw.sessions)) {
-      if (!session || typeof session !== "object")
-        continue;
-      const { record: next, changed: recordChanged } = normalizeBlackboxRecord(session, sid, now);
-      raw.sessions[sid] = next;
-      if (recordChanged)
-        changed = true;
-    }
-    if (changed) {
-      try {
-        saveBlackboxState(raw);
-      } catch {
-      }
-    }
-    return raw;
-  } catch {
-    _handleStateCorruption2(blackboxFile);
-    return { enabled: false, sessions: {} };
-  }
-}
-function saveBlackboxState(state) {
-  const blackboxFile = join4(getVibeOSHome3(), "blackbox-state.json");
-  try {
-    const next = state && typeof state === "object" ? state : { enabled: true, sessions: {} };
-    next.sessions ??= {};
-    const now = Date.now();
-    for (const [sid, session] of Object.entries(next.sessions)) {
-      if (!session || typeof session !== "object")
-        continue;
-      next.sessions[sid] = normalizeBlackboxRecord(session, sid, now).record;
-    }
-    mkdirSync3(dirname4(blackboxFile), { recursive: true });
-    const tmp = blackboxFile + ".tmp";
-    writeFileSync4(tmp, JSON.stringify(next, null, 2) + "\n");
-    renameSync3(tmp, blackboxFile);
-  } catch (err) {
-    console.error(`[vibeOS] saveBlackboxState failed: ${err.message}`);
-  }
-}
-function normalizeBlackboxRecord(record, sid, now) {
-  const next = { ...record || {} };
-  let changed = false;
-  const createdAtRaw = typeof next.createdAt === "string" ? next.createdAt : "";
-  const updatedAtRaw = typeof next.updatedAt === "string" ? next.updatedAt : "";
-  const startedRaw = typeof next.started === "string" ? next.started : "";
-  const sessionStartedRaw = typeof next.session_started_at === "string" ? next.session_started_at : "";
-  const anchorRaw = [createdAtRaw, updatedAtRaw, startedRaw, sessionStartedRaw].find((v) => v && !Number.isNaN(Date.parse(v)));
-  const anchorMs = anchorRaw ? Date.parse(anchorRaw) : NaN;
-  if (!Number.isFinite(Date.parse(createdAtRaw))) {
-    next.createdAt = Number.isFinite(anchorMs) ? new Date(anchorMs).toISOString() : new Date(now).toISOString();
-    changed = true;
-  }
-  if (!Number.isFinite(Date.parse(updatedAtRaw))) {
-    next.updatedAt = next.createdAt || new Date(now).toISOString();
-    changed = true;
-  }
-  if (typeof next.sessionId !== "string" || !next.sessionId.trim()) {
-    next.sessionId = String(sid || "");
-    changed = true;
-  }
-  if (typeof next.project_fingerprint !== "string" || !next.project_fingerprint.trim()) {
-    if (typeof currentProjectFingerprint === "string" && currentProjectFingerprint.trim()) {
-      next.project_fingerprint = currentProjectFingerprint.trim();
-      changed = true;
-    }
-  }
-  if (typeof next.project_name !== "string" || !next.project_name.trim()) {
-    if (typeof currentProjectName === "string" && currentProjectName.trim()) {
-      next.project_name = currentProjectName.trim();
-      changed = true;
-    }
-  }
-  if (typeof next.regime !== "string" || !next.regime.trim()) {
-    next.regime = typeof next.sub_regime === "string" && next.sub_regime.trim() ? next.sub_regime.trim() : "INIT";
-    changed = true;
-  }
-  if (typeof next.sub_regime !== "string" || !next.sub_regime.trim()) {
-    next.sub_regime = "INIT";
-    changed = true;
-  }
-  if (typeof next.resolution !== "string" || !next.resolution.trim()) {
-    next.resolution = "unresolved";
-    changed = true;
-  }
-  if (!Number.isFinite(Number(next.momentum))) {
-    next.momentum = 0;
-    changed = true;
-  }
-  if (!Number.isFinite(Number(next.turn_counter))) {
-    next.turn_counter = 0;
-    changed = true;
-  }
-  if (!Number.isFinite(Number(next.loopCount))) {
-    next.loopCount = 0;
-    changed = true;
-  }
-  if (!Number.isFinite(Number(next.loop_consecutive))) {
-    next.loop_consecutive = Number(next.loopCount || 0);
-    changed = true;
-  }
-  if (!Array.isArray(next.history)) {
-    next.history = [];
-    changed = true;
-  }
-  if (!Array.isArray(next.pivotHistory)) {
-    next.pivotHistory = [];
-    changed = true;
-  }
-  if (!Array.isArray(next.outcomeHistory)) {
-    next.outcomeHistory = [];
-    changed = true;
-  }
-  return { record: next, changed };
-}
-function getSessionRoot() {
-  return join4(SCRATCHPAD_SESSIONS_DIR, _OC_SID);
-}
-function getSessionScratchpadDir() {
-  return join4(getSessionRoot(), "by-hash");
-}
-function getSessionIndexPath() {
-  return join4(getSessionRoot(), "index.jsonl");
-}
-function getGlobalIndexPath() {
-  return join4(SCRATCHPAD_ROOT, "index.jsonl");
-}
-function ensureSessionScratchpadDirs() {
-  try {
-    mkdirSync3(getSessionScratchpadDir(), { recursive: true });
-    return true;
-  } catch {
-    return false;
-  }
-}
-function cleanupCurrentSessionScratchpad() {
-  if (_sessionCacheCleaned)
-    return;
-  _sessionCacheCleaned = true;
-  try {
-    rmSync2(getSessionRoot(), { recursive: true, force: true });
-  } catch {
-  }
-}
-function registerSessionCleanupHandlers() {
-  if (_sessionCleanupRegistered)
-    return;
-  _sessionCleanupRegistered = true;
-  if (process._vibeOS_cleanupRegistered)
-    return;
-  process._vibeOS_cleanupRegistered = true;
-  process.setMaxListeners(20);
-  ensureSessionScratchpadDirs();
-  process.on("exit", () => {
-    _flushLedgerBuffer();
-    cleanupCurrentSessionScratchpad();
-  });
-  process.on("SIGINT", () => {
-    cleanupCurrentSessionScratchpad();
-    process.exit(130);
-  });
-}
-function _flushLedgerBuffer() {
-  if (_ledgerBufferTimer) {
-    clearTimeout(_ledgerBufferTimer);
-    _ledgerBufferTimer = null;
-  }
-  if (_ledgerBuffer.length === 0)
-    return;
-  const batch = _ledgerBuffer.splice(0);
-  const lines = batch.map((e) => typeof e === "string" ? e.trimEnd() : String(e).trimEnd());
-  const joined = lines.filter(Boolean).map((l) => l + "\n").join("");
-  try {
-    appendFileSync2(SAVINGS_LEDGER_FILE, joined);
-    _compactSavingsLedgerIfNeeded();
-  } catch {
-  }
-}
-function _newTelemetryBucket() {
-  return {
-    events: 0,
-    tool_counts: {},
-    tier_counts: {},
-    slot_counts: {},
-    kind_counts: {},
-    prompt_size_buckets: {},
-    output_size_buckets: {},
-    duration_buckets: {},
-    result_counts: {},
-    cache_hit_counts: { hit: 0, miss: 0 },
-    enforcement_counts: {},
-    flow_counts: {},
-    tdd_counts: {},
-    storage_bytes_estimate: 0,
-    retained_sessions: 0,
-    last_seen: null,
-    last_compacted_at: null
-  };
-}
-function _incBucket(map, key, delta = 1) {
-  const bucket = String(key || "unknown");
-  map[bucket] = Number(map[bucket] || 0) + delta;
-}
-function _telemetrySizeEstimate(telemetry) {
-  try {
-    return Buffer.byteLength(JSON.stringify(telemetry || {}), "utf8");
-  } catch {
-    return 0;
-  }
-}
-function recordPrivacyTelemetry(event) {
-  try {
-    if (!event || typeof event !== "object")
-      return null;
-    return updateState((state) => {
-      const now = (/* @__PURE__ */ new Date()).toISOString();
-      state.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" };
-      state.sessions ??= {};
-      const sid = String(event.session_id || _OC_SID || "unknown");
-      state.sessions[sid] ??= { started: now, session_started_at: now, source: "opencode", tool_counts: {}, warns: [], cache_hits: [], seenWarnKeys: {} };
-      const lifetime = state.lifetime.telemetry ??= _newTelemetryBucket();
-      const session = state.sessions[sid].telemetry ??= _newTelemetryBucket();
-      const tool2 = String(event.tool || "unknown").toLowerCase();
-      const tier = String(event.tier || "unknown").toLowerCase();
-      const slot = String(event.slot || "unknown").toLowerCase();
-      const kind = String(event.kind || "unknown").toLowerCase();
-      const promptSize = String(event.prompt_size_bucket || "unknown");
-      const outputSize = String(event.output_size_bucket || "unknown");
-      const duration = String(event.duration_bucket || "unknown");
-      const result = String(event.result || "unknown").toLowerCase();
-      const cache = event.cache_hit === true ? "hit" : event.cache_hit === false ? "miss" : "unknown";
-      const enforcement = String(event.enforcement || "unknown").toLowerCase();
-      const flow = String(event.flow || "unknown").toLowerCase();
-      const tdd = String(event.tdd || "unknown").toLowerCase();
-      const record = (bucket) => {
-        bucket.events = Number(bucket.events || 0) + 1;
-        _incBucket(bucket.tool_counts, tool2);
-        _incBucket(bucket.tier_counts, tier);
-        _incBucket(bucket.slot_counts, slot);
-        _incBucket(bucket.kind_counts, kind);
-        _incBucket(bucket.prompt_size_buckets, promptSize);
-        _incBucket(bucket.output_size_buckets, outputSize);
-        _incBucket(bucket.duration_buckets, duration);
-        _incBucket(bucket.result_counts, result);
-        _incBucket(bucket.enforcement_counts, enforcement);
-        _incBucket(bucket.flow_counts, flow);
-        _incBucket(bucket.tdd_counts, tdd);
-        if (cache === "hit" || cache === "miss") {
-          bucket.cache_hit_counts[cache] = Number(bucket.cache_hit_counts[cache] || 0) + 1;
-        }
-        bucket.last_seen = now;
-        bucket.storage_bytes_estimate = _telemetrySizeEstimate(bucket);
-      };
-      record(lifetime);
-      record(session);
-      lifetime.retained_sessions = Object.values(state.sessions).filter((ses) => Number(ses?.telemetry?.events || 0) > 0).length;
-      session.retained_sessions = 1;
-      state.lifetime.last_updated = now;
-      return state;
-    });
-  } catch {
-    return null;
-  }
-}
-function readTelemetrySummary(state, sid = _OC_SID) {
-  const lifetime = state?.lifetime?.telemetry || {};
-  const session = state?.sessions?.[sid]?.telemetry || {};
-  return {
-    lifetime_events: Number(lifetime.events || 0),
-    current_session_events: Number(session.events || 0),
-    storage_bytes_estimate: Number(lifetime.storage_bytes_estimate || 0),
-    retained_sessions: Number(lifetime.retained_sessions || 0),
-    tool_counts: lifetime.tool_counts || {},
-    tier_counts: lifetime.tier_counts || {},
-    slot_counts: lifetime.slot_counts || {},
-    kind_counts: lifetime.kind_counts || {},
-    prompt_size_buckets: lifetime.prompt_size_buckets || {},
-    output_size_buckets: lifetime.output_size_buckets || {},
-    duration_buckets: lifetime.duration_buckets || {},
-    result_counts: lifetime.result_counts || {},
-    cache_hit_counts: lifetime.cache_hit_counts || { hit: 0, miss: 0 },
-    enforcement_counts: lifetime.enforcement_counts || {},
-    flow_counts: lifetime.flow_counts || {},
-    tdd_counts: lifetime.tdd_counts || {},
-    last_seen: lifetime.last_seen || null,
-    last_compacted_at: lifetime.last_compacted_at || null
-  };
-}
-function stableJson(obj) {
-  if (obj === null || typeof obj !== "object")
-    return JSON.stringify(obj);
-  if (Array.isArray(obj))
-    return "[" + obj.map(stableJson).join(",") + "]";
-  return "{" + Object.keys(obj).sort().map((k) => JSON.stringify(k) + ":" + stableJson(obj[k])).join(",") + "}";
-}
-function _readHead(fullPath) {
-  try {
-    const buf = Buffer.alloc(120);
-    const fd = openSync(fullPath, "r");
-    const { bytesRead } = readSync(fd, buf, 0, 120, 0);
-    closeSync(fd);
-    return buf.toString("utf-8", 0, bytesRead);
-  } catch {
-    return "";
-  }
-}
-function indexAppend(hash, tool2, size, extra) {
-  try {
-    const entryObj = {
-      ts: (/* @__PURE__ */ new Date()).toISOString(),
-      hash,
-      tool: tool2,
-      size,
-      pid: process.pid || 0,
-      session: _OC_SID,
-      source: "opencode",
-      ...extra
-    };
-    const entry = JSON.stringify(entryObj) + "\n";
-    const globalIndex = getGlobalIndexPath();
-    const sessionIndex = getSessionIndexPath();
-    mkdirSync3(dirname4(globalIndex), { recursive: true });
-    mkdirSync3(dirname4(sessionIndex), { recursive: true });
-    appendFileSync2(globalIndex, entry);
-    appendFileSync2(sessionIndex, entry);
-  } catch (err) {
-    console.error(`[vibeOS] index write failed: ${err.message}`);
-  }
-}
-var scratchpadHitsSeen = /* @__PURE__ */ new Set();
-function scanRecentScratchpad(dir, titleCase, maxScan = 2e3) {
-  try {
-    if (!existsSync5(dir))
-      return null;
-    const entries = readdirSync(dir);
-    const ptrFiles = entries.filter((e) => e.endsWith(".ptr"));
-    const ptrCandidates = [];
-    for (const pf of ptrFiles) {
-      if (ptrCandidates.length >= MAX_PTR_CANDIDATES)
-        break;
-      try {
-        const st = statSync4(join4(dir, pf));
-        ptrCandidates.push({ ptrPath: join4(dir, pf), mtimeMs: st.mtimeMs });
-      } catch {
-      }
-    }
-    ptrCandidates.sort((a, b) => b.mtimeMs - a.mtimeMs);
-    let scanned = 0;
-    for (const { ptrPath } of ptrCandidates) {
-      if (scanned++ >= maxScan)
-        break;
-      try {
-        const ptrData = safeJsonParse3(readFileSync4(ptrPath, "utf-8"));
-        if (!ptrData?.contentHash)
-          continue;
-        const ptrTool = typeof ptrData.tool === "string" ? TOOL_NAME_NORMALIZE[ptrData.tool] || ptrData.tool : null;
-        if (titleCase && ptrTool && ptrTool !== titleCase)
-          continue;
-        const contentHash = String(ptrData.contentHash);
-        const f = join4(dir, `${contentHash}.txt`);
-        if (!existsSync5(f))
-          continue;
-        const st = statSync4(f);
-        const ageSec = (Date.now() - st.mtimeMs) / 1e3;
-        if (ageSec > SCRATCHPAD_MAX_AGE_SEC)
-          continue;
-        const sumPath = join4(dir, `${contentHash}.summary.txt`);
-        return { hash: contentHash, fullPath: f, sizeBytes: st.size, ageSec: Math.round(ageSec), summaryPath: existsSync5(sumPath) ? sumPath : null };
-      } catch {
-      }
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-function getScratchpadHit(toolLower, args, baseDir = null) {
-  if (!SCRATCHPAD_TOOLS.has(toolLower))
-    return null;
-  const titleCase = TOOL_NAME_NORMALIZE[toolLower];
-  const inputJson = stableJson(args ?? {});
-  const hash = createHash("sha256").update(`${titleCase}
-${inputJson}
-`).digest("hex").slice(0, 16);
-  const sessionDir = baseDir || getSessionScratchpadDir();
-  const sessionPath = join4(sessionDir, `${hash}.txt`);
-  let fullPath = existsSync5(sessionPath) ? sessionPath : null;
-  if (!fullPath) {
-    const ptrSessionPath = join4(sessionDir, `${hash}.ptr`);
-    const ptrPath = existsSync5(ptrSessionPath) ? ptrSessionPath : null;
-    let resolvedHash = hash;
-    if (ptrPath) {
-      try {
-        const ptrData = safeJsonParse3(readFileSync4(ptrPath, "utf-8"));
-        if (ptrData?.contentHash) {
-          resolvedHash = ptrData.contentHash;
-          const rSessionPath = join4(sessionDir, `${resolvedHash}.txt`);
-          fullPath = existsSync5(rSessionPath) ? rSessionPath : null;
-        }
-      } catch {
-      }
-    }
-    if (!fullPath) {
-      const recent = scanRecentScratchpad(sessionDir, titleCase, 2e3);
-      if (recent)
-        return recent;
-      return null;
-    }
-  }
-  try {
-    const st = statSync4(fullPath);
-    const ageSec = (Date.now() - st.mtimeMs) / 1e3;
-    if (ageSec > SCRATCHPAD_MAX_AGE_SEC)
-      return null;
-    const summaryPath = join4(sessionDir, `${hash}.summary.txt`);
-    const finalSummary = existsSync5(summaryPath) ? summaryPath : null;
-    return {
-      hash,
-      fullPath,
-      sizeBytes: st.size,
-      ageSec: Math.round(ageSec),
-      summaryPath: finalSummary
-    };
-  } catch {
-    return null;
-  }
-}
-function recordScratchpadObservation(toolLower, args, fileSize, meta = {}) {
-  if (!SCRATCHPAD_TOOLS.has(toolLower))
-    return;
-  try {
-    const titleCase = TOOL_NAME_NORMALIZE[toolLower];
-    const inputJson = stableJson(args ?? {});
-    const hash = createHash("sha256").update(`${titleCase}
-${inputJson}
-`).digest("hex").slice(0, 16);
-    const dedupeKey = `${toolLower}:${hash}`;
-    if (scratchpadHitsSeen.has(dedupeKey))
-      return;
-    scratchpadHitsSeen.add(dedupeKey);
-    indexAppend(hash, toolLower, fileSize, { ...meta, input: inputJson.slice(0, 200) });
-  } catch {
-  }
-}
-function _pruneScratchpadDir(targetDir, opts = {}) {
-  const { maxFiles = MAX_SCRATCHPAD_FILES, maxBytes = MAX_SCRATCHPAD_BYTES, rotate = true } = opts;
-  const now = Date.now();
-  if (!existsSync5(targetDir))
-    return { dataFiles: 0, totalBytes: 0, deleted: 0, rotated: 0 };
-  const entries = readdirSync(targetDir);
-  let dataFiles = 0;
-  let totalBytes = 0;
-  let deleted = 0;
-  let rotated = 0;
-  for (const entry of entries) {
-    if (entry.endsWith(".meta.json") || entry.endsWith(".summary.txt"))
-      continue;
-    const fullPath = join4(targetDir, entry);
-    let st;
-    try {
-      st = statSync4(fullPath);
-    } catch {
-      continue;
-    }
-    const age = now - st.mtimeMs;
-    const hash = entry.replace(/\.txt$/, "");
-    if (age > DECADENCE_EXPIRE_MS) {
-      try {
-        rmSync2(fullPath);
-      } catch {
-      }
-      const meta = join4(targetDir, hash + ".meta.json");
-      if (existsSync5(meta))
-        try {
-          rmSync2(meta);
-        } catch {
-        }
-      const summary = join4(targetDir, hash + ".summary.txt");
-      if (existsSync5(summary))
-        try {
-          rmSync2(summary);
-        } catch {
-        }
-      deleted++;
-      continue;
-    }
-    dataFiles++;
-    totalBytes += st.size;
-    if (!rotate)
-      continue;
-    if (age > DECADENCE_COLD_MS) {
-      const summaryPath = join4(targetDir, hash + ".summary.txt");
-      if (!existsSync5(summaryPath))
-        try {
-          const content = readFileSync4(fullPath, "utf-8");
-          writeFileSync4(summaryPath, content.slice(0, 200).replace(/\n+/g, " ").trim() + (content.length > 200 ? "\u2026" : ""));
-        } catch {
-        }
-      const head = _readHead(fullPath);
-      if (!head.includes("[cold-storage]"))
-        try {
-          writeFileSync4(fullPath, `[cold-storage] ${st.size}B original \u2192 ${hash}.summary.txt`);
-          rotated++;
-        } catch {
-        }
-      continue;
-    }
-    if (age > DECADENCE_FRESH_MS && st.size > 1024) {
-      const summaryPath = join4(targetDir, hash + ".summary.txt");
-      if (!existsSync5(summaryPath))
-        try {
-          const content = readFileSync4(fullPath, "utf-8");
-          writeFileSync4(summaryPath, content.slice(0, SUMMARY_HEAD_TRUNCATE).replace(/\n+/g, " ").trim() + (content.length > SUMMARY_HEAD_TRUNCATE ? "\u2026" : ""));
-        } catch {
-        }
-      const head = _readHead(fullPath);
-      if (!head.includes("[warm-storage]") && !head.includes("[cold-storage]"))
-        try {
-          writeFileSync4(fullPath, `[warm-storage] ${st.size}B original at ${hash}.summary.txt`);
-          rotated++;
-        } catch {
-        }
-    }
-  }
-  return { dataFiles, totalBytes, deleted, rotated };
-}
-function applyDecadence() {
-  const now = Date.now();
-  if (now - _lastDecadenceRun >= DECADENCE_THROTTLE_MS) {
-    _lastDecadenceRun = now;
-    try {
-      const ses = _pruneScratchpadDir(getSessionScratchpadDir(), {
-        maxFiles: MAX_SESSION_SCRATCHPAD_FILES,
-        maxBytes: MAX_SESSION_SCRATCHPAD_BYTES,
-        rotate: false
-      });
-      if (ses.deleted > 0) {
-        console.error(`[vibeOS] session-decadence: deleted=${ses.deleted} (${ses.dataFiles} files, ${Math.round(ses.totalBytes / 1024)}KB)`);
-      }
-    } catch (err) {
-      console.error(`[vibeOS] session decadence error: ${err.message}`);
-    }
-  }
-}
-function cleanupStaleSessionScratchpads() {
-  try {
-    if (!existsSync5(SCRATCHPAD_SESSIONS_DIR))
-      return;
-    const dirs = readdirSync(SCRATCHPAD_SESSIONS_DIR);
-    const now = Date.now();
-    for (const d of dirs) {
-      const full = join4(SCRATCHPAD_SESSIONS_DIR, d);
-      try {
-        const st = statSync4(full);
-        if (now - st.mtimeMs > SCRATCHPAD_SESSION_TTL_MS) {
-          rmSync2(full, { recursive: true, force: true });
-        }
-      } catch {
-      }
-    }
-  } catch {
-  }
-}
-function pruneScratchpadOnce() {
-  if (prunedThisProcess)
-    return;
-  prunedThisProcess = true;
-  try {
-    const script = join4(VIBEOS_HOME, "hooks/scratchpad-prune.sh");
-    if (existsSync5(script)) {
-      const child = spawn("bash", [script], { detached: true, stdio: "ignore" });
-      child.unref();
-    }
-  } catch {
-  }
-  cleanupStaleSessionScratchpads();
-}
-function _readActiveJobsRaw() {
-  try {
-    if (!existsSync5(ACTIVE_JOBS_FILE))
-      return {};
-    const raw = safeJsonParse3(readFileSync4(ACTIVE_JOBS_FILE, "utf-8"));
-    return raw && typeof raw === "object" ? raw : {};
-  } catch {
-    _handleStateCorruption2(ACTIVE_JOBS_FILE);
-    return {};
-  }
-}
-function _writeActiveJobsRaw(jobs) {
-  try {
-    mkdirSync3(dirname4(ACTIVE_JOBS_FILE), { recursive: true });
-    const tmp = ACTIVE_JOBS_FILE + ".tmp";
-    writeFileSync4(tmp, JSON.stringify(jobs, null, 2) + "\n");
-    renameSync3(tmp, ACTIVE_JOBS_FILE);
-  } catch {
-  }
-}
-function _normalizeActiveJobRecord(record, now = Date.now(), strict = false) {
-  if (!record || typeof record !== "object")
-    return { record: null, changed: false, stale: false };
-  const next = { ...record };
-  let changed = false;
-  const updatedAtRaw = typeof next.updatedAt === "string" ? next.updatedAt : "";
-  const createdAtRaw = typeof next.createdAt === "string" ? next.createdAt : "";
-  const updatedAtMs = Date.parse(updatedAtRaw);
-  const createdAtMs = Date.parse(createdAtRaw);
-  const anchorMs = Number.isFinite(updatedAtMs) ? updatedAtMs : createdAtMs;
-  const stale = Number.isFinite(anchorMs) && now - anchorMs > ACTIVE_JOBS_STALE_MS;
-  if (strict && (!next.status || typeof next.status !== "string" || !next.status.trim()))
-    return { record: null, changed: false, stale };
-  if (strict && !Number.isFinite(createdAtMs))
-    return { record: null, changed: false, stale };
-  if (!Number.isFinite(createdAtMs)) {
-    next.createdAt = Number.isFinite(anchorMs) ? new Date(anchorMs).toISOString() : new Date(now).toISOString();
-    changed = true;
-  }
-  if (!Number.isFinite(updatedAtMs)) {
-    next.updatedAt = next.createdAt || new Date(now).toISOString();
-    changed = true;
-  }
-  if (typeof next.status !== "string" || !next.status.trim()) {
-    next.status = "active";
-    changed = true;
-  }
-  if (stale && next.status !== "completed") {
-    next.status = "completed";
-    next.completedAt = new Date(now).toISOString();
-    changed = true;
-  }
-  return { record: next, changed, stale };
-}
-function loadActiveJobs() {
-  try {
-    return withFileLock(ACTIVE_JOBS_FILE, () => {
-      const raw = _readActiveJobsRaw();
-      const next = {};
-      let changed = false;
-      const now = Date.now();
-      for (const [key, value] of Object.entries(raw || {})) {
-        const norm = _normalizeActiveJobRecord(value, now, true);
-        if (!norm.record || norm.stale && norm.record.status === "completed" && norm.record.completedAt) {
-          changed = true;
-          continue;
-        }
-        next[key] = norm.record;
-        if (norm.changed)
-          changed = true;
-      }
-      if (changed)
-        _writeActiveJobsRaw(next);
-      return next;
-    });
-  } catch {
-    _handleStateCorruption2(ACTIVE_JOBS_FILE);
-    return {};
-  }
-}
-function getActiveJobForProject(fp2 = currentProjectFingerprint) {
-  if (!fp2)
-    return null;
-  const jobs = loadActiveJobs();
-  const job = jobs[fp2];
-  if (!job || typeof job !== "object")
-    return null;
-  return job;
-}
-function saveActiveJobForProject(job, fp2 = currentProjectFingerprint) {
-  if (!fp2 || !job || typeof job !== "object")
-    return;
-  try {
-    withFileLock(ACTIVE_JOBS_FILE, () => {
-      const jobs = _readActiveJobsRaw();
-      const norm = _normalizeActiveJobRecord(job);
-      jobs[fp2] = norm.record || job;
-      _writeActiveJobsRaw(jobs);
-    });
-  } catch {
-  }
-}
-try {
-  loadActiveJobs();
-} catch {
-}
-function projectFingerprint(dir) {
-  if (!dir)
-    return "unknown";
-  return createHash("sha256").update(dir).digest("hex").slice(0, 12);
-}
-function loadProjectState() {
-  const projectStateFile = join4(getVibeOSHome3(), "project-states.json");
-  try {
-    const state = readJsonOrEmpty(projectStateFile);
-    if (state && typeof state === "object") {
-      state.project_hashes ??= {};
-      return state;
-    }
-  } catch {
-  }
-  return { project_hashes: {} };
-}
-function saveProjectState(state) {
-  const projectStateFile = join4(getVibeOSHome3(), "project-states.json");
-  try {
-    withFileLock(projectStateFile, () => {
-      mkdirSync3(dirname4(projectStateFile), { recursive: true });
-      const _tmp = projectStateFile + ".tmp." + Date.now();
-      writeFileSync4(_tmp, JSON.stringify(state, null, 2) + "\n", "utf-8");
-      renameSync3(_tmp, projectStateFile);
-    });
-  } catch (err) {
-    console.error(`[vibeOS] project state write failed: ${err.message}`);
-  }
-}
-function ensureProjectBucket(state, fp2) {
-  state.project_hashes ??= {};
-  if (!state.project_hashes[fp2]) {
-    state.project_hashes[fp2] = {
-      totalSessions: 0,
-      researchChains: 0,
-      context7Bypasses: 0,
-      commonTopics: [],
-      sessions: [],
-      reports: [],
-      updatedAt: null,
-      lastSeen: null,
-      techStack: detectTechStack(process.cwd())
-    };
-  }
-  return state.project_hashes[fp2];
-}
-function touchProjectBucket(state, fp2, meta = {}) {
-  if (!fp2 || fp2 === "unknown")
-    return null;
-  const bucket = ensureProjectBucket(state, fp2);
-  const now = (/* @__PURE__ */ new Date()).toISOString();
-  bucket.updatedAt = now;
-  bucket.lastSeen = now;
-  if (typeof meta.projectName === "string" && meta.projectName.trim()) {
-    bucket.projectName = meta.projectName.trim();
-  }
-  if (typeof meta.sessionId === "string" && meta.sessionId.trim()) {
-    bucket.sessions ??= [];
-    if (!bucket.sessions.includes(meta.sessionId)) {
-      bucket.sessions.push(meta.sessionId);
-      bucket.sessions = bucket.sessions.slice(-30);
-      bucket.totalSessions = Number(bucket.totalSessions || 0) + 1;
-    }
-    bucket.totalSessions = Math.max(Number(bucket.totalSessions || 0), bucket.sessions.length, 1);
-  }
-  if (typeof meta.reportId === "string" && meta.reportId.trim()) {
-    bucket.reports ??= [];
-    if (!bucket.reports.includes(meta.reportId)) {
-      bucket.reports.push(meta.reportId);
-      bucket.reports = bucket.reports.slice(-50);
-    }
-  }
-  if (typeof meta.topic === "string" && meta.topic.trim()) {
-    bucket.commonTopics ??= [];
-    if (!bucket.commonTopics.includes(meta.topic)) {
-      bucket.commonTopics.push(meta.topic);
-      bucket.commonTopics = bucket.commonTopics.slice(-20);
-    }
-  }
-  return bucket;
-}
-function detectTechStack(dir) {
-  const stacks = [];
-  try {
-    const pkg = safeJsonParse3(readFileSync4(join4(dir, "package.json"), "utf-8"));
-    if (pkg) {
-      if (pkg.devDependencies?.typescript || pkg.dependencies?.typescript || existsSync5(join4(dir, "tsconfig.json")))
-        stacks.push("typescript");
-      if (pkg.dependencies?.react || pkg.devDependencies?.react)
-        stacks.push("react");
-      stacks.push("javascript");
-    }
-  } catch {
-  }
-  try {
-    if (existsSync5(join4(dir, "Cargo.toml")))
-      stacks.push("rust");
-  } catch {
-  }
-  try {
-    if (existsSync5(join4(dir, "go.mod")))
-      stacks.push("go");
-  } catch {
-  }
-  try {
-    if (existsSync5(join4(dir, "requirements.txt")))
-      stacks.push("python");
-    if (existsSync5(join4(dir, "setup.py")))
-      stacks.push("python");
-    if (existsSync5(join4(dir, "pyproject.toml")))
-      stacks.push("python");
-  } catch {
-  }
-  return [...new Set(stacks)];
-}
-function promotedProjectPatterns(fp2) {
-  try {
-    const p = loadProjectState().project_hashes?.[fp2];
-    const out = [];
-    const collect = (rows, label) => {
-      for (const row of Object.values(rows || {})) {
-        const r = row;
-        const sessions = new Set(r?.sessions || []);
-        const minSessions = label === "routine" ? 2 : 3;
-        if (sessions.size >= minSessions)
-          out.push({ label, summary: r.summary, sessions: sessions.size, lastSeen: r.lastSeen || "" });
-      }
-    };
-    collect(p?.userPatterns?.friction, "friction");
-    collect(p?.userPatterns?.routines, "routine");
-    out.sort((a, b) => b.sessions - a.sessions || String(b.lastSeen).localeCompare(String(a.lastSeen)));
-    return out.slice(0, 3);
-  } catch {
-    return [];
-  }
-}
-function projectPatternRows(fp2) {
-  try {
-    const p = loadProjectState().project_hashes?.[fp2];
-    const rows = [];
-    for (const [kind, label] of [["friction", "friction"], ["routines", "routine"]]) {
-      for (const [key, row] of Object.entries(p?.userPatterns?.[kind] || {})) {
-        const r = row;
-        const sessions = new Set(r?.sessions || []);
-        rows.push({
-          key,
-          label,
-          summary: r?.summary || key,
-          count: Number(r?.count || 0),
-          sessions: sessions.size,
-          lastSeen: r?.lastSeen || ""
-        });
-      }
-    }
-    rows.sort((a, b) => b.sessions - a.sessions || b.count - a.count || String(b.lastSeen).localeCompare(String(a.lastSeen)));
-    return rows;
-  } catch {
-    return [];
-  }
-}
-function clearProjectPatterns(fp2) {
-  try {
-    const pstate = loadProjectState();
-    const bucket = pstate.project_hashes?.[fp2];
-    if (!bucket?.userPatterns)
-      return 0;
-    const count = Object.keys(bucket.userPatterns.friction || {}).length + Object.keys(bucket.userPatterns.routines || {}).length;
-    bucket.userPatterns = { friction: {}, routines: {} };
-    bucket.lastSeen = (/* @__PURE__ */ new Date()).toISOString();
-    saveProjectState(pstate);
-    return count;
-  } catch (err) {
-    console.error(`[vibeOS] pattern learner clear failed: ${err.message}`);
-    return 0;
-  }
-}
-function recordCacheSaving(tool2, saveEst, meta = {}) {
-  try {
-    const state = updateState((s) => {
-      const now = (/* @__PURE__ */ new Date()).toISOString();
-      const delta = Number(saveEst || 0);
-      s.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" };
-      s.lifetime.last_updated = now;
-      s.sessions ??= {};
-      const sid2 = _OC_SID;
-      s.sessions[sid2] ??= { started: now, session_started_at: now, source: "opencode", tool_counts: {}, warns: [] };
-      if (currentProjectFingerprint && !s.sessions[sid2].project_fingerprint)
-        s.sessions[sid2].project_fingerprint = currentProjectFingerprint;
-      if (currentProjectName && !s.sessions[sid2].project_name)
-        s.sessions[sid2].project_name = currentProjectName;
-      s.sessions[sid2].session_cache_dir = getSessionScratchpadDir();
-      s.sessions[sid2].tool_counts[tool2] = (s.sessions[sid2].tool_counts[tool2] || 0) + 1;
-      if (meta?.hash) {
-        s.sessions[sid2].cache_hits ??= [];
-        if (!s.sessions[sid2].cache_hits.some((h) => h.hash === meta.hash)) {
-          s.sessions[sid2].cache_hits.push({
-            at: now,
-            tool: tool2,
-            hash: meta.hash,
-            est_savings_usd: roundUsd(delta)
-          });
-          s.sessions[sid2].cache_savings_usd = roundUsd(Number(s.sessions[sid2].cache_savings_usd || 0) + delta);
-          s.lifetime.cache_savings_usd = roundUsd(Number(s.lifetime.cache_savings_usd || 0) + delta);
-          if (s.sessions[sid2].cache_hits.length > 200) {
-            console.error(`[vibeOS] session cache_hits truncated from ${s.sessions[sid2].cache_hits.length} to 200 for ${sid2}`);
-            s.sessions[sid2].cache_hits = s.sessions[sid2].cache_hits.slice(-200);
-          }
-        }
-      } else {
-        s.sessions[sid2].cache_savings_usd = roundUsd(Number(s.sessions[sid2].cache_savings_usd || 0) + delta);
-        s.lifetime.cache_savings_usd = roundUsd(Number(s.lifetime.cache_savings_usd || 0) + delta);
-      }
-      try {
-        if (currentProjectFingerprint) {
-          const pstate = loadProjectState();
-          touchProjectBucket(pstate, currentProjectFingerprint, {
-            sessionId: sid2,
-            projectName: currentProjectName || "",
-            topic: meta?.hash ? String(meta.hash).slice(0, 16) : "cache"
-          });
-          saveProjectState(pstate);
-        }
-      } catch {
-      }
-      _pruneOldSessions(s);
-      return s;
-    });
-    const sid = _OC_SID;
-    try {
-      _ledgerBuffer.push(JSON.stringify({ v: 2, at: (/* @__PURE__ */ new Date()).toISOString(), kind: "cache", amount_usd: Number(saveEst || 0), sid, tool: tool2 }) + "\n");
-      if (_ledgerBuffer.length >= LEDGER_BUFFER_MAX)
-        _flushLedgerBuffer();
-      else if (!_ledgerBufferTimer)
-        _ledgerBufferTimer = setTimeout(_flushLedgerBuffer, LEDGER_BUFFER_FLUSH_MS);
-    } catch {
-    }
-    return {
-      lifetime: state?.lifetime?.cache_savings_usd || 0,
-      session: state?.sessions?.[sid]?.cache_savings_usd || 0
-    };
-  } catch (err) {
-    console.error(`[vibeOS] cache state write failed: ${err.message}`);
-    return null;
-  }
-}
-function recordMissedContext7(saveEst) {
-  try {
-    const state = updateState((s) => {
-      s.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" };
-      s.lifetime.missed_context7_usd = Math.round(((s.lifetime.missed_context7_usd || 0) + saveEst) * 100) / 100;
-      s.sessions ??= {};
-      const sid = _OC_SID;
-      s.sessions[sid] ??= { total_savings_usd: 0, cache_savings_usd: 0, project_name: "", warns: [], cache_hits: [], seenWarnKeys: {} };
-      s.sessions[sid].context7_missed_usd = Math.round(((s.sessions[sid].context7_missed_usd || 0) + saveEst) * 100) / 100;
-      try {
-        if (currentProjectFingerprint) {
-          const pstate = loadProjectState();
-          const bucket = touchProjectBucket(pstate, currentProjectFingerprint, {
-            sessionId: sid,
-            projectName: currentProjectName || "",
-            topic: "context7"
-          });
-          if (bucket)
-            bucket.context7Bypasses = (bucket.context7Bypasses || 0) + 1;
-          saveProjectState(pstate);
-        }
-      } catch {
-      }
-      return s;
-    });
-    try {
-      _ledgerBuffer.push(JSON.stringify({
-        v: 2,
-        at: (/* @__PURE__ */ new Date()).toISOString(),
-        kind: "context7",
-        amount_usd: Number(saveEst || 0),
-        sid: _OC_SID,
-        tool: "context7",
-        reason: "docs bypass"
-      }) + "\n");
-      if (_ledgerBuffer.length >= LEDGER_BUFFER_MAX)
-        _flushLedgerBuffer();
-      else if (!_ledgerBufferTimer)
-        _ledgerBufferTimer = setTimeout(_flushLedgerBuffer, LEDGER_BUFFER_FLUSH_MS);
-    } catch {
-    }
-    try {
-      updateGlobalLearning((gl) => {
-        gl.context7_bypasses = Number(gl.context7_bypasses || 0) + 1;
-        gl.context7_missed_usd = Math.round((Number(gl.context7_missed_usd || 0) + Number(saveEst || 0)) * 100) / 100;
-        gl.context7_last_seen = (/* @__PURE__ */ new Date()).toISOString();
-        return gl;
-      });
-    } catch {
-    }
-    return state?.lifetime?.missed_context7_usd ?? null;
-  } catch {
-    return null;
-  }
-}
-function loadTodos() {
-  try {
-    if (!existsSync5(TODOS_FILE))
-      return [];
-    const raw = readFileSync4(TODOS_FILE, "utf-8");
-    const parsed = safeJsonParse3(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-function saveTodos(todos) {
-  try {
-    mkdirSync3(dirname4(TODOS_FILE), { recursive: true });
-    const tmp = TODOS_FILE + ".tmp." + Date.now();
-    writeFileSync4(tmp, JSON.stringify(todos, null, 2), "utf-8");
-    renameSync3(tmp, TODOS_FILE);
-  } catch {
-  }
-}
-function upsertTodo(entry) {
-  const todos = loadTodos();
-  const existing = todos.findIndex((t) => t.content === entry.content && (entry.filePath ? t.filePath === entry.filePath : true));
-  const newEntry = {
-    id: entry.id || crypto.randomUUID?.() || "todo-" + Date.now(),
-    content: entry.content,
-    status: entry.status || "pending",
-    filePath: entry.filePath || "",
-    priority: entry.priority || "medium",
-    source: entry.source || "manual",
-    createdAt: entry.createdAt || (/* @__PURE__ */ new Date()).toISOString(),
-    updatedAt: (/* @__PURE__ */ new Date()).toISOString()
-  };
-  if (existing >= 0) {
-    todos[existing] = { ...todos[existing], ...newEntry, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
-  } else {
-    todos.push(newEntry);
-  }
-  saveTodos(todos);
-}
-function markTodoDone(id2) {
-  const todos = loadTodos();
-  const found = todos.find((t) => t.id === id2);
-  if (found) {
-    found.status = "done";
-    found.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
-    saveTodos(todos);
-  }
-}
-function getTodos() {
-  return loadTodos();
-}
-function _compactSavingsLedgerIfNeeded() {
-  try {
-    if (!existsSync5(SAVINGS_LEDGER_FILE))
-      return;
-    const st = statSync4(SAVINGS_LEDGER_FILE);
-    if (st.size <= LEDGER_ROTATE_MAX_BYTES)
-      return;
-    withFileLock(SAVINGS_LEDGER_FILE, () => {
-      if (!existsSync5(SAVINGS_LEDGER_FILE))
-        return;
-      const lockedStat = statSync4(SAVINGS_LEDGER_FILE);
-      if (lockedStat.size <= LEDGER_ROTATE_MAX_BYTES)
-        return;
-      const raw = readFileSync4(SAVINGS_LEDGER_FILE, "utf-8");
-      if (!raw.trim())
-        return;
-      const now = Date.now();
-      const rows = raw.split("\n").filter(Boolean).map((line) => {
-        let rec = null;
-        try {
-          rec = JSON.parse(line);
-        } catch {
-          rec = null;
-        }
-        const atRaw = rec && typeof rec === "object" ? String(rec.at || rec.ts || "") : "";
-        const atMs = Date.parse(atRaw);
-        return { raw: line.trim(), atMs: Number.isFinite(atMs) ? atMs : null };
-      }).filter((row) => row.raw);
-      const recent = rows.filter((row) => row.atMs != null && now - Number(row.atMs) <= LEDGER_ROTATE_MAX_AGE_MS);
-      const pool = recent.length > 0 ? recent : rows;
-      const capped = pool.length > LEDGER_ROTATE_MAX_LINES ? pool.slice(-LEDGER_ROTATE_MAX_LINES) : pool;
-      let size = 0;
-      const kept = [];
-      for (let i = capped.length - 1; i >= 0; i--) {
-        const line = capped[i].raw;
-        const lineBytes = Buffer.byteLength(line + "\n", "utf-8");
-        if (kept.length > 0 && size + lineBytes > LEDGER_ROTATE_MAX_BYTES)
-          break;
-        kept.push(line);
-        size += lineBytes;
-      }
-      const compacted = kept.reverse().join("\n") + "\n";
-      if (compacted.trim() && compacted !== raw) {
-        const tmp = SAVINGS_LEDGER_FILE + ".tmp." + Date.now();
-        writeFileSync4(tmp, compacted, "utf-8");
-        renameSync3(tmp, SAVINGS_LEDGER_FILE);
-      }
-    }, { timeoutMs: 4e3 });
-  } catch {
-  }
-}
-function readLedgerTotals() {
-  const empty = { delegation: 0, cache: 0, context7: 0, total: 0, entries: 0 };
-  try {
-    if (!existsSync5(SAVINGS_LEDGER_FILE)) {
-      _ledgerTotalsCache = { mtime: 0, size: 0, delegation: 0, cache: 0, context7: 0, entries: 0 };
-      return empty;
-    }
-    const st = statSync4(SAVINGS_LEDGER_FILE);
-    if (st.size === 0) {
-      _ledgerTotalsCache = { mtime: st.mtimeMs, size: 0, delegation: 0, cache: 0, context7: 0, entries: 0 };
-      return empty;
-    }
-    if (st.size > LEDGER_ROTATE_MAX_BYTES) {
-      _compactSavingsLedgerIfNeeded();
-    }
-    const currentStat = statSync4(SAVINGS_LEDGER_FILE);
-    if (currentStat.size === 0) {
-      _ledgerTotalsCache = { mtime: currentStat.mtimeMs, size: 0, delegation: 0, cache: 0, context7: 0, entries: 0 };
-      return empty;
-    }
-    if (_ledgerTotalsCache.mtime === currentStat.mtimeMs && _ledgerTotalsCache.size === currentStat.size) {
-      return {
-        delegation: Math.round(_ledgerTotalsCache.delegation * 1e3) / 1e3,
-        cache: Math.round(_ledgerTotalsCache.cache * 1e3) / 1e3,
-        context7: Math.round(_ledgerTotalsCache.context7 * 1e3) / 1e3,
-        total: Math.round((_ledgerTotalsCache.delegation + _ledgerTotalsCache.cache) * 1e3) / 1e3,
-        entries: _ledgerTotalsCache.entries
-      };
-    }
-    let delegation = 0;
-    let cache = 0;
-    let context7 = 0;
-    let entries = 0;
-    let raw = "";
-    let incremental = _ledgerTotalsCache.size > 0 && currentStat.size >= _ledgerTotalsCache.size && _ledgerTotalsCache.mtime > 0;
-    if (incremental) {
-      const deltaSize = currentStat.size - _ledgerTotalsCache.size;
-      if (deltaSize > 0) {
-        const fd = openSync(SAVINGS_LEDGER_FILE, "r");
-        try {
-          const buf = Buffer.allocUnsafe(deltaSize);
-          const bytesRead = readSync(fd, buf, 0, deltaSize, _ledgerTotalsCache.size);
-          raw = buf.toString("utf-8", 0, bytesRead);
-        } finally {
-          try {
-            closeSync(fd);
-          } catch {
-          }
-        }
-      } else {
-        incremental = false;
-      }
-      delegation = _ledgerTotalsCache.delegation;
-      cache = _ledgerTotalsCache.cache;
-      context7 = _ledgerTotalsCache.context7;
-      entries = _ledgerTotalsCache.entries;
-    }
-    if (!incremental) {
-      raw = readFileSync4(SAVINGS_LEDGER_FILE, "utf-8");
-    }
-    if (!raw.trim()) {
-      _ledgerTotalsCache = {
-        mtime: currentStat.mtimeMs,
-        size: currentStat.size,
-        delegation,
-        cache,
-        context7,
-        entries
-      };
-      return {
-        delegation: Math.round(delegation * 1e3) / 1e3,
-        cache: Math.round(cache * 1e3) / 1e3,
-        context7: Math.round(context7 * 1e3) / 1e3,
-        total: Math.round((delegation + cache) * 1e3) / 1e3,
-        entries
-      };
-    }
-    const lines = raw.split("\n");
-    if (raw.endsWith("\n"))
-      lines.pop();
-    for (const line of lines) {
-      const ln = line.trim();
-      if (!ln)
-        continue;
-      let rec = null;
-      try {
-        rec = JSON.parse(ln);
-      } catch {
-        continue;
-      }
-      if (!rec || typeof rec !== "object")
-        continue;
-      if (rec.v !== void 0 && rec.v !== 2)
-        continue;
-      const amt = Number(rec.amount_usd ?? rec.est_savings_usd ?? rec.savings_usd ?? rec.usd ?? 0);
-      if (!Number.isFinite(amt) || amt <= 0)
-        continue;
-      entries += 1;
-      const kind = String(rec.kind || rec.type || rec.category || rec.source || "").toLowerCase();
-      if (kind.includes("cache"))
-        cache += amt;
-      else if (kind.includes("context7"))
-        context7 += amt;
-      else
-        delegation += amt;
-    }
-    _ledgerTotalsCache = { mtime: currentStat.mtimeMs, size: currentStat.size, delegation, cache, context7, entries };
-    const total = delegation + cache;
-    return {
-      delegation: Math.round(delegation * 1e3) / 1e3,
-      cache: Math.round(cache * 1e3) / 1e3,
-      context7: Math.round(context7 * 1e3) / 1e3,
-      total: Math.round(total * 1e3) / 1e3,
-      entries
-    };
-  } catch {
-    return empty;
-  }
-}
-function reconcileStateFromLedger() {
-  try {
-    const ledgerStat = existsSync5(SAVINGS_LEDGER_FILE) ? statSync4(SAVINGS_LEDGER_FILE) : null;
-    const ledgerMtime = ledgerStat?.mtimeMs || 0;
-    const ledgerSize = ledgerStat?.size || 0;
-    if (ledgerMtime === _ledgerReconciledMtime && ledgerSize === (_savingsCache?._ledgerSize || 0))
-      return;
-    _ledgerReconciledMtime = ledgerMtime;
-    _flushLedgerBuffer();
-    const l = readLedgerTotals();
-    if (l.total <= 0 && l.context7 <= 0)
-      return;
-    const delegationStateFile = join4(getVibeOSHome3(), "delegation-state.json");
-    const state = readJsonOrEmpty(delegationStateFile);
-    const stDelegation = Number(state?.lifetime?.est_savings_usd ?? state?.lifetime?.total_savings_usd ?? 0);
-    const stCache = Number(state?.lifetime?.cache_savings_usd ?? 0);
-    const stMissedC7 = Number(state?.lifetime?.missed_context7_usd ?? 0);
-    const stTotal = (Number.isFinite(stDelegation) ? stDelegation : 0) + (Number.isFinite(stCache) ? stCache : 0);
-    if (Math.abs(stTotal - l.total) < 5e-4 && Math.abs(stMissedC7 - l.context7) < 5e-4)
-      return;
-    updateState((s) => {
-      s.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" };
-      s.lifetime.total_savings_usd = Math.max(l.delegation, stDelegation);
-      s.lifetime.cache_savings_usd = Math.max(l.cache, stCache);
-      s.lifetime.missed_context7_usd = Math.max(l.context7, stMissedC7);
-      s.lifetime.last_updated = (/* @__PURE__ */ new Date()).toISOString();
-      s.lifetime.rebuilt_from_ledger = true;
-      s.lifetime.ledger_entries_reconciled = l.entries;
-      return s;
-    });
-    _savingsCache = null;
-    _savingsCacheMtime = 0;
-    invalidateSavingsCache();
-  } catch {
-  }
-}
-function readLifetimeSavings() {
-  const empty = { ltTasks: 0, ltCache: 0, ltCost: 0, count: 0, scratchpadHits: 0, missedC7: 0, sesTasks: 0, sesEdit: 0, sesCredit: 0, sesC7: 0, sesQuota: 0, sesTaskDelegations: 0, sesDuration: 0, sesRatePerHour: 0, sesTrend: "stable", sesToolBreakdown: {}, sesModelTurns: { brain: 0, worker: 0 }, quality_avg: 0, telemetry: readTelemetrySummary({}, _OC_SID) };
-  try {
-    reconcileStateFromLedger();
-    const delegationStateFile = join4(getVibeOSHome3(), "delegation-state.json");
-    if (!existsSync5(delegationStateFile))
-      return empty;
-    const mtime = statSync4(delegationStateFile).mtimeMs;
-    if (_savingsCache && mtime === _savingsCacheMtime)
-      return _savingsCache;
-    const s = safeJsonParse3(readFileSync4(delegationStateFile, "utf-8"));
-    const ledgerSize = existsSync5(SAVINGS_LEDGER_FILE) ? statSync4(SAVINGS_LEDGER_FILE).size : 0;
-    _savingsCache = { ..._computeSessionMetrics(s, _OC_SID), telemetry: readTelemetrySummary(s, _OC_SID), _ledgerSize: ledgerSize };
-    _savingsCacheMtime = mtime;
-    return _savingsCache;
-  } catch {
-    return empty;
-  }
-}
-function saveSessionCheckpoint() {
-  try {
-    const state = readFullState();
-    const session = state.sessions?.[_OC_SID];
-    if (!session)
-      return;
-    const cp = {
-      session_id: _OC_SID,
-      ts: (/* @__PURE__ */ new Date()).toISOString(),
-      cost: session.cost_usd || 0,
-      cache_savings: session.cache_savings_usd || 0,
-      total_savings: session.total_savings_usd || 0,
-      tool_counts: session.tool_counts || {},
-      warns: session.warns?.length || 0,
-      model: session.model || ""
-    };
-    const cpPath = join4(getSessionRoot(), "checkpoint.json");
-    mkdirSync3(dirname4(cpPath), { recursive: true });
-    const tmp = cpPath + ".tmp";
-    writeFileSync4(tmp, JSON.stringify(cp, null, 2) + "\n");
-    renameSync3(tmp, cpPath);
-  } catch {
-  }
-}
-
-// src/lib/pricing.js
 var TRINITY_BRAIN = null;
 var TRINITY_MEDIUM = null;
 var TRINITY_CHEAP = null;
@@ -7010,6 +7107,10 @@ function vibeqmaxControlVector(input = {}) {
 init_vibeultrax();
 init_pivot_cache();
 
+// src/lib/turn-classify.js
+init_state();
+init_selection_manager();
+
 // src/lib/classifiers.js
 function detectOutcomeSignal(text) {
   if (!text)
@@ -7859,7 +7960,11 @@ function resetBlackboxTracker() {
   _blackboxTracker = null;
 }
 
+// src/index.ts
+init_state();
+
 // src/lib/research-audit.js
+init_state();
 import { readFileSync as readFileSync9, existsSync as existsSync10 } from "node:fs";
 import { join as join8 } from "node:path";
 function getVibeOSHome6() {
@@ -8171,6 +8276,8 @@ function projectStructuredFromText(raw, selection, creditPercent = 0) {
 }
 
 // src/lib/reporting.js
+init_state();
+init_runtime_state();
 import { readFileSync as readFileSync10, writeFileSync as writeFileSync9, existsSync as existsSync11, mkdirSync as mkdirSync8, statSync as statSync6, rmSync as rmSync4 } from "node:fs";
 import { join as join9 } from "node:path";
 function getVibeOSHome7() {
@@ -8443,9 +8550,13 @@ function readReport(id2) {
   }
 }
 
+// src/index.ts
+init_selection_manager();
+
 // src/lib/credit-api.js
 import { readFileSync as readFileSync11, writeFileSync as writeFileSync10, existsSync as existsSync12 } from "node:fs";
 import { join as join10 } from "node:path";
+init_state();
 function getVibeOSHome8() {
   return process.env.VIBEOS_HOME || join10(process.env.HOME || "", ".claude");
 }
@@ -10394,11 +10505,13 @@ import { readFileSync as readFileSync14, appendFileSync as appendFileSync4, mkdi
 import { join as join15 } from "node:path";
 
 // src/lib/hooks/chat-transform.js
+init_state();
 import { readFileSync as readFileSync13, writeFileSync as writeFileSync12, appendFileSync as appendFileSync3, existsSync as existsSync14, mkdirSync as mkdirSync9, rmSync as rmSync5, readdirSync as readdirSync3, statSync as statSync7 } from "node:fs";
 import { join as join14, dirname as dirname10, basename as basename3 } from "node:path";
 import { createHash as createHash3 } from "node:crypto";
 
 // src/lib/mode-policy.js
+init_state();
 var STRESS_QUALITY_THRESHOLD = 1.5;
 var BASELINE_MODE = "budget";
 var LOOP_REGIMES = /* @__PURE__ */ new Set(["LOOPING", "DIVERGENT"]);
@@ -10582,7 +10695,13 @@ function recordBudgetFirstOutcome(input = {}) {
   });
 }
 
+// src/lib/hooks/chat-transform.js
+init_smart_cache();
+init_selection_manager();
+
 // src/lib/index-helpers.js
+init_state();
+init_pattern_helpers();
 import { join as join13 } from "node:path";
 import { writeFileSync as writeFileSync11 } from "node:fs";
 
@@ -11955,6 +12074,10 @@ var onSystemTransform = async (_input, output) => {
   }
 };
 
+// src/lib/hooks/footer.js
+init_state();
+init_selection_manager();
+
 // src/lib/hooks/shared-footer.js
 var REGIME_TAG = {
   INIT: "INIT",
@@ -12429,9 +12552,11 @@ ${vibeLine} \u2014`);
 }
 
 // src/lib/hooks/tool-execute.js
+init_state();
 import { writeFileSync as writeFileSync14, appendFileSync as appendFileSync6, existsSync as existsSync16, mkdirSync as mkdirSync12 } from "node:fs";
 import { join as join17, dirname as dirname12, basename as basename4 } from "node:path";
 import { createHash as createHash5 } from "node:crypto";
+init_selection_manager();
 
 // src/lib/cost-anomaly.js
 var COST_WINDOW_SIZE = 20;
@@ -12493,8 +12618,10 @@ function getCostAnomalyDetector() {
 // src/lib/hooks/tool-execute.js
 init_flow_enforcer();
 init_ml_router();
+init_smart_cache();
 
 // src/lib/tdd-enforcer.js
+init_state();
 import { readFileSync as readFileSync15, writeFileSync as writeFileSync13, appendFileSync as appendFileSync5, existsSync as existsSync15, mkdirSync as mkdirSync11, statSync as statSync8, readdirSync as readdirSync4, rmSync as rmSync6, openSync as openSync3 } from "node:fs";
 import { join as join16, dirname as dirname11 } from "node:path";
 import { createHash as createHash4 } from "node:crypto";
@@ -14337,7 +14464,8 @@ ${argsJson}
         savings: _estEdit,
         _fallback: true
       }));
-      const savings = apiResult?.savings ?? _estEdit;
+      const remoteSavings = Number(apiResult?.savings);
+      const savings = Number.isFinite(remoteSavings) ? Math.min(remoteSavings, _estEdit) : _estEdit;
       const MIN_MEANINGFUL_SAVINGS = 1e-3;
       const isFallback = apiResult?._fallback === true;
       const isBlocked = apiResult?.blocked !== false && (isFallback || savings >= MIN_MEANINGFUL_SAVINGS);
@@ -14827,6 +14955,7 @@ ${pendingUiNote}`;
 };
 
 // src/lib/hooks/session-compact.js
+init_state();
 import { readFileSync as readFileSync16, existsSync as existsSync17 } from "node:fs";
 var onSessionCompacting = async (_input, output) => {
   if (!loadSelection().enabled)
@@ -14893,6 +15022,7 @@ Recent cached entries:
 };
 
 // src/lib/hooks/shell-env.js
+init_state();
 var directory2 = "";
 var setShellDirectory = (dir) => {
   directory2 = dir || "";
@@ -14913,6 +15043,7 @@ var onShellEnv = async (_input, output) => {
 };
 
 // src/index.ts
+init_state();
 function getVibeOSHome13() {
   return process.env.VIBEOS_HOME || join18(process.env.HOME || "", ".claude");
 }
@@ -15151,7 +15282,9 @@ function loadMcpPort() {
     }
   } catch {
   }
-  return 0;
+  if (process.env.NODE_TEST_CONTEXT)
+    return 0;
+  return 3001;
 }
 function persistMcpPort(port) {
   try {
@@ -15893,6 +16026,7 @@ export {
   TRINITY_CHEAP,
   TRINITY_MEDIUM,
   VERSION,
+  loadMcpPort as _loadMcpPort,
   _refreshModel,
   applySlot2 as applySlot,
   buildTestReminder,

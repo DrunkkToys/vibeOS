@@ -354,10 +354,12 @@ test("quality-pipeline: delegation — write blocked on brain tier with enforcem
   }, null, 2))
 
   const mod = await import("../src/index.js?delblock2=" + Date.now())
+  mod.setCurrentModel("anthropic/claude-opus-4-7")
+  mod.setCurrentTier("high")
   const hooks = await mod.DelegationEnforcer({ directory: projectDir })
   if (!hooks["tool.execute.before"]) return
 
-  const filePath = join(projectDir, "src/test.ts")
+  const filePath = join(projectDir, "src/index.ts")
   const output = { text: "" }
   await hooks["tool.execute.before"](
     { tool: "write", args: { filePath, content: "export const x = 1" } },
@@ -646,6 +648,7 @@ test("quality-pipeline: full pipeline — system.transform injects cost policy, 
   const afterSkeleton = (afterOut.text || "").includes("test-enforced")
     || (afterOut.text || "").includes("test-reminder")
     || (afterOut.text || "").includes("[delegation]")
+    || (afterOut.text || "").includes("[LOCK]")
   assert.ok(afterSkeleton,
     "tool.execute.after must produce test skeleton, reminder, or delegation note: " + (afterOut.text || "").slice(0, 150))
 })
