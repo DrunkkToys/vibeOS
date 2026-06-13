@@ -12,9 +12,11 @@ const DEFAULT_API_URL = "https://api.vibetheog.com"
 const EMBEDDED_API_TOKEN = "vos_8d73804b13bb46711b9a47f036dba7b4d026fd9583d96960e663716e62815a69"
 const API_TOKEN_RE = /^vos_[a-f0-9]{64}$/i
 const API_DISABLED_RE = /^(1|true|yes|on)$/i
-const REQUEST_TIMEOUT = 10000
-const MAX_RETRIES = 3
-const BASE_RETRY_DELAY = 1000
+const IS_TEST_RUNTIME = process.env.VIBEOS_TEST_MODE === "1" || process.env.NODE_ENV === "test" || process.env.CI === "true"
+const REQUEST_TIMEOUT = IS_TEST_RUNTIME ? 2000 : 10000
+const MAX_RETRIES = IS_TEST_RUNTIME ? 1 : 3
+const BASE_RETRY_DELAY = IS_TEST_RUNTIME ? 100 : 1000
+const PROBE_TIMEOUT = IS_TEST_RUNTIME ? 2000 : 5000
 const ALPHA_BUILD_CHANNEL = String(process.env.VIBEOS_BUILD_CHANNEL || "alpha").toLowerCase()
 const BOOTSTRAP_EXCHANGE_PATH = "/api/v1/auth/bootstrap/exchange"
 const BOOTSTRAP_RETRY_COOLDOWN_MS = 60_000
@@ -590,7 +592,7 @@ function readBootstrapTokenFromDisk(): string {
 }
 
 export let VIBEOS_API_DISABLED = readApiDisabledFromDisk() || isTruthyFlag(process.env.VIBEOS_API_DISABLED)
-export let VIBEOS_API_TOKEN = VIBEOS_API_DISABLED ? "" : (readTokenFromDisk() || normalizeDirectApiToken(process.env.VIBEOS_API_TOKEN) || (!hasPrimaryTokenOnDisk() ? EMBEDDED_API_TOKEN : ""))
+export let VIBEOS_API_TOKEN = VIBEOS_API_DISABLED ? "" : (readTokenFromDisk() || normalizeDirectApiToken(process.env.VIBEOS_API_TOKEN))
 export let VIBEOS_API_BOOTSTRAP_TOKEN = VIBEOS_API_DISABLED ? "" : (readBootstrapTokenFromDisk() || process.env.VIBEOS_API_BOOTSTRAP_TOKEN || EMBEDDED_API_TOKEN)
 export let VIBEOS_API_ENABLED = !VIBEOS_API_DISABLED && process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN)
 
@@ -729,7 +731,7 @@ export async function ensureBootstrapExchange(): Promise<boolean> {
     try {
       const client = new VibeOSApiClient({
         baseUrl: VIBEOS_API_URL,
-        timeout: 5000,
+        timeout: PROBE_TIMEOUT,
       })
       const apiToken = await client.exchangeBootstrapToken(VIBEOS_API_BOOTSTRAP_TOKEN, ALPHA_BUILD_CHANNEL)
       if (!apiToken) return false
@@ -797,9 +799,6 @@ function syncApiTokenFromDisk(): void {
     console.error("[vibeOS] API token loaded from VIBEOS_API_TOKEN env var")
   } else {
     VIBEOS_API_DISABLED = false
-    if (!VIBEOS_API_TOKEN && !hasPrimaryTokenOnDisk()) {
-      VIBEOS_API_TOKEN = EMBEDDED_API_TOKEN
-    }
     VIBEOS_API_BOOTSTRAP_TOKEN ||= EMBEDDED_API_TOKEN
     VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN)
   }
@@ -811,7 +810,7 @@ export function getApiClient() {
     _apiClient = new VibeOSApiClient({
       baseUrl: VIBEOS_API_URL,
       apiToken: VIBEOS_API_TOKEN,
-      timeout: 5000,
+      timeout: PROBE_TIMEOUT,
     })
   }
   return _apiClient

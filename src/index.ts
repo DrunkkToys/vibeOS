@@ -337,6 +337,7 @@ function scheduleMcpServerRestart() {
     _mcpServerRestartTimer = null
     void ensureMcpServerRunning()
   }, 500)
+  if (typeof _mcpServerRestartTimer.unref === "function") _mcpServerRestartTimer.unref()
 }
 function attachMcpServerWatchdog(server) {
   server?.once?.("close", () => {

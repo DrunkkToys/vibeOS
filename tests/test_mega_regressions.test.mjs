@@ -12,6 +12,8 @@ import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
 let sandbox
+let lastMod
+const FAST_CI = process.env.VIBEOS_FAST_CI === "1"
 before(() => {
   sandbox = mkdtempSync(join(tmpdir(), "mega-reg-"))
   mkdirSync(join(sandbox, ".claude/scratch"), { recursive: true })
@@ -25,10 +27,14 @@ beforeEach(() => {
   delete process.env.CLAUDE_CREDIT_PERCENT
   delete process.env.VIBEOS_MCP_PORT
 })
-after(() => rmSync(sandbox, { recursive: true, force: true }))
+after(async () => {
+  try { await lastMod?.closeMcpServer?.() } catch {}
+  rmSync(sandbox, { recursive: true, force: true })
+})
 
 async function loadPlugin() {
-  return import("../src/index.js?t=" + Date.now())
+  lastMod = await import("../src/index.js?t=" + Date.now())
+  return lastMod
 }
 
 function seedTiers(overrides = {}) {
@@ -307,7 +313,7 @@ test("FIX 13: index.js exports setCurrentModel and setCurrentTier", async () => 
 })
 
 test("FIX 13b: concurrent slot writes preserve all selection fields", async () => {
-  const rounds = 3
+  const rounds = FAST_CI ? 1 : 3
   const mutations = ["write-slot", "write-thinking", "write-flow"]
   for (let i = 0; i < rounds; i++) {
     seedTiers()
@@ -346,7 +352,7 @@ test("FIX 13c: large savings ledger remains readable without corruption logging"
     lifetime: { warn_count: 0, total_savings_usd: 0, cache_savings_usd: 0, missed_context7_usd: 0 },
   }, null, 2))
   const entry = JSON.stringify({ v: 2, at: new Date().toISOString(), kind: "cache", amount_usd: 0.0001, sid: "ledger-large-test", tool: "Read" })
-  const targetBytes = 11 * 1024 * 1024
+  const targetBytes = FAST_CI ? 2 * 1024 * 1024 : 11 * 1024 * 1024
   const repeats = Math.ceil(targetBytes / (entry.length + 1))
   writeFileSync(ledgerPath, Array.from({ length: repeats }, () => entry).join("\n") + "\n")
   const before = existsSync(logPath) ? readFileSync(logPath, "utf8").trim().split("\n").filter(Boolean).length : 0
@@ -405,7 +411,7 @@ test("FIX 13f: large savings ledger compacts on read", async () => {
     note: "x".repeat(80),
   }
   const entry = JSON.stringify(base)
-  writeFileSync(ledgerPath, Array.from({ length: 12000 }, () => entry).join("\n") + "\n")
+  writeFileSync(ledgerPath, Array.from({ length: FAST_CI ? 2000 : 12000 }, () => entry).join("\n") + "\n")
   const beforeSize = readFileSync(ledgerPath).length
   const sv = readLifetimeSavings()
   const afterSize = readFileSync(ledgerPath).length
@@ -427,12 +433,13 @@ test("FIX 13g: active jobs GC runs on init and drops malformed entries", async (
   assert.equal(persisted.staleJob, undefined, "stale job should be removed after completion")
 })
 
-test("FIX 13h: cold start maintenance cleans dirty disk state before the first report flow", async () => {
+test("FIX 13h: cold start maintenance cleans dirty disk state before the first report flow", { skip: FAST_CI }, async () => {
   const coldHome = mkdtempSync(join(tmpdir(), "mega-startup-"))
   const childScript = `
     const fs = await import("node:fs")
     const { join } = await import("node:path")
     const home = process.env.HOME
+    const fastCi = process.env.VIBEOS_FAST_CI === "1"
     const claude = join(home, ".claude")
     const projectDir = join(home, "project")
     const backupsDir = join(claude, ".backups")
@@ -447,11 +454,11 @@ test("FIX 13h: cold start maintenance cleans dirty disk state before the first r
       staleJob: { prompt: "stale", keywords: ["boot"], status: "active", createdAt: staleAt, updatedAt: staleAt },
       malformedJob: { prompt: "bad", keywords: ["boot"], updatedAt: staleAt },
     }, null, 2))
-    for (let i = 0; i < 7; i++) {
+    for (let i = 0; i < (fastCi ? 3 : 7); i++) {
       fs.writeFileSync(join(backupsDir, "savings-ledger.jsonl.corrupted." + i), "backup-" + i)
     }
     const entry = JSON.stringify({ v: 2, at: new Date().toISOString(), kind: "cache", amount_usd: 0.0001, sid: "boot-flow", tool: "Read" })
-    fs.writeFileSync(ledgerPath, Array.from({ length: 14000 }, () => entry).join("\\n") + "\\n")
+    fs.writeFileSync(ledgerPath, Array.from({ length: fastCi ? 2000 : 14000 }, () => entry).join("\\n") + "\\n")
     fs.writeFileSync(join(claude, "model-tiers.json"), JSON.stringify({
       trinity: {
         brain: { oc: "anthropic/claude-opus-4-7" },

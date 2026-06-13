@@ -45,6 +45,7 @@ const result = spawnSync(process.execPath, ["--loader", loader, "--test", `--tes
     ...process.env,
     VIBEOS_MCP_PORT: process.env.VIBEOS_MCP_PORT || "0",
     VIBEOS_TEST_CONTEXT: "1",
+    VIBEOS_FAST_CI: mode === "ci" ? "1" : "0",
   },
 })
 

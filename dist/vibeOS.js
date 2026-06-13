@@ -4641,9 +4641,11 @@ var DEFAULT_API_URL = "https://api.vibetheog.com";
 var EMBEDDED_API_TOKEN = "vos_8d73804b13bb46711b9a47f036dba7b4d026fd9583d96960e663716e62815a69";
 var API_TOKEN_RE = /^vos_[a-f0-9]{64}$/i;
 var API_DISABLED_RE = /^(1|true|yes|on)$/i;
-var REQUEST_TIMEOUT = 1e4;
-var MAX_RETRIES = 3;
-var BASE_RETRY_DELAY = 1e3;
+var IS_TEST_RUNTIME = process.env.VIBEOS_TEST_MODE === "1" || process.env.NODE_ENV === "test" || process.env.CI === "true";
+var REQUEST_TIMEOUT = IS_TEST_RUNTIME ? 2e3 : 1e4;
+var MAX_RETRIES = IS_TEST_RUNTIME ? 1 : 3;
+var BASE_RETRY_DELAY = IS_TEST_RUNTIME ? 100 : 1e3;
+var PROBE_TIMEOUT = IS_TEST_RUNTIME ? 2e3 : 5e3;
 var ALPHA_BUILD_CHANNEL = String(process.env.VIBEOS_BUILD_CHANNEL || "alpha").toLowerCase();
 var BOOTSTRAP_EXCHANGE_PATH = "/api/v1/auth/bootstrap/exchange";
 var BOOTSTRAP_RETRY_COOLDOWN_MS = 6e4;
@@ -5109,16 +5111,6 @@ function readTokenFromDisk() {
   }
   return "";
 }
-function hasPrimaryTokenOnDisk() {
-  if (readApiDisabledFromDisk())
-    return false;
-  try {
-    const env = readFileSync2(_envPaths[0] + "/.env.production", "utf8");
-    return /^VIBEOS_API_TOKEN=/m.test(env);
-  } catch {
-    return false;
-  }
-}
 function readBootstrapTokenFromDisk() {
   if (readApiDisabledFromDisk())
     return "";
@@ -5132,7 +5124,7 @@ function readBootstrapTokenFromDisk() {
   return "";
 }
 var VIBEOS_API_DISABLED = readApiDisabledFromDisk() || isTruthyFlag(process.env.VIBEOS_API_DISABLED);
-var VIBEOS_API_TOKEN = VIBEOS_API_DISABLED ? "" : readTokenFromDisk() || normalizeDirectApiToken(process.env.VIBEOS_API_TOKEN) || (!hasPrimaryTokenOnDisk() ? EMBEDDED_API_TOKEN : "");
+var VIBEOS_API_TOKEN = VIBEOS_API_DISABLED ? "" : readTokenFromDisk() || normalizeDirectApiToken(process.env.VIBEOS_API_TOKEN);
 var VIBEOS_API_BOOTSTRAP_TOKEN = VIBEOS_API_DISABLED ? "" : readBootstrapTokenFromDisk() || process.env.VIBEOS_API_BOOTSTRAP_TOKEN || EMBEDDED_API_TOKEN;
 var VIBEOS_API_ENABLED = !VIBEOS_API_DISABLED && process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
 var _anomalyDetector = null;
@@ -5266,7 +5258,7 @@ async function ensureBootstrapExchange() {
     try {
       const client2 = new VibeOSApiClient({
         baseUrl: VIBEOS_API_URL,
-        timeout: 5e3
+        timeout: PROBE_TIMEOUT
       });
       const apiToken = await client2.exchangeBootstrapToken(VIBEOS_API_BOOTSTRAP_TOKEN, ALPHA_BUILD_CHANNEL);
       if (!apiToken)
@@ -5331,9 +5323,6 @@ function syncApiTokenFromDisk() {
     console.error("[vibeOS] API token loaded from VIBEOS_API_TOKEN env var");
   } else {
     VIBEOS_API_DISABLED = false;
-    if (!VIBEOS_API_TOKEN && !hasPrimaryTokenOnDisk()) {
-      VIBEOS_API_TOKEN = EMBEDDED_API_TOKEN;
-    }
     VIBEOS_API_BOOTSTRAP_TOKEN ||= EMBEDDED_API_TOKEN;
     VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
   }
@@ -5344,7 +5333,7 @@ function getApiClient2() {
     _apiClient = new VibeOSApiClient({
       baseUrl: VIBEOS_API_URL,
       apiToken: VIBEOS_API_TOKEN,
-      timeout: 5e3
+      timeout: PROBE_TIMEOUT
     });
   }
   return _apiClient;
@@ -12324,8 +12313,8 @@ function buildFooterLine(input) {
 
 // src/lib/hooks/footer.js
 var IS_CLI_RUNTIME = Boolean(process.stdout?.isTTY || process.stderr?.isTTY || process.stdin?.isTTY);
-var IS_TEST_RUNTIME = process.env.VIBEOS_MCP_PORT === "0" || process.env.NODE_ENV === "test" || process.env.CI === "true";
-var FOOTER_DEBUG_STDERR = process.env.VIBEOS_DEBUG_FOOTER === "1" || !IS_CLI_RUNTIME && !IS_TEST_RUNTIME;
+var IS_TEST_RUNTIME2 = process.env.VIBEOS_MCP_PORT === "0" || process.env.NODE_ENV === "test" || process.env.CI === "true";
+var FOOTER_DEBUG_STDERR = process.env.VIBEOS_DEBUG_FOOTER === "1" || !IS_CLI_RUNTIME && !IS_TEST_RUNTIME2;
 function footerDebug(...args) {
   if (FOOTER_DEBUG_STDERR)
     console.error(...args);
@@ -15399,6 +15388,7 @@ function scheduleMcpServerRestart() {
     _mcpServerRestartTimer = null;
     void ensureMcpServerRunning();
   }, 500);
+  if (typeof _mcpServerRestartTimer.unref === "function") _mcpServerRestartTimer.unref();
 }
 function attachMcpServerWatchdog(server2) {
   server2?.once?.("close", () => {

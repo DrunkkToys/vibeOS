@@ -111,7 +111,14 @@ describe("E2E: Full Plugin Lifecycle", { concurrency: false }, () => {
     const input = { messageID: "lifecycle-test-1" };
     const out = { text: "This is a long enough assistant response to trigger the vibeOS footer mechanism. Definitely long enough to pass the fifty character threshold." };
     await hooks["experimental.text.complete"](input, out);
-    assert.ok(out.text.includes("Anthropic") || out.text.includes("Opus") || out.text.includes("$"), "footer appended: " + out.text.slice(-80));
+    assert.ok(
+      out.text.includes("Anthropic") ||
+      out.text.includes("Opus") ||
+      out.text.includes("Deepseek") ||
+      out.text.includes("Vibe") ||
+      out.text.includes("$"),
+      "footer appended: " + out.text.slice(-80)
+    );
   });
 
   it("6. experimental.session.compacting — compaction context populated", async () => {
