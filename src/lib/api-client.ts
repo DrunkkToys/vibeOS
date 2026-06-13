@@ -682,6 +682,20 @@ let _bootstrapExchangeInFlight: Promise<boolean> | null = null
 let _bootstrapExchangeFailedAt = 0
 let _backendVersion = ""
 
+const FALLBACK_COOLDOWN_MS = 60_000
+
+function tryResetFallbackCooldown(): boolean {
+  if (!_apiFallbackMode || !_apiFallbackSince) return false
+  const elapsed = Date.now() - new Date(_apiFallbackSince).getTime()
+  if (elapsed > FALLBACK_COOLDOWN_MS) {
+    _apiFallbackMode = false
+    _apiFallbackSince = null
+    markApiConnected()
+    return true
+  }
+  return false
+}
+
 function recordBackendVersion(payload: unknown): void {
   if (!payload || typeof payload !== "object") return
   const version = String((payload as { version?: unknown }).version || "").trim()
@@ -795,6 +809,7 @@ export function isApiFallback() {
 }
 
 export function isApiConnected() {
+  tryResetFallbackCooldown()
   return isRuntimeApiConnected() && VIBEOS_API_ENABLED && !_apiFallbackMode
 }
 
@@ -808,14 +823,8 @@ export async function remoteCall(method, args, fallbackFn) {
     await ensureBootstrapExchange()
     syncApiTokenFromDisk()
   }
-  if (_apiFallbackMode && _apiFallbackSince) {
-    const elapsed = Date.now() - new Date(_apiFallbackSince).getTime()
-    if (elapsed > 60_000) {
-      _apiFallbackMode = false
-      _apiFallbackSince = null
-      markApiConnected()
-      console.warn("[vibeOS] API fallback cooldown expired — retrying API")
-    }
+  if (tryResetFallbackCooldown()) {
+    console.warn("[vibeOS] API fallback cooldown expired — retrying API")
   }
   if (!VIBEOS_API_ENABLED || _apiFallbackMode) {
     if (fallbackFn) return fallbackFn()

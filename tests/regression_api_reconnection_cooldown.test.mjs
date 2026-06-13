@@ -173,6 +173,32 @@ it("401 auth error does not permanently degrade runtime-state", async () => {
   delete globalThis.__vibeOSRuntimeState
 })
 
+
+it("isApiConnected() self-heals after cooldown WITHOUT remoteCall()", async () => {
+  const ctx = fresh()
+  const api = await ctx.mod
+
+  global.fetch = async () => { throw new Error("ECONNREFUSED") }
+  await api.remoteCall("health", [], () => ({ local: true }))
+  assert.equal(api.isApiFallback(), true, "fallback active after network error")
+  assert.equal(api.isApiConnected(), false, "disconnected after network error")
+
+  const rs = await import("../src/lib/runtime-state.js?" + (stamp++))
+  assert.equal(rs.isApiConnected(), false, "runtime confirms disconnected")
+
+  const origDateNow = Date.now
+  const fakeNow = origDateNow() + 61_000
+  Date.now = () => fakeNow
+
+  const connected = api.isApiConnected()
+  assert.equal(connected, true, "isApiConnected() self-heals after cooldown elapsed (BUG FIX)")
+
+  Date.now = origDateNow
+
+  await restore(ctx)
+  delete globalThis.__vibeOSRuntimeState
+})
+
 it("repeated 401 → cooldown → retry cycles without permanent deadlock", async () => {
   const ctx = fresh()
   const api = await ctx.mod
