@@ -608,7 +608,7 @@ test("saveOS MCP: starts on the default dashboard port when no MCP port is confi
     process.env.VIBEOS_HOME = vibeHome;
     process.env.VIBEOS_OPENCODE_HOME = opencodeHome;
     delete process.env.VIBEOS_MCP_PORT;
-    delete process.env.NODE_TEST_CONTEXT;
+    delete process.env.VIBEOS_TEST_CONTEXT;
     const mod = await import(${JSON.stringify(pathToFileURL(join(process.cwd(), "dist/vibeOS.js")).href)} + "?default-mcp=" + Date.now());
     const result = {
       resolved_port: mod._loadMcpPort(),
@@ -625,6 +625,65 @@ test("saveOS MCP: starts on the default dashboard port when no MCP port is confi
   assert.equal(child.status, 0, child.stderr || child.stdout)
   const result = JSON.parse(String(child.stdout || "").trim())
   assert.equal(result.resolved_port, 3001)
+})
+
+test("saveOS MCP: starts without a client object and serves health", { concurrency: false }, async () => {
+  const port = await getFreePort()
+  const script = `
+    import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+    import { join } from "node:path";
+    import { tmpdir } from "node:os";
+    const sandbox = mkdtempSync(join(tmpdir(), "saveos-clientless-mcp-"));
+    const vibeHome = join(sandbox, ".claude");
+    const opencodeHome = join(sandbox, ".config/opencode");
+    const projectDir = join(sandbox, "project");
+    mkdirSync(join(vibeHome, "reports"), { recursive: true });
+    mkdirSync(join(vibeHome, "scratch"), { recursive: true });
+    mkdirSync(opencodeHome, { recursive: true });
+    mkdirSync(projectDir, { recursive: true });
+    writeFileSync(join(opencodeHome, "opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-flash" }) + "\\n");
+    writeFileSync(join(vibeHome, "model-tiers.json"), JSON.stringify({
+      selection: { enabled: true, active_slot: "medium", delegation_enforce: true, flow_enabled: true, tdd_enforce: true, thinking_level: "off" },
+      trinity: {
+        brain: { oc: "deepseek/deepseek-v4-pro", cc: "brain" },
+        medium: { oc: "deepseek/deepseek-v4-flash", cc: "medium" },
+        cheap: { oc: "deepseek/deepseek-chat", cc: "cheap" }
+      }
+    }, null, 2) + "\\n");
+    writeFileSync(join(vibeHome, "delegation-state.json"), JSON.stringify({ lifetime: { warn_count: 0, cache_savings_usd: 0, missed_context7_usd: 0, total_savings_usd: 0 }, sessions: {} }, null, 2) + "\\n");
+    process.env.HOME = sandbox;
+    process.env.VIBEOS_HOME = vibeHome;
+    process.env.VIBEOS_OPENCODE_HOME = opencodeHome;
+    process.env.VIBEOS_MCP_PORT = ${JSON.stringify(String(port))};
+    delete process.env.VIBEOS_TEST_CONTEXT;
+    const mod = await import(${JSON.stringify(pathToFileURL(join(process.cwd(), "dist/vibeOS.js")).href)} + "?clientless=" + Date.now());
+    await mod.DelegationEnforcer({ directory: projectDir });
+    const url = "http://127.0.0.1:${port}/health";
+    let ok = false;
+    for (let i = 0; i < 50; i++) {
+      try {
+        const res = await fetch(url);
+        if (res.ok) {
+          ok = true;
+          break;
+        }
+      } catch {}
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    mod.closeMcpServer();
+    if (!ok) throw new Error("health endpoint never came up");
+    console.log(JSON.stringify({ ok: true }));
+    try { rmSync(sandbox, { recursive: true, force: true }); } catch {}
+  `;
+
+  const child = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
+    env: { ...process.env },
+    encoding: "utf-8",
+  })
+
+  assert.equal(child.status, 0, child.stderr || child.stdout)
+  const result = JSON.parse(String(child.stdout || "").trim())
+  assert.equal(result.ok, true)
 })
 
 // -- 10. PROJECT GUARD --

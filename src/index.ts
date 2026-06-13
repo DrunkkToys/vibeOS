@@ -303,7 +303,7 @@ function loadMcpPort() {
     }
   }
   catch { }
-  if (process.env.NODE_TEST_CONTEXT)
+  if (process.env.VIBEOS_TEST_CONTEXT)
     return 0
   return 3001
 }
@@ -944,7 +944,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
   }
   _pluginHooksRuntime = pluginHooks
   // ── MCP server startup ─────────────────────────────────────────────
-  const _inTestEnv = process.env.VIBEOS_MCP_PORT === "0" || !client || Object.keys(client || {}).length === 0
+  const _inTestEnv = process.env.VIBEOS_MCP_PORT === "0"
   if (!_inTestEnv)
     void ensureMcpServerRunning()
   return pluginHooks
