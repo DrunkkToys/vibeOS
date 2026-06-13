@@ -1027,6 +1027,151 @@ test("integration: isApiFallback is independent of isApiConnected", (t) => {
   }
 })
 
+
+// ── Integration: setApiToken / invalidateApiToken lifecycle ─────────────
+// These test the token management functions that affect the flash icon
+// and API connection state.
+
+test("integration: setApiToken clears fallback and resets connection", async (t) => {
+  delete globalThis.__vibeOSRuntimeState
+  try {
+    // Put system in fallback state
+    global.fetch = async () => { throw new Error("ECONNREFUSED") }
+    await apiClient.remoteCall("health", [], () => ({ local: true }))
+    assert.equal(apiClient.isApiFallback(), true, "fallback after failure")
+
+    // Set a new token — should clear everything
+    apiClient.setApiToken("vos_" + "a".repeat(64))
+    assert.equal(apiClient.isApiFallback(), false, "fallback cleared by setApiToken")
+    assert.equal(apiClient.isApiConnected(), true, "connected after setApiToken")
+  } finally {
+    Date.now = REAL_DATE_NOW
+    delete globalThis.__vibeOSRuntimeState
+  }
+})
+
+test("integration: invalidateApiToken disables the API", (t) => {
+  delete globalThis.__vibeOSRuntimeState
+  try {
+    assert.equal(apiClient.isApiConnected(), true, "connected before invalidate")
+    apiClient.invalidateApiToken()
+    assert.equal(apiClient.isApiConnected(), false, "disconnected after invalidate")
+    // isApiFallback returns true because apiEnabled=false → !isRuntimeApiEnabled() is true
+    assert.equal(apiClient.isApiFallback(), true, "fallback active when API disabled")
+  } finally {
+    delete globalThis.__vibeOSRuntimeState
+  }
+})
+
+// ── Integration: token validation ─────────────────────────────────────
+// normalizeDirectApiToken must reject the EMBEDDED bootstrap token
+// and accept valid hex tokens.
+
+test("integration: setApiToken with invalid token disables API", (t) => {
+  delete globalThis.__vibeOSRuntimeState
+  try {
+    // Set a token that normalizeDirectApiToken rejects (not 64 hex chars)
+    apiClient.setApiToken("invalid-token")
+    assert.equal(apiClient.isApiConnected(), false, "disconnected with invalid token")
+  } finally {
+    delete globalThis.__vibeOSRuntimeState
+  }
+})
+
+test("integration: setApiToken accepts valid hex token", (t) => {
+  delete globalThis.__vibeOSRuntimeState
+  try {
+    apiClient.setApiToken("vos_" + "a".repeat(64))
+    assert.equal(apiClient.isApiConnected(), true, "connected with valid token")
+  } finally {
+    delete globalThis.__vibeOSRuntimeState
+  }
+})
+
+// ── Integration: cooldown expiry ──────────────────────────────────────
+// After 60s cooldown, remoteCall should probe instead of returning fallback.
+
+test("integration: cooldown expiry allows probe after 60s", async (t) => {
+  delete globalThis.__vibeOSRuntimeState
+  try {
+    // Put in fallback
+    global.fetch = async () => { throw new Error("ECONNREFUSED") }
+    await apiClient.remoteCall("health", [], () => ({ local: true }))
+    assert.equal(apiClient.isApiFallback(), true, "fallback after failure")
+
+    // Advance past 60s cooldown
+    Date.now = () => REAL_DATE_NOW() + 61_000
+
+    // Now simulate success — remoteCall should probe (not short-circuit)
+    let fetchCalled = false
+    global.fetch = async () => {
+      fetchCalled = true
+      return { ok: true, status: 200, json: async () => ({ status: "ok" }) }
+    }
+    await apiClient.remoteCall("health", [], () => ({ local: true }))
+
+    assert.equal(fetchCalled, true, "fetch called after cooldown (probe fired)")
+    assert.equal(apiClient.isApiFallback(), false, "fallback cleared after probe success")
+  } finally {
+    Date.now = REAL_DATE_NOW
+    delete globalThis.__vibeOSRuntimeState
+  }
+})
+
+test("integration: cooldown not expired — returns fallback without probing", async (t) => {
+  delete globalThis.__vibeOSRuntimeState
+  try {
+    // Put in fallback
+    global.fetch = async () => { throw new Error("ECONNREFUSED") }
+    await apiClient.remoteCall("health", [], () => ({ local: true }))
+    assert.equal(apiClient.isApiFallback(), true, "fallback after failure")
+
+    // Only advance 30s — cooldown not expired
+    Date.now = () => REAL_DATE_NOW() + 30_000
+
+    // This should short-circuit without calling fetch
+    let fetchCalled = false
+    global.fetch = async () => {
+      fetchCalled = true
+      return { ok: true, status: 200, json: async () => ({ status: "ok" }) }
+    }
+    const result = await apiClient.remoteCall("health", [], () => ({ local: true }))
+
+    assert.equal(fetchCalled, false, "fetch NOT called — cooldown not expired")
+    assert.equal(result.local, true, "fallback returned immediately")
+    assert.equal(apiClient.isApiFallback(), true, "still in fallback")
+  } finally {
+    Date.now = REAL_DATE_NOW
+    delete globalThis.__vibeOSRuntimeState
+  }
+})
+
+// ── Integration: getApiClient with valid/invalid tokens ───────────────
+// getApiClient should create a client when token is valid, return null when not.
+
+test("integration: getApiClient returns client when token is set", (t) => {
+  delete globalThis.__vibeOSRuntimeState
+  try {
+    apiClient.setApiToken("vos_" + "b".repeat(64))
+    const client = apiClient.getApiClient()
+    assert.ok(client !== null && client !== undefined, "client created with valid token")
+  } finally {
+    delete globalThis.__vibeOSRuntimeState
+  }
+})
+
+test("integration: getApiClient returns null when no token", (t) => {
+  delete globalThis.__vibeOSRuntimeState
+  try {
+    // Ensure no token is set
+    apiClient.invalidateApiToken()
+    const client = apiClient.getApiClient()
+    assert.equal(client, null, "no client when API is invalidated")
+  } finally {
+    delete globalThis.__vibeOSRuntimeState
+  }
+})
+
 // ── Cleanup ──────────────────────────────────────────────────────────
 test.after(() => {
   try { rmSync(SANDBOX, { recursive: true, force: true }) } catch {}
