@@ -11,6 +11,7 @@ import { pathToFileURL } from 'node:url'
 function makeSandbox(name) {
   const sandbox = mkdtempSync(join(tmpdir(), 'vibeos-int-' + name + '-'))
   const home = sandbox
+  process.env.VIBEOS_MCP_PORT = "0"
   process.env.VIBEOS_HOME = join(home, '.claude')
   process.env.VIBEOS_OPENCODE_HOME = join(home, '.config/opencode')
   mkdirSync(join(home, '.config/opencode'), { recursive: true })
@@ -300,6 +301,7 @@ test('footer alert chain: write warning survives tool result and later footer ap
     process.env.HOME = home;
     process.env.VIBEOS_HOME = join(home, ".claude");
     process.env.VIBEOS_OPENCODE_HOME = join(home, ".config/opencode");
+    process.env.VIBEOS_MCP_PORT = "0";
     const mod = await import(${JSON.stringify(bundleUrl)} + "?ftr-chain=" + Date.now());
     const hooks = await mod.DelegationEnforcer({ directory: projectDir });
     const toolInput = { tool: "write", args: { filePath: join(projectDir, "src/app.ts") } };
@@ -450,6 +452,7 @@ test('reconnect recovery: stale vibelitex cache heals to live brain mode and foo
     process.env.HOME = home;
     process.env.VIBEOS_HOME = join(home, ".claude");
     process.env.VIBEOS_OPENCODE_HOME = join(home, ".config/opencode");
+    process.env.VIBEOS_MCP_PORT = "0";
     const plugin = await import(${JSON.stringify(bundleUrl)} + "?recover=" + Date.now());
     const hooks = await plugin.DelegationEnforcer({ directory: projectDir });
     const turn = await import(${JSON.stringify(turnUrl)} + "?recover=" + Date.now());
@@ -686,6 +689,7 @@ test('startup repair: rebuild keeps valid project trinity slots instead of snapp
     process.env.HOME = home;
     process.env.VIBEOS_HOME = join(home, ".claude");
     process.env.VIBEOS_OPENCODE_HOME = join(home, ".config/opencode");
+    process.env.VIBEOS_MCP_PORT = "0";
     const mod = await import(${JSON.stringify(bundleUrl)} + "?slot-preserve=" + Date.now());
     const hooks = await mod.DelegationEnforcer({ directory: projectDir });
     const rebuild = await hooks.tool.trinity.execute({ action: "rebuild" });

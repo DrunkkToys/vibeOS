@@ -4,7 +4,7 @@
 import http from "node:http"
 import type { IncomingMessage, ServerResponse } from "node:http"
 import { parse as parseUrl } from "node:url"
-import { createReadStream, existsSync, statSync } from "node:fs"
+import { createReadStream, existsSync, mkdirSync, statSync, writeFileSync } from "node:fs"
 import { extname, join, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -80,6 +80,8 @@ const _MCP_DIR = dirname(_MCP_FILENAME)
 function resolveDashboardDir(): string {
   const c = [
     join(_MCP_DIR, "dashboard", "dist"),
+    join(_MCP_DIR, "assets", "dashboard"),
+    join(_MCP_DIR, "assets", "dashboard", "dist"),
   ]
   for (const p of c) {
     if (existsSync(join(p, "index.html"))) return p
@@ -88,6 +90,19 @@ function resolveDashboardDir(): string {
 }
 
 const DASHBOARD_DIR = resolveDashboardDir()
+const DASHBOARD_CONFIG_PATH = join(DASHBOARD_DIR, "vibeos-dashboard-config.js")
+
+export function writeDashboardBaseConfig(baseUrl: string): string | null {
+  try {
+    if (!baseUrl) return null
+    mkdirSync(DASHBOARD_DIR, { recursive: true })
+    const payload = `window.__VIBEOS_DASHBOARD_BASE__ = ${JSON.stringify(baseUrl.replace(/\/$/, ""))};\n`
+    writeFileSync(DASHBOARD_CONFIG_PATH, payload, "utf-8")
+    return DASHBOARD_CONFIG_PATH
+  } catch {
+    return null
+  }
+}
 
 function resolveBackendHealthUrl(): string {
   const explicit = process.env.VIBEOS_BACKEND_HEALTH_URL?.trim()

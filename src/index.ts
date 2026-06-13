@@ -944,7 +944,10 @@ export async function DelegationEnforcer({ client, directory } = {}) {
   }
   _pluginHooksRuntime = pluginHooks
   // ── MCP server startup ─────────────────────────────────────────────
-  const _inTestEnv = process.env.VIBEOS_MCP_PORT === "0"
+  const _inTestEnv =
+    process.env.VIBEOS_MCP_PORT === "0" ||
+    process.env.NODE_ENV === "test" ||
+    process.execArgv.some((arg) => arg === "--test" || arg.startsWith("--test="))
   if (!_inTestEnv)
     void ensureMcpServerRunning()
   return pluginHooks

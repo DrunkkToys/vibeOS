@@ -586,11 +586,12 @@ test("saveOS MCP: startup watchdog recovers when the port is briefly blocked", a
   assert.equal(result.trinity_status.includes("[vibeOS-dashboard]"), true)
 })
 
-test("saveOS MCP: starts on the default dashboard port when no MCP port is configured", { concurrency: false }, async () => {
+test("saveOS MCP: auto-selects a free dashboard port when none is configured", { concurrency: false }, async () => {
   const script = `
-    import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+    import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
     import { join } from "node:path";
     import { tmpdir } from "node:os";
+    import http from "node:http";
     const sandbox = mkdtempSync(join(tmpdir(), "saveos-default-mcp-"));
     const home = sandbox;
     const vibeHome = join(home, ".claude");
@@ -607,13 +608,55 @@ test("saveOS MCP: starts on the default dashboard port when no MCP port is confi
     process.env.HOME = home;
     process.env.VIBEOS_HOME = vibeHome;
     process.env.VIBEOS_OPENCODE_HOME = opencodeHome;
-    delete process.env.VIBEOS_MCP_PORT;
     delete process.env.VIBEOS_TEST_CONTEXT;
+    delete process.env.VIBEOS_MCP_PORT;
+    const configPath = join(process.cwd(), "dist", "assets", "dashboard", "vibeos-dashboard-config.js");
+    try { rmSync(configPath, { force: true }); } catch {}
+    let blocked3001 = false;
+    const blocker = http.createServer((req, res) => {
+      res.statusCode = 204;
+      res.end();
+    });
+    try {
+      await new Promise((resolve, reject) => {
+        blocker.once("error", reject);
+        blocker.listen(3001, "127.0.0.1", () => resolve());
+      });
+      blocked3001 = true;
+    } catch {}
     const mod = await import(${JSON.stringify(pathToFileURL(join(process.cwd(), "dist/vibeOS.js")).href)} + "?default-mcp=" + Date.now());
-    const result = {
-      resolved_port: mod._loadMcpPort(),
+    await mod.DelegationEnforcer({ directory: projectDir });
+    const waitForFile = async (filePath) => {
+      const start = Date.now();
+      while (Date.now() - start < 8000) {
+        if (existsSync(filePath)) return true;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      throw new Error("dashboard config never appeared");
     };
+    await waitForFile(configPath);
+    const config = readFileSync(configPath, "utf-8");
+    const matchedPort = Number((config.match(/127\\.0\\.0\\.1:(\\d+)/) || [])[1] || 0);
+    const resolved_port = Number(JSON.parse(readFileSync(join(vibeHome, "model-tiers.json"), "utf-8"))?.selection?.mcp_port || 0);
+    const healthUrl = "http://127.0.0.1:" + resolved_port + "/health";
+    let healthOk = false;
+    for (let i = 0; i < 80; i++) {
+      try {
+        const res = await fetch(healthUrl);
+        if (res.ok) {
+          healthOk = true;
+          break;
+        }
+      } catch {}
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    const result = { resolved_port, matchedPort, blocked3001, configPathExists: existsSync(configPath), healthOk };
     console.log(JSON.stringify(result));
+    try { mod.closeMcpServer(); } catch {}
+    try {
+      await new Promise((resolve) => blocker.close(() => resolve()));
+    } catch {}
+    try { rmSync(configPath, { force: true }); } catch {}
     try { rmSync(sandbox, { recursive: true, force: true }); } catch {}
   `;
 
@@ -624,7 +667,12 @@ test("saveOS MCP: starts on the default dashboard port when no MCP port is confi
 
   assert.equal(child.status, 0, child.stderr || child.stdout)
   const result = JSON.parse(String(child.stdout || "").trim())
-  assert.equal(result.resolved_port, 3001)
+  assert.ok(result.resolved_port > 0)
+  assert.equal(result.configPathExists, true)
+  assert.equal(result.healthOk, true)
+  assert.equal(result.matchedPort, result.resolved_port)
+  if (result.blocked3001)
+    assert.notEqual(result.resolved_port, 3001)
 })
 
 test("saveOS MCP: starts without a client object and serves health", { concurrency: false }, async () => {

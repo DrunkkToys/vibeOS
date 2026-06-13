@@ -207,16 +207,25 @@ textarea{min-height:80px;resize:vertical}
 
 <div class="last-update" id="lastUpdate"></div>
 
+<script src="./vibeos-dashboard-config.js"></script>
 <script>
 function resolveBase() {
   const params = new URLSearchParams(location.search);
   const paramBase = params.get('base');
   if (paramBase) return paramBase.replace(/\/$/, '');
   try {
+    const runtimeBase = window.__VIBEOS_DASHBOARD_BASE__;
+    if (runtimeBase) {
+      const normalized = String(runtimeBase).replace(/\/$/, '');
+      localStorage.setItem('vibeos-dashboard-base', normalized);
+      return normalized;
+    }
+  } catch (_) {}
+  try {
     const stored = localStorage.getItem('vibeos-dashboard-base');
     if (stored) return stored.replace(/\/$/, '');
   } catch (_) {}
-  return location.protocol === 'file:' ? 'http://127.0.0.1:3001' : '';
+  return '';
 }
 const BASE = resolveBase();
 let lastStatus = null;

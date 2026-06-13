@@ -12,14 +12,17 @@ const test = (name, options, fn) =>
 let sandbox
 let DelegationEnforcer
 let originalHome
+let originalMcpPort
 
 nodeTest("SETUP", { concurrency: false }, async (t) => {
   sandbox = mkdtempSync(join(tmpdir(), "trinity-mega-"))
   mkdirSync(join(sandbox, ".opencode"), { recursive: true })
   writeFileSync(join(sandbox, ".opencode/opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-pro" }))
   originalHome = process.env.HOME
+  originalMcpPort = process.env.VIBEOS_MCP_PORT
   process.env.HOME = sandbox
   process.env.VIBEOS_HOME = join(sandbox, ".claude")
+  process.env.VIBEOS_MCP_PORT = "0"
   mkdirSync(join(sandbox, ".claude"), { recursive: true })
   const mod = await import("../src/index.js?t=" + Date.now())
   DelegationEnforcer = mod.DelegationEnforcer || mod.default
@@ -27,6 +30,8 @@ nodeTest("SETUP", { concurrency: false }, async (t) => {
 
 after(() => {
   if (originalHome !== undefined) process.env.HOME = originalHome
+  if (originalMcpPort === undefined) delete process.env.VIBEOS_MCP_PORT
+  else process.env.VIBEOS_MCP_PORT = originalMcpPort
   delete process.env.VIBEOS_HOME
   if (sandbox && existsSync(sandbox)) rmSync(sandbox, { recursive: true, force: true })
 })

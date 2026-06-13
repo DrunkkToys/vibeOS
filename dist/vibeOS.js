@@ -498,7 +498,7 @@ var init_runtime_state = __esm({
 });
 
 // src/lib/selection-manager.js
-import { readFileSync as readFileSync3, writeFileSync as writeFileSync3, existsSync as existsSync4, statSync as statSync3, renameSync as renameSync2 } from "node:fs";
+import { readFileSync as readFileSync3, writeFileSync as writeFileSync4, existsSync as existsSync4, statSync as statSync3, renameSync as renameSync2 } from "node:fs";
 import { join as join3 } from "node:path";
 import { homedir as homedir2, tmpdir } from "node:os";
 function getVibeOSHome2() {
@@ -567,7 +567,7 @@ function writeSelection(key, value) {
         j.selection = {};
       j.selection[key] = value;
       const tmp = TIERS_FILE3 + ".tmp." + Date.now() + "." + Math.random().toString(36).slice(2, 8);
-      writeFileSync3(tmp, JSON.stringify(j, null, 2) + "\n");
+      writeFileSync4(tmp, JSON.stringify(j, null, 2) + "\n");
       renameSync2(tmp, TIERS_FILE3);
       return true;
     });
@@ -597,7 +597,7 @@ function writeSessionSlot2(sid, slot) {
       j.sessions[sid] = {};
     j.sessions[sid].active_slot = slot;
     const tmp = BLACKBOX_FILE + ".tmp";
-    writeFileSync3(tmp, JSON.stringify(j, null, 2) + "\n");
+    writeFileSync4(tmp, JSON.stringify(j, null, 2) + "\n");
     renameSync2(tmp, BLACKBOX_FILE);
     return true;
   } catch (err) {
@@ -637,7 +637,7 @@ function writeSessionOptMode2(sid, mode) {
       j.sessions[sid] = {};
     j.sessions[sid].optimization_mode = mode;
     const tmp = BLACKBOX_FILE + ".tmp";
-    writeFileSync3(tmp, JSON.stringify(j, null, 2) + "\n");
+    writeFileSync4(tmp, JSON.stringify(j, null, 2) + "\n");
     renameSync2(tmp, BLACKBOX_FILE);
     return true;
   } catch (err) {
@@ -1395,7 +1395,7 @@ var init_smart_cache = __esm({
 });
 
 // src/lib/state.js
-import { readFileSync as readFileSync4, writeFileSync as writeFileSync4, appendFileSync as appendFileSync2, existsSync as existsSync5, mkdirSync as mkdirSync3, statSync as statSync4, readdirSync, openSync, readSync, closeSync, rmSync as rmSync2, copyFileSync, renameSync as renameSync3 } from "node:fs";
+import { readFileSync as readFileSync4, writeFileSync as writeFileSync5, appendFileSync as appendFileSync2, existsSync as existsSync5, mkdirSync as mkdirSync4, statSync as statSync4, readdirSync, openSync, readSync, closeSync, rmSync as rmSync2, copyFileSync, renameSync as renameSync3 } from "node:fs";
 import { join as join4, dirname as dirname4, basename as basename2 } from "node:path";
 import { spawn } from "node:child_process";
 import { homedir as homedir3, tmpdir as tmpdir2 } from "node:os";
@@ -1499,14 +1499,14 @@ function runStartupMaintenanceOnce() {
 function _ensureVibeOSHomeDir() {
   try {
     if (!existsSync5(VIBEOS_HOME)) {
-      mkdirSync3(VIBEOS_HOME, { recursive: true });
+      mkdirSync4(VIBEOS_HOME, { recursive: true });
       return VIBEOS_HOME;
     }
     const st = statSync4(VIBEOS_HOME);
     if (!st.isDirectory()) {
       const backup = VIBEOS_HOME + ".backup." + Date.now();
       renameSync3(VIBEOS_HOME, backup);
-      mkdirSync3(VIBEOS_HOME, { recursive: true });
+      mkdirSync4(VIBEOS_HOME, { recursive: true });
     }
     return VIBEOS_HOME;
   } catch {
@@ -1517,7 +1517,7 @@ function _handleStateCorruption2(path) {
   _ensureVibeOSHomeDir();
   const backupDir = join4(VIBEOS_HOME, ".backups");
   try {
-    mkdirSync3(backupDir, { recursive: true });
+    mkdirSync4(backupDir, { recursive: true });
   } catch {
   }
   const backupPath = join4(backupDir, basename2(path) + ".corrupted." + Date.now());
@@ -1544,10 +1544,10 @@ function withFileLock(filePath, fn, opts = {}) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
-      mkdirSync3(FILE_LOCK_DIR, { recursive: true });
+      mkdirSync4(FILE_LOCK_DIR, { recursive: true });
       const fd = openSync(lockPath, "wx");
       try {
-        writeFileSync4(fd, `${process.pid}
+        writeFileSync5(fd, `${process.pid}
 ${Date.now()}
 `);
       } catch {
@@ -1652,9 +1652,9 @@ function updateState(mutator) {
         state._gen = preGen + 1;
         const next = mutator(state) ?? state;
         validateState(next, delegationStateFile);
-        mkdirSync3(dirname4(delegationStateFile), { recursive: true });
+        mkdirSync4(dirname4(delegationStateFile), { recursive: true });
         const tmp = delegationStateFile + ".tmp";
-        writeFileSync4(tmp, JSON.stringify(next, null, 2) + "\n");
+        writeFileSync5(tmp, JSON.stringify(next, null, 2) + "\n");
         renameSync3(tmp, delegationStateFile);
         invalidateSavingsCache();
         return next;
@@ -1743,9 +1743,9 @@ function updateGlobalLearning(mutator) {
     const s = loadGlobalLearning();
     const next = mutator(s) ?? s;
     next.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
-    mkdirSync3(dirname4(globalLearningFile), { recursive: true });
+    mkdirSync4(dirname4(globalLearningFile), { recursive: true });
     const tmp = globalLearningFile + ".tmp";
-    writeFileSync4(tmp, JSON.stringify(next, null, 2));
+    writeFileSync5(tmp, JSON.stringify(next, null, 2));
     renameSync3(tmp, globalLearningFile);
     return next;
   });
@@ -1833,9 +1833,9 @@ function saveBlackboxState(state) {
         continue;
       next.sessions[sid] = normalizeBlackboxRecord(session, sid, now).record;
     }
-    mkdirSync3(dirname4(blackboxFile), { recursive: true });
+    mkdirSync4(dirname4(blackboxFile), { recursive: true });
     const tmp = blackboxFile + ".tmp";
-    writeFileSync4(tmp, JSON.stringify(next, null, 2) + "\n");
+    writeFileSync5(tmp, JSON.stringify(next, null, 2) + "\n");
     renameSync3(tmp, blackboxFile);
   } catch (err) {
     console.error(`[vibeOS] saveBlackboxState failed: ${err.message}`);
@@ -1930,7 +1930,7 @@ function getGlobalIndexPath() {
 }
 function ensureSessionScratchpadDirs() {
   try {
-    mkdirSync3(getSessionScratchpadDir(), { recursive: true });
+    mkdirSync4(getSessionScratchpadDir(), { recursive: true });
     return true;
   } catch {
     return false;
@@ -2122,8 +2122,8 @@ function indexAppend(hash, tool2, size, extra) {
     const entry = JSON.stringify(entryObj) + "\n";
     const globalIndex = getGlobalIndexPath();
     const sessionIndex = getSessionIndexPath();
-    mkdirSync3(dirname4(globalIndex), { recursive: true });
-    mkdirSync3(dirname4(sessionIndex), { recursive: true });
+    mkdirSync4(dirname4(globalIndex), { recursive: true });
+    mkdirSync4(dirname4(sessionIndex), { recursive: true });
     appendFileSync2(globalIndex, entry);
     appendFileSync2(sessionIndex, entry);
   } catch (err) {
@@ -2295,13 +2295,13 @@ function _pruneScratchpadDir(targetDir, opts = {}) {
       if (!existsSync5(summaryPath))
         try {
           const content = readFileSync4(fullPath, "utf-8");
-          writeFileSync4(summaryPath, content.slice(0, 200).replace(/\n+/g, " ").trim() + (content.length > 200 ? "\u2026" : ""));
+          writeFileSync5(summaryPath, content.slice(0, 200).replace(/\n+/g, " ").trim() + (content.length > 200 ? "\u2026" : ""));
         } catch {
         }
       const head = _readHead(fullPath);
       if (!head.includes("[cold-storage]"))
         try {
-          writeFileSync4(fullPath, `[cold-storage] ${st.size}B original \u2192 ${hash}.summary.txt`);
+          writeFileSync5(fullPath, `[cold-storage] ${st.size}B original \u2192 ${hash}.summary.txt`);
           rotated++;
         } catch {
         }
@@ -2312,13 +2312,13 @@ function _pruneScratchpadDir(targetDir, opts = {}) {
       if (!existsSync5(summaryPath))
         try {
           const content = readFileSync4(fullPath, "utf-8");
-          writeFileSync4(summaryPath, content.slice(0, SUMMARY_HEAD_TRUNCATE).replace(/\n+/g, " ").trim() + (content.length > SUMMARY_HEAD_TRUNCATE ? "\u2026" : ""));
+          writeFileSync5(summaryPath, content.slice(0, SUMMARY_HEAD_TRUNCATE).replace(/\n+/g, " ").trim() + (content.length > SUMMARY_HEAD_TRUNCATE ? "\u2026" : ""));
         } catch {
         }
       const head = _readHead(fullPath);
       if (!head.includes("[warm-storage]") && !head.includes("[cold-storage]"))
         try {
-          writeFileSync4(fullPath, `[warm-storage] ${st.size}B original at ${hash}.summary.txt`);
+          writeFileSync5(fullPath, `[warm-storage] ${st.size}B original at ${hash}.summary.txt`);
           rotated++;
         } catch {
         }
@@ -2390,9 +2390,9 @@ function _readActiveJobsRaw() {
 }
 function _writeActiveJobsRaw(jobs) {
   try {
-    mkdirSync3(dirname4(ACTIVE_JOBS_FILE), { recursive: true });
+    mkdirSync4(dirname4(ACTIVE_JOBS_FILE), { recursive: true });
     const tmp = ACTIVE_JOBS_FILE + ".tmp";
-    writeFileSync4(tmp, JSON.stringify(jobs, null, 2) + "\n");
+    writeFileSync5(tmp, JSON.stringify(jobs, null, 2) + "\n");
     renameSync3(tmp, ACTIVE_JOBS_FILE);
   } catch {
   }
@@ -2500,9 +2500,9 @@ function saveProjectState(state) {
   const projectStateFile = join4(getVibeOSHome3(), "project-states.json");
   try {
     withFileLock(projectStateFile, () => {
-      mkdirSync3(dirname4(projectStateFile), { recursive: true });
+      mkdirSync4(dirname4(projectStateFile), { recursive: true });
       const _tmp = projectStateFile + ".tmp." + Date.now();
-      writeFileSync4(_tmp, JSON.stringify(state, null, 2) + "\n", "utf-8");
+      writeFileSync5(_tmp, JSON.stringify(state, null, 2) + "\n", "utf-8");
       renameSync3(_tmp, projectStateFile);
     });
   } catch (err) {
@@ -2793,9 +2793,9 @@ function loadTodos() {
 }
 function saveTodos(todos) {
   try {
-    mkdirSync3(dirname4(TODOS_FILE), { recursive: true });
+    mkdirSync4(dirname4(TODOS_FILE), { recursive: true });
     const tmp = TODOS_FILE + ".tmp." + Date.now();
-    writeFileSync4(tmp, JSON.stringify(todos, null, 2), "utf-8");
+    writeFileSync5(tmp, JSON.stringify(todos, null, 2), "utf-8");
     renameSync3(tmp, TODOS_FILE);
   } catch {
   }
@@ -2876,7 +2876,7 @@ function _compactSavingsLedgerIfNeeded() {
       const compacted = kept.reverse().join("\n") + "\n";
       if (compacted.trim() && compacted !== raw) {
         const tmp = SAVINGS_LEDGER_FILE + ".tmp." + Date.now();
-        writeFileSync4(tmp, compacted, "utf-8");
+        writeFileSync5(tmp, compacted, "utf-8");
         renameSync3(tmp, SAVINGS_LEDGER_FILE);
       }
     }, { timeoutMs: 4e3 });
@@ -3074,9 +3074,9 @@ function saveSessionCheckpoint() {
       model: session.model || ""
     };
     const cpPath = join4(getSessionRoot(), "checkpoint.json");
-    mkdirSync3(dirname4(cpPath), { recursive: true });
+    mkdirSync4(dirname4(cpPath), { recursive: true });
     const tmp = cpPath + ".tmp";
-    writeFileSync4(tmp, JSON.stringify(cp, null, 2) + "\n");
+    writeFileSync5(tmp, JSON.stringify(cp, null, 2) + "\n");
     renameSync3(tmp, cpPath);
   } catch {
   }
@@ -3430,7 +3430,7 @@ var init_meta_controller = __esm({
 });
 
 // src/vibeOS-lib/blackbox/pivot-cache.js
-import { existsSync as existsSync7, mkdirSync as mkdirSync5, readFileSync as readFileSync6, writeFileSync as writeFileSync6 } from "node:fs";
+import { existsSync as existsSync7, mkdirSync as mkdirSync6, readFileSync as readFileSync6, writeFileSync as writeFileSync7 } from "node:fs";
 import { join as join6, dirname as dirname6 } from "node:path";
 import { homedir as homedir5 } from "node:os";
 var PivotCache;
@@ -3468,8 +3468,8 @@ var init_pivot_cache = __esm({
           const p = this._storePath();
           const dir = dirname6(p);
           if (!existsSync7(dir))
-            mkdirSync5(dir, { recursive: true });
-          writeFileSync6(p, JSON.stringify(this.store, null, 2), "utf-8");
+            mkdirSync6(dir, { recursive: true });
+          writeFileSync7(p, JSON.stringify(this.store, null, 2), "utf-8");
         } catch {
         }
       }
@@ -3639,7 +3639,7 @@ __export(vibemax_exports, {
   vibemaxPipeline: () => vibemaxPipeline,
   vibemaxSelectMode: () => vibemaxSelectMode
 });
-import { existsSync as existsSync8, mkdirSync as mkdirSync6, readFileSync as readFileSync7, writeFileSync as writeFileSync7 } from "node:fs";
+import { existsSync as existsSync8, mkdirSync as mkdirSync7, readFileSync as readFileSync7, writeFileSync as writeFileSync8 } from "node:fs";
 import { resolve as resolve2, dirname as dirname7 } from "node:path";
 import { fileURLToPath as fileURLToPath4 } from "node:url";
 function fallback(sr, text) {
@@ -3921,8 +3921,8 @@ function loadVibeMaXModel() {
   return null;
 }
 function saveVibeMaXModel(model) {
-  mkdirSync6(dirname7(MODEL_PATH), { recursive: true });
-  writeFileSync7(MODEL_PATH, JSON.stringify(model, null, 2) + "\n", "utf-8");
+  mkdirSync7(dirname7(MODEL_PATH), { recursive: true });
+  writeFileSync8(MODEL_PATH, JSON.stringify(model, null, 2) + "\n", "utf-8");
 }
 function getVibeMaXModelMeta() {
   const m = loadVibeMaXModel();
@@ -4090,7 +4090,7 @@ var init_vibeultrax = __esm({
 
 // src/index.ts
 init_flow_enforcer();
-import { readFileSync as readFileSync17, writeFileSync as writeFileSync15, existsSync as existsSync18, mkdirSync as mkdirSync13, copyFileSync as copyFileSync2, renameSync as renameSync6, statSync as statSync9 } from "node:fs";
+import { readFileSync as readFileSync17, writeFileSync as writeFileSync16, existsSync as existsSync18, mkdirSync as mkdirSync14, copyFileSync as copyFileSync2, renameSync as renameSync6, statSync as statSync9 } from "node:fs";
 import { join as join18, dirname as dirname13, basename as basename5 } from "node:path";
 
 // src/vibeOS-lib/session-metrics.js
@@ -4236,7 +4236,7 @@ function computeSessionMetrics(state, sessionId) {
 // src/lib/vibeos-mcp-server.js
 import http from "node:http";
 import { parse as parseUrl } from "node:url";
-import { createReadStream, existsSync as existsSync2, statSync as statSync2 } from "node:fs";
+import { createReadStream, existsSync as existsSync2, mkdirSync as mkdirSync2, statSync as statSync2, writeFileSync as writeFileSync2 } from "node:fs";
 import { extname, join as join2, dirname as dirname2 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 var MIME_MAP = {
@@ -4282,7 +4282,9 @@ var _MCP_FILENAME = fileURLToPath2(import.meta.url);
 var _MCP_DIR = dirname2(_MCP_FILENAME);
 function resolveDashboardDir() {
   const c = [
-    join2(_MCP_DIR, "dashboard", "dist")
+    join2(_MCP_DIR, "dashboard", "dist"),
+    join2(_MCP_DIR, "assets", "dashboard"),
+    join2(_MCP_DIR, "assets", "dashboard", "dist")
   ];
   for (const p of c) {
     if (existsSync2(join2(p, "index.html")))
@@ -4291,6 +4293,20 @@ function resolveDashboardDir() {
   return c[0];
 }
 var DASHBOARD_DIR = resolveDashboardDir();
+var DASHBOARD_CONFIG_PATH = join2(DASHBOARD_DIR, "vibeos-dashboard-config.js");
+function writeDashboardBaseConfig(baseUrl) {
+  try {
+    if (!baseUrl)
+      return null;
+    mkdirSync2(DASHBOARD_DIR, { recursive: true });
+    const payload = `window.__VIBEOS_DASHBOARD_BASE__ = ${JSON.stringify(baseUrl.replace(/\/$/, ""))};
+`;
+    writeFileSync2(DASHBOARD_CONFIG_PATH, payload, "utf-8");
+    return DASHBOARD_CONFIG_PATH;
+  } catch {
+    return null;
+  }
+}
 function resolveBackendHealthUrl() {
   const explicit = process.env.VIBEOS_BACKEND_HEALTH_URL?.trim();
   if (explicit)
@@ -4617,7 +4633,7 @@ function createMcpServer(deps) {
 
 // src/lib/api-client.js
 init_runtime_state();
-import { readFileSync as readFileSync2, writeFileSync as writeFileSync2, existsSync as existsSync3, mkdirSync as mkdirSync2, rmSync } from "node:fs";
+import { readFileSync as readFileSync2, writeFileSync as writeFileSync3, existsSync as existsSync3, mkdirSync as mkdirSync3, rmSync } from "node:fs";
 import { dirname as dirname3 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 import { homedir } from "node:os";
@@ -4763,8 +4779,8 @@ function persistPrimaryApiEnvState(next) {
     }
     const parentDir = _envPaths[0];
     if (!existsSync3(parentDir))
-      mkdirSync2(parentDir, { recursive: true });
-    writeFileSync2(primaryPath, envContent.endsWith("\n") ? envContent : envContent + "\n", "utf8");
+      mkdirSync3(parentDir, { recursive: true });
+    writeFileSync3(primaryPath, envContent.endsWith("\n") ? envContent : envContent + "\n", "utf8");
   } catch (diskErr) {
     console.error("[vibeOS] Failed to persist API env state:", diskErr.message);
   }
@@ -5138,8 +5154,8 @@ function persistBootstrapToken(token) {
     }
     const parentDir = _envPaths[0];
     if (!existsSync3(parentDir))
-      mkdirSync2(parentDir, { recursive: true });
-    writeFileSync2(_bootstrapEnvPath, `VIBEOS_API_BOOTSTRAP_TOKEN=${clean}
+      mkdirSync3(parentDir, { recursive: true });
+    writeFileSync3(_bootstrapEnvPath, `VIBEOS_API_BOOTSTRAP_TOKEN=${clean}
 `, "utf8");
   } catch (diskErr) {
     console.error("[vibeOS] Failed to persist alpha bootstrap token:", diskErr.message);
@@ -5195,11 +5211,35 @@ function setApiBootstrapToken(newToken) {
   }
 }
 var _apiClient = null;
+var _startupProbeDone = false;
 var _apiFallbackMode = false;
 var _apiFallbackSince = null;
 var _bootstrapExchangeInFlight = null;
 var _bootstrapExchangeFailedAt = 0;
 var _backendVersion = "";
+var FALLBACK_COOLDOWN_MS = 6e4;
+function tryResetFallbackCooldown() {
+  if (!_apiFallbackMode || !_apiFallbackSince)
+    return false;
+  const elapsed = Date.now() - new Date(_apiFallbackSince).getTime();
+  if (elapsed > FALLBACK_COOLDOWN_MS) {
+    _apiFallbackMode = false;
+    _apiFallbackSince = null;
+    markApiConnected();
+    return true;
+  }
+  return false;
+}
+function confirmReconnection() {
+  _apiFallbackMode = false;
+  _apiFallbackSince = null;
+  markApiConnected();
+  console.warn("[vibeOS] API reconnected \u2014 health probe passed");
+}
+function denyReconnection(detail) {
+  _apiFallbackSince = (/* @__PURE__ */ new Date()).toISOString();
+  console.warn(`[vibeOS] API health probe failed during reconnect: ${detail} \u2014 staying in fallback`);
+}
 function recordBackendVersion(payload) {
   if (!payload || typeof payload !== "object")
     return;
@@ -5313,12 +5353,30 @@ function isApiFallback2() {
   return _apiFallbackMode || !VIBEOS_API_ENABLED;
 }
 function isApiConnected2() {
+  tryResetFallbackCooldown();
   return isApiConnected() && VIBEOS_API_ENABLED && !_apiFallbackMode;
 }
 function getBackendVersion() {
   return _backendVersion;
 }
+function getApiFallbackSince() {
+  return _apiFallbackSince;
+}
 async function remoteCall(method, args, fallbackFn) {
+  if (!_startupProbeDone && !_apiFallbackMode) {
+    _startupProbeDone = true;
+    try {
+      syncApiTokenFromDisk();
+      if (VIBEOS_API_ENABLED) {
+        const probeClient = getApiClient2();
+        if (probeClient) {
+          await probeClient.health();
+          confirmReconnection();
+        }
+      }
+    } catch {
+    }
+  }
   syncApiTokenFromDisk();
   if (!VIBEOS_API_TOKEN && VIBEOS_API_BOOTSTRAP_TOKEN) {
     await ensureBootstrapExchange();
@@ -5326,10 +5384,27 @@ async function remoteCall(method, args, fallbackFn) {
   }
   if (_apiFallbackMode && _apiFallbackSince) {
     const elapsed = Date.now() - new Date(_apiFallbackSince).getTime();
-    if (elapsed > 6e4) {
-      _apiFallbackMode = false;
-      _apiFallbackSince = null;
-      logger.warn("[vibeOS] API fallback cooldown expired \u2014 retrying API");
+    if (elapsed > FALLBACK_COOLDOWN_MS) {
+      try {
+        const probeClient = getApiClient2();
+        if (probeClient) {
+          await probeClient.health();
+          confirmReconnection();
+        } else {
+          denyReconnection("no client");
+          if (fallbackFn)
+            return fallbackFn();
+          return null;
+        }
+      } catch (probeErr) {
+        const probeStatus = probeErr?.statusCode || probeErr?.status || 0;
+        const probeBody = probeErr?.response?.body || probeErr?.body || "";
+        const probePreview = typeof probeBody === "string" ? probeBody.substring(0, 80) : String(probeBody).substring(0, 80);
+        denyReconnection(probeStatus ? `status=${probeStatus} body=${probePreview}` : `message=${probeErr?.message || probeErr}`);
+        if (fallbackFn)
+          return fallbackFn();
+        return null;
+      }
     }
   }
   if (!VIBEOS_API_ENABLED || _apiFallbackMode) {
@@ -5373,7 +5448,11 @@ async function remoteCall(method, args, fallbackFn) {
       _apiFallbackSince = (/* @__PURE__ */ new Date()).toISOString();
       console.error(`[vibeOS] API fallback activated (${method}): ${detail}`);
     }
-    markApiDisconnected();
+    if (status === 401 || status === 403) {
+      console.warn(`[vibeOS] API auth failed (${method}): server reachable but token rejected \u2014 will retry after cooldown`);
+    } else {
+      markApiDisconnected();
+    }
     if (fallbackFn) {
       try {
         return fallbackFn();
@@ -5387,7 +5466,7 @@ async function remoteCall(method, args, fallbackFn) {
 
 // src/lib/pricing.js
 init_state();
-import { readFileSync as readFileSync5, writeFileSync as writeFileSync5, existsSync as existsSync6, mkdirSync as mkdirSync4, statSync as statSync5, renameSync as renameSync4, openSync as openSync2, closeSync as closeSync2, rmSync as rmSync3, readdirSync as readdirSync2 } from "node:fs";
+import { readFileSync as readFileSync5, writeFileSync as writeFileSync6, existsSync as existsSync6, mkdirSync as mkdirSync5, statSync as statSync5, renameSync as renameSync4, openSync as openSync2, closeSync as closeSync2, rmSync as rmSync3, readdirSync as readdirSync2 } from "node:fs";
 import { join as join5, dirname as dirname5, resolve } from "node:path";
 import { homedir as homedir4, tmpdir as tmpdir3 } from "node:os";
 import { createHash as createHash2 } from "node:crypto";
@@ -5434,10 +5513,10 @@ function withFileLock2(filePath, fn, opts = {}) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
-      mkdirSync4(join5(getVibeOSHome4(), ".vibeOS-locks"), { recursive: true });
+      mkdirSync5(join5(getVibeOSHome4(), ".vibeOS-locks"), { recursive: true });
       const fd = openSync2(lockPath, "wx");
       try {
-        writeFileSync5(fd, `${process.pid}
+        writeFileSync6(fd, `${process.pid}
 ${Date.now()}
 `);
       } catch {
@@ -6003,7 +6082,7 @@ function _writeDynamicPricingCache(modelsMap) {
   const PRICING_CACHE_FILE2 = join5(getVibeOSHome4(), "model-pricing-cache.json");
   try {
     withFileLock2(PRICING_CACHE_FILE2, () => {
-      mkdirSync4(dirname5(PRICING_CACHE_FILE2), { recursive: true });
+      mkdirSync5(dirname5(PRICING_CACHE_FILE2), { recursive: true });
       let merged = {};
       try {
         if (existsSync6(PRICING_CACHE_FILE2)) {
@@ -6015,7 +6094,7 @@ function _writeDynamicPricingCache(modelsMap) {
       }
       merged = { ...merged, ...modelsMap };
       const tmp = PRICING_CACHE_FILE2 + ".tmp";
-      writeFileSync5(tmp, JSON.stringify({
+      writeFileSync6(tmp, JSON.stringify({
         ts: Date.now(),
         source: "dynamic-model-pricing",
         models: merged
@@ -6343,7 +6422,7 @@ function clearWorkspaceFollowupPauseForSession(sessionId = "") {
           if (!touched)
             continue;
           outer["workspace:followup"] = JSON.stringify(followup);
-          writeFileSync5(file, JSON.stringify(outer, null, 2) + "\n");
+          writeFileSync6(file, JSON.stringify(outer, null, 2) + "\n");
           changed = true;
         } catch {
         }
@@ -6553,7 +6632,7 @@ function _refreshModel(directory3) {
                   if (t?.trinity?.[s]?.oc === cfgModel) {
                     t.selection.active_slot = s;
                     const _tmp = TIERS_FILE3 + ".tmp." + Date.now() + "." + Math.random().toString(36).slice(2, 8);
-                    writeFileSync5(_tmp, JSON.stringify(t, null, 2) + "\n", "utf-8");
+                    writeFileSync6(_tmp, JSON.stringify(t, null, 2) + "\n", "utf-8");
                     renameSync4(_tmp, TIERS_FILE3);
                     if (DEBUG_INTERNALS)
                       console.error(`[vibeOS] model refresh (config fallback): synced active_slot \u2192 ${s}`);
@@ -6580,7 +6659,7 @@ function applySlot2(slot, projectDir = "") {
         return { ok: false, reason: `slot '${slot}' has no oc model` };
       j.selection.active_slot = slot;
       const _tmp = TIERS_FILE3 + ".tmp." + Date.now();
-      writeFileSync5(_tmp, JSON.stringify(j, null, 2) + "\n", "utf-8");
+      writeFileSync6(_tmp, JSON.stringify(j, null, 2) + "\n", "utf-8");
       renameSync4(_tmp, TIERS_FILE3);
       const dir = projectDir || process.cwd();
       const localOcConfig = join5(dir, "opencode.json");
@@ -6588,7 +6667,7 @@ function applySlot2(slot, projectDir = "") {
       if (existsSync6(ocConfig)) {
         const oc = safeJsonParse3(readFileSync5(ocConfig, "utf-8"));
         oc.model = ocModel;
-        writeFileSync5(ocConfig, JSON.stringify(oc, null, 2) + "\n");
+        writeFileSync6(ocConfig, JSON.stringify(oc, null, 2) + "\n");
       }
       clearWorkspaceFollowupPauseForSession(getCurrentSessionId());
       _refreshModel(dir);
@@ -6600,7 +6679,7 @@ function applySlot2(slot, projectDir = "") {
 }
 
 // src/lib/turn-classify.js
-import { readFileSync as readFileSync8, writeFileSync as writeFileSync8, existsSync as existsSync9, mkdirSync as mkdirSync7, renameSync as renameSync5 } from "node:fs";
+import { readFileSync as readFileSync8, writeFileSync as writeFileSync9, existsSync as existsSync9, mkdirSync as mkdirSync8, renameSync as renameSync5 } from "node:fs";
 import { join as join7, dirname as dirname8 } from "node:path";
 
 // src/vibeOS-lib/blackbox/resolution-tracker.js
@@ -8278,7 +8357,7 @@ function projectStructuredFromText(raw, selection, creditPercent = 0) {
 // src/lib/reporting.js
 init_state();
 init_runtime_state();
-import { readFileSync as readFileSync10, writeFileSync as writeFileSync9, existsSync as existsSync11, mkdirSync as mkdirSync8, statSync as statSync6, rmSync as rmSync4 } from "node:fs";
+import { readFileSync as readFileSync10, writeFileSync as writeFileSync10, existsSync as existsSync11, mkdirSync as mkdirSync9, statSync as statSync6, rmSync as rmSync4 } from "node:fs";
 import { join as join9 } from "node:path";
 function getVibeOSHome7() {
   return process.env.VIBEOS_HOME || join9(process.env.HOME || "", ".claude");
@@ -8320,8 +8399,8 @@ function saveReportsIndex(idx) {
     const reportsIndexPath = getReportsIndexPath();
     const reportsDir = getReportsDir();
     withFileLock(reportsIndexPath, () => {
-      mkdirSync8(reportsDir, { recursive: true });
-      writeFileSync9(reportsIndexPath, JSON.stringify(idx, null, 2) + "\n");
+      mkdirSync9(reportsDir, { recursive: true });
+      writeFileSync10(reportsIndexPath, JSON.stringify(idx, null, 2) + "\n");
     });
   } catch (err) {
     console.error(`[vibeOS] reports index write failed: ${err.message}`);
@@ -8492,12 +8571,12 @@ function saveReport({ type = "manual", summary = "", findings = null, metrics = 
     const reportsIndexPath = getReportsIndexPath();
     const reportsDir = getReportsDir();
     withFileLock(reportsIndexPath, () => {
-      mkdirSync8(reportsDir, { recursive: true });
-      writeFileSync9(join9(reportsDir, `${id2}.json`), JSON.stringify(report, null, 2) + "\n");
+      mkdirSync9(reportsDir, { recursive: true });
+      writeFileSync10(join9(reportsDir, `${id2}.json`), JSON.stringify(report, null, 2) + "\n");
       const idx = reportsIndex();
       const _sum = (summary || "").slice(0, 80);
       idx.reports.push({ id: id2, type, project: report.meta.project, fingerprint: fp2, created: report.meta.created, summary: _sum });
-      writeFileSync9(reportsIndexPath, JSON.stringify(idx, null, 2) + "\n");
+      writeFileSync10(reportsIndexPath, JSON.stringify(idx, null, 2) + "\n");
     });
     try {
       if (fp2 && fp2 !== "unknown") {
@@ -8554,7 +8633,7 @@ function readReport(id2) {
 init_selection_manager();
 
 // src/lib/credit-api.js
-import { readFileSync as readFileSync11, writeFileSync as writeFileSync10, existsSync as existsSync12 } from "node:fs";
+import { readFileSync as readFileSync11, writeFileSync as writeFileSync11, existsSync as existsSync12 } from "node:fs";
 import { join as join10 } from "node:path";
 init_state();
 function getVibeOSHome8() {
@@ -8625,7 +8704,7 @@ async function _snapshot() {
     }
   }
   try {
-    writeFileSync10(CREDIT_CACHE_F, JSON.stringify({ total, providers: provs, ts: Date.now() }));
+    writeFileSync11(CREDIT_CACHE_F, JSON.stringify({ total, providers: provs, ts: Date.now() }));
   } catch {
   }
 }
@@ -10501,12 +10580,12 @@ async function probeModel(modelId, auth, providers = null) {
 }
 
 // src/lib/hooks/footer.js
-import { readFileSync as readFileSync14, appendFileSync as appendFileSync4, mkdirSync as mkdirSync10 } from "node:fs";
+import { readFileSync as readFileSync14, appendFileSync as appendFileSync4, mkdirSync as mkdirSync11 } from "node:fs";
 import { join as join15 } from "node:path";
 
 // src/lib/hooks/chat-transform.js
 init_state();
-import { readFileSync as readFileSync13, writeFileSync as writeFileSync12, appendFileSync as appendFileSync3, existsSync as existsSync14, mkdirSync as mkdirSync9, rmSync as rmSync5, readdirSync as readdirSync3, statSync as statSync7 } from "node:fs";
+import { readFileSync as readFileSync13, writeFileSync as writeFileSync13, appendFileSync as appendFileSync3, existsSync as existsSync14, mkdirSync as mkdirSync10, rmSync as rmSync5, readdirSync as readdirSync3, statSync as statSync7 } from "node:fs";
 import { join as join14, dirname as dirname10, basename as basename3 } from "node:path";
 import { createHash as createHash3 } from "node:crypto";
 
@@ -10703,7 +10782,7 @@ init_selection_manager();
 init_state();
 init_pattern_helpers();
 import { join as join13 } from "node:path";
-import { writeFileSync as writeFileSync11 } from "node:fs";
+import { writeFileSync as writeFileSync12 } from "node:fs";
 
 // src/lib/text-compress.js
 var VERBOSE_LINE_RE = [
@@ -11061,7 +11140,7 @@ function recordSaving(tool2, reason, saveEst, meta = {}) {
         if (sd) {
           const sp = join13(sd, "delegation-state-hint.txt");
           try {
-            writeFileSync11(sp, JSON.stringify({ sid, total_savings: s.lifetime.total_savings_usd, last_reason: reason }), "utf8");
+            writeFileSync12(sp, JSON.stringify({ sid, total_savings: s.lifetime.total_savings_usd, last_reason: reason }), "utf8");
           } catch {
           }
         }
@@ -11414,8 +11493,8 @@ function ensureProjectSkill(dir, fp2) {
     content += "\n";
   }
   try {
-    mkdirSync9(skillDir, { recursive: true });
-    writeFileSync12(skillPath, content, "utf-8");
+    mkdirSync10(skillDir, { recursive: true });
+    writeFileSync13(skillPath, content, "utf-8");
     console.error(`[vibeOS] Project Guard: created .opencode/skills/${projectName}/SKILL.md`);
     return { created: true, path: skillPath, skipped: false };
   } catch (err) {
@@ -11532,7 +11611,7 @@ function syncControlSettings(cv, options = {}) {
               writeSelection("previous_default_agent", oc.default_agent);
             }
             oc.default_agent = cv.agent_mode;
-            writeFileSync12(OC_CONFIG, JSON.stringify(oc, null, 2) + "\n");
+            writeFileSync13(OC_CONFIG, JSON.stringify(oc, null, 2) + "\n");
           }
         }
       } catch {
@@ -11545,7 +11624,7 @@ function syncControlSettings(cv, options = {}) {
           const restoreAgent = oc.default_agent === "plan" ? resolveRestorableOpenCodeAgent(currentSel) : null;
           if (restoreAgent && oc.default_agent === "plan") {
             oc.default_agent = restoreAgent;
-            writeFileSync12(OC_CONFIG, JSON.stringify(oc, null, 2) + "\n");
+            writeFileSync13(OC_CONFIG, JSON.stringify(oc, null, 2) + "\n");
             if (currentSel.previous_default_agent)
               writeSelection("previous_default_agent", null);
           }
@@ -11607,10 +11686,10 @@ ${raw}
       const sessPath = join14(getSessionScratchpadDir(), `${hash}.txt`);
       const globalPath = join14(globalDir, `${hash}.txt`);
       try {
-        mkdirSync9(globalDir, { recursive: true });
+        mkdirSync10(globalDir, { recursive: true });
         ensureSessionScratchpadDirs();
         if (!existsSync14(globalPath)) {
-          writeFileSync12(globalPath, raw);
+          writeFileSync13(globalPath, raw);
           indexAppend(hash, part.tool, raw.length);
           if (existsSync14(sessPath))
             rmSync5(sessPath, { force: true });
@@ -11623,7 +11702,7 @@ ${stableJson(invPart.state.input)}
 `).digest("hex").slice(0, 16);
           const ptrPath = join14(getSessionScratchpadDir(), `${inputHash}.ptr`);
           try {
-            writeFileSync12(ptrPath, JSON.stringify({ contentHash: hash, tool: part.tool }));
+            writeFileSync13(ptrPath, JSON.stringify({ contentHash: hash, tool: part.tool }));
           } catch {
           }
         }
@@ -11809,6 +11888,9 @@ function flowTodosDirective() {
   if (pendingTodos === 0)
     return null;
   return "[vibeOS] " + pendingTodos + " extracted TODO/FIXME items are waiting. If useful, call `todowrite` so they land in the native task list.";
+}
+function empiricalAnswerDirective() {
+  return '[empirical answer] Prefer verified facts over assumptions. If something is not directly checked against tools, files, logs, or user-provided evidence, label it as unverified or say "I cannot verify that". Separate evidence, inference, and suggestions. In multi-turn work, carry forward only evidence-backed facts and keep any guess explicitly marked as a guess.';
 }
 function patternDirective(fp2) {
   const patterns = promotedProjectPatterns(fp2);
@@ -12033,6 +12115,7 @@ var onSystemTransform = async (_input, output) => {
       pushSystem(output, "[project guard: CRITICAL] AGENTS.md and README.md are protected by vibeOS. Do NOT modify either file without explicit user permission. AGENTS.md defines that AI agents must ask before changing code.");
     }
     pushSystem(output, "[anti-fabrication] Always work honestly \u2014 do NOT make up tool names, file paths, function signatures, code snippets, or exact outputs. If you must explain something you cannot verify, say 'I cannot verify that' and propose how to verify it. Under NO circumstance invent tool invocations, file contents, or final results. If you must correct an earlier response, say exactly what was wrong and then provide the corrected response. DO NOT LGTM.");
+    pushSystem(output, empiricalAnswerDirective());
     const budgetDirective = contextBudgetDirective(_input, output);
     if (budgetDirective)
       pushSystem(output, budgetDirective);
@@ -12059,7 +12142,7 @@ var onSystemTransform = async (_input, output) => {
       fp: currentProjectFingerprint || ""
     }) + "\n";
     try {
-      mkdirSync9(calDir, { recursive: true });
+      mkdirSync10(calDir, { recursive: true });
       appendFileSync3(calFile, calRecord);
     } catch {
     }
@@ -12525,7 +12608,7 @@ ${vibeLine}`;
             tracker.recordOutcome(finalOutcome);
             syncOutcomeToApi(finalOutcome);
             try {
-              mkdirSync10(getVibeOSHome10(), { recursive: true });
+              mkdirSync11(getVibeOSHome10(), { recursive: true });
               appendFileSync4(join15(getVibeOSHome10(), "calibration-data.jsonl"), JSON.stringify({ ts: (/* @__PURE__ */ new Date()).toISOString(), event: "outcome", sid: getSessionId(), outcome: finalOutcome }) + "\n");
             } catch {
             }
@@ -12553,7 +12636,7 @@ ${vibeLine} \u2014`);
 
 // src/lib/hooks/tool-execute.js
 init_state();
-import { writeFileSync as writeFileSync14, appendFileSync as appendFileSync6, existsSync as existsSync16, mkdirSync as mkdirSync12 } from "node:fs";
+import { writeFileSync as writeFileSync15, appendFileSync as appendFileSync6, existsSync as existsSync16, mkdirSync as mkdirSync13 } from "node:fs";
 import { join as join17, dirname as dirname12, basename as basename4 } from "node:path";
 import { createHash as createHash5 } from "node:crypto";
 init_selection_manager();
@@ -12622,7 +12705,7 @@ init_smart_cache();
 
 // src/lib/tdd-enforcer.js
 init_state();
-import { readFileSync as readFileSync15, writeFileSync as writeFileSync13, appendFileSync as appendFileSync5, existsSync as existsSync15, mkdirSync as mkdirSync11, statSync as statSync8, readdirSync as readdirSync4, rmSync as rmSync6, openSync as openSync3 } from "node:fs";
+import { readFileSync as readFileSync15, writeFileSync as writeFileSync14, appendFileSync as appendFileSync5, existsSync as existsSync15, mkdirSync as mkdirSync12, statSync as statSync8, readdirSync as readdirSync4, rmSync as rmSync6, openSync as openSync3 } from "node:fs";
 import { join as join16, dirname as dirname11 } from "node:path";
 import { createHash as createHash4 } from "node:crypto";
 
@@ -13725,7 +13808,7 @@ var COOLDOWN_MS = 6e4;
 var _enforcementCooldown = /* @__PURE__ */ new Set();
 function _acquireLock(testPath) {
   try {
-    mkdirSync11(ENFORCEMENT_LOCK_DIR, { recursive: true });
+    mkdirSync12(ENFORCEMENT_LOCK_DIR, { recursive: true });
     const hash = createHash4("sha256").update(testPath).digest("hex").slice(0, 16);
     const lockPath = join16(ENFORCEMENT_LOCK_DIR, `${hash}.lock`);
     try {
@@ -13782,13 +13865,13 @@ function _isInCooldown(testPath) {
 }
 function _recordCooldown(testPath) {
   try {
-    mkdirSync11(dirname11(ENFORCEMENT_COOLDOWN_FILE2), { recursive: true });
+    mkdirSync12(dirname11(ENFORCEMENT_COOLDOWN_FILE2), { recursive: true });
     const hash = createHash4("sha256").update(testPath).digest("hex").slice(0, 16);
     const entry = JSON.stringify({ h: hash, ts: Date.now() }) + "\n";
     appendFileSync5(ENFORCEMENT_COOLDOWN_FILE2, entry);
     const lines = readFileSync15(ENFORCEMENT_COOLDOWN_FILE2, "utf-8").trim().split("\n").filter(Boolean);
     if (lines.length > 500) {
-      writeFileSync13(ENFORCEMENT_COOLDOWN_FILE2, lines.slice(-200).join("\n") + "\n");
+      writeFileSync14(ENFORCEMENT_COOLDOWN_FILE2, lines.slice(-200).join("\n") + "\n");
     }
   } catch {
   }
@@ -13874,8 +13957,8 @@ function enforceTestFile(filePath) {
   if (!_acquireLock(skeleton.path))
     return null;
   try {
-    mkdirSync11(skeleton.dir, { recursive: true });
-    writeFileSync13(skeleton.path, skeleton.content);
+    mkdirSync12(skeleton.dir, { recursive: true });
+    writeFileSync14(skeleton.path, skeleton.content);
     _enforcementCooldown.add(skeleton.path);
     _recordCooldown(skeleton.path);
     try {
@@ -14218,7 +14301,7 @@ ${argsJson}
                       const globalFile = join17(globalDir, `${targetHash}.txt`);
                       if (existsSync16(cachedFile) || existsSync16(globalFile)) {
                         ensureSessionScratchpadDirs();
-                        writeFileSync14(ptrPath, JSON.stringify({
+                        writeFileSync15(ptrPath, JSON.stringify({
                           contentHash: targetHash,
                           tool: titleCase,
                           warmed: true,
@@ -14517,8 +14600,8 @@ ${argsJson}
           const missed = recordMissedContext7(_estC7);
           if (!existsSync16(CONTEXT7_INSTALL_FLAG)) {
             try {
-              mkdirSync12(dirname12(CONTEXT7_INSTALL_FLAG), { recursive: true });
-              writeFileSync14(CONTEXT7_INSTALL_FLAG, "");
+              mkdirSync13(dirname12(CONTEXT7_INSTALL_FLAG), { recursive: true });
+              writeFileSync15(CONTEXT7_INSTALL_FLAG, "");
             } catch {
             }
             console.error(`[vibeOS] Small win: install context7 MCP to save about ~$0.06/turn on docs: \`claude mcp add context7 npx @upstash/context7-mcp\``);
@@ -14988,7 +15071,7 @@ Recent cached entries:
     if (needsCompact) {
       contextEntries.push({
         role: "system",
-        content: `[conversation compression notice \u2014 turn ${turnCount}] The preceding conversation has been context-compressed. ALL factual statements, technical details, decisions, code snippets, file paths, and references from prior turns are PRESERVED losslessly. Only verbose connectors, restatements, and redundant intros have been removed. Continue the conversation naturally \u2014 the full technical context is intact.`
+        content: `[conversation compression notice \u2014 turn ${turnCount}] The preceding conversation has been context-compressed. ALL factual statements, technical details, decisions, code snippets, file paths, and references from prior turns are PRESERVED losslessly. Any unverified assumption from earlier turns must stay labeled as unverified until checked. Only verbose connectors, restatements, and redundant intros have been removed. Continue the conversation naturally \u2014 the full technical context is intact.`
       });
     }
     contextEntries.push({ role: "user", content: scratchpadNote });
@@ -15065,7 +15148,6 @@ function ensureDeferredBootstrap() {
   } catch {
   }
 }
-var _apiFallbackSince2 = null;
 var activeJob2 = null;
 var fp = "";
 var _mcpServerRuntime = null;
@@ -15226,8 +15308,8 @@ async function _seedOrRepairModelTiers(directory3) {
     },
     trinity: nextTrinity
   };
-  mkdirSync13(dirname13(TIERS_FILE3), { recursive: true });
-  writeFileSync15(TIERS_FILE3, JSON.stringify(tiers, null, 2) + "\n", "utf-8");
+  mkdirSync14(dirname13(TIERS_FILE3), { recursive: true });
+  writeFileSync16(TIERS_FILE3, JSON.stringify(tiers, null, 2) + "\n", "utf-8");
   return true;
 }
 function _parseJsonc(raw) {
@@ -15282,9 +15364,7 @@ function loadMcpPort() {
     }
   } catch {
   }
-  if (process.env.VIBEOS_TEST_CONTEXT)
-    return 0;
-  return 3001;
+  return null;
 }
 function persistMcpPort(port) {
   try {
@@ -15297,9 +15377,9 @@ function persistMcpPort(port) {
     tiers.selection.mcp_port = port;
     if ("mcp_port" in tiers)
       delete tiers.mcp_port;
-    mkdirSync13(dirname13(getTiersFile()), { recursive: true });
+    mkdirSync14(dirname13(getTiersFile()), { recursive: true });
     const tmp = getTiersFile() + ".tmp." + Date.now();
-    writeFileSync15(tmp, JSON.stringify(tiers, null, 2) + "\n", "utf-8");
+    writeFileSync16(tmp, JSON.stringify(tiers, null, 2) + "\n", "utf-8");
     renameSync6(tmp, getTiersFile());
   } catch {
   }
@@ -15367,7 +15447,7 @@ async function ensureMcpServerRunning() {
               backendHealthUrl: `${VIBEOS_API_URL}/health`,
               backendVersion: getBackendVersion(),
               apiFallbackMode: isApiFallback2(),
-              apiFallbackSince: _apiFallbackSince2,
+              apiFallbackSince: getApiFallbackSince(),
               modelLocked: _modelLocked,
               lockedSlot: _lockedSlot,
               lockedModel: _lockedModel
@@ -15484,10 +15564,13 @@ async function ensureMcpServerRunning() {
           }
         });
       }
-      const mcpServer = await _mcpServerRuntime.start(port);
-      const actualPort = Number(mcpServer?.address?.()?.port || port);
-      if (actualPort && actualPort !== port)
+      const requestedPort = port == null ? 0 : port;
+      const mcpServer = await _mcpServerRuntime.start(requestedPort);
+      const actualPort = Number(mcpServer?.address?.()?.port || requestedPort);
+      if (actualPort && actualPort !== requestedPort)
         persistMcpPort(actualPort);
+      if (actualPort)
+        writeDashboardBaseConfig(`http://127.0.0.1:${actualPort}`);
       console.error(`[vibeOS] MCP server on http://127.0.0.1:${actualPort}`);
       if (actualPort)
         console.error(`[vibeOS] Dashboard at http://127.0.0.1:${actualPort}/`);
@@ -15627,9 +15710,9 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
   };
   const saveProjectStateStable = (state) => {
     try {
-      mkdirSync13(dirname13(hookProjectStateFile), { recursive: true });
+      mkdirSync14(dirname13(hookProjectStateFile), { recursive: true });
       const tmp = hookProjectStateFile + ".tmp";
-      writeFileSync15(tmp, JSON.stringify(state, null, 2) + "\n");
+      writeFileSync16(tmp, JSON.stringify(state, null, 2) + "\n");
       renameSync6(tmp, hookProjectStateFile);
     } catch {
     }
@@ -15646,8 +15729,8 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
   };
   const saveReportsIndexStable = (idx) => {
     try {
-      mkdirSync13(hookReportsDir, { recursive: true });
-      writeFileSync15(hookReportsIndex, JSON.stringify(idx, null, 2) + "\n");
+      mkdirSync14(hookReportsDir, { recursive: true });
+      writeFileSync16(hookReportsIndex, JSON.stringify(idx, null, 2) + "\n");
     } catch {
     }
   };
@@ -15656,7 +15739,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
       if (!existsSync18(path))
         return null;
       const bkDir = join18(hookVibeHome, ".backups");
-      mkdirSync13(bkDir, { recursive: true });
+      mkdirSync14(bkDir, { recursive: true });
       const bk = join18(bkDir, `${basename5(path)}.${label}.${Date.now()}.bak`);
       copyFileSync2(path, bk);
       return bk;
@@ -15692,10 +15775,10 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     directory: directory3,
     safeJsonParse: safeJsonParse3,
     readFileSync: readFileSync17,
-    writeFileSync: writeFileSync15,
+    writeFileSync: writeFileSync16,
     existsSync: existsSync18,
     renameSync: renameSync6,
-    mkdirSync: mkdirSync13,
+    mkdirSync: mkdirSync14,
     get TIERS_FILE() {
       return hookTiersFile;
     },
@@ -15751,7 +15834,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     saveBlackboxState,
     isApiFallback: () => isApiFallback2(),
     get _apiFallbackSince() {
-      return _apiFallbackSince2;
+      return getApiFallbackSince();
     },
     reportsIndex: reportsIndexStable,
     saveReportsIndex: saveReportsIndexStable,
@@ -15996,7 +16079,7 @@ ${report.narrative}`);
     }
   };
   _pluginHooksRuntime = pluginHooks;
-  const _inTestEnv = process.env.VIBEOS_MCP_PORT === "0";
+  const _inTestEnv = process.env.VIBEOS_MCP_PORT === "0" || process.env.NODE_ENV === "test" || process.execArgv.some((arg) => arg === "--test" || arg.startsWith("--test="));
   if (!_inTestEnv)
     void ensureMcpServerRunning();
   return pluginHooks;
