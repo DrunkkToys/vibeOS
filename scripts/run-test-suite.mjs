@@ -39,7 +39,13 @@ const tests = [
 ]
 
 const loader = pathToFileURL(join(process.cwd(), "scripts", "ts-src-loader.mjs")).href
-const result = spawnSync(process.execPath, ["--loader", loader, "--test", `--test-timeout=${timeout}`, ...tests], {
+const args = ["--loader", loader, "--test", `--test-timeout=${timeout}`]
+if (mode === "ci") {
+  args.push("--test-concurrency=1")
+}
+args.push(...tests)
+
+const result = spawnSync(process.execPath, args, {
   stdio: "inherit",
   env: {
     ...process.env,
