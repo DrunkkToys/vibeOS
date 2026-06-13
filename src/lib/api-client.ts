@@ -810,7 +810,7 @@ export function isApiFallback() {
 
 export function isApiConnected() {
   tryResetFallbackCooldown()
-  return isRuntimeApiConnected() && VIBEOS_API_ENABLED && !_apiFallbackMode
+  return VIBEOS_API_ENABLED
 }
 
 export function getBackendVersion(): string {

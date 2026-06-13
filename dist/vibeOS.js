@@ -485,10 +485,6 @@ function resetApiConnection() {
   state.apiFallbackMode = false;
   state.apiFallbackSince = null;
 }
-function isApiConnected() {
-  const state = getRuntimeState();
-  return state.apiConnected && !state.apiFallbackMode;
-}
 var RUNTIME_KEY;
 var init_runtime_state = __esm({
   "src/lib/runtime-state.js"() {
@@ -5200,6 +5196,19 @@ var _apiFallbackSince = null;
 var _bootstrapExchangeInFlight = null;
 var _bootstrapExchangeFailedAt = 0;
 var _backendVersion = "";
+var FALLBACK_COOLDOWN_MS = 6e4;
+function tryResetFallbackCooldown() {
+  if (!_apiFallbackMode || !_apiFallbackSince)
+    return false;
+  const elapsed = Date.now() - new Date(_apiFallbackSince).getTime();
+  if (elapsed > FALLBACK_COOLDOWN_MS) {
+    _apiFallbackMode = false;
+    _apiFallbackSince = null;
+    markApiConnected();
+    return true;
+  }
+  return false;
+}
 function recordBackendVersion(payload) {
   if (!payload || typeof payload !== "object")
     return;
@@ -5312,8 +5321,9 @@ function getApiClient2() {
 function isApiFallback2() {
   return _apiFallbackMode || !VIBEOS_API_ENABLED;
 }
-function isApiConnected2() {
-  return isApiConnected() && VIBEOS_API_ENABLED && !_apiFallbackMode;
+function isApiConnected() {
+  tryResetFallbackCooldown();
+  return VIBEOS_API_ENABLED;
 }
 function getBackendVersion() {
   return _backendVersion;
@@ -5324,13 +5334,8 @@ async function remoteCall(method, args, fallbackFn) {
     await ensureBootstrapExchange();
     syncApiTokenFromDisk();
   }
-  if (_apiFallbackMode && _apiFallbackSince) {
-    const elapsed = Date.now() - new Date(_apiFallbackSince).getTime();
-    if (elapsed > 6e4) {
-      _apiFallbackMode = false;
-      _apiFallbackSince = null;
-      logger.warn("[vibeOS] API fallback cooldown expired \u2014 retrying API");
-    }
+  if (tryResetFallbackCooldown()) {
+    console.warn("[vibeOS] API fallback cooldown expired \u2014 retrying API");
   }
   if (!VIBEOS_API_ENABLED || _apiFallbackMode) {
     if (fallbackFn)
@@ -5373,7 +5378,11 @@ async function remoteCall(method, args, fallbackFn) {
       _apiFallbackSince = (/* @__PURE__ */ new Date()).toISOString();
       console.error(`[vibeOS] API fallback activated (${method}): ${detail}`);
     }
-    markApiDisconnected();
+    if (status === 401 || status === 403) {
+      console.warn(`[vibeOS] API auth failed (${method}): server reachable but token rejected \u2014 will retry after cooldown`);
+    } else {
+      markApiDisconnected();
+    }
     if (fallbackFn) {
       try {
         return fallbackFn();
@@ -9035,7 +9044,7 @@ function createTrinityTool(deps) {
           `Model: ${activeSlot} (${tiers?.[activeSlot]?.oc || deps.currentModel || "(unset)"})`,
           `Provider: ${execution.provider_label}`,
           `Quality: ${execution.quality_label}`,
-          ...isApiConnected2() ? [`Backend: connected${getBackendVersion() ? ` (${getBackendVersion()})` : ""}`] : [`Backend: offline`],
+          ...isApiConnected() ? [`Backend: connected${getBackendVersion() ? ` (${getBackendVersion()})` : ""}`] : [`Backend: offline`],
           ...sel.requested_optimization_mode ? [`Requested mode: ${sel.requested_optimization_mode}`] : [],
           ...totalTurns > 0 ? [`Split: brain ${brainPct}% / worker ${workerPct}% (${totalTurns} total)`] : [],
           `Thinking: ${effectiveLevel}`,
@@ -11810,6 +11819,9 @@ function flowTodosDirective() {
     return null;
   return "[vibeOS] " + pendingTodos + " extracted TODO/FIXME items are waiting. If useful, call `todowrite` so they land in the native task list.";
 }
+function empiricalAnswerDirective() {
+  return '[empirical answer] Prefer verified facts over assumptions. If something is not directly checked against tools, files, logs, or user-provided evidence, label it as unverified or say "I cannot verify that". Separate evidence, inference, and suggestions. In multi-turn work, carry forward only evidence-backed facts and keep any guess explicitly marked as a guess.';
+}
 function patternDirective(fp2) {
   const patterns = promotedProjectPatterns(fp2);
   if (!patterns || patterns.length === 0)
@@ -11900,7 +11912,7 @@ var onSystemTransform = async (_input, output) => {
     const system = output?.system;
     if (!Array.isArray(system))
       return;
-    if (isApiConnected2()) {
+    if (isApiConnected()) {
       try {
         const bb = loadBlackboxState();
         if (!bb.enabled || _blackboxEnabled === false) {
@@ -12033,6 +12045,7 @@ var onSystemTransform = async (_input, output) => {
       pushSystem(output, "[project guard: CRITICAL] AGENTS.md and README.md are protected by vibeOS. Do NOT modify either file without explicit user permission. AGENTS.md defines that AI agents must ask before changing code.");
     }
     pushSystem(output, "[anti-fabrication] Always work honestly \u2014 do NOT make up tool names, file paths, function signatures, code snippets, or exact outputs. If you must explain something you cannot verify, say 'I cannot verify that' and propose how to verify it. Under NO circumstance invent tool invocations, file contents, or final results. If you must correct an earlier response, say exactly what was wrong and then provide the corrected response. DO NOT LGTM.");
+    pushSystem(output, empiricalAnswerDirective());
     const budgetDirective = contextBudgetDirective(_input, output);
     if (budgetDirective)
       pushSystem(output, budgetDirective);
@@ -12483,7 +12496,7 @@ async function _appendFooter(input, output, directory3) {
       return;
     const ltTotal = ltTasks + ltCache;
     const activeSlot = selNowFooter.active_slot || "brain";
-    const flashIcon = isApiConnected2() ? " \u26A1" : "";
+    const flashIcon = isApiConnected() ? " \u26A1" : "";
     const displayMode2 = autoSelectMode2(currentSubRegime2, _footerStress);
     const vibeBrand = resolveBrand(loadOptimizationMode() || displayMode2, activeSlot);
     const vibeLine = buildFooterLine({
@@ -14609,7 +14622,7 @@ var onToolExecuteAfter = async (input, output) => {
       const displayMode2 = autoSelectMode2(currentSubRegime2, latestUserIntent ? scoreStress(latestUserIntent) : 0);
       const vibeBrand = resolveBrand(displayMode2, activeSlot);
       const sessionSlot = loadSessionSlot(currentSid);
-      const flashIcon = isApiConnected2() ? " \u26A1" : "";
+      const flashIcon = isApiConnected() ? " \u26A1" : "";
       _footerText = buildFooterLine({
         activeSlot,
         providerLabel: execution.provider_label,
@@ -14988,7 +15001,7 @@ Recent cached entries:
     if (needsCompact) {
       contextEntries.push({
         role: "system",
-        content: `[conversation compression notice \u2014 turn ${turnCount}] The preceding conversation has been context-compressed. ALL factual statements, technical details, decisions, code snippets, file paths, and references from prior turns are PRESERVED losslessly. Only verbose connectors, restatements, and redundant intros have been removed. Continue the conversation naturally \u2014 the full technical context is intact.`
+        content: `[conversation compression notice \u2014 turn ${turnCount}] The preceding conversation has been context-compressed. ALL factual statements, technical details, decisions, code snippets, file paths, and references from prior turns are PRESERVED losslessly. Any unverified assumption from earlier turns must stay labeled as unverified until checked. Only verbose connectors, restatements, and redundant intros have been removed. Continue the conversation naturally \u2014 the full technical context is intact.`
       });
     }
     contextEntries.push({ role: "user", content: scratchpadNote });
@@ -15363,7 +15376,7 @@ async function ensureMcpServerRunning() {
               version: readPackageVersion(),
               todos: loadTodos(),
               fallbackThinking: thinkingLevel(loadCredit()),
-              backendConnected: isApiConnected2(),
+              backendConnected: isApiConnected(),
               backendHealthUrl: `${VIBEOS_API_URL}/health`,
               backendVersion: getBackendVersion(),
               apiFallbackMode: isApiFallback2(),
