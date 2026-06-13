@@ -1,3 +1,28 @@
+## 0.25.3
+- fix: model lock now blocks auto-reconcile and cascade slot rewrites
+- fix: reduce pattern learner noise with self-pair exclusion, sessions threshold, quality gate (#171)
+- feat: real cascade pipeline integration tests (21 tests)
+- fix: blackbox infinite loop, detect-secrets dedup, TDD context gate, delegation savings threshold (#172)
+- fix: prefer trinity slot in footer over stale OpenCode config
+- test: real integration tests for quality pipeline fixes (PRs #171 + #172) (#173)
+- fix: isolate flow-rules.json from test pollution via VIBEOS_FLOW_RULES_PATH env var (#174)
+- test: replace toy integration tests with real behavior assertions (v2) (#175)
+- test: fix 5 worst toy test files - add real assertions (#176)
+- fix: use learned cascade routing in vibeultrax (#177)
+- fix(api-client): auto-reset fallback mode after 60s cooldown
+- Harden live cascade and dashboard startup
+- Merge pull request #178 from DrunkkToys/codex/unified-cascade-hardening
+- Clarify footer brand and regime label
+- Merge pull request #179 from DrunkkToys/codex/footer-brand-separator
+- Keep MCP server up for users
+- Consolidate cascade coverage into one suite
+- Merge pull request #180 from DrunkkToys/codex/cascade-single-suite
+- Integrate vibeultrax coverage into cascade suite
+- Merge pull request #181 from DrunkkToys/codex/cascade-integrate-vibeultrax
+- Add empirical anti-lie guardrail
+- Merge pull request #182 from DrunkkToys/codex/anti-lie-guardrail
+
+
 ## 0.25.2
 - fix: keep the dashboard MCP server alive
 - docs: README rewrite for Innocence v0.25.0 (UX + ML narrative)
