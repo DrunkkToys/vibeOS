@@ -60,6 +60,7 @@ import { noteProjectPattern } from "../index-helpers.js"
 import { saveSessionStress } from "../index-helpers.js"
 import { COMPRESS_THRESHOLD, KEEP_HOT, COMPRESS_MARKER, PROTOCOL_MARKER, PROTOCOL_TEXT } from "../constants.js"
 import { TEMPLATES, DEFAULT_TEMPLATE, resolveTemplate, detectLoopSignal, detectStressSpike, shouldInjectTemplate } from "../templates.js"
+import { getRealityCheckView } from "../../vibeOS-lib/flow-enforcer.js"
 
 const BYTES_PER_TOKEN = 4
 
@@ -733,6 +734,13 @@ function empiricalAnswerDirective(): string {
     "Separate evidence, inference, and suggestions. In multi-turn work, carry forward only evidence-backed facts and keep any guess explicitly marked as a guess."
 }
 
+function realityCheckDirective(): string | null {
+  const view = getRealityCheckView(currentProjectFingerprint || "")
+  if (!view.enabled) return null
+  const scope = view.scope === "project" && view.project_id ? `project:${view.project_id}` : "global"
+  return `[reality-check ${scope}] Before saying something is done, complete, ready, successful, trained, fixed, or working, verify the actual files and state on disk. If the user asks for a reality check, read the relevant files first and report only verified facts.`
+}
+
 function patternDirective(fp: string): string | null {
   const patterns = promotedProjectPatterns(fp)
   if (!patterns || patterns.length === 0) return null
@@ -987,6 +995,8 @@ export const onSystemTransform = async (_input, output) => {
     // ── Anti-fabrication enforcement ──
     pushSystem(output, "[anti-fabrication] Always work honestly — do NOT make up tool names, file paths, function signatures, code snippets, or exact outputs. If you must explain something you cannot verify, say 'I cannot verify that' and propose how to verify it. Under NO circumstance invent tool invocations, file contents, or final results. If you must correct an earlier response, say exactly what was wrong and then provide the corrected response. DO NOT LGTM.")
     pushSystem(output, empiricalAnswerDirective())
+    const realityDirective = realityCheckDirective()
+    if (realityDirective) pushSystem(output, realityDirective)
 
     // ── Context budget ──
     const budgetDirective = contextBudgetDirective(_input, output)

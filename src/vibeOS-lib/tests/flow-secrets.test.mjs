@@ -11,6 +11,30 @@ const SECRETS_RULE = {
   description: "Potential secret/API key detected in content",
 }
 
+const REALITY_CHECK_RULES = [
+  {
+    id: "require-read-before-claim",
+    severity: "warn",
+    trigger: "Edit",
+    pattern: "(?i)\\b(done|complete|success|trained|ready|works|fixed)\\b",
+    description: "Success claim detected — verify live state before asserting completion",
+  },
+  {
+    id: "verify-state-on-disk",
+    severity: "flag",
+    trigger: "Edit",
+    pattern: "(?i)\\b(assume|guess|probably|likely|maybe|seems|appears)\\b",
+    description: "Inference language detected — verify actual files/state first",
+  },
+  {
+    id: "postmortem-trigger",
+    severity: "warn",
+    trigger: "Edit",
+    pattern: "(?i)\\breality check\\b",
+    description: "Reality check requested — read and verify live state before reporting",
+  },
+]
+
 describe("resolveRulesPath", () => {
   it("returns a string path", () => {
     const path = resolveRulesPath()
@@ -228,5 +252,37 @@ describe("detect-secrets flow rule", () => {
     assert.equal(h2[0].deduped, true)
     assert.equal(h2[0].id, "detect-secrets")
     assert.equal(h2[0].filePath, "src/auth.ts")
+  })
+})
+
+describe("reality-check flow rules", () => {
+  it("flags success claims before they are treated as done", () => {
+    resetForTest(REALITY_CHECK_RULES)
+    const hits = checkFlowRules({
+      tool: "Edit",
+      filePath: "src/agent.ts",
+      content: "This is done, complete, and ready.",
+    })
+    assert.ok(hits.some((hit) => hit.id === "require-read-before-claim"))
+  })
+
+  it("flags inference language before state checks", () => {
+    resetForTest(REALITY_CHECK_RULES)
+    const hits = checkFlowRules({
+      tool: "Edit",
+      filePath: "src/state.ts",
+      content: "This probably works, but I am not sure.",
+    })
+    assert.ok(hits.some((hit) => hit.id === "verify-state-on-disk"))
+  })
+
+  it("flags reality check prompts for a verification pass", () => {
+    resetForTest(REALITY_CHECK_RULES)
+    const hits = checkFlowRules({
+      tool: "Edit",
+      filePath: "src/state.ts",
+      content: "reality check",
+    })
+    assert.ok(hits.some((hit) => hit.id === "postmortem-trigger"))
   })
 })

@@ -3,7 +3,7 @@
 import { readFileSync, existsSync, mkdirSync, writeFileSync, statSync, appendFileSync, renameSync } from "node:fs"
 import { join, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
-import { VIBEOS_HOME } from "../lib/state.js"
+import { VIBEOS_HOME, currentProjectFingerprint } from "../lib/state.js"
 
 const VIBEOS_STDERR_DEBUG = process.env.VIBEOS_DEBUG_STDERR === "1" || process.env.VIBEOS_DEBUG_LOGS === "1"
 const VIBEOS_CONSOLE_ERROR_GUARD = "__vibeOSConsoleErrorGuard"
@@ -72,6 +72,20 @@ type FlowTodoInput = {
   content: string
 }
 
+type RealityCheckRule = FlowRule
+
+type RealityCheckSettings = {
+  version?: number
+  global?: {
+    enabled?: boolean
+    rules?: RealityCheckRule[]
+  }
+  projects?: Record<string, {
+    enabled?: boolean
+    rules?: RealityCheckRule[]
+  }>
+}
+
 function safeJsonParse(raw: string): any {
   if (raw == null || raw === "") return null
   try {
@@ -86,6 +100,12 @@ function safeJsonParse(raw: string): any {
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
+const REALITY_CHECK_SETTINGS_FILE = join(getVibeOSHome(), "reality-check-settings.json")
+const REALITY_CHECK_RULE_IDS = new Set([
+  "require-read-before-claim",
+  "verify-state-on-disk",
+  "postmortem-trigger",
+])
 const RULES_PATH_CANDIDATES = [
   join(process.cwd(), "src", "vibeOS-lib", "flow-rules.json"),
   join(process.cwd(), "dist-ts", "vibeOS-lib", "flow-rules.json"),
@@ -198,6 +218,11 @@ const MAX_FLOW_TODOS = 200
 
 const _flowWarnsSeen = new Set<string>()
 let _stateWriter: ((state: any) => void) | null = null
+let _cachedRules: FlowRule[] | null = null
+let _rulesMtime = 0
+let _cachedRealityCheck: RealityCheckSettings | null = null
+let _realityCheckMtime = 0
+let _realityCheckCacheKey = ""
 
 export function setFlowStateWriter(writer: ((state: any) => void) | null): void {
   _stateWriter = typeof writer === "function" ? writer : null
@@ -234,18 +259,159 @@ function persistFlowDedupKey(key: string): void {
 
 loadFlowDedupKeys()
 
-let _cachedRules: FlowRule[] | null = null
-let _rulesMtime = 0
+function normalizeRule(rule: any): FlowRule | null {
+  if (!rule || typeof rule !== "object") return null
+  const id = String(rule.id || "").trim()
+  const trigger = String(rule.trigger || "").trim()
+  const pattern = String(rule.pattern || "").trim()
+  const severity = String(rule.severity || "").trim() as FlowSeverity
+  if (!id || !trigger || !pattern || !["warn", "hint", "flag"].includes(severity)) return null
+  return {
+    id,
+    trigger,
+    pattern,
+    severity,
+    description: typeof rule.description === "string" ? rule.description : undefined,
+  }
+}
+
+function defaultRealityCheckRules(): RealityCheckRule[] {
+  return [
+    {
+      id: "require-read-before-claim",
+      severity: "warn",
+      trigger: "Edit",
+      pattern: "(?i)\\b(done|complete|success|trained|ready|works|fixed)\\b",
+      description: "Success claim detected — verify live state before asserting completion",
+    },
+    {
+      id: "verify-state-on-disk",
+      severity: "flag",
+      trigger: "Edit",
+      pattern: "(?i)\\b(assume|guess|probably|likely|maybe|seems|appears)\\b",
+      description: "Inference language detected — verify actual files/state first",
+    },
+    {
+      id: "postmortem-trigger",
+      severity: "warn",
+      trigger: "Edit",
+      pattern: "(?i)\\breality check\\b",
+      description: "Reality check requested — read and verify live state before reporting",
+    },
+  ]
+}
+
+function readRealityCheckSettings(): RealityCheckSettings {
+  const settingsMtime = existsSync(REALITY_CHECK_SETTINGS_FILE) ? statSync(REALITY_CHECK_SETTINGS_FILE).mtimeMs : 0
+  if (_cachedRealityCheck && settingsMtime === _realityCheckMtime) {
+    return _cachedRealityCheck
+  }
+  let parsed: RealityCheckSettings = {}
+  try {
+    if (existsSync(REALITY_CHECK_SETTINGS_FILE)) {
+      const raw = readFileSync(REALITY_CHECK_SETTINGS_FILE, "utf-8")
+      const json = safeJsonParse(raw) as RealityCheckSettings
+      if (json && typeof json === "object") parsed = json
+    }
+  } catch {}
+  const globalRules = Array.isArray(parsed.global?.rules) ? parsed.global!.rules : defaultRealityCheckRules()
+  _cachedRealityCheck = {
+    version: 1,
+    global: {
+      enabled: parsed.global?.enabled !== false,
+      rules: globalRules.map(normalizeRule).filter(Boolean) as RealityCheckRule[],
+    },
+    projects: parsed.projects && typeof parsed.projects === "object" ? parsed.projects : {},
+  }
+  _realityCheckMtime = settingsMtime
+  return _cachedRealityCheck
+}
+
+function getRealityCheckRulesForProject(projectFingerprint = currentProjectFingerprint || ""): RealityCheckRule[] {
+  const settings = readRealityCheckSettings()
+  const fp = String(projectFingerprint || "").trim()
+  const project = fp && settings.projects?.[fp] ? settings.projects[fp] : null
+  const scope = project ? "project" : "global"
+  const enabled = scope === "project" ? (project?.enabled ?? settings.global?.enabled !== false) : settings.global?.enabled !== false
+  const source = scope === "project"
+    ? (Array.isArray(project?.rules) && project?.rules.length > 0 ? project.rules : settings.global?.rules || defaultRealityCheckRules())
+    : (settings.global?.rules || defaultRealityCheckRules())
+  if (!enabled) return []
+  const seen = new Map<string, RealityCheckRule>()
+  for (const rule of source) {
+    const normalized = normalizeRule(rule)
+    if (!normalized || !REALITY_CHECK_RULE_IDS.has(normalized.id)) continue
+    seen.set(normalized.id, normalized)
+  }
+  if (seen.size === 0) {
+    for (const rule of defaultRealityCheckRules()) {
+      const normalized = normalizeRule(rule)
+      if (normalized && REALITY_CHECK_RULE_IDS.has(normalized.id)) seen.set(normalized.id, normalized)
+    }
+  }
+  return Array.from(seen.values())
+}
+
+export function getRealityCheckView(projectFingerprint = currentProjectFingerprint || ""): {
+  scope: "global" | "project"
+  project_id: string | null
+  enabled: boolean
+  rules: RealityCheckRule[]
+} {
+  const settings = readRealityCheckSettings()
+  const fp = String(projectFingerprint || "").trim()
+  const project = fp && settings.projects?.[fp] ? settings.projects[fp] : null
+  const scope = project ? "project" : "global"
+  const enabled = scope === "project" ? (project?.enabled ?? settings.global?.enabled !== false) : settings.global?.enabled !== false
+  const rules = getRealityCheckRulesForProject(fp)
+  return {
+    scope,
+    project_id: project ? fp : null,
+    enabled,
+    rules,
+  }
+}
+
+function mergeManagedRules(baseRules: FlowRule[], managedRules: FlowRule[]): FlowRule[] {
+  const base = baseRules.filter((rule) => !REALITY_CHECK_RULE_IDS.has(rule.id))
+  const seen = new Set(base.map((rule) => rule.id))
+  const merged = [...base]
+  for (const rule of managedRules) {
+    if (!rule || seen.has(rule.id)) continue
+    merged.push(rule)
+    seen.add(rule.id)
+  }
+  return merged
+}
+
+function compileFlowPattern(pattern: string): RegExp {
+  const source = String(pattern || "").trim()
+  if (!source) return new RegExp("$^")
+  if (source.startsWith("(?i)")) {
+    return new RegExp(source.slice(4), "i")
+  }
+  return new RegExp(source)
+}
 
 function loadRules(): FlowRule[] {
   const rulesPath = resolveRulesPath()
   try {
-    const mtime = _cachedRules ? statSync(rulesPath).mtimeMs : 0
-    if (_cachedRules && mtime === _rulesMtime) return _cachedRules
-    if (!existsSync(rulesPath)) { _cachedRules = []; return _cachedRules }
+    const rulesMtime = existsSync(rulesPath) ? statSync(rulesPath).mtimeMs : 0
+    const realityMtime = existsSync(REALITY_CHECK_SETTINGS_FILE) ? statSync(REALITY_CHECK_SETTINGS_FILE).mtimeMs : 0
+    const scopeKey = String(currentProjectFingerprint || "")
+    const cacheKey = `${rulesMtime}:${realityMtime}:${scopeKey}`
+    if (_cachedRules && _realityCheckCacheKey === "__test__") return _cachedRules
+    if (_cachedRules && cacheKey === _realityCheckCacheKey) return _cachedRules
+    if (!existsSync(rulesPath)) {
+      _cachedRules = mergeManagedRules([], getRealityCheckRulesForProject(scopeKey))
+      _realityCheckCacheKey = cacheKey
+      return _cachedRules
+    }
     const j = safeJsonParse(readFileSync(rulesPath, "utf-8")) as { rules?: FlowRule[] }
-    _cachedRules = j.rules || []
-    _rulesMtime = mtime
+    const baseRules = Array.isArray(j.rules) ? j.rules.map(normalizeRule).filter(Boolean) as FlowRule[] : []
+    _cachedRules = mergeManagedRules(baseRules, getRealityCheckRulesForProject(scopeKey))
+    _rulesMtime = rulesMtime
+    _realityCheckCacheKey = cacheKey
     return _cachedRules
   } catch {
     _cachedRules = []
@@ -304,7 +470,7 @@ export function checkFlowRules({ tool, filePath, content }: CheckFlowRulesInput)
     if (triggerName !== toolName) continue
     const target = toolName === "write" ? (filePath || "") : (content || filePath || "")
     let re: RegExp
-    try { re = new RegExp(rule.pattern) } catch { continue }
+    try { re = compileFlowPattern(rule.pattern) } catch { continue }
     if (!re.test(target)) continue
 
     const key = `${rule.id}::${filePath || ""}`
@@ -345,6 +511,9 @@ export function getSessionFlowCounts(): Record<FlowSeverity, number> {
 export function resetForTest(rules: FlowRule[]): void {
   _cachedRules = rules
   _flowWarnsSeen.clear()
+  _cachedRealityCheck = null
+  _realityCheckMtime = 0
+  _realityCheckCacheKey = "__test__"
   // Sync mtime so loadRules() returns test rules instead of reloading from file.
   try { _rulesMtime = statSync(resolveRulesPath()).mtimeMs } catch {}
 }
@@ -353,6 +522,9 @@ export function resetAll(): void {
   _flowWarnsSeen.clear()
   _cachedRules = null
   _rulesMtime = 0
+  _cachedRealityCheck = null
+  _realityCheckMtime = 0
+  _realityCheckCacheKey = ""
 }
 
 export function addFlowRule(rule: FlowRule): void {

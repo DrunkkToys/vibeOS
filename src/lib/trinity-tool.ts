@@ -4,6 +4,7 @@ import { join, dirname } from "node:path"
 import { LABEL_MODES, buildDeterministicTrinity, formatProviderName, formatQualityName, resolveExecutionIdentity } from "./pricing.js"
 import { BRANDED_MODES, RUNTIME_MODES, resolveCascadeSlot } from "./mode-router.js"
 import { getBackendVersion, invalidateApiToken, isApiConnected } from "./api-client.js"
+import { getRealityCheckView } from "../vibeOS-lib/flow-enforcer.js"
 
 // ── Named constants (magic number extraction) ────────────────────────
 const MIN_TOOL_BREAKDOWN_THRESHOLD = 0.005
@@ -36,11 +37,12 @@ export function createTrinityTool(deps) {
       "Use action='project' to show per-project analytics and optimization suggestions. " +
       "Use action='patterns' to inspect learned project patterns or slot='clear' to clear them. " +
       "Use action='guard' to keep AGENTS.md and README.md current. " +
+      "Use action='reality-check' to read verified live state and report only evidence-backed facts. " +
       "Use action='api-token' with token='<new_token>' to update the API token or token='invalidate' to disable the embedded alpha token. " +
       "Use action='api-bootstrap-token' with token='<new_token>' to store an alpha bootstrap token and exchange it for a normal API token on alpha builds. " +
       "Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', or 'trinity status'.",
     args: {
-      action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "setup", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard", "api-token", "api-bootstrap-token", "todo", "todo-done", "todo-sync"]).optional(),
+      action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "setup", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard", "reality-check", "api-token", "api-bootstrap-token", "todo", "todo-done", "todo-sync"]).optional(),
       slot: deps.tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "balanced", "audit", "forensic", "vibeultrax", "vibeqmax", "vibemax", "vibelitex", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings"]).optional(),
       level: deps.tool.schema.enum(["full", "brief", "off", "on"]).optional(),
       model: deps.tool.schema.string().optional(),
@@ -135,6 +137,8 @@ export function createTrinityTool(deps) {
         const lockedSlot = deps._lockedSlot || null
         const lockedModel = deps._lockedModel || null
         const onboardingMode = sel.onboarding_mode || "strict"
+        const currentProjectFingerprint = deps.currentProjectFingerprint || (typeof deps.projectFingerprint === "function" ? deps.projectFingerprint(deps.directory || "") : "")
+        const reality = getRealityCheckView(currentProjectFingerprint)
 
         const stressScore = deps.latestUserIntent ? deps.scoreStress(deps.latestUserIntent) : 0
         const stressBar = stressScore > STRESS_GAUGE_CRITICAL ? "█" : stressScore > STRESS_GAUGE_HIGH ? "▆" : stressScore > STRESS_GAUGE_ELEVATED ? "▅" : stressScore > STRESS_GAUGE_CALM ? "▃" : stressScore > STRESS_GAUGE_MIN ? "▂" : "▁"
@@ -181,6 +185,7 @@ export function createTrinityTool(deps) {
           `  TDD: ${sel.tdd_enforce ? "ON" : "OFF"}${sel.tdd_strict !== false ? " strict" : ""}${sel.tdd_quality !== false ? " quality" : ""}`,
           `  Enforce: ${sel.delegation_enforce ? "ON (mandatory)" : "OFF (compatibility)"}`,
           `  Lock: ${deps._modelLocked ? `LOCK ON${lockedSlot ? ` (${lockedSlot})` : ""}${lockedModel ? ` ${lockedModel}` : ""}` : "LOCK OFF"}`,
+          `  Reality-check: ${reality.enabled ? `ON (${reality.scope}${reality.project_id ? `:${reality.project_id}` : ""})` : "OFF"}`,
           `  Compatibility: ${onboardingMode === "assist" ? "ASSIST (soft defaults, progressive activation)" : "STRICT (full guardrails)"}`,
           `|`,
           `All-time savings:`,
@@ -201,6 +206,39 @@ export function createTrinityTool(deps) {
           `  cheap:  ${cheapModel}${activeSlot === "cheap" ? "  *" : ""}`,
           `  Labels: ${(LABEL_MODES || []).join(", ")}`,
         ]
+        return lines.join("\n")
+      }
+
+      if (action === "reality-check") {
+        const projectFingerprint = deps.currentProjectFingerprint || (typeof deps.projectFingerprint === "function" ? deps.projectFingerprint(deps.directory || "") : "")
+        const reality = getRealityCheckView(projectFingerprint)
+        const projectState = typeof deps.loadProjectState === "function" ? deps.loadProjectState() : {}
+        const projectBucket = projectFingerprint ? projectState?.project_hashes?.[projectFingerprint] : null
+        const fullState = typeof deps.readFullState === "function" ? deps.readFullState() : {}
+        const session = fullState?.sessions?.[deps._OC_SID] || null
+        const realityFile = join(deps.VIBEOS_HOME || join(process.env.HOME || "", ".claude"), "reality-check-settings.json")
+        const stateFile = deps.STATE_FILE
+        const projectStateFile = join(deps.VIBEOS_HOME || join(process.env.HOME || "", ".claude"), "project-states.json")
+        const lines = ["[vibeOS-reality-check] Verified facts only"]
+        lines.push(`Project: ${deps.currentProjectName || projectBucket?.projectName || projectFingerprint || "unknown"}`)
+        lines.push(`Project fingerprint: ${projectFingerprint || "(unset)"}`)
+        lines.push(`State files: delegation=${deps.existsSync(stateFile) ? "present" : "missing"}, project=${deps.existsSync(projectStateFile) ? "present" : "missing"}, reality=${deps.existsSync(realityFile) ? "present" : "missing"}`)
+        lines.push(`Scope: ${reality.scope}${reality.project_id ? ` (${reality.project_id})` : ""}`)
+        lines.push(`Enabled: ${reality.enabled ? "YES" : "NO"}`)
+        lines.push(`Rules loaded: ${reality.rules.length}`)
+        for (const rule of reality.rules.slice(0, 8)) {
+          lines.push(`  - ${rule.id}: ${rule.description || rule.pattern}`)
+        }
+        if (projectBucket?.totalSessions != null) {
+          lines.push(`Project sessions: ${projectBucket.totalSessions}`)
+        }
+        if (session) {
+          const warnCount = Array.isArray(session.warns) ? session.warns.length : 0
+          lines.push(`Session warns: ${warnCount}`)
+          if (session.cache_savings_usd != null) {
+            lines.push(`Session cache savings: $${Number(session.cache_savings_usd || 0).toFixed(2)}`)
+          }
+        }
         return lines.join("\n")
       }
 
@@ -1195,6 +1233,7 @@ export function createTrinityTool(deps) {
           "  trinity tdd on/off        Toggle auto test skeleton creation",
           "  trinity setup             Create a compatibility profile for new users",
           "  trinity guard             Ensure AGENTS.md/README.md exist and are current",
+          "  trinity reality-check     Read live state and report only verified facts",
           "  trinity api-token <token|invalidate>  Update or invalidate VIBEOS_API_TOKEN",
           "  trinity api-token <token|invalidate>  Update or invalidate VIBEOS_API_TOKEN",
           "  trinity flow              Show flow violations this session",

@@ -55,6 +55,15 @@ test("status shows dashboard", async () => {
   setTiers()
   const r = await (await getHooks()).tool.trinity.execute({ action: "status" })
   assert.ok(r.includes("vibeOS") || r.includes("dashboard"), r.slice(0, 80))
+  assert.ok(r.includes("Reality-check:"), r.slice(0, 200))
+})
+
+test("reality-check is active by default", async () => {
+  setTiers()
+  const r = await (await getHooks()).tool.trinity.execute({ action: "reality-check" })
+  assert.ok(r.includes("Verified facts only"), r.slice(0, 200))
+  assert.ok(r.includes("Enabled: YES"), r.slice(0, 200))
+  assert.ok(r.includes("Rules loaded:"), r.slice(0, 200))
 })
 
 test("set brain", async () => {
