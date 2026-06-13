@@ -3061,7 +3061,7 @@ test("trinity repair-state: preview and apply merge duplicate fingerprints safel
 // ════════════════════════════════════════════════════════════════════════════
 
 // ── 1. Anti-fabrication cascade ─────────────────────────────────────────────
-test("cascade: anti-fabrication directive injected every turn", async () => {
+test("integration: anti-fabrication directive injected every turn", async () => {
   const { DelegationEnforcer } = await loadPlugin()
   const dir = join(sandbox, ".oc-cascade-antifab")
   mkdirSync(dir, { recursive: true })
@@ -3083,7 +3083,7 @@ test("cascade: anti-fabrication directive injected every turn", async () => {
   assert.ok(all2.includes("anti-fabrication"), "anti-fabrication still present on second call, got: " + JSON.stringify(out2.system.slice(0, 3)))
 })
 
-test("cascade: anti-fabrication co-exists with context7 and thinking directives", async () => {
+test("integration: anti-fabrication co-exists with context7 and thinking directives", async () => {
   const { DelegationEnforcer } = await loadPlugin()
   const dir = join(sandbox, ".oc-cascade-coexist")
   mkdirSync(dir, { recursive: true })
@@ -3100,7 +3100,7 @@ test("cascade: anti-fabrication co-exists with context7 and thinking directives"
 })
 
 // ── 2. Flow enforcement cascade ────────────────────────────────────────────
-test("cascade: flow_enabled defaults to true", async () => {
+test("integration: flow_enabled defaults to true", async () => {
   // The beforeEach already removed model-tiers.json, so loadPlugin uses defaults
   // Verify that the defaults have flow_enabled = true
   const { DelegationEnforcer, loadSelection } = await loadPlugin()
@@ -3129,7 +3129,7 @@ test("cascade: flow_enabled defaults to true", async () => {
   }
 })
 
-test("cascade: flow enforcer produces warning for Write on brain tier", async () => {
+test("integration: flow enforcer produces warning for Write on brain tier", async () => {
   const { DelegationEnforcer } = await loadPlugin()
   const dir = join(sandbox, ".oc-flow-block")
   mkdirSync(dir, { recursive: true })
@@ -3147,7 +3147,7 @@ test("cascade: flow enforcer produces warning for Write on brain tier", async ()
   assert.ok(out.result || out.text, "Write on brain produces output without error: " + JSON.stringify([out.result, out.text].filter(Boolean).slice(0, 1)))
 })
 
-test("cascade: flow rules detectable in system.transform directive", async () => {
+test("integration: flow rules detectable in system.transform directive", async () => {
   const { DelegationEnforcer } = await loadPlugin()
   const dir = join(sandbox, ".oc-flow-rules")
   mkdirSync(dir, { recursive: true })
@@ -3168,7 +3168,7 @@ test("cascade: flow rules detectable in system.transform directive", async () =>
 })
 
 // ── 3. Passive negative outcome cascade ────────────────────────────────────
-test("cascade: passive negative outcome does NOT crash for LOOPING + stress", async () => {
+test("integration: passive negative outcome does NOT crash for LOOPING + stress", async () => {
   const { DelegationEnforcer } = await loadPlugin()
   const dir = join(sandbox, ".oc-passive-negative")
   mkdirSync(dir, { recursive: true })
@@ -3184,7 +3184,7 @@ test("cascade: passive negative outcome does NOT crash for LOOPING + stress", as
   assert.ok(textOut.text, "text.complete produces output without errors")
 })
 
-test("cascade: text.complete fires without error (outcome detection path)", async () => {
+test("integration: text.complete fires without error (outcome detection path)", async () => {
   const { DelegationEnforcer } = await loadPlugin()
   const dir = join(sandbox, ".oc-text-complete")
   mkdirSync(dir, { recursive: true })
@@ -3200,7 +3200,7 @@ test("cascade: text.complete fires without error (outcome detection path)", asyn
 })
 
 // ── 4. Generalized pattern keys cascade ─────────────────────────────────────
-test("cascade: repeated bash calls do NOT crash pattern learner", async () => {
+test("integration: repeated bash calls do NOT crash pattern learner", async () => {
   const { DelegationEnforcer } = await loadPlugin()
   const dir = join(sandbox, ".oc-pattern-crash")
   mkdirSync(dir, { recursive: true })
@@ -3225,7 +3225,7 @@ test("cascade: repeated bash calls do NOT crash pattern learner", async () => {
 })
 
 // ── 5. LOOPING→Speed template and _prevBlackboxState fix ──────────────────
-test("cascade: system.transform produces directives without ReferenceError", async () => {
+test("integration: system.transform produces directives without ReferenceError", async () => {
   // Directly tests the fix for _prevBlackboxState → _latestBlackboxState bug
   const { DelegationEnforcer } = await loadPlugin()
   const dir = join(sandbox, ".oc-looping-fix")
@@ -3241,7 +3241,7 @@ test("cascade: system.transform produces directives without ReferenceError", asy
   }
 })
 
-test("cascade: system.transform handles empty {} input with directives", async () => {
+test("integration: system.transform handles empty {} input with directives", async () => {
   const { DelegationEnforcer } = await loadPlugin()
   const dir = join(sandbox, ".oc-empty-input")
   mkdirSync(dir, { recursive: true })
@@ -3257,7 +3257,7 @@ test("cascade: system.transform handles empty {} input with directives", async (
 })
 
 // ── Cross-component cascade ────────────────────────────────────────────────
-test("cascade: system.transform + text.complete + tool.execute chain works", async () => {
+test("integration: system.transform + text.complete + tool.execute chain works", async () => {
   const { DelegationEnforcer } = await loadPlugin()
   const dir = join(sandbox, ".oc-chain")
   mkdirSync(dir, { recursive: true })
@@ -3293,7 +3293,7 @@ test("cascade: system.transform + text.complete + tool.execute chain works", asy
 })
 
 // ── Edge case — null/undefined output.system ──────────────────────────────
-test("cascade: system.transform requires system array (graceful no-op without)", async () => {
+test("integration: system.transform requires system array (graceful no-op without)", async () => {
   const { DelegationEnforcer } = await loadPlugin()
   const dir = join(sandbox, ".oc-null-system")
   mkdirSync(dir, { recursive: true })
@@ -3310,7 +3310,7 @@ test("cascade: system.transform requires system array (graceful no-op without)",
 })
 
 // ── Edge case — recovery from explicit flow_enabled: false toggle ─────────
-test("cascade: system.transform recovers after explicit flow_enabled: false", async () => {
+test("integration: system.transform recovers after explicit flow_enabled: false", async () => {
   // Write model-tiers with flow_enabled: false
   writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
     trinity: { brain: { oc: "deepseek/deepseek-v4-pro" }, medium: { oc: "deepseek/deepseek-v4-flash" }, cheap: { oc: "deepseek/deepseek-chat" } },
