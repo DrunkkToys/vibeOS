@@ -813,7 +813,8 @@ export async function remoteCall(method, args, fallbackFn) {
     if (elapsed > 60_000) {
       _apiFallbackMode = false
       _apiFallbackSince = null
-      logger.warn("[vibeOS] API fallback cooldown expired — retrying API")
+      markApiConnected()
+      console.warn("[vibeOS] API fallback cooldown expired — retrying API")
     }
   }
   if (!VIBEOS_API_ENABLED || _apiFallbackMode) {
@@ -854,7 +855,11 @@ export async function remoteCall(method, args, fallbackFn) {
       _apiFallbackSince = new Date().toISOString()
       console.error(`[vibeOS] API fallback activated (${method}): ${detail}`)
     }
-    markApiDisconnected()
+    if (status === 401 || status === 403) {
+      console.warn(`[vibeOS] API auth failed (${method}): server reachable but token rejected — will retry after cooldown`)
+    } else {
+      markApiDisconnected()
+    }
     if (fallbackFn) {
       try { return fallbackFn() } catch (fe) { console.error(`[vibeOS] fallback also failed: ${fe?.message || fe}`) }
     }
