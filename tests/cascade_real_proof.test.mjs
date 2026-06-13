@@ -43,6 +43,7 @@ const resolution = await import("../src/vibeOS-lib/blackbox/resolution-tracker.j
 const classifiers = await import("../src/lib/classifiers.js" + cacheBust)
 const turnClassify = await import("../src/lib/turn-classify.js" + cacheBust)
 const modeRouter = await import("../src/lib/mode-router.js" + cacheBust)
+const vibeultrax = await import("../src/vibeOS-lib/blackbox/vibeultrax.js" + cacheBust)
 
 // ── Helpers ──────────────────────────────────────────────────────────
 function makeTracker(sessionId = "cascade-session-1") {
@@ -628,6 +629,22 @@ test("cascade: computeControlVector with auto mode delegates to autoSelectMode",
   assert.equal(cv.optimization_mode, "quality", "auto mode for CONVERGING should select quality")
   assert.equal(cv.tier_bias, "brain", "quality mode should use brain tier")
   assert.equal(cv.thinking_mode, "full", "quality mode should use full thinking")
+})
+
+test("cascade: vibeultrax control vector keeps a three-stage cascade root", async (t) => {
+  const cv = vibeultrax.vibeultraxControlVector({ user_text: "implement a multi-step migration with rollback" })
+  assert.equal(cv.mode_root, "vibeultrax")
+  assert.equal(cv.cascade_depth, 3)
+  assert.ok(Array.isArray(cv.pipeline_root))
+  assert.equal(cv.pipeline_root.join(","), "local,medium,brain")
+})
+
+test("cascade: vibeultraxPipeline exports and preserves the three-stage pipeline", async (t) => {
+  const result = vibeultrax.vibeultraxPipeline({ user_text: "implement a multi-step migration with rollback" })
+  assert.equal(result.mode, "vibeultrax")
+  assert.equal(result.cascade_depth, 3)
+  assert.ok(Array.isArray(result.pipeline))
+  assert.equal(result.pipeline.join(","), "local,medium,brain")
 })
 
 // ── Cleanup ──────────────────────────────────────────────────────────
