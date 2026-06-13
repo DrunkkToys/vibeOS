@@ -1,3 +1,9 @@
+## 0.25.4
+- fix: isApiConnected() self-heals after cooldown without remoteCall()
+- fix: API reconnection cooldown never reset runtime-state, causing permanent offline status
+Merge pull request #183 from DrunkkToys/fix/api-reconnection-cooldown
+
+
 ## 0.25.3
 - fix: model lock now blocks auto-reconcile and cascade slot rewrites
 - fix: reduce pattern learner noise with self-pair exclusion, sessions threshold, quality gate (#171)
