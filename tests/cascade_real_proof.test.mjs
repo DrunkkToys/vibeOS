@@ -16,6 +16,8 @@ process.env.HOME = SANDBOX
 
 const claudeDir = join(SANDBOX, ".claude")
 mkdirSync(claudeDir, { recursive: true })
+writeFileSync(join(claudeDir, ".env.production"), "VIBEOS_API_TOKEN=vos_aabbccdd001122334455667788990011223344556677889900aabbccdd001122\n")
+
 
 writeFileSync(join(claudeDir, "model-tiers.json"), JSON.stringify({
   trinity: {
