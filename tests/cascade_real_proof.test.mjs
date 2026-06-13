@@ -779,6 +779,103 @@ test("cascade: cooldown health probe 401 stays in fallback with refreshed timest
 
 
 
+
+
+// ── Regression: flash icon / isApiConnected single source of truth ──
+test("regression: isApiConnected only checks apiEnabled, not apiFallbackMode", (t) => {
+  delete globalThis.__vibeOSRuntimeState
+  try {
+    const { isApiConnected } = apiClient
+
+    assert.equal(isApiConnected(), true, "connected when fresh (apiEnabled=true)")
+
+    // Simulate a failed remoteCall setting apiFallbackMode=true
+    // isApiConnected should still return true because it only checks apiEnabled
+    const state = globalThis.__vibeOSRuntimeState
+    state.apiFallbackMode = true
+    assert.equal(isApiConnected(), true, "connected even when apiFallbackMode=true")
+
+    // Simulate markApiDisconnected (apiConnected=false, apiFallbackMode=true)
+    state.apiConnected = false
+    state.apiFallbackMode = true
+    assert.equal(isApiConnected(), true, "connected when apiEnabled=true regardless of apiConnected")
+
+    // Only disable apiEnabled should make it return false
+    state.apiEnabled = false
+    assert.equal(isApiConnected(), false, "disconnected when apiEnabled=false")
+  } finally {
+    delete globalThis.__vibeOSRuntimeState
+  }
+})
+
+test("regression: isApiFallback checks runtime fallback mode", (t) => {
+  delete globalThis.__vibeOSRuntimeState
+  try {
+    const { isApiFallback } = apiClient
+
+    assert.equal(isApiFallback(), false, "no fallback on fresh state")
+
+    const state = globalThis.__vibeOSRuntimeState
+    state.apiFallbackMode = true
+    assert.equal(isApiFallback(), true, "fallback when apiFallbackMode=true")
+
+    state.apiFallbackMode = false
+    assert.equal(isApiFallback(), false, "no fallback when apiFallbackMode=false")
+  } finally {
+    delete globalThis.__vibeOSRuntimeState
+  }
+})
+
+test("regression: bootstrap exchange restores connected state", async (t) => {
+  delete globalThis.__vibeOSRuntimeState
+  try {
+    // First simulate a failure to set fallback mode
+    global.fetch = async () => { throw new Error("ECONNREFUSED") }
+    await apiClient.remoteCall("health", [], () => ({ local: true }))
+
+    const state = globalThis.__vibeOSRuntimeState
+    assert.equal(state.apiFallbackMode, true, "fallback mode set after failure")
+
+    // Advance past cooldown so remoteCall probes instead of returning fallback
+    Date.now = () => REAL_DATE_NOW() + 61_000
+
+    // Now simulate success
+    global.fetch = async () => ({
+      ok: true, status: 200,
+      json: async () => ({ status: "ok" }),
+    })
+
+    await apiClient.remoteCall("health", [], () => ({ local: true }))
+
+    assert.equal(apiClient.isApiConnected(), true, "connected after successful call")
+    assert.equal(apiClient.isApiFallback(), false, "no fallback after successful call")
+  } finally {
+    Date.now = REAL_DATE_NOW
+    delete globalThis.__vibeOSRuntimeState
+  }
+})
+
+test("regression: 401 does not set apiConnected=false", async (t) => {
+  delete globalThis.__vibeOSRuntimeState
+  try {
+    global.fetch = async () => ({
+      ok: false, status: 401,
+      json: async () => ({ message: "unauthorized" }),
+    })
+
+    await apiClient.remoteCall("health", [], () => ({ local: true }))
+
+    const state = globalThis.__vibeOSRuntimeState
+    // 401 should set apiFallbackMode but NOT markApiDisconnected
+    assert.equal(state.apiFallbackMode, true, "fallback mode set after 401")
+    assert.equal(state.apiConnected, true, "apiConnected stays true after 401 (server reachable)")
+    assert.equal(apiClient.isApiConnected(), true, "flash icon shows after 401 (server reachable)")
+  } finally {
+    Date.now = REAL_DATE_NOW
+    delete globalThis.__vibeOSRuntimeState
+  }
+})
+
 // ── Cleanup ──────────────────────────────────────────────────────────
 test.after(() => {
   try { rmSync(SANDBOX, { recursive: true, force: true }) } catch {}

@@ -1,1 +1,1 @@
-window.__VIBEOS_DASHBOARD_BASE__ = "http://127.0.0.1:64897";
+window.__VIBEOS_DASHBOARD_BASE__ = "http://127.0.0.1:53142";
