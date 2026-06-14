@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 // @ts-nocheck
 
-import { _OC_SID, loadBlackboxState, recentToolEvents } from "./state.js"
-
 export function detectOutcomeSignal(text) {
   if (!text) return null
   if (/thank|perfect|exactly|that.?s it|works great|works perfectly|solved|fixed|awesome|you rock|that works|finally|progress|much better|getting there|closer now/i.test(text)) return "positive"
