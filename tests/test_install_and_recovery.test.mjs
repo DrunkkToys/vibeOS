@@ -305,6 +305,56 @@ test("autoconfig: readConfig prefers current OpenCode workspace session model ov
   }
 })
 
+test("installer: asks before installing and respects no/yes answers", async () => {
+  const sb = freshSandbox()
+  const prevHome = process.env.HOME
+  const prevUserProfile = process.env.USERPROFILE
+  process.env.HOME = sb
+  process.env.USERPROFILE = sb
+  try {
+    const autoRun = spawnSync("node", ["bin/setup.js"], {
+      cwd: ROOT,
+      encoding: "utf8",
+      env: { ...process.env, HOME: sb, USERPROFILE: sb },
+      timeout: 10000,
+    })
+    assert.equal(autoRun.status, 0, "non-interactive install should not hang")
+    assert.ok(existsSync(join(sb, ".config/opencode/opencode.json")), "non-interactive install should still deploy")
+
+    rmSync(join(sb, ".config/opencode"), { recursive: true, force: true })
+
+    const runner = "process.stdin.isTTY=true; process.stderr.isTTY=true; process.argv=['node','bin/setup.js']; await import('./bin/setup.js')"
+
+    const noRun = spawnSync("node", ["--input-type=module", "-e", runner], {
+      cwd: ROOT,
+      encoding: "utf8",
+      input: "n\n",
+      env: { ...process.env, HOME: sb, USERPROFILE: sb },
+    })
+    assert.equal(noRun.status, 0, "cancel should exit cleanly")
+    assert.match(String(noRun.stderr || noRun.stdout || ""), /Install vibeOS into OpenCode\?/i)
+    assert.match(String(noRun.stdout || ""), /Install cancelled\./i)
+    assert.ok(!existsSync(join(sb, ".config/opencode/opencode.json")), "cancel should not create config")
+    assert.ok(!existsSync(join(sb, ".config/opencode/plugins/vibeOS.js")), "cancel should not install plugin")
+
+    const yesRun = spawnSync("node", ["--input-type=module", "-e", runner], {
+      cwd: ROOT,
+      encoding: "utf8",
+      input: "y\n",
+      env: { ...process.env, HOME: sb, USERPROFILE: sb },
+    })
+    assert.equal(yesRun.status, 0, "accept should exit cleanly")
+    assert.match(String(yesRun.stderr || yesRun.stdout || ""), /Install vibeOS into OpenCode\?/i)
+    assert.ok(existsSync(join(sb, ".config/opencode/opencode.json")), "accept should create config")
+    assert.ok(existsSync(join(sb, ".config/opencode/plugins/vibeOS.js")), "accept should install plugin")
+  } finally {
+    process.env.HOME = prevHome
+    if (prevUserProfile === undefined) delete process.env.USERPROFILE
+    else process.env.USERPROFILE = prevUserProfile
+    rmSync(sb, { recursive: true, force: true })
+  }
+})
+
 test("autoconfig: probeModel follows provider config for Gemini and generic provider blocks", async () => {
   const providers = {
     google: {

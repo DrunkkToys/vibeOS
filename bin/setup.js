@@ -5,11 +5,31 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
+import readline from "node:readline";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, "..");
 const args = process.argv.slice(2);
 const isProject = args.includes("--project");
+const autoYes = args.includes("--yes") || args.includes("-y");
+
+async function confirmInstall() {
+  if (autoYes) return true;
+  if (!process.stdin.isTTY || !process.stderr.isTTY) return true;
+  const prompt = readline.createInterface({ input: process.stdin, output: process.stderr });
+  const answer = await new Promise((resolveAnswer) => {
+    prompt.question("Install vibeOS into OpenCode? [y/N] ", (response) => {
+      resolveAnswer(String(response || "").trim().toLowerCase());
+    });
+  });
+  prompt.close();
+  return answer === "y" || answer === "yes";
+}
+
+if (!(await confirmInstall())) {
+  console.log("Install cancelled.");
+  process.exit(0);
+}
 
 // Deploy plugin files to ~/.config/opencode/plugins/ and register globally
 const deployScript = resolve(root, "scripts", "deploy.mjs");
