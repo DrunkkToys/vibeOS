@@ -17,21 +17,7 @@ function resolveOpenCodeHomes() {
   const base = homedir()
   const configHome = join(base, ".config", "opencode")
   const dotHome = join(base, ".opencode")
-  const roots = [configHome, dotHome]
-  const existing = roots.filter((dir) => {
-    try {
-      const oc = readFileSync(join(dir, "opencode.json"), "utf8")
-      return Boolean(String(oc || "").trim())
-    } catch {
-      try {
-        const oc = readFileSync(join(dir, "opencode.jsonc"), "utf8")
-        return Boolean(String(oc || "").trim())
-      } catch {
-        return false
-      }
-    }
-  })
-  return Array.from(new Set(existing.length > 0 ? existing : roots))
+  return [configHome, dotHome]
 }
 
 if (!existsSync(bundlePath)) {
@@ -76,9 +62,9 @@ try {
     mkdirSync(homeEnvDir, { recursive: true })
     writeFileSync(homeEnvDest, envContent)
     for (const home of resolveOpenCodeHomes()) {
-      const pluginEnvDest = join(home, "plugins", ".env.production")
-      mkdirSync(join(home, "plugins"), { recursive: true })
-      writeFileSync(pluginEnvDest, envContent)
+      const pluginEnvDir = join(home, "plugins")
+      mkdirSync(pluginEnvDir, { recursive: true })
+      writeFileSync(join(pluginEnvDir, ".env.production"), envContent)
     }
     process.stderr.write(`[vibeOS deploy] Synced .env.production to plugin dirs and ~/.claude\n`)
   }

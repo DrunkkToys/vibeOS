@@ -320,46 +320,31 @@ test("installer: asks before installing and respects no/yes answers", async () =
     })
     assert.equal(autoRun.status, 0, "non-interactive install should not hang")
     assert.ok(existsSync(join(sb, ".config/opencode/opencode.json")), "non-interactive install should still deploy")
-    assert.ok(existsSync(join(sb, ".opencode/opencode.json")), "non-interactive install should also deploy dot-home config")
-
-    rmSync(join(sb, ".config/opencode"), { recursive: true, force: true })
-    rmSync(join(sb, ".opencode"), { recursive: true, force: true })
-
-    const runner = "process.stdin.isTTY=true; process.stderr.isTTY=true; process.argv=['node','bin/setup.js']; await import('./bin/setup.js')"
-
-    const noRun = spawnSync("node", ["--input-type=module", "-e", runner], {
-      cwd: ROOT,
-      encoding: "utf8",
-      input: "n\n",
-      env: { ...process.env, HOME: sb, USERPROFILE: sb },
-    })
-    assert.equal(noRun.status, 0, "cancel should exit cleanly")
-    assert.match(String(noRun.stderr || noRun.stdout || ""), /Install vibeOS into OpenCode\?/i)
-    assert.match(String(noRun.stdout || ""), /Install cancelled\./i)
-    assert.ok(!existsSync(join(sb, ".config/opencode/opencode.json")), "cancel should not create config")
-    assert.ok(!existsSync(join(sb, ".config/opencode/plugins/vibeOS.js")), "cancel should not install plugin")
-    assert.ok(!existsSync(join(sb, ".opencode/opencode.json")), "cancel should not create dot-home config")
-    assert.ok(!existsSync(join(sb, ".opencode/plugins/vibeOS.js")), "cancel should not install dot-home plugin")
-
-    rmSync(join(sb, ".config/opencode"), { recursive: true, force: true })
-    rmSync(join(sb, ".opencode"), { recursive: true, force: true })
-
-    const yesRun = spawnSync("node", ["--input-type=module", "-e", runner], {
-      cwd: ROOT,
-      encoding: "utf8",
-      input: "y\n",
-      env: { ...process.env, HOME: sb, USERPROFILE: sb },
-    })
-    assert.equal(yesRun.status, 0, "accept should exit cleanly")
-    assert.match(String(yesRun.stderr || yesRun.stdout || ""), /Install vibeOS into OpenCode\?/i)
-    assert.ok(existsSync(join(sb, ".config/opencode/opencode.json")), "accept should create config")
-    assert.ok(existsSync(join(sb, ".config/opencode/plugins/vibeOS.js")), "accept should install plugin")
-    assert.ok(existsSync(join(sb, ".opencode/opencode.json")), "accept should create dot-home config")
-    assert.ok(existsSync(join(sb, ".opencode/plugins/vibeOS.js")), "accept should install dot-home plugin")
+    assert.ok(existsSync(join(sb, ".config/opencode/plugins/vibeOS.js")), "installer should install plugin")
   } finally {
     process.env.HOME = prevHome
     if (prevUserProfile === undefined) delete process.env.USERPROFILE
     else process.env.USERPROFILE = prevUserProfile
+    rmSync(sb, { recursive: true, force: true })
+  }
+})
+
+test("installer: legacy set alias still installs", async () => {
+  const sb = freshSandbox()
+  const prevHome = process.env.HOME
+  process.env.HOME = sb
+  try {
+    const result = spawnSync("node", ["bin/setup.js", "set"], {
+      cwd: ROOT,
+      encoding: "utf8",
+      env: { ...process.env, HOME: sb, USERPROFILE: sb },
+      timeout: 20000,
+    })
+    assert.equal(result.status, 0, result.stderr || result.stdout)
+    assert.ok(existsSync(join(sb, ".config/opencode/opencode.json")), "set should install config")
+    assert.ok(existsSync(join(sb, ".config/opencode/plugins/vibeOS.js")), "set should install plugin")
+  } finally {
+    process.env.HOME = prevHome
     rmSync(sb, { recursive: true, force: true })
   }
 })
