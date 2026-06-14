@@ -7756,7 +7756,16 @@ async function classifyTurnRemote(text) {
       _lastClassifiedByApi = false;
       return classifyTurnSimple(text);
     }
-    const res = await client2.classifyQuery(text);
+    const res = await client2.blackboxAnalyze(_OC_SID, {
+      session_id: _OC_SID,
+      project_id: currentProjectFingerprint || null,
+      userText: text,
+      lastRegime: null,
+      lastIntent: "",
+      lastAction: "",
+      stress: 0,
+      state: {}
+    });
     if (res && typeof res === "object" && "sub_regime" in res) {
       _lastClassifiedByApi = true;
       return res.sub_regime;
