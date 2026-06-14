@@ -1,3 +1,7 @@
+## 0.25.22
+- fix: include installer helper in package
+
+
 ## 0.25.21
 - fix: stabilize OpenCode install resolution
 
