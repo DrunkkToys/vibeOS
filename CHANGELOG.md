@@ -1,3 +1,7 @@
+## 0.25.14
+- fix: register OpenCode on both homes
+
+
 ## 0.25.13
 - fix: prompt before installer deploy
 
