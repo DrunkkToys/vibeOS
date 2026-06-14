@@ -263,7 +263,7 @@ async function _appendFooter(input, output, directory) {
     const activeSlot = selNowFooter.active_slot || "brain"
     const flashIcon = isApiConnected() ? " \u26A1" : ""
     const displayMode = autoSelectMode(currentSubRegime, _footerStress)
-    const cv = computeControlVector({ sub_regime: currentSubRegime, latest_stress_multiplier: _footerStress }, undefined, loadOptimizationMode() || displayMode)
+    const cv = computeControlVector({ sub_regime: currentSubRegime, latest_stress_multiplier: _footerStress, user_text: latestUserIntent || "" }, undefined, loadOptimizationMode() || displayMode)
     const vibeBrand = resolveBrand(loadOptimizationMode() || displayMode, activeSlot)
     const vibeLine = buildFooterLine({
       activeSlot,
