@@ -277,6 +277,7 @@ async function _appendFooter(input, output, directory) {
       sessionSlot,
       vectorChangedSlot: selNowFooter?.vector_changed_slot,
       subRegime: currentSubRegime,
+      stressGauge: _footerStress > 0.85 ? "█" : _footerStress > 0.7 ? "▆" : _footerStress > 0.5 ? "▅" : _footerStress > 0.3 ? "▃" : _footerStress > 0.1 ? "▂" : "▁",
     })
     const footerText = stripped + `\n\n${vibeLine}`
 

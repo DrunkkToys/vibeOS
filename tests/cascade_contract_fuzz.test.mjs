@@ -94,3 +94,30 @@ test("pipeline: REGIME_CONTROL_TABLE covers all regimes", async () => {
     assert.ok(table[r].tier_bias, `${r} has tier_bias`)
   }
 })
+
+test("footer: stress gauge computes correct symbol for each level", async () => {
+  const shared = await import("../src/lib/hooks/shared-footer.js?" + Date.now())
+  const gauge = (s) => s > 0.85 ? "█" : s > 0.7 ? "▆" : s > 0.5 ? "▅" : s > 0.3 ? "▃" : s > 0.1 ? "▂" : "▁"
+  assert.equal(gauge(0), "▁", "no stress")
+  assert.equal(gauge(0.2), "▂", "min stress")
+  assert.equal(gauge(0.4), "▃", "calm stress")
+  assert.equal(gauge(0.6), "▅", "elevated stress")
+  assert.equal(gauge(0.8), "▆", "high stress")
+  assert.equal(gauge(1.0), "█", "critical stress")
+})
+
+test("footer: buildFooterLine includes stressGauge when present", async () => {
+  const shared = await import("../src/lib/hooks/shared-footer.js?" + Date.now())
+  const line = shared.buildFooterLine({
+    activeSlot: "brain",
+    providerLabel: "test",
+    modelName: "test/model",
+    ltTotal: 0,
+    vibeBrand: "VibeTest",
+    optMode: "quality",
+    flashIcon: "",
+    enfTags: [],
+    stressGauge: "▃",
+  })
+  assert.ok(line.includes("▃"), "stress gauge appears in footer line")
+})

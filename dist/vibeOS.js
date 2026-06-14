@@ -12804,6 +12804,9 @@ function buildFooterLine(input) {
   if (enforcementPulse) {
     line += ` | ${enforcementPulse}`;
   }
+  if (input.stressGauge) {
+    line += ` | ${input.stressGauge}`;
+  }
   if (sessionSlot && sessionSlot !== activeSlot) {
     line += ` | session:${sessionSlot}`;
   }
@@ -13070,7 +13073,8 @@ async function _appendFooter(input, output, directory3) {
       enfTags,
       sessionSlot,
       vectorChangedSlot: selNowFooter?.vector_changed_slot,
-      subRegime: currentSubRegime2
+      subRegime: currentSubRegime2,
+      stressGauge: _footerStress > 0.85 ? "\u2588" : _footerStress > 0.7 ? "\u2586" : _footerStress > 0.5 ? "\u2585" : _footerStress > 0.3 ? "\u2583" : _footerStress > 0.1 ? "\u2582" : "\u2581"
     });
     const footerText = stripped + `
 
