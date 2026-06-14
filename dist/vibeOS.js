@@ -11495,7 +11495,8 @@ function observeToolPattern(toolName, input, output, directory3) {
       } catch {
       }
     }
-    if (repeat === 0 && _patternFiredKeys.size > 0) {
+    if (repeat === 0 && _patternFiredKeys.size > 0 && !_trustedCountFired) {
+      _trustedCountFired = true;
       try {
         updateGlobalLearning((gl) => {
           gl.patternQuality ??= { ignoredCount: 0, trustedCount: 0 };
@@ -13068,7 +13069,7 @@ async function _appendFooter(input, output, directory3) {
       ltTotal,
       ltTrend: sesTrend,
       vibeBrand,
-      optMode: displayMode,
+      optMode: effectiveMode,
       flashIcon,
       enfTags,
       sessionSlot,
