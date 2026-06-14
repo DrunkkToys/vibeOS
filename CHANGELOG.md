@@ -1,3 +1,9 @@
+## 0.25.15
+- fix: restore M1 installer deploy
+Remove local dashboard base stamp
+Harden LOOPING control vector
+
+
 ## 0.25.14
 - fix: register OpenCode on both homes
 
