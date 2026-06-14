@@ -1,3 +1,7 @@
+## 0.25.16
+- chore: patch release bump
+
+
 ## 0.25.15
 - fix: restore M1 installer deploy
 Remove local dashboard base stamp
