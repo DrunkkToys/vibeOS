@@ -1,3 +1,8 @@
+## 0.25.17
+- chore: v0.25.16
+Revert "Remove local dashboard base stamp"
+
+
 ## 0.25.16
 - chore: patch release bump
 
