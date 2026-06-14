@@ -175,10 +175,10 @@ test("cascade: loop detection escalates through all 4 intervention levels", asyn
     `after many repeats, level should be assertive/escalated, got ${s4.loop_intervention_level}`,
   )
 
-  // Verify that a LOOPING regime produces "speed" optimization mode
+  // Verify that a LOOPING regime produces "quality" optimization mode
   const state = Object.assign({ latest_stress_multiplier: 0.1 }, s4)
   const mode = meta.autoSelectMode("LOOPING", 0.1)
-  assert.equal(mode, "speed", "LOOPING regime should select speed mode")
+  assert.equal(mode, "quality", "LOOPING regime should select quality mode")
 })
 
 test("cascade: stress > 1.5 overrides mode to quality", async (t) => {
@@ -204,9 +204,9 @@ test("cascade: stress > 1.5 overrides mode to quality", async (t) => {
   const convergingMode = meta.autoSelectMode("CONVERGING", 4.0)
   assert.equal(convergingMode, "quality", "CONVERGING should always select quality")
 
-  // LOOPING selects speed regardless of stress
+  // LOOPING selects quality regardless of stress
   const loopingMode = meta.autoSelectMode("LOOPING", 3.0)
-  assert.equal(loopingMode, "speed", "LOOPING should always select speed")
+  assert.equal(loopingMode, "quality", "LOOPING should always select quality")
 
   // RESEARCH / DESIGNING → longrun
   assert.equal(meta.autoSelectMode("RESEARCH", 0.1), "longrun")

@@ -127,10 +127,10 @@ test("E2E: regime CONVERGING → autoSelectMode → quality", async () => {
   assert.equal(mode, "quality")
 })
 
-test("E2E: regime LOOPING → autoSelectMode → speed", async () => {
+test("E2E: regime LOOPING → autoSelectMode → quality", async () => {
   const turn = await import("../src/lib/turn-classify.js?e2e-3=" + Date.now())
   const mode = turn.autoSelectMode("LOOPING", 0.1)
-  assert.equal(mode, "speed")
+  assert.equal(mode, "quality")
 })
 
 test("E2E: stress > 1.5 overrides to quality", async () => {

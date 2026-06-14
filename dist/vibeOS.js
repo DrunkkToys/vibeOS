@@ -3416,7 +3416,7 @@ function autoSelectMode(subRegime, stressMultiplier) {
   if (regime === "AUDIT" || regime === "FORENSIC")
     return regime.toLowerCase();
   if (regime === "LOOPING")
-    return "speed";
+    return "quality";
   if (regime === "CONVERGING" || regime === "CLOSED")
     return "quality";
   if (regime === "IMPLEMENTING")
@@ -3552,16 +3552,16 @@ var init_meta_controller = __esm({
         wbp_verbosity: "minimal"
       },
       LOOPING: {
-        enforcement_mode: "relaxed",
-        enforcement_reason: "user stuck \u2014 relax all enforcement, fresh perspective",
-        flow_mode: "audit",
-        flow_focus: ["suggest-alternative"],
-        tdd_mode: "lazy",
-        tdd_focus: [],
-        tier_bias: "medium",
-        thinking_mode: "off",
-        stress_multiplier: 0.3,
-        context7_urgency: "optional",
+        enforcement_mode: "strict",
+        enforcement_reason: "user stuck \u2014 tighten enforcement and switch to recovery posture",
+        flow_mode: "strict",
+        flow_focus: ["write-edit-check", "no-untouched-files", "suggest-alternative"],
+        tdd_mode: "strict",
+        tdd_focus: ["skeleton-on-write", "assertion-check"],
+        tier_bias: "brain",
+        thinking_mode: "brief",
+        stress_multiplier: 2,
+        context7_urgency: "required",
         wbp_verbosity: "detailed"
       },
       CLOSED: {
@@ -3824,7 +3824,7 @@ import { resolve as resolve2, dirname as dirname7 } from "node:path";
 import { fileURLToPath as fileURLToPath4 } from "node:url";
 function fallback(sr, text) {
   if (sr === "LOOPING")
-    return "speed";
+    return "quality";
   const t = String(text || "").toLowerCase();
   if (sr === "INIT" && t.length <= 42 && !/[\.\/\\]/.test(t))
     return "budget";
@@ -6874,6 +6874,42 @@ var ResolutionTracker = class _ResolutionTracker {
   normalizeText(text) {
     return (text || "").toLowerCase().replace(/[^a-z0-9\s]+/g, " ").replace(/\s+/g, " ").trim();
   }
+  normalizeActivity(activity, action, text) {
+    const fallbackSignature = this.normalizeText(action || text || "");
+    if (!activity) {
+      return {
+        signature: fallbackSignature || "",
+        tool: null,
+        target: null,
+        action: action || null,
+        repeat_count: 1,
+        outcome: null
+      };
+    }
+    if (typeof activity === "string") {
+      const sig = this.normalizeText(activity);
+      return {
+        signature: sig || fallbackSignature || "",
+        tool: null,
+        target: null,
+        action: action || null,
+        repeat_count: 1,
+        outcome: null
+      };
+    }
+    const tool2 = this.normalizeText(activity.tool || activity.toolName || activity.kind || "");
+    const target = this.normalizeText(activity.target || activity.filePath || activity.file_path || activity.path || activity.command || "");
+    const normalizedAction = this.normalizeText(activity.action || activity.kind || action || "");
+    const signature = this.normalizeText(activity.signature || [tool2, target, normalizedAction, activity.outcome || ""].filter(Boolean).join(" "));
+    return {
+      signature: signature || fallbackSignature || "",
+      tool: tool2 || null,
+      target: target || null,
+      action: normalizedAction || action || null,
+      repeat_count: Number(activity.repeat_count || activity.repeatCount || 1) || 1,
+      outcome: typeof activity.outcome === "string" ? activity.outcome : activity.outcome ?? null
+    };
+  }
   getRepeatStreak() {
     if (this.history.length < 2)
       return 0;
@@ -6889,7 +6925,38 @@ var ResolutionTracker = class _ResolutionTracker {
     }
     return streak;
   }
-  update(userText, features, action, entropy, uncertainty, embedding = null) {
+  getActivityRepeatStreak() {
+    if (this.history.length < 2)
+      return 0;
+    const normalizedLast = this.normalizeActivity(this.history[this.history.length - 1].activity, this.history[this.history.length - 1].action, this.history[this.history.length - 1].text).signature;
+    if (!normalizedLast)
+      return 0;
+    let streak = 1;
+    for (let i = this.history.length - 2; i >= 0; i--) {
+      const normalized = this.normalizeActivity(this.history[i].activity, this.history[i].action, this.history[i].text).signature;
+      if (!normalized || normalized !== normalizedLast)
+        break;
+      streak++;
+    }
+    return streak;
+  }
+  getTargetRepeatStreak() {
+    if (this.history.length < 2)
+      return 0;
+    const normalizedLast = this.normalizeActivity(this.history[this.history.length - 1].activity, this.history[this.history.length - 1].action, this.history[this.history.length - 1].text).target;
+    if (!normalizedLast)
+      return 0;
+    let streak = 1;
+    for (let i = this.history.length - 2; i >= 0; i--) {
+      const normalized = this.normalizeActivity(this.history[i].activity, this.history[i].action, this.history[i].text).target;
+      if (!normalized || normalized !== normalizedLast)
+        break;
+      streak++;
+    }
+    return streak;
+  }
+  update(userText, features, action, entropy, uncertainty, embedding = null, activity = null) {
+    const normalizedActivity = this.normalizeActivity(activity, action, userText);
     const entry = {
       text: userText,
       features: { ...features },
@@ -6897,6 +6964,7 @@ var ResolutionTracker = class _ResolutionTracker {
       entropy,
       uncertainty,
       embedding: embedding ? [...embedding] : null,
+      activity: normalizedActivity,
       timestamp: Date.now() / 1e3
     };
     if (this.history.length >= 2) {
@@ -6965,6 +7033,8 @@ var ResolutionTracker = class _ResolutionTracker {
     const featureContradiction = this.calcFeatureContradiction();
     const embeddingDelta = this.calcEmbeddingDelta();
     const repeatStreak = this.getRepeatStreak();
+    const activityRepeatStreak = this.getActivityRepeatStreak();
+    const targetRepeatStreak = this.getTargetRepeatStreak();
     const isLooping = this.detectLoop();
     const intentState = this.computeIntentState();
     const continuityState = this.continuityState(intentState);
@@ -7000,9 +7070,10 @@ var ResolutionTracker = class _ResolutionTracker {
     const momentum = this.calcMomentum(entropyTrend, actionConsistency, embeddingDelta, isLooping, lastEntry.action, lastEntry.entropy);
     let loopLevel = "none";
     if (isLooping) {
-      if (repeatStreak >= 3 || this.loopCount >= 4)
+      const repeatSignal = Math.max(repeatStreak, activityRepeatStreak, targetRepeatStreak);
+      if (repeatSignal >= 3 || this.loopCount >= 4)
         loopLevel = "escalated";
-      else if (repeatStreak >= 2 || this.loopCount >= 3)
+      else if (repeatSignal >= 2 || this.loopCount >= 3)
         loopLevel = "assertive";
       else if (this.loopCount >= 2)
         loopLevel = "suggestive";
@@ -7019,7 +7090,9 @@ var ResolutionTracker = class _ResolutionTracker {
         action_consistency: Math.round(actionConsistency * 1e4) / 1e4,
         entropy_trend: Math.round(entropyTrend * 1e4) / 1e4,
         feature_contradiction: Math.round(featureContradiction * 1e4) / 1e4,
-        embedding_delta: Math.round(embeddingDelta * 1e4) / 1e4
+        embedding_delta: Math.round(embeddingDelta * 1e4) / 1e4,
+        activity_repeat_streak: Math.round(activityRepeatStreak * 1e4) / 1e4,
+        target_repeat_streak: Math.round(targetRepeatStreak * 1e4) / 1e4
       },
       intent_state: {
         volatility_score: Math.round(intentState.volatility_score * 1e4) / 1e4,
@@ -7030,6 +7103,8 @@ var ResolutionTracker = class _ResolutionTracker {
       is_looping: isLooping,
       loop_consecutive: this.loopCount,
       repeat_streak: repeatStreak,
+      activity_repeat_streak: activityRepeatStreak,
+      target_repeat_streak: targetRepeatStreak,
       loop_intervention_level: loopLevel,
       pivot_detected: pivotDetected,
       pivot_score: Math.round(pivotScore * 1e4) / 1e4,
@@ -7083,7 +7158,7 @@ var ResolutionTracker = class _ResolutionTracker {
     return 1 - cosineSimilarity2(a, b);
   }
   detectLoop() {
-    return this.loopCount >= 2 || this.getRepeatStreak() >= 2;
+    return this.loopCount >= 2 || this.getRepeatStreak() >= 2 || this.getActivityRepeatStreak() >= 2 || this.getTargetRepeatStreak() >= 2;
   }
   computeIntentState() {
     const last = this.history[this.history.length - 1];
@@ -7197,7 +7272,10 @@ var ResolutionTracker = class _ResolutionTracker {
   }
   static deserialize(data) {
     const tracker = new _ResolutionTracker(data.sessionId || "session", data.maxHistory || 10);
-    tracker.history = Array.isArray(data.history) ? data.history : [];
+    tracker.history = Array.isArray(data.history) ? data.history.map((entry) => ({
+      ...entry,
+      activity: entry?.activity || null
+    })) : [];
     tracker.loopCount = Number(data.loopCount || 0);
     tracker.pivotHistory = Array.isArray(data.pivotHistory) ? data.pivotHistory : [];
     tracker.outcomeHistory = Array.isArray(data.outcomeHistory) ? data.outcomeHistory : [];
@@ -7330,6 +7408,7 @@ init_state();
 init_selection_manager();
 
 // src/lib/classifiers.js
+init_state();
 function detectOutcomeSignal(text) {
   if (!text)
     return null;
@@ -7339,7 +7418,29 @@ function detectOutcomeSignal(text) {
     return "negative";
   return null;
 }
-function scoreStress(text) {
+function countTrailingRepeat(items, signatureOf) {
+  if (!Array.isArray(items) || items.length === 0)
+    return 0;
+  const last = signatureOf(items[items.length - 1]);
+  if (!last)
+    return 0;
+  let streak = 0;
+  for (let i = items.length - 1; i >= 0; i--) {
+    if (signatureOf(items[i]) !== last)
+      break;
+    streak++;
+  }
+  return streak;
+}
+function normalizeActivitySignature(event) {
+  if (!event || typeof event !== "object")
+    return "";
+  const tool2 = String(event.tool || "").trim().toLowerCase();
+  const target = String(event.target || "").trim().toLowerCase();
+  const action = String(event.action || event.kind || "").trim().toLowerCase();
+  return [tool2, target, action].filter(Boolean).join(":");
+}
+function scoreStress(text, context = {}) {
   if (!text || typeof text !== "string")
     return 0;
   const t = text.toLowerCase();
@@ -7378,6 +7479,48 @@ function scoreStress(text) {
   const qeCombos = text.match(/\?!|!\?/g);
   if (qeCombos)
     score += qeCombos.length * 0.1;
+  const behavioralPhrases = [
+    { re: /\b(restart|restarts|restarted|restart again|restart it|retry|retries|retrial|rerun|redo|repeat the step|try again|another attempt|another pass)\b/gi, weight: 0.09 },
+    { re: /\b(still failing|keeps failing|keeps breaking|still broken|same issue|same result|same error|new error|new issue|broke again|breaks again|every fix|every time|over and over|again and again)\b/gi, weight: 0.12 },
+    { re: /\b(blocked again|stuck again|failed again|fails again|this is not working|nothing changed|no change)\b/gi, weight: 0.1 }
+  ];
+  for (const { re, weight } of behavioralPhrases) {
+    const hits = (t.match(re) || []).length;
+    score += hits * weight;
+  }
+  const sessionId = String(_OC_SID || "");
+  let blackboxState = context?.blackboxState || null;
+  if (!blackboxState) {
+    try {
+      const raw = loadBlackboxState();
+      blackboxState = raw?.sessions?.[sessionId] || null;
+    } catch {
+    }
+  }
+  const recentEvents = Array.isArray(context?.recentToolEvents) ? context.recentToolEvents : Array.isArray(recentToolEvents) ? recentToolEvents : [];
+  const recentWindow = recentEvents.slice(-8);
+  const toolRepeatStreak = countTrailingRepeat(recentWindow, normalizeActivitySignature);
+  if (toolRepeatStreak >= 2) {
+    score += 0.05 + Math.min(0.2, (toolRepeatStreak - 1) * 0.04);
+  }
+  const repeatedTargets = countTrailingRepeat(recentWindow, (event) => String(event?.target || "").trim().toLowerCase());
+  if (repeatedTargets >= 2) {
+    score += 0.04 + Math.min(0.12, (repeatedTargets - 1) * 0.03);
+  }
+  const outcomeHistory = Array.isArray(context?.outcomeHistory) ? context.outcomeHistory : Array.isArray(blackboxState?.outcomeHistory) ? blackboxState.outcomeHistory : [];
+  const recentOutcomes = outcomeHistory.slice(-5);
+  const negativeOutcomes = recentOutcomes.filter((o) => /negative|failed|unresolved|loop_detected/i.test(String(o?.outcome || ""))).length;
+  if (negativeOutcomes >= 1) {
+    score += 0.03 * negativeOutcomes + Math.min(0.12, negativeOutcomes * 0.02);
+  }
+  const loopCount = Number(blackboxState?.loop_count ?? blackboxState?.loopConsecutive ?? blackboxState?.loop_consecutive ?? 0);
+  if (blackboxState?.is_looping || loopCount >= 2) {
+    score += 0.08 + Math.min(0.15, loopCount * 0.02);
+  }
+  const repeatStreak = Number(blackboxState?.repeat_streak ?? 0);
+  if (repeatStreak >= 2) {
+    score += 0.05 + Math.min(0.08, repeatStreak * 0.02);
+  }
   if (text.length < 30)
     score += 0.06;
   else if (text.length < 80)
@@ -7537,7 +7680,7 @@ function autoSelectMode2(subRegime, stressMultiplier) {
   if (regime === "AUDIT" || regime === "FORENSIC")
     return regime.toLowerCase();
   if (regime === "LOOPING")
-    return "speed";
+    return "quality";
   if (regime === "CONVERGING" || regime === "CLOSED")
     return "quality";
   if (regime === "IMPLEMENTING")
@@ -7658,22 +7801,27 @@ function computeControlVector2(_state, _action, _optimizationMode) {
   const subRegime = _state?.sub_regime || "INIT";
   const stress = Number(_state?.latest_stress_multiplier ?? 0);
   const tierBias = stress > QUALITY_STRESS_THRESHOLD2 ? "brain" : subRegime === "CONVERGING" || subRegime === "CLOSED" ? "brain" : subRegime === "REFINING" || subRegime === "LOOPING" ? "medium" : mode === "quality" || mode === "longrun" || mode === "vibeultrax" || mode === "vibeqmax" || mode === "forensic" || mode === "audit" ? "brain" : mode === "speed" || mode === "vibemax" || mode === "vibelitex" ? "medium" : mode === "balanced" ? "auto" : "cheap";
+  const loopingHardening = String(subRegime).toUpperCase() === "LOOPING";
+  const hardenedTierBias = loopingHardening ? "brain" : tierBias;
+  const hardenedMode = loopingHardening ? "quality" : mode;
+  const hardenedModeRoot = loopingHardening ? { mode_root: "quality", mode_family: "brain-runtime", cascade_depth: 1, pipeline_root: ["brain"] } : modeRoot;
   return {
-    enforcement_mode: isStrict ? "strict" : isRelaxed ? "relaxed" : "normal",
-    enforcement_reason: `[optimize: ${mode}] using safe offline defaults`,
-    flow_mode: isStrict ? "strict" : isRelaxed ? "audit" : "normal",
+    enforcement_mode: loopingHardening ? "strict" : isStrict ? "strict" : isRelaxed ? "relaxed" : "normal",
+    enforcement_reason: loopingHardening ? "[optimize: LOOPING] recovery posture \u2014 tighten enforcement and preserve outcome detection" : `[optimize: ${mode}] using safe offline defaults`,
+    flow_mode: loopingHardening ? "strict" : isStrict ? "strict" : isRelaxed ? "audit" : "normal",
     flow_focus: [],
-    tdd_mode: isStrict ? "strict" : isRelaxed ? "lazy" : "normal",
+    tdd_mode: loopingHardening ? "strict" : isStrict ? "strict" : isRelaxed ? "lazy" : "normal",
     tdd_focus: [],
-    tier_bias: tierBias,
-    thinking_mode: isStrict ? "full" : mode === "longrun" ? "brief" : isRelaxed ? "off" : "auto",
-    stress_multiplier: 1,
-    context7_urgency: isStrict ? "required" : "preferred",
-    wbp_verbosity: isStrict ? "verbose" : isRelaxed ? "minimal" : "normal",
+    tier_bias: hardenedTierBias,
+    thinking_mode: loopingHardening ? "brief" : isStrict ? "full" : mode === "longrun" ? "brief" : isRelaxed ? "off" : "auto",
+    stress_multiplier: loopingHardening ? Math.max(1.5, stress) : 1,
+    context7_urgency: loopingHardening ? "required" : isStrict ? "required" : "preferred",
+    wbp_verbosity: loopingHardening ? "detailed" : isStrict ? "verbose" : isRelaxed ? "minimal" : "normal",
     agent_mode: (subRegime === "REFINING" || subRegime === "CONVERGING" || subRegime === "CLOSED") && stress <= QUALITY_STRESS_THRESHOLD2 ? "plan" : void 0,
-    optimization_mode: mode,
-    ...modeRoot,
-    directives: isRelaxed && (subRegime === "EXPLORING" || subRegime === "INIT" || subRegime === "AUDIT" || subRegime === "FORENSIC" || subRegime === "LOOPING") ? [
+    optimization_mode: hardenedMode,
+    ...hardenedModeRoot,
+    outcome_detection: true,
+    directives: isRelaxed && !loopingHardening && (subRegime === "EXPLORING" || subRegime === "INIT" || subRegime === "AUDIT" || subRegime === "FORENSIC" || subRegime === "LOOPING") ? [
       `[speed guard] VERIFY BEFORE ACT - Speed-oriented mode "${mode}" is active and user intent is ${subRegime}. Before modifying files or executing commands, first verify the current state. When a request is ambiguous between "check and report" vs "fix", always choose CHECK FIRST. Treat "look at", "check", "investigate", "tell me about" as requests for information, not action items.`
     ] : []
   };
@@ -7731,6 +7879,29 @@ function normalizeBlackboxFeatures(text) {
     uncertainty: computeBlackboxUncertainty(features)
   };
 }
+function summarizeRecentToolActivity(limit = 5) {
+  const events = Array.isArray(recentToolEvents) ? recentToolEvents.slice(-limit) : [];
+  if (events.length === 0)
+    return null;
+  const last = events[events.length - 1] || {};
+  const signature = `${String(last.tool || "").trim().toLowerCase()}:${String(last.target || "").trim().toLowerCase()}`;
+  let repeatCount = 0;
+  for (let i = events.length - 1; i >= 0; i--) {
+    const cur = events[i] || {};
+    const curSignature = `${String(cur.tool || "").trim().toLowerCase()}:${String(cur.target || "").trim().toLowerCase()}`;
+    if (curSignature !== signature)
+      break;
+    repeatCount++;
+  }
+  return {
+    tool: String(last.tool || "").toLowerCase(),
+    target: String(last.target || "").toLowerCase(),
+    action: String(last.action || last.kind || "").toLowerCase(),
+    signature,
+    repeat_count: repeatCount,
+    recent_count: events.length
+  };
+}
 function normalizeBlackboxHistoryEntry(entry) {
   const text = typeof entry?.text === "string" ? entry.text : "";
   const fallback2 = normalizeBlackboxFeatures(text);
@@ -7744,7 +7915,8 @@ function normalizeBlackboxHistoryEntry(entry) {
     embedding: Array.isArray(entry?.embedding) ? [...entry.embedding] : null,
     timestamp: Number.isFinite(Number(entry?.timestamp)) ? Number(entry.timestamp) : Date.now() / 1e3,
     is_pivot: Boolean(entry?.is_pivot),
-    outcome: typeof entry?.outcome === "string" ? entry.outcome : entry?.outcome ?? null
+    outcome: typeof entry?.outcome === "string" ? entry.outcome : entry?.outcome ?? null,
+    activity: entry?.activity && typeof entry.activity === "object" ? { ...entry.activity } : null
   };
 }
 function normalizeBlackboxHistory(history) {
@@ -7771,7 +7943,8 @@ var _BlackboxStub = class __BlackboxStub {
   }
   update(text) {
     const normalized = normalizeBlackboxFeatures(text);
-    const state = this.tracker.update(text, normalized.features, normalized.action, normalized.entropy, normalized.uncertainty);
+    const recentActivity = summarizeRecentToolActivity();
+    const state = this.tracker.update(text, normalized.features, normalized.action, normalized.entropy, normalized.uncertainty, null, recentActivity);
     return { ...state, ...normalized };
   }
   snapshot() {
@@ -7896,8 +8069,10 @@ function computeLocalCalibration() {
 }
 function resolveEnforcementMode() {
   const sub = _latestBlackboxState2?.sub_regime || "INIT";
-  if (sub === "EXPLORING" || sub === "DIVERGENT" || sub === "LOOPING")
+  if (sub === "EXPLORING" || sub === "DIVERGENT")
     return "relaxed";
+  if (sub === "LOOPING")
+    return "strict";
   if (sub === "CONVERGING" || sub === "CLOSED")
     return "strict";
   return "normal";
@@ -10791,7 +10966,11 @@ function isManualOverride(mode) {
 function chooseEpisodeMode(regime, suggestedMode, stress) {
   if (suggestedMode === "vibeultrax" || suggestedMode === "vibeqmax" || suggestedMode === "vibemax" || suggestedMode === "audit" || suggestedMode === "forensic")
     return suggestedMode;
-  if (LOOP_REGIMES.has(regime) || suggestedMode === "speed")
+  if (regime === "LOOPING")
+    return "quality";
+  if (suggestedMode === "speed")
+    return "speed";
+  if (LOOP_REGIMES.has(regime))
     return "speed";
   if (QUALITY_REGIMES.has(regime) || suggestedMode === "quality")
     return "quality";
@@ -11454,7 +11633,7 @@ function resolveTemplate(prevTemplate, stressScore, userText, creditPercent, sub
   if (detectBudgetSignal(creditPercent)) {
     const regime = String(subRegime || "").toUpperCase();
     if (regime === "LOOPING" || regime === "DIVERGENT")
-      return "speed";
+      return "quality";
     return "save";
   }
   if (detectStressSpike(stressScore))
