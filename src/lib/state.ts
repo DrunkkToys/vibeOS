@@ -61,17 +61,30 @@ function hasOpenCodeConfig(dir: string): boolean {
   return existsSync(join(dir, "opencode.json")) || existsSync(join(dir, "opencode.jsonc"))
 }
 
-export function getOpenCodeHome(): string {
+function resolveOpenCodeHomes(): string[] {
   const override = process.env.VIBEOS_OPENCODE_HOME
-  if (override) return override
+  if (override) return [override]
   const base = process.env.HOME || USER_HOME
+  const desktopHome = process.env.VIBEOS_OPENCODE_DESKTOP_HOME
+    || (process.platform === "darwin" ? join(base, "Library", "Application Support", "ai.opencode.desktop") : null)
   const configHome = join(base, ".config", "opencode")
   const dotHome = join(base, ".opencode")
-  if (hasOpenCodeConfig(configHome)) return configHome
-  if (hasOpenCodeConfig(dotHome)) return dotHome
-  if (existsSync(configHome)) return configHome
-  if (existsSync(dotHome)) return dotHome
-  return configHome
+  return [desktopHome, configHome, dotHome].filter(Boolean) as string[]
+}
+
+export function getOpenCodeHome(): string {
+  const homes = resolveOpenCodeHomes()
+  for (const home of homes) {
+    if (hasOpenCodeConfig(home)) return home
+  }
+  for (const home of homes) {
+    if (existsSync(home)) return home
+  }
+  return homes[0] || join(process.env.HOME || USER_HOME, ".config", "opencode")
+}
+
+export function getOpenCodeHomes(): string[] {
+  return resolveOpenCodeHomes()
 }
 
 export function setVibeOSHomeContext(home: string): void {

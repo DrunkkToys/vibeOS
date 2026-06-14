@@ -15,11 +15,11 @@ function resolveOpenCodeHomes() {
   const override = process.env.VIBEOS_OPENCODE_HOME
   if (override) return [override]
   const base = homedir()
-  const configHome = join(base, ".config", "opencode")
-  const dotHome = join(base, ".opencode")
   const desktopHome = process.env.VIBEOS_OPENCODE_DESKTOP_HOME
     || (process.platform === "darwin" ? join(base, "Library", "Application Support", "ai.opencode.desktop") : null)
-  return [configHome, dotHome, desktopHome].filter(Boolean)
+  const configHome = join(base, ".config", "opencode")
+  const dotHome = join(base, ".opencode")
+  return [desktopHome, configHome, dotHome].filter(Boolean)
 }
 
 if (!existsSync(bundlePath)) {

@@ -667,6 +667,33 @@ test("install: deploy script creates opencode.json on a fresh machine", async ()
   }
 })
 
+test("install: setup --project registers against the resolved desktop OpenCode home", async () => {
+  const sb = mkdtempSync(join(tmpdir(), "install-setup-project-"))
+  const prevHome = process.env.HOME
+  const prevDesktopHome = process.env.VIBEOS_OPENCODE_DESKTOP_HOME
+  process.env.HOME = sb
+  process.env.VIBEOS_OPENCODE_DESKTOP_HOME = join(sb, "Library", "Application Support", "ai.opencode.desktop")
+  try {
+    const projectDir = join(sb, "project")
+    mkdirSync(projectDir, { recursive: true })
+    const result = spawnSync(process.execPath, [join(ROOT, "bin", "setup.js"), "set", "--project"], {
+      cwd: projectDir,
+      env: { ...process.env, HOME: sb, VIBEOS_OPENCODE_DESKTOP_HOME: process.env.VIBEOS_OPENCODE_DESKTOP_HOME },
+      encoding: "utf8",
+    })
+    assert.equal(result.status, 0, result.stderr || result.stdout)
+    const pluginRef = join(process.env.VIBEOS_OPENCODE_DESKTOP_HOME, "plugins", "vibeOS.js")
+    const projectConfig = JSON.parse(readFileSync(join(projectDir, "opencode.json"), "utf8"))
+    assert.ok(Array.isArray(projectConfig.plugin), "project config gets plugin array")
+    assert.ok(projectConfig.plugin.includes(pluginRef), "project config points at the resolved desktop OpenCode home")
+  } finally {
+    process.env.HOME = prevHome
+    if (prevDesktopHome === undefined) delete process.env.VIBEOS_OPENCODE_DESKTOP_HOME
+    else process.env.VIBEOS_OPENCODE_DESKTOP_HOME = prevDesktopHome
+    rmSync(sb, { recursive: true, force: true })
+  }
+})
+
 test("bare machine: no opencode.json but OPENCODE_MODEL env var set", async () => {
   const sb = freshSandbox()
   const prevHome = process.env.HOME

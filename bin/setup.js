@@ -6,6 +6,17 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 
+function resolveOpenCodeHomes() {
+  const override = process.env.VIBEOS_OPENCODE_HOME;
+  if (override) return [override];
+  const base = homedir();
+  const desktopHome = process.env.VIBEOS_OPENCODE_DESKTOP_HOME
+    || (process.platform === "darwin" ? resolve(base, "Library", "Application Support", "ai.opencode.desktop") : null);
+  const configHome = resolve(base, ".config", "opencode");
+  const dotHome = resolve(base, ".opencode");
+  return [desktopHome, configHome, dotHome].filter(Boolean);
+}
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, "..");
 const args = process.argv.slice(2);
@@ -40,7 +51,8 @@ if (isProject) {
   if (!config || typeof config !== "object" || Array.isArray(config)) config = {};
   if (!config.$schema) config.$schema = "https://opencode.ai/config.json";
   if (!Array.isArray(config.plugin)) config.plugin = [];
-  const pluginRef = resolve(homedir(), ".config", "opencode", "plugins", "vibeOS.js");
+  const [installHome] = resolveOpenCodeHomes();
+  const pluginRef = resolve(installHome || resolve(homedir(), ".config", "opencode"), "plugins", "vibeOS.js");
   if (!config.plugin.includes(pluginRef)) {
     config.plugin.push(pluginRef);
     mkdirSync(dirname(configPath), { recursive: true });

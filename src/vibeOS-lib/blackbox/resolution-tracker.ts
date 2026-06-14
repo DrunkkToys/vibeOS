@@ -366,7 +366,12 @@ export class ResolutionTracker {
     return 1.0 - cosineSimilarity(a, b)
   }
   detectLoop() {
-    return this.loopCount >= 2 || this.getRepeatStreak() >= 2 || this.getActivityRepeatStreak() >= 2 || this.getTargetRepeatStreak() >= 2
+    const repeatSignal = Math.max(
+      this.getRepeatStreak(),
+      this.getActivityRepeatStreak(),
+      this.getTargetRepeatStreak(),
+    )
+    return this.loopCount >= 2 || repeatSignal >= 2
   }
   computeIntentState() {
     const last = this.history[this.history.length - 1]

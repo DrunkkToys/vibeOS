@@ -181,6 +181,52 @@ test("cascade: loop detection escalates through all 4 intervention levels", asyn
   assert.equal(mode, "quality", "LOOPING regime should select quality mode")
 })
 
+test("cascade: repeated tool activity hardens LOOPING even when the wording keeps changing", async (t) => {
+  const rt = makeTracker("loop-activity-" + Math.random().toString(36).slice(2, 8))
+  const activity = {
+    tool: "edit",
+    action: "update_fill",
+    target: "src/vibeOS-lib/blackbox/meta-controller.ts",
+    signature: "update_fill:src/vibeOS-lib/blackbox/meta-controller.ts",
+    outcome: "negative",
+  }
+  const turns = [
+    "try the first edit on the meta controller",
+    "now apply another edit to the same file",
+    "what about a third edit on that same target",
+  ]
+
+  let lastState = null
+  for (const text of turns) {
+    lastState = rt.update(
+      text,
+      resolution.ResolutionTracker.extractFeatures(text),
+      "edit",
+      0.8,
+      0.7,
+      null,
+      activity,
+    )
+  }
+
+  assert.ok(lastState, "looping activity test should produce a final state")
+  assert.equal(lastState.sub_regime, "LOOPING", "repeated file edits should trigger LOOPING even when text varies")
+  assert.equal(lastState.repeat_streak, 1, "text repetition should stay low when wording changes")
+  assert.ok((lastState.activity_repeat_streak || 0) >= 3, "activity repeat streak should capture repeated tool/file edits")
+  assert.ok((lastState.target_repeat_streak || 0) >= 3, "target repeat streak should capture the repeated file target")
+
+  const cv = meta.computeControlVector(makeState(rt), "edit", "auto")
+  assert.equal(cv.optimization_mode, "quality", "LOOPING must harden auto mode to quality")
+  assert.equal(cv.enforcement_mode, "strict", "LOOPING must tighten enforcement")
+  assert.equal(cv.flow_mode, "strict", "LOOPING must tighten flow")
+  assert.equal(cv.tdd_mode, "strict", "LOOPING must tighten TDD")
+  assert.equal(cv.outcome_detection, true, "LOOPING must keep outcome detection enabled")
+  assert.ok(
+    cv.directives.some((directive) => directive.includes("loop prevention")),
+    "LOOPING must emit a loop-prevention directive",
+  )
+})
+
 test("cascade: stress > 1.5 overrides mode to quality", async (t) => {
   const rt = makeTracker("stress-" + Math.random().toString(36).slice(2, 8))
 

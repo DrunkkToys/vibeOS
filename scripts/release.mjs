@@ -45,9 +45,11 @@ function resolveOpenCodeHomes() {
   const override = process.env.VIBEOS_OPENCODE_HOME
   if (override) return [override]
   const base = homedir()
+  const desktopHome = process.env.VIBEOS_OPENCODE_DESKTOP_HOME
+    || (process.platform === "darwin" ? join(base, "Library", "Application Support", "ai.opencode.desktop") : null)
   const configHome = join(base, ".config", "opencode")
   const dotHome = join(base, ".opencode")
-  const roots = [configHome, dotHome]
+  const roots = [desktopHome, configHome, dotHome].filter(Boolean)
   const existing = roots.filter((dir) => {
     try {
       const oc = readFileSync(join(dir, "opencode.json"), "utf8")
