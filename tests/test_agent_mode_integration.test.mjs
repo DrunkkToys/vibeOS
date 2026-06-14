@@ -132,10 +132,11 @@ test("syncControlSettings restores the previous OpenCode agent after plan mode e
       const oc = JSON.parse(fs.readFileSync(path.join(home, ".config/opencode/opencode.json"), "utf8"));
       const tiers = JSON.parse(fs.readFileSync(path.join(home, ".claude/model-tiers.json"), "utf8"));
       console.log(JSON.stringify({ agent: oc.default_agent, restore: tiers.selection.previous_default_agent }));
+      process.exit(0);
     `
     const result = JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", script], {
       cwd: process.cwd(),
-      env: { ...process.env, VIBEOS_FAST_CI: "1", VIBEOS_API_ENABLED: "false", HOME: home, VIBEOS_HOME: join(home, ".claude") },
+      env: { ...process.env, VIBEOS_FAST_CI: "1", VIBEOS_API_DISABLED: "1", VIBEOS_OPENCODE_HOME: join(home, ".config/opencode"), HOME: home, VIBEOS_HOME: join(home, ".claude") },
       encoding: "utf8",
     }).trim())
     assert.equal(result.agent, "build")
@@ -171,10 +172,11 @@ test("syncControlSettings restores a stuck startup plan agent from the latest Op
       const home = process.env.HOME;
       const oc = JSON.parse(fs.readFileSync(path.join(home, ".config/opencode/opencode.json"), "utf8"));
       console.log(JSON.stringify({ agent: oc.default_agent }));
+      process.exit(0);
     `
     const result = JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", script], {
       cwd: process.cwd(),
-      env: { ...process.env, VIBEOS_FAST_CI: "1", VIBEOS_API_ENABLED: "false", HOME: home, VIBEOS_HOME: join(home, ".claude") },
+      env: { ...process.env, VIBEOS_FAST_CI: "1", VIBEOS_API_DISABLED: "1", VIBEOS_OPENCODE_HOME: join(home, ".config/opencode"), HOME: home, VIBEOS_HOME: join(home, ".claude") },
       encoding: "utf8",
     }).trim())
     assert.equal(result.agent, "auto")
@@ -253,9 +255,11 @@ test("syncControlSettings does not overwrite a pre-outage optimization mode with
         tiersAfterFallback,
         tiersAfterRecovery,
       }));
+      process.exit(0);
     `;
     const raw = execFileSync(process.execPath, ["--input-type=module", "-e", script], {
-      env: { ...process.env, VIBEOS_FAST_CI: "1", VIBEOS_API_ENABLED: "false", HOME: home, VIBEOS_HOME: join(home, ".claude") },
+      timeout: 20000,
+      env: { ...process.env, VIBEOS_FAST_CI: "1", VIBEOS_API_DISABLED: "1", VIBEOS_OPENCODE_HOME: join(home, ".config/opencode"), HOME: home, VIBEOS_HOME: join(home, ".claude") },
       encoding: "utf8",
     }).trim()
     const result = JSON.parse(raw)
@@ -324,9 +328,11 @@ test("syncControlSettings restores a stuck vibelitex optimization mode back to t
         optimization_mode: tiers.selection.optimization_mode,
         previous_optimization_mode: tiers.selection.previous_optimization_mode ?? null,
       }));
+      process.exit(0);
     `;
     const raw = execFileSync(process.execPath, ["--input-type=module", "-e", script], {
-      env: { ...process.env, VIBEOS_FAST_CI: "1", VIBEOS_API_ENABLED: "false", HOME: home, VIBEOS_HOME: join(home, ".claude") },
+      timeout: 20000,
+      env: { ...process.env, VIBEOS_FAST_CI: "1", VIBEOS_API_DISABLED: "1", VIBEOS_OPENCODE_HOME: join(home, ".config/opencode"), HOME: home, VIBEOS_HOME: join(home, ".claude") },
       encoding: "utf8",
     }).trim()
     const result = JSON.parse(raw)
@@ -337,7 +343,7 @@ test("syncControlSettings restores a stuck vibelitex optimization mode back to t
   }
 })
 
-test("loadOptimizationMode recovers vibelitex from live brain tier after boot", async () => {
+test("loadOptimizationMode recovers vibelitex from live brain tier after boot", { timeout: 70000 }, async () => {
   const home = mkdtempSync(join(tmpdir(), "vib-opt-live-"))
   try {
     const script = `
@@ -379,9 +385,11 @@ test("loadOptimizationMode recovers vibelitex from live brain tier after boot", 
         persisted: tiers.selection.optimization_mode,
         footer: out.text,
       }));
+      process.exit(0);
     `;
     const raw = execFileSync(process.execPath, ["--input-type=module", "-e", script], {
-      env: { ...process.env, VIBEOS_FAST_CI: "1", VIBEOS_API_ENABLED: "false", HOME: home, VIBEOS_HOME: join(home, ".claude") },
+      timeout: 10000,
+      env: { ...process.env, VIBEOS_FAST_CI: "1", VIBEOS_API_DISABLED: "1", VIBEOS_OPENCODE_HOME: join(home, ".config/opencode"), HOME: home, VIBEOS_HOME: join(home, ".claude") },
       encoding: "utf8",
     }).trim()
     const result = JSON.parse(raw)
@@ -426,10 +434,11 @@ test("syncControlSettings drops stuck full thinking when the vector cools down",
       const home = process.env.HOME;
       const tiers = JSON.parse(fs.readFileSync(path.join(home, ".claude/model-tiers.json"), "utf8"));
       console.log(JSON.stringify({ thinking: tiers.selection.thinking_level }));
+      process.exit(0);
     `
     const result = JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", script], {
       cwd: process.cwd(),
-      env: { ...process.env, VIBEOS_FAST_CI: "1", VIBEOS_API_ENABLED: "false", HOME: home, VIBEOS_HOME: join(home, ".claude") },
+      env: { ...process.env, VIBEOS_FAST_CI: "1", VIBEOS_API_DISABLED: "1", VIBEOS_OPENCODE_HOME: join(home, ".config/opencode"), HOME: home, VIBEOS_HOME: join(home, ".claude") },
       encoding: "utf8",
     }).trim())
     assert.equal(result.thinking, "off")
@@ -480,10 +489,11 @@ test("applySlot leaves a paused desktop followup session alone while plan is act
       const updated = JSON.parse(fs.readFileSync(workspacePath, "utf8"));
       const followup = JSON.parse(updated["workspace:followup"]);
       console.log(JSON.stringify({ paused: Boolean(followup.paused?.[sid]) }));
+      process.exit(0);
     `
     const result = JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", script], {
       cwd: process.cwd(),
-      env: { ...process.env, VIBEOS_FAST_CI: "1", VIBEOS_API_ENABLED: "false", HOME: home, VIBEOS_HOME: join(home, ".claude") },
+      env: { ...process.env, VIBEOS_FAST_CI: "1", VIBEOS_API_DISABLED: "1", VIBEOS_OPENCODE_HOME: join(home, ".config/opencode"), HOME: home, VIBEOS_HOME: join(home, ".claude") },
       encoding: "utf8",
     }).trim())
     assert.equal(result.paused, true)
@@ -517,10 +527,11 @@ test("refreshCreditSnapshot updates stale low credits before the cheap fallback"
       const mod = await import(${JSON.stringify(moduleUrl)} + "?credit=" + Date.now());
       const value = await mod.refreshCreditSnapshot();
       console.log(JSON.stringify({ value }));
+      process.exit(0);
     `
     const result = JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", script], {
       cwd: process.cwd(),
-      env: { ...process.env, VIBEOS_FAST_CI: "1", VIBEOS_API_ENABLED: "false", HOME: home, VIBEOS_HOME: join(home, ".claude") },
+      env: { ...process.env, VIBEOS_FAST_CI: "1", VIBEOS_API_DISABLED: "1", VIBEOS_OPENCODE_HOME: join(home, ".config/opencode"), HOME: home, VIBEOS_HOME: join(home, ".claude") },
       encoding: "utf8",
     }).trim())
     assert.ok(result.value >= 100)

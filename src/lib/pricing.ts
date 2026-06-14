@@ -875,7 +875,7 @@ export function readConfig(dir) {
     if (workspaceModel) return resolveConfiguredModelId(workspaceModel, configs) || workspaceModel
     const selectedCfg = configs[0] || {}
     const selectedModel = selectedCfg?.agent?.build?.model || selectedCfg?.model || ""
-    return resolveConfiguredModelId(selectedModel, configs)
+    return resolveConfiguredModelId(selectedModel, configs) || selectedModel
   } catch { return "" }
 }
 
