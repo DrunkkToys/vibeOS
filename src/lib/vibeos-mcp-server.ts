@@ -94,9 +94,8 @@ const DASHBOARD_CONFIG_PATH = join(DASHBOARD_DIR, "vibeos-dashboard-config.js")
 
 export function writeDashboardBaseConfig(baseUrl: string): string | null {
   try {
-    if (!baseUrl) return null
     mkdirSync(DASHBOARD_DIR, { recursive: true })
-    const payload = `window.__VIBEOS_DASHBOARD_BASE__ = ${JSON.stringify(baseUrl.replace(/\/$/, ""))};\n`
+    const payload = `window.__VIBEOS_DASHBOARD_BASE__ = ${JSON.stringify((baseUrl || "").replace(/\/$/, ""))};\n`
     writeFileSync(DASHBOARD_CONFIG_PATH, payload, "utf-8")
     return DASHBOARD_CONFIG_PATH
   } catch {
