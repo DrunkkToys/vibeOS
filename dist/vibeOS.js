@@ -6851,6 +6851,7 @@ var ResolutionTracker = class _ResolutionTracker {
     this.pivotHistory = [];
     this.outcomeHistory = [];
     this.calibratedWeights = null;
+    this.recentMessageLengths = [];
   }
   static extractFeatures(text) {
     if (!text || typeof text !== "string")
@@ -6925,13 +6926,18 @@ var ResolutionTracker = class _ResolutionTracker {
   getRepeatStreak() {
     if (this.history.length < 2)
       return 0;
-    const normalizedLast = this.normalizeText(this.history[this.history.length - 1].text);
-    if (!normalizedLast)
+    const lastWords = new Set(this.history[this.history.length - 1].text.toLowerCase().split(/\s+/).filter((w) => w.length > 2));
+    if (lastWords.size === 0)
       return 0;
     let streak = 1;
     for (let i = this.history.length - 2; i >= 0; i--) {
-      const normalized = this.normalizeText(this.history[i].text);
-      if (!normalized || normalized !== normalizedLast)
+      const currWords = new Set(this.history[i].text.toLowerCase().split(/\s+/).filter((w) => w.length > 2));
+      if (currWords.size === 0)
+        break;
+      const intersection = new Set([...lastWords].filter((w) => currWords.has(w)));
+      const union = /* @__PURE__ */ new Set([...lastWords, ...currWords]);
+      const jaccard = intersection.size / Math.max(union.size, 1);
+      if (jaccard < 0.7)
         break;
       streak++;
     }
@@ -6967,6 +6973,39 @@ var ResolutionTracker = class _ResolutionTracker {
     }
     return streak;
   }
+  getRecentNegativeOutcomeStreak() {
+    if (this.outcomeHistory.length < 1)
+      return 0;
+    let streak = 0;
+    for (let i = this.outcomeHistory.length - 1; i >= 0; i--) {
+      const o = this.outcomeHistory[i];
+      if (/negative|failed|unresolved|loop_detected/i.test(String(o?.outcome || "")))
+        streak++;
+      else
+        break;
+    }
+    return streak;
+  }
+  computeMessageLengthTrend() {
+    const lengths = this.recentMessageLengths;
+    if (lengths.length < 3)
+      return { trend: "stable", slope: 0 };
+    const pairs = lengths.slice(-4);
+    let decreasingCount = 0;
+    let totalSlope = 0;
+    for (let i = 1; i < pairs.length; i++) {
+      const diff = pairs[i] - pairs[i - 1];
+      if (diff < 0)
+        decreasingCount++;
+      totalSlope += diff;
+    }
+    const ratio = decreasingCount / (pairs.length - 1);
+    const avgSlope = pairs.length > 1 ? totalSlope / (pairs.length - 1) : 0;
+    return {
+      trend: ratio >= 0.6 && avgSlope < 0 ? "shortening" : "stable",
+      slope: avgSlope
+    };
+  }
   update(userText, features, action, entropy, uncertainty, embedding = null, activity = null) {
     const normalizedActivity = this.normalizeActivity(activity, action, userText);
     const entry = {
@@ -6986,6 +7025,9 @@ var ResolutionTracker = class _ResolutionTracker {
       }
     }
     this.history.push(entry);
+    this.recentMessageLengths.push((userText || "").length);
+    if (this.recentMessageLengths.length > 6)
+      this.recentMessageLengths.shift();
     if (this.history.length > this.maxHistory) {
       this.history.shift();
     }
@@ -7121,6 +7163,9 @@ var ResolutionTracker = class _ResolutionTracker {
       pivot_detected: pivotDetected,
       pivot_score: Math.round(pivotScore * 1e4) / 1e4,
       outcome: lastEntry.outcome || null,
+      outcome_negative_streak: this.getRecentNegativeOutcomeStreak(),
+      message_length_trend: this.computeMessageLengthTrend().trend,
+      message_length_slope: this.computeMessageLengthTrend().slope,
       n_interactions: n
     };
   }
@@ -7171,7 +7216,8 @@ var ResolutionTracker = class _ResolutionTracker {
   }
   detectLoop() {
     const repeatSignal = Math.max(this.getRepeatStreak(), this.getActivityRepeatStreak(), this.getTargetRepeatStreak());
-    return this.loopCount >= 2 || repeatSignal >= 2;
+    const negativeOutcomeStreak = this.getRecentNegativeOutcomeStreak();
+    return this.loopCount >= 2 || repeatSignal >= 2 || negativeOutcomeStreak >= 2;
   }
   computeIntentState() {
     const last = this.history[this.history.length - 1];
@@ -7215,6 +7261,7 @@ var ResolutionTracker = class _ResolutionTracker {
     this.loopCount = 0;
     this.pivotHistory = [];
     this.outcomeHistory = [];
+    this.recentMessageLengths = [];
   }
   recordOutcome(outcome) {
     const entry = this.history[this.history.length - 1];
@@ -7280,6 +7327,7 @@ var ResolutionTracker = class _ResolutionTracker {
       loopCount: this.loopCount,
       pivotHistory: this.pivotHistory,
       outcomeHistory: this.outcomeHistory,
+      recentMessageLengths: this.recentMessageLengths,
       calibratedWeights: this.calibratedWeights
     };
   }
@@ -7292,6 +7340,7 @@ var ResolutionTracker = class _ResolutionTracker {
     tracker.loopCount = Number(data.loopCount || 0);
     tracker.pivotHistory = Array.isArray(data.pivotHistory) ? data.pivotHistory : [];
     tracker.outcomeHistory = Array.isArray(data.outcomeHistory) ? data.outcomeHistory : [];
+    tracker.recentMessageLengths = Array.isArray(data.recentMessageLengths) ? data.recentMessageLengths : [];
     tracker.calibratedWeights = data.calibratedWeights || null;
     return tracker;
   }
@@ -7425,9 +7474,9 @@ init_state();
 function detectOutcomeSignal(text) {
   if (!text)
     return null;
-  if (/thank|perfect|exactly|that.?s it|works great|works perfectly|solved|fixed|awesome|you rock/i.test(text))
+  if (/thank|perfect|exactly|that.?s it|works great|works perfectly|solved|fixed|awesome|you rock|that works|finally|progress|much better|getting there|closer now/i.test(text))
     return "positive";
-  if (/doesn.?t work|still broken|not working|incorrect|wrong|failed|error|useless|stuck/i.test(text))
+  if (/doesn.?t work|still broken|not working|incorrect|wrong|failed|error|useless|stuck|still failing|broke again|worse|regression|new (problem|bug|issue|error)|made it worse|every (fix|change|attempt) (broke|breaks|introduces)|went backwards|back to square|start over|same (issue|problem|error) (again|still)|(another|yet another|different) (error|problem|issue)|(still|again|still not) (the|at|same)|\d+\s*(times|attempts|tries) (and|but) (still|same|same result)/i.test(text))
     return "negative";
   return null;
 }
@@ -7464,6 +7513,8 @@ function getBehavioralStressSignals(context, blackboxState) {
   const repeatStreak = Number(blackboxState?.repeat_streak ?? 0);
   const activityRepeatStreak = Number(blackboxState?.activity_repeat_streak ?? 0);
   const targetRepeatStateStreak = Number(blackboxState?.target_repeat_streak ?? 0);
+  const messageLengthTrend = String(blackboxState?.message_length_trend || "stable");
+  const messageLengthSlope = Number(blackboxState?.message_length_slope ?? 0);
   return {
     toolRepeatStreak,
     targetRepeatStreak,
@@ -7471,10 +7522,13 @@ function getBehavioralStressSignals(context, blackboxState) {
     loopCount,
     repeatStreak,
     activityRepeatStreak,
-    targetRepeatStateStreak
+    targetRepeatStateStreak,
+    messageLengthTrend,
+    messageLengthSlope
   };
 }
 function scoreStress(text, context = {}) {
+  const blackboxState = loadBlackboxState();
   if (!text || typeof text !== "string")
     return 0;
   const t = text.toLowerCase();
@@ -7516,22 +7570,25 @@ function scoreStress(text, context = {}) {
   const behavioralPhrases = [
     { re: /\b(restart|restarts|restarted|restart again|restart it|retry|retries|retrial|rerun|redo|repeat the step|try again|another attempt|another pass)\b/gi, weight: 0.09 },
     { re: /\b(still failing|keeps failing|keeps breaking|still broken|same issue|same result|same error|new error|new issue|broke again|breaks again|every fix|every time|over and over|again and again)\b/gi, weight: 0.12 },
-    { re: /\b(blocked again|stuck again|failed again|fails again|this is not working|nothing changed|no change)\b/gi, weight: 0.1 }
+    { re: /\b(blocked again|stuck again|failed again|fails again|this is not working|nothing changed|no change)\b/gi, weight: 0.1 },
+    { re: /\b(start over|from scratch|back to square|back to the drawing board|reset|rethink|different approach)\b/gi, weight: 0.12 },
+    { re: /\b(made it worse|went backwards|regression|introduced (a |a new |another )(problem|bug|issue)|worse than before|new (problem|bug|issue) (emerged|appeared|showed))\b/gi, weight: 0.15 },
+    { re: /\b(\d+)\s*(times|attempts|tries)\b/gi, dynamic: true }
   ];
-  for (const { re, weight } of behavioralPhrases) {
-    const hits = (t.match(re) || []).length;
-    score += hits * weight;
-  }
-  const sessionId = String(_OC_SID || "");
-  let blackboxState = context?.blackboxState || null;
-  if (!blackboxState) {
-    try {
-      const raw = loadBlackboxState();
-      blackboxState = raw?.sessions?.[sessionId] || null;
-    } catch {
+  for (const { re, weight, dynamic } of behavioralPhrases) {
+    const matches = t.match(re);
+    if (!matches)
+      continue;
+    if (dynamic) {
+      for (const m of matches) {
+        const num = parseInt(m, 10) || 0;
+        score += Math.min(0.2, num * 0.04);
+      }
+    } else {
+      score += matches.length * weight;
     }
   }
-  const { toolRepeatStreak, targetRepeatStreak, negativeOutcomes, loopCount, repeatStreak, activityRepeatStreak, targetRepeatStateStreak } = getBehavioralStressSignals(context, blackboxState);
+  const { toolRepeatStreak, targetRepeatStreak, negativeOutcomes, loopCount, repeatStreak, activityRepeatStreak, targetRepeatStateStreak, messageLengthTrend, messageLengthSlope } = getBehavioralStressSignals(context, blackboxState);
   if (toolRepeatStreak >= 2) {
     score += 0.08 + Math.min(0.24, (toolRepeatStreak - 1) * 0.05);
   }
@@ -7552,6 +7609,9 @@ function scoreStress(text, context = {}) {
   }
   if (targetRepeatStateStreak >= 2) {
     score += 0.04 + Math.min(0.08, targetRepeatStateStreak * 0.015);
+  }
+  if (messageLengthTrend === "shortening" && messageLengthSlope < -0.3) {
+    score += 0.08;
   }
   if (text.length < 30)
     score += 0.06;
@@ -7916,19 +7976,22 @@ function summarizeRecentToolActivity(limit = 5) {
   if (events.length === 0)
     return null;
   const last = events[events.length - 1] || {};
-  const signature = `${String(last.tool || "").trim().toLowerCase()}:${String(last.target || "").trim().toLowerCase()}`;
+  const actionType = String(last.action || last.kind || "").trim().toLowerCase();
+  const toolTarget = `${String(last.tool || "").trim().toLowerCase()}:${String(last.target || "").trim().toLowerCase()}`;
+  const signature = `${toolTarget}:${actionType}`;
   let repeatCount = 0;
   for (let i = events.length - 1; i >= 0; i--) {
     const cur = events[i] || {};
-    const curSignature = `${String(cur.tool || "").trim().toLowerCase()}:${String(cur.target || "").trim().toLowerCase()}`;
-    if (curSignature !== signature)
+    const curAction = String(cur.action || cur.kind || "").trim().toLowerCase();
+    const curSig = `${String(cur.tool || "").trim().toLowerCase()}:${String(cur.target || "").trim().toLowerCase()}:${curAction}`;
+    if (curSig !== signature)
       break;
     repeatCount++;
   }
   return {
     tool: String(last.tool || "").toLowerCase(),
     target: String(last.target || "").toLowerCase(),
-    action: String(last.action || last.kind || "").toLowerCase(),
+    action: actionType,
     signature,
     repeat_count: repeatCount,
     recent_count: events.length
