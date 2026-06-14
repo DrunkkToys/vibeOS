@@ -15,6 +15,7 @@ before(() => {
   sandbox = mkdtempSync(join(tmpdir(), "delegation-prod-reg-"))
   mkdirSync(join(sandbox, ".claude/scratch"), { recursive: true })
   process.env.HOME = sandbox
+  process.env.VIBEOS_HOME = join(sandbox, ".claude")
 })
 
 beforeEach(async () => {
