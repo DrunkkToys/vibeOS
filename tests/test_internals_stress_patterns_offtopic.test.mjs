@@ -50,6 +50,7 @@ test("scoreStress: high stress >0.7 triggers CRITICAL directive", async () => {
   const projectDir = join(sandbox, "proj")
   mkdirSync(projectDir)
   process.env.HOME = home
+  process.env.VIBEOS_HOME = join(home, ".claude")
   const mod = await import("../src/index.js?str1=" + Date.now())
   const ctx = await mod.DelegationEnforcer({ directory: projectDir })
   const output = { system: [] }
@@ -72,6 +73,7 @@ test("scoreStress: moderate stress 0.4-0.7 triggers elevated directive", async (
   const projectDir = join(sandbox, "proj")
   mkdirSync(projectDir)
   process.env.HOME = home
+  process.env.VIBEOS_HOME = join(home, ".claude")
   const mod = await import("../src/index.js?str2=" + Date.now())
   const ctx = await mod.DelegationEnforcer({ directory: projectDir })
   const output = { system: [] }
@@ -94,6 +96,7 @@ test("scoreStress: calm text produces no stress directive", async () => {
   const projectDir = join(sandbox, "proj")
   mkdirSync(projectDir)
   process.env.HOME = home
+  process.env.VIBEOS_HOME = join(home, ".claude")
   const mod = await import("../src/index.js?str3=" + Date.now())
   const ctx = await mod.DelegationEnforcer({ directory: projectDir })
   const output = { system: [] }
@@ -117,6 +120,7 @@ test("observeUserCorrection: import correction recorded as friction pattern", as
   const projectDir = join(sandbox, "proj")
   mkdirSync(projectDir)
   process.env.HOME = home
+  process.env.VIBEOS_HOME = join(home, ".claude")
   const mod = await import("../src/index.js?patt1=" + Date.now())
   const ctx = await mod.DelegationEnforcer({ directory: projectDir })
 
@@ -138,6 +142,7 @@ test("observeUserCorrection: verification correction recorded as pattern", async
   const projectDir = join(sandbox, "proj")
   mkdirSync(projectDir)
   process.env.HOME = home
+  process.env.VIBEOS_HOME = join(home, ".claude")
   const mod = await import("../src/index.js?patt2=" + Date.now())
   const ctx = await mod.DelegationEnforcer({ directory: projectDir })
 
@@ -162,6 +167,7 @@ test("isLikelyOffTopic: off-topic request triggers job-focus directive", async (
   mkdirSync(projectDir)
   const fprint = fp(projectDir)
   process.env.HOME = home
+  process.env.VIBEOS_HOME = join(home, ".claude")
 
   writeFileSync(join(home, ".claude/active-jobs.json"), JSON.stringify({
     [fprint]: {
@@ -193,6 +199,7 @@ test("isLikelyOffTopic: on-topic request produces no job-focus directive", async
   mkdirSync(projectDir)
   const fprint = fp(projectDir)
   process.env.HOME = home
+  process.env.VIBEOS_HOME = join(home, ".claude")
 
   writeFileSync(join(home, ".claude/active-jobs.json"), JSON.stringify({
     [fprint]: {
@@ -224,6 +231,7 @@ test("isLikelyOffTopic: new task keyword bypasses detection", async () => {
   mkdirSync(projectDir)
   const fprint = fp(projectDir)
   process.env.HOME = home
+  process.env.VIBEOS_HOME = join(home, ".claude")
 
   writeFileSync(join(home, ".claude/active-jobs.json"), JSON.stringify({
     [fprint]: {

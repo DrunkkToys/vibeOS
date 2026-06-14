@@ -57,6 +57,7 @@ test("upgrade: old v0.5.x schema (no delegation_enforce, no tdd_strict, no tiers
   const sb = freshSandbox()
   const prevHome = process.env.HOME
   process.env.HOME = sb
+  process.env.VIBEOS_HOME = join(sb, ".claude")
   try {
     // Old schema from v0.5 era — missing delegation_enforce, tdd_strict, pricing block
     writeFileSync(join(sb, ".claude/model-tiers.json"), JSON.stringify({
@@ -111,6 +112,7 @@ test("upgrade: v0.7.x schema (has delegation_enforce, no tdd_quality, no flow_en
   const sb = freshSandbox()
   const prevHome = process.env.HOME
   process.env.HOME = sb
+  process.env.VIBEOS_HOME = join(sb, ".claude")
   try {
     writeFileSync(join(sb, ".claude/model-tiers.json"), JSON.stringify({
       "$schema_version": 1,
@@ -163,6 +165,7 @@ test("autoconfig: opencode.jsonc with comments and trailing commas works", async
   const sb = freshSandbox()
   const prevHome = process.env.HOME
   process.env.HOME = sb
+  process.env.VIBEOS_HOME = join(sb, ".claude")
   try {
     // Write a JSONC file — JSON with JS-style comments
     writeJsonc(join(sb, ".config/opencode/opencode.jsonc"), `{
@@ -229,6 +232,7 @@ test("autoconfig: readConfig resolves provider-scoped model ids from short dropd
   const sb = freshSandbox()
   const prevHome = process.env.HOME
   process.env.HOME = sb
+  process.env.VIBEOS_HOME = join(sb, ".claude")
   try {
     writeFileSync(join(sb, ".config/opencode/opencode.json"), JSON.stringify({
       provider: {
@@ -260,6 +264,7 @@ test("autoconfig: readConfig prefers current OpenCode workspace session model ov
   const prevHome = process.env.HOME
   const prevDesktopHome = process.env.VIBEOS_OPENCODE_DESKTOP_HOME
   process.env.HOME = sb
+  process.env.VIBEOS_HOME = join(sb, ".claude")
   try {
     const opencodeHome = join(sb, "Library", "Application Support", "ai.opencode.desktop")
     process.env.VIBEOS_OPENCODE_DESKTOP_HOME = opencodeHome
@@ -310,6 +315,7 @@ test("installer: asks before installing and respects no/yes answers", async () =
   const prevHome = process.env.HOME
   const prevUserProfile = process.env.USERPROFILE
   process.env.HOME = sb
+  process.env.VIBEOS_HOME = join(sb, ".claude")
   process.env.USERPROFILE = sb
   try {
     const cwd = mkdtempSync(join(tmpdir(), "installer-cwd-"))
@@ -334,6 +340,7 @@ test("installer: legacy set alias still installs", async () => {
   const sb = freshSandbox()
   const prevHome = process.env.HOME
   process.env.HOME = sb
+  process.env.VIBEOS_HOME = join(sb, ".claude")
   try {
     const cwd = mkdtempSync(join(tmpdir(), "installer-set-cwd-"))
     const result = spawnSync("node", [join(ROOT, "bin", "setup.js"), "set"], {
@@ -408,6 +415,7 @@ test("footer: model label keeps provider prefix instead of flattening to bare mo
   const prevHome = process.env.HOME
   const prevClient = globalThis.client
   process.env.HOME = sb
+  process.env.VIBEOS_HOME = join(sb, ".claude")
   writeFileSync(join(sb, ".config/opencode/opencode.json"), JSON.stringify({
     provider: {
       google: {
@@ -447,6 +455,7 @@ test("recovery: corrupted model-tiers.json (garbage bytes) fails gracefully and 
   const sb = freshSandbox()
   const prevHome = process.env.HOME
   process.env.HOME = sb
+  process.env.VIBEOS_HOME = join(sb, ".claude")
   try {
     // Write garbage — not valid JSON
     writeFileSync(join(sb, ".claude/model-tiers.json"), "this{is/not&&valid[[json{{{")
@@ -484,6 +493,7 @@ test("recovery: empty model-tiers.json file recreated by auto-config", async () 
   const sb = freshSandbox()
   const prevHome = process.env.HOME
   process.env.HOME = sb
+  process.env.VIBEOS_HOME = join(sb, ".claude")
   try {
     writeFileSync(join(sb, ".claude/model-tiers.json"), "")
 
@@ -523,6 +533,7 @@ test("recovery: model-tiers.json with null values in slots recovers", async () =
   const sb = freshSandbox()
   const prevHome = process.env.HOME
   process.env.HOME = sb
+  process.env.VIBEOS_HOME = join(sb, ".claude")
   try {
     writeFileSync(join(sb, ".claude/model-tiers.json"), JSON.stringify({
       "trinity": { "brain": null, "medium": null, "cheap": null },
@@ -576,6 +587,7 @@ test("bootstrap: OpenCode API model seeds trinity slots when local config is mis
   writeFileSync(AUTH_F, "{}")
   delete process.env.OPENCODE_MODEL
   process.env.HOME = sb
+  process.env.VIBEOS_HOME = join(sb, ".claude")
 
   try {
     const dir = join(sb, "project")
@@ -619,6 +631,7 @@ test("bare machine: no config files anywhere — plugin loads without crashing",
   const sb = freshSandbox()
   const prevHome = process.env.HOME
   process.env.HOME = sb
+  process.env.VIBEOS_HOME = join(sb, ".claude")
   try {
     const dir = join(sb, "project")
     mkdirSync(dir, { recursive: true })
@@ -642,6 +655,7 @@ test("install: deploy script creates opencode.json on a fresh machine", async ()
   const sb = mkdtempSync(join(tmpdir(), "install-deploy-"))
   const prevHome = process.env.HOME
   process.env.HOME = sb
+  process.env.VIBEOS_HOME = join(sb, ".claude")
   try {
     const cwd = mkdtempSync(join(tmpdir(), "install-deploy-cwd-"))
     const result = spawnSync(process.execPath, [join(ROOT, "scripts", "deploy.mjs")], {
@@ -674,6 +688,7 @@ test("install: deploy script overwrites stale plugin copies across every resolve
   const sb = mkdtempSync(join(tmpdir(), "install-deploy-stale-"))
   const prevHome = process.env.HOME
   process.env.HOME = sb
+  process.env.VIBEOS_HOME = join(sb, ".claude")
   try {
     const homes = [
       join(sb, ".config", "opencode"),
@@ -722,6 +737,7 @@ test("install: setup --project registers against the resolved desktop OpenCode h
   const prevHome = process.env.HOME
   const prevDesktopHome = process.env.VIBEOS_OPENCODE_DESKTOP_HOME
   process.env.HOME = sb
+  process.env.VIBEOS_HOME = join(sb, ".claude")
   process.env.VIBEOS_OPENCODE_DESKTOP_HOME = join(sb, "Library", "Application Support", "ai.opencode.desktop")
   try {
     mkdirSync(process.env.VIBEOS_OPENCODE_DESKTOP_HOME, { recursive: true })
@@ -756,6 +772,7 @@ test("install: setup --project installs into workspace-local OpenCode home when 
   const prevHome = process.env.HOME
   const prevUserProfile = process.env.USERPROFILE
   process.env.HOME = sb
+  process.env.VIBEOS_HOME = join(sb, ".claude")
   process.env.USERPROFILE = sb
   try {
     const workspaceDir = join(sb, "workspace")
@@ -815,6 +832,7 @@ test("bare machine: no opencode.json but OPENCODE_MODEL env var set", async () =
   const sb = freshSandbox()
   const prevHome = process.env.HOME
   process.env.HOME = sb
+  process.env.VIBEOS_HOME = join(sb, ".claude")
   try {
     // No config files anywhere
     const dir = join(sb, "project")
@@ -835,6 +853,7 @@ test("bare machine: .claude is a file, not a directory — plugin handles gracef
   const sb = freshSandbox()
   const prevHome = process.env.HOME
   process.env.HOME = sb
+  process.env.VIBEOS_HOME = join(sb, ".claude")
   try {
     // Delete the directory created by freshSandbox, replace with a file
     rmSync(join(sb, ".claude"), { recursive: true, force: true })

@@ -17,6 +17,7 @@ import {
 
 const _origHome = process.env.HOME
 process.env.HOME = join(tmpdir(), `flow-enforcer-test-${Date.now()}`)
+  process.env.VIBEOS_HOME = join(join(tmpdir(), `flow-enforcer-test-${Date.now()}`), ".claude")
 mkdirSync(join(process.env.HOME, ".claude"), { recursive: true })
 writeFileSync(join(process.env.HOME, ".claude/.flow-todo-queue.jsonl"), "", { flag: "w" })
 

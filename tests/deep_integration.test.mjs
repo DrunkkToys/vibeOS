@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os'
 
 const sandbox = mkdtempSync(join(tmpdir(), "delegation-deep-"))
 process.env.HOME = sandbox
+  process.env.VIBEOS_HOME = join(sandbox, ".claude")
 mkdirSync(join(sandbox, ".config/opencode"), { recursive: true })
 mkdirSync(join(sandbox, ".claude/reports"), { recursive: true })
 mkdirSync(join(sandbox, ".local/share/opencode"), { recursive: true })

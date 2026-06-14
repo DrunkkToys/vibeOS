@@ -85,6 +85,7 @@ test("_refreshModel: does not crash when called (imports resolve)", async () => 
   const sandbox = mkdtempSync(join(tmpdir(), "vibeos-reg-"))
   const oldHome = process.env.HOME
   process.env.HOME = sandbox
+  process.env.VIBEOS_HOME = join(sandbox, ".claude")
   try {
     mkdirSync(join(sandbox, ".claude"), { recursive: true })
     mkdirSync(join(sandbox, ".config/opencode"), { recursive: true })

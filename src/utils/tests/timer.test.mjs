@@ -33,6 +33,7 @@ let _origHome
 before(() => {
   _origHome = process.env.HOME
   process.env.HOME = join(tmpdir(), `timer-test-${Date.now()}`)
+  process.env.VIBEOS_HOME = join(join(tmpdir(), `timer-test-${Date.now()}`), ".claude")
   mkdirSync(join(process.env.HOME, '.claude'), { recursive: true })
 })
 after(() => {

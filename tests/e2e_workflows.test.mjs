@@ -52,6 +52,7 @@ test('e2e: trinity enable -> disable -> enable cycle works', async () => {
   const projectDir = join(sandbox, 'proj')
   mkdirSync(projectDir, { recursive: true })
   process.env.HOME = home
+  process.env.VIBEOS_HOME = join(home, ".claude")
 
   const mod = await import('../src/index.js?trc1=' + Date.now())
   const hooks = await mod.DelegationEnforcer({ directory: projectDir })
@@ -75,6 +76,7 @@ test('e2e: mode switching budget -> quality -> speed -> auto returns success', a
   const projectDir = join(sandbox, 'proj')
   mkdirSync(projectDir, { recursive: true })
   process.env.HOME = home
+  process.env.VIBEOS_HOME = join(home, ".claude")
 
   const mod = await import('../src/index.js?mdc1=' + Date.now())
   const hooks = await mod.DelegationEnforcer({ directory: projectDir })
@@ -93,6 +95,7 @@ test('e2e: thinking level full -> brief -> off returns success', async () => {
   const projectDir = join(sandbox, 'proj')
   mkdirSync(projectDir, { recursive: true })
   process.env.HOME = home
+  process.env.VIBEOS_HOME = join(home, ".claude")
 
   const mod = await import('../src/index.js?thk1=' + Date.now())
   const hooks = await mod.DelegationEnforcer({ directory: projectDir })
@@ -111,6 +114,7 @@ test('e2e: enforcement commands return string (enforcement is mandatory)', async
   const projectDir = join(sandbox, 'proj')
   mkdirSync(projectDir, { recursive: true })
   process.env.HOME = home
+  process.env.VIBEOS_HOME = join(home, ".claude")
 
   const mod = await import('../src/index.js?enf1=' + Date.now())
   const hooks = await mod.DelegationEnforcer({ directory: projectDir })
@@ -133,6 +137,7 @@ test('e2e: flow on -> off -> on persists in tier file', async () => {
   const projectDir = join(sandbox, 'proj')
   mkdirSync(projectDir, { recursive: true })
   process.env.HOME = home
+  process.env.VIBEOS_HOME = join(home, ".claude")
 
   const mod = await import('../src/index.js?flw1=' + Date.now())
   const hooks = await mod.DelegationEnforcer({ directory: projectDir })
@@ -153,6 +158,7 @@ test('e2e: tdd on -> off -> on persists in tier file', async () => {
   const projectDir = join(sandbox, 'proj')
   mkdirSync(projectDir, { recursive: true })
   process.env.HOME = home
+  process.env.VIBEOS_HOME = join(home, ".claude")
 
   const mod = await import('../src/index.js?tdd1=' + Date.now())
   const hooks = await mod.DelegationEnforcer({ directory: projectDir })
@@ -173,6 +179,7 @@ test('e2e: flow and tdd toggle survive enable/disable cycle', async () => {
   const projectDir = join(sandbox, 'proj')
   mkdirSync(projectDir, { recursive: true })
   process.env.HOME = home
+  process.env.VIBEOS_HOME = join(home, ".claude")
 
   const mod = await import('../src/index.js?cmb1=' + Date.now())
   const hooks = await mod.DelegationEnforcer({ directory: projectDir })
@@ -195,6 +202,7 @@ test('e2e: all 8 required hooks are present in plugin output', async () => {
   const projectDir = join(sandbox, 'proj')
   mkdirSync(projectDir, { recursive: true })
   process.env.HOME = home
+  process.env.VIBEOS_HOME = join(home, ".claude")
 
   const mod = await import('../src/index.js?hks1=' + Date.now())
   const hooks = await mod.DelegationEnforcer({ directory: projectDir })
@@ -225,6 +233,7 @@ test('e2e: simulated full session hook sequence does not crash', async () => {
   process.env.VIBEOS_OPENCODE_HOME = opencodeHome
   writeFileSync(join(opencodeHome, 'opencode.json'), JSON.stringify({ model: 'deepseek/deepseek-v4-flash', default_agent: 'build' }))
   process.env.HOME = home
+  process.env.VIBEOS_HOME = join(home, ".claude")
 
   try {
     const mod = await import('../src/index.js?ful1=' + Date.now())
@@ -290,6 +299,7 @@ test('e2e: INIT live footer keeps the regime icon visible', async () => {
   const projectDir = join(sandbox, 'proj')
   mkdirSync(projectDir, { recursive: true })
   process.env.HOME = home
+  process.env.VIBEOS_HOME = join(home, ".claude")
 
   const mod = await import('../src/index.js?init1=' + Date.now())
   const hooks = await mod.DelegationEnforcer({ directory: projectDir })
@@ -320,6 +330,7 @@ test('e2e: trinity help returns non-empty string', async () => {
   const projectDir = join(sandbox, 'proj')
   mkdirSync(projectDir, { recursive: true })
   process.env.HOME = home
+  process.env.VIBEOS_HOME = join(home, ".claude")
 
   const mod = await import('../src/index.js?hlp1=' + Date.now())
   const hooks = await mod.DelegationEnforcer({ directory: projectDir })
@@ -334,6 +345,7 @@ test('e2e: trinity diagnose returns string', async () => {
   const projectDir = join(sandbox, 'proj')
   mkdirSync(projectDir, { recursive: true })
   process.env.HOME = home
+  process.env.VIBEOS_HOME = join(home, ".claude")
 
   const mod = await import('../src/index.js?diag1=' + Date.now())
   const hooks = await mod.DelegationEnforcer({ directory: projectDir })
@@ -348,6 +360,7 @@ test('e2e: trinity project returns string', async () => {
   mkdirSync(projectDir, { recursive: true })
   writeFileSync(join(projectDir, 'opencode.json'), JSON.stringify({ model: 'deepseek/deepseek-v4-pro' }))
   process.env.HOME = home
+  process.env.VIBEOS_HOME = join(home, ".claude")
 
   const mod = await import('../src/index.js?prj1=' + Date.now())
   const hooks = await mod.DelegationEnforcer({ directory: projectDir })
@@ -361,6 +374,7 @@ test('e2e: trinity patterns and patterns clear return strings', async () => {
   const projectDir = join(sandbox, 'proj')
   mkdirSync(projectDir, { recursive: true })
   process.env.HOME = home
+  process.env.VIBEOS_HOME = join(home, ".claude")
 
   const mod = await import('../src/index.js?pats1=' + Date.now())
   const hooks = await mod.DelegationEnforcer({ directory: projectDir })
@@ -377,6 +391,7 @@ test('e2e: trinity rebuild returns string', async () => {
   const projectDir = join(sandbox, 'proj')
   mkdirSync(projectDir, { recursive: true })
   process.env.HOME = home
+  process.env.VIBEOS_HOME = join(home, ".claude")
 
   const mod = await import('../src/index.js?reb1=' + Date.now())
   const hooks = await mod.DelegationEnforcer({ directory: projectDir })
@@ -390,6 +405,7 @@ test('e2e: unknown trinity action does not crash', async () => {
   const projectDir = join(sandbox, 'proj')
   mkdirSync(projectDir, { recursive: true })
   process.env.HOME = home
+  process.env.VIBEOS_HOME = join(home, ".claude")
 
   const mod = await import('../src/index.js?unk1=' + Date.now())
   const hooks = await mod.DelegationEnforcer({ directory: projectDir })
@@ -403,6 +419,7 @@ test('e2e: unknown trinity action does not crash', async () => {
 test('e2e: report save -> list -> read via public API', async () => {
   const { home, sandbox } = makeSandbox('rpt-cycle')
   process.env.HOME = home
+  process.env.VIBEOS_HOME = join(home, ".claude")
 
   const mod = await import('../src/index.js?rptc=' + Date.now())
   const id = mod.saveReport({ type: 'session', summary: 'E2E cycle test', tags: ['e2e'] })

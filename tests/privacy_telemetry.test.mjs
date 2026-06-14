@@ -6,6 +6,7 @@ import { tmpdir } from "node:os"
 
 const sandbox = mkdtempSync(join(tmpdir(), "vibeos-telemetry-"))
 process.env.HOME = sandbox
+  process.env.VIBEOS_HOME = join(sandbox, ".claude")
 process.env.VIBEOS_API_ENABLED = "false"
 
 mkdirSync(join(sandbox, ".config/opencode"), { recursive: true })

@@ -135,6 +135,7 @@ test("tigerteam 19: saveReport/listReports/readReport roundtrip in sandbox HOME"
   const sandboxHome = mkdtempSync(join(tmpdir(), "tiger-report-home-"))
   const previousHome = process.env.HOME
   process.env.HOME = sandboxHome
+  process.env.VIBEOS_HOME = join(sandboxHome, ".claude")
   try {
     const { saveReport, listReports, readReport } = await loadPlugin()
     const id = saveReport({ type: "manual", summary: `Tiger team report ${Date.now()}`, tags: ["release"] })
@@ -155,6 +156,7 @@ test("tigerteam 20a: report-read rejects path traversal ID '..'", async () => {
   const sandboxHome = mkdtempSync(join(tmpdir(), "tiger-report-pt-"))
   const previousHome = process.env.HOME
   process.env.HOME = sandboxHome
+  process.env.VIBEOS_HOME = join(sandboxHome, ".claude")
   try {
     const { readReport } = await loadPlugin()
     assert.equal(readReport("../../../etc/passwd"), null, "path traversal ID should be rejected (null)")
@@ -171,6 +173,7 @@ test("tigerteam 20b: report-read accepts valid alphanumeric ID", async () => {
   const sandboxHome = mkdtempSync(join(tmpdir(), "tiger-report-valid-"))
   const previousHome = process.env.HOME
   process.env.HOME = sandboxHome
+  process.env.VIBEOS_HOME = join(sandboxHome, ".claude")
   try {
     const { saveReport, readReport } = await loadPlugin()
     const id = saveReport({ type: "manual", summary: `Test report ${Date.now()}` })
