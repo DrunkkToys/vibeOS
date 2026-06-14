@@ -271,7 +271,7 @@ async function _appendFooter(input, output, directory) {
       ltTotal,
       ltTrend: sesTrend,
       vibeBrand,
-      optMode: loadOptimizationMode() || displayMode,
+      optMode: displayMode,
       flashIcon,
       enfTags,
       sessionSlot,

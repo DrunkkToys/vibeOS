@@ -43,6 +43,9 @@ export function buildStatusPayload({
   modelLocked,
   lockedSlot,
   lockedModel,
+  fallbackThinking,
+  optimizationMode,
+  tiers,
 }: {
   selection: SelectionLike
   tiersData: any

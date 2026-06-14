@@ -52,6 +52,8 @@ test("buildStatusPayload assembles dashboard state from injected inputs", () => 
     model_locked: false,
     locked_slot: null,
     locked_model: null,
+    optimization_mode: null,
+    tiers: null,
     label_modes: ["Fast", "Balanced", "High Quality", "Cheap"],
   })
 })

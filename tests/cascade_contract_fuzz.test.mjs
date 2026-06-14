@@ -121,3 +121,20 @@ test("footer: buildFooterLine includes stressGauge when present", async () => {
   })
   assert.ok(line.includes("▃"), "stress gauge appears in footer line")
 })
+
+test("fuzz: scoreStress handles all primitive inputs without crash", async () => {
+  const c = await import("../src/lib/classifiers.js?" + Date.now())
+  for (const val of [0, 42, true, false, [], {}, "", "hello", null, undefined]) {
+    const r = c.scoreStress(val)
+    assert.equal(typeof r, "number", `scoreStress(${JSON.stringify(val)}) returns number`)
+    assert.ok(r >= 0 && r <= 3, `scoreStress(${JSON.stringify(val)}) in [0,3]`)
+  }
+})
+
+test("fuzz: empty inputs produce valid fallback classifications", async () => {
+  const c = await import("../src/lib/classifiers.js?" + Date.now())
+  assert.equal(typeof c.scoreStress(""), "number")
+  assert.equal(typeof c.scoreStress(null), "number")
+  assert.equal(c.detectOutcomeSignal(""), null)
+  assert.equal(c.detectOutcomeSignal(null), null)
+})
