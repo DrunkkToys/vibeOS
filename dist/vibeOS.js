@@ -978,22 +978,30 @@ function getVibeOSHome2() {
 function hasOpenCodeConfig(dir) {
   return existsSync2(join2(dir, "opencode.json")) || existsSync2(join2(dir, "opencode.jsonc"));
 }
-function getOpenCodeHome() {
+function resolveOpenCodeHomes() {
   const override = process.env.VIBEOS_OPENCODE_HOME;
   if (override)
-    return override;
+    return [override];
   const base = process.env.HOME || USER_HOME2;
+  const desktopHome = process.env.VIBEOS_OPENCODE_DESKTOP_HOME || (process.platform === "darwin" ? join2(base, "Library", "Application Support", "ai.opencode.desktop") : null);
   const configHome = join2(base, ".config", "opencode");
   const dotHome = join2(base, ".opencode");
-  if (hasOpenCodeConfig(configHome))
-    return configHome;
-  if (hasOpenCodeConfig(dotHome))
-    return dotHome;
-  if (existsSync2(configHome))
-    return configHome;
-  if (existsSync2(dotHome))
-    return dotHome;
-  return configHome;
+  return [desktopHome, configHome, dotHome].filter(Boolean);
+}
+function resolveOpenCodeHome() {
+  const homes = resolveOpenCodeHomes();
+  for (const home of homes) {
+    if (hasOpenCodeConfig(home))
+      return home;
+  }
+  for (const home of homes) {
+    if (existsSync2(home))
+      return home;
+  }
+  return homes[0] || join2(process.env.HOME || USER_HOME2, ".config", "opencode");
+}
+function getOpenCodeHome() {
+  return resolveOpenCodeHome();
 }
 function setVibeOSHomeContext(home) {
   VIBEOS_CONTEXT.enterWith({ home: String(home || "") });
@@ -2690,7 +2698,7 @@ var init_state = __esm({
     })();
     VIBEOS_CONTEXT = new AsyncLocalStorage();
     VIBEOS_HOME = process.env.VIBEOS_HOME || join2(USER_HOME2, ".claude");
-    OPENCODE_HOME = process.env.VIBEOS_OPENCODE_HOME || join2(USER_HOME2, ".config", "opencode");
+    OPENCODE_HOME = resolveOpenCodeHome();
     FILE_LOCK_DIR = join2(VIBEOS_HOME, ".vibeOS-locks");
     DELEGATION_STATE_FILE = join2(VIBEOS_HOME, "delegation-state.json");
     SAVINGS_LEDGER_FILE = join2(VIBEOS_HOME, "savings-ledger.jsonl");
@@ -2858,6 +2866,9 @@ function safeJsonParse3(raw) {
     return null;
   }
 }
+function getRealityCheckSettingsFile() {
+  return join3(getVibeOSHome3(), "reality-check-settings.json");
+}
 function resolveRulesPath() {
   if (process.env.VIBEOS_FLOW_RULES_PATH && existsSync3(process.env.VIBEOS_FLOW_RULES_PATH)) {
     return process.env.VIBEOS_FLOW_RULES_PATH;
@@ -2995,14 +3006,15 @@ function defaultRealityCheckRules() {
   ];
 }
 function readRealityCheckSettings() {
-  const settingsMtime = existsSync3(REALITY_CHECK_SETTINGS_FILE) ? statSync3(REALITY_CHECK_SETTINGS_FILE).mtimeMs : 0;
+  const settingsFile = getRealityCheckSettingsFile();
+  const settingsMtime = existsSync3(settingsFile) ? statSync3(settingsFile).mtimeMs : 0;
   if (_cachedRealityCheck && settingsMtime === _realityCheckMtime) {
     return _cachedRealityCheck;
   }
   let parsed = {};
   try {
-    if (existsSync3(REALITY_CHECK_SETTINGS_FILE)) {
-      const raw = readFileSync3(REALITY_CHECK_SETTINGS_FILE, "utf-8");
+    if (existsSync3(settingsFile)) {
+      const raw = readFileSync3(settingsFile, "utf-8");
       const json2 = safeJsonParse3(raw);
       if (json2 && typeof json2 === "object")
         parsed = json2;
@@ -3085,7 +3097,8 @@ function loadRules() {
   const rulesPath = resolveRulesPath();
   try {
     const rulesMtime = existsSync3(rulesPath) ? statSync3(rulesPath).mtimeMs : 0;
-    const realityMtime = existsSync3(REALITY_CHECK_SETTINGS_FILE) ? statSync3(REALITY_CHECK_SETTINGS_FILE).mtimeMs : 0;
+    const realityFile = getRealityCheckSettingsFile();
+    const realityMtime = existsSync3(realityFile) ? statSync3(realityFile).mtimeMs : 0;
     const scopeKey = String(currentProjectFingerprint || "");
     const cacheKey = `${rulesMtime}:${realityMtime}:${scopeKey}`;
     if (_cachedRules && _realityCheckCacheKey === "__test__")
@@ -3311,7 +3324,7 @@ function syncFlowTodosToNative(upsertFn) {
   }
   return count;
 }
-var VIBEOS_STDERR_DEBUG, VIBEOS_CONSOLE_ERROR_GUARD, globalConsoleState, __dirname2, REALITY_CHECK_SETTINGS_FILE, REALITY_CHECK_RULE_IDS, RULES_PATH_CANDIDATES, GUARD_AGENTS_TEMPLATE, GUARD_README_TEMPLATE, FLOW_DEDUP_FILE2, MAX_FLOW_TODOS, _flowWarnsSeen, _stateWriter, _cachedRules, _rulesMtime, _cachedRealityCheck, _realityCheckMtime, _realityCheckCacheKey;
+var VIBEOS_STDERR_DEBUG, VIBEOS_CONSOLE_ERROR_GUARD, globalConsoleState, __dirname2, REALITY_CHECK_RULE_IDS, RULES_PATH_CANDIDATES, GUARD_AGENTS_TEMPLATE, GUARD_README_TEMPLATE, FLOW_DEDUP_FILE2, MAX_FLOW_TODOS, _flowWarnsSeen, _stateWriter, _cachedRules, _rulesMtime, _cachedRealityCheck, _realityCheckMtime, _realityCheckCacheKey;
 var init_flow_enforcer = __esm({
   "src/vibeOS-lib/flow-enforcer.js"() {
     "use strict";
@@ -3346,7 +3359,6 @@ var init_flow_enforcer = __esm({
       globalConsoleState[VIBEOS_CONSOLE_ERROR_GUARD] = true;
     }
     __dirname2 = dirname2(fileURLToPath(import.meta.url));
-    REALITY_CHECK_SETTINGS_FILE = join3(getVibeOSHome3(), "reality-check-settings.json");
     REALITY_CHECK_RULE_IDS = /* @__PURE__ */ new Set([
       "require-read-before-claim",
       "verify-state-on-disk",
@@ -7158,7 +7170,8 @@ var ResolutionTracker = class _ResolutionTracker {
     return 1 - cosineSimilarity2(a, b);
   }
   detectLoop() {
-    return this.loopCount >= 2 || this.getRepeatStreak() >= 2 || this.getActivityRepeatStreak() >= 2 || this.getTargetRepeatStreak() >= 2;
+    const repeatSignal = Math.max(this.getRepeatStreak(), this.getActivityRepeatStreak(), this.getTargetRepeatStreak());
+    return this.loopCount >= 2 || repeatSignal >= 2;
   }
   computeIntentState() {
     const last = this.history[this.history.length - 1];
@@ -7418,8 +7431,16 @@ function detectOutcomeSignal(text) {
     return "negative";
   return null;
 }
-function countTrailingRepeat(items, signatureOf) {
-  if (!Array.isArray(items) || items.length === 0)
+function normalizeActivitySignature(event) {
+  if (!event || typeof event !== "object")
+    return "";
+  const tool2 = String(event.tool || "").trim().toLowerCase();
+  const target = String(event.target || "").trim().toLowerCase();
+  const action = String(event.action || event.kind || "").trim().toLowerCase();
+  return [tool2, target, action].filter(Boolean).join(":");
+}
+function countBehavioralRepeat(items, signatureOf, minLength = 2) {
+  if (!Array.isArray(items) || items.length < minLength)
     return 0;
   const last = signatureOf(items[items.length - 1]);
   if (!last)
@@ -7432,13 +7453,26 @@ function countTrailingRepeat(items, signatureOf) {
   }
   return streak;
 }
-function normalizeActivitySignature(event) {
-  if (!event || typeof event !== "object")
-    return "";
-  const tool2 = String(event.tool || "").trim().toLowerCase();
-  const target = String(event.target || "").trim().toLowerCase();
-  const action = String(event.action || event.kind || "").trim().toLowerCase();
-  return [tool2, target, action].filter(Boolean).join(":");
+function getBehavioralStressSignals(context, blackboxState) {
+  const recentEvents = Array.isArray(context?.recentToolEvents) ? context.recentToolEvents : Array.isArray(recentToolEvents) ? recentToolEvents : [];
+  const recentWindow = recentEvents.slice(-8);
+  const toolRepeatStreak = countBehavioralRepeat(recentWindow, normalizeActivitySignature);
+  const targetRepeatStreak = countBehavioralRepeat(recentWindow, (event) => String(event?.target || "").trim().toLowerCase());
+  const outcomeHistory = Array.isArray(context?.outcomeHistory) ? context.outcomeHistory : Array.isArray(blackboxState?.outcomeHistory) ? blackboxState.outcomeHistory : [];
+  const negativeOutcomes = outcomeHistory.slice(-5).filter((o) => /negative|failed|unresolved|loop_detected/i.test(String(o?.outcome || ""))).length;
+  const loopCount = Number(blackboxState?.loop_count ?? blackboxState?.loopConsecutive ?? blackboxState?.loop_consecutive ?? 0);
+  const repeatStreak = Number(blackboxState?.repeat_streak ?? 0);
+  const activityRepeatStreak = Number(blackboxState?.activity_repeat_streak ?? 0);
+  const targetRepeatStateStreak = Number(blackboxState?.target_repeat_streak ?? 0);
+  return {
+    toolRepeatStreak,
+    targetRepeatStreak,
+    negativeOutcomes,
+    loopCount,
+    repeatStreak,
+    activityRepeatStreak,
+    targetRepeatStateStreak
+  };
 }
 function scoreStress(text, context = {}) {
   if (!text || typeof text !== "string")
@@ -7497,29 +7531,27 @@ function scoreStress(text, context = {}) {
     } catch {
     }
   }
-  const recentEvents = Array.isArray(context?.recentToolEvents) ? context.recentToolEvents : Array.isArray(recentToolEvents) ? recentToolEvents : [];
-  const recentWindow = recentEvents.slice(-8);
-  const toolRepeatStreak = countTrailingRepeat(recentWindow, normalizeActivitySignature);
+  const { toolRepeatStreak, targetRepeatStreak, negativeOutcomes, loopCount, repeatStreak, activityRepeatStreak, targetRepeatStateStreak } = getBehavioralStressSignals(context, blackboxState);
   if (toolRepeatStreak >= 2) {
-    score += 0.05 + Math.min(0.2, (toolRepeatStreak - 1) * 0.04);
+    score += 0.08 + Math.min(0.24, (toolRepeatStreak - 1) * 0.05);
   }
-  const repeatedTargets = countTrailingRepeat(recentWindow, (event) => String(event?.target || "").trim().toLowerCase());
-  if (repeatedTargets >= 2) {
-    score += 0.04 + Math.min(0.12, (repeatedTargets - 1) * 0.03);
+  if (targetRepeatStreak >= 2) {
+    score += 0.05 + Math.min(0.16, (targetRepeatStreak - 1) * 0.035);
   }
-  const outcomeHistory = Array.isArray(context?.outcomeHistory) ? context.outcomeHistory : Array.isArray(blackboxState?.outcomeHistory) ? blackboxState.outcomeHistory : [];
-  const recentOutcomes = outcomeHistory.slice(-5);
-  const negativeOutcomes = recentOutcomes.filter((o) => /negative|failed|unresolved|loop_detected/i.test(String(o?.outcome || ""))).length;
   if (negativeOutcomes >= 1) {
-    score += 0.03 * negativeOutcomes + Math.min(0.12, negativeOutcomes * 0.02);
+    score += 0.05 * negativeOutcomes + Math.min(0.18, negativeOutcomes * 0.03);
   }
-  const loopCount = Number(blackboxState?.loop_count ?? blackboxState?.loopConsecutive ?? blackboxState?.loop_consecutive ?? 0);
   if (blackboxState?.is_looping || loopCount >= 2) {
-    score += 0.08 + Math.min(0.15, loopCount * 0.02);
+    score += 0.1 + Math.min(0.18, loopCount * 0.03);
   }
-  const repeatStreak = Number(blackboxState?.repeat_streak ?? 0);
   if (repeatStreak >= 2) {
-    score += 0.05 + Math.min(0.08, repeatStreak * 0.02);
+    score += 0.06 + Math.min(0.12, repeatStreak * 0.025);
+  }
+  if (activityRepeatStreak >= 2) {
+    score += 0.05 + Math.min(0.1, activityRepeatStreak * 0.02);
+  }
+  if (targetRepeatStateStreak >= 2) {
+    score += 0.04 + Math.min(0.08, targetRepeatStateStreak * 0.015);
   }
   if (text.length < 30)
     score += 0.06;

@@ -5,6 +5,7 @@ import { readFileSync, writeFileSync, mkdtempSync, rmSync, readdirSync, unlinkSy
 import { join, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 import { tmpdir, homedir } from "node:os"
+import { resolveOpenCodeHomes } from "./lib/opencode-homes.mjs"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, "..")
@@ -39,31 +40,6 @@ function releaseSeriesName(version) {
 function formatReleaseTitle(version) {
   const name = releaseSeriesName(version)
   return name ? `${name} v${version}` : `v${version}`
-}
-
-function resolveOpenCodeHomes() {
-  const override = process.env.VIBEOS_OPENCODE_HOME
-  if (override) return [override]
-  const base = homedir()
-  const desktopHome = process.env.VIBEOS_OPENCODE_DESKTOP_HOME
-    || (process.platform === "darwin" ? join(base, "Library", "Application Support", "ai.opencode.desktop") : null)
-  const configHome = join(base, ".config", "opencode")
-  const dotHome = join(base, ".opencode")
-  const roots = [desktopHome, configHome, dotHome].filter(Boolean)
-  const existing = roots.filter((dir) => {
-    try {
-      const oc = readFileSync(join(dir, "opencode.json"), "utf8")
-      return Boolean(String(oc || "").trim())
-    } catch {
-      try {
-        const oc = readFileSync(join(dir, "opencode.jsonc"), "utf8")
-        return Boolean(String(oc || "").trim())
-      } catch {
-        return false
-      }
-    }
-  })
-  return Array.from(new Set(existing.length > 0 ? existing : roots))
 }
 
 // ── ENSURE GH CLI ──────────────────────────────────────────────

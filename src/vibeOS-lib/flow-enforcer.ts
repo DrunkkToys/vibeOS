@@ -99,8 +99,11 @@ function safeJsonParse(raw: string): any {
   }
 }
 
+function getRealityCheckSettingsFile(): string {
+  return join(getVibeOSHome(), "reality-check-settings.json")
+}
+
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const REALITY_CHECK_SETTINGS_FILE = join(getVibeOSHome(), "reality-check-settings.json")
 const REALITY_CHECK_RULE_IDS = new Set([
   "require-read-before-claim",
   "verify-state-on-disk",
@@ -302,14 +305,15 @@ function defaultRealityCheckRules(): RealityCheckRule[] {
 }
 
 function readRealityCheckSettings(): RealityCheckSettings {
-  const settingsMtime = existsSync(REALITY_CHECK_SETTINGS_FILE) ? statSync(REALITY_CHECK_SETTINGS_FILE).mtimeMs : 0
+  const settingsFile = getRealityCheckSettingsFile()
+  const settingsMtime = existsSync(settingsFile) ? statSync(settingsFile).mtimeMs : 0
   if (_cachedRealityCheck && settingsMtime === _realityCheckMtime) {
     return _cachedRealityCheck
   }
   let parsed: RealityCheckSettings = {}
   try {
-    if (existsSync(REALITY_CHECK_SETTINGS_FILE)) {
-      const raw = readFileSync(REALITY_CHECK_SETTINGS_FILE, "utf-8")
+    if (existsSync(settingsFile)) {
+      const raw = readFileSync(settingsFile, "utf-8")
       const json = safeJsonParse(raw) as RealityCheckSettings
       if (json && typeof json === "object") parsed = json
     }
@@ -397,7 +401,8 @@ function loadRules(): FlowRule[] {
   const rulesPath = resolveRulesPath()
   try {
     const rulesMtime = existsSync(rulesPath) ? statSync(rulesPath).mtimeMs : 0
-    const realityMtime = existsSync(REALITY_CHECK_SETTINGS_FILE) ? statSync(REALITY_CHECK_SETTINGS_FILE).mtimeMs : 0
+    const realityFile = getRealityCheckSettingsFile()
+    const realityMtime = existsSync(realityFile) ? statSync(realityFile).mtimeMs : 0
     const scopeKey = String(currentProjectFingerprint || "")
     const cacheKey = `${rulesMtime}:${realityMtime}:${scopeKey}`
     if (_cachedRules && _realityCheckCacheKey === "__test__") return _cachedRules

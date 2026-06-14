@@ -4,23 +4,13 @@ import { cpSync, readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync
 import { join, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 import { homedir } from "node:os"
+import { resolveOpenCodeHomes } from "./lib/opencode-homes.mjs"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, "..")
 
 const bundlePath = join(ROOT, "dist", "vibeOS.js")
 const assetsPath = join(ROOT, "dist", "assets")
-
-function resolveOpenCodeHomes() {
-  const override = process.env.VIBEOS_OPENCODE_HOME
-  if (override) return [override]
-  const base = homedir()
-  const desktopHome = process.env.VIBEOS_OPENCODE_DESKTOP_HOME
-    || (process.platform === "darwin" ? join(base, "Library", "Application Support", "ai.opencode.desktop") : null)
-  const configHome = join(base, ".config", "opencode")
-  const dotHome = join(base, ".opencode")
-  return [desktopHome, configHome, dotHome].filter(Boolean)
-}
 
 if (!existsSync(bundlePath)) {
   process.stderr.write("[vibeOS deploy] ERROR: dist/vibeOS.js not found\n")
