@@ -64,7 +64,7 @@ function hasOpenCodeConfig(dir: string): boolean {
 export function getOpenCodeHome(): string {
   const override = process.env.VIBEOS_OPENCODE_HOME
   if (override) return override
-  const base = VIBEOS_CONTEXT.getStore()?.home || process.env.HOME || USER_HOME
+  const base = process.env.HOME || USER_HOME
   const configHome = join(base, ".config", "opencode")
   const dotHome = join(base, ".opencode")
   if (hasOpenCodeConfig(configHome)) return configHome

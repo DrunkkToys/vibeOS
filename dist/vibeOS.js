@@ -1000,7 +1000,7 @@ function getOpenCodeHome() {
   const override = process.env.VIBEOS_OPENCODE_HOME;
   if (override)
     return override;
-  const base = VIBEOS_CONTEXT.getStore()?.home || process.env.HOME || USER_HOME2;
+  const base = process.env.HOME || USER_HOME2;
   const configHome = join2(base, ".config", "opencode");
   const dotHome = join2(base, ".opencode");
   if (hasOpenCodeConfig(configHome))

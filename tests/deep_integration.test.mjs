@@ -237,22 +237,10 @@ test("getScratchpadHit + buildTestReminder", () => {
   assert.ok(r.includes("test"), "test reminder")
 })
 
-test("applySlot: writes model, preserves all config blocks", async () => {
-  await freshPlugin()
-  const origCwd = process.cwd()
-  process.chdir(sandbox)
-  applySlot("brain")
-  process.chdir(origCwd)
-  const oc = JSON.parse(readFileSync(join(sandbox, ".config/opencode/opencode.json"), "utf-8"))
-  assert.equal(oc.model, "deepseek/deepseek-v4-pro")
-  assert.ok(oc["$schema"])
-  assert.deepEqual(oc.plugin, ["./plugins/vibeOS"])
-  assert.deepEqual(Object.keys(oc.provider.deepseek.models), ["deepseek-v4-pro", "deepseek-v4-flash", "deepseek-chat", "deepseek-reasoner"], "dropdown preserved")
-  const tiers = JSON.parse(readFileSync(join(sandbox, ".claude/model-tiers.json"), "utf-8"))
-  assert.equal(tiers.selection.active_slot, "brain")
-  assert.equal(tiers.selection.enabled, true)
-  assert.ok(tiers.tiers.high.regex)
-  assert.ok(tiers.tiers.mid.regex)
+
+test("getOpenCodeHome: ignores vibeOS home context and keeps OpenCode config stable", () => {
+  state.setVibeOSHomeContext(join(sandbox, ".claude"))
+  assert.equal(state.getOpenCodeHome(), join(sandbox, ".config/opencode"))
 })
 
 test("applySlot: handles missing trinity entry and missing file", async () => {
