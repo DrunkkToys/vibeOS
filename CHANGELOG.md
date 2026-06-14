@@ -1,3 +1,7 @@
+## 0.25.19
+- fix: harden loop detection and behavioral stress
+
+
 ## 0.25.18
 - fix: install vibeOS with absolute opencode paths
 
