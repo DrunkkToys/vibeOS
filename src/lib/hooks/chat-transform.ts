@@ -49,7 +49,7 @@ import {
 import { applyBudgetFirstMode, peekBudgetFirstMode } from "../mode-policy.js"
 import { BRANDED_MODES, RUNTIME_MODES } from "../mode-router.js"
 import { addCacheEntry, extractRecentCacheOutputs } from "../../vibeOS-lib/smart-cache.js"
-import { getApiClient, remoteCall, isApiConnected } from "../api-client.js"
+import { getApiClient, remoteCall, isApiConnected, isApiFallback } from "../api-client.js"
 import { loadCredit } from "../credit-api.js"
 import { saveReport } from "../reporting.js"
 import { checkFlowRules, recordFlowTodo } from "../../vibeOS-lib/flow-enforcer.js"
@@ -1034,7 +1034,7 @@ export const onSystemTransform = async (_input, output) => {
     }
 
     if (!oneShot("vibeos_dopamine_style_" + fp)) {
-      pushSystem(output, regimeAwareToolStyleDirective(currentSubRegime, displayMode, stressScore))
+      pushSystem(output, regimeAwareToolStyleDirective(_latestBlackboxState?.sub_regime || classifiedRegime, _currentTemplate, stressScore))
     }
 
   } catch (err) {
