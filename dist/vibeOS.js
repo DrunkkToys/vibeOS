@@ -13066,7 +13066,8 @@ async function _appendFooter(input, output, directory3) {
     const activeSlot = selNowFooter.active_slot || "brain";
     const flashIcon = isApiConnected() ? " \u26A1" : "";
     const displayMode = autoSelectMode2(currentSubRegime, _footerStress);
-    const cv = computeControlVector2({ sub_regime: currentSubRegime, latest_stress_multiplier: _footerStress, user_text: latestUserIntent || "" }, void 0, loadOptimizationMode() || displayMode);
+    const rawMode = (typeof loadSelection3 === "function" ? loadSelection3()?.requested_optimization_mode || loadSelection3()?.optimization_mode : null) || displayMode;
+    const cv = computeControlVector2({ sub_regime: currentSubRegime, latest_stress_multiplier: _footerStress, user_text: latestUserIntent || "" }, void 0, rawMode);
     const vibeBrand = resolveBrand(loadOptimizationMode() || displayMode, activeSlot);
     const vibeLine = buildFooterLine({
       activeSlot,
