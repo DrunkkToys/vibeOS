@@ -1188,7 +1188,6 @@ export function applySlot(slot: string, projectDir = "") {
         oc.model = ocModel
         writeFileSync(ocConfig, JSON.stringify(oc, null, 2) + "\n")
       }
-      clearWorkspaceFollowupPauseForSession(getCurrentSessionId())
       _refreshModel(dir)
       return { ok: true, ocModel }
     })
