@@ -138,3 +138,24 @@ test("fuzz: empty inputs produce valid fallback classifications", async () => {
   assert.equal(c.detectOutcomeSignal(""), null)
   assert.equal(c.detectOutcomeSignal(null), null)
 })
+
+
+test("footer: cascade icon appears for deep cascade depth", async () => {
+  const shared = await import("../src/lib/hooks/shared-footer.js?" + Date.now())
+  const line = shared.buildFooterLine({
+    activeSlot: "brain", providerLabel: "T", modelName: "t/m",
+    ltTotal: 0, vibeBrand: "VibeUltraX", optMode: "quality",
+    flashIcon: "", enfTags: [], cascadeIcon: "▸▸▸",
+  })
+  assert.ok(line.includes("▸▸▸"), "deep cascade icon appears in footer")
+})
+
+test("footer: cascade icon hidden when depth is 1", async () => {
+  const shared = await import("../src/lib/hooks/shared-footer.js?" + Date.now())
+  const line = shared.buildFooterLine({
+    activeSlot: "brain", providerLabel: "T", modelName: "t/m",
+    ltTotal: 0, vibeBrand: "VibeUltraX", optMode: "quality",
+    flashIcon: "", enfTags: [], cascadeIcon: "",
+  })
+  assert.ok(!line.includes("▸"), "no cascade icon when depth is 1")
+})

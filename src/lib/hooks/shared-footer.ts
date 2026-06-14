@@ -15,6 +15,7 @@ export interface FooterLineInput {
   vectorChangedSlot?: string
   subRegime?: string
   stressGauge?: string
+  cascadeIcon?: string
 }
 
 const REGIME_TAG: Record<string, string> = {
@@ -166,6 +167,10 @@ export function buildFooterLine(input: FooterLineInput): string {
 
   if (optMode && optMode !== "auto") {
     line += ` · ${modeLabel}`
+  }
+
+  if (input.cascadeIcon) {
+    line += ` ${input.cascadeIcon}`
   }
 
   if (vectorChangedSlot && vectorChangedSlot !== activeSlot) {
