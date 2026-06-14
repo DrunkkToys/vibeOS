@@ -5,7 +5,7 @@ import { join, dirname, basename } from "node:path"
 import { homedir, tmpdir } from "node:os"
 import { createHash } from "node:crypto"
 import { ResolutionTracker } from "../vibeOS-lib/blackbox/index.js"
-import { safeJsonParse, _blackboxEnabled, setBlackboxEnabled as _setGlobalBlackboxEnabled, USER_HOME, FILE_LOCK_DIR, DELEGATION_STATE_FILE as STATE_FILE, GLOBAL_LEARNING_FILE, BLACKBOX_STATE_FILE, PROJECT_STATE_FILE, _OC_SID, currentProjectFingerprint, currentTier, setCurrentProjectFingerprint, _handleStateCorruption, _lockPathFor, withFileLock, readJsonOrEmpty, validateState, loadBlackboxState, saveBlackboxState, loadGlobalLearning, updateGlobalLearning, getLearnedExploratoryWords, projectFingerprint, loadProjectState, saveProjectState, detectTechStack, ensureProjectBucket, recordMissedContext7, VIBEOS_HOME } from "./state.js"
+import { safeJsonParse, _blackboxEnabled, setBlackboxEnabled as _setGlobalBlackboxEnabled, USER_HOME, FILE_LOCK_DIR, DELEGATION_STATE_FILE as STATE_FILE, GLOBAL_LEARNING_FILE, BLACKBOX_STATE_FILE, PROJECT_STATE_FILE, _OC_SID, currentProjectFingerprint, currentTier, setCurrentProjectFingerprint, _handleStateCorruption, _lockPathFor, withFileLock, readJsonOrEmpty, validateState, loadBlackboxState, saveBlackboxState, loadGlobalLearning, updateGlobalLearning, getLearnedExploratoryWords, projectFingerprint, loadProjectState, saveProjectState, detectTechStack, ensureProjectBucket, recordMissedContext7, VIBEOS_HOME, recentToolEvents } from "./state.js"
 import { loadSelection, loadSessionOptMode, loadGlobalOptMode, saveGlobalOptMode, writeSelection, writeSessionOptMode, loadSessionSlot } from "./selection-manager.js"
 import { getApiClient, isApiFallback } from "./api-client.js"
 import { scoreStress, estimateContextBudget, classifyTurnSimple as _classifyTurnSimple, tokenizeWords, topKeywords, extractLastUserText, isUserAskingForTests, isLikelyOffTopic, detectOutcomeSignal } from "./classifiers.js"
@@ -39,7 +39,7 @@ function autoSelectMode(subRegime: string, stressMultiplier?: number): Optimizat
   const regime = String(subRegime || "INIT").toUpperCase()
   const stress = Number(stressMultiplier ?? 0)
   if (regime === "AUDIT" || regime === "FORENSIC") return regime.toLowerCase() as OptimizationMode
-  if (regime === "LOOPING") return "speed"
+  if (regime === "LOOPING") return "quality"
   if (regime === "CONVERGING" || regime === "CLOSED") return "quality"
   if (regime === "IMPLEMENTING") return "quality"
   if (regime === "RESEARCH" || regime === "DESIGNING") return "longrun"
@@ -214,22 +214,29 @@ function computeControlVector(
           : mode === "speed" || mode === "vibemax" || mode === "vibelitex" ? "medium"
             : mode === "balanced" ? "auto"
               : "cheap"
+  const loopingHardening = String(subRegime).toUpperCase() === "LOOPING"
+  const hardenedTierBias = loopingHardening ? "brain" : tierBias
+  const hardenedMode = loopingHardening ? "quality" : mode
+  const hardenedModeRoot = loopingHardening
+    ? { mode_root: "quality", mode_family: "brain-runtime", cascade_depth: 1, pipeline_root: ["brain"] }
+    : modeRoot
   return {
-    enforcement_mode: isStrict ? "strict" : isRelaxed ? "relaxed" : "normal",
-    enforcement_reason: `[optimize: ${mode}] using safe offline defaults`,
-    flow_mode: isStrict ? "strict" : isRelaxed ? "audit" : "normal",
+    enforcement_mode: loopingHardening ? "strict" : isStrict ? "strict" : isRelaxed ? "relaxed" : "normal",
+    enforcement_reason: loopingHardening ? "[optimize: LOOPING] recovery posture — tighten enforcement and preserve outcome detection" : `[optimize: ${mode}] using safe offline defaults`,
+    flow_mode: loopingHardening ? "strict" : isStrict ? "strict" : isRelaxed ? "audit" : "normal",
     flow_focus: [],
-    tdd_mode: isStrict ? "strict" : isRelaxed ? "lazy" : "normal",
+    tdd_mode: loopingHardening ? "strict" : isStrict ? "strict" : isRelaxed ? "lazy" : "normal",
     tdd_focus: [],
-    tier_bias: tierBias,
-    thinking_mode: isStrict ? "full" : mode === "longrun" ? "brief" : isRelaxed ? "off" : "auto",
-    stress_multiplier: 1.0,
-    context7_urgency: isStrict ? "required" : "preferred",
-    wbp_verbosity: isStrict ? "verbose" : isRelaxed ? "minimal" : "normal",
+    tier_bias: hardenedTierBias,
+    thinking_mode: loopingHardening ? "brief" : isStrict ? "full" : mode === "longrun" ? "brief" : isRelaxed ? "off" : "auto",
+    stress_multiplier: loopingHardening ? Math.max(1.5, stress) : 1.0,
+    context7_urgency: loopingHardening ? "required" : isStrict ? "required" : "preferred",
+    wbp_verbosity: loopingHardening ? "detailed" : isStrict ? "verbose" : isRelaxed ? "minimal" : "normal",
     agent_mode: (subRegime === "REFINING" || subRegime === "CONVERGING" || subRegime === "CLOSED") && stress <= QUALITY_STRESS_THRESHOLD ? "plan" : undefined as any,
-    optimization_mode: mode,
-    ...modeRoot,
-    directives: isRelaxed && (subRegime === "EXPLORING" || subRegime === "INIT" || subRegime === "AUDIT" || subRegime === "FORENSIC" || subRegime === "LOOPING") ? [
+    optimization_mode: hardenedMode,
+    ...hardenedModeRoot,
+    outcome_detection: true,
+    directives: isRelaxed && !loopingHardening && (subRegime === "EXPLORING" || subRegime === "INIT" || subRegime === "AUDIT" || subRegime === "FORENSIC" || subRegime === "LOOPING") ? [
       `[speed guard] VERIFY BEFORE ACT - Speed-oriented mode "${mode}" is active and user intent is ${subRegime}. Before modifying files or executing commands, first verify the current state. When a request is ambiguous between "check and report" vs "fix", always choose CHECK FIRST. Treat "look at", "check", "investigate", "tell me about" as requests for information, not action items.`,
     ] : [],
   }
@@ -293,6 +300,31 @@ function normalizeBlackboxFeatures(text: string): any {
   }
 }
 
+function summarizeRecentToolActivity(limit = 5): any {
+  const events = Array.isArray(recentToolEvents) ? recentToolEvents.slice(-limit) : []
+  if (events.length === 0) return null
+  const last = events[events.length - 1] || {}
+  const actionType = String(last.action || last.kind || "").trim().toLowerCase()
+  const toolTarget = `${String(last.tool || "").trim().toLowerCase()}:${String(last.target || "").trim().toLowerCase()}`
+  const signature = `${toolTarget}:${actionType}`
+  let repeatCount = 0
+  for (let i = events.length - 1; i >= 0; i--) {
+    const cur = events[i] || {}
+    const curAction = String(cur.action || cur.kind || "").trim().toLowerCase()
+    const curSig = `${String(cur.tool || "").trim().toLowerCase()}:${String(cur.target || "").trim().toLowerCase()}:${curAction}`
+    if (curSig !== signature) break
+    repeatCount++
+  }
+  return {
+    tool: String(last.tool || "").toLowerCase(),
+    target: String(last.target || "").toLowerCase(),
+    action: actionType,
+    signature,
+    repeat_count: repeatCount,
+    recent_count: events.length,
+  }
+}
+
 function normalizeBlackboxHistoryEntry(entry: any): any {
   const text = typeof entry?.text === "string" ? entry.text : ""
   const fallback = normalizeBlackboxFeatures(text)
@@ -307,6 +339,7 @@ function normalizeBlackboxHistoryEntry(entry: any): any {
     timestamp: Number.isFinite(Number(entry?.timestamp)) ? Number(entry.timestamp) : Date.now() / 1000,
     is_pivot: Boolean(entry?.is_pivot),
     outcome: typeof entry?.outcome === "string" ? entry.outcome : (entry?.outcome ?? null),
+    activity: entry?.activity && typeof entry.activity === "object" ? { ...entry.activity } : null,
   }
 }
 
@@ -335,7 +368,8 @@ class _BlackboxStub {
   }
   update(text: string): any {
     const normalized = normalizeBlackboxFeatures(text)
-    const state = this.tracker.update(text, normalized.features, normalized.action, normalized.entropy, normalized.uncertainty)
+    const recentActivity = summarizeRecentToolActivity()
+    const state = this.tracker.update(text, normalized.features, normalized.action, normalized.entropy, normalized.uncertainty, null, recentActivity)
     return { ...state, ...normalized }
   }
   snapshot(): any {
@@ -503,7 +537,8 @@ function computeLocalCalibration(): any {
 
 export function resolveEnforcementMode() {
   const sub = _latestBlackboxState?.sub_regime || "INIT"
-  if (sub === "EXPLORING" || sub === "DIVERGENT" || sub === "LOOPING") return "relaxed"
+  if (sub === "EXPLORING" || sub === "DIVERGENT") return "relaxed"
+  if (sub === "LOOPING") return "strict"
   if (sub === "CONVERGING" || sub === "CLOSED") return "strict"
   return "normal"
 }

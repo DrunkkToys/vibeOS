@@ -123,16 +123,16 @@ const REGIME_CONTROL = {
     wbp_verbosity: "minimal",
   },
   LOOPING: {
-    enforcement_mode: "relaxed",
-    enforcement_reason: "user stuck — relax all enforcement, fresh perspective",
-    flow_mode: "audit",
-    flow_focus: ["suggest-alternative"],
-    tdd_mode: "lazy",
-    tdd_focus: [],
-    tier_bias: "medium",
-    thinking_mode: "off",
-    stress_multiplier: 0.3,
-    context7_urgency: "optional",
+    enforcement_mode: "strict",
+    enforcement_reason: "user stuck — tighten enforcement and switch to recovery posture",
+    flow_mode: "strict",
+    flow_focus: ["write-edit-check", "no-untouched-files", "suggest-alternative"],
+    tdd_mode: "strict",
+    tdd_focus: ["skeleton-on-write", "assertion-check"],
+    tier_bias: "brain",
+    thinking_mode: "brief",
+    stress_multiplier: 2.0,
+    context7_urgency: "required",
     wbp_verbosity: "detailed",
   },
   CLOSED: {
@@ -234,7 +234,7 @@ const MODE_DELTAS = {
     stress_multiplier: 0.0,
     loop_threshold: 0.9,
     api_enrichment: false,
-    outcome_detection: false,
+    outcome_detection: true,
   },
   longrun: {
     tier_bias: "brain",
@@ -345,7 +345,7 @@ const MODE_DELTAS = {
 export function autoSelectMode(subRegime, stressMultiplier) {
   const regime = String(subRegime || "INIT").toUpperCase()
   if (regime === "AUDIT" || regime === "FORENSIC") return regime.toLowerCase()
-  if (regime === "LOOPING") return "speed"
+  if (regime === "LOOPING") return "quality"
   if (regime === "CONVERGING" || regime === "CLOSED") return "quality"
   if (regime === "IMPLEMENTING") return "quality"
   if (regime === "RESEARCH" || regime === "DESIGNING") return "longrun"
@@ -363,28 +363,37 @@ export function computeControlVector(state, action, optimizationMode) {
   }
   // Apply mode deltas on top of base (only for non-balanced modes)
   const delta = effectiveMode !== "balanced" ? (MODE_DELTAS[effectiveMode] || {}) : {}
-  const modeRoot = resolveModeRoot(effectiveMode)
+  const loopingHardening = regime === "LOOPING"
+  const hardenedMode = loopingHardening ? "quality" : effectiveMode
+  const modeRoot = resolveModeRoot(hardenedMode)
+  const hardenedModeRoot = loopingHardening
+    ? { mode_root: "quality", mode_family: "brain-runtime", cascade_depth: 1, pipeline_root: ["brain"] }
+    : modeRoot
   const overridden = {
-    optimization_mode: effectiveMode,
-    enforcement_mode: delta.enforcement_mode ?? base.enforcement_mode,
-    enforcement_reason: delta.enforcement_mode
-      ? `[optimize: ${effectiveMode}] ${describeMode(delta)}`
-      : base.enforcement_reason,
-    flow_mode: delta.flow_mode ?? base.flow_mode,
-    flow_focus: delta.flow_focus ?? base.flow_focus,
-    tdd_mode: delta.tdd_mode ?? base.tdd_mode,
-    tdd_focus: delta.tdd_focus ?? base.tdd_focus,
-    tier_bias: delta.tier_bias ?? base.tier_bias,
-    thinking_mode: delta.thinking_mode ?? base.thinking_mode,
-    stress_multiplier: delta.stress_multiplier ?? base.stress_multiplier,
-    context7_urgency: delta.context7_urgency ?? base.context7_urgency,
-    wbp_verbosity: delta.wbp_verbosity ?? base.wbp_verbosity,
-    mode_root: modeRoot.mode_root,
-    mode_family: modeRoot.mode_family,
-    cascade_depth: modeRoot.cascade_depth,
-    pipeline_root: modeRoot.pipeline_root,
+    optimization_mode: hardenedMode,
+    enforcement_mode: loopingHardening ? "strict" : (delta.enforcement_mode ?? base.enforcement_mode),
+    enforcement_reason: loopingHardening
+      ? "[optimize: LOOPING] recovery posture — tighten enforcement and preserve outcome detection"
+      : delta.enforcement_mode
+        ? `[optimize: ${effectiveMode}] ${describeMode(delta)}`
+        : base.enforcement_reason,
+    flow_mode: loopingHardening ? "strict" : (delta.flow_mode ?? base.flow_mode),
+    flow_focus: loopingHardening ? ["write-edit-check", "no-untouched-files", "suggest-alternative"] : (delta.flow_focus ?? base.flow_focus),
+    tdd_mode: loopingHardening ? "strict" : (delta.tdd_mode ?? base.tdd_mode),
+    tdd_focus: loopingHardening ? ["skeleton-on-write", "assertion-check"] : (delta.tdd_focus ?? base.tdd_focus),
+    tier_bias: loopingHardening ? "brain" : (delta.tier_bias ?? base.tier_bias),
+    thinking_mode: loopingHardening ? "brief" : (delta.thinking_mode ?? base.thinking_mode),
+    stress_multiplier: loopingHardening ? Math.max(2.0, Number(state.latest_stress_multiplier || 0)) : (delta.stress_multiplier ?? base.stress_multiplier),
+    context7_urgency: loopingHardening ? "required" : (delta.context7_urgency ?? base.context7_urgency),
+    wbp_verbosity: loopingHardening ? "detailed" : (delta.wbp_verbosity ?? base.wbp_verbosity),
+    outcome_detection: delta.outcome_detection ?? base.outcome_detection ?? true,
+    mode_root: hardenedModeRoot.mode_root,
+    mode_family: hardenedModeRoot.mode_family,
+    cascade_depth: hardenedModeRoot.cascade_depth,
+    pipeline_root: hardenedModeRoot.pipeline_root,
+    loop_directive: loopingHardening ? "Your approach is not converging. Stop and re-evaluate before acting." : null,
   }
-  const directives = buildDirectives(overridden, regime, state, action, effectiveMode)
+  const directives = buildDirectives(overridden, regime, state, action, hardenedMode)
   return {
     ...overridden,
     directives,

@@ -20,6 +20,7 @@ export class ResolutionTracker {
     this.pivotHistory = []
     this.outcomeHistory = []
     this.calibratedWeights = null
+    this.recentMessageLengths = []
   }
   static extractFeatures(text) {
     if (!text || typeof text !== "string")
@@ -65,22 +66,122 @@ export class ResolutionTracker {
       .replace(/\s+/g, " ")
       .trim()
   }
+  normalizeActivity(activity, action, text) {
+    const fallbackSignature = this.normalizeText(action || text || "")
+    if (!activity) {
+      return {
+        signature: fallbackSignature || "",
+        tool: null,
+        target: null,
+        action: action || null,
+        repeat_count: 1,
+        outcome: null,
+      }
+    }
+    if (typeof activity === "string") {
+      const sig = this.normalizeText(activity)
+      return {
+        signature: sig || fallbackSignature || "",
+        tool: null,
+        target: null,
+        action: action || null,
+        repeat_count: 1,
+        outcome: null,
+      }
+    }
+    const tool = this.normalizeText(activity.tool || activity.toolName || activity.kind || "")
+    const target = this.normalizeText(activity.target || activity.filePath || activity.file_path || activity.path || activity.command || "")
+    const normalizedAction = this.normalizeText(activity.action || activity.kind || action || "")
+    const signature = this.normalizeText(activity.signature || [tool, target, normalizedAction, activity.outcome || ""].filter(Boolean).join(" "))
+    return {
+      signature: signature || fallbackSignature || "",
+      tool: tool || null,
+      target: target || null,
+      action: normalizedAction || action || null,
+      repeat_count: Number(activity.repeat_count || activity.repeatCount || 1) || 1,
+      outcome: typeof activity.outcome === "string" ? activity.outcome : (activity.outcome ?? null),
+    }
+  }
   getRepeatStreak() {
     if (this.history.length < 2)
       return 0
-    const normalizedLast = this.normalizeText(this.history[this.history.length - 1].text)
+    const lastWords = new Set(this.history[this.history.length - 1].text.toLowerCase().split(/\s+/).filter(w => w.length > 2))
+    if (lastWords.size === 0)
+      return 0
+    let streak = 1
+    for (let i = this.history.length - 2; i >= 0; i--) {
+      const currWords = new Set(this.history[i].text.toLowerCase().split(/\s+/).filter(w => w.length > 2))
+      if (currWords.size === 0) break
+      const intersection = new Set([...lastWords].filter(w => currWords.has(w)))
+      const union = new Set([...lastWords, ...currWords])
+      const jaccard = intersection.size / Math.max(union.size, 1)
+      if (jaccard < 0.7) break
+      streak++
+    }
+    return streak
+  }
+  getActivityRepeatStreak() {
+    if (this.history.length < 2)
+      return 0
+    const normalizedLast = this.normalizeActivity(this.history[this.history.length - 1].activity, this.history[this.history.length - 1].action, this.history[this.history.length - 1].text).signature
     if (!normalizedLast)
       return 0
     let streak = 1
     for (let i = this.history.length - 2; i >= 0; i--) {
-      const normalized = this.normalizeText(this.history[i].text)
+      const normalized = this.normalizeActivity(this.history[i].activity, this.history[i].action, this.history[i].text).signature
       if (!normalized || normalized !== normalizedLast)
         break
       streak++
     }
     return streak
   }
-  update(userText, features, action, entropy, uncertainty, embedding = null) {
+  getTargetRepeatStreak() {
+    if (this.history.length < 2)
+      return 0
+    const normalizedLast = this.normalizeActivity(this.history[this.history.length - 1].activity, this.history[this.history.length - 1].action, this.history[this.history.length - 1].text).target
+    if (!normalizedLast)
+      return 0
+    let streak = 1
+    for (let i = this.history.length - 2; i >= 0; i--) {
+      const normalized = this.normalizeActivity(this.history[i].activity, this.history[i].action, this.history[i].text).target
+      if (!normalized || normalized !== normalizedLast)
+        break
+      streak++
+    }
+    return streak
+  }
+  getRecentNegativeOutcomeStreak() {
+    if (this.outcomeHistory.length < 1) return 0
+    let streak = 0
+    for (let i = this.outcomeHistory.length - 1; i >= 0; i--) {
+      const o = this.outcomeHistory[i]
+      if (/negative|failed|unresolved|loop_detected/i.test(String(o?.outcome || "")))
+        streak++
+      else break
+    }
+    return streak
+  }
+  computeMessageLengthTrend() {
+    const lengths = this.recentMessageLengths
+    if (lengths.length < 3) return { trend: "stable", slope: 0 }
+    const pairs = lengths.slice(-4)
+    let decreasingCount = 0
+    let totalSlope = 0
+    for (let i = 1; i < pairs.length; i++) {
+      const diff = pairs[i] - pairs[i - 1]
+      if (diff < 0) decreasingCount++
+      totalSlope += diff
+    }
+    const ratio = decreasingCount / (pairs.length - 1)
+    const avgSlope = pairs.length > 1 ? totalSlope / (pairs.length - 1) : 0
+    return {
+      trend: ratio >= 0.6 && avgSlope < 0 ? "shortening" : "stable",
+      slope: avgSlope,
+    }
+  }
+
+  update(userText, features, action, entropy, uncertainty, embedding = null, activity = null) {
+    const normalizedActivity = this.normalizeActivity(activity, action, userText)
     const entry = {
       text: userText,
       features: { ...features },
@@ -88,6 +189,7 @@ export class ResolutionTracker {
       entropy,
       uncertainty,
       embedding: embedding ? [...embedding] : null,
+      activity: normalizedActivity,
       timestamp: Date.now() / 1000,
     }
     if (this.history.length >= 2) {
@@ -97,6 +199,8 @@ export class ResolutionTracker {
       }
     }
     this.history.push(entry)
+    this.recentMessageLengths.push((userText || "").length)
+    if (this.recentMessageLengths.length > 6) this.recentMessageLengths.shift()
     if (this.history.length > this.maxHistory) {
       this.history.shift()
     }
@@ -162,6 +266,8 @@ export class ResolutionTracker {
     const featureContradiction = this.calcFeatureContradiction()
     const embeddingDelta = this.calcEmbeddingDelta()
     const repeatStreak = this.getRepeatStreak()
+    const activityRepeatStreak = this.getActivityRepeatStreak()
+    const targetRepeatStreak = this.getTargetRepeatStreak()
     const isLooping = this.detectLoop()
     const intentState = this.computeIntentState()
     const continuityState = this.continuityState(intentState)
@@ -207,9 +313,10 @@ export class ResolutionTracker {
     const momentum = this.calcMomentum(entropyTrend, actionConsistency, embeddingDelta, isLooping, lastEntry.action, lastEntry.entropy)
     let loopLevel = "none"
     if (isLooping) {
-      if (repeatStreak >= 3 || this.loopCount >= 4)
+      const repeatSignal = Math.max(repeatStreak, activityRepeatStreak, targetRepeatStreak)
+      if (repeatSignal >= 3 || this.loopCount >= 4)
         loopLevel = "escalated"
-      else if (repeatStreak >= 2 || this.loopCount >= 3)
+      else if (repeatSignal >= 2 || this.loopCount >= 3)
         loopLevel = "assertive"
       else if (this.loopCount >= 2)
         loopLevel = "suggestive"
@@ -228,6 +335,8 @@ export class ResolutionTracker {
         entropy_trend: Math.round(entropyTrend * 10000) / 10000,
         feature_contradiction: Math.round(featureContradiction * 10000) / 10000,
         embedding_delta: Math.round(embeddingDelta * 10000) / 10000,
+        activity_repeat_streak: Math.round(activityRepeatStreak * 10000) / 10000,
+        target_repeat_streak: Math.round(targetRepeatStreak * 10000) / 10000,
       },
       intent_state: {
         volatility_score: Math.round(intentState.volatility_score * 10000) / 10000,
@@ -238,10 +347,15 @@ export class ResolutionTracker {
       is_looping: isLooping,
       loop_consecutive: this.loopCount,
       repeat_streak: repeatStreak,
+      activity_repeat_streak: activityRepeatStreak,
+      target_repeat_streak: targetRepeatStreak,
       loop_intervention_level: loopLevel,
       pivot_detected: pivotDetected,
       pivot_score: Math.round(pivotScore * 10000) / 10000,
       outcome: lastEntry.outcome || null,
+      outcome_negative_streak: this.getRecentNegativeOutcomeStreak(),
+      message_length_trend: this.computeMessageLengthTrend().trend,
+      message_length_slope: this.computeMessageLengthTrend().slope,
       n_interactions: n,
     }
   }
@@ -291,7 +405,13 @@ export class ResolutionTracker {
     return 1.0 - cosineSimilarity(a, b)
   }
   detectLoop() {
-    return this.loopCount >= 2 || this.getRepeatStreak() >= 2
+    const repeatSignal = Math.max(
+      this.getRepeatStreak(),
+      this.getActivityRepeatStreak(),
+      this.getTargetRepeatStreak(),
+    )
+    const negativeOutcomeStreak = this.getRecentNegativeOutcomeStreak()
+    return this.loopCount >= 2 || repeatSignal >= 2 || negativeOutcomeStreak >= 2
   }
   computeIntentState() {
     const last = this.history[this.history.length - 1]
@@ -335,6 +455,7 @@ export class ResolutionTracker {
     this.loopCount = 0
     this.pivotHistory = []
     this.outcomeHistory = []
+    this.recentMessageLengths = []
   }
   recordOutcome(outcome) {
     const entry = this.history[this.history.length - 1]
@@ -403,15 +524,20 @@ export class ResolutionTracker {
       loopCount: this.loopCount,
       pivotHistory: this.pivotHistory,
       outcomeHistory: this.outcomeHistory,
+      recentMessageLengths: this.recentMessageLengths,
       calibratedWeights: this.calibratedWeights,
     }
   }
   static deserialize(data) {
     const tracker = new ResolutionTracker(data.sessionId || "session", data.maxHistory || 10)
-    tracker.history = Array.isArray(data.history) ? data.history : []
+    tracker.history = Array.isArray(data.history) ? data.history.map((entry) => ({
+      ...entry,
+      activity: entry?.activity || null,
+    })) : []
     tracker.loopCount = Number(data.loopCount || 0)
     tracker.pivotHistory = Array.isArray(data.pivotHistory) ? data.pivotHistory : []
     tracker.outcomeHistory = Array.isArray(data.outcomeHistory) ? data.outcomeHistory : []
+    tracker.recentMessageLengths = Array.isArray(data.recentMessageLengths) ? data.recentMessageLengths : []
     tracker.calibratedWeights = data.calibratedWeights || null
     return tracker
   }
