@@ -1,12 +1,8 @@
 // @ts-nocheck
 import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync, renameSync } from "node:fs"
 import { join, dirname } from "node:path"
-import { OPENCODE_HOME } from "./state.js"
+import { OPENCODE_HOME, getOpenCodeHome } from "./state.js"
 import { modelCostPerTurn, normalizeModelId, _parseOpenRouterTurnCost, _writeDynamicPricingCache, HIGH_TIER_RE, MID_TIER_RE } from "./pricing.js"
-
-function getOpenCodeHome() {
-  return process.env.VIBEOS_OPENCODE_HOME || join(process.env.HOME || "", ".config", "opencode")
-}
 
 function safeJsonParse(raw) {
   try {

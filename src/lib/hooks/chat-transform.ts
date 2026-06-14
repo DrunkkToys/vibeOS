@@ -22,7 +22,7 @@ import {
   setCurrentModel, setCurrentTier,
   setCurrentProjectFingerprint, setCurrentProjectName,
   stableJson, TOOL_NAME_NORMALIZE,
-  _cacheDb, recordCacheSaving,
+  _cacheDb, recordCacheSaving, getOpenCodeHome,
 } from "../state.js"
 import {
   classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget,
@@ -86,7 +86,7 @@ function resolveRestorableOpenCodeAgent(currentSel: any): string | null {
   if (remembered && remembered !== "plan") return remembered
 
   try {
-    const configDir = dirname(TRINITY_OPENCODE_CONFIG || join(process.env.HOME || "", ".config/opencode/opencode.json"))
+    const configDir = dirname(TRINITY_OPENCODE_CONFIG || join(getOpenCodeHome(), "opencode.json"))
     const candidates = readdirSync(configDir)
       .filter((name) => /^opencode\.json\.bak/.test(name))
       .map((name) => {
@@ -105,10 +105,6 @@ function resolveRestorableOpenCodeAgent(currentSel: any): string | null {
   } catch {}
 
   return null
-}
-
-function getOpenCodeHome() {
-  return process.env.VIBEOS_OPENCODE_HOME || join(process.env.HOME || "", ".config", "opencode")
 }
 
 function ensureProjectContext(hookDirectory: string): string {

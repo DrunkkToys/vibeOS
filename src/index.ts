@@ -28,11 +28,9 @@ import { onToolExecuteBefore, onToolExecuteAfter, setToolDirectory } from "./lib
 import { onMessagesTransform, onSystemTransform, latestUserIntent, ensureProjectSkill } from "./lib/hooks/chat-transform.js"
 import { onSessionCompacting } from "./lib/hooks/session-compact.js"
 import { onShellEnv, setShellDirectory } from "./lib/hooks/shell-env.js"
+import { getOpenCodeHome } from "./lib/state.js"
 function getVibeOSHome() {
   return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude")
-}
-function getOpenCodeHome() {
-  return process.env.VIBEOS_OPENCODE_HOME || join(process.env.HOME || "", ".config", "opencode")
 }
 function getTiersFile() {
   return join(getVibeOSHome(), "model-tiers.json")
@@ -123,7 +121,7 @@ async function _resolveBootstrapModel(client, directory) {
     return { model: projectModel, source: "project-config" }
   const home = process.env.HOME || ""
   if (home) {
-    const globalModel = normalize(readConfig(join(home, ".config/opencode")))
+    const globalModel = normalize(readConfig(getOpenCodeHome()))
     if (globalModel)
       return { model: globalModel, source: "global-config" }
   }

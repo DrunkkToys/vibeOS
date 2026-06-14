@@ -29,6 +29,27 @@
       "description": "TODO/FIXME left in output"
     },
     {
+      "id": "require-read-before-claim",
+      "severity": "warn",
+      "trigger": "Edit",
+      "pattern": "(?i)\\b(done|complete|success|trained|ready|works|fixed)\\b",
+      "description": "Success claim detected — verify live state before asserting completion"
+    },
+    {
+      "id": "verify-state-on-disk",
+      "severity": "flag",
+      "trigger": "Edit",
+      "pattern": "(?i)\\b(assume|guess|probably|likely|maybe|seems|appears)\\b",
+      "description": "Inference language detected — verify actual files/state first"
+    },
+    {
+      "id": "postmortem-trigger",
+      "severity": "warn",
+      "trigger": "Edit",
+      "pattern": "(?i)\\breality check\\b",
+      "description": "Reality check requested — read and verify live state before reporting"
+    },
+    {
       "id": "detect-secrets",
       "severity": "flag",
       "trigger": "Edit",
