@@ -4,7 +4,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync } from "node
 import { dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 import { homedir } from "node:os"
-import { isApiConnected as isRuntimeApiConnected, markApiConnected, markApiDisconnected, resetApiConnection, isApiFallbackMode as isRuntimeFallbackMode, getApiFallbackSince as getRuntimeFallbackSince, setApiFallbackMode as setRuntimeFallbackMode, setApiFallbackSince as setRuntimeFallbackSince, isApiEnabled as isRuntimeApiEnabled, setApiEnabled as setRuntimeApiEnabled } from "./runtime-state.js"
+import { isApiConnected as isRuntimeApiConnected, markApiConnected, markApiDisconnected, resetApiConnection } from "./runtime-state.js"
 
 const DEFAULT_API_URL = "https://api.vibetheog.com"
 // Alpha-only onboarding token: intentionally embedded so fresh installs work
@@ -12,11 +12,9 @@ const DEFAULT_API_URL = "https://api.vibetheog.com"
 const EMBEDDED_API_TOKEN = "vos_8d73804b13bb46711b9a47f036dba7b4d026fd9583d96960e663716e62815a69"
 const API_TOKEN_RE = /^vos_[a-f0-9]{64}$/i
 const API_DISABLED_RE = /^(1|true|yes|on)$/i
-const IS_TEST_RUNTIME = process.env.VIBEOS_TEST_MODE === "1" || process.env.NODE_ENV === "test" || process.env.CI === "true"
-const REQUEST_TIMEOUT = IS_TEST_RUNTIME ? 2000 : 10000
-const MAX_RETRIES = IS_TEST_RUNTIME ? 1 : 3
-const BASE_RETRY_DELAY = IS_TEST_RUNTIME ? 100 : 1000
-const PROBE_TIMEOUT = IS_TEST_RUNTIME ? 2000 : 5000
+const REQUEST_TIMEOUT = 10000
+const MAX_RETRIES = 3
+const BASE_RETRY_DELAY = 1000
 const ALPHA_BUILD_CHANNEL = String(process.env.VIBEOS_BUILD_CHANNEL || "alpha").toLowerCase()
 const BOOTSTRAP_EXCHANGE_PATH = "/api/v1/auth/bootstrap/exchange"
 const BOOTSTRAP_RETRY_COOLDOWN_MS = 60_000
@@ -592,9 +590,9 @@ function readBootstrapTokenFromDisk(): string {
 }
 
 export let VIBEOS_API_DISABLED = readApiDisabledFromDisk() || isTruthyFlag(process.env.VIBEOS_API_DISABLED)
-export let VIBEOS_API_TOKEN = VIBEOS_API_DISABLED ? "" : (readTokenFromDisk() || normalizeDirectApiToken(process.env.VIBEOS_API_TOKEN))
+export let VIBEOS_API_TOKEN = VIBEOS_API_DISABLED ? "" : (readTokenFromDisk() || normalizeDirectApiToken(process.env.VIBEOS_API_TOKEN) || (!hasPrimaryTokenOnDisk() ? EMBEDDED_API_TOKEN : ""))
 export let VIBEOS_API_BOOTSTRAP_TOKEN = VIBEOS_API_DISABLED ? "" : (readBootstrapTokenFromDisk() || process.env.VIBEOS_API_BOOTSTRAP_TOKEN || EMBEDDED_API_TOKEN)
-setRuntimeApiEnabled(!VIBEOS_API_DISABLED && process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN))
+export let VIBEOS_API_ENABLED = !VIBEOS_API_DISABLED && process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN)
 
 let _anomalyDetector: TokenAnomalyDetector | null = null
 
@@ -632,10 +630,10 @@ export function setApiToken(newToken) {
     VIBEOS_API_DISABLED = false
     VIBEOS_API_TOKEN = normalizeDirectApiToken(newToken)
     VIBEOS_API_BOOTSTRAP_TOKEN = readBootstrapTokenFromDisk() || VIBEOS_API_BOOTSTRAP_TOKEN
-    setRuntimeApiEnabled(process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN))
+    VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN)
     _apiClient = null
-    setRuntimeFallbackMode(false)
-    setRuntimeFallbackSince(null)
+    _apiFallbackMode = false
+    _apiFallbackSince = null
     persistPrimaryApiEnvState({ token: VIBEOS_API_TOKEN, disabled: false })
     if (_anomalyDetector) _anomalyDetector.reset()
     resetApiConnection()
@@ -650,10 +648,10 @@ export function invalidateApiToken() {
     VIBEOS_API_DISABLED = true
     VIBEOS_API_TOKEN = ""
     VIBEOS_API_BOOTSTRAP_TOKEN = ""
-    setRuntimeApiEnabled(false)
+    VIBEOS_API_ENABLED = false
     _apiClient = null
-    setRuntimeFallbackMode(false)
-    setRuntimeFallbackSince(null)
+    _apiFallbackMode = false
+    _apiFallbackSince = null
     if (_anomalyDetector) _anomalyDetector.reset()
     persistBootstrapToken("")
     persistPrimaryApiEnvState({ token: "", disabled: true })
@@ -668,7 +666,7 @@ export function setApiBootstrapToken(newToken) {
   try {
     VIBEOS_API_DISABLED = false
     VIBEOS_API_BOOTSTRAP_TOKEN = String(newToken || "").trim()
-    setRuntimeApiEnabled(process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN))
+    VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN)
     persistPrimaryApiEnvState({ disabled: false })
     persistBootstrapToken(VIBEOS_API_BOOTSTRAP_TOKEN)
     console.error("[vibeOS] Alpha bootstrap token updated")
@@ -678,7 +676,8 @@ export function setApiBootstrapToken(newToken) {
 }
 
 let _apiClient = null
-let _startupProbeDone = false
+let _apiFallbackMode = false
+let _apiFallbackSince = null
 let _bootstrapExchangeInFlight: Promise<boolean> | null = null
 let _bootstrapExchangeFailedAt = 0
 let _backendVersion = ""
@@ -686,21 +685,19 @@ let _backendVersion = ""
 const FALLBACK_COOLDOWN_MS = 60_000
 
 function tryResetFallbackCooldown(): boolean {
-  if (!isRuntimeFallbackMode() || !getRuntimeFallbackSince()) return false
-  const elapsed = Date.now() - new Date(getRuntimeFallbackSince()).getTime()
+  if (!_apiFallbackMode || !_apiFallbackSince) return false
+  const elapsed = Date.now() - new Date(_apiFallbackSince).getTime()
   if (elapsed > FALLBACK_COOLDOWN_MS) {
-    setRuntimeFallbackMode(false)
-    setRuntimeFallbackSince(null)
+    _apiFallbackMode = false
+    _apiFallbackSince = null
     markApiConnected()
     return true
   }
   return false
 }
 
-
-function denyReconnection(detail: string): void {
-  setRuntimeFallbackSince(new Date().toISOString())
-  console.warn(`[vibeOS] API health probe failed during reconnect: ${detail} — staying in fallback`)
+export function getApiFallbackSince(): string | null {
+  return _apiFallbackSince
 }
 
 function recordBackendVersion(payload: unknown): void {
@@ -723,7 +720,7 @@ export async function ensureBootstrapExchange(): Promise<boolean> {
     try {
       const client = new VibeOSApiClient({
         baseUrl: VIBEOS_API_URL,
-        timeout: PROBE_TIMEOUT,
+        timeout: 5000,
       })
       const apiToken = await client.exchangeBootstrapToken(VIBEOS_API_BOOTSTRAP_TOKEN, ALPHA_BUILD_CHANNEL)
       if (!apiToken) return false
@@ -749,14 +746,14 @@ function syncApiTokenFromDisk(): void {
   const envToken = normalizeDirectApiToken(process.env.VIBEOS_API_TOKEN)
 
   if (diskDisabled) {
-    if (!VIBEOS_API_DISABLED || VIBEOS_API_TOKEN || VIBEOS_API_BOOTSTRAP_TOKEN || isRuntimeApiEnabled()) {
+    if (!VIBEOS_API_DISABLED || VIBEOS_API_TOKEN || VIBEOS_API_BOOTSTRAP_TOKEN || VIBEOS_API_ENABLED) {
       VIBEOS_API_DISABLED = true
       VIBEOS_API_TOKEN = ""
       VIBEOS_API_BOOTSTRAP_TOKEN = ""
-      setRuntimeApiEnabled(false)
+      VIBEOS_API_ENABLED = false
       _apiClient = null
-      setRuntimeFallbackMode(false)
-      setRuntimeFallbackSince(null)
+      _apiFallbackMode = false
+      _apiFallbackSince = null
       resetApiConnection()
       console.error("[vibeOS] API token disabled from disk (alpha kill switch active)")
     }
@@ -766,111 +763,74 @@ function syncApiTokenFromDisk(): void {
   if (diskToken && diskToken !== VIBEOS_API_TOKEN) {
     VIBEOS_API_DISABLED = false
     VIBEOS_API_TOKEN = diskToken
-    setRuntimeApiEnabled(process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN))
+    VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN)
     _apiClient = null
-    setRuntimeFallbackMode(false)
-    setRuntimeFallbackSince(null)
+    _apiFallbackMode = false
+    _apiFallbackSince = null
     resetApiConnection()
     console.error("[vibeOS] API token synced from disk (disk is newer)")
   } else if (diskBootstrapToken && diskBootstrapToken !== VIBEOS_API_BOOTSTRAP_TOKEN) {
     VIBEOS_API_DISABLED = false
     VIBEOS_API_BOOTSTRAP_TOKEN = diskBootstrapToken
-    setRuntimeApiEnabled(process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN))
-    setRuntimeFallbackMode(false)
-    setRuntimeFallbackSince(null)
+    VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN)
+    _apiFallbackMode = false
+    _apiFallbackSince = null
     resetApiConnection()
     console.error("[vibeOS] Alpha bootstrap token synced from disk (disk is newer)")
   } else if (!diskToken && VIBEOS_API_TOKEN) {
     persistPrimaryApiEnvState({ token: VIBEOS_API_TOKEN, disabled: false })
     console.error("[vibeOS] API token persisted to disk from memory (disk was empty)")
-    setRuntimeApiEnabled(process.env.VIBEOS_API_ENABLED !== "false" && !!VIBEOS_API_TOKEN)
+    VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && !!VIBEOS_API_TOKEN
   } else if (envToken && !diskToken && !VIBEOS_API_TOKEN) {
     VIBEOS_API_DISABLED = false
     VIBEOS_API_TOKEN = envToken
-    setRuntimeApiEnabled(process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN))
+    VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN)
     console.error("[vibeOS] API token loaded from VIBEOS_API_TOKEN env var")
   } else {
     VIBEOS_API_DISABLED = false
+    if (!VIBEOS_API_TOKEN && !hasPrimaryTokenOnDisk()) {
+      VIBEOS_API_TOKEN = EMBEDDED_API_TOKEN
+    }
     VIBEOS_API_BOOTSTRAP_TOKEN ||= EMBEDDED_API_TOKEN
-    setRuntimeApiEnabled(process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN))
+    VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN)
   }
 }
 
 export function getApiClient() {
   syncApiTokenFromDisk()
-  if (!_apiClient && isRuntimeApiEnabled() && VIBEOS_API_TOKEN) {
+  if (!_apiClient && VIBEOS_API_ENABLED && VIBEOS_API_TOKEN) {
     _apiClient = new VibeOSApiClient({
       baseUrl: VIBEOS_API_URL,
       apiToken: VIBEOS_API_TOKEN,
-      timeout: PROBE_TIMEOUT,
+      timeout: 5000,
     })
   }
   return _apiClient
 }
 
 export function isApiFallback() {
-  return isRuntimeFallbackMode() || !isRuntimeApiEnabled()
+  return _apiFallbackMode || !VIBEOS_API_ENABLED
 }
 
 export function isApiConnected() {
   tryResetFallbackCooldown()
-  return isRuntimeApiConnected()
+  return isRuntimeApiConnected() && VIBEOS_API_ENABLED && !_apiFallbackMode
 }
 
 export function getBackendVersion(): string {
   return _backendVersion
 }
 
-export function getApiFallbackSince(): string | null {
-  return getRuntimeFallbackSince()
-}
-
 export async function remoteCall(method, args, fallbackFn) {
-  if (!_startupProbeDone && !isRuntimeFallbackMode()) {
-    _startupProbeDone = true
-    try {
-      syncApiTokenFromDisk()
-      if (isRuntimeApiEnabled()) {
-        const probeClient = getApiClient()
-        if (probeClient) {
-          await probeClient.health()
-          markApiConnected()
-        }
-      }
-    } catch {
-      // startup probe failure is non-fatal; remoteCall logic handles fallback
-    }
-  }
   syncApiTokenFromDisk()
   if (!VIBEOS_API_TOKEN && VIBEOS_API_BOOTSTRAP_TOKEN) {
     await ensureBootstrapExchange()
     syncApiTokenFromDisk()
-    if (VIBEOS_API_TOKEN) markApiConnected()
   }
-  if (isRuntimeFallbackMode() && getRuntimeFallbackSince()) {
-    const elapsed = Date.now() - new Date(getRuntimeFallbackSince()).getTime()
-    if (elapsed > FALLBACK_COOLDOWN_MS) {
-      try {
-        const probeClient = getApiClient()
-        if (probeClient) {
-          await probeClient.health()
-          markApiConnected()
-        } else {
-          denyReconnection("no client")
-          if (fallbackFn) return fallbackFn()
-          return null
-        }
-      } catch (probeErr) {
-        const probeStatus = probeErr?.statusCode || probeErr?.status || 0
-        const probeBody = probeErr?.response?.body || probeErr?.body || ""
-        const probePreview = typeof probeBody === "string" ? probeBody.substring(0, 80) : String(probeBody).substring(0, 80)
-        denyReconnection(probeStatus ? `status=${probeStatus} body=${probePreview}` : `message=${probeErr?.message || probeErr}`)
-        if (fallbackFn) return fallbackFn()
-        return null
-      }
-    }
+  if (tryResetFallbackCooldown()) {
+    console.warn("[vibeOS] API fallback cooldown expired — retrying API")
   }
-  if (!isRuntimeApiEnabled() || isRuntimeFallbackMode()) {
+  if (!VIBEOS_API_ENABLED || _apiFallbackMode) {
     if (fallbackFn) return fallbackFn()
     return null
   }
@@ -889,12 +849,13 @@ export async function remoteCall(method, args, fallbackFn) {
     if (!client) { if (fallbackFn) return fallbackFn(); return null }
     const result = await client[method](...args)
     if (method === "health") recordBackendVersion(result)
-    if (isRuntimeFallbackMode()) {
-      setRuntimeFallbackMode(false)
-      setRuntimeFallbackSince(null)
+    if (_apiFallbackMode) {
+      _apiFallbackMode = false
+      _apiFallbackSince = null
+      console.warn(`[vibeOS] API reconnected — ${method} OK`)
     }
-    setRuntimeFallbackMode(false)
-    setRuntimeFallbackSince(null)
+    _apiFallbackMode = false
+    _apiFallbackSince = null
     markApiConnected()
     return result
   } catch (err) {
@@ -902,9 +863,9 @@ export async function remoteCall(method, args, fallbackFn) {
     const body = err?.response?.body || err?.body || ""
     const bodyPreview = typeof body === "string" ? body.substring(0, 120) : String(body).substring(0, 120)
     const detail = status ? `status=${status} body=${bodyPreview}` : `message=${err?.message || err}`
-    if (!isRuntimeFallbackMode()) {
-      setRuntimeFallbackMode(true)
-      setRuntimeFallbackSince(new Date().toISOString())
+    if (!_apiFallbackMode) {
+      _apiFallbackMode = true
+      _apiFallbackSince = new Date().toISOString()
       console.error(`[vibeOS] API fallback activated (${method}): ${detail}`)
     }
     if (status === 401 || status === 403) {

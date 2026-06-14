@@ -316,7 +316,6 @@ function getRuntimeState() {
       apiConnected: true,
       apiFallbackMode: false,
       apiFallbackSince: null,
-      apiEnabled: true,
       sessionId: "opencode-" + (process.pid || "x") + "-" + Date.now()
     };
   }
@@ -346,30 +345,7 @@ function resetApiConnection() {
 }
 function isApiConnected() {
   const state = getRuntimeState();
-  return state.apiEnabled;
-}
-function isApiFallbackMode() {
-  return getRuntimeState().apiFallbackMode;
-}
-function getApiFallbackSince() {
-  return getRuntimeState().apiFallbackSince;
-}
-function isApiEnabled() {
-  return getRuntimeState().apiEnabled;
-}
-function setApiEnabled(enabled) {
-  getRuntimeState().apiEnabled = enabled;
-}
-function setApiFallbackSince(since) {
-  getRuntimeState().apiFallbackSince = since;
-}
-function setApiFallbackMode(on) {
-  const state = getRuntimeState();
-  state.apiFallbackMode = on;
-  if (on && !state.apiFallbackSince)
-    state.apiFallbackSince = (/* @__PURE__ */ new Date()).toISOString();
-  if (!on)
-    state.apiFallbackSince = null;
+  return state.apiConnected && !state.apiFallbackMode;
 }
 var RUNTIME_KEY;
 var init_runtime_state = __esm({
@@ -4839,11 +4815,9 @@ var DEFAULT_API_URL = "https://api.vibetheog.com";
 var EMBEDDED_API_TOKEN = "vos_8d73804b13bb46711b9a47f036dba7b4d026fd9583d96960e663716e62815a69";
 var API_TOKEN_RE = /^vos_[a-f0-9]{64}$/i;
 var API_DISABLED_RE = /^(1|true|yes|on)$/i;
-var IS_TEST_RUNTIME = process.env.VIBEOS_TEST_MODE === "1" || process.env.NODE_ENV === "test" || process.env.CI === "true";
-var REQUEST_TIMEOUT = IS_TEST_RUNTIME ? 2e3 : 1e4;
-var MAX_RETRIES = IS_TEST_RUNTIME ? 1 : 3;
-var BASE_RETRY_DELAY = IS_TEST_RUNTIME ? 100 : 1e3;
-var PROBE_TIMEOUT = IS_TEST_RUNTIME ? 2e3 : 5e3;
+var REQUEST_TIMEOUT = 1e4;
+var MAX_RETRIES = 3;
+var BASE_RETRY_DELAY = 1e3;
 var ALPHA_BUILD_CHANNEL = String(process.env.VIBEOS_BUILD_CHANNEL || "alpha").toLowerCase();
 var BOOTSTRAP_EXCHANGE_PATH = "/api/v1/auth/bootstrap/exchange";
 var BOOTSTRAP_RETRY_COOLDOWN_MS = 6e4;
@@ -5309,6 +5283,16 @@ function readTokenFromDisk() {
   }
   return "";
 }
+function hasPrimaryTokenOnDisk() {
+  if (readApiDisabledFromDisk())
+    return false;
+  try {
+    const env = readFileSync4(_envPaths[0] + "/.env.production", "utf8");
+    return /^VIBEOS_API_TOKEN=/m.test(env);
+  } catch {
+    return false;
+  }
+}
 function readBootstrapTokenFromDisk() {
   if (readApiDisabledFromDisk())
     return "";
@@ -5322,9 +5306,9 @@ function readBootstrapTokenFromDisk() {
   return "";
 }
 var VIBEOS_API_DISABLED = readApiDisabledFromDisk() || isTruthyFlag(process.env.VIBEOS_API_DISABLED);
-var VIBEOS_API_TOKEN = VIBEOS_API_DISABLED ? "" : readTokenFromDisk() || normalizeDirectApiToken(process.env.VIBEOS_API_TOKEN);
+var VIBEOS_API_TOKEN = VIBEOS_API_DISABLED ? "" : readTokenFromDisk() || normalizeDirectApiToken(process.env.VIBEOS_API_TOKEN) || (!hasPrimaryTokenOnDisk() ? EMBEDDED_API_TOKEN : "");
 var VIBEOS_API_BOOTSTRAP_TOKEN = VIBEOS_API_DISABLED ? "" : readBootstrapTokenFromDisk() || process.env.VIBEOS_API_BOOTSTRAP_TOKEN || EMBEDDED_API_TOKEN;
-setApiEnabled(!VIBEOS_API_DISABLED && process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN));
+var VIBEOS_API_ENABLED = !VIBEOS_API_DISABLED && process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
 var _anomalyDetector = null;
 function getAnomalyDetector() {
   if (!_anomalyDetector)
@@ -5356,10 +5340,10 @@ function setApiToken(newToken) {
     VIBEOS_API_DISABLED = false;
     VIBEOS_API_TOKEN = normalizeDirectApiToken(newToken);
     VIBEOS_API_BOOTSTRAP_TOKEN = readBootstrapTokenFromDisk() || VIBEOS_API_BOOTSTRAP_TOKEN;
-    setApiEnabled(process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN));
+    VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
     _apiClient = null;
-    setApiFallbackMode(false);
-    setApiFallbackSince(null);
+    _apiFallbackMode = false;
+    _apiFallbackSince = null;
     persistPrimaryApiEnvState({ token: VIBEOS_API_TOKEN, disabled: false });
     if (_anomalyDetector)
       _anomalyDetector.reset();
@@ -5374,10 +5358,10 @@ function invalidateApiToken() {
     VIBEOS_API_DISABLED = true;
     VIBEOS_API_TOKEN = "";
     VIBEOS_API_BOOTSTRAP_TOKEN = "";
-    setApiEnabled(false);
+    VIBEOS_API_ENABLED = false;
     _apiClient = null;
-    setApiFallbackMode(false);
-    setApiFallbackSince(null);
+    _apiFallbackMode = false;
+    _apiFallbackSince = null;
     if (_anomalyDetector)
       _anomalyDetector.reset();
     persistBootstrapToken("");
@@ -5392,7 +5376,7 @@ function setApiBootstrapToken(newToken) {
   try {
     VIBEOS_API_DISABLED = false;
     VIBEOS_API_BOOTSTRAP_TOKEN = String(newToken || "").trim();
-    setApiEnabled(process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN));
+    VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
     persistPrimaryApiEnvState({ disabled: false });
     persistBootstrapToken(VIBEOS_API_BOOTSTRAP_TOKEN);
     console.error("[vibeOS] Alpha bootstrap token updated");
@@ -5401,26 +5385,26 @@ function setApiBootstrapToken(newToken) {
   }
 }
 var _apiClient = null;
-var _startupProbeDone = false;
+var _apiFallbackMode = false;
+var _apiFallbackSince = null;
 var _bootstrapExchangeInFlight = null;
 var _bootstrapExchangeFailedAt = 0;
 var _backendVersion = "";
 var FALLBACK_COOLDOWN_MS = 6e4;
 function tryResetFallbackCooldown() {
-  if (!isApiFallbackMode() || !getApiFallbackSince())
+  if (!_apiFallbackMode || !_apiFallbackSince)
     return false;
-  const elapsed = Date.now() - new Date(getApiFallbackSince()).getTime();
+  const elapsed = Date.now() - new Date(_apiFallbackSince).getTime();
   if (elapsed > FALLBACK_COOLDOWN_MS) {
-    setApiFallbackMode(false);
-    setApiFallbackSince(null);
+    _apiFallbackMode = false;
+    _apiFallbackSince = null;
     markApiConnected();
     return true;
   }
   return false;
 }
-function denyReconnection(detail) {
-  setApiFallbackSince((/* @__PURE__ */ new Date()).toISOString());
-  console.warn(`[vibeOS] API health probe failed during reconnect: ${detail} \u2014 staying in fallback`);
+function getApiFallbackSince() {
+  return _apiFallbackSince;
 }
 function recordBackendVersion(payload) {
   if (!payload || typeof payload !== "object")
@@ -5448,7 +5432,7 @@ async function ensureBootstrapExchange() {
     try {
       const client2 = new VibeOSApiClient({
         baseUrl: VIBEOS_API_URL,
-        timeout: PROBE_TIMEOUT
+        timeout: 5e3
       });
       const apiToken = await client2.exchangeBootstrapToken(VIBEOS_API_BOOTSTRAP_TOKEN, ALPHA_BUILD_CHANNEL);
       if (!apiToken)
@@ -5472,14 +5456,14 @@ function syncApiTokenFromDisk() {
   const diskBootstrapToken = readBootstrapTokenFromDisk() || "";
   const envToken = normalizeDirectApiToken(process.env.VIBEOS_API_TOKEN);
   if (diskDisabled) {
-    if (!VIBEOS_API_DISABLED || VIBEOS_API_TOKEN || VIBEOS_API_BOOTSTRAP_TOKEN || isApiEnabled()) {
+    if (!VIBEOS_API_DISABLED || VIBEOS_API_TOKEN || VIBEOS_API_BOOTSTRAP_TOKEN || VIBEOS_API_ENABLED) {
       VIBEOS_API_DISABLED = true;
       VIBEOS_API_TOKEN = "";
       VIBEOS_API_BOOTSTRAP_TOKEN = "";
-      setApiEnabled(false);
+      VIBEOS_API_ENABLED = false;
       _apiClient = null;
-      setApiFallbackMode(false);
-      setApiFallbackSince(null);
+      _apiFallbackMode = false;
+      _apiFallbackSince = null;
       resetApiConnection();
       console.error("[vibeOS] API token disabled from disk (alpha kill switch active)");
     }
@@ -5488,107 +5472,69 @@ function syncApiTokenFromDisk() {
   if (diskToken && diskToken !== VIBEOS_API_TOKEN) {
     VIBEOS_API_DISABLED = false;
     VIBEOS_API_TOKEN = diskToken;
-    setApiEnabled(process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN));
+    VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
     _apiClient = null;
-    setApiFallbackMode(false);
-    setApiFallbackSince(null);
+    _apiFallbackMode = false;
+    _apiFallbackSince = null;
     resetApiConnection();
     console.error("[vibeOS] API token synced from disk (disk is newer)");
   } else if (diskBootstrapToken && diskBootstrapToken !== VIBEOS_API_BOOTSTRAP_TOKEN) {
     VIBEOS_API_DISABLED = false;
     VIBEOS_API_BOOTSTRAP_TOKEN = diskBootstrapToken;
-    setApiEnabled(process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN));
-    setApiFallbackMode(false);
-    setApiFallbackSince(null);
+    VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
+    _apiFallbackMode = false;
+    _apiFallbackSince = null;
     resetApiConnection();
     console.error("[vibeOS] Alpha bootstrap token synced from disk (disk is newer)");
   } else if (!diskToken && VIBEOS_API_TOKEN) {
     persistPrimaryApiEnvState({ token: VIBEOS_API_TOKEN, disabled: false });
     console.error("[vibeOS] API token persisted to disk from memory (disk was empty)");
-    setApiEnabled(process.env.VIBEOS_API_ENABLED !== "false" && !!VIBEOS_API_TOKEN);
+    VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && !!VIBEOS_API_TOKEN;
   } else if (envToken && !diskToken && !VIBEOS_API_TOKEN) {
     VIBEOS_API_DISABLED = false;
     VIBEOS_API_TOKEN = envToken;
-    setApiEnabled(process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN));
+    VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
     console.error("[vibeOS] API token loaded from VIBEOS_API_TOKEN env var");
   } else {
     VIBEOS_API_DISABLED = false;
+    if (!VIBEOS_API_TOKEN && !hasPrimaryTokenOnDisk()) {
+      VIBEOS_API_TOKEN = EMBEDDED_API_TOKEN;
+    }
     VIBEOS_API_BOOTSTRAP_TOKEN ||= EMBEDDED_API_TOKEN;
-    setApiEnabled(process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN));
+    VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
   }
 }
 function getApiClient2() {
   syncApiTokenFromDisk();
-  if (!_apiClient && isApiEnabled() && VIBEOS_API_TOKEN) {
+  if (!_apiClient && VIBEOS_API_ENABLED && VIBEOS_API_TOKEN) {
     _apiClient = new VibeOSApiClient({
       baseUrl: VIBEOS_API_URL,
       apiToken: VIBEOS_API_TOKEN,
-      timeout: PROBE_TIMEOUT
+      timeout: 5e3
     });
   }
   return _apiClient;
 }
 function isApiFallback2() {
-  return isApiFallbackMode() || !isApiEnabled();
+  return _apiFallbackMode || !VIBEOS_API_ENABLED;
 }
 function isApiConnected2() {
   tryResetFallbackCooldown();
-  return isApiConnected();
+  return isApiConnected() && VIBEOS_API_ENABLED && !_apiFallbackMode;
 }
 function getBackendVersion() {
   return _backendVersion;
 }
-function getApiFallbackSince2() {
-  return getApiFallbackSince();
-}
 async function remoteCall(method, args, fallbackFn) {
-  if (!_startupProbeDone && !isApiFallbackMode()) {
-    _startupProbeDone = true;
-    try {
-      syncApiTokenFromDisk();
-      if (isApiEnabled()) {
-        const probeClient = getApiClient2();
-        if (probeClient) {
-          await probeClient.health();
-          markApiConnected();
-        }
-      }
-    } catch {
-    }
-  }
   syncApiTokenFromDisk();
   if (!VIBEOS_API_TOKEN && VIBEOS_API_BOOTSTRAP_TOKEN) {
     await ensureBootstrapExchange();
     syncApiTokenFromDisk();
-    if (VIBEOS_API_TOKEN)
-      markApiConnected();
   }
-  if (isApiFallbackMode() && getApiFallbackSince()) {
-    const elapsed = Date.now() - new Date(getApiFallbackSince()).getTime();
-    if (elapsed > FALLBACK_COOLDOWN_MS) {
-      try {
-        const probeClient = getApiClient2();
-        if (probeClient) {
-          await probeClient.health();
-          markApiConnected();
-        } else {
-          denyReconnection("no client");
-          if (fallbackFn)
-            return fallbackFn();
-          return null;
-        }
-      } catch (probeErr) {
-        const probeStatus = probeErr?.statusCode || probeErr?.status || 0;
-        const probeBody = probeErr?.response?.body || probeErr?.body || "";
-        const probePreview = typeof probeBody === "string" ? probeBody.substring(0, 80) : String(probeBody).substring(0, 80);
-        denyReconnection(probeStatus ? `status=${probeStatus} body=${probePreview}` : `message=${probeErr?.message || probeErr}`);
-        if (fallbackFn)
-          return fallbackFn();
-        return null;
-      }
-    }
+  if (tryResetFallbackCooldown()) {
+    console.warn("[vibeOS] API fallback cooldown expired \u2014 retrying API");
   }
-  if (!isApiEnabled() || isApiFallbackMode()) {
+  if (!VIBEOS_API_ENABLED || _apiFallbackMode) {
     if (fallbackFn)
       return fallbackFn();
     return null;
@@ -5610,12 +5556,13 @@ async function remoteCall(method, args, fallbackFn) {
     const result = await client2[method](...args);
     if (method === "health")
       recordBackendVersion(result);
-    if (isApiFallbackMode()) {
-      setApiFallbackMode(false);
-      setApiFallbackSince(null);
+    if (_apiFallbackMode) {
+      _apiFallbackMode = false;
+      _apiFallbackSince = null;
+      console.warn(`[vibeOS] API reconnected \u2014 ${method} OK`);
     }
-    setApiFallbackMode(false);
-    setApiFallbackSince(null);
+    _apiFallbackMode = false;
+    _apiFallbackSince = null;
     markApiConnected();
     return result;
   } catch (err) {
@@ -5623,9 +5570,9 @@ async function remoteCall(method, args, fallbackFn) {
     const body = err?.response?.body || err?.body || "";
     const bodyPreview = typeof body === "string" ? body.substring(0, 120) : String(body).substring(0, 120);
     const detail = status ? `status=${status} body=${bodyPreview}` : `message=${err?.message || err}`;
-    if (!isApiFallbackMode()) {
-      setApiFallbackMode(true);
-      setApiFallbackSince((/* @__PURE__ */ new Date()).toISOString());
+    if (!_apiFallbackMode) {
+      _apiFallbackMode = true;
+      _apiFallbackSince = (/* @__PURE__ */ new Date()).toISOString();
       console.error(`[vibeOS] API fallback activated (${method}): ${detail}`);
     }
     if (status === 401 || status === 403) {
@@ -12547,8 +12494,8 @@ function buildFooterLine(input) {
 
 // src/lib/hooks/footer.js
 var IS_CLI_RUNTIME = Boolean(process.stdout?.isTTY || process.stderr?.isTTY || process.stdin?.isTTY);
-var IS_TEST_RUNTIME2 = process.env.VIBEOS_MCP_PORT === "0" || process.env.NODE_ENV === "test" || process.env.CI === "true";
-var FOOTER_DEBUG_STDERR = process.env.VIBEOS_DEBUG_FOOTER === "1" || !IS_CLI_RUNTIME && !IS_TEST_RUNTIME2;
+var IS_TEST_RUNTIME = process.env.VIBEOS_MCP_PORT === "0" || process.env.NODE_ENV === "test" || process.env.CI === "true";
+var FOOTER_DEBUG_STDERR = process.env.VIBEOS_DEBUG_FOOTER === "1" || !IS_CLI_RUNTIME && !IS_TEST_RUNTIME;
 function footerDebug(...args) {
   if (FOOTER_DEBUG_STDERR)
     console.error(...args);
@@ -15669,7 +15616,7 @@ async function ensureMcpServerRunning() {
               backendHealthUrl: `${VIBEOS_API_URL}/health`,
               backendVersion: getBackendVersion(),
               apiFallbackMode: isApiFallback2(),
-              apiFallbackSince: getApiFallbackSince2(),
+              apiFallbackSince: getApiFallbackSince(),
               modelLocked: _modelLocked,
               lockedSlot: _lockedSlot,
               lockedModel: _lockedModel
@@ -16056,7 +16003,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     saveBlackboxState,
     isApiFallback: () => isApiFallback2(),
     get _apiFallbackSince() {
-      return getApiFallbackSince2();
+      return getApiFallbackSince();
     },
     reportsIndex: reportsIndexStable,
     saveReportsIndex: saveReportsIndexStable,
