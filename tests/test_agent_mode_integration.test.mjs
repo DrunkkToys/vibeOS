@@ -208,7 +208,7 @@ test("syncControlSettings does not overwrite a pre-outage optimization mode with
           onboarding_mode: "strict",
         },
         trinity: {
-          brain: { oc: "deepseek/deepseek-v4-pro", cc: "deepseek-reasoner" },
+          brain: { oc: "opus-4", cc: "deepseek-reasoner" },
           medium: { oc: "deepseek/deepseek-v4-flash", cc: "haiku" },
           cheap: { oc: "deepseek/deepseek-chat", cc: "haiku" },
         },
@@ -292,7 +292,7 @@ test("syncControlSettings restores a stuck vibelitex optimization mode back to t
           onboarding_mode: "strict",
         },
         trinity: {
-          brain: { oc: "deepseek/deepseek-v4-pro", cc: "deepseek-reasoner" },
+          brain: { oc: "opus-4", cc: "deepseek-reasoner" },
           medium: { oc: "deepseek/deepseek-v4-flash", cc: "haiku" },
           cheap: { oc: "deepseek/deepseek-chat", cc: "haiku" },
         },
@@ -348,16 +348,7 @@ test("loadOptimizationMode recovers vibelitex from live brain tier after boot", 
       mkdirSync(join(home, ".config/opencode"), { recursive: true });
       mkdirSync(join(home, ".claude"), { recursive: true });
       writeFileSync(join(home, ".config/opencode/opencode.json"), JSON.stringify({
-        model: "deepseek/deepseek-v4-pro",
-        provider: {
-          deepseek: {
-            models: {
-              "deepseek-v4-pro": {},
-              "deepseek-v4-flash": {},
-              "deepseek-chat": {},
-            },
-          },
-        },
+        model: "opus-4",
       }, null, 2));
       writeFileSync(join(home, ".claude/model-tiers.json"), JSON.stringify({
         selection: {
@@ -368,7 +359,7 @@ test("loadOptimizationMode recovers vibelitex from live brain tier after boot", 
           onboarding_mode: "strict",
         },
         trinity: {
-          brain: { oc: "deepseek/deepseek-v4-pro", cc: "deepseek-reasoner" },
+          brain: { oc: "opus-4", cc: "deepseek-reasoner" },
           medium: { oc: "deepseek/deepseek-v4-flash", cc: "haiku" },
           cheap: { oc: "deepseek/deepseek-chat", cc: "haiku" },
         },
