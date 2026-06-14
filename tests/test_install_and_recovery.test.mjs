@@ -7,6 +7,7 @@
 //   4. Missing ALL config files (bare machine)
 //
 import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, rmSync, existsSync } from "node:fs"
+import { spawnSync } from "node:child_process"
 import { join, dirname } from "node:path"
 import { homedir, tmpdir } from "node:os"
 import { fileURLToPath } from "node:url"
@@ -585,6 +586,28 @@ test("bare machine: no config files anywhere — plugin loads without crashing",
     assert.ok(!existsSync(join(sb, ".claude/model-tiers.json")) ||
       existsSync(join(sb, ".claude/model-tiers.json")),
       "model-tiers.json may or may not exist — both are valid states on bare machine")
+  } finally {
+    process.env.HOME = prevHome
+    rmSync(sb, { recursive: true, force: true })
+  }
+})
+
+test("install: deploy script creates opencode.json on a fresh machine", async () => {
+  const sb = mkdtempSync(join(tmpdir(), "install-deploy-"))
+  const prevHome = process.env.HOME
+  process.env.HOME = sb
+  try {
+    const result = spawnSync(process.execPath, [join(ROOT, "scripts", "deploy.mjs")], {
+      cwd: ROOT,
+      env: { ...process.env, HOME: sb },
+      encoding: "utf8",
+    })
+    assert.equal(result.status, 0, result.stderr || result.stdout)
+    const ocPath = join(sb, ".config", "opencode", "opencode.json")
+    assert.ok(existsSync(ocPath), "deploy should create opencode.json")
+    const oc = JSON.parse(readFileSync(ocPath, "utf8"))
+    assert.ok(Array.isArray(oc.plugin), "plugin array created")
+    assert.ok(oc.plugin.some((p) => String(p).includes("vibeOS.js")), "vibeOS plugin registered")
   } finally {
     process.env.HOME = prevHome
     rmSync(sb, { recursive: true, force: true })

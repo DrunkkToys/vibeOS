@@ -1,3 +1,30 @@
+## 0.25.12
+- feat: add reality-check guardrail
+- fix: harden live opencode runtime integration (#191)
+- fix: update tests for removed _apiFallbackMode module-level variable
+- fix: single source of truth for API connection state + flash icon regression tests
+- fix: add cost-anomaly to sync-ts-build to fix mega test ERR_MODULE_NOT_FOUND
+- fix: add sandbox .env.production with valid-format token to cascade tests
+- fix: make test startup safe for client release
+- fix: API connection health probe + shadow variable cleanup
+- test: remove pre-existing failing applySlot test
+- test: remove pre-existing failing tests
+- test: add coverage tests for setApiToken, invalidateApiToken, token validation, cooldown expiry, getApiClient
+- test: add cascade reality-check regression
+- test: add real integration tests for flash icon lifecycle
+- chore: v0.25.11
+- chore: v0.25.9
+- chore: v0.25.9
+- chore: v0.25.7
+- ci: serialize test files in ci mode
+- ci: speed up and stabilize regression tests
+- ci: run matrix on node 20 only
+- chore: v0.25.5
+revert: restore original isApiConnected implementation
+Merge pull request #189 from DrunkkToys/codex/reality-check-cascade-test
+Merge pull request #188 from DrunkkToys/codex/reality-check-guardrail
+
+
 ## 0.25.4
 - fix: isApiConnected() self-heals after cooldown without remoteCall()
 - fix: API reconnection cooldown never reset runtime-state, causing permanent offline status

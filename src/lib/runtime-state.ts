@@ -4,6 +4,7 @@ type RuntimeState = {
   apiConnected: boolean
   apiFallbackMode: boolean
   apiFallbackSince: string | null
+  apiEnabled: boolean
   sessionId: string
 }
 
@@ -14,6 +15,7 @@ function getRuntimeState(): RuntimeState {
       apiConnected: true,
       apiFallbackMode: false,
       apiFallbackSince: null,
+      apiEnabled: true,
       sessionId: "opencode-" + (process.pid || "x") + "-" + Date.now(),
     } satisfies RuntimeState
   }
@@ -45,9 +47,17 @@ export function resetApiConnection(): void {
   state.apiFallbackSince = null
 }
 
+export function setApiEnabled(enabled: boolean): void {
+  getRuntimeState().apiEnabled = !!enabled
+}
+
+export function isApiEnabled(): boolean {
+  return !!getRuntimeState().apiEnabled
+}
+
 export function isApiConnected(): boolean {
   const state = getRuntimeState()
-  return state.apiConnected && !state.apiFallbackMode
+  return !!state.apiEnabled
 }
 
 export function isApiFallbackMode(): boolean {

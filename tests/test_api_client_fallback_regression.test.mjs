@@ -1,5 +1,5 @@
 // Regression: setApiToken() must reset _apiFallbackMode, _apiClient, _apiFallbackSince,
-// and call resetApiConnection() so subsequent remoteCall() attempts can proceed.
+// and restore the runtime connection state so subsequent remoteCall() attempts can proceed.
 //
 // Without these resets, a failed API call deadlocks the module permanently.
 // Run: node --test tests/test_api_client_fallback_regression.test.mjs
@@ -107,8 +107,7 @@ test("after setApiToken, a remoteCall actually tries the API instead of short-ci
     // THE FIX: clear state
     api.setApiToken("vos_new_client_token")
     assert.equal(api.isApiFallback(), false, "fallback cleared")
-    // isApiConnected now only checks apiEnabled, not apiConnected state
-    // After setApiToken, apiEnabled is true, so isApiConnected returns true
+    // After setApiToken, the runtime is marked connected again.
     assert.equal(api.isApiConnected(), true, "apiEnabled still true after setApiToken")
 
     // The next remoteCall must try the fetch (not short-circuit) -> fails -> back to fallback
