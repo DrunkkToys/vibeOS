@@ -17,7 +17,9 @@ function resolveOpenCodeHomes() {
   const base = homedir()
   const configHome = join(base, ".config", "opencode")
   const dotHome = join(base, ".opencode")
-  return [configHome, dotHome]
+  const desktopHome = process.env.VIBEOS_OPENCODE_DESKTOP_HOME
+    || (process.platform === "darwin" ? join(base, "Library", "Application Support", "ai.opencode.desktop") : null)
+  return [configHome, dotHome, desktopHome].filter(Boolean)
 }
 
 if (!existsSync(bundlePath)) {
@@ -102,6 +104,7 @@ try {
   try {
     for (const home of resolveOpenCodeHomes()) {
       const ocConfigPath = join(home, "opencode.json")
+      const pluginRef = join(home, "plugins", "vibeOS.js")
       mkdirSync(dirname(ocConfigPath), { recursive: true })
       let config = {}
       if (existsSync(ocConfigPath)) {
@@ -115,13 +118,12 @@ try {
       }
       if (!config || typeof config !== "object" || Array.isArray(config)) config = {}
       if (!Array.isArray(config.plugin)) config.plugin = []
-      const hasVibeOs = config.plugin.some(p => typeof p === "string" && p.includes("vibeOS"))
-      if (!hasVibeOs) {
-        config.$schema ||= "https://opencode.ai/config.json"
-        config.plugin.push("./plugins/vibeOS.js")
-        writeFileSync(ocConfigPath, JSON.stringify(config, null, 2) + "\n")
-        process.stderr.write(`[vibeOS deploy] Registered vibeOS in ${home}/opencode.json\n`)
-      }
+      const filtered = config.plugin.filter((p) => !(typeof p === "string" && p.includes("vibeOS")))
+      filtered.push(pluginRef)
+      config.$schema ||= "https://opencode.ai/config.json"
+      config.plugin = filtered
+      writeFileSync(ocConfigPath, JSON.stringify(config, null, 2) + "\n")
+      process.stderr.write(`[vibeOS deploy] Registered vibeOS in ${home}/opencode.json\n`)
     }
   } catch {
     process.stderr.write("[vibeOS deploy] Could not auto-register in opencode.json (plugin may need manual config)\n")

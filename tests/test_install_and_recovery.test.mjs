@@ -650,13 +650,15 @@ test("install: deploy script creates opencode.json on a fresh machine", async ()
     const configHomes = [
       join(sb, ".config", "opencode"),
       join(sb, ".opencode"),
+      join(sb, "Library", "Application Support", "ai.opencode.desktop"),
     ]
     for (const home of configHomes) {
       const ocPath = join(home, "opencode.json")
+      const pluginRef = join(home, "plugins", "vibeOS.js")
       assert.ok(existsSync(ocPath), `deploy should create opencode.json in ${home}`)
       const oc = JSON.parse(readFileSync(ocPath, "utf8"))
       assert.ok(Array.isArray(oc.plugin), `plugin array created in ${home}`)
-      assert.ok(oc.plugin.some((p) => String(p).includes("vibeOS.js")), `vibeOS plugin registered in ${home}`)
+      assert.ok(oc.plugin.includes(pluginRef), `vibeOS plugin registered in ${home}`)
       assert.ok(existsSync(join(home, "plugins", "vibeOS.js")), `plugin bundle copied in ${home}`)
     }
   } finally {
