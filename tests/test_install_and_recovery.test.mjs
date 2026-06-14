@@ -653,7 +653,7 @@ test("install: deploy script creates opencode.json on a fresh machine", async ()
     const configHomes = [
       join(sb, ".config", "opencode"),
       join(sb, ".opencode"),
-      join(sb, "Library", "Application Support", "ai.opencode.desktop"),
+      ...(process.platform === "darwin" ? [join(sb, "Library", "Application Support", "ai.opencode.desktop")] : []),
     ]
     for (const home of configHomes) {
       const ocPath = join(home, "opencode.json")
@@ -678,7 +678,7 @@ test("install: deploy script overwrites stale plugin copies across every resolve
     const homes = [
       join(sb, ".config", "opencode"),
       join(sb, ".opencode"),
-      join(sb, "Library", "Application Support", "ai.opencode.desktop"),
+      ...(process.platform === "darwin" ? [join(sb, "Library", "Application Support", "ai.opencode.desktop")] : []),
     ]
     for (const home of homes) {
       mkdirSync(join(home, "plugins"), { recursive: true })
