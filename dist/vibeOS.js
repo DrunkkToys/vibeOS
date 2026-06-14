@@ -2817,8 +2817,8 @@ var init_state = __esm({
       }
     });
     _startupMaintenanceHome = "";
-    FALLBACK_HIGH = /opus|gemini-.*-pro|deepseek\/deepseek-v4-pro|\bdeepseek-v4-pro\b|gpt-5|(^|\/)o[134]($|-|\/)/i;
-    FALLBACK_MID = /deepseek\/deepseek-v4-flash|\bdeepseek-v4-flash\b|claude.*sonnet|gemini-.*-flash|gpt-4o(?!-mini)/i;
+    FALLBACK_HIGH = /opus|gemini-.*-pro|gpt-5|(^|\/)o[134]($|-|\/)|claude.*opus|reasoner|r1/i;
+    FALLBACK_MID = /sonnet|gemini-.*-flash|gpt-4o(?!-mini)|haiku|flash|4o/i;
     ({ high: HIGH_TIER_RE, mid: MID_TIER_RE } = loadTierRegexes());
     loadMLState();
     scratchpadHitsSeen = /* @__PURE__ */ new Set();
@@ -6820,7 +6820,6 @@ function applySlot2(slot, projectDir = "") {
         oc.model = ocModel;
         writeFileSync6(ocConfig, JSON.stringify(oc, null, 2) + "\n");
       }
-      clearWorkspaceFollowupPauseForSession(getCurrentSessionId());
       _refreshModel(dir);
       return { ok: true, ocModel };
     });
