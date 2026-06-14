@@ -202,8 +202,9 @@ export function observeToolPattern(toolName, input, output, directory) {
         })
       } catch {}
     }
-    if (repeat === 0 && _patternFiredKeys.size > 0) {
-      // User switched to a different action -- could be following a suggestion
+    if (repeat === 0 && _patternFiredKeys.size > 0 && !_trustedCountFired) {
+      // User switched to a different action -- could be following a suggestion. Only count once.
+      _trustedCountFired = true
       try {
         updateGlobalLearning((gl) => {
           gl.patternQuality ??= { ignoredCount: 0, trustedCount: 0 }

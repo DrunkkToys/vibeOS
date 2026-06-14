@@ -119,9 +119,9 @@ When auto-mode is active, the VibeBoX control vector is the authority. `syncCont
 
 | Regime | Mode | Enforce | Flow | TDD | Tier | Think |
 |--------|------|---------|------|-----|------|-------|
-| INIT / DIVERGENT / EXPLORING / REFINING | VibeMaX | relaxed | audit | lazy | cheap | off |
+| INIT / DIVERGENT / EXPLORING / REFINING | vibelitex | relaxed | audit | lazy | cheap | off |
 | CONVERGING / CLOSED | quality | strict | strict | quality | brain | full |
-| LOOPING | speed | relaxed | audit | lazy | medium | off |
+| LOOPING | quality | relaxed | audit | lazy | brain | full |
 
 Stress > 1.5 escalates any regime to quality mode regardless of the above mapping.
 
