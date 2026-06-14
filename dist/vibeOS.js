@@ -12446,23 +12446,23 @@ var onSystemTransform = async (_input, output) => {
       nInteractions: _latestBlackboxState3?.n_interactions ?? 0
     });
     const optimizationMode = optimizationDecision.mode;
-    let _controlVector2 = null;
+    let _controlVector = null;
     ensureProjectContext(hookDirectory);
     if (_latestBlackboxState3) {
       const st = latestUserIntent ? scoreStress(latestUserIntent) : 0;
       if (st)
         _latestBlackboxState3.latest_stress_multiplier = st;
-      _controlVector2 = await apiComputeControlVector(_latestBlackboxState3, void 0, optimizationMode);
+      _controlVector = await apiComputeControlVector(_latestBlackboxState3, void 0, optimizationMode);
     } else if (latestUserIntent) {
       const st = scoreStress(latestUserIntent);
-      _controlVector2 = await apiComputeControlVector({
+      _controlVector = await apiComputeControlVector({
         sub_regime: classifiedRegime,
         latest_stress_multiplier: st || void 0,
         user_text: latestUserIntent
       }, void 0, optimizationMode);
     }
-    if (!_controlVector2) {
-      _controlVector2 = await apiComputeControlVector({
+    if (!_controlVector) {
+      _controlVector = await apiComputeControlVector({
         sub_regime: "INIT",
         latest_stress_multiplier: latestUserIntent ? scoreStress(latestUserIntent) : void 0,
         user_text: latestUserIntent || void 0
@@ -12495,10 +12495,10 @@ var onSystemTransform = async (_input, output) => {
       }
     }
     const sel = loadSelection();
-    syncControlSettings(_controlVector2, { persistOptimizationMode: optimizationDecision.shouldPersistRequestedMode });
+    syncControlSettings(_controlVector, { persistOptimizationMode: optimizationDecision.shouldPersistRequestedMode });
     const fp2 = ensureProjectContext(hookDirectory);
     const rawStress = latestUserIntent ? scoreStress(latestUserIntent) : 0;
-    const stressScore = rawStress * (_controlVector2?.stress_multiplier ?? 1);
+    const stressScore = rawStress * (_controlVector?.stress_multiplier ?? 1);
     const credit = loadCredit();
     _turnCountInject++;
     if (latestUserIntent && _blackboxEnabled !== false) {
@@ -12555,23 +12555,23 @@ var onSystemTransform = async (_input, output) => {
     if (shouldInjectTemplate(_currentTemplate, _prevTemplate)) {
       const tpl = TEMPLATES[_currentTemplate] || TEMPLATES[DEFAULT_TEMPLATE];
       let fused = tpl.directive;
-      if (sel.delegation_enforce && _controlVector2?.enforcement_mode !== "relaxed") {
+      if (sel.delegation_enforce && _controlVector?.enforcement_mode !== "relaxed") {
         fused += " Keep brain for planning \u2014 hand file changes to Task subagents. Parallel Task calls are encouraged for independent work.";
       }
-      if (sel.tdd_enforce && _controlVector2?.tdd_mode !== "lazy") {
+      if (sel.tdd_enforce && _controlVector?.tdd_mode !== "lazy") {
         fused += " Keep test skeletons ready for changed source files.";
       }
-      if (sel.flow_enabled && _controlVector2?.flow_mode !== "audit") {
+      if (sel.flow_enabled && _controlVector?.flow_mode !== "audit") {
         fused += " Stay close to existing code conventions and project patterns.";
       }
       pushSystem(output, fused);
     }
-    pushSystem(output, context7Directive(_controlVector2));
+    pushSystem(output, context7Directive(_controlVector));
     if (sel.thinking_level && sel.thinking_level !== "full") {
       pushSystem(output, thinkingDirective(sel.thinking_level));
     }
-    if (_controlVector2?.directives?.length > 0) {
-      for (const directive of _controlVector2.directives) {
+    if (_controlVector?.directives?.length > 0) {
+      for (const directive of _controlVector.directives) {
         pushSystem(output, directive);
       }
     } else if (_blackboxEnabled && _latestBlackboxState3?.n_interactions > 0) {
@@ -13066,6 +13066,7 @@ async function _appendFooter(input, output, directory3) {
     const activeSlot = selNowFooter.active_slot || "brain";
     const flashIcon = isApiConnected() ? " \u26A1" : "";
     const displayMode = autoSelectMode2(currentSubRegime, _footerStress);
+    const cv = computeControlVector2({ sub_regime: currentSubRegime, latest_stress_multiplier: _footerStress }, void 0, loadOptimizationMode() || displayMode);
     const vibeBrand = resolveBrand(loadOptimizationMode() || displayMode, activeSlot);
     const vibeLine = buildFooterLine({
       activeSlot,
@@ -13081,7 +13082,7 @@ async function _appendFooter(input, output, directory3) {
       vectorChangedSlot: selNowFooter?.vector_changed_slot,
       subRegime: currentSubRegime,
       stressGauge: _footerStress > 0.85 ? "\u2588" : _footerStress > 0.7 ? "\u2586" : _footerStress > 0.5 ? "\u2585" : _footerStress > 0.3 ? "\u2583" : _footerStress > 0.1 ? "\u2582" : "\u2581",
-      cascadeIcon: (_controlVector?.cascade_depth || 1) >= 3 ? "\u25B8\u25B8\u25B8" : (_controlVector?.cascade_depth || 1) >= 2 ? "\u25B8\u25B8" : ""
+      cascadeIcon: (cv?.cascade_depth || 1) >= 3 ? "\u25B8\u25B8\u25B8" : (cv?.cascade_depth || 1) >= 2 ? "\u25B8\u25B8" : ""
     });
     const footerText = stripped + `
 
