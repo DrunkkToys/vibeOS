@@ -4476,8 +4476,10 @@ var DASHBOARD_DIR = resolveDashboardDir();
 var DASHBOARD_CONFIG_PATH = join4(DASHBOARD_DIR, "vibeos-dashboard-config.js");
 function writeDashboardBaseConfig(baseUrl) {
   try {
+    if (!baseUrl)
+      return null;
     mkdirSync3(DASHBOARD_DIR, { recursive: true });
-    const payload = `window.__VIBEOS_DASHBOARD_BASE__ = ${JSON.stringify((baseUrl || "").replace(/\/$/, ""))};
+    const payload = `window.__VIBEOS_DASHBOARD_BASE__ = ${JSON.stringify(baseUrl.replace(/\/$/, ""))};
 `;
     writeFileSync4(DASHBOARD_CONFIG_PATH, payload, "utf-8");
     return DASHBOARD_CONFIG_PATH;
@@ -15930,7 +15932,8 @@ async function ensureMcpServerRunning() {
       const actualPort = Number(mcpServer?.address?.()?.port || requestedPort);
       if (actualPort && actualPort !== requestedPort)
         persistMcpPort(actualPort);
-      writeDashboardBaseConfig(process.env.VIBEOS_DASHBOARD_BASE_URL?.trim() || "");
+      if (actualPort)
+        writeDashboardBaseConfig(`http://127.0.0.1:${actualPort}`);
       console.error(`[vibeOS] MCP server on http://127.0.0.1:${actualPort}`);
       if (actualPort)
         console.error(`[vibeOS] Dashboard at http://127.0.0.1:${actualPort}/`);
