@@ -59,6 +59,8 @@ export function buildStatusPayload({
   modelLocked?: boolean
   lockedSlot?: string | null
   lockedModel?: string | null
+  optimizationMode?: string | null
+  tiers?: Record<string, any> | null
 }) {
   const activeSlot = selection?.active_slot || "brain"
   const todoList = Array.isArray(todos) ? todos : []
@@ -92,6 +94,8 @@ export function buildStatusPayload({
     model_locked: lockActive,
     locked_slot: resolvedLockedSlot,
     locked_model: resolvedLockedModel,
+    optimization_mode: selection?.optimization_mode || optimizationMode || null,
+    tiers: tiers?.trinity || null,
     label_modes: [...LABEL_MODES],
   }
 }

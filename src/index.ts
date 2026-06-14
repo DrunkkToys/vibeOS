@@ -384,6 +384,8 @@ async function ensureMcpServerRunning() {
               backendConnected: isApiConnected(),
               backendHealthUrl: `${VIBEOS_API_URL}/health`,
               backendVersion: getBackendVersion(),
+              optimizationMode: loadSelection()?.optimization_mode || null,
+              tiers: (() => { try { return safeJsonParse(readFileSync(getTiersFile(), "utf-8"))?.trinity } catch { return null } })(),
               apiFallbackMode: isApiFallback(),
               apiFallbackSince: getApiFallbackSince(),
               modelLocked: _modelLocked,

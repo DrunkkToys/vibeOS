@@ -5160,8 +5160,8 @@ var VibeOSApiClient = class {
   async blackboxCalibration(projectId) {
     return this.request("/api/v1/blackbox/calibration?project_id=" + (projectId || "global"), null);
   }
-  async blackboxControlVector(state, action, optimizationMode) {
-    return this.request("/api/v1/blackbox/control-vector", { ...state, action, optimization_mode: optimizationMode });
+  async blackboxControlVector(state, action, optimizationMode2) {
+    return this.request("/api/v1/blackbox/control-vector", { ...state, action, optimization_mode: optimizationMode2 });
   }
   async blackboxSelectMode(subRegime, stressMultiplier) {
     return this.request("/api/v1/blackbox/select-mode", { sub_regime: subRegime, stress_multiplier: stressMultiplier });
@@ -7800,8 +7800,8 @@ function autoSelectMode2(subRegime, stressMultiplier) {
     return "quality";
   return "vibelitex";
 }
-function resolveOptimizationMode(subRegime, stressMultiplier, optimizationMode) {
-  const normalized = String(optimizationMode || "auto").toLowerCase();
+function resolveOptimizationMode(subRegime, stressMultiplier, optimizationMode2) {
+  const normalized = String(optimizationMode2 || "auto").toLowerCase();
   if (normalized === "auto" || normalized === "")
     return autoSelectMode2(subRegime || "INIT", stressMultiplier);
   if (isApiFallback())
@@ -8619,6 +8619,8 @@ function buildStatusPayload({ selection, tiersData, currentModel: currentModel3,
     model_locked: lockActive,
     locked_slot: resolvedLockedSlot,
     locked_model: resolvedLockedModel,
+    optimization_mode: selection?.optimization_mode || optimizationMode || null,
+    tiers: tiers?.trinity || null,
     label_modes: [...LABEL_MODES]
   };
 }
@@ -9444,9 +9446,9 @@ function createTrinityTool(deps) {
       }
       if (action === "status") {
         const sel = deps.loadSelection();
-        let tiers = {};
+        let tiers2 = {};
         try {
-          tiers = deps.safeJsonParse(deps.readFileSync(deps.TIERS_FILE, "utf-8")).trinity || {};
+          tiers2 = deps.safeJsonParse(deps.readFileSync(deps.TIERS_FILE, "utf-8")).trinity || {};
         } catch {
         }
         let cheapModel = "(unset)";
@@ -9486,7 +9488,7 @@ function createTrinityTool(deps) {
               const _tmp = deps.TIERS_FILE + ".tmp." + Date.now();
               deps.writeFileSync(_tmp, JSON.stringify(tiersData, null, 2) + "\n", "utf-8");
               deps.renameSync(_tmp, deps.TIERS_FILE);
-              tiers = tiersData.trinity;
+              tiers2 = tiersData.trinity;
               sel.selected_provider = tiersData.selection.selected_provider;
               sel.selected_model = deps.currentModel;
             }
@@ -9504,9 +9506,9 @@ function createTrinityTool(deps) {
         const missedC7 = sv.missedC7 || 0;
         const toolBreakdown = sv.sesToolBreakdown || {};
         const topTools = Object.entries(toolBreakdown).filter(([, v]) => v > MIN_TOOL_BREAKDOWN_THRESHOLD).sort((a, b) => b[1] - a[1]).slice(0, 5);
-        const brainModel = tiers?.brain?.oc || "(unset)";
-        const mediumModel = tiers?.medium?.oc || "(unset)";
-        cheapModel = tiers?.cheap?.oc || cheapModel;
+        const brainModel = tiers2?.brain?.oc || "(unset)";
+        const mediumModel = tiers2?.medium?.oc || "(unset)";
+        cheapModel = tiers2?.cheap?.oc || cheapModel;
         const activeSlot = sel.active_slot || "brain";
         const lockedSlot = deps._lockedSlot || null;
         const lockedModel = deps._lockedModel || null;
@@ -9535,10 +9537,10 @@ function createTrinityTool(deps) {
           } catch {
           }
         }
-        const execution = resolveExecutionIdentity(tiers?.[activeSlot]?.oc || deps.currentModel || "", deps.directory);
+        const execution = resolveExecutionIdentity(tiers2?.[activeSlot]?.oc || deps.currentModel || "", deps.directory);
         const lines = [
           `[vibeOS-dashboard]`,
-          `Model: ${activeSlot} (${tiers?.[activeSlot]?.oc || deps.currentModel || "(unset)"})`,
+          `Model: ${activeSlot} (${tiers2?.[activeSlot]?.oc || deps.currentModel || "(unset)"})`,
           `Provider: ${execution.provider_label}`,
           `Quality: ${execution.quality_label}`,
           ...isApiConnected() ? [`Backend: connected${getBackendVersion() ? ` (${getBackendVersion()})` : ""}`] : [`Backend: offline`],
@@ -9624,27 +9626,27 @@ function createTrinityTool(deps) {
         }
         if (model) {
           try {
-            const tiers = deps.safeJsonParse(deps.readFileSync(deps.TIERS_FILE, "utf-8"));
-            if (!tiers.trinity)
-              tiers.trinity = {};
-            if (!tiers.trinity[slot])
-              tiers.trinity[slot] = {};
-            tiers.trinity[slot].oc = model;
-            tiers.trinity[slot].cc = model;
-            tiers.trinity[slot].manual = true;
+            const tiers2 = deps.safeJsonParse(deps.readFileSync(deps.TIERS_FILE, "utf-8"));
+            if (!tiers2.trinity)
+              tiers2.trinity = {};
+            if (!tiers2.trinity[slot])
+              tiers2.trinity[slot] = {};
+            tiers2.trinity[slot].oc = model;
+            tiers2.trinity[slot].cc = model;
+            tiers2.trinity[slot].manual = true;
             const _tmp = deps.TIERS_FILE + ".tmp." + Date.now() + "." + Math.random().toString(36).slice(2, 8);
-            deps.writeFileSync(_tmp, JSON.stringify(tiers, null, 2) + "\n");
+            deps.writeFileSync(_tmp, JSON.stringify(tiers2, null, 2) + "\n");
             deps.renameSync(_tmp, deps.TIERS_FILE);
           } catch (e) {
             return `\u274C Failed to write model to tiers: ${e.message}`;
           }
         } else {
           try {
-            const tiers = deps.safeJsonParse(deps.readFileSync(deps.TIERS_FILE, "utf-8"));
-            if (tiers?.trinity?.[slot]?.manual) {
-              delete tiers.trinity[slot].manual;
+            const tiers2 = deps.safeJsonParse(deps.readFileSync(deps.TIERS_FILE, "utf-8"));
+            if (tiers2?.trinity?.[slot]?.manual) {
+              delete tiers2.trinity[slot].manual;
               const _tmp = deps.TIERS_FILE + ".tmp." + Date.now() + "." + Math.random().toString(36).slice(2, 8);
-              deps.writeFileSync(_tmp, JSON.stringify(tiers, null, 2) + "\n");
+              deps.writeFileSync(_tmp, JSON.stringify(tiers2, null, 2) + "\n");
               deps.renameSync(_tmp, deps.TIERS_FILE);
             }
           } catch {
@@ -9652,8 +9654,8 @@ function createTrinityTool(deps) {
         }
         let targetModel = "";
         try {
-          const tiers = deps.safeJsonParse(deps.readFileSync(deps.TIERS_FILE, "utf-8"));
-          targetModel = tiers?.trinity?.[slot]?.oc || "";
+          const tiers2 = deps.safeJsonParse(deps.readFileSync(deps.TIERS_FILE, "utf-8"));
+          targetModel = tiers2?.trinity?.[slot]?.oc || "";
         } catch {
         }
         if (!targetModel) {
@@ -9892,34 +9894,34 @@ Lock is per-session (resets on restart).`;
         const brain = trinity?.brain || existing?.trinity?.brain?.oc || selectedModel || "";
         const medium = trinity?.medium || existing?.trinity?.medium?.oc || brain;
         const cheap = trinity?.cheap || existing?.trinity?.cheap?.oc || medium || brain;
-        const tiers = existing && typeof existing === "object" ? existing : {};
-        tiers.selection ??= {};
-        tiers.trinity ??= {};
-        tiers.selection.enabled = true;
-        tiers.selection.active_slot = tiers.selection.active_slot || (brain ? "brain" : "medium");
-        tiers.selection.onboarding_mode = "assist";
-        tiers.selection.delegation_enforce = false;
-        tiers.selection.flow_enabled = false;
-        tiers.selection.flow_enforce = false;
-        tiers.selection.tdd_enforce = false;
-        tiers.selection.tdd_strict = false;
-        tiers.selection.tdd_quality = false;
-        tiers.selection.thinking_level = "off";
-        tiers.selection.setup_completed_at = now;
-        tiers.selection.selected_provider = trinity?.provider || resolveExecutionIdentity(selectedModel, deps.directory)?.provider || "";
-        tiers.selection.selected_quality_tier = trinity?.selected_tier || "brain";
-        tiers.selection.selected_model = trinity?.selected_model || selectedModel || "";
-        tiers.selection.executed_provider = tiers.selection.selected_provider;
-        tiers.selection.executed_quality_tier = tiers.selection.selected_quality_tier;
-        tiers.selection.executed_model = tiers.selection.selected_model;
+        const tiers2 = existing && typeof existing === "object" ? existing : {};
+        tiers2.selection ??= {};
+        tiers2.trinity ??= {};
+        tiers2.selection.enabled = true;
+        tiers2.selection.active_slot = tiers2.selection.active_slot || (brain ? "brain" : "medium");
+        tiers2.selection.onboarding_mode = "assist";
+        tiers2.selection.delegation_enforce = false;
+        tiers2.selection.flow_enabled = false;
+        tiers2.selection.flow_enforce = false;
+        tiers2.selection.tdd_enforce = false;
+        tiers2.selection.tdd_strict = false;
+        tiers2.selection.tdd_quality = false;
+        tiers2.selection.thinking_level = "off";
+        tiers2.selection.setup_completed_at = now;
+        tiers2.selection.selected_provider = trinity?.provider || resolveExecutionIdentity(selectedModel, deps.directory)?.provider || "";
+        tiers2.selection.selected_quality_tier = trinity?.selected_tier || "brain";
+        tiers2.selection.selected_model = trinity?.selected_model || selectedModel || "";
+        tiers2.selection.executed_provider = tiers2.selection.selected_provider;
+        tiers2.selection.executed_quality_tier = tiers2.selection.selected_quality_tier;
+        tiers2.selection.executed_model = tiers2.selection.selected_model;
         if (brain)
-          tiers.trinity.brain = keepExistingTrinitySlot(existing?.trinity?.brain, brain);
+          tiers2.trinity.brain = keepExistingTrinitySlot(existing?.trinity?.brain, brain);
         if (medium)
-          tiers.trinity.medium = keepExistingTrinitySlot(existing?.trinity?.medium, medium);
+          tiers2.trinity.medium = keepExistingTrinitySlot(existing?.trinity?.medium, medium);
         if (cheap)
-          tiers.trinity.cheap = keepExistingTrinitySlot(existing?.trinity?.cheap, cheap);
+          tiers2.trinity.cheap = keepExistingTrinitySlot(existing?.trinity?.cheap, cheap);
         deps.mkdirSync(dirname9(deps.TIERS_FILE), { recursive: true });
-        deps.writeFileSync(deps.TIERS_FILE, JSON.stringify(tiers, null, 2) + "\n");
+        deps.writeFileSync(deps.TIERS_FILE, JSON.stringify(tiers2, null, 2) + "\n");
         if (typeof deps._refreshModel === "function")
           deps._refreshModel(deps.directory);
         const lines = [
@@ -10295,22 +10297,22 @@ ${L.repeat(40)}`);
           return "\u274C No models responded to probe. Try checking your API keys.\n" + (failed.length > 0 ? "Failed:\n  " + failed.join("\n  ") : "No models discovered.");
         }
         try {
-          const tiers = deps.safeJsonParse(deps.readFileSync(deps.TIERS_FILE, "utf-8"));
-          const existing = tiers.trinity || {};
-          tiers.trinity = {
+          const tiers2 = deps.safeJsonParse(deps.readFileSync(deps.TIERS_FILE, "utf-8"));
+          const existing = tiers2.trinity || {};
+          tiers2.trinity = {
             brain: keepExistingTrinitySlot(existing.brain, probed.brain.id),
             medium: keepExistingTrinitySlot(existing.medium, probed.medium.id),
             cheap: keepExistingTrinitySlot(existing.cheap, probed.cheap.id)
           };
-          tiers.selection ??= {};
-          tiers.selection.selected_provider = trinity.provider || resolveExecutionIdentity(selectedModel, deps.directory)?.provider || "";
-          tiers.selection.selected_quality_tier = trinity.selected_tier || "brain";
-          tiers.selection.selected_model = trinity.selected_model || selectedModel || "";
-          tiers.selection.executed_provider = tiers.selection.selected_provider;
-          tiers.selection.executed_quality_tier = tiers.selection.selected_quality_tier;
-          tiers.selection.executed_model = tiers.selection.selected_model;
+          tiers2.selection ??= {};
+          tiers2.selection.selected_provider = trinity.provider || resolveExecutionIdentity(selectedModel, deps.directory)?.provider || "";
+          tiers2.selection.selected_quality_tier = trinity.selected_tier || "brain";
+          tiers2.selection.selected_model = trinity.selected_model || selectedModel || "";
+          tiers2.selection.executed_provider = tiers2.selection.selected_provider;
+          tiers2.selection.executed_quality_tier = tiers2.selection.selected_quality_tier;
+          tiers2.selection.executed_model = tiers2.selection.selected_model;
           const _tmp = deps.TIERS_FILE + ".tmp." + Date.now();
-          deps.writeFileSync(_tmp, JSON.stringify(tiers, null, 2) + "\n", "utf-8");
+          deps.writeFileSync(_tmp, JSON.stringify(tiers2, null, 2) + "\n", "utf-8");
           deps.renameSync(_tmp, deps.TIERS_FILE);
         } catch (err) {
           return "\u274C Failed to write model-tiers.json: " + err.message;
@@ -10356,9 +10358,9 @@ ${L.repeat(40)}`);
           });
         }
         try {
-          const tiers = deps.safeJsonParse(deps.readFileSync(deps.TIERS_FILE, "utf-8"));
+          const tiers2 = deps.safeJsonParse(deps.readFileSync(deps.TIERS_FILE, "utf-8"));
           for (const s of ["brain", "medium", "cheap"]) {
-            const m = tiers?.trinity?.[s]?.oc || "";
+            const m = tiers2?.trinity?.[s]?.oc || "";
             const ok = m.length > 0 && !m.toLowerCase().includes("placeholder");
             results.push({
               ok,
@@ -11849,11 +11851,11 @@ var _currentTemplate = DEFAULT_TEMPLATE;
 var _prevTemplate = null;
 var _turnCountInject = 0;
 var correctionSeenKeys = /* @__PURE__ */ new Set();
-async function apiComputeControlVector(state, action, optimizationMode) {
+async function apiComputeControlVector(state, action, optimizationMode2) {
   try {
-    const res = await remoteCall("blackboxControlVector", [state, action, optimizationMode], null);
+    const res = await remoteCall("blackboxControlVector", [state, action, optimizationMode2], null);
     if (res?.control_vector) {
-      const local = computeControlVector2(state, action, optimizationMode);
+      const local = computeControlVector2(state, action, optimizationMode2);
       const merged = mergeRemoteControlVector(res.control_vector, local);
       if (res.rf_prediction?.mode && res.rf_prediction.mode !== res.control_vector?.optimization_mode) {
         merged.optimization_mode = res.rf_prediction.mode;
@@ -11862,7 +11864,7 @@ async function apiComputeControlVector(state, action, optimizationMode) {
     }
   } catch {
   }
-  return computeControlVector2(state, action, optimizationMode);
+  return computeControlVector2(state, action, optimizationMode2);
 }
 function observeUserCorrection(text) {
   if (!text || typeof text !== "string")
@@ -12402,9 +12404,9 @@ function patternDirective(fp2) {
 }
 function welcomeDirective() {
   const sel = loadSelection();
-  let tiers = {};
+  let tiers2 = {};
   try {
-    tiers = safeJsonParse2(readFileSync13(TIERS_FILE, "utf-8")).trinity || {};
+    tiers2 = safeJsonParse2(readFileSync13(TIERS_FILE, "utf-8")).trinity || {};
   } catch {
   }
   const active = sel.active_slot || "medium";
@@ -12443,28 +12445,28 @@ var onSystemTransform = async (_input, output) => {
       stress: latestUserIntent ? scoreStress(latestUserIntent) : 0,
       nInteractions: _latestBlackboxState3?.n_interactions ?? 0
     });
-    const optimizationMode = optimizationDecision.mode;
+    const optimizationMode2 = optimizationDecision.mode;
     let _controlVector = null;
     ensureProjectContext(hookDirectory);
     if (_latestBlackboxState3) {
       const st = latestUserIntent ? scoreStress(latestUserIntent) : 0;
       if (st)
         _latestBlackboxState3.latest_stress_multiplier = st;
-      _controlVector = await apiComputeControlVector(_latestBlackboxState3, void 0, optimizationMode);
+      _controlVector = await apiComputeControlVector(_latestBlackboxState3, void 0, optimizationMode2);
     } else if (latestUserIntent) {
       const st = scoreStress(latestUserIntent);
       _controlVector = await apiComputeControlVector({
         sub_regime: classifiedRegime,
         latest_stress_multiplier: st || void 0,
         user_text: latestUserIntent
-      }, void 0, optimizationMode);
+      }, void 0, optimizationMode2);
     }
     if (!_controlVector) {
       _controlVector = await apiComputeControlVector({
         sub_regime: "INIT",
         latest_stress_multiplier: latestUserIntent ? scoreStress(latestUserIntent) : void 0,
         user_text: latestUserIntent || void 0
-      }, void 0, optimizationMode);
+      }, void 0, optimizationMode2);
     }
     const system = output?.system;
     if (!Array.isArray(system))
@@ -12502,7 +12504,7 @@ var onSystemTransform = async (_input, output) => {
     if (latestUserIntent && _blackboxEnabled !== false) {
       try {
         let pivotResult = null;
-        const pivotPipeline = String(optimizationMode || "").toLowerCase() === "vibeultrax" ? "vibeultraxPipeline" : "vibemaxPipeline";
+        const pivotPipeline = String(optimizationMode2 || "").toLowerCase() === "vibeultrax" ? "vibeultraxPipeline" : "vibemaxPipeline";
         try {
           const remote = await remoteCall(pivotPipeline, [{
             user_text: latestUserIntent,
@@ -15721,11 +15723,11 @@ function _loadActiveJobForProject(directory3, fp2 = "") {
   }
   return getActiveJobForProject(fp2);
 }
-function _tiersNeedRepair(tiers) {
+function _tiersNeedRepair(tiers2) {
   const slots = ["brain", "medium", "cheap"];
-  if (!tiers || typeof tiers !== "object") return true;
+  if (!tiers2 || typeof tiers2 !== "object") return true;
   return slots.some((slot) => {
-    const oc = String(tiers?.trinity?.[slot]?.oc || "").trim();
+    const oc = String(tiers2?.trinity?.[slot]?.oc || "").trim();
     return !oc || PLACEHOLDER_RE.test(oc);
   });
 }
@@ -15782,7 +15784,7 @@ async function _seedOrRepairModelTiers(directory3) {
     cheap: keepExistingSlot(existingTrinity.cheap, cheap)
   };
   const activeSlot = ["brain", "medium", "cheap"].includes(String(existingSelection.active_slot || "").trim()) ? String(existingSelection.active_slot) : "brain";
-  const tiers = {
+  const tiers2 = {
     ...existing,
     selection: {
       ...existingSelection,
@@ -15801,7 +15803,7 @@ async function _seedOrRepairModelTiers(directory3) {
     trinity: nextTrinity
   };
   mkdirSync14(dirname13(TIERS_FILE3), { recursive: true });
-  writeFileSync16(TIERS_FILE3, JSON.stringify(tiers, null, 2) + "\n", "utf-8");
+  writeFileSync16(TIERS_FILE3, JSON.stringify(tiers2, null, 2) + "\n", "utf-8");
   return true;
 }
 function _parseJsonc(raw) {
@@ -15846,8 +15848,8 @@ function loadMcpPort() {
   }
   try {
     if (existsSync18(getTiersFile())) {
-      const tiers = safeJsonParse2(readFileSync17(getTiersFile(), "utf-8"));
-      const cfg = tiers?.selection?.mcp_port;
+      const tiers2 = safeJsonParse2(readFileSync17(getTiersFile(), "utf-8"));
+      const cfg = tiers2?.selection?.mcp_port;
       if (cfg === false || cfg === "disabled" || cfg === 0)
         return 0;
       const n = Number(cfg);
@@ -15862,16 +15864,16 @@ function persistMcpPort(port) {
   try {
     if (!existsSync18(getTiersFile()))
       return;
-    const tiers = safeJsonParse2(readFileSync17(getTiersFile(), "utf-8"));
-    tiers.selection ??= {};
-    if (Number(tiers.selection.mcp_port) === Number(port) && !("mcp_port" in tiers))
+    const tiers2 = safeJsonParse2(readFileSync17(getTiersFile(), "utf-8"));
+    tiers2.selection ??= {};
+    if (Number(tiers2.selection.mcp_port) === Number(port) && !("mcp_port" in tiers2))
       return;
-    tiers.selection.mcp_port = port;
-    if ("mcp_port" in tiers)
-      delete tiers.mcp_port;
+    tiers2.selection.mcp_port = port;
+    if ("mcp_port" in tiers2)
+      delete tiers2.mcp_port;
     mkdirSync14(dirname13(getTiersFile()), { recursive: true });
     const tmp = getTiersFile() + ".tmp." + Date.now();
-    writeFileSync16(tmp, JSON.stringify(tiers, null, 2) + "\n", "utf-8");
+    writeFileSync16(tmp, JSON.stringify(tiers2, null, 2) + "\n", "utf-8");
     renameSync6(tmp, getTiersFile());
   } catch {
   }
@@ -15939,6 +15941,14 @@ async function ensureMcpServerRunning() {
               backendConnected: isApiConnected(),
               backendHealthUrl: `${VIBEOS_API_URL}/health`,
               backendVersion: getBackendVersion(),
+              optimizationMode: loadSelection()?.optimization_mode || null,
+              tiers: (() => {
+                try {
+                  return safeJsonParse2(readFileSync17(getTiersFile(), "utf-8"))?.trinity;
+                } catch {
+                  return null;
+                }
+              })(),
               apiFallbackMode: isApiFallback(),
               apiFallbackSince: getApiFallbackSince(),
               modelLocked: _modelLocked,
@@ -16152,8 +16162,8 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
       const lockedSlot = ["brain", "medium", "cheap"].includes(String(startupSelection.active_slot || "").trim()) ? String(startupSelection.active_slot) : "brain";
       let lockedModel = currentModel || null;
       try {
-        const tiers = safeJsonParse2(readFileSync17(getTiersFile(), "utf-8"));
-        lockedModel = tiers?.trinity?.[lockedSlot]?.oc || lockedModel || null;
+        const tiers2 = safeJsonParse2(readFileSync17(getTiersFile(), "utf-8"));
+        lockedModel = tiers2?.trinity?.[lockedSlot]?.oc || lockedModel || null;
       } catch {
       }
       setModelLocked(true);

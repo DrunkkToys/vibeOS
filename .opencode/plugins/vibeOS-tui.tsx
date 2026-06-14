@@ -40,6 +40,8 @@ type StatusResponse = {
   model_locked?: boolean
   locked_slot?: string | null
   locked_model?: string | null
+  optimization_mode?: string | null
+  tiers?: Record<string, { oc?: string }> | null
 }
 
 type SavingsResponse = {
@@ -270,7 +272,29 @@ const plugin: TuiPlugin = async (api, _options, _meta) => {
         </Slot>
         <Slot name="sidebar_content" session_id={props.session_id}>
           <box flexDirection="column" padding={1}>
-            <text dim bold>MODEL STATUS</text>
+            <text dim bold>MODE TIERS CONNECTED</text>
+            <newline />
+            <box>
+              <text>brain </text>
+              <text color={activeSlot === "brain" ? "green" : "dim"}>{s?.tiers?.brain?.oc ?? "-"}</text>
+              {activeSlot === "brain" && <text color="green" bold> active</text>}
+            </box>
+            <newline />
+            <box>
+              <text>medium </text>
+              <text color={activeSlot === "medium" ? "green" : "dim"}>{s?.tiers?.medium?.oc ?? "-"}</text>
+              {activeSlot === "medium" && <text color="green" bold> active</text>}
+            </box>
+            <newline />
+            <box>
+              <text>cheap </text>
+              <text color={activeSlot === "cheap" ? "green" : "dim"}>{s?.tiers?.cheap?.oc ?? "-"}</text>
+              {activeSlot === "cheap" && <text color="green" bold> active</text>}
+            </box>
+            <newline />
+            <text dim>---</text>
+            <newline />
+            <text dim>---</text>
             <newline />
             <box>
               <text bold={activeSlot === "brain"} color={activeSlot === "brain" ? "green" : undefined}>
@@ -282,6 +306,11 @@ const plugin: TuiPlugin = async (api, _options, _meta) => {
             <box>
               <text>Backend </text>
               <text color={backendConnected ? "green" : "red"} bold>{backendConnected ? "ON" : "OFF"}</text>
+            </box>
+            <newline />
+            <box>
+              <text>Mode </text>
+              <text color="cyan" bold>{s?.optimization_mode ?? "auto"}</text>
             </box>
             <newline />
             <box>
