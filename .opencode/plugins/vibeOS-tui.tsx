@@ -294,23 +294,9 @@ const plugin: TuiPlugin = async (api, _options, _meta) => {
             <newline />
             <text dim>---</text>
             <newline />
-            <text dim>---</text>
-            <newline />
             <box>
-              <text bold={activeSlot === "brain"} color={activeSlot === "brain" ? "green" : undefined}>
-                {shortModel}
-              </text>
-              {activeSlot === "brain" && <text color="green"> active</text>}
-            </box>
-            <newline />
-            <box>
-              <text>Backend </text>
-              <text color={backendConnected ? "green" : "red"} bold>{backendConnected ? "ON" : "OFF"}</text>
-            </box>
-            <newline />
-            <box>
-              <text>Mode </text>
-              <text color="cyan" bold>{s?.optimization_mode ?? "auto"}</text>
+              <text>Session </text>
+              <text color="green" bold>{s?.active_slot ?? "?"}</text>
             </box>
             <newline />
             <box>
