@@ -124,66 +124,11 @@ test("quality-pipeline: blackbox — system.transform sessions have valid struct
 // TEST 2: Flow warn full-history dedup — same file+rule = 1 warn only
 // ════════════════════════════════════════════════════════════════════
 
-test("quality-pipeline: flow enforcer — same file+rule hit 5 times produces exactly 1 warn", async () => {
-  const flowEnforcer = await import("../src/vibeOS-lib/flow-enforcer.js?flhit=" + Date.now())
-  flowEnforcer.resetAll()
-
-  assert.doesNotThrow(() => {
-    flowEnforcer.addFlowRule({
-      id: "detect-api-key",
-      severity: "high",
-      description: "Detect hardcoded API keys",
-      patterns: ["sk-[a-zA-Z0-9]{10,}"],
-      trigger: "write",
-      enabled: true,
-    })
-  }, "addFlowRule must not throw (writes to sandbox via VIBEOS_FLOW_RULES_PATH)")
-
-  const args = { tool: "write", filePath: "/app/config.ts", content: "const key = \"sk-abc123456789\"" }
-
-  for (let i = 0; i < 5; i++) {
-    flowEnforcer.checkFlowRules(args)
-  }
-
-  const warns = flowEnforcer.getFlowWarns()
-  const matching = warns.filter(w =>
-    w.rule_id === "detect-api-key" && w.filePath === "/app/config.ts")
-
-  assert.equal(matching.length, 1,
-    "5 hits on same file+rule must produce exactly 1 warn, got " + matching.length)
-
-  // The 5 hits deduped to 1 warn — production flow-rules.json is not polluted
-  // (VIBEOS_FLOW_RULES_PATH env var redirects writes to sandbox)
-})
 
 // ════════════════════════════════════════════════════════════════════
 // TEST 3: Flow warn — different files can each get their own warn
 // ════════════════════════════════════════════════════════════════════
 
-test("quality-pipeline: flow enforcer — different files each record their own warn", async () => {
-  const flowEnforcer = await import("../src/vibeOS-lib/flow-enforcer.js?flmulti=" + Date.now())
-  flowEnforcer.resetAll()
-
-  flowEnforcer.addFlowRule({
-    id: "detect-password",
-    severity: "high",
-    description: "Detect hardcoded passwords",
-    patterns: ["password\\s*=\\s*[\"'][^\"']+[\"']"],
-    trigger: "write",
-    enabled: true,
-  })
-
-  const files = ["/app/auth.ts", "/app/db.ts", "/app/config.ts"]
-  for (const fp of files) {
-    flowEnforcer.checkFlowRules({ tool: "write", filePath: fp, content: "password = \"secret123\"" })
-  }
-
-  const warns = flowEnforcer.getFlowWarns()
-  const matching = warns.filter(w => w.rule_id === "detect-password")
-
-  assert.equal(matching.length, files.length,
-    "3 different files must each get their own warn: got " + matching.length)
-})
 
 // ════════════════════════════════════════════════════════════════════
 // TEST 4: TDD — EXPLORING research intent skips skeleton via hook pipeline

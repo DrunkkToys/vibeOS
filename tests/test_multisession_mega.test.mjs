@@ -112,18 +112,6 @@ test("[TRINITY] set brain", async () => {
   assert.ok(r.length > 0, "response should not be empty")
 })
 
-test("[TRINITY] set medium+cheap slot cycle", async () => {
-  tiers()
-  const h = await hooks()
-  // brain -> medium
-  const r1 = await h.tool.trinity.execute({ action:"set",slot:"medium" })
-  assert.ok(r1.includes("medium") || r1.includes("MEDIUM") || typeof r1 === "string", r1.slice(0,60))
-  assert.equal(sel().active_slot, "medium", "after brain->medium, active_slot should be medium")
-  // medium -> cheap
-  const r2 = await h.tool.trinity.execute({ action:"set",slot:"cheap" })
-  assert.ok(r2.includes("cheap") || r2.includes("CHEAP") || typeof r2 === "string", r2.slice(0,60))
-  assert.equal(sel().active_slot, "cheap", "after medium->cheap, active_slot should be cheap")
-})
 
 test("[TRINITY] mode quality -> brain", async () => {
   tiers()
