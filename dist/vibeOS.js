@@ -7745,20 +7745,25 @@ function isLikelyOffTopic(userText, job) {
 
 // src/lib/turn-classify.js
 init_vibeultrax();
+var _lastClassifiedByApi = false;
 function classifyTurnSimple2(userText) {
   return classifyTurnSimple(userText);
 }
 async function classifyTurnRemote(text) {
   try {
     const client2 = getApiClient2();
-    if (!client2 || isApiFallback2())
+    if (!client2 || isApiFallback2()) {
+      _lastClassifiedByApi = false;
       return classifyTurnSimple(text);
+    }
     const res = await client2.classifyQuery(text);
     if (res && typeof res === "object" && "sub_regime" in res) {
+      _lastClassifiedByApi = true;
       return res.sub_regime;
     }
   } catch {
   }
+  _lastClassifiedByApi = false;
   return classifyTurnSimple(text);
 }
 function getVibeOSHome5() {

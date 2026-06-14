@@ -13,6 +13,9 @@ import { vibeqmaxControlVector } from "../vibeOS-lib/blackbox/vibeqmax.js"
 import { vibeultraxControlVector } from "../vibeOS-lib/blackbox/vibeultrax.js"
 export { scoreStress, estimateContextBudget, tokenizeWords, topKeywords, extractLastUserText, isUserAskingForTests, isLikelyOffTopic, detectOutcomeSignal } from "./classifiers.js"
 
+let _lastClassifiedByApi = false
+export function isApiClassified(): boolean { return _lastClassifiedByApi }
+
 export function classifyTurnSimple(userText: string): string {
   return _classifyTurnSimple(userText)
 }
@@ -20,12 +23,17 @@ export function classifyTurnSimple(userText: string): string {
 export async function classifyTurnRemote(text: string): Promise<string> {
   try {
     const client = getApiClient()
-    if (!client || isApiFallback()) return _classifyTurnSimple(text)
+    if (!client || isApiFallback()) {
+      _lastClassifiedByApi = false
+      return _classifyTurnSimple(text)
+    }
     const res = await client.classifyQuery(text)
     if (res && typeof res === "object" && "sub_regime" in (res as Record<string, unknown>)) {
+      _lastClassifiedByApi = true
       return (res as Record<string, string>).sub_regime
     }
   } catch {}
+  _lastClassifiedByApi = false
   return _classifyTurnSimple(text)
 }
 
