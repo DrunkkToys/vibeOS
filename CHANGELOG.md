@@ -1,3 +1,7 @@
+## 0.25.21
+- fix: stabilize OpenCode install resolution
+
+
 ## 0.25.19
 - fix: harden loop detection and behavioral stress
 
