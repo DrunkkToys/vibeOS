@@ -506,7 +506,18 @@ export function createTrinityTool(deps) {
             discovered = await deps.discoverAvailableModels(providers, auth)
           }
         } catch {}
-        const selectedModel = deps.currentModel || existing?.selection?.selected_model || existing?.selection?.executed_model || ""
+        let selectedModel = deps.currentModel || existing?.selection?.selected_model || existing?.selection?.executed_model || ""
+        if (!selectedModel) {
+          try {
+            for (const dir of [deps.directory || process.cwd(), deps.OPENCODE_HOME].filter(Boolean)) {
+              const p = join(dir, "opencode.json")
+              if (deps.existsSync(p)) {
+                const oc = deps.safeJsonParse(deps.readFileSync(p, "utf-8"))
+                if (oc?.model) { selectedModel = oc.model; break }
+              }
+            }
+          } catch {}
+        }
         const trinity = buildDeterministicTrinity(discovered, { selectedModelId: selectedModel })
         const brain = trinity?.brain || existing?.trinity?.brain?.oc || selectedModel || ""
         const medium = trinity?.medium || existing?.trinity?.medium?.oc || brain
