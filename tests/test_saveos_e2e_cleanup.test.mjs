@@ -76,6 +76,7 @@ function seedTiers(overrides = {}) {
     selection: {
       enabled: true, active_slot: "medium", delegation_enforce: true,
       flow_enabled: true, tdd_enabled: true, thinking_level: "off",
+      optimization_mode: null,
     },
     pricing: { deepseek: { "deepseek-chat": 0, "deepseek-v4-flash": 0.000182, "deepseek-v4-pro": 0.00057 } },
     ...overrides,
