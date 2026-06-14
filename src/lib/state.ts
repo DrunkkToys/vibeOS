@@ -13,7 +13,7 @@ import { getOcSessionId } from "./runtime-state.js"
 const USER_HOME = (() => { try { return homedir() } catch { return tmpdir() } })()
 const VIBEOS_CONTEXT = new AsyncLocalStorage<{ home?: string }>()
 const VIBEOS_HOME = process.env.VIBEOS_HOME || join(USER_HOME, ".claude")
-const OPENCODE_HOME = process.env.VIBEOS_OPENCODE_HOME || join(USER_HOME, ".config", "opencode")
+const OPENCODE_HOME = resolveOpenCodeHome()
 const FILE_LOCK_DIR = join(VIBEOS_HOME, ".vibeOS-locks")
 const DELEGATION_STATE_FILE = join(VIBEOS_HOME, "delegation-state.json")
 const SAVINGS_LEDGER_FILE = join(VIBEOS_HOME, "savings-ledger.jsonl")
@@ -72,7 +72,7 @@ function resolveOpenCodeHomes(): string[] {
   return [desktopHome, configHome, dotHome].filter(Boolean) as string[]
 }
 
-export function getOpenCodeHome(): string {
+function resolveOpenCodeHome(): string {
   const homes = resolveOpenCodeHomes()
   for (const home of homes) {
     if (hasOpenCodeConfig(home)) return home
@@ -81,6 +81,10 @@ export function getOpenCodeHome(): string {
     if (existsSync(home)) return home
   }
   return homes[0] || join(process.env.HOME || USER_HOME, ".config", "opencode")
+}
+
+export function getOpenCodeHome(): string {
+  return resolveOpenCodeHome()
 }
 
 export function getOpenCodeHomes(): string[] {
