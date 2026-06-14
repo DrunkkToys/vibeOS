@@ -14,6 +14,7 @@ export interface FooterLineInput {
   enfTags: string[]
   vectorChangedSlot?: string
   subRegime?: string
+  stressGauge?: string
 }
 
 const REGIME_TAG: Record<string, string> = {
@@ -174,6 +175,10 @@ export function buildFooterLine(input: FooterLineInput): string {
   const enforcementPulse = formatEnforcementPulse(enfTags)
   if (enforcementPulse) {
     line += ` | ${enforcementPulse}`
+  }
+
+  if (input.stressGauge) {
+    line += ` | ${input.stressGauge}`
   }
 
   if (sessionSlot && sessionSlot !== activeSlot) {
