@@ -35,12 +35,19 @@ function collectHomeOpenCodeHomes(baseHome) {
 export function resolveOpenCodeHomes({ cwd = process.cwd(), home = homedir() } = {}) {
   const override = process.env.VIBEOS_OPENCODE_HOME
   if (override) return [override]
+
   const workspaceHomes = collectWorkspaceOpenCodeHomes(cwd)
-  if (workspaceHomes.length > 0) return workspaceHomes
   const homeHomes = collectHomeOpenCodeHomes(home)
   const activeHomeHomes = homeHomes.filter((dir) => existsSync(dir))
-  if (activeHomeHomes.length > 0) return activeHomeHomes
-  return homeHomes
+
+  const homeCandidates = activeHomeHomes.length > 0 ? activeHomeHomes : homeHomes
+  const seen = new Set()
+  return [...workspaceHomes, ...homeCandidates].filter((dir) => {
+    if (dir == null) return false
+    if (seen.has(dir)) return false
+    seen.add(dir)
+    return true
+  })
 }
 
 export function resolveOpenCodeHome(opts = {}) {
