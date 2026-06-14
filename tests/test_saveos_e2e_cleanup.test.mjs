@@ -35,6 +35,7 @@ const liveToken = (() => {
 
 const sandbox = mkdtempSync(join(tmpdir(), "saveos-e2e-"))
 process.env.HOME = sandbox
+process.env.VIBEOS_HOME = join(sandbox, ".claude")
 if (liveToken) {
   process.env.VIBEOS_API_TOKEN = liveToken
   process.env.VIBEOS_API_ENABLED = "true"
