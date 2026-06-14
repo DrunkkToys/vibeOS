@@ -31,6 +31,7 @@ function makeSandbox(name) {
 test("bootstrapOptimizationSession resets a fresh restart to budget", async () => {
   const home = makeSandbox("bootstrap-budget")
   process.env.HOME = home
+  process.env.VIBEOS_HOME = join(home, ".claude")
   const turn = await import(`../../lib/turn-classify.js?bootstrap=${Date.now()}`)
   const sid = turn.getOC_SID()
   writeFileSync(join(home, ".claude/blackbox-state.json"), JSON.stringify({
@@ -52,6 +53,7 @@ test("bootstrapOptimizationSession resets a fresh restart to budget", async () =
 test("applyBudgetFirstMode hardens LOOPING to quality even before interaction counters settle", async () => {
   const home = makeSandbox("loop-gate")
   process.env.HOME = home
+  process.env.VIBEOS_HOME = join(home, ".claude")
   const turn = await import(`../../lib/turn-classify.js?turn=${Date.now()}`)
   const sid = turn.getOC_SID()
   writeFileSync(join(home, ".claude/blackbox-state.json"), JSON.stringify({

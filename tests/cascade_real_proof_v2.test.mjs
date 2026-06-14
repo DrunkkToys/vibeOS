@@ -16,6 +16,7 @@ import { tmpdir } from "node:os"
 // Sandbox
 const SANDBOX = mkdtempSync(join(tmpdir(), "vibeos-cascade-v2-"))
 process.env.HOME = SANDBOX
+  process.env.VIBEOS_HOME = join(SANDBOX, ".claude")
 const claudeDir = join(SANDBOX, ".claude")
 mkdirSync(claudeDir, { recursive: true })
 

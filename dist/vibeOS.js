@@ -2697,7 +2697,7 @@ var init_state = __esm({
       }
     })();
     VIBEOS_CONTEXT = new AsyncLocalStorage();
-    VIBEOS_HOME = process.env.VIBEOS_HOME || join2(USER_HOME2, ".claude");
+    VIBEOS_HOME = process.env.VIBEOS_HOME || join2(process.env.HOME || USER_HOME2, ".claude");
     OPENCODE_HOME = resolveOpenCodeHome();
     FILE_LOCK_DIR = join2(VIBEOS_HOME, ".vibeOS-locks");
     DELEGATION_STATE_FILE = join2(VIBEOS_HOME, "delegation-state.json");

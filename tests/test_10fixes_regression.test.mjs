@@ -12,6 +12,7 @@ let sandbox
 test.before(() => {
   sandbox = mkdtempSync(join(tmpdir(), "vibeos-10fixes-"))
   process.env.HOME = sandbox
+  process.env.VIBEOS_HOME = join(sandbox, ".claude")
   mkdirSync(join(sandbox, ".claude/scratch"), { recursive: true })
   mkdirSync(join(sandbox, ".claude"), { recursive: true })
 })

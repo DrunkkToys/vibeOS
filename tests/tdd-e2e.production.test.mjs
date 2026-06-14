@@ -15,6 +15,7 @@ mkdirSync(join(sb, "proj/src"), { recursive: true })
 
 const prevHome = process.env.HOME
 process.env.HOME = sb
+  process.env.VIBEOS_HOME = join(sb, ".claude")
 
 // Clear any lock state
 const lockDir = join(CLAUSE, ".enforcement-lock")
