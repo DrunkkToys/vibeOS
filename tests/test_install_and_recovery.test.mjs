@@ -320,8 +320,10 @@ test("installer: asks before installing and respects no/yes answers", async () =
     })
     assert.equal(autoRun.status, 0, "non-interactive install should not hang")
     assert.ok(existsSync(join(sb, ".config/opencode/opencode.json")), "non-interactive install should still deploy")
+    assert.ok(existsSync(join(sb, ".opencode/opencode.json")), "non-interactive install should also deploy dot-home config")
 
     rmSync(join(sb, ".config/opencode"), { recursive: true, force: true })
+    rmSync(join(sb, ".opencode"), { recursive: true, force: true })
 
     const runner = "process.stdin.isTTY=true; process.stderr.isTTY=true; process.argv=['node','bin/setup.js']; await import('./bin/setup.js')"
 
@@ -336,6 +338,11 @@ test("installer: asks before installing and respects no/yes answers", async () =
     assert.match(String(noRun.stdout || ""), /Install cancelled\./i)
     assert.ok(!existsSync(join(sb, ".config/opencode/opencode.json")), "cancel should not create config")
     assert.ok(!existsSync(join(sb, ".config/opencode/plugins/vibeOS.js")), "cancel should not install plugin")
+    assert.ok(!existsSync(join(sb, ".opencode/opencode.json")), "cancel should not create dot-home config")
+    assert.ok(!existsSync(join(sb, ".opencode/plugins/vibeOS.js")), "cancel should not install dot-home plugin")
+
+    rmSync(join(sb, ".config/opencode"), { recursive: true, force: true })
+    rmSync(join(sb, ".opencode"), { recursive: true, force: true })
 
     const yesRun = spawnSync("node", ["--input-type=module", "-e", runner], {
       cwd: ROOT,
@@ -347,6 +354,8 @@ test("installer: asks before installing and respects no/yes answers", async () =
     assert.match(String(yesRun.stderr || yesRun.stdout || ""), /Install vibeOS into OpenCode\?/i)
     assert.ok(existsSync(join(sb, ".config/opencode/opencode.json")), "accept should create config")
     assert.ok(existsSync(join(sb, ".config/opencode/plugins/vibeOS.js")), "accept should install plugin")
+    assert.ok(existsSync(join(sb, ".opencode/opencode.json")), "accept should create dot-home config")
+    assert.ok(existsSync(join(sb, ".opencode/plugins/vibeOS.js")), "accept should install dot-home plugin")
   } finally {
     process.env.HOME = prevHome
     if (prevUserProfile === undefined) delete process.env.USERPROFILE
@@ -653,11 +662,18 @@ test("install: deploy script creates opencode.json on a fresh machine", async ()
       encoding: "utf8",
     })
     assert.equal(result.status, 0, result.stderr || result.stdout)
-    const ocPath = join(sb, ".config", "opencode", "opencode.json")
-    assert.ok(existsSync(ocPath), "deploy should create opencode.json")
-    const oc = JSON.parse(readFileSync(ocPath, "utf8"))
-    assert.ok(Array.isArray(oc.plugin), "plugin array created")
-    assert.ok(oc.plugin.some((p) => String(p).includes("vibeOS.js")), "vibeOS plugin registered")
+    const configHomes = [
+      join(sb, ".config", "opencode"),
+      join(sb, ".opencode"),
+    ]
+    for (const home of configHomes) {
+      const ocPath = join(home, "opencode.json")
+      assert.ok(existsSync(ocPath), `deploy should create opencode.json in ${home}`)
+      const oc = JSON.parse(readFileSync(ocPath, "utf8"))
+      assert.ok(Array.isArray(oc.plugin), `plugin array created in ${home}`)
+      assert.ok(oc.plugin.some((p) => String(p).includes("vibeOS.js")), `vibeOS plugin registered in ${home}`)
+      assert.ok(existsSync(join(home, "plugins", "vibeOS.js")), `plugin bundle copied in ${home}`)
+    }
   } finally {
     process.env.HOME = prevHome
     rmSync(sb, { recursive: true, force: true })
