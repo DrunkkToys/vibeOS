@@ -5414,7 +5414,7 @@ var _apiFallbackSince = null;
 var _bootstrapExchangeInFlight = null;
 var _bootstrapExchangeFailedAt = 0;
 var _backendVersion = "";
-var FALLBACK_COOLDOWN_MS = 6e4;
+var FALLBACK_COOLDOWN_MS = process.env.VIBEOS_FAST_CI === "1" ? 5e3 : 6e4;
 function tryResetFallbackCooldown() {
   if (!_apiFallbackMode || !_apiFallbackSince)
     return false;
