@@ -5542,7 +5542,7 @@ function getApiClient2() {
   }
   return _apiClient;
 }
-function isApiFallback2() {
+function isApiFallback() {
   return _apiFallbackMode || isApiFallbackMode() || !isApiEnabled();
 }
 function isApiConnected() {
@@ -7754,7 +7754,7 @@ function classifyTurnSimple2(userText) {
 async function classifyTurnRemote(text) {
   try {
     const client2 = getApiClient2();
-    if (!client2 || isApiFallback2()) {
+    if (!client2 || isApiFallback()) {
       _lastClassifiedByApi = false;
       return classifyTurnSimple(text);
     }
@@ -7804,7 +7804,7 @@ function resolveOptimizationMode(subRegime, stressMultiplier, optimizationMode) 
   const normalized = String(optimizationMode || "auto").toLowerCase();
   if (normalized === "auto" || normalized === "")
     return autoSelectMode2(subRegime || "INIT", stressMultiplier);
-  if (isApiFallback2())
+  if (isApiFallback())
     return "vibelitex";
   if (normalized === "balanced" || normalized === "budget" || normalized === "quality" || normalized === "speed" || normalized === "longrun" || normalized === "audit" || normalized === "forensic" || normalized === "vibeultrax" || normalized === "vibeqmax" || normalized === "vibemax" || normalized === "vibelitex") {
     return normalized;
@@ -7816,7 +7816,7 @@ async function selectOptimizationModeRemote(subRegime, stressMultiplier, fallbac
   const fallback2 = resolveOptimizationMode(subRegime, stressMultiplier, fallbackMode);
   if (normalizedRequestedMode !== "auto" && normalizedRequestedMode !== "")
     return fallback2;
-  if (isApiFallback2())
+  if (isApiFallback())
     return fallback2;
   try {
     const client2 = getApiClient2();
@@ -8190,7 +8190,7 @@ function resolveEnforcementMode() {
 async function syncOutcomeToApi(outcome) {
   try {
     const client2 = getApiClient2();
-    if (!client2 || isApiFallback2())
+    if (!client2 || isApiFallback())
       return;
     await client2.blackboxOutcome(_OC_SID, outcome);
   } catch {
@@ -8199,7 +8199,7 @@ async function syncOutcomeToApi(outcome) {
 async function fetchBlackboxEnrichment(sessionId, localState) {
   try {
     const client2 = getApiClient2();
-    if (!client2 || isApiFallback2())
+    if (!client2 || isApiFallback())
       return null;
     const result = await client2.blackboxAnalyze(sessionId, {
       userText: "",
@@ -12639,7 +12639,7 @@ var onSystemTransform = async (_input, output) => {
       pushSystem(output, "[vibeOS dashboard display] When the trinity tool returns output starting with '[vibeOS-dashboard]', use the question tool to display that data in a clean, human-readable format. Use the question field (not the header) to show the dashboard data. Format it with clear sections separated by blank lines, aligned columns with spaces, and plain text only. The header should be 'vibeOS Dashboard'. Include only one option in options: {label: 'Dismiss', description: ''}. Strip the '[vibeOS-dashboard]' marker line before displaying.");
     }
     if (!oneShot("vibeos_dopamine_style_" + fp2)) {
-      pushSystem(output, regimeAwareToolStyleDirective(currentSubRegime, displayMode, stressScore));
+      pushSystem(output, regimeAwareToolStyleDirective(_latestBlackboxState3?.sub_regime || classifiedRegime, _currentTemplate, stressScore));
     }
   } catch (err) {
     console.error(`[vibeOS] system.transform failed: ${err.message}`);
@@ -13041,7 +13041,7 @@ async function _appendFooter(input, output, directory3) {
     }
     const selNowFooter = loadSelection3();
     const normalizedIntent = classifyTurnSimple2(latestUserIntent || "");
-    const currentSubRegime2 = _latestBlackboxState?.sub_regime || normalizedIntent;
+    const currentSubRegime = _latestBlackboxState?.sub_regime || normalizedIntent;
     const bbMode = resolveEnforcementMode();
     const enfTags = buildEnforcementTags({
       delegationEnforce: selNowFooter.delegation_enforce,
@@ -13059,8 +13059,8 @@ async function _appendFooter(input, output, directory3) {
     const ltTotal = ltTasks + ltCache;
     const activeSlot = selNowFooter.active_slot || "brain";
     const flashIcon = isApiConnected() ? " \u26A1" : "";
-    const displayMode2 = autoSelectMode2(currentSubRegime2, _footerStress);
-    const vibeBrand = resolveBrand(loadOptimizationMode() || displayMode2, activeSlot);
+    const displayMode = autoSelectMode2(currentSubRegime, _footerStress);
+    const vibeBrand = resolveBrand(loadOptimizationMode() || displayMode, activeSlot);
     const vibeLine = buildFooterLine({
       activeSlot,
       providerLabel: execution.provider_label,
@@ -13068,12 +13068,12 @@ async function _appendFooter(input, output, directory3) {
       ltTotal,
       ltTrend: sesTrend,
       vibeBrand,
-      optMode: displayMode2,
+      optMode: displayMode,
       flashIcon,
       enfTags,
       sessionSlot,
       vectorChangedSlot: selNowFooter?.vector_changed_slot,
-      subRegime: currentSubRegime2,
+      subRegime: currentSubRegime,
       stressGauge: _footerStress > 0.85 ? "\u2588" : _footerStress > 0.7 ? "\u2586" : _footerStress > 0.5 ? "\u2585" : _footerStress > 0.3 ? "\u2583" : _footerStress > 0.1 ? "\u2582" : "\u2581"
     });
     const footerText = stripped + `
@@ -15171,7 +15171,7 @@ var onToolExecuteAfter = async (input, output) => {
       }
       const execution = resolveExecutionIdentity(displayModel || resolvedModel || "", projectDirectory);
       const currentSid = _OC_SID;
-      const currentSubRegime2 = loadBlackboxState()?.sessions?.[currentSid]?.sub_regime || classifyTurnSimple2(latestUserIntent || "");
+      const currentSubRegime = loadBlackboxState()?.sessions?.[currentSid]?.sub_regime || classifyTurnSimple2(latestUserIntent || "");
       const bbMode = resolveEnforcementMode();
       const enfTags = buildEnforcementTags({
         delegationEnforce: selNow.delegation_enforce,
@@ -15182,8 +15182,8 @@ var onToolExecuteAfter = async (input, output) => {
         quietIntent: isGreetingLike2(latestUserIntent || "")
       });
       const activeSlot = selNow.active_slot || (execution.quality === "brain" ? "brain" : execution.quality === "medium" ? "medium" : "cheap");
-      const displayMode2 = autoSelectMode2(currentSubRegime2, latestUserIntent ? scoreStress(latestUserIntent) : 0);
-      const vibeBrand = resolveBrand(displayMode2, activeSlot);
+      const displayMode = autoSelectMode2(currentSubRegime, latestUserIntent ? scoreStress(latestUserIntent) : 0);
+      const vibeBrand = resolveBrand(displayMode, activeSlot);
       const sessionSlot = loadSessionSlot(currentSid);
       const flashIcon = isApiConnected() ? " \u26A1" : "";
       _footerText = buildFooterLine({
@@ -15193,12 +15193,12 @@ var onToolExecuteAfter = async (input, output) => {
         ltTotal,
         ltTrend: sesTrend || "",
         vibeBrand,
-        optMode: displayMode2,
+        optMode: displayMode,
         flashIcon,
         enfTags,
         sessionSlot,
         vectorChangedSlot: selNow.vector_changed_slot,
-        subRegime: currentSubRegime2
+        subRegime: currentSubRegime
       }) + "\n\n";
       const footerTarget = _payload(output);
       output.title = _footerText.trim();
@@ -15938,7 +15938,7 @@ async function ensureMcpServerRunning() {
               backendConnected: isApiConnected(),
               backendHealthUrl: `${VIBEOS_API_URL}/health`,
               backendVersion: getBackendVersion(),
-              apiFallbackMode: isApiFallback2(),
+              apiFallbackMode: isApiFallback(),
               apiFallbackSince: getApiFallbackSince(),
               modelLocked: _modelLocked,
               lockedSlot: _lockedSlot,
@@ -16324,7 +16324,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     setBlackboxEnabled,
     loadBlackboxState,
     saveBlackboxState,
-    isApiFallback: () => isApiFallback2(),
+    isApiFallback: () => isApiFallback(),
     get _apiFallbackSince() {
       return getApiFallbackSince();
     },
