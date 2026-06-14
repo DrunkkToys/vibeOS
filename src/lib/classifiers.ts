@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 // @ts-nocheck
 
+import { _OC_SID, loadBlackboxState, recentToolEvents } from "./state.js"
+
 export function detectOutcomeSignal(text) {
   if (!text) return null
   if (/thank|perfect|exactly|that.?s it|works great|works perfectly|solved|fixed|awesome|you rock/i.test(text)) return "positive"
@@ -8,7 +10,72 @@ export function detectOutcomeSignal(text) {
   return null
 }
 
-export function scoreStress(text) {
+function countTrailingRepeat(items, signatureOf) {
+  if (!Array.isArray(items) || items.length === 0) return 0
+  const last = signatureOf(items[items.length - 1])
+  if (!last) return 0
+  let streak = 0
+  for (let i = items.length - 1; i >= 0; i--) {
+    if (signatureOf(items[i]) !== last) break
+    streak++
+  }
+  return streak
+}
+
+function normalizeActivitySignature(event) {
+  if (!event || typeof event !== "object") return ""
+  const tool = String(event.tool || "").trim().toLowerCase()
+  const target = String(event.target || "").trim().toLowerCase()
+  const action = String(event.action || event.kind || "").trim().toLowerCase()
+  return [tool, target, action].filter(Boolean).join(":")
+}
+
+function countBehavioralRepeat(items, signatureOf, minLength = 2) {
+  if (!Array.isArray(items) || items.length < minLength) return 0
+  const last = signatureOf(items[items.length - 1])
+  if (!last) return 0
+  let streak = 0
+  for (let i = items.length - 1; i >= 0; i--) {
+    if (signatureOf(items[i]) !== last) break
+    streak++
+  }
+  return streak
+}
+
+function getBehavioralStressSignals(context, blackboxState) {
+  const recentEvents = Array.isArray(context?.recentToolEvents)
+    ? context.recentToolEvents
+    : Array.isArray(recentToolEvents)
+      ? recentToolEvents
+      : []
+  const recentWindow = recentEvents.slice(-8)
+  const toolRepeatStreak = countBehavioralRepeat(recentWindow, normalizeActivitySignature)
+  const targetRepeatStreak = countBehavioralRepeat(recentWindow, (event) => String(event?.target || "").trim().toLowerCase())
+  const outcomeHistory = Array.isArray(context?.outcomeHistory)
+    ? context.outcomeHistory
+    : Array.isArray(blackboxState?.outcomeHistory)
+      ? blackboxState.outcomeHistory
+      : []
+  const negativeOutcomes = outcomeHistory
+    .slice(-5)
+    .filter((o) => /negative|failed|unresolved|loop_detected/i.test(String(o?.outcome || "")))
+    .length
+  const loopCount = Number(blackboxState?.loop_count ?? blackboxState?.loopConsecutive ?? blackboxState?.loop_consecutive ?? 0)
+  const repeatStreak = Number(blackboxState?.repeat_streak ?? 0)
+  const activityRepeatStreak = Number(blackboxState?.activity_repeat_streak ?? 0)
+  const targetRepeatStateStreak = Number(blackboxState?.target_repeat_streak ?? 0)
+  return {
+    toolRepeatStreak,
+    targetRepeatStreak,
+    negativeOutcomes,
+    loopCount,
+    repeatStreak,
+    activityRepeatStreak,
+    targetRepeatStateStreak,
+  }
+}
+
+export function scoreStress(text, context = {}) {
   if (!text || typeof text !== "string") return 0
   const t = text.toLowerCase()
   let score = 0
@@ -50,6 +117,55 @@ export function scoreStress(text) {
 
   const qeCombos = text.match(/\?!|!\?/g)
   if (qeCombos) score += qeCombos.length * 0.1
+
+  const behavioralPhrases = [
+    { re: /\b(restart|restarts|restarted|restart again|restart it|retry|retries|retrial|rerun|redo|repeat the step|try again|another attempt|another pass)\b/gi, weight: 0.09 },
+    { re: /\b(still failing|keeps failing|keeps breaking|still broken|same issue|same result|same error|new error|new issue|broke again|breaks again|every fix|every time|over and over|again and again)\b/gi, weight: 0.12 },
+    { re: /\b(blocked again|stuck again|failed again|fails again|this is not working|nothing changed|no change)\b/gi, weight: 0.1 },
+  ]
+  for (const { re, weight } of behavioralPhrases) {
+    const hits = (t.match(re) || []).length
+    score += hits * weight
+  }
+
+  const sessionId = String(_OC_SID || "")
+  let blackboxState = context?.blackboxState || null
+  if (!blackboxState) {
+    try {
+      const raw = loadBlackboxState()
+      blackboxState = raw?.sessions?.[sessionId] || null
+    } catch {}
+  }
+  const {
+    toolRepeatStreak,
+    targetRepeatStreak,
+    negativeOutcomes,
+    loopCount,
+    repeatStreak,
+    activityRepeatStreak,
+    targetRepeatStateStreak,
+  } = getBehavioralStressSignals(context, blackboxState)
+  if (toolRepeatStreak >= 2) {
+    score += 0.08 + Math.min(0.24, (toolRepeatStreak - 1) * 0.05)
+  }
+  if (targetRepeatStreak >= 2) {
+    score += 0.05 + Math.min(0.16, (targetRepeatStreak - 1) * 0.035)
+  }
+  if (negativeOutcomes >= 1) {
+    score += 0.05 * negativeOutcomes + Math.min(0.18, negativeOutcomes * 0.03)
+  }
+  if (blackboxState?.is_looping || loopCount >= 2) {
+    score += 0.1 + Math.min(0.18, loopCount * 0.03)
+  }
+  if (repeatStreak >= 2) {
+    score += 0.06 + Math.min(0.12, repeatStreak * 0.025)
+  }
+  if (activityRepeatStreak >= 2) {
+    score += 0.05 + Math.min(0.1, activityRepeatStreak * 0.02)
+  }
+  if (targetRepeatStateStreak >= 2) {
+    score += 0.04 + Math.min(0.08, targetRepeatStateStreak * 0.015)
+  }
 
   if (text.length < 30) score += 0.06
   else if (text.length < 80) score += 0.05

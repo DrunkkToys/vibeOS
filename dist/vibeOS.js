@@ -316,6 +316,7 @@ function getRuntimeState() {
       apiConnected: true,
       apiFallbackMode: false,
       apiFallbackSince: null,
+      apiEnabled: true,
       sessionId: "opencode-" + (process.pid || "x") + "-" + Date.now()
     };
   }
@@ -343,9 +344,14 @@ function resetApiConnection() {
   state.apiFallbackMode = false;
   state.apiFallbackSince = null;
 }
-function isApiConnected() {
-  const state = getRuntimeState();
-  return state.apiConnected && !state.apiFallbackMode;
+function setApiEnabled(enabled) {
+  getRuntimeState().apiEnabled = !!enabled;
+}
+function isApiEnabled() {
+  return !!getRuntimeState().apiEnabled;
+}
+function isApiFallbackMode() {
+  return getRuntimeState().apiFallbackMode;
 }
 var RUNTIME_KEY;
 var init_runtime_state = __esm({
@@ -972,22 +978,30 @@ function getVibeOSHome2() {
 function hasOpenCodeConfig(dir) {
   return existsSync2(join2(dir, "opencode.json")) || existsSync2(join2(dir, "opencode.jsonc"));
 }
-function getOpenCodeHome() {
+function resolveOpenCodeHomes() {
   const override = process.env.VIBEOS_OPENCODE_HOME;
   if (override)
-    return override;
+    return [override];
   const base = process.env.HOME || USER_HOME2;
+  const desktopHome = process.env.VIBEOS_OPENCODE_DESKTOP_HOME || (process.platform === "darwin" ? join2(base, "Library", "Application Support", "ai.opencode.desktop") : null);
   const configHome = join2(base, ".config", "opencode");
   const dotHome = join2(base, ".opencode");
-  if (hasOpenCodeConfig(configHome))
-    return configHome;
-  if (hasOpenCodeConfig(dotHome))
-    return dotHome;
-  if (existsSync2(configHome))
-    return configHome;
-  if (existsSync2(dotHome))
-    return dotHome;
-  return configHome;
+  return [desktopHome, configHome, dotHome].filter(Boolean);
+}
+function resolveOpenCodeHome() {
+  const homes = resolveOpenCodeHomes();
+  for (const home of homes) {
+    if (hasOpenCodeConfig(home))
+      return home;
+  }
+  for (const home of homes) {
+    if (existsSync2(home))
+      return home;
+  }
+  return homes[0] || join2(process.env.HOME || USER_HOME2, ".config", "opencode");
+}
+function getOpenCodeHome() {
+  return resolveOpenCodeHome();
 }
 function setVibeOSHomeContext(home) {
   VIBEOS_CONTEXT.enterWith({ home: String(home || "") });
@@ -2684,7 +2698,7 @@ var init_state = __esm({
     })();
     VIBEOS_CONTEXT = new AsyncLocalStorage();
     VIBEOS_HOME = process.env.VIBEOS_HOME || join2(USER_HOME2, ".claude");
-    OPENCODE_HOME = process.env.VIBEOS_OPENCODE_HOME || join2(USER_HOME2, ".config", "opencode");
+    OPENCODE_HOME = resolveOpenCodeHome();
     FILE_LOCK_DIR = join2(VIBEOS_HOME, ".vibeOS-locks");
     DELEGATION_STATE_FILE = join2(VIBEOS_HOME, "delegation-state.json");
     SAVINGS_LEDGER_FILE = join2(VIBEOS_HOME, "savings-ledger.jsonl");
@@ -2852,6 +2866,9 @@ function safeJsonParse3(raw) {
     return null;
   }
 }
+function getRealityCheckSettingsFile() {
+  return join3(getVibeOSHome3(), "reality-check-settings.json");
+}
 function resolveRulesPath() {
   if (process.env.VIBEOS_FLOW_RULES_PATH && existsSync3(process.env.VIBEOS_FLOW_RULES_PATH)) {
     return process.env.VIBEOS_FLOW_RULES_PATH;
@@ -2989,14 +3006,15 @@ function defaultRealityCheckRules() {
   ];
 }
 function readRealityCheckSettings() {
-  const settingsMtime = existsSync3(REALITY_CHECK_SETTINGS_FILE) ? statSync3(REALITY_CHECK_SETTINGS_FILE).mtimeMs : 0;
+  const settingsFile = getRealityCheckSettingsFile();
+  const settingsMtime = existsSync3(settingsFile) ? statSync3(settingsFile).mtimeMs : 0;
   if (_cachedRealityCheck && settingsMtime === _realityCheckMtime) {
     return _cachedRealityCheck;
   }
   let parsed = {};
   try {
-    if (existsSync3(REALITY_CHECK_SETTINGS_FILE)) {
-      const raw = readFileSync3(REALITY_CHECK_SETTINGS_FILE, "utf-8");
+    if (existsSync3(settingsFile)) {
+      const raw = readFileSync3(settingsFile, "utf-8");
       const json2 = safeJsonParse3(raw);
       if (json2 && typeof json2 === "object")
         parsed = json2;
@@ -3079,7 +3097,8 @@ function loadRules() {
   const rulesPath = resolveRulesPath();
   try {
     const rulesMtime = existsSync3(rulesPath) ? statSync3(rulesPath).mtimeMs : 0;
-    const realityMtime = existsSync3(REALITY_CHECK_SETTINGS_FILE) ? statSync3(REALITY_CHECK_SETTINGS_FILE).mtimeMs : 0;
+    const realityFile = getRealityCheckSettingsFile();
+    const realityMtime = existsSync3(realityFile) ? statSync3(realityFile).mtimeMs : 0;
     const scopeKey = String(currentProjectFingerprint || "");
     const cacheKey = `${rulesMtime}:${realityMtime}:${scopeKey}`;
     if (_cachedRules && _realityCheckCacheKey === "__test__")
@@ -3305,7 +3324,7 @@ function syncFlowTodosToNative(upsertFn) {
   }
   return count;
 }
-var VIBEOS_STDERR_DEBUG, VIBEOS_CONSOLE_ERROR_GUARD, globalConsoleState, __dirname2, REALITY_CHECK_SETTINGS_FILE, REALITY_CHECK_RULE_IDS, RULES_PATH_CANDIDATES, GUARD_AGENTS_TEMPLATE, GUARD_README_TEMPLATE, FLOW_DEDUP_FILE2, MAX_FLOW_TODOS, _flowWarnsSeen, _stateWriter, _cachedRules, _rulesMtime, _cachedRealityCheck, _realityCheckMtime, _realityCheckCacheKey;
+var VIBEOS_STDERR_DEBUG, VIBEOS_CONSOLE_ERROR_GUARD, globalConsoleState, __dirname2, REALITY_CHECK_RULE_IDS, RULES_PATH_CANDIDATES, GUARD_AGENTS_TEMPLATE, GUARD_README_TEMPLATE, FLOW_DEDUP_FILE2, MAX_FLOW_TODOS, _flowWarnsSeen, _stateWriter, _cachedRules, _rulesMtime, _cachedRealityCheck, _realityCheckMtime, _realityCheckCacheKey;
 var init_flow_enforcer = __esm({
   "src/vibeOS-lib/flow-enforcer.js"() {
     "use strict";
@@ -3340,7 +3359,6 @@ var init_flow_enforcer = __esm({
       globalConsoleState[VIBEOS_CONSOLE_ERROR_GUARD] = true;
     }
     __dirname2 = dirname2(fileURLToPath(import.meta.url));
-    REALITY_CHECK_SETTINGS_FILE = join3(getVibeOSHome3(), "reality-check-settings.json");
     REALITY_CHECK_RULE_IDS = /* @__PURE__ */ new Set([
       "require-read-before-claim",
       "verify-state-on-disk",
@@ -3410,7 +3428,7 @@ function autoSelectMode(subRegime, stressMultiplier) {
   if (regime === "AUDIT" || regime === "FORENSIC")
     return regime.toLowerCase();
   if (regime === "LOOPING")
-    return "speed";
+    return "quality";
   if (regime === "CONVERGING" || regime === "CLOSED")
     return "quality";
   if (regime === "IMPLEMENTING")
@@ -3546,16 +3564,16 @@ var init_meta_controller = __esm({
         wbp_verbosity: "minimal"
       },
       LOOPING: {
-        enforcement_mode: "relaxed",
-        enforcement_reason: "user stuck \u2014 relax all enforcement, fresh perspective",
-        flow_mode: "audit",
-        flow_focus: ["suggest-alternative"],
-        tdd_mode: "lazy",
-        tdd_focus: [],
-        tier_bias: "medium",
-        thinking_mode: "off",
-        stress_multiplier: 0.3,
-        context7_urgency: "optional",
+        enforcement_mode: "strict",
+        enforcement_reason: "user stuck \u2014 tighten enforcement and switch to recovery posture",
+        flow_mode: "strict",
+        flow_focus: ["write-edit-check", "no-untouched-files", "suggest-alternative"],
+        tdd_mode: "strict",
+        tdd_focus: ["skeleton-on-write", "assertion-check"],
+        tier_bias: "brain",
+        thinking_mode: "brief",
+        stress_multiplier: 2,
+        context7_urgency: "required",
         wbp_verbosity: "detailed"
       },
       CLOSED: {
@@ -3818,7 +3836,7 @@ import { resolve as resolve2, dirname as dirname7 } from "node:path";
 import { fileURLToPath as fileURLToPath4 } from "node:url";
 function fallback(sr, text) {
   if (sr === "LOOPING")
-    return "speed";
+    return "quality";
   const t = String(text || "").toLowerCase();
   if (sr === "INIT" && t.length <= 42 && !/[\.\/\\]/.test(t))
     return "budget";
@@ -5309,6 +5327,11 @@ var VIBEOS_API_DISABLED = readApiDisabledFromDisk() || isTruthyFlag(process.env.
 var VIBEOS_API_TOKEN = VIBEOS_API_DISABLED ? "" : readTokenFromDisk() || normalizeDirectApiToken(process.env.VIBEOS_API_TOKEN) || (!hasPrimaryTokenOnDisk() ? EMBEDDED_API_TOKEN : "");
 var VIBEOS_API_BOOTSTRAP_TOKEN = VIBEOS_API_DISABLED ? "" : readBootstrapTokenFromDisk() || process.env.VIBEOS_API_BOOTSTRAP_TOKEN || EMBEDDED_API_TOKEN;
 var VIBEOS_API_ENABLED = !VIBEOS_API_DISABLED && process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
+setApiEnabled(VIBEOS_API_ENABLED);
+function syncApiEnabledState(next) {
+  VIBEOS_API_ENABLED = !!next;
+  setApiEnabled(VIBEOS_API_ENABLED);
+}
 var _anomalyDetector = null;
 function getAnomalyDetector() {
   if (!_anomalyDetector)
@@ -5340,14 +5363,14 @@ function setApiToken(newToken) {
     VIBEOS_API_DISABLED = false;
     VIBEOS_API_TOKEN = normalizeDirectApiToken(newToken);
     VIBEOS_API_BOOTSTRAP_TOKEN = readBootstrapTokenFromDisk() || VIBEOS_API_BOOTSTRAP_TOKEN;
-    VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
+    syncApiEnabledState(process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN));
     _apiClient = null;
     _apiFallbackMode = false;
     _apiFallbackSince = null;
     persistPrimaryApiEnvState({ token: VIBEOS_API_TOKEN, disabled: false });
     if (_anomalyDetector)
       _anomalyDetector.reset();
-    resetApiConnection();
+    markApiConnected();
     console.error("[vibeOS] API token updated via setApiToken");
   } catch (e) {
     console.error("[vibeOS] Failed to update API token:", e.message);
@@ -5358,7 +5381,7 @@ function invalidateApiToken() {
     VIBEOS_API_DISABLED = true;
     VIBEOS_API_TOKEN = "";
     VIBEOS_API_BOOTSTRAP_TOKEN = "";
-    VIBEOS_API_ENABLED = false;
+    syncApiEnabledState(false);
     _apiClient = null;
     _apiFallbackMode = false;
     _apiFallbackSince = null;
@@ -5376,7 +5399,8 @@ function setApiBootstrapToken(newToken) {
   try {
     VIBEOS_API_DISABLED = false;
     VIBEOS_API_BOOTSTRAP_TOKEN = String(newToken || "").trim();
-    VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
+    syncApiEnabledState(process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN));
+    markApiConnected();
     persistPrimaryApiEnvState({ disabled: false });
     persistBootstrapToken(VIBEOS_API_BOOTSTRAP_TOKEN);
     console.error("[vibeOS] Alpha bootstrap token updated");
@@ -5460,7 +5484,7 @@ function syncApiTokenFromDisk() {
       VIBEOS_API_DISABLED = true;
       VIBEOS_API_TOKEN = "";
       VIBEOS_API_BOOTSTRAP_TOKEN = "";
-      VIBEOS_API_ENABLED = false;
+      syncApiEnabledState(false);
       _apiClient = null;
       _apiFallbackMode = false;
       _apiFallbackSince = null;
@@ -5472,28 +5496,30 @@ function syncApiTokenFromDisk() {
   if (diskToken && diskToken !== VIBEOS_API_TOKEN) {
     VIBEOS_API_DISABLED = false;
     VIBEOS_API_TOKEN = diskToken;
-    VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
+    syncApiEnabledState(process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN));
     _apiClient = null;
     _apiFallbackMode = false;
     _apiFallbackSince = null;
-    resetApiConnection();
+    markApiConnected();
     console.error("[vibeOS] API token synced from disk (disk is newer)");
   } else if (diskBootstrapToken && diskBootstrapToken !== VIBEOS_API_BOOTSTRAP_TOKEN) {
     VIBEOS_API_DISABLED = false;
     VIBEOS_API_BOOTSTRAP_TOKEN = diskBootstrapToken;
-    VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
+    syncApiEnabledState(process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN));
     _apiFallbackMode = false;
     _apiFallbackSince = null;
-    resetApiConnection();
+    markApiConnected();
     console.error("[vibeOS] Alpha bootstrap token synced from disk (disk is newer)");
   } else if (!diskToken && VIBEOS_API_TOKEN) {
     persistPrimaryApiEnvState({ token: VIBEOS_API_TOKEN, disabled: false });
     console.error("[vibeOS] API token persisted to disk from memory (disk was empty)");
-    VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && !!VIBEOS_API_TOKEN;
+    syncApiEnabledState(process.env.VIBEOS_API_ENABLED !== "false" && !!VIBEOS_API_TOKEN);
+    markApiConnected();
   } else if (envToken && !diskToken && !VIBEOS_API_TOKEN) {
     VIBEOS_API_DISABLED = false;
     VIBEOS_API_TOKEN = envToken;
-    VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
+    syncApiEnabledState(process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN));
+    markApiConnected();
     console.error("[vibeOS] API token loaded from VIBEOS_API_TOKEN env var");
   } else {
     VIBEOS_API_DISABLED = false;
@@ -5501,12 +5527,13 @@ function syncApiTokenFromDisk() {
       VIBEOS_API_TOKEN = EMBEDDED_API_TOKEN;
     }
     VIBEOS_API_BOOTSTRAP_TOKEN ||= EMBEDDED_API_TOKEN;
-    VIBEOS_API_ENABLED = process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
+    syncApiEnabledState(process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN));
+    markApiConnected();
   }
 }
 function getApiClient2() {
   syncApiTokenFromDisk();
-  if (!_apiClient && VIBEOS_API_ENABLED && VIBEOS_API_TOKEN) {
+  if (!_apiClient && isApiEnabled() && VIBEOS_API_TOKEN) {
     _apiClient = new VibeOSApiClient({
       baseUrl: VIBEOS_API_URL,
       apiToken: VIBEOS_API_TOKEN,
@@ -5516,11 +5543,11 @@ function getApiClient2() {
   return _apiClient;
 }
 function isApiFallback2() {
-  return _apiFallbackMode || !VIBEOS_API_ENABLED;
+  return _apiFallbackMode || isApiFallbackMode() || !isApiEnabled();
 }
-function isApiConnected2() {
+function isApiConnected() {
   tryResetFallbackCooldown();
-  return isApiConnected() && VIBEOS_API_ENABLED && !_apiFallbackMode;
+  return isApiEnabled();
 }
 function getBackendVersion() {
   return _backendVersion;
@@ -5534,7 +5561,7 @@ async function remoteCall(method, args, fallbackFn) {
   if (tryResetFallbackCooldown()) {
     console.warn("[vibeOS] API fallback cooldown expired \u2014 retrying API");
   }
-  if (!VIBEOS_API_ENABLED || _apiFallbackMode) {
+  if (!isApiEnabled() || _apiFallbackMode) {
     if (fallbackFn)
       return fallbackFn();
     return null;
@@ -6859,6 +6886,42 @@ var ResolutionTracker = class _ResolutionTracker {
   normalizeText(text) {
     return (text || "").toLowerCase().replace(/[^a-z0-9\s]+/g, " ").replace(/\s+/g, " ").trim();
   }
+  normalizeActivity(activity, action, text) {
+    const fallbackSignature = this.normalizeText(action || text || "");
+    if (!activity) {
+      return {
+        signature: fallbackSignature || "",
+        tool: null,
+        target: null,
+        action: action || null,
+        repeat_count: 1,
+        outcome: null
+      };
+    }
+    if (typeof activity === "string") {
+      const sig = this.normalizeText(activity);
+      return {
+        signature: sig || fallbackSignature || "",
+        tool: null,
+        target: null,
+        action: action || null,
+        repeat_count: 1,
+        outcome: null
+      };
+    }
+    const tool2 = this.normalizeText(activity.tool || activity.toolName || activity.kind || "");
+    const target = this.normalizeText(activity.target || activity.filePath || activity.file_path || activity.path || activity.command || "");
+    const normalizedAction = this.normalizeText(activity.action || activity.kind || action || "");
+    const signature = this.normalizeText(activity.signature || [tool2, target, normalizedAction, activity.outcome || ""].filter(Boolean).join(" "));
+    return {
+      signature: signature || fallbackSignature || "",
+      tool: tool2 || null,
+      target: target || null,
+      action: normalizedAction || action || null,
+      repeat_count: Number(activity.repeat_count || activity.repeatCount || 1) || 1,
+      outcome: typeof activity.outcome === "string" ? activity.outcome : activity.outcome ?? null
+    };
+  }
   getRepeatStreak() {
     if (this.history.length < 2)
       return 0;
@@ -6874,7 +6937,38 @@ var ResolutionTracker = class _ResolutionTracker {
     }
     return streak;
   }
-  update(userText, features, action, entropy, uncertainty, embedding = null) {
+  getActivityRepeatStreak() {
+    if (this.history.length < 2)
+      return 0;
+    const normalizedLast = this.normalizeActivity(this.history[this.history.length - 1].activity, this.history[this.history.length - 1].action, this.history[this.history.length - 1].text).signature;
+    if (!normalizedLast)
+      return 0;
+    let streak = 1;
+    for (let i = this.history.length - 2; i >= 0; i--) {
+      const normalized = this.normalizeActivity(this.history[i].activity, this.history[i].action, this.history[i].text).signature;
+      if (!normalized || normalized !== normalizedLast)
+        break;
+      streak++;
+    }
+    return streak;
+  }
+  getTargetRepeatStreak() {
+    if (this.history.length < 2)
+      return 0;
+    const normalizedLast = this.normalizeActivity(this.history[this.history.length - 1].activity, this.history[this.history.length - 1].action, this.history[this.history.length - 1].text).target;
+    if (!normalizedLast)
+      return 0;
+    let streak = 1;
+    for (let i = this.history.length - 2; i >= 0; i--) {
+      const normalized = this.normalizeActivity(this.history[i].activity, this.history[i].action, this.history[i].text).target;
+      if (!normalized || normalized !== normalizedLast)
+        break;
+      streak++;
+    }
+    return streak;
+  }
+  update(userText, features, action, entropy, uncertainty, embedding = null, activity = null) {
+    const normalizedActivity = this.normalizeActivity(activity, action, userText);
     const entry = {
       text: userText,
       features: { ...features },
@@ -6882,6 +6976,7 @@ var ResolutionTracker = class _ResolutionTracker {
       entropy,
       uncertainty,
       embedding: embedding ? [...embedding] : null,
+      activity: normalizedActivity,
       timestamp: Date.now() / 1e3
     };
     if (this.history.length >= 2) {
@@ -6950,6 +7045,8 @@ var ResolutionTracker = class _ResolutionTracker {
     const featureContradiction = this.calcFeatureContradiction();
     const embeddingDelta = this.calcEmbeddingDelta();
     const repeatStreak = this.getRepeatStreak();
+    const activityRepeatStreak = this.getActivityRepeatStreak();
+    const targetRepeatStreak = this.getTargetRepeatStreak();
     const isLooping = this.detectLoop();
     const intentState = this.computeIntentState();
     const continuityState = this.continuityState(intentState);
@@ -6985,9 +7082,10 @@ var ResolutionTracker = class _ResolutionTracker {
     const momentum = this.calcMomentum(entropyTrend, actionConsistency, embeddingDelta, isLooping, lastEntry.action, lastEntry.entropy);
     let loopLevel = "none";
     if (isLooping) {
-      if (repeatStreak >= 3 || this.loopCount >= 4)
+      const repeatSignal = Math.max(repeatStreak, activityRepeatStreak, targetRepeatStreak);
+      if (repeatSignal >= 3 || this.loopCount >= 4)
         loopLevel = "escalated";
-      else if (repeatStreak >= 2 || this.loopCount >= 3)
+      else if (repeatSignal >= 2 || this.loopCount >= 3)
         loopLevel = "assertive";
       else if (this.loopCount >= 2)
         loopLevel = "suggestive";
@@ -7004,7 +7102,9 @@ var ResolutionTracker = class _ResolutionTracker {
         action_consistency: Math.round(actionConsistency * 1e4) / 1e4,
         entropy_trend: Math.round(entropyTrend * 1e4) / 1e4,
         feature_contradiction: Math.round(featureContradiction * 1e4) / 1e4,
-        embedding_delta: Math.round(embeddingDelta * 1e4) / 1e4
+        embedding_delta: Math.round(embeddingDelta * 1e4) / 1e4,
+        activity_repeat_streak: Math.round(activityRepeatStreak * 1e4) / 1e4,
+        target_repeat_streak: Math.round(targetRepeatStreak * 1e4) / 1e4
       },
       intent_state: {
         volatility_score: Math.round(intentState.volatility_score * 1e4) / 1e4,
@@ -7015,6 +7115,8 @@ var ResolutionTracker = class _ResolutionTracker {
       is_looping: isLooping,
       loop_consecutive: this.loopCount,
       repeat_streak: repeatStreak,
+      activity_repeat_streak: activityRepeatStreak,
+      target_repeat_streak: targetRepeatStreak,
       loop_intervention_level: loopLevel,
       pivot_detected: pivotDetected,
       pivot_score: Math.round(pivotScore * 1e4) / 1e4,
@@ -7068,7 +7170,8 @@ var ResolutionTracker = class _ResolutionTracker {
     return 1 - cosineSimilarity2(a, b);
   }
   detectLoop() {
-    return this.loopCount >= 2 || this.getRepeatStreak() >= 2;
+    const repeatSignal = Math.max(this.getRepeatStreak(), this.getActivityRepeatStreak(), this.getTargetRepeatStreak());
+    return this.loopCount >= 2 || repeatSignal >= 2;
   }
   computeIntentState() {
     const last = this.history[this.history.length - 1];
@@ -7182,7 +7285,10 @@ var ResolutionTracker = class _ResolutionTracker {
   }
   static deserialize(data) {
     const tracker = new _ResolutionTracker(data.sessionId || "session", data.maxHistory || 10);
-    tracker.history = Array.isArray(data.history) ? data.history : [];
+    tracker.history = Array.isArray(data.history) ? data.history.map((entry) => ({
+      ...entry,
+      activity: entry?.activity || null
+    })) : [];
     tracker.loopCount = Number(data.loopCount || 0);
     tracker.pivotHistory = Array.isArray(data.pivotHistory) ? data.pivotHistory : [];
     tracker.outcomeHistory = Array.isArray(data.outcomeHistory) ? data.outcomeHistory : [];
@@ -7315,6 +7421,7 @@ init_state();
 init_selection_manager();
 
 // src/lib/classifiers.js
+init_state();
 function detectOutcomeSignal(text) {
   if (!text)
     return null;
@@ -7324,7 +7431,50 @@ function detectOutcomeSignal(text) {
     return "negative";
   return null;
 }
-function scoreStress(text) {
+function normalizeActivitySignature(event) {
+  if (!event || typeof event !== "object")
+    return "";
+  const tool2 = String(event.tool || "").trim().toLowerCase();
+  const target = String(event.target || "").trim().toLowerCase();
+  const action = String(event.action || event.kind || "").trim().toLowerCase();
+  return [tool2, target, action].filter(Boolean).join(":");
+}
+function countBehavioralRepeat(items, signatureOf, minLength = 2) {
+  if (!Array.isArray(items) || items.length < minLength)
+    return 0;
+  const last = signatureOf(items[items.length - 1]);
+  if (!last)
+    return 0;
+  let streak = 0;
+  for (let i = items.length - 1; i >= 0; i--) {
+    if (signatureOf(items[i]) !== last)
+      break;
+    streak++;
+  }
+  return streak;
+}
+function getBehavioralStressSignals(context, blackboxState) {
+  const recentEvents = Array.isArray(context?.recentToolEvents) ? context.recentToolEvents : Array.isArray(recentToolEvents) ? recentToolEvents : [];
+  const recentWindow = recentEvents.slice(-8);
+  const toolRepeatStreak = countBehavioralRepeat(recentWindow, normalizeActivitySignature);
+  const targetRepeatStreak = countBehavioralRepeat(recentWindow, (event) => String(event?.target || "").trim().toLowerCase());
+  const outcomeHistory = Array.isArray(context?.outcomeHistory) ? context.outcomeHistory : Array.isArray(blackboxState?.outcomeHistory) ? blackboxState.outcomeHistory : [];
+  const negativeOutcomes = outcomeHistory.slice(-5).filter((o) => /negative|failed|unresolved|loop_detected/i.test(String(o?.outcome || ""))).length;
+  const loopCount = Number(blackboxState?.loop_count ?? blackboxState?.loopConsecutive ?? blackboxState?.loop_consecutive ?? 0);
+  const repeatStreak = Number(blackboxState?.repeat_streak ?? 0);
+  const activityRepeatStreak = Number(blackboxState?.activity_repeat_streak ?? 0);
+  const targetRepeatStateStreak = Number(blackboxState?.target_repeat_streak ?? 0);
+  return {
+    toolRepeatStreak,
+    targetRepeatStreak,
+    negativeOutcomes,
+    loopCount,
+    repeatStreak,
+    activityRepeatStreak,
+    targetRepeatStateStreak
+  };
+}
+function scoreStress(text, context = {}) {
   if (!text || typeof text !== "string")
     return 0;
   const t = text.toLowerCase();
@@ -7363,6 +7513,46 @@ function scoreStress(text) {
   const qeCombos = text.match(/\?!|!\?/g);
   if (qeCombos)
     score += qeCombos.length * 0.1;
+  const behavioralPhrases = [
+    { re: /\b(restart|restarts|restarted|restart again|restart it|retry|retries|retrial|rerun|redo|repeat the step|try again|another attempt|another pass)\b/gi, weight: 0.09 },
+    { re: /\b(still failing|keeps failing|keeps breaking|still broken|same issue|same result|same error|new error|new issue|broke again|breaks again|every fix|every time|over and over|again and again)\b/gi, weight: 0.12 },
+    { re: /\b(blocked again|stuck again|failed again|fails again|this is not working|nothing changed|no change)\b/gi, weight: 0.1 }
+  ];
+  for (const { re, weight } of behavioralPhrases) {
+    const hits = (t.match(re) || []).length;
+    score += hits * weight;
+  }
+  const sessionId = String(_OC_SID || "");
+  let blackboxState = context?.blackboxState || null;
+  if (!blackboxState) {
+    try {
+      const raw = loadBlackboxState();
+      blackboxState = raw?.sessions?.[sessionId] || null;
+    } catch {
+    }
+  }
+  const { toolRepeatStreak, targetRepeatStreak, negativeOutcomes, loopCount, repeatStreak, activityRepeatStreak, targetRepeatStateStreak } = getBehavioralStressSignals(context, blackboxState);
+  if (toolRepeatStreak >= 2) {
+    score += 0.08 + Math.min(0.24, (toolRepeatStreak - 1) * 0.05);
+  }
+  if (targetRepeatStreak >= 2) {
+    score += 0.05 + Math.min(0.16, (targetRepeatStreak - 1) * 0.035);
+  }
+  if (negativeOutcomes >= 1) {
+    score += 0.05 * negativeOutcomes + Math.min(0.18, negativeOutcomes * 0.03);
+  }
+  if (blackboxState?.is_looping || loopCount >= 2) {
+    score += 0.1 + Math.min(0.18, loopCount * 0.03);
+  }
+  if (repeatStreak >= 2) {
+    score += 0.06 + Math.min(0.12, repeatStreak * 0.025);
+  }
+  if (activityRepeatStreak >= 2) {
+    score += 0.05 + Math.min(0.1, activityRepeatStreak * 0.02);
+  }
+  if (targetRepeatStateStreak >= 2) {
+    score += 0.04 + Math.min(0.08, targetRepeatStateStreak * 0.015);
+  }
   if (text.length < 30)
     score += 0.06;
   else if (text.length < 80)
@@ -7522,7 +7712,7 @@ function autoSelectMode2(subRegime, stressMultiplier) {
   if (regime === "AUDIT" || regime === "FORENSIC")
     return regime.toLowerCase();
   if (regime === "LOOPING")
-    return "speed";
+    return "quality";
   if (regime === "CONVERGING" || regime === "CLOSED")
     return "quality";
   if (regime === "IMPLEMENTING")
@@ -7643,22 +7833,27 @@ function computeControlVector2(_state, _action, _optimizationMode) {
   const subRegime = _state?.sub_regime || "INIT";
   const stress = Number(_state?.latest_stress_multiplier ?? 0);
   const tierBias = stress > QUALITY_STRESS_THRESHOLD2 ? "brain" : subRegime === "CONVERGING" || subRegime === "CLOSED" ? "brain" : subRegime === "REFINING" || subRegime === "LOOPING" ? "medium" : mode === "quality" || mode === "longrun" || mode === "vibeultrax" || mode === "vibeqmax" || mode === "forensic" || mode === "audit" ? "brain" : mode === "speed" || mode === "vibemax" || mode === "vibelitex" ? "medium" : mode === "balanced" ? "auto" : "cheap";
+  const loopingHardening = String(subRegime).toUpperCase() === "LOOPING";
+  const hardenedTierBias = loopingHardening ? "brain" : tierBias;
+  const hardenedMode = loopingHardening ? "quality" : mode;
+  const hardenedModeRoot = loopingHardening ? { mode_root: "quality", mode_family: "brain-runtime", cascade_depth: 1, pipeline_root: ["brain"] } : modeRoot;
   return {
-    enforcement_mode: isStrict ? "strict" : isRelaxed ? "relaxed" : "normal",
-    enforcement_reason: `[optimize: ${mode}] using safe offline defaults`,
-    flow_mode: isStrict ? "strict" : isRelaxed ? "audit" : "normal",
+    enforcement_mode: loopingHardening ? "strict" : isStrict ? "strict" : isRelaxed ? "relaxed" : "normal",
+    enforcement_reason: loopingHardening ? "[optimize: LOOPING] recovery posture \u2014 tighten enforcement and preserve outcome detection" : `[optimize: ${mode}] using safe offline defaults`,
+    flow_mode: loopingHardening ? "strict" : isStrict ? "strict" : isRelaxed ? "audit" : "normal",
     flow_focus: [],
-    tdd_mode: isStrict ? "strict" : isRelaxed ? "lazy" : "normal",
+    tdd_mode: loopingHardening ? "strict" : isStrict ? "strict" : isRelaxed ? "lazy" : "normal",
     tdd_focus: [],
-    tier_bias: tierBias,
-    thinking_mode: isStrict ? "full" : mode === "longrun" ? "brief" : isRelaxed ? "off" : "auto",
-    stress_multiplier: 1,
-    context7_urgency: isStrict ? "required" : "preferred",
-    wbp_verbosity: isStrict ? "verbose" : isRelaxed ? "minimal" : "normal",
+    tier_bias: hardenedTierBias,
+    thinking_mode: loopingHardening ? "brief" : isStrict ? "full" : mode === "longrun" ? "brief" : isRelaxed ? "off" : "auto",
+    stress_multiplier: loopingHardening ? Math.max(1.5, stress) : 1,
+    context7_urgency: loopingHardening ? "required" : isStrict ? "required" : "preferred",
+    wbp_verbosity: loopingHardening ? "detailed" : isStrict ? "verbose" : isRelaxed ? "minimal" : "normal",
     agent_mode: (subRegime === "REFINING" || subRegime === "CONVERGING" || subRegime === "CLOSED") && stress <= QUALITY_STRESS_THRESHOLD2 ? "plan" : void 0,
-    optimization_mode: mode,
-    ...modeRoot,
-    directives: isRelaxed && (subRegime === "EXPLORING" || subRegime === "INIT" || subRegime === "AUDIT" || subRegime === "FORENSIC" || subRegime === "LOOPING") ? [
+    optimization_mode: hardenedMode,
+    ...hardenedModeRoot,
+    outcome_detection: true,
+    directives: isRelaxed && !loopingHardening && (subRegime === "EXPLORING" || subRegime === "INIT" || subRegime === "AUDIT" || subRegime === "FORENSIC" || subRegime === "LOOPING") ? [
       `[speed guard] VERIFY BEFORE ACT - Speed-oriented mode "${mode}" is active and user intent is ${subRegime}. Before modifying files or executing commands, first verify the current state. When a request is ambiguous between "check and report" vs "fix", always choose CHECK FIRST. Treat "look at", "check", "investigate", "tell me about" as requests for information, not action items.`
     ] : []
   };
@@ -7716,6 +7911,29 @@ function normalizeBlackboxFeatures(text) {
     uncertainty: computeBlackboxUncertainty(features)
   };
 }
+function summarizeRecentToolActivity(limit = 5) {
+  const events = Array.isArray(recentToolEvents) ? recentToolEvents.slice(-limit) : [];
+  if (events.length === 0)
+    return null;
+  const last = events[events.length - 1] || {};
+  const signature = `${String(last.tool || "").trim().toLowerCase()}:${String(last.target || "").trim().toLowerCase()}`;
+  let repeatCount = 0;
+  for (let i = events.length - 1; i >= 0; i--) {
+    const cur = events[i] || {};
+    const curSignature = `${String(cur.tool || "").trim().toLowerCase()}:${String(cur.target || "").trim().toLowerCase()}`;
+    if (curSignature !== signature)
+      break;
+    repeatCount++;
+  }
+  return {
+    tool: String(last.tool || "").toLowerCase(),
+    target: String(last.target || "").toLowerCase(),
+    action: String(last.action || last.kind || "").toLowerCase(),
+    signature,
+    repeat_count: repeatCount,
+    recent_count: events.length
+  };
+}
 function normalizeBlackboxHistoryEntry(entry) {
   const text = typeof entry?.text === "string" ? entry.text : "";
   const fallback2 = normalizeBlackboxFeatures(text);
@@ -7729,7 +7947,8 @@ function normalizeBlackboxHistoryEntry(entry) {
     embedding: Array.isArray(entry?.embedding) ? [...entry.embedding] : null,
     timestamp: Number.isFinite(Number(entry?.timestamp)) ? Number(entry.timestamp) : Date.now() / 1e3,
     is_pivot: Boolean(entry?.is_pivot),
-    outcome: typeof entry?.outcome === "string" ? entry.outcome : entry?.outcome ?? null
+    outcome: typeof entry?.outcome === "string" ? entry.outcome : entry?.outcome ?? null,
+    activity: entry?.activity && typeof entry.activity === "object" ? { ...entry.activity } : null
   };
 }
 function normalizeBlackboxHistory(history) {
@@ -7756,7 +7975,8 @@ var _BlackboxStub = class __BlackboxStub {
   }
   update(text) {
     const normalized = normalizeBlackboxFeatures(text);
-    const state = this.tracker.update(text, normalized.features, normalized.action, normalized.entropy, normalized.uncertainty);
+    const recentActivity = summarizeRecentToolActivity();
+    const state = this.tracker.update(text, normalized.features, normalized.action, normalized.entropy, normalized.uncertainty, null, recentActivity);
     return { ...state, ...normalized };
   }
   snapshot() {
@@ -7881,8 +8101,10 @@ function computeLocalCalibration() {
 }
 function resolveEnforcementMode() {
   const sub = _latestBlackboxState2?.sub_regime || "INIT";
-  if (sub === "EXPLORING" || sub === "DIVERGENT" || sub === "LOOPING")
+  if (sub === "EXPLORING" || sub === "DIVERGENT")
     return "relaxed";
+  if (sub === "LOOPING")
+    return "strict";
   if (sub === "CONVERGING" || sub === "CLOSED")
     return "strict";
   return "normal";
@@ -9241,7 +9463,7 @@ function createTrinityTool(deps) {
           `Model: ${activeSlot} (${tiers?.[activeSlot]?.oc || deps.currentModel || "(unset)"})`,
           `Provider: ${execution.provider_label}`,
           `Quality: ${execution.quality_label}`,
-          ...isApiConnected2() ? [`Backend: connected${getBackendVersion() ? ` (${getBackendVersion()})` : ""}`] : [`Backend: offline`],
+          ...isApiConnected() ? [`Backend: connected${getBackendVersion() ? ` (${getBackendVersion()})` : ""}`] : [`Backend: offline`],
           ...sel.requested_optimization_mode ? [`Requested mode: ${sel.requested_optimization_mode}`] : [],
           ...totalTurns > 0 ? [`Split: brain ${brainPct}% / worker ${workerPct}% (${totalTurns} total)`] : [],
           `Thinking: ${effectiveLevel}`,
@@ -10776,7 +10998,11 @@ function isManualOverride(mode) {
 function chooseEpisodeMode(regime, suggestedMode, stress) {
   if (suggestedMode === "vibeultrax" || suggestedMode === "vibeqmax" || suggestedMode === "vibemax" || suggestedMode === "audit" || suggestedMode === "forensic")
     return suggestedMode;
-  if (LOOP_REGIMES.has(regime) || suggestedMode === "speed")
+  if (regime === "LOOPING")
+    return "quality";
+  if (suggestedMode === "speed")
+    return "speed";
+  if (LOOP_REGIMES.has(regime))
     return "speed";
   if (QUALITY_REGIMES.has(regime) || suggestedMode === "quality")
     return "quality";
@@ -11439,7 +11665,7 @@ function resolveTemplate(prevTemplate, stressScore, userText, creditPercent, sub
   if (detectBudgetSignal(creditPercent)) {
     const regime = String(subRegime || "").toUpperCase();
     if (regime === "LOOPING" || regime === "DIVERGENT")
-      return "speed";
+      return "quality";
     return "save";
   }
   if (detectStressSpike(stressScore))
@@ -12149,7 +12375,7 @@ var onSystemTransform = async (_input, output) => {
     const system = output?.system;
     if (!Array.isArray(system))
       return;
-    if (isApiConnected2()) {
+    if (isApiConnected()) {
       try {
         const bb = loadBlackboxState();
         if (!bb.enabled || _blackboxEnabled === false) {
@@ -12736,7 +12962,7 @@ async function _appendFooter(input, output, directory3) {
       return;
     const ltTotal = ltTasks + ltCache;
     const activeSlot = selNowFooter.active_slot || "brain";
-    const flashIcon = isApiConnected2() ? " \u26A1" : "";
+    const flashIcon = isApiConnected() ? " \u26A1" : "";
     const displayMode2 = autoSelectMode2(currentSubRegime2, _footerStress);
     const vibeBrand = resolveBrand(loadOptimizationMode() || displayMode2, activeSlot);
     const vibeLine = buildFooterLine({
@@ -14862,7 +15088,7 @@ var onToolExecuteAfter = async (input, output) => {
       const displayMode2 = autoSelectMode2(currentSubRegime2, latestUserIntent ? scoreStress(latestUserIntent) : 0);
       const vibeBrand = resolveBrand(displayMode2, activeSlot);
       const sessionSlot = loadSessionSlot(currentSid);
-      const flashIcon = isApiConnected2() ? " \u26A1" : "";
+      const flashIcon = isApiConnected() ? " \u26A1" : "";
       _footerText = buildFooterLine({
         activeSlot,
         providerLabel: execution.provider_label,
@@ -15612,7 +15838,7 @@ async function ensureMcpServerRunning() {
               version: readPackageVersion(),
               todos: loadTodos(),
               fallbackThinking: thinkingLevel(loadCredit()),
-              backendConnected: isApiConnected2(),
+              backendConnected: isApiConnected(),
               backendHealthUrl: `${VIBEOS_API_URL}/health`,
               backendVersion: getBackendVersion(),
               apiFallbackMode: isApiFallback2(),
@@ -15781,7 +16007,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     globalThis.__vibeOS_sessionId = `opencode-${process.pid || "x"}-${Date.now()}`;
   }
   const hookSessionId = globalThis.__vibeOS_sessionId;
-  setVibeOSHomeContext(join18(hookHome, ".claude"));
+  setVibeOSHomeContext(getVibeOSHome13());
   setCurrentSessionId(hookSessionId);
   if (hookFp) {
     setCurrentProjectFingerprint(hookFp);
@@ -15860,7 +16086,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
   briefedProjects.clear();
   activeJob2 = _loadActiveJobForProject(directory3, fp);
   const systemBriefedProjects = /* @__PURE__ */ new Set();
-  const hookVibeHome = join18(hookHome, ".claude");
+  const hookVibeHome = getVibeOSHome13();
   const hookStateFile = join18(hookVibeHome, "delegation-state.json");
   const hookProjectStateFile = join18(hookVibeHome, "project-states.json");
   const hookReportsDir = join18(hookVibeHome, "reports");

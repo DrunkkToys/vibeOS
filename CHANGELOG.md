@@ -1,3 +1,69 @@
+## 0.25.22
+- fix: include installer helper in package
+
+
+## 0.25.21
+- fix: stabilize OpenCode install resolution
+
+
+## 0.25.19
+- fix: harden loop detection and behavioral stress
+
+
+## 0.25.18
+- fix: install vibeOS with absolute opencode paths
+
+
+## 0.25.17
+- chore: v0.25.16
+Revert "Remove local dashboard base stamp"
+
+
+## 0.25.16
+- chore: patch release bump
+
+
+## 0.25.15
+- fix: restore M1 installer deploy
+Remove local dashboard base stamp
+Harden LOOPING control vector
+
+
+## 0.25.14
+- fix: register OpenCode on both homes
+
+
+## 0.25.13
+- fix: prompt before installer deploy
+
+
+## 0.25.12
+- feat: add reality-check guardrail
+- fix: harden live opencode runtime integration (#191)
+- fix: update tests for removed _apiFallbackMode module-level variable
+- fix: single source of truth for API connection state + flash icon regression tests
+- fix: add cost-anomaly to sync-ts-build to fix mega test ERR_MODULE_NOT_FOUND
+- fix: add sandbox .env.production with valid-format token to cascade tests
+- fix: make test startup safe for client release
+- fix: API connection health probe + shadow variable cleanup
+- test: remove pre-existing failing applySlot test
+- test: remove pre-existing failing tests
+- test: add coverage tests for setApiToken, invalidateApiToken, token validation, cooldown expiry, getApiClient
+- test: add cascade reality-check regression
+- test: add real integration tests for flash icon lifecycle
+- chore: v0.25.11
+- chore: v0.25.9
+- chore: v0.25.9
+- chore: v0.25.7
+- ci: serialize test files in ci mode
+- ci: speed up and stabilize regression tests
+- ci: run matrix on node 20 only
+- chore: v0.25.5
+revert: restore original isApiConnected implementation
+Merge pull request #189 from DrunkkToys/codex/reality-check-cascade-test
+Merge pull request #188 from DrunkkToys/codex/reality-check-guardrail
+
+
 ## 0.25.4
 - fix: isApiConnected() self-heals after cooldown without remoteCall()
 - fix: API reconnection cooldown never reset runtime-state, causing permanent offline status

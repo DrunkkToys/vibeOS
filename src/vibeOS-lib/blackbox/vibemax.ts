@@ -11,7 +11,7 @@ const MODEL_PATH = process.env.VIBEOS_VIBEMAX_MODEL_PATH || resolve(__dirname, "
 const PRIORITY = { budget: 0, audit: 1, speed: 2, longrun: 3, quality: 4 }
 
 function fallback(sr, text) {
-  if (sr === "LOOPING") return "speed"
+  if (sr === "LOOPING") return "quality"
   const t = String(text || "").toLowerCase()
   if (sr === "INIT" && t.length <= 42 && !/[\.\/\\]/.test(t)) return "budget"
   return "quality"

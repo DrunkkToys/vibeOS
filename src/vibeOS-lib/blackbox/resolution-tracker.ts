@@ -65,6 +65,42 @@ export class ResolutionTracker {
       .replace(/\s+/g, " ")
       .trim()
   }
+  normalizeActivity(activity, action, text) {
+    const fallbackSignature = this.normalizeText(action || text || "")
+    if (!activity) {
+      return {
+        signature: fallbackSignature || "",
+        tool: null,
+        target: null,
+        action: action || null,
+        repeat_count: 1,
+        outcome: null,
+      }
+    }
+    if (typeof activity === "string") {
+      const sig = this.normalizeText(activity)
+      return {
+        signature: sig || fallbackSignature || "",
+        tool: null,
+        target: null,
+        action: action || null,
+        repeat_count: 1,
+        outcome: null,
+      }
+    }
+    const tool = this.normalizeText(activity.tool || activity.toolName || activity.kind || "")
+    const target = this.normalizeText(activity.target || activity.filePath || activity.file_path || activity.path || activity.command || "")
+    const normalizedAction = this.normalizeText(activity.action || activity.kind || action || "")
+    const signature = this.normalizeText(activity.signature || [tool, target, normalizedAction, activity.outcome || ""].filter(Boolean).join(" "))
+    return {
+      signature: signature || fallbackSignature || "",
+      tool: tool || null,
+      target: target || null,
+      action: normalizedAction || action || null,
+      repeat_count: Number(activity.repeat_count || activity.repeatCount || 1) || 1,
+      outcome: typeof activity.outcome === "string" ? activity.outcome : (activity.outcome ?? null),
+    }
+  }
   getRepeatStreak() {
     if (this.history.length < 2)
       return 0
@@ -80,7 +116,38 @@ export class ResolutionTracker {
     }
     return streak
   }
-  update(userText, features, action, entropy, uncertainty, embedding = null) {
+  getActivityRepeatStreak() {
+    if (this.history.length < 2)
+      return 0
+    const normalizedLast = this.normalizeActivity(this.history[this.history.length - 1].activity, this.history[this.history.length - 1].action, this.history[this.history.length - 1].text).signature
+    if (!normalizedLast)
+      return 0
+    let streak = 1
+    for (let i = this.history.length - 2; i >= 0; i--) {
+      const normalized = this.normalizeActivity(this.history[i].activity, this.history[i].action, this.history[i].text).signature
+      if (!normalized || normalized !== normalizedLast)
+        break
+      streak++
+    }
+    return streak
+  }
+  getTargetRepeatStreak() {
+    if (this.history.length < 2)
+      return 0
+    const normalizedLast = this.normalizeActivity(this.history[this.history.length - 1].activity, this.history[this.history.length - 1].action, this.history[this.history.length - 1].text).target
+    if (!normalizedLast)
+      return 0
+    let streak = 1
+    for (let i = this.history.length - 2; i >= 0; i--) {
+      const normalized = this.normalizeActivity(this.history[i].activity, this.history[i].action, this.history[i].text).target
+      if (!normalized || normalized !== normalizedLast)
+        break
+      streak++
+    }
+    return streak
+  }
+  update(userText, features, action, entropy, uncertainty, embedding = null, activity = null) {
+    const normalizedActivity = this.normalizeActivity(activity, action, userText)
     const entry = {
       text: userText,
       features: { ...features },
@@ -88,6 +155,7 @@ export class ResolutionTracker {
       entropy,
       uncertainty,
       embedding: embedding ? [...embedding] : null,
+      activity: normalizedActivity,
       timestamp: Date.now() / 1000,
     }
     if (this.history.length >= 2) {
@@ -162,6 +230,8 @@ export class ResolutionTracker {
     const featureContradiction = this.calcFeatureContradiction()
     const embeddingDelta = this.calcEmbeddingDelta()
     const repeatStreak = this.getRepeatStreak()
+    const activityRepeatStreak = this.getActivityRepeatStreak()
+    const targetRepeatStreak = this.getTargetRepeatStreak()
     const isLooping = this.detectLoop()
     const intentState = this.computeIntentState()
     const continuityState = this.continuityState(intentState)
@@ -207,9 +277,10 @@ export class ResolutionTracker {
     const momentum = this.calcMomentum(entropyTrend, actionConsistency, embeddingDelta, isLooping, lastEntry.action, lastEntry.entropy)
     let loopLevel = "none"
     if (isLooping) {
-      if (repeatStreak >= 3 || this.loopCount >= 4)
+      const repeatSignal = Math.max(repeatStreak, activityRepeatStreak, targetRepeatStreak)
+      if (repeatSignal >= 3 || this.loopCount >= 4)
         loopLevel = "escalated"
-      else if (repeatStreak >= 2 || this.loopCount >= 3)
+      else if (repeatSignal >= 2 || this.loopCount >= 3)
         loopLevel = "assertive"
       else if (this.loopCount >= 2)
         loopLevel = "suggestive"
@@ -228,6 +299,8 @@ export class ResolutionTracker {
         entropy_trend: Math.round(entropyTrend * 10000) / 10000,
         feature_contradiction: Math.round(featureContradiction * 10000) / 10000,
         embedding_delta: Math.round(embeddingDelta * 10000) / 10000,
+        activity_repeat_streak: Math.round(activityRepeatStreak * 10000) / 10000,
+        target_repeat_streak: Math.round(targetRepeatStreak * 10000) / 10000,
       },
       intent_state: {
         volatility_score: Math.round(intentState.volatility_score * 10000) / 10000,
@@ -238,6 +311,8 @@ export class ResolutionTracker {
       is_looping: isLooping,
       loop_consecutive: this.loopCount,
       repeat_streak: repeatStreak,
+      activity_repeat_streak: activityRepeatStreak,
+      target_repeat_streak: targetRepeatStreak,
       loop_intervention_level: loopLevel,
       pivot_detected: pivotDetected,
       pivot_score: Math.round(pivotScore * 10000) / 10000,
@@ -291,7 +366,12 @@ export class ResolutionTracker {
     return 1.0 - cosineSimilarity(a, b)
   }
   detectLoop() {
-    return this.loopCount >= 2 || this.getRepeatStreak() >= 2
+    const repeatSignal = Math.max(
+      this.getRepeatStreak(),
+      this.getActivityRepeatStreak(),
+      this.getTargetRepeatStreak(),
+    )
+    return this.loopCount >= 2 || repeatSignal >= 2
   }
   computeIntentState() {
     const last = this.history[this.history.length - 1]
@@ -408,7 +488,10 @@ export class ResolutionTracker {
   }
   static deserialize(data) {
     const tracker = new ResolutionTracker(data.sessionId || "session", data.maxHistory || 10)
-    tracker.history = Array.isArray(data.history) ? data.history : []
+    tracker.history = Array.isArray(data.history) ? data.history.map((entry) => ({
+      ...entry,
+      activity: entry?.activity || null,
+    })) : []
     tracker.loopCount = Number(data.loopCount || 0)
     tracker.pivotHistory = Array.isArray(data.pivotHistory) ? data.pivotHistory : []
     tracker.outcomeHistory = Array.isArray(data.outcomeHistory) ? data.outcomeHistory : []
