@@ -1,3 +1,7 @@
+## 0.25.13
+- fix: prompt before installer deploy
+
+
 ## 0.25.12
 - feat: add reality-check guardrail
 - fix: harden live opencode runtime integration (#191)
