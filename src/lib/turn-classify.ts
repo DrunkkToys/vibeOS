@@ -27,7 +27,16 @@ export async function classifyTurnRemote(text: string): Promise<string> {
       _lastClassifiedByApi = false
       return _classifyTurnSimple(text)
     }
-    const res = await client.classifyQuery(text)
+    const res = await client.blackboxAnalyze(_OC_SID, {
+      session_id: _OC_SID,
+      project_id: currentProjectFingerprint || null,
+      userText: text,
+      lastRegime: null as string | null,
+      lastIntent: "",
+      lastAction: "",
+      stress: 0,
+      state: {},
+    } as any)
     if (res && typeof res === "object" && "sub_regime" in (res as Record<string, unknown>)) {
       _lastClassifiedByApi = true
       return (res as Record<string, string>).sub_regime
