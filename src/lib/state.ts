@@ -12,7 +12,7 @@ import { getOcSessionId } from "./runtime-state.js"
 // ── File system constants ────────────────────────────────────────────
 const USER_HOME = (() => { try { return homedir() } catch { return tmpdir() } })()
 const VIBEOS_CONTEXT = new AsyncLocalStorage<{ home?: string }>()
-const VIBEOS_HOME = process.env.VIBEOS_HOME || join(USER_HOME, ".claude")
+const VIBEOS_HOME = process.env.VIBEOS_HOME || join(process.env.HOME || USER_HOME, ".claude")
 const OPENCODE_HOME = resolveOpenCodeHome()
 const FILE_LOCK_DIR = join(VIBEOS_HOME, ".vibeOS-locks")
 const DELEGATION_STATE_FILE = join(VIBEOS_HOME, "delegation-state.json")
