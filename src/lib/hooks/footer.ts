@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, sta
 import { join, dirname, basename } from "node:path"
 import { classify, modelCostPerTurn, _refreshModel, readConfig, resolveTrinityDisplayModel, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, roundUsd, formatUsd, resolveExecutionIdentity, modelDisplayName } from "../pricing.js"
 import { latestUserIntent } from "./chat-transform.js"
-import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, classifyTurnSimple, autoSelectMode, loadOptimizationMode } from "../turn-classify.js"
+import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, classifyTurnSimple, autoSelectMode, loadOptimizationMode, computeControlVector } from "../turn-classify.js"
 import { recordBudgetFirstOutcome } from "../mode-policy.js"
 import { saveReport } from "../reporting.js"
 import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, getCurrentSessionId, _modelLocked, _blackboxEnabled, _latestBlackboxState, writeSelection, reconcileStateFromLedger, safeJsonParse, loadTodos, loadBlackboxState, VIBEOS_HOME } from "../state.js"
@@ -263,6 +263,7 @@ async function _appendFooter(input, output, directory) {
     const activeSlot = selNowFooter.active_slot || "brain"
     const flashIcon = isApiConnected() ? " \u26A1" : ""
     const displayMode = autoSelectMode(currentSubRegime, _footerStress)
+    const cv = computeControlVector({ sub_regime: currentSubRegime, latest_stress_multiplier: _footerStress }, undefined, loadOptimizationMode() || displayMode)
     const vibeBrand = resolveBrand(loadOptimizationMode() || displayMode, activeSlot)
     const vibeLine = buildFooterLine({
       activeSlot,
@@ -278,7 +279,7 @@ async function _appendFooter(input, output, directory) {
       vectorChangedSlot: selNowFooter?.vector_changed_slot,
       subRegime: currentSubRegime,
       stressGauge: _footerStress > 0.85 ? "█" : _footerStress > 0.7 ? "▆" : _footerStress > 0.5 ? "▅" : _footerStress > 0.3 ? "▃" : _footerStress > 0.1 ? "▂" : "▁",
-      cascadeIcon: ((_controlVector?.cascade_depth || 1) >= 3 ? "▸▸▸" : (_controlVector?.cascade_depth || 1) >= 2 ? "▸▸" : ""),
+      cascadeIcon: ((cv?.cascade_depth || 1) >= 3 ? "▸▸▸" : (cv?.cascade_depth || 1) >= 2 ? "▸▸" : ""),
     })
     const footerText = stripped + `\n\n${vibeLine}`
 
