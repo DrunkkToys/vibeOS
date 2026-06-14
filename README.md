@@ -88,13 +88,13 @@ DeepSeek Chat costs $0/turn when routed through the Direct DeepSeek provider (no
 
 | Policy | Quality vs Brain | Cost vs Brain | Savings | Method |
 |--------|-----------------|--------------|---------|--------|
-| VibeUltraX | 107% | 0.58x | 42% | cheap -> Flash -> Brain cascade |
+| VibeUltraX | 107% | 0.58x | 42% | cheap -> medium -> brain cascade |
 | VibeQMaX | ~100% | 0.50x | 50% | same model, framework optimizations |
 | Raw Brain | 100% | 1.00x | - | baseline |
 | VibeMaX | ~75% | 0.18x | 82% | trained cascade (conservative escalate) |
 | Budget | ~40% | 0.00x | 100% | direct routing |
 
-**VibeUltraX** — Cheap slot proposes, Flash reviews, Brain refines. 107% quality at 58% cost.
+**VibeUltraX** — Cheap slot proposes, medium reviews, brain refines. 107% quality at 58% cost.
 
 **VibeQMaX** — Routes strategic turns through v4 Pro with full thinking, strict enforcement, strict flow checks, and quality TDD. Write/edit delegated per enforcement rules. Blended cost ~$0.00029/turn (50% of brain baseline).
 
@@ -108,7 +108,7 @@ DeepSeek Chat costs $0/turn when routed through the Direct DeepSeek provider (no
 |------|-------|----------|-------------|------|-----|
 | Raw Brain | v4 Pro | full | - | - | - |
 | VibeQMaX | v4 Pro | full | strict | strict | quality |
-| VibeUltraX | cascade (cheap->Flash->Brain) | auto | auto | auto | auto |
+| VibeUltraX | cascade (cheap->medium->brain) | auto | auto | auto | auto |
 | VibeMaX | v4 Flash (auto-escalate) | auto | auto | auto | auto |
 | Speed | v4 Flash | off | relaxed | audit | lazy |
 | Budget | DeepSeek Chat | off | relaxed | audit | lazy |
