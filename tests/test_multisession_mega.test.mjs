@@ -64,9 +64,9 @@ test("[ML] mode-router exports RUNTIME_MODES", async () => {
 
 test("[ML] classify assigns high/mid/budget", async () => {
   const { classify } = await import("../src/lib/pricing.js?cl=" + Date.now())
-  assert.equal(classify("deepseek/deepseek-v4-pro"), "high")
-  assert.equal(classify("deepseek/deepseek-v4-flash"), "mid")
-  assert.equal(classify("deepseek/deepseek-chat"), "budget")
+  assert.equal(classify("opus-4"), "high")
+  assert.equal(classify("sonnet-4"), "mid")
+  assert.equal(classify("haiku"), "mid")
   assert.equal(classify("unknown/model"), "budget")
   assert.ok(typeof classify("") === "string", "empty string should still return a classification")
 })
