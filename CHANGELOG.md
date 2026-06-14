@@ -1,3 +1,11 @@
+## 0.25.25
+- fix: make deploy install tests platform-aware (skip macOS path on Linux)
+- fix: resolveOpenCodeHomes() merges workspace + desktop homes
+- fix: resolveOpenCodeHomes() now merges workspace + desktop homes
+- fix: use getVibeOSHome() for hookVibeHome instead of hardcoded join(home, .claude) (#202)
+Merge branch 'origin/master' — incorporate upstream changes
+
+
 ## 0.25.22
 - fix: include installer helper in package
 
