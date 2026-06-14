@@ -83,9 +83,9 @@ test("modes: quality recognized", async () => {
   assert.equal(t.autoSelectMode("CONVERGING", 0), "quality")
 })
 
-test("modes: speed recognized", async () => {
+test("modes: LOOPING now routes to quality", async () => {
   const t = await import("../src/lib/turn-classify.js?pat9=" + Date.now())
-  assert.equal(t.autoSelectMode("LOOPING", 0), "speed")
+  assert.equal(t.autoSelectMode("LOOPING", 0), "quality")
 })
 
 test("modes: resolveOptimizationMode handles branded modes", async () => {

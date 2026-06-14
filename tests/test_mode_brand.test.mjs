@@ -6,6 +6,7 @@ import { join } from "node:path";
 
 let sandbox;
 let prevHome;
+let prevVibeOSHome;
 
 const BRAND_EXPECTATIONS = {
   vibemax: "VibeMaX",
@@ -58,11 +59,14 @@ before(() => {
   }, null, 2));
 
   prevHome = process.env.HOME;
+  prevVibeOSHome = process.env.VIBEOS_HOME;
+  delete process.env.VIBEOS_HOME;
   process.env.HOME = sandbox;
 });
 
 after(() => {
   process.env.HOME = prevHome;
+  if (prevVibeOSHome) process.env.VIBEOS_HOME = prevVibeOSHome;
   rmSync(sandbox, { recursive: true, force: true });
 });
 

@@ -1,3 +1,42 @@
+## 0.25.22
+- fix: include installer helper in package
+
+
+## 0.25.21
+- fix: stabilize OpenCode install resolution
+
+
+## 0.25.19
+- fix: harden loop detection and behavioral stress
+
+
+## 0.25.18
+- fix: install vibeOS with absolute opencode paths
+
+
+## 0.25.17
+- chore: v0.25.16
+Revert "Remove local dashboard base stamp"
+
+
+## 0.25.16
+- chore: patch release bump
+
+
+## 0.25.15
+- fix: restore M1 installer deploy
+Remove local dashboard base stamp
+Harden LOOPING control vector
+
+
+## 0.25.14
+- fix: register OpenCode on both homes
+
+
+## 0.25.13
+- fix: prompt before installer deploy
+
+
 ## 0.25.12
 - feat: add reality-check guardrail
 - fix: harden live opencode runtime integration (#191)

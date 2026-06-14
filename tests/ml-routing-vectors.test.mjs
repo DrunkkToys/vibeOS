@@ -75,7 +75,7 @@ test("autoSelectMode: every regime x every stress level", () => {
       const r = regime.toUpperCase()
       if (r === "AUDIT") expected = "audit"
       else if (r === "FORENSIC") expected = "forensic"
-      else if (r === "LOOPING") expected = "speed"
+      else if (r === "LOOPING") expected = "quality"
       else if (r === "CONVERGING" || r === "CLOSED") expected = "quality"
       else if (stress > 1.5) expected = "quality"
       else expected = "vibelitex"

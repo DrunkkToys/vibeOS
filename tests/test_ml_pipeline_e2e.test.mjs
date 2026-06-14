@@ -36,8 +36,8 @@ test("autoSelectMode: IMPLEMENTING + 0 stress -> quality", () => {
 test("autoSelectMode: RESEARCH + 0 stress -> longrun", () => {
   assert.equal(turn.autoSelectMode("RESEARCH", 0), "longrun")
 })
-test("autoSelectMode: LOOPING + 0 stress -> speed", () => {
-  assert.equal(turn.autoSelectMode("LOOPING", 0), "speed")
+test("autoSelectMode: LOOPING + 0 stress -> quality", () => {
+  assert.equal(turn.autoSelectMode("LOOPING", 0), "quality")
 })
 test("autoSelectMode: DIVERGENT + 1.8 stress -> quality (override)", () => {
   assert.equal(turn.autoSelectMode("DIVERGENT", 1.8), "quality")
@@ -96,4 +96,18 @@ test("computeControlVector: vibeqmax uses the experiment router for audit prompt
   assert.equal(typeof cv.qmax_difficulty_score, "number")
   assert.ok(cv.qmax_features?.fileMentions >= 1, "audit prompt should expose the feature bag the router saw")
   assert.equal(cv.mode_root, "vibeqmax")
+})
+
+test("computeControlVector: LOOPING hardens enforcement in auto mode", () => {
+  const cv = turn.computeControlVector({ sub_regime: "LOOPING", latest_stress_multiplier: 0.2 }, undefined, "auto")
+  assert.equal(cv.optimization_mode, "quality")
+  assert.equal(cv.enforcement_mode, "strict")
+  assert.equal(cv.flow_mode, "strict")
+  assert.equal(cv.tdd_mode, "strict")
+  assert.equal(cv.outcome_detection, true)
+})
+
+test("computeControlVector: speed keeps outcome detection enabled", () => {
+  const cv = turn.computeControlVector({ sub_regime: "EXPLORING", latest_stress_multiplier: 0.2 }, undefined, "speed")
+  assert.equal(cv.outcome_detection, true)
 })

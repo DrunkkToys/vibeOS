@@ -553,7 +553,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
     globalThis.__vibeOS_sessionId = `opencode-${process.pid || "x"}-${Date.now()}`
   }
   const hookSessionId = globalThis.__vibeOS_sessionId
-  setVibeOSHomeContext(join(hookHome, ".claude"))
+  setVibeOSHomeContext(getVibeOSHome())
   setCurrentSessionId(hookSessionId)
   if (hookFp) {
     setCurrentProjectFingerprint(hookFp)
@@ -638,7 +638,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
   briefedProjects.clear()
   activeJob = _loadActiveJobForProject(directory, fp)
   const systemBriefedProjects = new Set()
-  const hookVibeHome = join(hookHome, ".claude")
+  const hookVibeHome = getVibeOSHome()
   const hookStateFile = join(hookVibeHome, "delegation-state.json")
   const hookProjectStateFile = join(hookVibeHome, "project-states.json")
   const hookReportsDir = join(hookVibeHome, "reports")

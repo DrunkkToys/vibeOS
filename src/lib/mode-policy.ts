@@ -50,7 +50,9 @@ function isManualOverride(mode?: string | null): boolean {
 
 function chooseEpisodeMode(regime: string, suggestedMode: string, stress: number): string {
   if (suggestedMode === "vibeultrax" || suggestedMode === "vibeqmax" || suggestedMode === "vibemax" || suggestedMode === "audit" || suggestedMode === "forensic") return suggestedMode
-  if (LOOP_REGIMES.has(regime) || suggestedMode === "speed") return "speed"
+  if (regime === "LOOPING") return "quality"
+  if (suggestedMode === "speed") return "speed"
+  if (LOOP_REGIMES.has(regime)) return "speed"
   if (QUALITY_REGIMES.has(regime) || suggestedMode === "quality") return "quality"
   return stress > STRESS_QUALITY_THRESHOLD ? "quality" : "budget"
 }

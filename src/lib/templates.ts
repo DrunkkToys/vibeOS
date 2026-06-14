@@ -115,7 +115,7 @@ export function resolveTemplate(
   if (detectBudgetSignal(creditPercent)) {
     // Only return "save" if not in LOOPING regime (looping needs quality focus, not cost-cutting)
     const regime = String(subRegime || "").toUpperCase()
-    if (regime === "LOOPING" || regime === "DIVERGENT") return "speed" // Override: looping needs correction, not cost-cutting
+    if (regime === "LOOPING" || regime === "DIVERGENT") return "quality" // Override: looping needs correction, not cost-cutting
     return "save"
   }
   if (detectStressSpike(stressScore)) return "quality"

@@ -138,3 +138,41 @@ test("blackbox regression: repeated identical prompts trigger early loop prevent
   assert.equal(third.repeat_streak, 3)
   assert.equal(third.loop_intervention_level, "escalated")
 })
+
+test("blackbox regression: repeated actions trigger LOOPING even when text varies", async () => {
+  const { ResolutionTracker } = await import("../blackbox/index.js?t=" + Date.now())
+
+  const tracker = new ResolutionTracker("repeat-action-regression", 10)
+  const activity = { tool: "edit", target: "src/app.ts", action: "edit", signature: "edit:src/app.ts" }
+  const states = [
+    tracker.update("please try the first fix", ResolutionTracker.extractFeatures("please try the first fix"), "edit", 0.8, 30, null, activity),
+    tracker.update("now try the second fix", ResolutionTracker.extractFeatures("now try the second fix"), "edit", 0.8, 30, null, activity),
+    tracker.update("what about this third fix", ResolutionTracker.extractFeatures("what about this third fix"), "edit", 0.8, 30, null, activity),
+  ]
+
+  const last = states[states.length - 1]
+  assert.equal(last.is_looping, true, "repeated edit activity should trip LOOPING even if user wording changes")
+  assert.ok((last.activity_repeat_streak || 0) >= 2, "activity repeat streak should reflect repeated tool/file edits")
+  assert.ok(last.loop_intervention_level === "assertive" || last.loop_intervention_level === "escalated")
+})
+
+test("blackbox regression: behavioral stress rises without profanity when restarts and failures repeat", async () => {
+  const { scoreStress } = await import("../../lib/classifiers.js?stress-regression=" + Date.now())
+
+  const calm = scoreStress("please help me understand what to do next")
+  const stressed = scoreStress(
+    "Please restart it again and again. Every fix keeps breaking something new and the same issue keeps failing.",
+    {
+      recentToolEvents: [
+        { tool: "bash", target: "test" },
+        { tool: "bash", target: "test" },
+        { tool: "edit", target: "src/app.ts" },
+        { tool: "edit", target: "src/app.ts" },
+      ],
+      outcomeHistory: [{ outcome: "negative" }, { outcome: "negative" }],
+      blackboxState: { is_looping: true, loop_count: 3, repeat_streak: 2 },
+    },
+  )
+
+  assert.ok(stressed > calm + 0.35, `expected behavioral stress (${stressed}) to exceed calm baseline (${calm})`)
+})

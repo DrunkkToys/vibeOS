@@ -978,22 +978,30 @@ function getVibeOSHome2() {
 function hasOpenCodeConfig(dir) {
   return existsSync2(join2(dir, "opencode.json")) || existsSync2(join2(dir, "opencode.jsonc"));
 }
-function getOpenCodeHome() {
+function resolveOpenCodeHomes() {
   const override = process.env.VIBEOS_OPENCODE_HOME;
   if (override)
-    return override;
+    return [override];
   const base = process.env.HOME || USER_HOME2;
+  const desktopHome = process.env.VIBEOS_OPENCODE_DESKTOP_HOME || (process.platform === "darwin" ? join2(base, "Library", "Application Support", "ai.opencode.desktop") : null);
   const configHome = join2(base, ".config", "opencode");
   const dotHome = join2(base, ".opencode");
-  if (hasOpenCodeConfig(configHome))
-    return configHome;
-  if (hasOpenCodeConfig(dotHome))
-    return dotHome;
-  if (existsSync2(configHome))
-    return configHome;
-  if (existsSync2(dotHome))
-    return dotHome;
-  return configHome;
+  return [desktopHome, configHome, dotHome].filter(Boolean);
+}
+function resolveOpenCodeHome() {
+  const homes = resolveOpenCodeHomes();
+  for (const home of homes) {
+    if (hasOpenCodeConfig(home))
+      return home;
+  }
+  for (const home of homes) {
+    if (existsSync2(home))
+      return home;
+  }
+  return homes[0] || join2(process.env.HOME || USER_HOME2, ".config", "opencode");
+}
+function getOpenCodeHome() {
+  return resolveOpenCodeHome();
 }
 function setVibeOSHomeContext(home) {
   VIBEOS_CONTEXT.enterWith({ home: String(home || "") });
@@ -2690,7 +2698,7 @@ var init_state = __esm({
     })();
     VIBEOS_CONTEXT = new AsyncLocalStorage();
     VIBEOS_HOME = process.env.VIBEOS_HOME || join2(USER_HOME2, ".claude");
-    OPENCODE_HOME = process.env.VIBEOS_OPENCODE_HOME || join2(USER_HOME2, ".config", "opencode");
+    OPENCODE_HOME = resolveOpenCodeHome();
     FILE_LOCK_DIR = join2(VIBEOS_HOME, ".vibeOS-locks");
     DELEGATION_STATE_FILE = join2(VIBEOS_HOME, "delegation-state.json");
     SAVINGS_LEDGER_FILE = join2(VIBEOS_HOME, "savings-ledger.jsonl");
@@ -2858,6 +2866,9 @@ function safeJsonParse3(raw) {
     return null;
   }
 }
+function getRealityCheckSettingsFile() {
+  return join3(getVibeOSHome3(), "reality-check-settings.json");
+}
 function resolveRulesPath() {
   if (process.env.VIBEOS_FLOW_RULES_PATH && existsSync3(process.env.VIBEOS_FLOW_RULES_PATH)) {
     return process.env.VIBEOS_FLOW_RULES_PATH;
@@ -2995,14 +3006,15 @@ function defaultRealityCheckRules() {
   ];
 }
 function readRealityCheckSettings() {
-  const settingsMtime = existsSync3(REALITY_CHECK_SETTINGS_FILE) ? statSync3(REALITY_CHECK_SETTINGS_FILE).mtimeMs : 0;
+  const settingsFile = getRealityCheckSettingsFile();
+  const settingsMtime = existsSync3(settingsFile) ? statSync3(settingsFile).mtimeMs : 0;
   if (_cachedRealityCheck && settingsMtime === _realityCheckMtime) {
     return _cachedRealityCheck;
   }
   let parsed = {};
   try {
-    if (existsSync3(REALITY_CHECK_SETTINGS_FILE)) {
-      const raw = readFileSync3(REALITY_CHECK_SETTINGS_FILE, "utf-8");
+    if (existsSync3(settingsFile)) {
+      const raw = readFileSync3(settingsFile, "utf-8");
       const json2 = safeJsonParse3(raw);
       if (json2 && typeof json2 === "object")
         parsed = json2;
@@ -3085,7 +3097,8 @@ function loadRules() {
   const rulesPath = resolveRulesPath();
   try {
     const rulesMtime = existsSync3(rulesPath) ? statSync3(rulesPath).mtimeMs : 0;
-    const realityMtime = existsSync3(REALITY_CHECK_SETTINGS_FILE) ? statSync3(REALITY_CHECK_SETTINGS_FILE).mtimeMs : 0;
+    const realityFile = getRealityCheckSettingsFile();
+    const realityMtime = existsSync3(realityFile) ? statSync3(realityFile).mtimeMs : 0;
     const scopeKey = String(currentProjectFingerprint || "");
     const cacheKey = `${rulesMtime}:${realityMtime}:${scopeKey}`;
     if (_cachedRules && _realityCheckCacheKey === "__test__")
@@ -3311,7 +3324,7 @@ function syncFlowTodosToNative(upsertFn) {
   }
   return count;
 }
-var VIBEOS_STDERR_DEBUG, VIBEOS_CONSOLE_ERROR_GUARD, globalConsoleState, __dirname2, REALITY_CHECK_SETTINGS_FILE, REALITY_CHECK_RULE_IDS, RULES_PATH_CANDIDATES, GUARD_AGENTS_TEMPLATE, GUARD_README_TEMPLATE, FLOW_DEDUP_FILE2, MAX_FLOW_TODOS, _flowWarnsSeen, _stateWriter, _cachedRules, _rulesMtime, _cachedRealityCheck, _realityCheckMtime, _realityCheckCacheKey;
+var VIBEOS_STDERR_DEBUG, VIBEOS_CONSOLE_ERROR_GUARD, globalConsoleState, __dirname2, REALITY_CHECK_RULE_IDS, RULES_PATH_CANDIDATES, GUARD_AGENTS_TEMPLATE, GUARD_README_TEMPLATE, FLOW_DEDUP_FILE2, MAX_FLOW_TODOS, _flowWarnsSeen, _stateWriter, _cachedRules, _rulesMtime, _cachedRealityCheck, _realityCheckMtime, _realityCheckCacheKey;
 var init_flow_enforcer = __esm({
   "src/vibeOS-lib/flow-enforcer.js"() {
     "use strict";
@@ -3346,7 +3359,6 @@ var init_flow_enforcer = __esm({
       globalConsoleState[VIBEOS_CONSOLE_ERROR_GUARD] = true;
     }
     __dirname2 = dirname2(fileURLToPath(import.meta.url));
-    REALITY_CHECK_SETTINGS_FILE = join3(getVibeOSHome3(), "reality-check-settings.json");
     REALITY_CHECK_RULE_IDS = /* @__PURE__ */ new Set([
       "require-read-before-claim",
       "verify-state-on-disk",
@@ -3824,7 +3836,7 @@ import { resolve as resolve2, dirname as dirname7 } from "node:path";
 import { fileURLToPath as fileURLToPath4 } from "node:url";
 function fallback(sr, text) {
   if (sr === "LOOPING")
-    return "speed";
+    return "quality";
   const t = String(text || "").toLowerCase();
   if (sr === "INIT" && t.length <= 42 && !/[\.\/\\]/.test(t))
     return "budget";
@@ -6839,7 +6851,6 @@ var ResolutionTracker = class _ResolutionTracker {
     this.pivotHistory = [];
     this.outcomeHistory = [];
     this.calibratedWeights = null;
-    this.recentMessageLengths = [];
   }
   static extractFeatures(text) {
     if (!text || typeof text !== "string")
@@ -6914,18 +6925,13 @@ var ResolutionTracker = class _ResolutionTracker {
   getRepeatStreak() {
     if (this.history.length < 2)
       return 0;
-    const lastWords = new Set(this.history[this.history.length - 1].text.toLowerCase().split(/\s+/).filter((w) => w.length > 2));
-    if (lastWords.size === 0)
+    const normalizedLast = this.normalizeText(this.history[this.history.length - 1].text);
+    if (!normalizedLast)
       return 0;
     let streak = 1;
     for (let i = this.history.length - 2; i >= 0; i--) {
-      const currWords = new Set(this.history[i].text.toLowerCase().split(/\s+/).filter((w) => w.length > 2));
-      if (currWords.size === 0)
-        break;
-      const intersection = new Set([...lastWords].filter((w) => currWords.has(w)));
-      const union = /* @__PURE__ */ new Set([...lastWords, ...currWords]);
-      const jaccard = intersection.size / Math.max(union.size, 1);
-      if (jaccard < 0.7)
+      const normalized = this.normalizeText(this.history[i].text);
+      if (!normalized || normalized !== normalizedLast)
         break;
       streak++;
     }
@@ -6961,39 +6967,6 @@ var ResolutionTracker = class _ResolutionTracker {
     }
     return streak;
   }
-  getRecentNegativeOutcomeStreak() {
-    if (this.outcomeHistory.length < 1)
-      return 0;
-    let streak = 0;
-    for (let i = this.outcomeHistory.length - 1; i >= 0; i--) {
-      const o = this.outcomeHistory[i];
-      if (/negative|failed|unresolved|loop_detected/i.test(String(o?.outcome || "")))
-        streak++;
-      else
-        break;
-    }
-    return streak;
-  }
-  computeMessageLengthTrend() {
-    const lengths = this.recentMessageLengths;
-    if (lengths.length < 3)
-      return { trend: "stable", slope: 0 };
-    const pairs = lengths.slice(-4);
-    let decreasingCount = 0;
-    let totalSlope = 0;
-    for (let i = 1; i < pairs.length; i++) {
-      const diff = pairs[i] - pairs[i - 1];
-      if (diff < 0)
-        decreasingCount++;
-      totalSlope += diff;
-    }
-    const ratio = decreasingCount / (pairs.length - 1);
-    const avgSlope = pairs.length > 1 ? totalSlope / (pairs.length - 1) : 0;
-    return {
-      trend: ratio >= 0.6 && avgSlope < 0 ? "shortening" : "stable",
-      slope: avgSlope
-    };
-  }
   update(userText, features, action, entropy, uncertainty, embedding = null, activity = null) {
     const normalizedActivity = this.normalizeActivity(activity, action, userText);
     const entry = {
@@ -7013,9 +6986,6 @@ var ResolutionTracker = class _ResolutionTracker {
       }
     }
     this.history.push(entry);
-    this.recentMessageLengths.push((userText || "").length);
-    if (this.recentMessageLengths.length > 6)
-      this.recentMessageLengths.shift();
     if (this.history.length > this.maxHistory) {
       this.history.shift();
     }
@@ -7151,9 +7121,6 @@ var ResolutionTracker = class _ResolutionTracker {
       pivot_detected: pivotDetected,
       pivot_score: Math.round(pivotScore * 1e4) / 1e4,
       outcome: lastEntry.outcome || null,
-      outcome_negative_streak: this.getRecentNegativeOutcomeStreak(),
-      message_length_trend: this.computeMessageLengthTrend().trend,
-      message_length_slope: this.computeMessageLengthTrend().slope,
       n_interactions: n
     };
   }
@@ -7204,8 +7171,7 @@ var ResolutionTracker = class _ResolutionTracker {
   }
   detectLoop() {
     const repeatSignal = Math.max(this.getRepeatStreak(), this.getActivityRepeatStreak(), this.getTargetRepeatStreak());
-    const negativeOutcomeStreak = this.getRecentNegativeOutcomeStreak();
-    return this.loopCount >= 2 || repeatSignal >= 2 || negativeOutcomeStreak >= 2;
+    return this.loopCount >= 2 || repeatSignal >= 2;
   }
   computeIntentState() {
     const last = this.history[this.history.length - 1];
@@ -7249,7 +7215,6 @@ var ResolutionTracker = class _ResolutionTracker {
     this.loopCount = 0;
     this.pivotHistory = [];
     this.outcomeHistory = [];
-    this.recentMessageLengths = [];
   }
   recordOutcome(outcome) {
     const entry = this.history[this.history.length - 1];
@@ -7315,7 +7280,6 @@ var ResolutionTracker = class _ResolutionTracker {
       loopCount: this.loopCount,
       pivotHistory: this.pivotHistory,
       outcomeHistory: this.outcomeHistory,
-      recentMessageLengths: this.recentMessageLengths,
       calibratedWeights: this.calibratedWeights
     };
   }
@@ -7328,7 +7292,6 @@ var ResolutionTracker = class _ResolutionTracker {
     tracker.loopCount = Number(data.loopCount || 0);
     tracker.pivotHistory = Array.isArray(data.pivotHistory) ? data.pivotHistory : [];
     tracker.outcomeHistory = Array.isArray(data.outcomeHistory) ? data.outcomeHistory : [];
-    tracker.recentMessageLengths = Array.isArray(data.recentMessageLengths) ? data.recentMessageLengths : [];
     tracker.calibratedWeights = data.calibratedWeights || null;
     return tracker;
   }
@@ -7462,9 +7425,9 @@ init_state();
 function detectOutcomeSignal(text) {
   if (!text)
     return null;
-  if (/thank|perfect|exactly|that.?s it|works great|works perfectly|solved|fixed|awesome|you rock|that works|finally|progress|much better|getting there|closer now/i.test(text))
+  if (/thank|perfect|exactly|that.?s it|works great|works perfectly|solved|fixed|awesome|you rock/i.test(text))
     return "positive";
-  if (/doesn.?t work|still broken|not working|incorrect|wrong|failed|error|useless|stuck|still failing|broke again|worse|regression|new (problem|bug|issue|error)|made it worse|every (fix|change|attempt) (broke|breaks|introduces)|went backwards|back to square|start over|same (issue|problem|error) (again|still)|(another|yet another|different) (error|problem|issue)|(still|again|still not) (the|at|same)|\d+\s*(times|attempts|tries) (and|but) (still|same|same result)/i.test(text))
+  if (/doesn.?t work|still broken|not working|incorrect|wrong|failed|error|useless|stuck/i.test(text))
     return "negative";
   return null;
 }
@@ -7501,8 +7464,6 @@ function getBehavioralStressSignals(context, blackboxState) {
   const repeatStreak = Number(blackboxState?.repeat_streak ?? 0);
   const activityRepeatStreak = Number(blackboxState?.activity_repeat_streak ?? 0);
   const targetRepeatStateStreak = Number(blackboxState?.target_repeat_streak ?? 0);
-  const messageLengthTrend = String(blackboxState?.message_length_trend || "stable");
-  const messageLengthSlope = Number(blackboxState?.message_length_slope ?? 0);
   return {
     toolRepeatStreak,
     targetRepeatStreak,
@@ -7510,13 +7471,10 @@ function getBehavioralStressSignals(context, blackboxState) {
     loopCount,
     repeatStreak,
     activityRepeatStreak,
-    targetRepeatStateStreak,
-    messageLengthTrend,
-    messageLengthSlope
+    targetRepeatStateStreak
   };
 }
 function scoreStress(text, context = {}) {
-  const blackboxState = loadBlackboxState();
   if (!text || typeof text !== "string")
     return 0;
   const t = text.toLowerCase();
@@ -7558,25 +7516,22 @@ function scoreStress(text, context = {}) {
   const behavioralPhrases = [
     { re: /\b(restart|restarts|restarted|restart again|restart it|retry|retries|retrial|rerun|redo|repeat the step|try again|another attempt|another pass)\b/gi, weight: 0.09 },
     { re: /\b(still failing|keeps failing|keeps breaking|still broken|same issue|same result|same error|new error|new issue|broke again|breaks again|every fix|every time|over and over|again and again)\b/gi, weight: 0.12 },
-    { re: /\b(blocked again|stuck again|failed again|fails again|this is not working|nothing changed|no change)\b/gi, weight: 0.1 },
-    { re: /\b(start over|from scratch|back to square|back to the drawing board|reset|rethink|different approach)\b/gi, weight: 0.12 },
-    { re: /\b(made it worse|went backwards|regression|introduced (a |a new |another )(problem|bug|issue)|worse than before|new (problem|bug|issue) (emerged|appeared|showed))\b/gi, weight: 0.15 },
-    { re: /\b(\d+)\s*(times|attempts|tries)\b/gi, dynamic: true }
+    { re: /\b(blocked again|stuck again|failed again|fails again|this is not working|nothing changed|no change)\b/gi, weight: 0.1 }
   ];
-  for (const { re, weight, dynamic } of behavioralPhrases) {
-    const matches = t.match(re);
-    if (!matches)
-      continue;
-    if (dynamic) {
-      for (const m of matches) {
-        const num = parseInt(m, 10) || 0;
-        score += Math.min(0.2, num * 0.04);
-      }
-    } else {
-      score += matches.length * weight;
+  for (const { re, weight } of behavioralPhrases) {
+    const hits = (t.match(re) || []).length;
+    score += hits * weight;
+  }
+  const sessionId = String(_OC_SID || "");
+  let blackboxState = context?.blackboxState || null;
+  if (!blackboxState) {
+    try {
+      const raw = loadBlackboxState();
+      blackboxState = raw?.sessions?.[sessionId] || null;
+    } catch {
     }
   }
-  const { toolRepeatStreak, targetRepeatStreak, negativeOutcomes, loopCount, repeatStreak, activityRepeatStreak, targetRepeatStateStreak, messageLengthTrend, messageLengthSlope } = getBehavioralStressSignals(context, blackboxState);
+  const { toolRepeatStreak, targetRepeatStreak, negativeOutcomes, loopCount, repeatStreak, activityRepeatStreak, targetRepeatStateStreak } = getBehavioralStressSignals(context, blackboxState);
   if (toolRepeatStreak >= 2) {
     score += 0.08 + Math.min(0.24, (toolRepeatStreak - 1) * 0.05);
   }
@@ -7597,9 +7552,6 @@ function scoreStress(text, context = {}) {
   }
   if (targetRepeatStateStreak >= 2) {
     score += 0.04 + Math.min(0.08, targetRepeatStateStreak * 0.015);
-  }
-  if (messageLengthTrend === "shortening" && messageLengthSlope < -0.3) {
-    score += 0.08;
   }
   if (text.length < 30)
     score += 0.06;
@@ -7964,22 +7916,19 @@ function summarizeRecentToolActivity(limit = 5) {
   if (events.length === 0)
     return null;
   const last = events[events.length - 1] || {};
-  const actionType = String(last.action || last.kind || "").trim().toLowerCase();
-  const toolTarget = `${String(last.tool || "").trim().toLowerCase()}:${String(last.target || "").trim().toLowerCase()}`;
-  const signature = `${toolTarget}:${actionType}`;
+  const signature = `${String(last.tool || "").trim().toLowerCase()}:${String(last.target || "").trim().toLowerCase()}`;
   let repeatCount = 0;
   for (let i = events.length - 1; i >= 0; i--) {
     const cur = events[i] || {};
-    const curAction = String(cur.action || cur.kind || "").trim().toLowerCase();
-    const curSig = `${String(cur.tool || "").trim().toLowerCase()}:${String(cur.target || "").trim().toLowerCase()}:${curAction}`;
-    if (curSig !== signature)
+    const curSignature = `${String(cur.tool || "").trim().toLowerCase()}:${String(cur.target || "").trim().toLowerCase()}`;
+    if (curSignature !== signature)
       break;
     repeatCount++;
   }
   return {
     tool: String(last.tool || "").toLowerCase(),
     target: String(last.target || "").toLowerCase(),
-    action: actionType,
+    action: String(last.action || last.kind || "").toLowerCase(),
     signature,
     repeat_count: repeatCount,
     recent_count: events.length
@@ -11049,7 +10998,11 @@ function isManualOverride(mode) {
 function chooseEpisodeMode(regime, suggestedMode, stress) {
   if (suggestedMode === "vibeultrax" || suggestedMode === "vibeqmax" || suggestedMode === "vibemax" || suggestedMode === "audit" || suggestedMode === "forensic")
     return suggestedMode;
-  if (LOOP_REGIMES.has(regime) || suggestedMode === "speed")
+  if (regime === "LOOPING")
+    return "quality";
+  if (suggestedMode === "speed")
+    return "speed";
+  if (LOOP_REGIMES.has(regime))
     return "speed";
   if (QUALITY_REGIMES.has(regime) || suggestedMode === "quality")
     return "quality";
@@ -11712,7 +11665,7 @@ function resolveTemplate(prevTemplate, stressScore, userText, creditPercent, sub
   if (detectBudgetSignal(creditPercent)) {
     const regime = String(subRegime || "").toUpperCase();
     if (regime === "LOOPING" || regime === "DIVERGENT")
-      return "speed";
+      return "quality";
     return "save";
   }
   if (detectStressSpike(stressScore))
@@ -16054,7 +16007,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     globalThis.__vibeOS_sessionId = `opencode-${process.pid || "x"}-${Date.now()}`;
   }
   const hookSessionId = globalThis.__vibeOS_sessionId;
-  setVibeOSHomeContext(join18(hookHome, ".claude"));
+  setVibeOSHomeContext(getVibeOSHome13());
   setCurrentSessionId(hookSessionId);
   if (hookFp) {
     setCurrentProjectFingerprint(hookFp);
@@ -16133,7 +16086,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
   briefedProjects.clear();
   activeJob2 = _loadActiveJobForProject(directory3, fp);
   const systemBriefedProjects = /* @__PURE__ */ new Set();
-  const hookVibeHome = join18(hookHome, ".claude");
+  const hookVibeHome = getVibeOSHome13();
   const hookStateFile = join18(hookVibeHome, "delegation-state.json");
   const hookProjectStateFile = join18(hookVibeHome, "project-states.json");
   const hookReportsDir = join18(hookVibeHome, "reports");

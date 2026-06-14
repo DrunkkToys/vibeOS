@@ -4,12 +4,19 @@ import { execSync } from "node:child_process";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { homedir } from "node:os";
+import { resolveOpenCodeHome } from "../scripts/lib/opencode-homes.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, "..");
 const args = process.argv.slice(2);
+const command = args[0] ?? "setup";
+const isInstallCommand = command === "setup" || command === "set";
 const isProject = args.includes("--project");
+
+if (!isInstallCommand) {
+  console.error("Usage: vibeostheog set [--project] | vibeostheog setup [--project]");
+  process.exit(1);
+}
 
 // Deploy plugin files to ~/.config/opencode/plugins/ and register globally
 const deployScript = resolve(root, "scripts", "deploy.mjs");
@@ -17,7 +24,7 @@ if (!existsSync(deployScript)) {
   console.error("Fatal: scripts/deploy.mjs not found at", deployScript);
   process.exit(1);
 }
-execSync(`node "${deployScript}"`, { stdio: "inherit", cwd: root });
+execSync(`node "${deployScript}"`, { stdio: "inherit", cwd: process.cwd() });
 
 // For per-project setup, also register in project-level opencode.json
 if (isProject) {
@@ -33,7 +40,9 @@ if (isProject) {
   if (!config || typeof config !== "object" || Array.isArray(config)) config = {};
   if (!config.$schema) config.$schema = "https://opencode.ai/config.json";
   if (!Array.isArray(config.plugin)) config.plugin = [];
-  const pluginRef = resolve(homedir(), ".config", "opencode", "plugins", "vibeOS.js");
+  const installHome = resolveOpenCodeHome({ cwd: process.cwd() });
+  const pluginRef = resolve(installHome, "plugins", "vibeOS.js");
+  config.plugin = config.plugin.filter((p) => !(typeof p === "string" && p.includes("vibeOS")));
   if (!config.plugin.includes(pluginRef)) {
     config.plugin.push(pluginRef);
     mkdirSync(dirname(configPath), { recursive: true });

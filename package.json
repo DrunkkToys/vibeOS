@@ -60,6 +60,7 @@
     "bin/setup.js",
     ".opencode/plugins/vibeOS-tui.tsx",
     "scripts/deploy.mjs",
+    "scripts/lib/**/*",
     "model-tiers.sample.json",
     "README.md",
     "CHANGELOG.md",

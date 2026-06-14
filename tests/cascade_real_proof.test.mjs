@@ -175,10 +175,56 @@ test("cascade: loop detection escalates through all 4 intervention levels", asyn
     `after many repeats, level should be assertive/escalated, got ${s4.loop_intervention_level}`,
   )
 
-  // Verify that a LOOPING regime produces "speed" optimization mode
+  // Verify that a LOOPING regime produces "quality" optimization mode
   const state = Object.assign({ latest_stress_multiplier: 0.1 }, s4)
   const mode = meta.autoSelectMode("LOOPING", 0.1)
-  assert.equal(mode, "speed", "LOOPING regime should select speed mode")
+  assert.equal(mode, "quality", "LOOPING regime should select quality mode")
+})
+
+test("cascade: repeated tool activity hardens LOOPING even when the wording keeps changing", async (t) => {
+  const rt = makeTracker("loop-activity-" + Math.random().toString(36).slice(2, 8))
+  const activity = {
+    tool: "edit",
+    action: "update_fill",
+    target: "src/vibeOS-lib/blackbox/meta-controller.ts",
+    signature: "update_fill:src/vibeOS-lib/blackbox/meta-controller.ts",
+    outcome: "negative",
+  }
+  const turns = [
+    "try the first edit on the meta controller",
+    "now apply another edit to the same file",
+    "what about a third edit on that same target",
+  ]
+
+  let lastState = null
+  for (const text of turns) {
+    lastState = rt.update(
+      text,
+      resolution.ResolutionTracker.extractFeatures(text),
+      "edit",
+      0.8,
+      0.7,
+      null,
+      activity,
+    )
+  }
+
+  assert.ok(lastState, "looping activity test should produce a final state")
+  assert.equal(lastState.sub_regime, "LOOPING", "repeated file edits should trigger LOOPING even when text varies")
+  assert.equal(lastState.repeat_streak, 1, "text repetition should stay low when wording changes")
+  assert.ok((lastState.activity_repeat_streak || 0) >= 3, "activity repeat streak should capture repeated tool/file edits")
+  assert.ok((lastState.target_repeat_streak || 0) >= 3, "target repeat streak should capture the repeated file target")
+
+  const cv = meta.computeControlVector(makeState(rt), "edit", "auto")
+  assert.equal(cv.optimization_mode, "quality", "LOOPING must harden auto mode to quality")
+  assert.equal(cv.enforcement_mode, "strict", "LOOPING must tighten enforcement")
+  assert.equal(cv.flow_mode, "strict", "LOOPING must tighten flow")
+  assert.equal(cv.tdd_mode, "strict", "LOOPING must tighten TDD")
+  assert.equal(cv.outcome_detection, true, "LOOPING must keep outcome detection enabled")
+  assert.ok(
+    cv.directives.some((directive) => directive.includes("loop prevention")),
+    "LOOPING must emit a loop-prevention directive",
+  )
 })
 
 test("cascade: stress > 1.5 overrides mode to quality", async (t) => {
@@ -204,9 +250,9 @@ test("cascade: stress > 1.5 overrides mode to quality", async (t) => {
   const convergingMode = meta.autoSelectMode("CONVERGING", 4.0)
   assert.equal(convergingMode, "quality", "CONVERGING should always select quality")
 
-  // LOOPING selects speed regardless of stress
+  // LOOPING selects quality regardless of stress
   const loopingMode = meta.autoSelectMode("LOOPING", 3.0)
-  assert.equal(loopingMode, "speed", "LOOPING should always select speed")
+  assert.equal(loopingMode, "quality", "LOOPING should always select quality")
 
   // RESEARCH / DESIGNING → longrun
   assert.equal(meta.autoSelectMode("RESEARCH", 0.1), "longrun")
@@ -701,38 +747,14 @@ test("cascade: reality-check is wired through the live runtime hooks", async (t)
   const dir = join(SANDBOX, ".opencode-cascade-reality")
   mkdirSync(dir, { recursive: true })
   const fp = "cascade-reality-fingerprint"
+  const prevVibeHome = process.env.VIBEOS_HOME
+  process.env.VIBEOS_HOME = claudeDir
 
-  writeFileSync(join(claudeDir, "reality-check-settings.json"), JSON.stringify({
-    version: 1,
-    global: {
-      enabled: false,
-      rules: [
-        {
-          id: "require-read-before-claim",
-          severity: "warn",
-          trigger: "Edit",
-          pattern: "(?i)\\b(done|complete|success|trained|ready|works|fixed)\\b",
-          description: "Success claim detected — verify live state before asserting completion",
-        },
-        {
-          id: "verify-state-on-disk",
-          severity: "flag",
-          trigger: "Edit",
-          pattern: "(?i)\\b(assume|guess|probably|likely|maybe|seems|appears)\\b",
-          description: "Inference language detected — verify actual files/state first",
-        },
-        {
-          id: "postmortem-trigger",
-          severity: "warn",
-          trigger: "Edit",
-          pattern: "(?i)\\breality check\\b",
-          description: "Reality check requested — read and verify live state before reporting",
-        },
-      ],
-    },
-    projects: {
-      [fp]: {
-        enabled: true,
+  try {
+    writeFileSync(join(claudeDir, "reality-check-settings.json"), JSON.stringify({
+      version: 1,
+      global: {
+        enabled: false,
         rules: [
           {
             id: "require-read-before-claim",
@@ -757,53 +779,84 @@ test("cascade: reality-check is wired through the live runtime hooks", async (t)
           },
         ],
       },
-    },
-  }, null, 2))
-
-  const view = getRealityCheckView(fp)
-  assert.equal(view.scope, "project")
-  assert.equal(view.enabled, true)
-  assert.equal(view.rules.length, 3)
-
-  const tool = createTrinityTool({
-    tool: {
-      schema: {
-        enum: (vals) => ({ optional: () => vals }),
-        string: () => ({ optional: () => ({}) }),
-      },
-    },
-    currentProjectFingerprint: fp,
-    currentProjectName: "cascade-reality",
-    projectFingerprint: () => fp,
-    directory: dir,
-    VIBEOS_HOME: claudeDir,
-    STATE_FILE: join(claudeDir, "delegation-state.json"),
-    _OC_SID: "cascade-reality-session",
-    loadProjectState: () => ({
-      project_hashes: {
+      projects: {
         [fp]: {
-          projectName: "cascade-reality",
-          totalSessions: 4,
+          enabled: true,
+          rules: [
+            {
+              id: "require-read-before-claim",
+              severity: "warn",
+              trigger: "Edit",
+              pattern: "(?i)\\b(done|complete|success|trained|ready|works|fixed)\\b",
+              description: "Success claim detected — verify live state before asserting completion",
+            },
+            {
+              id: "verify-state-on-disk",
+              severity: "flag",
+              trigger: "Edit",
+              pattern: "(?i)\\b(assume|guess|probably|likely|maybe|seems|appears)\\b",
+              description: "Inference language detected — verify actual files/state first",
+            },
+            {
+              id: "postmortem-trigger",
+              severity: "warn",
+              trigger: "Edit",
+              pattern: "(?i)\\breality check\\b",
+              description: "Reality check requested — read and verify live state before reporting",
+            },
+          ],
         },
       },
-    }),
-    readFullState: () => ({
-      sessions: {
-        "cascade-reality-session": {
-          warns: [{ tool: "write", est_savings_usd: 0.01 }],
-          cache_savings_usd: 0.5,
-        },
-      },
-    }),
-    existsSync,
-  })
+    }, null, 2))
 
-  const reality = await tool.execute({ action: "reality-check" })
-  assert.ok(reality.includes("Verified facts only"), reality.slice(0, 220))
-  assert.ok(reality.includes("Scope: project"), reality.slice(0, 220))
-  assert.ok(reality.includes("Enabled: YES"), reality.slice(0, 220))
-  assert.ok(reality.includes("Rules loaded: 3"), reality.slice(0, 220))
-  assert.ok(reality.includes("require-read-before-claim"), reality.slice(0, 220))
+    const view = getRealityCheckView(fp)
+    assert.equal(view.scope, "project")
+    assert.equal(view.enabled, true)
+    assert.equal(view.rules.length, 3)
+
+    const tool = createTrinityTool({
+      tool: {
+        schema: {
+          enum: (vals) => ({ optional: () => vals }),
+          string: () => ({ optional: () => ({}) }),
+        },
+      },
+      currentProjectFingerprint: fp,
+      currentProjectName: "cascade-reality",
+      projectFingerprint: () => fp,
+      directory: dir,
+      VIBEOS_HOME: claudeDir,
+      STATE_FILE: join(claudeDir, "delegation-state.json"),
+      _OC_SID: "cascade-reality-session",
+      loadProjectState: () => ({
+        project_hashes: {
+          [fp]: {
+            projectName: "cascade-reality",
+            totalSessions: 4,
+          },
+        },
+      }),
+      readFullState: () => ({
+        sessions: {
+          "cascade-reality-session": {
+            warns: [{ tool: "write", est_savings_usd: 0.01 }],
+            cache_savings_usd: 0.5,
+          },
+        },
+      }),
+      existsSync,
+    })
+
+    const reality = await tool.execute({ action: "reality-check" })
+    assert.ok(reality.includes("Verified facts only"), reality.slice(0, 220))
+    assert.ok(reality.includes("Scope: project"), reality.slice(0, 220))
+    assert.ok(reality.includes("Enabled: YES"), reality.slice(0, 220))
+    assert.ok(reality.includes("Rules loaded: 3"), reality.slice(0, 220))
+    assert.ok(reality.includes("require-read-before-claim"), reality.slice(0, 220))
+  } finally {
+    if (prevVibeHome === undefined) delete process.env.VIBEOS_HOME
+    else process.env.VIBEOS_HOME = prevVibeHome
+  }
 })
 
 // ── API Client Health Probe Tests ──────────────────────────────────
