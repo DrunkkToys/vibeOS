@@ -134,6 +134,7 @@ test("syncControlSettings restores the previous OpenCode agent after plan mode e
       console.log(JSON.stringify({ agent: oc.default_agent, restore: tiers.selection.previous_default_agent }));
     `
     const result = JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", script], {
+      timeout: 20000,
       cwd: process.cwd(),
       env: { ...process.env, VIBEOS_FAST_CI: "1", VIBEOS_API_ENABLED: "false", HOME: home, VIBEOS_HOME: join(home, ".claude") },
       encoding: "utf8",
@@ -173,6 +174,7 @@ test("syncControlSettings restores a stuck startup plan agent from the latest Op
       console.log(JSON.stringify({ agent: oc.default_agent }));
     `
     const result = JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", script], {
+      timeout: 20000,
       cwd: process.cwd(),
       env: { ...process.env, VIBEOS_FAST_CI: "1", VIBEOS_API_ENABLED: "false", HOME: home, VIBEOS_HOME: join(home, ".claude") },
       encoding: "utf8",
@@ -428,6 +430,7 @@ test("syncControlSettings drops stuck full thinking when the vector cools down",
       console.log(JSON.stringify({ thinking: tiers.selection.thinking_level }));
     `
     const result = JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", script], {
+      timeout: 20000,
       cwd: process.cwd(),
       env: { ...process.env, VIBEOS_FAST_CI: "1", VIBEOS_API_ENABLED: "false", HOME: home, VIBEOS_HOME: join(home, ".claude") },
       encoding: "utf8",
@@ -482,6 +485,7 @@ test("applySlot leaves a paused desktop followup session alone while plan is act
       console.log(JSON.stringify({ paused: Boolean(followup.paused?.[sid]) }));
     `
     const result = JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", script], {
+      timeout: 20000,
       cwd: process.cwd(),
       env: { ...process.env, VIBEOS_FAST_CI: "1", VIBEOS_API_ENABLED: "false", HOME: home, VIBEOS_HOME: join(home, ".claude") },
       encoding: "utf8",
@@ -519,6 +523,7 @@ test("refreshCreditSnapshot updates stale low credits before the cheap fallback"
       console.log(JSON.stringify({ value }));
     `
     const result = JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", script], {
+      timeout: 20000,
       cwd: process.cwd(),
       env: { ...process.env, VIBEOS_FAST_CI: "1", VIBEOS_API_ENABLED: "false", HOME: home, VIBEOS_HOME: join(home, ".claude") },
       encoding: "utf8",

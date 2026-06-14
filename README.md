@@ -232,11 +232,48 @@ Remote API (api.vibetheog.com) enables: bootstrap token exchange, advanced VibeB
 
 ### Live Footer
 
+The footer is the primary status line, appended to every assistant response. It surfaces model assignment, savings, mode, alerts, and session metrics in a single line.
+
 ```
-- brain | Deepseek | V4 Pro | $12.57 | VibeMaX Budget
+- brain | DeepSeek | v4-flash -> RFNE | $198.93 saved | VibeUltraX . Quality >>> | guarded | _
 ```
 
-Format: tier label, provider, short model name, total savings this session, VibeBrand + mode. Updates every turn. Persisted in `~/.claude/delegation-state.json`.
+**Segments (left to right):**
+
+| Segment | Format | Example | Meaning |
+|---------|--------|---------|---------|
+| Tier icon + slot | icon tier | `- brain` | Active model slot |
+| Provider + model | provider modelName | `DeepSeek | v4-flash` | Current model |
+| Regime | regimeIcon regimeTag | `-> RFNE` | Current sub-regime classification |
+| Savings | `$X saved` | `$198.93 saved` | Lifetime savings |
+| Flash icon | flashIcon | `  ` (lightning) | API connected indicator |
+| Brand + mode label | VibeBrand . modeLabel | `VibeUltraX . Quality` | Requested mode + regime-derived label |
+| Cascade icon | >>> or >> | `>>>` | VibeUltraX cascade depth >= 3 |
+| Enforcement tags | guarded, flow steady, tests live | `guarded` | Guard state summary |
+| Stress gauge | gaugeChar | `_` | Current stress level (none/calm/elevated/high/critical) |
+| Session slot | session:slot | `session:medium` | Different active slot |
+| Vector pulse | slot | `cheap` | Active slot changed this turn |
+
+**Stress gauge levels:**
+
+| Gauge | Range | Meaning |
+|-------|-------|---------|
+| `_` | 0 - 0.1 | None |
+| `_` | 0.1 - 0.3 | Minimal |
+| `_` | 0.3 - 0.5 | Calm |
+| `_` | 0.5 - 0.7 | Elevated |
+| `_` | 0.7 - 0.85 | High |
+| `_` | 0.85+ | Critical |
+
+**Cascade icon (VibeUltraX mode only):**
+
+| Icon | cascade_depth | Meaning |
+|------|---------------|---------|
+| (none) | 1 | Direct response, no cascade |
+| `>>` | 2 | Standard cascade (medium -> brain) |
+| `>>>` | 3+ | Deep cascade (cheap -> medium -> brain) |
+
+Controls: `trinity status` for full state, `trinity enable/disable` to toggle. Persisted in `~/.claude/delegation-state.json`.
 
 ### Environment Variables
 

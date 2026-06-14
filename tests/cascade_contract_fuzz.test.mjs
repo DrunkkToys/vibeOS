@@ -159,3 +159,39 @@ test("footer: cascade icon hidden when depth is 1", async () => {
   })
   assert.ok(!line.includes("▸"), "no cascade icon when depth is 1")
 })
+
+test("cascade: cascadeDecide returns different depths for simple vs complex prompts", async () => {
+  const ml = await import("../src/vibeOS-lib/ml-router.js?" + Date.now())
+  const cheap = 0, medium = 0.000182, brain = 0.00057
+
+  const simple = ml.cascadeDecide("hello", cheap, medium, brain, 0.85)
+  assert.ok(simple.useCheap === true, "simple prompt uses cheap")
+
+  const complex = ml.cascadeDecide("refactor auth module with 3 files OAuth race condition token refresh redirect loop", cheap, medium, brain, 0.85)
+  assert.ok(complex.escalate === true, "complex prompt escalates")
+  assert.ok(complex.confidence > 0.4, "complex prompt has reasonable confidence")
+})
+
+test("cascade: vibeultrax profile matches cascade depth for direct vs deep", async () => {
+  const vu = await import("../src/vibeOS-lib/blackbox/vibeultrax.js?" + Date.now())
+
+  const direct = vu.vibeultraxControlVector({ user_text: "hello", sub_regime: "INIT", stress_multiplier: 0 })
+  assert.equal(direct.cascade_depth, 1, "simple text gets depth 1")
+  assert.deepEqual(direct.pipeline_root, ["local"], "direct pipeline is local only")
+
+  const deep = vu.vibeultraxControlVector({ user_text: "refactor auth module with 3 files OAuth race condition", sub_regime: "REFINING", stress_multiplier: 0.3 })
+  assert.ok(deep.cascade_depth >= 2, "complex text gets depth >= 2")
+  assert.ok(deep.pipeline_root.length >= 2, "complex text has pipeline with >= 2 stages")
+})
+
+test("cascade: computeControlVector includes cascade_depth for vibeultrax mode", async () => {
+  const tc = await import("../src/lib/turn-classify.js?" + Date.now())
+
+  const cv = tc.computeControlVector(
+    { sub_regime: "REFINING", latest_stress_multiplier: 0.3, user_text: "fix OAuth race condition across 3 modules" },
+    undefined, "vibeultrax"
+  )
+  assert.equal(cv.optimization_mode, "vibeultrax", "mode is vibeultrax")
+  assert.ok(typeof cv.cascade_depth === "number", "cascade_depth is a number")
+  assert.ok(Array.isArray(cv.pipeline_root), "pipeline_root is an array")
+})
