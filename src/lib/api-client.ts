@@ -689,7 +689,7 @@ let _bootstrapExchangeInFlight: Promise<boolean> | null = null
 let _bootstrapExchangeFailedAt = 0
 let _backendVersion = ""
 
-const FALLBACK_COOLDOWN_MS = 60_000
+const FALLBACK_COOLDOWN_MS = process.env.VIBEOS_FAST_CI === "1" ? 5_000 : 60_000
 
 function tryResetFallbackCooldown(): boolean {
   if (!_apiFallbackMode || !_apiFallbackSince) return false
