@@ -1230,8 +1230,8 @@ test("integration: cooldown not expired — returns fallback without probing", a
     await apiClient.remoteCall("health", [], () => ({ local: true }))
     assert.equal(apiClient.isApiFallback(), true, "fallback after failure")
 
-    // Only advance 30s — cooldown not expired
-    Date.now = () => REAL_DATE_NOW() + 30_000
+    // Advance by less than cooldown (60s normal, 5s in CI)
+    Date.now = () => REAL_DATE_NOW() + (process.env.VIBEOS_FAST_CI === "1" ? 3_000 : 30_000)
 
     // This should short-circuit without calling fetch
     let fetchCalled = false
