@@ -5559,7 +5559,7 @@ async function remoteCall(method, args, fallbackFn) {
     syncApiTokenFromDisk();
   }
   if (tryResetFallbackCooldown()) {
-    console.warn("[vibeOS] API fallback cooldown expired \u2014 retrying API");
+    console.debug("[vibeOS] API fallback cooldown expired \u2014 retrying API");
   }
   if (!isApiEnabled() || _apiFallbackMode) {
     if (fallbackFn)
@@ -5586,7 +5586,7 @@ async function remoteCall(method, args, fallbackFn) {
     if (_apiFallbackMode) {
       _apiFallbackMode = false;
       _apiFallbackSince = null;
-      console.warn(`[vibeOS] API reconnected \u2014 ${method} OK`);
+      console.debug(`[vibeOS] API reconnected \u2014 ${method} OK`);
     }
     _apiFallbackMode = false;
     _apiFallbackSince = null;
