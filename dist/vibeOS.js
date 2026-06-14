@@ -10410,6 +10410,7 @@ ${L.repeat(40)}`);
 }
 
 // src/lib/trinity-rebuild.js
+init_state();
 import { readFileSync as readFileSync12, existsSync as existsSync13 } from "node:fs";
 import { join as join12 } from "node:path";
 function normalizeProviderModels(providerName, models) {

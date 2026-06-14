@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execSync } from "node:child_process"
-import { readFileSync, writeFileSync, mkdtempSync, rmSync, readdirSync, unlinkSync } from "node:fs"
+import { readFileSync, writeFileSync, mkdtempSync, rmSync, readdirSync, unlinkSync, existsSync } from "node:fs"
 import { join, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 import { tmpdir, homedir } from "node:os"
@@ -39,6 +39,17 @@ function releaseSeriesName(version) {
 function formatReleaseTitle(version) {
   const name = releaseSeriesName(version)
   return name ? `${name} v${version}` : `v${version}`
+}
+
+function resolveOpenCodeHomes() {
+  const override = process.env.VIBEOS_OPENCODE_HOME
+  if (override) return [override]
+  const base = homedir()
+  const configHome = join(base, ".config", "opencode")
+  const dotHome = join(base, ".opencode")
+  const roots = [configHome, dotHome]
+  const existing = roots.filter((dir) => existsSync(join(dir, "opencode.json")) || existsSync(join(dir, "opencode.jsonc")) || existsSync(dir))
+  return Array.from(new Set(existing.length > 0 ? existing : roots))
 }
 
 // ── ENSURE GH CLI ──────────────────────────────────────────────
@@ -360,30 +371,32 @@ if (process.argv.includes("--ci")) {
   log("")
   log(`${BOLD}📨 Deploying plugin...${RESET}`)
   try {
-  const { cpSync, readFileSync: rf, writeFileSync: wf, existsSync: ex, mkdirSync: mk, readdirSync, statSync } = await import("node:fs")
-  const pluginDir = join(homedir(), ".config", "opencode", "plugins")
-  if (!ex(pluginDir)) {
-    mk(pluginDir, { recursive: true })
-  }
+    const { cpSync, readFileSync: rf, writeFileSync: wf, existsSync: ex, mkdirSync: mk, rmSync, readdirSync, statSync } = await import("node:fs")
+    const srcPath = join(ROOT, "dist", "vibeOS.js")
+    const src = rf(srcPath)
+    const srcAssetsPath = join(ROOT, "dist", "assets")
+    for (const home of resolveOpenCodeHomes()) {
+      const pluginDir = join(home, "plugins")
+      if (!ex(pluginDir)) {
+        mk(pluginDir, { recursive: true })
+      }
 
-  const srcPath = join(ROOT, "dist", "vibeOS.js")
-  const destPath = join(pluginDir, "vibeOS.js")
-  const src = rf(srcPath)
-  wf(destPath, src)
-  log(`${GREEN}✓${RESET} [vibeOS deploy] dist/vibeOS.js → ~/.config/opencode/plugins/vibeOS.js (${src.length} bytes)`)
+      const destPath = join(pluginDir, "vibeOS.js")
+      wf(destPath, src)
+      log(`${GREEN}✓${RESET} [vibeOS deploy] dist/vibeOS.js → ${home}/plugins/vibeOS.js (${src.length} bytes)`)
 
-  const srcAssetsPath = join(ROOT, "dist", "assets")
-  const destAssetsPath = join(pluginDir, "assets")
-  if (ex(srcAssetsPath)) {
-    cpSync(srcAssetsPath, destAssetsPath, { recursive: true, force: true })
-    log(`${GREEN}✓${RESET} [vibeOS deploy] dist/assets/ → ~/.config/opencode/plugins/assets/`)
-  }
+      const destAssetsPath = join(pluginDir, "assets")
+      if (ex(srcAssetsPath)) {
+        cpSync(srcAssetsPath, destAssetsPath, { recursive: true, force: true })
+        log(`${GREEN}✓${RESET} [vibeOS deploy] dist/assets/ → ${home}/plugins/assets/`)
+      }
 
-  for (const staleDir of [join(pluginDir, "vibeOS-api-server"), join(pluginDir, "vibeOS-mcp-server.js"), join(pluginDir, "dashboard", "dist"), join(pluginDir, "lib"), join(pluginDir, "utils"), join(pluginDir, "vibeOS-lib")]) {
-    if (ex(staleDir)) {
-      rmSync(staleDir, { recursive: true, force: true })
+      for (const staleDir of [join(pluginDir, "vibeOS-api-server"), join(pluginDir, "vibeOS-mcp-server.js"), join(pluginDir, "dashboard", "dist"), join(pluginDir, "lib"), join(pluginDir, "utils"), join(pluginDir, "vibeOS-lib")]) {
+        if (ex(staleDir)) {
+          rmSync(staleDir, { recursive: true, force: true })
+        }
+      }
     }
-  }
 } catch (e) {
   log(`${YELLOW}⚠${RESET}  deploy step failed: ${e.message}`)
 }

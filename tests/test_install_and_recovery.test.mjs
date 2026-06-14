@@ -6,10 +6,11 @@
 //   3. Corrupted model-tiers.json recovery
 //   4. Missing ALL config files (bare machine)
 //
-import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, rmSync, existsSync } from "node:fs"
+import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, rmSync, existsSync, chmodSync } from "node:fs"
 import { join, dirname } from "node:path"
 import { homedir, tmpdir } from "node:os"
-import { fileURLToPath } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
+import { spawnSync } from "node:child_process"
 import { describe, test } from "node:test"
 import assert from "node:assert"
 import { readConfig } from "../src/lib/pricing.js"
@@ -243,6 +244,71 @@ test("autoconfig: prefers ~/.opencode when it is the active OpenCode home", asyn
     assert.ok(existsSync(join(home, "opencode.json")))
   } finally {
     process.env.HOME = prevHome
+    if (prevOverride === undefined) delete process.env.VIBEOS_OPENCODE_HOME
+    else process.env.VIBEOS_OPENCODE_HOME = prevOverride
+    rmSync(sb, { recursive: true, force: true })
+  }
+})
+
+test("install: deploys the shipped bundle into ~/.opencode and the installed reality-check command works", { concurrency: false }, async () => {
+  const sb = freshSandbox()
+  const prevHome = process.env.HOME
+  const prevPath = process.env.PATH
+  const prevOverride = process.env.VIBEOS_OPENCODE_HOME
+  process.env.HOME = sb
+  delete process.env.VIBEOS_OPENCODE_HOME
+  try {
+    mkdirSync(join(sb, ".opencode"), { recursive: true })
+    mkdirSync(join(sb, ".claude"), { recursive: true })
+    mkdirSync(join(sb, "bin"), { recursive: true })
+    writeFileSync(join(sb, ".opencode/opencode.json"), JSON.stringify({
+      "$schema": "https://opencode.ai/config.json",
+      model: "deepseek/deepseek-v4-pro",
+      provider: {
+        deepseek: {
+          models: {
+            "deepseek-v4-pro": {},
+            "deepseek-v4-flash": {},
+            "deepseek-chat": {},
+          },
+        },
+      },
+    }, null, 2))
+
+    const crontabShim = join(sb, "bin", "crontab")
+    writeFileSync(crontabShim, "#!/bin/sh\nif [ \"$1\" = \"-l\" ]; then exit 0; fi\ncat >/dev/null\nexit 0\n")
+    try { chmodSync(crontabShim, 0o755) } catch {}
+    process.env.PATH = `${join(sb, "bin")}:${prevPath || ""}`
+
+    const deploy = spawnSync(process.execPath, ["scripts/deploy.mjs"], {
+      cwd: ROOT,
+      env: { ...process.env, HOME: sb },
+      encoding: "utf-8",
+    })
+    assert.equal(deploy.status, 0, deploy.stderr || deploy.stdout)
+
+    const installedPlugin = join(sb, ".opencode/plugins/vibeOS.js")
+    const installedAssets = join(sb, ".opencode/plugins/assets")
+    assert.ok(existsSync(installedPlugin), "bundle deployed into ~/.opencode/plugins")
+    assert.ok(existsSync(installedAssets), "assets deployed alongside the bundle")
+
+    const ocConfig = JSON.parse(readFileSync(join(sb, ".opencode/opencode.json"), "utf-8"))
+    assert.ok(Array.isArray(ocConfig.plugin), "plugin array was created")
+    assert.ok(ocConfig.plugin.includes("./plugins/vibeOS.js"), "OpenCode config registers the plugin")
+
+    const mod = await import(`${pathToFileURL(installedPlugin).href}?t=${Date.now()}`)
+    const projectDir = join(sb, "project")
+    mkdirSync(projectDir, { recursive: true })
+    writeFileSync(join(projectDir, "opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-pro" }, null, 2))
+    const hooks = await mod.DelegationEnforcer({ client: {}, directory: projectDir })
+    const reality = await hooks.tool.trinity.execute({ action: "reality-check" })
+
+    assert.match(String(reality), /Verified facts only/)
+    assert.match(String(reality), /Scope:/)
+    assert.match(String(reality), /Rules loaded:/)
+  } finally {
+    process.env.HOME = prevHome
+    process.env.PATH = prevPath
     if (prevOverride === undefined) delete process.env.VIBEOS_OPENCODE_HOME
     else process.env.VIBEOS_OPENCODE_HOME = prevOverride
     rmSync(sb, { recursive: true, force: true })
