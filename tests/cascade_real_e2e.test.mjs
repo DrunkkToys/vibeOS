@@ -97,3 +97,26 @@ test("cascade e2e: buildControlHistoryEntry creates valid history records", asyn
   assert.ok(entry.control, "control object")
   assert.equal(entry.control.enforcement_mode, cv.enforcement_mode, "enforcement_mode preserved")
 })
+
+test("cascade e2e: malformed blackbox state does not crash computeControlVector", async () => {
+  const turnClassify = await import("../src/lib/turn-classify.js?" + Date.now())
+  for (const input of [{}, { sub_regime: null }, { sub_regime: "" }, { sub_regime: "INIT", latest_stress_multiplier: null }]) {
+    const cv = turnClassify.computeControlVector(input, undefined, "auto")
+    assert.ok(cv, "CV computed")
+    assert.ok(typeof cv.optimization_mode === "string", "optimization_mode")
+    assert.ok(typeof cv.tier_bias === "string", "tier_bias")
+  }
+})
+
+test("cascade e2e: overlapping stress + LOOPING regime produces quality", async () => {
+  const turnClassify = await import("../src/lib/turn-classify.js?" + Date.now())
+  assert.equal(turnClassify.autoSelectMode("LOOPING", 2.0), "quality")
+  const cv = turnClassify.computeControlVector({ sub_regime: "LOOPING", latest_stress_multiplier: 2.0 }, undefined, "auto")
+  assert.equal(cv.optimization_mode, "quality")
+})
+
+test("cascade e2e: empty/null userText falls back to valid regime", async () => {
+  const turnClassify = await import("../src/lib/turn-classify.js?" + Date.now())
+  assert.equal(typeof turnClassify.classifyTurnSimple(""), "string", "empty string")
+  assert.equal(typeof turnClassify.classifyTurnSimple(" "), "string", "whitespace")
+})
