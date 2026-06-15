@@ -378,6 +378,7 @@ export function createMcpServer(deps: Deps): McpServer {
       if (startPromise) return startPromise
       startPromise = new Promise((resolve, reject) => {
         const srv = http.createServer((req, res) => { void handler(req, res) })
+        srv.unref()
         srv.once("error", reject)
         srv.listen(port, () => {
           server = srv
