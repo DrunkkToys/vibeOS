@@ -20,7 +20,7 @@ description: Project-specific conventions, current command surface, and workspac
 ## Routines
 
 - After editing `src/*.ts`, run the build and typecheck path before you treat the change as done.
-- After updating `README.md`, `AGENTS.md`, or `.opencode/skills/*`, verify the command names against the live `trinity help` surface.
+- After updating `README.md`, `AGENTS.md`, or `.opencode/skills/*`, verify the command names against the live `vibe help` surface.
 - Keep docs aligned with the sibling backend root instead of assuming the backend lives inside this repo.
 - Always run `npm run typecheck` before committing.
 - Never modify `.js` files directly; only edit the corresponding `.ts` source files.
@@ -78,6 +78,6 @@ description: Project-specific conventions, current command surface, and workspac
 - vibeOS MCP server for extended tool capabilities
 - TUI dashboard sidebar for real-time plugin status
 - Remote API protection with seat/license management
-- Per-session model locking (`trinity lock on|off`)
+- Per-session model locking (`vibe lock on|off`)
 - Web dashboard served by MCP server
 - Blackbox decision engine with 7 sub-regimes and loop prevention
