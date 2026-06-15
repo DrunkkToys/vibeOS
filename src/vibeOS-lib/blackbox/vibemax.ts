@@ -8,7 +8,6 @@ import { fileURLToPath } from "node:url"
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const MODEL_PATH = process.env.VIBEOS_VIBEMAX_MODEL_PATH || resolve(__dirname, "..", "..", "..", "data", "vibemax-model.json")
 
-const PRIORITY = { budget: 0, audit: 1, speed: 2, longrun: 3, quality: 4 }
 
 function fallback(sr, text) {
   if (sr === "LOOPING") return "quality"
@@ -65,7 +64,6 @@ function predictTree(tree, features) {
   return features[tree.column] <= tree.value ? predictTree(tree.left, features) : predictTree(tree.right, features)
 }
 
-const VIBEMAX_CFG = { tier: "medium", thinking: "full", tdd: "quality", flow: "strict", enforcement: "strict", wbp: "normal", c7: "required", kp: [3, 6], tc: 0.3, amode: "plan" }
 const BUDGET_CFG = { tier: "cheap", thinking: "off", tdd: "normal", flow: "audit", enforcement: "relaxed", wbp: "minimal", c7: "skippable", kp: [1, 3], tc: 0.1, amode: "build" }
 const VIBEMAX_MAP = { quality: "optimized", longrun: "optimized", audit: "optimized", speed: "budget", budget: "budget" }
 

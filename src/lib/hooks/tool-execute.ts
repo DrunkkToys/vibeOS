@@ -37,10 +37,6 @@ import { loadSessionSlot } from "../selection-manager.js"
 import { loadCredit, refreshCreditSnapshot } from "../credit-api.js"
 import { buildFooterLine, buildEnforcementTags, resolveBrand, resolveTierIcon } from "./shared-footer.js"
 
-function modeCapitalized(mode: string): string {
-  if (!mode) return "Budget"
-  return mode.charAt(0).toUpperCase() + mode.slice(1)
-}
 
 function isGreetingLike(text: string): boolean {
   const value = String(text || "").trim().toLowerCase()
