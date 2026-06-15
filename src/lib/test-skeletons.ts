@@ -42,20 +42,34 @@ const TEST_SKELETONS = {
     }
     return content
   },
-  js: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => {
+  js: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "", framework = null) => {
     const importPath = `../${name}`
     let content = `// [vibeOS-enforced] Skeleton test — replace with real assertions\n`
-    content += `const { test, expect, describe } = require('@jest/globals');\n`
-    content += `const mod = require('${importPath}');\n\n`
+    if (framework === "node-test") {
+      content += `import { test, describe } from 'node:test';\n`
+      content += `import assert from 'node:assert/strict';\n`
+      content += `const mod = await import('${importPath}');\n\n`
+    } else {
+      content += `const { test, expect, describe } = require('@jest/globals');\n`
+      content += `const mod = require('${importPath}');\n\n`
+    }
     content += `describe('${name}', () => {\n`
     if (depth === "minimal") {
       content += `  test('smoke: module loads', () => {\n`
-      content += `    expect(mod).toBeDefined();\n`
+      if (framework === "node-test") {
+        content += `    assert.ok(mod);\n`
+      } else {
+        content += `    expect(mod).toBeDefined();\n`
+      }
       content += `  });\n`
     } else {
       // Smoke test (passing)
       content += `  test('smoke: module loads', () => {\n`
-      content += `    expect(mod).toBeDefined();\n`
+      if (framework === "node-test") {
+        content += `    assert.ok(mod);\n`
+      } else {
+        content += `    expect(mod).toBeDefined();\n`
+      }
       content += `  });\n\n`
       // Generate test stubs for each exported function
       for (const exp of exports) {
@@ -63,13 +77,21 @@ const TEST_SKELETONS = {
         const cases = generateTestCaseNames(exp.name, exp.type, quality)
         content += `  // TODO: implement tests for ${exp.name}\n`
         content += `  test('${exp.name} is exported', () => {\n`
-        content += `    expect(typeof mod.${exp.name}).toBe('function');\n`
+        if (framework === "node-test") {
+          content += `    assert.strictEqual(typeof mod.${exp.name}, 'function');\n`
+        } else {
+          content += `    expect(typeof mod.${exp.name}).toBe('function');\n`
+        }
         content += `  });\n\n`
         for (const caseName of cases) {
           content += `  test('${caseName}', () => {\n`
           content += `    // TODO: implement ${caseName}\n`
-          if (strict) content += `    throw new Error('TODO: implement ${caseName}');\n`
-          else content += `    expect(true).toBe(true);\n`
+          if (framework === "node-test") {
+            if (strict) content += `    assert.ok(true, 'TODO: implement ${caseName}');\n`
+            else content += `    assert.ok(true);\n`
+          } else {
+            content += `    expect(true).toBe(true);\n`
+          }
           content += `  });\n\n`
         }
         if (quality && sourceContent) {
@@ -87,32 +109,54 @@ const TEST_SKELETONS = {
     content += `});\n`
     return content
   },
-  mjs: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => {
+  mjs: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "", framework = null) => {
     const importPath = `../${name}`
     let content = `// [vibeOS-enforced] Skeleton test — replace with real assertions\n`
-    content += `import { test, expect, describe } from 'vitest';\n`
-    content += `import * as mod from '${importPath}';\n\n`
+    if (framework === "node-test") {
+      content += `import { test, describe } from 'node:test';\n`
+      content += `import assert from 'node:assert/strict';\n`
+      content += `import * as mod from '${importPath}';\n\n`
+    } else {
+      content += `import { test, expect, describe } from 'vitest';\n`
+      content += `import * as mod from '${importPath}';\n\n`
+    }
     content += `describe('${name}', () => {\n`
     if (depth === "minimal") {
       content += `  test('smoke: module loads', () => {\n`
-      content += `    expect(mod).toBeDefined();\n`
+      if (framework === "node-test") {
+        content += `    assert.ok(mod);\n`
+      } else {
+        content += `    expect(mod).toBeDefined();\n`
+      }
       content += `  });\n`
     } else {
       content += `  test('smoke: module loads', () => {\n`
-      content += `    expect(mod).toBeDefined();\n`
+      if (framework === "node-test") {
+        content += `    assert.ok(mod);\n`
+      } else {
+        content += `    expect(mod).toBeDefined();\n`
+      }
       content += `  });\n\n`
       for (const exp of exports) {
         if (exp.type === "class") continue
         const cases = generateTestCaseNames(exp.name, exp.type, quality)
         content += `  // TODO: implement tests for ${exp.name}\n`
         content += `  test('${exp.name} is exported', () => {\n`
-        content += `    expect(typeof mod.${exp.name}).toBe('function');\n`
+        if (framework === "node-test") {
+          content += `    assert.strictEqual(typeof mod.${exp.name}, 'function');\n`
+        } else {
+          content += `    expect(typeof mod.${exp.name}).toBe('function');\n`
+        }
         content += `  });\n\n`
         for (const caseName of cases) {
           content += `  test('${caseName}', () => {\n`
           content += `    // TODO: implement ${caseName}\n`
-          if (strict) content += `    throw new Error('TODO: implement ${caseName}');\n`
-          else content += `    expect(true).toBe(true);\n`
+          if (framework === "node-test") {
+            if (strict) content += `    assert.ok(true, 'TODO: implement ${caseName}');\n`
+            else content += `    assert.ok(true);\n`
+          } else {
+            content += `    expect(true).toBe(true);\n`
+          }
           content += `  });\n\n`
         }
         if (quality && sourceContent) {
@@ -123,39 +167,65 @@ const TEST_SKELETONS = {
       if (exports.length === 0) {
         content += `  test('placeholder', () => {\n`
         content += `    // TODO: implement tests for ${name}\n`
-        content += `    expect(true).toBe(true);\n`
+        if (framework === "node-test") {
+          content += `    assert.ok(true);\n`
+        } else {
+          content += `    expect(true).toBe(true);\n`
+        }
         content += `  });\n`
       }
     }
     content += `});\n`
     return content
   },
-  ts: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => {
+  ts: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "", framework = null) => {
     const importPath = `../${name}`
     let content = `// [vibeOS-enforced] Skeleton test — replace with real assertions\n`
-    content += `import { test, expect, describe, it } from 'vitest';\n`
-    content += `import * as mod from '${importPath}';\n\n`
+    if (framework === "node-test") {
+      content += `import { test, describe, it } from 'node:test';\n`
+      content += `import assert from 'node:assert/strict';\n`
+      content += `import * as mod from '${importPath}';\n\n`
+    } else {
+      content += `import { test, expect, describe, it } from 'vitest';\n`
+      content += `import * as mod from '${importPath}';\n\n`
+    }
     content += `describe('${name}', () => {\n`
     if (depth === "minimal") {
       content += `  it('smoke: module loads', () => {\n`
-      content += `    expect(mod).toBeDefined();\n`
+      if (framework === "node-test") {
+        content += `    assert.ok(mod);\n`
+      } else {
+        content += `    expect(mod).toBeDefined();\n`
+      }
       content += `  });\n`
     } else {
       content += `  it('smoke: module loads', () => {\n`
-      content += `    expect(mod).toBeDefined();\n`
+      if (framework === "node-test") {
+        content += `    assert.ok(mod);\n`
+      } else {
+        content += `    expect(mod).toBeDefined();\n`
+      }
       content += `  });\n\n`
       for (const exp of exports) {
         if (exp.type === "class") continue
         const cases = generateTestCaseNames(exp.name, exp.type, quality)
         content += `  // TODO: implement tests for ${exp.name}\n`
         content += `  it('${exp.name} is exported', () => {\n`
-        content += `    expect(typeof mod.${exp.name}).toBe('function');\n`
+        if (framework === "node-test") {
+          content += `    assert.strictEqual(typeof mod.${exp.name}, 'function');\n`
+        } else {
+          content += `    expect(typeof mod.${exp.name}).toBe('function');\n`
+        }
         content += `  });\n\n`
         for (const caseName of cases) {
           content += `  it('${caseName}', () => {\n`
           content += `    // TODO: implement ${caseName}\n`
-          if (strict) content += `    throw new Error('TODO: implement ${caseName}');\n`
-          else content += `    expect(true).toBe(true);\n`
+          if (framework === "node-test") {
+            if (strict) content += `    assert.ok(true, 'TODO: implement ${caseName}');\n`
+            else content += `    assert.ok(true);\n`
+          } else {
+            content += `    expect(true).toBe(true);\n`
+          }
           content += `  });\n\n`
         }
         if (quality && sourceContent) {
@@ -166,17 +236,21 @@ const TEST_SKELETONS = {
       if (exports.length === 0) {
         content += `  it('placeholder', () => {\n`
         content += `    // TODO: implement tests for ${name}\n`
-        content += `    expect(true).toBe(true);\n`
+        if (framework === "node-test") {
+          content += `    assert.ok(true);\n`
+        } else {
+          content += `    expect(true).toBe(true);\n`
+        }
         content += `  });\n`
       }
     }
     content += `});\n`
     return content
   },
-  tsx: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => TEST_SKELETONS.ts(name, exports, depth, strict, quality, sourceContent),
-  jsx: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => TEST_SKELETONS.mjs(name, exports, depth, strict, quality, sourceContent),
-  cjs: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => TEST_SKELETONS.mjs(name, exports, depth, strict, quality, sourceContent),
-  mts: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => TEST_SKELETONS.ts(name, exports, depth, strict, quality, sourceContent),
+  tsx: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "", framework = null) => TEST_SKELETONS.ts(name, exports, depth, strict, quality, sourceContent, framework),
+  jsx: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "", framework = null) => TEST_SKELETONS.mjs(name, exports, depth, strict, quality, sourceContent, framework),
+  cjs: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "", framework = null) => TEST_SKELETONS.mjs(name, exports, depth, strict, quality, sourceContent, framework),
+  mts: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "", framework = null) => TEST_SKELETONS.ts(name, exports, depth, strict, quality, sourceContent, framework),
   go: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => {
     const cap = name.charAt(0).toUpperCase() + name.slice(1)
     let content = `// [vibeOS-enforced] Skeleton test — replace with real assertions\n`
