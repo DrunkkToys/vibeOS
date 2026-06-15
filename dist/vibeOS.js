@@ -7489,7 +7489,7 @@ function normalizeActivitySignature(event) {
   const action = String(event.action || event.kind || "").trim().toLowerCase();
   return [tool2, target, action].filter(Boolean).join(":");
 }
-function countBehavioralRepeat(items, signatureOf, minLength = 2) {
+function countBehavioralRepeat(items, signatureOf, minLength = 3) {
   if (!Array.isArray(items) || items.length < minLength)
     return 0;
   const last = signatureOf(items[items.length - 1]);
@@ -7505,7 +7505,7 @@ function countBehavioralRepeat(items, signatureOf, minLength = 2) {
 }
 function getBehavioralStressSignals(context, blackboxState) {
   const recentEvents = Array.isArray(context?.recentToolEvents) ? context.recentToolEvents : Array.isArray(recentToolEvents) ? recentToolEvents : [];
-  const recentWindow = recentEvents.slice(-8);
+  const recentWindow = recentEvents.slice(-10);
   const toolRepeatStreak = countBehavioralRepeat(recentWindow, normalizeActivitySignature);
   const targetRepeatStreak = countBehavioralRepeat(recentWindow, (event) => String(event?.target || "").trim().toLowerCase());
   const outcomeHistory = Array.isArray(context?.outcomeHistory) ? context.outcomeHistory : Array.isArray(blackboxState?.outcomeHistory) ? blackboxState.outcomeHistory : [];
@@ -7947,7 +7947,10 @@ function buildControlHistoryEntry2(turn, regime, control, reward = null) {
       thinking_mode: control.thinking_mode,
       stress_multiplier: control.stress_multiplier,
       context7_urgency: control.context7_urgency,
-      wbp_verbosity: control.wbp_verbosity
+      wbp_verbosity: control.wbp_verbosity,
+      cascade_depth: control.cascade_depth,
+      pipeline_root: control.pipeline_root,
+      ultrax_profile: control.ultrax_profile
     },
     reward
   };

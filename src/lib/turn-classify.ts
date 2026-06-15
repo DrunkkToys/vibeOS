@@ -280,6 +280,9 @@ function buildControlHistoryEntry(
       stress_multiplier: control.stress_multiplier,
       context7_urgency: control.context7_urgency,
       wbp_verbosity: control.wbp_verbosity,
+      cascade_depth: control.cascade_depth,
+      pipeline_root: control.pipeline_root,
+      ultrax_profile: control.ultrax_profile,
     },
     reward,
   }
