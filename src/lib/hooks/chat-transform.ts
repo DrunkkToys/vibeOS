@@ -24,6 +24,7 @@ import {
   stableJson, TOOL_NAME_NORMALIZE,
   _cacheDb, recordCacheSaving, getOpenCodeHome,
 } from "../state.js"
+import { memoCompute, nextTurn } from "../turn-memo.js"
 import {
   classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget,
   shortModelName, formatUsd, _refreshModel, applySlot, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN,
@@ -63,6 +64,20 @@ import { TEMPLATES, DEFAULT_TEMPLATE, resolveTemplate, detectLoopSignal, detectS
 import { getRealityCheckView } from "../../vibeOS-lib/flow-enforcer.js"
 
 const BYTES_PER_TOKEN = 4
+
+// Static directives — built once, reused every turn
+const ANTI_FABRICATION_DIRECTIVE = "[anti-fabrication] Always work honestly — do NOT make up tool names, file paths, function signatures, code snippets, or exact outputs. If you must explain something you cannot verify, say 'I cannot verify that' and propose how to verify it. Under NO circumstance invent tool invocations, file contents, or final results. If you must correct an earlier response, say exactly what was wrong and then provide the corrected response. DO NOT LGTM."
+
+const EMPIRICAL_ANSWER_DIRECTIVE = "[empirical answer] Prefer verified facts over assumptions. If something is not directly checked against tools, files, logs, or user-provided evidence, label it as unverified or say 'I cannot verify that'. Separate evidence, inference, and suggestions. In multi-turn work, carry forward only evidence-backed facts and keep any guess explicitly marked as a guess."
+
+const REALITY_CHECK_DIRECTIVE = "[reality-check global] Before saying something is done, complete, ready, successful, trained, fixed, or working, verify the actual files and state on disk. If the user asks for a reality check, read the relevant files first and report only verified facts."
+
+// Deterministic anti-loop directive — always injected, not gated behind blackbox detection
+const ANTI_LOOP_DIRECTIVE = "[anti-loop cost guard] Token waste is real money: if you detect the conversation is looping (repeating the same diagnosis, retrying the same fix, asking the same question, re-explaining the same concept, regenerating similar tool output), immediately break the loop by: (1) summarizing what has been tried in 1 line, (2) stating what is actually different this turn, (3) trying a substantially different approach, or (4) asking the user to clarify the goal. Do NOT continue a failing approach more than 3 times — each redundant retry burns tokens at real cost. When stuck, step back, simplify, and be honest about uncertainty."
+
+// Cached context7 directive builder — only rebuilds when urgency changes
+let _cachedC7Full: string | null = null
+let _cachedC7Urgency: string | null = null
 
 function getVibeOSHome() {
   return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude")
@@ -137,6 +152,9 @@ let _prevBlackboxRegime = null
 let _currentTemplate = DEFAULT_TEMPLATE
 let _prevTemplate = null
 let _turnCountInject = 0
+let _pivotLastCheckTurn = 0
+let _pivotLastRegime: string | null = null
+let _calBuffer: string[] = []
 const correctionSeenKeys = new Set()
 
 async function apiComputeControlVector(state: any, action: any, optimizationMode: any): Promise<any> {
@@ -603,6 +621,7 @@ async function trackBlackbox(messages: any[]): Promise<void> {
 }
 
 export const onMessagesTransform = async (_input, output) => {
+  nextTurn()
   if (!loadSelection().enabled) return
   try {
     const messages = output?.messages
@@ -629,12 +648,15 @@ const C7_URGENCY = {
 
 function context7Directive(cv: any): string {
   const urgency = cv?.context7_urgency || "preferred"
-  return "[cost policy] If mcp__context7__resolve-library-id and mcp__context7__get-library-docs " +
+  if (_cachedC7Full && _cachedC7Urgency === urgency) return _cachedC7Full
+  _cachedC7Urgency = urgency
+  _cachedC7Full = "[cost policy] If mcp__context7__resolve-library-id and mcp__context7__get-library-docs " +
     "are available, prefer them over WebFetch/WebSearch for library and framework docs " +
     "(docs.*, readthedocs.*, npmjs.com/package/*, pypi.org/project/*, pkg.go.dev, /api/reference/). " +
     "Use the cheapest accurate source first. " +
     "This usually saves about $0.06/turn." +
     (C7_URGENCY[urgency] || "")
+  return _cachedC7Full
 }
 
 function thinkingDirective(level: string): string {
@@ -795,7 +817,7 @@ function contextBudgetDirective(_input: any, output: any): string | null {
 }
 
 export const onSystemTransform = async (_input, output) => {
-  try { require("fs").appendFileSync("/tmp/st_debug", "ENTER_ON_SYSTEM_TRANSFORM\n") } catch(e) {}
+  nextTurn()
   if (!loadSelection().enabled) return
   try {
     const hookDirectory = String((onSystemTransform as any)._directory || "")
@@ -866,8 +888,10 @@ export const onSystemTransform = async (_input, output) => {
     const credit = loadCredit()
     _turnCountInject++
 
-    // ── Pivot detection and PIVOT BACK injection ──
-    if (latestUserIntent && _blackboxEnabled !== false) {
+    // ── Pivot detection and PIVOT BACK injection (gated — 1/5 turns or regime change) ──
+    const _pivotRegimeChanged = _latestBlackboxState?.sub_regime && _latestBlackboxState.sub_regime !== _pivotLastRegime
+    const _pivotTurnTrigger = _turnCountInject - _pivotLastCheckTurn >= 5
+    if (latestUserIntent && _blackboxEnabled !== false && (_pivotRegimeChanged || _pivotTurnTrigger)) {
       try {
         let pivotResult = null
         const pivotPipeline = String(optimizationMode || "").toLowerCase() === "vibeultrax" ? "vibeultraxPipeline" : "vibemaxPipeline"
@@ -915,6 +939,8 @@ export const onSystemTransform = async (_input, output) => {
           }
         }
       } catch { /* pivot pipeline is best-effort */ }
+      _pivotLastCheckTurn = _turnCountInject
+      if (_latestBlackboxState?.sub_regime) _pivotLastRegime = _latestBlackboxState.sub_regime
     }
     const stressMitigationDirective = rawStress > 0.7
       ? "[stress mitigation: CRITICAL] The user's message shows very high stress indicators. " +
@@ -1007,9 +1033,10 @@ export const onSystemTransform = async (_input, output) => {
         "AGENTS.md defines that AI agents must ask before changing code.")
     }
 
-    // ── Anti-fabrication enforcement ──
-    pushSystem(output, "[anti-fabrication] Always work honestly — do NOT make up tool names, file paths, function signatures, code snippets, or exact outputs. If you must explain something you cannot verify, say 'I cannot verify that' and propose how to verify it. Under NO circumstance invent tool invocations, file contents, or final results. If you must correct an earlier response, say exactly what was wrong and then provide the corrected response. DO NOT LGTM.")
-    pushSystem(output, empiricalAnswerDirective())
+    // ── Anti-fabrication enforcement (cached constants — byte-identical every turn) ──
+    pushSystem(output, ANTI_FABRICATION_DIRECTIVE)
+    pushSystem(output, EMPIRICAL_ANSWER_DIRECTIVE)
+    pushSystem(output, ANTI_LOOP_DIRECTIVE)
     const realityDirective = realityCheckDirective()
     if (realityDirective) pushSystem(output, realityDirective)
 
@@ -1029,16 +1056,21 @@ export const onSystemTransform = async (_input, output) => {
       pushSystem(output, welcomeDirective())
     }
 
-    // ── Calibration logging ──
-    const calDir = getVibeOSHome()
-    const calFile = join(calDir, "calibration-data.jsonl")
+    // ── Calibration logging (buffered — flush every 10 turns) ──
     const regime2 = _latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || "")
-    const calRecord = JSON.stringify({
+    _calBuffer.push(JSON.stringify({
       ts: new Date().toISOString(), sid: _OC_SID,
       mode: _currentTemplate, regime: regime2, stress: stressScore,
       fp: currentProjectFingerprint || "",
-    }) + "\n"
-    try { mkdirSync(calDir, { recursive: true }); appendFileSync(calFile, calRecord) } catch {}
+    }) + "\n")
+    if (_turnCountInject % 10 === 0 && _calBuffer.length > 0) {
+      try {
+        const calFile = join(getVibeOSHome(), "calibration-data.jsonl")
+        mkdirSync(getVibeOSHome(), { recursive: true })
+        appendFileSync(calFile, _calBuffer.join(""))
+        _calBuffer.length = 0
+      } catch {}
+    }
 
     if (!oneShot("vibeos_dashboard_instruct")) {
       pushSystem(output,

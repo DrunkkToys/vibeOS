@@ -2,6 +2,7 @@
 // @ts-nocheck
 
 import { _OC_SID, loadBlackboxState, recentToolEvents } from "./state.js"
+import { memoCompute } from "./turn-memo.js"
 
 export function detectOutcomeSignal(text) {
   if (!text) return null
@@ -80,6 +81,10 @@ function getBehavioralStressSignals(context, blackboxState) {
 }
 
 export function scoreStress(text, context = {}) {
+  const ctxKeys = Object.keys(context || {}).sort().join(",")
+  const textKey = typeof text === "string" ? text.slice(0, 80) : String(text ?? "").slice(0, 80)
+  const key = `scoreStress:${text?.length ?? 0}:${textKey}|${ctxKeys}`
+  return memoCompute(key, () => {
   const blackboxState = loadBlackboxState()
   if (!text || typeof text !== "string") return 0
   const t = text.toLowerCase()
@@ -184,6 +189,7 @@ export function scoreStress(text, context = {}) {
   else if (text.length < 150) score += 0.03
 
   return Math.min(score, 0.95)
+  })
 }
 
 export function estimateContextBudget(_input, output) {
@@ -220,6 +226,7 @@ export function estimateContextBudget(_input, output) {
 }
 
 export function classifyTurnSimple(userText) {
+  return memoCompute(`classifyTurnSimple:${userText}`, () => {
   const lower = String(userText || "").trim()
   if (!lower) return "INIT"
   if (/(security|vulnerability|audit|owasp|compliance|gdpr|privacy|analyze dependencies|license audit|xss|csrf|authn|authz|pentest)/i.test(lower)) {
@@ -254,6 +261,7 @@ export function classifyTurnSimple(userText) {
     return "REFINING"
   }
   return "INIT"
+  })
 }
 
 export function tokenizeWords(text) {

@@ -164,7 +164,7 @@ export function buildTestSkeleton(filePath, sourceContent = "", options = {}) {
     testPath = testPath.replace(new RegExp("\\.[^.]+$"), "." + fw.testExt)
   }
   const exports = extractExports(sourceContent, extLower)
-  return { path: testPath, content: skeletonFn(name, exports, "full", strict, quality, sourceContent), dir: dirname(testPath) }
+  return { path: testPath, content: skeletonFn(name, exports, "full", strict, quality, sourceContent, fw?.framework), dir: dirname(testPath) }
 }
 
 export function enforceTestFile(filePath) {

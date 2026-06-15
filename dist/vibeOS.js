@@ -36,8 +36,8 @@ function safeJsonParse(raw) {
     throw e;
   }
 }
-function loadSelection() {
-  const TIERS_FILE3 = join(getVibeOSHome(), "model-tiers.json");
+function loadSelectionImpl() {
+  const TIERS_FILE3 = TIERS_FILE_PATH();
   try {
     if (!existsSync(TIERS_FILE3))
       return DFLT_SEL;
@@ -76,10 +76,19 @@ function loadSelection() {
     return DFLT_SEL;
   }
 }
+function loadSelection() {
+  const TIERS_FILE3 = TIERS_FILE_PATH();
+  const curMtime = existsSync(TIERS_FILE3) ? statSync(TIERS_FILE3).mtimeMs : -1;
+  if (_selCache && _selLastMtime >= curMtime)
+    return _selCache;
+  _selCache = loadSelectionImpl();
+  _selLastMtime = curMtime;
+  return _selCache;
+}
 function writeSelection(key, value) {
   const TIERS_FILE3 = join(getVibeOSHome(), "model-tiers.json");
   try {
-    return withFileLock(TIERS_FILE3, () => {
+    const result = withFileLock(TIERS_FILE3, () => {
       const j = safeJsonParse(readFileSync(TIERS_FILE3, "utf-8"));
       if (!j.selection)
         j.selection = {};
@@ -89,6 +98,7 @@ function writeSelection(key, value) {
       renameSync(tmp, TIERS_FILE3);
       return true;
     });
+    return result;
   } catch (err) {
     console.error(`[vibeOS] writeSelection failed: ${err.message}`);
     return false;
@@ -163,7 +173,7 @@ function writeSessionOptMode2(sid, mode) {
     return false;
   }
 }
-var USER_HOME, DFLT_SEL;
+var USER_HOME, DFLT_SEL, _selCache, _selLastMtime, TIERS_FILE_PATH;
 var init_selection_manager = __esm({
   "src/lib/selection-manager.js"() {
     "use strict";
@@ -176,6 +186,9 @@ var init_selection_manager = __esm({
       }
     })();
     DFLT_SEL = { enabled: true, active_slot: null, slot_locked: false, thinking_level: "off", flow_enabled: true, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: true, delegation_enforce: true, onboarding_mode: null, selected_provider: null, selected_quality_tier: null, selected_model: null, executed_provider: null, executed_quality_tier: null, executed_model: null, requested_optimization_mode: null, previous_default_agent: null, previous_optimization_mode: null };
+    _selCache = null;
+    _selLastMtime = -1;
+    TIERS_FILE_PATH = () => join(getVibeOSHome(), "model-tiers.json");
   }
 });
 
@@ -7473,6 +7486,45 @@ init_selection_manager();
 
 // src/lib/classifiers.js
 init_state();
+
+// src/lib/turn-memo.js
+var _memo = /* @__PURE__ */ new Map();
+var _turnGen = 0;
+var MAX_MEMO_SIZE = 200;
+function memoCompute(key, compute) {
+  const entry = _memo.get(key);
+  if (entry !== void 0 && entry.gen === _turnGen) {
+    return entry.value;
+  }
+  const value = compute();
+  _memo.set(key, { value, gen: _turnGen });
+  if (_memo.size > MAX_MEMO_SIZE) {
+    const iter = _memo.keys();
+    for (let i = 0; i < 50; i++) {
+      const k = iter.next();
+      if (k.done)
+        break;
+      if (_memo.get(k.value)?.gen !== _turnGen)
+        _memo.delete(k.value);
+    }
+  }
+  return value;
+}
+function nextTurn() {
+  _turnGen++;
+  if (_memo.size > MAX_MEMO_SIZE) {
+    const iter = _memo.keys();
+    for (let i = 0; i < 50; i++) {
+      const k = iter.next();
+      if (k.done)
+        break;
+      if (_memo.get(k.value)?.gen !== _turnGen)
+        _memo.delete(k.value);
+    }
+  }
+}
+
+// src/lib/classifiers.js
 function detectOutcomeSignal(text) {
   if (!text)
     return null;
@@ -7530,98 +7582,103 @@ function getBehavioralStressSignals(context, blackboxState) {
   };
 }
 function scoreStress(text, context = {}) {
-  const blackboxState = loadBlackboxState();
-  if (!text || typeof text !== "string")
-    return 0;
-  const t = text.toLowerCase();
-  let score = 0;
-  const aggressive = ["fuck", "shit", "bullshit", "useless", "wrong", "bad", "slow", "broken", "stupid", "idiot", "hell", "damn", "waste", "annoying", "terrible", "hate"];
-  for (const w of aggressive) {
-    const re = new RegExp("\\b" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "gi");
-    const hits = (t.match(re) || []).length;
-    score += hits * 0.18;
-  }
-  const urgency = ["fix", "now", "fast", "urgent", "important", "critical", "hurry", "immediately", "asap", "stressed", "stress", "frustrated", "overwhelmed", "panic", "panicked", "anxious"];
-  for (const w of urgency) {
-    const re = new RegExp("\\b" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "gi");
-    const hits = (t.match(re) || []).length;
-    score += hits * 0.16;
-  }
-  const negative = ["no", "not", "don't", "can't", "won't", "doesn't", "isn't", "shouldn't", "never", "stop"];
-  for (const w of negative) {
-    const re = new RegExp("\\b" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "gi");
-    const hits = (t.match(re) || []).length;
-    score += hits * 0.06;
-  }
-  const capsAcronyms = /* @__PURE__ */ new Set(["ai", "ui", "api", "cli", "ssh", "dns", "http", "url", "json", "xml", "css", "html", "sql", "csv", "yaml", "ide", "tdd", "pr", "ci", "cd", "env", "os", "sdk", "gui", "crud", "rest", "crlf", "utf", "ascii"]);
-  const words = text.split(/\s+/);
-  for (const w of words) {
-    if (w.length >= 3 && /^[A-Z]+$/.test(w) && !capsAcronyms.has(w.toLowerCase())) {
-      score += 0.05;
+  const ctxKeys = Object.keys(context || {}).sort().join(",");
+  const textKey = typeof text === "string" ? text.slice(0, 80) : String(text ?? "").slice(0, 80);
+  const key = `scoreStress:${text?.length ?? 0}:${textKey}|${ctxKeys}`;
+  return memoCompute(key, () => {
+    const blackboxState = loadBlackboxState();
+    if (!text || typeof text !== "string")
+      return 0;
+    const t = text.toLowerCase();
+    let score = 0;
+    const aggressive = ["fuck", "shit", "bullshit", "useless", "wrong", "bad", "slow", "broken", "stupid", "idiot", "hell", "damn", "waste", "annoying", "terrible", "hate"];
+    for (const w of aggressive) {
+      const re = new RegExp("\\b" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "gi");
+      const hits = (t.match(re) || []).length;
+      score += hits * 0.18;
     }
-  }
-  const exclamParts = text.match(/!{2,}/g);
-  if (exclamParts)
-    score += exclamParts.length * 0.08;
-  const qmarkParts = text.match(/\?{2,}/g);
-  if (qmarkParts)
-    score += qmarkParts.length * 0.05;
-  const qeCombos = text.match(/\?!|!\?/g);
-  if (qeCombos)
-    score += qeCombos.length * 0.1;
-  const behavioralPhrases = [
-    { re: /\b(restart|restarts|restarted|restart again|restart it|retry|retries|retrial|rerun|redo|repeat the step|try again|another attempt|another pass)\b/gi, weight: 0.09 },
-    { re: /\b(still failing|keeps failing|keeps breaking|still broken|same issue|same result|same error|new error|new issue|broke again|breaks again|every fix|every time|over and over|again and again)\b/gi, weight: 0.12 },
-    { re: /\b(blocked again|stuck again|failed again|fails again|this is not working|nothing changed|no change)\b/gi, weight: 0.1 },
-    { re: /\b(start over|from scratch|back to square|back to the drawing board|reset|rethink|different approach)\b/gi, weight: 0.12 },
-    { re: /\b(made it worse|went backwards|regression|introduced (a |a new |another )(problem|bug|issue)|worse than before|new (problem|bug|issue) (emerged|appeared|showed))\b/gi, weight: 0.15 },
-    { re: /\b(\d+)\s*(times|attempts|tries)\b/gi, dynamic: true }
-  ];
-  for (const { re, weight, dynamic } of behavioralPhrases) {
-    const matches = t.match(re);
-    if (!matches)
-      continue;
-    if (dynamic) {
-      for (const m of matches) {
-        const num = parseInt(m, 10) || 0;
-        score += Math.min(0.2, num * 0.04);
+    const urgency = ["fix", "now", "fast", "urgent", "important", "critical", "hurry", "immediately", "asap", "stressed", "stress", "frustrated", "overwhelmed", "panic", "panicked", "anxious"];
+    for (const w of urgency) {
+      const re = new RegExp("\\b" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "gi");
+      const hits = (t.match(re) || []).length;
+      score += hits * 0.16;
+    }
+    const negative = ["no", "not", "don't", "can't", "won't", "doesn't", "isn't", "shouldn't", "never", "stop"];
+    for (const w of negative) {
+      const re = new RegExp("\\b" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "gi");
+      const hits = (t.match(re) || []).length;
+      score += hits * 0.06;
+    }
+    const capsAcronyms = /* @__PURE__ */ new Set(["ai", "ui", "api", "cli", "ssh", "dns", "http", "url", "json", "xml", "css", "html", "sql", "csv", "yaml", "ide", "tdd", "pr", "ci", "cd", "env", "os", "sdk", "gui", "crud", "rest", "crlf", "utf", "ascii"]);
+    const words = text.split(/\s+/);
+    for (const w of words) {
+      if (w.length >= 3 && /^[A-Z]+$/.test(w) && !capsAcronyms.has(w.toLowerCase())) {
+        score += 0.05;
       }
-    } else {
-      score += matches.length * weight;
     }
-  }
-  const { toolRepeatStreak, targetRepeatStreak, negativeOutcomes, loopCount, repeatStreak, activityRepeatStreak, targetRepeatStateStreak, messageLengthTrend, messageLengthSlope } = getBehavioralStressSignals(context, blackboxState);
-  if (toolRepeatStreak >= 2) {
-    score += 0.08 + Math.min(0.24, (toolRepeatStreak - 1) * 0.05);
-  }
-  if (targetRepeatStreak >= 2) {
-    score += 0.05 + Math.min(0.16, (targetRepeatStreak - 1) * 0.035);
-  }
-  if (negativeOutcomes >= 1) {
-    score += 0.05 * negativeOutcomes + Math.min(0.18, negativeOutcomes * 0.03);
-  }
-  if (blackboxState?.is_looping || loopCount >= 2) {
-    score += 0.1 + Math.min(0.18, loopCount * 0.03);
-  }
-  if (repeatStreak >= 2) {
-    score += 0.06 + Math.min(0.12, repeatStreak * 0.025);
-  }
-  if (activityRepeatStreak >= 2) {
-    score += 0.05 + Math.min(0.1, activityRepeatStreak * 0.02);
-  }
-  if (targetRepeatStateStreak >= 2) {
-    score += 0.04 + Math.min(0.08, targetRepeatStateStreak * 0.015);
-  }
-  if (messageLengthTrend === "shortening" && messageLengthSlope < -0.3) {
-    score += 0.08;
-  }
-  if (text.length < 30)
-    score += 0.06;
-  else if (text.length < 80)
-    score += 0.05;
-  else if (text.length < 150)
-    score += 0.03;
-  return Math.min(score, 0.95);
+    const exclamParts = text.match(/!{2,}/g);
+    if (exclamParts)
+      score += exclamParts.length * 0.08;
+    const qmarkParts = text.match(/\?{2,}/g);
+    if (qmarkParts)
+      score += qmarkParts.length * 0.05;
+    const qeCombos = text.match(/\?!|!\?/g);
+    if (qeCombos)
+      score += qeCombos.length * 0.1;
+    const behavioralPhrases = [
+      { re: /\b(restart|restarts|restarted|restart again|restart it|retry|retries|retrial|rerun|redo|repeat the step|try again|another attempt|another pass)\b/gi, weight: 0.09 },
+      { re: /\b(still failing|keeps failing|keeps breaking|still broken|same issue|same result|same error|new error|new issue|broke again|breaks again|every fix|every time|over and over|again and again)\b/gi, weight: 0.12 },
+      { re: /\b(blocked again|stuck again|failed again|fails again|this is not working|nothing changed|no change)\b/gi, weight: 0.1 },
+      { re: /\b(start over|from scratch|back to square|back to the drawing board|reset|rethink|different approach)\b/gi, weight: 0.12 },
+      { re: /\b(made it worse|went backwards|regression|introduced (a |a new |another )(problem|bug|issue)|worse than before|new (problem|bug|issue) (emerged|appeared|showed))\b/gi, weight: 0.15 },
+      { re: /\b(\d+)\s*(times|attempts|tries)\b/gi, dynamic: true }
+    ];
+    for (const { re, weight, dynamic } of behavioralPhrases) {
+      const matches = t.match(re);
+      if (!matches)
+        continue;
+      if (dynamic) {
+        for (const m of matches) {
+          const num = parseInt(m, 10) || 0;
+          score += Math.min(0.2, num * 0.04);
+        }
+      } else {
+        score += matches.length * weight;
+      }
+    }
+    const { toolRepeatStreak, targetRepeatStreak, negativeOutcomes, loopCount, repeatStreak, activityRepeatStreak, targetRepeatStateStreak, messageLengthTrend, messageLengthSlope } = getBehavioralStressSignals(context, blackboxState);
+    if (toolRepeatStreak >= 2) {
+      score += 0.08 + Math.min(0.24, (toolRepeatStreak - 1) * 0.05);
+    }
+    if (targetRepeatStreak >= 2) {
+      score += 0.05 + Math.min(0.16, (targetRepeatStreak - 1) * 0.035);
+    }
+    if (negativeOutcomes >= 1) {
+      score += 0.05 * negativeOutcomes + Math.min(0.18, negativeOutcomes * 0.03);
+    }
+    if (blackboxState?.is_looping || loopCount >= 2) {
+      score += 0.1 + Math.min(0.18, loopCount * 0.03);
+    }
+    if (repeatStreak >= 2) {
+      score += 0.06 + Math.min(0.12, repeatStreak * 0.025);
+    }
+    if (activityRepeatStreak >= 2) {
+      score += 0.05 + Math.min(0.1, activityRepeatStreak * 0.02);
+    }
+    if (targetRepeatStateStreak >= 2) {
+      score += 0.04 + Math.min(0.08, targetRepeatStateStreak * 0.015);
+    }
+    if (messageLengthTrend === "shortening" && messageLengthSlope < -0.3) {
+      score += 0.08;
+    }
+    if (text.length < 30)
+      score += 0.06;
+    else if (text.length < 80)
+      score += 0.05;
+    else if (text.length < 150)
+      score += 0.03;
+    return Math.min(score, 0.95);
+  });
 }
 function estimateContextBudget(_input, output) {
   try {
@@ -7658,35 +7715,37 @@ function estimateContextBudget(_input, output) {
   }
 }
 function classifyTurnSimple(userText) {
-  const lower = String(userText || "").trim();
-  if (!lower)
+  return memoCompute(`classifyTurnSimple:${userText}`, () => {
+    const lower = String(userText || "").trim();
+    if (!lower)
+      return "INIT";
+    if (/(security|vulnerability|audit|owasp|compliance|gdpr|privacy|analyze dependencies|license audit|xss|csrf|authn|authz|pentest)/i.test(lower)) {
+      return "AUDIT";
+    }
+    if (/(inject|exploit|penetration|cve|attack|threat|encrypt|forensic|research|deep analysis|investigate|root cause|reverse engineer|disassemble|memory dump|core dump)/i.test(lower)) {
+      return "FORENSIC";
+    }
+    const IMPL_VERBS = "fix|write|create|build|implement|change|edit|modify|update|refactor|generate|delete|remove|migrate|deploy|commit|push";
+    if (new RegExp("^(can you|could you|tell me|we should|we need to|please) (" + IMPL_VERBS + ")\\b", "i").test(lower)) {
+      return "REFINING";
+    }
+    if (new RegExp("^I (need|want|would like) to (" + IMPL_VERBS + ")\\b", "i").test(lower)) {
+      return "REFINING";
+    }
+    if (/^(the |there is |there are |i think |looks like |seems like |i see |why (is|are|does|did) )/i.test(lower)) {
+      return "EXPLORING";
+    }
+    if (/^(how|what|why|when|where|who|can you|could you|let me|tell me|explain|describe|show|list|check|is there|are there|does|do you|summarize|elaborate|clarify|inspect|trace|find|search|look|read|show me|dump|debug)/i.test(lower)) {
+      return "EXPLORING";
+    }
+    if (new RegExp("\\b(" + IMPL_VERBS + ")\\b", "i").test(lower)) {
+      return "REFINING";
+    }
+    if (/^(write|create|add|build|implement|fix|change|edit|modify|update|refactor|generate|make|commit|push|deploy|release|publish|install|remove|delete|rename|move|copy|transform|convert|migrate)/i.test(lower)) {
+      return "REFINING";
+    }
     return "INIT";
-  if (/(security|vulnerability|audit|owasp|compliance|gdpr|privacy|analyze dependencies|license audit|xss|csrf|authn|authz|pentest)/i.test(lower)) {
-    return "AUDIT";
-  }
-  if (/(inject|exploit|penetration|cve|attack|threat|encrypt|forensic|research|deep analysis|investigate|root cause|reverse engineer|disassemble|memory dump|core dump)/i.test(lower)) {
-    return "FORENSIC";
-  }
-  const IMPL_VERBS = "fix|write|create|build|implement|change|edit|modify|update|refactor|generate|delete|remove|migrate|deploy|commit|push";
-  if (new RegExp("^(can you|could you|tell me|we should|we need to|please) (" + IMPL_VERBS + ")\\b", "i").test(lower)) {
-    return "REFINING";
-  }
-  if (new RegExp("^I (need|want|would like) to (" + IMPL_VERBS + ")\\b", "i").test(lower)) {
-    return "REFINING";
-  }
-  if (/^(the |there is |there are |i think |looks like |seems like |i see |why (is|are|does|did) )/i.test(lower)) {
-    return "EXPLORING";
-  }
-  if (/^(how|what|why|when|where|who|can you|could you|let me|tell me|explain|describe|show|list|check|is there|are there|does|do you|summarize|elaborate|clarify|inspect|trace|find|search|look|read|show me|dump|debug)/i.test(lower)) {
-    return "EXPLORING";
-  }
-  if (new RegExp("\\b(" + IMPL_VERBS + ")\\b", "i").test(lower)) {
-    return "REFINING";
-  }
-  if (/^(write|create|add|build|implement|fix|change|edit|modify|update|refactor|generate|make|commit|push|deploy|release|publish|install|remove|delete|rename|move|copy|transform|convert|migrate)/i.test(lower)) {
-    return "REFINING";
-  }
-  return "INIT";
+  });
 }
 function tokenizeWords(text) {
   if (!text || typeof text !== "string")
@@ -11785,6 +11844,11 @@ function shouldInjectTemplate(template, prevTemplate) {
 // src/lib/hooks/chat-transform.js
 init_flow_enforcer();
 var BYTES_PER_TOKEN = 4;
+var ANTI_FABRICATION_DIRECTIVE = "[anti-fabrication] Always work honestly \u2014 do NOT make up tool names, file paths, function signatures, code snippets, or exact outputs. If you must explain something you cannot verify, say 'I cannot verify that' and propose how to verify it. Under NO circumstance invent tool invocations, file contents, or final results. If you must correct an earlier response, say exactly what was wrong and then provide the corrected response. DO NOT LGTM.";
+var EMPIRICAL_ANSWER_DIRECTIVE = "[empirical answer] Prefer verified facts over assumptions. If something is not directly checked against tools, files, logs, or user-provided evidence, label it as unverified or say 'I cannot verify that'. Separate evidence, inference, and suggestions. In multi-turn work, carry forward only evidence-backed facts and keep any guess explicitly marked as a guess.";
+var ANTI_LOOP_DIRECTIVE = "[anti-loop cost guard] Token waste is real money: if you detect the conversation is looping (repeating the same diagnosis, retrying the same fix, asking the same question, re-explaining the same concept, regenerating similar tool output), immediately break the loop by: (1) summarizing what has been tried in 1 line, (2) stating what is actually different this turn, (3) trying a substantially different approach, or (4) asking the user to clarify the goal. Do NOT continue a failing approach more than 3 times \u2014 each redundant retry burns tokens at real cost. When stuck, step back, simplify, and be honest about uncertainty.";
+var _cachedC7Full = null;
+var _cachedC7Urgency = null;
 function getVibeOSHome9() {
   return process.env.VIBEOS_HOME || join14(process.env.HOME || "", ".claude");
 }
@@ -11854,6 +11918,9 @@ var _prevBlackboxRegime = null;
 var _currentTemplate = DEFAULT_TEMPLATE;
 var _prevTemplate = null;
 var _turnCountInject = 0;
+var _pivotLastCheckTurn = 0;
+var _pivotLastRegime = null;
+var _calBuffer = [];
 var correctionSeenKeys = /* @__PURE__ */ new Set();
 async function apiComputeControlVector(state, action, optimizationMode) {
   try {
@@ -12315,6 +12382,7 @@ async function trackBlackbox(messages) {
   }
 }
 var onMessagesTransform = async (_input, output) => {
+  nextTurn();
   if (!loadSelection().enabled)
     return;
   try {
@@ -12338,7 +12406,11 @@ var C7_URGENCY = {
 };
 function context7Directive(cv) {
   const urgency = cv?.context7_urgency || "preferred";
-  return "[cost policy] If mcp__context7__resolve-library-id and mcp__context7__get-library-docs are available, prefer them over WebFetch/WebSearch for library and framework docs (docs.*, readthedocs.*, npmjs.com/package/*, pypi.org/project/*, pkg.go.dev, /api/reference/). Use the cheapest accurate source first. This usually saves about $0.06/turn." + (C7_URGENCY[urgency] || "");
+  if (_cachedC7Full && _cachedC7Urgency === urgency)
+    return _cachedC7Full;
+  _cachedC7Urgency = urgency;
+  _cachedC7Full = "[cost policy] If mcp__context7__resolve-library-id and mcp__context7__get-library-docs are available, prefer them over WebFetch/WebSearch for library and framework docs (docs.*, readthedocs.*, npmjs.com/package/*, pypi.org/project/*, pkg.go.dev, /api/reference/). Use the cheapest accurate source first. This usually saves about $0.06/turn." + (C7_URGENCY[urgency] || "");
+  return _cachedC7Full;
 }
 function thinkingDirective(level) {
   const credit = loadCredit();
@@ -12401,9 +12473,6 @@ function flowTodosDirective() {
     return null;
   return "[vibeOS] " + pendingTodos + " extracted TODO/FIXME items are waiting. If useful, call `todowrite` so they land in the native task list.";
 }
-function empiricalAnswerDirective() {
-  return '[empirical answer] Prefer verified facts over assumptions. If something is not directly checked against tools, files, logs, or user-provided evidence, label it as unverified or say "I cannot verify that". Separate evidence, inference, and suggestions. In multi-turn work, carry forward only evidence-backed facts and keep any guess explicitly marked as a guess.';
-}
 function realityCheckDirective() {
   const view = getRealityCheckView(currentProjectFingerprint || "");
   if (!view.enabled)
@@ -12451,10 +12520,7 @@ function contextBudgetDirective(_input, output) {
   return `[context budget: ${severity}] Context window is ${ctxBudget.pct}% full (~${ctxBudget.estimatedTokens} tokens). Use Task subagents for heavy work, compress tool output, or start a fresh session before context gets cramped.`;
 }
 var onSystemTransform = async (_input, output) => {
-  try {
-    __require("fs").appendFileSync("/tmp/st_debug", "ENTER_ON_SYSTEM_TRANSFORM\n");
-  } catch (e) {
-  }
+  nextTurn();
   if (!loadSelection().enabled)
     return;
   try {
@@ -12531,7 +12597,9 @@ var onSystemTransform = async (_input, output) => {
     const stressScore = rawStress * (_controlVector?.stress_multiplier ?? 1);
     const credit = loadCredit();
     _turnCountInject++;
-    if (latestUserIntent && _blackboxEnabled !== false) {
+    const _pivotRegimeChanged = _latestBlackboxState3?.sub_regime && _latestBlackboxState3.sub_regime !== _pivotLastRegime;
+    const _pivotTurnTrigger = _turnCountInject - _pivotLastCheckTurn >= 5;
+    if (latestUserIntent && _blackboxEnabled !== false && (_pivotRegimeChanged || _pivotTurnTrigger)) {
       try {
         let pivotResult = null;
         const pivotPipeline = String(optimizationMode || "").toLowerCase() === "vibeultrax" ? "vibeultraxPipeline" : "vibemaxPipeline";
@@ -12575,6 +12643,9 @@ var onSystemTransform = async (_input, output) => {
         }
       } catch {
       }
+      _pivotLastCheckTurn = _turnCountInject;
+      if (_latestBlackboxState3?.sub_regime)
+        _pivotLastRegime = _latestBlackboxState3.sub_regime;
     }
     const stressMitigationDirective = rawStress > 0.7 ? "[stress mitigation: CRITICAL] The user's message shows very high stress indicators. Stay calm, structured, and thorough. Lead with the answer, keep steps explicit, and avoid playful language or overload. Do not mirror the user's urgency." : rawStress > 0.4 ? "[stress mitigation: elevated] The user's message has elevated stress indicators. Keep the response structured, readable, and lightly reassuring." : null;
     if (stressMitigationDirective) {
@@ -12633,8 +12704,9 @@ var onSystemTransform = async (_input, output) => {
     if (_turnCountInject % 5 === 0) {
       pushSystem(output, "[project guard: CRITICAL] AGENTS.md and README.md are protected by vibeOS. Do NOT modify either file without explicit user permission. AGENTS.md defines that AI agents must ask before changing code.");
     }
-    pushSystem(output, "[anti-fabrication] Always work honestly \u2014 do NOT make up tool names, file paths, function signatures, code snippets, or exact outputs. If you must explain something you cannot verify, say 'I cannot verify that' and propose how to verify it. Under NO circumstance invent tool invocations, file contents, or final results. If you must correct an earlier response, say exactly what was wrong and then provide the corrected response. DO NOT LGTM.");
-    pushSystem(output, empiricalAnswerDirective());
+    pushSystem(output, ANTI_FABRICATION_DIRECTIVE);
+    pushSystem(output, EMPIRICAL_ANSWER_DIRECTIVE);
+    pushSystem(output, ANTI_LOOP_DIRECTIVE);
     const realityDirective = realityCheckDirective();
     if (realityDirective)
       pushSystem(output, realityDirective);
@@ -12652,21 +12724,23 @@ var onSystemTransform = async (_input, output) => {
     if (!oneShot("trinity_welcome_" + fp2)) {
       pushSystem(output, welcomeDirective());
     }
-    const calDir = getVibeOSHome9();
-    const calFile = join14(calDir, "calibration-data.jsonl");
     const regime2 = _latestBlackboxState3?.sub_regime || classifyTurnSimple2(latestUserIntent || "");
-    const calRecord = JSON.stringify({
+    _calBuffer.push(JSON.stringify({
       ts: (/* @__PURE__ */ new Date()).toISOString(),
       sid: _OC_SID3,
       mode: _currentTemplate,
       regime: regime2,
       stress: stressScore,
       fp: currentProjectFingerprint || ""
-    }) + "\n";
-    try {
-      mkdirSync10(calDir, { recursive: true });
-      appendFileSync3(calFile, calRecord);
-    } catch {
+    }) + "\n");
+    if (_turnCountInject % 10 === 0 && _calBuffer.length > 0) {
+      try {
+        const calFile = join14(getVibeOSHome9(), "calibration-data.jsonl");
+        mkdirSync10(getVibeOSHome9(), { recursive: true });
+        appendFileSync3(calFile, _calBuffer.join(""));
+        _calBuffer.length = 0;
+      } catch {
+      }
     }
     if (!oneShot("vibeos_dashboard_instruct")) {
       pushSystem(output, "[vibeOS dashboard display] When the trinity tool returns output starting with '[vibeOS-dashboard]', use the question tool to display that data in a clean, human-readable format. Use the question field (not the header) to show the dashboard data. Format it with clear sections separated by blank lines, aligned columns with spaces, and plain text only. The header should be 'vibeOS Dashboard'. Include only one option in options: {label: 'Dismiss', description: ''}. Strip the '[vibeOS-dashboard]' marker line before displaying.");
@@ -12955,6 +13029,8 @@ function readRewardSignals() {
     return { stableStreak: 0, problemStreak: 0 };
   }
 }
+var _footerCacheText = "";
+var _footerCacheTs = 0;
 async function _appendFooter(input, output, directory3) {
   _refreshModel(directory3);
   let _footerStress = 0;
@@ -13122,6 +13198,10 @@ async function _appendFooter(input, output, directory3) {
     const footerText = stripped + `
 
 ${vibeLine}`;
+    _footerCacheText = `
+
+${vibeLine}`;
+    _footerCacheTs = Date.now();
     if (_blackboxEnabled) {
       try {
         const prevText = _prevOutputText;
