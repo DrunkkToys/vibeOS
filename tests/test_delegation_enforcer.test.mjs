@@ -23,11 +23,14 @@ before(() => {
   sandbox = mkdtempSync(join(tmpdir(), "delegation-test-"))
   mkdirSync(join(sandbox, ".claude/scratch"), { recursive: true })
   process.env.HOME = sandbox
+  process.env.VIBEOS_API_DISABLED = "1"
+  process.env.VIBEOS_HOME = join(sandbox, ".claude")
 })
 beforeEach(async () => {
   process.env.HOME = sandbox
   delete process.env.VIBEOS_HOME
   delete process.env.VIBEOS_OPENCODE_HOME
+  process.env.VIBEOS_API_DISABLED = "1"
   rmSync(join(sandbox, ".claude/model-tiers.json"), { force: true })
   rmSync(join(sandbox, ".claude/delegation-state.json"), { force: true })
   rmSync(join(sandbox, ".claude/savings-ledger.jsonl"), { force: true })
@@ -1667,7 +1670,7 @@ test("tool.execute.after: delegation warning injected into output.result", async
 
   assert.ok(afterOutput.result.includes("[delegation]"),
     `output.result must contain [delegation] note; got: ${afterOutput.result}`)
-  assert.ok(afterOutput.result.includes("good candidate for a Task subagent") || afterOutput.result.includes("brain handles orchestration"),
+  assert.ok(afterOutput.result.includes("task subagent") || afterOutput.result.includes("brain focused"),
     `output.result must describe the handoff; got: ${afterOutput.result}`)
   assert.ok(afterOutput.result.includes("File edited successfully."),
     "original tool result must be preserved")
