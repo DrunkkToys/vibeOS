@@ -276,3 +276,86 @@ test("tool: enforcement warning does not crash after repeated blocked writes", a
   // Verify the module exported types/constants exist
   assert.ok(typeof mod !== "undefined", "tool-execute module loads")
 })
+
+// ─────────────────────────────────────────────────────────────────
+// Regression prevention: critical code paths that must not break
+// ─────────────────────────────────────────────────────────────────
+
+test("regression: classify respects sandbox tier regexes", async () => {
+  const { classify } = await import("../src/lib/pricing.js?" + Date.now())
+  // Sandbox tiers: high->"brain", mid->"medium", budget->".*"
+  assert.equal(classify("test/brain"), "high", "test/brain → high")
+  assert.equal(classify("test/medium"), "mid", "test/medium → mid")
+  assert.equal(classify("test/cheap"), "budget", "test/cheap → budget")
+})
+
+test("regression: readConfig falls back to bare model when no provider section", async () => {
+  const { readFileSync, existsSync, writeFileSync } = await import("node:fs")
+  const { join } = await import("node:path")
+  const { tmpdir } = await import("node:os")
+  const { mkdtempSync, mkdirSync } = await import("node:fs")
+  const sandbox = mkdtempSync(join(tmpdir(), "vibos-readcfg-"))
+  const cfgDir = join(sandbox, ".config/opencode")
+  mkdirSync(cfgDir, { recursive: true })
+  writeFileSync(join(cfgDir, "opencode.json"), JSON.stringify({ model: "custom-model" }))
+  const pricing = await import("../src/lib/pricing.js?" + Date.now())
+  const result = pricing.readConfig(cfgDir)
+  assert.equal(result, "custom-model", "readConfig returns bare model without provider")
+})
+
+test("regression: computeSessionMetrics returns valid structure", async () => {
+  const mod = await import("../src/lib/pattern-helpers.js?" + Date.now())
+  assert.ok(typeof mod._computeSessionMetrics === "function", "computeSessionMetrics exported from pattern-helpers")
+  const result = mod._computeSessionMetrics({}, "test-sid")
+  assert.ok(result, "computeSessionMetrics returns result")
+  assert.equal(typeof result.ltTasks, "number", "ltTasks is number")
+})
+
+test("regression: buildStatusPayload includes all required fields", async () => {
+  const { buildStatusPayload } = await import("../src/lib/runtime-surface.js?" + Date.now())
+  const payload = buildStatusPayload({
+    selection: { enabled: true, active_slot: "brain", optimization_mode: "quality" },
+    tiersData: { trinity: { brain: { oc: "t/b" } } },
+    currentModel: "", creditPercent: 50, version: "1.0", todos: { total: 0, pending: 0 },
+    backendConnected: false, fallbackThinking: "brief", optimizationMode: "quality",
+  })
+  assert.ok(payload.enabled === true, "enabled field")
+  assert.ok(payload.active_slot === "brain", "active_slot field")
+  assert.ok(payload.optimization_mode === "quality", "optimization_mode field")
+  assert.ok(typeof payload.tiers === "object", "tiers field")
+  assert.ok(typeof payload.label_modes === "object", "label_modes field")
+})
+
+test("regression: classifyTurnSimple handles all user text patterns", async () => {
+  const { classifyTurnSimple } = await import("../src/lib/turn-classify.js?" + Date.now())
+  const patterns = [
+    "how do I sort an array?",
+    "fix this bug",
+    "refactor the auth module",
+    "write a test for this",
+    "deploy the application",
+    "",
+    " ",
+    "a",
+  ]
+  for (const p of patterns) {
+    const result = classifyTurnSimple(p)
+    assert.ok(typeof result === "string" && (result === "INIT" || result.length > 1),
+      `classifyTurnSimple("${p.substring(0, 20)}") = "${result}"`)
+  }
+})
+
+test("regression: getTurnCounter does not throw", async () => {
+  const tc = await import("../src/lib/turn-classify.js?" + Date.now())
+  const count = tc.getTurnCounter()
+  assert.equal(typeof count, "number", "getTurnCounter returns number")
+})
+
+test("regression: autoSelectMode handles all valid regimes without error", async () => {
+  const tc = await import("../src/lib/turn-classify.js?" + Date.now())
+  const regimes = ["INIT", "DIVERGENT", "EXPLORING", "REFINING", "IMPLEMENTING", "RESEARCH", "REVIEWING", "DESIGNING", "CONVERGING", "CLOSED", "LOOPING", "AUDIT", "FORENSIC"]
+  for (const r of regimes) {
+    const mode = tc.autoSelectMode(r)
+    assert.ok(typeof mode === "string" && mode.length > 0, `autoSelectMode("${r}") = "${mode}"`)
+  }
+})
