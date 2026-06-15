@@ -30,7 +30,7 @@ vibeOS is not a collection of static rules. It is a learning system that pattern
 
 The flagship routing strategy. Every turn passes through a three-stage cascade:
 
-1. **Cheap proposal** — Your configured cheap slot generates an initial response (e.g., a local Ollama model via `trinity set cheap magiccoder:7b`, or any API model).
+1. **Cheap proposal** — Your configured cheap slot generates an initial response (e.g., a local Ollama model via `vibe set cheap magiccoder:7b`, or any API model).
 2. **Flash review** — DeepSeek v4 Flash critiques and refines the proposal.
 3. **Pro polish** — DeepSeek v4 Pro applies final quality pass on complex sections.
 
@@ -142,7 +142,7 @@ Stress > 1.5 escalates any regime to quality mode regardless of the above mappin
 | Report tools | report-save, report-list, report-read, research-audit |
 | MCP server | Extended tool capabilities + dashboard serving + SSE push endpoint |
 | Remote API | Fastify server at api.vibetheog.com with token auth and seat management |
-| Session lock | trinity lock on|off — freezes model at session start |
+| Session lock | vibe lock on|off — freezes model at session start |
 | Model locking | Per-session lock that skips auto-reconcile with OpenCode config changes |
 | Blackbox decision engine | Dialogue trajectory tracking, loop prevention, outcome calibration |
 | TensorTAG routing | WBP protocol synthesizes delegated task output in assistant chat |
@@ -168,28 +168,28 @@ Local dev checkout:
 
 ## Commands
 
-`trinity help` for full reference. Commands register in the TUI sidebar.
+`vibe help` (or `vibe help`) for full reference. Commands register in the TUI sidebar.
 
 | Command | Effect |
 |---------|--------|
-| `trinity status` | Tier, enforcement, savings, stress, lock state |
-| `trinity set brain\|medium\|cheap [model=<model_id>]` | Switch active model tier or override slot |
-| `trinity brain\|medium\|cheap` | Shorthand tier switch |
-| `trinity enable\|disable` | Toggle plugin on/off |
-| `trinity mode budget\|quality\|speed\|longrun\|auto` | Set optimization mode |
-| `trinity thinking full\|brief\|off` | Reasoning depth |
-| `trinity enforce on\|off` | Toggle delegation enforcement |
-| `trinity lock on\|off` | Freeze model for session |
-| `trinity flow on\|off` | Toggle flow enforcer |
-| `trinity flow enforce on\|off` | Toggle auto-extract TODOs |
-| `trinity tdd on\|off\|strict\|quality` | Test skeleton behavior |
-| `trinity rebuild` | Re-detect models from all providers |
-| `trinity project` | Per-project analytics |
-| `trinity patterns` / `trinity patterns clear` | Pattern inspection |
-| `trinity diagnose` | Health check |
-| `trinity blackbox on\|off\|status\|reset` | Decision engine control |
+| `vibe status` (or `vibe status`) | Tier, enforcement, savings, stress, lock state |
+| `vibe set brain\|medium\|cheap [model=<model_id>]` | Switch active model tier or override slot |
+| `vibe brain\|medium\|cheap` | Shorthand tier switch |
+| `vibe enable\|disable` | Toggle plugin on/off |
+| `vibe mode budget\|quality\|speed\|longrun\|auto` | Set optimization mode |
+| `vibe thinking full\|brief\|off` | Reasoning depth |
+| `vibe enforce on\|off` | Toggle delegation enforcement |
+| `vibe lock on\|off` | Freeze model for session |
+| `vibe flow on\|off` | Toggle flow enforcer |
+| `vibe flow enforce on\|off` | Toggle auto-extract TODOs |
+| `vibe tdd on\|off\|strict\|quality` | Test skeleton behavior |
+| `vibe rebuild` (or `vibe rebuild`) | Re-detect models from all providers |
+| `vibe project` | Per-project analytics |
+| `vibe patterns` / `vibe patterns clear` | Pattern inspection |
+| `vibe diagnose` | Health check |
+| `vibe blackbox on\|off\|status\|reset` | Decision engine control |
 | `trinity repair-state preview\|apply` | Fix state collisions |
-| `trinity guard` | Refresh AGENTS.md / README.md |
+| `vibe guard` | Refresh AGENTS.md / README.md |
 | `trinity api-token <token\|invalidate>` | Manage remote API token |
 | `trinity api-bootstrap-token <token>` | Bootstrap token exchange |
 
@@ -273,7 +273,7 @@ The footer is the primary status line, appended to every assistant response. It 
 | `>>` | 2 | Standard cascade (medium -> brain) |
 | `>>>` | 3+ | Deep cascade (cheap -> medium -> brain) |
 
-Controls: `trinity status` for full state, `trinity enable/disable` to toggle. Persisted in `~/.claude/delegation-state.json`.
+Controls: `vibe status` (or `vibe status`) for full state, `vibe enable/disable` to toggle. Persisted in `~/.claude/delegation-state.json`.
 
 ### Environment Variables
 
@@ -292,12 +292,12 @@ Controls: `trinity status` for full state, `trinity enable/disable` to toggle. P
 | Symptom | Fix |
 |---------|-----|
 | Plugin not loading | Check opencode.json entry. Restart Desktop. |
-| Model won't switch | `trinity rebuild` then `trinity set brain\|medium\|cheap` |
+| Model won't switch | `vibe rebuild` (or `vibe rebuild`) then `vibe set brain\|medium\|cheap` |
 | Writes/edits blocked | Enforcement active — delegate to cheap tier |
 | No footer visible | Verify plugin enabled, completions running |
 | Dashboard blank | `npm run build` then restart |
-| State looks wrong | `trinity diagnose` then `trinity repair-state preview` |
+| State looks wrong | `vibe diagnose` then `trinity repair-state preview` |
 
 ---
 
-*`trinity help` is the canonical command reference. This README stays high-level so command details follow the code without a rewrite.*
+*`vibe help` (or `vibe help`) is the canonical command reference. This README stays high-level so command details follow the code without a rewrite.*

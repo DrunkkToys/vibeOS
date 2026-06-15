@@ -295,7 +295,6 @@ export function createTrinityTool(deps) {
           console.error("[vibeOS] WARN: probe error for " + targetModel + ": " + e.message + " - switching anyway")
         }
         deps.writeSessionSlot(deps._OC_SID, slot)
-        deps.writeSelection("slot_locked", true)
         const result = deps.applySlot(slot, deps.directory)
         if (!result.ok) return `\u274c Failed to set slot: ${result.reason}`
         try {
@@ -333,7 +332,6 @@ export function createTrinityTool(deps) {
         if (modeEntry) {
           const tierSlot = resolveCascadeSlot(modeEntry.pipeline)
           deps.writeSessionSlot(deps._OC_SID, tierSlot)
-          deps.writeSelection("slot_locked", resolvedSlot !== "auto")
           deps.writeSelection("active_slot", tierSlot)
           deps.writeSelection("active_pipeline", modeEntry.pipeline)
           deps.writeSelection("onboarding_mode",

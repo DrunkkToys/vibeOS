@@ -5,7 +5,7 @@ description: Use when the user mentions vibeOS, trinity, model slots, delegation
 
 # vibeOS Core
 
-vibeOS is a cost-aware routing and enforcement layer for OpenCode. It keeps orchestration on the strong tier, moves implementation work to cheaper tiers, tracks savings, and exposes the current state through `trinity`, the footer, and the dashboard.
+vibeOS is a cost-aware routing and enforcement layer for OpenCode. It keeps orchestration on the strong tier, moves implementation work to cheaper tiers, tracks savings, and exposes the current state through `vibe`, the footer, and the dashboard.
 
 ## Install
 
@@ -55,12 +55,12 @@ VIBEOS_API_ENABLED=true
 
 | Command | Effect |
 |---|---|
-| `trinity status` | Show current state, savings, stress, and lock state |
-| `trinity set brain|medium|cheap` | Switch the active model slot |
+| `vibe status` | Show current state, savings, stress, and lock state |
+| `vibe set brain|medium|cheap` | Switch the active model slot |
 | `trinity brain|medium|cheap` | Shorthand slot switch |
-| `trinity rebuild` | Re-detect models and repopulate slots |
+| `vibe rebuild` | Re-detect models and repopulate slots |
 | `trinity enable` / `trinity disable` | Toggle the plugin |
-| `trinity mode budget|quality|speed|longrun|auto|balanced|audit|vibeultrax|vibeqmax|vibemax|forensic` | Change the optimization mode |
+| `vibe mode budget|quality|speed|longrun|auto|balanced|audit|vibeultrax|vibeqmax|vibemax|forensic` | Change the optimization mode |
 | `trinity thinking full|brief|off` | Set reasoning depth |
 | `trinity enforce on|off` | Toggle delegation enforcement |
 | `trinity lock on|off` | Freeze the active model for the session |
