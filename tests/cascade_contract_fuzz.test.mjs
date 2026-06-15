@@ -195,3 +195,36 @@ test("cascade: computeControlVector includes cascade_depth for vibeultrax mode",
   assert.ok(typeof cv.cascade_depth === "number", "cascade_depth is a number")
   assert.ok(Array.isArray(cv.pipeline_root), "pipeline_root is an array")
 })
+
+test("compact: onSessionCompacting injects scratchpad + cache dir at any turn", async () => {
+  const sc = await import("../src/lib/hooks/session-compact.js?" + Date.now())
+  const out = { context: [] }
+  await sc.onSessionCompacting({}, out)
+  assert.ok(out.context.length >= 2, "at least 2 context entries")
+  const combined = out.context.map(e => e.content || "").join(" ")
+  assert.ok(combined.includes("scratchpad"), "has scratchpad note")
+  assert.ok(combined.includes("cache"), "has cache directory info")
+})
+
+test("compact: at turn 7+ injects compression preservation notice", async () => {
+  const tc = await import("../src/lib/turn-classify.js?" + Date.now())
+  for (let i = 0; i < 7; i++) tc.incrementTurnCounter()
+  assert.ok(tc.getTurnCounter() >= 7, "turn counter >= 7")
+
+  const sc = await import("../src/lib/hooks/session-compact.js?" + Date.now())
+  const out = { context: [] }
+  await sc.onSessionCompacting({}, out)
+  const hasNotice = out.context.some(e => e.content && e.content.includes("conversation compression notice"))
+  assert.ok(hasNotice, "compression notice present at turn 7+")
+  const notice = out.context.find(e => e.content && e.content.includes("compression notice"))
+  assert.ok(notice.content.includes("losslessly"), "notice contains preservation directive")
+})
+
+test("compact: getTurnCounter and incrementTurnCounter are consistent", async () => {
+  const tc = await import("../src/lib/turn-classify.js?" + Date.now())
+  const before = tc.getTurnCounter()
+  tc.incrementTurnCounter()
+  assert.equal(tc.getTurnCounter(), before + 1, "counter incremented by 1")
+  tc.incrementTurnCounter()
+  assert.equal(tc.getTurnCounter(), before + 2, "counter incremented twice")
+})
