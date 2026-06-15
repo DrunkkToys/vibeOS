@@ -258,8 +258,8 @@ export function ensureProjectSkill(dir: string, fp: string): { created: boolean;
 
 export function syncControlSettings(cv: any, options: { persistOptimizationMode?: boolean } = {}): void {
   if (!cv) return
-  _pendingOrchestratorDirective = orchestratorDirective(cv, loadSelection())
   try {
+    _pendingOrchestratorDirective = orchestratorDirective(cv, loadSelection())
     const sid = _OC_SID
     if (!cv.agent_mode) {
       try {
