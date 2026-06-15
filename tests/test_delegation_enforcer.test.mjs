@@ -1762,6 +1762,7 @@ test("tool.execute.before: delegation warning stays out of CLI stderr", async ()
     await hooks["tool.execute.after"]({ tool: "edit", args: { filePath: "/tmp/foo.py" } }, afterOutput)
 
     console.error = origError
+    process.exit(0)
     rmSync(sandbox, { recursive: true, force: true })
     process.stdout.write(JSON.stringify({ errs, result: afterOutput.result }))
   `
