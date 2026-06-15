@@ -7748,6 +7748,7 @@ function isLikelyOffTopic(userText, job) {
 // src/lib/turn-classify.js
 init_vibeultrax();
 var _lastClassifiedByApi = false;
+var _lastApiPredictedMode = "";
 function classifyTurnSimple2(userText) {
   return classifyTurnSimple(userText);
 }
@@ -7770,6 +7771,7 @@ async function classifyTurnRemote(text) {
     });
     if (res && typeof res === "object" && "sub_regime" in res) {
       _lastClassifiedByApi = true;
+      _lastApiPredictedMode = res.optimization_mode || "";
       return res.sub_regime;
     }
   } catch {

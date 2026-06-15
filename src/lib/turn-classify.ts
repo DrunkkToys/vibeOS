@@ -14,7 +14,9 @@ import { vibeultraxControlVector } from "../vibeOS-lib/blackbox/vibeultrax.js"
 export { scoreStress, estimateContextBudget, tokenizeWords, topKeywords, extractLastUserText, isUserAskingForTests, isLikelyOffTopic, detectOutcomeSignal } from "./classifiers.js"
 
 let _lastClassifiedByApi = false
+let _lastApiPredictedMode = ""
 export function isApiClassified(): boolean { return _lastClassifiedByApi }
+export function lastApiPredictedMode(): string { return _lastApiPredictedMode }
 
 export function classifyTurnSimple(userText: string): string {
   return _classifyTurnSimple(userText)
@@ -39,6 +41,7 @@ export async function classifyTurnRemote(text: string): Promise<string> {
     } as any)
     if (res && typeof res === "object" && "sub_regime" in (res as Record<string, unknown>)) {
       _lastClassifiedByApi = true
+      _lastApiPredictedMode = (res as Record<string, string>).optimization_mode || ""
       return (res as Record<string, string>).sub_regime
     }
   } catch {}

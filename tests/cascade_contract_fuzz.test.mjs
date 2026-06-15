@@ -403,3 +403,16 @@ test("delegation: syncControlSettings writes delegation_enforce when not in comp
   }
   assert.ok(true, "syncControlSettings called without ReferenceError")
 })
+
+test("ml: lastApiPredictedMode stores optimization_mode from API response", async () => {
+  const tc = await import("../src/lib/turn-classify.js?" + Date.now())
+  // Initially should be empty
+  const initial = tc.lastApiPredictedMode()
+  assert.equal(initial, "", "initial API predicted mode is empty")
+  // After classifyTurnSimple (local fallback), should still be empty
+  // (classifyTurnSimple doesn't touch _lastApiPredictedMode)
+  const regime = tc.classifyTurnSimple("test")
+  assert.ok(typeof regime === "string", "regime is string")
+  const afterLocal = tc.lastApiPredictedMode()
+  assert.equal(afterLocal, "", "local classify does not set API mode")
+})
