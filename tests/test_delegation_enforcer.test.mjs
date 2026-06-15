@@ -1709,7 +1709,7 @@ test("tool.execute.after: pendingUiNote consumed once — no double-inject on se
   // Second after-hook call without a preceding before — pendingUiNote must be null.
   const second = { result: "Written again." }
   await hooks["tool.execute.after"]({ tool: "write", args: { filePath: "/tmp/b.py" } }, second)
-  assert.ok(!second.result.includes("delegate via Task"),
+  assert.ok(!second.result.includes("task subagent"),
     "second call: delegation note NOT injected (pendingUiNote was cleared after first consumption)")
 })
 
