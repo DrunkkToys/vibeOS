@@ -15032,7 +15032,11 @@ ${argsJson}
   }
   const tLower = String(t || "").toLowerCase();
   const lowCreditNudge = _credit < 40 && !compatibilityMode;
-  if (lowCreditNudge) {
+  const warnKey = `${getCurrentSessionId()}|${t}|lowCredit`;
+  const warnCount = _warnCounts[warnKey] || 0;
+  const canWarn = WARN_ON_DIRECT.has(tLower) && warnCount < MAX_WARNS_PER_TOOL;
+  if (lowCreditNudge && canWarn) {
+    _warnCounts[warnKey] = warnCount + 1;
     const total = recordSaving(t, "credit<40% high-tier", _estEdit, {
       firstWord: _firstWord,
       projectFingerprint: currentProjectFingerprint,
@@ -15065,6 +15069,9 @@ ${argsJson}
       const isFallback = apiResult?._fallback === true;
       const isBlocked = apiResult?.blocked !== false && (isFallback || savings >= MIN_MEANINGFUL_SAVINGS);
       if (isBlocked) {
+        const enKey = `${getCurrentSessionId()}|${t}|enforce`;
+        const enCount = _warnCounts[enKey] || 0;
+        _warnCounts[enKey] = enCount + 1;
         if (!lowCreditNudge) {
           const total = recordSaving(t, "delegation enforced", savings, {
             firstWord: _firstWord,
@@ -15073,7 +15080,9 @@ ${argsJson}
             sessionId: getCurrentSessionId()
           });
         }
-        pendingUiNote = `[delegation] This is a good candidate for a Task subagent \u2014 ${resolveTierIcon("brain")} brain handles orchestration, let cheaper tiers do the write/edit. Switch to ${resolveTierIcon("medium")} medium with \`trinity medium\` if you'd rather do it directly.`;
+        if (enCount < MAX_WARNS_PER_TOOL) {
+          pendingUiNote = `[delegation] This is a good candidate for a Task subagent \u2014 ${resolveTierIcon("brain")} brain handles orchestration, let cheaper tiers do the write/edit. Switch to ${resolveTierIcon("medium")} medium with \`trinity medium\` if you'd rather do it directly.`;
+        }
         enforcementBlocked = true;
         _mutateBlockedToolArgs(t, argSources, originalPath, output);
         if (shouldLogWarn(`${t}|enforced|${_tierWord}`))

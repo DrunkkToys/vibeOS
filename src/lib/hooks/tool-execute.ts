@@ -566,8 +566,13 @@ export const onToolExecuteBefore = async (input, output) => {
 
   const lowCreditNudge = _credit < 40 && !compatibilityMode
 
-  // Credit < 40%: non-direct-write tools get a nudge to step aside.
-  if (lowCreditNudge) {
+  // Credit < 40%: warn at most MAX_WARNS_PER_TOOL times per tool type per session.
+  // Only warn for write/edit tools — bash/read/grep don't need nudging.
+  const warnKey = `${getCurrentSessionId()}|${t}|lowCredit`
+  const warnCount = _warnCounts[warnKey] || 0
+  const canWarn = WARN_ON_DIRECT.has(tLower) && warnCount < MAX_WARNS_PER_TOOL
+  if (lowCreditNudge && canWarn) {
+    _warnCounts[warnKey] = warnCount + 1
     const total = recordSaving(t, "credit<40% high-tier", _estEdit, {
       firstWord: _firstWord,
       projectFingerprint: currentProjectFingerprint,
@@ -605,6 +610,9 @@ export const onToolExecuteBefore = async (input, output) => {
       const isBlocked = apiResult?.blocked !== false && (isFallback || savings >= MIN_MEANINGFUL_SAVINGS)
 
       if (isBlocked) {
+        const enKey = `${getCurrentSessionId()}|${t}|enforce`
+        const enCount = _warnCounts[enKey] || 0
+        _warnCounts[enKey] = enCount + 1
         if (!lowCreditNudge) {
           const total = recordSaving(t, "delegation enforced", savings, {
             firstWord: _firstWord,
@@ -613,7 +621,9 @@ export const onToolExecuteBefore = async (input, output) => {
             sessionId: getCurrentSessionId(),
           })
         }
-        pendingUiNote = `[delegation] This is a good candidate for a Task subagent — ${resolveTierIcon("brain")} brain handles orchestration, let cheaper tiers do the write/edit. Switch to ${resolveTierIcon("medium")} medium with \`trinity medium\` if you'd rather do it directly.`
+        if (enCount < MAX_WARNS_PER_TOOL) {
+          pendingUiNote = `[delegation] This is a good candidate for a Task subagent — ${resolveTierIcon("brain")} brain handles orchestration, let cheaper tiers do the write/edit. Switch to ${resolveTierIcon("medium")} medium with \`trinity medium\` if you'd rather do it directly.`
+        }
         enforcementBlocked = true
         _mutateBlockedToolArgs(t, argSources, originalPath, output)
         if (shouldLogWarn(`${t}|enforced|${_tierWord}`)) console.error(`[vibeOS] [enforcement] BLOCKED direct ${t} on high tier → delegate via Task`)
