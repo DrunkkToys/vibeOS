@@ -40,7 +40,7 @@ export function createTrinityTool(deps) {
       "Use action='reality-check' to read verified live state and report only evidence-backed facts. " +
       "Use action='api-token' with token='<new_token>' to update the API token or token='invalidate' to disable the embedded alpha token. " +
       "Use action='api-bootstrap-token' with token='<new_token>' to store an alpha bootstrap token and exchange it for a normal API token on alpha builds. " +
-      "Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', or 'trinity status'.",
+      "Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', 'vibe status' (or the legacy 'trinity status').",
     args: {
       action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "setup", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard", "reality-check", "api-token", "api-bootstrap-token", "todo", "todo-done", "todo-sync"]).optional(),
       slot: deps.tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "balanced", "audit", "forensic", "vibeultrax", "vibeqmax", "vibemax", "vibelitex", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings"]).optional(),
@@ -559,7 +559,7 @@ export function createTrinityTool(deps) {
           `  Blackbox: on`,
         ]
         if (discovered.length > 0) lines.push(`  Discovered models: ${discovered.length}`)
-        lines.push("Use `trinity mode quality` or `trinity enforce on` to graduate to strict mode.")
+        lines.push("Use \`vibe mode quality\` or \`vibe enforce on\` to graduate to strict mode.")
         return lines.join("\n")
       }
 
@@ -669,7 +669,7 @@ export function createTrinityTool(deps) {
         }
 
         lines.push(`\n${L.repeat(40)}`)
-        lines.push(`Run \`trinity help\` for all commands | \`research-audit\` for deep fetch analysis`)
+        lines.push(`Run \`vibe help\` for all commands | \`research-audit\` for deep fetch analysis`)
         return lines.join("\n")
       }
 

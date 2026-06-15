@@ -822,6 +822,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
     },
     tool: {
       trinity: tool(createTrinityTool(trinityDeps)),
+      vibe: tool(createTrinityTool(trinityDeps)),
       "research-audit": tool({
         description: "Scan session for research anti-patterns (domain chains, redundant queries, no synthesis). hours=N (default 24).",
         args: { hours: tool.schema.number().optional() },
