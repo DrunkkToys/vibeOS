@@ -228,3 +228,32 @@ test("compact: getTurnCounter and incrementTurnCounter are consistent", async ()
   tc.incrementTurnCounter()
   assert.equal(tc.getTurnCounter(), before + 2, "counter incremented twice")
 })
+
+test("plan: plan update protocol present for REFINING + agent_mode=plan", async () => {
+  const m = await import("../src/lib/hooks/chat-transform.js?" + Date.now())
+  const result = m.regimeAwareToolStyleDirective("REFINING", "quality", 0.3, "plan")
+  assert.ok(result.includes("plan update protocol"), "plan update protocol present")
+  assert.ok(result.includes("update the existing plan"), "update directive present")
+  assert.ok(result.includes("NOT complete until all plan items"), "completion guard present")
+})
+
+test("plan: plan close protocol present for DIVERGENT + agent_mode=plan", async () => {
+  const m = await import("../src/lib/hooks/chat-transform.js?" + Date.now())
+  const result = m.regimeAwareToolStyleDirective("DIVERGENT", "budget", 0.2, "plan")
+  assert.ok(result.includes("plan close protocol"), "plan close protocol present")
+  assert.ok(result.includes("close it before starting"), "close directive present")
+})
+
+test("plan: no plan directives when agent_mode is not plan", async () => {
+  const m = await import("../src/lib/hooks/chat-transform.js?" + Date.now())
+  const result = m.regimeAwareToolStyleDirective("REFINING", "quality", 0.3, "quality")
+  assert.ok(!result.includes("plan update protocol"), "no plan update when mode != plan")
+  assert.ok(!result.includes("plan close protocol"), "no plan close when mode != plan")
+  assert.ok(!result.includes("NOT complete until all plan"), "no completion guard when mode != plan")
+})
+
+test("plan: no plan close for regimes other than DIVERGENT/INIT", async () => {
+  const m = await import("../src/lib/hooks/chat-transform.js?" + Date.now())
+  const result = m.regimeAwareToolStyleDirective("EXPLORING", "budget", 0.2, "plan")
+  assert.ok(!result.includes("plan close protocol"), "no plan close for EXPLORING")
+})

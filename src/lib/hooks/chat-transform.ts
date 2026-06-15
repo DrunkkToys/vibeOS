@@ -645,12 +645,13 @@ function thinkingDirective(level: string): string {
   return `[thinking policy] Reasoning depth: OFF (manually set, ${creditNote}). Respond directly, avoid extra scratch work, and reserve extended thinking for when the user asks for it.`
 }
 
-export function regimeAwareToolStyleDirective(regime: string, mode: string, stress: number): string {
+export function regimeAwareToolStyleDirective(regime: string, mode: string, stress: number, agentMode = ""): string {
   const normalizedRegime = String(regime || "INIT").toUpperCase()
   const normalizedMode = String(mode || "budget").toLowerCase()
   const stressLabel = stress > 1.5 ? "high stress"
     : stress > 0.4 ? "elevated stress"
       : "calm"
+  const isPlan = agentMode === "plan"
 
   const regimeToneByName: Record<string, string> = {
     INIT: "The session is starting, so keep descriptions lightweight, status-oriented, and easy to scan.",
@@ -669,9 +670,20 @@ export function regimeAwareToolStyleDirective(regime: string, mode: string, stre
   }
   const regimeTone = regimeToneByName[normalizedRegime] || "The session should stay aligned to the active regime and avoid generic filler."
 
+  let planLine = ""
+  if (isPlan) {
+    if (normalizedRegime === "REFINING" || normalizedRegime === "CONVERGING" || normalizedRegime === "CLOSED") {
+      planLine = ` [plan update protocol] When the user adds new files, modifies requirements, or provides steering context, update the existing plan to incorporate the new information. Extend the current plan — do NOT create a new one. The task is NOT complete until all plan items are marked done. Do not declare completion, ask if the user wants to continue, or wrap up while the plan has open items.`
+    }
+    if (normalizedRegime === "DIVERGENT" || normalizedRegime === "INIT") {
+      planLine = ` [plan close protocol] The current plan no longer matches the session direction. Summarize what was completed from the old plan, then close it before starting the new direction. Do not keep stale plan items open.`
+    }
+  }
+
   return `[tool style: dopamine] Active regime: ${normalizedRegime}; mode: ${normalizedMode}; stress: ${stressLabel}. ` +
     `When calling the bash tool, use a short, calm, progress-focused description that matches the current regime. ` +
     `${regimeTone} ` +
+    `${planLine} ` +
     `Name the user-visible milestone being advanced, keep the wording human, and avoid hype or raw technical labels. ` +
     `Combine independent bash commands into a single call with && or ;.`
 }
@@ -1034,7 +1046,7 @@ export const onSystemTransform = async (_input, output) => {
     }
 
     if (!oneShot("vibeos_dopamine_style_" + fp)) {
-      pushSystem(output, regimeAwareToolStyleDirective(_latestBlackboxState?.sub_regime || classifiedRegime, _currentTemplate, stressScore))
+      pushSystem(output, regimeAwareToolStyleDirective(_latestBlackboxState?.sub_regime || classifiedRegime, _currentTemplate, stressScore, _controlVector?.agent_mode))
     }
 
   } catch (err) {

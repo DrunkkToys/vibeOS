@@ -12343,10 +12343,11 @@ function thinkingDirective(level) {
   }
   return `[thinking policy] Reasoning depth: OFF (manually set, ${creditNote}). Respond directly, avoid extra scratch work, and reserve extended thinking for when the user asks for it.`;
 }
-function regimeAwareToolStyleDirective(regime, mode, stress) {
+function regimeAwareToolStyleDirective(regime, mode, stress, agentMode = "") {
   const normalizedRegime = String(regime || "INIT").toUpperCase();
   const normalizedMode = String(mode || "budget").toLowerCase();
   const stressLabel = stress > 1.5 ? "high stress" : stress > 0.4 ? "elevated stress" : "calm";
+  const isPlan = agentMode === "plan";
   const regimeToneByName = {
     INIT: "The session is starting, so keep descriptions lightweight, status-oriented, and easy to scan.",
     DIVERGENT: "The session is branching, so keep descriptions exploratory and open to alternatives without sounding vague.",
@@ -12363,7 +12364,16 @@ function regimeAwareToolStyleDirective(regime, mode, stress) {
     FORENSIC: "The session is doing forensic work, so keep descriptions investigative, reproducible, and proof-heavy."
   };
   const regimeTone = regimeToneByName[normalizedRegime] || "The session should stay aligned to the active regime and avoid generic filler.";
-  return `[tool style: dopamine] Active regime: ${normalizedRegime}; mode: ${normalizedMode}; stress: ${stressLabel}. When calling the bash tool, use a short, calm, progress-focused description that matches the current regime. ${regimeTone} Name the user-visible milestone being advanced, keep the wording human, and avoid hype or raw technical labels. Combine independent bash commands into a single call with && or ;.`;
+  let planLine = "";
+  if (isPlan) {
+    if (normalizedRegime === "REFINING" || normalizedRegime === "CONVERGING" || normalizedRegime === "CLOSED") {
+      planLine = ` [plan update protocol] When the user adds new files, modifies requirements, or provides steering context, update the existing plan to incorporate the new information. Extend the current plan \u2014 do NOT create a new one. The task is NOT complete until all plan items are marked done. Do not declare completion, ask if the user wants to continue, or wrap up while the plan has open items.`;
+    }
+    if (normalizedRegime === "DIVERGENT" || normalizedRegime === "INIT") {
+      planLine = ` [plan close protocol] The current plan no longer matches the session direction. Summarize what was completed from the old plan, then close it before starting the new direction. Do not keep stale plan items open.`;
+    }
+  }
+  return `[tool style: dopamine] Active regime: ${normalizedRegime}; mode: ${normalizedMode}; stress: ${stressLabel}. When calling the bash tool, use a short, calm, progress-focused description that matches the current regime. ${regimeTone} ${planLine} Name the user-visible milestone being advanced, keep the wording human, and avoid hype or raw technical labels. Combine independent bash commands into a single call with && or ;.`;
 }
 function flowTodosDirective() {
   const pendingTodos = loadTodos().filter((t) => t.status === "pending").length;
@@ -12642,7 +12652,7 @@ var onSystemTransform = async (_input, output) => {
       pushSystem(output, "[vibeOS dashboard display] When the trinity tool returns output starting with '[vibeOS-dashboard]', use the question tool to display that data in a clean, human-readable format. Use the question field (not the header) to show the dashboard data. Format it with clear sections separated by blank lines, aligned columns with spaces, and plain text only. The header should be 'vibeOS Dashboard'. Include only one option in options: {label: 'Dismiss', description: ''}. Strip the '[vibeOS-dashboard]' marker line before displaying.");
     }
     if (!oneShot("vibeos_dopamine_style_" + fp2)) {
-      pushSystem(output, regimeAwareToolStyleDirective(_latestBlackboxState3?.sub_regime || classifiedRegime, _currentTemplate, stressScore));
+      pushSystem(output, regimeAwareToolStyleDirective(_latestBlackboxState3?.sub_regime || classifiedRegime, _currentTemplate, stressScore, _controlVector?.agent_mode));
     }
   } catch (err) {
     console.error(`[vibeOS] system.transform failed: ${err.message}`);
