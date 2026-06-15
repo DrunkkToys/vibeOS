@@ -36,6 +36,7 @@ beforeEach(async () => {
   rmSync(join(sandbox, ".claude/savings-ledger.jsonl"), { force: true })
   rmSync(join(sandbox, ".claude/active-jobs.json"), { force: true })
   rmSync(join(sandbox, ".claude/global-learning.json"), { force: true })
+  delete globalThis.__vibeOS_sessionId
   rmSync(join(sandbox, ".claude/project-states.json"), { force: true })
   rmSync(join(sandbox, ".claude/blackbox-state.json"), { force: true })
   rmSync(join(sandbox, ".claude/credit-snapshot.json"), { force: true })
