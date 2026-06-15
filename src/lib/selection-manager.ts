@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, sta
 import { join, basename } from "node:path"
 import { homedir, tmpdir } from "node:os"
 import { withFileLock, _handleStateCorruption } from "./state.js"
+import { memoCompute } from "./turn-memo.js"
 
 const USER_HOME = (() => { try { return homedir() } catch { return tmpdir() } })()
 function getVibeOSHome() {
@@ -21,7 +22,14 @@ function safeJsonParse(raw: string): any {
 
 const DFLT_SEL = { enabled: true, active_slot: null, slot_locked: false, thinking_level: "off", flow_enabled: true, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: true, delegation_enforce: true, onboarding_mode: null, selected_provider: null, selected_quality_tier: null, selected_model: null, executed_provider: null, executed_quality_tier: null, executed_model: null, requested_optimization_mode: null, previous_default_agent: null, previous_optimization_mode: null }
 
-export function loadSelection(): any {
+// Generation-counter cache for loadSelection — avoids redundant disk reads
+let _selCache: any = null
+let _selCacheGen = 0
+let _selWriteGen = 0
+
+const SEL_CACHE_KEY = "selection-manager:loadSelection"
+
+function loadSelectionImpl(): any {
   const TIERS_FILE = join(getVibeOSHome(), "model-tiers.json")
   try {
     if (!existsSync(TIERS_FILE)) return DFLT_SEL
@@ -55,10 +63,20 @@ export function loadSelection(): any {
   } catch { _handleStateCorruption(TIERS_FILE); return DFLT_SEL }
 }
 
+export function loadSelection(): any {
+  // Per-turn memoCompute first (eliminates ~44 calls/turn)
+  return memoCompute(SEL_CACHE_KEY, () => {
+    if (_selCache && _selCacheGen === _selWriteGen) return _selCache
+    _selCache = loadSelectionImpl()
+    _selCacheGen = _selWriteGen
+    return _selCache
+  })
+}
+
 export function writeSelection(key: string, value: any): boolean {
   const TIERS_FILE = join(getVibeOSHome(), "model-tiers.json")
   try {
-    return withFileLock(TIERS_FILE, () => {
+    const result = withFileLock(TIERS_FILE, () => {
       const j = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
       if (!j.selection) j.selection = {}
       j.selection[key] = value
@@ -67,6 +85,8 @@ export function writeSelection(key: string, value: any): boolean {
       renameSync(tmp, TIERS_FILE)
       return true
     })
+    _selWriteGen++
+    return result
   } catch (err) {
     console.error(`[vibeOS] writeSelection failed: ${err.message}`)
     return false

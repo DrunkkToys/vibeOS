@@ -143,6 +143,10 @@ function readRewardSignals() {
   }
 }
 
+// Footer content cache — reuse same footer text across hooks within 1s
+let _footerCacheText = ""
+let _footerCacheTs = 0
+
 async function _appendFooter(input, output, directory) {
   _refreshModel(directory)
   let _footerStress = 0
@@ -283,6 +287,8 @@ async function _appendFooter(input, output, directory) {
       cascadeIcon: ((cv?.cascade_depth || 1) >= 3 ? "▸▸▸" : (cv?.cascade_depth || 1) >= 2 ? "▸▸" : ""),
     })
     const footerText = stripped + `\n\n${vibeLine}`
+    _footerCacheText = `\n\n${vibeLine}`
+    _footerCacheTs = Date.now()
 
     if (_blackboxEnabled) {
       try {
