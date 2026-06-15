@@ -696,12 +696,18 @@ function orchestratorDirective(cv: any, sel: any): string {
   const mediumModel = TRINITY_MEDIUM || "the medium model"
   const targetModel = tierBias === "cheap" ? cheapModel : tierBias === "medium" ? mediumModel : tierBias === "brain" ? brainModel : `${cheapModel} or ${mediumModel}`
   const compatibilityMode = sel?.onboarding_mode === "assist"
+  const cheapSlot = TRINITY_CHEAP || "deepseek/deepseek-chat"
+  const mediumSlot = TRINITY_MEDIUM || "deepseek/deepseek-v4-flash"
   return `[AI ORCHESTRATOR AGENT] You are an AI orchestrator agent. ` +
     `Delegate heavy work to Task subagents (runs on ${targetModel}). ` +
     `Your role is to verify, fill gaps, and synthesize cleanly. ` +
     (compatibilityMode
       ? "Compatibility mode is active, so direct Write/Edit stays available until strict guardrails are enabled."
       : "Brain-tier focuses on orchestration — hand file writes and edits to Task subagents (cheaper, same quality). Use medium directly with `trinity medium` if the task is simple enough.") +
+    ` [delegation guide] When a write/edit is blocked, use the \`task\` tool with: ` +
+    `subagent_type="general" model="${cheapSlot}" prompt="write <path> with: <content>". ` +
+    `The task subagent runs on the cheap tier and handles file operations transparently. ` +
+    `Parallel task calls are encouraged for independent file changes. ` +
     ` Always display the vibeOS cost footer.` +
     (tierBias !== "auto" ? ` [tier routing] This turn is biased toward ${tierBias} tier.` : "")
 }

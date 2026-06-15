@@ -14546,6 +14546,8 @@ function isGreetingLike2(text) {
   const value = String(text || "").trim().toLowerCase();
   return value === "hi" || value === "hello" || value === "hey" || value === "yo" || /^hi[!.?\s]*$/.test(value) || /^hello[!.?\s]*$/.test(value) || /^hey[!.?\s]*$/.test(value);
 }
+var _warnCounts = {};
+var MAX_WARNS_PER_TOOL = 5;
 var BYTES_PER_TOKEN2 = 4;
 var DEBUG_INTERNALS2 = process.env.VIBEOS_DEBUG_INTERNALS === "1";
 var IS_CLI_RUNTIME2 = Boolean(process.stdout?.isTTY || process.stderr?.isTTY || process.stdin?.isTTY);
@@ -15032,22 +15034,23 @@ ${argsJson}
   }
   const tLower = String(t || "").toLowerCase();
   const lowCreditNudge = _credit < 40 && !compatibilityMode;
-  const warnKey = `${getCurrentSessionId()}|${t}|lowCredit`;
-  const warnCount = _warnCounts[warnKey] || 0;
-  const canWarn = WARN_ON_DIRECT.has(tLower) && warnCount < MAX_WARNS_PER_TOOL;
-  if (lowCreditNudge && canWarn) {
-    _warnCounts[warnKey] = warnCount + 1;
+  if (lowCreditNudge) {
     const total = recordSaving(t, "credit<40% high-tier", _estEdit, {
       firstWord: _firstWord,
       projectFingerprint: currentProjectFingerprint,
       projectName: currentProjectName || "",
       sessionId: getCurrentSessionId()
     });
-    const msg = `[vibeOS] Quick win: ${resolveTierIcon("cheap")} cheap lane open \xB7 switch to ${resolveTierIcon("medium")} medium to save about ~$${_estEdit.toFixed(3)}/turn.`;
-    if (shouldLogWarn(`${t}|credit|${_tierWord}`) && process.env.VIBEOS_DEBUG_DELEGATION === "1") {
-      console.error(`[vibeOS] [delegation] ${msg}`);
+    const warnKey = `${getCurrentSessionId()}|${t}|lowCredit`;
+    const warnCount = _warnCounts[warnKey] || 0;
+    if (warnCount < MAX_WARNS_PER_TOOL) {
+      _warnCounts[warnKey] = warnCount + 1;
+      const msg = `[vibeOS] Quick win: ${resolveTierIcon("cheap")} cheap lane open \xB7 switch to ${resolveTierIcon("medium")} medium to save about ~$${_estEdit.toFixed(3)}/turn.`;
+      if (shouldLogWarn(`${t}|credit|${_tierWord}`) && process.env.VIBEOS_DEBUG_DELEGATION === "1") {
+        console.error(`[vibeOS] [delegation] ${msg}`);
+      }
+      pendingUiNote = msg;
     }
-    pendingUiNote = msg;
     if (!WARN_ON_DIRECT.has(tLower))
       return;
   }
@@ -15069,34 +15072,29 @@ ${argsJson}
       const isFallback = apiResult?._fallback === true;
       const isBlocked = apiResult?.blocked !== false && (isFallback || savings >= MIN_MEANINGFUL_SAVINGS);
       if (isBlocked) {
-        const enKey = `${getCurrentSessionId()}|${t}|enforce`;
-        const enCount = _warnCounts[enKey] || 0;
-        _warnCounts[enKey] = enCount + 1;
-        if (!lowCreditNudge) {
-          const total = recordSaving(t, "delegation enforced", savings, {
-            firstWord: _firstWord,
-            projectFingerprint: currentProjectFingerprint,
-            projectName: currentProjectName || "",
-            sessionId: getCurrentSessionId()
-          });
+        const total2 = recordSaving(t, "delegation enforced", savings, {
+          firstWord: _firstWord,
+          projectFingerprint: currentProjectFingerprint,
+          projectName: currentProjectName || "",
+          sessionId: getCurrentSessionId()
+        });
+        if (_warnCounts[`${getCurrentSessionId()}|${t}|enforce`] < MAX_WARNS_PER_TOOL) {
+          const taskModel = TRINITY_CHEAP || "deepseek/deepseek-chat";
+          pendingUiNote = `[delegation] ${t} blocked on brain tier. Use a task subagent instead: \`task subagent_type="general" model="${taskModel}" prompt="${t} <file> with the intended content"\`. Keeps brain focused on orchestration.`;
         }
-        if (enCount < MAX_WARNS_PER_TOOL) {
-          pendingUiNote = `[delegation] This is a good candidate for a Task subagent \u2014 ${resolveTierIcon("brain")} brain handles orchestration, let cheaper tiers do the write/edit. Switch to ${resolveTierIcon("medium")} medium with \`trinity medium\` if you'd rather do it directly.`;
-        }
+        _warnCounts[`${getCurrentSessionId()}|${t}|enforce`] = (_warnCounts[`${getCurrentSessionId()}|${t}|enforce`] || 0) + 1;
         enforcementBlocked = true;
         _mutateBlockedToolArgs(t, argSources, originalPath, output);
         if (shouldLogWarn(`${t}|enforced|${_tierWord}`))
           console.error(`[vibeOS] [enforcement] BLOCKED direct ${t} on high tier \u2192 delegate via Task`);
         return;
       }
-      if (!lowCreditNudge) {
-        const total = recordSaving(t, "direct edit", _estEdit, {
-          firstWord: _firstWord,
-          projectFingerprint: currentProjectFingerprint,
-          projectName: currentProjectName || "",
-          sessionId: getCurrentSessionId()
-        });
-      }
+      const total = recordSaving(t, "direct edit", _estEdit, {
+        firstWord: _firstWord,
+        projectFingerprint: currentProjectFingerprint,
+        projectName: currentProjectName || "",
+        sessionId: getCurrentSessionId()
+      });
       if (!compatibilityMode) {
         const msg = `[vibeOS] ${resolveTierIcon("cheap")} cheap lane \xB7 save about ~$${_estEdit.toFixed(3)} by delegating to Task. Try ${resolveTierIcon("medium")} medium.`;
         if (shouldLogWarn(`${t}|direct|${_tierWord}`) && process.env.VIBEOS_DEBUG_DELEGATION === "1") {

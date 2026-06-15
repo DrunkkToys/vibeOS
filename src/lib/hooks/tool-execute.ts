@@ -620,7 +620,8 @@ export const onToolExecuteBefore = async (input, output) => {
           sessionId: getCurrentSessionId(),
         })
         if (_warnCounts[`${getCurrentSessionId()}|${t}|enforce`] < MAX_WARNS_PER_TOOL) {
-          pendingUiNote = `[delegation] This is a good candidate for a Task subagent — ${resolveTierIcon("brain")} brain handles orchestration, let cheaper tiers do the write/edit. Switch to ${resolveTierIcon("medium")} medium with \`trinity medium\` if you'd rather do it directly.`
+          const taskModel = TRINITY_CHEAP || "deepseek/deepseek-chat"
+          pendingUiNote = `[delegation] ${t} blocked on brain tier. Use a task subagent instead: \`task subagent_type="general" model="${taskModel}" prompt="${t} <file> with the intended content"\`. Keeps brain focused on orchestration.`
         }
         _warnCounts[`${getCurrentSessionId()}|${t}|enforce`] = (_warnCounts[`${getCurrentSessionId()}|${t}|enforce`] || 0) + 1
         enforcementBlocked = true
