@@ -258,6 +258,7 @@ export function ensureProjectSkill(dir: string, fp: string): { created: boolean;
 
 export function syncControlSettings(cv: any, options: { persistOptimizationMode?: boolean } = {}): void {
   if (!cv) return
+  _pendingOrchestratorDirective = orchestratorDirective(cv, loadSelection())
   try {
     const sid = _OC_SID
     if (!cv.agent_mode) {
@@ -1053,6 +1054,10 @@ export const onSystemTransform = async (_input, output) => {
 
     if (!oneShot("vibeos_dopamine_style_" + fp)) {
       pushSystem(output, regimeAwareToolStyleDirective(_latestBlackboxState?.sub_regime || classifiedRegime, _currentTemplate, stressScore, _controlVector?.agent_mode))
+    }
+    if (_pendingOrchestratorDirective) {
+      pushSystem(output, _pendingOrchestratorDirective)
+      _pendingOrchestratorDirective = ""
     }
 
   } catch (err) {

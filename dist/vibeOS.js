@@ -11992,6 +11992,7 @@ function ensureProjectSkill(dir, fp2) {
 function syncControlSettings(cv, options = {}) {
   if (!cv)
     return;
+  _pendingOrchestratorDirective = orchestratorDirective(cv, loadSelection());
   try {
     const sid = _OC_SID3;
     if (!cv.agent_mode) {
@@ -12380,6 +12381,21 @@ function regimeAwareToolStyleDirective(regime, mode, stress, agentMode = "") {
   }
   return `[tool style: dopamine] Active regime: ${normalizedRegime}; mode: ${normalizedMode}; stress: ${stressLabel}. When calling the bash tool, use a short, calm, progress-focused description that matches the current regime. ${regimeTone} ${planLine} Name the user-visible milestone being advanced, keep the wording human, and avoid hype or raw technical labels. Combine independent bash commands into a single call with && or ;.`;
 }
+function orchestratorDirective(cv, sel) {
+  const tierBias = cv?.tier_bias || "auto";
+  let brainModel = "(brain)";
+  try {
+    brainModel = safeJsonParse2(readFileSync13(TIERS_FILE, "utf-8")).trinity?.brain?.oc || brainModel;
+  } catch {
+  }
+  const cheapModel = TRINITY_CHEAP || "the cheaper model";
+  const mediumModel = TRINITY_MEDIUM || "the medium model";
+  const targetModel = tierBias === "cheap" ? cheapModel : tierBias === "medium" ? mediumModel : tierBias === "brain" ? brainModel : `${cheapModel} or ${mediumModel}`;
+  const compatibilityMode = sel?.onboarding_mode === "assist";
+  const cheapSlot = TRINITY_CHEAP || "deepseek/deepseek-chat";
+  const mediumSlot = TRINITY_MEDIUM || "deepseek/deepseek-v4-flash";
+  return `[AI ORCHESTRATOR AGENT] You are an AI orchestrator agent. Delegate heavy work to Task subagents (runs on ${targetModel}). Your role is to verify, fill gaps, and synthesize cleanly. ` + (compatibilityMode ? "Compatibility mode is active, so direct Write/Edit stays available until strict guardrails are enabled." : "Brain-tier focuses on orchestration \u2014 hand file writes and edits to Task subagents (cheaper, same quality). Use medium directly with `trinity medium` if the task is simple enough.") + ` [delegation guide] When a write/edit is blocked, use the \`task\` tool with: subagent_type="general" model="${cheapSlot}" prompt="write <path> with: <content>". The task subagent runs on the cheap tier and handles file operations transparently. Parallel task calls are encouraged for independent file changes.  Always display the vibeOS cost footer.` + (tierBias !== "auto" ? ` [tier routing] This turn is biased toward ${tierBias} tier.` : "");
+}
 function flowTodosDirective() {
   const pendingTodos = loadTodos().filter((t) => t.status === "pending").length;
   if (pendingTodos === 0)
@@ -12658,6 +12674,10 @@ var onSystemTransform = async (_input, output) => {
     }
     if (!oneShot("vibeos_dopamine_style_" + fp2)) {
       pushSystem(output, regimeAwareToolStyleDirective(_latestBlackboxState3?.sub_regime || classifiedRegime, _currentTemplate, stressScore, _controlVector?.agent_mode));
+    }
+    if (_pendingOrchestratorDirective) {
+      pushSystem(output, _pendingOrchestratorDirective);
+      _pendingOrchestratorDirective = "";
     }
   } catch (err) {
     console.error(`[vibeOS] system.transform failed: ${err.message}`);
