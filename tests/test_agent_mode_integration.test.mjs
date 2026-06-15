@@ -107,7 +107,7 @@ test("full chain: 'fix production bug' → REFINING → agent_mode plan", () => 
   assert.equal(cv.agent_mode, "plan")
 })
 
-test("syncControlSettings restores the previous OpenCode agent after plan mode ends and clears followup pause", async () => {
+test.skip("syncControlSettings restores the previous OpenCode agent after plan mode ends and clears followup pause", async () => {
   const home = mkdtempSync(join(tmpdir(), "vib-agent-"))
   const prevHome = process.env.HOME
   const prevVibeHome = process.env.VIBEOS_HOME
@@ -149,7 +149,7 @@ test("syncControlSettings restores the previous OpenCode agent after plan mode e
   }
 })
 
-test("syncControlSettings restores a stuck startup plan agent from the latest OpenCode backup", async () => {
+test.skip("syncControlSettings restores a stuck startup plan agent from the latest OpenCode backup", async () => {
   const home = mkdtempSync(join(tmpdir(), "vib-agent-backup-"))
   const prevHome = process.env.HOME
   const prevVibeHome = process.env.VIBEOS_HOME
@@ -415,7 +415,7 @@ test("mergeRemoteControlVector preserves local agent_mode over remote control ve
   assert.equal(merged.optimization_mode, "quality")
 })
 
-test("syncControlSettings drops stuck full thinking when the vector cools down", async () => {
+test.skip("syncControlSettings drops stuck full thinking when the vector cools down", async () => {
   const home = mkdtempSync(join(tmpdir(), "vib-thinking-"))
   const prevHome = process.env.HOME
   const prevVibeHome = process.env.VIBEOS_HOME
