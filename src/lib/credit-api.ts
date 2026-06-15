@@ -87,7 +87,7 @@ export function _cachedPct() {
         if (j?.selection?.monthly_budget_usd) budget = j.selection.monthly_budget_usd
       }
     } catch {}
-    return budget > 0 ? Math.min(150, Math.max(0, Math.round((s.total / budget) * 100))) : null
+    return budget > 0 && s.total > 0 ? Math.min(150, Math.max(0, Math.round((s.total / budget) * 100))) : null
   } catch { return null }
 }
 
