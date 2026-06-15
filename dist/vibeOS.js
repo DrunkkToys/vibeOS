@@ -15,49 +15,6 @@ var __export = (target, all) => {
     __defProp(target, name, { get: all[name], enumerable: true });
 };
 
-// src/lib/turn-memo.js
-function memoCompute(key, compute) {
-  const entry = _memo.get(key);
-  if (entry !== void 0 && entry.gen === _turnGen) {
-    return entry.value;
-  }
-  const value = compute();
-  _memo.set(key, { value, gen: _turnGen });
-  if (_memo.size > MAX_MEMO_SIZE) {
-    const iter = _memo.keys();
-    for (let i = 0; i < 50; i++) {
-      const k = iter.next();
-      if (k.done)
-        break;
-      if (_memo.get(k.value)?.gen !== _turnGen)
-        _memo.delete(k.value);
-    }
-  }
-  return value;
-}
-function nextTurn() {
-  _turnGen++;
-  if (_memo.size > MAX_MEMO_SIZE) {
-    const iter = _memo.keys();
-    for (let i = 0; i < 50; i++) {
-      const k = iter.next();
-      if (k.done)
-        break;
-      if (_memo.get(k.value)?.gen !== _turnGen)
-        _memo.delete(k.value);
-    }
-  }
-}
-var _memo, _turnGen, MAX_MEMO_SIZE;
-var init_turn_memo = __esm({
-  "src/lib/turn-memo.js"() {
-    "use strict";
-    _memo = /* @__PURE__ */ new Map();
-    _turnGen = 0;
-    MAX_MEMO_SIZE = 200;
-  }
-});
-
 // src/lib/selection-manager.js
 import { readFileSync, writeFileSync, existsSync, statSync, renameSync } from "node:fs";
 import { join } from "node:path";
@@ -80,7 +37,7 @@ function safeJsonParse(raw) {
   }
 }
 function loadSelectionImpl() {
-  const TIERS_FILE3 = join(getVibeOSHome(), "model-tiers.json");
+  const TIERS_FILE3 = TIERS_FILE_PATH();
   try {
     if (!existsSync(TIERS_FILE3))
       return DFLT_SEL;
@@ -120,13 +77,13 @@ function loadSelectionImpl() {
   }
 }
 function loadSelection() {
-  return memoCompute(SEL_CACHE_KEY, () => {
-    if (_selCache && _selCacheGen === _selWriteGen)
-      return _selCache;
-    _selCache = loadSelectionImpl();
-    _selCacheGen = _selWriteGen;
+  const TIERS_FILE3 = TIERS_FILE_PATH();
+  const curMtime = existsSync(TIERS_FILE3) ? statSync(TIERS_FILE3).mtimeMs : -1;
+  if (_selCache && Math.abs(_selLastMtime - curMtime) < 10)
     return _selCache;
-  });
+  _selCache = loadSelectionImpl();
+  _selLastMtime = curMtime;
+  return _selCache;
 }
 function writeSelection(key, value) {
   const TIERS_FILE3 = join(getVibeOSHome(), "model-tiers.json");
@@ -141,7 +98,6 @@ function writeSelection(key, value) {
       renameSync(tmp, TIERS_FILE3);
       return true;
     });
-    _selWriteGen++;
     return result;
   } catch (err) {
     console.error(`[vibeOS] writeSelection failed: ${err.message}`);
@@ -217,12 +173,11 @@ function writeSessionOptMode2(sid, mode) {
     return false;
   }
 }
-var USER_HOME, DFLT_SEL, _selCache, _selCacheGen, _selWriteGen, SEL_CACHE_KEY;
+var USER_HOME, DFLT_SEL, _selCache, _selLastMtime, TIERS_FILE_PATH;
 var init_selection_manager = __esm({
   "src/lib/selection-manager.js"() {
     "use strict";
     init_state();
-    init_turn_memo();
     USER_HOME = (() => {
       try {
         return homedir();
@@ -232,9 +187,8 @@ var init_selection_manager = __esm({
     })();
     DFLT_SEL = { enabled: true, active_slot: null, slot_locked: false, thinking_level: "off", flow_enabled: true, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: true, delegation_enforce: true, onboarding_mode: null, selected_provider: null, selected_quality_tier: null, selected_model: null, executed_provider: null, executed_quality_tier: null, executed_model: null, requested_optimization_mode: null, previous_default_agent: null, previous_optimization_mode: null };
     _selCache = null;
-    _selCacheGen = 0;
-    _selWriteGen = 0;
-    SEL_CACHE_KEY = "selection-manager:loadSelection";
+    _selLastMtime = -1;
+    TIERS_FILE_PATH = () => join(getVibeOSHome(), "model-tiers.json");
   }
 });
 
@@ -7532,7 +7486,45 @@ init_selection_manager();
 
 // src/lib/classifiers.js
 init_state();
-init_turn_memo();
+
+// src/lib/turn-memo.js
+var _memo = /* @__PURE__ */ new Map();
+var _turnGen = 0;
+var MAX_MEMO_SIZE = 200;
+function memoCompute(key, compute) {
+  const entry = _memo.get(key);
+  if (entry !== void 0 && entry.gen === _turnGen) {
+    return entry.value;
+  }
+  const value = compute();
+  _memo.set(key, { value, gen: _turnGen });
+  if (_memo.size > MAX_MEMO_SIZE) {
+    const iter = _memo.keys();
+    for (let i = 0; i < 50; i++) {
+      const k = iter.next();
+      if (k.done)
+        break;
+      if (_memo.get(k.value)?.gen !== _turnGen)
+        _memo.delete(k.value);
+    }
+  }
+  return value;
+}
+function nextTurn() {
+  _turnGen++;
+  if (_memo.size > MAX_MEMO_SIZE) {
+    const iter = _memo.keys();
+    for (let i = 0; i < 50; i++) {
+      const k = iter.next();
+      if (k.done)
+        break;
+      if (_memo.get(k.value)?.gen !== _turnGen)
+        _memo.delete(k.value);
+    }
+  }
+}
+
+// src/lib/classifiers.js
 function detectOutcomeSignal(text) {
   if (!text)
     return null;
@@ -11135,7 +11127,6 @@ import { join as join15 } from "node:path";
 
 // src/lib/hooks/chat-transform.js
 init_state();
-init_turn_memo();
 import { readFileSync as readFileSync13, writeFileSync as writeFileSync13, appendFileSync as appendFileSync3, existsSync as existsSync14, mkdirSync as mkdirSync10, rmSync as rmSync5, readdirSync as readdirSync3, statSync as statSync7 } from "node:fs";
 import { join as join14, dirname as dirname10, basename as basename3 } from "node:path";
 import { createHash as createHash3 } from "node:crypto";
