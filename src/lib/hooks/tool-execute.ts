@@ -64,6 +64,9 @@ import { checkFlowRules as _checkFlowRules, recordFlowTodo } from "../../vibeOS-
 import { SAVE_EST, WARN_ON_DIRECT, SOFT_QUOTA, FREE, MONITOR } from "../constants.js"
 
 const _warnCounts: Record<string, number> = {}
+export function _resetWarnCountsForTest(): void {
+  for (const key of Object.keys(_warnCounts)) delete _warnCounts[key]
+}
 const MAX_WARNS_PER_TOOL = 5
 
 const BYTES_PER_TOKEN = 4
@@ -239,6 +242,7 @@ function _dequeueTelemetryStart(tool) {
 export const setToolDirectory = (dir) => { projectDirectory = dir || "" }
 
 export const onToolExecuteBefore = async (input, output) => {
+  if (process.env.VIBEOS_TEST_CONTEXT === "1") _resetWarnCountsForTest()
   if (!loadSelection().enabled) return
   _refreshModel(projectDirectory)
   const t = input?.tool ?? ""

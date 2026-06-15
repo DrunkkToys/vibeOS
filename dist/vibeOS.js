@@ -4793,6 +4793,7 @@ function createMcpServer(deps) {
         const srv = http.createServer((req, res) => {
           void handler(req, res);
         });
+        srv.unref();
         srv.once("error", reject);
         srv.listen(port, () => {
           server2 = srv;
@@ -11990,8 +11991,8 @@ function ensureProjectSkill(dir, fp2) {
 function syncControlSettings(cv, options = {}) {
   if (!cv)
     return;
-  _pendingOrchestratorDirective = orchestratorDirective(cv, loadSelection());
   try {
+    _pendingOrchestratorDirective = orchestratorDirective(cv, loadSelection());
     const sid = _OC_SID3;
     if (!cv.agent_mode) {
       try {
@@ -14570,6 +14571,10 @@ function isGreetingLike2(text) {
   return value === "hi" || value === "hello" || value === "hey" || value === "yo" || /^hi[!.?\s]*$/.test(value) || /^hello[!.?\s]*$/.test(value) || /^hey[!.?\s]*$/.test(value);
 }
 var _warnCounts = {};
+function _resetWarnCountsForTest() {
+  for (const key of Object.keys(_warnCounts))
+    delete _warnCounts[key];
+}
 var MAX_WARNS_PER_TOOL = 5;
 var BYTES_PER_TOKEN2 = 4;
 var DEBUG_INTERNALS2 = process.env.VIBEOS_DEBUG_INTERNALS === "1";
@@ -14771,6 +14776,8 @@ var setToolDirectory = (dir) => {
   projectDirectory = dir || "";
 };
 var onToolExecuteBefore = async (input, output) => {
+  if (process.env.VIBEOS_TEST_CONTEXT === "1")
+    _resetWarnCountsForTest();
   if (!loadSelection().enabled)
     return;
   _refreshModel(projectDirectory);
