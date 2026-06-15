@@ -569,23 +569,24 @@ export const onToolExecuteBefore = async (input, output) => {
 
   const lowCreditNudge = _credit < 40 && !compatibilityMode
 
-  // Credit < 40%: warn at most MAX_WARNS_PER_TOOL times per tool type per session.
-  const warnKey = `${getCurrentSessionId()}|${t}|lowCredit`
-  const warnCount = _warnCounts[warnKey] || 0
-  const canWarn = warnCount < MAX_WARNS_PER_TOOL
-  if (lowCreditNudge && canWarn) {
-    _warnCounts[warnKey] = warnCount + 1
+  // Credit < 40%: always record savings, cap UI note at MAX_WARNS_PER_TOOL per tool type per session.
+  if (lowCreditNudge) {
     const total = recordSaving(t, "credit<40% high-tier", _estEdit, {
       firstWord: _firstWord,
       projectFingerprint: currentProjectFingerprint,
       projectName: currentProjectName || "",
       sessionId: getCurrentSessionId(),
     })
-    const msg = `[vibeOS] Quick win: ${resolveTierIcon("cheap")} cheap lane open · switch to ${resolveTierIcon("medium")} medium to save about ~$${_estEdit.toFixed(3)}/turn.`
-    if (shouldLogWarn(`${t}|credit|${_tierWord}`) && process.env.VIBEOS_DEBUG_DELEGATION === "1") {
-      console.error(`[vibeOS] [delegation] ${msg}`)
+    const warnKey = `${getCurrentSessionId()}|${t}|lowCredit`
+    const warnCount = _warnCounts[warnKey] || 0
+    if (warnCount < MAX_WARNS_PER_TOOL) {
+      _warnCounts[warnKey] = warnCount + 1
+      const msg = `[vibeOS] Quick win: ${resolveTierIcon("cheap")} cheap lane open · switch to ${resolveTierIcon("medium")} medium to save about ~$${_estEdit.toFixed(3)}/turn.`
+      if (shouldLogWarn(`${t}|credit|${_tierWord}`) && process.env.VIBEOS_DEBUG_DELEGATION === "1") {
+        console.error(`[vibeOS] [delegation] ${msg}`)
+      }
+      pendingUiNote = msg
     }
-    pendingUiNote = msg
     if (!WARN_ON_DIRECT.has(tLower)) return
   }
 
@@ -612,33 +613,27 @@ export const onToolExecuteBefore = async (input, output) => {
       const isBlocked = apiResult?.blocked !== false && (isFallback || savings >= MIN_MEANINGFUL_SAVINGS)
 
       if (isBlocked) {
-        const enKey = `${getCurrentSessionId()}|${t}|enforce`
-        const enCount = _warnCounts[enKey] || 0
-        _warnCounts[enKey] = enCount + 1
-        if (!lowCreditNudge) {
-          const total = recordSaving(t, "delegation enforced", savings, {
-            firstWord: _firstWord,
-            projectFingerprint: currentProjectFingerprint,
-            projectName: currentProjectName || "",
-            sessionId: getCurrentSessionId(),
-          })
-        }
-        if (enCount < MAX_WARNS_PER_TOOL) {
-          pendingUiNote = `[delegation] This is a good candidate for a Task subagent — ${resolveTierIcon("brain")} brain handles orchestration, let cheaper tiers do the write/edit. Switch to ${resolveTierIcon("medium")} medium with \`trinity medium\` if you'd rather do it directly.`
-        }
-        enforcementBlocked = true
-        _mutateBlockedToolArgs(t, argSources, originalPath, output)
-        if (shouldLogWarn(`${t}|enforced|${_tierWord}`)) console.error(`[vibeOS] [enforcement] BLOCKED direct ${t} on high tier → delegate via Task`)
-        return
-      }
-      if (!lowCreditNudge) {
-        const total = recordSaving(t, "direct edit", _estEdit, {
+        const total = recordSaving(t, "delegation enforced", savings, {
           firstWord: _firstWord,
           projectFingerprint: currentProjectFingerprint,
           projectName: currentProjectName || "",
           sessionId: getCurrentSessionId(),
         })
+        if (_warnCounts[`${getCurrentSessionId()}|${t}|enforce`] < MAX_WARNS_PER_TOOL) {
+          pendingUiNote = `[delegation] This is a good candidate for a Task subagent — ${resolveTierIcon("brain")} brain handles orchestration, let cheaper tiers do the write/edit. Switch to ${resolveTierIcon("medium")} medium with \`trinity medium\` if you'd rather do it directly.`
+        }
+        _warnCounts[`${getCurrentSessionId()}|${t}|enforce`] = (_warnCounts[`${getCurrentSessionId()}|${t}|enforce`] || 0) + 1
+        enforcementBlocked = true
+        _mutateBlockedToolArgs(t, argSources, originalPath, output)
+        if (shouldLogWarn(`${t}|enforced|${_tierWord}`)) console.error(`[vibeOS] [enforcement] BLOCKED direct ${t} on high tier → delegate via Task`)
+        return
       }
+      const total = recordSaving(t, "direct edit", _estEdit, {
+        firstWord: _firstWord,
+        projectFingerprint: currentProjectFingerprint,
+        projectName: currentProjectName || "",
+        sessionId: getCurrentSessionId(),
+      })
       if (!compatibilityMode) {
         const msg = `[vibeOS] ${resolveTierIcon("cheap")} cheap lane · save about ~$${_estEdit.toFixed(3)} by delegating to Task. Try ${resolveTierIcon("medium")} medium.`
         if (shouldLogWarn(`${t}|direct|${_tierWord}`) && process.env.VIBEOS_DEBUG_DELEGATION === "1") {
