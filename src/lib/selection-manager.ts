@@ -68,7 +68,7 @@ function loadSelectionImpl(): any {
 export function loadSelection(): any {
   const TIERS_FILE = TIERS_FILE_PATH()
   const curMtime = existsSync(TIERS_FILE) ? statSync(TIERS_FILE).mtimeMs : -1
-  if (_selCache && Math.abs(_selLastMtime - curMtime) < 10) return _selCache
+  if (_selCache && _selLastMtime >= curMtime) return _selCache
   _selCache = loadSelectionImpl()
   _selLastMtime = curMtime
   return _selCache

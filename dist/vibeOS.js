@@ -79,7 +79,7 @@ function loadSelectionImpl() {
 function loadSelection() {
   const TIERS_FILE3 = TIERS_FILE_PATH();
   const curMtime = existsSync(TIERS_FILE3) ? statSync(TIERS_FILE3).mtimeMs : -1;
-  if (_selCache && Math.abs(_selLastMtime - curMtime) < 10)
+  if (_selCache && _selLastMtime >= curMtime)
     return _selCache;
   _selCache = loadSelectionImpl();
   _selLastMtime = curMtime;
