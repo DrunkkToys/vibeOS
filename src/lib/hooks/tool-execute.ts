@@ -619,11 +619,8 @@ export const onToolExecuteBefore = async (input, output) => {
           projectName: currentProjectName || "",
           sessionId: getCurrentSessionId(),
         })
-        if (_warnCounts[`${getCurrentSessionId()}|${t}|enforce`] < MAX_WARNS_PER_TOOL) {
-          const taskModel = TRINITY_CHEAP || "deepseek/deepseek-chat"
-          pendingUiNote = `[delegation] ${t} blocked on brain tier. Use a task subagent instead: \`task subagent_type="general" model="${taskModel}" prompt="${t} <file> with the intended content"\`. Keeps brain focused on orchestration.`
-        }
-        _warnCounts[`${getCurrentSessionId()}|${t}|enforce`] = (_warnCounts[`${getCurrentSessionId()}|${t}|enforce`] || 0) + 1
+        const taskModel = TRINITY_CHEAP || "deepseek/deepseek-chat"
+        pendingUiNote = `[delegation] ${t} blocked on brain tier. Use a task subagent instead: \`task subagent_type="general" model="${taskModel}" prompt="${t} <file> with the intended content"\`. Keeps brain focused on orchestration.`
         enforcementBlocked = true
         _mutateBlockedToolArgs(t, argSources, originalPath, output)
         if (shouldLogWarn(`${t}|enforced|${_tierWord}`)) console.error(`[vibeOS] [enforcement] BLOCKED direct ${t} on high tier → delegate via Task`)
@@ -894,7 +891,8 @@ export const onToolExecuteAfter = async (input, output) => {
     if (enforcementBlocked) {
       const note = pendingUiNote
       if (typeof target?.result === "string") target.result += `\n\n${note}`
-      else if (typeof target?.text === "string") target.text += `\n\n${note}`
+      else console.error("APPEND_NOTE: text=" + typeof target?.text + " note=" + (note || "").substring(0, 40) + " enforceBlocked=" + enforcementBlocked + " pendingNote=" + (typeof pendingUiNote === "string"))
+        if (typeof target?.text === "string") target.text += `\n\n${note}`
       else if (typeof target?.content === "string") target.content += `\n\n${note}`
       else target.result = pendingUiNote
     } else {
