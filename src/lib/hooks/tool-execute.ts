@@ -67,6 +67,9 @@ import { scoreTaskQuality, readRewardSignals } from "./footer.js"
 import { checkFlowRules as _checkFlowRules, recordFlowTodo } from "../../vibeOS-lib/flow-enforcer.js"
 import { SAVE_EST, WARN_ON_DIRECT, SOFT_QUOTA, FREE, MONITOR } from "../constants.js"
 
+const _warnCounts: Record<string, number> = {}
+const MAX_WARNS_PER_TOOL = 5
+
 const BYTES_PER_TOKEN = 4
 const DEBUG_INTERNALS = process.env.VIBEOS_DEBUG_INTERNALS === "1"
 const IS_CLI_RUNTIME = Boolean(process.stdout?.isTTY || process.stderr?.isTTY || process.stdin?.isTTY)
@@ -567,10 +570,9 @@ export const onToolExecuteBefore = async (input, output) => {
   const lowCreditNudge = _credit < 40 && !compatibilityMode
 
   // Credit < 40%: warn at most MAX_WARNS_PER_TOOL times per tool type per session.
-  // Only warn for write/edit tools — bash/read/grep don't need nudging.
   const warnKey = `${getCurrentSessionId()}|${t}|lowCredit`
   const warnCount = _warnCounts[warnKey] || 0
-  const canWarn = WARN_ON_DIRECT.has(tLower) && warnCount < MAX_WARNS_PER_TOOL
+  const canWarn = warnCount < MAX_WARNS_PER_TOOL
   if (lowCreditNudge && canWarn) {
     _warnCounts[warnKey] = warnCount + 1
     const total = recordSaving(t, "credit<40% high-tier", _estEdit, {
