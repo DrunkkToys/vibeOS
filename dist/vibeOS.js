@@ -27,8 +27,10 @@ function memoCompute(key, compute) {
     const iter = _memo.keys();
     for (let i = 0; i < 50; i++) {
       const k = iter.next();
-      if (k.done) break;
-      if (_memo.get(k.value)?.gen !== _turnGen) _memo.delete(k.value);
+      if (k.done)
+        break;
+      if (_memo.get(k.value)?.gen !== _turnGen)
+        _memo.delete(k.value);
     }
   }
   return value;
@@ -39,8 +41,10 @@ function nextTurn() {
     const iter = _memo.keys();
     for (let i = 0; i < 50; i++) {
       const k = iter.next();
-      if (k.done) break;
-      if (_memo.get(k.value)?.gen !== _turnGen) _memo.delete(k.value);
+      if (k.done)
+        break;
+      if (_memo.get(k.value)?.gen !== _turnGen)
+        _memo.delete(k.value);
     }
   }
 }
