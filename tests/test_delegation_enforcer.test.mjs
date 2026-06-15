@@ -28,7 +28,7 @@ before(() => {
 })
 beforeEach(async () => {
   process.env.HOME = sandbox
-  delete process.env.VIBEOS_HOME
+  // kept set to sandbox from before()
   delete process.env.VIBEOS_OPENCODE_HOME
   process.env.VIBEOS_API_DISABLED = "1"
   rmSync(join(sandbox, ".claude/model-tiers.json"), { force: true })
