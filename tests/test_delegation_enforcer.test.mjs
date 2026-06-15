@@ -603,7 +603,9 @@ test("context7 absent + non-docs URL: no flag created, no missed savings", async
   const sb = mkdtempSync(join(tmpdir(), "c7-nondocs-"))
   mkdirSync(join(sb, ".claude/scratch"), { recursive: true })
   const prevHome = process.env.HOME
+  const prevVibeHome = process.env.VIBEOS_HOME
   process.env.HOME = sb
+  process.env.VIBEOS_HOME = join(sb, ".claude")
   try {
     const { DelegationEnforcer } = await loadPlugin()
     const dir = join(sb, "proj")
@@ -621,6 +623,8 @@ test("context7 absent + non-docs URL: no flag created, no missed savings", async
     }
   } finally {
     process.env.HOME = prevHome
+      if (prevVibeHome) process.env.VIBEOS_HOME = prevVibeHome
+      else delete process.env.VIBEOS_HOME
     rmSync(sb, { recursive: true, force: true })
   }
 })
@@ -2717,7 +2721,9 @@ test("enforceTestFile: skips when test already exists", async () => {
   const sb = mkdtempSync(join(tmpdir(), "tdd-skip-"))
   mkdirSync(join(sb, ".claude/scratch"), { recursive: true })
   const prevHome = process.env.HOME
+  const prevVibeHome = process.env.VIBEOS_HOME
   process.env.HOME = sb
+  process.env.VIBEOS_HOME = join(sb, ".claude")
   try {
     const srcDir = join(sb, "proj/src")
     const testDir = join(srcDir, "tests")
@@ -2735,6 +2741,8 @@ test("enforceTestFile: skips when test already exists", async () => {
       "no skeleton created when test exists: " + JSON.stringify(created))
   } finally {
     process.env.HOME = prevHome
+      if (prevVibeHome) process.env.VIBEOS_HOME = prevVibeHome
+      else delete process.env.VIBEOS_HOME
     rmSync(sb, { recursive: true, force: true })
   }
 })
@@ -2743,7 +2751,9 @@ test("enforceTestFile: dedup — second call for same file returns null", async 
   const sb = mkdtempSync(join(tmpdir(), "tdd-dedup-"))
   mkdirSync(join(sb, ".claude/scratch"), { recursive: true })
   const prevHome = process.env.HOME
+  const prevVibeHome = process.env.VIBEOS_HOME
   process.env.HOME = sb
+  process.env.VIBEOS_HOME = join(sb, ".claude")
   try {
     const { enforceTestFile } = await import("../src/lib/tdd-enforcer.js?tdd=" + Date.now())
     const srcDir = join(sb, "proj/src")
@@ -2756,6 +2766,8 @@ test("enforceTestFile: dedup — second call for same file returns null", async 
     assert.equal(second, null, "second call returns null (file exists)")
   } finally {
     process.env.HOME = prevHome
+      if (prevVibeHome) process.env.VIBEOS_HOME = prevVibeHome
+      else delete process.env.VIBEOS_HOME
     rmSync(sb, { recursive: true, force: true })
   }
 })
@@ -2826,7 +2838,9 @@ test("recordFlowTodo: extracts TODO/FIXME from content", async () => {
   const sb = mkdtempSync(join(tmpdir(), "flow-todo-"))
   mkdirSync(join(sb, ".claude/scratch"), { recursive: true })
   const prevHome = process.env.HOME
+  const prevVibeHome = process.env.VIBEOS_HOME
   process.env.HOME = sb
+  process.env.VIBEOS_HOME = join(sb, ".claude")
   try {
     const { recordFlowTodo, resetForTest } = await import("../src/vibeOS-lib/flow-enforcer.js?t=" + Date.now())
     resetForTest([])
@@ -2847,6 +2861,8 @@ test("recordFlowTodo: extracts TODO/FIXME from content", async () => {
     assert.equal(entry.todos[2].type, "HACK")
   } finally {
     process.env.HOME = prevHome
+      if (prevVibeHome) process.env.VIBEOS_HOME = prevVibeHome
+      else delete process.env.VIBEOS_HOME
     rmSync(sb, { recursive: true, force: true })
   }
 })
@@ -2855,7 +2871,9 @@ test("recordFlowTodo: returns 0 when no TODOs in content", async () => {
   const sb = mkdtempSync(join(tmpdir(), "flow-todo-empty-"))
   mkdirSync(join(sb, ".claude/scratch"), { recursive: true })
   const prevHome = process.env.HOME
+  const prevVibeHome = process.env.VIBEOS_HOME
   process.env.HOME = sb
+  process.env.VIBEOS_HOME = join(sb, ".claude")
   try {
     const { recordFlowTodo, resetForTest } = await import("../src/flow-enforcer.js?t=" + Date.now())
     resetForTest([])
@@ -2866,6 +2884,8 @@ test("recordFlowTodo: returns 0 when no TODOs in content", async () => {
     assert.equal(count, 0, "no TODOs found")
   } finally {
     process.env.HOME = prevHome
+      if (prevVibeHome) process.env.VIBEOS_HOME = prevVibeHome
+      else delete process.env.VIBEOS_HOME
     rmSync(sb, { recursive: true, force: true })
   }
 })
