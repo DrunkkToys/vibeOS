@@ -15573,7 +15573,7 @@ Recent cached entries:
     if (needsCompact) {
       contextEntries.push({
         role: "system",
-        content: `[conversation compression notice \u2014 turn ${turnCount}] The preceding conversation has been context-compressed. ALL factual statements, technical details, decisions, code snippets, file paths, and references from prior turns are PRESERVED losslessly. Any unverified assumption from earlier turns must stay labeled as unverified until checked. Only verbose connectors, restatements, and redundant intros have been removed. Continue the conversation naturally \u2014 the full technical context is intact.`
+        content: `[conversation compression guard \u2014 turn ${turnCount}] The session will be context-compressed next. WHEN COMPACTED: ALL factual statements, technical details, decisions, code snippets, file paths, and references from prior turns must be PRESERVED losslessly. Any unverified assumption from earlier turns must stay labeled as unverified until checked. Only verbose connectors, restatements, and redundant intros should be dropped. Continue the conversation naturally \u2014 the full technical context is intact despite compression.`
       });
     }
     contextEntries.push({ role: "user", content: scratchpadNote });

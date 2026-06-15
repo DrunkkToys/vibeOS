@@ -206,7 +206,7 @@ test("compact: onSessionCompacting injects scratchpad + cache dir at any turn", 
   assert.ok(combined.includes("cache"), "has cache directory info")
 })
 
-test("compact: at turn 7+ injects compression preservation notice", async () => {
+test("compact: at turn 7+ injects compression guard", async () => {
   const tc = await import("../src/lib/turn-classify.js?" + Date.now())
   for (let i = 0; i < 7; i++) tc.incrementTurnCounter()
   assert.ok(tc.getTurnCounter() >= 7, "turn counter >= 7")
@@ -214,9 +214,9 @@ test("compact: at turn 7+ injects compression preservation notice", async () => 
   const sc = await import("../src/lib/hooks/session-compact.js?" + Date.now())
   const out = { context: [] }
   await sc.onSessionCompacting({}, out)
-  const hasNotice = out.context.some(e => e.content && e.content.includes("conversation compression notice"))
+  const hasNotice = out.context.some(e => e.content && e.content.includes("conversation compression guard"))
   assert.ok(hasNotice, "compression notice present at turn 7+")
-  const notice = out.context.find(e => e.content && e.content.includes("compression notice"))
+  const notice = out.context.find(e => e.content && e.content.includes("compression guard"))
   assert.ok(notice.content.includes("losslessly"), "notice contains preservation directive")
 })
 
