@@ -235,6 +235,12 @@ test('e2e: simulated full session hook sequence does not crash', async () => {
   process.env.HOME = home
   process.env.VIBEOS_HOME = join(home, ".claude")
 
+  // Enable blackbox to allow session creation (sandbox default has it disabled)
+  const tiersPath = join(home, ".claude/model-tiers.json")
+  const tiersCfg = JSON.parse(readFileSync(tiersPath, "utf-8"))
+  tiersCfg.selection.blackbox_enabled = true
+  writeFileSync(tiersPath, JSON.stringify(tiersCfg, null, 2) + "\n")
+
   try {
     const mod = await import('../src/index.js?ful1=' + Date.now())
     const hooks = await mod.DelegationEnforcer({ directory: projectDir })
