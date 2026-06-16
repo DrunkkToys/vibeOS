@@ -20,6 +20,7 @@ import { join, dirname, basename, resolve } from "node:path"
 import { homedir, tmpdir } from "node:os"
 import { createHash } from "node:crypto"
 import { currentModel, currentTier, setCurrentModel, setCurrentTier, safeJsonParse, HIGH_TIER_RE, MID_TIER_RE, loadTierRegexes, _modelLocked, VIBEOS_HOME, OPENCODE_HOME, getCurrentSessionId, withFileLock, _handleStateCorruption, getOpenCodeHome } from "./state.js"
+import { loadSelection as loadSel, DFLT_SEL } from "./selection-manager.js"
 
 export { HIGH_TIER_RE, MID_TIER_RE, loadTierRegexes }
 
@@ -828,38 +829,6 @@ export function isDocsTarget(s) {
 // Per-process dedup so the same docs URL doesn't nudge twice.
 const context7Seen = new Set()
 
-// ── Slot management ─────────────────────────────────────────────────
-
-// Read plugin enabled flag + active_slot fresh from model-tiers.json.
-// Called per-hook so live edits (trinity on/off) take effect without restart.
-function loadSelection() {
-  const TIERS_FILE = join(getVibeOSHome(), "model-tiers.json")
-  try {
-    if (!existsSync(TIERS_FILE)) return DFLT_SEL
-    const st = statSync(TIERS_FILE)
-    if (st.size > 10485760) { _handleStateCorruption(TIERS_FILE); return DFLT_SEL }
-    const j = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
-    return {
-      enabled:            j?.selection?.enabled !== false,
-      active_slot:        j?.selection?.active_slot || null,
-      slot_locked:        j?.selection?.slot_locked === true,
-      thinking_level:     j?.selection?.thinking_level || "off",
-      flow_enabled:       j?.selection?.flow_enabled === true,
-      tdd_enforce:        j?.selection?.tdd_enforce === true,
-      tdd_strict:         j?.selection?.tdd_strict === true,
-      tdd_quality:        j?.selection?.tdd_quality !== false,
-      flow_enforce:       j?.selection?.flow_enforce === true,
-      delegation_enforce: true,
-      selected_provider:  j?.selection?.selected_provider || null,
-      selected_quality_tier: j?.selection?.selected_quality_tier || null,
-      selected_model:     j?.selection?.selected_model || null,
-      executed_provider:  j?.selection?.executed_provider || null,
-      executed_quality_tier: j?.selection?.executed_quality_tier || null,
-      executed_model:     j?.selection?.executed_model || null,
-    }
-  } catch { _handleStateCorruption(TIERS_FILE); return DFLT_SEL }
-}
-const DFLT_SEL = { enabled: true, active_slot: null, slot_locked: false, thinking_level: "off", flow_enabled: true, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: true, delegation_enforce: true, selected_provider: null, selected_quality_tier: null, selected_model: null, executed_provider: null, executed_quality_tier: null, executed_model: null }
 
 export function readConfig(dir) {
   try {
@@ -1093,7 +1062,7 @@ export function getTrinitySlotOrder(tiersData = null) {
 export function _refreshModel(directory) {
   try {
     const TIERS_FILE = join(getVibeOSHome(), "model-tiers.json")
-    const sel = loadSelection()
+    const sel = loadSel()
     if (!sel.enabled) return
     const tiersData = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
     _setTrinitySlotsFromTiers(tiersData)
