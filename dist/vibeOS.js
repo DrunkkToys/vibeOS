@@ -12203,6 +12203,11 @@ function syncControlSettings(cv, options = {}) {
         writeIf("active_pipeline", JSON.stringify(modeEntry.pipeline));
       }
     }
+    if (cv?.pipeline_root && Array.isArray(cv.pipeline_root)) {
+      writeIf("active_pipeline", JSON.stringify(cv.pipeline_root));
+    } else if (cv?.cascade_depth && cv.cascade_depth >= 3) {
+      writeIf("active_pipeline", JSON.stringify(["local", "medium", "brain"]));
+    }
     writeIf("enabled", true);
     const compatibilityMode = currentSel.onboarding_mode === "assist";
     const flowManuallyDisabled = currentSel.flow_enabled === false && currentSel.flow_enforce === false;
@@ -12643,6 +12648,14 @@ var onSystemTransform = async (_input, output) => {
   if (!loadSelection().enabled)
     return;
   try {
+    const bbOnDisk = loadBlackboxState();
+    if (_latestBlackboxState3 && bbOnDisk) {
+      const diskHasSessions = Object.keys(bbOnDisk.sessions || {}).length > 0;
+      const stateHasRegime = !!_latestBlackboxState3.sub_regime;
+      if (diskHasSessions && !stateHasRegime) {
+        _latestBlackboxState3 = bbOnDisk;
+      }
+    }
     const hookDirectory = String(onSystemTransform._directory || "");
     const userText = extractLastUserText(_input) || extractLastUserText(output);
     if (typeof userText === "string" && userText.trim())
@@ -12668,6 +12681,25 @@ var onSystemTransform = async (_input, output) => {
       if (st)
         _latestBlackboxState3.latest_stress_multiplier = st;
       _controlVector = await apiComputeControlVector(_latestBlackboxState3, void 0, optimizationMode);
+      if (_controlVector) {
+        const fullState = loadBlackboxState() || { sessions: {}, enabled: true };
+        fullState.cv = _controlVector;
+        if (_latestBlackboxState3) {
+          if (_latestBlackboxState3.sub_regime)
+            fullState.sub_regime = _latestBlackboxState3.sub_regime;
+          if (_latestBlackboxState3.latest_stress_multiplier)
+            fullState.latest_stress_multiplier = _latestBlackboxState3.latest_stress_multiplier;
+          if (_latestBlackboxState3.n_interactions)
+            fullState.n_interactions = _latestBlackboxState3.n_interactions;
+          if (_latestBlackboxState3.resolution)
+            fullState.resolution = _latestBlackboxState3.resolution;
+          if (_latestBlackboxState3.momentum)
+            fullState.momentum = _latestBlackboxState3.momentum;
+          fullState.latest_control_vector_ts = Date.now();
+        }
+        fullState.sessions ??= {};
+        saveBlackboxState(fullState);
+      }
     } else if (latestUserIntent) {
       const st = scoreStress(latestUserIntent);
       _controlVector = await apiComputeControlVector({
@@ -15275,13 +15307,21 @@ ${argsJson}
         const mediumCost = 5e-3;
         const brainCost = 0.02;
         const cascadeResult = cascadeDecide(_prompt, cheapCost, mediumCost, brainCost, 0.85);
-        const tierMap = { cheap: TRINITY_CHEAP, medium: TRINITY_MEDIUM, brain: TRINITY_BRAIN || TRINITY_MEDIUM, local: TRINITY_CHEAP };
+        const tierMap = { cheap: TRINITY_CHEAP, medium: TRINITY_MEDIUM, brain: TRINITY_BRAIN, local: TRINITY_CHEAP };
         const pipelineModels = activePipeline.map((t2) => tierMap[t2] || TRINITY_CHEAP);
         if (cascadeResult.escalate && pipelineModels.length > 1) {
-          const escalated = pipelineModels[1];
-          if (escalated && escalated !== currentModel && (!_target || escalated !== _target)) {
-            _target = escalated;
-            console.error(`[vibeOS] \u{1F500} Cascade escalate: ${cascadeResult.reason} \u2192 ${escalated}`);
+          if (pipelineModels.length > 2 && cascadeResult.confidence >= 0.8) {
+            const escalated = pipelineModels[2];
+            if (escalated && escalated !== currentModel && (!_target || escalated !== _target)) {
+              _target = escalated;
+              console.error(`[vibeOS] \u{1F500} Cascade depth-3 escalate: ${cascadeResult.reason} \u2192 ${escalated}`);
+            }
+          } else {
+            const escalated = pipelineModels[1];
+            if (escalated && escalated !== currentModel && (!_target || escalated !== _target)) {
+              _target = escalated;
+              console.error(`[vibeOS] \u{1F500} Cascade escalate: ${cascadeResult.reason} \u2192 ${escalated}`);
+            }
           }
         } else if (cascadeResult.useCheap && !_target) {
           _target = pipelineModels[0];
@@ -15309,7 +15349,7 @@ ${argsJson}
       _setModel(inArgs);
       try {
         const selNow = loadSelection();
-        const desiredSlot = _target === TRINITY_CHEAP ? "cheap" : _target === TRINITY_MEDIUM ? "medium" : null;
+        const desiredSlot = _target === TRINITY_CHEAP ? "cheap" : _target === TRINITY_MEDIUM ? "medium" : _target === TRINITY_BRAIN ? "brain" : null;
         if (selNow.delegation_enforce && currentTier === "high" && desiredSlot && selNow.active_slot !== desiredSlot) {
           taskSlotRestore = selNow.active_slot || "brain";
           const switched = applySlot(desiredSlot);
