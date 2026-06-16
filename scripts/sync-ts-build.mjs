@@ -28,6 +28,7 @@ const cleanupPaths = [
   join("src", "utils", "fs-helpers.js"),
   join("src", "vibeOS-lib", "ml-router.js"),
   join("src", "vibeOS-lib", "smart-cache.js"),
+  join("src", "vibeOS-lib", "semantic-observer.js"),
   join("src", "lib", "vibeos-mcp-server.js"),
   join("src", "vibeOS-lib", "blackbox", "index.js"),
   join("src", "vibeOS-lib", "blackbox", "advice-layer.js"),

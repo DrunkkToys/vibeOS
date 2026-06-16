@@ -112,3 +112,18 @@ export function _computeSessionMetrics(state: any, sid: string): any {
       : 0,
   }
 }
+
+export function hasBypassFlag(command: string): boolean {
+  const c = String(command || "")
+  return /--no-verify|--force|--skip-hooks|--admin|--bypass/.test(c)
+}
+
+export function targetsProtectedBranch(command: string): boolean {
+  const c = String(command || "")
+  return /\borigin\s+master\b|\borigin\s+main\b|--branch\s+master|--branch\s+main/.test(c)
+}
+
+export function isDeployCommand(command: string): boolean {
+  const c = String(command || "").trim().toLowerCase()
+  return /\bgit\s+push\b|\bgh\s+pr\s+merge\b|\bnpm\s+publish\b|\bnpm\s+run\s+deploy\b/.test(c)
+}

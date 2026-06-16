@@ -2,24 +2,11 @@
 import { join } from "node:path"
 import { writeFileSync } from "node:fs"
 
+import { observeToolPattern as semanticObserve } from "../vibeOS-lib/semantic-observer.js"
 import {
-  applyDecadence,
-  _patternFiredKeys,
-  recentToolEvents,
-  lastMutationEvent,
-  setLastMutationEvent,
   frictionSessionKeys,
   routineSessionKeys,
-  _pruneScratchpadDir,
-  cleanupStaleSessionScratchpads,
   getSessionScratchpadDir,
-  SCRATCHPAD_GLOBAL_DIR,
-  MAX_SCRATCHPAD_FILES,
-  MAX_SCRATCHPAD_BYTES,
-  MAX_SESSION_SCRATCHPAD_FILES,
-  MAX_SESSION_SCRATCHPAD_BYTES,
-  DECADENCE_THROTTLE_MS,
-  DECADENCE_GLOBAL_THROTTLE_MS,
   saveActiveJobForProject,
   currentProjectFingerprint,
   currentProjectName,
@@ -28,7 +15,6 @@ import {
   saveProjectState,
   ensureProjectBucket,
   touchProjectBucket,
-  updateGlobalLearning,
   updateState,
   roundUsd,
   getCurrentSessionId,
@@ -43,24 +29,20 @@ import {
 } from "./state.js"
 
 import {
-  normalizeObservedPath,
-  commandFamily,
-  commandFailed,
   _pruneOldSessions,
 } from "./pattern-helpers.js"
 
 import { TRINITY_CHEAP, TRINITY_MEDIUM } from "./pricing.js"
 import {
   topKeywords,
-  extractFirstWordFromArgs,
   noteTaskRoutingLearning,
 } from "./turn-classify.js"
 
 let activeJob = null
 
-import { VERBOSE_LINE_RE, BULLET_PATTERNS, COMPRESS_RATIO, COMPRESS_THRESHOLD, MIN_KEPT_LINES_RATIO, extractBulletLines, compressText } from "./text-compress.js"
+import { VERBOSE_LINE_RE, BULLET_PATTERNS, COMPRESS_RATIO, COMPRESS_THRESHOLD, MIN_KEPT_LINES_RATIO, extractBulletLines } from "./text-compress.js"
 
-export { VERBOSE_LINE_RE, BULLET_PATTERNS, COMPRESS_RATIO, COMPRESS_THRESHOLD, MIN_KEPT_LINES_RATIO, extractBulletLines, compressText }
+export { VERBOSE_LINE_RE, BULLET_PATTERNS, COMPRESS_RATIO, COMPRESS_THRESHOLD, MIN_KEPT_LINES_RATIO, extractBulletLines }
 
 // ── setActiveJobFromTaskPrompt ───────────────────────────────────────
 
@@ -165,119 +147,12 @@ export function saveSessionStress(score: number, level: string): void {
 
 // ── observeToolPattern ───────────────────────────────────────────────
 
-export function observeToolPattern(toolName, input, output, directory) {
+export function observeToolPattern(toolName, input = {}, output = {}, directory = "") {
   try {
-    const t = String(toolName || "").toLowerCase()
-    const args = input?.args || {}
-    const filePath = args.filePath || args.file_path || args.path || ""
-    const observedPath = normalizeObservedPath(filePath, directory)
-    let target = observedPath
-    if (t === "bash") target = commandFamily(args.command || args.cmd || args.script || "")
-    if (t === "task") target = extractFirstWordFromArgs(t, args) || "task"
-    const event = { tool: t, target, at: Date.now() }
-    recentToolEvents.push(event)
-    if (recentToolEvents.length > 20) recentToolEvents.shift()
-    let repeat = 0
-    for (let i = recentToolEvents.length - 1; i >= 0; i--) {
-      const e = recentToolEvents[i]
-      if (e.tool !== event.tool || e.target !== event.target) break
-      repeat++
-    }
-    if (repeat === 3) {
-      // Generalize key to enable cross-session pattern matching
-      // Strip file path to match patterns across different files
-      const family = t === "bash" ? commandFamily(args.command || args.cmd || args.script || "") : t
-      const generalizedKey = `pattern:${t}:${family}`
-      const summary = `Pattern detected: repeated ${t} calls (${family}) — ${target}`
-      recordFrictionPattern(generalizedKey, summary, { family: family || t, path: target, tool: t })
-      _patternFiredKeys.add(generalizedKey)
-    }
-    if (repeat > 8) {
-      // User keeps doing the same thing well after pattern fired -- ignored suggestion
-      try {
-        updateGlobalLearning((gl) => {
-          gl.patternQuality ??= { ignoredCount: 0, trustedCount: 0 }
-          gl.patternQuality.ignoredCount = (gl.patternQuality.ignoredCount || 0) + 1
-          return gl
-        })
-      } catch {}
-    }
-    if (repeat === 0 && _patternFiredKeys.size > 0 && !_trustedCountFired) {
-      // User switched to a different action -- could be following a suggestion. Only count once.
-      _trustedCountFired = true
-      try {
-        updateGlobalLearning((gl) => {
-          gl.patternQuality ??= { ignoredCount: 0, trustedCount: 0 }
-          gl.patternQuality.trustedCount = (gl.patternQuality.trustedCount || 0) + 1
-          return gl
-        })
-      } catch {}
-    }
-
-    if (["write", "edit", "multiedit", "notebookedit"].includes(t) && observedPath !== "unknown") {
-      setLastMutationEvent({ at: Date.now(), path: observedPath, tool: t })
-      return
-    }
-
-    if (t === "bash") {
-      const family = commandFamily(args.command || args.cmd || args.script || "")
-      if (lastMutationEvent && Date.now() - lastMutationEvent.at <= 10 * 60 * 1000) {
-        if (["syntax-check", "typecheck", "test", "build"].includes(family) && commandFailed(output)) {
-          recordFrictionPattern(
-            `post-edit-failure:${lastMutationEvent.path}:${family}`,
-            `After editing ${lastMutationEvent.path}, ${family} failed soon after.`,
-            { family, path: lastMutationEvent.path },
-          )
-        } else if (["syntax-check", "typecheck", "test", "build", "git-status"].includes(family) && !commandFailed(output)) {
-          recordRoutinePattern(
-            `post-edit-routine:${lastMutationEvent.path}:${family}`,
-            `After editing ${lastMutationEvent.path}, ${family} is a recurring verification step.`,
-            { family, path: lastMutationEvent.path },
-          )
-        }
-      }
-    }
-  } catch (err) {
-    console.error(`[vibeOS] pattern learner observe failed: ${err.message}`)
+    semanticObserve(toolName, input, output, directory)
+  } catch (e) {
+    console.error("[vibeOS] semantic observer error:", e)
   }
-
-  // ── Cross-project tool co-occurrence & multi-turn routines ──
-  try {
-    const t = String(toolName || "").toLowerCase()
-    const args = input?.args || {}
-    const ev = { tool: t, at: Date.now() }
-
-    if (recentToolEvents.length > 0) {
-      const prev = recentToolEvents[recentToolEvents.length - 1]
-      if (prev.tool !== ev.tool) {
-        const pairKey = `${prev.tool}→${ev.tool}`
-        updateGlobalLearning((gl: any) => {
-          gl.toolPairs ??= {}
-          gl.toolPairs[pairKey] = (gl.toolPairs[pairKey] || 0) + 1
-          if (gl.toolPairs[pairKey] >= 3 && !gl.promotedRoutines?.includes(pairKey)) {
-            gl.promotedRoutines ??= []
-            if (!gl.promotedRoutines.includes(pairKey)) gl.promotedRoutines.push(pairKey)
-            recordRoutinePattern(`pair:${pairKey}`, `Recurring tool pair ${pairKey} detected across projects.`, { pair: pairKey })
-          }
-          return gl
-        })
-      }
-    }
-
-    // Track project-type tool patterns
-    if (currentProjectName) {
-      const ext = currentProjectName.endsWith(".tsx") || currentProjectName.endsWith(".jsx") ? "frontend" :
-        currentProjectName.endsWith(".go") || currentProjectName.endsWith(".rs") ? "backend" :
-          currentProjectName.endsWith(".py") ? "data" : "unknown"
-      updateGlobalLearning((gl: any) => {
-        gl.projectTypeToolCount ??= {}
-        const ptc = gl.projectTypeToolCount
-        ptc[ext] ??= {}
-        ptc[ext][t] = (ptc[ext][t] || 0) + 1
-        return gl
-      })
-    }
-  } catch {}
 }
 
 // ── recordSaving ──────────────────────────────────────────────────────
@@ -303,33 +178,18 @@ export function recordSaving(tool, reason, saveEst, meta = {}) {
         }
       }
       const ses = s.sessions[sid]
-
-      if (reason && firstWord) {
-        const now = Date.now()
-        const warnKey = `${_OC_SID}:${firstWord}`
-        ses.seenWarnKeys ??= {}
-        let deduped = false
-        for (let i = ses.warns.length - 1; i >= 0 && !deduped; i--) {
-          const w = ses.warns[i]
-          if (w?.key === warnKey && (now - w.ts) < WARN_DEDUPE_WINDOW_MS) {
-            w.count = (w.count || 1) + 1
-            w.est_savings_usd = roundUsd(Number(w.est_savings_usd || 0) + saveEst)
-            w.saveEst = roundUsd(Number(w.saveEst || 0) + saveEst)
-            ses.total_savings_usd = roundUsd(Number(ses.total_savings_usd || 0) + saveEst)
-            s.lifetime.total_savings_usd = roundUsd(Number(s.lifetime.total_savings_usd || 0) + saveEst)
-            deduped = true
-          }
-        }
-        if (!deduped) {
-          ses.total_savings_usd = roundUsd(Number(ses.total_savings_usd || 0) + saveEst)
-          s.lifetime.total_savings_usd = roundUsd(Number(s.lifetime.total_savings_usd || 0) + saveEst)
-          s.lifetime.warn_count = (s.lifetime.warn_count || 0) + 1
-          ses.warns.push({ key: warnKey, reason, saveEst, est_savings_usd: saveEst, firstWord, ts: now, count: 1, tool })
-        }
-        if (!ses.seenWarnKeys[warnKey]) {
-          ses.seenWarnKeys[warnKey] = true
-          try { noteTaskRoutingLearning(firstWord, TRINITY_CHEAP || TRINITY_MEDIUM || "unknown", `observed:${tool}`) } catch {}
-        }
+      const warnKey = `${tool}:${reason}`
+      const now = Date.now()
+      if (!ses.seenWarnKeys) ses.seenWarnKeys = {}
+      if (!ses.seenWarnKeys[warnKey]) {
+        ses.total_savings_usd = (ses.total_savings_usd || 0) + saveEst
+        s.lifetime.total_savings_usd = (s.lifetime.total_savings_usd || 0) + saveEst
+        s.lifetime.warn_count = (s.lifetime.warn_count || 0) + 1
+        ses.warns.push({ key: warnKey, reason, saveEst, est_savings_usd: saveEst, firstWord, ts: now, count: 1, tool })
+      }
+      if (!ses.seenWarnKeys[warnKey]) {
+        ses.seenWarnKeys[warnKey] = true
+        try { noteTaskRoutingLearning(firstWord, TRINITY_CHEAP || TRINITY_MEDIUM || "unknown", `observed:${tool}`) } catch {}
       }
 
       const cap = 30
@@ -340,59 +200,56 @@ export function recordSaving(tool, reason, saveEst, meta = {}) {
           ses.seenWarnKeys = Object.fromEntries(keys.slice(-cap * 2).map(k => [k, true]))
         }
       }
+      return s
+    })
+  } catch { return 0 }
 
-      try {
-        const sd = getSessionScratchpadDir()
-        if (sd) {
-          const sp = join(sd, "delegation-state-hint.txt")
-          try { writeFileSync(sp, JSON.stringify({ sid, total_savings: s.lifetime.total_savings_usd, last_reason: reason }), "utf8") } catch {}
+  try {
+    const sid = getCurrentSessionId()
+    const scratchDir = join(process.env.HOME || "", ".claude", "scratch", sid, "work")
+    if (getSessionScratchpadDir && sid) {
+      const target = getSessionScratchpadDir(sid)
+      if (target) {
+        const files = readDirSafe(target)
+        if (files && files.length > 100) {
+          const sorted = files.sort().slice(0, files.length - 80)
+          for (const f of sorted) {
+            try { rimrafSync(f) } catch {}
+          }
         }
-      } catch {}
-
-      ses.last_reason = reason
-      ses.last_save_est = saveEst
-      s.last_updated = new Date().toISOString()
-
-      _pruneOldSessions(s)
-    })
-
-    // Buffer ledger entry
-    const projectFingerprint = typeof meta?.projectFingerprint === "string" && meta.projectFingerprint.trim()
-      ? meta.projectFingerprint.trim()
-      : currentProjectFingerprint || ""
-    const projectName = typeof meta?.projectName === "string" && meta.projectName.trim()
-      ? meta.projectName.trim()
-      : currentProjectName || ""
-    const sessionId = typeof meta?.sessionId === "string" && meta.sessionId.trim()
-      ? meta.sessionId.trim()
-      : getCurrentSessionId() || _OC_SID
-    const entry = JSON.stringify({
-      ts: new Date().toISOString(),
-      usd: saveEst,
-      sid: _OC_SID,
-      tool,
-      reason,
-      saveEst,
-      fgp: projectFingerprint,
-    })
-    _ledgerBuffer.push(entry)
-    try {
-      if (projectFingerprint) {
-        const pstate = loadProjectState()
-        touchProjectBucket(pstate, projectFingerprint, {
-          sessionId,
-          projectName,
-          topic: tool || reason || "saving",
-        })
-        saveProjectState(pstate)
       }
-    } catch {}
-    if (_ledgerBuffer.length >= LEDGER_BUFFER_MAX) _flushLedgerBuffer()
-    else if (!_ledgerBufferTimer) setLedgerBufferTimer(setTimeout(_flushLedgerBuffer, LEDGER_BUFFER_FLUSH_MS))
+    }
+  } catch {}
+}
 
-    return saveEst
-  } catch (err) {
-    try { saveSessionCheckpoint() } catch {}
-    return 0
+function readDirSafe(p) {
+  try { return readdirSync(p).map(f => join(p, f)) } catch { return [] }
+}
+import { readdirSync } from "node:fs"
+function rimrafSync(p) {
+  try { writeFileSync(p, "") } catch {}
+}
+
+export function compressText(text, level = "medium") {
+  if (!text || typeof text !== "string") return text || ""
+  if (text.length < 200) return text
+  const lines = text.split("\n")
+  if (lines.length < 6) return text
+  const kept = [lines[0]]
+  let c = 1
+  for (let i = 1; i < lines.length; i++) {
+    const l = lines[i]
+    if (BULLET_PATTERNS.test(l)) { kept.push(l); c++ }
+    else if (l.trim() && c / i < COMPRESS_RATIO && kept.length < lines.length * MIN_KEPT_LINES_RATIO) { kept.push(l); c++ }
   }
+  while (kept.length < lines.length * MIN_KEPT_LINES_RATIO && kept.length < lines.length) kept.push(lines[kept.length])
+  return kept.join("\n")
+}
+
+
+function getApiClient() {
+  try {
+    const api = require("../lib/api-client.js")
+    return api.getApiClient?.() || null
+  } catch { return null }
 }
