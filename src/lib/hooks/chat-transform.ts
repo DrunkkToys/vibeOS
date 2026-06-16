@@ -302,6 +302,11 @@ export function syncControlSettings(cv: any, options: { persistOptimizationMode?
         writeIf("active_pipeline", JSON.stringify(modeEntry.pipeline))
       }
     }
+    if (cv?.pipeline_root && Array.isArray(cv.pipeline_root)) {
+      writeIf("active_pipeline", JSON.stringify(cv.pipeline_root))
+    } else if (cv?.cascade_depth && cv.cascade_depth >= 3) {
+      writeIf("active_pipeline", JSON.stringify(["local", "medium", "brain"]))
+    }
 
     writeIf("enabled", true)
 
@@ -820,6 +825,15 @@ export const onSystemTransform = async (_input, output) => {
   nextTurn()
   if (!loadSelection().enabled) return
   try {
+    // Ensure _latestBlackboxState is fresh (guard against cross-session module cache leak)
+    const bbOnDisk = loadBlackboxStateFromCtx()
+    if (_latestBlackboxState && bbOnDisk) {
+      const diskHasSessions = Object.keys(bbOnDisk.sessions || {}).length > 0
+      const stateHasRegime = !!_latestBlackboxState.sub_regime
+      if (diskHasSessions && !stateHasRegime) {
+        _latestBlackboxState = bbOnDisk
+      }
+    }
     const hookDirectory = String((onSystemTransform as any)._directory || "")
     const userText = extractLastUserText(_input) || extractLastUserText(output)
     if (typeof userText === "string" && userText.trim()) latestUserIntent = userText
@@ -846,6 +860,22 @@ export const onSystemTransform = async (_input, output) => {
       const st = latestUserIntent ? scoreStress(latestUserIntent) : 0
       if (st) _latestBlackboxState.latest_stress_multiplier = st
       _controlVector = await apiComputeControlVector(_latestBlackboxState, undefined, optimizationMode)
+            if (_controlVector) {
+        // Merge CV into full blackbox state to preserve existing sessions
+        const fullState = loadBlackboxStateFromCtx() || { sessions: {}, enabled: true }
+        fullState.cv = _controlVector
+        // Merge runtime tracker fields into full state
+        if (_latestBlackboxState) {
+          if (_latestBlackboxState.sub_regime) fullState.sub_regime = _latestBlackboxState.sub_regime
+          if (_latestBlackboxState.latest_stress_multiplier) fullState.latest_stress_multiplier = _latestBlackboxState.latest_stress_multiplier
+          if (_latestBlackboxState.n_interactions) fullState.n_interactions = _latestBlackboxState.n_interactions
+          if (_latestBlackboxState.resolution) fullState.resolution = _latestBlackboxState.resolution
+          if (_latestBlackboxState.momentum) fullState.momentum = _latestBlackboxState.momentum
+          fullState.latest_control_vector_ts = Date.now()
+        }
+        fullState.sessions ??= {}
+        saveBlackboxStateToCtx(fullState)
+      }
     } else if (latestUserIntent) {
       const st = scoreStress(latestUserIntent)
       _controlVector = await apiComputeControlVector({
