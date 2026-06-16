@@ -431,6 +431,7 @@ export function createTrinityTool(deps) {
           deps._modelLocked = true
           deps._lockedSlot = lockSlot
           deps._lockedModel = lockModel
+          deps.writeSelection("slot_locked", true)
           console.error(`[vibeOS] model LOCKED \u2014 ${lockModel} (${deps.currentTier}) will not auto-reconcile with config`)
           return `LOCK ON \u2014 ${lockModel} will not change unless you force with \`trinity set\` or \`trinity lock off\`.`
         }
@@ -438,6 +439,7 @@ export function createTrinityTool(deps) {
           deps._modelLocked = false
           deps._lockedSlot = null
           deps._lockedModel = null
+          deps.writeSelection("slot_locked", false)
           console.error(`[vibeOS] model UNLOCKED \u2014 auto-reconcile re-enabled`)
           return `LOCK OFF \u2014 will auto-follow OpenCode config changes.`
         }
