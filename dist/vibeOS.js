@@ -5630,7 +5630,6 @@ init_api_client();
 
 // src/lib/pricing.js
 init_state();
-init_selection_manager();
 import { readFileSync as readFileSync5, writeFileSync as writeFileSync6, existsSync as existsSync6, mkdirSync as mkdirSync5, statSync as statSync5, renameSync as renameSync4, openSync as openSync2, closeSync as closeSync2, rmSync as rmSync3, readdirSync as readdirSync2 } from "node:fs";
 import { join as join5, dirname as dirname5, resolve } from "node:path";
 import { homedir as homedir4, tmpdir as tmpdir3 } from "node:os";
@@ -6462,6 +6461,41 @@ var DOCS_TARGET_RE = /(docs\.|readthedocs|developer\.mozilla|\/api\/|\/reference
 function isDocsTarget(s) {
   return typeof s === "string" && DOCS_TARGET_RE.test(s);
 }
+function loadSelection2() {
+  const TIERS_FILE3 = join5(getVibeOSHome4(), "model-tiers.json");
+  try {
+    if (!existsSync6(TIERS_FILE3))
+      return DFLT_SEL2;
+    const st = statSync5(TIERS_FILE3);
+    if (st.size > 10485760) {
+      _handleStateCorruption2(TIERS_FILE3);
+      return DFLT_SEL2;
+    }
+    const j = safeJsonParse2(readFileSync5(TIERS_FILE3, "utf-8"));
+    return {
+      enabled: j?.selection?.enabled !== false,
+      active_slot: j?.selection?.active_slot || null,
+      slot_locked: j?.selection?.slot_locked === true,
+      thinking_level: j?.selection?.thinking_level || "off",
+      flow_enabled: j?.selection?.flow_enabled === true,
+      tdd_enforce: j?.selection?.tdd_enforce === true,
+      tdd_strict: j?.selection?.tdd_strict === true,
+      tdd_quality: j?.selection?.tdd_quality !== false,
+      flow_enforce: j?.selection?.flow_enforce === true,
+      delegation_enforce: true,
+      selected_provider: j?.selection?.selected_provider || null,
+      selected_quality_tier: j?.selection?.selected_quality_tier || null,
+      selected_model: j?.selection?.selected_model || null,
+      executed_provider: j?.selection?.executed_provider || null,
+      executed_quality_tier: j?.selection?.executed_quality_tier || null,
+      executed_model: j?.selection?.executed_model || null
+    };
+  } catch {
+    _handleStateCorruption2(TIERS_FILE3);
+    return DFLT_SEL2;
+  }
+}
+var DFLT_SEL2 = { enabled: true, active_slot: null, slot_locked: false, thinking_level: "off", flow_enabled: true, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: true, delegation_enforce: true, selected_provider: null, selected_quality_tier: null, selected_model: null, executed_provider: null, executed_quality_tier: null, executed_model: null };
 function readConfig(dir) {
   try {
     const configs = [];
@@ -6704,7 +6738,7 @@ function getTrinitySlotOrder(tiersData = null) {
 function _refreshModel(directory3) {
   try {
     const TIERS_FILE3 = join5(getVibeOSHome4(), "model-tiers.json");
-    const sel = loadSelection();
+    const sel = loadSelection2();
     if (!sel.enabled)
       return;
     const tiersData = safeJsonParse2(readFileSync5(TIERS_FILE3, "utf-8"));
@@ -9831,7 +9865,6 @@ Use \`trinity enforce on\` to reapply the guard if needed.`;
           deps._modelLocked = true;
           deps._lockedSlot = lockSlot;
           deps._lockedModel = lockModel;
-          deps.writeSelection("slot_locked", true);
           console.error(`[vibeOS] model LOCKED \u2014 ${lockModel} (${deps.currentTier}) will not auto-reconcile with config`);
           return `LOCK ON \u2014 ${lockModel} will not change unless you force with \`trinity set\` or \`trinity lock off\`.`;
         }
@@ -9839,7 +9872,6 @@ Use \`trinity enforce on\` to reapply the guard if needed.`;
           deps._modelLocked = false;
           deps._lockedSlot = null;
           deps._lockedModel = null;
-          deps.writeSelection("slot_locked", false);
           console.error(`[vibeOS] model UNLOCKED \u2014 auto-reconcile re-enabled`);
           return `LOCK OFF \u2014 will auto-follow OpenCode config changes.`;
         }
@@ -13016,7 +13048,7 @@ var _prevOutputText = "";
 var _autoReportCount = 0;
 var textCompletePainted = /* @__PURE__ */ new Set();
 var _lastStrippedText = "";
-function loadSelection2() {
+function loadSelection3() {
   try {
     const raw = readFileSync15(join16(getVibeOSHome10(), "model-tiers.json"), "utf-8");
     return safeJsonParse2(raw)?.selection || { active_slot: "medium", enabled: true, delegation_enforce: true, flow_enabled: true, flow_enforce: true, tdd_enforce: false, tdd_strict: false };
@@ -13171,7 +13203,7 @@ async function _appendFooter(input, output, directory3) {
     const { stableStreak, problemStreak } = readRewardSignals();
     const sid = getSessionId();
     const sessionSlot = loadBlackboxState()?.sessions?.[sid]?.active_slot || loadSessionSlot(sid);
-    const slot = sessionSlot || loadSelection2().active_slot || "brain";
+    const slot = sessionSlot || loadSelection3().active_slot || "brain";
     const brainModel = slot === "brain" ? TRINITY_BRAIN || currentModel : slot === "medium" ? TRINITY_MEDIUM || currentModel : TRINITY_CHEAP || currentModel || "";
     let liveModel = "";
     try {
@@ -13214,7 +13246,7 @@ async function _appendFooter(input, output, directory3) {
             // Backward compatibility (legacy field historically misnamed)
             tasksDelegated: sesTaskDelegations,
             model: resolvedModel || currentModel,
-            slot: loadSelection2().active_slot || "unknown",
+            slot: loadSelection3().active_slot || "unknown",
             editSavings: sesEdit,
             creditSavings: sesCredit,
             context7Savings: sesC7,
@@ -13226,7 +13258,7 @@ async function _appendFooter(input, output, directory3) {
         footerDebug("[vibeOS] auto-report:", e.message);
       }
     }
-    const selNowFooter = loadSelection2();
+    const selNowFooter = loadSelection3();
     const normalizedIntent = classifyTurnSimple2(latestUserIntent || "");
     const currentSubRegime = _latestBlackboxState?.sub_regime || normalizedIntent;
     const bbMode = resolveEnforcementMode();
@@ -13247,7 +13279,7 @@ async function _appendFooter(input, output, directory3) {
     const activeSlot = selNowFooter.active_slot || "brain";
     const flashIcon = isApiConnected() ? " \u26A1" : "";
     const displayMode = autoSelectMode2(currentSubRegime, _footerStress);
-    const rawMode = (typeof loadSelection2 === "function" ? loadSelection2()?.requested_optimization_mode || loadSelection2()?.optimization_mode : null) || displayMode;
+    const rawMode = (typeof loadSelection3 === "function" ? loadSelection3()?.requested_optimization_mode || loadSelection3()?.optimization_mode : null) || displayMode;
     const cv = computeControlVector2({ sub_regime: currentSubRegime, latest_stress_multiplier: _footerStress, user_text: latestUserIntent || "" }, void 0, rawMode);
     const vibeBrand = resolveBrand(loadOptimizationMode() || displayMode, activeSlot);
     const _cp = [/(?:\u005c|['"](?:done|fixed|validated|works|verified|solved|resolved)['"]|\d+%|score|passed)/i];

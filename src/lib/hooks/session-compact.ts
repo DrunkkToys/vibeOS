@@ -2,6 +2,7 @@
 import { readFileSync, existsSync } from "node:fs"
 import { loadSelection, _OC_SID, updateState, getSessionScratchpadDir, getSessionIndexPath } from "../state.js"
 import { getTurnCounter } from "../turn-classify.js"
+import { sessionCompact as semanticSessionCompact, getCurrentSid } from "../../vibeOS-lib/semantic-observer.js"
 
 export const onSessionCompacting = async (_input, output) => {
   if (!loadSelection().enabled) return
@@ -75,6 +76,10 @@ export const onSessionCompacting = async (_input, output) => {
         })
       } catch {}
     }
+    try {
+      const sid = getCurrentSid()
+      if (sid && sid !== "unknown") semanticSessionCompact(sid, "")
+    } catch {}
   } catch (err) {
     console.error(`[vibeOS] session.compacting failed: ${err.message}`)
   }
