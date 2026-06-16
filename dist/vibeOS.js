@@ -15312,7 +15312,7 @@ ${argsJson}
       }
     }
     const activePipeline = loadSelection().active_pipeline;
-    if (activePipeline && Array.isArray(activePipeline) && activePipeline.length > 1 && TRINITY_CHEAP && TRINITY_MEDIUM) {
+    if (!apiRoute?.target && activePipeline && Array.isArray(activePipeline) && activePipeline.length > 1 && TRINITY_CHEAP && TRINITY_MEDIUM) {
       try {
         const cheapCost = 1e-3;
         const mediumCost = 5e-3;
