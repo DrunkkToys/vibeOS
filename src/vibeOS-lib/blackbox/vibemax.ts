@@ -8,7 +8,6 @@ import { fileURLToPath } from "node:url"
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const MODEL_PATH = process.env.VIBEOS_VIBEMAX_MODEL_PATH || resolve(__dirname, "..", "..", "..", "data", "vibemax-model.json")
 
-
 function fallback(sr, text) {
   if (sr === "LOOPING") return "quality"
   const t = String(text || "").toLowerCase()

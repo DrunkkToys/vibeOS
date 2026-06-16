@@ -63,7 +63,7 @@ const CLAIM_PATTERNS = [
   /(?:score|scored|passing|passed)/i,
 ]
 function scanClaimsInOutput(output) {
-  if (!output || typeof output !== 'string') return
+  if (!output || typeof output !== "string") return
   try {
     const claims = []
     const lines = String(output).split(String.fromCharCode(10))
@@ -73,14 +73,14 @@ function scanClaimsInOutput(output) {
       }
     }
     if (claims.length === 0) return
-    const auditDir = join(getVibeOSHome(), 'cascade-audit')
+    const auditDir = join(getVibeOSHome(), "cascade-audit")
     mkdirSync(auditDir, { recursive: true })
-    const auditFile = join(auditDir, 'claim-audit.jsonl')
+    const auditFile = join(auditDir, "claim-audit.jsonl")
     const entry = JSON.stringify({
       ts: new Date().toISOString(),
       claims: claims.slice(0, 10),
       totalClaims: claims.length,
-      responseHash: '', // crypto hash skipped for performance
+      responseHash: "", // crypto hash skipped for performance
     })
     appendFileSync(auditFile, entry + String.fromCharCode(10))
   } catch {}

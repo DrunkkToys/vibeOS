@@ -860,7 +860,7 @@ export const onSystemTransform = async (_input, output) => {
       const st = latestUserIntent ? scoreStress(latestUserIntent) : 0
       if (st) _latestBlackboxState.latest_stress_multiplier = st
       _controlVector = await apiComputeControlVector(_latestBlackboxState, undefined, optimizationMode)
-            if (_controlVector) {
+      if (_controlVector) {
         // Merge CV into full blackbox state to preserve existing sessions
         const fullState = loadBlackboxStateFromCtx() || { sessions: {}, enabled: true }
         fullState.cv = _controlVector

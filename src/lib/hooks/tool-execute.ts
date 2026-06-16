@@ -37,7 +37,6 @@ import { loadSessionSlot } from "../selection-manager.js"
 import { loadCredit, refreshCreditSnapshot } from "../credit-api.js"
 import { buildFooterLine, buildEnforcementTags, resolveBrand, resolveTierIcon } from "./shared-footer.js"
 
-
 function isGreetingLike(text: string): boolean {
   const value = String(text || "").trim().toLowerCase()
   return value === "hi" || value === "hello" || value === "hey" || value === "yo" || /^hi[!.?\s]*$/.test(value) || /^hello[!.?\s]*$/.test(value) || /^hey[!.?\s]*$/.test(value)
@@ -900,7 +899,7 @@ export const onToolExecuteAfter = async (input, output) => {
       const note = pendingUiNote
       if (typeof target?.result === "string") target.result += `\n\n${note}`
       else console.error("APPEND_NOTE: text=" + typeof target?.text + " note=" + (note || "").substring(0, 40) + " enforceBlocked=" + enforcementBlocked + " pendingNote=" + (typeof pendingUiNote === "string"))
-        if (typeof target?.text === "string") target.text += `\n\n${note}`
+      if (typeof target?.text === "string") target.text += `\n\n${note}`
       else if (typeof target?.content === "string") target.content += `\n\n${note}`
       else target.result = pendingUiNote
     } else {
