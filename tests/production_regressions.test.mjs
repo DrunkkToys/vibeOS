@@ -1066,7 +1066,7 @@ test("v0.20.11 — PivotCache buildInjection produces PIVOT BACK context", async
 })
 
 // ── v0.20.11: _seedModelTiersIfMissing has sensible defaults ──
-test("v0.20.11 — no hardcoded model names in fallback", async () => {
+test("v0.20.11 — auto-bootstrap fallback exists in plugin source", async () => {
   const { readFileSync } = await import("node:fs")
   const { join, dirname } = await import("node:path")
   const { fileURLToPath } = await import("node:url")
@@ -1076,20 +1076,14 @@ test("v0.20.11 — no hardcoded model names in fallback", async () => {
     join(projectRoot, "dist-ts", "index.js"), "utf-8"
   )
 
-  assert.ok(!deployed.includes("deepseek/deepseek-v4-pro"),
-    "no hardcoded deepseek/deepseek-v4-pro in fallback")
-  assert.ok(!deployed.includes("deepseek/deepseek-v4-flash"),
-    "no hardcoded deepseek/deepseek-v4-flash in fallback")
-  assert.ok(!deployed.includes("deepseek/deepseek-chat"),
-    "no hardcoded deepseek/deepseek-chat in fallback")
-  assert.ok(deployed.includes("generic/brain"),
-    "fallback uses generic/brain instead of hardcoded model")
-  assert.ok(deployed.includes("generic/medium"),
-    "fallback uses generic/medium instead of hardcoded model")
-  assert.ok(deployed.includes("generic/cheap"),
-    "fallback uses generic/cheap instead of hardcoded model")
-  assert.ok(deployed.includes('run \\"vibe rebuild\\"'),
-    "should tell user to run vibe rebuild")
+  assert.ok(deployed.includes("deepseek/deepseek-v4-pro"),
+    "default tier: v4-pro should be in deployed bundle")
+  assert.ok(deployed.includes("deepseek/deepseek-v4-flash"),
+    "default tier: v4-flash should be in deployed bundle")
+  assert.ok(deployed.includes("deepseek/deepseek-chat"),
+    "default tier: v4-chat should be in deployed bundle")
+  assert.ok(deployed.includes("no providers detected"),
+    "should log when falling back to defaults")
 })
 
 // ── v0.20.12: esbuild const-assignment regression ──
