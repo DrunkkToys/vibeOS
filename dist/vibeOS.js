@@ -12203,11 +12203,6 @@ function syncControlSettings(cv, options = {}) {
         writeIf("active_pipeline", JSON.stringify(modeEntry.pipeline));
       }
     }
-    if (cv?.pipeline_root && Array.isArray(cv.pipeline_root)) {
-      writeIf("active_pipeline", JSON.stringify(cv.pipeline_root));
-    } else if (cv?.cascade_depth && cv.cascade_depth >= 3) {
-      writeIf("active_pipeline", JSON.stringify(["local", "medium", "brain"]));
-    }
     writeIf("enabled", true);
     const compatibilityMode = currentSel.onboarding_mode === "assist";
     const flowManuallyDisabled = currentSel.flow_enabled === false && currentSel.flow_enforce === false;
@@ -12673,10 +12668,6 @@ var onSystemTransform = async (_input, output) => {
       if (st)
         _latestBlackboxState3.latest_stress_multiplier = st;
       _controlVector = await apiComputeControlVector(_latestBlackboxState3, void 0, optimizationMode);
-      if (_controlVector) {
-        _latestBlackboxState3.cv = _controlVector;
-        saveBlackboxState(_latestBlackboxState3);
-      }
     } else if (latestUserIntent) {
       const st = scoreStress(latestUserIntent);
       _controlVector = await apiComputeControlVector({
@@ -15284,21 +15275,13 @@ ${argsJson}
         const mediumCost = 5e-3;
         const brainCost = 0.02;
         const cascadeResult = cascadeDecide(_prompt, cheapCost, mediumCost, brainCost, 0.85);
-        const tierMap = { cheap: TRINITY_CHEAP, medium: TRINITY_MEDIUM, brain: TRINITY_BRAIN, local: TRINITY_CHEAP };
+        const tierMap = { cheap: TRINITY_CHEAP, medium: TRINITY_MEDIUM, brain: TRINITY_BRAIN || TRINITY_MEDIUM, local: TRINITY_CHEAP };
         const pipelineModels = activePipeline.map((t2) => tierMap[t2] || TRINITY_CHEAP);
         if (cascadeResult.escalate && pipelineModels.length > 1) {
-          if (pipelineModels.length > 2 && cascadeResult.confidence >= 0.8) {
-            const escalated = pipelineModels[2];
-            if (escalated && escalated !== currentModel && (!_target || escalated !== _target)) {
-              _target = escalated;
-              console.error(`[vibeOS] \u{1F500} Cascade depth-3 escalate: ${cascadeResult.reason} \u2192 ${escalated}`);
-            }
-          } else {
-            const escalated = pipelineModels[1];
-            if (escalated && escalated !== currentModel && (!_target || escalated !== _target)) {
-              _target = escalated;
-              console.error(`[vibeOS] \u{1F500} Cascade escalate: ${cascadeResult.reason} \u2192 ${escalated}`);
-            }
+          const escalated = pipelineModels[1];
+          if (escalated && escalated !== currentModel && (!_target || escalated !== _target)) {
+            _target = escalated;
+            console.error(`[vibeOS] \u{1F500} Cascade escalate: ${cascadeResult.reason} \u2192 ${escalated}`);
           }
         } else if (cascadeResult.useCheap && !_target) {
           _target = pipelineModels[0];
@@ -15326,7 +15309,7 @@ ${argsJson}
       _setModel(inArgs);
       try {
         const selNow = loadSelection();
-        const desiredSlot = _target === TRINITY_CHEAP ? "cheap" : _target === TRINITY_MEDIUM ? "medium" : _target === TRINITY_BRAIN ? "brain" : null;
+        const desiredSlot = _target === TRINITY_CHEAP ? "cheap" : _target === TRINITY_MEDIUM ? "medium" : null;
         if (selNow.delegation_enforce && currentTier === "high" && desiredSlot && selNow.active_slot !== desiredSlot) {
           taskSlotRestore = selNow.active_slot || "brain";
           const switched = applySlot(desiredSlot);

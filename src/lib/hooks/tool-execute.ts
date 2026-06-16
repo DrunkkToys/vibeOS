@@ -453,21 +453,13 @@ export const onToolExecuteBefore = async (input, output) => {
         const mediumCost = 0.005
         const brainCost = 0.02
         const cascadeResult = cascadeDecide(_prompt, cheapCost, mediumCost, brainCost, 0.85)
-        const tierMap: Record<string, string> = { cheap: TRINITY_CHEAP, medium: TRINITY_MEDIUM, brain: TRINITY_BRAIN, local: TRINITY_CHEAP }
+        const tierMap: Record<string, string> = { cheap: TRINITY_CHEAP, medium: TRINITY_MEDIUM, brain: TRINITY_BRAIN || TRINITY_MEDIUM, local: TRINITY_CHEAP }
         const pipelineModels = activePipeline.map(t => tierMap[t] || TRINITY_CHEAP)
         if (cascadeResult.escalate && pipelineModels.length > 1) {
-          if (pipelineModels.length > 2 && cascadeResult.confidence >= 0.8) {
-            const escalated = pipelineModels[2]
-            if (escalated && escalated !== currentModel && (!_target || escalated !== _target)) {
-              _target = escalated
-              console.error(`[vibeOS] 🔀 Cascade depth-3 escalate: ${cascadeResult.reason} → ${escalated}`)
-            }
-          } else {
-            const escalated = pipelineModels[1]
-            if (escalated && escalated !== currentModel && (!_target || escalated !== _target)) {
-              _target = escalated
-              console.error(`[vibeOS] 🔀 Cascade escalate: ${cascadeResult.reason} → ${escalated}`)
-            }
+          const escalated = pipelineModels[1]
+          if (escalated && escalated !== currentModel && (!_target || escalated !== _target)) {
+            _target = escalated
+            console.error(`[vibeOS] 🔀 Cascade escalate: ${cascadeResult.reason} → ${escalated}`)
           }
         } else if (cascadeResult.useCheap && !_target) {
           _target = pipelineModels[0]
@@ -496,7 +488,7 @@ export const onToolExecuteBefore = async (input, output) => {
       // Force delegation by temporarily switching global slot for this task.
       try {
         const selNow = loadSelection()
-        const desiredSlot = _target === TRINITY_CHEAP ? "cheap" : _target === TRINITY_MEDIUM ? "medium" : _target === TRINITY_BRAIN ? "brain" : null
+        const desiredSlot = _target === TRINITY_CHEAP ? "cheap" : _target === TRINITY_MEDIUM ? "medium" : null
         if (selNow.delegation_enforce && currentTier === "high" && desiredSlot && selNow.active_slot !== desiredSlot) {
           taskSlotRestore = selNow.active_slot || "brain"
           const switched = applySlot(desiredSlot)
