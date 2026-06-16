@@ -614,15 +614,19 @@ test("cascade: applySlot fires even when delegation_enforce is off", async () =>
   else delete process.env.VIBEOS_HOME
 })
 
-test("cascade: condition does NOT gate on apiRoute?.target", async () => {
-  // The cascade router condition MUST NOT include apiRoute?.target gating.
-  // The ML cascade is the primary routing layer and must execute on every
-  // tool call, regardless of whether the remote API returned a route.
-  // If this test fails, the cascade if-condition at line 450 still has
-  // the `!apiRoute?.target` gate — remove it.
+test("cascade: triggered only by ML_ENABLED, not by apiRoute?.target", async () => {
+  // The cascade router must trigger ONLY when ML_ENABLED is true, NOT
+  // based on whether the remote API returned a route. The ML cascade is
+  // the sole routing layer — no apiRoute?.target gating allowed.
   const { readFileSync } = await import("node:fs")
   const src = readFileSync(new URL("../src/lib/hooks/tool-execute.ts", import.meta.url), "utf8")
   const lines = src.split("\n")
-  const idx = lines.findIndex(l => l.includes("!apiRoute?.target && activePipeline"))
-  assert.equal(idx, -1, `remove !apiRoute?.target gate from cascade condition at line ${idx + 1} in tool-execute.ts`)
+
+  // Must NOT gate on apiRoute?.target
+  const apiGateIdx = lines.findIndex(l => l.includes("!apiRoute?.target && activePipeline"))
+  assert.equal(apiGateIdx, -1, `remove !apiRoute?.target gate from cascade condition at line ${apiGateIdx + 1} in tool-execute.ts`)
+
+  // Must gate on ML_ENABLED (the ML drives the cascade)
+  const mlGateIdx = lines.findIndex(l => l.includes("ML_ENABLED && activePipeline"))
+  assert.notEqual(mlGateIdx, -1, `cascade condition must include ML_ENABLED gate in tool-execute.ts`)
 })
