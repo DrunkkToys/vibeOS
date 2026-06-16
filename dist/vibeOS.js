@@ -194,28 +194,6 @@ var init_selection_manager = __esm({
 
 // src/lib/pattern-helpers.js
 import { relative, basename } from "node:path";
-function normalizeObservedPath(filePath, directory3) {
-  if (!filePath || typeof filePath !== "string")
-    return "unknown";
-  let p = filePath;
-  try {
-    if (directory3 && p.startsWith("/")) {
-      const rel = relative(directory3, p);
-      if (rel && !rel.startsWith("..") && !rel.startsWith("/"))
-        p = rel;
-    }
-  } catch {
-  }
-  p = p.replace(/\\/g, "/").replace(/^\.\/+/, "");
-  if (/^(src\/index\.js|package\.json|README\.md|CHANGELOG\.md|tsconfig\.json)$/i.test(p))
-    return p;
-  const m = p.match(/\.([a-z0-9]+)$/i);
-  if (p.startsWith("src/") && m)
-    return `src/*.${m[1].toLowerCase()}`;
-  if (p.startsWith("tests/") && m)
-    return `tests/*.${m[1].toLowerCase()}`;
-  return basename(p) || "unknown";
-}
 function commandFamily(command) {
   const c = String(command || "").trim().toLowerCase();
   if (!c)
@@ -234,15 +212,6 @@ function commandFamily(command) {
     return "git-commit";
   const first = c.replace(/^[a-z_][a-z0-9_]*=\S+\s+/g, "").split(/\s+/)[0];
   return /^[a-z0-9._/-]{1,30}$/.test(first) ? first : "command";
-}
-function commandFailed(output) {
-  const code = output?.exitCode ?? output?.statusCode ?? output?.code;
-  if (Number.isFinite(Number(code)) && Number(code) !== 0)
-    return true;
-  const raw = output?.result ?? output?.text ?? output?.content ?? output?.data ?? "";
-  if (typeof raw !== "string")
-    return false;
-  return /\b(exit code|exited with code)\s*[:=]?\s*[1-9]\b|\b(assertionerror|syntaxerror|typeerror|referenceerror)\b|\b(failed|error:|err!)\b/i.test(raw);
 }
 function mergeProjectBucket(dst, src) {
   const a = dst || {};
@@ -314,6 +283,18 @@ function _computeSessionMetrics(state, sid) {
     sesModelTurns: session?.model_turns || { brain: 0, worker: 0 },
     quality_avg: state?.lifetime?.quality_total_count > 0 ? Math.round((state?.lifetime?.quality_total_score || 0) / state?.lifetime?.quality_total_count) : 0
   };
+}
+function hasBypassFlag(command) {
+  const c = String(command || "");
+  return /--no-verify|--force|--skip-hooks|--admin|--bypass/.test(c);
+}
+function targetsProtectedBranch(command) {
+  const c = String(command || "");
+  return /\borigin\s+master\b|\borigin\s+main\b|--branch\s+master|--branch\s+main/.test(c);
+}
+function isDeployCommand(command) {
+  const c = String(command || "").trim().toLowerCase();
+  return /\bgit\s+push\b|\bgh\s+pr\s+merge\b|\bnpm\s+publish\b|\bnpm\s+run\s+deploy\b/.test(c);
 }
 var init_pattern_helpers = __esm({
   "src/lib/pattern-helpers.js"() {
@@ -1036,9 +1017,6 @@ function setCurrentSessionId(v) {
 }
 function getCurrentSessionId() {
   return currentSessionId || _OC_SID;
-}
-function setLastMutationEvent(v) {
-  lastMutationEvent = v;
 }
 function invalidateSavingsCache() {
   _savingsCache = null;
@@ -2693,7 +2671,7 @@ function saveSessionCheckpoint() {
   } catch {
   }
 }
-var USER_HOME2, VIBEOS_CONTEXT, VIBEOS_HOME, OPENCODE_HOME, FILE_LOCK_DIR, DELEGATION_STATE_FILE, SAVINGS_LEDGER_FILE, GLOBAL_LEARNING_FILE, PRICING_CACHE_FILE, BLACKBOX_STATE_FILE, PROJECT_STATE_FILE, TIERS_FILE, ACTIVE_JOBS_FILE, AUTH_F, CREDIT_CACHE_F, FLOW_TODO_QUEUE_FILE, FLOW_DEDUP_FILE, ENFORCEMENT_COOLDOWN_FILE, TODOS_FILE, REPORTS_DIR, CONTEXT7_INSTALL_FLAG, TRINITY_OPENCODE_CONFIG, TRINITY_OPENCODE_CONFIGC, SCRATCHPAD_ROOT, SCRATCHPAD_GLOBAL_DIR, SCRATCHPAD_SESSIONS_DIR, SCRATCHPAD_SESSION_TTL_MS, SCRATCHPAD_MAX_AGE_SEC, MAX_SCRATCHPAD_FILES, MAX_SCRATCHPAD_BYTES, MAX_SESSION_SCRATCHPAD_FILES, MAX_SESSION_SCRATCHPAD_BYTES, CORRUPTION_BACKUP_MAX, CORRUPTION_BACKUP_TTL_MS, LEDGER_ROTATE_MAX_BYTES, LEDGER_ROTATE_MAX_LINES, LEDGER_ROTATE_MAX_AGE_MS, ACTIVE_JOBS_STALE_MS, MAX_PTR_CANDIDATES, SUMMARY_HEAD_TRUNCATE, DECADENCE_FRESH_MS, DECADENCE_WARM_MS, DECADENCE_COLD_MS, DECADENCE_EXPIRE_MS, DECADENCE_THROTTLE_MS, DECADENCE_GLOBAL_THROTTLE_MS, TOOL_NAME_NORMALIZE, SCRATCHPAD_TOOLS, WARN_DEDUPE_WINDOW_MS, SOFT_QUOTA_LIMIT, _OC_SID, currentSessionId, _sessionStart, currentTier, currentModel, currentProjectFingerprint, currentProjectName, recentToolEvents, frictionSessionKeys, routineSessionKeys, lastMutationEvent, _savingsCache, _savingsCacheMtime, _ledgerReconciledMtime, _ledgerTotalsCache, _mlGraph, _cacheDb, ML_ENABLED, ML_CONFIDENCE_THRESHOLD, _mlSavePending, _blackboxEnabled, _latestBlackboxState, _latestBlackboxLoopMsg, _latestBlackboxPivotMsg, _modelLocked, _lockedSlot, _lockedModel, _patternFiredKeys, _sessionCleanupRegistered, _sessionCacheCleaned, prunedThisProcess, _lastDecadenceRun, briefedProjects, _ledgerBuffer, _ledgerBufferTimer, LEDGER_BUFFER_MAX, LEDGER_BUFFER_FLUSH_MS, testReminderSeen, DFLT_GL, tool, _startupMaintenanceHome, FALLBACK_HIGH, FALLBACK_MID, HIGH_TIER_RE, MID_TIER_RE, scratchpadHitsSeen;
+var USER_HOME2, VIBEOS_CONTEXT, VIBEOS_HOME, OPENCODE_HOME, FILE_LOCK_DIR, DELEGATION_STATE_FILE, SAVINGS_LEDGER_FILE, GLOBAL_LEARNING_FILE, PRICING_CACHE_FILE, BLACKBOX_STATE_FILE, PROJECT_STATE_FILE, TIERS_FILE, ACTIVE_JOBS_FILE, AUTH_F, CREDIT_CACHE_F, FLOW_TODO_QUEUE_FILE, FLOW_DEDUP_FILE, ENFORCEMENT_COOLDOWN_FILE, TODOS_FILE, REPORTS_DIR, CONTEXT7_INSTALL_FLAG, TRINITY_OPENCODE_CONFIG, TRINITY_OPENCODE_CONFIGC, SCRATCHPAD_ROOT, SCRATCHPAD_GLOBAL_DIR, SCRATCHPAD_SESSIONS_DIR, SCRATCHPAD_SESSION_TTL_MS, SCRATCHPAD_MAX_AGE_SEC, MAX_SCRATCHPAD_FILES, MAX_SCRATCHPAD_BYTES, MAX_SESSION_SCRATCHPAD_FILES, MAX_SESSION_SCRATCHPAD_BYTES, CORRUPTION_BACKUP_MAX, CORRUPTION_BACKUP_TTL_MS, LEDGER_ROTATE_MAX_BYTES, LEDGER_ROTATE_MAX_LINES, LEDGER_ROTATE_MAX_AGE_MS, ACTIVE_JOBS_STALE_MS, MAX_PTR_CANDIDATES, SUMMARY_HEAD_TRUNCATE, DECADENCE_FRESH_MS, DECADENCE_WARM_MS, DECADENCE_COLD_MS, DECADENCE_EXPIRE_MS, DECADENCE_THROTTLE_MS, DECADENCE_GLOBAL_THROTTLE_MS, TOOL_NAME_NORMALIZE, SCRATCHPAD_TOOLS, WARN_DEDUPE_WINDOW_MS, SOFT_QUOTA_LIMIT, _OC_SID, currentSessionId, _sessionStart, currentTier, currentModel, currentProjectFingerprint, currentProjectName, recentToolEvents, _savingsCache, _savingsCacheMtime, _ledgerReconciledMtime, _ledgerTotalsCache, _mlGraph, _cacheDb, ML_ENABLED, ML_CONFIDENCE_THRESHOLD, _mlSavePending, _blackboxEnabled, _latestBlackboxState, _latestBlackboxLoopMsg, _latestBlackboxPivotMsg, _modelLocked, _lockedSlot, _lockedModel, _sessionCleanupRegistered, _sessionCacheCleaned, prunedThisProcess, _lastDecadenceRun, briefedProjects, _ledgerBuffer, _ledgerBufferTimer, LEDGER_BUFFER_MAX, LEDGER_BUFFER_FLUSH_MS, testReminderSeen, DFLT_GL, tool, _startupMaintenanceHome, FALLBACK_HIGH, FALLBACK_MID, HIGH_TIER_RE, MID_TIER_RE, scratchpadHitsSeen;
 var init_state = __esm({
   "src/lib/state.js"() {
     "use strict";
@@ -2777,9 +2755,6 @@ var init_state = __esm({
     currentProjectFingerprint = "";
     currentProjectName = "";
     recentToolEvents = [];
-    frictionSessionKeys = /* @__PURE__ */ new Set();
-    routineSessionKeys = /* @__PURE__ */ new Set();
-    lastMutationEvent = null;
     _savingsCache = null;
     _savingsCacheMtime = 0;
     _ledgerReconciledMtime = 0;
@@ -2803,7 +2778,6 @@ var init_state = __esm({
     _modelLocked = false;
     _lockedSlot = null;
     _lockedModel = null;
-    _patternFiredKeys = /* @__PURE__ */ new Set();
     _sessionCleanupRegistered = false;
     _sessionCacheCleaned = false;
     prunedThisProcess = false;
@@ -3432,6 +3406,820 @@ var init_flow_enforcer = __esm({
     _realityCheckMtime = 0;
     _realityCheckCacheKey = "";
     loadFlowDedupKeys();
+  }
+});
+
+// src/lib/api-client.js
+import { readFileSync as readFileSync4, writeFileSync as writeFileSync5, existsSync as existsSync5, mkdirSync as mkdirSync4, rmSync as rmSync2 } from "node:fs";
+import { dirname as dirname4 } from "node:path";
+import { fileURLToPath as fileURLToPath3 } from "node:url";
+import { homedir as homedir3 } from "node:os";
+function normalizeApiToken(token, fallback2 = "") {
+  const clean = String(token || "").trim();
+  return API_TOKEN_RE.test(clean) ? clean : fallback2;
+}
+function normalizeDirectApiToken(token) {
+  const clean = normalizeApiToken(token, "");
+  return clean && clean !== EMBEDDED_API_TOKEN ? clean : "";
+}
+function isTruthyFlag(value) {
+  return API_DISABLED_RE.test(String(value || "").trim());
+}
+function editEnvLine(content, key, value) {
+  const lines = String(content || "").split(/\r?\n/);
+  const next = [];
+  let found = false;
+  for (const line of lines) {
+    if (line.startsWith(`${key}=`)) {
+      found = true;
+      if (value !== null)
+        next.push(`${key}=${value}`);
+      continue;
+    }
+    next.push(line);
+  }
+  if (!found && value !== null)
+    next.push(`${key}=${value}`);
+  while (next.length > 0 && next[next.length - 1] === "")
+    next.pop();
+  return next.join("\n") + "\n";
+}
+function persistPrimaryApiEnvState(next) {
+  const primaryPath = _envPaths[0] + "/.env.production";
+  try {
+    let envContent = existsSync5(primaryPath) ? readFileSync4(primaryPath, "utf8") : "";
+    if (next.disabled !== void 0) {
+      envContent = editEnvLine(envContent, "VIBEOS_API_DISABLED", next.disabled ? "true" : null);
+    }
+    if (next.token !== void 0) {
+      envContent = editEnvLine(envContent, "VIBEOS_API_TOKEN", next.token ? String(next.token).trim() : null);
+    }
+    if (!envContent.trim()) {
+      try {
+        if (existsSync5(primaryPath))
+          rmSync2(primaryPath, { force: true });
+      } catch {
+      }
+      return;
+    }
+    const parentDir = _envPaths[0];
+    if (!existsSync5(parentDir))
+      mkdirSync4(parentDir, { recursive: true });
+    writeFileSync5(primaryPath, envContent.endsWith("\n") ? envContent : envContent + "\n", "utf8");
+  } catch (diskErr) {
+    console.error("[vibeOS] Failed to persist API env state:", diskErr.message);
+  }
+}
+function readApiDisabledFromDisk() {
+  for (const dir of _envPaths) {
+    try {
+      const env = readFileSync4(dir + "/.env.production", "utf8");
+      const m = env.match(/^VIBEOS_API_DISABLED=(.+)$/m);
+      if (m && isTruthyFlag(m[1]))
+        return true;
+    } catch {
+    }
+  }
+  return false;
+}
+function readTokenFromDisk() {
+  if (readApiDisabledFromDisk())
+    return "";
+  for (const dir of _envPaths) {
+    try {
+      const env = readFileSync4(dir + "/.env.production", "utf8");
+      const m = env.match(/^VIBEOS_API_TOKEN=(.+)$/m);
+      if (m) {
+        const clean = normalizeDirectApiToken(m[1]);
+        if (clean)
+          return clean;
+      }
+    } catch {
+    }
+  }
+  return "";
+}
+function hasPrimaryTokenOnDisk() {
+  if (readApiDisabledFromDisk())
+    return false;
+  try {
+    const env = readFileSync4(_envPaths[0] + "/.env.production", "utf8");
+    return /^VIBEOS_API_TOKEN=/m.test(env);
+  } catch {
+    return false;
+  }
+}
+function readBootstrapTokenFromDisk() {
+  if (readApiDisabledFromDisk())
+    return "";
+  try {
+    const env = readFileSync4(_bootstrapEnvPath, "utf8");
+    const m = env.match(/^VIBEOS_API_BOOTSTRAP_TOKEN=(.+)$/m);
+    if (m)
+      return m[1].trim();
+  } catch {
+  }
+  return "";
+}
+function syncApiEnabledState(next) {
+  VIBEOS_API_ENABLED = !!next;
+  setApiEnabled(VIBEOS_API_ENABLED);
+}
+function getAnomalyDetector() {
+  if (!_anomalyDetector)
+    _anomalyDetector = new TokenAnomalyDetector();
+  return _anomalyDetector;
+}
+function persistBootstrapToken(token) {
+  const clean = String(token || "").trim();
+  try {
+    if (!clean) {
+      try {
+        if (existsSync5(_bootstrapEnvPath))
+          rmSync2(_bootstrapEnvPath, { force: true });
+      } catch {
+      }
+      return;
+    }
+    const parentDir = _envPaths[0];
+    if (!existsSync5(parentDir))
+      mkdirSync4(parentDir, { recursive: true });
+    writeFileSync5(_bootstrapEnvPath, `VIBEOS_API_BOOTSTRAP_TOKEN=${clean}
+`, "utf8");
+  } catch (diskErr) {
+    console.error("[vibeOS] Failed to persist alpha bootstrap token:", diskErr.message);
+  }
+}
+function setApiToken(newToken) {
+  try {
+    VIBEOS_API_DISABLED = false;
+    VIBEOS_API_TOKEN = normalizeDirectApiToken(newToken);
+    VIBEOS_API_BOOTSTRAP_TOKEN = readBootstrapTokenFromDisk() || VIBEOS_API_BOOTSTRAP_TOKEN;
+    syncApiEnabledState(process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN));
+    _apiClientGen++;
+    _apiClientHolder = { client: null, gen: _apiClientGen, tokenSnapshot: VIBEOS_API_TOKEN };
+    _apiFallbackMode = false;
+    _apiFallbackSince = null;
+    persistPrimaryApiEnvState({ token: VIBEOS_API_TOKEN, disabled: false });
+    if (_anomalyDetector)
+      _anomalyDetector.reset();
+    markApiConnected();
+    console.error("[vibeOS] API token updated via setApiToken");
+  } catch (e) {
+    console.error("[vibeOS] Failed to update API token:", e.message);
+  }
+}
+function invalidateApiToken() {
+  try {
+    VIBEOS_API_DISABLED = true;
+    VIBEOS_API_TOKEN = "";
+    VIBEOS_API_BOOTSTRAP_TOKEN = "";
+    syncApiEnabledState(false);
+    _apiClientGen++;
+    _apiClientHolder = { client: null, gen: _apiClientGen, tokenSnapshot: "" };
+    _apiFallbackMode = false;
+    _apiFallbackSince = null;
+    if (_anomalyDetector)
+      _anomalyDetector.reset();
+    persistBootstrapToken("");
+    persistPrimaryApiEnvState({ token: "", disabled: true });
+    resetApiConnection();
+    console.error("[vibeOS] API token invalidated and remote API disabled");
+  } catch (e) {
+    console.error("[vibeOS] Failed to invalidate API token:", e.message);
+  }
+}
+function setApiBootstrapToken(newToken) {
+  try {
+    VIBEOS_API_DISABLED = false;
+    VIBEOS_API_BOOTSTRAP_TOKEN = String(newToken || "").trim();
+    syncApiEnabledState(process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN));
+    markApiConnected();
+    persistPrimaryApiEnvState({ disabled: false });
+    persistBootstrapToken(VIBEOS_API_BOOTSTRAP_TOKEN);
+    console.error("[vibeOS] Alpha bootstrap token updated");
+  } catch (e) {
+    console.error("[vibeOS] Failed to update alpha bootstrap token:", e.message);
+  }
+}
+function tryResetFallbackCooldown() {
+  if (!_apiFallbackMode || !_apiFallbackSince)
+    return false;
+  const elapsed = Date.now() - new Date(_apiFallbackSince).getTime();
+  if (elapsed > FALLBACK_COOLDOWN_MS) {
+    _apiFallbackMode = false;
+    _apiFallbackSince = null;
+    markApiConnected();
+    return true;
+  }
+  return false;
+}
+function getApiFallbackSince() {
+  return _apiFallbackSince;
+}
+function recordBackendVersion(payload) {
+  if (!payload || typeof payload !== "object")
+    return;
+  const version = String(payload.version || "").trim();
+  if (version)
+    _backendVersion = version;
+}
+async function ensureBootstrapExchange() {
+  syncApiTokenFromDisk();
+  if (VIBEOS_API_DISABLED)
+    return false;
+  if (VIBEOS_API_TOKEN)
+    return true;
+  if (!VIBEOS_API_BOOTSTRAP_TOKEN)
+    return false;
+  if (ALPHA_BUILD_CHANNEL !== "alpha")
+    return false;
+  const now = Date.now();
+  if (_bootstrapExchangeInFlight)
+    return _bootstrapExchangeInFlight;
+  if (_bootstrapExchangeFailedAt && now - _bootstrapExchangeFailedAt < BOOTSTRAP_RETRY_COOLDOWN_MS)
+    return false;
+  _bootstrapExchangeInFlight = (async () => {
+    try {
+      const client2 = new VibeOSApiClient({
+        baseUrl: VIBEOS_API_URL,
+        timeout: 5e3
+      });
+      const apiToken = await client2.exchangeBootstrapToken(VIBEOS_API_BOOTSTRAP_TOKEN, ALPHA_BUILD_CHANNEL);
+      if (!apiToken)
+        return false;
+      setApiToken(apiToken);
+      markApiConnected();
+      return true;
+    } catch (err) {
+      _bootstrapExchangeFailedAt = Date.now();
+      console.error("[vibeOS] Alpha bootstrap exchange failed:", err.message);
+      return false;
+    } finally {
+      _bootstrapExchangeInFlight = null;
+    }
+  })();
+  return _bootstrapExchangeInFlight;
+}
+function syncApiTokenFromDisk() {
+  const diskDisabled = readApiDisabledFromDisk() || isTruthyFlag(process.env.VIBEOS_API_DISABLED);
+  const diskToken = readTokenFromDisk() || "";
+  const diskBootstrapToken = readBootstrapTokenFromDisk() || "";
+  const envToken = normalizeDirectApiToken(process.env.VIBEOS_API_TOKEN);
+  if (diskDisabled) {
+    if (!VIBEOS_API_DISABLED || VIBEOS_API_TOKEN || VIBEOS_API_BOOTSTRAP_TOKEN || VIBEOS_API_ENABLED) {
+      VIBEOS_API_DISABLED = true;
+      VIBEOS_API_TOKEN = "";
+      VIBEOS_API_BOOTSTRAP_TOKEN = "";
+      syncApiEnabledState(false);
+      _apiClientGen++;
+      _apiClientHolder = { client: null, gen: _apiClientGen, tokenSnapshot: "" };
+      _apiFallbackMode = false;
+      _apiFallbackSince = null;
+      resetApiConnection();
+      console.error("[vibeOS] API token disabled from disk (alpha kill switch active)");
+    }
+    return;
+  }
+  if (diskToken && diskToken !== VIBEOS_API_TOKEN) {
+    VIBEOS_API_DISABLED = false;
+    VIBEOS_API_TOKEN = diskToken;
+    syncApiEnabledState(process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN));
+    _apiClientGen++;
+    _apiClientHolder = { client: null, gen: _apiClientGen, tokenSnapshot: VIBEOS_API_TOKEN };
+    _apiFallbackMode = false;
+    _apiFallbackSince = null;
+    markApiConnected();
+    console.error("[vibeOS] API token synced from disk (disk is newer)");
+  } else if (diskBootstrapToken && diskBootstrapToken !== VIBEOS_API_BOOTSTRAP_TOKEN) {
+    VIBEOS_API_DISABLED = false;
+    VIBEOS_API_BOOTSTRAP_TOKEN = diskBootstrapToken;
+    syncApiEnabledState(process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN));
+    _apiFallbackMode = false;
+    _apiFallbackSince = null;
+    markApiConnected();
+    console.error("[vibeOS] Alpha bootstrap token synced from disk (disk is newer)");
+  } else if (!diskToken && VIBEOS_API_TOKEN) {
+    persistPrimaryApiEnvState({ token: VIBEOS_API_TOKEN, disabled: false });
+    console.error("[vibeOS] API token persisted to disk from memory (disk was empty)");
+    syncApiEnabledState(process.env.VIBEOS_API_ENABLED !== "false" && !!VIBEOS_API_TOKEN);
+    markApiConnected();
+  } else if (envToken && !diskToken && !VIBEOS_API_TOKEN) {
+    VIBEOS_API_DISABLED = false;
+    VIBEOS_API_TOKEN = envToken;
+    syncApiEnabledState(process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN));
+    markApiConnected();
+    console.error("[vibeOS] API token loaded from VIBEOS_API_TOKEN env var");
+  } else {
+    VIBEOS_API_DISABLED = false;
+    if (!VIBEOS_API_TOKEN && !hasPrimaryTokenOnDisk()) {
+      VIBEOS_API_TOKEN = EMBEDDED_API_TOKEN;
+    }
+    VIBEOS_API_BOOTSTRAP_TOKEN ||= EMBEDDED_API_TOKEN;
+    syncApiEnabledState(process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN));
+    markApiConnected();
+  }
+}
+function getApiClient() {
+  syncApiTokenFromDisk();
+  if (_apiClientHolder.client && _apiClientHolder.gen === _apiClientGen) {
+    return _apiClientHolder.client;
+  }
+  if (isApiEnabled() && VIBEOS_API_TOKEN) {
+    _apiClientHolder.client = new VibeOSApiClient({
+      baseUrl: VIBEOS_API_URL,
+      apiToken: VIBEOS_API_TOKEN,
+      timeout: 5e3
+    });
+    _apiClientHolder.gen = _apiClientGen;
+    _apiClientHolder.tokenSnapshot = VIBEOS_API_TOKEN;
+  } else {
+    _apiClientHolder.client = null;
+  }
+  return _apiClientHolder.client;
+}
+function isApiFallback() {
+  return _apiFallbackMode || isApiFallbackMode() || !isApiEnabled();
+}
+function isApiConnected() {
+  tryResetFallbackCooldown();
+  return isApiEnabled();
+}
+function getBackendVersion() {
+  return _backendVersion;
+}
+async function remoteCall(method, args, fallbackFn) {
+  syncApiTokenFromDisk();
+  if (!VIBEOS_API_TOKEN && VIBEOS_API_BOOTSTRAP_TOKEN) {
+    await ensureBootstrapExchange();
+  }
+  if (tryResetFallbackCooldown()) {
+    if (process.env.VIBEOS_DEBUG)
+      console.warn("[vibeOS] API fallback cooldown expired \u2014 retrying API");
+  }
+  if (!isApiEnabled() || _apiFallbackMode) {
+    if (fallbackFn)
+      return fallbackFn();
+    return null;
+  }
+  const detector = getAnomalyDetector();
+  detector.record();
+  if (detector.throttleIfAnomalous()) {
+    if (fallbackFn)
+      return fallbackFn();
+    return null;
+  }
+  try {
+    const client2 = getApiClient();
+    if (!client2) {
+      if (fallbackFn)
+        return fallbackFn();
+      return null;
+    }
+    const result = await client2[method](...args);
+    if (method === "health")
+      recordBackendVersion(result);
+    if (_apiFallbackMode) {
+      _apiFallbackMode = false;
+      _apiFallbackSince = null;
+      if (process.env.VIBEOS_DEBUG)
+        console.warn(`[vibeOS] API reconnected \u2014 ${method} OK`);
+    }
+    _apiFallbackMode = false;
+    _apiFallbackSince = null;
+    markApiConnected();
+    return result;
+  } catch (err) {
+    const status = err?.statusCode || err?.status || 0;
+    const body = err?.response?.body || err?.body || "";
+    const bodyPreview = typeof body === "string" ? body.substring(0, 120) : String(body).substring(0, 120);
+    const detail = status ? `status=${status} body=${bodyPreview}` : `message=${err?.message || err}`;
+    if (!_apiFallbackMode) {
+      _apiFallbackMode = true;
+      _apiFallbackSince = (/* @__PURE__ */ new Date()).toISOString();
+      console.error(`[vibeOS] API fallback activated (${method}): ${detail}`);
+    }
+    if (status === 401 || status === 403) {
+      console.warn(`[vibeOS] API auth failed (${method}): server reachable but token rejected \u2014 will retry after cooldown`);
+    } else {
+      markApiDisconnected();
+    }
+    if (fallbackFn) {
+      try {
+        return fallbackFn();
+      } catch (fe) {
+        console.error(`[vibeOS] fallback also failed: ${fe?.message || fe}`);
+      }
+    }
+    return null;
+  }
+}
+var DEFAULT_API_URL, EMBEDDED_API_TOKEN, API_TOKEN_RE, API_DISABLED_RE, REQUEST_TIMEOUT, MAX_RETRIES, BASE_RETRY_DELAY, ALPHA_BUILD_CHANNEL, BOOTSTRAP_EXCHANGE_PATH, BOOTSTRAP_RETRY_COOLDOWN_MS, VibeOSAuthError, VibeOSTimeoutError, VibeOSNetworkError, ANOMALY_BURST_WINDOW_MS, ANOMALY_BURST_THRESHOLD, ANOMALY_FREQ_WINDOW_MS, ANOMALY_STDDEV_FACTOR, ANOMALY_WARMUP_MS, ANOMALY_COOLDOWN_MS, TokenAnomalyDetector, VibeOSApiClient, VIBEOS_API_URL, _apiDir, _envPaths, _bootstrapEnvPath, VIBEOS_API_DISABLED, VIBEOS_API_TOKEN, VIBEOS_API_BOOTSTRAP_TOKEN, VIBEOS_API_ENABLED, _anomalyDetector, _apiClientHolder, _apiClientGen, _apiFallbackMode, _apiFallbackSince, _bootstrapExchangeInFlight, _bootstrapExchangeFailedAt, _backendVersion, FALLBACK_COOLDOWN_MS;
+var init_api_client = __esm({
+  "src/lib/api-client.js"() {
+    "use strict";
+    init_runtime_state();
+    DEFAULT_API_URL = "https://api.vibetheog.com";
+    EMBEDDED_API_TOKEN = "vos_8d73804b13bb46711b9a47f036dba7b4d026fd9583d96960e663716e62815a69";
+    API_TOKEN_RE = /^vos_[a-f0-9]{64}$/i;
+    API_DISABLED_RE = /^(1|true|yes|on)$/i;
+    REQUEST_TIMEOUT = 1e4;
+    MAX_RETRIES = 3;
+    BASE_RETRY_DELAY = 1e3;
+    ALPHA_BUILD_CHANNEL = String(process.env.VIBEOS_BUILD_CHANNEL || "alpha").toLowerCase();
+    BOOTSTRAP_EXCHANGE_PATH = "/api/v1/auth/bootstrap/exchange";
+    BOOTSTRAP_RETRY_COOLDOWN_MS = 6e4;
+    VibeOSAuthError = class extends Error {
+      statusCode;
+      code;
+      constructor(message, statusCode, code) {
+        super(message);
+        this.name = "VibeOSAuthError";
+        this.statusCode = statusCode;
+        this.code = code;
+      }
+    };
+    VibeOSTimeoutError = class extends Error {
+      constructor(message) {
+        super(message);
+        this.name = "VibeOSTimeoutError";
+      }
+    };
+    VibeOSNetworkError = class extends Error {
+      constructor(message) {
+        super(message);
+        this.name = "VibeOSNetworkError";
+      }
+    };
+    ANOMALY_BURST_WINDOW_MS = 5e3;
+    ANOMALY_BURST_THRESHOLD = 10;
+    ANOMALY_FREQ_WINDOW_MS = 6e5;
+    ANOMALY_STDDEV_FACTOR = 3;
+    ANOMALY_WARMUP_MS = 3e4;
+    ANOMALY_COOLDOWN_MS = 12e4;
+    TokenAnomalyDetector = class {
+      burstHistory = [];
+      freqHistory = [];
+      lastWarnTime = 0;
+      anomalyTriggered = false;
+      disabled = false;
+      startedAt = Date.now();
+      get isWarmup() {
+        return Date.now() - this.startedAt < ANOMALY_WARMUP_MS;
+      }
+      record() {
+        if (this.disabled || this.isWarmup)
+          return;
+        const now = Date.now();
+        this.burstHistory = this.burstHistory.filter((t) => now - t < ANOMALY_BURST_WINDOW_MS);
+        this.burstHistory.push(now);
+        this.freqHistory.push(now);
+      }
+      checkBurst() {
+        return this.burstHistory.length > ANOMALY_BURST_THRESHOLD;
+      }
+      checkFrequency() {
+        const now = Date.now();
+        const window = this.freqHistory.filter((t) => now - t < ANOMALY_FREQ_WINDOW_MS);
+        if (window.length < 10)
+          return false;
+        const mean = window.length / (ANOMALY_FREQ_WINDOW_MS / 6e4);
+        const recent = this.burstHistory.length / (ANOMALY_BURST_WINDOW_MS / 1e3);
+        return recent > mean * ANOMALY_STDDEV_FACTOR;
+      }
+      throttleIfAnomalous() {
+        const now = Date.now();
+        if (this.disabled || this.isWarmup)
+          return false;
+        if (this.anomalyTriggered)
+          return true;
+        if (this.checkBurst() || this.checkFrequency()) {
+          this.anomalyTriggered = true;
+          this.lastWarnTime = now;
+          console.error("[vibeOS] Token anomaly detected \u2014 throttling API calls");
+          return true;
+        }
+        if (this.lastWarnTime && now - this.lastWarnTime > ANOMALY_COOLDOWN_MS) {
+          this.anomalyTriggered = false;
+        }
+        return this.anomalyTriggered;
+      }
+      reset() {
+        this.burstHistory = [];
+        this.freqHistory = [];
+        this.anomalyTriggered = false;
+        this.lastWarnTime = 0;
+      }
+    };
+    VibeOSApiClient = class {
+      baseUrl;
+      apiToken;
+      masterKey;
+      timeout;
+      fallbackMode;
+      fallbackStubs;
+      constructor(options = {}) {
+        this.baseUrl = options.baseUrl || process.env.VIBEOS_API_URL || DEFAULT_API_URL;
+        this.apiToken = normalizeApiToken(options.apiToken || process.env.VIBEOS_API_TOKEN || "", "") || null;
+        this.masterKey = options.masterKey || process.env.VIBEOS_API_MASTER_KEY || null;
+        this.timeout = options.timeout || REQUEST_TIMEOUT;
+        this.fallbackMode = false;
+        this.fallbackStubs = options.fallbackStubs || null;
+      }
+      async request(path, body = null, isAdmin = false) {
+        if (!this.apiToken && !isAdmin) {
+          throw new Error("VIBEOS_API_TOKEN is not set");
+        }
+        const url = this.baseUrl + path;
+        const headers = {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + (isAdmin ? this.masterKey : this.apiToken)
+        };
+        let lastError = null;
+        let attempt = 0;
+        while (attempt <= MAX_RETRIES) {
+          if (attempt > 0) {
+            const delay = BASE_RETRY_DELAY * Math.pow(2, attempt - 1);
+            await new Promise((r) => setTimeout(r, delay));
+          }
+          attempt++;
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+            const res = await fetch(url, {
+              method: body ? "POST" : "GET",
+              headers,
+              body: body ? JSON.stringify(body) : null,
+              signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+            if (res.status === 401 || res.status === 403) {
+              const errorBody = await res.json().catch(() => ({}));
+              this.fallbackMode = true;
+              throw new VibeOSAuthError(errorBody.message || "Authentication failed", res.status, errorBody.code);
+            }
+            if (!res.ok) {
+              const errorBody = await res.json().catch(() => ({}));
+              if (res.status >= 500 && attempt <= MAX_RETRIES) {
+                lastError = new Error("API error " + res.status + ": " + (errorBody.error || res.statusText));
+                continue;
+              }
+              throw new Error("API error " + res.status + ": " + (errorBody.error || res.statusText));
+            }
+            this.fallbackMode = false;
+            return res.json();
+          } catch (err) {
+            if (err instanceof VibeOSAuthError)
+              throw err;
+            const error = err;
+            if (error.name === "AbortError") {
+              if (attempt <= MAX_RETRIES) {
+                lastError = new VibeOSTimeoutError("Request to " + url + " timed out after " + this.timeout + "ms");
+                continue;
+              }
+              this.fallbackMode = true;
+              throw new VibeOSTimeoutError("Request to " + url + " timed out after " + this.timeout + "ms");
+            }
+            lastError = err;
+            if (attempt <= MAX_RETRIES && error.message && (error.message.includes("fetch") || error.message.includes("network") || error.message.includes("ECONNREFUSED"))) {
+              continue;
+            }
+          }
+        }
+        this.fallbackMode = true;
+        throw new VibeOSNetworkError("Failed to reach API after " + MAX_RETRIES + " retries: " + (lastError ? lastError.message : "unknown error"));
+      }
+      async exchangeBootstrapToken(bootstrapToken, buildChannel = ALPHA_BUILD_CHANNEL) {
+        const token = String(bootstrapToken || "").trim();
+        if (!token) {
+          throw new Error("VIBEOS_API_BOOTSTRAP_TOKEN is not set");
+        }
+        const url = this.baseUrl + BOOTSTRAP_EXCHANGE_PATH;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+        try {
+          const res = await fetch(url, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: "Bearer " + token
+            },
+            body: JSON.stringify({
+              build_channel: buildChannel,
+              client: "opencode"
+            }),
+            signal: controller.signal
+          });
+          if (res.status === 401 || res.status === 403) {
+            const errorBody = await res.json().catch(() => ({}));
+            throw new VibeOSAuthError(errorBody.message || "Bootstrap exchange failed", res.status, errorBody.code);
+          }
+          if (!res.ok) {
+            const errorBody = await res.json().catch(() => ({}));
+            throw new Error("API error " + res.status + ": " + (errorBody.error || res.statusText));
+          }
+          const data = await res.json().catch(() => ({}));
+          const apiToken = String(data?.api_token || data?.token || data?.access_token || "").trim();
+          if (!apiToken)
+            throw new Error("Bootstrap exchange returned no API token");
+          return apiToken;
+        } finally {
+          clearTimeout(timeoutId);
+        }
+      }
+      async delegateCheck(tool2, tier, model, prompt, dynamicCache = {}) {
+        return this.request("/api/v1/delegate/check", { tool: tool2, tier, model, prompt, dynamic_cache: dynamicCache });
+      }
+      async delegateSoftQuota(tool2, currentCount, limit = 5) {
+        return this.request("/api/v1/delegate/soft-quota", { tool: tool2, current_count: currentCount, limit });
+      }
+      async delegateCost(model, dynamicCache = {}) {
+        return this.request("/api/v1/delegation/cost", { model, dynamic_cache: dynamicCache });
+      }
+      async routeModel(prompt, currentTier2, trinityCheap, trinityMedium, learnedExploratory = [], stressScore = 0) {
+        return this.request("/api/v1/route/model", {
+          prompt,
+          current_tier: currentTier2,
+          trinity_cheap: trinityCheap,
+          trinity_medium: trinityMedium,
+          learned_exploratory: learnedExploratory,
+          stress_score: stressScore
+        });
+      }
+      async getModes() {
+        return this.request("/api/v1/modes", {}, "GET");
+      }
+      async selectMode(mode) {
+        return this.request("/api/v1/mode/select", { mode });
+      }
+      async classifyQuery(text, state) {
+        return this.request("/api/v1/mode/classify", { text, state: state || {} });
+      }
+      async classifyTier(model, customRegex = null) {
+        return this.request("/api/v1/tier/classify", { model, custom_regex: customRegex });
+      }
+      async isExploratory(prompt, learnedExploratory = []) {
+        return this.request("/api/v1/tier/exploratory", { prompt, learned_exploratory: learnedExploratory });
+      }
+      async scoreStress(text) {
+        return this.request("/api/v1/stress/score", { text });
+      }
+      async stressLevel(score) {
+        return this.request("/api/v1/stress/level", { score });
+      }
+      async blackboxAnalyze(sessionId, entry) {
+        return this.request("/api/v1/blackbox/analyze", {
+          session_id: sessionId,
+          project_id: entry.project_id || null,
+          user_text: entry.userText || "",
+          features: entry.features || {},
+          action: entry.action || "explore",
+          entropy: entry.entropy ?? 1,
+          uncertainty: entry.uncertainty ?? 50,
+          embedding: entry.embedding || null
+        });
+      }
+      async blackboxState(sessionId) {
+        return this.request("/api/v1/blackbox/state", { session_id: sessionId });
+      }
+      async blackboxReset(sessionId) {
+        return this.request("/api/v1/blackbox/reset", { session_id: sessionId });
+      }
+      async blackboxOutcome(sessionId, outcome) {
+        return this.request("/api/v1/blackbox/outcome", { session_id: sessionId, outcome });
+      }
+      async blackboxCalibrate(projectId) {
+        return this.request("/api/v1/blackbox/calibrate", { project_id: projectId || "global" });
+      }
+      async blackboxCalibration(projectId) {
+        return this.request("/api/v1/blackbox/calibration?project_id=" + (projectId || "global"), null);
+      }
+      async blackboxControlVector(state, action, optimizationMode) {
+        return this.request("/api/v1/blackbox/control-vector", { ...state, action, optimization_mode: optimizationMode });
+      }
+      async blackboxSelectMode(subRegime, stressMultiplier) {
+        return this.request("/api/v1/blackbox/select-mode", { sub_regime: subRegime, stress_multiplier: stressMultiplier });
+      }
+      async vibemaxSelect(input = {}) {
+        return this.request("/api/v1/vibemax/select", input);
+      }
+      async vibemaxPipeline(input = {}) {
+        return this.request("/api/v1/vibemax/pipeline", input);
+      }
+      async vibemaxReset() {
+        return this.request("/api/v1/vibemax/reset", null);
+      }
+      async vibemaxModel() {
+        return this.request("/api/v1/vibemax/model", null);
+      }
+      async vibemaxTrain(telemetryPath = null) {
+        return this.request("/api/v1/vibemax/train", { telemetry_path: telemetryPath });
+      }
+      async tddExports(sourceContent, ext) {
+        return this.request("/api/v1/tdd/exports", { source_content: sourceContent, ext });
+      }
+      async tddParams(sourceContent, funcName) {
+        return this.request("/api/v1/tdd/params", { source_content: sourceContent, func_name: funcName });
+      }
+      async tddInferType(paramName, defaultValue) {
+        return this.request("/api/v1/tdd/infer-type", { param_name: paramName, default_value: defaultValue });
+      }
+      async tddSkeleton(language, fileName, exports, options = {}) {
+        return this.request("/api/v1/tdd/skeleton", { language, file_name: fileName, exports, options });
+      }
+      async patternsObserve(sessionId, toolName, input, output, directory3) {
+        return this.request("/api/v1/patterns/observe", {
+          session_id: sessionId,
+          tool_name: toolName,
+          input,
+          output,
+          directory: directory3
+        });
+      }
+      async patternsRecord(sessionId, kind, key, summary, meta = {}) {
+        return this.request("/api/v1/patterns/record", {
+          session_id: sessionId,
+          kind,
+          key,
+          summary,
+          meta
+        });
+      }
+      async patternsQuery(sessionId, kind = null) {
+        return this.request("/api/v1/patterns/query?kind=" + (kind || ""), null);
+      }
+      async patternsExploratoryWords(sessionId) {
+        return this.request("/api/v1/patterns/exploratory-words", null);
+      }
+      async patternsClear(sessionId) {
+        return this.request("/api/v1/patterns/clear", { session_id: sessionId });
+      }
+      async pricingFetch(openrouterKey, force = false) {
+        return this.request("/api/v1/pricing/fetch", { openrouter_key: openrouterKey, force });
+      }
+      async pricingLookup(model) {
+        return this.request("/api/v1/pricing/lookup", { model });
+      }
+      async pricingStatic() {
+        return this.request("/api/v1/pricing/static", null);
+      }
+      async compressContext(text, threshold = 2e3) {
+        return this.request("/api/v1/compress/context", { text, threshold });
+      }
+      async adminCreateSeat(name, email) {
+        return this.request("/admin/seats", { name, email }, true);
+      }
+      async adminCreateSeatWithToken(name, email, tokenLabel = null) {
+        return this.request("/admin/seats", { name, email, with_token: tokenLabel || true }, true);
+      }
+      async adminListSeats() {
+        return this.request("/admin/seats", null, true);
+      }
+      async adminUpdateSeat(seatId, status) {
+        return this.request("/admin/seats/" + seatId, { status }, true);
+      }
+      async adminCreateToken(seatId, label, expiresAt) {
+        return this.request("/admin/tokens", { seat_id: seatId, label, expires_at: expiresAt }, true);
+      }
+      async adminListTokens() {
+        return this.request("/admin/tokens", null, true);
+      }
+      async adminUpdateToken(tokenId, status) {
+        return this.request("/admin/tokens/" + tokenId, { status }, true);
+      }
+      async adminDeleteToken(tokenId) {
+        return this.request("/admin/tokens/" + tokenId, null, true);
+      }
+      async adminUsage(days = 30) {
+        return this.request("/admin/usage?days=" + days, null, true);
+      }
+      async health() {
+        const result = await this.request("/health", null, false);
+        recordBackendVersion(result);
+        return result;
+      }
+      isFallback() {
+        return this.fallbackMode;
+      }
+    };
+    VIBEOS_API_URL = process.env.VIBEOS_API_URL || "https://api.vibetheog.com";
+    _apiDir = typeof __dirname !== "undefined" ? __dirname : dirname4(fileURLToPath3(import.meta.url));
+    _envPaths = [homedir3() + "/.claude", _apiDir, process.cwd(), homedir3()];
+    _bootstrapEnvPath = _envPaths[0] + "/.env.alpha";
+    VIBEOS_API_DISABLED = readApiDisabledFromDisk() || isTruthyFlag(process.env.VIBEOS_API_DISABLED);
+    VIBEOS_API_TOKEN = VIBEOS_API_DISABLED ? "" : readTokenFromDisk() || normalizeDirectApiToken(process.env.VIBEOS_API_TOKEN) || (!hasPrimaryTokenOnDisk() ? EMBEDDED_API_TOKEN : "");
+    VIBEOS_API_BOOTSTRAP_TOKEN = VIBEOS_API_DISABLED ? "" : readBootstrapTokenFromDisk() || process.env.VIBEOS_API_BOOTSTRAP_TOKEN || EMBEDDED_API_TOKEN;
+    VIBEOS_API_ENABLED = !VIBEOS_API_DISABLED && process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
+    setApiEnabled(VIBEOS_API_ENABLED);
+    _anomalyDetector = null;
+    _apiClientHolder = { client: null, gen: 0, tokenSnapshot: "" };
+    _apiClientGen = 0;
+    _apiFallbackMode = false;
+    _apiFallbackSince = null;
+    _bootstrapExchangeInFlight = null;
+    _bootstrapExchangeFailedAt = 0;
+    _backendVersion = "";
+    FALLBACK_COOLDOWN_MS = process.env.VIBEOS_FAST_CI === "1" ? 5e3 : 6e4;
   }
 });
 
@@ -4295,8 +5083,8 @@ var init_vibeultrax = __esm({
 
 // src/index.ts
 init_flow_enforcer();
-import { readFileSync as readFileSync17, writeFileSync as writeFileSync16, existsSync as existsSync18, mkdirSync as mkdirSync14, copyFileSync as copyFileSync2, renameSync as renameSync6, statSync as statSync9 } from "node:fs";
-import { join as join18, dirname as dirname13, basename as basename5 } from "node:path";
+import { readFileSync as readFileSync18, writeFileSync as writeFileSync17, existsSync as existsSync19, mkdirSync as mkdirSync15, copyFileSync as copyFileSync2, renameSync as renameSync6, statSync as statSync9 } from "node:fs";
+import { join as join19, dirname as dirname13, basename as basename5 } from "node:path";
 
 // src/vibeOS-lib/session-metrics.js
 function formatDuration(totalSeconds) {
@@ -4837,817 +5625,11 @@ function createMcpServer(deps) {
   };
 }
 
-// src/lib/api-client.js
-init_runtime_state();
-import { readFileSync as readFileSync4, writeFileSync as writeFileSync5, existsSync as existsSync5, mkdirSync as mkdirSync4, rmSync as rmSync2 } from "node:fs";
-import { dirname as dirname4 } from "node:path";
-import { fileURLToPath as fileURLToPath3 } from "node:url";
-import { homedir as homedir3 } from "node:os";
-var DEFAULT_API_URL = "https://api.vibetheog.com";
-var EMBEDDED_API_TOKEN = "vos_8d73804b13bb46711b9a47f036dba7b4d026fd9583d96960e663716e62815a69";
-var API_TOKEN_RE = /^vos_[a-f0-9]{64}$/i;
-var API_DISABLED_RE = /^(1|true|yes|on)$/i;
-var REQUEST_TIMEOUT = 1e4;
-var MAX_RETRIES = 3;
-var BASE_RETRY_DELAY = 1e3;
-var ALPHA_BUILD_CHANNEL = String(process.env.VIBEOS_BUILD_CHANNEL || "alpha").toLowerCase();
-var BOOTSTRAP_EXCHANGE_PATH = "/api/v1/auth/bootstrap/exchange";
-var BOOTSTRAP_RETRY_COOLDOWN_MS = 6e4;
-var VibeOSAuthError = class extends Error {
-  statusCode;
-  code;
-  constructor(message, statusCode, code) {
-    super(message);
-    this.name = "VibeOSAuthError";
-    this.statusCode = statusCode;
-    this.code = code;
-  }
-};
-var VibeOSTimeoutError = class extends Error {
-  constructor(message) {
-    super(message);
-    this.name = "VibeOSTimeoutError";
-  }
-};
-var VibeOSNetworkError = class extends Error {
-  constructor(message) {
-    super(message);
-    this.name = "VibeOSNetworkError";
-  }
-};
-var ANOMALY_BURST_WINDOW_MS = 5e3;
-var ANOMALY_BURST_THRESHOLD = 10;
-var ANOMALY_FREQ_WINDOW_MS = 6e5;
-var ANOMALY_STDDEV_FACTOR = 3;
-var ANOMALY_WARMUP_MS = 3e4;
-var ANOMALY_COOLDOWN_MS = 12e4;
-var TokenAnomalyDetector = class {
-  burstHistory = [];
-  freqHistory = [];
-  lastWarnTime = 0;
-  anomalyTriggered = false;
-  disabled = false;
-  startedAt = Date.now();
-  get isWarmup() {
-    return Date.now() - this.startedAt < ANOMALY_WARMUP_MS;
-  }
-  record() {
-    if (this.disabled || this.isWarmup)
-      return;
-    const now = Date.now();
-    this.burstHistory = this.burstHistory.filter((t) => now - t < ANOMALY_BURST_WINDOW_MS);
-    this.burstHistory.push(now);
-    this.freqHistory.push(now);
-  }
-  checkBurst() {
-    return this.burstHistory.length > ANOMALY_BURST_THRESHOLD;
-  }
-  checkFrequency() {
-    const now = Date.now();
-    const window = this.freqHistory.filter((t) => now - t < ANOMALY_FREQ_WINDOW_MS);
-    if (window.length < 10)
-      return false;
-    const mean = window.length / (ANOMALY_FREQ_WINDOW_MS / 6e4);
-    const recent = this.burstHistory.length / (ANOMALY_BURST_WINDOW_MS / 1e3);
-    return recent > mean * ANOMALY_STDDEV_FACTOR;
-  }
-  throttleIfAnomalous() {
-    const now = Date.now();
-    if (this.disabled || this.isWarmup)
-      return false;
-    if (this.anomalyTriggered)
-      return true;
-    if (this.checkBurst() || this.checkFrequency()) {
-      this.anomalyTriggered = true;
-      this.lastWarnTime = now;
-      console.error("[vibeOS] Token anomaly detected \u2014 throttling API calls");
-      return true;
-    }
-    if (this.lastWarnTime && now - this.lastWarnTime > ANOMALY_COOLDOWN_MS) {
-      this.anomalyTriggered = false;
-    }
-    return this.anomalyTriggered;
-  }
-  reset() {
-    this.burstHistory = [];
-    this.freqHistory = [];
-    this.anomalyTriggered = false;
-    this.lastWarnTime = 0;
-  }
-};
-function normalizeApiToken(token, fallback2 = "") {
-  const clean = String(token || "").trim();
-  return API_TOKEN_RE.test(clean) ? clean : fallback2;
-}
-function normalizeDirectApiToken(token) {
-  const clean = normalizeApiToken(token, "");
-  return clean && clean !== EMBEDDED_API_TOKEN ? clean : "";
-}
-function isTruthyFlag(value) {
-  return API_DISABLED_RE.test(String(value || "").trim());
-}
-function editEnvLine(content, key, value) {
-  const lines = String(content || "").split(/\r?\n/);
-  const next = [];
-  let found = false;
-  for (const line of lines) {
-    if (line.startsWith(`${key}=`)) {
-      found = true;
-      if (value !== null)
-        next.push(`${key}=${value}`);
-      continue;
-    }
-    next.push(line);
-  }
-  if (!found && value !== null)
-    next.push(`${key}=${value}`);
-  while (next.length > 0 && next[next.length - 1] === "")
-    next.pop();
-  return next.join("\n") + "\n";
-}
-function persistPrimaryApiEnvState(next) {
-  const primaryPath = _envPaths[0] + "/.env.production";
-  try {
-    let envContent = existsSync5(primaryPath) ? readFileSync4(primaryPath, "utf8") : "";
-    if (next.disabled !== void 0) {
-      envContent = editEnvLine(envContent, "VIBEOS_API_DISABLED", next.disabled ? "true" : null);
-    }
-    if (next.token !== void 0) {
-      envContent = editEnvLine(envContent, "VIBEOS_API_TOKEN", next.token ? String(next.token).trim() : null);
-    }
-    if (!envContent.trim()) {
-      try {
-        if (existsSync5(primaryPath))
-          rmSync2(primaryPath, { force: true });
-      } catch {
-      }
-      return;
-    }
-    const parentDir = _envPaths[0];
-    if (!existsSync5(parentDir))
-      mkdirSync4(parentDir, { recursive: true });
-    writeFileSync5(primaryPath, envContent.endsWith("\n") ? envContent : envContent + "\n", "utf8");
-  } catch (diskErr) {
-    console.error("[vibeOS] Failed to persist API env state:", diskErr.message);
-  }
-}
-var VibeOSApiClient = class {
-  baseUrl;
-  apiToken;
-  masterKey;
-  timeout;
-  fallbackMode;
-  fallbackStubs;
-  constructor(options = {}) {
-    this.baseUrl = options.baseUrl || process.env.VIBEOS_API_URL || DEFAULT_API_URL;
-    this.apiToken = normalizeApiToken(options.apiToken || process.env.VIBEOS_API_TOKEN || "", "") || null;
-    this.masterKey = options.masterKey || process.env.VIBEOS_API_MASTER_KEY || null;
-    this.timeout = options.timeout || REQUEST_TIMEOUT;
-    this.fallbackMode = false;
-    this.fallbackStubs = options.fallbackStubs || null;
-  }
-  async request(path, body = null, isAdmin = false) {
-    if (!this.apiToken && !isAdmin) {
-      throw new Error("VIBEOS_API_TOKEN is not set");
-    }
-    const url = this.baseUrl + path;
-    const headers = {
-      "Content-Type": "application/json",
-      Authorization: "Bearer " + (isAdmin ? this.masterKey : this.apiToken)
-    };
-    let lastError = null;
-    let attempt = 0;
-    while (attempt <= MAX_RETRIES) {
-      if (attempt > 0) {
-        const delay = BASE_RETRY_DELAY * Math.pow(2, attempt - 1);
-        await new Promise((r) => setTimeout(r, delay));
-      }
-      attempt++;
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), this.timeout);
-        const res = await fetch(url, {
-          method: body ? "POST" : "GET",
-          headers,
-          body: body ? JSON.stringify(body) : null,
-          signal: controller.signal
-        });
-        clearTimeout(timeoutId);
-        if (res.status === 401 || res.status === 403) {
-          const errorBody = await res.json().catch(() => ({}));
-          this.fallbackMode = true;
-          throw new VibeOSAuthError(errorBody.message || "Authentication failed", res.status, errorBody.code);
-        }
-        if (!res.ok) {
-          const errorBody = await res.json().catch(() => ({}));
-          if (res.status >= 500 && attempt <= MAX_RETRIES) {
-            lastError = new Error("API error " + res.status + ": " + (errorBody.error || res.statusText));
-            continue;
-          }
-          throw new Error("API error " + res.status + ": " + (errorBody.error || res.statusText));
-        }
-        this.fallbackMode = false;
-        return res.json();
-      } catch (err) {
-        if (err instanceof VibeOSAuthError)
-          throw err;
-        const error = err;
-        if (error.name === "AbortError") {
-          if (attempt <= MAX_RETRIES) {
-            lastError = new VibeOSTimeoutError("Request to " + url + " timed out after " + this.timeout + "ms");
-            continue;
-          }
-          this.fallbackMode = true;
-          throw new VibeOSTimeoutError("Request to " + url + " timed out after " + this.timeout + "ms");
-        }
-        lastError = err;
-        if (attempt <= MAX_RETRIES && error.message && (error.message.includes("fetch") || error.message.includes("network") || error.message.includes("ECONNREFUSED"))) {
-          continue;
-        }
-      }
-    }
-    this.fallbackMode = true;
-    throw new VibeOSNetworkError("Failed to reach API after " + MAX_RETRIES + " retries: " + (lastError ? lastError.message : "unknown error"));
-  }
-  async exchangeBootstrapToken(bootstrapToken, buildChannel = ALPHA_BUILD_CHANNEL) {
-    const token = String(bootstrapToken || "").trim();
-    if (!token) {
-      throw new Error("VIBEOS_API_BOOTSTRAP_TOKEN is not set");
-    }
-    const url = this.baseUrl + BOOTSTRAP_EXCHANGE_PATH;
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
-    try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: "Bearer " + token
-        },
-        body: JSON.stringify({
-          build_channel: buildChannel,
-          client: "opencode"
-        }),
-        signal: controller.signal
-      });
-      if (res.status === 401 || res.status === 403) {
-        const errorBody = await res.json().catch(() => ({}));
-        throw new VibeOSAuthError(errorBody.message || "Bootstrap exchange failed", res.status, errorBody.code);
-      }
-      if (!res.ok) {
-        const errorBody = await res.json().catch(() => ({}));
-        throw new Error("API error " + res.status + ": " + (errorBody.error || res.statusText));
-      }
-      const data = await res.json().catch(() => ({}));
-      const apiToken = String(data?.api_token || data?.token || data?.access_token || "").trim();
-      if (!apiToken)
-        throw new Error("Bootstrap exchange returned no API token");
-      return apiToken;
-    } finally {
-      clearTimeout(timeoutId);
-    }
-  }
-  async delegateCheck(tool2, tier, model, prompt, dynamicCache = {}) {
-    return this.request("/api/v1/delegate/check", { tool: tool2, tier, model, prompt, dynamic_cache: dynamicCache });
-  }
-  async delegateSoftQuota(tool2, currentCount, limit = 5) {
-    return this.request("/api/v1/delegate/soft-quota", { tool: tool2, current_count: currentCount, limit });
-  }
-  async delegateCost(model, dynamicCache = {}) {
-    return this.request("/api/v1/delegation/cost", { model, dynamic_cache: dynamicCache });
-  }
-  async routeModel(prompt, currentTier2, trinityCheap, trinityMedium, learnedExploratory = [], stressScore = 0) {
-    return this.request("/api/v1/route/model", {
-      prompt,
-      current_tier: currentTier2,
-      trinity_cheap: trinityCheap,
-      trinity_medium: trinityMedium,
-      learned_exploratory: learnedExploratory,
-      stress_score: stressScore
-    });
-  }
-  async getModes() {
-    return this.request("/api/v1/modes", {}, "GET");
-  }
-  async selectMode(mode) {
-    return this.request("/api/v1/mode/select", { mode });
-  }
-  async classifyQuery(text, state) {
-    return this.request("/api/v1/mode/classify", { text, state: state || {} });
-  }
-  async classifyTier(model, customRegex = null) {
-    return this.request("/api/v1/tier/classify", { model, custom_regex: customRegex });
-  }
-  async isExploratory(prompt, learnedExploratory = []) {
-    return this.request("/api/v1/tier/exploratory", { prompt, learned_exploratory: learnedExploratory });
-  }
-  async scoreStress(text) {
-    return this.request("/api/v1/stress/score", { text });
-  }
-  async stressLevel(score) {
-    return this.request("/api/v1/stress/level", { score });
-  }
-  async blackboxAnalyze(sessionId, entry) {
-    return this.request("/api/v1/blackbox/analyze", {
-      session_id: sessionId,
-      project_id: entry.project_id || null,
-      user_text: entry.userText || "",
-      features: entry.features || {},
-      action: entry.action || "explore",
-      entropy: entry.entropy ?? 1,
-      uncertainty: entry.uncertainty ?? 50,
-      embedding: entry.embedding || null
-    });
-  }
-  async blackboxState(sessionId) {
-    return this.request("/api/v1/blackbox/state", { session_id: sessionId });
-  }
-  async blackboxReset(sessionId) {
-    return this.request("/api/v1/blackbox/reset", { session_id: sessionId });
-  }
-  async blackboxOutcome(sessionId, outcome) {
-    return this.request("/api/v1/blackbox/outcome", { session_id: sessionId, outcome });
-  }
-  async blackboxCalibrate(projectId) {
-    return this.request("/api/v1/blackbox/calibrate", { project_id: projectId || "global" });
-  }
-  async blackboxCalibration(projectId) {
-    return this.request("/api/v1/blackbox/calibration?project_id=" + (projectId || "global"), null);
-  }
-  async blackboxControlVector(state, action, optimizationMode) {
-    return this.request("/api/v1/blackbox/control-vector", { ...state, action, optimization_mode: optimizationMode });
-  }
-  async blackboxSelectMode(subRegime, stressMultiplier) {
-    return this.request("/api/v1/blackbox/select-mode", { sub_regime: subRegime, stress_multiplier: stressMultiplier });
-  }
-  async vibemaxSelect(input = {}) {
-    return this.request("/api/v1/vibemax/select", input);
-  }
-  async vibemaxPipeline(input = {}) {
-    return this.request("/api/v1/vibemax/pipeline", input);
-  }
-  async vibemaxReset() {
-    return this.request("/api/v1/vibemax/reset", null);
-  }
-  async vibemaxModel() {
-    return this.request("/api/v1/vibemax/model", null);
-  }
-  async vibemaxTrain(telemetryPath = null) {
-    return this.request("/api/v1/vibemax/train", { telemetry_path: telemetryPath });
-  }
-  async tddExports(sourceContent, ext) {
-    return this.request("/api/v1/tdd/exports", { source_content: sourceContent, ext });
-  }
-  async tddParams(sourceContent, funcName) {
-    return this.request("/api/v1/tdd/params", { source_content: sourceContent, func_name: funcName });
-  }
-  async tddInferType(paramName, defaultValue) {
-    return this.request("/api/v1/tdd/infer-type", { param_name: paramName, default_value: defaultValue });
-  }
-  async tddSkeleton(language, fileName, exports, options = {}) {
-    return this.request("/api/v1/tdd/skeleton", { language, file_name: fileName, exports, options });
-  }
-  async patternsObserve(sessionId, toolName, input, output, directory3) {
-    return this.request("/api/v1/patterns/observe", {
-      session_id: sessionId,
-      tool_name: toolName,
-      input,
-      output,
-      directory: directory3
-    });
-  }
-  async patternsRecord(sessionId, kind, key, summary, meta = {}) {
-    return this.request("/api/v1/patterns/record", {
-      session_id: sessionId,
-      kind,
-      key,
-      summary,
-      meta
-    });
-  }
-  async patternsQuery(sessionId, kind = null) {
-    return this.request("/api/v1/patterns/query?kind=" + (kind || ""), null);
-  }
-  async patternsExploratoryWords(sessionId) {
-    return this.request("/api/v1/patterns/exploratory-words", null);
-  }
-  async patternsClear(sessionId) {
-    return this.request("/api/v1/patterns/clear", { session_id: sessionId });
-  }
-  async pricingFetch(openrouterKey, force = false) {
-    return this.request("/api/v1/pricing/fetch", { openrouter_key: openrouterKey, force });
-  }
-  async pricingLookup(model) {
-    return this.request("/api/v1/pricing/lookup", { model });
-  }
-  async pricingStatic() {
-    return this.request("/api/v1/pricing/static", null);
-  }
-  async compressContext(text, threshold = 2e3) {
-    return this.request("/api/v1/compress/context", { text, threshold });
-  }
-  async adminCreateSeat(name, email) {
-    return this.request("/admin/seats", { name, email }, true);
-  }
-  async adminCreateSeatWithToken(name, email, tokenLabel = null) {
-    return this.request("/admin/seats", { name, email, with_token: tokenLabel || true }, true);
-  }
-  async adminListSeats() {
-    return this.request("/admin/seats", null, true);
-  }
-  async adminUpdateSeat(seatId, status) {
-    return this.request("/admin/seats/" + seatId, { status }, true);
-  }
-  async adminCreateToken(seatId, label, expiresAt) {
-    return this.request("/admin/tokens", { seat_id: seatId, label, expires_at: expiresAt }, true);
-  }
-  async adminListTokens() {
-    return this.request("/admin/tokens", null, true);
-  }
-  async adminUpdateToken(tokenId, status) {
-    return this.request("/admin/tokens/" + tokenId, { status }, true);
-  }
-  async adminDeleteToken(tokenId) {
-    return this.request("/admin/tokens/" + tokenId, null, true);
-  }
-  async adminUsage(days = 30) {
-    return this.request("/admin/usage?days=" + days, null, true);
-  }
-  async health() {
-    const result = await this.request("/health", null, false);
-    recordBackendVersion(result);
-    return result;
-  }
-  isFallback() {
-    return this.fallbackMode;
-  }
-};
-var VIBEOS_API_URL = process.env.VIBEOS_API_URL || "https://api.vibetheog.com";
-var _apiDir = typeof __dirname !== "undefined" ? __dirname : dirname4(fileURLToPath3(import.meta.url));
-var _envPaths = [homedir3() + "/.claude", _apiDir, process.cwd(), homedir3()];
-var _bootstrapEnvPath = _envPaths[0] + "/.env.alpha";
-function readApiDisabledFromDisk() {
-  for (const dir of _envPaths) {
-    try {
-      const env = readFileSync4(dir + "/.env.production", "utf8");
-      const m = env.match(/^VIBEOS_API_DISABLED=(.+)$/m);
-      if (m && isTruthyFlag(m[1]))
-        return true;
-    } catch {
-    }
-  }
-  return false;
-}
-function readTokenFromDisk() {
-  if (readApiDisabledFromDisk())
-    return "";
-  for (const dir of _envPaths) {
-    try {
-      const env = readFileSync4(dir + "/.env.production", "utf8");
-      const m = env.match(/^VIBEOS_API_TOKEN=(.+)$/m);
-      if (m) {
-        const clean = normalizeDirectApiToken(m[1]);
-        if (clean)
-          return clean;
-      }
-    } catch {
-    }
-  }
-  return "";
-}
-function hasPrimaryTokenOnDisk() {
-  if (readApiDisabledFromDisk())
-    return false;
-  try {
-    const env = readFileSync4(_envPaths[0] + "/.env.production", "utf8");
-    return /^VIBEOS_API_TOKEN=/m.test(env);
-  } catch {
-    return false;
-  }
-}
-function readBootstrapTokenFromDisk() {
-  if (readApiDisabledFromDisk())
-    return "";
-  try {
-    const env = readFileSync4(_bootstrapEnvPath, "utf8");
-    const m = env.match(/^VIBEOS_API_BOOTSTRAP_TOKEN=(.+)$/m);
-    if (m)
-      return m[1].trim();
-  } catch {
-  }
-  return "";
-}
-var VIBEOS_API_DISABLED = readApiDisabledFromDisk() || isTruthyFlag(process.env.VIBEOS_API_DISABLED);
-var VIBEOS_API_TOKEN = VIBEOS_API_DISABLED ? "" : readTokenFromDisk() || normalizeDirectApiToken(process.env.VIBEOS_API_TOKEN) || (!hasPrimaryTokenOnDisk() ? EMBEDDED_API_TOKEN : "");
-var VIBEOS_API_BOOTSTRAP_TOKEN = VIBEOS_API_DISABLED ? "" : readBootstrapTokenFromDisk() || process.env.VIBEOS_API_BOOTSTRAP_TOKEN || EMBEDDED_API_TOKEN;
-var VIBEOS_API_ENABLED = !VIBEOS_API_DISABLED && process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
-setApiEnabled(VIBEOS_API_ENABLED);
-function syncApiEnabledState(next) {
-  VIBEOS_API_ENABLED = !!next;
-  setApiEnabled(VIBEOS_API_ENABLED);
-}
-var _anomalyDetector = null;
-function getAnomalyDetector() {
-  if (!_anomalyDetector)
-    _anomalyDetector = new TokenAnomalyDetector();
-  return _anomalyDetector;
-}
-function persistBootstrapToken(token) {
-  const clean = String(token || "").trim();
-  try {
-    if (!clean) {
-      try {
-        if (existsSync5(_bootstrapEnvPath))
-          rmSync2(_bootstrapEnvPath, { force: true });
-      } catch {
-      }
-      return;
-    }
-    const parentDir = _envPaths[0];
-    if (!existsSync5(parentDir))
-      mkdirSync4(parentDir, { recursive: true });
-    writeFileSync5(_bootstrapEnvPath, `VIBEOS_API_BOOTSTRAP_TOKEN=${clean}
-`, "utf8");
-  } catch (diskErr) {
-    console.error("[vibeOS] Failed to persist alpha bootstrap token:", diskErr.message);
-  }
-}
-function setApiToken(newToken) {
-  try {
-    VIBEOS_API_DISABLED = false;
-    VIBEOS_API_TOKEN = normalizeDirectApiToken(newToken);
-    VIBEOS_API_BOOTSTRAP_TOKEN = readBootstrapTokenFromDisk() || VIBEOS_API_BOOTSTRAP_TOKEN;
-    syncApiEnabledState(process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN));
-    _apiClientGen++;
-    _apiClientHolder = { client: null, gen: _apiClientGen, tokenSnapshot: VIBEOS_API_TOKEN };
-    _apiFallbackMode = false;
-    _apiFallbackSince = null;
-    persistPrimaryApiEnvState({ token: VIBEOS_API_TOKEN, disabled: false });
-    if (_anomalyDetector)
-      _anomalyDetector.reset();
-    markApiConnected();
-    console.error("[vibeOS] API token updated via setApiToken");
-  } catch (e) {
-    console.error("[vibeOS] Failed to update API token:", e.message);
-  }
-}
-function invalidateApiToken() {
-  try {
-    VIBEOS_API_DISABLED = true;
-    VIBEOS_API_TOKEN = "";
-    VIBEOS_API_BOOTSTRAP_TOKEN = "";
-    syncApiEnabledState(false);
-    _apiClientGen++;
-    _apiClientHolder = { client: null, gen: _apiClientGen, tokenSnapshot: "" };
-    _apiFallbackMode = false;
-    _apiFallbackSince = null;
-    if (_anomalyDetector)
-      _anomalyDetector.reset();
-    persistBootstrapToken("");
-    persistPrimaryApiEnvState({ token: "", disabled: true });
-    resetApiConnection();
-    console.error("[vibeOS] API token invalidated and remote API disabled");
-  } catch (e) {
-    console.error("[vibeOS] Failed to invalidate API token:", e.message);
-  }
-}
-function setApiBootstrapToken(newToken) {
-  try {
-    VIBEOS_API_DISABLED = false;
-    VIBEOS_API_BOOTSTRAP_TOKEN = String(newToken || "").trim();
-    syncApiEnabledState(process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN));
-    markApiConnected();
-    persistPrimaryApiEnvState({ disabled: false });
-    persistBootstrapToken(VIBEOS_API_BOOTSTRAP_TOKEN);
-    console.error("[vibeOS] Alpha bootstrap token updated");
-  } catch (e) {
-    console.error("[vibeOS] Failed to update alpha bootstrap token:", e.message);
-  }
-}
-var _apiClientHolder = { client: null, gen: 0, tokenSnapshot: "" };
-var _apiClientGen = 0;
-var _apiFallbackMode = false;
-var _apiFallbackSince = null;
-var _bootstrapExchangeInFlight = null;
-var _bootstrapExchangeFailedAt = 0;
-var _backendVersion = "";
-var FALLBACK_COOLDOWN_MS = process.env.VIBEOS_FAST_CI === "1" ? 5e3 : 6e4;
-function tryResetFallbackCooldown() {
-  if (!_apiFallbackMode || !_apiFallbackSince)
-    return false;
-  const elapsed = Date.now() - new Date(_apiFallbackSince).getTime();
-  if (elapsed > FALLBACK_COOLDOWN_MS) {
-    _apiFallbackMode = false;
-    _apiFallbackSince = null;
-    markApiConnected();
-    return true;
-  }
-  return false;
-}
-function getApiFallbackSince() {
-  return _apiFallbackSince;
-}
-function recordBackendVersion(payload) {
-  if (!payload || typeof payload !== "object")
-    return;
-  const version = String(payload.version || "").trim();
-  if (version)
-    _backendVersion = version;
-}
-async function ensureBootstrapExchange() {
-  syncApiTokenFromDisk();
-  if (VIBEOS_API_DISABLED)
-    return false;
-  if (VIBEOS_API_TOKEN)
-    return true;
-  if (!VIBEOS_API_BOOTSTRAP_TOKEN)
-    return false;
-  if (ALPHA_BUILD_CHANNEL !== "alpha")
-    return false;
-  const now = Date.now();
-  if (_bootstrapExchangeInFlight)
-    return _bootstrapExchangeInFlight;
-  if (_bootstrapExchangeFailedAt && now - _bootstrapExchangeFailedAt < BOOTSTRAP_RETRY_COOLDOWN_MS)
-    return false;
-  _bootstrapExchangeInFlight = (async () => {
-    try {
-      const client2 = new VibeOSApiClient({
-        baseUrl: VIBEOS_API_URL,
-        timeout: 5e3
-      });
-      const apiToken = await client2.exchangeBootstrapToken(VIBEOS_API_BOOTSTRAP_TOKEN, ALPHA_BUILD_CHANNEL);
-      if (!apiToken)
-        return false;
-      setApiToken(apiToken);
-      markApiConnected();
-      return true;
-    } catch (err) {
-      _bootstrapExchangeFailedAt = Date.now();
-      console.error("[vibeOS] Alpha bootstrap exchange failed:", err.message);
-      return false;
-    } finally {
-      _bootstrapExchangeInFlight = null;
-    }
-  })();
-  return _bootstrapExchangeInFlight;
-}
-function syncApiTokenFromDisk() {
-  const diskDisabled = readApiDisabledFromDisk() || isTruthyFlag(process.env.VIBEOS_API_DISABLED);
-  const diskToken = readTokenFromDisk() || "";
-  const diskBootstrapToken = readBootstrapTokenFromDisk() || "";
-  const envToken = normalizeDirectApiToken(process.env.VIBEOS_API_TOKEN);
-  if (diskDisabled) {
-    if (!VIBEOS_API_DISABLED || VIBEOS_API_TOKEN || VIBEOS_API_BOOTSTRAP_TOKEN || VIBEOS_API_ENABLED) {
-      VIBEOS_API_DISABLED = true;
-      VIBEOS_API_TOKEN = "";
-      VIBEOS_API_BOOTSTRAP_TOKEN = "";
-      syncApiEnabledState(false);
-      _apiClientGen++;
-      _apiClientHolder = { client: null, gen: _apiClientGen, tokenSnapshot: "" };
-      _apiFallbackMode = false;
-      _apiFallbackSince = null;
-      resetApiConnection();
-      console.error("[vibeOS] API token disabled from disk (alpha kill switch active)");
-    }
-    return;
-  }
-  if (diskToken && diskToken !== VIBEOS_API_TOKEN) {
-    VIBEOS_API_DISABLED = false;
-    VIBEOS_API_TOKEN = diskToken;
-    syncApiEnabledState(process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN));
-    _apiClientGen++;
-    _apiClientHolder = { client: null, gen: _apiClientGen, tokenSnapshot: VIBEOS_API_TOKEN };
-    _apiFallbackMode = false;
-    _apiFallbackSince = null;
-    markApiConnected();
-    console.error("[vibeOS] API token synced from disk (disk is newer)");
-  } else if (diskBootstrapToken && diskBootstrapToken !== VIBEOS_API_BOOTSTRAP_TOKEN) {
-    VIBEOS_API_DISABLED = false;
-    VIBEOS_API_BOOTSTRAP_TOKEN = diskBootstrapToken;
-    syncApiEnabledState(process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN));
-    _apiFallbackMode = false;
-    _apiFallbackSince = null;
-    markApiConnected();
-    console.error("[vibeOS] Alpha bootstrap token synced from disk (disk is newer)");
-  } else if (!diskToken && VIBEOS_API_TOKEN) {
-    persistPrimaryApiEnvState({ token: VIBEOS_API_TOKEN, disabled: false });
-    console.error("[vibeOS] API token persisted to disk from memory (disk was empty)");
-    syncApiEnabledState(process.env.VIBEOS_API_ENABLED !== "false" && !!VIBEOS_API_TOKEN);
-    markApiConnected();
-  } else if (envToken && !diskToken && !VIBEOS_API_TOKEN) {
-    VIBEOS_API_DISABLED = false;
-    VIBEOS_API_TOKEN = envToken;
-    syncApiEnabledState(process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN));
-    markApiConnected();
-    console.error("[vibeOS] API token loaded from VIBEOS_API_TOKEN env var");
-  } else {
-    VIBEOS_API_DISABLED = false;
-    if (!VIBEOS_API_TOKEN && !hasPrimaryTokenOnDisk()) {
-      VIBEOS_API_TOKEN = EMBEDDED_API_TOKEN;
-    }
-    VIBEOS_API_BOOTSTRAP_TOKEN ||= EMBEDDED_API_TOKEN;
-    syncApiEnabledState(process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN));
-    markApiConnected();
-  }
-}
-function getApiClient2() {
-  syncApiTokenFromDisk();
-  if (_apiClientHolder.client && _apiClientHolder.gen === _apiClientGen) {
-    return _apiClientHolder.client;
-  }
-  if (isApiEnabled() && VIBEOS_API_TOKEN) {
-    _apiClientHolder.client = new VibeOSApiClient({
-      baseUrl: VIBEOS_API_URL,
-      apiToken: VIBEOS_API_TOKEN,
-      timeout: 5e3
-    });
-    _apiClientHolder.gen = _apiClientGen;
-    _apiClientHolder.tokenSnapshot = VIBEOS_API_TOKEN;
-  } else {
-    _apiClientHolder.client = null;
-  }
-  return _apiClientHolder.client;
-}
-function isApiFallback() {
-  return _apiFallbackMode || isApiFallbackMode() || !isApiEnabled();
-}
-function isApiConnected() {
-  tryResetFallbackCooldown();
-  return isApiEnabled();
-}
-function getBackendVersion() {
-  return _backendVersion;
-}
-async function remoteCall(method, args, fallbackFn) {
-  syncApiTokenFromDisk();
-  if (!VIBEOS_API_TOKEN && VIBEOS_API_BOOTSTRAP_TOKEN) {
-    await ensureBootstrapExchange();
-  }
-  if (tryResetFallbackCooldown()) {
-    if (process.env.VIBEOS_DEBUG)
-      console.warn("[vibeOS] API fallback cooldown expired \u2014 retrying API");
-  }
-  if (!isApiEnabled() || _apiFallbackMode) {
-    if (fallbackFn)
-      return fallbackFn();
-    return null;
-  }
-  const detector = getAnomalyDetector();
-  detector.record();
-  if (detector.throttleIfAnomalous()) {
-    if (fallbackFn)
-      return fallbackFn();
-    return null;
-  }
-  try {
-    const client2 = getApiClient2();
-    if (!client2) {
-      if (fallbackFn)
-        return fallbackFn();
-      return null;
-    }
-    const result = await client2[method](...args);
-    if (method === "health")
-      recordBackendVersion(result);
-    if (_apiFallbackMode) {
-      _apiFallbackMode = false;
-      _apiFallbackSince = null;
-      if (process.env.VIBEOS_DEBUG)
-        console.warn(`[vibeOS] API reconnected \u2014 ${method} OK`);
-    }
-    _apiFallbackMode = false;
-    _apiFallbackSince = null;
-    markApiConnected();
-    return result;
-  } catch (err) {
-    const status = err?.statusCode || err?.status || 0;
-    const body = err?.response?.body || err?.body || "";
-    const bodyPreview = typeof body === "string" ? body.substring(0, 120) : String(body).substring(0, 120);
-    const detail = status ? `status=${status} body=${bodyPreview}` : `message=${err?.message || err}`;
-    if (!_apiFallbackMode) {
-      _apiFallbackMode = true;
-      _apiFallbackSince = (/* @__PURE__ */ new Date()).toISOString();
-      console.error(`[vibeOS] API fallback activated (${method}): ${detail}`);
-    }
-    if (status === 401 || status === 403) {
-      console.warn(`[vibeOS] API auth failed (${method}): server reachable but token rejected \u2014 will retry after cooldown`);
-    } else {
-      markApiDisconnected();
-    }
-    if (fallbackFn) {
-      try {
-        return fallbackFn();
-      } catch (fe) {
-        console.error(`[vibeOS] fallback also failed: ${fe?.message || fe}`);
-      }
-    }
-    return null;
-  }
-}
+// src/index.ts
+init_api_client();
 
 // src/lib/pricing.js
 init_state();
-init_selection_manager();
 import { readFileSync as readFileSync5, writeFileSync as writeFileSync6, existsSync as existsSync6, mkdirSync as mkdirSync5, statSync as statSync5, renameSync as renameSync4, openSync as openSync2, closeSync as closeSync2, rmSync as rmSync3, readdirSync as readdirSync2 } from "node:fs";
 import { join as join5, dirname as dirname5, resolve } from "node:path";
 import { homedir as homedir4, tmpdir as tmpdir3 } from "node:os";
@@ -6479,6 +6461,41 @@ var DOCS_TARGET_RE = /(docs\.|readthedocs|developer\.mozilla|\/api\/|\/reference
 function isDocsTarget(s) {
   return typeof s === "string" && DOCS_TARGET_RE.test(s);
 }
+function loadSelection2() {
+  const TIERS_FILE3 = join5(getVibeOSHome4(), "model-tiers.json");
+  try {
+    if (!existsSync6(TIERS_FILE3))
+      return DFLT_SEL2;
+    const st = statSync5(TIERS_FILE3);
+    if (st.size > 10485760) {
+      _handleStateCorruption2(TIERS_FILE3);
+      return DFLT_SEL2;
+    }
+    const j = safeJsonParse2(readFileSync5(TIERS_FILE3, "utf-8"));
+    return {
+      enabled: j?.selection?.enabled !== false,
+      active_slot: j?.selection?.active_slot || null,
+      slot_locked: j?.selection?.slot_locked === true,
+      thinking_level: j?.selection?.thinking_level || "off",
+      flow_enabled: j?.selection?.flow_enabled === true,
+      tdd_enforce: j?.selection?.tdd_enforce === true,
+      tdd_strict: j?.selection?.tdd_strict === true,
+      tdd_quality: j?.selection?.tdd_quality !== false,
+      flow_enforce: j?.selection?.flow_enforce === true,
+      delegation_enforce: true,
+      selected_provider: j?.selection?.selected_provider || null,
+      selected_quality_tier: j?.selection?.selected_quality_tier || null,
+      selected_model: j?.selection?.selected_model || null,
+      executed_provider: j?.selection?.executed_provider || null,
+      executed_quality_tier: j?.selection?.executed_quality_tier || null,
+      executed_model: j?.selection?.executed_model || null
+    };
+  } catch {
+    _handleStateCorruption2(TIERS_FILE3);
+    return DFLT_SEL2;
+  }
+}
+var DFLT_SEL2 = { enabled: true, active_slot: null, slot_locked: false, thinking_level: "off", flow_enabled: true, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: true, delegation_enforce: true, selected_provider: null, selected_quality_tier: null, selected_model: null, executed_provider: null, executed_quality_tier: null, executed_model: null };
 function readConfig(dir) {
   try {
     const configs = [];
@@ -6721,7 +6738,7 @@ function getTrinitySlotOrder(tiersData = null) {
 function _refreshModel(directory3) {
   try {
     const TIERS_FILE3 = join5(getVibeOSHome4(), "model-tiers.json");
-    const sel = loadSelection();
+    const sel = loadSelection2();
     if (!sel.enabled)
       return;
     const tiersData = safeJsonParse2(readFileSync5(TIERS_FILE3, "utf-8"));
@@ -7460,6 +7477,7 @@ init_pivot_cache();
 // src/lib/turn-classify.js
 init_state();
 init_selection_manager();
+init_api_client();
 
 // src/lib/classifiers.js
 init_state();
@@ -7791,7 +7809,7 @@ function classifyTurnSimple2(userText) {
 }
 async function classifyTurnRemote(text) {
   try {
-    const client2 = getApiClient2();
+    const client2 = getApiClient();
     if (!client2 || isApiFallback()) {
       _lastClassifiedByApi = false;
       return classifyTurnSimple(text);
@@ -7858,7 +7876,7 @@ async function selectOptimizationModeRemote(subRegime, stressMultiplier, fallbac
   if (isApiFallback())
     return fallback2;
   try {
-    const client2 = getApiClient2();
+    const client2 = getApiClient();
     if (client2) {
       const res = await client2.blackboxSelectMode(subRegime || "INIT", Number(stressMultiplier ?? 0));
       const selected = String(res?.mode || "").toLowerCase();
@@ -8231,7 +8249,7 @@ function resolveEnforcementMode() {
 }
 async function syncOutcomeToApi(outcome) {
   try {
-    const client2 = getApiClient2();
+    const client2 = getApiClient();
     if (!client2 || isApiFallback())
       return;
     await client2.blackboxOutcome(_OC_SID, outcome);
@@ -8240,7 +8258,7 @@ async function syncOutcomeToApi(outcome) {
 }
 async function fetchBlackboxEnrichment(sessionId, localState) {
   try {
-    const client2 = getApiClient2();
+    const client2 = getApiClient();
     if (!client2 || isApiFallback())
       return null;
     const result = await client2.blackboxAnalyze(sessionId, {
@@ -9429,6 +9447,7 @@ function resolveCascadeSlot(pipeline = []) {
 }
 
 // src/lib/trinity-tool.js
+init_api_client();
 init_flow_enforcer();
 var MIN_TOOL_BREAKDOWN_THRESHOLD = 5e-3;
 var STRESS_GAUGE_CRITICAL = 0.85;
@@ -9846,7 +9865,6 @@ Use \`trinity enforce on\` to reapply the guard if needed.`;
           deps._modelLocked = true;
           deps._lockedSlot = lockSlot;
           deps._lockedModel = lockModel;
-          deps.writeSelection("slot_locked", true);
           console.error(`[vibeOS] model LOCKED \u2014 ${lockModel} (${deps.currentTier}) will not auto-reconcile with config`);
           return `LOCK ON \u2014 ${lockModel} will not change unless you force with \`trinity set\` or \`trinity lock off\`.`;
         }
@@ -9854,7 +9872,6 @@ Use \`trinity enforce on\` to reapply the guard if needed.`;
           deps._modelLocked = false;
           deps._lockedSlot = null;
           deps._lockedModel = null;
-          deps.writeSelection("slot_locked", false);
           console.error(`[vibeOS] model UNLOCKED \u2014 auto-reconcile re-enabled`);
           return `LOCK OFF \u2014 will auto-follow OpenCode config changes.`;
         }
@@ -11220,13 +11237,13 @@ async function probeModel(modelId, auth, providers = null) {
 }
 
 // src/lib/hooks/footer.js
-import { readFileSync as readFileSync14, appendFileSync as appendFileSync5, mkdirSync as mkdirSync11 } from "node:fs";
-import { join as join15 } from "node:path";
+import { readFileSync as readFileSync15, appendFileSync as appendFileSync5, mkdirSync as mkdirSync12 } from "node:fs";
+import { join as join16 } from "node:path";
 
 // src/lib/hooks/chat-transform.js
 init_state();
-import { readFileSync as readFileSync13, writeFileSync as writeFileSync13, appendFileSync as appendFileSync4, existsSync as existsSync14, mkdirSync as mkdirSync10, rmSync as rmSync5, readdirSync as readdirSync3, statSync as statSync7 } from "node:fs";
-import { join as join14, dirname as dirname10, basename as basename3 } from "node:path";
+import { readFileSync as readFileSync14, writeFileSync as writeFileSync14, appendFileSync as appendFileSync4, existsSync as existsSync15, mkdirSync as mkdirSync11, rmSync as rmSync5, readdirSync as readdirSync3, statSync as statSync7 } from "node:fs";
+import { join as join15, dirname as dirname10, basename as basename3 } from "node:path";
 import { createHash as createHash3 } from "node:crypto";
 
 // src/lib/mode-policy.js
@@ -11420,13 +11437,82 @@ function recordBudgetFirstOutcome(input = {}) {
 
 // src/lib/hooks/chat-transform.js
 init_smart_cache();
+init_api_client();
 init_selection_manager();
+
+// src/lib/index-helpers.js
+import { join as join14 } from "node:path";
+import { writeFileSync as writeFileSync13 } from "node:fs";
+
+// src/vibeOS-lib/semantic-observer.js
+init_state();
+init_pattern_helpers();
+init_pattern_helpers();
+import { join as join13 } from "node:path";
+import { mkdirSync as mkdirSync10, writeFileSync as writeFileSync12, readFileSync as readFileSync13, existsSync as existsSync14 } from "node:fs";
+function deriveRole(toolName, input, output) {
+  if (["write", "edit", "notebookedit", "multiedit"].includes(toolName))
+    return "mutation";
+  const cmd = input?.args?.command || "";
+  if (typeof cmd !== "string")
+    return "query";
+  if (hasBypassFlag(cmd))
+    return "bypass";
+  if (isDeployCommand(cmd))
+    return "deployment";
+  const family = commandFamily(cmd);
+  if (["git-status", "syntax-check", "typecheck", "test", "build"].includes(family))
+    return "verification";
+  return "query";
+}
+function deriveTags(input, output) {
+  const cmd = input?.args?.command || "";
+  return {
+    isGuardBreach: deriveRole(input?.name || "", input, output) === "bypass",
+    isProtectedTarget: typeof cmd === "string" && targetsProtectedBranch(cmd),
+    exitCode: output?.exitCode ?? output?.statusCode ?? output?.code ?? null,
+    family: commandFamily(cmd)
+  };
+}
+function getSessionEventLogPath(sid) {
+  const dir = join13(VIBEOS_HOME, "session-events");
+  mkdirSync10(dir, { recursive: true });
+  return join13(dir, sid + ".jsonl");
+}
+function writeEvent(sid, event) {
+  const path = getSessionEventLogPath(sid);
+  let lines = [];
+  if (existsSync14(path)) {
+    const raw = readFileSync13(path, "utf-8").trim();
+    if (raw)
+      lines = raw.split("\n");
+  }
+  lines.push(JSON.stringify(event));
+  if (lines.length > 200)
+    lines = lines.slice(-200);
+  writeFileSync12(path, lines.join("\n") + "\n");
+}
+function getCurrentSid() {
+  return globalThis.__vibeOS_SID || _OC_SID || process.env.OPENCODE_SESSION_ID || "unknown";
+}
+function observeToolPattern(toolName, input, output, directory3) {
+  const role = deriveRole(toolName, input, output);
+  const tags = deriveTags(input, output);
+  const sid = getCurrentSid();
+  writeEvent(sid, {
+    tool: toolName,
+    role,
+    family: tags.family,
+    at: Date.now(),
+    isGuardBreach: tags.isGuardBreach,
+    isProtectedTarget: tags.isProtectedTarget,
+    exitCode: tags.exitCode
+  });
+}
 
 // src/lib/index-helpers.js
 init_state();
 init_pattern_helpers();
-import { join as join13 } from "node:path";
-import { writeFileSync as writeFileSync12 } from "node:fs";
 
 // src/lib/text-compress.js
 var VERBOSE_LINE_RE = [
@@ -11570,28 +11656,6 @@ function noteProjectPattern(kind, key, summary, meta = {}) {
     console.error(`[vibeOS] pattern learner write failed: ${err.message}`);
   }
 }
-function recordFrictionPattern(key, summary, meta = {}) {
-  const sessionKey = `friction:${key}`;
-  if (frictionSessionKeys.has(sessionKey))
-    return;
-  frictionSessionKeys.add(sessionKey);
-  noteProjectPattern("friction", key, summary, meta);
-  try {
-    const client2 = getApiClient();
-    if (client2 && _OC_SID) {
-      client2.patternsObserve(_OC_SID, meta?.family || meta?.path || "unknown", summary, key, currentProjectFingerprint || "").catch(() => {
-      });
-    }
-  } catch {
-  }
-}
-function recordRoutinePattern(key, summary, meta = {}) {
-  const sessionKey = `routine:${key}`;
-  if (routineSessionKeys.has(sessionKey))
-    return;
-  routineSessionKeys.add(sessionKey);
-  noteProjectPattern("routine", key, summary, meta);
-}
 var _lastStressWrite = 0;
 var STRESS_WRITE_INTERVAL_MS = 15e3;
 function saveSessionStress(score, level) {
@@ -11619,105 +11683,11 @@ function saveSessionStress(score, level) {
   } catch {
   }
 }
-function observeToolPattern(toolName, input, output, directory3) {
+function observeToolPattern2(toolName, input = {}, output = {}, directory3 = "") {
   try {
-    const t = String(toolName || "").toLowerCase();
-    const args = input?.args || {};
-    const filePath = args.filePath || args.file_path || args.path || "";
-    const observedPath = normalizeObservedPath(filePath, directory3);
-    let target = observedPath;
-    if (t === "bash")
-      target = commandFamily(args.command || args.cmd || args.script || "");
-    if (t === "task")
-      target = extractFirstWordFromArgs(t, args) || "task";
-    const event = { tool: t, target, at: Date.now() };
-    recentToolEvents.push(event);
-    if (recentToolEvents.length > 20)
-      recentToolEvents.shift();
-    let repeat = 0;
-    for (let i = recentToolEvents.length - 1; i >= 0; i--) {
-      const e = recentToolEvents[i];
-      if (e.tool !== event.tool || e.target !== event.target)
-        break;
-      repeat++;
-    }
-    if (repeat === 3) {
-      const family = t === "bash" ? commandFamily(args.command || args.cmd || args.script || "") : t;
-      const generalizedKey = `pattern:${t}:${family}`;
-      const summary = `Pattern detected: repeated ${t} calls (${family}) \u2014 ${target}`;
-      recordFrictionPattern(generalizedKey, summary, { family: family || t, path: target, tool: t });
-      _patternFiredKeys.add(generalizedKey);
-    }
-    if (repeat > 8) {
-      try {
-        updateGlobalLearning((gl) => {
-          gl.patternQuality ??= { ignoredCount: 0, trustedCount: 0 };
-          gl.patternQuality.ignoredCount = (gl.patternQuality.ignoredCount || 0) + 1;
-          return gl;
-        });
-      } catch {
-      }
-    }
-    if (repeat === 0 && _patternFiredKeys.size > 0 && !_trustedCountFired) {
-      _trustedCountFired = true;
-      try {
-        updateGlobalLearning((gl) => {
-          gl.patternQuality ??= { ignoredCount: 0, trustedCount: 0 };
-          gl.patternQuality.trustedCount = (gl.patternQuality.trustedCount || 0) + 1;
-          return gl;
-        });
-      } catch {
-      }
-    }
-    if (["write", "edit", "multiedit", "notebookedit"].includes(t) && observedPath !== "unknown") {
-      setLastMutationEvent({ at: Date.now(), path: observedPath, tool: t });
-      return;
-    }
-    if (t === "bash") {
-      const family = commandFamily(args.command || args.cmd || args.script || "");
-      if (lastMutationEvent && Date.now() - lastMutationEvent.at <= 10 * 60 * 1e3) {
-        if (["syntax-check", "typecheck", "test", "build"].includes(family) && commandFailed(output)) {
-          recordFrictionPattern(`post-edit-failure:${lastMutationEvent.path}:${family}`, `After editing ${lastMutationEvent.path}, ${family} failed soon after.`, { family, path: lastMutationEvent.path });
-        } else if (["syntax-check", "typecheck", "test", "build", "git-status"].includes(family) && !commandFailed(output)) {
-          recordRoutinePattern(`post-edit-routine:${lastMutationEvent.path}:${family}`, `After editing ${lastMutationEvent.path}, ${family} is a recurring verification step.`, { family, path: lastMutationEvent.path });
-        }
-      }
-    }
-  } catch (err) {
-    console.error(`[vibeOS] pattern learner observe failed: ${err.message}`);
-  }
-  try {
-    const t = String(toolName || "").toLowerCase();
-    const args = input?.args || {};
-    const ev = { tool: t, at: Date.now() };
-    if (recentToolEvents.length > 0) {
-      const prev = recentToolEvents[recentToolEvents.length - 1];
-      if (prev.tool !== ev.tool) {
-        const pairKey = `${prev.tool}\u2192${ev.tool}`;
-        updateGlobalLearning((gl) => {
-          gl.toolPairs ??= {};
-          gl.toolPairs[pairKey] = (gl.toolPairs[pairKey] || 0) + 1;
-          if (gl.toolPairs[pairKey] >= 3 && !gl.promotedRoutines?.includes(pairKey)) {
-            gl.promotedRoutines ??= [];
-            if (!gl.promotedRoutines.includes(pairKey))
-              gl.promotedRoutines.push(pairKey);
-            recordRoutinePattern(`pair:${pairKey}`, `Recurring tool pair ${pairKey} detected across projects.`, { pair: pairKey });
-          }
-          return gl;
-        });
-      }
-    }
-    if (currentProjectName) {
-      const ext = currentProjectName.endsWith(".tsx") || currentProjectName.endsWith(".jsx") ? "frontend" : currentProjectName.endsWith(".go") || currentProjectName.endsWith(".rs") ? "backend" : currentProjectName.endsWith(".py") ? "data" : "unknown";
-      updateGlobalLearning((gl) => {
-        gl.projectTypeToolCount ??= {};
-        const ptc = gl.projectTypeToolCount;
-        ptc[ext] ??= {};
-        ptc[ext][t] = (ptc[ext][t] || 0) + 1;
-        return gl;
-      });
-    }
-  } catch {
+    observeToolPattern(toolName, input, output, directory3);
+  } catch (e) {
+    console.error("[vibeOS] semantic observer error:", e);
   }
 }
 var MAX_SAVE_EST_PER_WARN = 5;
@@ -11783,9 +11753,9 @@ function recordSaving(tool2, reason, saveEst, meta = {}) {
       try {
         const sd = getSessionScratchpadDir();
         if (sd) {
-          const sp = join13(sd, "delegation-state-hint.txt");
+          const sp = join14(sd, "delegation-state-hint.txt");
           try {
-            writeFileSync12(sp, JSON.stringify({ sid, total_savings: s.lifetime.total_savings_usd, last_reason: reason }), "utf8");
+            writeFileSync13(sp, JSON.stringify({ sid, total_savings: s.lifetime.total_savings_usd, last_reason: reason }), "utf8");
           } catch {
           }
         }
@@ -11948,7 +11918,7 @@ var ANTI_LOOP_DIRECTIVE = "[anti-loop cost guard] Token waste is real money: if 
 var _cachedC7Full = null;
 var _cachedC7Urgency = null;
 function getVibeOSHome9() {
-  return process.env.VIBEOS_HOME || join14(process.env.HOME || "", ".claude");
+  return process.env.VIBEOS_HOME || join15(process.env.HOME || "", ".claude");
 }
 function mergeRemoteControlVector(remoteControlVector, localControlVector) {
   return {
@@ -11967,14 +11937,14 @@ function resolveRestorableOpenCodeAgent(currentSel) {
   if (remembered && remembered !== "plan")
     return remembered;
   try {
-    const configDir = dirname10(TRINITY_OPENCODE_CONFIG || join14(getOpenCodeHome(), "opencode.json"));
+    const configDir = dirname10(TRINITY_OPENCODE_CONFIG || join15(getOpenCodeHome(), "opencode.json"));
     const candidates = readdirSync3(configDir).filter((name) => /^opencode\.json\.bak/.test(name)).map((name) => {
-      const path = join14(configDir, name);
+      const path = join15(configDir, name);
       return { path, mtime: statSync7(path).mtimeMs };
     }).sort((a, b) => b.mtime - a.mtime);
     for (const candidate of candidates) {
       try {
-        const snapshot = safeJsonParse2(readFileSync13(candidate.path, "utf-8"));
+        const snapshot = safeJsonParse2(readFileSync14(candidate.path, "utf-8"));
         const agent = typeof snapshot?.default_agent === "string" ? snapshot.default_agent.trim() : "";
         if (agent && agent !== "plan")
           return agent;
@@ -12078,11 +12048,11 @@ function buildProjectBriefing(directory3) {
   return `[project memory] Active project: ${label}. Stay focused on the current repository and prefer the existing workflow.`;
 }
 function ensureProjectSkill(dir, fp2) {
-  const skillsDir = join14(dir, ".opencode", "skills");
+  const skillsDir = join15(dir, ".opencode", "skills");
   const projectName = basename3(dir);
-  const skillDir = join14(skillsDir, projectName);
-  const skillPath = join14(skillDir, "SKILL.md");
-  if (existsSync14(skillPath)) {
+  const skillDir = join15(skillsDir, projectName);
+  const skillPath = join15(skillDir, "SKILL.md");
+  if (existsSync15(skillPath)) {
     return { created: false, skipped: true, path: skillPath };
   }
   const promoted = promotedProjectPatterns(fp2);
@@ -12144,8 +12114,8 @@ function ensureProjectSkill(dir, fp2) {
     content += "\n";
   }
   try {
-    mkdirSync10(skillDir, { recursive: true });
-    writeFileSync13(skillPath, content, "utf-8");
+    mkdirSync11(skillDir, { recursive: true });
+    writeFileSync14(skillPath, content, "utf-8");
     console.error(`[vibeOS] Project Guard: created .opencode/skills/${projectName}/SKILL.md`);
     return { created: true, path: skillPath, skipped: false };
   } catch (err) {
@@ -12260,28 +12230,28 @@ function syncControlSettings(cv, options = {}) {
     }
     if (cv.agent_mode) {
       try {
-        const OC_CONFIG = TRINITY_OPENCODE_CONFIG || join14(getOpenCodeHome(), "opencode.json");
-        if (existsSync14(OC_CONFIG)) {
-          const oc = safeJsonParse2(readFileSync13(OC_CONFIG, "utf-8"));
+        const OC_CONFIG = TRINITY_OPENCODE_CONFIG || join15(getOpenCodeHome(), "opencode.json");
+        if (existsSync15(OC_CONFIG)) {
+          const oc = safeJsonParse2(readFileSync14(OC_CONFIG, "utf-8"));
           if (oc.default_agent !== cv.agent_mode) {
             if (cv.agent_mode === "plan" && oc.default_agent && oc.default_agent !== "plan") {
               writeSelection("previous_default_agent", oc.default_agent);
             }
             oc.default_agent = cv.agent_mode;
-            writeFileSync13(OC_CONFIG, JSON.stringify(oc, null, 2) + "\n");
+            writeFileSync14(OC_CONFIG, JSON.stringify(oc, null, 2) + "\n");
           }
         }
       } catch {
       }
     } else {
       try {
-        const OC_CONFIG = TRINITY_OPENCODE_CONFIG || join14(getOpenCodeHome(), "opencode.json");
-        if (existsSync14(OC_CONFIG)) {
-          const oc = safeJsonParse2(readFileSync13(OC_CONFIG, "utf-8"));
+        const OC_CONFIG = TRINITY_OPENCODE_CONFIG || join15(getOpenCodeHome(), "opencode.json");
+        if (existsSync15(OC_CONFIG)) {
+          const oc = safeJsonParse2(readFileSync14(OC_CONFIG, "utf-8"));
           const restoreAgent = oc.default_agent === "plan" ? resolveRestorableOpenCodeAgent(currentSel) : null;
           if (restoreAgent && oc.default_agent === "plan") {
             oc.default_agent = restoreAgent;
-            writeFileSync13(OC_CONFIG, JSON.stringify(oc, null, 2) + "\n");
+            writeFileSync14(OC_CONFIG, JSON.stringify(oc, null, 2) + "\n");
             if (currentSel.previous_default_agent)
               writeSelection("previous_default_agent", null);
           }
@@ -12339,16 +12309,16 @@ function compressToolOutputs(messages) {
       const hash = createHash3("sha256").update(`tool_result
 ${raw}
 `).digest("hex").slice(0, 16);
-      const globalDir = join14(SCRATCHPAD_ROOT, "by-hash");
-      const sessPath = join14(getSessionScratchpadDir(), `${hash}.txt`);
-      const globalPath = join14(globalDir, `${hash}.txt`);
+      const globalDir = join15(SCRATCHPAD_ROOT, "by-hash");
+      const sessPath = join15(getSessionScratchpadDir(), `${hash}.txt`);
+      const globalPath = join15(globalDir, `${hash}.txt`);
       try {
-        mkdirSync10(globalDir, { recursive: true });
+        mkdirSync11(globalDir, { recursive: true });
         ensureSessionScratchpadDirs();
-        if (!existsSync14(globalPath)) {
-          writeFileSync13(globalPath, raw);
+        if (!existsSync15(globalPath)) {
+          writeFileSync14(globalPath, raw);
           indexAppend(hash, part.tool, raw.length);
-          if (existsSync14(sessPath))
+          if (existsSync15(sessPath))
             rmSync5(sessPath, { force: true });
         }
         const invPart = parts.slice(0, parts.indexOf(part)).reverse().find((p) => p?.type === "tool" && p?.tool === part.tool && p?.state?.input && p?.state?.status !== "completed");
@@ -12357,9 +12327,9 @@ ${raw}
           const inputHash = createHash3("sha256").update(`${toolKey2}
 ${stableJson(invPart.state.input)}
 `).digest("hex").slice(0, 16);
-          const ptrPath = join14(getSessionScratchpadDir(), `${inputHash}.ptr`);
+          const ptrPath = join15(getSessionScratchpadDir(), `${inputHash}.ptr`);
           try {
-            writeFileSync13(ptrPath, JSON.stringify({ contentHash: hash, tool: part.tool }));
+            writeFileSync14(ptrPath, JSON.stringify({ contentHash: hash, tool: part.tool }));
           } catch {
           }
         }
@@ -12559,7 +12529,7 @@ function orchestratorDirective(cv, sel) {
   const tierBias = cv?.tier_bias || "auto";
   let brainModel = "(brain)";
   try {
-    brainModel = safeJsonParse2(readFileSync13(TIERS_FILE, "utf-8")).trinity?.brain?.oc || brainModel;
+    brainModel = safeJsonParse2(readFileSync14(TIERS_FILE, "utf-8")).trinity?.brain?.oc || brainModel;
   } catch {
   }
   const cheapModel = TRINITY_CHEAP || "the cheaper model";
@@ -12607,7 +12577,7 @@ function welcomeDirective() {
   const sel = loadSelection();
   let tiers = {};
   try {
-    tiers = safeJsonParse2(readFileSync13(TIERS_FILE, "utf-8")).trinity || {};
+    tiers = safeJsonParse2(readFileSync14(TIERS_FILE, "utf-8")).trinity || {};
   } catch {
   }
   const active = sel.active_slot || "medium";
@@ -12864,8 +12834,8 @@ var onSystemTransform = async (_input, output) => {
     }) + "\n");
     if (_turnCountInject % 10 === 0 && _calBuffer.length > 0) {
       try {
-        const calFile = join14(getVibeOSHome9(), "calibration-data.jsonl");
-        mkdirSync10(getVibeOSHome9(), { recursive: true });
+        const calFile = join15(getVibeOSHome9(), "calibration-data.jsonl");
+        mkdirSync11(getVibeOSHome9(), { recursive: true });
         appendFileSync4(calFile, _calBuffer.join(""));
         _calBuffer.length = 0;
       } catch {
@@ -12889,6 +12859,7 @@ var onSystemTransform = async (_input, output) => {
 // src/lib/hooks/footer.js
 init_state();
 init_selection_manager();
+init_api_client();
 
 // src/lib/hooks/shared-footer.js
 var REGIME_TAG = {
@@ -13069,17 +13040,17 @@ function footerDebug(...args) {
     console.error(...args);
 }
 function getVibeOSHome10() {
-  return process.env.VIBEOS_HOME || join15(process.env.HOME || "", ".claude");
+  return process.env.VIBEOS_HOME || join16(process.env.HOME || "", ".claude");
 }
-var STATE_FILE2 = join15(getVibeOSHome10(), "delegation-state.json");
-var SAVINGS_LEDGER_FILE2 = join15(getVibeOSHome10(), "savings-ledger.jsonl");
+var STATE_FILE2 = join16(getVibeOSHome10(), "delegation-state.json");
+var SAVINGS_LEDGER_FILE2 = join16(getVibeOSHome10(), "savings-ledger.jsonl");
 var _prevOutputText = "";
 var _autoReportCount = 0;
 var textCompletePainted = /* @__PURE__ */ new Set();
 var _lastStrippedText = "";
-function loadSelection2() {
+function loadSelection3() {
   try {
-    const raw = readFileSync14(join15(getVibeOSHome10(), "model-tiers.json"), "utf-8");
+    const raw = readFileSync15(join16(getVibeOSHome10(), "model-tiers.json"), "utf-8");
     return safeJsonParse2(raw)?.selection || { active_slot: "medium", enabled: true, delegation_enforce: true, flow_enabled: true, flow_enforce: true, tdd_enforce: false, tdd_strict: false };
   } catch {
     return { active_slot: "medium", enabled: true, delegation_enforce: true, flow_enabled: true, flow_enforce: true, tdd_enforce: false, tdd_strict: false };
@@ -13092,7 +13063,7 @@ function isGreetingLike(text) {
 function readLifetimeSavings2() {
   try {
     reconcileStateFromLedger();
-    const raw = readFileSync14(STATE_FILE2, "utf-8");
+    const raw = readFileSync15(STATE_FILE2, "utf-8");
     const state = safeJsonParse2(raw);
     const ses = state?.sessions?.[getSessionId()] || {};
     return {
@@ -13232,7 +13203,7 @@ async function _appendFooter(input, output, directory3) {
     const { stableStreak, problemStreak } = readRewardSignals();
     const sid = getSessionId();
     const sessionSlot = loadBlackboxState()?.sessions?.[sid]?.active_slot || loadSessionSlot(sid);
-    const slot = sessionSlot || loadSelection2().active_slot || "brain";
+    const slot = sessionSlot || loadSelection3().active_slot || "brain";
     const brainModel = slot === "brain" ? TRINITY_BRAIN || currentModel : slot === "medium" ? TRINITY_MEDIUM || currentModel : TRINITY_CHEAP || currentModel || "";
     let liveModel = "";
     try {
@@ -13242,7 +13213,7 @@ async function _appendFooter(input, output, directory3) {
     } catch {
     }
     if (!liveModel) {
-      liveModel = readConfig(directory3) || readConfig(join15(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || "";
+      liveModel = readConfig(directory3) || readConfig(join16(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || "";
     }
     const displayModel = resolveTrinityDisplayModel(directory3, slot, liveModel, currentModel) || brainModel || liveModel || currentModel;
     const resolvedModel = displayModel || liveModel || brainModel || currentModel || "";
@@ -13275,7 +13246,7 @@ async function _appendFooter(input, output, directory3) {
             // Backward compatibility (legacy field historically misnamed)
             tasksDelegated: sesTaskDelegations,
             model: resolvedModel || currentModel,
-            slot: loadSelection2().active_slot || "unknown",
+            slot: loadSelection3().active_slot || "unknown",
             editSavings: sesEdit,
             creditSavings: sesCredit,
             context7Savings: sesC7,
@@ -13287,7 +13258,7 @@ async function _appendFooter(input, output, directory3) {
         footerDebug("[vibeOS] auto-report:", e.message);
       }
     }
-    const selNowFooter = loadSelection2();
+    const selNowFooter = loadSelection3();
     const normalizedIntent = classifyTurnSimple2(latestUserIntent || "");
     const currentSubRegime = _latestBlackboxState?.sub_regime || normalizedIntent;
     const bbMode = resolveEnforcementMode();
@@ -13308,7 +13279,7 @@ async function _appendFooter(input, output, directory3) {
     const activeSlot = selNowFooter.active_slot || "brain";
     const flashIcon = isApiConnected() ? " \u26A1" : "";
     const displayMode = autoSelectMode2(currentSubRegime, _footerStress);
-    const rawMode = (typeof loadSelection2 === "function" ? loadSelection2()?.requested_optimization_mode || loadSelection2()?.optimization_mode : null) || displayMode;
+    const rawMode = (typeof loadSelection3 === "function" ? loadSelection3()?.requested_optimization_mode || loadSelection3()?.optimization_mode : null) || displayMode;
     const cv = computeControlVector2({ sub_regime: currentSubRegime, latest_stress_multiplier: _footerStress, user_text: latestUserIntent || "" }, void 0, rawMode);
     const vibeBrand = resolveBrand(loadOptimizationMode() || displayMode, activeSlot);
     const _cp = [/(?:\u005c|['"](?:done|fixed|validated|works|verified|solved|resolved)['"]|\d+%|score|passed)/i];
@@ -13367,8 +13338,8 @@ ${vibeLine}`;
             tracker.recordOutcome(finalOutcome);
             syncOutcomeToApi(finalOutcome);
             try {
-              mkdirSync11(getVibeOSHome10(), { recursive: true });
-              appendFileSync5(join15(getVibeOSHome10(), "calibration-data.jsonl"), JSON.stringify({ ts: (/* @__PURE__ */ new Date()).toISOString(), event: "outcome", sid: getSessionId(), outcome: finalOutcome }) + "\n");
+              mkdirSync12(getVibeOSHome10(), { recursive: true });
+              appendFileSync5(join16(getVibeOSHome10(), "calibration-data.jsonl"), JSON.stringify({ ts: (/* @__PURE__ */ new Date()).toISOString(), event: "outcome", sid: getSessionId(), outcome: finalOutcome }) + "\n");
             } catch {
             }
           }
@@ -13395,10 +13366,11 @@ ${vibeLine} \u2014`);
 
 // src/lib/hooks/tool-execute.js
 init_state();
-import { writeFileSync as writeFileSync15, appendFileSync as appendFileSync7, existsSync as existsSync16, mkdirSync as mkdirSync13 } from "node:fs";
-import { join as join17, dirname as dirname12, basename as basename4 } from "node:path";
+import { writeFileSync as writeFileSync16, appendFileSync as appendFileSync7, existsSync as existsSync17, mkdirSync as mkdirSync14 } from "node:fs";
+import { join as join18, dirname as dirname12, basename as basename4 } from "node:path";
 import { createHash as createHash5 } from "node:crypto";
 init_selection_manager();
+init_api_client();
 
 // src/lib/cost-anomaly.js
 var COST_WINDOW_SIZE = 20;
@@ -13464,8 +13436,8 @@ init_smart_cache();
 
 // src/lib/tdd-enforcer.js
 init_state();
-import { readFileSync as readFileSync15, writeFileSync as writeFileSync14, appendFileSync as appendFileSync6, existsSync as existsSync15, mkdirSync as mkdirSync12, statSync as statSync8, readdirSync as readdirSync4, rmSync as rmSync6, openSync as openSync3 } from "node:fs";
-import { join as join16, dirname as dirname11 } from "node:path";
+import { readFileSync as readFileSync16, writeFileSync as writeFileSync15, appendFileSync as appendFileSync6, existsSync as existsSync16, mkdirSync as mkdirSync13, statSync as statSync8, readdirSync as readdirSync4, rmSync as rmSync6, openSync as openSync3 } from "node:fs";
+import { join as join17, dirname as dirname11 } from "node:path";
 import { createHash as createHash4 } from "node:crypto";
 
 // src/utils/tdd-helpers.js
@@ -14594,7 +14566,7 @@ var test_skeletons_default = TEST_SKELETONS;
 
 // src/lib/tdd-enforcer.js
 function getVibeOSHome11() {
-  return process.env.VIBEOS_HOME || join16(process.env.HOME || "", ".claude");
+  return process.env.VIBEOS_HOME || join17(process.env.HOME || "", ".claude");
 }
 var _detectedFramework = null;
 var directory = void 0;
@@ -14607,9 +14579,9 @@ function _detectTestFramework() {
   let testExt = null;
   try {
     const root = directory || process.cwd();
-    const pkgPath = join16(root, "package.json");
-    if (existsSync15(pkgPath)) {
-      const pkg = JSON.parse(readFileSync15(pkgPath, "utf-8"));
+    const pkgPath = join17(root, "package.json");
+    if (existsSync16(pkgPath)) {
+      const pkg = JSON.parse(readFileSync16(pkgPath, "utf-8"));
       const testScript = String(pkg?.scripts?.test || "");
       const deps = { ...pkg?.devDependencies, ...pkg?.dependencies };
       if (testScript.includes("vitest") || deps["vitest"]) {
@@ -14629,12 +14601,12 @@ function _detectTestFramework() {
     if (!framework) {
       const testDirs = ["src/tests", "tests", "test", "__tests__"];
       for (const td of testDirs) {
-        const dirPath = join16(root, td);
-        if (!existsSync15(dirPath))
+        const dirPath = join17(root, td);
+        if (!existsSync16(dirPath))
           continue;
         const files = readdirSync4(dirPath).filter((f) => /\.test\./.test(f) || /\.spec\./.test(f));
         if (files.length > 0) {
-          const content = readFileSync15(join16(dirPath, files[0]), "utf-8");
+          const content = readFileSync16(join17(dirPath, files[0]), "utf-8");
           if (/from\s+['"]node:test['"]/.test(content)) {
             framework = "node-test";
             testExt = files[0].split(".").pop();
@@ -14660,16 +14632,16 @@ function _detectTestFramework() {
   console.error(`[vibeOS] [tdd] detected test framework: ${framework || "default"} (ext: ${testExt || "match source"})`);
   return _detectedFramework;
 }
-var ENFORCEMENT_LOCK_DIR = join16(getVibeOSHome11(), ".enforcement-lock");
+var ENFORCEMENT_LOCK_DIR = join17(getVibeOSHome11(), ".enforcement-lock");
 var LOCK_EXPIRE_MS = 3e4;
-var ENFORCEMENT_COOLDOWN_FILE2 = join16(getVibeOSHome11(), ".enforcement-cooldown.jsonl");
+var ENFORCEMENT_COOLDOWN_FILE2 = join17(getVibeOSHome11(), ".enforcement-cooldown.jsonl");
 var COOLDOWN_MS = 6e4;
 var _enforcementCooldown = /* @__PURE__ */ new Set();
 function _acquireLock(testPath) {
   try {
-    mkdirSync12(ENFORCEMENT_LOCK_DIR, { recursive: true });
+    mkdirSync13(ENFORCEMENT_LOCK_DIR, { recursive: true });
     const hash = createHash4("sha256").update(testPath).digest("hex").slice(0, 16);
-    const lockPath = join16(ENFORCEMENT_LOCK_DIR, `${hash}.lock`);
+    const lockPath = join17(ENFORCEMENT_LOCK_DIR, `${hash}.lock`);
     try {
       openSync3(lockPath, "wx");
       return true;
@@ -14697,17 +14669,17 @@ function _acquireLock(testPath) {
 function _releaseLock(testPath) {
   try {
     const hash = createHash4("sha256").update(testPath).digest("hex").slice(0, 16);
-    const lockPath = join16(ENFORCEMENT_LOCK_DIR, `${hash}.lock`);
+    const lockPath = join17(ENFORCEMENT_LOCK_DIR, `${hash}.lock`);
     rmSync6(lockPath);
   } catch {
   }
 }
 function _isInCooldown(testPath) {
   try {
-    if (!existsSync15(ENFORCEMENT_COOLDOWN_FILE2))
+    if (!existsSync16(ENFORCEMENT_COOLDOWN_FILE2))
       return false;
     const hash = createHash4("sha256").update(testPath).digest("hex").slice(0, 16);
-    const lines = readFileSync15(ENFORCEMENT_COOLDOWN_FILE2, "utf-8").trim().split("\n").filter(Boolean);
+    const lines = readFileSync16(ENFORCEMENT_COOLDOWN_FILE2, "utf-8").trim().split("\n").filter(Boolean);
     const now = Date.now();
     for (const line of lines) {
       try {
@@ -14724,13 +14696,13 @@ function _isInCooldown(testPath) {
 }
 function _recordCooldown(testPath) {
   try {
-    mkdirSync12(dirname11(ENFORCEMENT_COOLDOWN_FILE2), { recursive: true });
+    mkdirSync13(dirname11(ENFORCEMENT_COOLDOWN_FILE2), { recursive: true });
     const hash = createHash4("sha256").update(testPath).digest("hex").slice(0, 16);
     const entry = JSON.stringify({ h: hash, ts: Date.now() }) + "\n";
     appendFileSync6(ENFORCEMENT_COOLDOWN_FILE2, entry);
-    const lines = readFileSync15(ENFORCEMENT_COOLDOWN_FILE2, "utf-8").trim().split("\n").filter(Boolean);
+    const lines = readFileSync16(ENFORCEMENT_COOLDOWN_FILE2, "utf-8").trim().split("\n").filter(Boolean);
     if (lines.length > 500) {
-      writeFileSync14(ENFORCEMENT_COOLDOWN_FILE2, lines.slice(-200).join("\n") + "\n");
+      writeFileSync15(ENFORCEMENT_COOLDOWN_FILE2, lines.slice(-200).join("\n") + "\n");
     }
   } catch {
   }
@@ -14798,8 +14770,8 @@ function enforceTestFile(filePath) {
   console.error(`[vibeOS] [tdd-enforce] enforceTestFile called for ${filePath}`);
   let sourceContent = "";
   try {
-    if (existsSync15(filePath)) {
-      sourceContent = readFileSync15(filePath, "utf-8");
+    if (existsSync16(filePath)) {
+      sourceContent = readFileSync16(filePath, "utf-8");
     }
   } catch {
   }
@@ -14807,7 +14779,7 @@ function enforceTestFile(filePath) {
   const skeleton = buildTestSkeleton(filePath, sourceContent, { strict: sel.tdd_strict !== false, quality: sel.tdd_quality !== false });
   if (!skeleton)
     return null;
-  if (existsSync15(skeleton.path))
+  if (existsSync16(skeleton.path))
     return null;
   if (_enforcementCooldown.has(skeleton.path))
     return null;
@@ -14816,8 +14788,8 @@ function enforceTestFile(filePath) {
   if (!_acquireLock(skeleton.path))
     return null;
   try {
-    mkdirSync12(skeleton.dir, { recursive: true });
-    writeFileSync14(skeleton.path, skeleton.content);
+    mkdirSync13(skeleton.dir, { recursive: true });
+    writeFileSync15(skeleton.path, skeleton.content);
     _enforcementCooldown.add(skeleton.path);
     _recordCooldown(skeleton.path);
     try {
@@ -14903,7 +14875,7 @@ var BYTES_PER_TOKEN2 = 4;
 var DEBUG_INTERNALS2 = process.env.VIBEOS_DEBUG_INTERNALS === "1";
 var IS_CLI_RUNTIME2 = Boolean(process.stdout?.isTTY || process.stderr?.isTTY || process.stdin?.isTTY);
 function getVibeOSHome12() {
-  return process.env.VIBEOS_HOME || join17(process.env.HOME || "", ".claude");
+  return process.env.VIBEOS_HOME || join18(process.env.HOME || "", ".claude");
 }
 var projectDirectory = "";
 var pendingUiNote = null;
@@ -15019,7 +14991,7 @@ function _resolveToolPath(pathValue) {
     return raw;
   if (raw.startsWith("/"))
     return raw;
-  return projectDirectory ? join17(projectDirectory, raw).replace(/\\/g, "/") : raw;
+  return projectDirectory ? join18(projectDirectory, raw).replace(/\\/g, "/") : raw;
 }
 function _isProtectedToolPath(pathValue) {
   const raw = _normalizeToolPath(pathValue);
@@ -15158,17 +15130,17 @@ ${argsJson}
 `).digest("hex").slice(0, 16);
                   const sessionDir = getSessionScratchpadDir();
                   const globalDir = SCRATCHPAD_GLOBAL_DIR;
-                  const ptrPath = join17(sessionDir, `${curHash}.ptr`);
-                  if (!existsSync16(ptrPath)) {
+                  const ptrPath = join18(sessionDir, `${curHash}.ptr`);
+                  if (!existsSync17(ptrPath)) {
                     for (const similar of prediction.similarEntries) {
                       const targetHash = similar.entry.hash;
                       if (targetHash.length < 16)
                         continue;
-                      const cachedFile = join17(sessionDir, `${targetHash}.txt`);
-                      const globalFile = join17(globalDir, `${targetHash}.txt`);
-                      if (existsSync16(cachedFile) || existsSync16(globalFile)) {
+                      const cachedFile = join18(sessionDir, `${targetHash}.txt`);
+                      const globalFile = join18(globalDir, `${targetHash}.txt`);
+                      if (existsSync17(cachedFile) || existsSync17(globalFile)) {
                         ensureSessionScratchpadDirs();
-                        writeFileSync15(ptrPath, JSON.stringify({
+                        writeFileSync16(ptrPath, JSON.stringify({
                           contentHash: targetHash,
                           tool: titleCase,
                           warmed: true,
@@ -15475,10 +15447,10 @@ ${argsJson}
           }
         } else {
           const missed = recordMissedContext7(_estC7);
-          if (!existsSync16(CONTEXT7_INSTALL_FLAG)) {
+          if (!existsSync17(CONTEXT7_INSTALL_FLAG)) {
             try {
-              mkdirSync13(dirname12(CONTEXT7_INSTALL_FLAG), { recursive: true });
-              writeFileSync15(CONTEXT7_INSTALL_FLAG, "");
+              mkdirSync14(dirname12(CONTEXT7_INSTALL_FLAG), { recursive: true });
+              writeFileSync16(CONTEXT7_INSTALL_FLAG, "");
             } catch {
             }
             console.error(`[vibeOS] Small win: install context7 MCP to save about ~$0.06/turn on docs: \`claude mcp add context7 npx @upstash/context7-mcp\``);
@@ -15545,7 +15517,7 @@ var onToolExecuteAfter = async (input, output) => {
       } catch {
       }
       if (!liveModel) {
-        liveModel = readConfig(projectDirectory) || readConfig(join17(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || "";
+        liveModel = readConfig(projectDirectory) || readConfig(join18(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || "";
       }
       const displayModel = resolveTrinityDisplayModel(projectDirectory, selNow.active_slot || "", liveModel, currentModel) || liveModel || currentModel;
       const resolvedModel = displayModel || liveModel || currentModel || "";
@@ -15621,7 +15593,7 @@ var onToolExecuteAfter = async (input, output) => {
     const trinityAction = trinityArgs?.action || trinityArgs?.todo || "";
     if (trinityAction === "todo") {
       try {
-        const flowTodoFilePath = join17(getVibeOSHome12(), ".flow-todo-queue.jsonl");
+        const flowTodoFilePath = join18(getVibeOSHome12(), ".flow-todo-queue.jsonl");
         let todoLines = [];
         if (__require("fs").existsSync(flowTodoFilePath)) {
           const raw2 = __require("fs").readFileSync(flowTodoFilePath, "utf-8").trim();
@@ -15753,7 +15725,7 @@ ${pendingUiNote}`;
     enforcementBlocked = false;
     return;
   }
-  observeToolPattern(t, input, output, projectDirectory);
+  observeToolPattern2(t, input, output, projectDirectory);
   if (t === "task") {
     const outputText = output?.result ?? output?.text ?? output?.content ?? "";
     if (typeof outputText === "string" && outputText.length > 0) {
@@ -15918,7 +15890,7 @@ ${pendingUiNote}`;
 
 // src/lib/hooks/session-compact.js
 init_state();
-import { readFileSync as readFileSync16, existsSync as existsSync17 } from "node:fs";
+import { readFileSync as readFileSync17, existsSync as existsSync18 } from "node:fs";
 var onSessionCompacting = async (_input, output) => {
   if (!loadSelection().enabled)
     return;
@@ -15927,9 +15899,9 @@ var onSessionCompacting = async (_input, output) => {
     const needsCompact = turnCount >= 7;
     const indexPath = getSessionIndexPath();
     let recent = "";
-    if (existsSync17(indexPath)) {
+    if (existsSync18(indexPath)) {
       try {
-        const lines = readFileSync16(indexPath, "utf-8").trim().split("\n").slice(-30);
+        const lines = readFileSync17(indexPath, "utf-8").trim().split("\n").slice(-30);
         recent = lines.map((l) => {
           try {
             return JSON.parse(l);
@@ -16007,14 +15979,15 @@ var onShellEnv = async (_input, output) => {
 // src/index.ts
 init_state();
 init_state();
+init_api_client();
 function getVibeOSHome13() {
-  return process.env.VIBEOS_HOME || join18(process.env.HOME || "", ".claude");
+  return process.env.VIBEOS_HOME || join19(process.env.HOME || "", ".claude");
 }
 function getTiersFile() {
-  return join18(getVibeOSHome13(), "model-tiers.json");
+  return join19(getVibeOSHome13(), "model-tiers.json");
 }
 function getReportsDir2() {
-  return join18(getVibeOSHome13(), "reports");
+  return join19(getVibeOSHome13(), "reports");
 }
 function ensureDeferredBootstrap() {
   if (_deferredBootstrapDone || _modelLocked)
@@ -16043,9 +16016,9 @@ function scanClaimsInOutput(output) {
       }
     }
     if (claims.length === 0) return;
-    const auditDir = join18(getVibeOSHome13(), "cascade-audit");
-    mkdirSync14(auditDir, { recursive: true });
-    const auditFile = join18(auditDir, "claim-audit.jsonl");
+    const auditDir = join19(getVibeOSHome13(), "cascade-audit");
+    mkdirSync15(auditDir, { recursive: true });
+    const auditFile = join19(auditDir, "claim-audit.jsonl");
     const entry = JSON.stringify({
       ts: (/* @__PURE__ */ new Date()).toISOString(),
       claims: claims.slice(0, 10),
@@ -16070,18 +16043,18 @@ var _deferredBootstrapDone = false;
 var _skillsEnsured = /* @__PURE__ */ new Set();
 var _runDeferredStartupBootstrap = null;
 function _readOpenCodeConfigObject(dir) {
-  const jsonPath = join18(dir, "opencode.json");
-  const jsoncPath = join18(dir, "opencode.jsonc");
-  if (existsSync18(jsonPath))
-    return safeJsonParse2(readFileSync17(jsonPath, "utf-8"));
-  if (existsSync18(jsoncPath))
-    return _parseJsonc(readFileSync17(jsoncPath, "utf-8"));
+  const jsonPath = join19(dir, "opencode.json");
+  const jsoncPath = join19(dir, "opencode.jsonc");
+  if (existsSync19(jsonPath))
+    return safeJsonParse2(readFileSync18(jsonPath, "utf-8"));
+  if (existsSync19(jsoncPath))
+    return _parseJsonc(readFileSync18(jsoncPath, "utf-8"));
   return {};
 }
 function _loadOpenCodeProviders(directory3) {
   try {
     const merged = {};
-    const dirs = [directory3 ? join18(directory3, ".") : null, getOpenCodeHome()].filter(Boolean);
+    const dirs = [directory3 ? join19(directory3, ".") : null, getOpenCodeHome()].filter(Boolean);
     for (const dir of dirs) {
       const cfg = _readOpenCodeConfigObject(String(dir));
       const providers = cfg?.provider || {};
@@ -16123,13 +16096,13 @@ async function _resolveBootstrapModel(client2, directory3) {
   return { model: "", source: "" };
 }
 function _loadActiveJobForProject(directory3, fp2 = "") {
-  const candidates = [getVibeOSHome13(), directory3 ? join18(directory3, "..") : ""].filter(Boolean);
+  const candidates = [getVibeOSHome13(), directory3 ? join19(directory3, "..") : ""].filter(Boolean);
   for (const base of candidates) {
     try {
-      const activeJobsPath = join18(String(base), ".claude", "active-jobs.json");
-      if (!existsSync18(activeJobsPath))
+      const activeJobsPath = join19(String(base), ".claude", "active-jobs.json");
+      if (!existsSync19(activeJobsPath))
         continue;
-      const jobs = safeJsonParse2(readFileSync17(activeJobsPath, "utf-8")) || {};
+      const jobs = safeJsonParse2(readFileSync18(activeJobsPath, "utf-8")) || {};
       const job = fp2 ? jobs?.[fp2] : null;
       if (job && typeof job === "object")
         return job;
@@ -16149,14 +16122,14 @@ function _tiersNeedRepair(tiers) {
 async function _seedOrRepairModelTiers(directory3) {
   const TIERS_FILE3 = getTiersFile();
   let existing = null;
-  if (existsSync18(TIERS_FILE3)) {
+  if (existsSync19(TIERS_FILE3)) {
     try {
       const st = statSync9(TIERS_FILE3);
       if (st.size > 10485760) {
         _handleStateCorruption(TIERS_FILE3);
         return false;
       }
-      existing = safeJsonParse2(readFileSync17(TIERS_FILE3, "utf-8")) || {};
+      existing = safeJsonParse2(readFileSync18(TIERS_FILE3, "utf-8")) || {};
     } catch {
       existing = null;
     }
@@ -16217,8 +16190,8 @@ async function _seedOrRepairModelTiers(directory3) {
     },
     trinity: nextTrinity
   };
-  mkdirSync14(dirname13(TIERS_FILE3), { recursive: true });
-  writeFileSync16(TIERS_FILE3, JSON.stringify(tiers, null, 2) + "\n", "utf-8");
+  mkdirSync15(dirname13(TIERS_FILE3), { recursive: true });
+  writeFileSync17(TIERS_FILE3, JSON.stringify(tiers, null, 2) + "\n", "utf-8");
   return true;
 }
 function _parseJsonc(raw) {
@@ -16247,7 +16220,7 @@ function _modelTier2(id2) {
 }
 function readPackageVersion() {
   try {
-    const pkg = safeJsonParse2(readFileSync17(join18(process.cwd(), "package.json"), "utf-8"));
+    const pkg = safeJsonParse2(readFileSync18(join19(process.cwd(), "package.json"), "utf-8"));
     return String(pkg?.version || "");
   } catch {
     return "";
@@ -16262,8 +16235,8 @@ function loadMcpPort() {
     return n;
   }
   try {
-    if (existsSync18(getTiersFile())) {
-      const tiers = safeJsonParse2(readFileSync17(getTiersFile(), "utf-8"));
+    if (existsSync19(getTiersFile())) {
+      const tiers = safeJsonParse2(readFileSync18(getTiersFile(), "utf-8"));
       const cfg = tiers?.selection?.mcp_port;
       if (cfg === false || cfg === "disabled" || cfg === 0)
         return 0;
@@ -16277,18 +16250,18 @@ function loadMcpPort() {
 }
 function persistMcpPort(port) {
   try {
-    if (!existsSync18(getTiersFile()))
+    if (!existsSync19(getTiersFile()))
       return;
-    const tiers = safeJsonParse2(readFileSync17(getTiersFile(), "utf-8"));
+    const tiers = safeJsonParse2(readFileSync18(getTiersFile(), "utf-8"));
     tiers.selection ??= {};
     if (Number(tiers.selection.mcp_port) === Number(port) && !("mcp_port" in tiers))
       return;
     tiers.selection.mcp_port = port;
     if ("mcp_port" in tiers)
       delete tiers.mcp_port;
-    mkdirSync14(dirname13(getTiersFile()), { recursive: true });
+    mkdirSync15(dirname13(getTiersFile()), { recursive: true });
     const tmp = getTiersFile() + ".tmp." + Date.now();
-    writeFileSync16(tmp, JSON.stringify(tiers, null, 2) + "\n", "utf-8");
+    writeFileSync17(tmp, JSON.stringify(tiers, null, 2) + "\n", "utf-8");
     renameSync6(tmp, getTiersFile());
   } catch {
   }
@@ -16343,7 +16316,7 @@ async function ensureMcpServerRunning() {
               selection: loadSelection(),
               tiersData: (() => {
                 try {
-                  return safeJsonParse2(readFileSync17(getTiersFile(), "utf-8"));
+                  return safeJsonParse2(readFileSync18(getTiersFile(), "utf-8"));
                 } catch {
                   return {};
                 }
@@ -16359,7 +16332,7 @@ async function ensureMcpServerRunning() {
               optimizationMode: loadSelection()?.optimization_mode || null,
               tiers: (() => {
                 try {
-                  return safeJsonParse2(readFileSync17(getTiersFile(), "utf-8"))?.trinity;
+                  return safeJsonParse2(readFileSync18(getTiersFile(), "utf-8"))?.trinity;
                 } catch {
                   return null;
                 }
@@ -16379,7 +16352,7 @@ async function ensureMcpServerRunning() {
           getSessionMetrics: () => computeSessionMetrics(readFullState(), _OC_SID),
           getTodos: () => loadTodos(),
           listReports: (filter) => {
-            if (!existsSync18(getReportsDir2())) {
+            if (!existsSync19(getReportsDir2())) {
               const e = new Error("reports dir not found");
               e.status = 404;
               throw e;
@@ -16551,7 +16524,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
   if (currentModel) {
     setCurrentTier(classify(currentModel));
     try {
-      const _tiersData2 = safeJsonParse2(readFileSync17(getTiersFile(), "utf-8"));
+      const _tiersData2 = safeJsonParse2(readFileSync18(getTiersFile(), "utf-8"));
       const _slotOrder = getTrinitySlotOrder(_tiersData2);
       const _primarySlot = _slotOrder[0] || "brain";
       const _activeSlot = _tiersData2?.selection?.active_slot || _primarySlot;
@@ -16577,7 +16550,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
       const lockedSlot = ["brain", "medium", "cheap"].includes(String(startupSelection.active_slot || "").trim()) ? String(startupSelection.active_slot) : "brain";
       let lockedModel = currentModel || null;
       try {
-        const tiers = safeJsonParse2(readFileSync17(getTiersFile(), "utf-8"));
+        const tiers = safeJsonParse2(readFileSync18(getTiersFile(), "utf-8"));
         lockedModel = tiers?.trinity?.[lockedSlot]?.oc || lockedModel || null;
       } catch {
       }
@@ -16592,9 +16565,9 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     }
   } catch {
   }
-  console.error(`[vibeOS] auto-config guard: currentModel=${currentModel ? "SET" : "NONE"}, TIERS_FILE=${getTiersFile()}, exists=${existsSync18(getTiersFile())}`);
+  console.error(`[vibeOS] auto-config guard: currentModel=${currentModel ? "SET" : "NONE"}, TIERS_FILE=${getTiersFile()}, exists=${existsSync19(getTiersFile())}`);
   try {
-    if (!existsSync18(getTiersFile())) {
+    if (!existsSync19(getTiersFile())) {
       console.error(`[vibeOS] model-tiers.json missing at load; will seed on first hook`);
     }
     await _seedOrRepairModelTiers(directory3);
@@ -16610,14 +16583,14 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
   activeJob2 = _loadActiveJobForProject(directory3, fp);
   const systemBriefedProjects = /* @__PURE__ */ new Set();
   const hookVibeHome = getVibeOSHome13();
-  const hookStateFile = join18(hookVibeHome, "delegation-state.json");
-  const hookProjectStateFile = join18(hookVibeHome, "project-states.json");
-  const hookReportsDir = join18(hookVibeHome, "reports");
-  const hookReportsIndex = join18(hookReportsDir, "index.json");
-  const hookTiersFile = join18(hookVibeHome, "model-tiers.json");
+  const hookStateFile = join19(hookVibeHome, "delegation-state.json");
+  const hookProjectStateFile = join19(hookVibeHome, "project-states.json");
+  const hookReportsDir = join19(hookVibeHome, "reports");
+  const hookReportsIndex = join19(hookReportsDir, "index.json");
+  const hookTiersFile = join19(hookVibeHome, "model-tiers.json");
   const loadProjectStateStable = () => {
     try {
-      const state = safeJsonParse2(readFileSync17(hookProjectStateFile, "utf-8"));
+      const state = safeJsonParse2(readFileSync18(hookProjectStateFile, "utf-8"));
       if (state && typeof state === "object") {
         state.project_hashes ??= {};
         return state;
@@ -16628,16 +16601,16 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
   };
   const saveProjectStateStable = (state) => {
     try {
-      mkdirSync14(dirname13(hookProjectStateFile), { recursive: true });
+      mkdirSync15(dirname13(hookProjectStateFile), { recursive: true });
       const tmp = hookProjectStateFile + ".tmp";
-      writeFileSync16(tmp, JSON.stringify(state, null, 2) + "\n");
+      writeFileSync17(tmp, JSON.stringify(state, null, 2) + "\n");
       renameSync6(tmp, hookProjectStateFile);
     } catch {
     }
   };
   const reportsIndexStable = () => {
     try {
-      const idx = safeJsonParse2(readFileSync17(hookReportsIndex, "utf-8"));
+      const idx = safeJsonParse2(readFileSync18(hookReportsIndex, "utf-8"));
       if (!idx || !Array.isArray(idx.reports))
         return { reports: [] };
       return idx;
@@ -16647,18 +16620,18 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
   };
   const saveReportsIndexStable = (idx) => {
     try {
-      mkdirSync14(hookReportsDir, { recursive: true });
-      writeFileSync16(hookReportsIndex, JSON.stringify(idx, null, 2) + "\n");
+      mkdirSync15(hookReportsDir, { recursive: true });
+      writeFileSync17(hookReportsIndex, JSON.stringify(idx, null, 2) + "\n");
     } catch {
     }
   };
   const backupFileStable = (path, label) => {
     try {
-      if (!existsSync18(path))
+      if (!existsSync19(path))
         return null;
-      const bkDir = join18(hookVibeHome, ".backups");
-      mkdirSync14(bkDir, { recursive: true });
-      const bk = join18(bkDir, `${basename5(path)}.${label}.${Date.now()}.bak`);
+      const bkDir = join19(hookVibeHome, ".backups");
+      mkdirSync15(bkDir, { recursive: true });
+      const bk = join19(bkDir, `${basename5(path)}.${label}.${Date.now()}.bak`);
       copyFileSync2(path, bk);
       return bk;
     } catch {
@@ -16669,7 +16642,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
   };
   const _tiersData = (() => {
     try {
-      return safeJsonParse2(readFileSync17(getTiersFile(), "utf-8"));
+      return safeJsonParse2(readFileSync18(getTiersFile(), "utf-8"));
     } catch {
       return {};
     }
@@ -16692,11 +16665,11 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     },
     directory: directory3,
     safeJsonParse: safeJsonParse2,
-    readFileSync: readFileSync17,
-    writeFileSync: writeFileSync16,
-    existsSync: existsSync18,
+    readFileSync: readFileSync18,
+    writeFileSync: writeFileSync17,
+    existsSync: existsSync19,
     renameSync: renameSync6,
-    mkdirSync: mkdirSync14,
+    mkdirSync: mkdirSync15,
     get TIERS_FILE() {
       return hookTiersFile;
     },
@@ -17058,7 +17031,7 @@ export {
   modelCostPerTurn,
   modelToCcAlias,
   noteProjectPattern,
-  observeToolPattern,
+  observeToolPattern2 as observeToolPattern,
   readReport,
   recordSaving,
   remoteCall,

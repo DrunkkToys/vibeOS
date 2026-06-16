@@ -410,42 +410,21 @@ test("quality-pipeline: delegation — bash, read, grep tools pass through freel
 })
 
 // ════════════════════════════════════════════════════════════════════
-// TEST 8: Pattern learner — self-pair exclusion in observeToolPattern
+// ════════════════════════════════════════════════════════════════════
+// TEST 8: Semantic observer — observeToolPattern delegates without throw
 // ════════════════════════════════════════════════════════════════════
 
-test("quality-pipeline: patterns — self-pair tool chains excluded from promoted routines", async () => {
-  const { home } = makeSandbox("pat-self")
+test("quality-pipeline: semantic — observeToolPattern does not throw for various inputs", async () => {
+  const { home } = makeSandbox("sem-del")
   process.env.HOME = home
 
-  const mod = await import("../src/index.js?patself=" + Date.now())
+  const mod = await import("../src/index.js?semdel=" + Date.now())
 
-  // Simulate bash→bash self-pairs (3 in a row should trigger promotion without the fix)
-  for (let i = 0; i < 5; i++) {
-    mod.observeToolPattern("bash", { command: "ls" })
-  }
-
-  // Simulate cross-tool pair (read→grep)
-  mod.observeToolPattern("read", { filePath: "test.ts" })
-  mod.observeToolPattern("grep", { pattern: "TODO" })
-  mod.observeToolPattern("grep", { pattern: "FIXME" })
-
-  mod.observeToolPattern("read", { filePath: "test.ts" })
-  mod.observeToolPattern("grep", { pattern: "TODO" })
-  mod.observeToolPattern("grep", { pattern: "FIXME" })
-
-  const glPath = join(process.env.VIBEOS_HOME, "global-learning.json")
-  const gl = JSON.parse(readFileSync(glPath, "utf-8"))
-  const promoted = gl.promotedRoutines || []
-
-  // bash→bash must NOT appear (self-pair exclusion fix)
-  assert.ok(!promoted.some(p => p.startsWith("bash→bash")),
-    "bash→bash self-pair must NOT be promoted: " + JSON.stringify(promoted))
-
-  // read→grep CAN appear (legitimate cross-tool pair with ≥3 hits)
-  if (promoted.length > 0) {
-    const hasReadGrep = promoted.some(p => p.startsWith("read→grep"))
-    console.log("Promoted routines:", promoted, "| has read->grep:", hasReadGrep)
-  }
+  assert.doesNotThrow(() => mod.observeToolPattern("bash", { args: { command: "npm test" } }, { exitCode: 0 }, "/tmp"))
+  assert.doesNotThrow(() => mod.observeToolPattern("write", { args: { filePath: "/tmp/test.ts" } }, {}, "/tmp"))
+  assert.doesNotThrow(() => mod.observeToolPattern("bash", { args: { command: "git commit --no-verify" } }, { exitCode: 0 }, "/tmp"))
+  assert.doesNotThrow(() => mod.observeToolPattern("bash", { args: { command: "git push origin master" } }, { exitCode: 0 }, "/tmp"))
+  assert.doesNotThrow(() => mod.observeToolPattern("read", { args: { filePath: "test.ts" } }, {}, "/tmp"))
 })
 
 // ════════════════════════════════════════════════════════════════════

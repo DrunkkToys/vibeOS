@@ -2,24 +2,11 @@
 import { join } from "node:path"
 import { writeFileSync } from "node:fs"
 
+import { observeToolPattern as semanticObserve } from "../vibeOS-lib/semantic-observer.js"
 import {
-  applyDecadence,
-  _patternFiredKeys,
-  recentToolEvents,
-  lastMutationEvent,
-  setLastMutationEvent,
   frictionSessionKeys,
   routineSessionKeys,
-  _pruneScratchpadDir,
-  cleanupStaleSessionScratchpads,
   getSessionScratchpadDir,
-  SCRATCHPAD_GLOBAL_DIR,
-  MAX_SCRATCHPAD_FILES,
-  MAX_SCRATCHPAD_BYTES,
-  MAX_SESSION_SCRATCHPAD_FILES,
-  MAX_SESSION_SCRATCHPAD_BYTES,
-  DECADENCE_THROTTLE_MS,
-  DECADENCE_GLOBAL_THROTTLE_MS,
   saveActiveJobForProject,
   currentProjectFingerprint,
   currentProjectName,
@@ -28,7 +15,6 @@ import {
   saveProjectState,
   ensureProjectBucket,
   touchProjectBucket,
-  updateGlobalLearning,
   updateState,
   roundUsd,
   getCurrentSessionId,
@@ -43,24 +29,20 @@ import {
 } from "./state.js"
 
 import {
-  normalizeObservedPath,
-  commandFamily,
-  commandFailed,
   _pruneOldSessions,
 } from "./pattern-helpers.js"
 
 import { TRINITY_CHEAP, TRINITY_MEDIUM } from "./pricing.js"
 import {
   topKeywords,
-  extractFirstWordFromArgs,
   noteTaskRoutingLearning,
 } from "./turn-classify.js"
 
 let activeJob = null
 
-import { VERBOSE_LINE_RE, BULLET_PATTERNS, COMPRESS_RATIO, COMPRESS_THRESHOLD, MIN_KEPT_LINES_RATIO, extractBulletLines, compressText } from "./text-compress.js"
+import { VERBOSE_LINE_RE, BULLET_PATTERNS, COMPRESS_RATIO, COMPRESS_THRESHOLD, MIN_KEPT_LINES_RATIO, extractBulletLines } from "./text-compress.js"
 
-export { VERBOSE_LINE_RE, BULLET_PATTERNS, COMPRESS_RATIO, COMPRESS_THRESHOLD, MIN_KEPT_LINES_RATIO, extractBulletLines, compressText }
+export { VERBOSE_LINE_RE, BULLET_PATTERNS, COMPRESS_RATIO, COMPRESS_THRESHOLD, MIN_KEPT_LINES_RATIO, extractBulletLines }
 
 // ── setActiveJobFromTaskPrompt ───────────────────────────────────────
 
@@ -165,119 +147,12 @@ export function saveSessionStress(score: number, level: string): void {
 
 // ── observeToolPattern ───────────────────────────────────────────────
 
-export function observeToolPattern(toolName, input, output, directory) {
+export function observeToolPattern(toolName, input = {}, output = {}, directory = "") {
   try {
-    const t = String(toolName || "").toLowerCase()
-    const args = input?.args || {}
-    const filePath = args.filePath || args.file_path || args.path || ""
-    const observedPath = normalizeObservedPath(filePath, directory)
-    let target = observedPath
-    if (t === "bash") target = commandFamily(args.command || args.cmd || args.script || "")
-    if (t === "task") target = extractFirstWordFromArgs(t, args) || "task"
-    const event = { tool: t, target, at: Date.now() }
-    recentToolEvents.push(event)
-    if (recentToolEvents.length > 20) recentToolEvents.shift()
-    let repeat = 0
-    for (let i = recentToolEvents.length - 1; i >= 0; i--) {
-      const e = recentToolEvents[i]
-      if (e.tool !== event.tool || e.target !== event.target) break
-      repeat++
-    }
-    if (repeat === 3) {
-      // Generalize key to enable cross-session pattern matching
-      // Strip file path to match patterns across different files
-      const family = t === "bash" ? commandFamily(args.command || args.cmd || args.script || "") : t
-      const generalizedKey = `pattern:${t}:${family}`
-      const summary = `Pattern detected: repeated ${t} calls (${family}) — ${target}`
-      recordFrictionPattern(generalizedKey, summary, { family: family || t, path: target, tool: t })
-      _patternFiredKeys.add(generalizedKey)
-    }
-    if (repeat > 8) {
-      // User keeps doing the same thing well after pattern fired -- ignored suggestion
-      try {
-        updateGlobalLearning((gl) => {
-          gl.patternQuality ??= { ignoredCount: 0, trustedCount: 0 }
-          gl.patternQuality.ignoredCount = (gl.patternQuality.ignoredCount || 0) + 1
-          return gl
-        })
-      } catch {}
-    }
-    if (repeat === 0 && _patternFiredKeys.size > 0 && !_trustedCountFired) {
-      // User switched to a different action -- could be following a suggestion. Only count once.
-      _trustedCountFired = true
-      try {
-        updateGlobalLearning((gl) => {
-          gl.patternQuality ??= { ignoredCount: 0, trustedCount: 0 }
-          gl.patternQuality.trustedCount = (gl.patternQuality.trustedCount || 0) + 1
-          return gl
-        })
-      } catch {}
-    }
-
-    if (["write", "edit", "multiedit", "notebookedit"].includes(t) && observedPath !== "unknown") {
-      setLastMutationEvent({ at: Date.now(), path: observedPath, tool: t })
-      return
-    }
-
-    if (t === "bash") {
-      const family = commandFamily(args.command || args.cmd || args.script || "")
-      if (lastMutationEvent && Date.now() - lastMutationEvent.at <= 10 * 60 * 1000) {
-        if (["syntax-check", "typecheck", "test", "build"].includes(family) && commandFailed(output)) {
-          recordFrictionPattern(
-            `post-edit-failure:${lastMutationEvent.path}:${family}`,
-            `After editing ${lastMutationEvent.path}, ${family} failed soon after.`,
-            { family, path: lastMutationEvent.path },
-          )
-        } else if (["syntax-check", "typecheck", "test", "build", "git-status"].includes(family) && !commandFailed(output)) {
-          recordRoutinePattern(
-            `post-edit-routine:${lastMutationEvent.path}:${family}`,
-            `After editing ${lastMutationEvent.path}, ${family} is a recurring verification step.`,
-            { family, path: lastMutationEvent.path },
-          )
-        }
-      }
-    }
-  } catch (err) {
-    console.error(`[vibeOS] pattern learner observe failed: ${err.message}`)
+    semanticObserve(toolName, input, output, directory)
+  } catch (e) {
+    console.error("[vibeOS] semantic observer error:", e)
   }
-
-  // ── Cross-project tool co-occurrence & multi-turn routines ──
-  try {
-    const t = String(toolName || "").toLowerCase()
-    const args = input?.args || {}
-    const ev = { tool: t, at: Date.now() }
-
-    if (recentToolEvents.length > 0) {
-      const prev = recentToolEvents[recentToolEvents.length - 1]
-      if (prev.tool !== ev.tool) {
-        const pairKey = `${prev.tool}→${ev.tool}`
-        updateGlobalLearning((gl: any) => {
-          gl.toolPairs ??= {}
-          gl.toolPairs[pairKey] = (gl.toolPairs[pairKey] || 0) + 1
-          if (gl.toolPairs[pairKey] >= 3 && !gl.promotedRoutines?.includes(pairKey)) {
-            gl.promotedRoutines ??= []
-            if (!gl.promotedRoutines.includes(pairKey)) gl.promotedRoutines.push(pairKey)
-            recordRoutinePattern(`pair:${pairKey}`, `Recurring tool pair ${pairKey} detected across projects.`, { pair: pairKey })
-          }
-          return gl
-        })
-      }
-    }
-
-    // Track project-type tool patterns
-    if (currentProjectName) {
-      const ext = currentProjectName.endsWith(".tsx") || currentProjectName.endsWith(".jsx") ? "frontend" :
-        currentProjectName.endsWith(".go") || currentProjectName.endsWith(".rs") ? "backend" :
-          currentProjectName.endsWith(".py") ? "data" : "unknown"
-      updateGlobalLearning((gl: any) => {
-        gl.projectTypeToolCount ??= {}
-        const ptc = gl.projectTypeToolCount
-        ptc[ext] ??= {}
-        ptc[ext][t] = (ptc[ext][t] || 0) + 1
-        return gl
-      })
-    }
-  } catch {}
 }
 
 // ── recordSaving ──────────────────────────────────────────────────────
@@ -396,3 +271,13 @@ export function recordSaving(tool, reason, saveEst, meta = {}) {
     return 0
   }
 }
+
+
+
+function getApiClient() {
+  try {
+    const api = require("../lib/api-client.js")
+    return api.getApiClient?.() || null
+  } catch { return null }
+}
+export { compressText } from "./text-compress.js"
