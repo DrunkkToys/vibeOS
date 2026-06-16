@@ -47,10 +47,6 @@ if (existsSync(dashboardSrc)) {
   console.log('[bundle] Copied dashboard');
 }
 
-// Copy to src/index.js for CI validation
-copyFileSync(join(DIST, 'vibeOS.js'), join(SRC, 'index.js'));
-console.log('[bundle] Copied to src/index.js for CI validation');
-
 // Deploy to plugin directory
 if (!existsSync(PLUGIN_DIR)) mkdirSync(PLUGIN_DIR, { recursive: true });
 copyFileSync(join(DIST, 'vibeOS.js'), join(PLUGIN_DIR, 'vibeOS.js'));
