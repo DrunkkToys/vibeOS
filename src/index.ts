@@ -53,6 +53,38 @@ function ensureDeferredBootstrap() {
   }
   catch { }
 }
+
+// Claim verifier: scans assistant output for unverified claims about done/fixed/score
+const CLAIM_PATTERNS = [
+  /(?i)(?:done|finished|complete)/,
+  /(?i)(?:fixed|resolved|solved)/,
+  /(?i)(?:working|works|validated|verified)/,
+  /(?:[0-9]+\.[0-9]?%|\d+%)/,
+  /(?i)(?:score|scored|passing|passed)/,
+]
+function scanClaimsInOutput(output) {
+  if (!output || typeof output !== 'string') return
+  try {
+    const claims = []
+    const lines = String(output).split(String.fromCharCode(10))
+    for (let i = 0; i < lines.length; i++) {
+      for (const pat of CLAIM_PATTERNS) {
+        if (pat.test(lines[i])) claims.push({ line: i + 1, text: lines[i].trim().substring(0, 120), pattern: pat.source })
+      }
+    }
+    if (claims.length === 0) return
+    const auditDir = join(getVibeOSHome(), 'cascade-audit')
+    mkdirSync(auditDir, { recursive: true })
+    const auditFile = join(auditDir, 'claim-audit.jsonl')
+    const entry = JSON.stringify({
+      ts: new Date().toISOString(),
+      claims: claims.slice(0, 10),
+      totalClaims: claims.length,
+      responseHash: '', // crypto hash skipped for performance
+    })
+    appendFileSync(auditFile, entry + String.fromCharCode(10))
+  } catch {}
+}
 // ── Remote API client state ──────────────────────────────────────────
 let _apiClient = null
 
@@ -810,6 +842,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
       }
       ensureDeferredBootstrap()
       await _appendFooter(_input, output, directory)
+      scanClaimsInOutput(output)
     },
     "message.updated": async (_input, output) => {
       setVibeOSHomeContext(hookVibeHome)
@@ -819,6 +852,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
       }
       ensureDeferredBootstrap()
       await _appendFooter(_input, output, directory)
+      scanClaimsInOutput(output)
     },
     tool: {
       trinity: tool(createTrinityTool(trinityDeps)),
