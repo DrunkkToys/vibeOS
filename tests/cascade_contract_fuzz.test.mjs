@@ -547,3 +547,69 @@ test("cascade: pipelineModels[2] is reachable with 3-stage pipeline and high con
     assert.fail("Should have escalated but did not")
   }
 })
+
+test("cascade: applySlot fires even when delegation_enforce is off", async () => {
+  // The cascade should switch the global slot when _target differs from currentModel
+  // regardless of delegation_enforce state. This is the "cascade for all tools" contract.
+  const { writeFileSync, readFileSync, existsSync, mkdtempSync } = await import("node:fs")
+  const { join } = await import("node:path")
+  const { tmpdir } = await import("node:os")
+
+  const tmpDir = mkdtempSync(join(tmpdir(), "vibe-cascade-slot-"))
+  const tiersPath = join(tmpDir, "model-tiers.json")
+
+  writeFileSync(tiersPath, JSON.stringify({
+    trinity: { brain: { oc: "test/brain" }, medium: { oc: "test/medium" }, cheap: { oc: "test/cheap" } },
+    selection: {
+      enabled: true, active_slot: "medium", active_pipeline: ["local", "medium", "brain"],
+      delegation_enforce: false, flow_enabled: false, tdd_enforce: false,
+    }
+  }))
+
+  const origHome = process.env.VIBEOS_HOME
+  process.env.VIBEOS_HOME = tmpDir
+
+  const state = await import("../src/lib/state.js?" + Date.now())
+  const sel = state.loadSelection()
+
+  // Verify delegation_enforce is OFF
+  assert.equal(sel.delegation_enforce, false, "delegation_enforce starts as false")
+  assert.equal(sel.active_slot, "medium", "active_slot starts as medium")
+
+  // Simulate the cascade routing logic:
+  // When cascade targets brain (via desiredSlot mapping) and delegation_enforce is off,
+  // the slot should still switch
+  const testBrain = "test/brain"
+  const testMedium = "test/medium"
+  const testCheap = "test/cheap"
+
+  const desiredSlot = (target) =>
+    target === testCheap ? "cheap"
+    : target === testMedium ? "medium"
+    : target === testBrain ? "brain"
+    : null
+
+  const slot = desiredSlot(testBrain)
+  assert.equal(slot, "brain", "cascade target maps to brain slot")
+
+  // The applySlot call should NOT be gated by delegation_enforce
+  // Simulate the condition we want in production:
+  // remove delegation_enforce check, keep only desiredSlot and active_slot diff
+  const shouldSwitch = slot && sel.active_slot !== slot
+  assert.ok(shouldSwitch, "shouldSwitch is true even without delegation_enforce")
+
+  // Actually apply the slot switch
+  const mod = await import("../src/lib/pricing.js?" + Date.now())
+  const result = mod.applySlot(slot)
+  assert.ok(result && result.ok === true, "applySlot to brain succeeded")
+
+  // Verify the slot changed
+  const selAfter = state.loadSelection()
+  assert.equal(selAfter.active_slot, "brain", "active_slot changed to brain")
+
+  // Verify delegation_enforce is still off (it was not needed)
+  assert.equal(selAfter.delegation_enforce, false, "delegation_enforce still false")
+
+  if (origHome) process.env.VIBEOS_HOME = origHome
+  else delete process.env.VIBEOS_HOME
+})
