@@ -627,7 +627,7 @@ export const onToolExecuteBefore = async (input, output) => {
           projectName: currentProjectName || "",
           sessionId: getCurrentSessionId(),
         })
-        const taskModel = TRINITY_CHEAP || "deepseek/deepseek-chat"
+        const taskModel = TRINITY_CHEAP || TRINITY_MEDIUM || currentModel || TRINITY_BRAIN || ""
         pendingUiNote = `[delegation] ${t} blocked on brain tier. Use a task subagent instead: \`task subagent_type="general" model="${taskModel}" prompt="${t} <file> with the intended content"\`. Keeps brain focused on orchestration.`
         enforcementBlocked = true
         _mutateBlockedToolArgs(t, argSources, originalPath, output)
