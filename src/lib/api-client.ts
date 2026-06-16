@@ -637,7 +637,8 @@ export function setApiToken(newToken) {
     VIBEOS_API_TOKEN = normalizeDirectApiToken(newToken)
     VIBEOS_API_BOOTSTRAP_TOKEN = readBootstrapTokenFromDisk() || VIBEOS_API_BOOTSTRAP_TOKEN
     syncApiEnabledState(process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN))
-    _apiClient = null
+    _apiClientGen++
+    _apiClientHolder = { client: null, gen: _apiClientGen, tokenSnapshot: VIBEOS_API_TOKEN }
     _apiFallbackMode = false
     _apiFallbackSince = null
     persistPrimaryApiEnvState({ token: VIBEOS_API_TOKEN, disabled: false })
@@ -655,7 +656,8 @@ export function invalidateApiToken() {
     VIBEOS_API_TOKEN = ""
     VIBEOS_API_BOOTSTRAP_TOKEN = ""
     syncApiEnabledState(false)
-    _apiClient = null
+    _apiClientGen++
+    _apiClientHolder = { client: null, gen: _apiClientGen, tokenSnapshot: "" }
     _apiFallbackMode = false
     _apiFallbackSince = null
     if (_anomalyDetector) _anomalyDetector.reset()
@@ -682,7 +684,8 @@ export function setApiBootstrapToken(newToken) {
   }
 }
 
-let _apiClient = null
+let _apiClientHolder: { client: VibeOSApiClient | null; gen: number; tokenSnapshot: string } = { client: null, gen: 0, tokenSnapshot: "" }
+let _apiClientGen = 0
 let _apiFallbackMode = false
 let _apiFallbackSince = null
 let _bootstrapExchangeInFlight: Promise<boolean> | null = null
@@ -758,7 +761,8 @@ function syncApiTokenFromDisk(): void {
       VIBEOS_API_TOKEN = ""
       VIBEOS_API_BOOTSTRAP_TOKEN = ""
       syncApiEnabledState(false)
-      _apiClient = null
+      _apiClientGen++
+      _apiClientHolder = { client: null, gen: _apiClientGen, tokenSnapshot: "" }
       _apiFallbackMode = false
       _apiFallbackSince = null
       resetApiConnection()
@@ -771,7 +775,8 @@ function syncApiTokenFromDisk(): void {
     VIBEOS_API_DISABLED = false
     VIBEOS_API_TOKEN = diskToken
     syncApiEnabledState(process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN))
-    _apiClient = null
+    _apiClientGen++
+    _apiClientHolder = { client: null, gen: _apiClientGen, tokenSnapshot: VIBEOS_API_TOKEN }
     _apiFallbackMode = false
     _apiFallbackSince = null
     markApiConnected()
@@ -808,14 +813,21 @@ function syncApiTokenFromDisk(): void {
 
 export function getApiClient() {
   syncApiTokenFromDisk()
-  if (!_apiClient && isRuntimeApiEnabled() && VIBEOS_API_TOKEN) {
-    _apiClient = new VibeOSApiClient({
+  if (_apiClientHolder.client && _apiClientHolder.gen === _apiClientGen) {
+    return _apiClientHolder.client
+  }
+  if (isRuntimeApiEnabled() && VIBEOS_API_TOKEN) {
+    _apiClientHolder.client = new VibeOSApiClient({
       baseUrl: VIBEOS_API_URL,
       apiToken: VIBEOS_API_TOKEN,
       timeout: 5000,
     })
+    _apiClientHolder.gen = _apiClientGen
+    _apiClientHolder.tokenSnapshot = VIBEOS_API_TOKEN
+  } else {
+    _apiClientHolder.client = null
   }
-  return _apiClient
+  return _apiClientHolder.client
 }
 
 export function isApiFallback() {
@@ -835,7 +847,6 @@ export async function remoteCall(method, args, fallbackFn) {
   syncApiTokenFromDisk()
   if (!VIBEOS_API_TOKEN && VIBEOS_API_BOOTSTRAP_TOKEN) {
     await ensureBootstrapExchange()
-    syncApiTokenFromDisk()
   }
   if (tryResetFallbackCooldown()) {
     if (process.env.VIBEOS_DEBUG) console.warn("[vibeOS] API fallback cooldown expired — retrying API")
