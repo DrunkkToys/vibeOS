@@ -25,7 +25,7 @@ writeFileSync(join(sandbox, ".claude", "model-tiers.json"), JSON.stringify({
   selection: {
     enabled: true,
     active_slot: "brain",
-    active_pipeline: ["local", "medium", "brain"],
+    active_pipeline: ["cheap", "medium", "brain"],
     delegation_enforce: true,
     flow_enabled: true,
     tdd_enforce: true,
@@ -123,7 +123,7 @@ testCase("real cascade: learned graph switches vibeultrax into the deep three-st
     assert.equal(result.learned_tier, "brain")
     assert.equal(result.profile, "deep")
     assert.equal(result.cascade_depth, 3)
-    assert.equal(result.pipeline.join(","), "local,medium,brain")
+    assert.equal(result.pipeline.join(","), "cheap,medium,brain")
   } finally {
     restoreGraph(graph, snapshot)
   }

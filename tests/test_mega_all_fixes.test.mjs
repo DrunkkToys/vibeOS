@@ -77,7 +77,7 @@ test("1a — VibeUltraX exists in BRANDED_MODES with 107% quality", async () => 
   const vx = BRANDED_MODES.find(m => m.id === "vibeultrax")
   assert.ok(vx, "VibeUltraX in BRANDED_MODES")
   assert.equal(vx.qualityVsBrain, 107, "quality claim 107%")
-  assert.equal(vx.pipeline[0], "local", "first tier is local")
+  assert.equal(vx.pipeline[0], "cheap", "first tier is cheap")
   assert.ok(vx.pipeline.includes("brain"), "pipeline includes brain")
 })
 

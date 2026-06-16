@@ -1208,7 +1208,7 @@ test('v0.23.13 — footer coherence: tier icon matches model provider (integrati
       executed_provider: 'deepseek',
       executed_model: 'deepseek/deepseek-v4-pro',
       optimization_mode: 'vibeultrax',
-      active_pipeline: ['local', 'medium', 'brain'],
+      active_pipeline: ['cheap', 'medium', 'brain'],
     },
   })
   const hooks = await DelegationEnforcer({ client: { model: 'deepseek/deepseek-v4-pro' }, directory: dir })
@@ -1249,5 +1249,5 @@ test('v0.23.13 — footer coherence: tier icon matches model provider (integrati
 
   // Assert: active_pipeline exists
   assert.ok(Array.isArray(sel.active_pipeline) && sel.active_pipeline.length === 3,
-    'active_pipeline must be [local,medium,brain], got: ' + JSON.stringify(sel.active_pipeline))
+    'active_pipeline must be [cheap,medium,brain], got: ' + JSON.stringify(sel.active_pipeline))
 })

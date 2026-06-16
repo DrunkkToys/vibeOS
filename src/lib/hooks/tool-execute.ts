@@ -453,7 +453,7 @@ export const onToolExecuteBefore = async (input, output) => {
         const mediumCost = 0.005
         const brainCost = 0.02
         const cascadeResult = cascadeDecide(_prompt, cheapCost, mediumCost, brainCost, 0.85)
-        const tierMap: Record<string, string> = { cheap: TRINITY_CHEAP, medium: TRINITY_MEDIUM, brain: TRINITY_BRAIN, local: TRINITY_CHEAP }
+        const tierMap: Record<string, string> = { cheap: TRINITY_CHEAP, medium: TRINITY_MEDIUM, brain: TRINITY_BRAIN }
         const pipelineModels = activePipeline.map(t => tierMap[t] || TRINITY_CHEAP)
         if (cascadeResult.escalate && pipelineModels.length > 1) {
           if (pipelineModels.length > 2 && cascadeResult.confidence >= 0.8) {

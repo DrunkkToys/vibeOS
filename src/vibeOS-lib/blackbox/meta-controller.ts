@@ -179,7 +179,7 @@ const DEFAULT_CONTROL = REGIME_CONTROL.EXPLORING
 const QUALITY_STRESS_THRESHOLD = 1.5
 function resolveModeRoot(mode) {
   const normalized = String(mode || "").toLowerCase()
-  if (normalized === "vibeultrax") return { mode_root: "vibeultrax", mode_family: "cascade", cascade_depth: 3, pipeline_root: ["local", "medium", "brain"] }
+  if (normalized === "vibeultrax") return { mode_root: "vibeultrax", mode_family: "cascade", cascade_depth: 3, pipeline_root: ["cheap", "medium", "brain"] }
   if (normalized === "vibeqmax") return { mode_root: "vibeqmax", mode_family: "brain-ml", cascade_depth: 1, pipeline_root: ["brain"] }
   if (normalized === "vibemax") return { mode_root: "vibemax", mode_family: "medium-ml", cascade_depth: 1, pipeline_root: ["medium"] }
   if (normalized === "quality") return { mode_root: "quality", mode_family: "brain-runtime", cascade_depth: 1, pipeline_root: ["brain"] }

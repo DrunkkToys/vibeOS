@@ -4200,16 +4200,16 @@ function learnedRouteFromGraph(text) {
 }
 function profileFromCascade(decision, learned = null) {
   if (learned?.learnedTier === "cheap")
-    return { profile: "direct", cascade_depth: 1, pipeline_root: ["local"], tier_bias: "cheap" };
+    return { profile: "direct", cascade_depth: 1, pipeline_root: ["cheap"], tier_bias: "cheap" };
   if (learned?.learnedTier === "medium")
     return { profile: "standard", cascade_depth: 2, pipeline_root: ["medium", "brain"], tier_bias: "medium" };
   if (learned?.learnedTier === "brain")
-    return { profile: "deep", cascade_depth: 3, pipeline_root: ["local", "medium", "brain"], tier_bias: "brain" };
+    return { profile: "deep", cascade_depth: 3, pipeline_root: ["cheap", "medium", "brain"], tier_bias: "brain" };
   if (decision.useCheap && decision.escalate)
-    return { profile: "deep", cascade_depth: 3, pipeline_root: ["local", "medium", "brain"], tier_bias: "brain" };
+    return { profile: "deep", cascade_depth: 3, pipeline_root: ["cheap", "medium", "brain"], tier_bias: "brain" };
   if (decision.escalate)
     return { profile: "standard", cascade_depth: 2, pipeline_root: ["medium", "brain"], tier_bias: "brain" };
-  return { profile: "direct", cascade_depth: 1, pipeline_root: ["local"], tier_bias: "cheap" };
+  return { profile: "direct", cascade_depth: 1, pipeline_root: ["cheap"], tier_bias: "cheap" };
 }
 function getPivotCache2() {
   if (!globalThis.__vibeultraxPivotCache)
@@ -9273,14 +9273,14 @@ var BRANDED_MODES = [
     index: 1,
     name: "VibeUltraX",
     icon: "\u{1F3C6}",
-    pipeline: ["local", "medium", "brain"],
+    pipeline: ["cheap", "medium", "brain"],
     thinking: "full",
     tdd: "quality",
     enforcement: "strict",
     flow: "strict",
     qualityVsBrain: 107,
     costVsBrain: 58,
-    desc: "3-model debate: local proposes, medium reviews, brain refines."
+    desc: "3-model debate: cheap proposes, medium reviews, brain refines."
   },
   {
     id: "vibeqmax",
@@ -12206,7 +12206,7 @@ function syncControlSettings(cv, options = {}) {
     if (cv?.pipeline_root && Array.isArray(cv.pipeline_root)) {
       writeIf("active_pipeline", JSON.stringify(cv.pipeline_root));
     } else if (cv?.cascade_depth && cv.cascade_depth >= 3) {
-      writeIf("active_pipeline", JSON.stringify(["local", "medium", "brain"]));
+      writeIf("active_pipeline", JSON.stringify(["cheap", "medium", "brain"]));
     }
     writeIf("enabled", true);
     const compatibilityMode = currentSel.onboarding_mode === "assist";
@@ -15307,7 +15307,7 @@ ${argsJson}
         const mediumCost = 5e-3;
         const brainCost = 0.02;
         const cascadeResult = cascadeDecide(_prompt, cheapCost, mediumCost, brainCost, 0.85);
-        const tierMap = { cheap: TRINITY_CHEAP, medium: TRINITY_MEDIUM, brain: TRINITY_BRAIN, local: TRINITY_CHEAP };
+        const tierMap = { cheap: TRINITY_CHEAP, medium: TRINITY_MEDIUM, brain: TRINITY_BRAIN };
         const pipelineModels = activePipeline.map((t2) => tierMap[t2] || TRINITY_CHEAP);
         if (cascadeResult.escalate && pipelineModels.length > 1) {
           if (pipelineModels.length > 2 && cascadeResult.confidence >= 0.8) {

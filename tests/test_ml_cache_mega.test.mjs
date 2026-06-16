@@ -46,11 +46,11 @@ test("1c — branded modes have valid pipeline", async () => {
   }
 })
 
-test("1d — VibeUltraX pipeline is local->medium->brain", async () => {
+test("1d — VibeUltraX pipeline is cheap->medium->brain", async () => {
   const { BRANDED_MODES } = await import(join(root, "src/lib/mode-router.js?mr2=" + Date.now()))
   const vx = BRANDED_MODES.find(m => m.id === "vibeultrax")
   assert.ok(vx)
-  assert.deepEqual(vx.pipeline, ["local", "medium", "brain"])
+  assert.deepEqual(vx.pipeline, ["cheap", "medium", "brain"])
   assert.equal(vx.qualityVsBrain, 107)
   assert.equal(vx.costVsBrain, 58)
 })
