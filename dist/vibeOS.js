@@ -5378,7 +5378,8 @@ function setApiToken(newToken) {
     VIBEOS_API_TOKEN = normalizeDirectApiToken(newToken);
     VIBEOS_API_BOOTSTRAP_TOKEN = readBootstrapTokenFromDisk() || VIBEOS_API_BOOTSTRAP_TOKEN;
     syncApiEnabledState(process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN));
-    _apiClient = null;
+    _apiClientGen++;
+    _apiClientHolder = { client: null, gen: _apiClientGen, tokenSnapshot: VIBEOS_API_TOKEN };
     _apiFallbackMode = false;
     _apiFallbackSince = null;
     persistPrimaryApiEnvState({ token: VIBEOS_API_TOKEN, disabled: false });
@@ -5396,7 +5397,8 @@ function invalidateApiToken() {
     VIBEOS_API_TOKEN = "";
     VIBEOS_API_BOOTSTRAP_TOKEN = "";
     syncApiEnabledState(false);
-    _apiClient = null;
+    _apiClientGen++;
+    _apiClientHolder = { client: null, gen: _apiClientGen, tokenSnapshot: "" };
     _apiFallbackMode = false;
     _apiFallbackSince = null;
     if (_anomalyDetector)
@@ -5422,7 +5424,8 @@ function setApiBootstrapToken(newToken) {
     console.error("[vibeOS] Failed to update alpha bootstrap token:", e.message);
   }
 }
-var _apiClient = null;
+var _apiClientHolder = { client: null, gen: 0, tokenSnapshot: "" };
+var _apiClientGen = 0;
 var _apiFallbackMode = false;
 var _apiFallbackSince = null;
 var _bootstrapExchangeInFlight = null;
@@ -5499,7 +5502,8 @@ function syncApiTokenFromDisk() {
       VIBEOS_API_TOKEN = "";
       VIBEOS_API_BOOTSTRAP_TOKEN = "";
       syncApiEnabledState(false);
-      _apiClient = null;
+      _apiClientGen++;
+      _apiClientHolder = { client: null, gen: _apiClientGen, tokenSnapshot: "" };
       _apiFallbackMode = false;
       _apiFallbackSince = null;
       resetApiConnection();
@@ -5511,7 +5515,8 @@ function syncApiTokenFromDisk() {
     VIBEOS_API_DISABLED = false;
     VIBEOS_API_TOKEN = diskToken;
     syncApiEnabledState(process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN));
-    _apiClient = null;
+    _apiClientGen++;
+    _apiClientHolder = { client: null, gen: _apiClientGen, tokenSnapshot: VIBEOS_API_TOKEN };
     _apiFallbackMode = false;
     _apiFallbackSince = null;
     markApiConnected();
@@ -5547,14 +5552,21 @@ function syncApiTokenFromDisk() {
 }
 function getApiClient2() {
   syncApiTokenFromDisk();
-  if (!_apiClient && isApiEnabled() && VIBEOS_API_TOKEN) {
-    _apiClient = new VibeOSApiClient({
+  if (_apiClientHolder.client && _apiClientHolder.gen === _apiClientGen) {
+    return _apiClientHolder.client;
+  }
+  if (isApiEnabled() && VIBEOS_API_TOKEN) {
+    _apiClientHolder.client = new VibeOSApiClient({
       baseUrl: VIBEOS_API_URL,
       apiToken: VIBEOS_API_TOKEN,
       timeout: 5e3
     });
+    _apiClientHolder.gen = _apiClientGen;
+    _apiClientHolder.tokenSnapshot = VIBEOS_API_TOKEN;
+  } else {
+    _apiClientHolder.client = null;
   }
-  return _apiClient;
+  return _apiClientHolder.client;
 }
 function isApiFallback() {
   return _apiFallbackMode || isApiFallbackMode() || !isApiEnabled();
@@ -5570,7 +5582,6 @@ async function remoteCall(method, args, fallbackFn) {
   syncApiTokenFromDisk();
   if (!VIBEOS_API_TOKEN && VIBEOS_API_BOOTSTRAP_TOKEN) {
     await ensureBootstrapExchange();
-    syncApiTokenFromDisk();
   }
   if (tryResetFallbackCooldown()) {
     if (process.env.VIBEOS_DEBUG)
@@ -15350,7 +15361,7 @@ ${argsJson}
       try {
         const selNow = loadSelection();
         const desiredSlot = _target === TRINITY_CHEAP ? "cheap" : _target === TRINITY_MEDIUM ? "medium" : _target === TRINITY_BRAIN ? "brain" : null;
-        if (selNow.delegation_enforce && currentTier === "high" && desiredSlot && selNow.active_slot !== desiredSlot) {
+        if (desiredSlot && selNow.active_slot !== desiredSlot) {
           taskSlotRestore = selNow.active_slot || "brain";
           const switched = applySlot(desiredSlot);
           if (switched?.ok) {
