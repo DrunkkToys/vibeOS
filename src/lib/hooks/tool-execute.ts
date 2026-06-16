@@ -447,7 +447,7 @@ export const onToolExecuteBefore = async (input, output) => {
     }
 
     const activePipeline = loadSelection().active_pipeline
-    if (activePipeline && Array.isArray(activePipeline) && activePipeline.length > 1 && TRINITY_CHEAP && TRINITY_MEDIUM) {
+    if (ML_ENABLED && activePipeline && Array.isArray(activePipeline) && activePipeline.length > 1 && TRINITY_CHEAP && TRINITY_MEDIUM) {
       try {
         const cheapCost = 0.001
         const mediumCost = 0.005
