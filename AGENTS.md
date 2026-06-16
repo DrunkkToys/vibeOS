@@ -301,16 +301,20 @@ This applies to ALL agent types (general, explore, etc.) and is mandatory for an
 > **CRITICAL:** Never edit code on `master`. All changes go through a branch → PR → CI → merge cycle.
 
 ```
-1. git checkout master && git pull origin master        # start from latest master
-2. git checkout -b fix/<descriptive-name>                # create feature branch
-3. Write contract / cascade tests FIRST                 # TDD: tests define behavior
-4. Write the code to make tests pass
-5. Run tests locally: node --test tests/<your-test-file>
-6. Verify: npm run typecheck && node --check src/index.js
-7. git add -A && git commit -m "description"            # descriptive commit
-8. git push origin <branch>                              # push branch
-9. Create PR via gh pr create — wait for CI green
-10. gh pr merge --squash --admin                         # merge only after CI passes
+1. Read this AGENTS.md file first
+2. Understand what features your change affects (see Section 2)
+3. ASK before modifying ANY file (see Section 1)
+4. If approved, make minimal changes
+5. git checkout master && git pull origin master        # start from latest master
+6. git checkout -b fix/<descriptive-name>                # create feature branch
+7. Write contract / cascade tests FIRST                 # TDD: tests define behavior
+8. Write the code to make tests pass
+9. Run tests locally: node --test tests/<your-test-file>
+10. Verify: npm run typecheck && node --check src/index.js
+11. git add -A && git commit -m "description"            # descriptive commit
+12. git push origin <branch>                              # push branch
+13. Create PR via gh pr create — wait for CI green
+14. gh pr merge --squash --admin                         # merge only after CI passes
 ```
 
 ### TDD Template
