@@ -298,17 +298,38 @@ This applies to ALL agent types (general, explore, etc.) and is mandatory for an
 
 ## 🔄 WORKFLOW — ALWAYS FOLLOW THIS
 
+> **CRITICAL:** Never edit code on `master`. All changes go through a branch → PR → CI → merge cycle.
+
 ```
 1. Read this AGENTS.md file first
 2. Understand what features your change affects (see Section 2)
 3. ASK before modifying ANY file (see Section 1)
 4. If approved, make minimal changes
-5. Run tests (see Section 5)
-6. Verify with `node --check src/index.js`
-7. Verify with `npm run typecheck`
-8. Update the corresponding .ts file if you changed a .js file
-9. Commit with a descriptive message
-10. Push to trigger CI (`.github/workflows/ci.yml`) — all checks must pass
+5. git checkout master && git pull origin master        # start from latest master
+6. git checkout -b fix/<descriptive-name>                # create feature branch
+7. Write contract / cascade tests FIRST                 # TDD: tests define behavior
+8. Write the code to make tests pass
+9. Run tests locally: node --test tests/<your-test-file>
+10. Verify: npm run typecheck && node --check src/index.js
+11. git add -A && git commit -m "description"            # descriptive commit
+12. git push origin <branch>                              # push branch
+13. Create PR via gh pr create — wait for CI green
+14. gh pr merge --squash --admin                         # merge only after CI passes
+```
+
+### TDD Template
+
+When fixing a bug or adding a feature, follow this pattern:
+
+```
+1. Create branch: git checkout -b fix/<name> origin/master
+2. Write a failing test that reproduces the bug or defines the contract
+3. Run the test — it MUST fail (proves the test detects the issue)
+4. Write the minimal code to make it pass
+5. Run the test again — it MUST pass
+6. Run the full test suite: node --test tests/*.test.mjs src/tests/*.test.js
+7. Verify typecheck: npm run typecheck
+8. Commit, push, PR, wait for CI green, merge
 ```
 
 ### Release process
