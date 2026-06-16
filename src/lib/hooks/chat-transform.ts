@@ -302,6 +302,11 @@ export function syncControlSettings(cv: any, options: { persistOptimizationMode?
         writeIf("active_pipeline", JSON.stringify(modeEntry.pipeline))
       }
     }
+    if (cv?.pipeline_root && Array.isArray(cv.pipeline_root)) {
+      writeIf("active_pipeline", JSON.stringify(cv.pipeline_root))
+    } else if (cv?.cascade_depth && cv.cascade_depth >= 3) {
+      writeIf("active_pipeline", JSON.stringify(["local", "medium", "brain"]))
+    }
 
     writeIf("enabled", true)
 
@@ -846,6 +851,10 @@ export const onSystemTransform = async (_input, output) => {
       const st = latestUserIntent ? scoreStress(latestUserIntent) : 0
       if (st) _latestBlackboxState.latest_stress_multiplier = st
       _controlVector = await apiComputeControlVector(_latestBlackboxState, undefined, optimizationMode)
+      if (_controlVector) {
+        _latestBlackboxState.cv = _controlVector
+        saveBlackboxStateToCtx(_latestBlackboxState)
+      }
     } else if (latestUserIntent) {
       const st = scoreStress(latestUserIntent)
       _controlVector = await apiComputeControlVector({
