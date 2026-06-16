@@ -2157,7 +2157,6 @@ export {
   updateState,
   readFullState,
   writeFullState,
-  withFileLock,
   _lockPathFor,
   _handleStateCorruption,
 

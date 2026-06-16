@@ -85,110 +85,110 @@ export function scoreStress(text, context = {}) {
   const textKey = typeof text === "string" ? text.slice(0, 80) : String(text ?? "").slice(0, 80)
   const key = `scoreStress:${text?.length ?? 0}:${textKey}|${ctxKeys}`
   return memoCompute(key, () => {
-  const blackboxState = loadBlackboxState()
-  if (!text || typeof text !== "string") return 0
-  const t = text.toLowerCase()
-  let score = 0
+    const blackboxState = loadBlackboxState()
+    if (!text || typeof text !== "string") return 0
+    const t = text.toLowerCase()
+    let score = 0
 
-  const aggressive = ["fuck","shit","bullshit","useless","wrong","bad","slow","broken","stupid","idiot","hell","damn","waste","annoying","terrible","hate"]
-  for (const w of aggressive) {
-    const re = new RegExp("\\b" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "gi")
-    const hits = (t.match(re) || []).length
-    score += hits * 0.18
-  }
-
-  const urgency = ["fix","now","fast","urgent","important","critical","hurry","immediately","asap","stressed","stress","frustrated","overwhelmed","panic","panicked","anxious"]
-  for (const w of urgency) {
-    const re = new RegExp("\\b" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "gi")
-    const hits = (t.match(re) || []).length
-    score += hits * 0.16
-  }
-
-  const negative = ["no","not","don't","can't","won't","doesn't","isn't","shouldn't","never","stop"]
-  for (const w of negative) {
-    const re = new RegExp("\\b" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "gi")
-    const hits = (t.match(re) || []).length
-    score += hits * 0.06
-  }
-
-  const capsAcronyms = new Set(["ai","ui","api","cli","ssh","dns","http","url","json","xml","css","html","sql","csv","yaml","ide","tdd","pr","ci","cd","env","os","sdk","gui","crud","rest","crlf","utf","ascii"])
-  const words = text.split(/\s+/)
-  for (const w of words) {
-    if (w.length >= 3 && /^[A-Z]+$/.test(w) && !capsAcronyms.has(w.toLowerCase())) {
-      score += 0.05
+    const aggressive = ["fuck","shit","bullshit","useless","wrong","bad","slow","broken","stupid","idiot","hell","damn","waste","annoying","terrible","hate"]
+    for (const w of aggressive) {
+      const re = new RegExp("\\b" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "gi")
+      const hits = (t.match(re) || []).length
+      score += hits * 0.18
     }
-  }
 
-  const exclamParts = text.match(/!{2,}/g)
-  if (exclamParts) score += exclamParts.length * 0.08
+    const urgency = ["fix","now","fast","urgent","important","critical","hurry","immediately","asap","stressed","stress","frustrated","overwhelmed","panic","panicked","anxious"]
+    for (const w of urgency) {
+      const re = new RegExp("\\b" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "gi")
+      const hits = (t.match(re) || []).length
+      score += hits * 0.16
+    }
 
-  const qmarkParts = text.match(/\?{2,}/g)
-  if (qmarkParts) score += qmarkParts.length * 0.05
+    const negative = ["no","not","don't","can't","won't","doesn't","isn't","shouldn't","never","stop"]
+    for (const w of negative) {
+      const re = new RegExp("\\b" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "gi")
+      const hits = (t.match(re) || []).length
+      score += hits * 0.06
+    }
 
-  const qeCombos = text.match(/\?!|!\?/g)
-  if (qeCombos) score += qeCombos.length * 0.1
-
-  const behavioralPhrases = [
-    { re: /\b(restart|restarts|restarted|restart again|restart it|retry|retries|retrial|rerun|redo|repeat the step|try again|another attempt|another pass)\b/gi, weight: 0.09 },
-    { re: /\b(still failing|keeps failing|keeps breaking|still broken|same issue|same result|same error|new error|new issue|broke again|breaks again|every fix|every time|over and over|again and again)\b/gi, weight: 0.12 },
-    { re: /\b(blocked again|stuck again|failed again|fails again|this is not working|nothing changed|no change)\b/gi, weight: 0.1 },
-    { re: /\b(start over|from scratch|back to square|back to the drawing board|reset|rethink|different approach)\b/gi, weight: 0.12 },
-    { re: /\b(made it worse|went backwards|regression|introduced (a |a new |another )(problem|bug|issue)|worse than before|new (problem|bug|issue) (emerged|appeared|showed))\b/gi, weight: 0.15 },
-    { re: /\b(\d+)\s*(times|attempts|tries)\b/gi, dynamic: true },
-  ]
-  for (const { re, weight, dynamic } of behavioralPhrases) {
-    const matches = t.match(re)
-    if (!matches) continue
-    if (dynamic) {
-      for (const m of matches) {
-        const num = parseInt(m, 10) || 0
-        score += Math.min(0.2, num * 0.04)
+    const capsAcronyms = new Set(["ai","ui","api","cli","ssh","dns","http","url","json","xml","css","html","sql","csv","yaml","ide","tdd","pr","ci","cd","env","os","sdk","gui","crud","rest","crlf","utf","ascii"])
+    const words = text.split(/\s+/)
+    for (const w of words) {
+      if (w.length >= 3 && /^[A-Z]+$/.test(w) && !capsAcronyms.has(w.toLowerCase())) {
+        score += 0.05
       }
-    } else {
-      score += matches.length * weight
     }
-  }
-  const {
-    toolRepeatStreak,
-    targetRepeatStreak,
-    negativeOutcomes,
-    loopCount,
-    repeatStreak,
-    activityRepeatStreak,
-    targetRepeatStateStreak,
-    messageLengthTrend,
-    messageLengthSlope,
-  } = getBehavioralStressSignals(context, blackboxState)
-  if (toolRepeatStreak >= 2) {
-    score += 0.08 + Math.min(0.24, (toolRepeatStreak - 1) * 0.05)
-  }
-  if (targetRepeatStreak >= 2) {
-    score += 0.05 + Math.min(0.16, (targetRepeatStreak - 1) * 0.035)
-  }
-  if (negativeOutcomes >= 1) {
-    score += 0.05 * negativeOutcomes + Math.min(0.18, negativeOutcomes * 0.03)
-  }
-  if (blackboxState?.is_looping || loopCount >= 2) {
-    score += 0.1 + Math.min(0.18, loopCount * 0.03)
-  }
-  if (repeatStreak >= 2) {
-    score += 0.06 + Math.min(0.12, repeatStreak * 0.025)
-  }
-  if (activityRepeatStreak >= 2) {
-    score += 0.05 + Math.min(0.1, activityRepeatStreak * 0.02)
-  }
-  if (targetRepeatStateStreak >= 2) {
-    score += 0.04 + Math.min(0.08, targetRepeatStateStreak * 0.015)
-  }
-  if (messageLengthTrend === "shortening" && messageLengthSlope < -0.3) {
-    score += 0.08
-  }
 
-  if (text.length < 30) score += 0.06
-  else if (text.length < 80) score += 0.05
-  else if (text.length < 150) score += 0.03
+    const exclamParts = text.match(/!{2,}/g)
+    if (exclamParts) score += exclamParts.length * 0.08
 
-  return Math.min(score, 0.95)
+    const qmarkParts = text.match(/\?{2,}/g)
+    if (qmarkParts) score += qmarkParts.length * 0.05
+
+    const qeCombos = text.match(/\?!|!\?/g)
+    if (qeCombos) score += qeCombos.length * 0.1
+
+    const behavioralPhrases = [
+      { re: /\b(restart|restarts|restarted|restart again|restart it|retry|retries|retrial|rerun|redo|repeat the step|try again|another attempt|another pass)\b/gi, weight: 0.09 },
+      { re: /\b(still failing|keeps failing|keeps breaking|still broken|same issue|same result|same error|new error|new issue|broke again|breaks again|every fix|every time|over and over|again and again)\b/gi, weight: 0.12 },
+      { re: /\b(blocked again|stuck again|failed again|fails again|this is not working|nothing changed|no change)\b/gi, weight: 0.1 },
+      { re: /\b(start over|from scratch|back to square|back to the drawing board|reset|rethink|different approach)\b/gi, weight: 0.12 },
+      { re: /\b(made it worse|went backwards|regression|introduced (a |a new |another )(problem|bug|issue)|worse than before|new (problem|bug|issue) (emerged|appeared|showed))\b/gi, weight: 0.15 },
+      { re: /\b(\d+)\s*(times|attempts|tries)\b/gi, dynamic: true },
+    ]
+    for (const { re, weight, dynamic } of behavioralPhrases) {
+      const matches = t.match(re)
+      if (!matches) continue
+      if (dynamic) {
+        for (const m of matches) {
+          const num = parseInt(m, 10) || 0
+          score += Math.min(0.2, num * 0.04)
+        }
+      } else {
+        score += matches.length * weight
+      }
+    }
+    const {
+      toolRepeatStreak,
+      targetRepeatStreak,
+      negativeOutcomes,
+      loopCount,
+      repeatStreak,
+      activityRepeatStreak,
+      targetRepeatStateStreak,
+      messageLengthTrend,
+      messageLengthSlope,
+    } = getBehavioralStressSignals(context, blackboxState)
+    if (toolRepeatStreak >= 2) {
+      score += 0.08 + Math.min(0.24, (toolRepeatStreak - 1) * 0.05)
+    }
+    if (targetRepeatStreak >= 2) {
+      score += 0.05 + Math.min(0.16, (targetRepeatStreak - 1) * 0.035)
+    }
+    if (negativeOutcomes >= 1) {
+      score += 0.05 * negativeOutcomes + Math.min(0.18, negativeOutcomes * 0.03)
+    }
+    if (blackboxState?.is_looping || loopCount >= 2) {
+      score += 0.1 + Math.min(0.18, loopCount * 0.03)
+    }
+    if (repeatStreak >= 2) {
+      score += 0.06 + Math.min(0.12, repeatStreak * 0.025)
+    }
+    if (activityRepeatStreak >= 2) {
+      score += 0.05 + Math.min(0.1, activityRepeatStreak * 0.02)
+    }
+    if (targetRepeatStateStreak >= 2) {
+      score += 0.04 + Math.min(0.08, targetRepeatStateStreak * 0.015)
+    }
+    if (messageLengthTrend === "shortening" && messageLengthSlope < -0.3) {
+      score += 0.08
+    }
+
+    if (text.length < 30) score += 0.06
+    else if (text.length < 80) score += 0.05
+    else if (text.length < 150) score += 0.03
+
+    return Math.min(score, 0.95)
   })
 }
 
@@ -227,40 +227,40 @@ export function estimateContextBudget(_input, output) {
 
 export function classifyTurnSimple(userText) {
   return memoCompute(`classifyTurnSimple:${userText}`, () => {
-  const lower = String(userText || "").trim()
-  if (!lower) return "INIT"
-  if (/(security|vulnerability|audit|owasp|compliance|gdpr|privacy|analyze dependencies|license audit|xss|csrf|authn|authz|pentest)/i.test(lower)) {
-    return "AUDIT"
-  }
-  if (/(inject|exploit|penetration|cve|attack|threat|encrypt|forensic|research|deep analysis|investigate|root cause|reverse engineer|disassemble|memory dump|core dump)/i.test(lower)) {
-    return "FORENSIC"
-  }
-  const IMPL_VERBS = "fix|write|create|build|implement|change|edit|modify|update|refactor|generate|delete|remove|migrate|deploy|commit|push"
-  // "can you fix/rewrite/..." are implementation requests phrased as questions
-  if (new RegExp("^(can you|could you|tell me|we should|we need to|please) (" + IMPL_VERBS + ")\\b", "i").test(lower)) {
-    return "REFINING"
-  }
-  // "I need to fix/update/..." — implementation intent
-  if (new RegExp("^I (need|want|would like) to (" + IMPL_VERBS + ")\\b", "i").test(lower)) {
-    return "REFINING"
-  }
-  // Problem-description patterns — user is investigating/reporting, not commanding
-  if (/^(the |there is |there are |i think |looks like |seems like |i see |why (is|are|does|did) )/i.test(lower)) {
-    return "EXPLORING"
-  }
-  // Q&A / research patterns -> EXPLORING
-  if (/^(how|what|why|when|where|who|can you|could you|let me|tell me|explain|describe|show|list|check|is there|are there|does|do you|summarize|elaborate|clarify|inspect|trace|find|search|look|read|show me|dump|debug)/i.test(lower)) {
-    return "EXPLORING"
-  }
-  // Full-text scan for implementation verbs — catches "I need to fix", "we should fix" without leading patterns
-  if (new RegExp("\\b(" + IMPL_VERBS + ")\\b", "i").test(lower)) {
-    return "REFINING"
-  }
-  // Implementation / write patterns (leading verb) -> REFINING
-  if (/^(write|create|add|build|implement|fix|change|edit|modify|update|refactor|generate|make|commit|push|deploy|release|publish|install|remove|delete|rename|move|copy|transform|convert|migrate)/i.test(lower)) {
-    return "REFINING"
-  }
-  return "INIT"
+    const lower = String(userText || "").trim()
+    if (!lower) return "INIT"
+    if (/(security|vulnerability|audit|owasp|compliance|gdpr|privacy|analyze dependencies|license audit|xss|csrf|authn|authz|pentest)/i.test(lower)) {
+      return "AUDIT"
+    }
+    if (/(inject|exploit|penetration|cve|attack|threat|encrypt|forensic|research|deep analysis|investigate|root cause|reverse engineer|disassemble|memory dump|core dump)/i.test(lower)) {
+      return "FORENSIC"
+    }
+    const IMPL_VERBS = "fix|write|create|build|implement|change|edit|modify|update|refactor|generate|delete|remove|migrate|deploy|commit|push"
+    // "can you fix/rewrite/..." are implementation requests phrased as questions
+    if (new RegExp("^(can you|could you|tell me|we should|we need to|please) (" + IMPL_VERBS + ")\\b", "i").test(lower)) {
+      return "REFINING"
+    }
+    // "I need to fix/update/..." — implementation intent
+    if (new RegExp("^I (need|want|would like) to (" + IMPL_VERBS + ")\\b", "i").test(lower)) {
+      return "REFINING"
+    }
+    // Problem-description patterns — user is investigating/reporting, not commanding
+    if (/^(the |there is |there are |i think |looks like |seems like |i see |why (is|are|does|did) )/i.test(lower)) {
+      return "EXPLORING"
+    }
+    // Q&A / research patterns -> EXPLORING
+    if (/^(how|what|why|when|where|who|can you|could you|let me|tell me|explain|describe|show|list|check|is there|are there|does|do you|summarize|elaborate|clarify|inspect|trace|find|search|look|read|show me|dump|debug)/i.test(lower)) {
+      return "EXPLORING"
+    }
+    // Full-text scan for implementation verbs — catches "I need to fix", "we should fix" without leading patterns
+    if (new RegExp("\\b(" + IMPL_VERBS + ")\\b", "i").test(lower)) {
+      return "REFINING"
+    }
+    // Implementation / write patterns (leading verb) -> REFINING
+    if (/^(write|create|add|build|implement|fix|change|edit|modify|update|refactor|generate|make|commit|push|deploy|release|publish|install|remove|delete|rename|move|copy|transform|convert|migrate)/i.test(lower)) {
+      return "REFINING"
+    }
+    return "INIT"
   })
 }
 
