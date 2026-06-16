@@ -190,9 +190,9 @@ export function setBlackboxEnabled(val: boolean) { _blackboxEnabled = val }
 let _latestBlackboxState: any = null
 let _latestBlackboxLoopMsg: string | null = null
 let _latestBlackboxPivotMsg: string | null = null
-export let _modelLocked = false
-export let _lockedSlot: string | null = null
-export let _lockedModel: string | null = null
+let _modelLocked = false
+let _lockedSlot: string | null = null
+let _lockedModel: string | null = null
 export function setModelLocked(val: boolean) { _modelLocked = !!val }
 export function setLockedSlot(val: string | null) { _lockedSlot = val ? String(val) : null }
 export function setLockedModel(val: string | null) { _lockedModel = val ? String(val) : null }
@@ -2146,6 +2146,12 @@ export {
   _latestBlackboxState,
   _latestBlackboxLoopMsg,
   _latestBlackboxPivotMsg,
+  _modelLocked,
+  _lockedSlot,
+  _lockedModel,
+  setModelLocked,
+  setLockedSlot,
+  setLockedModel,
   _detectedFramework,
 
   // JSONC parsing

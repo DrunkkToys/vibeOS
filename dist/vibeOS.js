@@ -979,7 +979,7 @@ var init_smart_cache = __esm({
 });
 
 // src/lib/state.js
-import { readFileSync as readFileSync2, writeFileSync as writeFileSync2, appendFileSync as appendFileSync2, existsSync as existsSync2, mkdirSync, statSync as statSync2, readdirSync, openSync, readSync, closeSync, rmSync, copyFileSync, renameSync as renameSync2 } from "node:fs";
+import { readFileSync as readFileSync2, writeFileSync as writeFileSync2, appendFileSync, existsSync as existsSync2, mkdirSync, statSync as statSync2, readdirSync, openSync, readSync, closeSync, rmSync, copyFileSync, renameSync as renameSync2 } from "node:fs";
 import { join as join2, dirname, basename as basename2 } from "node:path";
 import { spawn } from "node:child_process";
 import { homedir as homedir2, tmpdir as tmpdir2 } from "node:os";
@@ -1139,7 +1139,7 @@ function _handleStateCorruption2(path) {
   }
   const logPath = join2(VIBEOS_HOME, ".state-corruption-log.jsonl");
   try {
-    appendFileSync2(logPath, JSON.stringify({ ts: (/* @__PURE__ */ new Date()).toISOString(), path, backup: backupPath }) + "\n");
+    appendFileSync(logPath, JSON.stringify({ ts: (/* @__PURE__ */ new Date()).toISOString(), path, backup: backupPath }) + "\n");
   } catch {
   }
   _pruneCorruptionBackups(backupDir);
@@ -1586,7 +1586,7 @@ function _flushLedgerBuffer() {
   const lines = batch.map((e) => typeof e === "string" ? e.trimEnd() : String(e).trimEnd());
   const joined = lines.filter(Boolean).map((l) => l + "\n").join("");
   try {
-    appendFileSync2(SAVINGS_LEDGER_FILE, joined);
+    appendFileSync(SAVINGS_LEDGER_FILE, joined);
     _compactSavingsLedgerIfNeeded();
   } catch {
   }
@@ -1736,8 +1736,8 @@ function indexAppend(hash, tool2, size, extra) {
     const sessionIndex = getSessionIndexPath();
     mkdirSync(dirname(globalIndex), { recursive: true });
     mkdirSync(dirname(sessionIndex), { recursive: true });
-    appendFileSync2(globalIndex, entry);
-    appendFileSync2(sessionIndex, entry);
+    appendFileSync(globalIndex, entry);
+    appendFileSync(sessionIndex, entry);
   } catch (err) {
     console.error(`[vibeOS] index write failed: ${err.message}`);
   }
@@ -2859,7 +2859,7 @@ __export(flow_enforcer_exports, {
   setFlowStateWriter: () => setFlowStateWriter,
   syncFlowTodosToNative: () => syncFlowTodosToNative
 });
-import { readFileSync as readFileSync3, existsSync as existsSync3, mkdirSync as mkdirSync2, writeFileSync as writeFileSync3, statSync as statSync3, appendFileSync as appendFileSync3, renameSync as renameSync3 } from "node:fs";
+import { readFileSync as readFileSync3, existsSync as existsSync3, mkdirSync as mkdirSync2, writeFileSync as writeFileSync3, statSync as statSync3, appendFileSync as appendFileSync2, renameSync as renameSync3 } from "node:fs";
 import { join as join3, dirname as dirname2 } from "node:path";
 import { fileURLToPath } from "node:url";
 function getVibeOSHome3() {
@@ -3291,7 +3291,7 @@ function recordFlowTodo({ filePath, content }) {
       filePath,
       todos
     }) + "\n";
-    appendFileSync3(flowTodoFile, entry);
+    appendFileSync2(flowTodoFile, entry);
     try {
       const lines = readFileSync3(flowTodoFile, "utf-8").trim().split("\n").filter(Boolean);
       if (lines.length > MAX_FLOW_TODOS) {
@@ -9466,7 +9466,7 @@ function createTrinityTool(deps) {
   return {
     description: "Control the vibeOS plugin and active model slot. Use action='status' to see the current state. Use action='enable' or 'disable' to toggle the plugin immediately. Use action='set' with slot='brain'|'medium'|'cheap' to switch model tiers (writes opencode.json). Optionally pass model='<model_id>' to set a custom model for that slot. Use action='mode' with slot='vibeultrax'|'vibeqmax'|'vibemax'|'budget'|'quality'|'speed'|'longrun'|'auto'|'balanced'|'audit'|'forensic' to switch optimization mode. Use action='thinking' with level='full'|'brief'|'off'. Use action='rebuild' to detect available models from configured providers and reassign brain/medium/cheap slots. Use action='flow' with slot='on'|'off' to toggle flow enforcer, or action='flow' alone for audit. Use action='flow' with slot='enforce' and level='on'|'off' to toggle auto-extract TODOs. Use action='enforce' with slot='on'|'off' to toggle delegation enforcement. Use action='tdd' with slot='on'|'off' to toggle auto-create test skeletons. Use action='tdd' with slot='strict' and level='on'|'off' to toggle strict failing TODO test templates. Use action='tdd' alone for audit. Use action='setup' to create a compatibility profile for first-time users. Use action='project' to show per-project analytics and optimization suggestions. Use action='patterns' to inspect learned project patterns or slot='clear' to clear them. Use action='guard' to keep AGENTS.md and README.md current. Use action='reality-check' to read verified live state and report only evidence-backed facts. Use action='api-token' with token='<new_token>' to update the API token or token='invalidate' to disable the embedded alpha token. Use action='api-bootstrap-token' with token='<new_token>' to store an alpha bootstrap token and exchange it for a normal API token on alpha builds. Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', 'vibe status' (or the legacy 'trinity status').",
     args: {
-      action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "setup", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard", "reality-check", "api-token", "api-bootstrap-token", "verify-claims", "todo", "todo-done", "todo-sync"]).optional(),
+      action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "setup", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard", "reality-check", "api-token", "api-bootstrap-token", "todo", "todo-done", "todo-sync"]).optional(),
       slot: deps.tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "balanced", "audit", "forensic", "vibeultrax", "vibeqmax", "vibemax", "vibelitex", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings"]).optional(),
       level: deps.tool.schema.enum(["full", "brief", "off", "on"]).optional(),
       model: deps.tool.schema.string().optional(),
@@ -10333,125 +10333,6 @@ ${L.repeat(40)}`);
           return "[vibeOS] Alpha bootstrap token exchanged successfully. Remote API re-enabled.";
         return "[vibeOS] Alpha bootstrap token saved. Remote API will retry the exchange on the next call.";
       }
-      if (action === "verify-claims") {
-        const VIBEOS_HOME2 = join11(process.env.HOME || "", ".claude");
-        const AUDIT_DIR = join11(VIBEOS_HOME2, "cascade-audit");
-        const claimFile = join11(AUDIT_DIR, "claim-audit.jsonl");
-        const cascadeFile = join11(AUDIT_DIR, "cascade-audit.jsonl");
-        const lines = ["[vibeOS] Claim verification report"];
-        lines.push("=".repeat(50));
-        let claimCount = 0, unsubstantiatedCount = 0, verifiedCount = 0;
-        const CLAIM_RE = /(?:done|fixed|validated|works|score|%|passed|verified|solved|resolved)/i;
-        const claims = [];
-        if (deps.existsSync(claimFile)) {
-          try {
-            const raw = deps.readFileSync(claimFile, "utf-8");
-            for (const ln of raw.trim().split(String.fromCharCode(10))) {
-              if (!ln.trim())
-                continue;
-              try {
-                claims.push(JSON.parse(ln));
-              } catch {
-              }
-            }
-          } catch {
-          }
-        }
-        const cascadeRuns = [];
-        if (deps.existsSync(cascadeFile)) {
-          try {
-            const raw = deps.readFileSync(cascadeFile, "utf-8");
-            for (const ln of raw.trim().split(String.fromCharCode(10))) {
-              if (!ln.trim())
-                continue;
-              try {
-                cascadeRuns.push(JSON.parse(ln));
-              } catch {
-              }
-            }
-          } catch {
-          }
-        }
-        const recentClaims = claims.slice(-20);
-        const recentCascade = cascadeRuns.slice(-50);
-        lines.push("Claims detected (last 20): " + recentClaims.length);
-        lines.push("Cascade runs available: " + recentCascade.length);
-        lines.push("");
-        if (recentClaims.length === 0) {
-          lines.push("  No claims detected in recent responses.");
-        }
-        for (const cl of recentClaims) {
-          claimCount++;
-          const claimTexts = (cl.claims || []).map(function(c) {
-            return c.text;
-          }).join(" | ");
-          const ts = (cl.ts || "").slice(0, 19);
-          let cascadeMatch = false;
-          let emptyAnswers = 0;
-          for (const cr of recentCascade) {
-            const cTs = cr._ts || "";
-            if (cTs && cl.ts) {
-              const diffMs = Math.abs(new Date(cTs).getTime() - new Date(cl.ts).getTime());
-              if (diffMs < 12e4) {
-                cascadeMatch = true;
-                if (cr.answer_empty)
-                  emptyAnswers++;
-              }
-            }
-          }
-          const hasScore = CLAIM_RE.test(claimTexts);
-          let substantiated = true;
-          let notes = [];
-          if (hasScore && recentCascade.length === 0) {
-            substantiated = false;
-            notes.push("no cascade run data available");
-          } else if (hasScore && !cascadeMatch) {
-            substantiated = false;
-            notes.push("no cascade run within 2min of claim");
-          }
-          if (emptyAnswers > 0) {
-            notes.push("cascade returned empty answers");
-          }
-          if (substantiated) {
-            verifiedCount++;
-            lines.push("  [VERIFIED] " + ts + ": " + claimTexts.substring(0, 80));
-          } else {
-            unsubstantiatedCount++;
-            lines.push("  [UNSUBSTANTIATED] " + ts + ": " + claimTexts.substring(0, 80));
-            if (notes.length > 0)
-              lines.push("    Reasons: " + notes.join("; "));
-          }
-        }
-        lines.push("");
-        lines.push("Summary: " + verifiedCount + " verified, " + unsubstantiatedCount + " unsubstantiated, " + (claimCount - verifiedCount - unsubstantiatedCount) + " pending");
-        lines.push("Claim audit: " + claimFile);
-        lines.push("Cascade audit: " + cascadeFile);
-        const { execSync } = __require("child_process");
-        let gitDiffLines = "";
-        try {
-          gitDiffLines = execSync("git diff --stat", { encoding: "utf-8", timeout: 5e3 }).trim();
-        } catch {
-        }
-        if (gitDiffLines) {
-          lines.push("");
-          lines.push("Git working tree has uncommitted changes:");
-          for (const dl of gitDiffLines.split(String.fromCharCode(10))) {
-            lines.push("  " + dl);
-          }
-        } else {
-          for (const cl of recentClaims) {
-            const claimTexts = (cl.claims || []).map(function(c) {
-              return c.text;
-            }).join(" | ");
-            if (/fixed|done|solved|resolved|validated/i.test(claimTexts)) {
-              if (!gitDiffLines) {
-                lines.push("  WARNING: '" + claimTexts.substring(0, 50) + "' claim but no uncommitted changes in working tree");
-              }
-            }
-          }
-        }
-        return lines.join(String.fromCharCode(10));
-      }
       if (action === "rebuild") {
         const providers = typeof deps._loadOpenCodeProviders === "function" ? deps._loadOpenCodeProviders(deps.directory) : {};
         const auth = deps._readAuth();
@@ -11241,12 +11122,12 @@ async function probeModel(modelId, auth, providers = null) {
 }
 
 // src/lib/hooks/footer.js
-import { readFileSync as readFileSync14, appendFileSync as appendFileSync5, mkdirSync as mkdirSync11 } from "node:fs";
+import { readFileSync as readFileSync14, appendFileSync as appendFileSync4, mkdirSync as mkdirSync11 } from "node:fs";
 import { join as join15 } from "node:path";
 
 // src/lib/hooks/chat-transform.js
 init_state();
-import { readFileSync as readFileSync13, writeFileSync as writeFileSync13, appendFileSync as appendFileSync4, existsSync as existsSync14, mkdirSync as mkdirSync10, rmSync as rmSync5, readdirSync as readdirSync3, statSync as statSync7 } from "node:fs";
+import { readFileSync as readFileSync13, writeFileSync as writeFileSync13, appendFileSync as appendFileSync3, existsSync as existsSync14, mkdirSync as mkdirSync10, rmSync as rmSync5, readdirSync as readdirSync3, statSync as statSync7 } from "node:fs";
 import { join as join14, dirname as dirname10, basename as basename3 } from "node:path";
 import { createHash as createHash3 } from "node:crypto";
 
@@ -12856,7 +12737,7 @@ var onSystemTransform = async (_input, output) => {
       try {
         const calFile = join14(getVibeOSHome9(), "calibration-data.jsonl");
         mkdirSync10(getVibeOSHome9(), { recursive: true });
-        appendFileSync4(calFile, _calBuffer.join(""));
+        appendFileSync3(calFile, _calBuffer.join(""));
         _calBuffer.length = 0;
       } catch {
       }
@@ -13039,9 +12920,6 @@ function buildFooterLine(input) {
   }
   if (input.stressGauge) {
     line += ` | ${input.stressGauge}`;
-  }
-  if (input.claimTag) {
-    line += ` | ${input.claimTag}`;
   }
   if (sessionSlot && sessionSlot !== activeSlot) {
     line += ` | session:${sessionSlot}`;
@@ -13301,16 +13179,6 @@ async function _appendFooter(input, output, directory3) {
     const rawMode = (typeof loadSelection3 === "function" ? loadSelection3()?.requested_optimization_mode || loadSelection3()?.optimization_mode : null) || displayMode;
     const cv = computeControlVector2({ sub_regime: currentSubRegime, latest_stress_multiplier: _footerStress, user_text: latestUserIntent || "" }, void 0, rawMode);
     const vibeBrand = resolveBrand(loadOptimizationMode() || displayMode, activeSlot);
-    const _cp = [/(?:\u005c|['"](?:done|fixed|validated|works|verified|solved|resolved)['"]|\d+%|score|passed)/i];
-    let _claimTag = "";
-    if (text) {
-      for (const _p of _cp) {
-        if (_p.test(text)) {
-          _claimTag = "[CLAIMS]";
-          break;
-        }
-      }
-    }
     const vibeLine = buildFooterLine({
       activeSlot,
       providerLabel: execution.provider_label,
@@ -13325,8 +13193,7 @@ async function _appendFooter(input, output, directory3) {
       vectorChangedSlot: selNowFooter?.vector_changed_slot,
       subRegime: currentSubRegime,
       stressGauge: _footerStress > 0.85 ? "\u2588" : _footerStress > 0.7 ? "\u2586" : _footerStress > 0.5 ? "\u2585" : _footerStress > 0.3 ? "\u2583" : _footerStress > 0.1 ? "\u2582" : "\u2581",
-      cascadeIcon: (cv?.cascade_depth || 1) >= 3 ? "\u25B8\u25B8\u25B8" : (cv?.cascade_depth || 1) >= 2 ? "\u25B8\u25B8" : "",
-      claimTag: _claimTag
+      cascadeIcon: (cv?.cascade_depth || 1) >= 3 ? "\u25B8\u25B8\u25B8" : (cv?.cascade_depth || 1) >= 2 ? "\u25B8\u25B8" : ""
     });
     const footerText = stripped + `
 
@@ -13358,7 +13225,7 @@ ${vibeLine}`;
             syncOutcomeToApi(finalOutcome);
             try {
               mkdirSync11(getVibeOSHome10(), { recursive: true });
-              appendFileSync5(join15(getVibeOSHome10(), "calibration-data.jsonl"), JSON.stringify({ ts: (/* @__PURE__ */ new Date()).toISOString(), event: "outcome", sid: getSessionId(), outcome: finalOutcome }) + "\n");
+              appendFileSync4(join15(getVibeOSHome10(), "calibration-data.jsonl"), JSON.stringify({ ts: (/* @__PURE__ */ new Date()).toISOString(), event: "outcome", sid: getSessionId(), outcome: finalOutcome }) + "\n");
             } catch {
             }
           }
@@ -13385,7 +13252,7 @@ ${vibeLine} \u2014`);
 
 // src/lib/hooks/tool-execute.js
 init_state();
-import { writeFileSync as writeFileSync15, appendFileSync as appendFileSync7, existsSync as existsSync16, mkdirSync as mkdirSync13 } from "node:fs";
+import { writeFileSync as writeFileSync15, appendFileSync as appendFileSync6, existsSync as existsSync16, mkdirSync as mkdirSync13 } from "node:fs";
 import { join as join17, dirname as dirname12, basename as basename4 } from "node:path";
 import { createHash as createHash5 } from "node:crypto";
 init_selection_manager();
@@ -13454,7 +13321,7 @@ init_smart_cache();
 
 // src/lib/tdd-enforcer.js
 init_state();
-import { readFileSync as readFileSync15, writeFileSync as writeFileSync14, appendFileSync as appendFileSync6, existsSync as existsSync15, mkdirSync as mkdirSync12, statSync as statSync8, readdirSync as readdirSync4, rmSync as rmSync6, openSync as openSync3 } from "node:fs";
+import { readFileSync as readFileSync15, writeFileSync as writeFileSync14, appendFileSync as appendFileSync5, existsSync as existsSync15, mkdirSync as mkdirSync12, statSync as statSync8, readdirSync as readdirSync4, rmSync as rmSync6, openSync as openSync3 } from "node:fs";
 import { join as join16, dirname as dirname11 } from "node:path";
 import { createHash as createHash4 } from "node:crypto";
 
@@ -13830,49 +13697,29 @@ var TEST_SKELETONS = {
     }
     return content;
   },
-  js: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "", framework = null) => {
+  js: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => {
     const importPath = `../${name}`;
     let content = `// [vibeOS-enforced] Skeleton test \u2014 replace with real assertions
 `;
-    if (framework === "node-test") {
-      content += `import { test, describe } from 'node:test';
+    content += `const { test, expect, describe } = require('@jest/globals');
 `;
-      content += `import assert from 'node:assert/strict';
-`;
-      content += `const mod = await import('${importPath}');
+    content += `const mod = require('${importPath}');
 
 `;
-    } else {
-      content += `const { test, expect, describe } = require('@jest/globals');
-`;
-      content += `const mod = require('${importPath}');
-
-`;
-    }
     content += `describe('${name}', () => {
 `;
     if (depth === "minimal") {
       content += `  test('smoke: module loads', () => {
 `;
-      if (framework === "node-test") {
-        content += `    assert.ok(mod);
+      content += `    expect(mod).toBeDefined();
 `;
-      } else {
-        content += `    expect(mod).toBeDefined();
-`;
-      }
       content += `  });
 `;
     } else {
       content += `  test('smoke: module loads', () => {
 `;
-      if (framework === "node-test") {
-        content += `    assert.ok(mod);
+      content += `    expect(mod).toBeDefined();
 `;
-      } else {
-        content += `    expect(mod).toBeDefined();
-`;
-      }
       content += `  });
 
 `;
@@ -13884,13 +13731,8 @@ var TEST_SKELETONS = {
 `;
         content += `  test('${exp.name} is exported', () => {
 `;
-        if (framework === "node-test") {
-          content += `    assert.strictEqual(typeof mod.${exp.name}, 'function');
+        content += `    expect(typeof mod.${exp.name}).toBe('function');
 `;
-        } else {
-          content += `    expect(typeof mod.${exp.name}).toBe('function');
-`;
-        }
         content += `  });
 
 `;
@@ -13899,17 +13741,12 @@ var TEST_SKELETONS = {
 `;
           content += `    // TODO: implement ${caseName}
 `;
-          if (framework === "node-test") {
-            if (strict)
-              content += `    assert.ok(true, 'TODO: implement ${caseName}');
+          if (strict)
+            content += `    throw new Error('TODO: implement ${caseName}');
 `;
-            else
-              content += `    assert.ok(true);
-`;
-          } else {
+          else
             content += `    expect(true).toBe(true);
 `;
-          }
           content += `  });
 
 `;
@@ -13934,49 +13771,29 @@ var TEST_SKELETONS = {
 `;
     return content;
   },
-  mjs: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "", framework = null) => {
+  mjs: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => {
     const importPath = `../${name}`;
     let content = `// [vibeOS-enforced] Skeleton test \u2014 replace with real assertions
 `;
-    if (framework === "node-test") {
-      content += `import { test, describe } from 'node:test';
+    content += `import { test, expect, describe } from 'vitest';
 `;
-      content += `import assert from 'node:assert/strict';
-`;
-      content += `import * as mod from '${importPath}';
+    content += `import * as mod from '${importPath}';
 
 `;
-    } else {
-      content += `import { test, expect, describe } from 'vitest';
-`;
-      content += `import * as mod from '${importPath}';
-
-`;
-    }
     content += `describe('${name}', () => {
 `;
     if (depth === "minimal") {
       content += `  test('smoke: module loads', () => {
 `;
-      if (framework === "node-test") {
-        content += `    assert.ok(mod);
+      content += `    expect(mod).toBeDefined();
 `;
-      } else {
-        content += `    expect(mod).toBeDefined();
-`;
-      }
       content += `  });
 `;
     } else {
       content += `  test('smoke: module loads', () => {
 `;
-      if (framework === "node-test") {
-        content += `    assert.ok(mod);
+      content += `    expect(mod).toBeDefined();
 `;
-      } else {
-        content += `    expect(mod).toBeDefined();
-`;
-      }
       content += `  });
 
 `;
@@ -13988,13 +13805,8 @@ var TEST_SKELETONS = {
 `;
         content += `  test('${exp.name} is exported', () => {
 `;
-        if (framework === "node-test") {
-          content += `    assert.strictEqual(typeof mod.${exp.name}, 'function');
+        content += `    expect(typeof mod.${exp.name}).toBe('function');
 `;
-        } else {
-          content += `    expect(typeof mod.${exp.name}).toBe('function');
-`;
-        }
         content += `  });
 
 `;
@@ -14003,17 +13815,12 @@ var TEST_SKELETONS = {
 `;
           content += `    // TODO: implement ${caseName}
 `;
-          if (framework === "node-test") {
-            if (strict)
-              content += `    assert.ok(true, 'TODO: implement ${caseName}');
+          if (strict)
+            content += `    throw new Error('TODO: implement ${caseName}');
 `;
-            else
-              content += `    assert.ok(true);
-`;
-          } else {
+          else
             content += `    expect(true).toBe(true);
 `;
-          }
           content += `  });
 
 `;
@@ -14028,13 +13835,8 @@ var TEST_SKELETONS = {
 `;
         content += `    // TODO: implement tests for ${name}
 `;
-        if (framework === "node-test") {
-          content += `    assert.ok(true);
+        content += `    expect(true).toBe(true);
 `;
-        } else {
-          content += `    expect(true).toBe(true);
-`;
-        }
         content += `  });
 `;
       }
@@ -14043,49 +13845,29 @@ var TEST_SKELETONS = {
 `;
     return content;
   },
-  ts: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "", framework = null) => {
+  ts: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => {
     const importPath = `../${name}`;
     let content = `// [vibeOS-enforced] Skeleton test \u2014 replace with real assertions
 `;
-    if (framework === "node-test") {
-      content += `import { test, describe, it } from 'node:test';
+    content += `import { test, expect, describe, it } from 'vitest';
 `;
-      content += `import assert from 'node:assert/strict';
-`;
-      content += `import * as mod from '${importPath}';
+    content += `import * as mod from '${importPath}';
 
 `;
-    } else {
-      content += `import { test, expect, describe, it } from 'vitest';
-`;
-      content += `import * as mod from '${importPath}';
-
-`;
-    }
     content += `describe('${name}', () => {
 `;
     if (depth === "minimal") {
       content += `  it('smoke: module loads', () => {
 `;
-      if (framework === "node-test") {
-        content += `    assert.ok(mod);
+      content += `    expect(mod).toBeDefined();
 `;
-      } else {
-        content += `    expect(mod).toBeDefined();
-`;
-      }
       content += `  });
 `;
     } else {
       content += `  it('smoke: module loads', () => {
 `;
-      if (framework === "node-test") {
-        content += `    assert.ok(mod);
+      content += `    expect(mod).toBeDefined();
 `;
-      } else {
-        content += `    expect(mod).toBeDefined();
-`;
-      }
       content += `  });
 
 `;
@@ -14097,13 +13879,8 @@ var TEST_SKELETONS = {
 `;
         content += `  it('${exp.name} is exported', () => {
 `;
-        if (framework === "node-test") {
-          content += `    assert.strictEqual(typeof mod.${exp.name}, 'function');
+        content += `    expect(typeof mod.${exp.name}).toBe('function');
 `;
-        } else {
-          content += `    expect(typeof mod.${exp.name}).toBe('function');
-`;
-        }
         content += `  });
 
 `;
@@ -14112,17 +13889,12 @@ var TEST_SKELETONS = {
 `;
           content += `    // TODO: implement ${caseName}
 `;
-          if (framework === "node-test") {
-            if (strict)
-              content += `    assert.ok(true, 'TODO: implement ${caseName}');
+          if (strict)
+            content += `    throw new Error('TODO: implement ${caseName}');
 `;
-            else
-              content += `    assert.ok(true);
-`;
-          } else {
+          else
             content += `    expect(true).toBe(true);
 `;
-          }
           content += `  });
 
 `;
@@ -14137,13 +13909,8 @@ var TEST_SKELETONS = {
 `;
         content += `    // TODO: implement tests for ${name}
 `;
-        if (framework === "node-test") {
-          content += `    assert.ok(true);
+        content += `    expect(true).toBe(true);
 `;
-        } else {
-          content += `    expect(true).toBe(true);
-`;
-        }
         content += `  });
 `;
       }
@@ -14152,10 +13919,10 @@ var TEST_SKELETONS = {
 `;
     return content;
   },
-  tsx: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "", framework = null) => TEST_SKELETONS.ts(name, exports, depth, strict, quality, sourceContent, framework),
-  jsx: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "", framework = null) => TEST_SKELETONS.mjs(name, exports, depth, strict, quality, sourceContent, framework),
-  cjs: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "", framework = null) => TEST_SKELETONS.mjs(name, exports, depth, strict, quality, sourceContent, framework),
-  mts: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "", framework = null) => TEST_SKELETONS.ts(name, exports, depth, strict, quality, sourceContent, framework),
+  tsx: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => TEST_SKELETONS.ts(name, exports, depth, strict, quality, sourceContent),
+  jsx: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => TEST_SKELETONS.mjs(name, exports, depth, strict, quality, sourceContent),
+  cjs: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => TEST_SKELETONS.mjs(name, exports, depth, strict, quality, sourceContent),
+  mts: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => TEST_SKELETONS.ts(name, exports, depth, strict, quality, sourceContent),
   go: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "") => {
     const cap = name.charAt(0).toUpperCase() + name.slice(1);
     let content = `// [vibeOS-enforced] Skeleton test \u2014 replace with real assertions
@@ -14717,7 +14484,7 @@ function _recordCooldown(testPath) {
     mkdirSync12(dirname11(ENFORCEMENT_COOLDOWN_FILE2), { recursive: true });
     const hash = createHash4("sha256").update(testPath).digest("hex").slice(0, 16);
     const entry = JSON.stringify({ h: hash, ts: Date.now() }) + "\n";
-    appendFileSync6(ENFORCEMENT_COOLDOWN_FILE2, entry);
+    appendFileSync5(ENFORCEMENT_COOLDOWN_FILE2, entry);
     const lines = readFileSync15(ENFORCEMENT_COOLDOWN_FILE2, "utf-8").trim().split("\n").filter(Boolean);
     if (lines.length > 500) {
       writeFileSync14(ENFORCEMENT_COOLDOWN_FILE2, lines.slice(-200).join("\n") + "\n");
@@ -14782,7 +14549,7 @@ function buildTestSkeleton(filePath, sourceContent = "", options = {}) {
     testPath = testPath.replace(new RegExp("\\.[^.]+$"), "." + fw.testExt);
   }
   const exports = extractExports(sourceContent, extLower);
-  return { path: testPath, content: skeletonFn(name, exports, "full", strict, quality, sourceContent, fw?.framework), dir: dirname11(testPath) };
+  return { path: testPath, content: skeletonFn(name, exports, "full", strict, quality, sourceContent), dir: dirname11(testPath) };
 }
 function enforceTestFile(filePath) {
   console.error(`[vibeOS] [tdd-enforce] enforceTestFile called for ${filePath}`);
@@ -15649,7 +15416,7 @@ var onToolExecuteAfter = async (input, output) => {
     const taskPrompt = input?.args?.prompt || input?.args?.description || "";
     const quality = scoreTaskQuality(taskOutput, taskPrompt);
     try {
-      appendFileSync7(SAVINGS_LEDGER_FILE, JSON.stringify({
+      appendFileSync6(SAVINGS_LEDGER_FILE, JSON.stringify({
         at: (/* @__PURE__ */ new Date()).toISOString(),
         kind: "quality",
         score: quality,
@@ -16004,38 +15771,6 @@ function ensureDeferredBootstrap() {
   _deferredBootstrapDone = true;
   try {
     _runDeferredStartupBootstrap?.();
-  } catch {
-  }
-}
-var CLAIM_PATTERNS = [
-  /(?:done|finished|complete)/i,
-  /(?:fixed|resolved|solved)/i,
-  /(?:working|works|validated|verified)/i,
-  /(?:[0-9]+\.[0-9]?%|\d+%)/,
-  /(?:score|scored|passing|passed)/i
-];
-function scanClaimsInOutput(output) {
-  if (!output || typeof output !== "string") return;
-  try {
-    const claims = [];
-    const lines = String(output).split(String.fromCharCode(10));
-    for (let i = 0; i < lines.length; i++) {
-      for (const pat of CLAIM_PATTERNS) {
-        if (pat.test(lines[i])) claims.push({ line: i + 1, text: lines[i].trim().substring(0, 120), pattern: pat.source });
-      }
-    }
-    if (claims.length === 0) return;
-    const auditDir = join18(getVibeOSHome13(), "cascade-audit");
-    mkdirSync14(auditDir, { recursive: true });
-    const auditFile = join18(auditDir, "claim-audit.jsonl");
-    const entry = JSON.stringify({
-      ts: (/* @__PURE__ */ new Date()).toISOString(),
-      claims: claims.slice(0, 10),
-      totalClaims: claims.length,
-      responseHash: ""
-      // crypto hash skipped for performance
-    });
-    appendFileSync(auditFile, entry + String.fromCharCode(10));
   } catch {
   }
 }
@@ -16846,7 +16581,6 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
       }
       ensureDeferredBootstrap();
       await _appendFooter(_input, output, directory3);
-      scanClaimsInOutput(output);
     },
     "message.updated": async (_input, output) => {
       setVibeOSHomeContext(hookVibeHome);
@@ -16856,7 +16590,6 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
       }
       ensureDeferredBootstrap();
       await _appendFooter(_input, output, directory3);
-      scanClaimsInOutput(output);
     },
     tool: {
       trinity: tool(createTrinityTool(trinityDeps)),
