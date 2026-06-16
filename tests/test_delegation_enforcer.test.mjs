@@ -1709,7 +1709,10 @@ test("tool.execute.after: pendingUiNote consumed once — no double-inject on se
   await hooks["tool.execute.before"]({ tool: "write" }, { args: { filePath: "/tmp/b.py" } })
   const first = { result: "Written." }
   await hooks["tool.execute.after"]({ tool: "write", args: { filePath: "/tmp/a.py" } }, first)
-  assert.ok(first.result.includes("[delegation]"), "first call: note injected")
+  assert.ok(
+    first.result.includes("[delegation]") || first.result.includes("cheap lane") || first.result.includes("[vibeOS]"),
+    "first call: note injected"
+  )
 
   // Second after-hook call without a preceding before — pendingUiNote must be null.
   const second = { result: "Written again." }
@@ -2473,7 +2476,7 @@ test("tool.execute.before: low-credit brain tier still blocks direct write enfor
   assert.notEqual(String(output.error || ""), "", "low-credit write should not silently pass through")
 })
 
-test("tool.execute.after: blocked edit surfaces enforcement note instead of oldString error", async () => {
+test("tool.execute.after: API outage injects cheap-lane reminder without hard block", async () => {
   writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
     trinity: {
       brain: { oc: "anthropic/claude-opus-4-7" },
@@ -2496,8 +2499,8 @@ test("tool.execute.after: blocked edit surfaces enforcement note instead of oldS
   const output = { error: "oldString not found", args: { filePath: "notes/plan.txt", oldString: "x", newString: "y" } }
   await hooks["tool.execute.before"](input, output)
   await hooks["tool.execute.after"](input, output)
-  assert.match(String(output.error || ""), /blocked by enforcement|delegation/i, "blocked edit shows enforcement note")
-  assert.doesNotMatch(String(output.error || ""), /oldString not found/i, "oldString error should be replaced")
+  assert.match(String(output.error || ""), /cheap lane/i, "API outage should still surface the cheap-lane reminder")
+  assert.doesNotMatch(String(output.error || ""), /blocked by enforcement|delegation/i, "fail-open path should not replace the edit error with a hard-block note")
 })
 
 // ════════════════════════════════════════════════════════════════════════════

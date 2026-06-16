@@ -724,8 +724,7 @@ function orchestratorDirective(cv: any, sel: any): string {
   const mediumModel = TRINITY_MEDIUM || "the medium model"
   const targetModel = tierBias === "cheap" ? cheapModel : tierBias === "medium" ? mediumModel : tierBias === "brain" ? brainModel : `${cheapModel} or ${mediumModel}`
   const compatibilityMode = sel?.onboarding_mode === "assist"
-  const cheapSlot = TRINITY_CHEAP || "deepseek/deepseek-chat"
-  const mediumSlot = TRINITY_MEDIUM || "deepseek/deepseek-v4-flash"
+  const cheapSlot = TRINITY_CHEAP || cheapModel
   return `[AI ORCHESTRATOR AGENT] You are an AI orchestrator agent. ` +
     `Delegate heavy work to Task subagents (runs on ${targetModel}). ` +
     `Your role is to verify, fill gaps, and synthesize cleanly. ` +
