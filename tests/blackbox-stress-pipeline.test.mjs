@@ -6,6 +6,7 @@ import assert from "node:assert/strict"
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
+import { isApiEnabled, setApiEnabled } from "../src/lib/runtime-state.js"
 
 const sandbox = mkdtempSync(join(tmpdir(), "vibeos-blackbox-cascade-"))
 process.env.HOME = sandbox
@@ -102,6 +103,29 @@ testCase("real cascade: task hook routes simple prompts to cheap and moderate pr
   assert.equal(mediumArgs.model, "deepseek/deepseek-v4-flash")
   assert.equal(mediumArgs.modelID, "deepseek/deepseek-v4-flash")
   assert.equal(mediumArgs.modelId, "deepseek/deepseek-v4-flash")
+})
+
+testCase("real cascade: API-down task hook falls back to vibelitex medium lane", async () => {
+  const projectDir = join(sandbox, "offline-task-project")
+  mkdirSync(projectDir, { recursive: true })
+  writeFileSync(join(projectDir, "opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-pro" }, null, 2))
+
+  const hooks = await mod.DelegationEnforcer({ client: {}, directory: projectDir })
+  if (!hooks["tool.execute.before"]) return
+
+  const prevApiEnabled = isApiEnabled()
+  try {
+    setApiEnabled(false)
+    primeBrain(projectDir)
+
+    const offlineArgs = { model: null, modelID: null, modelId: null, prompt: "implement a login form with validation and tests" }
+    await hooks["tool.execute.before"]({ tool: "task" }, { args: offlineArgs })
+    assert.equal(offlineArgs.model, "deepseek/deepseek-v4-flash")
+    assert.equal(offlineArgs.modelID, "deepseek/deepseek-v4-flash")
+    assert.equal(offlineArgs.modelId, "deepseek/deepseek-v4-flash")
+  } finally {
+    setApiEnabled(prevApiEnabled)
+  }
 })
 
 testCase("real cascade: learned graph switches vibeultrax into the deep three-stage pipeline", async () => {

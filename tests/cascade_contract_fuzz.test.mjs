@@ -614,18 +614,44 @@ test("cascade: applySlot fires even when delegation_enforce is off", async () =>
   else delete process.env.VIBEOS_HOME
 })
 
-test("cascade: gated by apiRoute?.target before cascade execution", async () => {
-  // The cascade router must only run when the remote API did not already
-  // produce a route target. That keeps the remote route authoritative.
+test("cascade: API-first routing keeps offline vibelitex fallback and no local cascade chooser", async () => {
   const { readFileSync } = await import("node:fs")
   const src = readFileSync(new URL("../src/lib/hooks/tool-execute.ts", import.meta.url), "utf8")
   const lines = src.split("\n")
 
-  // Must gate on apiRoute?.target being absent
-  const apiGateIdx = lines.findIndex(l => l.includes("!apiRoute?.target && activePipeline"))
-  assert.notEqual(apiGateIdx, -1, `restore !apiRoute?.target gate in cascade condition at line ${apiGateIdx + 1} in tool-execute.ts`)
+  assert.notEqual(lines.findIndex(l => l.includes('const apiRoute = await remoteCall("routeModel"')), -1, "routeModel call present")
+  assert.notEqual(lines.findIndex(l => l.includes("if (apiRoute?.target)")), -1, "API target branch present")
+  assert.notEqual(lines.findIndex(l => l.includes("vibelitex offline fallback")), -1, "offline vibelitex fallback present")
+  assert.equal(lines.findIndex(l => l.includes("cascadeDecide(")), -1, "local cascade chooser removed from tool-execute")
+  assert.equal(lines.findIndex(l => l.includes("activePipeline && Array.isArray(activePipeline)")), -1, "no activePipeline-gated cascade chooser remains")
+})
 
-  // The gate should not be the inverted API-target check
-  const invertedGateIdx = lines.findIndex(l => l.includes("ML_ENABLED && activePipeline"))
-  assert.equal(invertedGateIdx, -1, `remove the inverted ML_ENABLED-only cascade gate from tool-execute.ts`)
+test("delegate: delegateCheck fallback fails open on API failure", async () => {
+  const prevUrl = process.env.VIBEOS_API_URL
+  const prevToken = process.env.VIBEOS_API_TOKEN
+  const prevDisabled = process.env.VIBEOS_API_DISABLED
+  const prevBootstrap = process.env.VIBEOS_API_BOOTSTRAP_TOKEN
+  try {
+    process.env.VIBEOS_API_URL = "http://127.0.0.1:9"
+    process.env.VIBEOS_API_TOKEN = "vos_" + "a".repeat(64)
+    process.env.VIBEOS_API_DISABLED = "1"
+    delete process.env.VIBEOS_API_BOOTSTRAP_TOKEN
+    const { remoteCall } = await import("../src/lib/api-client.js?" + Date.now())
+    const result = await remoteCall("delegateCheck", ["write", "high", "deepseek/deepseek-v4-pro", "touch a file"], () => ({
+      blocked: false,
+      savings: 0,
+      _fallback: true,
+    }))
+    assert.equal(result.blocked, false, "fallback should not block writes")
+    assert.equal(result._fallback, true, "fallback marker present")
+  } finally {
+    if (prevUrl === undefined) delete process.env.VIBEOS_API_URL
+    else process.env.VIBEOS_API_URL = prevUrl
+    if (prevToken === undefined) delete process.env.VIBEOS_API_TOKEN
+    else process.env.VIBEOS_API_TOKEN = prevToken
+    if (prevDisabled === undefined) delete process.env.VIBEOS_API_DISABLED
+    else process.env.VIBEOS_API_DISABLED = prevDisabled
+    if (prevBootstrap === undefined) delete process.env.VIBEOS_API_BOOTSTRAP_TOKEN
+    else process.env.VIBEOS_API_BOOTSTRAP_TOKEN = prevBootstrap
+  }
 })

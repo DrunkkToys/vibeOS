@@ -55,7 +55,7 @@ import { loadCredit } from "../credit-api.js"
 import { getApiClient, remoteCall, isApiFallback, isApiConnected } from "../api-client.js"
 import { getCostAnomalyDetector } from "../cost-anomaly.js"
 import { checkFlowRules, recordFlowTodo } from "../../vibeOS-lib/flow-enforcer.js"
-import { computeDifficulty, cascadeDecide, createPatternGraph, ensureNode, addRouteEdge, predictBestModel, hashQuery, deserializeGraph } from "../../vibeOS-lib/ml-router.js"
+import { computeDifficulty, createPatternGraph, ensureNode, addRouteEdge, predictBestModel, hashQuery, deserializeGraph } from "../../vibeOS-lib/ml-router.js"
 import { createCacheDatabase, addCacheEntry, recordCacheStats, predictCacheHit, compositeSimilarity, evictStaleEntries, deserializeCacheDb } from "../../vibeOS-lib/smart-cache.js"
 import { buildTestReminder, enforceTestFile } from "../tdd-enforcer.js"
 import { setActiveJobFromTaskPrompt, observeToolPattern, compressText, recordSaving } from "../index-helpers.js"
@@ -405,6 +405,16 @@ export const onToolExecuteBefore = async (input, output) => {
       }
     }
 
+    if (!apiRoute?.target && !_target) {
+      const offlineTarget = currentTier === "high"
+        ? (TRINITY_MEDIUM || TRINITY_CHEAP)
+        : (TRINITY_CHEAP || TRINITY_MEDIUM)
+      if (offlineTarget && offlineTarget !== currentModel) {
+        _target = offlineTarget
+        console.error(`[vibeOS] 🧩 vibelitex offline fallback → ${offlineTarget}`)
+      }
+    }
+
     // ML Router: difficulty prediction + confidence cascading.
     if (ML_ENABLED) {
       try {
@@ -443,40 +453,6 @@ export const onToolExecuteBefore = async (input, output) => {
         }
       } catch (mlErr) {
         console.error(`[vibeOS] ML router error: ${mlErr.message}`)
-      }
-    }
-
-    const activePipeline = loadSelection().active_pipeline
-    if (!apiRoute?.target && activePipeline && Array.isArray(activePipeline) && activePipeline.length > 1 && TRINITY_CHEAP && TRINITY_MEDIUM) {
-      try {
-        const cheapCost = 0.001
-        const mediumCost = 0.005
-        const brainCost = 0.02
-        const cascadeResult = cascadeDecide(_prompt, cheapCost, mediumCost, brainCost, 0.85)
-        const tierMap: Record<string, string> = { cheap: TRINITY_CHEAP, medium: TRINITY_MEDIUM, brain: TRINITY_BRAIN }
-        const pipelineModels = activePipeline.map(t => tierMap[t] || TRINITY_CHEAP)
-        if (cascadeResult.escalate && pipelineModels.length > 1) {
-          if (pipelineModels.length > 2 && cascadeResult.confidence >= 0.8) {
-            const escalated = pipelineModels[2]
-            if (escalated && escalated !== currentModel && (!_target || escalated !== _target)) {
-              _target = escalated
-              console.error(`[vibeOS] 🔀 Cascade depth-3 escalate: ${cascadeResult.reason} → ${escalated}`)
-            }
-          } else {
-            const escalated = pipelineModels[1]
-            if (escalated && escalated !== currentModel && (!_target || escalated !== _target)) {
-              _target = escalated
-              console.error(`[vibeOS] 🔀 Cascade escalate: ${cascadeResult.reason} → ${escalated}`)
-            }
-          }
-        } else if (cascadeResult.useCheap && !_target) {
-          _target = pipelineModels[0]
-          if (_target && _target !== currentModel) {
-            console.error(`[vibeOS] 🔀 Cascade cheap: ${cascadeResult.reason} → ${_target}`)
-          }
-        }
-      } catch (cascadeErr) {
-        console.error(`[vibeOS] Cascade router error: ${cascadeErr.message}`)
       }
     }
 
@@ -609,8 +585,8 @@ export const onToolExecuteBefore = async (input, output) => {
       const basename = originalPath.split("/").pop() || "blocked"
 
       const apiResult = await remoteCall("delegateCheck", [tLower, currentTier, currentModel, _prompt], () => ({
-        blocked: true,
-        savings: _estEdit,
+        blocked: false,
+        savings: 0,
         _fallback: true,
       }))
 
