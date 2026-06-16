@@ -481,7 +481,37 @@ From `src/lib/state.ts:487-488`:
 ### Verified State (dev machine)
 
 - `active_pipeline`: `["local", "medium", "brain"]` — includes brain
-- `active_slot`: `medium` (resolved to deepseek/deepseek-chat)
-- All three trinity slots resolve to `deepseek/deepseek-chat`
-- Current running model: `deepseek/deepseek-v4-flash` (OPENCODE_MODEL_TIER=high)
-- `blackbox-state.json` last session `opencode-76911-1781185072954`: NO `cv` field — no cascade_depth/pipeline_root persisted
+- `active_slot`: `brain` (resolved to deepseek/deepseek-v4-flash)
+- Trinity slots resolve to distinct models: brain=`deepseek/deepseek-v4-flash`, medium=`opencode-go/mimo-v2.5`, cheap=`opencode/big-pickle`
+- Cascade pipeline models: [big-pickle, mimo-v2.5, v4-flash]
+- Current running model: `deepseek/deepseek-v4-flash` (OPENCODE_MODEL_TIER=high) — matches brain slot (depth-3 cascade target)
+- `blackbox-state.json` last session `opencode-97827-1781382855006`: NO `cv` field — no cascade_depth/pipeline_root persisted
+
+## LIVE CASCADE TEST (2025-06-16)
+
+**Test protocol:**
+1. Set mode to VIBEULTRAX
+2. Read `src/lib/hooks/tool-execute.ts:394-400` and `:447-481` to verify cascade gate
+3. Check `~/.claude/blackbox-state.json` for CV persistence
+4. Run `vibe set cheap` to force budget tier
+5. Re-run multi-file analysis prompt to trigger ML cascade
+6. Run `vibe status` to verify slot state
+
+**Findings:**
+
+| Metric | Result |
+|--------|--------|
+| API route status | Remote API call at line 394 (`remoteCall("routeModel", ...)`) likely returned `.target` — enforce=ON, API connected |
+| Cascade fired? | **Skipped.** Line 409 gate `if (ML_ENABLED && !apiRoute?.target)` — with `apiRoute?.target` truthy, local cascade block (449-481) short-circuited |
+| Tier selected | `cheap` (opencode/big-pickle) — set via `vibe set cheap` trinity-tool handler, NOT via cascade |
+| applySlot() fired? | **No.** No `[vibeOS] 🔁 task workaround: switched global slot` log observed. The cascade didn't escalate because the remote API route short-circuited it |
+| Model lock | `LOCK ON (brain)` — frozen to `deepseek/deepseek-v4-flash`. Lock is active but did not prevent manual cheap slot switch |
+| Slot after test | `cheap *` (opencode/big-pickle) — applySlot() did NOT auto-escalate back to brain |
+
+**CV persistence:** No session in `blackbox-state.json` contains a `cv` field with `cascade_depth`/`pipeline_root`. Session `opencode-97827-1781382855006` has no `cv` field in persisted state. CV persistence fix is NOT working.
+
+**Root cause analysis:**
+- The remote API (`routeModel`) returns a target, which gates OUT the local ML cascade (`!apiRoute?.target` at line 409)
+- The local `cascadeDecide()` + `computeDifficulty()` in `ml-router.ts` never executes when remote API responds
+- The lock feature (`LOCK ON brain`) is independent of the cascade — lock did not cause the skip, the remote API route did
+- To exercise the local ML cascade, either: (a) disable the remote API, or (b) make the remote API return no `.target` for specific prompts

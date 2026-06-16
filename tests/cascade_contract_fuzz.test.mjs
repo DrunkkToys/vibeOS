@@ -614,44 +614,15 @@ test("cascade: applySlot fires even when delegation_enforce is off", async () =>
   else delete process.env.VIBEOS_HOME
 })
 
-test("cascade: does not run when ML API route succeeded", async () => {
-  // When remoteCall("routeModel") returns a .target, the local cascade must be skipped.
-  // The ML API decision is authoritative — local cascade is fallback only.
-  const { writeFileSync, readFileSync, existsSync, mkdtempSync } = await import("node:fs")
-  const { join } = await import("node:path")
-  const { tmpdir } = await import("node:os")
-
-  const tmpDir = mkdtempSync(join(tmpdir(), "vibe-cascade-ml-"))
-  const tiersPath = join(tmpDir, "model-tiers.json")
-
-  writeFileSync(tiersPath, JSON.stringify({
-    trinity: { brain: { oc: "test/brain" }, medium: { oc: "test/medium" }, cheap: { oc: "test/cheap" } },
-    selection: {
-      enabled: true, active_slot: "medium", active_pipeline: ["local", "medium", "brain"],
-      delegation_enforce: false, flow_enabled: false, tdd_enforce: false,
-    }
-  }))
-
-  const origHome = process.env.VIBEOS_HOME
-  process.env.VIBEOS_HOME = tmpDir
-  await import("../src/lib/state.js?" + Date.now())
-
-  // Simulate the tool-execute cascade gate logic:
-  // When apiRoute.target is set, cascade should NOT run
-  const apiRoute = { target: "test/brain" }
-  const activePipeline = ["local", "medium", "brain"]
-
-  // This is the guard: if apiRoute?.target is truthy, skip cascade
-  const shouldRunCascade = !apiRoute?.target && activePipeline &&
-    Array.isArray(activePipeline) && activePipeline.length > 1
-  assert.equal(shouldRunCascade, false, "cascade is skipped when apiRoute.target exists")
-
-  // When apiRoute has no target (API unreachable), cascade runs as fallback
-  const apiRouteFailed = {}
-  const shouldRunCascadeFallback = !apiRouteFailed?.target && activePipeline &&
-    Array.isArray(activePipeline) && activePipeline.length > 1
-  assert.equal(shouldRunCascadeFallback, true, "cascade runs as fallback when apiRoute has no target")
-
-  if (origHome) process.env.VIBEOS_HOME = origHome
-  else delete process.env.VIBEOS_HOME
+test("cascade: condition does NOT gate on apiRoute?.target", async () => {
+  // The cascade router condition MUST NOT include apiRoute?.target gating.
+  // The ML cascade is the primary routing layer and must execute on every
+  // tool call, regardless of whether the remote API returned a route.
+  // If this test fails, the cascade if-condition at line 450 still has
+  // the `!apiRoute?.target` gate — remove it.
+  const { readFileSync } = await import("node:fs")
+  const src = readFileSync(new URL("../src/lib/hooks/tool-execute.ts", import.meta.url), "utf8")
+  const lines = src.split("\n")
+  const idx = lines.findIndex(l => l.includes("!apiRoute?.target && activePipeline"))
+  assert.equal(idx, -1, `remove !apiRoute?.target gate from cascade condition at line ${idx + 1} in tool-execute.ts`)
 })
