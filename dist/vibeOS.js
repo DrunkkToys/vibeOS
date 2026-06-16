@@ -12598,8 +12598,7 @@ function orchestratorDirective(cv, sel) {
   const mediumModel = TRINITY_MEDIUM || "the medium model";
   const targetModel = tierBias === "cheap" ? cheapModel : tierBias === "medium" ? mediumModel : tierBias === "brain" ? brainModel : `${cheapModel} or ${mediumModel}`;
   const compatibilityMode = sel?.onboarding_mode === "assist";
-  const cheapSlot = TRINITY_CHEAP || "deepseek/deepseek-chat";
-  const mediumSlot = TRINITY_MEDIUM || "deepseek/deepseek-v4-flash";
+  const cheapSlot = TRINITY_CHEAP || cheapModel;
   return `[AI ORCHESTRATOR AGENT] You are an AI orchestrator agent. Delegate heavy work to Task subagents (runs on ${targetModel}). Your role is to verify, fill gaps, and synthesize cleanly. ` + (compatibilityMode ? "Compatibility mode is active, so direct Write/Edit stays available until strict guardrails are enabled." : "Brain-tier focuses on orchestration \u2014 hand file writes and edits to Task subagents (cheaper, same quality). Use medium directly with `trinity medium` if the task is simple enough.") + ` [delegation guide] When a write/edit is blocked, use the \`task\` tool with: subagent_type="general" model="${cheapSlot}" prompt="write <path> with: <content>". The task subagent runs on the cheap tier and handles file operations transparently. Parallel task calls are encouraged for independent file changes.  Always display the vibeOS cost footer.` + (tierBias !== "auto" ? ` [tier routing] This turn is biased toward ${tierBias} tier.` : "");
 }
 function flowTodosDirective() {
@@ -15274,13 +15273,6 @@ ${argsJson}
         console.error(`[vibeOS] \u{1F9D8} Stress ${stressScore.toFixed(2)} \u2192 preserving medium tier for Task quality`);
       }
     }
-    if (!apiRoute?.target && !_target) {
-      const offlineTarget = currentTier === "high" ? TRINITY_MEDIUM || TRINITY_CHEAP : TRINITY_CHEAP || TRINITY_MEDIUM;
-      if (offlineTarget && offlineTarget !== currentModel) {
-        _target = offlineTarget;
-        console.error(`[vibeOS] \u{1F9E9} vibelitex offline fallback \u2192 ${offlineTarget}`);
-      }
-    }
     if (ML_ENABLED) {
       try {
         const mlDifficulty = computeDifficulty(_prompt);
@@ -15316,6 +15308,39 @@ ${argsJson}
         }
       } catch (mlErr) {
         console.error(`[vibeOS] ML router error: ${mlErr.message}`);
+      }
+    }
+    const activePipeline = loadSelection().active_pipeline;
+    if (!apiRoute?.target && activePipeline && Array.isArray(activePipeline) && activePipeline.length > 1 && TRINITY_CHEAP && TRINITY_MEDIUM) {
+      try {
+        const cheapCost = 1e-3;
+        const mediumCost = 5e-3;
+        const brainCost = 0.02;
+        const cascadeResult = cascadeDecide(_prompt, cheapCost, mediumCost, brainCost, 0.85);
+        const tierMap = { cheap: TRINITY_CHEAP, medium: TRINITY_MEDIUM, brain: TRINITY_BRAIN };
+        const pipelineModels = activePipeline.map((t2) => tierMap[t2] || TRINITY_CHEAP);
+        if (cascadeResult.escalate && pipelineModels.length > 1) {
+          if (pipelineModels.length > 2 && cascadeResult.confidence >= 0.8) {
+            const escalated = pipelineModels[2];
+            if (escalated && escalated !== currentModel && (!_target || escalated !== _target)) {
+              _target = escalated;
+              console.error(`[vibeOS] \u{1F500} Cascade depth-3 escalate: ${cascadeResult.reason} \u2192 ${escalated}`);
+            }
+          } else {
+            const escalated = pipelineModels[1];
+            if (escalated && escalated !== currentModel && (!_target || escalated !== _target)) {
+              _target = escalated;
+              console.error(`[vibeOS] \u{1F500} Cascade escalate: ${cascadeResult.reason} \u2192 ${escalated}`);
+            }
+          }
+        } else if (cascadeResult.useCheap && !_target) {
+          _target = pipelineModels[0];
+          if (_target && _target !== currentModel) {
+            console.error(`[vibeOS] \u{1F500} Cascade cheap: ${cascadeResult.reason} \u2192 ${_target}`);
+          }
+        }
+      } catch (cascadeErr) {
+        console.error(`[vibeOS] Cascade router error: ${cascadeErr.message}`);
       }
     }
     if (_target)
@@ -15446,7 +15471,7 @@ ${argsJson}
           projectName: currentProjectName || "",
           sessionId: getCurrentSessionId()
         });
-        const taskModel = TRINITY_CHEAP || "deepseek/deepseek-chat";
+        const taskModel = TRINITY_CHEAP || TRINITY_MEDIUM || currentModel || TRINITY_BRAIN || "";
         pendingUiNote = `[delegation] ${t} blocked on brain tier. Use a task subagent instead: \`task subagent_type="general" model="${taskModel}" prompt="${t} <file> with the intended content"\`. Keeps brain focused on orchestration.`;
         enforcementBlocked = true;
         _mutateBlockedToolArgs(t, argSources, originalPath, output);

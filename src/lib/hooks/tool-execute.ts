@@ -608,8 +608,8 @@ export const onToolExecuteBefore = async (input, output) => {
       const basename = originalPath.split("/").pop() || "blocked"
 
       const apiResult = await remoteCall("delegateCheck", [tLower, currentTier, currentModel, _prompt], () => ({
-        blocked: true,
-        savings: _estEdit,
+        blocked: false,
+        savings: 0,
         _fallback: true,
       }))
 

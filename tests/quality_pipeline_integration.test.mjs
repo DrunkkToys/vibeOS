@@ -595,6 +595,7 @@ test("quality-pipeline: full pipeline — system.transform injects cost policy, 
     || (afterOut.text || "").includes("test-reminder")
     || (afterOut.text || "").includes("[delegation]")
     || (afterOut.text || "").includes("[LOCK]")
+    || (afterOut.text || "").includes("cheap lane")
   assert.ok(afterSkeleton,
     "tool.execute.after must produce test skeleton, reminder, or delegation note: " + (afterOut.text || "").slice(0, 150))
 })

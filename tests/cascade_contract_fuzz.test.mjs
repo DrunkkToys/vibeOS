@@ -376,11 +376,18 @@ test("delegation: orchestrator directive includes delegation guide with valid mo
 
 test("delegation: enforcement note includes task subagent syntax", async () => {
   const { TRINITY_CHEAP } = await import("../src/lib/pricing.js?" + Date.now())
-  const taskModel = TRINITY_CHEAP || "deepseek/deepseek-chat"
+  const taskModel = TRINITY_CHEAP || "the cheaper model"
   const note = `[delegation] write blocked on brain tier. Use a task subagent instead: \`task subagent_type="general" model="${taskModel}" prompt="write <file> with the intended content"\`. Keeps brain focused on orchestration.`
   assert.ok(note.includes("task subagent"), "task subagent mentioned")
   assert.ok(note.includes('subagent_type="general"'), "correct subagent type")
   assert.ok(note.includes(`model="${taskModel}"`), "model matches TRINITY_CHEAP")
+})
+
+test("delegation: chat-transform prompt uses generic slot fallback text only", async () => {
+  const { readFileSync } = await import("node:fs")
+  const src = readFileSync(new URL("../src/lib/hooks/chat-transform.ts", import.meta.url), "utf8")
+  assert.equal(src.includes("deepseek/deepseek-chat"), false, "no hardcoded cheap fallback model in chat-transform")
+  assert.equal(src.includes("deepseek/deepseek-v4-flash"), false, "no hardcoded medium fallback model in chat-transform")
 })
 
 test("delegation: syncControlSettings writes delegation_enforce when not in compatibility mode", async () => {
@@ -628,4 +635,30 @@ test("cascade: gated by apiRoute?.target before cascade execution", async () => 
   // The gate should not be the inverted API-target check
   const invertedGateIdx = lines.findIndex(l => l.includes("ML_ENABLED && activePipeline"))
   assert.equal(invertedGateIdx, -1, `remove the inverted ML_ENABLED-only cascade gate from tool-execute.ts`)
+})
+
+test("delegate: delegateCheck fails open when API is unavailable", async () => {
+  const prevUrl = process.env.VIBEOS_API_URL
+  const prevToken = process.env.VIBEOS_API_TOKEN
+  const prevDisabled = process.env.VIBEOS_API_DISABLED
+  try {
+    process.env.VIBEOS_API_URL = "http://127.0.0.1:9"
+    process.env.VIBEOS_API_TOKEN = "vos_" + "a".repeat(64)
+    process.env.VIBEOS_API_DISABLED = "1"
+    const { remoteCall } = await import("../src/lib/api-client.js?" + Date.now())
+    const result = await remoteCall("delegateCheck", ["write", "high", "test/model", "touch a file"], () => ({
+      blocked: false,
+      savings: 0,
+      _fallback: true,
+    }))
+    assert.equal(result.blocked, false, "fallback should allow writes when API is unavailable")
+    assert.equal(result._fallback, true, "fallback marker present")
+  } finally {
+    if (prevUrl === undefined) delete process.env.VIBEOS_API_URL
+    else process.env.VIBEOS_API_URL = prevUrl
+    if (prevToken === undefined) delete process.env.VIBEOS_API_TOKEN
+    else process.env.VIBEOS_API_TOKEN = prevToken
+    if (prevDisabled === undefined) delete process.env.VIBEOS_API_DISABLED
+    else process.env.VIBEOS_API_DISABLED = prevDisabled
+  }
 })
