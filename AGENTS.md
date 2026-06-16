@@ -423,3 +423,44 @@ When blackbox is off, `classifyTurnSimple()` inspects user messages:
 ---
 
 **When in doubt: STOP and ASK.**
+
+## CASCADE ROUTING
+
+Three-tier cascade routes queries through cheap/medium/brain based on ML difficulty scoring.
+
+### Tiers & Model Resolution
+
+| Tier | Config Key | Pipeline Index | Route Condition |
+|---|---|---|---|
+| **cheap** (depth 1) | `TRINITY_CHEAP` | `pipeline[0]` | `cascadeResult.useCheap === true` |
+| **medium** (depth 2) | `TRINITY_MEDIUM` | `pipeline[1]` | `cascadeResult.escalate` AND `length > 1` |
+| **brain** (depth 3) | `TRINITY_BRAIN` | `pipeline[2]` | `cascadeResult.escalate` AND `length > 2` AND `confidence >= 0.8` |
+
+### Confidence Thresholds
+
+- **ML_CONFIDENCE_THRESHOLD (base)**: 0.6 (`src/lib/state.ts:182`) — gates ML difficulty re-evaluation
+- **Simple query bypass**: confidence >= 0.7 (from `cascadeDecide()` in `ml-router.ts`) → use cheap
+- **Complex escalation**: confidence >= 0.7 → escalate to medium or brain
+- **Depth-3 brain escalation**: confidence >= 0.8 AND `pipelineModels.length > 2` → brain (`src/lib/hooks/tool-execute.ts:458-460`)
+
+### Depth-3 Escalation Condition
+
+Fires when all three hold:
+1. `cascadeResult.escalate === true` (query classified as complex or cost analysis favors escalation)
+2. `activePipeline.length >= 3` (i.e., `pipelineModels.length > 2`)
+3. `cascadeResult.confidence >= 0.8`
+
+### Model Classification (fallback regex)
+
+From `src/lib/state.ts:487-488`:
+- **HIGH** (brain): `/opus\|gemini-.*-pro\|gpt-5\|(^\|\\/)o[134]($\|-\|\\/)\|claude.*opus\|reasoner\|r1/i`
+- **MID** (medium): `/sonnet\|gemini-.*-flash\|gpt-4o(?!-mini)\|haiku\|flash\|4o/i`
+- **BUDGET** (cheap): anything not matched by HIGH or MID
+
+### Verified State (dev machine)
+
+- `active_pipeline`: `["local", "medium", "brain"]` — includes brain
+- `active_slot`: `medium` (resolved to deepseek/deepseek-chat)
+- All three trinity slots resolve to `deepseek/deepseek-chat`
+- Current running model: `deepseek/deepseek-v4-flash` (OPENCODE_MODEL_TIER=high)
+- `blackbox-state.json` last session `opencode-76911-1781185072954`: NO `cv` field — no cascade_depth/pipeline_root persisted

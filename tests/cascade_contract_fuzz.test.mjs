@@ -177,7 +177,7 @@ test("cascade: vibeultrax profile matches cascade depth for direct vs deep", asy
 
   const direct = vu.vibeultraxControlVector({ user_text: "hello", sub_regime: "INIT", stress_multiplier: 0 })
   assert.equal(direct.cascade_depth, 1, "simple text gets depth 1")
-  assert.deepEqual(direct.pipeline_root, ["local"], "direct pipeline is local only")
+  assert.deepEqual(direct.pipeline_root, ["cheap"], "direct pipeline is cheap only")
 
   const deep = vu.vibeultraxControlVector({ user_text: "refactor auth module with 3 files OAuth race condition", sub_regime: "REFINING", stress_multiplier: 0.3 })
   assert.ok(deep.cascade_depth >= 2, "complex text gets depth >= 2")
@@ -461,8 +461,8 @@ test("contract: syncControlSettings writes pipeline_root from control vector", a
 
   const tmpDir = mkdtempSync(join(tmpdir(), "vibe-contract-"))
   const tiersPath = join(tmpDir, "model-tiers.json")
-  const initPipeline = ["local"]
-  const expectedPipeline = ["local", "medium", "brain"]
+  const initPipeline = ["cheap"]
+  const expectedPipeline = ["cheap", "medium", "brain"]
 
   writeFileSync(tiersPath, JSON.stringify({
     trinity: { brain: { oc: "test/brain" }, medium: { oc: "test/medium" }, cheap: { oc: "test/cheap" } },
@@ -473,7 +473,7 @@ test("contract: syncControlSettings writes pipeline_root from control vector", a
   process.env.VIBEOS_HOME = tmpDir
 
   const raw0 = JSON.parse(readFileSync(tiersPath, "utf-8"))
-  assert.deepStrictEqual(raw0.selection.active_pipeline, initPipeline, "initial pipeline is [local]")
+  assert.deepStrictEqual(raw0.selection.active_pipeline, initPipeline, "initial pipeline is [cheap]")
 
   const state = await import("../src/lib/state.js?" + Date.now())
   state.writeSelection("active_pipeline", JSON.stringify(expectedPipeline))
@@ -482,7 +482,7 @@ test("contract: syncControlSettings writes pipeline_root from control vector", a
   const updated = JSON.parse(raw)
   const stored = updated.selection.active_pipeline
 
-  assert.ok(raw.includes("local"), "raw file contains local")
+  assert.ok(raw.includes("cheap"), "raw file contains cheap")
   assert.ok(raw.includes("medium"), "raw file contains medium")
   assert.ok(raw.includes("brain"), "raw file contains brain")
 
@@ -521,8 +521,8 @@ test("cascade: pipelineModels[2] is reachable with 3-stage pipeline and high con
   const TRINITY_CHEAP = "test/cheap"
   const TRINITY_MEDIUM = "test/medium"
   const TRINITY_BRAIN = "test/brain"
-  const activePipeline = ["local", "medium", "brain"]
-  const tierMap = { cheap: TRINITY_CHEAP, medium: TRINITY_MEDIUM, brain: TRINITY_BRAIN, local: TRINITY_CHEAP }
+  const activePipeline = ["cheap", "medium", "brain"]
+  const tierMap = { cheap: TRINITY_CHEAP, medium: TRINITY_MEDIUM, brain: TRINITY_BRAIN }
   const pipelineModels = activePipeline.map(t => tierMap[t] || TRINITY_CHEAP)
 
   assert.equal(pipelineModels.length, 3, "pipelineModels has 3 entries")

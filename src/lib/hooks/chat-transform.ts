@@ -305,7 +305,7 @@ export function syncControlSettings(cv: any, options: { persistOptimizationMode?
     if (cv?.pipeline_root && Array.isArray(cv.pipeline_root)) {
       writeIf("active_pipeline", JSON.stringify(cv.pipeline_root))
     } else if (cv?.cascade_depth && cv.cascade_depth >= 3) {
-      writeIf("active_pipeline", JSON.stringify(["local", "medium", "brain"]))
+      writeIf("active_pipeline", JSON.stringify(["cheap", "medium", "brain"]))
     }
 
     writeIf("enabled", true)

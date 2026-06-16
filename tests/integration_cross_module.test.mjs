@@ -398,7 +398,7 @@ test('main pipeline: branded qmax request stays visible while ultrax still runs 
   assert.equal(qmaxVector.pipeline_root[0], 'brain')
   assert.ok(String(qmaxVector.qmax_strategy || '').length > 0, 'qmax strategy is recorded')
   assert.equal(ultra.mode_root, 'vibeultrax')
-  assert.deepEqual(ultra.pipeline, ['local', 'medium', 'brain'])
+  assert.deepEqual(ultra.pipeline, ['cheap', 'medium', 'brain'])
   assert.equal(ultra.cascade_depth, 3)
   assert.equal(ultra.ultrax_profile, 'deep')
 })

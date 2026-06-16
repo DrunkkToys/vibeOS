@@ -438,7 +438,7 @@ test("cascade: every regime produces a valid control vector with all required fi
 
 test("cascade: every branded mode resolves to the correct pipeline_root and mode_family", async (t) => {
   const modes = [
-    { id: "vibeultrax", family: "cascade", depth: 3, pipeline: ["local", "medium", "brain"] },
+    { id: "vibeultrax", family: "cascade", depth: 3, pipeline: ["cheap", "medium", "brain"] },
     { id: "vibeqmax", family: "brain-ml", depth: 1, pipeline: ["brain"] },
     { id: "vibemax", family: "medium-ml", depth: 1, pipeline: ["medium"] },
     { id: "quality", family: "brain-runtime", depth: 1, pipeline: ["brain"] },
@@ -601,11 +601,11 @@ test("cascade: ML router pattern graph creates and serializes correctly", async 
 })
 
 test("cascade: resolveCascadeSlot returns correct tier from pipeline", async (t) => {
-  assert.equal(modeRouter.resolveCascadeSlot(["local", "medium", "brain"]), "brain")
+  assert.equal(modeRouter.resolveCascadeSlot(["cheap", "medium", "brain"]), "brain")
   assert.equal(modeRouter.resolveCascadeSlot(["brain"]), "brain")
   assert.equal(modeRouter.resolveCascadeSlot(["medium"]), "medium")
   assert.equal(modeRouter.resolveCascadeSlot(["cheap"]), "cheap")
-  assert.equal(modeRouter.resolveCascadeSlot(["local"]), "cheap")
+  assert.equal(modeRouter.resolveCascadeSlot(["cheap"]), "cheap")
   assert.equal(modeRouter.resolveCascadeSlot([]), "cheap")
 })
 
@@ -703,7 +703,7 @@ test("cascade: vibeultrax control vector keeps a three-stage cascade root", asyn
   assert.equal(cv.mode_root, "vibeultrax")
   assert.equal(cv.cascade_depth, 3)
   assert.ok(Array.isArray(cv.pipeline_root))
-  assert.equal(cv.pipeline_root.join(","), "local,medium,brain")
+  assert.equal(cv.pipeline_root.join(","), "cheap,medium,brain")
 })
 
 test("cascade: vibeultraxPipeline exports and preserves the three-stage pipeline", async (t) => {
@@ -711,7 +711,7 @@ test("cascade: vibeultraxPipeline exports and preserves the three-stage pipeline
   assert.equal(result.mode, "vibeultrax")
   assert.equal(result.cascade_depth, 3)
   assert.ok(Array.isArray(result.pipeline))
-  assert.equal(result.pipeline.join(","), "local,medium,brain")
+  assert.equal(result.pipeline.join(","), "cheap,medium,brain")
 })
 
 test("cascade: learned route from real graph data pushes vibeultrax into deep cascade", async (t) => {
@@ -733,7 +733,7 @@ test("cascade: learned route from real graph data pushes vibeultrax into deep ca
     assert.equal(result.learned_tier, "brain", "learned tier should be brain")
     assert.equal(result.profile, "deep", "learned brain route should use deep profile")
     assert.equal(result.cascade_depth, 3, "deep learned route should preserve three-stage cascade")
-    assert.deepEqual(result.pipeline, ["local", "medium", "brain"], "deep learned route should keep the three-stage cascade pipeline")
+    assert.deepEqual(result.pipeline, ["cheap", "medium", "brain"], "deep learned route should keep the three-stage cascade pipeline")
     assert.ok(
       Array.isArray(result.directives) && result.directives.some((d) => String(d).includes("learned=deepseek/deepseek-v4-pro")),
       "directive should record the learned model",
