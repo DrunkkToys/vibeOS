@@ -42,7 +42,7 @@ export function createTrinityTool(deps) {
       "Use action='api-bootstrap-token' with token='<new_token>' to store an alpha bootstrap token and exchange it for a normal API token on alpha builds. " +
       "Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', 'vibe status' (or the legacy 'trinity status').",
     args: {
-      action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "setup", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard", "reality-check", "api-token", "api-bootstrap-token", "todo", "todo-done", "todo-sync"]).optional(),
+      action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "setup", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard", "reality-check", "api-token", "api-bootstrap-token", "verify-claims", "todo", "todo-done", "todo-sync"]).optional(),
       slot: deps.tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "balanced", "audit", "forensic", "vibeultrax", "vibeqmax", "vibemax", "vibelitex", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings"]).optional(),
       level: deps.tool.schema.enum(["full", "brief", "off", "on"]).optional(),
       model: deps.tool.schema.string().optional(),
@@ -860,6 +860,121 @@ export function createTrinityTool(deps) {
         const ok = typeof deps.ensureBootstrapExchange === "function" ? await deps.ensureBootstrapExchange() : false
         if (ok) return "[vibeOS] Alpha bootstrap token exchanged successfully. Remote API re-enabled."
         return "[vibeOS] Alpha bootstrap token saved. Remote API will retry the exchange on the next call."
+      }
+
+      if (action === "verify-claims") {
+        const VIBEOS_HOME = join(process.env.HOME || "", ".claude")
+        const AUDIT_DIR = join(VIBEOS_HOME, "cascade-audit")
+        const claimFile = join(AUDIT_DIR, "claim-audit.jsonl")
+        const cascadeFile = join(AUDIT_DIR, "cascade-audit.jsonl")
+        const lines = ["[vibeOS] Claim verification report"]
+        lines.push("=".repeat(50))
+
+        let claimCount = 0, unsubstantiatedCount = 0, verifiedCount = 0
+
+        const CLAIM_RE = /(?:done|fixed|validated|works|score|%|passed|verified|solved|resolved)/i
+        const claims = []
+        if (deps.existsSync(claimFile)) {
+          try {
+            const raw = deps.readFileSync(claimFile, "utf-8")
+            for (const ln of raw.trim().split(String.fromCharCode(10))) {
+              if (!ln.trim()) continue
+              try { claims.push(JSON.parse(ln)) } catch {}
+            }
+          } catch {}
+        }
+
+        const cascadeRuns = []
+        if (deps.existsSync(cascadeFile)) {
+          try {
+            const raw = deps.readFileSync(cascadeFile, "utf-8")
+            for (const ln of raw.trim().split(String.fromCharCode(10))) {
+              if (!ln.trim()) continue
+              try { cascadeRuns.push(JSON.parse(ln)) } catch {}
+            }
+          } catch {}
+        }
+
+        const recentClaims = claims.slice(-20)
+        const recentCascade = cascadeRuns.slice(-50)
+        lines.push("Claims detected (last 20): " + recentClaims.length)
+        lines.push("Cascade runs available: " + recentCascade.length)
+        lines.push("")
+
+        if (recentClaims.length === 0) {
+          lines.push("  No claims detected in recent responses.")
+        }
+
+        for (const cl of recentClaims) {
+          claimCount++
+          const claimTexts = (cl.claims || []).map(function(c) { return c.text }).join(" | ")
+          const ts = (cl.ts || "").slice(0, 19)
+
+          let cascadeMatch = false
+          let emptyAnswers = 0
+          for (const cr of recentCascade) {
+            const cTs = cr._ts || ""
+            if (cTs && cl.ts) {
+              const diffMs = Math.abs(new Date(cTs).getTime() - new Date(cl.ts).getTime())
+              if (diffMs < 120000) {
+                cascadeMatch = true
+                if (cr.answer_empty) emptyAnswers++
+              }
+            }
+          }
+
+          const hasScore = CLAIM_RE.test(claimTexts)
+          let substantiated = true
+          let notes = []
+
+          if (hasScore && recentCascade.length === 0) {
+            substantiated = false
+            notes.push("no cascade run data available")
+          } else if (hasScore && !cascadeMatch) {
+            substantiated = false
+            notes.push("no cascade run within 2min of claim")
+          }
+          if (emptyAnswers > 0) {
+            notes.push("cascade returned empty answers")
+          }
+
+          if (substantiated) {
+            verifiedCount++
+            lines.push("  [VERIFIED] " + ts + ": " + claimTexts.substring(0, 80))
+          } else {
+            unsubstantiatedCount++
+            lines.push("  [UNSUBSTANTIATED] " + ts + ": " + claimTexts.substring(0, 80))
+            if (notes.length > 0) lines.push("    Reasons: " + notes.join("; "))
+          }
+        }
+
+        lines.push("")
+        lines.push("Summary: " + verifiedCount + " verified, " + unsubstantiatedCount + " unsubstantiated, " + (claimCount - verifiedCount - unsubstantiatedCount) + " pending")
+        lines.push("Claim audit: " + claimFile)
+        lines.push("Cascade audit: " + cascadeFile)
+        // Check git diff for "fixed" claims
+        const { execSync } = require("child_process")
+        let gitDiffLines = ""
+        try {
+          gitDiffLines = execSync("git diff --stat", { encoding: "utf-8", timeout: 5000 }).trim()
+        } catch {}
+        if (gitDiffLines) {
+          lines.push("")
+          lines.push("Git working tree has uncommitted changes:")
+          for (const dl of gitDiffLines.split(String.fromCharCode(10))) {
+            lines.push("  " + dl)
+          }
+        } else {
+          for (const cl of recentClaims) {
+            const claimTexts = (cl.claims || []).map(function(c) { return c.text }).join(" | ")
+            if (/fixed|done|solved|resolved|validated/i.test(claimTexts)) {
+              if (!gitDiffLines) {
+                lines.push("  WARNING: '" + claimTexts.substring(0, 50) + "' claim but no uncommitted changes in working tree")
+              }
+            }
+          }
+        }
+        return lines.join(String.fromCharCode(10))
       }
 
       if (action === "rebuild") {
