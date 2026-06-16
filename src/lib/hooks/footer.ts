@@ -270,7 +270,13 @@ async function _appendFooter(input, output, directory) {
     const rawMode = (typeof loadSelection === "function" ? (loadSelection()?.requested_optimization_mode || loadSelection()?.optimization_mode) : null) || displayMode
     const cv = computeControlVector({ sub_regime: currentSubRegime, latest_stress_multiplier: _footerStress, user_text: latestUserIntent || "" }, undefined, rawMode)
     const vibeBrand = resolveBrand(loadOptimizationMode() || displayMode, activeSlot)
-    const vibeLine = buildFooterLine({
+        const _cp = [/(?:\u005c|['"](?:done|fixed|validated|works|verified|solved|resolved)['"]|\d+%|score|passed)/i]
+    let _claimTag = ""
+    if (text) {
+      for (const _p of _cp) { if (_p.test(text)) { _claimTag = "[CLAIMS]"; break } }
+    }
+
+const vibeLine = buildFooterLine({
       activeSlot,
       providerLabel: execution.provider_label,
       modelName: modelDisplayName(execution.model),
@@ -285,6 +291,7 @@ async function _appendFooter(input, output, directory) {
       subRegime: currentSubRegime,
       stressGauge: _footerStress > 0.85 ? "█" : _footerStress > 0.7 ? "▆" : _footerStress > 0.5 ? "▅" : _footerStress > 0.3 ? "▃" : _footerStress > 0.1 ? "▂" : "▁",
       cascadeIcon: ((cv?.cascade_depth || 1) >= 3 ? "▸▸▸" : (cv?.cascade_depth || 1) >= 2 ? "▸▸" : ""),
+      claimTag: _claimTag,
     })
     const footerText = stripped + `\n\n${vibeLine}`
     _footerCacheText = `\n\n${vibeLine}`
