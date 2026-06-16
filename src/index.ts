@@ -218,12 +218,11 @@ async function _seedOrRepairModelTiers(directory) {
   let brain = trinity?.brain || currentModel || readConfig(directory) || readConfig(getOpenCodeHome()) || process?.env?.OPENCODE_MODEL || ""
   let medium = trinity?.medium || brain
   let cheap = trinity?.cheap || medium || brain
-  // DEV ONLY: fallback for dev machine when trinity rebuild has not been run
   if (!brain) {
-    brain = "deepseek/deepseek-v4-pro"
-    medium = "deepseek/deepseek-v4-flash"
-    cheap = "deepseek/deepseek-chat"
-    console.error("[vibeOS] no providers detected — using default model tiers (brain=v4-pro, medium=v4-flash, cheap=v4-chat)")
+    brain = "generic/brain"
+    medium = "generic/medium"
+    cheap = "generic/cheap"
+    console.error("[vibeOS] no providers or trinity config found — run \"vibe rebuild\" to set model tiers")
   }
   const existingSelection = existing?.selection && typeof existing.selection === "object" ? existing.selection : {}
   const existingTrinity = existing?.trinity && typeof existing.trinity === "object" ? existing.trinity : {}
