@@ -497,7 +497,7 @@ export const onToolExecuteBefore = async (input, output) => {
       try {
         const selNow = loadSelection()
         const desiredSlot = _target === TRINITY_CHEAP ? "cheap" : _target === TRINITY_MEDIUM ? "medium" : _target === TRINITY_BRAIN ? "brain" : null
-        if (selNow.delegation_enforce && currentTier === "high" && desiredSlot && selNow.active_slot !== desiredSlot) {
+        if (desiredSlot && selNow.active_slot !== desiredSlot) {
           taskSlotRestore = selNow.active_slot || "brain"
           const switched = applySlot(desiredSlot)
           if (switched?.ok) {
