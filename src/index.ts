@@ -56,11 +56,11 @@ function ensureDeferredBootstrap() {
 
 // Claim verifier: scans assistant output for unverified claims about done/fixed/score
 const CLAIM_PATTERNS = [
-  /(?i)(?:done|finished|complete)/,
-  /(?i)(?:fixed|resolved|solved)/,
-  /(?i)(?:working|works|validated|verified)/,
+  /(?:done|finished|complete)/i,
+  /(?:fixed|resolved|solved)/i,
+  /(?:working|works|validated|verified)/i,
   /(?:[0-9]+\.[0-9]?%|\d+%)/,
-  /(?i)(?:score|scored|passing|passed)/,
+  /(?:score|scored|passing|passed)/i,
 ]
 function scanClaimsInOutput(output) {
   if (!output || typeof output !== 'string') return
