@@ -1037,6 +1037,9 @@ function setLockedSlot(val) {
 function setLockedModel(val) {
   _lockedModel = val ? String(val) : null;
 }
+function setLedgerBufferTimer(val) {
+  _ledgerBufferTimer = val;
+}
 function _zType(base) {
   return Object.assign((...a) => _zType({ ...base, args: a }), {
     optional: () => _zType({ ...base, optional: true }),
@@ -2642,6 +2645,30 @@ function readLifetimeSavings() {
     return _savingsCache;
   } catch {
     return empty;
+  }
+}
+function saveSessionCheckpoint() {
+  try {
+    const state = readFullState();
+    const session = state.sessions?.[_OC_SID];
+    if (!session)
+      return;
+    const cp = {
+      session_id: _OC_SID,
+      ts: (/* @__PURE__ */ new Date()).toISOString(),
+      cost: session.cost_usd || 0,
+      cache_savings: session.cache_savings_usd || 0,
+      total_savings: session.total_savings_usd || 0,
+      tool_counts: session.tool_counts || {},
+      warns: session.warns?.length || 0,
+      model: session.model || ""
+    };
+    const cpPath = join2(getSessionRoot(), "checkpoint.json");
+    mkdirSync(dirname(cpPath), { recursive: true });
+    const tmp = cpPath + ".tmp";
+    writeFileSync2(tmp, JSON.stringify(cp, null, 2) + "\n");
+    renameSync2(tmp, cpPath);
+  } catch {
   }
 }
 var USER_HOME2, VIBEOS_CONTEXT, VIBEOS_HOME, OPENCODE_HOME, FILE_LOCK_DIR, DELEGATION_STATE_FILE, SAVINGS_LEDGER_FILE, GLOBAL_LEARNING_FILE, PRICING_CACHE_FILE, BLACKBOX_STATE_FILE, PROJECT_STATE_FILE, TIERS_FILE, ACTIVE_JOBS_FILE, AUTH_F, CREDIT_CACHE_F, FLOW_TODO_QUEUE_FILE, FLOW_DEDUP_FILE, ENFORCEMENT_COOLDOWN_FILE, TODOS_FILE, REPORTS_DIR, CONTEXT7_INSTALL_FLAG, TRINITY_OPENCODE_CONFIG, TRINITY_OPENCODE_CONFIGC, SCRATCHPAD_ROOT, SCRATCHPAD_GLOBAL_DIR, SCRATCHPAD_SESSIONS_DIR, SCRATCHPAD_SESSION_TTL_MS, SCRATCHPAD_MAX_AGE_SEC, MAX_SCRATCHPAD_FILES, MAX_SCRATCHPAD_BYTES, MAX_SESSION_SCRATCHPAD_FILES, MAX_SESSION_SCRATCHPAD_BYTES, CORRUPTION_BACKUP_MAX, CORRUPTION_BACKUP_TTL_MS, LEDGER_ROTATE_MAX_BYTES, LEDGER_ROTATE_MAX_LINES, LEDGER_ROTATE_MAX_AGE_MS, ACTIVE_JOBS_STALE_MS, MAX_PTR_CANDIDATES, SUMMARY_HEAD_TRUNCATE, DECADENCE_FRESH_MS, DECADENCE_WARM_MS, DECADENCE_COLD_MS, DECADENCE_EXPIRE_MS, DECADENCE_THROTTLE_MS, DECADENCE_GLOBAL_THROTTLE_MS, TOOL_NAME_NORMALIZE, SCRATCHPAD_TOOLS, WARN_DEDUPE_WINDOW_MS, SOFT_QUOTA_LIMIT, _OC_SID, currentSessionId, _sessionStart, currentTier, currentModel, currentProjectFingerprint, currentProjectName, recentToolEvents, _savingsCache, _savingsCacheMtime, _ledgerReconciledMtime, _ledgerTotalsCache, _mlGraph, _cacheDb, ML_ENABLED, ML_CONFIDENCE_THRESHOLD, _mlSavePending, _blackboxEnabled, _latestBlackboxState, _latestBlackboxLoopMsg, _latestBlackboxPivotMsg, _modelLocked, _lockedSlot, _lockedModel, _sessionCleanupRegistered, _sessionCacheCleaned, prunedThisProcess, _lastDecadenceRun, briefedProjects, _ledgerBuffer, _ledgerBufferTimer, LEDGER_BUFFER_MAX, LEDGER_BUFFER_FLUSH_MS, testReminderSeen, DFLT_GL, tool, _startupMaintenanceHome, FALLBACK_HIGH, FALLBACK_MID, HIGH_TIER_RE, MID_TIER_RE, scratchpadHitsSeen;
@@ -11183,7 +11210,7 @@ import { join as join16 } from "node:path";
 
 // src/lib/hooks/chat-transform.js
 init_state();
-import { readFileSync as readFileSync14, writeFileSync as writeFileSync14, appendFileSync as appendFileSync4, existsSync as existsSync15, mkdirSync as mkdirSync11, rmSync as rmSync5, readdirSync as readdirSync4, statSync as statSync7 } from "node:fs";
+import { readFileSync as readFileSync14, writeFileSync as writeFileSync14, appendFileSync as appendFileSync4, existsSync as existsSync15, mkdirSync as mkdirSync11, rmSync as rmSync5, readdirSync as readdirSync3, statSync as statSync7 } from "node:fs";
 import { join as join15, dirname as dirname10, basename as basename3 } from "node:path";
 import { createHash as createHash3 } from "node:crypto";
 
@@ -11453,17 +11480,95 @@ function observeToolPattern(toolName, input, output, directory3) {
 
 // src/lib/index-helpers.js
 init_state();
+init_pattern_helpers();
 
 // src/lib/text-compress.js
+var VERBOSE_LINE_RE = [
+  /^[\s#*/\\\-_=+|~:;'"`@\$%^&<>{}\[\]()!?.,0-9]+$/,
+  /^(Filed|Created|Modified|Deleted|Updated|Renamed|Copied|Moved|Changed):/,
+  /^➡️|^  👉|^  \-|^  \*|^  \d+\.|^  \d+\)/
+];
 var BULLET_PATTERNS = [
   /^\s*[-*+•·]\s+/,
   /^\s*\d+[.)]\s+/
 ];
 var COMPRESS_RATIO = 0.3;
+var COMPRESS_THRESHOLD = 2e3;
 var MIN_KEPT_LINES_RATIO = 0.4;
+function extractBulletLines(lines, targetChars, minLines) {
+  const keyLines = [];
+  const otherLines = [];
+  for (const line of lines) {
+    if (BULLET_PATTERNS.some((re) => re.test(line)))
+      keyLines.push(line);
+    else
+      otherLines.push(line);
+  }
+  const selected = [...keyLines];
+  for (const line of otherLines) {
+    if (selected.length >= minLines && selected.join("\n").length >= targetChars)
+      break;
+    selected.push(line);
+  }
+  while (selected.length > minLines && selected.join("\n").length > targetChars * 2) {
+    selected.pop();
+  }
+  return selected;
+}
+function compressText(text) {
+  if (!text || typeof text !== "string")
+    return text;
+  let lines = text.split("\n");
+  let removed = 0;
+  const out = [];
+  for (const line of lines) {
+    let skip = false;
+    for (const re of VERBOSE_LINE_RE) {
+      if (re.test(line)) {
+        skip = true;
+        removed++;
+        break;
+      }
+    }
+    if (!skip)
+      out.push(line);
+  }
+  const collapsed = [];
+  let blanks = 0;
+  for (const line of out) {
+    if (line.trim() === "") {
+      blanks++;
+      if (blanks <= 2)
+        collapsed.push(line);
+    } else {
+      blanks = 0;
+      collapsed.push(line);
+    }
+  }
+  let result = collapsed.join("\n").trim();
+  if (result.length > COMPRESS_THRESHOLD) {
+    const targetChars = Math.max(Math.round(result.length * COMPRESS_RATIO), COMPRESS_THRESHOLD);
+    const minLines = Math.max(1, Math.round(collapsed.length * MIN_KEPT_LINES_RATIO));
+    const bulletLines = extractBulletLines(collapsed, targetChars, minLines);
+    result = bulletLines.join("\n").trim();
+    if (result.length > targetChars * 1.5) {
+      const cutoff = result.lastIndexOf("\n\n", targetChars);
+      if (cutoff > targetChars * 0.5) {
+        result = result.slice(0, cutoff) + `
+
+... [${result.length - cutoff} chars truncated]`;
+      } else {
+        result = result.slice(0, targetChars) + `... [${result.length - targetChars} chars truncated]`;
+      }
+    }
+  }
+  if (removed > 0 || result !== collapsed.join("\n").trim()) {
+    console.error(`[vibeOS] COMPRESS: ${text.length}->${result.length} chars (${removed} verbose lines stripped)`);
+  }
+  return result || text;
+}
 
 // src/lib/index-helpers.js
-import { readdirSync as readdirSync3 } from "node:fs";
 var activeJob = null;
 function setActiveJobFromTaskPrompt(prompt) {
   if (!prompt || typeof prompt !== "string")
@@ -11575,21 +11680,34 @@ function recordSaving(tool2, reason, saveEst, meta = {}) {
         }
       }
       const ses = s.sessions[sid];
-      const warnKey = `${tool2}:${reason}`;
-      const now = Date.now();
-      if (!ses.seenWarnKeys)
-        ses.seenWarnKeys = {};
-      if (!ses.seenWarnKeys[warnKey]) {
-        ses.total_savings_usd = (ses.total_savings_usd || 0) + saveEst;
-        s.lifetime.total_savings_usd = (s.lifetime.total_savings_usd || 0) + saveEst;
-        s.lifetime.warn_count = (s.lifetime.warn_count || 0) + 1;
-        ses.warns.push({ key: warnKey, reason, saveEst, est_savings_usd: saveEst, firstWord, ts: now, count: 1, tool: tool2 });
-      }
-      if (!ses.seenWarnKeys[warnKey]) {
-        ses.seenWarnKeys[warnKey] = true;
-        try {
-          noteTaskRoutingLearning(firstWord, TRINITY_CHEAP || TRINITY_MEDIUM || "unknown", `observed:${tool2}`);
-        } catch {
+      if (reason && firstWord) {
+        const now = Date.now();
+        const warnKey = `${_OC_SID}:${firstWord}`;
+        ses.seenWarnKeys ??= {};
+        let deduped = false;
+        for (let i = ses.warns.length - 1; i >= 0 && !deduped; i--) {
+          const w = ses.warns[i];
+          if (w?.key === warnKey && now - w.ts < WARN_DEDUPE_WINDOW_MS) {
+            w.count = (w.count || 1) + 1;
+            w.est_savings_usd = roundUsd(Number(w.est_savings_usd || 0) + saveEst);
+            w.saveEst = roundUsd(Number(w.saveEst || 0) + saveEst);
+            ses.total_savings_usd = roundUsd(Number(ses.total_savings_usd || 0) + saveEst);
+            s.lifetime.total_savings_usd = roundUsd(Number(s.lifetime.total_savings_usd || 0) + saveEst);
+            deduped = true;
+          }
+        }
+        if (!deduped) {
+          ses.total_savings_usd = roundUsd(Number(ses.total_savings_usd || 0) + saveEst);
+          s.lifetime.total_savings_usd = roundUsd(Number(s.lifetime.total_savings_usd || 0) + saveEst);
+          s.lifetime.warn_count = (s.lifetime.warn_count || 0) + 1;
+          ses.warns.push({ key: warnKey, reason, saveEst, est_savings_usd: saveEst, firstWord, ts: now, count: 1, tool: tool2 });
+        }
+        if (!ses.seenWarnKeys[warnKey]) {
+          ses.seenWarnKeys[warnKey] = true;
+          try {
+            noteTaskRoutingLearning(firstWord, TRINITY_CHEAP || TRINITY_MEDIUM || "unknown", `observed:${tool2}`);
+          } catch {
+          }
         }
       }
       const cap = 30;
@@ -11600,68 +11718,59 @@ function recordSaving(tool2, reason, saveEst, meta = {}) {
           ses.seenWarnKeys = Object.fromEntries(keys.slice(-cap * 2).map((k) => [k, true]));
         }
       }
-      return s;
-    });
-  } catch {
-    return 0;
-  }
-  try {
-    const sid = getCurrentSessionId();
-    const scratchDir = join14(process.env.HOME || "", ".claude", "scratch", sid, "work");
-    if (getSessionScratchpadDir && sid) {
-      const target = getSessionScratchpadDir(sid);
-      if (target) {
-        const files = readDirSafe(target);
-        if (files && files.length > 100) {
-          const sorted = files.sort().slice(0, files.length - 80);
-          for (const f of sorted) {
-            try {
-              rimrafSync(f);
-            } catch {
-            }
+      try {
+        const sd = getSessionScratchpadDir();
+        if (sd) {
+          const sp = join14(sd, "delegation-state-hint.txt");
+          try {
+            writeFileSync13(sp, JSON.stringify({ sid, total_savings: s.lifetime.total_savings_usd, last_reason: reason }), "utf8");
+          } catch {
           }
         }
+      } catch {
       }
+      ses.last_reason = reason;
+      ses.last_save_est = saveEst;
+      s.last_updated = (/* @__PURE__ */ new Date()).toISOString();
+      _pruneOldSessions(s);
+    });
+    const projectFingerprint2 = typeof meta?.projectFingerprint === "string" && meta.projectFingerprint.trim() ? meta.projectFingerprint.trim() : currentProjectFingerprint || "";
+    const projectName = typeof meta?.projectName === "string" && meta.projectName.trim() ? meta.projectName.trim() : currentProjectName || "";
+    const sessionId = typeof meta?.sessionId === "string" && meta.sessionId.trim() ? meta.sessionId.trim() : getCurrentSessionId() || _OC_SID;
+    const entry = JSON.stringify({
+      ts: (/* @__PURE__ */ new Date()).toISOString(),
+      usd: saveEst,
+      sid: _OC_SID,
+      tool: tool2,
+      reason,
+      saveEst,
+      fgp: projectFingerprint2
+    });
+    _ledgerBuffer.push(entry);
+    try {
+      if (projectFingerprint2) {
+        const pstate = loadProjectState();
+        touchProjectBucket(pstate, projectFingerprint2, {
+          sessionId,
+          projectName,
+          topic: tool2 || reason || "saving"
+        });
+        saveProjectState(pstate);
+      }
+    } catch {
     }
-  } catch {
-  }
-}
-function readDirSafe(p) {
-  try {
-    return readdirSync3(p).map((f) => join14(p, f));
-  } catch {
-    return [];
-  }
-}
-function rimrafSync(p) {
-  try {
-    writeFileSync13(p, "");
-  } catch {
-  }
-}
-function compressText(text, level = "medium") {
-  if (!text || typeof text !== "string")
-    return text || "";
-  if (text.length < 200)
-    return text;
-  const lines = text.split("\n");
-  if (lines.length < 6)
-    return text;
-  const kept = [lines[0]];
-  let c = 1;
-  for (let i = 1; i < lines.length; i++) {
-    const l = lines[i];
-    if (BULLET_PATTERNS.test(l)) {
-      kept.push(l);
-      c++;
-    } else if (l.trim() && c / i < COMPRESS_RATIO && kept.length < lines.length * MIN_KEPT_LINES_RATIO) {
-      kept.push(l);
-      c++;
+    if (_ledgerBuffer.length >= LEDGER_BUFFER_MAX)
+      _flushLedgerBuffer();
+    else if (!_ledgerBufferTimer)
+      setLedgerBufferTimer(setTimeout(_flushLedgerBuffer, LEDGER_BUFFER_FLUSH_MS));
+    return saveEst;
+  } catch (err) {
+    try {
+      saveSessionCheckpoint();
+    } catch {
     }
+    return 0;
   }
-  while (kept.length < lines.length * MIN_KEPT_LINES_RATIO && kept.length < lines.length)
-    kept.push(lines[kept.length]);
-  return kept.join("\n");
 }
 
 // src/lib/constants.js
@@ -11797,7 +11906,7 @@ function resolveRestorableOpenCodeAgent(currentSel) {
     return remembered;
   try {
     const configDir = dirname10(TRINITY_OPENCODE_CONFIG || join15(getOpenCodeHome(), "opencode.json"));
-    const candidates = readdirSync4(configDir).filter((name) => /^opencode\.json\.bak/.test(name)).map((name) => {
+    const candidates = readdirSync3(configDir).filter((name) => /^opencode\.json\.bak/.test(name)).map((name) => {
       const path = join15(configDir, name);
       return { path, mtime: statSync7(path).mtimeMs };
     }).sort((a, b) => b.mtime - a.mtime);
@@ -13295,7 +13404,7 @@ init_smart_cache();
 
 // src/lib/tdd-enforcer.js
 init_state();
-import { readFileSync as readFileSync16, writeFileSync as writeFileSync15, appendFileSync as appendFileSync6, existsSync as existsSync16, mkdirSync as mkdirSync13, statSync as statSync8, readdirSync as readdirSync5, rmSync as rmSync6, openSync as openSync3 } from "node:fs";
+import { readFileSync as readFileSync16, writeFileSync as writeFileSync15, appendFileSync as appendFileSync6, existsSync as existsSync16, mkdirSync as mkdirSync13, statSync as statSync8, readdirSync as readdirSync4, rmSync as rmSync6, openSync as openSync3 } from "node:fs";
 import { join as join17, dirname as dirname11 } from "node:path";
 import { createHash as createHash4 } from "node:crypto";
 
@@ -14463,7 +14572,7 @@ function _detectTestFramework() {
         const dirPath = join17(root, td);
         if (!existsSync16(dirPath))
           continue;
-        const files = readdirSync5(dirPath).filter((f) => /\.test\./.test(f) || /\.spec\./.test(f));
+        const files = readdirSync4(dirPath).filter((f) => /\.test\./.test(f) || /\.spec\./.test(f));
         if (files.length > 0) {
           const content = readFileSync16(join17(dirPath, files[0]), "utf-8");
           if (/from\s+['"]node:test['"]/.test(content)) {
