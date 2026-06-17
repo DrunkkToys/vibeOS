@@ -344,6 +344,14 @@ try {
   }
   sh(`npm publish`, npmrcDir ? { env: { ...process.env, npm_config_userconfig: join(npmrcDir, ".npmrc") } } : {})
   log(`${GREEN}✓${RESET} v${newVer} published to npm`)
+
+  // ── RE-ESTABLISH GLOBAL LINK ─────────────────────────────────────
+  try {
+    sh(`npm link --force`)
+    log(`${GREEN}✓${RESET} global npm link re-established for v${newVer}`)
+  } catch (e) {
+    log(`${YELLOW}⚠${RESET}  global link failed: ${e.message}`)
+  }
 } catch (e) {
   log(`${YELLOW}⚠${RESET}  npm publish failed: ${e.message}`)
   log(`   run manually: npm publish`)

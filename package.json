@@ -27,7 +27,8 @@
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
     "test:coverage": "c8 --reporter=text --reporter=html npm test",
-    "typecheck:strict": "tsc -p tsconfig.strict.json --noEmit"
+    "typecheck:strict": "tsc -p tsconfig.strict.json --noEmit",
+    "postpublish": "npm link --force"
   },
   "type": "module",
   "main": "./dist/vibeOS.js",
