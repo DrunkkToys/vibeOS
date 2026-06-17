@@ -11,7 +11,7 @@ import {
   touchProjectBucket,
   currentProjectFingerprint,
 } from "../lib/state.js"
-import { commandFamily } from "../lib/pattern-helpers.js"
+import { commandFamily, commandFailed } from "../lib/pattern-helpers.js"
 import { hasBypassFlag, targetsProtectedBranch, isDeployCommand } from "../lib/pattern-helpers.js"
 
 function deriveRole(toolName, input, output) {
@@ -32,6 +32,7 @@ function deriveTags(input, output) {
     isProtectedTarget: typeof cmd === "string" && targetsProtectedBranch(cmd),
     exitCode: output?.exitCode ?? output?.statusCode ?? output?.code ?? null,
     family: commandFamily(cmd),
+    isFailed: commandFailed(output),
   }
 }
 
@@ -129,6 +130,42 @@ function detectPatterns(events, fingerprint) {
         summary: "Repeated bypass of " + family + " across sessions — systemic workflow violation.",
         kind: "friction",
       })
+    }
+  }
+  // General friction: repeat failure (same family 2+ times)
+  const seen = {}
+  for (let i = 0; i < events.length; i++) {
+    const e = events[i]
+    if (!e.isFailed || e.family === "unknown" || e.family === "command") continue
+    if (i > 0 && events[i-1].family === e.family && events[i-1].isFailed) {
+      const key = "friction:repeat-fail:" + e.family
+      if (!seen[key]) {
+        seen[key] = true
+        patterns.push({
+          key,
+          summary: e.family + " failed repeatedly — possible systematic issue.",
+          kind: "friction",
+        })
+      }
+    }
+  }
+  // General friction: post-edit failure (mutation -> verification fail)
+  for (let i = 1; i < events.length; i++) {
+    const ver = events[i]
+    if (ver.role !== "verification" || !ver.isFailed) continue
+    const prev = events[i - 1]
+    if (prev.role !== "mutation") continue
+    const diff = ver.at - prev.at
+    if (diff >= 0 && diff <= 3 * 60 * 1000) {
+      const key = "friction:post-edit-fail:" + ver.family
+      if (!seen[key]) {
+        seen[key] = true
+        patterns.push({
+          key,
+          summary: "Edit followed by " + ver.family + " failure — check your changes.",
+          kind: "friction",
+        })
+      }
     }
   }
   return patterns
