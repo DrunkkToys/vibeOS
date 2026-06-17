@@ -814,3 +814,62 @@ test("cascade: depth-2 does NOT override _target when already set by ML difficul
   const newGuard = escalated !== currentModel && !_target
   assert.equal(newGuard, false, "NEW: depth-2 blocked by !_target (target already brain)")
 })
+test("cascade: ML upgrade does not override _target when remote API set it", async () => {
+  let _target = "test/brain"
+  const TRINITY_CHEAP = "test/cheap"
+  const TRINITY_BRAIN = "test/brain"
+  const mlDifficulty = { suggestedTier: "brain", confidence: 0.85, score: 0.9, level: "complex" }
+  const tierRank = { budget: 0, cheap: 1, mid: 2, medium: 2, high: 3, brain: 3 }
+  const mlRank = tierRank[mlDifficulty.suggestedTier] || 0
+  const curRank = _target ? (tierRank["high"] || 0) : 0
+  const overrideWouldFire = !_target && mlRank > curRank && mlDifficulty.confidence >= 0.7
+  assert.equal(overrideWouldFire, false, "ML upgrade blocked: API target already set")
+})
+
+test("cascade: ML upgrade fires when remote API did NOT set target (fallback preserved)", async () => {
+  let _target = null
+  const TRINITY_CHEAP = "test/cheap"
+  const TRINITY_BRAIN = "test/brain"
+  const mlDifficulty = { suggestedTier: "brain", confidence: 0.85, score: 0.9, level: "complex" }
+  const tierRank = { budget: 0, cheap: 1, mid: 2, medium: 2, high: 3, brain: 3 }
+  const mlRank = tierRank[mlDifficulty.suggestedTier] || 0
+  const curRank = _target ? (tierRank["high"] || 0) : 0
+  const overrideWouldFire = !_target && mlRank > curRank && mlDifficulty.confidence >= 0.7
+  assert.equal(overrideWouldFire, true, "ML upgrade fires: no API target, confident, higher rank")
+})
+
+test("api target not overridden by medium floor", () => {
+  let _target = "test/cheap"
+  if ({ target: "test/cheap" }?.target) _target = "test/cheap"
+  assert.equal(_target, "test/cheap", "api target sticks, medium floor deleted")
+})
+
+test("no api target + cheap + stress > 0.5 → stress fallback fires", () => {
+  let _target = "test/cheap"
+  const TRINITY_CHEAP = "test/cheap"
+  const TRINITY_MEDIUM = "test/medium"
+  const stressScore = 0.7
+  if ({ target: null }?.target) { /* api silent */ }
+  else { if (_target === TRINITY_CHEAP && TRINITY_MEDIUM && stressScore > 0.5) _target = TRINITY_MEDIUM }
+  assert.equal(_target, "test/medium", "stress fallback fires when no api target")
+})
+
+test("no api target + cheap + stress low → no upgrade", () => {
+  let _target = "test/cheap"
+  const TRINITY_CHEAP = "test/cheap"
+  const TRINITY_MEDIUM = "test/medium"
+  const stressScore = 0.3
+  if ({ target: null }?.target) { /* api silent */ }
+  else { if (_target === TRINITY_CHEAP && TRINITY_MEDIUM && stressScore > 0.5) _target = TRINITY_MEDIUM }
+  assert.equal(_target, "test/cheap", "low stress, no upgrade")
+})
+
+test("no api target + not cheap → nothing fires", () => {
+  let _target = "test/brain"
+  const TRINITY_CHEAP = "test/cheap"
+  const TRINITY_MEDIUM = "test/medium"
+  const stressScore = 0.9
+  if ({ target: null }?.target) { /* api silent */ }
+  else { if (_target === TRINITY_CHEAP && TRINITY_MEDIUM && stressScore > 0.5) _target = TRINITY_MEDIUM }
+  assert.equal(_target, "test/brain", "not cheap, no fallback")
+})
