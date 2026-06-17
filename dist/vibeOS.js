@@ -7861,7 +7861,7 @@ function autoSelectMode2(subRegime, stressMultiplier) {
     return "audit";
   if (stress > QUALITY_STRESS_THRESHOLD2)
     return "quality";
-  return "vibelitex";
+  return "quality";
 }
 function resolveOptimizationMode(subRegime, stressMultiplier, optimizationMode) {
   const normalized = String(optimizationMode || "auto").toLowerCase();
@@ -12428,6 +12428,8 @@ function syncControlSettings(cv, options = {}) {
         const OC_CONFIG = TRINITY_OPENCODE_CONFIG || join15(getOpenCodeHome(), "opencode.json");
         if (existsSync15(OC_CONFIG)) {
           const oc = safeJsonParse2(readFileSync14(OC_CONFIG, "utf-8"));
+          if (!oc)
+            return;
           if (oc.default_agent !== cv.agent_mode) {
             if (cv.agent_mode === "plan" && oc.default_agent && oc.default_agent !== "plan") {
               writeSelection("previous_default_agent", oc.default_agent);
@@ -12443,6 +12445,8 @@ function syncControlSettings(cv, options = {}) {
         const OC_CONFIG = TRINITY_OPENCODE_CONFIG || join15(getOpenCodeHome(), "opencode.json");
         if (existsSync15(OC_CONFIG)) {
           const oc = safeJsonParse2(readFileSync14(OC_CONFIG, "utf-8"));
+          if (!oc)
+            return;
           const restoreAgent = oc.default_agent === "plan" ? resolveRestorableOpenCodeAgent(currentSel) : null;
           if (restoreAgent && oc.default_agent === "plan") {
             oc.default_agent = restoreAgent;
@@ -12486,7 +12490,10 @@ function compressToolOutputs(messages) {
   let compressedBytes = 0;
   const hotStart = Math.max(0, messages.length - KEEP_HOT);
   for (let i = 0; i < messages.length; i++) {
-    const { info, parts } = messages[i];
+    const msg = messages[i];
+    if (!msg || typeof msg !== "object")
+      continue;
+    const { info, parts } = msg;
     if (!Array.isArray(parts))
       continue;
     const isCold = i < hotStart;
@@ -12552,7 +12559,10 @@ ${stableJson(invPart.state.input)}
 }
 function injectWBP(messages) {
   for (let i = 0; i < messages.length - 1; i++) {
-    const { info, parts } = messages[i];
+    const msg = messages[i];
+    if (!msg || typeof msg !== "object")
+      continue;
+    const { info, parts } = msg;
     if (!Array.isArray(parts))
       continue;
     const hasTask = parts.some((p) => p?.type === "tool" && p?.tool === "task" && p?.state?.status === "completed");

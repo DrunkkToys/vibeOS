@@ -56,7 +56,7 @@ test("contract: computeControlVector returns required fields", async () => {
 test("contract: stress > 1.5 overrides to quality", async () => {
   const mod = await import("../src/lib/turn-classify.js?" + Date.now())
   assert.equal(mod.autoSelectMode("INIT", 2.0), "quality")
-  assert.notEqual(mod.autoSelectMode("INIT", 0.2), "quality")
+  assert.equal(mod.autoSelectMode("INIT", 0.2), "quality")
 })
 
 test("fuzz: scoreStress handles non-string input", async () => {

@@ -393,6 +393,7 @@ export function syncControlSettings(cv: any, options: { persistOptimizationMode?
         const OC_CONFIG = TRINITY_OPENCODE_CONFIG || join(getOpenCodeHome(), "opencode.json")
         if (existsSync(OC_CONFIG)) {
           const oc = safeJsonParse(readFileSync(OC_CONFIG, "utf-8"))
+          if (!oc) return
           if (oc.default_agent !== cv.agent_mode) {
             if (cv.agent_mode === "plan" && oc.default_agent && oc.default_agent !== "plan") {
               writeSelection("previous_default_agent", oc.default_agent)
@@ -407,6 +408,7 @@ export function syncControlSettings(cv: any, options: { persistOptimizationMode?
         const OC_CONFIG = TRINITY_OPENCODE_CONFIG || join(getOpenCodeHome(), "opencode.json")
         if (existsSync(OC_CONFIG)) {
           const oc = safeJsonParse(readFileSync(OC_CONFIG, "utf-8"))
+          if (!oc) return
           const restoreAgent = oc.default_agent === "plan" ? resolveRestorableOpenCodeAgent(currentSel) : null
           if (restoreAgent && oc.default_agent === "plan") {
             oc.default_agent = restoreAgent
