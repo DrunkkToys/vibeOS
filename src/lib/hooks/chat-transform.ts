@@ -550,7 +550,7 @@ function injectWBP(messages: any[]): void {
 
 // -- Blackbox resolution tracking -----------------------------------
 async function trackBlackbox(messages: any[]): Promise<void> {
-  const lastUserMsg = messages.slice().reverse().find(m => m.info?.role === "user")
+  const lastUserMsg = messages.slice().reverse().find(m => m?.info?.role === "user")
   if (!lastUserMsg) return
 
   const textPart = lastUserMsg.parts?.find(p => p?.type === "text")
@@ -707,7 +707,7 @@ export const onMessagesTransform = async (_input, output) => {
           unsubClaims.slice(0, 5).map(t => "  - \"" + (typeof t === "string" ? t.substring(0, 80) : "") + "\"").join("\n") +
           "\nPlease verify each claim and correct if inaccurate."
         try {
-          messages.push({ role: "assistant", parts: [{ type: "text", text: verifyText, synthetic: true }] })
+          messages.push({ info: { role: "assistant" }, parts: [{ type: "text", text: verifyText, synthetic: true }] })
         } catch {}
       }
     } catch {}
