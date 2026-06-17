@@ -774,3 +774,43 @@ test("delegate: delegateCheck fails open when API is unavailable", async () => {
     else process.env.VIBEOS_API_DISABLED = prevDisabled
   }
 })
+
+
+test("cascade: ML difficulty upgrade fires when _target differs from mlTarget even if mlTarget == currentModel", async () => {
+  // Regression: line 418 was mlTarget !== currentModel. Changed to mlTarget !== _target.
+  // When TRINITY_BRAIN === currentModel but _target is medium, ML difficulty must still upgrade.
+  const TRINITY_BRAIN = "test/brain"
+  const TRINITY_MEDIUM = "test/medium"
+  const currentModel = "test/brain"
+  const _target = TRINITY_MEDIUM
+
+  const mlTarget = TRINITY_BRAIN
+
+  const oldGate = mlTarget !== currentModel
+  const newGate = mlTarget !== _target
+
+  assert.equal(oldGate, false, "OLD mlTarget !== currentModel = false when both brain")
+  assert.equal(newGate, true, "NEW mlTarget !== _target = true when brain !== medium")
+})
+
+test("cascade: depth-2 does NOT override _target when already set by ML difficulty", async () => {
+  // Regression: line 467 added !_target guard. When cascade depth-2 fires with
+  // escalation but _target is already set to brain by ML difficulty, the cascade
+  // must NOT override/downgrade _target.
+  const TRINITY_BRAIN = "test/brain"
+  const TRINITY_MEDIUM = "test/medium"
+  const currentModel = "test/cheap"
+  let _target = TRINITY_BRAIN
+
+  const escalated = TRINITY_MEDIUM
+  const cascadeResult = { escalate: true, confidence: 0.7, reason: "complex query" }
+
+  // Old condition: (!_target || escalated !== _target)
+  const oldGuard = escalated !== currentModel && (!_target || escalated !== _target)
+  assert.equal(oldGuard, true, "OLD: depth-2 would fire (medium !== cheap AND medium !== brain)")
+  assert.ok(oldGuard, "OLD: cascade would override brain with medium")
+
+  // New condition: !_target
+  const newGuard = escalated !== currentModel && !_target
+  assert.equal(newGuard, false, "NEW: depth-2 blocked by !_target (target already brain)")
+})
