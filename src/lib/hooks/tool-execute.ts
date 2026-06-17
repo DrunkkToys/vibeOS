@@ -431,8 +431,10 @@ export const onToolExecuteBefore = async (input, output) => {
         if (mlGraphPrediction && mlGraphPrediction !== currentModel) {
           const graphNode = _mlGraph.nodes[_firstWord]
           if (graphNode && graphNode.count >= 3) {
-            _target = mlGraphPrediction
-            console.error(`[vibeOS] 🕸 ML graph: ${_firstWord} → ${mlGraphPrediction} (${graphNode.count} samples)`)
+            if (!_target) {
+              _target = mlGraphPrediction
+              console.error(`[vibeOS] 🕸 ML graph: ${_firstWord} → ${mlGraphPrediction} (${graphNode.count} samples)`)
+            }
           }
         }
         if (_target) {
@@ -445,7 +447,7 @@ export const onToolExecuteBefore = async (input, output) => {
     }
 
     const activePipeline = loadSelection().active_pipeline
-    if (!apiRoute?.target && activePipeline && Array.isArray(activePipeline) && activePipeline.length > 1 && TRINITY_CHEAP && TRINITY_MEDIUM) {
+    if (activePipeline && Array.isArray(activePipeline) && activePipeline.length > 1 && TRINITY_CHEAP && TRINITY_MEDIUM) {
       try {
         const cheapCost = 0.001
         const mediumCost = 0.005
