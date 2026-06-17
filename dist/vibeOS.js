@@ -10336,7 +10336,7 @@ ${L.repeat(40)}`);
         const lines = ["[vibeOS] Claim verification report"];
         lines.push("=".repeat(50));
         let claimCount = 0, unsubstantiatedCount = 0, verifiedCount = 0;
-        const CLAIM_RE = /(?:done|fixed|validated|works|score|%|passed|verified|solved|resolved)/i;
+        const CLAIM_RE = /(?:I|we|the)\s+(?:pushed|released|merged|deployed|fixed)\b|(?:tests?|build|CI|checks?)\s+(?:pass|green|clean|succeed)\b|v\d+\.\d+\.\d+|done|fixed|resolved|solved|works|working|validated|verified|exit\s*code\s*0|\d+%|score|passed|0\s*errors/i;
         const claims = [];
         if (deps.existsSync(claimFile)) {
           try {
