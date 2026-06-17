@@ -5114,7 +5114,7 @@ var init_vibeultrax = __esm({
 
 // src/index.ts
 init_flow_enforcer();
-import { readFileSync as readFileSync18, writeFileSync as writeFileSync17, existsSync as existsSync19, mkdirSync as mkdirSync15, copyFileSync as copyFileSync2, renameSync as renameSync6, statSync as statSync9 } from "node:fs";
+import { readFileSync as readFileSync18, writeFileSync as writeFileSync17, existsSync as existsSync20, mkdirSync as mkdirSync15, copyFileSync as copyFileSync2, renameSync as renameSync6, statSync as statSync10 } from "node:fs";
 import { join as join19, dirname as dirname13, basename as basename5 } from "node:path";
 
 // src/vibeOS-lib/session-metrics.js
@@ -10336,7 +10336,7 @@ ${L.repeat(40)}`);
         const lines = ["[vibeOS] Claim verification report"];
         lines.push("=".repeat(50));
         let claimCount = 0, unsubstantiatedCount = 0, verifiedCount = 0;
-        const CLAIM_RE = /(?:done|fixed|validated|works|score|%|passed|verified|solved|resolved)/i;
+        const CLAIM_RE = /(?:I|we|the)\s+(?:pushed|released|merged|deployed|fixed)\b|(?:tests?|build|CI|checks?)\s+(?:pass|green|clean|succeed)\b|v\d+\.\d+\.\d+|done|fixed|resolved|solved|works|working|validated|verified|exit\s*code\s*0|\d+%|score|passed|0\s*errors/i;
         const claims = [];
         if (deps.existsSync(claimFile)) {
           try {
@@ -11236,7 +11236,7 @@ async function probeModel(modelId, auth, providers = null) {
 }
 
 // src/lib/hooks/footer.js
-import { readFileSync as readFileSync15, appendFileSync as appendFileSync5, mkdirSync as mkdirSync12 } from "node:fs";
+import { readFileSync as readFileSync15, appendFileSync as appendFileSync5, existsSync as existsSync16, mkdirSync as mkdirSync12, statSync as statSync8 } from "node:fs";
 import { join as join16 } from "node:path";
 
 // src/lib/hooks/chat-transform.js
@@ -11244,6 +11244,7 @@ init_state();
 import { readFileSync as readFileSync14, writeFileSync as writeFileSync14, appendFileSync as appendFileSync4, existsSync as existsSync15, mkdirSync as mkdirSync11, rmSync as rmSync5, readdirSync as readdirSync3, statSync as statSync7 } from "node:fs";
 import { join as join15, dirname as dirname10, basename as basename3 } from "node:path";
 import { createHash as createHash3 } from "node:crypto";
+import { homedir as homedir6 } from "node:os";
 
 // src/lib/mode-policy.js
 init_state();
@@ -12616,6 +12617,90 @@ var onMessagesTransform = async (_input, output) => {
     injectWBP(messages);
     applyDecadence();
     await trackBlackbox(messages);
+    try {
+      if (!Array.isArray(messages) || Object.isFrozen(messages))
+        return;
+      const vibeHome = process.env.VIBEOS_HOME || join15(process.env.HOME || homedir6(), ".claude");
+      if (typeof vibeHome !== "string" || vibeHome.length === 0)
+        return;
+      const claimFile = join15(vibeHome, "cascade-audit", "claim-audit.jsonl");
+      const cascadeFile = join15(vibeHome, "cascade-audit", "cascade-audit.jsonl");
+      if (!existsSync15(claimFile))
+        return;
+      const st = statSync7(claimFile);
+      if (!st || st.size <= 0)
+        return;
+      const claimRaw = readFileSync14(claimFile, "utf-8");
+      if (!claimRaw || typeof claimRaw !== "string")
+        return;
+      const claimLines = claimRaw.trim().split("\n").filter(Boolean).slice(-5);
+      if (claimLines.length === 0)
+        return;
+      const cascadeRaw = existsSync15(cascadeFile) ? readFileSync14(cascadeFile, "utf-8") : "";
+      const cascadeLines = cascadeRaw && typeof cascadeRaw === "string" ? cascadeRaw.trim().split("\n").filter(Boolean).slice(-20) : [];
+      const cascadeRuns = cascadeLines.map((l) => {
+        try {
+          return JSON.parse(l);
+        } catch {
+          return null;
+        }
+      }).filter(Boolean);
+      const unsubClaims = [];
+      let lastInjectTs = 0;
+      for (let i = messages.length - 1; i >= Math.max(0, messages.length - 4); i--) {
+        const m = messages[i];
+        if (!m || typeof m !== "object")
+          continue;
+        if (m.role === "assistant" && Array.isArray(m.parts)) {
+          for (const p of m.parts) {
+            if (p && typeof p === "object" && p.type === "text" && typeof p.text === "string" && p.text.includes("[verify]")) {
+              lastInjectTs = Date.now();
+            }
+          }
+        }
+      }
+      if (Date.now() - lastInjectTs < 3e4)
+        return;
+      for (const cl of claimLines) {
+        if (!cl.trim())
+          continue;
+        let entry;
+        try {
+          entry = JSON.parse(cl);
+        } catch {
+          continue;
+        }
+        if (!entry || typeof entry !== "object")
+          continue;
+        const claimTexts = (entry.claims || []).filter(Boolean).map((c) => typeof c === "object" && c.text ? c.text : "").filter(Boolean).join(" | ");
+        if (!claimTexts)
+          continue;
+        if (!/(?:I|we|the)\s+(?:pushed|released|merged|deployed|fixed)\b|(?:tests?|build|CI|checks?)\s+(?:is\s+|are\s+)?(?:pass|green|clean)\b|v\d+\.\d+\.\d+|done|fixed|works|exit\s*code\s*0|\d+%|score|passed/i.test(claimTexts))
+          continue;
+        let cascadeMatch = false;
+        for (const cr of cascadeRuns) {
+          const cTs = typeof cr === "object" && cr ? cr._ts || "" : "";
+          if (cTs && entry.ts && Math.abs(new Date(cTs).getTime() - new Date(entry.ts).getTime()) < 12e4) {
+            cascadeMatch = true;
+            break;
+          }
+        }
+        if (!cascadeMatch) {
+          for (const c of entry.claims || []) {
+            if (c && typeof c === "object" && c.text)
+              unsubClaims.push(c.text);
+          }
+        }
+      }
+      if (unsubClaims.length > 0 && !Object.isFrozen(messages)) {
+        const verifyText = "\n[vibeOS verify]\nUnsubstantiated claims from previous turn:\n" + unsubClaims.slice(0, 5).map((t) => '  - "' + (typeof t === "string" ? t.substring(0, 80) : "") + '"').join("\n") + "\nPlease verify each claim and correct if inaccurate.";
+        try {
+          messages.push({ role: "assistant", parts: [{ type: "text", text: verifyText, synthetic: true }] });
+        } catch {
+        }
+      }
+    } catch {
+    }
   } catch (err) {
     console.error(`[vibeOS] messages.transform failed: ${err.message}`);
   }
@@ -13429,15 +13514,51 @@ async function _appendFooter(input, output, directory3) {
     const rawMode = (typeof loadSelection2 === "function" ? loadSelection2()?.requested_optimization_mode || loadSelection2()?.optimization_mode : null) || displayMode;
     const cv = computeControlVector2({ sub_regime: currentSubRegime, latest_stress_multiplier: _footerStress, user_text: latestUserIntent || "" }, void 0, rawMode);
     const vibeBrand = resolveBrand(loadOptimizationMode() || displayMode, activeSlot);
-    const _cp = [/(?:\u005c|['"](?:done|fixed|validated|works|verified|solved|resolved)['"]|\d+%|score|passed)/i];
     let _claimTag = "";
-    if (text) {
-      for (const _p of _cp) {
-        if (_p.test(text)) {
-          _claimTag = "[CLAIMS]";
-          break;
+    try {
+      const claimAuditFile = join16(VIBEOS_HOME, "cascade-audit", "claim-audit.jsonl");
+      const cascadeAuditFile = join16(VIBEOS_HOME, "cascade-audit", "cascade-audit.jsonl");
+      if (existsSync16(claimAuditFile) && statSync8(claimAuditFile).size > 0) {
+        const claimLines = readFileSync15(claimAuditFile, "utf-8").trim().split("\n").slice(-10);
+        const cascadeLines = existsSync16(cascadeAuditFile) ? readFileSync15(cascadeAuditFile, "utf-8").trim().split("\n").slice(-30) : [];
+        const cascadeRuns = cascadeLines.filter(Boolean).map(function(l) {
+          try {
+            return JSON.parse(l);
+          } catch {
+          }
+        }).filter(Boolean);
+        let unsub = 0;
+        for (const cl of claimLines) {
+          if (!cl.trim())
+            continue;
+          let entry;
+          try {
+            entry = JSON.parse(cl);
+          } catch {
+            continue;
+          }
+          if (!entry)
+            continue;
+          const claimTexts = (entry.claims || []).map(function(c) {
+            return c.text;
+          }).join(" | ");
+          let cascadeMatch = false;
+          for (const cr of cascadeRuns) {
+            const cTs = cr._ts || "";
+            if (cTs && entry.ts && Math.abs(new Date(cTs).getTime() - new Date(entry.ts).getTime()) < 12e4) {
+              cascadeMatch = true;
+              break;
+            }
+          }
+          if (!cascadeMatch)
+            unsub++;
         }
+        if (unsub > 0)
+          _claimTag = "\u26A0" + unsub;
+        else
+          _claimTag = "\u2713";
       }
+    } catch {
     }
     const vibeLine = buildFooterLine({
       activeSlot,
@@ -13513,7 +13634,7 @@ ${vibeLine} \u2014`);
 
 // src/lib/hooks/tool-execute.js
 init_state();
-import { writeFileSync as writeFileSync16, appendFileSync as appendFileSync7, existsSync as existsSync17, mkdirSync as mkdirSync14 } from "node:fs";
+import { writeFileSync as writeFileSync16, appendFileSync as appendFileSync7, existsSync as existsSync18, mkdirSync as mkdirSync14 } from "node:fs";
 import { join as join18, dirname as dirname12, basename as basename4 } from "node:path";
 import { createHash as createHash5 } from "node:crypto";
 init_selection_manager();
@@ -13583,7 +13704,7 @@ init_smart_cache();
 
 // src/lib/tdd-enforcer.js
 init_state();
-import { readFileSync as readFileSync16, writeFileSync as writeFileSync15, appendFileSync as appendFileSync6, existsSync as existsSync16, mkdirSync as mkdirSync13, statSync as statSync8, readdirSync as readdirSync4, rmSync as rmSync6, openSync as openSync3 } from "node:fs";
+import { readFileSync as readFileSync16, writeFileSync as writeFileSync15, appendFileSync as appendFileSync6, existsSync as existsSync17, mkdirSync as mkdirSync13, statSync as statSync9, readdirSync as readdirSync4, rmSync as rmSync6, openSync as openSync3 } from "node:fs";
 import { join as join17, dirname as dirname11 } from "node:path";
 import { createHash as createHash4 } from "node:crypto";
 
@@ -14727,7 +14848,7 @@ function _detectTestFramework() {
   try {
     const root = directory || process.cwd();
     const pkgPath = join17(root, "package.json");
-    if (existsSync16(pkgPath)) {
+    if (existsSync17(pkgPath)) {
       const pkg = JSON.parse(readFileSync16(pkgPath, "utf-8"));
       const testScript = String(pkg?.scripts?.test || "");
       const deps = { ...pkg?.devDependencies, ...pkg?.dependencies };
@@ -14749,7 +14870,7 @@ function _detectTestFramework() {
       const testDirs = ["src/tests", "tests", "test", "__tests__"];
       for (const td of testDirs) {
         const dirPath = join17(root, td);
-        if (!existsSync16(dirPath))
+        if (!existsSync17(dirPath))
           continue;
         const files = readdirSync4(dirPath).filter((f) => /\.test\./.test(f) || /\.spec\./.test(f));
         if (files.length > 0) {
@@ -14796,7 +14917,7 @@ function _acquireLock(testPath) {
       if (err.code !== "EEXIST")
         return false;
       try {
-        const st = statSync8(lockPath);
+        const st = statSync9(lockPath);
         if (Date.now() - st.mtimeMs >= LOCK_EXPIRE_MS) {
           rmSync6(lockPath, { force: true });
           try {
@@ -14823,7 +14944,7 @@ function _releaseLock(testPath) {
 }
 function _isInCooldown(testPath) {
   try {
-    if (!existsSync16(ENFORCEMENT_COOLDOWN_FILE2))
+    if (!existsSync17(ENFORCEMENT_COOLDOWN_FILE2))
       return false;
     const hash = createHash4("sha256").update(testPath).digest("hex").slice(0, 16);
     const lines = readFileSync16(ENFORCEMENT_COOLDOWN_FILE2, "utf-8").trim().split("\n").filter(Boolean);
@@ -14917,7 +15038,7 @@ function enforceTestFile(filePath) {
   console.error(`[vibeOS] [tdd-enforce] enforceTestFile called for ${filePath}`);
   let sourceContent = "";
   try {
-    if (existsSync16(filePath)) {
+    if (existsSync17(filePath)) {
       sourceContent = readFileSync16(filePath, "utf-8");
     }
   } catch {
@@ -14926,7 +15047,7 @@ function enforceTestFile(filePath) {
   const skeleton = buildTestSkeleton(filePath, sourceContent, { strict: sel.tdd_strict !== false, quality: sel.tdd_quality !== false });
   if (!skeleton)
     return null;
-  if (existsSync16(skeleton.path))
+  if (existsSync17(skeleton.path))
     return null;
   if (_enforcementCooldown.has(skeleton.path))
     return null;
@@ -15278,14 +15399,14 @@ ${argsJson}
                   const sessionDir = getSessionScratchpadDir();
                   const globalDir = SCRATCHPAD_GLOBAL_DIR;
                   const ptrPath = join18(sessionDir, `${curHash}.ptr`);
-                  if (!existsSync17(ptrPath)) {
+                  if (!existsSync18(ptrPath)) {
                     for (const similar of prediction.similarEntries) {
                       const targetHash = similar.entry.hash;
                       if (targetHash.length < 16)
                         continue;
                       const cachedFile = join18(sessionDir, `${targetHash}.txt`);
                       const globalFile = join18(globalDir, `${targetHash}.txt`);
-                      if (existsSync17(cachedFile) || existsSync17(globalFile)) {
+                      if (existsSync18(cachedFile) || existsSync18(globalFile)) {
                         ensureSessionScratchpadDirs();
                         writeFileSync16(ptrPath, JSON.stringify({
                           contentHash: targetHash,
@@ -15367,7 +15488,7 @@ ${argsJson}
         const mlGraphPrediction = predictBestModel(_mlGraph, _firstWord2, currentTier);
         if (mlDifficulty.confidence >= ML_CONFIDENCE_THRESHOLD && mlDifficulty.level !== "moderate") {
           const mlTarget = mlDifficulty.suggestedTier === "cheap" ? TRINITY_CHEAP : mlDifficulty.suggestedTier === "medium" ? TRINITY_MEDIUM : mlDifficulty.suggestedTier === "brain" ? TRINITY_BRAIN : null;
-          if (mlTarget && mlTarget !== currentModel) {
+          if (mlTarget && mlTarget !== _target) {
             const tierRank = { budget: 0, cheap: 1, mid: 2, medium: 2, high: 3, brain: 3 };
             const mlRank = tierRank[mlDifficulty.suggestedTier] || 0;
             const curRank = _target ? tierRank[classify(_target)] || 0 : 0;
@@ -15383,8 +15504,10 @@ ${argsJson}
         if (mlGraphPrediction && mlGraphPrediction !== currentModel) {
           const graphNode = _mlGraph.nodes[_firstWord2];
           if (graphNode && graphNode.count >= 3) {
-            _target = mlGraphPrediction;
-            console.error(`[vibeOS] \u{1F578} ML graph: ${_firstWord2} \u2192 ${mlGraphPrediction} (${graphNode.count} samples)`);
+            if (!_target) {
+              _target = mlGraphPrediction;
+              console.error(`[vibeOS] \u{1F578} ML graph: ${_firstWord2} \u2192 ${mlGraphPrediction} (${graphNode.count} samples)`);
+            }
           }
         }
         if (_target) {
@@ -15396,7 +15519,7 @@ ${argsJson}
       }
     }
     const activePipeline = loadSelection().active_pipeline;
-    if (!apiRoute?.target && activePipeline && Array.isArray(activePipeline) && activePipeline.length > 1 && TRINITY_CHEAP && TRINITY_MEDIUM) {
+    if (activePipeline && Array.isArray(activePipeline) && activePipeline.length > 1 && TRINITY_CHEAP && TRINITY_MEDIUM) {
       try {
         const cheapCost = 1e-3;
         const mediumCost = 5e-3;
@@ -15413,7 +15536,7 @@ ${argsJson}
             }
           } else {
             const escalated = pipelineModels[1];
-            if (escalated && escalated !== currentModel && (!_target || escalated !== _target)) {
+            if (escalated && escalated !== currentModel && !_target) {
               _target = escalated;
               console.error(`[vibeOS] \u{1F500} Cascade escalate: ${cascadeResult.reason} \u2192 ${escalated}`);
             }
@@ -15592,7 +15715,7 @@ ${argsJson}
           }
         } else {
           const missed = recordMissedContext7(_estC7);
-          if (!existsSync17(CONTEXT7_INSTALL_FLAG)) {
+          if (!existsSync18(CONTEXT7_INSTALL_FLAG)) {
             try {
               mkdirSync14(dirname12(CONTEXT7_INSTALL_FLAG), { recursive: true });
               writeFileSync16(CONTEXT7_INSTALL_FLAG, "");
@@ -16035,7 +16158,7 @@ ${pendingUiNote}`;
 
 // src/lib/hooks/session-compact.js
 init_state();
-import { readFileSync as readFileSync17, existsSync as existsSync18 } from "node:fs";
+import { readFileSync as readFileSync17, existsSync as existsSync19 } from "node:fs";
 var onSessionCompacting = async (_input, output) => {
   if (!loadSelection().enabled)
     return;
@@ -16044,7 +16167,7 @@ var onSessionCompacting = async (_input, output) => {
     const needsCompact = turnCount >= 7;
     const indexPath = getSessionIndexPath();
     let recent = "";
-    if (existsSync18(indexPath)) {
+    if (existsSync19(indexPath)) {
       try {
         const lines = readFileSync17(indexPath, "utf-8").trim().split("\n").slice(-30);
         recent = lines.map((l) => {
@@ -16150,11 +16273,15 @@ function ensureDeferredBootstrap() {
   }
 }
 var CLAIM_PATTERNS = [
+  /(?:I|we|the)\s+(?:pushed|released|merged|deployed|fixed|wrote|implemented|completed|committed)\b/i,
+  /(?:tests?|build|CI|checks?|suite|output|result)\s+(?:is\s+|are\s+)?(?:pass(?:ing|ed|es)?|green|clean|succeed|stable|positive)/i,
+  /v\d+\.\d+\.\d+/,
+  /\d+\s*(?:test|spec)s?\s*(?:pass|passing)/i,
   /(?:done|finished|complete)/i,
   /(?:fixed|resolved|solved)/i,
-  /(?:working|works|validated|verified)/i,
-  /(?:[0-9]+\.[0-9]?%|\d+%)/,
-  /(?:score|scored|passing|passed)/i
+  /(?:works|working|validated|verified)/i,
+  /(?:exit\s*code\s*0|0\s*errors|0\s*failures)/i,
+  /(?:\d+%|score|scored|passing|passed)/i
 ];
 function scanClaimsInOutput(output) {
   if (!output || typeof output !== "string") return;
@@ -16175,7 +16302,6 @@ function scanClaimsInOutput(output) {
       claims: claims.slice(0, 10),
       totalClaims: claims.length,
       responseHash: ""
-      // crypto hash skipped for performance
     });
     appendFileSync(auditFile, entry + String.fromCharCode(10));
   } catch {
@@ -16196,9 +16322,9 @@ var _runDeferredStartupBootstrap = null;
 function _readOpenCodeConfigObject(dir) {
   const jsonPath = join19(dir, "opencode.json");
   const jsoncPath = join19(dir, "opencode.jsonc");
-  if (existsSync19(jsonPath))
+  if (existsSync20(jsonPath))
     return safeJsonParse2(readFileSync18(jsonPath, "utf-8"));
-  if (existsSync19(jsoncPath))
+  if (existsSync20(jsoncPath))
     return _parseJsonc(readFileSync18(jsoncPath, "utf-8"));
   return {};
 }
@@ -16251,7 +16377,7 @@ function _loadActiveJobForProject(directory3, fp2 = "") {
   for (const base of candidates) {
     try {
       const activeJobsPath = join19(String(base), "active-jobs.json");
-      if (!existsSync19(activeJobsPath))
+      if (!existsSync20(activeJobsPath))
         continue;
       const jobs = safeJsonParse2(readFileSync18(activeJobsPath, "utf-8")) || {};
       const job = fp2 ? jobs?.[fp2] : null;
@@ -16273,9 +16399,9 @@ function _tiersNeedRepair(tiers) {
 async function _seedOrRepairModelTiers(directory3) {
   const TIERS_FILE3 = getTiersFile();
   let existing = null;
-  if (existsSync19(TIERS_FILE3)) {
+  if (existsSync20(TIERS_FILE3)) {
     try {
-      const st = statSync9(TIERS_FILE3);
+      const st = statSync10(TIERS_FILE3);
       if (st.size > 10485760) {
         _handleStateCorruption(TIERS_FILE3);
         return false;
@@ -16386,7 +16512,7 @@ function loadMcpPort() {
     return n;
   }
   try {
-    if (existsSync19(getTiersFile())) {
+    if (existsSync20(getTiersFile())) {
       const tiers = safeJsonParse2(readFileSync18(getTiersFile(), "utf-8"));
       const cfg = tiers?.selection?.mcp_port;
       if (cfg === false || cfg === "disabled" || cfg === 0)
@@ -16401,7 +16527,7 @@ function loadMcpPort() {
 }
 function persistMcpPort(port) {
   try {
-    if (!existsSync19(getTiersFile()))
+    if (!existsSync20(getTiersFile()))
       return;
     const tiers = safeJsonParse2(readFileSync18(getTiersFile(), "utf-8"));
     tiers.selection ??= {};
@@ -16503,7 +16629,7 @@ async function ensureMcpServerRunning() {
           getSessionMetrics: () => computeSessionMetrics(readFullState(), _OC_SID),
           getTodos: () => loadTodos(),
           listReports: (filter) => {
-            if (!existsSync19(getReportsDir2())) {
+            if (!existsSync20(getReportsDir2())) {
               const e = new Error("reports dir not found");
               e.status = 404;
               throw e;
@@ -16716,9 +16842,9 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     }
   } catch {
   }
-  console.error(`[vibeOS] auto-config guard: currentModel=${currentModel ? "SET" : "NONE"}, TIERS_FILE=${getTiersFile()}, exists=${existsSync19(getTiersFile())}`);
+  console.error(`[vibeOS] auto-config guard: currentModel=${currentModel ? "SET" : "NONE"}, TIERS_FILE=${getTiersFile()}, exists=${existsSync20(getTiersFile())}`);
   try {
-    if (!existsSync19(getTiersFile())) {
+    if (!existsSync20(getTiersFile())) {
       console.error(`[vibeOS] model-tiers.json missing at load; will seed on first hook`);
     }
     await _seedOrRepairModelTiers(directory3);
@@ -16778,7 +16904,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
   };
   const backupFileStable = (path, label) => {
     try {
-      if (!existsSync19(path))
+      if (!existsSync20(path))
         return null;
       const bkDir = join19(hookVibeHome, ".backups");
       mkdirSync15(bkDir, { recursive: true });
@@ -16818,7 +16944,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     safeJsonParse: safeJsonParse2,
     readFileSync: readFileSync18,
     writeFileSync: writeFileSync17,
-    existsSync: existsSync19,
+    existsSync: existsSync20,
     renameSync: renameSync6,
     mkdirSync: mkdirSync15,
     get TIERS_FILE() {
@@ -16989,6 +17115,51 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
       ensureDeferredBootstrap();
       await _appendFooter(_input, output, directory3);
       scanClaimsInOutput(output);
+      try {
+        const auditDir = join19(getVibeOSHome13(), "cascade-audit");
+        const claimFile = join19(auditDir, "claim-audit.jsonl");
+        const cascadeFile = join19(auditDir, "cascade-audit.jsonl");
+        if (existsSync20(claimFile) && statSync10(claimFile).size > 0) {
+          const claimLines = readFileSync18(claimFile, "utf-8").trim().split("\n").slice(-10);
+          const cascadeLines = existsSync20(cascadeFile) ? readFileSync18(cascadeFile, "utf-8").trim().split("\n").slice(-30) : [];
+          const cascadeRuns = cascadeLines.filter(Boolean).map((l) => {
+            try {
+              return JSON.parse(l);
+            } catch {
+            }
+          }).filter(Boolean);
+          let unsub = 0;
+          for (const cl of claimLines) {
+            if (!cl.trim()) continue;
+            let entry;
+            try {
+              entry = JSON.parse(cl);
+            } catch {
+              continue;
+            }
+            if (!entry) continue;
+            const claimTexts = (entry.claims || []).map(function(c) {
+              return c.text;
+            }).join(" | ");
+            if (!CLAIM_PATTERNS.some(function(p) {
+              return p.test(claimTexts);
+            })) continue;
+            let cascadeMatch = false;
+            for (const cr of cascadeRuns) {
+              const cTs = cr._ts || "";
+              if (cTs && entry.ts) {
+                if (Math.abs(new Date(cTs).getTime() - new Date(entry.ts).getTime()) < 12e4) {
+                  cascadeMatch = true;
+                  break;
+                }
+              }
+            }
+            if (!cascadeMatch) unsub++;
+          }
+          _unsubstantiatedClaims = unsub;
+        }
+      } catch {
+      }
     },
     "message.updated": async (_input, output) => {
       setVibeOSHomeContext(hookVibeHome);
@@ -16999,6 +17170,51 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
       ensureDeferredBootstrap();
       await _appendFooter(_input, output, directory3);
       scanClaimsInOutput(output);
+      try {
+        const auditDir = join19(getVibeOSHome13(), "cascade-audit");
+        const claimFile = join19(auditDir, "claim-audit.jsonl");
+        const cascadeFile = join19(auditDir, "cascade-audit.jsonl");
+        if (existsSync20(claimFile) && statSync10(claimFile).size > 0) {
+          const claimLines = readFileSync18(claimFile, "utf-8").trim().split("\n").slice(-10);
+          const cascadeLines = existsSync20(cascadeFile) ? readFileSync18(cascadeFile, "utf-8").trim().split("\n").slice(-30) : [];
+          const cascadeRuns = cascadeLines.filter(Boolean).map((l) => {
+            try {
+              return JSON.parse(l);
+            } catch {
+            }
+          }).filter(Boolean);
+          let unsub = 0;
+          for (const cl of claimLines) {
+            if (!cl.trim()) continue;
+            let entry;
+            try {
+              entry = JSON.parse(cl);
+            } catch {
+              continue;
+            }
+            if (!entry) continue;
+            const claimTexts = (entry.claims || []).map(function(c) {
+              return c.text;
+            }).join(" | ");
+            if (!CLAIM_PATTERNS.some(function(p) {
+              return p.test(claimTexts);
+            })) continue;
+            let cascadeMatch = false;
+            for (const cr of cascadeRuns) {
+              const cTs = cr._ts || "";
+              if (cTs && entry.ts) {
+                if (Math.abs(new Date(cTs).getTime() - new Date(entry.ts).getTime()) < 12e4) {
+                  cascadeMatch = true;
+                  break;
+                }
+              }
+            }
+            if (!cascadeMatch) unsub++;
+          }
+          _unsubstantiatedClaims = unsub;
+        }
+      } catch {
+      }
     },
     tool: {
       trinity: tool(createTrinityTool(trinityDeps)),

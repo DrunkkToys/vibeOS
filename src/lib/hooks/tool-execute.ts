@@ -389,6 +389,7 @@ export const onToolExecuteBefore = async (input, output) => {
         : null
     let _target = _exploratoryTarget ?? _tierTarget
 
+    const _hasMedia = /\.(png|jpg|jpeg|gif|webp|bmp|svg|mp4|webm|ogg|mp3|wav|avi|mov)/i.test(_prompt)
     const stressScore = latestUserIntent ? scoreStress(latestUserIntent) : 0
     const apiRoute = await remoteCall("routeModel", [_prompt, currentTier, TRINITY_CHEAP, TRINITY_MEDIUM, LEARNED_EXPLORATORY, stressScore], null)
     if (apiRoute?.target) {
@@ -418,7 +419,7 @@ export const onToolExecuteBefore = async (input, output) => {
             if (!_target) {
               _target = mlTarget
               console.error(`[vibeOS] 🧠 ML difficulty: ${mlDifficulty.level} (score ${mlDifficulty.score.toFixed(2)}, conf ${mlDifficulty.confidence.toFixed(2)}) → ${mlTarget}`)
-            } else if (mlRank > curRank && mlDifficulty.confidence >= 0.7) {
+            } else if (!_hasMedia && mlRank > curRank && mlDifficulty.confidence >= 0.7) {
               _target = mlTarget
               console.error(`[vibeOS] 🧠 ML upgrade: ${mlDifficulty.level} (score ${mlDifficulty.score.toFixed(2)}, conf ${mlDifficulty.confidence.toFixed(2)}) → ${mlTarget}`)
             }
@@ -454,7 +455,7 @@ export const onToolExecuteBefore = async (input, output) => {
         if (cascadeResult.escalate && pipelineModels.length > 1) {
           if (pipelineModels.length > 2 && cascadeResult.confidence >= 0.8) {
             const escalated = pipelineModels[2]
-            if (escalated && escalated !== currentModel && (!_target || escalated !== _target)) {
+            if (escalated && escalated !== currentModel && !_hasMedia && (!_target || escalated !== _target)) {
               _target = escalated
               console.error(`[vibeOS] 🔀 Cascade depth-3 escalate: ${cascadeResult.reason} → ${escalated}`)
             }
