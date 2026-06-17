@@ -1,3 +1,7 @@
+## 0.25.37
+- fix: add permission prompt to setup.js + contract tests for install flow (#251) (#251)
+
+
 ## 0.25.34
 - feat: holistic semantic observer replacing pattern learner (#245)
 - fix: re-establish npm link after publish + contract test for bin symlink (#248) (#249)
