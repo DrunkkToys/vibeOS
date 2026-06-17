@@ -2,6 +2,7 @@
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, rmSync, readdirSync, statSync } from "node:fs"
 import { join, dirname, basename } from "node:path"
 import { createHash } from "node:crypto"
+import { homedir } from "node:os"
 import {
   currentTier, currentModel, currentProjectFingerprint, currentProjectName,
   _OC_SID, _modelLocked, _blackboxEnabled,
@@ -643,55 +644,64 @@ export const onMessagesTransform = async (_input, output) => {
 
     // auto-amend: inject verification message if unsubstantiated claims found
     try {
-      const vibeHome = process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude")
+      if (!Array.isArray(messages) || Object.isFrozen(messages)) return
+      const vibeHome = process.env.VIBEOS_HOME || join(process.env.HOME || homedir(), ".claude")
+      if (typeof vibeHome !== "string" || vibeHome.length === 0) return
       const claimFile = join(vibeHome, "cascade-audit", "claim-audit.jsonl")
       const cascadeFile = join(vibeHome, "cascade-audit", "cascade-audit.jsonl")
-      if (existsSync(claimFile) && statSync(claimFile).size > 0) {
-        const claimLines = readFileSync(claimFile, "utf-8").trim().split("\n").slice(-5)
-        const cascadeLines = existsSync(cascadeFile) ? readFileSync(cascadeFile, "utf-8").trim().split("\n").slice(-20) : []
-        const cascadeRuns = cascadeLines.filter(Boolean).map(l => { try { return JSON.parse(l) } catch { return null } }).filter(Boolean)
-        let unsubClaims: string[] = []
-        let lastInjectTs = 0
-        // check last 2 assistant messages for existing verification block
-        for (let i = messages.length - 1; i >= Math.max(0, messages.length - 4); i--) {
-          const m = messages[i]
-          if (m?.role === "assistant" && Array.isArray(m.parts)) {
-            for (const p of m.parts) {
-              if (p?.type === "text" && typeof p.text === "string" && p.text.includes("[verify]")) {
-                lastInjectTs = Date.now()
-              }
+      if (!existsSync(claimFile)) return
+      const st = statSync(claimFile)
+      if (!st || st.size <= 0) return
+      const claimRaw = readFileSync(claimFile, "utf-8")
+      if (!claimRaw || typeof claimRaw !== "string") return
+      const claimLines = claimRaw.trim().split("\n").filter(Boolean).slice(-5)
+      if (claimLines.length === 0) return
+      const cascadeRaw = existsSync(cascadeFile) ? readFileSync(cascadeFile, "utf-8") : ""
+      const cascadeLines = (cascadeRaw && typeof cascadeRaw === "string") ? cascadeRaw.trim().split("\n").filter(Boolean).slice(-20) : []
+      const cascadeRuns = cascadeLines.map(l => { try { return JSON.parse(l) } catch { return null } }).filter(Boolean)
+      const unsubClaims: string[] = []
+      let lastInjectTs = 0
+      for (let i = messages.length - 1; i >= Math.max(0, messages.length - 4); i--) {
+        const m = messages[i]
+        if (!m || typeof m !== "object") continue
+        if (m.role === "assistant" && Array.isArray(m.parts)) {
+          for (const p of m.parts) {
+            if (p && typeof p === "object" && p.type === "text" && typeof p.text === "string" && p.text.includes("[verify]")) {
+              lastInjectTs = Date.now()
             }
           }
         }
-        if (Date.now() - lastInjectTs > 30000) {
-          for (const cl of claimLines) {
-            if (!cl.trim()) continue
-            let entry
-            try { entry = JSON.parse(cl) } catch { continue }
-            if (!entry) continue
-            const claimTexts = (entry.claims || []).map(c => c.text).join(" | ")
-            if (!/(?:I|we|the)\s+(?:pushed|released|merged|deployed|fixed)\b|(?:tests?|build|CI|checks?)\s+(?:is\s+|are\s+)?(?:pass|green|clean)\b|v\d+\.\d+\.\d+|done|fixed|works|exit\s*code\s*0|\d+%|score|passed/i.test(claimTexts)) continue
-            let cascadeMatch = false
-            for (const cr of cascadeRuns) {
-              const cTs = cr._ts || ""
-              if (cTs && entry.ts && Math.abs(new Date(cTs).getTime() - new Date(entry.ts).getTime()) < 120000) {
-                cascadeMatch = true
-                break
-              }
-            }
-            if (!cascadeMatch) {
-              for (const c of (entry.claims || [])) {
-                unsubClaims.push(c.text)
-              }
-            }
-          }
-          if (unsubClaims.length > 0) {
-            const verifyText = "\n[vibeOS verify]\nUnsubstantiated claims from previous turn:\n" +
-              unsubClaims.slice(0, 5).map(t => "  - \"" + t.substring(0, 80) + "\"").join("\n") +
-              "\nPlease verify each claim and correct if inaccurate."
-            messages.push({ role: "assistant", parts: [{ type: "text", text: verifyText, synthetic: true }] })
+      }
+      if (Date.now() - lastInjectTs < 30000) return
+      for (const cl of claimLines) {
+        if (!cl.trim()) continue
+        let entry
+        try { entry = JSON.parse(cl) } catch { continue }
+        if (!entry || typeof entry !== "object") continue
+        const claimTexts = (entry.claims || []).filter(Boolean).map(c => typeof c === "object" && c.text ? c.text : "").filter(Boolean).join(" | ")
+        if (!claimTexts) continue
+        if (!/(?:I|we|the)\s+(?:pushed|released|merged|deployed|fixed)\b|(?:tests?|build|CI|checks?)\s+(?:is\s+|are\s+)?(?:pass|green|clean)\b|v\d+\.\d+\.\d+|done|fixed|works|exit\s*code\s*0|\d+%|score|passed/i.test(claimTexts)) continue
+        let cascadeMatch = false
+        for (const cr of cascadeRuns) {
+          const cTs = typeof cr === "object" && cr ? (cr._ts || "") : ""
+          if (cTs && entry.ts && Math.abs(new Date(cTs).getTime() - new Date(entry.ts).getTime()) < 120000) {
+            cascadeMatch = true
+            break
           }
         }
+        if (!cascadeMatch) {
+          for (const c of (entry.claims || [])) {
+            if (c && typeof c === "object" && c.text) unsubClaims.push(c.text)
+          }
+        }
+      }
+      if (unsubClaims.length > 0 && !Object.isFrozen(messages)) {
+        const verifyText = "\n[vibeOS verify]\nUnsubstantiated claims from previous turn:\n" +
+          unsubClaims.slice(0, 5).map(t => "  - \"" + (typeof t === "string" ? t.substring(0, 80) : "") + "\"").join("\n") +
+          "\nPlease verify each claim and correct if inaccurate."
+        try {
+          messages.push({ role: "assistant", parts: [{ type: "text", text: verifyText, synthetic: true }] })
+        } catch {}
       }
     } catch {}
   } catch (err) {
