@@ -16,7 +16,8 @@ const isProject = args.includes("--project");
 const isYes = args.includes("--yes") || args.includes("-y");
 
 if (!isInstallCommand || args.includes("--help") || args.includes("-h")) {
-  console.error("Usage: vibeostheog set [--yes] [--project] | vibeostheog setup [--yes] [--project]");
+  console.error("Usage: npx -y vibeostheog set [--yes] [--project]");
+  console.error("       npx -y vibeostheog setup [--yes] [--project]");
   process.exit(1);
 }
 
