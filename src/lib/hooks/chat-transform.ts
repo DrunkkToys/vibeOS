@@ -452,7 +452,9 @@ function compressToolOutputs(messages: any[]): number {
   const hotStart = Math.max(0, messages.length - KEEP_HOT)
 
   for (let i = 0; i < messages.length; i++) {
-    const { info, parts } = messages[i]
+    const msg = messages[i]
+    if (!msg || typeof msg !== "object") continue
+    const { info, parts } = msg
     if (!Array.isArray(parts)) continue
     const isCold = i < hotStart
 
@@ -523,7 +525,9 @@ function compressToolOutputs(messages: any[]): number {
 // -- Worker-to-Brain Protocol ---------------------------------------
 function injectWBP(messages: any[]): void {
   for (let i = 0; i < messages.length - 1; i++) {
-    const { info, parts } = messages[i]
+    const msg = messages[i]
+    if (!msg || typeof msg !== "object") continue
+    const { info, parts } = msg
     if (!Array.isArray(parts)) continue
     const hasTask = parts.some(p => p?.type === "tool" && p?.tool === "task" && p?.state?.status === "completed")
     if (!hasTask) continue
