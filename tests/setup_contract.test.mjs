@@ -36,7 +36,7 @@ test("contract: setup.js --help shows usage", () => {
     encoding: "utf8", timeout: 5000,
   })
   assert.ok(out.includes("Usage"), "must show usage line")
-  assert.ok(out.includes("--yes") || out.includes("-y"), "must mention --yes flag")
+  assert.ok(out.includes("set") && out.includes("setup"), "must mention set and setup commands")
 })
 
 test("contract: setup.js --project flag is accepted", () => {
@@ -48,11 +48,9 @@ test("contract: setup.js --project flag is accepted", () => {
     "must handle --project, got: " + out.slice(0, 200))
 })
 
-test("contract: setup.js source contains permission prompt logic", () => {
+test("contract: setup.js does NOT prompt (npx is the single permission gate)", () => {
   const src = readFileSync(SETUP, "utf8")
-  assert.ok(src.includes("isYes"), "must have isYes flag")
-  assert.ok(src.includes("createInterface"), "must use readline for prompt")
-  assert.ok(src.includes("Installation") || src.includes("Install vibe"),
-    "must show install prompt or cancellation message")
-  assert.ok(src.includes("isTTY"), "must check TTY before prompting")
+  assert.equal(src.includes("question("), false, "must NOT call readline question")
+  assert.equal(src.includes("[y/N]"), false, "must NOT contain y/N prompt pattern")
+  assert.equal(src.includes("Installation cancelled"), false, "must NOT have cancellation message")
 })
