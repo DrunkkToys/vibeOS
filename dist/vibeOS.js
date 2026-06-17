@@ -15366,7 +15366,7 @@ ${argsJson}
         const mlHash = hashQuery(_prompt);
         const mlGraphPrediction = predictBestModel(_mlGraph, _firstWord2, currentTier);
         if (mlDifficulty.confidence >= ML_CONFIDENCE_THRESHOLD && mlDifficulty.level !== "moderate") {
-          const mlTarget = mlDifficulty.suggestedTier === "cheap" ? TRINITY_CHEAP : mlDifficulty.suggestedTier === "medium" ? TRINITY_MEDIUM : null;
+          const mlTarget = mlDifficulty.suggestedTier === "cheap" ? TRINITY_CHEAP : mlDifficulty.suggestedTier === "medium" ? TRINITY_MEDIUM : mlDifficulty.suggestedTier === "brain" ? TRINITY_BRAIN : null;
           if (mlTarget && mlTarget !== currentModel) {
             const tierRank = { budget: 0, cheap: 1, mid: 2, medium: 2, high: 3, brain: 3 };
             const mlRank = tierRank[mlDifficulty.suggestedTier] || 0;
@@ -15374,7 +15374,7 @@ ${argsJson}
             if (!_target) {
               _target = mlTarget;
               console.error(`[vibeOS] \u{1F9E0} ML difficulty: ${mlDifficulty.level} (score ${mlDifficulty.score.toFixed(2)}, conf ${mlDifficulty.confidence.toFixed(2)}) \u2192 ${mlTarget}`);
-            } else if (mlRank > curRank && mlDifficulty.confidence >= 0.75) {
+            } else if (mlRank > curRank && mlDifficulty.confidence >= 0.7) {
               _target = mlTarget;
               console.error(`[vibeOS] \u{1F9E0} ML upgrade: ${mlDifficulty.level} (score ${mlDifficulty.score.toFixed(2)}, conf ${mlDifficulty.confidence.toFixed(2)}) \u2192 ${mlTarget}`);
             }
@@ -15383,10 +15383,8 @@ ${argsJson}
         if (mlGraphPrediction && mlGraphPrediction !== currentModel) {
           const graphNode = _mlGraph.nodes[_firstWord2];
           if (graphNode && graphNode.count >= 3) {
-            if (!_target) {
-              _target = mlGraphPrediction;
-              console.error(`[vibeOS] \u{1F578} ML graph: ${_firstWord2} \u2192 ${mlGraphPrediction} (${graphNode.count} samples)`);
-            }
+            _target = mlGraphPrediction;
+            console.error(`[vibeOS] \u{1F578} ML graph: ${_firstWord2} \u2192 ${mlGraphPrediction} (${graphNode.count} samples)`);
           }
         }
         if (_target) {

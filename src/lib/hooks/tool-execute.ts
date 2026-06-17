@@ -413,7 +413,8 @@ export const onToolExecuteBefore = async (input, output) => {
         if (mlDifficulty.confidence >= ML_CONFIDENCE_THRESHOLD && mlDifficulty.level !== "moderate") {
           const mlTarget = mlDifficulty.suggestedTier === "cheap" ? TRINITY_CHEAP
             : mlDifficulty.suggestedTier === "medium" ? TRINITY_MEDIUM
-              : null
+              : mlDifficulty.suggestedTier === "brain" ? TRINITY_BRAIN
+                : null
           if (mlTarget && mlTarget !== currentModel) {
             const tierRank = { budget: 0, cheap: 1, mid: 2, medium: 2, high: 3, brain: 3 }
             const mlRank = tierRank[mlDifficulty.suggestedTier] || 0
@@ -421,7 +422,7 @@ export const onToolExecuteBefore = async (input, output) => {
             if (!_target) {
               _target = mlTarget
               console.error(`[vibeOS] 🧠 ML difficulty: ${mlDifficulty.level} (score ${mlDifficulty.score.toFixed(2)}, conf ${mlDifficulty.confidence.toFixed(2)}) → ${mlTarget}`)
-            } else if (mlRank > curRank && mlDifficulty.confidence >= 0.75) {
+            } else if (mlRank > curRank && mlDifficulty.confidence >= 0.7) {
               _target = mlTarget
               console.error(`[vibeOS] 🧠 ML upgrade: ${mlDifficulty.level} (score ${mlDifficulty.score.toFixed(2)}, conf ${mlDifficulty.confidence.toFixed(2)}) → ${mlTarget}`)
             }
@@ -430,10 +431,8 @@ export const onToolExecuteBefore = async (input, output) => {
         if (mlGraphPrediction && mlGraphPrediction !== currentModel) {
           const graphNode = _mlGraph.nodes[_firstWord]
           if (graphNode && graphNode.count >= 3) {
-            if (!_target) {
-              _target = mlGraphPrediction
-              console.error(`[vibeOS] 🕸 ML graph: ${_firstWord} → ${mlGraphPrediction} (${graphNode.count} samples)`)
-            }
+            _target = mlGraphPrediction
+            console.error(`[vibeOS] 🕸 ML graph: ${_firstWord} → ${mlGraphPrediction} (${graphNode.count} samples)`)
           }
         }
         if (_target) {
