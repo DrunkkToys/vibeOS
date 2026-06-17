@@ -2671,7 +2671,7 @@ function saveSessionCheckpoint() {
   } catch {
   }
 }
-var USER_HOME2, VIBEOS_CONTEXT, VIBEOS_HOME, OPENCODE_HOME, FILE_LOCK_DIR, DELEGATION_STATE_FILE, SAVINGS_LEDGER_FILE, GLOBAL_LEARNING_FILE, PRICING_CACHE_FILE, BLACKBOX_STATE_FILE, PROJECT_STATE_FILE, TIERS_FILE, ACTIVE_JOBS_FILE, AUTH_F, CREDIT_CACHE_F, FLOW_TODO_QUEUE_FILE, FLOW_DEDUP_FILE, ENFORCEMENT_COOLDOWN_FILE, TODOS_FILE, REPORTS_DIR, CONTEXT7_INSTALL_FLAG, TRINITY_OPENCODE_CONFIG, TRINITY_OPENCODE_CONFIGC, SCRATCHPAD_ROOT, SCRATCHPAD_GLOBAL_DIR, SCRATCHPAD_SESSIONS_DIR, SCRATCHPAD_SESSION_TTL_MS, SCRATCHPAD_MAX_AGE_SEC, MAX_SCRATCHPAD_FILES, MAX_SCRATCHPAD_BYTES, MAX_SESSION_SCRATCHPAD_FILES, MAX_SESSION_SCRATCHPAD_BYTES, CORRUPTION_BACKUP_MAX, CORRUPTION_BACKUP_TTL_MS, LEDGER_ROTATE_MAX_BYTES, LEDGER_ROTATE_MAX_LINES, LEDGER_ROTATE_MAX_AGE_MS, ACTIVE_JOBS_STALE_MS, MAX_PTR_CANDIDATES, SUMMARY_HEAD_TRUNCATE, DECADENCE_FRESH_MS, DECADENCE_WARM_MS, DECADENCE_COLD_MS, DECADENCE_EXPIRE_MS, DECADENCE_THROTTLE_MS, DECADENCE_GLOBAL_THROTTLE_MS, TOOL_NAME_NORMALIZE, SCRATCHPAD_TOOLS, WARN_DEDUPE_WINDOW_MS, SOFT_QUOTA_LIMIT, _OC_SID, currentSessionId, _sessionStart, currentTier, currentModel, currentProjectFingerprint, currentProjectName, recentToolEvents, _savingsCache, _savingsCacheMtime, _ledgerReconciledMtime, _ledgerTotalsCache, _mlGraph, _cacheDb, ML_ENABLED, ML_CONFIDENCE_THRESHOLD, _mlSavePending, _blackboxEnabled, _latestBlackboxState, _latestBlackboxLoopMsg, _latestBlackboxPivotMsg, _modelLocked, _lockedSlot, _lockedModel, _sessionCleanupRegistered, _sessionCacheCleaned, prunedThisProcess, _lastDecadenceRun, briefedProjects, _ledgerBuffer, _ledgerBufferTimer, LEDGER_BUFFER_MAX, LEDGER_BUFFER_FLUSH_MS, testReminderSeen, DFLT_GL, tool, _startupMaintenanceHome, FALLBACK_HIGH, FALLBACK_MID, HIGH_TIER_RE, MID_TIER_RE, scratchpadHitsSeen;
+var USER_HOME2, VIBEOS_CONTEXT, VIBEOS_HOME, OPENCODE_HOME, FILE_LOCK_DIR, DELEGATION_STATE_FILE, SAVINGS_LEDGER_FILE, GLOBAL_LEARNING_FILE, PRICING_CACHE_FILE, BLACKBOX_STATE_FILE, PROJECT_STATE_FILE, TIERS_FILE, ACTIVE_JOBS_FILE, AUTH_F, CREDIT_CACHE_F, FLOW_TODO_QUEUE_FILE, FLOW_DEDUP_FILE, ENFORCEMENT_COOLDOWN_FILE, TODOS_FILE, REPORTS_DIR, CONTEXT7_INSTALL_FLAG, TRINITY_OPENCODE_CONFIG, TRINITY_OPENCODE_CONFIGC, SCRATCHPAD_ROOT, SCRATCHPAD_GLOBAL_DIR, SCRATCHPAD_SESSIONS_DIR, SCRATCHPAD_SESSION_TTL_MS, SCRATCHPAD_MAX_AGE_SEC, MAX_SCRATCHPAD_FILES, MAX_SCRATCHPAD_BYTES, MAX_SESSION_SCRATCHPAD_FILES, MAX_SESSION_SCRATCHPAD_BYTES, CORRUPTION_BACKUP_MAX, CORRUPTION_BACKUP_TTL_MS, LEDGER_ROTATE_MAX_BYTES, LEDGER_ROTATE_MAX_LINES, LEDGER_ROTATE_MAX_AGE_MS, ACTIVE_JOBS_STALE_MS, MAX_PTR_CANDIDATES, SUMMARY_HEAD_TRUNCATE, DECADENCE_FRESH_MS, DECADENCE_WARM_MS, DECADENCE_COLD_MS, DECADENCE_EXPIRE_MS, DECADENCE_THROTTLE_MS, DECADENCE_GLOBAL_THROTTLE_MS, TOOL_NAME_NORMALIZE, SCRATCHPAD_TOOLS, WARN_DEDUPE_WINDOW_MS, SOFT_QUOTA_LIMIT, _OC_SID, currentSessionId, _sessionStart, currentTier, currentModel, currentProjectFingerprint, currentProjectName, recentToolEvents, frictionSessionKeys, _savingsCache, _savingsCacheMtime, _ledgerReconciledMtime, _ledgerTotalsCache, _mlGraph, _cacheDb, ML_ENABLED, ML_CONFIDENCE_THRESHOLD, _mlSavePending, _blackboxEnabled, _latestBlackboxState, _latestBlackboxLoopMsg, _latestBlackboxPivotMsg, _modelLocked, _lockedSlot, _lockedModel, _sessionCleanupRegistered, _sessionCacheCleaned, prunedThisProcess, _lastDecadenceRun, briefedProjects, _ledgerBuffer, _ledgerBufferTimer, LEDGER_BUFFER_MAX, LEDGER_BUFFER_FLUSH_MS, testReminderSeen, DFLT_GL, tool, _startupMaintenanceHome, FALLBACK_HIGH, FALLBACK_MID, HIGH_TIER_RE, MID_TIER_RE, scratchpadHitsSeen;
 var init_state = __esm({
   "src/lib/state.js"() {
     "use strict";
@@ -2755,6 +2755,7 @@ var init_state = __esm({
     currentProjectFingerprint = "";
     currentProjectName = "";
     recentToolEvents = [];
+    frictionSessionKeys = /* @__PURE__ */ new Set();
     _savingsCache = null;
     _savingsCacheMtime = 0;
     _ledgerReconciledMtime = 0;
@@ -3410,6 +3411,29 @@ var init_flow_enforcer = __esm({
 });
 
 // src/lib/api-client.js
+var api_client_exports = {};
+__export(api_client_exports, {
+  VIBEOS_API_BOOTSTRAP_TOKEN: () => VIBEOS_API_BOOTSTRAP_TOKEN,
+  VIBEOS_API_DISABLED: () => VIBEOS_API_DISABLED,
+  VIBEOS_API_ENABLED: () => VIBEOS_API_ENABLED,
+  VIBEOS_API_TOKEN: () => VIBEOS_API_TOKEN,
+  VIBEOS_API_URL: () => VIBEOS_API_URL,
+  VibeOSApiClient: () => VibeOSApiClient,
+  VibeOSAuthError: () => VibeOSAuthError,
+  VibeOSNetworkError: () => VibeOSNetworkError,
+  VibeOSTimeoutError: () => VibeOSTimeoutError,
+  ensureBootstrapExchange: () => ensureBootstrapExchange,
+  getApiClient: () => getApiClient,
+  getApiFallbackSince: () => getApiFallbackSince,
+  getBackendVersion: () => getBackendVersion,
+  invalidateApiToken: () => invalidateApiToken,
+  isApiConnected: () => isApiConnected,
+  isApiFallback: () => isApiFallback,
+  remoteCall: () => remoteCall,
+  setAnomalyDetection: () => setAnomalyDetection,
+  setApiBootstrapToken: () => setApiBootstrapToken,
+  setApiToken: () => setApiToken
+});
 import { readFileSync as readFileSync4, writeFileSync as writeFileSync5, existsSync as existsSync5, mkdirSync as mkdirSync4, rmSync as rmSync2 } from "node:fs";
 import { dirname as dirname4 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
@@ -3529,6 +3553,13 @@ function getAnomalyDetector() {
   if (!_anomalyDetector)
     _anomalyDetector = new TokenAnomalyDetector();
   return _anomalyDetector;
+}
+function setAnomalyDetection(enabled) {
+  const d = getAnomalyDetector();
+  d.disabled = !enabled;
+  if (enabled)
+    d.reset();
+  console.error(`[vibeOS] Anomaly detection ${enabled ? "enabled" : "disabled"}`);
 }
 function persistBootstrapToken(token) {
   const clean = String(token || "").trim();
@@ -5630,6 +5661,7 @@ init_api_client();
 
 // src/lib/pricing.js
 init_state();
+init_selection_manager();
 import { readFileSync as readFileSync5, writeFileSync as writeFileSync6, existsSync as existsSync6, mkdirSync as mkdirSync5, statSync as statSync5, renameSync as renameSync4, openSync as openSync2, closeSync as closeSync2, rmSync as rmSync3, readdirSync as readdirSync2 } from "node:fs";
 import { join as join5, dirname as dirname5, resolve } from "node:path";
 import { homedir as homedir4, tmpdir as tmpdir3 } from "node:os";
@@ -6461,41 +6493,6 @@ var DOCS_TARGET_RE = /(docs\.|readthedocs|developer\.mozilla|\/api\/|\/reference
 function isDocsTarget(s) {
   return typeof s === "string" && DOCS_TARGET_RE.test(s);
 }
-function loadSelection2() {
-  const TIERS_FILE3 = join5(getVibeOSHome4(), "model-tiers.json");
-  try {
-    if (!existsSync6(TIERS_FILE3))
-      return DFLT_SEL2;
-    const st = statSync5(TIERS_FILE3);
-    if (st.size > 10485760) {
-      _handleStateCorruption2(TIERS_FILE3);
-      return DFLT_SEL2;
-    }
-    const j = safeJsonParse2(readFileSync5(TIERS_FILE3, "utf-8"));
-    return {
-      enabled: j?.selection?.enabled !== false,
-      active_slot: j?.selection?.active_slot || null,
-      slot_locked: j?.selection?.slot_locked === true,
-      thinking_level: j?.selection?.thinking_level || "off",
-      flow_enabled: j?.selection?.flow_enabled === true,
-      tdd_enforce: j?.selection?.tdd_enforce === true,
-      tdd_strict: j?.selection?.tdd_strict === true,
-      tdd_quality: j?.selection?.tdd_quality !== false,
-      flow_enforce: j?.selection?.flow_enforce === true,
-      delegation_enforce: true,
-      selected_provider: j?.selection?.selected_provider || null,
-      selected_quality_tier: j?.selection?.selected_quality_tier || null,
-      selected_model: j?.selection?.selected_model || null,
-      executed_provider: j?.selection?.executed_provider || null,
-      executed_quality_tier: j?.selection?.executed_quality_tier || null,
-      executed_model: j?.selection?.executed_model || null
-    };
-  } catch {
-    _handleStateCorruption2(TIERS_FILE3);
-    return DFLT_SEL2;
-  }
-}
-var DFLT_SEL2 = { enabled: true, active_slot: null, slot_locked: false, thinking_level: "off", flow_enabled: true, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: true, delegation_enforce: true, selected_provider: null, selected_quality_tier: null, selected_model: null, executed_provider: null, executed_quality_tier: null, executed_model: null };
 function readConfig(dir) {
   try {
     const configs = [];
@@ -6738,7 +6735,7 @@ function getTrinitySlotOrder(tiersData = null) {
 function _refreshModel(directory3) {
   try {
     const TIERS_FILE3 = join5(getVibeOSHome4(), "model-tiers.json");
-    const sel = loadSelection2();
+    const sel = loadSelection();
     if (!sel.enabled)
       return;
     const tiersData = safeJsonParse2(readFileSync5(TIERS_FILE3, "utf-8"));
@@ -9649,9 +9646,9 @@ function createTrinityTool(deps) {
         const projectBucket = projectFingerprint2 ? projectState?.project_hashes?.[projectFingerprint2] : null;
         const fullState = typeof deps.readFullState === "function" ? deps.readFullState() : {};
         const session = fullState?.sessions?.[deps._OC_SID] || null;
-        const realityFile = join11(deps.VIBEOS_HOME || join11(process.env.HOME || "", ".claude"), "reality-check-settings.json");
+        const realityFile = join11(deps.VIBEOS_HOME || process.env.VIBEOS_HOME || join11(process.env.HOME || "", ".claude"), "reality-check-settings.json");
         const stateFile = deps.STATE_FILE;
-        const projectStateFile = join11(deps.VIBEOS_HOME || join11(process.env.HOME || "", ".claude"), "project-states.json");
+        const projectStateFile = join11(deps.VIBEOS_HOME || process.env.VIBEOS_HOME || join11(process.env.HOME || "", ".claude"), "project-states.json");
         const lines = ["[vibeOS-reality-check] Verified facts only"];
         lines.push(`Project: ${deps.currentProjectName || projectBucket?.projectName || projectFingerprint2 || "unknown"}`);
         lines.push(`Project fingerprint: ${projectFingerprint2 || "(unset)"}`);
@@ -9865,6 +9862,7 @@ Use \`trinity enforce on\` to reapply the guard if needed.`;
           deps._modelLocked = true;
           deps._lockedSlot = lockSlot;
           deps._lockedModel = lockModel;
+          deps.writeSelection("slot_locked", true);
           console.error(`[vibeOS] model LOCKED \u2014 ${lockModel} (${deps.currentTier}) will not auto-reconcile with config`);
           return `LOCK ON \u2014 ${lockModel} will not change unless you force with \`trinity set\` or \`trinity lock off\`.`;
         }
@@ -9872,6 +9870,7 @@ Use \`trinity enforce on\` to reapply the guard if needed.`;
           deps._modelLocked = false;
           deps._lockedSlot = null;
           deps._lockedModel = null;
+          deps.writeSelection("slot_locked", false);
           console.error(`[vibeOS] model UNLOCKED \u2014 auto-reconcile re-enabled`);
           return `LOCK OFF \u2014 will auto-follow OpenCode config changes.`;
         }
@@ -10330,7 +10329,7 @@ ${L.repeat(40)}`);
         return "[vibeOS] Alpha bootstrap token saved. Remote API will retry the exchange on the next call.";
       }
       if (action === "verify-claims") {
-        const VIBEOS_HOME2 = join11(process.env.HOME || "", ".claude");
+        const VIBEOS_HOME2 = process.env.VIBEOS_HOME || join11(process.env.HOME || "", ".claude");
         const AUDIT_DIR = join11(VIBEOS_HOME2, "cascade-audit");
         const claimFile = join11(AUDIT_DIR, "claim-audit.jsonl");
         const cascadeFile = join11(AUDIT_DIR, "cascade-audit.jsonl");
@@ -11492,8 +11491,131 @@ function writeEvent(sid, event) {
     lines = lines.slice(-200);
   writeFileSync12(path, lines.join("\n") + "\n");
 }
+function readRecentEvents(sid, n) {
+  const path = getSessionEventLogPath(sid);
+  if (!existsSync14(path))
+    return [];
+  const raw = readFileSync13(path, "utf-8").trim();
+  if (!raw)
+    return [];
+  const lines = raw.split("\n");
+  return lines.slice(-n).map((l) => {
+    try {
+      return JSON.parse(l);
+    } catch {
+      return null;
+    }
+  }).filter(Boolean);
+}
+function detectPatterns(events, fingerprint) {
+  const patterns = [];
+  for (let i = 1; i < events.length; i++) {
+    const bypass = events[i];
+    const prev = events[i - 1];
+    if (!bypass.isGuardBreach)
+      continue;
+    if (prev.family !== bypass.family)
+      continue;
+    if (prev.exitCode === null || prev.exitCode === 0)
+      continue;
+    const diff = bypass.at - prev.at;
+    if (diff >= 0 && diff <= 5 * 60 * 1e3) {
+      patterns.push({
+        key: "workflow:bypass-after-failure:" + bypass.family,
+        summary: "Guard blocked " + bypass.family + ", then bypassed with --no-verify or --force instead of resolving the failure.",
+        kind: "friction"
+      });
+    }
+  }
+  for (let i = 0; i < events.length; i++) {
+    const ev = events[i];
+    if (!ev.isGuardBreach)
+      continue;
+    const hasPrior = events.slice(0, i).some((e) => e.family === ev.family && e.exitCode !== null && e.exitCode !== 0 && ev.at - e.at <= 10 * 60 * 1e3 && ev.at - e.at >= 0);
+    if (!hasPrior) {
+      patterns.push({
+        key: "workflow:guard-breach:" + ev.family,
+        summary: "Executed " + ev.family + " with bypass flag without a prior guard trigger.",
+        kind: "friction"
+      });
+    }
+  }
+  for (let i = 2; i < events.length; i++) {
+    const dep = events[i];
+    if (dep.role !== "deployment" || !dep.isProtectedTarget)
+      continue;
+    const dAt = dep.at;
+    for (let j = i - 1; j >= 0; j--) {
+      const bp = events[j];
+      if (bp.role !== "bypass")
+        continue;
+      if (dAt - bp.at > 10 * 60 * 1e3)
+        continue;
+      for (let k = j - 1; k >= 0; k--) {
+        const mut = events[k];
+        if (mut.role !== "mutation")
+          continue;
+        if (bp.at - mut.at > 10 * 60 * 1e3)
+          continue;
+        patterns.push({
+          key: "workflow:circumvented-review",
+          summary: "Edited files, bypassed guard, and deployed directly to protected branch \u2014 circumvented pull request workflow.",
+          kind: "friction"
+        });
+        break;
+      }
+      break;
+    }
+  }
+  for (const p of patterns) {
+    if (!p.key.startsWith("workflow:"))
+      continue;
+    const pstate = loadProjectState();
+    const existing = pstate?.project_hashes?.[fingerprint]?.userPatterns?.friction?.[p.key];
+    if (existing && (existing.sessions?.length || 0) >= 2) {
+      const family = p.key.split(":").pop();
+      patterns.push({
+        key: "workflow:systemic-bypass:" + family,
+        summary: "Repeated bypass of " + family + " across sessions \u2014 systemic workflow violation.",
+        kind: "friction"
+      });
+    }
+  }
+  return patterns;
+}
 function getCurrentSid() {
   return globalThis.__vibeOS_SID || _OC_SID || process.env.OPENCODE_SESSION_ID || "unknown";
+}
+function recordFrictionPattern(key, summary, meta = {}) {
+  const sessionKey = "friction:" + key;
+  if (frictionSessionKeys.has(sessionKey))
+    return;
+  frictionSessionKeys.add(sessionKey);
+  const pstate = loadProjectState();
+  const fp2 = meta.fingerprint || currentProjectFingerprint || "unknown";
+  touchProjectBucket(pstate, fp2, { sessionId: (meta.sessions || [])[0] || getCurrentSid() });
+  const bucket = pstate.project_hashes[fp2];
+  bucket.userPatterns ??= { friction: {}, routines: {} };
+  bucket.userPatterns.friction ??= {};
+  const existing = bucket.userPatterns.friction[key] || { sessions: [] };
+  existing.summary = summary;
+  existing.kind = meta.kind || "friction";
+  existing.sessions = [.../* @__PURE__ */ new Set([...existing.sessions || [], ...meta.sessions || [getCurrentSid()]])].slice(-10);
+  existing.lastSeen = (/* @__PURE__ */ new Date()).toISOString();
+  bucket.userPatterns.friction[key] = existing;
+  saveProjectState(pstate);
+  try {
+    Promise.resolve().then(() => (init_api_client(), api_client_exports)).then((api) => {
+      const client2 = api.getApiClient?.();
+      if (client2 && _OC_SID) {
+        const family = meta.family || meta.path || "unknown";
+        client2.patternsObserve(_OC_SID, family, summary, key, fp2).catch(() => {
+        });
+      }
+    }).catch(() => {
+    });
+  } catch {
+  }
 }
 function observeToolPattern(toolName, input, output, directory3) {
   const role = deriveRole(toolName, input, output);
@@ -11508,6 +11630,31 @@ function observeToolPattern(toolName, input, output, directory3) {
     isProtectedTarget: tags.isProtectedTarget,
     exitCode: tags.exitCode
   });
+}
+function sessionCompact(sid, fingerprint) {
+  try {
+    const events = readRecentEvents(sid, 200);
+    if (events.length < 3)
+      return;
+    const patterns = detectPatterns(events, fingerprint);
+    for (const p of patterns) {
+      recordFrictionPattern(p.key, p.summary, { kind: p.kind, sessions: [sid], fingerprint });
+    }
+    const bbPath = join13(VIBEOS_HOME, "blackbox-state.json");
+    if (existsSync14(bbPath)) {
+      const raw = readFileSync13(bbPath, "utf-8");
+      if (raw) {
+        const bb = JSON.parse(raw);
+        const ses = bb?.sessions?.[sid];
+        if (ses && ses.sub_regime === "LOOPING" && patterns.length > 0) {
+          ses.resolution_state = "intervened";
+          writeFileSync12(bbPath, JSON.stringify(bb, null, 2));
+        }
+      }
+    }
+  } catch (e) {
+    console.error("[vibeOS] semantic session analysis:", e);
+  }
 }
 
 // src/lib/index-helpers.js
@@ -13048,7 +13195,7 @@ var _prevOutputText = "";
 var _autoReportCount = 0;
 var textCompletePainted = /* @__PURE__ */ new Set();
 var _lastStrippedText = "";
-function loadSelection3() {
+function loadSelection2() {
   try {
     const raw = readFileSync15(join16(getVibeOSHome10(), "model-tiers.json"), "utf-8");
     return safeJsonParse2(raw)?.selection || { active_slot: "medium", enabled: true, delegation_enforce: true, flow_enabled: true, flow_enforce: true, tdd_enforce: false, tdd_strict: false };
@@ -13203,7 +13350,7 @@ async function _appendFooter(input, output, directory3) {
     const { stableStreak, problemStreak } = readRewardSignals();
     const sid = getSessionId();
     const sessionSlot = loadBlackboxState()?.sessions?.[sid]?.active_slot || loadSessionSlot(sid);
-    const slot = sessionSlot || loadSelection3().active_slot || "brain";
+    const slot = sessionSlot || loadSelection2().active_slot || "brain";
     const brainModel = slot === "brain" ? TRINITY_BRAIN || currentModel : slot === "medium" ? TRINITY_MEDIUM || currentModel : TRINITY_CHEAP || currentModel || "";
     let liveModel = "";
     try {
@@ -13246,7 +13393,7 @@ async function _appendFooter(input, output, directory3) {
             // Backward compatibility (legacy field historically misnamed)
             tasksDelegated: sesTaskDelegations,
             model: resolvedModel || currentModel,
-            slot: loadSelection3().active_slot || "unknown",
+            slot: loadSelection2().active_slot || "unknown",
             editSavings: sesEdit,
             creditSavings: sesCredit,
             context7Savings: sesC7,
@@ -13258,7 +13405,7 @@ async function _appendFooter(input, output, directory3) {
         footerDebug("[vibeOS] auto-report:", e.message);
       }
     }
-    const selNowFooter = loadSelection3();
+    const selNowFooter = loadSelection2();
     const normalizedIntent = classifyTurnSimple2(latestUserIntent || "");
     const currentSubRegime = _latestBlackboxState?.sub_regime || normalizedIntent;
     const bbMode = resolveEnforcementMode();
@@ -13279,7 +13426,7 @@ async function _appendFooter(input, output, directory3) {
     const activeSlot = selNowFooter.active_slot || "brain";
     const flashIcon = isApiConnected() ? " \u26A1" : "";
     const displayMode = autoSelectMode2(currentSubRegime, _footerStress);
-    const rawMode = (typeof loadSelection3 === "function" ? loadSelection3()?.requested_optimization_mode || loadSelection3()?.optimization_mode : null) || displayMode;
+    const rawMode = (typeof loadSelection2 === "function" ? loadSelection2()?.requested_optimization_mode || loadSelection2()?.optimization_mode : null) || displayMode;
     const cv = computeControlVector2({ sub_regime: currentSubRegime, latest_stress_multiplier: _footerStress, user_text: latestUserIntent || "" }, void 0, rawMode);
     const vibeBrand = resolveBrand(loadOptimizationMode() || displayMode, activeSlot);
     const _cp = [/(?:\u005c|['"](?:done|fixed|validated|works|verified|solved|resolved)['"]|\d+%|score|passed)/i];
@@ -15950,6 +16097,12 @@ Recent cached entries:
       } catch {
       }
     }
+    try {
+      const sid = getCurrentSid();
+      if (sid && sid !== "unknown")
+        sessionCompact(sid, "");
+    } catch {
+    }
   } catch (err) {
     console.error(`[vibeOS] session.compacting failed: ${err.message}`);
   }
@@ -16099,7 +16252,7 @@ function _loadActiveJobForProject(directory3, fp2 = "") {
   const candidates = [getVibeOSHome13(), directory3 ? join19(directory3, "..") : ""].filter(Boolean);
   for (const base of candidates) {
     try {
-      const activeJobsPath = join19(String(base), ".claude", "active-jobs.json");
+      const activeJobsPath = join19(String(base), "active-jobs.json");
       if (!existsSync19(activeJobsPath))
         continue;
       const jobs = safeJsonParse2(readFileSync18(activeJobsPath, "utf-8")) || {};

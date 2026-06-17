@@ -166,7 +166,7 @@ function _loadActiveJobForProject(directory, fp = "") {
   const candidates = [getVibeOSHome(), directory ? join(directory, "..") : ""].filter(Boolean)
   for (const base of candidates) {
     try {
-      const activeJobsPath = join(String(base), ".claude", "active-jobs.json")
+      const activeJobsPath = join(String(base), "active-jobs.json")
       if (!existsSync(activeJobsPath))
         continue
       const jobs = safeJsonParse(readFileSync(activeJobsPath, "utf-8")) || {}
