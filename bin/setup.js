@@ -4,8 +4,7 @@ import { execSync } from "node:child_process";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createInterface } from "node:readline";
-import { resolveOpenCodeHome, resolveOpenCodeHomes } from "../scripts/lib/opencode-homes.mjs";
+import { resolveOpenCodeHomes } from "../scripts/lib/opencode-homes.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, "..");
@@ -16,29 +15,17 @@ const isProject = args.includes("--project");
 const isYes = args.includes("--yes") || args.includes("-y");
 
 if (!isInstallCommand || args.includes("--help") || args.includes("-h")) {
-  console.error("Usage: npx -y vibeostheog set [--yes] [--project]");
-  console.error("       npx -y vibeostheog setup [--yes] [--project]");
+  console.error("Usage: npx vibeostheog set [--project]");
+  console.error("       npx vibeostheog setup [--project]");
   process.exit(1);
 }
 
-// Permission prompt
-const homes = resolveOpenCodeHomes({ cwd: process.cwd() });
 console.log("");
 console.log("vibeOS — cost-aware delegation enforcer for OpenCode");
 console.log("");
-console.log("This will install vibeOS plugin to the following directories:");
-for (const h of homes) console.log("  " + h);
+console.log("Installing to:");
+for (const h of resolveOpenCodeHomes({ cwd: process.cwd() })) console.log("  " + h);
 console.log("");
-
-if (!isYes && process.stdin.isTTY && process.stderr.isTTY) {
-  const rl = createInterface({ input: process.stdin, output: process.stderr });
-  const answer = await new Promise((resolve) => rl.question("Install vibeOS into OpenCode? [y/N] ", resolve));
-  rl.close();
-  if (answer.toLowerCase() !== "y" && answer.toLowerCase() !== "yes") {
-    console.log("Installation cancelled.");
-    process.exit(0);
-  }
-}
 
 // Deploy plugin files to ~/.config/opencode/plugins/ and register globally
 const deployScript = resolve(root, "scripts", "deploy.mjs");
