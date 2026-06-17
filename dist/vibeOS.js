@@ -213,6 +213,15 @@ function commandFamily(command) {
   const first = c.replace(/^[a-z_][a-z0-9_]*=\S+\s+/g, "").split(/\s+/)[0];
   return /^[a-z0-9._/-]{1,30}$/.test(first) ? first : "command";
 }
+function commandFailed(output) {
+  const code = output?.exitCode ?? output?.statusCode ?? output?.code;
+  if (Number.isFinite(Number(code)) && Number(code) !== 0)
+    return true;
+  const raw = output?.result ?? output?.text ?? output?.content ?? output?.data ?? "";
+  if (typeof raw !== "string")
+    return false;
+  return /\b(exit code|exited with code)\s*[:=]?\s*[1-9]\b|\b(assertionerror|syntaxerror|typeerror|referenceerror)\b|\b(failed|error:|err!)\b/i.test(raw);
+}
 function mergeProjectBucket(dst, src) {
   const a = dst || {};
   const b = src || {};
@@ -11471,7 +11480,8 @@ function deriveTags(input, output) {
     isGuardBreach: deriveRole(input?.name || "", input, output) === "bypass",
     isProtectedTarget: typeof cmd === "string" && targetsProtectedBranch(cmd),
     exitCode: output?.exitCode ?? output?.statusCode ?? output?.code ?? null,
-    family: commandFamily(cmd)
+    family: commandFamily(cmd),
+    isFailed: commandFailed(output)
   };
 }
 function getSessionEventLogPath(sid) {
@@ -11580,6 +11590,43 @@ function detectPatterns(events, fingerprint) {
         summary: "Repeated bypass of " + family + " across sessions \u2014 systemic workflow violation.",
         kind: "friction"
       });
+    }
+  }
+  const seen = {};
+  for (let i = 0; i < events.length; i++) {
+    const e = events[i];
+    if (!e.isFailed || e.family === "unknown" || e.family === "command")
+      continue;
+    if (i > 0 && events[i - 1].family === e.family && events[i - 1].isFailed) {
+      const key = "friction:repeat-fail:" + e.family;
+      if (!seen[key]) {
+        seen[key] = true;
+        patterns.push({
+          key,
+          summary: e.family + " failed repeatedly \u2014 possible systematic issue.",
+          kind: "friction"
+        });
+      }
+    }
+  }
+  for (let i = 1; i < events.length; i++) {
+    const ver = events[i];
+    if (ver.role !== "verification" || !ver.isFailed)
+      continue;
+    const prev = events[i - 1];
+    if (prev.role !== "mutation")
+      continue;
+    const diff = ver.at - prev.at;
+    if (diff >= 0 && diff <= 3 * 60 * 1e3) {
+      const key = "friction:post-edit-fail:" + ver.family;
+      if (!seen[key]) {
+        seen[key] = true;
+        patterns.push({
+          key,
+          summary: "Edit followed by " + ver.family + " failure \u2014 check your changes.",
+          kind: "friction"
+        });
+      }
     }
   }
   return patterns;

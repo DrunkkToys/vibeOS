@@ -30,8 +30,8 @@ This AGENTS.md is the master index for the vibeOS ecosystem. Five repositories f
 
 Every feature in the README is a promised behavior. **If a proposed change touches any of these, you MUST ask first and explain the impact:**
 
-1. **Cost-aware delegation enforcement** — Blocks direct `write`/`edit`/`notebookedit` on high-tier brain model. User-visible enforcement notes. Delegation cost estimates.
-2. **Cache savings tracking** — Separate persisted category (`cache_savings_usd`). Tracks scratchpad cache hits.
+1. **Quality-aware delegation enforcement** — Blocks direct `write`/`edit`/`notebookedit` on high-tier brain model to ensure reasoning quality. User-visible enforcement notes.
+2. **Cache tracking** — Tracks scratchpad cache reuse.
 3. **Live footer** — Model split display, cumulative savings, trend arrow. Appended via `experimental.text.complete` and `message.updated`.
 4. **trinity runtime controls** — Slot switching (`set brain|medium|cheap`, `brain|medium|cheap` shorthand, `rebuild`), `status`, `enable`/`disable`, `mode budget|quality|speed|longrun|auto`, `thinking full|brief|off`, enforcement toggles (`enforce on|off`), model locking (`lock on|off`), flow toggles (`flow on|off`, `flow enforce on|off`), TDD toggles (`tdd on|off`, `tdd strict on|off`, `tdd quality on|off`), `project`, `patterns`, `repair-state preview|apply`, `report-save`/`report-list`/`report-read`, `api-token`, `diagnose`, `help`.
 5. **Flow enforcer** — Write/edit pattern rule checks. TODO/FIXME extraction queue when flow enforcement is active.
@@ -42,7 +42,7 @@ Every feature in the README is a promised behavior. **If a proposed change touch
    - Live stress footer gauge (`▁▂▃▅▆█`)
    - System prompt inoculation (CRITICAL/elevated directives)
    - Stress-aware tier routing (upgrade Task to MEDIUM when user is stressed)
-9. **Context7 cost optimization directive injection** — Injects cost-saving context7 usage instructions into system prompts.
+9. **Context7 directive injection** — Injects context7 usage instructions into system prompts for better context management.
 10. **Worker-to-Brain (WBP) protocol** — Synthesizes delegated task output in assistant chat.
 11. **JSONC-tolerant config parsing** — `safeJsonParse()` handles trailing commas, comments, unquoted keys.
 12. **File-based locking** — Prevents concurrent plugin instances via `~/.claude/.vibeOS-locks/`.
@@ -54,7 +54,7 @@ Every feature in the README is a promised behavior. **If a proposed change touch
 18. **Per-session model locking** — `vibe lock on|off` freezes the model at session start. When locked, the plugin skips auto-reconcile with OpenCode config changes. Lock is in-memory only (resets on restart). Live footer shows `LOCK` tag when active.
 
 19. **Web dashboard** — Single vanilla HTML/JS file served by the MCP server. Displays model split, savings, session history, stress gauge, trinity controls, reports, blackbox state, and telemetry feedback. Sends blackbox telemetry vectors and satisfaction outcomes back to the MCP server.
-20. **Blackbox decision engine** — Enabled by default. Tracks dialogue trajectory with 7 sub-regimes, 11 derived features per turn, loop prevention with 4 escalating intervention levels, PIVOT/SWITCH detection for context changes, outcome tracking from assistant response satisfaction signals, and online calibration via API server. State persisted per project in `~/.claude/blackbox-state.json` and remotely in SQLite (`blackbox_sessions`, `blackbox_calibration` tables). Commands: `vibe blackbox on|off|status|reset`. Injects decision directive, loop intervention, and pivot detection into system prompts. Footer shows resolution state, sub-regime, and momentum. When disabled, a lightweight `classifyTurnSimple()` fallback detects Q&A vs implementation intent and applies phase-appropriate enforcement levels. **Auto-mode**: Control vector is the authority — `syncControlSettings()` writes enforcement, flow, TDD, and thinking mode to `model-tiers.json` every turn. Mode selection is purely regime + stress driven (CONVERGING/CLOSED → quality, LOOPING → speed, stress >1.5 → quality, else budget). No savings goal threshold.
+20. **Blackbox decision engine** — Enabled by default. Tracks dialogue trajectory with 7 sub-regimes, 11 derived features per turn, loop prevention with 4 escalating intervention levels, PIVOT/SWITCH detection for context changes, outcome tracking from assistant response satisfaction signals, and online calibration via API server. State persisted per project in `~/.claude/blackbox-state.json` and remotely in SQLite (`blackbox_sessions`, `blackbox_calibration` tables). Commands: `vibe blackbox on|off|status|reset`. Injects decision directive, loop intervention, and pivot detection into system prompts. Footer shows resolution state, sub-regime, and momentum. When disabled, a lightweight `classifyTurnSimple()` fallback detects Q&A vs implementation intent and applies phase-appropriate enforcement levels. **Auto-mode**: Control vector is the authority — `syncControlSettings()` writes enforcement, flow, TDD, and thinking mode to `model-tiers.json` every turn. Mode selection is purely regime + stress driven, defaulting to quality. Savings are tracked as a consequence, not a goal.
 
 **If you are unsure whether a change affects any of these features: STOP and ASK.**
 
@@ -280,7 +280,7 @@ Runs `tsc -p tsconfig.json --noEmit` — validates all TypeScript sources withou
 5. Do not "fix", "clean up", "refactor", "optimize", or "modernize" without asking.
 6. Do not add "helpful" features that were not requested.
 7. **Never lie about tool execution.** If a command cannot run because agents block it (e.g., delegation enforcement, tool restrictions), tell the user the real reason. Do not pretend it was executed or fabricate results. Ask permission **once** — do not ask again and again.
-8. **Dopamine Tool Style** — Always combine multiple independent `bash` commands into a single tool call using `&&` or `;` to keep the user's chat uncluttered. Write a beautiful, progress-focused, emoji-powered `description` for every tool call (e.g., `Shell ⚡ Synchronizing configurations and polishing the build...`, `Shell 🧪 Running tests to ensure all systems are green...`, `Shell 🚀 Bumping version and deploying to production!`). Never show raw technical labels as tool descriptions.
+8. **Tool call style** — Combine multiple independent `bash` commands into a single tool call using `&&` or `;` to keep output uncluttered. Write clear, factual `description` text for every tool call. Never show raw technical labels as tool descriptions.
 
 ---
 
@@ -289,7 +289,7 @@ Runs `tsc -p tsconfig.json --noEmit` — validates all TypeScript sources withou
 When the orchestrator (brain-tier) has Write/Edit blocked by delegation enforcement, route implementation work to Task subagents using `model: "deepseek/deepseek-chat"` (cheap tier) as primary, with `model: "deepseek/deepseek-v4-flash"` as fallback. The cheap tier has Write/Edit tools available.
 
 ```json
-task(subagent_type="general", model="deepseek/deepseek-chat")
+task(subagent_type="general", model="deepseek/deepseek-v4-flash")
 ```
 
 This applies to ALL agent types (general, explore, etc.) and is mandatory for any task that requires file modifications (edit/write tools).
@@ -413,9 +413,9 @@ The meta-controller maps sub-regimes to optimization modes. `syncControlSettings
 
 | Regime | Mode | Enforce | Flow | TDD | Tier | Think |
 |---|---|---|---|---|---|---|
-| INIT | budget | relaxed | audit | lazy | cheap | off |
-| EXPLORING / DIVERGENT | budget | relaxed | audit | lazy | cheap | off |
-| REFINING | budget | relaxed | audit | lazy | cheap | off |
+| INIT | quality | strict | audit | lazy | brain | brief |
+| EXPLORING / DIVERGENT | quality | strict | audit | lazy | brain | brief |
+| REFINING | quality | strict | strict | quality | brain | full |
 | CONVERGING / CLOSED | quality | strict | strict | quality | brain | full |
 | LOOPING | speed | relaxed | audit | lazy | medium | off |
 

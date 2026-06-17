@@ -65,7 +65,7 @@ function autoSelectMode(subRegime: string, stressMultiplier?: number): Optimizat
   if (regime === "RESEARCH" || regime === "DESIGNING") return "longrun"
   if (regime === "REVIEWING") return "audit"
   if (stress > QUALITY_STRESS_THRESHOLD) return "quality"
-  return "vibelitex"
+  return "quality"
 }
 
 export function resolveOptimizationMode(
