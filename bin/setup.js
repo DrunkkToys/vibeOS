@@ -4,7 +4,7 @@ import { execSync } from "node:child_process";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { resolveOpenCodeHomes } from "../scripts/lib/opencode-homes.mjs";
+import { resolveOpenCodeHome, resolveOpenCodeHomes } from "../scripts/lib/opencode-homes.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, "..");
