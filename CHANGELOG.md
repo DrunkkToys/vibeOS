@@ -1,3 +1,25 @@
+## 0.25.34
+- feat: holistic semantic observer replacing pattern learner (#245)
+- fix: re-establish npm link after publish + contract test for bin symlink (#248) (#249)
+- fix: replace cascade source-code regex toy test with real behavioral contract tests (#248)
+- fix: anti-lie path resolution — verify-claims respects $VIBEOS_HOME, no double .claude nesting (#247)
+- fix: persist slot_locked on lock on/off, remove duplicate loadSelection in pricing (#246)
+- fix: remove hardcoded model names from fallback
+- fix: restore apiRoute gate for cascade (#239)
+- fix: cascade triggered only by ML_ENABLED, not apiRoute (#238)
+- fix: cascade router must run regardless of remote API route (#237)
+- fix: cascade fallback only when ML API route is unavailable
+- fix: race condition in token refresh with concurrent session renewal (#235)
+- fix: cascade applySlot fires for all tools regardless of delegation_enforce
+- fix: rename pipeline tier 'local' to 'cheap' (#232)
+- docs: add TDD template + branch-first workflow to AGENTS.md
+- build: strip sync-ts-build from pipeline, esbuild-only bundle (#242)
+Reapply "fix: remove hardcoded model names from fallback" (#244)
+Revert "fix: remove hardcoded model names from fallback"
+Fix fail-open delegation and remove hardcoded fallback (#243)
+Remove hardcoded task fallback model (#241)
+
+
 ## 0.25.31
 - feat: anti-loop cost guard with per-turn memoization
 - feat: remove auto-lock on slot/mode change, README/skills use vibe, lock regression tests
