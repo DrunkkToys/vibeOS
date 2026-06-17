@@ -393,12 +393,8 @@ export const onToolExecuteBefore = async (input, output) => {
     const apiRoute = await remoteCall("routeModel", [_prompt, currentTier, TRINITY_CHEAP, TRINITY_MEDIUM, LEARNED_EXPLORATORY, stressScore], null)
     if (apiRoute?.target) {
       _target = apiRoute.target
-      if (currentTier === "high" && !_exploratoryTarget && TRINITY_MEDIUM && _target === TRINITY_CHEAP) {
-        _target = TRINITY_MEDIUM
-        console.error(`[vibeOS] 🔀 Task floor: preserving medium tier for high-tier brain task`)
-      }
-    } else if (_target === TRINITY_CHEAP && TRINITY_MEDIUM) {
-      if (stressScore > 0.5) {
+    } else {
+      if (_target === TRINITY_CHEAP && TRINITY_MEDIUM && stressScore > 0.5) {
         _target = TRINITY_MEDIUM
         console.error(`[vibeOS] 🧘 Stress ${stressScore.toFixed(2)} → preserving medium tier for Task quality`)
       }
