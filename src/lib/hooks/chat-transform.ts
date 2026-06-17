@@ -644,6 +644,7 @@ export const onMessagesTransform = async (_input, output) => {
 
     // auto-amend: inject verification message if unsubstantiated claims found
     try {
+
       if (!Array.isArray(messages) || Object.isFrozen(messages)) return
       const vibeHome = process.env.VIBEOS_HOME || join(process.env.HOME || homedir(), ".claude")
       if (typeof vibeHome !== "string" || vibeHome.length === 0) return
