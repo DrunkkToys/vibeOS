@@ -415,7 +415,7 @@ export const onToolExecuteBefore = async (input, output) => {
             : mlDifficulty.suggestedTier === "medium" ? TRINITY_MEDIUM
               : mlDifficulty.suggestedTier === "brain" ? TRINITY_BRAIN
                 : null
-          if (mlTarget && mlTarget !== currentModel) {
+          if (mlTarget && mlTarget !== _target) {
             const tierRank = { budget: 0, cheap: 1, mid: 2, medium: 2, high: 3, brain: 3 }
             const mlRank = tierRank[mlDifficulty.suggestedTier] || 0
             const curRank = _target ? (tierRank[classify(_target)] || 0) : 0
@@ -464,7 +464,7 @@ export const onToolExecuteBefore = async (input, output) => {
             }
           } else {
             const escalated = pipelineModels[1]
-            if (escalated && escalated !== currentModel && (!_target || escalated !== _target)) {
+            if (escalated && escalated !== currentModel && !_target) {
               _target = escalated
               console.error(`[vibeOS] 🔀 Cascade escalate: ${cascadeResult.reason} → ${escalated}`)
             }
