@@ -10336,7 +10336,7 @@ ${L.repeat(40)}`);
         const lines = ["[vibeOS] Claim verification report"];
         lines.push("=".repeat(50));
         let claimCount = 0, unsubstantiatedCount = 0, verifiedCount = 0;
-        const CLAIM_RE = /(?:I|we|the)\s+(?:pushed|released|merged|deployed|fixed)\b|(?:tests?|build|CI|checks?)\s+(?:pass|green|clean|succeed)\b|v\d+\.\d+\.\d+|done|fixed|resolved|solved|works|working|validated|verified|exit\s*code\s*0|\d+%|score|passed|0\s*errors/i;
+        const CLAIM_RE = /(?:done|fixed|validated|works|score|%|passed|verified|solved|resolved)/i;
         const claims = [];
         if (deps.existsSync(claimFile)) {
           try {
@@ -15467,16 +15467,13 @@ ${argsJson}
     const _exploratoryTarget = EXPLORATORY.has(_firstWord2) ? TRINITY_CHEAP : null;
     const _tierTarget = currentTier === "high" && TRINITY_MEDIUM && TRINITY_MEDIUM !== currentModel ? TRINITY_MEDIUM : TRINITY_CHEAP && TRINITY_CHEAP !== currentModel ? TRINITY_CHEAP : null;
     let _target = _exploratoryTarget ?? _tierTarget;
+    const _hasMedia = /\.(png|jpg|jpeg|gif|webp|bmp|svg|mp4|webm|ogg|mp3|wav|avi|mov)/i.test(_prompt);
     const stressScore = latestUserIntent ? scoreStress(latestUserIntent) : 0;
     const apiRoute = await remoteCall("routeModel", [_prompt, currentTier, TRINITY_CHEAP, TRINITY_MEDIUM, LEARNED_EXPLORATORY, stressScore], null);
     if (apiRoute?.target) {
       _target = apiRoute.target;
-      if (currentTier === "high" && !_exploratoryTarget && TRINITY_MEDIUM && _target === TRINITY_CHEAP) {
-        _target = TRINITY_MEDIUM;
-        console.error(`[vibeOS] \u{1F500} Task floor: preserving medium tier for high-tier brain task`);
-      }
-    } else if (_target === TRINITY_CHEAP && TRINITY_MEDIUM) {
-      if (stressScore > 0.5) {
+    } else {
+      if (_target === TRINITY_CHEAP && TRINITY_MEDIUM && stressScore > 0.5) {
         _target = TRINITY_MEDIUM;
         console.error(`[vibeOS] \u{1F9D8} Stress ${stressScore.toFixed(2)} \u2192 preserving medium tier for Task quality`);
       }
@@ -15495,7 +15492,7 @@ ${argsJson}
             if (!_target) {
               _target = mlTarget;
               console.error(`[vibeOS] \u{1F9E0} ML difficulty: ${mlDifficulty.level} (score ${mlDifficulty.score.toFixed(2)}, conf ${mlDifficulty.confidence.toFixed(2)}) \u2192 ${mlTarget}`);
-            } else if (mlRank > curRank && mlDifficulty.confidence >= 0.7) {
+            } else if (!_hasMedia && mlRank > curRank && mlDifficulty.confidence >= 0.7) {
               _target = mlTarget;
               console.error(`[vibeOS] \u{1F9E0} ML upgrade: ${mlDifficulty.level} (score ${mlDifficulty.score.toFixed(2)}, conf ${mlDifficulty.confidence.toFixed(2)}) \u2192 ${mlTarget}`);
             }
@@ -15530,7 +15527,7 @@ ${argsJson}
         if (cascadeResult.escalate && pipelineModels.length > 1) {
           if (pipelineModels.length > 2 && cascadeResult.confidence >= 0.8) {
             const escalated = pipelineModels[2];
-            if (escalated && escalated !== currentModel && (!_target || escalated !== _target)) {
+            if (escalated && escalated !== currentModel && !_hasMedia && (!_target || escalated !== _target)) {
               _target = escalated;
               console.error(`[vibeOS] \u{1F500} Cascade depth-3 escalate: ${cascadeResult.reason} \u2192 ${escalated}`);
             }
