@@ -726,31 +726,28 @@ test("cascade contract: pipeline model resolution matches tool-execute.ts tierMa
   assert.equal(shortModels[1], medium, "2-stage depth-2 targets medium")
 })
 
-test("cascade contract: gate condition is !apiRoute?.target with pipeline and tier checks", async () => {
-  // From tool-execute.ts:449:
-  const gateFires = (apiRouteTarget, activePipeline, trinityCheap, trinityMedium) => {
+test("cascade contract: gate condition fires regardless of API target", async () => {
+  // From tool-execute.ts:449 (apiRoute?.target gate removed — cascade fires regardless)
+  const gateFires = (activePipeline, trinityCheap, trinityMedium) => {
     return !!(
-      !apiRouteTarget && activePipeline && Array.isArray(activePipeline)
+      activePipeline && Array.isArray(activePipeline)
       && activePipeline.length > 1 && trinityCheap && trinityMedium
     )
   }
 
-  // Gate fires (no API target, valid pipeline, configured tiers)
-  assert.ok(gateFires(null, ["cheap","medium","brain"], "m-a", "m-b"), "fires: no target + 3-stage")
-  assert.ok(gateFires(undefined, ["cheap","medium"], "m-a", "m-b"), "fires: undefined target + 2-stage")
+  // Gate fires (valid pipeline, configured tiers)
+  assert.ok(gateFires(["cheap","medium","brain"], "m-a", "m-b"), "fires: 3-stage pipeline")
+  assert.ok(gateFires(["cheap","medium"], "m-a", "m-b"), "fires: 2-stage pipeline")
 
-  // Gate blocked (API has target)
-  assert.ok(!gateFires("some-model", ["cheap","medium","brain"], "m-a", "m-b"), "blocked: API target")
-  assert.ok(!gateFires("model-x", ["cheap","medium"], "m-a", "m-b"), "blocked: API target, 2-stage")
-
+  // Gate fires even without pipeline but with tiers (no longer blocked by anything)
   // Gate blocked (pipeline issues)
-  assert.ok(!gateFires(null, ["cheap"], "m-a", "m-b"), "blocked: single-stage")
-  assert.ok(!gateFires(null, null, "m-a", "m-b"), "blocked: null pipeline")
-  assert.ok(!gateFires(null, [], "m-a", "m-b"), "blocked: empty pipeline")
+  assert.ok(!gateFires(["cheap"], "m-a", "m-b"), "blocked: single-stage")
+  assert.ok(!gateFires(null, "m-a", "m-b"), "blocked: null pipeline")
+  assert.ok(!gateFires([], "m-a", "m-b"), "blocked: empty pipeline")
 
   // Gate blocked (unconfigured tiers)
-  assert.ok(!gateFires(null, ["cheap","medium","brain"], null, "m-b"), "blocked: TRINITY_CHEAP null")
-  assert.ok(!gateFires(null, ["cheap","medium","brain"], "m-a", null), "blocked: TRINITY_MEDIUM null")
+  assert.ok(!gateFires(["cheap","medium","brain"], null, "m-b"), "blocked: TRINITY_CHEAP null")
+  assert.ok(!gateFires(["cheap","medium","brain"], "m-a", null), "blocked: TRINITY_MEDIUM null")
 })
 test("delegate: delegateCheck fails open when API is unavailable", async () => {
   const prevUrl = process.env.VIBEOS_API_URL
