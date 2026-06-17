@@ -590,7 +590,9 @@ function loadBlackboxState(): any {
     const now = Date.now()
     let changed = false
     for (const [sid, session] of Object.entries(raw.sessions)) {
-      if (!session || typeof session !== "object") continue
+      if (!session || typeof session !== "object") {
+        delete raw.sessions[sid]; changed = true; continue
+      }
       const { record: next, changed: recordChanged } = normalizeBlackboxRecord(session as any, sid, now)
       raw.sessions[sid] = next
       if (recordChanged) changed = true
