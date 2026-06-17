@@ -448,7 +448,7 @@ test("lock: DFLT_SEL initializes slot_locked as false", async () => {
 // ------------------------------------------------------------------
 
 test("cascade: deep complex prompt triggers confidence >= 0.8 for depth-3", async () => {
-  const { computeDifficulty, cascadeDecide } = await import("../src/vibeOS-lib/ml-router.ts")
+  const { computeDifficulty, cascadeDecide } = await import("../src/vibeOS-lib/ml-router.js")
   // Depth-3 cascade in tool-execute.ts:458 requires:
   //   cascadeResult.escalate && pipelineModels.length > 2 && confidence >= 0.8
   // cascadeDecide confidence >= 0.8 only when computeDifficulty score < 0.15 or > 0.75.
@@ -624,7 +624,7 @@ test("cascade: applySlot fires even when delegation_enforce is off", async () =>
 })
 
 test("cascade contract: computeDifficulty classifies queries by complexity level", async () => {
-  const { computeDifficulty } = await import("../src/vibeOS-lib/ml-router.ts")
+  const { computeDifficulty } = await import("../src/vibeOS-lib/ml-router.js")
 
   // Simple: very short query -> level=simple, confidence >= 0.7
   const simple = computeDifficulty("what is 2+2")
@@ -652,10 +652,10 @@ test("cascade contract: computeDifficulty classifies queries by complexity level
 })
 
 test("cascade contract: cascadeDecide returns useCheap=true,escalate=false for high-confidence simple", async () => {
-  // cascadeDecide logic (ml-router.ts:233-239):
+  // cascadeDecide logic (ml-router.js:233-239):
   //   level === "simple" && confidence >= 0.7 -> useCheap=true, escalate=false
   // The cheap tier is the best choice for simple tasks; no escalation needed.
-  const { cascadeDecide } = await import("../src/vibeOS-lib/ml-router.ts")
+  const { cascadeDecide } = await import("../src/vibeOS-lib/ml-router.js")
   const cheap = 0.001, med = 0.005, brain = 0.02
 
   const result = cascadeDecide("what is 2+2", cheap, med, brain, 0.85)
@@ -665,11 +665,11 @@ test("cascade contract: cascadeDecide returns useCheap=true,escalate=false for h
 })
 
 test("cascade contract: cascadeDecide returns escalate=true for low-confidence simple/moderate", async () => {
-  // cascadeDecide cost analysis (ml-router.ts:250-259):
+  // cascadeDecide cost analysis (ml-router.js:250-259):
   //   expectedCheapCost < cascadeCost && level !== "complex"
   //   -> useCheap=true, escalate=true (start cheap, escalate if fail)
   // This applies to moderate queries and low-confidence simple queries.
-  const { cascadeDecide } = await import("../src/vibeOS-lib/ml-router.ts")
+  const { cascadeDecide } = await import("../src/vibeOS-lib/ml-router.js")
   const cheap = 0.001, med = 0.005, brain = 0.02
 
   // Moderate query: level=moderate, confidence=0.5 -> cost analysis path
@@ -684,12 +684,12 @@ test("cascade contract: cascadeDecide returns escalate=true for low-confidence s
 })
 
 test("cascade contract: cascadeDecide returns useCheap=false,escalate=false for complex <0.7 relative confidence", async () => {
-  // cascadeDecide fallback (ml-router.ts:262-269):
+  // cascadeDecide fallback (ml-router.js:262-269):
   //   level === "complex" && confidence < 0.7
   //   -> useCheap=false, escalate=false
   // The query was classified as complex but with low confidence;
   // the tier match chooses medium/brain without escalating further.
-  const { cascadeDecide } = await import("../src/vibeOS-lib/ml-router.ts")
+  const { cascadeDecide } = await import("../src/vibeOS-lib/ml-router.js")
   const cheap = 0.001, med = 0.005, brain = 0.02
 
   const complex = cascadeDecide(
