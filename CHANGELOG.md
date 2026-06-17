@@ -1,3 +1,8 @@
+## 0.25.38
+- fix: update usage line to recommend npx -y (#252) (#252)
+- fix: add permission prompt to setup.js + contract tests for install flow (#251) (#251)
+
+
 ## 0.25.37
 - fix: add permission prompt to setup.js + contract tests for install flow (#251) (#251)
 
