@@ -640,6 +640,60 @@ export const onMessagesTransform = async (_input, output) => {
     injectWBP(messages)
     applyDecadence()
     await trackBlackbox(messages)
+
+    // auto-amend: inject verification message if unsubstantiated claims found
+    try {
+      const vibeHome = process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude")
+      const claimFile = join(vibeHome, "cascade-audit", "claim-audit.jsonl")
+      const cascadeFile = join(vibeHome, "cascade-audit", "cascade-audit.jsonl")
+      if (existsSync(claimFile) && statSync(claimFile).size > 0) {
+        const claimLines = readFileSync(claimFile, "utf-8").trim().split("\n").slice(-5)
+        const cascadeLines = existsSync(cascadeFile) ? readFileSync(cascadeFile, "utf-8").trim().split("\n").slice(-20) : []
+        const cascadeRuns = cascadeLines.filter(Boolean).map(l => { try { return JSON.parse(l) } catch { return null } }).filter(Boolean)
+        let unsubClaims: string[] = []
+        let lastInjectTs = 0
+        // check last 2 assistant messages for existing verification block
+        for (let i = messages.length - 1; i >= Math.max(0, messages.length - 4); i--) {
+          const m = messages[i]
+          if (m?.role === "assistant" && Array.isArray(m.parts)) {
+            for (const p of m.parts) {
+              if (p?.type === "text" && typeof p.text === "string" && p.text.includes("[verify]")) {
+                lastInjectTs = Date.now()
+              }
+            }
+          }
+        }
+        if (Date.now() - lastInjectTs > 30000) {
+          for (const cl of claimLines) {
+            if (!cl.trim()) continue
+            let entry
+            try { entry = JSON.parse(cl) } catch { continue }
+            if (!entry) continue
+            const claimTexts = (entry.claims || []).map(c => c.text).join(" | ")
+            if (!/(?:I|we|the)\s+(?:pushed|released|merged|deployed|fixed)\b|(?:tests?|build|CI|checks?)\s+(?:is\s+|are\s+)?(?:pass|green|clean)\b|v\d+\.\d+\.\d+|done|fixed|works|exit\s*code\s*0|\d+%|score|passed/i.test(claimTexts)) continue
+            let cascadeMatch = false
+            for (const cr of cascadeRuns) {
+              const cTs = cr._ts || ""
+              if (cTs && entry.ts && Math.abs(new Date(cTs).getTime() - new Date(entry.ts).getTime()) < 120000) {
+                cascadeMatch = true
+                break
+              }
+            }
+            if (!cascadeMatch) {
+              for (const c of (entry.claims || [])) {
+                unsubClaims.push(c.text)
+              }
+            }
+          }
+          if (unsubClaims.length > 0) {
+            const verifyText = "\n[vibeOS verify]\nUnsubstantiated claims from previous turn:\n" +
+              unsubClaims.slice(0, 5).map(t => "  - \"" + t.substring(0, 80) + "\"").join("\n") +
+              "\nPlease verify each claim and correct if inaccurate."
+            messages.push({ role: "assistant", parts: [{ type: "text", text: verifyText, synthetic: true }] })
+          }
+        }
+      }
+    } catch {}
   } catch (err) {
     console.error(`[vibeOS] messages.transform failed: ${err.message}`)
   }

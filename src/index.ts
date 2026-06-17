@@ -54,13 +54,26 @@ function ensureDeferredBootstrap() {
   catch { }
 }
 
-// Claim verifier: scans assistant output for unverified claims about done/fixed/score
+// Claim verifier: structural grammar for assistant output claims.
+// ACTION:  /(I|we|the)\s+(pushed|released|merged|deployed|fixed|wrote|implemented|completed|committed)\b/i
+// STATE:   /(tests?|build|CI|checks?|suite|output|result)\s+(pass|green|clean|succeed|stable|positive)\b/i
+// VERSION: /v\d+\.\d+\.\d+/
+// NUMERIC: /\d+\s*(test|spec)s?\s*(pass|passing)/i
+// DONE:    /done|finished|complete/i
+// FIX:     /fixed|resolved|solved/i
+// WORKS:   /works|working|validated|verified/i
+// EXIT:    /exit\s*code\s*0|0\s*errors|0\s*failures/i
+// SCORE:   /\d+%|score|scored|passing|passed/i
 const CLAIM_PATTERNS = [
+  /(?:I|we|the)\s+(?:pushed|released|merged|deployed|fixed|wrote|implemented|completed|committed)\b/i,
+  /(?:tests?|build|CI|checks?|suite|output|result)\s+(?:is\s+|are\s+)?(?:pass(?:ing|ed|es)?|green|clean|succeed|stable|positive)/i,
+  /v\d+\.\d+\.\d+/,
+  /\d+\s*(?:test|spec)s?\s*(?:pass|passing)/i,
   /(?:done|finished|complete)/i,
   /(?:fixed|resolved|solved)/i,
-  /(?:working|works|validated|verified)/i,
-  /(?:[0-9]+\.[0-9]?%|\d+%)/,
-  /(?:score|scored|passing|passed)/i,
+  /(?:works|working|validated|verified)/i,
+  /(?:exit\s*code\s*0|0\s*errors|0\s*failures)/i,
+  /(?:\d+%|score|scored|passing|passed)/i,
 ]
 function scanClaimsInOutput(output) {
   if (!output || typeof output !== "string") return
@@ -80,7 +93,7 @@ function scanClaimsInOutput(output) {
       ts: new Date().toISOString(),
       claims: claims.slice(0, 10),
       totalClaims: claims.length,
-      responseHash: "", // crypto hash skipped for performance
+      responseHash: "",
     })
     appendFileSync(auditFile, entry + String.fromCharCode(10))
   } catch {}
@@ -842,6 +855,37 @@ export async function DelegationEnforcer({ client, directory } = {}) {
       ensureDeferredBootstrap()
       await _appendFooter(_input, output, directory)
       scanClaimsInOutput(output)
+      try {
+        const auditDir = join(getVibeOSHome(), "cascade-audit")
+        const claimFile = join(auditDir, "claim-audit.jsonl")
+        const cascadeFile = join(auditDir, "cascade-audit.jsonl")
+        if (existsSync(claimFile) && statSync(claimFile).size > 0) {
+          const claimLines = readFileSync(claimFile, "utf-8").trim().split("\n").slice(-10)
+          const cascadeLines = existsSync(cascadeFile) ? readFileSync(cascadeFile, "utf-8").trim().split("\n").slice(-30) : []
+          const cascadeRuns = cascadeLines.filter(Boolean).map(l => { try { return JSON.parse(l) } catch {} }).filter(Boolean)
+          let unsub = 0
+          for (const cl of claimLines) {
+            if (!cl.trim()) continue
+            let entry
+            try { entry = JSON.parse(cl) } catch { continue }
+            if (!entry) continue
+            const claimTexts = (entry.claims || []).map(function(c) { return c.text }).join(" | ")
+            if (!CLAIM_PATTERNS.some(function(p) { return p.test(claimTexts) })) continue
+            let cascadeMatch = false
+            for (const cr of cascadeRuns) {
+              const cTs = cr._ts || ""
+              if (cTs && entry.ts) {
+                if (Math.abs(new Date(cTs).getTime() - new Date(entry.ts).getTime()) < 120000) {
+                  cascadeMatch = true
+                  break
+                }
+              }
+            }
+            if (!cascadeMatch) unsub++
+          }
+          _unsubstantiatedClaims = unsub
+        }
+      } catch {}
     },
     "message.updated": async (_input, output) => {
       setVibeOSHomeContext(hookVibeHome)
@@ -852,6 +896,38 @@ export async function DelegationEnforcer({ client, directory } = {}) {
       ensureDeferredBootstrap()
       await _appendFooter(_input, output, directory)
       scanClaimsInOutput(output)
+      // auto-verify: cross-check against cascade-audit
+      try {
+        const auditDir = join(getVibeOSHome(), "cascade-audit")
+        const claimFile = join(auditDir, "claim-audit.jsonl")
+        const cascadeFile = join(auditDir, "cascade-audit.jsonl")
+        if (existsSync(claimFile) && statSync(claimFile).size > 0) {
+          const claimLines = readFileSync(claimFile, "utf-8").trim().split("\n").slice(-10)
+          const cascadeLines = existsSync(cascadeFile) ? readFileSync(cascadeFile, "utf-8").trim().split("\n").slice(-30) : []
+          const cascadeRuns = cascadeLines.filter(Boolean).map(l => { try { return JSON.parse(l) } catch {} }).filter(Boolean)
+          let unsub = 0
+          for (const cl of claimLines) {
+            if (!cl.trim()) continue
+            let entry
+            try { entry = JSON.parse(cl) } catch { continue }
+            if (!entry) continue
+            const claimTexts = (entry.claims || []).map(function(c) { return c.text }).join(" | ")
+            if (!CLAIM_PATTERNS.some(function(p) { return p.test(claimTexts) })) continue
+            let cascadeMatch = false
+            for (const cr of cascadeRuns) {
+              const cTs = cr._ts || ""
+              if (cTs && entry.ts) {
+                if (Math.abs(new Date(cTs).getTime() - new Date(entry.ts).getTime()) < 120000) {
+                  cascadeMatch = true
+                  break
+                }
+              }
+            }
+            if (!cascadeMatch) unsub++
+          }
+          _unsubstantiatedClaims = unsub
+        }
+      } catch {}
     },
     tool: {
       trinity: tool(createTrinityTool(trinityDeps)),

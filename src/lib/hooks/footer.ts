@@ -270,11 +270,35 @@ async function _appendFooter(input, output, directory) {
     const rawMode = (typeof loadSelection === "function" ? (loadSelection()?.requested_optimization_mode || loadSelection()?.optimization_mode) : null) || displayMode
     const cv = computeControlVector({ sub_regime: currentSubRegime, latest_stress_multiplier: _footerStress, user_text: latestUserIntent || "" }, undefined, rawMode)
     const vibeBrand = resolveBrand(loadOptimizationMode() || displayMode, activeSlot)
-    const _cp = [/(?:\u005c|['"](?:done|fixed|validated|works|verified|solved|resolved)['"]|\d+%|score|passed)/i]
     let _claimTag = ""
-    if (text) {
-      for (const _p of _cp) { if (_p.test(text)) { _claimTag = "[CLAIMS]"; break } }
-    }
+    try {
+      const claimAuditFile = join(VIBEOS_HOME, "cascade-audit", "claim-audit.jsonl")
+      const cascadeAuditFile = join(VIBEOS_HOME, "cascade-audit", "cascade-audit.jsonl")
+      if (existsSync(claimAuditFile) && statSync(claimAuditFile).size > 0) {
+        const claimLines = readFileSync(claimAuditFile, "utf-8").trim().split("\n").slice(-10)
+        const cascadeLines = existsSync(cascadeAuditFile) ? readFileSync(cascadeAuditFile, "utf-8").trim().split("\n").slice(-30) : []
+        const cascadeRuns = cascadeLines.filter(Boolean).map(function(l) { try { return JSON.parse(l) } catch {} }).filter(Boolean)
+        let unsub = 0
+        for (const cl of claimLines) {
+          if (!cl.trim()) continue
+          let entry
+          try { entry = JSON.parse(cl) } catch { continue }
+          if (!entry) continue
+          const claimTexts = (entry.claims || []).map(function(c) { return c.text }).join(" | ")
+          let cascadeMatch = false
+          for (const cr of cascadeRuns) {
+            const cTs = cr._ts || ""
+            if (cTs && entry.ts && Math.abs(new Date(cTs).getTime() - new Date(entry.ts).getTime()) < 120000) {
+              cascadeMatch = true
+              break
+            }
+          }
+          if (!cascadeMatch) unsub++
+        }
+        if (unsub > 0) _claimTag = "\u26A0" + unsub
+        else _claimTag = "\u2713"
+      }
+    } catch {}
 
     const vibeLine = buildFooterLine({
       activeSlot,
