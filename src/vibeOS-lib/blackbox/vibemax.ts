@@ -103,6 +103,7 @@ export function vibemaxSelectMode(input = {}) {
     enforcement: "strict", wbp: cfg.wbp || "normal", c7: "required", kp: cfg.kp || [3, 6],
     tc: 0.3, amode: "plan", cost: 0.3,
     pivot: isPivotBack ? {
+      workflowId: pivotBack.matchedId,
       matchedId: pivotBack.matchedId,
       confidence: pivotBack.confidence,
       injection,
