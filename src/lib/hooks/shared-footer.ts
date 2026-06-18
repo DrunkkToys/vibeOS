@@ -17,6 +17,7 @@ export interface FooterLineInput {
   stressGauge?: string
   cascadeIcon?: string
   claimTag?: string
+  rewardTag?: string
 }
 
 const REGIME_TAG: Record<string, string> = {
@@ -189,6 +190,10 @@ export function buildFooterLine(input: FooterLineInput): string {
 
   if (input.claimTag) {
     line += ` | ${input.claimTag}`
+  }
+
+  if (input.rewardTag) {
+    line += ` | ${input.rewardTag}`
   }
 
   if (sessionSlot && sessionSlot !== activeSlot) {
