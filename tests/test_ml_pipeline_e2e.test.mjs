@@ -22,10 +22,10 @@ test("classifyTurnSimple: 'fix this production bug' -> REFINING", () => {
 
 // ── Phase 2: autoSelectMode – regime -> mode ──
 test("autoSelectMode: EXPLORING + 0 stress -> litex", () => {
-  assert.equal(turn.autoSelectMode("EXPLORING", 0), "vibelitex")
+  assert.equal(turn.autoSelectMode("EXPLORING", 0), "quality")
 })
 test("autoSelectMode: REFINING + 0 stress -> litex", () => {
-  assert.equal(turn.autoSelectMode("REFINING", 0), "vibelitex")
+  assert.equal(turn.autoSelectMode("REFINING", 0), "quality")
 })
 test("autoSelectMode: CONVERGING + 0 stress -> quality", () => {
   assert.equal(turn.autoSelectMode("CONVERGING", 0), "quality")

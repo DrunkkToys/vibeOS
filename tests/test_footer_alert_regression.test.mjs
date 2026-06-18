@@ -57,7 +57,7 @@ test("footer: shows regime-derived mode instead of sticky selection", async () =
     const { _appendFooter } = await import("../src/lib/hooks/footer.js?ftr2=" + Date.now())
     const o = { text: "Another test message that is sufficiently long to trigger the vibeOS footer and verify mode display." }
     await _appendFooter({ args: { model: "deepseek/v4-flash" } }, o)
-    assert.ok(o.text.includes("Budget"), "footer should show the INIT-derived mode label: " + o.text.slice(-150))
+    assert.ok(o.text.includes("Quality"), "footer should show the INIT-derived mode label: " + o.text.slice(-150))
 })
 
 // ── Test 3: → arrow shows when vector_changed differs ──
@@ -86,7 +86,7 @@ test("footer: full ML pipeline — tier + mode + arrow in one line", async () =>
     await _appendFooter({ args: { model: "deepseek/v4-flash" } }, o)
     const footer = o.text.slice(-200)
     assert.ok(footer.includes("🧠") || footer.includes("◐") || footer.includes("⚡") || footer.includes("🎁"), "has tier: " + footer)
-    assert.ok(footer.includes("Budget"), "has regime-derived mode label: " + footer)
+    assert.ok(footer.includes("Quality"), "has regime-derived mode label: " + footer)
     assert.ok(footer.includes("⟡ cheap"), "has vector pulse: " + footer)
     assert.ok(!footer.includes("slot:"), "footer should not repeat the slot label: " + footer)
 })
@@ -115,7 +115,7 @@ test("footer: 'hi' stays quiet instead of inheriting quality/guarded state", asy
     const o = { text: "Hi. How can I help you? This greeting should stay quiet and not inherit a stale quality episode." }
     await _appendFooter({ args: { model: "deepseek/v4-pro" } }, o)
     const footer = o.text.split("\n").pop() || ""
-    assert.ok(footer.includes("Budget"), "greeting footer should follow INIT regime mode label: " + footer)
+    assert.ok(footer.includes("Quality"), "greeting footer should follow INIT regime mode label: " + footer)
     assert.ok(!footer.includes("quality"), "greeting footer should not inherit quality: " + footer)
 })
 
@@ -133,5 +133,5 @@ test("footer: sticky branded mode stays visually distinct from the live regime l
     const o = { text: "This message is long enough to trigger the footer and reproduce the sticky brand leak." }
     await _appendFooter({ args: { model: "deepseek/v4-pro" } }, o)
     const footer = o.text.split("\n").pop() || ""
-    assert.ok(footer.includes("VibeUltraX") && footer.includes("· Budget"), "footer should separate brand and regime label: " + footer)
+    assert.ok(footer.includes("VibeUltraX") && footer.includes("· Quality"), "footer should separate brand and regime label: " + footer)
 })

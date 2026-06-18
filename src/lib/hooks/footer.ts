@@ -11,6 +11,9 @@ import { loadSessionSlot, writeSessionSlot } from "../selection-manager.js"
 import { remoteCall, isApiConnected } from "../api-client.js"
 import { SAVE_EST } from "../constants.js"
 import { buildFooterLine, buildEnforcementTags, resolveBrand } from "./shared-footer.js"
+import { computeReward } from "../../vibeOS-lib/reward-engine.js"
+import { detectLaziness } from "../../vibeOS-lib/laziness-detector.js"
+import { detectLies } from "../../vibeOS-lib/lie-detector.js"
 
 const IS_CLI_RUNTIME = Boolean(process.stdout?.isTTY || process.stderr?.isTTY || process.stdin?.isTTY)
 const IS_TEST_RUNTIME = process.env.VIBEOS_MCP_PORT === "0" || process.env.NODE_ENV === "test" || process.env.CI === "true"
@@ -271,6 +274,7 @@ async function _appendFooter(input, output, directory) {
     const cv = computeControlVector({ sub_regime: currentSubRegime, latest_stress_multiplier: _footerStress, user_text: latestUserIntent || "" }, undefined, rawMode)
     const vibeBrand = resolveBrand(loadOptimizationMode() || displayMode, activeSlot)
     let _claimTag = ""
+  let _rewardTag = ""
     try {
       const claimAuditFile = join(VIBEOS_HOME, "cascade-audit", "claim-audit.jsonl")
       const cascadeAuditFile = join(VIBEOS_HOME, "cascade-audit", "cascade-audit.jsonl")
@@ -316,6 +320,7 @@ async function _appendFooter(input, output, directory) {
       stressGauge: _footerStress > 0.85 ? "█" : _footerStress > 0.7 ? "▆" : _footerStress > 0.5 ? "▅" : _footerStress > 0.3 ? "▃" : _footerStress > 0.1 ? "▂" : "▁",
       cascadeIcon: ((cv?.cascade_depth || 1) >= 3 ? "▸▸▸" : (cv?.cascade_depth || 1) >= 2 ? "▸▸" : ""),
       claimTag: _claimTag,
+      rewardTag: _rewardTag || undefined,
     })
     const footerText = stripped + `\n\n${vibeLine}`
     _footerCacheText = `\n\n${vibeLine}`
@@ -343,6 +348,42 @@ async function _appendFooter(input, output, directory) {
             const tracker = getBlackboxTracker()
             tracker.recordOutcome(finalOutcome)
             syncOutcomeToApi(finalOutcome)
+            // Reward engine: compute credits based on outcome, claims, laziness, savings
+            try {
+              const curOutput = _prevOutputText || ""
+              const lazinessResult = detectLaziness({
+                assistantText: curOutput,
+                writeEditCount: 0,
+                isBrainTier: (currentTier() || "").toLowerCase() === "high",
+              })
+              const lieResult = detectLies({
+                assistantText: curOutput,
+                userText: latestUserIntent || "",
+                prevAssistantTexts: _prevAssistantTexts || [],
+              })
+              const sesSavings = Number(_footerSavingsCache || 0)
+              const rewardResult = computeReward({
+                outcome: finalOutcome,
+                claims: [],
+                laziness: lazinessResult,
+                savingsUsd: sesSavings,
+                contradictionDetected: lieResult.selfContradiction,
+              })
+              if (rewardResult.credits !== 0) {
+                _rewardTag = rewardResult.credits > 0 ? `+${rewardResult.credits} XP` : `${rewardResult.credits} XP`
+                try {
+                  const statePath = join(VIBEOS_HOME, "delegation-state.json")
+                  const state = safeJsonParse(readFileSync(statePath, "utf-8"), {})
+                  const sid = getCurrentSessionId()
+                  if (!state.sessions) state.sessions = {}
+                  if (!state.sessions[sid]) state.sessions[sid] = {}
+                  state.sessions[sid].reward_credits = (state.sessions[sid].reward_credits || 0) + rewardResult.credits
+                  if (!state.lifetime) state.lifetime = {}
+                  state.lifetime.reward_credits = (state.lifetime.reward_credits || 0) + rewardResult.credits
+                  writeFileSync(statePath, JSON.stringify(state))
+                } catch {}
+              }
+            } catch {}
             // Write outcome to calibration log
             try {
               mkdirSync(getVibeOSHome(), { recursive: true })

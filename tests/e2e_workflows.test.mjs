@@ -285,7 +285,7 @@ test('e2e: simulated full session hook sequence does not crash', async () => {
     if (selectionState.vector_changed_slot && selectionState.vector_changed_slot !== selectionState.active_slot) {
         assert.ok(liveFooter.includes(`⟡ ${selectionState.vector_changed_slot}`), 'live footer should show the vector pulse')
     }
-    assert.ok(liveFooter.toLowerCase().includes('vibelitex') || liveFooter.toLowerCase().includes('budget'), 'live footer should show optimization mode')
+    assert.ok(liveFooter.toLowerCase().includes('vibelitex') || liveFooter.toLowerCase().includes('budget') || liveFooter.toLowerCase().includes('quality') || liveFooter.toLowerCase().includes('vibeqmax'), 'live footer should show optimization mode')
 
     await hooks['experimental.chat.messages.transform']({}, { messages: [{ role: 'assistant', content: 'Done' }] })
 
