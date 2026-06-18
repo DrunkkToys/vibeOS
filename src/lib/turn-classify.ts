@@ -6,7 +6,7 @@ import { homedir, tmpdir } from "node:os"
 import { createHash } from "node:crypto"
 import { ResolutionTracker } from "../vibeOS-lib/blackbox/index.js"
 import { safeJsonParse, _blackboxEnabled, setBlackboxEnabled as _setGlobalBlackboxEnabled, USER_HOME, FILE_LOCK_DIR, DELEGATION_STATE_FILE as STATE_FILE, GLOBAL_LEARNING_FILE, BLACKBOX_STATE_FILE, PROJECT_STATE_FILE, _OC_SID, currentProjectFingerprint, currentTier, setCurrentProjectFingerprint, _handleStateCorruption, _lockPathFor, withFileLock, readJsonOrEmpty, validateState, loadBlackboxState, saveBlackboxState, loadGlobalLearning, updateGlobalLearning, getLearnedExploratoryWords, projectFingerprint, loadProjectState, saveProjectState, detectTechStack, ensureProjectBucket, recordMissedContext7, VIBEOS_HOME, recentToolEvents } from "./state.js"
-import { loadSelection, loadSessionOptMode, loadGlobalOptMode, saveGlobalOptMode, writeSelection, writeSessionOptMode, loadSessionSlot } from "./selection-manager.js"
+import { loadSelection, loadSessionOptMode, loadGlobalOptMode, saveGlobalOptMode, writeSelection, writeSessionOptMode, writeSessionSlot, loadSessionSlot } from "./selection-manager.js"
 import { getApiClient, isApiFallback } from "./api-client.js"
 import { scoreStress, estimateContextBudget, classifyTurnSimple as _classifyTurnSimple, tokenizeWords, topKeywords, extractLastUserText, isUserAskingForTests, isLikelyOffTopic, detectOutcomeSignal } from "./classifiers.js"
 import { vibeqmaxControlVector } from "../vibeOS-lib/blackbox/vibeqmax.js"
@@ -92,7 +92,17 @@ export function resolveOptimizationSlot(mode: OptimizationMode | string | undefi
 
 export function bootstrapOptimizationSession(): { mode: OptimizationMode; slot: "brain" | "medium" | "cheap" } {
   const sid = _OC_SID
-  const resolvedMode = DFLT_OPTIMIZATION_MODE
+  const sel = loadSelection()
+  const sessionMode = loadSessionOptMode(sid)
+  const globalMode = loadGlobalOptMode()
+  const requestedMode = String(sel?.requested_optimization_mode || "").toLowerCase()
+  const persistedMode = String(sel?.optimization_mode || "").toLowerCase()
+  const resolvedMode =
+    (sessionMode && sessionMode !== "auto" ? sessionMode : null) ||
+    (globalMode && globalMode !== "auto" ? globalMode : null) ||
+    (requestedMode && requestedMode !== "auto" ? requestedMode : null) ||
+    (persistedMode && persistedMode !== "auto" ? persistedMode : null) ||
+    DFLT_OPTIMIZATION_MODE
   const resolvedSlot = resolveOptimizationSlot(resolvedMode)
   try {
     writeSessionOptMode(sid, resolvedMode)
