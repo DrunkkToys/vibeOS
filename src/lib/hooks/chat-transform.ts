@@ -207,6 +207,62 @@ function buildProjectBriefing(directory: string): string | null {
   return `[project memory] Active project: ${label}. Stay focused on the current repository and prefer the existing workflow.`
 }
 
+function compactMemoryText(text: string, limit: number): string {
+  const clean = String(text || "").replace(/\s+/g, " ").trim()
+  if (!clean) return ""
+  if (clean.length <= limit) return clean
+  return clean.slice(0, Math.max(0, limit - 1)).trimEnd() + "…"
+}
+
+export function projectMemoryDirective(fp: string): string | null {
+  const pstate = loadProjectState()
+  const proj = fp ? pstate?.project_hashes?.[fp] : null
+  const label = currentProjectName || proj?.projectName || ""
+  if (!label && !proj) return null
+
+  const parts = [`[project memory: compressed] Active project: ${label || "unknown"}.`]
+  if (proj) {
+    const sessionCount = Number(proj.totalSessions || 0)
+    const reportCount = Array.isArray(proj.reports) ? proj.reports.length : 0
+    const topics = Array.isArray(proj.commonTopics) ? proj.commonTopics.slice(0, 3).map((topic: string) => compactMemoryText(topic, 32)).filter(Boolean) : []
+    const techStack = Array.isArray(proj.techStack) ? proj.techStack.slice(0, 3).filter(Boolean) : []
+    parts.push(`Sessions: ${sessionCount}.`)
+    if (reportCount > 0) parts.push(`Reports: ${reportCount}.`)
+    if (proj.researchChains) parts.push(`Research chains: ${proj.researchChains}.`)
+    if (proj.context7Bypasses) parts.push(`Context7 bypasses: ${proj.context7Bypasses}.`)
+    if (techStack.length > 0) parts.push(`Tech: ${techStack.join(", ")}.`)
+    if (topics.length > 0) parts.push(`Topics: ${topics.join(", ")}.`)
+  }
+
+  const patterns = promotedProjectPatterns(fp).slice(0, 3)
+  if (patterns.length > 0) {
+    parts.push(`Patterns: ${patterns.map((ptn) => `[${ptn.label}] ${compactMemoryText(ptn.summary, 96)}`).join(" | ")}.`)
+  }
+  const directive = parts.join(" ")
+  try {
+    const expanded = JSON.stringify({
+      projectName: label || "unknown",
+      totalSessions: Number(proj?.totalSessions || 0),
+      reports: Array.isArray(proj?.reports) ? proj.reports : [],
+      researchChains: Number(proj?.researchChains || 0),
+      context7Bypasses: Number(proj?.context7Bypasses || 0),
+      techStack: Array.isArray(proj?.techStack) ? proj.techStack : [],
+      commonTopics: Array.isArray(proj?.commonTopics) ? proj.commonTopics : [],
+      patterns: patterns.map((ptn) => ({ label: ptn.label, summary: ptn.summary, sessions: ptn.sessions })),
+    })
+    const savedChars = Math.max(0, expanded.length - directive.length)
+    if (savedChars > 0) {
+      const modelRate = cacheSavePer1MInputTokens(currentModel)
+      const rawUsd = Math.max(0.0001, Math.round((savedChars / BYTES_PER_TOKEN) * modelRate / 1_000_000 * 10000) / 10000)
+      const creditedUsd = Math.max(0.0001, Math.round(rawUsd * 0.8 * 10000) / 10000)
+      recordCacheSaving("project-memory", creditedUsd, {
+        hash: createHash("sha256").update(`project-memory\n${fp}\n${directive}\n`).digest("hex").slice(0, 16),
+      })
+    }
+  } catch {}
+  return directive
+}
+
 export function ensureProjectSkill(dir: string, fp: string): { created: boolean; path?: string; skipped: boolean } {
   const skillsDir = join(dir, ".opencode", "skills")
   const projectName = basename(dir)
@@ -1118,12 +1174,8 @@ export const onSystemTransform = async (_input, output) => {
     if (budgetDirective) pushSystem(output, budgetDirective)
 
     // ── One-shots ──
-    if (!oneShot(fp)) {
-      pushSystem(output, buildProjectBriefing(currentProjectName || ""))
-    }
-    if (!oneShot("vibeos_patterns_" + fp)) {
-      const pd = patternDirective(fp)
-      if (pd) pushSystem(output, pd)
+    if (!oneShot("vibeos_project_memory_" + fp)) {
+      pushSystem(output, projectMemoryDirective(fp))
     }
     if (!oneShot("trinity_welcome_" + fp)) {
       pushSystem(output, welcomeDirective())
