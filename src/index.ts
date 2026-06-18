@@ -76,10 +76,21 @@ const CLAIM_PATTERNS = [
   /(?:\d+%|score|scored|passing|passed)/i,
 ]
 function scanClaimsInOutput(output) {
-  if (!output || typeof output !== "string") return
+  let text = ""
+  if (typeof output === "string") {
+    text = output
+  } else if (output && typeof output === "object") {
+    const payload = typeof output.message === "object" && output.message ? output.message : output
+    if (typeof payload.text === "string") text = payload.text
+    else if (typeof payload.result === "string") text = payload.result
+    else if (typeof payload.content === "string") text = payload.content
+    else if (Array.isArray(payload.content)) text = payload.content.filter(p => p?.type === "text").map(p => p.text).filter(Boolean).join("\n")
+    else if (Array.isArray(payload.parts)) text = payload.parts.filter(p => p?.type === "text").map(p => p.text).filter(Boolean).join("\n")
+  }
+  if (!text) return
   try {
     const claims = []
-    const lines = String(output).split(String.fromCharCode(10))
+    const lines = String(text).split(String.fromCharCode(10))
     for (let i = 0; i < lines.length; i++) {
       for (const pat of CLAIM_PATTERNS) {
         if (pat.test(lines[i])) claims.push({ line: i + 1, text: lines[i].trim().substring(0, 120), pattern: pat.source })
@@ -853,8 +864,8 @@ export async function DelegationEnforcer({ client, directory } = {}) {
         setCurrentProjectName(directory ? directory.split("/").pop() : "unknown")
       }
       ensureDeferredBootstrap()
-      await _appendFooter(_input, output, directory)
       scanClaimsInOutput(output)
+      await _appendFooter(_input, output, directory)
       try {
         const auditDir = join(getVibeOSHome(), "cascade-audit")
         const claimFile = join(auditDir, "claim-audit.jsonl")
@@ -894,8 +905,8 @@ export async function DelegationEnforcer({ client, directory } = {}) {
         setCurrentProjectName(directory ? directory.split("/").pop() : "unknown")
       }
       ensureDeferredBootstrap()
-      await _appendFooter(_input, output, directory)
       scanClaimsInOutput(output)
+      await _appendFooter(_input, output, directory)
       // auto-verify: cross-check against cascade-audit
       try {
         const auditDir = join(getVibeOSHome(), "cascade-audit")

@@ -14,6 +14,7 @@ import { buildFooterLine, buildEnforcementTags, resolveBrand } from "./shared-fo
 import { computeReward } from "../../vibeOS-lib/reward-engine.js"
 import { detectLaziness } from "../../vibeOS-lib/laziness-detector.js"
 import { detectLies } from "../../vibeOS-lib/lie-detector.js"
+import { evaluateClaimVerification } from "../claim-verification.js"
 
 const IS_CLI_RUNTIME = Boolean(process.stdout?.isTTY || process.stderr?.isTTY || process.stdin?.isTTY)
 const IS_TEST_RUNTIME = process.env.VIBEOS_MCP_PORT === "0" || process.env.NODE_ENV === "test" || process.env.CI === "true"
@@ -300,36 +301,8 @@ async function _appendFooter(input, output, directory) {
     const rawMode = (typeof loadSelection === "function" ? (loadSelection()?.requested_optimization_mode || loadSelection()?.optimization_mode) : null) || displayMode
     const cv = computeControlVector({ sub_regime: currentSubRegime, latest_stress_multiplier: _footerStress, user_text: latestUserIntent || "" }, undefined, rawMode)
     const vibeBrand = resolveBrand(loadOptimizationMode() || displayMode, activeSlot)
-    let _claimTag = ""
-  let _rewardTag = ""
-    try {
-      const claimAuditFile = join(VIBEOS_HOME, "cascade-audit", "claim-audit.jsonl")
-      const cascadeAuditFile = join(VIBEOS_HOME, "cascade-audit", "cascade-audit.jsonl")
-      if (existsSync(claimAuditFile) && statSync(claimAuditFile).size > 0) {
-        const claimLines = readFileSync(claimAuditFile, "utf-8").trim().split("\n").slice(-10)
-        const cascadeLines = existsSync(cascadeAuditFile) ? readFileSync(cascadeAuditFile, "utf-8").trim().split("\n").slice(-30) : []
-        const cascadeRuns = cascadeLines.filter(Boolean).map(function(l) { try { return JSON.parse(l) } catch {} }).filter(Boolean)
-        let unsub = 0
-        for (const cl of claimLines) {
-          if (!cl.trim()) continue
-          let entry
-          try { entry = JSON.parse(cl) } catch { continue }
-          if (!entry) continue
-          const claimTexts = (entry.claims || []).map(function(c) { return c.text }).join(" | ")
-          let cascadeMatch = false
-          for (const cr of cascadeRuns) {
-            const cTs = cr._ts || ""
-            if (cTs && entry.ts && Math.abs(new Date(cTs).getTime() - new Date(entry.ts).getTime()) < 120000) {
-              cascadeMatch = true
-              break
-            }
-          }
-          if (!cascadeMatch) unsub++
-        }
-        if (unsub > 0) _claimTag = "\u26A0" + unsub
-        else _claimTag = "\u2713"
-      }
-    } catch {}
+    const claimStatus = evaluateClaimVerification({ text, vibeHome: VIBEOS_HOME })
+    let _rewardTag = ""
 
     const vibeLine = buildFooterLine({
       activeSlot,
@@ -346,7 +319,7 @@ async function _appendFooter(input, output, directory) {
       subRegime: currentSubRegime,
       stressGauge: _footerStress > 0.85 ? "█" : _footerStress > 0.7 ? "▆" : _footerStress > 0.5 ? "▅" : _footerStress > 0.3 ? "▃" : _footerStress > 0.1 ? "▂" : "▁",
       cascadeIcon: ((cv?.cascade_depth || 1) >= 3 ? "▸▸▸" : (cv?.cascade_depth || 1) >= 2 ? "▸▸" : ""),
-      claimTag: _claimTag,
+      claimTag: claimStatus.claimTag || undefined,
       rewardTag: _rewardTag || undefined,
     })
     const footerText = stripped + `\n\n${vibeLine}`

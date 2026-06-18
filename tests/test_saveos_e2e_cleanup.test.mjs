@@ -808,6 +808,23 @@ test("saveOS FOOTER: footer appended to completed text", async () => {
   }
 })
 
+test("saveOS FOOTER: same-turn claim status shows checkmark immediately", async () => {
+  const { hooks } = await freshPlugin()
+  const auditDir = join(sandbox, ".claude", "cascade-audit")
+  mkdirSync(auditDir, { recursive: true })
+  writeFileSync(join(auditDir, "claim-audit.jsonl"), "")
+  writeFileSync(join(auditDir, "cascade-audit.jsonl"), JSON.stringify({
+    _ts: new Date().toISOString(),
+    answer_empty: false,
+  }) + "\n")
+
+  const out = {
+    text: "I fixed the bug, verified the release, and the checks are passing now."
+  }
+  await hooks["experimental.text.complete"]({ messageID: "claim-status-sync" }, out)
+  assert.ok(out.text.includes("✓"), "same-turn claim should show the checkmark in the footer")
+})
+
 test("saveOS FOOTER: flash icon shows only after live backend success", { skip: true }, async () => {
   process.env.VIBEOS_API_TOKEN = liveToken
   process.env.VIBEOS_API_ENABLED = "true"
