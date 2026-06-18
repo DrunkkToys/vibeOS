@@ -12265,11 +12265,69 @@ function observeUserCorrection(text) {
   } catch {
   }
 }
-function buildProjectBriefing(directory3) {
-  const label = currentProjectName || (directory3 ? basename3(directory3) : "");
-  if (!label)
+function compactMemoryText(text, limit) {
+  const clean = String(text || "").replace(/\s+/g, " ").trim();
+  if (!clean)
+    return "";
+  if (clean.length <= limit)
+    return clean;
+  return clean.slice(0, Math.max(0, limit - 1)).trimEnd() + "\u2026";
+}
+function projectMemoryDirective(fp2) {
+  const pstate = loadProjectState();
+  const proj = fp2 ? pstate?.project_hashes?.[fp2] : null;
+  const label = currentProjectName || proj?.projectName || "";
+  if (!label && !proj)
     return null;
-  return `[project memory] Active project: ${label}. Stay focused on the current repository and prefer the existing workflow.`;
+  const parts = [`[project memory: compressed] Active project: ${label || "unknown"}.`];
+  if (proj) {
+    const sessionCount = Number(proj.totalSessions || 0);
+    const reportCount = Array.isArray(proj.reports) ? proj.reports.length : 0;
+    const topics = Array.isArray(proj.commonTopics) ? proj.commonTopics.slice(0, 3).map((topic) => compactMemoryText(topic, 32)).filter(Boolean) : [];
+    const techStack = Array.isArray(proj.techStack) ? proj.techStack.slice(0, 3).filter(Boolean) : [];
+    parts.push(`Sessions: ${sessionCount}.`);
+    if (reportCount > 0)
+      parts.push(`Reports: ${reportCount}.`);
+    if (proj.researchChains)
+      parts.push(`Research chains: ${proj.researchChains}.`);
+    if (proj.context7Bypasses)
+      parts.push(`Context7 bypasses: ${proj.context7Bypasses}.`);
+    if (techStack.length > 0)
+      parts.push(`Tech: ${techStack.join(", ")}.`);
+    if (topics.length > 0)
+      parts.push(`Topics: ${topics.join(", ")}.`);
+  }
+  const patterns = promotedProjectPatterns(fp2).slice(0, 3);
+  if (patterns.length > 0) {
+    parts.push(`Patterns: ${patterns.map((ptn) => `[${ptn.label}] ${compactMemoryText(ptn.summary, 96)}`).join(" | ")}.`);
+  }
+  const directive = parts.join(" ");
+  try {
+    const expanded = JSON.stringify({
+      projectName: label || "unknown",
+      totalSessions: Number(proj?.totalSessions || 0),
+      reports: Array.isArray(proj?.reports) ? proj.reports : [],
+      researchChains: Number(proj?.researchChains || 0),
+      context7Bypasses: Number(proj?.context7Bypasses || 0),
+      techStack: Array.isArray(proj?.techStack) ? proj.techStack : [],
+      commonTopics: Array.isArray(proj?.commonTopics) ? proj.commonTopics : [],
+      patterns: patterns.map((ptn) => ({ label: ptn.label, summary: ptn.summary, sessions: ptn.sessions }))
+    });
+    const savedChars = Math.max(0, expanded.length - directive.length);
+    if (savedChars > 0) {
+      const modelRate = cacheSavePer1MInputTokens(currentModel);
+      const rawUsd = Math.max(1e-4, Math.round(savedChars / BYTES_PER_TOKEN * modelRate / 1e6 * 1e4) / 1e4);
+      const creditedUsd = Math.max(1e-4, Math.round(rawUsd * 0.8 * 1e4) / 1e4);
+      recordCacheSaving("project-memory", creditedUsd, {
+        hash: createHash3("sha256").update(`project-memory
+${fp2}
+${directive}
+`).digest("hex").slice(0, 16)
+      });
+    }
+  } catch {
+  }
+  return directive;
 }
 function ensureProjectSkill(dir, fp2) {
   const skillsDir = join16(dir, ".opencode", "skills");
@@ -12823,27 +12881,6 @@ function realityCheckDirective() {
   const scope = view.scope === "project" && view.project_id ? `project:${view.project_id}` : "global";
   return `[reality-check ${scope}] Before saying something is done, complete, ready, successful, trained, fixed, or working, verify the actual files and state on disk. If the user asks for a reality check, read the relevant files first and report only verified facts.`;
 }
-function patternDirective(fp2) {
-  const patterns = promotedProjectPatterns(fp2);
-  if (!patterns || patterns.length === 0)
-    return null;
-  const gl = loadGlobalLearning();
-  const pq = gl.patternQuality || { ignoredCount: 0, trustedCount: 0 };
-  if (pq.ignoredCount > 0 && (pq.trustedCount === 0 || pq.ignoredCount >= pq.trustedCount * 5))
-    return null;
-  const routines = patterns.filter((p) => p.label === "routine");
-  const frictions = patterns.filter((p) => p.label === "friction");
-  const parts = [];
-  if (routines.length > 0) {
-    parts.push("Routines: " + routines.map((r) => r.summary).join("; "));
-  }
-  if (frictions.length > 0) {
-    parts.push("Frictions: " + frictions.map((f) => f.summary).join("; "));
-  }
-  if (parts.length === 0)
-    return null;
-  return "[project patterns] " + parts.join(". ") + ".";
-}
 function welcomeDirective() {
   const sel = loadSelection();
   let tiers = {};
@@ -13084,13 +13121,8 @@ var onSystemTransform = async (_input, output) => {
     const budgetDirective = contextBudgetDirective(_input, output);
     if (budgetDirective)
       pushSystem(output, budgetDirective);
-    if (!oneShot(fp2)) {
-      pushSystem(output, buildProjectBriefing(currentProjectName || ""));
-    }
-    if (!oneShot("vibeos_patterns_" + fp2)) {
-      const pd = patternDirective(fp2);
-      if (pd)
-        pushSystem(output, pd);
+    if (!oneShot("vibeos_project_memory_" + fp2)) {
+      pushSystem(output, projectMemoryDirective(fp2));
     }
     if (!oneShot("trinity_welcome_" + fp2)) {
       pushSystem(output, welcomeDirective());
@@ -13706,31 +13738,7 @@ async function _appendFooter(input, output, directory3) {
     const vibeBrand = resolveBrand(loadOptimizationMode() || displayMode, activeSlot);
     const claimStatus = evaluateClaimVerification({ text, vibeHome: VIBEOS_HOME });
     let _rewardTag = "";
-    const vibeLine = buildFooterLine({
-      activeSlot,
-      providerLabel: execution.provider_label,
-      modelName: modelDisplayName(execution.model),
-      ltTotal,
-      ltTrend: sesTrend,
-      vibeBrand,
-      optMode: displayMode,
-      flashIcon,
-      enfTags,
-      sessionSlot,
-      vectorChangedSlot: selNowFooter?.vector_changed_slot,
-      subRegime: currentSubRegime,
-      stressGauge: _footerStress > 0.85 ? "\u2588" : _footerStress > 0.7 ? "\u2586" : _footerStress > 0.5 ? "\u2585" : _footerStress > 0.3 ? "\u2583" : _footerStress > 0.1 ? "\u2582" : "\u2581",
-      cascadeIcon: (cv?.cascade_depth || 1) >= 3 ? "\u25B8\u25B8\u25B8" : (cv?.cascade_depth || 1) >= 2 ? "\u25B8\u25B8" : "",
-      claimTag: claimStatus.claimTag || void 0,
-      rewardTag: _rewardTag || void 0
-    });
-    const footerText = stripped + `
-
-${vibeLine}`;
-    _footerCacheText = `
-
-${vibeLine}`;
-    _footerCacheTs = Date.now();
+    let _rewardOutcome = null;
     if (_blackboxEnabled) {
       try {
         const prevText = _prevOutputText;
@@ -13744,6 +13752,7 @@ ${vibeLine}`;
           const passiveNegative = isLooping && isStressed && !outcome ? "negative" : null;
           const finalOutcome = outcome || passiveNegative;
           if (finalOutcome) {
+            _rewardOutcome = finalOutcome;
             recordBudgetFirstOutcome({
               outcome: finalOutcome,
               subRegime: regime,
@@ -13793,6 +13802,103 @@ ${vibeLine}`;
       } catch {
       }
     }
+    if (_rewardOutcome && !_rewardTag) {
+      try {
+        const curOutput = _prevOutputText || "";
+        const sesSavings = Number(_footerSavingsCache || 0);
+        const rewardResult = computeReward(buildRewardInput({
+          finalOutcome: _rewardOutcome,
+          assistantText: curOutput,
+          userText: latestUserIntent || "",
+          prevAssistantTexts: _prevAssistantTexts || [],
+          savingsUsd: sesSavings,
+          isBrainTier: (currentTier() || "").toLowerCase() === "high"
+        }));
+        if (rewardResult.credits !== 0) {
+          _rewardTag = rewardResult.credits > 0 ? `+${rewardResult.credits} XP` : `${rewardResult.credits} XP`;
+          try {
+            const statePath = join17(VIBEOS_HOME, "delegation-state.json");
+            const state = safeJsonParse2(readFileSync16(statePath, "utf-8"), {});
+            const sid2 = getCurrentSessionId();
+            if (!state.sessions)
+              state.sessions = {};
+            if (!state.sessions[sid2])
+              state.sessions[sid2] = {};
+            state.sessions[sid2].reward_credits = (state.sessions[sid2].reward_credits || 0) + rewardResult.credits;
+            if (!state.lifetime)
+              state.lifetime = {};
+            state.lifetime.reward_credits = (state.lifetime.reward_credits || 0) + rewardResult.credits;
+            writeFileSync15(statePath, JSON.stringify(state));
+          } catch {
+          }
+        }
+      } catch {
+      }
+    }
+    if (!_rewardTag) {
+      try {
+        const rewardText = _prevOutputText || _extractText2(output) || "";
+        const rewardOutcome = detectOutcomeSignal(rewardText);
+        const rewardRegime = _latestBlackboxState?.sub_regime || classifyTurnSimple2(latestUserIntent || "");
+        const rewardStress = _footerStress;
+        const rewardPassiveNegative = String(rewardRegime || "").toUpperCase() === "LOOPING" && Number(rewardStress || 0) > 0.3 && !rewardOutcome ? "negative" : null;
+        const finalRewardOutcome = rewardOutcome || rewardPassiveNegative;
+        if (finalRewardOutcome) {
+          const rewardResult = computeReward(buildRewardInput({
+            finalOutcome: finalRewardOutcome,
+            assistantText: rewardText,
+            userText: latestUserIntent || "",
+            prevAssistantTexts: _prevAssistantTexts || [],
+            savingsUsd: Number(_footerSavingsCache || 0),
+            isBrainTier: (currentTier() || "").toLowerCase() === "high"
+          }));
+          if (rewardResult.credits !== 0) {
+            _rewardTag = rewardResult.credits > 0 ? `+${rewardResult.credits} XP` : `${rewardResult.credits} XP`;
+            try {
+              const statePath = join17(VIBEOS_HOME, "delegation-state.json");
+              const state = safeJsonParse2(readFileSync16(statePath, "utf-8"), {});
+              const sid2 = getCurrentSessionId();
+              if (!state.sessions)
+                state.sessions = {};
+              if (!state.sessions[sid2])
+                state.sessions[sid2] = {};
+              state.sessions[sid2].reward_credits = (state.sessions[sid2].reward_credits || 0) + rewardResult.credits;
+              if (!state.lifetime)
+                state.lifetime = {};
+              state.lifetime.reward_credits = (state.lifetime.reward_credits || 0) + rewardResult.credits;
+              writeFileSync15(statePath, JSON.stringify(state));
+            } catch {
+            }
+          }
+        }
+      } catch {
+      }
+    }
+    const vibeLine = buildFooterLine({
+      activeSlot,
+      providerLabel: execution.provider_label,
+      modelName: modelDisplayName(execution.model),
+      ltTotal,
+      ltTrend: sesTrend,
+      vibeBrand,
+      optMode: displayMode,
+      flashIcon,
+      enfTags,
+      sessionSlot,
+      vectorChangedSlot: selNowFooter?.vector_changed_slot,
+      subRegime: currentSubRegime,
+      stressGauge: _footerStress > 0.85 ? "\u2588" : _footerStress > 0.7 ? "\u2586" : _footerStress > 0.5 ? "\u2585" : _footerStress > 0.3 ? "\u2583" : _footerStress > 0.1 ? "\u2582" : "\u2581",
+      cascadeIcon: (cv?.cascade_depth || 1) >= 3 ? "\u25B8\u25B8\u25B8" : (cv?.cascade_depth || 1) >= 2 ? "\u25B8\u25B8" : "",
+      claimTag: claimStatus.claimTag || void 0,
+      rewardTag: _rewardTag || void 0
+    });
+    const footerText = stripped + `
+
+${vibeLine}`;
+    _footerCacheText = `
+
+${vibeLine}`;
+    _footerCacheTs = Date.now();
     _setFooter2(output, footerText);
     _lastStrippedText = stripped;
     if (!process.stdout?.isTTY) {
