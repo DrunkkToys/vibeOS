@@ -1,3 +1,13 @@
+## 0.25.50
+- fix: restore reward footer persistence (#274)
+- fix: keep scratchpad cache session-only (#271)
+- test: cover empty reward input (#269)
+ fix pivot counter-pivot handoff + compressed project memory savings (#273)
+fix pivot counter-pivot handoff (#272)
+Merge remote-tracking branch 'origin/release/v0.25.48'
+Stabilize claim status footer (#270)
+
+
 ## 0.25.48
 - feat: reward engine — quality credits, saving bonus, lie/laziness penalties (#266)
 - fix: forward claim evidence into reward scoring (#268)
