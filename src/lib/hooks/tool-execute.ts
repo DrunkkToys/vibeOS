@@ -50,7 +50,6 @@ import {
   incrementTurnCounter,
 } from "../turn-classify.js"
 import { saveReport } from "../reporting.js"
-import { loadCredit } from "../credit-api.js"
 import { getApiClient, remoteCall, isApiFallback, isApiConnected } from "../api-client.js"
 import { getCostAnomalyDetector } from "../cost-anomaly.js"
 import { checkFlowRules, recordFlowTodo } from "../../vibeOS-lib/flow-enforcer.js"
@@ -59,7 +58,6 @@ import { createCacheDatabase, addCacheEntry, recordCacheStats, predictCacheHit, 
 import { buildTestReminder, enforceTestFile } from "../tdd-enforcer.js"
 import { setActiveJobFromTaskPrompt, observeToolPattern, compressText, recordSaving } from "../index-helpers.js"
 import { scoreTaskQuality, readRewardSignals } from "./footer.js"
-import { checkFlowRules as _checkFlowRules, recordFlowTodo } from "../../vibeOS-lib/flow-enforcer.js"
 import { SAVE_EST, WARN_ON_DIRECT, SOFT_QUOTA, FREE, MONITOR } from "../constants.js"
 
 const _warnCounts: Record<string, number> = {}
@@ -85,7 +83,6 @@ let scratchpadHitsSeen = new Set()
 let softQuotaCounts = {}
 let context7AlertedThisSession = false
 let context7Seen = new Set()
-let _cacheSave = 0
 let _prompt = ""
 let _autoReportCount = 0
 let _pendingTodoArgs = null
@@ -355,7 +352,9 @@ export const onToolExecuteBefore = async (input, output) => {
     try {
       const refreshed = await refreshCreditSnapshot()
       if (Number.isFinite(refreshed)) _credit = refreshed
-    } catch {}
+    } catch (creditErr) {
+      if (DEBUG_INTERNALS) console.error(`[vibeOS] credit refresh error: ${creditErr.message}`)
+    }
   }
   if (_credit < 40 && t === "task" && TRINITY_CHEAP && args && typeof args === "object") {
     if (args.model !== TRINITY_CHEAP) {
@@ -505,7 +504,9 @@ export const onToolExecuteBefore = async (input, output) => {
             taskSlotRestore = null
           }
         }
-      } catch {}
+      } catch (taskSlotErr) {
+        if (DEBUG_INTERNALS) console.error(`[vibeOS] task slot workaround error: ${taskSlotErr.message}`)
+      }
       console.error(`[vibeOS] 🔀 Task → ${_target} (${_reason}, orchestrator: ${currentModel})`)
     }
   }
@@ -666,7 +667,9 @@ export const onToolExecuteBefore = async (input, output) => {
             try {
               mkdirSync(dirname(CONTEXT7_INSTALL_FLAG), { recursive: true })
               writeFileSync(CONTEXT7_INSTALL_FLAG, "")
-            } catch {}
+            } catch (c7FlagErr) {
+              if (DEBUG_INTERNALS) console.error(`[vibeOS] context7 flag write error: ${c7FlagErr.message}`)
+            }
             console.error(`[vibeOS] Small win: install context7 MCP to save about ~$0.06/turn on docs: \`claude mcp add context7 npx @upstash/context7-mcp\``)
           } else if (!context7AlertedThisSession) {
             context7AlertedThisSession = true
@@ -692,6 +695,8 @@ export const onToolExecuteBefore = async (input, output) => {
 
 export const onToolExecuteAfter = async (input, output) => {
   _refreshModel(projectDirectory)
+  const t = input?.tool ?? ""
+
   try {
     const start = _dequeueTelemetryStart(input?.tool)
     if (start) {
@@ -720,10 +725,13 @@ export const onToolExecuteAfter = async (input, output) => {
         tdd: loadSelection().tdd_enforce ? "on" : "off",
       })
     }
-  } catch {}
+  } catch (telemetryErr) {
+    if (DEBUG_INTERNALS) console.error(`[vibeOS] telemetry error: ${telemetryErr.message}`)
+  }
 
-  // ── Increment turn counter for compaction trigger ──
-  try { incrementTurnCounter() } catch {}
+  try { incrementTurnCounter() } catch (e) {
+    if (DEBUG_INTERNALS) console.error(`[vibeOS] incrementTurnCounter error: ${e.message}`)
+  }
 
   // ── Generate footer alert (prepended to tool result, visible in chat) ──
   let _footerText = ""
@@ -736,7 +744,9 @@ export const onToolExecuteAfter = async (input, output) => {
       try {
         const cfg = await client.config.get("model")
         if (cfg) liveModel = String(cfg)
-      } catch {}
+      } catch (cfgErr) {
+        if (DEBUG_INTERNALS) console.error(`[vibeOS] config.get error: ${cfgErr.message}`)
+      }
       if (!liveModel) {
         liveModel = readConfig(projectDirectory) || readConfig(join(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || ""
       }
@@ -778,10 +788,6 @@ export const onToolExecuteAfter = async (input, output) => {
         subRegime: currentSubRegime,
       }) + "\n\n"
       const footerTarget = _payload(output)
-      output.title = _footerText.trim()
-      if (footerTarget !== output && footerTarget && typeof footerTarget === "object") {
-        footerTarget.title = _footerText.trim()
-      }
       if (typeof footerTarget?.output === "string") footerTarget.output = _footerText + footerTarget.output
       else if (typeof footerTarget?.result === "string") footerTarget.result = _footerText + footerTarget.result
       else if (typeof footerTarget?.text === "string") footerTarget.text = _footerText + footerTarget.text
@@ -790,20 +796,25 @@ export const onToolExecuteAfter = async (input, output) => {
 
       _autoReportCount = (_autoReportCount || 0) + 1
       if (_autoReportCount % 5 === 0 && ltTotal > 0) {
-        saveReport({
-          type: "session", summary: `Session cost: $${formatUsd(ltCost)} | cache saved: $${formatUsd(ltCache)} | delegation saved: $${formatUsd(ltTasks)}`,
-          metrics: { sessionId: _OC_SID, sessionCost: ltCost, cacheSavings: ltCache, delegationSavingsUsd: ltTasks, model: resolvedModel || currentModel, slot: selNow.active_slot || "unknown" },
-          tags: ["auto", "cost"],
-        })
+        setTimeout(() => {
+          try {
+            saveReport({
+              type: "session", summary: `Session cost: $${formatUsd(ltCost)} | cache saved: $${formatUsd(ltCache)} | delegation saved: $${formatUsd(ltTasks)}`,
+              metrics: { sessionId: _OC_SID, sessionCost: ltCost, cacheSavings: ltCache, delegationSavingsUsd: ltTasks, model: resolvedModel || currentModel, slot: selNow.active_slot || "unknown" },
+              tags: ["auto", "cost"],
+            })
+          } catch (reportErr) {
+            if (DEBUG_INTERNALS) console.error(`[vibeOS] saveReport error: ${reportErr.message}`)
+          }
+        }, 0)
       }
     }
-  } catch {}
+  } catch (footerErr) {
+    if (DEBUG_INTERNALS) console.error(`[vibeOS] footer error: ${footerErr.message}`)
+  }
 
   // ── Increment turn counter for compaction trigger ──
-  try { incrementTurnCounter() } catch {}
-  // ── End footer ──
-
-  const t = input?.tool ?? ""
+  // (already incremented above)
 
   if (t === "trinity") {
     const trinityArgs = input?.args || {}
@@ -812,8 +823,8 @@ export const onToolExecuteAfter = async (input, output) => {
       try {
         const flowTodoFilePath = join(getVibeOSHome(), ".flow-todo-queue.jsonl")
         let todoLines: string[] = []
-        if (require("fs").existsSync(flowTodoFilePath)) {
-          const raw = require("fs").readFileSync(flowTodoFilePath, "utf-8").trim()
+        if (existsSync(flowTodoFilePath)) {
+          const raw = readFileSync(flowTodoFilePath, "utf-8").trim()
           todoLines = raw ? raw.split("\n").filter(Boolean) : []
         }
         let todoList = todoLines.map((l, i) => {
@@ -862,7 +873,9 @@ export const onToolExecuteAfter = async (input, output) => {
         sid: _OC_SID,
         v: 2,
       }) + "\n")
-    } catch {}
+    } catch (ledgerErr) {
+      if (DEBUG_INTERNALS) console.error(`[vibeOS] ledger append error: ${ledgerErr.message}`)
+    }
     updateState((s) => {
       s.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" }
       s.lifetime.quality_total_score = (s.lifetime.quality_total_score || 0) + quality
@@ -919,7 +932,9 @@ export const onToolExecuteAfter = async (input, output) => {
         setCurrentTier(classify(back.ocModel))
         console.error(`[vibeOS] 🔁 task workaround: restored global slot → ${taskSlotRestore}`)
       }
-    } catch {}
+    } catch (slotErr) {
+      if (DEBUG_INTERNALS) console.error(`[vibeOS] task slot restore error: ${slotErr.message}`)
+    }
     taskSlotRestore = null
   }
 
@@ -1000,7 +1015,9 @@ export const onToolExecuteAfter = async (input, output) => {
             state.lifetime.last_updated = new Date().toISOString()
             return state
           })
-        } catch {}
+        } catch (tddStateErr) {
+          if (DEBUG_INTERNALS) console.error(`[vibeOS] tdd followup state error: ${tddStateErr.message}`)
+        }
       }
     }
 
@@ -1029,7 +1046,6 @@ export const onToolExecuteAfter = async (input, output) => {
       }
       // Flow enforcement: extract TODO/FIXME to queue when flow_enforce is on.
       if (sel.flow_enforce) {
-        const { recordFlowTodo } = await import("../../vibeOS-lib/flow-enforcer.js")
         for (const h of flowHits) {
           if (h.id === "todo-comment" && !h.deduped) {
             recordFlowTodo({ filePath, content })
@@ -1089,7 +1105,9 @@ export const onToolExecuteAfter = async (input, output) => {
         }
       }
       console.error("[vibeOS] tracked " + _pendingTodoArgs.length + " todo(s) from todowrite call")
-    } catch {}
+    } catch (todoErr) {
+      if (DEBUG_INTERNALS) console.error(`[vibeOS] todowrite parse error: ${todoErr.message}`)
+    }
     _pendingTodoArgs = null
   }
   applyDecadence()
