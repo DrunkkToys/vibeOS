@@ -146,6 +146,33 @@ function readRewardSignals() {
   }
 }
 
+function buildRewardInput({
+  finalOutcome,
+  assistantText,
+  userText,
+  prevAssistantTexts,
+  savingsUsd,
+  isBrainTier,
+}) {
+  const lazinessResult = detectLaziness({
+    assistantText,
+    writeEditCount: 0,
+    isBrainTier,
+  })
+  const lieResult = detectLies({
+    assistantText,
+    userText,
+    prevAssistantTexts,
+  })
+  return {
+    outcome: finalOutcome,
+    claims: lieResult.claimVsOutcomeMismatch ? lieResult.claims : [],
+    laziness: lazinessResult,
+    savingsUsd,
+    contradictionDetected: lieResult.selfContradiction,
+  }
+}
+
 // Footer content cache — reuse same footer text across hooks within 1s
 let _footerCacheText = ""
 let _footerCacheTs = 0
@@ -351,24 +378,15 @@ async function _appendFooter(input, output, directory) {
             // Reward engine: compute credits based on outcome, claims, laziness, savings
             try {
               const curOutput = _prevOutputText || ""
-              const lazinessResult = detectLaziness({
-                assistantText: curOutput,
-                writeEditCount: 0,
-                isBrainTier: (currentTier() || "").toLowerCase() === "high",
-              })
-              const lieResult = detectLies({
+              const sesSavings = Number(_footerSavingsCache || 0)
+              const rewardResult = computeReward(buildRewardInput({
+                finalOutcome,
                 assistantText: curOutput,
                 userText: latestUserIntent || "",
                 prevAssistantTexts: _prevAssistantTexts || [],
-              })
-              const sesSavings = Number(_footerSavingsCache || 0)
-              const rewardResult = computeReward({
-                outcome: finalOutcome,
-                claims: [],
-                laziness: lazinessResult,
                 savingsUsd: sesSavings,
-                contradictionDetected: lieResult.selfContradiction,
-              })
+                isBrainTier: (currentTier() || "").toLowerCase() === "high",
+              }))
               if (rewardResult.credits !== 0) {
                 _rewardTag = rewardResult.credits > 0 ? `+${rewardResult.credits} XP` : `${rewardResult.credits} XP`
                 try {
@@ -429,4 +447,4 @@ async function _appendFooter(input, output, directory) {
   }
 }
 
-export { _appendFooter, scoreTaskQuality, readRewardSignals }
+export { _appendFooter, scoreTaskQuality, readRewardSignals, buildRewardInput }

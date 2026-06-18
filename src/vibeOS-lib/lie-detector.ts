@@ -43,6 +43,7 @@ export interface LieDetectionInput {
 }
 
 export interface LieDetectionResult {
+  claims: Array<{ line: number; text: string }>
   claimVsOutcomeMismatch: boolean
   selfContradiction: boolean
   detected: boolean
@@ -70,6 +71,7 @@ export function detectLies(input: LieDetectionInput): LieDetectionResult {
   }
 
   return {
+    claims,
     claimVsOutcomeMismatch,
     selfContradiction,
     detected: claimVsOutcomeMismatch || selfContradiction,
