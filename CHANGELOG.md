@@ -1,3 +1,9 @@
+## 0.25.48
+- feat: reward engine — quality credits, saving bonus, lie/laziness penalties (#266)
+- fix: forward claim evidence into reward scoring (#268)
+- fix: preserve quality bootstrap mode (#267)
+
+
 ## 0.25.43
 - fix: restore general friction detection in semantic observer
 - fix: no cascade override when prompt has media
