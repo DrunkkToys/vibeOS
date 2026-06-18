@@ -36,3 +36,21 @@ test("footer reward wiring: no mismatch keeps claim penalty out", () => {
   const result = computeReward(input)
   assert.equal(result.breakdown.liePenalty, 0)
 })
+
+test("footer reward wiring: empty inputs stay safe and only hit laziness", () => {
+  const input = buildRewardInput({
+    finalOutcome: null,
+    assistantText: "",
+    userText: "",
+    prevAssistantTexts: [],
+    savingsUsd: 0,
+    isBrainTier: false,
+  })
+
+  assert.equal(input.claims.length, 0, "empty output should not invent claim evidence")
+
+  const result = computeReward(input)
+  assert.equal(result.breakdown.liePenalty, 0)
+  assert.equal(result.breakdown.lazinessPenalty, -5)
+  assert.equal(result.credits, -5)
+})
