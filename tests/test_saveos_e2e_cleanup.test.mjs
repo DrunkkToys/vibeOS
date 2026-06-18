@@ -163,10 +163,10 @@ test("saveOS AUTO MODE: fresh session seeds litex", async () => {
   const { mod, hooks } = await freshPlugin()
   const turnClassify = await import("../src/lib/turn-classify.js?" + Date.now())
   assert.equal(turnClassify.loadOptimizationMode(), "budget")
-  assert.equal(turnClassify.autoSelectMode("INIT"), "vibelitex")
+  assert.equal(turnClassify.autoSelectMode("INIT"), "quality")
   const cv = turnClassify.computeControlVector({ sub_regime: "INIT", latest_stress_multiplier: 0.2 }, undefined, "auto")
-  assert.equal(cv.optimization_mode, "vibelitex")
-  assert.equal(cv.tier_bias, "medium")
+  assert.equal(cv.optimization_mode, "quality")
+  assert.equal(cv.tier_bias, "brain")
   await hooks["experimental.chat.system.transform"]({}, { system: [] })
 })
 
