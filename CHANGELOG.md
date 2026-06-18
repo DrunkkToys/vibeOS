@@ -1,3 +1,10 @@
+## 0.25.49
+- fix: keep scratchpad cache session-only (#271)
+- test: cover empty reward input (#269)
+Merge remote-tracking branch 'origin/release/v0.25.48'
+Stabilize claim status footer (#270)
+
+
 ## 0.25.48
 - feat: reward engine — quality credits, saving bonus, lie/laziness penalties (#266)
 - fix: forward claim evidence into reward scoring (#268)
