@@ -303,35 +303,15 @@ async function _appendFooter(input, output, directory) {
     const vibeBrand = resolveBrand(loadOptimizationMode() || displayMode, activeSlot)
     const claimStatus = evaluateClaimVerification({ text, vibeHome: VIBEOS_HOME })
     let _rewardTag = ""
-
-    const vibeLine = buildFooterLine({
-      activeSlot,
-      providerLabel: execution.provider_label,
-      modelName: modelDisplayName(execution.model),
-      ltTotal,
-      ltTrend: sesTrend,
-      vibeBrand,
-      optMode: displayMode,
-      flashIcon,
-      enfTags,
-      sessionSlot,
-      vectorChangedSlot: selNowFooter?.vector_changed_slot,
-      subRegime: currentSubRegime,
-      stressGauge: _footerStress > 0.85 ? "█" : _footerStress > 0.7 ? "▆" : _footerStress > 0.5 ? "▅" : _footerStress > 0.3 ? "▃" : _footerStress > 0.1 ? "▂" : "▁",
-      cascadeIcon: ((cv?.cascade_depth || 1) >= 3 ? "▸▸▸" : (cv?.cascade_depth || 1) >= 2 ? "▸▸" : ""),
-      claimTag: claimStatus.claimTag || undefined,
-      rewardTag: _rewardTag || undefined,
-    })
-    const footerText = stripped + `\n\n${vibeLine}`
-    _footerCacheText = `\n\n${vibeLine}`
-    _footerCacheTs = Date.now()
+    let _rewardOutcome = null
+    const prevAssistantTexts = typeof _prevAssistantTexts !== "undefined" && Array.isArray(_prevAssistantTexts) ? _prevAssistantTexts : []
 
     if (_blackboxEnabled) {
       try {
-        const prevText = _prevOutputText
-        _prevOutputText = _extractText(output) || ""
-        if (_prevOutputText && prevText && _prevOutputText !== prevText) {
-          const outcome = detectOutcomeSignal(_prevOutputText)
+                const prevText = _prevOutputText
+                _prevOutputText = _extractText(output) || ""
+                if (_prevOutputText && prevText && _prevOutputText !== prevText) {
+                    const outcome = detectOutcomeSignal(_prevOutputText)
           const regime = _latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || "")
           const stress = _footerStress
           // Passive negative outcome: LOOPING regime + elevated stress = auto-negative
@@ -340,6 +320,7 @@ async function _appendFooter(input, output, directory) {
           const passiveNegative = (isLooping && isStressed) && !outcome ? "negative" : null
           const finalOutcome = outcome || passiveNegative
           if (finalOutcome) {
+            _rewardOutcome = finalOutcome
             recordBudgetFirstOutcome({
               outcome: finalOutcome,
               subRegime: regime,
@@ -347,19 +328,20 @@ async function _appendFooter(input, output, directory) {
             })
             const tracker = getBlackboxTracker()
             tracker.recordOutcome(finalOutcome)
-            syncOutcomeToApi(finalOutcome)
+            try { syncOutcomeToApi(finalOutcome) } catch {}
             // Reward engine: compute credits based on outcome, claims, laziness, savings
             try {
               const curOutput = _prevOutputText || ""
               const sesSavings = Number(_footerSavingsCache || 0)
-              const rewardResult = computeReward(buildRewardInput({
+              const rewardInput = buildRewardInput({
                 finalOutcome,
                 assistantText: curOutput,
                 userText: latestUserIntent || "",
-                prevAssistantTexts: _prevAssistantTexts || [],
+                prevAssistantTexts,
                 savingsUsd: sesSavings,
-                isBrainTier: (currentTier() || "").toLowerCase() === "high",
-              }))
+                isBrainTier: String(currentTier || "").toLowerCase() === "high",
+              })
+              const rewardResult = computeReward(rewardInput)
               if (rewardResult.credits !== 0) {
                 _rewardTag = rewardResult.credits > 0 ? `+${rewardResult.credits} XP` : `${rewardResult.credits} XP`
                 try {
@@ -387,6 +369,93 @@ async function _appendFooter(input, output, directory) {
         }
       } catch {}
     }
+
+    if (_rewardOutcome && !_rewardTag) {
+      try {
+        const curOutput = _prevOutputText || ""
+        const sesSavings = Number(_footerSavingsCache || 0)
+        const rewardResult = computeReward(buildRewardInput({
+          finalOutcome: _rewardOutcome,
+          assistantText: curOutput,
+          userText: latestUserIntent || "",
+          prevAssistantTexts,
+          savingsUsd: sesSavings,
+          isBrainTier: String(currentTier || "").toLowerCase() === "high",
+        }))
+        if (rewardResult.credits !== 0) {
+          _rewardTag = rewardResult.credits > 0 ? `+${rewardResult.credits} XP` : `${rewardResult.credits} XP`
+          try {
+            const statePath = join(VIBEOS_HOME, "delegation-state.json")
+            const state = safeJsonParse(readFileSync(statePath, "utf-8"), {})
+            const sid = getCurrentSessionId()
+            if (!state.sessions) state.sessions = {}
+            if (!state.sessions[sid]) state.sessions[sid] = {}
+            state.sessions[sid].reward_credits = (state.sessions[sid].reward_credits || 0) + rewardResult.credits
+            if (!state.lifetime) state.lifetime = {}
+            state.lifetime.reward_credits = (state.lifetime.reward_credits || 0) + rewardResult.credits
+            writeFileSync(statePath, JSON.stringify(state))
+          } catch {}
+        }
+      } catch {}
+    }
+
+    if (!_rewardTag) {
+      try {
+        const rewardText = _prevOutputText || _extractText(output) || ""
+        const rewardOutcome = detectOutcomeSignal(rewardText)
+        const rewardRegime = _latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || "")
+        const rewardStress = _footerStress
+        const rewardPassiveNegative = (String(rewardRegime || "").toUpperCase() === "LOOPING" && Number(rewardStress || 0) > 0.3 && !rewardOutcome) ? "negative" : null
+        const finalRewardOutcome = rewardOutcome || rewardPassiveNegative
+        if (finalRewardOutcome) {
+          const rewardResult = computeReward(buildRewardInput({
+            finalOutcome: finalRewardOutcome,
+            assistantText: rewardText,
+            userText: latestUserIntent || "",
+            prevAssistantTexts,
+            savingsUsd: Number(_footerSavingsCache || 0),
+            isBrainTier: String(currentTier || "").toLowerCase() === "high",
+          }))
+          if (rewardResult.credits !== 0) {
+            _rewardTag = rewardResult.credits > 0 ? `+${rewardResult.credits} XP` : `${rewardResult.credits} XP`
+            try {
+              const statePath = join(VIBEOS_HOME, "delegation-state.json")
+              const state = safeJsonParse(readFileSync(statePath, "utf-8"), {})
+              const sid = getCurrentSessionId()
+              if (!state.sessions) state.sessions = {}
+              if (!state.sessions[sid]) state.sessions[sid] = {}
+              state.sessions[sid].reward_credits = (state.sessions[sid].reward_credits || 0) + rewardResult.credits
+              if (!state.lifetime) state.lifetime = {}
+              state.lifetime.reward_credits = (state.lifetime.reward_credits || 0) + rewardResult.credits
+              writeFileSync(statePath, JSON.stringify(state))
+            } catch {}
+          }
+        }
+      } catch {}
+    }
+
+    const vibeLine = buildFooterLine({
+      activeSlot,
+      providerLabel: execution.provider_label,
+      modelName: modelDisplayName(execution.model),
+      ltTotal,
+      ltTrend: sesTrend,
+      vibeBrand,
+      optMode: displayMode,
+      flashIcon,
+      enfTags,
+      sessionSlot,
+      vectorChangedSlot: selNowFooter?.vector_changed_slot,
+      subRegime: currentSubRegime,
+      stressGauge: _footerStress > 0.85 ? "█" : _footerStress > 0.7 ? "▆" : _footerStress > 0.5 ? "▅" : _footerStress > 0.3 ? "▃" : _footerStress > 0.1 ? "▂" : "▁",
+      cascadeIcon: ((cv?.cascade_depth || 1) >= 3 ? "▸▸▸" : (cv?.cascade_depth || 1) >= 2 ? "▸▸" : ""),
+      claimTag: claimStatus.claimTag || undefined,
+      rewardTag: _rewardTag || undefined,
+    })
+    const footerText = stripped + `\n\n${vibeLine}`
+    _footerCacheText = `\n\n${vibeLine}`
+    _footerCacheTs = Date.now()
+
     function _setFooter(obj, text) {
       const target = _payload(obj)
       if (typeof target?.text === "string") target.text = text
