@@ -999,7 +999,8 @@ export const onSystemTransform = async (_input, output) => {
         if (pivotResult?.pivot?.injection) {
           pushSystem(output, pivotResult.pivot.injection)
           // Warm smart cache with workflow tool outputs
-          if (pivotResult.pivot.workflowId && pivotResult.pivot.toolOutputs?.length > 0) {
+          const pivotWorkflowId = pivotResult.pivot.workflowId || pivotResult.pivot.matchedId
+          if (pivotWorkflowId && pivotResult.pivot.toolOutputs?.length > 0) {
             try {
               for (const entry of pivotResult.pivot.toolOutputs) {
                 addCacheEntry(

@@ -1011,6 +1011,7 @@ test("v0.20.11 — vibemaxPipeline exports and runs without throwing", async () 
   const r2 = await vibemaxPipeline({ user_text: "deploy to production" })
   assert.equal(r2.pivot_detected, true, "second message: pivot detected")
   assert.equal(r2.mode, "budget", "pivot should route to budget mode")
+  assert.equal(r2.pivot?.workflowId, r2.pivot?.matchedId, "pivot payload should expose workflowId alias")
 })
 
 test("v0.20.11 — vibeqmax exports the experiment router strategy", async () => {

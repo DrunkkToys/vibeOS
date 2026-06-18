@@ -114,6 +114,7 @@ export function vibeultraxPipeline(input = {}) {
     learned_tier: learned?.learnedTier || null,
     learned_support: learned?.support || 0,
     pivot: isPivotBack ? {
+      workflowId: pivotBack.matchedId,
       matchedId: pivotBack.matchedId,
       confidence: pivotBack.confidence,
       reason: pivotBack.reason,
