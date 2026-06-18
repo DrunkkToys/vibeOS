@@ -1538,6 +1538,21 @@ function ensureSessionScratchpadDirs() {
     return false;
   }
 }
+function safeCopyIntoSession(hash, fromPath, targetScratchpadDir = getSessionScratchpadDir()) {
+  try {
+    mkdirSync(targetScratchpadDir, { recursive: true });
+    const sessionPath = join2(targetScratchpadDir, `${hash}.txt`);
+    if (!existsSync2(sessionPath)) {
+      copyFileSync(fromPath, sessionPath);
+      const globalSummary = join2(SCRATCHPAD_GLOBAL_DIR, `${hash}.summary.txt`);
+      const sessionSummary = join2(targetScratchpadDir, `${hash}.summary.txt`);
+      if (existsSync2(globalSummary) && !existsSync2(sessionSummary)) {
+        copyFileSync(globalSummary, sessionSummary);
+      }
+    }
+  } catch {
+  }
+}
 function cleanupCurrentSessionScratchpad() {
   if (_sessionCacheCleaned)
     return;
@@ -1732,52 +1747,6 @@ function indexAppend(hash, tool2, size, extra) {
     console.error(`[vibeOS] index write failed: ${err.message}`);
   }
 }
-function scanRecentScratchpad(dir, titleCase, maxScan = 2e3) {
-  try {
-    if (!existsSync2(dir))
-      return null;
-    const entries = readdirSync(dir);
-    const ptrFiles = entries.filter((e) => e.endsWith(".ptr"));
-    const ptrCandidates = [];
-    for (const pf of ptrFiles) {
-      if (ptrCandidates.length >= MAX_PTR_CANDIDATES)
-        break;
-      try {
-        const st = statSync2(join2(dir, pf));
-        ptrCandidates.push({ ptrPath: join2(dir, pf), mtimeMs: st.mtimeMs });
-      } catch {
-      }
-    }
-    ptrCandidates.sort((a, b) => b.mtimeMs - a.mtimeMs);
-    let scanned = 0;
-    for (const { ptrPath } of ptrCandidates) {
-      if (scanned++ >= maxScan)
-        break;
-      try {
-        const ptrData = safeJsonParse2(readFileSync2(ptrPath, "utf-8"));
-        if (!ptrData?.contentHash)
-          continue;
-        const ptrTool = typeof ptrData.tool === "string" ? TOOL_NAME_NORMALIZE[ptrData.tool] || ptrData.tool : null;
-        if (titleCase && ptrTool && ptrTool !== titleCase)
-          continue;
-        const contentHash = String(ptrData.contentHash);
-        const f = join2(dir, `${contentHash}.txt`);
-        if (!existsSync2(f))
-          continue;
-        const st = statSync2(f);
-        const ageSec = (Date.now() - st.mtimeMs) / 1e3;
-        if (ageSec > SCRATCHPAD_MAX_AGE_SEC)
-          continue;
-        const sumPath = join2(dir, `${contentHash}.summary.txt`);
-        return { hash: contentHash, fullPath: f, sizeBytes: st.size, ageSec: Math.round(ageSec), summaryPath: existsSync2(sumPath) ? sumPath : null };
-      } catch {
-      }
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
 function getScratchpadHit(toolLower, args, baseDir = null) {
   if (!SCRATCHPAD_TOOLS.has(toolLower))
     return null;
@@ -1804,12 +1773,8 @@ ${inputJson}
       } catch {
       }
     }
-    if (!fullPath) {
-      const recent = scanRecentScratchpad(sessionDir, titleCase, 2e3);
-      if (recent)
-        return recent;
+    if (!fullPath)
       return null;
-    }
   }
   try {
     const st = statSync2(fullPath);
@@ -2683,7 +2648,7 @@ function saveSessionCheckpoint() {
   } catch {
   }
 }
-var USER_HOME2, VIBEOS_CONTEXT, VIBEOS_HOME, OPENCODE_HOME, FILE_LOCK_DIR, DELEGATION_STATE_FILE, SAVINGS_LEDGER_FILE, GLOBAL_LEARNING_FILE, PRICING_CACHE_FILE, BLACKBOX_STATE_FILE, PROJECT_STATE_FILE, TIERS_FILE, ACTIVE_JOBS_FILE, AUTH_F, CREDIT_CACHE_F, FLOW_TODO_QUEUE_FILE, FLOW_DEDUP_FILE, ENFORCEMENT_COOLDOWN_FILE, TODOS_FILE, REPORTS_DIR, CONTEXT7_INSTALL_FLAG, TRINITY_OPENCODE_CONFIG, TRINITY_OPENCODE_CONFIGC, SCRATCHPAD_ROOT, SCRATCHPAD_GLOBAL_DIR, SCRATCHPAD_SESSIONS_DIR, SCRATCHPAD_SESSION_TTL_MS, SCRATCHPAD_MAX_AGE_SEC, MAX_SCRATCHPAD_FILES, MAX_SCRATCHPAD_BYTES, MAX_SESSION_SCRATCHPAD_FILES, MAX_SESSION_SCRATCHPAD_BYTES, CORRUPTION_BACKUP_MAX, CORRUPTION_BACKUP_TTL_MS, LEDGER_ROTATE_MAX_BYTES, LEDGER_ROTATE_MAX_LINES, LEDGER_ROTATE_MAX_AGE_MS, ACTIVE_JOBS_STALE_MS, MAX_PTR_CANDIDATES, SUMMARY_HEAD_TRUNCATE, DECADENCE_FRESH_MS, DECADENCE_WARM_MS, DECADENCE_COLD_MS, DECADENCE_EXPIRE_MS, DECADENCE_THROTTLE_MS, DECADENCE_GLOBAL_THROTTLE_MS, TOOL_NAME_NORMALIZE, SCRATCHPAD_TOOLS, WARN_DEDUPE_WINDOW_MS, SOFT_QUOTA_LIMIT, _OC_SID, currentSessionId, _sessionStart, currentTier, currentModel, currentProjectFingerprint, currentProjectName, recentToolEvents, frictionSessionKeys, _savingsCache, _savingsCacheMtime, _ledgerReconciledMtime, _ledgerTotalsCache, _mlGraph, _cacheDb, ML_ENABLED, ML_CONFIDENCE_THRESHOLD, _mlSavePending, _blackboxEnabled, _latestBlackboxState, _latestBlackboxLoopMsg, _latestBlackboxPivotMsg, _modelLocked, _lockedSlot, _lockedModel, _sessionCleanupRegistered, _sessionCacheCleaned, prunedThisProcess, _lastDecadenceRun, briefedProjects, _ledgerBuffer, _ledgerBufferTimer, LEDGER_BUFFER_MAX, LEDGER_BUFFER_FLUSH_MS, testReminderSeen, DFLT_GL, tool, _startupMaintenanceHome, FALLBACK_HIGH, FALLBACK_MID, HIGH_TIER_RE, MID_TIER_RE, scratchpadHitsSeen;
+var USER_HOME2, VIBEOS_CONTEXT, VIBEOS_HOME, OPENCODE_HOME, FILE_LOCK_DIR, DELEGATION_STATE_FILE, SAVINGS_LEDGER_FILE, GLOBAL_LEARNING_FILE, PRICING_CACHE_FILE, BLACKBOX_STATE_FILE, PROJECT_STATE_FILE, TIERS_FILE, ACTIVE_JOBS_FILE, AUTH_F, CREDIT_CACHE_F, FLOW_TODO_QUEUE_FILE, FLOW_DEDUP_FILE, ENFORCEMENT_COOLDOWN_FILE, TODOS_FILE, REPORTS_DIR, CONTEXT7_INSTALL_FLAG, TRINITY_OPENCODE_CONFIG, TRINITY_OPENCODE_CONFIGC, SCRATCHPAD_ROOT, SCRATCHPAD_GLOBAL_DIR, SCRATCHPAD_SESSIONS_DIR, SCRATCHPAD_SESSION_TTL_MS, SCRATCHPAD_MAX_AGE_SEC, MAX_SCRATCHPAD_FILES, MAX_SCRATCHPAD_BYTES, MAX_SESSION_SCRATCHPAD_FILES, MAX_SESSION_SCRATCHPAD_BYTES, CORRUPTION_BACKUP_MAX, CORRUPTION_BACKUP_TTL_MS, LEDGER_ROTATE_MAX_BYTES, LEDGER_ROTATE_MAX_LINES, LEDGER_ROTATE_MAX_AGE_MS, ACTIVE_JOBS_STALE_MS, SUMMARY_HEAD_TRUNCATE, DECADENCE_FRESH_MS, DECADENCE_WARM_MS, DECADENCE_COLD_MS, DECADENCE_EXPIRE_MS, DECADENCE_THROTTLE_MS, DECADENCE_GLOBAL_THROTTLE_MS, TOOL_NAME_NORMALIZE, SCRATCHPAD_TOOLS, WARN_DEDUPE_WINDOW_MS, SOFT_QUOTA_LIMIT, _OC_SID, currentSessionId, _sessionStart, currentTier, currentModel, currentProjectFingerprint, currentProjectName, recentToolEvents, frictionSessionKeys, _savingsCache, _savingsCacheMtime, _ledgerReconciledMtime, _ledgerTotalsCache, _mlGraph, _cacheDb, ML_ENABLED, ML_CONFIDENCE_THRESHOLD, _mlSavePending, _blackboxEnabled, _latestBlackboxState, _latestBlackboxLoopMsg, _latestBlackboxPivotMsg, _modelLocked, _lockedSlot, _lockedModel, _sessionCleanupRegistered, _sessionCacheCleaned, prunedThisProcess, _lastDecadenceRun, briefedProjects, _ledgerBuffer, _ledgerBufferTimer, LEDGER_BUFFER_MAX, LEDGER_BUFFER_FLUSH_MS, testReminderSeen, DFLT_GL, tool, _startupMaintenanceHome, FALLBACK_HIGH, FALLBACK_MID, HIGH_TIER_RE, MID_TIER_RE, scratchpadHitsSeen;
 var init_state = __esm({
   "src/lib/state.js"() {
     "use strict";
@@ -2736,7 +2701,6 @@ var init_state = __esm({
     LEDGER_ROTATE_MAX_LINES = 1e4;
     LEDGER_ROTATE_MAX_AGE_MS = 48 * 60 * 60 * 1e3;
     ACTIVE_JOBS_STALE_MS = 72 * 60 * 60 * 1e3;
-    MAX_PTR_CANDIDATES = 50;
     SUMMARY_HEAD_TRUNCATE = 500;
     DECADENCE_FRESH_MS = 5 * 60 * 1e3;
     DECADENCE_WARM_MS = 60 * 60 * 1e3;
@@ -4787,6 +4751,7 @@ function vibemaxSelectMode(input = {}) {
     amode: "plan",
     cost: 0.3,
     pivot: isPivotBack ? {
+      workflowId: pivotBack.matchedId,
       matchedId: pivotBack.matchedId,
       confidence: pivotBack.confidence,
       injection,
@@ -5095,6 +5060,7 @@ function vibeultraxPipeline(input = {}) {
     learned_tier: learned?.learnedTier || null,
     learned_support: learned?.support || 0,
     pivot: isPivotBack ? {
+      workflowId: pivotBack.matchedId,
       matchedId: pivotBack.matchedId,
       confidence: pivotBack.confidence,
       reason: pivotBack.reason,
@@ -11258,7 +11224,7 @@ import { join as join16, dirname as dirname10, basename as basename3 } from "nod
 import { createHash as createHash3 } from "node:crypto";
 import { homedir as homedir6 } from "node:os";
 
-// src/lib/claim-verification.ts
+// src/lib/claim-verification.js
 import { existsSync as existsSync14, readFileSync as readFileSync13 } from "node:fs";
 import { join as join13 } from "node:path";
 var CLAIM_PATTERNS = [
@@ -11269,7 +11235,8 @@ var CLAIM_PATTERNS = [
   /(?:exit\s*code\s*0|0\s*errors|0\s*failures)/i
 ];
 function extractClaimMatches(text) {
-  if (!text || typeof text !== "string") return [];
+  if (!text || typeof text !== "string")
+    return [];
   const claims = [];
   const lines = String(text).split("\n");
   for (let i = 0; i < lines.length; i++) {
@@ -11285,9 +11252,11 @@ function extractClaimMatches(text) {
 function loadRecentCascadeRuns(vibeHome) {
   try {
     const cascadeFile = join13(vibeHome, "cascade-audit", "cascade-audit.jsonl");
-    if (!existsSync14(cascadeFile)) return [];
+    if (!existsSync14(cascadeFile))
+      return [];
     const raw = readFileSync13(cascadeFile, "utf-8");
-    if (!raw || typeof raw !== "string") return [];
+    if (!raw || typeof raw !== "string")
+      return [];
     return raw.trim().split("\n").filter(Boolean).slice(-30).map((l) => {
       try {
         return JSON.parse(l);
@@ -11299,14 +11268,10 @@ function loadRecentCascadeRuns(vibeHome) {
     return [];
   }
 }
-function evaluateClaimVerification({
-  text,
-  vibeHome = process.env.VIBEOS_HOME || join13(process.env.HOME || "", ".claude"),
-  now = Date.now(),
-  windowMs = 12e4
-}) {
+function evaluateClaimVerification({ text, vibeHome = process.env.VIBEOS_HOME || join13(process.env.HOME || "", ".claude"), now = Date.now(), windowMs = 12e4 }) {
   const claims = extractClaimMatches(text);
-  if (claims.length === 0) return { claims, unsubstantiatedCount: 0, claimTag: "" };
+  if (claims.length === 0)
+    return { claims, unsubstantiatedCount: 0, claimTag: "" };
   const cascadeRuns = loadRecentCascadeRuns(vibeHome);
   const substantiated = cascadeRuns.some((cr) => {
     const cTs = typeof cr === "object" && cr ? cr._ts || "" : "";
@@ -12587,6 +12552,7 @@ ${raw}
           if (existsSync16(sessPath))
             rmSync5(sessPath, { force: true });
         }
+        safeCopyIntoSession(hash, globalPath);
         const invPart = parts.slice(0, parts.indexOf(part)).reverse().find((p) => p?.type === "tool" && p?.tool === part.tool && p?.state?.input && p?.state?.status !== "completed");
         if (invPart?.state?.input) {
           const toolKey2 = TOOL_NAME_NORMALIZE[part.tool] || part.tool;
@@ -13036,7 +13002,8 @@ var onSystemTransform = async (_input, output) => {
         }
         if (pivotResult?.pivot?.injection) {
           pushSystem(output, pivotResult.pivot.injection);
-          if (pivotResult.pivot.workflowId && pivotResult.pivot.toolOutputs?.length > 0) {
+          const pivotWorkflowId = pivotResult.pivot.workflowId || pivotResult.pivot.matchedId;
+          if (pivotWorkflowId && pivotResult.pivot.toolOutputs?.length > 0) {
             try {
               for (const entry of pivotResult.pivot.toolOutputs) {
                 addCacheEntry(_cacheDb, entry.hash, entry.tool, entry.prompt, entry.sizeBytes || 1024, entry.ageSec || 3600);
