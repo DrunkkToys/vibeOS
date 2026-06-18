@@ -140,6 +140,31 @@ test("SC4: project-scoped baseDir shares within project", async () => {
   } finally { cleanup() }
 })
 
+test("SC4b: session mirror restores hits without cross-session bleed", async () => {
+  const h = makeSandbox("sc4b")
+  try {
+    const sARoot = sessionDir("sess-A")
+    const sBRoot = sessionDir("sess-B")
+    const sA = join(sARoot, "by-hash")
+    const sB = join(sBRoot, "by-hash")
+    const api = await importState()
+    const tool = "bash"
+    const args = { command: "echo hello cache" }
+    const hash = cacheHash(tool, args)
+    const globalDir = join(h, ".claude/scratch/by-hash")
+    writeFileSync(join(globalDir, `${hash}.txt`), "session-A-body")
+    writeFileSync(join(globalDir, `${hash}.summary.txt`), "session-A-summary")
+
+    api.safeCopyIntoSession(hash, join(globalDir, `${hash}.txt`), sA)
+
+    const hitA = api.getScratchpadHit(tool, args, sA)
+    assert.notEqual(hitA, null, "session A sees its mirrored cache")
+    assert.equal(readFileSync(hitA.fullPath, "utf8"), "session-A-body")
+    assert.equal(readFileSync(hitA.summaryPath, "utf8"), "session-A-summary")
+    assert.equal(api.getScratchpadHit(tool, args, sB), null, "session B does not see session A mirror")
+  } finally { cleanup() }
+})
+
 test("SC5: old user-wide by-hash dir NOT consulted", async () => {
   const h = makeSandbox("sc5")
   try {

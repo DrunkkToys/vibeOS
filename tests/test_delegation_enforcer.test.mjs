@@ -681,7 +681,7 @@ test("getScratchpadHit: ignores dangling pointer files", async () => {
   assert.equal(getScratchpadHit("bash", args, tmp), null)
 })
 
-test("getScratchpadHit: falls back to recent same-tool pointer target when exact hash is missing", async () => {
+test("getScratchpadHit: does not fall back to recent same-tool pointer target when exact hash is missing", async () => {
   const { createHash } = await import("node:crypto")
   const { getScratchpadHit } = await loadPlugin()
   const tmp = mkdtempSync(join(tmpdir(), "scratchpad-recent-ptr-"))
@@ -692,10 +692,7 @@ test("getScratchpadHit: falls back to recent same-tool pointer target when exact
   writeFileSync(join(tmp, `${contentHash}.txt`), "x".repeat(1536))
   writeFileSync(join(tmp, `${recentInputHash}.ptr`), JSON.stringify({ contentHash, tool: "bash" }))
 
-  const hit = getScratchpadHit("bash", args, tmp)
-  assert.ok(hit, "recent pointer fallback should resolve")
-  assert.equal(hit.hash, contentHash)
-  assert.equal(hit.fullPath.endsWith(`${contentHash}.txt`), true)
+  assert.equal(getScratchpadHit("bash", args, tmp), null, "recent pointer fallback should not resolve")
 })
 
 test("getScratchpadHit: does not reuse unrelated recent scratchpad content", async () => {

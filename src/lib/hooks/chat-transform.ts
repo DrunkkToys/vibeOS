@@ -23,7 +23,7 @@ import {
   setCurrentModel, setCurrentTier,
   setCurrentProjectFingerprint, setCurrentProjectName,
   stableJson, TOOL_NAME_NORMALIZE,
-  _cacheDb, recordCacheSaving, getOpenCodeHome,
+  _cacheDb, recordCacheSaving, getOpenCodeHome, safeCopyIntoSession,
 } from "../state.js"
 import { memoCompute, nextTurn } from "../turn-memo.js"
 import { evaluateClaimVerification } from "../claim-verification.js"
@@ -483,6 +483,7 @@ function compressToolOutputs(messages: any[]): number {
           // Clean up any existing session-local copy
           if (existsSync(sessPath)) rmSync(sessPath, { force: true })
         }
+        safeCopyIntoSession(hash, globalPath)
 
         // Create pointer file for input-hash-based lookup
         const invPart = parts.slice(0, parts.indexOf(part)).reverse().find(

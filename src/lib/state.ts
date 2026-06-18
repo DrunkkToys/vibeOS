@@ -698,14 +698,14 @@ function ensureSessionScratchpadDirs(): boolean {
   } catch { return false }
 }
 
-function safeCopyIntoSession(hash: string, fromPath: string): void {
+function safeCopyIntoSession(hash: string, fromPath: string, targetScratchpadDir: string = getSessionScratchpadDir()): void {
   try {
-    if (!ensureSessionScratchpadDirs()) return
-    const sessionPath = join(getSessionScratchpadDir(), `${hash}.txt`)
+    mkdirSync(targetScratchpadDir, { recursive: true })
+    const sessionPath = join(targetScratchpadDir, `${hash}.txt`)
     if (!existsSync(sessionPath)) {
       copyFileSync(fromPath, sessionPath)
       const globalSummary = join(SCRATCHPAD_GLOBAL_DIR, `${hash}.summary.txt`)
-      const sessionSummary = join(getSessionScratchpadDir(), `${hash}.summary.txt`)
+      const sessionSummary = join(targetScratchpadDir, `${hash}.summary.txt`)
       if (existsSync(globalSummary) && !existsSync(sessionSummary)) {
         copyFileSync(globalSummary, sessionSummary)
       }
@@ -1026,11 +1026,7 @@ function getScratchpadHit(toolLower: string, args: any, baseDir: string | null =
         }
       } catch {}
     }
-    if (!fullPath) {
-      const recent = scanRecentScratchpad(sessionDir, titleCase, 2000)
-      if (recent) return recent
-      return null
-    }
+    if (!fullPath) return null
   }
   try {
     const st = statSync(fullPath)
