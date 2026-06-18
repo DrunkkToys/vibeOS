@@ -2793,599 +2793,6 @@ var init_state = __esm({
   }
 });
 
-// src/vibeOS-lib/flow-enforcer.js
-var flow_enforcer_exports = {};
-__export(flow_enforcer_exports, {
-  addFlowRule: () => addFlowRule,
-  checkFlowRules: () => checkFlowRules,
-  ensureProjectDocs: () => ensureProjectDocs,
-  getFlowTodos: () => getFlowTodos,
-  getFlowWarns: () => getFlowWarns,
-  getRealityCheckView: () => getRealityCheckView,
-  getSessionFlowCounts: () => getSessionFlowCounts,
-  recordFlowTodo: () => recordFlowTodo,
-  resetAll: () => resetAll,
-  resetForTest: () => resetForTest,
-  resolveRulesPath: () => resolveRulesPath,
-  setFlowStateWriter: () => setFlowStateWriter,
-  syncFlowTodosToNative: () => syncFlowTodosToNative
-});
-import { readFileSync as readFileSync3, existsSync as existsSync3, mkdirSync as mkdirSync2, writeFileSync as writeFileSync3, statSync as statSync3, appendFileSync as appendFileSync3, renameSync as renameSync3 } from "node:fs";
-import { join as join3, dirname as dirname2 } from "node:path";
-import { fileURLToPath } from "node:url";
-function getVibeOSHome3() {
-  return process.env.VIBEOS_HOME || join3(process.env.HOME || "", ".claude");
-}
-function safeJsonParse3(raw) {
-  if (raw == null || raw === "")
-    return null;
-  try {
-    return JSON.parse(raw);
-  } catch {
-  }
-  let cleaned = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "").replace(/,\s*([}\]])/g, "$1");
-  try {
-    return JSON.parse(cleaned);
-  } catch {
-    return null;
-  }
-}
-function getRealityCheckSettingsFile() {
-  return join3(getVibeOSHome3(), "reality-check-settings.json");
-}
-function resolveRulesPath() {
-  if (process.env.VIBEOS_FLOW_RULES_PATH && existsSync3(process.env.VIBEOS_FLOW_RULES_PATH)) {
-    return process.env.VIBEOS_FLOW_RULES_PATH;
-  }
-  for (const candidate of RULES_PATH_CANDIDATES) {
-    if (existsSync3(candidate))
-      return candidate;
-  }
-  const override = process.env.VIBEOS_FLOW_RULES_PATH;
-  if (override)
-    return override;
-  return RULES_PATH_CANDIDATES[0];
-}
-function ensureProjectDocs(dir, techStack) {
-  const created = [];
-  const skipped = [];
-  const agentsPath = join3(dir, "AGENTS.md");
-  const readmePath = join3(dir, "README.md");
-  try {
-    if (!existsSync3(agentsPath)) {
-      try {
-        writeFileSync3(agentsPath, GUARD_AGENTS_TEMPLATE, "utf-8");
-        created.push("AGENTS.md");
-        console.error("[vibeOS] Project Guard: created AGENTS.md");
-      } catch (err) {
-        console.error(`[vibeOS] Project Guard: failed to create AGENTS.md: ${err.message}`);
-      }
-    } else {
-      skipped.push("AGENTS.md");
-    }
-  } catch {
-  }
-  try {
-    if (!existsSync3(readmePath)) {
-      const name = dir ? dir.split("/").pop() || "Project" : "Project";
-      const stack = techStack || [];
-      const content = GUARD_README_TEMPLATE(name, stack);
-      try {
-        writeFileSync3(readmePath, content, "utf-8");
-        created.push("README.md");
-        console.error("[vibeOS] Project Guard: created README.md");
-      } catch (err) {
-        console.error(`[vibeOS] Project Guard: failed to create README.md: ${err.message}`);
-      }
-    } else {
-      skipped.push("README.md");
-    }
-  } catch {
-  }
-  return { created, skipped };
-}
-function getStateFile() {
-  return join3(getVibeOSHome3(), "delegation-state.json");
-}
-function getFlowTodoFile() {
-  return join3(getVibeOSHome3(), ".flow-todo-queue.jsonl");
-}
-function setFlowStateWriter(writer) {
-  _stateWriter = typeof writer === "function" ? writer : null;
-}
-function loadFlowDedupKeys() {
-  try {
-    if (existsSync3(FLOW_DEDUP_FILE2)) {
-      const raw = readFileSync3(FLOW_DEDUP_FILE2, "utf-8");
-      const keys = safeJsonParse3(raw);
-      if (Array.isArray(keys)) {
-        for (const k of keys)
-          _flowWarnsSeen.add(k);
-      }
-    }
-  } catch {
-  }
-}
-function persistFlowDedupKey(key) {
-  try {
-    mkdirSync2(dirname2(FLOW_DEDUP_FILE2), { recursive: true });
-    let keys = [];
-    if (existsSync3(FLOW_DEDUP_FILE2)) {
-      try {
-        keys = safeJsonParse3(readFileSync3(FLOW_DEDUP_FILE2, "utf-8"));
-      } catch {
-      }
-      if (!Array.isArray(keys))
-        keys = [];
-    }
-    if (!keys.includes(key)) {
-      keys.push(key);
-      if (keys.length > 1e3)
-        keys = keys.slice(-500);
-      writeFileSync3(FLOW_DEDUP_FILE2, JSON.stringify(keys), "utf-8");
-    }
-  } catch {
-  }
-}
-function normalizeRule(rule) {
-  if (!rule || typeof rule !== "object")
-    return null;
-  const id2 = String(rule.id || "").trim();
-  const trigger = String(rule.trigger || "").trim();
-  const pattern = String(rule.pattern || "").trim();
-  const severity = String(rule.severity || "").trim();
-  if (!id2 || !trigger || !pattern || !["warn", "hint", "flag"].includes(severity))
-    return null;
-  return {
-    id: id2,
-    trigger,
-    pattern,
-    severity,
-    description: typeof rule.description === "string" ? rule.description : void 0
-  };
-}
-function defaultRealityCheckRules() {
-  return [
-    {
-      id: "require-read-before-claim",
-      severity: "warn",
-      trigger: "Edit",
-      pattern: "(?i)\\b(done|complete|success|trained|ready|works|fixed)\\b",
-      description: "Success claim detected \u2014 verify live state before asserting completion"
-    },
-    {
-      id: "verify-state-on-disk",
-      severity: "flag",
-      trigger: "Edit",
-      pattern: "(?i)\\b(assume|guess|probably|likely|maybe|seems|appears)\\b",
-      description: "Inference language detected \u2014 verify actual files/state first"
-    },
-    {
-      id: "postmortem-trigger",
-      severity: "warn",
-      trigger: "Edit",
-      pattern: "(?i)\\breality check\\b",
-      description: "Reality check requested \u2014 read and verify live state before reporting"
-    }
-  ];
-}
-function readRealityCheckSettings() {
-  const settingsFile = getRealityCheckSettingsFile();
-  const settingsMtime = existsSync3(settingsFile) ? statSync3(settingsFile).mtimeMs : 0;
-  if (_cachedRealityCheck && settingsMtime === _realityCheckMtime) {
-    return _cachedRealityCheck;
-  }
-  let parsed = {};
-  try {
-    if (existsSync3(settingsFile)) {
-      const raw = readFileSync3(settingsFile, "utf-8");
-      const json2 = safeJsonParse3(raw);
-      if (json2 && typeof json2 === "object")
-        parsed = json2;
-    }
-  } catch {
-  }
-  const globalRules = Array.isArray(parsed.global?.rules) ? parsed.global.rules : defaultRealityCheckRules();
-  _cachedRealityCheck = {
-    version: 1,
-    global: {
-      enabled: parsed.global?.enabled !== false,
-      rules: globalRules.map(normalizeRule).filter(Boolean)
-    },
-    projects: parsed.projects && typeof parsed.projects === "object" ? parsed.projects : {}
-  };
-  _realityCheckMtime = settingsMtime;
-  return _cachedRealityCheck;
-}
-function getRealityCheckRulesForProject(projectFingerprint2 = currentProjectFingerprint || "") {
-  const settings = readRealityCheckSettings();
-  const fp2 = String(projectFingerprint2 || "").trim();
-  const project = fp2 && settings.projects?.[fp2] ? settings.projects[fp2] : null;
-  const scope = project ? "project" : "global";
-  const enabled = scope === "project" ? project?.enabled ?? settings.global?.enabled !== false : settings.global?.enabled !== false;
-  const source = scope === "project" ? Array.isArray(project?.rules) && project?.rules.length > 0 ? project.rules : settings.global?.rules || defaultRealityCheckRules() : settings.global?.rules || defaultRealityCheckRules();
-  if (!enabled)
-    return [];
-  const seen = /* @__PURE__ */ new Map();
-  for (const rule of source) {
-    const normalized = normalizeRule(rule);
-    if (!normalized || !REALITY_CHECK_RULE_IDS.has(normalized.id))
-      continue;
-    seen.set(normalized.id, normalized);
-  }
-  if (seen.size === 0) {
-    for (const rule of defaultRealityCheckRules()) {
-      const normalized = normalizeRule(rule);
-      if (normalized && REALITY_CHECK_RULE_IDS.has(normalized.id))
-        seen.set(normalized.id, normalized);
-    }
-  }
-  return Array.from(seen.values());
-}
-function getRealityCheckView(projectFingerprint2 = currentProjectFingerprint || "") {
-  const settings = readRealityCheckSettings();
-  const fp2 = String(projectFingerprint2 || "").trim();
-  const project = fp2 && settings.projects?.[fp2] ? settings.projects[fp2] : null;
-  const scope = project ? "project" : "global";
-  const enabled = scope === "project" ? project?.enabled ?? settings.global?.enabled !== false : settings.global?.enabled !== false;
-  const rules = getRealityCheckRulesForProject(fp2);
-  return {
-    scope,
-    project_id: project ? fp2 : null,
-    enabled,
-    rules
-  };
-}
-function mergeManagedRules(baseRules, managedRules) {
-  const base = baseRules.filter((rule) => !REALITY_CHECK_RULE_IDS.has(rule.id));
-  const seen = new Set(base.map((rule) => rule.id));
-  const merged = [...base];
-  for (const rule of managedRules) {
-    if (!rule || seen.has(rule.id))
-      continue;
-    merged.push(rule);
-    seen.add(rule.id);
-  }
-  return merged;
-}
-function compileFlowPattern(pattern) {
-  const source = String(pattern || "").trim();
-  if (!source)
-    return new RegExp("$^");
-  if (source.startsWith("(?i)")) {
-    return new RegExp(source.slice(4), "i");
-  }
-  return new RegExp(source);
-}
-function loadRules() {
-  const rulesPath = resolveRulesPath();
-  try {
-    const rulesMtime = existsSync3(rulesPath) ? statSync3(rulesPath).mtimeMs : 0;
-    const realityFile = getRealityCheckSettingsFile();
-    const realityMtime = existsSync3(realityFile) ? statSync3(realityFile).mtimeMs : 0;
-    const scopeKey = String(currentProjectFingerprint || "");
-    const cacheKey = `${rulesMtime}:${realityMtime}:${scopeKey}`;
-    if (_cachedRules && _realityCheckCacheKey === "__test__")
-      return _cachedRules;
-    if (_cachedRules && cacheKey === _realityCheckCacheKey)
-      return _cachedRules;
-    if (!existsSync3(rulesPath)) {
-      _cachedRules = mergeManagedRules([], getRealityCheckRulesForProject(scopeKey));
-      _realityCheckCacheKey = cacheKey;
-      return _cachedRules;
-    }
-    const j = safeJsonParse3(readFileSync3(rulesPath, "utf-8"));
-    const baseRules = Array.isArray(j.rules) ? j.rules.map(normalizeRule).filter(Boolean) : [];
-    _cachedRules = mergeManagedRules(baseRules, getRealityCheckRulesForProject(scopeKey));
-    _rulesMtime = rulesMtime;
-    _realityCheckCacheKey = cacheKey;
-    return _cachedRules;
-  } catch {
-    _cachedRules = [];
-    return _cachedRules;
-  }
-}
-function recordFlowWarn(hit) {
-  try {
-    let state = {};
-    const stateFile = getStateFile();
-    if (existsSync3(stateFile)) {
-      try {
-        state = safeJsonParse3(readFileSync3(stateFile, "utf-8"));
-      } catch {
-      }
-    } else {
-      mkdirSync2(dirname2(stateFile), { recursive: true });
-    }
-    state.flow_warns ??= [];
-    const dedupKey = `${hit.id}|${hit.filePath}`;
-    const anyExisting = state.flow_warns.some((w) => {
-      const wKey = `${w.rule_id}|${w.filePath}`;
-      return wKey === dedupKey;
-    });
-    if (!anyExisting) {
-      state.flow_warns.push({
-        at: (/* @__PURE__ */ new Date()).toISOString(),
-        sid: process.pid || "?",
-        rule_id: hit.id,
-        severity: hit.severity,
-        filePath: hit.filePath,
-        description: hit.description
-      });
-    }
-    if (state.flow_warns.length > 200) {
-      state.flow_warns = state.flow_warns.slice(-200);
-    }
-    const fp2 = { flow_warns: state.flow_warns };
-    if (_stateWriter)
-      _stateWriter(fp2);
-    else {
-      const stateFile2 = getStateFile();
-      const existing = safeJsonParse3(existsSync3(stateFile2) ? readFileSync3(stateFile2, "utf-8") : "{}");
-      const merged = Object.assign({}, existing, fp2);
-      const tmpFile = stateFile2 + ".tmp." + Date.now();
-      writeFileSync3(tmpFile, JSON.stringify(merged, null, 2));
-      renameSync3(tmpFile, stateFile2);
-    }
-  } catch {
-  }
-}
-function checkFlowRules({ tool: tool2, filePath, content }) {
-  const rules = loadRules();
-  const hits = [];
-  const toolName = String(tool2 || "").trim().toLowerCase();
-  for (const rule of rules) {
-    const triggerName = String(rule.trigger || "").trim().toLowerCase();
-    if (triggerName !== toolName)
-      continue;
-    const target = toolName === "write" ? filePath || "" : content || filePath || "";
-    let re;
-    try {
-      re = compileFlowPattern(rule.pattern);
-    } catch {
-      continue;
-    }
-    if (!re.test(target))
-      continue;
-    const key = `${rule.id}::${filePath || ""}`;
-    if (_flowWarnsSeen.has(key)) {
-      hits.push({ ...rule, filePath, deduped: true });
-      continue;
-    }
-    _flowWarnsSeen.add(key);
-    persistFlowDedupKey(key);
-    const hit = { ...rule, filePath, deduped: false };
-    hits.push(hit);
-    recordFlowWarn(hit);
-  }
-  return hits;
-}
-function getFlowWarns() {
-  try {
-    const stateFile = getStateFile();
-    if (!existsSync3(stateFile))
-      return [];
-    const s = safeJsonParse3(readFileSync3(stateFile, "utf-8"));
-    return s?.flow_warns || [];
-  } catch {
-    return [];
-  }
-}
-function getSessionFlowCounts() {
-  const counts = { warn: 0, hint: 0, flag: 0 };
-  const rules = loadRules();
-  for (const key of _flowWarnsSeen) {
-    const [ruleId] = key.split("::");
-    const rule = rules.find((r) => r.id === ruleId);
-    if (rule && counts[rule.severity] !== void 0)
-      counts[rule.severity]++;
-  }
-  return counts;
-}
-function resetForTest(rules) {
-  _cachedRules = rules;
-  _flowWarnsSeen.clear();
-  _cachedRealityCheck = null;
-  _realityCheckMtime = 0;
-  _realityCheckCacheKey = "__test__";
-  try {
-    _rulesMtime = statSync3(resolveRulesPath()).mtimeMs;
-  } catch {
-  }
-}
-function resetAll() {
-  _flowWarnsSeen.clear();
-  _cachedRules = null;
-  _rulesMtime = 0;
-  _cachedRealityCheck = null;
-  _realityCheckMtime = 0;
-  _realityCheckCacheKey = "";
-}
-function addFlowRule(rule) {
-  const rules = loadRules();
-  rules.push(rule);
-  writeFileSync3(resolveRulesPath(), JSON.stringify({ rules }, null, 2), "utf-8");
-  _cachedRules = rules;
-  _rulesMtime = statSync3(resolveRulesPath()).mtimeMs;
-}
-function recordFlowTodo({ filePath, content }) {
-  try {
-    const flowTodoFile = getFlowTodoFile();
-    mkdirSync2(dirname2(flowTodoFile), { recursive: true });
-    const todoRe = /(?:\/\/\s*|\#\s*)(TODO|FIXME|HACK)[\s:]+(.+)$/i;
-    const todos = [];
-    for (const line of content.split("\n")) {
-      const m = line.match(todoRe);
-      if (m) {
-        todos.push({ type: m[1], text: m[2].trim() });
-      }
-    }
-    if (todos.length === 0)
-      return 0;
-    const dedupKey = `${filePath || ""}::${todos.map((t) => `${t.type}:${t.text}`).join("|")}`;
-    const existingLines = existsSync3(flowTodoFile) ? readFileSync3(flowTodoFile, "utf-8").trim().split("\n").filter(Boolean) : [];
-    const existingKeys = /* @__PURE__ */ new Set();
-    for (const line of existingLines) {
-      try {
-        const entry2 = safeJsonParse3(line);
-        if (entry2 && entry2.filePath && entry2.todos) {
-          const key = `${entry2.filePath}::${entry2.todos.map((t) => `${t.type}:${t.text}`).join("|")}`;
-          existingKeys.add(key);
-        }
-      } catch {
-      }
-    }
-    if (existingKeys.has(dedupKey))
-      return 0;
-    const entry = JSON.stringify({
-      at: (/* @__PURE__ */ new Date()).toISOString(),
-      filePath,
-      todos
-    }) + "\n";
-    appendFileSync3(flowTodoFile, entry);
-    try {
-      const lines = readFileSync3(flowTodoFile, "utf-8").trim().split("\n").filter(Boolean);
-      if (lines.length > MAX_FLOW_TODOS) {
-        writeFileSync3(flowTodoFile, lines.slice(-Math.floor(MAX_FLOW_TODOS / 2)).join("\n") + "\n");
-      }
-    } catch {
-    }
-    console.error(`[flow-enforcer] \u{1F4CB} Extracted ${todos.length} TODO(s) from ${filePath} \u2192 .flow-todo-queue.jsonl`);
-    return todos.length;
-  } catch {
-    return 0;
-  }
-}
-function getFlowTodos() {
-  try {
-    const flowTodoFile = getFlowTodoFile();
-    if (!existsSync3(flowTodoFile))
-      return [];
-    const raw = readFileSync3(flowTodoFile, "utf-8").trim();
-    if (!raw)
-      return [];
-    return raw.split("\n").filter(Boolean).map((line) => safeJsonParse3(line)).filter(Boolean);
-  } catch {
-    return [];
-  }
-}
-function syncFlowTodosToNative(upsertFn) {
-  const entries = getFlowTodos();
-  let count = 0;
-  for (const entry of entries) {
-    for (const todo of entry.todos || []) {
-      const priority = todo.type === "FIXME" ? "high" : todo.type === "HACK" ? "medium" : "low";
-      if (upsertFn) {
-        upsertFn({
-          content: `[${todo.type}] ${todo.text}`,
-          filePath: entry.filePath || "",
-          priority,
-          source: "flow"
-        });
-      }
-      count++;
-    }
-  }
-  return count;
-}
-var VIBEOS_STDERR_DEBUG, VIBEOS_CONSOLE_ERROR_GUARD, globalConsoleState, __dirname2, REALITY_CHECK_RULE_IDS, RULES_PATH_CANDIDATES, GUARD_AGENTS_TEMPLATE, GUARD_README_TEMPLATE, FLOW_DEDUP_FILE2, MAX_FLOW_TODOS, _flowWarnsSeen, _stateWriter, _cachedRules, _rulesMtime, _cachedRealityCheck, _realityCheckMtime, _realityCheckCacheKey;
-var init_flow_enforcer = __esm({
-  "src/vibeOS-lib/flow-enforcer.js"() {
-    "use strict";
-    init_state();
-    VIBEOS_STDERR_DEBUG = process.env.VIBEOS_DEBUG_STDERR === "1" || process.env.VIBEOS_DEBUG_LOGS === "1";
-    VIBEOS_CONSOLE_ERROR_GUARD = "__vibeOSConsoleErrorGuard";
-    globalConsoleState = globalThis;
-    if (!VIBEOS_STDERR_DEBUG && !globalConsoleState[VIBEOS_CONSOLE_ERROR_GUARD]) {
-      const originalConsoleError = console.error.bind(console);
-      console.error = (...args) => {
-        let text = "";
-        for (const arg of args) {
-          if (typeof arg === "string") {
-            text += arg;
-          } else if (arg instanceof Error) {
-            text += `${arg.name}: ${arg.message}`;
-          } else if (arg && typeof arg === "object") {
-            try {
-              text += JSON.stringify(arg);
-            } catch {
-              text += String(arg);
-            }
-          } else {
-            text += String(arg);
-          }
-          text += " ";
-        }
-        if (text.includes("[vibeOS]") || text.includes("[flow-enforcer]") || text.includes("[delegation]"))
-          return;
-        originalConsoleError(...args);
-      };
-      globalConsoleState[VIBEOS_CONSOLE_ERROR_GUARD] = true;
-    }
-    __dirname2 = dirname2(fileURLToPath(import.meta.url));
-    REALITY_CHECK_RULE_IDS = /* @__PURE__ */ new Set([
-      "require-read-before-claim",
-      "verify-state-on-disk",
-      "postmortem-trigger"
-    ]);
-    RULES_PATH_CANDIDATES = [
-      join3(process.cwd(), "src", "vibeOS-lib", "flow-rules.json"),
-      join3(process.cwd(), "dist-ts", "vibeOS-lib", "flow-rules.json"),
-      join3(process.cwd(), "dist", "assets", "flow-rules.json"),
-      join3(__dirname2, "flow-rules.json")
-    ];
-    GUARD_AGENTS_TEMPLATE = [
-      "# AGENTS.md",
-      "",
-      "> Auto-generated by vibeOS Project Guard. Defines rules for AI agents working on this project.",
-      "",
-      "## CRITICAL \u2014 ASK BEFORE CHANGING CODE",
-      "",
-      "NEVER modify any file without explicit user permission.",
-      'If you are an LLM: DO NOT LGTM, DO NOT "fix", DO NOT "clean up",',
-      'DO NOT "refactor", DO NOT "optimize", DO NOT "modernize". ASK FIRST.',
-      "",
-      "## PROTECTED FILES",
-      "",
-      "Do not modify these files without explicit user permission:",
-      "- AGENTS.md (this file)",
-      "- README.md",
-      ""
-    ].join("\n");
-    GUARD_README_TEMPLATE = (name, techStack) => {
-      const stackLine = techStack.length > 0 ? techStack.map((t) => `\`${t}\``).join(", ") : "(auto-detected on next session)";
-      return [
-        `# ${name}`,
-        "",
-        "## Tech Stack",
-        "",
-        stackLine,
-        "",
-        "## Features",
-        "",
-        "(Feature list maintained by vibeOS \u2014 run `trinity guard` to refresh)",
-        "",
-        "## Getting Started",
-        "",
-        "```bash",
-        "# Clone and install dependencies",
-        "```",
-        ""
-      ].join("\n");
-    };
-    FLOW_DEDUP_FILE2 = join3(getVibeOSHome3(), ".flow-dedup-keys.json");
-    MAX_FLOW_TODOS = 200;
-    _flowWarnsSeen = /* @__PURE__ */ new Set();
-    _stateWriter = null;
-    _cachedRules = null;
-    _rulesMtime = 0;
-    _cachedRealityCheck = null;
-    _realityCheckMtime = 0;
-    _realityCheckCacheKey = "";
-    loadFlowDedupKeys();
-  }
-});
-
 // src/lib/api-client.js
 var api_client_exports = {};
 __export(api_client_exports, {
@@ -5091,9 +4498,539 @@ var init_vibeultrax = __esm({
 });
 
 // src/index.ts
-init_flow_enforcer();
-import { readFileSync as readFileSync19, writeFileSync as writeFileSync18, existsSync as existsSync20, mkdirSync as mkdirSync15, copyFileSync as copyFileSync2, renameSync as renameSync6, statSync as statSync9 } from "node:fs";
+import { readFileSync as readFileSync20, writeFileSync as writeFileSync18, existsSync as existsSync20, mkdirSync as mkdirSync15, copyFileSync as copyFileSync2, renameSync as renameSync6, statSync as statSync9 } from "node:fs";
 import { join as join20, dirname as dirname13, basename as basename5 } from "node:path";
+
+// src/vibeOS-lib/flow-enforcer.js
+init_state();
+import { readFileSync as readFileSync3, existsSync as existsSync3, mkdirSync as mkdirSync2, writeFileSync as writeFileSync3, statSync as statSync3, appendFileSync as appendFileSync3, renameSync as renameSync3 } from "node:fs";
+import { join as join3, dirname as dirname2 } from "node:path";
+import { fileURLToPath } from "node:url";
+var VIBEOS_STDERR_DEBUG = process.env.VIBEOS_DEBUG_STDERR === "1" || process.env.VIBEOS_DEBUG_LOGS === "1";
+var VIBEOS_CONSOLE_ERROR_GUARD = "__vibeOSConsoleErrorGuard";
+var globalConsoleState = globalThis;
+if (!VIBEOS_STDERR_DEBUG && !globalConsoleState[VIBEOS_CONSOLE_ERROR_GUARD]) {
+  const originalConsoleError = console.error.bind(console);
+  console.error = (...args) => {
+    let text = "";
+    for (const arg of args) {
+      if (typeof arg === "string") {
+        text += arg;
+      } else if (arg instanceof Error) {
+        text += `${arg.name}: ${arg.message}`;
+      } else if (arg && typeof arg === "object") {
+        try {
+          text += JSON.stringify(arg);
+        } catch {
+          text += String(arg);
+        }
+      } else {
+        text += String(arg);
+      }
+      text += " ";
+    }
+    if (text.includes("[vibeOS]") || text.includes("[flow-enforcer]") || text.includes("[delegation]"))
+      return;
+    originalConsoleError(...args);
+  };
+  globalConsoleState[VIBEOS_CONSOLE_ERROR_GUARD] = true;
+}
+function getVibeOSHome3() {
+  return process.env.VIBEOS_HOME || join3(process.env.HOME || "", ".claude");
+}
+function safeJsonParse3(raw) {
+  if (raw == null || raw === "")
+    return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+  }
+  let cleaned = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "").replace(/,\s*([}\]])/g, "$1");
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    return null;
+  }
+}
+function getRealityCheckSettingsFile() {
+  return join3(getVibeOSHome3(), "reality-check-settings.json");
+}
+var __dirname2 = dirname2(fileURLToPath(import.meta.url));
+var REALITY_CHECK_RULE_IDS = /* @__PURE__ */ new Set([
+  "require-read-before-claim",
+  "verify-state-on-disk",
+  "postmortem-trigger"
+]);
+var RULES_PATH_CANDIDATES = [
+  join3(process.cwd(), "src", "vibeOS-lib", "flow-rules.json"),
+  join3(process.cwd(), "dist-ts", "vibeOS-lib", "flow-rules.json"),
+  join3(process.cwd(), "dist", "assets", "flow-rules.json"),
+  join3(__dirname2, "flow-rules.json")
+];
+function resolveRulesPath() {
+  if (process.env.VIBEOS_FLOW_RULES_PATH && existsSync3(process.env.VIBEOS_FLOW_RULES_PATH)) {
+    return process.env.VIBEOS_FLOW_RULES_PATH;
+  }
+  for (const candidate of RULES_PATH_CANDIDATES) {
+    if (existsSync3(candidate))
+      return candidate;
+  }
+  const override = process.env.VIBEOS_FLOW_RULES_PATH;
+  if (override)
+    return override;
+  return RULES_PATH_CANDIDATES[0];
+}
+var GUARD_AGENTS_TEMPLATE = [
+  "# AGENTS.md",
+  "",
+  "> Auto-generated by vibeOS Project Guard. Defines rules for AI agents working on this project.",
+  "",
+  "## CRITICAL \u2014 ASK BEFORE CHANGING CODE",
+  "",
+  "NEVER modify any file without explicit user permission.",
+  'If you are an LLM: DO NOT LGTM, DO NOT "fix", DO NOT "clean up",',
+  'DO NOT "refactor", DO NOT "optimize", DO NOT "modernize". ASK FIRST.',
+  "",
+  "## PROTECTED FILES",
+  "",
+  "Do not modify these files without explicit user permission:",
+  "- AGENTS.md (this file)",
+  "- README.md",
+  ""
+].join("\n");
+var GUARD_README_TEMPLATE = (name, techStack) => {
+  const stackLine = techStack.length > 0 ? techStack.map((t) => `\`${t}\``).join(", ") : "(auto-detected on next session)";
+  return [
+    `# ${name}`,
+    "",
+    "## Tech Stack",
+    "",
+    stackLine,
+    "",
+    "## Features",
+    "",
+    "(Feature list maintained by vibeOS \u2014 run `trinity guard` to refresh)",
+    "",
+    "## Getting Started",
+    "",
+    "```bash",
+    "# Clone and install dependencies",
+    "```",
+    ""
+  ].join("\n");
+};
+function ensureProjectDocs(dir, techStack) {
+  const created = [];
+  const skipped = [];
+  const agentsPath = join3(dir, "AGENTS.md");
+  const readmePath = join3(dir, "README.md");
+  try {
+    if (!existsSync3(agentsPath)) {
+      try {
+        writeFileSync3(agentsPath, GUARD_AGENTS_TEMPLATE, "utf-8");
+        created.push("AGENTS.md");
+        console.error("[vibeOS] Project Guard: created AGENTS.md");
+      } catch (err) {
+        console.error(`[vibeOS] Project Guard: failed to create AGENTS.md: ${err.message}`);
+      }
+    } else {
+      skipped.push("AGENTS.md");
+    }
+  } catch {
+  }
+  try {
+    if (!existsSync3(readmePath)) {
+      const name = dir ? dir.split("/").pop() || "Project" : "Project";
+      const stack = techStack || [];
+      const content = GUARD_README_TEMPLATE(name, stack);
+      try {
+        writeFileSync3(readmePath, content, "utf-8");
+        created.push("README.md");
+        console.error("[vibeOS] Project Guard: created README.md");
+      } catch (err) {
+        console.error(`[vibeOS] Project Guard: failed to create README.md: ${err.message}`);
+      }
+    } else {
+      skipped.push("README.md");
+    }
+  } catch {
+  }
+  return { created, skipped };
+}
+function getStateFile() {
+  return join3(getVibeOSHome3(), "delegation-state.json");
+}
+function getFlowTodoFile() {
+  return join3(getVibeOSHome3(), ".flow-todo-queue.jsonl");
+}
+var FLOW_DEDUP_FILE2 = join3(getVibeOSHome3(), ".flow-dedup-keys.json");
+var MAX_FLOW_TODOS = 200;
+var _flowWarnsSeen = /* @__PURE__ */ new Set();
+var _stateWriter = null;
+var _cachedRules = null;
+var _rulesMtime = 0;
+var _cachedRealityCheck = null;
+var _realityCheckMtime = 0;
+var _realityCheckCacheKey = "";
+function loadFlowDedupKeys() {
+  try {
+    if (existsSync3(FLOW_DEDUP_FILE2)) {
+      const raw = readFileSync3(FLOW_DEDUP_FILE2, "utf-8");
+      const keys = safeJsonParse3(raw);
+      if (Array.isArray(keys)) {
+        for (const k of keys)
+          _flowWarnsSeen.add(k);
+      }
+    }
+  } catch {
+  }
+}
+function persistFlowDedupKey(key) {
+  try {
+    mkdirSync2(dirname2(FLOW_DEDUP_FILE2), { recursive: true });
+    let keys = [];
+    if (existsSync3(FLOW_DEDUP_FILE2)) {
+      try {
+        keys = safeJsonParse3(readFileSync3(FLOW_DEDUP_FILE2, "utf-8"));
+      } catch {
+      }
+      if (!Array.isArray(keys))
+        keys = [];
+    }
+    if (!keys.includes(key)) {
+      keys.push(key);
+      if (keys.length > 1e3)
+        keys = keys.slice(-500);
+      writeFileSync3(FLOW_DEDUP_FILE2, JSON.stringify(keys), "utf-8");
+    }
+  } catch {
+  }
+}
+loadFlowDedupKeys();
+function normalizeRule(rule) {
+  if (!rule || typeof rule !== "object")
+    return null;
+  const id2 = String(rule.id || "").trim();
+  const trigger = String(rule.trigger || "").trim();
+  const pattern = String(rule.pattern || "").trim();
+  const severity = String(rule.severity || "").trim();
+  if (!id2 || !trigger || !pattern || !["warn", "hint", "flag"].includes(severity))
+    return null;
+  return {
+    id: id2,
+    trigger,
+    pattern,
+    severity,
+    description: typeof rule.description === "string" ? rule.description : void 0
+  };
+}
+function defaultRealityCheckRules() {
+  return [
+    {
+      id: "require-read-before-claim",
+      severity: "warn",
+      trigger: "Edit",
+      pattern: "(?i)\\b(done|complete|success|trained|ready|works|fixed)\\b",
+      description: "Success claim detected \u2014 verify live state before asserting completion"
+    },
+    {
+      id: "verify-state-on-disk",
+      severity: "flag",
+      trigger: "Edit",
+      pattern: "(?i)\\b(assume|guess|probably|likely|maybe|seems|appears)\\b",
+      description: "Inference language detected \u2014 verify actual files/state first"
+    },
+    {
+      id: "postmortem-trigger",
+      severity: "warn",
+      trigger: "Edit",
+      pattern: "(?i)\\breality check\\b",
+      description: "Reality check requested \u2014 read and verify live state before reporting"
+    }
+  ];
+}
+function readRealityCheckSettings() {
+  const settingsFile = getRealityCheckSettingsFile();
+  const settingsMtime = existsSync3(settingsFile) ? statSync3(settingsFile).mtimeMs : 0;
+  if (_cachedRealityCheck && settingsMtime === _realityCheckMtime) {
+    return _cachedRealityCheck;
+  }
+  let parsed = {};
+  try {
+    if (existsSync3(settingsFile)) {
+      const raw = readFileSync3(settingsFile, "utf-8");
+      const json2 = safeJsonParse3(raw);
+      if (json2 && typeof json2 === "object")
+        parsed = json2;
+    }
+  } catch {
+  }
+  const globalRules = Array.isArray(parsed.global?.rules) ? parsed.global.rules : defaultRealityCheckRules();
+  _cachedRealityCheck = {
+    version: 1,
+    global: {
+      enabled: parsed.global?.enabled !== false,
+      rules: globalRules.map(normalizeRule).filter(Boolean)
+    },
+    projects: parsed.projects && typeof parsed.projects === "object" ? parsed.projects : {}
+  };
+  _realityCheckMtime = settingsMtime;
+  return _cachedRealityCheck;
+}
+function getRealityCheckRulesForProject(projectFingerprint2 = currentProjectFingerprint || "") {
+  const settings = readRealityCheckSettings();
+  const fp2 = String(projectFingerprint2 || "").trim();
+  const project = fp2 && settings.projects?.[fp2] ? settings.projects[fp2] : null;
+  const scope = project ? "project" : "global";
+  const enabled = scope === "project" ? project?.enabled ?? settings.global?.enabled !== false : settings.global?.enabled !== false;
+  const source = scope === "project" ? Array.isArray(project?.rules) && project?.rules.length > 0 ? project.rules : settings.global?.rules || defaultRealityCheckRules() : settings.global?.rules || defaultRealityCheckRules();
+  if (!enabled)
+    return [];
+  const seen = /* @__PURE__ */ new Map();
+  for (const rule of source) {
+    const normalized = normalizeRule(rule);
+    if (!normalized || !REALITY_CHECK_RULE_IDS.has(normalized.id))
+      continue;
+    seen.set(normalized.id, normalized);
+  }
+  if (seen.size === 0) {
+    for (const rule of defaultRealityCheckRules()) {
+      const normalized = normalizeRule(rule);
+      if (normalized && REALITY_CHECK_RULE_IDS.has(normalized.id))
+        seen.set(normalized.id, normalized);
+    }
+  }
+  return Array.from(seen.values());
+}
+function getRealityCheckView(projectFingerprint2 = currentProjectFingerprint || "") {
+  const settings = readRealityCheckSettings();
+  const fp2 = String(projectFingerprint2 || "").trim();
+  const project = fp2 && settings.projects?.[fp2] ? settings.projects[fp2] : null;
+  const scope = project ? "project" : "global";
+  const enabled = scope === "project" ? project?.enabled ?? settings.global?.enabled !== false : settings.global?.enabled !== false;
+  const rules = getRealityCheckRulesForProject(fp2);
+  return {
+    scope,
+    project_id: project ? fp2 : null,
+    enabled,
+    rules
+  };
+}
+function mergeManagedRules(baseRules, managedRules) {
+  const base = baseRules.filter((rule) => !REALITY_CHECK_RULE_IDS.has(rule.id));
+  const seen = new Set(base.map((rule) => rule.id));
+  const merged = [...base];
+  for (const rule of managedRules) {
+    if (!rule || seen.has(rule.id))
+      continue;
+    merged.push(rule);
+    seen.add(rule.id);
+  }
+  return merged;
+}
+function compileFlowPattern(pattern) {
+  const source = String(pattern || "").trim();
+  if (!source)
+    return new RegExp("$^");
+  if (source.startsWith("(?i)")) {
+    return new RegExp(source.slice(4), "i");
+  }
+  return new RegExp(source);
+}
+function loadRules() {
+  const rulesPath = resolveRulesPath();
+  try {
+    const rulesMtime = existsSync3(rulesPath) ? statSync3(rulesPath).mtimeMs : 0;
+    const realityFile = getRealityCheckSettingsFile();
+    const realityMtime = existsSync3(realityFile) ? statSync3(realityFile).mtimeMs : 0;
+    const scopeKey = String(currentProjectFingerprint || "");
+    const cacheKey = `${rulesMtime}:${realityMtime}:${scopeKey}`;
+    if (_cachedRules && _realityCheckCacheKey === "__test__")
+      return _cachedRules;
+    if (_cachedRules && cacheKey === _realityCheckCacheKey)
+      return _cachedRules;
+    if (!existsSync3(rulesPath)) {
+      _cachedRules = mergeManagedRules([], getRealityCheckRulesForProject(scopeKey));
+      _realityCheckCacheKey = cacheKey;
+      return _cachedRules;
+    }
+    const j = safeJsonParse3(readFileSync3(rulesPath, "utf-8"));
+    const baseRules = Array.isArray(j.rules) ? j.rules.map(normalizeRule).filter(Boolean) : [];
+    _cachedRules = mergeManagedRules(baseRules, getRealityCheckRulesForProject(scopeKey));
+    _rulesMtime = rulesMtime;
+    _realityCheckCacheKey = cacheKey;
+    return _cachedRules;
+  } catch {
+    _cachedRules = [];
+    return _cachedRules;
+  }
+}
+function recordFlowWarn(hit) {
+  try {
+    let state = {};
+    const stateFile = getStateFile();
+    if (existsSync3(stateFile)) {
+      try {
+        state = safeJsonParse3(readFileSync3(stateFile, "utf-8"));
+      } catch {
+      }
+    } else {
+      mkdirSync2(dirname2(stateFile), { recursive: true });
+    }
+    state.flow_warns ??= [];
+    const dedupKey = `${hit.id}|${hit.filePath}`;
+    const anyExisting = state.flow_warns.some((w) => {
+      const wKey = `${w.rule_id}|${w.filePath}`;
+      return wKey === dedupKey;
+    });
+    if (!anyExisting) {
+      state.flow_warns.push({
+        at: (/* @__PURE__ */ new Date()).toISOString(),
+        sid: process.pid || "?",
+        rule_id: hit.id,
+        severity: hit.severity,
+        filePath: hit.filePath,
+        description: hit.description
+      });
+    }
+    if (state.flow_warns.length > 200) {
+      state.flow_warns = state.flow_warns.slice(-200);
+    }
+    const fp2 = { flow_warns: state.flow_warns };
+    if (_stateWriter)
+      _stateWriter(fp2);
+    else {
+      const stateFile2 = getStateFile();
+      const existing = safeJsonParse3(existsSync3(stateFile2) ? readFileSync3(stateFile2, "utf-8") : "{}");
+      const merged = Object.assign({}, existing, fp2);
+      const tmpFile = stateFile2 + ".tmp." + Date.now();
+      writeFileSync3(tmpFile, JSON.stringify(merged, null, 2));
+      renameSync3(tmpFile, stateFile2);
+    }
+  } catch {
+  }
+}
+function checkFlowRules({ tool: tool2, filePath, content }) {
+  const rules = loadRules();
+  const hits = [];
+  const toolName = String(tool2 || "").trim().toLowerCase();
+  for (const rule of rules) {
+    const triggerName = String(rule.trigger || "").trim().toLowerCase();
+    if (triggerName !== toolName)
+      continue;
+    const target = toolName === "write" ? filePath || "" : content || filePath || "";
+    let re;
+    try {
+      re = compileFlowPattern(rule.pattern);
+    } catch {
+      continue;
+    }
+    if (!re.test(target))
+      continue;
+    const key = `${rule.id}::${filePath || ""}`;
+    if (_flowWarnsSeen.has(key)) {
+      hits.push({ ...rule, filePath, deduped: true });
+      continue;
+    }
+    _flowWarnsSeen.add(key);
+    persistFlowDedupKey(key);
+    const hit = { ...rule, filePath, deduped: false };
+    hits.push(hit);
+    recordFlowWarn(hit);
+  }
+  return hits;
+}
+function getFlowWarns() {
+  try {
+    const stateFile = getStateFile();
+    if (!existsSync3(stateFile))
+      return [];
+    const s = safeJsonParse3(readFileSync3(stateFile, "utf-8"));
+    return s?.flow_warns || [];
+  } catch {
+    return [];
+  }
+}
+function recordFlowTodo({ filePath, content }) {
+  try {
+    const flowTodoFile = getFlowTodoFile();
+    mkdirSync2(dirname2(flowTodoFile), { recursive: true });
+    const todoRe = /(?:\/\/\s*|\#\s*)(TODO|FIXME|HACK)[\s:]+(.+)$/i;
+    const todos = [];
+    for (const line of content.split("\n")) {
+      const m = line.match(todoRe);
+      if (m) {
+        todos.push({ type: m[1], text: m[2].trim() });
+      }
+    }
+    if (todos.length === 0)
+      return 0;
+    const dedupKey = `${filePath || ""}::${todos.map((t) => `${t.type}:${t.text}`).join("|")}`;
+    const existingLines = existsSync3(flowTodoFile) ? readFileSync3(flowTodoFile, "utf-8").trim().split("\n").filter(Boolean) : [];
+    const existingKeys = /* @__PURE__ */ new Set();
+    for (const line of existingLines) {
+      try {
+        const entry2 = safeJsonParse3(line);
+        if (entry2 && entry2.filePath && entry2.todos) {
+          const key = `${entry2.filePath}::${entry2.todos.map((t) => `${t.type}:${t.text}`).join("|")}`;
+          existingKeys.add(key);
+        }
+      } catch {
+      }
+    }
+    if (existingKeys.has(dedupKey))
+      return 0;
+    const entry = JSON.stringify({
+      at: (/* @__PURE__ */ new Date()).toISOString(),
+      filePath,
+      todos
+    }) + "\n";
+    appendFileSync3(flowTodoFile, entry);
+    try {
+      const lines = readFileSync3(flowTodoFile, "utf-8").trim().split("\n").filter(Boolean);
+      if (lines.length > MAX_FLOW_TODOS) {
+        writeFileSync3(flowTodoFile, lines.slice(-Math.floor(MAX_FLOW_TODOS / 2)).join("\n") + "\n");
+      }
+    } catch {
+    }
+    console.error(`[flow-enforcer] \u{1F4CB} Extracted ${todos.length} TODO(s) from ${filePath} \u2192 .flow-todo-queue.jsonl`);
+    return todos.length;
+  } catch {
+    return 0;
+  }
+}
+function getFlowTodos() {
+  try {
+    const flowTodoFile = getFlowTodoFile();
+    if (!existsSync3(flowTodoFile))
+      return [];
+    const raw = readFileSync3(flowTodoFile, "utf-8").trim();
+    if (!raw)
+      return [];
+    return raw.split("\n").filter(Boolean).map((line) => safeJsonParse3(line)).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+function syncFlowTodosToNative(upsertFn) {
+  const entries = getFlowTodos();
+  let count = 0;
+  for (const entry of entries) {
+    for (const todo of entry.todos || []) {
+      const priority = todo.type === "FIXME" ? "high" : todo.type === "HACK" ? "medium" : "low";
+      if (upsertFn) {
+        upsertFn({
+          content: `[${todo.type}] ${todo.text}`,
+          filePath: entry.filePath || "",
+          priority,
+          source: "flow"
+        });
+      }
+      count++;
+    }
+  }
+  return count;
+}
 
 // src/vibeOS-lib/session-metrics.js
 function formatDuration(totalSeconds) {
@@ -9423,7 +9360,6 @@ function resolveCascadeSlot(pipeline = []) {
 
 // src/lib/trinity-tool.js
 init_api_client();
-init_flow_enforcer();
 var MIN_TOOL_BREAKDOWN_THRESHOLD = 5e-3;
 var STRESS_GAUGE_CRITICAL = 0.85;
 var STRESS_GAUGE_HIGH = 0.7;
@@ -12134,7 +12070,6 @@ function shouldInjectTemplate(template, prevTemplate) {
 }
 
 // src/lib/hooks/chat-transform.js
-init_flow_enforcer();
 var BYTES_PER_TOKEN = 4;
 var ANTI_FABRICATION_DIRECTIVE = "[anti-fabrication] Always work honestly \u2014 do NOT make up tool names, file paths, function signatures, code snippets, or exact outputs. If you must explain something you cannot verify, say 'I cannot verify that' and propose how to verify it. Under NO circumstance invent tool invocations, file contents, or final results. If you must correct an earlier response, say exactly what was wrong and then provide the corrected response. DO NOT LGTM.";
 var EMPIRICAL_ANSWER_DIRECTIVE = "[empirical answer] Prefer verified facts over assumptions. If something is not directly checked against tools, files, logs, or user-provided evidence, label it as unverified or say 'I cannot verify that'. Separate evidence, inference, and suggestions. In multi-turn work, carry forward only evidence-backed facts and keep any guess explicitly marked as a guess.";
@@ -13739,6 +13674,7 @@ async function _appendFooter(input, output, directory3) {
     const claimStatus = evaluateClaimVerification({ text, vibeHome: VIBEOS_HOME });
     let _rewardTag = "";
     let _rewardOutcome = null;
+    const prevAssistantTexts = typeof _prevAssistantTexts !== "undefined" && Array.isArray(_prevAssistantTexts) ? _prevAssistantTexts : [];
     if (_blackboxEnabled) {
       try {
         const prevText = _prevOutputText;
@@ -13760,18 +13696,22 @@ async function _appendFooter(input, output, directory3) {
             });
             const tracker = getBlackboxTracker();
             tracker.recordOutcome(finalOutcome);
-            syncOutcomeToApi(finalOutcome);
+            try {
+              syncOutcomeToApi(finalOutcome);
+            } catch {
+            }
             try {
               const curOutput = _prevOutputText || "";
               const sesSavings = Number(_footerSavingsCache || 0);
-              const rewardResult = computeReward(buildRewardInput({
+              const rewardInput = buildRewardInput({
                 finalOutcome,
                 assistantText: curOutput,
                 userText: latestUserIntent || "",
-                prevAssistantTexts: _prevAssistantTexts || [],
+                prevAssistantTexts,
                 savingsUsd: sesSavings,
-                isBrainTier: (currentTier() || "").toLowerCase() === "high"
-              }));
+                isBrainTier: String(currentTier || "").toLowerCase() === "high"
+              });
+              const rewardResult = computeReward(rewardInput);
               if (rewardResult.credits !== 0) {
                 _rewardTag = rewardResult.credits > 0 ? `+${rewardResult.credits} XP` : `${rewardResult.credits} XP`;
                 try {
@@ -13810,9 +13750,9 @@ async function _appendFooter(input, output, directory3) {
           finalOutcome: _rewardOutcome,
           assistantText: curOutput,
           userText: latestUserIntent || "",
-          prevAssistantTexts: _prevAssistantTexts || [],
+          prevAssistantTexts,
           savingsUsd: sesSavings,
-          isBrainTier: (currentTier() || "").toLowerCase() === "high"
+          isBrainTier: String(currentTier || "").toLowerCase() === "high"
         }));
         if (rewardResult.credits !== 0) {
           _rewardTag = rewardResult.credits > 0 ? `+${rewardResult.credits} XP` : `${rewardResult.credits} XP`;
@@ -13848,9 +13788,9 @@ async function _appendFooter(input, output, directory3) {
             finalOutcome: finalRewardOutcome,
             assistantText: rewardText,
             userText: latestUserIntent || "",
-            prevAssistantTexts: _prevAssistantTexts || [],
+            prevAssistantTexts,
             savingsUsd: Number(_footerSavingsCache || 0),
-            isBrainTier: (currentTier() || "").toLowerCase() === "high"
+            isBrainTier: String(currentTier || "").toLowerCase() === "high"
           }));
           if (rewardResult.credits !== 0) {
             _rewardTag = rewardResult.credits > 0 ? `+${rewardResult.credits} XP` : `${rewardResult.credits} XP`;
@@ -13918,7 +13858,7 @@ ${vibeLine} \u2014`);
 
 // src/lib/hooks/tool-execute.js
 init_state();
-import { writeFileSync as writeFileSync17, appendFileSync as appendFileSync7, existsSync as existsSync18, mkdirSync as mkdirSync14 } from "node:fs";
+import { readFileSync as readFileSync18, writeFileSync as writeFileSync17, appendFileSync as appendFileSync7, existsSync as existsSync18, mkdirSync as mkdirSync14 } from "node:fs";
 import { join as join19, dirname as dirname12, basename as basename4 } from "node:path";
 import { createHash as createHash5 } from "node:crypto";
 init_selection_manager();
@@ -13982,7 +13922,6 @@ function getCostAnomalyDetector() {
 }
 
 // src/lib/hooks/tool-execute.js
-init_flow_enforcer();
 init_ml_router();
 init_smart_cache();
 
@@ -15729,7 +15668,9 @@ ${argsJson}
       const refreshed = await refreshCreditSnapshot();
       if (Number.isFinite(refreshed))
         _credit = refreshed;
-    } catch {
+    } catch (creditErr) {
+      if (DEBUG_INTERNALS2)
+        console.error(`[vibeOS] credit refresh error: ${creditErr.message}`);
     }
   }
   if (_credit < 40 && t === "task" && TRINITY_CHEAP && args && typeof args === "object") {
@@ -15860,7 +15801,9 @@ ${argsJson}
             taskSlotRestore = null;
           }
         }
-      } catch {
+      } catch (taskSlotErr) {
+        if (DEBUG_INTERNALS2)
+          console.error(`[vibeOS] task slot workaround error: ${taskSlotErr.message}`);
       }
       console.error(`[vibeOS] \u{1F500} Task \u2192 ${_target} (${_reason}, orchestrator: ${currentModel})`);
     }
@@ -16000,7 +15943,9 @@ ${argsJson}
             try {
               mkdirSync14(dirname12(CONTEXT7_INSTALL_FLAG), { recursive: true });
               writeFileSync17(CONTEXT7_INSTALL_FLAG, "");
-            } catch {
+            } catch (c7FlagErr) {
+              if (DEBUG_INTERNALS2)
+                console.error(`[vibeOS] context7 flag write error: ${c7FlagErr.message}`);
             }
             console.error(`[vibeOS] Small win: install context7 MCP to save about ~$0.06/turn on docs: \`claude mcp add context7 npx @upstash/context7-mcp\``);
           } else if (!context7AlertedThisSession) {
@@ -16025,6 +15970,7 @@ ${argsJson}
 };
 var onToolExecuteAfter = async (input, output) => {
   _refreshModel(projectDirectory);
+  const t = input?.tool ?? "";
   try {
     const start = _dequeueTelemetryStart(input?.tool);
     if (start) {
@@ -16046,11 +15992,15 @@ var onToolExecuteAfter = async (input, output) => {
         tdd: loadSelection().tdd_enforce ? "on" : "off"
       });
     }
-  } catch {
+  } catch (telemetryErr) {
+    if (DEBUG_INTERNALS2)
+      console.error(`[vibeOS] telemetry error: ${telemetryErr.message}`);
   }
   try {
     incrementTurnCounter();
-  } catch {
+  } catch (e) {
+    if (DEBUG_INTERNALS2)
+      console.error(`[vibeOS] incrementTurnCounter error: ${e.message}`);
   }
   let _footerText = "";
   try {
@@ -16063,7 +16013,9 @@ var onToolExecuteAfter = async (input, output) => {
         const cfg = await client.config.get("model");
         if (cfg)
           liveModel = String(cfg);
-      } catch {
+      } catch (cfgErr) {
+        if (DEBUG_INTERNALS2)
+          console.error(`[vibeOS] config.get error: ${cfgErr.message}`);
       }
       if (!liveModel) {
         liveModel = readConfig(projectDirectory) || readConfig(join19(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || "";
@@ -16122,21 +16074,25 @@ var onToolExecuteAfter = async (input, output) => {
         footerTarget.output = _footerText;
       _autoReportCount2 = (_autoReportCount2 || 0) + 1;
       if (_autoReportCount2 % 5 === 0 && ltTotal > 0) {
-        saveReport({
-          type: "session",
-          summary: `Session cost: $${formatUsd(ltCost)} | cache saved: $${formatUsd(ltCache)} | delegation saved: $${formatUsd(ltTasks)}`,
-          metrics: { sessionId: _OC_SID, sessionCost: ltCost, cacheSavings: ltCache, delegationSavingsUsd: ltTasks, model: resolvedModel || currentModel, slot: selNow.active_slot || "unknown" },
-          tags: ["auto", "cost"]
-        });
+        setTimeout(() => {
+          try {
+            saveReport({
+              type: "session",
+              summary: `Session cost: $${formatUsd(ltCost)} | cache saved: $${formatUsd(ltCache)} | delegation saved: $${formatUsd(ltTasks)}`,
+              metrics: { sessionId: _OC_SID, sessionCost: ltCost, cacheSavings: ltCache, delegationSavingsUsd: ltTasks, model: resolvedModel || currentModel, slot: selNow.active_slot || "unknown" },
+              tags: ["auto", "cost"]
+            });
+          } catch (reportErr) {
+            if (DEBUG_INTERNALS2)
+              console.error(`[vibeOS] saveReport error: ${reportErr.message}`);
+          }
+        }, 0);
       }
     }
-  } catch {
+  } catch (footerErr) {
+    if (DEBUG_INTERNALS2)
+      console.error(`[vibeOS] footer error: ${footerErr.message}`);
   }
-  try {
-    incrementTurnCounter();
-  } catch {
-  }
-  const t = input?.tool ?? "";
   if (t === "trinity") {
     const trinityArgs = input?.args || {};
     const trinityAction = trinityArgs?.action || trinityArgs?.todo || "";
@@ -16144,8 +16100,8 @@ var onToolExecuteAfter = async (input, output) => {
       try {
         const flowTodoFilePath = join19(getVibeOSHome12(), ".flow-todo-queue.jsonl");
         let todoLines = [];
-        if (__require("fs").existsSync(flowTodoFilePath)) {
-          const raw2 = __require("fs").readFileSync(flowTodoFilePath, "utf-8").trim();
+        if (existsSync18(flowTodoFilePath)) {
+          const raw2 = readFileSync18(flowTodoFilePath, "utf-8").trim();
           todoLines = raw2 ? raw2.split("\n").filter(Boolean) : [];
         }
         let todoList = todoLines.map((l, i) => {
@@ -16196,7 +16152,9 @@ var onToolExecuteAfter = async (input, output) => {
         sid: _OC_SID,
         v: 2
       }) + "\n");
-    } catch {
+    } catch (ledgerErr) {
+      if (DEBUG_INTERNALS2)
+        console.error(`[vibeOS] ledger append error: ${ledgerErr.message}`);
     }
     updateState((s) => {
       s.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" };
@@ -16266,7 +16224,9 @@ ${pendingUiNote}`;
         setCurrentTier(classify(back.ocModel));
         console.error(`[vibeOS] \u{1F501} task workaround: restored global slot \u2192 ${taskSlotRestore}`);
       }
-    } catch {
+    } catch (slotErr) {
+      if (DEBUG_INTERNALS2)
+        console.error(`[vibeOS] task slot restore error: ${slotErr.message}`);
     }
     taskSlotRestore = null;
   }
@@ -16350,7 +16310,9 @@ ${pendingUiNote}`;
             state.lifetime.last_updated = (/* @__PURE__ */ new Date()).toISOString();
             return state;
           });
-        } catch {
+        } catch (tddStateErr) {
+          if (DEBUG_INTERNALS2)
+            console.error(`[vibeOS] tdd followup state error: ${tddStateErr.message}`);
         }
       }
     }
@@ -16376,10 +16338,9 @@ ${pendingUiNote}`;
         console.error(`[flow-enforcer] ${icon} [${h.severity}] ${h.id}: ${h.description} \u2014 ${filePath}`);
       }
       if (sel.flow_enforce) {
-        const { recordFlowTodo: recordFlowTodo2 } = await Promise.resolve().then(() => (init_flow_enforcer(), flow_enforcer_exports));
         for (const h of flowHits) {
           if (h.id === "todo-comment" && !h.deduped) {
-            recordFlowTodo2({ filePath, content });
+            recordFlowTodo({ filePath, content });
           }
         }
       }
@@ -16430,7 +16391,9 @@ ${pendingUiNote}`;
         }
       }
       console.error("[vibeOS] tracked " + _pendingTodoArgs.length + " todo(s) from todowrite call");
-    } catch {
+    } catch (todoErr) {
+      if (DEBUG_INTERNALS2)
+        console.error(`[vibeOS] todowrite parse error: ${todoErr.message}`);
     }
     _pendingTodoArgs = null;
   }
@@ -16439,7 +16402,7 @@ ${pendingUiNote}`;
 
 // src/lib/hooks/session-compact.js
 init_state();
-import { readFileSync as readFileSync18, existsSync as existsSync19 } from "node:fs";
+import { readFileSync as readFileSync19, existsSync as existsSync19 } from "node:fs";
 var onSessionCompacting = async (_input, output) => {
   if (!loadSelection().enabled)
     return;
@@ -16450,7 +16413,7 @@ var onSessionCompacting = async (_input, output) => {
     let recent = "";
     if (existsSync19(indexPath)) {
       try {
-        const lines = readFileSync18(indexPath, "utf-8").trim().split("\n").slice(-30);
+        const lines = readFileSync19(indexPath, "utf-8").trim().split("\n").slice(-30);
         recent = lines.map((l) => {
           try {
             return JSON.parse(l);
@@ -16615,9 +16578,9 @@ function _readOpenCodeConfigObject(dir) {
   const jsonPath = join20(dir, "opencode.json");
   const jsoncPath = join20(dir, "opencode.jsonc");
   if (existsSync20(jsonPath))
-    return safeJsonParse2(readFileSync19(jsonPath, "utf-8"));
+    return safeJsonParse2(readFileSync20(jsonPath, "utf-8"));
   if (existsSync20(jsoncPath))
-    return _parseJsonc(readFileSync19(jsoncPath, "utf-8"));
+    return _parseJsonc(readFileSync20(jsoncPath, "utf-8"));
   return {};
 }
 function _loadOpenCodeProviders(directory3) {
@@ -16671,7 +16634,7 @@ function _loadActiveJobForProject(directory3, fp2 = "") {
       const activeJobsPath = join20(String(base), "active-jobs.json");
       if (!existsSync20(activeJobsPath))
         continue;
-      const jobs = safeJsonParse2(readFileSync19(activeJobsPath, "utf-8")) || {};
+      const jobs = safeJsonParse2(readFileSync20(activeJobsPath, "utf-8")) || {};
       const job = fp2 ? jobs?.[fp2] : null;
       if (job && typeof job === "object")
         return job;
@@ -16698,7 +16661,7 @@ async function _seedOrRepairModelTiers(directory3) {
         _handleStateCorruption(TIERS_FILE3);
         return false;
       }
-      existing = safeJsonParse2(readFileSync19(TIERS_FILE3, "utf-8")) || {};
+      existing = safeJsonParse2(readFileSync20(TIERS_FILE3, "utf-8")) || {};
     } catch {
       existing = null;
     }
@@ -16789,7 +16752,7 @@ function _modelTier2(id2) {
 }
 function readPackageVersion() {
   try {
-    const pkg = safeJsonParse2(readFileSync19(join20(process.cwd(), "package.json"), "utf-8"));
+    const pkg = safeJsonParse2(readFileSync20(join20(process.cwd(), "package.json"), "utf-8"));
     return String(pkg?.version || "");
   } catch {
     return "";
@@ -16805,7 +16768,7 @@ function loadMcpPort() {
   }
   try {
     if (existsSync20(getTiersFile())) {
-      const tiers = safeJsonParse2(readFileSync19(getTiersFile(), "utf-8"));
+      const tiers = safeJsonParse2(readFileSync20(getTiersFile(), "utf-8"));
       const cfg = tiers?.selection?.mcp_port;
       if (cfg === false || cfg === "disabled" || cfg === 0)
         return 0;
@@ -16821,7 +16784,7 @@ function persistMcpPort(port) {
   try {
     if (!existsSync20(getTiersFile()))
       return;
-    const tiers = safeJsonParse2(readFileSync19(getTiersFile(), "utf-8"));
+    const tiers = safeJsonParse2(readFileSync20(getTiersFile(), "utf-8"));
     tiers.selection ??= {};
     if (Number(tiers.selection.mcp_port) === Number(port) && !("mcp_port" in tiers))
       return;
@@ -16885,7 +16848,7 @@ async function ensureMcpServerRunning() {
               selection: loadSelection(),
               tiersData: (() => {
                 try {
-                  return safeJsonParse2(readFileSync19(getTiersFile(), "utf-8"));
+                  return safeJsonParse2(readFileSync20(getTiersFile(), "utf-8"));
                 } catch {
                   return {};
                 }
@@ -16901,7 +16864,7 @@ async function ensureMcpServerRunning() {
               optimizationMode: loadSelection()?.optimization_mode || null,
               tiers: (() => {
                 try {
-                  return safeJsonParse2(readFileSync19(getTiersFile(), "utf-8"))?.trinity;
+                  return safeJsonParse2(readFileSync20(getTiersFile(), "utf-8"))?.trinity;
                 } catch {
                   return null;
                 }
@@ -17093,7 +17056,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
   if (currentModel) {
     setCurrentTier(classify(currentModel));
     try {
-      const _tiersData2 = safeJsonParse2(readFileSync19(getTiersFile(), "utf-8"));
+      const _tiersData2 = safeJsonParse2(readFileSync20(getTiersFile(), "utf-8"));
       const _slotOrder = getTrinitySlotOrder(_tiersData2);
       const _primarySlot = _slotOrder[0] || "brain";
       const _activeSlot = _tiersData2?.selection?.active_slot || _primarySlot;
@@ -17119,7 +17082,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
       const lockedSlot = ["brain", "medium", "cheap"].includes(String(startupSelection.active_slot || "").trim()) ? String(startupSelection.active_slot) : "brain";
       let lockedModel = currentModel || null;
       try {
-        const tiers = safeJsonParse2(readFileSync19(getTiersFile(), "utf-8"));
+        const tiers = safeJsonParse2(readFileSync20(getTiersFile(), "utf-8"));
         lockedModel = tiers?.trinity?.[lockedSlot]?.oc || lockedModel || null;
       } catch {
       }
@@ -17159,7 +17122,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
   const hookTiersFile = join20(hookVibeHome, "model-tiers.json");
   const loadProjectStateStable = () => {
     try {
-      const state = safeJsonParse2(readFileSync19(hookProjectStateFile, "utf-8"));
+      const state = safeJsonParse2(readFileSync20(hookProjectStateFile, "utf-8"));
       if (state && typeof state === "object") {
         state.project_hashes ??= {};
         return state;
@@ -17179,7 +17142,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
   };
   const reportsIndexStable = () => {
     try {
-      const idx = safeJsonParse2(readFileSync19(hookReportsIndex, "utf-8"));
+      const idx = safeJsonParse2(readFileSync20(hookReportsIndex, "utf-8"));
       if (!idx || !Array.isArray(idx.reports))
         return { reports: [] };
       return idx;
@@ -17211,7 +17174,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
   };
   const _tiersData = (() => {
     try {
-      return safeJsonParse2(readFileSync19(getTiersFile(), "utf-8"));
+      return safeJsonParse2(readFileSync20(getTiersFile(), "utf-8"));
     } catch {
       return {};
     }
@@ -17234,7 +17197,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     },
     directory: directory3,
     safeJsonParse: safeJsonParse2,
-    readFileSync: readFileSync19,
+    readFileSync: readFileSync20,
     writeFileSync: writeFileSync18,
     existsSync: existsSync20,
     renameSync: renameSync6,
@@ -17412,8 +17375,8 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
         const claimFile = join20(auditDir, "claim-audit.jsonl");
         const cascadeFile = join20(auditDir, "cascade-audit.jsonl");
         if (existsSync20(claimFile) && statSync9(claimFile).size > 0) {
-          const claimLines = readFileSync19(claimFile, "utf-8").trim().split("\n").slice(-10);
-          const cascadeLines = existsSync20(cascadeFile) ? readFileSync19(cascadeFile, "utf-8").trim().split("\n").slice(-30) : [];
+          const claimLines = readFileSync20(claimFile, "utf-8").trim().split("\n").slice(-10);
+          const cascadeLines = existsSync20(cascadeFile) ? readFileSync20(cascadeFile, "utf-8").trim().split("\n").slice(-30) : [];
           const cascadeRuns = cascadeLines.filter(Boolean).map((l) => {
             try {
               return JSON.parse(l);
@@ -17467,8 +17430,8 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
         const claimFile = join20(auditDir, "claim-audit.jsonl");
         const cascadeFile = join20(auditDir, "cascade-audit.jsonl");
         if (existsSync20(claimFile) && statSync9(claimFile).size > 0) {
-          const claimLines = readFileSync19(claimFile, "utf-8").trim().split("\n").slice(-10);
-          const cascadeLines = existsSync20(cascadeFile) ? readFileSync19(cascadeFile, "utf-8").trim().split("\n").slice(-30) : [];
+          const claimLines = readFileSync20(claimFile, "utf-8").trim().split("\n").slice(-10);
+          const cascadeLines = existsSync20(cascadeFile) ? readFileSync20(cascadeFile, "utf-8").trim().split("\n").slice(-30) : [];
           const cascadeRuns = cascadeLines.filter(Boolean).map((l) => {
             try {
               return JSON.parse(l);
