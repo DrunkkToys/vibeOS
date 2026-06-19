@@ -371,6 +371,8 @@ function extractFeatures(prompt) {
   const lower = s.toLowerCase();
   const fileMentions = (lower.match(FILE_PATH_PATTERN) || []).length;
   const errorSignals = (lower.match(ERROR_SIGNAL_WORDS) || []).length;
+  const commandHints = (lower.match(COMMAND_HINT_PATTERN) || []).length;
+  const fileKinds = (lower.match(FILE_KIND_PATTERN) || []).length;
   let complexityWords = 0;
   for (const w of words) {
     if (COMPLEXITY_INDICATORS.test(w.toLowerCase()))
@@ -394,7 +396,9 @@ function extractFeatures(prompt) {
     actionDensity,
     argCount: (s.match(/-{1,2}[a-zA-Z][\w-]*/g) || []).length,
     complexityWords,
-    questionDensity
+    questionDensity,
+    commandHints,
+    fileKinds
   };
 }
 function sigmoid(x) {
@@ -439,6 +443,12 @@ function computeDifficulty(prompt) {
     score += 0.04;
   score += features.questionDensity * 0.08;
   score += sigmoid((features.argCount - 3) / 5) * 0.07;
+  if (features.commandHints >= 2)
+    score += 0.05;
+  else if (features.commandHints >= 1 && features.fileMentions >= 2)
+    score += 0.04;
+  if (features.fileKinds >= 2)
+    score += 0.05;
   const wcs = wordComplexityScore(words);
   score += wcs * 0.15;
   const firstWord = words[0]?.toLowerCase() || "";
@@ -587,7 +597,7 @@ function hashQuery(prompt) {
   }
   return Math.abs(hash).toString(16).slice(0, 8);
 }
-var SIMPLE_ACTIONS, COMPLEX_ACTIONS, ERROR_SIGNAL_WORDS, COMPLEXITY_INDICATORS, FILE_PATH_PATTERN, WORD_FREQUENCY;
+var SIMPLE_ACTIONS, COMPLEX_ACTIONS, ERROR_SIGNAL_WORDS, COMPLEXITY_INDICATORS, FILE_PATH_PATTERN, COMMAND_HINT_PATTERN, FILE_KIND_PATTERN, WORD_FREQUENCY;
 var init_ml_router = __esm({
   "src/vibeOS-lib/ml-router.js"() {
     "use strict";
@@ -657,6 +667,8 @@ var init_ml_router = __esm({
     ERROR_SIGNAL_WORDS = /\b(?:bug|error|fail|crash|broken|wrong|incorrect|issue|problem|exception|stackoverflow|traceback|segfault|race|deadlock|leak|corrupt)\b/g;
     COMPLEXITY_INDICATORS = /multi.*(?:file|module|step|stage|phase|tenant|region|thread|process)|concurrent|async|parallel|distributed|replicated|shard|cluster|microservice|framework|database|schema|migration|backward.*compat|breaking.*change|api.*(?:version|breaking)|protocol|encoding|serializ/;
     FILE_PATH_PATTERN = /(?:^|[\s"'(])\.{0,2}\/[a-zA-Z0-9._/-]+|\.(?:js|ts|tsx|jsx|py|rs|go|java|cpp|c|h|json|yaml|yml|toml|sql|css|html|md)\b|package\.json|tsconfig\.json|dockerfile|makefile|docker-compose/i;
+    COMMAND_HINT_PATTERN = /\b(?:npm|pnpm|yarn|node|tsc|eslint|prettier|vitest|jest|mocha|ava|pytest|cargo|go\s+test|git|docker|kubectl|make)\b/gi;
+    FILE_KIND_PATTERN = /\b(?:package\.json|tsconfig\.json|readme\.md|dockerfile|makefile|yarn\.lock|pnpm-lock\.yaml|package-lock\.json|\.test\.[a-z]+|\.spec\.[a-z]+)\b/gi;
     WORD_FREQUENCY = {
       "test": 1,
       "tests": 1,
@@ -745,6 +757,17 @@ var init_ml_router = __esm({
 });
 
 // src/vibeOS-lib/smart-cache.js
+function cacheEntryValue(entry, stats) {
+  const hitRate = Number(stats?.hitRate ?? 0);
+  const bytes = Math.max(1, Number(entry?.sizeBytes || 0));
+  const ageSec = Math.max(1, Number(entry?.ageSec || 0));
+  return hitRate * Math.log10(bytes + 10) * Math.log10(bytesSavedFactor(stats) + 10) / Math.log10(ageSec + 10);
+}
+function bytesSavedFactor(stats) {
+  const saved = Number(stats?.bytesSaved ?? 0);
+  const hits = Math.max(1, Number(stats?.hits ?? 0));
+  return saved / hits;
+}
 function tokenize(text) {
   return String(text || "").toLowerCase().replace(/[^\w\s]/g, " ").split(/\s+/).filter((w) => w.length > 1);
 }
@@ -845,8 +868,7 @@ function addCacheEntry(db, hash, tool2, prompt, sizeBytes, ageSec) {
     words: tokenize(prompt)
   });
   if (db.entries.length > 500) {
-    db.entries.sort((a, b) => b.at.localeCompare(a.at));
-    db.entries.length = 500;
+    pruneCacheDbByValue(db, 500);
   }
 }
 function recordCacheStats(db, tool2, hit, bytesSaved) {
@@ -864,15 +886,24 @@ function predictCacheHit(db, tool2, prompt) {
   const stats = db.stats[tool2];
   const toolHitRate = stats?.hitRate ?? 0.3;
   const similarEntries = [];
-  for (const entry of db.entries) {
+  for (let i = 0; i < db.entries.length; i++) {
+    const entry = db.entries[i];
     if (entry.tool !== tool2)
       continue;
     const score = compositeSimilarity(prompt, entry.prompt);
     if (score > 0.4) {
-      similarEntries.push({ hash: entry.hash, score, entry });
+      similarEntries.push({ hash: entry.hash, score, entry, index: i });
     }
   }
-  similarEntries.sort((a, b) => b.score - a.score);
+  similarEntries.sort((a, b) => {
+    const scoreDiff = b.score - a.score;
+    if (Math.abs(scoreDiff) > 1e-9)
+      return scoreDiff;
+    const timeDiff = new Date(b.entry.at).getTime() - new Date(a.entry.at).getTime();
+    if (timeDiff !== 0)
+      return timeDiff;
+    return (b.index ?? 0) - (a.index ?? 0);
+  });
   if (similarEntries.length === 0) {
     return {
       shouldCache: toolHitRate > 0.4,
@@ -920,6 +951,23 @@ function evictStaleEntries(db, maxAgeSec) {
     const entryTime = new Date(e.at).getTime();
     return (now - entryTime) / 1e3 < maxAgeSec;
   });
+  return before - db.entries.length;
+}
+function pruneCacheDbByValue(db, maxEntries = 500) {
+  if (!db?.entries || !Array.isArray(db.entries) || db.entries.length <= maxEntries)
+    return 0;
+  const ranked = [...db.entries].sort((a, b) => {
+    const scoreB = cacheEntryValue(b, db.stats?.[b.tool]);
+    const scoreA = cacheEntryValue(a, db.stats?.[a.tool]);
+    if (scoreB !== scoreA)
+      return scoreB - scoreA;
+    if ((b.sizeBytes || 0) !== (a.sizeBytes || 0))
+      return (b.sizeBytes || 0) - (a.sizeBytes || 0);
+    return new Date(b.at).getTime() - new Date(a.at).getTime();
+  });
+  const keep = new Set(ranked.slice(0, maxEntries).map((e) => e.hash));
+  const before = db.entries.length;
+  db.entries = db.entries.filter((e) => keep.has(e.hash));
   return before - db.entries.length;
 }
 function deserializeCacheDb(raw) {
@@ -4498,7 +4546,7 @@ var init_vibeultrax = __esm({
 });
 
 // src/index.ts
-import { readFileSync as readFileSync20, writeFileSync as writeFileSync18, existsSync as existsSync20, mkdirSync as mkdirSync15, copyFileSync as copyFileSync2, renameSync as renameSync6, statSync as statSync9 } from "node:fs";
+import { readFileSync as readFileSync20, writeFileSync as writeFileSync18, existsSync as existsSync20, mkdirSync as mkdirSync15, copyFileSync as copyFileSync3, renameSync as renameSync6, statSync as statSync9 } from "node:fs";
 import { join as join20, dirname as dirname13, basename as basename5 } from "node:path";
 
 // src/vibeOS-lib/flow-enforcer.js
@@ -11216,7 +11264,7 @@ function evaluateClaimVerification({ text, vibeHome = process.env.VIBEOS_HOME ||
   return {
     claims,
     unsubstantiatedCount: substantiated ? 0 : claims.length,
-    claimTag: substantiated ? "\u2713" : `\u26A0${claims.length}`
+    claimTag: substantiated ? "\u2713" : `\u26A0${claims.length} verify`
   };
 }
 
@@ -13659,10 +13707,18 @@ async function _appendFooter(input, output, directory3) {
       modelLocked: _modelLocked,
       quietIntent: isGreetingLike(latestUserIntent || "")
     });
+    const prevAssistantTexts = typeof _prevAssistantTexts !== "undefined" && Array.isArray(_prevAssistantTexts) ? _prevAssistantTexts : [];
+    const claimStatus = evaluateClaimVerification({ text, vibeHome: VIBEOS_HOME });
+    const lieResult = detectLies({
+      assistantText: text,
+      userText: latestUserIntent || "",
+      prevAssistantTexts
+    });
+    const claimTag = lieResult.claims.length > 0 ? lieResult.claimVsOutcomeMismatch ? `\u26A0${lieResult.claims.length} verify` : "\u2713" : claimStatus.claimTag || "";
     const stripped = text.replace(/\u2014 [^\u2014]+ \u2014\s*/g, "").trimEnd();
     if (stripped !== text)
       return;
-    if (stripped === _lastStrippedText)
+    if (stripped === _lastStrippedText && !claimTag)
       return;
     const ltTotal = ltTasks + ltCache;
     const activeSlot = selNowFooter.active_slot || "brain";
@@ -13671,10 +13727,8 @@ async function _appendFooter(input, output, directory3) {
     const rawMode = (typeof loadSelection2 === "function" ? loadSelection2()?.requested_optimization_mode || loadSelection2()?.optimization_mode : null) || displayMode;
     const cv = computeControlVector2({ sub_regime: currentSubRegime, latest_stress_multiplier: _footerStress, user_text: latestUserIntent || "" }, void 0, rawMode);
     const vibeBrand = resolveBrand(loadOptimizationMode() || displayMode, activeSlot);
-    const claimStatus = evaluateClaimVerification({ text, vibeHome: VIBEOS_HOME });
     let _rewardTag = "";
     let _rewardOutcome = null;
-    const prevAssistantTexts = typeof _prevAssistantTexts !== "undefined" && Array.isArray(_prevAssistantTexts) ? _prevAssistantTexts : [];
     if (_blackboxEnabled) {
       try {
         const prevText = _prevOutputText;
@@ -13858,7 +13912,7 @@ ${vibeLine} \u2014`);
 
 // src/lib/hooks/tool-execute.js
 init_state();
-import { readFileSync as readFileSync18, writeFileSync as writeFileSync17, appendFileSync as appendFileSync7, existsSync as existsSync18, mkdirSync as mkdirSync14 } from "node:fs";
+import { readFileSync as readFileSync18, writeFileSync as writeFileSync17, appendFileSync as appendFileSync7, existsSync as existsSync18, mkdirSync as mkdirSync14, copyFileSync as copyFileSync2 } from "node:fs";
 import { join as join19, dirname as dirname12, basename as basename4 } from "node:path";
 import { createHash as createHash5 } from "node:crypto";
 init_selection_manager();
@@ -15558,6 +15612,44 @@ function _dequeueTelemetryStart(tool2) {
   }
   return _pendingTelemetryStarts.shift();
 }
+function materializeScratchpadAlias(toolLower, args, sourceHash, options = {}) {
+  if (!sourceHash)
+    return null;
+  const titleCase = TOOL_NAME_NORMALIZE[String(toolLower || "").toLowerCase()];
+  if (!titleCase)
+    return null;
+  const sessionDir = options.sessionDir || getSessionScratchpadDir();
+  const globalDir = options.globalDir || SCRATCHPAD_GLOBAL_DIR;
+  const inputJson = stableJson(args ?? {});
+  const hash = createHash5("sha256").update(`${titleCase}
+${inputJson}
+`).digest("hex").slice(0, 16);
+  if (hash === sourceHash)
+    return null;
+  const targetPath = join19(sessionDir, `${hash}.txt`);
+  if (existsSync18(targetPath))
+    return { hash, sourcePath: targetPath, targetPath };
+  const sessionSource = join19(sessionDir, `${sourceHash}.txt`);
+  const globalSource = join19(globalDir, `${sourceHash}.txt`);
+  const sourcePath = existsSync18(sessionSource) ? sessionSource : existsSync18(globalSource) ? globalSource : "";
+  if (!sourcePath)
+    return null;
+  try {
+    ensureSessionScratchpadDirs();
+    copyFileSync2(sourcePath, targetPath);
+    const ptrPath = join19(sessionDir, `${hash}.ptr`);
+    writeFileSync17(ptrPath, JSON.stringify({
+      contentHash: sourceHash,
+      tool: titleCase,
+      warmed: true,
+      prewarmed: true,
+      at: (/* @__PURE__ */ new Date()).toISOString()
+    }));
+    return { hash, sourcePath, targetPath };
+  } catch {
+    return null;
+  }
+}
 var setToolDirectory = (dir) => {
   projectDirectory = dir || "";
 };
@@ -15611,6 +15703,17 @@ var onToolExecuteBefore = async (input, output) => {
           recordCacheStats(_cacheDb, t, !!hit, hit ? _cacheSave : 0);
           if (!hit) {
             const prediction = predictCacheHit(_cacheDb, t, promptText);
+            if (prediction.shouldWarm && prediction.confidence >= 0.95 && prediction.similarEntries.length > 0) {
+              try {
+                const warm = materializeScratchpadAlias(t, rawArgs, prediction.similarEntries[0].hash);
+                if (warm && DEBUG_INTERNALS2) {
+                  console.error(`[vibeOS] \u{1F52E} prewarmed scratchpad alias for ${t}: ${warm.sourcePath} \u2192 ${warm.targetPath}`);
+                }
+              } catch (prewarmErr) {
+                if (DEBUG_INTERNALS2)
+                  console.error(`[vibeOS] Scratchpad prewarm error: ${prewarmErr.message}`);
+              }
+            }
             if (prediction.shouldWarm && prediction.confidence >= 0.6 && prediction.similarEntries.length > 0) {
               try {
                 const titleCase = TOOL_NAME_NORMALIZE[t];
@@ -16058,10 +16161,6 @@ var onToolExecuteAfter = async (input, output) => {
         subRegime: currentSubRegime
       }) + "\n\n";
       const footerTarget = _payload(output);
-      output.title = _footerText.trim();
-      if (footerTarget !== output && footerTarget && typeof footerTarget === "object") {
-        footerTarget.title = _footerText.trim();
-      }
       if (typeof footerTarget?.output === "string")
         footerTarget.output = _footerText + footerTarget.output;
       else if (typeof footerTarget?.result === "string")
@@ -17164,7 +17263,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
       const bkDir = join20(hookVibeHome, ".backups");
       mkdirSync15(bkDir, { recursive: true });
       const bk = join20(bkDir, `${basename5(path)}.${label}.${Date.now()}.bak`);
-      copyFileSync2(path, bk);
+      copyFileSync3(path, bk);
       return bk;
     } catch {
       return null;

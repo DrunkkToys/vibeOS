@@ -135,3 +135,12 @@ test("footer: sticky branded mode stays visually distinct from the live regime l
     const footer = o.text.split("\n").pop() || ""
     assert.ok(footer.includes("VibeUltraX") && footer.includes("· Quality"), "footer should separate brand and regime label: " + footer)
 })
+
+test("footer: claim-bearing output shows a check icon without needing cascade audit", async () => {
+    writeTiers({ active_slot: "brain", vector_changed_slot: undefined, optimization_mode: "quality" })
+    const { _appendFooter } = await import("../src/lib/hooks/footer.js?claim-check=" + Date.now())
+    const o = { text: "I fixed the bug, rebuilt the release, and verified the regression suite. The issue is resolved." }
+    await _appendFooter({ args: { model: "deepseek/v4-pro" } }, o)
+    const footer = o.text.split("\n").pop() || ""
+    assert.ok(footer.includes("✓"), "footer should show a check icon for verified claims: " + footer)
+})
