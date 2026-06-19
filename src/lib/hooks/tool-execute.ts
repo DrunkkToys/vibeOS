@@ -235,6 +235,54 @@ function _dequeueTelemetryStart(tool) {
   return _pendingTelemetryStarts.shift()
 }
 
+function _prependFooterAlert(target: any, footerText: string, seen = new Set<any>()): boolean {
+  if (!target || typeof target !== "object" || seen.has(target)) return false
+  seen.add(target)
+
+  if (typeof target.output === "string") {
+    target.output = footerText + target.output
+    return true
+  }
+  if (typeof target.result === "string") {
+    target.result = footerText + target.result
+    return true
+  }
+  if (typeof target.text === "string") {
+    target.text = footerText + target.text
+    return true
+  }
+  if (Array.isArray(target.content)) {
+    const textParts = target.content.filter((part: any) => part?.type === "text")
+    if (textParts.length > 0 && typeof textParts[0].text === "string") {
+      textParts[0].text = footerText + textParts[0].text
+    } else {
+      target.content.unshift({ type: "text", text: footerText })
+    }
+    return true
+  }
+  if (Array.isArray(target.parts)) {
+    const textParts = target.parts.filter((part: any) => part?.type === "text")
+    if (textParts.length > 0 && typeof textParts[0].text === "string") {
+      textParts[0].text = footerText + textParts[0].text
+    } else {
+      target.parts.unshift({ type: "text", text: footerText })
+    }
+    return true
+  }
+  if (typeof target.content === "string") {
+    target.content = footerText + target.content
+    return true
+  }
+
+  for (const key of ["message", "data", "payload", "output", "result"]) {
+    if (_prependFooterAlert(target[key], footerText, seen)) return true
+  }
+  for (const value of Object.values(target)) {
+    if (_prependFooterAlert(value, footerText, seen)) return true
+  }
+  return false
+}
+
 export function materializeScratchpadAlias(
   toolLower: string,
   args: any,
@@ -834,12 +882,7 @@ export const onToolExecuteAfter = async (input, output) => {
         vectorChangedSlot: selNow.vector_changed_slot,
         subRegime: currentSubRegime,
       }) + "\n\n"
-      const footerTarget = _payload(output)
-      if (typeof footerTarget?.output === "string") footerTarget.output = _footerText + footerTarget.output
-      else if (typeof footerTarget?.result === "string") footerTarget.result = _footerText + footerTarget.result
-      else if (typeof footerTarget?.text === "string") footerTarget.text = _footerText + footerTarget.text
-      else if (typeof footerTarget?.content === "string") footerTarget.content = _footerText + footerTarget.content
-      else footerTarget.output = _footerText
+      _prependFooterAlert(_payload(output), _footerText)
 
       _autoReportCount = (_autoReportCount || 0) + 1
       if (_autoReportCount % 5 === 0 && ltTotal > 0) {
