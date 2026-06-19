@@ -1,3 +1,23 @@
+## 0.25.51
+- fix: preserve tool titles in footer hook (#275)
+- fix: restore reward footer persistence (#274)
+- fix: keep scratchpad cache session-only (#271)
+- test: cover empty reward input (#269)
+Fix dashboard sync path for web search
+Merge origin/master into codex/strat
+Add web search frontend
+Update README.md
+Fix footer claim alert visibility (#277)
+Merge remote-tracking branch 'origin/master' into codex/strat
+Fix footer claim alert visibility
+Improve cache reuse and routing (#276)
+Improve cache reuse and routing
+ fix pivot counter-pivot handoff + compressed project memory savings (#273)
+fix pivot counter-pivot handoff (#272)
+Merge remote-tracking branch 'origin/release/v0.25.48'
+Stabilize claim status footer (#270)
+
+
 ## 0.25.48
 - feat: reward engine — quality credits, saving bonus, lie/laziness penalties (#266)
 - fix: forward claim evidence into reward scoring (#268)
