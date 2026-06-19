@@ -291,9 +291,19 @@ async function _appendFooter(input, output, directory) {
       modelLocked: _modelLocked,
       quietIntent: isGreetingLike(latestUserIntent || ""),
     })
+    const prevAssistantTexts = typeof _prevAssistantTexts !== "undefined" && Array.isArray(_prevAssistantTexts) ? _prevAssistantTexts : []
+    const claimStatus = evaluateClaimVerification({ text, vibeHome: VIBEOS_HOME })
+    const lieResult = detectLies({
+      assistantText: text,
+      userText: latestUserIntent || "",
+      prevAssistantTexts,
+    })
+    const claimTag = lieResult.claims.length > 0
+      ? (lieResult.claimVsOutcomeMismatch ? `⚠${lieResult.claims.length} verify` : "✓")
+      : (claimStatus.claimTag || "")
     const stripped = text.replace(/\u2014 [^\u2014]+ \u2014\s*/g, "").trimEnd()
     if (stripped !== text) return
-    if (stripped === _lastStrippedText) return
+    if (stripped === _lastStrippedText && !claimTag) return
     const ltTotal = ltTasks + ltCache
     const activeSlot = selNowFooter.active_slot || "brain"
     const flashIcon = isApiConnected() ? " \u26A1" : ""
@@ -301,10 +311,8 @@ async function _appendFooter(input, output, directory) {
     const rawMode = (typeof loadSelection === "function" ? (loadSelection()?.requested_optimization_mode || loadSelection()?.optimization_mode) : null) || displayMode
     const cv = computeControlVector({ sub_regime: currentSubRegime, latest_stress_multiplier: _footerStress, user_text: latestUserIntent || "" }, undefined, rawMode)
     const vibeBrand = resolveBrand(loadOptimizationMode() || displayMode, activeSlot)
-    const claimStatus = evaluateClaimVerification({ text, vibeHome: VIBEOS_HOME })
     let _rewardTag = ""
     let _rewardOutcome = null
-    const prevAssistantTexts = typeof _prevAssistantTexts !== "undefined" && Array.isArray(_prevAssistantTexts) ? _prevAssistantTexts : []
 
     if (_blackboxEnabled) {
       try {
@@ -449,7 +457,7 @@ async function _appendFooter(input, output, directory) {
       subRegime: currentSubRegime,
       stressGauge: _footerStress > 0.85 ? "█" : _footerStress > 0.7 ? "▆" : _footerStress > 0.5 ? "▅" : _footerStress > 0.3 ? "▃" : _footerStress > 0.1 ? "▂" : "▁",
       cascadeIcon: ((cv?.cascade_depth || 1) >= 3 ? "▸▸▸" : (cv?.cascade_depth || 1) >= 2 ? "▸▸" : ""),
-      claimTag: claimStatus.claimTag || undefined,
+      claimTag: claimTag || undefined,
       rewardTag: _rewardTag || undefined,
     })
     const footerText = stripped + `\n\n${vibeLine}`
