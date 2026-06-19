@@ -82,10 +82,15 @@ const _MCP_FILENAME = fileURLToPath(import.meta.url)
 const _MCP_DIR = dirname(_MCP_FILENAME)
 
 function resolveDashboardDir(): string {
+  const repoRoot = join(_MCP_DIR, "..", "..")
+  const cwd = process.cwd()
   const c = [
     join(_MCP_DIR, "dashboard", "dist"),
     join(_MCP_DIR, "assets", "dashboard"),
     join(_MCP_DIR, "assets", "dashboard", "dist"),
+    join(repoRoot, "src", "lib", "dashboard", "dist"),
+    join(cwd, "src", "lib", "dashboard", "dist"),
+    join(cwd, "dist-ts", "lib", "dashboard", "dist"),
   ]
   for (const p of c) {
     if (existsSync(join(p, "index.html"))) return p

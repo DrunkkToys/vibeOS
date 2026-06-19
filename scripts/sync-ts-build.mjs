@@ -5,7 +5,7 @@ import { join } from "node:path"
 const libModules = [
   "api-client", "pricing", "state", "turn-classify", "tdd-enforcer",
   "cost-anomaly", "index-helpers", "research-audit", "reporting", "credit-api", "selection-manager",
-  "runtime-surface", "classifiers", "test-skeletons", "templates", "text-compress",
+  "session-orchestrator", "runtime-surface", "classifiers", "test-skeletons", "templates", "text-compress",
   "mode-policy", "mode-router", "turn-memo", "pattern-helpers", "trinity-rebuild", "trinity-tool", "runtime-state",
   "constants", "claim-verification",
 ]

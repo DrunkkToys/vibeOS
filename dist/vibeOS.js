@@ -5759,10 +5759,15 @@ function parseBody(req) {
 var _MCP_FILENAME = fileURLToPath2(import.meta.url);
 var _MCP_DIR = dirname3(_MCP_FILENAME);
 function resolveDashboardDir() {
+  const repoRoot = join4(_MCP_DIR, "..", "..");
+  const cwd = process.cwd();
   const c = [
     join4(_MCP_DIR, "dashboard", "dist"),
     join4(_MCP_DIR, "assets", "dashboard"),
-    join4(_MCP_DIR, "assets", "dashboard", "dist")
+    join4(_MCP_DIR, "assets", "dashboard", "dist"),
+    join4(repoRoot, "src", "lib", "dashboard", "dist"),
+    join4(cwd, "src", "lib", "dashboard", "dist"),
+    join4(cwd, "dist-ts", "lib", "dashboard", "dist")
   ];
   for (const p of c) {
     if (existsSync4(join4(p, "index.html")))
