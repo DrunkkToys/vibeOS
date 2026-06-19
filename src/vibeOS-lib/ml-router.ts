@@ -19,6 +19,8 @@ export interface QueryFeatures {
   argCount: number
   complexityWords: number
   questionDensity: number
+  commandHints: number
+  fileKinds: number
 }
 
 export interface DifficultyResult {
@@ -80,6 +82,8 @@ const ERROR_SIGNAL_WORDS = /\b(?:bug|error|fail|crash|broken|wrong|incorrect|iss
 const COMPLEXITY_INDICATORS = /multi.*(?:file|module|step|stage|phase|tenant|region|thread|process)|concurrent|async|parallel|distributed|replicated|shard|cluster|microservice|framework|database|schema|migration|backward.*compat|breaking.*change|api.*(?:version|breaking)|protocol|encoding|serializ/
 
 const FILE_PATH_PATTERN = /(?:^|[\s"'(])\.{0,2}\/[a-zA-Z0-9._/-]+|\.(?:js|ts|tsx|jsx|py|rs|go|java|cpp|c|h|json|yaml|yml|toml|sql|css|html|md)\b|package\.json|tsconfig\.json|dockerfile|makefile|docker-compose/i
+const COMMAND_HINT_PATTERN = /\b(?:npm|pnpm|yarn|node|tsc|eslint|prettier|vitest|jest|mocha|ava|pytest|cargo|go\s+test|git|docker|kubectl|make)\b/gi
+const FILE_KIND_PATTERN = /\b(?:package\.json|tsconfig\.json|readme\.md|dockerfile|makefile|yarn\.lock|pnpm-lock\.yaml|package-lock\.json|\.test\.[a-z]+|\.spec\.[a-z]+)\b/gi
 
 // ── Word frequency map (small pre-computed vocabulary) ──────────────
 
@@ -111,6 +115,8 @@ export function extractFeatures(prompt: string): QueryFeatures {
 
   const fileMentions = (lower.match(FILE_PATH_PATTERN) || []).length
   const errorSignals = (lower.match(ERROR_SIGNAL_WORDS) || []).length
+  const commandHints = (lower.match(COMMAND_HINT_PATTERN) || []).length
+  const fileKinds = (lower.match(FILE_KIND_PATTERN) || []).length
 
   let complexityWords = 0
   for (const w of words) {
@@ -138,6 +144,8 @@ export function extractFeatures(prompt: string): QueryFeatures {
     argCount: (s.match(/-{1,2}[a-zA-Z][\w-]*/g) || []).length,
     complexityWords,
     questionDensity,
+    commandHints,
+    fileKinds,
   }
 }
 
@@ -186,6 +194,9 @@ export function computeDifficulty(prompt: string): DifficultyResult {
 
   score += features.questionDensity * 0.08
   score += sigmoid((features.argCount - 3) / 5) * 0.07
+  if (features.commandHints >= 2) score += 0.05
+  else if (features.commandHints >= 1 && features.fileMentions >= 2) score += 0.04
+  if (features.fileKinds >= 2) score += 0.05
 
   const wcs = wordComplexityScore(words)
   score += wcs * 0.15

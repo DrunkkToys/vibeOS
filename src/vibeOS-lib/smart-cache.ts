@@ -39,6 +39,7 @@ export interface SimilarityResult {
   hash: string
   score: number
   entry: CacheEntry
+  index?: number
 }
 
 export interface CachePrediction {
@@ -48,6 +49,19 @@ export interface CachePrediction {
   reason: string
   similarEntries: SimilarityResult[]
   estimatedSavings: number
+}
+
+function cacheEntryValue(entry: CacheEntry, stats?: CacheStats): number {
+  const hitRate = Number(stats?.hitRate ?? 0)
+  const bytes = Math.max(1, Number(entry?.sizeBytes || 0))
+  const ageSec = Math.max(1, Number(entry?.ageSec || 0))
+  return (hitRate * Math.log10(bytes + 10) * Math.log10(bytesSavedFactor(stats) + 10)) / Math.log10(ageSec + 10)
+}
+
+function bytesSavedFactor(stats?: CacheStats): number {
+  const saved = Number(stats?.bytesSaved ?? 0)
+  const hits = Math.max(1, Number(stats?.hits ?? 0))
+  return saved / hits
 }
 
 // ── Jaccard similarity ──────────────────────────────────────────────
@@ -201,8 +215,7 @@ export function addCacheEntry(
   })
 
   if (db.entries.length > 500) {
-    db.entries.sort((a, b) => b.at.localeCompare(a.at))
-    db.entries.length = 500
+    pruneCacheDbByValue(db, 500)
   }
 }
 
@@ -239,14 +252,21 @@ export function predictCacheHit(
   const toolHitRate = stats?.hitRate ?? 0.3
 
   const similarEntries: SimilarityResult[] = []
-  for (const entry of db.entries) {
+  for (let i = 0; i < db.entries.length; i++) {
+    const entry = db.entries[i]
     if (entry.tool !== tool) continue
     const score = compositeSimilarity(prompt, entry.prompt)
     if (score > 0.4) {
-      similarEntries.push({ hash: entry.hash, score, entry })
+      similarEntries.push({ hash: entry.hash, score, entry, index: i })
     }
   }
-  similarEntries.sort((a, b) => b.score - a.score)
+  similarEntries.sort((a, b) => {
+    const scoreDiff = b.score - a.score
+    if (Math.abs(scoreDiff) > 1e-9) return scoreDiff
+    const timeDiff = new Date(b.entry.at).getTime() - new Date(a.entry.at).getTime()
+    if (timeDiff !== 0) return timeDiff
+    return (b.index ?? 0) - (a.index ?? 0)
+  })
 
   if (similarEntries.length === 0) {
     return {
@@ -302,6 +322,21 @@ export function evictStaleEntries(db: CacheDatabase, maxAgeSec: number): number 
     const entryTime = new Date(e.at).getTime()
     return (now - entryTime) / 1000 < maxAgeSec
   })
+  return before - db.entries.length
+}
+
+export function pruneCacheDbByValue(db: CacheDatabase, maxEntries: number = 500): number {
+  if (!db?.entries || !Array.isArray(db.entries) || db.entries.length <= maxEntries) return 0
+  const ranked = [...db.entries].sort((a, b) => {
+    const scoreB = cacheEntryValue(b, db.stats?.[b.tool])
+    const scoreA = cacheEntryValue(a, db.stats?.[a.tool])
+    if (scoreB !== scoreA) return scoreB - scoreA
+    if ((b.sizeBytes || 0) !== (a.sizeBytes || 0)) return (b.sizeBytes || 0) - (a.sizeBytes || 0)
+    return new Date(b.at).getTime() - new Date(a.at).getTime()
+  })
+  const keep = new Set(ranked.slice(0, maxEntries).map(e => e.hash))
+  const before = db.entries.length
+  db.entries = db.entries.filter(e => keep.has(e.hash))
   return before - db.entries.length
 }
 

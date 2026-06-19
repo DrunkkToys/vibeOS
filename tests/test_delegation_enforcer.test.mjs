@@ -723,6 +723,23 @@ test("getScratchpadHit: surfaces summary path when present", async () => {
   assert.ok(hit?.summaryPath?.endsWith(".summary.txt"))
 })
 
+test("materializeScratchpadAlias: prewarms a local scratchpad copy", async () => {
+  const { createHash } = await import("node:crypto")
+  const { materializeScratchpadAlias } = await import("../src/lib/hooks/tool-execute.js?prewarm=" + Date.now())
+  const { getScratchpadHit } = await loadPlugin()
+  const tmp = mkdtempSync(join(tmpdir(), "scratchpad-prewarm-"))
+  const args = { command: "echo hello world" }
+  const sourceHash = createHash("sha256").update(`Bash\n${JSON.stringify({ command: "echo hello world from cache" })}\n`).digest("hex").slice(0, 16)
+  writeFileSync(join(tmp, `${sourceHash}.txt`), "cached body")
+
+  const result = materializeScratchpadAlias("bash", args, sourceHash, { sessionDir: tmp, globalDir: tmp })
+  const hit = getScratchpadHit("bash", args, tmp)
+
+  assert.ok(result, "alias should be materialized")
+  assert.ok(hit, "prewarmed alias should become a cache hit")
+  assert.equal(readFileSync(join(tmp, `${hit.hash}.txt`), "utf-8"), "cached body")
+})
+
 // ── experimental.text.complete ───────────────────────────────────────
 test("text.complete: appends savings tag to assistant text", async () => {
   const mod = await loadPlugin()

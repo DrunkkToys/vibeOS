@@ -75,6 +75,6 @@ export function evaluateClaimVerification({
   return {
     claims,
     unsubstantiatedCount: substantiated ? 0 : claims.length,
-    claimTag: substantiated ? "✓" : `⚠${claims.length}`,
+    claimTag: substantiated ? "✓" : `⚠${claims.length} verify`,
   }
 }

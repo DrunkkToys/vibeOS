@@ -105,6 +105,18 @@ test("2b — addEntry + predict + dedup", async () => {
   assert.equal(db.entries.length, 2, "dedup: still 2")
 })
 
+test("2b2 — predict prefers the most recent equal-score match", async () => {
+  const sc = await import(join(root, "src/vibeOS-lib/smart-cache.js?sc2b=" + Date.now()))
+  const db = sc.createCacheDatabase()
+
+  sc.addCacheEntry(db, "older", "write", "implement rate limiter express", 5000, 200)
+  sc.addCacheEntry(db, "newer", "write", "implement rate limiter express", 5000, 50)
+
+  const pred = sc.predictCacheHit(db, "write", "implement rate limiter express")
+
+  assert.equal(pred.similarEntries[0]?.hash, "newer", "newest equal-score entry should rank first")
+})
+
 test("2c — stats with exponential decay", async () => {
   const sc = await import(join(root, "src/vibeOS-lib/smart-cache.js?sc3=" + Date.now()))
   const db = sc.createCacheDatabase()
@@ -123,6 +135,32 @@ test("2d — eviction", async () => {
   const e = sc.evictStaleEntries(db, 3600)
   assert.ok(e >= 1)
   assert.equal(db.entries.length, 1)
+})
+
+test("2e — value pruning keeps the high-value cache entry", async () => {
+  const sc = await import(join(root, "src/vibeOS-lib/smart-cache.js?sc5=" + Date.now()))
+  const db = sc.createCacheDatabase()
+
+  sc.addCacheEntry(db, "low", "read", "tiny prompt", 100, 99999)
+  sc.addCacheEntry(db, "high", "write", "large prompt with reusable context and tests", 120000, 10)
+  sc.recordCacheStats(db, "read", false, 0)
+  for (let i = 0; i < 12; i++) sc.recordCacheStats(db, "write", true, 5000)
+
+  const removed = sc.pruneCacheDbByValue(db, 1)
+  assert.ok(removed >= 1, "one low-value entry should be pruned")
+  assert.equal(db.entries.length, 1)
+  assert.equal(db.entries[0].hash, "high")
+})
+
+test("1h — computeDifficulty boosts file and command heavy prompts", async () => {
+  const ml = await import(join(root, "src/vibeOS-lib/ml-router.js?ml1=" + Date.now()))
+  const simple = ml.computeDifficulty("explain the issue")
+  const operational = ml.computeDifficulty("refactor src/api.ts and package.json, then run npm test and tsconfig checks")
+
+  const features = ml.extractFeatures("refactor src/api.ts and package.json, then run npm test and tsconfig checks")
+  assert.ok(features.commandHints >= 1, "command hints detected")
+  assert.ok(features.fileKinds >= 1, "file kinds detected")
+  assert.ok(operational.score > simple.score, "file+command prompt should score harder")
 })
 
 // GROUP 3: Context Compression
