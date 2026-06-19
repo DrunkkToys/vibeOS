@@ -235,6 +235,43 @@ function _dequeueTelemetryStart(tool) {
   return _pendingTelemetryStarts.shift()
 }
 
+export function materializeScratchpadAlias(
+  toolLower: string,
+  args: any,
+  sourceHash: string,
+  options: { sessionDir?: string; globalDir?: string } = {},
+): { hash: string; sourcePath: string; targetPath: string } | null {
+  if (!sourceHash) return null
+  const titleCase = TOOL_NAME_NORMALIZE[String(toolLower || "").toLowerCase()]
+  if (!titleCase) return null
+  const sessionDir = options.sessionDir || getSessionScratchpadDir()
+  const globalDir = options.globalDir || SCRATCHPAD_GLOBAL_DIR
+  const inputJson = stableJson(args ?? {})
+  const hash = createHash("sha256").update(`${titleCase}\n${inputJson}\n`).digest("hex").slice(0, 16)
+  if (hash === sourceHash) return null
+  const targetPath = join(sessionDir, `${hash}.txt`)
+  if (existsSync(targetPath)) return { hash, sourcePath: targetPath, targetPath }
+  const sessionSource = join(sessionDir, `${sourceHash}.txt`)
+  const globalSource = join(globalDir, `${sourceHash}.txt`)
+  const sourcePath = existsSync(sessionSource) ? sessionSource : (existsSync(globalSource) ? globalSource : "")
+  if (!sourcePath) return null
+  try {
+    ensureSessionScratchpadDirs()
+    copyFileSync(sourcePath, targetPath)
+    const ptrPath = join(sessionDir, `${hash}.ptr`)
+    writeFileSync(ptrPath, JSON.stringify({
+      contentHash: sourceHash,
+      tool: titleCase,
+      warmed: true,
+      prewarmed: true,
+      at: new Date().toISOString(),
+    }))
+    return { hash, sourcePath, targetPath }
+  } catch {
+    return null
+  }
+}
+
 export const setToolDirectory = (dir) => { projectDirectory = dir || "" }
 
 export const onToolExecuteBefore = async (input, output) => {
@@ -297,6 +334,16 @@ export const onToolExecuteBefore = async (input, output) => {
           recordCacheStats(_cacheDb, t, !!hit, hit ? _cacheSave : 0)
           if (!hit) {
             const prediction = predictCacheHit(_cacheDb, t, promptText)
+            if (prediction.shouldWarm && prediction.confidence >= 0.95 && prediction.similarEntries.length > 0) {
+              try {
+                const warm = materializeScratchpadAlias(t, rawArgs, prediction.similarEntries[0].hash)
+                if (warm && DEBUG_INTERNALS) {
+                  console.error(`[vibeOS] 🔮 prewarmed scratchpad alias for ${t}: ${warm.sourcePath} → ${warm.targetPath}`)
+                }
+              } catch (prewarmErr) {
+                if (DEBUG_INTERNALS) console.error(`[vibeOS] Scratchpad prewarm error: ${prewarmErr.message}`)
+              }
+            }
             if (prediction.shouldWarm && prediction.confidence >= 0.6 && prediction.similarEntries.length > 0) {
               try {
                 const titleCase = TOOL_NAME_NORMALIZE[t]
