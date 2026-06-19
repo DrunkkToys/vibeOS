@@ -875,6 +875,50 @@ test("tool.execute.after: test-reminder injected into output.result for write to
   assert.match(out.result, /\[test-reminder\]/, "test-reminder appended to output.result")
 })
 
+test("tool.execute.after: footer alert reaches nested desktop content arrays", async () => {
+  const { DelegationEnforcer } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-arrayfooter")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "anthropic/claude-opus-4-7" }))
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+
+  const nestedContent = {
+    message: {
+      content: [{ type: "text", text: "Nested desktop tool output that should still receive the visible vibeOS footer alert." }],
+    },
+  }
+  await hooks["tool.execute.after"](
+    { tool: "write", callID: "c2-array", args: { filePath: `/tmp/array-remind-${Date.now()}.py` } },
+    nestedContent,
+  )
+  assert.ok(
+    String(nestedContent.message.content[0].text || "").startsWith("—"),
+    "footer alert should be prepended to the first nested content text part",
+  )
+  assert.ok(
+    String(nestedContent.message.content[0].text || "").includes("Nested desktop tool output"),
+    "original nested content should still be present after the footer alert",
+  )
+
+  const nestedParts = {
+    message: {
+      parts: [{ type: "text", text: "Nested desktop parts output that should also get the alert." }],
+    },
+  }
+  await hooks["tool.execute.after"](
+    { tool: "edit", callID: "c2-parts", args: { filePath: `/tmp/array-remind-${Date.now()}.ts` } },
+    nestedParts,
+  )
+  assert.ok(
+    String(nestedParts.message.parts[0].text || "").startsWith("—"),
+    "footer alert should be prepended to the first nested parts text part",
+  )
+  assert.ok(
+    String(nestedParts.message.parts[0].text || "").includes("Nested desktop parts output"),
+    "original nested parts content should still be present after the footer alert",
+  )
+})
+
 test("tool.execute.after: does not set output.result/text/content/data (wrong field names)", async () => {
   const { DelegationEnforcer } = await loadPlugin()
   const dir = join(sandbox, ".opencode-wrongfields")
