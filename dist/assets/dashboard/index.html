@@ -57,6 +57,44 @@ textarea{min-height:80px;resize:vertical}
 .fb-btn.active { border-color: #58a6ff; background: #1f2937; }
 #bb-momentum-bar { height: 6px; border-radius: 3px; transition: width 0.3s; }
 #bb-stress-gauge { font-size: 24px; letter-spacing: 2px; }
+.hero{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;padding:18px;border:1px solid var(--border);border-radius:14px;background:linear-gradient(135deg,rgba(88,166,255,.14),rgba(63,185,80,.08) 50%,rgba(33,38,45,.92));margin-bottom:14px}
+.hero h2{font-size:28px;line-height:1.1;margin:4px 0 6px}
+.hero .eyebrow{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--text2)}
+.hero .subtle{color:var(--text2);max-width:760px}
+.hero-callout{min-width:240px;padding:12px 14px;border-radius:12px;background:rgba(13,17,23,.55);border:1px solid var(--border);font-size:13px}
+.summary-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:14px 0}
+.summary-card{padding:14px;border-radius:12px;background:var(--surface);border:1px solid var(--border);min-height:92px}
+.summary-card .k{font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px}
+.summary-card .v{font-size:22px;font-weight:700;line-height:1.15}
+.summary-card .s{font-size:12px;color:var(--text2);margin-top:6px}
+.pill-row{display:flex;flex-wrap:wrap;gap:8px}
+.pill{padding:6px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);font-size:12px;color:var(--text)}
+.workspace{display:grid;grid-template-columns:1.1fr .9fr;gap:12px}
+.workspace .stack{display:grid;gap:12px}
+.session-item{padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;margin-bottom:8px}
+.session-item.active{border-color:var(--accent);box-shadow:0 0 0 1px rgba(88,166,255,.35) inset}
+.session-item .top{display:flex;justify-content:space-between;gap:10px;align-items:center}
+.session-item .meta{font-size:12px;color:var(--text2);margin-top:4px}
+.status-tag{font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--border);text-transform:uppercase;letter-spacing:.08em}
+.status-tag.active{background:#11301f;color:var(--green)}
+.status-tag.paused{background:#312612;color:var(--yellow)}
+.status-tag.archived,.status-tag.checked_out{background:#2a2023;color:var(--red)}
+.toolbar{display:flex;flex-wrap:wrap;gap:8px}
+.toolbar .action{white-space:nowrap}
+.template-editor textarea{min-height:140px}
+.template-list{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+.template-card{padding:8px 10px;border-radius:10px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;font-size:12px}
+.template-card.active{border-color:var(--accent);background:#17304a}
+.search-shell{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:12px}
+.search-results{display:grid;gap:10px}
+.search-result{padding:12px;border-radius:10px;border:1px solid var(--border);background:var(--surface2)}
+.search-result h4{font-size:14px;margin-bottom:4px}
+.search-result .meta{color:var(--text2);font-size:12px;margin-bottom:6px}
+.search-result .snippet{color:var(--text);font-size:13px}
+.search-citations{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.search-citation{padding:4px 8px;border-radius:999px;background:var(--surface);border:1px solid var(--border);font-size:12px}
+.search-flag{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);font-size:11px;margin:0 6px 6px 0}
+.search-empty{color:var(--text2);font-size:13px}
 
 </style>
 </head>
@@ -71,19 +109,46 @@ textarea{min-height:80px;resize:vertical}
 </header>
 
 <nav id="tabs">
-  <button class="tab active" data-tab="status">Status</button>
+  <button class="tab active" data-tab="home">Home</button>
   <button class="tab" data-tab="savings">Savings</button>
   <button class="tab" data-tab="sessions">Sessions</button>
   <button class="tab" data-tab="reports">Reports</button>
+  <button class="tab" data-tab="web-search">Web Search</button>
   <button class="tab" data-tab="controls">Controls</button>
   <button class="tab" data-tab="blackbox-panel">Blackbox</button>
 </nav>
 
-<div id="panel-status" class="panel active">
-  <div class="grid">
-    <div class="card"><h3>Model</h3><div id="modelInfo"></div></div>
-    <div class="card"><h3>Session</h3><div id="sessionInfo"></div></div>
-    <div class="card full"><h3>Backend Connection</h3><div id="backendInfo"></div></div>
+<div id="panel-home" class="panel active">
+  <div class="hero">
+    <div>
+      <div class="eyebrow">Executive Summary</div>
+      <h2 id="homeTitle">Loading...</h2>
+      <div class="subtle" id="homeSubtitle">Watching the live session state.</div>
+    </div>
+    <div class="hero-callout" id="homeRecommendation">Refreshing session status...</div>
+  </div>
+  <div class="summary-grid" id="homeCards"></div>
+  <div class="workspace">
+    <div class="stack">
+      <div class="card">
+        <h3>Current Session</h3>
+        <div id="homeSession"></div>
+      </div>
+      <div class="card">
+        <h3>Session List</h3>
+        <div id="homeSessions"><p class="loading">Loading...</p></div>
+      </div>
+    </div>
+    <div class="stack">
+      <div class="card">
+        <h3>Blackbox Snapshot</h3>
+        <div id="homeBlackbox"></div>
+      </div>
+      <div class="card">
+        <h3>Templates</h3>
+        <div id="homeTemplates"></div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -96,7 +161,31 @@ textarea{min-height:80px;resize:vertical}
 </div>
 
 <div id="panel-sessions" class="panel">
-  <div class="card"><h3>Session History</h3><div id="sessionList"><p class="loading">Loading...</p></div></div>
+  <div class="workspace">
+    <div class="stack">
+      <div class="card">
+        <h3>Session History</h3>
+        <div id="sessionList"><p class="loading">Loading...</p></div>
+      </div>
+    </div>
+    <div class="stack">
+      <div class="card">
+        <h3>Workspace</h3>
+        <div id="sessionWorkspace"><p class="loading">Select a session</p></div>
+      </div>
+      <div class="card template-editor">
+        <h3>TDD Template</h3>
+        <div id="templateLibrary" class="template-list"></div>
+        <input type="text" id="templateLabel" placeholder="Template label" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:6px 8px;font-size:13px;width:100%;margin-bottom:8px">
+        <textarea id="templateBody" placeholder="Template body"></textarea>
+        <div class="toolbar">
+          <button class="action" onclick="applyTemplateToSession()">Apply to session</button>
+          <button class="action" onclick="saveSessionNote()">Annotate</button>
+          <button class="action" onclick="toggleSessionLock()">Toggle lock</button>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div id="panel-reports" class="panel">
@@ -104,6 +193,60 @@ textarea{min-height:80px;resize:vertical}
     <h3>Reports <button class="action" style="float:right" onclick="openNewReport()">+ New</button></h3>
     <div class="form-row"><input type="text" id="reportFilter" placeholder="Filter by summary..." oninput="loadReports()" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:6px 8px;font-size:13px;flex:1"></div>
     <div id="reportList"><p class="loading">Loading...</p></div>
+  </div>
+</div>
+
+<div id="panel-web-search" class="panel">
+  <div class="search-shell">
+    <div class="stack">
+      <div class="card">
+        <h3>Search the Web</h3>
+        <p class="search-empty" style="margin-bottom:10px">Backend-driven search with citations. The dashboard only sends the query and renders grounded results.</p>
+        <div id="webSearchCapability"></div>
+      </div>
+      <div class="card">
+        <h3>Query</h3>
+        <input type="text" id="webSearchQuery" placeholder="Ask for docs, facts, or citations..." style="background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:8px 10px;font-size:13px;width:100%;margin-bottom:8px">
+        <div class="form-row">
+          <select id="webSearchProvider">
+            <option value="duckduckgo">duckduckgo</option>
+            <option value="fixture">fixture</option>
+          </select>
+          <input type="number" id="webSearchResults" min="1" max="10" value="5" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:6px 8px;font-size:13px;width:100%">
+        </div>
+        <div class="form-row">
+          <select id="webSearchSafeSearch">
+            <option value="moderate">moderate</option>
+            <option value="strict">strict</option>
+            <option value="off">off</option>
+          </select>
+          <select id="webSearchLocale">
+            <option value="us-en">us-en</option>
+            <option value="uk-en">uk-en</option>
+            <option value="wt-wt">wt-wt</option>
+          </select>
+        </div>
+        <label style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
+          <input type="checkbox" id="webSearchComposeAnswer" checked>
+          Compose answer
+        </label>
+        <div class="toolbar">
+          <button class="action" onclick="runWebSearch()">Search Web</button>
+          <button class="action" onclick="loadCapabilities()">Refresh capability</button>
+        </div>
+        <div id="webSearchStatus" style="margin-top:10px;color:var(--text2);font-size:12px"></div>
+      </div>
+    </div>
+    <div class="stack">
+      <div class="card">
+        <h3>Answer</h3>
+        <div id="webSearchAnswer" class="search-empty">Run a query to see the summarized result.</div>
+      </div>
+      <div class="card">
+        <h3>Results</h3>
+        <div id="webSearchResultsList" class="search-results"><div class="search-empty">No search run yet.</div></div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -230,6 +373,10 @@ function resolveBase() {
 const BASE = resolveBase();
 let lastStatus = null;
 let lastSavings = null;
+let dashboardHome = null;
+let selectedSessionId = null;
+let webSearchCapabilities = null;
+let webSearchLastResult = null;
 
 // Tab switching
 document.querySelectorAll('[data-tab]').forEach(btn => {
@@ -240,8 +387,9 @@ document.querySelectorAll('[data-tab]').forEach(btn => {
     document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
     const tab = btn.dataset.tab;
     if (tab === 'reports') loadReports();
+    if (tab === 'web-search') renderWebSearchPanel();
     if (tab === 'controls') { loadDiagnose(); loadProject(); }
-    if (tab === 'sessions') loadSessions();
+    if (tab === 'sessions') { renderSessionList(dashboardHome || { sessions: [] }); if (selectedSessionId) void loadSessionWorkspace(selectedSessionId); }
     if (tab === 'blackbox-panel') fetchBlackbox();
   });
 });
@@ -259,19 +407,333 @@ function fmt(n, d = 6) { return typeof n === 'number' ? '$' + n.toFixed(d) : Str
 async function refreshAll() {
   setIndicator('offline', 'connecting...');
   try {
-    const [status, savings] = await Promise.all([
-      api('GET', '/status'),
-      api('GET', '/savings')
-    ]);
-    lastStatus = status; lastSavings = savings;
-    renderStatus(status);
-    renderSavings(savings);
-    renderModelInfo(status);
-    renderBackendInfo(status);
-    setConnection(status);
+    const home = await api('GET', '/dashboard/home');
+    dashboardHome = home;
+    lastStatus = home.status || null;
+    lastSavings = home.savings || null;
+    if (!selectedSessionId && home.current_session?.session_id) selectedSessionId = home.current_session.session_id;
+    renderHome(home);
+    renderSessionList(home);
+    renderTemplateLibrary(home);
+    renderSavings(home.savings || {});
+    setConnection(home.status || {});
+    await loadCapabilities();
+    if (selectedSessionId && selectedSessionId !== home.current_session?.session_id) await loadSessionWorkspace(selectedSessionId);
+    else renderSessionWorkspace(home, selectedSessionId || home.current_session?.session_id || null);
     document.getElementById('lastUpdate').textContent = 'Last updated: ' + new Date().toLocaleTimeString();
   } catch (e) {
     setIndicator('offline', 'disconnected');
+    console.error(e);
+  }
+}
+
+async function loadCapabilities() {
+  const el = document.getElementById('webSearchCapability');
+  const status = document.getElementById('webSearchStatus');
+  try {
+    const caps = await api('GET', '/capabilities');
+    webSearchCapabilities = caps || {};
+    renderWebSearchCapability(webSearchCapabilities);
+    if (status) status.textContent = 'Capability loaded from backend.';
+    return webSearchCapabilities;
+  } catch (e) {
+    webSearchCapabilities = null;
+    if (el) el.innerHTML = '<div class="search-empty">Web search capability unavailable.</div>';
+    if (status) status.textContent = 'Capability fetch failed: ' + (e?.message || 'unknown error');
+    return null;
+  }
+}
+
+function renderWebSearchCapability(caps) {
+  const el = document.getElementById('webSearchCapability');
+  if (!el) return;
+  const web = caps?.web_search || {};
+  const enabled = Boolean(web.enabled);
+  const flags = [
+    `<span class="search-flag">${enabled ? 'enabled' : 'disabled'}</span>`,
+    `<span class="search-flag">provider: ${web.provider || 'duckduckgo'}</span>`,
+    `<span class="search-flag">${web.fixture_mode ? 'fixture mode' : 'live mode'}</span>`,
+    web.benchmark_path ? `<span class="search-flag">benchmark: ${web.benchmark_path}</span>` : '',
+    typeof web.backend_status === 'number' ? `<span class="search-flag">backend: ${web.backend_status}</span>` : '',
+  ].filter(Boolean).join('');
+  el.innerHTML = `
+    <div class="pill-row">${flags || '<span class="search-flag">no capability data</span>'}</div>
+    ${web.error ? `<div class="search-empty" style="margin-top:8px;color:var(--red)">${web.error}</div>` : ''}
+  `;
+  const providerInput = document.getElementById('webSearchProvider');
+  if (providerInput && web.provider) providerInput.value = web.provider;
+}
+
+function renderWebSearchPanel() {
+  if (!webSearchCapabilities) {
+    void loadCapabilities()
+  } else {
+    renderWebSearchCapability(webSearchCapabilities)
+  }
+  const queryInput = document.getElementById('webSearchQuery');
+  if (queryInput && !queryInput.value) queryInput.value = 'fetch api'
+  const result = webSearchLastResult;
+  if (result) renderWebSearchResult(result);
+}
+
+function renderWebSearchResult(result) {
+  const answerEl = document.getElementById('webSearchAnswer');
+  const listEl = document.getElementById('webSearchResultsList');
+  if (!answerEl || !listEl) return;
+  const answer = result?.answer || result?.summary || result?.message || 'Search complete.';
+  answerEl.innerHTML = `<div class="search-empty" style="white-space:pre-wrap;color:var(--text)">${String(answer)}</div>`;
+  const results = Array.isArray(result?.results) ? result.results : [];
+  const citations = Array.isArray(result?.citations) ? result.citations : [];
+  if (!results.length) {
+    listEl.innerHTML = '<div class="search-empty">No results returned.</div>';
+    return;
+  }
+  listEl.innerHTML = results.map((item, index) => {
+    const citation = citations[index] || {};
+    const title = item?.title || citation.title || `Result ${index + 1}`;
+    const domain = item?.domain || citation.domain || '';
+    const snippet = item?.snippet || item?.description || '';
+    const url = item?.url || citation.url || '#';
+    return `
+      <div class="search-result">
+        <h4><a href="${url}" target="_blank" rel="noreferrer">${title}</a></h4>
+        <div class="meta">${domain ? domain + ' · ' : ''}${item?.source || result?.provider || 'search'}</div>
+        <div class="snippet">${snippet || 'No snippet returned.'}</div>
+      </div>
+    `;
+  }).join('');
+  if (citations.length) {
+    answerEl.innerHTML += `<div class="search-citations">${citations.slice(0, 5).map((c) => `<a class="search-citation" href="${c.url || '#'}" target="_blank" rel="noreferrer">[${c.id || '?'}] ${c.domain || c.title || 'citation'}</a>`).join('')}</div>`;
+  }
+}
+
+async function runWebSearch() {
+  const query = document.getElementById('webSearchQuery')?.value?.trim() || ''
+  const provider = document.getElementById('webSearchProvider')?.value || 'duckduckgo'
+  const maxResults = Number(document.getElementById('webSearchResults')?.value || '5')
+  const safeSearch = document.getElementById('webSearchSafeSearch')?.value || 'moderate'
+  const locale = document.getElementById('webSearchLocale')?.value || 'us-en'
+  const composeAnswer = Boolean(document.getElementById('webSearchComposeAnswer')?.checked)
+  const status = document.getElementById('webSearchStatus')
+  if (!query) {
+    if (status) status.textContent = 'Please enter a query.'
+    return
+  }
+  if (status) status.textContent = 'Searching...'
+  try {
+    const result = await api('POST', '/web-search', {
+      query,
+      provider,
+      max_results: Number.isFinite(maxResults) && maxResults > 0 ? maxResults : 5,
+      compose_answer: composeAnswer,
+      safe_search: safeSearch,
+      locale,
+    })
+    webSearchLastResult = result
+    renderWebSearchResult(result)
+    if (status) status.textContent = `Returned ${Array.isArray(result?.results) ? result.results.length : 0} results from ${result?.provider || provider}.`
+  } catch (e) {
+    webSearchLastResult = null
+    renderWebSearchResult({ answer: 'Web search failed.', results: [], citations: [] })
+    if (status) status.textContent = 'Search failed: ' + (e?.message || 'unknown error')
+  }
+}
+
+function renderHome(home) {
+  if (!home) return;
+  const title = document.getElementById('homeTitle');
+  const subtitle = document.getElementById('homeSubtitle');
+  const rec = document.getElementById('homeRecommendation');
+  if (title) title.textContent = home.home?.title || 'Executive Summary';
+  if (subtitle) subtitle.textContent = home.home?.subtitle || 'vibeOS session orchestrator';
+  if (rec) rec.textContent = home.home?.recommendation || 'Ready';
+  const cards = document.getElementById('homeCards');
+  if (cards) {
+    cards.innerHTML = (home.home?.cards || []).map(card => `
+      <div class="summary-card">
+        <div class="k">${card.label || ''}</div>
+        <div class="v">${card.value || '-'}</div>
+        <div class="s">${card.sub || ''}</div>
+      </div>
+    `).join('');
+  }
+  const session = home.current_session || {};
+  const sessionEl = document.getElementById('homeSession');
+  if (sessionEl) {
+    sessionEl.innerHTML = `
+      <div class="row"><span class="label">Session</span><span class="value">${session.session_id || '-'}</span></div>
+      <div class="row"><span class="label">Project</span><span class="value">${session.project_name || '-'}</span></div>
+      <div class="row"><span class="label">Status</span><span class="value"><span class="status-tag ${session.status || ''}">${session.status || 'active'}</span></span></div>
+      <div class="row"><span class="label">Locked</span><span class="value">${session.locked ? 'Yes' : 'No'}</span></div>
+      <div class="row"><span class="label">Template</span><span class="value">${session.template?.label || '-'}</span></div>
+      <div class="row"><span class="label">Recommendation</span><span class="value">${session.recommendation || '-'}</span></div>
+    `;
+  }
+  const blackbox = document.getElementById('homeBlackbox');
+  if (blackbox) {
+    const bb = home.blackbox || {};
+    blackbox.innerHTML = `
+      <div class="row"><span class="label">Regime</span><span class="value">${bb.sub_regime || 'INIT'}</span></div>
+      <div class="row"><span class="label">Resolution</span><span class="value">${bb.resolution || 'unresolved'}</span></div>
+      <div class="row"><span class="label">Momentum</span><span class="value">${Number(bb.momentum || 0).toFixed(2)}</span></div>
+      <div class="row"><span class="label">Looping</span><span class="value">${bb.is_looping ? 'Yes' : 'No'}</span></div>
+    `;
+  }
+  const templates = document.getElementById('homeTemplates');
+  if (templates) {
+    templates.innerHTML = `<div class="pill-row">${(home.templates || []).slice(0, 6).map(t => `<span class="pill">${t.label || t.id}</span>`).join('')}</div>`;
+  }
+}
+
+function renderSessionList(home) {
+  const list = home.sessions || [];
+  const html = !list.length ? '<p>No sessions</p>' : list.map(s => `
+    <div class="session-item ${s.session_id === selectedSessionId ? 'active' : ''}" data-session="${s.session_id}">
+      <div class="top">
+        <strong>${s.session_id.slice(0, 12)}${s.session_id.length > 12 ? '…' : ''}</strong>
+        <span class="status-tag ${s.status || ''}">${s.status || 'active'}</span>
+      </div>
+      <div class="meta">${s.template_label || 'No template'} · ${s.notes_count || 0} notes · $${Number(s.cost_usd || 0).toFixed(2)}</div>
+      <div class="meta">${s.recommendation || ''}</div>
+    </div>
+  `).join('');
+  for (const id of ['sessionList', 'homeSessions']) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    el.innerHTML = html;
+    el.querySelectorAll('[data-session]').forEach(node => {
+      node.addEventListener('click', async () => {
+        selectedSessionId = node.getAttribute('data-session');
+        renderSessionList(home);
+        await loadSessionWorkspace(selectedSessionId);
+      });
+    });
+  }
+}
+
+async function loadSessionWorkspace(sessionId) {
+  if (!sessionId) return;
+  try {
+    const detail = await api('GET', '/sessions/' + encodeURIComponent(sessionId));
+    renderSessionWorkspace(detail, sessionId);
+  } catch (e) {
+    const el = document.getElementById('sessionWorkspace');
+    if (el) el.innerHTML = '<p class="error">Failed to load session</p>';
+  }
+}
+
+function renderSessionWorkspace(payload, sessionId) {
+  const el = document.getElementById('sessionWorkspace');
+  const session = payload?.session || payload?.current_session || payload || {};
+  const orchestration = payload?.orchestration || session?.orchestration || {};
+  const template = orchestration.template || session?.template || {};
+  if (!el) return;
+  if (!sessionId && !session.session_id) {
+    el.innerHTML = '<p class="loading">Select a session</p>';
+    return;
+  }
+  el.innerHTML = `
+    <div class="row"><span class="label">Session</span><span class="value">${session.session_id || sessionId || '-'}</span></div>
+    <div class="row"><span class="label">Status</span><span class="value"><span class="status-tag ${orchestration.status || session.status || 'active'}">${orchestration.status || session.status || 'active'}</span></span></div>
+    <div class="row"><span class="label">Project</span><span class="value">${session.project_name || '-'}</span></div>
+    <div class="row"><span class="label">Tags</span><span class="value">${Array.isArray(orchestration.tags || session.tags) ? (orchestration.tags || session.tags).join(', ') || '-' : '-'}</span></div>
+    <div class="row"><span class="label">Template</span><span class="value">${template.label || template.id || '-'}</span></div>
+    <div class="row"><span class="label">Notes</span><span class="value">${Array.isArray(orchestration.notes || session.notes) ? (orchestration.notes || session.notes).length : 0}</span></div>
+    <div class="row"><span class="label">Recommendation</span><span class="value">${session.recommendation || '-'}</span></div>
+    <div class="toolbar" style="margin-top:12px">
+      ${['start','pause','resume','lock','unlock','checkout','archive'].map(action => `<button class="action" onclick="runSessionAction('${action}')">${action}</button>`).join('')}
+    </div>
+    <div style="margin-top:12px">
+      <input type="text" id="sessionTagsInput" placeholder="comma-separated tags" value="${(orchestration.tags || session.tags || []).join(', ')}" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:6px 8px;font-size:13px;width:100%;margin-bottom:8px">
+      <textarea id="sessionNoteInput" placeholder="Add a note">${(orchestration.notes || session.notes || []).slice(-1)[0]?.text || ''}</textarea>
+      <button class="action" onclick="saveSessionTags()">Save tags</button>
+      <button class="action" onclick="saveSessionNote()">Annotate</button>
+    </div>
+  `;
+  const label = document.getElementById('templateLabel');
+  const body = document.getElementById('templateBody');
+  if (label) label.value = template.label || '';
+  if (body) body.value = template.body || template.directive || '';
+  renderTemplateLibrary(dashboardHome, template.id || '');
+}
+
+function renderTemplateLibrary(home, activeId = '') {
+  const el = document.getElementById('templateLibrary');
+  if (!el) return;
+  const templates = home?.templates || [];
+  if (!templates.length) {
+    el.innerHTML = '<p>No templates</p>';
+    return;
+  }
+  el.innerHTML = templates.map(t => `<div class="template-card ${t.id === activeId ? 'active' : ''}" data-template-id="${t.id}" onclick="selectTemplate('${t.id}')">${t.label || t.id}</div>`).join('');
+}
+
+function selectTemplate(id) {
+  if (!dashboardHome) return;
+  const tpl = (dashboardHome.templates || []).find(t => t.id === id);
+  if (!tpl) return;
+  const label = document.getElementById('templateLabel');
+  const body = document.getElementById('templateBody');
+  if (label) label.value = tpl.label || tpl.id;
+  if (body) body.value = tpl.directive || tpl.body || '';
+  renderTemplateLibrary(dashboardHome, id);
+}
+
+async function runSessionAction(action) {
+  if (!selectedSessionId) return;
+  const body = { action };
+  if (action === 'retag') body.tags = (document.getElementById('sessionTagsInput')?.value || '').split(',').map(s => s.trim()).filter(Boolean);
+  if (action === 'annotate') body.note = document.getElementById('sessionNoteInput')?.value || '';
+  try {
+    await api('POST', `/sessions/${encodeURIComponent(selectedSessionId)}/action`, body);
+    await refreshAll();
+    await loadSessionWorkspace(selectedSessionId);
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+async function saveSessionTags() {
+  if (!selectedSessionId) return;
+  const tags = (document.getElementById('sessionTagsInput')?.value || '').split(',').map(s => s.trim()).filter(Boolean);
+  try {
+    await api('POST', `/sessions/${encodeURIComponent(selectedSessionId)}/action`, { action: 'retag', tags, replace: true });
+    await refreshAll();
+    await loadSessionWorkspace(selectedSessionId);
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+async function saveSessionNote() {
+  if (!selectedSessionId) return;
+  const note = document.getElementById('sessionNoteInput')?.value || '';
+  try {
+    await api('POST', `/sessions/${encodeURIComponent(selectedSessionId)}/action`, { action: 'annotate', note });
+    await refreshAll();
+    await loadSessionWorkspace(selectedSessionId);
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+async function toggleSessionLock() {
+  if (!selectedSessionId) return;
+  const current = dashboardHome?.sessions?.find(s => s.session_id === selectedSessionId);
+  const locked = Boolean(current?.locked);
+  await runSessionAction(locked ? 'unlock' : 'lock');
+}
+
+async function applyTemplateToSession() {
+  if (!selectedSessionId) return;
+  const template_id = document.getElementById('templateLibrary')?.querySelector('.template-card.active')?.getAttribute('data-template-id') || '';
+  const label = document.getElementById('templateLabel')?.value || '';
+  const body = document.getElementById('templateBody')?.value || '';
+  try {
+    await api('POST', `/sessions/${encodeURIComponent(selectedSessionId)}/template`, { template_id, label, body, source: 'custom' });
+    await refreshAll();
+    await loadSessionWorkspace(selectedSessionId);
+  } catch (e) {
     console.error(e);
   }
 }

@@ -340,6 +340,10 @@ export class VibeOSApiClient {
     return this.request("/api/v1/modes", {}, "GET")
   }
 
+  async capabilities(): Promise<unknown> {
+    return this.request("/api/v1/capabilities", null, false)
+  }
+
   async selectMode(mode: string): Promise<unknown> {
     return this.request("/api/v1/mode/select", { mode })
   }
@@ -483,6 +487,17 @@ export class VibeOSApiClient {
 
   async pricingStatic(): Promise<unknown> {
     return this.request("/api/v1/pricing/static", null)
+  }
+
+  async webSearch(input: {
+    query: string
+    provider?: string
+    max_results?: number
+    compose_answer?: boolean
+    safe_search?: string
+    locale?: string
+  }): Promise<unknown> {
+    return this.request("/api/v1/web/search", input)
   }
 
   async compressContext(text: string, threshold = 2000): Promise<unknown> {

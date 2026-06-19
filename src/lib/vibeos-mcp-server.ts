@@ -7,6 +7,7 @@ import { parse as parseUrl } from "node:url"
 import { createReadStream, existsSync, mkdirSync, statSync, writeFileSync } from "node:fs"
 import { extname, join, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
+import { applySessionAction, buildDashboardHomeModel, buildSessionDetail, TEMPLATE_LIBRARY } from "./session-orchestrator.js"
 
 const MIME_MAP: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -23,6 +24,10 @@ type Deps = {
   getTodos: () => unknown
   getSessionMetrics: (sessionId: string) => unknown
   getCurrentSessionId: () => string
+  getBlackboxState: () => unknown
+  getSessionOrchestration?: (sessionId: string) => unknown
+  mutateSessionOrchestration?: (sessionId: string, mutator: (session: any) => any) => unknown
+  listSessionTemplates?: () => unknown
   listReports: (params: { type?: string; project?: string; hours?: number; fingerprint?: string }) => unknown
   readReport: (id: string) => unknown
   runDiagnose: () => unknown
@@ -31,7 +36,6 @@ type Deps = {
   runResearchAudit: (hours: number) => unknown
   saveReport: (params: { type: string; summary: string; findings: unknown[]; metrics: Record<string, unknown>; narrative: string; tags: unknown[] }) => string | null
   generateSessionCheckout: () => unknown
-  getBlackboxState: () => unknown
   saveBlackboxVector: (vector: unknown) => void
   saveBlackboxOutcome: (outcome: unknown) => void
 }
@@ -78,10 +82,15 @@ const _MCP_FILENAME = fileURLToPath(import.meta.url)
 const _MCP_DIR = dirname(_MCP_FILENAME)
 
 function resolveDashboardDir(): string {
+  const repoRoot = join(_MCP_DIR, "..", "..")
+  const cwd = process.cwd()
   const c = [
     join(_MCP_DIR, "dashboard", "dist"),
     join(_MCP_DIR, "assets", "dashboard"),
     join(_MCP_DIR, "assets", "dashboard", "dist"),
+    join(repoRoot, "src", "lib", "dashboard", "dist"),
+    join(cwd, "src", "lib", "dashboard", "dist"),
+    join(cwd, "dist-ts", "lib", "dashboard", "dist"),
   ]
   for (const p of c) {
     if (existsSync(join(p, "index.html"))) return p
@@ -116,8 +125,55 @@ function resolveBackendHealthUrl(): string {
   return "https://api.vibetheog.com/health"
 }
 
+function resolveBackendApiBase(): string {
+  const explicit = process.env.VIBEOS_API_URL?.trim()
+  if (explicit) return explicit.replace(/\/$/, "")
+  try {
+    const healthUrl = new URL(BACKEND_HEALTH_URL)
+    return new URL("./", healthUrl.href).href.replace(/\/$/, "")
+  } catch {
+    return "https://api.vibetheog.com"
+  }
+}
+
 const BACKEND_HEALTH_URL = resolveBackendHealthUrl()
 const BACKEND_HEALTH_TTL_MS = 5_000
+
+async function proxyBackendJson(path: string, options: { method?: string; body?: unknown } = {}): Promise<{ status: number; data: unknown }> {
+  const base = resolveBackendApiBase()
+  const url = new URL(path, base.endsWith("/") ? base : `${base}/`).href
+  const response = await fetch(url, {
+    method: options.method || "GET",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Requested-With": "vibeOS-dashboard",
+    },
+    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+  })
+  const text = await response.text()
+  let data: unknown = text
+  try {
+    data = text ? JSON.parse(text) : {}
+  } catch {
+    data = text
+  }
+  return { status: response.status, data }
+}
+
+function getSessionsFromState(state: any): Record<string, any> {
+  return (state?.sessions_raw as Record<string, any>) || {}
+}
+
+function getSessionOrchestrationState(deps: Deps, sessionId: string): any {
+  try {
+    if (typeof deps.getSessionOrchestration === "function") {
+      return deps.getSessionOrchestration(sessionId) || null
+    }
+  } catch {}
+  const state = deps.getState() as Record<string, unknown>
+  const session = getSessionsFromState(state)?.[sessionId] || {}
+  return session?.orchestration || null
+}
 
 let backendHealth: { ok: boolean | null; checkedAt: number; version: string | null } = { ok: null, checkedAt: 0, version: null }
 
@@ -193,6 +249,50 @@ export function createMcpServer(deps: Deps): McpServer {
         json(res, 200, { ...state, backend_connected: probe.ok === true, backend_health_url: BACKEND_HEALTH_URL, backend_version: probe.version, blackbox: bb ?? null })
         return
       }
+      if (method === "GET" && path === "/dashboard/home") {
+        const state = deps.getState() as Record<string, any>
+        const currentSessionId = deps.getCurrentSessionId()
+        const blackbox = deps.getBlackboxState() || {}
+        const home = buildDashboardHomeModel({
+          currentSessionId,
+          status: state,
+          savings: deps.getSavings(),
+          todos: deps.getTodos() as any[],
+          blackbox,
+          sessions: getSessionsFromState(state),
+          metrics: deps.getSessionMetrics(currentSessionId),
+          templates: (typeof deps.listSessionTemplates === "function" ? deps.listSessionTemplates() : TEMPLATE_LIBRARY) as any[],
+        })
+        json(res, 200, {
+          ...home,
+          status: state,
+          blackbox,
+          backend_connected: state?.backend_connected ?? false,
+          backend_health_url: BACKEND_HEALTH_URL,
+          backend_version: state?.backend_version || null,
+        })
+        return
+      }
+      if (method === "GET" && path === "/capabilities") {
+        try {
+          const { status, data } = await proxyBackendJson("/api/v1/capabilities")
+          json(res, status, data)
+        } catch (error) {
+          json(res, 502, {
+            error: "backend capabilities unavailable",
+            message: error instanceof Error ? error.message : "unknown error",
+            code: "BACKEND_UNAVAILABLE",
+            web_search: {
+              enabled: false,
+              provider: "duckduckgo",
+              fixture_mode: false,
+              benchmark_path: null,
+              backend_status: 0,
+            },
+          })
+        }
+        return
+      }
       if (method === "GET" && path === "/savings") {
         json(res, 200, deps.getSavings())
         return
@@ -203,9 +303,10 @@ export function createMcpServer(deps: Deps): McpServer {
       }
       if (method === "GET" && path === "/sessions") {
         const state = deps.getState() as Record<string, unknown> | null
-        const sessionsMap = state?.sessions_raw as Record<string, Record<string, unknown>> | undefined || {}
+        const sessionsMap = getSessionsFromState(state)
+        const currentSessionId = deps.getCurrentSessionId()
         const sessions = Object.entries(sessionsMap).map(([id, ses]) => ({
-          id,
+          ...buildSessionDetail(id, ses, deps.getSessionMetrics(id), deps.getBlackboxState() || {}, { current_session_id: currentSessionId }),
           started: ses?.started || null,
           cost_usd: Number(ses?.cost_usd ?? 0) || 0,
           delegation_savings_usd: Array.isArray(ses?.warns)
@@ -218,7 +319,34 @@ export function createMcpServer(deps: Deps): McpServer {
         return
       }
       if (method === "GET" && path === "/sessions/current") {
-        json(res, 200, deps.getSessionMetrics(deps.getCurrentSessionId()))
+        const state = deps.getState() as Record<string, any>
+        const sid = deps.getCurrentSessionId()
+        const session = getSessionsFromState(state)?.[sid] || {}
+        json(res, 200, {
+          session: buildSessionDetail(sid, session, deps.getSessionMetrics(sid), deps.getBlackboxState() || {}, { current_session_id: sid }),
+          metrics: deps.getSessionMetrics(sid),
+          orchestration: getSessionOrchestrationState(deps, sid),
+        })
+        return
+      }
+      if (method === "GET" && path.startsWith("/sessions/")) {
+        const sessionId = decodeURIComponent(path.replace(/^\/sessions\//, "")).trim()
+        if (!sessionId || sessionId === "current" || sessionId.includes("/")) {
+          // fall through to the specific routes below
+        } else {
+          const state = deps.getState() as Record<string, any>
+          const session = getSessionsFromState(state)?.[sessionId] || {}
+          json(res, 200, {
+            session: buildSessionDetail(sessionId, session, deps.getSessionMetrics(sessionId), deps.getBlackboxState() || {}, { current_session_id: deps.getCurrentSessionId() }),
+            metrics: deps.getSessionMetrics(sessionId),
+            orchestration: getSessionOrchestrationState(deps, sessionId),
+          })
+          return
+        }
+      }
+      if (method === "GET" && path === "/templates") {
+        const templates = typeof deps.listSessionTemplates === "function" ? deps.listSessionTemplates() : TEMPLATE_LIBRARY
+        json(res, 200, templates)
         return
       }
       if (method === "GET" && path === "/reports") {
@@ -261,6 +389,32 @@ export function createMcpServer(deps: Deps): McpServer {
       }
       if (method === "GET" && path === "/blackbox") {
         json(res, 200, deps.getBlackboxState() || {})
+        return
+      }
+      if (method === "POST" && path === "/web-search") {
+        let body: Record<string, unknown>
+        try {
+          body = await parseBody(req)
+        } catch {
+          json(res, 400, { error: "invalid request", status: 400 })
+          return
+        }
+        const query = body?.query
+        if (!query || typeof query !== "string") {
+          json(res, 400, { error: "query is required and must be a string", status: 400 })
+          return
+        }
+        try {
+          const { status, data } = await proxyBackendJson("/api/v1/web/search", { method: "POST", body })
+          json(res, status, data)
+        } catch (error) {
+          json(res, 502, {
+            ok: false,
+            error: "web search backend unavailable",
+            message: error instanceof Error ? error.message : "unknown error",
+            code: "BACKEND_UNAVAILABLE",
+          })
+        }
         return
       }
       if (method === "POST" && path === "/trinity") {
@@ -327,6 +481,67 @@ export function createMcpServer(deps: Deps): McpServer {
       if (method === "POST" && path === "/sessions/checkout") {
         const result = deps.generateSessionCheckout()
         json(res, 200, result)
+        return
+      }
+      if (method === "POST" && path.startsWith("/sessions/") && path.endsWith("/action")) {
+        const sessionId = decodeURIComponent(path.replace(/^\/sessions\//, "").replace(/\/action$/, "")).trim()
+        let body: Record<string, unknown>
+        try {
+          body = await parseBody(req)
+        } catch {
+          json(res, 400, { error: "invalid request", status: 400 })
+          return
+        }
+        const action = String(body?.action || "").trim().toLowerCase()
+        if (!sessionId || !action) {
+          json(res, 400, { error: "invalid request", status: 400 })
+          return
+        }
+        if (action === "checkout") {
+          const checkout = deps.generateSessionCheckout()
+          if (typeof deps.mutateSessionOrchestration === "function") {
+            deps.mutateSessionOrchestration(sessionId, (current) => applySessionAction(current, "checkout", body))
+          }
+          json(res, 200, { ok: true, checkout })
+          return
+        }
+        if (typeof deps.mutateSessionOrchestration === "function") {
+          const next = deps.mutateSessionOrchestration(sessionId, (current) => applySessionAction(current, action, body))
+          json(res, 200, { ok: true, session: next })
+          return
+        }
+        json(res, 500, { ok: false, error: "session mutation unavailable" })
+        return
+      }
+      if (method === "POST" && path.startsWith("/sessions/") && path.endsWith("/template")) {
+        const sessionId = decodeURIComponent(path.replace(/^\/sessions\//, "").replace(/\/template$/, "")).trim()
+        let body: Record<string, unknown>
+        try {
+          body = await parseBody(req)
+        } catch {
+          json(res, 400, { error: "invalid request", status: 400 })
+          return
+        }
+        if (!sessionId) {
+          json(res, 400, { error: "invalid request", status: 400 })
+          return
+        }
+        const template = body?.template && typeof body.template === "object"
+          ? body.template
+          : {
+              id: body?.template_id || body?.id || "session-template",
+              label: body?.label || body?.name || "Session template",
+              body: body?.body || body?.directive || "",
+              source: body?.source || "custom",
+              base_template_id: body?.base_template_id || body?.template_id || body?.id || null,
+              revision: body?.revision || 1,
+            }
+        if (typeof deps.mutateSessionOrchestration === "function") {
+          const next = deps.mutateSessionOrchestration(sessionId, (current) => applySessionAction(current, "set-template", { ...body, template }))
+          json(res, 200, { ok: true, session: next })
+          return
+        }
+        json(res, 500, { ok: false, error: "session mutation unavailable" })
         return
       }
       if (method === "POST" && path === "/blackbox/vector") {

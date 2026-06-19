@@ -77,6 +77,113 @@ export const TEMPLATES: Record<string, Template> = {
 
 export const DEFAULT_TEMPLATE = "save"
 
+export type SessionTemplate = {
+  id: string
+  label: string
+  body: string
+  source: "preset" | "custom"
+  base_template_id: string | null
+  revision: number
+  updated_at: string | null
+  active: boolean
+  signature: string
+}
+
+function normalizeTemplateBody(body: unknown, fallback = ""): string {
+  const text = typeof body === "string" ? body.trim() : ""
+  if (text) return text
+  return fallback.trim()
+}
+
+function templateDigest(text: string): string {
+  let h = 0
+  const value = String(text || "")
+  for (let i = 0; i < value.length; i++) {
+    h = (Math.imul(31, h) + value.charCodeAt(i)) | 0
+  }
+  return Math.abs(h).toString(36)
+}
+
+export const TEMPLATE_LIBRARY = Object.entries(TEMPLATES).map(([id, tpl]) => ({
+  id,
+  label: id === "save" ? "Save" : id.charAt(0).toUpperCase() + id.slice(1),
+  summary: tpl.directive,
+  directive: tpl.directive,
+  tier_bias: tpl.tier_bias,
+  thinking_mode: tpl.thinking_mode,
+  enforcement_mode: tpl.enforcement_mode,
+  flow_mode: tpl.flow_mode,
+  tdd_mode: tpl.tdd_mode,
+}))
+
+export function normalizeSessionTemplate(raw: any, fallbackId: string = DEFAULT_TEMPLATE): SessionTemplate | null {
+  if (!raw || typeof raw !== "object") return null
+  const inferredId = typeof raw.id === "string" && raw.id.trim() && raw.id.trim() in TEMPLATES ? raw.id.trim() : fallbackId
+  const baseId = typeof raw.base_template_id === "string" && raw.base_template_id.trim() ? raw.base_template_id.trim() : inferredId
+  const preset = TEMPLATES[baseId] || TEMPLATES[DEFAULT_TEMPLATE]
+  const body = normalizeTemplateBody(raw.body ?? raw.directive, preset.directive)
+  const label = typeof raw.label === "string" && raw.label.trim()
+    ? raw.label.trim()
+    : typeof raw.name === "string" && raw.name.trim()
+      ? raw.name.trim()
+      : (baseId in TEMPLATES ? (baseId === "save" ? "Save" : baseId.charAt(0).toUpperCase() + baseId.slice(1)) : "Custom template")
+  const source = raw.source === "preset" || (raw.source !== "custom" && baseId in TEMPLATES && !raw.body && !raw.directive)
+    ? "preset"
+    : "custom"
+  const revision = Number.isFinite(Number(raw.revision)) && Number(raw.revision) > 0 ? Number(raw.revision) : 1
+  const id = typeof raw.id === "string" && raw.id.trim()
+    ? raw.id.trim()
+    : source === "preset"
+      ? baseId
+      : `session-${templateDigest(`${label}\n${body}\n${baseId}`)}`
+  const signature = `${id}:${revision}:${templateDigest(body)}`
+  return {
+    id,
+    label,
+    body,
+    source,
+    base_template_id: baseId in TEMPLATES ? baseId : null,
+    revision,
+    updated_at: typeof raw.updated_at === "string" ? raw.updated_at : typeof raw.updatedAt === "string" ? raw.updatedAt : null,
+    active: raw.active !== false,
+    signature,
+  }
+}
+
+export function resolveSessionTemplateDefinition(template: SessionTemplate | null | undefined) {
+  const normalized = template && typeof template === "object" ? template : null
+  if (!normalized) {
+    const preset = TEMPLATES[DEFAULT_TEMPLATE]
+    return {
+      id: DEFAULT_TEMPLATE,
+      label: "Save",
+      body: preset.directive,
+      source: "preset" as const,
+      base_template_id: DEFAULT_TEMPLATE,
+      signature: `${DEFAULT_TEMPLATE}:1:${templateDigest(preset.directive)}`,
+    }
+  }
+  if (normalized.source === "preset" && normalized.base_template_id && TEMPLATES[normalized.base_template_id]) {
+    const preset = TEMPLATES[normalized.base_template_id]
+    return {
+      id: normalized.base_template_id,
+      label: normalized.label,
+      body: preset.directive,
+      source: "preset" as const,
+      base_template_id: normalized.base_template_id,
+      signature: normalized.signature || `${normalized.base_template_id}:${normalized.revision || 1}:${templateDigest(preset.directive)}`,
+    }
+  }
+  return {
+    id: normalized.id,
+    label: normalized.label,
+    body: normalized.body,
+    source: "custom" as const,
+    base_template_id: normalized.base_template_id,
+    signature: normalized.signature || `${normalized.id}:${normalized.revision || 1}:${templateDigest(normalized.body)}`,
+  }
+}
+
 const SEC_KEYWORDS = /\b(security|vuln|exploit|injection|xss|csrf|secret|credential|token leak|auth bypass|privacy|breach|backdoor|sql injection|cve)\b/i
 
 export function detectSecuritySignal(text: string | undefined): boolean {

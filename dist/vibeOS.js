@@ -1016,12 +1016,472 @@ var init_smart_cache = __esm({
   }
 });
 
+// src/lib/templates.js
+function normalizeTemplateBody(body, fallback2 = "") {
+  const text = typeof body === "string" ? body.trim() : "";
+  if (text)
+    return text;
+  return fallback2.trim();
+}
+function templateDigest(text) {
+  let h = 0;
+  const value = String(text || "");
+  for (let i = 0; i < value.length; i++) {
+    h = Math.imul(31, h) + value.charCodeAt(i) | 0;
+  }
+  return Math.abs(h).toString(36);
+}
+function normalizeSessionTemplate(raw, fallbackId = DEFAULT_TEMPLATE) {
+  if (!raw || typeof raw !== "object")
+    return null;
+  const inferredId = typeof raw.id === "string" && raw.id.trim() && raw.id.trim() in TEMPLATES ? raw.id.trim() : fallbackId;
+  const baseId = typeof raw.base_template_id === "string" && raw.base_template_id.trim() ? raw.base_template_id.trim() : inferredId;
+  const preset = TEMPLATES[baseId] || TEMPLATES[DEFAULT_TEMPLATE];
+  const body = normalizeTemplateBody(raw.body ?? raw.directive, preset.directive);
+  const label = typeof raw.label === "string" && raw.label.trim() ? raw.label.trim() : typeof raw.name === "string" && raw.name.trim() ? raw.name.trim() : baseId in TEMPLATES ? baseId === "save" ? "Save" : baseId.charAt(0).toUpperCase() + baseId.slice(1) : "Custom template";
+  const source = raw.source === "preset" || raw.source !== "custom" && baseId in TEMPLATES && !raw.body && !raw.directive ? "preset" : "custom";
+  const revision = Number.isFinite(Number(raw.revision)) && Number(raw.revision) > 0 ? Number(raw.revision) : 1;
+  const id2 = typeof raw.id === "string" && raw.id.trim() ? raw.id.trim() : source === "preset" ? baseId : `session-${templateDigest(`${label}
+${body}
+${baseId}`)}`;
+  const signature = `${id2}:${revision}:${templateDigest(body)}`;
+  return {
+    id: id2,
+    label,
+    body,
+    source,
+    base_template_id: baseId in TEMPLATES ? baseId : null,
+    revision,
+    updated_at: typeof raw.updated_at === "string" ? raw.updated_at : typeof raw.updatedAt === "string" ? raw.updatedAt : null,
+    active: raw.active !== false,
+    signature
+  };
+}
+function resolveSessionTemplateDefinition(template) {
+  const normalized = template && typeof template === "object" ? template : null;
+  if (!normalized) {
+    const preset = TEMPLATES[DEFAULT_TEMPLATE];
+    return {
+      id: DEFAULT_TEMPLATE,
+      label: "Save",
+      body: preset.directive,
+      source: "preset",
+      base_template_id: DEFAULT_TEMPLATE,
+      signature: `${DEFAULT_TEMPLATE}:1:${templateDigest(preset.directive)}`
+    };
+  }
+  if (normalized.source === "preset" && normalized.base_template_id && TEMPLATES[normalized.base_template_id]) {
+    const preset = TEMPLATES[normalized.base_template_id];
+    return {
+      id: normalized.base_template_id,
+      label: normalized.label,
+      body: preset.directive,
+      source: "preset",
+      base_template_id: normalized.base_template_id,
+      signature: normalized.signature || `${normalized.base_template_id}:${normalized.revision || 1}:${templateDigest(preset.directive)}`
+    };
+  }
+  return {
+    id: normalized.id,
+    label: normalized.label,
+    body: normalized.body,
+    source: "custom",
+    base_template_id: normalized.base_template_id,
+    signature: normalized.signature || `${normalized.id}:${normalized.revision || 1}:${templateDigest(normalized.body)}`
+  };
+}
+function detectSecuritySignal(text) {
+  if (!text || typeof text !== "string")
+    return false;
+  return SEC_KEYWORDS.test(text);
+}
+function detectBudgetSignal(creditPercent) {
+  return creditPercent < 40;
+}
+function detectStressSpike(stressScore) {
+  const delta = stressScore - _prevStress;
+  _prevStress = stressScore;
+  return delta > 0.3 && stressScore > 0.5;
+}
+function resolveTemplate(prevTemplate, stressScore, userText, creditPercent, subRegime) {
+  if (detectSecuritySignal(userText))
+    return "security";
+  if (detectBudgetSignal(creditPercent)) {
+    const regime = String(subRegime || "").toUpperCase();
+    if (regime === "LOOPING" || regime === "DIVERGENT")
+      return "quality";
+    return "save";
+  }
+  if (detectStressSpike(stressScore))
+    return "quality";
+  return prevTemplate || DEFAULT_TEMPLATE;
+}
+function shouldInjectTemplate(template, prevTemplate) {
+  _turnCount++;
+  if (template !== prevTemplate)
+    return true;
+  if (_turnCount % 10 === 0)
+    return true;
+  return false;
+}
+var TEMPLATES, DEFAULT_TEMPLATE, TEMPLATE_LIBRARY, SEC_KEYWORDS, _prevStress, _turnCount;
+var init_templates = __esm({
+  "src/lib/templates.js"() {
+    "use strict";
+    TEMPLATES = {
+      save: {
+        tier_bias: "cheap",
+        thinking_mode: "off",
+        enforcement_mode: "relaxed",
+        flow_mode: "audit",
+        tdd_mode: "lazy",
+        context7_urgency: "required",
+        wbp_verbosity: "minimal",
+        agent_mode: "auto",
+        directive: "[SAVE mode] Cost efficiency. Minimize token usage. Combine independent tool calls with && or ;. Prefer context7 over WebSearch/WebFetch for docs. Skip unnecessary verification. Batch parallel Task subagents."
+      },
+      quality: {
+        tier_bias: "brain",
+        thinking_mode: "full",
+        enforcement_mode: "strict",
+        flow_mode: "strict",
+        tdd_mode: "quality",
+        context7_urgency: "preferred",
+        wbp_verbosity: "verbose",
+        agent_mode: "plan",
+        directive: "[QUALITY mode] High quality output. Full verification of all results. Production-grade code. Write tests covering all paths and edge cases. Validate outputs before presenting. Do not cut corners."
+      },
+      security: {
+        tier_bias: "brain",
+        thinking_mode: "brief",
+        enforcement_mode: "strict",
+        flow_mode: "strict",
+        tdd_mode: "quality",
+        context7_urgency: "preferred",
+        wbp_verbosity: "normal",
+        agent_mode: "plan",
+        directive: "[SECURITY mode] Defense-in-depth. Define the threat model before writing code. Validate all inputs. Never expose secrets or credentials. Verify each defense handles its threat. Consider: injection, broken auth, data exposure, logic errors, race conditions."
+      },
+      speed: {
+        tier_bias: "medium",
+        thinking_mode: "off",
+        enforcement_mode: "relaxed",
+        flow_mode: "audit",
+        tdd_mode: "lazy",
+        context7_urgency: "preferred",
+        wbp_verbosity: "minimal",
+        agent_mode: "auto",
+        directive: "[SPEED mode] Break the loop. Try a different approach. Verify each step before proceeding. If stuck, step back and reassess assumptions. Do NOT repeat the same failing strategy. Prioritize getting a working solution over optimal code. Use Task subagents to parallelize exploration. After 3 failed attempts, explicitly ask the user for guidance."
+      }
+    };
+    DEFAULT_TEMPLATE = "save";
+    TEMPLATE_LIBRARY = Object.entries(TEMPLATES).map(([id2, tpl]) => ({
+      id: id2,
+      label: id2 === "save" ? "Save" : id2.charAt(0).toUpperCase() + id2.slice(1),
+      summary: tpl.directive,
+      directive: tpl.directive,
+      tier_bias: tpl.tier_bias,
+      thinking_mode: tpl.thinking_mode,
+      enforcement_mode: tpl.enforcement_mode,
+      flow_mode: tpl.flow_mode,
+      tdd_mode: tpl.tdd_mode
+    }));
+    SEC_KEYWORDS = /\b(security|vuln|exploit|injection|xss|csrf|secret|credential|token leak|auth bypass|privacy|breach|backdoor|sql injection|cve)\b/i;
+    _prevStress = 0;
+    _turnCount = 0;
+  }
+});
+
+// src/lib/session-orchestrator.js
+import { createHash } from "node:crypto";
+function digest(text) {
+  return createHash("sha1").update(String(text || "")).digest("hex").slice(0, 12);
+}
+function asArray(v) {
+  return Array.isArray(v) ? v : [];
+}
+function uniqueStrings(v) {
+  const out = [];
+  const source = typeof v === "string" ? v.split(",") : asArray(v);
+  for (const item of source) {
+    const text = String(item || "").trim();
+    if (text && !out.includes(text))
+      out.push(text);
+  }
+  return out;
+}
+function normalizeNotes(v) {
+  return asArray(v).map((entry) => {
+    if (!entry || typeof entry !== "object")
+      return null;
+    const text = String(entry.text || entry.note || "").trim();
+    if (!text)
+      return null;
+    const created_at = typeof entry.created_at === "string" ? entry.created_at : typeof entry.createdAt === "string" ? entry.createdAt : (/* @__PURE__ */ new Date()).toISOString();
+    return {
+      id: String(entry.id || digest(`${created_at}:${text}`)),
+      text,
+      created_at
+    };
+  }).filter(Boolean);
+}
+function normalizeLifecycle(raw) {
+  return {
+    started_at: typeof raw.started_at === "string" ? raw.started_at : typeof raw.startedAt === "string" ? raw.startedAt : null,
+    paused_at: typeof raw.paused_at === "string" ? raw.paused_at : typeof raw.pausedAt === "string" ? raw.pausedAt : null,
+    resumed_at: typeof raw.resumed_at === "string" ? raw.resumed_at : typeof raw.resumedAt === "string" ? raw.resumedAt : null,
+    archived_at: typeof raw.archived_at === "string" ? raw.archived_at : typeof raw.archivedAt === "string" ? raw.archivedAt : null,
+    checked_out_at: typeof raw.checked_out_at === "string" ? raw.checked_out_at : typeof raw.checkedOutAt === "string" ? raw.checkedOutAt : null
+  };
+}
+function normalizeSessionOrchestration(raw, sessionId = "unknown") {
+  const current = raw && typeof raw === "object" ? raw : {};
+  const template = normalizeSessionTemplate2(current.template || current.tdd_template || null, current.template?.base_template_id || DEFAULT_TEMPLATE);
+  return {
+    session_id: String(current.session_id || sessionId || "unknown"),
+    status: typeof current.status === "string" && current.status.trim() ? current.status.trim() : "active",
+    locked: Boolean(current.locked ?? current.lock ?? false),
+    archived: Boolean(current.archived ?? false),
+    tags: uniqueStrings(current.tags),
+    notes: normalizeNotes(current.notes),
+    lifecycle: normalizeLifecycle(current.lifecycle || current),
+    template
+  };
+}
+function applySessionAction(current, action, payload = {}) {
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const base = normalizeSessionOrchestration(current, current?.session_id || payload.session_id || "unknown");
+  const next = {
+    ...base,
+    lifecycle: { ...base.lifecycle },
+    notes: [...base.notes],
+    tags: [...base.tags],
+    template: base.template ? { ...base.template } : null
+  };
+  switch (String(action || "").toLowerCase()) {
+    case "start":
+      next.status = "active";
+      next.archived = false;
+      next.lifecycle.started_at = next.lifecycle.started_at || now;
+      next.lifecycle.resumed_at = now;
+      next.lifecycle.paused_at = null;
+      next.lifecycle.archived_at = null;
+      break;
+    case "pause":
+      next.status = "paused";
+      next.lifecycle.paused_at = now;
+      break;
+    case "resume":
+      next.status = "active";
+      next.lifecycle.resumed_at = now;
+      next.lifecycle.paused_at = null;
+      next.archived = false;
+      break;
+    case "lock":
+      next.locked = true;
+      break;
+    case "unlock":
+      next.locked = false;
+      break;
+    case "archive":
+      next.status = "archived";
+      next.archived = true;
+      next.lifecycle.archived_at = now;
+      break;
+    case "checkout":
+      next.status = "checked_out";
+      next.lifecycle.checked_out_at = now;
+      break;
+    case "annotate": {
+      const text = String(payload.note || payload.text || payload.body || "").trim();
+      if (text) {
+        next.notes = [
+          ...next.notes,
+          { id: digest(`${now}:${text}`), text, created_at: now }
+        ].slice(-50);
+      }
+      break;
+    }
+    case "retag": {
+      const tags = uniqueStrings(payload.tags || (payload.tag ? [payload.tag] : []));
+      if (payload.replace === true)
+        next.tags = tags;
+      else
+        next.tags = uniqueStrings([...next.tags, ...tags]);
+      break;
+    }
+    case "set-template":
+      next.template = normalizeSessionTemplate2(payload.template || payload, payload.template_id || payload.base_template_id || DEFAULT_TEMPLATE);
+      if (next.template) {
+        next.template.active = true;
+        next.template.revision = Number(next.template.revision || 1) + (payload.bumpRevision === false ? 0 : 1);
+        next.template.updated_at = now;
+        next.template.signature = `${next.template.id}:${next.template.revision}:${digest(next.template.body)}`;
+      }
+      break;
+    default:
+      break;
+  }
+  return next;
+}
+function resolveSessionTemplateOrDefault(template) {
+  return resolveSessionTemplateDefinition2(template || null);
+}
+function pickSessionMetrics(session, metrics = {}) {
+  const notes = normalizeNotes(session?.orchestration?.notes || []);
+  const tags = uniqueStrings(session?.orchestration?.tags || []);
+  return {
+    cost_usd: Number(session?.cost_usd ?? 0) || 0,
+    started: session?.started || session?.session_started_at || null,
+    status: session?.orchestration?.status || "active",
+    locked: Boolean(session?.orchestration?.locked),
+    archived: Boolean(session?.orchestration?.archived),
+    notes_count: notes.length,
+    tags,
+    template_id: session?.orchestration?.template?.id || DEFAULT_TEMPLATE,
+    template_label: session?.orchestration?.template?.label || "Save",
+    template_signature: session?.orchestration?.template?.signature || null,
+    delegation_savings_usd: Number(metrics?.sesTasks ?? session?.total_savings_usd ?? 0) || 0,
+    cache_savings_usd: Number(session?.cache_savings_usd ?? 0) || 0,
+    duration_seconds: Number(metrics?.sesDuration ?? session?.duration_seconds ?? 0) || 0
+  };
+}
+function recommendationForSession(session, currentSession = false) {
+  if (!session)
+    return currentSession ? "Open the active session" : "Select a session";
+  if (session.archived)
+    return "Archived: review notes or reopen";
+  if (session.status === "paused")
+    return "Resume the session";
+  if (session.locked)
+    return "Unlock to continue editing";
+  if (!session.template?.body)
+    return "Apply a TDD template";
+  if ((session.notes_count || 0) === 0)
+    return "Add a note";
+  return currentSession ? "Continue with the next step" : "Review session details";
+}
+function sortSessions(items) {
+  return [...items].sort((a, b) => {
+    if (a.is_current && !b.is_current)
+      return -1;
+    if (!a.is_current && b.is_current)
+      return 1;
+    const aTime = a.started_at ? Date.parse(a.started_at) : 0;
+    const bTime = b.started_at ? Date.parse(b.started_at) : 0;
+    return bTime - aTime;
+  });
+}
+function buildSessionListItem(sessionId, session, metrics = {}, isCurrent = false) {
+  const orchestration = normalizeSessionOrchestration(session?.orchestration || {}, sessionId);
+  const sessionMetrics = pickSessionMetrics(session, metrics);
+  return {
+    session_id: sessionId,
+    is_current: isCurrent,
+    started_at: sessionMetrics.started,
+    cost_usd: sessionMetrics.cost_usd,
+    delegation_savings_usd: sessionMetrics.delegation_savings_usd,
+    cache_savings_usd: sessionMetrics.cache_savings_usd,
+    status: orchestration.status,
+    locked: orchestration.locked,
+    archived: orchestration.archived,
+    tags: orchestration.tags,
+    notes_count: sessionMetrics.notes_count,
+    template_label: sessionMetrics.template_label,
+    template_signature: sessionMetrics.template_signature,
+    recommendation: recommendationForSession({ ...sessionMetrics, ...orchestration }, isCurrent)
+  };
+}
+function buildSessionDetail(sessionId, session, metrics = {}, blackbox = {}, selection = {}) {
+  const orchestration = normalizeSessionOrchestration(session?.orchestration || {}, sessionId);
+  const sessionMetrics = pickSessionMetrics(session, metrics);
+  const template = resolveSessionTemplateOrDefault(orchestration.template);
+  const blackboxState = {
+    enabled: Boolean(blackbox?.enabled),
+    sub_regime: blackbox?.sub_regime || blackbox?.regime || "INIT",
+    resolution: blackbox?.resolution || "unresolved",
+    momentum: Number(blackbox?.momentum ?? 0) || 0,
+    loop_count: Number(blackbox?.loopCount ?? blackbox?.loop_count ?? 0) || 0
+  };
+  const summary = {
+    title: sessionId === selection?.current_session_id ? "Active Session" : "Session Workspace",
+    session_id: sessionId,
+    status: orchestration.status,
+    locked: orchestration.locked,
+    archived: orchestration.archived,
+    project_name: session?.project_name || session?.projectName || selection?.project_name || "Current project",
+    project_fingerprint: session?.project_fingerprint || selection?.project_fingerprint || null,
+    started_at: sessionMetrics.started,
+    cost_usd: sessionMetrics.cost_usd,
+    delegation_savings_usd: sessionMetrics.delegation_savings_usd,
+    cache_savings_usd: sessionMetrics.cache_savings_usd,
+    notes_count: orchestration.notes.length,
+    tags: orchestration.tags,
+    template,
+    blackbox: blackboxState,
+    recommendation: recommendationForSession({
+      ...sessionMetrics,
+      ...orchestration,
+      template,
+      notes_count: orchestration.notes.length
+    }, sessionId === selection?.current_session_id),
+    notes: orchestration.notes,
+    lifecycle: orchestration.lifecycle,
+    orchestration
+  };
+  return summary;
+}
+function buildDashboardHomeModel({ currentSessionId: currentSessionId3, status = {}, savings = {}, todos = [], blackbox = {}, sessions = {}, metrics = {}, templates = TEMPLATE_LIBRARY2 }) {
+  const rows = Object.entries(sessions || {}).map(([sessionId, session]) => buildSessionListItem(sessionId, session, sessionId === currentSessionId3 ? metrics : {}, sessionId === currentSessionId3));
+  const currentSession = buildSessionDetail(currentSessionId3, sessions?.[currentSessionId3] || {}, metrics, blackbox, { ...status, current_session_id: currentSessionId3 });
+  const totalSavings = Number(savings?.lifetime?.delegation_usd || 0) + Number(savings?.lifetime?.cache_usd || 0);
+  const currentSavings = Number(savings?.current_session?.delegation_usd || 0) + Number(savings?.current_session?.cache_usd || 0);
+  const pendingTodos = asArray(todos).filter((todo) => todo?.status === "pending").length;
+  return {
+    home: {
+      title: "Executive Summary",
+      subtitle: "vibeOS session orchestrator",
+      recommendation: currentSession.recommendation,
+      cards: [
+        { label: "Session", value: currentSession.session_id },
+        { label: "Slot", value: status?.active_slot || "brain" },
+        { label: "Mode", value: status?.optimization_mode || "auto" },
+        { label: "Stress", value: blackbox?.sub_regime || "INIT" },
+        { label: "Savings", value: `$${totalSavings.toFixed(2)}` },
+        { label: "TODOs", value: String(pendingTodos) }
+      ]
+    },
+    savings,
+    todos,
+    current_session: currentSession,
+    sessions: sortSessions(rows),
+    templates,
+    session_actions: ["start", "pause", "resume", "lock", "unlock", "retag", "annotate", "checkout", "archive"],
+    totals: {
+      total_sessions: rows.length,
+      total_savings_usd: totalSavings,
+      current_session_savings_usd: currentSavings,
+      pending_todos: pendingTodos
+    }
+  };
+}
+var TEMPLATE_LIBRARY2, normalizeSessionTemplate2, resolveSessionTemplateDefinition2;
+var init_session_orchestrator = __esm({
+  "src/lib/session-orchestrator.js"() {
+    "use strict";
+    init_templates();
+    TEMPLATE_LIBRARY2 = TEMPLATE_LIBRARY;
+    normalizeSessionTemplate2 = normalizeSessionTemplate;
+    resolveSessionTemplateDefinition2 = resolveSessionTemplateDefinition;
+  }
+});
+
 // src/lib/state.js
 import { readFileSync as readFileSync2, writeFileSync as writeFileSync2, appendFileSync as appendFileSync2, existsSync as existsSync2, mkdirSync, statSync as statSync2, readdirSync, openSync, readSync, closeSync, rmSync, copyFileSync, renameSync as renameSync2 } from "node:fs";
 import { join as join2, dirname, basename as basename2 } from "node:path";
 import { spawn } from "node:child_process";
 import { homedir as homedir2, tmpdir as tmpdir2 } from "node:os";
-import { createHash } from "node:crypto";
+import { createHash as createHash2 } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
 function getVibeOSHome2() {
   return VIBEOS_CONTEXT.getStore()?.home || process.env.VIBEOS_HOME || join2(process.env.HOME || "", ".claude");
@@ -1181,7 +1641,7 @@ function _handleStateCorruption2(path) {
   return backupPath;
 }
 function _lockPathFor(filePath) {
-  const hash = createHash("sha1").update(String(filePath || "")).digest("hex");
+  const hash = createHash2("sha1").update(String(filePath || "")).digest("hex");
   return join2(FILE_LOCK_DIR, `${hash}.lock`);
 }
 function withFileLock(filePath, fn, opts = {}) {
@@ -1800,7 +2260,7 @@ function getScratchpadHit(toolLower, args, baseDir = null) {
     return null;
   const titleCase = TOOL_NAME_NORMALIZE[toolLower];
   const inputJson = stableJson(args ?? {});
-  const hash = createHash("sha256").update(`${titleCase}
+  const hash = createHash2("sha256").update(`${titleCase}
 ${inputJson}
 `).digest("hex").slice(0, 16);
   const sessionDir = baseDir || getSessionScratchpadDir();
@@ -1848,7 +2308,7 @@ function recordScratchpadObservation(toolLower, args, fileSize, meta = {}) {
   try {
     const titleCase = TOOL_NAME_NORMALIZE[toolLower];
     const inputJson = stableJson(args ?? {});
-    const hash = createHash("sha256").update(`${titleCase}
+    const hash = createHash2("sha256").update(`${titleCase}
 ${inputJson}
 `).digest("hex").slice(0, 16);
     const dedupeKey = `${toolLower}:${hash}`;
@@ -2097,7 +2557,7 @@ function saveActiveJobForProject(job, fp2 = currentProjectFingerprint) {
 function projectFingerprint(dir) {
   if (!dir)
     return "unknown";
-  return createHash("sha256").update(dir).digest("hex").slice(0, 12);
+  return createHash2("sha256").update(dir).digest("hex").slice(0, 12);
 }
 function loadProjectState() {
   const projectStateFile = join2(getVibeOSHome2(), "project-states.json");
@@ -2696,6 +3156,29 @@ function saveSessionCheckpoint() {
   } catch {
   }
 }
+function loadSessionOrchestration(sessionId) {
+  try {
+    const state = readFullState();
+    const session = state?.sessions?.[sessionId] || {};
+    return normalizeSessionOrchestration(session?.orchestration || null, sessionId);
+  } catch {
+    return normalizeSessionOrchestration(null, sessionId);
+  }
+}
+function mutateSessionOrchestration(sessionId, mutator) {
+  try {
+    return updateState((state) => {
+      state.sessions ??= {};
+      state.sessions[sessionId] ??= {};
+      const current = normalizeSessionOrchestration(state.sessions[sessionId].orchestration || null, sessionId);
+      const next = mutator(current) || current;
+      state.sessions[sessionId].orchestration = normalizeSessionOrchestration(next, sessionId);
+      return state;
+    });
+  } catch {
+    return null;
+  }
+}
 var USER_HOME2, VIBEOS_CONTEXT, VIBEOS_HOME, OPENCODE_HOME, FILE_LOCK_DIR, DELEGATION_STATE_FILE, SAVINGS_LEDGER_FILE, GLOBAL_LEARNING_FILE, PRICING_CACHE_FILE, BLACKBOX_STATE_FILE, PROJECT_STATE_FILE, TIERS_FILE, ACTIVE_JOBS_FILE, AUTH_F, CREDIT_CACHE_F, FLOW_TODO_QUEUE_FILE, FLOW_DEDUP_FILE, ENFORCEMENT_COOLDOWN_FILE, TODOS_FILE, REPORTS_DIR, CONTEXT7_INSTALL_FLAG, TRINITY_OPENCODE_CONFIG, TRINITY_OPENCODE_CONFIGC, SCRATCHPAD_ROOT, SCRATCHPAD_GLOBAL_DIR, SCRATCHPAD_SESSIONS_DIR, SCRATCHPAD_SESSION_TTL_MS, SCRATCHPAD_MAX_AGE_SEC, MAX_SCRATCHPAD_FILES, MAX_SCRATCHPAD_BYTES, MAX_SESSION_SCRATCHPAD_FILES, MAX_SESSION_SCRATCHPAD_BYTES, CORRUPTION_BACKUP_MAX, CORRUPTION_BACKUP_TTL_MS, LEDGER_ROTATE_MAX_BYTES, LEDGER_ROTATE_MAX_LINES, LEDGER_ROTATE_MAX_AGE_MS, ACTIVE_JOBS_STALE_MS, SUMMARY_HEAD_TRUNCATE, DECADENCE_FRESH_MS, DECADENCE_WARM_MS, DECADENCE_COLD_MS, DECADENCE_EXPIRE_MS, DECADENCE_THROTTLE_MS, DECADENCE_GLOBAL_THROTTLE_MS, TOOL_NAME_NORMALIZE, SCRATCHPAD_TOOLS, WARN_DEDUPE_WINDOW_MS, SOFT_QUOTA_LIMIT, _OC_SID, currentSessionId, _sessionStart, currentTier, currentModel, currentProjectFingerprint, currentProjectName, recentToolEvents, frictionSessionKeys, _savingsCache, _savingsCacheMtime, _ledgerReconciledMtime, _ledgerTotalsCache, _mlGraph, _cacheDb, ML_ENABLED, ML_CONFIDENCE_THRESHOLD, _mlSavePending, _blackboxEnabled, _latestBlackboxState, _latestBlackboxLoopMsg, _latestBlackboxPivotMsg, _modelLocked, _lockedSlot, _lockedModel, _sessionCleanupRegistered, _sessionCacheCleaned, prunedThisProcess, _lastDecadenceRun, briefedProjects, _ledgerBuffer, _ledgerBufferTimer, LEDGER_BUFFER_MAX, LEDGER_BUFFER_FLUSH_MS, testReminderSeen, DFLT_GL, tool, _startupMaintenanceHome, FALLBACK_HIGH, FALLBACK_MID, HIGH_TIER_RE, MID_TIER_RE, scratchpadHitsSeen;
 var init_state = __esm({
   "src/lib/state.js"() {
@@ -2705,6 +3188,7 @@ var init_state = __esm({
     init_runtime_state();
     init_ml_router();
     init_smart_cache();
+    init_session_orchestrator();
     USER_HOME2 = (() => {
       try {
         return homedir2();
@@ -3511,6 +3995,9 @@ var init_api_client = __esm({
       async getModes() {
         return this.request("/api/v1/modes", {}, "GET");
       }
+      async capabilities() {
+        return this.request("/api/v1/capabilities", null, false);
+      }
       async selectMode(mode) {
         return this.request("/api/v1/mode/select", { mode });
       }
@@ -3624,6 +4111,9 @@ var init_api_client = __esm({
       }
       async pricingStatic() {
         return this.request("/api/v1/pricing/static", null);
+      }
+      async webSearch(input) {
+        return this.request("/api/v1/web/search", input);
       }
       async compressContext(text, threshold = 2e3) {
         return this.request("/api/v1/compress/context", { text, threshold });
@@ -5221,6 +5711,7 @@ function computeSessionMetrics(state, sessionId) {
 }
 
 // src/lib/vibeos-mcp-server.js
+init_session_orchestrator();
 import http from "node:http";
 import { parse as parseUrl } from "node:url";
 import { createReadStream, existsSync as existsSync4, mkdirSync as mkdirSync3, statSync as statSync4, writeFileSync as writeFileSync4 } from "node:fs";
@@ -5268,10 +5759,15 @@ function parseBody(req) {
 var _MCP_FILENAME = fileURLToPath2(import.meta.url);
 var _MCP_DIR = dirname3(_MCP_FILENAME);
 function resolveDashboardDir() {
+  const repoRoot = join4(_MCP_DIR, "..", "..");
+  const cwd = process.cwd();
   const c = [
     join4(_MCP_DIR, "dashboard", "dist"),
     join4(_MCP_DIR, "assets", "dashboard"),
-    join4(_MCP_DIR, "assets", "dashboard", "dist")
+    join4(_MCP_DIR, "assets", "dashboard", "dist"),
+    join4(repoRoot, "src", "lib", "dashboard", "dist"),
+    join4(cwd, "src", "lib", "dashboard", "dist"),
+    join4(cwd, "dist-ts", "lib", "dashboard", "dist")
   ];
   for (const p of c) {
     if (existsSync4(join4(p, "index.html")))
@@ -5307,8 +5803,53 @@ function resolveBackendHealthUrl() {
   }
   return "https://api.vibetheog.com/health";
 }
+function resolveBackendApiBase() {
+  const explicit = process.env.VIBEOS_API_URL?.trim();
+  if (explicit)
+    return explicit.replace(/\/$/, "");
+  try {
+    const healthUrl = new URL(BACKEND_HEALTH_URL);
+    return new URL("./", healthUrl.href).href.replace(/\/$/, "");
+  } catch {
+    return "https://api.vibetheog.com";
+  }
+}
 var BACKEND_HEALTH_URL = resolveBackendHealthUrl();
 var BACKEND_HEALTH_TTL_MS = 5e3;
+async function proxyBackendJson(path, options = {}) {
+  const base = resolveBackendApiBase();
+  const url = new URL(path, base.endsWith("/") ? base : `${base}/`).href;
+  const response = await fetch(url, {
+    method: options.method || "GET",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Requested-With": "vibeOS-dashboard"
+    },
+    body: options.body === void 0 ? void 0 : JSON.stringify(options.body)
+  });
+  const text = await response.text();
+  let data = text;
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = text;
+  }
+  return { status: response.status, data };
+}
+function getSessionsFromState(state) {
+  return state?.sessions_raw || {};
+}
+function getSessionOrchestrationState(deps, sessionId) {
+  try {
+    if (typeof deps.getSessionOrchestration === "function") {
+      return deps.getSessionOrchestration(sessionId) || null;
+    }
+  } catch {
+  }
+  const state = deps.getState();
+  const session = getSessionsFromState(state)?.[sessionId] || {};
+  return session?.orchestration || null;
+}
 var backendHealth = { ok: null, checkedAt: 0, version: null };
 async function probeBackendHealth(force = false) {
   const now = Date.now();
@@ -5402,6 +5943,50 @@ function createMcpServer(deps) {
         json(res, 200, { ...state, backend_connected: probe.ok === true, backend_health_url: BACKEND_HEALTH_URL, backend_version: probe.version, blackbox: bb ?? null });
         return;
       }
+      if (method === "GET" && path === "/dashboard/home") {
+        const state = deps.getState();
+        const currentSessionId3 = deps.getCurrentSessionId();
+        const blackbox = deps.getBlackboxState() || {};
+        const home = buildDashboardHomeModel({
+          currentSessionId: currentSessionId3,
+          status: state,
+          savings: deps.getSavings(),
+          todos: deps.getTodos(),
+          blackbox,
+          sessions: getSessionsFromState(state),
+          metrics: deps.getSessionMetrics(currentSessionId3),
+          templates: typeof deps.listSessionTemplates === "function" ? deps.listSessionTemplates() : TEMPLATE_LIBRARY2
+        });
+        json(res, 200, {
+          ...home,
+          status: state,
+          blackbox,
+          backend_connected: state?.backend_connected ?? false,
+          backend_health_url: BACKEND_HEALTH_URL,
+          backend_version: state?.backend_version || null
+        });
+        return;
+      }
+      if (method === "GET" && path === "/capabilities") {
+        try {
+          const { status, data } = await proxyBackendJson("/api/v1/capabilities");
+          json(res, status, data);
+        } catch (error) {
+          json(res, 502, {
+            error: "backend capabilities unavailable",
+            message: error instanceof Error ? error.message : "unknown error",
+            code: "BACKEND_UNAVAILABLE",
+            web_search: {
+              enabled: false,
+              provider: "duckduckgo",
+              fixture_mode: false,
+              benchmark_path: null,
+              backend_status: 0
+            }
+          });
+        }
+        return;
+      }
       if (method === "GET" && path === "/savings") {
         json(res, 200, deps.getSavings());
         return;
@@ -5412,9 +5997,10 @@ function createMcpServer(deps) {
       }
       if (method === "GET" && path === "/sessions") {
         const state = deps.getState();
-        const sessionsMap = state?.sessions_raw || {};
+        const sessionsMap = getSessionsFromState(state);
+        const currentSessionId3 = deps.getCurrentSessionId();
         const sessions = Object.entries(sessionsMap).map(([id2, ses]) => ({
-          id: id2,
+          ...buildSessionDetail(id2, ses, deps.getSessionMetrics(id2), deps.getBlackboxState() || {}, { current_session_id: currentSessionId3 }),
           started: ses?.started || null,
           cost_usd: Number(ses?.cost_usd ?? 0) || 0,
           delegation_savings_usd: Array.isArray(ses?.warns) ? ses.warns.reduce((sum, w) => sum + (Number(w?.est_savings_usd ?? 0) || 0), 0) : ses?.total_savings_usd || 0,
@@ -5425,7 +6011,33 @@ function createMcpServer(deps) {
         return;
       }
       if (method === "GET" && path === "/sessions/current") {
-        json(res, 200, deps.getSessionMetrics(deps.getCurrentSessionId()));
+        const state = deps.getState();
+        const sid = deps.getCurrentSessionId();
+        const session = getSessionsFromState(state)?.[sid] || {};
+        json(res, 200, {
+          session: buildSessionDetail(sid, session, deps.getSessionMetrics(sid), deps.getBlackboxState() || {}, { current_session_id: sid }),
+          metrics: deps.getSessionMetrics(sid),
+          orchestration: getSessionOrchestrationState(deps, sid)
+        });
+        return;
+      }
+      if (method === "GET" && path.startsWith("/sessions/")) {
+        const sessionId = decodeURIComponent(path.replace(/^\/sessions\//, "")).trim();
+        if (!sessionId || sessionId === "current" || sessionId.includes("/")) {
+        } else {
+          const state = deps.getState();
+          const session = getSessionsFromState(state)?.[sessionId] || {};
+          json(res, 200, {
+            session: buildSessionDetail(sessionId, session, deps.getSessionMetrics(sessionId), deps.getBlackboxState() || {}, { current_session_id: deps.getCurrentSessionId() }),
+            metrics: deps.getSessionMetrics(sessionId),
+            orchestration: getSessionOrchestrationState(deps, sessionId)
+          });
+          return;
+        }
+      }
+      if (method === "GET" && path === "/templates") {
+        const templates = typeof deps.listSessionTemplates === "function" ? deps.listSessionTemplates() : TEMPLATE_LIBRARY2;
+        json(res, 200, templates);
         return;
       }
       if (method === "GET" && path === "/reports") {
@@ -5468,6 +6080,32 @@ function createMcpServer(deps) {
       }
       if (method === "GET" && path === "/blackbox") {
         json(res, 200, deps.getBlackboxState() || {});
+        return;
+      }
+      if (method === "POST" && path === "/web-search") {
+        let body;
+        try {
+          body = await parseBody(req);
+        } catch {
+          json(res, 400, { error: "invalid request", status: 400 });
+          return;
+        }
+        const query = body?.query;
+        if (!query || typeof query !== "string") {
+          json(res, 400, { error: "query is required and must be a string", status: 400 });
+          return;
+        }
+        try {
+          const { status, data } = await proxyBackendJson("/api/v1/web/search", { method: "POST", body });
+          json(res, status, data);
+        } catch (error) {
+          json(res, 502, {
+            ok: false,
+            error: "web search backend unavailable",
+            message: error instanceof Error ? error.message : "unknown error",
+            code: "BACKEND_UNAVAILABLE"
+          });
+        }
         return;
       }
       if (method === "POST" && path === "/trinity") {
@@ -5534,6 +6172,65 @@ function createMcpServer(deps) {
       if (method === "POST" && path === "/sessions/checkout") {
         const result = deps.generateSessionCheckout();
         json(res, 200, result);
+        return;
+      }
+      if (method === "POST" && path.startsWith("/sessions/") && path.endsWith("/action")) {
+        const sessionId = decodeURIComponent(path.replace(/^\/sessions\//, "").replace(/\/action$/, "")).trim();
+        let body;
+        try {
+          body = await parseBody(req);
+        } catch {
+          json(res, 400, { error: "invalid request", status: 400 });
+          return;
+        }
+        const action = String(body?.action || "").trim().toLowerCase();
+        if (!sessionId || !action) {
+          json(res, 400, { error: "invalid request", status: 400 });
+          return;
+        }
+        if (action === "checkout") {
+          const checkout = deps.generateSessionCheckout();
+          if (typeof deps.mutateSessionOrchestration === "function") {
+            deps.mutateSessionOrchestration(sessionId, (current) => applySessionAction(current, "checkout", body));
+          }
+          json(res, 200, { ok: true, checkout });
+          return;
+        }
+        if (typeof deps.mutateSessionOrchestration === "function") {
+          const next = deps.mutateSessionOrchestration(sessionId, (current) => applySessionAction(current, action, body));
+          json(res, 200, { ok: true, session: next });
+          return;
+        }
+        json(res, 500, { ok: false, error: "session mutation unavailable" });
+        return;
+      }
+      if (method === "POST" && path.startsWith("/sessions/") && path.endsWith("/template")) {
+        const sessionId = decodeURIComponent(path.replace(/^\/sessions\//, "").replace(/\/template$/, "")).trim();
+        let body;
+        try {
+          body = await parseBody(req);
+        } catch {
+          json(res, 400, { error: "invalid request", status: 400 });
+          return;
+        }
+        if (!sessionId) {
+          json(res, 400, { error: "invalid request", status: 400 });
+          return;
+        }
+        const template = body?.template && typeof body.template === "object" ? body.template : {
+          id: body?.template_id || body?.id || "session-template",
+          label: body?.label || body?.name || "Session template",
+          body: body?.body || body?.directive || "",
+          source: body?.source || "custom",
+          base_template_id: body?.base_template_id || body?.template_id || body?.id || null,
+          revision: body?.revision || 1
+        };
+        if (typeof deps.mutateSessionOrchestration === "function") {
+          const next = deps.mutateSessionOrchestration(sessionId, (current) => applySessionAction(current, "set-template", { ...body, template }));
+          json(res, 200, { ok: true, session: next });
+          return;
+        }
+        json(res, 500, { ok: false, error: "session mutation unavailable" });
         return;
       }
       if (method === "POST" && path === "/blackbox/vector") {
@@ -5628,7 +6325,7 @@ init_selection_manager();
 import { readFileSync as readFileSync5, writeFileSync as writeFileSync6, existsSync as existsSync6, mkdirSync as mkdirSync5, statSync as statSync5, renameSync as renameSync4, openSync as openSync2, closeSync as closeSync2, rmSync as rmSync3, readdirSync as readdirSync2 } from "node:fs";
 import { join as join5, dirname as dirname5, resolve } from "node:path";
 import { homedir as homedir4, tmpdir as tmpdir3 } from "node:os";
-import { createHash as createHash2 } from "node:crypto";
+import { createHash as createHash3 } from "node:crypto";
 var TRINITY_BRAIN = null;
 var TRINITY_MEDIUM = null;
 var TRINITY_CHEAP = null;
@@ -5659,7 +6356,7 @@ function getOpenCodeDesktopHome() {
 }
 var TIERS_FILE2 = join5(getVibeOSHome4(), "model-tiers.json");
 function _lockPathFor2(filePath) {
-  const hash = createHash2("sha1").update(String(filePath || "")).digest("hex");
+  const hash = createHash3("sha1").update(String(filePath || "")).digest("hex");
   return join5(getVibeOSHome4(), ".vibeOS-locks", `${hash}.lock`);
 }
 function withFileLock2(filePath, fn, opts = {}) {
@@ -8800,6 +9497,9 @@ function projectStructuredFromText(raw, selection, creditPercent = 0) {
   };
 }
 
+// src/index.ts
+init_templates();
+
 // src/lib/reporting.js
 init_state();
 init_runtime_state();
@@ -11205,7 +11905,7 @@ import { join as join17 } from "node:path";
 init_state();
 import { readFileSync as readFileSync15, writeFileSync as writeFileSync14, appendFileSync as appendFileSync4, existsSync as existsSync16, mkdirSync as mkdirSync11, rmSync as rmSync5, readdirSync as readdirSync3, statSync as statSync7 } from "node:fs";
 import { join as join16, dirname as dirname10, basename as basename3 } from "node:path";
-import { createHash as createHash3 } from "node:crypto";
+import { createHash as createHash4 } from "node:crypto";
 import { homedir as homedir6 } from "node:os";
 
 // src/lib/claim-verification.js
@@ -12031,93 +12731,8 @@ var COMPRESS_MARKER = "[ctx-compressed-v1]";
 var PROTOCOL_MARKER = "[wbp-v1]";
 var PROTOCOL_TEXT = PROTOCOL_MARKER + " [Worker-to-Brain Report Protocol] When synthesizing the preceding Task output: 1) EXTRACT core findings/data. 2) REFORMAT into bullet points. 3) VERIFY against the original ask. 4) SYNTHESIZE into final response.";
 
-// src/lib/templates.js
-var TEMPLATES = {
-  save: {
-    tier_bias: "cheap",
-    thinking_mode: "off",
-    enforcement_mode: "relaxed",
-    flow_mode: "audit",
-    tdd_mode: "lazy",
-    context7_urgency: "required",
-    wbp_verbosity: "minimal",
-    agent_mode: "auto",
-    directive: "[SAVE mode] Cost efficiency. Minimize token usage. Combine independent tool calls with && or ;. Prefer context7 over WebSearch/WebFetch for docs. Skip unnecessary verification. Batch parallel Task subagents."
-  },
-  quality: {
-    tier_bias: "brain",
-    thinking_mode: "full",
-    enforcement_mode: "strict",
-    flow_mode: "strict",
-    tdd_mode: "quality",
-    context7_urgency: "preferred",
-    wbp_verbosity: "verbose",
-    agent_mode: "plan",
-    directive: "[QUALITY mode] High quality output. Full verification of all results. Production-grade code. Write tests covering all paths and edge cases. Validate outputs before presenting. Do not cut corners."
-  },
-  security: {
-    tier_bias: "brain",
-    thinking_mode: "brief",
-    enforcement_mode: "strict",
-    flow_mode: "strict",
-    tdd_mode: "quality",
-    context7_urgency: "preferred",
-    wbp_verbosity: "normal",
-    agent_mode: "plan",
-    directive: "[SECURITY mode] Defense-in-depth. Define the threat model before writing code. Validate all inputs. Never expose secrets or credentials. Verify each defense handles its threat. Consider: injection, broken auth, data exposure, logic errors, race conditions."
-  },
-  speed: {
-    tier_bias: "medium",
-    thinking_mode: "off",
-    enforcement_mode: "relaxed",
-    flow_mode: "audit",
-    tdd_mode: "lazy",
-    context7_urgency: "preferred",
-    wbp_verbosity: "minimal",
-    agent_mode: "auto",
-    directive: "[SPEED mode] Break the loop. Try a different approach. Verify each step before proceeding. If stuck, step back and reassess assumptions. Do NOT repeat the same failing strategy. Prioritize getting a working solution over optimal code. Use Task subagents to parallelize exploration. After 3 failed attempts, explicitly ask the user for guidance."
-  }
-};
-var DEFAULT_TEMPLATE = "save";
-var SEC_KEYWORDS = /\b(security|vuln|exploit|injection|xss|csrf|secret|credential|token leak|auth bypass|privacy|breach|backdoor|sql injection|cve)\b/i;
-function detectSecuritySignal(text) {
-  if (!text || typeof text !== "string")
-    return false;
-  return SEC_KEYWORDS.test(text);
-}
-function detectBudgetSignal(creditPercent) {
-  return creditPercent < 40;
-}
-var _prevStress = 0;
-function detectStressSpike(stressScore) {
-  const delta = stressScore - _prevStress;
-  _prevStress = stressScore;
-  return delta > 0.3 && stressScore > 0.5;
-}
-function resolveTemplate(prevTemplate, stressScore, userText, creditPercent, subRegime) {
-  if (detectSecuritySignal(userText))
-    return "security";
-  if (detectBudgetSignal(creditPercent)) {
-    const regime = String(subRegime || "").toUpperCase();
-    if (regime === "LOOPING" || regime === "DIVERGENT")
-      return "quality";
-    return "save";
-  }
-  if (detectStressSpike(stressScore))
-    return "quality";
-  return prevTemplate || DEFAULT_TEMPLATE;
-}
-var _turnCount = 0;
-function shouldInjectTemplate(template, prevTemplate) {
-  _turnCount++;
-  if (template !== prevTemplate)
-    return true;
-  if (_turnCount % 10 === 0)
-    return true;
-  return false;
-}
-
 // src/lib/hooks/chat-transform.js
+init_templates();
 var BYTES_PER_TOKEN = 4;
 var ANTI_FABRICATION_DIRECTIVE = "[anti-fabrication] Always work honestly \u2014 do NOT make up tool names, file paths, function signatures, code snippets, or exact outputs. If you must explain something you cannot verify, say 'I cannot verify that' and propose how to verify it. Under NO circumstance invent tool invocations, file contents, or final results. If you must correct an earlier response, say exactly what was wrong and then provide the corrected response. DO NOT LGTM.";
 var EMPIRICAL_ANSWER_DIRECTIVE = "[empirical answer] Prefer verified facts over assumptions. If something is not directly checked against tools, files, logs, or user-provided evidence, label it as unverified or say 'I cannot verify that'. Separate evidence, inference, and suggestions. In multi-turn work, carry forward only evidence-backed facts and keep any guess explicitly marked as a guess.";
@@ -12191,7 +12806,9 @@ var _latestBlackboxLoopMsg3 = null;
 var _latestBlackboxPivotMsg3 = null;
 var _prevBlackboxRegime = null;
 var _currentTemplate = DEFAULT_TEMPLATE;
+var _currentTemplateSignature = DEFAULT_TEMPLATE;
 var _prevTemplate = null;
+var _prevTemplateSignature = null;
 var _turnCountInject = 0;
 var _pivotLastCheckTurn = 0;
 var _pivotLastRegime = null;
@@ -12302,7 +12919,7 @@ function projectMemoryDirective(fp2) {
       const rawUsd = Math.max(1e-4, Math.round(savedChars / BYTES_PER_TOKEN * modelRate / 1e6 * 1e4) / 1e4);
       const creditedUsd = Math.max(1e-4, Math.round(rawUsd * 0.8 * 1e4) / 1e4);
       recordCacheSaving("project-memory", creditedUsd, {
-        hash: createHash3("sha256").update(`project-memory
+        hash: createHash4("sha256").update(`project-memory
 ${fp2}
 ${directive}
 `).digest("hex").slice(0, 16)
@@ -12578,7 +13195,7 @@ function compressToolOutputs(messages) {
         continue;
       if (raw.includes(COMPRESS_MARKER))
         continue;
-      const hash = createHash3("sha256").update(`tool_result
+      const hash = createHash4("sha256").update(`tool_result
 ${raw}
 `).digest("hex").slice(0, 16);
       const globalDir = join16(SCRATCHPAD_ROOT, "by-hash");
@@ -12597,7 +13214,7 @@ ${raw}
         const invPart = parts.slice(0, parts.indexOf(part)).reverse().find((p) => p?.type === "tool" && p?.tool === part.tool && p?.state?.input && p?.state?.status !== "completed");
         if (invPart?.state?.input) {
           const toolKey2 = TOOL_NAME_NORMALIZE[part.tool] || part.tool;
-          const inputHash = createHash3("sha256").update(`${toolKey2}
+          const inputHash = createHash4("sha256").update(`${toolKey2}
 ${stableJson(invPart.state.input)}
 `).digest("hex").slice(0, 16);
           const ptrPath = join16(getSessionScratchpadDir(), `${inputHash}.ptr`);
@@ -13043,10 +13660,14 @@ var onSystemTransform = async (_input, output) => {
       pushSystem(output, stressMitigationDirective);
     }
     _prevTemplate = _currentTemplate;
+    _prevTemplateSignature = _currentTemplateSignature;
     _currentTemplate = resolveTemplate(_prevTemplate, stressScore, latestUserIntent, credit, _latestBlackboxState3?.sub_regime);
-    if (shouldInjectTemplate(_currentTemplate, _prevTemplate)) {
-      const tpl = TEMPLATES[_currentTemplate] || TEMPLATES[DEFAULT_TEMPLATE];
-      let fused = tpl.directive;
+    const sessionTemplate = loadSessionOrchestration(_OC_SID3)?.template || null;
+    const activeTemplate = resolveSessionTemplateDefinition(sessionTemplate);
+    _currentTemplateSignature = activeTemplate.signature || _currentTemplate;
+    if (shouldInjectTemplate(_currentTemplateSignature, _prevTemplateSignature)) {
+      const directive = activeTemplate.body || (TEMPLATES[_currentTemplate] || TEMPLATES[DEFAULT_TEMPLATE]).directive;
+      let fused = directive;
       if (sel.delegation_enforce && _controlVector?.enforcement_mode !== "relaxed") {
         fused += " Keep brain for planning \u2014 hand file changes to Task subagents. Parallel Task calls are encouraged for independent work.";
       }
@@ -13883,7 +14504,7 @@ async function _appendFooter(input, output, directory3) {
       subRegime: currentSubRegime,
       stressGauge: _footerStress > 0.85 ? "\u2588" : _footerStress > 0.7 ? "\u2586" : _footerStress > 0.5 ? "\u2585" : _footerStress > 0.3 ? "\u2583" : _footerStress > 0.1 ? "\u2582" : "\u2581",
       cascadeIcon: (cv?.cascade_depth || 1) >= 3 ? "\u25B8\u25B8\u25B8" : (cv?.cascade_depth || 1) >= 2 ? "\u25B8\u25B8" : "",
-      claimTag: claimStatus.claimTag || void 0,
+      claimTag: claimTag || void 0,
       rewardTag: _rewardTag || void 0
     });
     const footerText = stripped + `
@@ -13914,7 +14535,7 @@ ${vibeLine} \u2014`);
 init_state();
 import { readFileSync as readFileSync18, writeFileSync as writeFileSync17, appendFileSync as appendFileSync7, existsSync as existsSync18, mkdirSync as mkdirSync14, copyFileSync as copyFileSync2 } from "node:fs";
 import { join as join19, dirname as dirname12, basename as basename4 } from "node:path";
-import { createHash as createHash5 } from "node:crypto";
+import { createHash as createHash6 } from "node:crypto";
 init_selection_manager();
 init_api_client();
 
@@ -13983,7 +14604,7 @@ init_smart_cache();
 init_state();
 import { readFileSync as readFileSync17, writeFileSync as writeFileSync16, appendFileSync as appendFileSync6, existsSync as existsSync17, mkdirSync as mkdirSync13, statSync as statSync8, readdirSync as readdirSync4, rmSync as rmSync6, openSync as openSync3 } from "node:fs";
 import { join as join18, dirname as dirname11 } from "node:path";
-import { createHash as createHash4 } from "node:crypto";
+import { createHash as createHash5 } from "node:crypto";
 
 // src/utils/tdd-helpers.js
 function extractExports(sourceContent, ext) {
@@ -15185,7 +15806,7 @@ var _enforcementCooldown = /* @__PURE__ */ new Set();
 function _acquireLock(testPath) {
   try {
     mkdirSync13(ENFORCEMENT_LOCK_DIR, { recursive: true });
-    const hash = createHash4("sha256").update(testPath).digest("hex").slice(0, 16);
+    const hash = createHash5("sha256").update(testPath).digest("hex").slice(0, 16);
     const lockPath = join18(ENFORCEMENT_LOCK_DIR, `${hash}.lock`);
     try {
       openSync3(lockPath, "wx");
@@ -15213,7 +15834,7 @@ function _acquireLock(testPath) {
 }
 function _releaseLock(testPath) {
   try {
-    const hash = createHash4("sha256").update(testPath).digest("hex").slice(0, 16);
+    const hash = createHash5("sha256").update(testPath).digest("hex").slice(0, 16);
     const lockPath = join18(ENFORCEMENT_LOCK_DIR, `${hash}.lock`);
     rmSync6(lockPath);
   } catch {
@@ -15223,7 +15844,7 @@ function _isInCooldown(testPath) {
   try {
     if (!existsSync17(ENFORCEMENT_COOLDOWN_FILE2))
       return false;
-    const hash = createHash4("sha256").update(testPath).digest("hex").slice(0, 16);
+    const hash = createHash5("sha256").update(testPath).digest("hex").slice(0, 16);
     const lines = readFileSync17(ENFORCEMENT_COOLDOWN_FILE2, "utf-8").trim().split("\n").filter(Boolean);
     const now = Date.now();
     for (const line of lines) {
@@ -15242,7 +15863,7 @@ function _isInCooldown(testPath) {
 function _recordCooldown(testPath) {
   try {
     mkdirSync13(dirname11(ENFORCEMENT_COOLDOWN_FILE2), { recursive: true });
-    const hash = createHash4("sha256").update(testPath).digest("hex").slice(0, 16);
+    const hash = createHash5("sha256").update(testPath).digest("hex").slice(0, 16);
     const entry = JSON.stringify({ h: hash, ts: Date.now() }) + "\n";
     appendFileSync6(ENFORCEMENT_COOLDOWN_FILE2, entry);
     const lines = readFileSync17(ENFORCEMENT_COOLDOWN_FILE2, "utf-8").trim().split("\n").filter(Boolean);
@@ -15621,7 +16242,7 @@ function materializeScratchpadAlias(toolLower, args, sourceHash, options = {}) {
   const sessionDir = options.sessionDir || getSessionScratchpadDir();
   const globalDir = options.globalDir || SCRATCHPAD_GLOBAL_DIR;
   const inputJson = stableJson(args ?? {});
-  const hash = createHash5("sha256").update(`${titleCase}
+  const hash = createHash6("sha256").update(`${titleCase}
 ${inputJson}
 `).digest("hex").slice(0, 16);
   if (hash === sourceHash)
@@ -15719,7 +16340,7 @@ var onToolExecuteBefore = async (input, output) => {
                 const titleCase = TOOL_NAME_NORMALIZE[t];
                 if (titleCase) {
                   const argsJson = stableJson(args ?? inArgs ?? {});
-                  const curHash = createHash5("sha256").update(`${titleCase}
+                  const curHash = createHash6("sha256").update(`${titleCase}
 ${argsJson}
 `).digest("hex").slice(0, 16);
                   const sessionDir = getSessionScratchpadDir();
@@ -16982,6 +17603,9 @@ async function ensureMcpServerRunning() {
           }),
           getSessionMetrics: () => computeSessionMetrics(readFullState(), _OC_SID),
           getTodos: () => loadTodos(),
+          getSessionOrchestration: (sessionId) => loadSessionOrchestration(sessionId),
+          mutateSessionOrchestration: (sessionId, mutator) => mutateSessionOrchestration(sessionId, mutator),
+          listSessionTemplates: () => TEMPLATE_LIBRARY,
           listReports: (filter) => {
             if (!existsSync20(getReportsDir2())) {
               const e = new Error("reports dir not found");

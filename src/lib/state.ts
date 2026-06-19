@@ -175,6 +175,7 @@ function invalidateSavingsCache(): void {
 // ── ML Router state ──────────────────────────────────────────────────
 import { createPatternGraph, deserializeGraph, addRouteEdge, ensureNode, computeDifficulty, cascadeDecide, predictBestModel, hashQuery } from "../vibeOS-lib/ml-router.js"
 import { createCacheDatabase, addCacheEntry, recordCacheStats, predictCacheHit, evictStaleEntries, deserializeCacheDb } from "../vibeOS-lib/smart-cache.js"
+import { applySessionAction, normalizeSessionOrchestration } from "./session-orchestrator.js"
 
 let _mlGraph: any = createPatternGraph()
 let _cacheDb: any = createCacheDatabase()
@@ -2016,6 +2017,35 @@ function saveSessionCheckpoint(): void {
   } catch {}
 }
 
+function loadSessionOrchestration(sessionId: string): any {
+  try {
+    const state = readFullState()
+    const session = state?.sessions?.[sessionId] || {}
+    return normalizeSessionOrchestration(session?.orchestration || null, sessionId)
+  } catch {
+    return normalizeSessionOrchestration(null, sessionId)
+  }
+}
+
+function mutateSessionOrchestration(sessionId: string, mutator: (current: any) => any): any {
+  try {
+    return updateState((state: any) => {
+      state.sessions ??= {}
+      state.sessions[sessionId] ??= {}
+      const current = normalizeSessionOrchestration(state.sessions[sessionId].orchestration || null, sessionId)
+      const next = mutator(current) || current
+      state.sessions[sessionId].orchestration = normalizeSessionOrchestration(next, sessionId)
+      return state
+    })
+  } catch {
+    return null
+  }
+}
+
+function updateSessionOrchestration(sessionId: string, action: string, payload: any = {}): any {
+  return mutateSessionOrchestration(sessionId, (current) => applySessionAction(current, action, { ...payload, session_id: sessionId }))
+}
+
 // ── Export ───────────────────────────────────────────────────────────
 export {
   // File system constants
@@ -2155,6 +2185,9 @@ export {
   updateState,
   readFullState,
   writeFullState,
+  loadSessionOrchestration,
+  mutateSessionOrchestration,
+  updateSessionOrchestration,
   _lockPathFor,
   _handleStateCorruption,
 

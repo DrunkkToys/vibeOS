@@ -1,4 +1,4 @@
-# vibeOS for OpenCode -- Innocence v0.25.50
+# vibeOS for OpenCode -- Innocence v0.25.48
 
 A quality-first control plane for AI-assisted coding.
 

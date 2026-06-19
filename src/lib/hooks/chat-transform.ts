@@ -23,6 +23,7 @@ import {
   setCurrentModel, setCurrentTier,
   setCurrentProjectFingerprint, setCurrentProjectName,
   stableJson, TOOL_NAME_NORMALIZE,
+  loadSessionOrchestration,
   _cacheDb, recordCacheSaving, getOpenCodeHome, safeCopyIntoSession,
 } from "../state.js"
 import { memoCompute, nextTurn } from "../turn-memo.js"
@@ -62,7 +63,7 @@ import { loadSessionOptMode, loadSessionSlot, writeSessionSlot, loadGlobalOptMod
 import { noteProjectPattern } from "../index-helpers.js"
 import { saveSessionStress } from "../index-helpers.js"
 import { COMPRESS_THRESHOLD, KEEP_HOT, COMPRESS_MARKER, PROTOCOL_MARKER, PROTOCOL_TEXT } from "../constants.js"
-import { TEMPLATES, DEFAULT_TEMPLATE, resolveTemplate, detectLoopSignal, detectStressSpike, shouldInjectTemplate } from "../templates.js"
+import { TEMPLATES, DEFAULT_TEMPLATE, resolveTemplate, detectLoopSignal, detectStressSpike, shouldInjectTemplate, resolveSessionTemplateDefinition } from "../templates.js"
 import { getRealityCheckView } from "../../vibeOS-lib/flow-enforcer.js"
 
 const BYTES_PER_TOKEN = 4
@@ -152,7 +153,9 @@ let _latestBlackboxPivotMsg = null
 let _prevOutputText = ""
 let _prevBlackboxRegime = null
 let _currentTemplate = DEFAULT_TEMPLATE
+let _currentTemplateSignature = DEFAULT_TEMPLATE
 let _prevTemplate = null
+let _prevTemplateSignature = null
 let _turnCountInject = 0
 let _pivotLastCheckTurn = 0
 let _pivotLastRegime: string | null = null
@@ -1086,12 +1089,16 @@ export const onSystemTransform = async (_input, output) => {
 
     // ── Template resolution ──
     _prevTemplate = _currentTemplate
+    _prevTemplateSignature = _currentTemplateSignature
     _currentTemplate = resolveTemplate(_prevTemplate, stressScore, latestUserIntent, credit, _latestBlackboxState?.sub_regime)
+    const sessionTemplate = loadSessionOrchestration(_OC_SID)?.template || null
+    const activeTemplate = resolveSessionTemplateDefinition(sessionTemplate)
+    _currentTemplateSignature = activeTemplate.signature || _currentTemplate
 
     // ── Gated template directive (only on transition or periodic) ──
-    if (shouldInjectTemplate(_currentTemplate, _prevTemplate)) {
-      const tpl = TEMPLATES[_currentTemplate] || TEMPLATES[DEFAULT_TEMPLATE]
-      let fused = tpl.directive
+    if (shouldInjectTemplate(_currentTemplateSignature, _prevTemplateSignature)) {
+      const directive = activeTemplate.body || (TEMPLATES[_currentTemplate] || TEMPLATES[DEFAULT_TEMPLATE]).directive
+      let fused = directive
       if (sel.delegation_enforce && _controlVector?.enforcement_mode !== "relaxed") {
         fused += " Keep brain for planning — hand file changes to Task subagents. Parallel Task calls are encouraged for independent work."
       }
