@@ -60,6 +60,7 @@ test("dashboard API serves home, templates, and session actions", async () => {
     listSessionTemplates: () => [{ id: "save", label: "Save" }],
     getSessionOrchestration: (sessionId) => sessions[sessionId]?.orchestration || null,
     mutateSessionOrchestration: (sessionId, mutator) => {
+      sessions[sessionId] = sessions[sessionId] || {}
       const next = mutator(sessions[sessionId]?.orchestration || {})
       sessions[sessionId].orchestration = next
       mutations.push({ sessionId, next })
@@ -105,6 +106,38 @@ test("dashboard API serves home, templates, and session actions", async () => {
     assert.equal(templated.ok, true)
     assert.equal(templated.session.template.label, "Quality")
     assert.equal(mutations.at(-1).next.template.label, "Quality")
+
+    const batch = await fetch(`${base}/sessions/sid-a/action`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "batch", actions: [{ action: "pause" }, { action: "annotate", note: "batch note" }] }),
+    }).then((r) => r.json())
+    assert.equal(batch.ok, true)
+    assert.equal(batch.session.status, "paused")
+    assert.equal(batch.session.notes.at(-1).text, "batch note")
+
+    const undone = await fetch(`${base}/sessions/sid-a/action`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "undo" }),
+    }).then((r) => r.json())
+    assert.equal(undone.ok, true)
+    assert.equal(undone.session.history.length >= 1, true)
+
+    const compare = await fetch(`${base}/sessions/sid-a/compare?with=sid-a`, { method: "GET" }).then((r) => r.json())
+    assert.equal(compare.ok, true)
+    assert.equal(compare.compare.status_changed, false)
+
+    const exported = await fetch(`${base}/sessions/sid-a/export`, { method: "GET" }).then((r) => r.json())
+    assert.equal(exported.ok, true)
+    assert.equal(exported.orchestration.session_id, "sid-a")
+
+    const imported = await fetch(`${base}/sessions/import`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: "sid-b", orchestration: exported.orchestration }),
+    }).then((r) => r.json())
+    assert.equal(imported.session.session_id, "sid-b")
   } finally {
     await server.close()
   }
@@ -228,6 +261,7 @@ test("dashboard API proxies capabilities and web search", async () => {
     listSessionTemplates: () => [{ id: "save", label: "Save" }],
     getSessionOrchestration: (sessionId) => sessions[sessionId]?.orchestration || null,
     mutateSessionOrchestration: (sessionId, mutator) => {
+      sessions[sessionId] = sessions[sessionId] || {}
       const next = mutator(sessions[sessionId]?.orchestration || {})
       sessions[sessionId].orchestration = next
       return next

@@ -4,6 +4,10 @@ import assert from "node:assert/strict"
 import {
   TEMPLATE_LIBRARY,
   buildDashboardHomeModel,
+  compareSessionOrchestrations,
+  exportSessionOrchestration,
+  importSessionOrchestration,
+  applySessionAction,
   normalizeSessionOrchestration,
   normalizeSessionTemplate,
   resolveSessionTemplateDefinition,
@@ -96,4 +100,65 @@ test("dashboard home model highlights the active session and recommendation", ()
   assert.equal(model.sessions.length, 2)
   assert.equal(model.sessions[0].session_id, "sid-current")
   assert.equal(model.session_actions.includes("archive"), true)
+  assert.equal(model.template_editor.enabled, true)
+  assert.equal(model.template_editor.can_version, true)
+  assert.equal(model.template_editor.templates.length > 0, true)
+})
+
+test("session orchestrator versions history and supports undo/batch", () => {
+  const started = normalizeSessionOrchestration({ status: "active", template: { id: "save", body: "Keep it short." } }, "sid-1")
+  const annotated = applySessionAction(started, "annotate", { note: "first note" })
+  const retagged = applySessionAction(annotated, "retag", { tags: ["api", "dashboard"] })
+  const batched = applySessionAction(retagged, "batch", {
+    actions: [
+      { action: "pause" },
+      { action: "set-template", payload: { template_id: "quality", body: "Write real assertions." } },
+    ],
+  })
+
+  assert.equal(started.version >= 1, true)
+  assert.equal(annotated.version, started.version + 1)
+  assert.equal(retagged.version, annotated.version + 1)
+  assert.equal(batched.version, retagged.version + 1)
+  assert.equal(batched.status, "paused")
+  assert.equal(batched.template.label, "Quality")
+  assert.equal(batched.history.length >= 3, true)
+
+  const undone = applySessionAction(batched, "undo")
+  assert.equal(undone.status, retagged.status)
+  assert.deepEqual(undone.tags, retagged.tags)
+  assert.equal(undone.template.signature, retagged.template.signature)
+  assert.equal(undone.history.length, batched.history.length - 1)
+})
+
+test("session orchestrator compare/export/import preserve real session state", () => {
+  const left = normalizeSessionOrchestration({
+    session_id: "sid-left",
+    status: "active",
+    locked: false,
+    tags: ["api"],
+    notes: [{ text: "one" }],
+    template: { id: "save", body: "Keep it short.", revision: 1 },
+  }, "sid-left")
+  const right = normalizeSessionOrchestration({
+    session_id: "sid-right",
+    status: "archived",
+    locked: true,
+    tags: ["api", "dashboard"],
+    notes: [{ text: "one" }, { text: "two" }],
+    template: { id: "quality", body: "Write real assertions.", revision: 3 },
+  }, "sid-right")
+
+  const compare = compareSessionOrchestrations(left, right)
+  assert.equal(compare.status_changed, true)
+  assert.equal(compare.lock_changed, true)
+  assert.equal(compare.template_changed, true)
+  assert.deepEqual(compare.tag_diff.added, ["dashboard"])
+  assert.equal(compare.notes_delta, 1)
+
+  const exported = exportSessionOrchestration(right, "sid-right")
+  const imported = importSessionOrchestration(exported, "sid-right")
+  assert.equal(imported.session_id, "sid-right")
+  assert.equal(imported.template.revision, 3)
+  assert.equal(imported.version, right.version)
 })

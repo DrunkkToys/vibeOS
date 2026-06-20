@@ -839,6 +839,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
         get OPENCODE_HOME() { return getOpenCodeHome(); }, get VIBEOS_HOME() { return hookVibeHome; },
         get dashboardBaseUrl() { return _dashboardBaseUrl; },
         ensureMcpServerRunning,
+        _loadMcpPort: loadMcpPort,
         loadSelection, writeSelection, loadCredit, thinkingLevel,
         readLifetimeSavings, readFullState, _OC_SID, formatUsd,
         getBlackboxResolution, scoreStress, applySlot, saveOptimizationMode,

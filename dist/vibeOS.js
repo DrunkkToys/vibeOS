@@ -1244,7 +1244,7 @@ function normalizeLifecycle(raw) {
     checked_out_at: typeof raw.checked_out_at === "string" ? raw.checked_out_at : typeof raw.checkedOutAt === "string" ? raw.checkedOutAt : null
   };
 }
-function normalizeSessionOrchestration(raw, sessionId = "unknown") {
+function normalizeSessionSnapshot(raw, sessionId = "unknown") {
   const current = raw && typeof raw === "object" ? raw : {};
   const template = normalizeSessionTemplate2(current.template || current.tdd_template || null, current.template?.base_template_id || DEFAULT_TEMPLATE);
   return {
@@ -1255,18 +1255,71 @@ function normalizeSessionOrchestration(raw, sessionId = "unknown") {
     tags: uniqueStrings(current.tags),
     notes: normalizeNotes(current.notes),
     lifecycle: normalizeLifecycle(current.lifecycle || current),
-    template
+    template,
+    version: Number(current.version || 1) || 1
   };
 }
-function applySessionAction(current, action, payload = {}) {
-  const now = (/* @__PURE__ */ new Date()).toISOString();
-  const base = normalizeSessionOrchestration(current, current?.session_id || payload.session_id || "unknown");
+function normalizeHistory(raw, sessionId = "unknown") {
+  return asArray(raw).map((entry) => {
+    if (!entry || typeof entry !== "object")
+      return null;
+    const snapshotRaw = entry.snapshot || entry.state || entry.orchestration || null;
+    const snapshot = normalizeSessionSnapshot(snapshotRaw, sessionId);
+    return {
+      version: Number(entry.version || snapshot.version || 1) || 1,
+      action: typeof entry.action === "string" && entry.action.trim() ? entry.action.trim() : "unknown",
+      at: typeof entry.at === "string" && entry.at.trim() ? entry.at.trim() : (/* @__PURE__ */ new Date()).toISOString(),
+      payload: entry.payload && typeof entry.payload === "object" ? entry.payload : null,
+      snapshot
+    };
+  }).filter(Boolean);
+}
+function sanitizePayload(payload) {
+  const next = {};
+  for (const [key, value] of Object.entries(payload || {})) {
+    if (key === "history" || key === "snapshot" || key === "state" || key === "orchestration")
+      continue;
+    next[key] = value;
+  }
+  return next;
+}
+function cloneSnapshot(session) {
+  return {
+    session_id: session.session_id,
+    status: session.status,
+    locked: session.locked,
+    archived: session.archived,
+    tags: [...session.tags],
+    notes: [...session.notes],
+    lifecycle: { ...session.lifecycle },
+    template: session.template ? { ...session.template } : null,
+    version: session.version
+  };
+}
+function diffStrings(left, right) {
+  return {
+    added: right.filter((item) => !left.includes(item)),
+    removed: left.filter((item) => !right.includes(item))
+  };
+}
+function normalizeSessionOrchestration(raw, sessionId = "unknown") {
+  const current = raw && typeof raw === "object" ? raw : {};
+  const snapshot = normalizeSessionSnapshot(current, sessionId);
+  const history = normalizeHistory(current.history, snapshot.session_id).slice(-20);
+  const version = Number(current.version || snapshot.version || history.at(-1)?.version || 1) || 1;
+  return {
+    ...snapshot,
+    version,
+    history
+  };
+}
+function applyCoreSessionAction(current, action, payload, now) {
   const next = {
-    ...base,
-    lifecycle: { ...base.lifecycle },
-    notes: [...base.notes],
-    tags: [...base.tags],
-    template: base.template ? { ...base.template } : null
+    ...current,
+    lifecycle: { ...current.lifecycle },
+    notes: [...current.notes],
+    tags: [...current.tags],
+    template: current.template ? { ...current.template } : null
   };
   switch (String(action || "").toLowerCase()) {
     case "start":
@@ -1334,8 +1387,118 @@ function applySessionAction(current, action, payload = {}) {
   }
   return next;
 }
+function applySessionAction(current, action, payload = {}) {
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const base = normalizeSessionOrchestration(current, current?.session_id || payload.session_id || "unknown");
+  const normalizedAction = String(action || "").toLowerCase();
+  if (normalizedAction === "undo") {
+    const last = [...base.history].pop();
+    if (!last)
+      return base;
+    return {
+      ...cloneSnapshot(normalizeSessionOrchestration(last.snapshot, base.session_id)),
+      version: last.version,
+      history: base.history.slice(0, -1)
+    };
+  }
+  if (normalizedAction === "batch") {
+    const actions = normalizeBatchActions(payload.actions || payload.items || payload.batch || []);
+    let next2 = base;
+    for (const entry of actions) {
+      next2 = applyCoreSessionAction(next2, entry.action, entry.payload, now);
+    }
+    return {
+      ...next2,
+      version: base.version + 1,
+      history: [...base.history, {
+        version: base.version,
+        action: "batch",
+        at: now,
+        payload: sanitizePayload({ actions }),
+        snapshot: cloneSnapshot(base)
+      }].slice(-20)
+    };
+  }
+  const next = applyCoreSessionAction(base, normalizedAction, payload, now);
+  if (!normalizedAction || normalizedAction === "noop")
+    return { ...next, history: base.history, version: base.version };
+  return {
+    ...next,
+    version: base.version + 1,
+    history: [...base.history, {
+      version: base.version,
+      action: normalizedAction,
+      at: now,
+      payload: sanitizePayload(payload),
+      snapshot: cloneSnapshot(base)
+    }].slice(-20)
+  };
+}
 function resolveSessionTemplateOrDefault(template) {
   return resolveSessionTemplateDefinition2(template || null);
+}
+function normalizeBatchActions(raw) {
+  return asArray(raw).map((entry) => {
+    if (!entry)
+      return null;
+    if (typeof entry === "string")
+      return { action: entry, payload: {} };
+    if (typeof entry === "object") {
+      const action = String(entry.action || entry.type || entry.name || "").trim();
+      if (!action)
+        return null;
+      const payload = entry.payload && typeof entry.payload === "object" ? entry.payload : entry;
+      return { action, payload };
+    }
+    return null;
+  }).filter(Boolean);
+}
+function compareSessionOrchestrations(left, right) {
+  const a = normalizeSessionOrchestration(left, left?.session_id || "left");
+  const b = normalizeSessionOrchestration(right, right?.session_id || "right");
+  return {
+    left: {
+      session_id: a.session_id,
+      version: a.version,
+      status: a.status,
+      locked: a.locked,
+      archived: a.archived,
+      notes_count: a.notes.length,
+      template_signature: a.template?.signature || null,
+      tags: a.tags
+    },
+    right: {
+      session_id: b.session_id,
+      version: b.version,
+      status: b.status,
+      locked: b.locked,
+      archived: b.archived,
+      notes_count: b.notes.length,
+      template_signature: b.template?.signature || null,
+      tags: b.tags
+    },
+    version_delta: b.version - a.version,
+    status_changed: a.status !== b.status,
+    lock_changed: a.locked !== b.locked,
+    archive_changed: a.archived !== b.archived,
+    notes_delta: b.notes.length - a.notes.length,
+    tag_diff: diffStrings(a.tags, b.tags),
+    template_changed: (a.template?.signature || null) !== (b.template?.signature || null),
+    template_revision_delta: Number(b.template?.revision || 0) - Number(a.template?.revision || 0),
+    lifecycle: {
+      started_changed: a.lifecycle.started_at !== b.lifecycle.started_at,
+      paused_changed: a.lifecycle.paused_at !== b.lifecycle.paused_at,
+      resumed_changed: a.lifecycle.resumed_at !== b.lifecycle.resumed_at,
+      archived_changed: a.lifecycle.archived_at !== b.lifecycle.archived_at,
+      checked_out_changed: a.lifecycle.checked_out_at !== b.lifecycle.checked_out_at
+    }
+  };
+}
+function exportSessionOrchestration(session, sessionId = "unknown") {
+  return normalizeSessionOrchestration(session, sessionId);
+}
+function importSessionOrchestration(raw, sessionId = "unknown") {
+  return normalizeSessionOrchestration(raw, sessionId);
 }
 function pickSessionMetrics(session, metrics = {}) {
   const notes = normalizeNotes(session?.orchestration?.notes || []);
@@ -1464,9 +1627,19 @@ function buildDashboardHomeModel({ currentSessionId: currentSessionId3, status =
     savings,
     todos,
     current_session: currentSession,
+    template_editor: {
+      enabled: true,
+      session_id: currentSession.session_id,
+      template: currentSession.template,
+      templates: asArray(templates).map((template) => normalizeSessionTemplate2(template || null, template?.id || DEFAULT_TEMPLATE)).filter(Boolean),
+      can_edit: true,
+      can_version: true,
+      version: currentSession.version,
+      history: currentSession.history
+    },
     sessions: sortSessions(rows),
     templates,
-    session_actions: ["start", "pause", "resume", "lock", "unlock", "retag", "annotate", "checkout", "archive"],
+    session_actions: ["start", "pause", "resume", "lock", "unlock", "retag", "annotate", "checkout", "archive", "undo", "batch"],
     totals: {
       total_sessions: rows.length,
       total_savings_usd: totalSavings,
@@ -6236,6 +6409,32 @@ function createMcpServer(deps) {
           return;
         }
       }
+      if (method === "GET" && path.startsWith("/sessions/") && path.endsWith("/compare")) {
+        const sessionId = decodeURIComponent(path.replace(/^\/sessions\//, "").replace(/\/compare$/, "")).trim();
+        const query = parsed.query;
+        const compareId = typeof query.with === "string" ? decodeURIComponent(query.with).trim() : "";
+        if (!sessionId || !compareId) {
+          json(res, 400, { error: "session ids are required", status: 400 });
+          return;
+        }
+        const left = getSessionOrchestrationState(deps, sessionId);
+        const right = getSessionOrchestrationState(deps, compareId);
+        json(res, 200, {
+          ok: true,
+          compare: compareSessionOrchestrations(left, right)
+        });
+        return;
+      }
+      if (method === "GET" && path.startsWith("/sessions/") && path.endsWith("/export")) {
+        const sessionId = decodeURIComponent(path.replace(/^\/sessions\//, "").replace(/\/export$/, "")).trim();
+        if (!sessionId) {
+          json(res, 400, { error: "session id is required", status: 400 });
+          return;
+        }
+        const orchestration = exportSessionOrchestration(getSessionOrchestrationState(deps, sessionId), sessionId);
+        json(res, 200, { ok: true, session_id: sessionId, orchestration });
+        return;
+      }
       if (method === "GET" && path === "/templates") {
         const templates = typeof deps.listSessionTemplates === "function" ? deps.listSessionTemplates() : TEMPLATE_LIBRARY2;
         json(res, 200, templates);
@@ -6392,13 +6591,31 @@ function createMcpServer(deps) {
         if (action === "checkout") {
           const checkout = deps.generateSessionCheckout();
           if (typeof deps.mutateSessionOrchestration === "function") {
-            deps.mutateSessionOrchestration(sessionId, (current) => applySessionAction(current, "checkout", body));
+            deps.mutateSessionOrchestration(sessionId, (current) => applySessionAction(current, "checkout", { ...body, session_id: sessionId }));
           }
           json(res, 200, { ok: true, checkout });
           return;
         }
+        if (action === "batch") {
+          if (typeof deps.mutateSessionOrchestration === "function") {
+            const next = deps.mutateSessionOrchestration(sessionId, (current) => applySessionAction(current, "batch", { ...body, session_id: sessionId }));
+            json(res, 200, { ok: true, session: next });
+            return;
+          }
+          json(res, 500, { ok: false, error: "session mutation unavailable" });
+          return;
+        }
+        if (action === "undo") {
+          if (typeof deps.mutateSessionOrchestration === "function") {
+            const next = deps.mutateSessionOrchestration(sessionId, (current) => applySessionAction(current, "undo", { ...body, session_id: sessionId }));
+            json(res, 200, { ok: true, session: next });
+            return;
+          }
+          json(res, 500, { ok: false, error: "session mutation unavailable" });
+          return;
+        }
         if (typeof deps.mutateSessionOrchestration === "function") {
-          const next = deps.mutateSessionOrchestration(sessionId, (current) => applySessionAction(current, action, body));
+          const next = deps.mutateSessionOrchestration(sessionId, (current) => applySessionAction(current, action, { ...body, session_id: sessionId }));
           json(res, 200, { ok: true, session: next });
           return;
         }
@@ -6427,7 +6644,7 @@ function createMcpServer(deps) {
           revision: body?.revision || 1
         };
         if (typeof deps.mutateSessionOrchestration === "function") {
-          const next = deps.mutateSessionOrchestration(sessionId, (current) => applySessionAction(current, "set-template", { ...body, template }));
+          const next = deps.mutateSessionOrchestration(sessionId, (current) => applySessionAction(current, "set-template", { ...body, template, session_id: sessionId }));
           json(res, 200, { ok: true, session: next });
           return;
         }
@@ -6456,6 +6673,28 @@ function createMcpServer(deps) {
         }
         deps.saveBlackboxOutcome(body);
         json(res, 200, { ok: true });
+        return;
+      }
+      if (method === "POST" && path === "/sessions/import") {
+        let body;
+        try {
+          body = await parseBody(req);
+        } catch {
+          json(res, 400, { error: "invalid request", status: 400 });
+          return;
+        }
+        const sessionId = String(body?.session_id || "").trim();
+        const orchestration = body?.orchestration && typeof body.orchestration === "object" ? body.orchestration : body?.session;
+        if (!sessionId || !orchestration) {
+          json(res, 400, { error: "session_id and orchestration are required", status: 400 });
+          return;
+        }
+        if (typeof deps.mutateSessionOrchestration === "function") {
+          const next = deps.mutateSessionOrchestration(sessionId, () => importSessionOrchestration({ ...orchestration, session_id: sessionId }, sessionId));
+          json(res, 200, { ok: true, session: next });
+          return;
+        }
+        json(res, 500, { ok: false, error: "session mutation unavailable" });
         return;
       }
       if (method === "GET" && path === "/") {

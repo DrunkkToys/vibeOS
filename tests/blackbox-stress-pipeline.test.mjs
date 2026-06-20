@@ -3,6 +3,7 @@
 
 import test, { after } from "node:test"
 import assert from "node:assert/strict"
+import http from "node:http"
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
@@ -47,6 +48,70 @@ writeFileSync(join(sandbox, ".config", "opencode", "opencode.json"), JSON.string
   },
 }, null, 2))
 
+function readJson(path) {
+  return JSON.parse(readFileSync(path, "utf-8"))
+}
+
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    let raw = ""
+    req.on("data", (chunk) => { raw += String(chunk || "") })
+    req.on("end", () => {
+      try {
+        resolve(raw ? JSON.parse(raw) : {})
+      } catch (error) {
+        reject(error)
+      }
+    })
+    req.on("error", reject)
+  })
+}
+
+const backend = http.createServer(async (req, res) => {
+  const url = new URL(req.url || "/", "http://127.0.0.1")
+  if (req.method === "POST" && url.pathname === "/api/v1/route/model") {
+    const body = await readBody(req)
+    const prompt = String(body?.prompt || "")
+    res.setHeader("Content-Type", "application/json")
+    if (/remote[- ]target/i.test(prompt)) {
+      res.end(JSON.stringify({
+        target: "deepseek/deepseek-v4-pro",
+        confidence: 0.98,
+        reason: "remote override",
+      }))
+      return
+    }
+    res.end(JSON.stringify({
+      target: null,
+      confidence: /implement|compare|analyze/i.test(prompt) ? 0.3 : 0.1,
+      reason: "allow local cascade",
+    }))
+    return
+  }
+  if (req.method === "POST" && url.pathname === "/api/v1/delegate/check") {
+    res.setHeader("Content-Type", "application/json")
+    res.end(JSON.stringify({ blocked: true, savings: 0.031, reason: "fixture" }))
+    return
+  }
+  if (req.method === "GET" && url.pathname === "/health") {
+    res.setHeader("Content-Type", "application/json")
+    res.end(JSON.stringify({ status: "ok", version: "fixture" }))
+    return
+  }
+  res.statusCode = 404
+  res.end("not found")
+})
+
+const backendPort = await new Promise((resolve, reject) => {
+  backend.once("error", reject)
+  backend.listen(0, "127.0.0.1", () => {
+    const address = backend.address()
+    resolve(typeof address === "object" && address ? address.port : 0)
+  })
+})
+process.env.VIBEOS_API_URL = `http://127.0.0.1:${backendPort}`
+process.env.VIBEOS_API_TOKEN = "vos_aabbccdd001122334455667788990011223344556677889900aabbccddeeff00"
+
 const cacheBust = `?blackbox_cascade=${Date.now()}`
 const mod = await import("../src/index.js" + cacheBust)
 const state = await import("../src/lib/state.js")
@@ -59,6 +124,7 @@ after(() => {
   try { state._flushLedgerBuffer?.() } catch {}
   try { state.setLedgerBufferTimer?.(null) } catch {}
   try { mod.closeMcpServer?.() } catch {}
+  try { backend.close() } catch {}
 })
 
 function cloneGraph(graph) {
@@ -77,7 +143,17 @@ function primeBrain(projectDir) {
 }
 
 function readGlobalLearning() {
-  return JSON.parse(readFileSync(join(sandbox, ".claude", "global-learning.json"), "utf-8"))
+  return readJson(join(sandbox, ".claude", "global-learning.json"))
+}
+
+function readActiveJobs() {
+  return readJson(join(sandbox, ".claude", "active-jobs.json"))
+}
+
+async function routeTaskPrompt(hooks, prompt) {
+  const args = { model: null, modelID: null, modelId: null, prompt }
+  await hooks["tool.execute.before"]({ tool: "task" }, { args })
+  return args
 }
 
 testCase("real cascade: task hook routes simple prompts to cheap and moderate prompts to medium", async () => {
@@ -90,27 +166,32 @@ testCase("real cascade: task hook routes simple prompts to cheap and moderate pr
 
   primeBrain(projectDir)
 
-  const simplePrompt = "check build status"
+  const simplePrompt = "check build status quickly please"
   assert.equal(mlRouter.computeDifficulty(simplePrompt).level, "simple")
-  const simpleArgs = { model: null, modelID: null, modelId: null, prompt: simplePrompt }
-  await hooks["tool.execute.before"]({ tool: "task" }, { args: simpleArgs })
+  const simpleArgs = await routeTaskPrompt(hooks, simplePrompt)
   assert.equal(simpleArgs.model, "deepseek/deepseek-chat")
   assert.equal(simpleArgs.modelID, "deepseek/deepseek-chat")
   assert.equal(simpleArgs.modelId, "deepseek/deepseek-chat")
+  const simpleJobs = readActiveJobs()
+  const simpleJob = Object.values(simpleJobs)[0]
+  assert.equal(typeof simpleJob?.prompt === "string" && simpleJob.prompt.includes("check build status"), true)
   const cheapLearning = readGlobalLearning()
   assert.equal(cheapLearning.task_first_words?.check?.cheap >= 1, true)
 
   await hooks["tool.execute.after"]({ tool: "task" }, { result: "done" })
+  assert.equal(Object.values(readActiveJobs())[0]?.prompt?.includes("check build status"), true)
 
   primeBrain(projectDir)
 
   const mediumPrompt = "implement a distributed auth pipeline with database migration and integration tests"
   assert.equal(mlRouter.computeDifficulty(mediumPrompt).level, "moderate")
-  const mediumArgs = { model: null, modelID: null, modelId: null, prompt: mediumPrompt }
-  await hooks["tool.execute.before"]({ tool: "task" }, { args: mediumArgs })
+  const mediumArgs = await routeTaskPrompt(hooks, mediumPrompt)
   assert.equal(mediumArgs.model, "deepseek/deepseek-v4-flash")
   assert.equal(mediumArgs.modelID, "deepseek/deepseek-v4-flash")
   assert.equal(mediumArgs.modelId, "deepseek/deepseek-v4-flash")
+  const mediumJobs = readActiveJobs()
+  const mediumJob = Object.values(mediumJobs)[0]
+  assert.equal(typeof mediumJob?.prompt === "string" && mediumJob.prompt.includes("distributed auth pipeline"), true)
   const mediumLearning = readGlobalLearning()
   assert.equal(mediumLearning.task_first_words?.implement?.medium >= 1, true)
 
@@ -140,4 +221,29 @@ testCase("real cascade: learned graph switches vibeultrax into the deep three-st
   } finally {
     restoreGraph(graph, snapshot)
   }
+})
+
+testCase("real cascade edge cases: remote route targets win and blank prompts do not mutate state", async () => {
+  const projectDir = join(sandbox, "edge-project")
+  mkdirSync(projectDir, { recursive: true })
+  writeFileSync(join(projectDir, "opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-pro" }, null, 2))
+
+  const hooks = await mod.DelegationEnforcer({ client: {}, directory: projectDir })
+  if (!hooks["tool.execute.before"]) return
+
+  primeBrain(projectDir)
+
+  const remoteArgs = await routeTaskPrompt(hooks, "check build status remote target")
+  assert.equal(remoteArgs.model, "deepseek/deepseek-v4-pro")
+  assert.equal(remoteArgs.modelID, "deepseek/deepseek-v4-pro")
+  const afterRemoteJobs = readActiveJobs()
+  const afterRemoteLearning = readGlobalLearning()
+
+  await hooks["tool.execute.after"]({ tool: "task" }, { result: "done" })
+
+  const blankArgs = await routeTaskPrompt(hooks, "")
+  assert.equal(blankArgs.model, "deepseek/deepseek-v4-flash")
+  assert.equal(blankArgs.modelID, "deepseek/deepseek-v4-flash")
+  assert.deepEqual(readActiveJobs(), afterRemoteJobs)
+  assert.deepEqual(readGlobalLearning(), afterRemoteLearning)
 })
