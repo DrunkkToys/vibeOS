@@ -212,9 +212,43 @@ function _tiersNeedRepair(tiers) {
     return !oc || PLACEHOLDER_RE.test(oc)
   })
 }
+function _normalizeSeedModelId(value) {
+  const raw = String(value || "").trim()
+  if (!raw) return ""
+  const parts = raw.split("/")
+  return parts[parts.length - 1] || raw
+}
+function _pickPreferredFreeSeed(models, candidates) {
+  const list = Array.isArray(models) ? models : []
+  for (const candidate of candidates) {
+    const normalizedCandidate = _normalizeSeedModelId(candidate)
+    const found = list.find((model) => {
+      const id = String(model?.id || "").trim()
+      return id === candidate || _normalizeSeedModelId(id) === normalizedCandidate
+    })
+    if (found?.id)
+      return String(found.id).trim()
+  }
+  return String(candidates?.[0] || "").trim()
+}
+function _collectFreeSeedModels(models) {
+  const list = Array.isArray(models) ? models : []
+  const free = []
+  const seen = new Set()
+  for (const model of list) {
+    const id = String(model?.id || "").trim()
+    const provider = String(model?.providerID || "").trim()
+    if (!id || provider !== "opencode") continue
+    if (!/-free$/i.test(_normalizeSeedModelId(id))) continue
+    if (seen.has(id)) continue
+    seen.add(id)
+    free.push(id)
+  }
+  return free.sort((a, b) => a.localeCompare(b))
+}
 async function _seedOrRepairModelTiers(directory) {
   const TIERS_FILE = getTiersFile()
-  const DEFAULT_FREE_MODEL = "opencode/big-pickle-free"
+  const DEFAULT_FREE_MODEL = "opencode/big-pickle"
   let existing = null
   if (existsSync(TIERS_FILE)) {
     try {
@@ -237,29 +271,15 @@ async function _seedOrRepairModelTiers(directory) {
     discovered = await discoverAvailableModels(providers, auth)
   }
   catch { }
-  let trinity = null
-  try {
-    trinity = buildDeterministicTrinity(discovered, { selectedModelId: currentModel })
-  }
-  catch { }
   const existingTrinity = existing?.trinity && typeof existing.trinity === "object" ? existing.trinity : {}
   const hasAnyValidSlot = ["brain", "medium", "cheap"].some((slot) => {
     const oc = String(existingTrinity?.[slot]?.oc || "").trim()
     return !!oc && !PLACEHOLDER_RE.test(oc)
   })
-  let brain = trinity?.brain || currentModel || readConfig(directory) || readConfig(getOpenCodeHome()) || process?.env?.OPENCODE_MODEL || ""
-  let medium = trinity?.medium || brain
-  let cheap = trinity?.cheap || medium || brain
-  if (!existing || !hasAnyValidSlot) {
-    brain = DEFAULT_FREE_MODEL
-    medium = DEFAULT_FREE_MODEL
-    cheap = DEFAULT_FREE_MODEL
-  } else if (!brain) {
-    brain = DEFAULT_FREE_MODEL
-    medium = DEFAULT_FREE_MODEL
-    cheap = DEFAULT_FREE_MODEL
-    console.error("[vibeOS] no providers or trinity config found — run \"vibe rebuild\" to set model tiers")
-  }
+  const freeSeeds = _collectFreeSeedModels(discovered)
+  const seedBrain = freeSeeds[0] || DEFAULT_FREE_MODEL
+  const seedMedium = freeSeeds[1] || freeSeeds[0] || DEFAULT_FREE_MODEL
+  const seedCheap = freeSeeds[2] || freeSeeds[1] || freeSeeds[0] || DEFAULT_FREE_MODEL
   const existingSelection = existing?.selection && typeof existing.selection === "object" ? existing.selection : {}
   const keepExistingSlot = (slotRow: any, fallbackModel: string) => {
     const currentOc = String(slotRow?.oc || "").trim()
@@ -269,9 +289,9 @@ async function _seedOrRepairModelTiers(directory) {
     return { oc: fallbackModel, cc: modelToCcAlias(fallbackModel) }
   }
   const nextTrinity = {
-    brain: keepExistingSlot(existingTrinity.brain, brain),
-    medium: keepExistingSlot(existingTrinity.medium, medium),
-    cheap: keepExistingSlot(existingTrinity.cheap, cheap),
+    brain: keepExistingSlot(existingTrinity.brain, seedBrain),
+    medium: keepExistingSlot(existingTrinity.medium, seedMedium),
+    cheap: keepExistingSlot(existingTrinity.cheap, seedCheap),
   }
   const activeSlot = ["brain", "medium", "cheap"].includes(String(existingSelection.active_slot || "").trim())
     ? String(existingSelection.active_slot)
