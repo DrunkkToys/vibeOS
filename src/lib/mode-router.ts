@@ -36,8 +36,8 @@ export const BRANDED_MODES: ModeEntry[] = [
     id: "vibeultrax", index: 1, name: "VibeUltraX", icon: "\u{1F3C6}",
     pipeline: ["cheap", "medium", "brain"],
     thinking: "full", tdd: "quality", enforcement: "strict", flow: "strict",
-    qualityVsBrain: 107, costVsBrain: 58,
-    desc: "3-model debate: cheap proposes, medium reviews, brain refines.",
+    qualityVsBrain: 107, costVsBrain: 58, default: true,
+    desc: "Default mode. 3-model debate: cheap proposes, medium reviews, brain refines.",
   },
   {
     id: "vibeqmax", index: 2, name: "VibeQMaX", icon: "\u{2B50}",
@@ -50,8 +50,8 @@ export const BRANDED_MODES: ModeEntry[] = [
     id: "vibemax", index: 3, name: "VibeMaX", icon: "\u{26A1}",
     pipeline: ["medium"],
     thinking: "off", tdd: "lazy", enforcement: "relaxed", flow: "audit",
-    qualityVsBrain: 75, costVsBrain: 18, default: true,
-    desc: "Default mode. Medium tier auto-escalate. Speed-first.",
+    qualityVsBrain: 75, costVsBrain: 18,
+    desc: "Medium tier auto-escalate. Speed-first.",
   },
   {
     id: "vibelitex", index: 4, name: "VibeLiteX", icon: "\u{1F4A1}",

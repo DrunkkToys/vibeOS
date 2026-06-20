@@ -4712,7 +4712,7 @@ var init_pivot_cache = __esm({
         const store = this._ensureStore();
         return store.pivots[workflowId] || null;
       }
-      buildInjection(workflowId, maxSections = 3) {
+      buildInjection(workflowId, maxSections = 4) {
         const entry = this.read(workflowId);
         if (!entry)
           return "";
@@ -13598,13 +13598,14 @@ function injectWBP(messages) {
   }
 }
 async function trackBlackbox(messages) {
-  const lastUserMsg = messages.slice().reverse().find((m) => m?.info?.role === "user");
+  const lastUserMsg = messages.slice().reverse().find((m) => m?.info?.role === "user" || m?.role === "user");
   if (!lastUserMsg)
     return;
   const textPart = lastUserMsg.parts?.find((p) => p?.type === "text");
-  if (!textPart?.text)
+  const fallbackText = typeof lastUserMsg.content === "string" ? lastUserMsg.content : typeof lastUserMsg.text === "string" ? lastUserMsg.text : null;
+  if (!textPart?.text && !fallbackText)
     return;
-  latestUserIntent = textPart.text;
+  latestUserIntent = textPart?.text || fallbackText;
   if (!_blackboxEnabled)
     return;
   try {

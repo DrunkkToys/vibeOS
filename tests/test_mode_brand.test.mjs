@@ -34,6 +34,14 @@ const MODE_LOAD_EXPECTATIONS = {
   auto: "budget",
 };
 
+test("mode router default is VibeUltraX", async () => {
+  const { getDefault, getMode } = await import("../src/lib/mode-router.js?t=" + Date.now());
+  const defaultMode = getDefault();
+  assert.equal(defaultMode.id, "vibeultrax");
+  assert.equal(defaultMode.name, "VibeUltraX");
+  assert.equal(getMode("unknown-mode").id, "vibeultrax");
+});
+
 before(() => {
   sandbox = mkdtempSync(join(tmpdir(), "mode-brand-test-"));
   mkdirSync(join(sandbox, ".claude", "scratch"), { recursive: true });

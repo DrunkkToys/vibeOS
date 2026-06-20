@@ -53,7 +53,7 @@ The cascade design is informed by recent work in LLM routing and cascade inferen
 At the core of vibeOS is a real-time decision engine that classifies every user turn into one of seven sub-regimes:
 
 - **INIT / DIVERGENT / EXPLORING** -- You are learning the codebase, asking questions, browsing. cheap model, relaxed enforcement. Stay out of your way.
-- **REFINING** -- You are iterating on a solution. Default mode: VibeMaX, auto-escalate on complexity.
+- **REFINING** -- You are iterating on a solution. Default mode: VibeUltraX, auto-escalate on complexity.
 - **CONVERGING / CLOSED** -- You are finalizing. Full quality mode, brain tier, strict enforcement and flow checks.
 - **LOOPING** -- You are stuck. Speed mode, medium tier, cycle-breaking interventions.
 
@@ -162,11 +162,11 @@ DeepSeek Chat costs $0/turn when routed through the Direct DeepSeek provider (no
 | VibeMaX | ~75% | 0.18x | 82% | trained cascade (conservative escalate) |
 | Budget | ~40% | 0.00x | 100% | direct routing |
 
-**VibeUltraX** -- Cheap slot proposes, medium reviews, brain refines. 107% quality at 58% cost.
+**VibeUltraX** -- Default mode. Cheap slot proposes, medium reviews, brain refines. 107% quality at 58% cost.
 
 **VibeQMaX** -- Routes strategic turns through v4 Pro with full thinking, strict enforcement, strict flow checks, and quality TDD. Write/edit delegated per enforcement rules. Blended cost ~$0.00029/turn (50% of brain baseline).
 
-**VibeMaX** -- ML-optimized default. Routes through v4 Flash with a random forest classifier (29 trees, gini-split, trained on telemetry) that decides each turn. ~75% quality at 18% cost.
+**VibeMaX** -- ML-optimized medium mode. Routes through v4 Flash with a random forest classifier (29 trees, gini-split, trained on telemetry) that decides each turn. ~75% quality at 18% cost.
 
 **Budget** -- DeepSeek Chat. Direct routing. ~40% quality at zero cost.
 
