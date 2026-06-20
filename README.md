@@ -275,7 +275,7 @@ Local dev checkout:
 | `trinity repair-state preview|apply` | Fix state collisions |
 | `vibe guard` | Refresh AGENTS.md / README.md |
 | `vibe reality-check` | Read verified live state, report evidence-backed facts only |
-| `vibe setup` | Create a compatibility profile for first-time users |
+| `vibe setup` | Create a compatibility profile for first-time users; fresh installs start in VibeUltraX |
 | `trinity api-token <token|invalidate>` | Manage remote API token |
 | `trinity api-bootstrap-token <token>` | Bootstrap token exchange |
 

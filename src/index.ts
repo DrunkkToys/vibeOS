@@ -212,8 +212,43 @@ function _tiersNeedRepair(tiers) {
     return !oc || PLACEHOLDER_RE.test(oc)
   })
 }
+function _normalizeSeedModelId(value) {
+  const raw = String(value || "").trim()
+  if (!raw) return ""
+  const parts = raw.split("/")
+  return parts[parts.length - 1] || raw
+}
+function _pickPreferredFreeSeed(models, candidates) {
+  const list = Array.isArray(models) ? models : []
+  for (const candidate of candidates) {
+    const normalizedCandidate = _normalizeSeedModelId(candidate)
+    const found = list.find((model) => {
+      const id = String(model?.id || "").trim()
+      return id === candidate || _normalizeSeedModelId(id) === normalizedCandidate
+    })
+    if (found?.id)
+      return String(found.id).trim()
+  }
+  return String(candidates?.[0] || "").trim()
+}
+function _collectFreeSeedModels(models) {
+  const list = Array.isArray(models) ? models : []
+  const free = []
+  const seen = new Set()
+  for (const model of list) {
+    const id = String(model?.id || "").trim()
+    const provider = String(model?.providerID || "").trim()
+    if (!id || provider !== "opencode") continue
+    if (!/-free$/i.test(_normalizeSeedModelId(id))) continue
+    if (seen.has(id)) continue
+    seen.add(id)
+    free.push(id)
+  }
+  return free.sort((a, b) => a.localeCompare(b))
+}
 async function _seedOrRepairModelTiers(directory) {
   const TIERS_FILE = getTiersFile()
+  const DEFAULT_FREE_MODEL = "opencode/big-pickle"
   let existing = null
   if (existsSync(TIERS_FILE)) {
     try {
@@ -236,22 +271,20 @@ async function _seedOrRepairModelTiers(directory) {
     discovered = await discoverAvailableModels(providers, auth)
   }
   catch { }
-  let trinity = null
-  try {
-    trinity = buildDeterministicTrinity(discovered, { selectedModelId: currentModel })
-  }
-  catch { }
-  let brain = trinity?.brain || currentModel || readConfig(directory) || readConfig(getOpenCodeHome()) || process?.env?.OPENCODE_MODEL || ""
-  let medium = trinity?.medium || brain
-  let cheap = trinity?.cheap || medium || brain
-  if (!brain) {
-    brain = "generic/brain"
-    medium = "generic/medium"
-    cheap = "generic/cheap"
-    console.error("[vibeOS] no providers or trinity config found — run \"vibe rebuild\" to set model tiers")
-  }
-  const existingSelection = existing?.selection && typeof existing.selection === "object" ? existing.selection : {}
   const existingTrinity = existing?.trinity && typeof existing.trinity === "object" ? existing.trinity : {}
+  const hasAnyValidSlot = ["brain", "medium", "cheap"].some((slot) => {
+    const oc = String(existingTrinity?.[slot]?.oc || "").trim()
+    return !!oc && !PLACEHOLDER_RE.test(oc)
+  })
+  const existingSelection = existing?.selection && typeof existing.selection === "object" ? existing.selection : {}
+  const freeSeeds = _collectFreeSeedModels(discovered)
+  const liveModel = String(currentModel || "").trim()
+  const liveTier = liveModel ? classify(liveModel) : ""
+  const seedBrain = existingSelection?.active_slot === "brain" && liveModel && liveTier === "high"
+    ? liveModel
+    : (freeSeeds[0] || DEFAULT_FREE_MODEL)
+  const seedMedium = freeSeeds[1] || freeSeeds[0] || DEFAULT_FREE_MODEL
+  const seedCheap = freeSeeds[2] || freeSeeds[1] || freeSeeds[0] || DEFAULT_FREE_MODEL
   const keepExistingSlot = (slotRow: any, fallbackModel: string) => {
     const currentOc = String(slotRow?.oc || "").trim()
     if (currentOc && !PLACEHOLDER_RE.test(currentOc) && !/placeholder/i.test(currentOc)) {
@@ -260,9 +293,9 @@ async function _seedOrRepairModelTiers(directory) {
     return { oc: fallbackModel, cc: modelToCcAlias(fallbackModel) }
   }
   const nextTrinity = {
-    brain: keepExistingSlot(existingTrinity.brain, brain),
-    medium: keepExistingSlot(existingTrinity.medium, medium),
-    cheap: keepExistingSlot(existingTrinity.cheap, cheap),
+    brain: keepExistingSlot(existingTrinity.brain, seedBrain),
+    medium: keepExistingSlot(existingTrinity.medium, seedMedium),
+    cheap: keepExistingSlot(existingTrinity.cheap, seedCheap),
   }
   const activeSlot = ["brain", "medium", "cheap"].includes(String(existingSelection.active_slot || "").trim())
     ? String(existingSelection.active_slot)
@@ -281,6 +314,8 @@ async function _seedOrRepairModelTiers(directory) {
       tdd_strict: existingSelection.tdd_strict === true,
       tdd_quality: existingSelection.tdd_quality !== false,
       onboarding_mode: existingSelection.onboarding_mode || "assist",
+      optimization_mode: existingSelection.optimization_mode || "vibeultrax",
+      requested_optimization_mode: existingSelection.requested_optimization_mode || "vibeultrax",
       setup_completed_at: existingSelection.setup_completed_at || new Date().toISOString(),
     },
     trinity: nextTrinity,
@@ -782,6 +817,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
     SAVINGS_LEDGER_FILE, PROJECT_STATE_FILE: hookProjectStateFile, get REPORTS_DIR() { return hookReportsDir }, get REPORTS_INDEX() { return hookReportsIndex },
     get OPENCODE_HOME() { return getOpenCodeHome() }, get VIBEOS_HOME() { return hookVibeHome },
     get dashboardBaseUrl() { return _dashboardBaseUrl },
+    ensureMcpServerRunning,
     loadSelection, writeSelection, loadCredit, thinkingLevel,
     readLifetimeSavings, readFullState, _OC_SID, formatUsd,
     getBlackboxResolution, scoreStress, applySlot, saveOptimizationMode,
@@ -1088,14 +1124,18 @@ export const VERSION = readPackageVersion()
 export default { id: "vibeOS", server: DelegationEnforcer }
 export { researchAudit } from "./lib/research-audit.js"
 export { saveReport, listReports, readReport } from "./lib/reporting.js"
-export { applySlot, modelCostPerTurn, isModelFree, isDocsTarget, detectContext7, loadTierRegexes, classify, _refreshModel, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, setTrinityBrain, setTrinityMedium, setTrinityCheap, trendDisplay } from "./lib/pricing.js"
+export { applySlot, modelCostPerTurn, isModelFree, isDocsTarget, detectContext7, loadTierRegexes, classify, _refreshModel, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, setTrinityBrain, setTrinityMedium, setTrinityCheap, _resetTrinitySlotsForTest, trendDisplay } from "./lib/pricing.js"
 export { getScratchpadHit, getSessionScratchpadDir, getSessionIndexPath, setCurrentModel, setCurrentTier, setCurrentSessionId, setCurrentProjectFingerprint, setCurrentProjectName, getCurrentSessionId } from "./lib/state.js"
+export { _resetSelectionCacheForTest } from "./lib/selection-manager.js"
+export { _setPendingUiNoteForTest, _setEnforcementBlockedForTest } from "./lib/hooks/tool-execute.js"
 export { extractExports, buildTestSkeleton, enforceTestFile, buildTestReminder } from "./lib/tdd-enforcer.js"
 export { classifyAndRankModels, modelToCcAlias } from "./lib/trinity-rebuild.js"
 export { scoreStress, detectTechStack, loadBlackboxState, saveBlackboxState, getBlackboxResolution } from "./lib/turn-classify.js"
 export { loadMcpPort as _loadMcpPort }
+export { _resetCostAnomalyDetectorForTest } from "./lib/cost-anomaly.js"
 export { remoteCall } from "./lib/api-client.js"
 export { observeToolPattern, noteProjectPattern, recordSaving, compressText } from "./lib/index-helpers.js"
+export { _resetToolExecuteStateForTest } from "./lib/hooks/tool-execute.js"
 export function closeMcpServer() {
   try {
     _mcpServerClosing = true

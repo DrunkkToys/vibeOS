@@ -5,6 +5,11 @@ export let TRINITY_CHEAP: string | null = null
 export function setTrinityBrain(v: string | null) { TRINITY_BRAIN = v }
 export function setTrinityMedium(v: string | null) { TRINITY_MEDIUM = v }
 export function setTrinityCheap(v: string | null) { TRINITY_CHEAP = v }
+export function _resetTrinitySlotsForTest(): void {
+  TRINITY_BRAIN = null
+  TRINITY_MEDIUM = null
+  TRINITY_CHEAP = null
+}
 /**
  * SPDX-License-Identifier: MIT
  * SPDX-FileCopyrightText: 2026 vibeOS <https://github.com/DrunkkToys/vibeOS>
@@ -80,12 +85,15 @@ export let _autoReportCount = 0
 
 export function classify(m) {
   const s = String(m || "").toLowerCase()
+  const bare = s.includes("/") ? s.split("/").slice(1).join("/") : s
+  const normalized = s.replace(/-free$/i, "")
+  const bareNormalized = bare.replace(/-free$/i, "")
   if (HIGH_TIER_RE.test(s)) return "high"
   if (MID_TIER_RE.test(s))  return "mid"
-  // Fallback: strip provider prefix and test bare name
-  const bare = s.includes("/") ? s.split("/").slice(1).join("/") : s
   if (HIGH_TIER_RE.test(bare)) return "high"
   if (MID_TIER_RE.test(bare)) return "mid"
+  if (/(?:opus|pro|reasoner|v4-pro)/i.test(normalized) || /(?:opus|pro|reasoner|v4-pro)/i.test(bareNormalized)) return "high"
+  if (/(?:flash|sonnet|haiku|mimo|qwen|glm|mini)/i.test(normalized) || /(?:flash|sonnet|haiku|mimo|qwen|glm|mini)/i.test(bareNormalized)) return "mid"
   return "budget"
 }
 
@@ -327,15 +335,13 @@ export function formatUsd(v) {
 // deepseek-chat is free with a DeepSeek API token — priced at $1e-12 (near-zero).
 const FREE_MODEL_TURN_USD = 1e-10
 const FREE_MODELS = new Set([
-  // OpenCode Zen free models
+// OpenCode Zen free models
   "opencode/big-pickle",
-  "opencode/mimo-v2.5-free",
-  "opencode/deepseek-v4-flash-free",
+  "opencode/big-pickle-free",
   "opencode/nemotron-3-ultra-free",
   // Normalized variants (after opencode/ prefix stripped)
   "big-pickle",
-  "mimo-v2.5-free",
-  "deepseek-v4-flash-free",
+  "big-pickle-free",
   "nemotron-3-ultra-free",
 ])
 
@@ -756,6 +762,7 @@ export function modelCostPerTurn(model) {
 
 export function isModelFree(model) {
   if (!model || typeof model !== "string") return false
+  if (/-free$/i.test(normalizeModelId(model)) || /-free$/i.test(model)) return true
   if (FREE_MODELS.has(model)) return true
   if (FREE_MODELS.has(normalizeModelId(model))) return true
   const cost = modelCostPerTurn(model)
@@ -821,7 +828,7 @@ export function detectContext7(files = CONTEXT7_CONFIG_FILES) {
   return false
 }
 
-const DOCS_TARGET_RE = /(docs\.|readthedocs|developer\.mozilla|\/api\/|\/reference\/|\/guide\/|npmjs\.com\/package\/|pypi\.org\/project\/|crates\.io\/crates\/|pkg\.go\.dev|api-docs|\/javadoc\/)/i
+const DOCS_TARGET_RE = /(docs\.|docs\.python\.org|readthedocs|developer\.mozilla|\/api\/|\/reference\/|\/guide\/|npmjs\.com\/package\/|pypi\.org\/project\/|crates\.io\/crates\/|pkg\.go\.dev|api-docs|\/javadoc\/)/i
 export function isDocsTarget(s) {
   return typeof s === "string" && DOCS_TARGET_RE.test(s)
 }
@@ -1068,29 +1075,38 @@ export function _refreshModel(directory) {
     _setTrinitySlotsFromTiers(tiersData)
     const slotOrder = getTrinitySlotOrder(tiersData)
     const activeSlot = slotOrder.includes(sel.active_slot) ? sel.active_slot : (slotOrder[0] || "brain")
-    let slotOcModel = tiersData?.trinity?.[activeSlot]?.oc || ""
+    const slotOcModel = String(tiersData?.trinity?.[activeSlot]?.oc || "").trim()
+    const cfgModel = readConfig(directory) || readConfig(getOpenCodeHome()) || process?.env?.OPENCODE_MODEL || ""
     // Skip placeholder models (e.g. "provider/high-tier-model") — use auto-detected model instead
     if (slotOcModel && PLACEHOLDER_RE.test(slotOcModel)) {
-      slotOcModel = ""
       if (DEBUG_INTERNALS) console.error(`[vibeOS] placeholder model detected in ${activeSlot} slot — skipping, will auto-detect`)
     }
-    if (slotOcModel) {
-      // Always derive tier from active slot so footer/env reflect slot changes,
-      // even when multiple slots point to the same model ID.
-      const nextTier = activeSlot === (slotOrder[0] || "brain") ? "high" : classify(slotOcModel)
-      const modelChanged = currentModel !== slotOcModel
-      const tierChanged = currentTier !== nextTier
-      if (modelChanged || tierChanged) {
-        const oldModel = currentModel
-        const oldTier = currentTier
-        setCurrentModel(slotOcModel)
-        setCurrentTier(nextTier)
-        if (DEBUG_INTERNALS) console.error(`[vibeOS] model refresh: ${oldModel}(${oldTier}) → ${currentModel}(${currentTier}) (slot=${activeSlot})`)
+    if (slotOcModel && !PLACEHOLDER_RE.test(slotOcModel)) {
+      const resolvedModel = slotOcModel
+      if (resolvedModel) {
+        // Always derive tier from the active slot so footer/env reflect slot changes,
+        // even when multiple slots point to the same model ID or a free model rotates.
+        const nextTier = activeSlot === (slotOrder[0] || "brain")
+          ? "high"
+          : activeSlot === (slotOrder[1] || "medium")
+            ? "mid"
+            : activeSlot === (slotOrder[2] || "cheap")
+              ? "budget"
+              : classify(resolvedModel)
+        const modelChanged = currentModel !== resolvedModel
+        const tierChanged = currentTier !== nextTier
+        if (modelChanged || tierChanged) {
+          const oldModel = currentModel
+          const oldTier = currentTier
+          setCurrentModel(resolvedModel)
+          setCurrentTier(nextTier)
+          if (DEBUG_INTERNALS) console.error(`[vibeOS] model refresh: ${oldModel}(${oldTier}) → ${currentModel}(${currentTier}) (slot=${activeSlot})`)
+        }
       }
     }
     // If no model from tiers and no existing currentModel, try to auto-detect
     if (!currentModel) {
-      const detected = readConfig(directory) || readConfig(getOpenCodeHome()) || process?.env?.OPENCODE_MODEL || ""
+      const detected = cfgModel
       if (detected) {
         setCurrentModel(detected)
         setCurrentTier(classify(detected))
@@ -1104,7 +1120,7 @@ export function _refreshModel(directory) {
     if (!(_modelLocked || sel.slot_locked === true)) {
       const activeIsManual = tiersData?.trinity?.[activeSlot]?.manual === true
       const currentSlotModel = activeIsManual ? "" : slotOcModel
-      if (!currentSlotModel) {
+      if (!currentSlotModel && !currentModel) {
         const cfgModel = readConfig(directory) || readConfig(getOpenCodeHome()) || ""
         if (cfgModel && cfgModel.includes("/") && cfgModel !== currentModel) {
           const oldModel = currentModel

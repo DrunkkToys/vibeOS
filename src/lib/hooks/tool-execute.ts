@@ -64,6 +64,28 @@ const _warnCounts: Record<string, number> = {}
 export function _resetWarnCountsForTest(): void {
   for (const key of Object.keys(_warnCounts)) delete _warnCounts[key]
 }
+export function _resetToolExecuteStateForTest(): void {
+  _resetWarnCountsForTest()
+  activeJob = null
+  projectDirectory = ""
+  pendingUiNote = null
+  enforcementBlocked = false
+  taskSlotRestore = null
+  scratchpadHitsSeen.clear()
+  softQuotaCounts = {}
+  context7AlertedThisSession = false
+  context7Seen.clear()
+  _prompt = ""
+  _autoReportCount = 0
+  _pendingTodoArgs = null
+  _pendingTelemetryStarts = []
+}
+export function _setPendingUiNoteForTest(note: string | null): void {
+  pendingUiNote = note
+}
+export function _setEnforcementBlockedForTest(value: boolean): void {
+  enforcementBlocked = value === true
+}
 const MAX_WARNS_PER_TOOL = 5
 
 const BYTES_PER_TOKEN = 4
@@ -613,7 +635,8 @@ export const onToolExecuteBefore = async (input, output) => {
     return
   }
   // Free models have no per-turn cost — no savings to enforce.
-  if (isModelFree(currentModel)) return
+  // Keep docs/webfetch accounting alive so context7 misses still write state.
+  if (isModelFree(currentModel) && !SOFT_QUOTA.has(t)) return
 
   // Dynamic save estimates derived from actual model pricing.
   const _brainCost  = modelCostPerTurn(currentModel)
@@ -733,7 +756,7 @@ export const onToolExecuteBefore = async (input, output) => {
         projectName: currentProjectName || "",
         sessionId: getCurrentSessionId(),
       })
-      if (!compatibilityMode) {
+      if (isFallback || !compatibilityMode) {
         const msg = `[vibeOS] ${resolveTierIcon("cheap")} cheap lane · save about ~$${_estEdit.toFixed(3)} by delegating to Task. Try ${resolveTierIcon("medium")} medium.`
         if (shouldLogWarn(`${t}|direct|${_tierWord}`) && process.env.VIBEOS_DEBUG_DELEGATION === "1") {
           console.error(`[vibeOS] [delegation] ${msg}`)
@@ -1002,12 +1025,14 @@ export const onToolExecuteAfter = async (input, output) => {
       else console.error("APPEND_NOTE: text=" + typeof target?.text + " note=" + (note || "").substring(0, 40) + " enforceBlocked=" + enforcementBlocked + " pendingNote=" + (typeof pendingUiNote === "string"))
       if (typeof target?.text === "string") target.text += `\n\n${note}`
       else if (typeof target?.content === "string") target.content += `\n\n${note}`
+      else if (typeof target?.error === "string") target.error += `\n\n${note}`
       else target.result = pendingUiNote
     } else {
       const note = `\n\n${pendingUiNote}`
       if (typeof target?.result === "string") target.result += note
       else if (typeof target?.text === "string") target.text += note
       else if (typeof target?.content === "string") target.content += note
+      else if (typeof target?.error === "string") target.error += note
       else target.result = pendingUiNote
     }
     pendingUiNote = null
@@ -1156,6 +1181,29 @@ export const onToolExecuteAfter = async (input, output) => {
     }
   }
 
+  // ── todowrite result parsing ──
+  if (t === "todowrite") {
+    try {
+      const todoArgs = (_pendingTodoArgs && _pendingTodoArgs.length > 0)
+        ? _pendingTodoArgs
+        : (Array.isArray(input?.args?.todos) ? input.args.todos : input?.args?.todos ? [input.args.todos] : [])
+      for (const entry of todoArgs) {
+        if (entry && entry.content) {
+          upsertTodo({
+            content: entry.content,
+            filePath: entry.filePath || "",
+            priority: entry.priority || "medium",
+            source: "intercepted",
+          })
+        }
+      }
+      if (todoArgs.length > 0) console.error("[vibeOS] tracked " + todoArgs.length + " todo(s) from todowrite call")
+    } catch (todoErr) {
+      if (DEBUG_INTERNALS) console.error(`[vibeOS] todowrite parse error: ${todoErr.message}`)
+    }
+    _pendingTodoArgs = null
+  }
+
   // Compress verbose tool outputs before they bloat context.
   // Only webfetch — task results contain synthesized data the brain needs verbatim.
   if (t !== "webfetch") {
@@ -1180,25 +1228,6 @@ export const onToolExecuteAfter = async (input, output) => {
     else if (output.text !== undefined) output.text = processed
     else if (output.content !== undefined) output.content = processed
     else if (output.data !== undefined) output.data = processed
-  }
-  // ── todowrite result parsing ──
-  if (t === "todowrite" && _pendingTodoArgs && _pendingTodoArgs.length > 0) {
-    try {
-      for (const entry of _pendingTodoArgs) {
-        if (entry && entry.content) {
-          upsertTodo({
-            content: entry.content,
-            filePath: entry.filePath || "",
-            priority: entry.priority || "medium",
-            source: "intercepted",
-          })
-        }
-      }
-      console.error("[vibeOS] tracked " + _pendingTodoArgs.length + " todo(s) from todowrite call")
-    } catch (todoErr) {
-      if (DEBUG_INTERNALS) console.error(`[vibeOS] todowrite parse error: ${todoErr.message}`)
-    }
-    _pendingTodoArgs = null
   }
   applyDecadence()
 }

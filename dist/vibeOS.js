@@ -36,6 +36,10 @@ function safeJsonParse(raw) {
     throw e;
   }
 }
+function _resetSelectionCacheForTest() {
+  _selCache = null;
+  _selLastStamp = "";
+}
 function loadSelectionImpl() {
   const TIERS_FILE3 = TIERS_FILE_PATH();
   try {
@@ -78,11 +82,17 @@ function loadSelectionImpl() {
 }
 function loadSelection() {
   const TIERS_FILE3 = TIERS_FILE_PATH();
-  const curMtime = existsSync(TIERS_FILE3) ? statSync(TIERS_FILE3).mtimeMs : -1;
-  if (_selCache && _selLastMtime >= curMtime)
+  if (!existsSync(TIERS_FILE3)) {
+    _selCache = DFLT_SEL;
+    _selLastStamp = "";
+    return _selCache;
+  }
+  const st = statSync(TIERS_FILE3, { bigint: true });
+  const curStamp = `${st.ino}:${st.mtimeNs}:${st.size}`;
+  if (_selCache && _selLastStamp === curStamp)
     return _selCache;
   _selCache = loadSelectionImpl();
-  _selLastMtime = curMtime;
+  _selLastStamp = curStamp;
   return _selCache;
 }
 function writeSelection(key, value) {
@@ -173,7 +183,7 @@ function writeSessionOptMode2(sid, mode) {
     return false;
   }
 }
-var USER_HOME, DFLT_SEL, _selCache, _selLastMtime, TIERS_FILE_PATH;
+var USER_HOME, DFLT_SEL, _selCache, _selLastStamp, TIERS_FILE_PATH;
 var init_selection_manager = __esm({
   "src/lib/selection-manager.js"() {
     "use strict";
@@ -187,7 +197,7 @@ var init_selection_manager = __esm({
     })();
     DFLT_SEL = { enabled: true, active_slot: null, slot_locked: false, thinking_level: "off", flow_enabled: true, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: true, delegation_enforce: true, onboarding_mode: null, selected_provider: null, selected_quality_tier: null, selected_model: null, executed_provider: null, executed_quality_tier: null, executed_model: null, requested_optimization_mode: null, previous_default_agent: null, previous_optimization_mode: null };
     _selCache = null;
-    _selLastMtime = -1;
+    _selLastStamp = "";
     TIERS_FILE_PATH = () => join(getVibeOSHome(), "model-tiers.json");
   }
 });
@@ -6338,6 +6348,11 @@ function setTrinityMedium(v) {
 function setTrinityCheap(v) {
   TRINITY_CHEAP = v;
 }
+function _resetTrinitySlotsForTest() {
+  TRINITY_BRAIN = null;
+  TRINITY_MEDIUM = null;
+  TRINITY_CHEAP = null;
+}
 var USER_HOME3 = (() => {
   try {
     return homedir4();
@@ -6405,14 +6420,20 @@ ${Date.now()}
 }
 function classify(m) {
   const s = String(m || "").toLowerCase();
+  const bare = s.includes("/") ? s.split("/").slice(1).join("/") : s;
+  const normalized = s.replace(/-free$/i, "");
+  const bareNormalized = bare.replace(/-free$/i, "");
   if (HIGH_TIER_RE.test(s))
     return "high";
   if (MID_TIER_RE.test(s))
     return "mid";
-  const bare = s.includes("/") ? s.split("/").slice(1).join("/") : s;
   if (HIGH_TIER_RE.test(bare))
     return "high";
   if (MID_TIER_RE.test(bare))
+    return "mid";
+  if (/(?:opus|pro|reasoner|v4-pro)/i.test(normalized) || /(?:opus|pro|reasoner|v4-pro)/i.test(bareNormalized))
+    return "high";
+  if (/(?:flash|sonnet|haiku|mimo|qwen|glm|mini)/i.test(normalized) || /(?:flash|sonnet|haiku|mimo|qwen|glm|mini)/i.test(bareNormalized))
     return "mid";
   return "budget";
 }
@@ -6629,13 +6650,11 @@ var FREE_MODEL_TURN_USD = 1e-10;
 var FREE_MODELS = /* @__PURE__ */ new Set([
   // OpenCode Zen free models
   "opencode/big-pickle",
-  "opencode/mimo-v2.5-free",
-  "opencode/deepseek-v4-flash-free",
+  "opencode/big-pickle-free",
   "opencode/nemotron-3-ultra-free",
   // Normalized variants (after opencode/ prefix stripped)
   "big-pickle",
-  "mimo-v2.5-free",
-  "deepseek-v4-flash-free",
+  "big-pickle-free",
   "nemotron-3-ultra-free"
 ]);
 var MODEL_PRICING_PER_1M = {
@@ -7068,6 +7087,8 @@ function modelCostPerTurn(model) {
 function isModelFree(model) {
   if (!model || typeof model !== "string")
     return false;
+  if (/-free$/i.test(normalizeModelId(model)) || /-free$/i.test(model))
+    return true;
   if (FREE_MODELS.has(model))
     return true;
   if (FREE_MODELS.has(normalizeModelId(model)))
@@ -7149,7 +7170,7 @@ function detectContext7(files = CONTEXT7_CONFIG_FILES) {
     return true;
   return false;
 }
-var DOCS_TARGET_RE = /(docs\.|readthedocs|developer\.mozilla|\/api\/|\/reference\/|\/guide\/|npmjs\.com\/package\/|pypi\.org\/project\/|crates\.io\/crates\/|pkg\.go\.dev|api-docs|\/javadoc\/)/i;
+var DOCS_TARGET_RE = /(docs\.|docs\.python\.org|readthedocs|developer\.mozilla|\/api\/|\/reference\/|\/guide\/|npmjs\.com\/package\/|pypi\.org\/project\/|crates\.io\/crates\/|pkg\.go\.dev|api-docs|\/javadoc\/)/i;
 function isDocsTarget(s) {
   return typeof s === "string" && DOCS_TARGET_RE.test(s);
 }
@@ -7402,27 +7423,30 @@ function _refreshModel(directory3) {
     _setTrinitySlotsFromTiers(tiersData);
     const slotOrder = getTrinitySlotOrder(tiersData);
     const activeSlot = slotOrder.includes(sel.active_slot) ? sel.active_slot : slotOrder[0] || "brain";
-    let slotOcModel = tiersData?.trinity?.[activeSlot]?.oc || "";
+    const slotOcModel = String(tiersData?.trinity?.[activeSlot]?.oc || "").trim();
+    const cfgModel = readConfig(directory3) || readConfig(getOpenCodeHome()) || process?.env?.OPENCODE_MODEL || "";
     if (slotOcModel && PLACEHOLDER_RE.test(slotOcModel)) {
-      slotOcModel = "";
       if (DEBUG_INTERNALS)
         console.error(`[vibeOS] placeholder model detected in ${activeSlot} slot \u2014 skipping, will auto-detect`);
     }
-    if (slotOcModel) {
-      const nextTier = activeSlot === (slotOrder[0] || "brain") ? "high" : classify(slotOcModel);
-      const modelChanged = currentModel !== slotOcModel;
-      const tierChanged = currentTier !== nextTier;
-      if (modelChanged || tierChanged) {
-        const oldModel = currentModel;
-        const oldTier = currentTier;
-        setCurrentModel(slotOcModel);
-        setCurrentTier(nextTier);
-        if (DEBUG_INTERNALS)
-          console.error(`[vibeOS] model refresh: ${oldModel}(${oldTier}) \u2192 ${currentModel}(${currentTier}) (slot=${activeSlot})`);
+    if (slotOcModel && !PLACEHOLDER_RE.test(slotOcModel)) {
+      const resolvedModel = slotOcModel;
+      if (resolvedModel) {
+        const nextTier = activeSlot === (slotOrder[0] || "brain") ? "high" : activeSlot === (slotOrder[1] || "medium") ? "mid" : activeSlot === (slotOrder[2] || "cheap") ? "budget" : classify(resolvedModel);
+        const modelChanged = currentModel !== resolvedModel;
+        const tierChanged = currentTier !== nextTier;
+        if (modelChanged || tierChanged) {
+          const oldModel = currentModel;
+          const oldTier = currentTier;
+          setCurrentModel(resolvedModel);
+          setCurrentTier(nextTier);
+          if (DEBUG_INTERNALS)
+            console.error(`[vibeOS] model refresh: ${oldModel}(${oldTier}) \u2192 ${currentModel}(${currentTier}) (slot=${activeSlot})`);
+        }
       }
     }
     if (!currentModel) {
-      const detected = readConfig(directory3) || readConfig(getOpenCodeHome()) || process?.env?.OPENCODE_MODEL || "";
+      const detected = cfgModel;
       if (detected) {
         setCurrentModel(detected);
         setCurrentTier(classify(detected));
@@ -7433,13 +7457,13 @@ function _refreshModel(directory3) {
     if (!(_modelLocked || sel.slot_locked === true)) {
       const activeIsManual = tiersData?.trinity?.[activeSlot]?.manual === true;
       const currentSlotModel = activeIsManual ? "" : slotOcModel;
-      if (!currentSlotModel) {
-        const cfgModel = readConfig(directory3) || readConfig(getOpenCodeHome()) || "";
-        if (cfgModel && cfgModel.includes("/") && cfgModel !== currentModel) {
+      if (!currentSlotModel && !currentModel) {
+        const cfgModel2 = readConfig(directory3) || readConfig(getOpenCodeHome()) || "";
+        if (cfgModel2 && cfgModel2.includes("/") && cfgModel2 !== currentModel) {
           const oldModel = currentModel;
           const oldTier = currentTier;
-          setCurrentModel(cfgModel);
-          setCurrentTier(classify(cfgModel));
+          setCurrentModel(cfgModel2);
+          setCurrentTier(classify(cfgModel2));
           if (DEBUG_INTERNALS)
             console.error(`[vibeOS] model refresh (config fallback): ${oldModel}(${oldTier}) \u2192 ${currentModel}(${currentTier})`);
           try {
@@ -7447,7 +7471,7 @@ function _refreshModel(directory3) {
               withFileLock2(TIERS_FILE3, () => {
                 const t = safeJsonParse2(readFileSync5(TIERS_FILE3, "utf-8"));
                 for (const s of getTrinitySlotOrder(t)) {
-                  if (t?.trinity?.[s]?.oc === cfgModel) {
+                  if (t?.trinity?.[s]?.oc === cfgModel2) {
                     t.selection.active_slot = s;
                     const _tmp = TIERS_FILE3 + ".tmp." + Date.now() + "." + Math.random().toString(36).slice(2, 8);
                     writeFileSync6(_tmp, JSON.stringify(t, null, 2) + "\n", "utf-8");
@@ -10120,6 +10144,27 @@ var CREDIT_MIN_OK = 40;
 function normalizeDashboardBaseUrl(baseUrl) {
   return String(baseUrl || "").trim().replace(/\/$/, "");
 }
+async function resolveDashboardBaseUrl(deps) {
+  const fromMemory = normalizeDashboardBaseUrl(deps.dashboardBaseUrl);
+  if (fromMemory)
+    return fromMemory;
+  if (typeof deps.ensureMcpServerRunning === "function") {
+    try {
+      await deps.ensureMcpServerRunning();
+    } catch {
+    }
+  }
+  const afterStartup = normalizeDashboardBaseUrl(deps.dashboardBaseUrl);
+  if (afterStartup)
+    return afterStartup;
+  if (typeof deps._loadMcpPort === "function") {
+    const port = Number(deps._loadMcpPort());
+    if (Number.isFinite(port) && port > 0) {
+      return `http://127.0.0.1:${port}`;
+    }
+  }
+  return "";
+}
 function createTrinityTool(deps) {
   return {
     description: "Control the vibeOS plugin and active model slot. Use action='status' to see the current state. Use action='enable' or 'disable' to toggle the plugin immediately. Use action='set' with slot='brain'|'medium'|'cheap' to switch model tiers (writes opencode.json). Optionally pass model='<model_id>' to set a custom model for that slot. Use action='mode' with slot='vibeultrax'|'vibeqmax'|'vibemax'|'budget'|'quality'|'speed'|'longrun'|'auto'|'balanced'|'audit'|'forensic' to switch optimization mode. Use action='thinking' with level='full'|'brief'|'off'. Use action='rebuild' to detect available models from configured providers and reassign brain/medium/cheap slots. Use action='flow' with slot='on'|'off' to toggle flow enforcer, or action='flow' alone for audit. Use action='flow' with slot='enforce' and level='on'|'off' to toggle auto-extract TODOs. Use action='enforce' with slot='on'|'off' to toggle delegation enforcement. Use action='tdd' with slot='on'|'off' to toggle auto-create test skeletons. Use action='tdd' with slot='strict' and level='on'|'off' to toggle strict failing TODO test templates. Use action='tdd' alone for audit. Use action='setup' to create a compatibility profile for first-time users. Use action='project' to show per-project analytics and optimization suggestions. Use action='patterns' to inspect learned project patterns or slot='clear' to clear them. Use action='dashboard' or 'gui' to print the live dashboard URL and stable browser entrypoint. Use action='guard' to keep AGENTS.md and README.md current. Use action='reality-check' to read verified live state and report only evidence-backed facts. Use action='api-token' with token='<new_token>' to update the API token or token='invalidate' to disable the embedded alpha token. Use action='api-bootstrap-token' with token='<new_token>' to store an alpha bootstrap token and exchange it for a normal API token on alpha builds. Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', 'vibe status' (or the legacy 'trinity status').",
@@ -10170,7 +10215,7 @@ function createTrinityTool(deps) {
         slot = action;
       }
       if (action === "dashboard") {
-        const dashboardBase = normalizeDashboardBaseUrl(deps.dashboardBaseUrl);
+        const dashboardBase = await resolveDashboardBaseUrl(deps);
         if (!dashboardBase) {
           return [
             "[vibeOS-dashboard]",
@@ -10651,6 +10696,13 @@ Lock is per-session (resets on restart).`;
         tiers.selection.tdd_strict = false;
         tiers.selection.tdd_quality = false;
         tiers.selection.thinking_level = "off";
+        if (!tiers.selection.setup_completed_at) {
+          tiers.selection.optimization_mode = "vibeultrax";
+          tiers.selection.requested_optimization_mode = "vibeultrax";
+        } else {
+          tiers.selection.optimization_mode = tiers.selection.optimization_mode || "vibeultrax";
+          tiers.selection.requested_optimization_mode = tiers.selection.requested_optimization_mode || "vibeultrax";
+        }
         tiers.selection.setup_completed_at = now;
         tiers.selection.selected_provider = trinity?.provider || resolveExecutionIdentity(selectedModel, deps.directory)?.provider || "";
         tiers.selection.selected_quality_tier = trinity?.selected_tier || "brain";
@@ -10676,6 +10728,7 @@ Lock is per-session (resets on restart).`;
           `  Delegation: off`,
           `  Flow: off`,
           `  TDD: off`,
+          `  Default mode: ${tiers.selection.optimization_mode || "vibeultrax"}`,
           `  Blackbox: on`
         ];
         if (discovered.length > 0)
@@ -14678,6 +14731,9 @@ function getCostAnomalyDetector() {
     _costDetector = new CostAnomalyDetector();
   return _costDetector;
 }
+function _resetCostAnomalyDetectorForTest() {
+  _costDetector = null;
+}
 
 // src/lib/hooks/tool-execute.js
 init_ml_router();
@@ -16119,6 +16175,28 @@ function _resetWarnCountsForTest() {
   for (const key of Object.keys(_warnCounts))
     delete _warnCounts[key];
 }
+function _resetToolExecuteStateForTest() {
+  _resetWarnCountsForTest();
+  activeJob2 = null;
+  projectDirectory = "";
+  pendingUiNote = null;
+  enforcementBlocked = false;
+  taskSlotRestore = null;
+  scratchpadHitsSeen2.clear();
+  softQuotaCounts = {};
+  context7AlertedThisSession = false;
+  context7Seen.clear();
+  _prompt = "";
+  _autoReportCount2 = 0;
+  _pendingTodoArgs = null;
+  _pendingTelemetryStarts = [];
+}
+function _setPendingUiNoteForTest(note) {
+  pendingUiNote = note;
+}
+function _setEnforcementBlockedForTest(value) {
+  enforcementBlocked = value === true;
+}
 var MAX_WARNS_PER_TOOL = 5;
 var BYTES_PER_TOKEN2 = 4;
 var DEBUG_INTERNALS2 = process.env.VIBEOS_DEBUG_INTERNALS === "1";
@@ -16126,6 +16204,7 @@ var IS_CLI_RUNTIME2 = Boolean(process.stdout?.isTTY || process.stderr?.isTTY || 
 function getVibeOSHome12() {
   return process.env.VIBEOS_HOME || join20(process.env.HOME || "", ".claude");
 }
+var activeJob2 = null;
 var projectDirectory = "";
 var pendingUiNote = null;
 var enforcementBlocked = false;
@@ -16134,6 +16213,7 @@ var scratchpadHitsSeen2 = /* @__PURE__ */ new Set();
 var softQuotaCounts = {};
 var context7AlertedThisSession = false;
 var context7Seen = /* @__PURE__ */ new Set();
+var _prompt = "";
 var _autoReportCount2 = 0;
 var _pendingTodoArgs = null;
 var _pendingTelemetryStarts = [];
@@ -16425,7 +16505,7 @@ var onToolExecuteBefore = async (input, output) => {
   };
   _pendingTelemetryStarts.push(telemetryStart);
   let _cacheSave = 0;
-  let _prompt = "";
+  let _prompt2 = "";
   if (SCRATCHPAD_TOOLS.has(t)) {
     const hit = getScratchpadHit(t, args);
     if (hit && !scratchpadHitsSeen2.has(hit.hash)) {
@@ -16537,19 +16617,19 @@ ${argsJson}
   }
   if (t === "task" && currentModel && (args && typeof args === "object" || inArgs && typeof inArgs === "object")) {
     const targetArgs = args ? args : input?.args ? input.args : {};
-    _prompt = (targetArgs?.prompt ?? "").trim().toLowerCase();
+    _prompt2 = (targetArgs?.prompt ?? "").trim().toLowerCase();
     if (typeof targetArgs?.prompt === "string")
       setActiveJobFromTaskPrompt(targetArgs.prompt);
-    const _firstWord2 = _prompt.split(/\s+/)[0];
+    const _firstWord2 = _prompt2.split(/\s+/)[0];
     const BASE_EXPLORATORY = /* @__PURE__ */ new Set(["check", "find", "list", "search", "does", "verify", "look", "count", "show", "get", "read", "grep", "scan", "detect", "inspect"]);
     const LEARNED_EXPLORATORY = getLearnedExploratoryWords();
     const EXPLORATORY = /* @__PURE__ */ new Set([...BASE_EXPLORATORY, ...LEARNED_EXPLORATORY]);
     const _exploratoryTarget = EXPLORATORY.has(_firstWord2) ? TRINITY_CHEAP : null;
     const _tierTarget = currentTier === "high" && TRINITY_MEDIUM && TRINITY_MEDIUM !== currentModel ? TRINITY_MEDIUM : TRINITY_CHEAP && TRINITY_CHEAP !== currentModel ? TRINITY_CHEAP : null;
     let _target = _exploratoryTarget ?? _tierTarget;
-    const _hasMedia = /\.(png|jpg|jpeg|gif|webp|bmp|svg|mp4|webm|ogg|mp3|wav|avi|mov)/i.test(_prompt);
+    const _hasMedia = /\.(png|jpg|jpeg|gif|webp|bmp|svg|mp4|webm|ogg|mp3|wav|avi|mov)/i.test(_prompt2);
     const stressScore = latestUserIntent ? scoreStress(latestUserIntent) : 0;
-    const apiRoute = await remoteCall("routeModel", [_prompt, currentTier, TRINITY_CHEAP, TRINITY_MEDIUM, LEARNED_EXPLORATORY, stressScore], null);
+    const apiRoute = await remoteCall("routeModel", [_prompt2, currentTier, TRINITY_CHEAP, TRINITY_MEDIUM, LEARNED_EXPLORATORY, stressScore], null);
     if (apiRoute?.target) {
       _target = apiRoute.target;
     } else {
@@ -16560,8 +16640,8 @@ ${argsJson}
     }
     if (ML_ENABLED) {
       try {
-        const mlDifficulty = computeDifficulty(_prompt);
-        const mlHash = hashQuery(_prompt);
+        const mlDifficulty = computeDifficulty(_prompt2);
+        const mlHash = hashQuery(_prompt2);
         const mlGraphPrediction = predictBestModel(_mlGraph, _firstWord2, currentTier);
         if (mlDifficulty.confidence >= ML_CONFIDENCE_THRESHOLD && mlDifficulty.level !== "moderate") {
           const mlTarget = mlDifficulty.suggestedTier === "cheap" ? TRINITY_CHEAP : mlDifficulty.suggestedTier === "medium" ? TRINITY_MEDIUM : mlDifficulty.suggestedTier === "brain" ? TRINITY_BRAIN : null;
@@ -16601,7 +16681,7 @@ ${argsJson}
         const cheapCost = 1e-3;
         const mediumCost = 5e-3;
         const brainCost = 0.02;
-        const cascadeResult = cascadeDecide(_prompt, cheapCost, mediumCost, brainCost, 0.85);
+        const cascadeResult = cascadeDecide(_prompt2, cheapCost, mediumCost, brainCost, 0.85);
         const tierMap = { cheap: TRINITY_CHEAP, medium: TRINITY_MEDIUM, brain: TRINITY_BRAIN };
         const pipelineModels = activePipeline.map((t2) => tierMap[t2] || TRINITY_CHEAP);
         if (cascadeResult.escalate && pipelineModels.length > 1) {
@@ -16670,7 +16750,7 @@ ${argsJson}
     _pendingTodoArgs = Array.isArray(todosArg) ? todosArg : [todosArg];
     return;
   }
-  if (isModelFree(currentModel))
+  if (isModelFree(currentModel) && !SOFT_QUOTA.has(t))
     return;
   const _brainCost = modelCostPerTurn(currentModel);
   const _workerModel = TRINITY_CHEAP || TRINITY_MEDIUM || null;
@@ -16741,7 +16821,7 @@ ${argsJson}
     if (!compatibilityMode && sel.delegation_enforce && currentTier === "high") {
       const originalPath = argSources.flatMap((src) => [src?.filePath, src?.file_path, src?.path]).find((v) => typeof v === "string" && v.trim()) || "";
       const basename6 = originalPath.split("/").pop() || "blocked";
-      const apiResult = await remoteCall("delegateCheck", [tLower, currentTier, currentModel, _prompt], () => ({
+      const apiResult = await remoteCall("delegateCheck", [tLower, currentTier, currentModel, _prompt2], () => ({
         blocked: false,
         savings: 0,
         _fallback: true
@@ -16772,7 +16852,7 @@ ${argsJson}
         projectName: currentProjectName || "",
         sessionId: getCurrentSessionId()
       });
-      if (!compatibilityMode) {
+      if (isFallback || !compatibilityMode) {
         const msg = `[vibeOS] ${resolveTierIcon("cheap")} cheap lane \xB7 save about ~$${_estEdit.toFixed(3)} by delegating to Task. Try ${resolveTierIcon("medium")} medium.`;
         if (shouldLogWarn(`${t}|direct|${_tierWord}`) && process.env.VIBEOS_DEBUG_DELEGATION === "1") {
           console.error(`[vibeOS] [delegation] ${msg}`);
@@ -17040,6 +17120,10 @@ ${note}`;
         target.content += `
 
 ${note}`;
+      else if (typeof target?.error === "string")
+        target.error += `
+
+${note}`;
       else
         target.result = pendingUiNote;
     } else {
@@ -17052,6 +17136,8 @@ ${pendingUiNote}`;
         target.text += note;
       else if (typeof target?.content === "string")
         target.content += note;
+      else if (typeof target?.error === "string")
+        target.error += note;
       else
         target.result = pendingUiNote;
     }
@@ -17199,6 +17285,27 @@ ${pendingUiNote}`;
       }
     }
   }
+  if (t === "todowrite") {
+    try {
+      const todoArgs = _pendingTodoArgs && _pendingTodoArgs.length > 0 ? _pendingTodoArgs : Array.isArray(input?.args?.todos) ? input.args.todos : input?.args?.todos ? [input.args.todos] : [];
+      for (const entry of todoArgs) {
+        if (entry && entry.content) {
+          upsertTodo({
+            content: entry.content,
+            filePath: entry.filePath || "",
+            priority: entry.priority || "medium",
+            source: "intercepted"
+          });
+        }
+      }
+      if (todoArgs.length > 0)
+        console.error("[vibeOS] tracked " + todoArgs.length + " todo(s) from todowrite call");
+    } catch (todoErr) {
+      if (DEBUG_INTERNALS2)
+        console.error(`[vibeOS] todowrite parse error: ${todoErr.message}`);
+    }
+    _pendingTodoArgs = null;
+  }
   if (t !== "webfetch") {
     applyDecadence();
     return;
@@ -17218,25 +17325,6 @@ ${pendingUiNote}`;
       output.content = processed;
     else if (output.data !== void 0)
       output.data = processed;
-  }
-  if (t === "todowrite" && _pendingTodoArgs && _pendingTodoArgs.length > 0) {
-    try {
-      for (const entry of _pendingTodoArgs) {
-        if (entry && entry.content) {
-          upsertTodo({
-            content: entry.content,
-            filePath: entry.filePath || "",
-            priority: entry.priority || "medium",
-            source: "intercepted"
-          });
-        }
-      }
-      console.error("[vibeOS] tracked " + _pendingTodoArgs.length + " todo(s) from todowrite call");
-    } catch (todoErr) {
-      if (DEBUG_INTERNALS2)
-        console.error(`[vibeOS] todowrite parse error: ${todoErr.message}`);
-    }
-    _pendingTodoArgs = null;
   }
   applyDecadence();
 };
@@ -17338,6 +17426,7 @@ var onShellEnv = async (_input, output) => {
 // src/index.ts
 init_state();
 init_state();
+init_selection_manager();
 init_api_client();
 function getVibeOSHome13() {
   return process.env.VIBEOS_HOME || join21(process.env.HOME || "", ".claude");
@@ -17403,7 +17492,7 @@ function scanClaimsInOutput(output) {
   } catch {
   }
 }
-var activeJob2 = null;
+var activeJob3 = null;
 var fp = "";
 var _mcpServerRuntime = null;
 var _mcpServerHooked = false;
@@ -17493,8 +17582,30 @@ function _tiersNeedRepair(tiers) {
     return !oc || PLACEHOLDER_RE.test(oc);
   });
 }
+function _normalizeSeedModelId(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const parts = raw.split("/");
+  return parts[parts.length - 1] || raw;
+}
+function _collectFreeSeedModels(models) {
+  const list = Array.isArray(models) ? models : [];
+  const free = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const model of list) {
+    const id2 = String(model?.id || "").trim();
+    const provider = String(model?.providerID || "").trim();
+    if (!id2 || provider !== "opencode") continue;
+    if (!/-free$/i.test(_normalizeSeedModelId(id2))) continue;
+    if (seen.has(id2)) continue;
+    seen.add(id2);
+    free.push(id2);
+  }
+  return free.sort((a, b) => a.localeCompare(b));
+}
 async function _seedOrRepairModelTiers(directory3) {
   const TIERS_FILE3 = getTiersFile();
+  const DEFAULT_FREE_MODEL = "opencode/big-pickle";
   let existing = null;
   if (existsSync21(TIERS_FILE3)) {
     try {
@@ -17517,22 +17628,18 @@ async function _seedOrRepairModelTiers(directory3) {
     discovered = await discoverAvailableModels(providers, auth);
   } catch {
   }
-  let trinity = null;
-  try {
-    trinity = buildDeterministicTrinity(discovered, { selectedModelId: currentModel });
-  } catch {
-  }
-  let brain = trinity?.brain || currentModel || readConfig(directory3) || readConfig(getOpenCodeHome()) || process?.env?.OPENCODE_MODEL || "";
-  let medium = trinity?.medium || brain;
-  let cheap = trinity?.cheap || medium || brain;
-  if (!brain) {
-    brain = "generic/brain";
-    medium = "generic/medium";
-    cheap = "generic/cheap";
-    console.error('[vibeOS] no providers or trinity config found \u2014 run "vibe rebuild" to set model tiers');
-  }
-  const existingSelection = existing?.selection && typeof existing.selection === "object" ? existing.selection : {};
   const existingTrinity = existing?.trinity && typeof existing.trinity === "object" ? existing.trinity : {};
+  const hasAnyValidSlot = ["brain", "medium", "cheap"].some((slot) => {
+    const oc = String(existingTrinity?.[slot]?.oc || "").trim();
+    return !!oc && !PLACEHOLDER_RE.test(oc);
+  });
+  const existingSelection = existing?.selection && typeof existing.selection === "object" ? existing.selection : {};
+  const freeSeeds = _collectFreeSeedModels(discovered);
+  const liveModel = String(currentModel || "").trim();
+  const liveTier = liveModel ? classify(liveModel) : "";
+  const seedBrain = existingSelection?.active_slot === "brain" && liveModel && liveTier === "high" ? liveModel : freeSeeds[0] || DEFAULT_FREE_MODEL;
+  const seedMedium = freeSeeds[1] || freeSeeds[0] || DEFAULT_FREE_MODEL;
+  const seedCheap = freeSeeds[2] || freeSeeds[1] || freeSeeds[0] || DEFAULT_FREE_MODEL;
   const keepExistingSlot = (slotRow, fallbackModel) => {
     const currentOc = String(slotRow?.oc || "").trim();
     if (currentOc && !PLACEHOLDER_RE.test(currentOc) && !/placeholder/i.test(currentOc)) {
@@ -17541,9 +17648,9 @@ async function _seedOrRepairModelTiers(directory3) {
     return { oc: fallbackModel, cc: modelToCcAlias(fallbackModel) };
   };
   const nextTrinity = {
-    brain: keepExistingSlot(existingTrinity.brain, brain),
-    medium: keepExistingSlot(existingTrinity.medium, medium),
-    cheap: keepExistingSlot(existingTrinity.cheap, cheap)
+    brain: keepExistingSlot(existingTrinity.brain, seedBrain),
+    medium: keepExistingSlot(existingTrinity.medium, seedMedium),
+    cheap: keepExistingSlot(existingTrinity.cheap, seedCheap)
   };
   const activeSlot = ["brain", "medium", "cheap"].includes(String(existingSelection.active_slot || "").trim()) ? String(existingSelection.active_slot) : "brain";
   const tiers = {
@@ -17560,6 +17667,8 @@ async function _seedOrRepairModelTiers(directory3) {
       tdd_strict: existingSelection.tdd_strict === true,
       tdd_quality: existingSelection.tdd_quality !== false,
       onboarding_mode: existingSelection.onboarding_mode || "assist",
+      optimization_mode: existingSelection.optimization_mode || "vibeultrax",
+      requested_optimization_mode: existingSelection.requested_optimization_mode || "vibeultrax",
       setup_completed_at: existingSelection.setup_completed_at || (/* @__PURE__ */ new Date()).toISOString()
     },
     trinity: nextTrinity
@@ -17959,7 +18068,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
   setCurrentProjectFingerprint(fp);
   setCurrentProjectName(directory3 ? directory3.split("/").pop() : "unknown");
   briefedProjects.clear();
-  activeJob2 = _loadActiveJobForProject(directory3, fp);
+  activeJob3 = _loadActiveJobForProject(directory3, fp);
   const systemBriefedProjects = /* @__PURE__ */ new Set();
   const hookVibeHome = getVibeOSHome13();
   const hookStateFile = join21(hookVibeHome, "delegation-state.json");
@@ -18074,6 +18183,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     get dashboardBaseUrl() {
       return _dashboardBaseUrl;
     },
+    ensureMcpServerRunning,
     loadSelection,
     writeSelection,
     loadCredit,
@@ -18197,7 +18307,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
       }
       ensureDeferredBootstrap();
       onSystemTransform._directory = directory3;
-      onSystemTransform._activeJob = activeJob2;
+      onSystemTransform._activeJob = activeJob3;
       onSystemTransform._briefedProjects = systemBriefedProjects;
       return onSystemTransform(_input, output);
     },
@@ -18478,6 +18588,12 @@ export {
   VERSION,
   loadMcpPort as _loadMcpPort,
   _refreshModel,
+  _resetCostAnomalyDetectorForTest,
+  _resetSelectionCacheForTest,
+  _resetToolExecuteStateForTest,
+  _resetTrinitySlotsForTest,
+  _setEnforcementBlockedForTest,
+  _setPendingUiNoteForTest,
   applySlot2 as applySlot,
   buildTestReminder,
   buildTestSkeleton,

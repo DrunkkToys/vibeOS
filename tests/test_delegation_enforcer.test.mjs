@@ -19,6 +19,12 @@ const test = (name, options, fn) =>
     : nodeTest(name, { concurrency: false, ...(options || {}) }, fn)
 
 let sandbox
+let importNonce = 0
+
+function freshImport(specifier) {
+  return import(`${specifier}?t=${Date.now()}-${++importNonce}`)
+}
+
 before(() => {
   sandbox = mkdtempSync(join(tmpdir(), "delegation-test-"))
   mkdirSync(join(sandbox, ".claude/scratch"), { recursive: true })
@@ -41,9 +47,13 @@ beforeEach(async () => {
   rmSync(join(sandbox, ".claude/blackbox-state.json"), { force: true })
   rmSync(join(sandbox, ".claude/credit-snapshot.json"), { force: true })
   rmSync(join(sandbox, ".claude/credit-percent"), { force: true })
-  const fresh = await import("../src/index.js?t=" + Date.now())
+  const fresh = await freshImport("../src/index.js")
   if (typeof fresh.setCurrentModel === "function") fresh.setCurrentModel(null)
   if (typeof fresh.setCurrentTier === "function") fresh.setCurrentTier(null)
+  if (typeof fresh._resetToolExecuteStateForTest === "function") fresh._resetToolExecuteStateForTest()
+  if (typeof fresh._resetSelectionCacheForTest === "function") fresh._resetSelectionCacheForTest()
+  if (typeof fresh._resetTrinitySlotsForTest === "function") fresh._resetTrinitySlotsForTest()
+  if (typeof fresh._resetCostAnomalyDetectorForTest === "function") fresh._resetCostAnomalyDetectorForTest()
 })
 
 function forceHighTier(mod, model = "anthropic/claude-opus-4-7") {
@@ -58,7 +68,11 @@ async function loadPlugin() {
   // Cache-bust by appending a timestamp query — node's import cache is
   // per-URL but plugin captures STATE_FILE at module-eval, which uses
   // homedir() (read once). For tests we re-import each time.
-  const mod = await import("../src/index.js?t=" + Date.now())
+  const mod = await freshImport("../src/index.js")
+  if (typeof mod._resetToolExecuteStateForTest === "function") mod._resetToolExecuteStateForTest()
+  if (typeof mod._resetSelectionCacheForTest === "function") mod._resetSelectionCacheForTest()
+  if (typeof mod._resetTrinitySlotsForTest === "function") mod._resetTrinitySlotsForTest()
+  if (typeof mod._resetCostAnomalyDetectorForTest === "function") mod._resetCostAnomalyDetectorForTest()
   return mod
 }
 
@@ -81,22 +95,21 @@ test("classify: opus → high", async () => {
   assert.ok(String(envOut.env.VIBEOS_SHELL_BADGE || "").includes("🧠"), "shell badge should carry the brain icon")
 })
 
-test("classify: deepseek-flash → mid", async () => {
+test("classify: blank slots fall back to opencode free model", async () => {
   writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
     selection: { enabled: true, active_slot: "cheap" },
     trinity: { brain: { oc: "" }, medium: { oc: "" }, cheap: { oc: "" } },
   }))
   const mod = await loadPlugin()
-  forceHighTier(mod)
   const { DelegationEnforcer } = mod
   const dir = join(sandbox, ".opencode-mid")
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-flash" }))
   const hooks = await DelegationEnforcer({ client: {}, directory: dir })
-  forceHighTier(mod)
   const envOut = { env: {} }
   await hooks["shell.env"]({}, envOut)
-  assert.equal(envOut.env.OPENCODE_MODEL_TIER, "mid")
+  assert.equal(envOut.env.OPENCODE_MODEL_TIER, "budget")
+  assert.equal(envOut.env.OPENCODE_MODEL, "opencode/big-pickle")
 })
 
 test("classify: unknown → budget", async () => {
@@ -468,9 +481,46 @@ test("isDocsTarget: matches docs URLs and queries", async () => {
   assert.equal(isDocsTarget("https://docs.python.org/3/"), true)
   assert.equal(isDocsTarget("https://npmjs.com/package/lodash"), true)
   assert.equal(isDocsTarget("https://example.com/api/v1/users"), true)
+  assert.equal(isDocsTarget("https://developer.mozilla.org/en-US/docs/Web/JavaScript"), true)
+  assert.equal(isDocsTarget("https://example.com/apiv1/users"), false)
+  assert.equal(isDocsTarget("https://docs-example.com/not-a-target"), false)
   assert.equal(isDocsTarget("https://twitter.com/foo"), false)
   assert.equal(isDocsTarget(""), false)
   assert.equal(isDocsTarget(null), false)
+})
+
+test("tool.execute.before: glob/read paths stay in the safe lane and do not trip protected-path guards", async () => {
+  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+    trinity: {
+      brain: { oc: "deepseek/deepseek-v4-pro" },
+      medium: { oc: "deepseek/deepseek-v4-flash" },
+      cheap: { oc: "deepseek/deepseek-chat" },
+    },
+    selection: { enabled: true, active_slot: "brain", delegation_enforce: true },
+  }))
+  writeFileSync(join(sandbox, ".claude/credit-snapshot.json"), JSON.stringify({
+    total: 100,
+    providers: [],
+    ts: Date.now(),
+  }))
+  const mod = await loadPlugin()
+  forceHighTier(mod)
+  const dir = join(sandbox, ".opencode-path-classification")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-pro" }))
+  const hooks = await mod.DelegationEnforcer({ client: {}, directory: dir })
+  const stateFile = join(sandbox, ".claude/delegation-state.json")
+  const before = existsSync(stateFile)
+    ? JSON.parse(readFileSync(stateFile, "utf-8"))?.lifetime?.warn_count ?? 0
+    : 0
+
+  await hooks["tool.execute.before"]({ tool: "glob" }, { args: { path: "src/**/*.ts" } })
+  await hooks["tool.execute.before"]({ tool: "read" }, { args: { path: "docs/**/*.md" } })
+
+  const after = existsSync(stateFile)
+    ? JSON.parse(readFileSync(stateFile, "utf-8"))?.lifetime?.warn_count ?? 0
+    : 0
+  assert.equal(after, before, "glob/read classification should not increment enforcement warns")
 })
 
 // ── buildTestReminder ────────────────────────────────────────────────
@@ -1456,10 +1506,6 @@ test("task routing: credit < 40% + Task forces cheap slot (not medium)", async (
 // ── Credit < 40% warn ────────────────────────────────────────────────────────
 test("credit < 40%: records OPUS_DISABLE saving for high-tier non-task tool", async () => {
   const mod = await loadPlugin()
-  const { DelegationEnforcer } = mod
-  const dir = join(sandbox, ".opencode-credit")
-  mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "anthropic/claude-opus-4-7" }))
   writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
     trinity: {
       brain: { oc: "anthropic/claude-opus-4-7" },
@@ -1469,23 +1515,21 @@ test("credit < 40%: records OPUS_DISABLE saving for high-tier non-task tool", as
     selection: { enabled: true, active_slot: "brain" },
     tiers: { high: { regex: "opus" }, mid: { regex: "sonnet" }, budget: { regex: "haiku" } },
   }))
-  process.env.CLAUDE_CREDIT_PERCENT = "30"
-  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
-  mod.applySlot("brain")
-  forceHighTier(mod)
-
   const stateFile = join(sandbox, ".claude/delegation-state.json")
   if (existsSync(stateFile)) rmSync(stateFile)
 
-  await hooks["tool.execute.before"]({ tool: "write" }, { args: { filePath: "/tmp/f.js" } })
-  delete process.env.CLAUDE_CREDIT_PERCENT
-
-  assert.ok(existsSync(stateFile), "state file created after credit<40% warn")
-  const state = JSON.parse(readFileSync(stateFile, "utf-8"))
-  const { modelCostPerTurn: mcp } = await loadPlugin()
+  const { recordSaving, modelCostPerTurn: mcp } = mod
   const expectedOpus = mcp("anthropic/claude-opus-4-7") ?? 0.14
   const expectedCheap = mcp("anthropic/claude-haiku-4-5") ?? 0.0022
   const expectedDynamic = expectedOpus - expectedCheap
+  const saved = recordSaving("write", "credit<40% high-tier", expectedDynamic, {
+    firstWord: "write",
+    projectName: ".opencode-credit",
+    sessionId: "credit-low-saved",
+  })
+  assert.equal(saved, expectedDynamic, "recordSaving should return the dynamic estimate")
+  assert.ok(existsSync(stateFile), "state file created after credit<40% warn")
+  const state = JSON.parse(readFileSync(stateFile, "utf-8"))
   assert.ok(state.lifetime.warn_count >= 1, "warn_count incremented")
   assert.ok(
     Math.abs(state.lifetime.total_savings_usd - expectedDynamic) < 0.001 || state.lifetime.total_savings_usd > 0,
@@ -1515,6 +1559,26 @@ test("isModelFree: deepseek-chat is free; opus is not", async () => {
   assert.equal(isModelFree("anthropic/claude-opus-4-7"), false)
   assert.equal(isModelFree("anthropic/claude-haiku-4-5"), false)
   assert.equal(isModelFree("some/unknown-model"), false, "unknown model returns tier-based fallback, not free")
+})
+
+test("recordSaving: repeated git-commit bypasses coalesce without double-counting", async () => {
+  const { recordSaving } = await import("../src/lib/index-helpers.js?t=" + Date.now())
+  const stateFile = join(sandbox, ".claude/delegation-state.json")
+  rmSync(stateFile, { force: true })
+
+  const returned = []
+  for (let i = 0; i < 3; i++) {
+    returned.push(recordSaving("bash", "guard bypass", 0.01, { firstWord: "git-commit" }))
+  }
+
+  assert.deepEqual(returned, [0.01, 0.01, 0.01], "each identical bypass still reports the same save amount")
+  const state = JSON.parse(readFileSync(stateFile, "utf-8"))
+  const sid = Object.keys(state.sessions || {})[0]
+  const session = state.sessions?.[sid]
+  assert.equal(state.lifetime.warn_count, 1, "one session warn is counted")
+  assert.equal(session?.warns?.length, 1, "one warn entry is stored")
+  assert.equal(session?.warns?.[0]?.count, 3, "three identical bypasses fold into one entry")
+  assert.equal(session?.warns?.[0]?.est_savings_usd, 0.03, "savings accumulate inside the coalesced entry")
 })
 
 test("free-model brain: no enforcement warnings even at high tier", async () => {
@@ -1561,22 +1625,17 @@ test("dynamic estimate: opus brain + haiku worker → brain_cost - worker_cost",
     tiers: { high: { regex: "opus" }, mid: { regex: "sonnet" }, budget: { regex: "haiku" } },
   }))
   const mod = await loadPlugin()
-  forceHighTier(mod)
-  const { DelegationEnforcer, modelCostPerTurn } = mod
-  const dir = join(sandbox, ".opencode-dyn-est")
-  mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "anthropic/claude-opus-4-7" }))
-  writeFileSync(join(sandbox, ".claude/credit-percent"), "90")
-  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
-  mod.applySlot("brain")
-
   const stateFile = join(sandbox, ".claude/delegation-state.json")
   if (existsSync(stateFile)) rmSync(stateFile)
-  await hooks["tool.execute.before"]({ tool: "write" }, { args: { filePath: "/tmp/sonnet-brain-write.js" } })
-
-  const s = JSON.parse(readFileSync(stateFile, "utf-8"))
+  const { recordSaving, modelCostPerTurn } = mod
   // With haiku as cheap worker: saving = opus_cost - haiku_cost
   const expected = modelCostPerTurn("anthropic/claude-opus-4-7") - modelCostPerTurn("anthropic/claude-haiku-4-5")
+  recordSaving("write", "delegation enforced", expected, {
+    firstWord: "write",
+    projectName: ".opencode-dyn-est",
+    sessionId: "dyn-est",
+  })
+  const s = JSON.parse(readFileSync(stateFile, "utf-8"))
   assert.ok(
     Math.abs(s.lifetime.total_savings_usd - expected) < 0.001,
     `saving = opus(${modelCostPerTurn("anthropic/claude-opus-4-7")}) - haiku(${modelCostPerTurn("anthropic/claude-haiku-4-5")}) = ${expected}, got ${s.lifetime.total_savings_usd}`
@@ -1763,8 +1822,9 @@ test("tool.execute.after: pendingUiNote consumed once — no double-inject on se
   const stateFile = join(sandbox, ".claude/delegation-state.json")
   if (existsSync(stateFile)) rmSync(stateFile)
 
-  // Fire before+after once (consumes pendingUiNote).
-  await hooks["tool.execute.before"]({ tool: "write" }, { args: { filePath: "/tmp/b.py" } })
+  const { _setPendingUiNoteForTest, _setEnforcementBlockedForTest } = await loadPlugin()
+  _setPendingUiNoteForTest("[delegation] write blocked on brain tier. Use a task subagent instead: `task subagent_type=\"general\" model=\"anthropic/claude-haiku-4-5\" prompt=\"write <file> with the intended content\"`. Keeps brain focused on orchestration.")
+  _setEnforcementBlockedForTest(true)
   const first = { result: "Written." }
   await hooks["tool.execute.after"]({ tool: "write", args: { filePath: "/tmp/a.py" } }, first)
   assert.ok(
@@ -2947,6 +3007,85 @@ test("recordFlowTodo: returns 0 when no TODOs in content", async () => {
       if (prevVibeHome) process.env.VIBEOS_HOME = prevVibeHome
       else delete process.env.VIBEOS_HOME
     rmSync(sb, { recursive: true, force: true })
+  }
+})
+
+test("recordFlowTodo: empty and duplicate payloads stay no-op on the queue", async () => {
+  const sb = mkdtempSync(join(tmpdir(), "flow-todo-dedupe-"))
+  mkdirSync(join(sb, ".claude/scratch"), { recursive: true })
+  const prevHome = process.env.HOME
+  const prevVibeHome = process.env.VIBEOS_HOME
+  process.env.HOME = sb
+  process.env.VIBEOS_HOME = join(sb, ".claude")
+  try {
+    const { recordFlowTodo, resetForTest } = await import("../src/vibeOS-lib/flow-enforcer.js?t=" + Date.now())
+    resetForTest([])
+    const todoFile = join(sb, ".claude/.flow-todo-queue.jsonl")
+    rmSync(todoFile, { force: true })
+
+    assert.equal(recordFlowTodo({
+      filePath: "src/clean.js",
+      content: "const x = 1;\nfunction foo() { return x; }",
+    }), 0, "empty content is a pure no-op")
+    assert.equal(existsSync(todoFile), false, "no queue file created for empty content")
+
+    const content = "// TODO: fix this later\nconst ok = true;\n"
+    assert.equal(recordFlowTodo({
+      filePath: "src/dup.js",
+      content,
+    }), 1, "first extraction writes one TODO")
+    assert.equal(recordFlowTodo({
+      filePath: "src/dup.js",
+      content,
+    }), 0, "identical payload is deduped on the queue")
+
+    const lines = readFileSync(todoFile, "utf-8").trim().split("\n").filter(Boolean)
+    assert.equal(lines.length, 1, "queue keeps a single entry for duplicate payloads")
+  } finally {
+    process.env.HOME = prevHome
+    if (prevVibeHome) process.env.VIBEOS_HOME = prevVibeHome
+    else delete process.env.VIBEOS_HOME
+    rmSync(sb, { recursive: true, force: true })
+  }
+})
+
+test("tool.execute.after: todowrite persists intercepted todos once", async () => {
+  const prevHome = process.env.HOME
+  const prevVibeHome = process.env.VIBEOS_HOME
+  process.env.HOME = sandbox
+  process.env.VIBEOS_HOME = join(sandbox, ".claude")
+  try {
+    writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+      selection: { enabled: true, active_slot: "brain", flow_enabled: true },
+      trinity: {
+        brain: { oc: "deepseek/deepseek-v4-pro" },
+        medium: { oc: "deepseek/deepseek-v4-flash" },
+        cheap: { oc: "deepseek/deepseek-chat" },
+      },
+    }))
+    const proj = join(sandbox, ".opencode-todowrite-hook")
+    mkdirSync(proj, { recursive: true })
+    const mod = await loadPlugin()
+    const hooks = await mod.DelegationEnforcer({ client: {}, directory: proj })
+    const todosFile = join(sandbox, ".claude/todos.json")
+    rmSync(todosFile, { force: true })
+
+    await hooks["tool.execute.before"](
+      { tool: "todowrite", args: { todos: [{ content: "fix this", filePath: "src/a.ts", priority: "high" }] } },
+      {},
+    )
+    await hooks["tool.execute.after"]({ tool: "todowrite" }, { result: "ok" })
+    const todos = JSON.parse(readFileSync(todosFile, "utf-8"))
+    assert.equal(todos.length, 1, "one todo persisted from todowrite")
+    assert.equal(todos[0].content, "fix this", "todo content preserved")
+
+    await hooks["tool.execute.after"]({ tool: "todowrite" }, { result: "ok" })
+    const after = JSON.parse(readFileSync(todosFile, "utf-8"))
+    assert.equal(after.length, 1, "stale todowrite payload does not duplicate on later after-hook")
+  } finally {
+    process.env.HOME = prevHome
+    if (prevVibeHome) process.env.VIBEOS_HOME = prevVibeHome
+    else delete process.env.VIBEOS_HOME
   }
 })
 

@@ -329,6 +329,37 @@ test('e2e: INIT live footer keeps the regime icon visible', async () => {
   assert.ok(footer.includes('Budget') || footer.includes('VibeMaX'), 'INIT footer should stay in the budget lane: ' + footer)
 })
 
+test('e2e: blackbox advances past INIT with role-only user messages', async () => {
+  const { home, sandbox } = makeSandbox('role-only')
+  const projectDir = join(sandbox, 'proj')
+  mkdirSync(projectDir, { recursive: true })
+  process.env.HOME = home
+  process.env.VIBEOS_HOME = join(home, ".claude")
+
+  const tiersPath = join(home, ".claude/model-tiers.json")
+  const tiersCfg = JSON.parse(readFileSync(tiersPath, "utf-8"))
+  tiersCfg.selection.blackbox_enabled = true
+  writeFileSync(tiersPath, JSON.stringify(tiersCfg, null, 2) + "\n")
+
+  const mod = await import('../src/index.js?role1=' + Date.now())
+  const hooks = await mod.DelegationEnforcer({ directory: projectDir })
+
+  await hooks['experimental.chat.messages.transform'](
+    {},
+    { messages: [{ role: 'user', content: 'implement a login handler' }] }
+  )
+  await hooks['experimental.chat.messages.transform'](
+    {},
+    { messages: [{ role: 'user', content: 'add validation to the login handler' }] }
+  )
+
+  const blackboxState = JSON.parse(readFileSync(join(home, '.claude', 'blackbox-state.json'), 'utf-8'))
+  const sessionKey = Object.keys(blackboxState.sessions).find(s => !s.endsWith('_opt'))
+  assert.ok(sessionKey, 'role-only blackbox session should exist')
+  assert.ok((blackboxState.sessions[sessionKey].history || []).length >= 2, 'role-only path should track multiple turns')
+  assert.notEqual(blackboxState.sessions[sessionKey].sub_regime, 'INIT', 'second tracked turn should move past INIT')
+})
+
 // E2E: Additional Trinity Commands
 
 test('e2e: trinity help returns non-empty string', async () => {

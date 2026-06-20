@@ -624,13 +624,16 @@ function injectWBP(messages: any[]): void {
 
 // -- Blackbox resolution tracking -----------------------------------
 async function trackBlackbox(messages: any[]): Promise<void> {
-  const lastUserMsg = messages.slice().reverse().find(m => m?.info?.role === "user")
+  const lastUserMsg = messages.slice().reverse().find(m => m?.info?.role === "user" || m?.role === "user")
   if (!lastUserMsg) return
 
   const textPart = lastUserMsg.parts?.find(p => p?.type === "text")
-  if (!textPart?.text) return
+  const fallbackText = typeof lastUserMsg.content === "string" ? lastUserMsg.content
+    : typeof lastUserMsg.text === "string" ? lastUserMsg.text
+      : null
+  if (!textPart?.text && !fallbackText) return
 
-  latestUserIntent = textPart.text
+  latestUserIntent = textPart?.text || fallbackText
   if (!_blackboxEnabled) return
 
   try {

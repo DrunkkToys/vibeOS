@@ -69,6 +69,26 @@ test('semantic: PROTECTED_CHAIN detected from mutation then bypass then deployme
   assert.ok(patterns.some(p => p.key === 'workflow:circumvented-review'))
 })
 
+test('semantic: repeated git-commit bypasses compact to one friction pattern', async () => {
+  const sid = 'guard-coalesce-test'
+  const fingerprint = 'fp-coalesce'
+  globalThis.__vibeOS_SID = sid
+  const base = Date.now()
+  mod.writeEvent(sid, { tool: 'bash', role: 'verification', family: 'git-commit', at: base, isGuardBreach: false, isProtectedTarget: false, exitCode: 1 })
+  mod.writeEvent(sid, { tool: 'bash', role: 'bypass', family: 'git-commit', at: base + 1_000, isGuardBreach: true, isProtectedTarget: false, exitCode: null })
+  mod.writeEvent(sid, { tool: 'bash', role: 'bypass', family: 'git-commit', at: base + 2_000, isGuardBreach: true, isProtectedTarget: false, exitCode: null })
+  mod.writeEvent(sid, { tool: 'bash', role: 'bypass', family: 'git-commit', at: base + 3_000, isGuardBreach: true, isProtectedTarget: false, exitCode: null })
+  mod.sessionCompact(sid, fingerprint)
+  mod.sessionCompact(sid, fingerprint)
+
+  const state = JSON.parse(readFileSync(join(claudeDir, 'project-states.json'), 'utf-8'))
+  const friction = state.project_hashes?.[fingerprint]?.userPatterns?.friction || {}
+  const entry = friction['workflow:bypass-after-failure:git-commit']
+  assert.ok(entry, 'guard-breach friction entry is recorded')
+  assert.strictEqual((entry.sessions || []).length, 1, 'repeated bypasses coalesce into one session entry')
+  assert.strictEqual(Object.keys(friction).filter((key) => key === 'workflow:bypass-after-failure:git-commit').length, 1, 'only one friction key is stored')
+})
+
 test('semantic: deriveTags correctly identifies protected targets', async () => {
   const modPh = await import(join(ROOT, 'src/lib/pattern-helpers.js'))
   assert.ok(modPh.targetsProtectedBranch('git push origin master'))

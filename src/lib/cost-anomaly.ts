@@ -65,6 +65,10 @@ export function getCostAnomalyDetector(): CostAnomalyDetector {
   return _costDetector
 }
 
+export function _resetCostAnomalyDetectorForTest(): void {
+  _costDetector = null
+}
+
 export function setCostAnomalyDetection(enabled: boolean): void {
   const d = getCostAnomalyDetector()
   d.disabled = !enabled

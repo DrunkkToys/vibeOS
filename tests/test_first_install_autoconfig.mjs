@@ -10,15 +10,34 @@ import { tmpdir } from "node:os"
 import { join, dirname } from "node:path"
 
 let sandbox
+let testQueue = Promise.resolve()
+const prevVibeOSHome = process.env.VIBEOS_HOME
+
+async function runSerialized(fn) {
+  let release
+  const prev = testQueue
+  testQueue = new Promise((resolve) => { release = resolve })
+  await prev
+  try {
+    return await fn()
+  } finally {
+    release()
+  }
+}
 
 before(() => {
   sandbox = mkdtempSync(join(tmpdir(), "first-install-test-"))
   mkdirSync(join(sandbox, ".claude", "scratch"), { recursive: true })
   mkdirSync(join(sandbox, ".config", "opencode"), { recursive: true })
   process.env.HOME = sandbox
+  process.env.VIBEOS_HOME = join(sandbox, ".claude")
 })
 
-after(() => rmSync(sandbox, { recursive: true, force: true }))
+after(() => {
+  if (prevVibeOSHome === undefined) delete process.env.VIBEOS_HOME
+  else process.env.VIBEOS_HOME = prevVibeOSHome
+  rmSync(sandbox, { recursive: true, force: true })
+})
 
 async function loadPlugin() {
   return await import("../src/index.js?t=" + Date.now())
@@ -26,7 +45,7 @@ async function loadPlugin() {
 
 // ──────────────────────────────────────────────────────────────────────
 
-test("first install: auto-creates model-tiers.json from opencode desktop provider models", async () => {
+test("first install: auto-creates model-tiers.json from opencode desktop provider models", { concurrency: false }, async () => runSerialized(async () => {
   // Step 1: Simulate opencode desktop with 3 models in the dropdown
   const opencodeConfigPath = join(sandbox, ".config", "opencode", "opencode.json")
   writeFileSync(opencodeConfigPath, JSON.stringify({
@@ -69,6 +88,8 @@ test("first install: auto-creates model-tiers.json from opencode desktop provide
   assert.ok(tiers.selection, "selection key must exist")
   assert.equal(tiers.selection.active_slot, "brain", "active slot defaults to brain")
   assert.equal(tiers.selection.enabled, true, "enabled defaults to true")
+  assert.equal(tiers.selection.optimization_mode, "vibeultrax", "fresh install defaults to VibeUltraX")
+  assert.equal(tiers.selection.requested_optimization_mode, "vibeultrax", "fresh install requests VibeUltraX")
 
   // Brain = the highest-tier detected model (v4-pro)
   assert.ok(tiers.trinity.brain, "brain slot must be populated")
@@ -91,15 +112,17 @@ test("first install: auto-creates model-tiers.json from opencode desktop provide
   await hooks["shell.env"]({}, envOut)
   assert.equal(envOut.env.OPENCODE_MODEL_TIER, "high", "brain model must be high tier")
   assert.equal(envOut.env.OPENCODE_MODEL, "deepseek/deepseek-v4-pro", "model must match project config")
-})
+}))
 
-test("first install: falls back to deriving from current model when no provider models found", async () => {
+test("first install: falls back to deriving from current model when no provider models found", { concurrency: false }, async () => runSerialized(async () => {
   // Fresh sandbox
   const sb = mkdtempSync(join(tmpdir(), "first-install-fallback-"))
   mkdirSync(join(sb, ".claude", "scratch"), { recursive: true })
   mkdirSync(join(sb, ".config", "opencode"), { recursive: true })
   const prevHome = process.env.HOME
+  const prevVibeHome = process.env.VIBEOS_HOME
   process.env.HOME = sb
+  process.env.VIBEOS_HOME = join(sb, ".claude")
 
   try {
     // OpenCode config exists but has NO provider models
@@ -131,16 +154,19 @@ test("first install: falls back to deriving from current model when no provider 
     assert.ok(tiers.trinity.medium.oc, "medium must be populated")
   } finally {
     process.env.HOME = prevHome
+    process.env.VIBEOS_HOME = prevVibeHome
     rmSync(sb, { recursive: true, force: true })
   }
-})
+}))
 
-test("first install: does NOT overwrite existing model-tiers.json with real models", async () => {
+test("first install: does NOT overwrite existing model-tiers.json with real models", { concurrency: false }, async () => runSerialized(async () => {
   const sb = mkdtempSync(join(tmpdir(), "first-install-keep"))
   mkdirSync(join(sb, ".claude", "scratch"), { recursive: true })
   mkdirSync(join(sb, ".config", "opencode"), { recursive: true })
   const prevHome = process.env.HOME
+  const prevVibeHome = process.env.VIBEOS_HOME
   process.env.HOME = sb
+  process.env.VIBEOS_HOME = join(sb, ".claude")
 
   try {
     // Pre-create model-tiers.json with real (non-placeholder) models
@@ -184,12 +210,13 @@ test("first install: does NOT overwrite existing model-tiers.json with real mode
     console.log("  Preserved existing model-tiers.json unchanged")
   } finally {
     process.env.HOME = prevHome
+    process.env.VIBEOS_HOME = prevVibeHome
     rmSync(sb, { recursive: true, force: true })
   }
-})
+}))
 
 // ── Regression: footer dedup — _appendFooter strips existing vibeOS footer ──
-test("regression: _appendFooter strips existing vibeOS footer to prevent double footer", async () => {
+test("regression: _appendFooter strips existing vibeOS footer to prevent double footer", { concurrency: false }, async () => runSerialized(async () => {
   const { _appendFooter } = await import("../src/lib/hooks/footer.js?t=" + Date.now())
   const textWithFooter = `Hello world
 
@@ -199,10 +226,10 @@ test("regression: _appendFooter strips existing vibeOS footer to prevent double 
   const matches = String(output.text || "").match(/VIBE/g)
   assert.ok(matches, "footer should contain VIBE")
   assert.equal(matches.length, 1, "must NOT contain duplicate VIBE footers")
-})
+}))
 
 // ── Regression: footer shows slot model not stale currentModel ──
-test("regression: footer shows slot model not stale currentModel", async () => {
+test("regression: footer shows slot model not stale currentModel", { concurrency: false }, async () => runSerialized(async () => {
   const { DelegationEnforcer } = await loadPlugin()
   const { setCurrentModel } = await import("../src/lib/state.js?t=" + Date.now())
   setCurrentModel("deepseek/deepseek-chat")
@@ -211,10 +238,10 @@ test("regression: footer shows slot model not stale currentModel", async () => {
   await hooks["shell.env"]({}, envOut)
   assert.equal(envOut.env.OPENCODE_MODEL, "deepseek/deepseek-v4-pro", "model must be slot model, not stale")
   assert.equal(envOut.env.OPENCODE_MODEL_TIER, "high", "tier must stay high")
-})
+}))
 
 // ── Regression: no [vibeOS] [delegation] stderr in CLI mode ──
-test("regression: no [vibeOS] [delegation] stderr in CLI mode by default", async () => {
+test("regression: no [vibeOS] [delegation] stderr in CLI mode by default", { concurrency: false }, async () => runSerialized(async () => {
   const { spawnSync } = await import("node:child_process")
   const result = spawnSync(process.execPath, [
     "--input-type=module",
@@ -226,5 +253,4 @@ test("regression: no [vibeOS] [delegation] stderr in CLI mode by default", async
   })
   const lines = (result.stderr.toString() + result.stdout.toString()).split('\n').filter(l => l.includes('[vibeOS] [delegation]'))
   assert.equal(lines.length, 0, 'no delegation stderr lines should appear without VIBEOS_DEBUG_DELEGATION')
-})
-
+}))
