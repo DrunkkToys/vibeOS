@@ -319,6 +319,10 @@ Core features work fully offline: model tier classification, static pricing, str
 
 Remote API (api.vibetheog.com) enables: bootstrap token exchange, advanced VibeBoX with full session history, dynamic per-prompt delegation, cross-session calibration, live pricing fetch, learned subagent routing. Falls back gracefully when unreachable.
 
+### What Is Missing For A True Session Orchestrator
+
+Session versioning/undo. Template versioning. Batch operations. Real-time WebSocket updates. Session comparison. Export/import. Home-tab template editing.
+
 ### Live Footer
 
 The footer is the primary status line, appended to every assistant response. It surfaces model assignment, savings, mode, alerts, and session metrics in a single line.
