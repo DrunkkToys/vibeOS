@@ -30,6 +30,8 @@ function fresh() {
     VIBEOS_API_DISABLED: env.VIBEOS_API_DISABLED,
     VIBEOS_API_TOKEN: env.VIBEOS_API_TOKEN,
     VIBEOS_MCP_PORT: env.VIBEOS_MCP_PORT,
+    VIBEOS_REMOTE_LATENCY_DEGRADE_MS: env.VIBEOS_REMOTE_LATENCY_DEGRADE_MS,
+    VIBEOS_REMOTE_LATENCY_DEGRADE_COOLDOWN_MS: env.VIBEOS_REMOTE_LATENCY_DEGRADE_COOLDOWN_MS,
   }
 
   env.HOME = home
@@ -53,6 +55,10 @@ async function restore(ctx) {
   else env.VIBEOS_API_TOKEN = ctx.snap.VIBEOS_API_TOKEN
   if (ctx.snap.VIBEOS_MCP_PORT === undefined) delete env.VIBEOS_MCP_PORT
   else env.VIBEOS_MCP_PORT = ctx.snap.VIBEOS_MCP_PORT
+  if (ctx.snap.VIBEOS_REMOTE_LATENCY_DEGRADE_MS === undefined) delete env.VIBEOS_REMOTE_LATENCY_DEGRADE_MS
+  else env.VIBEOS_REMOTE_LATENCY_DEGRADE_MS = ctx.snap.VIBEOS_REMOTE_LATENCY_DEGRADE_MS
+  if (ctx.snap.VIBEOS_REMOTE_LATENCY_DEGRADE_COOLDOWN_MS === undefined) delete env.VIBEOS_REMOTE_LATENCY_DEGRADE_COOLDOWN_MS
+  else env.VIBEOS_REMOTE_LATENCY_DEGRADE_COOLDOWN_MS = ctx.snap.VIBEOS_REMOTE_LATENCY_DEGRADE_COOLDOWN_MS
   delete globalThis.__vibeOSRuntimeState
 }
 
@@ -212,6 +218,8 @@ test("health responses cache the backend version for status surfaces", async () 
     VIBEOS_API_DISABLED: env.VIBEOS_API_DISABLED,
     VIBEOS_API_TOKEN: env.VIBEOS_API_TOKEN,
     VIBEOS_MCP_PORT: env.VIBEOS_MCP_PORT,
+    VIBEOS_REMOTE_LATENCY_DEGRADE_MS: env.VIBEOS_REMOTE_LATENCY_DEGRADE_MS,
+    VIBEOS_REMOTE_LATENCY_DEGRADE_COOLDOWN_MS: env.VIBEOS_REMOTE_LATENCY_DEGRADE_COOLDOWN_MS,
   }
 
   env.HOME = home
@@ -243,6 +251,62 @@ test("health responses cache the backend version for status surfaces", async () 
     const health = await client.health()
     assert.deepEqual(health, { status: "ok", version: "1.0.29" })
     assert.equal(api.getBackendVersion(), "1.0.29", "backend version should be cached after health probe")
+  } finally {
+    global.fetch = prevFetch
+    await restore({ snap })
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test("slow remote calls trigger a latency guard so the next call stays local", async () => {
+  stamp++
+  const home = mkdtempSync(join(tmpdir(), `vibeos-latency-${stamp}-`))
+  sandboxes.push(home)
+  mkdirSync(join(home, ".claude"), { recursive: true })
+
+  const env = process.env
+  const snap = {
+    HOME: env.HOME,
+    VIBEOS_API_URL: env.VIBEOS_API_URL,
+    VIBEOS_API_DISABLED: env.VIBEOS_API_DISABLED,
+    VIBEOS_API_TOKEN: env.VIBEOS_API_TOKEN,
+    VIBEOS_MCP_PORT: env.VIBEOS_MCP_PORT,
+    VIBEOS_REMOTE_LATENCY_DEGRADE_MS: env.VIBEOS_REMOTE_LATENCY_DEGRADE_MS,
+    VIBEOS_REMOTE_LATENCY_DEGRADE_COOLDOWN_MS: env.VIBEOS_REMOTE_LATENCY_DEGRADE_COOLDOWN_MS,
+  }
+
+  env.HOME = home
+  env.VIBEOS_API_URL = "https://api.example.invalid"
+  delete env.VIBEOS_API_DISABLED
+  env.VIBEOS_API_TOKEN = "vos_" + "f".repeat(64)
+  env.VIBEOS_MCP_PORT = "0"
+  env.VIBEOS_REMOTE_LATENCY_DEGRADE_MS = "10"
+  env.VIBEOS_REMOTE_LATENCY_DEGRADE_COOLDOWN_MS = "60000"
+  delete globalThis.__vibeOSRuntimeState
+
+  const prevFetch = global.fetch
+  let fetchCalls = 0
+  global.fetch = async (url, init = {}) => {
+    fetchCalls++
+    if (String(url).endsWith("/api/v1/blackbox/select-mode")) {
+      await new Promise((resolve) => setTimeout(resolve, 25))
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ mode: "quality" }),
+      }
+    }
+    throw new Error("unexpected fetch " + url)
+  }
+
+  try {
+    const api = await import(`../src/lib/api-client.js?r=latency-${stamp}`)
+    const first = await api.remoteCall("blackboxSelectMode", ["INIT", 0], () => "local-1")
+    const second = await api.remoteCall("blackboxSelectMode", ["INIT", 0], () => "local-2")
+    assert.deepEqual(first, { mode: "quality" }, "first call should still reach the API")
+    assert.equal(second, "local-2", "second call should short-circuit to the local path")
+    assert.equal(fetchCalls, 1, "only one network call should be needed before the latency guard engages")
+    assert.equal(api.isApiLatencyDegraded(), true, "latency guard should remain active after the slow call")
   } finally {
     global.fetch = prevFetch
     await restore({ snap })

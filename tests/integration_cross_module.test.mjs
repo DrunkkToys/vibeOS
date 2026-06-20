@@ -2,7 +2,7 @@
 // Tests interactions between flow enforcer, TDD enforcer, blackbox, stress pipeline, footer
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, statSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { execFileSync } from 'node:child_process'
@@ -504,6 +504,58 @@ test('pivot cache: pivot and counter-pivot both resolve to the cached workflow',
   const counterPivot = cache.detectPivotBack(cache.tokenize(workflowA))
   assert.equal(counterPivot.matchedId, 'wf-login', 'returning to the earlier workflow should match the cached pivot')
   assert.ok(cache.buildInjection('wf-login').includes('[PIVOT BACK]'), 'pivot cache should still build a PIVOT BACK injection')
+})
+
+test('pivot cache: compact index keeps useful workflows and drops ambiguous noise', async () => {
+  const { PivotCache } = await import('../src/vibeOS-lib/blackbox/pivot-cache.js?pivot-index=' + Date.now())
+  const { home, sandbox } = makeSandbox('pivot-cache-compact')
+  const cacheDir = join(home, '.claude')
+  const cache = new PivotCache(cacheDir)
+
+  cache.snapshot('wf-noise', {
+    tokens: ['misc'],
+    intent: 'misc',
+    decisions: [],
+    files: [],
+    blockers: [],
+    code_snippets: [],
+    toolOutputs: [],
+  })
+  cache.snapshot('wf-login', {
+    tokens: [...cache.tokenize('build a login form with password validation')],
+    intent: 'build a login form with password validation',
+    decisions: ['use a focused validation flow'],
+    files: ['src/login.ts'],
+    blockers: ['password rule coverage'],
+    code_snippets: [],
+    toolOutputs: [],
+  })
+  cache.snapshot('wf-weather', {
+    tokens: [...cache.tokenize('check the weather forecast for today')],
+    intent: 'check the weather forecast for today',
+    decisions: ['use a weather API'],
+    files: ['src/weather.ts'],
+    blockers: ['API key not configured'],
+    code_snippets: [],
+    toolOutputs: [],
+  })
+  cache.save()
+
+  const storePath = join(cacheDir, '.vibeos-pivot-cache.json')
+  const indexPath = join(cacheDir, '.vibeos-pivot-cache.index.json')
+  assert.ok(existsSync(indexPath), 'compact index should be written')
+
+  const index = JSON.parse(readFileSync(indexPath, 'utf-8'))
+  assert.ok(!index.pivots['wf-noise'], 'ambiguous misc workflow should be dropped from the hot index')
+  assert.ok(index.pivots['wf-login'], 'useful workflow should remain in the hot index')
+  assert.ok(index.pivots['wf-weather'], 'recent useful workflow should remain in the hot index')
+  assert.ok(index.sequence.includes('wf-login'), 'index keeps workflow order for matching')
+  assert.ok(index.sequence.includes('wf-weather'), 'index keeps workflow order for matching')
+  assert.ok(statSync(indexPath).size < statSync(storePath).size, 'compact index should be smaller than the full store')
+
+  const fresh = new PivotCache(cacheDir)
+  const pivotBack = fresh.detectPivotBack(fresh.tokenize('build a login form with password validation'))
+  assert.equal(pivotBack.matchedId, 'wf-login', 'compact index should still resolve the useful workflow')
 })
 
 // Section 7: State Corruption Recovery

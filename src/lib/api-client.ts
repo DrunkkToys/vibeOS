@@ -656,6 +656,7 @@ export function setApiToken(newToken) {
     _apiClientHolder = { client: null, gen: _apiClientGen, tokenSnapshot: VIBEOS_API_TOKEN }
     _apiFallbackMode = false
     _apiFallbackSince = null
+    _apiLatencyDegradedUntil = 0
     persistPrimaryApiEnvState({ token: VIBEOS_API_TOKEN, disabled: false })
     if (_anomalyDetector) _anomalyDetector.reset()
     markApiConnected()
@@ -675,6 +676,7 @@ export function invalidateApiToken() {
     _apiClientHolder = { client: null, gen: _apiClientGen, tokenSnapshot: "" }
     _apiFallbackMode = false
     _apiFallbackSince = null
+    _apiLatencyDegradedUntil = 0
     if (_anomalyDetector) _anomalyDetector.reset()
     persistBootstrapToken("")
     persistPrimaryApiEnvState({ token: "", disabled: true })
@@ -691,6 +693,7 @@ export function setApiBootstrapToken(newToken) {
     VIBEOS_API_BOOTSTRAP_TOKEN = String(newToken || "").trim()
     syncApiEnabledState(process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN))
     markApiConnected()
+    _apiLatencyDegradedUntil = 0
     persistPrimaryApiEnvState({ disabled: false })
     persistBootstrapToken(VIBEOS_API_BOOTSTRAP_TOKEN)
     console.error("[vibeOS] Alpha bootstrap token updated")
@@ -706,8 +709,17 @@ let _apiFallbackSince = null
 let _bootstrapExchangeInFlight: Promise<boolean> | null = null
 let _bootstrapExchangeFailedAt = 0
 let _backendVersion = ""
+let _apiLatencyDegradedUntil = 0
+const LATENCY_GUARDED_METHODS = new Set([
+  "blackboxAnalyze",
+  "blackboxControlVector",
+  "blackboxSelectMode",
+  "routeModel",
+])
 
 const FALLBACK_COOLDOWN_MS = process.env.VIBEOS_FAST_CI === "1" ? 5_000 : 60_000
+const LATENCY_DEGRADE_THRESHOLD_MS = Number(process.env.VIBEOS_REMOTE_LATENCY_DEGRADE_MS || 800)
+const LATENCY_DEGRADE_COOLDOWN_MS = Number(process.env.VIBEOS_REMOTE_LATENCY_DEGRADE_COOLDOWN_MS || 2 * 60_000)
 
 function tryResetFallbackCooldown(): boolean {
   if (!_apiFallbackMode || !_apiFallbackSince) return false
@@ -721,8 +733,24 @@ function tryResetFallbackCooldown(): boolean {
   return false
 }
 
+function markApiLatencyDegraded(durationMs: number): void {
+  if (!Number.isFinite(durationMs) || durationMs < LATENCY_DEGRADE_THRESHOLD_MS) return
+  _apiLatencyDegradedUntil = Date.now() + LATENCY_DEGRADE_COOLDOWN_MS
+  if (process.env.VIBEOS_DEBUG) {
+    console.warn(`[vibeOS] API latency guard engaged (${Math.round(durationMs)}ms)`)
+  }
+}
+
+function shouldApplyLatencyGuard(method: string): boolean {
+  return LATENCY_GUARDED_METHODS.has(String(method || ""))
+}
+
 export function getApiFallbackSince(): string | null {
   return _apiFallbackSince
+}
+
+export function isApiLatencyDegraded(): boolean {
+  return Date.now() < _apiLatencyDegradedUntil
 }
 
 function recordBackendVersion(payload: unknown): void {
@@ -879,11 +907,19 @@ export async function remoteCall(method, args, fallbackFn) {
     if (fallbackFn) return fallbackFn()
     return null
   }
+  if (shouldApplyLatencyGuard(method) && isApiLatencyDegraded()) {
+    if (fallbackFn) return fallbackFn()
+    return null
+  }
 
   try {
     const client = getApiClient()
     if (!client) { if (fallbackFn) return fallbackFn(); return null }
+    const startedAt = Date.now()
     const result = await client[method](...args)
+    if (shouldApplyLatencyGuard(method)) {
+      markApiLatencyDegraded(Date.now() - startedAt)
+    }
     if (method === "health") recordBackendVersion(result)
     if (_apiFallbackMode) {
       _apiFallbackMode = false

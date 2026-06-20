@@ -3354,6 +3354,7 @@ __export(api_client_exports, {
   invalidateApiToken: () => invalidateApiToken,
   isApiConnected: () => isApiConnected,
   isApiFallback: () => isApiFallback,
+  isApiLatencyDegraded: () => isApiLatencyDegraded,
   remoteCall: () => remoteCall,
   setAnomalyDetection: () => setAnomalyDetection,
   setApiBootstrapToken: () => setApiBootstrapToken,
@@ -3516,6 +3517,7 @@ function setApiToken(newToken) {
     _apiClientHolder = { client: null, gen: _apiClientGen, tokenSnapshot: VIBEOS_API_TOKEN };
     _apiFallbackMode = false;
     _apiFallbackSince = null;
+    _apiLatencyDegradedUntil = 0;
     persistPrimaryApiEnvState({ token: VIBEOS_API_TOKEN, disabled: false });
     if (_anomalyDetector)
       _anomalyDetector.reset();
@@ -3535,6 +3537,7 @@ function invalidateApiToken() {
     _apiClientHolder = { client: null, gen: _apiClientGen, tokenSnapshot: "" };
     _apiFallbackMode = false;
     _apiFallbackSince = null;
+    _apiLatencyDegradedUntil = 0;
     if (_anomalyDetector)
       _anomalyDetector.reset();
     persistBootstrapToken("");
@@ -3551,6 +3554,7 @@ function setApiBootstrapToken(newToken) {
     VIBEOS_API_BOOTSTRAP_TOKEN = String(newToken || "").trim();
     syncApiEnabledState(process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN));
     markApiConnected();
+    _apiLatencyDegradedUntil = 0;
     persistPrimaryApiEnvState({ disabled: false });
     persistBootstrapToken(VIBEOS_API_BOOTSTRAP_TOKEN);
     console.error("[vibeOS] Alpha bootstrap token updated");
@@ -3570,8 +3574,22 @@ function tryResetFallbackCooldown() {
   }
   return false;
 }
+function markApiLatencyDegraded(durationMs) {
+  if (!Number.isFinite(durationMs) || durationMs < LATENCY_DEGRADE_THRESHOLD_MS)
+    return;
+  _apiLatencyDegradedUntil = Date.now() + LATENCY_DEGRADE_COOLDOWN_MS;
+  if (process.env.VIBEOS_DEBUG) {
+    console.warn(`[vibeOS] API latency guard engaged (${Math.round(durationMs)}ms)`);
+  }
+}
+function shouldApplyLatencyGuard(method) {
+  return LATENCY_GUARDED_METHODS.has(String(method || ""));
+}
 function getApiFallbackSince() {
   return _apiFallbackSince;
+}
+function isApiLatencyDegraded() {
+  return Date.now() < _apiLatencyDegradedUntil;
 }
 function recordBackendVersion(payload) {
   if (!payload || typeof payload !== "object")
@@ -3725,6 +3743,11 @@ async function remoteCall(method, args, fallbackFn) {
       return fallbackFn();
     return null;
   }
+  if (shouldApplyLatencyGuard(method) && isApiLatencyDegraded()) {
+    if (fallbackFn)
+      return fallbackFn();
+    return null;
+  }
   try {
     const client2 = getApiClient();
     if (!client2) {
@@ -3732,7 +3755,11 @@ async function remoteCall(method, args, fallbackFn) {
         return fallbackFn();
       return null;
     }
+    const startedAt = Date.now();
     const result = await client2[method](...args);
+    if (shouldApplyLatencyGuard(method)) {
+      markApiLatencyDegraded(Date.now() - startedAt);
+    }
     if (method === "health")
       recordBackendVersion(result);
     if (_apiFallbackMode) {
@@ -3770,7 +3797,7 @@ async function remoteCall(method, args, fallbackFn) {
     return null;
   }
 }
-var DEFAULT_API_URL, EMBEDDED_API_TOKEN, API_TOKEN_RE, API_DISABLED_RE, REQUEST_TIMEOUT, MAX_RETRIES, BASE_RETRY_DELAY, ALPHA_BUILD_CHANNEL, BOOTSTRAP_EXCHANGE_PATH, BOOTSTRAP_RETRY_COOLDOWN_MS, VibeOSAuthError, VibeOSTimeoutError, VibeOSNetworkError, ANOMALY_BURST_WINDOW_MS, ANOMALY_BURST_THRESHOLD, ANOMALY_FREQ_WINDOW_MS, ANOMALY_STDDEV_FACTOR, ANOMALY_WARMUP_MS, ANOMALY_COOLDOWN_MS, TokenAnomalyDetector, VibeOSApiClient, VIBEOS_API_URL, _apiDir, _envPaths, _bootstrapEnvPath, VIBEOS_API_DISABLED, VIBEOS_API_TOKEN, VIBEOS_API_BOOTSTRAP_TOKEN, VIBEOS_API_ENABLED, _anomalyDetector, _apiClientHolder, _apiClientGen, _apiFallbackMode, _apiFallbackSince, _bootstrapExchangeInFlight, _bootstrapExchangeFailedAt, _backendVersion, FALLBACK_COOLDOWN_MS;
+var DEFAULT_API_URL, EMBEDDED_API_TOKEN, API_TOKEN_RE, API_DISABLED_RE, REQUEST_TIMEOUT, MAX_RETRIES, BASE_RETRY_DELAY, ALPHA_BUILD_CHANNEL, BOOTSTRAP_EXCHANGE_PATH, BOOTSTRAP_RETRY_COOLDOWN_MS, VibeOSAuthError, VibeOSTimeoutError, VibeOSNetworkError, ANOMALY_BURST_WINDOW_MS, ANOMALY_BURST_THRESHOLD, ANOMALY_FREQ_WINDOW_MS, ANOMALY_STDDEV_FACTOR, ANOMALY_WARMUP_MS, ANOMALY_COOLDOWN_MS, TokenAnomalyDetector, VibeOSApiClient, VIBEOS_API_URL, _apiDir, _envPaths, _bootstrapEnvPath, VIBEOS_API_DISABLED, VIBEOS_API_TOKEN, VIBEOS_API_BOOTSTRAP_TOKEN, VIBEOS_API_ENABLED, _anomalyDetector, _apiClientHolder, _apiClientGen, _apiFallbackMode, _apiFallbackSince, _bootstrapExchangeInFlight, _bootstrapExchangeFailedAt, _backendVersion, _apiLatencyDegradedUntil, LATENCY_GUARDED_METHODS, FALLBACK_COOLDOWN_MS, LATENCY_DEGRADE_THRESHOLD_MS, LATENCY_DEGRADE_COOLDOWN_MS;
 var init_api_client = __esm({
   "src/lib/api-client.js"() {
     "use strict";
@@ -4181,7 +4208,16 @@ var init_api_client = __esm({
     _bootstrapExchangeInFlight = null;
     _bootstrapExchangeFailedAt = 0;
     _backendVersion = "";
+    _apiLatencyDegradedUntil = 0;
+    LATENCY_GUARDED_METHODS = /* @__PURE__ */ new Set([
+      "blackboxAnalyze",
+      "blackboxControlVector",
+      "blackboxSelectMode",
+      "routeModel"
+    ]);
     FALLBACK_COOLDOWN_MS = process.env.VIBEOS_FAST_CI === "1" ? 5e3 : 6e4;
+    LATENCY_DEGRADE_THRESHOLD_MS = Number(process.env.VIBEOS_REMOTE_LATENCY_DEGRADE_MS || 800);
+    LATENCY_DEGRADE_COOLDOWN_MS = Number(process.env.VIBEOS_REMOTE_LATENCY_DEGRADE_COOLDOWN_MS || 2 * 6e4);
   }
 });
 
@@ -4388,12 +4424,15 @@ var init_meta_controller = __esm({
 import { existsSync as existsSync7, mkdirSync as mkdirSync6, readFileSync as readFileSync6, writeFileSync as writeFileSync7 } from "node:fs";
 import { join as join6, dirname as dirname6 } from "node:path";
 import { homedir as homedir5 } from "node:os";
-var PivotCache;
+var PIVOT_INDEX_VERSION, MAX_INDEXED_PIVOTS, PivotCache;
 var init_pivot_cache = __esm({
   "src/vibeOS-lib/blackbox/pivot-cache.js"() {
     "use strict";
+    PIVOT_INDEX_VERSION = 1;
+    MAX_INDEXED_PIVOTS = 2048;
     PivotCache = class {
       store;
+      index;
       baseDir;
       pivotSequence;
       currentWorkflow;
@@ -4403,28 +4442,167 @@ var init_pivot_cache = __esm({
         this.pivotSequence = [];
         this.currentWorkflow = null;
         this.lastTokens = /* @__PURE__ */ new Set();
-        this.store = this._load();
+        this.store = null;
+        this.index = this._loadIndex();
+        this.pivotSequence = [...this.index.sequence];
       }
       _storePath() {
         return join6(this.baseDir, ".vibeos-pivot-cache.json");
       }
-      _load() {
+      _indexPath() {
+        return join6(this.baseDir, ".vibeos-pivot-cache.index.json");
+      }
+      _loadStore() {
         try {
           const p = this._storePath();
           if (existsSync7(p)) {
-            return JSON.parse(readFileSync6(p, "utf-8"));
+            const parsed = JSON.parse(readFileSync6(p, "utf-8"));
+            if (parsed && typeof parsed === "object") {
+              parsed.pivots ??= {};
+              parsed.sequence = Array.isArray(parsed.sequence) ? parsed.sequence : Object.keys(parsed.pivots);
+              parsed.version = Number(parsed.version || 3);
+              return parsed;
+            }
           }
         } catch {
         }
-        return { pivots: {}, version: 3 };
+        return { pivots: {}, sequence: [], version: 3 };
+      }
+      _normalizeIndex(raw) {
+        const pivots = {};
+        if (raw?.pivots && typeof raw.pivots === "object") {
+          for (const [id2, value] of Object.entries(raw.pivots)) {
+            const entry = value;
+            const key = String(id2 || entry?.id || "").trim();
+            if (!key)
+              continue;
+            pivots[key] = {
+              id: key,
+              captured_at: String(entry?.captured_at || (/* @__PURE__ */ new Date(0)).toISOString()),
+              tokens: Array.isArray(entry?.tokens) ? entry.tokens.map((t) => String(t || "").trim()).filter(Boolean) : [],
+              intent: String(entry?.intent || ""),
+              access_count: Number(entry?.access_count || 0)
+            };
+          }
+        }
+        const sequence = Array.isArray(raw?.sequence) ? raw.sequence.map((v) => String(v || "").trim()).filter(Boolean).filter((id2) => !!pivots[id2]) : Object.keys(pivots);
+        return {
+          version: Number(raw?.version || PIVOT_INDEX_VERSION),
+          pivots,
+          sequence
+        };
+      }
+      _entrySignalScore(entry, recencyIndex = 0, total = 1) {
+        const tokenCount = Array.isArray(entry.tokens) ? entry.tokens.filter(Boolean).length : 0;
+        const intent = String(entry.intent || "").trim();
+        const intentScore = Math.min(3, Math.floor(intent.length / 32));
+        const accessScore = Math.min(20, Number(entry.access_count || 0)) * 4;
+        const miscPenalty = tokenCount === 1 && entry.tokens[0] === "misc" ? 8 : 0;
+        const recencyScore = total > 0 ? recencyIndex / total * 2 : 0;
+        return tokenCount * 3 + intentScore + accessScore + recencyScore - miscPenalty;
+      }
+      _buildIndex(store) {
+        const sourceSequence = Array.isArray(store?.sequence) && store.sequence.length > 0 ? [...store.sequence] : Object.keys(store?.pivots || {});
+        const ranked = sourceSequence.map((id2, idx) => {
+          const entry = store?.pivots?.[id2];
+          if (!entry)
+            return null;
+          return {
+            id: id2,
+            score: this._entrySignalScore(entry, idx, sourceSequence.length),
+            summary: {
+              id: id2,
+              captured_at: entry.captured_at || (/* @__PURE__ */ new Date(0)).toISOString(),
+              tokens: Array.isArray(entry.tokens) ? [...entry.tokens] : [],
+              intent: String(entry.intent || ""),
+              access_count: Number(entry.access_count || 0)
+            }
+          };
+        }).filter(Boolean);
+        ranked.sort((a, b) => b.score - a.score || a.summary.captured_at.localeCompare(b.summary.captured_at));
+        const keep = ranked.filter((item) => item.summary.tokens.length > 0 && !(item.summary.tokens.length === 1 && item.summary.tokens[0] === "misc" && item.summary.access_count <= 0)).slice(0, MAX_INDEXED_PIVOTS);
+        const pivots = {};
+        for (const item of keep)
+          pivots[item.id] = item.summary;
+        const keepIds = new Set(keep.map((item) => item.id));
+        const sequence = sourceSequence.filter((id2) => keepIds.has(id2));
+        return {
+          version: PIVOT_INDEX_VERSION,
+          pivots,
+          sequence
+        };
+      }
+      _loadIndex() {
+        try {
+          const p = this._indexPath();
+          if (existsSync7(p))
+            return this._normalizeIndex(JSON.parse(readFileSync6(p, "utf-8")));
+        } catch {
+        }
+        const store = this._loadStore();
+        const index = this._buildIndex(store);
+        this._saveIndex(index);
+        return index;
+      }
+      _saveIndex(index) {
+        try {
+          const p = this._indexPath();
+          const dir = dirname6(p);
+          if (!existsSync7(dir))
+            mkdirSync6(dir, { recursive: true });
+          writeFileSync7(p, JSON.stringify(index), "utf-8");
+        } catch {
+        }
+      }
+      _ensureStore() {
+        if (!this.store) {
+          this.store = this._loadStore();
+        }
+        this.store.pivots ??= {};
+        this.store.sequence = Array.isArray(this.store.sequence) ? this.store.sequence : Object.keys(this.store.pivots);
+        return this.store;
+      }
+      _touchIndexEntry(entry) {
+        this.index.pivots[entry.id] = {
+          id: entry.id,
+          captured_at: entry.captured_at,
+          tokens: Array.isArray(entry.tokens) ? [...entry.tokens] : [],
+          intent: String(entry.intent || ""),
+          access_count: Number(entry.access_count || 0)
+        };
+        if (!this.index.sequence.includes(entry.id)) {
+          this.index.sequence.push(entry.id);
+        }
+        this.index = this._buildIndex({
+          pivots: Object.fromEntries(Object.entries(this.index.pivots).map(([id2, summary]) => [id2, {
+            id: summary.id,
+            captured_at: summary.captured_at,
+            tokens: summary.tokens,
+            intent: summary.intent,
+            decisions: [],
+            files: [],
+            code_snippets: [],
+            blockers: [],
+            toolOutputs: [],
+            access_count: summary.access_count,
+            useful_sections: [],
+            skip_sections: []
+          }])),
+          sequence: this.index.sequence,
+          version: this.index.version
+        });
+        this.pivotSequence = [...this.index.sequence];
       }
       save() {
         try {
+          const store = this._ensureStore();
           const p = this._storePath();
           const dir = dirname6(p);
           if (!existsSync7(dir))
             mkdirSync6(dir, { recursive: true });
-          writeFileSync7(p, JSON.stringify(this.store, null, 2), "utf-8");
+          store.sequence = [...this.index.sequence];
+          writeFileSync7(p, JSON.stringify(store, null, 2), "utf-8");
+          this._saveIndex(this.index);
         } catch {
         }
       }
@@ -4466,6 +4644,7 @@ var init_pivot_cache = __esm({
         return { isPivot: adjusted < 0.3, similarity: Math.round(adjusted * 1e3) / 1e3 };
       }
       snapshot(workflowId, context) {
+        const store = this._ensureStore();
         const entry = {
           id: workflowId,
           captured_at: (/* @__PURE__ */ new Date()).toISOString(),
@@ -4480,22 +4659,23 @@ var init_pivot_cache = __esm({
           skip_sections: [],
           toolOutputs: context.toolOutputs || []
         };
-        this.store.pivots[workflowId] = entry;
-        if (!this.pivotSequence.includes(workflowId)) {
-          this.pivotSequence.push(workflowId);
+        store.pivots[workflowId] = entry;
+        if (!this.index.sequence.includes(workflowId)) {
+          this.index.sequence.push(workflowId);
         }
+        this._touchIndexEntry(entry);
         this.save();
       }
       detectPivotBack(tokens, confidenceThreshold = 0.5) {
-        if (this.pivotSequence.length < 2) {
+        if (this.index.sequence.length < 2) {
           return { matchedId: null, confidence: 0, reason: "not_enough_pivots" };
         }
         const candidates = [];
-        for (let i = 0; i < this.pivotSequence.length; i++) {
-          const pid = this.pivotSequence[i];
-          if (pid === this.pivotSequence[this.pivotSequence.length - 1])
+        for (let i = 0; i < this.index.sequence.length; i++) {
+          const pid = this.index.sequence[i];
+          if (pid === this.index.sequence[this.index.sequence.length - 1])
             continue;
-          const entry = this.store.pivots[pid];
+          const entry = this.index.pivots[pid];
           if (!entry)
             continue;
           const cached = new Set(entry.tokens);
@@ -4505,7 +4685,7 @@ var init_pivot_cache = __esm({
           const union = /* @__PURE__ */ new Set([...tokens, ...cached]);
           const jaccard = union.size === 0 ? 0 : inter.size / union.size;
           const exactBonus = tokens.size === cached.size && [...tokens].every((t) => cached.has(t)) ? 0.2 : 0;
-          const recency = i / Math.max(this.pivotSequence.length, 1);
+          const recency = i / Math.max(this.index.sequence.length, 1);
           const accessBonus = Math.min(0.1, (entry.access_count || 0) * 0.02);
           const confidence = jaccard + exactBonus + recency * 0.1 + accessBonus;
           candidates.push([pid, confidence, jaccard]);
@@ -4518,14 +4698,22 @@ var init_pivot_cache = __esm({
         if (bestConf < confidenceThreshold) {
           return { matchedId: null, confidence: bestConf, reason: "low_confidence" };
         }
-        if (this.store.pivots[bestId]) {
-          this.store.pivots[bestId].access_count = (this.store.pivots[bestId].access_count || 0) + 1;
+        const indexEntry = this.index.pivots[bestId];
+        if (indexEntry) {
+          indexEntry.access_count = (indexEntry.access_count || 0) + 1;
         }
-        this.save();
+        const storeEntry = this.store?.pivots?.[bestId];
+        if (storeEntry) {
+          storeEntry.access_count = (storeEntry.access_count || 0) + 1;
+        }
         return { matchedId: bestId, confidence: bestConf, reason: "matched" };
       }
+      read(workflowId) {
+        const store = this._ensureStore();
+        return store.pivots[workflowId] || null;
+      }
       buildInjection(workflowId, maxSections = 3) {
-        const entry = this.store.pivots[workflowId];
+        const entry = this.read(workflowId);
         if (!entry)
           return "";
         const parts = [];
@@ -4552,10 +4740,11 @@ var init_pivot_cache = __esm({
         if (parts.length <= 1 && entry.tokens.length > 0) {
           return `[PIVOT BACK] Returning to workflow tagged: ${entry.tokens.join(", ")}. Intent: ${intent}`;
         }
-        return parts.join("\n");
+        return parts.slice(0, maxSections).join("\n");
       }
       learn(workflowId, usedSections, unusedSections) {
-        const entry = this.store.pivots[workflowId];
+        const store = this._ensureStore();
+        const entry = store.pivots[workflowId];
         if (!entry)
           return;
         for (const s of usedSections) {
@@ -4567,15 +4756,17 @@ var init_pivot_cache = __esm({
             entry.skip_sections.push(s);
           }
         }
+        this._touchIndexEntry(entry);
         this.save();
       }
       resetSequence() {
         this.pivotSequence = [];
         this.currentWorkflow = null;
         this.lastTokens = /* @__PURE__ */ new Set();
+        this.index.sequence = [];
       }
       getRecentPivots(n = 5) {
-        return this.pivotSequence.slice(-n);
+        return this.index.sequence.slice(-n);
       }
     };
   }
@@ -14333,17 +14524,19 @@ async function _appendFooter(input, output, directory3) {
   let _footerStress = 0;
   if (latestUserIntent)
     _footerStress = scoreStress(latestUserIntent);
+  let liveModelSetting = "";
   try {
-    const cfg = await client.config.get("model");
-    if (cfg) {
-      const cfgModel = String(cfg);
-      if (cfgModel !== currentModel) {
-        setCurrentModel(cfgModel);
-        setCurrentTier(classify(cfgModel));
-        footerDebug(`[vibeOS] client-detected model: ${currentModel} (tier=${currentTier})`);
-      }
+    if (!isApiLatencyDegraded()) {
+      const cfg = await client.config.get("model");
+      if (cfg)
+        liveModelSetting = String(cfg);
     }
   } catch {
+  }
+  if (liveModelSetting && liveModelSetting !== currentModel) {
+    setCurrentModel(liveModelSetting);
+    setCurrentTier(classify(liveModelSetting));
+    footerDebug(`[vibeOS] client-detected model: ${currentModel} (tier=${currentTier})`);
   }
   try {
     let _payload2 = function(obj) {
@@ -14399,13 +14592,7 @@ async function _appendFooter(input, output, directory3) {
     const sessionSlot = loadBlackboxState()?.sessions?.[sid]?.active_slot || loadSessionSlot(sid);
     const slot = sessionSlot || loadSelection2().active_slot || "brain";
     const brainModel = slot === "brain" ? TRINITY_BRAIN || currentModel : slot === "medium" ? TRINITY_MEDIUM || currentModel : TRINITY_CHEAP || currentModel || "";
-    let liveModel = "";
-    try {
-      const cfg = await client.config.get("model");
-      if (cfg)
-        liveModel = String(cfg);
-    } catch {
-    }
+    let liveModel = liveModelSetting;
     if (!liveModel) {
       liveModel = readConfig(directory3) || readConfig(join18(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || "";
     }
