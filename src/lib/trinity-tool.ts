@@ -21,6 +21,25 @@ function normalizeDashboardBaseUrl(baseUrl: unknown): string {
   return String(baseUrl || "").trim().replace(/\/$/, "")
 }
 
+async function resolveDashboardBaseUrl(deps): Promise<string> {
+  const fromMemory = normalizeDashboardBaseUrl(deps.dashboardBaseUrl)
+  if (fromMemory) return fromMemory
+  if (typeof deps.ensureMcpServerRunning === "function") {
+    try {
+      await deps.ensureMcpServerRunning()
+    } catch {}
+  }
+  const afterStartup = normalizeDashboardBaseUrl(deps.dashboardBaseUrl)
+  if (afterStartup) return afterStartup
+  if (typeof deps._loadMcpPort === "function") {
+    const port = Number(deps._loadMcpPort())
+    if (Number.isFinite(port) && port > 0) {
+      return `http://127.0.0.1:${port}`
+    }
+  }
+  return ""
+}
+
 export function createTrinityTool(deps) {
   return {
     description:
@@ -75,7 +94,7 @@ export function createTrinityTool(deps) {
       else if (["full", "brief", "off"].includes(action)) { level = action; action = "thinking" }
       else if (["on", "off"].includes(action) && !slot) { slot = action }
       if (action === "dashboard") {
-        const dashboardBase = normalizeDashboardBaseUrl(deps.dashboardBaseUrl)
+        const dashboardBase = await resolveDashboardBaseUrl(deps)
         if (!dashboardBase) {
           return [
             "[vibeOS-dashboard]",

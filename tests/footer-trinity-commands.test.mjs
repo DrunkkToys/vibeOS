@@ -64,6 +64,8 @@ function makeMockDeps(sandbox) {
   let lockedSlot = null
   let lockedModel = null
   let flowWarns = []
+  let dashboardBaseUrl = "http://127.0.0.1:9123"
+  let dashboardStartCalls = 0
 
   return {
     sandbox: home,
@@ -85,7 +87,7 @@ function makeMockDeps(sandbox) {
     _lockedSlot: null,
     _lockedModel: null,
     _tiersData: TIERS,
-    dashboardBaseUrl: "http://127.0.0.1:9123",
+    get dashboardBaseUrl() { return dashboardBaseUrl },
     latestUserIntent: "",
     savedOptMode: null,
     savedModeSlot: null,
@@ -135,6 +137,13 @@ function makeMockDeps(sandbox) {
     _refreshModel: () => {},
     resolveExecutionIdentity: () => ({ provider: "DeepSeek", provider_label: "DeepSeek", quality: "medium", quality_label: "medium", model: "v4-flash" }),
     getFlowWarns: () => flowWarns,
+    ensureMcpServerRunning: async () => {
+      dashboardStartCalls += 1
+      if (!dashboardBaseUrl) dashboardBaseUrl = "http://127.0.0.1:9123"
+      return { ok: true }
+    },
+    setDashboardBaseUrl: (value) => { dashboardBaseUrl = value || "" },
+    getDashboardStartCalls: () => dashboardStartCalls,
     loadProjectState: () => stateData,
     saveProjectState: (d) => { Object.assign(stateData, d) },
     ensureProjectBucket: (ps, fp) => { ps.project_hashes[fp] = ps.project_hashes[fp] || { totalSessions: 0, context7Bypasses: 0 }; return ps.project_hashes[fp] },
@@ -497,6 +506,19 @@ test("trinity: dashboard prints the stable live URL", async () => {
   assert.ok(typeof result === "string")
   assert.ok(result.includes("http://127.0.0.1:9123/"))
   assert.ok(result.includes("/dashboard/home"))
+})
+
+test("trinity: dashboard self-heals on cold start and publishes the URL", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "trinity-dashboard-cold-"))
+  const deps = makeMockDeps(sandbox)
+  deps.setDashboardBaseUrl("")
+  const { createTrinityTool } = await import("../src/lib/trinity-tool.js")
+  const tool = createTrinityTool(deps)
+  const result = await tool.execute({ action: "dashboard" })
+  assert.ok(typeof result === "string")
+  assert.ok(result.includes("http://127.0.0.1:9123/"))
+  assert.ok(result.includes("/dashboard/home"))
+  assert.equal(deps.getDashboardStartCalls() >= 1, true)
 })
 
 test("trinity: gui aliases dashboard", async () => {
