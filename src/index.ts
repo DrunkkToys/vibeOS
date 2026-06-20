@@ -121,6 +121,7 @@ let _mcpServerStartupPromise = null
 let _mcpServerRestartTimer = null
 let _mcpServerShouldRun = false
 let _mcpServerClosing = false
+let _dashboardBaseUrl = null
 let _pluginHooksRuntime = null
 let context7Seen = new Set()
 let _prevOutputText = ""
@@ -454,12 +455,12 @@ async function ensureMcpServerRunning() {
             lifetime: readLifetimeSavings(),
             session: readFullState()?.sessions?.[_OC_SID] || {},
           }),
-              getSessionMetrics: () => computeSessionMetrics(readFullState(), _OC_SID),
-              getTodos: () => loadTodos(),
-              getSessionOrchestration: (sessionId: string) => loadSessionOrchestration(sessionId),
-              mutateSessionOrchestration: (sessionId: string, mutator: (session: any) => any) => mutateSessionOrchestration(sessionId, mutator),
-              listSessionTemplates: () => TEMPLATE_LIBRARY,
-              listReports: (filter) => {
+          getSessionMetrics: () => computeSessionMetrics(readFullState(), _OC_SID),
+          getTodos: () => loadTodos(),
+          getSessionOrchestration: (sessionId: string) => loadSessionOrchestration(sessionId),
+          mutateSessionOrchestration: (sessionId: string, mutator: (session: any) => any) => mutateSessionOrchestration(sessionId, mutator),
+          listSessionTemplates: () => TEMPLATE_LIBRARY,
+          listReports: (filter) => {
             if (!existsSync(getReportsDir())) {
               const e = new Error("reports dir not found")
               e.status = 404
@@ -568,8 +569,10 @@ async function ensureMcpServerRunning() {
       const actualPort = Number(mcpServer?.address?.()?.port || requestedPort)
       if (actualPort && actualPort !== requestedPort)
         persistMcpPort(actualPort)
-      if (actualPort)
+      if (actualPort) {
+        _dashboardBaseUrl = `http://127.0.0.1:${actualPort}`
         writeDashboardBaseConfig(`http://127.0.0.1:${actualPort}`)
+      }
       console.error(`[vibeOS] MCP server on http://127.0.0.1:${actualPort}`)
       if (actualPort)
         console.error(`[vibeOS] Dashboard at http://127.0.0.1:${actualPort}/`)
@@ -778,6 +781,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
     get TIERS_FILE() { return hookTiersFile }, USER_HOME, get STATE_FILE() { return hookStateFile }, CREDIT_CACHE_F,
     SAVINGS_LEDGER_FILE, PROJECT_STATE_FILE: hookProjectStateFile, get REPORTS_DIR() { return hookReportsDir }, get REPORTS_INDEX() { return hookReportsIndex },
     get OPENCODE_HOME() { return getOpenCodeHome() }, get VIBEOS_HOME() { return hookVibeHome },
+    get dashboardBaseUrl() { return _dashboardBaseUrl },
     loadSelection, writeSelection, loadCredit, thinkingLevel,
     readLifetimeSavings, readFullState, _OC_SID, formatUsd,
     getBlackboxResolution, scoreStress, applySlot, saveOptimizationMode,
@@ -1101,6 +1105,7 @@ export function closeMcpServer() {
       _mcpServerRuntime.close()
       _mcpServerRuntime = null
     }
+    _dashboardBaseUrl = null
   }
   catch { }
 }

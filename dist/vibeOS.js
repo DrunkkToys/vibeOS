@@ -10117,11 +10117,14 @@ var STRESS_GAUGE_MIN = 0.1;
 var MOMENTUM_SIGNIFICANT_THRESHOLD = 0.3;
 var DIAGNOSE_BUDGET_LINES = 50;
 var CREDIT_MIN_OK = 40;
+function normalizeDashboardBaseUrl(baseUrl) {
+  return String(baseUrl || "").trim().replace(/\/$/, "");
+}
 function createTrinityTool(deps) {
   return {
-    description: "Control the vibeOS plugin and active model slot. Use action='status' to see the current state. Use action='enable' or 'disable' to toggle the plugin immediately. Use action='set' with slot='brain'|'medium'|'cheap' to switch model tiers (writes opencode.json). Optionally pass model='<model_id>' to set a custom model for that slot. Use action='mode' with slot='vibeultrax'|'vibeqmax'|'vibemax'|'budget'|'quality'|'speed'|'longrun'|'auto'|'balanced'|'audit'|'forensic' to switch optimization mode. Use action='thinking' with level='full'|'brief'|'off'. Use action='rebuild' to detect available models from configured providers and reassign brain/medium/cheap slots. Use action='flow' with slot='on'|'off' to toggle flow enforcer, or action='flow' alone for audit. Use action='flow' with slot='enforce' and level='on'|'off' to toggle auto-extract TODOs. Use action='enforce' with slot='on'|'off' to toggle delegation enforcement. Use action='tdd' with slot='on'|'off' to toggle auto-create test skeletons. Use action='tdd' with slot='strict' and level='on'|'off' to toggle strict failing TODO test templates. Use action='tdd' alone for audit. Use action='setup' to create a compatibility profile for first-time users. Use action='project' to show per-project analytics and optimization suggestions. Use action='patterns' to inspect learned project patterns or slot='clear' to clear them. Use action='guard' to keep AGENTS.md and README.md current. Use action='reality-check' to read verified live state and report only evidence-backed facts. Use action='api-token' with token='<new_token>' to update the API token or token='invalidate' to disable the embedded alpha token. Use action='api-bootstrap-token' with token='<new_token>' to store an alpha bootstrap token and exchange it for a normal API token on alpha builds. Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', 'vibe status' (or the legacy 'trinity status').",
+    description: "Control the vibeOS plugin and active model slot. Use action='status' to see the current state. Use action='enable' or 'disable' to toggle the plugin immediately. Use action='set' with slot='brain'|'medium'|'cheap' to switch model tiers (writes opencode.json). Optionally pass model='<model_id>' to set a custom model for that slot. Use action='mode' with slot='vibeultrax'|'vibeqmax'|'vibemax'|'budget'|'quality'|'speed'|'longrun'|'auto'|'balanced'|'audit'|'forensic' to switch optimization mode. Use action='thinking' with level='full'|'brief'|'off'. Use action='rebuild' to detect available models from configured providers and reassign brain/medium/cheap slots. Use action='flow' with slot='on'|'off' to toggle flow enforcer, or action='flow' alone for audit. Use action='flow' with slot='enforce' and level='on'|'off' to toggle auto-extract TODOs. Use action='enforce' with slot='on'|'off' to toggle delegation enforcement. Use action='tdd' with slot='on'|'off' to toggle auto-create test skeletons. Use action='tdd' with slot='strict' and level='on'|'off' to toggle strict failing TODO test templates. Use action='tdd' alone for audit. Use action='setup' to create a compatibility profile for first-time users. Use action='project' to show per-project analytics and optimization suggestions. Use action='patterns' to inspect learned project patterns or slot='clear' to clear them. Use action='dashboard' or 'gui' to print the live dashboard URL and stable browser entrypoint. Use action='guard' to keep AGENTS.md and README.md current. Use action='reality-check' to read verified live state and report only evidence-backed facts. Use action='api-token' with token='<new_token>' to update the API token or token='invalidate' to disable the embedded alpha token. Use action='api-bootstrap-token' with token='<new_token>' to store an alpha bootstrap token and exchange it for a normal API token on alpha builds. Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', 'vibe status' (or the legacy 'trinity status').",
     args: {
-      action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "setup", "project", "patterns", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard", "reality-check", "api-token", "api-bootstrap-token", "verify-claims", "todo", "todo-done", "todo-sync"]).optional(),
+      action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "setup", "project", "patterns", "dashboard", "gui", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard", "reality-check", "api-token", "api-bootstrap-token", "verify-claims", "todo", "todo-done", "todo-sync"]).optional(),
       slot: deps.tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "balanced", "audit", "forensic", "vibeultrax", "vibeqmax", "vibemax", "vibelitex", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings"]).optional(),
       level: deps.tool.schema.enum(["full", "brief", "off", "on"]).optional(),
       model: deps.tool.schema.string().optional(),
@@ -10136,6 +10139,8 @@ function createTrinityTool(deps) {
         slot = action;
         action = "set";
       }
+      if (action === "gui")
+        action = "dashboard";
       const keepExistingTrinitySlot = (existingSlot, nextModel) => {
         const currentOc = String(existingSlot?.oc || "").trim();
         if (currentOc && !/placeholder/i.test(currentOc) && !/^[^/]+\/[a-z-]+-model$/i.test(currentOc)) {
@@ -10163,6 +10168,25 @@ function createTrinityTool(deps) {
         action = "thinking";
       } else if (["on", "off"].includes(action) && !slot) {
         slot = action;
+      }
+      if (action === "dashboard") {
+        const dashboardBase = normalizeDashboardBaseUrl(deps.dashboardBaseUrl);
+        if (!dashboardBase) {
+          return [
+            "[vibeOS-dashboard]",
+            "Dashboard URL is not ready yet.",
+            "Start or reopen vibeOS so the MCP server can publish the live dashboard URL.",
+            "Then run `vibe dashboard` again."
+          ].join("\n");
+        }
+        return [
+          "[vibeOS-dashboard]",
+          `Dashboard: ${dashboardBase}/`,
+          `Home: ${dashboardBase}/dashboard/home`,
+          `Sessions: ${dashboardBase}/sessions`,
+          `Templates: ${dashboardBase}/templates`,
+          "This URL comes from the running MCP server, so it stays stable across refreshes."
+        ].join("\n");
       }
       if (action === "status") {
         const sel = deps.loadSelection();
@@ -11472,6 +11496,7 @@ ${L.repeat(40)}`);
           "  trinity brain             Switch to brain tier (most capable)",
           "  trinity medium            Switch to medium tier (balanced)",
           "  trinity cheap             Switch to cheap tier (most savings)",
+          "  trinity dashboard / gui   Print the live dashboard URL",
           "  trinity rebuild           Auto-detect available models",
           "",
           "CONTROLS:",
@@ -17328,6 +17353,7 @@ var _mcpServerStartupPromise = null;
 var _mcpServerRestartTimer = null;
 var _mcpServerShouldRun = false;
 var _mcpServerClosing = false;
+var _dashboardBaseUrl = null;
 var _pluginHooksRuntime = null;
 var _deferredBootstrapDone = false;
 var _skillsEnsured = /* @__PURE__ */ new Set();
@@ -17753,8 +17779,10 @@ async function ensureMcpServerRunning() {
       const actualPort = Number(mcpServer?.address?.()?.port || requestedPort);
       if (actualPort && actualPort !== requestedPort)
         persistMcpPort(actualPort);
-      if (actualPort)
+      if (actualPort) {
+        _dashboardBaseUrl = `http://127.0.0.1:${actualPort}`;
         writeDashboardBaseConfig(`http://127.0.0.1:${actualPort}`);
+      }
       console.error(`[vibeOS] MCP server on http://127.0.0.1:${actualPort}`);
       if (actualPort)
         console.error(`[vibeOS] Dashboard at http://127.0.0.1:${actualPort}/`);
@@ -17984,6 +18012,9 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     },
     get VIBEOS_HOME() {
       return hookVibeHome;
+    },
+    get dashboardBaseUrl() {
+      return _dashboardBaseUrl;
     },
     loadSelection,
     writeSelection,
@@ -18374,6 +18405,7 @@ function closeMcpServer() {
       _mcpServerRuntime.close();
       _mcpServerRuntime = null;
     }
+    _dashboardBaseUrl = null;
   } catch {
   }
 }

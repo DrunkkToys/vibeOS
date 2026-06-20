@@ -368,6 +368,9 @@ function resolveBase() {
     const stored = localStorage.getItem('vibeos-dashboard-base');
     if (stored) return stored.replace(/\/$/, '');
   } catch (_) {}
+  if (location.protocol === 'http:' || location.protocol === 'https:') {
+    return location.origin.replace(/\/$/, '');
+  }
   return '';
 }
 const BASE = resolveBase();

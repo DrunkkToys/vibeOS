@@ -251,6 +251,7 @@ Local dev checkout:
 | Command | Effect |
 |---------|--------|
 | `vibe status` (or `trinity status`) | Tier, enforcement, savings, stress, lock state |
+| `vibe dashboard` / `vibe gui` | Live dashboard URL and browser entrypoint |
 | `vibe set brain|medium|cheap [model=<model_id>]` | Switch active model tier or override slot |
 | `vibe brain|medium|cheap` | Shorthand tier switch |
 | `vibe enable|disable` | Toggle plugin on/off |

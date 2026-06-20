@@ -529,13 +529,13 @@ export function createMcpServer(deps: Deps): McpServer {
         const template = body?.template && typeof body.template === "object"
           ? body.template
           : {
-              id: body?.template_id || body?.id || "session-template",
-              label: body?.label || body?.name || "Session template",
-              body: body?.body || body?.directive || "",
-              source: body?.source || "custom",
-              base_template_id: body?.base_template_id || body?.template_id || body?.id || null,
-              revision: body?.revision || 1,
-            }
+            id: body?.template_id || body?.id || "session-template",
+            label: body?.label || body?.name || "Session template",
+            body: body?.body || body?.directive || "",
+            source: body?.source || "custom",
+            base_template_id: body?.base_template_id || body?.template_id || body?.id || null,
+            revision: body?.revision || 1,
+          }
         if (typeof deps.mutateSessionOrchestration === "function") {
           const next = deps.mutateSessionOrchestration(sessionId, (current) => applySessionAction(current, "set-template", { ...body, template }))
           json(res, 200, { ok: true, session: next })
