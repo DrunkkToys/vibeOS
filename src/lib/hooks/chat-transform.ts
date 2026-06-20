@@ -65,6 +65,7 @@ import { saveSessionStress } from "../index-helpers.js"
 import { COMPRESS_THRESHOLD, KEEP_HOT, COMPRESS_MARKER, PROTOCOL_MARKER, PROTOCOL_TEXT } from "../constants.js"
 import { TEMPLATES, DEFAULT_TEMPLATE, resolveTemplate, detectLoopSignal, detectStressSpike, shouldInjectTemplate, resolveSessionTemplateDefinition } from "../templates.js"
 import { getRealityCheckView } from "../../vibeOS-lib/flow-enforcer.js"
+import { installVibeSkill } from "../../../scripts/lib/vibe-skill.mjs"
 
 const BYTES_PER_TOKEN = 4
 
@@ -84,6 +85,15 @@ let _cachedC7Urgency: string | null = null
 
 function getVibeOSHome() {
   return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude")
+}
+
+export function ensureVibeSkill(dir: string): { created: boolean; path?: string; skipped: boolean } {
+  try {
+    return installVibeSkill(dir)
+  } catch (err: any) {
+    console.error(`[vibeOS] Project Guard: failed to create /vibe skill for ${basename(dir || "") || "unknown"}: ${err.message}`)
+    return { created: false, skipped: false }
+  }
 }
 
 export function mergeRemoteControlVector(remoteControlVector: any, localControlVector: any): any {
@@ -267,6 +277,9 @@ export function projectMemoryDirective(fp: string): string | null {
 }
 
 export function ensureProjectSkill(dir: string, fp: string): { created: boolean; path?: string; skipped: boolean } {
+  try {
+    ensureVibeSkill(dir)
+  } catch {}
   const skillsDir = join(dir, ".opencode", "skills")
   const projectName = basename(dir)
   const skillDir = join(skillsDir, projectName)

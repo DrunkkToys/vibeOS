@@ -235,6 +235,7 @@ npx vibeostheog setup --help             # full usage
 ```
 
 One command. Deploys plugin files and registers in opencode.json. Restart OpenCode Desktop.
+It also ships the `/vibe` entrypoint so the slash-command surface works on user installs.
 
 Local dev checkout:
 
@@ -247,9 +248,11 @@ Local dev checkout:
 ## Commands
 
 `vibe help` (or `trinity help`) for full reference. Commands register in the TUI sidebar.
+`/vibe` is the fast slash-command entrypoint for the same command surface.
 
 | Command | Effect |
 |---------|--------|
+| `/vibe` | OpenCode slash-command entrypoint for status, dashboard, sessions, templates, and diagnostics |
 | `vibe status` (or `trinity status`) | Tier, enforcement, savings, stress, lock state |
 | `vibe dashboard` / `vibe gui` | Live dashboard URL and browser entrypoint |
 | `vibe set brain|medium|cheap [model=<model_id>]` | Switch active model tier or override slot |
