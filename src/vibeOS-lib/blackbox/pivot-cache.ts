@@ -29,11 +29,30 @@ interface PivotEntry {
 
 interface PivotStore {
   pivots: Record<string, PivotEntry>
+  sequence?: string[]
   version: number
 }
 
+interface PivotIndexEntry {
+  id: string
+  captured_at: string
+  tokens: string[]
+  intent: string
+  access_count: number
+}
+
+interface PivotIndexStore {
+  pivots: Record<string, PivotIndexEntry>
+  sequence: string[]
+  version: number
+}
+
+const PIVOT_INDEX_VERSION = 1
+const MAX_INDEXED_PIVOTS = 2048
+
 export class PivotCache {
-  private store: PivotStore
+  private store: PivotStore | null
+  private index: PivotIndexStore
   private baseDir: string
   private pivotSequence: string[]
   private currentWorkflow: string | null
@@ -44,30 +63,179 @@ export class PivotCache {
     this.pivotSequence = []
     this.currentWorkflow = null
     this.lastTokens = new Set()
-    this.store = this._load()
+    this.store = null
+    this.index = this._loadIndex()
+    this.pivotSequence = [...this.index.sequence]
   }
 
   private _storePath(): string {
     return join(this.baseDir, ".vibeos-pivot-cache.json")
   }
 
-  private _load(): PivotStore {
+  private _indexPath(): string {
+    return join(this.baseDir, ".vibeos-pivot-cache.index.json")
+  }
+
+  private _loadStore(): PivotStore {
     try {
       const p = this._storePath()
       if (existsSync(p)) {
-        return JSON.parse(readFileSync(p, "utf-8"))
+        const parsed = JSON.parse(readFileSync(p, "utf-8"))
+        if (parsed && typeof parsed === "object") {
+          parsed.pivots ??= {}
+          parsed.sequence = Array.isArray(parsed.sequence) ? parsed.sequence : Object.keys(parsed.pivots)
+          parsed.version = Number(parsed.version || 3)
+          return parsed
+        }
       }
-    } catch { /* ignore */ }
-    return { pivots: {}, version: 3 }
+    } catch {}
+    return { pivots: {}, sequence: [], version: 3 }
+  }
+
+  private _normalizeIndex(raw: any): PivotIndexStore {
+    const pivots: Record<string, PivotIndexEntry> = {}
+    if (raw?.pivots && typeof raw.pivots === "object") {
+      for (const [id, value] of Object.entries(raw.pivots)) {
+        const entry = value as Partial<PivotIndexEntry>
+        const key = String(id || entry?.id || "").trim()
+        if (!key) continue
+        pivots[key] = {
+          id: key,
+          captured_at: String(entry?.captured_at || new Date(0).toISOString()),
+          tokens: Array.isArray(entry?.tokens) ? entry.tokens.map((t) => String(t || "").trim()).filter(Boolean) : [],
+          intent: String(entry?.intent || ""),
+          access_count: Number(entry?.access_count || 0),
+        }
+      }
+    }
+    const sequence = Array.isArray(raw?.sequence)
+      ? raw.sequence.map((v: any) => String(v || "").trim()).filter(Boolean).filter((id: string) => !!pivots[id])
+      : Object.keys(pivots)
+    return {
+      version: Number(raw?.version || PIVOT_INDEX_VERSION),
+      pivots,
+      sequence,
+    }
+  }
+
+  private _entrySignalScore(entry: PivotEntry, recencyIndex = 0, total = 1): number {
+    const tokenCount = Array.isArray(entry.tokens) ? entry.tokens.filter(Boolean).length : 0
+    const intent = String(entry.intent || "").trim()
+    const intentScore = Math.min(3, Math.floor(intent.length / 32))
+    const accessScore = Math.min(20, Number(entry.access_count || 0)) * 4
+    const miscPenalty = tokenCount === 1 && entry.tokens[0] === "misc" ? 8 : 0
+    const recencyScore = total > 0 ? (recencyIndex / total) * 2 : 0
+    return tokenCount * 3 + intentScore + accessScore + recencyScore - miscPenalty
+  }
+
+  private _buildIndex(store: PivotStore): PivotIndexStore {
+    const sourceSequence = Array.isArray(store?.sequence) && store.sequence.length > 0
+      ? [...store.sequence]
+      : Object.keys(store?.pivots || {})
+    const ranked = sourceSequence.map((id, idx) => {
+      const entry = store?.pivots?.[id]
+      if (!entry) return null
+      return {
+        id,
+        score: this._entrySignalScore(entry, idx, sourceSequence.length),
+        summary: {
+          id,
+          captured_at: entry.captured_at || new Date(0).toISOString(),
+          tokens: Array.isArray(entry.tokens) ? [...entry.tokens] : [],
+          intent: String(entry.intent || ""),
+          access_count: Number(entry.access_count || 0),
+        } satisfies PivotIndexEntry,
+      }
+    }).filter(Boolean) as Array<{ id: string; score: number; summary: PivotIndexEntry }>
+
+    ranked.sort((a, b) => b.score - a.score || a.summary.captured_at.localeCompare(b.summary.captured_at))
+    const keep = ranked
+      .filter((item) => item.summary.tokens.length > 0 && !(item.summary.tokens.length === 1 && item.summary.tokens[0] === "misc" && item.summary.access_count <= 0))
+      .slice(0, MAX_INDEXED_PIVOTS)
+
+    const pivots: Record<string, PivotIndexEntry> = {}
+    for (const item of keep) pivots[item.id] = item.summary
+    const keepIds = new Set(keep.map((item) => item.id))
+    const sequence = sourceSequence.filter((id) => keepIds.has(id))
+
+    return {
+      version: PIVOT_INDEX_VERSION,
+      pivots,
+      sequence,
+    }
+  }
+
+  private _loadIndex(): PivotIndexStore {
+    try {
+      const p = this._indexPath()
+      if (existsSync(p)) return this._normalizeIndex(JSON.parse(readFileSync(p, "utf-8")))
+    } catch {}
+    const store = this._loadStore()
+    const index = this._buildIndex(store)
+    this._saveIndex(index)
+    return index
+  }
+
+  private _saveIndex(index: PivotIndexStore): void {
+    try {
+      const p = this._indexPath()
+      const dir = dirname(p)
+      if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+      writeFileSync(p, JSON.stringify(index), "utf-8")
+    } catch {}
+  }
+
+  private _ensureStore(): PivotStore {
+    if (!this.store) {
+      this.store = this._loadStore()
+    }
+    this.store.pivots ??= {}
+    this.store.sequence = Array.isArray(this.store.sequence) ? this.store.sequence : Object.keys(this.store.pivots)
+    return this.store
+  }
+
+  private _touchIndexEntry(entry: PivotEntry): void {
+    this.index.pivots[entry.id] = {
+      id: entry.id,
+      captured_at: entry.captured_at,
+      tokens: Array.isArray(entry.tokens) ? [...entry.tokens] : [],
+      intent: String(entry.intent || ""),
+      access_count: Number(entry.access_count || 0),
+    }
+    if (!this.index.sequence.includes(entry.id)) {
+      this.index.sequence.push(entry.id)
+    }
+    this.index = this._buildIndex({
+      pivots: Object.fromEntries(Object.entries(this.index.pivots).map(([id, summary]) => [id, {
+        id: summary.id,
+        captured_at: summary.captured_at,
+        tokens: summary.tokens,
+        intent: summary.intent,
+        decisions: [],
+        files: [],
+        code_snippets: [],
+        blockers: [],
+        toolOutputs: [],
+        access_count: summary.access_count,
+        useful_sections: [],
+        skip_sections: [],
+      }])),
+      sequence: this.index.sequence,
+      version: this.index.version,
+    })
+    this.pivotSequence = [...this.index.sequence]
   }
 
   save(): void {
     try {
+      const store = this._ensureStore()
       const p = this._storePath()
       const dir = dirname(p)
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-      writeFileSync(p, JSON.stringify(this.store, null, 2), "utf-8")
-    } catch { /* ignore */ }
+      store.sequence = [...this.index.sequence]
+      writeFileSync(p, JSON.stringify(store, null, 2), "utf-8")
+      this._saveIndex(this.index)
+    } catch {}
   }
 
   tokenize(text: string): Set<string> {
@@ -99,6 +267,7 @@ export class PivotCache {
   }
 
   snapshot(workflowId: string, context: Partial<PivotContext>): void {
+    const store = this._ensureStore()
     const entry: PivotEntry = {
       id: workflowId,
       captured_at: new Date().toISOString(),
@@ -113,22 +282,23 @@ export class PivotCache {
       skip_sections: [],
       toolOutputs: context.toolOutputs || [],
     }
-    this.store.pivots[workflowId] = entry
-    if (!this.pivotSequence.includes(workflowId)) {
-      this.pivotSequence.push(workflowId)
+    store.pivots[workflowId] = entry
+    if (!this.index.sequence.includes(workflowId)) {
+      this.index.sequence.push(workflowId)
     }
+    this._touchIndexEntry(entry)
     this.save()
   }
 
   detectPivotBack(tokens: Set<string>, confidenceThreshold: number = 0.5): { matchedId: string | null; confidence: number; reason: string } {
-    if (this.pivotSequence.length < 2) {
+    if (this.index.sequence.length < 2) {
       return { matchedId: null, confidence: 0, reason: "not_enough_pivots" }
     }
     const candidates: Array<[string, number, number]> = []
-    for (let i = 0; i < this.pivotSequence.length; i++) {
-      const pid = this.pivotSequence[i]
-      if (pid === this.pivotSequence[this.pivotSequence.length - 1]) continue
-      const entry = this.store.pivots[pid]
+    for (let i = 0; i < this.index.sequence.length; i++) {
+      const pid = this.index.sequence[i]
+      if (pid === this.index.sequence[this.index.sequence.length - 1]) continue
+      const entry = this.index.pivots[pid]
       if (!entry) continue
       const cached = new Set(entry.tokens)
       if (cached.size === 0) continue
@@ -136,7 +306,7 @@ export class PivotCache {
       const union = new Set([...tokens, ...cached])
       const jaccard = union.size === 0 ? 0 : inter.size / union.size
       const exactBonus = tokens.size === cached.size && [...tokens].every(t => cached.has(t)) ? 0.2 : 0
-      const recency = i / Math.max(this.pivotSequence.length, 1)
+      const recency = i / Math.max(this.index.sequence.length, 1)
       const accessBonus = Math.min(0.1, (entry.access_count || 0) * 0.02)
       const confidence = jaccard + exactBonus + recency * 0.1 + accessBonus
       candidates.push([pid, confidence, jaccard])
@@ -149,58 +319,55 @@ export class PivotCache {
     if (bestConf < confidenceThreshold) {
       return { matchedId: null, confidence: bestConf, reason: "low_confidence" }
     }
-    if (this.store.pivots[bestId]) {
-      this.store.pivots[bestId].access_count = (this.store.pivots[bestId].access_count || 0) + 1
+    const indexEntry = this.index.pivots[bestId]
+    if (indexEntry) {
+      indexEntry.access_count = (indexEntry.access_count || 0) + 1
     }
-    this.save()
+    const storeEntry = this.store?.pivots?.[bestId]
+    if (storeEntry) {
+      storeEntry.access_count = (storeEntry.access_count || 0) + 1
+    }
     return { matchedId: bestId, confidence: bestConf, reason: "matched" }
   }
 
-  buildInjection(workflowId: string, maxSections: number = 3): string {
-    const entry = this.store.pivots[workflowId]
+  read(workflowId: string): PivotEntry | null {
+    const store = this._ensureStore()
+    return store.pivots[workflowId] || null
+  }
+
+  buildInjection(workflowId: string, maxSections: number = 4): string {
+    const entry = this.read(workflowId)
     if (!entry) return ""
     const parts: string[] = []
     const skip = new Set(entry.skip_sections)
-
-    // Intent — what was this workflow about
     const intent = entry.intent || entry.tokens.join(", ") || ""
     if (intent) {
       parts.push(`[PIVOT BACK] Returning to workflow: "${intent}". Context from previous session follows.`)
     }
-
-    // Files — what was being modified
     if (!skip.has("files") && entry.files.length > 0) {
       parts.push(`[files modified] ${entry.files.slice(0, 6).join(", ")}`)
     }
-
-    // Decisions — key choices made
     if (!skip.has("decisions") && entry.decisions.length > 0) {
       const filtered = entry.decisions.filter(d => d !== "previous workflow captured at pivot point")
       if (filtered.length > 0) {
         parts.push(`[decisions] ${filtered.slice(0, 3).join(" | ")}`)
       }
     }
-
-    // Blockers — what was blocking progress
     if (!skip.has("blockers") && entry.blockers.length > 0) {
       parts.push(`[blockers] ${entry.blockers.slice(0, 2).join(" | ")}`)
     }
-
-    // Code snippets — relevant context
     if (entry.code_snippets.length > 0 && entry.useful_sections.includes("code") && !skip.has("code")) {
       parts.push(`[code context] ${entry.code_snippets.slice(0, 2).join(" | ")}`)
     }
-
-    // If nothing useful, return a minimal note
     if (parts.length <= 1 && entry.tokens.length > 0) {
       return `[PIVOT BACK] Returning to workflow tagged: ${entry.tokens.join(", ")}. Intent: ${intent}`
     }
-
-    return parts.join("\n")
+    return parts.slice(0, maxSections).join("\n")
   }
 
   learn(workflowId: string, usedSections: string[], unusedSections: string[]): void {
-    const entry = this.store.pivots[workflowId]
+    const store = this._ensureStore()
+    const entry = store.pivots[workflowId]
     if (!entry) return
     for (const s of usedSections) {
       if (!entry.useful_sections.includes(s)) entry.useful_sections.push(s)
@@ -210,6 +377,7 @@ export class PivotCache {
         entry.skip_sections.push(s)
       }
     }
+    this._touchIndexEntry(entry)
     this.save()
   }
 
@@ -217,9 +385,10 @@ export class PivotCache {
     this.pivotSequence = []
     this.currentWorkflow = null
     this.lastTokens = new Set()
+    this.index.sequence = []
   }
 
   getRecentPivots(n: number = 5): string[] {
-    return this.pivotSequence.slice(-n)
+    return this.index.sequence.slice(-n)
   }
 }

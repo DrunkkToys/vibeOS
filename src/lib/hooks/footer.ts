@@ -8,7 +8,7 @@ import { recordBudgetFirstOutcome } from "../mode-policy.js"
 import { saveReport } from "../reporting.js"
 import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, getCurrentSessionId, _modelLocked, _blackboxEnabled, _latestBlackboxState, writeSelection, reconcileStateFromLedger, safeJsonParse, loadTodos, loadBlackboxState, VIBEOS_HOME } from "../state.js"
 import { loadSessionSlot, writeSessionSlot } from "../selection-manager.js"
-import { remoteCall, isApiConnected } from "../api-client.js"
+import { remoteCall, isApiConnected, isApiLatencyDegraded } from "../api-client.js"
 import { SAVE_EST } from "../constants.js"
 import { buildFooterLine, buildEnforcementTags, resolveBrand } from "./shared-footer.js"
 import { computeReward } from "../../vibeOS-lib/reward-engine.js"
@@ -183,17 +183,18 @@ async function _appendFooter(input, output, directory) {
   let _footerStress = 0
   if (latestUserIntent) _footerStress = scoreStress(latestUserIntent)
   // Always prefer the live OpenCode model setting when available.
+  let liveModelSetting = ""
   try {
-    const cfg = await client.config.get("model")
-    if (cfg) {
-      const cfgModel = String(cfg)
-      if (cfgModel !== currentModel) {
-        setCurrentModel(cfgModel)
-        setCurrentTier(classify(cfgModel))
-        footerDebug(`[vibeOS] client-detected model: ${currentModel} (tier=${currentTier})`)
-      }
+    if (!isApiLatencyDegraded()) {
+      const cfg = await client.config.get("model")
+      if (cfg) liveModelSetting = String(cfg)
     }
   } catch { /* client.config may not be available */ }
+  if (liveModelSetting && liveModelSetting !== currentModel) {
+    setCurrentModel(liveModelSetting)
+    setCurrentTier(classify(liveModelSetting))
+    footerDebug(`[vibeOS] client-detected model: ${currentModel} (tier=${currentTier})`)
+  }
   try {
     const messageID =
       input?.messageID ||
@@ -228,11 +229,7 @@ async function _appendFooter(input, output, directory) {
     const sessionSlot = loadBlackboxState()?.sessions?.[sid]?.active_slot || loadSessionSlot(sid)
     const slot = sessionSlot || loadSelection().active_slot || "brain"
     const brainModel = slot === "brain" ? (TRINITY_BRAIN || currentModel) : slot === "medium" ? (TRINITY_MEDIUM || currentModel) : (TRINITY_CHEAP || currentModel || "")
-    let liveModel = ""
-    try {
-      const cfg = await client.config.get("model")
-      if (cfg) liveModel = String(cfg)
-    } catch {}
+    let liveModel = liveModelSetting
     if (!liveModel) {
       liveModel = readConfig(directory) || readConfig(join(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || ""
     }
