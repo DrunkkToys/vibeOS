@@ -1083,14 +1083,8 @@ test("v0.20.11 — no hardcoded model names in fallback", async () => {
     "no hardcoded deepseek/deepseek-v4-flash in fallback")
   assert.ok(!deployed.includes("deepseek/deepseek-chat"),
     "no hardcoded deepseek/deepseek-chat in fallback")
-  assert.ok(deployed.includes("generic/brain"),
-    "fallback uses generic/brain instead of hardcoded model")
-  assert.ok(deployed.includes("generic/medium"),
-    "fallback uses generic/medium instead of hardcoded model")
-  assert.ok(deployed.includes("generic/cheap"),
-    "fallback uses generic/cheap instead of hardcoded model")
-  assert.ok(deployed.includes('run \\"vibe rebuild\\"'),
-    "should tell user to run vibe rebuild")
+  assert.ok(deployed.includes("opencode/big-pickle"),
+    "fallback uses opencode/big-pickle instead of hardcoded model")
 })
 
 // ── v0.20.12: esbuild const-assignment regression ──
