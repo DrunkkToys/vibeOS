@@ -784,6 +784,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
     SAVINGS_LEDGER_FILE, PROJECT_STATE_FILE: hookProjectStateFile, get REPORTS_DIR() { return hookReportsDir }, get REPORTS_INDEX() { return hookReportsIndex },
     get OPENCODE_HOME() { return getOpenCodeHome() }, get VIBEOS_HOME() { return hookVibeHome },
     get dashboardBaseUrl() { return _dashboardBaseUrl },
+    ensureMcpServerRunning,
     loadSelection, writeSelection, loadCredit, thinkingLevel,
     readLifetimeSavings, readFullState, _OC_SID, formatUsd,
     getBlackboxResolution, scoreStress, applySlot, saveOptimizationMode,
