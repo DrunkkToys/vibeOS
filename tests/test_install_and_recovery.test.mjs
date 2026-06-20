@@ -575,7 +575,7 @@ test("recovery: model-tiers.json with null values in slots recovers", async () =
   }
 })
 
-test("bootstrap: OpenCode API model seeds trinity slots when local config is missing", async () => {
+test("bootstrap: missing local config seeds free model trinity slots", async () => {
   const sb = freshSandbox()
   const prevHome = process.env.HOME
   const prevOcModel = process.env.OPENCODE_MODEL
@@ -606,9 +606,9 @@ test("bootstrap: OpenCode API model seeds trinity slots when local config is mis
     const tiersPath = join(sb, ".claude/model-tiers.json")
     if (existsSync(tiersPath)) {
       const tiers = safeJsonParse(readFileSync(tiersPath, "utf-8"))
-      assert.equal(tiers?.trinity?.brain?.oc, "deepseek/deepseek-v4-pro", "brain slot seeded from API model")
-      assert.ok(tiers?.trinity?.medium?.oc, "medium slot seeded")
-      assert.ok(tiers?.trinity?.cheap?.oc, "cheap slot seeded")
+      assert.equal(tiers?.trinity?.brain?.oc, "opencode/big-pickle", "brain slot seeded from free model")
+      assert.equal(tiers?.trinity?.medium?.oc, "opencode/big-pickle", "medium slot seeded from free model")
+      assert.equal(tiers?.trinity?.cheap?.oc, "opencode/big-pickle", "cheap slot seeded from free model")
     } else {
       assert.ok(true, "plugin loads even when bootstrap defers model-tiers seeding until first hook")
     }
@@ -640,11 +640,12 @@ test("bare machine: no config files anywhere — plugin loads without crashing",
     const { DelegationEnforcer } = await loadPlugin()
     const hooks = await DelegationEnforcer({ client: {}, directory: dir })
     assert.ok(hooks, "plugin loads on completely bare machine")
-    // Auto-config skips when no model detected — will auto-detect on first hook.
-    // This is by design: the plugin waits for the first tool call to determine the model.
-    assert.ok(!existsSync(join(sb, ".claude/model-tiers.json")) ||
-      existsSync(join(sb, ".claude/model-tiers.json")),
-      "model-tiers.json may or may not exist — both are valid states on bare machine")
+    const tiersPath = join(sb, ".claude/model-tiers.json")
+    assert.ok(existsSync(tiersPath), "model-tiers.json should be seeded on bare machine")
+    const tiers = safeJsonParse(readFileSync(tiersPath, "utf-8"))
+    assert.equal(tiers?.trinity?.brain?.oc, "opencode/big-pickle", "brain defaults to free model")
+    assert.equal(tiers?.trinity?.medium?.oc, "opencode/big-pickle", "medium defaults to free model")
+    assert.equal(tiers?.trinity?.cheap?.oc, "opencode/big-pickle", "cheap defaults to free model")
   } finally {
     process.env.HOME = prevHome
     rmSync(sb, { recursive: true, force: true })
