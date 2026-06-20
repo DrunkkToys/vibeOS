@@ -3,7 +3,7 @@
 
 import test, { after } from "node:test"
 import assert from "node:assert/strict"
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs"
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 
@@ -15,6 +15,7 @@ process.env.VIBEOS_OPENCODE_HOME = join(sandbox, ".config", "opencode")
 mkdirSync(join(sandbox, ".claude"), { recursive: true })
 mkdirSync(join(sandbox, ".config", "opencode"), { recursive: true })
 mkdirSync(join(sandbox, ".claude", "scratch"), { recursive: true })
+writeFileSync(join(sandbox, ".claude", "global-learning.json"), JSON.stringify({}, null, 2))
 
 writeFileSync(join(sandbox, ".claude", "model-tiers.json"), JSON.stringify({
   trinity: {
@@ -75,6 +76,10 @@ function primeBrain(projectDir) {
   mod.setCurrentTier("high")
 }
 
+function readGlobalLearning() {
+  return JSON.parse(readFileSync(join(sandbox, ".claude", "global-learning.json"), "utf-8"))
+}
+
 testCase("real cascade: task hook routes simple prompts to cheap and moderate prompts to medium", async () => {
   const projectDir = join(sandbox, "task-project")
   mkdirSync(projectDir, { recursive: true })
@@ -92,6 +97,10 @@ testCase("real cascade: task hook routes simple prompts to cheap and moderate pr
   assert.equal(simpleArgs.model, "deepseek/deepseek-chat")
   assert.equal(simpleArgs.modelID, "deepseek/deepseek-chat")
   assert.equal(simpleArgs.modelId, "deepseek/deepseek-chat")
+  const cheapLearning = readGlobalLearning()
+  assert.equal(cheapLearning.task_first_words?.check?.cheap >= 1, true)
+
+  await hooks["tool.execute.after"]({ tool: "task" }, { result: "done" })
 
   primeBrain(projectDir)
 
@@ -102,6 +111,10 @@ testCase("real cascade: task hook routes simple prompts to cheap and moderate pr
   assert.equal(mediumArgs.model, "deepseek/deepseek-v4-flash")
   assert.equal(mediumArgs.modelID, "deepseek/deepseek-v4-flash")
   assert.equal(mediumArgs.modelId, "deepseek/deepseek-v4-flash")
+  const mediumLearning = readGlobalLearning()
+  assert.equal(mediumLearning.task_first_words?.implement?.medium >= 1, true)
+
+  await hooks["tool.execute.after"]({ tool: "task" }, { result: "done" })
 })
 
 testCase("real cascade: learned graph switches vibeultrax into the deep three-stage pipeline", async () => {

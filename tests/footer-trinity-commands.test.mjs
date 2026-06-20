@@ -17,6 +17,7 @@ import {
   formatVectorPulse,
   trendGlyph,
 } from "../src/lib/hooks/shared-footer.js"
+import { createTrinityTool } from "../src/lib/trinity-tool.js"
 
 // ── Helper: build mock trinity tool ──────────────────────────────────
 
@@ -66,6 +67,7 @@ function makeMockDeps(sandbox) {
   let flowWarns = []
   let dashboardBaseUrl = "http://127.0.0.1:9123"
   let dashboardStartCalls = 0
+  let loadMcpPort = () => 9123
 
   return {
     sandbox: home,
@@ -142,7 +144,9 @@ function makeMockDeps(sandbox) {
       if (!dashboardBaseUrl) dashboardBaseUrl = "http://127.0.0.1:9123"
       return { ok: true }
     },
+    _loadMcpPort: () => loadMcpPort(),
     setDashboardBaseUrl: (value) => { dashboardBaseUrl = value || "" },
+    setLoadMcpPort: (value) => { loadMcpPort = typeof value === "function" ? value : () => Number(value || 0) },
     getDashboardStartCalls: () => dashboardStartCalls,
     loadProjectState: () => stateData,
     saveProjectState: (d) => { Object.assign(stateData, d) },
@@ -173,6 +177,33 @@ function makeMockDeps(sandbox) {
     _lazyRefresh: () => {},
   }
 }
+
+test("trinity dashboard resolves from published MCP port before startup", async () => {
+  const deps = makeMockDeps(mkdtempSync(join(tmpdir(), "trinity-dashboard-")))
+  deps.setDashboardBaseUrl("")
+  deps.setLoadMcpPort(() => 63452)
+  deps.ensureMcpServerRunning = async () => {
+    throw new Error("should not be needed when port is already published")
+  }
+
+  const tool = createTrinityTool(deps)
+  const output = await tool.execute({ action: "dashboard" })
+
+  assert.ok(output.includes("http://127.0.0.1:63452/"), output)
+  assert.equal(deps.getDashboardStartCalls(), 0)
+})
+
+test("trinity dashboard starts MCP server when no published port exists", async () => {
+  const deps = makeMockDeps(mkdtempSync(join(tmpdir(), "trinity-dashboard-start-")))
+  deps.setDashboardBaseUrl("")
+  deps.setLoadMcpPort(() => 0)
+  const tool = createTrinityTool(deps)
+
+  const output = await tool.execute({ action: "dashboard" })
+
+  assert.ok(output.includes("Dashboard:"), output)
+  assert.equal(deps.getDashboardStartCalls() >= 1, true)
+})
 
 // ── SECTION 1: Footer system tests ───────────────────────────────────
 
