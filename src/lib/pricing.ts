@@ -329,11 +329,13 @@ const FREE_MODEL_TURN_USD = 1e-10
 const FREE_MODELS = new Set([
   // OpenCode Zen free models
   "opencode/big-pickle",
+  "opencode/big-pickle-free",
   "opencode/mimo-v2.5-free",
   "opencode/deepseek-v4-flash-free",
   "opencode/nemotron-3-ultra-free",
   // Normalized variants (after opencode/ prefix stripped)
   "big-pickle",
+  "big-pickle-free",
   "mimo-v2.5-free",
   "deepseek-v4-flash-free",
   "nemotron-3-ultra-free",
