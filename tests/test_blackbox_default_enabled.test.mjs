@@ -2,16 +2,20 @@
 // SPDX-FileCopyrightText: 2026 vibeOS <https://github.com/DrunkkToys/vibeOS>
 // Tests that blackbox (VibeMax ML engine) is enabled by default
 
-import test from 'node:test'
+import test, { before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
 const sandbox = mkdtempSync(join(tmpdir(), "bb-default-"))
+const prevHOME = process.env.HOME
+const prevVIBEOSHome = process.env.VIBEOS_HOME
 const HOME = sandbox
-process.env.HOME = sandbox
+before(() => {
+  process.env.HOME = sandbox
   process.env.VIBEOS_HOME = join(sandbox, ".claude")
+})
 
 function baseDirs() {
   mkdirSync(join(HOME, ".config/opencode"), { recursive: true })
@@ -47,6 +51,12 @@ function writeState() {
 function writeBlackboxState(data) {
   writeFileSync(join(HOME, ".claude/blackbox-state.json"), JSON.stringify(data, null, 2) + "\n")
 }
+
+after(() => {
+  process.env.HOME = prevHOME
+  process.env.VIBEOS_HOME = prevVIBEOSHome
+  rmSync(sandbox, { recursive: true, force: true })
+})
 
 async function freshPlugin() {
   const mod = await import("../src/index.js?t=" + Date.now())
@@ -197,10 +207,14 @@ test("live session: trinity setup does not disable blackbox", async () => {
   const output = await hooks.tool.trinity.execute({ action: "setup", slot: "" })
   assert.ok(typeof output === "string", "setup should return a string")
   assert.ok(output.includes("Blackbox: on") || output.includes("blackbox") || output.includes("Blackbox"), "setup output should mention blackbox as on")
+  assert.ok(output.includes("Default mode: vibeultrax") || output.includes("Default mode:"), "setup should report the install default mode")
 
   const indexMod = await import("../src/index.js?t=" + Date.now())
   const state = indexMod.loadBlackboxState()
   assert.strictEqual(state.enabled, true, "blackbox should remain enabled after setup")
+  const tiers = JSON.parse(readFileSync(join(HOME, ".claude/model-tiers.json"), "utf-8"))
+  assert.equal(tiers.selection.optimization_mode, "vibeultrax", "setup should default new installs to VibeUltraX")
+  assert.equal(tiers.selection.requested_optimization_mode, "vibeultrax", "setup should persist VibeUltraX as the requested mode")
 })
 
 // ═══════════════════════════════════════════════════════════════════
