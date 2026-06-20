@@ -214,6 +214,7 @@ function _tiersNeedRepair(tiers) {
 }
 async function _seedOrRepairModelTiers(directory) {
   const TIERS_FILE = getTiersFile()
+  const DEFAULT_FREE_MODEL = "opencode/big-pickle"
   let existing = null
   if (existsSync(TIERS_FILE)) {
     try {
@@ -241,17 +242,25 @@ async function _seedOrRepairModelTiers(directory) {
     trinity = buildDeterministicTrinity(discovered, { selectedModelId: currentModel })
   }
   catch { }
+  const existingTrinity = existing?.trinity && typeof existing.trinity === "object" ? existing.trinity : {}
+  const hasAnyValidSlot = ["brain", "medium", "cheap"].some((slot) => {
+    const oc = String(existingTrinity?.[slot]?.oc || "").trim()
+    return !!oc && !PLACEHOLDER_RE.test(oc)
+  })
   let brain = trinity?.brain || currentModel || readConfig(directory) || readConfig(getOpenCodeHome()) || process?.env?.OPENCODE_MODEL || ""
   let medium = trinity?.medium || brain
   let cheap = trinity?.cheap || medium || brain
-  if (!brain) {
-    brain = "generic/brain"
-    medium = "generic/medium"
-    cheap = "generic/cheap"
+  if (!existing || !hasAnyValidSlot) {
+    brain = DEFAULT_FREE_MODEL
+    medium = DEFAULT_FREE_MODEL
+    cheap = DEFAULT_FREE_MODEL
+  } else if (!brain) {
+    brain = DEFAULT_FREE_MODEL
+    medium = DEFAULT_FREE_MODEL
+    cheap = DEFAULT_FREE_MODEL
     console.error("[vibeOS] no providers or trinity config found — run \"vibe rebuild\" to set model tiers")
   }
   const existingSelection = existing?.selection && typeof existing.selection === "object" ? existing.selection : {}
-  const existingTrinity = existing?.trinity && typeof existing.trinity === "object" ? existing.trinity : {}
   const keepExistingSlot = (slotRow: any, fallbackModel: string) => {
     const currentOc = String(slotRow?.oc || "").trim()
     if (currentOc && !PLACEHOLDER_RE.test(currentOc) && !/placeholder/i.test(currentOc)) {

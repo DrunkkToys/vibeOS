@@ -148,6 +148,10 @@ textarea{min-height:80px;resize:vertical}
         <h3>Templates</h3>
         <div id="homeTemplates"></div>
       </div>
+      <div class="card">
+        <h3>Pending TODOs</h3>
+        <div id="homeTodos"></div>
+      </div>
     </div>
   </div>
 </div>
@@ -585,6 +589,13 @@ function renderHome(home) {
   const templates = document.getElementById('homeTemplates');
   if (templates) {
     templates.innerHTML = `<div class="pill-row">${(home.templates || []).slice(0, 6).map(t => `<span class="pill">${t.label || t.id}</span>`).join('')}</div>`;
+  }
+  const todos = document.getElementById('homeTodos');
+  if (todos) {
+    const items = Array.isArray(home.todos) ? home.todos.filter(todo => todo && todo.status === 'pending') : [];
+    todos.innerHTML = items.length
+      ? `<div class="pill-row">${items.slice(0, 6).map(todo => `<span class="pill">${todo.content || todo.text || todo.title || 'TODO'}</span>`).join('')}</div><div class="last-update">Pending: ${items.length}</div>`
+      : '<div class="search-empty">No pending TODOs.</div>';
   }
 }
 
