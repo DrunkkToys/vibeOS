@@ -676,6 +676,189 @@ function getBlackboxResolution(): any {
   return _blackboxTracker?.resolution || null
 }
 
+function _pushControlHistoryEntry(session: any, entry: any): void {
+  if (!session || typeof session !== "object" || !entry || typeof entry !== "object") return
+  session.control_history ??= []
+  const fingerprint = JSON.stringify({
+    regime: entry.regime || "",
+    reward: entry.reward ?? null,
+    outcome: entry.outcome ?? null,
+    next_action: entry.next_action ?? null,
+    control: entry.control || {},
+  })
+  const last = session.control_history[session.control_history.length - 1]
+  if (last?.fingerprint === fingerprint) return
+  session.control_history.push({ ...entry, fingerprint })
+  if (session.control_history.length > 100) {
+    session.control_history = session.control_history.slice(-100)
+  }
+}
+
+function _deriveLiveResolutionState(input: any): { resolution_state: string; resolution_reason: string } {
+  const outcome = String(input?.outcome || "").toLowerCase()
+  const loopLevel = String(input?.loopInterventionLevel || "").toLowerCase()
+  const pivotDetected = Boolean(input?.pivotDetected)
+  if (input?.resolutionState || input?.resolutionReason) {
+    return {
+      resolution_state: String(input?.resolutionState || "unresolved"),
+      resolution_reason: String(input?.resolutionReason || "live snapshot"),
+    }
+  }
+  if (outcome === "positive") return { resolution_state: "working", resolution_reason: "positive outcome" }
+  if (outcome === "negative") {
+    return {
+      resolution_state: loopLevel === "escalated" ? "intervened" : "needs_attention",
+      resolution_reason: "negative outcome",
+    }
+  }
+  if (loopLevel && loopLevel !== "none") return { resolution_state: "intervened", resolution_reason: `loop intervention: ${loopLevel}` }
+  if (pivotDetected) return { resolution_state: "pivoted", resolution_reason: "context pivot detected" }
+  return { resolution_state: "unresolved", resolution_reason: "no outcome yet" }
+}
+
+export function recordLiveSessionSnapshot(input: {
+  sessionId?: string
+  projectFingerprint?: string
+  projectName?: string
+  outcome?: string | null
+  rewardCredits?: number
+  savingsUsd?: number
+  footerLine?: string
+  control?: any
+  subRegime?: string
+  resolutionState?: string
+  resolutionReason?: string
+  nextAction?: string
+  loopInterventionLevel?: string
+  pivotDetected?: boolean
+  stress?: number
+  rewardBreakdown?: any
+  source?: string
+}): { sessionId: string; updatedAt: string; resolutionState: string; resolutionReason: string } {
+  const sid = String(input?.sessionId || getCurrentSessionId() || _OC_SID || "")
+  const updatedAt = new Date().toISOString()
+  const derivedResolution = _deriveLiveResolutionState(input)
+  const resolutionState = String(input?.resolutionState || derivedResolution.resolution_state || "unresolved")
+  const resolutionReason = String(input?.resolutionReason || derivedResolution.resolution_reason || "no outcome yet")
+  const control = input?.control && typeof input.control === "object" ? { ...input.control } : null
+  const nextAction = typeof input?.nextAction === "string" && input.nextAction.trim() ? input.nextAction.trim() : null
+
+  try {
+    updateState((state: any) => {
+      state.sessions ??= {}
+      state.lifetime ??= {}
+      if (!state.sessions[sid]) {
+        state.sessions[sid] = { warns: [], cache_hits: [] }
+      }
+      const ses = state.sessions[sid]
+      if (input.projectFingerprint) ses.project_fingerprint = input.projectFingerprint
+      if (input.projectName) ses.project_name = input.projectName
+      if (typeof input.savingsUsd === "number" && Number.isFinite(input.savingsUsd)) {
+        ses.live_savings_usd = roundUsd(Number(input.savingsUsd || 0))
+      }
+      if (typeof input.rewardCredits === "number" && Number.isFinite(input.rewardCredits)) {
+        ses.reward_credits = roundUsd(Number(ses.reward_credits || 0) + Number(input.rewardCredits || 0))
+        state.lifetime.reward_credits = roundUsd(Number(state.lifetime.reward_credits || 0) + Number(input.rewardCredits || 0))
+      }
+      if (typeof input.outcome === "string" && input.outcome) ses.last_outcome = input.outcome
+      if (input.footerLine) ses.last_footer_line = input.footerLine
+      if (input.subRegime) ses.live_sub_regime = input.subRegime
+      if (typeof input.stress === "number" && Number.isFinite(input.stress)) ses.live_stress = Number(input.stress)
+      if (typeof input.loopInterventionLevel === "string") ses.live_loop_intervention_level = input.loopInterventionLevel
+      if (typeof input.pivotDetected === "boolean") ses.live_pivot_detected = input.pivotDetected
+      ses.live_resolution_state = resolutionState
+      ses.live_resolution_reason = resolutionReason
+      if (nextAction) ses.live_next_action = nextAction
+      ses.live_updated_at = updatedAt
+      if (control) {
+        ses.live_control = control
+        _pushControlHistoryEntry(ses, {
+          turn: Number(ses.turn_counter || 0) + 1,
+          regime: input.subRegime || ses.sub_regime || ses.regime || "INIT",
+          control,
+          reward: typeof input.rewardCredits === "number" && Number.isFinite(input.rewardCredits) ? Number(input.rewardCredits || 0) : null,
+          outcome: typeof input.outcome === "string" ? input.outcome : null,
+          next_action: nextAction,
+          resolution_state: resolutionState,
+          resolution_reason: resolutionReason,
+          source: input.source || "footer",
+        })
+      }
+      return state
+    })
+  } catch {}
+
+  try {
+    const bb = loadBlackboxState()
+    bb.sessions ??= {}
+    if (!bb.sessions[sid]) {
+      bb.sessions[sid] = {}
+    }
+    const ses = bb.sessions[sid]
+    if (input.projectFingerprint) ses.project_fingerprint = input.projectFingerprint
+    if (input.projectName) ses.project_name = input.projectName
+    if (input.footerLine) ses.last_footer_line = input.footerLine
+    if (input.subRegime) {
+      ses.sub_regime = input.subRegime
+      ses.regime = input.subRegime
+    }
+    ses.resolution = resolutionState === "working" ? "solved" : resolutionState === "intervened" ? "looping" : ses.resolution || "unresolved"
+    ses.resolution_state = resolutionState
+    ses.resolution_reason = resolutionReason
+    ses.updatedAt = updatedAt
+    ses.last_snapshot_at = updatedAt
+    if (typeof input.savingsUsd === "number" && Number.isFinite(input.savingsUsd)) {
+      ses.live_savings_usd = roundUsd(Number(input.savingsUsd || 0))
+    }
+    if (typeof input.rewardCredits === "number" && Number.isFinite(input.rewardCredits)) {
+      ses.reward_credits = roundUsd(Number(ses.reward_credits || 0) + Number(input.rewardCredits || 0))
+    }
+    if (typeof input.outcome === "string" && input.outcome) {
+      ses.outcome = input.outcome
+      ses.outcomeHistory ??= []
+      const outcomeFingerprint = JSON.stringify({
+        outcome: input.outcome,
+        reason: resolutionReason,
+        next_action: nextAction,
+      })
+      const lastOutcome = ses.outcomeHistory[ses.outcomeHistory.length - 1]
+      if (lastOutcome?.fingerprint !== outcomeFingerprint) {
+        ses.outcomeHistory.push({
+          turn: Number(ses.turn_counter || ses.outcomeHistory.length || 0) + 1,
+          outcome: input.outcome,
+          timestamp: updatedAt,
+          source: input.source || "footer",
+          fingerprint: outcomeFingerprint,
+        })
+        if (ses.outcomeHistory.length > 100) {
+          ses.outcomeHistory = ses.outcomeHistory.slice(-100)
+        }
+      }
+    }
+    if (control) {
+      ses.live_control = control
+      _pushControlHistoryEntry(ses, {
+        turn: Number(ses.turn_counter || 0) + 1,
+        regime: input.subRegime || ses.sub_regime || ses.regime || "INIT",
+        control,
+        reward: typeof input.rewardCredits === "number" && Number.isFinite(input.rewardCredits) ? Number(input.rewardCredits || 0) : null,
+        outcome: typeof input.outcome === "string" ? input.outcome : null,
+        next_action: nextAction,
+        resolution_state: resolutionState,
+        resolution_reason: resolutionReason,
+        source: input.source || "footer",
+      })
+    }
+    if (nextAction) ses.live_next_action = nextAction
+    if (typeof input.pivotDetected === "boolean") ses.pivot_detected = input.pivotDetected
+    if (typeof input.loopInterventionLevel === "string") ses.loop_intervention_level = input.loopInterventionLevel
+    if (typeof input.stress === "number" && Number.isFinite(input.stress)) ses.stress_level = Number(input.stress)
+    saveBlackboxState(bb)
+  } catch {}
+
+  return { sessionId: sid, updatedAt, resolutionState, resolutionReason }
+}
+
 function normalizeBlackboxRecord(record: any, sid: string, now: number): { record: any; changed: boolean } {
   const next = { ...(record || {}) }
   let changed = false
@@ -2322,6 +2505,7 @@ export {
   saveBlackboxState,
   getBlackboxTracker,
   getBlackboxResolution,
+  recordLiveSessionSnapshot,
 
   // Status/savings payload — re-exported from index.ts at runtime.
   // These satisfy ESM import in index.ts before its own inline definitions shadow them.

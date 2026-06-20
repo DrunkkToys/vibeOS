@@ -237,7 +237,12 @@ function sessionCompact(sid, fingerprint) {
         const bb = JSON.parse(raw)
         const ses = bb?.sessions?.[sid]
         if (ses && ses.sub_regime === "LOOPING" && patterns.length > 0) {
+          const topPattern = patterns[0]
+          const summary = patterns.map((p) => p.summary).slice(0, 3).join(" | ")
           ses.resolution_state = "intervened"
+          ses.resolution_reason = summary || "looping friction detected"
+          ses.live_next_action = `Address friction: ${topPattern?.summary || "review the repeated loop"}`
+          ses.live_updated_at = new Date().toISOString()
           writeFileSync(bbPath, JSON.stringify(bb, null, 2))
         }
       }

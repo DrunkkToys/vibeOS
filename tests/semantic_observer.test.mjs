@@ -89,6 +89,33 @@ test('semantic: repeated git-commit bypasses compact to one friction pattern', a
   assert.strictEqual(Object.keys(friction).filter((key) => key === 'workflow:bypass-after-failure:git-commit').length, 1, 'only one friction key is stored')
 })
 
+test('semantic: sessionCompact writes an explicit loop reason and next action', async () => {
+  const sid = 'guard-loop-test'
+  const fingerprint = 'fp-loop'
+  globalThis.__vibeOS_SID = sid
+  const bbPath = join(claudeDir, 'blackbox-state.json')
+  writeFileSync(bbPath, JSON.stringify({
+    enabled: true,
+    sessions: {
+      [sid]: {
+        sessionId: sid,
+        sub_regime: 'LOOPING',
+        resolution_state: 'unresolved',
+      },
+    },
+  }, null, 2))
+  mod.writeEvent(sid, { tool: 'bash', role: 'verification', family: 'git-commit', at: Date.now(), isGuardBreach: false, isProtectedTarget: false, exitCode: 1 })
+  mod.writeEvent(sid, { tool: 'bash', role: 'bypass', family: 'git-commit', at: Date.now() + 1000, isGuardBreach: true, isProtectedTarget: false, exitCode: null })
+  mod.writeEvent(sid, { tool: 'bash', role: 'bypass', family: 'git-commit', at: Date.now() + 2000, isGuardBreach: true, isProtectedTarget: false, exitCode: null })
+  mod.sessionCompact(sid, fingerprint)
+
+  const bb = JSON.parse(readFileSync(bbPath, 'utf-8'))
+  const ses = bb.sessions?.[sid] || {}
+  assert.equal(ses.resolution_state, 'intervened', 'looping sessions should be marked as intervened')
+  assert.ok(String(ses.resolution_reason || '').includes('git-commit') || String(ses.resolution_reason || '').includes('loop'), 'loop reason should be explicit')
+  assert.ok(String(ses.live_next_action || '').length > 0, 'looping session should record a next action')
+})
+
 test('semantic: deriveTags correctly identifies protected targets', async () => {
   const modPh = await import(join(ROOT, 'src/lib/pattern-helpers.js'))
   assert.ok(modPh.targetsProtectedBranch('git push origin master'))
