@@ -560,6 +560,13 @@ export function createTrinityTool(deps) {
         tiers.selection.tdd_strict = false
         tiers.selection.tdd_quality = false
         tiers.selection.thinking_level = "off"
+        if (!tiers.selection.setup_completed_at) {
+          tiers.selection.optimization_mode = "vibeultrax"
+          tiers.selection.requested_optimization_mode = "vibeultrax"
+        } else {
+          tiers.selection.optimization_mode = tiers.selection.optimization_mode || "vibeultrax"
+          tiers.selection.requested_optimization_mode = tiers.selection.requested_optimization_mode || "vibeultrax"
+        }
         tiers.selection.setup_completed_at = now
         tiers.selection.selected_provider = trinity?.provider || resolveExecutionIdentity(selectedModel, deps.directory)?.provider || ""
         tiers.selection.selected_quality_tier = trinity?.selected_tier || "brain"
@@ -581,6 +588,7 @@ export function createTrinityTool(deps) {
           `  Delegation: off`,
           `  Flow: off`,
           `  TDD: off`,
+          `  Default mode: ${tiers.selection.optimization_mode || "vibeultrax"}`,
           `  Blackbox: on`,
         ]
         if (discovered.length > 0) lines.push(`  Discovered models: ${discovered.length}`)

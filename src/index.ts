@@ -281,6 +281,8 @@ async function _seedOrRepairModelTiers(directory) {
       tdd_strict: existingSelection.tdd_strict === true,
       tdd_quality: existingSelection.tdd_quality !== false,
       onboarding_mode: existingSelection.onboarding_mode || "assist",
+      optimization_mode: existingSelection.optimization_mode || "vibeultrax",
+      requested_optimization_mode: existingSelection.requested_optimization_mode || "vibeultrax",
       setup_completed_at: existingSelection.setup_completed_at || new Date().toISOString(),
     },
     trinity: nextTrinity,

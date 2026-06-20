@@ -10651,6 +10651,13 @@ Lock is per-session (resets on restart).`;
         tiers.selection.tdd_strict = false;
         tiers.selection.tdd_quality = false;
         tiers.selection.thinking_level = "off";
+        if (!tiers.selection.setup_completed_at) {
+          tiers.selection.optimization_mode = "vibeultrax";
+          tiers.selection.requested_optimization_mode = "vibeultrax";
+        } else {
+          tiers.selection.optimization_mode = tiers.selection.optimization_mode || "vibeultrax";
+          tiers.selection.requested_optimization_mode = tiers.selection.requested_optimization_mode || "vibeultrax";
+        }
         tiers.selection.setup_completed_at = now;
         tiers.selection.selected_provider = trinity?.provider || resolveExecutionIdentity(selectedModel, deps.directory)?.provider || "";
         tiers.selection.selected_quality_tier = trinity?.selected_tier || "brain";
@@ -10676,6 +10683,7 @@ Lock is per-session (resets on restart).`;
           `  Delegation: off`,
           `  Flow: off`,
           `  TDD: off`,
+          `  Default mode: ${tiers.selection.optimization_mode || "vibeultrax"}`,
           `  Blackbox: on`
         ];
         if (discovered.length > 0)
@@ -17560,6 +17568,8 @@ async function _seedOrRepairModelTiers(directory3) {
       tdd_strict: existingSelection.tdd_strict === true,
       tdd_quality: existingSelection.tdd_quality !== false,
       onboarding_mode: existingSelection.onboarding_mode || "assist",
+      optimization_mode: existingSelection.optimization_mode || "vibeultrax",
+      requested_optimization_mode: existingSelection.requested_optimization_mode || "vibeultrax",
       setup_completed_at: existingSelection.setup_completed_at || (/* @__PURE__ */ new Date()).toISOString()
     },
     trinity: nextTrinity
