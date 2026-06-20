@@ -1774,6 +1774,45 @@ function _pruneCorruptionBackups(backupDir) {
   } catch {
   }
 }
+function _sessionHasActivity(session) {
+  if (!session || typeof session !== "object")
+    return false;
+  return [
+    Array.isArray(session.warns) ? session.warns.length : 0,
+    Array.isArray(session.cache_hits) ? session.cache_hits.length : 0,
+    Array.isArray(session.notes) ? session.notes.length : 0,
+    Array.isArray(session.tags) ? session.tags.length : 0,
+    Array.isArray(session.history) ? session.history.length : 0,
+    Array.isArray(session.dashboard_vectors) ? session.dashboard_vectors.length : 0,
+    Array.isArray(session.dashboard_outcomes) ? session.dashboard_outcomes.length : 0,
+    Number(session.total_savings_usd || 0),
+    Number(session.cache_savings_usd || 0),
+    Number(session.turn_counter || 0)
+  ].some((value) => Number(value) > 0);
+}
+function pruneInactiveSessions(state) {
+  if (!state || typeof state !== "object" || !state.sessions || typeof state.sessions !== "object")
+    return 0;
+  const now = Date.now();
+  let removed = 0;
+  for (const [sid, session] of Object.entries(state.sessions)) {
+    if (!session || typeof session !== "object") {
+      delete state.sessions[sid];
+      removed++;
+      continue;
+    }
+    if (sid === _OC_SID)
+      continue;
+    const startedAt = Date.parse(String(session.started || session.session_started_at || session.updatedAt || ""));
+    const ageMs = Number.isFinite(startedAt) ? now - startedAt : Number.POSITIVE_INFINITY;
+    if (!_sessionHasActivity(session) && ageMs > ORPHAN_SESSION_TTL_MS) {
+      delete state.sessions[sid];
+      removed++;
+    }
+  }
+  _pruneOldSessions(state);
+  return removed;
+}
 function runStartupMaintenanceOnce() {
   try {
     const home = getVibeOSHome2();
@@ -1782,6 +1821,10 @@ function runStartupMaintenanceOnce() {
     _startupMaintenanceHome = home;
     _pruneCorruptionBackups(join2(home, ".backups"));
     loadActiveJobs();
+    updateState((state) => {
+      pruneInactiveSessions(state);
+      return state;
+    });
     _compactSavingsLedgerIfNeeded();
   } catch {
   }
@@ -3362,7 +3405,7 @@ function mutateSessionOrchestration(sessionId, mutator) {
     return null;
   }
 }
-var USER_HOME2, VIBEOS_CONTEXT, VIBEOS_HOME, OPENCODE_HOME, FILE_LOCK_DIR, DELEGATION_STATE_FILE, SAVINGS_LEDGER_FILE, GLOBAL_LEARNING_FILE, PRICING_CACHE_FILE, BLACKBOX_STATE_FILE, PROJECT_STATE_FILE, TIERS_FILE, ACTIVE_JOBS_FILE, AUTH_F, CREDIT_CACHE_F, FLOW_TODO_QUEUE_FILE, FLOW_DEDUP_FILE, ENFORCEMENT_COOLDOWN_FILE, TODOS_FILE, REPORTS_DIR, CONTEXT7_INSTALL_FLAG, TRINITY_OPENCODE_CONFIG, TRINITY_OPENCODE_CONFIGC, SCRATCHPAD_ROOT, SCRATCHPAD_GLOBAL_DIR, SCRATCHPAD_SESSIONS_DIR, SCRATCHPAD_SESSION_TTL_MS, SCRATCHPAD_MAX_AGE_SEC, MAX_SCRATCHPAD_FILES, MAX_SCRATCHPAD_BYTES, MAX_SESSION_SCRATCHPAD_FILES, MAX_SESSION_SCRATCHPAD_BYTES, CORRUPTION_BACKUP_MAX, CORRUPTION_BACKUP_TTL_MS, LEDGER_ROTATE_MAX_BYTES, LEDGER_ROTATE_MAX_LINES, LEDGER_ROTATE_MAX_AGE_MS, ACTIVE_JOBS_STALE_MS, SUMMARY_HEAD_TRUNCATE, DECADENCE_FRESH_MS, DECADENCE_WARM_MS, DECADENCE_COLD_MS, DECADENCE_EXPIRE_MS, DECADENCE_THROTTLE_MS, DECADENCE_GLOBAL_THROTTLE_MS, TOOL_NAME_NORMALIZE, SCRATCHPAD_TOOLS, WARN_DEDUPE_WINDOW_MS, SOFT_QUOTA_LIMIT, _OC_SID, currentSessionId, _sessionStart, currentTier, currentModel, currentProjectFingerprint, currentProjectName, recentToolEvents, frictionSessionKeys, _savingsCache, _savingsCacheMtime, _ledgerReconciledMtime, _ledgerTotalsCache, _mlGraph, _cacheDb, ML_ENABLED, ML_CONFIDENCE_THRESHOLD, _mlSavePending, _blackboxEnabled, _latestBlackboxState, _latestBlackboxLoopMsg, _latestBlackboxPivotMsg, _modelLocked, _lockedSlot, _lockedModel, _sessionCleanupRegistered, _sessionCacheCleaned, prunedThisProcess, _lastDecadenceRun, briefedProjects, _ledgerBuffer, _ledgerBufferTimer, LEDGER_BUFFER_MAX, LEDGER_BUFFER_FLUSH_MS, testReminderSeen, DFLT_GL, tool, _startupMaintenanceHome, FALLBACK_HIGH, FALLBACK_MID, HIGH_TIER_RE, MID_TIER_RE, scratchpadHitsSeen;
+var USER_HOME2, VIBEOS_CONTEXT, VIBEOS_HOME, OPENCODE_HOME, FILE_LOCK_DIR, DELEGATION_STATE_FILE, SAVINGS_LEDGER_FILE, GLOBAL_LEARNING_FILE, PRICING_CACHE_FILE, BLACKBOX_STATE_FILE, PROJECT_STATE_FILE, TIERS_FILE, ACTIVE_JOBS_FILE, AUTH_F, CREDIT_CACHE_F, FLOW_TODO_QUEUE_FILE, FLOW_DEDUP_FILE, ENFORCEMENT_COOLDOWN_FILE, TODOS_FILE, REPORTS_DIR, CONTEXT7_INSTALL_FLAG, TRINITY_OPENCODE_CONFIG, TRINITY_OPENCODE_CONFIGC, SCRATCHPAD_ROOT, SCRATCHPAD_GLOBAL_DIR, SCRATCHPAD_SESSIONS_DIR, SCRATCHPAD_SESSION_TTL_MS, SCRATCHPAD_MAX_AGE_SEC, MAX_SCRATCHPAD_FILES, MAX_SCRATCHPAD_BYTES, MAX_SESSION_SCRATCHPAD_FILES, MAX_SESSION_SCRATCHPAD_BYTES, CORRUPTION_BACKUP_MAX, CORRUPTION_BACKUP_TTL_MS, LEDGER_ROTATE_MAX_BYTES, LEDGER_ROTATE_MAX_LINES, LEDGER_ROTATE_MAX_AGE_MS, ACTIVE_JOBS_STALE_MS, SUMMARY_HEAD_TRUNCATE, DECADENCE_FRESH_MS, DECADENCE_WARM_MS, DECADENCE_COLD_MS, DECADENCE_EXPIRE_MS, DECADENCE_THROTTLE_MS, DECADENCE_GLOBAL_THROTTLE_MS, TOOL_NAME_NORMALIZE, SCRATCHPAD_TOOLS, WARN_DEDUPE_WINDOW_MS, SOFT_QUOTA_LIMIT, _OC_SID, currentSessionId, _sessionStart, currentTier, currentModel, currentProjectFingerprint, currentProjectName, recentToolEvents, frictionSessionKeys, _savingsCache, _savingsCacheMtime, _ledgerReconciledMtime, _ledgerTotalsCache, _mlGraph, _cacheDb, ML_ENABLED, ML_CONFIDENCE_THRESHOLD, _mlSavePending, _blackboxEnabled, _latestBlackboxState, _latestBlackboxLoopMsg, _latestBlackboxPivotMsg, _modelLocked, _lockedSlot, _lockedModel, _sessionCleanupRegistered, _sessionCacheCleaned, prunedThisProcess, _lastDecadenceRun, briefedProjects, _ledgerBuffer, _ledgerBufferTimer, LEDGER_BUFFER_MAX, LEDGER_BUFFER_FLUSH_MS, testReminderSeen, DFLT_GL, tool, _startupMaintenanceHome, ORPHAN_SESSION_TTL_MS, FALLBACK_HIGH, FALLBACK_MID, HIGH_TIER_RE, MID_TIER_RE, scratchpadHitsSeen;
 var init_state = __esm({
   "src/lib/state.js"() {
     "use strict";
@@ -3496,6 +3539,7 @@ var init_state = __esm({
       }
     });
     _startupMaintenanceHome = "";
+    ORPHAN_SESSION_TTL_MS = 14 * 24 * 60 * 60 * 1e3;
     FALLBACK_HIGH = /opus|gemini-.*-pro|gpt-5|(^|\/)o[134]($|-|\/)|claude.*opus|reasoner|r1/i;
     FALLBACK_MID = /sonnet|gemini-.*-flash|gpt-4o(?!-mini)|haiku|flash|4o/i;
     ({ high: HIGH_TIER_RE, mid: MID_TIER_RE } = loadTierRegexes());
@@ -10578,6 +10622,14 @@ async function resolveDashboardBaseUrl(deps) {
   const fromMemory = normalizeDashboardBaseUrl(deps.dashboardBaseUrl);
   if (fromMemory)
     return fromMemory;
+  if (typeof deps.loadPublishedMcpBaseUrl === "function") {
+    try {
+      const published = normalizeDashboardBaseUrl(await deps.loadPublishedMcpBaseUrl());
+      if (published)
+        return published;
+    } catch {
+    }
+  }
   if (typeof deps.ensureMcpServerRunning === "function") {
     try {
       await deps.ensureMcpServerRunning();
@@ -17864,6 +17916,44 @@ function getTiersFile() {
 function getReportsDir2() {
   return join21(getVibeOSHome13(), "reports");
 }
+function getMcpRuntimeFile() {
+  return join21(getVibeOSHome13(), "mcp-runtime.json");
+}
+function readPublishedMcpRuntime() {
+  try {
+    if (!existsSync21(getMcpRuntimeFile()))
+      return null;
+    const runtime = safeJsonParse2(readFileSync21(getMcpRuntimeFile(), "utf-8"));
+    const baseUrl = String(runtime?.baseUrl || "").trim().replace(/\/$/, "");
+    const port = Number(runtime?.port || 0);
+    if (!baseUrl && !(Number.isFinite(port) && port > 0))
+      return null;
+    return {
+      baseUrl: baseUrl || (Number.isFinite(port) && port > 0 ? `http://127.0.0.1:${port}` : ""),
+      port: Number.isFinite(port) && port > 0 ? port : null,
+      updatedAt: typeof runtime?.updatedAt === "string" ? runtime.updatedAt : null
+    };
+  } catch {
+    return null;
+  }
+}
+function publishMcpRuntime(port, baseUrl) {
+  try {
+    const resolvedPort = Number(port);
+    if (!Number.isFinite(resolvedPort) || resolvedPort <= 0)
+      return null;
+    const normalizedBase = String(baseUrl || `http://127.0.0.1:${resolvedPort}`).trim().replace(/\/$/, "");
+    mkdirSync16(dirname14(getMcpRuntimeFile()), { recursive: true });
+    writeFileSync19(getMcpRuntimeFile(), JSON.stringify({
+      port: resolvedPort,
+      baseUrl: normalizedBase,
+      updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+    }, null, 2) + "\n", "utf-8");
+    return normalizedBase;
+  } catch {
+    return null;
+  }
+}
 function ensureDeferredBootstrap() {
   if (_deferredBootstrapDone || _modelLocked)
     return;
@@ -18277,7 +18367,40 @@ async function ensureMcpServerRunning() {
             const trinity = _pluginHooksRuntime?.tool?.trinity;
             if (!trinity?.execute)
               return { error: "trinity runtime unavailable" };
-            return diagnoseStructuredFromText(await trinity.execute({ action: "diagnose" }), loadCredit());
+            const raw = await trinity.execute({ action: "diagnose" });
+            const parsed = diagnoseStructuredFromText(raw, loadCredit());
+            const state = readFullState() || {};
+            const sessions = state?.sessions || {};
+            const blackbox = loadBlackboxState() || {};
+            const runtime = readPublishedMcpRuntime() || {};
+            const orphanedSessions = Object.entries(sessions).filter(([, ses]) => {
+              if (!ses || typeof ses !== "object")
+                return true;
+              const startedAt = Date.parse(String(ses.started || ses.session_started_at || ""));
+              const ageMs = Number.isFinite(startedAt) ? Date.now() - startedAt : Number.POSITIVE_INFINITY;
+              const hasActivity = [
+                Array.isArray(ses.warns) ? ses.warns.length : 0,
+                Array.isArray(ses.cache_hits) ? ses.cache_hits.length : 0,
+                Number(ses.total_savings_usd || 0),
+                Number(ses.cache_savings_usd || 0),
+                Number(ses.tool_counts ? Object.keys(ses.tool_counts).length : 0),
+                Array.isArray(ses.notes) ? ses.notes.length : 0,
+                Array.isArray(ses.tags) ? ses.tags.length : 0
+              ].some((value) => Number(value) > 0);
+              return !hasActivity && ageMs > 24 * 60 * 60 * 1e3;
+            }).map(([sid]) => sid);
+            return {
+              ...parsed,
+              raw: typeof raw === "string" ? raw : null,
+              live: {
+                dashboard_base_url: _dashboardBaseUrl || runtime.baseUrl || null,
+                mcp_port: runtime.port || loadMcpPort() || null,
+                state_sessions: Object.keys(sessions).length,
+                orphaned_sessions: orphanedSessions.length,
+                blackbox_sessions: Object.keys(blackbox.sessions || {}).length,
+                blackbox_enabled: blackbox.enabled !== false
+              }
+            };
           },
           runProject: async () => {
             const trinity = _pluginHooksRuntime?.tool?.trinity;
@@ -18309,27 +18432,30 @@ async function ensureMcpServerRunning() {
             return { ok: true, summary: checkout.summary, report_id: reportId };
           },
           getBlackboxState: () => {
-            const tracker = getBlackboxTracker();
-            const res = getBlackboxResolution();
+            const persisted = loadBlackboxState() || {};
+            const session = persisted?.sessions?.[_OC_SID] || {};
             return {
-              sub_regime: res?.sub_regime || _latestBlackboxState?.sub_regime || "INIT",
-              resolution: res?.resolution || "INIT",
-              momentum: res?.momentum ?? 0,
-              features: _latestBlackboxState?.features || {},
-              signals: _latestBlackboxState?.signals || {},
+              enabled: persisted?.enabled !== false,
+              sub_regime: session?.sub_regime || _latestBlackboxState?.sub_regime || "INIT",
+              resolution: session?.resolution || _latestBlackboxState?.resolution || "INIT",
+              momentum: Number(session?.momentum ?? _latestBlackboxState?.momentum ?? 0),
+              features: session?.features || _latestBlackboxState?.features || {},
+              signals: session?.signals || _latestBlackboxState?.signals || {},
               loop: {
-                active: _latestBlackboxLoopMsg !== null,
-                message: _latestBlackboxLoopMsg,
-                intervention_level: _latestBlackboxLoopMsg?.intervention_level || _latestBlackboxState?.loop?.intervention_level || 0,
-                consecutive_loops: _latestBlackboxState?.loop?.consecutive_loops || 0
+                active: Boolean(session?.loop?.active || _latestBlackboxLoopMsg !== null),
+                message: session?.loop?.message || _latestBlackboxLoopMsg,
+                intervention_level: session?.loop?.intervention_level || _latestBlackboxLoopMsg?.intervention_level || _latestBlackboxState?.loop?.intervention_level || 0,
+                consecutive_loops: session?.loop?.consecutive_loops || _latestBlackboxState?.loop?.consecutive_loops || 0
               },
               pivot: {
-                detected: _latestBlackboxPivotMsg !== null,
-                message: _latestBlackboxPivotMsg
+                detected: Boolean(session?.pivot?.detected || _latestBlackboxPivotMsg !== null),
+                message: session?.pivot?.message || _latestBlackboxPivotMsg
               },
-              continuity_state: _latestBlackboxState?.continuity_state || null,
-              turn_index: _latestBlackboxState?.turn_index ?? 0,
-              stress_level: _latestBlackboxState?.stress_level ?? 0,
+              continuity_state: session?.continuity_state || _latestBlackboxState?.continuity_state || null,
+              turn_index: session?.turn_index ?? _latestBlackboxState?.turn_index ?? 0,
+              stress_level: session?.stress_level ?? _latestBlackboxState?.stress_level ?? 0,
+              dashboard_vectors: session?.dashboard_vectors || [],
+              dashboard_outcomes: session?.dashboard_outcomes || [],
               session_id: _OC_SID,
               project_fingerprint: currentProjectFingerprint
             };
@@ -18375,6 +18501,7 @@ async function ensureMcpServerRunning() {
         persistMcpPort(actualPort);
       if (actualPort) {
         _dashboardBaseUrl = `http://127.0.0.1:${actualPort}`;
+        publishMcpRuntime(actualPort, _dashboardBaseUrl);
         writeDashboardBaseConfig(`http://127.0.0.1:${actualPort}`);
       }
       console.error(`[vibeOS] MCP server on http://127.0.0.1:${actualPort}`);
@@ -18609,6 +18736,21 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     },
     get dashboardBaseUrl() {
       return _dashboardBaseUrl;
+    },
+    loadPublishedMcpBaseUrl: async () => {
+      const runtime = readPublishedMcpRuntime();
+      if (!runtime?.baseUrl)
+        return "";
+      try {
+        const ctl = new AbortController();
+        const timer = setTimeout(() => ctl.abort(), 1e3);
+        const res = await fetch(`${runtime.baseUrl.replace(/\/$/, "")}/health`, { signal: ctl.signal });
+        clearTimeout(timer);
+        if (res.ok)
+          return runtime.baseUrl;
+      } catch {
+      }
+      return "";
     },
     ensureMcpServerRunning,
     _loadMcpPort: loadMcpPort,

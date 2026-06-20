@@ -24,6 +24,12 @@ function normalizeDashboardBaseUrl(baseUrl: unknown): string {
 async function resolveDashboardBaseUrl(deps): Promise<string> {
   const fromMemory = normalizeDashboardBaseUrl(deps.dashboardBaseUrl)
   if (fromMemory) return fromMemory
+  if (typeof deps.loadPublishedMcpBaseUrl === "function") {
+    try {
+      const published = normalizeDashboardBaseUrl(await deps.loadPublishedMcpBaseUrl())
+      if (published) return published
+    } catch {}
+  }
   if (typeof deps.ensureMcpServerRunning === "function") {
     try {
       await deps.ensureMcpServerRunning()
