@@ -16,6 +16,14 @@ type SessionNote = {
   created_at: string
 }
 
+type SessionHistoryEntry = {
+  version: number
+  action: string
+  at: string
+  payload: AnyObject | null
+  snapshot: AnyObject
+}
+
 type SessionLifecycle = {
   started_at: string | null
   paused_at: string | null
@@ -33,6 +41,8 @@ export type SessionOrchestration = {
   notes: SessionNote[]
   lifecycle: SessionLifecycle
   template: ReturnType<typeof normalizeSessionTemplate> | null
+  version: number
+  history: SessionHistoryEntry[]
 }
 
 function digest(text: string): string {
@@ -83,7 +93,7 @@ function normalizeLifecycle(raw: AnyObject): SessionLifecycle {
   }
 }
 
-export function normalizeSessionOrchestration(raw: AnyObject | null | undefined, sessionId = "unknown"): SessionOrchestration {
+function normalizeSessionSnapshot(raw: AnyObject | null | undefined, sessionId = "unknown"): Omit<SessionOrchestration, "history"> {
   const current = raw && typeof raw === "object" ? raw : {}
   const template = normalizeSessionTemplate(current.template || current.tdd_template || null, current.template?.base_template_id || DEFAULT_TEMPLATE)
   return {
@@ -95,18 +105,76 @@ export function normalizeSessionOrchestration(raw: AnyObject | null | undefined,
     notes: normalizeNotes(current.notes),
     lifecycle: normalizeLifecycle(current.lifecycle || current),
     template,
+    version: Number(current.version || 1) || 1,
   }
 }
 
-export function applySessionAction(current: SessionOrchestration | null | undefined, action: string, payload: AnyObject = {}): SessionOrchestration {
-  const now = new Date().toISOString()
-  const base = normalizeSessionOrchestration(current, current?.session_id || payload.session_id || "unknown")
-  const next: SessionOrchestration = {
-    ...base,
-    lifecycle: { ...base.lifecycle },
-    notes: [...base.notes],
-    tags: [...base.tags],
-    template: base.template ? { ...base.template } : null,
+function normalizeHistory(raw: AnyObject | null | undefined, sessionId = "unknown"): SessionHistoryEntry[] {
+  return asArray(raw)
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return null
+      const snapshotRaw = entry.snapshot || entry.state || entry.orchestration || null
+      const snapshot = normalizeSessionSnapshot(snapshotRaw, sessionId)
+      return {
+        version: Number(entry.version || snapshot.version || 1) || 1,
+        action: typeof entry.action === "string" && entry.action.trim() ? entry.action.trim() : "unknown",
+        at: typeof entry.at === "string" && entry.at.trim() ? entry.at.trim() : new Date().toISOString(),
+        payload: entry.payload && typeof entry.payload === "object" ? entry.payload : null,
+        snapshot,
+      }
+    })
+    .filter(Boolean)
+}
+
+function sanitizePayload(payload: AnyObject): AnyObject {
+  const next: AnyObject = {}
+  for (const [key, value] of Object.entries(payload || {})) {
+    if (key === "history" || key === "snapshot" || key === "state" || key === "orchestration") continue
+    next[key] = value
+  }
+  return next
+}
+
+function cloneSnapshot(session: Omit<SessionOrchestration, "history">): Omit<SessionOrchestration, "history"> {
+  return {
+    session_id: session.session_id,
+    status: session.status,
+    locked: session.locked,
+    archived: session.archived,
+    tags: [...session.tags],
+    notes: [...session.notes],
+    lifecycle: { ...session.lifecycle },
+    template: session.template ? { ...session.template } : null,
+    version: session.version,
+  }
+}
+
+function diffStrings(left: string[], right: string[]): { added: string[]; removed: string[] } {
+  return {
+    added: right.filter((item) => !left.includes(item)),
+    removed: left.filter((item) => !right.includes(item)),
+  }
+}
+
+export function normalizeSessionOrchestration(raw: AnyObject | null | undefined, sessionId = "unknown"): SessionOrchestration {
+  const current = raw && typeof raw === "object" ? raw : {}
+  const snapshot = normalizeSessionSnapshot(current, sessionId)
+  const history = normalizeHistory(current.history, snapshot.session_id).slice(-20)
+  const version = Number(current.version || snapshot.version || history.at(-1)?.version || 1) || 1
+  return {
+    ...snapshot,
+    version,
+    history,
+  }
+}
+
+function applyCoreSessionAction(current: Omit<SessionOrchestration, "history">, action: string, payload: AnyObject, now: string): Omit<SessionOrchestration, "history"> {
+  const next: Omit<SessionOrchestration, "history"> = {
+    ...current,
+    lifecycle: { ...current.lifecycle },
+    notes: [...current.notes],
+    tags: [...current.tags],
+    template: current.template ? { ...current.template } : null,
   }
 
   switch (String(action || "").toLowerCase()) {
@@ -175,8 +243,127 @@ export function applySessionAction(current: SessionOrchestration | null | undefi
   return next
 }
 
+export function applySessionAction(current: SessionOrchestration | null | undefined, action: string, payload: AnyObject = {}): SessionOrchestration {
+  const now = new Date().toISOString()
+  const base = normalizeSessionOrchestration(current, current?.session_id || payload.session_id || "unknown")
+  const normalizedAction = String(action || "").toLowerCase()
+  if (normalizedAction === "undo") {
+    const last = [...base.history].pop()
+    if (!last) return base
+    return {
+      ...cloneSnapshot(normalizeSessionOrchestration(last.snapshot, base.session_id)),
+      version: last.version,
+      history: base.history.slice(0, -1),
+    }
+  }
+
+  if (normalizedAction === "batch") {
+    const actions = normalizeBatchActions(payload.actions || payload.items || payload.batch || [])
+    let next = base
+    for (const entry of actions) {
+      next = applyCoreSessionAction(next, entry.action, entry.payload, now)
+    }
+    return {
+      ...next,
+      version: base.version + 1,
+      history: [...base.history, {
+        version: base.version,
+        action: "batch",
+        at: now,
+        payload: sanitizePayload({ actions }),
+        snapshot: cloneSnapshot(base),
+      }].slice(-20),
+    }
+  }
+
+  const next = applyCoreSessionAction(base, normalizedAction, payload, now)
+  if (!normalizedAction || normalizedAction === "noop") return { ...next, history: base.history, version: base.version }
+  return {
+    ...next,
+    version: base.version + 1,
+    history: [...base.history, {
+      version: base.version,
+      action: normalizedAction,
+      at: now,
+      payload: sanitizePayload(payload),
+      snapshot: cloneSnapshot(base),
+    }].slice(-20),
+  }
+}
+
 export function resolveSessionTemplateOrDefault(template: any): ReturnType<typeof resolveSessionTemplateDefinition> {
   return resolveSessionTemplateDefinition(template || null)
+}
+
+type BatchAction = {
+  action: string
+  payload: AnyObject
+}
+
+function normalizeBatchActions(raw: any): BatchAction[] {
+  return asArray(raw)
+    .map((entry) => {
+      if (!entry) return null
+      if (typeof entry === "string") return { action: entry, payload: {} }
+      if (typeof entry === "object") {
+        const action = String(entry.action || entry.type || entry.name || "").trim()
+        if (!action) return null
+        const payload = entry.payload && typeof entry.payload === "object" ? entry.payload : entry
+        return { action, payload }
+      }
+      return null
+    })
+    .filter(Boolean)
+}
+
+export function compareSessionOrchestrations(left: AnyObject | null | undefined, right: AnyObject | null | undefined): AnyObject {
+  const a = normalizeSessionOrchestration(left, left?.session_id || "left")
+  const b = normalizeSessionOrchestration(right, right?.session_id || "right")
+  return {
+    left: {
+      session_id: a.session_id,
+      version: a.version,
+      status: a.status,
+      locked: a.locked,
+      archived: a.archived,
+      notes_count: a.notes.length,
+      template_signature: a.template?.signature || null,
+      tags: a.tags,
+    },
+    right: {
+      session_id: b.session_id,
+      version: b.version,
+      status: b.status,
+      locked: b.locked,
+      archived: b.archived,
+      notes_count: b.notes.length,
+      template_signature: b.template?.signature || null,
+      tags: b.tags,
+    },
+    version_delta: b.version - a.version,
+    status_changed: a.status !== b.status,
+    lock_changed: a.locked !== b.locked,
+    archive_changed: a.archived !== b.archived,
+    notes_delta: b.notes.length - a.notes.length,
+    tag_diff: diffStrings(a.tags, b.tags),
+    template_changed: (a.template?.signature || null) !== (b.template?.signature || null),
+    template_revision_delta: Number(b.template?.revision || 0) - Number(a.template?.revision || 0),
+    lifecycle: {
+      started_changed: a.lifecycle.started_at !== b.lifecycle.started_at,
+      paused_changed: a.lifecycle.paused_at !== b.lifecycle.paused_at,
+      resumed_changed: a.lifecycle.resumed_at !== b.lifecycle.resumed_at,
+      archived_changed: a.lifecycle.archived_at !== b.lifecycle.archived_at,
+      checked_out_changed: a.lifecycle.checked_out_at !== b.lifecycle.checked_out_at,
+    },
+  }
+}
+
+export function exportSessionOrchestration(session: AnyObject | null | undefined, sessionId = "unknown"): AnyObject {
+  return normalizeSessionOrchestration(session, sessionId)
+}
+
+export function importSessionOrchestration(raw: AnyObject | null | undefined, sessionId = "unknown"): SessionOrchestration {
+  return normalizeSessionOrchestration(raw, sessionId)
 }
 
 function pickSessionMetrics(session: AnyObject, metrics: AnyObject = {}): AnyObject {
@@ -333,9 +520,19 @@ export function buildDashboardHomeModel({
     savings,
     todos,
     current_session: currentSession,
+    template_editor: {
+      enabled: true,
+      session_id: currentSession.session_id,
+      template: currentSession.template,
+      templates: asArray(templates).map((template) => normalizeSessionTemplate(template || null, template?.id || DEFAULT_TEMPLATE)).filter(Boolean),
+      can_edit: true,
+      can_version: true,
+      version: currentSession.version,
+      history: currentSession.history,
+    },
     sessions: sortSessions(rows),
     templates,
-    session_actions: ["start", "pause", "resume", "lock", "unlock", "retag", "annotate", "checkout", "archive"],
+    session_actions: ["start", "pause", "resume", "lock", "unlock", "retag", "annotate", "checkout", "archive", "undo", "batch"],
     totals: {
       total_sessions: rows.length,
       total_savings_usd: totalSavings,

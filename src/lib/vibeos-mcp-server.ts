@@ -7,7 +7,7 @@ import { parse as parseUrl } from "node:url"
 import { createReadStream, existsSync, mkdirSync, statSync, writeFileSync } from "node:fs"
 import { extname, join, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
-import { applySessionAction, buildDashboardHomeModel, buildSessionDetail, TEMPLATE_LIBRARY } from "./session-orchestrator.js"
+import { applySessionAction, buildDashboardHomeModel, buildSessionDetail, compareSessionOrchestrations, exportSessionOrchestration, importSessionOrchestration, TEMPLATE_LIBRARY } from "./session-orchestrator.js"
 
 const MIME_MAP: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -344,6 +344,32 @@ export function createMcpServer(deps: Deps): McpServer {
           return
         }
       }
+      if (method === "GET" && path.startsWith("/sessions/") && path.endsWith("/compare")) {
+        const sessionId = decodeURIComponent(path.replace(/^\/sessions\//, "").replace(/\/compare$/, "")).trim()
+        const query = parsed.query as Record<string, string | undefined>
+        const compareId = typeof query.with === "string" ? decodeURIComponent(query.with).trim() : ""
+        if (!sessionId || !compareId) {
+          json(res, 400, { error: "session ids are required", status: 400 })
+          return
+        }
+        const left = getSessionOrchestrationState(deps, sessionId)
+        const right = getSessionOrchestrationState(deps, compareId)
+        json(res, 200, {
+          ok: true,
+          compare: compareSessionOrchestrations(left, right),
+        })
+        return
+      }
+      if (method === "GET" && path.startsWith("/sessions/") && path.endsWith("/export")) {
+        const sessionId = decodeURIComponent(path.replace(/^\/sessions\//, "").replace(/\/export$/, "")).trim()
+        if (!sessionId) {
+          json(res, 400, { error: "session id is required", status: 400 })
+          return
+        }
+        const orchestration = exportSessionOrchestration(getSessionOrchestrationState(deps, sessionId), sessionId)
+        json(res, 200, { ok: true, session_id: sessionId, orchestration })
+        return
+      }
       if (method === "GET" && path === "/templates") {
         const templates = typeof deps.listSessionTemplates === "function" ? deps.listSessionTemplates() : TEMPLATE_LIBRARY
         json(res, 200, templates)
@@ -500,13 +526,31 @@ export function createMcpServer(deps: Deps): McpServer {
         if (action === "checkout") {
           const checkout = deps.generateSessionCheckout()
           if (typeof deps.mutateSessionOrchestration === "function") {
-            deps.mutateSessionOrchestration(sessionId, (current) => applySessionAction(current, "checkout", body))
+            deps.mutateSessionOrchestration(sessionId, (current) => applySessionAction(current, "checkout", { ...body, session_id: sessionId }))
           }
           json(res, 200, { ok: true, checkout })
           return
         }
+        if (action === "batch") {
+          if (typeof deps.mutateSessionOrchestration === "function") {
+            const next = deps.mutateSessionOrchestration(sessionId, (current) => applySessionAction(current, "batch", { ...body, session_id: sessionId }))
+            json(res, 200, { ok: true, session: next })
+            return
+          }
+          json(res, 500, { ok: false, error: "session mutation unavailable" })
+          return
+        }
+        if (action === "undo") {
+          if (typeof deps.mutateSessionOrchestration === "function") {
+            const next = deps.mutateSessionOrchestration(sessionId, (current) => applySessionAction(current, "undo", { ...body, session_id: sessionId }))
+            json(res, 200, { ok: true, session: next })
+            return
+          }
+          json(res, 500, { ok: false, error: "session mutation unavailable" })
+          return
+        }
         if (typeof deps.mutateSessionOrchestration === "function") {
-          const next = deps.mutateSessionOrchestration(sessionId, (current) => applySessionAction(current, action, body))
+          const next = deps.mutateSessionOrchestration(sessionId, (current) => applySessionAction(current, action, { ...body, session_id: sessionId }))
           json(res, 200, { ok: true, session: next })
           return
         }
@@ -537,7 +581,7 @@ export function createMcpServer(deps: Deps): McpServer {
             revision: body?.revision || 1,
           }
         if (typeof deps.mutateSessionOrchestration === "function") {
-          const next = deps.mutateSessionOrchestration(sessionId, (current) => applySessionAction(current, "set-template", { ...body, template }))
+          const next = deps.mutateSessionOrchestration(sessionId, (current) => applySessionAction(current, "set-template", { ...body, template, session_id: sessionId }))
           json(res, 200, { ok: true, session: next })
           return
         }
@@ -566,6 +610,28 @@ export function createMcpServer(deps: Deps): McpServer {
         }
         deps.saveBlackboxOutcome(body)
         json(res, 200, { ok: true })
+        return
+      }
+      if (method === "POST" && path === "/sessions/import") {
+        let body: Record<string, unknown>
+        try {
+          body = await parseBody(req)
+        } catch {
+          json(res, 400, { error: "invalid request", status: 400 })
+          return
+        }
+        const sessionId = String(body?.session_id || "").trim()
+        const orchestration = body?.orchestration && typeof body.orchestration === "object" ? body.orchestration : body?.session
+        if (!sessionId || !orchestration) {
+          json(res, 400, { error: "session_id and orchestration are required", status: 400 })
+          return
+        }
+        if (typeof deps.mutateSessionOrchestration === "function") {
+          const next = deps.mutateSessionOrchestration(sessionId, () => importSessionOrchestration({ ...(orchestration as Record<string, unknown>), session_id: sessionId }, sessionId))
+          json(res, 200, { ok: true, session: next })
+          return
+        }
+        json(res, 500, { ok: false, error: "session mutation unavailable" })
         return
       }
       if (method === "GET" && path === "/") {
