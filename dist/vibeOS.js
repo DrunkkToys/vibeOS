@@ -1244,7 +1244,7 @@ function normalizeLifecycle(raw) {
     checked_out_at: typeof raw.checked_out_at === "string" ? raw.checked_out_at : typeof raw.checkedOutAt === "string" ? raw.checkedOutAt : null
   };
 }
-function normalizeSessionOrchestration(raw, sessionId = "unknown") {
+function normalizeSessionSnapshot(raw, sessionId = "unknown") {
   const current = raw && typeof raw === "object" ? raw : {};
   const template = normalizeSessionTemplate2(current.template || current.tdd_template || null, current.template?.base_template_id || DEFAULT_TEMPLATE);
   return {
@@ -1255,18 +1255,71 @@ function normalizeSessionOrchestration(raw, sessionId = "unknown") {
     tags: uniqueStrings(current.tags),
     notes: normalizeNotes(current.notes),
     lifecycle: normalizeLifecycle(current.lifecycle || current),
-    template
+    template,
+    version: Number(current.version || 1) || 1
   };
 }
-function applySessionAction(current, action, payload = {}) {
-  const now = (/* @__PURE__ */ new Date()).toISOString();
-  const base = normalizeSessionOrchestration(current, current?.session_id || payload.session_id || "unknown");
+function normalizeHistory(raw, sessionId = "unknown") {
+  return asArray(raw).map((entry) => {
+    if (!entry || typeof entry !== "object")
+      return null;
+    const snapshotRaw = entry.snapshot || entry.state || entry.orchestration || null;
+    const snapshot = normalizeSessionSnapshot(snapshotRaw, sessionId);
+    return {
+      version: Number(entry.version || snapshot.version || 1) || 1,
+      action: typeof entry.action === "string" && entry.action.trim() ? entry.action.trim() : "unknown",
+      at: typeof entry.at === "string" && entry.at.trim() ? entry.at.trim() : (/* @__PURE__ */ new Date()).toISOString(),
+      payload: entry.payload && typeof entry.payload === "object" ? entry.payload : null,
+      snapshot
+    };
+  }).filter(Boolean);
+}
+function sanitizePayload(payload) {
+  const next = {};
+  for (const [key, value] of Object.entries(payload || {})) {
+    if (key === "history" || key === "snapshot" || key === "state" || key === "orchestration")
+      continue;
+    next[key] = value;
+  }
+  return next;
+}
+function cloneSnapshot(session) {
+  return {
+    session_id: session.session_id,
+    status: session.status,
+    locked: session.locked,
+    archived: session.archived,
+    tags: [...session.tags],
+    notes: [...session.notes],
+    lifecycle: { ...session.lifecycle },
+    template: session.template ? { ...session.template } : null,
+    version: session.version
+  };
+}
+function diffStrings(left, right) {
+  return {
+    added: right.filter((item) => !left.includes(item)),
+    removed: left.filter((item) => !right.includes(item))
+  };
+}
+function normalizeSessionOrchestration(raw, sessionId = "unknown") {
+  const current = raw && typeof raw === "object" ? raw : {};
+  const snapshot = normalizeSessionSnapshot(current, sessionId);
+  const history = normalizeHistory(current.history, snapshot.session_id).slice(-20);
+  const version = Number(current.version || snapshot.version || history.at(-1)?.version || 1) || 1;
+  return {
+    ...snapshot,
+    version,
+    history
+  };
+}
+function applyCoreSessionAction(current, action, payload, now) {
   const next = {
-    ...base,
-    lifecycle: { ...base.lifecycle },
-    notes: [...base.notes],
-    tags: [...base.tags],
-    template: base.template ? { ...base.template } : null
+    ...current,
+    lifecycle: { ...current.lifecycle },
+    notes: [...current.notes],
+    tags: [...current.tags],
+    template: current.template ? { ...current.template } : null
   };
   switch (String(action || "").toLowerCase()) {
     case "start":
@@ -1334,8 +1387,118 @@ function applySessionAction(current, action, payload = {}) {
   }
   return next;
 }
+function applySessionAction(current, action, payload = {}) {
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const base = normalizeSessionOrchestration(current, current?.session_id || payload.session_id || "unknown");
+  const normalizedAction = String(action || "").toLowerCase();
+  if (normalizedAction === "undo") {
+    const last = [...base.history].pop();
+    if (!last)
+      return base;
+    return {
+      ...cloneSnapshot(normalizeSessionOrchestration(last.snapshot, base.session_id)),
+      version: last.version,
+      history: base.history.slice(0, -1)
+    };
+  }
+  if (normalizedAction === "batch") {
+    const actions = normalizeBatchActions(payload.actions || payload.items || payload.batch || []);
+    let next2 = base;
+    for (const entry of actions) {
+      next2 = applyCoreSessionAction(next2, entry.action, entry.payload, now);
+    }
+    return {
+      ...next2,
+      version: base.version + 1,
+      history: [...base.history, {
+        version: base.version,
+        action: "batch",
+        at: now,
+        payload: sanitizePayload({ actions }),
+        snapshot: cloneSnapshot(base)
+      }].slice(-20)
+    };
+  }
+  const next = applyCoreSessionAction(base, normalizedAction, payload, now);
+  if (!normalizedAction || normalizedAction === "noop")
+    return { ...next, history: base.history, version: base.version };
+  return {
+    ...next,
+    version: base.version + 1,
+    history: [...base.history, {
+      version: base.version,
+      action: normalizedAction,
+      at: now,
+      payload: sanitizePayload(payload),
+      snapshot: cloneSnapshot(base)
+    }].slice(-20)
+  };
+}
 function resolveSessionTemplateOrDefault(template) {
   return resolveSessionTemplateDefinition2(template || null);
+}
+function normalizeBatchActions(raw) {
+  return asArray(raw).map((entry) => {
+    if (!entry)
+      return null;
+    if (typeof entry === "string")
+      return { action: entry, payload: {} };
+    if (typeof entry === "object") {
+      const action = String(entry.action || entry.type || entry.name || "").trim();
+      if (!action)
+        return null;
+      const payload = entry.payload && typeof entry.payload === "object" ? entry.payload : entry;
+      return { action, payload };
+    }
+    return null;
+  }).filter(Boolean);
+}
+function compareSessionOrchestrations(left, right) {
+  const a = normalizeSessionOrchestration(left, left?.session_id || "left");
+  const b = normalizeSessionOrchestration(right, right?.session_id || "right");
+  return {
+    left: {
+      session_id: a.session_id,
+      version: a.version,
+      status: a.status,
+      locked: a.locked,
+      archived: a.archived,
+      notes_count: a.notes.length,
+      template_signature: a.template?.signature || null,
+      tags: a.tags
+    },
+    right: {
+      session_id: b.session_id,
+      version: b.version,
+      status: b.status,
+      locked: b.locked,
+      archived: b.archived,
+      notes_count: b.notes.length,
+      template_signature: b.template?.signature || null,
+      tags: b.tags
+    },
+    version_delta: b.version - a.version,
+    status_changed: a.status !== b.status,
+    lock_changed: a.locked !== b.locked,
+    archive_changed: a.archived !== b.archived,
+    notes_delta: b.notes.length - a.notes.length,
+    tag_diff: diffStrings(a.tags, b.tags),
+    template_changed: (a.template?.signature || null) !== (b.template?.signature || null),
+    template_revision_delta: Number(b.template?.revision || 0) - Number(a.template?.revision || 0),
+    lifecycle: {
+      started_changed: a.lifecycle.started_at !== b.lifecycle.started_at,
+      paused_changed: a.lifecycle.paused_at !== b.lifecycle.paused_at,
+      resumed_changed: a.lifecycle.resumed_at !== b.lifecycle.resumed_at,
+      archived_changed: a.lifecycle.archived_at !== b.lifecycle.archived_at,
+      checked_out_changed: a.lifecycle.checked_out_at !== b.lifecycle.checked_out_at
+    }
+  };
+}
+function exportSessionOrchestration(session, sessionId = "unknown") {
+  return normalizeSessionOrchestration(session, sessionId);
+}
+function importSessionOrchestration(raw, sessionId = "unknown") {
+  return normalizeSessionOrchestration(raw, sessionId);
 }
 function pickSessionMetrics(session, metrics = {}) {
   const notes = normalizeNotes(session?.orchestration?.notes || []);
@@ -1464,9 +1627,19 @@ function buildDashboardHomeModel({ currentSessionId: currentSessionId3, status =
     savings,
     todos,
     current_session: currentSession,
+    template_editor: {
+      enabled: true,
+      session_id: currentSession.session_id,
+      template: currentSession.template,
+      templates: asArray(templates).map((template) => normalizeSessionTemplate2(template || null, template?.id || DEFAULT_TEMPLATE)).filter(Boolean),
+      can_edit: true,
+      can_version: true,
+      version: currentSession.version,
+      history: currentSession.history
+    },
     sessions: sortSessions(rows),
     templates,
-    session_actions: ["start", "pause", "resume", "lock", "unlock", "retag", "annotate", "checkout", "archive"],
+    session_actions: ["start", "pause", "resume", "lock", "unlock", "retag", "annotate", "checkout", "archive", "undo", "batch"],
     totals: {
       total_sessions: rows.length,
       total_savings_usd: totalSavings,
@@ -2003,6 +2176,188 @@ function saveBlackboxState(state) {
   } catch (err) {
     console.error(`[vibeOS] saveBlackboxState failed: ${err.message}`);
   }
+}
+function _pushControlHistoryEntry(session, entry) {
+  if (!session || typeof session !== "object" || !entry || typeof entry !== "object")
+    return;
+  session.control_history ??= [];
+  const fingerprint = JSON.stringify({
+    regime: entry.regime || "",
+    reward: entry.reward ?? null,
+    outcome: entry.outcome ?? null,
+    next_action: entry.next_action ?? null,
+    control: entry.control || {}
+  });
+  const last = session.control_history[session.control_history.length - 1];
+  if (last?.fingerprint === fingerprint)
+    return;
+  session.control_history.push({ ...entry, fingerprint });
+  if (session.control_history.length > 100) {
+    session.control_history = session.control_history.slice(-100);
+  }
+}
+function _deriveLiveResolutionState(input) {
+  const outcome = String(input?.outcome || "").toLowerCase();
+  const loopLevel = String(input?.loopInterventionLevel || "").toLowerCase();
+  const pivotDetected = Boolean(input?.pivotDetected);
+  if (input?.resolutionState || input?.resolutionReason) {
+    return {
+      resolution_state: String(input?.resolutionState || "unresolved"),
+      resolution_reason: String(input?.resolutionReason || "live snapshot")
+    };
+  }
+  if (outcome === "positive")
+    return { resolution_state: "working", resolution_reason: "positive outcome" };
+  if (outcome === "negative") {
+    return {
+      resolution_state: loopLevel === "escalated" ? "intervened" : "needs_attention",
+      resolution_reason: "negative outcome"
+    };
+  }
+  if (loopLevel && loopLevel !== "none")
+    return { resolution_state: "intervened", resolution_reason: `loop intervention: ${loopLevel}` };
+  if (pivotDetected)
+    return { resolution_state: "pivoted", resolution_reason: "context pivot detected" };
+  return { resolution_state: "unresolved", resolution_reason: "no outcome yet" };
+}
+function recordLiveSessionSnapshot(input) {
+  const sid = String(input?.sessionId || getCurrentSessionId() || _OC_SID || "");
+  const updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+  const derivedResolution = _deriveLiveResolutionState(input);
+  const resolutionState = String(input?.resolutionState || derivedResolution.resolution_state || "unresolved");
+  const resolutionReason = String(input?.resolutionReason || derivedResolution.resolution_reason || "no outcome yet");
+  const control = input?.control && typeof input.control === "object" ? { ...input.control } : null;
+  const nextAction = typeof input?.nextAction === "string" && input.nextAction.trim() ? input.nextAction.trim() : null;
+  try {
+    updateState((state) => {
+      state.sessions ??= {};
+      state.lifetime ??= {};
+      if (!state.sessions[sid]) {
+        state.sessions[sid] = { warns: [], cache_hits: [] };
+      }
+      const ses = state.sessions[sid];
+      if (input.projectFingerprint)
+        ses.project_fingerprint = input.projectFingerprint;
+      if (input.projectName)
+        ses.project_name = input.projectName;
+      if (typeof input.savingsUsd === "number" && Number.isFinite(input.savingsUsd)) {
+        ses.live_savings_usd = roundUsd(Number(input.savingsUsd || 0));
+      }
+      if (typeof input.rewardCredits === "number" && Number.isFinite(input.rewardCredits)) {
+        ses.reward_credits = roundUsd(Number(ses.reward_credits || 0) + Number(input.rewardCredits || 0));
+        state.lifetime.reward_credits = roundUsd(Number(state.lifetime.reward_credits || 0) + Number(input.rewardCredits || 0));
+      }
+      if (typeof input.outcome === "string" && input.outcome)
+        ses.last_outcome = input.outcome;
+      if (input.footerLine)
+        ses.last_footer_line = input.footerLine;
+      if (input.subRegime)
+        ses.live_sub_regime = input.subRegime;
+      if (typeof input.stress === "number" && Number.isFinite(input.stress))
+        ses.live_stress = Number(input.stress);
+      if (typeof input.loopInterventionLevel === "string")
+        ses.live_loop_intervention_level = input.loopInterventionLevel;
+      if (typeof input.pivotDetected === "boolean")
+        ses.live_pivot_detected = input.pivotDetected;
+      ses.live_resolution_state = resolutionState;
+      ses.live_resolution_reason = resolutionReason;
+      if (nextAction)
+        ses.live_next_action = nextAction;
+      ses.live_updated_at = updatedAt;
+      if (control) {
+        ses.live_control = control;
+        _pushControlHistoryEntry(ses, {
+          turn: Number(ses.turn_counter || 0) + 1,
+          regime: input.subRegime || ses.sub_regime || ses.regime || "INIT",
+          control,
+          reward: typeof input.rewardCredits === "number" && Number.isFinite(input.rewardCredits) ? Number(input.rewardCredits || 0) : null,
+          outcome: typeof input.outcome === "string" ? input.outcome : null,
+          next_action: nextAction,
+          resolution_state: resolutionState,
+          resolution_reason: resolutionReason,
+          source: input.source || "footer"
+        });
+      }
+      return state;
+    });
+  } catch {
+  }
+  try {
+    const bb = loadBlackboxState();
+    bb.sessions ??= {};
+    if (!bb.sessions[sid]) {
+      bb.sessions[sid] = {};
+    }
+    const ses = bb.sessions[sid];
+    if (input.projectFingerprint)
+      ses.project_fingerprint = input.projectFingerprint;
+    if (input.projectName)
+      ses.project_name = input.projectName;
+    if (input.footerLine)
+      ses.last_footer_line = input.footerLine;
+    if (input.subRegime) {
+      ses.sub_regime = input.subRegime;
+      ses.regime = input.subRegime;
+    }
+    ses.resolution = resolutionState === "working" ? "solved" : resolutionState === "intervened" ? "looping" : ses.resolution || "unresolved";
+    ses.resolution_state = resolutionState;
+    ses.resolution_reason = resolutionReason;
+    ses.updatedAt = updatedAt;
+    ses.last_snapshot_at = updatedAt;
+    if (typeof input.savingsUsd === "number" && Number.isFinite(input.savingsUsd)) {
+      ses.live_savings_usd = roundUsd(Number(input.savingsUsd || 0));
+    }
+    if (typeof input.rewardCredits === "number" && Number.isFinite(input.rewardCredits)) {
+      ses.reward_credits = roundUsd(Number(ses.reward_credits || 0) + Number(input.rewardCredits || 0));
+    }
+    if (typeof input.outcome === "string" && input.outcome) {
+      ses.outcome = input.outcome;
+      ses.outcomeHistory ??= [];
+      const outcomeFingerprint = JSON.stringify({
+        outcome: input.outcome,
+        reason: resolutionReason,
+        next_action: nextAction
+      });
+      const lastOutcome = ses.outcomeHistory[ses.outcomeHistory.length - 1];
+      if (lastOutcome?.fingerprint !== outcomeFingerprint) {
+        ses.outcomeHistory.push({
+          turn: Number(ses.turn_counter || ses.outcomeHistory.length || 0) + 1,
+          outcome: input.outcome,
+          timestamp: updatedAt,
+          source: input.source || "footer",
+          fingerprint: outcomeFingerprint
+        });
+        if (ses.outcomeHistory.length > 100) {
+          ses.outcomeHistory = ses.outcomeHistory.slice(-100);
+        }
+      }
+    }
+    if (control) {
+      ses.live_control = control;
+      _pushControlHistoryEntry(ses, {
+        turn: Number(ses.turn_counter || 0) + 1,
+        regime: input.subRegime || ses.sub_regime || ses.regime || "INIT",
+        control,
+        reward: typeof input.rewardCredits === "number" && Number.isFinite(input.rewardCredits) ? Number(input.rewardCredits || 0) : null,
+        outcome: typeof input.outcome === "string" ? input.outcome : null,
+        next_action: nextAction,
+        resolution_state: resolutionState,
+        resolution_reason: resolutionReason,
+        source: input.source || "footer"
+      });
+    }
+    if (nextAction)
+      ses.live_next_action = nextAction;
+    if (typeof input.pivotDetected === "boolean")
+      ses.pivot_detected = input.pivotDetected;
+    if (typeof input.loopInterventionLevel === "string")
+      ses.loop_intervention_level = input.loopInterventionLevel;
+    if (typeof input.stress === "number" && Number.isFinite(input.stress))
+      ses.stress_level = Number(input.stress);
+    saveBlackboxState(bb);
+  } catch {
+  }
+  return { sessionId: sid, updatedAt, resolutionState, resolutionReason };
 }
 function normalizeBlackboxRecord(record, sid, now) {
   const next = { ...record || {} };
@@ -3232,7 +3587,7 @@ function mutateSessionOrchestration(sessionId, mutator) {
     return null;
   }
 }
-var USER_HOME2, VIBEOS_CONTEXT, VIBEOS_HOME, OPENCODE_HOME, FILE_LOCK_DIR, DELEGATION_STATE_FILE, SAVINGS_LEDGER_FILE, GLOBAL_LEARNING_FILE, PRICING_CACHE_FILE, BLACKBOX_STATE_FILE, PROJECT_STATE_FILE, TIERS_FILE, ACTIVE_JOBS_FILE, AUTH_F, CREDIT_CACHE_F, FLOW_TODO_QUEUE_FILE, FLOW_DEDUP_FILE, ENFORCEMENT_COOLDOWN_FILE, TODOS_FILE, REPORTS_DIR, CONTEXT7_INSTALL_FLAG, TRINITY_OPENCODE_CONFIG, TRINITY_OPENCODE_CONFIGC, SCRATCHPAD_ROOT, SCRATCHPAD_GLOBAL_DIR, SCRATCHPAD_SESSIONS_DIR, SCRATCHPAD_SESSION_TTL_MS, SCRATCHPAD_MAX_AGE_SEC, MAX_SCRATCHPAD_FILES, MAX_SCRATCHPAD_BYTES, MAX_SESSION_SCRATCHPAD_FILES, MAX_SESSION_SCRATCHPAD_BYTES, CORRUPTION_BACKUP_MAX, CORRUPTION_BACKUP_TTL_MS, LEDGER_ROTATE_MAX_BYTES, LEDGER_ROTATE_MAX_LINES, LEDGER_ROTATE_MAX_AGE_MS, ACTIVE_JOBS_STALE_MS, SUMMARY_HEAD_TRUNCATE, DECADENCE_FRESH_MS, DECADENCE_WARM_MS, DECADENCE_COLD_MS, DECADENCE_EXPIRE_MS, DECADENCE_THROTTLE_MS, DECADENCE_GLOBAL_THROTTLE_MS, TOOL_NAME_NORMALIZE, SCRATCHPAD_TOOLS, WARN_DEDUPE_WINDOW_MS, SOFT_QUOTA_LIMIT, _OC_SID, currentSessionId, _sessionStart, currentTier, currentModel, currentProjectFingerprint, currentProjectName, recentToolEvents, frictionSessionKeys, _savingsCache, _savingsCacheMtime, _ledgerReconciledMtime, _ledgerTotalsCache, _mlGraph, _cacheDb, ML_ENABLED, ML_CONFIDENCE_THRESHOLD, _mlSavePending, _blackboxEnabled, _latestBlackboxState, _latestBlackboxLoopMsg, _latestBlackboxPivotMsg, _modelLocked, _lockedSlot, _lockedModel, _sessionCleanupRegistered, _sessionCacheCleaned, prunedThisProcess, _lastDecadenceRun, briefedProjects, _ledgerBuffer, _ledgerBufferTimer, LEDGER_BUFFER_MAX, LEDGER_BUFFER_FLUSH_MS, testReminderSeen, DFLT_GL, tool, _startupMaintenanceHome, ORPHAN_SESSION_TTL_MS, FALLBACK_HIGH, FALLBACK_MID, HIGH_TIER_RE, MID_TIER_RE, scratchpadHitsSeen;
+var USER_HOME2, VIBEOS_CONTEXT, VIBEOS_HOME, OPENCODE_HOME, FILE_LOCK_DIR, DELEGATION_STATE_FILE, SAVINGS_LEDGER_FILE, GLOBAL_LEARNING_FILE, PRICING_CACHE_FILE, BLACKBOX_STATE_FILE, PROJECT_STATE_FILE, TIERS_FILE, ACTIVE_JOBS_FILE, AUTH_F, CREDIT_CACHE_F, FLOW_TODO_QUEUE_FILE, FLOW_DEDUP_FILE, ENFORCEMENT_COOLDOWN_FILE, TODOS_FILE, REPORTS_DIR, CONTEXT7_INSTALL_FLAG, TRINITY_OPENCODE_CONFIG, TRINITY_OPENCODE_CONFIGC, SCRATCHPAD_ROOT, SCRATCHPAD_GLOBAL_DIR, SCRATCHPAD_SESSIONS_DIR, SCRATCHPAD_SESSION_TTL_MS, SCRATCHPAD_MAX_AGE_SEC, MAX_SCRATCHPAD_FILES, MAX_SCRATCHPAD_BYTES, MAX_SESSION_SCRATCHPAD_FILES, MAX_SESSION_SCRATCHPAD_BYTES, CORRUPTION_BACKUP_MAX, CORRUPTION_BACKUP_TTL_MS, LEDGER_ROTATE_MAX_BYTES, LEDGER_ROTATE_MAX_LINES, LEDGER_ROTATE_MAX_AGE_MS, ACTIVE_JOBS_STALE_MS, SUMMARY_HEAD_TRUNCATE, DECADENCE_FRESH_MS, DECADENCE_WARM_MS, DECADENCE_COLD_MS, DECADENCE_EXPIRE_MS, DECADENCE_THROTTLE_MS, DECADENCE_GLOBAL_THROTTLE_MS, TOOL_NAME_NORMALIZE, SCRATCHPAD_TOOLS, WARN_DEDUPE_WINDOW_MS, SOFT_QUOTA_LIMIT, _OC_SID, currentSessionId, _sessionStart, currentTier, currentModel, currentProjectFingerprint, currentProjectName, recentToolEvents, frictionSessionKeys, _savingsCache, _savingsCacheMtime, _ledgerReconciledMtime, _ledgerTotalsCache, _mlGraph, _cacheDb, ML_ENABLED, ML_CONFIDENCE_THRESHOLD, _mlSavePending, _blackboxEnabled, _latestBlackboxState, _latestBlackboxLoopMsg2, _latestBlackboxPivotMsg2, _modelLocked, _lockedSlot, _lockedModel, _sessionCleanupRegistered, _sessionCacheCleaned, prunedThisProcess, _lastDecadenceRun, briefedProjects, _ledgerBuffer, _ledgerBufferTimer, LEDGER_BUFFER_MAX, LEDGER_BUFFER_FLUSH_MS, testReminderSeen, DFLT_GL, tool, _startupMaintenanceHome, ORPHAN_SESSION_TTL_MS, FALLBACK_HIGH, FALLBACK_MID, HIGH_TIER_RE, MID_TIER_RE, scratchpadHitsSeen;
 var init_state = __esm({
   "src/lib/state.js"() {
     "use strict";
@@ -3335,8 +3690,8 @@ var init_state = __esm({
     _mlSavePending = false;
     _blackboxEnabled = true;
     _latestBlackboxState = null;
-    _latestBlackboxLoopMsg = null;
-    _latestBlackboxPivotMsg = null;
+    _latestBlackboxLoopMsg2 = null;
+    _latestBlackboxPivotMsg2 = null;
     _modelLocked = false;
     _lockedSlot = null;
     _lockedModel = null;
@@ -5281,7 +5636,7 @@ var init_vibeultrax = __esm({
 });
 
 // src/index.ts
-import { readFileSync as readFileSync21, writeFileSync as writeFileSync19, existsSync as existsSync21, mkdirSync as mkdirSync16, copyFileSync as copyFileSync3, renameSync as renameSync6, statSync as statSync9 } from "node:fs";
+import { readFileSync as readFileSync21, writeFileSync as writeFileSync18, existsSync as existsSync21, mkdirSync as mkdirSync16, copyFileSync as copyFileSync3, renameSync as renameSync6, statSync as statSync9 } from "node:fs";
 import { join as join21, dirname as dirname14, basename as basename5 } from "node:path";
 
 // src/vibeOS-lib/flow-enforcer.js
@@ -6280,6 +6635,32 @@ function createMcpServer(deps) {
           return;
         }
       }
+      if (method === "GET" && path.startsWith("/sessions/") && path.endsWith("/compare")) {
+        const sessionId = decodeURIComponent(path.replace(/^\/sessions\//, "").replace(/\/compare$/, "")).trim();
+        const query = parsed.query;
+        const compareId = typeof query.with === "string" ? decodeURIComponent(query.with).trim() : "";
+        if (!sessionId || !compareId) {
+          json(res, 400, { error: "session ids are required", status: 400 });
+          return;
+        }
+        const left = getSessionOrchestrationState(deps, sessionId);
+        const right = getSessionOrchestrationState(deps, compareId);
+        json(res, 200, {
+          ok: true,
+          compare: compareSessionOrchestrations(left, right)
+        });
+        return;
+      }
+      if (method === "GET" && path.startsWith("/sessions/") && path.endsWith("/export")) {
+        const sessionId = decodeURIComponent(path.replace(/^\/sessions\//, "").replace(/\/export$/, "")).trim();
+        if (!sessionId) {
+          json(res, 400, { error: "session id is required", status: 400 });
+          return;
+        }
+        const orchestration = exportSessionOrchestration(getSessionOrchestrationState(deps, sessionId), sessionId);
+        json(res, 200, { ok: true, session_id: sessionId, orchestration });
+        return;
+      }
       if (method === "GET" && path === "/templates") {
         const templates = typeof deps.listSessionTemplates === "function" ? deps.listSessionTemplates() : TEMPLATE_LIBRARY2;
         json(res, 200, templates);
@@ -6436,13 +6817,31 @@ function createMcpServer(deps) {
         if (action === "checkout") {
           const checkout = deps.generateSessionCheckout();
           if (typeof deps.mutateSessionOrchestration === "function") {
-            deps.mutateSessionOrchestration(sessionId, (current) => applySessionAction(current, "checkout", body));
+            deps.mutateSessionOrchestration(sessionId, (current) => applySessionAction(current, "checkout", { ...body, session_id: sessionId }));
           }
           json(res, 200, { ok: true, checkout });
           return;
         }
+        if (action === "batch") {
+          if (typeof deps.mutateSessionOrchestration === "function") {
+            const next = deps.mutateSessionOrchestration(sessionId, (current) => applySessionAction(current, "batch", { ...body, session_id: sessionId }));
+            json(res, 200, { ok: true, session: next });
+            return;
+          }
+          json(res, 500, { ok: false, error: "session mutation unavailable" });
+          return;
+        }
+        if (action === "undo") {
+          if (typeof deps.mutateSessionOrchestration === "function") {
+            const next = deps.mutateSessionOrchestration(sessionId, (current) => applySessionAction(current, "undo", { ...body, session_id: sessionId }));
+            json(res, 200, { ok: true, session: next });
+            return;
+          }
+          json(res, 500, { ok: false, error: "session mutation unavailable" });
+          return;
+        }
         if (typeof deps.mutateSessionOrchestration === "function") {
-          const next = deps.mutateSessionOrchestration(sessionId, (current) => applySessionAction(current, action, body));
+          const next = deps.mutateSessionOrchestration(sessionId, (current) => applySessionAction(current, action, { ...body, session_id: sessionId }));
           json(res, 200, { ok: true, session: next });
           return;
         }
@@ -6471,7 +6870,7 @@ function createMcpServer(deps) {
           revision: body?.revision || 1
         };
         if (typeof deps.mutateSessionOrchestration === "function") {
-          const next = deps.mutateSessionOrchestration(sessionId, (current) => applySessionAction(current, "set-template", { ...body, template }));
+          const next = deps.mutateSessionOrchestration(sessionId, (current) => applySessionAction(current, "set-template", { ...body, template, session_id: sessionId }));
           json(res, 200, { ok: true, session: next });
           return;
         }
@@ -6500,6 +6899,28 @@ function createMcpServer(deps) {
         }
         deps.saveBlackboxOutcome(body);
         json(res, 200, { ok: true });
+        return;
+      }
+      if (method === "POST" && path === "/sessions/import") {
+        let body;
+        try {
+          body = await parseBody(req);
+        } catch {
+          json(res, 400, { error: "invalid request", status: 400 });
+          return;
+        }
+        const sessionId = String(body?.session_id || "").trim();
+        const orchestration = body?.orchestration && typeof body.orchestration === "object" ? body.orchestration : body?.session;
+        if (!sessionId || !orchestration) {
+          json(res, 400, { error: "session_id and orchestration are required", status: 400 });
+          return;
+        }
+        if (typeof deps.mutateSessionOrchestration === "function") {
+          const next = deps.mutateSessionOrchestration(sessionId, () => importSessionOrchestration({ ...orchestration, session_id: sessionId }, sessionId));
+          json(res, 200, { ok: true, session: next });
+          return;
+        }
+        json(res, 500, { ok: false, error: "session mutation unavailable" });
         return;
       }
       if (method === "GET" && path === "/") {
@@ -9060,8 +9481,8 @@ var _BlackboxStub = class __BlackboxStub {
 };
 var _blackboxTracker = null;
 var _latestBlackboxState2 = null;
-var _latestBlackboxLoopMsg2 = null;
-var _latestBlackboxPivotMsg2 = null;
+var _latestBlackboxLoopMsg3 = null;
+var _latestBlackboxPivotMsg3 = null;
 var WARN_DEDUPE_WINDOW_MS2 = 120 * 1e3;
 var warnLogThrottle = /* @__PURE__ */ new Map();
 var warnPerSession = /* @__PURE__ */ new Map();
@@ -9186,8 +9607,8 @@ async function fetchBlackboxEnrichment(sessionId, localState) {
       project_id: currentProjectFingerprint || null
     });
     if (result) {
-      _latestBlackboxLoopMsg2 = result.loop_intervention_directive || null;
-      _latestBlackboxPivotMsg2 = result.pivot_directive || null;
+      _latestBlackboxLoopMsg3 = result.loop_intervention_directive || null;
+      _latestBlackboxPivotMsg3 = result.pivot_directive || null;
       return {
         ...localState,
         sub_regime: result.sub_regime || localState.sub_regime,
@@ -12219,7 +12640,7 @@ async function probeModel(modelId, auth, providers = null) {
 }
 
 // src/lib/hooks/footer.js
-import { readFileSync as readFileSync17, writeFileSync as writeFileSync16, appendFileSync as appendFileSync5, mkdirSync as mkdirSync13 } from "node:fs";
+import { readFileSync as readFileSync17, appendFileSync as appendFileSync5, mkdirSync as mkdirSync13 } from "node:fs";
 import { join as join18 } from "node:path";
 
 // src/lib/hooks/chat-transform.js
@@ -12729,7 +13150,12 @@ function sessionCompact(sid, fingerprint) {
         const bb = JSON.parse(raw);
         const ses = bb?.sessions?.[sid];
         if (ses && ses.sub_regime === "LOOPING" && patterns.length > 0) {
+          const topPattern = patterns[0];
+          const summary = patterns.map((p) => p.summary).slice(0, 3).join(" | ");
           ses.resolution_state = "intervened";
+          ses.resolution_reason = summary || "looping friction detected";
+          ses.live_next_action = `Address friction: ${topPattern?.summary || "review the repeated loop"}`;
+          ses.live_updated_at = (/* @__PURE__ */ new Date()).toISOString();
           writeFileSync12(bbPath, JSON.stringify(bb, null, 2));
         }
       }
@@ -13177,8 +13603,8 @@ function ensureProjectContext(hookDirectory) {
 var latestUserIntent = null;
 var _OC_SID3 = "opencode-" + (process.pid || "x") + "-" + Date.now();
 var _latestBlackboxState3 = null;
-var _latestBlackboxLoopMsg3 = null;
-var _latestBlackboxPivotMsg3 = null;
+var _latestBlackboxLoopMsg4 = null;
+var _latestBlackboxPivotMsg4 = null;
 var _prevBlackboxRegime = null;
 var _currentTemplate = DEFAULT_TEMPLATE;
 var _currentTemplateSignature = DEFAULT_TEMPLATE;
@@ -14076,10 +14502,10 @@ var onSystemTransform = async (_input, output) => {
         pushSystem(output, "[decision engine] Resolution: " + (res.resolution || "unresolved") + " (" + currentRegime + "). Momentum: " + ((res.momentum || 0) > 0 ? "\u2197 positive" : (res.momentum || 0) < 0 ? "\u2198 negative" : "\u2192 steady") + ".");
         if (res.is_looping && res.loop_intervention_level && res.loop_intervention_level !== "none") {
           const severity = res.loop_intervention_level === "escalated" ? "CRITICAL" : res.loop_intervention_level === "assertive" ? "WARNING" : "NOTICE";
-          pushSystem(output, "[loop prevention: " + severity + "] " + (_latestBlackboxLoopMsg3 || "The conversation may be looping \u2014 try a different approach.") + " (level: " + res.loop_intervention_level + ")");
+          pushSystem(output, "[loop prevention: " + severity + "] " + (_latestBlackboxLoopMsg4 || "The conversation may be looping \u2014 try a different approach.") + " (level: " + res.loop_intervention_level + ")");
         }
-        if (res.pivot_detected && _latestBlackboxPivotMsg3) {
-          pushSystem(output, "[context switch: PIVOT] " + _latestBlackboxPivotMsg3);
+        if (res.pivot_detected && _latestBlackboxPivotMsg4) {
+          pushSystem(output, "[context switch: PIVOT] " + _latestBlackboxPivotMsg4);
         }
       }
     }
@@ -14726,6 +15152,8 @@ async function _appendFooter(input, output, directory3) {
     const vibeBrand = resolveBrand(loadOptimizationMode() || displayMode, activeSlot);
     let _rewardTag = "";
     let _rewardOutcome = null;
+    let _rewardCredits = 0;
+    let _rewardBreakdown = null;
     if (_blackboxEnabled) {
       try {
         const prevText = _prevOutputText;
@@ -14763,23 +15191,10 @@ async function _appendFooter(input, output, directory3) {
                 isBrainTier: String(currentTier || "").toLowerCase() === "high"
               });
               const rewardResult = computeReward(rewardInput);
+              _rewardCredits = rewardResult.credits;
+              _rewardBreakdown = rewardResult.breakdown;
               if (rewardResult.credits !== 0) {
                 _rewardTag = rewardResult.credits > 0 ? `+${rewardResult.credits} XP` : `${rewardResult.credits} XP`;
-                try {
-                  const statePath = join18(VIBEOS_HOME, "delegation-state.json");
-                  const state = safeJsonParse2(readFileSync17(statePath, "utf-8"), {});
-                  const sid2 = getCurrentSessionId();
-                  if (!state.sessions)
-                    state.sessions = {};
-                  if (!state.sessions[sid2])
-                    state.sessions[sid2] = {};
-                  state.sessions[sid2].reward_credits = (state.sessions[sid2].reward_credits || 0) + rewardResult.credits;
-                  if (!state.lifetime)
-                    state.lifetime = {};
-                  state.lifetime.reward_credits = (state.lifetime.reward_credits || 0) + rewardResult.credits;
-                  writeFileSync16(statePath, JSON.stringify(state));
-                } catch {
-                }
               }
             } catch {
             }
@@ -14805,23 +15220,10 @@ async function _appendFooter(input, output, directory3) {
           savingsUsd: sesSavings,
           isBrainTier: String(currentTier || "").toLowerCase() === "high"
         }));
+        _rewardCredits = rewardResult.credits;
+        _rewardBreakdown = rewardResult.breakdown;
         if (rewardResult.credits !== 0) {
           _rewardTag = rewardResult.credits > 0 ? `+${rewardResult.credits} XP` : `${rewardResult.credits} XP`;
-          try {
-            const statePath = join18(VIBEOS_HOME, "delegation-state.json");
-            const state = safeJsonParse2(readFileSync17(statePath, "utf-8"), {});
-            const sid2 = getCurrentSessionId();
-            if (!state.sessions)
-              state.sessions = {};
-            if (!state.sessions[sid2])
-              state.sessions[sid2] = {};
-            state.sessions[sid2].reward_credits = (state.sessions[sid2].reward_credits || 0) + rewardResult.credits;
-            if (!state.lifetime)
-              state.lifetime = {};
-            state.lifetime.reward_credits = (state.lifetime.reward_credits || 0) + rewardResult.credits;
-            writeFileSync16(statePath, JSON.stringify(state));
-          } catch {
-          }
         }
       } catch {
       }
@@ -14843,23 +15245,10 @@ async function _appendFooter(input, output, directory3) {
             savingsUsd: Number(_footerSavingsCache || 0),
             isBrainTier: String(currentTier || "").toLowerCase() === "high"
           }));
+          _rewardCredits = rewardResult.credits;
+          _rewardBreakdown = rewardResult.breakdown;
           if (rewardResult.credits !== 0) {
             _rewardTag = rewardResult.credits > 0 ? `+${rewardResult.credits} XP` : `${rewardResult.credits} XP`;
-            try {
-              const statePath = join18(VIBEOS_HOME, "delegation-state.json");
-              const state = safeJsonParse2(readFileSync17(statePath, "utf-8"), {});
-              const sid2 = getCurrentSessionId();
-              if (!state.sessions)
-                state.sessions = {};
-              if (!state.sessions[sid2])
-                state.sessions[sid2] = {};
-              state.sessions[sid2].reward_credits = (state.sessions[sid2].reward_credits || 0) + rewardResult.credits;
-              if (!state.lifetime)
-                state.lifetime = {};
-              state.lifetime.reward_credits = (state.lifetime.reward_credits || 0) + rewardResult.credits;
-              writeFileSync16(statePath, JSON.stringify(state));
-            } catch {
-            }
           }
         }
       } catch {
@@ -14883,6 +15272,28 @@ async function _appendFooter(input, output, directory3) {
       claimTag: claimTag || void 0,
       rewardTag: _rewardTag || void 0
     });
+    try {
+      recordLiveSessionSnapshot({
+        sessionId: sid,
+        projectFingerprint: currentProjectFingerprint || "",
+        projectName: currentProjectName || "",
+        outcome: _rewardOutcome,
+        rewardCredits: _rewardCredits,
+        rewardBreakdown: _rewardBreakdown,
+        savingsUsd: Number(_footerSavingsCache || 0),
+        footerLine: vibeLine,
+        control: cv,
+        subRegime: currentSubRegime,
+        resolutionState: _rewardOutcome === "positive" ? "working" : _rewardOutcome === "negative" ? "needs_attention" : _latestBlackboxState?.resolution_state || _latestBlackboxState?.resolution || "unresolved",
+        resolutionReason: _rewardOutcome ? _rewardOutcome === "positive" ? "positive outcome" : "negative outcome" : "no outcome yet",
+        nextAction: _rewardOutcome === "negative" ? _latestBlackboxLoopMsg || _latestBlackboxPivotMsg || (Array.isArray(cv?.directives) ? cv.directives[0] : "") || "" : _latestBlackboxPivotMsg || (Array.isArray(cv?.directives) ? cv.directives[0] : "") || "",
+        loopInterventionLevel: _latestBlackboxState?.loop_intervention_level || cv?.loop_intervention_level || "none",
+        pivotDetected: Boolean(_latestBlackboxState?.pivot_detected),
+        stress: _footerStress,
+        source: "footer"
+      });
+    } catch {
+    }
     const footerText = stripped + `
 
 ${vibeLine}`;
@@ -14909,7 +15320,7 @@ ${vibeLine} \u2014`);
 
 // src/lib/hooks/tool-execute.js
 init_state();
-import { readFileSync as readFileSync19, writeFileSync as writeFileSync18, appendFileSync as appendFileSync7, existsSync as existsSync19, mkdirSync as mkdirSync15, copyFileSync as copyFileSync2 } from "node:fs";
+import { readFileSync as readFileSync19, writeFileSync as writeFileSync17, appendFileSync as appendFileSync7, existsSync as existsSync19, mkdirSync as mkdirSync15, copyFileSync as copyFileSync2 } from "node:fs";
 import { join as join20, dirname as dirname13, basename as basename4 } from "node:path";
 import { createHash as createHash6 } from "node:crypto";
 init_selection_manager();
@@ -14981,7 +15392,7 @@ init_smart_cache();
 
 // src/lib/tdd-enforcer.js
 init_state();
-import { readFileSync as readFileSync18, writeFileSync as writeFileSync17, appendFileSync as appendFileSync6, existsSync as existsSync18, mkdirSync as mkdirSync14, statSync as statSync8, readdirSync as readdirSync4, rmSync as rmSync6, openSync as openSync3 } from "node:fs";
+import { readFileSync as readFileSync18, writeFileSync as writeFileSync16, appendFileSync as appendFileSync6, existsSync as existsSync18, mkdirSync as mkdirSync14, statSync as statSync8, readdirSync as readdirSync4, rmSync as rmSync6, openSync as openSync3 } from "node:fs";
 import { join as join19, dirname as dirname12 } from "node:path";
 import { createHash as createHash5 } from "node:crypto";
 
@@ -16247,7 +16658,7 @@ function _recordCooldown(testPath) {
     appendFileSync6(ENFORCEMENT_COOLDOWN_FILE2, entry);
     const lines = readFileSync18(ENFORCEMENT_COOLDOWN_FILE2, "utf-8").trim().split("\n").filter(Boolean);
     if (lines.length > 500) {
-      writeFileSync17(ENFORCEMENT_COOLDOWN_FILE2, lines.slice(-200).join("\n") + "\n");
+      writeFileSync16(ENFORCEMENT_COOLDOWN_FILE2, lines.slice(-200).join("\n") + "\n");
     }
   } catch {
   }
@@ -16334,7 +16745,7 @@ function enforceTestFile(filePath) {
     return null;
   try {
     mkdirSync14(skeleton.dir, { recursive: true });
-    writeFileSync17(skeleton.path, skeleton.content);
+    writeFileSync16(skeleton.path, skeleton.content);
     _enforcementCooldown.add(skeleton.path);
     _recordCooldown(skeleton.path);
     try {
@@ -16710,7 +17121,7 @@ ${inputJson}
     ensureSessionScratchpadDirs();
     copyFileSync2(sourcePath, targetPath);
     const ptrPath = join20(sessionDir, `${hash}.ptr`);
-    writeFileSync18(ptrPath, JSON.stringify({
+    writeFileSync17(ptrPath, JSON.stringify({
       contentHash: sourceHash,
       tool: titleCase,
       warmed: true,
@@ -16806,7 +17217,7 @@ ${argsJson}
                       const globalFile = join20(globalDir, `${targetHash}.txt`);
                       if (existsSync19(cachedFile) || existsSync19(globalFile)) {
                         ensureSessionScratchpadDirs();
-                        writeFileSync18(ptrPath, JSON.stringify({
+                        writeFileSync17(ptrPath, JSON.stringify({
                           contentHash: targetHash,
                           tool: titleCase,
                           warmed: true,
@@ -17117,7 +17528,7 @@ ${argsJson}
           if (!existsSync19(CONTEXT7_INSTALL_FLAG)) {
             try {
               mkdirSync15(dirname13(CONTEXT7_INSTALL_FLAG), { recursive: true });
-              writeFileSync18(CONTEXT7_INSTALL_FLAG, "");
+              writeFileSync17(CONTEXT7_INSTALL_FLAG, "");
             } catch (c7FlagErr) {
               if (DEBUG_INTERNALS2)
                 console.error(`[vibeOS] context7 flag write error: ${c7FlagErr.message}`);
@@ -17705,7 +18116,7 @@ function publishMcpRuntime(port, baseUrl) {
       return null;
     const normalizedBase = String(baseUrl || `http://127.0.0.1:${resolvedPort}`).trim().replace(/\/$/, "");
     mkdirSync16(dirname14(getMcpRuntimeFile()), { recursive: true });
-    writeFileSync19(getMcpRuntimeFile(), JSON.stringify({
+    writeFileSync18(getMcpRuntimeFile(), JSON.stringify({
       port: resolvedPort,
       baseUrl: normalizedBase,
       updatedAt: (/* @__PURE__ */ new Date()).toISOString()
@@ -17952,7 +18363,7 @@ async function _seedOrRepairModelTiers(directory3) {
     trinity: nextTrinity
   };
   mkdirSync16(dirname14(TIERS_FILE3), { recursive: true });
-  writeFileSync19(TIERS_FILE3, JSON.stringify(tiers, null, 2) + "\n", "utf-8");
+  writeFileSync18(TIERS_FILE3, JSON.stringify(tiers, null, 2) + "\n", "utf-8");
   return true;
 }
 function _parseJsonc(raw) {
@@ -18022,7 +18433,7 @@ function persistMcpPort(port) {
       delete tiers.mcp_port;
     mkdirSync16(dirname14(getTiersFile()), { recursive: true });
     const tmp = getTiersFile() + ".tmp." + Date.now();
-    writeFileSync19(tmp, JSON.stringify(tiers, null, 2) + "\n", "utf-8");
+    writeFileSync18(tmp, JSON.stringify(tiers, null, 2) + "\n", "utf-8");
     renameSync6(tmp, getTiersFile());
   } catch {
   }
@@ -18203,14 +18614,14 @@ async function ensureMcpServerRunning() {
               features: session?.features || _latestBlackboxState?.features || {},
               signals: session?.signals || _latestBlackboxState?.signals || {},
               loop: {
-                active: Boolean(session?.loop?.active || _latestBlackboxLoopMsg !== null),
-                message: session?.loop?.message || _latestBlackboxLoopMsg,
-                intervention_level: session?.loop?.intervention_level || _latestBlackboxLoopMsg?.intervention_level || _latestBlackboxState?.loop?.intervention_level || 0,
+                active: Boolean(session?.loop?.active || _latestBlackboxLoopMsg2 !== null),
+                message: session?.loop?.message || _latestBlackboxLoopMsg2,
+                intervention_level: session?.loop?.intervention_level || _latestBlackboxLoopMsg2?.intervention_level || _latestBlackboxState?.loop?.intervention_level || 0,
                 consecutive_loops: session?.loop?.consecutive_loops || _latestBlackboxState?.loop?.consecutive_loops || 0
               },
               pivot: {
-                detected: Boolean(session?.pivot?.detected || _latestBlackboxPivotMsg !== null),
-                message: session?.pivot?.message || _latestBlackboxPivotMsg
+                detected: Boolean(session?.pivot?.detected || _latestBlackboxPivotMsg2 !== null),
+                message: session?.pivot?.message || _latestBlackboxPivotMsg2
               },
               continuity_state: session?.continuity_state || _latestBlackboxState?.continuity_state || null,
               turn_index: session?.turn_index ?? _latestBlackboxState?.turn_index ?? 0,
@@ -18406,7 +18817,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     try {
       mkdirSync16(dirname14(hookProjectStateFile), { recursive: true });
       const tmp = hookProjectStateFile + ".tmp";
-      writeFileSync19(tmp, JSON.stringify(state, null, 2) + "\n");
+      writeFileSync18(tmp, JSON.stringify(state, null, 2) + "\n");
       renameSync6(tmp, hookProjectStateFile);
     } catch {
     }
@@ -18424,7 +18835,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
   const saveReportsIndexStable = (idx) => {
     try {
       mkdirSync16(hookReportsDir, { recursive: true });
-      writeFileSync19(hookReportsIndex, JSON.stringify(idx, null, 2) + "\n");
+      writeFileSync18(hookReportsIndex, JSON.stringify(idx, null, 2) + "\n");
     } catch {
     }
   };
@@ -18469,7 +18880,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     directory: directory3,
     safeJsonParse: safeJsonParse2,
     readFileSync: readFileSync21,
-    writeFileSync: writeFileSync19,
+    writeFileSync: writeFileSync18,
     existsSync: existsSync21,
     renameSync: renameSync6,
     mkdirSync: mkdirSync16,

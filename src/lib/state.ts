@@ -2505,7 +2505,6 @@ export {
   saveBlackboxState,
   getBlackboxTracker,
   getBlackboxResolution,
-  recordLiveSessionSnapshot,
 
   // Status/savings payload — re-exported from index.ts at runtime.
   // These satisfy ESM import in index.ts before its own inline definitions shadow them.
