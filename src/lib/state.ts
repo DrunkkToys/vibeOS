@@ -282,6 +282,46 @@ function _pruneCorruptionBackups(backupDir: string): void {
 
 let _startupMaintenanceHome = ""
 
+const ORPHAN_SESSION_TTL_MS = 14 * 24 * 60 * 60 * 1000
+
+function _sessionHasActivity(session: any): boolean {
+  if (!session || typeof session !== "object") return false
+  return [
+    Array.isArray(session.warns) ? session.warns.length : 0,
+    Array.isArray(session.cache_hits) ? session.cache_hits.length : 0,
+    Array.isArray(session.notes) ? session.notes.length : 0,
+    Array.isArray(session.tags) ? session.tags.length : 0,
+    Array.isArray(session.history) ? session.history.length : 0,
+    Array.isArray(session.dashboard_vectors) ? session.dashboard_vectors.length : 0,
+    Array.isArray(session.dashboard_outcomes) ? session.dashboard_outcomes.length : 0,
+    Number(session.total_savings_usd || 0),
+    Number(session.cache_savings_usd || 0),
+    Number(session.turn_counter || 0),
+  ].some((value) => Number(value) > 0)
+}
+
+function pruneInactiveSessions(state: any): number {
+  if (!state || typeof state !== "object" || !state.sessions || typeof state.sessions !== "object") return 0
+  const now = Date.now()
+  let removed = 0
+  for (const [sid, session] of Object.entries(state.sessions)) {
+    if (!session || typeof session !== "object") {
+      delete state.sessions[sid]
+      removed++
+      continue
+    }
+    if (sid === _OC_SID) continue
+    const startedAt = Date.parse(String(session.started || session.session_started_at || session.updatedAt || ""))
+    const ageMs = Number.isFinite(startedAt) ? now - startedAt : Number.POSITIVE_INFINITY
+    if (! _sessionHasActivity(session) && ageMs > ORPHAN_SESSION_TTL_MS) {
+      delete state.sessions[sid]
+      removed++
+    }
+  }
+  _pruneOldSessions(state)
+  return removed
+}
+
 export function runStartupMaintenanceOnce(): void {
   try {
     const home = getVibeOSHome()
@@ -289,6 +329,10 @@ export function runStartupMaintenanceOnce(): void {
     _startupMaintenanceHome = home
     _pruneCorruptionBackups(join(home, ".backups"))
     loadActiveJobs()
+    updateState((state: any) => {
+      pruneInactiveSessions(state)
+      return state
+    })
     _compactSavingsLedgerIfNeeded()
   } catch {}
 }

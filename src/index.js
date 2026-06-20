@@ -45,6 +45,46 @@ function getReportsIndex() {
 function getStateFile() {
     return join(getVibeOSHome(), "delegation-state.json");
 }
+function getMcpRuntimeFile() {
+    return join(getVibeOSHome(), "mcp-runtime.json");
+}
+function readPublishedMcpRuntime() {
+    try {
+        if (!existsSync(getMcpRuntimeFile()))
+            return null;
+        const runtime = safeJsonParse(readFileSync(getMcpRuntimeFile(), "utf-8"));
+        const baseUrl = String(runtime?.baseUrl || "").trim().replace(/\/$/, "");
+        const port = Number(runtime?.port || 0);
+        if (!baseUrl && !(Number.isFinite(port) && port > 0))
+            return null;
+        return {
+            baseUrl: baseUrl || (Number.isFinite(port) && port > 0 ? `http://127.0.0.1:${port}` : ""),
+            port: Number.isFinite(port) && port > 0 ? port : null,
+            updatedAt: typeof runtime?.updatedAt === "string" ? runtime.updatedAt : null,
+        };
+    }
+    catch {
+        return null;
+    }
+}
+function publishMcpRuntime(port, baseUrl) {
+    try {
+        const resolvedPort = Number(port);
+        if (!Number.isFinite(resolvedPort) || resolvedPort <= 0)
+            return null;
+        const normalizedBase = String(baseUrl || `http://127.0.0.1:${resolvedPort}`).trim().replace(/\/$/, "");
+        mkdirSync(dirname(getMcpRuntimeFile()), { recursive: true });
+        writeFileSync(getMcpRuntimeFile(), JSON.stringify({
+            port: resolvedPort,
+            baseUrl: normalizedBase,
+            updatedAt: new Date().toISOString(),
+        }, null, 2) + "\n", "utf-8");
+        return normalizedBase;
+    }
+    catch {
+        return null;
+    }
+}
 function ensureDeferredBootstrap() {
     if (_deferredBootstrapDone || _modelLocked)
         return;
@@ -527,7 +567,40 @@ async function ensureMcpServerRunning() {
                         const trinity = _pluginHooksRuntime?.tool?.trinity;
                         if (!trinity?.execute)
                             return { error: "trinity runtime unavailable" };
-                        return diagnoseStructuredFromText(await trinity.execute({ action: "diagnose" }), loadCredit());
+                        const raw = await trinity.execute({ action: "diagnose" });
+                        const parsed = diagnoseStructuredFromText(raw, loadCredit());
+                        const state = readFullState() || {};
+                        const sessions = state?.sessions || {};
+                        const blackbox = loadBlackboxState() || {};
+                        const runtime = readPublishedMcpRuntime() || {};
+                        const orphanedSessions = Object.entries(sessions).filter(([, ses]) => {
+                            if (!ses || typeof ses !== "object")
+                                return true;
+                            const startedAt = Date.parse(String(ses.started || ses.session_started_at || ""));
+                            const ageMs = Number.isFinite(startedAt) ? Date.now() - startedAt : Number.POSITIVE_INFINITY;
+                            const hasActivity = [
+                                Array.isArray(ses.warns) ? ses.warns.length : 0,
+                                Array.isArray(ses.cache_hits) ? ses.cache_hits.length : 0,
+                                Number(ses.total_savings_usd || 0),
+                                Number(ses.cache_savings_usd || 0),
+                                Number(ses.tool_counts ? Object.keys(ses.tool_counts).length : 0),
+                                Array.isArray(ses.notes) ? ses.notes.length : 0,
+                                Array.isArray(ses.tags) ? ses.tags.length : 0,
+                            ].some((value) => Number(value) > 0);
+                            return !hasActivity && ageMs > 24 * 60 * 60 * 1000;
+                        }).map(([sid]) => sid);
+                        return {
+                            ...parsed,
+                            raw: typeof raw === "string" ? raw : null,
+                            live: {
+                                dashboard_base_url: _dashboardBaseUrl || runtime.baseUrl || null,
+                                mcp_port: runtime.port || loadMcpPort() || null,
+                                state_sessions: Object.keys(sessions).length,
+                                orphaned_sessions: orphanedSessions.length,
+                                blackbox_sessions: Object.keys(blackbox.sessions || {}).length,
+                                blackbox_enabled: blackbox.enabled !== false,
+                            },
+                        };
                     },
                     runProject: async () => {
                         const trinity = _pluginHooksRuntime?.tool?.trinity;
@@ -559,27 +632,30 @@ async function ensureMcpServerRunning() {
                         return { ok: true, summary: checkout.summary, report_id: reportId };
                     },
                     getBlackboxState: () => {
-                        const tracker = getBlackboxTracker();
-                        const res = getBlackboxResolution();
+                        const persisted = loadBlackboxState() || {};
+                        const session = persisted?.sessions?.[_OC_SID] || {};
                         return {
-                            sub_regime: res?.sub_regime || _latestBlackboxState?.sub_regime || "INIT",
-                            resolution: res?.resolution || "INIT",
-                            momentum: res?.momentum ?? 0,
-                            features: _latestBlackboxState?.features || {},
-                            signals: _latestBlackboxState?.signals || {},
+                            enabled: persisted?.enabled !== false,
+                            sub_regime: session?.sub_regime || _latestBlackboxState?.sub_regime || "INIT",
+                            resolution: session?.resolution || _latestBlackboxState?.resolution || "INIT",
+                            momentum: Number(session?.momentum ?? _latestBlackboxState?.momentum ?? 0),
+                            features: session?.features || _latestBlackboxState?.features || {},
+                            signals: session?.signals || _latestBlackboxState?.signals || {},
                             loop: {
-                                active: _latestBlackboxLoopMsg !== null,
-                                message: _latestBlackboxLoopMsg,
-                                intervention_level: _latestBlackboxLoopMsg?.intervention_level || _latestBlackboxState?.loop?.intervention_level || 0,
-                                consecutive_loops: _latestBlackboxState?.loop?.consecutive_loops || 0,
+                                active: Boolean(session?.loop?.active || _latestBlackboxLoopMsg !== null),
+                                message: session?.loop?.message || _latestBlackboxLoopMsg,
+                                intervention_level: session?.loop?.intervention_level || _latestBlackboxLoopMsg?.intervention_level || _latestBlackboxState?.loop?.intervention_level || 0,
+                                consecutive_loops: session?.loop?.consecutive_loops || _latestBlackboxState?.loop?.consecutive_loops || 0,
                             },
                             pivot: {
-                                detected: _latestBlackboxPivotMsg !== null,
-                                message: _latestBlackboxPivotMsg,
+                                detected: Boolean(session?.pivot?.detected || _latestBlackboxPivotMsg !== null),
+                                message: session?.pivot?.message || _latestBlackboxPivotMsg,
                             },
-                            continuity_state: _latestBlackboxState?.continuity_state || null,
-                            turn_index: _latestBlackboxState?.turn_index ?? 0,
-                            stress_level: _latestBlackboxState?.stress_level ?? 0,
+                            continuity_state: session?.continuity_state || _latestBlackboxState?.continuity_state || null,
+                            turn_index: session?.turn_index ?? _latestBlackboxState?.turn_index ?? 0,
+                            stress_level: session?.stress_level ?? _latestBlackboxState?.stress_level ?? 0,
+                            dashboard_vectors: session?.dashboard_vectors || [],
+                            dashboard_outcomes: session?.dashboard_outcomes || [],
                             session_id: _OC_SID,
                             project_fingerprint: currentProjectFingerprint,
                         };
@@ -625,6 +701,7 @@ async function ensureMcpServerRunning() {
                 persistMcpPort(actualPort);
             if (actualPort) {
                 _dashboardBaseUrl = `http://127.0.0.1:${actualPort}`;
+                publishMcpRuntime(actualPort, _dashboardBaseUrl);
                 writeDashboardBaseConfig(`http://127.0.0.1:${actualPort}`);
             }
             console.error(`[vibeOS] MCP server on http://127.0.0.1:${actualPort}`);
@@ -838,6 +915,21 @@ export async function DelegationEnforcer({ client, directory } = {}) {
         SAVINGS_LEDGER_FILE, PROJECT_STATE_FILE: hookProjectStateFile, get REPORTS_DIR() { return hookReportsDir; }, get REPORTS_INDEX() { return hookReportsIndex; },
         get OPENCODE_HOME() { return getOpenCodeHome(); }, get VIBEOS_HOME() { return hookVibeHome; },
         get dashboardBaseUrl() { return _dashboardBaseUrl; },
+        loadPublishedMcpBaseUrl: async () => {
+            const runtime = readPublishedMcpRuntime();
+            if (!runtime?.baseUrl)
+                return "";
+            try {
+                const ctl = new AbortController();
+                const timer = setTimeout(() => ctl.abort(), 1000);
+                const res = await fetch(`${runtime.baseUrl.replace(/\/$/, "")}/health`, { signal: ctl.signal });
+                clearTimeout(timer);
+                if (res.ok)
+                    return runtime.baseUrl;
+            }
+            catch { }
+            return "";
+        },
         ensureMcpServerRunning,
         _loadMcpPort: loadMcpPort,
         loadSelection, writeSelection, loadCredit, thinkingLevel,
