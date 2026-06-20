@@ -10,7 +10,7 @@ OpenCode Desktop gives you access to the most capable language models ever creat
 
 The first thing you notice is the footer. A single line at the bottom of every assistant response, barely visible, shows you what model handled the turn and the regime classification for what just happened. It is not a warning. It is not a nag. It is a quality receipt.
 
-```
+```text
 — brain | DeepSeek | v4-flash -> RFNE | $198.93 saved | VibeUltraX . Quality >>> | guarded | _
 ```
 
@@ -323,7 +323,7 @@ Remote API (api.vibetheog.com) enables: bootstrap token exchange, advanced VibeB
 
 The footer is the primary status line, appended to every assistant response. It surfaces model assignment, savings, mode, alerts, and session metrics in a single line.
 
-```
+```text
 — brain | DeepSeek | v4-flash -> RFNE | $198.93 saved | VibeUltraX . Quality >>> | guarded | _
 ```
 
