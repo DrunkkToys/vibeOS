@@ -19,6 +19,7 @@ test("integration: npm pack creates tarball with bin/setup.js", () => {
   assert.ok(files.some(f => f.includes("bin/setup.js")), "tarball must contain bin/setup.js, got: " + files.slice(0, 5).join(", "))
   assert.ok(files.some(f => f.includes("scripts/deploy.mjs")), "tarball must contain scripts/deploy.mjs")
   assert.ok(files.some(f => f.includes("scripts/lib/opencode-homes.mjs")), "tarball must contain scripts/lib/opencode-homes.mjs")
+  assert.ok(files.some(f => f.includes(".opencode/skills/vibe/SKILL.md")), "tarball must contain the universal /vibe skill")
   rmSync(join(ROOT, tgz))
   rmSync(sandbox, { recursive: true, force: true })
 })

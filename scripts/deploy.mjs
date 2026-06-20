@@ -5,6 +5,7 @@ import { join, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 import { homedir } from "node:os"
 import { resolveOpenCodeHomes } from "./lib/opencode-homes.mjs"
+import { installVibeSkill } from "./lib/vibe-skill.mjs"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, "..")
@@ -33,6 +34,10 @@ try {
     if (existsSync(assetsPath)) {
       cpSync(assetsPath, destAssets, { recursive: true, force: true })
       process.stderr.write(`[vibeOS deploy] dist/assets/ -> ${home}/plugins/assets/\n`)
+    }
+    const skill = installVibeSkill(home)
+    if (skill.created) {
+      process.stderr.write(`[vibeOS deploy] Installed /vibe skill at ${skill.path}\n`)
     }
 
     for (const staleDir of [join(pluginDir, "lib"), join(pluginDir, "utils"), join(pluginDir, "vibeOS-lib"), join(pluginDir, "vibeOS-api-server"), join(pluginDir, "dashboard", "dist")]) {

@@ -62,6 +62,7 @@
     ".opencode/plugins/vibeOS-tui.tsx",
     "scripts/deploy.mjs",
     "scripts/lib/**/*",
+    ".opencode/skills/vibe/SKILL.md",
     "model-tiers.sample.json",
     "README.md",
     "CHANGELOG.md",

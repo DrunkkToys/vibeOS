@@ -1,10 +1,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync, readFileSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { tmpdir } from 'node:os';
 
-const { ensureProjectSkill } = await import('../chat-transform.js');
+const { ensureProjectSkill, ensureVibeSkill } = await import('../chat-transform.js');
 
 function tmpProjDir() {
   return mkdtempSync(join(tmpdir(), 'proj-skill-test-'));
@@ -35,6 +35,21 @@ describe('ensureProjectSkill', () => {
       const result = ensureProjectSkill(dir, 'fake-fp-no-patterns');
       assert.equal(result.created, false);
       assert.equal(result.skipped, false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('creates the universal /vibe skill without project patterns', () => {
+    const dir = tmpProjDir();
+    try {
+      const result = ensureVibeSkill(dir);
+      const skillPath = join(dir, '.opencode', 'skills', 'vibe', 'SKILL.md');
+      assert.equal(result.created, true);
+      assert.equal(result.skipped, false);
+      assert.equal(result.path, skillPath);
+      assert.ok(existsSync(skillPath), 'universal vibe skill should be written');
+      assert.match(readFileSync(skillPath, 'utf8'), /# \/vibe/);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
