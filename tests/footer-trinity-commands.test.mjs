@@ -85,6 +85,7 @@ function makeMockDeps(sandbox) {
     _lockedSlot: null,
     _lockedModel: null,
     _tiersData: TIERS,
+    dashboardBaseUrl: "http://127.0.0.1:9123",
     latestUserIntent: "",
     savedOptMode: null,
     savedModeSlot: null,
@@ -485,6 +486,27 @@ test("trinity: status returns string with [vibeOS-dashboard]", async () => {
   const result = await tool.execute({ action: "status" })
   assert.ok(typeof result === "string")
   assert.ok(result.includes("[vibeOS-dashboard]"))
+})
+
+test("trinity: dashboard prints the stable live URL", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "trinity-dashboard-"))
+  const deps = makeMockDeps(sandbox)
+  const { createTrinityTool } = await import("../src/lib/trinity-tool.js")
+  const tool = createTrinityTool(deps)
+  const result = await tool.execute({ action: "dashboard" })
+  assert.ok(typeof result === "string")
+  assert.ok(result.includes("http://127.0.0.1:9123/"))
+  assert.ok(result.includes("/dashboard/home"))
+})
+
+test("trinity: gui aliases dashboard", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "trinity-gui-"))
+  const deps = makeMockDeps(sandbox)
+  const { createTrinityTool } = await import("../src/lib/trinity-tool.js")
+  const tool = createTrinityTool(deps)
+  const result = await tool.execute({ action: "gui" })
+  assert.ok(typeof result === "string")
+  assert.ok(result.includes("http://127.0.0.1:9123/"))
 })
 
 test("trinity: mode switches to vibeultrax branded mode", async () => {
