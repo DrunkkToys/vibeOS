@@ -1156,6 +1156,26 @@ export const onToolExecuteAfter = async (input, output) => {
     }
   }
 
+  // ── todowrite result parsing ──
+  if (t === "todowrite" && _pendingTodoArgs && _pendingTodoArgs.length > 0) {
+    try {
+      for (const entry of _pendingTodoArgs) {
+        if (entry && entry.content) {
+          upsertTodo({
+            content: entry.content,
+            filePath: entry.filePath || "",
+            priority: entry.priority || "medium",
+            source: "intercepted",
+          })
+        }
+      }
+      console.error("[vibeOS] tracked " + _pendingTodoArgs.length + " todo(s) from todowrite call")
+    } catch (todoErr) {
+      if (DEBUG_INTERNALS) console.error(`[vibeOS] todowrite parse error: ${todoErr.message}`)
+    }
+    _pendingTodoArgs = null
+  }
+
   // Compress verbose tool outputs before they bloat context.
   // Only webfetch — task results contain synthesized data the brain needs verbatim.
   if (t !== "webfetch") {
@@ -1180,25 +1200,6 @@ export const onToolExecuteAfter = async (input, output) => {
     else if (output.text !== undefined) output.text = processed
     else if (output.content !== undefined) output.content = processed
     else if (output.data !== undefined) output.data = processed
-  }
-  // ── todowrite result parsing ──
-  if (t === "todowrite" && _pendingTodoArgs && _pendingTodoArgs.length > 0) {
-    try {
-      for (const entry of _pendingTodoArgs) {
-        if (entry && entry.content) {
-          upsertTodo({
-            content: entry.content,
-            filePath: entry.filePath || "",
-            priority: entry.priority || "medium",
-            source: "intercepted",
-          })
-        }
-      }
-      console.error("[vibeOS] tracked " + _pendingTodoArgs.length + " todo(s) from todowrite call")
-    } catch (todoErr) {
-      if (DEBUG_INTERNALS) console.error(`[vibeOS] todowrite parse error: ${todoErr.message}`)
-    }
-    _pendingTodoArgs = null
   }
   applyDecadence()
 }
