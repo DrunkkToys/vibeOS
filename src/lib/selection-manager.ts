@@ -25,11 +25,16 @@ const DFLT_SEL = { enabled: true, active_slot: null, slot_locked: false, thinkin
 // mtime-based cache for loadSelection — single stat() per turn (microseconds),
 // no stale data even when other code writes directly to model-tiers.json
 let _selCache: any = null
-let _selLastMtime = -1
+let _selLastStamp = ""
 
 const SEL_CACHE_KEY = "selection-manager:loadSelection"
 
 const TIERS_FILE_PATH = () => join(getVibeOSHome(), "model-tiers.json")
+
+export function _resetSelectionCacheForTest(): void {
+  _selCache = null
+  _selLastStamp = ""
+}
 
 function loadSelectionImpl(): any {
   const TIERS_FILE = TIERS_FILE_PATH()
@@ -67,10 +72,16 @@ function loadSelectionImpl(): any {
 
 export function loadSelection(): any {
   const TIERS_FILE = TIERS_FILE_PATH()
-  const curMtime = existsSync(TIERS_FILE) ? statSync(TIERS_FILE).mtimeMs : -1
-  if (_selCache && _selLastMtime >= curMtime) return _selCache
+  if (!existsSync(TIERS_FILE)) {
+    _selCache = DFLT_SEL
+    _selLastStamp = ""
+    return _selCache
+  }
+  const st = statSync(TIERS_FILE, { bigint: true })
+  const curStamp = `${st.ino}:${st.mtimeNs}:${st.size}`
+  if (_selCache && _selLastStamp === curStamp) return _selCache
   _selCache = loadSelectionImpl()
-  _selLastMtime = curMtime
+  _selLastStamp = curStamp
   return _selCache
 }
 

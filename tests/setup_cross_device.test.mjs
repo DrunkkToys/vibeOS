@@ -5,10 +5,11 @@ import test from "node:test"
 import assert from "node:assert/strict"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs"
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs"
 
 test("setup: reads model from opencode.json when no OpenCode context", async () => {
   const sandbox = mkdtempSync(join(tmpdir(), "vibeos-setup-test-"))
+  const cwd = mkdtempSync(join(tmpdir(), "vibeos-setup-cwd-"))
   const claudeDir = join(sandbox, ".claude")
   mkdirSync(claudeDir, { recursive: true })
   writeFileSync(join(claudeDir, "opencode.json"), JSON.stringify({ model: "custom-provider/my-model" }))
@@ -21,7 +22,7 @@ test("setup: reads model from opencode.json when no OpenCode context", async () 
 
   // Simulate what trinity setup does: read opencode.json when deps.currentModel is empty
   let selectedModel = ""
-  for (const dir of [process.cwd(), claudeDir].filter(Boolean)) {
+  for (const dir of [cwd, claudeDir].filter(Boolean)) {
     const p = join(dir, "opencode.json")
     try {
       const oc = JSON.parse(readFileSync(p, "utf-8"))
@@ -40,6 +41,37 @@ test("setup: reads model from opencode.json when no OpenCode context", async () 
   assert.equal(cheap, "custom-provider/my-model")
 
   process.env.HOME = oldHOME; process.env.VIBEOS_HOME = oldVH; process.env.OPENCODE_HOME = oldOC
+  rmSync(cwd, { recursive: true, force: true })
+  rmSync(sandbox, { recursive: true, force: true })
+})
+
+test("setup: seeded free slot keeps precedence over fallback slots", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "vibeos-setup-free-slot-"))
+  const claudeDir = join(sandbox, ".claude")
+  mkdirSync(claudeDir, { recursive: true })
+  const oldHOME = process.env.HOME, oldVH = process.env.VIBEOS_HOME, oldOC = process.env.OPENCODE_HOME
+  process.env.HOME = sandbox
+  process.env.VIBEOS_HOME = claudeDir
+  process.env.OPENCODE_HOME = claudeDir
+
+  const trinity = {
+    brain: "deepseek/deepseek-v4-pro",
+    medium: "deepseek/deepseek-v4-flash",
+    cheap: "opencode/big-pickle",
+  }
+  const selectedModel = "custom-provider/my-model"
+  const brain = trinity?.brain || selectedModel || ""
+  const medium = trinity?.medium || brain
+  const cheap = trinity?.cheap || medium || brain
+
+  assert.equal(brain, "deepseek/deepseek-v4-pro")
+  assert.equal(medium, "deepseek/deepseek-v4-flash")
+  assert.equal(cheap, "opencode/big-pickle", "seeded free slot stays preferred over paid fallbacks")
+
+  process.env.HOME = oldHOME
+  process.env.VIBEOS_HOME = oldVH
+  process.env.OPENCODE_HOME = oldOC
+  rmSync(sandbox, { recursive: true, force: true })
 })
 
 test("setup: buildDeterministicTrinity returns null when no models discovered", async () => {

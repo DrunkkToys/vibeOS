@@ -5,6 +5,11 @@ export let TRINITY_CHEAP: string | null = null
 export function setTrinityBrain(v: string | null) { TRINITY_BRAIN = v }
 export function setTrinityMedium(v: string | null) { TRINITY_MEDIUM = v }
 export function setTrinityCheap(v: string | null) { TRINITY_CHEAP = v }
+export function _resetTrinitySlotsForTest(): void {
+  TRINITY_BRAIN = null
+  TRINITY_MEDIUM = null
+  TRINITY_CHEAP = null
+}
 /**
  * SPDX-License-Identifier: MIT
  * SPDX-FileCopyrightText: 2026 vibeOS <https://github.com/DrunkkToys/vibeOS>
@@ -1070,21 +1075,24 @@ export function _refreshModel(directory) {
     _setTrinitySlotsFromTiers(tiersData)
     const slotOrder = getTrinitySlotOrder(tiersData)
     const activeSlot = slotOrder.includes(sel.active_slot) ? sel.active_slot : (slotOrder[0] || "brain")
-    let slotOcModel = tiersData?.trinity?.[activeSlot]?.oc || ""
+    const slotOcModel = String(tiersData?.trinity?.[activeSlot]?.oc || "").trim()
     const cfgModel = readConfig(directory) || readConfig(getOpenCodeHome()) || process?.env?.OPENCODE_MODEL || ""
     // Skip placeholder models (e.g. "provider/high-tier-model") — use auto-detected model instead
     if (slotOcModel && PLACEHOLDER_RE.test(slotOcModel)) {
-      slotOcModel = ""
       if (DEBUG_INTERNALS) console.error(`[vibeOS] placeholder model detected in ${activeSlot} slot — skipping, will auto-detect`)
     }
-    if (slotOcModel) {
-      const resolvedModel = !isModelFree(slotOcModel) ? slotOcModel : (cfgModel || slotOcModel)
+    if (slotOcModel && !PLACEHOLDER_RE.test(slotOcModel)) {
+      const resolvedModel = slotOcModel
       if (resolvedModel) {
-        // Always derive tier from active slot so footer/env reflect slot changes,
-        // even when multiple slots point to the same model ID.
-        const nextTier = isModelFree(slotOcModel)
-          ? classify(resolvedModel)
-          : (activeSlot === (slotOrder[0] || "brain") ? "high" : classify(resolvedModel))
+        // Always derive tier from the active slot so footer/env reflect slot changes,
+        // even when multiple slots point to the same model ID or a free model rotates.
+        const nextTier = activeSlot === (slotOrder[0] || "brain")
+          ? "high"
+          : activeSlot === (slotOrder[1] || "medium")
+            ? "mid"
+            : activeSlot === (slotOrder[2] || "cheap")
+              ? "budget"
+              : classify(resolvedModel)
         const modelChanged = currentModel !== resolvedModel
         const tierChanged = currentTier !== nextTier
         if (modelChanged || tierChanged) {
