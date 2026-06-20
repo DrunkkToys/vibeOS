@@ -10150,7 +10150,8 @@ var BRANDED_MODES = [
     flow: "strict",
     qualityVsBrain: 107,
     costVsBrain: 58,
-    desc: "3-model debate: cheap proposes, medium reviews, brain refines."
+    default: true,
+    desc: "Default mode. 3-model debate: cheap proposes, medium reviews, brain refines."
   },
   {
     id: "vibeqmax",
@@ -10178,8 +10179,7 @@ var BRANDED_MODES = [
     flow: "audit",
     qualityVsBrain: 75,
     costVsBrain: 18,
-    default: true,
-    desc: "Default mode. Medium tier auto-escalate. Speed-first."
+    desc: "Medium tier auto-escalate. Speed-first."
   },
   {
     id: "vibelitex",
@@ -18372,6 +18372,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
       return _dashboardBaseUrl;
     },
     ensureMcpServerRunning,
+    _loadMcpPort: loadMcpPort,
     loadSelection,
     writeSelection,
     loadCredit,
