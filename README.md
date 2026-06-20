@@ -214,7 +214,7 @@ Stress > 1.5 escalates any regime to quality mode regardless of the above mappin
 | Model locking | Per-session lock that skips auto-reconcile with OpenCode config changes |
 | Blackbox decision engine | Dialogue trajectory tracking, loop prevention, outcome calibration |
 | TensorTAG routing | WBP protocol synthesizes delegated task output in assistant chat |
-| Pattern learner runtime | trinity patterns and trinity patterns clear |
+| Pattern learner runtime | vibe patterns, vibe patterns clear, vibe patterns suggest |
 | Reward engine | Quality credits, saving bonus, lie/laziness penalties -- gamified quality assurance |
 | Lie detector | Detects fabricated claims, invented function names, hallucinated APIs |
 | Laziness detector | Flags short outputs, TODO placeholders, skipped delegation on brain tier |
@@ -247,13 +247,13 @@ Local dev checkout:
 
 ## Commands
 
-`vibe help` (or `trinity help`) for full reference. Commands register in the TUI sidebar.
+`vibe help` for full reference. Commands register in the TUI sidebar.
 `/vibe` is the fast slash-command entrypoint for the same command surface.
 
 | Command | Effect |
 |---------|--------|
 | `/vibe` | OpenCode slash-command entrypoint for status, dashboard, sessions, templates, and diagnostics |
-| `vibe status` (or `trinity status`) | Tier, enforcement, savings, stress, lock state |
+| `vibe status` | Tier, enforcement, savings, stress, lock state |
 | `vibe dashboard` / `vibe gui` | Live dashboard URL and browser entrypoint |
 | `vibe set brain|medium|cheap [model=<model_id>]` | Switch active model tier or override slot |
 | `vibe brain|medium|cheap` | Shorthand tier switch |
@@ -267,17 +267,20 @@ Local dev checkout:
 | `vibe tdd on|off` | Toggle TDD skeleton generation |
 | `vibe tdd strict on|off` | Toggle strict failing TODO test templates |
 | `vibe tdd quality on|off` | Toggle quality assertion stubs |
-| `vibe rebuild` (or `trinity rebuild`) | Re-detect models from all providers |
+| `vibe rebuild` | Re-detect models from all providers |
 | `vibe project` | Per-project analytics |
-| `vibe patterns` / `vibe patterns clear` | Pattern inspection |
+| `vibe patterns` / `vibe patterns clear` / `vibe patterns suggest` | Pattern inspection |
+| `vibe todo` / `vibe todo-done <id>` / `vibe todo-sync` | View pending todos, mark done, sync flow todos |
+| `vibe verify-claims` | Audit recent claim output against cascade evidence |
 | `vibe diagnose` | Health check |
 | `vibe blackbox on|off|status|reset` | Decision engine control |
-| `trinity repair-state preview|apply` | Fix state collisions |
+| `vibe repair-state preview|apply` | Fix state collisions |
 | `vibe guard` | Refresh AGENTS.md / README.md |
 | `vibe reality-check` | Read verified live state, report evidence-backed facts only |
 | `vibe setup` | Create a compatibility profile for first-time users; fresh installs start in VibeUltraX |
-| `trinity api-token <token|invalidate>` | Manage remote API token |
-| `trinity api-bootstrap-token <token>` | Bootstrap token exchange |
+| `vibe api-token <token|invalidate>` | Manage remote API token |
+| `vibe api-bootstrap-token <token>` | Bootstrap token exchange |
+| `vibe report savings` | Deep savings breakdown from the append-only ledger |
 
 **Report commands**: report-save, report-list, report-read, research-audit
 
@@ -413,7 +416,7 @@ The footer is the primary status line, appended to every assistant response. It 
 | Stress gauge | gaugeChar | _ | Current stress level |
 | Vector pulse | slot | cheap | Active slot changed this turn |
 
-Controls: `vibe status` (or `trinity status`) for full state, `vibe enable/disable` to toggle. Persisted in ~/.claude/delegation-state.json.
+Controls: `vibe status` for full state, `vibe enable/disable` to toggle. Persisted in ~/.claude/delegation-state.json.
 
 ### Environment Variables
 
@@ -432,12 +435,12 @@ Controls: `vibe status` (or `trinity status`) for full state, `vibe enable/disab
 | Symptom | Fix |
 |---------|-----|
 | Plugin not loading | Check opencode.json entry. Restart Desktop. |
-| Model won't switch | vibe rebuild (or trinity rebuild) then vibe set brain/medium/cheap |
+| Model won't switch | vibe rebuild then vibe set brain/medium/cheap |
 | Writes/edits blocked | Enforcement active -- delegate to cheap tier |
 | No footer visible | Verify plugin enabled, completions running |
 | Dashboard blank | npm run build then restart |
-| State looks wrong | vibe diagnose then trinity repair-state preview |
+| State looks wrong | vibe diagnose then vibe repair-state preview |
 
 ---
 
-*vibe help (or trinity help) is the canonical command reference. This README stays high-level so command details follow the code without a rewrite.*
+*vibe help is the canonical command reference. This README stays high-level so command details follow the code without a rewrite.*
