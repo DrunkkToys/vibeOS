@@ -2950,6 +2950,46 @@ test("recordFlowTodo: returns 0 when no TODOs in content", async () => {
   }
 })
 
+test("tool.execute.after: todowrite persists intercepted todos once", async () => {
+  const prevHome = process.env.HOME
+  const prevVibeHome = process.env.VIBEOS_HOME
+  process.env.HOME = sandbox
+  process.env.VIBEOS_HOME = join(sandbox, ".claude")
+  try {
+    writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+      selection: { enabled: true, active_slot: "brain", flow_enabled: true },
+      trinity: {
+        brain: { oc: "deepseek/deepseek-v4-pro" },
+        medium: { oc: "deepseek/deepseek-v4-flash" },
+        cheap: { oc: "deepseek/deepseek-chat" },
+      },
+    }))
+    const proj = join(sandbox, ".opencode-todowrite-hook")
+    mkdirSync(proj, { recursive: true })
+    const mod = await loadPlugin()
+    const hooks = await mod.DelegationEnforcer({ client: {}, directory: proj })
+    const todosFile = join(sandbox, ".claude/todos.json")
+    rmSync(todosFile, { force: true })
+
+    await hooks["tool.execute.before"](
+      { tool: "todowrite", args: { todos: [{ content: "fix this", filePath: "src/a.ts", priority: "high" }] } },
+      {},
+    )
+    await hooks["tool.execute.after"]({ tool: "todowrite" }, { result: "ok" })
+    const todos = JSON.parse(readFileSync(todosFile, "utf-8"))
+    assert.equal(todos.length, 1, "one todo persisted from todowrite")
+    assert.equal(todos[0].content, "fix this", "todo content preserved")
+
+    await hooks["tool.execute.after"]({ tool: "todowrite" }, { result: "ok" })
+    const after = JSON.parse(readFileSync(todosFile, "utf-8"))
+    assert.equal(after.length, 1, "stale todowrite payload does not duplicate on later after-hook")
+  } finally {
+    process.env.HOME = prevHome
+    if (prevVibeHome) process.env.VIBEOS_HOME = prevVibeHome
+    else delete process.env.VIBEOS_HOME
+  }
+})
+
 // ════════════════════════════════════════════════════════════════════════════
 // Trinity tdd/flow enforce commands
 // ════════════════════════════════════════════════════════════════════════════
