@@ -214,7 +214,7 @@ function _tiersNeedRepair(tiers) {
 }
 async function _seedOrRepairModelTiers(directory) {
   const TIERS_FILE = getTiersFile()
-  const DEFAULT_FREE_MODEL = "opencode/big-pickle"
+  const DEFAULT_FREE_MODEL = "opencode/big-pickle-free"
   let existing = null
   if (existsSync(TIERS_FILE)) {
     try {

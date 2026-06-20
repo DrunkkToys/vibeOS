@@ -606,9 +606,9 @@ test("bootstrap: missing local config seeds free model trinity slots", async () 
     const tiersPath = join(sb, ".claude/model-tiers.json")
     if (existsSync(tiersPath)) {
       const tiers = safeJsonParse(readFileSync(tiersPath, "utf-8"))
-      assert.equal(tiers?.trinity?.brain?.oc, "opencode/big-pickle", "brain slot seeded from free model")
-      assert.equal(tiers?.trinity?.medium?.oc, "opencode/big-pickle", "medium slot seeded from free model")
-      assert.equal(tiers?.trinity?.cheap?.oc, "opencode/big-pickle", "cheap slot seeded from free model")
+      assert.equal(tiers?.trinity?.brain?.oc, "opencode/big-pickle-free", "brain slot seeded from free model")
+      assert.equal(tiers?.trinity?.medium?.oc, "opencode/big-pickle-free", "medium slot seeded from free model")
+      assert.equal(tiers?.trinity?.cheap?.oc, "opencode/big-pickle-free", "cheap slot seeded from free model")
     } else {
       assert.ok(true, "plugin loads even when bootstrap defers model-tiers seeding until first hook")
     }
@@ -643,9 +643,9 @@ test("bare machine: no config files anywhere — plugin loads without crashing",
     const tiersPath = join(sb, ".claude/model-tiers.json")
     assert.ok(existsSync(tiersPath), "model-tiers.json should be seeded on bare machine")
     const tiers = safeJsonParse(readFileSync(tiersPath, "utf-8"))
-    assert.equal(tiers?.trinity?.brain?.oc, "opencode/big-pickle", "brain defaults to free model")
-    assert.equal(tiers?.trinity?.medium?.oc, "opencode/big-pickle", "medium defaults to free model")
-    assert.equal(tiers?.trinity?.cheap?.oc, "opencode/big-pickle", "cheap defaults to free model")
+    assert.equal(tiers?.trinity?.brain?.oc, "opencode/big-pickle-free", "brain defaults to free model")
+    assert.equal(tiers?.trinity?.medium?.oc, "opencode/big-pickle-free", "medium defaults to free model")
+    assert.equal(tiers?.trinity?.cheap?.oc, "opencode/big-pickle-free", "cheap defaults to free model")
   } finally {
     process.env.HOME = prevHome
     rmSync(sb, { recursive: true, force: true })
