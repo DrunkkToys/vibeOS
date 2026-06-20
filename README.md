@@ -210,7 +210,7 @@ Stress > 1.5 escalates any regime to quality mode regardless of the above mappin
 | Report tools | report-save, report-list, report-read, research-audit |
 | MCP server | Extended tool capabilities + dashboard serving + SSE push endpoint |
 | Remote API | Fastify server at api.vibetheog.com with token auth and seat management |
-| Session lock | vibe lock on|off -- freezes model at session start |
+| Session lock | `vibe lock on\|off` -- freezes model at session start |
 | Model locking | Per-session lock that skips auto-reconcile with OpenCode config changes |
 | Blackbox decision engine | Dialogue trajectory tracking, loop prevention, outcome calibration |
 | TensorTAG routing | WBP protocol synthesizes delegated task output in assistant chat |
@@ -255,28 +255,28 @@ Local dev checkout:
 | `/vibe` | OpenCode slash-command entrypoint for status, dashboard, sessions, templates, and diagnostics |
 | `vibe status` (or `trinity status`) | Tier, enforcement, savings, stress, lock state |
 | `vibe dashboard` / `vibe gui` | Live dashboard URL and browser entrypoint |
-| `vibe set brain|medium|cheap [model=<model_id>]` | Switch active model tier or override slot |
-| `vibe brain|medium|cheap` | Shorthand tier switch |
+| `vibe set brain\|medium\|cheap [model=<model_id>]` | Switch active model tier or override slot |
+| `vibe brain\|medium\|cheap` | Shorthand tier switch |
 | `vibe enable|disable` | Toggle plugin on/off |
-| `vibe mode budget|quality|speed|longrun|auto|balanced|audit|forensic` | Set optimization mode |
-| `vibe thinking full|brief|off` | Reasoning depth |
-| `vibe enforce on|off` | Toggle delegation enforcement |
-| `vibe lock on|off` | Freeze model for session |
-| `vibe flow on|off` | Toggle flow enforcer |
-| `vibe flow enforce on|off` | Toggle auto-extract TODOs |
-| `vibe tdd on|off` | Toggle TDD skeleton generation |
-| `vibe tdd strict on|off` | Toggle strict failing TODO test templates |
-| `vibe tdd quality on|off` | Toggle quality assertion stubs |
+| `vibe mode budget\|quality\|speed\|longrun\|auto\|balanced\|audit\|forensic` | Set optimization mode |
+| `vibe thinking full\|brief\|off` | Reasoning depth |
+| `vibe enforce on\|off` | Toggle delegation enforcement |
+| `vibe lock on\|off` | Freeze model for session |
+| `vibe flow on\|off` | Toggle flow enforcer |
+| `vibe flow enforce on\|off` | Toggle auto-extract TODOs |
+| `vibe tdd on\|off` | Toggle TDD skeleton generation |
+| `vibe tdd strict on\|off` | Toggle strict failing TODO test templates |
+| `vibe tdd quality on\|off` | Toggle quality assertion stubs |
 | `vibe rebuild` (or `trinity rebuild`) | Re-detect models from all providers |
 | `vibe project` | Per-project analytics |
 | `vibe patterns` / `vibe patterns clear` | Pattern inspection |
 | `vibe diagnose` | Health check |
-| `vibe blackbox on|off|status|reset` | Decision engine control |
-| `trinity repair-state preview|apply` | Fix state collisions |
+| `vibe blackbox on\|off\|status\|reset` | Decision engine control |
+| `trinity repair-state preview\|apply` | Fix state collisions |
 | `vibe guard` | Refresh AGENTS.md / README.md |
 | `vibe reality-check` | Read verified live state, report evidence-backed facts only |
 | `vibe setup` | Create a compatibility profile for first-time users; fresh installs start in VibeUltraX |
-| `trinity api-token <token|invalidate>` | Manage remote API token |
+| `trinity api-token <token\|invalidate>` | Manage remote API token |
 | `trinity api-bootstrap-token <token>` | Bootstrap token exchange |
 
 **Report commands**: report-save, report-list, report-read, research-audit
