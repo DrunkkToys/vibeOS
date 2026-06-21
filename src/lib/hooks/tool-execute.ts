@@ -864,7 +864,7 @@ export const onToolExecuteAfter = async (input, output) => {
   let _footerText = ""
   try {
     if (t !== "task") {
-      const { ltTasks, ltCache, ltCost, sesTrend } = readLifetimeSavings()
+      const { ltTasks, ltCache, ltCost, sesTrend, sesTaskDelegations } = readLifetimeSavings()
       const ltTotal = ltTasks + ltCache
       const selNow = loadSelection()
       let liveModel = ""
@@ -931,7 +931,16 @@ export const onToolExecuteAfter = async (input, output) => {
           try {
             saveReport({
               type: "session", summary: `Session cost: $${formatUsd(ltCost)} | cache saved: $${formatUsd(ltCache)} | delegation saved: $${formatUsd(ltTasks)}`,
-              metrics: { sessionId: _OC_SID, sessionCost: ltCost, cacheSavings: ltCache, delegationSavingsUsd: ltTasks, model: resolvedModel || currentModel, slot: selNow.active_slot || "unknown" },
+              metrics: {
+                sessionId: _OC_SID,
+                sessionCost: ltCost,
+                cacheSavings: ltCache,
+                delegationSavingsUsd: ltTasks,
+                taskDelegationCount: sesTaskDelegations,
+                tasksDelegated: sesTaskDelegations,
+                model: resolvedModel || currentModel,
+                slot: selNow.active_slot || "unknown",
+              },
               tags: ["auto", "cost"],
             })
           } catch (reportErr) {

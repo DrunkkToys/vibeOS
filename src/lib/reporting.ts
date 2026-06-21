@@ -143,6 +143,21 @@ function _parseMetrics(v) {
   return result
 }
 
+function _normalizeReportMetrics(metrics: Record<string, any>): Record<string, any> {
+  const out = { ...(metrics || {}) }
+  const sessionCost = Number(out.sessionCost ?? out.session_cost ?? out.cost_usd ?? out.session_cost_usd ?? NaN)
+  if (Number.isFinite(sessionCost) && typeof out.sessionCost !== "number") out.sessionCost = sessionCost
+
+  const taskDelegationCount = Number(out.taskDelegationCount ?? out.tasksDelegated ?? out.sesTaskDelegations ?? out.task_delegation_count ?? NaN)
+  if (Number.isFinite(taskDelegationCount) && typeof out.taskDelegationCount !== "number") out.taskDelegationCount = taskDelegationCount
+  if (Number.isFinite(taskDelegationCount) && typeof out.tasksDelegated !== "number") out.tasksDelegated = taskDelegationCount
+
+  const delegationSavingsUsd = Number(out.delegationSavingsUsd ?? out.delegation_savings_usd ?? out.sesTasks ?? out.total_savings_usd ?? NaN)
+  if (Number.isFinite(delegationSavingsUsd) && typeof out.delegationSavingsUsd !== "number") out.delegationSavingsUsd = delegationSavingsUsd
+
+  return out
+}
+
 function _textHasProductionClaim(text) {
   const lower = String(text || "").toLowerCase()
   return (
@@ -192,7 +207,13 @@ export function verifyProductionClaim({ summary = "", narrative = "", tags = [],
 export function saveReport({ type = "manual", summary = "", findings = null, metrics = null, narrative = "", tags = [], fingerprint = null, status = "pending", task_description = "", outcome_verified = false }: { type?: string; summary?: string; findings?: unknown; metrics?: unknown; narrative?: string; tags?: unknown[]; fingerprint?: string | null; status?: string; task_description?: string; outcome_verified?: boolean } = {}) {
   // Auto-parse findings + metrics (supports array, JSON string, plain-text lines)
   const parsedFindings = _parseFindings(findings)
-  const parsedMetrics = _parseMetrics(metrics)
+  const parsedMetrics = _normalizeReportMetrics(_parseMetrics(metrics))
+  if (type === "session") {
+    if (typeof parsedMetrics.sessionCost !== "number") parsedMetrics.sessionCost = 0
+    if (typeof parsedMetrics.taskDelegationCount !== "number") parsedMetrics.taskDelegationCount = 0
+    if (typeof parsedMetrics.tasksDelegated !== "number") parsedMetrics.tasksDelegated = parsedMetrics.taskDelegationCount
+    if (typeof parsedMetrics.delegationSavingsUsd !== "number") parsedMetrics.delegationSavingsUsd = 0
+  }
   const metricsObject = parsedMetrics && typeof parsedMetrics === "object" && !Array.isArray(parsedMetrics) ? parsedMetrics : {}
   const metricsSessionId = typeof metricsObject.sessionId === "string" && metricsObject.sessionId.trim() ? metricsObject.sessionId.trim() : ""
   const metricsProjectName = typeof metricsObject.projectName === "string" && metricsObject.projectName.trim() ? metricsObject.projectName.trim() : ""
