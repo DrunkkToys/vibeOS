@@ -24,7 +24,7 @@ import { join, dirname, resolve } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { currentModel, currentTier, setCurrentModel, setCurrentTier, safeJsonParse, HIGH_TIER_RE, MID_TIER_RE, loadTierRegexes, _modelLocked, _handleStateCorruption, getOpenCodeHome } from "./state.js";
-import { loadSelection as loadSel } from "./selection-manager.js";
+import { loadSelection as loadSel, sanitizeSelection } from "./selection-manager.js";
 export { HIGH_TIER_RE, MID_TIER_RE, loadTierRegexes };
 const USER_HOME = (() => { try {
     return homedir();
@@ -1260,6 +1260,7 @@ export function applySlot(slot, projectDir = "") {
             const ocModel = j?.trinity?.[slot]?.oc;
             if (!ocModel)
                 return { ok: false, reason: `slot '${slot}' has no oc model` };
+            sanitizeSelection(j.selection || (j.selection = {}));
             j.selection.active_slot = slot;
             const _tmp = TIERS_FILE + ".tmp." + Date.now();
             writeFileSync(_tmp, JSON.stringify(j, null, 2) + "\n", "utf-8");

@@ -127,12 +127,9 @@ export function createTrinityTool(deps) {
         const effectiveLevel = sel.thinking_level || deps.thinkingLevel(credit)
 
         const apiFallbackActive = typeof deps.isApiFallback === "function" ? deps.isApiFallback() : false
-        const currentProvider = String(deps.currentModel || "").split("/")[0] || ""
-        const selectedProvider = String(sel.selected_provider || "").split("/")[0] || ""
-        const fallbackModelGuard = currentProvider === "opencode" && selectedProvider !== "opencode"
         const activeSlot = sel.active_slot || "brain"
         const activeSlotModel = tiers?.[activeSlot]?.oc || ""
-        if (deps.currentModel && activeSlotModel && deps.currentModel !== activeSlotModel && !apiFallbackActive && !fallbackModelGuard && !deps._modelLocked) {
+        if (deps.currentModel && activeSlotModel && deps.currentModel !== activeSlotModel && !apiFallbackActive && !deps._modelLocked) {
           try {
             const providers = typeof deps._loadOpenCodeProviders === "function"
               ? deps._loadOpenCodeProviders(deps.directory)
