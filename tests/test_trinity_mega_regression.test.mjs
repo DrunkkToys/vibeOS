@@ -112,11 +112,11 @@ test("mode budget → cheap", async () => {
   assert.equal(readSel().active_slot, "cheap")
 })
 
-test("mode vibeultrax → brain", async () => {
+test("mode vibeultrax → cheap", async () => {
   setTiers()
   await (await getHooks()).tool.trinity.execute({ action: "mode", slot: "vibeultrax" })
   const s = readSel().active_slot
-  assert.equal(s, "brain", "vibeultrax should resolve cascade slot to brain, got: " + s)
+  assert.equal(s, "cheap", "vibeultrax should start on cheap, got: " + s)
 })
 
 test("mode vibeqmax → brain", async () => {

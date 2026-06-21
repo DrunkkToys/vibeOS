@@ -4147,6 +4147,33 @@ function recordBackendVersion(payload) {
   if (version)
     _backendVersion = version;
 }
+async function probeApiHealth(client2) {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), client2.timeout);
+    try {
+      const res = await fetch(client2.baseUrl + "/health", {
+        method: "GET",
+        headers: client2.apiToken ? {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + client2.apiToken
+        } : {
+          "Content-Type": "application/json"
+        },
+        signal: controller.signal
+      });
+      if (res.ok) {
+        markApiConnected();
+        return true;
+      }
+      return false;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  } catch {
+    return false;
+  }
+}
 async function ensureBootstrapExchange() {
   syncApiTokenFromDisk();
   if (VIBEOS_API_DISABLED)
@@ -4304,6 +4331,9 @@ async function remoteCall(method, args, fallbackFn) {
       if (fallbackFn)
         return fallbackFn();
       return null;
+    }
+    if (method === "health") {
+      await probeApiHealth(client2);
     }
     const startedAt = Date.now();
     const result = await client2[method](...args);
@@ -11385,7 +11415,7 @@ function createTrinityTool(deps) {
         const allEntries = [...BRANDED_MODES, ...RUNTIME_MODES];
         const modeEntry = allEntries.find((e) => e.id === slot);
         if (modeEntry) {
-          const tierSlot = resolveCascadeSlot(modeEntry.pipeline);
+          const tierSlot = slot === "vibeultrax" ? "cheap" : resolveCascadeSlot(modeEntry.pipeline);
           deps.writeSessionSlot(deps._OC_SID, tierSlot);
           deps.writeSelection("active_slot", tierSlot);
           deps.writeSelection("active_pipeline", modeEntry.pipeline);

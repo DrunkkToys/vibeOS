@@ -290,7 +290,9 @@ export function bootstrapOptimizationSession(): { mode: OptimizationMode; slot: 
     (requestedMode && requestedMode !== "auto" ? requestedMode : null) ||
     (persistedMode && persistedMode !== "auto" ? persistedMode : null) ||
     DFLT_OPTIMIZATION_MODE
-  const resolvedSlot = resolveOptimizationSlot(resolvedMode)
+  const resolvedSlot = resolvedMode === "vibeultrax"
+    ? "cheap"
+    : resolveOptimizationSlot(resolvedMode)
   try {
     writeSessionOptMode(sid, resolvedMode)
     writeSessionSlot(sid, resolvedSlot)

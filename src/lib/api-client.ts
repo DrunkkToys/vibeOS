@@ -4,7 +4,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync } from "node
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { homedir } from "node:os"
-import { isApiConnected as isRuntimeApiConnected, isApiEnabled as isRuntimeApiEnabled, isApiFallbackMode as isRuntimeApiFallbackMode, markApiConnected, markApiDisconnected, resetApiConnection, setApiEnabled } from "./runtime-state.js"
+import { isApiEnabled as isRuntimeApiEnabled, isApiFallbackMode as isRuntimeApiFallbackMode, markApiConnected, markApiDisconnected, resetApiConnection, setApiEnabled } from "./runtime-state.js"
 
 const DEFAULT_API_URL = "https://api.vibetheog.com"
 // Alpha-only onboarding token: intentionally embedded so fresh installs work
@@ -630,17 +630,6 @@ function readTokenFromDisk(): string {
   return ""
 }
 
-function hasPrimaryTokenOnDisk(): boolean {
-  if (readApiDisabledFromDisk()) return false
-  try {
-    const env = readPrimaryEnvFile()
-    if (env === null) return false
-    return /^VIBEOS_API_TOKEN=/m.test(env)
-  } catch {
-    return false
-  }
-}
-
 function readBootstrapTokenFromDisk(): string {
   if (readApiDisabledFromDisk()) return ""
   const primary = readPrimaryEnvFile()
@@ -823,6 +812,36 @@ function recordBackendVersion(payload: unknown): void {
   if (version) _backendVersion = version
 }
 
+async function probeApiHealth(client: VibeOSApiClient): Promise<boolean> {
+  try {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), client.timeout)
+    try {
+      const res = await fetch(client.baseUrl + "/health", {
+        method: "GET",
+        headers: client.apiToken
+          ? {
+            "Content-Type": "application/json",
+            Authorization: "Bearer " + client.apiToken,
+          }
+          : {
+            "Content-Type": "application/json",
+          },
+        signal: controller.signal,
+      })
+      if (res.ok) {
+        markApiConnected()
+        return true
+      }
+      return false
+    } finally {
+      clearTimeout(timeoutId)
+    }
+  } catch {
+    return false
+  }
+}
+
 export async function ensureBootstrapExchange(): Promise<boolean> {
   syncApiTokenFromDisk()
   if (VIBEOS_API_DISABLED) return false
@@ -983,6 +1002,9 @@ export async function remoteCall(method, args, fallbackFn) {
       }
       if (fallbackFn) return fallbackFn()
       return null
+    }
+    if (method === "health") {
+      await probeApiHealth(client)
     }
     const startedAt = Date.now()
     const result = await client[method](...args)

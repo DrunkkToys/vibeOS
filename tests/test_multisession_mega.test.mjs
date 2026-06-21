@@ -137,11 +137,11 @@ test("[TRINITY] mode budget -> cheap", async () => {
   assert.equal(sel().enabled, true)
 })
 
-test("[TRINITY] mode vibeultrax -> brain", async () => {
+test("[TRINITY] mode vibeultrax -> cheap", async () => {
   tiers()
   const h = await hooks()
   await h.tool.trinity.execute({ action:"mode",slot:"vibeultrax" })
-  assert.equal(sel().active_slot, "brain")
+  assert.equal(sel().active_slot, "cheap")
   assert.equal(sel().delegation_enforce, true)
 })
 

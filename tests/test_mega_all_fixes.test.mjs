@@ -191,7 +191,7 @@ test("1i — trinity mode covers all live optimization modes", async () => {
     { slot: "auto", active: "brain", auto: true },
     { slot: "audit", active: "brain" },
     { slot: "forensic", active: "brain" },
-    { slot: "vibeultrax", active: "brain" },
+    { slot: "vibeultrax", active: "cheap" },
     { slot: "vibeqmax", active: "brain", mode: "vibeqmax", requested: "vibeqmax" },
     { slot: "vibemax", active: "medium" },
   ]

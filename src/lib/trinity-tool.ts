@@ -380,7 +380,7 @@ export function createTrinityTool(deps) {
         const allEntries = [...BRANDED_MODES, ...RUNTIME_MODES]
         const modeEntry = allEntries.find(e => e.id === slot)
         if (modeEntry) {
-          const tierSlot = resolveCascadeSlot(modeEntry.pipeline)
+          const tierSlot = slot === "vibeultrax" ? "cheap" : resolveCascadeSlot(modeEntry.pipeline)
           deps.writeSessionSlot(deps._OC_SID, tierSlot)
           deps.writeSelection("active_slot", tierSlot)
           deps.writeSelection("active_pipeline", modeEntry.pipeline)
