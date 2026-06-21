@@ -555,7 +555,8 @@ export class VibeOSApiClient {
 export const VIBEOS_API_URL = process.env.VIBEOS_API_URL || "https://api.vibetheog.com"
 
 const _apiDir = typeof __dirname !== "undefined" ? __dirname : dirname(fileURLToPath(import.meta.url))
-const _envPaths = [homedir() + "/.claude", _apiDir, process.cwd(), homedir()]
+const _vibeHome = process.env.VIBEOS_HOME || join(process.env.HOME || homedir(), ".claude")
+const _envPaths = [_vibeHome, _apiDir, process.cwd(), homedir()]
 const _bootstrapEnvPath = _envPaths[0] + "/.env.alpha"
 
 function readApiDisabledFromDisk(): boolean {

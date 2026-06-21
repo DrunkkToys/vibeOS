@@ -418,6 +418,9 @@ function loadMcpPort() {
       return 0
     return n
   }
+  const runtime = readPublishedMcpRuntime()
+  if (runtime?.port && Number.isFinite(runtime.port) && runtime.port > 0)
+    return runtime.port
   try {
     if (existsSync(getTiersFile())) {
       const tiers = safeJsonParse(readFileSync(getTiersFile(), "utf-8"))

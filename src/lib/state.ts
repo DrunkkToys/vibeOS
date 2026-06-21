@@ -12,32 +12,36 @@ import { getOcSessionId } from "./runtime-state.js"
 // ── File system constants ────────────────────────────────────────────
 const USER_HOME = (() => { try { return homedir() } catch { return tmpdir() } })()
 const VIBEOS_CONTEXT = new AsyncLocalStorage<{ home?: string }>()
-const VIBEOS_HOME = process.env.VIBEOS_HOME || join(process.env.HOME || USER_HOME, ".claude")
-const OPENCODE_HOME = resolveOpenCodeHome()
-const FILE_LOCK_DIR = join(VIBEOS_HOME, ".vibeOS-locks")
-const DELEGATION_STATE_FILE = join(VIBEOS_HOME, "delegation-state.json")
-const SAVINGS_LEDGER_FILE = join(VIBEOS_HOME, "savings-ledger.jsonl")
-const GLOBAL_LEARNING_FILE = join(VIBEOS_HOME, "global-learning.json")
-const PRICING_CACHE_FILE = join(VIBEOS_HOME, "model-pricing-cache.json")
-const BLACKBOX_STATE_FILE = join(VIBEOS_HOME, "blackbox-state.json")
-const PROJECT_STATE_FILE = join(VIBEOS_HOME, "project-states.json")
-const TIERS_FILE = join(VIBEOS_HOME, "model-tiers.json")
-const ACTIVE_JOBS_FILE = join(VIBEOS_HOME, "active-jobs.json")
+function resolveVibeOSHome(): string {
+  return process.env.VIBEOS_HOME || join(process.env.HOME || USER_HOME, ".claude")
+}
+
+let VIBEOS_HOME = resolveVibeOSHome()
+let OPENCODE_HOME = resolveOpenCodeHome()
+let FILE_LOCK_DIR = join(VIBEOS_HOME, ".vibeOS-locks")
+let DELEGATION_STATE_FILE = join(VIBEOS_HOME, "delegation-state.json")
+let SAVINGS_LEDGER_FILE = join(VIBEOS_HOME, "savings-ledger.jsonl")
+let GLOBAL_LEARNING_FILE = join(VIBEOS_HOME, "global-learning.json")
+let PRICING_CACHE_FILE = join(VIBEOS_HOME, "model-pricing-cache.json")
+let BLACKBOX_STATE_FILE = join(VIBEOS_HOME, "blackbox-state.json")
+let PROJECT_STATE_FILE = join(VIBEOS_HOME, "project-states.json")
+let TIERS_FILE = join(VIBEOS_HOME, "model-tiers.json")
+let ACTIVE_JOBS_FILE = join(VIBEOS_HOME, "active-jobs.json")
 const AUTH_F = join(USER_HOME, ".local", "share", "opencode", "auth.json")
-const CREDIT_CACHE_F = join(VIBEOS_HOME, "credit-snapshot.json")
-const FLOW_TODO_QUEUE_FILE = join(VIBEOS_HOME, ".flow-todo-queue.jsonl")
-const FLOW_DEDUP_FILE = join(VIBEOS_HOME, ".flow-dedup-keys.json")
-const ENFORCEMENT_COOLDOWN_FILE = join(VIBEOS_HOME, ".enforcement-cooldown.jsonl")
-const TODOS_FILE = join(VIBEOS_HOME, "todos.json")
-const REPORTS_DIR = join(VIBEOS_HOME, "reports")
-const CONTEXT7_INSTALL_FLAG = join(VIBEOS_HOME, ".context7-install-suggested")
-const TRINITY_OPENCODE_CONFIG = join(OPENCODE_HOME, "opencode.json")
-const TRINITY_OPENCODE_CONFIGC = join(OPENCODE_HOME, "opencode.jsonc")
+let CREDIT_CACHE_F = join(VIBEOS_HOME, "credit-snapshot.json")
+let FLOW_TODO_QUEUE_FILE = join(VIBEOS_HOME, ".flow-todo-queue.jsonl")
+let FLOW_DEDUP_FILE = join(VIBEOS_HOME, ".flow-dedup-keys.json")
+let ENFORCEMENT_COOLDOWN_FILE = join(VIBEOS_HOME, ".enforcement-cooldown.jsonl")
+let TODOS_FILE = join(VIBEOS_HOME, "todos.json")
+let REPORTS_DIR = join(VIBEOS_HOME, "reports")
+let CONTEXT7_INSTALL_FLAG = join(VIBEOS_HOME, ".context7-install-suggested")
+let TRINITY_OPENCODE_CONFIG = join(OPENCODE_HOME, "opencode.json")
+let TRINITY_OPENCODE_CONFIGC = join(OPENCODE_HOME, "opencode.jsonc")
 
 // ── Scratchpad paths ─────────────────────────────────────────────────
-const SCRATCHPAD_ROOT = join(VIBEOS_HOME, "scratch")
-const SCRATCHPAD_GLOBAL_DIR = join(SCRATCHPAD_ROOT, "by-hash")
-const SCRATCHPAD_SESSIONS_DIR = join(SCRATCHPAD_ROOT, "sessions")
+let SCRATCHPAD_ROOT = join(VIBEOS_HOME, "scratch")
+let SCRATCHPAD_GLOBAL_DIR = join(SCRATCHPAD_ROOT, "by-hash")
+let SCRATCHPAD_SESSIONS_DIR = join(SCRATCHPAD_ROOT, "sessions")
 const SCRATCHPAD_SESSION_TTL_MS = 48 * 60 * 60 * 1000
 const SCRATCHPAD_MAX_AGE_SEC = Number(process.env.CLAUDE_SCRATCHPAD_MAX_AGE_SEC || 86400)
 const MAX_SCRATCHPAD_FILES  = 1000
@@ -91,9 +95,42 @@ export function getOpenCodeHomes(): string[] {
   return resolveOpenCodeHomes()
 }
 
-export function setVibeOSHomeContext(home: string): void {
-  VIBEOS_CONTEXT.enterWith({ home: String(home || "") })
+function syncVibeOSPathBindings(home = resolveVibeOSHome()): void {
+  VIBEOS_HOME = home
+  OPENCODE_HOME = resolveOpenCodeHome()
+  FILE_LOCK_DIR = join(VIBEOS_HOME, ".vibeOS-locks")
+  DELEGATION_STATE_FILE = join(VIBEOS_HOME, "delegation-state.json")
+  SAVINGS_LEDGER_FILE = join(VIBEOS_HOME, "savings-ledger.jsonl")
+  GLOBAL_LEARNING_FILE = join(VIBEOS_HOME, "global-learning.json")
+  PRICING_CACHE_FILE = join(VIBEOS_HOME, "model-pricing-cache.json")
+  BLACKBOX_STATE_FILE = join(VIBEOS_HOME, "blackbox-state.json")
+  PROJECT_STATE_FILE = join(VIBEOS_HOME, "project-states.json")
+  TIERS_FILE = join(VIBEOS_HOME, "model-tiers.json")
+  ACTIVE_JOBS_FILE = join(VIBEOS_HOME, "active-jobs.json")
+  CREDIT_CACHE_F = join(VIBEOS_HOME, "credit-snapshot.json")
+  FLOW_TODO_QUEUE_FILE = join(VIBEOS_HOME, ".flow-todo-queue.jsonl")
+  FLOW_DEDUP_FILE = join(VIBEOS_HOME, ".flow-dedup-keys.json")
+  ENFORCEMENT_COOLDOWN_FILE = join(VIBEOS_HOME, ".enforcement-cooldown.jsonl")
+  TODOS_FILE = join(VIBEOS_HOME, "todos.json")
+  REPORTS_DIR = join(VIBEOS_HOME, "reports")
+  CONTEXT7_INSTALL_FLAG = join(VIBEOS_HOME, ".context7-install-suggested")
+  TRINITY_OPENCODE_CONFIG = join(OPENCODE_HOME, "opencode.json")
+  TRINITY_OPENCODE_CONFIGC = join(OPENCODE_HOME, "opencode.jsonc")
+  SCRATCHPAD_ROOT = join(VIBEOS_HOME, "scratch")
+  SCRATCHPAD_GLOBAL_DIR = join(SCRATCHPAD_ROOT, "by-hash")
+  SCRATCHPAD_SESSIONS_DIR = join(SCRATCHPAD_ROOT, "sessions")
 }
+
+export function setVibeOSHomeContext(home: string): void {
+  const resolved = String(home || "").trim() || resolveVibeOSHome()
+  try {
+    process.env.VIBEOS_HOME = resolved
+  } catch {}
+  VIBEOS_CONTEXT.enterWith({ home: resolved })
+  syncVibeOSPathBindings(resolved)
+}
+
+syncVibeOSPathBindings()
 
 // ── Scratchpad decadence thresholds ──────────────────────────────────
 const DECADENCE_FRESH_MS    = 5 * 60 * 1000

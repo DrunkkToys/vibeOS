@@ -4,7 +4,7 @@
 // session telemetry stop diverging.
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -202,6 +202,67 @@ test("live session snapshot recovers from corrupted live state and ignores non-p
     assert.equal(bb.resolution_state, "working", "corrupted blackbox state should recover the live resolution")
     assert.equal(ses.live_reward_breakdown ?? null, null, "array-shaped reward breakdown should be ignored")
     assert.equal(bb.reward_breakdown ?? null, null, "array-shaped reward breakdown should not be persisted")
+  } finally {
+    try { process.env.HOME = prevHome } catch {}
+    try { process.env.VIBEOS_HOME = prevVibeHome } catch {}
+    try { rmSync(root, { recursive: true, force: true }) } catch {}
+  }
+})
+
+test("VIBEOS_HOME remains the source of truth for live path bindings", async () => {
+  const root = makeSandbox("home-source-truth")
+  const firstHome = join(root, ".claude-a")
+  const secondHome = join(root, ".claude-b")
+  const prevHome = process.env.HOME
+  const prevVibeHome = process.env.VIBEOS_HOME
+  process.env.HOME = root
+  process.env.VIBEOS_HOME = firstHome
+
+  try {
+    mkdirSync(firstHome, { recursive: true })
+    mkdirSync(secondHome, { recursive: true })
+    writeFileSync(join(firstHome, "blackbox-state.json"), JSON.stringify({ enabled: true, sessions: {} }, null, 2))
+    writeFileSync(join(secondHome, "blackbox-state.json"), JSON.stringify({ enabled: true, sessions: {} }, null, 2))
+
+    const state = await import("../src/lib/state.js?home-source-truth=" + Date.now())
+    assert.equal(state.VIBEOS_HOME, firstHome, "initial binding should follow VIBEOS_HOME")
+    assert.equal(state.BLACKBOX_STATE_FILE, join(firstHome, "blackbox-state.json"))
+    assert.equal(state.TIERS_FILE, join(firstHome, "model-tiers.json"))
+
+    state.setVibeOSHomeContext(secondHome)
+
+    assert.equal(state.VIBEOS_HOME, secondHome, "binding should update when VIBEOS_HOME changes")
+    assert.equal(state.BLACKBOX_STATE_FILE, join(secondHome, "blackbox-state.json"))
+    assert.equal(state.TIERS_FILE, join(secondHome, "model-tiers.json"))
+    assert.equal(state.REPORTS_DIR, join(secondHome, "reports"))
+
+    state.saveBlackboxState({ enabled: true, sessions: { "sid-live": { dashboard_vectors: [{ ok: true }] } } })
+
+    assert.equal(existsSync(join(secondHome, "blackbox-state.json")), true, "new home should receive writes")
+    const written = JSON.parse(readFileSync(join(secondHome, "blackbox-state.json"), "utf8"))
+    assert.equal(written.sessions["sid-live"].dashboard_vectors.length, 1)
+  } finally {
+    try { process.env.HOME = prevHome } catch {}
+    try { process.env.VIBEOS_HOME = prevVibeHome } catch {}
+    try { rmSync(root, { recursive: true, force: true }) } catch {}
+  }
+})
+
+test("api client persists primary env state to VIBEOS_HOME", async () => {
+  const root = makeSandbox("api-env-home-source-truth")
+  const vibeHome = join(root, ".claude-live")
+  const prevHome = process.env.HOME
+  const prevVibeHome = process.env.VIBEOS_HOME
+  process.env.HOME = root
+  process.env.VIBEOS_HOME = vibeHome
+
+  try {
+    mkdirSync(vibeHome, { recursive: true })
+    const api = await import("../src/lib/api-client.js?api-home-source-truth=" + Date.now())
+    api.setApiToken("vos_" + "a".repeat(64))
+
+    assert.equal(existsSync(join(vibeHome, ".env.production")), true, "primary env file should land in VIBEOS_HOME")
+    assert.equal(existsSync(join(root, ".claude", ".env.production")), false, "shell home fallback must not be used")
   } finally {
     try { process.env.HOME = prevHome } catch {}
     try { process.env.VIBEOS_HOME = prevVibeHome } catch {}

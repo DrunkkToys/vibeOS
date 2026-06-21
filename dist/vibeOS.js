@@ -1666,6 +1666,9 @@ import { spawn } from "node:child_process";
 import { homedir as homedir2, tmpdir as tmpdir2 } from "node:os";
 import { createHash as createHash2 } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
+function resolveVibeOSHome() {
+  return process.env.VIBEOS_HOME || join2(process.env.HOME || USER_HOME2, ".claude");
+}
 function getVibeOSHome2() {
   return VIBEOS_CONTEXT.getStore()?.home || process.env.VIBEOS_HOME || join2(process.env.HOME || "", ".claude");
 }
@@ -1697,8 +1700,39 @@ function resolveOpenCodeHome() {
 function getOpenCodeHome() {
   return resolveOpenCodeHome();
 }
+function syncVibeOSPathBindings(home = resolveVibeOSHome()) {
+  VIBEOS_HOME = home;
+  OPENCODE_HOME = resolveOpenCodeHome();
+  FILE_LOCK_DIR = join2(VIBEOS_HOME, ".vibeOS-locks");
+  DELEGATION_STATE_FILE = join2(VIBEOS_HOME, "delegation-state.json");
+  SAVINGS_LEDGER_FILE = join2(VIBEOS_HOME, "savings-ledger.jsonl");
+  GLOBAL_LEARNING_FILE = join2(VIBEOS_HOME, "global-learning.json");
+  PRICING_CACHE_FILE = join2(VIBEOS_HOME, "model-pricing-cache.json");
+  BLACKBOX_STATE_FILE = join2(VIBEOS_HOME, "blackbox-state.json");
+  PROJECT_STATE_FILE = join2(VIBEOS_HOME, "project-states.json");
+  TIERS_FILE = join2(VIBEOS_HOME, "model-tiers.json");
+  ACTIVE_JOBS_FILE = join2(VIBEOS_HOME, "active-jobs.json");
+  CREDIT_CACHE_F = join2(VIBEOS_HOME, "credit-snapshot.json");
+  FLOW_TODO_QUEUE_FILE = join2(VIBEOS_HOME, ".flow-todo-queue.jsonl");
+  FLOW_DEDUP_FILE = join2(VIBEOS_HOME, ".flow-dedup-keys.json");
+  ENFORCEMENT_COOLDOWN_FILE = join2(VIBEOS_HOME, ".enforcement-cooldown.jsonl");
+  TODOS_FILE = join2(VIBEOS_HOME, "todos.json");
+  REPORTS_DIR = join2(VIBEOS_HOME, "reports");
+  CONTEXT7_INSTALL_FLAG = join2(VIBEOS_HOME, ".context7-install-suggested");
+  TRINITY_OPENCODE_CONFIG = join2(OPENCODE_HOME, "opencode.json");
+  TRINITY_OPENCODE_CONFIGC = join2(OPENCODE_HOME, "opencode.jsonc");
+  SCRATCHPAD_ROOT = join2(VIBEOS_HOME, "scratch");
+  SCRATCHPAD_GLOBAL_DIR = join2(SCRATCHPAD_ROOT, "by-hash");
+  SCRATCHPAD_SESSIONS_DIR = join2(SCRATCHPAD_ROOT, "sessions");
+}
 function setVibeOSHomeContext(home) {
-  VIBEOS_CONTEXT.enterWith({ home: String(home || "") });
+  const resolved = String(home || "").trim() || resolveVibeOSHome();
+  try {
+    process.env.VIBEOS_HOME = resolved;
+  } catch {
+  }
+  VIBEOS_CONTEXT.enterWith({ home: resolved });
+  syncVibeOSPathBindings(resolved);
 }
 function setCurrentTier(v) {
   currentTier = v;
@@ -3676,7 +3710,7 @@ var init_state = __esm({
       }
     })();
     VIBEOS_CONTEXT = new AsyncLocalStorage();
-    VIBEOS_HOME = process.env.VIBEOS_HOME || join2(process.env.HOME || USER_HOME2, ".claude");
+    VIBEOS_HOME = resolveVibeOSHome();
     OPENCODE_HOME = resolveOpenCodeHome();
     FILE_LOCK_DIR = join2(VIBEOS_HOME, ".vibeOS-locks");
     DELEGATION_STATE_FILE = join2(VIBEOS_HOME, "delegation-state.json");
@@ -3713,6 +3747,7 @@ var init_state = __esm({
     LEDGER_ROTATE_MAX_AGE_MS = 48 * 60 * 60 * 1e3;
     ACTIVE_JOBS_STALE_MS = 72 * 60 * 60 * 1e3;
     SUMMARY_HEAD_TRUNCATE = 500;
+    syncVibeOSPathBindings();
     DECADENCE_FRESH_MS = 5 * 60 * 1e3;
     DECADENCE_WARM_MS = 60 * 60 * 1e3;
     DECADENCE_COLD_MS = 24 * 60 * 60 * 1e3;
@@ -9247,38 +9282,195 @@ function getVibeOSHome5() {
   return process.env.VIBEOS_HOME || join7(process.env.HOME || "", ".claude");
 }
 var QUALITY_STRESS_THRESHOLD2 = 1.5;
+var AUTO_MODE_BY_REGIME = {
+  AUDIT: "audit",
+  FORENSIC: "forensic",
+  LOOPING: "quality",
+  CONVERGING: "quality",
+  CLOSED: "quality",
+  IMPLEMENTING: "quality",
+  RESEARCH: "longrun",
+  DESIGNING: "longrun",
+  REVIEWING: "audit"
+};
+var SUPPORTED_OPTIMIZATION_MODES = /* @__PURE__ */ new Set([
+  "balanced",
+  "budget",
+  "quality",
+  "speed",
+  "longrun",
+  "auto",
+  "forensic",
+  "audit",
+  "vibeultrax",
+  "vibeqmax",
+  "vibemax",
+  "vibelitex"
+]);
+var STRICT_OPTIMIZATION_MODES = /* @__PURE__ */ new Set([
+  "quality",
+  "vibemax",
+  "vibeqmax",
+  "vibeultrax",
+  "forensic",
+  "audit"
+]);
+var RELAXED_OPTIMIZATION_MODES = /* @__PURE__ */ new Set(["budget", "speed"]);
+var BRAIN_ROOT_MODES = /* @__PURE__ */ new Set([
+  "quality",
+  "longrun",
+  "vibeultrax",
+  "vibeqmax",
+  "forensic",
+  "audit"
+]);
+var MEDIUM_ROOT_MODES = /* @__PURE__ */ new Set(["speed", "vibemax", "vibelitex"]);
+function normalizeOptimizationMode(mode) {
+  const normalized = String(mode || "auto").toLowerCase();
+  return normalized;
+}
+function isSupportedOptimizationMode(mode) {
+  return SUPPORTED_OPTIMIZATION_MODES.has(mode);
+}
+function isStrictOptimizationMode(mode) {
+  return STRICT_OPTIMIZATION_MODES.has(mode);
+}
+function isRelaxedOptimizationMode(mode) {
+  return RELAXED_OPTIMIZATION_MODES.has(mode);
+}
 function autoSelectMode2(subRegime, stressMultiplier) {
   const regime = String(subRegime || "INIT").toUpperCase();
   const stress = Number(stressMultiplier ?? 0);
-  if (regime === "AUDIT" || regime === "FORENSIC")
-    return regime.toLowerCase();
-  if (regime === "LOOPING")
-    return "quality";
-  if (regime === "CONVERGING" || regime === "CLOSED")
-    return "quality";
-  if (regime === "IMPLEMENTING")
-    return "quality";
-  if (regime === "RESEARCH" || regime === "DESIGNING")
-    return "longrun";
-  if (regime === "REVIEWING")
-    return "audit";
+  if (AUTO_MODE_BY_REGIME[regime])
+    return AUTO_MODE_BY_REGIME[regime];
   if (stress > QUALITY_STRESS_THRESHOLD2)
     return "quality";
   return "quality";
 }
 function resolveOptimizationMode(subRegime, stressMultiplier, optimizationMode) {
-  const normalized = String(optimizationMode || "auto").toLowerCase();
-  if (normalized === "auto" || normalized === "")
+  const normalized = normalizeOptimizationMode(optimizationMode);
+  if (normalized === "auto" || normalized === "") {
     return autoSelectMode2(subRegime || "INIT", stressMultiplier);
+  }
   if (isApiFallback())
     return "vibelitex";
-  if (normalized === "balanced" || normalized === "budget" || normalized === "quality" || normalized === "speed" || normalized === "longrun" || normalized === "audit" || normalized === "forensic" || normalized === "vibeultrax" || normalized === "vibeqmax" || normalized === "vibemax" || normalized === "vibelitex") {
-    return normalized;
+  return isSupportedOptimizationMode(normalized) ? normalized : "budget";
+}
+function buildModeRoot(mode) {
+  if (mode === "vibeqmax") {
+    return { mode_root: "vibeqmax", mode_family: "brain-ml", cascade_depth: 1, pipeline_root: ["brain"] };
   }
-  return "budget";
+  if (mode === "vibeultrax") {
+    return { mode_root: "vibeultrax", mode_family: "brain-ml", cascade_depth: 1, pipeline_root: ["brain"] };
+  }
+  if (mode === "vibemax") {
+    return { mode_root: "vibemax", mode_family: "medium-ml", cascade_depth: 1, pipeline_root: ["medium"] };
+  }
+  if (mode === "quality") {
+    return { mode_root: "quality", mode_family: "brain-runtime", cascade_depth: 1, pipeline_root: ["brain"] };
+  }
+  return {
+    mode_root: mode,
+    mode_family: "runtime",
+    cascade_depth: 1,
+    pipeline_root: mode === "speed" ? ["medium"] : mode === "budget" || mode === "balanced" || mode === "longrun" ? ["cheap"] : ["cheap"]
+  };
+}
+function buildQmaxControlVector(state) {
+  const subRegime = String(state?.sub_regime || "INIT").toUpperCase();
+  const stress = Number(state?.latest_stress_multiplier ?? 0);
+  const text = state?.user_text || state?.prompt || "";
+  const qmax = vibeqmaxControlVector({
+    sub_regime: state?.sub_regime || "INIT",
+    stress_multiplier: stress,
+    user_text: text
+  });
+  return {
+    enforcement_mode: qmax.enforcement_mode,
+    enforcement_reason: `[optimize: vibeqmax] difficulty-driven brain root`,
+    flow_mode: qmax.flow_mode,
+    flow_focus: qmax.flow_focus || [],
+    tdd_mode: qmax.tdd_mode,
+    tdd_focus: qmax.tdd_focus || [],
+    tier_bias: qmax.tier_bias,
+    thinking_mode: qmax.thinking_mode,
+    stress_multiplier: qmax.stress_multiplier,
+    context7_urgency: qmax.context7_urgency,
+    wbp_verbosity: qmax.wbp_verbosity,
+    agent_mode: (subRegime === "REFINING" || subRegime === "CONVERGING" || subRegime === "CLOSED") && stress <= QUALITY_STRESS_THRESHOLD2 ? "plan" : void 0,
+    optimization_mode: "vibeqmax",
+    ...buildModeRoot("vibeqmax"),
+    qmax_strategy: qmax.qmax_strategy,
+    qmax_difficulty_score: qmax.qmax_difficulty_score,
+    qmax_difficulty_level: qmax.qmax_difficulty_level,
+    qmax_confidence: qmax.qmax_confidence,
+    qmax_source_prediction: qmax.qmax_strategy,
+    qmax_suggested_tier: qmax.qmax_suggested_tier,
+    qmax_features: qmax.qmax_features,
+    directives: [`[qmax root] Dedicated brain-ml root active for ${state?.sub_regime || "INIT"}.`]
+  };
+}
+function buildUltraxControlVector(state) {
+  const stress = Number(state?.latest_stress_multiplier ?? 0);
+  const ultra = vibeultraxControlVector({
+    sub_regime: state?.sub_regime || "INIT",
+    stress_multiplier: stress,
+    user_text: state?.user_text || state?.prompt || ""
+  });
+  return {
+    enforcement_mode: ultra.enforcement_mode,
+    enforcement_reason: `[optimize: vibeultrax] cascade root`,
+    flow_mode: ultra.flow_mode,
+    flow_focus: [],
+    tdd_mode: ultra.tdd_mode,
+    tdd_focus: [],
+    tier_bias: ultra.tier_bias,
+    thinking_mode: ultra.thinking_mode,
+    stress_multiplier: ultra.stress_multiplier,
+    context7_urgency: ultra.context7_urgency,
+    wbp_verbosity: ultra.wbp_verbosity,
+    agent_mode: ultra.ultrax_profile === "deep" ? "plan" : void 0,
+    optimization_mode: "vibeultrax",
+    ...buildModeRoot("vibeultrax"),
+    ultrax_profile: ultra.ultrax_profile,
+    ultrax_confidence: ultra.ultrax_confidence,
+    ultrax_reason: ultra.ultrax_reason,
+    ultrax_estimated_savings: ultra.ultrax_estimated_savings,
+    directives: [`[ultrax root] Dedicated cascade root active for ${state?.sub_regime || "INIT"}.`]
+  };
+}
+function buildOfflineControlVector(state, mode) {
+  const subRegime = String(state?.sub_regime || "INIT").toUpperCase();
+  const stress = Number(state?.latest_stress_multiplier ?? 0);
+  const looping = subRegime === "LOOPING";
+  const strict = looping || isStrictOptimizationMode(mode);
+  const relaxed = isRelaxedOptimizationMode(mode);
+  const tierBias = stress > QUALITY_STRESS_THRESHOLD2 || looping ? "brain" : subRegime === "CONVERGING" || subRegime === "CLOSED" || BRAIN_ROOT_MODES.has(mode) ? "brain" : subRegime === "REFINING" || subRegime === "LOOPING" || MEDIUM_ROOT_MODES.has(mode) ? "medium" : mode === "balanced" ? "auto" : "cheap";
+  const hardenedMode = looping ? "quality" : mode;
+  const hardenedRoot = looping ? buildModeRoot("quality") : buildModeRoot(mode);
+  return {
+    enforcement_mode: looping ? "strict" : strict ? "strict" : relaxed ? "relaxed" : "normal",
+    enforcement_reason: looping ? "[optimize: LOOPING] recovery posture \u2014 tighten enforcement and preserve outcome detection" : `[optimize: ${mode}] using safe offline defaults`,
+    flow_mode: looping ? "strict" : strict ? "strict" : relaxed ? "audit" : "normal",
+    flow_focus: [],
+    tdd_mode: looping ? "strict" : strict ? "strict" : relaxed ? "lazy" : "normal",
+    tdd_focus: [],
+    tier_bias: tierBias,
+    thinking_mode: looping ? "brief" : strict ? "full" : mode === "longrun" ? "brief" : relaxed ? "off" : "auto",
+    stress_multiplier: looping ? Math.max(1.5, stress) : 1,
+    context7_urgency: looping ? "required" : strict ? "required" : "preferred",
+    wbp_verbosity: looping ? "detailed" : strict ? "verbose" : relaxed ? "minimal" : "normal",
+    agent_mode: (subRegime === "REFINING" || subRegime === "CONVERGING" || subRegime === "CLOSED") && stress <= QUALITY_STRESS_THRESHOLD2 ? "plan" : void 0,
+    optimization_mode: hardenedMode,
+    ...hardenedRoot,
+    outcome_detection: true,
+    directives: relaxed && !looping && (subRegime === "EXPLORING" || subRegime === "INIT" || subRegime === "AUDIT" || subRegime === "FORENSIC" || subRegime === "LOOPING") ? [
+      `[speed guard] VERIFY BEFORE ACT - Speed-oriented mode "${mode}" is active and user intent is ${subRegime}. Before modifying files or executing commands, first verify the current state. When a request is ambiguous between "check and report" vs "fix", always choose CHECK FIRST. Treat "look at", "check", "investigate", "tell me about" as requests for information, not action items.`
+    ] : []
+  };
 }
 async function selectOptimizationModeRemote(subRegime, stressMultiplier, fallbackMode) {
-  const normalizedRequestedMode = String(fallbackMode || "auto").toLowerCase();
+  const normalizedRequestedMode = normalizeOptimizationMode(fallbackMode);
   const fallback2 = resolveOptimizationMode(subRegime, stressMultiplier, fallbackMode);
   if (normalizedRequestedMode !== "auto" && normalizedRequestedMode !== "")
     return fallback2;
@@ -9288,10 +9480,9 @@ async function selectOptimizationModeRemote(subRegime, stressMultiplier, fallbac
     const client2 = getApiClient();
     if (client2) {
       const res = await client2.blackboxSelectMode(subRegime || "INIT", Number(stressMultiplier ?? 0));
-      const selected = String(res?.mode || "").toLowerCase();
-      if (selected === "balanced" || selected === "budget" || selected === "quality" || selected === "speed" || selected === "longrun" || selected === "audit" || selected === "forensic" || selected === "vibeultrax" || selected === "vibeqmax" || selected === "vibemax") {
+      const selected = normalizeOptimizationMode(res?.mode || "");
+      if (isSupportedOptimizationMode(selected) && selected !== "auto")
         return selected;
-      }
     }
   } catch {
   }
@@ -9299,105 +9490,13 @@ async function selectOptimizationModeRemote(subRegime, stressMultiplier, fallbac
 }
 function computeControlVector2(_state, _action, _optimizationMode) {
   const mode = resolveOptimizationMode(_state?.sub_regime, _state?.latest_stress_multiplier, _optimizationMode);
-  const modeRoot = mode === "vibeultrax" ? vibeultraxControlVector({
-    user_text: _state?.user_text || _state?.prompt || "",
-    stress_multiplier: _state?.latest_stress_multiplier ?? 0,
-    sub_regime: _state?.sub_regime || "INIT"
-  }) : mode === "vibeqmax" ? { mode_root: "vibeqmax", mode_family: "brain-ml", cascade_depth: 1, pipeline_root: ["brain"] } : mode === "vibemax" ? { mode_root: "vibemax", mode_family: "medium-ml", cascade_depth: 1, pipeline_root: ["medium"] } : mode === "quality" ? { mode_root: "quality", mode_family: "brain-runtime", cascade_depth: 1, pipeline_root: ["brain"] } : { mode_root: mode, mode_family: "runtime", cascade_depth: 1, pipeline_root: mode === "speed" ? ["medium"] : mode === "budget" || mode === "balanced" || mode === "longrun" ? ["cheap"] : ["cheap"] };
   if (mode === "vibeqmax") {
-    const qmax = vibeqmaxControlVector({
-      sub_regime: _state?.sub_regime || "INIT",
-      stress_multiplier: _state?.latest_stress_multiplier ?? 0,
-      user_text: _state?.user_text || _state?.prompt || ""
-    });
-    return {
-      enforcement_mode: qmax.enforcement_mode,
-      enforcement_reason: `[optimize: vibeqmax] difficulty-driven brain root`,
-      flow_mode: qmax.flow_mode,
-      flow_focus: qmax.flow_focus || [],
-      tdd_mode: qmax.tdd_mode,
-      tdd_focus: qmax.tdd_focus || [],
-      tier_bias: qmax.tier_bias,
-      thinking_mode: qmax.thinking_mode,
-      stress_multiplier: qmax.stress_multiplier,
-      context7_urgency: qmax.context7_urgency,
-      wbp_verbosity: qmax.wbp_verbosity,
-      agent_mode: (String(_state?.sub_regime || "").toUpperCase() === "REFINING" || String(_state?.sub_regime || "").toUpperCase() === "CONVERGING" || String(_state?.sub_regime || "").toUpperCase() === "CLOSED") && Number(_state?.latest_stress_multiplier ?? 0) <= QUALITY_STRESS_THRESHOLD2 ? "plan" : void 0,
-      optimization_mode: "vibeqmax",
-      mode_root: qmax.mode_root,
-      mode_family: qmax.mode_family,
-      cascade_depth: qmax.cascade_depth || 1,
-      pipeline_root: qmax.pipeline_root || ["brain"],
-      qmax_strategy: qmax.qmax_strategy,
-      qmax_difficulty_score: qmax.qmax_difficulty_score,
-      qmax_difficulty_level: qmax.qmax_difficulty_level,
-      qmax_confidence: qmax.qmax_confidence,
-      qmax_source_prediction: qmax.qmax_strategy,
-      qmax_suggested_tier: qmax.qmax_suggested_tier,
-      qmax_features: qmax.qmax_features,
-      directives: [`[qmax root] Dedicated brain-ml root active for ${_state?.sub_regime || "INIT"}.`]
-    };
+    return buildQmaxControlVector(_state);
   }
   if (mode === "vibeultrax") {
-    const ultra = vibeultraxControlVector({
-      sub_regime: _state?.sub_regime || "INIT",
-      stress_multiplier: _state?.latest_stress_multiplier ?? 0,
-      user_text: _state?.user_text || _state?.prompt || ""
-    });
-    return {
-      enforcement_mode: ultra.enforcement_mode,
-      enforcement_reason: `[optimize: vibeultrax] cascade root`,
-      flow_mode: ultra.flow_mode,
-      flow_focus: [],
-      tdd_mode: ultra.tdd_mode,
-      tdd_focus: [],
-      tier_bias: ultra.tier_bias,
-      thinking_mode: ultra.thinking_mode,
-      stress_multiplier: ultra.stress_multiplier,
-      context7_urgency: ultra.context7_urgency,
-      wbp_verbosity: ultra.wbp_verbosity,
-      agent_mode: ultra.ultrax_profile === "deep" ? "plan" : void 0,
-      optimization_mode: "vibeultrax",
-      mode_root: ultra.mode_root,
-      mode_family: ultra.mode_family,
-      cascade_depth: ultra.cascade_depth,
-      pipeline_root: ultra.pipeline_root,
-      ultrax_profile: ultra.ultrax_profile,
-      ultrax_confidence: ultra.ultrax_confidence,
-      ultrax_reason: ultra.ultrax_reason,
-      ultrax_estimated_savings: ultra.ultrax_estimated_savings,
-      directives: [`[ultrax root] Dedicated cascade root active for ${_state?.sub_regime || "INIT"}.`]
-    };
+    return buildUltraxControlVector(_state);
   }
-  const isStrict = mode === "quality" || mode === "vibemax" || mode === "vibeqmax" || mode === "vibeultrax" || mode === "forensic" || mode === "audit";
-  const isRelaxed = mode === "budget" || mode === "speed";
-  const subRegime = _state?.sub_regime || "INIT";
-  const stress = Number(_state?.latest_stress_multiplier ?? 0);
-  const tierBias = stress > QUALITY_STRESS_THRESHOLD2 ? "brain" : subRegime === "CONVERGING" || subRegime === "CLOSED" ? "brain" : subRegime === "REFINING" || subRegime === "LOOPING" ? "medium" : mode === "quality" || mode === "longrun" || mode === "vibeultrax" || mode === "vibeqmax" || mode === "forensic" || mode === "audit" ? "brain" : mode === "speed" || mode === "vibemax" || mode === "vibelitex" ? "medium" : mode === "balanced" ? "auto" : "cheap";
-  const loopingHardening = String(subRegime).toUpperCase() === "LOOPING";
-  const hardenedTierBias = loopingHardening ? "brain" : tierBias;
-  const hardenedMode = loopingHardening ? "quality" : mode;
-  const hardenedModeRoot = loopingHardening ? { mode_root: "quality", mode_family: "brain-runtime", cascade_depth: 1, pipeline_root: ["brain"] } : modeRoot;
-  return {
-    enforcement_mode: loopingHardening ? "strict" : isStrict ? "strict" : isRelaxed ? "relaxed" : "normal",
-    enforcement_reason: loopingHardening ? "[optimize: LOOPING] recovery posture \u2014 tighten enforcement and preserve outcome detection" : `[optimize: ${mode}] using safe offline defaults`,
-    flow_mode: loopingHardening ? "strict" : isStrict ? "strict" : isRelaxed ? "audit" : "normal",
-    flow_focus: [],
-    tdd_mode: loopingHardening ? "strict" : isStrict ? "strict" : isRelaxed ? "lazy" : "normal",
-    tdd_focus: [],
-    tier_bias: hardenedTierBias,
-    thinking_mode: loopingHardening ? "brief" : isStrict ? "full" : mode === "longrun" ? "brief" : isRelaxed ? "off" : "auto",
-    stress_multiplier: loopingHardening ? Math.max(1.5, stress) : 1,
-    context7_urgency: loopingHardening ? "required" : isStrict ? "required" : "preferred",
-    wbp_verbosity: loopingHardening ? "detailed" : isStrict ? "verbose" : isRelaxed ? "minimal" : "normal",
-    agent_mode: (subRegime === "REFINING" || subRegime === "CONVERGING" || subRegime === "CLOSED") && stress <= QUALITY_STRESS_THRESHOLD2 ? "plan" : void 0,
-    optimization_mode: hardenedMode,
-    ...hardenedModeRoot,
-    outcome_detection: true,
-    directives: isRelaxed && !loopingHardening && (subRegime === "EXPLORING" || subRegime === "INIT" || subRegime === "AUDIT" || subRegime === "FORENSIC" || subRegime === "LOOPING") ? [
-      `[speed guard] VERIFY BEFORE ACT - Speed-oriented mode "${mode}" is active and user intent is ${subRegime}. Before modifying files or executing commands, first verify the current state. When a request is ambiguous between "check and report" vs "fix", always choose CHECK FIRST. Treat "look at", "check", "investigate", "tell me about" as requests for information, not action items.`
-    ] : []
-  };
+  return buildOfflineControlVector(_state, mode);
 }
 function buildControlHistoryEntry2(turn, regime, control, reward = null) {
   return {
@@ -13618,18 +13717,6 @@ function ensureVibeSkill(dir) {
     return { created: false, skipped: false };
   }
 }
-function mergeRemoteControlVector(remoteControlVector, localControlVector) {
-  return {
-    ...remoteControlVector,
-    agent_mode: localControlVector?.agent_mode,
-    tier_bias: localControlVector?.tier_bias,
-    optimization_mode: localControlVector?.optimization_mode,
-    enforcement_mode: localControlVector?.enforcement_mode,
-    flow_mode: localControlVector?.flow_mode,
-    tdd_mode: localControlVector?.tdd_mode,
-    thinking_mode: localControlVector?.thinking_mode
-  };
-}
 function resolveRestorableOpenCodeAgent(currentSel) {
   const remembered = typeof currentSel?.previous_default_agent === "string" ? currentSel.previous_default_agent.trim() : "";
   if (remembered && remembered !== "plan")
@@ -13693,14 +13780,8 @@ var correctionSeenKeys = /* @__PURE__ */ new Set();
 async function apiComputeControlVector(state, action, optimizationMode) {
   try {
     const res = await remoteCall("blackboxControlVector", [state, action, optimizationMode], null);
-    if (res?.control_vector) {
-      const local = computeControlVector2(state, action, optimizationMode);
-      const merged = mergeRemoteControlVector(res.control_vector, local);
-      if (res.rf_prediction?.mode && res.rf_prediction.mode !== res.control_vector?.optimization_mode) {
-        merged.optimization_mode = res.rf_prediction.mode;
-      }
-      return merged;
-    }
+    if (res?.control_vector)
+      return res.control_vector;
   } catch {
   }
   return computeControlVector2(state, action, optimizationMode);
@@ -18481,6 +18562,9 @@ function loadMcpPort() {
       return 0;
     return n;
   }
+  const runtime = readPublishedMcpRuntime();
+  if (runtime?.port && Number.isFinite(runtime.port) && runtime.port > 0)
+    return runtime.port;
   try {
     if (existsSync21(getTiersFile())) {
       const tiers = safeJsonParse2(readFileSync21(getTiersFile(), "utf-8"));
