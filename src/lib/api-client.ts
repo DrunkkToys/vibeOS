@@ -1,7 +1,7 @@
 // @ts-nocheck
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync } from "node:fs"
-import { dirname } from "node:path"
+import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { homedir } from "node:os"
 import { isApiConnected as isRuntimeApiConnected, isApiEnabled as isRuntimeApiEnabled, isApiFallbackMode as isRuntimeApiFallbackMode, markApiConnected, markApiDisconnected, resetApiConnection, setApiEnabled } from "./runtime-state.js"
