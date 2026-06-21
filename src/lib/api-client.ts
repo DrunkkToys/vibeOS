@@ -141,6 +141,11 @@ function isTruthyFlag(value: string | null | undefined): boolean {
   return API_DISABLED_RE.test(String(value || "").trim())
 }
 
+function isExplicitlyDisabledFlag(value: string | null | undefined): boolean {
+  const normalized = String(value || "").trim().toLowerCase()
+  return normalized === "false" || normalized === "0" || normalized === "no" || normalized === "off"
+}
+
 function editEnvLine(content: string, key: string, value: string | null): string {
   const lines = String(content || "").split(/\r?\n/)
   const next: string[] = []
@@ -625,7 +630,9 @@ function readBootstrapTokenFromDisk(): string {
   return ""
 }
 
-export let VIBEOS_API_DISABLED = readApiDisabledFromDisk() || isTruthyFlag(process.env.VIBEOS_API_DISABLED)
+export let VIBEOS_API_DISABLED = readApiDisabledFromDisk()
+  || isTruthyFlag(process.env.VIBEOS_API_DISABLED)
+  || isExplicitlyDisabledFlag(process.env.VIBEOS_API_ENABLED)
 export let VIBEOS_API_TOKEN = VIBEOS_API_DISABLED ? "" : (readTokenFromDisk() || normalizeDirectApiToken(process.env.VIBEOS_API_TOKEN) || (!hasPrimaryTokenOnDisk() ? EMBEDDED_API_TOKEN : ""))
 export let VIBEOS_API_BOOTSTRAP_TOKEN = VIBEOS_API_DISABLED ? "" : (readBootstrapTokenFromDisk() || process.env.VIBEOS_API_BOOTSTRAP_TOKEN || EMBEDDED_API_TOKEN)
 export let VIBEOS_API_ENABLED = !VIBEOS_API_DISABLED && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN)
@@ -818,7 +825,9 @@ export async function ensureBootstrapExchange(): Promise<boolean> {
 }
 
 function syncApiTokenFromDisk(): void {
-  const diskDisabled = readApiDisabledFromDisk() || isTruthyFlag(process.env.VIBEOS_API_DISABLED)
+  const diskDisabled = readApiDisabledFromDisk()
+    || isTruthyFlag(process.env.VIBEOS_API_DISABLED)
+    || isExplicitlyDisabledFlag(process.env.VIBEOS_API_ENABLED)
   const diskToken = readTokenFromDisk() || ""
   const diskBootstrapToken = readBootstrapTokenFromDisk() || ""
   const envToken = normalizeDirectApiToken(process.env.VIBEOS_API_TOKEN)
