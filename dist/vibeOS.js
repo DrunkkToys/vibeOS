@@ -4324,6 +4324,7 @@ async function remoteCall(method, args, fallbackFn) {
     return null;
   }
 }
+var DEFAULT_API_URL, EMBEDDED_API_TOKEN, API_TOKEN_RE, API_DISABLED_RE, REQUEST_TIMEOUT, MAX_RETRIES, BASE_RETRY_DELAY, ALPHA_BUILD_CHANNEL, BOOTSTRAP_EXCHANGE_PATH, BOOTSTRAP_RETRY_COOLDOWN_MS, VibeOSAuthError, VibeOSTimeoutError, VibeOSNetworkError, ANOMALY_BURST_WINDOW_MS, ANOMALY_BURST_THRESHOLD, ANOMALY_FREQ_WINDOW_MS, ANOMALY_STDDEV_FACTOR, ANOMALY_WARMUP_MS, ANOMALY_COOLDOWN_MS, TokenAnomalyDetector, VibeOSApiClient, VIBEOS_API_URL, _apiDir, _vibeHome, _homeClaude, _envPaths, _apiPersistHome, VIBEOS_API_DISABLED, VIBEOS_API_TOKEN, VIBEOS_API_BOOTSTRAP_TOKEN, VIBEOS_API_ENABLED, _anomalyDetector, _apiClientHolder, _apiClientGen, _apiFallbackMode, _apiFallbackSince, _bootstrapExchangeInFlight, _bootstrapExchangeFailedAt, _backendVersion, _apiLatencyDegradedUntil, LATENCY_GUARDED_METHODS, FALLBACK_COOLDOWN_MS, LATENCY_DEGRADE_THRESHOLD_MS, LATENCY_DEGRADE_COOLDOWN_MS;
 var init_api_client = __esm({
   "src/lib/api-client.js"() {
     "use strict";
