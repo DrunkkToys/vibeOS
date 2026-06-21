@@ -307,3 +307,83 @@ test("dashboard API proxies capabilities and web search", async () => {
     await new Promise((resolve) => backend.close(() => resolve()))
   }
 })
+
+test("dashboard API falls back when backend capabilities are missing", async () => {
+  const backend = http.createServer((req, res) => {
+    const url = new URL(req.url || "/", "http://127.0.0.1")
+    if (req.method === "POST" && url.pathname === "/api/v1/web/search") {
+      res.statusCode = 404
+      res.end(JSON.stringify({ error: "not found" }))
+      return
+    }
+    res.statusCode = 404
+    res.end(JSON.stringify({ error: "not found" }))
+  })
+
+  const backendPort = await new Promise((resolve, reject) => {
+    backend.once("error", reject)
+    backend.listen(0, "127.0.0.1", () => {
+      const address = backend.address()
+      resolve(typeof address === "object" && address ? address.port : 0)
+    })
+  })
+  const previousApiUrl = process.env.VIBEOS_API_URL
+  process.env.VIBEOS_API_URL = `http://127.0.0.1:${backendPort}`
+
+  const server = createMcpServer({
+    getState: () => ({
+      enabled: true,
+      active_slot: "brain",
+      current_model: "model-a",
+      current_provider: "Provider A",
+      credit_percent: 88,
+      version: "1.0.0",
+      backend_connected: true,
+      backend_health_url: "http://127.0.0.1/health",
+      backend_version: "1.0.0",
+      model_locked: false,
+      locked_slot: null,
+      locked_model: null,
+    }),
+    getSavings: () => ({
+      lifetime: { delegation_usd: 1, cache_usd: 0.5, missed_context7_usd: 0, total_warns: 1 },
+      current_session: { delegation_usd: 0.2, cache_usd: 0.1, warns_count: 0, tool_breakdown: {} },
+      telemetry: { lifetime_events: 0, current_session_events: 0, storage_bytes_estimate: 0, retained_sessions: 0, tool_counts: {}, tier_counts: {}, slot_counts: {}, kind_counts: {}, prompt_size_buckets: {}, output_size_buckets: {}, duration_buckets: {}, result_counts: {}, cache_hit_counts: { hit: 0, miss: 0 }, enforcement_counts: {}, flow_counts: {}, tdd_counts: {}, last_seen: null, last_compacted_at: null },
+      cache_hits_this_session: 0,
+      trend: "flat",
+      savings_rate_per_hour: 0,
+    }),
+    getTodos: () => [],
+    getSessionMetrics: () => ({ sesDuration: 60 }),
+    getCurrentSessionId: () => "sid-a",
+    listReports: () => [],
+    readReport: () => null,
+    runDiagnose: () => ({ ok: true }),
+    runProject: () => ({ ok: true }),
+    runTrinity: async () => "ok",
+    runResearchAudit: () => ({ ok: true }),
+    saveReport: () => "report-1",
+    generateSessionCheckout: () => ({ ok: true, summary: { session_id: "sid-a" } }),
+    getBlackboxState: () => ({ enabled: true, sessions: {} }),
+    saveBlackboxVector: () => {},
+    saveBlackboxOutcome: () => {},
+    listSessionTemplates: () => [],
+    getSessionOrchestration: () => null,
+    mutateSessionOrchestration: () => null,
+    setSessionTemplate: () => null,
+  })
+
+  const instance = await server.start(0)
+  const address = instance.address()
+  const port = typeof address === "object" && address ? address.port : 0
+  const base = `http://127.0.0.1:${port}`
+  try {
+    const capabilities = await fetch(`${base}/capabilities`).then((r) => r.json())
+    assert.equal(capabilities.web_search.enabled, false)
+    assert.equal(capabilities.web_search.backend_status, 404)
+  } finally {
+    process.env.VIBEOS_API_URL = previousApiUrl
+    await server.close()
+    await new Promise((resolve) => backend.close(() => resolve()))
+  }
+})

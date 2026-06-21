@@ -4163,7 +4163,7 @@ async function ensureBootstrapExchange() {
   return _bootstrapExchangeInFlight;
 }
 function syncApiTokenFromDisk() {
-  const diskDisabled = readApiDisabledFromDisk() || isTruthyFlag(process.env.VIBEOS_API_DISABLED) || isExplicitlyDisabledFlag(process.env.VIBEOS_API_ENABLED);
+  const diskDisabled = readApiDisabledFromDisk() || isTruthyFlag(process.env.VIBEOS_API_DISABLED);
   const diskToken = readTokenFromDisk() || "";
   const diskBootstrapToken = readBootstrapTokenFromDisk() || "";
   const envToken = normalizeDirectApiToken(process.env.VIBEOS_API_TOKEN);
@@ -6546,6 +6546,19 @@ function resolveBackendApiBase() {
 }
 var BACKEND_HEALTH_URL = resolveBackendHealthUrl();
 var BACKEND_HEALTH_TTL_MS = 5e3;
+function buildCapabilityFallback(backendStatus = 0) {
+  return {
+    error: "backend capabilities unavailable",
+    code: "BACKEND_UNAVAILABLE",
+    web_search: {
+      enabled: false,
+      provider: "duckduckgo",
+      fixture_mode: false,
+      benchmark_path: null,
+      backend_status: backendStatus
+    }
+  };
+}
 async function proxyBackendJson(path, options = {}) {
   const base = resolveBackendApiBase();
   const url = new URL(path, base.endsWith("/") ? base : `${base}/`).href;
@@ -6700,19 +6713,15 @@ function createMcpServer(deps) {
       if (method === "GET" && path === "/capabilities") {
         try {
           const { status, data } = await proxyBackendJson("/api/v1/capabilities");
-          json(res, status, data);
+          if (status >= 200 && status < 300) {
+            json(res, status, data);
+          } else {
+            json(res, 200, buildCapabilityFallback(status));
+          }
         } catch (error) {
-          json(res, 502, {
-            error: "backend capabilities unavailable",
-            message: error instanceof Error ? error.message : "unknown error",
-            code: "BACKEND_UNAVAILABLE",
-            web_search: {
-              enabled: false,
-              provider: "duckduckgo",
-              fixture_mode: false,
-              benchmark_path: null,
-              backend_status: 0
-            }
+          json(res, 200, {
+            ...buildCapabilityFallback(0),
+            message: error instanceof Error ? error.message : "unknown error"
           });
         }
         return;
