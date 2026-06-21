@@ -575,34 +575,57 @@ function _bootstrapEnvPath(): string {
   return _primaryApiEnvPath() + "/.env.alpha"
 }
 
-function readApiDisabledFromDisk(): boolean {
+function readPrimaryEnvFile(): string | null {
+  try {
+    return readFileSync(_primaryApiEnvPath() + "/.env.production", "utf8")
+  } catch {
+    return null
+  }
+}
+
+function readFirstFallbackEnvFile(): string | null {
   for (const dir of _envPaths) {
+    if (dir === _primaryApiEnvPath()) continue
     try {
-      const env = readFileSync(dir + "/.env.production", "utf8")
-      const m = env.match(/^VIBEOS_API_DISABLED=(.+)$/m)
-      if (m && isTruthyFlag(m[1])) {
-        _setApiPersistHome(dir)
-        return true
-      }
+      return readFileSync(dir + "/.env.production", "utf8")
     } catch {}
+  }
+  return null
+}
+
+function readApiDisabledFromDisk(): boolean {
+  const primary = readPrimaryEnvFile()
+  if (primary !== null) {
+    const m = primary.match(/^VIBEOS_API_DISABLED=(.+)$/m)
+    if (m) return isTruthyFlag(m[1])
+    return false
+  }
+  const fallback = readFirstFallbackEnvFile()
+  if (fallback !== null) {
+    const m = fallback.match(/^VIBEOS_API_DISABLED=(.+)$/m)
+    if (m && isTruthyFlag(m[1])) return true
   }
   return false
 }
 
 function readTokenFromDisk(): string {
   if (readApiDisabledFromDisk()) return ""
-  for (const dir of _envPaths) {
-    try {
-      const env = readFileSync(dir + "/.env.production", "utf8")
-      const m = env.match(/^VIBEOS_API_TOKEN=(.+)$/m)
-      if (m) {
-        const clean = normalizeDirectApiToken(m[1])
-        if (clean) {
-          _setApiPersistHome(dir)
-          return clean
-        }
+  const primary = readPrimaryEnvFile()
+  if (primary !== null) {
+    const m = primary.match(/^VIBEOS_API_TOKEN=(.+)$/m)
+    if (m) return normalizeDirectApiToken(m[1])
+    return ""
+  }
+  const fallback = readFirstFallbackEnvFile()
+  if (fallback !== null) {
+    const m = fallback.match(/^VIBEOS_API_TOKEN=(.+)$/m)
+    if (m) {
+      const clean = normalizeDirectApiToken(m[1])
+      if (clean) {
+        _setApiPersistHome(_primaryApiEnvPath())
+        return clean
       }
-    } catch {}
+    }
   }
   return ""
 }
@@ -610,7 +633,8 @@ function readTokenFromDisk(): string {
 function hasPrimaryTokenOnDisk(): boolean {
   if (readApiDisabledFromDisk()) return false
   try {
-    const env = readFileSync(_primaryApiEnvPath() + "/.env.production", "utf8")
+    const env = readPrimaryEnvFile()
+    if (env === null) return false
     return /^VIBEOS_API_TOKEN=/m.test(env)
   } catch {
     return false
@@ -619,6 +643,14 @@ function hasPrimaryTokenOnDisk(): boolean {
 
 function readBootstrapTokenFromDisk(): string {
   if (readApiDisabledFromDisk()) return ""
+  const primary = readPrimaryEnvFile()
+  if (primary !== null) {
+    const m = primary.match(/^VIBEOS_API_BOOTSTRAP_TOKEN=(.+)$/m)
+    if (m) {
+      return m[1].trim()
+    }
+    return ""
+  }
   try {
     const env = readFileSync(_bootstrapEnvPath(), "utf8")
     const m = env.match(/^VIBEOS_API_BOOTSTRAP_TOKEN=(.+)$/m)
@@ -633,7 +665,7 @@ function readBootstrapTokenFromDisk(): string {
 export let VIBEOS_API_DISABLED = readApiDisabledFromDisk()
   || isTruthyFlag(process.env.VIBEOS_API_DISABLED)
   || isExplicitlyDisabledFlag(process.env.VIBEOS_API_ENABLED)
-export let VIBEOS_API_TOKEN = VIBEOS_API_DISABLED ? "" : (readTokenFromDisk() || normalizeDirectApiToken(process.env.VIBEOS_API_TOKEN) || (!hasPrimaryTokenOnDisk() ? EMBEDDED_API_TOKEN : ""))
+export let VIBEOS_API_TOKEN = VIBEOS_API_DISABLED ? "" : (readTokenFromDisk() || normalizeDirectApiToken(process.env.VIBEOS_API_TOKEN) || "")
 export let VIBEOS_API_BOOTSTRAP_TOKEN = VIBEOS_API_DISABLED ? "" : (readBootstrapTokenFromDisk() || process.env.VIBEOS_API_BOOTSTRAP_TOKEN || EMBEDDED_API_TOKEN)
 export let VIBEOS_API_ENABLED = !VIBEOS_API_DISABLED && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN)
 setApiEnabled(VIBEOS_API_ENABLED)
@@ -878,9 +910,6 @@ function syncApiTokenFromDisk(): void {
     console.error("[vibeOS] API token loaded from VIBEOS_API_TOKEN env var")
   } else {
     VIBEOS_API_DISABLED = false
-    if (!VIBEOS_API_TOKEN && !hasPrimaryTokenOnDisk()) {
-      VIBEOS_API_TOKEN = EMBEDDED_API_TOKEN
-    }
     VIBEOS_API_BOOTSTRAP_TOKEN ||= EMBEDDED_API_TOKEN
     syncApiEnabledState(!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN)
     markApiConnected()
@@ -947,7 +976,14 @@ export async function remoteCall(method, args, fallbackFn) {
 
   try {
     const client = getApiClient()
-    if (!client) { if (fallbackFn) return fallbackFn(); return null }
+    if (!client) {
+      if (!VIBEOS_API_TOKEN && VIBEOS_API_BOOTSTRAP_TOKEN) {
+        _apiFallbackMode = true
+        _apiFallbackSince = new Date().toISOString()
+      }
+      if (fallbackFn) return fallbackFn()
+      return null
+    }
     const startedAt = Date.now()
     const result = await client[method](...args)
     if (shouldApplyLatencyGuard(method)) {

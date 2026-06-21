@@ -1,4 +1,4 @@
-# vibeOS for OpenCode -- Innocence v0.25.51
+# vibeOS for OpenCode -- Innocence v0.25.52
 
 A quality-first control plane for AI-assisted coding.
 
@@ -9,6 +9,8 @@ OpenCode Desktop gives you access to the most capable language models ever creat
 ## How It Feels
 
 The first thing you notice is the footer. A single line at the bottom of every assistant response, barely visible, shows you what model handled the turn and the regime classification for what just happened. It is not a warning. It is not a nag. It is a quality receipt.
+
+The dashboard now opens on an executive Home summary instead of a dense table, so you can see the active session, project, mode, stress, savings, blackbox state, open TODOs, and next action at a glance.
 
 ```text
 — brain | DeepSeek | v4-flash -> RFNE | $198.93 saved | VibeUltraX . Quality >>> | guarded | _
@@ -199,7 +201,7 @@ Stress > 1.5 escalates any regime to quality mode regardless of the above mappin
 |---------|-------------|
 | Delegation enforcement | Blocks write/edit on brain tier, routes to cheaper tiers transparently |
 | Live savings footer | Tier, provider, model name, total savings, mode -- one line of reassurance |
-| Web dashboard | SolidJS SPA with SSE real-time push for model split, savings, session history, controls |
+| Web dashboard | Session-first SolidJS SPA with executive Home summary, session actions, per-session templates, SSE real-time push for model split, savings, session history, controls |
 | Trinity runtime | Switch tiers mid-session, change optimization mode, toggle subsystems live |
 | Flow enforcer | Pattern-rule checks on write/edit. Extracts TODO/FIXME into append-only queue. |
 | TDD enforcer | Auto-creates test skeletons for changed source. Strict mode fails TODO tests. |
@@ -321,7 +323,7 @@ Remote API (api.vibetheog.com) enables: bootstrap token exchange, advanced VibeB
 
 ### What Is Missing For A True Session Orchestrator
 
-Session versioning/undo. Template versioning. Batch operations. Real-time WebSocket updates. Session comparison. Export/import. Home-tab template editing.
+The live dashboard now covers the executive Home summary, session actions, and session-scoped templates. Still missing: session versioning/undo, template versioning, batch operations, real-time WebSocket updates, session comparison, and export/import.
 
 ### Live Footer
 

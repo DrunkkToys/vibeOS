@@ -55,9 +55,14 @@ try {
     const envContent = readFileSync(envSrc)
     const homeEnvDir = join(homedir(), ".claude")
     const homeEnvDest = join(homeEnvDir, ".env.production")
+    const vibeHomeDir = process.env.VIBEOS_HOME?.trim()
 
     mkdirSync(homeEnvDir, { recursive: true })
     writeFileSync(homeEnvDest, envContent)
+    if (vibeHomeDir) {
+      mkdirSync(vibeHomeDir, { recursive: true })
+      writeFileSync(join(vibeHomeDir, ".env.production"), envContent)
+    }
     for (const home of resolveOpenCodeHomes()) {
       const pluginEnvDir = join(home, "plugins")
       mkdirSync(pluginEnvDir, { recursive: true })
