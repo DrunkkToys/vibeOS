@@ -1,3 +1,60 @@
+## 0.25.52
+- feat: ship universal /vibe command
+- feat: add stable dashboard command alias
+- fix: publish dashboard url and harden cascade proof (#290)
+- fix: make footer alerts cover nested desktop outputs
+- fix: preserve tool titles in footer hook (#275)
+- fix: restore reward footer persistence (#274)
+- fix: keep scratchpad cache session-only (#271)
+- refactor: simplify backend-first control flow (#296)
+- test: add missing integration tests for #274, #275, dashboard sync; fix orphaned cache isolation test
+- test: cover empty reward input (#269)
+- chore: v0.25.51
+Fix live dashboard and API state handling (#299)
+Codex/rebase api state fix (#298)
+Fix live home and dashboard runtime sync (#297)
+Repair live session truth and loop closure (#295)
+Fix dashboard URL publication and state recovery (#294)
+Fix README code fence syntax (#292)
+Add real session orchestration and cascade coverage (#293)
+Update README.md (#291)
+Make VibeUltraX the default mode (#289)
+Document vibe command surface (#288)
+Merge pull request #287 from DrunkkToys/codex/dashboard-url-ready
+Merge remote-tracking branch 'origin/master'
+Merge branch 'codex/fix-blackbox-role-shape'
+Fix blackbox role-only session tracking
+Guard slow hot-path calls and compact pivot cache
+Clarify README command syntax
+Fix startup repair and delegation fallbacks
+Cover recent session edge cases
+Fix free-model seed precedence
+Use explicit free-model seed
+Seed free model tiers on fresh installs
+Fix dashboard URL recovery
+Fix startup repair and delegation fallbacks
+Cover recent session edge cases
+Fix free-model seed precedence
+Use explicit free-model seed
+Seed free model tiers on fresh installs
+Fix dashboard URL recovery
+Default fresh installs to vibeultrax
+Merge pull request #278 from DrunkkToys/codex/strat
+Fix dashboard sync path for web search
+Merge origin/master into codex/strat
+Add web search frontend
+Update README.md
+Fix footer claim alert visibility (#277)
+Merge remote-tracking branch 'origin/master' into codex/strat
+Fix footer claim alert visibility
+Improve cache reuse and routing (#276)
+Improve cache reuse and routing
+ fix pivot counter-pivot handoff + compressed project memory savings (#273)
+fix pivot counter-pivot handoff (#272)
+Merge remote-tracking branch 'origin/release/v0.25.48'
+Stabilize claim status footer (#270)
+
+
 ## 0.25.51
 - fix: preserve tool titles in footer hook (#275)
 - fix: restore reward footer persistence (#274)
