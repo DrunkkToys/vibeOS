@@ -117,6 +117,7 @@ test("mode vibeultrax → cheap", async () => {
   await (await getHooks()).tool.trinity.execute({ action: "mode", slot: "vibeultrax" })
   const s = readSel().active_slot
   assert.equal(s, "cheap", "vibeultrax should start on cheap, got: " + s)
+  assert.equal(readSel().slot_locked, false, "vibeultrax should clear slot lock so cheap can stay live")
 })
 
 test("mode vibeqmax → brain", async () => {

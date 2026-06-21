@@ -386,8 +386,8 @@ export class VibeOSApiClient {
     })
   }
 
-  async blackboxState(sessionId: string): Promise<unknown> {
-    return this.request("/api/v1/blackbox/state", { session_id: sessionId })
+  async blackboxState(sessionId: string, payload: Record<string, unknown> = {}): Promise<unknown> {
+    return this.request("/api/v1/blackbox/state", { session_id: sessionId, ...payload })
   }
 
   async blackboxReset(sessionId: string): Promise<unknown> {
@@ -406,8 +406,11 @@ export class VibeOSApiClient {
     return this.request("/api/v1/blackbox/calibration?project_id=" + (projectId || "global"), null)
   }
 
-  async blackboxControlVector(state: unknown, action: unknown, optimizationMode: string): Promise<unknown> {
-    return this.request("/api/v1/blackbox/control-vector", { ...(state as Record<string, unknown>), action, optimization_mode: optimizationMode })
+  async blackboxControlVector(state: unknown, action: unknown, optimizationMode: string | Record<string, unknown>): Promise<unknown> {
+    const decision = typeof optimizationMode === "string"
+      ? { optimization_mode: optimizationMode }
+      : (optimizationMode || {})
+    return this.request("/api/v1/blackbox/control-vector", { ...(state as Record<string, unknown>), action, ...(decision as Record<string, unknown>) })
   }
 
   async blackboxSelectMode(subRegime: string, stressMultiplier: number): Promise<unknown> {

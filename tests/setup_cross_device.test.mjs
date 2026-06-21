@@ -79,3 +79,17 @@ test("setup: buildDeterministicTrinity returns null when no models discovered", 
   const result = mod.buildDeterministicTrinity([], { selectedModelId: "test-provider/test-model" })
   assert.equal(result, null, "returns null when no models discovered (setup handles via fallback chain)")
 })
+
+test("setup: buildDeterministicTrinity keeps selected model separate from brain slot", async () => {
+  const mod = await import("../src/lib/pricing.js?" + Date.now())
+  const result = mod.buildDeterministicTrinity([
+    { id: "anthropic/claude-opus-4-7" },
+    { id: "anthropic/claude-sonnet-4-6" },
+    { id: "anthropic/claude-haiku-4-5" },
+  ], { selectedModelId: "anthropic/claude-sonnet-4-6" })
+
+  assert.ok(result, "should build a deterministic trinity from discovered models")
+  assert.equal(result.brain, "anthropic/claude-opus-4-7", "brain should be the ranked orchestration slot")
+  assert.equal(result.selected_model, "anthropic/claude-sonnet-4-6", "selected model stays as metadata")
+  assert.equal(result.selected_tier, "mid", "selected tier tracks the selected model, not the brain slot")
+})

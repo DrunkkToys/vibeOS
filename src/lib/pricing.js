@@ -234,18 +234,18 @@ export function buildDeterministicTrinity(models, options = {}) {
     const scoped = providerModels.length > 0 ? providerModels : list;
     const qualityRanked = _sortByQualityDesc(scoped);
     const costRanked = _sortByCostAsc(scoped);
-    // brain = user's selected model (always)
-    const brain = selectedModel || qualityRanked[0] || costRanked[0] || scoped[0] || list[0];
+    // brain = orchestration anchor from the ranked provider pool
+    const brain = qualityRanked[0] || costRanked[0] || scoped[0] || list[0];
     // medium = next best quality from same provider
     const medium = qualityRanked.find((m) => m.id !== brain?.id) || brain;
     // cheap = free model (preferred), else cheapest
     const freeModel = scoped.find((m) => isModelFree(m.id));
     const cheap = freeModel || costRanked[0] || medium;
-    const brainClass = isModelFree(brain?.id) ? "free" : classify(brain?.id);
+    const selectedTier = selectedModel ? (isModelFree(selectedModel.id) ? "free" : classify(selectedModel.id)) : (isModelFree(brain?.id) ? "free" : classify(brain?.id));
     return {
         provider,
-        selected_tier: brainClass,
-        selected_model: brain?.id || selectedModelId || "",
+        selected_tier: selectedTier,
+        selected_model: selectedModel?.id || selectedModelId || brain?.id || "",
         brain: brain?.id || "",
         medium: medium?.id || "",
         cheap: cheap?.id || "",
@@ -1215,7 +1215,7 @@ export function _refreshModel(directory) {
         // selected trinity slot is missing or placeholder-like. Existing trinity
         // slots are treated as authoritative so user-defined brain/medium/cheap
         // choices survive restarts and reinstall/repair cycles.
-        if (!(_modelLocked || sel.slot_locked === true)) {
+        if (!(_modelLocked || sel.slot_locked === true) && !slotOcModel) {
             const activeIsManual = tiersData?.trinity?.[activeSlot]?.manual === true;
             const currentSlotModel = activeIsManual ? "" : slotOcModel;
             if (!currentSlotModel && !currentModel) {

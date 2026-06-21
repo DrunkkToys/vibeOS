@@ -137,7 +137,9 @@ export function createTrinityTool(deps) {
               : {}
             const auth = deps._readAuth()
             const models = await deps.discoverAvailableModels(providers, auth)
-            const trinity = buildDeterministicTrinity(models, { selectedModelId: deps.currentModel })
+            const trinity = buildDeterministicTrinity(models, {
+              selectedModelId: sel.selected_model || sel.executed_model || deps.currentModel,
+            })
             if (trinity && trinity.brain) {
               const probed = {
                 brain: models.find(m => m.id === trinity.brain) || { id: trinity.brain, cost: deps._modelCost(trinity.brain), tier: deps._modelTier(trinity.brain) },
@@ -156,15 +158,15 @@ export function createTrinityTool(deps) {
               }
               tiersData.selection ??= {}
               tiersData.selection.selected_provider = trinity.provider || resolveExecutionIdentity(deps.currentModel, deps.directory)?.provider || ""
-              tiersData.selection.selected_model = deps.currentModel
+              tiersData.selection.selected_model = sel.selected_model || deps.currentModel
               tiersData.selection.executed_provider = tiersData.selection.selected_provider
-              tiersData.selection.executed_model = deps.currentModel
+              tiersData.selection.executed_model = sel.executed_model || sel.selected_model || deps.currentModel
               const _tmp = deps.TIERS_FILE + ".tmp." + Date.now()
               deps.writeFileSync(_tmp, JSON.stringify(tiersData, null, 2) + "\n", "utf-8")
               deps.renameSync(_tmp, deps.TIERS_FILE)
               tiers = tiersData.trinity
               sel.selected_provider = tiersData.selection.selected_provider
-              sel.selected_model = deps.currentModel
+              sel.selected_model = tiersData.selection.selected_model
             }
           } catch (e) { console.error("[vibeOS] auto-rebuild on model change failed:", e.message) }
         }
@@ -384,6 +386,12 @@ export function createTrinityTool(deps) {
           deps.writeSessionSlot(deps._OC_SID, tierSlot)
           deps.writeSelection("active_slot", tierSlot)
           deps.writeSelection("active_pipeline", modeEntry.pipeline)
+          if (slot === "vibeultrax") {
+            deps._modelLocked = false
+            deps._lockedSlot = null
+            deps._lockedModel = null
+            deps.writeSelection("slot_locked", false)
+          }
           deps.writeSelection("onboarding_mode",
             modeEntry.tdd === "quality" || modeEntry.enforcement === "strict" ? "strict" : "assist")
           deps.writeSelection("delegation_enforce",
@@ -1043,7 +1051,8 @@ export function createTrinityTool(deps) {
           : {}
         const auth = deps._readAuth()
         const models = await deps.discoverAvailableModels(providers, auth)
-        const selectedModel = deps.currentModel || deps.loadSelection?.().selected_model || deps.loadSelection?.().executed_model || ""
+        const currentSelection = deps.loadSelection?.() || {}
+        const selectedModel = currentSelection.selected_model || currentSelection.executed_model || deps.currentModel || ""
         const trinity = buildDeterministicTrinity(models, { selectedModelId: selectedModel })
         if (!trinity) {
           return "\u274c No models discovered from any configured provider."

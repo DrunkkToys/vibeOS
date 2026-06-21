@@ -326,7 +326,7 @@ test('e2e: INIT live footer keeps the regime icon visible', async () => {
   const footer = String(out.text || '').split('\n').filter(Boolean).at(-1) || ''
 
   assert.ok(footer.includes('▶ ◌ INIT'), 'INIT footer should show the regime icon and tag: ' + footer)
-  assert.ok(footer.includes('Budget') || footer.includes('VibeMaX'), 'INIT footer should stay in the budget lane: ' + footer)
+  assert.ok(footer.includes('Quality') || footer.includes('VibeMaX') || footer.includes('Budget') || footer.includes('VibeUltraX'), 'INIT footer should show the live optimization mode: ' + footer)
 })
 
 test('e2e: blackbox advances past INIT with role-only user messages', async () => {
