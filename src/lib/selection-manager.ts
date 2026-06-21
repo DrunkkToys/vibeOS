@@ -112,16 +112,18 @@ export function sanitizeSelection(selection: any): any {
   return selection
 }
 
-export function loadSessionSlot(sid: string): string | null {
+function readSessionRecord(sid: string): any {
   const BLACKBOX_FILE = join(getVibeOSHome(), "blackbox-state.json")
   try {
     if (!existsSync(BLACKBOX_FILE)) return null
     const j = safeJsonParse(readFileSync(BLACKBOX_FILE, "utf-8"))
-    return j?.sessions?.[sid]?.active_slot || null
-  } catch { return null }
+    return j?.sessions?.[sid] || null
+  } catch {
+    return null
+  }
 }
 
-export function writeSessionSlot(sid: string, slot: string): boolean {
+function writeSessionRecord(sid: string, updater: (record: any) => void): boolean {
   const BLACKBOX_FILE = join(getVibeOSHome(), "blackbox-state.json")
   try {
     const j = existsSync(BLACKBOX_FILE)
@@ -129,24 +131,31 @@ export function writeSessionSlot(sid: string, slot: string): boolean {
       : {}
     if (!j.sessions) j.sessions = {}
     if (!j.sessions[sid]) j.sessions[sid] = {}
-    j.sessions[sid].active_slot = slot
+    updater(j.sessions[sid])
     const tmp = BLACKBOX_FILE + ".tmp"
     writeFileSync(tmp, JSON.stringify(j, null, 2) + "\n")
     renameSync(tmp, BLACKBOX_FILE)
     return true
   } catch (err) {
-    console.error("[vibeOS] writeSessionSlot failed: " + err.message)
+    console.error("[vibeOS] writeSessionRecord failed: " + err.message)
     return false
   }
 }
 
+export function loadSessionSlot(sid: string): string | null {
+  const record = readSessionRecord(sid)
+  return record?.active_slot || null
+}
+
+export function writeSessionSlot(sid: string, slot: string): boolean {
+  return writeSessionRecord(sid, (record) => {
+    record.active_slot = slot
+  })
+}
+
 export function loadSessionOptMode(sid: string): string | null {
-  const BLACKBOX_FILE = join(getVibeOSHome(), "blackbox-state.json")
-  try {
-    if (!existsSync(BLACKBOX_FILE)) return null
-    const j = safeJsonParse(readFileSync(BLACKBOX_FILE, "utf-8"))
-    return j?.sessions?.[sid]?.optimization_mode || null
-  } catch { return null }
+  const record = readSessionRecord(sid)
+  return record?.optimization_mode || null
 }
 
 export function loadGlobalOptMode(): string | null {
@@ -161,22 +170,9 @@ export function saveGlobalOptMode(mode: string): boolean {
 }
 
 export function writeSessionOptMode(sid: string, mode: string): boolean {
-  const BLACKBOX_FILE = join(getVibeOSHome(), "blackbox-state.json")
-  try {
-    const j = existsSync(BLACKBOX_FILE)
-      ? safeJsonParse(readFileSync(BLACKBOX_FILE, "utf-8"))
-      : {}
-    if (!j.sessions) j.sessions = {}
-    if (!j.sessions[sid]) j.sessions[sid] = {}
-    j.sessions[sid].optimization_mode = mode
-    const tmp = BLACKBOX_FILE + ".tmp"
-    writeFileSync(tmp, JSON.stringify(j, null, 2) + "\n")
-    renameSync(tmp, BLACKBOX_FILE)
-    return true
-  } catch (err) {
-    console.error("[vibeOS] writeSessionOptMode failed: " + err.message)
-    return false
-  }
+  return writeSessionRecord(sid, (record) => {
+    record.optimization_mode = mode
+  })
 }
 
 export { DFLT_SEL }
