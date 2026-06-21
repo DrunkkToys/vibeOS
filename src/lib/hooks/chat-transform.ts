@@ -175,14 +175,7 @@ const correctionSeenKeys = new Set()
 async function apiComputeControlVector(state: any, action: any, optimizationMode: any): Promise<any> {
   try {
     const res = await remoteCall("blackboxControlVector", [state, action, optimizationMode], null)
-    if (res?.control_vector) {
-      const local = computeControlVector(state, action, optimizationMode)
-      const merged = mergeRemoteControlVector(res.control_vector, local)
-      if (res.rf_prediction?.mode && res.rf_prediction.mode !== res.control_vector?.optimization_mode) {
-        merged.optimization_mode = res.rf_prediction.mode
-      }
-      return merged
-    }
+    if (res?.control_vector) return res.control_vector
   } catch {}
   return computeControlVector(state, action, optimizationMode)
 }
