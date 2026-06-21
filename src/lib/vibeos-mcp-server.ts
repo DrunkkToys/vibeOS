@@ -38,6 +38,7 @@ type Deps = {
   generateSessionCheckout: () => unknown
   saveBlackboxVector: (vector: unknown) => void
   saveBlackboxOutcome: (outcome: unknown) => void
+  currentProjectName?: string
 }
 
 type McpServer = {
@@ -276,12 +277,14 @@ export function createMcpServer(deps: Deps): McpServer {
           sessions: getSessionsFromState(state),
           metrics: deps.getSessionMetrics(currentSessionId),
           templates: (typeof deps.listSessionTemplates === "function" ? deps.listSessionTemplates() : TEMPLATE_LIBRARY) as any[],
+          currentProjectName: deps.currentProjectName || "",
         })
         json(res, 200, {
           ...home,
           status: state,
           blackbox,
           backend_connected: state?.backend_connected ?? false,
+          backend_status: state?.backend_connected ? "online" : "degraded",
           backend_health_url: BACKEND_HEALTH_URL,
           backend_version: state?.backend_version || null,
         })

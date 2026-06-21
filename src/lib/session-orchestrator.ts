@@ -386,13 +386,15 @@ function pickSessionMetrics(session: AnyObject, metrics: AnyObject = {}): AnyObj
   }
 }
 
-function recommendationForSession(session: AnyObject, currentSession = false): string {
+function recommendationForSession(session: AnyObject, currentSession = false, blackbox?: AnyObject): string {
   if (!session) return currentSession ? "Open the active session" : "Select a session"
   if (session.archived) return "Archived: review notes or reopen"
   if (session.status === "paused") return "Resume the session"
   if (session.locked) return "Unlock to continue editing"
   if (!session.template?.body) return "Apply a TDD template"
   if ((session.notes_count || 0) === 0) return "Add a note"
+  const subRegime = blackbox?.sub_regime || blackbox?.regime
+  if (subRegime === "LOOPING") return "Review loop intervention"
   return currentSession ? "Continue with the next step" : "Review session details"
 }
 
@@ -459,7 +461,7 @@ export function buildSessionDetail(sessionId: string, session: AnyObject, metric
       ...orchestration,
       template,
       notes_count: orchestration.notes.length,
-    }, sessionId === selection?.current_session_id),
+    }, sessionId === selection?.current_session_id, blackbox),
     notes: orchestration.notes,
     lifecycle: orchestration.lifecycle,
     orchestration,
@@ -476,6 +478,7 @@ export function buildDashboardHomeModel({
   sessions = {},
   metrics = {},
   templates = TEMPLATE_LIBRARY,
+  currentProjectName = "",
 }: {
   currentSessionId: string
   status?: AnyObject
@@ -485,6 +488,7 @@ export function buildDashboardHomeModel({
   sessions?: AnyObject
   metrics?: AnyObject
   templates?: any[]
+  currentProjectName?: string
 }) {
   const rows = Object.entries(sessions || {}).map(([sessionId, session]) => buildSessionListItem(
     sessionId,
@@ -497,7 +501,7 @@ export function buildDashboardHomeModel({
     sessions?.[currentSessionId] || {},
     metrics,
     blackbox,
-    { ...status, current_session_id: currentSessionId },
+    { ...status, current_session_id: currentSessionId, project_name: currentProjectName },
   )
   const totalSavings = Number(savings?.lifetime?.delegation_usd || 0) + Number(savings?.lifetime?.cache_usd || 0)
   const currentSavings = Number(savings?.current_session?.delegation_usd || 0) + Number(savings?.current_session?.cache_usd || 0)
@@ -510,9 +514,11 @@ export function buildDashboardHomeModel({
       recommendation: currentSession.recommendation,
       cards: [
         { label: "Session", value: currentSession.session_id },
+        { label: "Project", value: currentSession.project_name || "unknown" },
         { label: "Slot", value: status?.active_slot || "brain" },
         { label: "Mode", value: status?.optimization_mode || "auto" },
         { label: "Stress", value: blackbox?.sub_regime || "INIT" },
+        { label: "Blackbox", value: currentSession.blackbox?.sub_regime || "INIT" },
         { label: "Savings", value: `$${totalSavings.toFixed(2)}` },
         { label: "TODOs", value: String(pendingTodos) },
       ],

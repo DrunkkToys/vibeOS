@@ -536,6 +536,7 @@ async function ensureMcpServerRunning() {
           getSessionOrchestration: (sessionId: string) => loadSessionOrchestration(sessionId),
           mutateSessionOrchestration: (sessionId: string, mutator: (session: any) => any) => mutateSessionOrchestration(sessionId, mutator),
           listSessionTemplates: () => TEMPLATE_LIBRARY,
+          currentProjectName: currentProjectName || "",
           listReports: (filter) => {
             if (!existsSync(getReportsDir())) {
               const e = new Error("reports dir not found")
