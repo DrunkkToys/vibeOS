@@ -3038,23 +3038,23 @@ function loadActiveJobs() {
     return {};
   }
 }
-function getActiveJobForProject(fp2 = currentProjectFingerprint) {
-  if (!fp2)
+function getActiveJobForProject(fp3 = currentProjectFingerprint) {
+  if (!fp3)
     return null;
   const jobs = loadActiveJobs();
-  const job = jobs[fp2];
+  const job = jobs[fp3];
   if (!job || typeof job !== "object")
     return null;
   return job;
 }
-function saveActiveJobForProject(job, fp2 = currentProjectFingerprint) {
-  if (!fp2 || !job || typeof job !== "object")
+function saveActiveJobForProject(job, fp3 = currentProjectFingerprint) {
+  if (!fp3 || !job || typeof job !== "object")
     return;
   try {
     withFileLock(ACTIVE_JOBS_FILE, () => {
       const jobs = _readActiveJobsRaw();
       const norm = _normalizeActiveJobRecord(job);
-      jobs[fp2] = norm.record || job;
+      jobs[fp3] = norm.record || job;
       _writeActiveJobsRaw(jobs);
     });
   } catch {
@@ -3090,10 +3090,10 @@ function saveProjectState(state) {
     console.error(`[vibeOS] project state write failed: ${err.message}`);
   }
 }
-function ensureProjectBucket(state, fp2) {
+function ensureProjectBucket(state, fp3) {
   state.project_hashes ??= {};
-  if (!state.project_hashes[fp2]) {
-    state.project_hashes[fp2] = {
+  if (!state.project_hashes[fp3]) {
+    state.project_hashes[fp3] = {
       totalSessions: 0,
       researchChains: 0,
       context7Bypasses: 0,
@@ -3105,12 +3105,12 @@ function ensureProjectBucket(state, fp2) {
       techStack: detectTechStack(process.cwd())
     };
   }
-  return state.project_hashes[fp2];
+  return state.project_hashes[fp3];
 }
-function touchProjectBucket(state, fp2, meta = {}) {
-  if (!fp2 || fp2 === "unknown")
+function touchProjectBucket(state, fp3, meta = {}) {
+  if (!fp3 || fp3 === "unknown")
     return null;
-  const bucket = ensureProjectBucket(state, fp2);
+  const bucket = ensureProjectBucket(state, fp3);
   const now = (/* @__PURE__ */ new Date()).toISOString();
   bucket.updatedAt = now;
   bucket.lastSeen = now;
@@ -3176,9 +3176,9 @@ function detectTechStack(dir) {
   }
   return [...new Set(stacks)];
 }
-function promotedProjectPatterns(fp2) {
+function promotedProjectPatterns(fp3) {
   try {
-    const p = loadProjectState().project_hashes?.[fp2];
+    const p = loadProjectState().project_hashes?.[fp3];
     const out = [];
     const collect = (rows, label) => {
       for (const row of Object.values(rows || {})) {
@@ -3197,9 +3197,9 @@ function promotedProjectPatterns(fp2) {
     return [];
   }
 }
-function projectPatternRows(fp2) {
+function projectPatternRows(fp3) {
   try {
-    const p = loadProjectState().project_hashes?.[fp2];
+    const p = loadProjectState().project_hashes?.[fp3];
     const rows = [];
     for (const [kind, label] of [["friction", "friction"], ["routines", "routine"]]) {
       for (const [key, row] of Object.entries(p?.userPatterns?.[kind] || {})) {
@@ -3221,10 +3221,10 @@ function projectPatternRows(fp2) {
     return [];
   }
 }
-function clearProjectPatterns(fp2) {
+function clearProjectPatterns(fp3) {
   try {
     const pstate = loadProjectState();
-    const bucket = pstate.project_hashes?.[fp2];
+    const bucket = pstate.project_hashes?.[fp3];
     if (!bucket?.userPatterns)
       return 0;
     const count = Object.keys(bucket.userPatterns.friction || {}).length + Object.keys(bucket.userPatterns.routines || {}).length;
@@ -6096,8 +6096,8 @@ function readRealityCheckSettings() {
 }
 function getRealityCheckRulesForProject(projectFingerprint2 = currentProjectFingerprint || "") {
   const settings = readRealityCheckSettings();
-  const fp2 = String(projectFingerprint2 || "").trim();
-  const project = fp2 && settings.projects?.[fp2] ? settings.projects[fp2] : null;
+  const fp3 = String(projectFingerprint2 || "").trim();
+  const project = fp3 && settings.projects?.[fp3] ? settings.projects[fp3] : null;
   const scope = project ? "project" : "global";
   const enabled = scope === "project" ? project?.enabled ?? settings.global?.enabled !== false : settings.global?.enabled !== false;
   const source = scope === "project" ? Array.isArray(project?.rules) && project?.rules.length > 0 ? project.rules : settings.global?.rules || defaultRealityCheckRules() : settings.global?.rules || defaultRealityCheckRules();
@@ -6121,14 +6121,14 @@ function getRealityCheckRulesForProject(projectFingerprint2 = currentProjectFing
 }
 function getRealityCheckView(projectFingerprint2 = currentProjectFingerprint || "") {
   const settings = readRealityCheckSettings();
-  const fp2 = String(projectFingerprint2 || "").trim();
-  const project = fp2 && settings.projects?.[fp2] ? settings.projects[fp2] : null;
+  const fp3 = String(projectFingerprint2 || "").trim();
+  const project = fp3 && settings.projects?.[fp3] ? settings.projects[fp3] : null;
   const scope = project ? "project" : "global";
   const enabled = scope === "project" ? project?.enabled ?? settings.global?.enabled !== false : settings.global?.enabled !== false;
-  const rules = getRealityCheckRulesForProject(fp2);
+  const rules = getRealityCheckRulesForProject(fp3);
   return {
     scope,
-    project_id: project ? fp2 : null,
+    project_id: project ? fp3 : null,
     enabled,
     rules
   };
@@ -6213,13 +6213,13 @@ function recordFlowWarn(hit) {
     if (state.flow_warns.length > 200) {
       state.flow_warns = state.flow_warns.slice(-200);
     }
-    const fp2 = { flow_warns: state.flow_warns };
+    const fp3 = { flow_warns: state.flow_warns };
     if (_stateWriter)
-      _stateWriter(fp2);
+      _stateWriter(fp3);
     else {
       const stateFile2 = getStateFile();
       const existing = safeJsonParse3(existsSync3(stateFile2) ? readFileSync3(stateFile2, "utf-8") : "{}");
-      const merged = Object.assign({}, existing, fp2);
+      const merged = Object.assign({}, existing, fp3);
       const tmpFile = stateFile2 + ".tmp." + Date.now();
       writeFileSync3(tmpFile, JSON.stringify(merged, null, 2));
       renameSync3(tmpFile, stateFile2);
@@ -6672,16 +6672,16 @@ async function probeBackendHealth(force = false) {
     return { ok: false, version: null };
   }
 }
-function sendFile(res, fp2) {
-  if (!existsSync4(fp2)) {
+function sendFile(res, fp3) {
+  if (!existsSync4(fp3)) {
     res.statusCode = 404;
     res.setHeader("Content-Type", "text/plain; charset=utf-8");
     res.end("not found");
     return;
   }
-  const ext = extname(fp2).toLowerCase();
+  const ext = extname(fp3).toLowerCase();
   const mime = MIME_MAP[ext] || "application/octet-stream";
-  const st = statSync4(fp2);
+  const st = statSync4(fp3);
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
@@ -6689,7 +6689,7 @@ function sendFile(res, fp2) {
   res.setHeader("Content-Type", mime);
   res.setHeader("Content-Length", st.size);
   res.setHeader("Cache-Control", "no-cache");
-  const s = createReadStream(fp2);
+  const s = createReadStream(fp3);
   s.pipe(res);
   s.on("error", () => {
     res.statusCode = 500;
@@ -6698,9 +6698,9 @@ function sendFile(res, fp2) {
 }
 function serveDashboard(res, p) {
   const idx = join4(DASHBOARD_DIR, "index.html");
-  let fp2 = join4(DASHBOARD_DIR, p === "/" ? "index.html" : p);
-  if (existsSync4(fp2) && statSync4(fp2).isFile()) {
-    sendFile(res, fp2);
+  let fp3 = join4(DASHBOARD_DIR, p === "/" ? "index.html" : p);
+  if (existsSync4(fp3) && statSync4(fp3).isFile()) {
+    sendFile(res, fp3);
     return;
   }
   if (existsSync4(idx)) {
@@ -9923,8 +9923,8 @@ function noteTaskRoutingLearning(firstWord, targetModel, reason) {
     const nonExploratory = /* @__PURE__ */ new Set(["build", "implement", "fix", "add", "update", "remove", "write", "edit", "refactor", "create"]);
     try {
       const pstate = loadProjectState();
-      const fp2 = currentProjectFingerprint || projectFingerprint(process.cwd());
-      const bucket = ensureProjectBucket(pstate, fp2);
+      const fp3 = currentProjectFingerprint || projectFingerprint(process.cwd());
+      const bucket = ensureProjectBucket(pstate, fp3);
       bucket.taskWordPatterns ??= {};
       const localRow = bucket.taskWordPatterns[firstWord] || { total: 0, cheap: 0, medium: 0, high: 0, lastSeen: null };
       localRow.total += 1;
@@ -9957,8 +9957,8 @@ function noteTaskRoutingLearning(firstWord, targetModel, reason) {
         const currentFp = currentProjectFingerprint || "";
         const currentTech = currentFp ? pstate.project_hashes?.[currentFp]?.techStack : null;
         if (currentTech && Array.isArray(currentTech) && currentTech.length > 0) {
-          for (const [fp2, bucket] of Object.entries(pstate.project_hashes || {})) {
-            if (fp2 === currentFp)
+          for (const [fp3, bucket] of Object.entries(pstate.project_hashes || {})) {
+            if (fp3 === currentFp)
               continue;
             const otherTech = bucket?.techStack;
             if (!otherTech || !Array.isArray(otherTech))
@@ -10473,10 +10473,10 @@ function saveReportsIndex(idx) {
     console.error(`[vibeOS] reports index write failed: ${err.message}`);
   }
 }
-function generateReportId(type, fp2) {
+function generateReportId(type, fp3) {
   const ts = (/* @__PURE__ */ new Date()).toISOString().replace(/[:-]/g, "").replace(/\..+/, "");
   const rnd = Math.random().toString(36).slice(2, 6);
-  return `${ts}-${(fp2 || "unknown").slice(0, 6)}-${type}-${rnd}`;
+  return `${ts}-${(fp3 || "unknown").slice(0, 6)}-${type}-${rnd}`;
 }
 var _reportDedupWindow = /* @__PURE__ */ new Map();
 function _wouldBeDuplicate(type, summary, scope) {
@@ -10605,7 +10605,7 @@ function saveReport({ type = "manual", summary = "", findings = null, metrics = 
   if (!currentSessionId2 && metricsSessionId)
     currentSessionId2 = metricsSessionId;
   const liveSessionId = getCurrentSessionId() || getOcSessionId() || "";
-  const fp2 = fingerprint || metricsProjectFingerprint || currentProjectFingerprint || currentProjectFingerprint2 || "unknown";
+  const fp3 = fingerprint || metricsProjectFingerprint || currentProjectFingerprint || currentProjectFingerprint2 || "unknown";
   const projectName = metricsProjectName || currentProjectName || currentProjectName2 || "unknown";
   const sessionId = metricsSessionId || liveSessionId || currentSessionId2 || "unknown";
   const productionVerification = verifyProductionClaim({
@@ -10616,9 +10616,9 @@ function saveReport({ type = "manual", summary = "", findings = null, metrics = 
     outcome_verified
   });
   const normalizedOutcomeVerified = productionVerification.claimDetected ? productionVerification.verified : Boolean(outcome_verified);
-  const id2 = generateReportId(type, fp2);
+  const id2 = generateReportId(type, fp3);
   const report = {
-    meta: { id: id2, project: projectName, fingerprint: fp2, type, created: (/* @__PURE__ */ new Date()).toISOString(), sessionId },
+    meta: { id: id2, project: projectName, fingerprint: fp3, type, created: (/* @__PURE__ */ new Date()).toISOString(), sessionId },
     summary,
     findings: parsedFindings,
     metrics: parsedMetrics,
@@ -10642,13 +10642,13 @@ function saveReport({ type = "manual", summary = "", findings = null, metrics = 
       writeFileSync10(join10(reportsDir, `${id2}.json`), JSON.stringify(report, null, 2) + "\n");
       const idx = reportsIndex();
       const _sum = (summary || "").slice(0, 80);
-      idx.reports.push({ id: id2, type, project: report.meta.project, fingerprint: fp2, created: report.meta.created, summary: _sum });
+      idx.reports.push({ id: id2, type, project: report.meta.project, fingerprint: fp3, created: report.meta.created, summary: _sum });
       writeFileSync10(reportsIndexPath, JSON.stringify(idx, null, 2) + "\n");
     });
     try {
-      if (fp2 && fp2 !== "unknown") {
+      if (fp3 && fp3 !== "unknown") {
         const pstate = loadProjectState();
-        touchProjectBucket(pstate, fp2, {
+        touchProjectBucket(pstate, fp3, {
           sessionId,
           projectName: projectName || "",
           reportId: id2,
@@ -11634,9 +11634,9 @@ Lock is per-session (resets on restart).`;
         const L = "\u2501";
         const lines = [`\u{1F4CA} Project profile \u2014 ${deps.currentProjectName || (deps.directory ? deps.directory.split("/").pop() : "unknown")}`];
         lines.push(L.repeat(40));
-        const fp2 = deps.currentProjectFingerprint || deps.projectFingerprint(deps.directory);
+        const fp3 = deps.currentProjectFingerprint || deps.projectFingerprint(deps.directory);
         const pstate = deps.loadProjectState();
-        const proj = pstate.project_hashes?.[fp2];
+        const proj = pstate.project_hashes?.[fp3];
         if (proj) {
           lines.push(`
 \u{1F4C5} Sessions: ${proj.totalSessions || 0} | Last: ${(proj.lastSeen || "").slice(0, 10)}`);
@@ -11648,7 +11648,7 @@ Lock is per-session (resets on restart).`;
             const topics = proj.commonTopics.slice(0, 5).join(", ");
             lines.push(`\u{1F310} Common fetch domains: ${topics}`);
           }
-          const promoted = deps.promotedProjectPatterns(fp2);
+          const promoted = deps.promotedProjectPatterns(fp3);
           if (promoted.length) {
             lines.push(`
 Learned patterns:`);
@@ -11724,7 +11724,7 @@ Learned patterns:`);
         if (deps.loadSelection().flow_enabled === false) {
           suggestions.push(`\u{1F4A1} Flow enforcer is OFF \u2014 enable with \`trinity flow on\` to catch anti-patterns`);
         }
-        for (const ptn of deps.promotedProjectPatterns(fp2)) {
+        for (const ptn of deps.promotedProjectPatterns(fp3)) {
           suggestions.push(`Learned ${ptn.label} pattern: ${ptn.summary}`);
         }
         const credit = deps.loadCredit();
@@ -11829,15 +11829,15 @@ ${L.repeat(40)}`);
         return lines.join("\n");
       }
       if (action === "patterns") {
-        const fp2 = deps.currentProjectFingerprint || deps.projectFingerprint(deps.directory);
+        const fp3 = deps.currentProjectFingerprint || deps.projectFingerprint(deps.directory);
         const name = deps.currentProjectName || (deps.directory ? deps.directory.split("/").pop() : "unknown");
         if (slot === "clear") {
-          const count = deps.clearProjectPatterns(fp2);
+          const count = deps.clearProjectPatterns(fp3);
           return `Pattern memory cleared for "${name}" (${count} pattern${count === 1 ? "" : "s"} removed).`;
         }
         if (slot === "suggest") {
           const pstate = deps.loadProjectState();
-          const currentBucket = pstate.project_hashes?.[fp2];
+          const currentBucket = pstate.project_hashes?.[fp3];
           const currentTech = currentBucket?.techStack || [];
           const currentKeys = /* @__PURE__ */ new Set([
             ...Object.keys(currentBucket?.userPatterns?.friction || {}),
@@ -11845,7 +11845,7 @@ ${L.repeat(40)}`);
           ]);
           const candidates = [];
           for (const [otherFp, bucket] of Object.entries(pstate.project_hashes || {})) {
-            if (otherFp === fp2)
+            if (otherFp === fp3)
               continue;
             const otherTech = bucket?.techStack || [];
             if (!otherTech.some((t) => currentTech.includes(t)))
@@ -11874,7 +11874,7 @@ ${L.repeat(40)}`);
           lines2.push("Use `trinity patterns` to see this project's own patterns.");
           return lines2.join("\n");
         }
-        const rows = deps.projectPatternRows(fp2);
+        const rows = deps.projectPatternRows(fp3);
         const lines = [`Project patterns - ${name}`];
         if (rows.length === 0) {
           lines.push("  No learned patterns yet.");
@@ -12309,7 +12309,7 @@ ${L.repeat(40)}`);
             continue;
           byFp.set(r.fingerprint, (byFp.get(r.fingerprint) || 0) + 1);
         }
-        const candidates = [...byFp.entries()].filter(([fp2, count]) => fp2 && fp2 !== dstFp && count > 0).sort((a, b) => b[1] - a[1]);
+        const candidates = [...byFp.entries()].filter(([fp22, count]) => fp22 && fp22 !== dstFp && count > 0).sort((a, b) => b[1] - a[1]);
         if (candidates.length === 0) {
           return `\u2705 No duplicate fingerprint candidates found for project "${name}".`;
         }
@@ -13091,6 +13091,50 @@ init_pattern_helpers();
 init_pattern_helpers();
 import { join as join15 } from "node:path";
 import { mkdirSync as mkdirSync10, writeFileSync as writeFileSync12, readFileSync as readFileSync14, existsSync as existsSync15 } from "node:fs";
+
+// src/lib/pattern-store.js
+init_state();
+function upsertProjectPattern(kind, key, summary, meta = {}) {
+  const fingerprint = String(meta?.fingerprint || currentProjectFingerprint || "").trim();
+  if (!fingerprint || fingerprint === "unknown" || !key || !summary)
+    return null;
+  const pstate = loadProjectState();
+  const bucket = ensureProjectBucket(pstate, fingerprint);
+  bucket.userPatterns ??= { friction: {}, routines: {} };
+  bucket.userPatterns.friction ??= {};
+  bucket.userPatterns.routines ??= {};
+  const target = kind === "routine" ? bucket.userPatterns.routines : bucket.userPatterns.friction;
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const row = target[key] || { kind, summary, count: 0, sessions: [], firstSeen: now, lastSeen: null };
+  row.kind = kind;
+  row.summary = summary;
+  row.count = Number(row.count || 0) + 1;
+  row.sessions = [.../* @__PURE__ */ new Set([...row.sessions || [], ...meta?.sessions || [getCurrentSessionId()]])].slice(-10);
+  row.lastSeen = now;
+  if (meta?.family)
+    row.family = meta.family;
+  if (meta?.path)
+    row.path = meta.path;
+  target[key] = row;
+  touchProjectBucket(pstate, fingerprint, {
+    sessionId: meta?.sessionId || getCurrentSessionId(),
+    projectName: meta?.projectName || currentProjectName || "",
+    topic: key
+  });
+  const entries = Object.entries(target);
+  if (entries.length > 50) {
+    entries.sort((a, b) => String(b[1]?.lastSeen || "").localeCompare(String(a[1]?.lastSeen || "")));
+    const kept = Object.fromEntries(entries.slice(0, 50));
+    for (const k of Object.keys(target))
+      delete target[k];
+    Object.assign(target, kept);
+  }
+  bucket.lastSeen = now;
+  saveProjectState(pstate);
+  return row;
+}
+
+// src/vibeOS-lib/semantic-observer.js
 function deriveRole(toolName, input, output) {
   if (["write", "edit", "notebookedit", "multiedit"].includes(toolName))
     return "mutation";
@@ -13271,25 +13315,17 @@ function recordFrictionPattern(key, summary, meta = {}) {
   if (frictionSessionKeys.has(sessionKey))
     return;
   frictionSessionKeys.add(sessionKey);
-  const pstate = loadProjectState();
-  const fp2 = meta.fingerprint || currentProjectFingerprint || "unknown";
-  touchProjectBucket(pstate, fp2, { sessionId: (meta.sessions || [])[0] || getCurrentSid() });
-  const bucket = pstate.project_hashes[fp2];
-  bucket.userPatterns ??= { friction: {}, routines: {} };
-  bucket.userPatterns.friction ??= {};
-  const existing = bucket.userPatterns.friction[key] || { sessions: [] };
-  existing.summary = summary;
-  existing.kind = meta.kind || "friction";
-  existing.sessions = [.../* @__PURE__ */ new Set([...existing.sessions || [], ...meta.sessions || [getCurrentSid()]])].slice(-10);
-  existing.lastSeen = (/* @__PURE__ */ new Date()).toISOString();
-  bucket.userPatterns.friction[key] = existing;
-  saveProjectState(pstate);
+  upsertProjectPattern("friction", key, summary, {
+    ...meta,
+    fingerprint: meta.fingerprint || currentProjectFingerprint || "unknown",
+    sessionId: (meta.sessions || [])[0] || getCurrentSid()
+  });
   try {
     Promise.resolve().then(() => (init_api_client(), api_client_exports)).then((api) => {
       const client2 = api.getApiClient?.();
       if (client2 && _OC_SID) {
         const family = meta.family || meta.path || "unknown";
-        client2.patternsObserve(_OC_SID, family, summary, key, fp2).catch(() => {
+        client2.patternsObserve(_OC_SID, family, summary, key, fp).catch(() => {
         });
       }
     }).catch(() => {
@@ -13454,39 +13490,7 @@ function noteProjectPattern(kind, key, summary, meta = {}) {
   if (!currentProjectFingerprint || !key || !summary)
     return;
   try {
-    const pstate = loadProjectState();
-    const bucket = ensureProjectBucket(pstate, currentProjectFingerprint);
-    bucket.userPatterns ??= { friction: {}, routines: {} };
-    bucket.userPatterns.friction ??= {};
-    bucket.userPatterns.routines ??= {};
-    const target = kind === "routine" ? bucket.userPatterns.routines : bucket.userPatterns.friction;
-    const now = (/* @__PURE__ */ new Date()).toISOString();
-    const row = target[key] || { kind, summary, count: 0, sessions: [], firstSeen: now, lastSeen: null };
-    row.kind = kind;
-    row.summary = summary;
-    row.count = Number(row.count || 0) + 1;
-    row.sessions = [.../* @__PURE__ */ new Set([...row.sessions || [], getCurrentSessionId()])].slice(-10);
-    row.lastSeen = now;
-    if (meta.family)
-      row.family = meta.family;
-    if (meta.path)
-      row.path = meta.path;
-    target[key] = row;
-    touchProjectBucket(pstate, currentProjectFingerprint, {
-      sessionId: getCurrentSessionId(),
-      projectName: currentProjectName || "",
-      topic: key
-    });
-    const entries = Object.entries(target);
-    if (entries.length > 50) {
-      entries.sort((a, b) => String(b[1]?.lastSeen || "").localeCompare(String(a[1]?.lastSeen || "")));
-      const kept = Object.fromEntries(entries.slice(0, 50));
-      for (const k of Object.keys(target))
-        delete target[k];
-      Object.assign(target, kept);
-    }
-    bucket.lastSeen = now;
-    saveProjectState(pstate);
+    upsertProjectPattern(kind, key, summary, { ...meta, fingerprint: currentProjectFingerprint, projectName: currentProjectName || "" });
   } catch (err) {
     console.error(`[vibeOS] pattern learner write failed: ${err.message}`);
   }
@@ -13940,9 +13944,9 @@ function compactMemoryText(text, limit) {
     return clean;
   return clean.slice(0, Math.max(0, limit - 1)).trimEnd() + "\u2026";
 }
-function projectMemoryDirective(fp2) {
+function projectMemoryDirective(fp3) {
   const pstate = loadProjectState();
-  const proj = fp2 ? pstate?.project_hashes?.[fp2] : null;
+  const proj = fp3 ? pstate?.project_hashes?.[fp3] : null;
   const label = currentProjectName || proj?.projectName || "";
   if (!label && !proj)
     return null;
@@ -13964,7 +13968,7 @@ function projectMemoryDirective(fp2) {
     if (topics.length > 0)
       parts.push(`Topics: ${topics.join(", ")}.`);
   }
-  const patterns = promotedProjectPatterns(fp2).slice(0, 3);
+  const patterns = promotedProjectPatterns(fp3).slice(0, 3);
   if (patterns.length > 0) {
     parts.push(`Patterns: ${patterns.map((ptn) => `[${ptn.label}] ${compactMemoryText(ptn.summary, 96)}`).join(" | ")}.`);
   }
@@ -13987,7 +13991,7 @@ function projectMemoryDirective(fp2) {
       const creditedUsd = Math.max(1e-4, Math.round(rawUsd * 0.8 * 1e4) / 1e4);
       recordCacheSaving("project-memory", creditedUsd, {
         hash: createHash4("sha256").update(`project-memory
-${fp2}
+${fp3}
 ${directive}
 `).digest("hex").slice(0, 16)
       });
@@ -13996,7 +14000,7 @@ ${directive}
   }
   return directive;
 }
-function ensureProjectSkill(dir, fp2) {
+function ensureProjectSkill(dir, fp3) {
   try {
     ensureVibeSkill(dir);
   } catch {
@@ -14008,7 +14012,7 @@ function ensureProjectSkill(dir, fp2) {
   if (existsSync17(skillPath)) {
     return { created: false, skipped: true, path: skillPath };
   }
-  const promoted = promotedProjectPatterns(fp2);
+  const promoted = promotedProjectPatterns(fp3);
   if (!promoted || promoted.length === 0) {
     return { created: false, skipped: false };
   }
@@ -14741,7 +14745,7 @@ var onSystemTransform = async (_input, output) => {
       } catch {
       }
     }
-    const fp2 = ensureProjectContext(hookDirectory);
+    const fp3 = ensureProjectContext(hookDirectory);
     const rawStress = latestUserIntent ? scoreStress(latestUserIntent) : 0;
     const stressScore = rawStress * (_controlVector?.stress_multiplier ?? 1);
     const credit = loadCredit();
@@ -14845,7 +14849,7 @@ var onSystemTransform = async (_input, output) => {
         }
       }
     }
-    const projectJob2 = onSystemTransform._activeJob || getActiveJobForProject(fp2);
+    const projectJob2 = onSystemTransform._activeJob || getActiveJobForProject(fp3);
     if (latestUserIntent && projectJob2 && isLikelyOffTopic(latestUserIntent, projectJob2)) {
       pushSystem(output, '[job-focus] Active job context exists: "' + (projectJob2.prompt || "").slice(0, 140) + '...". The latest user request appears off-topic relative to this running job. Before taking write/edit/task actions, ask one concise confirmation question to validate switching scope.');
       console.error("[vibeOS] [job-focus] off-topic request detected vs active job context");
@@ -14867,10 +14871,10 @@ var onSystemTransform = async (_input, output) => {
     const budgetDirective = contextBudgetDirective(_input, output);
     if (budgetDirective)
       pushSystem(output, budgetDirective);
-    if (!oneShot("vibeos_project_memory_" + fp2)) {
-      pushSystem(output, projectMemoryDirective(fp2));
+    if (!oneShot("vibeos_project_memory_" + fp3)) {
+      pushSystem(output, projectMemoryDirective(fp3));
     }
-    if (!oneShot("trinity_welcome_" + fp2)) {
+    if (!oneShot("trinity_welcome_" + fp3)) {
       pushSystem(output, welcomeDirective());
     }
     const regime2 = _latestBlackboxState3?.sub_regime || classifyTurnSimple2(latestUserIntent || "");
@@ -14894,7 +14898,7 @@ var onSystemTransform = async (_input, output) => {
     if (!oneShot("vibeos_dashboard_instruct")) {
       pushSystem(output, "[vibeOS dashboard display] When the trinity tool returns output starting with '[vibeOS-dashboard]', use the question tool to display that data in a clean, human-readable format. Use the question field (not the header) to show the dashboard data. Format it with clear sections separated by blank lines, aligned columns with spaces, and plain text only. The header should be 'vibeOS Dashboard'. Include only one option in options: {label: 'Dismiss', description: ''}. Strip the '[vibeOS-dashboard]' marker line before displaying.");
     }
-    if (!oneShot("vibeos_dopamine_style_" + fp2)) {
+    if (!oneShot("vibeos_dopamine_style_" + fp3)) {
       pushSystem(output, regimeAwareToolStyleDirective(_latestBlackboxState3?.sub_regime || classifiedRegime, _currentTemplate, stressScore, _controlVector?.agent_mode));
     }
     if (_pendingOrchestratorDirective) {
@@ -18210,15 +18214,15 @@ ${pendingUiNote}`;
       const seen = /* @__PURE__ */ new Set();
       let match;
       while ((match = TASK_FILE_RE.exec(outputText)) !== null) {
-        const fp2 = match[1];
-        if (seen.has(fp2))
+        const fp3 = match[1];
+        if (seen.has(fp3))
           continue;
-        seen.add(fp2);
-        const isTestPath = /(^|\/)(tests?|spec)\//i.test(fp2) || /\.(test|spec)\./i.test(fp2);
+        seen.add(fp3);
+        const isTestPath = /(^|\/)(tests?|spec)\//i.test(fp3) || /\.(test|spec)\./i.test(fp3);
         const intentClass2 = classifyTurnSimple2(latestUserIntent);
         const isResearchSession2 = intentClass2 === "EXPLORING" || intentClass2 === "DIVERGENT";
         if (sel.tdd_enforce && !isTestPath && !isResearchSession2) {
-          const createdPath = enforceTestFile(fp2);
+          const createdPath = enforceTestFile(fp3);
           if (createdPath) {
             const ext = createdPath.split(".").pop();
             const fileName = createdPath.split("/").pop();
@@ -18233,8 +18237,8 @@ ${pendingUiNote}`;
     }
   }
   if (t === "write" || t === "edit" || t === "multiedit") {
-    const fp2 = input?.args?.filePath || input?.args?.file_path || input?.args?.path || "";
-    const reminder = buildTestReminder(fp2);
+    const fp3 = input?.args?.filePath || input?.args?.file_path || input?.args?.path || "";
+    const reminder = buildTestReminder(fp3);
     if (reminder) {
       const note = `
 
@@ -18248,11 +18252,11 @@ ${pendingUiNote}`;
     }
     const sel = loadSelection();
     const explicitTestIntent = isUserAskingForTests(latestUserIntent);
-    const isTestPath = /(^|\/)(tests?|spec)\//i.test(fp2) || /\.(test|spec)\./i.test(fp2);
+    const isTestPath = /(^|\/)(tests?|spec)\//i.test(fp3) || /\.(test|spec)\./i.test(fp3);
     const intentClass = classifyTurnSimple2(latestUserIntent);
     const isResearchSession = intentClass === "EXPLORING" || intentClass === "DIVERGENT";
     if (sel.tdd_enforce && !isTestPath && !isResearchSession) {
-      const createdPath = enforceTestFile(fp2);
+      const createdPath = enforceTestFile(fp3);
       if (createdPath) {
         const ext = createdPath.split(".").pop();
         const fileName = createdPath.split("/").pop();
@@ -18268,7 +18272,7 @@ ${pendingUiNote}`;
     }
     if (t === "edit" || t === "write") {
       const testExtRe = /\.(test|spec)\./i;
-      if (testExtRe.test(fp2)) {
+      if (testExtRe.test(fp3)) {
         try {
           updateState((state) => {
             state.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" };
@@ -18283,12 +18287,12 @@ ${pendingUiNote}`;
       }
     }
     {
-      const fp3 = input?.args?.filePath || input?.args?.file_path || input?.args?.path || "";
+      const fp4 = input?.args?.filePath || input?.args?.file_path || input?.args?.path || "";
       const guardRe = /(?:^|\/)(AGENTS|README)\.md$/i;
-      if (guardRe.test(fp3)) {
+      if (guardRe.test(fp4)) {
         const guardIcons = { flag: "!", warn: "!!", hint: "_" };
         const guardIcon = guardIcons.flag || "!";
-        const fn = basename4(fp3);
+        const fn = basename4(fp4);
         console.error(`[flow-enforcer] ${guardIcon} [guard] ${fn}: protected project doc modified \u2014 verify user intent`);
       }
     }
@@ -18567,7 +18571,7 @@ function scanClaimsInOutput(output) {
   }
 }
 var activeJob3 = null;
-var fp = "";
+var fp2 = "";
 var _mcpServerRuntime = null;
 var _mcpServerHooked = false;
 var _mcpServerStartupPromise = null;
@@ -18632,7 +18636,7 @@ async function _resolveBootstrapModel(client2, directory3) {
     return { model: envModel, source: "env" };
   return { model: "", source: "" };
 }
-function _loadActiveJobForProject(directory3, fp2 = "") {
+function _loadActiveJobForProject(directory3, fp3 = "") {
   const candidates = [getVibeOSHome(), directory3 ? join22(directory3, "..") : ""].filter(Boolean);
   for (const base of candidates) {
     try {
@@ -18640,13 +18644,13 @@ function _loadActiveJobForProject(directory3, fp2 = "") {
       if (!existsSync21(activeJobsPath))
         continue;
       const jobs = safeJsonParse2(readFileSync21(activeJobsPath, "utf-8")) || {};
-      const job = fp2 ? jobs?.[fp2] : null;
+      const job = fp3 ? jobs?.[fp3] : null;
       if (job && typeof job === "object")
         return job;
     } catch {
     }
   }
-  return getActiveJobForProject(fp2);
+  return getActiveJobForProject(fp3);
 }
 function _tiersNeedRepair(tiers) {
   const slots = ["brain", "medium", "cheap"];
@@ -19179,11 +19183,11 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
   }
   if (detectContext7())
     console.error(`[vibeOS] context7 detected \u2014 docs nudge enabled`);
-  fp = projectFingerprint(directory3);
-  setCurrentProjectFingerprint(fp);
+  fp2 = projectFingerprint(directory3);
+  setCurrentProjectFingerprint(fp2);
   setCurrentProjectName(directory3 ? directory3.split("/").pop() : "unknown");
   briefedProjects.clear();
-  activeJob3 = _loadActiveJobForProject(directory3, fp);
+  activeJob3 = _loadActiveJobForProject(directory3, fp2);
   const systemBriefedProjects = /* @__PURE__ */ new Set();
   const hookVibeHome = getVibeOSHome();
   const hookStateFile = join22(hookVibeHome, "delegation-state.json");
@@ -19572,7 +19576,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
           const report = researchAudit({ hours: hours ?? 24 });
           try {
             const state = loadProjectState();
-            const bucket = ensureProjectBucket(state, fp);
+            const bucket = ensureProjectBucket(state, fp2);
             bucket.lastSeen = (/* @__PURE__ */ new Date()).toISOString();
             bucket.researchChains = Math.max(bucket.researchChains || 0, report.chains.length);
             saveProjectState(state);

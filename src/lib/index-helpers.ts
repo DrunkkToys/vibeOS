@@ -31,6 +31,7 @@ import {
 import {
   _pruneOldSessions,
 } from "./pattern-helpers.js"
+import { upsertProjectPattern } from "./pattern-store.js"
 
 import { TRINITY_CHEAP, TRINITY_MEDIUM } from "./pricing.js"
 import {
@@ -63,36 +64,7 @@ export function setActiveJobFromTaskPrompt(prompt) {
 export function noteProjectPattern(kind, key, summary, meta = {}) {
   if (!currentProjectFingerprint || !key || !summary) return
   try {
-    const pstate = loadProjectState()
-    const bucket = ensureProjectBucket(pstate, currentProjectFingerprint)
-    bucket.userPatterns ??= { friction: {}, routines: {} }
-    bucket.userPatterns.friction ??= {}
-    bucket.userPatterns.routines ??= {}
-    const target = kind === "routine" ? bucket.userPatterns.routines : bucket.userPatterns.friction
-    const now = new Date().toISOString()
-    const row = target[key] || { kind, summary, count: 0, sessions: [], firstSeen: now, lastSeen: null }
-    row.kind = kind
-    row.summary = summary
-    row.count = Number(row.count || 0) + 1
-    row.sessions = [...new Set([...(row.sessions || []), getCurrentSessionId()])].slice(-10)
-    row.lastSeen = now
-    if (meta.family) row.family = meta.family
-    if (meta.path) row.path = meta.path
-    target[key] = row
-    touchProjectBucket(pstate, currentProjectFingerprint, {
-      sessionId: getCurrentSessionId(),
-      projectName: currentProjectName || "",
-      topic: key,
-    })
-    const entries = Object.entries(target)
-    if (entries.length > 50) {
-      entries.sort((a, b) => String(b[1]?.lastSeen || "").localeCompare(String(a[1]?.lastSeen || "")))
-      const kept = Object.fromEntries(entries.slice(0, 50))
-      for (const k of Object.keys(target)) delete target[k]
-      Object.assign(target, kept)
-    }
-    bucket.lastSeen = now
-    saveProjectState(pstate)
+    upsertProjectPattern(kind, key, summary, { ...meta, fingerprint: currentProjectFingerprint, projectName: currentProjectName || "" })
   } catch (err) {
     console.error(`[vibeOS] pattern learner write failed: ${err.message}`)
   }
