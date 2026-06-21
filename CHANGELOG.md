@@ -1,3 +1,10 @@
+## 0.25.53
+- fix: add project/blackbox cards to home summary, fix template source detection, expand recommendations (#302)
+Merge release v0.25.52 into master
+Fix backend-authoritative slot sync (#301)
+Make vibeultrax start on cheap (#300)
+
+
 ## 0.25.52
 - feat: ship universal /vibe command
 - feat: add stable dashboard command alias
