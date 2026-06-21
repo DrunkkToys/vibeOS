@@ -3877,6 +3877,10 @@ function normalizeDirectApiToken(token) {
 function isTruthyFlag(value) {
   return API_DISABLED_RE.test(String(value || "").trim());
 }
+function isExplicitlyDisabledFlag(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized === "false" || normalized === "0" || normalized === "no" || normalized === "off";
+}
 function editEnvLine(content, key, value) {
   const lines = String(content || "").split(/\r?\n/);
   const next = [];
@@ -4033,7 +4037,7 @@ function setApiToken(newToken) {
     VIBEOS_API_DISABLED = false;
     VIBEOS_API_TOKEN = normalizeDirectApiToken(newToken);
     VIBEOS_API_BOOTSTRAP_TOKEN = readBootstrapTokenFromDisk() || VIBEOS_API_BOOTSTRAP_TOKEN;
-    syncApiEnabledState(process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN));
+    syncApiEnabledState(!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
     _apiPersistHome = _vibeHome || _homeClaude;
     _apiClientGen++;
     _apiClientHolder = { client: null, gen: _apiClientGen, tokenSnapshot: VIBEOS_API_TOKEN };
@@ -4074,7 +4078,7 @@ function setApiBootstrapToken(newToken) {
   try {
     VIBEOS_API_DISABLED = false;
     VIBEOS_API_BOOTSTRAP_TOKEN = String(newToken || "").trim();
-    syncApiEnabledState(process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN));
+    syncApiEnabledState(!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
     _apiPersistHome = _vibeHome || _homeClaude;
     markApiConnected();
     _apiLatencyDegradedUntil = 0;
@@ -4181,7 +4185,7 @@ function syncApiTokenFromDisk() {
   if (diskToken && diskToken !== VIBEOS_API_TOKEN) {
     VIBEOS_API_DISABLED = false;
     VIBEOS_API_TOKEN = diskToken;
-    syncApiEnabledState(process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN));
+    syncApiEnabledState(!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
     _apiClientGen++;
     _apiClientHolder = { client: null, gen: _apiClientGen, tokenSnapshot: VIBEOS_API_TOKEN };
     _apiFallbackMode = false;
@@ -4191,7 +4195,7 @@ function syncApiTokenFromDisk() {
   } else if (diskBootstrapToken && diskBootstrapToken !== VIBEOS_API_BOOTSTRAP_TOKEN) {
     VIBEOS_API_DISABLED = false;
     VIBEOS_API_BOOTSTRAP_TOKEN = diskBootstrapToken;
-    syncApiEnabledState(process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN));
+    syncApiEnabledState(!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
     _apiFallbackMode = false;
     _apiFallbackSince = null;
     markApiConnected();
@@ -4199,12 +4203,12 @@ function syncApiTokenFromDisk() {
   } else if (!diskToken && VIBEOS_API_TOKEN) {
     persistPrimaryApiEnvState({ token: VIBEOS_API_TOKEN, disabled: false });
     console.error("[vibeOS] API token persisted to disk from memory (disk was empty)");
-    syncApiEnabledState(process.env.VIBEOS_API_ENABLED !== "false" && !!VIBEOS_API_TOKEN);
+    syncApiEnabledState(!!VIBEOS_API_TOKEN);
     markApiConnected();
   } else if (envToken && !diskToken && !VIBEOS_API_TOKEN) {
     VIBEOS_API_DISABLED = false;
     VIBEOS_API_TOKEN = envToken;
-    syncApiEnabledState(process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN));
+    syncApiEnabledState(!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
     markApiConnected();
     console.error("[vibeOS] API token loaded from VIBEOS_API_TOKEN env var");
   } else {
@@ -4213,7 +4217,7 @@ function syncApiTokenFromDisk() {
       VIBEOS_API_TOKEN = EMBEDDED_API_TOKEN;
     }
     VIBEOS_API_BOOTSTRAP_TOKEN ||= EMBEDDED_API_TOKEN;
-    syncApiEnabledState(process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN));
+    syncApiEnabledState(!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
     markApiConnected();
   }
 }
@@ -4720,10 +4724,10 @@ var init_api_client = __esm({
     _homeClaude = join5(process.env.HOME || homedir3(), ".claude");
     _envPaths = Array.from(/* @__PURE__ */ new Set([_homeClaude, _vibeHome, _apiDir, process.cwd(), homedir3()]));
     _apiPersistHome = _vibeHome || _homeClaude;
-    VIBEOS_API_DISABLED = readApiDisabledFromDisk() || isTruthyFlag(process.env.VIBEOS_API_DISABLED);
+    VIBEOS_API_DISABLED = readApiDisabledFromDisk() || isTruthyFlag(process.env.VIBEOS_API_DISABLED) || isExplicitlyDisabledFlag(process.env.VIBEOS_API_ENABLED);
     VIBEOS_API_TOKEN = VIBEOS_API_DISABLED ? "" : readTokenFromDisk() || normalizeDirectApiToken(process.env.VIBEOS_API_TOKEN) || (!hasPrimaryTokenOnDisk() ? EMBEDDED_API_TOKEN : "");
     VIBEOS_API_BOOTSTRAP_TOKEN = VIBEOS_API_DISABLED ? "" : readBootstrapTokenFromDisk() || process.env.VIBEOS_API_BOOTSTRAP_TOKEN || EMBEDDED_API_TOKEN;
-    VIBEOS_API_ENABLED = !VIBEOS_API_DISABLED && process.env.VIBEOS_API_ENABLED !== "false" && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
+    VIBEOS_API_ENABLED = !VIBEOS_API_DISABLED && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
     setApiEnabled(VIBEOS_API_ENABLED);
     _anomalyDetector = null;
     _apiClientHolder = { client: null, gen: 0, tokenSnapshot: "" };
@@ -6542,6 +6546,19 @@ function resolveBackendApiBase() {
 }
 var BACKEND_HEALTH_URL = resolveBackendHealthUrl();
 var BACKEND_HEALTH_TTL_MS = 5e3;
+function buildCapabilityFallback(backendStatus = 0) {
+  return {
+    error: "backend capabilities unavailable",
+    code: "BACKEND_UNAVAILABLE",
+    web_search: {
+      enabled: false,
+      provider: "duckduckgo",
+      fixture_mode: false,
+      benchmark_path: null,
+      backend_status: backendStatus
+    }
+  };
+}
 async function proxyBackendJson(path, options = {}) {
   const base = resolveBackendApiBase();
   const url = new URL(path, base.endsWith("/") ? base : `${base}/`).href;
@@ -6696,19 +6713,15 @@ function createMcpServer(deps) {
       if (method === "GET" && path === "/capabilities") {
         try {
           const { status, data } = await proxyBackendJson("/api/v1/capabilities");
-          json(res, status, data);
+          if (status >= 200 && status < 300) {
+            json(res, status, data);
+          } else {
+            json(res, 200, buildCapabilityFallback(status));
+          }
         } catch (error) {
-          json(res, 502, {
-            error: "backend capabilities unavailable",
-            message: error instanceof Error ? error.message : "unknown error",
-            code: "BACKEND_UNAVAILABLE",
-            web_search: {
-              enabled: false,
-              provider: "duckduckgo",
-              fixture_mode: false,
-              benchmark_path: null,
-              backend_status: 0
-            }
+          json(res, 200, {
+            ...buildCapabilityFallback(0),
+            message: error instanceof Error ? error.message : "unknown error"
           });
         }
         return;

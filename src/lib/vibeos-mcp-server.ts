@@ -139,6 +139,20 @@ function resolveBackendApiBase(): string {
 const BACKEND_HEALTH_URL = resolveBackendHealthUrl()
 const BACKEND_HEALTH_TTL_MS = 5_000
 
+function buildCapabilityFallback(backendStatus = 0): Record<string, unknown> {
+  return {
+    error: "backend capabilities unavailable",
+    code: "BACKEND_UNAVAILABLE",
+    web_search: {
+      enabled: false,
+      provider: "duckduckgo",
+      fixture_mode: false,
+      benchmark_path: null,
+      backend_status: backendStatus,
+    },
+  }
+}
+
 async function proxyBackendJson(path: string, options: { method?: string; body?: unknown } = {}): Promise<{ status: number; data: unknown }> {
   const base = resolveBackendApiBase()
   const url = new URL(path, base.endsWith("/") ? base : `${base}/`).href
@@ -276,19 +290,15 @@ export function createMcpServer(deps: Deps): McpServer {
       if (method === "GET" && path === "/capabilities") {
         try {
           const { status, data } = await proxyBackendJson("/api/v1/capabilities")
-          json(res, status, data)
+          if (status >= 200 && status < 300) {
+            json(res, status, data)
+          } else {
+            json(res, 200, buildCapabilityFallback(status))
+          }
         } catch (error) {
-          json(res, 502, {
-            error: "backend capabilities unavailable",
+          json(res, 200, {
+            ...buildCapabilityFallback(0),
             message: error instanceof Error ? error.message : "unknown error",
-            code: "BACKEND_UNAVAILABLE",
-            web_search: {
-              enabled: false,
-              provider: "duckduckgo",
-              fixture_mode: false,
-              benchmark_path: null,
-              backend_status: 0,
-            },
           })
         }
         return
