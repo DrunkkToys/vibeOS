@@ -127,9 +127,11 @@ export function normalizeSessionTemplate(raw: any, fallbackId: string = DEFAULT_
     : typeof raw.name === "string" && raw.name.trim()
       ? raw.name.trim()
       : (baseId in TEMPLATES ? (baseId === "save" ? "Save" : baseId.charAt(0).toUpperCase() + baseId.slice(1)) : "Custom template")
-  const source = raw.source === "preset" || (raw.source !== "custom" && baseId in TEMPLATES && !raw.body && !raw.directive)
-    ? "preset"
-    : "custom"
+  const source = raw.source === "custom"
+    ? "custom"
+    : baseId in TEMPLATES
+      ? "preset"
+      : "custom"
   const revision = Number.isFinite(Number(raw.revision)) && Number(raw.revision) > 0 ? Number(raw.revision) : 1
   const id = typeof raw.id === "string" && raw.id.trim()
     ? raw.id.trim()

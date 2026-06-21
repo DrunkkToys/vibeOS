@@ -1051,7 +1051,7 @@ function normalizeSessionTemplate(raw, fallbackId = DEFAULT_TEMPLATE) {
   const preset = TEMPLATES[baseId] || TEMPLATES[DEFAULT_TEMPLATE];
   const body = normalizeTemplateBody(raw.body ?? raw.directive, preset.directive);
   const label = typeof raw.label === "string" && raw.label.trim() ? raw.label.trim() : typeof raw.name === "string" && raw.name.trim() ? raw.name.trim() : baseId in TEMPLATES ? baseId === "save" ? "Save" : baseId.charAt(0).toUpperCase() + baseId.slice(1) : "Custom template";
-  const source = raw.source === "preset" || raw.source !== "custom" && baseId in TEMPLATES && !raw.body && !raw.directive ? "preset" : "custom";
+  const source = raw.source === "custom" ? "custom" : baseId in TEMPLATES ? "preset" : "custom";
   const revision = Number.isFinite(Number(raw.revision)) && Number(raw.revision) > 0 ? Number(raw.revision) : 1;
   const id2 = typeof raw.id === "string" && raw.id.trim() ? raw.id.trim() : source === "preset" ? baseId : `session-${templateDigest(`${label}
 ${body}
@@ -1521,7 +1521,7 @@ function pickSessionMetrics(session, metrics = {}) {
     duration_seconds: Number(metrics?.sesDuration ?? session?.duration_seconds ?? 0) || 0
   };
 }
-function recommendationForSession(session, currentSession = false) {
+function recommendationForSession(session, currentSession = false, blackbox) {
   if (!session)
     return currentSession ? "Open the active session" : "Select a session";
   if (session.archived)
@@ -1534,6 +1534,9 @@ function recommendationForSession(session, currentSession = false) {
     return "Apply a TDD template";
   if ((session.notes_count || 0) === 0)
     return "Add a note";
+  const subRegime = blackbox?.sub_regime || blackbox?.regime;
+  if (subRegime === "LOOPING")
+    return "Review loop intervention";
   return currentSession ? "Continue with the next step" : "Review session details";
 }
 function sortSessions(items) {
@@ -1599,16 +1602,16 @@ function buildSessionDetail(sessionId, session, metrics = {}, blackbox = {}, sel
       ...orchestration,
       template,
       notes_count: orchestration.notes.length
-    }, sessionId === selection?.current_session_id),
+    }, sessionId === selection?.current_session_id, blackbox),
     notes: orchestration.notes,
     lifecycle: orchestration.lifecycle,
     orchestration
   };
   return summary;
 }
-function buildDashboardHomeModel({ currentSessionId: currentSessionId3, status = {}, savings = {}, todos = [], blackbox = {}, sessions = {}, metrics = {}, templates = TEMPLATE_LIBRARY2 }) {
+function buildDashboardHomeModel({ currentSessionId: currentSessionId3, status = {}, savings = {}, todos = [], blackbox = {}, sessions = {}, metrics = {}, templates = TEMPLATE_LIBRARY2, currentProjectName: currentProjectName3 = "" }) {
   const rows = Object.entries(sessions || {}).map(([sessionId, session]) => buildSessionListItem(sessionId, session, sessionId === currentSessionId3 ? metrics : {}, sessionId === currentSessionId3));
-  const currentSession = buildSessionDetail(currentSessionId3, sessions?.[currentSessionId3] || {}, metrics, blackbox, { ...status, current_session_id: currentSessionId3 });
+  const currentSession = buildSessionDetail(currentSessionId3, sessions?.[currentSessionId3] || {}, metrics, blackbox, { ...status, current_session_id: currentSessionId3, project_name: currentProjectName3 });
   const totalSavings = Number(savings?.lifetime?.delegation_usd || 0) + Number(savings?.lifetime?.cache_usd || 0);
   const currentSavings = Number(savings?.current_session?.delegation_usd || 0) + Number(savings?.current_session?.cache_usd || 0);
   const pendingTodos = asArray(todos).filter((todo) => todo?.status === "pending").length;
@@ -1619,9 +1622,11 @@ function buildDashboardHomeModel({ currentSessionId: currentSessionId3, status =
       recommendation: currentSession.recommendation,
       cards: [
         { label: "Session", value: currentSession.session_id },
+        { label: "Project", value: currentSession.project_name || "unknown" },
         { label: "Slot", value: status?.active_slot || "brain" },
         { label: "Mode", value: status?.optimization_mode || "auto" },
         { label: "Stress", value: blackbox?.sub_regime || "INIT" },
+        { label: "Blackbox", value: currentSession.blackbox?.sub_regime || "INIT" },
         { label: "Savings", value: `$${totalSavings.toFixed(2)}` },
         { label: "TODOs", value: String(pendingTodos) }
       ]
@@ -6754,13 +6759,15 @@ function createMcpServer(deps) {
           blackbox,
           sessions: getSessionsFromState(state),
           metrics: deps.getSessionMetrics(currentSessionId3),
-          templates: typeof deps.listSessionTemplates === "function" ? deps.listSessionTemplates() : TEMPLATE_LIBRARY2
+          templates: typeof deps.listSessionTemplates === "function" ? deps.listSessionTemplates() : TEMPLATE_LIBRARY2,
+          currentProjectName: deps.currentProjectName || ""
         });
         json(res, 200, {
           ...home,
           status: state,
           blackbox,
           backend_connected: state?.backend_connected ?? false,
+          backend_status: state?.backend_connected ? "online" : "degraded",
           backend_health_url: BACKEND_HEALTH_URL,
           backend_version: state?.backend_version || null
         });
@@ -18922,6 +18929,7 @@ async function ensureMcpServerRunning() {
           getSessionOrchestration: (sessionId) => loadSessionOrchestration(sessionId),
           mutateSessionOrchestration: (sessionId, mutator) => mutateSessionOrchestration(sessionId, mutator),
           listSessionTemplates: () => TEMPLATE_LIBRARY,
+          currentProjectName: currentProjectName || "",
           listReports: (filter) => {
             if (!existsSync21(getReportsDir2())) {
               const e = new Error("reports dir not found");
