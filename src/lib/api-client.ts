@@ -827,7 +827,6 @@ export async function ensureBootstrapExchange(): Promise<boolean> {
 function syncApiTokenFromDisk(): void {
   const diskDisabled = readApiDisabledFromDisk()
     || isTruthyFlag(process.env.VIBEOS_API_DISABLED)
-    || isExplicitlyDisabledFlag(process.env.VIBEOS_API_ENABLED)
   const diskToken = readTokenFromDisk() || ""
   const diskBootstrapToken = readBootstrapTokenFromDisk() || ""
   const envToken = normalizeDirectApiToken(process.env.VIBEOS_API_TOKEN)
