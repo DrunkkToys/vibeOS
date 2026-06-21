@@ -15,7 +15,7 @@
     "checkpoint:validate": "node scripts/checkpoint-validate.mjs",
     "test:scripts": "node scripts/run-test-suite.mjs scripts",
     "ts:audit": "node scripts/ts-audit.mjs",
-    "test": "tsc -p tsconfig.json && node scripts/build-bundle.mjs && node scripts/run-test-suite.mjs full",
+    "test": "tsc -p tsconfig.json && node scripts/sync-ts-build.mjs && node scripts/build-bundle.mjs && node scripts/run-test-suite.mjs full",
     "test:ci": "tsc -p tsconfig.json && node scripts/sync-ts-build.mjs && node scripts/build-bundle.mjs && node scripts/run-test-suite.mjs ci",
     "guard": "bash plugins/vibetheog-guard/scripts/run-guard.sh",
     "guard:full": "VIBETHEOG_GUARD_FULL=1 bash plugins/vibetheog-guard/scripts/run-guard.sh",

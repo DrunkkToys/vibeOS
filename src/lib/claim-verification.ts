@@ -2,6 +2,7 @@
 // @ts-nocheck
 import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
+import { getVibeOSHome } from "./state.js"
 
 const CLAIM_PATTERNS = [
   /(?:I|we|the)\s+(?:pushed|released|merged|deployed|fixed|wrote|implemented|completed|committed)\b/i,
@@ -54,7 +55,7 @@ function loadRecentCascadeRuns(vibeHome: string) {
 
 export function evaluateClaimVerification({
   text,
-  vibeHome = process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude"),
+  vibeHome = getVibeOSHome(),
   now = Date.now(),
   windowMs = 120000,
 }: {

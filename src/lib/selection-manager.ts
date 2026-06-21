@@ -1,13 +1,10 @@
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, statSync, copyFileSync, renameSync } from "node:fs"
 import { join, basename } from "node:path"
 import { homedir, tmpdir } from "node:os"
-import { withFileLock, _handleStateCorruption } from "./state.js"
+import { withFileLock, _handleStateCorruption, getVibeOSHome } from "./state.js"
 import { memoCompute } from "./turn-memo.js"
 
 const USER_HOME = (() => { try { return homedir() } catch { return tmpdir() } })()
-function getVibeOSHome() {
-  return process.env.VIBEOS_HOME || join(process.env.HOME || homedir(), ".claude")
-}
 
 function safeJsonParse(raw: string): any {
   if (raw == null || raw === "") return null

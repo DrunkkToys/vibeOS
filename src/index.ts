@@ -29,10 +29,7 @@ import { onToolExecuteBefore, onToolExecuteAfter, setToolDirectory } from "./lib
 import { onMessagesTransform, onSystemTransform, latestUserIntent, ensureProjectSkill } from "./lib/hooks/chat-transform.js"
 import { onSessionCompacting } from "./lib/hooks/session-compact.js"
 import { onShellEnv, setShellDirectory } from "./lib/hooks/shell-env.js"
-import { getOpenCodeHome } from "./lib/state.js"
-function getVibeOSHome() {
-  return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude")
-}
+import { getOpenCodeHome, getVibeOSHome } from "./lib/state.js"
 function getTiersFile() {
   return join(getVibeOSHome(), "model-tiers.json")
 }

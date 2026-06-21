@@ -218,6 +218,29 @@ test('semantic: getCurrentSid returns non-empty string', () => {
   assert.ok(sid.length > 0)
 })
 
+test('semantic: shared pattern store writes one normalized row for repeated updates', async () => {
+  const store = await import(join(ROOT, 'src/lib/pattern-store.js?store=' + Date.now()))
+  const fp = 'fp-shared-store'
+  const first = store.upsertProjectPattern('friction', 'workflow:repeat-fail:bash', 'bash failed repeatedly — possible systematic issue.', {
+    fingerprint: fp,
+    sessions: ['s1'],
+    family: 'bash',
+  })
+  const second = store.upsertProjectPattern('friction', 'workflow:repeat-fail:bash', 'bash failed repeatedly — possible systematic issue.', {
+    fingerprint: fp,
+    sessions: ['s2'],
+    family: 'bash',
+  })
+
+  assert.ok(first)
+  assert.ok(second)
+  const state = JSON.parse(readFileSync(join(claudeDir, 'project-states.json'), 'utf-8'))
+  const row = state.project_hashes?.[fp]?.userPatterns?.friction?.['workflow:repeat-fail:bash']
+  assert.ok(row, 'shared pattern row exists')
+  assert.equal(row.count, 2, 'shared store increments the same row')
+  assert.deepEqual(row.sessions, ['s1', 's2'], 'shared store preserves both sessions')
+})
+
 test('semantic: writeEvent and readRecentEvents roundtrip', () => {
   mod.writeEvent('test-rt', { tool: 'bash', role: 'verification', family: 'test', at: Date.now(), isGuardBreach: false, isProtectedTarget: false, exitCode: 0 })
   const events = mod.readRecentEvents('test-rt', 10)

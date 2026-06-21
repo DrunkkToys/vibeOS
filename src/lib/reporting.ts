@@ -2,7 +2,7 @@
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync, copyFileSync, rmSync } from "node:fs"
 import { join, basename } from "node:path"
-import { withFileLock, safeJsonParse, currentProjectFingerprint as liveProjectFingerprint, currentProjectName as liveProjectName, getCurrentSessionId, _handleStateCorruption, loadProjectState, saveProjectState, touchProjectBucket } from "./state.js"
+import { withFileLock, safeJsonParse, currentProjectFingerprint as liveProjectFingerprint, currentProjectName as liveProjectName, getCurrentSessionId, _handleStateCorruption, loadProjectState, saveProjectState, touchProjectBucket, getVibeOSHome } from "./state.js"
 import { getOcSessionId } from "./runtime-state.js"
 
 // Report data:
@@ -15,10 +15,6 @@ import { getOcSessionId } from "./runtime-state.js"
 //   status: "pending" | "completed" | "failed" | "partial"
 //   task_description: string
 //   outcome_verified: boolean
-function getVibeOSHome() {
-  return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude")
-}
-
 function getReportsDir() {
   return join(getVibeOSHome(), "reports")
 }

@@ -57,7 +57,7 @@ const ACTIVE_JOBS_STALE_MS = 72 * 60 * 60 * 1000
 const MAX_PTR_CANDIDATES = 50
 const SUMMARY_HEAD_TRUNCATE = 500
 
-function getVibeOSHome(): string {
+export function getVibeOSHome(): string {
   return VIBEOS_CONTEXT.getStore()?.home || process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude")
 }
 

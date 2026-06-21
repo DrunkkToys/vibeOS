@@ -24,7 +24,7 @@ import {
   setCurrentProjectFingerprint, setCurrentProjectName,
   stableJson, TOOL_NAME_NORMALIZE,
   loadSessionOrchestration,
-  _cacheDb, recordCacheSaving, getOpenCodeHome, safeCopyIntoSession,
+  _cacheDb, recordCacheSaving, getOpenCodeHome, getVibeOSHome, safeCopyIntoSession,
 } from "../state.js"
 import { memoCompute, nextTurn } from "../turn-memo.js"
 import { evaluateClaimVerification } from "../claim-verification.js"
@@ -81,10 +81,6 @@ const ANTI_LOOP_DIRECTIVE = "[anti-loop cost guard] Token waste is real money: i
 // Cached context7 directive builder — only rebuilds when urgency changes
 let _cachedC7Full: string | null = null
 let _cachedC7Urgency: string | null = null
-
-function getVibeOSHome() {
-  return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude")
-}
 
 export function ensureVibeSkill(dir: string): { created: boolean; path?: string; skipped: boolean } {
   try {
@@ -837,7 +833,7 @@ export const onMessagesTransform = async (_input, output) => {
     try {
 
       if (!Array.isArray(messages) || Object.isFrozen(messages)) return
-      const vibeHome = process.env.VIBEOS_HOME || join(process.env.HOME || homedir(), ".claude")
+      const vibeHome = getVibeOSHome()
       if (typeof vibeHome !== "string" || vibeHome.length === 0) return
       let currentAssistantText = ""
       let lastInjectTs = 0

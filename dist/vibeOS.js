@@ -19,9 +19,6 @@ var __export = (target, all) => {
 import { readFileSync, writeFileSync, existsSync, statSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
-function getVibeOSHome() {
-  return process.env.VIBEOS_HOME || join(process.env.HOME || homedir(), ".claude");
-}
 function safeJsonParse(raw) {
   if (raw == null || raw === "")
     return null;
@@ -67,12 +64,6 @@ function loadSelectionImpl() {
       flow_enforce: j?.selection?.flow_enforce === true,
       delegation_enforce: j?.selection?.delegation_enforce !== false,
       onboarding_mode: j?.selection?.onboarding_mode || null,
-      selected_provider: j?.selection?.selected_provider || null,
-      selected_quality_tier: j?.selection?.selected_quality_tier || null,
-      selected_model: j?.selection?.selected_model || null,
-      executed_provider: j?.selection?.executed_provider || null,
-      executed_quality_tier: j?.selection?.executed_quality_tier || null,
-      executed_model: j?.selection?.executed_model || null,
       requested_optimization_mode: j?.selection?.requested_optimization_mode || null,
       previous_default_agent: j?.selection?.previous_default_agent || null,
       previous_optimization_mode: j?.selection?.previous_optimization_mode || null
@@ -104,6 +95,8 @@ function writeSelection(key, value) {
       const j = safeJsonParse(readFileSync(TIERS_FILE3, "utf-8"));
       if (!j.selection)
         j.selection = {};
+      for (const shadowKey of SHADOW_SELECTION_KEYS)
+        delete j.selection[shadowKey];
       j.selection[key] = value;
       const tmp = TIERS_FILE3 + ".tmp." + Date.now() + "." + Math.random().toString(36).slice(2, 8);
       writeFileSync(tmp, JSON.stringify(j, null, 2) + "\n");
@@ -116,18 +109,25 @@ function writeSelection(key, value) {
     return false;
   }
 }
-function loadSessionSlot(sid) {
+function sanitizeSelection(selection) {
+  if (!selection || typeof selection !== "object")
+    return selection;
+  for (const shadowKey of SHADOW_SELECTION_KEYS)
+    delete selection[shadowKey];
+  return selection;
+}
+function readSessionRecord(sid) {
   const BLACKBOX_FILE = join(getVibeOSHome(), "blackbox-state.json");
   try {
     if (!existsSync(BLACKBOX_FILE))
       return null;
     const j = safeJsonParse(readFileSync(BLACKBOX_FILE, "utf-8"));
-    return j?.sessions?.[sid]?.active_slot || null;
+    return j?.sessions?.[sid] || null;
   } catch {
     return null;
   }
 }
-function writeSessionSlot(sid, slot) {
+function writeSessionRecord(sid, updater) {
   const BLACKBOX_FILE = join(getVibeOSHome(), "blackbox-state.json");
   try {
     const j = existsSync(BLACKBOX_FILE) ? safeJsonParse(readFileSync(BLACKBOX_FILE, "utf-8")) : {};
@@ -135,26 +135,28 @@ function writeSessionSlot(sid, slot) {
       j.sessions = {};
     if (!j.sessions[sid])
       j.sessions[sid] = {};
-    j.sessions[sid].active_slot = slot;
+    updater(j.sessions[sid]);
     const tmp = BLACKBOX_FILE + ".tmp";
     writeFileSync(tmp, JSON.stringify(j, null, 2) + "\n");
     renameSync(tmp, BLACKBOX_FILE);
     return true;
   } catch (err) {
-    console.error("[vibeOS] writeSessionSlot failed: " + err.message);
+    console.error("[vibeOS] writeSessionRecord failed: " + err.message);
     return false;
   }
 }
+function loadSessionSlot(sid) {
+  const record = readSessionRecord(sid);
+  return record?.active_slot || null;
+}
+function writeSessionSlot(sid, slot) {
+  return writeSessionRecord(sid, (record) => {
+    record.active_slot = slot;
+  });
+}
 function loadSessionOptMode(sid) {
-  const BLACKBOX_FILE = join(getVibeOSHome(), "blackbox-state.json");
-  try {
-    if (!existsSync(BLACKBOX_FILE))
-      return null;
-    const j = safeJsonParse(readFileSync(BLACKBOX_FILE, "utf-8"));
-    return j?.sessions?.[sid]?.optimization_mode || null;
-  } catch {
-    return null;
-  }
+  const record = readSessionRecord(sid);
+  return record?.optimization_mode || null;
 }
 function loadGlobalOptMode() {
   try {
@@ -168,24 +170,11 @@ function saveGlobalOptMode(mode) {
   return writeSelection("optimization_mode", mode);
 }
 function writeSessionOptMode2(sid, mode) {
-  const BLACKBOX_FILE = join(getVibeOSHome(), "blackbox-state.json");
-  try {
-    const j = existsSync(BLACKBOX_FILE) ? safeJsonParse(readFileSync(BLACKBOX_FILE, "utf-8")) : {};
-    if (!j.sessions)
-      j.sessions = {};
-    if (!j.sessions[sid])
-      j.sessions[sid] = {};
-    j.sessions[sid].optimization_mode = mode;
-    const tmp = BLACKBOX_FILE + ".tmp";
-    writeFileSync(tmp, JSON.stringify(j, null, 2) + "\n");
-    renameSync(tmp, BLACKBOX_FILE);
-    return true;
-  } catch (err) {
-    console.error("[vibeOS] writeSessionOptMode failed: " + err.message);
-    return false;
-  }
+  return writeSessionRecord(sid, (record) => {
+    record.optimization_mode = mode;
+  });
 }
-var USER_HOME, DFLT_SEL, _selCache, _selLastStamp, TIERS_FILE_PATH;
+var USER_HOME, DFLT_SEL, SHADOW_SELECTION_KEYS, _selCache, _selLastStamp, TIERS_FILE_PATH;
 var init_selection_manager = __esm({
   "src/lib/selection-manager.js"() {
     "use strict";
@@ -197,7 +186,8 @@ var init_selection_manager = __esm({
         return tmpdir();
       }
     })();
-    DFLT_SEL = { enabled: true, active_slot: null, slot_locked: false, thinking_level: "off", flow_enabled: true, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: true, delegation_enforce: true, onboarding_mode: null, selected_provider: null, selected_quality_tier: null, selected_model: null, executed_provider: null, executed_quality_tier: null, executed_model: null, requested_optimization_mode: null, previous_default_agent: null, previous_optimization_mode: null };
+    DFLT_SEL = { enabled: true, active_slot: null, slot_locked: false, thinking_level: "off", flow_enabled: true, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: true, delegation_enforce: true, onboarding_mode: null, requested_optimization_mode: null, previous_default_agent: null, previous_optimization_mode: null };
+    SHADOW_SELECTION_KEYS = /* @__PURE__ */ new Set(["selected_provider", "selected_quality_tier", "selected_model", "executed_provider", "executed_quality_tier", "executed_model"]);
     _selCache = null;
     _selLastStamp = "";
     TIERS_FILE_PATH = () => join(getVibeOSHome(), "model-tiers.json");
@@ -1676,7 +1666,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 function resolveVibeOSHome() {
   return process.env.VIBEOS_HOME || join2(process.env.HOME || USER_HOME2, ".claude");
 }
-function getVibeOSHome2() {
+function getVibeOSHome() {
   return VIBEOS_CONTEXT.getStore()?.home || process.env.VIBEOS_HOME || join2(process.env.HOME || "", ".claude");
 }
 function hasOpenCodeConfig(dir) {
@@ -1856,7 +1846,7 @@ function pruneInactiveSessions(state) {
 }
 function runStartupMaintenanceOnce() {
   try {
-    const home = getVibeOSHome2();
+    const home = getVibeOSHome();
     if (!home || home === _startupMaintenanceHome)
       return;
     _startupMaintenanceHome = home;
@@ -2006,7 +1996,7 @@ function readJsonOrEmpty(filePath) {
   }
 }
 function updateState(mutator) {
-  const delegationStateFile = join2(getVibeOSHome2(), "delegation-state.json");
+  const delegationStateFile = join2(getVibeOSHome(), "delegation-state.json");
   const MAX_RETRIES2 = 3;
   for (let attempt = 0; attempt < MAX_RETRIES2; attempt++) {
     try {
@@ -2047,7 +2037,7 @@ function updateState(mutator) {
   return null;
 }
 function readFullState() {
-  const delegationStateFile = join2(getVibeOSHome2(), "delegation-state.json");
+  const delegationStateFile = join2(getVibeOSHome(), "delegation-state.json");
   try {
     if (!existsSync2(delegationStateFile))
       return {};
@@ -2077,7 +2067,7 @@ function _safeRegex(cfg, fallback2, label) {
 }
 function loadTierRegexes() {
   try {
-    const p = join2(getVibeOSHome2(), "model-tiers.json");
+    const p = join2(getVibeOSHome(), "model-tiers.json");
     if (!existsSync2(p))
       return { high: FALLBACK_HIGH, mid: FALLBACK_MID };
     const j = safeJsonParse2(readFileSync2(p, "utf-8"));
@@ -2089,7 +2079,7 @@ function loadTierRegexes() {
   }
 }
 function loadGlobalLearning() {
-  const globalLearningFile = join2(getVibeOSHome2(), "global-learning.json");
+  const globalLearningFile = join2(getVibeOSHome(), "global-learning.json");
   try {
     if (!existsSync2(globalLearningFile))
       return DFLT_GL;
@@ -2113,7 +2103,7 @@ function loadGlobalLearning() {
   }
 }
 function updateGlobalLearning(mutator) {
-  const globalLearningFile = join2(getVibeOSHome2(), "global-learning.json");
+  const globalLearningFile = join2(getVibeOSHome(), "global-learning.json");
   return withFileLock(globalLearningFile, () => {
     const s = loadGlobalLearning();
     const next = mutator(s) ?? s;
@@ -2163,7 +2153,7 @@ function saveMLState() {
   }
 }
 function loadBlackboxState() {
-  const blackboxFile = join2(getVibeOSHome2(), "blackbox-state.json");
+  const blackboxFile = join2(getVibeOSHome(), "blackbox-state.json");
   try {
     if (!existsSync2(blackboxFile))
       return { enabled: true, sessions: {} };
@@ -2201,7 +2191,7 @@ function loadBlackboxState() {
   }
 }
 function saveBlackboxState(state) {
-  const blackboxFile = join2(getVibeOSHome2(), "blackbox-state.json");
+  const blackboxFile = join2(getVibeOSHome(), "blackbox-state.json");
   try {
     const next = state && typeof state === "object" ? state : { enabled: true, sessions: {} };
     next.sessions ??= {};
@@ -3048,23 +3038,23 @@ function loadActiveJobs() {
     return {};
   }
 }
-function getActiveJobForProject(fp2 = currentProjectFingerprint) {
-  if (!fp2)
+function getActiveJobForProject(fp3 = currentProjectFingerprint) {
+  if (!fp3)
     return null;
   const jobs = loadActiveJobs();
-  const job = jobs[fp2];
+  const job = jobs[fp3];
   if (!job || typeof job !== "object")
     return null;
   return job;
 }
-function saveActiveJobForProject(job, fp2 = currentProjectFingerprint) {
-  if (!fp2 || !job || typeof job !== "object")
+function saveActiveJobForProject(job, fp3 = currentProjectFingerprint) {
+  if (!fp3 || !job || typeof job !== "object")
     return;
   try {
     withFileLock(ACTIVE_JOBS_FILE, () => {
       const jobs = _readActiveJobsRaw();
       const norm = _normalizeActiveJobRecord(job);
-      jobs[fp2] = norm.record || job;
+      jobs[fp3] = norm.record || job;
       _writeActiveJobsRaw(jobs);
     });
   } catch {
@@ -3076,7 +3066,7 @@ function projectFingerprint(dir) {
   return createHash2("sha256").update(dir).digest("hex").slice(0, 12);
 }
 function loadProjectState() {
-  const projectStateFile = join2(getVibeOSHome2(), "project-states.json");
+  const projectStateFile = join2(getVibeOSHome(), "project-states.json");
   try {
     const state = readJsonOrEmpty(projectStateFile);
     if (state && typeof state === "object") {
@@ -3088,7 +3078,7 @@ function loadProjectState() {
   return { project_hashes: {} };
 }
 function saveProjectState(state) {
-  const projectStateFile = join2(getVibeOSHome2(), "project-states.json");
+  const projectStateFile = join2(getVibeOSHome(), "project-states.json");
   try {
     withFileLock(projectStateFile, () => {
       mkdirSync(dirname(projectStateFile), { recursive: true });
@@ -3100,10 +3090,10 @@ function saveProjectState(state) {
     console.error(`[vibeOS] project state write failed: ${err.message}`);
   }
 }
-function ensureProjectBucket(state, fp2) {
+function ensureProjectBucket(state, fp3) {
   state.project_hashes ??= {};
-  if (!state.project_hashes[fp2]) {
-    state.project_hashes[fp2] = {
+  if (!state.project_hashes[fp3]) {
+    state.project_hashes[fp3] = {
       totalSessions: 0,
       researchChains: 0,
       context7Bypasses: 0,
@@ -3115,12 +3105,12 @@ function ensureProjectBucket(state, fp2) {
       techStack: detectTechStack(process.cwd())
     };
   }
-  return state.project_hashes[fp2];
+  return state.project_hashes[fp3];
 }
-function touchProjectBucket(state, fp2, meta = {}) {
-  if (!fp2 || fp2 === "unknown")
+function touchProjectBucket(state, fp3, meta = {}) {
+  if (!fp3 || fp3 === "unknown")
     return null;
-  const bucket = ensureProjectBucket(state, fp2);
+  const bucket = ensureProjectBucket(state, fp3);
   const now = (/* @__PURE__ */ new Date()).toISOString();
   bucket.updatedAt = now;
   bucket.lastSeen = now;
@@ -3186,9 +3176,9 @@ function detectTechStack(dir) {
   }
   return [...new Set(stacks)];
 }
-function promotedProjectPatterns(fp2) {
+function promotedProjectPatterns(fp3) {
   try {
-    const p = loadProjectState().project_hashes?.[fp2];
+    const p = loadProjectState().project_hashes?.[fp3];
     const out = [];
     const collect = (rows, label) => {
       for (const row of Object.values(rows || {})) {
@@ -3207,9 +3197,9 @@ function promotedProjectPatterns(fp2) {
     return [];
   }
 }
-function projectPatternRows(fp2) {
+function projectPatternRows(fp3) {
   try {
-    const p = loadProjectState().project_hashes?.[fp2];
+    const p = loadProjectState().project_hashes?.[fp3];
     const rows = [];
     for (const [kind, label] of [["friction", "friction"], ["routines", "routine"]]) {
       for (const [key, row] of Object.entries(p?.userPatterns?.[kind] || {})) {
@@ -3231,10 +3221,10 @@ function projectPatternRows(fp2) {
     return [];
   }
 }
-function clearProjectPatterns(fp2) {
+function clearProjectPatterns(fp3) {
   try {
     const pstate = loadProjectState();
-    const bucket = pstate.project_hashes?.[fp2];
+    const bucket = pstate.project_hashes?.[fp3];
     if (!bucket?.userPatterns)
       return 0;
     const count = Object.keys(bucket.userPatterns.friction || {}).length + Object.keys(bucket.userPatterns.routines || {}).length;
@@ -3605,7 +3595,7 @@ function reconcileStateFromLedger() {
     const l = readLedgerTotals();
     if (l.total <= 0 && l.context7 <= 0)
       return;
-    const delegationStateFile = join2(getVibeOSHome2(), "delegation-state.json");
+    const delegationStateFile = join2(getVibeOSHome(), "delegation-state.json");
     const state = readJsonOrEmpty(delegationStateFile);
     const stDelegation = Number(state?.lifetime?.est_savings_usd ?? state?.lifetime?.total_savings_usd ?? 0);
     const stCache = Number(state?.lifetime?.cache_savings_usd ?? 0);
@@ -3633,7 +3623,7 @@ function readLifetimeSavings() {
   const empty = { ltTasks: 0, ltCache: 0, ltCost: 0, count: 0, scratchpadHits: 0, missedC7: 0, sesTasks: 0, sesEdit: 0, sesCredit: 0, sesC7: 0, sesQuota: 0, sesTaskDelegations: 0, sesDuration: 0, sesRatePerHour: 0, sesTrend: "stable", sesToolBreakdown: {}, sesModelTurns: { brain: 0, worker: 0 }, quality_avg: 0, telemetry: readTelemetrySummary({}, _OC_SID) };
   try {
     reconcileStateFromLedger();
-    const delegationStateFile = join2(getVibeOSHome2(), "delegation-state.json");
+    const delegationStateFile = join2(getVibeOSHome(), "delegation-state.json");
     if (!existsSync2(delegationStateFile))
       return empty;
     const mtime = statSync2(delegationStateFile).mtimeMs;
@@ -4389,6 +4379,7 @@ var init_api_client = __esm({
   "src/lib/api-client.js"() {
     "use strict";
     init_runtime_state();
+    init_state();
     DEFAULT_API_URL = "https://api.vibetheog.com";
     EMBEDDED_API_TOKEN = "vos_8d73804b13bb46711b9a47f036dba7b4d026fd9583d96960e663716e62815a69";
     API_TOKEN_RE = /^vos_[a-f0-9]{64}$/i;
@@ -4781,7 +4772,7 @@ var init_api_client = __esm({
     };
     VIBEOS_API_URL = process.env.VIBEOS_API_URL || "https://api.vibetheog.com";
     _apiDir = typeof __dirname !== "undefined" ? __dirname : dirname4(fileURLToPath3(import.meta.url));
-    _vibeHome = process.env.VIBEOS_HOME || join5(process.env.HOME || homedir3(), ".claude");
+    _vibeHome = getVibeOSHome();
     _homeClaude = join5(process.env.HOME || homedir3(), ".claude");
     _envPaths = Array.from(/* @__PURE__ */ new Set([_homeClaude, _vibeHome, _apiDir, process.cwd(), homedir3()]));
     _apiPersistHome = _vibeHome || _homeClaude;
@@ -5864,9 +5855,6 @@ if (!VIBEOS_STDERR_DEBUG && !globalConsoleState[VIBEOS_CONSOLE_ERROR_GUARD]) {
   };
   globalConsoleState[VIBEOS_CONSOLE_ERROR_GUARD] = true;
 }
-function getVibeOSHome3() {
-  return process.env.VIBEOS_HOME || join3(process.env.HOME || "", ".claude");
-}
 function safeJsonParse3(raw) {
   if (raw == null || raw === "")
     return null;
@@ -5882,7 +5870,7 @@ function safeJsonParse3(raw) {
   }
 }
 function getRealityCheckSettingsFile() {
-  return join3(getVibeOSHome3(), "reality-check-settings.json");
+  return join3(getVibeOSHome(), "reality-check-settings.json");
 }
 var __dirname2 = dirname2(fileURLToPath(import.meta.url));
 var REALITY_CHECK_RULE_IDS = /* @__PURE__ */ new Set([
@@ -5987,12 +5975,12 @@ function ensureProjectDocs(dir, techStack) {
   return { created, skipped };
 }
 function getStateFile() {
-  return join3(getVibeOSHome3(), "delegation-state.json");
+  return join3(getVibeOSHome(), "delegation-state.json");
 }
 function getFlowTodoFile() {
-  return join3(getVibeOSHome3(), ".flow-todo-queue.jsonl");
+  return join3(getVibeOSHome(), ".flow-todo-queue.jsonl");
 }
-var FLOW_DEDUP_FILE2 = join3(getVibeOSHome3(), ".flow-dedup-keys.json");
+var FLOW_DEDUP_FILE2 = join3(getVibeOSHome(), ".flow-dedup-keys.json");
 var MAX_FLOW_TODOS = 200;
 var _flowWarnsSeen = /* @__PURE__ */ new Set();
 var _stateWriter = null;
@@ -6108,8 +6096,8 @@ function readRealityCheckSettings() {
 }
 function getRealityCheckRulesForProject(projectFingerprint2 = currentProjectFingerprint || "") {
   const settings = readRealityCheckSettings();
-  const fp2 = String(projectFingerprint2 || "").trim();
-  const project = fp2 && settings.projects?.[fp2] ? settings.projects[fp2] : null;
+  const fp3 = String(projectFingerprint2 || "").trim();
+  const project = fp3 && settings.projects?.[fp3] ? settings.projects[fp3] : null;
   const scope = project ? "project" : "global";
   const enabled = scope === "project" ? project?.enabled ?? settings.global?.enabled !== false : settings.global?.enabled !== false;
   const source = scope === "project" ? Array.isArray(project?.rules) && project?.rules.length > 0 ? project.rules : settings.global?.rules || defaultRealityCheckRules() : settings.global?.rules || defaultRealityCheckRules();
@@ -6133,14 +6121,14 @@ function getRealityCheckRulesForProject(projectFingerprint2 = currentProjectFing
 }
 function getRealityCheckView(projectFingerprint2 = currentProjectFingerprint || "") {
   const settings = readRealityCheckSettings();
-  const fp2 = String(projectFingerprint2 || "").trim();
-  const project = fp2 && settings.projects?.[fp2] ? settings.projects[fp2] : null;
+  const fp3 = String(projectFingerprint2 || "").trim();
+  const project = fp3 && settings.projects?.[fp3] ? settings.projects[fp3] : null;
   const scope = project ? "project" : "global";
   const enabled = scope === "project" ? project?.enabled ?? settings.global?.enabled !== false : settings.global?.enabled !== false;
-  const rules = getRealityCheckRulesForProject(fp2);
+  const rules = getRealityCheckRulesForProject(fp3);
   return {
     scope,
-    project_id: project ? fp2 : null,
+    project_id: project ? fp3 : null,
     enabled,
     rules
   };
@@ -6225,13 +6213,13 @@ function recordFlowWarn(hit) {
     if (state.flow_warns.length > 200) {
       state.flow_warns = state.flow_warns.slice(-200);
     }
-    const fp2 = { flow_warns: state.flow_warns };
+    const fp3 = { flow_warns: state.flow_warns };
     if (_stateWriter)
-      _stateWriter(fp2);
+      _stateWriter(fp3);
     else {
       const stateFile2 = getStateFile();
       const existing = safeJsonParse3(existsSync3(stateFile2) ? readFileSync3(stateFile2, "utf-8") : "{}");
-      const merged = Object.assign({}, existing, fp2);
+      const merged = Object.assign({}, existing, fp3);
       const tmpFile = stateFile2 + ".tmp." + Date.now();
       writeFileSync3(tmpFile, JSON.stringify(merged, null, 2));
       renameSync3(tmpFile, stateFile2);
@@ -6684,16 +6672,16 @@ async function probeBackendHealth(force = false) {
     return { ok: false, version: null };
   }
 }
-function sendFile(res, fp2) {
-  if (!existsSync4(fp2)) {
+function sendFile(res, fp3) {
+  if (!existsSync4(fp3)) {
     res.statusCode = 404;
     res.setHeader("Content-Type", "text/plain; charset=utf-8");
     res.end("not found");
     return;
   }
-  const ext = extname(fp2).toLowerCase();
+  const ext = extname(fp3).toLowerCase();
   const mime = MIME_MAP[ext] || "application/octet-stream";
-  const st = statSync4(fp2);
+  const st = statSync4(fp3);
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
@@ -6701,7 +6689,7 @@ function sendFile(res, fp2) {
   res.setHeader("Content-Type", mime);
   res.setHeader("Content-Length", st.size);
   res.setHeader("Cache-Control", "no-cache");
-  const s = createReadStream(fp2);
+  const s = createReadStream(fp3);
   s.pipe(res);
   s.on("error", () => {
     res.statusCode = 500;
@@ -6710,9 +6698,9 @@ function sendFile(res, fp2) {
 }
 function serveDashboard(res, p) {
   const idx = join4(DASHBOARD_DIR, "index.html");
-  let fp2 = join4(DASHBOARD_DIR, p === "/" ? "index.html" : p);
-  if (existsSync4(fp2) && statSync4(fp2).isFile()) {
-    sendFile(res, fp2);
+  let fp3 = join4(DASHBOARD_DIR, p === "/" ? "index.html" : p);
+  if (existsSync4(fp3) && statSync4(fp3).isFile()) {
+    sendFile(res, fp3);
     return;
   }
   if (existsSync4(idx)) {
@@ -7221,16 +7209,13 @@ var USER_HOME3 = (() => {
 var DEFAULT_TRINITY_SLOTS = ["brain", "medium", "cheap"];
 var LABEL_MODES = ["Fast", "Balanced", "High Quality", "Cheap"];
 var DEBUG_INTERNALS = process.env.VIBEOS_DEBUG_INTERNALS === "1";
-function getVibeOSHome4() {
-  return process.env.VIBEOS_HOME || join6(process.env.HOME || homedir4(), ".claude");
-}
 function getOpenCodeDesktopHome() {
   return process.env.VIBEOS_OPENCODE_DESKTOP_HOME || join6(process.env.HOME || homedir4(), "Library", "Application Support", "ai.opencode.desktop");
 }
-var TIERS_FILE2 = join6(getVibeOSHome4(), "model-tiers.json");
+var TIERS_FILE2 = join6(getVibeOSHome(), "model-tiers.json");
 function _lockPathFor2(filePath) {
   const hash = createHash3("sha1").update(String(filePath || "")).digest("hex");
-  return join6(getVibeOSHome4(), ".vibeOS-locks", `${hash}.lock`);
+  return join6(getVibeOSHome(), ".vibeOS-locks", `${hash}.lock`);
 }
 function withFileLock2(filePath, fn, opts = {}) {
   const staleMs = Number(opts.staleMs || 3e4);
@@ -7239,7 +7224,7 @@ function withFileLock2(filePath, fn, opts = {}) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
-      mkdirSync5(join6(getVibeOSHome4(), ".vibeOS-locks"), { recursive: true });
+      mkdirSync5(join6(getVibeOSHome(), ".vibeOS-locks"), { recursive: true });
       const fd = openSync2(lockPath, "wx");
       try {
         writeFileSync6(fd, `${process.pid}
@@ -7350,11 +7335,40 @@ function resolveExecutionIdentity(modelId, directory3 = "") {
     model_label: shortModelName(resolved || raw)
   };
 }
+function resolveCurrentExecution({ directory: directory3 = "", activeSlot = "", currentModel: currentModel3 = "", liveModel = "", tiersData = null } = {}) {
+  const slot = String(activeSlot || "").trim();
+  const slotModel = slot && tiersData?.trinity?.[slot]?.oc ? tiersData.trinity[slot].oc : "";
+  const resolvedModel = slotModel || String(liveModel || "").trim() || String(currentModel3 || "").trim() || "";
+  const execution = resolveExecutionIdentity(resolvedModel, directory3);
+  return {
+    slot,
+    model: resolvedModel,
+    provider: execution.provider,
+    provider_label: execution.provider_label,
+    quality: execution.quality,
+    quality_label: execution.quality_label,
+    model_label: execution.model_label
+  };
+}
 function resolveTrinityDisplayModel(directory3 = "", activeSlot = "", liveModel = "", currentModelId = "") {
   const slot = String(activeSlot || "").trim();
   const slotModel = slot === "brain" ? TRINITY_BRAIN || "" : slot === "medium" ? TRINITY_MEDIUM || "" : slot === "cheap" ? TRINITY_CHEAP || "" : "";
   const raw = [slotModel, liveModel, currentModelId].map((value) => String(value || "").trim()).find(Boolean) || "";
   return resolveDisplayModelId(raw, directory3) || raw;
+}
+function writeLiveOpenCodeModel(projectDir, modelId) {
+  const dir = projectDir || process.cwd();
+  const localOcConfig = join6(dir, "opencode.json");
+  const ocConfig = existsSync6(localOcConfig) ? localOcConfig : join6(getOpenCodeHome(), "opencode.json");
+  if (existsSync6(ocConfig)) {
+    const oc = safeJsonParse2(readFileSync5(ocConfig, "utf-8"));
+    if (oc) {
+      oc.model = modelId;
+      writeFileSync6(ocConfig, JSON.stringify(oc, null, 2) + "\n");
+    }
+  }
+  _refreshModel(dir);
+  return true;
 }
 function _providerOfModel(modelId, fallbackProvider = "") {
   const provider = getModelProvider(modelId);
@@ -7755,7 +7769,7 @@ var _dynamicPricingCache = null;
 var _dynamicPricingCacheLoadedAt = 0;
 var _dynamicPricingCacheHome = "";
 function _loadDynamicPricingCache() {
-  const home = getVibeOSHome4();
+  const home = getVibeOSHome();
   const now = Date.now();
   if (_dynamicPricingCache && _dynamicPricingCacheHome === home && now - _dynamicPricingCacheLoadedAt < 1e4)
     return _dynamicPricingCache;
@@ -7809,7 +7823,7 @@ function _parseOpenRouterTurnCost(modelRow) {
 function _writeDynamicPricingCache(modelsMap) {
   if (!modelsMap || typeof modelsMap !== "object")
     return;
-  const PRICING_CACHE_FILE2 = join6(getVibeOSHome4(), "model-pricing-cache.json");
+  const PRICING_CACHE_FILE2 = join6(getVibeOSHome(), "model-pricing-cache.json");
   try {
     withFileLock2(PRICING_CACHE_FILE2, () => {
       mkdirSync5(dirname5(PRICING_CACHE_FILE2), { recursive: true });
@@ -7858,7 +7872,7 @@ function _getNormalizedCostMap() {
   return _modelCostMapNormalized;
 }
 function _loadPricingOverrides() {
-  const home = getVibeOSHome4();
+  const home = getVibeOSHome();
   const now = Date.now();
   if (_pricingOverridesCache && _pricingOverridesHome === home && now - _pricingOverridesLoadedAt < 1e4)
     return _pricingOverridesCache;
@@ -7955,8 +7969,8 @@ function isModelFree(model) {
   return cost <= FREE_MODEL_TURN_USD;
 }
 var CONTEXT7_CONFIG_FILES = [
-  join6(getVibeOSHome4(), "settings.json"),
-  join6(getVibeOSHome4(), ".claude.json"),
+  join6(getVibeOSHome(), "settings.json"),
+  join6(getVibeOSHome(), ".claude.json"),
   join6(getOpenCodeHome(), "opencode.json"),
   join6(process.cwd(), "opencode.json")
 ];
@@ -8250,7 +8264,7 @@ function _setTrinitySlotsFromTiers(tiersData) {
 }
 function loadTrinitySlotsFromTiersFile() {
   try {
-    const TIERS_FILE3 = join6(getVibeOSHome4(), "model-tiers.json");
+    const TIERS_FILE3 = join6(getVibeOSHome(), "model-tiers.json");
     if (!existsSync6(TIERS_FILE3))
       return false;
     const st = statSync5(TIERS_FILE3);
@@ -8273,7 +8287,7 @@ function getTrinitySlotOrder(tiersData = null) {
 }
 function _refreshModel(directory3) {
   try {
-    const TIERS_FILE3 = join6(getVibeOSHome4(), "model-tiers.json");
+    const TIERS_FILE3 = join6(getVibeOSHome(), "model-tiers.json");
     const sel = loadSelection();
     if (!sel.enabled)
       return;
@@ -8351,25 +8365,18 @@ function _refreshModel(directory3) {
 }
 function applySlot2(slot, projectDir = "") {
   try {
-    const TIERS_FILE3 = join6(getVibeOSHome4(), "model-tiers.json");
+    const TIERS_FILE3 = join6(getVibeOSHome(), "model-tiers.json");
     return withFileLock2(TIERS_FILE3, () => {
       const j = safeJsonParse2(readFileSync5(TIERS_FILE3, "utf-8"));
       const ocModel = j?.trinity?.[slot]?.oc;
       if (!ocModel)
         return { ok: false, reason: `slot '${slot}' has no oc model` };
+      sanitizeSelection(j.selection || (j.selection = {}));
       j.selection.active_slot = slot;
       const _tmp = TIERS_FILE3 + ".tmp." + Date.now();
       writeFileSync6(_tmp, JSON.stringify(j, null, 2) + "\n", "utf-8");
       renameSync4(_tmp, TIERS_FILE3);
-      const dir = projectDir || process.cwd();
-      const localOcConfig = join6(dir, "opencode.json");
-      const ocConfig = existsSync6(localOcConfig) ? localOcConfig : join6(getOpenCodeHome(), "opencode.json");
-      if (existsSync6(ocConfig)) {
-        const oc = safeJsonParse2(readFileSync5(ocConfig, "utf-8"));
-        oc.model = ocModel;
-        writeFileSync6(ocConfig, JSON.stringify(oc, null, 2) + "\n");
-      }
-      _refreshModel(dir);
+      writeLiveOpenCodeModel(projectDir, ocModel);
       return { ok: true, ocModel };
     });
   } catch (err) {
@@ -9373,9 +9380,6 @@ async function classifyTurnRemote(text) {
   _lastClassifiedByApi = false;
   return classifyTurnSimple(text);
 }
-function getVibeOSHome5() {
-  return process.env.VIBEOS_HOME || join8(process.env.HOME || "", ".claude");
-}
 var QUALITY_STRESS_THRESHOLD2 = 1.5;
 var AUTO_MODE_BY_REGIME = {
   AUDIT: "audit",
@@ -9519,24 +9523,9 @@ function buildUltraxControlVector(state) {
     user_text: state?.user_text || state?.prompt || ""
   });
   return {
-    enforcement_mode: ultra.enforcement_mode,
+    ...ultra,
     enforcement_reason: `[optimize: vibeultrax] cascade root`,
-    flow_mode: ultra.flow_mode,
-    flow_focus: [],
-    tdd_mode: ultra.tdd_mode,
-    tdd_focus: [],
-    tier_bias: ultra.tier_bias,
-    thinking_mode: ultra.thinking_mode,
-    stress_multiplier: ultra.stress_multiplier,
-    context7_urgency: ultra.context7_urgency,
-    wbp_verbosity: ultra.wbp_verbosity,
     agent_mode: ultra.ultrax_profile === "deep" ? "plan" : void 0,
-    optimization_mode: "vibeultrax",
-    ...buildModeRoot("vibeultrax"),
-    ultrax_profile: ultra.ultrax_profile,
-    ultrax_confidence: ultra.ultrax_confidence,
-    ultrax_reason: ultra.ultrax_reason,
-    ultrax_estimated_savings: ultra.ultrax_estimated_savings,
     directives: [`[ultrax root] Dedicated cascade root active for ${state?.sub_regime || "INIT"}.`]
   };
 }
@@ -9744,7 +9733,7 @@ var WARN_COALESCE_THRESHOLD = 10;
 var warnCoalesceCounters = /* @__PURE__ */ new Map();
 function loadTrinityModels() {
   try {
-    const p = join8(getVibeOSHome5(), "model-tiers.json");
+    const p = join8(getVibeOSHome(), "model-tiers.json");
     if (!existsSync9(p))
       return { brain: "", cheap: "", medium: "" };
     const j = safeJsonParse2(readFileSync8(p, "utf-8"));
@@ -9797,7 +9786,7 @@ function getBlackboxResolution() {
 }
 function computeLocalCalibration() {
   try {
-    const calFile = join8(getVibeOSHome5(), "calibration-data.jsonl");
+    const calFile = join8(getVibeOSHome(), "calibration-data.jsonl");
     if (!existsSync9(calFile))
       return null;
     const lines = readFileSync8(calFile, "utf-8").trim().split("\n").filter(Boolean);
@@ -9934,8 +9923,8 @@ function noteTaskRoutingLearning(firstWord, targetModel, reason) {
     const nonExploratory = /* @__PURE__ */ new Set(["build", "implement", "fix", "add", "update", "remove", "write", "edit", "refactor", "create"]);
     try {
       const pstate = loadProjectState();
-      const fp2 = currentProjectFingerprint || projectFingerprint(process.cwd());
-      const bucket = ensureProjectBucket(pstate, fp2);
+      const fp3 = currentProjectFingerprint || projectFingerprint(process.cwd());
+      const bucket = ensureProjectBucket(pstate, fp3);
       bucket.taskWordPatterns ??= {};
       const localRow = bucket.taskWordPatterns[firstWord] || { total: 0, cheap: 0, medium: 0, high: 0, lastSeen: null };
       localRow.total += 1;
@@ -9968,8 +9957,8 @@ function noteTaskRoutingLearning(firstWord, targetModel, reason) {
         const currentFp = currentProjectFingerprint || "";
         const currentTech = currentFp ? pstate.project_hashes?.[currentFp]?.techStack : null;
         if (currentTech && Array.isArray(currentTech) && currentTech.length > 0) {
-          for (const [fp2, bucket] of Object.entries(pstate.project_hashes || {})) {
-            if (fp2 === currentFp)
+          for (const [fp3, bucket] of Object.entries(pstate.project_hashes || {})) {
+            if (fp3 === currentFp)
               continue;
             const otherTech = bucket?.techStack;
             if (!otherTech || !Array.isArray(otherTech))
@@ -10120,14 +10109,11 @@ init_state();
 init_state();
 import { readFileSync as readFileSync9, existsSync as existsSync10 } from "node:fs";
 import { join as join9 } from "node:path";
-function getVibeOSHome6() {
-  return process.env.VIBEOS_HOME || join9(process.env.HOME || "", ".claude");
-}
 var _OC_SID2 = "opencode-" + (process.pid || "x") + "-" + Date.now();
-var SCRATCHPAD_ROOT2 = join9(getVibeOSHome6(), "scratch");
+var SCRATCHPAD_ROOT2 = join9(getVibeOSHome(), "scratch");
 var SCRATCHPAD_GLOBAL_DIR2 = join9(SCRATCHPAD_ROOT2, "by-hash");
 var SCRATCHPAD_SESSIONS_DIR2 = join9(SCRATCHPAD_ROOT2, "sessions");
-var STATE_FILE = join9(getVibeOSHome6(), "delegation-state.json");
+var STATE_FILE = join9(getVibeOSHome(), "delegation-state.json");
 var currentModel2 = null;
 function getSessionRoot2() {
   return join9(SCRATCHPAD_SESSIONS_DIR2, _OC_SID2);
@@ -10241,11 +10227,16 @@ function buildStatusPayload({ selection, tiersData, currentModel: currentModel3,
   const todoList = Array.isArray(todos) ? todos : [];
   const pendingTodos = todoList.filter((t) => t?.status === "pending").length;
   const totalTodos = todoList.length;
-  const current = tiersData?.trinity?.[activeSlot]?.oc || currentModel3 || "";
+  const execution = resolveCurrentExecution({
+    directory: "",
+    activeSlot,
+    currentModel: currentModel3,
+    tiersData
+  });
+  const current = execution.model || currentModel3 || "";
   const lockActive = Boolean(modelLocked);
   const resolvedLockedSlot = lockActive ? lockedSlot || activeSlot : null;
   const resolvedLockedModel = lockActive ? lockedModel || current || null : null;
-  const execution = resolveExecutionIdentity(current || currentModel3 || "", "");
   return {
     enabled: selection?.enabled !== false,
     active_slot: activeSlot,
@@ -10438,11 +10429,8 @@ init_state();
 init_runtime_state();
 import { readFileSync as readFileSync10, writeFileSync as writeFileSync10, existsSync as existsSync11, mkdirSync as mkdirSync9, statSync as statSync6, rmSync as rmSync4 } from "node:fs";
 import { join as join10 } from "node:path";
-function getVibeOSHome7() {
-  return process.env.VIBEOS_HOME || join10(process.env.HOME || "", ".claude");
-}
 function getReportsDir() {
-  return join10(getVibeOSHome7(), "reports");
+  return join10(getVibeOSHome(), "reports");
 }
 function getReportsIndexPath() {
   return join10(getReportsDir(), "index.json");
@@ -10485,16 +10473,16 @@ function saveReportsIndex(idx) {
     console.error(`[vibeOS] reports index write failed: ${err.message}`);
   }
 }
-function generateReportId(type, fp2) {
+function generateReportId(type, fp3) {
   const ts = (/* @__PURE__ */ new Date()).toISOString().replace(/[:-]/g, "").replace(/\..+/, "");
   const rnd = Math.random().toString(36).slice(2, 6);
-  return `${ts}-${(fp2 || "unknown").slice(0, 6)}-${type}-${rnd}`;
+  return `${ts}-${(fp3 || "unknown").slice(0, 6)}-${type}-${rnd}`;
 }
 var _reportDedupWindow = /* @__PURE__ */ new Map();
 function _wouldBeDuplicate(type, summary, scope) {
   if (typeof summary !== "string")
     return false;
-  const key = `${getVibeOSHome7()}::${type || ""}::${String(scope || "unknown")}::${summary}`;
+  const key = `${getVibeOSHome()}::${type || ""}::${String(scope || "unknown")}::${summary}`;
   const last = _reportDedupWindow.get(key);
   if (last && Date.now() - last < 5 * 60 * 1e3)
     return true;
@@ -10617,7 +10605,7 @@ function saveReport({ type = "manual", summary = "", findings = null, metrics = 
   if (!currentSessionId2 && metricsSessionId)
     currentSessionId2 = metricsSessionId;
   const liveSessionId = getCurrentSessionId() || getOcSessionId() || "";
-  const fp2 = fingerprint || metricsProjectFingerprint || currentProjectFingerprint || currentProjectFingerprint2 || "unknown";
+  const fp3 = fingerprint || metricsProjectFingerprint || currentProjectFingerprint || currentProjectFingerprint2 || "unknown";
   const projectName = metricsProjectName || currentProjectName || currentProjectName2 || "unknown";
   const sessionId = metricsSessionId || liveSessionId || currentSessionId2 || "unknown";
   const productionVerification = verifyProductionClaim({
@@ -10628,9 +10616,9 @@ function saveReport({ type = "manual", summary = "", findings = null, metrics = 
     outcome_verified
   });
   const normalizedOutcomeVerified = productionVerification.claimDetected ? productionVerification.verified : Boolean(outcome_verified);
-  const id2 = generateReportId(type, fp2);
+  const id2 = generateReportId(type, fp3);
   const report = {
-    meta: { id: id2, project: projectName, fingerprint: fp2, type, created: (/* @__PURE__ */ new Date()).toISOString(), sessionId },
+    meta: { id: id2, project: projectName, fingerprint: fp3, type, created: (/* @__PURE__ */ new Date()).toISOString(), sessionId },
     summary,
     findings: parsedFindings,
     metrics: parsedMetrics,
@@ -10654,13 +10642,13 @@ function saveReport({ type = "manual", summary = "", findings = null, metrics = 
       writeFileSync10(join10(reportsDir, `${id2}.json`), JSON.stringify(report, null, 2) + "\n");
       const idx = reportsIndex();
       const _sum = (summary || "").slice(0, 80);
-      idx.reports.push({ id: id2, type, project: report.meta.project, fingerprint: fp2, created: report.meta.created, summary: _sum });
+      idx.reports.push({ id: id2, type, project: report.meta.project, fingerprint: fp3, created: report.meta.created, summary: _sum });
       writeFileSync10(reportsIndexPath, JSON.stringify(idx, null, 2) + "\n");
     });
     try {
-      if (fp2 && fp2 !== "unknown") {
+      if (fp3 && fp3 !== "unknown") {
         const pstate = loadProjectState();
-        touchProjectBucket(pstate, fp2, {
+        touchProjectBucket(pstate, fp3, {
           sessionId,
           projectName: projectName || "",
           reportId: id2,
@@ -10715,9 +10703,6 @@ init_selection_manager();
 import { readFileSync as readFileSync11, writeFileSync as writeFileSync11, existsSync as existsSync12 } from "node:fs";
 import { join as join11 } from "node:path";
 init_state();
-function getVibeOSHome8() {
-  return process.env.VIBEOS_HOME || join11(process.env.HOME || "", ".claude");
-}
 function safeJsonParse4(raw) {
   try {
     return JSON.parse(raw);
@@ -10796,7 +10781,7 @@ function _cachedPct() {
       return null;
     let budget = 50;
     try {
-      const p = join11(getVibeOSHome8(), "model-tiers.json");
+      const p = join11(getVibeOSHome(), "model-tiers.json");
       if (existsSync12(p)) {
         const j = safeJsonParse4(readFileSync11(p, "utf-8"));
         if (j?.selection?.monthly_budget_usd)
@@ -10833,7 +10818,7 @@ function loadCredit() {
       return n;
   }
   try {
-    const f = join11(getVibeOSHome8(), "credit-percent");
+    const f = join11(getVibeOSHome(), "credit-percent");
     if (existsSync12(f)) {
       const n = parseInt(readFileSync11(f, "utf-8").trim(), 10);
       if (!isNaN(n))
@@ -11041,6 +11026,7 @@ function resolveCascadeSlot(pipeline = []) {
 
 // src/lib/trinity-tool.js
 init_api_client();
+init_state();
 var MIN_TOOL_BREAKDOWN_THRESHOLD = 5e-3;
 var STRESS_GAUGE_CRITICAL = 0.85;
 var STRESS_GAUGE_HIGH = 0.7;
@@ -11161,16 +11147,15 @@ function createTrinityTool(deps) {
         const credit = deps.loadCredit();
         const effectiveLevel = sel.thinking_level || deps.thinkingLevel(credit);
         const apiFallbackActive = typeof deps.isApiFallback === "function" ? deps.isApiFallback() : false;
-        const currentProvider = String(deps.currentModel || "").split("/")[0] || "";
-        const selectedProvider = String(sel.selected_provider || "").split("/")[0] || "";
-        const fallbackModelGuard = currentProvider === "opencode" && selectedProvider !== "opencode";
-        if (deps.currentModel && sel.selected_model && deps.currentModel !== sel.selected_model && !apiFallbackActive && !fallbackModelGuard && !deps._modelLocked) {
+        const activeSlot = sel.active_slot || "brain";
+        const activeSlotModel = tiers?.[activeSlot]?.oc || "";
+        if (deps.currentModel && activeSlotModel && deps.currentModel !== activeSlotModel && !apiFallbackActive && !deps._modelLocked) {
           try {
             const providers = typeof deps._loadOpenCodeProviders === "function" ? deps._loadOpenCodeProviders(deps.directory) : {};
             const auth = deps._readAuth();
             const models = await deps.discoverAvailableModels(providers, auth);
             const trinity = buildDeterministicTrinity(models, {
-              selectedModelId: sel.selected_model || sel.executed_model || deps.currentModel
+              selectedModelId: deps.currentModel
             });
             if (trinity && trinity.brain) {
               const probed = {
@@ -11180,25 +11165,16 @@ function createTrinityTool(deps) {
               };
               const tiersData = deps.safeJsonParse(deps.readFileSync(deps.TIERS_FILE, "utf-8"));
               const oldTiers = tiersData.trinity || {};
-              const oldProvider = tiersData.selection?.selected_provider || "";
-              const newProvider = trinity.provider || resolveExecutionIdentity(deps.currentModel, deps.directory)?.provider || "";
               tiersData.trinity ??= {};
               const slots = ["brain", "medium", "cheap"];
               for (const s of slots) {
                 const autoModel = probed[s].id;
                 tiersData.trinity[s] = keepExistingTrinitySlot(oldTiers[s], autoModel);
               }
-              tiersData.selection ??= {};
-              tiersData.selection.selected_provider = trinity.provider || resolveExecutionIdentity(deps.currentModel, deps.directory)?.provider || "";
-              tiersData.selection.selected_model = sel.selected_model || deps.currentModel;
-              tiersData.selection.executed_provider = tiersData.selection.selected_provider;
-              tiersData.selection.executed_model = sel.executed_model || sel.selected_model || deps.currentModel;
               const _tmp = deps.TIERS_FILE + ".tmp." + Date.now();
               deps.writeFileSync(_tmp, JSON.stringify(tiersData, null, 2) + "\n", "utf-8");
               deps.renameSync(_tmp, deps.TIERS_FILE);
               tiers = tiersData.trinity;
-              sel.selected_provider = tiersData.selection.selected_provider;
-              sel.selected_model = tiersData.selection.selected_model;
             }
           } catch (e) {
             console.error("[vibeOS] auto-rebuild on model change failed:", e.message);
@@ -11217,7 +11193,6 @@ function createTrinityTool(deps) {
         const brainModel = tiers?.brain?.oc || "(unset)";
         const mediumModel = tiers?.medium?.oc || "(unset)";
         cheapModel = tiers?.cheap?.oc || cheapModel;
-        const activeSlot = sel.active_slot || "brain";
         const lockedSlot = deps._lockedSlot || null;
         const lockedModel = deps._lockedModel || null;
         const onboardingMode = sel.onboarding_mode || "strict";
@@ -11245,7 +11220,12 @@ function createTrinityTool(deps) {
           } catch {
           }
         }
-        const execution = resolveExecutionIdentity(tiers?.[activeSlot]?.oc || deps.currentModel || "", deps.directory);
+        const execution = resolveCurrentExecution({
+          directory: deps.directory,
+          activeSlot,
+          currentModel: deps.currentModel || "",
+          tiersData: tiers
+        });
         const lines = [
           `[vibeOS-dashboard]`,
           `Model: ${activeSlot} (${tiers?.[activeSlot]?.oc || deps.currentModel || "(unset)"})`,
@@ -11296,9 +11276,9 @@ function createTrinityTool(deps) {
         const projectBucket = projectFingerprint2 ? projectState?.project_hashes?.[projectFingerprint2] : null;
         const fullState = typeof deps.readFullState === "function" ? deps.readFullState() : {};
         const session = fullState?.sessions?.[deps._OC_SID] || null;
-        const realityFile = join12(deps.VIBEOS_HOME || process.env.VIBEOS_HOME || join12(process.env.HOME || "", ".claude"), "reality-check-settings.json");
+        const realityFile = join12(deps.VIBEOS_HOME || getVibeOSHome(), "reality-check-settings.json");
         const stateFile = deps.STATE_FILE;
-        const projectStateFile = join12(deps.VIBEOS_HOME || process.env.VIBEOS_HOME || join12(process.env.HOME || "", ".claude"), "project-states.json");
+        const projectStateFile = join12(deps.VIBEOS_HOME || getVibeOSHome(), "project-states.json");
         const lines = ["[vibeOS-reality-check] Verified facts only"];
         lines.push(`Project: ${deps.currentProjectName || projectBucket?.projectName || projectFingerprint2 || "unknown"}`);
         lines.push(`Project fingerprint: ${projectFingerprint2 || "(unset)"}`);
@@ -11381,18 +11361,6 @@ function createTrinityTool(deps) {
         const result = deps.applySlot(slot, deps.directory);
         if (!result.ok)
           return `\u274C Failed to set slot: ${result.reason}`;
-        try {
-          const selected = resolveExecutionIdentity(result.ocModel, deps.directory);
-          if (selected) {
-            deps.writeSelection("selected_provider", selected.provider || "");
-            deps.writeSelection("selected_quality_tier", selected.quality || slot);
-            deps.writeSelection("selected_model", selected.model || result.ocModel);
-            deps.writeSelection("executed_provider", selected.provider || "");
-            deps.writeSelection("executed_quality_tier", selected.quality || slot);
-            deps.writeSelection("executed_model", selected.model || result.ocModel);
-          }
-        } catch {
-        }
         deps._refreshModel(deps.directory);
         return `\u2705 Switched to ${slot} slot (${result.ocModel}). Active now (no restart needed).`;
       }
@@ -11418,8 +11386,11 @@ function createTrinityTool(deps) {
         if (modeEntry) {
           const tierSlot = slot === "vibeultrax" ? "cheap" : resolveCascadeSlot(modeEntry.pipeline);
           deps.writeSessionSlot(deps._OC_SID, tierSlot);
-          deps.writeSelection("active_slot", tierSlot);
           deps.writeSelection("active_pipeline", modeEntry.pipeline);
+          const switched = deps.applySlot(tierSlot, deps.directory);
+          if (!switched?.ok) {
+            return `\u274C Failed to switch OpenCode model: ${switched?.reason || "unknown error"}`;
+          }
           if (slot === "vibeultrax") {
             deps._modelLocked = false;
             deps._lockedSlot = null;
@@ -11588,7 +11559,7 @@ Lock is per-session (resets on restart).`;
           }
         } catch {
         }
-        let selectedModel = deps.currentModel || existing?.selection?.selected_model || existing?.selection?.executed_model || "";
+        let selectedModel = deps.currentModel || "";
         if (!selectedModel) {
           try {
             for (const dir of [deps.directory || process.cwd(), deps.OPENCODE_HOME].filter(Boolean)) {
@@ -11629,12 +11600,6 @@ Lock is per-session (resets on restart).`;
           tiers.selection.requested_optimization_mode = tiers.selection.requested_optimization_mode || "vibeultrax";
         }
         tiers.selection.setup_completed_at = now;
-        tiers.selection.selected_provider = trinity?.provider || resolveExecutionIdentity(selectedModel, deps.directory)?.provider || "";
-        tiers.selection.selected_quality_tier = trinity?.selected_tier || "brain";
-        tiers.selection.selected_model = trinity?.selected_model || selectedModel || "";
-        tiers.selection.executed_provider = tiers.selection.selected_provider;
-        tiers.selection.executed_quality_tier = tiers.selection.selected_quality_tier;
-        tiers.selection.executed_model = tiers.selection.selected_model;
         if (brain)
           tiers.trinity.brain = keepExistingTrinitySlot(existing?.trinity?.brain, brain);
         if (medium)
@@ -11643,6 +11608,10 @@ Lock is per-session (resets on restart).`;
           tiers.trinity.cheap = keepExistingTrinitySlot(existing?.trinity?.cheap, cheap);
         deps.mkdirSync(dirname9(deps.TIERS_FILE), { recursive: true });
         deps.writeFileSync(deps.TIERS_FILE, JSON.stringify(tiers, null, 2) + "\n");
+        const bootstrapSlot = tiers.selection.active_slot || (brain ? "brain" : "medium");
+        const booted = typeof deps.applySlot === "function" ? deps.applySlot(bootstrapSlot, deps.directory) : { ok: false, reason: "applySlot unavailable" };
+        if (!booted?.ok)
+          return `\u274C Failed to activate native OpenCode model: ${booted?.reason || "unknown error"}`;
         if (typeof deps._refreshModel === "function")
           deps._refreshModel(deps.directory);
         const lines = [
@@ -11665,9 +11634,9 @@ Lock is per-session (resets on restart).`;
         const L = "\u2501";
         const lines = [`\u{1F4CA} Project profile \u2014 ${deps.currentProjectName || (deps.directory ? deps.directory.split("/").pop() : "unknown")}`];
         lines.push(L.repeat(40));
-        const fp2 = deps.currentProjectFingerprint || deps.projectFingerprint(deps.directory);
+        const fp3 = deps.currentProjectFingerprint || deps.projectFingerprint(deps.directory);
         const pstate = deps.loadProjectState();
-        const proj = pstate.project_hashes?.[fp2];
+        const proj = pstate.project_hashes?.[fp3];
         if (proj) {
           lines.push(`
 \u{1F4C5} Sessions: ${proj.totalSessions || 0} | Last: ${(proj.lastSeen || "").slice(0, 10)}`);
@@ -11679,7 +11648,7 @@ Lock is per-session (resets on restart).`;
             const topics = proj.commonTopics.slice(0, 5).join(", ");
             lines.push(`\u{1F310} Common fetch domains: ${topics}`);
           }
-          const promoted = deps.promotedProjectPatterns(fp2);
+          const promoted = deps.promotedProjectPatterns(fp3);
           if (promoted.length) {
             lines.push(`
 Learned patterns:`);
@@ -11755,7 +11724,7 @@ Learned patterns:`);
         if (deps.loadSelection().flow_enabled === false) {
           suggestions.push(`\u{1F4A1} Flow enforcer is OFF \u2014 enable with \`trinity flow on\` to catch anti-patterns`);
         }
-        for (const ptn of deps.promotedProjectPatterns(fp2)) {
+        for (const ptn of deps.promotedProjectPatterns(fp3)) {
           suggestions.push(`Learned ${ptn.label} pattern: ${ptn.summary}`);
         }
         const credit = deps.loadCredit();
@@ -11860,15 +11829,15 @@ ${L.repeat(40)}`);
         return lines.join("\n");
       }
       if (action === "patterns") {
-        const fp2 = deps.currentProjectFingerprint || deps.projectFingerprint(deps.directory);
+        const fp3 = deps.currentProjectFingerprint || deps.projectFingerprint(deps.directory);
         const name = deps.currentProjectName || (deps.directory ? deps.directory.split("/").pop() : "unknown");
         if (slot === "clear") {
-          const count = deps.clearProjectPatterns(fp2);
+          const count = deps.clearProjectPatterns(fp3);
           return `Pattern memory cleared for "${name}" (${count} pattern${count === 1 ? "" : "s"} removed).`;
         }
         if (slot === "suggest") {
           const pstate = deps.loadProjectState();
-          const currentBucket = pstate.project_hashes?.[fp2];
+          const currentBucket = pstate.project_hashes?.[fp3];
           const currentTech = currentBucket?.techStack || [];
           const currentKeys = /* @__PURE__ */ new Set([
             ...Object.keys(currentBucket?.userPatterns?.friction || {}),
@@ -11876,7 +11845,7 @@ ${L.repeat(40)}`);
           ]);
           const candidates = [];
           for (const [otherFp, bucket] of Object.entries(pstate.project_hashes || {})) {
-            if (otherFp === fp2)
+            if (otherFp === fp3)
               continue;
             const otherTech = bucket?.techStack || [];
             if (!otherTech.some((t) => currentTech.includes(t)))
@@ -11905,7 +11874,7 @@ ${L.repeat(40)}`);
           lines2.push("Use `trinity patterns` to see this project's own patterns.");
           return lines2.join("\n");
         }
-        const rows = deps.projectPatternRows(fp2);
+        const rows = deps.projectPatternRows(fp3);
         const lines = [`Project patterns - ${name}`];
         if (rows.length === 0) {
           lines.push("  No learned patterns yet.");
@@ -11993,7 +11962,7 @@ ${L.repeat(40)}`);
         return "[vibeOS] Alpha bootstrap token saved. Remote API will retry the exchange on the next call.";
       }
       if (action === "verify-claims") {
-        const VIBEOS_HOME2 = process.env.VIBEOS_HOME || join12(process.env.HOME || "", ".claude");
+        const VIBEOS_HOME2 = getVibeOSHome();
         const AUDIT_DIR = join12(VIBEOS_HOME2, "cascade-audit");
         const claimFile = join12(AUDIT_DIR, "claim-audit.jsonl");
         const cascadeFile = join12(AUDIT_DIR, "cascade-audit.jsonl");
@@ -12115,8 +12084,17 @@ ${L.repeat(40)}`);
         const providers = typeof deps._loadOpenCodeProviders === "function" ? deps._loadOpenCodeProviders(deps.directory) : {};
         const auth = deps._readAuth();
         const models = await deps.discoverAvailableModels(providers, auth);
-        const currentSelection = deps.loadSelection?.() || {};
-        const selectedModel = currentSelection.selected_model || currentSelection.executed_model || deps.currentModel || "";
+        let selectedModel = deps.currentModel || "";
+        if (!selectedModel) {
+          try {
+            const dir = deps.directory || process.cwd();
+            const p = join12(dir, "opencode.json");
+            if (deps.existsSync(p)) {
+              selectedModel = deps.safeJsonParse(deps.readFileSync(p, "utf-8"))?.model || "";
+            }
+          } catch {
+          }
+        }
         const trinity = buildDeterministicTrinity(models, { selectedModelId: selectedModel });
         if (!trinity) {
           return "\u274C No models discovered from any configured provider.";
@@ -12146,13 +12124,6 @@ ${L.repeat(40)}`);
             medium: keepExistingTrinitySlot(existing.medium, probed.medium.id),
             cheap: keepExistingTrinitySlot(existing.cheap, probed.cheap.id)
           };
-          tiers.selection ??= {};
-          tiers.selection.selected_provider = trinity.provider || resolveExecutionIdentity(selectedModel, deps.directory)?.provider || "";
-          tiers.selection.selected_quality_tier = trinity.selected_tier || "brain";
-          tiers.selection.selected_model = trinity.selected_model || selectedModel || "";
-          tiers.selection.executed_provider = tiers.selection.selected_provider;
-          tiers.selection.executed_quality_tier = tiers.selection.selected_quality_tier;
-          tiers.selection.executed_model = tiers.selection.selected_model;
           const _tmp = deps.TIERS_FILE + ".tmp." + Date.now();
           deps.writeFileSync(_tmp, JSON.stringify(tiers, null, 2) + "\n", "utf-8");
           deps.renameSync(_tmp, deps.TIERS_FILE);
@@ -12160,7 +12131,7 @@ ${L.repeat(40)}`);
           return "\u274C Failed to write model-tiers.json: " + err.message;
         }
         try {
-          deps.applySlot("brain");
+          deps.applySlot("brain", deps.directory);
         } catch (e) {
           console.error("[vibeOS] auto-activate brain failed:", e.message);
         }
@@ -12338,7 +12309,7 @@ ${L.repeat(40)}`);
             continue;
           byFp.set(r.fingerprint, (byFp.get(r.fingerprint) || 0) + 1);
         }
-        const candidates = [...byFp.entries()].filter(([fp2, count]) => fp2 && fp2 !== dstFp && count > 0).sort((a, b) => b[1] - a[1]);
+        const candidates = [...byFp.entries()].filter(([fp22, count]) => fp22 && fp22 !== dstFp && count > 0).sort((a, b) => b[1] - a[1]);
         if (candidates.length === 0) {
           return `\u2705 No duplicate fingerprint candidates found for project "${name}".`;
         }
@@ -12910,9 +12881,9 @@ init_state();
 import { readFileSync as readFileSync16, writeFileSync as writeFileSync15, appendFileSync as appendFileSync4, existsSync as existsSync17, mkdirSync as mkdirSync12, rmSync as rmSync5, readdirSync as readdirSync3, statSync as statSync7 } from "node:fs";
 import { join as join18, dirname as dirname11, basename as basename3 } from "node:path";
 import { createHash as createHash4 } from "node:crypto";
-import { homedir as homedir6 } from "node:os";
 
 // src/lib/claim-verification.js
+init_state();
 import { existsSync as existsSync14, readFileSync as readFileSync13 } from "node:fs";
 import { join as join14 } from "node:path";
 var CLAIM_PATTERNS = [
@@ -12956,7 +12927,7 @@ function loadRecentCascadeRuns(vibeHome) {
     return [];
   }
 }
-function evaluateClaimVerification({ text, vibeHome = process.env.VIBEOS_HOME || join14(process.env.HOME || "", ".claude"), now = Date.now(), windowMs = 12e4 }) {
+function evaluateClaimVerification({ text, vibeHome = getVibeOSHome(), now = Date.now(), windowMs = 12e4 }) {
   const claims = extractClaimMatches(text);
   if (claims.length === 0)
     return { claims, unsubstantiatedCount: 0, claimTag: "" };
@@ -13120,6 +13091,50 @@ init_pattern_helpers();
 init_pattern_helpers();
 import { join as join15 } from "node:path";
 import { mkdirSync as mkdirSync10, writeFileSync as writeFileSync12, readFileSync as readFileSync14, existsSync as existsSync15 } from "node:fs";
+
+// src/lib/pattern-store.js
+init_state();
+function upsertProjectPattern(kind, key, summary, meta = {}) {
+  const fingerprint = String(meta?.fingerprint || currentProjectFingerprint || "").trim();
+  if (!fingerprint || fingerprint === "unknown" || !key || !summary)
+    return null;
+  const pstate = loadProjectState();
+  const bucket = ensureProjectBucket(pstate, fingerprint);
+  bucket.userPatterns ??= { friction: {}, routines: {} };
+  bucket.userPatterns.friction ??= {};
+  bucket.userPatterns.routines ??= {};
+  const target = kind === "routine" ? bucket.userPatterns.routines : bucket.userPatterns.friction;
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const row = target[key] || { kind, summary, count: 0, sessions: [], firstSeen: now, lastSeen: null };
+  row.kind = kind;
+  row.summary = summary;
+  row.count = Number(row.count || 0) + 1;
+  row.sessions = [.../* @__PURE__ */ new Set([...row.sessions || [], ...meta?.sessions || [getCurrentSessionId()]])].slice(-10);
+  row.lastSeen = now;
+  if (meta?.family)
+    row.family = meta.family;
+  if (meta?.path)
+    row.path = meta.path;
+  target[key] = row;
+  touchProjectBucket(pstate, fingerprint, {
+    sessionId: meta?.sessionId || getCurrentSessionId(),
+    projectName: meta?.projectName || currentProjectName || "",
+    topic: key
+  });
+  const entries = Object.entries(target);
+  if (entries.length > 50) {
+    entries.sort((a, b) => String(b[1]?.lastSeen || "").localeCompare(String(a[1]?.lastSeen || "")));
+    const kept = Object.fromEntries(entries.slice(0, 50));
+    for (const k of Object.keys(target))
+      delete target[k];
+    Object.assign(target, kept);
+  }
+  bucket.lastSeen = now;
+  saveProjectState(pstate);
+  return row;
+}
+
+// src/vibeOS-lib/semantic-observer.js
 function deriveRole(toolName, input, output) {
   if (["write", "edit", "notebookedit", "multiedit"].includes(toolName))
     return "mutation";
@@ -13300,25 +13315,17 @@ function recordFrictionPattern(key, summary, meta = {}) {
   if (frictionSessionKeys.has(sessionKey))
     return;
   frictionSessionKeys.add(sessionKey);
-  const pstate = loadProjectState();
-  const fp2 = meta.fingerprint || currentProjectFingerprint || "unknown";
-  touchProjectBucket(pstate, fp2, { sessionId: (meta.sessions || [])[0] || getCurrentSid() });
-  const bucket = pstate.project_hashes[fp2];
-  bucket.userPatterns ??= { friction: {}, routines: {} };
-  bucket.userPatterns.friction ??= {};
-  const existing = bucket.userPatterns.friction[key] || { sessions: [] };
-  existing.summary = summary;
-  existing.kind = meta.kind || "friction";
-  existing.sessions = [.../* @__PURE__ */ new Set([...existing.sessions || [], ...meta.sessions || [getCurrentSid()]])].slice(-10);
-  existing.lastSeen = (/* @__PURE__ */ new Date()).toISOString();
-  bucket.userPatterns.friction[key] = existing;
-  saveProjectState(pstate);
+  upsertProjectPattern("friction", key, summary, {
+    ...meta,
+    fingerprint: meta.fingerprint || currentProjectFingerprint || "unknown",
+    sessionId: (meta.sessions || [])[0] || getCurrentSid()
+  });
   try {
     Promise.resolve().then(() => (init_api_client(), api_client_exports)).then((api) => {
       const client2 = api.getApiClient?.();
       if (client2 && _OC_SID) {
         const family = meta.family || meta.path || "unknown";
-        client2.patternsObserve(_OC_SID, family, summary, key, fp2).catch(() => {
+        client2.patternsObserve(_OC_SID, family, summary, key, fp).catch(() => {
         });
       }
     }).catch(() => {
@@ -13483,39 +13490,7 @@ function noteProjectPattern(kind, key, summary, meta = {}) {
   if (!currentProjectFingerprint || !key || !summary)
     return;
   try {
-    const pstate = loadProjectState();
-    const bucket = ensureProjectBucket(pstate, currentProjectFingerprint);
-    bucket.userPatterns ??= { friction: {}, routines: {} };
-    bucket.userPatterns.friction ??= {};
-    bucket.userPatterns.routines ??= {};
-    const target = kind === "routine" ? bucket.userPatterns.routines : bucket.userPatterns.friction;
-    const now = (/* @__PURE__ */ new Date()).toISOString();
-    const row = target[key] || { kind, summary, count: 0, sessions: [], firstSeen: now, lastSeen: null };
-    row.kind = kind;
-    row.summary = summary;
-    row.count = Number(row.count || 0) + 1;
-    row.sessions = [.../* @__PURE__ */ new Set([...row.sessions || [], getCurrentSessionId()])].slice(-10);
-    row.lastSeen = now;
-    if (meta.family)
-      row.family = meta.family;
-    if (meta.path)
-      row.path = meta.path;
-    target[key] = row;
-    touchProjectBucket(pstate, currentProjectFingerprint, {
-      sessionId: getCurrentSessionId(),
-      projectName: currentProjectName || "",
-      topic: key
-    });
-    const entries = Object.entries(target);
-    if (entries.length > 50) {
-      entries.sort((a, b) => String(b[1]?.lastSeen || "").localeCompare(String(a[1]?.lastSeen || "")));
-      const kept = Object.fromEntries(entries.slice(0, 50));
-      for (const k of Object.keys(target))
-        delete target[k];
-      Object.assign(target, kept);
-    }
-    bucket.lastSeen = now;
-    saveProjectState(pstate);
+    upsertProjectPattern(kind, key, summary, { ...meta, fingerprint: currentProjectFingerprint, projectName: currentProjectName || "" });
   } catch (err) {
     console.error(`[vibeOS] pattern learner write failed: ${err.message}`);
   }
@@ -13741,9 +13716,6 @@ var EMPIRICAL_ANSWER_DIRECTIVE = "[empirical answer] Prefer verified facts over 
 var ANTI_LOOP_DIRECTIVE = "[anti-loop cost guard] Token waste is real money: if you detect the conversation is looping (repeating the same diagnosis, retrying the same fix, asking the same question, re-explaining the same concept, regenerating similar tool output), immediately break the loop by: (1) summarizing what has been tried in 1 line, (2) stating what is actually different this turn, (3) trying a substantially different approach, or (4) asking the user to clarify the goal. Do NOT continue a failing approach more than 3 times \u2014 each redundant retry burns tokens at real cost. When stuck, step back, simplify, and be honest about uncertainty.";
 var _cachedC7Full = null;
 var _cachedC7Urgency = null;
-function getVibeOSHome9() {
-  return process.env.VIBEOS_HOME || join18(process.env.HOME || "", ".claude");
-}
 function ensureVibeSkill(dir) {
   try {
     return installVibeSkill(dir);
@@ -13796,6 +13768,26 @@ function ensureProjectContext(hookDirectory) {
   } catch {
   }
   return resolved;
+}
+function resolveOpenCodeConfigPath() {
+  return TRINITY_OPENCODE_CONFIG || join18(getOpenCodeHome(), "opencode.json");
+}
+function updateOpenCodeConfig(mutator) {
+  try {
+    const OC_CONFIG = resolveOpenCodeConfigPath();
+    if (!existsSync17(OC_CONFIG))
+      return false;
+    const oc = safeJsonParse2(readFileSync16(OC_CONFIG, "utf-8"));
+    if (!oc)
+      return false;
+    const result = mutator(oc);
+    if (result === false)
+      return false;
+    writeFileSync15(OC_CONFIG, JSON.stringify(oc, null, 2) + "\n");
+    return true;
+  } catch {
+    return false;
+  }
 }
 var latestUserIntent = null;
 var _OC_SID3 = "opencode-" + (process.pid || "x") + "-" + Date.now();
@@ -13952,9 +13944,9 @@ function compactMemoryText(text, limit) {
     return clean;
   return clean.slice(0, Math.max(0, limit - 1)).trimEnd() + "\u2026";
 }
-function projectMemoryDirective(fp2) {
+function projectMemoryDirective(fp3) {
   const pstate = loadProjectState();
-  const proj = fp2 ? pstate?.project_hashes?.[fp2] : null;
+  const proj = fp3 ? pstate?.project_hashes?.[fp3] : null;
   const label = currentProjectName || proj?.projectName || "";
   if (!label && !proj)
     return null;
@@ -13976,7 +13968,7 @@ function projectMemoryDirective(fp2) {
     if (topics.length > 0)
       parts.push(`Topics: ${topics.join(", ")}.`);
   }
-  const patterns = promotedProjectPatterns(fp2).slice(0, 3);
+  const patterns = promotedProjectPatterns(fp3).slice(0, 3);
   if (patterns.length > 0) {
     parts.push(`Patterns: ${patterns.map((ptn) => `[${ptn.label}] ${compactMemoryText(ptn.summary, 96)}`).join(" | ")}.`);
   }
@@ -13999,7 +13991,7 @@ function projectMemoryDirective(fp2) {
       const creditedUsd = Math.max(1e-4, Math.round(rawUsd * 0.8 * 1e4) / 1e4);
       recordCacheSaving("project-memory", creditedUsd, {
         hash: createHash4("sha256").update(`project-memory
-${fp2}
+${fp3}
 ${directive}
 `).digest("hex").slice(0, 16)
       });
@@ -14008,7 +14000,7 @@ ${directive}
   }
   return directive;
 }
-function ensureProjectSkill(dir, fp2) {
+function ensureProjectSkill(dir, fp3) {
   try {
     ensureVibeSkill(dir);
   } catch {
@@ -14020,7 +14012,7 @@ function ensureProjectSkill(dir, fp2) {
   if (existsSync17(skillPath)) {
     return { created: false, skipped: true, path: skillPath };
   }
-  const promoted = promotedProjectPatterns(fp2);
+  const promoted = promotedProjectPatterns(fp3);
   if (!promoted || promoted.length === 0) {
     return { created: false, skipped: false };
   }
@@ -14205,39 +14197,23 @@ function syncControlSettings(cv, options = {}) {
       }
     }
     if (cv.agent_mode) {
-      try {
-        const OC_CONFIG = TRINITY_OPENCODE_CONFIG || join18(getOpenCodeHome(), "opencode.json");
-        if (existsSync17(OC_CONFIG)) {
-          const oc = safeJsonParse2(readFileSync16(OC_CONFIG, "utf-8"));
-          if (!oc)
-            return;
-          if (oc.default_agent !== cv.agent_mode) {
-            if (cv.agent_mode === "plan" && oc.default_agent && oc.default_agent !== "plan") {
-              writeSelection("previous_default_agent", oc.default_agent);
-            }
-            oc.default_agent = cv.agent_mode;
-            writeFileSync15(OC_CONFIG, JSON.stringify(oc, null, 2) + "\n");
-          }
+      updateOpenCodeConfig((oc) => {
+        if (oc.default_agent === cv.agent_mode)
+          return false;
+        if (cv.agent_mode === "plan" && oc.default_agent && oc.default_agent !== "plan") {
+          writeSelection("previous_default_agent", oc.default_agent);
         }
-      } catch {
-      }
+        oc.default_agent = cv.agent_mode;
+      });
     } else {
-      try {
-        const OC_CONFIG = TRINITY_OPENCODE_CONFIG || join18(getOpenCodeHome(), "opencode.json");
-        if (existsSync17(OC_CONFIG)) {
-          const oc = safeJsonParse2(readFileSync16(OC_CONFIG, "utf-8"));
-          if (!oc)
-            return;
-          const restoreAgent = oc.default_agent === "plan" ? resolveRestorableOpenCodeAgent(currentSel) : null;
-          if (restoreAgent && oc.default_agent === "plan") {
-            oc.default_agent = restoreAgent;
-            writeFileSync15(OC_CONFIG, JSON.stringify(oc, null, 2) + "\n");
-            if (currentSel.previous_default_agent)
-              writeSelection("previous_default_agent", null);
-          }
+      updateOpenCodeConfig((oc) => {
+        const restoreAgent = oc.default_agent === "plan" ? resolveRestorableOpenCodeAgent(currentSel) : null;
+        if (restoreAgent && oc.default_agent === "plan") {
+          oc.default_agent = restoreAgent;
+          if (currentSel.previous_default_agent)
+            writeSelection("previous_default_agent", null);
         }
-      } catch {
-      }
+      });
     }
     if (cv.optimization_mode && cv.optimization_mode !== "vibelitex") {
       const finalSel = loadSelection();
@@ -14472,7 +14448,7 @@ var onMessagesTransform = async (_input, output) => {
     try {
       if (!Array.isArray(messages) || Object.isFrozen(messages))
         return;
-      const vibeHome = process.env.VIBEOS_HOME || join18(process.env.HOME || homedir6(), ".claude");
+      const vibeHome = getVibeOSHome();
       if (typeof vibeHome !== "string" || vibeHome.length === 0)
         return;
       let currentAssistantText = "";
@@ -14769,7 +14745,7 @@ var onSystemTransform = async (_input, output) => {
       } catch {
       }
     }
-    const fp2 = ensureProjectContext(hookDirectory);
+    const fp3 = ensureProjectContext(hookDirectory);
     const rawStress = latestUserIntent ? scoreStress(latestUserIntent) : 0;
     const stressScore = rawStress * (_controlVector?.stress_multiplier ?? 1);
     const credit = loadCredit();
@@ -14873,7 +14849,7 @@ var onSystemTransform = async (_input, output) => {
         }
       }
     }
-    const projectJob2 = onSystemTransform._activeJob || getActiveJobForProject(fp2);
+    const projectJob2 = onSystemTransform._activeJob || getActiveJobForProject(fp3);
     if (latestUserIntent && projectJob2 && isLikelyOffTopic(latestUserIntent, projectJob2)) {
       pushSystem(output, '[job-focus] Active job context exists: "' + (projectJob2.prompt || "").slice(0, 140) + '...". The latest user request appears off-topic relative to this running job. Before taking write/edit/task actions, ask one concise confirmation question to validate switching scope.');
       console.error("[vibeOS] [job-focus] off-topic request detected vs active job context");
@@ -14895,10 +14871,10 @@ var onSystemTransform = async (_input, output) => {
     const budgetDirective = contextBudgetDirective(_input, output);
     if (budgetDirective)
       pushSystem(output, budgetDirective);
-    if (!oneShot("vibeos_project_memory_" + fp2)) {
-      pushSystem(output, projectMemoryDirective(fp2));
+    if (!oneShot("vibeos_project_memory_" + fp3)) {
+      pushSystem(output, projectMemoryDirective(fp3));
     }
-    if (!oneShot("trinity_welcome_" + fp2)) {
+    if (!oneShot("trinity_welcome_" + fp3)) {
       pushSystem(output, welcomeDirective());
     }
     const regime2 = _latestBlackboxState3?.sub_regime || classifyTurnSimple2(latestUserIntent || "");
@@ -14912,8 +14888,8 @@ var onSystemTransform = async (_input, output) => {
     }) + "\n");
     if (_turnCountInject % 10 === 0 && _calBuffer.length > 0) {
       try {
-        const calFile = join18(getVibeOSHome9(), "calibration-data.jsonl");
-        mkdirSync12(getVibeOSHome9(), { recursive: true });
+        const calFile = join18(getVibeOSHome(), "calibration-data.jsonl");
+        mkdirSync12(getVibeOSHome(), { recursive: true });
         appendFileSync4(calFile, _calBuffer.join(""));
         _calBuffer.length = 0;
       } catch {
@@ -14922,7 +14898,7 @@ var onSystemTransform = async (_input, output) => {
     if (!oneShot("vibeos_dashboard_instruct")) {
       pushSystem(output, "[vibeOS dashboard display] When the trinity tool returns output starting with '[vibeOS-dashboard]', use the question tool to display that data in a clean, human-readable format. Use the question field (not the header) to show the dashboard data. Format it with clear sections separated by blank lines, aligned columns with spaces, and plain text only. The header should be 'vibeOS Dashboard'. Include only one option in options: {label: 'Dismiss', description: ''}. Strip the '[vibeOS-dashboard]' marker line before displaying.");
     }
-    if (!oneShot("vibeos_dopamine_style_" + fp2)) {
+    if (!oneShot("vibeos_dopamine_style_" + fp3)) {
       pushSystem(output, regimeAwareToolStyleDirective(_latestBlackboxState3?.sub_regime || classifiedRegime, _currentTemplate, stressScore, _controlVector?.agent_mode));
     }
     if (_pendingOrchestratorDirective) {
@@ -15248,9 +15224,6 @@ function footerDebug(...args) {
   if (FOOTER_DEBUG_STDERR)
     console.error(...args);
 }
-function getVibeOSHome10() {
-  return process.env.VIBEOS_HOME || join19(process.env.HOME || "", ".claude");
-}
 var _cachedAutoMode = null;
 var _cachedAutoModeTs = 0;
 var AUTO_CACHE_TTL = 6e4;
@@ -15285,15 +15258,15 @@ async function apiAutoSelectMode(regime, stress) {
   const fallback2 = regimeToMode(regime, stress);
   return fallback2 || "balanced";
 }
-var STATE_FILE2 = join19(getVibeOSHome10(), "delegation-state.json");
-var SAVINGS_LEDGER_FILE2 = join19(getVibeOSHome10(), "savings-ledger.jsonl");
+var STATE_FILE2 = join19(getVibeOSHome(), "delegation-state.json");
+var SAVINGS_LEDGER_FILE2 = join19(getVibeOSHome(), "savings-ledger.jsonl");
 var _prevOutputText = "";
 var _autoReportCount = 0;
 var textCompletePainted = /* @__PURE__ */ new Set();
 var _lastStrippedText = "";
 function loadSelection2() {
   try {
-    const raw = readFileSync17(join19(getVibeOSHome10(), "model-tiers.json"), "utf-8");
+    const raw = readFileSync17(join19(getVibeOSHome(), "model-tiers.json"), "utf-8");
     return safeJsonParse2(raw)?.selection || { active_slot: "medium", enabled: true, delegation_enforce: true, flow_enabled: true, flow_enforce: true, tdd_enforce: false, tdd_strict: false };
   } catch {
     return { active_slot: "medium", enabled: true, delegation_enforce: true, flow_enabled: true, flow_enforce: true, tdd_enforce: false, tdd_strict: false };
@@ -15479,7 +15452,19 @@ async function _appendFooter(input, output, directory3) {
       setCurrentModel(resolvedModel);
       setCurrentTier(classify(resolvedModel));
     }
-    const execution = resolveExecutionIdentity(displayModel || resolvedModel || "", directory3);
+    const execution = resolveCurrentExecution({
+      directory: directory3,
+      activeSlot: slot,
+      currentModel,
+      liveModel: displayModel || resolvedModel || liveModel || "",
+      tiersData: {
+        trinity: {
+          brain: { oc: TRINITY_BRAIN || currentModel },
+          medium: { oc: TRINITY_MEDIUM || currentModel },
+          cheap: { oc: TRINITY_CHEAP || currentModel }
+        }
+      }
+    });
     let modelTag = `[${shortModelName(displayModel)}]`;
     const _workerModel = slot === "brain" ? TRINITY_MEDIUM : null;
     const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0);
@@ -15598,8 +15583,8 @@ async function _appendFooter(input, output, directory3) {
             } catch {
             }
             try {
-              mkdirSync13(getVibeOSHome10(), { recursive: true });
-              appendFileSync5(join19(getVibeOSHome10(), "calibration-data.jsonl"), JSON.stringify({ ts: (/* @__PURE__ */ new Date()).toISOString(), event: "outcome", sid: getSessionId(), outcome: finalOutcome }) + "\n");
+              mkdirSync13(getVibeOSHome(), { recursive: true });
+              appendFileSync5(join19(getVibeOSHome(), "calibration-data.jsonl"), JSON.stringify({ ts: (/* @__PURE__ */ new Date()).toISOString(), event: "outcome", sid: getSessionId(), outcome: finalOutcome }) + "\n");
             } catch {
             }
           }
@@ -15723,6 +15708,7 @@ import { readFileSync as readFileSync19, writeFileSync as writeFileSync17, appen
 import { join as join21, dirname as dirname13, basename as basename4 } from "node:path";
 import { createHash as createHash6 } from "node:crypto";
 init_selection_manager();
+init_state();
 init_api_client();
 
 // src/lib/cost-anomaly.js
@@ -16920,9 +16906,6 @@ mod tests {
 var test_skeletons_default = TEST_SKELETONS;
 
 // src/lib/tdd-enforcer.js
-function getVibeOSHome11() {
-  return process.env.VIBEOS_HOME || join20(process.env.HOME || "", ".claude");
-}
 var _detectedFramework = null;
 var directory = void 0;
 var SOURCE_EXT_RE = /\.(py|js|ts|mjs|tsx|jsx|cjs|mts|sh|go|rs|rb|java|kt)$/i;
@@ -16987,9 +16970,9 @@ function _detectTestFramework() {
   console.error(`[vibeOS] [tdd] detected test framework: ${framework || "default"} (ext: ${testExt || "match source"})`);
   return _detectedFramework;
 }
-var ENFORCEMENT_LOCK_DIR = join20(getVibeOSHome11(), ".enforcement-lock");
+var ENFORCEMENT_LOCK_DIR = join20(getVibeOSHome(), ".enforcement-lock");
 var LOCK_EXPIRE_MS = 3e4;
-var ENFORCEMENT_COOLDOWN_FILE2 = join20(getVibeOSHome11(), ".enforcement-cooldown.jsonl");
+var ENFORCEMENT_COOLDOWN_FILE2 = join20(getVibeOSHome(), ".enforcement-cooldown.jsonl");
 var COOLDOWN_MS = 6e4;
 var _enforcementCooldown = /* @__PURE__ */ new Set();
 function _acquireLock(testPath) {
@@ -17251,9 +17234,6 @@ var MAX_WARNS_PER_TOOL = 5;
 var BYTES_PER_TOKEN2 = 4;
 var DEBUG_INTERNALS2 = process.env.VIBEOS_DEBUG_INTERNALS === "1";
 var IS_CLI_RUNTIME2 = Boolean(process.stdout?.isTTY || process.stderr?.isTTY || process.stdin?.isTTY);
-function getVibeOSHome12() {
-  return process.env.VIBEOS_HOME || join21(process.env.HOME || "", ".claude");
-}
 var activeJob2 = null;
 var projectDirectory = "";
 var pendingUiNote = null;
@@ -17445,6 +17425,14 @@ function _dequeueTelemetryStart(tool2) {
     }
   }
   return _pendingTelemetryStarts.shift();
+}
+function shouldUseLocalTaskRouting(apiConnected, apiFallback, apiRoute) {
+  if (apiRoute && typeof apiRoute === "object" && "target" in apiRoute) {
+    const target = apiRoute.target;
+    if (typeof target === "string" && target.trim())
+      return false;
+  }
+  return !apiConnected || apiFallback;
 }
 function _prependFooterAlert(target, footerText, seen = /* @__PURE__ */ new Set()) {
   if (!target || typeof target !== "object" || seen.has(target))
@@ -17679,16 +17667,20 @@ ${argsJson}
     let _target = _exploratoryTarget ?? _tierTarget;
     const _hasMedia = /\.(png|jpg|jpeg|gif|webp|bmp|svg|mp4|webm|ogg|mp3|wav|avi|mov)/i.test(_prompt2);
     const stressScore = latestUserIntent ? scoreStress(latestUserIntent) : 0;
+    const apiConnected = isApiConnected();
     const apiRoute = await remoteCall("routeModel", [_prompt2, currentTier, TRINITY_CHEAP, TRINITY_MEDIUM, LEARNED_EXPLORATORY, stressScore], null);
+    const localRoutingAllowed = shouldUseLocalTaskRouting(apiConnected, isApiFallback(), apiRoute);
     if (apiRoute?.target) {
       _target = apiRoute.target;
     } else {
-      if (_target === TRINITY_CHEAP && TRINITY_MEDIUM && stressScore > 0.5) {
-        _target = TRINITY_MEDIUM;
-        console.error(`[vibeOS] \u{1F9D8} Stress ${stressScore.toFixed(2)} \u2192 preserving medium tier for Task quality`);
+      if (localRoutingAllowed) {
+        if (_target === TRINITY_CHEAP && TRINITY_MEDIUM && stressScore > 0.5) {
+          _target = TRINITY_MEDIUM;
+          console.error(`[vibeOS] \u{1F9D8} Stress ${stressScore.toFixed(2)} \u2192 preserving medium tier for Task quality`);
+        }
       }
     }
-    if (ML_ENABLED) {
+    if (ML_ENABLED && localRoutingAllowed) {
       try {
         const mlDifficulty = computeDifficulty(_prompt2);
         const mlHash = hashQuery(_prompt2);
@@ -17726,7 +17718,7 @@ ${argsJson}
       }
     }
     const activePipeline = loadSelection().active_pipeline;
-    if (activePipeline && Array.isArray(activePipeline) && activePipeline.length > 1 && TRINITY_CHEAP && TRINITY_MEDIUM) {
+    if (localRoutingAllowed && activePipeline && Array.isArray(activePipeline) && activePipeline.length > 1 && TRINITY_CHEAP && TRINITY_MEDIUM) {
       try {
         const cheapCost = 1e-3;
         const mediumCost = 5e-3;
@@ -18070,7 +18062,7 @@ var onToolExecuteAfter = async (input, output) => {
     const trinityAction = trinityArgs?.action || trinityArgs?.todo || "";
     if (trinityAction === "todo") {
       try {
-        const flowTodoFilePath = join21(getVibeOSHome12(), ".flow-todo-queue.jsonl");
+        const flowTodoFilePath = join21(getVibeOSHome(), ".flow-todo-queue.jsonl");
         let todoLines = [];
         if (existsSync19(flowTodoFilePath)) {
           const raw2 = readFileSync19(flowTodoFilePath, "utf-8").trim();
@@ -18222,15 +18214,15 @@ ${pendingUiNote}`;
       const seen = /* @__PURE__ */ new Set();
       let match;
       while ((match = TASK_FILE_RE.exec(outputText)) !== null) {
-        const fp2 = match[1];
-        if (seen.has(fp2))
+        const fp3 = match[1];
+        if (seen.has(fp3))
           continue;
-        seen.add(fp2);
-        const isTestPath = /(^|\/)(tests?|spec)\//i.test(fp2) || /\.(test|spec)\./i.test(fp2);
+        seen.add(fp3);
+        const isTestPath = /(^|\/)(tests?|spec)\//i.test(fp3) || /\.(test|spec)\./i.test(fp3);
         const intentClass2 = classifyTurnSimple2(latestUserIntent);
         const isResearchSession2 = intentClass2 === "EXPLORING" || intentClass2 === "DIVERGENT";
         if (sel.tdd_enforce && !isTestPath && !isResearchSession2) {
-          const createdPath = enforceTestFile(fp2);
+          const createdPath = enforceTestFile(fp3);
           if (createdPath) {
             const ext = createdPath.split(".").pop();
             const fileName = createdPath.split("/").pop();
@@ -18245,8 +18237,8 @@ ${pendingUiNote}`;
     }
   }
   if (t === "write" || t === "edit" || t === "multiedit") {
-    const fp2 = input?.args?.filePath || input?.args?.file_path || input?.args?.path || "";
-    const reminder = buildTestReminder(fp2);
+    const fp3 = input?.args?.filePath || input?.args?.file_path || input?.args?.path || "";
+    const reminder = buildTestReminder(fp3);
     if (reminder) {
       const note = `
 
@@ -18260,11 +18252,11 @@ ${pendingUiNote}`;
     }
     const sel = loadSelection();
     const explicitTestIntent = isUserAskingForTests(latestUserIntent);
-    const isTestPath = /(^|\/)(tests?|spec)\//i.test(fp2) || /\.(test|spec)\./i.test(fp2);
+    const isTestPath = /(^|\/)(tests?|spec)\//i.test(fp3) || /\.(test|spec)\./i.test(fp3);
     const intentClass = classifyTurnSimple2(latestUserIntent);
     const isResearchSession = intentClass === "EXPLORING" || intentClass === "DIVERGENT";
     if (sel.tdd_enforce && !isTestPath && !isResearchSession) {
-      const createdPath = enforceTestFile(fp2);
+      const createdPath = enforceTestFile(fp3);
       if (createdPath) {
         const ext = createdPath.split(".").pop();
         const fileName = createdPath.split("/").pop();
@@ -18280,7 +18272,7 @@ ${pendingUiNote}`;
     }
     if (t === "edit" || t === "write") {
       const testExtRe = /\.(test|spec)\./i;
-      if (testExtRe.test(fp2)) {
+      if (testExtRe.test(fp3)) {
         try {
           updateState((state) => {
             state.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" };
@@ -18295,12 +18287,12 @@ ${pendingUiNote}`;
       }
     }
     {
-      const fp3 = input?.args?.filePath || input?.args?.file_path || input?.args?.path || "";
+      const fp4 = input?.args?.filePath || input?.args?.file_path || input?.args?.path || "";
       const guardRe = /(?:^|\/)(AGENTS|README)\.md$/i;
-      if (guardRe.test(fp3)) {
+      if (guardRe.test(fp4)) {
         const guardIcons = { flag: "!", warn: "!!", hint: "_" };
         const guardIcon = guardIcons.flag || "!";
-        const fn = basename4(fp3);
+        const fn = basename4(fp4);
         console.error(`[flow-enforcer] ${guardIcon} [guard] ${fn}: protected project doc modified \u2014 verify user intent`);
       }
     }
@@ -18479,17 +18471,14 @@ init_state();
 init_state();
 init_selection_manager();
 init_api_client();
-function getVibeOSHome13() {
-  return process.env.VIBEOS_HOME || join22(process.env.HOME || "", ".claude");
-}
 function getTiersFile() {
-  return join22(getVibeOSHome13(), "model-tiers.json");
+  return join22(getVibeOSHome(), "model-tiers.json");
 }
 function getReportsDir2() {
-  return join22(getVibeOSHome13(), "reports");
+  return join22(getVibeOSHome(), "reports");
 }
 function getMcpRuntimeFile() {
-  return join22(getVibeOSHome13(), "mcp-runtime.json");
+  return join22(getVibeOSHome(), "mcp-runtime.json");
 }
 function readPublishedMcpRuntime() {
   try {
@@ -18568,7 +18557,7 @@ function scanClaimsInOutput(output) {
       }
     }
     if (claims.length === 0) return;
-    const auditDir = join22(getVibeOSHome13(), "cascade-audit");
+    const auditDir = join22(getVibeOSHome(), "cascade-audit");
     mkdirSync16(auditDir, { recursive: true });
     const auditFile = join22(auditDir, "claim-audit.jsonl");
     const entry = JSON.stringify({
@@ -18582,7 +18571,7 @@ function scanClaimsInOutput(output) {
   }
 }
 var activeJob3 = null;
-var fp = "";
+var fp2 = "";
 var _mcpServerRuntime = null;
 var _mcpServerHooked = false;
 var _mcpServerStartupPromise = null;
@@ -18647,21 +18636,21 @@ async function _resolveBootstrapModel(client2, directory3) {
     return { model: envModel, source: "env" };
   return { model: "", source: "" };
 }
-function _loadActiveJobForProject(directory3, fp2 = "") {
-  const candidates = [getVibeOSHome13(), directory3 ? join22(directory3, "..") : ""].filter(Boolean);
+function _loadActiveJobForProject(directory3, fp3 = "") {
+  const candidates = [getVibeOSHome(), directory3 ? join22(directory3, "..") : ""].filter(Boolean);
   for (const base of candidates) {
     try {
       const activeJobsPath = join22(String(base), "active-jobs.json");
       if (!existsSync21(activeJobsPath))
         continue;
       const jobs = safeJsonParse2(readFileSync21(activeJobsPath, "utf-8")) || {};
-      const job = fp2 ? jobs?.[fp2] : null;
+      const job = fp3 ? jobs?.[fp3] : null;
       if (job && typeof job === "object")
         return job;
     } catch {
     }
   }
-  return getActiveJobForProject(fp2);
+  return getActiveJobForProject(fp3);
 }
 function _tiersNeedRepair(tiers) {
   const slots = ["brain", "medium", "cheap"];
@@ -19121,7 +19110,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     globalThis.__vibeOS_sessionId = `opencode-${process.pid || "x"}-${Date.now()}`;
   }
   const hookSessionId = globalThis.__vibeOS_sessionId;
-  setVibeOSHomeContext(getVibeOSHome13());
+  setVibeOSHomeContext(getVibeOSHome());
   setCurrentSessionId(hookSessionId);
   if (hookFp) {
     setCurrentProjectFingerprint(hookFp);
@@ -19194,13 +19183,13 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
   }
   if (detectContext7())
     console.error(`[vibeOS] context7 detected \u2014 docs nudge enabled`);
-  fp = projectFingerprint(directory3);
-  setCurrentProjectFingerprint(fp);
+  fp2 = projectFingerprint(directory3);
+  setCurrentProjectFingerprint(fp2);
   setCurrentProjectName(directory3 ? directory3.split("/").pop() : "unknown");
   briefedProjects.clear();
-  activeJob3 = _loadActiveJobForProject(directory3, fp);
+  activeJob3 = _loadActiveJobForProject(directory3, fp2);
   const systemBriefedProjects = /* @__PURE__ */ new Set();
-  const hookVibeHome = getVibeOSHome13();
+  const hookVibeHome = getVibeOSHome();
   const hookStateFile = join22(hookVibeHome, "delegation-state.json");
   const hookProjectStateFile = join22(hookVibeHome, "project-states.json");
   const hookReportsDir = join22(hookVibeHome, "reports");
@@ -19477,7 +19466,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
       scanClaimsInOutput(output);
       await _appendFooter(_input, output, directory3);
       try {
-        const auditDir = join22(getVibeOSHome13(), "cascade-audit");
+        const auditDir = join22(getVibeOSHome(), "cascade-audit");
         const claimFile = join22(auditDir, "claim-audit.jsonl");
         const cascadeFile = join22(auditDir, "cascade-audit.jsonl");
         if (existsSync21(claimFile) && statSync9(claimFile).size > 0) {
@@ -19532,7 +19521,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
       scanClaimsInOutput(output);
       await _appendFooter(_input, output, directory3);
       try {
-        const auditDir = join22(getVibeOSHome13(), "cascade-audit");
+        const auditDir = join22(getVibeOSHome(), "cascade-audit");
         const claimFile = join22(auditDir, "claim-audit.jsonl");
         const cascadeFile = join22(auditDir, "cascade-audit.jsonl");
         if (existsSync21(claimFile) && statSync9(claimFile).size > 0) {
@@ -19587,7 +19576,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
           const report = researchAudit({ hours: hours ?? 24 });
           try {
             const state = loadProjectState();
-            const bucket = ensureProjectBucket(state, fp);
+            const bucket = ensureProjectBucket(state, fp2);
             bucket.lastSeen = (/* @__PURE__ */ new Date()).toISOString();
             bucket.researchChains = Math.max(bucket.researchChains || 0, report.chains.length);
             saveProjectState(state);

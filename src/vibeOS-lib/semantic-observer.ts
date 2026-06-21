@@ -7,13 +7,12 @@ import {
   _OC_SID,
   frictionSessionKeys,
   loadProjectState,
-  saveProjectState,
-  touchProjectBucket,
   currentProjectFingerprint,
   safeJsonParse,
 } from "../lib/state.js"
 import { commandFamily, commandFailed } from "../lib/pattern-helpers.js"
 import { hasBypassFlag, targetsProtectedBranch, isDeployCommand } from "../lib/pattern-helpers.js"
+import { upsertProjectPattern } from "../lib/pattern-store.js"
 
 function deriveRole(toolName, input, output) {
   if (["write","edit","notebookedit","multiedit"].includes(toolName)) return "mutation"
@@ -184,19 +183,11 @@ function recordFrictionPattern(key, summary, meta = {}) {
   const sessionKey = "friction:" + key
   if (frictionSessionKeys.has(sessionKey)) return
   frictionSessionKeys.add(sessionKey)
-  const pstate = loadProjectState()
-  const fp = meta.fingerprint || currentProjectFingerprint || "unknown"
-  touchProjectBucket(pstate, fp, { sessionId: (meta.sessions || [])[0] || getCurrentSid() })
-  const bucket = pstate.project_hashes[fp]
-  bucket.userPatterns ??= { friction: {}, routines: {} }
-  bucket.userPatterns.friction ??= {}
-  const existing = bucket.userPatterns.friction[key] || { sessions: [] }
-  existing.summary = summary
-  existing.kind = meta.kind || "friction"
-  existing.sessions = [...new Set([...(existing.sessions || []), ...(meta.sessions || [getCurrentSid()])])].slice(-10)
-  existing.lastSeen = new Date().toISOString()
-  bucket.userPatterns.friction[key] = existing
-  saveProjectState(pstate)
+  upsertProjectPattern("friction", key, summary, {
+    ...meta,
+    fingerprint: meta.fingerprint || currentProjectFingerprint || "unknown",
+    sessionId: (meta.sessions || [])[0] || getCurrentSid(),
+  })
   try {
     import("../lib/api-client.js").then((api) => {
       const client = api.getApiClient?.()
