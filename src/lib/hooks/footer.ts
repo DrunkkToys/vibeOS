@@ -6,7 +6,7 @@ import { latestUserIntent } from "./chat-transform.js"
 import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, classifyTurnSimple, autoSelectMode, loadOptimizationMode, computeControlVector } from "../turn-classify.js"
 import { recordBudgetFirstOutcome } from "../mode-policy.js"
 import { saveReport } from "../reporting.js"
-import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, getCurrentSessionId, _modelLocked, _blackboxEnabled, _latestBlackboxState, writeSelection, reconcileStateFromLedger, safeJsonParse, loadTodos, loadBlackboxState, VIBEOS_HOME } from "../state.js"
+import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, getCurrentSessionId, _modelLocked, _blackboxEnabled, _latestBlackboxState, writeSelection, reconcileStateFromLedger, safeJsonParse, loadTodos, loadBlackboxState, recordLiveSessionSnapshot, VIBEOS_HOME } from "../state.js"
 import { loadSessionSlot, writeSessionSlot } from "../selection-manager.js"
 import { remoteCall, isApiConnected, isApiLatencyDegraded } from "../api-client.js"
 import { SAVE_EST } from "../constants.js"
@@ -310,6 +310,8 @@ async function _appendFooter(input, output, directory) {
     const vibeBrand = resolveBrand(loadOptimizationMode() || displayMode, activeSlot)
     let _rewardTag = ""
     let _rewardOutcome = null
+    let _rewardCredits = 0
+    let _rewardBreakdown = null
 
     if (_blackboxEnabled) {
       try {
@@ -347,19 +349,10 @@ async function _appendFooter(input, output, directory) {
                 isBrainTier: String(currentTier || "").toLowerCase() === "high",
               })
               const rewardResult = computeReward(rewardInput)
+              _rewardCredits = rewardResult.credits
+              _rewardBreakdown = rewardResult.breakdown
               if (rewardResult.credits !== 0) {
                 _rewardTag = rewardResult.credits > 0 ? `+${rewardResult.credits} XP` : `${rewardResult.credits} XP`
-                try {
-                  const statePath = join(VIBEOS_HOME, "delegation-state.json")
-                  const state = safeJsonParse(readFileSync(statePath, "utf-8"), {})
-                  const sid = getCurrentSessionId()
-                  if (!state.sessions) state.sessions = {}
-                  if (!state.sessions[sid]) state.sessions[sid] = {}
-                  state.sessions[sid].reward_credits = (state.sessions[sid].reward_credits || 0) + rewardResult.credits
-                  if (!state.lifetime) state.lifetime = {}
-                  state.lifetime.reward_credits = (state.lifetime.reward_credits || 0) + rewardResult.credits
-                  writeFileSync(statePath, JSON.stringify(state))
-                } catch {}
               }
             } catch {}
             // Write outcome to calibration log
@@ -387,19 +380,10 @@ async function _appendFooter(input, output, directory) {
           savingsUsd: sesSavings,
           isBrainTier: String(currentTier || "").toLowerCase() === "high",
         }))
+        _rewardCredits = rewardResult.credits
+        _rewardBreakdown = rewardResult.breakdown
         if (rewardResult.credits !== 0) {
           _rewardTag = rewardResult.credits > 0 ? `+${rewardResult.credits} XP` : `${rewardResult.credits} XP`
-          try {
-            const statePath = join(VIBEOS_HOME, "delegation-state.json")
-            const state = safeJsonParse(readFileSync(statePath, "utf-8"), {})
-            const sid = getCurrentSessionId()
-            if (!state.sessions) state.sessions = {}
-            if (!state.sessions[sid]) state.sessions[sid] = {}
-            state.sessions[sid].reward_credits = (state.sessions[sid].reward_credits || 0) + rewardResult.credits
-            if (!state.lifetime) state.lifetime = {}
-            state.lifetime.reward_credits = (state.lifetime.reward_credits || 0) + rewardResult.credits
-            writeFileSync(statePath, JSON.stringify(state))
-          } catch {}
         }
       } catch {}
     }
@@ -418,22 +402,13 @@ async function _appendFooter(input, output, directory) {
             assistantText: rewardText,
             userText: latestUserIntent || "",
             prevAssistantTexts,
-            savingsUsd: Number(_footerSavingsCache || 0),
-            isBrainTier: String(currentTier || "").toLowerCase() === "high",
-          }))
+          savingsUsd: Number(_footerSavingsCache || 0),
+          isBrainTier: String(currentTier || "").toLowerCase() === "high",
+        }))
+          _rewardCredits = rewardResult.credits
+          _rewardBreakdown = rewardResult.breakdown
           if (rewardResult.credits !== 0) {
             _rewardTag = rewardResult.credits > 0 ? `+${rewardResult.credits} XP` : `${rewardResult.credits} XP`
-            try {
-              const statePath = join(VIBEOS_HOME, "delegation-state.json")
-              const state = safeJsonParse(readFileSync(statePath, "utf-8"), {})
-              const sid = getCurrentSessionId()
-              if (!state.sessions) state.sessions = {}
-              if (!state.sessions[sid]) state.sessions[sid] = {}
-              state.sessions[sid].reward_credits = (state.sessions[sid].reward_credits || 0) + rewardResult.credits
-              if (!state.lifetime) state.lifetime = {}
-              state.lifetime.reward_credits = (state.lifetime.reward_credits || 0) + rewardResult.credits
-              writeFileSync(statePath, JSON.stringify(state))
-            } catch {}
           }
         }
       } catch {}
@@ -457,6 +432,29 @@ async function _appendFooter(input, output, directory) {
       claimTag: claimTag || undefined,
       rewardTag: _rewardTag || undefined,
     })
+    try {
+      recordLiveSessionSnapshot({
+        sessionId: sid,
+        projectFingerprint: currentProjectFingerprint || "",
+        projectName: currentProjectName || "",
+        outcome: _rewardOutcome,
+        rewardCredits: _rewardCredits,
+        rewardBreakdown: _rewardBreakdown,
+        savingsUsd: Number(_footerSavingsCache || 0),
+        footerLine: vibeLine,
+        control: cv,
+        subRegime: currentSubRegime,
+        resolutionState: _rewardOutcome === "positive" ? "working" : _rewardOutcome === "negative" ? "needs_attention" : (_latestBlackboxState?.resolution_state || _latestBlackboxState?.resolution || "unresolved"),
+        resolutionReason: _rewardOutcome ? (_rewardOutcome === "positive" ? "positive outcome" : "negative outcome") : "no outcome yet",
+        nextAction: _rewardOutcome === "negative"
+          ? (_latestBlackboxLoopMsg || _latestBlackboxPivotMsg || (Array.isArray(cv?.directives) ? cv.directives[0] : "") || "")
+          : (_latestBlackboxPivotMsg || (Array.isArray(cv?.directives) ? cv.directives[0] : "") || ""),
+        loopInterventionLevel: _latestBlackboxState?.loop_intervention_level || cv?.loop_intervention_level || "none",
+        pivotDetected: Boolean(_latestBlackboxState?.pivot_detected),
+        stress: _footerStress,
+        source: "footer",
+      })
+    } catch {}
     const footerText = stripped + `\n\n${vibeLine}`
     _footerCacheText = `\n\n${vibeLine}`
     _footerCacheTs = Date.now()

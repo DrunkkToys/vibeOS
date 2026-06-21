@@ -1970,8 +1970,9 @@ function updateState(mutator) {
   for (let attempt = 0; attempt < MAX_RETRIES2; attempt++) {
     try {
       const result = withFileLock(delegationStateFile, () => {
-        const preGen = readJsonOrEmpty(delegationStateFile)._gen || 0;
-        let state = readJsonOrEmpty(delegationStateFile);
+        const preState = readJsonOrEmpty(delegationStateFile);
+        const preGen = Number(preState?._gen || 0);
+        let state = preState;
         if (!state || typeof state !== "object")
           state = {};
         if (!state.session_started_at || state.session_started_at === "not-a-valid-date" || isNaN(Date.parse(state.session_started_at))) {
@@ -2176,6 +2177,258 @@ function saveBlackboxState(state) {
   } catch (err) {
     console.error(`[vibeOS] saveBlackboxState failed: ${err.message}`);
   }
+}
+function _pushControlHistoryEntry(session, entry) {
+  if (!session || typeof session !== "object" || !entry || typeof entry !== "object")
+    return;
+  session.control_history ??= [];
+  const fingerprint = JSON.stringify({
+    regime: entry.regime || "",
+    reward: entry.reward ?? null,
+    outcome: entry.outcome ?? null,
+    next_action: entry.next_action ?? null,
+    control: entry.control || {}
+  });
+  const last = session.control_history[session.control_history.length - 1];
+  if (last?.fingerprint === fingerprint)
+    return;
+  session.control_history.push({ ...entry, fingerprint });
+  if (session.control_history.length > 100) {
+    session.control_history = session.control_history.slice(-100);
+  }
+}
+function _isPlainObject(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+function _normalizeSnapshotRewardBreakdown(input) {
+  const breakdown = input?.rewardBreakdown;
+  if (!_isPlainObject(breakdown))
+    return null;
+  try {
+    return JSON.parse(JSON.stringify(breakdown));
+  } catch {
+    return { ...breakdown };
+  }
+}
+function _buildLiveSnapshotFingerprint(input, resolutionState, resolutionReason, nextAction) {
+  return stableJson({
+    sessionId: String(input?.sessionId || ""),
+    projectFingerprint: String(input?.projectFingerprint || ""),
+    projectName: String(input?.projectName || ""),
+    outcome: typeof input?.outcome === "string" ? input.outcome : null,
+    rewardCredits: Number.isFinite(Number(input?.rewardCredits)) ? Number(input.rewardCredits || 0) : null,
+    savingsUsd: Number.isFinite(Number(input?.savingsUsd)) ? roundUsd(Number(input.savingsUsd || 0)) : null,
+    footerLine: String(input?.footerLine || ""),
+    control: input?.control && typeof input.control === "object" ? input.control : null,
+    subRegime: String(input?.subRegime || ""),
+    resolutionState,
+    resolutionReason,
+    nextAction,
+    loopInterventionLevel: String(input?.loopInterventionLevel || ""),
+    pivotDetected: Boolean(input?.pivotDetected),
+    stress: Number.isFinite(Number(input?.stress)) ? Number(input.stress) : null,
+    rewardBreakdown: _normalizeSnapshotRewardBreakdown(input),
+    source: String(input?.source || "")
+  });
+}
+function _deriveLiveResolutionState(input) {
+  const outcome = String(input?.outcome || "").toLowerCase();
+  const loopLevel = String(input?.loopInterventionLevel || "").toLowerCase();
+  const pivotDetected = Boolean(input?.pivotDetected);
+  if (input?.resolutionState || input?.resolutionReason) {
+    return {
+      resolution_state: String(input?.resolutionState || "unresolved"),
+      resolution_reason: String(input?.resolutionReason || "live snapshot")
+    };
+  }
+  if (outcome === "positive")
+    return { resolution_state: "working", resolution_reason: "positive outcome" };
+  if (outcome === "negative") {
+    return {
+      resolution_state: loopLevel === "escalated" ? "intervened" : "needs_attention",
+      resolution_reason: "negative outcome"
+    };
+  }
+  if (loopLevel && loopLevel !== "none")
+    return { resolution_state: "intervened", resolution_reason: `loop intervention: ${loopLevel}` };
+  if (pivotDetected)
+    return { resolution_state: "pivoted", resolution_reason: "context pivot detected" };
+  return { resolution_state: "unresolved", resolution_reason: "no outcome yet" };
+}
+function recordLiveSessionSnapshot(input) {
+  const explicitSessionId = typeof input?.sessionId === "string" ? input.sessionId.trim() : "";
+  if (input && Object.prototype.hasOwnProperty.call(input, "sessionId") && !explicitSessionId) {
+    return { sessionId: "", updatedAt: (/* @__PURE__ */ new Date()).toISOString(), resolutionState: "unresolved", resolutionReason: "missing session id" };
+  }
+  const sid = explicitSessionId || getCurrentSessionId() || _OC_SID || "";
+  const updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+  const derivedResolution = _deriveLiveResolutionState(input);
+  const resolutionState = String(input?.resolutionState || derivedResolution.resolution_state || "unresolved");
+  const resolutionReason = String(input?.resolutionReason || derivedResolution.resolution_reason || "no outcome yet");
+  const control = input?.control && typeof input.control === "object" ? { ...input.control } : null;
+  const nextAction = typeof input?.nextAction === "string" && input.nextAction.trim() ? input.nextAction.trim() : null;
+  const snapshotFingerprint = _buildLiveSnapshotFingerprint(input, resolutionState, resolutionReason, nextAction);
+  if (!sid) {
+    return { sessionId: "", updatedAt, resolutionState, resolutionReason };
+  }
+  if (_liveSnapshotFingerprints.get(sid) === snapshotFingerprint) {
+    return { sessionId: sid, updatedAt, resolutionState, resolutionReason };
+  }
+  try {
+    updateState((state) => {
+      state.sessions ??= {};
+      state.lifetime ??= {};
+      if (!state.sessions[sid]) {
+        state.sessions[sid] = { warns: [], cache_hits: [] };
+      }
+      const ses = state.sessions[sid];
+      if (ses.live_snapshot_fingerprint === snapshotFingerprint) {
+        ses.live_updated_at = updatedAt;
+        _liveSnapshotFingerprints.set(sid, snapshotFingerprint);
+        return state;
+      }
+      if (input.projectFingerprint)
+        ses.project_fingerprint = input.projectFingerprint;
+      if (input.projectName)
+        ses.project_name = input.projectName;
+      if (typeof input.savingsUsd === "number" && Number.isFinite(input.savingsUsd)) {
+        ses.live_savings_usd = roundUsd(Number(input.savingsUsd || 0));
+      }
+      if (typeof input.rewardCredits === "number" && Number.isFinite(input.rewardCredits)) {
+        ses.reward_credits = roundUsd(Number(ses.reward_credits || 0) + Number(input.rewardCredits || 0));
+        state.lifetime.reward_credits = roundUsd(Number(state.lifetime.reward_credits || 0) + Number(input.rewardCredits || 0));
+      }
+      const rewardBreakdown = _normalizeSnapshotRewardBreakdown(input);
+      if (rewardBreakdown)
+        ses.live_reward_breakdown = rewardBreakdown;
+      if (typeof input.outcome === "string" && input.outcome)
+        ses.last_outcome = input.outcome;
+      if (input.footerLine)
+        ses.last_footer_line = input.footerLine;
+      if (input.subRegime)
+        ses.live_sub_regime = input.subRegime;
+      if (typeof input.stress === "number" && Number.isFinite(input.stress))
+        ses.live_stress = Number(input.stress);
+      if (typeof input.loopInterventionLevel === "string")
+        ses.live_loop_intervention_level = input.loopInterventionLevel;
+      if (typeof input.pivotDetected === "boolean")
+        ses.live_pivot_detected = input.pivotDetected;
+      ses.live_resolution_state = resolutionState;
+      ses.live_resolution_reason = resolutionReason;
+      if (nextAction)
+        ses.live_next_action = nextAction;
+      ses.live_updated_at = updatedAt;
+      ses.live_snapshot_fingerprint = snapshotFingerprint;
+      _liveSnapshotFingerprints.set(sid, snapshotFingerprint);
+      if (control) {
+        ses.live_control = control;
+        _pushControlHistoryEntry(ses, {
+          turn: Number(ses.turn_counter || 0) + 1,
+          regime: input.subRegime || ses.sub_regime || ses.regime || "INIT",
+          control,
+          reward: typeof input.rewardCredits === "number" && Number.isFinite(input.rewardCredits) ? Number(input.rewardCredits || 0) : null,
+          outcome: typeof input.outcome === "string" ? input.outcome : null,
+          next_action: nextAction,
+          resolution_state: resolutionState,
+          resolution_reason: resolutionReason,
+          source: input.source || "footer"
+        });
+      }
+      return state;
+    });
+  } catch {
+  }
+  try {
+    const bb = loadBlackboxState();
+    bb.sessions ??= {};
+    if (!bb.sessions[sid]) {
+      bb.sessions[sid] = {};
+    }
+    const ses = bb.sessions[sid];
+    if (ses.live_snapshot_fingerprint === snapshotFingerprint) {
+      ses.updatedAt = updatedAt;
+      ses.last_snapshot_at = updatedAt;
+      _liveSnapshotFingerprints.set(sid, snapshotFingerprint);
+      saveBlackboxState(bb);
+      return { sessionId: sid, updatedAt, resolutionState, resolutionReason };
+    }
+    if (input.projectFingerprint)
+      ses.project_fingerprint = input.projectFingerprint;
+    if (input.projectName)
+      ses.project_name = input.projectName;
+    if (input.footerLine)
+      ses.last_footer_line = input.footerLine;
+    if (input.subRegime) {
+      ses.sub_regime = input.subRegime;
+      ses.regime = input.subRegime;
+    }
+    ses.resolution = resolutionState === "working" ? "solved" : resolutionState === "intervened" ? "looping" : ses.resolution || "unresolved";
+    ses.resolution_state = resolutionState;
+    ses.resolution_reason = resolutionReason;
+    ses.updatedAt = updatedAt;
+    ses.last_snapshot_at = updatedAt;
+    if (typeof input.savingsUsd === "number" && Number.isFinite(input.savingsUsd)) {
+      ses.live_savings_usd = roundUsd(Number(input.savingsUsd || 0));
+    }
+    if (typeof input.rewardCredits === "number" && Number.isFinite(input.rewardCredits)) {
+      ses.reward_credits = roundUsd(Number(ses.reward_credits || 0) + Number(input.rewardCredits || 0));
+    }
+    const rewardBreakdown = _normalizeSnapshotRewardBreakdown(input);
+    if (rewardBreakdown)
+      ses.reward_breakdown = rewardBreakdown;
+    if (typeof input.outcome === "string" && input.outcome) {
+      ses.outcome = input.outcome;
+      ses.outcomeHistory ??= [];
+      const outcomeFingerprint = JSON.stringify({
+        outcome: input.outcome,
+        reason: resolutionReason,
+        next_action: nextAction
+      });
+      const lastOutcome = ses.outcomeHistory[ses.outcomeHistory.length - 1];
+      if (lastOutcome?.fingerprint !== outcomeFingerprint) {
+        ses.outcomeHistory.push({
+          turn: Number(ses.turn_counter || ses.outcomeHistory.length || 0) + 1,
+          outcome: input.outcome,
+          timestamp: updatedAt,
+          source: input.source || "footer",
+          fingerprint: outcomeFingerprint
+        });
+        if (ses.outcomeHistory.length > 100) {
+          ses.outcomeHistory = ses.outcomeHistory.slice(-100);
+        }
+      }
+    }
+    if (control) {
+      ses.live_control = control;
+      _pushControlHistoryEntry(ses, {
+        turn: Number(ses.turn_counter || 0) + 1,
+        regime: input.subRegime || ses.sub_regime || ses.regime || "INIT",
+        control,
+        reward: typeof input.rewardCredits === "number" && Number.isFinite(input.rewardCredits) ? Number(input.rewardCredits || 0) : null,
+        outcome: typeof input.outcome === "string" ? input.outcome : null,
+        next_action: nextAction,
+        resolution_state: resolutionState,
+        resolution_reason: resolutionReason,
+        source: input.source || "footer"
+      });
+    }
+    if (nextAction)
+      ses.live_next_action = nextAction;
+    if (typeof input.pivotDetected === "boolean")
+      ses.pivot_detected = input.pivotDetected;
+    if (typeof input.loopInterventionLevel === "string")
+      ses.loop_intervention_level = input.loopInterventionLevel;
+    if (typeof input.stress === "number" && Number.isFinite(input.stress))
+      ses.stress_level = Number(input.stress);
+    ses.live_snapshot_fingerprint = snapshotFingerprint;
+    _liveSnapshotFingerprints.set(sid, snapshotFingerprint);
+    saveBlackboxState(bb);
+  } catch {
+  }
+  return { sessionId: sid, updatedAt, resolutionState, resolutionReason };
 }
 function normalizeBlackboxRecord(record, sid, now) {
   const next = { ...record || {} };
@@ -3405,7 +3658,7 @@ function mutateSessionOrchestration(sessionId, mutator) {
     return null;
   }
 }
-var USER_HOME2, VIBEOS_CONTEXT, VIBEOS_HOME, OPENCODE_HOME, FILE_LOCK_DIR, DELEGATION_STATE_FILE, SAVINGS_LEDGER_FILE, GLOBAL_LEARNING_FILE, PRICING_CACHE_FILE, BLACKBOX_STATE_FILE, PROJECT_STATE_FILE, TIERS_FILE, ACTIVE_JOBS_FILE, AUTH_F, CREDIT_CACHE_F, FLOW_TODO_QUEUE_FILE, FLOW_DEDUP_FILE, ENFORCEMENT_COOLDOWN_FILE, TODOS_FILE, REPORTS_DIR, CONTEXT7_INSTALL_FLAG, TRINITY_OPENCODE_CONFIG, TRINITY_OPENCODE_CONFIGC, SCRATCHPAD_ROOT, SCRATCHPAD_GLOBAL_DIR, SCRATCHPAD_SESSIONS_DIR, SCRATCHPAD_SESSION_TTL_MS, SCRATCHPAD_MAX_AGE_SEC, MAX_SCRATCHPAD_FILES, MAX_SCRATCHPAD_BYTES, MAX_SESSION_SCRATCHPAD_FILES, MAX_SESSION_SCRATCHPAD_BYTES, CORRUPTION_BACKUP_MAX, CORRUPTION_BACKUP_TTL_MS, LEDGER_ROTATE_MAX_BYTES, LEDGER_ROTATE_MAX_LINES, LEDGER_ROTATE_MAX_AGE_MS, ACTIVE_JOBS_STALE_MS, SUMMARY_HEAD_TRUNCATE, DECADENCE_FRESH_MS, DECADENCE_WARM_MS, DECADENCE_COLD_MS, DECADENCE_EXPIRE_MS, DECADENCE_THROTTLE_MS, DECADENCE_GLOBAL_THROTTLE_MS, TOOL_NAME_NORMALIZE, SCRATCHPAD_TOOLS, WARN_DEDUPE_WINDOW_MS, SOFT_QUOTA_LIMIT, _OC_SID, currentSessionId, _sessionStart, currentTier, currentModel, currentProjectFingerprint, currentProjectName, recentToolEvents, frictionSessionKeys, _savingsCache, _savingsCacheMtime, _ledgerReconciledMtime, _ledgerTotalsCache, _mlGraph, _cacheDb, ML_ENABLED, ML_CONFIDENCE_THRESHOLD, _mlSavePending, _blackboxEnabled, _latestBlackboxState, _latestBlackboxLoopMsg, _latestBlackboxPivotMsg, _modelLocked, _lockedSlot, _lockedModel, _sessionCleanupRegistered, _sessionCacheCleaned, prunedThisProcess, _lastDecadenceRun, briefedProjects, _ledgerBuffer, _ledgerBufferTimer, LEDGER_BUFFER_MAX, LEDGER_BUFFER_FLUSH_MS, testReminderSeen, DFLT_GL, tool, _startupMaintenanceHome, ORPHAN_SESSION_TTL_MS, FALLBACK_HIGH, FALLBACK_MID, HIGH_TIER_RE, MID_TIER_RE, scratchpadHitsSeen;
+var USER_HOME2, VIBEOS_CONTEXT, VIBEOS_HOME, OPENCODE_HOME, FILE_LOCK_DIR, DELEGATION_STATE_FILE, SAVINGS_LEDGER_FILE, GLOBAL_LEARNING_FILE, PRICING_CACHE_FILE, BLACKBOX_STATE_FILE, PROJECT_STATE_FILE, TIERS_FILE, ACTIVE_JOBS_FILE, AUTH_F, CREDIT_CACHE_F, FLOW_TODO_QUEUE_FILE, FLOW_DEDUP_FILE, ENFORCEMENT_COOLDOWN_FILE, TODOS_FILE, REPORTS_DIR, CONTEXT7_INSTALL_FLAG, TRINITY_OPENCODE_CONFIG, TRINITY_OPENCODE_CONFIGC, SCRATCHPAD_ROOT, SCRATCHPAD_GLOBAL_DIR, SCRATCHPAD_SESSIONS_DIR, SCRATCHPAD_SESSION_TTL_MS, SCRATCHPAD_MAX_AGE_SEC, MAX_SCRATCHPAD_FILES, MAX_SCRATCHPAD_BYTES, MAX_SESSION_SCRATCHPAD_FILES, MAX_SESSION_SCRATCHPAD_BYTES, CORRUPTION_BACKUP_MAX, CORRUPTION_BACKUP_TTL_MS, LEDGER_ROTATE_MAX_BYTES, LEDGER_ROTATE_MAX_LINES, LEDGER_ROTATE_MAX_AGE_MS, ACTIVE_JOBS_STALE_MS, SUMMARY_HEAD_TRUNCATE, DECADENCE_FRESH_MS, DECADENCE_WARM_MS, DECADENCE_COLD_MS, DECADENCE_EXPIRE_MS, DECADENCE_THROTTLE_MS, DECADENCE_GLOBAL_THROTTLE_MS, TOOL_NAME_NORMALIZE, SCRATCHPAD_TOOLS, WARN_DEDUPE_WINDOW_MS, SOFT_QUOTA_LIMIT, _OC_SID, currentSessionId, _sessionStart, currentTier, currentModel, currentProjectFingerprint, currentProjectName, recentToolEvents, frictionSessionKeys, _savingsCache, _savingsCacheMtime, _ledgerReconciledMtime, _ledgerTotalsCache, _liveSnapshotFingerprints, _mlGraph, _cacheDb, ML_ENABLED, ML_CONFIDENCE_THRESHOLD, _mlSavePending, _blackboxEnabled, _latestBlackboxState, _latestBlackboxLoopMsg2, _latestBlackboxPivotMsg2, _modelLocked, _lockedSlot, _lockedModel, _sessionCleanupRegistered, _sessionCacheCleaned, prunedThisProcess, _lastDecadenceRun, briefedProjects, _ledgerBuffer, _ledgerBufferTimer, LEDGER_BUFFER_MAX, LEDGER_BUFFER_FLUSH_MS, testReminderSeen, DFLT_GL, tool, _startupMaintenanceHome, ORPHAN_SESSION_TTL_MS, FALLBACK_HIGH, FALLBACK_MID, HIGH_TIER_RE, MID_TIER_RE, scratchpadHitsSeen;
 var init_state = __esm({
   "src/lib/state.js"() {
     "use strict";
@@ -3501,6 +3754,7 @@ var init_state = __esm({
       context7: 0,
       entries: 0
     };
+    _liveSnapshotFingerprints = /* @__PURE__ */ new Map();
     _mlGraph = createPatternGraph();
     _cacheDb = createCacheDatabase();
     ML_ENABLED = true;
@@ -3508,8 +3762,8 @@ var init_state = __esm({
     _mlSavePending = false;
     _blackboxEnabled = true;
     _latestBlackboxState = null;
-    _latestBlackboxLoopMsg = null;
-    _latestBlackboxPivotMsg = null;
+    _latestBlackboxLoopMsg2 = null;
+    _latestBlackboxPivotMsg2 = null;
     _modelLocked = false;
     _lockedSlot = null;
     _lockedModel = null;
@@ -5454,7 +5708,7 @@ var init_vibeultrax = __esm({
 });
 
 // src/index.ts
-import { readFileSync as readFileSync21, writeFileSync as writeFileSync19, existsSync as existsSync21, mkdirSync as mkdirSync16, copyFileSync as copyFileSync3, renameSync as renameSync6, statSync as statSync9 } from "node:fs";
+import { readFileSync as readFileSync21, writeFileSync as writeFileSync18, existsSync as existsSync21, mkdirSync as mkdirSync16, copyFileSync as copyFileSync3, renameSync as renameSync6, statSync as statSync9 } from "node:fs";
 import { join as join21, dirname as dirname14, basename as basename5 } from "node:path";
 
 // src/vibeOS-lib/flow-enforcer.js
@@ -9299,8 +9553,8 @@ var _BlackboxStub = class __BlackboxStub {
 };
 var _blackboxTracker = null;
 var _latestBlackboxState2 = null;
-var _latestBlackboxLoopMsg2 = null;
-var _latestBlackboxPivotMsg2 = null;
+var _latestBlackboxLoopMsg3 = null;
+var _latestBlackboxPivotMsg3 = null;
 var WARN_DEDUPE_WINDOW_MS2 = 120 * 1e3;
 var warnLogThrottle = /* @__PURE__ */ new Map();
 var warnPerSession = /* @__PURE__ */ new Map();
@@ -9425,8 +9679,8 @@ async function fetchBlackboxEnrichment(sessionId, localState) {
       project_id: currentProjectFingerprint || null
     });
     if (result) {
-      _latestBlackboxLoopMsg2 = result.loop_intervention_directive || null;
-      _latestBlackboxPivotMsg2 = result.pivot_directive || null;
+      _latestBlackboxLoopMsg3 = result.loop_intervention_directive || null;
+      _latestBlackboxPivotMsg3 = result.pivot_directive || null;
       return {
         ...localState,
         sub_regime: result.sub_regime || localState.sub_regime,
@@ -12458,7 +12712,7 @@ async function probeModel(modelId, auth, providers = null) {
 }
 
 // src/lib/hooks/footer.js
-import { readFileSync as readFileSync17, writeFileSync as writeFileSync16, appendFileSync as appendFileSync5, mkdirSync as mkdirSync13 } from "node:fs";
+import { readFileSync as readFileSync17, appendFileSync as appendFileSync5, mkdirSync as mkdirSync13 } from "node:fs";
 import { join as join18 } from "node:path";
 
 // src/lib/hooks/chat-transform.js
@@ -12965,10 +13219,18 @@ function sessionCompact(sid, fingerprint) {
     if (existsSync15(bbPath)) {
       const raw = readFileSync14(bbPath, "utf-8");
       if (raw) {
-        const bb = JSON.parse(raw);
-        const ses = bb?.sessions?.[sid];
-        if (ses && ses.sub_regime === "LOOPING" && patterns.length > 0) {
+        const bb = safeJsonParse2(raw, null) || {};
+        bb.sessions ??= {};
+        const existing = bb.sessions?.[sid] || null;
+        const shouldWrite = Boolean(existing && existing.sub_regime === "LOOPING") || patterns.length > 0;
+        if (shouldWrite) {
+          const ses = existing || (bb.sessions[sid] = { sessionId: sid });
+          const topPattern = patterns[0];
+          const summary = patterns.map((p) => p.summary).slice(0, 3).join(" | ");
           ses.resolution_state = "intervened";
+          ses.resolution_reason = summary || "looping friction detected";
+          ses.live_next_action = patterns.length > 0 ? `Address friction: ${topPattern?.summary || "review the repeated loop"}` : "Review the repeated loop and reduce friction";
+          ses.live_updated_at = (/* @__PURE__ */ new Date()).toISOString();
           writeFileSync12(bbPath, JSON.stringify(bb, null, 2));
         }
       }
@@ -13416,8 +13678,8 @@ function ensureProjectContext(hookDirectory) {
 var latestUserIntent = null;
 var _OC_SID3 = "opencode-" + (process.pid || "x") + "-" + Date.now();
 var _latestBlackboxState3 = null;
-var _latestBlackboxLoopMsg3 = null;
-var _latestBlackboxPivotMsg3 = null;
+var _latestBlackboxLoopMsg4 = null;
+var _latestBlackboxPivotMsg4 = null;
 var _prevBlackboxRegime = null;
 var _currentTemplate = DEFAULT_TEMPLATE;
 var _currentTemplateSignature = DEFAULT_TEMPLATE;
@@ -14315,10 +14577,10 @@ var onSystemTransform = async (_input, output) => {
         pushSystem(output, "[decision engine] Resolution: " + (res.resolution || "unresolved") + " (" + currentRegime + "). Momentum: " + ((res.momentum || 0) > 0 ? "\u2197 positive" : (res.momentum || 0) < 0 ? "\u2198 negative" : "\u2192 steady") + ".");
         if (res.is_looping && res.loop_intervention_level && res.loop_intervention_level !== "none") {
           const severity = res.loop_intervention_level === "escalated" ? "CRITICAL" : res.loop_intervention_level === "assertive" ? "WARNING" : "NOTICE";
-          pushSystem(output, "[loop prevention: " + severity + "] " + (_latestBlackboxLoopMsg3 || "The conversation may be looping \u2014 try a different approach.") + " (level: " + res.loop_intervention_level + ")");
+          pushSystem(output, "[loop prevention: " + severity + "] " + (_latestBlackboxLoopMsg4 || "The conversation may be looping \u2014 try a different approach.") + " (level: " + res.loop_intervention_level + ")");
         }
-        if (res.pivot_detected && _latestBlackboxPivotMsg3) {
-          pushSystem(output, "[context switch: PIVOT] " + _latestBlackboxPivotMsg3);
+        if (res.pivot_detected && _latestBlackboxPivotMsg4) {
+          pushSystem(output, "[context switch: PIVOT] " + _latestBlackboxPivotMsg4);
         }
       }
     }
@@ -14965,6 +15227,8 @@ async function _appendFooter(input, output, directory3) {
     const vibeBrand = resolveBrand(loadOptimizationMode() || displayMode, activeSlot);
     let _rewardTag = "";
     let _rewardOutcome = null;
+    let _rewardCredits = 0;
+    let _rewardBreakdown = null;
     if (_blackboxEnabled) {
       try {
         const prevText = _prevOutputText;
@@ -15002,23 +15266,10 @@ async function _appendFooter(input, output, directory3) {
                 isBrainTier: String(currentTier || "").toLowerCase() === "high"
               });
               const rewardResult = computeReward(rewardInput);
+              _rewardCredits = rewardResult.credits;
+              _rewardBreakdown = rewardResult.breakdown;
               if (rewardResult.credits !== 0) {
                 _rewardTag = rewardResult.credits > 0 ? `+${rewardResult.credits} XP` : `${rewardResult.credits} XP`;
-                try {
-                  const statePath = join18(VIBEOS_HOME, "delegation-state.json");
-                  const state = safeJsonParse2(readFileSync17(statePath, "utf-8"), {});
-                  const sid2 = getCurrentSessionId();
-                  if (!state.sessions)
-                    state.sessions = {};
-                  if (!state.sessions[sid2])
-                    state.sessions[sid2] = {};
-                  state.sessions[sid2].reward_credits = (state.sessions[sid2].reward_credits || 0) + rewardResult.credits;
-                  if (!state.lifetime)
-                    state.lifetime = {};
-                  state.lifetime.reward_credits = (state.lifetime.reward_credits || 0) + rewardResult.credits;
-                  writeFileSync16(statePath, JSON.stringify(state));
-                } catch {
-                }
               }
             } catch {
             }
@@ -15044,23 +15295,10 @@ async function _appendFooter(input, output, directory3) {
           savingsUsd: sesSavings,
           isBrainTier: String(currentTier || "").toLowerCase() === "high"
         }));
+        _rewardCredits = rewardResult.credits;
+        _rewardBreakdown = rewardResult.breakdown;
         if (rewardResult.credits !== 0) {
           _rewardTag = rewardResult.credits > 0 ? `+${rewardResult.credits} XP` : `${rewardResult.credits} XP`;
-          try {
-            const statePath = join18(VIBEOS_HOME, "delegation-state.json");
-            const state = safeJsonParse2(readFileSync17(statePath, "utf-8"), {});
-            const sid2 = getCurrentSessionId();
-            if (!state.sessions)
-              state.sessions = {};
-            if (!state.sessions[sid2])
-              state.sessions[sid2] = {};
-            state.sessions[sid2].reward_credits = (state.sessions[sid2].reward_credits || 0) + rewardResult.credits;
-            if (!state.lifetime)
-              state.lifetime = {};
-            state.lifetime.reward_credits = (state.lifetime.reward_credits || 0) + rewardResult.credits;
-            writeFileSync16(statePath, JSON.stringify(state));
-          } catch {
-          }
         }
       } catch {
       }
@@ -15082,23 +15320,10 @@ async function _appendFooter(input, output, directory3) {
             savingsUsd: Number(_footerSavingsCache || 0),
             isBrainTier: String(currentTier || "").toLowerCase() === "high"
           }));
+          _rewardCredits = rewardResult.credits;
+          _rewardBreakdown = rewardResult.breakdown;
           if (rewardResult.credits !== 0) {
             _rewardTag = rewardResult.credits > 0 ? `+${rewardResult.credits} XP` : `${rewardResult.credits} XP`;
-            try {
-              const statePath = join18(VIBEOS_HOME, "delegation-state.json");
-              const state = safeJsonParse2(readFileSync17(statePath, "utf-8"), {});
-              const sid2 = getCurrentSessionId();
-              if (!state.sessions)
-                state.sessions = {};
-              if (!state.sessions[sid2])
-                state.sessions[sid2] = {};
-              state.sessions[sid2].reward_credits = (state.sessions[sid2].reward_credits || 0) + rewardResult.credits;
-              if (!state.lifetime)
-                state.lifetime = {};
-              state.lifetime.reward_credits = (state.lifetime.reward_credits || 0) + rewardResult.credits;
-              writeFileSync16(statePath, JSON.stringify(state));
-            } catch {
-            }
           }
         }
       } catch {
@@ -15122,6 +15347,28 @@ async function _appendFooter(input, output, directory3) {
       claimTag: claimTag || void 0,
       rewardTag: _rewardTag || void 0
     });
+    try {
+      recordLiveSessionSnapshot({
+        sessionId: sid,
+        projectFingerprint: currentProjectFingerprint || "",
+        projectName: currentProjectName || "",
+        outcome: _rewardOutcome,
+        rewardCredits: _rewardCredits,
+        rewardBreakdown: _rewardBreakdown,
+        savingsUsd: Number(_footerSavingsCache || 0),
+        footerLine: vibeLine,
+        control: cv,
+        subRegime: currentSubRegime,
+        resolutionState: _rewardOutcome === "positive" ? "working" : _rewardOutcome === "negative" ? "needs_attention" : _latestBlackboxState?.resolution_state || _latestBlackboxState?.resolution || "unresolved",
+        resolutionReason: _rewardOutcome ? _rewardOutcome === "positive" ? "positive outcome" : "negative outcome" : "no outcome yet",
+        nextAction: _rewardOutcome === "negative" ? _latestBlackboxLoopMsg || _latestBlackboxPivotMsg || (Array.isArray(cv?.directives) ? cv.directives[0] : "") || "" : _latestBlackboxPivotMsg || (Array.isArray(cv?.directives) ? cv.directives[0] : "") || "",
+        loopInterventionLevel: _latestBlackboxState?.loop_intervention_level || cv?.loop_intervention_level || "none",
+        pivotDetected: Boolean(_latestBlackboxState?.pivot_detected),
+        stress: _footerStress,
+        source: "footer"
+      });
+    } catch {
+    }
     const footerText = stripped + `
 
 ${vibeLine}`;
@@ -15148,7 +15395,7 @@ ${vibeLine} \u2014`);
 
 // src/lib/hooks/tool-execute.js
 init_state();
-import { readFileSync as readFileSync19, writeFileSync as writeFileSync18, appendFileSync as appendFileSync7, existsSync as existsSync19, mkdirSync as mkdirSync15, copyFileSync as copyFileSync2 } from "node:fs";
+import { readFileSync as readFileSync19, writeFileSync as writeFileSync17, appendFileSync as appendFileSync7, existsSync as existsSync19, mkdirSync as mkdirSync15, copyFileSync as copyFileSync2 } from "node:fs";
 import { join as join20, dirname as dirname13, basename as basename4 } from "node:path";
 import { createHash as createHash6 } from "node:crypto";
 init_selection_manager();
@@ -15220,7 +15467,7 @@ init_smart_cache();
 
 // src/lib/tdd-enforcer.js
 init_state();
-import { readFileSync as readFileSync18, writeFileSync as writeFileSync17, appendFileSync as appendFileSync6, existsSync as existsSync18, mkdirSync as mkdirSync14, statSync as statSync8, readdirSync as readdirSync4, rmSync as rmSync6, openSync as openSync3 } from "node:fs";
+import { readFileSync as readFileSync18, writeFileSync as writeFileSync16, appendFileSync as appendFileSync6, existsSync as existsSync18, mkdirSync as mkdirSync14, statSync as statSync8, readdirSync as readdirSync4, rmSync as rmSync6, openSync as openSync3 } from "node:fs";
 import { join as join19, dirname as dirname12 } from "node:path";
 import { createHash as createHash5 } from "node:crypto";
 
@@ -16486,7 +16733,7 @@ function _recordCooldown(testPath) {
     appendFileSync6(ENFORCEMENT_COOLDOWN_FILE2, entry);
     const lines = readFileSync18(ENFORCEMENT_COOLDOWN_FILE2, "utf-8").trim().split("\n").filter(Boolean);
     if (lines.length > 500) {
-      writeFileSync17(ENFORCEMENT_COOLDOWN_FILE2, lines.slice(-200).join("\n") + "\n");
+      writeFileSync16(ENFORCEMENT_COOLDOWN_FILE2, lines.slice(-200).join("\n") + "\n");
     }
   } catch {
   }
@@ -16573,7 +16820,7 @@ function enforceTestFile(filePath) {
     return null;
   try {
     mkdirSync14(skeleton.dir, { recursive: true });
-    writeFileSync17(skeleton.path, skeleton.content);
+    writeFileSync16(skeleton.path, skeleton.content);
     _enforcementCooldown.add(skeleton.path);
     _recordCooldown(skeleton.path);
     try {
@@ -16949,7 +17196,7 @@ ${inputJson}
     ensureSessionScratchpadDirs();
     copyFileSync2(sourcePath, targetPath);
     const ptrPath = join20(sessionDir, `${hash}.ptr`);
-    writeFileSync18(ptrPath, JSON.stringify({
+    writeFileSync17(ptrPath, JSON.stringify({
       contentHash: sourceHash,
       tool: titleCase,
       warmed: true,
@@ -17045,7 +17292,7 @@ ${argsJson}
                       const globalFile = join20(globalDir, `${targetHash}.txt`);
                       if (existsSync19(cachedFile) || existsSync19(globalFile)) {
                         ensureSessionScratchpadDirs();
-                        writeFileSync18(ptrPath, JSON.stringify({
+                        writeFileSync17(ptrPath, JSON.stringify({
                           contentHash: targetHash,
                           tool: titleCase,
                           warmed: true,
@@ -17356,7 +17603,7 @@ ${argsJson}
           if (!existsSync19(CONTEXT7_INSTALL_FLAG)) {
             try {
               mkdirSync15(dirname13(CONTEXT7_INSTALL_FLAG), { recursive: true });
-              writeFileSync18(CONTEXT7_INSTALL_FLAG, "");
+              writeFileSync17(CONTEXT7_INSTALL_FLAG, "");
             } catch (c7FlagErr) {
               if (DEBUG_INTERNALS2)
                 console.error(`[vibeOS] context7 flag write error: ${c7FlagErr.message}`);
@@ -17944,7 +18191,7 @@ function publishMcpRuntime(port, baseUrl) {
       return null;
     const normalizedBase = String(baseUrl || `http://127.0.0.1:${resolvedPort}`).trim().replace(/\/$/, "");
     mkdirSync16(dirname14(getMcpRuntimeFile()), { recursive: true });
-    writeFileSync19(getMcpRuntimeFile(), JSON.stringify({
+    writeFileSync18(getMcpRuntimeFile(), JSON.stringify({
       port: resolvedPort,
       baseUrl: normalizedBase,
       updatedAt: (/* @__PURE__ */ new Date()).toISOString()
@@ -18191,7 +18438,7 @@ async function _seedOrRepairModelTiers(directory3) {
     trinity: nextTrinity
   };
   mkdirSync16(dirname14(TIERS_FILE3), { recursive: true });
-  writeFileSync19(TIERS_FILE3, JSON.stringify(tiers, null, 2) + "\n", "utf-8");
+  writeFileSync18(TIERS_FILE3, JSON.stringify(tiers, null, 2) + "\n", "utf-8");
   return true;
 }
 function _parseJsonc(raw) {
@@ -18261,7 +18508,7 @@ function persistMcpPort(port) {
       delete tiers.mcp_port;
     mkdirSync16(dirname14(getTiersFile()), { recursive: true });
     const tmp = getTiersFile() + ".tmp." + Date.now();
-    writeFileSync19(tmp, JSON.stringify(tiers, null, 2) + "\n", "utf-8");
+    writeFileSync18(tmp, JSON.stringify(tiers, null, 2) + "\n", "utf-8");
     renameSync6(tmp, getTiersFile());
   } catch {
   }
@@ -18442,14 +18689,14 @@ async function ensureMcpServerRunning() {
               features: session?.features || _latestBlackboxState?.features || {},
               signals: session?.signals || _latestBlackboxState?.signals || {},
               loop: {
-                active: Boolean(session?.loop?.active || _latestBlackboxLoopMsg !== null),
-                message: session?.loop?.message || _latestBlackboxLoopMsg,
-                intervention_level: session?.loop?.intervention_level || _latestBlackboxLoopMsg?.intervention_level || _latestBlackboxState?.loop?.intervention_level || 0,
+                active: Boolean(session?.loop?.active || _latestBlackboxLoopMsg2 !== null),
+                message: session?.loop?.message || _latestBlackboxLoopMsg2,
+                intervention_level: session?.loop?.intervention_level || _latestBlackboxLoopMsg2?.intervention_level || _latestBlackboxState?.loop?.intervention_level || 0,
                 consecutive_loops: session?.loop?.consecutive_loops || _latestBlackboxState?.loop?.consecutive_loops || 0
               },
               pivot: {
-                detected: Boolean(session?.pivot?.detected || _latestBlackboxPivotMsg !== null),
-                message: session?.pivot?.message || _latestBlackboxPivotMsg
+                detected: Boolean(session?.pivot?.detected || _latestBlackboxPivotMsg2 !== null),
+                message: session?.pivot?.message || _latestBlackboxPivotMsg2
               },
               continuity_state: session?.continuity_state || _latestBlackboxState?.continuity_state || null,
               turn_index: session?.turn_index ?? _latestBlackboxState?.turn_index ?? 0,
@@ -18645,7 +18892,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     try {
       mkdirSync16(dirname14(hookProjectStateFile), { recursive: true });
       const tmp = hookProjectStateFile + ".tmp";
-      writeFileSync19(tmp, JSON.stringify(state, null, 2) + "\n");
+      writeFileSync18(tmp, JSON.stringify(state, null, 2) + "\n");
       renameSync6(tmp, hookProjectStateFile);
     } catch {
     }
@@ -18663,7 +18910,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
   const saveReportsIndexStable = (idx) => {
     try {
       mkdirSync16(hookReportsDir, { recursive: true });
-      writeFileSync19(hookReportsIndex, JSON.stringify(idx, null, 2) + "\n");
+      writeFileSync18(hookReportsIndex, JSON.stringify(idx, null, 2) + "\n");
     } catch {
     }
   };
@@ -18708,7 +18955,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     directory: directory3,
     safeJsonParse: safeJsonParse2,
     readFileSync: readFileSync21,
-    writeFileSync: writeFileSync19,
+    writeFileSync: writeFileSync18,
     existsSync: existsSync21,
     renameSync: renameSync6,
     mkdirSync: mkdirSync16,
