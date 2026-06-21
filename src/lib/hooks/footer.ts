@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, sta
 import { join, dirname, basename } from "node:path"
 import { classify, modelCostPerTurn, _refreshModel, readConfig, resolveTrinityDisplayModel, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, roundUsd, formatUsd, resolveExecutionIdentity, modelDisplayName } from "../pricing.js"
 import { latestUserIntent } from "./chat-transform.js"
-import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, classifyTurnSimple, autoSelectMode, loadOptimizationMode, computeControlVector } from "../turn-classify.js"
+import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, classifyTurnSimple, autoSelectMode, loadOptimizationMode, computeControlVector, resolveOptimizationSlot } from "../turn-classify.js"
 import { recordBudgetFirstOutcome } from "../mode-policy.js"
 import { saveReport } from "../reporting.js"
 import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, getCurrentSessionId, _modelLocked, _blackboxEnabled, _latestBlackboxState, writeSelection, reconcileStateFromLedger, safeJsonParse, loadTodos, loadBlackboxState, recordLiveSessionSnapshot, VIBEOS_HOME } from "../state.js"
@@ -56,8 +56,7 @@ async function apiAutoSelectMode(regime, stress) {
     }
   } catch (e) { footerDebug("[vibeOS] apiAutoSelectMode error:", e.message) }
   const fallback = regimeToMode(regime, stress)
-  if (!_cachedAutoMode || _cachedAutoMode === "balanced") _cachedAutoMode = fallback
-  return _cachedAutoMode || fallback || "balanced"
+  return fallback || "balanced"
 }
 
 const STATE_FILE = join(getVibeOSHome(), "delegation-state.json")
@@ -302,12 +301,23 @@ async function _appendFooter(input, output, directory) {
     if (stripped !== text) return
     if (stripped === _lastStrippedText && !claimTag) return
     const ltTotal = ltTasks + ltCache
-    const activeSlot = selNowFooter.active_slot || "brain"
+    const backendMode = String(
+      selNowFooter.requested_optimization_mode ||
+      selNowFooter.optimization_mode ||
+      loadOptimizationMode() ||
+      _latestBlackboxState?.optimization_mode ||
+      ""
+    ).trim().toLowerCase()
+    const displayMode = backendMode || (isApiConnected()
+      ? await apiAutoSelectMode(currentSubRegime, _footerStress)
+      : autoSelectMode(currentSubRegime, _footerStress))
+    const activeSlot = displayMode === "vibeultrax"
+      ? "cheap"
+      : selNowFooter.active_slot || resolveOptimizationSlot(displayMode) || "brain"
     const flashIcon = isApiConnected() ? " \u26A1" : ""
-    const displayMode = autoSelectMode(currentSubRegime, _footerStress)
-    const rawMode = (typeof loadSelection === "function" ? (loadSelection()?.requested_optimization_mode || loadSelection()?.optimization_mode) : null) || displayMode
+    const rawMode = displayMode
     const cv = computeControlVector({ sub_regime: currentSubRegime, latest_stress_multiplier: _footerStress, user_text: latestUserIntent || "" }, undefined, rawMode)
-    const vibeBrand = resolveBrand(loadOptimizationMode() || displayMode, activeSlot)
+    const vibeBrand = resolveBrand(displayMode, activeSlot)
     let _rewardTag = ""
     let _rewardOutcome = null
     let _rewardCredits = 0

@@ -1117,7 +1117,7 @@ export function _refreshModel(directory) {
     // selected trinity slot is missing or placeholder-like. Existing trinity
     // slots are treated as authoritative so user-defined brain/medium/cheap
     // choices survive restarts and reinstall/repair cycles.
-    if (!(_modelLocked || sel.slot_locked === true)) {
+    if (!(_modelLocked || sel.slot_locked === true) && !slotOcModel) {
       const activeIsManual = tiersData?.trinity?.[activeSlot]?.manual === true
       const currentSlotModel = activeIsManual ? "" : slotOcModel
       if (!currentSlotModel && !currentModel) {

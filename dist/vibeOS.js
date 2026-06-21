@@ -8303,7 +8303,7 @@ function _refreshModel(directory3) {
           console.error(`[vibeOS] auto-detected model: ${currentModel} (tier=${currentTier})`);
       }
     }
-    if (!(_modelLocked || sel.slot_locked === true)) {
+    if (!(_modelLocked || sel.slot_locked === true) && !slotOcModel) {
       const activeIsManual = tiersData?.trinity?.[activeSlot]?.manual === true;
       const currentSlotModel = activeIsManual ? "" : slotOcModel;
       if (!currentSlotModel && !currentModel) {
@@ -9440,6 +9440,14 @@ function resolveOptimizationMode(subRegime, stressMultiplier, optimizationMode) 
   }
   return isSupportedOptimizationMode(normalized) ? normalized : "budget";
 }
+function resolveOptimizationSlot(mode) {
+  const normalized = normalizeOptimizationMode(mode);
+  if (MEDIUM_ROOT_MODES.has(normalized))
+    return "medium";
+  if (BRAIN_ROOT_MODES.has(normalized))
+    return "brain";
+  return "cheap";
+}
 function buildModeRoot(mode) {
   if (mode === "vibeqmax") {
     return { mode_root: "vibeqmax", mode_family: "brain-ml", cascade_depth: 1, pipeline_root: ["brain"] };
@@ -10004,7 +10012,7 @@ function recoverOptimizationModeFromLiveState(sel) {
     return "budget";
   return recoverOptimizationModeFromSelection(sel);
 }
-function loadOptimizationMode() {
+function loadOptimizationMode2() {
   try {
     const sel = loadSelection();
     const persistedMode = sel.optimization_mode || null;
@@ -14085,7 +14093,7 @@ function syncControlSettings(cv, options = {}) {
     const authoritative = options.authoritative === true || backendDecision && backendDecision.source !== "manual";
     const currentSel = loadSelection();
     const userSetMode = loadSessionOptMode(sid + "_opt");
-    const userOptMode = userSetMode || loadOptimizationMode();
+    const userOptMode = userSetMode || loadOptimizationMode2();
     const isManualMode = userSetMode && userOptMode !== "auto";
     const writeIf = (key, val) => {
       const sel = loadSelection();
@@ -14385,7 +14393,7 @@ async function trackBlackbox(messages) {
     }
     localState.user_text = latestUserIntent;
     const modePreview = peekBudgetFirstMode({
-      requestedMode: loadOptimizationMode(),
+      requestedMode: loadOptimizationMode2(),
       subRegime: localState.sub_regime || "INIT",
       stress: st || 0
     });
@@ -14608,7 +14616,7 @@ var onSystemTransform = async (_input, output) => {
     if (latestUserIntent)
       observeUserCorrection(latestUserIntent);
     const classifiedRegime = _latestBlackboxState3?.sub_regime || (latestUserIntent ? await classifyTurnRemote(latestUserIntent) : "INIT");
-    const requestedOptimizationMode = loadOptimizationMode();
+    const requestedOptimizationMode = loadOptimizationMode2();
     const backendAutoModes = /* @__PURE__ */ new Set(["auto", "vibeultrax", "vibeqmax", "vibemax", "vibelitex"]);
     const useBackendDecision = backendAutoModes.has(String(requestedOptimizationMode || "").toLowerCase());
     let optimizationDecision = null;
@@ -15231,6 +15239,40 @@ function footerDebug(...args) {
 function getVibeOSHome10() {
   return process.env.VIBEOS_HOME || join19(process.env.HOME || "", ".claude");
 }
+var _cachedAutoMode = null;
+var _cachedAutoModeTs = 0;
+var AUTO_CACHE_TTL = 6e4;
+var DEFAULT_REGIME_MAP = {
+  LOOPING: "vibemax",
+  DIVERGENT: "vibemax",
+  EXPLORING: "vibemax",
+  INIT: "vibemax",
+  REFINING: "vibemax",
+  CONVERGING: "quality",
+  CLOSED: "quality"
+};
+function regimeToMode(regime, stress) {
+  if (stress > 1.5)
+    return "quality";
+  return DEFAULT_REGIME_MAP[regime] || "vibemax";
+}
+async function apiAutoSelectMode(regime, stress) {
+  const now = Date.now();
+  if (_cachedAutoMode && now - _cachedAutoModeTs < AUTO_CACHE_TTL)
+    return _cachedAutoMode;
+  try {
+    const res = await remoteCall("blackboxSelectMode", [regime, stress], null);
+    if (res?.mode) {
+      _cachedAutoMode = res.mode;
+      _cachedAutoModeTs = now;
+      return res.mode;
+    }
+  } catch (e) {
+    footerDebug("[vibeOS] apiAutoSelectMode error:", e.message);
+  }
+  const fallback2 = regimeToMode(regime, stress);
+  return fallback2 || "balanced";
+}
 var STATE_FILE2 = join19(getVibeOSHome10(), "delegation-state.json");
 var SAVINGS_LEDGER_FILE2 = join19(getVibeOSHome10(), "savings-ledger.jsonl");
 var _prevOutputText = "";
@@ -15488,12 +15530,13 @@ async function _appendFooter(input, output, directory3) {
     if (stripped === _lastStrippedText && !claimTag)
       return;
     const ltTotal = ltTasks + ltCache;
-    const activeSlot = selNowFooter.active_slot || "brain";
+    const backendMode = String(selNowFooter.requested_optimization_mode || selNowFooter.optimization_mode || loadOptimizationMode2() || _latestBlackboxState?.optimization_mode || "").trim().toLowerCase();
+    const displayMode = backendMode || (isApiConnected() ? await apiAutoSelectMode(currentSubRegime, _footerStress) : autoSelectMode2(currentSubRegime, _footerStress));
+    const activeSlot = displayMode === "vibeultrax" ? "cheap" : selNowFooter.active_slot || resolveOptimizationSlot(displayMode) || "brain";
     const flashIcon = isApiConnected() ? " \u26A1" : "";
-    const displayMode = autoSelectMode2(currentSubRegime, _footerStress);
-    const rawMode = (typeof loadSelection2 === "function" ? loadSelection2()?.requested_optimization_mode || loadSelection2()?.optimization_mode : null) || displayMode;
+    const rawMode = displayMode;
     const cv = computeControlVector2({ sub_regime: currentSubRegime, latest_stress_multiplier: _footerStress, user_text: latestUserIntent || "" }, void 0, rawMode);
-    const vibeBrand = resolveBrand(loadOptimizationMode() || displayMode, activeSlot);
+    const vibeBrand = resolveBrand(displayMode, activeSlot);
     let _rewardTag = "";
     let _rewardOutcome = null;
     let _rewardCredits = 0;
@@ -17968,8 +18011,9 @@ var onToolExecuteAfter = async (input, output) => {
         modelLocked: _modelLocked,
         quietIntent: isGreetingLike2(latestUserIntent || "")
       });
-      const activeSlot = selNow.active_slot || (execution.quality === "brain" ? "brain" : execution.quality === "medium" ? "medium" : "cheap");
-      const displayMode = autoSelectMode2(currentSubRegime, latestUserIntent ? scoreStress(latestUserIntent) : 0);
+      const backendMode = String(selNow.requested_optimization_mode || selNow.optimization_mode || loadOptimizationMode() || loadBlackboxState()?.cv?.optimization_mode || "").trim().toLowerCase();
+      const displayMode = backendMode || autoSelectMode2(currentSubRegime, latestUserIntent ? scoreStress(latestUserIntent) : 0);
+      const activeSlot = displayMode === "vibeultrax" ? "cheap" : selNow.active_slot || resolveOptimizationSlot(displayMode) || (execution.quality === "brain" ? "brain" : execution.quality === "medium" ? "medium" : "cheap");
       const vibeBrand = resolveBrand(displayMode, activeSlot);
       const sessionSlot = loadSessionSlot(currentSid);
       const flashIcon = isApiConnected() ? " \u26A1" : "";

@@ -42,7 +42,7 @@ function isGreetingLike(text: string): boolean {
   return value === "hi" || value === "hello" || value === "hey" || value === "yo" || /^hi[!.?\s]*$/.test(value) || /^hello[!.?\s]*$/.test(value) || /^hey[!.?\s]*$/.test(value)
 }
 import {
-  scoreStress, extractFirstWordFromArgs, shouldLogWarn, classifyTurnSimple, autoSelectMode,
+  scoreStress, extractFirstWordFromArgs, shouldLogWarn, classifyTurnSimple, autoSelectMode, resolveOptimizationSlot,
   isUserAskingForTests, isLikelyOffTopic, resolveEnforcementMode,
   getBlackboxTracker, loadBlackboxState, saveBlackboxState,
   loadGlobalLearning, updateGlobalLearning, getLearnedExploratoryWords,
@@ -886,8 +886,17 @@ export const onToolExecuteAfter = async (input, output) => {
         modelLocked: _modelLocked,
         quietIntent: isGreetingLike(latestUserIntent || ""),
       })
-      const activeSlot = selNow.active_slot || (execution.quality === "brain" ? "brain" : execution.quality === "medium" ? "medium" : "cheap")
-      const displayMode = autoSelectMode(currentSubRegime, latestUserIntent ? scoreStress(latestUserIntent) : 0)
+      const backendMode = String(
+        selNow.requested_optimization_mode ||
+        selNow.optimization_mode ||
+        loadOptimizationMode() ||
+        loadBlackboxState()?.cv?.optimization_mode ||
+        ""
+      ).trim().toLowerCase()
+      const displayMode = backendMode || autoSelectMode(currentSubRegime, latestUserIntent ? scoreStress(latestUserIntent) : 0)
+      const activeSlot = displayMode === "vibeultrax"
+        ? "cheap"
+        : selNow.active_slot || resolveOptimizationSlot(displayMode) || (execution.quality === "brain" ? "brain" : execution.quality === "medium" ? "medium" : "cheap")
       const vibeBrand = resolveBrand(displayMode, activeSlot)
       const sessionSlot = loadSessionSlot(currentSid)
       const flashIcon = isApiConnected() ? " \u26A1" : ""
