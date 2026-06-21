@@ -26,6 +26,7 @@ function fresh() {
   const env = process.env
   const snap = {
     HOME: env.HOME,
+    VIBEOS_HOME: env.VIBEOS_HOME,
     VIBEOS_API_URL: env.VIBEOS_API_URL,
     VIBEOS_API_DISABLED: env.VIBEOS_API_DISABLED,
     VIBEOS_API_TOKEN: env.VIBEOS_API_TOKEN,
@@ -35,6 +36,7 @@ function fresh() {
   }
 
   env.HOME = home
+  env.VIBEOS_HOME = home
   env.VIBEOS_API_URL = "http://127.0.0.1:1"
   delete env.VIBEOS_API_DISABLED
   env.VIBEOS_API_TOKEN = "vos_" + "a".repeat(64)
@@ -47,6 +49,8 @@ function fresh() {
 async function restore(ctx) {
   const env = process.env
   env.HOME = ctx.snap.HOME
+  if (ctx.snap.VIBEOS_HOME === undefined) delete env.VIBEOS_HOME
+  else env.VIBEOS_HOME = ctx.snap.VIBEOS_HOME
   if (ctx.snap.VIBEOS_API_URL === undefined) delete env.VIBEOS_API_URL
   else env.VIBEOS_API_URL = ctx.snap.VIBEOS_API_URL
   if (ctx.snap.VIBEOS_API_DISABLED === undefined) delete env.VIBEOS_API_DISABLED
@@ -65,6 +69,8 @@ async function restore(ctx) {
 async function restoreFull(ctx) {
   const env = process.env
   env.HOME = ctx.snap.HOME
+  if (ctx.snap.VIBEOS_HOME === undefined) delete env.VIBEOS_HOME
+  else env.VIBEOS_HOME = ctx.snap.VIBEOS_HOME
   if (ctx.snap.VIBEOS_API_URL === undefined) delete env.VIBEOS_API_URL
   else env.VIBEOS_API_URL = ctx.snap.VIBEOS_API_URL
   if (ctx.snap.VIBEOS_API_DISABLED === undefined) delete env.VIBEOS_API_DISABLED
@@ -140,6 +146,60 @@ test("syncApiTokenFromDisk else branch also clears fallback (via setApiToken wit
   }
 })
 
+test("primary VIBEOS_HOME token beats stale cwd disable file", async () => {
+  stamp++
+  const home = mkdtempSync(join(tmpdir(), `vibeos-home-${stamp}-`))
+  const cwd = mkdtempSync(join(tmpdir(), `vibeos-cwd-${stamp}-`))
+  sandboxes.push(home, cwd)
+  mkdirSync(join(home, ".claude"), { recursive: true })
+  writeFileSync(join(home, ".claude", ".env.production"), `VIBEOS_API_TOKEN=vos_${"d".repeat(64)}\n`)
+  writeFileSync(join(cwd, ".env.production"), "VIBEOS_API_DISABLED=true\n")
+
+  const env = process.env
+  const snap = {
+    HOME: env.HOME,
+    VIBEOS_HOME: env.VIBEOS_HOME,
+    cwd: process.cwd(),
+    VIBEOS_API_URL: env.VIBEOS_API_URL,
+    VIBEOS_API_DISABLED: env.VIBEOS_API_DISABLED,
+    VIBEOS_API_TOKEN: env.VIBEOS_API_TOKEN,
+    VIBEOS_API_BOOTSTRAP_TOKEN: env.VIBEOS_API_BOOTSTRAP_TOKEN,
+    VIBEOS_MCP_PORT: env.VIBEOS_MCP_PORT,
+  }
+
+  env.HOME = home
+  env.VIBEOS_HOME = home
+  delete env.VIBEOS_API_DISABLED
+  delete env.VIBEOS_API_TOKEN
+  delete env.VIBEOS_API_BOOTSTRAP_TOKEN
+  env.VIBEOS_MCP_PORT = "0"
+  process.chdir(cwd)
+  delete globalThis.__vibeOSRuntimeState
+
+  try {
+    const api = await import(`../src/lib/api-client.js?r=home-${stamp}`)
+    assert.equal(api.VIBEOS_API_DISABLED, false, "home token should override stale cwd disable file")
+    assert.equal(api.VIBEOS_API_TOKEN, `vos_${"d".repeat(64)}`)
+    assert.ok(api.getApiClient(), "client should be created from the HOME token")
+  } finally {
+    process.chdir(snap.cwd)
+    env.HOME = snap.HOME
+    if (snap.VIBEOS_HOME === undefined) delete env.VIBEOS_HOME
+    else env.VIBEOS_HOME = snap.VIBEOS_HOME
+    if (snap.VIBEOS_API_URL === undefined) delete env.VIBEOS_API_URL
+    else env.VIBEOS_API_URL = snap.VIBEOS_API_URL
+    if (snap.VIBEOS_API_DISABLED === undefined) delete env.VIBEOS_API_DISABLED
+    else env.VIBEOS_API_DISABLED = snap.VIBEOS_API_DISABLED
+    if (snap.VIBEOS_API_TOKEN === undefined) delete env.VIBEOS_API_TOKEN
+    else env.VIBEOS_API_TOKEN = snap.VIBEOS_API_TOKEN
+    if (snap.VIBEOS_API_BOOTSTRAP_TOKEN === undefined) delete env.VIBEOS_API_BOOTSTRAP_TOKEN
+    else env.VIBEOS_API_BOOTSTRAP_TOKEN = snap.VIBEOS_API_BOOTSTRAP_TOKEN
+    if (snap.VIBEOS_MCP_PORT === undefined) delete env.VIBEOS_MCP_PORT
+    else env.VIBEOS_MCP_PORT = snap.VIBEOS_MCP_PORT
+    delete globalThis.__vibeOSRuntimeState
+  }
+})
+
 test("embedded bootstrap token stays in bootstrap lane and exchanges before remoteCall", async () => {
   stamp++
   const home = mkdtempSync(join(tmpdir(), `vibeos-bootstrap-${stamp}-`))
@@ -149,6 +209,7 @@ test("embedded bootstrap token stays in bootstrap lane and exchanges before remo
   const env = process.env
   const snap = {
     HOME: env.HOME,
+    VIBEOS_HOME: env.VIBEOS_HOME,
     VIBEOS_API_URL: env.VIBEOS_API_URL,
     VIBEOS_API_DISABLED: env.VIBEOS_API_DISABLED,
     VIBEOS_API_TOKEN: env.VIBEOS_API_TOKEN,
@@ -157,6 +218,7 @@ test("embedded bootstrap token stays in bootstrap lane and exchanges before remo
   }
 
   env.HOME = home
+  env.VIBEOS_HOME = home
   env.VIBEOS_API_URL = "https://api.example.invalid"
   delete env.VIBEOS_API_DISABLED
   delete env.VIBEOS_API_TOKEN
@@ -214,6 +276,7 @@ test("health responses cache the backend version for status surfaces", async () 
   const env = process.env
   const snap = {
     HOME: env.HOME,
+    VIBEOS_HOME: env.VIBEOS_HOME,
     VIBEOS_API_URL: env.VIBEOS_API_URL,
     VIBEOS_API_DISABLED: env.VIBEOS_API_DISABLED,
     VIBEOS_API_TOKEN: env.VIBEOS_API_TOKEN,
@@ -223,6 +286,7 @@ test("health responses cache the backend version for status surfaces", async () 
   }
 
   env.HOME = home
+  env.VIBEOS_HOME = home
   env.VIBEOS_API_URL = "https://api.example.invalid"
   delete env.VIBEOS_API_DISABLED
   env.VIBEOS_API_TOKEN = "vos_" + "f".repeat(64)
@@ -267,6 +331,7 @@ test("slow remote calls trigger a latency guard so the next call stays local", a
   const env = process.env
   const snap = {
     HOME: env.HOME,
+    VIBEOS_HOME: env.VIBEOS_HOME,
     VIBEOS_API_URL: env.VIBEOS_API_URL,
     VIBEOS_API_DISABLED: env.VIBEOS_API_DISABLED,
     VIBEOS_API_TOKEN: env.VIBEOS_API_TOKEN,
@@ -276,6 +341,7 @@ test("slow remote calls trigger a latency guard so the next call stays local", a
   }
 
   env.HOME = home
+  env.VIBEOS_HOME = home
   env.VIBEOS_API_URL = "https://api.example.invalid"
   delete env.VIBEOS_API_DISABLED
   env.VIBEOS_API_TOKEN = "vos_" + "f".repeat(64)

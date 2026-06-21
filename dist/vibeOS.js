@@ -3937,52 +3937,74 @@ function _primaryApiEnvPath() {
 function _bootstrapEnvPath() {
   return _primaryApiEnvPath() + "/.env.alpha";
 }
-function readApiDisabledFromDisk() {
+function readPrimaryEnvFile() {
+  try {
+    return readFileSync4(_primaryApiEnvPath() + "/.env.production", "utf8");
+  } catch {
+    return null;
+  }
+}
+function readFirstFallbackEnvFile() {
   for (const dir of _envPaths) {
+    if (dir === _primaryApiEnvPath())
+      continue;
     try {
-      const env = readFileSync4(dir + "/.env.production", "utf8");
-      const m = env.match(/^VIBEOS_API_DISABLED=(.+)$/m);
-      if (m && isTruthyFlag(m[1])) {
-        _setApiPersistHome(dir);
-        return true;
-      }
+      return readFileSync4(dir + "/.env.production", "utf8");
     } catch {
     }
+  }
+  return null;
+}
+function readApiDisabledFromDisk() {
+  const primary = readPrimaryEnvFile();
+  if (primary !== null) {
+    const m = primary.match(/^VIBEOS_API_DISABLED=(.+)$/m);
+    if (m)
+      return isTruthyFlag(m[1]);
+    return false;
+  }
+  const fallback2 = readFirstFallbackEnvFile();
+  if (fallback2 !== null) {
+    const m = fallback2.match(/^VIBEOS_API_DISABLED=(.+)$/m);
+    if (m && isTruthyFlag(m[1]))
+      return true;
   }
   return false;
 }
 function readTokenFromDisk() {
   if (readApiDisabledFromDisk())
     return "";
-  for (const dir of _envPaths) {
-    try {
-      const env = readFileSync4(dir + "/.env.production", "utf8");
-      const m = env.match(/^VIBEOS_API_TOKEN=(.+)$/m);
-      if (m) {
-        const clean = normalizeDirectApiToken(m[1]);
-        if (clean) {
-          _setApiPersistHome(dir);
-          return clean;
-        }
+  const primary = readPrimaryEnvFile();
+  if (primary !== null) {
+    const m = primary.match(/^VIBEOS_API_TOKEN=(.+)$/m);
+    if (m)
+      return normalizeDirectApiToken(m[1]);
+    return "";
+  }
+  const fallback2 = readFirstFallbackEnvFile();
+  if (fallback2 !== null) {
+    const m = fallback2.match(/^VIBEOS_API_TOKEN=(.+)$/m);
+    if (m) {
+      const clean = normalizeDirectApiToken(m[1]);
+      if (clean) {
+        _setApiPersistHome(_primaryApiEnvPath());
+        return clean;
       }
-    } catch {
     }
   }
   return "";
 }
-function hasPrimaryTokenOnDisk() {
-  if (readApiDisabledFromDisk())
-    return false;
-  try {
-    const env = readFileSync4(_primaryApiEnvPath() + "/.env.production", "utf8");
-    return /^VIBEOS_API_TOKEN=/m.test(env);
-  } catch {
-    return false;
-  }
-}
 function readBootstrapTokenFromDisk() {
   if (readApiDisabledFromDisk())
     return "";
+  const primary = readPrimaryEnvFile();
+  if (primary !== null) {
+    const m = primary.match(/^VIBEOS_API_BOOTSTRAP_TOKEN=(.+)$/m);
+    if (m) {
+      return m[1].trim();
+    }
+    return "";
+  }
   try {
     const env = readFileSync4(_bootstrapEnvPath(), "utf8");
     const m = env.match(/^VIBEOS_API_BOOTSTRAP_TOKEN=(.+)$/m);
@@ -4213,9 +4235,6 @@ function syncApiTokenFromDisk() {
     console.error("[vibeOS] API token loaded from VIBEOS_API_TOKEN env var");
   } else {
     VIBEOS_API_DISABLED = false;
-    if (!VIBEOS_API_TOKEN && !hasPrimaryTokenOnDisk()) {
-      VIBEOS_API_TOKEN = EMBEDDED_API_TOKEN;
-    }
     VIBEOS_API_BOOTSTRAP_TOKEN ||= EMBEDDED_API_TOKEN;
     syncApiEnabledState(!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
     markApiConnected();
@@ -4725,7 +4744,7 @@ var init_api_client = __esm({
     _envPaths = Array.from(/* @__PURE__ */ new Set([_homeClaude, _vibeHome, _apiDir, process.cwd(), homedir3()]));
     _apiPersistHome = _vibeHome || _homeClaude;
     VIBEOS_API_DISABLED = readApiDisabledFromDisk() || isTruthyFlag(process.env.VIBEOS_API_DISABLED) || isExplicitlyDisabledFlag(process.env.VIBEOS_API_ENABLED);
-    VIBEOS_API_TOKEN = VIBEOS_API_DISABLED ? "" : readTokenFromDisk() || normalizeDirectApiToken(process.env.VIBEOS_API_TOKEN) || (!hasPrimaryTokenOnDisk() ? EMBEDDED_API_TOKEN : "");
+    VIBEOS_API_TOKEN = VIBEOS_API_DISABLED ? "" : readTokenFromDisk() || normalizeDirectApiToken(process.env.VIBEOS_API_TOKEN) || "";
     VIBEOS_API_BOOTSTRAP_TOKEN = VIBEOS_API_DISABLED ? "" : readBootstrapTokenFromDisk() || process.env.VIBEOS_API_BOOTSTRAP_TOKEN || EMBEDDED_API_TOKEN;
     VIBEOS_API_ENABLED = !VIBEOS_API_DISABLED && (!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN);
     setApiEnabled(VIBEOS_API_ENABLED);
