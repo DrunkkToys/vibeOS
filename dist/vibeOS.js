@@ -4163,7 +4163,7 @@ async function ensureBootstrapExchange() {
   return _bootstrapExchangeInFlight;
 }
 function syncApiTokenFromDisk() {
-  const diskDisabled = readApiDisabledFromDisk() || isTruthyFlag(process.env.VIBEOS_API_DISABLED);
+  const diskDisabled = readApiDisabledFromDisk() || isTruthyFlag(process.env.VIBEOS_API_DISABLED) || isExplicitlyDisabledFlag(process.env.VIBEOS_API_ENABLED);
   const diskToken = readTokenFromDisk() || "";
   const diskBootstrapToken = readBootstrapTokenFromDisk() || "";
   const envToken = normalizeDirectApiToken(process.env.VIBEOS_API_TOKEN);
