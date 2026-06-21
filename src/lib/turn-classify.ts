@@ -210,24 +210,9 @@ function buildUltraxControlVector(state: { sub_regime?: string; latest_stress_mu
     user_text: state?.user_text || state?.prompt || "",
   })
   return {
-    enforcement_mode: ultra.enforcement_mode,
+    ...ultra,
     enforcement_reason: `[optimize: vibeultrax] cascade root`,
-    flow_mode: ultra.flow_mode,
-    flow_focus: [],
-    tdd_mode: ultra.tdd_mode,
-    tdd_focus: [],
-    tier_bias: ultra.tier_bias,
-    thinking_mode: ultra.thinking_mode,
-    stress_multiplier: ultra.stress_multiplier,
-    context7_urgency: ultra.context7_urgency,
-    wbp_verbosity: ultra.wbp_verbosity,
     agent_mode: ultra.ultrax_profile === "deep" ? "plan" : undefined as any,
-    optimization_mode: "vibeultrax",
-    ...buildModeRoot("vibeultrax"),
-    ultrax_profile: ultra.ultrax_profile,
-    ultrax_confidence: ultra.ultrax_confidence,
-    ultrax_reason: ultra.ultrax_reason,
-    ultrax_estimated_savings: ultra.ultrax_estimated_savings,
     directives: [`[ultrax root] Dedicated cascade root active for ${state?.sub_regime || "INIT"}.`],
   }
 }

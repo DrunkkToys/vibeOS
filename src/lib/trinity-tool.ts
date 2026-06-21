@@ -130,7 +130,9 @@ export function createTrinityTool(deps) {
         const currentProvider = String(deps.currentModel || "").split("/")[0] || ""
         const selectedProvider = String(sel.selected_provider || "").split("/")[0] || ""
         const fallbackModelGuard = currentProvider === "opencode" && selectedProvider !== "opencode"
-        if (deps.currentModel && sel.selected_model && deps.currentModel !== sel.selected_model && !apiFallbackActive && !fallbackModelGuard && !deps._modelLocked) {
+        const activeSlot = sel.active_slot || "brain"
+        const activeSlotModel = tiers?.[activeSlot]?.oc || ""
+        if (deps.currentModel && activeSlotModel && deps.currentModel !== activeSlotModel && !apiFallbackActive && !fallbackModelGuard && !deps._modelLocked) {
           try {
             const providers = typeof deps._loadOpenCodeProviders === "function"
               ? deps._loadOpenCodeProviders(deps.directory)
@@ -138,7 +140,7 @@ export function createTrinityTool(deps) {
             const auth = deps._readAuth()
             const models = await deps.discoverAvailableModels(providers, auth)
             const trinity = buildDeterministicTrinity(models, {
-              selectedModelId: sel.selected_model || sel.executed_model || deps.currentModel,
+              selectedModelId: deps.currentModel,
             })
             if (trinity && trinity.brain) {
               const probed = {
@@ -148,25 +150,16 @@ export function createTrinityTool(deps) {
               }
               const tiersData = deps.safeJsonParse(deps.readFileSync(deps.TIERS_FILE, "utf-8"))
               const oldTiers = tiersData.trinity || {}
-              const oldProvider = tiersData.selection?.selected_provider || ""
-              const newProvider = trinity.provider || resolveExecutionIdentity(deps.currentModel, deps.directory)?.provider || ""
               tiersData.trinity ??= {}
               const slots = ["brain", "medium", "cheap"] as const
               for (const s of slots) {
                 const autoModel = probed[s].id
                 tiersData.trinity[s] = keepExistingTrinitySlot(oldTiers[s], autoModel)
               }
-              tiersData.selection ??= {}
-              tiersData.selection.selected_provider = trinity.provider || resolveExecutionIdentity(deps.currentModel, deps.directory)?.provider || ""
-              tiersData.selection.selected_model = sel.selected_model || deps.currentModel
-              tiersData.selection.executed_provider = tiersData.selection.selected_provider
-              tiersData.selection.executed_model = sel.executed_model || sel.selected_model || deps.currentModel
               const _tmp = deps.TIERS_FILE + ".tmp." + Date.now()
               deps.writeFileSync(_tmp, JSON.stringify(tiersData, null, 2) + "\n", "utf-8")
               deps.renameSync(_tmp, deps.TIERS_FILE)
               tiers = tiersData.trinity
-              sel.selected_provider = tiersData.selection.selected_provider
-              sel.selected_model = tiersData.selection.selected_model
             }
           } catch (e) { console.error("[vibeOS] auto-rebuild on model change failed:", e.message) }
         }
@@ -185,7 +178,6 @@ export function createTrinityTool(deps) {
         const brainModel = tiers?.brain?.oc || "(unset)"
         const mediumModel = tiers?.medium?.oc || "(unset)"
         cheapModel = tiers?.cheap?.oc || cheapModel
-        const activeSlot = sel.active_slot || "brain"
         const lockedSlot = deps._lockedSlot || null
         const lockedModel = deps._lockedModel || null
         const onboardingMode = sel.onboarding_mode || "strict"
@@ -349,17 +341,6 @@ export function createTrinityTool(deps) {
         deps.writeSessionSlot(deps._OC_SID, slot)
         const result = deps.applySlot(slot, deps.directory)
         if (!result.ok) return `\u274c Failed to set slot: ${result.reason}`
-        try {
-          const selected = resolveExecutionIdentity(result.ocModel, deps.directory)
-          if (selected) {
-            deps.writeSelection("selected_provider", selected.provider || "")
-            deps.writeSelection("selected_quality_tier", selected.quality || slot)
-            deps.writeSelection("selected_model", selected.model || result.ocModel)
-            deps.writeSelection("executed_provider", selected.provider || "")
-            deps.writeSelection("executed_quality_tier", selected.quality || slot)
-            deps.writeSelection("executed_model", selected.model || result.ocModel)
-          }
-        } catch {}
         deps._refreshModel(deps.directory)
         return `\u2705 Switched to ${slot} slot (${result.ocModel}). Active now (no restart needed).`
       }
@@ -384,8 +365,11 @@ export function createTrinityTool(deps) {
         if (modeEntry) {
           const tierSlot = slot === "vibeultrax" ? "cheap" : resolveCascadeSlot(modeEntry.pipeline)
           deps.writeSessionSlot(deps._OC_SID, tierSlot)
-          deps.writeSelection("active_slot", tierSlot)
           deps.writeSelection("active_pipeline", modeEntry.pipeline)
+          const switched = deps.applySlot(tierSlot, deps.directory)
+          if (!switched?.ok) {
+            return `\u274c Failed to switch OpenCode model: ${switched?.reason || "unknown error"}`
+          }
           if (slot === "vibeultrax") {
             deps._modelLocked = false
             deps._lockedSlot = null
@@ -564,7 +548,7 @@ export function createTrinityTool(deps) {
             discovered = await deps.discoverAvailableModels(providers, auth)
           }
         } catch {}
-        let selectedModel = deps.currentModel || existing?.selection?.selected_model || existing?.selection?.executed_model || ""
+        let selectedModel = deps.currentModel || ""
         if (!selectedModel) {
           try {
             for (const dir of [deps.directory || process.cwd(), deps.OPENCODE_HOME].filter(Boolean)) {
@@ -601,17 +585,14 @@ export function createTrinityTool(deps) {
           tiers.selection.requested_optimization_mode = tiers.selection.requested_optimization_mode || "vibeultrax"
         }
         tiers.selection.setup_completed_at = now
-        tiers.selection.selected_provider = trinity?.provider || resolveExecutionIdentity(selectedModel, deps.directory)?.provider || ""
-        tiers.selection.selected_quality_tier = trinity?.selected_tier || "brain"
-        tiers.selection.selected_model = trinity?.selected_model || selectedModel || ""
-        tiers.selection.executed_provider = tiers.selection.selected_provider
-        tiers.selection.executed_quality_tier = tiers.selection.selected_quality_tier
-        tiers.selection.executed_model = tiers.selection.selected_model
         if (brain) tiers.trinity.brain = keepExistingTrinitySlot(existing?.trinity?.brain, brain)
         if (medium) tiers.trinity.medium = keepExistingTrinitySlot(existing?.trinity?.medium, medium)
         if (cheap) tiers.trinity.cheap = keepExistingTrinitySlot(existing?.trinity?.cheap, cheap)
         deps.mkdirSync(dirname(deps.TIERS_FILE), { recursive: true })
         deps.writeFileSync(deps.TIERS_FILE, JSON.stringify(tiers, null, 2) + "\n")
+        const bootstrapSlot = tiers.selection.active_slot || (brain ? "brain" : "medium")
+        const booted = typeof deps.applySlot === "function" ? deps.applySlot(bootstrapSlot, deps.directory) : { ok: false, reason: "applySlot unavailable" }
+        if (!booted?.ok) return `\u274c Failed to activate native OpenCode model: ${booted?.reason || "unknown error"}`
         if (typeof deps._refreshModel === "function") deps._refreshModel(deps.directory)
         const lines = [
           "\u2705 Compatibility profile created.",
@@ -1051,8 +1032,16 @@ export function createTrinityTool(deps) {
           : {}
         const auth = deps._readAuth()
         const models = await deps.discoverAvailableModels(providers, auth)
-        const currentSelection = deps.loadSelection?.() || {}
-        const selectedModel = currentSelection.selected_model || currentSelection.executed_model || deps.currentModel || ""
+        let selectedModel = deps.currentModel || ""
+        if (!selectedModel) {
+          try {
+            const dir = deps.directory || process.cwd()
+            const p = join(dir, "opencode.json")
+            if (deps.existsSync(p)) {
+              selectedModel = deps.safeJsonParse(deps.readFileSync(p, "utf-8"))?.model || ""
+            }
+          } catch {}
+        }
         const trinity = buildDeterministicTrinity(models, { selectedModelId: selectedModel })
         if (!trinity) {
           return "\u274c No models discovered from any configured provider."
@@ -1080,20 +1069,13 @@ export function createTrinityTool(deps) {
             medium: keepExistingTrinitySlot(existing.medium, probed.medium.id),
             cheap: keepExistingTrinitySlot(existing.cheap, probed.cheap.id),
           }
-          tiers.selection ??= {}
-          tiers.selection.selected_provider = trinity.provider || resolveExecutionIdentity(selectedModel, deps.directory)?.provider || ""
-          tiers.selection.selected_quality_tier = trinity.selected_tier || "brain"
-          tiers.selection.selected_model = trinity.selected_model || selectedModel || ""
-          tiers.selection.executed_provider = tiers.selection.selected_provider
-          tiers.selection.executed_quality_tier = tiers.selection.selected_quality_tier
-          tiers.selection.executed_model = tiers.selection.selected_model
           const _tmp = deps.TIERS_FILE + ".tmp." + Date.now()
           deps.writeFileSync(_tmp, JSON.stringify(tiers, null, 2) + "\n", "utf-8")
           deps.renameSync(_tmp, deps.TIERS_FILE)
         } catch (err) {
           return "\u274c Failed to write model-tiers.json: " + err.message
         }
-        try { deps.applySlot("brain") } catch (e) { console.error("[vibeOS] auto-activate brain failed:", e.message) }
+        try { deps.applySlot("brain", deps.directory) } catch (e) { console.error("[vibeOS] auto-activate brain failed:", e.message) }
         const _finalTiers = deps.safeJsonParse(deps.readFileSync(deps.TIERS_FILE, "utf-8"))
         const _trinity = _finalTiers?.trinity || {}
         const _pMan = (s) => _trinity[s]?.manual === true ? " [manual, preserved]" : ""
