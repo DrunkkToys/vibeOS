@@ -170,3 +170,41 @@ test("live session snapshot with no session id is a safe no-op", async () => {
     try { rmSync(root, { recursive: true, force: true }) } catch {}
   }
 })
+
+test("live session snapshot recovers from corrupted live state and ignores non-plain reward breakdowns", async () => {
+  const root = makeSandbox("value-repair-corrupt")
+  const vibeHome = join(root, ".claude")
+  const prevHome = process.env.HOME
+  const prevVibeHome = process.env.VIBEOS_HOME
+  process.env.HOME = root
+  process.env.VIBEOS_HOME = vibeHome
+
+  try {
+    writeFileSync(join(vibeHome, "delegation-state.json"), "{ not valid json")
+    writeFileSync(join(vibeHome, "blackbox-state.json"), "{ not valid json")
+
+    const state = await import("../src/lib/state.js?live-repair-corrupt=" + Date.now())
+    assert.doesNotThrow(() => state.recordLiveSessionSnapshot({
+      sessionId: "opencode-test-corrupt",
+      outcome: "positive",
+      rewardCredits: 7,
+      rewardBreakdown: ["bad", "shape"],
+      footerLine: "footer",
+      source: "footer",
+    }))
+
+    const delegation = JSON.parse(readFileSync(join(vibeHome, "delegation-state.json"), "utf8"))
+    const blackbox = JSON.parse(readFileSync(join(vibeHome, "blackbox-state.json"), "utf8"))
+    const ses = delegation.sessions["opencode-test-corrupt"]
+    const bb = blackbox.sessions["opencode-test-corrupt"]
+
+    assert.equal(ses.reward_credits, 7, "corrupted delegation state should recover and persist credits")
+    assert.equal(bb.resolution_state, "working", "corrupted blackbox state should recover the live resolution")
+    assert.equal(ses.live_reward_breakdown ?? null, null, "array-shaped reward breakdown should be ignored")
+    assert.equal(bb.reward_breakdown ?? null, null, "array-shaped reward breakdown should not be persisted")
+  } finally {
+    try { process.env.HOME = prevHome } catch {}
+    try { process.env.VIBEOS_HOME = prevVibeHome } catch {}
+    try { rmSync(root, { recursive: true, force: true }) } catch {}
+  }
+})

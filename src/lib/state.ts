@@ -464,8 +464,9 @@ function updateState(mutator: (state: any) => any): any {
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
       const result = withFileLock(delegationStateFile, () => {
-        const preGen = (readJsonOrEmpty(delegationStateFile)._gen || 0)
-        let state = readJsonOrEmpty(delegationStateFile)
+        const preState = readJsonOrEmpty(delegationStateFile)
+        const preGen = Number(preState?._gen || 0)
+        let state = preState
         if (!state || typeof state !== "object") state = {}
         if (!state.session_started_at || state.session_started_at === "not-a-valid-date" || isNaN(Date.parse(state.session_started_at))) {
           state.session_started_at = new Date().toISOString()
@@ -695,9 +696,15 @@ function _pushControlHistoryEntry(session: any, entry: any): void {
   }
 }
 
+function _isPlainObject(value: any): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false
+  const proto = Object.getPrototypeOf(value)
+  return proto === Object.prototype || proto === null
+}
+
 function _normalizeSnapshotRewardBreakdown(input: any): any {
   const breakdown = input?.rewardBreakdown
-  if (!breakdown || typeof breakdown !== "object") return null
+  if (!_isPlainObject(breakdown)) return null
   try {
     return JSON.parse(JSON.stringify(breakdown))
   } catch {

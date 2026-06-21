@@ -160,6 +160,32 @@ test('semantic: LOOPING compaction falls back to an explicit next action even wi
   assert.ok(String(ses.live_next_action || '').includes('Review the repeated loop') || String(ses.live_next_action || '').includes('Address friction'), 'looping session should expose a fallback next action')
 })
 
+test('semantic: non-looping compaction stays quiet when no friction patterns are detected', async () => {
+  const sid = 'guard-quiet-test'
+  const fingerprint = 'fp-quiet'
+  globalThis.__vibeOS_SID = sid
+  const bbPath = join(claudeDir, 'blackbox-state.json')
+  writeFileSync(bbPath, JSON.stringify({
+    enabled: true,
+    sessions: {
+      [sid]: {
+        sessionId: sid,
+        sub_regime: 'EXPLORING',
+        resolution_state: 'unresolved',
+      },
+    },
+  }, null, 2))
+  mod.writeEvent(sid, { tool: 'bash', role: 'query', family: 'npm-test', at: Date.now(), isGuardBreach: false, isProtectedTarget: false, exitCode: 0 })
+  mod.writeEvent(sid, { tool: 'bash', role: 'query', family: 'echo', at: Date.now() + 1000, isGuardBreach: false, isProtectedTarget: false, exitCode: 0 })
+  mod.writeEvent(sid, { tool: 'bash', role: 'query', family: 'status', at: Date.now() + 2000, isGuardBreach: false, isProtectedTarget: false, exitCode: 0 })
+
+  mod.sessionCompact(sid, fingerprint)
+  const bb = JSON.parse(readFileSync(bbPath, 'utf-8'))
+  const ses = bb.sessions?.[sid] || {}
+  assert.equal(ses.resolution_state, 'unresolved', 'non-looping session should stay unresolved without friction patterns')
+  assert.equal(ses.live_next_action, undefined, 'quiet compaction should not invent a next action')
+})
+
 test('semantic: deriveTags correctly identifies protected targets', async () => {
   const modPh = await import(join(ROOT, 'src/lib/pattern-helpers.js'))
   assert.ok(modPh.targetsProtectedBranch('git push origin master'))
