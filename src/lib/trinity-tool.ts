@@ -1,7 +1,7 @@
 // @ts-nocheck
 
 import { join, dirname } from "node:path"
-import { LABEL_MODES, buildDeterministicTrinity, formatProviderName, formatQualityName, resolveExecutionIdentity } from "./pricing.js"
+import { LABEL_MODES, buildDeterministicTrinity, formatProviderName, formatQualityName, resolveCurrentExecution, resolveExecutionIdentity } from "./pricing.js"
 import { BRANDED_MODES, RUNTIME_MODES, resolveCascadeSlot } from "./mode-router.js"
 import { getBackendVersion, invalidateApiToken, isApiConnected } from "./api-client.js"
 import { getRealityCheckView } from "../vibeOS-lib/flow-enforcer.js"
@@ -205,7 +205,12 @@ export function createTrinityTool(deps) {
           } catch {}
         }
 
-        const execution = resolveExecutionIdentity(tiers?.[activeSlot]?.oc || deps.currentModel || "", deps.directory)
+        const execution = resolveCurrentExecution({
+          directory: deps.directory,
+          activeSlot,
+          currentModel: deps.currentModel || "",
+          tiersData: tiers,
+        })
         const lines = [
           `[vibeOS-dashboard]`,
           `Model: ${activeSlot} (${tiers?.[activeSlot]?.oc || deps.currentModel || "(unset)"})`,

@@ -1,6 +1,6 @@
 // @ts-nocheck
 
-import { LABEL_MODES, resolveExecutionIdentity } from "./pricing.js"
+import { LABEL_MODES, resolveCurrentExecution } from "./pricing.js"
 
 type SelectionLike = {
   enabled?: boolean
@@ -69,11 +69,16 @@ export function buildStatusPayload({
   const todoList = Array.isArray(todos) ? todos : []
   const pendingTodos = todoList.filter(t => t?.status === "pending").length
   const totalTodos = todoList.length
-  const current = tiersData?.trinity?.[activeSlot]?.oc || currentModel || ""
+  const execution = resolveCurrentExecution({
+    directory: "",
+    activeSlot,
+    currentModel,
+    tiersData,
+  })
+  const current = execution.model || currentModel || ""
   const lockActive = Boolean(modelLocked)
   const resolvedLockedSlot = lockActive ? (lockedSlot || activeSlot) : null
   const resolvedLockedModel = lockActive ? (lockedModel || current || null) : null
-  const execution = resolveExecutionIdentity(current || currentModel || "", "")
   return {
     enabled: selection?.enabled !== false,
     active_slot: activeSlot,

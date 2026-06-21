@@ -154,6 +154,34 @@ export function resolveExecutionIdentity(modelId: string, directory = "") {
   }
 }
 
+export function resolveCurrentExecution({
+  directory = "",
+  activeSlot = "",
+  currentModel = "",
+  liveModel = "",
+  tiersData = null,
+}: {
+  directory?: string
+  activeSlot?: string
+  currentModel?: string
+  liveModel?: string
+  tiersData?: any
+} = {}) {
+  const slot = String(activeSlot || "").trim()
+  const slotModel = slot && tiersData?.trinity?.[slot]?.oc ? tiersData.trinity[slot].oc : ""
+  const resolvedModel = slotModel || String(liveModel || "").trim() || String(currentModel || "").trim() || ""
+  const execution = resolveExecutionIdentity(resolvedModel, directory)
+  return {
+    slot,
+    model: resolvedModel,
+    provider: execution.provider,
+    provider_label: execution.provider_label,
+    quality: execution.quality,
+    quality_label: execution.quality_label,
+    model_label: execution.model_label,
+  }
+}
+
 export function resolveTrinityDisplayModel(directory = "", activeSlot = "", liveModel = "", currentModelId = "") {
   const slot = String(activeSlot || "").trim()
   const slotModel = slot === "brain" ? (TRINITY_BRAIN || "")
