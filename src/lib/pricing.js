@@ -185,6 +185,22 @@ export function resolveTrinityDisplayModel(directory = "", activeSlot = "", live
     const raw = [slotModel, liveModel, currentModelId].map((value) => String(value || "").trim()).find(Boolean) || "";
     return resolveDisplayModelId(raw, directory) || raw;
 }
+function writeLiveOpenCodeModel(projectDir, modelId) {
+    const dir = projectDir || process.cwd();
+    const localOcConfig = join(dir, "opencode.json");
+    const ocConfig = existsSync(localOcConfig)
+        ? localOcConfig
+        : join(getOpenCodeHome(), "opencode.json");
+    if (existsSync(ocConfig)) {
+        const oc = safeJsonParse(readFileSync(ocConfig, "utf-8"));
+        if (oc) {
+            oc.model = modelId;
+            writeFileSync(ocConfig, JSON.stringify(oc, null, 2) + "\n");
+        }
+    }
+    _refreshModel(dir);
+    return true;
+}
 export function _providerOfModel(modelId, fallbackProvider = "") {
     const provider = getModelProvider(modelId);
     return provider || String(fallbackProvider || "").trim();
@@ -1265,18 +1281,7 @@ export function applySlot(slot, projectDir = "") {
             const _tmp = TIERS_FILE + ".tmp." + Date.now();
             writeFileSync(_tmp, JSON.stringify(j, null, 2) + "\n", "utf-8");
             renameSync(_tmp, TIERS_FILE);
-            // Prefer project-local config to avoid mutating global provider/dropdown config.
-            const dir = projectDir || process.cwd();
-            const localOcConfig = join(dir, "opencode.json");
-            const ocConfig = existsSync(localOcConfig)
-                ? localOcConfig
-                : join(getOpenCodeHome(), "opencode.json");
-            if (existsSync(ocConfig)) {
-                const oc = safeJsonParse(readFileSync(ocConfig, "utf-8"));
-                oc.model = ocModel;
-                writeFileSync(ocConfig, JSON.stringify(oc, null, 2) + "\n");
-            }
-            _refreshModel(dir);
+            writeLiveOpenCodeModel(projectDir, ocModel);
             return { ok: true, ocModel };
         });
     }
