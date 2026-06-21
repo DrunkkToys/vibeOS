@@ -6,6 +6,13 @@ When AI coding is cheap, you use more of it. That is the upside of the current m
 
 OpenCode Desktop gives you access to the most capable language models ever created -- Opus, Sonnet, DeepSeek v4 Pro -- but running them on every single turn adds up fast. More importantly, routing every turn through the most expensive model does not guarantee the best output. A cheap model proposing, a mid-tier model reviewing, and a top-tier model polishing often produces better results than a single expensive model guessing alone. vibeOS makes that routing decision automatically, on every turn, based on what you are actually doing.
 
+The real system is smaller than the feature list makes it sound:
+
+1. Routing and enforcement decide which tier should act.
+2. Context compression keeps the hot path small and pushes old tool output into scratch storage.
+3. Pattern learning remembers recurring friction and routine, per project first and cross-project second.
+4. Quality signals combine reward, lie detection, and laziness detection so bad runs are visible.
+
 ## How It Feels
 
 The first thing you notice is the footer. A single line at the bottom of every assistant response, barely visible, shows you what model handled the turn and the regime classification for what just happened. It is not a warning. It is not a nag. It is a quality receipt.
@@ -22,7 +29,7 @@ The VibeBoX decision engine watches how you work. Are you exploring a new codeba
 
 The stress detector reads your messages for signs of frustration -- repeated failures, urgency, abrupt tone. When it senses stress above a threshold, it upgrades your model tier automatically. You get the best possible assistance while you are in the weeds, and you never had to ask.
 
-The lie detector flags when the assistant claims success without evidence. The laziness detector catches short outputs, TODO placeholders, and skipped delegation on brain tier. The reward engine gamifies quality with XP credits for good outcomes and penalties for bad ones. You forget vibeOS is even running. That is the point.
+The lie detector flags when the assistant claims success without evidence. The laziness detector catches short outputs, TODO placeholders, and skipped delegation on brain tier. The reward engine rolls those signals into one quality score so the UI stays simple. You forget vibeOS is even running. That is the point.
 
 ## The Cascade Engine
 
@@ -40,15 +47,7 @@ Benchmarked at **107% of raw brain quality at 58% of cost**. Local inference is 
 
 ### Research Foundation
 
-The cascade design is informed by recent work in LLM routing and cascade inference:
-
-**Dekoninck et al. (2024)** -- "A Unified Approach to Routing and Cascading for LLMs" (arXiv:2410.10347, 52 citations). Foundational framework showing cascade routing is theoretically optimal when calibrated routers can estimate input difficulty. Proves cascades Pareto-dominate single-model inference on the quality-cost curve. This is the theoretical basis for vibeOS's claim that a three-stage cascade can outperform a single expensive model on both quality and cost simultaneously.
-
-**Moslem & Kelleher (2026)** -- "Dynamic Model Routing and Cascading for Efficient LLM Inference: A Survey" (arXiv:2603.04445, 10 citations). Comprehensive survey covering all routing paradigms: classifier-based, embedding-based, RL-based, hybrid. Establishes cascade routing as a well-studied class with practical deployment strategies. Validates that the cheap-propose / mid-review / pro-polish pattern is a known and effective architecture, not an ad hoc design.
-
-**Jiang et al. (2025)** -- "Cascadia: An Efficient Cascade Serving System for Large Language Models" (arXiv:2506.04203, 3 citations). Co-optimizes deployment and routing -- reduces compute cost 42% and latency 50% vs. naive cascade serving. Demonstrates that cascades work in practice, not just in theory. The cost reduction numbers align closely with vibeOS's measured 58% cost reduction under VibeUltraX.
-
-**Bouchard (2026)** -- "Is Escalation Worth It? A Decision-Theoretic Characterization of Cascade Routing at Inference Time" (arXiv:2604.04408, 1 citation). Models escalation as a binary decision problem. Shows cascades pay off when router accuracy exceeds 84% and cheaper model failure rate is above 5%. Below that, flat routing dominates. This work informs vibeOS's escalation thresholds: the cascade only escalates when the router confidence exceeds the point where flat routing would be better.
+The cascade shape follows the general LLM routing literature, but the live source of truth is the code in this repo. The runtime does not depend on external papers; it depends on the router, the hooks, and the state files below.
 
 ### VibeBoX Decision Engine
 
@@ -69,17 +68,17 @@ A real-time stress scoring pipeline analyzes user messages for frustration signa
 
 ### Pattern Learner
 
-Per-project friction and routine tracking. The pattern learner observes which tools you use, what errors recur, and where you spend most of your time. Over time, it surfaces optimization suggestions and learns struggle/tech co-occurrence mappings. Cross-project patterns are stored in global-learning.json and inform pricing hints and routing hints.
+Per-project friction and routine tracking. The learner watches repeated tool failures, recovery loops, and stable workflows, then stores the result locally first. Cross-project hints are merged later into `global-learning.json` so the client can stay small while still learning.
 
-### Token Compression
+### Context Compression
 
-Three-layer compression pipeline reduces token waste without losing semantic content:
+Three small layers keep context under control without pretending to be a full memory system:
 
-1. **Web fetch stripping** (`compressText`) -- Applied immediately after webfetch tool execution. Strips verbose status lines, file-operation prefixes, and bullet markers. Collapses blank lines. If the result still exceeds 2000 characters, extracts bullet-priority lines and truncates to 30% of original size. Threshold: 2000 characters minimum.
+1. **Web fetch stripping** (`compressText`) -- Applied immediately after webfetch tool execution. It strips verbose status lines, file-operation prefixes, and bullet markers, then collapses blank lines. If the result still exceeds 2000 characters, it keeps the most useful lines and truncates the rest.
 
-2. **Cold-storage context compression** (`compressToolOutputs`) -- Runs on every LLM turn via the messages transform hook. Tool outputs older than the last 10 messages (the "hot window") are written to content-addressed cold storage (`~/.claude/scratch/by-hash/{hash}.txt`) and replaced with a ~200-character summary reference. Hot messages stay fully expanded so the LLM can reference recent context. Savings are estimated per-model using `cacheSavePer1MInputTokens()` and recorded to the delegation state.
+2. **Cold-storage context compression** (`compressToolOutputs`) -- Runs on every LLM turn via the messages transform hook. Tool outputs older than the last 10 messages are written to content-addressed cold storage and replaced with a short summary reference. Hot messages stay expanded so the model can still use recent context.
 
-3. **Project memory directives** (`projectMemoryDirective`) -- Compresses per-project state (sessions, reports, tech stack, topics) into a single-line directive injected into the system prompt. Full JSON stored for audit; prompt gets only the compact form.
+3. **Project memory directives** (`projectMemoryDirective`) -- Shrinks per-project state into a single-line directive for the system prompt while keeping the full JSON for audit.
 
 The remote API also exposes a `POST /api/v1/compress/context` endpoint for server-side bullet-point extraction, available as a fallback for arbitrary text compression.
 
