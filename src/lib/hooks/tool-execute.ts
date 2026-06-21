@@ -257,6 +257,14 @@ function _dequeueTelemetryStart(tool) {
   return _pendingTelemetryStarts.shift()
 }
 
+export function shouldUseLocalTaskRouting(apiConnected: boolean, apiFallback: boolean, apiRoute: unknown): boolean {
+  if (apiRoute && typeof apiRoute === "object" && "target" in (apiRoute as Record<string, unknown>)) {
+    const target = (apiRoute as Record<string, unknown>).target
+    if (typeof target === "string" && target.trim()) return false
+  }
+  return !apiConnected || apiFallback
+}
+
 function _prependFooterAlert(target: any, footerText: string, seen = new Set<any>()): boolean {
   if (!target || typeof target !== "object" || seen.has(target)) return false
   seen.add(target)
@@ -507,18 +515,22 @@ export const onToolExecuteBefore = async (input, output) => {
 
     const _hasMedia = /\.(png|jpg|jpeg|gif|webp|bmp|svg|mp4|webm|ogg|mp3|wav|avi|mov)/i.test(_prompt)
     const stressScore = latestUserIntent ? scoreStress(latestUserIntent) : 0
+    const apiConnected = isApiConnected()
     const apiRoute = await remoteCall("routeModel", [_prompt, currentTier, TRINITY_CHEAP, TRINITY_MEDIUM, LEARNED_EXPLORATORY, stressScore], null)
+    const localRoutingAllowed = shouldUseLocalTaskRouting(apiConnected, isApiFallback(), apiRoute)
     if (apiRoute?.target) {
       _target = apiRoute.target
     } else {
-      if (_target === TRINITY_CHEAP && TRINITY_MEDIUM && stressScore > 0.5) {
-        _target = TRINITY_MEDIUM
-        console.error(`[vibeOS] 🧘 Stress ${stressScore.toFixed(2)} → preserving medium tier for Task quality`)
+      if (localRoutingAllowed) {
+        if (_target === TRINITY_CHEAP && TRINITY_MEDIUM && stressScore > 0.5) {
+          _target = TRINITY_MEDIUM
+          console.error(`[vibeOS] 🧘 Stress ${stressScore.toFixed(2)} → preserving medium tier for Task quality`)
+        }
       }
     }
 
     // ML Router: difficulty prediction + confidence cascading.
-    if (ML_ENABLED) {
+    if (ML_ENABLED && localRoutingAllowed) {
       try {
         const mlDifficulty = computeDifficulty(_prompt)
         const mlHash = hashQuery(_prompt)
@@ -560,7 +572,7 @@ export const onToolExecuteBefore = async (input, output) => {
     }
 
     const activePipeline = loadSelection().active_pipeline
-    if (activePipeline && Array.isArray(activePipeline) && activePipeline.length > 1 && TRINITY_CHEAP && TRINITY_MEDIUM) {
+    if (localRoutingAllowed && activePipeline && Array.isArray(activePipeline) && activePipeline.length > 1 && TRINITY_CHEAP && TRINITY_MEDIUM) {
       try {
         const cheapCost = 0.001
         const mediumCost = 0.005
