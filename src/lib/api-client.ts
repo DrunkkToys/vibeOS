@@ -5,6 +5,7 @@ import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { homedir } from "node:os"
 import { isApiEnabled as isRuntimeApiEnabled, isApiFallbackMode as isRuntimeApiFallbackMode, markApiConnected, markApiDisconnected, resetApiConnection, setApiEnabled } from "./runtime-state.js"
+import { getVibeOSHome } from "./state.js"
 
 const DEFAULT_API_URL = "https://api.vibetheog.com"
 // Alpha-only onboarding token: intentionally embedded so fresh installs work
@@ -563,7 +564,7 @@ export class VibeOSApiClient {
 export const VIBEOS_API_URL = process.env.VIBEOS_API_URL || "https://api.vibetheog.com"
 
 const _apiDir = typeof __dirname !== "undefined" ? __dirname : dirname(fileURLToPath(import.meta.url))
-const _vibeHome = process.env.VIBEOS_HOME || join(process.env.HOME || homedir(), ".claude")
+const _vibeHome = getVibeOSHome()
 const _homeClaude = join(process.env.HOME || homedir(), ".claude")
 const _envPaths = Array.from(new Set([_homeClaude, _vibeHome, _apiDir, process.cwd(), homedir()]))
 let _apiPersistHome = _vibeHome || _homeClaude

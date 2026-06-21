@@ -7,11 +7,8 @@ import {
   loadSelection,
   updateState,
   testReminderSeen,
+  getVibeOSHome,
 } from "./state.js"
-
-function getVibeOSHome(): string {
-  return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude")
-}
 import { extractExports, generateTestCaseNames, inferFunctionParams, inferTypeFromName, _langComment, buildQualityAssertionsForFunc, isSkeletonUseless } from "../utils/tdd-helpers.js"
 import TEST_SKELETONS from "./test-skeletons.js"
 

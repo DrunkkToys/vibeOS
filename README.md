@@ -77,7 +77,7 @@ Three-layer compression pipeline reduces token waste without losing semantic con
 
 1. **Web fetch stripping** (`compressText`) -- Applied immediately after webfetch tool execution. Strips verbose status lines, file-operation prefixes, and bullet markers. Collapses blank lines. If the result still exceeds 2000 characters, extracts bullet-priority lines and truncates to 30% of original size. Threshold: 2000 characters minimum.
 
-2. **Cold-storage context compression** (`compressToolOutputs`) -- Runs on every LLM turn via the messages transform hook. Tool outputs older than the last 10 messages (the "hot window") are written to content-addressed cold storage (`~/.claude/scratchpad/by-hash/{hash}.txt`) and replaced with a ~200-character summary reference. Hot messages stay fully expanded so the LLM can reference recent context. Savings are estimated per-model using `cacheSavePer1MInputTokens()` and recorded to the delegation state.
+2. **Cold-storage context compression** (`compressToolOutputs`) -- Runs on every LLM turn via the messages transform hook. Tool outputs older than the last 10 messages (the "hot window") are written to content-addressed cold storage (`~/.claude/scratch/by-hash/{hash}.txt`) and replaced with a ~200-character summary reference. Hot messages stay fully expanded so the LLM can reference recent context. Savings are estimated per-model using `cacheSavePer1MInputTokens()` and recorded to the delegation state.
 
 3. **Project memory directives** (`projectMemoryDirective`) -- Compresses per-project state (sessions, reports, tech stack, topics) into a single-line directive injected into the system prompt. Full JSON stored for audit; prompt gets only the compact form.
 
@@ -201,7 +201,7 @@ Stress > 1.5 escalates any regime to quality mode regardless of the above mappin
 |---------|-------------|
 | Delegation enforcement | Blocks write/edit on brain tier, routes to cheaper tiers transparently |
 | Live savings footer | Tier, provider, model name, total savings, mode -- one line of reassurance |
-| Web dashboard | Session-first SolidJS SPA with executive Home summary, session actions, per-session templates, SSE real-time push for model split, savings, session history, controls |
+| Web dashboard | Session-first SolidJS SPA with executive Home summary, session actions, per-session templates, polling refresh for model split, savings, session history, controls |
 | Trinity runtime | Switch tiers mid-session, change optimization mode, toggle subsystems live |
 | Flow enforcer | Pattern-rule checks on write/edit. Extracts TODO/FIXME into append-only queue. |
 | TDD enforcer | Auto-creates test skeletons for changed source. Strict mode fails TODO tests. |
@@ -210,7 +210,7 @@ Stress > 1.5 escalates any regime to quality mode regardless of the above mappin
 | Stress-aware routing | Real-time stress scoring, auto-escalation, system prompt inoculation |
 | Cache savings | Separate cache_savings_usd tracking for scratchpad cache hits |
 | Report tools | report-save, report-list, report-read, research-audit |
-| MCP server | Extended tool capabilities + dashboard serving + SSE push endpoint |
+| MCP server | Extended tool capabilities + dashboard serving + HTTP dashboard endpoints |
 | Remote API | Fastify server at api.vibetheog.com with token auth and seat management |
 | Session lock | `vibe lock on\|off` -- freezes model at session start |
 | Model locking | Per-session lock that skips auto-reconcile with OpenCode config changes |
@@ -323,7 +323,7 @@ Remote API (api.vibetheog.com) enables: bootstrap token exchange, advanced VibeB
 
 ### What Is Missing For A True Session Orchestrator
 
-The live dashboard now covers the executive Home summary, session actions, and session-scoped templates. Still missing: session versioning/undo, template versioning, batch operations, real-time WebSocket updates, session comparison, and export/import.
+The live dashboard now covers the executive Home summary, session actions, and session-scoped templates. Still missing: session versioning/undo, template versioning, batch operations, live push transport, session comparison, and export/import.
 
 ### Live Footer
 

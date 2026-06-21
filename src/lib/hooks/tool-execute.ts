@@ -36,6 +36,7 @@ import { latestUserIntent } from "./chat-transform.js"
 import { loadSessionSlot } from "../selection-manager.js"
 import { loadCredit, refreshCreditSnapshot } from "../credit-api.js"
 import { buildFooterLine, buildEnforcementTags, resolveBrand, resolveTierIcon } from "./shared-footer.js"
+import { getVibeOSHome } from "../state.js"
 
 function isGreetingLike(text: string): boolean {
   const value = String(text || "").trim().toLowerCase()
@@ -91,10 +92,6 @@ const MAX_WARNS_PER_TOOL = 5
 const BYTES_PER_TOKEN = 4
 const DEBUG_INTERNALS = process.env.VIBEOS_DEBUG_INTERNALS === "1"
 const IS_CLI_RUNTIME = Boolean(process.stdout?.isTTY || process.stderr?.isTTY || process.stdin?.isTTY)
-
-function getVibeOSHome() {
-  return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude")
-}
 
 let activeJob = null
 let projectDirectory = ""

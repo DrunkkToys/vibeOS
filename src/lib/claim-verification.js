@@ -2,6 +2,7 @@
 // @ts-nocheck
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { getVibeOSHome } from "./state.js";
 const CLAIM_PATTERNS = [
     /(?:I|we|the)\s+(?:pushed|released|merged|deployed|fixed|wrote|implemented|completed|committed)\b/i,
     /(?:tests?|build|CI|checks?|suite|output|result)\s+(?:is\s+|are\s+)?(?:pass(?:ing|ed|es)?|green|clean|succeed|stable|positive)/i,
@@ -45,7 +46,7 @@ function loadRecentCascadeRuns(vibeHome) {
         return [];
     }
 }
-export function evaluateClaimVerification({ text, vibeHome = process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude"), now = Date.now(), windowMs = 120000, }) {
+export function evaluateClaimVerification({ text, vibeHome = getVibeOSHome(), now = Date.now(), windowMs = 120000, }) {
     const claims = extractClaimMatches(text);
     if (claims.length === 0)
         return { claims, unsubstantiatedCount: 0, claimTag: "" };

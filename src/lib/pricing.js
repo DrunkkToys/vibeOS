@@ -23,7 +23,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync, renameSyn
 import { join, dirname, resolve } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { createHash } from "node:crypto";
-import { currentModel, currentTier, setCurrentModel, setCurrentTier, safeJsonParse, HIGH_TIER_RE, MID_TIER_RE, loadTierRegexes, _modelLocked, _handleStateCorruption, getOpenCodeHome } from "./state.js";
+import { currentModel, currentTier, setCurrentModel, setCurrentTier, safeJsonParse, HIGH_TIER_RE, MID_TIER_RE, loadTierRegexes, _modelLocked, _handleStateCorruption, getOpenCodeHome, getVibeOSHome } from "./state.js";
 import { loadSelection as loadSel, sanitizeSelection } from "./selection-manager.js";
 export { HIGH_TIER_RE, MID_TIER_RE, loadTierRegexes };
 const USER_HOME = (() => { try {
@@ -35,9 +35,6 @@ catch {
 const DEFAULT_TRINITY_SLOTS = ["brain", "medium", "cheap"];
 export const LABEL_MODES = ["Fast", "Balanced", "High Quality", "Cheap"];
 const DEBUG_INTERNALS = process.env.VIBEOS_DEBUG_INTERNALS === "1";
-function getVibeOSHome() {
-    return process.env.VIBEOS_HOME || join(process.env.HOME || homedir(), ".claude");
-}
 function getOpenCodeDesktopHome() {
     return process.env.VIBEOS_OPENCODE_DESKTOP_HOME || join(process.env.HOME || homedir(), "Library", "Application Support", "ai.opencode.desktop");
 }

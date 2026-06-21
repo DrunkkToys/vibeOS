@@ -3,7 +3,7 @@
 import { readFileSync, existsSync, mkdirSync, writeFileSync, statSync, appendFileSync, renameSync } from "node:fs"
 import { join, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
-import { VIBEOS_HOME, currentProjectFingerprint } from "../lib/state.js"
+import { VIBEOS_HOME, currentProjectFingerprint, getVibeOSHome } from "../lib/state.js"
 
 const VIBEOS_STDERR_DEBUG = process.env.VIBEOS_DEBUG_STDERR === "1" || process.env.VIBEOS_DEBUG_LOGS === "1"
 const VIBEOS_CONSOLE_ERROR_GUARD = "__vibeOSConsoleErrorGuard"
@@ -33,10 +33,6 @@ if (!VIBEOS_STDERR_DEBUG && !globalConsoleState[VIBEOS_CONSOLE_ERROR_GUARD]) {
     originalConsoleError(...args)
   }
   globalConsoleState[VIBEOS_CONSOLE_ERROR_GUARD] = true
-}
-
-function getVibeOSHome(): string {
-  return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude")
 }
 
 type FlowSeverity = "warn" | "hint" | "flag"

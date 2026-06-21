@@ -5,6 +5,7 @@ import { LABEL_MODES, buildDeterministicTrinity, formatProviderName, formatQuali
 import { BRANDED_MODES, RUNTIME_MODES, resolveCascadeSlot } from "./mode-router.js"
 import { getBackendVersion, invalidateApiToken, isApiConnected } from "./api-client.js"
 import { getRealityCheckView } from "../vibeOS-lib/flow-enforcer.js"
+import { getVibeOSHome } from "./state.js"
 
 // ── Named constants (magic number extraction) ────────────────────────
 const MIN_TOOL_BREAKDOWN_THRESHOLD = 0.005
@@ -262,9 +263,9 @@ export function createTrinityTool(deps) {
         const projectBucket = projectFingerprint ? projectState?.project_hashes?.[projectFingerprint] : null
         const fullState = typeof deps.readFullState === "function" ? deps.readFullState() : {}
         const session = fullState?.sessions?.[deps._OC_SID] || null
-        const realityFile = join(deps.VIBEOS_HOME || process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude"), "reality-check-settings.json")
+        const realityFile = join(deps.VIBEOS_HOME || getVibeOSHome(), "reality-check-settings.json")
         const stateFile = deps.STATE_FILE
-        const projectStateFile = join(deps.VIBEOS_HOME || process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude"), "project-states.json")
+        const projectStateFile = join(deps.VIBEOS_HOME || getVibeOSHome(), "project-states.json")
         const lines = ["[vibeOS-reality-check] Verified facts only"]
         lines.push(`Project: ${deps.currentProjectName || projectBucket?.projectName || projectFingerprint || "unknown"}`)
         lines.push(`Project fingerprint: ${projectFingerprint || "(unset)"}`)
@@ -914,7 +915,7 @@ export function createTrinityTool(deps) {
       }
 
       if (action === "verify-claims") {
-        const VIBEOS_HOME = process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude")
+        const VIBEOS_HOME = getVibeOSHome()
         const AUDIT_DIR = join(VIBEOS_HOME, "cascade-audit")
         const claimFile = join(AUDIT_DIR, "claim-audit.jsonl")
         const cascadeFile = join(AUDIT_DIR, "cascade-audit.jsonl")

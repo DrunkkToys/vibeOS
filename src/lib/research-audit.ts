@@ -2,12 +2,8 @@
 
 import { readFileSync, existsSync } from "node:fs"
 import { join } from "node:path"
-import { safeJsonParse, VIBEOS_HOME } from "./state.js"
+import { safeJsonParse, VIBEOS_HOME, getVibeOSHome } from "./state.js"
 import { modelCostPerTurn } from "./pricing.js"
-
-function getVibeOSHome() {
-  return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude")
-}
 
 const _OC_SID = "opencode-" + (process.pid || "x") + "-" + Date.now()
 const SCRATCHPAD_ROOT = join(getVibeOSHome(), "scratch")

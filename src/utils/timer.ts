@@ -1,10 +1,9 @@
 import { readFileSync, existsSync } from "node:fs"
 import { join } from "node:path"
-import { homedir } from "node:os"
+import { getVibeOSHome } from "../lib/state.js"
 
 function getStateFile() {
-  const vibeHome = process.env.VIBEOS_HOME || join(process.env.HOME || homedir(), ".claude")
-  return join(vibeHome, "delegation-state.json")
+  return join(getVibeOSHome(), "delegation-state.json")
 }
 
 type DurationParts = { hours: number; minutes: number; seconds: number }

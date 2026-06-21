@@ -2,11 +2,7 @@
 import { readFileSync, writeFileSync, existsSync } from "node:fs"
 import { join } from "node:path"
 import { modelCostPerTurn } from "./pricing.js"
-import { AUTH_F, CREDIT_CACHE_F, VIBEOS_HOME } from "./state.js"
-
-function getVibeOSHome() {
-  return process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude")
-}
+import { AUTH_F, CREDIT_CACHE_F, getVibeOSHome } from "./state.js"
 
 function safeJsonParse(raw) {
   try {
