@@ -294,6 +294,8 @@ test("rebuild preserves manual trinity slots and only refreshes auto slots", asy
   assert.equal(after.trinity.medium.oc, "legacy-medium", "manual medium slot should not be replaced")
   assert.equal(after.trinity.cheap.oc, "legacy-cheap", "manual cheap slot should not be replaced")
   assert.ok(after.trinity.brain.oc, "brain slot should still be populated after rebuild")
+  assert.equal(after.selection.selected_model, undefined, "shadow selected_model should not survive rebuild")
+  assert.equal(after.selection.executed_model, undefined, "shadow executed_model should not survive rebuild")
 })
 
 test("guard creates project docs on first run", async () => {

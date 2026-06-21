@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, statSync, readdirSync, copyFileSync } from "node:fs"
 import { join, dirname, basename } from "node:path"
-import { classify, modelCostPerTurn, _refreshModel, readConfig, resolveTrinityDisplayModel, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, roundUsd, formatUsd, resolveExecutionIdentity, modelDisplayName } from "../pricing.js"
+import { classify, modelCostPerTurn, _refreshModel, readConfig, resolveTrinityDisplayModel, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, roundUsd, formatUsd, resolveCurrentExecution, modelDisplayName } from "../pricing.js"
 import { latestUserIntent } from "./chat-transform.js"
 import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, classifyTurnSimple, autoSelectMode, loadOptimizationMode, computeControlVector, resolveOptimizationSlot } from "../turn-classify.js"
 import { recordBudgetFirstOutcome } from "../mode-policy.js"
@@ -238,7 +238,19 @@ async function _appendFooter(input, output, directory) {
       setCurrentModel(resolvedModel)
       setCurrentTier(classify(resolvedModel))
     }
-    const execution = resolveExecutionIdentity(displayModel || resolvedModel || "", directory)
+    const execution = resolveCurrentExecution({
+      directory,
+      activeSlot: slot,
+      currentModel,
+      liveModel: displayModel || resolvedModel || liveModel || "",
+      tiersData: {
+        trinity: {
+          brain: { oc: TRINITY_BRAIN || currentModel },
+          medium: { oc: TRINITY_MEDIUM || currentModel },
+          cheap: { oc: TRINITY_CHEAP || currentModel },
+        },
+      },
+    })
     let modelTag = `[${shortModelName(displayModel)}]`
     const _workerModel = slot === "brain" ? TRINITY_MEDIUM : null
     const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0)

@@ -24,7 +24,7 @@ import { join, dirname, resolve } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { currentModel, currentTier, setCurrentModel, setCurrentTier, safeJsonParse, HIGH_TIER_RE, MID_TIER_RE, loadTierRegexes, _modelLocked, _handleStateCorruption, getOpenCodeHome } from "./state.js";
-import { loadSelection as loadSel } from "./selection-manager.js";
+import { loadSelection as loadSel, sanitizeSelection } from "./selection-manager.js";
 export { HIGH_TIER_RE, MID_TIER_RE, loadTierRegexes };
 const USER_HOME = (() => { try {
     return homedir();
@@ -176,6 +176,21 @@ export function resolveExecutionIdentity(modelId, directory = "") {
         model_label: shortModelName(resolved || raw),
     };
 }
+export function resolveCurrentExecution({ directory = "", activeSlot = "", currentModel = "", liveModel = "", tiersData = null, } = {}) {
+    const slot = String(activeSlot || "").trim();
+    const slotModel = slot && tiersData?.trinity?.[slot]?.oc ? tiersData.trinity[slot].oc : "";
+    const resolvedModel = slotModel || String(liveModel || "").trim() || String(currentModel || "").trim() || "";
+    const execution = resolveExecutionIdentity(resolvedModel, directory);
+    return {
+        slot,
+        model: resolvedModel,
+        provider: execution.provider,
+        provider_label: execution.provider_label,
+        quality: execution.quality,
+        quality_label: execution.quality_label,
+        model_label: execution.model_label,
+    };
+}
 export function resolveTrinityDisplayModel(directory = "", activeSlot = "", liveModel = "", currentModelId = "") {
     const slot = String(activeSlot || "").trim();
     const slotModel = slot === "brain" ? (TRINITY_BRAIN || "")
@@ -184,6 +199,22 @@ export function resolveTrinityDisplayModel(directory = "", activeSlot = "", live
                 : "";
     const raw = [slotModel, liveModel, currentModelId].map((value) => String(value || "").trim()).find(Boolean) || "";
     return resolveDisplayModelId(raw, directory) || raw;
+}
+function writeLiveOpenCodeModel(projectDir, modelId) {
+    const dir = projectDir || process.cwd();
+    const localOcConfig = join(dir, "opencode.json");
+    const ocConfig = existsSync(localOcConfig)
+        ? localOcConfig
+        : join(getOpenCodeHome(), "opencode.json");
+    if (existsSync(ocConfig)) {
+        const oc = safeJsonParse(readFileSync(ocConfig, "utf-8"));
+        if (oc) {
+            oc.model = modelId;
+            writeFileSync(ocConfig, JSON.stringify(oc, null, 2) + "\n");
+        }
+    }
+    _refreshModel(dir);
+    return true;
 }
 export function _providerOfModel(modelId, fallbackProvider = "") {
     const provider = getModelProvider(modelId);
@@ -1260,22 +1291,12 @@ export function applySlot(slot, projectDir = "") {
             const ocModel = j?.trinity?.[slot]?.oc;
             if (!ocModel)
                 return { ok: false, reason: `slot '${slot}' has no oc model` };
+            sanitizeSelection(j.selection || (j.selection = {}));
             j.selection.active_slot = slot;
             const _tmp = TIERS_FILE + ".tmp." + Date.now();
             writeFileSync(_tmp, JSON.stringify(j, null, 2) + "\n", "utf-8");
             renameSync(_tmp, TIERS_FILE);
-            // Prefer project-local config to avoid mutating global provider/dropdown config.
-            const dir = projectDir || process.cwd();
-            const localOcConfig = join(dir, "opencode.json");
-            const ocConfig = existsSync(localOcConfig)
-                ? localOcConfig
-                : join(getOpenCodeHome(), "opencode.json");
-            if (existsSync(ocConfig)) {
-                const oc = safeJsonParse(readFileSync(ocConfig, "utf-8"));
-                oc.model = ocModel;
-                writeFileSync(ocConfig, JSON.stringify(oc, null, 2) + "\n");
-            }
-            _refreshModel(dir);
+            writeLiveOpenCodeModel(projectDir, ocModel);
             return { ok: true, ocModel };
         });
     }

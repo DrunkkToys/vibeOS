@@ -111,8 +111,6 @@ test("1d — trinity set model override rewrites the slot map and live config fo
   assert.equal(sel.active_slot, "cheap", "active slot switches to the requested cheap tier")
   assert.equal(tiers.trinity.cheap.oc, targetModel, "cheap slot model persisted in tier map")
   assert.equal(oc.model, targetModel, "OpenCode config switches to the overridden model")
-  assert.equal(sel.selected_model, targetModel, "selected_model is persisted for the overridden model")
-  assert.equal(sel.executed_model, targetModel, "executed_model is persisted for the overridden model")
   assert.ok(result.includes(targetModel), "response mentions overridden model: " + result.slice(0, 120))
 })
 
@@ -132,8 +130,6 @@ test("1e — trinity set brain model override is live and persisted", async () =
   assert.equal(tiers.trinity.brain.oc, targetModel, "brain slot model persisted in tier map")
   assert.equal(tiers.trinity.brain.manual, true, "brain override is marked manual")
   assert.equal(oc.model, targetModel, "OpenCode config switches to the overridden brain model")
-  assert.equal(sel.selected_model, targetModel, "selected_model is persisted for the overridden brain model")
-  assert.equal(sel.executed_model, targetModel, "executed_model is persisted for the overridden brain model")
   assert.ok(result.includes(targetModel), "response mentions overridden brain model: " + result.slice(0, 120))
 })
 
@@ -153,8 +149,6 @@ test("1f — trinity set medium model override is live and persisted", async () 
   assert.equal(tiers.trinity.medium.oc, targetModel, "medium slot model persisted in tier map")
   assert.equal(tiers.trinity.medium.manual, true, "medium override is marked manual")
   assert.equal(oc.model, targetModel, "OpenCode config switches to the overridden medium model")
-  assert.equal(sel.selected_model, targetModel, "selected_model is persisted for the overridden medium model")
-  assert.equal(sel.executed_model, targetModel, "executed_model is persisted for the overridden medium model")
   assert.ok(result.includes(targetModel), "response mentions overridden medium model: " + result.slice(0, 120))
 })
 
@@ -200,6 +194,7 @@ test("1i — trinity mode covers all live optimization modes", async () => {
     const hooks = await getHooks()
     const out = await hooks.tool.trinity.execute({ action: "mode", slot: c.slot })
     const sel = readTiersFile().selection
+    const oc = JSON.parse(readFileSync(join(sandbox, "opencode.json"), "utf8"))
     if (c.auto) {
       assert.equal(sel.slot_locked, false, "auto should unlock slot locking")
       assert.ok(out.includes("Mode set to AUTO"), "auto response should be explicit: " + out)
@@ -208,6 +203,7 @@ test("1i — trinity mode covers all live optimization modes", async () => {
     assert.equal(sel.active_slot, c.active, `${c.slot} should resolve to ${c.active}`)
     assert.equal(sel.optimization_mode, c.mode || c.slot, `${c.slot} should persist as the optimization mode`)
     if (c.requested) assert.equal(sel.requested_optimization_mode, c.requested, `${c.slot} should persist requested mode separately`)
+    assert.equal(oc.model, readTiersFile().trinity[c.active].oc, `${c.slot} should switch OpenCode to the active slot model`)
     assert.ok(out.includes("Mode set"), `${c.slot} response should be affirmative: ` + out)
   }
 })

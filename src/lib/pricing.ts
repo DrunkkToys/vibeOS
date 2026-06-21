@@ -25,7 +25,7 @@ import { join, dirname, basename, resolve } from "node:path"
 import { homedir, tmpdir } from "node:os"
 import { createHash } from "node:crypto"
 import { currentModel, currentTier, setCurrentModel, setCurrentTier, safeJsonParse, HIGH_TIER_RE, MID_TIER_RE, loadTierRegexes, _modelLocked, VIBEOS_HOME, OPENCODE_HOME, getCurrentSessionId, withFileLock, _handleStateCorruption, getOpenCodeHome } from "./state.js"
-import { loadSelection as loadSel, DFLT_SEL } from "./selection-manager.js"
+import { loadSelection as loadSel, DFLT_SEL, sanitizeSelection } from "./selection-manager.js"
 
 export { HIGH_TIER_RE, MID_TIER_RE, loadTierRegexes }
 
@@ -154,6 +154,34 @@ export function resolveExecutionIdentity(modelId: string, directory = "") {
   }
 }
 
+export function resolveCurrentExecution({
+  directory = "",
+  activeSlot = "",
+  currentModel = "",
+  liveModel = "",
+  tiersData = null,
+}: {
+  directory?: string
+  activeSlot?: string
+  currentModel?: string
+  liveModel?: string
+  tiersData?: any
+} = {}) {
+  const slot = String(activeSlot || "").trim()
+  const slotModel = slot && tiersData?.trinity?.[slot]?.oc ? tiersData.trinity[slot].oc : ""
+  const resolvedModel = slotModel || String(liveModel || "").trim() || String(currentModel || "").trim() || ""
+  const execution = resolveExecutionIdentity(resolvedModel, directory)
+  return {
+    slot,
+    model: resolvedModel,
+    provider: execution.provider,
+    provider_label: execution.provider_label,
+    quality: execution.quality,
+    quality_label: execution.quality_label,
+    model_label: execution.model_label,
+  }
+}
+
 export function resolveTrinityDisplayModel(directory = "", activeSlot = "", liveModel = "", currentModelId = "") {
   const slot = String(activeSlot || "").trim()
   const slotModel = slot === "brain" ? (TRINITY_BRAIN || "")
@@ -162,6 +190,23 @@ export function resolveTrinityDisplayModel(directory = "", activeSlot = "", live
         : ""
   const raw = [slotModel, liveModel, currentModelId].map((value) => String(value || "").trim()).find(Boolean) || ""
   return resolveDisplayModelId(raw, directory) || raw
+}
+
+function writeLiveOpenCodeModel(projectDir: string, modelId: string): boolean {
+  const dir = projectDir || process.cwd()
+  const localOcConfig = join(dir, "opencode.json")
+  const ocConfig = existsSync(localOcConfig)
+    ? localOcConfig
+    : join(getOpenCodeHome(), "opencode.json")
+  if (existsSync(ocConfig)) {
+    const oc = safeJsonParse(readFileSync(ocConfig, "utf-8"))
+    if (oc) {
+      oc.model = modelId
+      writeFileSync(ocConfig, JSON.stringify(oc, null, 2) + "\n")
+    }
+  }
+  _refreshModel(dir)
+  return true
 }
 
 export function _providerOfModel(modelId: string, fallbackProvider = "") {
@@ -1158,22 +1203,12 @@ export function applySlot(slot: string, projectDir = "") {
       const j = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
       const ocModel = j?.trinity?.[slot]?.oc
       if (!ocModel) return { ok: false, reason: `slot '${slot}' has no oc model` }
+      sanitizeSelection(j.selection || (j.selection = {}))
       j.selection.active_slot = slot
       const _tmp = TIERS_FILE + ".tmp." + Date.now()
       writeFileSync(_tmp, JSON.stringify(j, null, 2) + "\n", "utf-8")
       renameSync(_tmp, TIERS_FILE)
-      // Prefer project-local config to avoid mutating global provider/dropdown config.
-      const dir = projectDir || process.cwd()
-      const localOcConfig = join(dir, "opencode.json")
-      const ocConfig = existsSync(localOcConfig)
-        ? localOcConfig
-        : join(getOpenCodeHome(), "opencode.json")
-      if (existsSync(ocConfig)) {
-        const oc = safeJsonParse(readFileSync(ocConfig, "utf-8"))
-        oc.model = ocModel
-        writeFileSync(ocConfig, JSON.stringify(oc, null, 2) + "\n")
-      }
-      _refreshModel(dir)
+      writeLiveOpenCodeModel(projectDir, ocModel)
       return { ok: true, ocModel }
     })
   } catch (err) {

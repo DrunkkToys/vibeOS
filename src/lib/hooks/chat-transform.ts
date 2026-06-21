@@ -154,6 +154,25 @@ function ensureProjectContext(hookDirectory: string): string {
   return resolved
 }
 
+function resolveOpenCodeConfigPath(): string {
+  return TRINITY_OPENCODE_CONFIG || join(getOpenCodeHome(), "opencode.json")
+}
+
+function updateOpenCodeConfig(mutator: (oc: any) => boolean | void): boolean {
+  try {
+    const OC_CONFIG = resolveOpenCodeConfigPath()
+    if (!existsSync(OC_CONFIG)) return false
+    const oc = safeJsonParse(readFileSync(OC_CONFIG, "utf-8"))
+    if (!oc) return false
+    const result = mutator(oc)
+    if (result === false) return false
+    writeFileSync(OC_CONFIG, JSON.stringify(oc, null, 2) + "\n")
+    return true
+  } catch {
+    return false
+  }
+}
+
 let latestUserIntent = null
 let _OC_SID = "opencode-" + (process.pid || "x") + "-" + Date.now()
 let _latestBlackboxState = null
@@ -554,34 +573,21 @@ export function syncControlSettings(cv: any, options: { persistOptimizationMode?
       }
     }
     if (cv.agent_mode) {
-      try {
-        const OC_CONFIG = TRINITY_OPENCODE_CONFIG || join(getOpenCodeHome(), "opencode.json")
-        if (existsSync(OC_CONFIG)) {
-          const oc = safeJsonParse(readFileSync(OC_CONFIG, "utf-8"))
-          if (!oc) return
-          if (oc.default_agent !== cv.agent_mode) {
-            if (cv.agent_mode === "plan" && oc.default_agent && oc.default_agent !== "plan") {
-              writeSelection("previous_default_agent", oc.default_agent)
-            }
-            oc.default_agent = cv.agent_mode
-            writeFileSync(OC_CONFIG, JSON.stringify(oc, null, 2) + "\n")
-          }
+      updateOpenCodeConfig((oc) => {
+        if (oc.default_agent === cv.agent_mode) return false
+        if (cv.agent_mode === "plan" && oc.default_agent && oc.default_agent !== "plan") {
+          writeSelection("previous_default_agent", oc.default_agent)
         }
-      } catch {}
+        oc.default_agent = cv.agent_mode
+      })
     } else {
-      try {
-        const OC_CONFIG = TRINITY_OPENCODE_CONFIG || join(getOpenCodeHome(), "opencode.json")
-        if (existsSync(OC_CONFIG)) {
-          const oc = safeJsonParse(readFileSync(OC_CONFIG, "utf-8"))
-          if (!oc) return
-          const restoreAgent = oc.default_agent === "plan" ? resolveRestorableOpenCodeAgent(currentSel) : null
-          if (restoreAgent && oc.default_agent === "plan") {
-            oc.default_agent = restoreAgent
-            writeFileSync(OC_CONFIG, JSON.stringify(oc, null, 2) + "\n")
-            if (currentSel.previous_default_agent) writeSelection("previous_default_agent", null)
-          }
+      updateOpenCodeConfig((oc) => {
+        const restoreAgent = oc.default_agent === "plan" ? resolveRestorableOpenCodeAgent(currentSel) : null
+        if (restoreAgent && oc.default_agent === "plan") {
+          oc.default_agent = restoreAgent
+          if (currentSel.previous_default_agent) writeSelection("previous_default_agent", null)
         }
-      } catch {}
+      })
     }
 
     if (cv.optimization_mode && cv.optimization_mode !== "vibelitex") {

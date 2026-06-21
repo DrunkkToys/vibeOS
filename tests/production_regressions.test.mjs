@@ -295,8 +295,9 @@ test("Core — trinity status does not rewrite slots from fallback opencode mode
   assert.ok(typeof status === "string" && status.length > 0, "status should still return text")
 
   const after = JSON.parse(readFileSync(join(sandbox, ".claude/model-tiers.json"), "utf-8"))
-  assert.deepEqual(after.trinity, before.trinity, "fallback opencode status must not rewrite the trinity slots")
-  assert.equal(after.selection.selected_model, before.selection.selected_model, "selected_model should stay stable")
+  assert.equal(after.trinity.brain.oc, before.trinity.brain.oc, "fallback opencode status must not rewrite the brain slot")
+  assert.equal(after.trinity.medium.oc, before.trinity.medium.oc, "fallback opencode status must not rewrite the medium slot")
+  assert.equal(after.trinity.cheap.oc, before.trinity.cheap.oc, "fallback opencode status must not rewrite the cheap slot")
   assert.equal(after.selection.active_slot, "brain", "active slot should remain brain")
 })
 
@@ -1186,6 +1187,8 @@ test('v0.22.17 — vibeultrax mode writes valid active_slot (not local)', async 
     'active_slot should be brain/medium/cheap, got: ' + slot)
   assert.ok(tiers.selection.onboarding_mode === 'strict',
     'onboarding_mode should be strict for vibeultrax, got: ' + tiers.selection.onboarding_mode)
+  const oc = JSON.parse(readFileSync(join(dir, 'opencode.json'), 'utf8'))
+  assert.equal(oc.model, tiers.trinity.cheap.oc, 'vibeultrax should activate the cheap OpenCode model')
 })
 
 
@@ -1204,10 +1207,6 @@ test('v0.23.13 — footer coherence: tier icon matches model provider (integrati
       enabled: true,
       active_slot: 'brain',
       delegation_enforce: true,
-      selected_provider: 'deepseek',
-      selected_model: 'deepseek/deepseek-v4-pro',
-      executed_provider: 'deepseek',
-      executed_model: 'deepseek/deepseek-v4-pro',
       optimization_mode: 'vibeultrax',
       active_pipeline: ['cheap', 'medium', 'brain'],
     },
@@ -1224,17 +1223,11 @@ test('v0.23.13 — footer coherence: tier icon matches model provider (integrati
   const tiers = JSON.parse(readFileSync(join(sandbox, '.claude/model-tiers.json'), 'utf8'))
   const sel = tiers.selection
 
-  // Assert: selected provider must match the trinity brain model's provider
-  assert.ok(sel.selected_provider, 'selected_provider must be set')
-  assert.ok(sel.selected_provider === 'deepseek', 'selected_provider should be deepseek, got: ' + sel.selected_provider)
-
-  // Assert: executed provider matches selected provider
-  assert.ok(sel.executed_provider === sel.selected_provider,
-    'executed_provider must match selected_provider')
-
-  // Assert: selected model matches executed model
-  assert.ok(sel.selected_model === sel.executed_model,
-    'selected_model must match executed_model: ' + sel.selected_model + ' vs ' + sel.executed_model)
+  // Assert: shadow model fields are ignored by the runtime
+  assert.equal(sel.selected_provider, undefined, 'selected_provider should not be persisted')
+  assert.equal(sel.selected_model, undefined, 'selected_model should not be persisted')
+  assert.equal(sel.executed_provider, undefined, 'executed_provider should not be persisted')
+  assert.equal(sel.executed_model, undefined, 'executed_model should not be persisted')
 
   // Assert: medium slot preserves manually-set cross-provider model
   assert.ok(tiers.trinity.medium.oc === 'opencode-go/mimo-v2.5',

@@ -20,7 +20,8 @@ function safeJsonParse(raw: string): any {
   try { return JSON.parse(cleaned) } catch (e) { throw e }
 }
 
-const DFLT_SEL = { enabled: true, active_slot: null, slot_locked: false, thinking_level: "off", flow_enabled: true, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: true, delegation_enforce: true, onboarding_mode: null, selected_provider: null, selected_quality_tier: null, selected_model: null, executed_provider: null, executed_quality_tier: null, executed_model: null, requested_optimization_mode: null, previous_default_agent: null, previous_optimization_mode: null }
+const DFLT_SEL = { enabled: true, active_slot: null, slot_locked: false, thinking_level: "off", flow_enabled: true, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: true, delegation_enforce: true, onboarding_mode: null, requested_optimization_mode: null, previous_default_agent: null, previous_optimization_mode: null }
+const SHADOW_SELECTION_KEYS = new Set(["selected_provider", "selected_quality_tier", "selected_model", "executed_provider", "executed_quality_tier", "executed_model"])
 
 // mtime-based cache for loadSelection — single stat() per turn (microseconds),
 // no stale data even when other code writes directly to model-tiers.json
@@ -63,12 +64,6 @@ function loadSelectionImpl(): any {
       flow_enforce:       j?.selection?.flow_enforce === true,
       delegation_enforce: j?.selection?.delegation_enforce !== false,
       onboarding_mode:    j?.selection?.onboarding_mode || null,
-      selected_provider:  j?.selection?.selected_provider || null,
-      selected_quality_tier: j?.selection?.selected_quality_tier || null,
-      selected_model:     j?.selection?.selected_model || null,
-      executed_provider:  j?.selection?.executed_provider || null,
-      executed_quality_tier: j?.selection?.executed_quality_tier || null,
-      executed_model:     j?.selection?.executed_model || null,
       requested_optimization_mode: j?.selection?.requested_optimization_mode || null,
       previous_default_agent: j?.selection?.previous_default_agent || null,
       previous_optimization_mode: j?.selection?.previous_optimization_mode || null,
@@ -97,6 +92,7 @@ export function writeSelection(key: string, value: any): boolean {
     const result = withFileLock(TIERS_FILE, () => {
       const j = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
       if (!j.selection) j.selection = {}
+      for (const shadowKey of SHADOW_SELECTION_KEYS) delete j.selection[shadowKey]
       j.selection[key] = value
       const tmp = TIERS_FILE + ".tmp." + Date.now() + "." + Math.random().toString(36).slice(2, 8)
       writeFileSync(tmp, JSON.stringify(j, null, 2) + "\n")
@@ -110,16 +106,24 @@ export function writeSelection(key: string, value: any): boolean {
   }
 }
 
-export function loadSessionSlot(sid: string): string | null {
+export function sanitizeSelection(selection: any): any {
+  if (!selection || typeof selection !== "object") return selection
+  for (const shadowKey of SHADOW_SELECTION_KEYS) delete selection[shadowKey]
+  return selection
+}
+
+function readSessionRecord(sid: string): any {
   const BLACKBOX_FILE = join(getVibeOSHome(), "blackbox-state.json")
   try {
     if (!existsSync(BLACKBOX_FILE)) return null
     const j = safeJsonParse(readFileSync(BLACKBOX_FILE, "utf-8"))
-    return j?.sessions?.[sid]?.active_slot || null
-  } catch { return null }
+    return j?.sessions?.[sid] || null
+  } catch {
+    return null
+  }
 }
 
-export function writeSessionSlot(sid: string, slot: string): boolean {
+function writeSessionRecord(sid: string, updater: (record: any) => void): boolean {
   const BLACKBOX_FILE = join(getVibeOSHome(), "blackbox-state.json")
   try {
     const j = existsSync(BLACKBOX_FILE)
@@ -127,24 +131,31 @@ export function writeSessionSlot(sid: string, slot: string): boolean {
       : {}
     if (!j.sessions) j.sessions = {}
     if (!j.sessions[sid]) j.sessions[sid] = {}
-    j.sessions[sid].active_slot = slot
+    updater(j.sessions[sid])
     const tmp = BLACKBOX_FILE + ".tmp"
     writeFileSync(tmp, JSON.stringify(j, null, 2) + "\n")
     renameSync(tmp, BLACKBOX_FILE)
     return true
   } catch (err) {
-    console.error("[vibeOS] writeSessionSlot failed: " + err.message)
+    console.error("[vibeOS] writeSessionRecord failed: " + err.message)
     return false
   }
 }
 
+export function loadSessionSlot(sid: string): string | null {
+  const record = readSessionRecord(sid)
+  return record?.active_slot || null
+}
+
+export function writeSessionSlot(sid: string, slot: string): boolean {
+  return writeSessionRecord(sid, (record) => {
+    record.active_slot = slot
+  })
+}
+
 export function loadSessionOptMode(sid: string): string | null {
-  const BLACKBOX_FILE = join(getVibeOSHome(), "blackbox-state.json")
-  try {
-    if (!existsSync(BLACKBOX_FILE)) return null
-    const j = safeJsonParse(readFileSync(BLACKBOX_FILE, "utf-8"))
-    return j?.sessions?.[sid]?.optimization_mode || null
-  } catch { return null }
+  const record = readSessionRecord(sid)
+  return record?.optimization_mode || null
 }
 
 export function loadGlobalOptMode(): string | null {
@@ -159,22 +170,9 @@ export function saveGlobalOptMode(mode: string): boolean {
 }
 
 export function writeSessionOptMode(sid: string, mode: string): boolean {
-  const BLACKBOX_FILE = join(getVibeOSHome(), "blackbox-state.json")
-  try {
-    const j = existsSync(BLACKBOX_FILE)
-      ? safeJsonParse(readFileSync(BLACKBOX_FILE, "utf-8"))
-      : {}
-    if (!j.sessions) j.sessions = {}
-    if (!j.sessions[sid]) j.sessions[sid] = {}
-    j.sessions[sid].optimization_mode = mode
-    const tmp = BLACKBOX_FILE + ".tmp"
-    writeFileSync(tmp, JSON.stringify(j, null, 2) + "\n")
-    renameSync(tmp, BLACKBOX_FILE)
-    return true
-  } catch (err) {
-    console.error("[vibeOS] writeSessionOptMode failed: " + err.message)
-    return false
-  }
+  return writeSessionRecord(sid, (record) => {
+    record.optimization_mode = mode
+  })
 }
 
 export { DFLT_SEL }
