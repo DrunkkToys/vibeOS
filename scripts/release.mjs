@@ -19,7 +19,8 @@ const CYAN = "\x1b[36m"
 const RESET = "\x1b[0m"
 
 function sh(cmd, opts = {}) {
-  return execSync(cmd, { encoding: "utf-8", cwd: ROOT, ...opts }).trim()
+  const out = execSync(cmd, { encoding: "utf-8", cwd: ROOT, ...opts })
+  return typeof out === "string" ? out.trim() : ""
 }
 
 function log(msg) {
