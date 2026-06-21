@@ -861,7 +861,7 @@ test("saveOS FOOTER: flash icon stays hidden when backend is disabled", async ()
   assert.ok(!String(child.stdout || "").includes("⚡"), "flash icon stays hidden without backend connection")
 })
 
-test("saveOS API: ~/.claude token wins over repo token", async () => {
+test("saveOS API: VIBEOS_HOME token wins over repo token", async () => {
   const tokenSandbox = mkdtempSync(join(tmpdir(), "saveos-token-pref-"))
   mkdirSync(join(tokenSandbox, ".claude"), { recursive: true })
   const preferredToken = "vos_" + "a".repeat(64)
@@ -877,6 +877,7 @@ test("saveOS API: ~/.claude token wins over repo token", async () => {
     env: {
       ...process.env,
       HOME: tokenSandbox,
+      VIBEOS_HOME: join(tokenSandbox, ".claude"),
       VIBEOS_API_TOKEN: "",
       VIBEOS_API_ENABLED: "true",
     },
@@ -952,6 +953,7 @@ test("saveOS API: invalidate switch disables the embedded fallback token", async
     env: {
       ...process.env,
       HOME: tokenSandbox,
+      VIBEOS_HOME: join(tokenSandbox, ".claude"),
       VIBEOS_API_TOKEN: "",
       VIBEOS_API_ENABLED: "true",
     },

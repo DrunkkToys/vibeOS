@@ -976,7 +976,14 @@ export async function remoteCall(method, args, fallbackFn) {
 
   try {
     const client = getApiClient()
-    if (!client) { if (fallbackFn) return fallbackFn(); return null }
+    if (!client) {
+      if (!VIBEOS_API_TOKEN && VIBEOS_API_BOOTSTRAP_TOKEN) {
+        _apiFallbackMode = true
+        _apiFallbackSince = new Date().toISOString()
+      }
+      if (fallbackFn) return fallbackFn()
+      return null
+    }
     const startedAt = Date.now()
     const result = await client[method](...args)
     if (shouldApplyLatencyGuard(method)) {

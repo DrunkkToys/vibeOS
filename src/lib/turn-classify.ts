@@ -136,7 +136,6 @@ export function resolveOptimizationMode(
   if (normalized === "auto" || normalized === "") {
     return autoSelectMode(subRegime || "INIT", stressMultiplier)
   }
-  if (isApiFallback()) return "vibelitex"
   return isSupportedOptimizationMode(normalized) ? normalized : "budget"
 }
 

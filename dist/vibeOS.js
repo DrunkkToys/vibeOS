@@ -4297,6 +4297,10 @@ async function remoteCall(method, args, fallbackFn) {
   try {
     const client2 = getApiClient();
     if (!client2) {
+      if (!VIBEOS_API_TOKEN && VIBEOS_API_BOOTSTRAP_TOKEN) {
+        _apiFallbackMode = true;
+        _apiFallbackSince = (/* @__PURE__ */ new Date()).toISOString();
+      }
       if (fallbackFn)
         return fallbackFn();
       return null;
@@ -9403,8 +9407,6 @@ function resolveOptimizationMode(subRegime, stressMultiplier, optimizationMode) 
   if (normalized === "auto" || normalized === "") {
     return autoSelectMode2(subRegime || "INIT", stressMultiplier);
   }
-  if (isApiFallback())
-    return "vibelitex";
   return isSupportedOptimizationMode(normalized) ? normalized : "budget";
 }
 function buildModeRoot(mode) {

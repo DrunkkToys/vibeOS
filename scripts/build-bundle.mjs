@@ -1,5 +1,5 @@
 import { build } from 'esbuild';
-import { existsSync, mkdirSync, copyFileSync, readdirSync, statSync } from 'fs';
+import { existsSync, mkdirSync, copyFileSync, readdirSync, statSync, readFileSync, writeFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 
@@ -44,6 +44,7 @@ if (existsSync(dashboardSrc)) {
   const dashboardDest = join(assetsDir, 'dashboard');
   if (!existsSync(dashboardDest)) mkdirSync(dashboardDest, { recursive: true });
   copyDirRecursive(dashboardSrc, dashboardDest);
+  writeDashboardBaseConfig(dashboardDest, resolveDashboardBaseUrl());
   console.log('[bundle] Copied dashboard');
 }
 
@@ -71,4 +72,25 @@ function copyDirRecursive(src, dest) {
       copyFileSync(srcPath, destPath);
     }
   }
+}
+
+function resolveDashboardBaseUrl() {
+  const vibeHome = process.env.VIBEOS_HOME || join(homedir(), '.claude');
+  const tiersPath = join(vibeHome, 'model-tiers.json');
+  try {
+    if (existsSync(tiersPath)) {
+      const tiers = JSON.parse(readFileSync(tiersPath, 'utf8'));
+      const port = Number(tiers?.selection?.mcp_port);
+      if (Number.isFinite(port) && port > 0) {
+        return `http://127.0.0.1:${port}`;
+      }
+    }
+  } catch {}
+  return `http://127.0.0.1:${process.env.VIBEOS_MCP_PORT || 63452}`;
+}
+
+function writeDashboardBaseConfig(dir, baseUrl) {
+  if (!baseUrl) return;
+  const cfg = join(dir, 'vibeos-dashboard-config.js');
+  writeFileSync(cfg, `window.__VIBEOS_DASHBOARD_BASE__ = ${JSON.stringify(baseUrl.replace(/\/$/, ''))};\n`, 'utf8');
 }
