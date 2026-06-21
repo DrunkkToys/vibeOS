@@ -51,11 +51,13 @@ function loadSelectionImpl() {
       return DFLT_SEL;
     }
     const j = safeJsonParse(readFileSync(TIERS_FILE3, "utf-8"));
+    const activePipelineRaw = j?.selection?.active_pipeline;
+    const activePipeline = Array.isArray(activePipelineRaw) ? activePipelineRaw : typeof activePipelineRaw === "string" ? safeJsonParse(activePipelineRaw) : null;
     return {
       enabled: j?.selection?.enabled !== false,
       active_slot: j?.selection?.active_slot || null,
       slot_locked: j?.selection?.slot_locked === true,
-      active_pipeline: j?.selection?.active_pipeline || null,
+      active_pipeline: Array.isArray(activePipeline) ? activePipeline : null,
       optimization_mode: j?.selection?.optimization_mode || null,
       thinking_level: j?.selection?.thinking_level || "off",
       flow_enabled: j?.selection?.flow_enabled === true,

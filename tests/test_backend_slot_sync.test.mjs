@@ -75,6 +75,28 @@ test("backend-authoritative sync applies cheap slot even with stale lock", async
   assert.ok(message.text.includes("VibeUltraX") || message.text.includes("cheap"), "footer should show the applied backend slot or mode: " + message.text.slice(-160))
 })
 
+test("selection manager normalizes string active_pipeline to array for cascade gating", async () => {
+  writeFileSync(join(sandbox, ".claude", "model-tiers.json"), JSON.stringify({
+    selection: {
+      enabled: true,
+      active_slot: "cheap",
+      slot_locked: false,
+      optimization_mode: "vibeultrax",
+      active_pipeline: JSON.stringify(["cheap", "medium", "brain"]),
+    },
+    trinity: {
+      brain: { oc: "deepseek/deepseek-v4-flash" },
+      medium: { oc: "opencode-go/mimo-v2.5" },
+      cheap: { oc: "opencode/big-pickle" },
+    },
+  }))
+
+  const { loadSelection } = await import("../src/lib/selection-manager.js?pipeline-normalize=" + Date.now())
+  const sel = loadSelection()
+  assert.ok(Array.isArray(sel.active_pipeline), "active_pipeline should normalize to an array")
+  assert.deepStrictEqual(sel.active_pipeline, ["cheap", "medium", "brain"])
+})
+
 test("blackboxState sends the applied slot ack payload", async () => {
   let captured = null
   const server = createServer((req, res) => {
