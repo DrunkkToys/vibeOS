@@ -215,20 +215,20 @@ export function buildDeterministicTrinity(models: any[], options: {
   const qualityRanked = _sortByQualityDesc(scoped)
   const costRanked = _sortByCostAsc(scoped)
 
-  // brain = user's selected model (always)
-  const brain = selectedModel || qualityRanked[0] || costRanked[0] || scoped[0] || list[0]
+  // brain = orchestration anchor from the ranked provider pool
+  const brain = qualityRanked[0] || costRanked[0] || scoped[0] || list[0]
   // medium = next best quality from same provider
   const medium = qualityRanked.find((m) => m.id !== brain?.id) || brain
   // cheap = free model (preferred), else cheapest
   const freeModel = scoped.find((m) => isModelFree(m.id))
   const cheap = freeModel || costRanked[0] || medium
 
-  const brainClass = isModelFree(brain?.id) ? "free" : classify(brain?.id)
+  const selectedTier = selectedModel ? (isModelFree(selectedModel.id) ? "free" : classify(selectedModel.id)) : (isModelFree(brain?.id) ? "free" : classify(brain?.id))
 
   return {
     provider,
-    selected_tier: brainClass,
-    selected_model: brain?.id || selectedModelId || "",
+    selected_tier: selectedTier,
+    selected_model: selectedModel?.id || selectedModelId || brain?.id || "",
     brain: brain?.id || "",
     medium: medium?.id || "",
     cheap: cheap?.id || "",

@@ -7395,15 +7395,15 @@ function buildDeterministicTrinity(models, options = {}) {
   const scoped = providerModels.length > 0 ? providerModels : list;
   const qualityRanked = _sortByQualityDesc(scoped);
   const costRanked = _sortByCostAsc(scoped);
-  const brain = selectedModel || qualityRanked[0] || costRanked[0] || scoped[0] || list[0];
+  const brain = qualityRanked[0] || costRanked[0] || scoped[0] || list[0];
   const medium = qualityRanked.find((m) => m.id !== brain?.id) || brain;
   const freeModel = scoped.find((m) => isModelFree(m.id));
   const cheap = freeModel || costRanked[0] || medium;
-  const brainClass = isModelFree(brain?.id) ? "free" : classify(brain?.id);
+  const selectedTier = selectedModel ? isModelFree(selectedModel.id) ? "free" : classify(selectedModel.id) : isModelFree(brain?.id) ? "free" : classify(brain?.id);
   return {
     provider,
-    selected_tier: brainClass,
-    selected_model: brain?.id || selectedModelId || "",
+    selected_tier: selectedTier,
+    selected_model: selectedModel?.id || selectedModelId || brain?.id || "",
     brain: brain?.id || "",
     medium: medium?.id || "",
     cheap: cheap?.id || "",
@@ -11162,7 +11162,9 @@ function createTrinityTool(deps) {
             const providers = typeof deps._loadOpenCodeProviders === "function" ? deps._loadOpenCodeProviders(deps.directory) : {};
             const auth = deps._readAuth();
             const models = await deps.discoverAvailableModels(providers, auth);
-            const trinity = buildDeterministicTrinity(models, { selectedModelId: deps.currentModel });
+            const trinity = buildDeterministicTrinity(models, {
+              selectedModelId: sel.selected_model || sel.executed_model || deps.currentModel
+            });
             if (trinity && trinity.brain) {
               const probed = {
                 brain: models.find((m) => m.id === trinity.brain) || { id: trinity.brain, cost: deps._modelCost(trinity.brain), tier: deps._modelTier(trinity.brain) },
@@ -11181,15 +11183,15 @@ function createTrinityTool(deps) {
               }
               tiersData.selection ??= {};
               tiersData.selection.selected_provider = trinity.provider || resolveExecutionIdentity(deps.currentModel, deps.directory)?.provider || "";
-              tiersData.selection.selected_model = deps.currentModel;
+              tiersData.selection.selected_model = sel.selected_model || deps.currentModel;
               tiersData.selection.executed_provider = tiersData.selection.selected_provider;
-              tiersData.selection.executed_model = deps.currentModel;
+              tiersData.selection.executed_model = sel.executed_model || sel.selected_model || deps.currentModel;
               const _tmp = deps.TIERS_FILE + ".tmp." + Date.now();
               deps.writeFileSync(_tmp, JSON.stringify(tiersData, null, 2) + "\n", "utf-8");
               deps.renameSync(_tmp, deps.TIERS_FILE);
               tiers = tiersData.trinity;
               sel.selected_provider = tiersData.selection.selected_provider;
-              sel.selected_model = deps.currentModel;
+              sel.selected_model = tiersData.selection.selected_model;
             }
           } catch (e) {
             console.error("[vibeOS] auto-rebuild on model change failed:", e.message);
@@ -12106,7 +12108,8 @@ ${L.repeat(40)}`);
         const providers = typeof deps._loadOpenCodeProviders === "function" ? deps._loadOpenCodeProviders(deps.directory) : {};
         const auth = deps._readAuth();
         const models = await deps.discoverAvailableModels(providers, auth);
-        const selectedModel = deps.currentModel || deps.loadSelection?.().selected_model || deps.loadSelection?.().executed_model || "";
+        const currentSelection = deps.loadSelection?.() || {};
+        const selectedModel = currentSelection.selected_model || currentSelection.executed_model || deps.currentModel || "";
         const trinity = buildDeterministicTrinity(models, { selectedModelId: selectedModel });
         if (!trinity) {
           return "\u274C No models discovered from any configured provider.";
