@@ -10,6 +10,7 @@ import {
   saveProjectState,
   touchProjectBucket,
   currentProjectFingerprint,
+  safeJsonParse,
 } from "../lib/state.js"
 import { commandFamily, commandFailed } from "../lib/pattern-helpers.js"
 import { hasBypassFlag, targetsProtectedBranch, isDeployCommand } from "../lib/pattern-helpers.js"
@@ -234,14 +235,19 @@ function sessionCompact(sid, fingerprint) {
     if (existsSync(bbPath)) {
       const raw = readFileSync(bbPath, "utf-8")
       if (raw) {
-        const bb = JSON.parse(raw)
-        const ses = bb?.sessions?.[sid]
-        if (ses && ses.sub_regime === "LOOPING" && patterns.length > 0) {
+        const bb = safeJsonParse(raw, null) || {}
+        bb.sessions ??= {}
+        const existing = bb.sessions?.[sid] || null
+        const shouldWrite = Boolean(existing && existing.sub_regime === "LOOPING") || patterns.length > 0
+        if (shouldWrite) {
+          const ses = existing || (bb.sessions[sid] = { sessionId: sid })
           const topPattern = patterns[0]
           const summary = patterns.map((p) => p.summary).slice(0, 3).join(" | ")
           ses.resolution_state = "intervened"
           ses.resolution_reason = summary || "looping friction detected"
-          ses.live_next_action = `Address friction: ${topPattern?.summary || "review the repeated loop"}`
+          ses.live_next_action = patterns.length > 0
+            ? `Address friction: ${topPattern?.summary || "review the repeated loop"}`
+            : "Review the repeated loop and reduce friction"
           ses.live_updated_at = new Date().toISOString()
           writeFileSync(bbPath, JSON.stringify(bb, null, 2))
         }

@@ -2196,6 +2196,37 @@ function _pushControlHistoryEntry(session, entry) {
     session.control_history = session.control_history.slice(-100);
   }
 }
+function _normalizeSnapshotRewardBreakdown(input) {
+  const breakdown = input?.rewardBreakdown;
+  if (!breakdown || typeof breakdown !== "object")
+    return null;
+  try {
+    return JSON.parse(JSON.stringify(breakdown));
+  } catch {
+    return { ...breakdown };
+  }
+}
+function _buildLiveSnapshotFingerprint(input, resolutionState, resolutionReason, nextAction) {
+  return stableJson({
+    sessionId: String(input?.sessionId || ""),
+    projectFingerprint: String(input?.projectFingerprint || ""),
+    projectName: String(input?.projectName || ""),
+    outcome: typeof input?.outcome === "string" ? input.outcome : null,
+    rewardCredits: Number.isFinite(Number(input?.rewardCredits)) ? Number(input.rewardCredits || 0) : null,
+    savingsUsd: Number.isFinite(Number(input?.savingsUsd)) ? roundUsd(Number(input.savingsUsd || 0)) : null,
+    footerLine: String(input?.footerLine || ""),
+    control: input?.control && typeof input.control === "object" ? input.control : null,
+    subRegime: String(input?.subRegime || ""),
+    resolutionState,
+    resolutionReason,
+    nextAction,
+    loopInterventionLevel: String(input?.loopInterventionLevel || ""),
+    pivotDetected: Boolean(input?.pivotDetected),
+    stress: Number.isFinite(Number(input?.stress)) ? Number(input.stress) : null,
+    rewardBreakdown: _normalizeSnapshotRewardBreakdown(input),
+    source: String(input?.source || "")
+  });
+}
 function _deriveLiveResolutionState(input) {
   const outcome = String(input?.outcome || "").toLowerCase();
   const loopLevel = String(input?.loopInterventionLevel || "").toLowerCase();
@@ -2221,13 +2252,24 @@ function _deriveLiveResolutionState(input) {
   return { resolution_state: "unresolved", resolution_reason: "no outcome yet" };
 }
 function recordLiveSessionSnapshot(input) {
-  const sid = String(input?.sessionId || getCurrentSessionId() || _OC_SID || "");
+  const explicitSessionId = typeof input?.sessionId === "string" ? input.sessionId.trim() : "";
+  if (input && Object.prototype.hasOwnProperty.call(input, "sessionId") && !explicitSessionId) {
+    return { sessionId: "", updatedAt: (/* @__PURE__ */ new Date()).toISOString(), resolutionState: "unresolved", resolutionReason: "missing session id" };
+  }
+  const sid = explicitSessionId || getCurrentSessionId() || _OC_SID || "";
   const updatedAt = (/* @__PURE__ */ new Date()).toISOString();
   const derivedResolution = _deriveLiveResolutionState(input);
   const resolutionState = String(input?.resolutionState || derivedResolution.resolution_state || "unresolved");
   const resolutionReason = String(input?.resolutionReason || derivedResolution.resolution_reason || "no outcome yet");
   const control = input?.control && typeof input.control === "object" ? { ...input.control } : null;
   const nextAction = typeof input?.nextAction === "string" && input.nextAction.trim() ? input.nextAction.trim() : null;
+  const snapshotFingerprint = _buildLiveSnapshotFingerprint(input, resolutionState, resolutionReason, nextAction);
+  if (!sid) {
+    return { sessionId: "", updatedAt, resolutionState, resolutionReason };
+  }
+  if (_liveSnapshotFingerprints.get(sid) === snapshotFingerprint) {
+    return { sessionId: sid, updatedAt, resolutionState, resolutionReason };
+  }
   try {
     updateState((state) => {
       state.sessions ??= {};
@@ -2236,6 +2278,11 @@ function recordLiveSessionSnapshot(input) {
         state.sessions[sid] = { warns: [], cache_hits: [] };
       }
       const ses = state.sessions[sid];
+      if (ses.live_snapshot_fingerprint === snapshotFingerprint) {
+        ses.live_updated_at = updatedAt;
+        _liveSnapshotFingerprints.set(sid, snapshotFingerprint);
+        return state;
+      }
       if (input.projectFingerprint)
         ses.project_fingerprint = input.projectFingerprint;
       if (input.projectName)
@@ -2247,6 +2294,9 @@ function recordLiveSessionSnapshot(input) {
         ses.reward_credits = roundUsd(Number(ses.reward_credits || 0) + Number(input.rewardCredits || 0));
         state.lifetime.reward_credits = roundUsd(Number(state.lifetime.reward_credits || 0) + Number(input.rewardCredits || 0));
       }
+      const rewardBreakdown = _normalizeSnapshotRewardBreakdown(input);
+      if (rewardBreakdown)
+        ses.live_reward_breakdown = rewardBreakdown;
       if (typeof input.outcome === "string" && input.outcome)
         ses.last_outcome = input.outcome;
       if (input.footerLine)
@@ -2264,6 +2314,8 @@ function recordLiveSessionSnapshot(input) {
       if (nextAction)
         ses.live_next_action = nextAction;
       ses.live_updated_at = updatedAt;
+      ses.live_snapshot_fingerprint = snapshotFingerprint;
+      _liveSnapshotFingerprints.set(sid, snapshotFingerprint);
       if (control) {
         ses.live_control = control;
         _pushControlHistoryEntry(ses, {
@@ -2289,6 +2341,13 @@ function recordLiveSessionSnapshot(input) {
       bb.sessions[sid] = {};
     }
     const ses = bb.sessions[sid];
+    if (ses.live_snapshot_fingerprint === snapshotFingerprint) {
+      ses.updatedAt = updatedAt;
+      ses.last_snapshot_at = updatedAt;
+      _liveSnapshotFingerprints.set(sid, snapshotFingerprint);
+      saveBlackboxState(bb);
+      return { sessionId: sid, updatedAt, resolutionState, resolutionReason };
+    }
     if (input.projectFingerprint)
       ses.project_fingerprint = input.projectFingerprint;
     if (input.projectName)
@@ -2310,6 +2369,9 @@ function recordLiveSessionSnapshot(input) {
     if (typeof input.rewardCredits === "number" && Number.isFinite(input.rewardCredits)) {
       ses.reward_credits = roundUsd(Number(ses.reward_credits || 0) + Number(input.rewardCredits || 0));
     }
+    const rewardBreakdown = _normalizeSnapshotRewardBreakdown(input);
+    if (rewardBreakdown)
+      ses.reward_breakdown = rewardBreakdown;
     if (typeof input.outcome === "string" && input.outcome) {
       ses.outcome = input.outcome;
       ses.outcomeHistory ??= [];
@@ -2354,6 +2416,8 @@ function recordLiveSessionSnapshot(input) {
       ses.loop_intervention_level = input.loopInterventionLevel;
     if (typeof input.stress === "number" && Number.isFinite(input.stress))
       ses.stress_level = Number(input.stress);
+    ses.live_snapshot_fingerprint = snapshotFingerprint;
+    _liveSnapshotFingerprints.set(sid, snapshotFingerprint);
     saveBlackboxState(bb);
   } catch {
   }
@@ -3587,7 +3651,7 @@ function mutateSessionOrchestration(sessionId, mutator) {
     return null;
   }
 }
-var USER_HOME2, VIBEOS_CONTEXT, VIBEOS_HOME, OPENCODE_HOME, FILE_LOCK_DIR, DELEGATION_STATE_FILE, SAVINGS_LEDGER_FILE, GLOBAL_LEARNING_FILE, PRICING_CACHE_FILE, BLACKBOX_STATE_FILE, PROJECT_STATE_FILE, TIERS_FILE, ACTIVE_JOBS_FILE, AUTH_F, CREDIT_CACHE_F, FLOW_TODO_QUEUE_FILE, FLOW_DEDUP_FILE, ENFORCEMENT_COOLDOWN_FILE, TODOS_FILE, REPORTS_DIR, CONTEXT7_INSTALL_FLAG, TRINITY_OPENCODE_CONFIG, TRINITY_OPENCODE_CONFIGC, SCRATCHPAD_ROOT, SCRATCHPAD_GLOBAL_DIR, SCRATCHPAD_SESSIONS_DIR, SCRATCHPAD_SESSION_TTL_MS, SCRATCHPAD_MAX_AGE_SEC, MAX_SCRATCHPAD_FILES, MAX_SCRATCHPAD_BYTES, MAX_SESSION_SCRATCHPAD_FILES, MAX_SESSION_SCRATCHPAD_BYTES, CORRUPTION_BACKUP_MAX, CORRUPTION_BACKUP_TTL_MS, LEDGER_ROTATE_MAX_BYTES, LEDGER_ROTATE_MAX_LINES, LEDGER_ROTATE_MAX_AGE_MS, ACTIVE_JOBS_STALE_MS, SUMMARY_HEAD_TRUNCATE, DECADENCE_FRESH_MS, DECADENCE_WARM_MS, DECADENCE_COLD_MS, DECADENCE_EXPIRE_MS, DECADENCE_THROTTLE_MS, DECADENCE_GLOBAL_THROTTLE_MS, TOOL_NAME_NORMALIZE, SCRATCHPAD_TOOLS, WARN_DEDUPE_WINDOW_MS, SOFT_QUOTA_LIMIT, _OC_SID, currentSessionId, _sessionStart, currentTier, currentModel, currentProjectFingerprint, currentProjectName, recentToolEvents, frictionSessionKeys, _savingsCache, _savingsCacheMtime, _ledgerReconciledMtime, _ledgerTotalsCache, _mlGraph, _cacheDb, ML_ENABLED, ML_CONFIDENCE_THRESHOLD, _mlSavePending, _blackboxEnabled, _latestBlackboxState, _latestBlackboxLoopMsg2, _latestBlackboxPivotMsg2, _modelLocked, _lockedSlot, _lockedModel, _sessionCleanupRegistered, _sessionCacheCleaned, prunedThisProcess, _lastDecadenceRun, briefedProjects, _ledgerBuffer, _ledgerBufferTimer, LEDGER_BUFFER_MAX, LEDGER_BUFFER_FLUSH_MS, testReminderSeen, DFLT_GL, tool, _startupMaintenanceHome, ORPHAN_SESSION_TTL_MS, FALLBACK_HIGH, FALLBACK_MID, HIGH_TIER_RE, MID_TIER_RE, scratchpadHitsSeen;
+var USER_HOME2, VIBEOS_CONTEXT, VIBEOS_HOME, OPENCODE_HOME, FILE_LOCK_DIR, DELEGATION_STATE_FILE, SAVINGS_LEDGER_FILE, GLOBAL_LEARNING_FILE, PRICING_CACHE_FILE, BLACKBOX_STATE_FILE, PROJECT_STATE_FILE, TIERS_FILE, ACTIVE_JOBS_FILE, AUTH_F, CREDIT_CACHE_F, FLOW_TODO_QUEUE_FILE, FLOW_DEDUP_FILE, ENFORCEMENT_COOLDOWN_FILE, TODOS_FILE, REPORTS_DIR, CONTEXT7_INSTALL_FLAG, TRINITY_OPENCODE_CONFIG, TRINITY_OPENCODE_CONFIGC, SCRATCHPAD_ROOT, SCRATCHPAD_GLOBAL_DIR, SCRATCHPAD_SESSIONS_DIR, SCRATCHPAD_SESSION_TTL_MS, SCRATCHPAD_MAX_AGE_SEC, MAX_SCRATCHPAD_FILES, MAX_SCRATCHPAD_BYTES, MAX_SESSION_SCRATCHPAD_FILES, MAX_SESSION_SCRATCHPAD_BYTES, CORRUPTION_BACKUP_MAX, CORRUPTION_BACKUP_TTL_MS, LEDGER_ROTATE_MAX_BYTES, LEDGER_ROTATE_MAX_LINES, LEDGER_ROTATE_MAX_AGE_MS, ACTIVE_JOBS_STALE_MS, SUMMARY_HEAD_TRUNCATE, DECADENCE_FRESH_MS, DECADENCE_WARM_MS, DECADENCE_COLD_MS, DECADENCE_EXPIRE_MS, DECADENCE_THROTTLE_MS, DECADENCE_GLOBAL_THROTTLE_MS, TOOL_NAME_NORMALIZE, SCRATCHPAD_TOOLS, WARN_DEDUPE_WINDOW_MS, SOFT_QUOTA_LIMIT, _OC_SID, currentSessionId, _sessionStart, currentTier, currentModel, currentProjectFingerprint, currentProjectName, recentToolEvents, frictionSessionKeys, _savingsCache, _savingsCacheMtime, _ledgerReconciledMtime, _ledgerTotalsCache, _liveSnapshotFingerprints, _mlGraph, _cacheDb, ML_ENABLED, ML_CONFIDENCE_THRESHOLD, _mlSavePending, _blackboxEnabled, _latestBlackboxState, _latestBlackboxLoopMsg2, _latestBlackboxPivotMsg2, _modelLocked, _lockedSlot, _lockedModel, _sessionCleanupRegistered, _sessionCacheCleaned, prunedThisProcess, _lastDecadenceRun, briefedProjects, _ledgerBuffer, _ledgerBufferTimer, LEDGER_BUFFER_MAX, LEDGER_BUFFER_FLUSH_MS, testReminderSeen, DFLT_GL, tool, _startupMaintenanceHome, ORPHAN_SESSION_TTL_MS, FALLBACK_HIGH, FALLBACK_MID, HIGH_TIER_RE, MID_TIER_RE, scratchpadHitsSeen;
 var init_state = __esm({
   "src/lib/state.js"() {
     "use strict";
@@ -3683,6 +3747,7 @@ var init_state = __esm({
       context7: 0,
       entries: 0
     };
+    _liveSnapshotFingerprints = /* @__PURE__ */ new Map();
     _mlGraph = createPatternGraph();
     _cacheDb = createCacheDatabase();
     ML_ENABLED = true;
@@ -13147,14 +13212,17 @@ function sessionCompact(sid, fingerprint) {
     if (existsSync15(bbPath)) {
       const raw = readFileSync14(bbPath, "utf-8");
       if (raw) {
-        const bb = JSON.parse(raw);
-        const ses = bb?.sessions?.[sid];
-        if (ses && ses.sub_regime === "LOOPING" && patterns.length > 0) {
+        const bb = safeJsonParse2(raw, null) || {};
+        bb.sessions ??= {};
+        const existing = bb.sessions?.[sid] || null;
+        const shouldWrite = Boolean(existing && existing.sub_regime === "LOOPING") || patterns.length > 0;
+        if (shouldWrite) {
+          const ses = existing || (bb.sessions[sid] = { sessionId: sid });
           const topPattern = patterns[0];
           const summary = patterns.map((p) => p.summary).slice(0, 3).join(" | ");
           ses.resolution_state = "intervened";
           ses.resolution_reason = summary || "looping friction detected";
-          ses.live_next_action = `Address friction: ${topPattern?.summary || "review the repeated loop"}`;
+          ses.live_next_action = patterns.length > 0 ? `Address friction: ${topPattern?.summary || "review the repeated loop"}` : "Review the repeated loop and reduce friction";
           ses.live_updated_at = (/* @__PURE__ */ new Date()).toISOString();
           writeFileSync12(bbPath, JSON.stringify(bb, null, 2));
         }

@@ -116,6 +116,50 @@ test('semantic: sessionCompact writes an explicit loop reason and next action', 
   assert.ok(String(ses.live_next_action || '').length > 0, 'looping session should record a next action')
 })
 
+test('semantic: sessionCompact recovers from malformed blackbox state when friction patterns exist', async () => {
+  const sid = 'guard-loop-malformed'
+  const fingerprint = 'fp-loop-malformed'
+  globalThis.__vibeOS_SID = sid
+  const bbPath = join(claudeDir, 'blackbox-state.json')
+  writeFileSync(bbPath, '{ this is not valid json')
+  mod.writeEvent(sid, { tool: 'bash', role: 'verification', family: 'git-commit', at: Date.now(), isGuardBreach: false, isProtectedTarget: false, exitCode: 1 })
+  mod.writeEvent(sid, { tool: 'bash', role: 'bypass', family: 'git-commit', at: Date.now() + 1000, isGuardBreach: true, isProtectedTarget: false, exitCode: null })
+  mod.writeEvent(sid, { tool: 'bash', role: 'bypass', family: 'git-commit', at: Date.now() + 2000, isGuardBreach: true, isProtectedTarget: false, exitCode: null })
+  mod.writeEvent(sid, { tool: 'bash', role: 'bypass', family: 'git-commit', at: Date.now() + 3000, isGuardBreach: true, isProtectedTarget: false, exitCode: null })
+
+  assert.doesNotThrow(() => mod.sessionCompact(sid, fingerprint), 'malformed blackbox state should not crash compaction')
+  const bb = JSON.parse(readFileSync(bbPath, 'utf-8'))
+  const ses = bb.sessions?.[sid] || {}
+  assert.equal(ses.resolution_state, 'intervened', 'malformed blackbox should still recover an intervention state')
+  assert.ok(String(ses.live_next_action || '').length > 0, 'malformed blackbox should still get a next action')
+})
+
+test('semantic: LOOPING compaction falls back to an explicit next action even without detected patterns', async () => {
+  const sid = 'guard-loop-fallback'
+  const fingerprint = 'fp-loop-fallback'
+  globalThis.__vibeOS_SID = sid
+  const bbPath = join(claudeDir, 'blackbox-state.json')
+  writeFileSync(bbPath, JSON.stringify({
+    enabled: true,
+    sessions: {
+      [sid]: {
+        sessionId: sid,
+        sub_regime: 'LOOPING',
+        resolution_state: 'unresolved',
+      },
+    },
+  }, null, 2))
+  mod.writeEvent(sid, { tool: 'bash', role: 'query', family: 'npm-test', at: Date.now(), isGuardBreach: false, isProtectedTarget: false, exitCode: 0 })
+  mod.writeEvent(sid, { tool: 'bash', role: 'query', family: 'echo', at: Date.now() + 1000, isGuardBreach: false, isProtectedTarget: false, exitCode: 0 })
+  mod.writeEvent(sid, { tool: 'bash', role: 'query', family: 'status', at: Date.now() + 2000, isGuardBreach: false, isProtectedTarget: false, exitCode: 0 })
+
+  mod.sessionCompact(sid, fingerprint)
+  const bb = JSON.parse(readFileSync(bbPath, 'utf-8'))
+  const ses = bb.sessions?.[sid] || {}
+  assert.equal(ses.resolution_state, 'intervened', 'looping session should still be marked intervened without patterns')
+  assert.ok(String(ses.live_next_action || '').includes('Review the repeated loop') || String(ses.live_next_action || '').includes('Address friction'), 'looping session should expose a fallback next action')
+})
+
 test('semantic: deriveTags correctly identifies protected targets', async () => {
   const modPh = await import(join(ROOT, 'src/lib/pattern-helpers.js'))
   assert.ok(modPh.targetsProtectedBranch('git push origin master'))

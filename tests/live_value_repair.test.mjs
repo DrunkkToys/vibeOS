@@ -82,9 +82,91 @@ test("live session snapshot writes outcome, credits, and control history to both
     assert.equal(bb.control_history?.at(-1)?.control?.cascade_depth, 3, "blackbox should persist the live control vector")
     assert.equal(bb.control_history?.at(-1)?.control?.pipeline_root?.join(","), "cheap,medium,brain", "pipeline root should persist")
     assert.equal(bb.last_footer_line, "— 🧠 brain | provider | model | $0.04 saved | VibeQMaX · Quality | ✓ | +13 XP —", "blackbox should keep the live footer truth")
+    assert.equal(ses.live_reward_breakdown ?? null, null, "no reward breakdown should remain empty when absent")
   } finally {
     try { process.env.HOME = prevHome } catch {}
     try { process.env.VIBEOS_HOME = prevVibeHome } catch {}
+    try { rmSync(root, { recursive: true, force: true }) } catch {}
+  }
+})
+
+test("live session snapshot deduplicates repeated identical snapshots and preserves reward breakdown", async () => {
+  const root = makeSandbox("value-repair-dedupe")
+  const vibeHome = join(root, ".claude")
+  const prevHome = process.env.HOME
+  const prevVibeHome = process.env.VIBEOS_HOME
+  process.env.HOME = root
+  process.env.VIBEOS_HOME = vibeHome
+
+  try {
+    writeFileSync(join(vibeHome, "delegation-state.json"), JSON.stringify({ lifetime: {}, sessions: {} }, null, 2))
+    writeFileSync(join(vibeHome, "blackbox-state.json"), JSON.stringify({ enabled: true, sessions: {} }, null, 2))
+
+    const state = await import("../src/lib/state.js?live-repair-dedupe=" + Date.now())
+    const payload = {
+      sessionId: "opencode-test-dedupe",
+      outcome: "negative",
+      rewardCredits: -5,
+      rewardBreakdown: { quality: 0, penalty: -5 },
+      savingsUsd: 0.01,
+      footerLine: "footer",
+      resolutionState: "needs_attention",
+      resolutionReason: "negative outcome",
+      nextAction: "fix the regression",
+      source: "footer",
+    }
+
+    state.recordLiveSessionSnapshot(payload)
+    state.recordLiveSessionSnapshot(payload)
+
+    const delegation = JSON.parse(readFileSync(join(vibeHome, "delegation-state.json"), "utf8"))
+    const blackbox = JSON.parse(readFileSync(join(vibeHome, "blackbox-state.json"), "utf8"))
+    const ses = delegation.sessions["opencode-test-dedupe"]
+    const bb = blackbox.sessions["opencode-test-dedupe"]
+
+    assert.equal(ses.reward_credits, -5, "duplicate identical snapshots should not double count credits")
+    assert.deepEqual(ses.live_reward_breakdown, { quality: 0, penalty: -5 }, "reward breakdown should persist in delegation state")
+    assert.deepEqual(bb.reward_breakdown, { quality: 0, penalty: -5 }, "reward breakdown should persist in blackbox state")
+    assert.equal((bb.control_history || []).length, 0, "no control history should be written without a control vector")
+    assert.equal(bb.live_snapshot_fingerprint, ses.live_snapshot_fingerprint, "both state files should share the same snapshot fingerprint")
+  } finally {
+    try { process.env.HOME = prevHome } catch {}
+    try { process.env.VIBEOS_HOME = prevVibeHome } catch {}
+    try { rmSync(root, { recursive: true, force: true }) } catch {}
+  }
+})
+
+test("live session snapshot with no session id is a safe no-op", async () => {
+  const root = makeSandbox("value-repair-nosid")
+  const vibeHome = join(root, ".claude")
+  const prevHome = process.env.HOME
+  const prevVibeHome = process.env.VIBEOS_HOME
+  const prevRuntimeState = globalThis.__vibeOSRuntimeState
+  process.env.HOME = root
+  process.env.VIBEOS_HOME = vibeHome
+  globalThis.__vibeOSRuntimeState = { apiConnected: true, apiFallbackMode: false, apiFallbackSince: null, apiEnabled: true, sessionId: "" }
+
+  try {
+    writeFileSync(join(vibeHome, "delegation-state.json"), JSON.stringify({ lifetime: {}, sessions: {} }, null, 2))
+    writeFileSync(join(vibeHome, "blackbox-state.json"), JSON.stringify({ enabled: true, sessions: {} }, null, 2))
+
+    const state = await import("../src/lib/state.js?live-repair-nosid=" + Date.now())
+    const snap = state.recordLiveSessionSnapshot({
+      sessionId: "",
+      outcome: "positive",
+      rewardCredits: 4,
+      footerLine: "footer",
+    })
+
+    assert.equal(snap.sessionId, "", "missing session id should stay empty")
+    const delegation = JSON.parse(readFileSync(join(vibeHome, "delegation-state.json"), "utf8"))
+    const blackbox = JSON.parse(readFileSync(join(vibeHome, "blackbox-state.json"), "utf8"))
+    assert.deepEqual(delegation.sessions, {}, "delegation state should stay untouched without a session id")
+    assert.deepEqual(blackbox.sessions, {}, "blackbox state should stay untouched without a session id")
+  } finally {
+    try { process.env.HOME = prevHome } catch {}
+    try { process.env.VIBEOS_HOME = prevVibeHome } catch {}
+    try { globalThis.__vibeOSRuntimeState = prevRuntimeState } catch {}
     try { rmSync(root, { recursive: true, force: true }) } catch {}
   }
 })

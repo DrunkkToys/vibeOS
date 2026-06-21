@@ -166,6 +166,7 @@ let _ledgerTotalsCache = {
   context7: 0,
   entries: 0,
 }
+const _liveSnapshotFingerprints = new Map<string, string>()
 
 function invalidateSavingsCache(): void {
   _savingsCache = null
@@ -694,6 +695,38 @@ function _pushControlHistoryEntry(session: any, entry: any): void {
   }
 }
 
+function _normalizeSnapshotRewardBreakdown(input: any): any {
+  const breakdown = input?.rewardBreakdown
+  if (!breakdown || typeof breakdown !== "object") return null
+  try {
+    return JSON.parse(JSON.stringify(breakdown))
+  } catch {
+    return { ...breakdown }
+  }
+}
+
+function _buildLiveSnapshotFingerprint(input: any, resolutionState: string, resolutionReason: string, nextAction: string | null): string {
+  return stableJson({
+    sessionId: String(input?.sessionId || ""),
+    projectFingerprint: String(input?.projectFingerprint || ""),
+    projectName: String(input?.projectName || ""),
+    outcome: typeof input?.outcome === "string" ? input.outcome : null,
+    rewardCredits: Number.isFinite(Number(input?.rewardCredits)) ? Number(input.rewardCredits || 0) : null,
+    savingsUsd: Number.isFinite(Number(input?.savingsUsd)) ? roundUsd(Number(input.savingsUsd || 0)) : null,
+    footerLine: String(input?.footerLine || ""),
+    control: input?.control && typeof input.control === "object" ? input.control : null,
+    subRegime: String(input?.subRegime || ""),
+    resolutionState,
+    resolutionReason,
+    nextAction,
+    loopInterventionLevel: String(input?.loopInterventionLevel || ""),
+    pivotDetected: Boolean(input?.pivotDetected),
+    stress: Number.isFinite(Number(input?.stress)) ? Number(input.stress) : null,
+    rewardBreakdown: _normalizeSnapshotRewardBreakdown(input),
+    source: String(input?.source || ""),
+  })
+}
+
 function _deriveLiveResolutionState(input: any): { resolution_state: string; resolution_reason: string } {
   const outcome = String(input?.outcome || "").toLowerCase()
   const loopLevel = String(input?.loopInterventionLevel || "").toLowerCase()
@@ -735,13 +768,25 @@ export function recordLiveSessionSnapshot(input: {
   rewardBreakdown?: any
   source?: string
 }): { sessionId: string; updatedAt: string; resolutionState: string; resolutionReason: string } {
-  const sid = String(input?.sessionId || getCurrentSessionId() || _OC_SID || "")
+  const explicitSessionId = typeof input?.sessionId === "string" ? input.sessionId.trim() : ""
+  if (input && Object.prototype.hasOwnProperty.call(input, "sessionId") && !explicitSessionId) {
+    return { sessionId: "", updatedAt: new Date().toISOString(), resolutionState: "unresolved", resolutionReason: "missing session id" }
+  }
+  const sid = explicitSessionId || getCurrentSessionId() || _OC_SID || ""
   const updatedAt = new Date().toISOString()
   const derivedResolution = _deriveLiveResolutionState(input)
   const resolutionState = String(input?.resolutionState || derivedResolution.resolution_state || "unresolved")
   const resolutionReason = String(input?.resolutionReason || derivedResolution.resolution_reason || "no outcome yet")
   const control = input?.control && typeof input.control === "object" ? { ...input.control } : null
   const nextAction = typeof input?.nextAction === "string" && input.nextAction.trim() ? input.nextAction.trim() : null
+  const snapshotFingerprint = _buildLiveSnapshotFingerprint(input, resolutionState, resolutionReason, nextAction)
+
+  if (!sid) {
+    return { sessionId: "", updatedAt, resolutionState, resolutionReason }
+  }
+  if (_liveSnapshotFingerprints.get(sid) === snapshotFingerprint) {
+    return { sessionId: sid, updatedAt, resolutionState, resolutionReason }
+  }
 
   try {
     updateState((state: any) => {
@@ -751,6 +796,11 @@ export function recordLiveSessionSnapshot(input: {
         state.sessions[sid] = { warns: [], cache_hits: [] }
       }
       const ses = state.sessions[sid]
+      if (ses.live_snapshot_fingerprint === snapshotFingerprint) {
+        ses.live_updated_at = updatedAt
+        _liveSnapshotFingerprints.set(sid, snapshotFingerprint)
+        return state
+      }
       if (input.projectFingerprint) ses.project_fingerprint = input.projectFingerprint
       if (input.projectName) ses.project_name = input.projectName
       if (typeof input.savingsUsd === "number" && Number.isFinite(input.savingsUsd)) {
@@ -760,6 +810,8 @@ export function recordLiveSessionSnapshot(input: {
         ses.reward_credits = roundUsd(Number(ses.reward_credits || 0) + Number(input.rewardCredits || 0))
         state.lifetime.reward_credits = roundUsd(Number(state.lifetime.reward_credits || 0) + Number(input.rewardCredits || 0))
       }
+      const rewardBreakdown = _normalizeSnapshotRewardBreakdown(input)
+      if (rewardBreakdown) ses.live_reward_breakdown = rewardBreakdown
       if (typeof input.outcome === "string" && input.outcome) ses.last_outcome = input.outcome
       if (input.footerLine) ses.last_footer_line = input.footerLine
       if (input.subRegime) ses.live_sub_regime = input.subRegime
@@ -770,6 +822,8 @@ export function recordLiveSessionSnapshot(input: {
       ses.live_resolution_reason = resolutionReason
       if (nextAction) ses.live_next_action = nextAction
       ses.live_updated_at = updatedAt
+      ses.live_snapshot_fingerprint = snapshotFingerprint
+      _liveSnapshotFingerprints.set(sid, snapshotFingerprint)
       if (control) {
         ses.live_control = control
         _pushControlHistoryEntry(ses, {
@@ -795,6 +849,13 @@ export function recordLiveSessionSnapshot(input: {
       bb.sessions[sid] = {}
     }
     const ses = bb.sessions[sid]
+    if (ses.live_snapshot_fingerprint === snapshotFingerprint) {
+      ses.updatedAt = updatedAt
+      ses.last_snapshot_at = updatedAt
+      _liveSnapshotFingerprints.set(sid, snapshotFingerprint)
+      saveBlackboxState(bb)
+      return { sessionId: sid, updatedAt, resolutionState, resolutionReason }
+    }
     if (input.projectFingerprint) ses.project_fingerprint = input.projectFingerprint
     if (input.projectName) ses.project_name = input.projectName
     if (input.footerLine) ses.last_footer_line = input.footerLine
@@ -813,6 +874,8 @@ export function recordLiveSessionSnapshot(input: {
     if (typeof input.rewardCredits === "number" && Number.isFinite(input.rewardCredits)) {
       ses.reward_credits = roundUsd(Number(ses.reward_credits || 0) + Number(input.rewardCredits || 0))
     }
+    const rewardBreakdown = _normalizeSnapshotRewardBreakdown(input)
+    if (rewardBreakdown) ses.reward_breakdown = rewardBreakdown
     if (typeof input.outcome === "string" && input.outcome) {
       ses.outcome = input.outcome
       ses.outcomeHistory ??= []
@@ -853,6 +916,8 @@ export function recordLiveSessionSnapshot(input: {
     if (typeof input.pivotDetected === "boolean") ses.pivot_detected = input.pivotDetected
     if (typeof input.loopInterventionLevel === "string") ses.loop_intervention_level = input.loopInterventionLevel
     if (typeof input.stress === "number" && Number.isFinite(input.stress)) ses.stress_level = Number(input.stress)
+    ses.live_snapshot_fingerprint = snapshotFingerprint
+    _liveSnapshotFingerprints.set(sid, snapshotFingerprint)
     saveBlackboxState(bb)
   } catch {}
 
