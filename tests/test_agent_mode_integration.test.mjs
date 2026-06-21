@@ -511,6 +511,7 @@ test("refreshCreditSnapshot updates stale low credits before the cheap fallback"
   const prevHome = process.env.HOME
   const prevVibeHome = process.env.VIBEOS_HOME
   const prevOCHome = process.env.VIBEOS_OPENCODE_HOME
+  const prevFetch = globalThis.fetch
   process.env.HOME = home
   process.env.VIBEOS_HOME = join(home, ".claude")
   process.env.VIBEOS_OPENCODE_HOME = join(home, ".config/opencode")
@@ -520,30 +521,22 @@ test("refreshCreditSnapshot updates stale low credits before the cheap fallback"
     writeFileSync(join(home, ".local/share/opencode/auth.json"), JSON.stringify({ deepseek: { key: "test-key" } }, null, 2))
     writeFileSync(join(home, ".claude/credit-snapshot.json"), JSON.stringify({ total: 0, providers: [], ts: Date.now() }, null, 2))
 
+    globalThis.fetch = async () => ({
+      ok: true,
+      json: async () => ({
+        balance_infos: [{ currency: "USD", total_balance: "120.00" }],
+      }),
+    })
+
     const moduleUrl = pathToFileURL(join(process.cwd(), "dist-ts/lib/credit-api.js")).href
-    const script = `
-      globalThis.fetch = async () => ({
-        ok: true,
-        json: async () => ({
-          balance_infos: [{ currency: "USD", total_balance: "120.00" }]
-        })
-      });
-      const mod = await import(${JSON.stringify(moduleUrl)} + "?credit=" + Date.now());
-      const value = await mod.refreshCreditSnapshot();
-      console.log(JSON.stringify({ value }));
-      process.exit(0);
-    `
-    const result = JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", script], {
-      timeout: 20000,
-      cwd: process.cwd(),
-      env: { ...process.env, VIBEOS_FAST_CI: "1", VIBEOS_API_DISABLED: "1", VIBEOS_OPENCODE_HOME: join(home, ".config/opencode"), HOME: home, VIBEOS_HOME: join(home, ".claude") },
-      encoding: "utf8",
-    }).trim())
-    assert.ok(result.value >= 100)
+    const mod = await import(moduleUrl + "?credit=" + Date.now())
+    const value = await mod.refreshCreditSnapshot()
+    assert.ok(value >= 100)
   } finally {
     process.env.HOME = prevHome
     process.env.VIBEOS_HOME = prevVibeHome
     process.env.VIBEOS_OPENCODE_HOME = prevOCHome
+    globalThis.fetch = prevFetch
   }
 })
 
