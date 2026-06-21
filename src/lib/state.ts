@@ -1537,8 +1537,6 @@ function _normalizeActiveJobRecord(record: any, now: number = Date.now(), strict
   const createdAtMs = Date.parse(createdAtRaw)
   const anchorMs = Number.isFinite(updatedAtMs) ? updatedAtMs : createdAtMs
   const stale = Number.isFinite(anchorMs) && now - anchorMs > ACTIVE_JOBS_STALE_MS
-  if (strict && (!next.status || typeof next.status !== "string" || !next.status.trim())) return { record: null, changed: false, stale }
-  if (strict && !Number.isFinite(createdAtMs)) return { record: null, changed: false, stale }
   if (!Number.isFinite(createdAtMs)) {
     next.createdAt = Number.isFinite(anchorMs) ? new Date(anchorMs).toISOString() : new Date(now).toISOString()
     changed = true
