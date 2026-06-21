@@ -37,7 +37,6 @@ import {
 import {
   scoreStress, classifyTurnSimple, classifyTurnRemote, loadOptimizationMode,
   saveOptimizationMode,
-  selectOptimizationModeRemote,
   computeControlVector,
   getBlackboxTracker, getBlackboxResolution,
   loadBlackboxState as loadBlackboxStateFromCtx, saveBlackboxState as saveBlackboxStateToCtx,
@@ -50,7 +49,7 @@ import {
   buildControlHistoryEntry,
   setBlackboxEnabled,
 } from "../turn-classify.js"
-import { applyBudgetFirstMode, peekBudgetFirstMode } from "../mode-policy.js"
+import { peekBudgetFirstMode } from "../mode-policy.js"
 import { BRANDED_MODES, RUNTIME_MODES } from "../mode-router.js"
 import { addCacheEntry, extractRecentCacheOutputs } from "../../vibeOS-lib/smart-cache.js"
 import { getApiClient, remoteCall, isApiConnected, isApiFallback } from "../api-client.js"
@@ -170,14 +169,104 @@ let _turnCountInject = 0
 let _pivotLastCheckTurn = 0
 let _pivotLastRegime: string | null = null
 let _calBuffer: string[] = []
+let _pendingOrchestratorDirective = ""
 const correctionSeenKeys = new Set()
 
 async function apiComputeControlVector(state: any, action: any, optimizationMode: any): Promise<any> {
   try {
-    const res = await remoteCall("blackboxControlVector", [state, action, optimizationMode], null)
-    if (res?.control_vector) return res.control_vector
+    const requestedMode = typeof optimizationMode === "string"
+      ? optimizationMode
+      : String(optimizationMode?.optimization_mode || optimizationMode?.requested_mode || "auto")
+    const res = await remoteCall("blackboxControlVector", [state, action, {
+      optimization_mode: requestedMode,
+      requested_mode: requestedMode,
+      requested_slot: typeof optimizationMode === "object" ? optimizationMode?.requested_slot || null : null,
+      pipeline_root: typeof optimizationMode === "object" ? optimizationMode?.pipeline_root || null : null,
+      source: typeof optimizationMode === "object" ? optimizationMode?.source || null : null,
+    }], null)
+    if (res && typeof res === "object") {
+      return normalizeBackendDecision(res, requestedMode)
+    }
   } catch {}
-  return computeControlVector(state, action, optimizationMode)
+  const fallbackMode = typeof optimizationMode === "string"
+    ? optimizationMode
+    : String(optimizationMode?.optimization_mode || optimizationMode?.requested_mode || "auto")
+  const controlVector = computeControlVector(state, action, fallbackMode)
+  return normalizeBackendDecision({
+    ...controlVector,
+    control_vector: controlVector,
+    decision: {
+      optimization_mode: controlVector.optimization_mode || fallbackMode,
+      tier_bias: controlVector.tier_bias || null,
+      pipeline_root: controlVector.pipeline_root || [],
+      source: "local",
+      requested_mode: fallbackMode,
+      requested_slot: controlVector.tier_bias || null,
+    },
+  }, fallbackMode)
+}
+
+function normalizeSlot(value: any): "brain" | "medium" | "cheap" | null {
+  const normalized = String(value || "").trim().toLowerCase()
+  if (normalized === "brain" || normalized === "medium" || normalized === "cheap") return normalized
+  return null
+}
+
+function slotFromMode(mode: any): "brain" | "medium" | "cheap" | null {
+  const normalized = String(mode || "").trim().toLowerCase()
+  if (!normalized || normalized === "auto") return null
+  if (normalized === "speed" || normalized === "vibemax" || normalized === "vibelitex") return "medium"
+  if (normalized === "quality" || normalized === "longrun" || normalized === "audit" || normalized === "forensic" || normalized === "vibeqmax") return "brain"
+  if (normalized === "vibeultrax") return "cheap"
+  if (normalized === "budget" || normalized === "balanced") return "cheap"
+  return null
+}
+
+function normalizePipelineRoot(value: any, tierBias: any): string[] {
+  if (Array.isArray(value)) {
+    const out = value.map((entry) => normalizeSlot(entry)).filter(Boolean)
+    if (out.length > 0) return out
+  }
+  const slot = normalizeSlot(value) || normalizeSlot(tierBias)
+  return slot ? [slot] : []
+}
+
+function normalizeBackendDecision(raw: any, fallbackMode: any = null): any {
+  if (!raw || typeof raw !== "object") return raw
+  const sourceDecision = raw.decision && typeof raw.decision === "object" ? raw.decision : raw
+  const requestedMode = String(sourceDecision.requested_mode || sourceDecision.requestedMode || fallbackMode || raw.requested_mode || raw.requestedMode || "").trim().toLowerCase() || null
+  const requestedSlot = normalizeSlot(sourceDecision.requested_slot || sourceDecision.requestedSlot || slotFromMode(requestedMode)) || null
+  const optimizationMode = String(sourceDecision.optimization_mode || sourceDecision.mode || fallbackMode || raw.optimization_mode || raw.mode || requestedMode || "auto").trim().toLowerCase()
+  const tierBias = normalizeSlot(sourceDecision.tier_bias || sourceDecision.active_slot || raw.tier_bias || raw.active_slot || slotFromMode(optimizationMode) || requestedSlot) || null
+  const pipelineRoot = normalizePipelineRoot(sourceDecision.pipeline_root || raw.pipeline_root || raw.active_pipeline, tierBias)
+  const source = String(sourceDecision.source || raw.source || raw.optimization_source || "backend")
+  const decision = {
+    optimization_mode: optimizationMode || null,
+    tier_bias: tierBias,
+    pipeline_root: pipelineRoot,
+    source,
+    requested_mode: requestedMode,
+    requested_slot: requestedSlot,
+  }
+  const controlVector = raw.control_vector && typeof raw.control_vector === "object"
+    ? {
+        ...raw.control_vector,
+        optimization_mode: decision.optimization_mode,
+        tier_bias: decision.tier_bias,
+        pipeline_root: decision.pipeline_root,
+      }
+    : undefined
+  return {
+    ...raw,
+    optimization_mode: decision.optimization_mode,
+    tier_bias: decision.tier_bias,
+    pipeline_root: decision.pipeline_root,
+    source: decision.source,
+    requested_mode: decision.requested_mode,
+    requested_slot: decision.requested_slot,
+    decision,
+    control_vector: controlVector || raw.control_vector || null,
+  }
 }
 
 function observeUserCorrection(text: string | null): void {
@@ -341,7 +430,7 @@ export function ensureProjectSkill(dir: string, fp: string): { created: boolean;
   }
 }
 
-export function syncControlSettings(cv: any, options: { persistOptimizationMode?: boolean } = {}): void {
+export function syncControlSettings(cv: any, options: { persistOptimizationMode?: boolean; backendDecision?: any; authoritative?: boolean } = {}): any {
   if (!cv) return
   try {
     _pendingOrchestratorDirective = orchestratorDirective(cv, loadSelection())
@@ -352,6 +441,8 @@ export function syncControlSettings(cv: any, options: { persistOptimizationMode?
       } catch {}
     }
     const persistOptimizationMode = options.persistOptimizationMode !== false
+    const backendDecision = options.backendDecision && typeof options.backendDecision === "object" ? options.backendDecision : null
+    const authoritative = options.authoritative === true || (backendDecision && backendDecision.source !== "manual")
     const currentSel = loadSelection()
     const userSetMode = loadSessionOptMode(sid + "_opt")
     const userOptMode = userSetMode || loadOptimizationMode()
@@ -410,13 +501,17 @@ export function syncControlSettings(cv: any, options: { persistOptimizationMode?
       if (currentSel.thinking_level !== nextThinking) writeIf("thinking_level", nextThinking)
     }
 
-    if (persistOptimizationMode && cv.optimization_mode && userOptMode !== "auto") {
+    const previousOptMode = typeof currentSel.previous_optimization_mode === "string" ? currentSel.previous_optimization_mode : null
+    const prevSessionKey = `${sid}_prev_opt`
+    const sessionPreviousOptMode = loadSessionOptMode(prevSessionKey)
+    const liveSlot = String(currentSel.active_slot || cv.tier_bias || "").toLowerCase()
+    const inferredRecoveryMode = liveSlot === "brain" ? "quality" : liveSlot === "medium" ? "vibemax" : "budget"
+
+    if (persistOptimizationMode && cv.optimization_mode && (userOptMode !== "auto" || authoritative)) {
+      if (authoritative) {
+        writeIf("requested_optimization_mode", cv.optimization_mode)
+      }
       const fallbackPinned = isApiFallback() && cv.optimization_mode === "vibelitex"
-      const previousOptMode = typeof currentSel.previous_optimization_mode === "string" ? currentSel.previous_optimization_mode : null
-      const prevSessionKey = `${sid}_prev_opt`
-      const sessionPreviousOptMode = loadSessionOptMode(prevSessionKey)
-      const liveSlot = String(currentSel.active_slot || cv.tier_bias || "").toLowerCase()
-      const inferredRecoveryMode = liveSlot === "brain" ? "quality" : liveSlot === "medium" ? "vibemax" : "budget"
       const restoreMode = sessionPreviousOptMode || previousOptMode || inferredRecoveryMode
       const canRestorePrevious = !!restoreMode && cv.optimization_mode !== "vibelitex" && (previousOptMode !== null || sessionPreviousOptMode !== null)
 
@@ -442,12 +537,16 @@ export function syncControlSettings(cv: any, options: { persistOptimizationMode?
 
     const slot = cv.tier_bias
     const slotLocked = currentSel.slot_locked === true
-    if (slot && slot !== "auto" && !slotLocked && !_modelLocked) {
+    const canApplySlot = slot && slot !== "auto" && (authoritative || (!slotLocked && !_modelLocked))
+    if (canApplySlot) {
       const existingSlot = loadSessionSlot(sid)
       if (existingSlot !== slot) {
         writeSessionSlot(sid, slot)
+        writeIf("active_slot", slot)
         writeIf("vector_changed_slot", slot)
         writeIf("vector_changed_at", Date.now())
+        if (cv.optimization_mode) writeIf("vector_changed_mode", cv.optimization_mode)
+        if (cv.pipeline_root) writeIf("vector_changed_pipeline", JSON.stringify(cv.pipeline_root))
         const applied = applySlot(slot)
         if (!applied?.ok) {
           console.error(`[vibeOS] failed to apply slot ${slot}: ${applied?.reason || "unknown"}`)
@@ -498,7 +597,17 @@ export function syncControlSettings(cv: any, options: { persistOptimizationMode?
         }
       }
     }
-  } catch { /* noop -- non-critical sync */ }
+    return {
+      applied_slot: canApplySlot ? slot : currentSel.active_slot || null,
+      applied_mode: cv.optimization_mode || null,
+      applied_pipeline: Array.isArray(cv.pipeline_root) ? cv.pipeline_root : [],
+      authoritative,
+      decision: backendDecision || null,
+      optimization_mode: cv.optimization_mode || null,
+      tier_bias: cv.tier_bias || null,
+      pipeline_root: Array.isArray(cv.pipeline_root) ? cv.pipeline_root : [],
+    }
+  } catch (err) { console.error("[vibeOS] syncControlSettings failed:", err?.message || err); return null }
 }
 
 function pushSystem(output: any, text: string | null): void {
@@ -951,56 +1060,95 @@ export const onSystemTransform = async (_input, output) => {
     if (latestUserIntent) observeUserCorrection(latestUserIntent)
 
     const classifiedRegime = _latestBlackboxState?.sub_regime || (latestUserIntent ? await classifyTurnRemote(latestUserIntent) : "INIT")
-    const optimizationSuggestion = await selectOptimizationModeRemote(
-      classifiedRegime,
-      latestUserIntent ? scoreStress(latestUserIntent) : 0,
-      loadOptimizationMode(),
-    )
-    const optimizationDecision = applyBudgetFirstMode({
-      requestedMode: loadOptimizationMode(),
-      suggestedMode: optimizationSuggestion,
-      subRegime: classifiedRegime,
-      stress: latestUserIntent ? scoreStress(latestUserIntent) : 0,
-      nInteractions: _latestBlackboxState?.n_interactions ?? 0,
-    })
-    const optimizationMode = optimizationDecision.mode
+    const requestedOptimizationMode = loadOptimizationMode()
+    const backendAutoModes = new Set(["auto", "vibeultrax", "vibeqmax", "vibemax", "vibelitex"])
+    const useBackendDecision = backendAutoModes.has(String(requestedOptimizationMode || "").toLowerCase())
+    let optimizationDecision = null
+    let optimizationMode = requestedOptimizationMode
     let _controlVector = null
     ensureProjectContext(hookDirectory)
-    if (_latestBlackboxState) {
-      const st = latestUserIntent ? scoreStress(latestUserIntent) : 0
-      if (st) _latestBlackboxState.latest_stress_multiplier = st
-      _controlVector = await apiComputeControlVector(_latestBlackboxState, undefined, optimizationMode)
-      if (_controlVector) {
-        // Merge CV into full blackbox state to preserve existing sessions
-        const fullState = loadBlackboxStateFromCtx() || { sessions: {}, enabled: true }
-        fullState.cv = _controlVector
-        // Merge runtime tracker fields into full state
-        if (_latestBlackboxState) {
-          if (_latestBlackboxState.sub_regime) fullState.sub_regime = _latestBlackboxState.sub_regime
-          if (_latestBlackboxState.latest_stress_multiplier) fullState.latest_stress_multiplier = _latestBlackboxState.latest_stress_multiplier
-          if (_latestBlackboxState.n_interactions) fullState.n_interactions = _latestBlackboxState.n_interactions
-          if (_latestBlackboxState.resolution) fullState.resolution = _latestBlackboxState.resolution
-          if (_latestBlackboxState.momentum) fullState.momentum = _latestBlackboxState.momentum
-          fullState.latest_control_vector_ts = Date.now()
+    const st = latestUserIntent ? scoreStress(latestUserIntent) : 0
+    const cvState = _latestBlackboxState
+      ? { ..._latestBlackboxState, latest_stress_multiplier: st || _latestBlackboxState.latest_stress_multiplier || 0 }
+      : {
+          sub_regime: classifiedRegime || "INIT",
+          latest_stress_multiplier: st || undefined,
+          user_text: latestUserIntent || undefined,
         }
-        fullState.sessions ??= {}
-        saveBlackboxStateToCtx(fullState)
+    const requestedDecision = {
+      optimization_mode: requestedOptimizationMode,
+      requested_mode: requestedOptimizationMode,
+      requested_slot: null,
+      source: useBackendDecision ? "backend" : "manual",
+    }
+    if (useBackendDecision) {
+      const backendResult = await apiComputeControlVector(cvState, undefined, requestedDecision)
+      optimizationDecision = backendResult?.decision || backendResult || null
+      _controlVector = backendResult?.control_vector || backendResult || null
+      optimizationMode = optimizationDecision?.optimization_mode || optimizationMode
+    } else {
+      _controlVector = computeControlVector(cvState, undefined, requestedOptimizationMode)
+      optimizationDecision = normalizeBackendDecision({
+        ..._controlVector,
+        decision: {
+          optimization_mode: _controlVector?.optimization_mode || requestedOptimizationMode,
+          tier_bias: _controlVector?.tier_bias || null,
+          pipeline_root: _controlVector?.pipeline_root || [],
+          source: "manual",
+          requested_mode: requestedOptimizationMode,
+          requested_slot: _controlVector?.tier_bias || null,
+        },
+      }, requestedOptimizationMode)
+      optimizationMode = optimizationDecision?.optimization_mode || optimizationMode
+    }
+    if (_controlVector) {
+      const fullState = loadBlackboxStateFromCtx() || { sessions: {}, enabled: true }
+      fullState.cv = _controlVector
+      if (_latestBlackboxState) {
+        if (_latestBlackboxState.sub_regime) fullState.sub_regime = _latestBlackboxState.sub_regime
+        if (_latestBlackboxState.latest_stress_multiplier) fullState.latest_stress_multiplier = _latestBlackboxState.latest_stress_multiplier
+        if (_latestBlackboxState.n_interactions) fullState.n_interactions = _latestBlackboxState.n_interactions
+        if (_latestBlackboxState.resolution) fullState.resolution = _latestBlackboxState.resolution
+        if (_latestBlackboxState.momentum) fullState.momentum = _latestBlackboxState.momentum
+        fullState.latest_control_vector_ts = Date.now()
       }
-    } else if (latestUserIntent) {
-      const st = scoreStress(latestUserIntent)
-      _controlVector = await apiComputeControlVector({
-        sub_regime: classifiedRegime,
-        latest_stress_multiplier: st || undefined,
-        user_text: latestUserIntent,
-      }, undefined, optimizationMode)
+      fullState.sessions ??= {}
+      saveBlackboxStateToCtx(fullState)
     }
-    if (!_controlVector) {
-      _controlVector = await apiComputeControlVector({
-        sub_regime: "INIT",
-        latest_stress_multiplier: latestUserIntent ? scoreStress(latestUserIntent) : undefined,
-        user_text: latestUserIntent || undefined,
-      }, undefined, optimizationMode)
-    }
+    try {
+      const blackboxState = loadBlackboxStateFromCtx() || { sessions: {}, enabled: true }
+      const existingSession = blackboxState.sessions?.[_OC_SID] || null
+      if (!existingSession || !existingSession.sub_regime) {
+        const sessionState = _latestBlackboxState || {
+          sub_regime: classifiedRegime || "INIT",
+          resolution: "unresolved",
+          momentum: 0,
+        }
+        const turnCounter = Number(existingSession?.turn_counter || 0) + 1
+        const controlHistory = Array.isArray(existingSession?.control_history) ? [...existingSession.control_history] : []
+        if (_controlVector) {
+          const entry = buildControlHistoryEntry(turnCounter, sessionState.sub_regime || "INIT", _controlVector)
+          const lastEntry = controlHistory[controlHistory.length - 1]
+          if (!lastEntry || JSON.stringify(lastEntry) !== JSON.stringify(entry)) {
+            controlHistory.push(entry)
+          }
+        }
+        blackboxState.sessions ??= {}
+        blackboxState.sessions[_OC_SID] = {
+          ...existingSession,
+          project_fingerprint: currentProjectFingerprint || existingSession?.project_fingerprint || "",
+          sub_regime: sessionState.sub_regime || existingSession?.sub_regime || "INIT",
+          regime: sessionState.sub_regime || existingSession?.regime || "INIT",
+          resolution: sessionState.resolution || existingSession?.resolution || "unresolved",
+          momentum: sessionState.momentum ?? existingSession?.momentum ?? 0,
+          control_history: controlHistory,
+          optimization_mode: optimizationDecision?.optimization_mode || existingSession?.optimization_mode || null,
+          active_slot: optimizationDecision?.tier_bias || _controlVector?.tier_bias || existingSession?.active_slot || null,
+          turn_counter: turnCounter,
+        }
+        saveBlackboxStateToCtx(blackboxState)
+      }
+    } catch {}
     const system = output?.system
     if (!Array.isArray(system)) return
 
@@ -1021,7 +1169,26 @@ export const onSystemTransform = async (_input, output) => {
     }
 
     const sel = loadSelection()
-    syncControlSettings(_controlVector, { persistOptimizationMode: optimizationDecision.shouldPersistRequestedMode })
+    const syncResult = syncControlSettings(_controlVector, {
+      persistOptimizationMode: true,
+      backendDecision: optimizationDecision,
+      authoritative: useBackendDecision,
+    })
+    if (useBackendDecision && syncResult) {
+      try {
+        const client = getApiClient()
+        if (client && !isApiFallback()) {
+          await client.blackboxState(_OC_SID, {
+            applied_slot: syncResult.applied_slot,
+            applied_mode: syncResult.applied_mode,
+            applied_pipeline: syncResult.applied_pipeline,
+            source: optimizationDecision?.source || "backend",
+            requested_mode: optimizationDecision?.requested_mode || requestedOptimizationMode,
+            requested_slot: optimizationDecision?.requested_slot || null,
+          })
+        }
+      } catch {}
+    }
     const fp = ensureProjectContext(hookDirectory)
     const rawStress = latestUserIntent ? scoreStress(latestUserIntent) : 0
     const stressScore = rawStress * (_controlVector?.stress_multiplier ?? 1)

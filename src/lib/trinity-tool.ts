@@ -384,6 +384,12 @@ export function createTrinityTool(deps) {
           deps.writeSessionSlot(deps._OC_SID, tierSlot)
           deps.writeSelection("active_slot", tierSlot)
           deps.writeSelection("active_pipeline", modeEntry.pipeline)
+          if (slot === "vibeultrax") {
+            deps._modelLocked = false
+            deps._lockedSlot = null
+            deps._lockedModel = null
+            deps.writeSelection("slot_locked", false)
+          }
           deps.writeSelection("onboarding_mode",
             modeEntry.tdd === "quality" || modeEntry.enforcement === "strict" ? "strict" : "assist")
           deps.writeSelection("delegation_enforce",

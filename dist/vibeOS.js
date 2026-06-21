@@ -4645,8 +4645,8 @@ var init_api_client = __esm({
           embedding: entry.embedding || null
         });
       }
-      async blackboxState(sessionId) {
-        return this.request("/api/v1/blackbox/state", { session_id: sessionId });
+      async blackboxState(sessionId, payload = {}) {
+        return this.request("/api/v1/blackbox/state", { session_id: sessionId, ...payload });
       }
       async blackboxReset(sessionId) {
         return this.request("/api/v1/blackbox/reset", { session_id: sessionId });
@@ -4661,7 +4661,8 @@ var init_api_client = __esm({
         return this.request("/api/v1/blackbox/calibration?project_id=" + (projectId || "global"), null);
       }
       async blackboxControlVector(state, action, optimizationMode) {
-        return this.request("/api/v1/blackbox/control-vector", { ...state, action, optimization_mode: optimizationMode });
+        const decision = typeof optimizationMode === "string" ? { optimization_mode: optimizationMode } : optimizationMode || {};
+        return this.request("/api/v1/blackbox/control-vector", { ...state, action, ...decision });
       }
       async blackboxSelectMode(subRegime, stressMultiplier) {
         return this.request("/api/v1/blackbox/select-mode", { sub_regime: subRegime, stress_multiplier: stressMultiplier });
@@ -9552,25 +9553,6 @@ function buildOfflineControlVector(state, mode) {
     ] : []
   };
 }
-async function selectOptimizationModeRemote(subRegime, stressMultiplier, fallbackMode) {
-  const normalizedRequestedMode = normalizeOptimizationMode(fallbackMode);
-  const fallback2 = resolveOptimizationMode(subRegime, stressMultiplier, fallbackMode);
-  if (normalizedRequestedMode !== "auto" && normalizedRequestedMode !== "")
-    return fallback2;
-  if (isApiFallback())
-    return fallback2;
-  try {
-    const client2 = getApiClient();
-    if (client2) {
-      const res = await client2.blackboxSelectMode(subRegime || "INIT", Number(stressMultiplier ?? 0));
-      const selected = normalizeOptimizationMode(res?.mode || "");
-      if (isSupportedOptimizationMode(selected) && selected !== "auto")
-        return selected;
-    }
-  } catch {
-  }
-  return fallback2;
-}
 function computeControlVector2(_state, _action, _optimizationMode) {
   const mode = resolveOptimizationMode(_state?.sub_regime, _state?.latest_stress_multiplier, _optimizationMode);
   if (mode === "vibeqmax") {
@@ -11419,6 +11401,12 @@ function createTrinityTool(deps) {
           deps.writeSessionSlot(deps._OC_SID, tierSlot);
           deps.writeSelection("active_slot", tierSlot);
           deps.writeSelection("active_pipeline", modeEntry.pipeline);
+          if (slot === "vibeultrax") {
+            deps._modelLocked = false;
+            deps._lockedSlot = null;
+            deps._lockedModel = null;
+            deps.writeSelection("slot_locked", false);
+          }
           deps.writeSelection("onboarding_mode", modeEntry.tdd === "quality" || modeEntry.enforcement === "strict" ? "strict" : "assist");
           deps.writeSelection("delegation_enforce", modeEntry.enforcement === "strict" || modeEntry.enforcement === "on");
           deps.writeSelection("flow_enabled", modeEntry.flow === "strict" || modeEntry.flow === "on" || modeEntry.flow === "audit");
@@ -12966,10 +12954,7 @@ function evaluateClaimVerification({ text, vibeHome = process.env.VIBEOS_HOME ||
 
 // src/lib/mode-policy.js
 init_state();
-var STRESS_QUALITY_THRESHOLD = 1.5;
 var BASELINE_MODE = "budget";
-var LOOP_REGIMES = /* @__PURE__ */ new Set(["LOOPING", "DIVERGENT"]);
-var QUALITY_REGIMES = /* @__PURE__ */ new Set(["CONVERGING", "CLOSED"]);
 var MANUAL_MODES = /* @__PURE__ */ new Set(["balanced", "quality", "speed", "longrun", "audit", "forensic", "vibemax", "vibeqmax", "vibeultrax"]);
 function normalizeMode(mode) {
   const normalized = String(mode || BASELINE_MODE).toLowerCase();
@@ -12985,19 +12970,6 @@ function normalizeRegime(regime) {
 }
 function isManualOverride(mode) {
   return MANUAL_MODES.has(normalizeMode(mode));
-}
-function chooseEpisodeMode(regime, suggestedMode, stress) {
-  if (suggestedMode === "vibeultrax" || suggestedMode === "vibeqmax" || suggestedMode === "vibemax" || suggestedMode === "audit" || suggestedMode === "forensic")
-    return suggestedMode;
-  if (regime === "LOOPING")
-    return "quality";
-  if (suggestedMode === "speed")
-    return "speed";
-  if (LOOP_REGIMES.has(regime))
-    return "speed";
-  if (QUALITY_REGIMES.has(regime) || suggestedMode === "quality")
-    return "quality";
-  return stress > STRESS_QUALITY_THRESHOLD ? "quality" : "budget";
 }
 function defaultPolicy() {
   return {
@@ -13078,46 +13050,6 @@ function peekBudgetFirstMode(input = {}) {
     reason: "budget",
     shouldPersistRequestedMode: false
   };
-}
-function applyBudgetFirstMode(input = {}) {
-  const requestedMode = normalizeMode(input.requestedMode);
-  if (isManualOverride(requestedMode)) {
-    return {
-      active: false,
-      mode: requestedMode,
-      reason: "manual",
-      shouldPersistRequestedMode: true
-    };
-  }
-  return withFileLock(BLACKBOX_STATE_FILE, () => {
-    const { state, session, policy } = loadSessionPolicy();
-    const interactions = Number(input.nInteractions ?? state.sessions?.[_OC_SID]?.n_interactions ?? 0);
-    const regime = normalizeRegime(input.subRegime || policy.last_sub_regime);
-    const stress = Number(input.stress ?? policy.last_stress ?? 0);
-    const suggested = normalizeMode(input.suggestedMode);
-    policy.baseline_mode = BASELINE_MODE;
-    policy.last_sub_regime = regime;
-    policy.last_stress = stress;
-    policy.updated_at = (/* @__PURE__ */ new Date()).toISOString();
-    if (policy.active && policy.active_mode && normalizeMode(policy.active_mode) !== BASELINE_MODE) {
-      return persistSessionPolicy(state, session, policy, policy.active_mode);
-    }
-    const shouldStartEpisode = LOOP_REGIMES.has(regime) || suggested === "speed" || QUALITY_REGIMES.has(regime) || Number(policy.problem_streak || 0) >= 2 || Number(policy.problem_streak || 0) >= 1 && stress > 1.5;
-    if (shouldStartEpisode) {
-      const nextMode = chooseEpisodeMode(regime, suggested, stress);
-      policy.active = true;
-      policy.active_mode = nextMode;
-      policy.reason = LOOP_REGIMES.has(regime) ? "loop" : QUALITY_REGIMES.has(regime) ? "quality" : stress > 1.5 ? "stress" : "problem";
-      policy.episode_id = policy.episode_id || `${_OC_SID}:${Date.now()}`;
-      policy.started_at = policy.started_at || (/* @__PURE__ */ new Date()).toISOString();
-      policy.stable_streak = 0;
-      return persistSessionPolicy(state, session, policy, nextMode);
-    }
-    policy.active = false;
-    policy.active_mode = BASELINE_MODE;
-    policy.reason = null;
-    return persistSessionPolicy(state, session, policy, BASELINE_MODE);
-  });
 }
 function recordBudgetFirstOutcome(input = {}) {
   const outcome = String(input.outcome || "").toLowerCase();
@@ -13859,15 +13791,102 @@ var _turnCountInject = 0;
 var _pivotLastCheckTurn = 0;
 var _pivotLastRegime = null;
 var _calBuffer = [];
+var _pendingOrchestratorDirective = "";
 var correctionSeenKeys = /* @__PURE__ */ new Set();
 async function apiComputeControlVector(state, action, optimizationMode) {
   try {
-    const res = await remoteCall("blackboxControlVector", [state, action, optimizationMode], null);
-    if (res?.control_vector)
-      return res.control_vector;
+    const requestedMode = typeof optimizationMode === "string" ? optimizationMode : String(optimizationMode?.optimization_mode || optimizationMode?.requested_mode || "auto");
+    const res = await remoteCall("blackboxControlVector", [state, action, {
+      optimization_mode: requestedMode,
+      requested_mode: requestedMode,
+      requested_slot: typeof optimizationMode === "object" ? optimizationMode?.requested_slot || null : null,
+      pipeline_root: typeof optimizationMode === "object" ? optimizationMode?.pipeline_root || null : null,
+      source: typeof optimizationMode === "object" ? optimizationMode?.source || null : null
+    }], null);
+    if (res && typeof res === "object") {
+      return normalizeBackendDecision(res, requestedMode);
+    }
   } catch {
   }
-  return computeControlVector2(state, action, optimizationMode);
+  const fallbackMode = typeof optimizationMode === "string" ? optimizationMode : String(optimizationMode?.optimization_mode || optimizationMode?.requested_mode || "auto");
+  const controlVector = computeControlVector2(state, action, fallbackMode);
+  return normalizeBackendDecision({
+    ...controlVector,
+    control_vector: controlVector,
+    decision: {
+      optimization_mode: controlVector.optimization_mode || fallbackMode,
+      tier_bias: controlVector.tier_bias || null,
+      pipeline_root: controlVector.pipeline_root || [],
+      source: "local",
+      requested_mode: fallbackMode,
+      requested_slot: controlVector.tier_bias || null
+    }
+  }, fallbackMode);
+}
+function normalizeSlot(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "brain" || normalized === "medium" || normalized === "cheap")
+    return normalized;
+  return null;
+}
+function slotFromMode(mode) {
+  const normalized = String(mode || "").trim().toLowerCase();
+  if (!normalized || normalized === "auto")
+    return null;
+  if (normalized === "speed" || normalized === "vibemax" || normalized === "vibelitex")
+    return "medium";
+  if (normalized === "quality" || normalized === "longrun" || normalized === "audit" || normalized === "forensic" || normalized === "vibeqmax")
+    return "brain";
+  if (normalized === "vibeultrax")
+    return "cheap";
+  if (normalized === "budget" || normalized === "balanced")
+    return "cheap";
+  return null;
+}
+function normalizePipelineRoot(value, tierBias) {
+  if (Array.isArray(value)) {
+    const out = value.map((entry) => normalizeSlot(entry)).filter(Boolean);
+    if (out.length > 0)
+      return out;
+  }
+  const slot = normalizeSlot(value) || normalizeSlot(tierBias);
+  return slot ? [slot] : [];
+}
+function normalizeBackendDecision(raw, fallbackMode = null) {
+  if (!raw || typeof raw !== "object")
+    return raw;
+  const sourceDecision = raw.decision && typeof raw.decision === "object" ? raw.decision : raw;
+  const requestedMode = String(sourceDecision.requested_mode || sourceDecision.requestedMode || fallbackMode || raw.requested_mode || raw.requestedMode || "").trim().toLowerCase() || null;
+  const requestedSlot = normalizeSlot(sourceDecision.requested_slot || sourceDecision.requestedSlot || slotFromMode(requestedMode)) || null;
+  const optimizationMode = String(sourceDecision.optimization_mode || sourceDecision.mode || fallbackMode || raw.optimization_mode || raw.mode || requestedMode || "auto").trim().toLowerCase();
+  const tierBias = normalizeSlot(sourceDecision.tier_bias || sourceDecision.active_slot || raw.tier_bias || raw.active_slot || slotFromMode(optimizationMode) || requestedSlot) || null;
+  const pipelineRoot = normalizePipelineRoot(sourceDecision.pipeline_root || raw.pipeline_root || raw.active_pipeline, tierBias);
+  const source = String(sourceDecision.source || raw.source || raw.optimization_source || "backend");
+  const decision = {
+    optimization_mode: optimizationMode || null,
+    tier_bias: tierBias,
+    pipeline_root: pipelineRoot,
+    source,
+    requested_mode: requestedMode,
+    requested_slot: requestedSlot
+  };
+  const controlVector = raw.control_vector && typeof raw.control_vector === "object" ? {
+    ...raw.control_vector,
+    optimization_mode: decision.optimization_mode,
+    tier_bias: decision.tier_bias,
+    pipeline_root: decision.pipeline_root
+  } : void 0;
+  return {
+    ...raw,
+    optimization_mode: decision.optimization_mode,
+    tier_bias: decision.tier_bias,
+    pipeline_root: decision.pipeline_root,
+    source: decision.source,
+    requested_mode: decision.requested_mode,
+    requested_slot: decision.requested_slot,
+    decision,
+    control_vector: controlVector || raw.control_vector || null
+  };
 }
 function observeUserCorrection(text) {
   if (!text || typeof text !== "string")
@@ -14062,6 +14081,8 @@ function syncControlSettings(cv, options = {}) {
       }
     }
     const persistOptimizationMode = options.persistOptimizationMode !== false;
+    const backendDecision = options.backendDecision && typeof options.backendDecision === "object" ? options.backendDecision : null;
+    const authoritative = options.authoritative === true || backendDecision && backendDecision.source !== "manual";
     const currentSel = loadSelection();
     const userSetMode = loadSessionOptMode(sid + "_opt");
     const userOptMode = userSetMode || loadOptimizationMode();
@@ -14114,40 +14135,49 @@ function syncControlSettings(cv, options = {}) {
       if (currentSel.thinking_level !== nextThinking)
         writeIf("thinking_level", nextThinking);
     }
-    if (persistOptimizationMode && cv.optimization_mode && userOptMode !== "auto") {
+    const previousOptMode = typeof currentSel.previous_optimization_mode === "string" ? currentSel.previous_optimization_mode : null;
+    const prevSessionKey = `${sid}_prev_opt`;
+    const sessionPreviousOptMode = loadSessionOptMode(prevSessionKey);
+    const liveSlot = String(currentSel.active_slot || cv.tier_bias || "").toLowerCase();
+    const inferredRecoveryMode = liveSlot === "brain" ? "quality" : liveSlot === "medium" ? "vibemax" : "budget";
+    if (persistOptimizationMode && cv.optimization_mode && (userOptMode !== "auto" || authoritative)) {
+      if (authoritative) {
+        writeIf("requested_optimization_mode", cv.optimization_mode);
+      }
       const fallbackPinned = isApiFallback() && cv.optimization_mode === "vibelitex";
-      const previousOptMode2 = typeof currentSel.previous_optimization_mode === "string" ? currentSel.previous_optimization_mode : null;
-      const prevSessionKey2 = `${sid}_prev_opt`;
-      const sessionPreviousOptMode = loadSessionOptMode(prevSessionKey2);
-      const liveSlot = String(currentSel.active_slot || cv.tier_bias || "").toLowerCase();
-      const inferredRecoveryMode = liveSlot === "brain" ? "quality" : liveSlot === "medium" ? "vibemax" : "budget";
-      const restoreMode = sessionPreviousOptMode || previousOptMode2 || inferredRecoveryMode;
-      const canRestorePrevious = !!restoreMode && cv.optimization_mode !== "vibelitex" && (previousOptMode2 !== null || sessionPreviousOptMode !== null);
+      const restoreMode = sessionPreviousOptMode || previousOptMode || inferredRecoveryMode;
+      const canRestorePrevious = !!restoreMode && cv.optimization_mode !== "vibelitex" && (previousOptMode !== null || sessionPreviousOptMode !== null);
       if (fallbackPinned) {
-        const snapshotMode = currentSel.optimization_mode && currentSel.optimization_mode !== "vibelitex" ? currentSel.optimization_mode : previousOptMode2 || sessionPreviousOptMode || inferredRecoveryMode;
+        const snapshotMode = currentSel.optimization_mode && currentSel.optimization_mode !== "vibelitex" ? currentSel.optimization_mode : previousOptMode || sessionPreviousOptMode || inferredRecoveryMode;
         if (snapshotMode && snapshotMode !== "vibelitex") {
           writeIf("previous_optimization_mode", snapshotMode);
-          writeSessionOptMode(prevSessionKey2, snapshotMode);
+          writeSessionOptMode(prevSessionKey, snapshotMode);
         }
       } else if (canRestorePrevious) {
         writeIf("optimization_mode", restoreMode);
         writeIf("previous_optimization_mode", null);
         writeSessionOptMode(sid, restoreMode);
-        writeSessionOptMode(prevSessionKey2, "");
+        writeSessionOptMode(prevSessionKey, "");
       } else if (userOptMode !== cv.optimization_mode) {
         writeIf("optimization_mode", cv.optimization_mode);
-        if (previousOptMode2)
+        if (previousOptMode)
           writeIf("previous_optimization_mode", null);
       }
     }
     const slot = cv.tier_bias;
     const slotLocked = currentSel.slot_locked === true;
-    if (slot && slot !== "auto" && !slotLocked && !_modelLocked) {
+    const canApplySlot = slot && slot !== "auto" && (authoritative || !slotLocked && !_modelLocked);
+    if (canApplySlot) {
       const existingSlot = loadSessionSlot(sid);
       if (existingSlot !== slot) {
         writeSessionSlot(sid, slot);
+        writeIf("active_slot", slot);
         writeIf("vector_changed_slot", slot);
         writeIf("vector_changed_at", Date.now());
+        if (cv.optimization_mode)
+          writeIf("vector_changed_mode", cv.optimization_mode);
+        if (cv.pipeline_root)
+          writeIf("vector_changed_pipeline", JSON.stringify(cv.pipeline_root));
         const applied = applySlot2(slot);
         if (!applied?.ok) {
           console.error(`[vibeOS] failed to apply slot ${slot}: ${applied?.reason || "unknown"}`);
@@ -14192,8 +14222,8 @@ function syncControlSettings(cv, options = {}) {
     if (cv.optimization_mode && cv.optimization_mode !== "vibelitex") {
       const finalSel = loadSelection();
       if (finalSel.optimization_mode === "vibelitex") {
-        const liveSlot = String(finalSel.active_slot || currentSel.active_slot || cv.tier_bias || "").toLowerCase();
-        const restoreCandidate = finalSel.previous_optimization_mode || loadSessionOptMode(prevSessionKey) || previousOptMode || (liveSlot === "brain" ? "quality" : liveSlot === "medium" ? "vibemax" : "budget");
+        const liveSlot2 = String(finalSel.active_slot || currentSel.active_slot || cv.tier_bias || "").toLowerCase();
+        const restoreCandidate = finalSel.previous_optimization_mode || loadSessionOptMode(prevSessionKey) || previousOptMode || (liveSlot2 === "brain" ? "quality" : liveSlot2 === "medium" ? "vibemax" : "budget");
         if (restoreCandidate && restoreCandidate !== "vibelitex") {
           writeSelection("optimization_mode", restoreCandidate);
           writeSelection("previous_optimization_mode", null);
@@ -14202,7 +14232,19 @@ function syncControlSettings(cv, options = {}) {
         }
       }
     }
-  } catch {
+    return {
+      applied_slot: canApplySlot ? slot : currentSel.active_slot || null,
+      applied_mode: cv.optimization_mode || null,
+      applied_pipeline: Array.isArray(cv.pipeline_root) ? cv.pipeline_root : [],
+      authoritative,
+      decision: backendDecision || null,
+      optimization_mode: cv.optimization_mode || null,
+      tier_bias: cv.tier_bias || null,
+      pipeline_root: Array.isArray(cv.pipeline_root) ? cv.pipeline_root : []
+    };
+  } catch (err) {
+    console.error("[vibeOS] syncControlSettings failed:", err?.message || err);
+    return null;
   }
 }
 function pushSystem(output, text) {
@@ -14566,55 +14608,98 @@ var onSystemTransform = async (_input, output) => {
     if (latestUserIntent)
       observeUserCorrection(latestUserIntent);
     const classifiedRegime = _latestBlackboxState3?.sub_regime || (latestUserIntent ? await classifyTurnRemote(latestUserIntent) : "INIT");
-    const optimizationSuggestion = await selectOptimizationModeRemote(classifiedRegime, latestUserIntent ? scoreStress(latestUserIntent) : 0, loadOptimizationMode());
-    const optimizationDecision = applyBudgetFirstMode({
-      requestedMode: loadOptimizationMode(),
-      suggestedMode: optimizationSuggestion,
-      subRegime: classifiedRegime,
-      stress: latestUserIntent ? scoreStress(latestUserIntent) : 0,
-      nInteractions: _latestBlackboxState3?.n_interactions ?? 0
-    });
-    const optimizationMode = optimizationDecision.mode;
+    const requestedOptimizationMode = loadOptimizationMode();
+    const backendAutoModes = /* @__PURE__ */ new Set(["auto", "vibeultrax", "vibeqmax", "vibemax", "vibelitex"]);
+    const useBackendDecision = backendAutoModes.has(String(requestedOptimizationMode || "").toLowerCase());
+    let optimizationDecision = null;
+    let optimizationMode = requestedOptimizationMode;
     let _controlVector = null;
     ensureProjectContext(hookDirectory);
-    if (_latestBlackboxState3) {
-      const st = latestUserIntent ? scoreStress(latestUserIntent) : 0;
-      if (st)
-        _latestBlackboxState3.latest_stress_multiplier = st;
-      _controlVector = await apiComputeControlVector(_latestBlackboxState3, void 0, optimizationMode);
-      if (_controlVector) {
-        const fullState = loadBlackboxState() || { sessions: {}, enabled: true };
-        fullState.cv = _controlVector;
-        if (_latestBlackboxState3) {
-          if (_latestBlackboxState3.sub_regime)
-            fullState.sub_regime = _latestBlackboxState3.sub_regime;
-          if (_latestBlackboxState3.latest_stress_multiplier)
-            fullState.latest_stress_multiplier = _latestBlackboxState3.latest_stress_multiplier;
-          if (_latestBlackboxState3.n_interactions)
-            fullState.n_interactions = _latestBlackboxState3.n_interactions;
-          if (_latestBlackboxState3.resolution)
-            fullState.resolution = _latestBlackboxState3.resolution;
-          if (_latestBlackboxState3.momentum)
-            fullState.momentum = _latestBlackboxState3.momentum;
-          fullState.latest_control_vector_ts = Date.now();
+    const st = latestUserIntent ? scoreStress(latestUserIntent) : 0;
+    const cvState = _latestBlackboxState3 ? { ..._latestBlackboxState3, latest_stress_multiplier: st || _latestBlackboxState3.latest_stress_multiplier || 0 } : {
+      sub_regime: classifiedRegime || "INIT",
+      latest_stress_multiplier: st || void 0,
+      user_text: latestUserIntent || void 0
+    };
+    const requestedDecision = {
+      optimization_mode: requestedOptimizationMode,
+      requested_mode: requestedOptimizationMode,
+      requested_slot: null,
+      source: useBackendDecision ? "backend" : "manual"
+    };
+    if (useBackendDecision) {
+      const backendResult = await apiComputeControlVector(cvState, void 0, requestedDecision);
+      optimizationDecision = backendResult?.decision || backendResult || null;
+      _controlVector = backendResult?.control_vector || backendResult || null;
+      optimizationMode = optimizationDecision?.optimization_mode || optimizationMode;
+    } else {
+      _controlVector = computeControlVector2(cvState, void 0, requestedOptimizationMode);
+      optimizationDecision = normalizeBackendDecision({
+        ..._controlVector,
+        decision: {
+          optimization_mode: _controlVector?.optimization_mode || requestedOptimizationMode,
+          tier_bias: _controlVector?.tier_bias || null,
+          pipeline_root: _controlVector?.pipeline_root || [],
+          source: "manual",
+          requested_mode: requestedOptimizationMode,
+          requested_slot: _controlVector?.tier_bias || null
         }
-        fullState.sessions ??= {};
-        saveBlackboxState(fullState);
-      }
-    } else if (latestUserIntent) {
-      const st = scoreStress(latestUserIntent);
-      _controlVector = await apiComputeControlVector({
-        sub_regime: classifiedRegime,
-        latest_stress_multiplier: st || void 0,
-        user_text: latestUserIntent
-      }, void 0, optimizationMode);
+      }, requestedOptimizationMode);
+      optimizationMode = optimizationDecision?.optimization_mode || optimizationMode;
     }
-    if (!_controlVector) {
-      _controlVector = await apiComputeControlVector({
-        sub_regime: "INIT",
-        latest_stress_multiplier: latestUserIntent ? scoreStress(latestUserIntent) : void 0,
-        user_text: latestUserIntent || void 0
-      }, void 0, optimizationMode);
+    if (_controlVector) {
+      const fullState = loadBlackboxState() || { sessions: {}, enabled: true };
+      fullState.cv = _controlVector;
+      if (_latestBlackboxState3) {
+        if (_latestBlackboxState3.sub_regime)
+          fullState.sub_regime = _latestBlackboxState3.sub_regime;
+        if (_latestBlackboxState3.latest_stress_multiplier)
+          fullState.latest_stress_multiplier = _latestBlackboxState3.latest_stress_multiplier;
+        if (_latestBlackboxState3.n_interactions)
+          fullState.n_interactions = _latestBlackboxState3.n_interactions;
+        if (_latestBlackboxState3.resolution)
+          fullState.resolution = _latestBlackboxState3.resolution;
+        if (_latestBlackboxState3.momentum)
+          fullState.momentum = _latestBlackboxState3.momentum;
+        fullState.latest_control_vector_ts = Date.now();
+      }
+      fullState.sessions ??= {};
+      saveBlackboxState(fullState);
+    }
+    try {
+      const blackboxState = loadBlackboxState() || { sessions: {}, enabled: true };
+      const existingSession = blackboxState.sessions?.[_OC_SID3] || null;
+      if (!existingSession || !existingSession.sub_regime) {
+        const sessionState = _latestBlackboxState3 || {
+          sub_regime: classifiedRegime || "INIT",
+          resolution: "unresolved",
+          momentum: 0
+        };
+        const turnCounter = Number(existingSession?.turn_counter || 0) + 1;
+        const controlHistory = Array.isArray(existingSession?.control_history) ? [...existingSession.control_history] : [];
+        if (_controlVector) {
+          const entry = buildControlHistoryEntry2(turnCounter, sessionState.sub_regime || "INIT", _controlVector);
+          const lastEntry = controlHistory[controlHistory.length - 1];
+          if (!lastEntry || JSON.stringify(lastEntry) !== JSON.stringify(entry)) {
+            controlHistory.push(entry);
+          }
+        }
+        blackboxState.sessions ??= {};
+        blackboxState.sessions[_OC_SID3] = {
+          ...existingSession,
+          project_fingerprint: currentProjectFingerprint || existingSession?.project_fingerprint || "",
+          sub_regime: sessionState.sub_regime || existingSession?.sub_regime || "INIT",
+          regime: sessionState.sub_regime || existingSession?.regime || "INIT",
+          resolution: sessionState.resolution || existingSession?.resolution || "unresolved",
+          momentum: sessionState.momentum ?? existingSession?.momentum ?? 0,
+          control_history: controlHistory,
+          optimization_mode: optimizationDecision?.optimization_mode || existingSession?.optimization_mode || null,
+          active_slot: optimizationDecision?.tier_bias || _controlVector?.tier_bias || existingSession?.active_slot || null,
+          turn_counter: turnCounter
+        };
+        saveBlackboxState(blackboxState);
+      }
+    } catch {
     }
     const system = output?.system;
     if (!Array.isArray(system))
@@ -14643,7 +14728,27 @@ var onSystemTransform = async (_input, output) => {
       }
     }
     const sel = loadSelection();
-    syncControlSettings(_controlVector, { persistOptimizationMode: optimizationDecision.shouldPersistRequestedMode });
+    const syncResult = syncControlSettings(_controlVector, {
+      persistOptimizationMode: true,
+      backendDecision: optimizationDecision,
+      authoritative: useBackendDecision
+    });
+    if (useBackendDecision && syncResult) {
+      try {
+        const client2 = getApiClient();
+        if (client2 && !isApiFallback()) {
+          await client2.blackboxState(_OC_SID3, {
+            applied_slot: syncResult.applied_slot,
+            applied_mode: syncResult.applied_mode,
+            applied_pipeline: syncResult.applied_pipeline,
+            source: optimizationDecision?.source || "backend",
+            requested_mode: optimizationDecision?.requested_mode || requestedOptimizationMode,
+            requested_slot: optimizationDecision?.requested_slot || null
+          });
+        }
+      } catch {
+      }
+    }
     const fp2 = ensureProjectContext(hookDirectory);
     const rawStress = latestUserIntent ? scoreStress(latestUserIntent) : 0;
     const stressScore = rawStress * (_controlVector?.stress_multiplier ?? 1);
