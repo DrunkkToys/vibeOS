@@ -5,7 +5,7 @@ import { createHash } from "node:crypto"
 import { spawn } from "node:child_process"
 import {
   currentTier, currentModel, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, getCurrentSessionId,
-  textCompletePainted, softQuotaCounts, enforcementBlocked, taskSlotRestore,
+  textCompletePainted, softQuotaCounts, enforcementBlocked,
   pendingUiNote, briefedProjects, _OC_SID, _modelLocked, _blackboxEnabled,
   _autoReportCount, scratchpadHitsSeen, context7AlertedThisSession,
   loadSelection, writeSelection, readLifetimeSavings,
@@ -15,8 +15,7 @@ import {
   updateState, withFileLock, safeJsonParse,
   getSessionScratchpadDir, ensureSessionScratchpadDirs, getSessionIndexPath,
   indexAppend,
-  loadActiveJobs, getActiveJobForProject, setActiveJobForProject,
-  saveJobRecord, loadJobRecord,
+  loadActiveJobs,
   detectTechStack, projectFingerprint, loadProjectState, saveProjectState,
   ensureProjectBucket, mergeProjectBucket, SAVINGS_LEDGER_FILE,
   CONTEXT7_INSTALL_FLAG, SOFT_QUOTA_LIMIT, loadTodos, upsertTodo,
@@ -58,6 +57,7 @@ import { computeDifficulty, cascadeDecide, createPatternGraph, ensureNode, addRo
 import { createCacheDatabase, addCacheEntry, recordCacheStats, predictCacheHit, compositeSimilarity, evictStaleEntries, deserializeCacheDb } from "../../vibeOS-lib/smart-cache.js"
 import { buildTestReminder, enforceTestFile } from "../tdd-enforcer.js"
 import { setActiveJobFromTaskPrompt, observeToolPattern, compressText, recordSaving } from "../index-helpers.js"
+import { buildSessionBridge, recordSessionBridge } from "../session-bridge.js"
 import { scoreTaskQuality, readRewardSignals } from "./footer.js"
 import { SAVE_EST, WARN_ON_DIRECT, SOFT_QUOTA, FREE, MONITOR } from "../constants.js"
 
@@ -71,7 +71,6 @@ export function _resetToolExecuteStateForTest(): void {
   projectDirectory = ""
   pendingUiNote = null
   enforcementBlocked = false
-  taskSlotRestore = null
   scratchpadHitsSeen.clear()
   softQuotaCounts = {}
   context7AlertedThisSession = false
@@ -97,7 +96,6 @@ let activeJob = null
 let projectDirectory = ""
 let pendingUiNote = null
 let enforcementBlocked = false
-let taskSlotRestore = null
 let scratchpadHitsSeen = new Set()
 let softQuotaCounts = {}
 let context7AlertedThisSession = false
@@ -611,28 +609,27 @@ export const onToolExecuteBefore = async (input, output) => {
         obj.modelID = _target
         obj.modelId = _target
       }
+      const bridge = buildSessionBridge({
+        sessionId: getCurrentSessionId(),
+        fromModel: currentModel,
+        fromTier: currentTier,
+        toModel: _target,
+        toTier: classify(_target) === "mid" ? "medium" : classify(_target) === "high" ? "brain" : "cheap",
+        reason: _reason,
+        prompt: String(targetArgs?.prompt || ""),
+        userText: latestUserIntent || "",
+        activePipeline: loadSelection().active_pipeline || [],
+        projectFingerprint: currentProjectFingerprint,
+        projectName: currentProjectName || "",
+        sourceStrategy: apiRoute?.target ? "backend" : localRoutingAllowed ? "local" : "cascade",
+      })
+      if (typeof targetArgs?.prompt === "string" && bridge.prompt_prefix) {
+        targetArgs.prompt = `${bridge.prompt_prefix}${targetArgs.prompt}`
+      }
       _setModel(targetArgs)
       _setModel(args)
       _setModel(inArgs)
-      // Workaround: some OpenCode builds ignore per-task model args.
-      // Force delegation by temporarily switching global slot for this task.
-      try {
-        const selNow = loadSelection()
-        const desiredSlot = _target === TRINITY_CHEAP ? "cheap" : _target === TRINITY_MEDIUM ? "medium" : _target === TRINITY_BRAIN ? "brain" : null
-        if (desiredSlot && selNow.active_slot !== desiredSlot) {
-          taskSlotRestore = selNow.active_slot || "brain"
-          const switched = applySlot(desiredSlot)
-          if (switched?.ok) {
-            setCurrentModel(switched.ocModel)
-            setCurrentTier(classify(switched.ocModel))
-            console.error(`[vibeOS] 🔁 task workaround: switched global slot ${taskSlotRestore} → ${desiredSlot}`)
-          } else {
-            taskSlotRestore = null
-          }
-        }
-      } catch (taskSlotErr) {
-        if (DEBUG_INTERNALS) console.error(`[vibeOS] task slot workaround error: ${taskSlotErr.message}`)
-      }
+      recordSessionBridge(bridge)
       console.error(`[vibeOS] 🔀 Task → ${_target} (${_reason}, orchestrator: ${currentModel})`)
     }
   }
@@ -1063,21 +1060,6 @@ export const onToolExecuteAfter = async (input, output) => {
       else target.result = pendingUiNote
     }
     pendingUiNote = null
-  }
-
-  // Restore original slot after a forced task-slot workaround.
-  if (t === "task" && taskSlotRestore) {
-    try {
-      const back = applySlot(taskSlotRestore)
-      if (back?.ok) {
-        setCurrentModel(back.ocModel)
-        setCurrentTier(classify(back.ocModel))
-        console.error(`[vibeOS] 🔁 task workaround: restored global slot → ${taskSlotRestore}`)
-      }
-    } catch (slotErr) {
-      if (DEBUG_INTERNALS) console.error(`[vibeOS] task slot restore error: ${slotErr.message}`)
-    }
-    taskSlotRestore = null
   }
 
   // Skip test-reminder, TDD, flow enforcement, and compression for blocked tools

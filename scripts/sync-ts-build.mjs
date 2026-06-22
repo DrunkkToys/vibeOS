@@ -6,7 +6,7 @@ const libModules = [
   "api-client", "pricing", "state", "turn-classify", "tdd-enforcer",
   "cost-anomaly", "index-helpers", "research-audit", "reporting", "credit-api", "selection-manager",
   "session-orchestrator", "runtime-surface", "classifiers", "test-skeletons", "templates", "text-compress",
-  "mode-policy", "mode-router", "turn-memo", "pattern-helpers", "pattern-store", "trinity-rebuild", "trinity-tool", "dashboard-base-url", "runtime-state",
+  "mode-policy", "mode-router", "turn-memo", "pattern-helpers", "pattern-store", "trinity-rebuild", "trinity-tool", "dashboard-base-url", "runtime-state", "session-bridge",
   "constants", "claim-verification",
 ]
 

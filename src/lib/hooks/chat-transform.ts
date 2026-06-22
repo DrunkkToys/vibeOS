@@ -20,7 +20,6 @@ import {
   TRINITY_OPENCODE_CONFIG, TRINITY_OPENCODE_CONFIGC, TIERS_FILE, VIBEOS_HOME, OPENCODE_HOME,
   loadGlobalLearning, updateGlobalLearning, DFLT_GL,
   getLearnedExploratoryWords,
-  setCurrentModel, setCurrentTier,
   setCurrentProjectFingerprint, setCurrentProjectName,
   stableJson, TOOL_NAME_NORMALIZE,
   loadSessionOrchestration,
@@ -30,7 +29,7 @@ import { memoCompute, nextTurn } from "../turn-memo.js"
 import { evaluateClaimVerification } from "../claim-verification.js"
 import {
   classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget,
-  shortModelName, formatUsd, _refreshModel, applySlot, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN,
+  shortModelName, formatUsd, _refreshModel, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN,
   cacheSavePer1MInputTokens,
   clearWorkspaceFollowupPauseForSession,
 } from "../pricing.js"
@@ -59,6 +58,7 @@ import { checkFlowRules, recordFlowTodo } from "../../vibeOS-lib/flow-enforcer.j
 import { ensureProjectDocs } from "../../vibeOS-lib/flow-enforcer.js"
 import { computeDifficulty } from "../../vibeOS-lib/ml-router.js"
 import { loadSessionOptMode, loadSessionSlot, writeSessionSlot, loadGlobalOptMode } from "../selection-manager.js"
+import { buildSessionBridge, recordSessionBridge } from "../session-bridge.js"
 import { noteProjectPattern } from "../index-helpers.js"
 import { saveSessionStress } from "../index-helpers.js"
 import { COMPRESS_THRESHOLD, KEEP_HOT, COMPRESS_MARKER, PROTOCOL_MARKER, PROTOCOL_TEXT } from "../constants.js"
@@ -564,10 +564,21 @@ export function syncControlSettings(cv: any, options: { persistOptimizationMode?
         writeIf("vector_changed_at", Date.now())
         if (cv.optimization_mode) writeIf("vector_changed_mode", cv.optimization_mode)
         if (cv.pipeline_root) writeIf("vector_changed_pipeline", JSON.stringify(cv.pipeline_root))
-        const applied = applySlot(slot)
-        if (!applied?.ok) {
-          console.error(`[vibeOS] failed to apply slot ${slot}: ${applied?.reason || "unknown"}`)
-        }
+        const bridge = buildSessionBridge({
+          sessionId: sid,
+          fromModel: currentModel,
+          fromTier: currentTier,
+          toModel: slot === "brain" ? TRINITY_BRAIN : slot === "medium" ? TRINITY_MEDIUM : TRINITY_CHEAP,
+          toTier: slot,
+          reason: `control vector selected ${slot}`,
+          prompt: userText || latestUserIntent || "",
+          userText: latestUserIntent || userText || "",
+          activePipeline: cv.pipeline_root || [],
+          projectFingerprint: currentProjectFingerprint,
+          projectName: currentProjectName || "",
+          sourceStrategy: cv.optimization_mode || "auto",
+        })
+        recordSessionBridge(bridge)
       }
     }
     if (cv.agent_mode) {
