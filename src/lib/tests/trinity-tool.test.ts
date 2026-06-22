@@ -147,8 +147,7 @@ describe("trinity-tool", () => {
 
     const out = await tool.execute({ action: "set", slot: "cheap", model: "opencode/big-pickle" })
 
-    expect(out).toContain("Updated cheap slot")
-    expect(out).toContain("next session")
+    expect(out).toContain("Switched to cheap slot")
     expect(ctx.calls.some((call) => call[0] === "applySlot" && call[1] === "cheap")).toBe(true)
     expect(ctx.calls.some((call) => call[0] === "config.update" && call[1]?.body?.model === "opencode/big-pickle")).toBe(true)
     expect(ctx.calls.some((call) => call[0] === "refresh")).toBe(true)
