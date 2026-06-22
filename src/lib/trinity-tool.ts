@@ -43,23 +43,17 @@ export async function resolveDashboardBaseUrl(deps): Promise<string> {
 
 async function syncNativeOpenCodeModel(deps, modelId: string): Promise<boolean> {
   const cfg = deps.client?.config
-  if (!cfg || typeof cfg !== "object") return false
-  const setters = [
-    cfg.set,
-    cfg.update,
-    cfg.select,
-  ].filter((fn) => typeof fn === "function")
-  for (const setter of setters) {
-    try {
-      await setter.call(cfg, "model", modelId)
-      return true
-    } catch {}
-    try {
-      await setter.call(cfg, { model: modelId })
-      return true
-    } catch {}
+  if (!cfg || typeof cfg.update !== "function") return false
+  try {
+    await cfg.update({
+      body: { model: modelId },
+      query: deps.directory ? { directory: deps.directory } : undefined,
+    })
+    return true
+  } catch (error) {
+    console.error("[vibeOS] WARN: native OpenCode config.update failed:", error?.message || error)
+    return false
   }
-  return false
 }
 
 export function createTrinityTool(deps) {
@@ -361,7 +355,7 @@ export function createTrinityTool(deps) {
         if (!result.ok) return `\u274c Failed to set slot: ${result.reason}`
         await syncNativeOpenCodeModel(deps, result.ocModel)
         deps._refreshModel(deps.directory)
-        return `\u2705 Switched to ${slot} slot (${result.ocModel}). Active now (no restart needed).`
+        return `\u2705 Switched to ${slot} slot (${result.ocModel}). Native OpenCode model update applied.`
       }
       if (action === "mode") {
         const builtInIds = ["balanced", "budget", "quality", "speed", "longrun", "audit", "forensic"]
