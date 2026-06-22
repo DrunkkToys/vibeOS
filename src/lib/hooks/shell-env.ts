@@ -18,14 +18,14 @@ export const onShellEnv = async (_input, output) => {
     const tiersPath = join(getVibeOSHome(), "model-tiers.json")
     const tiers = existsSync(tiersPath) ? safeJsonParse(readFileSync(tiersPath, "utf-8")) : null
     const slotModel = slot === "brain" ? tiers?.trinity?.brain?.oc : slot === "medium" ? tiers?.trinity?.medium?.oc : slot === "cheap" ? tiers?.trinity?.cheap?.oc : ""
-    const hasConfiguredSlotModel = Boolean(slotModel)
-    const displayModel = resolveTrinityDisplayModel(directory, slot, "", currentModel) || currentModel || (slot === "cheap" ? "opencode/big-pickle" : "")
+    const displayModel = slotModel
+      || (slot === "cheap" ? "opencode/big-pickle" : "")
+      || resolveTrinityDisplayModel(directory, slot, "", currentModel)
+      || currentModel
     if (!output) output = {}
     output.env ??= {}
     const slotTier = slot === "brain" ? "high" : slot === "medium" ? "mid" : slot === "cheap" ? "budget" : ""
-    const shellTier = hasConfiguredSlotModel
-      ? slotTier || (displayModel ? classify(displayModel) : "unknown")
-      : (currentTier || (displayModel ? classify(displayModel) : "budget"))
+    const shellTier = slotTier || (displayModel ? classify(displayModel) : currentTier || "unknown")
     const shellSlot = shellTier === "high" ? "brain" : shellTier === "mid" ? "medium" : shellTier === "budget" ? "cheap" : shellTier === "free" ? "free" : shellTier || "unknown"
     output.env.OPENCODE_MODEL_TIER = shellTier || "unknown"
     output.env.OPENCODE_MODEL = displayModel || "unknown"

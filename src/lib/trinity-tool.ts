@@ -585,14 +585,14 @@ export function createTrinityTool(deps) {
             const model = String(oc?.agent?.build?.model || oc?.model || "").trim()
             if (model) { selectedModel = model; break }
           }
-          if (!selectedModel) selectedModel = deps.currentModel || ""
         } catch {
-          selectedModel = deps.currentModel || ""
+          selectedModel = ""
         }
-        const trinity = buildDeterministicTrinity(discovered, { selectedModelId: selectedModel })
-        const brain = trinity?.brain || existing?.trinity?.brain?.oc || selectedModel || ""
-        const medium = trinity?.medium || existing?.trinity?.medium?.oc || brain
-        const cheap = trinity?.cheap || existing?.trinity?.cheap?.oc || medium || brain
+        buildDeterministicTrinity(discovered, { selectedModelId: selectedModel })
+        const bootstrapFree = "opencode/big-pickle"
+        const brain = keepExistingTrinitySlot(existing?.trinity?.brain, existing?.trinity?.brain?.oc || bootstrapFree)
+        const medium = keepExistingTrinitySlot(existing?.trinity?.medium, existing?.trinity?.medium?.oc || bootstrapFree)
+        const cheap = keepExistingTrinitySlot(existing?.trinity?.cheap, existing?.trinity?.cheap?.oc || bootstrapFree)
         const tiers = existing && typeof existing === "object" ? existing : {}
         tiers.selection ??= {}
         tiers.trinity ??= {}
