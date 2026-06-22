@@ -94,13 +94,6 @@ export function classify(m) {
   return "budget"
 }
 
-export function resolveEffectiveTier(modelId, activeSlot = "") {
-  const slot = String(activeSlot || loadSel()?.active_slot || "").trim().toLowerCase()
-  const tier = classify(modelId)
-  if (slot === "brain" && modelId && !isModelFree(modelId) && tier !== "high") return "high"
-  return tier
-}
-
 // Map a model ID to a human-readable label with tier icon.
 // Provider prefix is stripped before matching (everything before last "/").
 export function modelToSlotLabel(modelId: string, effectiveTier?: string) {
@@ -174,8 +167,8 @@ export function resolveCurrentExecution({
   const slot = String(activeSlot || "").trim()
   const slotModel = slot && tiersData?.trinity?.[slot]?.oc ? tiersData.trinity[slot].oc : ""
   const resolvedModel = String(liveModel || "").trim()
-    || slotModel
     || String(currentModel || "").trim()
+    || slotModel
     || ""
   const execution = resolveExecutionIdentity(resolvedModel, directory)
   return {
@@ -195,9 +188,7 @@ export function resolveTrinityDisplayModel(directory = "", activeSlot = "", live
     : slot === "medium" ? (TRINITY_MEDIUM || "")
       : slot === "cheap" ? (TRINITY_CHEAP || "")
         : ""
-  const raw = [slotModel, slot === "cheap" ? "opencode/big-pickle" : "", currentModelId, liveModel]
-    .map((value) => String(value || "").trim())
-    .find(Boolean) || ""
+  const raw = [liveModel, currentModelId, slotModel].map((value) => String(value || "").trim()).find(Boolean) || ""
   return resolveDisplayModelId(raw, directory) || raw
 }
 
@@ -1138,7 +1129,7 @@ export function _refreshModel(directory) {
     _setTrinitySlotsFromTiers(tiersData)
     const cfgModel = readConfig(directory) || readConfig(getOpenCodeHome()) || process?.env?.OPENCODE_MODEL || ""
     if (cfgModel) {
-      const nextTier = resolveEffectiveTier(cfgModel, sel?.active_slot || tiersData?.selection?.active_slot || "")
+      const nextTier = classify(cfgModel)
       if (currentModel !== cfgModel || currentTier !== nextTier) {
         const oldModel = currentModel
         const oldTier = currentTier

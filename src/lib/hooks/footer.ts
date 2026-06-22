@@ -182,31 +182,21 @@ async function _appendFooter(input, output, directory) {
 
     const sid = getSessionId()
     const sessionSlot = loadBlackboxState()?.sessions?.[sid]?.active_slot || loadSessionSlot(sid)
-    const slot = loadSelection().active_slot || sessionSlot || "brain"
+    const slot = sessionSlot || loadSelection().active_slot || "brain"
     const brainModel = slot === "brain" ? (TRINITY_BRAIN || currentModel) : slot === "medium" ? (TRINITY_MEDIUM || currentModel) : (TRINITY_CHEAP || currentModel || "")
     let liveModel = liveModelSetting
     if (!liveModel) {
       liveModel = readConfig(directory) || readConfig(join(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || ""
     }
-    const displayModel = liveModelSetting || liveModel || currentModel || ""
-    const resolvedModel = displayModel || liveModelSetting || liveModel || currentModel || ""
+    const displayModel = resolveTrinityDisplayModel(directory, slot, liveModel, currentModel) || liveModel || currentModel || ""
+    const resolvedModel = displayModel || liveModel || currentModel || ""
     if (resolvedModel && resolvedModel !== currentModel) {
       setCurrentModel(resolvedModel)
       setCurrentTier(classify(resolvedModel))
     }
-    const backendMode = String(
-      loadSelection().requested_optimization_mode ||
-      loadSelection().optimization_mode ||
-      loadOptimizationMode() ||
-      _latestBlackboxState?.optimization_mode ||
-      ""
-    ).trim().toLowerCase()
-    const displayMode = backendMode || (isApiConnected()
-      ? await apiAutoSelectMode(_latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""), _footerStress)
-      : autoSelectMode(_latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""), _footerStress))
     const execution = resolveCurrentExecution({
       directory,
-      activeSlot: displayMode === "vibeultrax" ? "cheap" : slot || "brain",
+      activeSlot: slot,
       currentModel,
       liveModel: displayModel || liveModel || currentModel || "",
       tiersData: {
@@ -217,9 +207,7 @@ async function _appendFooter(input, output, directory) {
         },
       },
     })
-    const executionSlot = displayMode === "vibeultrax"
-      ? "cheap"
-      : execution.quality === "brain"
+    const executionSlot = execution.quality === "brain"
       ? "brain"
       : execution.quality === "mid"
         ? "medium"
@@ -261,7 +249,6 @@ async function _appendFooter(input, output, directory) {
     }
 
     const selNowFooter = loadSelection()
-    const freshSelection = await import(`../selection-manager.js?footer=${Date.now()}`).then((m) => m.loadSelection()).catch(() => null)
     const normalizedIntent = classifyTurnSimple(latestUserIntent || "")
     const currentSubRegime = _latestBlackboxState?.sub_regime || normalizedIntent
     const bbMode = resolveEnforcementMode()
@@ -283,15 +270,23 @@ async function _appendFooter(input, output, directory) {
     const claimTag = lieResult.claims.length > 0
       ? (lieResult.claimVsOutcomeMismatch ? `⚠${lieResult.claims.length} verify` : "✓")
       : (claimStatus.claimTag || "")
-    const footerSuffix = /\n\n\u2014 [^\n]+\u2014\s*$/
-    const hasExistingFooter = footerSuffix.test(text)
-    const stripped = hasExistingFooter ? text.replace(footerSuffix, "").trimEnd() : text
-    if (hasExistingFooter) return
+    const stripped = text.replace(/\u2014 [^\u2014]+ \u2014\s*/g, "").trimEnd()
+    if (stripped !== text) return
     if (stripped === _lastStrippedText && !claimTag) return
     const ltTotal = ltTasks + ltCache
+    const backendMode = String(
+      selNowFooter.requested_optimization_mode ||
+      selNowFooter.optimization_mode ||
+      loadOptimizationMode() ||
+      _latestBlackboxState?.optimization_mode ||
+      ""
+    ).trim().toLowerCase()
+    const displayMode = backendMode || (isApiConnected()
+      ? await apiAutoSelectMode(currentSubRegime, _footerStress)
+      : autoSelectMode(currentSubRegime, _footerStress))
     const activeSlot = displayMode === "vibeultrax"
       ? "cheap"
-      : freshSelection?.active_slot || selNowFooter.active_slot || resolveOptimizationSlot(displayMode) || "brain"
+      : selNowFooter.active_slot || resolveOptimizationSlot(displayMode) || "brain"
     const flashIcon = isApiConnected() ? " \u26A1" : ""
     const rawMode = displayMode
     const cv = computeControlVector({ sub_regime: currentSubRegime, latest_stress_multiplier: _footerStress, user_text: latestUserIntent || "" }, undefined, rawMode)
@@ -403,7 +398,7 @@ async function _appendFooter(input, output, directory) {
     }
 
     const vibeLine = buildFooterLine({
-      activeSlot,
+      activeSlot: executionSlot,
       providerLabel: execution.provider_label,
       modelName: modelDisplayName(execution.model),
       ltTotal,
