@@ -1179,6 +1179,16 @@ export function applySlot(slot: string, projectDir = "") {
   }
   if (result.ok) {
     try { _refreshModel(projectDir) } catch {}
+    try {
+      const _oc = globalThis?.client?.config
+      if (_oc && typeof _oc.update === "function") {
+        _oc.update({ body: { model: result.ocModel } }).catch((e) => {
+          console.error("[vibeOS] live model switch failed:", e?.message || e)
+        })
+      }
+    } catch (e) {
+      console.error("[vibeOS] live model switch failed:", e?.message || e)
+    }
   }
   return result
 }
