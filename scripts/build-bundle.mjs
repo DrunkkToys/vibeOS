@@ -2,6 +2,7 @@ import { build } from 'esbuild';
 import { existsSync, mkdirSync, copyFileSync, readdirSync, statSync, readFileSync, writeFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
+import { resolveDashboardBaseUrlFromState } from '../src/lib/dashboard-base-url.js';
 
 const ROOT = process.cwd();
 const SRC = join(ROOT, 'src');
