@@ -206,7 +206,6 @@ function writeLiveOpenCodeModel(projectDir: string, modelId: string): boolean {
   } catch (err) {
     throw new Error(`Failed to write OpenCode model config (${ocConfig}): ${err.message}`)
   }
-  _refreshModel(dir)
   return true
 }
 
@@ -1198,9 +1197,10 @@ export function _refreshModel(directory) {
 }
 
 export function applySlot(slot: string, projectDir = "") {
+  let result: { ok: boolean, ocModel?: string, reason?: string } = { ok: false, reason: "unknown error" }
   try {
     const TIERS_FILE = join(getVibeOSHome(), "model-tiers.json")
-    return withFileLock(TIERS_FILE, () => {
+    result = withFileLock(TIERS_FILE, () => {
       const j = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
       const ocModel = j?.trinity?.[slot]?.oc
       if (!ocModel) return { ok: false, reason: `slot '${slot}' has no oc model` }
@@ -1213,6 +1213,16 @@ export function applySlot(slot: string, projectDir = "") {
       return { ok: true, ocModel }
     })
   } catch (err) {
-    return { ok: false, reason: err.message }
+    const message = String(err?.message || err || "unknown error")
+    result = {
+      ok: false,
+      reason: message.includes("lock not acquired")
+        ? `Failed to write OpenCode config: ${message}`
+        : message,
+    }
   }
+  if (result.ok) {
+    try { _refreshModel(projectDir) } catch {}
+  }
+  return result
 }
