@@ -51,10 +51,10 @@ function learnedRouteFromGraph(text) {
 
 function profileFromCascade(decision, learned = null) {
   if (learned?.learnedTier === "cheap") return { profile: "direct", cascade_depth: 1, pipeline_root: ["cheap"], tier_bias: "cheap" }
-  if (learned?.learnedTier === "medium") return { profile: "standard", cascade_depth: 2, pipeline_root: ["medium", "brain"], tier_bias: "cheap" }
-  if (learned?.learnedTier === "brain") return { profile: "deep", cascade_depth: 3, pipeline_root: ["cheap", "medium", "brain"], tier_bias: "cheap" }
-  if (decision.useCheap && decision.escalate) return { profile: "deep", cascade_depth: 3, pipeline_root: ["cheap", "medium", "brain"], tier_bias: "cheap" }
-  if (decision.escalate) return { profile: "standard", cascade_depth: 2, pipeline_root: ["medium", "brain"], tier_bias: "cheap" }
+  if (learned?.learnedTier === "medium") return { profile: "standard", cascade_depth: 2, pipeline_root: ["medium", "brain"], tier_bias: "medium" }
+  if (learned?.learnedTier === "brain") return { profile: "deep", cascade_depth: 3, pipeline_root: ["cheap", "medium", "brain"], tier_bias: "brain" }
+  if (decision.useCheap && decision.escalate) return { profile: "deep", cascade_depth: 3, pipeline_root: ["cheap", "medium", "brain"], tier_bias: "brain" }
+  if (decision.escalate) return { profile: "standard", cascade_depth: 2, pipeline_root: ["medium", "brain"], tier_bias: "medium" }
   return { profile: "direct", cascade_depth: 1, pipeline_root: ["cheap"], tier_bias: "cheap" }
 }
 
