@@ -1179,16 +1179,75 @@ export function applySlot(slot: string, projectDir = "") {
   }
   if (result.ok) {
     try { _refreshModel(projectDir) } catch {}
+    // Real runtime switch via the OpenCode SDK. POST /config (client.config.update)
+    // re-binds the live model on the running server; the opencode.json file write
+    // above is only the next-session default, which the running session ignores.
     try {
       const _oc = globalThis?.client?.config
       if (_oc && typeof _oc.update === "function") {
-        _oc.update({ body: { model: result.ocModel } }).catch((e) => {
-          console.error("[vibeOS] live model switch failed:", e?.message || e)
+        _oc.update({
+          body: { model: result.ocModel },
+          query: projectDir ? { directory: projectDir } : undefined,
         })
+          .then(() => DEBUG_INTERNALS && console.error(`[vibeOS] live model switch → ${result.ocModel}`))
+          .catch((e) => console.error("[vibeOS] live model switch failed:", e?.message || e))
       }
     } catch (e) {
       console.error("[vibeOS] live model switch failed:", e?.message || e)
     }
   }
   return result
+}
+
+/**
+ * Read the live OpenCode default model from opencode.json (synchronous).
+ * Prefers the project-local config, falling back to the global OpenCode home.
+ * Returns "" when no model is set or the file is unreadable.
+ */
+export function readLiveOpenCodeModel(projectDir = ""): string {
+  try {
+    const dir = projectDir || process.cwd()
+    const localOc = join(dir, "opencode.json")
+    const ocConfig = existsSync(localOc) ? localOc : join(getOpenCodeHome(), "opencode.json")
+    if (!existsSync(ocConfig)) return ""
+    return String(safeJsonParse(readFileSync(ocConfig, "utf-8"))?.model || "").trim()
+  } catch {
+    return ""
+  }
+}
+
+/**
+ * Reconcile the live OpenCode model against a slot's expected model.
+ *
+ * active_slot + trinity[slot].oc is the single source of truth. If the live
+ * default has drifted away from the slot's model (a stale or foreign model, or
+ * a bogus executed_model that some other path wrote), re-apply the slot — which
+ * rewrites opencode.json AND pushes the real SDK switch. Synchronous and
+ * client-independent so it works in headless runs (unlike an async
+ * client.config.get().then() that may never resolve).
+ *
+ * Returns an observability record for callers and tests.
+ */
+export function reconcileSlotModel(
+  slot: string,
+  projectDir = "",
+  expectedModel = "",
+): { reconciled: boolean, from: string, to: string, reason?: string } {
+  let expected = String(expectedModel || "").trim()
+  if (!expected) {
+    try {
+      const TIERS_FILE = join(getVibeOSHome(), "model-tiers.json")
+      expected = String(safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))?.trinity?.[slot]?.oc || "").trim()
+    } catch { /* fall through */ }
+  }
+  const live = readLiveOpenCodeModel(projectDir)
+  if (!expected) return { reconciled: false, from: live, to: expected, reason: `slot '${slot}' has no oc model` }
+  if (live && live === expected) return { reconciled: false, from: live, to: expected }
+  const applied = applySlot(slot, projectDir)
+  return {
+    reconciled: !!applied.ok,
+    from: live,
+    to: expected,
+    reason: applied.ok ? undefined : applied.reason,
+  }
 }
