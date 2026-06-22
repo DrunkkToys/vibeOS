@@ -174,8 +174,8 @@ export function resolveCurrentExecution({
   const slot = String(activeSlot || "").trim()
   const slotModel = slot && tiersData?.trinity?.[slot]?.oc ? tiersData.trinity[slot].oc : ""
   const resolvedModel = String(liveModel || "").trim()
-    || String(currentModel || "").trim()
     || slotModel
+    || String(currentModel || "").trim()
     || ""
   const execution = resolveExecutionIdentity(resolvedModel, directory)
   return {

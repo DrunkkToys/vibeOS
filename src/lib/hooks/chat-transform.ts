@@ -449,6 +449,8 @@ export function ensureProjectSkill(dir: string, fp: string): { created: boolean;
 
 export function syncControlSettings(cv: any, options: { persistOptimizationMode?: boolean; backendDecision?: any; authoritative?: boolean } = {}): any {
   if (!cv) return
+  let authoritative = false
+  let backendDecision: any = null
   try {
     _pendingOrchestratorDirective = orchestratorDirective(cv, loadSelection())
     const sid = _OC_SID
@@ -458,8 +460,8 @@ export function syncControlSettings(cv: any, options: { persistOptimizationMode?
       } catch {}
     }
     const persistOptimizationMode = options.persistOptimizationMode !== false
-    const backendDecision = options.backendDecision && typeof options.backendDecision === "object" ? options.backendDecision : null
-    const authoritative = options.authoritative === true || (backendDecision && backendDecision.source !== "manual")
+    backendDecision = options.backendDecision && typeof options.backendDecision === "object" ? options.backendDecision : null
+    authoritative = options.authoritative === true || (backendDecision && backendDecision.source !== "manual")
     const currentSel = loadSelection()
     const userSetMode = loadSessionOptMode(sid + "_opt")
     const userOptMode = userSetMode || loadOptimizationMode()

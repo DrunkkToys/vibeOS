@@ -588,7 +588,7 @@ export function createTrinityTool(deps) {
         } catch {
           selectedModel = ""
         }
-        buildDeterministicTrinity(discovered, { selectedModelId: selectedModel })
+        const trinity = buildDeterministicTrinity(discovered, { selectedModelId: selectedModel })
         const bootstrapFree = "opencode/big-pickle"
         const brain = keepExistingTrinitySlot(existing?.trinity?.brain, existing?.trinity?.brain?.oc || bootstrapFree)
         const medium = keepExistingTrinitySlot(existing?.trinity?.medium, existing?.trinity?.medium?.oc || bootstrapFree)

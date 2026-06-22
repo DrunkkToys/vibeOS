@@ -13,7 +13,7 @@ import { getFlowWarns, ensureProjectDocs, syncFlowTodosToNative } from "./vibeOS
 import { computeSessionMetrics } from "./vibeOS-lib/session-metrics.js"
 import { createMcpServer, writeDashboardBaseConfig } from "./lib/vibeos-mcp-server.js"
 import { isApiConnected, isApiFallback, getBackendVersion, getApiFallbackSince, setApiToken, setApiBootstrapToken, ensureBootstrapExchange, VIBEOS_API_URL } from "./lib/api-client.js"
-import { applySlot, modelCostPerTurn, detectContext7, formatUsd, classify, resolveEffectiveTier, _refreshModel, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, readConfig, getTrinitySlotOrder, loadTrinitySlotsFromTiersFile, buildDeterministicTrinity } from "./lib/pricing.js"
+import { applySlot, modelCostPerTurn, detectContext7, formatUsd, classify, resolveEffectiveTier, _refreshModel, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, readConfig, getTrinitySlotOrder, loadTrinitySlotsFromTiersFile, buildDeterministicTrinity, isModelFree } from "./lib/pricing.js"
 import { scoreStress, detectTechStack, loadBlackboxState, saveBlackboxState, getBlackboxTracker, getBlackboxResolution, saveOptimizationMode, resetBlackboxTracker } from "./lib/turn-classify.js"
 import { safeJsonParse, readFullState, loadSelection, writeSelection, readLifetimeSavings, _OC_SID, _modelLocked, _blackboxEnabled, setBlackboxEnabled, _lockedSlot, _lockedModel, setModelLocked, setLockedSlot, setLockedModel, currentTier, currentModel, currentProjectFingerprint, currentProjectName, setCurrentTier, setCurrentModel, setCurrentProjectFingerprint, setCurrentProjectName, setCurrentSessionId, getCurrentSessionId, briefedProjects, _latestBlackboxState, _latestBlackboxLoopMsg, _latestBlackboxPivotMsg, getActiveJobForProject, projectFingerprint, loadProjectState, saveProjectState, ensureProjectBucket, mergeProjectBucket, setVibeOSHomeContext, SAVINGS_LEDGER_FILE, USER_HOME, CREDIT_CACHE_F, pruneScratchpadOnce, registerSessionCleanupHandlers, runStartupMaintenanceOnce, promotedProjectPatterns, projectPatternRows, clearProjectPatterns, loadTodos, getTodos, upsertTodo, markTodoDone, tool, loadSessionOrchestration, mutateSessionOrchestration } from "./lib/state.js"
 import { researchAudit } from "./lib/research-audit.js"
@@ -145,6 +145,55 @@ function scanClaimsInOutput(output) {
     appendFileSync(auditFile, entry + String.fromCharCode(10))
   } catch {}
 }
+function ensureFooterFallback(input, output, directory) {
+  try {
+    const messageID =
+      input?.messageID ||
+      input?.messageId ||
+      input?.message?.id ||
+      output?.messageID ||
+      output?.messageId ||
+      output?.message?.id ||
+      null
+    if (messageID && footerFallbackPainted.has(messageID)) return false
+    const payload = typeof output?.message === "object" && output.message ? output.message : output
+    const currentText =
+      typeof payload?.text === "string"
+        ? payload.text
+        : typeof payload?.result === "string"
+          ? payload.result
+          : typeof payload?.content === "string"
+            ? payload.content
+            : ""
+    if (!currentText) return false
+    if (/\n\n— [^\n]+ —\s*$/.test(currentText)) {
+      if (messageID) footerFallbackPainted.add(messageID)
+      return false
+    }
+    _refreshModel(directory)
+    const resolvedModel = currentModel || readConfig(directory) || readConfig(getOpenCodeHome()) || process?.env?.OPENCODE_MODEL || ""
+    const resolvedTier = String(currentTier || classify(resolvedModel) || "").toLowerCase()
+    const icon = resolvedTier === "high" ? "🧠" : resolvedTier === "mid" ? "◐" : "⚡"
+    const label = resolvedTier === "high" ? "brain" : resolvedTier === "mid" ? "medium" : "cheap"
+    const footer = `${currentText}\n\n— ${icon} ${label} | ${resolvedModel || "unknown"} —`
+    if (typeof payload?.text === "string") payload.text = footer
+    else if (typeof payload?.result === "string") payload.result = footer
+    else if (typeof payload?.content === "string") payload.content = footer
+    else if (Array.isArray(payload?.content)) {
+      const textParts = payload.content.filter(p => p?.type === "text")
+      if (textParts.length > 0) textParts[textParts.length - 1].text = footer
+      else payload.content.push({ type: "text", text: footer })
+    } else if (Array.isArray(payload?.parts)) {
+      const textParts = payload.parts.filter(p => p?.type === "text")
+      if (textParts.length > 0) textParts[textParts.length - 1].text = footer
+      else payload.parts.push({ type: "text", text: footer })
+    } else payload.text = footer
+    if (messageID) footerFallbackPainted.add(messageID)
+    return true
+  } catch {
+    return false
+  }
+}
 // ── Remote API client state ──────────────────────────────────────────
 let _apiClient = null
 
@@ -163,6 +212,7 @@ let _prevOutputText = ""
 let _deferredBootstrapDone = false
 let _skillsEnsured = new Set()
 let _runDeferredStartupBootstrap = null
+const footerFallbackPainted = new Set()
 const SAVE_EST = {
   WRITE_EDIT: 0.005,
   SOFT_QUOTA: 0.0003,
@@ -345,11 +395,13 @@ async function _seedOrRepairModelTiers(directory) {
     } catch {}
     return ""
   }
-  const liveModel = readExplicitModel(directory) || String(currentModel || "").trim()
+  const explicitSeedModel = readExplicitModel(directory)
+  const liveModel = explicitSeedModel || String(currentModel || "").trim()
   const liveTier = liveModel ? classify(liveModel) : ""
-  const seedBrain = freeSeeds[0] || DEFAULT_FREE_MODEL
-  const seedMedium = freeSeeds[1] || freeSeeds[0] || DEFAULT_FREE_MODEL
-  const seedCheap = freeSeeds[2] || freeSeeds[1] || freeSeeds[0] || DEFAULT_FREE_MODEL
+  const liveFreeModel = isModelFree(liveModel) ? liveModel : ""
+  const seedBrain = explicitSeedModel || freeSeeds[0] || liveFreeModel || DEFAULT_FREE_MODEL
+  const seedMedium = freeSeeds[1] || freeSeeds[0] || explicitSeedModel || liveFreeModel || DEFAULT_FREE_MODEL
+  const seedCheap = freeSeeds[2] || freeSeeds[1] || freeSeeds[0] || explicitSeedModel || liveFreeModel || DEFAULT_FREE_MODEL
   const keepExistingSlot = (slotRow: any, fallbackModel: string) => {
     const currentOc = String(slotRow?.oc || "").trim()
     if (currentOc && !PLACEHOLDER_RE.test(currentOc) && !/placeholder/i.test(currentOc)) {
@@ -758,7 +810,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
     globalThis.__vibeOS_sessionId = `opencode-${process.pid || "x"}-${Date.now()}`
   }
   const hookSessionId = globalThis.__vibeOS_sessionId
-  setVibeOSHomeContext(getVibeOSHome())
+  setVibeOSHomeContext(process.env.VIBEOS_HOME || join(hookHome, ".claude"))
   setCurrentSessionId(hookSessionId)
   if (hookFp) {
     setCurrentProjectFingerprint(hookFp)
@@ -1029,6 +1081,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
       ensureDeferredBootstrap()
       scanClaimsInOutput(output)
       await _appendFooter(_input, output, directory)
+      ensureFooterFallback(_input, output, directory)
       try {
         const auditDir = join(getVibeOSHome(), "cascade-audit")
         const claimFile = join(auditDir, "claim-audit.jsonl")
@@ -1070,6 +1123,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
       ensureDeferredBootstrap()
       scanClaimsInOutput(output)
       await _appendFooter(_input, output, directory)
+      ensureFooterFallback(_input, output, directory)
       // auto-verify: cross-check against cascade-audit
       try {
         const auditDir = join(getVibeOSHome(), "cascade-audit")
