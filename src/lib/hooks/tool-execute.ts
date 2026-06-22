@@ -527,7 +527,7 @@ export const onToolExecuteBefore = async (input, output) => {
     }
 
     // ML Router: difficulty prediction + confidence cascading.
-    if (ML_ENABLED && localRoutingAllowed) {
+    if (ML_ENABLED) {
       try {
         const mlDifficulty = computeDifficulty(_prompt)
         const mlHash = hashQuery(_prompt)
@@ -569,7 +569,7 @@ export const onToolExecuteBefore = async (input, output) => {
     }
 
     const activePipeline = loadSelection().active_pipeline
-    if (localRoutingAllowed && activePipeline && Array.isArray(activePipeline) && activePipeline.length > 1 && TRINITY_CHEAP && TRINITY_MEDIUM) {
+    if (activePipeline && Array.isArray(activePipeline) && activePipeline.length > 1 && TRINITY_CHEAP && TRINITY_MEDIUM) {
       try {
         const cheapCost = 0.001
         const mediumCost = 0.005

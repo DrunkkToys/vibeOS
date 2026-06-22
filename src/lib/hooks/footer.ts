@@ -143,6 +143,8 @@ async function _appendFooter(input, output, directory) {
       if (cfg) liveModelSetting = String(cfg)
     }
   } catch { /* client.config may not be available */ }
+  const hookModel = String(input?.args?.model || input?.model || output?.args?.model || "").trim()
+  if (hookModel) liveModelSetting = hookModel
   if (liveModelSetting && liveModelSetting !== currentModel) {
     setCurrentModel(liveModelSetting)
     setCurrentTier(classify(liveModelSetting))
@@ -186,8 +188,8 @@ async function _appendFooter(input, output, directory) {
     if (!liveModel) {
       liveModel = readConfig(directory) || readConfig(join(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || ""
     }
-    const displayModel = resolveTrinityDisplayModel(directory, slot, liveModel, currentModel) || brainModel || liveModel || currentModel
-    const resolvedModel = displayModel || liveModel || brainModel || currentModel || ""
+    const displayModel = resolveTrinityDisplayModel(directory, slot, liveModel, currentModel) || liveModel || currentModel || ""
+    const resolvedModel = displayModel || liveModel || currentModel || ""
     if (resolvedModel && resolvedModel !== currentModel) {
       setCurrentModel(resolvedModel)
       setCurrentTier(classify(resolvedModel))
@@ -196,7 +198,7 @@ async function _appendFooter(input, output, directory) {
       directory,
       activeSlot: slot,
       currentModel,
-      liveModel: displayModel || resolvedModel || liveModel || "",
+      liveModel: displayModel || liveModel || currentModel || "",
       tiersData: {
         trinity: {
           brain: { oc: TRINITY_BRAIN || currentModel },
@@ -205,6 +207,11 @@ async function _appendFooter(input, output, directory) {
         },
       },
     })
+    const executionSlot = execution.quality === "brain"
+      ? "brain"
+      : execution.quality === "mid"
+        ? "medium"
+        : "cheap"
     let modelTag = `[${shortModelName(displayModel)}]`
     const _workerModel = slot === "brain" ? TRINITY_MEDIUM : null
     const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0)
@@ -391,7 +398,7 @@ async function _appendFooter(input, output, directory) {
     }
 
     const vibeLine = buildFooterLine({
-      activeSlot,
+      activeSlot: executionSlot,
       providerLabel: execution.provider_label,
       modelName: modelDisplayName(execution.model),
       ltTotal,

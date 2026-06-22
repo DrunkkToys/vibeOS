@@ -1,5 +1,6 @@
 // @ts-nocheck
 
+import { existsSync, readFileSync } from "node:fs"
 import { join, dirname } from "node:path"
 import { LABEL_MODES, buildDeterministicTrinity, formatProviderName, formatQualityName, resolveCurrentExecution, resolveExecutionIdentity } from "./pricing.js"
 import { BRANDED_MODES, RUNTIME_MODES, resolveCascadeSlot } from "./mode-router.js"
@@ -353,9 +354,11 @@ export function createTrinityTool(deps) {
         deps.writeSessionSlot(deps._OC_SID, slot)
         const result = deps.applySlot(slot, deps.directory)
         if (!result.ok) return `\u274c Failed to set slot: ${result.reason}`
-        await syncNativeOpenCodeModel(deps, result.ocModel)
+        const synced = await syncNativeOpenCodeModel(deps, result.ocModel)
         deps._refreshModel(deps.directory)
-        return `\u2705 Switched to ${slot} slot (${result.ocModel}). Native OpenCode model update applied.`
+        return synced
+          ? `\u2705 Updated ${slot} slot (${result.ocModel}). OpenCode config synced for the next session.`
+          : `\u2705 Updated ${slot} slot (${result.ocModel}). OpenCode config sync was not available, so the next session may still use the previous live model.`
       }
       if (action === "mode") {
         const builtInIds = ["balanced", "budget", "quality", "speed", "longrun", "audit", "forensic"]
@@ -383,7 +386,7 @@ export function createTrinityTool(deps) {
           if (!switched?.ok) {
             return `\u274c Failed to switch OpenCode model: ${switched?.reason || "unknown error"}`
           }
-          await syncNativeOpenCodeModel(deps, switched.ocModel)
+          const synced = await syncNativeOpenCodeModel(deps, switched.ocModel)
           if (slot === "vibeultrax") {
             deps._modelLocked = false
             deps._lockedSlot = null
@@ -402,7 +405,9 @@ export function createTrinityTool(deps) {
             modeEntry.tdd === "quality" || modeEntry.tdd === "on" || modeEntry.tdd === "strict")
           deps.writeSelection("thinking_level", modeEntry.thinking)
           const pipelineStr = modeEntry.pipeline.join(" → ")
-          return `Mode set to ${slot.toUpperCase()}. Tier: ${tierSlot}. Pipeline: ${pipelineStr}`
+          return synced
+            ? `Mode set to ${slot.toUpperCase()}. Tier: ${tierSlot}. Pipeline: ${pipelineStr}. OpenCode config synced for the next session.`
+            : `Mode set to ${slot.toUpperCase()}. Tier: ${tierSlot}. Pipeline: ${pipelineStr}. OpenCode config sync was not available, so the next session may still use the previous live model.`
         }
         if (resolvedSlot === "auto") {
           deps.writeSelection("slot_locked", false)
@@ -562,17 +567,22 @@ export function createTrinityTool(deps) {
             discovered = await deps.discoverAvailableModels(providers, auth)
           }
         } catch {}
-        let selectedModel = deps.currentModel || ""
-        if (!selectedModel) {
-          try {
-            for (const dir of [deps.directory || process.cwd(), deps.OPENCODE_HOME].filter(Boolean)) {
-              const p = join(dir, "opencode.json")
-              if (deps.existsSync(p)) {
-                const oc = deps.safeJsonParse(deps.readFileSync(p, "utf-8"))
-                if (oc?.model) { selectedModel = oc.model; break }
-              }
-            }
-          } catch {}
+        let selectedModel = ""
+        try {
+          const explicitConfigs = [
+            join(deps.directory || "", "opencode.json"),
+            join(process.env.HOME || "", ".config", "opencode", "opencode.json"),
+            join(deps.OPENCODE_HOME || "", "opencode.json"),
+          ]
+          for (const cfgPath of explicitConfigs) {
+            if (!cfgPath || !existsSync(cfgPath)) continue
+            const oc = deps.safeJsonParse(readFileSync(cfgPath, "utf-8"))
+            const model = String(oc?.agent?.build?.model || oc?.model || "").trim()
+            if (model) { selectedModel = model; break }
+          }
+          if (!selectedModel) selectedModel = deps.currentModel || ""
+        } catch {
+          selectedModel = deps.currentModel || ""
         }
         const trinity = buildDeterministicTrinity(discovered, { selectedModelId: selectedModel })
         const brain = trinity?.brain || existing?.trinity?.brain?.oc || selectedModel || ""
@@ -1047,15 +1057,22 @@ export function createTrinityTool(deps) {
           : {}
         const auth = deps._readAuth()
         const models = await deps.discoverAvailableModels(providers, auth)
-        let selectedModel = deps.currentModel || ""
-        if (!selectedModel) {
-          try {
-            const dir = deps.directory || process.cwd()
-            const p = join(dir, "opencode.json")
-            if (deps.existsSync(p)) {
-              selectedModel = deps.safeJsonParse(deps.readFileSync(p, "utf-8"))?.model || ""
-            }
-          } catch {}
+        let selectedModel = ""
+        try {
+          const explicitConfigs = [
+            join(deps.directory || "", "opencode.json"),
+            join(process.env.HOME || "", ".config", "opencode", "opencode.json"),
+            join(deps.OPENCODE_HOME || "", "opencode.json"),
+          ]
+          for (const cfgPath of explicitConfigs) {
+            if (!cfgPath || !existsSync(cfgPath)) continue
+            const oc = deps.safeJsonParse(readFileSync(cfgPath, "utf-8"))
+            const model = String(oc?.agent?.build?.model || oc?.model || "").trim()
+            if (model) { selectedModel = model; break }
+          }
+          if (!selectedModel) selectedModel = deps.currentModel || ""
+        } catch {
+          selectedModel = deps.currentModel || ""
         }
         const trinity = buildDeterministicTrinity(models, { selectedModelId: selectedModel })
         if (!trinity) {

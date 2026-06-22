@@ -209,12 +209,28 @@ async function _resolveBootstrapModel(client, directory) {
     const model = String(value || "").trim()
     return model && !PLACEHOLDER_RE.test(model) ? model : ""
   }
-  const projectModel = normalize(readConfig(directory))
+  const readExplicitModel = (dir) => {
+    try {
+      const candidates = [
+        join(dir || "", "opencode.json"),
+        join(process.env.HOME || "", ".config", "opencode", "opencode.json"),
+        join(getOpenCodeHome(), "opencode.json"),
+      ]
+      for (const cfgPath of candidates) {
+        if (!cfgPath || !existsSync(cfgPath)) continue
+        const oc = safeJsonParse(readFileSync(cfgPath, "utf-8"))
+        const model = normalize(oc?.agent?.build?.model || oc?.model || "")
+        if (model) return model
+      }
+    } catch {}
+    return ""
+  }
+  const projectModel = readExplicitModel(directory)
   if (projectModel)
     return { model: projectModel, source: "project-config" }
   const home = process.env.HOME || ""
   if (home) {
-    const globalModel = normalize(readConfig(getOpenCodeHome()))
+    const globalModel = readExplicitModel(getOpenCodeHome())
     if (globalModel)
       return { model: globalModel, source: "global-config" }
   }
@@ -313,13 +329,27 @@ async function _seedOrRepairModelTiers(directory) {
   })
   const existingSelection = existing?.selection && typeof existing.selection === "object" ? existing.selection : {}
   const freeSeeds = _collectFreeSeedModels(discovered)
-  const liveModel = String(currentModel || "").trim()
+  const readExplicitModel = (dir) => {
+    try {
+      const candidates = [
+        join(dir || "", "opencode.json"),
+        join(process.env.HOME || "", ".config", "opencode", "opencode.json"),
+        join(getOpenCodeHome(), "opencode.json"),
+      ]
+      for (const cfgPath of candidates) {
+        if (!cfgPath || !existsSync(cfgPath)) continue
+        const oc = safeJsonParse(readFileSync(cfgPath, "utf-8"))
+        const model = String(oc?.agent?.build?.model || oc?.model || "").trim()
+        if (model) return model
+      }
+    } catch {}
+    return ""
+  }
+  const liveModel = readExplicitModel(directory) || String(currentModel || "").trim()
   const liveTier = liveModel ? classify(liveModel) : ""
-  const seedBrain = existingSelection?.active_slot === "brain" && liveModel && liveTier === "high"
-    ? liveModel
-    : (freeSeeds[0] || DEFAULT_FREE_MODEL)
-  const seedMedium = freeSeeds[1] || freeSeeds[0] || DEFAULT_FREE_MODEL
-  const seedCheap = freeSeeds[2] || freeSeeds[1] || freeSeeds[0] || DEFAULT_FREE_MODEL
+  const seedBrain = liveModel || freeSeeds[0] || DEFAULT_FREE_MODEL
+  const seedMedium = freeSeeds[1] || freeSeeds[0] || liveModel || DEFAULT_FREE_MODEL
+  const seedCheap = freeSeeds[2] || freeSeeds[1] || freeSeeds[0] || liveModel || DEFAULT_FREE_MODEL
   const keepExistingSlot = (slotRow: any, fallbackModel: string) => {
     const currentOc = String(slotRow?.oc || "").trim()
     if (currentOc && !PLACEHOLDER_RE.test(currentOc) && !/placeholder/i.test(currentOc)) {
