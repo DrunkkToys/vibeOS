@@ -178,10 +178,12 @@ test("cascade: vibeultrax profile matches cascade depth for direct vs deep", asy
   const direct = vu.vibeultraxControlVector({ user_text: "hello", sub_regime: "INIT", stress_multiplier: 0 })
   assert.equal(direct.cascade_depth, 1, "simple text gets depth 1")
   assert.deepEqual(direct.pipeline_root, ["cheap"], "direct pipeline is cheap only")
+  assert.equal(direct.tier_bias, "cheap", "direct profile stays on the cheap acting tier")
 
   const deep = vu.vibeultraxControlVector({ user_text: "refactor auth module with 3 files OAuth race condition", sub_regime: "REFINING", stress_multiplier: 0.3 })
   assert.ok(deep.cascade_depth >= 2, "complex text gets depth >= 2")
   assert.ok(deep.pipeline_root.length >= 2, "complex text has pipeline with >= 2 stages")
+  assert.ok(["medium", "brain"].includes(deep.tier_bias), "non-direct profiles should bias to the acting tier")
 })
 
 test("cascade: computeControlVector includes cascade_depth for vibeultrax mode", async () => {
