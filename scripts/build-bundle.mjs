@@ -44,7 +44,13 @@ if (existsSync(dashboardSrc)) {
   const dashboardDest = join(assetsDir, 'dashboard');
   if (!existsSync(dashboardDest)) mkdirSync(dashboardDest, { recursive: true });
   copyDirRecursive(dashboardSrc, dashboardDest);
-  writeDashboardBaseConfig(dashboardDest, resolveDashboardBaseUrl());
+  writeDashboardBaseConfig(
+    dashboardDest,
+    resolveDashboardBaseUrlFromState({
+      publishedMcpBaseUrl: resolvePublishedMcpBaseUrl(),
+      mcpPort: Number(process.env.VIBEOS_MCP_PORT || 63452),
+    }),
+  );
   console.log('[bundle] Copied dashboard');
 }
 
@@ -74,7 +80,7 @@ function copyDirRecursive(src, dest) {
   }
 }
 
-function resolveDashboardBaseUrl() {
+function resolvePublishedMcpBaseUrl() {
   const vibeHome = process.env.VIBEOS_HOME || join(homedir(), '.claude');
   const tiersPath = join(vibeHome, 'model-tiers.json');
   try {
@@ -86,11 +92,32 @@ function resolveDashboardBaseUrl() {
       }
     }
   } catch {}
-  return `http://127.0.0.1:${process.env.VIBEOS_MCP_PORT || 63452}`;
+  return '';
 }
 
 function writeDashboardBaseConfig(dir, baseUrl) {
   if (!baseUrl) return;
   const cfg = join(dir, 'vibeos-dashboard-config.js');
   writeFileSync(cfg, `window.__VIBEOS_DASHBOARD_BASE__ = ${JSON.stringify(baseUrl.replace(/\/$/, ''))};\n`, 'utf8');
+}
+
+function normalizeDashboardBaseUrl(baseUrl) {
+  return String(baseUrl || '').trim().replace(/\/$/, '');
+}
+
+function resolveDashboardBaseUrlFromState({
+  dashboardBaseUrl = '',
+  publishedMcpBaseUrl = '',
+  fallbackPort = null,
+  mcpPort = 0,
+} = {}) {
+  const fromMemory = normalizeDashboardBaseUrl(dashboardBaseUrl);
+  if (fromMemory) return fromMemory;
+  const fromPublished = normalizeDashboardBaseUrl(publishedMcpBaseUrl);
+  if (fromPublished) return fromPublished;
+  const port = Number(mcpPort);
+  if (Number.isFinite(port) && port > 0) return `http://127.0.0.1:${port}`;
+  const fallback = Number(fallbackPort);
+  if (fallbackPort !== null && fallbackPort !== undefined && Number.isFinite(fallback) && fallback > 0) return `http://127.0.0.1:${fallback}`;
+  return '';
 }

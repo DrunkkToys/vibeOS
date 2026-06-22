@@ -14,23 +14,31 @@ test("module exports expected symbols", () => {
 })
 
 describe("mergeRemoteControlVector", () => {
-  test("remote fields spread then local overrides the 7 control fields", () => {
+  test("remote vector wins by default", () => {
     const remote = { enforcement_mode: "strict", some_extra: "preserved" }
     const local = { enforcement_mode: "relaxed" }
     const r = mergeRemoteControlVector(remote, local)
+    assert.equal(r.enforcement_mode, "strict")
+    assert.equal(r.some_extra, "preserved")
+  })
+
+  test("local override is opt-in for stale backend fallback", () => {
+    const remote = { enforcement_mode: "strict", some_extra: "preserved" }
+    const local = { enforcement_mode: "relaxed" }
+    const r = mergeRemoteControlVector(remote, local, { allowLocalOverride: true })
     assert.equal(r.enforcement_mode, "relaxed")
     assert.equal(r.some_extra, "preserved")
   })
 
   test("null remote", () => {
-    const r = mergeRemoteControlVector(null, { enforcement_mode: "strict" })
+    const r = mergeRemoteControlVector(null, { enforcement_mode: "strict" }, { allowLocalOverride: true })
     assert.equal(r.enforcement_mode, "strict")
   })
 
-  test("null local — local fields become undefined, remote spread fields survive", () => {
+  test("null local keeps remote fields untouched", () => {
     const remote = { enforcement_mode: "strict", some_extra: "survives" }
     const r = mergeRemoteControlVector(remote, null)
-    assert.equal(r.enforcement_mode, undefined)
+    assert.equal(r.enforcement_mode, "strict")
     assert.equal(r.some_extra, "survives")
   })
 
@@ -42,7 +50,7 @@ describe("mergeRemoteControlVector", () => {
   test("local overrides 7 control fields, other remote fields survive via spread", () => {
     const remote = { agent_mode: "coder", tier_bias: "brain", extra_field: "survives-spread" }
     const local = { agent_mode: "architect" }
-    const r = mergeRemoteControlVector(remote, local)
+    const r = mergeRemoteControlVector(remote, local, { allowLocalOverride: true })
     assert.equal(r.agent_mode, "architect")
     assert.equal(r.tier_bias, undefined)
     assert.equal(r.extra_field, "survives-spread")

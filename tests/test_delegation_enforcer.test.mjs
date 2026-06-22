@@ -6,7 +6,7 @@
 
 import { test as nodeTest, before, beforeEach, after } from "node:test"
 import assert from "node:assert/strict"
-import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from "node:fs"
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, chmodSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createHash } from "node:crypto"
@@ -2186,6 +2186,39 @@ test("applySlot: preserves model-tiers.json selection/tiers/pricing blocks", asy
   assert.equal(after.pricing.deepseek["v4-pro"], 0.0003, "pricing.deepseek.v4-pro preserved")
   assert.equal(after.trinity.brain.oc, "deepseek/deepseek-v4-pro", "trinity.brain preserved")
   process.env.HOME = origHome
+})
+
+test("applySlot: surfaces OpenCode config write failures", async () => {
+  let origHome = process.env.HOME
+  process.env.HOME = sandbox
+  const { applySlot } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-applyslot-write-fail")
+  mkdirSync(dir, { recursive: true })
+  const ocConfigPath = join(dir, "opencode.json")
+  writeFileSync(ocConfigPath, JSON.stringify({ model: "deepseek/deepseek-v4-flash" }))
+  chmodSync(ocConfigPath, 0o444)
+
+  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+    trinity: {
+      brain: { oc: "deepseek/deepseek-v4-pro", cc: "deepseek-reasoner" },
+      medium: { oc: "deepseek/deepseek-v4-flash", cc: "haiku" },
+      cheap: { oc: "deepseek/deepseek-chat", cc: "haiku" },
+    },
+    selection: { enabled: true, active_slot: "medium" },
+  }))
+
+  const origCwd = process.cwd()
+  process.chdir(dir)
+  try {
+    const result = applySlot("brain")
+    assert.equal(result.ok, false, `applySlot should fail when OpenCode config write fails: ${JSON.stringify(result)}`)
+    assert.match(String(result.reason || ""), /(write|OpenCode config|permission|EACCES)/i)
+    const after = JSON.parse(readFileSync(ocConfigPath, "utf-8"))
+    assert.equal(after.model, "deepseek/deepseek-v4-flash", "opencode model should remain unchanged when write fails")
+  } finally {
+    process.chdir(origCwd)
+    process.env.HOME = origHome
+  }
 })
 
 test("applySlot: preserves opencode.json all fields (only model changes)", async () => {
