@@ -111,3 +111,65 @@ test("reward-engine: self-contradiction lie yields -10", () => {
   assert.equal(result.credits, -10)
   assert.equal(result.breakdown.contradictionPenalty, -10)
 })
+
+test("reward-engine: cache hit yields +2 credits", () => {
+  const result = reward.computeReward({
+    outcome: null,
+    claims: [],
+    laziness: { shortOutput: false, todoPlaceholders: false, skippedDelegation: false, penalty: 0 },
+    savingsUsd: 0,
+    cacheHit: true,
+  })
+  assert.equal(result.credits, 2)
+  assert.equal(result.breakdown.cachePenalty, 2)
+})
+
+test("reward-engine: cache miss yields -2 credits", () => {
+  const result = reward.computeReward({
+    outcome: null,
+    claims: [],
+    laziness: { shortOutput: false, todoPlaceholders: false, skippedDelegation: false, penalty: 0 },
+    savingsUsd: 0,
+    cacheMiss: true,
+  })
+  assert.equal(result.credits, -2)
+  assert.equal(result.breakdown.cachePenalty, -2)
+})
+
+test("reward-engine: no cache event yields 0 cache penalty", () => {
+  const result = reward.computeReward({
+    outcome: null,
+    claims: [],
+    laziness: { shortOutput: false, todoPlaceholders: false, skippedDelegation: false, penalty: 0 },
+    savingsUsd: 0,
+  })
+  assert.equal(result.breakdown.cachePenalty, 0)
+  assert.equal(result.credits, 0)
+})
+
+test("reward-engine: cache hit stacks with quality and saving rewards", () => {
+  const result = reward.computeReward({
+    outcome: "positive",
+    claims: [],
+    laziness: { shortOutput: false, todoPlaceholders: false, skippedDelegation: false, penalty: 0 },
+    savingsUsd: 0.05,
+    cacheHit: true,
+  })
+  assert.equal(result.breakdown.qualityReward, 10)
+  assert.equal(result.breakdown.savingBonus, 3)
+  assert.equal(result.breakdown.cachePenalty, 2)
+  assert.equal(result.credits, 15)
+})
+
+test("reward-engine: cache hit+miss both true treats as hit", () => {
+  const result = reward.computeReward({
+    outcome: null,
+    claims: [],
+    laziness: { shortOutput: false, todoPlaceholders: false, skippedDelegation: false, penalty: 0 },
+    savingsUsd: 0,
+    cacheHit: true,
+    cacheMiss: true,
+  })
+  assert.equal(result.breakdown.cachePenalty, 2)
+  assert.equal(result.credits, 2)
+})
