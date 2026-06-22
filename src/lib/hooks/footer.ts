@@ -6,7 +6,7 @@ import { latestUserIntent } from "./chat-transform.js"
 import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, classifyTurnSimple, autoSelectMode, loadOptimizationMode, computeControlVector, resolveOptimizationSlot } from "../turn-classify.js"
 import { recordBudgetFirstOutcome } from "../mode-policy.js"
 import { saveReport } from "../reporting.js"
-import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, getCurrentSessionId, _modelLocked, _blackboxEnabled, _latestBlackboxState, loadTodos, loadBlackboxState, recordLiveSessionSnapshot, VIBEOS_HOME, getVibeOSHome, readLifetimeSavings } from "../state.js"
+import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, getCurrentSessionId, _modelLocked, _blackboxEnabled, _latestBlackboxState, loadTodos, loadBlackboxState, recordLiveSessionSnapshot, VIBEOS_HOME, getVibeOSHome, readLifetimeSavings, getLatestCacheEvent } from "../state.js"
 import { loadSelection, loadSessionSlot, writeSessionSlot } from "../selection-manager.js"
 import { remoteCall, isApiConnected, isApiLatencyDegraded } from "../api-client.js"
 import { SAVE_EST } from "../constants.js"
@@ -107,6 +107,8 @@ function buildRewardInput({
   prevAssistantTexts,
   savingsUsd,
   isBrainTier,
+  cacheHit = false,
+  cacheMiss = false,
 }) {
   const lazinessResult = detectLaziness({
     assistantText,
@@ -124,6 +126,8 @@ function buildRewardInput({
     laziness: lazinessResult,
     savingsUsd,
     contradictionDetected: lieResult.selfContradiction,
+    cacheHit,
+    cacheMiss,
   }
 }
 
@@ -184,6 +188,9 @@ async function _appendFooter(input, output, directory, lastModelError?: string) 
     const sessionSlot = loadBlackboxState()?.sessions?.[sid]?.active_slot || loadSessionSlot(sid)
     const slot = loadSelection().active_slot || sessionSlot || "brain"
     const brainModel = slot === "brain" ? (TRINITY_BRAIN || currentModel) : slot === "medium" ? (TRINITY_MEDIUM || currentModel) : (TRINITY_CHEAP || currentModel || "")
+    const _cacheEvt = getLatestCacheEvent(sid)
+    const _perTurnCacheDelta = _cacheEvt.hit ? _cacheEvt.est_savings_usd : 0
+    const _cacheMiss = !_cacheEvt.hit
     let liveModel = liveModelSetting
     if (!liveModel) {
       liveModel = readConfig(directory) || readConfig(join(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || ""
@@ -327,14 +334,15 @@ async function _appendFooter(input, output, directory, lastModelError?: string) 
             // Reward engine: compute credits based on outcome, claims, laziness, savings
             try {
               const curOutput = _prevOutputText || ""
-              const sesSavings = Number(_footerSavingsCache || 0)
               const rewardInput = buildRewardInput({
                 finalOutcome,
                 assistantText: curOutput,
                 userText: latestUserIntent || "",
                 prevAssistantTexts,
-                savingsUsd: sesSavings,
+                savingsUsd: _perTurnCacheDelta,
                 isBrainTier: String(currentTier || "").toLowerCase() === "high",
+                cacheHit: _cacheEvt.hit,
+                cacheMiss: _cacheMiss,
               })
               const rewardResult = computeReward(rewardInput)
               _rewardCredits = rewardResult.credits
@@ -359,14 +367,15 @@ async function _appendFooter(input, output, directory, lastModelError?: string) 
     if (_rewardOutcome && !_rewardTag) {
       try {
         const curOutput = _prevOutputText || ""
-        const sesSavings = Number(_footerSavingsCache || 0)
         const rewardResult = computeReward(buildRewardInput({
           finalOutcome: _rewardOutcome,
           assistantText: curOutput,
           userText: latestUserIntent || "",
           prevAssistantTexts,
-          savingsUsd: sesSavings,
+          savingsUsd: _perTurnCacheDelta,
           isBrainTier: String(currentTier || "").toLowerCase() === "high",
+          cacheHit: _cacheEvt.hit,
+          cacheMiss: _cacheMiss,
         }))
         _rewardCredits = rewardResult.credits
         _rewardBreakdown = rewardResult.breakdown
@@ -390,9 +399,11 @@ async function _appendFooter(input, output, directory, lastModelError?: string) 
             assistantText: rewardText,
             userText: latestUserIntent || "",
             prevAssistantTexts,
-          savingsUsd: Number(_footerSavingsCache || 0),
-          isBrainTier: String(currentTier || "").toLowerCase() === "high",
-        }))
+            savingsUsd: _perTurnCacheDelta,
+            isBrainTier: String(currentTier || "").toLowerCase() === "high",
+            cacheHit: _cacheEvt.hit,
+            cacheMiss: _cacheMiss,
+          }))
           _rewardCredits = rewardResult.credits
           _rewardBreakdown = rewardResult.breakdown
           if (rewardResult.credits !== 0) {
@@ -440,7 +451,7 @@ async function _appendFooter(input, output, directory, lastModelError?: string) 
         outcome: _rewardOutcome,
         rewardCredits: _rewardCredits,
         rewardBreakdown: _rewardBreakdown,
-        savingsUsd: Number(_footerSavingsCache || 0),
+        savingsUsd: _perTurnCacheDelta,
         footerLine: vibeLine,
         control: cv,
         subRegime: currentSubRegime,
