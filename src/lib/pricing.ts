@@ -188,7 +188,9 @@ export function resolveTrinityDisplayModel(directory = "", activeSlot = "", live
     : slot === "medium" ? (TRINITY_MEDIUM || "")
       : slot === "cheap" ? (TRINITY_CHEAP || "")
         : ""
-  const raw = [liveModel, currentModelId, slotModel].map((value) => String(value || "").trim()).find(Boolean) || ""
+  const raw = [slotModel, currentModelId, liveModel, slot === "cheap" ? "opencode/big-pickle" : ""]
+    .map((value) => String(value || "").trim())
+    .find(Boolean) || ""
   return resolveDisplayModelId(raw, directory) || raw
 }
 
