@@ -3,7 +3,7 @@
 
 import { createHash } from "node:crypto"
 
-import { currentProjectFingerprint, currentProjectName, _OC_SID, getCurrentSessionId, saveJobRecord, updateSessionOrchestration, getActiveJobForProject, loadSelection, loadSessionOrchestration, _cacheDb } from "./state.js"
+import { currentProjectFingerprint, currentProjectName, _OC_SID, getCurrentSessionId, removeJobRecord, saveJobRecord, updateSessionOrchestration, getActiveJobForProject, loadSelection, loadSessionOrchestration, _cacheDb } from "./state.js"
 import { extractRecentCacheOutputs } from "../vibeOS-lib/smart-cache.js"
 
 function compactText(value: unknown, max = 900): string {
@@ -17,6 +17,64 @@ function normalizePipeline(pipeline: unknown): string[] {
   return Array.isArray(pipeline)
     ? pipeline.map((tier) => String(tier || "").trim()).filter(Boolean)
     : []
+}
+
+function computeSessionBridgeKey(input: {
+  sessionId?: string
+  fromModel?: string
+  fromTier?: string
+  toModel?: string
+  toTier?: string
+  reason?: string
+  prompt?: string
+  userText?: string
+  activePipeline?: unknown
+  projectFingerprint?: string
+  projectName?: string
+  sourceStrategy?: string
+} = {}): string {
+  const sessionId = String(input.sessionId || getCurrentSessionId() || _OC_SID || "unknown").trim() || "unknown"
+  const fromModel = String(input.fromModel || "").trim()
+  const fromTier = String(input.fromTier || "").trim()
+  const toModel = String(input.toModel || "").trim()
+  const toTier = String(input.toTier || "").trim()
+  const reason = String(input.reason || "cascade handoff").trim()
+  const prompt = compactText(input.prompt || "")
+  const pipelineRoot = normalizePipeline(input.activePipeline)
+  const projectFingerprint = String(input.projectFingerprint || currentProjectFingerprint || "").trim()
+  const projectName = String(input.projectName || currentProjectName || "").trim()
+  const sourceStrategy = String(input.sourceStrategy || "").trim()
+  return createHash("sha1").update([
+    sessionId,
+    fromModel,
+    fromTier,
+    toModel,
+    toTier,
+    reason,
+    prompt,
+    pipelineRoot.join(","),
+    projectFingerprint,
+    projectName,
+    sourceStrategy,
+  ].join("|")).digest("hex").slice(0, 16)
+}
+
+function hasRecordedSessionBridge(sessionId: string, bridgeKey: string, bridgeId: string): boolean {
+  try {
+    const orchestration = loadSessionOrchestration(sessionId)
+    const history = Array.isArray(orchestration?.history) ? orchestration.history : []
+    return history.some((entry: any) => {
+      const actions = Array.isArray(entry?.payload?.actions) ? entry.payload.actions : []
+      return actions.some((action: any) => {
+        const payload = action?.payload && typeof action.payload === "object" ? action.payload : {}
+        const note = String(payload.note || "").trim()
+        const tags = Array.isArray(payload.tags) ? payload.tags.map((tag: any) => String(tag || "").trim()) : []
+        return note.includes(`bridge_key=${bridgeKey}`) || tags.includes(`bridge_key:${bridgeKey}`) || tags.includes(`bridge:${bridgeId}`)
+      })
+    })
+  } catch {
+    return false
+  }
 }
 
 function summarizeSelection(selection: any): Record<string, unknown> {
@@ -118,6 +176,7 @@ export function buildSessionBridge(input: {
     reason,
     createdAt,
   ].join("|")).digest("hex").slice(0, 16)
+  const bridgeKey = computeSessionBridgeKey(input)
 
   const promptPrefix = [
     "[session bridge]",
@@ -150,6 +209,7 @@ export function buildSessionBridge(input: {
 
   return {
     bridge_id: bridgeId,
+    bridge_key: bridgeKey,
     session_id: sessionId,
     created_at: createdAt,
     from_model: fromModel,
@@ -176,11 +236,15 @@ export function recordSessionBridge(bridge: any): boolean {
   if (!bridge || typeof bridge !== "object") return false
   const sessionId = String(bridge.session_id || getCurrentSessionId() || _OC_SID || "unknown").trim()
   if (!sessionId) return false
+  const bridgeKey = String(bridge.bridge_key || bridge.bridge_id || sessionId).trim()
+  if (!bridgeKey) return false
+  const bridgeId = String(bridge.bridge_id || "").trim()
+  if (bridgeId && hasRecordedSessionBridge(sessionId, bridgeKey, bridgeId)) return false
   try {
     updateSessionOrchestration(sessionId, "batch", {
       actions: [
-        { action: "annotate", payload: { note: bridge.audit_note || "session bridge" } },
-        { action: "retag", payload: { tags: Array.isArray(bridge.tags) ? bridge.tags : [], replace: false } },
+        { action: "annotate", payload: { note: `bridge_key=${bridgeKey} ${bridge.audit_note || "session bridge"}` } },
+        { action: "retag", payload: { tags: Array.isArray(bridge.tags) ? ["bridge_key:" + bridgeKey, ...bridge.tags] : ["bridge_key:" + bridgeKey], replace: false } },
       ],
       bridge,
     })
@@ -188,9 +252,11 @@ export function recordSessionBridge(bridge: any): boolean {
   try {
     saveJobRecord(bridge.bridge_id || sessionId, {
       kind: "session-bridge",
-      status: "handoff",
+      status: "completed",
+      completedAt: new Date().toISOString(),
       ...bridge,
     })
   } catch {}
+  try { removeJobRecord(bridge.bridge_id || sessionId) } catch {}
   return true
 }

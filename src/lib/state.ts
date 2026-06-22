@@ -1557,6 +1557,14 @@ function _normalizeActiveJobRecord(record: any, now: number = Date.now(), strict
   return { record: next, changed, stale }
 }
 
+function _isSessionBridgeRecord(record: any): boolean {
+  if (!record || typeof record !== "object") return false
+  const kind = String(record.kind || "").trim().toLowerCase()
+  const status = String(record.status || "").trim().toLowerCase()
+  const prompt = String(record.prompt || record.prompt_prefix || "").trim()
+  return kind === "session-bridge" || status === "handoff" || prompt.startsWith("[session bridge]")
+}
+
 function loadActiveJobs(): any {
   try {
     return withFileLock(ACTIVE_JOBS_FILE, () => {
@@ -1566,6 +1574,7 @@ function loadActiveJobs(): any {
       const now = Date.now()
       for (const [key, value] of Object.entries(raw || {})) {
         const norm = _normalizeActiveJobRecord(value, now, true)
+        if (norm.record && _isSessionBridgeRecord(norm.record)) { changed = true; continue }
         if (!norm.record || (norm.stale && norm.record.status === "completed" && norm.record.completedAt)) { changed = true; continue }
         next[key] = norm.record
         if (norm.changed) changed = true
@@ -1608,6 +1617,24 @@ function saveJobRecord(jobId: string, record: any): void {
       _writeActiveJobsRaw(jobs)
     })
   } catch {}
+}
+
+function removeJobRecord(jobId: string): boolean {
+  if (!jobId) return false
+  try {
+    let removed = false
+    withFileLock(ACTIVE_JOBS_FILE, () => {
+      const jobs = _readActiveJobsRaw()
+      if (Object.prototype.hasOwnProperty.call(jobs, jobId)) {
+        delete jobs[jobId]
+        removed = true
+        _writeActiveJobsRaw(jobs)
+      }
+    })
+    return removed
+  } catch {
+    return false
+  }
 }
 
 function loadJobRecord(jobId: string): any {
@@ -2565,6 +2592,7 @@ export {
   getActiveJobForProject,
   saveActiveJobForProject,
   saveJobRecord,
+  removeJobRecord,
   loadJobRecord,
 
   // Project memory

@@ -108,6 +108,7 @@ test("session bridge builds a carry-forward prompt for the next session", () => 
   assert.ok(bridge.prompt_prefix.includes("\"entries\":1"))
   assert.ok(bridge.prompt_prefix.includes("\"status\":\"active\""))
   assert.ok(bridge.prompt_prefix.includes("carry_forward=implement the new session bridge"))
+  assert.ok(bridge.bridge_key)
   assert.ok(bridge.tags.some((tag) => tag.startsWith("bridge:")))
   assert.equal(bridge.selection.active_slot, "brain")
   assert.equal(bridge.orchestration.status, "active")
@@ -115,7 +116,7 @@ test("session bridge builds a carry-forward prompt for the next session", () => 
   assert.equal(bridge.active_job?.prompt || "", "keep the current plan alive")
 })
 
-test("session bridge records the handoff in session history and active jobs", () => {
+test("session bridge records the handoff in session history and closes the active job entry", () => {
   const bridge = buildSessionBridge({
     sessionId: "sid-history",
     fromModel: "deepseek/deepseek-v4-pro",
@@ -143,6 +144,68 @@ test("session bridge records the handoff in session history and active jobs", ()
   const activeJobsFile = join(process.env.VIBEOS_HOME, "active-jobs.json")
   assert.ok(existsSync(activeJobsFile), "active jobs file exists")
   const activeJobs = JSON.parse(readFileSync(activeJobsFile, "utf-8"))
-  assert.ok(activeJobs[bridge.bridge_id], "bridge record stored as an active job")
-  assert.equal(activeJobs[bridge.bridge_id].status, "handoff")
+  assert.ok(!activeJobs[bridge.bridge_id], "bridge record is not left as a live active job")
+  assert.ok(activeJobs["fp-bridge"], "existing project job remains available")
+  assert.equal(activeJobs["fp-bridge"].status, "active")
+})
+
+test("session bridge dedupes repeated hook emissions for the same session", () => {
+  const first = buildSessionBridge({
+    sessionId: "sid-dedupe",
+    fromModel: "deepseek/deepseek-v4-pro",
+    fromTier: "brain",
+    toModel: "opencode/big-pickle",
+    toTier: "cheap",
+    reason: "task escalation",
+    prompt: "write the bridge test",
+    activePipeline: ["cheap", "medium", "brain"],
+    projectFingerprint: "fp-bridge",
+    projectName: "demo",
+    sourceStrategy: "backend",
+  })
+  const second = buildSessionBridge({
+    sessionId: "sid-dedupe",
+    fromModel: "deepseek/deepseek-v4-pro",
+    fromTier: "brain",
+    toModel: "opencode/big-pickle",
+    toTier: "cheap",
+    reason: "task escalation",
+    prompt: "write the bridge test",
+    activePipeline: ["cheap", "medium", "brain"],
+    projectFingerprint: "fp-bridge",
+    projectName: "demo",
+    sourceStrategy: "backend",
+  })
+
+  assert.equal(first.bridge_key, second.bridge_key)
+  assert.equal(recordSessionBridge(first), true)
+  assert.equal(recordSessionBridge(second), false)
+
+  const delegationState = JSON.parse(readFileSync(join(process.env.VIBEOS_HOME, "delegation-state.json"), "utf-8"))
+  const session = delegationState.sessions?.["sid-dedupe"]
+  const batches = session?.orchestration?.history?.filter((entry) => entry.action === "batch") || []
+  assert.equal(batches.length, 1)
+
+  const activeJobs = JSON.parse(readFileSync(join(process.env.VIBEOS_HOME, "active-jobs.json"), "utf-8"))
+  assert.ok(!activeJobs[first.bridge_id], "deduped bridge does not remain active")
+})
+
+test("legacy session bridge records are removed when active jobs reload", async () => {
+  const raw = JSON.parse(readFileSync(join(process.env.VIBEOS_HOME, "active-jobs.json"), "utf-8"))
+  raw["legacy-bridge"] = {
+    kind: "session-bridge",
+    status: "handoff",
+    bridge_id: "legacy-bridge",
+    session_id: "sid-legacy",
+    prompt_prefix: "[session bridge]\nbridge_id=legacy-bridge\n",
+    createdAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+    updatedAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+  }
+  writeFileSync(join(process.env.VIBEOS_HOME, "active-jobs.json"), JSON.stringify(raw, null, 2))
+
+  const { getActiveJobForProject } = await import("../src/lib/state.js?" + Date.now())
+  assert.equal(getActiveJobForProject("fp-legacy"), null)
+
+  const cleaned = JSON.parse(readFileSync(join(process.env.VIBEOS_HOME, "active-jobs.json"), "utf-8"))
+  assert.ok(!cleaned["legacy-bridge"], "stale bridge record is removed during reload")
 })
