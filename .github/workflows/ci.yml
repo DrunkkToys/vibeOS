@@ -17,5 +17,6 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: npm
       - run: npm ci
+      - run: node scripts/check-no-dist-changes.mjs --ci
       - run: npm run build:bundle
       - run: npm run test:ci

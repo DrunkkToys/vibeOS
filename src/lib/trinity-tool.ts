@@ -6,6 +6,7 @@ import { BRANDED_MODES, RUNTIME_MODES, resolveCascadeSlot } from "./mode-router.
 import { getBackendVersion, invalidateApiToken, isApiConnected } from "./api-client.js"
 import { getRealityCheckView } from "../vibeOS-lib/flow-enforcer.js"
 import { getVibeOSHome } from "./state.js"
+import { resolveDashboardBaseUrlFromState } from "./dashboard-base-url.js"
 
 // ── Named constants (magic number extraction) ────────────────────────
 const MIN_TOOL_BREAKDOWN_THRESHOLD = 0.005
@@ -18,16 +19,12 @@ const MOMENTUM_SIGNIFICANT_THRESHOLD = 0.3
 const DIAGNOSE_BUDGET_LINES = 50
 const CREDIT_MIN_OK = 40
 
-function normalizeDashboardBaseUrl(baseUrl: unknown): string {
-  return String(baseUrl || "").trim().replace(/\/$/, "")
-}
-
-async function resolveDashboardBaseUrl(deps): Promise<string> {
-  const fromMemory = normalizeDashboardBaseUrl(deps.dashboardBaseUrl)
+export async function resolveDashboardBaseUrl(deps): Promise<string> {
+  const fromMemory = resolveDashboardBaseUrlFromState({ dashboardBaseUrl: deps.dashboardBaseUrl })
   if (fromMemory) return fromMemory
   if (typeof deps.loadPublishedMcpBaseUrl === "function") {
     try {
-      const published = normalizeDashboardBaseUrl(await deps.loadPublishedMcpBaseUrl())
+      const published = resolveDashboardBaseUrlFromState({ publishedMcpBaseUrl: await deps.loadPublishedMcpBaseUrl() })
       if (published) return published
     } catch {}
   }
@@ -36,13 +33,10 @@ async function resolveDashboardBaseUrl(deps): Promise<string> {
       await deps.ensureMcpServerRunning()
     } catch {}
   }
-  const afterStartup = normalizeDashboardBaseUrl(deps.dashboardBaseUrl)
+  const afterStartup = resolveDashboardBaseUrlFromState({ dashboardBaseUrl: deps.dashboardBaseUrl })
   if (afterStartup) return afterStartup
   if (typeof deps._loadMcpPort === "function") {
-    const port = Number(deps._loadMcpPort())
-    if (Number.isFinite(port) && port > 0) {
-      return `http://127.0.0.1:${port}`
-    }
+    return resolveDashboardBaseUrlFromState({ mcpPort: Number(deps._loadMcpPort()) })
   }
   return ""
 }

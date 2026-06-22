@@ -403,12 +403,13 @@ test("loadOptimizationMode recovers vibelitex from live brain tier after boot", 
   }
 })
 
-test("mergeRemoteControlVector preserves local agent_mode over remote control vector", async () => {
+test("mergeRemoteControlVector allows local override when explicitly requested", async () => {
   const moduleUrl = pathToFileURL(join(process.cwd(), "dist-ts/lib/hooks/chat-transform.js")).href
   const mod = await import(moduleUrl + "?merge-agent=" + Date.now())
   const merged = mod.mergeRemoteControlVector(
     { enforcement_mode: "normal", flow_mode: "normal", tier_bias: "cheap", optimization_mode: "budget" },
-    { agent_mode: "plan", tier_bias: "brain", optimization_mode: "quality", enforcement_mode: "strict", flow_mode: "strict", tdd_mode: "strict", thinking_mode: "full" }
+    { agent_mode: "plan", tier_bias: "brain", optimization_mode: "quality", enforcement_mode: "strict", flow_mode: "strict", tdd_mode: "strict", thinking_mode: "full" },
+    { allowLocalOverride: true }
   )
   assert.equal(merged.agent_mode, "plan")
   assert.equal(merged.tier_bias, "brain")

@@ -91,9 +91,11 @@ export function ensureVibeSkill(dir: string): { created: boolean; path?: string;
   }
 }
 
-export function mergeRemoteControlVector(remoteControlVector: any, localControlVector: any): any {
+export function mergeRemoteControlVector(remoteControlVector: any, localControlVector: any, options: any = {}): any {
+  const merged = { ...remoteControlVector }
+  if (!options?.allowLocalOverride) return merged
   return {
-    ...remoteControlVector,
+    ...merged,
     agent_mode: localControlVector?.agent_mode,
     tier_bias: localControlVector?.tier_bias,
     optimization_mode: localControlVector?.optimization_mode,
