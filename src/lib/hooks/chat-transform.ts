@@ -561,6 +561,7 @@ export function syncControlSettings(cv: any, options: { persistOptimizationMode?
     if (canApplySlot) {
       const existingSlot = loadSessionSlot(sid)
       appliedSlot = slot
+      const _ocModel = slot === "brain" ? TRINITY_BRAIN : slot === "medium" ? TRINITY_MEDIUM : TRINITY_CHEAP
       if (existingSlot !== slot) {
         writeSessionSlot(sid, slot)
         writeIf("active_slot", slot)
@@ -568,12 +569,16 @@ export function syncControlSettings(cv: any, options: { persistOptimizationMode?
         writeIf("vector_changed_at", Date.now())
         if (cv.optimization_mode) writeIf("vector_changed_mode", cv.optimization_mode)
         if (cv.pipeline_root) writeIf("vector_changed_pipeline", JSON.stringify(cv.pipeline_root))
+        if (_ocModel) {
+          writeIf("executed_model", _ocModel)
+          writeIf("selected_model", _ocModel)
+        }
         try {
           const bridge = buildSessionBridge({
             sessionId: sid,
             fromModel: currentModel,
             fromTier: currentTier,
-            toModel: slot === "brain" ? TRINITY_BRAIN : slot === "medium" ? TRINITY_MEDIUM : TRINITY_CHEAP,
+            toModel: _ocModel,
             toTier: slot,
             reason: `control vector selected ${slot}`,
             prompt: userText || latestUserIntent || "",
@@ -594,6 +599,25 @@ export function syncControlSettings(cv: any, options: { persistOptimizationMode?
           }
         } catch (err) {
           console.error("[vibeOS] failed to apply slot:", err?.message || err)
+        }
+      } else if (_ocModel) {
+        const _cfg = globalThis?.client?.config
+        if (_cfg && typeof _cfg.get === "function") {
+          _cfg.get("model").then((liveModel: string) => {
+            if (liveModel && liveModel !== _ocModel) {
+              console.error(`[vibeOS] reconciling drifted model: live=${liveModel} expected=${_ocModel}`)
+              writeIf("executed_model", _ocModel)
+              writeIf("selected_model", _ocModel)
+              try {
+                const applied = applySlot(slot)
+                if (!applied?.ok) {
+                  console.error(`[vibeOS] failed to persist slot ${slot}: ${applied?.reason || "unknown"}`)
+                }
+              } catch (err) {
+                console.error("[vibeOS] failed to apply slot:", err?.message || err)
+              }
+            }
+          }).catch(() => {})
         }
       }
     }
