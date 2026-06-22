@@ -29,7 +29,7 @@ import { memoCompute, nextTurn } from "../turn-memo.js"
 import { evaluateClaimVerification } from "../claim-verification.js"
 import {
   classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget,
-  shortModelName, formatUsd, _refreshModel, applySlot, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN,
+  shortModelName, formatUsd, _refreshModel, applySlot, reconcileSlotModel, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN,
   cacheSavePer1MInputTokens,
   clearWorkspaceFollowupPauseForSession,
 } from "../pricing.js"
@@ -569,10 +569,10 @@ export function syncControlSettings(cv: any, options: { persistOptimizationMode?
         writeIf("vector_changed_at", Date.now())
         if (cv.optimization_mode) writeIf("vector_changed_mode", cv.optimization_mode)
         if (cv.pipeline_root) writeIf("vector_changed_pipeline", JSON.stringify(cv.pipeline_root))
-        if (_ocModel) {
-          writeIf("executed_model", _ocModel)
-          writeIf("selected_model", _ocModel)
-        }
+        // NOTE: executed_model/selected_model are SHADOW_SELECTION_KEYS — derived
+        // from active_slot + trinity[slot].oc at read time and stripped on every
+        // writeSelection. Persisting them here is a no-op that fights the design;
+        // the live model is the source of truth and is set by applySlot() below.
         try {
           const bridge = buildSessionBridge({
             sessionId: sid,
@@ -593,7 +593,7 @@ export function syncControlSettings(cv: any, options: { persistOptimizationMode?
           console.error("[vibeOS] failed to record session bridge:", err?.message || err)
         }
         try {
-          const applied = applySlot(slot)
+          const applied = applySlot(slot, directory)
           if (!applied?.ok) {
             console.error(`[vibeOS] failed to persist slot ${slot}: ${applied?.reason || "unknown"}`)
           }
@@ -601,23 +601,18 @@ export function syncControlSettings(cv: any, options: { persistOptimizationMode?
           console.error("[vibeOS] failed to apply slot:", err?.message || err)
         }
       } else if (_ocModel) {
-        const _cfg = globalThis?.client?.config
-        if (_cfg && typeof _cfg.get === "function") {
-          _cfg.get("model").then((liveModel: string) => {
-            if (liveModel && liveModel !== _ocModel) {
-              console.error(`[vibeOS] reconciling drifted model: live=${liveModel} expected=${_ocModel}`)
-              writeIf("executed_model", _ocModel)
-              writeIf("selected_model", _ocModel)
-              try {
-                const applied = applySlot(slot)
-                if (!applied?.ok) {
-                  console.error(`[vibeOS] failed to persist slot ${slot}: ${applied?.reason || "unknown"}`)
-                }
-              } catch (err) {
-                console.error("[vibeOS] failed to apply slot:", err?.message || err)
-              }
-            }
-          }).catch(() => {})
+        // Slot unchanged this turn, but the live OpenCode model can still drift
+        // (a stale/foreign model left in opencode.json). Reconcile SYNCHRONOUSLY
+        // against the slot's model — the single source of truth — instead of an
+        // async client.config.get().then() that may never resolve headless (which
+        // is why drift previously went uncorrected).
+        try {
+          const r = reconcileSlotModel(slot, directory, _ocModel)
+          if (r.reconciled) {
+            console.error(`[vibeOS] reconciled drifted model: live=${r.from || "∅"} → ${r.to}`)
+          }
+        } catch (err) {
+          console.error("[vibeOS] failed to reconcile slot:", err?.message || err)
         }
       }
     }
