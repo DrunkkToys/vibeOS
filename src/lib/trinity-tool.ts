@@ -47,6 +47,27 @@ async function resolveDashboardBaseUrl(deps): Promise<string> {
   return ""
 }
 
+async function syncNativeOpenCodeModel(deps, modelId: string): Promise<boolean> {
+  const cfg = deps.client?.config
+  if (!cfg || typeof cfg !== "object") return false
+  const setters = [
+    cfg.set,
+    cfg.update,
+    cfg.select,
+  ].filter((fn) => typeof fn === "function")
+  for (const setter of setters) {
+    try {
+      await setter.call(cfg, "model", modelId)
+      return true
+    } catch {}
+    try {
+      await setter.call(cfg, { model: modelId })
+      return true
+    } catch {}
+  }
+  return false
+}
+
 export function createTrinityTool(deps) {
   return {
     description:
@@ -344,6 +365,7 @@ export function createTrinityTool(deps) {
         deps.writeSessionSlot(deps._OC_SID, slot)
         const result = deps.applySlot(slot, deps.directory)
         if (!result.ok) return `\u274c Failed to set slot: ${result.reason}`
+        await syncNativeOpenCodeModel(deps, result.ocModel)
         deps._refreshModel(deps.directory)
         return `\u2705 Switched to ${slot} slot (${result.ocModel}). Active now (no restart needed).`
       }
@@ -373,6 +395,7 @@ export function createTrinityTool(deps) {
           if (!switched?.ok) {
             return `\u274c Failed to switch OpenCode model: ${switched?.reason || "unknown error"}`
           }
+          await syncNativeOpenCodeModel(deps, switched.ocModel)
           if (slot === "vibeultrax") {
             deps._modelLocked = false
             deps._lockedSlot = null
@@ -596,6 +619,7 @@ export function createTrinityTool(deps) {
         const bootstrapSlot = tiers.selection.active_slot || (brain ? "brain" : "medium")
         const booted = typeof deps.applySlot === "function" ? deps.applySlot(bootstrapSlot, deps.directory) : { ok: false, reason: "applySlot unavailable" }
         if (!booted?.ok) return `\u274c Failed to activate native OpenCode model: ${booted?.reason || "unknown error"}`
+        await syncNativeOpenCodeModel(deps, booted.ocModel)
         if (typeof deps._refreshModel === "function") deps._refreshModel(deps.directory)
         const lines = [
           "\u2705 Compatibility profile created.",

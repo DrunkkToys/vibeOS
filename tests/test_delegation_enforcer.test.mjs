@@ -2259,6 +2259,36 @@ test("applySlot: preserves opencode.json all fields (only model changes)", async
   process.env.HOME = origHome
 })
 
+test("trinity mode switch calls the native OpenCode config setter when available", async () => {
+  const { DelegationEnforcer } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-native-switch")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-flash" }))
+  writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
+    trinity: {
+      brain: { oc: "deepseek/deepseek-v4-pro", cc: "deepseek-reasoner" },
+      medium: { oc: "deepseek/deepseek-v4-flash", cc: "haiku" },
+      cheap: { oc: "deepseek/deepseek-chat", cc: "haiku" },
+    },
+    selection: { enabled: true, active_slot: "brain" },
+  }))
+
+  const calls = []
+  const client = {
+    config: {
+      set: async (...args) => {
+        calls.push(args)
+      },
+    },
+  }
+
+  const hooks = await DelegationEnforcer({ client, directory: dir })
+  const result = await hooks.tool.trinity.execute({ action: "mode", slot: "vibeultrax" })
+  assert.match(String(result), /Mode set to VIBEULTRAX/i)
+  assert.ok(calls.length > 0, "native config setter should be called")
+  assert.deepEqual(calls[0], ["model", "deepseek/deepseek-chat"], "native setter receives the live OpenCode model")
+})
+
 // ════════════════════════════════════════════════════════════════════════════
 // NEW: Welcome banner injection via system.transform
 // ════════════════════════════════════════════════════════════════════════════

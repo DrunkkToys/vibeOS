@@ -920,6 +920,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
     isApiFallback: () => isApiFallback(),
     get _apiFallbackSince() { return getApiFallbackSince() },
     reportsIndex: reportsIndexStable, saveReportsIndex: saveReportsIndexStable, backupFile: backupFileStable, writeSessionSlot, writeSessionOptMode, _refreshModel,
+    client,
     setApiToken,
     setApiBootstrapToken,
     ensureBootstrapExchange,
