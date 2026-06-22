@@ -2407,6 +2407,16 @@ function updateSessionOrchestration(sessionId: string, action: string, payload: 
   return mutateSessionOrchestration(sessionId, (current) => applySessionAction(current, action, { ...payload, session_id: sessionId }))
 }
 
+function getLatestCacheEvent(sid: string): { hit: boolean; est_savings_usd: number } {
+  try {
+    const s = readFullState()
+    const hits = s?.sessions?.[sid]?.cache_hits
+    if (!Array.isArray(hits) || hits.length === 0) return { hit: false, est_savings_usd: 0 }
+    const last = hits[hits.length - 1]
+    return { hit: true, est_savings_usd: Number(last?.est_savings_usd || 0) }
+  } catch { return { hit: false, est_savings_usd: 0 } }
+}
+
 // ── Export ───────────────────────────────────────────────────────────
 export {
   // File system constants
@@ -2631,6 +2641,7 @@ export {
   readLedgerTotals,
   reconcileStateFromLedger,
   readLifetimeSavings,
+  getLatestCacheEvent,
   readTelemetrySummary,
   readPackageVersion,
   saveSessionCheckpoint,

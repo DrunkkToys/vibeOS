@@ -7,6 +7,8 @@
  * Reward table:
  *   Quality satisfaction (positive outcome)  +10
  *   Smart saving (delegation/cache hit)      +1 to +3
+ *   Cache hit (per-turn)                    +2
+ *   Cache miss (per-turn)                   -2
  *   Lie: claim-vs-outcome mismatch           -15
  *   Lie: self-contradiction                  -10
  *   Laziness: short output on complex task   -5
@@ -27,6 +29,8 @@ const REWARD_TABLE = {
   lazinessShortOutput: -5,
   lazinessTodos: -15,
   lazinessSkippedDelegation: -5,
+  cacheHitReward: 2,
+  cacheMissPenalty: -2,
 } as const
 
 export interface LazinessInput {
@@ -42,6 +46,8 @@ export interface RewardInput {
   laziness: LazinessInput
   savingsUsd: number
   contradictionDetected?: boolean
+  cacheHit?: boolean
+  cacheMiss?: boolean
 }
 
 export interface RewardBreakdown {
@@ -50,6 +56,7 @@ export interface RewardBreakdown {
   liePenalty: number
   contradictionPenalty: number
   lazinessPenalty: number
+  cachePenalty: number
 }
 
 export interface RewardResult {
@@ -63,6 +70,7 @@ export function computeReward(input: RewardInput): RewardResult {
   let liePenalty = 0
   let contradictionPenalty = 0
   let lazinessPenalty = 0
+  let cachePenalty = 0
 
   if (input.outcome === "positive") {
     qualityReward = REWARD_TABLE.qualityReward
@@ -74,6 +82,12 @@ export function computeReward(input: RewardInput): RewardResult {
     savingBonus = 2
   } else if (input.savingsUsd >= REWARD_TABLE.savingThresholdSmall) {
     savingBonus = 1
+  }
+
+  if (input.cacheHit) {
+    cachePenalty = REWARD_TABLE.cacheHitReward
+  } else if (input.cacheMiss) {
+    cachePenalty = REWARD_TABLE.cacheMissPenalty
   }
 
   if (input.outcome === "negative" && input.claims && input.claims.length > 0) {
@@ -96,10 +110,10 @@ export function computeReward(input: RewardInput): RewardResult {
     }
   }
 
-  const credits = qualityReward + savingBonus + liePenalty + contradictionPenalty + lazinessPenalty
+  const credits = qualityReward + savingBonus + liePenalty + contradictionPenalty + lazinessPenalty + cachePenalty
 
   return {
     credits,
-    breakdown: { qualityReward, savingBonus, liePenalty, contradictionPenalty, lazinessPenalty },
+    breakdown: { qualityReward, savingBonus, liePenalty, contradictionPenalty, lazinessPenalty, cachePenalty },
   }
 }
