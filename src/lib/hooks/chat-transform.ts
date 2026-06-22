@@ -555,8 +555,10 @@ export function syncControlSettings(cv: any, options: { persistOptimizationMode?
     const slot = cv.tier_bias
     const slotLocked = currentSel.slot_locked === true
     const canApplySlot = slot && slot !== "auto" && (authoritative || (!slotLocked && !_modelLocked))
+    let appliedSlot = currentSel.active_slot || null
     if (canApplySlot) {
       const existingSlot = loadSessionSlot(sid)
+      appliedSlot = slot
       if (existingSlot !== slot) {
         writeSessionSlot(sid, slot)
         writeIf("active_slot", slot)
@@ -564,24 +566,32 @@ export function syncControlSettings(cv: any, options: { persistOptimizationMode?
         writeIf("vector_changed_at", Date.now())
         if (cv.optimization_mode) writeIf("vector_changed_mode", cv.optimization_mode)
         if (cv.pipeline_root) writeIf("vector_changed_pipeline", JSON.stringify(cv.pipeline_root))
-        const bridge = buildSessionBridge({
-          sessionId: sid,
-          fromModel: currentModel,
-          fromTier: currentTier,
-          toModel: slot === "brain" ? TRINITY_BRAIN : slot === "medium" ? TRINITY_MEDIUM : TRINITY_CHEAP,
-          toTier: slot,
-          reason: `control vector selected ${slot}`,
-          prompt: userText || latestUserIntent || "",
-          userText: latestUserIntent || userText || "",
-          activePipeline: cv.pipeline_root || [],
-          projectFingerprint: currentProjectFingerprint,
-          projectName: currentProjectName || "",
-          sourceStrategy: cv.optimization_mode || "auto",
-        })
-        recordSessionBridge(bridge)
-        const applied = applySlot(slot)
-        if (!applied?.ok) {
-          console.error(`[vibeOS] failed to persist slot ${slot}: ${applied?.reason || "unknown"}`)
+        try {
+          const bridge = buildSessionBridge({
+            sessionId: sid,
+            fromModel: currentModel,
+            fromTier: currentTier,
+            toModel: slot === "brain" ? TRINITY_BRAIN : slot === "medium" ? TRINITY_MEDIUM : TRINITY_CHEAP,
+            toTier: slot,
+            reason: `control vector selected ${slot}`,
+            prompt: userText || latestUserIntent || "",
+            userText: latestUserIntent || userText || "",
+            activePipeline: cv.pipeline_root || [],
+            projectFingerprint: currentProjectFingerprint,
+            projectName: currentProjectName || "",
+            sourceStrategy: cv.optimization_mode || "auto",
+          })
+          recordSessionBridge(bridge)
+        } catch (err) {
+          console.error("[vibeOS] failed to record session bridge:", err?.message || err)
+        }
+        try {
+          const applied = applySlot(slot)
+          if (!applied?.ok) {
+            console.error(`[vibeOS] failed to persist slot ${slot}: ${applied?.reason || "unknown"}`)
+          }
+        } catch (err) {
+          console.error("[vibeOS] failed to apply slot:", err?.message || err)
         }
       }
     }
@@ -617,7 +627,7 @@ export function syncControlSettings(cv: any, options: { persistOptimizationMode?
       }
     }
     return {
-      applied_slot: canApplySlot ? slot : currentSel.active_slot || null,
+      applied_slot: canApplySlot ? appliedSlot : currentSel.active_slot || null,
       applied_mode: cv.optimization_mode || null,
       applied_pipeline: Array.isArray(cv.pipeline_root) ? cv.pipeline_root : [],
       authoritative,
@@ -626,7 +636,21 @@ export function syncControlSettings(cv: any, options: { persistOptimizationMode?
       tier_bias: cv.tier_bias || null,
       pipeline_root: Array.isArray(cv.pipeline_root) ? cv.pipeline_root : [],
     }
-  } catch (err) { console.error("[vibeOS] syncControlSettings failed:", err?.message || err); return null }
+  } catch (err) {
+    console.error("[vibeOS] syncControlSettings failed:", err?.message || err)
+    const fallbackSel = loadSelection()
+    const fallbackSlot = fallbackSel?.active_slot || cv?.tier_bias || null
+    return {
+      applied_slot: fallbackSlot,
+      applied_mode: cv?.optimization_mode || null,
+      applied_pipeline: Array.isArray(cv?.pipeline_root) ? cv.pipeline_root : [],
+      authoritative,
+      decision: backendDecision || null,
+      optimization_mode: cv?.optimization_mode || null,
+      tier_bias: cv?.tier_bias || null,
+      pipeline_root: Array.isArray(cv?.pipeline_root) ? cv.pipeline_root : [],
+    }
+  }
 }
 
 function pushSystem(output: any, text: string | null): void {
