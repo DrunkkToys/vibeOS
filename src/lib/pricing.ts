@@ -94,6 +94,13 @@ export function classify(m) {
   return "budget"
 }
 
+export function resolveEffectiveTier(modelId, activeSlot = "") {
+  const slot = String(activeSlot || loadSel()?.active_slot || "").trim().toLowerCase()
+  const tier = classify(modelId)
+  if (slot === "brain" && modelId && !isModelFree(modelId) && tier !== "high") return "high"
+  return tier
+}
+
 // Map a model ID to a human-readable label with tier icon.
 // Provider prefix is stripped before matching (everything before last "/").
 export function modelToSlotLabel(modelId: string, effectiveTier?: string) {
@@ -166,7 +173,10 @@ export function resolveCurrentExecution({
 } = {}) {
   const slot = String(activeSlot || "").trim()
   const slotModel = slot && tiersData?.trinity?.[slot]?.oc ? tiersData.trinity[slot].oc : ""
-  const resolvedModel = slotModel || String(liveModel || "").trim() || String(currentModel || "").trim() || ""
+  const resolvedModel = String(liveModel || "").trim()
+    || slotModel
+    || String(currentModel || "").trim()
+    || ""
   const execution = resolveExecutionIdentity(resolvedModel, directory)
   return {
     slot,
@@ -185,7 +195,9 @@ export function resolveTrinityDisplayModel(directory = "", activeSlot = "", live
     : slot === "medium" ? (TRINITY_MEDIUM || "")
       : slot === "cheap" ? (TRINITY_CHEAP || "")
         : ""
-  const raw = [slotModel, liveModel, currentModelId].map((value) => String(value || "").trim()).find(Boolean) || ""
+  const raw = [slotModel, slot === "cheap" ? "opencode/big-pickle" : "", currentModelId, liveModel]
+    .map((value) => String(value || "").trim())
+    .find(Boolean) || ""
   return resolveDisplayModelId(raw, directory) || raw
 }
 
@@ -1124,80 +1136,18 @@ export function _refreshModel(directory) {
     if (!sel.enabled) return
     const tiersData = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
     _setTrinitySlotsFromTiers(tiersData)
-    const slotOrder = getTrinitySlotOrder(tiersData)
-    const activeSlot = slotOrder.includes(sel.active_slot) ? sel.active_slot : (slotOrder[0] || "brain")
-    const slotOcModel = String(tiersData?.trinity?.[activeSlot]?.oc || "").trim()
     const cfgModel = readConfig(directory) || readConfig(getOpenCodeHome()) || process?.env?.OPENCODE_MODEL || ""
-    // Skip placeholder models (e.g. "provider/high-tier-model") — use auto-detected model instead
-    if (slotOcModel && PLACEHOLDER_RE.test(slotOcModel)) {
-      if (DEBUG_INTERNALS) console.error(`[vibeOS] placeholder model detected in ${activeSlot} slot — skipping, will auto-detect`)
-    }
-    if (slotOcModel && !PLACEHOLDER_RE.test(slotOcModel)) {
-      const resolvedModel = slotOcModel
-      if (resolvedModel) {
-        // Always derive tier from the active slot so footer/env reflect slot changes,
-        // even when multiple slots point to the same model ID or a free model rotates.
-        const nextTier = activeSlot === (slotOrder[0] || "brain")
-          ? "high"
-          : activeSlot === (slotOrder[1] || "medium")
-            ? "mid"
-            : activeSlot === (slotOrder[2] || "cheap")
-              ? "budget"
-              : classify(resolvedModel)
-        const modelChanged = currentModel !== resolvedModel
-        const tierChanged = currentTier !== nextTier
-        if (modelChanged || tierChanged) {
-          const oldModel = currentModel
-          const oldTier = currentTier
-          setCurrentModel(resolvedModel)
-          setCurrentTier(nextTier)
-          if (DEBUG_INTERNALS) console.error(`[vibeOS] model refresh: ${oldModel}(${oldTier}) → ${currentModel}(${currentTier}) (slot=${activeSlot})`)
-        }
+    if (cfgModel) {
+      const nextTier = resolveEffectiveTier(cfgModel, sel?.active_slot || tiersData?.selection?.active_slot || "")
+      if (currentModel !== cfgModel || currentTier !== nextTier) {
+        const oldModel = currentModel
+        const oldTier = currentTier
+        setCurrentModel(cfgModel)
+        setCurrentTier(nextTier)
+        if (DEBUG_INTERNALS) console.error(`[vibeOS] live model refresh: ${oldModel}(${oldTier}) → ${currentModel}(${currentTier})`)
       }
-    }
-    // If no model from tiers and no existing currentModel, try to auto-detect
-    if (!currentModel) {
-      const detected = cfgModel
-      if (detected) {
-        setCurrentModel(detected)
-        setCurrentTier(classify(detected))
-        if (DEBUG_INTERNALS) console.error(`[vibeOS] auto-detected model: ${currentModel} (tier=${currentTier})`)
-      }
-    }
-    // Reconcile with the directory's opencode.json config only when the
-    // selected trinity slot is missing or placeholder-like. Existing trinity
-    // slots are treated as authoritative so user-defined brain/medium/cheap
-    // choices survive restarts and reinstall/repair cycles.
-    if (!(_modelLocked || sel.slot_locked === true) && !slotOcModel) {
-      const activeIsManual = tiersData?.trinity?.[activeSlot]?.manual === true
-      const currentSlotModel = activeIsManual ? "" : slotOcModel
-      if (!currentSlotModel && !currentModel) {
-        const cfgModel = readConfig(directory) || readConfig(getOpenCodeHome()) || ""
-        if (cfgModel && cfgModel.includes("/") && cfgModel !== currentModel) {
-          const oldModel = currentModel
-          const oldTier = currentTier
-          setCurrentModel(cfgModel)
-          setCurrentTier(classify(cfgModel))
-          if (DEBUG_INTERNALS) console.error(`[vibeOS] model refresh (config fallback): ${oldModel}(${oldTier}) → ${currentModel}(${currentTier})`)
-          try {
-            if (existsSync(TIERS_FILE)) {
-              withFileLock(TIERS_FILE, () => {
-                const t = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
-                for (const s of getTrinitySlotOrder(t)) {
-                  if (t?.trinity?.[s]?.oc === cfgModel) {
-                    t.selection.active_slot = s
-                    const _tmp = TIERS_FILE + ".tmp." + Date.now() + "." + Math.random().toString(36).slice(2, 8)
-                    writeFileSync(_tmp, JSON.stringify(t, null, 2) + "\n", "utf-8")
-                    renameSync(_tmp, TIERS_FILE)
-                    if (DEBUG_INTERNALS) console.error(`[vibeOS] model refresh (config fallback): synced active_slot → ${s}`)
-                    break
-                  }
-                }
-              })
-            }
-          } catch {}
-        }
-      }
+    } else if (currentModel && !currentTier) {
+      setCurrentTier(classify(currentModel))
     }
   } catch {}
 }

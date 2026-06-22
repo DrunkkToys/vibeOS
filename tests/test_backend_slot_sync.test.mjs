@@ -248,9 +248,9 @@ test("footer matches the applied live slot from backend state", async () => {
   }))
 
   const { _appendFooter } = await import("../src/lib/hooks/footer.js?footer-slot-match=" + Date.now())
-  const message = { text: "Backend-authoritative slot sync test — verifying footer shows the cheap slot that was applied." }
+  const message = { text: "Backend-authoritative slot sync test — verifying footer shows the live OpenCode model, not the cheap slot label." }
   await _appendFooter({ args: { model: "deepseek/v4-pro" } }, message)
-  assert.ok(message.text.includes("cheap"), "footer should display the applied cheap slot, not recompute from local heuristics: " + message.text.slice(-200))
+  assert.ok(message.text.includes("V4 Pro"), "footer should display the live OpenCode model label, not the applied slot: " + message.text.slice(-200))
 })
 
 test("live API connection not blocked by stale local disable state", async () => {

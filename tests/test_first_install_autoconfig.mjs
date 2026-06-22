@@ -228,15 +228,15 @@ test("regression: _appendFooter strips existing vibeOS footer to prevent double 
   assert.equal(matches.length, 1, "must NOT contain duplicate VIBE footers")
 }))
 
-// ── Regression: footer shows slot model not stale currentModel ──
-test("regression: footer shows slot model not stale currentModel", { concurrency: false }, async () => runSerialized(async () => {
+// ── Regression: shell env follows the live OpenCode model, not stale currentModel ──
+test("regression: shell env follows the live OpenCode model, not stale currentModel", { concurrency: false }, async () => runSerialized(async () => {
   const { DelegationEnforcer } = await loadPlugin()
   const { setCurrentModel } = await import("../src/lib/state.js?t=" + Date.now())
   setCurrentModel("deepseek/deepseek-chat")
   const hooks = await DelegationEnforcer({ client: {}, directory: join(sandbox, "my-test-project") })
   const envOut = { env: {} }
   await hooks["shell.env"]({}, envOut)
-  assert.equal(envOut.env.OPENCODE_MODEL, "deepseek/deepseek-v4-pro", "model must be slot model, not stale")
+  assert.equal(envOut.env.OPENCODE_MODEL, "deepseek/deepseek-v4-pro", "model must match the live OpenCode config, not stale currentModel")
   assert.equal(envOut.env.OPENCODE_MODEL_TIER, "high", "tier must stay high")
 }))
 
