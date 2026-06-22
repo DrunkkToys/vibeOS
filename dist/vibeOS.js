@@ -53,6 +53,7 @@ function loadSelectionImpl() {
     return {
       enabled: j?.selection?.enabled !== false,
       active_slot: j?.selection?.active_slot || null,
+      vector_changed_slot: j?.selection?.vector_changed_slot || null,
       slot_locked: j?.selection?.slot_locked === true,
       active_pipeline: Array.isArray(activePipeline) ? activePipeline : null,
       optimization_mode: j?.selection?.optimization_mode || null,
@@ -5818,7 +5819,7 @@ var init_vibeultrax = __esm({
 });
 
 // src/index.ts
-import { readFileSync as readFileSync21, writeFileSync as writeFileSync18, existsSync as existsSync21, mkdirSync as mkdirSync16, copyFileSync as copyFileSync3, renameSync as renameSync6, statSync as statSync9 } from "node:fs";
+import { readFileSync as readFileSync20, writeFileSync as writeFileSync18, existsSync as existsSync21, mkdirSync as mkdirSync16, copyFileSync as copyFileSync3, renameSync as renameSync6, statSync as statSync9 } from "node:fs";
 import { join as join22, dirname as dirname14, basename as basename5 } from "node:path";
 
 // src/vibeOS-lib/flow-enforcer.js
@@ -7499,13 +7500,6 @@ function cacheSavePer1MInputTokens(model) {
     return Math.round(turnCost * AVG_TOKENS_PER_TURN * 100) / 100;
   }
   return CACHE_SAVED_PER_1M_INPUT_TOKENS;
-}
-function roundUsd2(v, precision = 6) {
-  const n = Number(v ?? 0);
-  if (!Number.isFinite(n))
-    return 0;
-  const f = 10 ** precision;
-  return Math.round(n * f) / f;
 }
 function formatUsd(v) {
   const n = Number(v ?? 0);
@@ -10558,6 +10552,21 @@ function _parseMetrics(v) {
   }
   return result;
 }
+function _normalizeReportMetrics(metrics) {
+  const out = { ...metrics || {} };
+  const sessionCost = Number(out.sessionCost ?? out.session_cost ?? out.cost_usd ?? out.session_cost_usd ?? NaN);
+  if (Number.isFinite(sessionCost) && typeof out.sessionCost !== "number")
+    out.sessionCost = sessionCost;
+  const taskDelegationCount = Number(out.taskDelegationCount ?? out.tasksDelegated ?? out.sesTaskDelegations ?? out.task_delegation_count ?? NaN);
+  if (Number.isFinite(taskDelegationCount) && typeof out.taskDelegationCount !== "number")
+    out.taskDelegationCount = taskDelegationCount;
+  if (Number.isFinite(taskDelegationCount) && typeof out.tasksDelegated !== "number")
+    out.tasksDelegated = taskDelegationCount;
+  const delegationSavingsUsd = Number(out.delegationSavingsUsd ?? out.delegation_savings_usd ?? out.sesTasks ?? out.total_savings_usd ?? NaN);
+  if (Number.isFinite(delegationSavingsUsd) && typeof out.delegationSavingsUsd !== "number")
+    out.delegationSavingsUsd = delegationSavingsUsd;
+  return out;
+}
 function _textHasProductionClaim(text) {
   const lower = String(text || "").toLowerCase();
   return /\bproduction[-\s]?ready\b/.test(lower) || /\bread(y|ied) for production\b/.test(lower) || /\bworked in production\b/.test(lower) || /\bworks in production\b/.test(lower) || /\bshipped to production\b/.test(lower) || /\bdeployed to production\b/.test(lower) || /\bproduction claim\b/.test(lower) || /\bproduction proof\b/.test(lower) || /\bproduction verified\b/.test(lower) || /\bin production\b/.test(lower) && /\b(worked|works|verified|proven|proved|shipped|deployed|confirmed|validated|fixed|passed)\b/.test(lower);
@@ -10590,7 +10599,17 @@ function verifyProductionClaim({ summary = "", narrative = "", tags = [], metric
 }
 function saveReport({ type = "manual", summary = "", findings = null, metrics = null, narrative = "", tags = [], fingerprint = null, status = "pending", task_description = "", outcome_verified = false } = {}) {
   const parsedFindings = _parseFindings(findings);
-  const parsedMetrics = _parseMetrics(metrics);
+  const parsedMetrics = _normalizeReportMetrics(_parseMetrics(metrics));
+  if (type === "session") {
+    if (typeof parsedMetrics.sessionCost !== "number")
+      parsedMetrics.sessionCost = 0;
+    if (typeof parsedMetrics.taskDelegationCount !== "number")
+      parsedMetrics.taskDelegationCount = 0;
+    if (typeof parsedMetrics.tasksDelegated !== "number")
+      parsedMetrics.tasksDelegated = parsedMetrics.taskDelegationCount;
+    if (typeof parsedMetrics.delegationSavingsUsd !== "number")
+      parsedMetrics.delegationSavingsUsd = 0;
+  }
   const metricsObject = parsedMetrics && typeof parsedMetrics === "object" && !Array.isArray(parsedMetrics) ? parsedMetrics : {};
   const metricsSessionId = typeof metricsObject.sessionId === "string" && metricsObject.sessionId.trim() ? metricsObject.sessionId.trim() : "";
   const metricsProjectName = typeof metricsObject.projectName === "string" && metricsObject.projectName.trim() ? metricsObject.projectName.trim() : "";
@@ -12873,7 +12892,7 @@ async function probeModel(modelId, auth, providers = null) {
 }
 
 // src/lib/hooks/footer.js
-import { readFileSync as readFileSync17, appendFileSync as appendFileSync5, mkdirSync as mkdirSync13 } from "node:fs";
+import { appendFileSync as appendFileSync5, mkdirSync as mkdirSync13 } from "node:fs";
 import { join as join19 } from "node:path";
 
 // src/lib/hooks/chat-transform.js
@@ -15258,56 +15277,13 @@ async function apiAutoSelectMode(regime, stress) {
   const fallback2 = regimeToMode(regime, stress);
   return fallback2 || "balanced";
 }
-var STATE_FILE2 = join19(getVibeOSHome(), "delegation-state.json");
-var SAVINGS_LEDGER_FILE2 = join19(getVibeOSHome(), "savings-ledger.jsonl");
 var _prevOutputText = "";
 var _autoReportCount = 0;
 var textCompletePainted = /* @__PURE__ */ new Set();
 var _lastStrippedText = "";
-function loadSelection2() {
-  try {
-    const raw = readFileSync17(join19(getVibeOSHome(), "model-tiers.json"), "utf-8");
-    return safeJsonParse2(raw)?.selection || { active_slot: "medium", enabled: true, delegation_enforce: true, flow_enabled: true, flow_enforce: true, tdd_enforce: false, tdd_strict: false };
-  } catch {
-    return { active_slot: "medium", enabled: true, delegation_enforce: true, flow_enabled: true, flow_enforce: true, tdd_enforce: false, tdd_strict: false };
-  }
-}
 function isGreetingLike(text) {
   const value = String(text || "").trim().toLowerCase();
   return value === "hi" || value === "hello" || value === "hey" || value === "yo" || /^hi[!.?\s]*$/.test(value) || /^hello[!.?\s]*$/.test(value) || /^hey[!.?\s]*$/.test(value);
-}
-function readLifetimeSavings2() {
-  try {
-    reconcileStateFromLedger();
-    const raw = readFileSync17(STATE_FILE2, "utf-8");
-    const state = safeJsonParse2(raw);
-    const ses = state?.sessions?.[getSessionId()] || {};
-    return {
-      ltTasks: roundUsd2(state?.lifetime?.total_savings_usd || 0),
-      ltCache: roundUsd2(state?.lifetime?.cache_savings_usd || 0),
-      ltCost: roundUsd2(state?.lifetime?.total_cost_usd || 0),
-      count: state?.lifetime?.warn_count || 0,
-      sesTasks: roundUsd2(ses?.total_savings_usd || 0),
-      sesCache: roundUsd2(ses?.cache_savings_usd || 0),
-      sesTaskDelegations: ses?.task_delegations_count || 0,
-      sesDuration: ses?.duration_seconds || 0,
-      sesRatePerHour: (() => {
-        const sesTotal = Number(ses?.total_savings_usd || 0) + Number(ses?.cache_savings_usd || 0);
-        if (!sesTotal)
-          return 0;
-        const dur = Number(ses?.duration_seconds || 0);
-        if (dur <= 0)
-          return 0;
-        return Number((sesTotal / (dur / 3600)).toFixed(4));
-      })(),
-      sesTrend: ses?.trend || "",
-      sesToolBreakdown: ses?.tool_breakdown || {},
-      sesModelTurns: ses?.model_turns || {},
-      quality_avg: state?.lifetime?.quality_total_count > 0 ? Math.round((state?.lifetime?.quality_total_score || 0) / state?.lifetime?.quality_total_count) : 0
-    };
-  } catch {
-    return { ltTasks: 0, ltCache: 0, ltCost: 0, count: 0, sesTasks: 0, sesCache: 0, sesTaskDelegations: 0, sesDuration: 0, sesRatePerHour: 0, sesTrend: "", sesToolBreakdown: {}, sesModelTurns: {}, quality_avg: 0 };
-  }
 }
 function getSessionId() {
   return getCurrentSessionId();
@@ -15436,11 +15412,11 @@ async function _appendFooter(input, output, directory3) {
     const text = _extractText2(output);
     if (!text)
       return;
-    const { ltTasks, ltCache, ltCost, count, sesTasks, sesEdit, sesCredit, sesC7, sesQuota, sesCache, sesTaskDelegations, sesDuration, sesRatePerHour, sesTrend, sesToolBreakdown, sesModelTurns, quality_avg } = readLifetimeSavings2();
+    const { ltTasks, ltCache, ltCost, count, sesTasks, sesEdit, sesCredit, sesC7, sesQuota, sesTaskDelegations, sesDuration, sesRatePerHour, sesTrend, sesToolBreakdown, sesModelTurns, quality_avg } = readLifetimeSavings();
     const { stableStreak, problemStreak } = readRewardSignals();
     const sid = getSessionId();
     const sessionSlot = loadBlackboxState()?.sessions?.[sid]?.active_slot || loadSessionSlot(sid);
-    const slot = sessionSlot || loadSelection2().active_slot || "brain";
+    const slot = sessionSlot || loadSelection().active_slot || "brain";
     const brainModel = slot === "brain" ? TRINITY_BRAIN || currentModel : slot === "medium" ? TRINITY_MEDIUM || currentModel : TRINITY_CHEAP || currentModel || "";
     let liveModel = liveModelSetting;
     if (!liveModel) {
@@ -15489,7 +15465,7 @@ async function _appendFooter(input, output, directory3) {
             // Backward compatibility (legacy field historically misnamed)
             tasksDelegated: sesTaskDelegations,
             model: resolvedModel || currentModel,
-            slot: loadSelection2().active_slot || "unknown",
+            slot: loadSelection().active_slot || "unknown",
             editSavings: sesEdit,
             creditSavings: sesCredit,
             context7Savings: sesC7,
@@ -15501,7 +15477,7 @@ async function _appendFooter(input, output, directory3) {
         footerDebug("[vibeOS] auto-report:", e.message);
       }
     }
-    const selNowFooter = loadSelection2();
+    const selNowFooter = loadSelection();
     const normalizedIntent = classifyTurnSimple2(latestUserIntent || "");
     const currentSubRegime = _latestBlackboxState?.sub_regime || normalizedIntent;
     const bbMode = resolveEnforcementMode();
@@ -15704,7 +15680,7 @@ ${vibeLine} \u2014`);
 
 // src/lib/hooks/tool-execute.js
 init_state();
-import { readFileSync as readFileSync19, writeFileSync as writeFileSync17, appendFileSync as appendFileSync7, existsSync as existsSync19, mkdirSync as mkdirSync15, copyFileSync as copyFileSync2 } from "node:fs";
+import { readFileSync as readFileSync18, writeFileSync as writeFileSync17, appendFileSync as appendFileSync7, existsSync as existsSync19, mkdirSync as mkdirSync15, copyFileSync as copyFileSync2 } from "node:fs";
 import { join as join21, dirname as dirname13, basename as basename4 } from "node:path";
 import { createHash as createHash6 } from "node:crypto";
 init_selection_manager();
@@ -15777,7 +15753,7 @@ init_smart_cache();
 
 // src/lib/tdd-enforcer.js
 init_state();
-import { readFileSync as readFileSync18, writeFileSync as writeFileSync16, appendFileSync as appendFileSync6, existsSync as existsSync18, mkdirSync as mkdirSync14, statSync as statSync8, readdirSync as readdirSync4, rmSync as rmSync6, openSync as openSync3 } from "node:fs";
+import { readFileSync as readFileSync17, writeFileSync as writeFileSync16, appendFileSync as appendFileSync6, existsSync as existsSync18, mkdirSync as mkdirSync14, statSync as statSync8, readdirSync as readdirSync4, rmSync as rmSync6, openSync as openSync3 } from "node:fs";
 import { join as join20, dirname as dirname12 } from "node:path";
 import { createHash as createHash5 } from "node:crypto";
 
@@ -16919,7 +16895,7 @@ function _detectTestFramework() {
     const root = directory || process.cwd();
     const pkgPath = join20(root, "package.json");
     if (existsSync18(pkgPath)) {
-      const pkg = JSON.parse(readFileSync18(pkgPath, "utf-8"));
+      const pkg = JSON.parse(readFileSync17(pkgPath, "utf-8"));
       const testScript = String(pkg?.scripts?.test || "");
       const deps = { ...pkg?.devDependencies, ...pkg?.dependencies };
       if (testScript.includes("vitest") || deps["vitest"]) {
@@ -16944,7 +16920,7 @@ function _detectTestFramework() {
           continue;
         const files = readdirSync4(dirPath).filter((f) => /\.test\./.test(f) || /\.spec\./.test(f));
         if (files.length > 0) {
-          const content = readFileSync18(join20(dirPath, files[0]), "utf-8");
+          const content = readFileSync17(join20(dirPath, files[0]), "utf-8");
           if (/from\s+['"]node:test['"]/.test(content)) {
             framework = "node-test";
             testExt = files[0].split(".").pop();
@@ -17017,7 +16993,7 @@ function _isInCooldown(testPath) {
     if (!existsSync18(ENFORCEMENT_COOLDOWN_FILE2))
       return false;
     const hash = createHash5("sha256").update(testPath).digest("hex").slice(0, 16);
-    const lines = readFileSync18(ENFORCEMENT_COOLDOWN_FILE2, "utf-8").trim().split("\n").filter(Boolean);
+    const lines = readFileSync17(ENFORCEMENT_COOLDOWN_FILE2, "utf-8").trim().split("\n").filter(Boolean);
     const now = Date.now();
     for (const line of lines) {
       try {
@@ -17038,7 +17014,7 @@ function _recordCooldown(testPath) {
     const hash = createHash5("sha256").update(testPath).digest("hex").slice(0, 16);
     const entry = JSON.stringify({ h: hash, ts: Date.now() }) + "\n";
     appendFileSync6(ENFORCEMENT_COOLDOWN_FILE2, entry);
-    const lines = readFileSync18(ENFORCEMENT_COOLDOWN_FILE2, "utf-8").trim().split("\n").filter(Boolean);
+    const lines = readFileSync17(ENFORCEMENT_COOLDOWN_FILE2, "utf-8").trim().split("\n").filter(Boolean);
     if (lines.length > 500) {
       writeFileSync16(ENFORCEMENT_COOLDOWN_FILE2, lines.slice(-200).join("\n") + "\n");
     }
@@ -17109,7 +17085,7 @@ function enforceTestFile(filePath) {
   let sourceContent = "";
   try {
     if (existsSync18(filePath)) {
-      sourceContent = readFileSync18(filePath, "utf-8");
+      sourceContent = readFileSync17(filePath, "utf-8");
     }
   } catch {
   }
@@ -17982,7 +17958,7 @@ var onToolExecuteAfter = async (input, output) => {
   let _footerText = "";
   try {
     if (t !== "task") {
-      const { ltTasks, ltCache, ltCost, sesTrend } = readLifetimeSavings();
+      const { ltTasks, ltCache, ltCost, sesTrend, sesTaskDelegations } = readLifetimeSavings();
       const ltTotal = ltTasks + ltCache;
       const selNow = loadSelection();
       let liveModel = "";
@@ -18043,7 +18019,16 @@ var onToolExecuteAfter = async (input, output) => {
             saveReport({
               type: "session",
               summary: `Session cost: $${formatUsd(ltCost)} | cache saved: $${formatUsd(ltCache)} | delegation saved: $${formatUsd(ltTasks)}`,
-              metrics: { sessionId: _OC_SID, sessionCost: ltCost, cacheSavings: ltCache, delegationSavingsUsd: ltTasks, model: resolvedModel || currentModel, slot: selNow.active_slot || "unknown" },
+              metrics: {
+                sessionId: _OC_SID,
+                sessionCost: ltCost,
+                cacheSavings: ltCache,
+                delegationSavingsUsd: ltTasks,
+                taskDelegationCount: sesTaskDelegations,
+                tasksDelegated: sesTaskDelegations,
+                model: resolvedModel || currentModel,
+                slot: selNow.active_slot || "unknown"
+              },
               tags: ["auto", "cost"]
             });
           } catch (reportErr) {
@@ -18065,7 +18050,7 @@ var onToolExecuteAfter = async (input, output) => {
         const flowTodoFilePath = join21(getVibeOSHome(), ".flow-todo-queue.jsonl");
         let todoLines = [];
         if (existsSync19(flowTodoFilePath)) {
-          const raw2 = readFileSync19(flowTodoFilePath, "utf-8").trim();
+          const raw2 = readFileSync18(flowTodoFilePath, "utf-8").trim();
           todoLines = raw2 ? raw2.split("\n").filter(Boolean) : [];
         }
         let todoList = todoLines.map((l, i) => {
@@ -18374,7 +18359,7 @@ ${pendingUiNote}`;
 
 // src/lib/hooks/session-compact.js
 init_state();
-import { readFileSync as readFileSync20, existsSync as existsSync20 } from "node:fs";
+import { readFileSync as readFileSync19, existsSync as existsSync20 } from "node:fs";
 var onSessionCompacting = async (_input, output) => {
   if (!loadSelection().enabled)
     return;
@@ -18385,7 +18370,7 @@ var onSessionCompacting = async (_input, output) => {
     let recent = "";
     if (existsSync20(indexPath)) {
       try {
-        const lines = readFileSync20(indexPath, "utf-8").trim().split("\n").slice(-30);
+        const lines = readFileSync19(indexPath, "utf-8").trim().split("\n").slice(-30);
         recent = lines.map((l) => {
           try {
             return JSON.parse(l);
@@ -18484,7 +18469,7 @@ function readPublishedMcpRuntime() {
   try {
     if (!existsSync21(getMcpRuntimeFile()))
       return null;
-    const runtime = safeJsonParse2(readFileSync21(getMcpRuntimeFile(), "utf-8"));
+    const runtime = safeJsonParse2(readFileSync20(getMcpRuntimeFile(), "utf-8"));
     const baseUrl = String(runtime?.baseUrl || "").trim().replace(/\/$/, "");
     const port = Number(runtime?.port || 0);
     if (!baseUrl && !(Number.isFinite(port) && port > 0))
@@ -18587,9 +18572,9 @@ function _readOpenCodeConfigObject(dir) {
   const jsonPath = join22(dir, "opencode.json");
   const jsoncPath = join22(dir, "opencode.jsonc");
   if (existsSync21(jsonPath))
-    return safeJsonParse2(readFileSync21(jsonPath, "utf-8"));
+    return safeJsonParse2(readFileSync20(jsonPath, "utf-8"));
   if (existsSync21(jsoncPath))
-    return _parseJsonc(readFileSync21(jsoncPath, "utf-8"));
+    return _parseJsonc(readFileSync20(jsoncPath, "utf-8"));
   return {};
 }
 function _loadOpenCodeProviders(directory3) {
@@ -18643,7 +18628,7 @@ function _loadActiveJobForProject(directory3, fp3 = "") {
       const activeJobsPath = join22(String(base), "active-jobs.json");
       if (!existsSync21(activeJobsPath))
         continue;
-      const jobs = safeJsonParse2(readFileSync21(activeJobsPath, "utf-8")) || {};
+      const jobs = safeJsonParse2(readFileSync20(activeJobsPath, "utf-8")) || {};
       const job = fp3 ? jobs?.[fp3] : null;
       if (job && typeof job === "object")
         return job;
@@ -18692,7 +18677,7 @@ async function _seedOrRepairModelTiers(directory3) {
         _handleStateCorruption(TIERS_FILE3);
         return false;
       }
-      existing = safeJsonParse2(readFileSync21(TIERS_FILE3, "utf-8")) || {};
+      existing = safeJsonParse2(readFileSync20(TIERS_FILE3, "utf-8")) || {};
     } catch {
       existing = null;
     }
@@ -18781,7 +18766,7 @@ function _modelTier2(id2) {
 }
 function readPackageVersion() {
   try {
-    const pkg = safeJsonParse2(readFileSync21(join22(process.cwd(), "package.json"), "utf-8"));
+    const pkg = safeJsonParse2(readFileSync20(join22(process.cwd(), "package.json"), "utf-8"));
     return String(pkg?.version || "");
   } catch {
     return "";
@@ -18800,7 +18785,7 @@ function loadMcpPort() {
     return runtime.port;
   try {
     if (existsSync21(getTiersFile())) {
-      const tiers = safeJsonParse2(readFileSync21(getTiersFile(), "utf-8"));
+      const tiers = safeJsonParse2(readFileSync20(getTiersFile(), "utf-8"));
       const cfg = tiers?.selection?.mcp_port;
       if (cfg === false || cfg === "disabled" || cfg === 0)
         return 0;
@@ -18816,7 +18801,7 @@ function persistMcpPort(port) {
   try {
     if (!existsSync21(getTiersFile()))
       return;
-    const tiers = safeJsonParse2(readFileSync21(getTiersFile(), "utf-8"));
+    const tiers = safeJsonParse2(readFileSync20(getTiersFile(), "utf-8"));
     tiers.selection ??= {};
     if (Number(tiers.selection.mcp_port) === Number(port) && !("mcp_port" in tiers))
       return;
@@ -18880,7 +18865,7 @@ async function ensureMcpServerRunning() {
               selection: loadSelection(),
               tiersData: (() => {
                 try {
-                  return safeJsonParse2(readFileSync21(getTiersFile(), "utf-8"));
+                  return safeJsonParse2(readFileSync20(getTiersFile(), "utf-8"));
                 } catch {
                   return {};
                 }
@@ -18896,7 +18881,7 @@ async function ensureMcpServerRunning() {
               optimizationMode: loadSelection()?.optimization_mode || null,
               tiers: (() => {
                 try {
-                  return safeJsonParse2(readFileSync21(getTiersFile(), "utf-8"))?.trinity;
+                  return safeJsonParse2(readFileSync20(getTiersFile(), "utf-8"))?.trinity;
                 } catch {
                   return null;
                 }
@@ -19131,7 +19116,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
   if (currentModel) {
     setCurrentTier(classify(currentModel));
     try {
-      const _tiersData2 = safeJsonParse2(readFileSync21(getTiersFile(), "utf-8"));
+      const _tiersData2 = safeJsonParse2(readFileSync20(getTiersFile(), "utf-8"));
       const _slotOrder = getTrinitySlotOrder(_tiersData2);
       const _primarySlot = _slotOrder[0] || "brain";
       const _activeSlot = _tiersData2?.selection?.active_slot || _primarySlot;
@@ -19157,7 +19142,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
       const lockedSlot = ["brain", "medium", "cheap"].includes(String(startupSelection.active_slot || "").trim()) ? String(startupSelection.active_slot) : "brain";
       let lockedModel = currentModel || null;
       try {
-        const tiers = safeJsonParse2(readFileSync21(getTiersFile(), "utf-8"));
+        const tiers = safeJsonParse2(readFileSync20(getTiersFile(), "utf-8"));
         lockedModel = tiers?.trinity?.[lockedSlot]?.oc || lockedModel || null;
       } catch {
       }
@@ -19197,7 +19182,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
   const hookTiersFile = join22(hookVibeHome, "model-tiers.json");
   const loadProjectStateStable = () => {
     try {
-      const state = safeJsonParse2(readFileSync21(hookProjectStateFile, "utf-8"));
+      const state = safeJsonParse2(readFileSync20(hookProjectStateFile, "utf-8"));
       if (state && typeof state === "object") {
         state.project_hashes ??= {};
         return state;
@@ -19217,7 +19202,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
   };
   const reportsIndexStable = () => {
     try {
-      const idx = safeJsonParse2(readFileSync21(hookReportsIndex, "utf-8"));
+      const idx = safeJsonParse2(readFileSync20(hookReportsIndex, "utf-8"));
       if (!idx || !Array.isArray(idx.reports))
         return { reports: [] };
       return idx;
@@ -19249,7 +19234,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
   };
   const _tiersData = (() => {
     try {
-      return safeJsonParse2(readFileSync21(getTiersFile(), "utf-8"));
+      return safeJsonParse2(readFileSync20(getTiersFile(), "utf-8"));
     } catch {
       return {};
     }
@@ -19272,7 +19257,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     },
     directory: directory3,
     safeJsonParse: safeJsonParse2,
-    readFileSync: readFileSync21,
+    readFileSync: readFileSync20,
     writeFileSync: writeFileSync18,
     existsSync: existsSync21,
     renameSync: renameSync6,
@@ -19470,8 +19455,8 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
         const claimFile = join22(auditDir, "claim-audit.jsonl");
         const cascadeFile = join22(auditDir, "cascade-audit.jsonl");
         if (existsSync21(claimFile) && statSync9(claimFile).size > 0) {
-          const claimLines = readFileSync21(claimFile, "utf-8").trim().split("\n").slice(-10);
-          const cascadeLines = existsSync21(cascadeFile) ? readFileSync21(cascadeFile, "utf-8").trim().split("\n").slice(-30) : [];
+          const claimLines = readFileSync20(claimFile, "utf-8").trim().split("\n").slice(-10);
+          const cascadeLines = existsSync21(cascadeFile) ? readFileSync20(cascadeFile, "utf-8").trim().split("\n").slice(-30) : [];
           const cascadeRuns = cascadeLines.filter(Boolean).map((l) => {
             try {
               return JSON.parse(l);
@@ -19525,8 +19510,8 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
         const claimFile = join22(auditDir, "claim-audit.jsonl");
         const cascadeFile = join22(auditDir, "cascade-audit.jsonl");
         if (existsSync21(claimFile) && statSync9(claimFile).size > 0) {
-          const claimLines = readFileSync21(claimFile, "utf-8").trim().split("\n").slice(-10);
-          const cascadeLines = existsSync21(cascadeFile) ? readFileSync21(cascadeFile, "utf-8").trim().split("\n").slice(-30) : [];
+          const claimLines = readFileSync20(claimFile, "utf-8").trim().split("\n").slice(-10);
+          const cascadeLines = existsSync21(cascadeFile) ? readFileSync20(cascadeFile, "utf-8").trim().split("\n").slice(-30) : [];
           const cascadeRuns = cascadeLines.filter(Boolean).map((l) => {
             try {
               return JSON.parse(l);

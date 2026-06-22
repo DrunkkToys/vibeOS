@@ -1,13 +1,13 @@
 // @ts-nocheck
-import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, statSync, readdirSync, copyFileSync } from "node:fs"
+import { writeFileSync, appendFileSync, existsSync, mkdirSync, statSync, readdirSync, copyFileSync } from "node:fs"
 import { join, dirname, basename } from "node:path"
-import { classify, modelCostPerTurn, _refreshModel, readConfig, resolveTrinityDisplayModel, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, roundUsd, formatUsd, resolveCurrentExecution, modelDisplayName } from "../pricing.js"
+import { classify, modelCostPerTurn, _refreshModel, readConfig, resolveTrinityDisplayModel, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, formatUsd, resolveCurrentExecution, modelDisplayName } from "../pricing.js"
 import { latestUserIntent } from "./chat-transform.js"
 import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, classifyTurnSimple, autoSelectMode, loadOptimizationMode, computeControlVector, resolveOptimizationSlot } from "../turn-classify.js"
 import { recordBudgetFirstOutcome } from "../mode-policy.js"
 import { saveReport } from "../reporting.js"
-import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, getCurrentSessionId, _modelLocked, _blackboxEnabled, _latestBlackboxState, writeSelection, reconcileStateFromLedger, safeJsonParse, loadTodos, loadBlackboxState, recordLiveSessionSnapshot, VIBEOS_HOME, getVibeOSHome } from "../state.js"
-import { loadSessionSlot, writeSessionSlot } from "../selection-manager.js"
+import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, getCurrentSessionId, _modelLocked, _blackboxEnabled, _latestBlackboxState, loadTodos, loadBlackboxState, recordLiveSessionSnapshot, VIBEOS_HOME, getVibeOSHome, readLifetimeSavings } from "../state.js"
+import { loadSelection, loadSessionSlot, writeSessionSlot } from "../selection-manager.js"
 import { remoteCall, isApiConnected, isApiLatencyDegraded } from "../api-client.js"
 import { SAVE_EST } from "../constants.js"
 import { buildFooterLine, buildEnforcementTags, resolveBrand } from "./shared-footer.js"
@@ -55,56 +55,14 @@ async function apiAutoSelectMode(regime, stress) {
   return fallback || "balanced"
 }
 
-const STATE_FILE = join(getVibeOSHome(), "delegation-state.json")
-const SAVINGS_LEDGER_FILE = join(getVibeOSHome(), "savings-ledger.jsonl")
-
 let _prevOutputText = ""
 let _autoReportCount = 0
 const textCompletePainted = new Set()
 let _lastStrippedText = ""
 
-function loadSelection() {
-  try {
-    const raw = readFileSync(join(getVibeOSHome(), "model-tiers.json"), "utf-8")
-    return safeJsonParse(raw)?.selection || { active_slot: "medium", enabled: true, delegation_enforce: true, flow_enabled: true, flow_enforce: true, tdd_enforce: false, tdd_strict: false }
-  } catch { return { active_slot: "medium", enabled: true, delegation_enforce: true, flow_enabled: true, flow_enforce: true, tdd_enforce: false, tdd_strict: false } }
-}
-
 function isGreetingLike(text) {
   const value = String(text || "").trim().toLowerCase()
   return value === "hi" || value === "hello" || value === "hey" || value === "yo" || /^hi[!.?\s]*$/.test(value) || /^hello[!.?\s]*$/.test(value) || /^hey[!.?\s]*$/.test(value)
-}
-
-function readLifetimeSavings() {
-  try {
-    reconcileStateFromLedger()
-    const raw = readFileSync(STATE_FILE, "utf-8")
-    const state = safeJsonParse(raw)
-    const ses = state?.sessions?.[getSessionId()] || {}
-    return {
-      ltTasks: roundUsd(state?.lifetime?.total_savings_usd || 0),
-      ltCache: roundUsd(state?.lifetime?.cache_savings_usd || 0),
-      ltCost: roundUsd(state?.lifetime?.total_cost_usd || 0),
-      count: state?.lifetime?.warn_count || 0,
-      sesTasks: roundUsd(ses?.total_savings_usd || 0),
-      sesCache: roundUsd(ses?.cache_savings_usd || 0),
-      sesTaskDelegations: ses?.task_delegations_count || 0,
-      sesDuration: ses?.duration_seconds || 0,
-      sesRatePerHour: (() => {
-        const sesTotal = Number(ses?.total_savings_usd || 0) + Number(ses?.cache_savings_usd || 0)
-        if (!sesTotal) return 0
-        const dur = Number(ses?.duration_seconds || 0)
-        if (dur <= 0) return 0
-        return Number((sesTotal / (dur / 3600)).toFixed(4))
-      })(),
-      sesTrend: ses?.trend || "",
-      sesToolBreakdown: ses?.tool_breakdown || {},
-      sesModelTurns: ses?.model_turns || {},
-      quality_avg: state?.lifetime?.quality_total_count > 0
-        ? Math.round((state?.lifetime?.quality_total_score || 0) / state?.lifetime?.quality_total_count)
-        : 0,
-    }
-  } catch { return { ltTasks: 0, ltCache: 0, ltCost: 0, count: 0, sesTasks: 0, sesCache: 0, sesTaskDelegations: 0, sesDuration: 0, sesRatePerHour: 0, sesTrend: "", sesToolBreakdown: {}, sesModelTurns: {}, quality_avg: 0 } }
 }
 
 function getSessionId() {
@@ -217,7 +175,7 @@ async function _appendFooter(input, output, directory) {
     }
     const text = _extractText(output)
     if (!text) return
-    const { ltTasks, ltCache, ltCost, count, sesTasks, sesEdit, sesCredit, sesC7, sesQuota, sesCache, sesTaskDelegations, sesDuration, sesRatePerHour, sesTrend, sesToolBreakdown, sesModelTurns, quality_avg } = readLifetimeSavings()
+    const { ltTasks, ltCache, ltCost, count, sesTasks, sesEdit, sesCredit, sesC7, sesQuota, sesTaskDelegations, sesDuration, sesRatePerHour, sesTrend, sesToolBreakdown, sesModelTurns, quality_avg } = readLifetimeSavings()
     const { stableStreak, problemStreak } = readRewardSignals()
 
     const sid = getSessionId()
