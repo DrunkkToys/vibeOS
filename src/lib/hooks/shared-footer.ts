@@ -18,6 +18,7 @@ export interface FooterLineInput {
   cascadeIcon?: string
   claimTag?: string
   rewardTag?: string
+  alertTag?: string
 }
 
 const REGIME_TAG: Record<string, string> = {
@@ -151,6 +152,22 @@ export function buildEnforcementTags(opts: {
   return tags
 }
 
+export function buildFooterAlert(opts: {
+  apiDegraded?: boolean
+  liveModel?: string
+  expectedModel?: string
+  lastModelError?: string
+} = {}): string {
+  const alerts: string[] = []
+  if (opts.apiDegraded) alerts.push("⚠ api degraded")
+  if (opts.liveModel && opts.expectedModel && opts.liveModel !== opts.expectedModel) alerts.push("⚠ model drift")
+  const err = String(opts.lastModelError || "")
+  if (err && (err.includes("EHOSTUNREACH") || err.includes("ENOTFOUND") || err.includes("ETIMEDOUT"))) {
+    alerts.push("⚠ model unreachable")
+  }
+  return alerts.join(" · ")
+}
+
 export function buildFooterLine(input: FooterLineInput): string {
   const { activeSlot, sessionSlot, providerLabel, modelName, ltTotal, ltTrend, vibeBrand, optMode, flashIcon, enfTags, vectorChangedSlot, subRegime } = input
 
@@ -182,6 +199,10 @@ export function buildFooterLine(input: FooterLineInput): string {
   const enforcementPulse = formatEnforcementPulse(enfTags)
   if (enforcementPulse) {
     line += ` | ${enforcementPulse}`
+  }
+
+  if (input.alertTag) {
+    line += ` | ${input.alertTag}`
   }
 
   if (input.stressGauge) {

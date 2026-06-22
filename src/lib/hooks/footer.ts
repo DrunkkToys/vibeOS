@@ -10,7 +10,7 @@ import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProj
 import { loadSelection, loadSessionSlot, writeSessionSlot } from "../selection-manager.js"
 import { remoteCall, isApiConnected, isApiLatencyDegraded } from "../api-client.js"
 import { SAVE_EST } from "../constants.js"
-import { buildFooterLine, buildEnforcementTags, resolveBrand } from "./shared-footer.js"
+import { buildFooterLine, buildEnforcementTags, resolveBrand, buildFooterAlert } from "./shared-footer.js"
 import { computeReward } from "../../vibeOS-lib/reward-engine.js"
 import { detectLaziness } from "../../vibeOS-lib/laziness-detector.js"
 import { detectLies } from "../../vibeOS-lib/lie-detector.js"
@@ -131,7 +131,7 @@ function buildRewardInput({
 let _footerCacheText = ""
 let _footerCacheTs = 0
 
-async function _appendFooter(input, output, directory) {
+async function _appendFooter(input, output, directory, lastModelError?: string) {
   _refreshModel(directory)
   let _footerStress = 0
   if (latestUserIntent) _footerStress = scoreStress(latestUserIntent)
@@ -402,6 +402,17 @@ async function _appendFooter(input, output, directory) {
       } catch {}
     }
 
+    const _expectedModel = slot === "brain" ? TRINITY_BRAIN : slot === "medium" ? TRINITY_MEDIUM : TRINITY_CHEAP
+    let _alertTag = ""
+    try {
+      _alertTag = buildFooterAlert({
+        apiDegraded: isApiLatencyDegraded(),
+        liveModel: liveModelSetting || undefined,
+        expectedModel: _expectedModel || undefined,
+        lastModelError,
+      })
+    } catch {}
+
     const vibeLine = buildFooterLine({
       activeSlot,
       providerLabel: execution.provider_label,
@@ -419,6 +430,7 @@ async function _appendFooter(input, output, directory) {
       cascadeIcon: ((cv?.cascade_depth || 1) >= 3 ? "▸▸▸" : (cv?.cascade_depth || 1) >= 2 ? "▸▸" : ""),
       claimTag: claimTag || undefined,
       rewardTag: _rewardTag || undefined,
+      alertTag: _alertTag || undefined,
     })
     try {
       recordLiveSessionSnapshot({
@@ -480,4 +492,4 @@ async function _appendFooter(input, output, directory) {
   }
 }
 
-export { _appendFooter, scoreTaskQuality, readRewardSignals, buildRewardInput }
+export { _appendFooter, scoreTaskQuality, readRewardSignals, buildRewardInput, buildFooterAlert }
