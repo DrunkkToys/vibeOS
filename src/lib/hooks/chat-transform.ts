@@ -29,7 +29,7 @@ import { memoCompute, nextTurn } from "../turn-memo.js"
 import { evaluateClaimVerification } from "../claim-verification.js"
 import {
   classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget,
-  shortModelName, formatUsd, _refreshModel, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN,
+  shortModelName, formatUsd, _refreshModel, applySlot, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN,
   cacheSavePer1MInputTokens,
   clearWorkspaceFollowupPauseForSession,
 } from "../pricing.js"
@@ -579,6 +579,10 @@ export function syncControlSettings(cv: any, options: { persistOptimizationMode?
           sourceStrategy: cv.optimization_mode || "auto",
         })
         recordSessionBridge(bridge)
+        const applied = applySlot(slot)
+        if (!applied?.ok) {
+          console.error(`[vibeOS] failed to persist slot ${slot}: ${applied?.reason || "unknown"}`)
+        }
       }
     }
     if (cv.agent_mode) {

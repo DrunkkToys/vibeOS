@@ -345,10 +345,13 @@ export function createTrinityTool(deps) {
           return "\u274c No model configured for " + slot + " slot. Run \`trinity rebuild\` first."
         }
         const auth = deps._readAuth()
+        let probeFailed = false
         try {
           const ok = await deps.probeModel(targetModel, auth, deps._loadOpenCodeProviders())
+          probeFailed = !ok
           if (!ok) console.error("[vibeOS] WARN: " + targetModel + " probe failed - switching anyway")
         } catch (e) {
+          probeFailed = true
           console.error("[vibeOS] WARN: probe error for " + targetModel + ": " + e.message + " - switching anyway")
         }
         deps.writeSessionSlot(deps._OC_SID, slot)
@@ -356,9 +359,11 @@ export function createTrinityTool(deps) {
         if (!result.ok) return `\u274c Failed to set slot: ${result.reason}`
         const synced = await syncNativeOpenCodeModel(deps, result.ocModel)
         deps._refreshModel(deps.directory)
-        return synced
-          ? `\u2705 Updated ${slot} slot (${result.ocModel}). OpenCode config synced for the next session.`
-          : `\u2705 Updated ${slot} slot (${result.ocModel}). OpenCode config sync was not available, so the next session may still use the previous live model.`
+        const prefix = probeFailed ? `\u274c Probe failed for ${result.ocModel}.` : ""
+        if (!synced) {
+          return `${prefix}${prefix ? " " : ""}Updated ${slot} slot (${result.ocModel}). OpenCode config sync was not available, so the next session may still use the previous live model.`
+        }
+        return `${prefix}${prefix ? " " : ""}Updated ${slot} slot (${result.ocModel}). OpenCode config synced for the next session.`
       }
       if (action === "mode") {
         const builtInIds = ["balanced", "budget", "quality", "speed", "longrun", "audit", "forensic"]
