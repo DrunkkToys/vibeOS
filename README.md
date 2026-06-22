@@ -201,7 +201,7 @@ Stress > 1.5 escalates any regime to quality mode regardless of the above mappin
 | Delegation enforcement | Blocks write/edit on brain tier, routes to cheaper tiers transparently |
 | Live savings footer | Tier, provider, model name, total savings, mode -- one line of reassurance |
 | Web dashboard | Session-first SolidJS SPA with executive Home summary, session actions, per-session templates, polling refresh for model split, savings, session history, controls |
-| Trinity runtime | Switch tiers mid-session, change optimization mode, toggle subsystems live |
+| Trinity runtime | Update tier slots through the native OpenCode config path, change optimization mode, toggle subsystems live |
 | Flow enforcer | Pattern-rule checks on write/edit. Extracts TODO/FIXME into append-only queue. |
 | TDD enforcer | Auto-creates test skeletons for changed source. Strict mode fails TODO tests. |
 | Pattern learner | Tracks recurring struggle/routine patterns per project, cross-project too |
