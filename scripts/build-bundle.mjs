@@ -2,7 +2,6 @@ import { build } from 'esbuild';
 import { existsSync, mkdirSync, copyFileSync, readdirSync, statSync, readFileSync, writeFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
-import { resolveDashboardBaseUrlFromState } from '../src/lib/dashboard-base-url.js';
 
 const ROOT = process.cwd();
 const SRC = join(ROOT, 'src');
@@ -100,4 +99,25 @@ function writeDashboardBaseConfig(dir, baseUrl) {
   if (!baseUrl) return;
   const cfg = join(dir, 'vibeos-dashboard-config.js');
   writeFileSync(cfg, `window.__VIBEOS_DASHBOARD_BASE__ = ${JSON.stringify(baseUrl.replace(/\/$/, ''))};\n`, 'utf8');
+}
+
+function normalizeDashboardBaseUrl(baseUrl) {
+  return String(baseUrl || '').trim().replace(/\/$/, '');
+}
+
+function resolveDashboardBaseUrlFromState({
+  dashboardBaseUrl = '',
+  publishedMcpBaseUrl = '',
+  fallbackPort = null,
+  mcpPort = 0,
+} = {}) {
+  const fromMemory = normalizeDashboardBaseUrl(dashboardBaseUrl);
+  if (fromMemory) return fromMemory;
+  const fromPublished = normalizeDashboardBaseUrl(publishedMcpBaseUrl);
+  if (fromPublished) return fromPublished;
+  const port = Number(mcpPort);
+  if (Number.isFinite(port) && port > 0) return `http://127.0.0.1:${port}`;
+  const fallback = Number(fallbackPort);
+  if (fallbackPort !== null && fallbackPort !== undefined && Number.isFinite(fallback) && fallback > 0) return `http://127.0.0.1:${fallback}`;
+  return '';
 }
