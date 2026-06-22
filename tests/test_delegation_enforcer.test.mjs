@@ -2292,7 +2292,7 @@ test("applySlot: preserves opencode.json all fields (only model changes)", async
   process.env.HOME = origHome
 })
 
-test("trinity mode switch calls the native OpenCode config setter when available", async () => {
+test("trinity mode switch calls the native OpenCode config update when available", async () => {
   const { DelegationEnforcer } = await loadPlugin()
   const dir = join(sandbox, ".opencode-native-switch")
   mkdirSync(dir, { recursive: true })
@@ -2309,7 +2309,7 @@ test("trinity mode switch calls the native OpenCode config setter when available
   const calls = []
   const client = {
     config: {
-      set: async (...args) => {
+      update: async (...args) => {
         calls.push(args)
       },
     },
@@ -2318,8 +2318,8 @@ test("trinity mode switch calls the native OpenCode config setter when available
   const hooks = await DelegationEnforcer({ client, directory: dir })
   const result = await hooks.tool.trinity.execute({ action: "mode", slot: "vibeultrax" })
   assert.match(String(result), /Mode set to VIBEULTRAX/i)
-  assert.ok(calls.length > 0, "native config setter should be called")
-  assert.deepEqual(calls[0], ["model", "deepseek/deepseek-chat"], "native setter receives the live OpenCode model")
+  assert.ok(calls.length > 0, "native config update should be called")
+  assert.deepEqual(calls[0][0].body, { model: "deepseek/deepseek-chat" }, "native update receives the live OpenCode model")
 })
 
 // ════════════════════════════════════════════════════════════════════════════
