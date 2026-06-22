@@ -195,16 +195,22 @@ function writeLiveOpenCodeModel(projectDir: string, modelId: string): boolean {
   const ocConfig = existsSync(localOcConfig)
     ? localOcConfig
     : join(getOpenCodeHome(), "opencode.json")
-  if (!existsSync(ocConfig)) {
-    throw new Error(`OpenCode config not found: ${ocConfig}`)
-  }
-  const oc = safeJsonParse(readFileSync(ocConfig, "utf-8"))
-  if (!oc || typeof oc !== "object") throw new Error(`OpenCode config is unreadable: ${ocConfig}`)
-  oc.model = modelId
-  try {
-    writeFileSync(ocConfig, JSON.stringify(oc, null, 2) + "\n")
-  } catch (err) {
-    throw new Error(`Failed to write OpenCode model config (${ocConfig}): ${err.message}`)
+  mkdirSync(dirname(ocConfig), { recursive: true })
+  if (existsSync(ocConfig)) {
+    const oc = safeJsonParse(readFileSync(ocConfig, "utf-8"))
+    if (!oc || typeof oc !== "object") throw new Error(`OpenCode config is unreadable: ${ocConfig}`)
+    oc.model = modelId
+    try {
+      writeFileSync(ocConfig, JSON.stringify(oc, null, 2) + "\n")
+    } catch (err) {
+      throw new Error(`Failed to write OpenCode model config (${ocConfig}): ${err.message}`)
+    }
+  } else {
+    try {
+      writeFileSync(ocConfig, JSON.stringify({ model: modelId }, null, 2) + "\n")
+    } catch (err) {
+      throw new Error(`Failed to create OpenCode model config (${ocConfig}): ${err.message}`)
+    }
   }
   return true
 }
