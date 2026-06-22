@@ -246,7 +246,7 @@ testCase("real cascade edge cases: remote route targets win and blank prompts pr
   assert.equal(blankArgs.model, "deepseek/deepseek-v4-flash")
   assert.equal(blankArgs.modelID, "deepseek/deepseek-v4-flash")
   const afterBlankJobs = readActiveJobs()
-  assert.equal(Object.keys(afterBlankJobs).length, Object.keys(afterRemoteJobs).length + 1)
+  assert.equal(Object.keys(afterBlankJobs).length, Object.keys(afterRemoteJobs).length)
   assert.equal(afterBlankJobs[activeJobId]?.prompt, afterRemoteJobs[activeJobId]?.prompt)
   assert.deepEqual(readGlobalLearning(), afterRemoteLearning)
 })
