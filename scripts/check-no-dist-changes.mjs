@@ -28,16 +28,9 @@ if (staged.length > 0) {
 }
 
 if (isCi) {
-  const baseRef = (() => {
-    try {
-      run("git show-ref --verify --quiet refs/remotes/origin/master")
-      return "origin/master"
-    } catch {
-      return "origin/main"
-    }
-  })()
-  const base = run(`git merge-base HEAD ${baseRef}`)
-  const changed = listPaths(`git diff --name-only --diff-filter=ACMRT ${base}...HEAD -- dist/`)
+  const eventName = process.env.GITHUB_EVENT_NAME ?? ""
+  const baseCommit = eventName === "pull_request" || eventName === "pull_request_target" ? "HEAD^1" : "HEAD^"
+  const changed = listPaths(`git diff --name-only --diff-filter=ACMRT ${baseCommit} HEAD -- dist/`)
   if (changed.length > 0) {
     fail(`dist/ changes are not allowed in PRs:\n${changed.map((p) => `  - ${p}`).join("\n")}`)
   }
