@@ -283,8 +283,10 @@ async function _appendFooter(input, output, directory) {
     const claimTag = lieResult.claims.length > 0
       ? (lieResult.claimVsOutcomeMismatch ? `⚠${lieResult.claims.length} verify` : "✓")
       : (claimStatus.claimTag || "")
-    const stripped = text.replace(/\u2014 [^\u2014]+ \u2014\s*/g, "").trimEnd()
-    if (stripped !== text) return
+    const footerSuffix = /\n\n\u2014 [^\n]+\u2014\s*$/
+    const hasExistingFooter = footerSuffix.test(text)
+    const stripped = hasExistingFooter ? text.replace(footerSuffix, "").trimEnd() : text
+    if (hasExistingFooter) return
     if (stripped === _lastStrippedText && !claimTag) return
     const ltTotal = ltTasks + ltCache
     const activeSlot = displayMode === "vibeultrax"

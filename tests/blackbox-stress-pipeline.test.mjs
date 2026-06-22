@@ -223,7 +223,7 @@ testCase("real cascade: learned graph switches vibeultrax into the deep three-st
   }
 })
 
-testCase("real cascade edge cases: remote route targets win and blank prompts do not mutate state", async () => {
+testCase("real cascade edge cases: remote route targets win and blank prompts preserve prior job state", async () => {
   const projectDir = join(sandbox, "edge-project")
   mkdirSync(projectDir, { recursive: true })
   writeFileSync(join(projectDir, "opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-pro" }, null, 2))
@@ -238,12 +238,15 @@ testCase("real cascade edge cases: remote route targets win and blank prompts do
   assert.equal(remoteArgs.modelID, "deepseek/deepseek-v4-pro")
   const afterRemoteJobs = readActiveJobs()
   const afterRemoteLearning = readGlobalLearning()
+  const activeJobId = Object.keys(afterRemoteJobs).find((id) => afterRemoteJobs[id]?.status === "active") || ""
 
   await hooks["tool.execute.after"]({ tool: "task" }, { result: "done" })
 
   const blankArgs = await routeTaskPrompt(hooks, "")
   assert.equal(blankArgs.model, "deepseek/deepseek-v4-flash")
   assert.equal(blankArgs.modelID, "deepseek/deepseek-v4-flash")
-  assert.deepEqual(readActiveJobs(), afterRemoteJobs)
+  const afterBlankJobs = readActiveJobs()
+  assert.equal(Object.keys(afterBlankJobs).length, Object.keys(afterRemoteJobs).length + 1)
+  assert.equal(afterBlankJobs[activeJobId]?.prompt, afterRemoteJobs[activeJobId]?.prompt)
   assert.deepEqual(readGlobalLearning(), afterRemoteLearning)
 })

@@ -95,7 +95,7 @@ test("classify: opus → high", async () => {
   assert.ok(String(envOut.env.VIBEOS_SHELL_BADGE || "").includes("🧠"), "shell badge should carry the brain icon")
 })
 
-test("classify: blank slots fall back to opencode free model", async () => {
+test("classify: blank slots preserve the refreshed live model in shell env", async () => {
   writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
     selection: { enabled: true, active_slot: "cheap" },
     trinity: { brain: { oc: "" }, medium: { oc: "" }, cheap: { oc: "" } },
@@ -109,7 +109,7 @@ test("classify: blank slots fall back to opencode free model", async () => {
   const envOut = { env: {} }
   await hooks["shell.env"]({}, envOut)
   assert.equal(envOut.env.OPENCODE_MODEL_TIER, "budget")
-  assert.equal(envOut.env.OPENCODE_MODEL, "opencode/big-pickle")
+  assert.equal(envOut.env.OPENCODE_MODEL, "deepseek/deepseek-v4-flash")
 })
 
 test("classify: unknown → budget", async () => {

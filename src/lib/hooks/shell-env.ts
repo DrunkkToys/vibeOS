@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { currentTier, currentModel } from "../state.js"
 import { loadSelection } from "../selection-manager.js"
-import { resolveTrinityDisplayModel, classify } from "../pricing.js"
+import { resolveTrinityDisplayModel, classify, _refreshModel } from "../pricing.js"
 import { getVibeOSHome, safeJsonParse } from "../state.js"
 import { resolveTierIcon } from "./shared-footer.js"
 
@@ -13,6 +13,7 @@ export const setShellDirectory = (dir) => { directory = dir || "" }
 
 export const onShellEnv = async (_input, output) => {
   try {
+    _refreshModel(directory)
     const sel = loadSelection()
     const slot = sel?.active_slot || "brain"
     const tiersPath = join(getVibeOSHome(), "model-tiers.json")
