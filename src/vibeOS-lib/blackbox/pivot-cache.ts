@@ -92,7 +92,7 @@ export class PivotCache {
     return { pivots: {}, sequence: [], version: 3 }
   }
 
-  private _normalizeIndex(raw: any): PivotIndexStore {
+  private _normalizeIndex(raw: Partial<PivotIndexStore> | null | undefined): PivotIndexStore {
     const pivots: Record<string, PivotIndexEntry> = {}
     if (raw?.pivots && typeof raw.pivots === "object") {
       for (const [id, value] of Object.entries(raw.pivots)) {
@@ -109,7 +109,7 @@ export class PivotCache {
       }
     }
     const sequence = Array.isArray(raw?.sequence)
-      ? raw.sequence.map((v: any) => String(v || "").trim()).filter(Boolean).filter((id: string) => !!pivots[id])
+      ? raw.sequence.map((v: unknown) => String(v || "").trim()).filter(Boolean).filter((id: string) => !!pivots[id])
       : Object.keys(pivots)
     return {
       version: Number(raw?.version || PIVOT_INDEX_VERSION),

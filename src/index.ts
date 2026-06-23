@@ -410,7 +410,7 @@ async function _seedOrRepairModelTiers(directory) {
   const seedBrain = explicitSeedModel || freeSeeds[0] || liveFreeModel || DEFAULT_FREE_MODEL
   const seedMedium = freeSeeds[1] || freeSeeds[0] || explicitSeedModel || liveFreeModel || DEFAULT_FREE_MODEL
   const seedCheap = freeSeeds[2] || freeSeeds[1] || freeSeeds[0] || explicitSeedModel || liveFreeModel || DEFAULT_FREE_MODEL
-  const keepExistingSlot = (slotRow: any, fallbackModel: string) => {
+  const keepExistingSlot = (slotRow: unknown, fallbackModel: string) => {
     const currentOc = String(slotRow?.oc || "").trim()
     if (currentOc && !PLACEHOLDER_RE.test(currentOc) && !/placeholder/i.test(currentOc)) {
       return { ...slotRow, cc: slotRow?.cc || modelToCcAlias(currentOc) }
@@ -621,7 +621,7 @@ async function ensureMcpServerRunning() {
           getSessionMetrics: () => computeSessionMetrics(readFullState(), _OC_SID),
           getTodos: () => loadTodos(),
           getSessionOrchestration: (sessionId: string) => loadSessionOrchestration(sessionId),
-          mutateSessionOrchestration: (sessionId: string, mutator: (session: any) => any) => mutateSessionOrchestration(sessionId, mutator),
+          mutateSessionOrchestration: (sessionId: string, mutator: (session: unknown) => unknown) => mutateSessionOrchestration(sessionId, mutator),
           listSessionTemplates: () => TEMPLATE_LIBRARY,
           currentProjectName: currentProjectName || "",
           listReports: (filter) => {

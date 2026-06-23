@@ -81,13 +81,13 @@ let _cachedC7Urgency: string | null = null
 export function ensureVibeSkill(dir: string): { created: boolean; path?: string; skipped: boolean } {
   try {
     return installVibeSkill(dir)
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error(`[vibeOS] Project Guard: failed to create /vibe skill for ${basename(dir || "") || "unknown"}: ${err.message}`)
     return { created: false, skipped: false }
   }
 }
 
-export function mergeRemoteControlVector(remoteControlVector: any, localControlVector: any, options: any = {}): any {
+export function mergeRemoteControlVector(remoteControlVector: unknown, localControlVector: unknown, options: unknown = {}): unknown {
   const merged = { ...remoteControlVector }
   if (!options?.allowLocalOverride) return merged
   return {
@@ -102,7 +102,7 @@ export function mergeRemoteControlVector(remoteControlVector: any, localControlV
   }
 }
 
-function resolveRestorableOpenCodeAgent(currentSel: any): string | null {
+function resolveRestorableOpenCodeAgent(currentSel: unknown): string | null {
   const remembered = typeof currentSel?.previous_default_agent === "string" ? currentSel.previous_default_agent.trim() : ""
   if (remembered && remembered !== "plan") return remembered
 
@@ -152,7 +152,7 @@ function resolveOpenCodeConfigPath(): string {
   return TRINITY_OPENCODE_CONFIG || join(getOpenCodeHome(), "opencode.json")
 }
 
-function updateOpenCodeConfig(mutator: (oc: any) => boolean | void): boolean {
+function updateOpenCodeConfig(mutator: (oc: unknown) => boolean | void): boolean {
   try {
     const OC_CONFIG = resolveOpenCodeConfigPath()
     if (!existsSync(OC_CONFIG)) return false
@@ -185,7 +185,7 @@ let _calBuffer: string[] = []
 let _pendingOrchestratorDirective = ""
 const correctionSeenKeys = new Set()
 
-async function apiComputeControlVector(state: any, action: any, optimizationMode: any): Promise<any> {
+async function apiComputeControlVector(state: unknown, action: unknown, optimizationMode: unknown): Promise<unknown> {
   try {
     const requestedMode = typeof optimizationMode === "string"
       ? optimizationMode
@@ -219,13 +219,13 @@ async function apiComputeControlVector(state: any, action: any, optimizationMode
   }, fallbackMode)
 }
 
-function normalizeSlot(value: any): "brain" | "medium" | "cheap" | null {
+function normalizeSlot(value: unknown): "brain" | "medium" | "cheap" | null {
   const normalized = String(value || "").trim().toLowerCase()
   if (normalized === "brain" || normalized === "medium" || normalized === "cheap") return normalized
   return null
 }
 
-function slotFromMode(mode: any): "brain" | "medium" | "cheap" | null {
+function slotFromMode(mode: unknown): "brain" | "medium" | "cheap" | null {
   const normalized = String(mode || "").trim().toLowerCase()
   if (!normalized || normalized === "auto") return null
   if (normalized === "speed" || normalized === "vibemax" || normalized === "vibelitex") return "medium"
@@ -235,7 +235,7 @@ function slotFromMode(mode: any): "brain" | "medium" | "cheap" | null {
   return null
 }
 
-function normalizePipelineRoot(value: any, tierBias: any): string[] {
+function normalizePipelineRoot(value: unknown, tierBias: unknown): string[] {
   if (Array.isArray(value)) {
     const out = value.map((entry) => normalizeSlot(entry)).filter(Boolean)
     if (out.length > 0) return out
@@ -244,7 +244,7 @@ function normalizePipelineRoot(value: any, tierBias: any): string[] {
   return slot ? [slot] : []
 }
 
-function normalizeBackendDecision(raw: any, fallbackMode: any = null): any {
+function normalizeBackendDecision(raw: unknown, fallbackMode: unknown = null): unknown {
   if (!raw || typeof raw !== "object") return raw
   const sourceDecision = raw.decision && typeof raw.decision === "object" ? raw.decision : raw
   const requestedMode = String(sourceDecision.requested_mode || sourceDecision.requestedMode || fallbackMode || raw.requested_mode || raw.requestedMode || "").trim().toLowerCase() || null
@@ -406,7 +406,7 @@ export function ensureProjectSkill(dir: string, fp: string): { created: boolean;
     content += techStack.map((t: string) => `- ${t}`).join("\n") + "\n\n"
   }
 
-  const routines = promoted.filter((p: any) => p.label === "routine")
+  const routines = promoted.filter((p: unknown) => p.label === "routine")
   if (routines.length > 0) {
     content += `## Routines (established workflows)\n\n`
     for (const r of routines) {
@@ -415,7 +415,7 @@ export function ensureProjectSkill(dir: string, fp: string): { created: boolean;
     content += "\n"
   }
 
-  const frictions = promoted.filter((p: any) => p.label === "friction")
+  const frictions = promoted.filter((p: unknown) => p.label === "friction")
   if (frictions.length > 0) {
     content += `## Frictions (patterns to avoid)\n\n`
     for (const f of frictions) {
@@ -437,16 +437,16 @@ export function ensureProjectSkill(dir: string, fp: string): { created: boolean;
     writeFileSync(skillPath, content, "utf-8")
     console.error(`[vibeOS] Project Guard: created .opencode/skills/${projectName}/SKILL.md`)
     return { created: true, path: skillPath, skipped: false }
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error(`[vibeOS] Project Guard: failed to create skill for ${projectName}: ${err.message}`)
     return { created: false, skipped: false }
   }
 }
 
-export function syncControlSettings(cv: any, options: { persistOptimizationMode?: boolean; backendDecision?: any; authoritative?: boolean } = {}): any {
+export function syncControlSettings(cv: unknown, options: { persistOptimizationMode?: boolean; backendDecision?: unknown; authoritative?: boolean } = {}): unknown {
   if (!cv) return
   let authoritative = false
-  let backendDecision: any = null
+  let backendDecision: unknown = null
   try {
     _pendingOrchestratorDirective = orchestratorDirective(cv, loadSelection())
     const sid = _OC_SID
@@ -463,14 +463,14 @@ export function syncControlSettings(cv: any, options: { persistOptimizationMode?
     const userOptMode = userSetMode || loadOptimizationMode()
     const isManualMode = userSetMode && userOptMode !== "auto"
 
-    const writeIf = (key: string, val: any) => {
+    const writeIf = (key: string, val: unknown) => {
       const sel = loadSelection()
       if (sel[key] !== val) writeSelection(key, val)
     }
 
     if (isManualMode) {
       const allEntries = [...BRANDED_MODES, ...RUNTIME_MODES]
-      const modeEntry = allEntries.find((e: any) => e.id === userOptMode)
+      const modeEntry = allEntries.find((e: unknown) => e.id === userOptMode)
       if (modeEntry) {
         writeIf("active_pipeline", JSON.stringify(modeEntry.pipeline))
       }
@@ -675,21 +675,21 @@ export function syncControlSettings(cv: any, options: { persistOptimizationMode?
   }
 }
 
-function pushSystem(output: any, text: string | null): void {
+function pushSystem(output: unknown, text: string | null): void {
   if (text && Array.isArray(output?.system)) {
     output.system.push(text)
   }
 }
 
 function oneShot(key: string): boolean {
-  const scoped = (onSystemTransform as any)._briefedProjects || briefedProjects
+  const scoped = (onSystemTransform as unknown)._briefedProjects || briefedProjects
   if (scoped.has(key)) return true
   scoped.add(key)
   return false
 }
 
 // -- Context compression --------------------------------------------
-function compressToolOutputs(messages: any[]): number {
+function compressToolOutputs(messages: unknown[]): number {
   let compressedBytes = 0
   const hotStart = Math.max(0, messages.length - KEEP_HOT)
 
@@ -726,16 +726,16 @@ function compressToolOutputs(messages: any[]): number {
 
         // Create pointer file for input-hash-based lookup
         const invPart = parts.slice(0, parts.indexOf(part)).reverse().find(
-          (p: any) => p?.type === "tool" && p?.tool === (part as any).tool && p?.state?.input && p?.state?.status !== "completed",
+          (p: unknown) => p?.type === "tool" && p?.tool === (part as unknown).tool && p?.state?.input && p?.state?.status !== "completed",
         )
         if (invPart?.state?.input) {
-          const toolKey = TOOL_NAME_NORMALIZE[(part as any).tool] || (part as any).tool
+          const toolKey = TOOL_NAME_NORMALIZE[(part as unknown).tool] || (part as unknown).tool
           const inputHash = createHash("sha256")
             .update(`${toolKey}\n${stableJson(invPart.state.input)}\n`)
             .digest("hex").slice(0, 16)
           const ptrPath = join(getSessionScratchpadDir(), `${inputHash}.ptr`)
           try {
-            writeFileSync(ptrPath, JSON.stringify({ contentHash: hash, tool: (part as any).tool }))
+            writeFileSync(ptrPath, JSON.stringify({ contentHash: hash, tool: (part as unknown).tool }))
           } catch {}
         }
       } catch (err) {
@@ -752,7 +752,7 @@ function compressToolOutputs(messages: any[]): number {
 
       state.output = ref
       compressedBytes += raw.length - ref.length
-      const toolKey = TOOL_NAME_NORMALIZE[(part as any).tool] || (part as any).tool
+      const toolKey = TOOL_NAME_NORMALIZE[(part as unknown).tool] || (part as unknown).tool
       const rate = cacheSavePer1MInputTokens(currentModel)
       if (rate > 0) {
         const inputTokens = Math.max(1, Math.round((raw.length - ref.length) / BYTES_PER_TOKEN))
@@ -766,7 +766,7 @@ function compressToolOutputs(messages: any[]): number {
 }
 
 // -- Worker-to-Brain Protocol ---------------------------------------
-function injectWBP(messages: any[]): void {
+function injectWBP(messages: unknown[]): void {
   for (let i = 0; i < messages.length - 1; i++) {
     const msg = messages[i]
     if (!msg || typeof msg !== "object") continue
@@ -790,7 +790,7 @@ function injectWBP(messages: any[]): void {
 }
 
 // -- Blackbox resolution tracking -----------------------------------
-async function trackBlackbox(messages: any[]): Promise<void> {
+async function trackBlackbox(messages: unknown[]): Promise<void> {
   const lastUserMsg = messages.slice().reverse().find(m => m?.info?.role === "user" || m?.role === "user")
   if (!lastUserMsg) return
 
@@ -943,7 +943,7 @@ const C7_URGENCY = {
   optional: " (context7 is optional this turn -- use if helpful but not required.)",
 }
 
-function context7Directive(cv: any): string {
+function context7Directive(cv: unknown): string {
   const urgency = cv?.context7_urgency || "preferred"
   if (_cachedC7Full && _cachedC7Urgency === urgency) return _cachedC7Full
   _cachedC7Urgency = urgency
@@ -1008,7 +1008,7 @@ export function regimeAwareToolStyleDirective(regime: string, mode: string, stre
     `Combine independent bash commands into a single call with && or ;.`
 }
 
-function orchestratorDirective(cv: any, sel: any): string {
+function orchestratorDirective(cv: unknown, sel: unknown): string {
   const tierBias = cv?.tier_bias || "auto"
   let brainModel = "(brain)"
   try { brainModel = safeJsonParse(readFileSync(TIERS_FILE, "utf-8")).trinity?.brain?.oc || brainModel } catch {}
@@ -1037,7 +1037,7 @@ const TDD_NOTES = {
   quality: " QUALITY mode: Full coverage including edge cases.",
 }
 
-function _tddDirective(cv: any, sel: any): string {
+function _tddDirective(cv: unknown, sel: unknown): string {
   const tddMode = cv?.tdd_mode || (sel.tdd_strict ? "strict" : "normal")
   const tddFocus = cv?.tdd_focus || []
   const focusNote = tddFocus.length > 0 ? ` Focus: ${tddFocus.join(", ")}.` : ""
@@ -1045,7 +1045,7 @@ function _tddDirective(cv: any, sel: any): string {
     "When the work changes code, keep the test path visible and make the next test step obvious."
 }
 
-function _flowDirective(cv: any, sel: any): string {
+function _flowDirective(cv: unknown, sel: unknown): string {
   const flowMode = cv?.flow_mode || (sel.flow_enforce ? "normal" : "audit")
   const flowFocus = cv?.flow_focus || []
   const enforceNote = sel.flow_enforce ? " TODO/FIXME extraction is active." : ""
@@ -1055,7 +1055,7 @@ function _flowDirective(cv: any, sel: any): string {
 }
 
 function flowTodosDirective(): string | null {
-  const pendingTodos = loadTodos().filter((t: any) => t.status === "pending").length
+  const pendingTodos = loadTodos().filter((t: unknown) => t.status === "pending").length
   if (pendingTodos === 0) return null
   return "[vibeOS] " + pendingTodos + " extracted TODO/FIXME items are waiting. " +
     "If useful, call `todowrite` so they land in the native task list."
@@ -1078,7 +1078,7 @@ function _patternDirective(fp: string): string | null {
   const patterns = promotedProjectPatterns(fp)
   if (!patterns || patterns.length === 0) return null
   const gl = loadGlobalLearning()
-  const pq = (gl as any).patternQuality || { ignoredCount: 0, trustedCount: 0 }
+  const pq = (gl as unknown).patternQuality || { ignoredCount: 0, trustedCount: 0 }
   if (pq.ignoredCount > 0 && (pq.trustedCount === 0 || pq.ignoredCount >= pq.trustedCount * 5)) return null
   const routines = patterns.filter(p => p.label === "routine")
   const frictions = patterns.filter(p => p.label === "friction")
@@ -1102,7 +1102,7 @@ function welcomeDirective(): string {
     "or `trinity set`, `trinity mode`, and `trinity rebuild` to move forward."
 }
 
-function contextBudgetDirective(_input: any, output: any): string | null {
+function contextBudgetDirective(_input: unknown, output: unknown): string | null {
   const ctxBudget = estimateContextBudget(_input, output)
   if (!ctxBudget || ctxBudget.pct <= 70) return null
   const severity = ctxBudget.pct > 90 ? "CRITICAL" : "WARNING"
@@ -1123,7 +1123,7 @@ export const onSystemTransform = async (_input, output) => {
         _latestBlackboxState = bbOnDisk
       }
     }
-    const hookDirectory = String((onSystemTransform as any)._directory || "")
+    const hookDirectory = String((onSystemTransform as unknown)._directory || "")
     const userText = extractLastUserText(_input) || extractLastUserText(output)
     if (typeof userText === "string" && userText.trim()) latestUserIntent = userText
     else if (!latestUserIntent) latestUserIntent = null
@@ -1276,9 +1276,9 @@ export const onSystemTransform = async (_input, output) => {
           const remote = await remoteCall(pivotPipeline, [{
             user_text: latestUserIntent,
             _pivotContext: {
-              files: (onSystemTransform as any)._recentFiles || [],
-              decisions: (onSystemTransform as any)._recentDecisions || [],
-              blockers: (onSystemTransform as any)._recentBlockers || [],
+              files: (onSystemTransform as unknown)._recentFiles || [],
+              decisions: (onSystemTransform as unknown)._recentDecisions || [],
+              blockers: (onSystemTransform as unknown)._recentBlockers || [],
               toolOutputs: _cacheDb ? extractRecentCacheOutputs(_cacheDb, 10) : [],
             },
           }], null)
@@ -1294,9 +1294,9 @@ export const onSystemTransform = async (_input, output) => {
           pivotResult = await localPipeline({
             user_text: latestUserIntent,
             _pivotContext: {
-              files: (onSystemTransform as any)._recentFiles || [],
-              decisions: (onSystemTransform as any)._recentDecisions || [],
-              blockers: (onSystemTransform as any)._recentBlockers || [],
+              files: (onSystemTransform as unknown)._recentFiles || [],
+              decisions: (onSystemTransform as unknown)._recentDecisions || [],
+              blockers: (onSystemTransform as unknown)._recentBlockers || [],
               toolOutputs: _cacheDb ? extractRecentCacheOutputs(_cacheDb, 10) : [],
             },
           })
@@ -1394,7 +1394,7 @@ export const onSystemTransform = async (_input, output) => {
     }
 
     // ── Job focus ──
-    const projectJob2 = (onSystemTransform as any)._activeJob || getActiveJobForProject(fp)
+    const projectJob2 = (onSystemTransform as unknown)._activeJob || getActiveJobForProject(fp)
     if (latestUserIntent && projectJob2 && isLikelyOffTopic(latestUserIntent, projectJob2)) {
       pushSystem(output, "[job-focus] Active job context exists: \"" + ((projectJob2.prompt || "").slice(0, 140)) + "...\". " +
         "The latest user request appears off-topic relative to this running job. " +

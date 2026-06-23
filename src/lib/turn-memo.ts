@@ -2,7 +2,7 @@
 // Per-turn memoization cache — eliminates redundant computation within a single hook chain.
 // Cleared at the start of each turn via nextTurn().
 
-const _memo = new Map<string, { value: any; gen: number }>()
+const _memo = new Map<string, { value: unknown; gen: number }>()
 let _turnGen = 0
 const MAX_MEMO_SIZE = 200
 
@@ -24,8 +24,8 @@ export function memoCompute<T>(key: string, compute: () => T): T {
   return value
 }
 
-export function memoizeFn<T extends (...args: any[]) => any>(fn: T, keyPrefix: string): T {
-  return ((...args: any[]) => {
+export function memoizeFn<T extends (...args: unknown[]) => unknown>(fn: T, keyPrefix: string): T {
+  return ((...args: unknown[]) => {
     const key = `${keyPrefix}:${JSON.stringify(args)}`
     return memoCompute(key, () => fn(...args))
   }) as T

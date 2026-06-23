@@ -94,7 +94,7 @@ export function createTrinityTool(deps) {
       if (!action) action = "status"
       if (["brain", "medium", "cheap"].includes(action)) { slot = action; action = "set" }
       if (action === "gui") action = "dashboard"
-      const keepExistingTrinitySlot = (existingSlot: any, nextModel: string) => {
+      const keepExistingTrinitySlot = (existingSlot: unknown, nextModel: string) => {
         const currentOc = String(existingSlot?.oc || "").trim()
         if (currentOc && !/placeholder/i.test(currentOc) && !/^[^/]+\/[a-z-]+-model$/i.test(currentOc)) {
           return { ...existingSlot, cc: existingSlot?.cc || deps.modelToCcAlias(currentOc) }
@@ -896,7 +896,7 @@ export function createTrinityTool(deps) {
 
       if (action === "todo") {
         const todos = deps.loadTodos()
-        const pending = todos.filter((t: any) => t.status === "pending")
+        const pending = todos.filter((t: unknown) => t.status === "pending")
         if (pending.length === 0) return "No pending todos."
         const lines = ["Pending todos: " + pending.length]
         for (const t of pending.slice(0, 20)) {
@@ -911,7 +911,7 @@ export function createTrinityTool(deps) {
         return "Todo " + slot + " marked done."
       }
       if (action === "todo-sync") {
-        const count = deps.syncFlowTodosToNative((entry: any) => {
+        const count = deps.syncFlowTodosToNative((entry: unknown) => {
           deps.upsertTodo(entry)
         })
         return "Synced " + count + " flow TODO(s) to native todo list."

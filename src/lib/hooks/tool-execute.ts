@@ -266,7 +266,7 @@ function _stripLeadingFooter(s: string): string {
   return s.replace(/^(?:— [^\n]*—\n\n)+/, "")
 }
 
-function _prependFooterAlert(target: any, footerText: string, seen = new Set<any>()): boolean {
+function _prependFooterAlert(target: unknown, footerText: string, seen = new Set<unknown>()): boolean {
   if (!target || typeof target !== "object" || seen.has(target)) return false
   seen.add(target)
 
@@ -283,7 +283,7 @@ function _prependFooterAlert(target: any, footerText: string, seen = new Set<any
     return true
   }
   if (Array.isArray(target.content)) {
-    const textParts = target.content.filter((part: any) => part?.type === "text")
+    const textParts = target.content.filter((part: unknown) => part?.type === "text")
     if (textParts.length > 0 && typeof textParts[0].text === "string") {
       textParts[0].text = footerText + _stripLeadingFooter(textParts[0].text)
     } else {
@@ -292,7 +292,7 @@ function _prependFooterAlert(target: any, footerText: string, seen = new Set<any
     return true
   }
   if (Array.isArray(target.parts)) {
-    const textParts = target.parts.filter((part: any) => part?.type === "text")
+    const textParts = target.parts.filter((part: unknown) => part?.type === "text")
     if (textParts.length > 0 && typeof textParts[0].text === "string") {
       textParts[0].text = footerText + _stripLeadingFooter(textParts[0].text)
     } else {
@@ -316,7 +316,7 @@ function _prependFooterAlert(target: any, footerText: string, seen = new Set<any
 
 export function materializeScratchpadAlias(
   toolLower: string,
-  args: any,
+  args: unknown,
   sourceHash: string,
   options: { sessionDir?: string; globalDir?: string } = {},
 ): { hash: string; sourcePath: string; targetPath: string } | null {

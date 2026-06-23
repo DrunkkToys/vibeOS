@@ -127,13 +127,13 @@ export function vibemaxPipeline(input = {}) {
     pc.snapshot(prevId, {
       tokens: [...prevTokens],
       intent: prevMessage.substring(0, 60),
-      decisions: (input as any)._pivotContext?.decisions?.length
-        ? (input as any)._pivotContext.decisions
+      decisions: (input as unknown)._pivotContext?.decisions?.length
+        ? (input as unknown)._pivotContext.decisions
         : [`workflow: ${prevMessage.substring(0, 80)}`],
-      files: (input as any)._pivotContext?.files || [],
-      code_snippets: (input as any)._pivotContext?.code_snippets || [],
-      blockers: (input as any)._pivotContext?.blockers || [],
-      toolOutputs: (input as any)._pivotContext?.toolOutputs || [],
+      files: (input as unknown)._pivotContext?.files || [],
+      code_snippets: (input as unknown)._pivotContext?.code_snippets || [],
+      blockers: (input as unknown)._pivotContext?.blockers || [],
+      toolOutputs: (input as unknown)._pivotContext?.toolOutputs || [],
     })
   }
 

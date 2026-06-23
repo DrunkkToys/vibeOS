@@ -19,7 +19,7 @@ const IS_CLI_RUNTIME = Boolean(process.stdout?.isTTY || process.stderr?.isTTY ||
 const IS_TEST_RUNTIME = process.env.VIBEOS_MCP_PORT === "0" || process.env.NODE_ENV === "test" || process.env.CI === "true"
 const FOOTER_DEBUG_STDERR = process.env.VIBEOS_DEBUG_FOOTER === "1" || (!IS_CLI_RUNTIME && !IS_TEST_RUNTIME)
 
-function footerDebug(...args: any[]) {
+function footerDebug(...args: unknown[]) {
   if (FOOTER_DEBUG_STDERR) console.error(...args)
 }
 

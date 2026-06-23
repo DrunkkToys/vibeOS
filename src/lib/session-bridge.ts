@@ -63,12 +63,12 @@ function hasRecordedSessionBridge(sessionId: string, bridgeKey: string, bridgeId
   try {
     const orchestration = loadSessionOrchestration(sessionId)
     const history = Array.isArray(orchestration?.history) ? orchestration.history : []
-    return history.some((entry: any) => {
+    return history.some((entry: unknown) => {
       const actions = Array.isArray(entry?.payload?.actions) ? entry.payload.actions : []
-      return actions.some((action: any) => {
+      return actions.some((action: unknown) => {
         const payload = action?.payload && typeof action.payload === "object" ? action.payload : {}
         const note = String(payload.note || "").trim()
-        const tags = Array.isArray(payload.tags) ? payload.tags.map((tag: any) => String(tag || "").trim()) : []
+        const tags = Array.isArray(payload.tags) ? payload.tags.map((tag: unknown) => String(tag || "").trim()) : []
         return note.includes(`bridge_key=${bridgeKey}`) || tags.includes(`bridge_key:${bridgeKey}`) || tags.includes(`bridge:${bridgeId}`)
       })
     })
@@ -77,7 +77,7 @@ function hasRecordedSessionBridge(sessionId: string, bridgeKey: string, bridgeId
   }
 }
 
-function summarizeSelection(selection: any): Record<string, unknown> {
+function summarizeSelection(selection: unknown): Record<string, unknown> {
   const sel = selection && typeof selection === "object" ? selection : {}
   return {
     enabled: sel.enabled !== false,
@@ -97,7 +97,7 @@ function summarizeSelection(selection: any): Record<string, unknown> {
   }
 }
 
-function summarizeOrchestration(orchestration: any): Record<string, unknown> {
+function summarizeOrchestration(orchestration: unknown): Record<string, unknown> {
   const orch = orchestration && typeof orchestration === "object" ? orchestration : {}
   const notes = Array.isArray(orch.notes) ? orch.notes : []
   const history = Array.isArray(orch.history) ? orch.history : []
@@ -118,11 +118,11 @@ function summarizeOrchestration(orchestration: any): Record<string, unknown> {
   }
 }
 
-function summarizeCache(cacheDb: any): Record<string, unknown> {
+function summarizeCache(cacheDb: unknown): Record<string, unknown> {
   const db = cacheDb && typeof cacheDb === "object" ? cacheDb : {}
   const entries = Array.isArray(db.entries) ? db.entries : []
   const stats = db.stats && typeof db.stats === "object" ? db.stats : {}
-  const toolStats = Object.values(stats).slice(0, 6).map((stat: any) => ({
+  const toolStats = Object.values(stats).slice(0, 6).map((stat: unknown) => ({
     tool: stat?.tool || null,
     hits: Number(stat?.hits || 0),
     total: Number(stat?.total || 0),
@@ -232,7 +232,7 @@ export function buildSessionBridge(input: {
   }
 }
 
-export function recordSessionBridge(bridge: any): boolean {
+export function recordSessionBridge(bridge: unknown): boolean {
   if (!bridge || typeof bridge !== "object") return false
   const sessionId = String(bridge.session_id || getCurrentSessionId() || _OC_SID || "unknown").trim()
   if (!sessionId) return false

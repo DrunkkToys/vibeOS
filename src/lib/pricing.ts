@@ -169,7 +169,7 @@ export function resolveCurrentExecution({
   activeSlot?: string
   currentModel?: string
   liveModel?: string
-  tiersData?: any
+  tiersData?: unknown
 } = {}) {
   const slot = String(activeSlot || "").trim()
   const slotModel = slot && tiersData?.trinity?.[slot]?.oc ? tiersData.trinity[slot].oc : ""
@@ -232,7 +232,7 @@ export function _providerOfModel(modelId: string, fallbackProvider = "") {
   return provider || String(fallbackProvider || "").trim()
 }
 
-export function _sortByQualityDesc(models: any[] = []) {
+export function _sortByQualityDesc(models: unknown[] = []) {
   return [...models].sort((a, b) => {
     const ar = classify(a?.id) === "high" ? 3 : classify(a?.id) === "mid" ? 2 : 1
     const br = classify(b?.id) === "high" ? 3 : classify(b?.id) === "mid" ? 2 : 1
@@ -244,7 +244,7 @@ export function _sortByQualityDesc(models: any[] = []) {
   })
 }
 
-export function _sortByCostAsc(models: any[] = []) {
+export function _sortByCostAsc(models: unknown[] = []) {
   return [...models].sort((a, b) => {
     const af = isModelFree(a?.id) ? 0 : 1
     const bf = isModelFree(b?.id) ? 0 : 1
@@ -259,7 +259,7 @@ export function _sortByCostAsc(models: any[] = []) {
   })
 }
 
-export function buildDeterministicTrinity(models: any[], options: {
+export function buildDeterministicTrinity(models: unknown[], options: {
   selectedModelId?: string
   provider?: string
 } = {}) {
@@ -1154,7 +1154,7 @@ export function _refreshModel(directory) {
 let _pendingLiveSwitch: { model: string, projectDir: string } | null = null
 
 async function pushLiveModelSwitch(model: string, projectDir: string): Promise<boolean> {
-  const _oc = (globalThis as any)?.__vibeOS_client?.config
+  const _oc = (globalThis as unknown)?.__vibeOS_client?.config
   if (!_oc || typeof _oc.update !== "function") {
     // No live client wired — the SDK switch can't fire. opencode.json was already
     // rewritten by the caller (applySlot), so NEW sessions still pick up the model,
@@ -1169,7 +1169,7 @@ async function pushLiveModelSwitch(model: string, projectDir: string): Promise<b
     })
     console.error(`[vibeOS] live model switch → ${model}`)
     return true
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error("[vibeOS] live model switch failed:", e?.message || e)
     return false
   }
@@ -1181,7 +1181,7 @@ export async function flushPendingLiveSwitch(): Promise<string | null> {
   _pendingLiveSwitch = null
   // Land the deferred opencode.json write now (turn boundary) so new sessions pick up the
   // model even if the SDK push fails, then fire the live SDK switch for the running app.
-  try { writeLiveOpenCodeModel(projectDir, model) } catch (e: any) {
+  try { writeLiveOpenCodeModel(projectDir, model) } catch (e: unknown) {
     console.error("[vibeOS] flush: opencode.json write failed:", e?.message || e)
   }
   const ok = await pushLiveModelSwitch(model, projectDir)
