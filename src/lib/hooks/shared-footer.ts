@@ -184,7 +184,9 @@ export function buildFooterLine(input: FooterLineInput): string {
 
   line += ` | ${vibeBrand}${flashIcon}`
 
-  if (optMode && optMode !== "auto") {
+  // Avoid rendering the brand twice (e.g. "VibeUltraX · VibeUltraX") when the
+  // mode label resolves to the same text as the brand.
+  if (optMode && optMode !== "auto" && modeLabel && modeLabel !== vibeBrand) {
     line += ` · ${modeLabel}`
   }
 

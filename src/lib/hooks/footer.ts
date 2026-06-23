@@ -206,14 +206,25 @@ async function _appendFooter(input, output, directory, lastModelError?: string) 
       loadSelection().optimization_mode ||
       loadOptimizationMode() ||
       _latestBlackboxState?.optimization_mode ||
-      ""
+      "",
     ).trim().toLowerCase()
     const displayMode = backendMode || (isApiConnected()
       ? await apiAutoSelectMode(_latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""), _footerStress)
       : autoSelectMode(_latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""), _footerStress))
+    // VibeUltraX is a cascade. Honor the backend's resolved tier (tier_bias)
+    // instead of pinning the display to "cheap", and read the cascade depth the
+    // backend now emits so the footer matches the real routing decision.
+    const ultraResolvedTier = ((): "cheap" | "medium" | "brain" => {
+      const t = String(_latestBlackboxState?.tier_bias || _latestBlackboxState?.decision?.tier_bias || "").toLowerCase()
+      return (t === "medium" || t === "brain") ? t : "cheap"
+    })()
+    const ultraCascadeDepth = Number(
+      _latestBlackboxState?.control_vector?.cascade_depth ??
+      _latestBlackboxState?.cascade_depth ?? 0,
+    ) || 0
     const execution = resolveCurrentExecution({
       directory,
-      activeSlot: displayMode === "vibeultrax" ? "cheap" : slot || "brain",
+      activeSlot: displayMode === "vibeultrax" ? ultraResolvedTier : slot || "brain",
       currentModel,
       liveModel: displayModel || liveModel || currentModel || "",
       tiersData: {
@@ -225,12 +236,12 @@ async function _appendFooter(input, output, directory, lastModelError?: string) 
       },
     })
     const executionSlot = displayMode === "vibeultrax"
-      ? "cheap"
+      ? ultraResolvedTier
       : execution.quality === "brain"
-      ? "brain"
-      : execution.quality === "mid"
-        ? "medium"
-        : "cheap"
+        ? "brain"
+        : execution.quality === "mid"
+          ? "medium"
+          : "cheap"
     let modelTag = `[${shortModelName(displayModel)}]`
     const _workerModel = slot === "brain" ? TRINITY_MEDIUM : null
     const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0)
@@ -297,7 +308,7 @@ async function _appendFooter(input, output, directory, lastModelError?: string) 
     if (stripped === _lastStrippedText && !claimTag) return
     const ltTotal = ltTasks + ltCache
     const activeSlot = displayMode === "vibeultrax"
-      ? "cheap"
+      ? ultraResolvedTier
       : freshSelection?.active_slot || selNowFooter.active_slot || resolveOptimizationSlot(displayMode) || "brain"
     const flashIcon = isApiConnected() ? " \u26A1" : ""
     const rawMode = displayMode
@@ -310,10 +321,10 @@ async function _appendFooter(input, output, directory, lastModelError?: string) 
 
     if (_blackboxEnabled) {
       try {
-                const prevText = _prevOutputText
-                _prevOutputText = _extractText(output) || ""
-                if (_prevOutputText && prevText && _prevOutputText !== prevText) {
-                    const outcome = detectOutcomeSignal(_prevOutputText)
+        const prevText = _prevOutputText
+        _prevOutputText = _extractText(output) || ""
+        if (_prevOutputText && prevText && _prevOutputText !== prevText) {
+          const outcome = detectOutcomeSignal(_prevOutputText)
           const regime = _latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || "")
           const stress = _footerStress
           // Passive negative outcome: LOOPING regime + elevated stress = auto-negative
@@ -438,7 +449,10 @@ async function _appendFooter(input, output, directory, lastModelError?: string) 
       vectorChangedSlot: selNowFooter?.vector_changed_slot,
       subRegime: currentSubRegime,
       stressGauge: _footerStress > 0.85 ? "█" : _footerStress > 0.7 ? "▆" : _footerStress > 0.5 ? "▅" : _footerStress > 0.3 ? "▃" : _footerStress > 0.1 ? "▂" : "▁",
-      cascadeIcon: ((cv?.cascade_depth || 1) >= 3 ? "▸▸▸" : (cv?.cascade_depth || 1) >= 2 ? "▸▸" : ""),
+      cascadeIcon: (() => {
+        const d = displayMode === "vibeultrax" && ultraCascadeDepth > 0 ? ultraCascadeDepth : (cv?.cascade_depth || 1)
+        return d >= 3 ? "▸▸▸" : d >= 2 ? "▸▸" : ""
+      })(),
       claimTag: claimTag || undefined,
       rewardTag: _rewardTag || undefined,
       alertTag: _alertTag || undefined,
