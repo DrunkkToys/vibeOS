@@ -13,7 +13,7 @@ import TEST_SKELETONS from "./test-skeletons.js"
 
 export { extractExports, generateTestCaseNames, inferFunctionParams, inferTypeFromName, _langComment, buildQualityAssertionsForFunc, isSkeletonUseless, TEST_SKELETONS }
 
-let _detectedFramework: any = null
+let _detectedFramework: string | null = null
 
 let directory = undefined
 
