@@ -66,7 +66,7 @@ export function _resetWarnCountsForTest(): void {
 }
 export function _resetToolExecuteStateForTest(): void {
   _resetWarnCountsForTest()
-  activeJob = null
+  _activeJob = null
   projectDirectory = ""
   pendingUiNote = null
   enforcementBlocked = false
