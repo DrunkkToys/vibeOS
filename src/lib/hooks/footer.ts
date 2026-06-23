@@ -574,7 +574,7 @@ async function _appendFooter(input, output, directory, lastModelError?: string) 
   }
 }
 
-export function didTextCompletePainted(messageID: string): boolean {
+function didTextCompletePainted(messageID: string): boolean {
   return textCompletePainted.has(messageID)
 }
 
