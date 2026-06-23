@@ -816,10 +816,6 @@ export async function DelegationEnforcer({ client, directory } = {}) {
   if (!globalThis.__vibeOS_sessionId) {
     globalThis.__vibeOS_sessionId = `opencode-${process.pid || "x"}-${Date.now()}`
   }
-  // Expose the OpenCode SDK client globally so the slot-switch machinery
-  // (applySlot / flushPendingLiveSwitch in pricing.ts) can re-bind the live
-  // model at a turn boundary, independent of the per-call deps wiring.
-  if (client) globalThis.client = client
   const hookSessionId = globalThis.__vibeOS_sessionId
   setVibeOSHomeContext(process.env.VIBEOS_HOME || join(hookHome, ".claude"))
   setCurrentSessionId(hookSessionId)

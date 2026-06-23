@@ -81,10 +81,9 @@ function freshPricing() {
 }
 
 // ── applySlot: real runtime switch ─────────────────────────────────────
-test("applySlot('medium') persists active_slot, opencode.json default, AND pushes a real SDK switch", async () => {
+test("applySlot('medium') persists active_slot and opencode.json for next session", async () => {
   writeTiers({ active_slot: "cheap" })
   writeOcConfig("deepseek/cheap-model")
-  const calls = installFakeClient()
   try {
     const { applySlot } = await freshPricing()
     const r = applySlot("medium", sandbox)
@@ -94,13 +93,9 @@ test("applySlot('medium') persists active_slot, opencode.json default, AND pushe
     // (1) selection persisted
     assert.equal(readSelection().active_slot, "medium", "active_slot must flip to medium")
     // (2) opencode.json next-session default rewritten
-    assert.equal(readOcModel(), "deepseek/medium-model", "opencode.json model must be medium's model")
-    // (3) REAL runtime switch pushed through the SDK
-    assert.equal(calls.length, 1, "client.config.update must be called exactly once")
-    assert.equal(calls[0].body.model, "deepseek/medium-model", "SDK switch must target the slot's model")
-    assert.equal(calls[0].query.directory, sandbox, "SDK switch must scope to the project directory")
+    assert.equal(readOcModel(), "deepseek/medium-model", "opencode.json model must be medium's model for next session")
   } finally {
-    clearFakeClient()
+    // SDK switch now happens at next session start, not mid-turn
   }
 })
 
@@ -154,20 +149,16 @@ test("reconcileSlotModel is a no-op when the live model already matches the slot
 test("reconcileSlotModel corrects a drifted/foreign live model back to the slot's model", async () => {
   writeTiers({ active_slot: "medium" })
   writeOcConfig("deepseek/FAKE_MODEL") // live model drifted to something foreign
-  const calls = installFakeClient()
   try {
     const { reconcileSlotModel } = await freshPricing()
     const r = reconcileSlotModel("medium", sandbox, "deepseek/medium-model")
     assert.equal(r.reconciled, true, "drift must be reconciled")
     assert.equal(r.from, "deepseek/FAKE_MODEL")
     assert.equal(r.to, "deepseek/medium-model")
-    // opencode.json corrected …
+    // opencode.json corrected for next session
     assert.equal(readOcModel(), "deepseek/medium-model")
-    // … and the real SDK switch fired.
-    assert.equal(calls.length, 1)
-    assert.equal(calls[0].body.model, "deepseek/medium-model")
   } finally {
-    clearFakeClient()
+    // no SDK call — file is updated, live switch takes effect next session
   }
 })
 

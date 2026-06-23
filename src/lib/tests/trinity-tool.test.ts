@@ -140,7 +140,7 @@ describe("trinity-tool", () => {
     expect(out).toContain("Dashboard:")
   })
 
-  it("switches a slot through applySlot and defers the live re-bind off the active turn", async () => {
+  it("switches a slot through applySlot and persists for next session", async () => {
     const { createTrinityTool } = await import("../trinity-tool")
     const ctx = makeDeps()
     const tool = createTrinityTool(ctx.deps as any)
@@ -148,13 +148,8 @@ describe("trinity-tool", () => {
     const out = await tool.execute({ action: "set", slot: "cheap", model: "opencode/big-pickle" })
 
     expect(out).toContain("Updated cheap slot")
-    // The live switch is deferred to the next message so a mid-turn `vibe set`
-    // does not abort the in-flight assistant turn (MessageAbortedError).
-    expect(out).toContain("next message")
+    expect(out).toContain("Takes effect next session")
     expect(ctx.calls.some((call) => call[0] === "applySlot" && call[1] === "cheap")).toBe(true)
-    // No synchronous mid-turn config.update — the re-bind is flushed at the next
-    // turn boundary by flushPendingLiveSwitch(), not from inside the tool call.
-    expect(ctx.calls.some((call) => call[0] === "config.update")).toBe(false)
     expect(ctx.calls.some((call) => call[0] === "refresh")).toBe(true)
   })
 })

@@ -1152,43 +1152,7 @@ export function _refreshModel(directory) {
   } catch {}
 }
 
-// A live SDK model switch (client.config.update) re-binds the model on the
-// RUNNING OpenCode server. If that happens mid-turn — e.g. the `vibe set` tool
-// runs while the assistant is generating — OpenCode aborts the in-flight message
-// (MessageAbortedError). When a slot switch is requested mid-turn we queue the
-// live switch here and flush it at the next turn boundary instead (see
-// flushPendingLiveSwitch, called from onMessagesTransform/nextTurn).
-let _pendingLiveSwitch: { model: string, projectDir: string } | null = null
-
-function pushLiveModelSwitch(model: string, projectDir: string) {
-  try {
-    const _oc = globalThis?.client?.config
-    if (_oc && typeof _oc.update === "function") {
-      _oc.update({
-        body: { model },
-        query: projectDir ? { directory: projectDir } : undefined,
-      })
-        .then(() => DEBUG_INTERNALS && console.error(`[vibeOS] live model switch → ${model}`))
-        .catch((e) => console.error("[vibeOS] live model switch failed:", e?.message || e))
-    }
-  } catch (e) {
-    console.error("[vibeOS] live model switch failed:", e?.message || e)
-  }
-}
-
-/**
- * Flush a slot switch that was deferred to avoid interrupting an active turn.
- * Safe to call at a turn boundary (before generation starts). No-op otherwise.
- */
-export function flushPendingLiveSwitch(): string | null {
-  if (!_pendingLiveSwitch) return null
-  const { model, projectDir } = _pendingLiveSwitch
-  _pendingLiveSwitch = null
-  pushLiveModelSwitch(model, projectDir)
-  return model
-}
-
-export function applySlot(slot: string, projectDir = "", opts: { deferLiveSwitch?: boolean } = {}) {
+export function applySlot(slot: string, projectDir = "") {
   let result: { ok: boolean, ocModel?: string, reason?: string } = { ok: false, reason: "unknown error" }
   try {
     const TIERS_FILE = join(getVibeOSHome(), "model-tiers.json")
@@ -1215,15 +1179,6 @@ export function applySlot(slot: string, projectDir = "", opts: { deferLiveSwitch
   }
   if (result.ok) {
     try { _refreshModel(projectDir) } catch {}
-    // The opencode.json file write above is only the next-session default, which
-    // the running session ignores; the live re-bind below is what switches the
-    // running model. Defer it to the next turn boundary when requested mid-turn
-    // so we don't abort the in-flight assistant message.
-    if (opts.deferLiveSwitch) {
-      _pendingLiveSwitch = { model: result.ocModel, projectDir }
-    } else {
-      pushLiveModelSwitch(result.ocModel, projectDir)
-    }
   }
   return result
 }

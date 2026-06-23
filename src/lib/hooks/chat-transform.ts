@@ -29,7 +29,7 @@ import { memoCompute, nextTurn } from "../turn-memo.js"
 import { evaluateClaimVerification } from "../claim-verification.js"
 import {
   classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget,
-  shortModelName, formatUsd, _refreshModel, applySlot, reconcileSlotModel, flushPendingLiveSwitch, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN,
+  shortModelName, formatUsd, _refreshModel, applySlot, reconcileSlotModel, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN,
   cacheSavePer1MInputTokens,
   clearWorkspaceFollowupPauseForSession,
 } from "../pricing.js"
@@ -877,15 +877,6 @@ async function trackBlackbox(messages: any[]): Promise<void> {
 
 export const onMessagesTransform = async (_input, output) => {
   nextTurn()
-  // Flush any slot switch that was deferred mid-turn (e.g. `vibe set`) now that
-  // we are at a turn boundary — switching the live model here does not abort an
-  // in-flight message the way a mid-turn switch does.
-  try {
-    const flushed = flushPendingLiveSwitch()
-    if (flushed) console.error(`[vibeOS] applied deferred slot switch → ${flushed}`)
-  } catch (err) {
-    console.error("[vibeOS] failed to flush deferred slot switch:", err?.message || err)
-  }
   if (!loadSelection().enabled) return
   try {
     const messages = output?.messages
