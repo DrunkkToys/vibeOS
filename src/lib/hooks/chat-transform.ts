@@ -877,6 +877,13 @@ async function trackBlackbox(messages: any[]): Promise<void> {
 
 export const onMessagesTransform = async (_input, output) => {
   nextTurn()
+  try {
+    const { flushPendingLiveSwitch } = await import("../pricing.js")
+    const flushed = flushPendingLiveSwitch()
+    if (flushed) console.error(`[vibeOS] flushed deferred model switch → ${flushed}`)
+  } catch (err) {
+    console.error("[vibeOS] failed to flush deferred model switch:", err?.message || err)
+  }
   if (!loadSelection().enabled) return
   try {
     const messages = output?.messages
