@@ -484,6 +484,12 @@ async function _appendFooter(input, output, directory, lastModelError?: string) 
       subRegime: currentSubRegime,
       stressGauge: _footerStress > 0.85 ? "█" : _footerStress > 0.7 ? "▆" : _footerStress > 0.5 ? "▅" : _footerStress > 0.3 ? "▃" : _footerStress > 0.1 ? "▂" : "▁",
       cascadeIcon: (() => {
+        // Use cascade_tier from API response if available, otherwise fallback to cascade_depth
+        const tier = cv?.cascade_tier || cv?.control_vector?.cascade_tier
+        if (tier === "cheap") return "⚡"
+        if (tier === "medium") return "⚡⚡"
+        if (tier === "brain") return "🧠"
+        // Fallback to depth-based display
         const d = displayMode === "vibeultrax" && ultraCascadeDepth > 0 ? ultraCascadeDepth : (cv?.cascade_depth || 1)
         return d >= 3 ? "▸▸▸" : d >= 2 ? "▸▸" : ""
       })(),
