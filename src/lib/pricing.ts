@@ -899,7 +899,6 @@ export function isDocsTarget(s) {
 // Per-process dedup so the same docs URL doesn't nudge twice.
 const context7Seen = new Set()
 
-
 export function readConfig(dir) {
   try {
     const configs = []
@@ -1154,28 +1153,39 @@ export function _refreshModel(directory) {
 
 let _pendingLiveSwitch: { model: string, projectDir: string } | null = null
 
-function pushLiveModelSwitch(model: string, projectDir: string) {
+async function pushLiveModelSwitch(model: string, projectDir: string): Promise<boolean> {
+  const _oc = (globalThis as any)?.__vibeOS_client?.config
+  if (!_oc || typeof _oc.update !== "function") {
+    // No live client wired — the SDK switch can't fire. opencode.json was already
+    // rewritten by the caller (applySlot), so NEW sessions still pick up the model,
+    // but the running session won't move. Surface this so it's never a silent no-op.
+    console.error(`[vibeOS] live model switch SKIPPED (no SDK client) → ${model}`)
+    return false
+  }
   try {
-    const _oc = (globalThis as any)?.__vibeOS_client?.config
-    if (_oc && typeof _oc.update === "function") {
-      _oc.update({
-        body: { model },
-        query: projectDir ? { directory: projectDir } : undefined,
-      })
-        .then(() => DEBUG_INTERNALS && console.error(`[vibeOS] live model switch → ${model}`))
-        .catch((e: any) => console.error("[vibeOS] live model switch failed:", e?.message || e))
-    }
-  } catch (e) {
-    console.error("[vibeOS] live model switch failed:", (e as any)?.message || e)
+    await _oc.update({
+      body: { model },
+      query: projectDir ? { directory: projectDir } : undefined,
+    })
+    console.error(`[vibeOS] live model switch → ${model}`)
+    return true
+  } catch (e: any) {
+    console.error("[vibeOS] live model switch failed:", e?.message || e)
+    return false
   }
 }
 
-export function flushPendingLiveSwitch(): string | null {
+export async function flushPendingLiveSwitch(): Promise<string | null> {
   if (!_pendingLiveSwitch) return null
   const { model, projectDir } = _pendingLiveSwitch
   _pendingLiveSwitch = null
-  pushLiveModelSwitch(model, projectDir)
-  return model
+  // Land the deferred opencode.json write now (turn boundary) so new sessions pick up the
+  // model even if the SDK push fails, then fire the live SDK switch for the running app.
+  try { writeLiveOpenCodeModel(projectDir, model) } catch (e: any) {
+    console.error("[vibeOS] flush: opencode.json write failed:", e?.message || e)
+  }
+  const ok = await pushLiveModelSwitch(model, projectDir)
+  return ok ? model : null
 }
 
 export function getPendingLiveSwitch(): { model: string, projectDir: string } | null {
@@ -1195,7 +1205,10 @@ export function applySlot(slot: string, projectDir = "", opts: { deferLiveSwitch
       const _tmp = TIERS_FILE + ".tmp." + Date.now()
       writeFileSync(_tmp, JSON.stringify(j, null, 2) + "\n", "utf-8")
       renameSync(_tmp, TIERS_FILE)
-      writeLiveOpenCodeModel(projectDir, ocModel)
+      // NOTE: the opencode.json model write is intentionally NOT done here for the
+      // deferred path — see below. active_slot (the orchestrator decision) is always
+      // persisted immediately; the live model file only moves at the turn boundary.
+      if (!opts.deferLiveSwitch) writeLiveOpenCodeModel(projectDir, ocModel)
       return { ok: true, ocModel }
     })
   } catch (err) {
@@ -1210,9 +1223,14 @@ export function applySlot(slot: string, projectDir = "", opts: { deferLiveSwitch
   if (result.ok) {
     try { _refreshModel(projectDir) } catch {}
     if (opts.deferLiveSwitch) {
+      // Defer BOTH the opencode.json model write AND the SDK switch to the turn
+      // boundary (flushPendingLiveSwitch). This keeps opencode.json reflecting the model
+      // that actually RAN this turn, so the footer (which reads it via
+      // resolveOrchestratorState) can never claim a model that didn't answer. The new
+      // model takes effect next turn — the only point the platform lets us switch.
       _pendingLiveSwitch = { model: result.ocModel!, projectDir }
     } else {
-      pushLiveModelSwitch(result.ocModel!, projectDir)
+      void pushLiveModelSwitch(result.ocModel!, projectDir)
     }
   }
   return result
@@ -1251,6 +1269,7 @@ export function reconcileSlotModel(
   slot: string,
   projectDir = "",
   expectedModel = "",
+  opts: { deferLiveSwitch?: boolean } = {},
 ): { reconciled: boolean, from: string, to: string, reason?: string } {
   let expected = String(expectedModel || "").trim()
   if (!expected) {
@@ -1262,11 +1281,58 @@ export function reconcileSlotModel(
   const live = readLiveOpenCodeModel(projectDir)
   if (!expected) return { reconciled: false, from: live, to: expected, reason: `slot '${slot}' has no oc model` }
   if (live && live === expected) return { reconciled: false, from: live, to: expected }
-  const applied = applySlot(slot, projectDir)
+  const applied = applySlot(slot, projectDir, opts)
   return {
     reconciled: !!applied.ok,
     from: live,
     to: expected,
     reason: applied.ok ? undefined : applied.reason,
+  }
+}
+
+/**
+ * SINGLE SOURCE OF TRUTH for the orchestrator → client contract.
+ *
+ * Everything that needs to display or reason about "what model is in play" must read
+ * this — never the 6 scattered sources (control vector, blackbox session slot, raw
+ * classify(), etc.) that previously drifted out of sync.
+ *
+ *  - active_slot     : the slot the orchestrator selected (model-tiers.json).
+ *  - intended_model  : trinity[active_slot].oc — what that slot maps to.
+ *  - ran_model       : readLiveOpenCodeModel() — the model OpenCode ACTUALLY ran this
+ *                      turn (live opencode.json). This is what the footer renders, so the
+ *                      footer can never claim a model that didn't answer.
+ *  - pending_model   : a queued switch that flushes at the turn boundary and takes effect
+ *                      NEXT turn (null when none). Footer shows this as a "→ pending" hint.
+ *  - drift           : true only when ran_model differs from intended_model AND no switch
+ *                      is pending to explain it — i.e. a genuine, unexpected divergence.
+ */
+export function resolveOrchestratorState(projectDir = ""): {
+  active_slot: string | null
+  intended_model: string
+  ran_model: string
+  pending_model: string | null
+  drift: boolean
+} {
+  let activeSlot: string | null = null
+  let intendedModel = ""
+  try {
+    const TIERS_FILE = join(getVibeOSHome(), "model-tiers.json")
+    const j = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
+    activeSlot = j?.selection?.active_slot || null
+    intendedModel = String((activeSlot && j?.trinity?.[activeSlot]?.oc) || "").trim()
+  } catch { /* fall through to live read */ }
+  const ranModel = readLiveOpenCodeModel(projectDir)
+  const pending = getPendingLiveSwitch()
+  const pendingModel = pending?.model ? String(pending.model).trim() : null
+  const drift =
+    !!intendedModel && !!ranModel && ranModel !== intendedModel &&
+    (!pendingModel || pendingModel === ranModel)
+  return {
+    active_slot: activeSlot,
+    intended_model: intendedModel || ranModel,
+    ran_model: ranModel || intendedModel,
+    pending_model: pendingModel && pendingModel !== ranModel ? pendingModel : null,
+    drift,
   }
 }

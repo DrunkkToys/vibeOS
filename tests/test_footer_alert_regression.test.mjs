@@ -24,7 +24,10 @@ function writeTiers(overrides = {}) {
             delegation_enforce: true, flow_enforce: true, tdd_enforce: true, tdd_strict: false,
             ...overrides
         },
-        trinity: { brain: { oc: "deepseek/v4-pro" }, medium: { oc: "deepseek/v4-flash" }, cheap: { oc: "deepseek/v4-flash" } }
+        // v4-flash maps to exactly ONE slot (cheap) so a live v4-flash resolves to a
+        // single, unambiguous tier. medium is a distinct model. (Tests 11/13 rely on
+        // cheap.oc === v4-flash; tests that need v4-flash as medium override trinity.)
+        trinity: { brain: { oc: "deepseek/v4-pro" }, medium: { oc: "z-ai/glm-4.6" }, cheap: { oc: "deepseek/v4-flash" } }
     }))
 }
 
@@ -40,15 +43,18 @@ after(() => {
 
 test("SETUP: sandbox ready", () => assert.ok(true))
 
-// ── Test 1: tier icon follows active_slot while vector_changed is shown separately ──
-test("footer: tier = active_slot when ML decision differs from active_slot", async () => {
-    writeTiers({ active_slot: "brain", vector_changed_slot: "cheap" })
+// ── Test 1: tier icon follows the model that ACTUALLY ran, not the stale active_slot ──
+// (Same truthful contract as the vibeultrax tests below — extended to all modes so the
+// footer can never claim a tier the live model didn't run. active_slot is the decision;
+// the live/ran model is the truth.)
+test("footer: tier reflects the model that ran, not the stale active_slot", async () => {
+    // active_slot is a stale decision (cheap); the model that actually ran is v4-pro
+    // (the brain-slot model). The footer must show brain — the live model — not cheap.
+    writeTiers({ active_slot: "cheap", vector_changed_slot: "cheap" })
     const { _appendFooter } = await import("../src/lib/hooks/footer.js?ftr1=" + Date.now())
     const o = { text: "This is a test message that is long enough to trigger the vibeOS footer mechanism and verify the ML pipeline." }
-    await _appendFooter({ args: { model: "deepseek/v4-flash" } }, o)
-    // The footer should keep brain first and show the vector move at the end.
-    assert.ok(o.text.includes("🧠 brain"), "footer should show brain from active_slot: " + o.text.slice(-150))
-    assert.ok(o.text.includes("⟡ cheap"), "footer should show cheap as the vector move: " + o.text.slice(-150))
+    await _appendFooter({ args: { model: "deepseek/v4-pro" } }, o)
+    assert.ok(o.text.includes("🧠 brain"), "footer tier must follow the live model (brain), not active_slot: " + o.text.slice(-150))
 })
 
 // ── Test 2: optimization_mode follows the current regime vector ──
@@ -60,12 +66,14 @@ test("footer: shows regime-derived mode instead of sticky selection", async () =
     assert.ok(o.text.includes("Speed"), "footer should show the backend-selected mode label: " + o.text.slice(-150))
 })
 
-// ── Test 3: → arrow shows when vector_changed differs ──
-test("footer: → arrow when ML wants different tier", async () => {
+// ── Test 3: ⟡ pulse shows the decided slot when it differs from the model that ran ──
+test("footer: ⟡ pulse shows the decided slot vs what ran", async () => {
+    // Ran model is v4-pro (brain); the decision moved the slot to medium. The pulse
+    // surfaces the decision (⟡ medium) while the tier icon stays truthful to what ran.
     writeTiers({ active_slot: "brain", vector_changed_slot: "medium" })
     const { _appendFooter } = await import("../src/lib/hooks/footer.js?ftr3=" + Date.now())
     const o = { text: "Testing the arrow indicator when the ML wants to change the tier from brain to medium in a long message." }
-    await _appendFooter({ args: { model: "deepseek/v4-flash" } }, o)
+    await _appendFooter({ args: { model: "deepseek/v4-pro" } }, o)
     assert.ok(o.text.includes("⟡ medium"), "footer should show ⟡ medium pulse: " + o.text.slice(-150))
 })
 
@@ -81,6 +89,12 @@ test("footer: brand is VibeQMaX when tier is brain", async () => {
 // ── Test 5: ML pipeline end-to-end via footer ──
 test("footer: full ML pipeline — tier + mode + arrow in one line", async () => {
     writeTiers({ active_slot: "medium", vector_changed_slot: "cheap", optimization_mode: "budget" })
+    // Disambiguate the trinity so the live model maps to exactly one tier (medium): the
+    // tier icon follows the ran model (◐ medium) while ⟡ cheap shows the decided move.
+    const tiersFile = join(sandbox, ".claude", "model-tiers.json")
+    const tiers = JSON.parse(readFileSync(tiersFile, "utf8"))
+    tiers.trinity = { brain: { oc: "deepseek/v4-pro" }, medium: { oc: "deepseek/v4-flash" }, cheap: { oc: "opencode/big-pickle" } }
+    writeFileSync(tiersFile, JSON.stringify(tiers))
     const { _appendFooter } = await import("../src/lib/hooks/footer.js?ftr5=" + Date.now())
     const o = { text: "Full pipeline test to verify tier icon, mode display, and arrow all appear in the vibeOS footer." }
     await _appendFooter({ args: { model: "deepseek/v4-flash" } }, o)

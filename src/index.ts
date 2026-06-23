@@ -817,6 +817,11 @@ export async function DelegationEnforcer({ client, directory } = {}) {
     globalThis.__vibeOS_sessionId = `opencode-${process.pid || "x"}-${Date.now()}`
   }
   const hookSessionId = globalThis.__vibeOS_sessionId
+  // Wire the live OpenCode SDK client so the orchestrator can actually switch the
+  // running model (pushLiveModelSwitch reads globalThis.__vibeOS_client.config). Without
+  // this, a "switch" only rewrites opencode.json (applies to NEW sessions) and the live
+  // dropdown never moves. Guard against a falsy client clobbering a good one.
+  if (client) globalThis.__vibeOS_client = client
   setVibeOSHomeContext(process.env.VIBEOS_HOME || join(hookHome, ".claude"))
   setCurrentSessionId(hookSessionId)
   if (hookFp) {

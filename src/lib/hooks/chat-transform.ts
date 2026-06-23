@@ -27,6 +27,7 @@ import {
 } from "../state.js"
 import { memoCompute, nextTurn } from "../turn-memo.js"
 import { evaluateClaimVerification } from "../claim-verification.js"
+import { projectTreeDirective, recordProjectFact } from "../project-tree.js"
 import {
   classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget,
   shortModelName, formatUsd, _refreshModel, applySlot, reconcileSlotModel, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN,
@@ -267,11 +268,11 @@ function normalizeBackendDecision(raw: any, fallbackMode: any = null): any {
   }
   const controlVector = raw.control_vector && typeof raw.control_vector === "object"
     ? {
-        ...raw.control_vector,
-        optimization_mode: decision.optimization_mode,
-        tier_bias: decision.tier_bias,
-        pipeline_root: decision.pipeline_root,
-      }
+      ...raw.control_vector,
+      optimization_mode: decision.optimization_mode,
+      tier_bias: decision.tier_bias,
+      pipeline_root: decision.pipeline_root,
+    }
     : undefined
   return {
     ...raw,
@@ -593,7 +594,12 @@ export function syncControlSettings(cv: any, options: { persistOptimizationMode?
           console.error("[vibeOS] failed to record session bridge:", err?.message || err)
         }
         try {
-          const applied = applySlot(slot, directory)
+          // Defer the live model switch to the turn boundary: applySlot still writes
+          // model-tiers.json active_slot + opencode.json now (cheap/safe), but the SDK
+          // switch is queued and flushed in onMessagesTransform so the NEXT turn runs the
+          // new model. Switching mid-turn aborts the in-flight turn — the platform only
+          // lets us change the model at turn end.
+          const applied = applySlot(slot, directory, { deferLiveSwitch: true })
           if (!applied?.ok) {
             console.error(`[vibeOS] failed to persist slot ${slot}: ${applied?.reason || "unknown"}`)
           }
@@ -607,7 +613,7 @@ export function syncControlSettings(cv: any, options: { persistOptimizationMode?
         // async client.config.get().then() that may never resolve headless (which
         // is why drift previously went uncorrected).
         try {
-          const r = reconcileSlotModel(slot, directory, _ocModel)
+          const r = reconcileSlotModel(slot, directory, _ocModel, { deferLiveSwitch: true })
           if (r.reconciled) {
             console.error(`[vibeOS] reconciled drifted model: live=${r.from || "∅"} → ${r.to}`)
           }
@@ -879,7 +885,7 @@ export const onMessagesTransform = async (_input, output) => {
   nextTurn()
   try {
     const { flushPendingLiveSwitch } = await import("../pricing.js")
-    const flushed = flushPendingLiveSwitch()
+    const flushed = await flushPendingLiveSwitch()
     if (flushed) console.error(`[vibeOS] flushed deferred model switch → ${flushed}`)
   } catch (err) {
     console.error("[vibeOS] failed to flush deferred model switch:", err?.message || err)
@@ -1142,10 +1148,10 @@ export const onSystemTransform = async (_input, output) => {
     const cvState = _latestBlackboxState
       ? { ..._latestBlackboxState, latest_stress_multiplier: st || _latestBlackboxState.latest_stress_multiplier || 0 }
       : {
-          sub_regime: classifiedRegime || "INIT",
-          latest_stress_multiplier: st || undefined,
-          user_text: latestUserIntent || undefined,
-        }
+        sub_regime: classifiedRegime || "INIT",
+        latest_stress_multiplier: st || undefined,
+        user_text: latestUserIntent || undefined,
+      }
     const requestedDecision = {
       optimization_mode: requestedOptimizationMode,
       requested_mode: requestedOptimizationMode,
@@ -1430,7 +1436,19 @@ export const onSystemTransform = async (_input, output) => {
     // ── One-shots ──
     if (!oneShot("vibeos_project_memory_" + fp)) {
       pushSystem(output, projectMemoryDirective(fp))
+      // Persistent project knowledge tree — decisions/blockers/facts that survive across
+      // sessions, condensed to one line per topic branch. null when nothing recorded yet.
+      pushSystem(output, projectTreeDirective(fp))
     }
+    // WRITER: capture the turn's user intent into the knowledge tree under a branch keyed
+    // by the current sub-regime, so the tree accumulates real, deduped project context
+    // across sessions instead of being a write-only display. Capped + deduped internally.
+    try {
+      if (fp && latestUserIntent && String(latestUserIntent).trim().length > 8) {
+        const branch = String(classifiedRegime || _latestBlackboxState?.sub_regime || "intent").toLowerCase()
+        recordProjectFact(fp, currentProjectName || "", branch, "fact", String(latestUserIntent))
+      }
+    } catch {}
     if (!oneShot("trinity_welcome_" + fp)) {
       pushSystem(output, welcomeDirective())
     }

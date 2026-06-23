@@ -333,9 +333,21 @@ async function _appendFooter(input, output, directory, lastModelError?: string) 
       if (stripped.length <= paintedLen && !claimTag) return
     }
     const ltTotal = ltTasks + ltCache
-    const activeSlot = displayMode === "vibeultrax"
-      ? ultraResolvedTier
-      : freshSelection?.active_slot || selNowFooter.active_slot || resolveOptimizationSlot(displayMode) || "brain"
+    // SINGLE SOURCE OF TRUTH: the tier icon must describe the model that ACTUALLY ran
+    // this turn — the live model the footer already resolved (ultraLiveModel =
+    // displayModel || liveModel || currentModel) — so the icon and the model name shown
+    // can never disagree. This is the same source the vibeultrax tier uses, now applied
+    // to every mode. The intended/next slot is surfaced separately via the "switch
+    // pending" alert (pendingLiveModel below), not by pre-painting the future tier here.
+    const ranTier = ((): "cheap" | "medium" | "brain" => {
+      const m = ultraLiveModel || currentModel || ""
+      if (TRINITY_CHEAP && m === TRINITY_CHEAP) return "cheap"
+      if (TRINITY_MEDIUM && m === TRINITY_MEDIUM) return "medium"
+      if (TRINITY_BRAIN && m === TRINITY_BRAIN) return "brain"
+      const c = String(classify(m) || "").toLowerCase()
+      return c === "high" || c === "brain" ? "brain" : c === "mid" || c === "medium" ? "medium" : "cheap"
+    })()
+    const activeSlot = displayMode === "vibeultrax" ? ultraResolvedTier : ranTier
     const flashIcon = isApiConnected() ? " \u26A1" : ""
     const rawMode = displayMode
     const cv = computeControlVector({ sub_regime: currentSubRegime, latest_stress_multiplier: _footerStress, user_text: latestUserIntent || "" }, undefined, rawMode)
