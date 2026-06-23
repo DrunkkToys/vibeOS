@@ -1,7 +1,7 @@
 // @ts-nocheck
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync, copyFileSync, rmSync } from "node:fs"
-import { join, basename } from "node:path"
+import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync, rmSync } from "node:fs"
+import { join } from "node:path"
 import { withFileLock, safeJsonParse, currentProjectFingerprint as liveProjectFingerprint, currentProjectName as liveProjectName, getCurrentSessionId, _handleStateCorruption, loadProjectState, saveProjectState, touchProjectBucket, getVibeOSHome } from "./state.js"
 import { getOcSessionId } from "./runtime-state.js"
 

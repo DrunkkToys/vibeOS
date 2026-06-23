@@ -269,7 +269,6 @@ const TEST_SKELETONS = {
       for (const exp of exports) {
         if (exp.type === "class") continue
         const cases = generateTestCaseNames(exp.name, exp.type, quality)
-        const expCap = exp.name.charAt(0).toUpperCase() + exp.name.slice(1)
         content += `// TODO: implement tests for ${exp.name}\n`
         for (const caseName of cases) {
           const caseFunc = caseName.replace(/[^a-zA-Z0-9_]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "")
