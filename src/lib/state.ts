@@ -30,7 +30,23 @@ export interface SessionCacheHit {
   est_savings_usd: number
 }
 export interface StressSample { ts: string; score: number; level: string }
+export interface SessionModePolicy {
+  active: boolean
+  active_mode: string
+  baseline_mode: string
+  reason: string | null
+  episode_id: string | null
+  problem_streak: number
+  stable_streak: number
+  last_sub_regime: string
+  last_stress: number
+  last_outcome: string | null
+  updated_at: string | null
+  started_at: string | null
+  [key: string]: unknown
+}
 export interface SessionRecord {
+  mode_policy?: SessionModePolicy
   total_savings_usd?: number
   cache_savings_usd?: number
   cost_usd?: number
@@ -247,7 +263,7 @@ const warnPerSession = new Map<string, number>()
 const warnCoalesceCounters = new Map<string, number>()
 
 // ── Savings cache (cross-process guard) ──────────────────────────────
-let _savingsCache: any = null
+let _savingsCache: unknown = null
 let _savingsCacheMtime = 0
 let _ledgerReconciledMtime = 0
 let _ledgerTotalsCache = {
@@ -270,18 +286,18 @@ import { createPatternGraph, deserializeGraph } from "../vibeOS-lib/ml-router.js
 import { createCacheDatabase, evictStaleEntries, deserializeCacheDb } from "../vibeOS-lib/smart-cache.js"
 import { applySessionAction, normalizeSessionOrchestration } from "./session-orchestrator.js"
 
-let _mlGraph: any = createPatternGraph()
-let _cacheDb: any = createCacheDatabase()
+let _mlGraph: unknown = createPatternGraph()
+let _cacheDb: unknown = createCacheDatabase()
 const ML_ENABLED = true
 const ML_CONFIDENCE_THRESHOLD = 0.6
 let _mlSavePending = false
 export function setMlSavePending(v: boolean) { _mlSavePending = v }
 
 // ── Blackbox state ──────────────────────────────────────────────────
-let _blackboxTracker: any = null
+let _blackboxTracker: unknown = null
 let _blackboxEnabled = true
 export function setBlackboxEnabled(val: boolean) { _blackboxEnabled = val }
-let _latestBlackboxState: any = null
+let _latestBlackboxState: unknown = null
 let _latestBlackboxLoopMsg: string | null = null
 let _latestBlackboxPivotMsg: string | null = null
 export let _modelLocked = false
@@ -306,7 +322,7 @@ let prunedThisProcess = false
 let _lastDecadenceRun = 0
 let _lastGlobalDecadenceRun = 0
 let enforcementBlocked = false
-let taskSlotRestore: any = null
+let taskSlotRestore: unknown = null
 let pendingUiNote: string | null = null
 const briefedProjects = new Set<string>()
 
@@ -332,16 +348,16 @@ const DFLT_GL = {
 }
 
 // ── Tool helper (minimal, avoids @opencode-ai/plugin dependency) ──────
-function _zType(base: any): any {
-  return Object.assign((...a: any[]) => _zType({ ...base, args: a }), {
+function _zType(base: unknown): unknown {
+  return Object.assign((...a: unknown[]) => _zType({ ...base, args: a }), {
     optional: () => _zType({ ...base, optional: true }),
     _isZod: true, _base: base,
   })
 }
-const tool: any = Object.assign((def: any) => def, {
+const tool: unknown = Object.assign((def: unknown) => def, {
   schema: {
-    string: (o?: any) => _zType({ kind: "string", ...(o || {}) }),
-    number: (o?: any) => _zType({ kind: "number", ...(o || {}) }),
+    string: (o?: unknown) => _zType({ kind: "string", ...(o || {}) }),
+    number: (o?: unknown) => _zType({ kind: "number", ...(o || {}) }),
     enum: (values: string[]) => _zType({ kind: "enum", values }),
   },
 })
@@ -377,7 +393,7 @@ let _startupMaintenanceHome = ""
 
 const ORPHAN_SESSION_TTL_MS = 14 * 24 * 60 * 60 * 1000
 
-function _sessionHasActivity(session: any): boolean {
+function _sessionHasActivity(session: unknown): boolean {
   if (!session || typeof session !== "object") return false
   return [
     Array.isArray(session.warns) ? session.warns.length : 0,
@@ -393,7 +409,7 @@ function _sessionHasActivity(session: any): boolean {
   ].some((value) => Number(value) > 0)
 }
 
-function pruneInactiveSessions(state: any): number {
+function pruneInactiveSessions(state: unknown): number {
   if (!state || typeof state !== "object" || !state.sessions || typeof state.sessions !== "object") return 0
   const now = Date.now()
   let removed = 0
@@ -466,7 +482,7 @@ function _lockPathFor(filePath: string): string {
   return join(FILE_LOCK_DIR, `${hash}.lock`)
 }
 
-export function withFileLock(filePath: string, fn: () => any, opts: { staleMs?: number, timeoutMs?: number } = {}): any {
+export function withFileLock<T>(filePath: string, fn: () => T, opts: { staleMs?: number, timeoutMs?: number } = {}): T {
   const staleMs = Number(opts.staleMs || 30_000)
   const timeoutMs = Number(opts.timeoutMs || 2_000)
   const lockPath = _lockPathFor(filePath)
@@ -497,7 +513,7 @@ export function withFileLock(filePath: string, fn: () => any, opts: { staleMs?: 
 }
 
 // ── JSONC-tolerant JSON.parse ────────────────────────────────────────
-function safeJsonParse(raw: string): any {
+function safeJsonParse(raw: string): unknown {
   if (raw == null || raw === "") return null
   try {
     return JSON.parse(raw)
@@ -515,7 +531,7 @@ function safeJsonParse(raw: string): any {
 }
 
 // ── State validation ─────────────────────────────────────────────────
-function validateState(state: any, path: string): void {
+function validateState(state: unknown, path: string): void {
   if (!state || typeof state !== "object") {
     console.error(`[vibeOS] State validation failed: not an object at ${path}`)
     return
@@ -538,7 +554,7 @@ function validateState(state: any, path: string): void {
 }
 
 // ── JSON file readers / writers ─────────────────────────────────────
-function readJsonOrEmpty(filePath: string): any {
+function readJsonOrEmpty(filePath: string): unknown {
   try {
     if (!existsSync(filePath)) return {}
     const st = statSync(filePath)
@@ -601,7 +617,7 @@ function readFullState(): DelegationState {
   } catch { _handleStateCorruption(delegationStateFile); return {} }
 }
 
-function writeFullState(state: any): void {
+function writeFullState(state: unknown): void {
   const delegationStateFile = join(getVibeOSHome(), "delegation-state.json")
   try {
     withFileLock(delegationStateFile, () => {
@@ -625,7 +641,7 @@ function roundUsd(v: number): number {
 // ── Tier regexes ─────────────────────────────────────────────────────
 const FALLBACK_HIGH = /opus|gemini-.*-pro|gpt-5|(^|\/)o[134]($|-|\/)|claude.*opus|reasoner|r1/i
 const FALLBACK_MID  = /sonnet|gemini-.*-flash|gpt-4o(?!-mini)|haiku|flash|4o/i
-export function _safeRegex(cfg: any, fallback: RegExp, label: string): RegExp {
+export function _safeRegex(cfg: unknown, fallback: RegExp, label: string): RegExp {
   if (!cfg) return fallback
   try { return new RegExp(cfg, "i") }
   catch (e) {
@@ -649,7 +665,7 @@ const { high: HIGH_TIER_RE, mid: MID_TIER_RE } = loadTierRegexes()
 // loadSelection, writeSelection, and DFLT_SEL are imported from selection-manager
 
 // ── Global learning ──────────────────────────────────────────────────
-function loadGlobalLearning(): any {
+function loadGlobalLearning(): unknown {
   const globalLearningFile = join(getVibeOSHome(), "global-learning.json")
   try {
     if (!existsSync(globalLearningFile)) return DFLT_GL
@@ -669,7 +685,7 @@ function loadGlobalLearning(): any {
   }
 }
 
-function updateGlobalLearning(mutator: (gl: any) => any): any {
+function updateGlobalLearning(mutator: (gl: unknown) => unknown): unknown {
   const globalLearningFile = join(getVibeOSHome(), "global-learning.json")
   return withFileLock(globalLearningFile, () => {
     const s = loadGlobalLearning()
@@ -688,7 +704,7 @@ function getLearnedExploratoryWords(): Set<string> {
   try {
     const gl = loadGlobalLearning()
     for (const [w, meta] of Object.entries(gl.exploratory_words || {})) {
-      if ((meta as any)?.count >= 1) out.add(String(w))
+      if ((meta as unknown)?.count >= 1) out.add(String(w))
     }
   } catch {}
   return out
@@ -707,7 +723,7 @@ function loadMLState(): void {
 function saveMLState(): boolean {
   if (!ML_ENABLED) return false
   try {
-    updateGlobalLearning((gl: any) => {
+    updateGlobalLearning((gl: unknown) => {
       gl.ml_graph_raw = JSON.stringify(_mlGraph)
       gl.ml_cache_raw = JSON.stringify(_cacheDb)
       return gl
@@ -718,7 +734,7 @@ function saveMLState(): boolean {
 loadMLState()
 
 // ── Blackbox state management ───────────────────────────────────────
-function loadBlackboxState(): any {
+function loadBlackboxState(): DelegationState {
   const blackboxFile = join(getVibeOSHome(), "blackbox-state.json")
   try {
     if (!existsSync(blackboxFile)) return { enabled: true, sessions: {} }
@@ -732,7 +748,7 @@ function loadBlackboxState(): any {
       if (!session || typeof session !== "object") {
         delete raw.sessions[sid]; changed = true; continue
       }
-      const { record: next, changed: recordChanged } = normalizeBlackboxRecord(session as any, sid, now)
+      const { record: next, changed: recordChanged } = normalizeBlackboxRecord(session as unknown, sid, now)
       raw.sessions[sid] = next
       if (recordChanged) changed = true
     }
@@ -743,7 +759,7 @@ function loadBlackboxState(): any {
   } catch { _handleStateCorruption(blackboxFile); return { enabled: false, sessions: {} } }
 }
 
-function saveBlackboxState(state: any): void {
+function saveBlackboxState(state: unknown): void {
   const blackboxFile = join(getVibeOSHome(), "blackbox-state.json")
   try {
     const next = state && typeof state === "object" ? state : { enabled: true, sessions: {} }
@@ -751,7 +767,7 @@ function saveBlackboxState(state: any): void {
     const now = Date.now()
     for (const [sid, session] of Object.entries(next.sessions)) {
       if (!session || typeof session !== "object") continue
-      next.sessions[sid] = normalizeBlackboxRecord(session as any, sid, now).record
+      next.sessions[sid] = normalizeBlackboxRecord(session as unknown, sid, now).record
     }
     mkdirSync(dirname(blackboxFile), { recursive: true })
     const tmp = blackboxFile + ".tmp"
@@ -762,15 +778,15 @@ function saveBlackboxState(state: any): void {
   }
 }
 
-function getBlackboxTracker(): any {
+function getBlackboxTracker(): unknown {
   return _blackboxTracker
 }
 
-function getBlackboxResolution(): any {
+function getBlackboxResolution(): unknown {
   return _blackboxTracker?.resolution || null
 }
 
-function _pushControlHistoryEntry(session: any, entry: any): void {
+function _pushControlHistoryEntry(session: unknown, entry: unknown): void {
   if (!session || typeof session !== "object" || !entry || typeof entry !== "object") return
   session.control_history ??= []
   const fingerprint = JSON.stringify({
@@ -788,13 +804,13 @@ function _pushControlHistoryEntry(session: any, entry: any): void {
   }
 }
 
-function _isPlainObject(value: any): boolean {
+function _isPlainObject(value: unknown): boolean {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false
   const proto = Object.getPrototypeOf(value)
   return proto === Object.prototype || proto === null
 }
 
-function _normalizeSnapshotRewardBreakdown(input: any): any {
+function _normalizeSnapshotRewardBreakdown(input: unknown): unknown {
   const breakdown = input?.rewardBreakdown
   if (!_isPlainObject(breakdown)) return null
   try {
@@ -804,7 +820,7 @@ function _normalizeSnapshotRewardBreakdown(input: any): any {
   }
 }
 
-function _buildLiveSnapshotFingerprint(input: any, resolutionState: string, resolutionReason: string, nextAction: string | null): string {
+function _buildLiveSnapshotFingerprint(input: unknown, resolutionState: string, resolutionReason: string, nextAction: string | null): string {
   return stableJson({
     sessionId: String(input?.sessionId || ""),
     projectFingerprint: String(input?.projectFingerprint || ""),
@@ -826,7 +842,7 @@ function _buildLiveSnapshotFingerprint(input: any, resolutionState: string, reso
   })
 }
 
-function _deriveLiveResolutionState(input: any): { resolution_state: string; resolution_reason: string } {
+function _deriveLiveResolutionState(input: unknown): { resolution_state: string; resolution_reason: string } {
   const outcome = String(input?.outcome || "").toLowerCase()
   const loopLevel = String(input?.loopInterventionLevel || "").toLowerCase()
   const pivotDetected = Boolean(input?.pivotDetected)
@@ -856,7 +872,7 @@ export function recordLiveSessionSnapshot(input: {
   rewardCredits?: number
   savingsUsd?: number
   footerLine?: string
-  control?: any
+  control?: unknown
   subRegime?: string
   resolutionState?: string
   resolutionReason?: string
@@ -864,7 +880,7 @@ export function recordLiveSessionSnapshot(input: {
   loopInterventionLevel?: string
   pivotDetected?: boolean
   stress?: number
-  rewardBreakdown?: any
+  rewardBreakdown?: unknown
   source?: string
 }): { sessionId: string; updatedAt: string; resolutionState: string; resolutionReason: string } {
   const explicitSessionId = typeof input?.sessionId === "string" ? input.sessionId.trim() : ""
@@ -1023,7 +1039,7 @@ export function recordLiveSessionSnapshot(input: {
   return { sessionId: sid, updatedAt, resolutionState, resolutionReason }
 }
 
-function normalizeBlackboxRecord(record: any, sid: string, now: number): { record: any; changed: boolean } {
+function normalizeBlackboxRecord(record: unknown, sid: string, now: number): { record: unknown; changed: boolean } {
   const next = { ...(record || {}) }
   let changed = false
   const createdAtRaw = typeof next.createdAt === "string" ? next.createdAt : ""
@@ -1116,8 +1132,8 @@ function cleanupCurrentSessionScratchpad(): void {
 function registerSessionCleanupHandlers(): void {
   if (_sessionCleanupRegistered) return
   _sessionCleanupRegistered = true
-  if ((process as any)._vibeOS_cleanupRegistered) return
-  (process as any)._vibeOS_cleanupRegistered = true
+  if ((process as unknown)._vibeOS_cleanupRegistered) return
+  (process as unknown)._vibeOS_cleanupRegistered = true
   process.setMaxListeners(20)
   ensureSessionScratchpadDirs()
   process.on("exit", () => { _flushLedgerBuffer(); cleanupCurrentSessionScratchpad() })
@@ -1140,7 +1156,7 @@ function _flushLedgerBuffer(): void {
   } catch {}
 }
 
-function recordSavingsLedgerEntry(entry: any): void {
+function recordSavingsLedgerEntry(entry: unknown): void {
   try {
     _ledgerBuffer.push(JSON.stringify(entry) + "\n")
     if (_ledgerBuffer.length >= LEDGER_BUFFER_MAX) _flushLedgerBuffer()
@@ -1148,14 +1164,14 @@ function recordSavingsLedgerEntry(entry: any): void {
   } catch {}
 }
 
-function loadSavingsLedger(limit: number = 1000): any[] {
+function loadSavingsLedger(limit: number = 1000): unknown[] {
   try {
     if (!existsSync(SAVINGS_LEDGER_FILE)) return []
     const raw = readFileSync(SAVINGS_LEDGER_FILE, "utf-8")
     if (!raw.trim()) return []
     const lines = raw.split("\n").filter(Boolean)
     const recent = limit ? lines.slice(-limit) : lines
-    const entries: any[] = []
+    const entries: unknown[] = []
     for (const line of recent) {
       try { const rec = JSON.parse(line); if (rec && typeof rec === "object") entries.push(rec) } catch {
         const matches = line.match(/\{[^{}]*\{[^}]*}[^{}]*\}|\{[^}]+\}/g)
@@ -1170,7 +1186,7 @@ function loadSavingsLedger(limit: number = 1000): any[] {
   } catch { return [] }
 }
 
-function _newTelemetryBucket(): any {
+function _newTelemetryBucket(): unknown {
   return {
     events: 0,
     tool_counts: {},
@@ -1206,7 +1222,7 @@ function _bucketNumeric(value: number, ranges: Array<[number, string]>, fallback
   return ranges.length > 0 ? ranges[ranges.length - 1][1] : fallback
 }
 
-function _bucketChars(value: any): string {
+function _bucketChars(value: unknown): string {
   return _bucketNumeric(Number(value || 0), [
     [0, "0"],
     [63, "1-63"],
@@ -1216,7 +1232,7 @@ function _bucketChars(value: any): string {
   ], "4k+")
 }
 
-function _bucketMs(value: any): string {
+function _bucketMs(value: unknown): string {
   return _bucketNumeric(Number(value || 0), [
     [49, "0-49ms"],
     [199, "50-199ms"],
@@ -1226,7 +1242,7 @@ function _bucketMs(value: any): string {
   ], "15s+")
 }
 
-function _telemetrySizeEstimate(telemetry: any): number {
+function _telemetrySizeEstimate(telemetry: unknown): number {
   try {
     return Buffer.byteLength(JSON.stringify(telemetry || {}), "utf8")
   } catch {
@@ -1234,7 +1250,7 @@ function _telemetrySizeEstimate(telemetry: any): number {
   }
 }
 
-export function recordPrivacyTelemetry(event: any): any {
+export function recordPrivacyTelemetry(event: unknown): unknown {
   try {
     if (!event || typeof event !== "object") return null
     return updateState((state) => {
@@ -1257,7 +1273,7 @@ export function recordPrivacyTelemetry(event: any): any {
       const enforcement = String(event.enforcement || "unknown").toLowerCase()
       const flow = String(event.flow || "unknown").toLowerCase()
       const tdd = String(event.tdd || "unknown").toLowerCase()
-      const record = (bucket: any) => {
+      const record = (bucket: unknown) => {
         bucket.events = Number(bucket.events || 0) + 1
         _incBucket(bucket.tool_counts, tool)
         _incBucket(bucket.tier_counts, tier)
@@ -1278,7 +1294,7 @@ export function recordPrivacyTelemetry(event: any): any {
       }
       record(lifetime)
       record(session)
-      lifetime.retained_sessions = Object.values(state.sessions).filter((ses: any) => Number(ses?.telemetry?.events || 0) > 0).length
+      lifetime.retained_sessions = Object.values(state.sessions).filter((ses: unknown) => Number(ses?.telemetry?.events || 0) > 0).length
       session.retained_sessions = 1
       state.lifetime.last_updated = now
       return state
@@ -1288,7 +1304,7 @@ export function recordPrivacyTelemetry(event: any): any {
   }
 }
 
-function readTelemetrySummary(state: any, sid: string = _OC_SID): any {
+function readTelemetrySummary(state: unknown, sid: string = _OC_SID): unknown {
   const lifetime = state?.lifetime?.telemetry || {}
   const session = state?.sessions?.[sid]?.telemetry || {}
   return {
@@ -1314,7 +1330,7 @@ function readTelemetrySummary(state: any, sid: string = _OC_SID): any {
 }
 
 // ── Stable JSON serialization (sorted keys, matches CC shasum) ──────
-function stableJson(obj: any): string {
+function stableJson(obj: unknown): string {
   if (obj === null || typeof obj !== "object") return JSON.stringify(obj)
   if (Array.isArray(obj)) return "[" + obj.map(stableJson).join(",") + "]"
   return "{" + Object.keys(obj).sort()
@@ -1332,9 +1348,9 @@ function _readHead(fullPath: string): string {
   } catch { return "" }
 }
 
-function indexAppend(hash: string, tool: string, size: number, extra?: any): void {
+function indexAppend(hash: string, tool: string, size: number, extra?: unknown): void {
   try {
-    const entryObj: any = {
+    const entryObj: unknown = {
       ts: new Date().toISOString(),
       hash, tool, size,
       pid: process.pid || 0,
@@ -1357,7 +1373,7 @@ function indexAppend(hash: string, tool: string, size: number, extra?: any): voi
 // ── Scratchpad hit detection ─────────────────────────────────────────
 const scratchpadHitsSeen = new Set<string>()
 
-function scanRecentScratchpad(dir: string, titleCase: string, maxScan: number = 2000): any {
+function scanRecentScratchpad(dir: string, titleCase: string, maxScan: number = 2000): unknown {
   try {
     if (!existsSync(dir)) return null
     const entries = readdirSync(dir)
@@ -1395,7 +1411,7 @@ function scanRecentScratchpad(dir: string, titleCase: string, maxScan: number = 
   }
 }
 
-function getScratchpadHit(toolLower: string, args: any, baseDir: string | null = null): any {
+function getScratchpadHit(toolLower: string, args: unknown, baseDir: string | null = null): unknown {
   if (!SCRATCHPAD_TOOLS.has(toolLower)) return null
   const titleCase = TOOL_NAME_NORMALIZE[toolLower]
   const inputJson = stableJson(args ?? {})
@@ -1433,7 +1449,7 @@ function getScratchpadHit(toolLower: string, args: any, baseDir: string | null =
   } catch { return null }
 }
 
-function recordScratchpadObservation(toolLower: string, args: any, fileSize: number, meta: any = {}): void {
+function recordScratchpadObservation(toolLower: string, args: unknown, fileSize: number, meta: unknown = {}): void {
   if (!SCRATCHPAD_TOOLS.has(toolLower)) return
   try {
     const titleCase = TOOL_NAME_NORMALIZE[toolLower]
@@ -1456,7 +1472,7 @@ function _pruneScratchpadDir(targetDir: string, opts: { maxFiles?: number, maxBy
   for (const entry of entries) {
     if (entry.endsWith(".meta.json") || entry.endsWith(".summary.txt")) continue
     const fullPath = join(targetDir, entry)
-    let st: any
+    let st: unknown
     try { st = statSync(fullPath) } catch { continue }
     const age = now - st.mtimeMs
     const hash = entry.replace(/\.txt$/, "")
@@ -1562,7 +1578,7 @@ function pruneScratchpadOnce(): void {
 // ── Active jobs ──────────────────────────────────────────────────────
 // active jobs older than this are considered finished and no longer active
 
-function _readActiveJobsRaw(): any {
+function _readActiveJobsRaw(): unknown {
   try {
     if (!existsSync(ACTIVE_JOBS_FILE)) return {}
     const raw = safeJsonParse(readFileSync(ACTIVE_JOBS_FILE, "utf-8"))
@@ -1573,7 +1589,7 @@ function _readActiveJobsRaw(): any {
   }
 }
 
-function _writeActiveJobsRaw(jobs: any): void {
+function _writeActiveJobsRaw(jobs: unknown): void {
   try {
     mkdirSync(dirname(ACTIVE_JOBS_FILE), { recursive: true })
     const tmp = ACTIVE_JOBS_FILE + ".tmp"
@@ -1582,7 +1598,7 @@ function _writeActiveJobsRaw(jobs: any): void {
   } catch {}
 }
 
-function _normalizeActiveJobRecord(record: any, now: number = Date.now(), _strict: boolean = false): { record: any | null, changed: boolean, stale: boolean } {
+function _normalizeActiveJobRecord(record: unknown, now: number = Date.now(), _strict: boolean = false): { record: unknown | null, changed: boolean, stale: boolean } {
   if (!record || typeof record !== "object") return { record: null, changed: false, stale: false }
   const next = { ...record }
   let changed = false
@@ -1612,7 +1628,7 @@ function _normalizeActiveJobRecord(record: any, now: number = Date.now(), _stric
   return { record: next, changed, stale }
 }
 
-function _isSessionBridgeRecord(record: any): boolean {
+function _isSessionBridgeRecord(record: unknown): boolean {
   if (!record || typeof record !== "object") return false
   const kind = String(record.kind || "").trim().toLowerCase()
   const status = String(record.status || "").trim().toLowerCase()
@@ -1620,11 +1636,11 @@ function _isSessionBridgeRecord(record: any): boolean {
   return kind === "session-bridge" || status === "handoff" || prompt.startsWith("[session bridge]")
 }
 
-function loadActiveJobs(): any {
+function loadActiveJobs(): unknown {
   try {
     return withFileLock(ACTIVE_JOBS_FILE, () => {
       const raw = _readActiveJobsRaw()
-      const next: Record<string, any> = {}
+      const next: Record<string, unknown> = {}
       let changed = false
       const now = Date.now()
       for (const [key, value] of Object.entries(raw || {})) {
@@ -1643,7 +1659,7 @@ function loadActiveJobs(): any {
   }
 }
 
-function getActiveJobForProject(fp: string = currentProjectFingerprint): any {
+function getActiveJobForProject(fp: string = currentProjectFingerprint): unknown {
   if (!fp) return null
   const jobs = loadActiveJobs()
   const job = jobs[fp]
@@ -1651,7 +1667,7 @@ function getActiveJobForProject(fp: string = currentProjectFingerprint): any {
   return job
 }
 
-function saveActiveJobForProject(job: any, fp: string = currentProjectFingerprint): void {
+function saveActiveJobForProject(job: unknown, fp: string = currentProjectFingerprint): void {
   if (!fp || !job || typeof job !== "object") return
   try {
     withFileLock(ACTIVE_JOBS_FILE, () => {
@@ -1663,7 +1679,7 @@ function saveActiveJobForProject(job: any, fp: string = currentProjectFingerprin
   } catch {}
 }
 
-function saveJobRecord(jobId: string, record: any): void {
+function saveJobRecord(jobId: string, record: unknown): void {
   try {
     withFileLock(ACTIVE_JOBS_FILE, () => {
       const jobs = _readActiveJobsRaw()
@@ -1692,7 +1708,7 @@ function removeJobRecord(jobId: string): boolean {
   }
 }
 
-function loadJobRecord(jobId: string): any {
+function loadJobRecord(jobId: string): unknown {
   try {
     const jobs = loadActiveJobs()
     return jobs[jobId] || null
@@ -1707,7 +1723,7 @@ function projectFingerprint(dir: string): string {
   return createHash("sha256").update(dir).digest("hex").slice(0, 12)
 }
 
-function loadProjectState(): any {
+function loadProjectState(): unknown {
   const projectStateFile = join(getVibeOSHome(), "project-states.json")
   try {
     const state = readJsonOrEmpty(projectStateFile)
@@ -1719,7 +1735,7 @@ function loadProjectState(): any {
   return { project_hashes: {} }
 }
 
-function saveProjectState(state: any): void {
+function saveProjectState(state: unknown): void {
   const projectStateFile = join(getVibeOSHome(), "project-states.json")
   try {
     withFileLock(projectStateFile, () => {
@@ -1733,7 +1749,7 @@ function saveProjectState(state: any): void {
   }
 }
 
-function ensureProjectBucket(state: any, fp: string): any {
+function ensureProjectBucket(state: unknown, fp: string): unknown {
   state.project_hashes ??= {}
   if (!state.project_hashes[fp]) {
     state.project_hashes[fp] = {
@@ -1751,7 +1767,7 @@ function ensureProjectBucket(state: any, fp: string): any {
   return state.project_hashes[fp]
 }
 
-export function touchProjectBucket(state: any, fp: string, meta: { sessionId?: string; reportId?: string; topic?: string; projectName?: string } = {}): any {
+export function touchProjectBucket(state: unknown, fp: string, meta: { sessionId?: string; reportId?: string; topic?: string; projectName?: string } = {}): unknown {
   if (!fp || fp === "unknown") return null
   const bucket = ensureProjectBucket(state, fp)
   const now = new Date().toISOString()
@@ -1812,13 +1828,13 @@ function detectTechStack(dir: string): string[] {
 }
 
 // ── Pattern learning ─────────────────────────────────────────────────
-function promotedProjectPatterns(fp: string): any[] {
+function promotedProjectPatterns(fp: string): unknown[] {
   try {
     const p = loadProjectState().project_hashes?.[fp]
-    const out: any[] = []
-    const collect = (rows: any, label: string) => {
+    const out: unknown[] = []
+    const collect = (rows: unknown, label: string) => {
       for (const row of Object.values(rows || {})) {
-        const r = row as any
+        const r = row as unknown
         const sessions = new Set(r?.sessions || [])
         const minSessions = label === "routine" ? 2 : 3
         if (sessions.size >= minSessions) out.push({ label, summary: r.summary, sessions: sessions.size, lastSeen: r.lastSeen || "" })
@@ -1833,13 +1849,13 @@ function promotedProjectPatterns(fp: string): any[] {
   }
 }
 
-function projectPatternRows(fp: string): any[] {
+function projectPatternRows(fp: string): unknown[] {
   try {
     const p = loadProjectState().project_hashes?.[fp]
-    const rows: any[] = []
+    const rows: unknown[] = []
     for (const [kind, label] of [["friction", "friction"], ["routines", "routine"]]) {
       for (const [key, row] of Object.entries(p?.userPatterns?.[kind] || {})) {
-        const r = row as any
+        const r = row as unknown
         const sessions = new Set(r?.sessions || [])
         rows.push({
           key,
@@ -1923,7 +1939,7 @@ interface ScrapbookIndexEntry {
   size: number
   ts: string
   session?: string
-  [key: string]: any
+  [key: string]: unknown
 }
 
 function loadScrapbookIndex(): ScrapbookIndexEntry[] {
@@ -1987,7 +2003,7 @@ function rebuildScrapbookIndex(): ScrapbookIndexEntry[] {
 // These provide the interface the task requested even if the old code used
 // different function names.
 const STATE_FILE = DELEGATION_STATE_FILE
-function recordDelegation(tool: string, saveEst: number, _meta: any = {}): any {
+function recordDelegation(tool: string, saveEst: number, _meta: unknown = {}): unknown {
   // Delegation savings are recorded via updateState
   // This wrapper provides the legacy interface expected by callers
   try {
@@ -2025,7 +2041,7 @@ function recordDelegation(tool: string, saveEst: number, _meta: any = {}): any {
   }
 }
 
-function recordCacheSaving(tool: string, saveEst: number, meta: any = {}): any {
+function recordCacheSaving(tool: string, saveEst: number, meta: unknown = {}): unknown {
   try {
     const state = updateState((s) => {
       const now = new Date().toISOString()
@@ -2041,7 +2057,7 @@ function recordCacheSaving(tool: string, saveEst: number, meta: any = {}): any {
       s.sessions[sid].tool_counts[tool] = (s.sessions[sid].tool_counts[tool] || 0) + 1
       if (meta?.hash) {
         s.sessions[sid].cache_hits ??= []
-        if (!s.sessions[sid].cache_hits.some((h: any) => h.hash === meta.hash)) {
+        if (!s.sessions[sid].cache_hits.some((h: unknown) => h.hash === meta.hash)) {
           s.sessions[sid].cache_hits.push({
             at: now,
             tool,
@@ -2089,7 +2105,7 @@ function recordCacheSaving(tool: string, saveEst: number, meta: any = {}): any {
   }
 }
 
-function recordMissedContext7(saveEst: number): any {
+function recordMissedContext7(saveEst: number): unknown {
   try {
     const state = updateState((s) => {
       s.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" }
@@ -2130,7 +2146,7 @@ function recordMissedContext7(saveEst: number): any {
       else if (!_ledgerBufferTimer) _ledgerBufferTimer = setTimeout(_flushLedgerBuffer, LEDGER_BUFFER_FLUSH_MS)
     } catch {}
     try {
-      updateGlobalLearning((gl: any) => {
+      updateGlobalLearning((gl: unknown) => {
         gl.context7_bypasses = Number(gl.context7_bypasses || 0) + 1
         gl.context7_missed_usd = Math.round((Number(gl.context7_missed_usd || 0) + Number(saveEst || 0)) * 100) / 100
         gl.context7_last_seen = new Date().toISOString()
@@ -2219,7 +2235,7 @@ function _compactSavingsLedgerIfNeeded(): void {
       if (!raw.trim()) return
       const now = Date.now()
       const rows = raw.split("\n").filter(Boolean).map((line) => {
-        let rec: any = null
+        let rec: unknown = null
         try { rec = JSON.parse(line) } catch { rec = null }
         const atRaw = rec && typeof rec === "object" ? String(rec.at || rec.ts || "") : ""
         const atMs = Date.parse(atRaw)
@@ -2328,7 +2344,7 @@ function readLedgerTotals(): { delegation: number, cache: number, context7: numb
     for (const line of lines) {
       const ln = line.trim()
       if (!ln) continue
-      let rec: any = null
+      let rec: unknown = null
       try { rec = JSON.parse(ln) } catch { continue }
       if (!rec || typeof rec !== "object") continue
       if (rec.v !== undefined && rec.v !== 2) continue
@@ -2387,7 +2403,7 @@ function reconcileStateFromLedger(): void {
   } catch {}
 }
 
-function readLifetimeSavings(): any {
+function readLifetimeSavings(): unknown {
   const empty = { ltTasks: 0, ltCache: 0, ltCost: 0, count: 0, scratchpadHits: 0, missedC7: 0, sesTasks: 0, sesEdit: 0, sesCredit: 0, sesC7: 0, sesQuota: 0, sesTaskDelegations: 0, sesDuration: 0, sesRatePerHour: 0, sesTrend: "stable", sesToolBreakdown: {}, sesModelTurns: { brain: 0, worker: 0 }, quality_avg: 0, telemetry: readTelemetrySummary({}, _OC_SID) }
   try {
     reconcileStateFromLedger()
@@ -2433,7 +2449,7 @@ function saveSessionCheckpoint(): void {
   } catch {}
 }
 
-function loadSessionOrchestration(sessionId: string): any {
+function loadSessionOrchestration(sessionId: string): unknown {
   try {
     const state = readFullState()
     const session = state?.sessions?.[sessionId] || {}
@@ -2443,7 +2459,7 @@ function loadSessionOrchestration(sessionId: string): any {
   }
 }
 
-function mutateSessionOrchestration(sessionId: string, mutator: (current: any) => any): any {
+function mutateSessionOrchestration(sessionId: string, mutator: (current: unknown) => unknown): unknown {
   try {
     return updateState((state) => {
       state.sessions ??= {}
@@ -2458,7 +2474,7 @@ function mutateSessionOrchestration(sessionId: string, mutator: (current: any) =
   }
 }
 
-function updateSessionOrchestration(sessionId: string, action: string, payload: any = {}): any {
+function updateSessionOrchestration(sessionId: string, action: string, payload: unknown = {}): unknown {
   return mutateSessionOrchestration(sessionId, (current) => applySessionAction(current, action, { ...payload, session_id: sessionId }))
 }
 
