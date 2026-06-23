@@ -1152,7 +1152,37 @@ export function _refreshModel(directory) {
   } catch {}
 }
 
-export function applySlot(slot: string, projectDir = "") {
+let _pendingLiveSwitch: { model: string, projectDir: string } | null = null
+
+function pushLiveModelSwitch(model: string, projectDir: string) {
+  try {
+    const _oc = (globalThis as any)?.__vibeOS_client?.config
+    if (_oc && typeof _oc.update === "function") {
+      _oc.update({
+        body: { model },
+        query: projectDir ? { directory: projectDir } : undefined,
+      })
+        .then(() => DEBUG_INTERNALS && console.error(`[vibeOS] live model switch → ${model}`))
+        .catch((e: any) => console.error("[vibeOS] live model switch failed:", e?.message || e))
+    }
+  } catch (e) {
+    console.error("[vibeOS] live model switch failed:", (e as any)?.message || e)
+  }
+}
+
+export function flushPendingLiveSwitch(): string | null {
+  if (!_pendingLiveSwitch) return null
+  const { model, projectDir } = _pendingLiveSwitch
+  _pendingLiveSwitch = null
+  pushLiveModelSwitch(model, projectDir)
+  return model
+}
+
+export function getPendingLiveSwitch(): { model: string, projectDir: string } | null {
+  return _pendingLiveSwitch
+}
+
+export function applySlot(slot: string, projectDir = "", opts: { deferLiveSwitch?: boolean } = {}) {
   let result: { ok: boolean, ocModel?: string, reason?: string } = { ok: false, reason: "unknown error" }
   try {
     const TIERS_FILE = join(getVibeOSHome(), "model-tiers.json")
@@ -1179,6 +1209,11 @@ export function applySlot(slot: string, projectDir = "") {
   }
   if (result.ok) {
     try { _refreshModel(projectDir) } catch {}
+    if (opts.deferLiveSwitch) {
+      _pendingLiveSwitch = { model: result.ocModel!, projectDir }
+    } else {
+      pushLiveModelSwitch(result.ocModel!, projectDir)
+    }
   }
   return result
 }
