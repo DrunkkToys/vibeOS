@@ -13,7 +13,7 @@ import { getFlowWarns, ensureProjectDocs, syncFlowTodosToNative } from "./vibeOS
 import { computeSessionMetrics } from "./vibeOS-lib/session-metrics.js"
 import { createMcpServer, writeDashboardBaseConfig } from "./lib/vibeos-mcp-server.js"
 import { isApiConnected, isApiFallback, getBackendVersion, getApiFallbackSince, setApiToken, setApiBootstrapToken, ensureBootstrapExchange, VIBEOS_API_URL } from "./lib/api-client.js"
-import { applySlot, modelCostPerTurn, detectContext7, formatUsd, classify, resolveEffectiveTier, _refreshModel, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, readConfig, getTrinitySlotOrder, loadTrinitySlotsFromTiersFile, buildDeterministicTrinity, isModelFree } from "./lib/pricing.js"
+import { applySlot, modelCostPerTurn, detectContext7, formatUsd, classify, resolveEffectiveTier, _refreshModel, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, readConfig, getTrinitySlotOrder, loadTrinitySlotsFromTiersFile, buildDeterministicTrinity, isModelFree, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP } from "./lib/pricing.js"
 import { scoreStress, detectTechStack, loadBlackboxState, saveBlackboxState, getBlackboxTracker, getBlackboxResolution, saveOptimizationMode, resetBlackboxTracker } from "./lib/turn-classify.js"
 import { safeJsonParse, readFullState, loadSelection, writeSelection, readLifetimeSavings, _OC_SID, _modelLocked, _blackboxEnabled, setBlackboxEnabled, _lockedSlot, _lockedModel, setModelLocked, setLockedSlot, setLockedModel, currentTier, currentModel, currentProjectFingerprint, currentProjectName, setCurrentTier, setCurrentModel, setCurrentProjectFingerprint, setCurrentProjectName, setCurrentSessionId, getCurrentSessionId, briefedProjects, _latestBlackboxState, _latestBlackboxLoopMsg, _latestBlackboxPivotMsg, getActiveJobForProject, projectFingerprint, loadProjectState, saveProjectState, ensureProjectBucket, mergeProjectBucket, setVibeOSHomeContext, SAVINGS_LEDGER_FILE, USER_HOME, CREDIT_CACHE_F, pruneScratchpadOnce, registerSessionCleanupHandlers, runStartupMaintenanceOnce, promotedProjectPatterns, projectPatternRows, clearProjectPatterns, loadTodos, getTodos, upsertTodo, markTodoDone, tool, loadSessionOrchestration, mutateSessionOrchestration } from "./lib/state.js"
 import { researchAudit } from "./lib/research-audit.js"
@@ -171,7 +171,14 @@ function ensureFooterFallback(input, output, directory) {
       return false
     }
     _refreshModel(directory)
-    const resolvedModel = currentModel || readConfig(directory) || readConfig(getOpenCodeHome()) || process?.env?.OPENCODE_MODEL || ""
+    // Trinity fallback: if no live model is configured anywhere (fresh project,
+    // no opencode.json model field, no env var), fall back to the user's active
+    // slot model instead of painting an unhelpful "unknown" — this is the same
+    // fallback the rich footer (_appendFooter) already applies.
+    const slotModel = loadSelection().active_slot === "brain" ? TRINITY_BRAIN
+      : loadSelection().active_slot === "medium" ? TRINITY_MEDIUM
+        : TRINITY_CHEAP
+    const resolvedModel = currentModel || readConfig(directory) || readConfig(getOpenCodeHome()) || process?.env?.OPENCODE_MODEL || slotModel || ""
     const resolvedTier = String(currentTier || classify(resolvedModel) || "").toLowerCase()
     const icon = resolvedTier === "high" ? "🧠" : resolvedTier === "mid" ? "◐" : "⚡"
     const label = resolvedTier === "high" ? "brain" : resolvedTier === "mid" ? "medium" : "cheap"
@@ -809,6 +816,10 @@ export async function DelegationEnforcer({ client, directory } = {}) {
   if (!globalThis.__vibeOS_sessionId) {
     globalThis.__vibeOS_sessionId = `opencode-${process.pid || "x"}-${Date.now()}`
   }
+  // Expose the OpenCode SDK client globally so the slot-switch machinery
+  // (applySlot / flushPendingLiveSwitch in pricing.ts) can re-bind the live
+  // model at a turn boundary, independent of the per-call deps wiring.
+  if (client) globalThis.client = client
   const hookSessionId = globalThis.__vibeOS_sessionId
   setVibeOSHomeContext(process.env.VIBEOS_HOME || join(hookHome, ".claude"))
   setCurrentSessionId(hookSessionId)

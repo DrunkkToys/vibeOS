@@ -2292,7 +2292,7 @@ test("applySlot: preserves opencode.json all fields (only model changes)", async
   process.env.HOME = origHome
 })
 
-test("trinity mode switch calls the native OpenCode config update when available", async () => {
+test("trinity mode switch defers the native OpenCode config update to the next turn boundary", async () => {
   const { DelegationEnforcer } = await loadPlugin()
   const dir = join(sandbox, ".opencode-native-switch")
   mkdirSync(dir, { recursive: true })
@@ -2318,8 +2318,13 @@ test("trinity mode switch calls the native OpenCode config update when available
   const hooks = await DelegationEnforcer({ client, directory: dir })
   const result = await hooks.tool.trinity.execute({ action: "mode", slot: "vibeultrax" })
   assert.match(String(result), /Mode set to VIBEULTRAX/i)
-  assert.ok(calls.length > 0, "native config update should be called")
-  assert.deepEqual(calls[0][0].body, { model: "deepseek/deepseek-chat" }, "native update receives the live OpenCode model")
+  // Switching the live model mid-turn aborts the in-flight assistant message
+  // (MessageAbortedError), so the re-bind must NOT happen inside the tool call.
+  assert.equal(calls.length, 0, "live config update must be deferred off the active turn")
+  // It is flushed at the next turn boundary by the messages.transform hook.
+  await hooks["experimental.chat.messages.transform"]({}, { messages: [{ role: "user", content: [{ type: "text", text: "next" }] }] })
+  assert.ok(calls.length > 0, "native config update should fire at the next turn boundary")
+  assert.deepEqual(calls[0][0].body, { model: "deepseek/deepseek-chat" }, "native update receives the cheap-tier live OpenCode model")
 })
 
 // ════════════════════════════════════════════════════════════════════════════
