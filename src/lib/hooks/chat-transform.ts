@@ -2,7 +2,6 @@
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, rmSync, readdirSync, statSync } from "node:fs"
 import { join, dirname, basename } from "node:path"
 import { createHash } from "node:crypto"
-import {  } from "node:os"
 import {
   currentTier, currentModel, currentProjectFingerprint, currentProjectName,
   _OC_SID, _modelLocked, _blackboxEnabled,
@@ -54,10 +53,6 @@ import { BRANDED_MODES, RUNTIME_MODES } from "../mode-router.js"
 import { addCacheEntry, extractRecentCacheOutputs } from "../../vibeOS-lib/smart-cache.js"
 import { getApiClient, remoteCall, isApiConnected, isApiFallback } from "../api-client.js"
 import { loadCredit } from "../credit-api.js"
-import {  } from "../reporting.js"
-import {  } from "../../vibeOS-lib/flow-enforcer.js"
-import {  } from "../../vibeOS-lib/flow-enforcer.js"
-import {  } from "../../vibeOS-lib/ml-router.js"
 import { loadSessionOptMode, loadSessionSlot, writeSessionSlot } from "../selection-manager.js"
 import { buildSessionBridge, recordSessionBridge } from "../session-bridge.js"
 import { noteProjectPattern } from "../index-helpers.js"

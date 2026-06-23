@@ -2,7 +2,6 @@
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, copyFileSync } from "node:fs"
 import { join, dirname, basename } from "node:path"
 import { createHash } from "node:crypto"
-import {  } from "node:child_process"
 import {
   currentTier, currentModel, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, getCurrentSessionId,
   _textCompletePainted, softQuotaCounts, enforcementBlocked,

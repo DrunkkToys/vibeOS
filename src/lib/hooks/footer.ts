@@ -9,7 +9,6 @@ import { saveReport } from "../reporting.js"
 import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, getCurrentSessionId, _modelLocked, _blackboxEnabled, _latestBlackboxState, loadBlackboxState, recordLiveSessionSnapshot, VIBEOS_HOME, getVibeOSHome, readLifetimeSavings, getLatestCacheEvent } from "../state.js"
 import { loadSelection, loadSessionSlot } from "../selection-manager.js"
 import { remoteCall, isApiConnected, isApiLatencyDegraded } from "../api-client.js"
-import {  } from "../constants.js"
 import { buildFooterLine, buildEnforcementTags, resolveBrand, buildFooterAlert } from "./shared-footer.js"
 import { computeReward } from "../../vibeOS-lib/reward-engine.js"
 import { detectLaziness } from "../../vibeOS-lib/laziness-detector.js"
@@ -62,6 +61,8 @@ let _autoReportCount = 0
 // the same-or-shorter text (skip), but a streaming update that GREW the text
 // and wiped our footer must be re-painted (see the guard in _appendFooter).
 const textCompletePainted = new Map()
+const _latestBlackboxLoopMsg = ""
+const _latestBlackboxPivotMsg = ""
 let _lastStrippedText = ""
 
 function isGreetingLike(text) {
@@ -533,7 +534,9 @@ async function _appendFooter(input, output, directory, lastModelError?: string) 
         stress: _footerStress,
         source: "footer",
       })
-    } catch {}
+    } catch (innerErr) {
+      console.error("[vibeOS] footer recordLiveSessionSnapshot error:", innerErr?.message || innerErr)
+    }
     const footerText = stripped + `\n\n${vibeLine}`
     _footerCacheText = `\n\n${vibeLine}`
     _footerCacheTs = Date.now()

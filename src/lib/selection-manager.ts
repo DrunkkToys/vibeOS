@@ -2,7 +2,6 @@ import { readFileSync, writeFileSync, existsSync, statSync, renameSync } from "n
 import { join } from "node:path"
 import { homedir, tmpdir } from "node:os"
 import { withFileLock, _handleStateCorruption, getVibeOSHome } from "./state.js"
-import {  } from "./turn-memo.js"
 
 const _USER_HOME = (() => { try { return homedir() } catch { return tmpdir() } })()
 
