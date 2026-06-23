@@ -355,15 +355,16 @@ export function createTrinityTool(deps) {
           console.error("[vibeOS] WARN: probe error for " + targetModel + ": " + e.message + " - switching anyway")
         }
         deps.writeSessionSlot(deps._OC_SID, slot)
-        const result = deps.applySlot(slot, deps.directory)
+        // Defer the live model re-bind to the next turn boundary. Switching the
+        // running OpenCode model mid-turn aborts the in-flight assistant message
+        // (MessageAbortedError) \u2014 which is exactly what interrupted slot switches
+        // during a turn. applySlot persists the slot now; the live switch is
+        // flushed (flushPendingLiveSwitch) before the next turn starts.
+        const result = deps.applySlot(slot, deps.directory, { deferLiveSwitch: true })
         if (!result.ok) return `\u274c Failed to set slot: ${result.reason}`
-        const synced = await syncNativeOpenCodeModel(deps, result.ocModel)
         deps._refreshModel(deps.directory)
         const prefix = probeFailed ? `\u274c Probe failed for ${result.ocModel}.` : ""
-        if (!synced) {
-          return `${prefix}${prefix ? " " : ""}Updated ${slot} slot (${result.ocModel}). OpenCode config sync was not available, so the next session may still use the previous live model.`
-        }
-        return `${prefix}${prefix ? " " : ""}Updated ${slot} slot (${result.ocModel}). OpenCode config synced for the next session.`
+        return `${prefix}${prefix ? " " : ""}Updated ${slot} slot (${result.ocModel}). Live switch applies on your next message (deferred so this turn isn't interrupted).`
       }
       if (action === "mode") {
         const builtInIds = ["balanced", "budget", "quality", "speed", "longrun", "audit", "forensic"]
@@ -387,11 +388,12 @@ export function createTrinityTool(deps) {
           const tierSlot = slot === "vibeultrax" ? "cheap" : resolveCascadeSlot(modeEntry.pipeline)
           deps.writeSessionSlot(deps._OC_SID, tierSlot)
           deps.writeSelection("active_pipeline", modeEntry.pipeline)
-          const switched = deps.applySlot(tierSlot, deps.directory)
+          // Defer the live re-bind to the next turn boundary so a mode switch
+          // mid-turn doesn't abort the in-flight assistant message.
+          const switched = deps.applySlot(tierSlot, deps.directory, { deferLiveSwitch: true })
           if (!switched?.ok) {
             return `\u274c Failed to switch OpenCode model: ${switched?.reason || "unknown error"}`
           }
-          const synced = await syncNativeOpenCodeModel(deps, switched.ocModel)
           if (slot === "vibeultrax") {
             deps._modelLocked = false
             deps._lockedSlot = null
@@ -410,9 +412,7 @@ export function createTrinityTool(deps) {
             modeEntry.tdd === "quality" || modeEntry.tdd === "on" || modeEntry.tdd === "strict")
           deps.writeSelection("thinking_level", modeEntry.thinking)
           const pipelineStr = modeEntry.pipeline.join(" → ")
-          return synced
-            ? `Mode set to ${slot.toUpperCase()}. Tier: ${tierSlot}. Pipeline: ${pipelineStr}. OpenCode config synced for the next session.`
-            : `Mode set to ${slot.toUpperCase()}. Tier: ${tierSlot}. Pipeline: ${pipelineStr}. OpenCode config sync was not available, so the next session may still use the previous live model.`
+          return `Mode set to ${slot.toUpperCase()}. Tier: ${tierSlot}. Pipeline: ${pipelineStr}. Live switch applies on your next message (deferred so this turn isn't interrupted).`
         }
         if (resolvedSlot === "auto") {
           deps.writeSelection("slot_locked", false)
