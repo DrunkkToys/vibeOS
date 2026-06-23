@@ -133,7 +133,11 @@ test("footer: sticky branded mode stays visually distinct from the live regime l
     const o = { text: "This message is long enough to trigger the footer and reproduce the sticky brand leak." }
     await _appendFooter({ args: { model: "deepseek/v4-pro" } }, o)
     const footer = o.text.split("\n").pop() || ""
-    assert.ok(footer.includes("VibeUltraX") && footer.includes("· VibeUltraX"), "footer should follow the requested mode: " + footer)
+    // The branded mode must appear (distinct from the INIT regime tag) but must
+    // not be duplicated as "VibeUltraX · VibeUltraX" — the mode label is
+    // suppressed when it would just repeat the brand.
+    assert.ok(footer.includes("VibeUltraX"), "footer should show the branded mode: " + footer)
+    assert.ok(!footer.includes("· VibeUltraX"), "footer must not duplicate the brand as a mode label: " + footer)
 })
 
 test("footer: claim-bearing output shows a check icon without needing cascade audit", async () => {
