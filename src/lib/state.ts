@@ -2318,9 +2318,9 @@ function reconcileStateFromLedger(): void {
     if (Math.abs(stTotal - l.total) < 0.0005 && Math.abs(stMissedC7 - l.context7) < 0.0005) return
     updateState((s: any) => {
       s.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" }
-      s.lifetime.total_savings_usd = Math.max(l.delegation, stDelegation)
-      s.lifetime.cache_savings_usd = Math.max(l.cache, stCache)
-      s.lifetime.missed_context7_usd = Math.max(l.context7, stMissedC7)
+      s.lifetime.total_savings_usd = l.delegation
+      s.lifetime.cache_savings_usd = l.cache
+      s.lifetime.missed_context7_usd = l.context7
       s.lifetime.last_updated = new Date().toISOString()
       s.lifetime.rebuilt_from_ledger = true
       s.lifetime.ledger_entries_reconciled = l.entries

@@ -571,4 +571,8 @@ async function _appendFooter(input, output, directory, lastModelError?: string) 
   }
 }
 
-export { _appendFooter, scoreTaskQuality, readRewardSignals, buildRewardInput, buildFooterAlert }
+export function didTextCompletePainted(messageID: string): boolean {
+  return textCompletePainted.has(messageID)
+}
+
+export { _appendFooter, scoreTaskQuality, readRewardSignals, buildRewardInput, buildFooterAlert, didTextCompletePainted }

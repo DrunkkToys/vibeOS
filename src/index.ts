@@ -24,7 +24,7 @@ import { writeSessionSlot, writeSessionOptMode } from "./lib/selection-manager.j
 import { loadCredit, thinkingLevel, _lazyRefresh, _readAuth } from "./lib/credit-api.js"
 import { createTrinityTool } from "./lib/trinity-tool.js"
 import { classifyAndRankModels, modelToCcAlias, discoverAvailableModels, probeModel } from "./lib/trinity-rebuild.js"
-import { _appendFooter } from "./lib/hooks/footer.js"
+import { _appendFooter, didTextCompletePainted } from "./lib/hooks/footer.js"
 import { onToolExecuteBefore, onToolExecuteAfter, setToolDirectory } from "./lib/hooks/tool-execute.js"
 import { onMessagesTransform, onSystemTransform, latestUserIntent, ensureProjectSkill } from "./lib/hooks/chat-transform.js"
 import { onSessionCompacting } from "./lib/hooks/session-compact.js"
@@ -166,6 +166,7 @@ function ensureFooterFallback(input, output, directory) {
             ? payload.content
             : ""
     if (!currentText) return false
+    if (messageID && didTextCompletePainted(messageID)) return false
     if (/\n\n— [^\n]+ —\s*$/.test(currentText)) {
       if (messageID) footerFallbackPainted.add(messageID)
       return false
