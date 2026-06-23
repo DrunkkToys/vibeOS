@@ -1,4 +1,5 @@
 import { BLACKBOX_STATE_FILE, _OC_SID, loadBlackboxState, saveBlackboxState, withFileLock } from "./state.js"
+import type { DelegationState, SessionRecord, SessionModePolicy } from "./state.js"
 
 // ── Named constants ──────────────────────────────────────────────────
 const STRESS_QUALITY_THRESHOLD = 1.5
@@ -98,7 +99,7 @@ function loadSessionPolicy() {
   return { state, session, policy: session.mode_policy }
 }
 
-function persistSessionPolicy(state: any, session: any, policy: any, mode: string): ModeDecision {
+function persistSessionPolicy(state: DelegationState, session: SessionRecord, policy: SessionModePolicy, mode: string): ModeDecision {
   policy.updated_at = new Date().toISOString()
   session.mode_policy = policy
   session.active_slot = modeToSlot(mode)

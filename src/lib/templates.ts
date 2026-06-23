@@ -116,7 +116,7 @@ export const TEMPLATE_LIBRARY = Object.entries(TEMPLATES).map(([id, tpl]) => ({
   tdd_mode: tpl.tdd_mode,
 }))
 
-export function normalizeSessionTemplate(raw: any, fallbackId: string = DEFAULT_TEMPLATE): SessionTemplate | null {
+export function normalizeSessionTemplate(raw: Record<string, unknown> | null | undefined, fallbackId: string = DEFAULT_TEMPLATE): SessionTemplate | null {
   if (!raw || typeof raw !== "object") return null
   const inferredId = typeof raw.id === "string" && raw.id.trim() && raw.id.trim() in TEMPLATES ? raw.id.trim() : fallbackId
   const baseId = typeof raw.base_template_id === "string" && raw.base_template_id.trim() ? raw.base_template_id.trim() : inferredId

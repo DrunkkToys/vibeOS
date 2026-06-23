@@ -100,8 +100,8 @@ export function recordProjectFact(
       renameSync(tmp, f)
       return true
     })
-  } catch (err: any) {
-    console.error("[vibeOS] recordProjectFact failed:", err?.message || err)
+  } catch (err) {
+    console.error("[vibeOS] recordProjectFact failed:", err instanceof Error ? err.message : err)
     return false
   }
 }
