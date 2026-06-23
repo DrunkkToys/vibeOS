@@ -153,7 +153,6 @@ export function applyBudgetFirstMode(input: ModeInput = {}): ModeDecision {
 
   return withFileLock(BLACKBOX_STATE_FILE, () => {
     const { state, session, policy } = loadSessionPolicy()
-    const interactions = Number(input.nInteractions ?? state.sessions?.[_OC_SID]?.n_interactions ?? 0)
     const regime = normalizeRegime(input.subRegime || policy.last_sub_regime)
     const stress = Number(input.stress ?? policy.last_stress ?? 0)
     const suggested = normalizeMode(input.suggestedMode)

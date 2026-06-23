@@ -38,7 +38,7 @@ function branchKey(branch: string): string {
   return String(branch || "general").trim().toLowerCase().replace(/\s+/g, "-").slice(0, 48) || "general"
 }
 
-function readTreeFile(): any {
+function readTreeFile(): { projects: Record<string, ProjectTree> } {
   const f = treeFilePath()
   try {
     if (!existsSync(f)) return { projects: {} }

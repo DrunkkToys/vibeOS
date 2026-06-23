@@ -3,7 +3,6 @@ import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, sta
 import { join, dirname } from "node:path"
 import { createHash } from "node:crypto"
 import {
-  VIBEOS_HOME,
   loadSelection,
   updateState,
   testReminderSeen,

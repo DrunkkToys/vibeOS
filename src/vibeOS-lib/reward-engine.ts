@@ -15,8 +15,6 @@
  *   Laziness: TODOs/placeholders             -15
  *   Laziness: skipped delegation             -5
  */
-import { readFileSync, writeFileSync, existsSync, mkdirSync, appendFileSync } from "node:fs"
-import { join } from "node:path"
 
 const REWARD_TABLE = {
   qualityReward: 10,

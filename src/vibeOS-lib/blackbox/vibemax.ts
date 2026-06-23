@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { MODE_DELTAS, autoSelectMode } from "./meta-controller.js"
+import { autoSelectMode } from "./meta-controller.js"
 import { PivotCache } from "./pivot-cache.js"
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { resolve, dirname } from "node:path"

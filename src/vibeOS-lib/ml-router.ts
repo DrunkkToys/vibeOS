@@ -173,7 +173,6 @@ export function computeDifficulty(prompt: string): DifficultyResult {
   const features = extractFeatures(prompt)
   const s = String(prompt || "").trim()
   const words = s.split(/\s+/)
-  const lower = s.toLowerCase()
 
   let score = 0
 

@@ -13,7 +13,6 @@ import {
   _OC_SID,
   loadProjectState,
   saveProjectState,
-  ensureProjectBucket,
   touchProjectBucket,
   updateState,
   roundUsd,
@@ -70,7 +69,7 @@ export function noteProjectPattern(kind, key, summary, meta = {}) {
   }
 }
 
-function recordFrictionPattern(key, summary, meta = {}) {
+function _recordFrictionPattern(key, summary, meta = {}) {
   const sessionKey = `friction:${key}`
   if (frictionSessionKeys.has(sessionKey)) return
   frictionSessionKeys.add(sessionKey)
@@ -84,7 +83,7 @@ function recordFrictionPattern(key, summary, meta = {}) {
   } catch {}
 }
 
-function recordRoutinePattern(key, summary, meta = {}) {
+function _recordRoutinePattern(key, summary, meta = {}) {
   const sessionKey = `routine:${key}`
   if (routineSessionKeys.has(sessionKey)) return
   routineSessionKeys.add(sessionKey)
@@ -238,7 +237,7 @@ export function recordSaving(tool, reason, saveEst, meta = {}) {
     else if (!_ledgerBufferTimer) setLedgerBufferTimer(setTimeout(_flushLedgerBuffer, LEDGER_BUFFER_FLUSH_MS))
 
     return saveEst
-  } catch (err) {
+  } catch {
     try { saveSessionCheckpoint() } catch {}
     return 0
   }

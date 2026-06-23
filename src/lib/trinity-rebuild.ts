@@ -1,7 +1,7 @@
 // @ts-nocheck
-import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync, renameSync } from "node:fs"
-import { join, dirname } from "node:path"
-import { OPENCODE_HOME, getOpenCodeHome } from "./state.js"
+import { readFileSync, existsSync } from "node:fs"
+import { join } from "node:path"
+import { getOpenCodeHome } from "./state.js"
 import { modelCostPerTurn, normalizeModelId, _parseOpenRouterTurnCost, _writeDynamicPricingCache, HIGH_TIER_RE, MID_TIER_RE } from "./pricing.js"
 
 function safeJsonParse(raw) {
