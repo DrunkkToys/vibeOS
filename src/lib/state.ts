@@ -9,6 +9,61 @@ import { loadSelection, writeSelection, DFLT_SEL } from "./selection-manager.js"
 import { mergeProjectBucket, _computeSessionMetrics, _pruneOldSessions } from "./pattern-helpers.js"
 import { getOcSessionId } from "./runtime-state.js"
 
+// ── Delegation-state contract ────────────────────────────────────────
+// The real shape of delegation-state.json. Known fields are typed; the index
+// signature carries the dynamic tail (per-session bookkeeping that varies by
+// feature) without falling back to `any`.
+export interface SessionWarn {
+  key?: string
+  reason?: string
+  saveEst?: number
+  est_savings_usd?: number
+  firstWord?: string
+  ts?: number
+  count?: number
+  tool?: string
+}
+export interface SessionCacheHit {
+  at: number
+  tool: string
+  hash: string
+  est_savings_usd: number
+}
+export interface StressSample { ts: string; score: number; level: string }
+export interface SessionRecord {
+  total_savings_usd?: number
+  cache_savings_usd?: number
+  cost_usd?: number
+  project_name?: string
+  project_fingerprint?: string
+  warns?: SessionWarn[]
+  cache_hits?: SessionCacheHit[]
+  seenWarnKeys?: Record<string, boolean>
+  stress_history?: StressSample[]
+  maxSessionStress?: number
+  avgSessionStress?: number
+  last_reason?: string
+  last_save_est?: number
+  started?: string
+  active_slot?: string
+  n_interactions?: number
+  [key: string]: unknown
+}
+export interface LifetimeTotals {
+  total_savings_usd: number
+  cache_savings_usd: number
+  missed_context7_usd: number
+  session_count: number
+  warn_count: number
+}
+export interface DelegationState {
+  sessions?: Record<string, SessionRecord>
+  lifetime?: LifetimeTotals
+  last_updated?: string
+  _gen?: number
+  [key: string]: unknown
+}
+
 // ── File system constants ────────────────────────────────────────────
 const USER_HOME = (() => { try { return homedir() } catch { return tmpdir() } })()
 const VIBEOS_CONTEXT = new AsyncLocalStorage<{ home?: string }>()
@@ -367,7 +422,7 @@ export function runStartupMaintenanceOnce(): void {
     _startupMaintenanceHome = home
     _pruneCorruptionBackups(join(home, ".backups"))
     loadActiveJobs()
-    updateState((state: any) => {
+    updateState((state) => {
       pruneInactiveSessions(state)
       return state
     })
@@ -495,7 +550,7 @@ function readJsonOrEmpty(filePath: string): any {
   } catch { _handleStateCorruption(filePath); return {} }
 }
 
-function updateState(mutator: (state: any) => any): any {
+function updateState(mutator: (state: DelegationState) => DelegationState | void): DelegationState {
   const delegationStateFile = join(getVibeOSHome(), "delegation-state.json")
   const MAX_RETRIES = 3
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -536,7 +591,7 @@ function updateState(mutator: (state: any) => any): any {
   return null
 }
 
-function readFullState(): any {
+function readFullState(): DelegationState {
   const delegationStateFile = join(getVibeOSHome(), "delegation-state.json")
   try {
     if (!existsSync(delegationStateFile)) return {}
@@ -833,7 +888,7 @@ export function recordLiveSessionSnapshot(input: {
   }
 
   try {
-    updateState((state: any) => {
+    updateState((state) => {
       state.sessions ??= {}
       state.lifetime ??= {}
       if (!state.sessions[sid]) {
@@ -1182,7 +1237,7 @@ function _telemetrySizeEstimate(telemetry: any): number {
 export function recordPrivacyTelemetry(event: any): any {
   try {
     if (!event || typeof event !== "object") return null
-    return updateState((state: any) => {
+    return updateState((state) => {
       const now = new Date().toISOString()
       state.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" }
       state.sessions ??= {}
@@ -1936,7 +1991,7 @@ function recordDelegation(tool: string, saveEst: number, _meta: any = {}): any {
   // Delegation savings are recorded via updateState
   // This wrapper provides the legacy interface expected by callers
   try {
-    return updateState((s: any) => {
+    return updateState((s) => {
       const now = new Date().toISOString()
       const delta = Number(saveEst || 0)
       s.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" }
@@ -1972,7 +2027,7 @@ function recordDelegation(tool: string, saveEst: number, _meta: any = {}): any {
 
 function recordCacheSaving(tool: string, saveEst: number, meta: any = {}): any {
   try {
-    const state = updateState((s: any) => {
+    const state = updateState((s) => {
       const now = new Date().toISOString()
       const delta = Number(saveEst || 0)
       s.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" }
@@ -2036,7 +2091,7 @@ function recordCacheSaving(tool: string, saveEst: number, meta: any = {}): any {
 
 function recordMissedContext7(saveEst: number): any {
   try {
-    const state = updateState((s: any) => {
+    const state = updateState((s) => {
       s.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" }
       s.lifetime.missed_context7_usd = Math.round(
         ((s.lifetime.missed_context7_usd || 0) + saveEst) * 100,
@@ -2316,7 +2371,7 @@ function reconcileStateFromLedger(): void {
     const stMissedC7 = Number(state?.lifetime?.missed_context7_usd ?? 0)
     const stTotal = (Number.isFinite(stDelegation) ? stDelegation : 0) + (Number.isFinite(stCache) ? stCache : 0)
     if (Math.abs(stTotal - l.total) < 0.0005 && Math.abs(stMissedC7 - l.context7) < 0.0005) return
-    updateState((s: any) => {
+    updateState((s) => {
       s.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" }
       s.lifetime.total_savings_usd = l.delegation
       s.lifetime.cache_savings_usd = l.cache
@@ -2390,7 +2445,7 @@ function loadSessionOrchestration(sessionId: string): any {
 
 function mutateSessionOrchestration(sessionId: string, mutator: (current: any) => any): any {
   try {
-    return updateState((state: any) => {
+    return updateState((state) => {
       state.sessions ??= {}
       state.sessions[sessionId] ??= {}
       const current = normalizeSessionOrchestration(state.sessions[sessionId].orchestration || null, sessionId)
