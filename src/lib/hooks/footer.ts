@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { writeFileSync, appendFileSync, existsSync, mkdirSync, statSync, readdirSync, copyFileSync } from "node:fs"
 import { join, dirname, basename } from "node:path"
-import { classify, modelCostPerTurn, _refreshModel, readConfig, resolveTrinityDisplayModel, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, formatUsd, resolveCurrentExecution, modelDisplayName, getPendingLiveSwitch } from "../pricing.js"
+import { classify, modelCostPerTurn, _refreshModel, readConfig, resolveTrinityDisplayModel, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, formatUsd, resolveCurrentExecution, modelDisplayName, getPendingLiveSwitch, resolveOrchestratorState } from "../pricing.js"
 import { latestUserIntent } from "./chat-transform.js"
 import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, classifyTurnSimple, autoSelectMode, loadOptimizationMode, computeControlVector, resolveOptimizationSlot } from "../turn-classify.js"
 import { recordBudgetFirstOutcome } from "../mode-policy.js"
@@ -333,9 +333,20 @@ async function _appendFooter(input, output, directory, lastModelError?: string) 
       if (stripped.length <= paintedLen && !claimTag) return
     }
     const ltTotal = ltTasks + ltCache
-    const activeSlot = displayMode === "vibeultrax"
-      ? ultraResolvedTier
-      : freshSelection?.active_slot || selNowFooter.active_slot || resolveOptimizationSlot(displayMode) || "brain"
+    // SINGLE SOURCE OF TRUTH: the tier icon must describe the model that ACTUALLY ran
+    // this turn (orch.ran_model), so the icon and the model name shown can never
+    // disagree. The intended/next slot is surfaced separately via the "switch pending"
+    // alert (pendingLiveModel below), not by pre-painting the future tier here.
+    const orch = resolveOrchestratorState(directory)
+    const ranTier = ((): "cheap" | "medium" | "brain" => {
+      const m = orch.ran_model || displayModel || liveModel || currentModel || ""
+      if (TRINITY_CHEAP && m === TRINITY_CHEAP) return "cheap"
+      if (TRINITY_MEDIUM && m === TRINITY_MEDIUM) return "medium"
+      if (TRINITY_BRAIN && m === TRINITY_BRAIN) return "brain"
+      const c = String(classify(m) || "").toLowerCase()
+      return c === "high" || c === "brain" ? "brain" : c === "mid" || c === "medium" ? "medium" : "cheap"
+    })()
+    const activeSlot = displayMode === "vibeultrax" ? ultraResolvedTier : ranTier
     const flashIcon = isApiConnected() ? " \u26A1" : ""
     const rawMode = displayMode
     const cv = computeControlVector({ sub_regime: currentSubRegime, latest_stress_multiplier: _footerStress, user_text: latestUserIntent || "" }, undefined, rawMode)

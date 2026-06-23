@@ -904,7 +904,7 @@ export const onToolExecuteAfter = async (input, output) => {
         selNow.optimization_mode ||
         loadOptimizationMode() ||
         loadBlackboxState()?.cv?.optimization_mode ||
-        ""
+        "",
       ).trim().toLowerCase()
       const displayMode = backendMode || autoSelectMode(currentSubRegime, latestUserIntent ? scoreStress(latestUserIntent) : 0)
       // VibeUltraX cascade: tier follows the LIVE model's trinity slot so the

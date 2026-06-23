@@ -87,7 +87,7 @@ function detectPatterns(events, fingerprint) {
     if (!ev.isGuardBreach) continue
     const hasPrior = events.slice(0, i).some(
       (e) => e.family === ev.family && e.exitCode !== null && e.exitCode !== 0 &&
-        (ev.at - e.at) <= 10 * 60 * 1000 && (ev.at - e.at) >= 0
+        (ev.at - e.at) <= 10 * 60 * 1000 && (ev.at - e.at) >= 0,
     )
     if (!hasPrior) {
       patterns.push({
