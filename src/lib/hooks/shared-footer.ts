@@ -157,10 +157,18 @@ export function buildFooterAlert(opts: {
   liveModel?: string
   expectedModel?: string
   lastModelError?: string
+  pendingLiveModel?: string
 } = {}): string {
   const alerts: string[] = []
   if (opts.apiDegraded) alerts.push("⚠ api degraded")
-  if (opts.liveModel && opts.expectedModel && opts.liveModel !== opts.expectedModel) alerts.push("⚠ model drift")
+  const expectedToCompare = opts.pendingLiveModel || opts.expectedModel
+  if (opts.liveModel && expectedToCompare && opts.liveModel !== expectedToCompare) {
+    if (opts.pendingLiveModel) {
+      alerts.push("⚠ switch pending")
+    } else {
+      alerts.push("⚠ model drift")
+    }
+  }
   const err = String(opts.lastModelError || "")
   if (err && (err.includes("EHOSTUNREACH") || err.includes("ENOTFOUND") || err.includes("ETIMEDOUT"))) {
     alerts.push("⚠ model unreachable")

@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { writeFileSync, appendFileSync, existsSync, mkdirSync, statSync, readdirSync, copyFileSync } from "node:fs"
 import { join, dirname, basename } from "node:path"
-import { classify, modelCostPerTurn, _refreshModel, readConfig, resolveTrinityDisplayModel, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, formatUsd, resolveCurrentExecution, modelDisplayName } from "../pricing.js"
+import { classify, modelCostPerTurn, _refreshModel, readConfig, resolveTrinityDisplayModel, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, formatUsd, resolveCurrentExecution, modelDisplayName, getPendingLiveSwitch } from "../pricing.js"
 import { latestUserIntent } from "./chat-transform.js"
 import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, classifyTurnSimple, autoSelectMode, loadOptimizationMode, computeControlVector, resolveOptimizationSlot } from "../turn-classify.js"
 import { recordBudgetFirstOutcome } from "../mode-policy.js"
@@ -461,11 +461,13 @@ async function _appendFooter(input, output, directory, lastModelError?: string) 
       : _expectedModel
     let _alertTag = ""
     try {
+      const pendingSwitch = getPendingLiveSwitch()
       _alertTag = buildFooterAlert({
         apiDegraded: isApiLatencyDegraded(),
         liveModel: liveModelSetting || undefined,
         expectedModel: _expectedForAlert || undefined,
         lastModelError,
+        pendingLiveModel: pendingSwitch?.model || undefined,
       })
     } catch {}
 
