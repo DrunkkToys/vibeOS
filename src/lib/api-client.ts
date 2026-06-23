@@ -478,7 +478,7 @@ export class VibeOSApiClient {
     return this.request("/api/v1/patterns/query?kind=" + (kind || ""), null)
   }
 
-  async patternsExploratoryWords(sessionId: string): Promise<unknown> {
+  async patternsExploratoryWords(_sessionId: string): Promise<unknown> {
     return this.request("/api/v1/patterns/exploratory-words", null)
   }
 

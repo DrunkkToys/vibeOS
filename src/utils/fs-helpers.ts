@@ -6,18 +6,18 @@ export function ensureDir(dirPath: string): void {
 }
 
 // ── JSON file reader (safe parse + corruption handling) ─────────────
-export function readJsonFile(filePath: string, fallback: any = null): any {
+export function readJsonFile<T = unknown>(filePath: string, fallback: T | null = null): T | null {
   try {
     if (!existsSync(filePath)) return fallback
     const raw = readFileSync(filePath, "utf-8")
-    return safeJsonParse(raw) ?? fallback
+    return safeJsonParse<T>(raw) ?? fallback
   } catch {
     return fallback
   }
 }
 
 // ── JSONC-tolerant JSON.parse ────────────────────────────────────────
-export function safeJsonParse(raw: string): any {
+export function safeJsonParse<T = unknown>(raw: string): T | null {
   if (raw == null || raw === "") return null
   try {
     return JSON.parse(raw)

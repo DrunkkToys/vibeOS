@@ -2,7 +2,7 @@
 
 import { readFileSync, existsSync } from "node:fs"
 import { join } from "node:path"
-import { safeJsonParse, VIBEOS_HOME, getVibeOSHome } from "./state.js"
+import { safeJsonParse, getVibeOSHome } from "./state.js"
 import { modelCostPerTurn } from "./pricing.js"
 
 const _OC_SID = "opencode-" + (process.pid || "x") + "-" + Date.now()

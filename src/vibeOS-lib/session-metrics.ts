@@ -76,7 +76,7 @@ export function computeSessionMetrics(state: unknown, sessionId: string) {
   let ltTasks = 0; let ltCache = 0; let ltCost = 0; let totalWarnCount = 0
   const sessionRates = []
 
-  for (const [sid, ses] of Object.entries(s?.sessions || {})) {
+  for (const ses of Object.values(s?.sessions || {})) {
     const warns = Array.isArray(ses?.warns) ? ses.warns : []
     totalWarnCount += warns.length
     for (const w of warns) ltTasks += Number.isFinite(Number(w.est_savings_usd ?? 0)) ? Number(w.est_savings_usd ?? 0) : 0

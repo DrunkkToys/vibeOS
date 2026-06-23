@@ -9,7 +9,7 @@ type RuntimeState = {
 }
 
 function getRuntimeState(): RuntimeState {
-  const g = globalThis as any
+  const g = globalThis as unknown as Record<string, RuntimeState | undefined>
   if (!g[RUNTIME_KEY]) {
     g[RUNTIME_KEY] = {
       apiConnected: true,

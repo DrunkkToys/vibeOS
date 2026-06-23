@@ -11,18 +11,6 @@ export function detectOutcomeSignal(text) {
   return null
 }
 
-function countTrailingRepeat(items, signatureOf) {
-  if (!Array.isArray(items) || items.length === 0) return 0
-  const last = signatureOf(items[items.length - 1])
-  if (!last) return 0
-  let streak = 0
-  for (let i = items.length - 1; i >= 0; i--) {
-    if (signatureOf(items[i]) !== last) break
-    streak++
-  }
-  return streak
-}
-
 function normalizeActivitySignature(event) {
   if (!event || typeof event !== "object") return ""
   const tool = String(event.tool || "").trim().toLowerCase()
