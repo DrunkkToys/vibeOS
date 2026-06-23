@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { writeFileSync, appendFileSync, existsSync, mkdirSync, statSync, readdirSync, copyFileSync } from "node:fs"
 import { join, dirname, basename } from "node:path"
-import { classify, modelCostPerTurn, _refreshModel, readConfig, resolveTrinityDisplayModel, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, formatUsd, resolveCurrentExecution, modelDisplayName, getPendingLiveSwitch, resolveOrchestratorState } from "../pricing.js"
+import { classify, modelCostPerTurn, _refreshModel, readConfig, resolveTrinityDisplayModel, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, formatUsd, resolveCurrentExecution, modelDisplayName, getPendingLiveSwitch } from "../pricing.js"
 import { latestUserIntent } from "./chat-transform.js"
 import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, classifyTurnSimple, autoSelectMode, loadOptimizationMode, computeControlVector, resolveOptimizationSlot } from "../turn-classify.js"
 import { recordBudgetFirstOutcome } from "../mode-policy.js"
@@ -334,12 +334,13 @@ async function _appendFooter(input, output, directory, lastModelError?: string) 
     }
     const ltTotal = ltTasks + ltCache
     // SINGLE SOURCE OF TRUTH: the tier icon must describe the model that ACTUALLY ran
-    // this turn (orch.ran_model), so the icon and the model name shown can never
-    // disagree. The intended/next slot is surfaced separately via the "switch pending"
-    // alert (pendingLiveModel below), not by pre-painting the future tier here.
-    const orch = resolveOrchestratorState(directory)
+    // this turn — the live model the footer already resolved (ultraLiveModel =
+    // displayModel || liveModel || currentModel) — so the icon and the model name shown
+    // can never disagree. This is the same source the vibeultrax tier uses, now applied
+    // to every mode. The intended/next slot is surfaced separately via the "switch
+    // pending" alert (pendingLiveModel below), not by pre-painting the future tier here.
     const ranTier = ((): "cheap" | "medium" | "brain" => {
-      const m = orch.ran_model || displayModel || liveModel || currentModel || ""
+      const m = ultraLiveModel || currentModel || ""
       if (TRINITY_CHEAP && m === TRINITY_CHEAP) return "cheap"
       if (TRINITY_MEDIUM && m === TRINITY_MEDIUM) return "medium"
       if (TRINITY_BRAIN && m === TRINITY_BRAIN) return "brain"
