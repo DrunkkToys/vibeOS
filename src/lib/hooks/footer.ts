@@ -57,7 +57,11 @@ async function apiAutoSelectMode(regime, stress) {
 
 let _prevOutputText = ""
 let _autoReportCount = 0
-const textCompletePainted = new Set()
+// messageID -> length of the message text we last painted a footer onto.
+// Used for streaming-aware dedup: a redundant re-call for the same message has
+// the same-or-shorter text (skip), but a streaming update that GREW the text
+// and wiped our footer must be re-painted (see the guard in _appendFooter).
+const textCompletePainted = new Map()
 let _lastStrippedText = ""
 
 function isGreetingLike(text) {
@@ -163,7 +167,13 @@ async function _appendFooter(input, output, directory, lastModelError?: string) 
         output?.messageId ||
         output?.message?.id ||
         null
-    if (messageID && textCompletePainted.has(messageID)) return
+    // NOTE: we deliberately do NOT short-circuit on textCompletePainted here.
+    // OpenCode rewrites the assistant message text on every streaming update,
+    // which wipes any footer we painted on an earlier (partial) chunk. Skipping
+    // by messageID left the *final* message footer-less, so the basic
+    // ensureFooterFallback() footer (raw live model, no brand/savings) won.
+    // The `hasExistingFooter` guard below is the correct idempotency check:
+    // it repaints when the footer was wiped and skips when it is still present.
 
     function _payload(obj) {
       if (obj?.message && typeof obj.message === "object") return obj.message
@@ -211,17 +221,23 @@ async function _appendFooter(input, output, directory, lastModelError?: string) 
     const displayMode = backendMode || (isApiConnected()
       ? await apiAutoSelectMode(_latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""), _footerStress)
       : autoSelectMode(_latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""), _footerStress))
-    // VibeUltraX is a cascade. Honor the backend's resolved tier (tier_bias)
-    // instead of pinning the display to "cheap", and read the cascade depth the
-    // backend now emits so the footer matches the real routing decision.
-    const ultraResolvedTier = ((): "cheap" | "medium" | "brain" => {
-      const t = String(_latestBlackboxState?.tier_bias || _latestBlackboxState?.decision?.tier_bias || "").toLowerCase()
-      return (t === "medium" || t === "brain") ? t : "cheap"
-    })()
     const ultraCascadeDepth = Number(
       _latestBlackboxState?.control_vector?.cascade_depth ??
       _latestBlackboxState?.cascade_depth ?? 0,
     ) || 0
+    // VibeUltraX is a cascade: show the LIVE running model and the tier that
+    // model actually occupies in the user's trinity (cheap → medium → brain).
+    // At the cascade entry this reads "⚡ cheap | Big Pickle"; once it escalates
+    // to e.g. deepseek-v4-flash (the medium slot) it reads "◐ medium | V4 Flash"
+    // — tier and model stay coherent instead of a pinned "⚡ cheap | V4 Flash".
+    const ultraLiveModel = displayModel || liveModel || currentModel || ""
+    const ultraResolvedTier = ((): "cheap" | "medium" | "brain" => {
+      if (TRINITY_CHEAP && ultraLiveModel === TRINITY_CHEAP) return "cheap"
+      if (TRINITY_MEDIUM && ultraLiveModel === TRINITY_MEDIUM) return "medium"
+      if (TRINITY_BRAIN && ultraLiveModel === TRINITY_BRAIN) return "brain"
+      const c = String(classify(ultraLiveModel) || "").toLowerCase()
+      return c === "high" || c === "brain" ? "brain" : c === "mid" || c === "medium" ? "medium" : "cheap"
+    })()
     const execution = resolveCurrentExecution({
       directory,
       activeSlot: displayMode === "vibeultrax" ? ultraResolvedTier : slot || "brain",
@@ -306,6 +322,16 @@ async function _appendFooter(input, output, directory, lastModelError?: string) 
     const stripped = hasExistingFooter ? text.replace(footerSuffix, "").trimEnd() : text
     if (hasExistingFooter) return
     if (stripped === _lastStrippedText && !claimTag) return
+    // Streaming-aware dedup. We already painted this messageID once; skip the
+    // re-call UNLESS the message text has grown — which means OpenCode streamed
+    // more text and wiped the footer we painted on an earlier chunk, so the
+    // final text must be re-painted (otherwise the basic ensureFooterFallback
+    // footer with the raw live model wins). A redundant duplicate call carries
+    // the same-or-shorter text and is correctly skipped here.
+    if (messageID && textCompletePainted.has(messageID)) {
+      const paintedLen = textCompletePainted.get(messageID)
+      if (stripped.length <= paintedLen && !claimTag) return
+    }
     const ltTotal = ltTasks + ltCache
     const activeSlot = displayMode === "vibeultrax"
       ? ultraResolvedTier
@@ -425,12 +451,20 @@ async function _appendFooter(input, output, directory, lastModelError?: string) 
     }
 
     const _expectedModel = slot === "brain" ? TRINITY_BRAIN : slot === "medium" ? TRINITY_MEDIUM : TRINITY_CHEAP
+    // In a cascade (VibeUltraX) the live model legitimately escalates across the
+    // pipeline tiers (cheap → medium → brain), so a live model that differs from
+    // the cheap entry slot is expected, not drift. Only flag drift when the live
+    // model falls outside the known cascade tiers.
+    const _cascadeTierModels = new Set([TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN].filter(Boolean))
+    const _expectedForAlert = displayMode === "vibeultrax" && liveModelSetting && _cascadeTierModels.has(liveModelSetting)
+      ? liveModelSetting
+      : _expectedModel
     let _alertTag = ""
     try {
       _alertTag = buildFooterAlert({
         apiDegraded: isApiLatencyDegraded(),
         liveModel: liveModelSetting || undefined,
-        expectedModel: _expectedModel || undefined,
+        expectedModel: _expectedForAlert || undefined,
         lastModelError,
       })
     } catch {}
@@ -507,9 +541,9 @@ async function _appendFooter(input, output, directory, lastModelError?: string) 
       console.error(`\n${vibeLine} —`)
     }
 
-    textCompletePainted.add(messageID)
+    if (messageID) textCompletePainted.set(messageID, stripped.length)
     if (textCompletePainted.size > 500) {
-      const it = textCompletePainted.values()
+      const it = textCompletePainted.keys()
       for (let i = 0; i < 100; i++) textCompletePainted.delete(it.next().value)
     }
   } catch (err) {

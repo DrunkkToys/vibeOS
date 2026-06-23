@@ -7,6 +7,11 @@ var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require
   if (typeof require !== "undefined") return require.apply(this, arguments);
   throw Error('Dynamic require of "' + x + '" is not supported');
 });
+var __glob = (map) => (path) => {
+  var fn = map[path];
+  if (fn) return fn();
+  throw new Error("Module not found in bundle: " + path);
+};
 var __esm = (fn, res) => function __init() {
   return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
 };
@@ -1106,8 +1111,8 @@ function detectStressSpike(stressScore) {
   _prevStress = stressScore;
   return delta > 0.3 && stressScore > 0.5;
 }
-function resolveTemplate(prevTemplate, stressScore, userText, creditPercent, subRegime) {
-  if (detectSecuritySignal(userText))
+function resolveTemplate(prevTemplate, stressScore, userText2, creditPercent, subRegime) {
+  if (detectSecuritySignal(userText2))
     return "security";
   if (detectBudgetSignal(creditPercent)) {
     const regime = String(subRegime || "").toUpperCase();
@@ -3013,6 +3018,14 @@ function _normalizeActiveJobRecord(record, now = Date.now(), strict = false) {
   }
   return { record: next, changed, stale };
 }
+function _isSessionBridgeRecord(record) {
+  if (!record || typeof record !== "object")
+    return false;
+  const kind = String(record.kind || "").trim().toLowerCase();
+  const status = String(record.status || "").trim().toLowerCase();
+  const prompt = String(record.prompt || record.prompt_prefix || "").trim();
+  return kind === "session-bridge" || status === "handoff" || prompt.startsWith("[session bridge]");
+}
 function loadActiveJobs() {
   try {
     return withFileLock(ACTIVE_JOBS_FILE, () => {
@@ -3022,6 +3035,10 @@ function loadActiveJobs() {
       const now = Date.now();
       for (const [key, value] of Object.entries(raw || {})) {
         const norm = _normalizeActiveJobRecord(value, now, true);
+        if (norm.record && _isSessionBridgeRecord(norm.record)) {
+          changed = true;
+          continue;
+        }
         if (!norm.record || norm.stale && norm.record.status === "completed" && norm.record.completedAt) {
           changed = true;
           continue;
@@ -3059,6 +3076,35 @@ function saveActiveJobForProject(job, fp3 = currentProjectFingerprint) {
       _writeActiveJobsRaw(jobs);
     });
   } catch {
+  }
+}
+function saveJobRecord(jobId, record) {
+  try {
+    withFileLock(ACTIVE_JOBS_FILE, () => {
+      const jobs = _readActiveJobsRaw();
+      const norm = _normalizeActiveJobRecord(record);
+      jobs[jobId] = norm.record || record;
+      _writeActiveJobsRaw(jobs);
+    });
+  } catch {
+  }
+}
+function removeJobRecord(jobId) {
+  if (!jobId)
+    return false;
+  try {
+    let removed = false;
+    withFileLock(ACTIVE_JOBS_FILE, () => {
+      const jobs = _readActiveJobsRaw();
+      if (Object.prototype.hasOwnProperty.call(jobs, jobId)) {
+        delete jobs[jobId];
+        removed = true;
+        _writeActiveJobsRaw(jobs);
+      }
+    });
+    return removed;
+  } catch {
+    return false;
   }
 }
 function projectFingerprint(dir) {
@@ -3684,6 +3730,21 @@ function mutateSessionOrchestration(sessionId, mutator) {
     });
   } catch {
     return null;
+  }
+}
+function updateSessionOrchestration(sessionId, action, payload = {}) {
+  return mutateSessionOrchestration(sessionId, (current) => applySessionAction(current, action, { ...payload, session_id: sessionId }));
+}
+function getLatestCacheEvent(sid) {
+  try {
+    const s = readFullState();
+    const hits = s?.sessions?.[sid]?.cache_hits;
+    if (!Array.isArray(hits) || hits.length === 0)
+      return { hit: false, est_savings_usd: 0 };
+    const last = hits[hits.length - 1];
+    return { hit: true, est_savings_usd: Number(last?.est_savings_usd || 0) };
+  } catch {
+    return { hit: false, est_savings_usd: 0 };
   }
 }
 var USER_HOME2, VIBEOS_CONTEXT, VIBEOS_HOME, OPENCODE_HOME, FILE_LOCK_DIR, DELEGATION_STATE_FILE, SAVINGS_LEDGER_FILE, GLOBAL_LEARNING_FILE, PRICING_CACHE_FILE, BLACKBOX_STATE_FILE, PROJECT_STATE_FILE, TIERS_FILE, ACTIVE_JOBS_FILE, AUTH_F, CREDIT_CACHE_F, FLOW_TODO_QUEUE_FILE, FLOW_DEDUP_FILE, ENFORCEMENT_COOLDOWN_FILE, TODOS_FILE, REPORTS_DIR, CONTEXT7_INSTALL_FLAG, TRINITY_OPENCODE_CONFIG, TRINITY_OPENCODE_CONFIGC, SCRATCHPAD_ROOT, SCRATCHPAD_GLOBAL_DIR, SCRATCHPAD_SESSIONS_DIR, SCRATCHPAD_SESSION_TTL_MS, SCRATCHPAD_MAX_AGE_SEC, MAX_SCRATCHPAD_FILES, MAX_SCRATCHPAD_BYTES, MAX_SESSION_SCRATCHPAD_FILES, MAX_SESSION_SCRATCHPAD_BYTES, CORRUPTION_BACKUP_MAX, CORRUPTION_BACKUP_TTL_MS, LEDGER_ROTATE_MAX_BYTES, LEDGER_ROTATE_MAX_LINES, LEDGER_ROTATE_MAX_AGE_MS, ACTIVE_JOBS_STALE_MS, SUMMARY_HEAD_TRUNCATE, DECADENCE_FRESH_MS, DECADENCE_WARM_MS, DECADENCE_COLD_MS, DECADENCE_EXPIRE_MS, DECADENCE_THROTTLE_MS, DECADENCE_GLOBAL_THROTTLE_MS, TOOL_NAME_NORMALIZE, SCRATCHPAD_TOOLS, WARN_DEDUPE_WINDOW_MS, SOFT_QUOTA_LIMIT, _OC_SID, currentSessionId, _sessionStart, currentTier, currentModel, currentProjectFingerprint, currentProjectName, recentToolEvents, frictionSessionKeys, _savingsCache, _savingsCacheMtime, _ledgerReconciledMtime, _ledgerTotalsCache, _liveSnapshotFingerprints, _mlGraph, _cacheDb, ML_ENABLED, ML_CONFIDENCE_THRESHOLD, _mlSavePending, _blackboxEnabled, _latestBlackboxState, _latestBlackboxLoopMsg2, _latestBlackboxPivotMsg2, _modelLocked, _lockedSlot, _lockedModel, _sessionCleanupRegistered, _sessionCacheCleaned, prunedThisProcess, _lastDecadenceRun, briefedProjects, _ledgerBuffer, _ledgerBufferTimer, LEDGER_BUFFER_MAX, LEDGER_BUFFER_FLUSH_MS, testReminderSeen, DFLT_GL, tool, _startupMaintenanceHome, ORPHAN_SESSION_TTL_MS, FALLBACK_HIGH, FALLBACK_MID, HIGH_TIER_RE, MID_TIER_RE, scratchpadHitsSeen;
@@ -4693,13 +4754,13 @@ var init_api_client = __esm({
       async tddSkeleton(language, fileName, exports, options = {}) {
         return this.request("/api/v1/tdd/skeleton", { language, file_name: fileName, exports, options });
       }
-      async patternsObserve(sessionId, toolName, input, output, directory3) {
+      async patternsObserve(sessionId, toolName, input, output, directory4) {
         return this.request("/api/v1/patterns/observe", {
           session_id: sessionId,
           tool_name: toolName,
           input,
           output,
-          directory: directory3
+          directory: directory4
         });
       }
       async patternsRecord(sessionId, kind, key, summary, meta = {}) {
@@ -5726,13 +5787,13 @@ function profileFromCascade(decision, learned = null) {
   if (learned?.learnedTier === "cheap")
     return { profile: "direct", cascade_depth: 1, pipeline_root: ["cheap"], tier_bias: "cheap" };
   if (learned?.learnedTier === "medium")
-    return { profile: "standard", cascade_depth: 2, pipeline_root: ["medium", "brain"], tier_bias: "cheap" };
+    return { profile: "standard", cascade_depth: 2, pipeline_root: ["medium", "brain"], tier_bias: "medium" };
   if (learned?.learnedTier === "brain")
-    return { profile: "deep", cascade_depth: 3, pipeline_root: ["cheap", "medium", "brain"], tier_bias: "cheap" };
+    return { profile: "deep", cascade_depth: 3, pipeline_root: ["cheap", "medium", "brain"], tier_bias: "brain" };
   if (decision.useCheap && decision.escalate)
-    return { profile: "deep", cascade_depth: 3, pipeline_root: ["cheap", "medium", "brain"], tier_bias: "cheap" };
+    return { profile: "deep", cascade_depth: 3, pipeline_root: ["cheap", "medium", "brain"], tier_bias: "brain" };
   if (decision.escalate)
-    return { profile: "standard", cascade_depth: 2, pipeline_root: ["medium", "brain"], tier_bias: "cheap" };
+    return { profile: "standard", cascade_depth: 2, pipeline_root: ["medium", "brain"], tier_bias: "medium" };
   return { profile: "direct", cascade_depth: 1, pipeline_root: ["cheap"], tier_bias: "cheap" };
 }
 function getPivotCache2() {
@@ -5819,8 +5880,8 @@ var init_vibeultrax = __esm({
 });
 
 // src/index.ts
-import { readFileSync as readFileSync20, writeFileSync as writeFileSync18, existsSync as existsSync21, mkdirSync as mkdirSync16, copyFileSync as copyFileSync3, renameSync as renameSync6, statSync as statSync9 } from "node:fs";
-import { join as join22, dirname as dirname14, basename as basename5 } from "node:path";
+import { readFileSync as readFileSync22, writeFileSync as writeFileSync18, existsSync as existsSync23, mkdirSync as mkdirSync16, copyFileSync as copyFileSync3, renameSync as renameSync6, statSync as statSync9 } from "node:fs";
+import { join as join23, dirname as dirname14, basename as basename5 } from "node:path";
 
 // src/vibeOS-lib/flow-enforcer.js
 init_state();
@@ -7281,6 +7342,13 @@ function classify(m) {
     return "mid";
   return "budget";
 }
+function resolveEffectiveTier(modelId, activeSlot = "") {
+  const slot = String(activeSlot || loadSelection()?.active_slot || "").trim().toLowerCase();
+  const tier = classify(modelId);
+  if (slot === "brain" && modelId && !isModelFree(modelId) && tier !== "high")
+    return "high";
+  return tier;
+}
 function modelToSlotLabel(modelId, effectiveTier) {
   const tier = effectiveTier ?? classify(modelId);
   const icon = tier === "high" ? "\u{1F9E0}" : tier === "mid" ? "\u25D0" : "\u26A1";
@@ -7321,9 +7389,9 @@ function formatQualityName(quality) {
     return "Free";
   return raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : "Unknown";
 }
-function resolveExecutionIdentity(modelId, directory3 = "") {
+function resolveExecutionIdentity(modelId, directory4 = "") {
   const raw = String(modelId || "").trim();
-  const resolved = resolveDisplayModelId(raw, directory3) || raw;
+  const resolved = resolveDisplayModelId(raw, directory4) || raw;
   const provider = getModelProvider(resolved) || getModelProvider(raw) || "";
   const normalized = normalizeModelId(resolved || raw);
   const quality = isModelFree(resolved || raw) ? "free" : classify(resolved || raw) === "high" ? "brain" : classify(resolved || raw) === "mid" ? "medium" : "cheap";
@@ -7336,11 +7404,11 @@ function resolveExecutionIdentity(modelId, directory3 = "") {
     model_label: shortModelName(resolved || raw)
   };
 }
-function resolveCurrentExecution({ directory: directory3 = "", activeSlot = "", currentModel: currentModel3 = "", liveModel = "", tiersData = null } = {}) {
+function resolveCurrentExecution({ directory: directory4 = "", activeSlot = "", currentModel: currentModel3 = "", liveModel = "", tiersData = null } = {}) {
   const slot = String(activeSlot || "").trim();
   const slotModel = slot && tiersData?.trinity?.[slot]?.oc ? tiersData.trinity[slot].oc : "";
-  const resolvedModel = slotModel || String(liveModel || "").trim() || String(currentModel3 || "").trim() || "";
-  const execution = resolveExecutionIdentity(resolvedModel, directory3);
+  const resolvedModel = String(liveModel || "").trim() || slotModel || String(currentModel3 || "").trim() || "";
+  const execution = resolveExecutionIdentity(resolvedModel, directory4);
   return {
     slot,
     model: resolvedModel,
@@ -7351,24 +7419,34 @@ function resolveCurrentExecution({ directory: directory3 = "", activeSlot = "", 
     model_label: execution.model_label
   };
 }
-function resolveTrinityDisplayModel(directory3 = "", activeSlot = "", liveModel = "", currentModelId = "") {
+function resolveTrinityDisplayModel(directory4 = "", activeSlot = "", liveModel = "", currentModelId = "") {
   const slot = String(activeSlot || "").trim();
   const slotModel = slot === "brain" ? TRINITY_BRAIN || "" : slot === "medium" ? TRINITY_MEDIUM || "" : slot === "cheap" ? TRINITY_CHEAP || "" : "";
-  const raw = [slotModel, liveModel, currentModelId].map((value) => String(value || "").trim()).find(Boolean) || "";
-  return resolveDisplayModelId(raw, directory3) || raw;
+  const raw = [slotModel, slot === "cheap" ? "opencode/big-pickle" : "", currentModelId, liveModel].map((value) => String(value || "").trim()).find(Boolean) || "";
+  return resolveDisplayModelId(raw, directory4) || raw;
 }
 function writeLiveOpenCodeModel(projectDir, modelId) {
   const dir = projectDir || process.cwd();
   const localOcConfig = join6(dir, "opencode.json");
   const ocConfig = existsSync6(localOcConfig) ? localOcConfig : join6(getOpenCodeHome(), "opencode.json");
+  mkdirSync5(dirname5(ocConfig), { recursive: true });
   if (existsSync6(ocConfig)) {
     const oc = safeJsonParse2(readFileSync5(ocConfig, "utf-8"));
-    if (oc) {
-      oc.model = modelId;
+    if (!oc || typeof oc !== "object")
+      throw new Error(`OpenCode config is unreadable: ${ocConfig}`);
+    oc.model = modelId;
+    try {
       writeFileSync6(ocConfig, JSON.stringify(oc, null, 2) + "\n");
+    } catch (err) {
+      throw new Error(`Failed to write OpenCode model config (${ocConfig}): ${err.message}`);
+    }
+  } else {
+    try {
+      writeFileSync6(ocConfig, JSON.stringify({ model: modelId }, null, 2) + "\n");
+    } catch (err) {
+      throw new Error(`Failed to create OpenCode model config (${ocConfig}): ${err.message}`);
     }
   }
-  _refreshModel(dir);
   return true;
 }
 function _providerOfModel(modelId, fallbackProvider = "") {
@@ -8062,8 +8140,8 @@ function readConfig(dir) {
     return "";
   }
 }
-function readWorkspaceSessionModel(directory3 = "") {
-  const sid = readLatestOpenCodeSessionId(directory3);
+function readWorkspaceSessionModel(directory4 = "") {
+  const sid = readLatestOpenCodeSessionId(directory4);
   if (!sid)
     return "";
   const roots = [getOpenCodeDesktopHome(), getOpenCodeHome()];
@@ -8137,7 +8215,7 @@ function clearWorkspaceFollowupPauseForSession(sessionId = "") {
   }
   return changed;
 }
-function readLatestOpenCodeSessionId(directory3 = "") {
+function readLatestOpenCodeSessionId(directory4 = "") {
   try {
     const globalPath = join6(getOpenCodeDesktopHome(), "opencode.global.dat");
     if (!existsSync6(globalPath))
@@ -8148,7 +8226,7 @@ function readLatestOpenCodeSessionId(directory3 = "") {
     const raw = safeJsonParse2(readFileSync5(globalPath, "utf-8"));
     const notifications = typeof raw?.notification === "string" ? safeJsonParse2(raw.notification) : raw?.notification;
     const list = Array.isArray(notifications?.list) ? notifications.list : [];
-    const targetDir = directory3 ? resolve(directory3) : "";
+    const targetDir = directory4 ? resolve(directory4) : "";
     const rows = list.filter((entry) => {
       const entryDir = String(entry?.directory || "").trim();
       const session = String(entry?.session || "").trim();
@@ -8231,14 +8309,14 @@ function resolveConfiguredModelId(model, configs = []) {
   const qualified = [...matches].find((m) => m.includes("/"));
   return qualified || raw;
 }
-function resolveDisplayModelId(model, directory3 = "") {
+function resolveDisplayModelId(model, directory4 = "") {
   const raw = String(model || "").trim();
   if (!raw)
     return "";
   if (raw.includes("/"))
     return raw;
   const configs = [];
-  const projectCfg = readOpenCodeConfigObject(directory3);
+  const projectCfg = readOpenCodeConfigObject(directory4);
   if (projectCfg && typeof projectCfg === "object")
     configs.push(projectCfg);
   const homeDir = getOpenCodeHome();
@@ -8279,7 +8357,7 @@ function getTrinitySlotOrder(tiersData = null) {
   const valid = (configured || []).map((slot) => String(slot || "").trim()).filter(Boolean);
   return valid.length > 0 ? valid : DEFAULT_TRINITY_SLOTS;
 }
-function _refreshModel(directory3) {
+function _refreshModel(directory4) {
   try {
     const TIERS_FILE3 = join6(getVibeOSHome(), "model-tiers.json");
     const sel = loadSelection();
@@ -8287,80 +8365,28 @@ function _refreshModel(directory3) {
       return;
     const tiersData = safeJsonParse2(readFileSync5(TIERS_FILE3, "utf-8"));
     _setTrinitySlotsFromTiers(tiersData);
-    const slotOrder = getTrinitySlotOrder(tiersData);
-    const activeSlot = slotOrder.includes(sel.active_slot) ? sel.active_slot : slotOrder[0] || "brain";
-    const slotOcModel = String(tiersData?.trinity?.[activeSlot]?.oc || "").trim();
-    const cfgModel = readConfig(directory3) || readConfig(getOpenCodeHome()) || process?.env?.OPENCODE_MODEL || "";
-    if (slotOcModel && PLACEHOLDER_RE.test(slotOcModel)) {
-      if (DEBUG_INTERNALS)
-        console.error(`[vibeOS] placeholder model detected in ${activeSlot} slot \u2014 skipping, will auto-detect`);
-    }
-    if (slotOcModel && !PLACEHOLDER_RE.test(slotOcModel)) {
-      const resolvedModel = slotOcModel;
-      if (resolvedModel) {
-        const nextTier = activeSlot === (slotOrder[0] || "brain") ? "high" : activeSlot === (slotOrder[1] || "medium") ? "mid" : activeSlot === (slotOrder[2] || "cheap") ? "budget" : classify(resolvedModel);
-        const modelChanged = currentModel !== resolvedModel;
-        const tierChanged = currentTier !== nextTier;
-        if (modelChanged || tierChanged) {
-          const oldModel = currentModel;
-          const oldTier = currentTier;
-          setCurrentModel(resolvedModel);
-          setCurrentTier(nextTier);
-          if (DEBUG_INTERNALS)
-            console.error(`[vibeOS] model refresh: ${oldModel}(${oldTier}) \u2192 ${currentModel}(${currentTier}) (slot=${activeSlot})`);
-        }
-      }
-    }
-    if (!currentModel) {
-      const detected = cfgModel;
-      if (detected) {
-        setCurrentModel(detected);
-        setCurrentTier(classify(detected));
+    const cfgModel = readConfig(directory4) || readConfig(getOpenCodeHome()) || process?.env?.OPENCODE_MODEL || "";
+    if (cfgModel) {
+      const nextTier = resolveEffectiveTier(cfgModel, sel?.active_slot || tiersData?.selection?.active_slot || "");
+      if (currentModel !== cfgModel || currentTier !== nextTier) {
+        const oldModel = currentModel;
+        const oldTier = currentTier;
+        setCurrentModel(cfgModel);
+        setCurrentTier(nextTier);
         if (DEBUG_INTERNALS)
-          console.error(`[vibeOS] auto-detected model: ${currentModel} (tier=${currentTier})`);
+          console.error(`[vibeOS] live model refresh: ${oldModel}(${oldTier}) \u2192 ${currentModel}(${currentTier})`);
       }
-    }
-    if (!(_modelLocked || sel.slot_locked === true) && !slotOcModel) {
-      const activeIsManual = tiersData?.trinity?.[activeSlot]?.manual === true;
-      const currentSlotModel = activeIsManual ? "" : slotOcModel;
-      if (!currentSlotModel && !currentModel) {
-        const cfgModel2 = readConfig(directory3) || readConfig(getOpenCodeHome()) || "";
-        if (cfgModel2 && cfgModel2.includes("/") && cfgModel2 !== currentModel) {
-          const oldModel = currentModel;
-          const oldTier = currentTier;
-          setCurrentModel(cfgModel2);
-          setCurrentTier(classify(cfgModel2));
-          if (DEBUG_INTERNALS)
-            console.error(`[vibeOS] model refresh (config fallback): ${oldModel}(${oldTier}) \u2192 ${currentModel}(${currentTier})`);
-          try {
-            if (existsSync6(TIERS_FILE3)) {
-              withFileLock2(TIERS_FILE3, () => {
-                const t = safeJsonParse2(readFileSync5(TIERS_FILE3, "utf-8"));
-                for (const s of getTrinitySlotOrder(t)) {
-                  if (t?.trinity?.[s]?.oc === cfgModel2) {
-                    t.selection.active_slot = s;
-                    const _tmp = TIERS_FILE3 + ".tmp." + Date.now() + "." + Math.random().toString(36).slice(2, 8);
-                    writeFileSync6(_tmp, JSON.stringify(t, null, 2) + "\n", "utf-8");
-                    renameSync4(_tmp, TIERS_FILE3);
-                    if (DEBUG_INTERNALS)
-                      console.error(`[vibeOS] model refresh (config fallback): synced active_slot \u2192 ${s}`);
-                    break;
-                  }
-                }
-              });
-            }
-          } catch {
-          }
-        }
-      }
+    } else if (currentModel && !currentTier) {
+      setCurrentTier(classify(currentModel));
     }
   } catch {
   }
 }
-function applySlot2(slot, projectDir = "") {
+function applySlot(slot, projectDir = "") {
+  let result = { ok: false, reason: "unknown error" };
   try {
     const TIERS_FILE3 = join6(getVibeOSHome(), "model-tiers.json");
-    return withFileLock2(TIERS_FILE3, () => {
+    result = withFileLock2(TIERS_FILE3, () => {
       const j = safeJsonParse2(readFileSync5(TIERS_FILE3, "utf-8"));
       const ocModel = j?.trinity?.[slot]?.oc;
       if (!ocModel)
@@ -8374,8 +8400,64 @@ function applySlot2(slot, projectDir = "") {
       return { ok: true, ocModel };
     });
   } catch (err) {
-    return { ok: false, reason: err.message };
+    const message = String(err?.message || err || "unknown error");
+    result = {
+      ok: false,
+      reason: message.includes("lock not acquired") ? `Failed to write OpenCode config: ${message}` : message
+    };
   }
+  if (result.ok) {
+    try {
+      _refreshModel(projectDir);
+    } catch {
+    }
+    try {
+      const _oc = globalThis?.client?.config;
+      if (_oc && typeof _oc.update === "function") {
+        _oc.update({
+          body: { model: result.ocModel },
+          query: projectDir ? { directory: projectDir } : void 0
+        }).then(() => DEBUG_INTERNALS && console.error(`[vibeOS] live model switch \u2192 ${result.ocModel}`)).catch((e) => console.error("[vibeOS] live model switch failed:", e?.message || e));
+      }
+    } catch (e) {
+      console.error("[vibeOS] live model switch failed:", e?.message || e);
+    }
+  }
+  return result;
+}
+function readLiveOpenCodeModel(projectDir = "") {
+  try {
+    const dir = projectDir || process.cwd();
+    const localOc = join6(dir, "opencode.json");
+    const ocConfig = existsSync6(localOc) ? localOc : join6(getOpenCodeHome(), "opencode.json");
+    if (!existsSync6(ocConfig))
+      return "";
+    return String(safeJsonParse2(readFileSync5(ocConfig, "utf-8"))?.model || "").trim();
+  } catch {
+    return "";
+  }
+}
+function reconcileSlotModel(slot, projectDir = "", expectedModel = "") {
+  let expected = String(expectedModel || "").trim();
+  if (!expected) {
+    try {
+      const TIERS_FILE3 = join6(getVibeOSHome(), "model-tiers.json");
+      expected = String(safeJsonParse2(readFileSync5(TIERS_FILE3, "utf-8"))?.trinity?.[slot]?.oc || "").trim();
+    } catch {
+    }
+  }
+  const live = readLiveOpenCodeModel(projectDir);
+  if (!expected)
+    return { reconciled: false, from: live, to: expected, reason: `slot '${slot}' has no oc model` };
+  if (live && live === expected)
+    return { reconciled: false, from: live, to: expected };
+  const applied = applySlot(slot, projectDir);
+  return {
+    reconciled: !!applied.ok,
+    from: live,
+    to: expected,
+    reason: applied.ok ? void 0 : applied.reason
+  };
 }
 
 // src/lib/turn-classify.js
@@ -8555,10 +8637,10 @@ var ResolutionTracker = class _ResolutionTracker {
       slope: avgSlope
     };
   }
-  update(userText, features, action, entropy, uncertainty, embedding = null, activity = null) {
-    const normalizedActivity = this.normalizeActivity(activity, action, userText);
+  update(userText2, features, action, entropy, uncertainty, embedding = null, activity = null) {
+    const normalizedActivity = this.normalizeActivity(activity, action, userText2);
     const entry = {
-      text: userText,
+      text: userText2,
       features: { ...features },
       action,
       entropy,
@@ -8574,7 +8656,7 @@ var ResolutionTracker = class _ResolutionTracker {
       }
     }
     this.history.push(entry);
-    this.recentMessageLengths.push((userText || "").length);
+    this.recentMessageLengths.push((userText2 || "").length);
     if (this.recentMessageLengths.length > 6)
       this.recentMessageLengths.shift();
     if (this.history.length > this.maxHistory) {
@@ -9249,9 +9331,9 @@ function estimateContextBudget(_input, output) {
     return null;
   }
 }
-function classifyTurnSimple(userText) {
-  return memoCompute(`classifyTurnSimple:${userText}`, () => {
-    const lower = String(userText || "").trim();
+function classifyTurnSimple(userText2) {
+  return memoCompute(`classifyTurnSimple:${userText2}`, () => {
+    const lower = String(userText2 || "").trim();
     if (!lower)
       return "INIT";
     if (/(security|vulnerability|audit|owasp|compliance|gdpr|privacy|analyze dependencies|license audit|xss|csrf|authn|authz|pentest)/i.test(lower)) {
@@ -9326,16 +9408,16 @@ function isUserAskingForTests(text) {
     return false;
   return /\b(test|tests|typecheck|coverage|qa|regression|e2e|unit test|integration test)\b/i.test(text);
 }
-function isLikelyOffTopic(userText, job) {
-  if (!userText || !job?.keywords?.length)
+function isLikelyOffTopic(userText2, job) {
+  if (!userText2 || !job?.keywords?.length)
     return false;
-  if (/\b(new task|switch task|different task|ignore previous|start over)\b/i.test(userText))
+  if (/\b(new task|switch task|different task|ignore previous|start over)\b/i.test(userText2))
     return false;
   const now = Date.now();
   const updatedAt = Date.parse(job.updatedAt || "");
   if (!Number.isFinite(updatedAt) || now - updatedAt > 2 * 60 * 60 * 1e3)
     return false;
-  const userWords = new Set(topKeywords(userText, 12));
+  const userWords = new Set(topKeywords(userText2, 12));
   const overlap = job.keywords.filter((k) => userWords.has(k));
   return overlap.length === 0 && userWords.size >= 3;
 }
@@ -9344,8 +9426,8 @@ function isLikelyOffTopic(userText, job) {
 init_vibeultrax();
 var _lastClassifiedByApi = false;
 var _lastApiPredictedMode = "";
-function classifyTurnSimple2(userText) {
-  return classifyTurnSimple(userText);
+function classifyTurnSimple2(userText2) {
+  return classifyTurnSimple(userText2);
 }
 async function classifyTurnRemote(text) {
   try {
@@ -10856,6 +10938,7 @@ function thinkingLevel(credit) {
 }
 
 // src/lib/trinity-tool.js
+import { existsSync as existsSync13, readFileSync as readFileSync12 } from "node:fs";
 import { join as join12, dirname as dirname9 } from "node:path";
 
 // src/lib/mode-router.js
@@ -11046,6 +11129,28 @@ function resolveCascadeSlot(pipeline = []) {
 // src/lib/trinity-tool.js
 init_api_client();
 init_state();
+
+// src/lib/dashboard-base-url.js
+function normalizeDashboardBaseUrl(baseUrl) {
+  return String(baseUrl || "").trim().replace(/\/$/, "");
+}
+function resolveDashboardBaseUrlFromState({ dashboardBaseUrl = "", publishedMcpBaseUrl = "", fallbackPort = null, mcpPort = 0 } = {}) {
+  const fromMemory = normalizeDashboardBaseUrl(dashboardBaseUrl);
+  if (fromMemory)
+    return fromMemory;
+  const fromPublished = normalizeDashboardBaseUrl(publishedMcpBaseUrl);
+  if (fromPublished)
+    return fromPublished;
+  const port = Number(mcpPort);
+  if (Number.isFinite(port) && port > 0)
+    return `http://127.0.0.1:${port}`;
+  const fallback2 = Number(fallbackPort);
+  if (fallbackPort !== null && fallbackPort !== void 0 && Number.isFinite(fallback2) && fallback2 > 0)
+    return `http://127.0.0.1:${fallback2}`;
+  return "";
+}
+
+// src/lib/trinity-tool.js
 var MIN_TOOL_BREAKDOWN_THRESHOLD = 5e-3;
 var STRESS_GAUGE_CRITICAL = 0.85;
 var STRESS_GAUGE_HIGH = 0.7;
@@ -11055,16 +11160,13 @@ var STRESS_GAUGE_MIN = 0.1;
 var MOMENTUM_SIGNIFICANT_THRESHOLD = 0.3;
 var DIAGNOSE_BUDGET_LINES = 50;
 var CREDIT_MIN_OK = 40;
-function normalizeDashboardBaseUrl(baseUrl) {
-  return String(baseUrl || "").trim().replace(/\/$/, "");
-}
 async function resolveDashboardBaseUrl(deps) {
-  const fromMemory = normalizeDashboardBaseUrl(deps.dashboardBaseUrl);
+  const fromMemory = resolveDashboardBaseUrlFromState({ dashboardBaseUrl: deps.dashboardBaseUrl });
   if (fromMemory)
     return fromMemory;
   if (typeof deps.loadPublishedMcpBaseUrl === "function") {
     try {
-      const published = normalizeDashboardBaseUrl(await deps.loadPublishedMcpBaseUrl());
+      const published = resolveDashboardBaseUrlFromState({ publishedMcpBaseUrl: await deps.loadPublishedMcpBaseUrl() });
       if (published)
         return published;
     } catch {
@@ -11076,16 +11178,28 @@ async function resolveDashboardBaseUrl(deps) {
     } catch {
     }
   }
-  const afterStartup = normalizeDashboardBaseUrl(deps.dashboardBaseUrl);
+  const afterStartup = resolveDashboardBaseUrlFromState({ dashboardBaseUrl: deps.dashboardBaseUrl });
   if (afterStartup)
     return afterStartup;
   if (typeof deps._loadMcpPort === "function") {
-    const port = Number(deps._loadMcpPort());
-    if (Number.isFinite(port) && port > 0) {
-      return `http://127.0.0.1:${port}`;
-    }
+    return resolveDashboardBaseUrlFromState({ mcpPort: Number(deps._loadMcpPort()) });
   }
   return "";
+}
+async function syncNativeOpenCodeModel(deps, modelId) {
+  const cfg = deps.client?.config;
+  if (!cfg || typeof cfg.update !== "function")
+    return false;
+  try {
+    await cfg.update({
+      body: { model: modelId },
+      query: deps.directory ? { directory: deps.directory } : void 0
+    });
+    return true;
+  } catch (error) {
+    console.error("[vibeOS] WARN: native OpenCode config.update failed:", error?.message || error);
+    return false;
+  }
 }
 function createTrinityTool(deps) {
   return {
@@ -11369,19 +11483,27 @@ function createTrinityTool(deps) {
           return "\u274C No model configured for " + slot + " slot. Run `trinity rebuild` first.";
         }
         const auth = deps._readAuth();
+        let probeFailed = false;
         try {
           const ok = await deps.probeModel(targetModel, auth, deps._loadOpenCodeProviders());
+          probeFailed = !ok;
           if (!ok)
             console.error("[vibeOS] WARN: " + targetModel + " probe failed - switching anyway");
         } catch (e) {
+          probeFailed = true;
           console.error("[vibeOS] WARN: probe error for " + targetModel + ": " + e.message + " - switching anyway");
         }
         deps.writeSessionSlot(deps._OC_SID, slot);
         const result = deps.applySlot(slot, deps.directory);
         if (!result.ok)
           return `\u274C Failed to set slot: ${result.reason}`;
+        const synced = await syncNativeOpenCodeModel(deps, result.ocModel);
         deps._refreshModel(deps.directory);
-        return `\u2705 Switched to ${slot} slot (${result.ocModel}). Active now (no restart needed).`;
+        const prefix = probeFailed ? `\u274C Probe failed for ${result.ocModel}.` : "";
+        if (!synced) {
+          return `${prefix}${prefix ? " " : ""}Updated ${slot} slot (${result.ocModel}). OpenCode config sync was not available, so the next session may still use the previous live model.`;
+        }
+        return `${prefix}${prefix ? " " : ""}Updated ${slot} slot (${result.ocModel}). OpenCode config synced for the next session.`;
       }
       if (action === "mode") {
         const builtInIds = ["balanced", "budget", "quality", "speed", "longrun", "audit", "forensic"];
@@ -11410,6 +11532,7 @@ function createTrinityTool(deps) {
           if (!switched?.ok) {
             return `\u274C Failed to switch OpenCode model: ${switched?.reason || "unknown error"}`;
           }
+          const synced = await syncNativeOpenCodeModel(deps, switched.ocModel);
           if (slot === "vibeultrax") {
             deps._modelLocked = false;
             deps._lockedSlot = null;
@@ -11423,7 +11546,7 @@ function createTrinityTool(deps) {
           deps.writeSelection("tdd_enforce", modeEntry.tdd === "quality" || modeEntry.tdd === "on" || modeEntry.tdd === "strict");
           deps.writeSelection("thinking_level", modeEntry.thinking);
           const pipelineStr = modeEntry.pipeline.join(" \u2192 ");
-          return `Mode set to ${slot.toUpperCase()}. Tier: ${tierSlot}. Pipeline: ${pipelineStr}`;
+          return synced ? `Mode set to ${slot.toUpperCase()}. Tier: ${tierSlot}. Pipeline: ${pipelineStr}. OpenCode config synced for the next session.` : `Mode set to ${slot.toUpperCase()}. Tier: ${tierSlot}. Pipeline: ${pipelineStr}. OpenCode config sync was not available, so the next session may still use the previous live model.`;
         }
         if (resolvedSlot === "auto") {
           deps.writeSelection("slot_locked", false);
@@ -11578,26 +11701,31 @@ Lock is per-session (resets on restart).`;
           }
         } catch {
         }
-        let selectedModel = deps.currentModel || "";
-        if (!selectedModel) {
-          try {
-            for (const dir of [deps.directory || process.cwd(), deps.OPENCODE_HOME].filter(Boolean)) {
-              const p = join12(dir, "opencode.json");
-              if (deps.existsSync(p)) {
-                const oc = deps.safeJsonParse(deps.readFileSync(p, "utf-8"));
-                if (oc?.model) {
-                  selectedModel = oc.model;
-                  break;
-                }
-              }
+        let selectedModel = "";
+        try {
+          const explicitConfigs = [
+            join12(deps.directory || "", "opencode.json"),
+            join12(process.env.HOME || "", ".config", "opencode", "opencode.json"),
+            join12(deps.OPENCODE_HOME || "", "opencode.json")
+          ];
+          for (const cfgPath of explicitConfigs) {
+            if (!cfgPath || !existsSync13(cfgPath))
+              continue;
+            const oc = deps.safeJsonParse(readFileSync12(cfgPath, "utf-8"));
+            const model2 = String(oc?.agent?.build?.model || oc?.model || "").trim();
+            if (model2) {
+              selectedModel = model2;
+              break;
             }
-          } catch {
           }
+        } catch {
+          selectedModel = "";
         }
         const trinity = buildDeterministicTrinity(discovered, { selectedModelId: selectedModel });
-        const brain = trinity?.brain || existing?.trinity?.brain?.oc || selectedModel || "";
-        const medium = trinity?.medium || existing?.trinity?.medium?.oc || brain;
-        const cheap = trinity?.cheap || existing?.trinity?.cheap?.oc || medium || brain;
+        const bootstrapFree = "opencode/big-pickle";
+        const brain = keepExistingTrinitySlot(existing?.trinity?.brain, existing?.trinity?.brain?.oc || bootstrapFree);
+        const medium = keepExistingTrinitySlot(existing?.trinity?.medium, existing?.trinity?.medium?.oc || bootstrapFree);
+        const cheap = keepExistingTrinitySlot(existing?.trinity?.cheap, existing?.trinity?.cheap?.oc || bootstrapFree);
         const tiers = existing && typeof existing === "object" ? existing : {};
         tiers.selection ??= {};
         tiers.trinity ??= {};
@@ -11631,6 +11759,7 @@ Lock is per-session (resets on restart).`;
         const booted = typeof deps.applySlot === "function" ? deps.applySlot(bootstrapSlot, deps.directory) : { ok: false, reason: "applySlot unavailable" };
         if (!booted?.ok)
           return `\u274C Failed to activate native OpenCode model: ${booted?.reason || "unknown error"}`;
+        await syncNativeOpenCodeModel(deps, booted.ocModel);
         if (typeof deps._refreshModel === "function")
           deps._refreshModel(deps.directory);
         const lines = [
@@ -12103,16 +12232,27 @@ ${L.repeat(40)}`);
         const providers = typeof deps._loadOpenCodeProviders === "function" ? deps._loadOpenCodeProviders(deps.directory) : {};
         const auth = deps._readAuth();
         const models = await deps.discoverAvailableModels(providers, auth);
-        let selectedModel = deps.currentModel || "";
-        if (!selectedModel) {
-          try {
-            const dir = deps.directory || process.cwd();
-            const p = join12(dir, "opencode.json");
-            if (deps.existsSync(p)) {
-              selectedModel = deps.safeJsonParse(deps.readFileSync(p, "utf-8"))?.model || "";
+        let selectedModel = "";
+        try {
+          const explicitConfigs = [
+            join12(deps.directory || "", "opencode.json"),
+            join12(process.env.HOME || "", ".config", "opencode", "opencode.json"),
+            join12(deps.OPENCODE_HOME || "", "opencode.json")
+          ];
+          for (const cfgPath of explicitConfigs) {
+            if (!cfgPath || !existsSync13(cfgPath))
+              continue;
+            const oc = deps.safeJsonParse(readFileSync12(cfgPath, "utf-8"));
+            const model2 = String(oc?.agent?.build?.model || oc?.model || "").trim();
+            if (model2) {
+              selectedModel = model2;
+              break;
             }
-          } catch {
           }
+          if (!selectedModel)
+            selectedModel = deps.currentModel || "";
+        } catch {
+          selectedModel = deps.currentModel || "";
         }
         const trinity = buildDeterministicTrinity(models, { selectedModelId: selectedModel });
         if (!trinity) {
@@ -12508,7 +12648,7 @@ ${L.repeat(40)}`);
 
 // src/lib/trinity-rebuild.js
 init_state();
-import { readFileSync as readFileSync12, existsSync as existsSync13 } from "node:fs";
+import { readFileSync as readFileSync13, existsSync as existsSync14 } from "node:fs";
 import { join as join13 } from "node:path";
 function normalizeProviderModels(providerName, models) {
   const out = [];
@@ -12897,13 +13037,13 @@ import { join as join19 } from "node:path";
 
 // src/lib/hooks/chat-transform.js
 init_state();
-import { readFileSync as readFileSync16, writeFileSync as writeFileSync15, appendFileSync as appendFileSync4, existsSync as existsSync17, mkdirSync as mkdirSync12, rmSync as rmSync5, readdirSync as readdirSync3, statSync as statSync7 } from "node:fs";
+import { readFileSync as readFileSync17, writeFileSync as writeFileSync15, appendFileSync as appendFileSync4, existsSync as existsSync18, mkdirSync as mkdirSync12, rmSync as rmSync5, readdirSync as readdirSync3, statSync as statSync7 } from "node:fs";
 import { join as join18, dirname as dirname11, basename as basename3 } from "node:path";
-import { createHash as createHash4 } from "node:crypto";
+import { createHash as createHash5 } from "node:crypto";
 
 // src/lib/claim-verification.js
 init_state();
-import { existsSync as existsSync14, readFileSync as readFileSync13 } from "node:fs";
+import { existsSync as existsSync15, readFileSync as readFileSync14 } from "node:fs";
 import { join as join14 } from "node:path";
 var CLAIM_PATTERNS = [
   /(?:I|we|the)\s+(?:pushed|released|merged|deployed|fixed|wrote|implemented|completed|committed)\b/i,
@@ -12930,9 +13070,9 @@ function extractClaimMatches(text) {
 function loadRecentCascadeRuns(vibeHome) {
   try {
     const cascadeFile = join14(vibeHome, "cascade-audit", "cascade-audit.jsonl");
-    if (!existsSync14(cascadeFile))
+    if (!existsSync15(cascadeFile))
       return [];
-    const raw = readFileSync13(cascadeFile, "utf-8");
+    const raw = readFileSync14(cascadeFile, "utf-8");
     if (!raw || typeof raw !== "string")
       return [];
     return raw.trim().split("\n").filter(Boolean).slice(-30).map((l) => {
@@ -13100,6 +13240,236 @@ init_smart_cache();
 init_api_client();
 init_selection_manager();
 
+// src/lib/session-bridge.js
+init_state();
+init_smart_cache();
+import { createHash as createHash4 } from "node:crypto";
+function compactText(value, max = 900) {
+  const text = String(value || "").trim();
+  if (!text)
+    return "";
+  if (text.length <= max)
+    return text;
+  return `${text.slice(0, Math.max(0, max - 1)).trimEnd()}\u2026`;
+}
+function normalizePipeline(pipeline) {
+  return Array.isArray(pipeline) ? pipeline.map((tier) => String(tier || "").trim()).filter(Boolean) : [];
+}
+function computeSessionBridgeKey(input = {}) {
+  const sessionId = String(input.sessionId || getCurrentSessionId() || _OC_SID || "unknown").trim() || "unknown";
+  const fromModel = String(input.fromModel || "").trim();
+  const fromTier = String(input.fromTier || "").trim();
+  const toModel = String(input.toModel || "").trim();
+  const toTier = String(input.toTier || "").trim();
+  const reason = String(input.reason || "cascade handoff").trim();
+  const prompt = compactText(input.prompt || "");
+  const pipelineRoot = normalizePipeline(input.activePipeline);
+  const projectFingerprint2 = String(input.projectFingerprint || currentProjectFingerprint || "").trim();
+  const projectName = String(input.projectName || currentProjectName || "").trim();
+  const sourceStrategy = String(input.sourceStrategy || "").trim();
+  return createHash4("sha1").update([
+    sessionId,
+    fromModel,
+    fromTier,
+    toModel,
+    toTier,
+    reason,
+    prompt,
+    pipelineRoot.join(","),
+    projectFingerprint2,
+    projectName,
+    sourceStrategy
+  ].join("|")).digest("hex").slice(0, 16);
+}
+function hasRecordedSessionBridge(sessionId, bridgeKey, bridgeId) {
+  try {
+    const orchestration = loadSessionOrchestration(sessionId);
+    const history = Array.isArray(orchestration?.history) ? orchestration.history : [];
+    return history.some((entry) => {
+      const actions = Array.isArray(entry?.payload?.actions) ? entry.payload.actions : [];
+      return actions.some((action) => {
+        const payload = action?.payload && typeof action.payload === "object" ? action.payload : {};
+        const note = String(payload.note || "").trim();
+        const tags = Array.isArray(payload.tags) ? payload.tags.map((tag) => String(tag || "").trim()) : [];
+        return note.includes(`bridge_key=${bridgeKey}`) || tags.includes(`bridge_key:${bridgeKey}`) || tags.includes(`bridge:${bridgeId}`);
+      });
+    });
+  } catch {
+    return false;
+  }
+}
+function summarizeSelection(selection) {
+  const sel = selection && typeof selection === "object" ? selection : {};
+  return {
+    enabled: sel.enabled !== false,
+    active_slot: sel.active_slot || null,
+    slot_locked: Boolean(sel.slot_locked),
+    optimization_mode: sel.optimization_mode || null,
+    thinking_level: sel.thinking_level || "off",
+    flow_enabled: sel.flow_enabled !== false,
+    flow_enforce: Boolean(sel.flow_enforce),
+    delegation_enforce: sel.delegation_enforce !== false,
+    tdd_enforce: Boolean(sel.tdd_enforce),
+    tdd_strict: Boolean(sel.tdd_strict),
+    tdd_quality: sel.tdd_quality !== false,
+    requested_optimization_mode: sel.requested_optimization_mode || null,
+    previous_default_agent: sel.previous_default_agent || null,
+    previous_optimization_mode: sel.previous_optimization_mode || null
+  };
+}
+function summarizeOrchestration(orchestration) {
+  const orch = orchestration && typeof orchestration === "object" ? orchestration : {};
+  const notes = Array.isArray(orch.notes) ? orch.notes : [];
+  const history = Array.isArray(orch.history) ? orch.history : [];
+  const lastNote = notes.at(-1);
+  const lastHistory = history.at(-1);
+  return {
+    status: orch.status || "active",
+    locked: Boolean(orch.locked),
+    archived: Boolean(orch.archived),
+    version: Number(orch.version || 1) || 1,
+    tags: Array.isArray(orch.tags) ? orch.tags.map((tag) => String(tag || "").trim()).filter(Boolean) : [],
+    notes_count: notes.length,
+    last_note: lastNote?.text || null,
+    last_action: lastHistory?.action || null,
+    template_id: orch.template?.id || null,
+    template_label: orch.template?.label || null,
+    template_signature: orch.template?.signature || null
+  };
+}
+function summarizeCache(cacheDb) {
+  const db = cacheDb && typeof cacheDb === "object" ? cacheDb : {};
+  const entries = Array.isArray(db.entries) ? db.entries : [];
+  const stats = db.stats && typeof db.stats === "object" ? db.stats : {};
+  const toolStats = Object.values(stats).slice(0, 6).map((stat) => ({
+    tool: stat?.tool || null,
+    hits: Number(stat?.hits || 0),
+    total: Number(stat?.total || 0),
+    hitRate: Number(stat?.hitRate || 0),
+    bytesSaved: Number(stat?.bytesSaved || 0)
+  }));
+  return {
+    entries: entries.length,
+    tool_stats: toolStats,
+    recent_outputs: extractRecentCacheOutputs(db, 5)
+  };
+}
+function buildSessionBridge(input = {}) {
+  const sessionId = String(input.sessionId || getCurrentSessionId() || _OC_SID || "unknown").trim() || "unknown";
+  const fromModel = String(input.fromModel || "").trim();
+  const fromTier = String(input.fromTier || "").trim();
+  const toModel = String(input.toModel || "").trim();
+  const toTier = String(input.toTier || "").trim();
+  const reason = String(input.reason || "cascade handoff").trim();
+  const prompt = compactText(input.prompt || input.userText || "");
+  const pipelineRoot = normalizePipeline(input.activePipeline);
+  const projectFingerprint2 = String(input.projectFingerprint || currentProjectFingerprint || "").trim();
+  const projectName = String(input.projectName || currentProjectName || "").trim();
+  const activeJob4 = getActiveJobForProject(projectFingerprint2);
+  const activeJobPrompt = compactText(activeJob4?.prompt || activeJob4?.text || "");
+  const selectionSnapshot = summarizeSelection(loadSelection());
+  const orchestrationSnapshot = summarizeOrchestration(loadSessionOrchestration(sessionId));
+  const cacheSnapshot = summarizeCache(_cacheDb);
+  const carryForward = [prompt, activeJobPrompt].filter(Boolean).join("\n");
+  const createdAt = (/* @__PURE__ */ new Date()).toISOString();
+  const bridgeId = createHash4("sha1").update([
+    sessionId,
+    fromModel,
+    fromTier,
+    toModel,
+    toTier,
+    reason,
+    createdAt
+  ].join("|")).digest("hex").slice(0, 16);
+  const bridgeKey = computeSessionBridgeKey(input);
+  const promptPrefix = [
+    "[session bridge]",
+    `bridge_id=${bridgeId}`,
+    `source_session=${sessionId}`,
+    `from=${fromTier || "unknown"}:${fromModel || "unset"}`,
+    `to=${toTier || "unknown"}:${toModel || "unset"}`,
+    `reason=${reason}`,
+    pipelineRoot.length > 0 ? `pipeline=${pipelineRoot.join(" -> ")}` : null,
+    input.sourceStrategy ? `source_strategy=${input.sourceStrategy}` : null,
+    `selection=${JSON.stringify(selectionSnapshot)}`,
+    `orchestration=${JSON.stringify(orchestrationSnapshot)}`,
+    `cache=${JSON.stringify(cacheSnapshot)}`,
+    carryForward ? `carry_forward=${carryForward}` : null,
+    ""
+  ].filter(Boolean).join("\n");
+  const auditNote = [
+    `bridge ${fromTier || "?"}->${toTier || "?"}`,
+    `${fromModel || "unset"} -> ${toModel || "unset"}`,
+    reason
+  ].join(" | ");
+  const tags = [
+    `bridge:${bridgeId}`,
+    `bridge:${toTier || "unknown"}`,
+    `model:${toModel || "unset"}`,
+    ...pipelineRoot.map((tier) => `pipeline:${tier}`)
+  ];
+  return {
+    bridge_id: bridgeId,
+    bridge_key: bridgeKey,
+    session_id: sessionId,
+    created_at: createdAt,
+    from_model: fromModel,
+    from_tier: fromTier,
+    to_model: toModel,
+    to_tier: toTier,
+    reason,
+    project_fingerprint: projectFingerprint2,
+    project_name: projectName,
+    pipeline_root: pipelineRoot,
+    source_strategy: String(input.sourceStrategy || "").trim() || null,
+    selection: selectionSnapshot,
+    orchestration: orchestrationSnapshot,
+    cache: cacheSnapshot,
+    active_job: activeJob4 || null,
+    carry_forward: carryForward,
+    prompt_prefix: promptPrefix,
+    audit_note: auditNote,
+    tags
+  };
+}
+function recordSessionBridge(bridge) {
+  if (!bridge || typeof bridge !== "object")
+    return false;
+  const sessionId = String(bridge.session_id || getCurrentSessionId() || _OC_SID || "unknown").trim();
+  if (!sessionId)
+    return false;
+  const bridgeKey = String(bridge.bridge_key || bridge.bridge_id || sessionId).trim();
+  if (!bridgeKey)
+    return false;
+  const bridgeId = String(bridge.bridge_id || "").trim();
+  if (bridgeId && hasRecordedSessionBridge(sessionId, bridgeKey, bridgeId))
+    return false;
+  try {
+    updateSessionOrchestration(sessionId, "batch", {
+      actions: [
+        { action: "annotate", payload: { note: `bridge_key=${bridgeKey} ${bridge.audit_note || "session bridge"}` } },
+        { action: "retag", payload: { tags: Array.isArray(bridge.tags) ? ["bridge_key:" + bridgeKey, ...bridge.tags] : ["bridge_key:" + bridgeKey], replace: false } }
+      ],
+      bridge
+    });
+  } catch {
+  }
+  try {
+    saveJobRecord(bridge.bridge_id || sessionId, {
+      kind: "session-bridge",
+      status: "completed",
+      completedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      ...bridge
+    });
+  } catch {
+  }
+  try {
+    removeJobRecord(bridge.bridge_id || sessionId);
+  } catch {
+  }
+  return true;
+}
+
 // src/lib/index-helpers.js
 import { join as join16 } from "node:path";
 import { writeFileSync as writeFileSync13 } from "node:fs";
@@ -13109,7 +13479,7 @@ init_state();
 init_pattern_helpers();
 init_pattern_helpers();
 import { join as join15 } from "node:path";
-import { mkdirSync as mkdirSync10, writeFileSync as writeFileSync12, readFileSync as readFileSync14, existsSync as existsSync15 } from "node:fs";
+import { mkdirSync as mkdirSync10, writeFileSync as writeFileSync12, readFileSync as readFileSync15, existsSync as existsSync16 } from "node:fs";
 
 // src/lib/pattern-store.js
 init_state();
@@ -13187,8 +13557,8 @@ function getSessionEventLogPath(sid) {
 function writeEvent(sid, event) {
   const path = getSessionEventLogPath(sid);
   let lines = [];
-  if (existsSync15(path)) {
-    const raw = readFileSync14(path, "utf-8").trim();
+  if (existsSync16(path)) {
+    const raw = readFileSync15(path, "utf-8").trim();
     if (raw)
       lines = raw.split("\n");
   }
@@ -13199,9 +13569,9 @@ function writeEvent(sid, event) {
 }
 function readRecentEvents(sid, n) {
   const path = getSessionEventLogPath(sid);
-  if (!existsSync15(path))
+  if (!existsSync16(path))
     return [];
-  const raw = readFileSync14(path, "utf-8").trim();
+  const raw = readFileSync15(path, "utf-8").trim();
   if (!raw)
     return [];
   const lines = raw.split("\n");
@@ -13352,7 +13722,7 @@ function recordFrictionPattern(key, summary, meta = {}) {
   } catch {
   }
 }
-function observeToolPattern(toolName, input, output, directory3) {
+function observeToolPattern(toolName, input, output, directory4) {
   const role = deriveRole(toolName, input, output);
   const tags = deriveTags(input, output);
   const sid = getCurrentSid();
@@ -13376,8 +13746,8 @@ function sessionCompact(sid, fingerprint) {
       recordFrictionPattern(p.key, p.summary, { kind: p.kind, sessions: [sid], fingerprint });
     }
     const bbPath = join15(VIBEOS_HOME, "blackbox-state.json");
-    if (existsSync15(bbPath)) {
-      const raw = readFileSync14(bbPath, "utf-8");
+    if (existsSync16(bbPath)) {
+      const raw = readFileSync15(bbPath, "utf-8");
       if (raw) {
         const bb = safeJsonParse2(raw, null) || {};
         bb.sessions ??= {};
@@ -13541,9 +13911,9 @@ function saveSessionStress(score, level) {
   } catch {
   }
 }
-function observeToolPattern2(toolName, input = {}, output = {}, directory3 = "") {
+function observeToolPattern2(toolName, input = {}, output = {}, directory4 = "") {
   try {
-    observeToolPattern(toolName, input, output, directory3);
+    observeToolPattern(toolName, input, output, directory4);
   } catch (e) {
     console.error("[vibeOS] semantic observer error:", e);
   }
@@ -13685,7 +14055,7 @@ var PROTOCOL_TEXT = PROTOCOL_MARKER + " [Worker-to-Brain Report Protocol] When s
 init_templates();
 
 // scripts/lib/vibe-skill.mjs
-import { existsSync as existsSync16, mkdirSync as mkdirSync11, readFileSync as readFileSync15, writeFileSync as writeFileSync14 } from "node:fs";
+import { existsSync as existsSync17, mkdirSync as mkdirSync11, readFileSync as readFileSync16, writeFileSync as writeFileSync14 } from "node:fs";
 import { dirname as dirname10, join as join17 } from "node:path";
 var VIBE_SKILL_BODY = `---
 name: vibe
@@ -13719,7 +14089,7 @@ function installVibeSkill(targetRoot) {
   const root = String(targetRoot || "").trim();
   if (!root) return { created: false, skipped: false };
   const skillPath = join17(root, ".opencode", "skills", "vibe", "SKILL.md");
-  const existing = existsSync16(skillPath) ? readFileSync15(skillPath, "utf8") : "";
+  const existing = existsSync17(skillPath) ? readFileSync16(skillPath, "utf8") : "";
   if (existing === VIBE_SKILL_BODY) {
     return { created: false, skipped: true, path: skillPath };
   }
@@ -13755,7 +14125,7 @@ function resolveRestorableOpenCodeAgent(currentSel) {
     }).sort((a, b) => b.mtime - a.mtime);
     for (const candidate of candidates) {
       try {
-        const snapshot = safeJsonParse2(readFileSync16(candidate.path, "utf-8"));
+        const snapshot = safeJsonParse2(readFileSync17(candidate.path, "utf-8"));
         const agent = typeof snapshot?.default_agent === "string" ? snapshot.default_agent.trim() : "";
         if (agent && agent !== "plan")
           return agent;
@@ -13794,9 +14164,9 @@ function resolveOpenCodeConfigPath() {
 function updateOpenCodeConfig(mutator) {
   try {
     const OC_CONFIG = resolveOpenCodeConfigPath();
-    if (!existsSync17(OC_CONFIG))
+    if (!existsSync18(OC_CONFIG))
       return false;
-    const oc = safeJsonParse2(readFileSync16(OC_CONFIG, "utf-8"));
+    const oc = safeJsonParse2(readFileSync17(OC_CONFIG, "utf-8"));
     if (!oc)
       return false;
     const result = mutator(oc);
@@ -14009,7 +14379,7 @@ function projectMemoryDirective(fp3) {
       const rawUsd = Math.max(1e-4, Math.round(savedChars / BYTES_PER_TOKEN * modelRate / 1e6 * 1e4) / 1e4);
       const creditedUsd = Math.max(1e-4, Math.round(rawUsd * 0.8 * 1e4) / 1e4);
       recordCacheSaving("project-memory", creditedUsd, {
-        hash: createHash4("sha256").update(`project-memory
+        hash: createHash5("sha256").update(`project-memory
 ${fp3}
 ${directive}
 `).digest("hex").slice(0, 16)
@@ -14028,7 +14398,7 @@ function ensureProjectSkill(dir, fp3) {
   const projectName = basename3(dir);
   const skillDir = join18(skillsDir, projectName);
   const skillPath = join18(skillDir, "SKILL.md");
-  if (existsSync17(skillPath)) {
+  if (existsSync18(skillPath)) {
     return { created: false, skipped: true, path: skillPath };
   }
   const promoted = promotedProjectPatterns(fp3);
@@ -14102,6 +14472,8 @@ function ensureProjectSkill(dir, fp3) {
 function syncControlSettings(cv, options = {}) {
   if (!cv)
     return;
+  let authoritative = false;
+  let backendDecision = null;
   try {
     _pendingOrchestratorDirective = orchestratorDirective(cv, loadSelection());
     const sid = _OC_SID3;
@@ -14112,8 +14484,8 @@ function syncControlSettings(cv, options = {}) {
       }
     }
     const persistOptimizationMode = options.persistOptimizationMode !== false;
-    const backendDecision = options.backendDecision && typeof options.backendDecision === "object" ? options.backendDecision : null;
-    const authoritative = options.authoritative === true || backendDecision && backendDecision.source !== "manual";
+    backendDecision = options.backendDecision && typeof options.backendDecision === "object" ? options.backendDecision : null;
+    authoritative = options.authoritative === true || backendDecision && backendDecision.source !== "manual";
     const currentSel = loadSelection();
     const userSetMode = loadSessionOptMode(sid + "_opt");
     const userOptMode = userSetMode || loadOptimizationMode2();
@@ -14198,8 +14570,11 @@ function syncControlSettings(cv, options = {}) {
     const slot = cv.tier_bias;
     const slotLocked = currentSel.slot_locked === true;
     const canApplySlot = slot && slot !== "auto" && (authoritative || !slotLocked && !_modelLocked);
+    let appliedSlot = currentSel.active_slot || null;
     if (canApplySlot) {
       const existingSlot = loadSessionSlot(sid);
+      appliedSlot = slot;
+      const _ocModel = slot === "brain" ? TRINITY_BRAIN : slot === "medium" ? TRINITY_MEDIUM : TRINITY_CHEAP;
       if (existingSlot !== slot) {
         writeSessionSlot(sid, slot);
         writeIf("active_slot", slot);
@@ -14209,9 +14584,41 @@ function syncControlSettings(cv, options = {}) {
           writeIf("vector_changed_mode", cv.optimization_mode);
         if (cv.pipeline_root)
           writeIf("vector_changed_pipeline", JSON.stringify(cv.pipeline_root));
-        const applied = applySlot2(slot);
-        if (!applied?.ok) {
-          console.error(`[vibeOS] failed to apply slot ${slot}: ${applied?.reason || "unknown"}`);
+        try {
+          const bridge = buildSessionBridge({
+            sessionId: sid,
+            fromModel: currentModel,
+            fromTier: currentTier,
+            toModel: _ocModel,
+            toTier: slot,
+            reason: `control vector selected ${slot}`,
+            prompt: userText || latestUserIntent || "",
+            userText: latestUserIntent || userText || "",
+            activePipeline: cv.pipeline_root || [],
+            projectFingerprint: currentProjectFingerprint,
+            projectName: currentProjectName || "",
+            sourceStrategy: cv.optimization_mode || "auto"
+          });
+          recordSessionBridge(bridge);
+        } catch (err) {
+          console.error("[vibeOS] failed to record session bridge:", err?.message || err);
+        }
+        try {
+          const applied = applySlot(slot, directory);
+          if (!applied?.ok) {
+            console.error(`[vibeOS] failed to persist slot ${slot}: ${applied?.reason || "unknown"}`);
+          }
+        } catch (err) {
+          console.error("[vibeOS] failed to apply slot:", err?.message || err);
+        }
+      } else if (_ocModel) {
+        try {
+          const r = reconcileSlotModel(slot, directory, _ocModel);
+          if (r.reconciled) {
+            console.error(`[vibeOS] reconciled drifted model: live=${r.from || "\u2205"} \u2192 ${r.to}`);
+          }
+        } catch (err) {
+          console.error("[vibeOS] failed to reconcile slot:", err?.message || err);
         }
       }
     }
@@ -14248,7 +14655,7 @@ function syncControlSettings(cv, options = {}) {
       }
     }
     return {
-      applied_slot: canApplySlot ? slot : currentSel.active_slot || null,
+      applied_slot: canApplySlot ? appliedSlot : currentSel.active_slot || null,
       applied_mode: cv.optimization_mode || null,
       applied_pipeline: Array.isArray(cv.pipeline_root) ? cv.pipeline_root : [],
       authoritative,
@@ -14259,7 +14666,18 @@ function syncControlSettings(cv, options = {}) {
     };
   } catch (err) {
     console.error("[vibeOS] syncControlSettings failed:", err?.message || err);
-    return null;
+    const fallbackSel = loadSelection();
+    const fallbackSlot = fallbackSel?.active_slot || cv?.tier_bias || null;
+    return {
+      applied_slot: fallbackSlot,
+      applied_mode: cv?.optimization_mode || null,
+      applied_pipeline: Array.isArray(cv?.pipeline_root) ? cv.pipeline_root : [],
+      authoritative,
+      decision: backendDecision || null,
+      optimization_mode: cv?.optimization_mode || null,
+      tier_bias: cv?.tier_bias || null,
+      pipeline_root: Array.isArray(cv?.pipeline_root) ? cv.pipeline_root : []
+    };
   }
 }
 function pushSystem(output, text) {
@@ -14296,7 +14714,7 @@ function compressToolOutputs(messages) {
         continue;
       if (raw.includes(COMPRESS_MARKER))
         continue;
-      const hash = createHash4("sha256").update(`tool_result
+      const hash = createHash5("sha256").update(`tool_result
 ${raw}
 `).digest("hex").slice(0, 16);
       const globalDir = join18(SCRATCHPAD_ROOT, "by-hash");
@@ -14305,17 +14723,17 @@ ${raw}
       try {
         mkdirSync12(globalDir, { recursive: true });
         ensureSessionScratchpadDirs();
-        if (!existsSync17(globalPath)) {
+        if (!existsSync18(globalPath)) {
           writeFileSync15(globalPath, raw);
           indexAppend(hash, part.tool, raw.length);
-          if (existsSync17(sessPath))
+          if (existsSync18(sessPath))
             rmSync5(sessPath, { force: true });
         }
         safeCopyIntoSession(hash, globalPath);
         const invPart = parts.slice(0, parts.indexOf(part)).reverse().find((p) => p?.type === "tool" && p?.tool === part.tool && p?.state?.input && p?.state?.status !== "completed");
         if (invPart?.state?.input) {
           const toolKey2 = TOOL_NAME_NORMALIZE[part.tool] || part.tool;
-          const inputHash = createHash4("sha256").update(`${toolKey2}
+          const inputHash = createHash5("sha256").update(`${toolKey2}
 ${stableJson(invPart.state.input)}
 `).digest("hex").slice(0, 16);
           const ptrPath = join18(getSessionScratchpadDir(), `${inputHash}.ptr`);
@@ -14560,7 +14978,7 @@ function orchestratorDirective(cv, sel) {
   const tierBias = cv?.tier_bias || "auto";
   let brainModel = "(brain)";
   try {
-    brainModel = safeJsonParse2(readFileSync16(TIERS_FILE, "utf-8")).trinity?.brain?.oc || brainModel;
+    brainModel = safeJsonParse2(readFileSync17(TIERS_FILE, "utf-8")).trinity?.brain?.oc || brainModel;
   } catch {
   }
   const cheapModel = TRINITY_CHEAP || "the cheaper model";
@@ -14587,7 +15005,7 @@ function welcomeDirective() {
   const sel = loadSelection();
   let tiers = {};
   try {
-    tiers = safeJsonParse2(readFileSync16(TIERS_FILE, "utf-8")).trinity || {};
+    tiers = safeJsonParse2(readFileSync17(TIERS_FILE, "utf-8")).trinity || {};
   } catch {
   }
   const active = sel.active_slot || "medium";
@@ -14615,9 +15033,9 @@ var onSystemTransform = async (_input, output) => {
       }
     }
     const hookDirectory = String(onSystemTransform._directory || "");
-    const userText = extractLastUserText(_input) || extractLastUserText(output);
-    if (typeof userText === "string" && userText.trim())
-      latestUserIntent = userText;
+    const userText2 = extractLastUserText(_input) || extractLastUserText(output);
+    if (typeof userText2 === "string" && userText2.trim())
+      latestUserIntent = userText2;
     else if (!latestUserIntent)
       latestUserIntent = null;
     if (latestUserIntent)
@@ -15065,6 +15483,18 @@ function buildEnforcementTags(opts) {
     tags.push("[LOCK ON]");
   return tags;
 }
+function buildFooterAlert(opts = {}) {
+  const alerts = [];
+  if (opts.apiDegraded)
+    alerts.push("\u26A0 api degraded");
+  if (opts.liveModel && opts.expectedModel && opts.liveModel !== opts.expectedModel)
+    alerts.push("\u26A0 model drift");
+  const err = String(opts.lastModelError || "");
+  if (err && (err.includes("EHOSTUNREACH") || err.includes("ENOTFOUND") || err.includes("ETIMEDOUT"))) {
+    alerts.push("\u26A0 model unreachable");
+  }
+  return alerts.join(" \xB7 ");
+}
 function buildFooterLine(input) {
   const { activeSlot, sessionSlot, providerLabel, modelName, ltTotal, ltTrend, vibeBrand, optMode, flashIcon, enfTags, vectorChangedSlot, subRegime } = input;
   const tierIcon = resolveTierIcon(activeSlot);
@@ -15078,7 +15508,7 @@ function buildFooterLine(input) {
       line += ` | ${savingsPulse}`;
   }
   line += ` | ${vibeBrand}${flashIcon}`;
-  if (optMode && optMode !== "auto") {
+  if (optMode && optMode !== "auto" && modeLabel && modeLabel !== vibeBrand) {
     line += ` \xB7 ${modeLabel}`;
   }
   if (input.cascadeIcon) {
@@ -15090,6 +15520,9 @@ function buildFooterLine(input) {
   const enforcementPulse = formatEnforcementPulse(enfTags);
   if (enforcementPulse) {
     line += ` | ${enforcementPulse}`;
+  }
+  if (input.alertTag) {
+    line += ` | ${input.alertTag}`;
   }
   if (input.stressGauge) {
     line += ` | ${input.stressGauge}`;
@@ -15118,7 +15551,9 @@ var REWARD_TABLE = {
   lieContradiction: -10,
   lazinessShortOutput: -5,
   lazinessTodos: -15,
-  lazinessSkippedDelegation: -5
+  lazinessSkippedDelegation: -5,
+  cacheHitReward: 2,
+  cacheMissPenalty: -2
 };
 function computeReward(input) {
   let qualityReward = 0;
@@ -15126,6 +15561,7 @@ function computeReward(input) {
   let liePenalty = 0;
   let contradictionPenalty = 0;
   let lazinessPenalty = 0;
+  let cachePenalty = 0;
   if (input.outcome === "positive") {
     qualityReward = REWARD_TABLE.qualityReward;
   }
@@ -15135,6 +15571,11 @@ function computeReward(input) {
     savingBonus = 2;
   } else if (input.savingsUsd >= REWARD_TABLE.savingThresholdSmall) {
     savingBonus = 1;
+  }
+  if (input.cacheHit) {
+    cachePenalty = REWARD_TABLE.cacheHitReward;
+  } else if (input.cacheMiss) {
+    cachePenalty = REWARD_TABLE.cacheMissPenalty;
   }
   if (input.outcome === "negative" && input.claims && input.claims.length > 0) {
     liePenalty = REWARD_TABLE.lieClaimMismatch;
@@ -15153,10 +15594,10 @@ function computeReward(input) {
       lazinessPenalty += REWARD_TABLE.lazinessSkippedDelegation;
     }
   }
-  const credits = qualityReward + savingBonus + liePenalty + contradictionPenalty + lazinessPenalty;
+  const credits = qualityReward + savingBonus + liePenalty + contradictionPenalty + lazinessPenalty + cachePenalty;
   return {
     credits,
-    breakdown: { qualityReward, savingBonus, liePenalty, contradictionPenalty, lazinessPenalty }
+    breakdown: { qualityReward, savingBonus, liePenalty, contradictionPenalty, lazinessPenalty, cachePenalty }
   };
 }
 
@@ -15235,6 +15676,9 @@ function detectLies(input) {
   };
 }
 
+// import("../selection-manager.js?footer=*") in src/lib/hooks/footer.js
+var globImport_selection_manager_js_footer = __glob({});
+
 // src/lib/hooks/footer.js
 var IS_CLI_RUNTIME = Boolean(process.stdout?.isTTY || process.stderr?.isTTY || process.stdin?.isTTY);
 var IS_TEST_RUNTIME = process.env.VIBEOS_MCP_PORT === "0" || process.env.NODE_ENV === "test" || process.env.CI === "true";
@@ -15279,7 +15723,7 @@ async function apiAutoSelectMode(regime, stress) {
 }
 var _prevOutputText = "";
 var _autoReportCount = 0;
-var textCompletePainted = /* @__PURE__ */ new Set();
+var textCompletePainted = /* @__PURE__ */ new Map();
 var _lastStrippedText = "";
 function isGreetingLike(text) {
   const value = String(text || "").trim().toLowerCase();
@@ -15324,7 +15768,7 @@ function readRewardSignals() {
     return { stableStreak: 0, problemStreak: 0 };
   }
 }
-function buildRewardInput({ finalOutcome, assistantText, userText, prevAssistantTexts, savingsUsd, isBrainTier }) {
+function buildRewardInput({ finalOutcome, assistantText, userText: userText2, prevAssistantTexts, savingsUsd, isBrainTier, cacheHit = false, cacheMiss = false }) {
   const lazinessResult = detectLaziness({
     assistantText,
     writeEditCount: 0,
@@ -15332,7 +15776,7 @@ function buildRewardInput({ finalOutcome, assistantText, userText, prevAssistant
   });
   const lieResult = detectLies({
     assistantText,
-    userText,
+    userText: userText2,
     prevAssistantTexts
   });
   return {
@@ -15340,13 +15784,15 @@ function buildRewardInput({ finalOutcome, assistantText, userText, prevAssistant
     claims: lieResult.claimVsOutcomeMismatch ? lieResult.claims : [],
     laziness: lazinessResult,
     savingsUsd,
-    contradictionDetected: lieResult.selfContradiction
+    contradictionDetected: lieResult.selfContradiction,
+    cacheHit,
+    cacheMiss
   };
 }
 var _footerCacheText = "";
 var _footerCacheTs = 0;
-async function _appendFooter(input, output, directory3) {
-  _refreshModel(directory3);
+async function _appendFooter(input, output, directory4, lastModelError) {
+  _refreshModel(directory4);
   let _footerStress = 0;
   if (latestUserIntent)
     _footerStress = scoreStress(latestUserIntent);
@@ -15359,6 +15805,9 @@ async function _appendFooter(input, output, directory3) {
     }
   } catch {
   }
+  const hookModel = String(input?.args?.model || input?.model || output?.args?.model || "").trim();
+  if (hookModel)
+    liveModelSetting = hookModel;
   if (liveModelSetting && liveModelSetting !== currentModel) {
     setCurrentModel(liveModelSetting);
     setCurrentTier(classify(liveModelSetting));
@@ -15407,8 +15856,6 @@ async function _appendFooter(input, output, directory3) {
     };
     var _payload = _payload2, _extractText = _extractText2, _setFooter = _setFooter2;
     const messageID = input?.messageID || input?.messageId || input?.message?.id || output?.messageID || output?.messageId || output?.message?.id || null;
-    if (messageID && textCompletePainted.has(messageID))
-      return;
     const text = _extractText2(output);
     if (!text)
       return;
@@ -15416,23 +15863,40 @@ async function _appendFooter(input, output, directory3) {
     const { stableStreak, problemStreak } = readRewardSignals();
     const sid = getSessionId();
     const sessionSlot = loadBlackboxState()?.sessions?.[sid]?.active_slot || loadSessionSlot(sid);
-    const slot = sessionSlot || loadSelection().active_slot || "brain";
+    const slot = loadSelection().active_slot || sessionSlot || "brain";
     const brainModel = slot === "brain" ? TRINITY_BRAIN || currentModel : slot === "medium" ? TRINITY_MEDIUM || currentModel : TRINITY_CHEAP || currentModel || "";
+    const _cacheEvt = getLatestCacheEvent(sid);
+    const _perTurnCacheDelta = _cacheEvt.hit ? _cacheEvt.est_savings_usd : 0;
+    const _cacheMiss = !_cacheEvt.hit;
     let liveModel = liveModelSetting;
     if (!liveModel) {
-      liveModel = readConfig(directory3) || readConfig(join19(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || "";
+      liveModel = readConfig(directory4) || readConfig(join19(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || "";
     }
-    const displayModel = resolveTrinityDisplayModel(directory3, slot, liveModel, currentModel) || brainModel || liveModel || currentModel;
-    const resolvedModel = displayModel || liveModel || brainModel || currentModel || "";
+    const displayModel = liveModelSetting || liveModel || currentModel || "";
+    const resolvedModel = displayModel || liveModelSetting || liveModel || currentModel || "";
     if (resolvedModel && resolvedModel !== currentModel) {
       setCurrentModel(resolvedModel);
       setCurrentTier(classify(resolvedModel));
     }
+    const backendMode = String(loadSelection().requested_optimization_mode || loadSelection().optimization_mode || loadOptimizationMode2() || _latestBlackboxState?.optimization_mode || "").trim().toLowerCase();
+    const displayMode = backendMode || (isApiConnected() ? await apiAutoSelectMode(_latestBlackboxState?.sub_regime || classifyTurnSimple2(latestUserIntent || ""), _footerStress) : autoSelectMode2(_latestBlackboxState?.sub_regime || classifyTurnSimple2(latestUserIntent || ""), _footerStress));
+    const ultraCascadeDepth = Number(_latestBlackboxState?.control_vector?.cascade_depth ?? _latestBlackboxState?.cascade_depth ?? 0) || 0;
+    const ultraLiveModel = displayModel || liveModel || currentModel || "";
+    const ultraResolvedTier = (() => {
+      if (TRINITY_CHEAP && ultraLiveModel === TRINITY_CHEAP)
+        return "cheap";
+      if (TRINITY_MEDIUM && ultraLiveModel === TRINITY_MEDIUM)
+        return "medium";
+      if (TRINITY_BRAIN && ultraLiveModel === TRINITY_BRAIN)
+        return "brain";
+      const c = String(classify(ultraLiveModel) || "").toLowerCase();
+      return c === "high" || c === "brain" ? "brain" : c === "mid" || c === "medium" ? "medium" : "cheap";
+    })();
     const execution = resolveCurrentExecution({
-      directory: directory3,
-      activeSlot: slot,
+      directory: directory4,
+      activeSlot: displayMode === "vibeultrax" ? ultraResolvedTier : slot || "brain",
       currentModel,
-      liveModel: displayModel || resolvedModel || liveModel || "",
+      liveModel: displayModel || liveModel || currentModel || "",
       tiersData: {
         trinity: {
           brain: { oc: TRINITY_BRAIN || currentModel },
@@ -15441,6 +15905,7 @@ async function _appendFooter(input, output, directory3) {
         }
       }
     });
+    const executionSlot = displayMode === "vibeultrax" ? ultraResolvedTier : execution.quality === "brain" ? "brain" : execution.quality === "mid" ? "medium" : "cheap";
     let modelTag = `[${shortModelName(displayModel)}]`;
     const _workerModel = slot === "brain" ? TRINITY_MEDIUM : null;
     const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0);
@@ -15478,6 +15943,7 @@ async function _appendFooter(input, output, directory3) {
       }
     }
     const selNowFooter = loadSelection();
+    const freshSelection = await globImport_selection_manager_js_footer(`../selection-manager.js?footer=${Date.now()}`).then((m) => m.loadSelection()).catch(() => null);
     const normalizedIntent = classifyTurnSimple2(latestUserIntent || "");
     const currentSubRegime = _latestBlackboxState?.sub_regime || normalizedIntent;
     const bbMode = resolveEnforcementMode();
@@ -15497,15 +15963,20 @@ async function _appendFooter(input, output, directory3) {
       prevAssistantTexts
     });
     const claimTag = lieResult.claims.length > 0 ? lieResult.claimVsOutcomeMismatch ? `\u26A0${lieResult.claims.length} verify` : "\u2713" : claimStatus.claimTag || "";
-    const stripped = text.replace(/\u2014 [^\u2014]+ \u2014\s*/g, "").trimEnd();
-    if (stripped !== text)
+    const footerSuffix = /\n\n\u2014 [^\n]+\u2014\s*$/;
+    const hasExistingFooter = footerSuffix.test(text);
+    const stripped = hasExistingFooter ? text.replace(footerSuffix, "").trimEnd() : text;
+    if (hasExistingFooter)
       return;
     if (stripped === _lastStrippedText && !claimTag)
       return;
+    if (messageID && textCompletePainted.has(messageID)) {
+      const paintedLen = textCompletePainted.get(messageID);
+      if (stripped.length <= paintedLen && !claimTag)
+        return;
+    }
     const ltTotal = ltTasks + ltCache;
-    const backendMode = String(selNowFooter.requested_optimization_mode || selNowFooter.optimization_mode || loadOptimizationMode2() || _latestBlackboxState?.optimization_mode || "").trim().toLowerCase();
-    const displayMode = backendMode || (isApiConnected() ? await apiAutoSelectMode(currentSubRegime, _footerStress) : autoSelectMode2(currentSubRegime, _footerStress));
-    const activeSlot = displayMode === "vibeultrax" ? "cheap" : selNowFooter.active_slot || resolveOptimizationSlot(displayMode) || "brain";
+    const activeSlot = displayMode === "vibeultrax" ? ultraResolvedTier : freshSelection?.active_slot || selNowFooter.active_slot || resolveOptimizationSlot(displayMode) || "brain";
     const flashIcon = isApiConnected() ? " \u26A1" : "";
     const rawMode = displayMode;
     const cv = computeControlVector2({ sub_regime: currentSubRegime, latest_stress_multiplier: _footerStress, user_text: latestUserIntent || "" }, void 0, rawMode);
@@ -15541,14 +16012,15 @@ async function _appendFooter(input, output, directory3) {
             }
             try {
               const curOutput = _prevOutputText || "";
-              const sesSavings = Number(_footerSavingsCache || 0);
               const rewardInput = buildRewardInput({
                 finalOutcome,
                 assistantText: curOutput,
                 userText: latestUserIntent || "",
                 prevAssistantTexts,
-                savingsUsd: sesSavings,
-                isBrainTier: String(currentTier || "").toLowerCase() === "high"
+                savingsUsd: _perTurnCacheDelta,
+                isBrainTier: String(currentTier || "").toLowerCase() === "high",
+                cacheHit: _cacheEvt.hit,
+                cacheMiss: _cacheMiss
               });
               const rewardResult = computeReward(rewardInput);
               _rewardCredits = rewardResult.credits;
@@ -15571,14 +16043,15 @@ async function _appendFooter(input, output, directory3) {
     if (_rewardOutcome && !_rewardTag) {
       try {
         const curOutput = _prevOutputText || "";
-        const sesSavings = Number(_footerSavingsCache || 0);
         const rewardResult = computeReward(buildRewardInput({
           finalOutcome: _rewardOutcome,
           assistantText: curOutput,
           userText: latestUserIntent || "",
           prevAssistantTexts,
-          savingsUsd: sesSavings,
-          isBrainTier: String(currentTier || "").toLowerCase() === "high"
+          savingsUsd: _perTurnCacheDelta,
+          isBrainTier: String(currentTier || "").toLowerCase() === "high",
+          cacheHit: _cacheEvt.hit,
+          cacheMiss: _cacheMiss
         }));
         _rewardCredits = rewardResult.credits;
         _rewardBreakdown = rewardResult.breakdown;
@@ -15602,8 +16075,10 @@ async function _appendFooter(input, output, directory3) {
             assistantText: rewardText,
             userText: latestUserIntent || "",
             prevAssistantTexts,
-            savingsUsd: Number(_footerSavingsCache || 0),
-            isBrainTier: String(currentTier || "").toLowerCase() === "high"
+            savingsUsd: _perTurnCacheDelta,
+            isBrainTier: String(currentTier || "").toLowerCase() === "high",
+            cacheHit: _cacheEvt.hit,
+            cacheMiss: _cacheMiss
           }));
           _rewardCredits = rewardResult.credits;
           _rewardBreakdown = rewardResult.breakdown;
@@ -15613,6 +16088,19 @@ async function _appendFooter(input, output, directory3) {
         }
       } catch {
       }
+    }
+    const _expectedModel = slot === "brain" ? TRINITY_BRAIN : slot === "medium" ? TRINITY_MEDIUM : TRINITY_CHEAP;
+    const _cascadeTierModels = new Set([TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN].filter(Boolean));
+    const _expectedForAlert = displayMode === "vibeultrax" && liveModelSetting && _cascadeTierModels.has(liveModelSetting) ? liveModelSetting : _expectedModel;
+    let _alertTag = "";
+    try {
+      _alertTag = buildFooterAlert({
+        apiDegraded: isApiLatencyDegraded(),
+        liveModel: liveModelSetting || void 0,
+        expectedModel: _expectedForAlert || void 0,
+        lastModelError
+      });
+    } catch {
     }
     const vibeLine = buildFooterLine({
       activeSlot,
@@ -15628,9 +16116,13 @@ async function _appendFooter(input, output, directory3) {
       vectorChangedSlot: selNowFooter?.vector_changed_slot,
       subRegime: currentSubRegime,
       stressGauge: _footerStress > 0.85 ? "\u2588" : _footerStress > 0.7 ? "\u2586" : _footerStress > 0.5 ? "\u2585" : _footerStress > 0.3 ? "\u2583" : _footerStress > 0.1 ? "\u2582" : "\u2581",
-      cascadeIcon: (cv?.cascade_depth || 1) >= 3 ? "\u25B8\u25B8\u25B8" : (cv?.cascade_depth || 1) >= 2 ? "\u25B8\u25B8" : "",
+      cascadeIcon: (() => {
+        const d = displayMode === "vibeultrax" && ultraCascadeDepth > 0 ? ultraCascadeDepth : cv?.cascade_depth || 1;
+        return d >= 3 ? "\u25B8\u25B8\u25B8" : d >= 2 ? "\u25B8\u25B8" : "";
+      })(),
       claimTag: claimTag || void 0,
-      rewardTag: _rewardTag || void 0
+      rewardTag: _rewardTag || void 0,
+      alertTag: _alertTag || void 0
     });
     try {
       recordLiveSessionSnapshot({
@@ -15640,7 +16132,7 @@ async function _appendFooter(input, output, directory3) {
         outcome: _rewardOutcome,
         rewardCredits: _rewardCredits,
         rewardBreakdown: _rewardBreakdown,
-        savingsUsd: Number(_footerSavingsCache || 0),
+        savingsUsd: _perTurnCacheDelta,
         footerLine: vibeLine,
         control: cv,
         subRegime: currentSubRegime,
@@ -15667,9 +16159,10 @@ ${vibeLine}`;
       console.error(`
 ${vibeLine} \u2014`);
     }
-    textCompletePainted.add(messageID);
+    if (messageID)
+      textCompletePainted.set(messageID, stripped.length);
     if (textCompletePainted.size > 500) {
-      const it = textCompletePainted.values();
+      const it = textCompletePainted.keys();
       for (let i = 0; i < 100; i++)
         textCompletePainted.delete(it.next().value);
     }
@@ -15680,9 +16173,9 @@ ${vibeLine} \u2014`);
 
 // src/lib/hooks/tool-execute.js
 init_state();
-import { readFileSync as readFileSync18, writeFileSync as writeFileSync17, appendFileSync as appendFileSync7, existsSync as existsSync19, mkdirSync as mkdirSync15, copyFileSync as copyFileSync2 } from "node:fs";
+import { readFileSync as readFileSync19, writeFileSync as writeFileSync17, appendFileSync as appendFileSync7, existsSync as existsSync20, mkdirSync as mkdirSync15, copyFileSync as copyFileSync2 } from "node:fs";
 import { join as join21, dirname as dirname13, basename as basename4 } from "node:path";
-import { createHash as createHash6 } from "node:crypto";
+import { createHash as createHash7 } from "node:crypto";
 init_selection_manager();
 init_state();
 init_api_client();
@@ -15753,9 +16246,9 @@ init_smart_cache();
 
 // src/lib/tdd-enforcer.js
 init_state();
-import { readFileSync as readFileSync17, writeFileSync as writeFileSync16, appendFileSync as appendFileSync6, existsSync as existsSync18, mkdirSync as mkdirSync14, statSync as statSync8, readdirSync as readdirSync4, rmSync as rmSync6, openSync as openSync3 } from "node:fs";
+import { readFileSync as readFileSync18, writeFileSync as writeFileSync16, appendFileSync as appendFileSync6, existsSync as existsSync19, mkdirSync as mkdirSync14, statSync as statSync8, readdirSync as readdirSync4, rmSync as rmSync6, openSync as openSync3 } from "node:fs";
 import { join as join20, dirname as dirname12 } from "node:path";
-import { createHash as createHash5 } from "node:crypto";
+import { createHash as createHash6 } from "node:crypto";
 
 // src/utils/tdd-helpers.js
 function extractExports(sourceContent, ext) {
@@ -16883,7 +17376,7 @@ var test_skeletons_default = TEST_SKELETONS;
 
 // src/lib/tdd-enforcer.js
 var _detectedFramework = null;
-var directory = void 0;
+var directory2 = void 0;
 var SOURCE_EXT_RE = /\.(py|js|ts|mjs|tsx|jsx|cjs|mts|sh|go|rs|rb|java|kt)$/i;
 var SKIP_PATH_RE = /(\/(node_modules|\.venv|dist|build|__pycache__)\/|\/(tests?|spec)\/|test_[^/]+\.py$|_test\.py$|\.test\.[a-z]+$|\.spec\.[a-z]+$|\.config\/opencode\/plugins\/)/i;
 function _detectTestFramework() {
@@ -16892,10 +17385,10 @@ function _detectTestFramework() {
   let framework = null;
   let testExt = null;
   try {
-    const root = directory || process.cwd();
+    const root = directory2 || process.cwd();
     const pkgPath = join20(root, "package.json");
-    if (existsSync18(pkgPath)) {
-      const pkg = JSON.parse(readFileSync17(pkgPath, "utf-8"));
+    if (existsSync19(pkgPath)) {
+      const pkg = JSON.parse(readFileSync18(pkgPath, "utf-8"));
       const testScript = String(pkg?.scripts?.test || "");
       const deps = { ...pkg?.devDependencies, ...pkg?.dependencies };
       if (testScript.includes("vitest") || deps["vitest"]) {
@@ -16916,11 +17409,11 @@ function _detectTestFramework() {
       const testDirs = ["src/tests", "tests", "test", "__tests__"];
       for (const td of testDirs) {
         const dirPath = join20(root, td);
-        if (!existsSync18(dirPath))
+        if (!existsSync19(dirPath))
           continue;
         const files = readdirSync4(dirPath).filter((f) => /\.test\./.test(f) || /\.spec\./.test(f));
         if (files.length > 0) {
-          const content = readFileSync17(join20(dirPath, files[0]), "utf-8");
+          const content = readFileSync18(join20(dirPath, files[0]), "utf-8");
           if (/from\s+['"]node:test['"]/.test(content)) {
             framework = "node-test";
             testExt = files[0].split(".").pop();
@@ -16954,7 +17447,7 @@ var _enforcementCooldown = /* @__PURE__ */ new Set();
 function _acquireLock(testPath) {
   try {
     mkdirSync14(ENFORCEMENT_LOCK_DIR, { recursive: true });
-    const hash = createHash5("sha256").update(testPath).digest("hex").slice(0, 16);
+    const hash = createHash6("sha256").update(testPath).digest("hex").slice(0, 16);
     const lockPath = join20(ENFORCEMENT_LOCK_DIR, `${hash}.lock`);
     try {
       openSync3(lockPath, "wx");
@@ -16982,7 +17475,7 @@ function _acquireLock(testPath) {
 }
 function _releaseLock(testPath) {
   try {
-    const hash = createHash5("sha256").update(testPath).digest("hex").slice(0, 16);
+    const hash = createHash6("sha256").update(testPath).digest("hex").slice(0, 16);
     const lockPath = join20(ENFORCEMENT_LOCK_DIR, `${hash}.lock`);
     rmSync6(lockPath);
   } catch {
@@ -16990,10 +17483,10 @@ function _releaseLock(testPath) {
 }
 function _isInCooldown(testPath) {
   try {
-    if (!existsSync18(ENFORCEMENT_COOLDOWN_FILE2))
+    if (!existsSync19(ENFORCEMENT_COOLDOWN_FILE2))
       return false;
-    const hash = createHash5("sha256").update(testPath).digest("hex").slice(0, 16);
-    const lines = readFileSync17(ENFORCEMENT_COOLDOWN_FILE2, "utf-8").trim().split("\n").filter(Boolean);
+    const hash = createHash6("sha256").update(testPath).digest("hex").slice(0, 16);
+    const lines = readFileSync18(ENFORCEMENT_COOLDOWN_FILE2, "utf-8").trim().split("\n").filter(Boolean);
     const now = Date.now();
     for (const line of lines) {
       try {
@@ -17011,10 +17504,10 @@ function _isInCooldown(testPath) {
 function _recordCooldown(testPath) {
   try {
     mkdirSync14(dirname12(ENFORCEMENT_COOLDOWN_FILE2), { recursive: true });
-    const hash = createHash5("sha256").update(testPath).digest("hex").slice(0, 16);
+    const hash = createHash6("sha256").update(testPath).digest("hex").slice(0, 16);
     const entry = JSON.stringify({ h: hash, ts: Date.now() }) + "\n";
     appendFileSync6(ENFORCEMENT_COOLDOWN_FILE2, entry);
-    const lines = readFileSync17(ENFORCEMENT_COOLDOWN_FILE2, "utf-8").trim().split("\n").filter(Boolean);
+    const lines = readFileSync18(ENFORCEMENT_COOLDOWN_FILE2, "utf-8").trim().split("\n").filter(Boolean);
     if (lines.length > 500) {
       writeFileSync16(ENFORCEMENT_COOLDOWN_FILE2, lines.slice(-200).join("\n") + "\n");
     }
@@ -17084,8 +17577,8 @@ function enforceTestFile(filePath) {
   console.error(`[vibeOS] [tdd-enforce] enforceTestFile called for ${filePath}`);
   let sourceContent = "";
   try {
-    if (existsSync18(filePath)) {
-      sourceContent = readFileSync17(filePath, "utf-8");
+    if (existsSync19(filePath)) {
+      sourceContent = readFileSync18(filePath, "utf-8");
     }
   } catch {
   }
@@ -17093,7 +17586,7 @@ function enforceTestFile(filePath) {
   const skeleton = buildTestSkeleton(filePath, sourceContent, { strict: sel.tdd_strict !== false, quality: sel.tdd_quality !== false });
   if (!skeleton)
     return null;
-  if (existsSync18(skeleton.path))
+  if (existsSync19(skeleton.path))
     return null;
   if (_enforcementCooldown.has(skeleton.path))
     return null;
@@ -17190,7 +17683,6 @@ function _resetToolExecuteStateForTest() {
   projectDirectory = "";
   pendingUiNote = null;
   enforcementBlocked = false;
-  taskSlotRestore = null;
   scratchpadHitsSeen2.clear();
   softQuotaCounts = {};
   context7AlertedThisSession = false;
@@ -17214,7 +17706,6 @@ var activeJob2 = null;
 var projectDirectory = "";
 var pendingUiNote = null;
 var enforcementBlocked = false;
-var taskSlotRestore = null;
 var scratchpadHitsSeen2 = /* @__PURE__ */ new Set();
 var softQuotaCounts = {};
 var context7AlertedThisSession = false;
@@ -17410,26 +17901,29 @@ function shouldUseLocalTaskRouting(apiConnected, apiFallback, apiRoute) {
   }
   return !apiConnected || apiFallback;
 }
+function _stripLeadingFooter(s) {
+  return s.replace(/^(?:— [^\n]*—\n\n)+/, "");
+}
 function _prependFooterAlert(target, footerText, seen = /* @__PURE__ */ new Set()) {
   if (!target || typeof target !== "object" || seen.has(target))
     return false;
   seen.add(target);
   if (typeof target.output === "string") {
-    target.output = footerText + target.output;
+    target.output = footerText + _stripLeadingFooter(target.output);
     return true;
   }
   if (typeof target.result === "string") {
-    target.result = footerText + target.result;
+    target.result = footerText + _stripLeadingFooter(target.result);
     return true;
   }
   if (typeof target.text === "string") {
-    target.text = footerText + target.text;
+    target.text = footerText + _stripLeadingFooter(target.text);
     return true;
   }
   if (Array.isArray(target.content)) {
     const textParts = target.content.filter((part) => part?.type === "text");
     if (textParts.length > 0 && typeof textParts[0].text === "string") {
-      textParts[0].text = footerText + textParts[0].text;
+      textParts[0].text = footerText + _stripLeadingFooter(textParts[0].text);
     } else {
       target.content.unshift({ type: "text", text: footerText });
     }
@@ -17438,14 +17932,14 @@ function _prependFooterAlert(target, footerText, seen = /* @__PURE__ */ new Set(
   if (Array.isArray(target.parts)) {
     const textParts = target.parts.filter((part) => part?.type === "text");
     if (textParts.length > 0 && typeof textParts[0].text === "string") {
-      textParts[0].text = footerText + textParts[0].text;
+      textParts[0].text = footerText + _stripLeadingFooter(textParts[0].text);
     } else {
       target.parts.unshift({ type: "text", text: footerText });
     }
     return true;
   }
   if (typeof target.content === "string") {
-    target.content = footerText + target.content;
+    target.content = footerText + _stripLeadingFooter(target.content);
     return true;
   }
   for (const key of ["message", "data", "payload", "output", "result"]) {
@@ -17467,17 +17961,17 @@ function materializeScratchpadAlias(toolLower, args, sourceHash, options = {}) {
   const sessionDir = options.sessionDir || getSessionScratchpadDir();
   const globalDir = options.globalDir || SCRATCHPAD_GLOBAL_DIR;
   const inputJson = stableJson(args ?? {});
-  const hash = createHash6("sha256").update(`${titleCase}
+  const hash = createHash7("sha256").update(`${titleCase}
 ${inputJson}
 `).digest("hex").slice(0, 16);
   if (hash === sourceHash)
     return null;
   const targetPath = join21(sessionDir, `${hash}.txt`);
-  if (existsSync19(targetPath))
+  if (existsSync20(targetPath))
     return { hash, sourcePath: targetPath, targetPath };
   const sessionSource = join21(sessionDir, `${sourceHash}.txt`);
   const globalSource = join21(globalDir, `${sourceHash}.txt`);
-  const sourcePath = existsSync19(sessionSource) ? sessionSource : existsSync19(globalSource) ? globalSource : "";
+  const sourcePath = existsSync20(sessionSource) ? sessionSource : existsSync20(globalSource) ? globalSource : "";
   if (!sourcePath)
     return null;
   try {
@@ -17565,20 +18059,20 @@ var onToolExecuteBefore = async (input, output) => {
                 const titleCase = TOOL_NAME_NORMALIZE[t];
                 if (titleCase) {
                   const argsJson = stableJson(args ?? inArgs ?? {});
-                  const curHash = createHash6("sha256").update(`${titleCase}
+                  const curHash = createHash7("sha256").update(`${titleCase}
 ${argsJson}
 `).digest("hex").slice(0, 16);
                   const sessionDir = getSessionScratchpadDir();
                   const globalDir = SCRATCHPAD_GLOBAL_DIR;
                   const ptrPath = join21(sessionDir, `${curHash}.ptr`);
-                  if (!existsSync19(ptrPath)) {
+                  if (!existsSync20(ptrPath)) {
                     for (const similar of prediction.similarEntries) {
                       const targetHash = similar.entry.hash;
                       if (targetHash.length < 16)
                         continue;
                       const cachedFile = join21(sessionDir, `${targetHash}.txt`);
                       const globalFile = join21(globalDir, `${targetHash}.txt`);
-                      if (existsSync19(cachedFile) || existsSync19(globalFile)) {
+                      if (existsSync20(cachedFile) || existsSync20(globalFile)) {
                         ensureSessionScratchpadDirs();
                         writeFileSync17(ptrPath, JSON.stringify({
                           contentHash: targetHash,
@@ -17656,7 +18150,7 @@ ${argsJson}
         }
       }
     }
-    if (ML_ENABLED && localRoutingAllowed) {
+    if (ML_ENABLED) {
       try {
         const mlDifficulty = computeDifficulty(_prompt2);
         const mlHash = hashQuery(_prompt2);
@@ -17694,7 +18188,7 @@ ${argsJson}
       }
     }
     const activePipeline = loadSelection().active_pipeline;
-    if (localRoutingAllowed && activePipeline && Array.isArray(activePipeline) && activePipeline.length > 1 && TRINITY_CHEAP && TRINITY_MEDIUM) {
+    if (activePipeline && Array.isArray(activePipeline) && activePipeline.length > 1 && TRINITY_CHEAP && TRINITY_MEDIUM) {
       try {
         const cheapCost = 1e-3;
         const mediumCost = 5e-3;
@@ -17737,27 +18231,27 @@ ${argsJson}
         obj.modelID = _target;
         obj.modelId = _target;
       };
+      const bridge = buildSessionBridge({
+        sessionId: getCurrentSessionId(),
+        fromModel: currentModel,
+        fromTier: currentTier,
+        toModel: _target,
+        toTier: classify(_target) === "mid" ? "medium" : classify(_target) === "high" ? "brain" : "cheap",
+        reason: _reason,
+        prompt: String(targetArgs?.prompt || ""),
+        userText: latestUserIntent || "",
+        activePipeline: loadSelection().active_pipeline || [],
+        projectFingerprint: currentProjectFingerprint,
+        projectName: currentProjectName || "",
+        sourceStrategy: apiRoute?.target ? "backend" : localRoutingAllowed ? "local" : "cascade"
+      });
+      if (typeof targetArgs?.prompt === "string" && bridge.prompt_prefix) {
+        targetArgs.prompt = `${bridge.prompt_prefix}${targetArgs.prompt}`;
+      }
       _setModel(targetArgs);
       _setModel(args);
       _setModel(inArgs);
-      try {
-        const selNow = loadSelection();
-        const desiredSlot = _target === TRINITY_CHEAP ? "cheap" : _target === TRINITY_MEDIUM ? "medium" : _target === TRINITY_BRAIN ? "brain" : null;
-        if (desiredSlot && selNow.active_slot !== desiredSlot) {
-          taskSlotRestore = selNow.active_slot || "brain";
-          const switched = applySlot(desiredSlot);
-          if (switched?.ok) {
-            setCurrentModel(switched.ocModel);
-            setCurrentTier(classify(switched.ocModel));
-            console.error(`[vibeOS] \u{1F501} task workaround: switched global slot ${taskSlotRestore} \u2192 ${desiredSlot}`);
-          } else {
-            taskSlotRestore = null;
-          }
-        }
-      } catch (taskSlotErr) {
-        if (DEBUG_INTERNALS2)
-          console.error(`[vibeOS] task slot workaround error: ${taskSlotErr.message}`);
-      }
+      recordSessionBridge(bridge);
       console.error(`[vibeOS] \u{1F500} Task \u2192 ${_target} (${_reason}, orchestrator: ${currentModel})`);
     }
   }
@@ -17892,7 +18386,7 @@ ${argsJson}
           }
         } else {
           const missed = recordMissedContext7(_estC7);
-          if (!existsSync19(CONTEXT7_INSTALL_FLAG)) {
+          if (!existsSync20(CONTEXT7_INSTALL_FLAG)) {
             try {
               mkdirSync15(dirname13(CONTEXT7_INSTALL_FLAG), { recursive: true });
               writeFileSync17(CONTEXT7_INSTALL_FLAG, "");
@@ -17993,7 +18487,17 @@ var onToolExecuteAfter = async (input, output) => {
       });
       const backendMode = String(selNow.requested_optimization_mode || selNow.optimization_mode || loadOptimizationMode() || loadBlackboxState()?.cv?.optimization_mode || "").trim().toLowerCase();
       const displayMode = backendMode || autoSelectMode2(currentSubRegime, latestUserIntent ? scoreStress(latestUserIntent) : 0);
-      const activeSlot = displayMode === "vibeultrax" ? "cheap" : selNow.active_slot || resolveOptimizationSlot(displayMode) || (execution.quality === "brain" ? "brain" : execution.quality === "medium" ? "medium" : "cheap");
+      const _ultraSlot = () => {
+        const m = displayModel || resolvedModel || "";
+        if (TRINITY_CHEAP && m === TRINITY_CHEAP)
+          return "cheap";
+        if (TRINITY_MEDIUM && m === TRINITY_MEDIUM)
+          return "medium";
+        if (TRINITY_BRAIN && m === TRINITY_BRAIN)
+          return "brain";
+        return execution.quality === "brain" ? "brain" : execution.quality === "medium" ? "medium" : "cheap";
+      };
+      const activeSlot = displayMode === "vibeultrax" ? _ultraSlot() : selNow.active_slot || resolveOptimizationSlot(displayMode) || (execution.quality === "brain" ? "brain" : execution.quality === "medium" ? "medium" : "cheap");
       const vibeBrand = resolveBrand(displayMode, activeSlot);
       const sessionSlot = loadSessionSlot(currentSid);
       const flashIcon = isApiConnected() ? " \u26A1" : "";
@@ -18049,8 +18553,8 @@ var onToolExecuteAfter = async (input, output) => {
       try {
         const flowTodoFilePath = join21(getVibeOSHome(), ".flow-todo-queue.jsonl");
         let todoLines = [];
-        if (existsSync19(flowTodoFilePath)) {
-          const raw2 = readFileSync18(flowTodoFilePath, "utf-8").trim();
+        if (existsSync20(flowTodoFilePath)) {
+          const raw2 = readFileSync19(flowTodoFilePath, "utf-8").trim();
           todoLines = raw2 ? raw2.split("\n").filter(Boolean) : [];
         }
         let todoList = todoLines.map((l, i) => {
@@ -18170,20 +18674,6 @@ ${pendingUiNote}`;
         target.result = pendingUiNote;
     }
     pendingUiNote = null;
-  }
-  if (t === "task" && taskSlotRestore) {
-    try {
-      const back = applySlot(taskSlotRestore);
-      if (back?.ok) {
-        setCurrentModel(back.ocModel);
-        setCurrentTier(classify(back.ocModel));
-        console.error(`[vibeOS] \u{1F501} task workaround: restored global slot \u2192 ${taskSlotRestore}`);
-      }
-    } catch (slotErr) {
-      if (DEBUG_INTERNALS2)
-        console.error(`[vibeOS] task slot restore error: ${slotErr.message}`);
-    }
-    taskSlotRestore = null;
   }
   if (enforcementBlocked) {
     enforcementBlocked = false;
@@ -18359,7 +18849,7 @@ ${pendingUiNote}`;
 
 // src/lib/hooks/session-compact.js
 init_state();
-import { readFileSync as readFileSync19, existsSync as existsSync20 } from "node:fs";
+import { readFileSync as readFileSync20, existsSync as existsSync21 } from "node:fs";
 var onSessionCompacting = async (_input, output) => {
   if (!loadSelection().enabled)
     return;
@@ -18368,9 +18858,9 @@ var onSessionCompacting = async (_input, output) => {
     const needsCompact = turnCount >= 7;
     const indexPath = getSessionIndexPath();
     let recent = "";
-    if (existsSync20(indexPath)) {
+    if (existsSync21(indexPath)) {
       try {
-        const lines = readFileSync19(indexPath, "utf-8").trim().split("\n").slice(-30);
+        const lines = readFileSync20(indexPath, "utf-8").trim().split("\n").slice(-30);
         recent = lines.map((l) => {
           try {
             return JSON.parse(l);
@@ -18432,20 +18922,32 @@ Recent cached entries:
 
 // src/lib/hooks/shell-env.js
 init_state();
-var directory2 = "";
+init_selection_manager();
+import { existsSync as existsSync22, readFileSync as readFileSync21 } from "node:fs";
+import { join as join22 } from "node:path";
+init_state();
+var directory3 = "";
 var setShellDirectory = (dir) => {
-  directory2 = dir || "";
+  directory3 = dir || "";
 };
 var onShellEnv = async (_input, output) => {
   try {
-    _refreshModel(directory2 || process.cwd());
+    _refreshModel(directory3);
+    const sel = loadSelection();
+    const slot = sel?.active_slot || "brain";
+    const tiersPath = join22(getVibeOSHome(), "model-tiers.json");
+    const tiers = existsSync22(tiersPath) ? safeJsonParse2(readFileSync21(tiersPath, "utf-8")) : null;
+    const slotModel = slot === "brain" ? tiers?.trinity?.brain?.oc : slot === "medium" ? tiers?.trinity?.medium?.oc : slot === "cheap" ? tiers?.trinity?.cheap?.oc : "";
+    const displayModel = slotModel || (slot === "cheap" ? "opencode/big-pickle" : "") || resolveTrinityDisplayModel(directory3, slot, "", currentModel) || currentModel;
     if (!output)
       output = {};
     output.env ??= {};
-    output.env.OPENCODE_MODEL_TIER = currentTier || "unknown";
-    output.env.OPENCODE_MODEL = currentModel || "unknown";
-    const shellTier = currentTier === "high" ? "brain" : currentTier === "mid" ? "medium" : currentTier === "budget" ? "cheap" : currentTier === "free" ? "free" : currentTier || "unknown";
-    output.env.VIBEOS_SHELL_BADGE = `${resolveTierIcon(shellTier)} ${shellTier} | ${currentModel || "unknown"}`;
+    const slotTier = slot === "brain" ? "high" : slot === "medium" ? "mid" : slot === "cheap" ? "budget" : "";
+    const shellTier = slotTier || (displayModel ? classify(displayModel) : currentTier || "unknown");
+    const shellSlot = shellTier === "high" ? "brain" : shellTier === "mid" ? "medium" : shellTier === "budget" ? "cheap" : shellTier === "free" ? "free" : shellTier || "unknown";
+    output.env.OPENCODE_MODEL_TIER = shellTier || "unknown";
+    output.env.OPENCODE_MODEL = displayModel || "unknown";
+    output.env.VIBEOS_SHELL_BADGE = `${resolveTierIcon(shellSlot)} ${shellSlot} | ${displayModel || "unknown"}`;
   } catch (e) {
     console.error("[vibeOS] shell.env error:", e);
   }
@@ -18457,19 +18959,19 @@ init_state();
 init_selection_manager();
 init_api_client();
 function getTiersFile() {
-  return join22(getVibeOSHome(), "model-tiers.json");
+  return join23(getVibeOSHome(), "model-tiers.json");
 }
 function getReportsDir2() {
-  return join22(getVibeOSHome(), "reports");
+  return join23(getVibeOSHome(), "reports");
 }
 function getMcpRuntimeFile() {
-  return join22(getVibeOSHome(), "mcp-runtime.json");
+  return join23(getVibeOSHome(), "mcp-runtime.json");
 }
 function readPublishedMcpRuntime() {
   try {
-    if (!existsSync21(getMcpRuntimeFile()))
+    if (!existsSync23(getMcpRuntimeFile()))
       return null;
-    const runtime = safeJsonParse2(readFileSync20(getMcpRuntimeFile(), "utf-8"));
+    const runtime = safeJsonParse2(readFileSync22(getMcpRuntimeFile(), "utf-8"));
     const baseUrl = String(runtime?.baseUrl || "").trim().replace(/\/$/, "");
     const port = Number(runtime?.port || 0);
     if (!baseUrl && !(Number.isFinite(port) && port > 0))
@@ -18542,9 +19044,9 @@ function scanClaimsInOutput(output) {
       }
     }
     if (claims.length === 0) return;
-    const auditDir = join22(getVibeOSHome(), "cascade-audit");
+    const auditDir = join23(getVibeOSHome(), "cascade-audit");
     mkdirSync16(auditDir, { recursive: true });
-    const auditFile = join22(auditDir, "claim-audit.jsonl");
+    const auditFile = join23(auditDir, "claim-audit.jsonl");
     const entry = JSON.stringify({
       ts: (/* @__PURE__ */ new Date()).toISOString(),
       claims: claims.slice(0, 10),
@@ -18553,6 +19055,43 @@ function scanClaimsInOutput(output) {
     });
     appendFileSync(auditFile, entry + String.fromCharCode(10));
   } catch {
+  }
+}
+function ensureFooterFallback(input, output, directory4) {
+  try {
+    const messageID = input?.messageID || input?.messageId || input?.message?.id || output?.messageID || output?.messageId || output?.message?.id || null;
+    if (messageID && footerFallbackPainted.has(messageID)) return false;
+    const payload = typeof output?.message === "object" && output.message ? output.message : output;
+    const currentText = typeof payload?.text === "string" ? payload.text : typeof payload?.result === "string" ? payload.result : typeof payload?.content === "string" ? payload.content : "";
+    if (!currentText) return false;
+    if (/\n\n— [^\n]+ —\s*$/.test(currentText)) {
+      if (messageID) footerFallbackPainted.add(messageID);
+      return false;
+    }
+    _refreshModel(directory4);
+    const resolvedModel = currentModel || readConfig(directory4) || readConfig(getOpenCodeHome()) || process?.env?.OPENCODE_MODEL || "";
+    const resolvedTier = String(currentTier || classify(resolvedModel) || "").toLowerCase();
+    const icon = resolvedTier === "high" ? "\u{1F9E0}" : resolvedTier === "mid" ? "\u25D0" : "\u26A1";
+    const label = resolvedTier === "high" ? "brain" : resolvedTier === "mid" ? "medium" : "cheap";
+    const footer = `${currentText}
+
+\u2014 ${icon} ${label} | ${resolvedModel || "unknown"} \u2014`;
+    if (typeof payload?.text === "string") payload.text = footer;
+    else if (typeof payload?.result === "string") payload.result = footer;
+    else if (typeof payload?.content === "string") payload.content = footer;
+    else if (Array.isArray(payload?.content)) {
+      const textParts = payload.content.filter((p) => p?.type === "text");
+      if (textParts.length > 0) textParts[textParts.length - 1].text = footer;
+      else payload.content.push({ type: "text", text: footer });
+    } else if (Array.isArray(payload?.parts)) {
+      const textParts = payload.parts.filter((p) => p?.type === "text");
+      if (textParts.length > 0) textParts[textParts.length - 1].text = footer;
+      else payload.parts.push({ type: "text", text: footer });
+    } else payload.text = footer;
+    if (messageID) footerFallbackPainted.add(messageID);
+    return true;
+  } catch {
+    return false;
   }
 }
 var activeJob3 = null;
@@ -18568,19 +19107,20 @@ var _pluginHooksRuntime = null;
 var _deferredBootstrapDone = false;
 var _skillsEnsured = /* @__PURE__ */ new Set();
 var _runDeferredStartupBootstrap = null;
+var footerFallbackPainted = /* @__PURE__ */ new Set();
 function _readOpenCodeConfigObject(dir) {
-  const jsonPath = join22(dir, "opencode.json");
-  const jsoncPath = join22(dir, "opencode.jsonc");
-  if (existsSync21(jsonPath))
-    return safeJsonParse2(readFileSync20(jsonPath, "utf-8"));
-  if (existsSync21(jsoncPath))
-    return _parseJsonc(readFileSync20(jsoncPath, "utf-8"));
+  const jsonPath = join23(dir, "opencode.json");
+  const jsoncPath = join23(dir, "opencode.jsonc");
+  if (existsSync23(jsonPath))
+    return safeJsonParse2(readFileSync22(jsonPath, "utf-8"));
+  if (existsSync23(jsoncPath))
+    return _parseJsonc(readFileSync22(jsoncPath, "utf-8"));
   return {};
 }
-function _loadOpenCodeProviders(directory3) {
+function _loadOpenCodeProviders(directory4) {
   try {
     const merged = {};
-    const dirs = [directory3 ? join22(directory3, ".") : null, getOpenCodeHome()].filter(Boolean);
+    const dirs = [directory4 ? join23(directory4, ".") : null, getOpenCodeHome()].filter(Boolean);
     for (const dir of dirs) {
       const cfg = _readOpenCodeConfigObject(String(dir));
       const providers = cfg?.provider || {};
@@ -18602,17 +19142,34 @@ function _loadOpenCodeProviders(directory3) {
     return {};
   }
 }
-async function _resolveBootstrapModel(client2, directory3) {
+async function _resolveBootstrapModel(client2, directory4) {
   const normalize = (value) => {
     const model = String(value || "").trim();
     return model && !PLACEHOLDER_RE.test(model) ? model : "";
   };
-  const projectModel = normalize(readConfig(directory3));
+  const readExplicitModel = (dir) => {
+    try {
+      const candidates = [
+        join23(dir || "", "opencode.json"),
+        join23(process.env.HOME || "", ".config", "opencode", "opencode.json"),
+        join23(getOpenCodeHome(), "opencode.json")
+      ];
+      for (const cfgPath of candidates) {
+        if (!cfgPath || !existsSync23(cfgPath)) continue;
+        const oc = safeJsonParse2(readFileSync22(cfgPath, "utf-8"));
+        const model = normalize(oc?.agent?.build?.model || oc?.model || "");
+        if (model) return model;
+      }
+    } catch {
+    }
+    return "";
+  };
+  const projectModel = readExplicitModel(directory4);
   if (projectModel)
     return { model: projectModel, source: "project-config" };
   const home = process.env.HOME || "";
   if (home) {
-    const globalModel = normalize(readConfig(getOpenCodeHome()));
+    const globalModel = readExplicitModel(getOpenCodeHome());
     if (globalModel)
       return { model: globalModel, source: "global-config" };
   }
@@ -18621,14 +19178,14 @@ async function _resolveBootstrapModel(client2, directory3) {
     return { model: envModel, source: "env" };
   return { model: "", source: "" };
 }
-function _loadActiveJobForProject(directory3, fp3 = "") {
-  const candidates = [getVibeOSHome(), directory3 ? join22(directory3, "..") : ""].filter(Boolean);
+function _loadActiveJobForProject(directory4, fp3 = "") {
+  const candidates = [getVibeOSHome(), directory4 ? join23(directory4, "..") : ""].filter(Boolean);
   for (const base of candidates) {
     try {
-      const activeJobsPath = join22(String(base), "active-jobs.json");
-      if (!existsSync21(activeJobsPath))
+      const activeJobsPath = join23(String(base), "active-jobs.json");
+      if (!existsSync23(activeJobsPath))
         continue;
-      const jobs = safeJsonParse2(readFileSync20(activeJobsPath, "utf-8")) || {};
+      const jobs = safeJsonParse2(readFileSync22(activeJobsPath, "utf-8")) || {};
       const job = fp3 ? jobs?.[fp3] : null;
       if (job && typeof job === "object")
         return job;
@@ -18666,25 +19223,25 @@ function _collectFreeSeedModels(models) {
   }
   return free.sort((a, b) => a.localeCompare(b));
 }
-async function _seedOrRepairModelTiers(directory3) {
+async function _seedOrRepairModelTiers(directory4) {
   const TIERS_FILE3 = getTiersFile();
   const DEFAULT_FREE_MODEL = "opencode/big-pickle";
   let existing = null;
-  if (existsSync21(TIERS_FILE3)) {
+  if (existsSync23(TIERS_FILE3)) {
     try {
       const st = statSync9(TIERS_FILE3);
       if (st.size > 10485760) {
         _handleStateCorruption(TIERS_FILE3);
         return false;
       }
-      existing = safeJsonParse2(readFileSync20(TIERS_FILE3, "utf-8")) || {};
+      existing = safeJsonParse2(readFileSync22(TIERS_FILE3, "utf-8")) || {};
     } catch {
       existing = null;
     }
   }
   if (existing && !_tiersNeedRepair(existing))
     return false;
-  const providers = _loadOpenCodeProviders(directory3);
+  const providers = _loadOpenCodeProviders(directory4);
   const auth = typeof _readAuth === "function" ? _readAuth() : {};
   let discovered = [];
   try {
@@ -18698,11 +19255,30 @@ async function _seedOrRepairModelTiers(directory3) {
   });
   const existingSelection = existing?.selection && typeof existing.selection === "object" ? existing.selection : {};
   const freeSeeds = _collectFreeSeedModels(discovered);
-  const liveModel = String(currentModel || "").trim();
+  const readExplicitModel = (dir) => {
+    try {
+      const candidates = [
+        join23(dir || "", "opencode.json"),
+        join23(process.env.HOME || "", ".config", "opencode", "opencode.json"),
+        join23(getOpenCodeHome(), "opencode.json")
+      ];
+      for (const cfgPath of candidates) {
+        if (!cfgPath || !existsSync23(cfgPath)) continue;
+        const oc = safeJsonParse2(readFileSync22(cfgPath, "utf-8"));
+        const model = String(oc?.agent?.build?.model || oc?.model || "").trim();
+        if (model) return model;
+      }
+    } catch {
+    }
+    return "";
+  };
+  const explicitSeedModel = readExplicitModel(directory4);
+  const liveModel = explicitSeedModel || String(currentModel || "").trim();
   const liveTier = liveModel ? classify(liveModel) : "";
-  const seedBrain = existingSelection?.active_slot === "brain" && liveModel && liveTier === "high" ? liveModel : freeSeeds[0] || DEFAULT_FREE_MODEL;
-  const seedMedium = freeSeeds[1] || freeSeeds[0] || DEFAULT_FREE_MODEL;
-  const seedCheap = freeSeeds[2] || freeSeeds[1] || freeSeeds[0] || DEFAULT_FREE_MODEL;
+  const liveFreeModel = isModelFree(liveModel) ? liveModel : "";
+  const seedBrain = explicitSeedModel || freeSeeds[0] || liveFreeModel || DEFAULT_FREE_MODEL;
+  const seedMedium = freeSeeds[1] || freeSeeds[0] || explicitSeedModel || liveFreeModel || DEFAULT_FREE_MODEL;
+  const seedCheap = freeSeeds[2] || freeSeeds[1] || freeSeeds[0] || explicitSeedModel || liveFreeModel || DEFAULT_FREE_MODEL;
   const keepExistingSlot = (slotRow, fallbackModel) => {
     const currentOc = String(slotRow?.oc || "").trim();
     if (currentOc && !PLACEHOLDER_RE.test(currentOc) && !/placeholder/i.test(currentOc)) {
@@ -18766,7 +19342,7 @@ function _modelTier2(id2) {
 }
 function readPackageVersion() {
   try {
-    const pkg = safeJsonParse2(readFileSync20(join22(process.cwd(), "package.json"), "utf-8"));
+    const pkg = safeJsonParse2(readFileSync22(join23(process.cwd(), "package.json"), "utf-8"));
     return String(pkg?.version || "");
   } catch {
     return "";
@@ -18784,8 +19360,8 @@ function loadMcpPort() {
   if (runtime?.port && Number.isFinite(runtime.port) && runtime.port > 0)
     return runtime.port;
   try {
-    if (existsSync21(getTiersFile())) {
-      const tiers = safeJsonParse2(readFileSync20(getTiersFile(), "utf-8"));
+    if (existsSync23(getTiersFile())) {
+      const tiers = safeJsonParse2(readFileSync22(getTiersFile(), "utf-8"));
       const cfg = tiers?.selection?.mcp_port;
       if (cfg === false || cfg === "disabled" || cfg === 0)
         return 0;
@@ -18799,9 +19375,9 @@ function loadMcpPort() {
 }
 function persistMcpPort(port) {
   try {
-    if (!existsSync21(getTiersFile()))
+    if (!existsSync23(getTiersFile()))
       return;
-    const tiers = safeJsonParse2(readFileSync20(getTiersFile(), "utf-8"));
+    const tiers = safeJsonParse2(readFileSync22(getTiersFile(), "utf-8"));
     tiers.selection ??= {};
     if (Number(tiers.selection.mcp_port) === Number(port) && !("mcp_port" in tiers))
       return;
@@ -18865,7 +19441,7 @@ async function ensureMcpServerRunning() {
               selection: loadSelection(),
               tiersData: (() => {
                 try {
-                  return safeJsonParse2(readFileSync20(getTiersFile(), "utf-8"));
+                  return safeJsonParse2(readFileSync22(getTiersFile(), "utf-8"));
                 } catch {
                   return {};
                 }
@@ -18881,7 +19457,7 @@ async function ensureMcpServerRunning() {
               optimizationMode: loadSelection()?.optimization_mode || null,
               tiers: (() => {
                 try {
-                  return safeJsonParse2(readFileSync20(getTiersFile(), "utf-8"))?.trinity;
+                  return safeJsonParse2(readFileSync22(getTiersFile(), "utf-8"))?.trinity;
                 } catch {
                   return null;
                 }
@@ -18905,7 +19481,7 @@ async function ensureMcpServerRunning() {
           listSessionTemplates: () => TEMPLATE_LIBRARY,
           currentProjectName: currentProjectName || "",
           listReports: (filter) => {
-            if (!existsSync21(getReportsDir2())) {
+            if (!existsSync23(getReportsDir2())) {
               const e = new Error("reports dir not found");
               e.status = 404;
               throw e;
@@ -19087,47 +19663,44 @@ async function ensureMcpServerRunning() {
   });
   return _mcpServerStartupPromise;
 }
-async function DelegationEnforcer({ client: client2, directory: directory3 } = {}) {
-  console.error(`[vibeOS] LOADED cwd=${directory3}`);
+async function DelegationEnforcer({ client: client2, directory: directory4 } = {}) {
+  console.error(`[vibeOS] LOADED cwd=${directory4}`);
   const hookHome = process.env.HOME || USER_HOME2;
-  const hookFp = projectFingerprint(directory3 || "");
+  const hookFp = projectFingerprint(directory4 || "");
   if (!globalThis.__vibeOS_sessionId) {
     globalThis.__vibeOS_sessionId = `opencode-${process.pid || "x"}-${Date.now()}`;
   }
   const hookSessionId = globalThis.__vibeOS_sessionId;
-  setVibeOSHomeContext(getVibeOSHome());
+  setVibeOSHomeContext(process.env.VIBEOS_HOME || join23(hookHome, ".claude"));
   setCurrentSessionId(hookSessionId);
   if (hookFp) {
     setCurrentProjectFingerprint(hookFp);
-    setCurrentProjectName(directory3 ? directory3.split("/").pop() : "unknown");
+    setCurrentProjectName(directory4 ? directory4.split("/").pop() : "unknown");
   }
   if (typeof setToolDirectory === "function")
-    setToolDirectory(directory3 || "");
+    setToolDirectory(directory4 || "");
   if (typeof setShellDirectory === "function")
-    setShellDirectory(directory3 || "");
+    setShellDirectory(directory4 || "");
   registerSessionCleanupHandlers();
   pruneScratchpadOnce();
   runStartupMaintenanceOnce();
-  const _bootstrapModel = await _resolveBootstrapModel(client2, directory3);
+  const _bootstrapModel = await _resolveBootstrapModel(client2, directory4);
   if (_bootstrapModel.model) {
     setCurrentModel(_bootstrapModel.model);
-    setCurrentTier(classify(_bootstrapModel.model));
+    setCurrentTier(resolveEffectiveTier(_bootstrapModel.model));
   }
   if (currentModel) {
-    setCurrentTier(classify(currentModel));
+    setCurrentTier(resolveEffectiveTier(currentModel));
     try {
-      const _tiersData2 = safeJsonParse2(readFileSync20(getTiersFile(), "utf-8"));
+      const _tiersData2 = safeJsonParse2(readFileSync22(getTiersFile(), "utf-8"));
       const _slotOrder = getTrinitySlotOrder(_tiersData2);
       const _primarySlot = _slotOrder[0] || "brain";
       const _activeSlot = _tiersData2?.selection?.active_slot || _primarySlot;
       if (_activeSlot === _primarySlot) {
         const _brainOcModel = _tiersData2?.trinity?.[_primarySlot]?.oc || "";
         if (_brainOcModel && currentModel === _brainOcModel && !PLACEHOLDER_RE.test(_brainOcModel)) {
-          const cost = modelCostPerTurn(_brainOcModel);
-          if (HIGH_TIER_RE.test(_brainOcModel) || cost !== null && cost >= 0.01) {
-            setCurrentTier("high");
-            console.error(`[vibeOS] tier override \u2192 high (primary slot)`);
-          }
+          setCurrentTier("high");
+          console.error(`[vibeOS] tier override \u2192 high (primary slot)`);
         }
       }
     } catch {
@@ -19142,7 +19715,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
       const lockedSlot = ["brain", "medium", "cheap"].includes(String(startupSelection.active_slot || "").trim()) ? String(startupSelection.active_slot) : "brain";
       let lockedModel = currentModel || null;
       try {
-        const tiers = safeJsonParse2(readFileSync20(getTiersFile(), "utf-8"));
+        const tiers = safeJsonParse2(readFileSync22(getTiersFile(), "utf-8"));
         lockedModel = tiers?.trinity?.[lockedSlot]?.oc || lockedModel || null;
       } catch {
       }
@@ -19157,32 +19730,32 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     }
   } catch {
   }
-  console.error(`[vibeOS] auto-config guard: currentModel=${currentModel ? "SET" : "NONE"}, TIERS_FILE=${getTiersFile()}, exists=${existsSync21(getTiersFile())}`);
+  console.error(`[vibeOS] auto-config guard: currentModel=${currentModel ? "SET" : "NONE"}, TIERS_FILE=${getTiersFile()}, exists=${existsSync23(getTiersFile())}`);
   try {
-    if (!existsSync21(getTiersFile())) {
+    if (!existsSync23(getTiersFile())) {
       console.error(`[vibeOS] model-tiers.json missing at load; will seed on first hook`);
     }
-    await _seedOrRepairModelTiers(directory3);
+    await _seedOrRepairModelTiers(directory4);
     loadTrinitySlotsFromTiersFile();
   } catch {
   }
   if (detectContext7())
     console.error(`[vibeOS] context7 detected \u2014 docs nudge enabled`);
-  fp2 = projectFingerprint(directory3);
+  fp2 = projectFingerprint(directory4);
   setCurrentProjectFingerprint(fp2);
-  setCurrentProjectName(directory3 ? directory3.split("/").pop() : "unknown");
+  setCurrentProjectName(directory4 ? directory4.split("/").pop() : "unknown");
   briefedProjects.clear();
-  activeJob3 = _loadActiveJobForProject(directory3, fp2);
+  activeJob3 = _loadActiveJobForProject(directory4, fp2);
   const systemBriefedProjects = /* @__PURE__ */ new Set();
   const hookVibeHome = getVibeOSHome();
-  const hookStateFile = join22(hookVibeHome, "delegation-state.json");
-  const hookProjectStateFile = join22(hookVibeHome, "project-states.json");
-  const hookReportsDir = join22(hookVibeHome, "reports");
-  const hookReportsIndex = join22(hookReportsDir, "index.json");
-  const hookTiersFile = join22(hookVibeHome, "model-tiers.json");
+  const hookStateFile = join23(hookVibeHome, "delegation-state.json");
+  const hookProjectStateFile = join23(hookVibeHome, "project-states.json");
+  const hookReportsDir = join23(hookVibeHome, "reports");
+  const hookReportsIndex = join23(hookReportsDir, "index.json");
+  const hookTiersFile = join23(hookVibeHome, "model-tiers.json");
   const loadProjectStateStable = () => {
     try {
-      const state = safeJsonParse2(readFileSync20(hookProjectStateFile, "utf-8"));
+      const state = safeJsonParse2(readFileSync22(hookProjectStateFile, "utf-8"));
       if (state && typeof state === "object") {
         state.project_hashes ??= {};
         return state;
@@ -19202,7 +19775,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
   };
   const reportsIndexStable = () => {
     try {
-      const idx = safeJsonParse2(readFileSync20(hookReportsIndex, "utf-8"));
+      const idx = safeJsonParse2(readFileSync22(hookReportsIndex, "utf-8"));
       if (!idx || !Array.isArray(idx.reports))
         return { reports: [] };
       return idx;
@@ -19219,11 +19792,11 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
   };
   const backupFileStable = (path, label) => {
     try {
-      if (!existsSync21(path))
+      if (!existsSync23(path))
         return null;
-      const bkDir = join22(hookVibeHome, ".backups");
+      const bkDir = join23(hookVibeHome, ".backups");
       mkdirSync16(bkDir, { recursive: true });
-      const bk = join22(bkDir, `${basename5(path)}.${label}.${Date.now()}.bak`);
+      const bk = join23(bkDir, `${basename5(path)}.${label}.${Date.now()}.bak`);
       copyFileSync3(path, bk);
       return bk;
     } catch {
@@ -19234,7 +19807,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
   };
   const _tiersData = (() => {
     try {
-      return safeJsonParse2(readFileSync20(getTiersFile(), "utf-8"));
+      return safeJsonParse2(readFileSync22(getTiersFile(), "utf-8"));
     } catch {
       return {};
     }
@@ -19255,11 +19828,11 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     get latestUserIntent() {
       return latestUserIntent;
     },
-    directory: directory3,
+    directory: directory4,
     safeJsonParse: safeJsonParse2,
-    readFileSync: readFileSync20,
+    readFileSync: readFileSync22,
     writeFileSync: writeFileSync18,
-    existsSync: existsSync21,
+    existsSync: existsSync23,
     renameSync: renameSync6,
     mkdirSync: mkdirSync16,
     get TIERS_FILE() {
@@ -19314,7 +19887,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     formatUsd,
     getBlackboxResolution,
     scoreStress,
-    applySlot: applySlot2,
+    applySlot,
     saveOptimizationMode,
     getFlowWarns,
     projectFingerprint,
@@ -19345,6 +19918,7 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
     writeSessionSlot,
     writeSessionOptMode: writeSessionOptMode2,
     _refreshModel,
+    client: client2,
     setApiToken,
     setApiBootstrapToken,
     ensureBootstrapExchange,
@@ -19390,26 +19964,26 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
       setVibeOSHomeContext(hookVibeHome);
       if (hookFp) {
         setCurrentProjectFingerprint(hookFp);
-        setCurrentProjectName(directory3 ? directory3.split("/").pop() : "unknown");
+        setCurrentProjectName(directory4 ? directory4.split("/").pop() : "unknown");
       }
       ensureDeferredBootstrap();
-      if (directory3 && hookFp && !_skillsEnsured.has(hookFp)) {
+      if (directory4 && hookFp && !_skillsEnsured.has(hookFp)) {
         try {
-          ensureProjectSkill(directory3, hookFp);
+          ensureProjectSkill(directory4, hookFp);
           _skillsEnsured.add(hookFp);
         } catch (_e) {
         }
       }
-      onToolExecuteBefore._directory = directory3;
+      onToolExecuteBefore._directory = directory4;
       return onToolExecuteBefore(input, output);
     },
     "tool.execute.after": async (input, output) => {
       setVibeOSHomeContext(hookVibeHome);
       if (hookFp) {
         setCurrentProjectFingerprint(hookFp);
-        setCurrentProjectName(directory3 ? directory3.split("/").pop() : "unknown");
+        setCurrentProjectName(directory4 ? directory4.split("/").pop() : "unknown");
       }
-      onToolExecuteAfter._directory = directory3;
+      onToolExecuteAfter._directory = directory4;
       return onToolExecuteAfter(input, output);
     },
     "experimental.chat.messages.transform": async (_input, output) => {
@@ -19423,10 +19997,10 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
       setVibeOSHomeContext(hookVibeHome);
       if (hookFp) {
         setCurrentProjectFingerprint(hookFp);
-        setCurrentProjectName(directory3 ? directory3.split("/").pop() : "unknown");
+        setCurrentProjectName(directory4 ? directory4.split("/").pop() : "unknown");
       }
       ensureDeferredBootstrap();
-      onSystemTransform._directory = directory3;
+      onSystemTransform._directory = directory4;
       onSystemTransform._activeJob = activeJob3;
       onSystemTransform._briefedProjects = systemBriefedProjects;
       return onSystemTransform(_input, output);
@@ -19435,28 +20009,29 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
       setVibeOSHomeContext(hookVibeHome);
       if (hookFp) {
         setCurrentProjectFingerprint(hookFp);
-        setCurrentProjectName(directory3 ? directory3.split("/").pop() : "unknown");
+        setCurrentProjectName(directory4 ? directory4.split("/").pop() : "unknown");
       }
       if (typeof setShellDirectory === "function")
-        setShellDirectory(directory3 || "");
+        setShellDirectory(directory4 || "");
       return onShellEnv(_input, output);
     },
     "experimental.text.complete": async (_input, output) => {
       setVibeOSHomeContext(hookVibeHome);
       if (hookFp) {
         setCurrentProjectFingerprint(hookFp);
-        setCurrentProjectName(directory3 ? directory3.split("/").pop() : "unknown");
+        setCurrentProjectName(directory4 ? directory4.split("/").pop() : "unknown");
       }
       ensureDeferredBootstrap();
       scanClaimsInOutput(output);
-      await _appendFooter(_input, output, directory3);
+      await _appendFooter(_input, output, directory4);
+      ensureFooterFallback(_input, output, directory4);
       try {
-        const auditDir = join22(getVibeOSHome(), "cascade-audit");
-        const claimFile = join22(auditDir, "claim-audit.jsonl");
-        const cascadeFile = join22(auditDir, "cascade-audit.jsonl");
-        if (existsSync21(claimFile) && statSync9(claimFile).size > 0) {
-          const claimLines = readFileSync20(claimFile, "utf-8").trim().split("\n").slice(-10);
-          const cascadeLines = existsSync21(cascadeFile) ? readFileSync20(cascadeFile, "utf-8").trim().split("\n").slice(-30) : [];
+        const auditDir = join23(getVibeOSHome(), "cascade-audit");
+        const claimFile = join23(auditDir, "claim-audit.jsonl");
+        const cascadeFile = join23(auditDir, "cascade-audit.jsonl");
+        if (existsSync23(claimFile) && statSync9(claimFile).size > 0) {
+          const claimLines = readFileSync22(claimFile, "utf-8").trim().split("\n").slice(-10);
+          const cascadeLines = existsSync23(cascadeFile) ? readFileSync22(cascadeFile, "utf-8").trim().split("\n").slice(-30) : [];
           const cascadeRuns = cascadeLines.filter(Boolean).map((l) => {
             try {
               return JSON.parse(l);
@@ -19500,18 +20075,19 @@ async function DelegationEnforcer({ client: client2, directory: directory3 } = {
       setVibeOSHomeContext(hookVibeHome);
       if (hookFp) {
         setCurrentProjectFingerprint(hookFp);
-        setCurrentProjectName(directory3 ? directory3.split("/").pop() : "unknown");
+        setCurrentProjectName(directory4 ? directory4.split("/").pop() : "unknown");
       }
       ensureDeferredBootstrap();
       scanClaimsInOutput(output);
-      await _appendFooter(_input, output, directory3);
+      await _appendFooter(_input, output, directory4);
+      ensureFooterFallback(_input, output, directory4);
       try {
-        const auditDir = join22(getVibeOSHome(), "cascade-audit");
-        const claimFile = join22(auditDir, "claim-audit.jsonl");
-        const cascadeFile = join22(auditDir, "cascade-audit.jsonl");
-        if (existsSync21(claimFile) && statSync9(claimFile).size > 0) {
-          const claimLines = readFileSync20(claimFile, "utf-8").trim().split("\n").slice(-10);
-          const cascadeLines = existsSync21(cascadeFile) ? readFileSync20(cascadeFile, "utf-8").trim().split("\n").slice(-30) : [];
+        const auditDir = join23(getVibeOSHome(), "cascade-audit");
+        const claimFile = join23(auditDir, "claim-audit.jsonl");
+        const cascadeFile = join23(auditDir, "cascade-audit.jsonl");
+        if (existsSync23(claimFile) && statSync9(claimFile).size > 0) {
+          const claimLines = readFileSync22(claimFile, "utf-8").trim().split("\n").slice(-10);
+          const cascadeLines = existsSync23(cascadeFile) ? readFileSync22(cascadeFile, "utf-8").trim().split("\n").slice(-30) : [];
           const cascadeRuns = cascadeLines.filter(Boolean).map((l) => {
             try {
               return JSON.parse(l);
@@ -19714,7 +20290,7 @@ export {
   _resetTrinitySlotsForTest,
   _setEnforcementBlockedForTest,
   _setPendingUiNoteForTest,
-  applySlot2 as applySlot,
+  applySlot,
   buildTestReminder,
   buildTestSkeleton,
   classify,

@@ -260,26 +260,33 @@ export function shouldUseLocalTaskRouting(apiConnected: boolean, apiFallback: bo
   return !apiConnected || apiFallback
 }
 
+// Strip any vibeOS footer block(s) already at the head of a tool-output string.
+// tool.execute.after can run more than once against the same output object; without
+// this the footer was prepended each time, producing "— … —\n\n— … —\n\n<output>".
+function _stripLeadingFooter(s: string): string {
+  return s.replace(/^(?:— [^\n]*—\n\n)+/, "")
+}
+
 function _prependFooterAlert(target: any, footerText: string, seen = new Set<any>()): boolean {
   if (!target || typeof target !== "object" || seen.has(target)) return false
   seen.add(target)
 
   if (typeof target.output === "string") {
-    target.output = footerText + target.output
+    target.output = footerText + _stripLeadingFooter(target.output)
     return true
   }
   if (typeof target.result === "string") {
-    target.result = footerText + target.result
+    target.result = footerText + _stripLeadingFooter(target.result)
     return true
   }
   if (typeof target.text === "string") {
-    target.text = footerText + target.text
+    target.text = footerText + _stripLeadingFooter(target.text)
     return true
   }
   if (Array.isArray(target.content)) {
     const textParts = target.content.filter((part: any) => part?.type === "text")
     if (textParts.length > 0 && typeof textParts[0].text === "string") {
-      textParts[0].text = footerText + textParts[0].text
+      textParts[0].text = footerText + _stripLeadingFooter(textParts[0].text)
     } else {
       target.content.unshift({ type: "text", text: footerText })
     }
@@ -288,14 +295,14 @@ function _prependFooterAlert(target: any, footerText: string, seen = new Set<any
   if (Array.isArray(target.parts)) {
     const textParts = target.parts.filter((part: any) => part?.type === "text")
     if (textParts.length > 0 && typeof textParts[0].text === "string") {
-      textParts[0].text = footerText + textParts[0].text
+      textParts[0].text = footerText + _stripLeadingFooter(textParts[0].text)
     } else {
       target.parts.unshift({ type: "text", text: footerText })
     }
     return true
   }
   if (typeof target.content === "string") {
-    target.content = footerText + target.content
+    target.content = footerText + _stripLeadingFooter(target.content)
     return true
   }
 
@@ -900,8 +907,19 @@ export const onToolExecuteAfter = async (input, output) => {
         ""
       ).trim().toLowerCase()
       const displayMode = backendMode || autoSelectMode(currentSubRegime, latestUserIntent ? scoreStress(latestUserIntent) : 0)
+      // VibeUltraX cascade: tier follows the LIVE model's trinity slot so the
+      // header stays coherent (cheap entry \u2192 "\u26A1 cheap | Big Pickle"; escalated
+      // to the medium-slot model \u2192 "\u25D0 medium | V4 Flash"), instead of pinning
+      // the tier to cheap while the model name shows a higher tier.
+      const _ultraSlot = () => {
+        const m = displayModel || resolvedModel || ""
+        if (TRINITY_CHEAP && m === TRINITY_CHEAP) return "cheap"
+        if (TRINITY_MEDIUM && m === TRINITY_MEDIUM) return "medium"
+        if (TRINITY_BRAIN && m === TRINITY_BRAIN) return "brain"
+        return execution.quality === "brain" ? "brain" : execution.quality === "medium" ? "medium" : "cheap"
+      }
       const activeSlot = displayMode === "vibeultrax"
-        ? "cheap"
+        ? _ultraSlot()
         : selNow.active_slot || resolveOptimizationSlot(displayMode) || (execution.quality === "brain" ? "brain" : execution.quality === "medium" ? "medium" : "cheap")
       const vibeBrand = resolveBrand(displayMode, activeSlot)
       const sessionSlot = loadSessionSlot(currentSid)
