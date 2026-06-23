@@ -149,7 +149,10 @@ test("footer: claim-bearing output shows a check icon without needing cascade au
     assert.ok(footer.includes("✓"), "footer should show a check icon for verified claims: " + footer)
 })
 
-test("footer: requested vibeultrax forces cheap slot even if selection is stale", async () => {
+test("footer: vibeultrax tier follows the live model, not the stale persistent slot", async () => {
+    // trinity.cheap.oc === deepseek/v4-flash; active_slot is a stale "brain".
+    // In VibeUltraX the tier must follow the LIVE model (cheap), not the stale
+    // slot — and the model name shown is that live model.
     writeTiers({
         active_slot: "brain",
         requested_optimization_mode: "vibeultrax",
@@ -157,10 +160,66 @@ test("footer: requested vibeultrax forces cheap slot even if selection is stale"
         vector_changed_slot: undefined,
     })
     const { _appendFooter } = await import("../src/lib/hooks/footer.js?vx-sync=" + Date.now())
-    const o = { text: "This message is long enough to trigger the footer and verify the requested mode wins over stale slot state." }
-    await _appendFooter({ args: { model: "deepseek/v4-pro" } }, o)
+    const o = { text: "This message is long enough to trigger the footer and verify the live model tier wins over stale slot state." }
+    await _appendFooter({ args: { model: "deepseek/v4-flash" } }, o)
     const footer = o.text.split("\n").pop() || ""
-    assert.ok(footer.includes("⚡ cheap"), "footer should derive cheap from vibeultrax request: " + footer)
+    assert.ok(footer.includes("⚡ cheap"), "footer tier should follow the live cheap-slot model: " + footer)
     assert.ok(footer.includes("VibeUltraX"), "footer should keep the branded mode visible: " + footer)
-    assert.ok(!footer.includes("🧠 brain"), "footer should not show stale brain slot: " + footer)
+    assert.ok(!footer.includes("🧠 brain"), "footer should not show the stale brain slot: " + footer)
+})
+
+test("footer: vibeultrax shows the medium tier when the cascade escalates to the medium-slot model", async () => {
+    // When the live model is the user's medium-slot model the header must read
+    // "◐ medium | …" — tier and model stay coherent during cascade escalation.
+    writeTiers({
+        active_slot: "cheap",
+        requested_optimization_mode: "vibeultrax",
+        optimization_mode: "vibeultrax",
+        vector_changed_slot: undefined,
+        // make the medium slot distinct from cheap so the tie-break is unambiguous
+    })
+    // Overwrite trinity so medium is a distinct model from cheap.
+    const tiersPath = join(sandbox, ".claude", "model-tiers.json")
+    const tiers = JSON.parse(readFileSync(tiersPath, "utf8"))
+    tiers.trinity = { brain: { oc: "deepseek/v4-pro" }, medium: { oc: "deepseek/v4-flash" }, cheap: { oc: "opencode/big-pickle" } }
+    writeFileSync(tiersPath, JSON.stringify(tiers))
+    const { _appendFooter } = await import("../src/lib/hooks/footer.js?vx-escalate=" + Date.now())
+    const o = { text: "This message is long enough to trigger the footer and verify the medium tier shows on cascade escalation." }
+    await _appendFooter({ args: { model: "deepseek/v4-flash" } }, o)
+    const footer = o.text.split("\n").pop() || ""
+    assert.ok(footer.includes("◐ medium"), "footer tier should escalate to medium with the medium-slot live model: " + footer)
+    assert.ok(footer.includes("VibeUltraX"), "footer should keep the branded mode visible: " + footer)
+    assert.ok(!footer.includes("⚡ cheap"), "footer should not pin to cheap once escalated: " + footer)
+})
+
+// ── Regression: streaming rewrites the message text and wipes a footer painted
+// on an earlier (partial) chunk. _appendFooter must REPAINT the rich footer on
+// the final text instead of skipping by messageID — otherwise the basic
+// ensureFooterFallback footer (raw live model, no brand) wins. ──
+test("footer: re-paints rich footer after streaming wipes an earlier paint", async () => {
+    writeTiers({
+        active_slot: "cheap",
+        requested_optimization_mode: "vibeultrax",
+        optimization_mode: "vibeultrax",
+        vector_changed_slot: undefined,
+    })
+    const { _appendFooter } = await import("../src/lib/hooks/footer.js?stream-wipe=" + Date.now())
+    const FULL = "Rebuilt the dataset pipeline and verified the regression suite passes end to end for the premium training run."
+    const mk = (t) => ({ message: { id: "msg_stream_x", parts: [{ type: "text", text: t }] } })
+    // 1) early streaming chunk gets a footer painted
+    const partial = mk("Rebuilt the dataset")
+    await _appendFooter({ message: { id: "msg_stream_x" }, args: { model: "deepseek/v4-flash" } }, partial)
+    assert.ok(/\n\n— .* —\s*$/.test(partial.message.parts[0].text), "partial chunk should get a footer")
+    // 2) opencode replaces the streamed text (footer wiped), same messageID
+    const full = mk(FULL)
+    await _appendFooter({ message: { id: "msg_stream_x" }, args: { model: "deepseek/v4-flash" } }, full)
+    const finalText = full.message.parts[0].text
+    assert.ok(/\n\n— .* —\s*$/.test(finalText), "final streamed text must be RE-painted with a footer: " + finalText.slice(-120))
+    const finalFooter = finalText.split("\n").pop() || ""
+    assert.ok(finalFooter.includes("VibeUltraX"), "re-painted footer must be the rich branded one, not the basic fallback: " + finalFooter)
+    assert.ok(finalFooter.includes("⚡ cheap"), "re-painted footer keeps the cheap cascade entry: " + finalFooter)
+    // 3) re-firing on the same (already-footed) object must not duplicate
+    await _appendFooter({ message: { id: "msg_stream_x" }, args: { model: "deepseek/v4-flash" } }, full)
+    const footerCount = (full.message.parts[0].text.match(/— ⚡|— ◐|— 🧠/g) || []).length
+    assert.equal(footerCount, 1, "footer must not double on re-fire: " + full.message.parts[0].text.slice(-160))
 })
