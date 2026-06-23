@@ -486,9 +486,9 @@ async function _appendFooter(input, output, directory, lastModelError?: string) 
       cascadeIcon: (() => {
         // Use cascade_tier from API response if available, otherwise fallback to cascade_depth
         const tier = cv?.cascade_tier || cv?.control_vector?.cascade_tier
-        if (tier === "cheap") return "⚡"
-        if (tier === "medium") return "⚡⚡"
-        if (tier === "brain") return "🧠"
+        if (tier === "cheap") return "⚡ cheap"
+        if (tier === "medium") return "◆ medium"
+        if (tier === "brain") return "🧠 brain"
         // Fallback to depth-based display
         const d = displayMode === "vibeultrax" && ultraCascadeDepth > 0 ? ultraCascadeDepth : (cv?.cascade_depth || 1)
         return d >= 3 ? "▸▸▸" : d >= 2 ? "▸▸" : ""
