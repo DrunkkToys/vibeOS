@@ -1,10 +1,10 @@
-import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, statSync, copyFileSync, renameSync } from "node:fs"
-import { join, basename } from "node:path"
+import { readFileSync, writeFileSync, existsSync, statSync, renameSync } from "node:fs"
+import { join } from "node:path"
 import { homedir, tmpdir } from "node:os"
 import { withFileLock, _handleStateCorruption, getVibeOSHome } from "./state.js"
-import { memoCompute } from "./turn-memo.js"
+import {  } from "./turn-memo.js"
 
-const USER_HOME = (() => { try { return homedir() } catch { return tmpdir() } })()
+const _USER_HOME = (() => { try { return homedir() } catch { return tmpdir() } })()
 
 function safeJsonParse(raw: string): any {
   if (raw == null || raw === "") return null
@@ -25,7 +25,7 @@ const SHADOW_SELECTION_KEYS = new Set(["selected_provider", "selected_quality_ti
 let _selCache: any = null
 let _selLastStamp = ""
 
-const SEL_CACHE_KEY = "selection-manager:loadSelection"
+const _SEL_CACHE_KEY = "selection-manager:loadSelection"
 
 const TIERS_FILE_PATH = () => join(getVibeOSHome(), "model-tiers.json")
 

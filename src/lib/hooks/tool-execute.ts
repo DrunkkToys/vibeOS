@@ -1,35 +1,35 @@
 // @ts-nocheck
-import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, statSync, readdirSync, copyFileSync, renameSync } from "node:fs"
+import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, copyFileSync } from "node:fs"
 import { join, dirname, basename } from "node:path"
 import { createHash } from "node:crypto"
-import { spawn } from "node:child_process"
+import {  } from "node:child_process"
 import {
   currentTier, currentModel, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, getCurrentSessionId,
-  textCompletePainted, softQuotaCounts, enforcementBlocked,
-  pendingUiNote, briefedProjects, _OC_SID, _modelLocked, _blackboxEnabled,
+  _textCompletePainted, softQuotaCounts, enforcementBlocked,
+  pendingUiNote, _briefedProjects, _OC_SID, _modelLocked, _blackboxEnabled,
   _autoReportCount, scratchpadHitsSeen, context7AlertedThisSession,
-  loadSelection, writeSelection, readLifetimeSavings,
+  loadSelection, _writeSelection, readLifetimeSavings,
   recordCacheSaving, recordMissedContext7, getScratchpadHit,
   recordScratchpadObservation,
   recordPrivacyTelemetry,
-  updateState, withFileLock, safeJsonParse,
-  getSessionScratchpadDir, ensureSessionScratchpadDirs, getSessionIndexPath,
-  indexAppend,
-  loadActiveJobs,
-  detectTechStack, projectFingerprint, loadProjectState, saveProjectState,
-  ensureProjectBucket, mergeProjectBucket, SAVINGS_LEDGER_FILE,
-  CONTEXT7_INSTALL_FLAG, SOFT_QUOTA_LIMIT, loadTodos, upsertTodo,
+  updateState, _withFileLock, _safeJsonParse,
+  getSessionScratchpadDir, ensureSessionScratchpadDirs, _getSessionIndexPath,
+  _indexAppend,
+  _loadActiveJobs,
+  _detectTechStack, _projectFingerprint, _loadProjectState, _saveProjectState,
+  _ensureProjectBucket, _mergeProjectBucket, SAVINGS_LEDGER_FILE,
+  CONTEXT7_INSTALL_FLAG, SOFT_QUOTA_LIMIT, _loadTodos, upsertTodo,
   ML_ENABLED, _mlGraph, _cacheDb, _mlSavePending, ML_CONFIDENCE_THRESHOLD, setMlSavePending,
-  loadMLState, saveMLState,
-  readJsonOrEmpty, _handleStateCorruption, _lockPathFor,
+  _loadMLState, saveMLState,
+  _readJsonOrEmpty, _handleStateCorruption, _lockPathFor,
   SCRATCHPAD_TOOLS, SCRATCHPAD_GLOBAL_DIR, TOOL_NAME_NORMALIZE, stableJson, applyDecadence,
-  VIBEOS_HOME,
+  _VIBEOS_HOME,
 } from "../state.js"
 import {
   classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget,
   shortModelName, formatUsd, _refreshModel, readConfig, resolveTrinityDisplayModel, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN,
   cacheSavePer1MInputTokens,
-  trendDisplay, modelToSlotLabel, resolveExecutionIdentity, formatProviderName, formatQualityName, modelDisplayName,
+  _trendDisplay, modelToSlotLabel, resolveExecutionIdentity, _formatProviderName, _formatQualityName, modelDisplayName,
 } from "../pricing.js"
 import { latestUserIntent } from "./chat-transform.js"
 import { loadSessionSlot } from "../selection-manager.js"
@@ -43,22 +43,22 @@ function isGreetingLike(text: string): boolean {
 }
 import {
   scoreStress, extractFirstWordFromArgs, shouldLogWarn, classifyTurnSimple, autoSelectMode, resolveOptimizationSlot,
-  isUserAskingForTests, isLikelyOffTopic, resolveEnforcementMode,
-  getBlackboxTracker, loadBlackboxState, saveBlackboxState,
-  loadGlobalLearning, updateGlobalLearning, getLearnedExploratoryWords,
+  isUserAskingForTests, _isLikelyOffTopic, resolveEnforcementMode,
+  _getBlackboxTracker, loadBlackboxState, _saveBlackboxState,
+  _loadGlobalLearning, _updateGlobalLearning, getLearnedExploratoryWords,
   noteTaskRoutingLearning,
   incrementTurnCounter,
 } from "../turn-classify.js"
 import { saveReport } from "../reporting.js"
-import { getApiClient, remoteCall, isApiFallback, isApiConnected } from "../api-client.js"
+import { remoteCall, isApiFallback, isApiConnected } from "../api-client.js"
 import { getCostAnomalyDetector } from "../cost-anomaly.js"
 import { checkFlowRules, recordFlowTodo } from "../../vibeOS-lib/flow-enforcer.js"
-import { computeDifficulty, cascadeDecide, createPatternGraph, ensureNode, addRouteEdge, predictBestModel, hashQuery, deserializeGraph } from "../../vibeOS-lib/ml-router.js"
-import { createCacheDatabase, addCacheEntry, recordCacheStats, predictCacheHit, compositeSimilarity, evictStaleEntries, deserializeCacheDb } from "../../vibeOS-lib/smart-cache.js"
+import { computeDifficulty, cascadeDecide, addRouteEdge, predictBestModel, hashQuery } from "../../vibeOS-lib/ml-router.js"
+import { addCacheEntry, recordCacheStats, predictCacheHit } from "../../vibeOS-lib/smart-cache.js"
 import { buildTestReminder, enforceTestFile } from "../tdd-enforcer.js"
 import { setActiveJobFromTaskPrompt, observeToolPattern, compressText, recordSaving } from "../index-helpers.js"
 import { buildSessionBridge, recordSessionBridge } from "../session-bridge.js"
-import { scoreTaskQuality, readRewardSignals } from "./footer.js"
+import { scoreTaskQuality } from "./footer.js"
 import { SAVE_EST, WARN_ON_DIRECT, SOFT_QUOTA, FREE, MONITOR } from "../constants.js"
 
 const _warnCounts: Record<string, number> = {}
@@ -90,9 +90,9 @@ const MAX_WARNS_PER_TOOL = 5
 
 const BYTES_PER_TOKEN = 4
 const DEBUG_INTERNALS = process.env.VIBEOS_DEBUG_INTERNALS === "1"
-const IS_CLI_RUNTIME = Boolean(process.stdout?.isTTY || process.stderr?.isTTY || process.stdin?.isTTY)
+const _IS_CLI_RUNTIME = Boolean(process.stdout?.isTTY || process.stderr?.isTTY || process.stdin?.isTTY)
 
-let activeJob = null
+let _activeJob = null
 let projectDirectory = ""
 let pendingUiNote = null
 let enforcementBlocked = false
@@ -535,7 +535,7 @@ export const onToolExecuteBefore = async (input, output) => {
     if (ML_ENABLED) {
       try {
         const mlDifficulty = computeDifficulty(_prompt)
-        const mlHash = hashQuery(_prompt)
+        const _mlHash = hashQuery(_prompt)
         const mlGraphPrediction = predictBestModel(_mlGraph, _firstWord, currentTier)
         if (mlDifficulty.confidence >= ML_CONFIDENCE_THRESHOLD && mlDifficulty.level !== "moderate") {
           const mlTarget = mlDifficulty.suggestedTier === "cheap" ? TRINITY_CHEAP
@@ -708,7 +708,7 @@ export const onToolExecuteBefore = async (input, output) => {
 
   // Credit < 40%: always record savings, cap UI note at MAX_WARNS_PER_TOOL per tool type per session.
   if (lowCreditNudge) {
-    const total = recordSaving(t, "credit<40% high-tier", _estEdit, {
+    const _total = recordSaving(t, "credit<40% high-tier", _estEdit, {
       firstWord: _firstWord,
       projectFingerprint: currentProjectFingerprint,
       projectName: currentProjectName || "",
@@ -735,7 +735,7 @@ export const onToolExecuteBefore = async (input, output) => {
       const originalPath = argSources
         .flatMap((src) => [src?.filePath, src?.file_path, src?.path])
         .find((v) => typeof v === "string" && v.trim()) || ""
-      const basename = originalPath.split("/").pop() || "blocked"
+      const _basename = originalPath.split("/").pop() || "blocked"
 
       const apiResult = await remoteCall("delegateCheck", [tLower, currentTier, currentModel, _prompt], () => ({
         blocked: false,
@@ -750,7 +750,7 @@ export const onToolExecuteBefore = async (input, output) => {
       const isBlocked = apiResult?.blocked !== false && (isFallback || savings >= MIN_MEANINGFUL_SAVINGS)
 
       if (isBlocked) {
-        const total = recordSaving(t, "delegation enforced", savings, {
+        const _total = recordSaving(t, "delegation enforced", savings, {
           firstWord: _firstWord,
           projectFingerprint: currentProjectFingerprint,
           projectName: currentProjectName || "",
@@ -763,7 +763,7 @@ export const onToolExecuteBefore = async (input, output) => {
         if (shouldLogWarn(`${t}|enforced|${_tierWord}`)) console.error(`[vibeOS] [enforcement] BLOCKED direct ${t} on high tier → delegate via Task`)
         return
       }
-      const total = recordSaving(t, "direct edit", _estEdit, {
+      const _total = recordSaving(t, "direct edit", _estEdit, {
         firstWord: _firstWord,
         projectFingerprint: currentProjectFingerprint,
         projectName: currentProjectName || "",
@@ -788,7 +788,7 @@ export const onToolExecuteBefore = async (input, output) => {
         context7Seen.add(target)
         // Re-check each time — context7 might be added mid-session
         if (detectContext7()) {
-          const missed = recordMissedContext7(SAVE_EST.CONTEXT7)
+          const _missed = recordMissedContext7(SAVE_EST.CONTEXT7)
           if (shouldLogWarn(`context7-bypass|${t}|${_firstWord || "?"}`)) {
             console.error(`[vibeOS] [cost policy] Context7 available but bypassed — webfetch on docs target instead. ~$${SAVE_EST.CONTEXT7.toFixed(4)}/turn missed.`)
           }
@@ -813,7 +813,7 @@ export const onToolExecuteBefore = async (input, output) => {
     softQuotaCounts[t] = (softQuotaCounts[t] ?? 0) + 1
     const n = softQuotaCounts[t]
     if (n === SOFT_QUOTA_LIMIT + 1) {
-      const total = recordSaving(t, `soft quota exceeded (limit ${SOFT_QUOTA_LIMIT})`, SAVE_EST.SOFT_QUOTA, {
+      const _total = recordSaving(t, `soft quota exceeded (limit ${SOFT_QUOTA_LIMIT})`, SAVE_EST.SOFT_QUOTA, {
         projectFingerprint: currentProjectFingerprint,
         projectName: currentProjectName || "",
         sessionId: getCurrentSessionId(),
@@ -1092,7 +1092,7 @@ export const onToolExecuteAfter = async (input, output) => {
     if (typeof outputText === "string" && outputText.length > 0) {
       const TASK_FILE_RE = /((?:\.?[\w@][\w.\-]*\/)+[\w.\-]+\.(?:py|js|ts|mjs|tsx|jsx|cjs|mts|sh|go|rs|rb|java|kt))/gi
       const sel = loadSelection()
-      const explicitTestIntent = isUserAskingForTests(latestUserIntent)
+      const _explicitTestIntent = isUserAskingForTests(latestUserIntent)
       const seen = new Set()
       let match
       while ((match = TASK_FILE_RE.exec(outputText)) !== null) {
@@ -1105,7 +1105,7 @@ export const onToolExecuteAfter = async (input, output) => {
         if (sel.tdd_enforce && !isTestPath && !isResearchSession2) {
           const createdPath = enforceTestFile(fp)
           if (createdPath) {
-            const ext = createdPath.split(".").pop()
+            const _ext = createdPath.split(".").pop()
             const fileName = createdPath.split("/").pop()
             const enforceNote = "\n\n[test-enforced] Created skeleton at " + createdPath + "\n  NEXT: 1) Open " + fileName + "  2) Replace TODO/FIXME markers with real assertions  3) Run `npx vitest run " + createdPath + "` (or language-equivalent)  4) Confirm tests pass"
             if (typeof output?.text === "string") output.text += enforceNote
@@ -1131,14 +1131,14 @@ export const onToolExecuteAfter = async (input, output) => {
 
     // TDD enforcement: auto-create skeleton test if enabled and no test exists.
     const sel = loadSelection()
-    const explicitTestIntent = isUserAskingForTests(latestUserIntent)
+    const _explicitTestIntent = isUserAskingForTests(latestUserIntent)
     const isTestPath = /(^|\/)(tests?|spec)\//i.test(fp) || /\.(test|spec)\./i.test(fp)
     const intentClass = classifyTurnSimple(latestUserIntent)
     const isResearchSession = intentClass === "EXPLORING" || intentClass === "DIVERGENT"
     if (sel.tdd_enforce && !isTestPath && !isResearchSession) {
       const createdPath = enforceTestFile(fp)
       if (createdPath) {
-        const ext = createdPath.split(".").pop()
+        const _ext = createdPath.split(".").pop()
         const fileName = createdPath.split("/").pop()
         const enforceNote = `\n\n[test-enforced] Created skeleton at ${createdPath}\n  NEXT: 1) Open ${fileName}  2) Replace TODO/FIXME markers with real assertions  3) Run \`npx vitest run ${createdPath}\` (or language-equivalent)  4) Confirm tests pass`
         if (typeof output?.text === "string") output.text += enforceNote

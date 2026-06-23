@@ -1,15 +1,15 @@
 // @ts-nocheck
-import { writeFileSync, appendFileSync, existsSync, mkdirSync, statSync, readdirSync, copyFileSync } from "node:fs"
-import { join, dirname, basename } from "node:path"
-import { classify, modelCostPerTurn, _refreshModel, readConfig, resolveTrinityDisplayModel, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, formatUsd, resolveCurrentExecution, modelDisplayName, getPendingLiveSwitch } from "../pricing.js"
+import { appendFileSync, mkdirSync } from "node:fs"
+import { join } from "node:path"
+import { classify, _refreshModel, readConfig, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, formatUsd, resolveCurrentExecution, modelDisplayName, getPendingLiveSwitch } from "../pricing.js"
 import { latestUserIntent } from "./chat-transform.js"
-import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, classifyTurnSimple, autoSelectMode, loadOptimizationMode, computeControlVector, resolveOptimizationSlot } from "../turn-classify.js"
+import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, classifyTurnSimple, autoSelectMode, loadOptimizationMode, computeControlVector } from "../turn-classify.js"
 import { recordBudgetFirstOutcome } from "../mode-policy.js"
 import { saveReport } from "../reporting.js"
-import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, getCurrentSessionId, _modelLocked, _blackboxEnabled, _latestBlackboxState, loadTodos, loadBlackboxState, recordLiveSessionSnapshot, VIBEOS_HOME, getVibeOSHome, readLifetimeSavings, getLatestCacheEvent } from "../state.js"
-import { loadSelection, loadSessionSlot, writeSessionSlot } from "../selection-manager.js"
+import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, getCurrentSessionId, _modelLocked, _blackboxEnabled, _latestBlackboxState, loadBlackboxState, recordLiveSessionSnapshot, VIBEOS_HOME, getVibeOSHome, readLifetimeSavings, getLatestCacheEvent } from "../state.js"
+import { loadSelection, loadSessionSlot } from "../selection-manager.js"
 import { remoteCall, isApiConnected, isApiLatencyDegraded } from "../api-client.js"
-import { SAVE_EST } from "../constants.js"
+import {  } from "../constants.js"
 import { buildFooterLine, buildEnforcementTags, resolveBrand, buildFooterAlert } from "./shared-footer.js"
 import { computeReward } from "../../vibeOS-lib/reward-engine.js"
 import { detectLaziness } from "../../vibeOS-lib/laziness-detector.js"
@@ -191,8 +191,8 @@ async function _appendFooter(input, output, directory, lastModelError?: string) 
     }
     const text = _extractText(output)
     if (!text) return
-    const { ltTasks, ltCache, ltCost, count, sesTasks, sesEdit, sesCredit, sesC7, sesQuota, sesTaskDelegations, sesDuration, sesRatePerHour, sesTrend, sesToolBreakdown, sesModelTurns, quality_avg } = readLifetimeSavings()
-    const { stableStreak, problemStreak } = readRewardSignals()
+    const { ltTasks, ltCache, ltCost, _count, sesTasks, sesEdit, sesCredit, sesC7, sesQuota, sesTaskDelegations, _sesDuration, _sesRatePerHour, sesTrend, _sesToolBreakdown, sesModelTurns, _quality_avg } = readLifetimeSavings()
+    const { _stableStreak, _problemStreak } = readRewardSignals()
 
     const sid = getSessionId()
     const sessionSlot = loadBlackboxState()?.sessions?.[sid]?.active_slot || loadSessionSlot(sid)
@@ -251,19 +251,19 @@ async function _appendFooter(input, output, directory, lastModelError?: string) 
         },
       },
     })
-    const executionSlot = displayMode === "vibeultrax"
+    const _executionSlot = displayMode === "vibeultrax"
       ? ultraResolvedTier
       : execution.quality === "brain"
         ? "brain"
         : execution.quality === "mid"
           ? "medium"
           : "cheap"
-    let modelTag = `[${shortModelName(displayModel)}]`
+    let _modelTag = `[${shortModelName(displayModel)}]`
     const _workerModel = slot === "brain" ? TRINITY_MEDIUM : null
     const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0)
     if (_workerModel && _workerModel !== brainModel) {
       const brainPct = Math.round(((sesModelTurns?.brain || 0) / (totalTurns || 1)) * 100)
-      modelTag = `[${shortModelName(displayModel)} ${brainPct}% → ${shortModelName(_workerModel)} ${100 - brainPct}%]`
+      _modelTag = `[${shortModelName(displayModel)} ${brainPct}% → ${shortModelName(_workerModel)} ${100 - brainPct}%]`
     }
 
     _autoReportCount = (_autoReportCount || 0) + 1
@@ -295,7 +295,7 @@ async function _appendFooter(input, output, directory, lastModelError?: string) 
     }
 
     const selNowFooter = loadSelection()
-    const freshSelection = await import(`../selection-manager.js?footer=${Date.now()}`).then((m) => m.loadSelection()).catch(() => null)
+    const _freshSelection = await import(`../selection-manager.js?footer=${Date.now()}`).then((m) => m.loadSelection()).catch(() => null)
     const normalizedIntent = classifyTurnSimple(latestUserIntent || "")
     const currentSubRegime = _latestBlackboxState?.sub_regime || normalizedIntent
     const bbMode = resolveEnforcementMode()

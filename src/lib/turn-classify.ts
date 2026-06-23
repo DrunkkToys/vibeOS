@@ -1,14 +1,14 @@
 // @ts-nocheck
 
-import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, statSync, copyFileSync, renameSync, openSync, closeSync, rmSync } from "node:fs"
-import { join, dirname, basename } from "node:path"
-import { homedir, tmpdir } from "node:os"
-import { createHash } from "node:crypto"
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from "node:fs"
+import { join, dirname } from "node:path"
+import {  } from "node:os"
+import {  } from "node:crypto"
 import { ResolutionTracker } from "../vibeOS-lib/blackbox/index.js"
-import { safeJsonParse, _blackboxEnabled, setBlackboxEnabled as _setGlobalBlackboxEnabled, USER_HOME, FILE_LOCK_DIR, DELEGATION_STATE_FILE as STATE_FILE, GLOBAL_LEARNING_FILE, BLACKBOX_STATE_FILE, PROJECT_STATE_FILE, _OC_SID, currentProjectFingerprint, currentTier, setCurrentProjectFingerprint, _handleStateCorruption, _lockPathFor, withFileLock, readJsonOrEmpty, validateState, loadBlackboxState, saveBlackboxState, loadGlobalLearning, updateGlobalLearning, getLearnedExploratoryWords, projectFingerprint, loadProjectState, saveProjectState, detectTechStack, ensureProjectBucket, recordMissedContext7, VIBEOS_HOME, recentToolEvents, getVibeOSHome } from "./state.js"
-import { loadSelection, loadSessionOptMode, loadGlobalOptMode, saveGlobalOptMode, writeSelection, writeSessionOptMode, writeSessionSlot, loadSessionSlot } from "./selection-manager.js"
+import { safeJsonParse, _blackboxEnabled, setBlackboxEnabled as _setGlobalBlackboxEnabled, DELEGATION_STATE_FILE as _OC_SID, currentProjectFingerprint, currentTier, setCurrentProjectFingerprint, _handleStateCorruption, _lockPathFor, withFileLock, readJsonOrEmpty, validateState, loadBlackboxState, saveBlackboxState, loadGlobalLearning, updateGlobalLearning, getLearnedExploratoryWords, projectFingerprint, loadProjectState, saveProjectState, detectTechStack, ensureProjectBucket, recordMissedContext7, recentToolEvents, getVibeOSHome } from "./state.js"
+import { loadSelection, loadSessionOptMode, loadGlobalOptMode, saveGlobalOptMode, writeSelection, writeSessionOptMode, writeSessionSlot } from "./selection-manager.js"
 import { getApiClient, isApiFallback } from "./api-client.js"
-import { scoreStress, estimateContextBudget, classifyTurnSimple as _classifyTurnSimple, tokenizeWords, topKeywords, extractLastUserText, isUserAskingForTests, isLikelyOffTopic, detectOutcomeSignal } from "./classifiers.js"
+import { classifyTurnSimple as _classifyTurnSimple } from "./classifiers.js"
 import { vibeqmaxControlVector } from "../vibeOS-lib/blackbox/vibeqmax.js"
 import { vibeultraxControlVector } from "../vibeOS-lib/blackbox/vibeultrax.js"
 export { scoreStress, estimateContextBudget, tokenizeWords, topKeywords, extractLastUserText, isUserAskingForTests, isLikelyOffTopic, detectOutcomeSignal } from "./classifiers.js"
@@ -606,7 +606,7 @@ function computeLocalCalibration(): any {
     if (!existsSync(calFile)) return null
     const lines = readFileSync(calFile, "utf-8").trim().split("\n").filter(Boolean)
     if (lines.length < 10) return null
-    const recent = lines.slice(-50)
+    const _recent = lines.slice(-50)
     const state = loadBlackboxState()
     const allOutcomes = []
     for (const [sid, session] of Object.entries(state.sessions || {})) {

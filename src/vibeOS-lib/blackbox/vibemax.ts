@@ -163,7 +163,7 @@ export function predictVibeMaX(input = {}) {
   return { label: r.mode, confidence: r.confidence, source: "vibemax", source_prediction: r.source_prediction, pivot_back: r.pivot?.matchedId || null }
 }
 
-function extractVibeMaXFeatures(text, sr) {
+function extractVibeMaXFeatures(text, _sr) {
   const t = (text || "").toLowerCase()
   const words = t.split(/\s+/).filter(Boolean)
   const f = {

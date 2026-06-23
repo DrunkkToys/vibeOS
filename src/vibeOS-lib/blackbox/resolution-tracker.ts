@@ -446,7 +446,7 @@ export class ResolutionTracker {
   isConverging(actionConsistency, embeddingDelta, entropyTrend) {
     return actionConsistency > 0.7 && embeddingDelta < 0.25 && entropyTrend <= 0.15
   }
-  calcMomentum(entropyTrend, actionConsistency, embeddingDelta, isLooping, action, entropy) {
+  calcMomentum(entropyTrend, actionConsistency, embeddingDelta, isLooping, _action, _entropy) {
     const base = actionConsistency * 0.4 + (1.0 - Math.min(1.0, embeddingDelta)) * 0.3 + Math.max(0.0, 0.3 - Math.abs(entropyTrend)) * 0.3
     return isLooping ? Math.max(-1.0, base - 0.6) : Math.min(1.0, base + 0.1)
   }

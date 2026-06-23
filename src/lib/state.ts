@@ -1,12 +1,12 @@
 // @ts-nocheck
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, statSync, readdirSync, openSync, readSync, closeSync, rmSync, copyFileSync, renameSync } from "node:fs"
-import { join, dirname, relative, basename } from "node:path"
+import { join, dirname, basename } from "node:path"
 import { spawn } from "node:child_process"
 import { homedir, tmpdir } from "node:os"
 import { createHash } from "node:crypto"
 import { AsyncLocalStorage } from "node:async_hooks"
 import { loadSelection, writeSelection, DFLT_SEL } from "./selection-manager.js"
-import { normalizeObservedPath, commandFamily, commandFailed, mergeProjectBucket, _computeSessionMetrics, _pruneOldSessions } from "./pattern-helpers.js"
+import { mergeProjectBucket, _computeSessionMetrics, _pruneOldSessions } from "./pattern-helpers.js"
 import { getOcSessionId } from "./runtime-state.js"
 
 // ── File system constants ────────────────────────────────────────────
@@ -211,8 +211,8 @@ function invalidateSavingsCache(): void {
 }
 
 // ── ML Router state ──────────────────────────────────────────────────
-import { createPatternGraph, deserializeGraph, addRouteEdge, ensureNode, computeDifficulty, cascadeDecide, predictBestModel, hashQuery } from "../vibeOS-lib/ml-router.js"
-import { createCacheDatabase, addCacheEntry, recordCacheStats, predictCacheHit, evictStaleEntries, deserializeCacheDb } from "../vibeOS-lib/smart-cache.js"
+import { createPatternGraph, deserializeGraph } from "../vibeOS-lib/ml-router.js"
+import { createCacheDatabase, evictStaleEntries, deserializeCacheDb } from "../vibeOS-lib/smart-cache.js"
 import { applySessionAction, normalizeSessionOrchestration } from "./session-orchestrator.js"
 
 let _mlGraph: any = createPatternGraph()
@@ -427,7 +427,7 @@ export function withFileLock(filePath: string, fn: () => any, opts: { staleMs?: 
         try { closeSync(fd) } catch {}
         try { rmSync(lockPath, { force: true }) } catch {}
       }
-    } catch (err) {
+    } catch {
       try {
         if (existsSync(lockPath)) {
           const age = Date.now() - statSync(lockPath).mtimeMs
@@ -1393,7 +1393,7 @@ function recordScratchpadObservation(toolLower: string, args: any, fileSize: num
 
 // ── Scratchpad decadence pruning ──────────────────────────────────────────
 function _pruneScratchpadDir(targetDir: string, opts: { maxFiles?: number, maxBytes?: number, rotate?: boolean } = {}): { dataFiles: number, totalBytes: number, deleted: number, rotated: number } {
-  const { maxFiles = MAX_SCRATCHPAD_FILES, maxBytes = MAX_SCRATCHPAD_BYTES, rotate = true } = opts
+  const { _maxFiles = MAX_SCRATCHPAD_FILES, _maxBytes = MAX_SCRATCHPAD_BYTES, rotate = true } = opts
   const now = Date.now()
   if (!existsSync(targetDir)) return { dataFiles: 0, totalBytes: 0, deleted: 0, rotated: 0 }
   const entries = readdirSync(targetDir)
@@ -1527,7 +1527,7 @@ function _writeActiveJobsRaw(jobs: any): void {
   } catch {}
 }
 
-function _normalizeActiveJobRecord(record: any, now: number = Date.now(), strict: boolean = false): { record: any | null, changed: boolean, stale: boolean } {
+function _normalizeActiveJobRecord(record: any, now: number = Date.now(), _strict: boolean = false): { record: any | null, changed: boolean, stale: boolean } {
   if (!record || typeof record !== "object") return { record: null, changed: false, stale: false }
   const next = { ...record }
   let changed = false
@@ -1932,7 +1932,7 @@ function rebuildScrapbookIndex(): ScrapbookIndexEntry[] {
 // These provide the interface the task requested even if the old code used
 // different function names.
 const STATE_FILE = DELEGATION_STATE_FILE
-function recordDelegation(tool: string, saveEst: number, meta: any = {}): any {
+function recordDelegation(tool: string, saveEst: number, _meta: any = {}): any {
   // Delegation savings are recorded via updateState
   // This wrapper provides the legacy interface expected by callers
   try {

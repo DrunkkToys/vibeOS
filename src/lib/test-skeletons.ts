@@ -278,7 +278,7 @@ const TEST_SKELETONS = {
           content += `}\n\n`
         }
         if (quality && sourceContent) {
-          const params = inferFunctionParams(sourceContent, exp.name)
+          const _params = inferFunctionParams(sourceContent, exp.name)
           content += `    // TODO: Real assertion for ${exp.name} — valid input\n`
           content += `    // TODO: Real assertion for ${exp.name} — invalid input\n`
           content += `    // TODO: Real assertion for ${exp.name} — edge case\n\n`

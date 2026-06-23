@@ -2,48 +2,48 @@
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, rmSync, readdirSync, statSync } from "node:fs"
 import { join, dirname, basename } from "node:path"
 import { createHash } from "node:crypto"
-import { homedir } from "node:os"
+import {  } from "node:os"
 import {
   currentTier, currentModel, currentProjectFingerprint, currentProjectName,
   _OC_SID, _modelLocked, _blackboxEnabled,
-  loadSelection, writeSelection, readLifetimeSavings,
-  updateState, withFileLock, safeJsonParse, applyDecadence,
-  getSessionScratchpadDir, ensureSessionScratchpadDirs, getSessionIndexPath,
-  indexAppend, scratchpadHitsSeen, briefedProjects,
-  loadActiveJobs, getActiveJobForProject, loadTodos,
-  loadProjectState, saveProjectState, ensureProjectBucket,
+  loadSelection, writeSelection, _readLifetimeSavings,
+  _updateState, _withFileLock, safeJsonParse, applyDecadence,
+  getSessionScratchpadDir, ensureSessionScratchpadDirs, _getSessionIndexPath,
+  indexAppend, _scratchpadHitsSeen, briefedProjects,
+  _loadActiveJobs, getActiveJobForProject, loadTodos,
+  loadProjectState, saveProjectState, _ensureProjectBucket,
   touchProjectBucket,
   promotedProjectPatterns,
   detectTechStack, projectFingerprint,
-  loadMLState, saveMLState,
+  _loadMLState, _saveMLState,
   SCRATCHPAD_ROOT,
-  TRINITY_OPENCODE_CONFIG, TRINITY_OPENCODE_CONFIGC, TIERS_FILE, VIBEOS_HOME, OPENCODE_HOME,
-  loadGlobalLearning, updateGlobalLearning, DFLT_GL,
-  getLearnedExploratoryWords,
+  TRINITY_OPENCODE_CONFIG, _TRINITY_OPENCODE_CONFIGC, TIERS_FILE, _VIBEOS_HOME, _OPENCODE_HOME,
+  loadGlobalLearning, _updateGlobalLearning, _DFLT_GL,
+  _getLearnedExploratoryWords,
   setCurrentProjectFingerprint, setCurrentProjectName,
   stableJson, TOOL_NAME_NORMALIZE,
   loadSessionOrchestration,
   _cacheDb, recordCacheSaving, getOpenCodeHome, getVibeOSHome, safeCopyIntoSession,
 } from "../state.js"
-import { memoCompute, nextTurn } from "../turn-memo.js"
+import { nextTurn } from "../turn-memo.js"
 import { evaluateClaimVerification } from "../claim-verification.js"
 import { projectTreeDirective, recordProjectFact } from "../project-tree.js"
 import {
-  classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget,
-  shortModelName, formatUsd, _refreshModel, applySlot, reconcileSlotModel, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN,
+  _classify, _modelCostPerTurn, _isModelFree, _detectContext7, _isDocsTarget,
+  _shortModelName, _formatUsd, _refreshModel, applySlot, reconcileSlotModel, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN,
   cacheSavePer1MInputTokens,
   clearWorkspaceFollowupPauseForSession,
 } from "../pricing.js"
 import {
   scoreStress, classifyTurnSimple, classifyTurnRemote, loadOptimizationMode,
-  saveOptimizationMode,
+  _saveOptimizationMode,
   computeControlVector,
-  getBlackboxTracker, getBlackboxResolution,
+  getBlackboxTracker, _getBlackboxResolution,
   loadBlackboxState as loadBlackboxStateFromCtx, saveBlackboxState as saveBlackboxStateToCtx,
-  resolveEnforcementMode, extractLastUserText,
-  isUserAskingForTests, isLikelyOffTopic,
+  _resolveEnforcementMode, extractLastUserText,
+  _isUserAskingForTests, isLikelyOffTopic,
   updateGlobalLearning as _updateGlobalLearning,
-  noteTaskRoutingLearning,
+  _noteTaskRoutingLearning,
   fetchBlackboxEnrichment,
   estimateContextBudget,
   buildControlHistoryEntry,
@@ -54,16 +54,16 @@ import { BRANDED_MODES, RUNTIME_MODES } from "../mode-router.js"
 import { addCacheEntry, extractRecentCacheOutputs } from "../../vibeOS-lib/smart-cache.js"
 import { getApiClient, remoteCall, isApiConnected, isApiFallback } from "../api-client.js"
 import { loadCredit } from "../credit-api.js"
-import { saveReport } from "../reporting.js"
-import { checkFlowRules, recordFlowTodo } from "../../vibeOS-lib/flow-enforcer.js"
-import { ensureProjectDocs } from "../../vibeOS-lib/flow-enforcer.js"
-import { computeDifficulty } from "../../vibeOS-lib/ml-router.js"
-import { loadSessionOptMode, loadSessionSlot, writeSessionSlot, loadGlobalOptMode } from "../selection-manager.js"
+import {  } from "../reporting.js"
+import {  } from "../../vibeOS-lib/flow-enforcer.js"
+import {  } from "../../vibeOS-lib/flow-enforcer.js"
+import {  } from "../../vibeOS-lib/ml-router.js"
+import { loadSessionOptMode, loadSessionSlot, writeSessionSlot } from "../selection-manager.js"
 import { buildSessionBridge, recordSessionBridge } from "../session-bridge.js"
 import { noteProjectPattern } from "../index-helpers.js"
 import { saveSessionStress } from "../index-helpers.js"
 import { COMPRESS_THRESHOLD, KEEP_HOT, COMPRESS_MARKER, PROTOCOL_MARKER, PROTOCOL_TEXT } from "../constants.js"
-import { TEMPLATES, DEFAULT_TEMPLATE, resolveTemplate, detectLoopSignal, detectStressSpike, shouldInjectTemplate, resolveSessionTemplateDefinition } from "../templates.js"
+import { TEMPLATES, DEFAULT_TEMPLATE, resolveTemplate, shouldInjectTemplate, resolveSessionTemplateDefinition } from "../templates.js"
 import { getRealityCheckView } from "../../vibeOS-lib/flow-enforcer.js"
 import { installVibeSkill } from "../../../scripts/lib/vibe-skill.mjs"
 
@@ -74,7 +74,7 @@ const ANTI_FABRICATION_DIRECTIVE = "[anti-fabrication] Always work honestly — 
 
 const EMPIRICAL_ANSWER_DIRECTIVE = "[empirical answer] Prefer verified facts over assumptions. If something is not directly checked against tools, files, logs, or user-provided evidence, label it as unverified or say 'I cannot verify that'. Separate evidence, inference, and suggestions. In multi-turn work, carry forward only evidence-backed facts and keep any guess explicitly marked as a guess."
 
-const REALITY_CHECK_DIRECTIVE = "[reality-check global] Before saying something is done, complete, ready, successful, trained, fixed, or working, verify the actual files and state on disk. If the user asks for a reality check, read the relevant files first and report only verified facts. [claim enforcement] If you make a claim like 'done', 'fixed', 'validated', 'works', or 'score' without first reading relevant files to confirm, the verify-claim runtime will flag it as unverified."
+const _REALITY_CHECK_DIRECTIVE = "[reality-check global] Before saying something is done, complete, ready, successful, trained, fixed, or working, verify the actual files and state on disk. If the user asks for a reality check, read the relevant files first and report only verified facts. [claim enforcement] If you make a claim like 'done', 'fixed', 'validated', 'works', or 'score' without first reading relevant files to confirm, the verify-claim runtime will flag it as unverified."
 
 // Deterministic anti-loop directive — always injected, not gated behind blackbox detection
 const ANTI_LOOP_DIRECTIVE = "[anti-loop cost guard] Token waste is real money: if you detect the conversation is looping (repeating the same diagnosis, retrying the same fix, asking the same question, re-explaining the same concept, regenerating similar tool output), immediately break the loop by: (1) summarizing what has been tried in 1 line, (2) stating what is actually different this turn, (3) trying a substantially different approach, or (4) asking the user to clarify the goal. Do NOT continue a failing approach more than 3 times — each redundant retry burns tokens at real cost. When stuck, step back, simplify, and be honest about uncertainty."
@@ -314,7 +314,7 @@ function observeUserCorrection(text: string | null): void {
   } catch {}
 }
 
-function buildProjectBriefing(directory: string): string | null {
+function _buildProjectBriefing(directory: string): string | null {
   const label = currentProjectName || (directory ? basename(directory) : "")
   if (!label) return null
   return `[project memory] Active project: ${label}. Stay focused on the current repository and prefer the existing workflow.`
@@ -701,7 +701,7 @@ function compressToolOutputs(messages: any[]): number {
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i]
     if (!msg || typeof msg !== "object") continue
-    const { info, parts } = msg
+    const { _info, parts } = msg
     if (!Array.isArray(parts)) continue
     const isCold = i < hotStart
 
@@ -775,7 +775,7 @@ function injectWBP(messages: any[]): void {
   for (let i = 0; i < messages.length - 1; i++) {
     const msg = messages[i]
     if (!msg || typeof msg !== "object") continue
-    const { info, parts } = msg
+    const { _info, parts } = msg
     if (!Array.isArray(parts)) continue
     const hasTask = parts.some(p => p?.type === "tool" && p?.tool === "task" && p?.state?.status === "completed")
     if (!hasTask) continue
@@ -1042,7 +1042,7 @@ const TDD_NOTES = {
   quality: " QUALITY mode: Full coverage including edge cases.",
 }
 
-function tddDirective(cv: any, sel: any): string {
+function _tddDirective(cv: any, sel: any): string {
   const tddMode = cv?.tdd_mode || (sel.tdd_strict ? "strict" : "normal")
   const tddFocus = cv?.tdd_focus || []
   const focusNote = tddFocus.length > 0 ? ` Focus: ${tddFocus.join(", ")}.` : ""
@@ -1050,7 +1050,7 @@ function tddDirective(cv: any, sel: any): string {
     "When the work changes code, keep the test path visible and make the next test step obvious."
 }
 
-function flowDirective(cv: any, sel: any): string {
+function _flowDirective(cv: any, sel: any): string {
   const flowMode = cv?.flow_mode || (sel.flow_enforce ? "normal" : "audit")
   const flowFocus = cv?.flow_focus || []
   const enforceNote = sel.flow_enforce ? " TODO/FIXME extraction is active." : ""
@@ -1066,7 +1066,7 @@ function flowTodosDirective(): string | null {
     "If useful, call `todowrite` so they land in the native task list."
 }
 
-function empiricalAnswerDirective(): string {
+function _empiricalAnswerDirective(): string {
   return "[empirical answer] Prefer verified facts over assumptions. " +
     "If something is not directly checked against tools, files, logs, or user-provided evidence, label it as unverified or say \"I cannot verify that\". " +
     "Separate evidence, inference, and suggestions. In multi-turn work, carry forward only evidence-backed facts and keep any guess explicitly marked as a guess."
@@ -1079,7 +1079,7 @@ function realityCheckDirective(): string | null {
   return `[reality-check ${scope}] Before saying something is done, complete, ready, successful, trained, fixed, or working, verify the actual files and state on disk. If the user asks for a reality check, read the relevant files first and report only verified facts.`
 }
 
-function patternDirective(fp: string): string | null {
+function _patternDirective(fp: string): string | null {
   const patterns = promotedProjectPatterns(fp)
   if (!patterns || patterns.length === 0) return null
   const gl = loadGlobalLearning()
@@ -1100,8 +1100,6 @@ function patternDirective(fp: string): string | null {
 
 function welcomeDirective(): string {
   const sel = loadSelection()
-  let tiers = {}
-  try { tiers = safeJsonParse(readFileSync(TIERS_FILE, "utf-8")).trinity || {} } catch {}
   const active = sel.active_slot || "medium"
   const current = currentModel || "(unknown)"
   return "[vibeOS] Active plugin. Slot: " + active + " (" + current + "). " +
