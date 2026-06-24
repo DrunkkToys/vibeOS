@@ -36,12 +36,15 @@ export function parseModelId(full) {
  */
 export function resolveIntendedModel(projectDir, inputModel) {
   const state = resolveOrchestratorState(projectDir || _directory || "")
+  // The TIER (active_slot) is the single source of truth. Whatever model the user bound
+  // to that tier via `vibe brain|medium|cheap` is what we apply — we do not care which
+  // LLM/provider it is. intended_model = trinity[active_slot].oc.
   const intendedFull = state.intended_model || state.ran_model || ""
   const intended = parseModelId(intendedFull)
   const inProvider = String(inputModel?.providerID || "").trim()
   const inModel = String(inputModel?.modelID || "").trim()
-  const sameProvider = !inProvider || !intended.providerID || inProvider === intended.providerID
-  const matches = inModel && intended.modelID && inModel === intended.modelID
+  const inFull = inProvider ? `${inProvider}/${inModel}` : inModel
+  const matches = !!intendedFull && inFull === intendedFull
   return {
     active_slot: state.active_slot,
     intended_full: intendedFull,
@@ -49,32 +52,30 @@ export function resolveIntendedModel(projectDir, inputModel) {
     modelID: intended.modelID,
     input_provider: inProvider,
     input_model: inModel,
-    // We can only redirect the model WITHIN the resolved provider. Cross-provider
-    // is impossible via this hook — surfaced so the live log makes it obvious.
-    can_apply: !!intended.modelID && sameProvider,
+    input_full: inFull,
     cross_provider: !!intended.providerID && !!inProvider && intended.providerID !== inProvider,
-    already_correct: !!matches && sameProvider,
+    // Apply whenever the live turn's model differs from the tier's model — including a
+    // different provider. We send the FULL "provider/model" id so OpenCode can re-resolve
+    // the provider from the model string. The live log proves whether the host honors it.
+    can_apply: !!intendedFull && !matches,
+    already_correct: matches,
   }
 }
 
 export async function onChatParams(input, output) {
   try {
     const r = resolveIntendedModel(input?._directory || _directory, input?.model)
-    if (r.cross_provider) {
-      console.error(`[vibeOS] chat.params: CANNOT switch — orchestrator wants ${r.intended_full} but turn is bound to provider '${r.input_provider}'. Unify trinity under one gateway (e.g. openrouter) so the middleware can redirect by model. input.model=${r.input_provider}/${r.input_model}`)
-      return
-    }
     if (r.already_correct) {
-      console.error(`[vibeOS] chat.params: coherent — slot=${r.active_slot} model=${r.input_provider}/${r.input_model} (no override needed)`)
+      console.error(`[vibeOS] chat.params: coherent — slot=${r.active_slot} model=${r.input_full} (no override)`)
       return
     }
     if (r.can_apply) {
       output.options = output.options || {}
-      // Redirect the outbound request to the tier's model. For openai-compatible /
-      // gateway providers the request body model is read from here; logged so a live
-      // turn confirms whether the provider honors it.
-      output.options.model = r.modelID
-      console.error(`[vibeOS] chat.params: OVERRIDE slot=${r.active_slot} ${r.input_provider}/${r.input_model} -> ${r.modelID} (intended=${r.intended_full})`)
+      // Redirect the outbound request to the tier's model. Full "provider/model" id so a
+      // provider switch (cheap→medium→brain across different providers) can re-resolve.
+      output.options.model = r.intended_full
+      const note = r.cross_provider ? " [cross-provider — live turn will confirm host honors it]" : ""
+      console.error(`[vibeOS] chat.params: OVERRIDE slot=${r.active_slot} ${r.input_full} -> ${r.intended_full}${note}`)
     }
   } catch (err) {
     console.error("[vibeOS] chat.params hook failed (non-fatal):", err?.message || err)
@@ -84,11 +85,10 @@ export async function onChatParams(input, output) {
 export async function onChatHeaders(input, output) {
   try {
     const r = resolveIntendedModel(input?._directory || _directory, input?.model)
-    if (r.can_apply && !r.already_correct) {
+    if (r.can_apply) {
       output.headers = output.headers || {}
-      // Gateways that route by header (instead of body) read it here. Harmless for
-      // gateways that ignore it; pairs with the chat.params body override above.
-      output.headers["x-vibeos-model"] = r.modelID
+      // Gateways that route by header (instead of body) read it here. Harmless when ignored.
+      output.headers["x-vibeos-model"] = r.intended_full
     }
   } catch (err) {
     console.error("[vibeOS] chat.headers hook failed (non-fatal):", err?.message || err)
