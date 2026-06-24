@@ -183,7 +183,10 @@ test("cascade: vibeultrax profile matches cascade depth for direct vs deep", asy
   const deep = vu.vibeultraxControlVector({ user_text: "refactor auth module with 3 files OAuth race condition", sub_regime: "REFINING", stress_multiplier: 0.3 })
   assert.ok(deep.cascade_depth >= 2, "complex text gets depth >= 2")
   assert.ok(deep.pipeline_root.length >= 2, "complex text has pipeline with >= 2 stages")
-  assert.ok(["medium", "brain"].includes(deep.tier_bias), "non-direct profiles should bias to the acting tier")
+  // The cascade ENTERS on the first pipeline tier and escalates from there — tier_bias
+  // is always the cascade entry tier, never the final tier. A full cheap→medium→brain
+  // cascade therefore starts on cheap; a medium→brain cascade starts on medium.
+  assert.equal(deep.tier_bias, deep.pipeline_root[0], "non-direct profiles enter on the first pipeline tier")
 })
 
 test("cascade: computeControlVector includes cascade_depth for vibeultrax mode", async () => {
