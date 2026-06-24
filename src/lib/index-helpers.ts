@@ -149,6 +149,13 @@ export function recordSaving(tool, reason, saveEst, meta = {}) {
         }
       }
       const ses = s.sessions[sid]
+      // Other writers (e.g. saveBlackboxVector/Outcome) can create s.sessions[sid]
+      // with a partial shape before recordSaving ever runs. Without this guard,
+      // ses.warns.length below throws on undefined, and that throw gets retried
+      // by withFileLock's inner busy-loop for its full timeout, three times over
+      // (via updateState's outer retry) — silently burning ~6s and never persisting.
+      ses.warns ??= []
+      ses.cache_hits ??= []
 
       if (reason && firstWord) {
         const now = Date.now()

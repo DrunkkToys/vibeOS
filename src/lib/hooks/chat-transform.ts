@@ -475,13 +475,18 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
     }
 
     if (isManualMode) {
+      // Manual modes (vibeultrax, etc.) keep the mode's configured cascade stable.
+      // Without this branch, the per-turn cv.pipeline_root write below — which
+      // legitimately collapses to a single tier whenever a turn doesn't need
+      // escalation — clobbers the full cascade right after it's set, permanently
+      // failing the `active_pipeline.length > 1` gate in tool-execute.ts and
+      // silently disabling cascade escalation for the rest of the mode session.
       const allEntries = [...BRANDED_MODES, ...RUNTIME_MODES]
       const modeEntry = allEntries.find((e: unknown) => e.id === userOptMode)
       if (modeEntry) {
         writeIf("active_pipeline", JSON.stringify(modeEntry.pipeline))
       }
-    }
-    if (cv?.pipeline_root && Array.isArray(cv.pipeline_root)) {
+    } else if (cv?.pipeline_root && Array.isArray(cv.pipeline_root)) {
       writeIf("active_pipeline", JSON.stringify(cv.pipeline_root))
     } else if (cv?.cascade_depth && cv.cascade_depth >= 3) {
       writeIf("active_pipeline", JSON.stringify(["cheap", "medium", "brain"]))
