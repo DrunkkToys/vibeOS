@@ -4,7 +4,7 @@ import { join, dirname, basename } from "node:path"
 import { createHash } from "node:crypto"
 import {
   currentTier, currentModel, currentProjectFingerprint, currentProjectName,
-  _OC_SID, _modelLocked, _blackboxEnabled,
+  _modelLocked, _blackboxEnabled,
   loadSelection, writeSelection, _readLifetimeSavings,
   _updateState, _withFileLock, safeJsonParse, applyDecadence,
   getSessionScratchpadDir, ensureSessionScratchpadDirs, _getSessionIndexPath,
@@ -24,6 +24,7 @@ import {
   loadSessionOrchestration,
   _cacheDb, recordCacheSaving, getOpenCodeHome, getVibeOSHome, safeCopyIntoSession,
 } from "../state.js"
+import { getOcSessionId } from "../runtime-state.js"
 import { nextTurn } from "../turn-memo.js"
 import { evaluateClaimVerification } from "../claim-verification.js"
 import { projectTreeDirective, recordProjectFact } from "../project-tree.js"
@@ -168,7 +169,12 @@ function updateOpenCodeConfig(mutator: (oc: unknown) => boolean | void): boolean
 }
 
 let latestUserIntent = null
-let _OC_SID = "opencode-" + (process.pid || "x") + "-" + Date.now()
+// Use the single canonical session id (from runtime-state, memoized on globalThis).
+// Previously this module minted its own "opencode-<pid>-<Date.now()>" id, which
+// diverged from the id the blackbox *reader* (turn-classify) used — so the writer
+// saved resolution history under one key and the reader looked under another,
+// leaving every session frozen at INIT. getOcSessionId() guarantees read==write.
+const _OC_SID = getOcSessionId()
 let _latestBlackboxState = null
 let _latestBlackboxLoopMsg = null
 let _latestBlackboxPivotMsg = null
