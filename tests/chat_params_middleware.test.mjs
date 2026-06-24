@@ -37,19 +37,22 @@ test("parseModelId splits provider/model (model keeps slashes)", async () => {
   assert.deepEqual(parseModelId("bare"), { providerID: "", modelID: "bare" })
 })
 
-test("tier mismatch (same provider) → override applies full intended id", async () => {
+test("tier mismatch (same provider) → override sets the MODEL ID within that provider", async () => {
   setup("cheap", "openrouter/mid-model") // active_slot=cheap but turn bound to mid → redirect
   const { onChatParams, resolveIntendedModel } = await fresh()
   const r = resolveIntendedModel(sandbox, { providerID: "openrouter", modelID: "mid-model" })
   assert.equal(r.can_apply, true)
-  assert.equal(r.intended_full, "openrouter/cheap-model")
+  assert.equal(r.modelID, "cheap-model")
   const output = { options: {} }
   await onChatParams({ _directory: sandbox, model: { providerID: "openrouter", modelID: "mid-model" } }, output)
-  assert.equal(output.options.model, "openrouter/cheap-model", "redirected to the tier's full model id")
+  // Provider is fixed by OpenCode; we set ONLY the model id (no provider prefix), else the
+  // provider rejects it — LIVE-PROVEN: "opencode/big-pickle is not a valid model ID".
+  assert.equal(output.options.model, "cheap-model", "model id only, within the resolved provider")
 })
 
-test("cross-provider tier (user-set) → still applies full provider/model id", async () => {
-  // The TIER is the source of truth; we do not care which provider the user bound to it.
+test("cross-provider tier → NOT injected (would fail the turn — live-proven)", async () => {
+  // The TIER is the source of truth, but the platform fixes the provider. Injecting a
+  // foreign-provider model id errors and fails the turn, so we log and pass through.
   writeFileSync(TIERS, JSON.stringify({
     trinity: { medium: { oc: "opencode-go/mimo-v2.5" } },
     selection: { enabled: true, active_slot: "medium" },
@@ -57,11 +60,11 @@ test("cross-provider tier (user-set) → still applies full provider/model id", 
   writeFileSync(OC, JSON.stringify({ model: "deepseek/deepseek-v4-flash" }))
   const { onChatParams, resolveIntendedModel } = await fresh()
   const r = resolveIntendedModel(sandbox, { providerID: "deepseek", modelID: "deepseek-v4-flash" })
-  assert.equal(r.cross_provider, true, "flagged for the log, but NOT refused")
-  assert.equal(r.can_apply, true)
+  assert.equal(r.cross_provider, true)
+  assert.equal(r.can_apply, false, "cannot switch providers via this hook")
   const output = { options: {} }
   await onChatParams({ _directory: sandbox, model: { providerID: "deepseek", modelID: "deepseek-v4-flash" } }, output)
-  assert.equal(output.options.model, "opencode-go/mimo-v2.5", "full provider/model id so the host can re-resolve the provider")
+  assert.equal(output.options.model, undefined, "no foreign-provider id injected — the turn is left intact")
 })
 
 test("already-coherent turn is a no-op", async () => {
@@ -79,5 +82,5 @@ test("chat.headers mirrors the override with the full intended id", async () => 
   const { onChatHeaders } = await fresh()
   const output = { headers: {} }
   await onChatHeaders({ _directory: sandbox, model: { providerID: "openrouter", modelID: "cheap-model" } }, output)
-  assert.equal(output.headers["x-vibeos-model"], "openrouter/big-brain", "header carries the intended tier model")
+  assert.equal(output.headers["x-vibeos-model"], "big-brain", "header carries the intended tier model id")
 })

@@ -54,10 +54,14 @@ export function resolveIntendedModel(projectDir, inputModel) {
     input_model: inModel,
     input_full: inFull,
     cross_provider: !!intended.providerID && !!inProvider && intended.providerID !== inProvider,
-    // Apply whenever the live turn's model differs from the tier's model — including a
-    // different provider. We send the FULL "provider/model" id so OpenCode can re-resolve
-    // the provider from the model string. The live log proves whether the host honors it.
-    can_apply: !!intendedFull && !matches,
+    // LIVE-PROVEN CONSTRAINT (2026-06-24): chat.params/chat.headers cannot change the
+    // provider. OpenCode keeps the resolved provider fixed; output.options.model only
+    // changes the MODEL STRING sent to that provider. Sending a foreign-provider model id
+    // (e.g. opencode/big-pickle into an openrouter call) errors "not a valid model ID" and
+    // FAILS the turn. So we only override when the tier model is on the SAME provider as
+    // the resolved turn. Cross-provider is logged but NOT injected (would break the turn).
+    can_apply: !!intended.modelID && !matches &&
+      (!inProvider || !intended.providerID || inProvider === intended.providerID),
     already_correct: matches,
   }
 }
@@ -69,13 +73,17 @@ export async function onChatParams(input, output) {
       console.error(`[vibeOS] chat.params: coherent — slot=${r.active_slot} model=${r.input_full} (no override)`)
       return
     }
+    if (r.cross_provider && !r.can_apply) {
+      // The tier the user picked lives on a different provider than the turn resolved to.
+      // We cannot switch providers here (proven: injecting a foreign id fails the turn).
+      console.error(`[vibeOS] chat.params: cross-provider — tier wants ${r.intended_full} but turn is on provider '${r.input_provider}'; NOT overriding (would fail the turn). Same-provider tiers switch; cross-provider needs subagent/per-prompt model binding.`)
+      return
+    }
     if (r.can_apply) {
       output.options = output.options || {}
-      // Redirect the outbound request to the tier's model. Full "provider/model" id so a
-      // provider switch (cheap→medium→brain across different providers) can re-resolve.
-      output.options.model = r.intended_full
-      const note = r.cross_provider ? " [cross-provider — live turn will confirm host honors it]" : ""
-      console.error(`[vibeOS] chat.params: OVERRIDE slot=${r.active_slot} ${r.input_full} -> ${r.intended_full}${note}`)
+      // Provider is already fixed by OpenCode; set only the MODEL ID within that provider.
+      output.options.model = r.modelID
+      console.error(`[vibeOS] chat.params: OVERRIDE slot=${r.active_slot} ${r.input_full} -> ${r.input_provider || r.providerID}/${r.modelID}`)
     }
   } catch (err) {
     console.error("[vibeOS] chat.params hook failed (non-fatal):", err?.message || err)
@@ -88,7 +96,7 @@ export async function onChatHeaders(input, output) {
     if (r.can_apply) {
       output.headers = output.headers || {}
       // Gateways that route by header (instead of body) read it here. Harmless when ignored.
-      output.headers["x-vibeos-model"] = r.intended_full
+      output.headers["x-vibeos-model"] = r.modelID
     }
   } catch (err) {
     console.error("[vibeOS] chat.headers hook failed (non-fatal):", err?.message || err)
