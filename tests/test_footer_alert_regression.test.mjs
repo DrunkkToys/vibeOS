@@ -3,9 +3,10 @@
 // Guards against stale .ts compilation overwriting fixed .js
 import { test, after } from "node:test"
 import assert from "node:assert/strict"
-import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync } from "node:fs"
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { pathToFileURL } from "node:url"
 
 const sandbox = mkdtempSync(join(tmpdir(), "vibeos-footer-alert-"))
 mkdirSync(join(sandbox, ".claude"), { recursive: true })
@@ -236,4 +237,53 @@ test("footer: re-paints rich footer after streaming wipes an earlier paint", asy
     await _appendFooter({ message: { id: "msg_stream_x" }, args: { model: "deepseek/v4-flash" } }, full)
     const footerCount = (full.message.parts[0].text.match(/— ⚡|— ◐|— 🧠/g) || []).length
     assert.equal(footerCount, 1, "footer must not double on re-fire: " + full.message.parts[0].text.slice(-160))
+})
+
+test("footer: bundled runtime records probe entries and split provider/model labels", async () => {
+    writeTiers({
+        active_slot: "cheap",
+        requested_optimization_mode: "vibeultrax",
+        optimization_mode: "vibeultrax",
+        vector_changed_slot: undefined,
+    })
+    const bundleUrl = pathToFileURL(join(process.cwd(), "dist", "vibeOS.js")).href
+    const mod = await import(bundleUrl + "?footer-probe=" + Date.now())
+    const { DelegationEnforcer } = mod
+    const dir = join(sandbox, ".opencode-footer-probe")
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "opencode/big-pickle" }, null, 2))
+    const hooks = await DelegationEnforcer({ client: { model: "opencode/big-pickle" }, directory: dir })
+
+    const textOut = { text: "This bundled runtime footer probe test message is long enough to trigger the footer path and record its probe." }
+    await hooks["experimental.text.complete"]({ messageID: "probe-text-1", args: { model: "opencode/big-pickle" } }, textOut)
+    assert.ok(textOut.text.includes("⚡ cheap | Opencode | Big Pickle"), "bundle footer should split provider and model: " + textOut.text.slice(-180))
+
+    const updatedOut = { text: "This bundled runtime message.updated probe is also long enough to exercise the same footer path." }
+    await hooks["message.updated"]({ messageID: "probe-updated-1", args: { model: "opencode/big-pickle" } }, updatedOut)
+    assert.ok(updatedOut.text.includes("⚡ cheap | Opencode | Big Pickle"), "message.updated footer should stay split: " + updatedOut.text.slice(-180))
+
+    const eventsDir = join(sandbox, ".claude", "session-events")
+    const probes = []
+    if (existsSync(eventsDir)) {
+        for (const file of readdirSync(eventsDir)) {
+            if (!file.endsWith(".jsonl")) continue
+            const raw = readFileSync(join(eventsDir, file), "utf8").trim()
+            if (!raw) continue
+            for (const line of raw.split("\n")) {
+                try {
+                    const event = JSON.parse(line)
+                    if (event?.kind === "footer-probe") probes.push(event)
+                } catch {}
+            }
+        }
+    }
+
+    const textProbe = probes.find((event) => event.hook === "experimental.text.complete" && event.builder === "fallback")
+    const updatedProbe = probes.find((event) => event.hook === "message.updated" && event.builder === "fallback")
+    assert.ok(textProbe, "expected a fallback footer probe for experimental.text.complete")
+    assert.ok(updatedProbe, "expected a fallback footer probe for message.updated")
+    assert.equal(textProbe.provider_label, "Opencode")
+    assert.equal(textProbe.model_name, "Big Pickle")
+    assert.equal(updatedProbe.provider_label, "Opencode")
+    assert.equal(updatedProbe.model_name, "Big Pickle")
 })

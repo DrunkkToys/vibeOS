@@ -140,7 +140,43 @@ function buildRewardInput({
 let _footerCacheText = ""
 let _footerCacheTs = 0
 
-async function _appendFooter(input, output, directory, lastModelError?: string) {
+function recordFooterProbe(input: {
+  hook: string
+  builder: string
+  providerLabel?: string
+  provider?: string
+  modelId?: string
+  modelName?: string
+  activeSlot?: string
+  sessionSlot?: string
+  mode?: string
+  messageID?: string | null
+  footerLine?: string
+}) {
+  try {
+    const sid = getSessionId()
+    if (!sid) return
+    const dir = join(getVibeOSHome(), "session-events")
+    mkdirSync(dir, { recursive: true })
+    appendFileSync(join(dir, `${sid}.jsonl`), JSON.stringify({
+      ts: new Date().toISOString(),
+      kind: "footer-probe",
+      hook: input.hook,
+      builder: input.builder,
+      provider_label: input.providerLabel || "",
+      provider: input.provider || "",
+      model_id: input.modelId || "",
+      model_name: input.modelName || "",
+      active_slot: input.activeSlot || "",
+      session_slot: input.sessionSlot || "",
+      mode: input.mode || "",
+      message_id: input.messageID || null,
+      footer_line: input.footerLine || "",
+    }) + "\n")
+  } catch {}
+}
+
+async function _appendFooter(input, output, directory, lastModelError?: string, hookName = "experimental.text.complete") {
   _refreshModel(directory)
   let _footerStress = 0
   if (latestUserIntent) _footerStress = scoreStress(latestUserIntent)
@@ -321,18 +357,6 @@ async function _appendFooter(input, output, directory, lastModelError?: string) 
     const footerSuffix = /\n\n\u2014 [^\n]+\u2014\s*$/
     const hasExistingFooter = footerSuffix.test(text)
     const stripped = hasExistingFooter ? text.replace(footerSuffix, "").trimEnd() : text
-    if (hasExistingFooter) return
-    if (stripped === _lastStrippedText && !claimTag) return
-    // Streaming-aware dedup. We already painted this messageID once; skip the
-    // re-call UNLESS the message text has grown — which means OpenCode streamed
-    // more text and wiped the footer we painted on an earlier chunk, so the
-    // final text must be re-painted (otherwise the basic ensureFooterFallback
-    // footer with the raw live model wins). A redundant duplicate call carries
-    // the same-or-shorter text and is correctly skipped here.
-    if (messageID && textCompletePainted.has(messageID)) {
-      const paintedLen = textCompletePainted.get(messageID)
-      if (stripped.length <= paintedLen && !claimTag) return
-    }
     const ltTotal = ltTasks + ltCache
     // SINGLE SOURCE OF TRUTH: the tier icon must describe the model that ACTUALLY ran
     // this turn — the live model the footer already resolved (ultraLiveModel =
@@ -512,6 +536,31 @@ async function _appendFooter(input, output, directory, lastModelError?: string) 
       rewardTag: _rewardTag || undefined,
       alertTag: _alertTag || undefined,
     })
+    recordFooterProbe({
+      hook: hookName,
+      builder: "rich",
+      providerLabel: execution.provider_label,
+      provider: execution.provider,
+      modelId: execution.model,
+      modelName: modelDisplayName(execution.model),
+      activeSlot,
+      sessionSlot,
+      mode: displayMode,
+      messageID,
+      footerLine: vibeLine,
+    })
+    if (hasExistingFooter) return
+    if (stripped === _lastStrippedText && !claimTag) return
+    // Streaming-aware dedup. We already painted this messageID once; skip the
+    // re-call UNLESS the message text has grown — which means OpenCode streamed
+    // more text and wiped the footer we painted on an earlier chunk, so the
+    // final text must be re-painted (otherwise the basic ensureFooterFallback
+    // footer with the raw live model wins). A redundant duplicate call carries
+    // the same-or-shorter text and is correctly skipped here.
+    if (messageID && textCompletePainted.has(messageID)) {
+      const paintedLen = textCompletePainted.get(messageID)
+      if (stripped.length <= paintedLen && !claimTag) return
+    }
     try {
       recordLiveSessionSnapshot({
         sessionId: sid,

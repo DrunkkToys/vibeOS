@@ -7,7 +7,7 @@
  * control, live savings footer, TDD enforcer, flow enforcer, project guard,
  * research audit, reporting, decision engine, context7 optimization, and more.
  */
-import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, renameSync, statSync } from "node:fs"
+import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, renameSync, statSync, appendFileSync } from "node:fs"
 import { join, dirname, basename } from "node:path"
 import { getFlowWarns, ensureProjectDocs, syncFlowTodosToNative } from "./vibeOS-lib/flow-enforcer.js"
 import { computeSessionMetrics } from "./vibeOS-lib/session-metrics.js"
@@ -147,7 +147,7 @@ function scanClaimsInOutput(output) {
     appendFileSync(auditFile, entry + String.fromCharCode(10))
   } catch {}
 }
-function ensureFooterFallback(input, output, directory) {
+function ensureFooterFallback(input, output, directory, hookName = "fallback") {
   try {
     const messageID =
       input?.messageID ||
@@ -202,6 +202,28 @@ function ensureFooterFallback(input, output, directory) {
       providerLabel: fallbackExecution.provider_label || "Unknown",
       modelName: modelDisplayName(fallbackExecution.model || resolvedModel || "unknown"),
     })}`
+    try {
+      const sid = getCurrentSessionId()
+      if (sid) {
+        const eventsDir = join(getVibeOSHome(), "session-events")
+        mkdirSync(eventsDir, { recursive: true })
+        appendFileSync(join(eventsDir, `${sid}.jsonl`), JSON.stringify({
+          ts: new Date().toISOString(),
+          kind: "footer-probe",
+          hook: hookName,
+          builder: "fallback",
+          provider_label: fallbackExecution.provider_label || "",
+          provider: fallbackExecution.provider || "",
+          model_id: fallbackExecution.model || "",
+          model_name: modelDisplayName(fallbackExecution.model || resolvedModel || "unknown"),
+          active_slot: label,
+          session_slot: loadSelection().active_slot || "",
+          mode: "",
+          message_id: messageID || null,
+          footer_line: footer.split("\n").pop() || "",
+        }) + "\n")
+      }
+    } catch {}
     if (typeof payload?.text === "string") payload.text = footer
     else if (typeof payload?.result === "string") payload.result = footer
     else if (typeof payload?.content === "string") payload.content = footer
@@ -1123,8 +1145,8 @@ export async function DelegationEnforcer({ client, directory } = {}) {
       }
       ensureDeferredBootstrap()
       scanClaimsInOutput(output)
-      await _appendFooter(_input, output, directory)
-      ensureFooterFallback(_input, output, directory)
+      await _appendFooter(_input, output, directory, undefined, "experimental.text.complete")
+      ensureFooterFallback(_input, output, directory, "experimental.text.complete")
       try {
         const auditDir = join(getVibeOSHome(), "cascade-audit")
         const claimFile = join(auditDir, "claim-audit.jsonl")
@@ -1165,8 +1187,8 @@ export async function DelegationEnforcer({ client, directory } = {}) {
       }
       ensureDeferredBootstrap()
       scanClaimsInOutput(output)
-      await _appendFooter(_input, output, directory)
-      ensureFooterFallback(_input, output, directory)
+      await _appendFooter(_input, output, directory, undefined, "message.updated")
+      ensureFooterFallback(_input, output, directory, "message.updated")
       // auto-verify: cross-check against cascade-audit
       try {
         const auditDir = join(getVibeOSHome(), "cascade-audit")
