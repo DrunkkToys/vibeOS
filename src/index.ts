@@ -854,8 +854,11 @@ export async function DelegationEnforcer({ client, directory } = {}) {
   console.error(`[vibeOS] LOADED cwd=${directory}`)
   const hookHome = process.env.HOME || USER_HOME
   const hookFp = projectFingerprint(directory || "")
+  // Use the single canonical session id (runtime-state, memoized on globalThis) rather
+  // than minting a fresh "opencode-<pid>-<Date.now()>" here. A separate id here made
+  // currentSessionId diverge from _OC_SID, fragmenting per-session state across keys.
   if (!globalThis.__vibeOS_sessionId) {
-    globalThis.__vibeOS_sessionId = `opencode-${process.pid || "x"}-${Date.now()}`
+    globalThis.__vibeOS_sessionId = _OC_SID
   }
   const hookSessionId = globalThis.__vibeOS_sessionId
   // Wire the live OpenCode SDK client so the orchestrator can actually switch the

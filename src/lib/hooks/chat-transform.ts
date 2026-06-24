@@ -4,7 +4,7 @@ import { join, dirname, basename } from "node:path"
 import { createHash } from "node:crypto"
 import {
   currentTier, currentModel, currentProjectFingerprint, currentProjectName,
-  _OC_SID, _modelLocked, _blackboxEnabled,
+  _modelLocked, _blackboxEnabled,
   loadSelection, writeSelection, _readLifetimeSavings,
   _updateState, _withFileLock, safeJsonParse, applyDecadence,
   getSessionScratchpadDir, ensureSessionScratchpadDirs, _getSessionIndexPath,
@@ -24,6 +24,7 @@ import {
   loadSessionOrchestration,
   _cacheDb, recordCacheSaving, getOpenCodeHome, getVibeOSHome, safeCopyIntoSession,
 } from "../state.js"
+import { getOcSessionId } from "../runtime-state.js"
 import { nextTurn } from "../turn-memo.js"
 import { evaluateClaimVerification } from "../claim-verification.js"
 import { projectTreeDirective, recordProjectFact } from "../project-tree.js"
@@ -168,7 +169,12 @@ function updateOpenCodeConfig(mutator: (oc: unknown) => boolean | void): boolean
 }
 
 let latestUserIntent = null
-let _OC_SID = "opencode-" + (process.pid || "x") + "-" + Date.now()
+// Use the single canonical session id (from runtime-state, memoized on globalThis).
+// Previously this module minted its own "opencode-<pid>-<Date.now()>" id, which
+// diverged from the id the blackbox *reader* (turn-classify) used — so the writer
+// saved resolution history under one key and the reader looked under another,
+// leaving every session frozen at INIT. getOcSessionId() guarantees read==write.
+const _OC_SID = getOcSessionId()
 let _latestBlackboxState = null
 let _latestBlackboxLoopMsg = null
 let _latestBlackboxPivotMsg = null
@@ -469,13 +475,18 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
     }
 
     if (isManualMode) {
+      // Manual modes (vibeultrax, etc.) keep the mode's configured cascade stable.
+      // Without this branch, the per-turn cv.pipeline_root write below — which
+      // legitimately collapses to a single tier whenever a turn doesn't need
+      // escalation — clobbers the full cascade right after it's set, permanently
+      // failing the `active_pipeline.length > 1` gate in tool-execute.ts and
+      // silently disabling cascade escalation for the rest of the mode session.
       const allEntries = [...BRANDED_MODES, ...RUNTIME_MODES]
       const modeEntry = allEntries.find((e: unknown) => e.id === userOptMode)
       if (modeEntry) {
         writeIf("active_pipeline", JSON.stringify(modeEntry.pipeline))
       }
-    }
-    if (cv?.pipeline_root && Array.isArray(cv.pipeline_root)) {
+    } else if (cv?.pipeline_root && Array.isArray(cv.pipeline_root)) {
       writeIf("active_pipeline", JSON.stringify(cv.pipeline_root))
     } else if (cv?.cascade_depth && cv.cascade_depth >= 3) {
       writeIf("active_pipeline", JSON.stringify(["cheap", "medium", "brain"]))
