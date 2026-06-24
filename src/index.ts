@@ -28,6 +28,7 @@ import { _appendFooter, didTextCompletePainted } from "./lib/hooks/footer.js"
 import { buildFallbackFooterLine } from "./lib/hooks/shared-footer.js"
 import { onToolExecuteBefore, onToolExecuteAfter, setToolDirectory } from "./lib/hooks/tool-execute.js"
 import { onMessagesTransform, onSystemTransform, latestUserIntent, ensureProjectSkill } from "./lib/hooks/chat-transform.js"
+import { onChatParams, onChatHeaders, setChatParamsDirectory } from "./lib/hooks/chat-params.js"
 import { onSessionCompacting } from "./lib/hooks/session-compact.js"
 import { onShellEnv, setShellDirectory } from "./lib/hooks/shell-env.js"
 import { getOpenCodeHome, getVibeOSHome } from "./lib/state.js"
@@ -1072,6 +1073,18 @@ export async function DelegationEnforcer({ client, directory } = {}) {
       }
       onToolExecuteAfter._directory = directory
       return onToolExecuteAfter(input, output)
+    },
+    "chat.params": async (_input, output) => {
+      setVibeOSHomeContext(hookVibeHome)
+      if (typeof setChatParamsDirectory === "function") setChatParamsDirectory(directory || "")
+      _input._directory = directory
+      return onChatParams(_input, output)
+    },
+    "chat.headers": async (_input, output) => {
+      setVibeOSHomeContext(hookVibeHome)
+      if (typeof setChatParamsDirectory === "function") setChatParamsDirectory(directory || "")
+      _input._directory = directory
+      return onChatHeaders(_input, output)
     },
     "experimental.chat.messages.transform": async (_input, output) => {
       ensureDeferredBootstrap()
