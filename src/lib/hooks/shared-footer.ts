@@ -131,6 +131,15 @@ export function formatSavingsPulse(amountUsd: number, trend?: string): string {
   return `$${amount.toFixed(2)} saved${arrow !== "→" ? ` ${arrow}` : ""}`
 }
 
+export function buildFallbackFooterLine(opts: {
+  activeSlot: string
+  providerLabel: string
+  modelName: string
+}): string {
+  const tierIcon = resolveTierIcon(opts.activeSlot)
+  return `— ${tierIcon} ${opts.activeSlot} | ${opts.providerLabel} | ${opts.modelName} —`
+}
+
 export function buildEnforcementTags(opts: {
   delegationEnforce: boolean
   flowEnforce: boolean

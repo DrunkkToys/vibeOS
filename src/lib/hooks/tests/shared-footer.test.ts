@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { buildEnforcementTags, buildFooterLine, formatEnforcementPulse, formatModeLabel, formatSavingsPulse, formatVectorPulse, resolveBrand, resolveRegimeIcon, resolveTierIcon, trendGlyph } from "../shared-footer.js"
+import { buildEnforcementTags, buildFallbackFooterLine, buildFooterLine, formatEnforcementPulse, formatModeLabel, formatSavingsPulse, formatVectorPulse, resolveBrand, resolveRegimeIcon, resolveTierIcon, trendGlyph } from "../shared-footer.js"
 
 test("shared-footer resolves the expected brand names", () => {
   assert.equal(resolveBrand("vibemax", "brain"), "VibeMaX")
@@ -94,6 +94,16 @@ test("shared-footer keeps the footer compact while showing savings and slot stat
   assert.ok(line.includes("VibeMaX ⚡"))
   assert.ok(line.includes("guarded"))
   assert.ok(line.includes("⟡ cheap"))
+})
+
+test("shared-footer formats the fallback footer with split provider and model labels", () => {
+  const line = buildFallbackFooterLine({
+    activeSlot: "cheap",
+    providerLabel: "Opencode",
+    modelName: "Big Pickle",
+  })
+
+  assert.equal(line, "— ⚡ cheap | Opencode | Big Pickle —")
 })
 
 test("shared-footer renders experimental regime tags cleanly", () => {

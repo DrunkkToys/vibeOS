@@ -13,7 +13,7 @@ import { getFlowWarns, ensureProjectDocs, syncFlowTodosToNative } from "./vibeOS
 import { computeSessionMetrics } from "./vibeOS-lib/session-metrics.js"
 import { createMcpServer, writeDashboardBaseConfig } from "./lib/vibeos-mcp-server.js"
 import { isApiConnected, isApiFallback, getBackendVersion, getApiFallbackSince, setApiToken, setApiBootstrapToken, ensureBootstrapExchange, VIBEOS_API_URL } from "./lib/api-client.js"
-import { applySlot, modelCostPerTurn, detectContext7, formatUsd, classify, resolveEffectiveTier, _refreshModel, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, readConfig, getTrinitySlotOrder, loadTrinitySlotsFromTiersFile, isModelFree, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP } from "./lib/pricing.js"
+import { applySlot, modelCostPerTurn, detectContext7, formatUsd, classify, resolveEffectiveTier, _refreshModel, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, readConfig, getTrinitySlotOrder, loadTrinitySlotsFromTiersFile, isModelFree, resolveCurrentExecution, modelDisplayName, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP } from "./lib/pricing.js"
 import { scoreStress, detectTechStack, loadBlackboxState, saveBlackboxState, getBlackboxTracker, getBlackboxResolution, saveOptimizationMode, resetBlackboxTracker } from "./lib/turn-classify.js"
 import { safeJsonParse, readFullState, loadSelection, writeSelection, readLifetimeSavings, _OC_SID, _modelLocked, _blackboxEnabled, setBlackboxEnabled, _lockedSlot, _lockedModel, setModelLocked, setLockedSlot, setLockedModel, currentTier, currentModel, currentProjectFingerprint, currentProjectName, setCurrentTier, setCurrentModel, setCurrentProjectFingerprint, setCurrentProjectName, setCurrentSessionId, getCurrentSessionId, briefedProjects, _latestBlackboxState, _latestBlackboxLoopMsg, _latestBlackboxPivotMsg, getActiveJobForProject, projectFingerprint, loadProjectState, saveProjectState, ensureProjectBucket, mergeProjectBucket, setVibeOSHomeContext, SAVINGS_LEDGER_FILE, USER_HOME, CREDIT_CACHE_F, pruneScratchpadOnce, registerSessionCleanupHandlers, runStartupMaintenanceOnce, promotedProjectPatterns, projectPatternRows, clearProjectPatterns, loadTodos, getTodos, upsertTodo, markTodoDone, tool, loadSessionOrchestration, mutateSessionOrchestration } from "./lib/state.js"
 import { researchAudit } from "./lib/research-audit.js"
@@ -25,6 +25,7 @@ import { loadCredit, thinkingLevel, _lazyRefresh, _readAuth } from "./lib/credit
 import { createTrinityTool } from "./lib/trinity-tool.js"
 import { classifyAndRankModels, modelToCcAlias, discoverAvailableModels, probeModel } from "./lib/trinity-rebuild.js"
 import { _appendFooter, didTextCompletePainted } from "./lib/hooks/footer.js"
+import { buildFallbackFooterLine } from "./lib/hooks/shared-footer.js"
 import { onToolExecuteBefore, onToolExecuteAfter, setToolDirectory } from "./lib/hooks/tool-execute.js"
 import { onMessagesTransform, onSystemTransform, latestUserIntent, ensureProjectSkill } from "./lib/hooks/chat-transform.js"
 import { onSessionCompacting } from "./lib/hooks/session-compact.js"
@@ -181,9 +182,25 @@ function ensureFooterFallback(input, output, directory) {
         : TRINITY_CHEAP
     const resolvedModel = currentModel || readConfig(directory) || readConfig(getOpenCodeHome()) || process?.env?.OPENCODE_MODEL || slotModel || ""
     const resolvedTier = String(currentTier || classify(resolvedModel) || "").toLowerCase()
-    const icon = resolvedTier === "high" ? "🧠" : resolvedTier === "mid" ? "◐" : "⚡"
     const label = resolvedTier === "high" ? "brain" : resolvedTier === "mid" ? "medium" : "cheap"
-    const footer = `${currentText}\n\n— ${icon} ${label} | ${resolvedModel || "unknown"} —`
+    const fallbackExecution = resolveCurrentExecution({
+      directory,
+      activeSlot: loadSelection().active_slot || label,
+      currentModel,
+      liveModel: resolvedModel,
+      tiersData: {
+        trinity: {
+          brain: { oc: TRINITY_BRAIN || currentModel },
+          medium: { oc: TRINITY_MEDIUM || currentModel },
+          cheap: { oc: TRINITY_CHEAP || currentModel },
+        },
+      },
+    })
+    const footer = `${currentText}\n\n${buildFallbackFooterLine({
+      activeSlot: label,
+      providerLabel: fallbackExecution.provider_label || "Unknown",
+      modelName: modelDisplayName(fallbackExecution.model || resolvedModel || "unknown"),
+    })}`
     if (typeof payload?.text === "string") payload.text = footer
     else if (typeof payload?.result === "string") payload.result = footer
     else if (typeof payload?.content === "string") payload.content = footer
