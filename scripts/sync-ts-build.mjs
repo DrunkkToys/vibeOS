@@ -11,7 +11,7 @@ const libModules = [
 ]
 
 const hookModules = [
-  "footer", "tool-execute", "chat-transform", "session-compact", "shell-env", "shared-footer",
+  "footer", "tool-execute", "chat-transform", "chat-params", "session-compact", "shell-env", "shared-footer",
 ]
 
 const cleanupPaths = [
