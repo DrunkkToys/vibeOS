@@ -20,12 +20,12 @@ export function _resetTrinitySlotsForTest(): void {
  * context7 detection, per-turn cost estimation, and slot management.
  */
 
-import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, statSync, copyFileSync, renameSync, openSync, closeSync, rmSync, readdirSync } from "node:fs"
-import { join, dirname, basename, resolve } from "node:path"
+import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync, renameSync, openSync, closeSync, rmSync, readdirSync } from "node:fs"
+import { join, dirname, resolve } from "node:path"
 import { homedir, tmpdir } from "node:os"
 import { createHash } from "node:crypto"
-import { currentModel, currentTier, setCurrentModel, setCurrentTier, safeJsonParse, HIGH_TIER_RE, MID_TIER_RE, loadTierRegexes, _modelLocked, VIBEOS_HOME, OPENCODE_HOME, getCurrentSessionId, withFileLock, _handleStateCorruption, getOpenCodeHome, getVibeOSHome } from "./state.js"
-import { loadSelection as loadSel, DFLT_SEL, sanitizeSelection } from "./selection-manager.js"
+import { currentModel, currentTier, setCurrentModel, setCurrentTier, safeJsonParse, HIGH_TIER_RE, MID_TIER_RE, loadTierRegexes, _modelLocked, withFileLock, _handleStateCorruption, getOpenCodeHome, getVibeOSHome } from "./state.js"
+import { loadSelection as loadSel, sanitizeSelection } from "./selection-manager.js"
 
 export { HIGH_TIER_RE, MID_TIER_RE, loadTierRegexes }
 
@@ -38,7 +38,7 @@ function getOpenCodeDesktopHome() {
   return process.env.VIBEOS_OPENCODE_DESKTOP_HOME || join(process.env.HOME || homedir(), "Library", "Application Support", "ai.opencode.desktop")
 }
 
-const TIERS_FILE = join(getVibeOSHome(), "model-tiers.json")
+const _TIERS_FILE = join(getVibeOSHome(), "model-tiers.json")
 
 // ── State paths ─────────────────────────────────────────────────────
 // ── File locking ────────────────────────────────────────────────────
@@ -63,7 +63,7 @@ function withFileLock(filePath, fn, opts = {}) {
         try { closeSync(fd) } catch {}
         try { rmSync(lockPath, { force: true }) } catch {}
       }
-    } catch (err) {
+    } catch {
       try {
         if (existsSync(lockPath)) {
           const age = Date.now() - statSync(lockPath).mtimeMs
@@ -140,7 +140,7 @@ export function resolveExecutionIdentity(modelId: string, directory = "") {
   const raw = String(modelId || "").trim()
   const resolved = resolveDisplayModelId(raw, directory) || raw
   const provider = getModelProvider(resolved) || getModelProvider(raw) || ""
-  const normalized = normalizeModelId(resolved || raw)
+  const _normalized = normalizeModelId(resolved || raw)
   const quality = isModelFree(resolved || raw)
     ? "free"
     : classify(resolved || raw) === "high"
@@ -169,7 +169,7 @@ export function resolveCurrentExecution({
   activeSlot?: string
   currentModel?: string
   liveModel?: string
-  tiersData?: any
+  tiersData?: unknown
 } = {}) {
   const slot = String(activeSlot || "").trim()
   const slotModel = slot && tiersData?.trinity?.[slot]?.oc ? tiersData.trinity[slot].oc : ""
@@ -232,7 +232,7 @@ export function _providerOfModel(modelId: string, fallbackProvider = "") {
   return provider || String(fallbackProvider || "").trim()
 }
 
-export function _sortByQualityDesc(models: any[] = []) {
+export function _sortByQualityDesc(models: unknown[] = []) {
   return [...models].sort((a, b) => {
     const ar = classify(a?.id) === "high" ? 3 : classify(a?.id) === "mid" ? 2 : 1
     const br = classify(b?.id) === "high" ? 3 : classify(b?.id) === "mid" ? 2 : 1
@@ -244,7 +244,7 @@ export function _sortByQualityDesc(models: any[] = []) {
   })
 }
 
-export function _sortByCostAsc(models: any[] = []) {
+export function _sortByCostAsc(models: unknown[] = []) {
   return [...models].sort((a, b) => {
     const af = isModelFree(a?.id) ? 0 : 1
     const bf = isModelFree(b?.id) ? 0 : 1
@@ -259,7 +259,7 @@ export function _sortByCostAsc(models: any[] = []) {
   })
 }
 
-export function buildDeterministicTrinity(models: any[], options: {
+export function buildDeterministicTrinity(models: unknown[], options: {
   selectedModelId?: string
   provider?: string
 } = {}) {
@@ -332,7 +332,7 @@ export function trendDisplay(sesTrend) {
 // DeepSeek v4-pro: $0.14 - $0.0028 = $0.1372. General heuristic ~$0.10 across providers.
 const CACHE_SAVED_PER_1M_INPUT_TOKENS = 0.10
 // Approximate bytes per token for JSON/text content (varies 3-6, use 4 as safe estimate).
-const BYTES_PER_TOKEN = 4
+const _BYTES_PER_TOKEN = 4
 // Average tokens per turn for cost estimation heuristic.
 const AVG_TOKENS_PER_TURN = 375
 
@@ -680,7 +680,7 @@ function _loadDynamicPricingCache() {
 function _dynamicCostFor(model) {
   const key = normalizeModelId(model)
   const cache = _loadDynamicPricingCache()
-  const map = _getNormalizedCostMap()
+  const _map = _getNormalizedCostMap()
   if (Object.prototype.hasOwnProperty.call(cache, key)) return cache[key]
   for (const [k, v] of Object.entries(cache)) {
     if (key === k) return v
@@ -897,7 +897,7 @@ export function isDocsTarget(s) {
 }
 
 // Per-process dedup so the same docs URL doesn't nudge twice.
-const context7Seen = new Set()
+const _context7Seen = new Set()
 
 export function readConfig(dir) {
   try {
@@ -1154,7 +1154,7 @@ export function _refreshModel(directory) {
 let _pendingLiveSwitch: { model: string, projectDir: string } | null = null
 
 async function pushLiveModelSwitch(model: string, projectDir: string): Promise<boolean> {
-  const _oc = (globalThis as any)?.__vibeOS_client?.config
+  const _oc = (globalThis as unknown)?.__vibeOS_client?.config
   if (!_oc || typeof _oc.update !== "function") {
     // No live client wired — the SDK switch can't fire. opencode.json was already
     // rewritten by the caller (applySlot), so NEW sessions still pick up the model,
@@ -1169,7 +1169,7 @@ async function pushLiveModelSwitch(model: string, projectDir: string): Promise<b
     })
     console.error(`[vibeOS] live model switch → ${model}`)
     return true
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error("[vibeOS] live model switch failed:", e?.message || e)
     return false
   }
@@ -1181,7 +1181,7 @@ export async function flushPendingLiveSwitch(): Promise<string | null> {
   _pendingLiveSwitch = null
   // Land the deferred opencode.json write now (turn boundary) so new sessions pick up the
   // model even if the SDK push fails, then fire the live SDK switch for the running app.
-  try { writeLiveOpenCodeModel(projectDir, model) } catch (e: any) {
+  try { writeLiveOpenCodeModel(projectDir, model) } catch (e: unknown) {
     console.error("[vibeOS] flush: opencode.json write failed:", e?.message || e)
   }
   const ok = await pushLiveModelSwitch(model, projectDir)

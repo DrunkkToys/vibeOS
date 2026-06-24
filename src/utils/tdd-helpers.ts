@@ -89,7 +89,7 @@ export function inferFunctionParams(sourceContent, funcName) {
       return m[1].split(",").map(s => {
         const trimmed = s.trim()
         if (!trimmed) return null
-        const nameMatch = trimmed.match(/^\s*((?:public|protected)|static|final|val|var|let|const)?\s*(?:readonly\s+)?(?:[_$a-zA-Z][_$a-zA-Z0-9]*)\s*(?::|(?=\s*=)|(?=\s*[,)]))/)
+        const _nameMatch = trimmed.match(/^\s*((?:public|protected)|static|final|val|var|let|const)?\s*(?:readonly\s+)?(?:[_$a-zA-Z][_$a-zA-Z0-9]*)\s*(?::|(?=\s*=)|(?=\s*[,)]))/)
         const rawName = trimmed.replace(/^[^a-zA-Z_$]*/, "").replace(/[=:].*$/, "").replace(/\s+.*$/, "").trim()
         const defaultMatch = trimmed.match(/=\s*(.+)$/)
         const typeMatch = trimmed.match(/:\s*(\w+)/)
@@ -131,7 +131,7 @@ export function _langComment(lang) {
 
 export function buildQualityAssertionsForFunc(funcName, params, lang, indent) {
   const cmt = _langComment(lang)
-  const nl = lang === "py" || lang === "rb" || lang === "sh" ? "\n" : "\n"
+  const _nl = lang === "py" || lang === "rb" || lang === "sh" ? "\n" : "\n"
   let block = ""
 
   const testValues = params.map(p => {
@@ -211,7 +211,7 @@ export function buildQualityAssertionsForFunc(funcName, params, lang, indent) {
 export function isSkeletonUseless(content) {
   if (!content) return true
   const lines = content.split("\n").filter(l => l.trim() && !l.trim().startsWith("//") && !l.trim().startsWith("#") && !l.trim().startsWith("/*") && !l.trim().startsWith("*"))
-  const todoLines = content.split("\n").filter(l => /TODO|placeholder|smoke|is exported|module loads/.test(l))
+  const _todoLines = content.split("\n").filter(l => /TODO|placeholder|smoke|is exported|module loads/.test(l))
   const meaningfulLines = lines.filter(l => !/TODO|placeholder|smoke|is exported|module loads|throw new Error|raise AssertionError|pytest\.skip|assert.*true/.test(l))
   return meaningfulLines.length < 2
 }

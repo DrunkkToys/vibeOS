@@ -143,7 +143,7 @@ function _parseMetrics(v) {
   return result
 }
 
-function _normalizeReportMetrics(metrics: Record<string, any>): Record<string, any> {
+function _normalizeReportMetrics(metrics: Record<string, unknown>): Record<string, unknown> {
   const out = { ...(metrics || {}) }
   const sessionCost = Number(out.sessionCost ?? out.session_cost ?? out.cost_usd ?? out.session_cost_usd ?? NaN)
   if (Number.isFinite(sessionCost) && typeof out.sessionCost !== "number") out.sessionCost = sessionCost

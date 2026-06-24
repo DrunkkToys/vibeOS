@@ -14,7 +14,7 @@ import { commandFamily, commandFailed } from "../lib/pattern-helpers.js"
 import { hasBypassFlag, targetsProtectedBranch, isDeployCommand } from "../lib/pattern-helpers.js"
 import { upsertProjectPattern } from "../lib/pattern-store.js"
 
-function deriveRole(toolName, input, output) {
+function deriveRole(toolName, input, _output) {
   if (["write","edit","notebookedit","multiedit"].includes(toolName)) return "mutation"
   const cmd = input?.args?.command || ""
   if (typeof cmd !== "string") return "query"
@@ -175,7 +175,7 @@ function getCurrentSid() {
   return globalThis.__vibeOS_SID || _OC_SID || process.env.OPENCODE_SESSION_ID || "unknown"
 }
 
-function getProjectFingerprint(directory) {
+function _getProjectFingerprint(directory) {
   return currentProjectFingerprint || directory || "unknown"
 }
 
@@ -199,7 +199,7 @@ function recordFrictionPattern(key, summary, meta = {}) {
   } catch {}
 }
 
-function observeToolPattern(toolName, input, output, directory) {
+function observeToolPattern(toolName, input, output, _directory) {
   const role = deriveRole(toolName, input, output)
   const tags = deriveTags(input, output)
   const sid = getCurrentSid()
@@ -249,7 +249,7 @@ function sessionCompact(sid, fingerprint) {
   }
 }
 
-function flushSessionAnalysis(sid) {
+function flushSessionAnalysis(_sid) {
 }
 
 export { observeToolPattern, sessionCompact, flushSessionAnalysis, getCurrentSid, getSessionEventLogPath, deriveRole, deriveTags, detectPatterns, writeEvent, readRecentEvents }

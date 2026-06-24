@@ -713,9 +713,10 @@ test("cascade: vibeultrax control vector keeps a three-stage cascade root", asyn
   const cv = vibeultrax.vibeultraxControlVector({ user_text: "implement a multi-step migration with rollback" })
   assert.equal(cv.mode_root, "vibeultrax")
   assert.equal(cv.cascade_depth, 3)
-  assert.equal(cv.tier_bias, "brain", "deep vibeultrax routes should bias to the acting brain tier")
+  assert.equal(cv.tier_bias, "cheap", "deep vibeultrax STARTS on the cheap entry tier and escalates cheap→medium→brain")
   assert.ok(Array.isArray(cv.pipeline_root))
   assert.equal(cv.pipeline_root.join(","), "cheap,medium,brain")
+  assert.equal(cv.tier_bias, cv.pipeline_root[0], "tier_bias must be the cascade entry tier (pipeline_root[0])")
 })
 
 test("cascade: vibeultraxPipeline exports and preserves the three-stage pipeline", async (t) => {

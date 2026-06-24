@@ -47,8 +47,8 @@ function readTreeFile(): { projects: Record<string, ProjectTree> } {
       // Oversized → reset rather than fight a corrupt/runaway file.
       return { projects: {} }
     }
-    const j = safeJsonParse(readFileSync(f, "utf-8"))
-    return j && typeof j === "object" && j.projects ? j : { projects: {} }
+    const j = safeJsonParse(readFileSync(f, "utf-8")) as { projects?: Record<string, ProjectTree> } | null
+    return j && typeof j === "object" && j.projects ? { projects: j.projects } : { projects: {} }
   } catch {
     return { projects: {} }
   }
@@ -100,8 +100,8 @@ export function recordProjectFact(
       renameSync(tmp, f)
       return true
     })
-  } catch (err: any) {
-    console.error("[vibeOS] recordProjectFact failed:", err?.message || err)
+  } catch (err) {
+    console.error("[vibeOS] recordProjectFact failed:", err instanceof Error ? err.message : err)
     return false
   }
 }

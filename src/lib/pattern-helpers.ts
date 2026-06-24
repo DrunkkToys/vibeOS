@@ -32,7 +32,7 @@ export function commandFamily(command: string): string {
   return /^[a-z0-9._/-]{1,30}$/.test(first) ? first : "command"
 }
 
-export function commandFailed(output: any): boolean {
+export function commandFailed(output: unknown): boolean {
   const code = output?.exitCode ?? output?.statusCode ?? output?.code
   if (Number.isFinite(Number(code)) && Number(code) !== 0) return true
   const raw = output?.result ?? output?.text ?? output?.content ?? output?.data ?? ""
@@ -40,15 +40,15 @@ export function commandFailed(output: any): boolean {
   return /\b(exit code|exited with code)\s*[:=]?\s*[1-9]\b|\b(assertionerror|syntaxerror|typeerror|referenceerror)\b|\b(failed|error:|err!)\b/i.test(raw)
 }
 
-export function mergeProjectBucket(dst: any, src: any): any {
+export function mergeProjectBucket(dst: unknown, src: unknown): unknown {
   const a = dst || {}
   const b = src || {}
   const topics = [...new Set([...(a.commonTopics || []), ...(b.commonTopics || [])])].slice(-20)
   const mergePatterns = (kind: string) => {
-    const out: any = {}
+    const out: unknown = {}
     for (const srcObj of [a.userPatterns?.[kind], b.userPatterns?.[kind]]) {
       for (const [key, val] of Object.entries(srcObj || {})) {
-        const v = val as any
+        const v = val as unknown
         const row = out[key] || { count: 0, sessions: [], lastSeen: null, summary: v?.summary || "" }
         row.count += Number(v?.count || 0)
         row.sessions = [...new Set([...(row.sessions || []), ...(v?.sessions || [])])].slice(-10)
@@ -73,11 +73,11 @@ export function mergeProjectBucket(dst: any, src: any): any {
   }
 }
 
-export function _pruneOldSessions(state: any): void {
+export function _pruneOldSessions(state: unknown): void {
   if (!state?.sessions) return
   const entries = Object.entries(state.sessions)
   if (entries.length <= 30) return
-  entries.sort((a: any, b: any) => {
+  entries.sort((a: unknown, b: unknown) => {
     const da = a[1]?.started || a[1]?.last_costed || ""
     const db = b[1]?.started || b[1]?.last_costed || ""
     return db.localeCompare(da)
@@ -85,7 +85,7 @@ export function _pruneOldSessions(state: any): void {
   state.sessions = Object.fromEntries(entries.slice(0, 30))
 }
 
-export function _computeSessionMetrics(state: any, sid: string): any {
+export function _computeSessionMetrics(state: unknown, sid: string): unknown {
   const session = state?.sessions?.[sid] || {}
   const warns = Array.isArray(session?.warns) ? session.warns : []
   const toolCounts = session?.tool_counts || {}

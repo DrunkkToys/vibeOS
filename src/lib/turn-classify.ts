@@ -1,14 +1,12 @@
 // @ts-nocheck
 
-import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, statSync, copyFileSync, renameSync, openSync, closeSync, rmSync } from "node:fs"
-import { join, dirname, basename } from "node:path"
-import { homedir, tmpdir } from "node:os"
-import { createHash } from "node:crypto"
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from "node:fs"
+import { join, dirname } from "node:path"
 import { ResolutionTracker } from "../vibeOS-lib/blackbox/index.js"
-import { safeJsonParse, _blackboxEnabled, setBlackboxEnabled as _setGlobalBlackboxEnabled, USER_HOME, FILE_LOCK_DIR, DELEGATION_STATE_FILE as STATE_FILE, GLOBAL_LEARNING_FILE, BLACKBOX_STATE_FILE, PROJECT_STATE_FILE, _OC_SID, currentProjectFingerprint, currentTier, setCurrentProjectFingerprint, _handleStateCorruption, _lockPathFor, withFileLock, readJsonOrEmpty, validateState, loadBlackboxState, saveBlackboxState, loadGlobalLearning, updateGlobalLearning, getLearnedExploratoryWords, projectFingerprint, loadProjectState, saveProjectState, detectTechStack, ensureProjectBucket, recordMissedContext7, VIBEOS_HOME, recentToolEvents, getVibeOSHome } from "./state.js"
-import { loadSelection, loadSessionOptMode, loadGlobalOptMode, saveGlobalOptMode, writeSelection, writeSessionOptMode, writeSessionSlot, loadSessionSlot } from "./selection-manager.js"
+import { safeJsonParse, _blackboxEnabled, setBlackboxEnabled as _setGlobalBlackboxEnabled, _OC_SID, currentProjectFingerprint, currentTier, setCurrentProjectFingerprint, _handleStateCorruption, _lockPathFor, withFileLock, readJsonOrEmpty, validateState, loadBlackboxState, saveBlackboxState, loadGlobalLearning, updateGlobalLearning, getLearnedExploratoryWords, projectFingerprint, loadProjectState, saveProjectState, detectTechStack, ensureProjectBucket, recordMissedContext7, recentToolEvents, getVibeOSHome } from "./state.js"
+import { loadSelection, loadSessionOptMode, loadGlobalOptMode, saveGlobalOptMode, writeSelection, writeSessionOptMode, writeSessionSlot } from "./selection-manager.js"
 import { getApiClient, isApiFallback } from "./api-client.js"
-import { scoreStress, estimateContextBudget, classifyTurnSimple as _classifyTurnSimple, tokenizeWords, topKeywords, extractLastUserText, isUserAskingForTests, isLikelyOffTopic, detectOutcomeSignal } from "./classifiers.js"
+import { classifyTurnSimple as _classifyTurnSimple } from "./classifiers.js"
 import { vibeqmaxControlVector } from "../vibeOS-lib/blackbox/vibeqmax.js"
 import { vibeultraxControlVector } from "../vibeOS-lib/blackbox/vibeultrax.js"
 export { scoreStress, estimateContextBudget, tokenizeWords, topKeywords, extractLastUserText, isUserAskingForTests, isLikelyOffTopic, detectOutcomeSignal } from "./classifiers.js"
@@ -38,7 +36,7 @@ export async function classifyTurnRemote(text: string): Promise<string> {
       lastAction: "",
       stress: 0,
       state: {},
-    } as any)
+    } as unknown)
     if (res && typeof res === "object" && "sub_regime" in (res as Record<string, unknown>)) {
       _lastClassifiedByApi = true
       _lastApiPredictedMode = (res as Record<string, string>).optimization_mode || ""
@@ -163,7 +161,7 @@ function buildModeRoot(mode: OptimizationMode): { mode_root: string; mode_family
   }
 }
 
-function buildQmaxControlVector(state: { sub_regime?: string; latest_stress_multiplier?: number; user_text?: string; prompt?: string }): any {
+function buildQmaxControlVector(state: { sub_regime?: string; latest_stress_multiplier?: number; user_text?: string; prompt?: string }): unknown {
   const subRegime = String(state?.sub_regime || "INIT").toUpperCase()
   const stress = Number(state?.latest_stress_multiplier ?? 0)
   const text = state?.user_text || state?.prompt || ""
@@ -184,7 +182,7 @@ function buildQmaxControlVector(state: { sub_regime?: string; latest_stress_mult
     stress_multiplier: qmax.stress_multiplier,
     context7_urgency: qmax.context7_urgency,
     wbp_verbosity: qmax.wbp_verbosity,
-    agent_mode: (subRegime === "REFINING" || subRegime === "CONVERGING" || subRegime === "CLOSED") && stress <= QUALITY_STRESS_THRESHOLD ? "plan" : undefined as any,
+    agent_mode: (subRegime === "REFINING" || subRegime === "CONVERGING" || subRegime === "CLOSED") && stress <= QUALITY_STRESS_THRESHOLD ? "plan" : undefined as unknown,
     optimization_mode: "vibeqmax",
     ...buildModeRoot("vibeqmax"),
     qmax_strategy: qmax.qmax_strategy,
@@ -198,7 +196,7 @@ function buildQmaxControlVector(state: { sub_regime?: string; latest_stress_mult
   }
 }
 
-function buildUltraxControlVector(state: { sub_regime?: string; latest_stress_multiplier?: number; user_text?: string; prompt?: string }): any {
+function buildUltraxControlVector(state: { sub_regime?: string; latest_stress_multiplier?: number; user_text?: string; prompt?: string }): unknown {
   const stress = Number(state?.latest_stress_multiplier ?? 0)
   const ultra = vibeultraxControlVector({
     sub_regime: state?.sub_regime || "INIT",
@@ -208,7 +206,7 @@ function buildUltraxControlVector(state: { sub_regime?: string; latest_stress_mu
   return {
     ...ultra,
     enforcement_reason: `[optimize: vibeultrax] cascade root`,
-    agent_mode: ultra.ultrax_profile === "deep" ? "plan" : undefined as any,
+    agent_mode: ultra.ultrax_profile === "deep" ? "plan" : undefined as unknown,
     directives: [`[ultrax root] Dedicated cascade root active for ${state?.sub_regime || "INIT"}.`],
   }
 }
@@ -216,7 +214,7 @@ function buildUltraxControlVector(state: { sub_regime?: string; latest_stress_mu
 function buildOfflineControlVector(
   state: { sub_regime?: string; latest_stress_multiplier?: number },
   mode: OptimizationMode,
-): any {
+): unknown {
   const subRegime = String(state?.sub_regime || "INIT").toUpperCase()
   const stress = Number(state?.latest_stress_multiplier ?? 0)
   const looping = subRegime === "LOOPING"
@@ -248,7 +246,7 @@ function buildOfflineControlVector(
     stress_multiplier: looping ? Math.max(1.5, stress) : 1.0,
     context7_urgency: looping ? "required" : strict ? "required" : "preferred",
     wbp_verbosity: looping ? "detailed" : strict ? "verbose" : relaxed ? "minimal" : "normal",
-    agent_mode: (subRegime === "REFINING" || subRegime === "CONVERGING" || subRegime === "CLOSED") && stress <= QUALITY_STRESS_THRESHOLD ? "plan" : undefined as any,
+    agent_mode: (subRegime === "REFINING" || subRegime === "CONVERGING" || subRegime === "CLOSED") && stress <= QUALITY_STRESS_THRESHOLD ? "plan" : undefined as unknown,
     optimization_mode: hardenedMode,
     ...hardenedRoot,
     outcome_detection: true,
@@ -310,7 +308,7 @@ export async function selectOptimizationModeRemote(
     const client = getApiClient()
     if (client) {
       const res = await client.blackboxSelectMode(subRegime || "INIT", Number(stressMultiplier ?? 0))
-      const selected = normalizeOptimizationMode((res as any)?.mode || "")
+      const selected = normalizeOptimizationMode((res as unknown)?.mode || "")
       if (isSupportedOptimizationMode(selected) && selected !== "auto") return selected
     }
   } catch {}
@@ -321,7 +319,7 @@ function computeControlVector(
   _state: { sub_regime?: string; is_looping?: boolean; loop_intervention_level?: string; momentum?: number; n_interactions?: number; latest_stress_multiplier?: number },
   _action?: string,
   _optimizationMode?: OptimizationMode,
-): any {
+): unknown {
   const mode = resolveOptimizationMode(_state?.sub_regime, _state?.latest_stress_multiplier, _optimizationMode)
   if (mode === "vibeqmax") {
     return buildQmaxControlVector(_state)
@@ -335,7 +333,7 @@ function computeControlVector(
 function buildControlHistoryEntry(
   turn: number,
   regime: string,
-  control: any,
+  control: unknown,
   reward: number | null = null,
 ): Record<string, unknown> {
   return {
@@ -367,7 +365,7 @@ function classifyBlackboxAction(text: string): string {
   return "explore"
 }
 
-function computeBlackboxEntropy(features: any): number {
+function computeBlackboxEntropy(features: unknown): number {
   const questionRatio = Number(features?.question_ratio || 0)
   const complexity = Number(features?.complexity || 0)
   const repetition = Number(features?.repetition || 0)
@@ -375,7 +373,7 @@ function computeBlackboxEntropy(features: any): number {
   return Math.min(2.58, 0.5 + questionRatio * 0.5 + complexity * 0.8 + repetition * 0.6 + instructionDensity * 0.4)
 }
 
-function computeBlackboxUncertainty(features: any): number {
+function computeBlackboxUncertainty(features: unknown): number {
   const questionRatio = Number(features?.question_ratio || 0)
   const codeBlocks = Number(features?.code_blocks || 0)
   const sentiment = Number(features?.sentiment || 0.5)
@@ -383,7 +381,7 @@ function computeBlackboxUncertainty(features: any): number {
   return Math.min(100, Math.max(10, 50 + questionRatio * 40 - codeBlocks * 10 + sentiment * 30 - urgency * 20))
 }
 
-function normalizeBlackboxFeatures(text: string): any {
+function normalizeBlackboxFeatures(text: string): unknown {
   const features = ResolutionTracker.extractFeatures(text)
   return {
     features,
@@ -393,7 +391,7 @@ function normalizeBlackboxFeatures(text: string): any {
   }
 }
 
-function summarizeRecentToolActivity(limit = 5): any {
+function summarizeRecentToolActivity(limit = 5): unknown {
   const events = Array.isArray(recentToolEvents) ? recentToolEvents.slice(-limit) : []
   if (events.length === 0) return null
   const last = events[events.length - 1] || {}
@@ -418,7 +416,7 @@ function summarizeRecentToolActivity(limit = 5): any {
   }
 }
 
-function normalizeBlackboxHistoryEntry(entry: any): any {
+function normalizeBlackboxHistoryEntry(entry: unknown): unknown {
   const text = typeof entry?.text === "string" ? entry.text : ""
   const fallback = normalizeBlackboxFeatures(text)
   const entryFeatures = entry?.features && typeof entry.features === "object" ? { ...fallback.features, ...entry.features } : fallback.features
@@ -436,12 +434,12 @@ function normalizeBlackboxHistoryEntry(entry: any): any {
   }
 }
 
-function normalizeBlackboxHistory(history: any[]): any[] {
+function normalizeBlackboxHistory(history: unknown[]): unknown[] {
   if (!Array.isArray(history)) return []
   return history.map(normalizeBlackboxHistoryEntry)
 }
 
-function createResolutionTracker(data: any): ResolutionTracker {
+function createResolutionTracker(data: unknown): ResolutionTracker {
   const tracker = new ResolutionTracker(data?.sessionId || _OC_SID, data?.maxHistory || 10)
   tracker.history = normalizeBlackboxHistory(data?.history || [])
   tracker.loopCount = Number(data?.loopCount || 0)
@@ -453,40 +451,40 @@ function createResolutionTracker(data: any): ResolutionTracker {
 
 class _BlackboxStub {
   tracker: ResolutionTracker
-  static deserialize(data: any): _BlackboxStub {
+  static deserialize(data: unknown): _BlackboxStub {
     return new _BlackboxStub(data)
   }
-  constructor(data: any = null) {
+  constructor(data: unknown = null) {
     this.tracker = createResolutionTracker(data)
   }
-  update(text: string): any {
+  update(text: string): unknown {
     const normalized = normalizeBlackboxFeatures(text)
     const recentActivity = summarizeRecentToolActivity()
     const state = this.tracker.update(text, normalized.features, normalized.action, normalized.entropy, normalized.uncertainty, null, recentActivity)
     return { ...state, ...normalized }
   }
-  snapshot(): any {
+  snapshot(): unknown {
     return this.tracker.snapshot()
   }
-  serialize(): any {
+  serialize(): unknown {
     return this.tracker.serialize()
   }
-  recordOutcome(outcome: any): void {
+  recordOutcome(outcome: unknown): void {
     this.tracker.recordOutcome(outcome)
   }
-  getLoopIntervention(): any {
+  getLoopIntervention(): unknown {
     return this.tracker.getLoopIntervention()
   }
-  getPivotDirective(): any {
+  getPivotDirective(): unknown {
     return this.tracker.getPivotDirective()
   }
-  setCalibratedWeights(weights: any): void {
+  setCalibratedWeights(weights: unknown): void {
     this.tracker.setCalibratedWeights(weights)
   }
-  getHistory(): any[] {
+  getHistory(): unknown[] {
     return this.tracker.getHistory()
   }
-  getOutcomeHistory(): any[] {
+  getOutcomeHistory(): unknown[] {
     return this.tracker.getOutcomeHistory()
   }
 }
@@ -600,13 +598,13 @@ function getBlackboxResolution() {
   } catch { return null }
 }
 
-function computeLocalCalibration(): any {
+function computeLocalCalibration(): unknown {
   try {
     const calFile = join(getVibeOSHome(), "calibration-data.jsonl")
     if (!existsSync(calFile)) return null
     const lines = readFileSync(calFile, "utf-8").trim().split("\n").filter(Boolean)
     if (lines.length < 10) return null
-    const recent = lines.slice(-50)
+    const _recent = lines.slice(-50)
     const state = loadBlackboxState()
     const allOutcomes = []
     for (const [sid, session] of Object.entries(state.sessions || {})) {
@@ -836,7 +834,7 @@ export function getOC_SID() {
 // Default: "budget" (fresh session / restart). User can lock per session.
 const DFLT_OPTIMIZATION_MODE = "budget"
 
-function recoverOptimizationModeFromSelection(sel: any): string {
+function recoverOptimizationModeFromSelection(sel: unknown): string {
   const slot = String(sel?.active_slot || "").toLowerCase()
   if (slot === "brain") return "quality"
   if (slot === "medium") return "vibemax"
@@ -844,7 +842,7 @@ function recoverOptimizationModeFromSelection(sel: any): string {
   return "budget"
 }
 
-function recoverOptimizationModeFromLiveState(sel: any): string {
+function recoverOptimizationModeFromLiveState(sel: unknown): string {
   const liveTier = String(currentTier || "").toLowerCase()
   if (liveTier === "high") return "quality"
   if (liveTier === "mid") return "vibemax"

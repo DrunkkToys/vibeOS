@@ -13,7 +13,7 @@ import { getFlowWarns, ensureProjectDocs, syncFlowTodosToNative } from "./vibeOS
 import { computeSessionMetrics } from "./vibeOS-lib/session-metrics.js"
 import { createMcpServer, writeDashboardBaseConfig } from "./lib/vibeos-mcp-server.js"
 import { isApiConnected, isApiFallback, getBackendVersion, getApiFallbackSince, setApiToken, setApiBootstrapToken, ensureBootstrapExchange, VIBEOS_API_URL } from "./lib/api-client.js"
-import { applySlot, modelCostPerTurn, detectContext7, formatUsd, classify, resolveEffectiveTier, _refreshModel, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, readConfig, getTrinitySlotOrder, loadTrinitySlotsFromTiersFile, buildDeterministicTrinity, isModelFree, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP } from "./lib/pricing.js"
+import { applySlot, modelCostPerTurn, detectContext7, formatUsd, classify, resolveEffectiveTier, _refreshModel, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, readConfig, getTrinitySlotOrder, loadTrinitySlotsFromTiersFile, isModelFree, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP } from "./lib/pricing.js"
 import { scoreStress, detectTechStack, loadBlackboxState, saveBlackboxState, getBlackboxTracker, getBlackboxResolution, saveOptimizationMode, resetBlackboxTracker } from "./lib/turn-classify.js"
 import { safeJsonParse, readFullState, loadSelection, writeSelection, readLifetimeSavings, _OC_SID, _modelLocked, _blackboxEnabled, setBlackboxEnabled, _lockedSlot, _lockedModel, setModelLocked, setLockedSlot, setLockedModel, currentTier, currentModel, currentProjectFingerprint, currentProjectName, setCurrentTier, setCurrentModel, setCurrentProjectFingerprint, setCurrentProjectName, setCurrentSessionId, getCurrentSessionId, briefedProjects, _latestBlackboxState, _latestBlackboxLoopMsg, _latestBlackboxPivotMsg, getActiveJobForProject, projectFingerprint, loadProjectState, saveProjectState, ensureProjectBucket, mergeProjectBucket, setVibeOSHomeContext, SAVINGS_LEDGER_FILE, USER_HOME, CREDIT_CACHE_F, pruneScratchpadOnce, registerSessionCleanupHandlers, runStartupMaintenanceOnce, promotedProjectPatterns, projectPatternRows, clearProjectPatterns, loadTodos, getTodos, upsertTodo, markTodoDone, tool, loadSessionOrchestration, mutateSessionOrchestration } from "./lib/state.js"
 import { researchAudit } from "./lib/research-audit.js"
@@ -36,10 +36,10 @@ function getTiersFile() {
 function getReportsDir() {
   return join(getVibeOSHome(), "reports")
 }
-function getReportsIndex() {
+function _getReportsIndex() {
   return join(getReportsDir(), "index.json")
 }
-function getStateFile() {
+function _getStateFile() {
   return join(getVibeOSHome(), "delegation-state.json")
 }
 function getMcpRuntimeFile() {
@@ -215,13 +215,13 @@ let _mcpServerShouldRun = false
 let _mcpServerClosing = false
 let _dashboardBaseUrl = null
 let _pluginHooksRuntime = null
-let context7Seen = new Set()
+let _context7Seen = new Set()
 let _prevOutputText = ""
 let _deferredBootstrapDone = false
 let _skillsEnsured = new Set()
 let _runDeferredStartupBootstrap = null
 const footerFallbackPainted = new Set()
-const SAVE_EST = {
+const _SAVE_EST = {
   WRITE_EDIT: 0.005,
   SOFT_QUOTA: 0.0003,
   CONTEXT7: 0.002,
@@ -381,7 +381,7 @@ async function _seedOrRepairModelTiers(directory) {
   }
   catch { }
   const existingTrinity = existing?.trinity && typeof existing.trinity === "object" ? existing.trinity : {}
-  const hasAnyValidSlot = ["brain", "medium", "cheap"].some((slot) => {
+  const _hasAnyValidSlot = ["brain", "medium", "cheap"].some((slot) => {
     const oc = String(existingTrinity?.[slot]?.oc || "").trim()
     return !!oc && !PLACEHOLDER_RE.test(oc)
   })
@@ -405,12 +405,12 @@ async function _seedOrRepairModelTiers(directory) {
   }
   const explicitSeedModel = readExplicitModel(directory)
   const liveModel = explicitSeedModel || String(currentModel || "").trim()
-  const liveTier = liveModel ? classify(liveModel) : ""
+  const _liveTier = liveModel ? classify(liveModel) : ""
   const liveFreeModel = isModelFree(liveModel) ? liveModel : ""
   const seedBrain = explicitSeedModel || freeSeeds[0] || liveFreeModel || DEFAULT_FREE_MODEL
   const seedMedium = freeSeeds[1] || freeSeeds[0] || explicitSeedModel || liveFreeModel || DEFAULT_FREE_MODEL
   const seedCheap = freeSeeds[2] || freeSeeds[1] || freeSeeds[0] || explicitSeedModel || liveFreeModel || DEFAULT_FREE_MODEL
-  const keepExistingSlot = (slotRow: any, fallbackModel: string) => {
+  const keepExistingSlot = (slotRow: unknown, fallbackModel: string) => {
     const currentOc = String(slotRow?.oc || "").trim()
     if (currentOc && !PLACEHOLDER_RE.test(currentOc) && !/placeholder/i.test(currentOc)) {
       return { ...slotRow, cc: slotRow?.cc || modelToCcAlias(currentOc) }
@@ -474,7 +474,7 @@ function _modelTier(id) {
   const mid = MID_TIER_RE?.test?.(id)
   return mid ? "mid" : "budget"
 }
-function backupFile(path, label) {
+function _backupFile(path, label) {
   try {
     if (!existsSync(path))
       return null
@@ -621,7 +621,7 @@ async function ensureMcpServerRunning() {
           getSessionMetrics: () => computeSessionMetrics(readFullState(), _OC_SID),
           getTodos: () => loadTodos(),
           getSessionOrchestration: (sessionId: string) => loadSessionOrchestration(sessionId),
-          mutateSessionOrchestration: (sessionId: string, mutator: (session: any) => any) => mutateSessionOrchestration(sessionId, mutator),
+          mutateSessionOrchestration: (sessionId: string, mutator: (session: unknown) => unknown) => mutateSessionOrchestration(sessionId, mutator),
           listSessionTemplates: () => TEMPLATE_LIBRARY,
           currentProjectName: currentProjectName || "",
           listReports: (filter) => {
@@ -1042,7 +1042,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
           ensureProjectSkill(directory, hookFp)
           _skillsEnsured.add(hookFp)
         }
-        catch (_e) { }
+        catch { }
       }
       onToolExecuteBefore._directory = directory
       return onToolExecuteBefore(input, output)

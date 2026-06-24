@@ -2,7 +2,7 @@
 
 import { existsSync, readFileSync } from "node:fs"
 import { join, dirname } from "node:path"
-import { LABEL_MODES, buildDeterministicTrinity, formatProviderName, formatQualityName, resolveCurrentExecution, resolveExecutionIdentity } from "./pricing.js"
+import { LABEL_MODES, buildDeterministicTrinity, resolveCurrentExecution, resolveExecutionIdentity } from "./pricing.js"
 import { BRANDED_MODES, RUNTIME_MODES, resolveCascadeSlot } from "./mode-router.js"
 import { getBackendVersion, invalidateApiToken, isApiConnected } from "./api-client.js"
 import { getRealityCheckView } from "../vibeOS-lib/flow-enforcer.js"
@@ -94,7 +94,7 @@ export function createTrinityTool(deps) {
       if (!action) action = "status"
       if (["brain", "medium", "cheap"].includes(action)) { slot = action; action = "set" }
       if (action === "gui") action = "dashboard"
-      const keepExistingTrinitySlot = (existingSlot: any, nextModel: string) => {
+      const keepExistingTrinitySlot = (existingSlot: unknown, nextModel: string) => {
         const currentOc = String(existingSlot?.oc || "").trim()
         if (currentOc && !/placeholder/i.test(currentOc) && !/^[^/]+\/[a-z-]+-model$/i.test(currentOc)) {
           return { ...existingSlot, cc: existingSlot?.cc || deps.modelToCcAlias(currentOc) }
@@ -174,8 +174,8 @@ export function createTrinityTool(deps) {
 
         const sv = deps.readLifetimeSavings()
         const ltTotal = (sv.ltTasks || 0) + (sv.ltCache || 0)
-        const sesTasks = sv.sesTasks || 0
-        const sesCache = Number(deps.readFullState()?.sessions?.[deps._OC_SID]?.cache_savings_usd || 0)
+        const _sesTasks = sv.sesTasks || 0
+        const _sesCache = Number(deps.readFullState()?.sessions?.[deps._OC_SID]?.cache_savings_usd || 0)
         const sesWarns = Array.isArray(deps.readFullState()?.sessions?.[deps._OC_SID]?.warns) ? deps.readFullState().sessions[deps._OC_SID].warns.length : 0
         const sesTrend = sv.sesTrend || "stable"
         const sesRate = sv.sesRatePerHour || 0
@@ -481,7 +481,7 @@ export function createTrinityTool(deps) {
             ? `Delegation enforcement ENABLED \u2014 direct writes/edits are blocked on brain tier`
             : `\u274c Failed to write model-tiers.json`
         }
-        const sel = deps.loadSelection()
+        const _sel = deps.loadSelection()
         return `\u{1F6AB} Delegation enforcement: ON (mandatory, blocks direct writes/edits on brain tier)\nUse \`trinity enforce on\` to reapply the guard if needed.`
       }
 
@@ -880,7 +880,7 @@ export function createTrinityTool(deps) {
         const result = deps.ensureProjectDocs(deps.directory, techStack)
         const _fp = deps.projectFingerprint(deps.directory)
         if (_fp) {
-          try { deps.ensureProjectSkill(deps.directory, _fp) } catch (_e) {}
+          try { deps.ensureProjectSkill(deps.directory, _fp) } catch {}
         }
         if (result.created.length === 0 && result.skipped.length > 0) {
           return `AGENTS.md and README.md already exist. Use \`trinity guard\` to check for missing features.`
@@ -896,7 +896,7 @@ export function createTrinityTool(deps) {
 
       if (action === "todo") {
         const todos = deps.loadTodos()
-        const pending = todos.filter((t: any) => t.status === "pending")
+        const pending = todos.filter((t: unknown) => t.status === "pending")
         if (pending.length === 0) return "No pending todos."
         const lines = ["Pending todos: " + pending.length]
         for (const t of pending.slice(0, 20)) {
@@ -911,7 +911,7 @@ export function createTrinityTool(deps) {
         return "Todo " + slot + " marked done."
       }
       if (action === "todo-sync") {
-        const count = deps.syncFlowTodosToNative((entry: any) => {
+        const count = deps.syncFlowTodosToNative((entry: unknown) => {
           deps.upsertTodo(entry)
         })
         return "Synced " + count + " flow TODO(s) to native todo list."
@@ -1406,7 +1406,7 @@ export function createTrinityTool(deps) {
             if (deps.currentProjectFingerprint) {
               lines.push("")
               lines.push(`  Project: ${deps.currentProjectName || "unknown"}`)
-              const projectSessions = Object.entries(bbState.sessions || {}).filter(([k, v]) => v.project_fingerprint === deps.currentProjectFingerprint)
+              const projectSessions = Object.entries(bbState.sessions || {}).filter(([_k, v]) => v.project_fingerprint === deps.currentProjectFingerprint)
               lines.push(`  Cross-session history: ${projectSessions.length} session(s) for this project`)
             }
           }

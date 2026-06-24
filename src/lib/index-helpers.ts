@@ -101,13 +101,13 @@ export function saveSessionStress(score: number, level: string): void {
   if (now - _lastStressWrite < STRESS_WRITE_INTERVAL_MS) return
   _lastStressWrite = now
   try {
-    updateState((s: any) => {
+    updateState((s: unknown) => {
       const sid = _OC_SID
       const ses = s.sessions?.[sid] || {}
       if (!Array.isArray(ses.stress_history)) ses.stress_history = []
       ses.stress_history.push({ ts: new Date().toISOString(), score, level })
       if (ses.stress_history.length > 100) ses.stress_history = ses.stress_history.slice(-50)
-      const scores = ses.stress_history.map((h: any) => h.score)
+      const scores = ses.stress_history.map((h: unknown) => h.score)
       ses.maxSessionStress = Math.max(...scores)
       ses.avgSessionStress = scores.reduce((a: number, b: number) => a + b, 0) / scores.length
       s.sessions[sid] = ses

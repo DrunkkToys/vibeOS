@@ -130,6 +130,54 @@ test("resolveOrchestratorState reports ran_model=live and pending_model=queued",
   }
 })
 
+test("foreign model in opencode.json reconciles back to active_slot's model (the live dropdown bug)", async () => {
+  // Reproduces the exact live incoherence: opencode.json held a FOREIGN model
+  // (in no trinity slot) while active_slot=cheap — the "dropdown ≠ alert" bug.
+  writeTiers({ active_slot: "cheap" })
+  writeOcConfig("openrouter/anthropic/claude-sonnet-4.6") // foreign: in NO trinity slot
+  installWiredClient()
+  try {
+    const { reconcileSlotModel, resolveOrchestratorState } = await freshPricing()
+
+    // Before reconcile: ran_model is the foreign model, intended is the slot's model
+    // → genuine drift (dropdown ≠ alert).
+    const before = resolveOrchestratorState(sandbox)
+    assert.equal(before.ran_model, "openrouter/anthropic/claude-sonnet-4.6", "live shows the foreign model")
+    assert.equal(before.intended_model, "deepseek/cheap-model", "intended = trinity[active_slot]")
+    assert.equal(before.drift, true, "foreign live model with no pending switch = drift")
+
+    // Reconcile against the active slot — the single source of truth. Synchronous,
+    // so it works headless. (deferLiveSwitch:false → write the file now, like a same-turn fix.)
+    const r = reconcileSlotModel("cheap", sandbox, "deepseek/cheap-model")
+    assert.equal(r.reconciled, true, "drift was corrected")
+    assert.equal(r.from, "openrouter/anthropic/claude-sonnet-4.6", "from = the foreign model")
+    assert.equal(r.to, "deepseek/cheap-model", "to = the slot's model")
+
+    // After reconcile: dropdown == trinity[active_slot].oc == intended == ran. Coherent.
+    assert.equal(readOcModel(), "deepseek/cheap-model", "opencode.json (the dropdown) now matches the slot")
+    const after = resolveOrchestratorState(sandbox)
+    assert.equal(after.active_slot, "cheap", "active_slot unchanged")
+    assert.equal(after.ran_model, after.intended_model, "dropdown == alert (full coherence)")
+    assert.equal(after.drift, false, "no drift after reconcile")
+  } finally {
+    clearWiredClient()
+  }
+})
+
+test("reconcile is a no-op when the live model already matches the slot (no needless SDK churn)", async () => {
+  writeTiers({ active_slot: "medium" })
+  writeOcConfig("deepseek/medium-model")
+  const calls = installWiredClient()
+  try {
+    const { reconcileSlotModel } = await freshPricing()
+    const r = reconcileSlotModel("medium", sandbox, "deepseek/medium-model")
+    assert.equal(r.reconciled, false, "already coherent → nothing to reconcile")
+    assert.equal(calls.length, 0, "no SDK switch fired when already in sync")
+  } finally {
+    clearWiredClient()
+  }
+})
+
 test("CLEANUP", async () => {
   clearWiredClient()
   try { rmSync(sandbox, { recursive: true, force: true }) } catch {}

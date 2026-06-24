@@ -13,7 +13,7 @@ type SelectionLike = {
   thinking_level?: string
 }
 
-function normalizeTrend(trend: any): "up" | "down" | "flat" {
+function normalizeTrend(trend: unknown): "up" | "down" | "flat" {
   return trend === "up" || trend === "down" ? trend : "flat"
 }
 
@@ -23,9 +23,9 @@ type StatusTodoLike = {
 
 type SessionCheckoutInput = {
   sessionId: string
-  metrics: any
-  session: any
-  flowWarns: any[]
+  metrics: unknown
+  session: unknown
+  flowWarns: unknown[]
 }
 
 export function buildStatusPayload({
@@ -48,7 +48,7 @@ export function buildStatusPayload({
   tiers,
 }: {
   selection: SelectionLike
-  tiersData: any
+  tiersData: unknown
   currentModel: string
   creditPercent: number
   version: string
@@ -63,7 +63,7 @@ export function buildStatusPayload({
   lockedSlot?: string | null
   lockedModel?: string | null
   optimizationMode?: string | null
-  tiers?: Record<string, any> | null
+  tiers?: Record<string, unknown> | null
 }) {
   const activeSlot = selection?.active_slot || "brain"
   const todoList = Array.isArray(todos) ? todos : []
@@ -112,8 +112,8 @@ export function buildSavingsPayload({
   lifetime,
   session,
 }: {
-  lifetime: any
-  session: any
+  lifetime: unknown
+  session: unknown
 }) {
   const telemetry = lifetime?.telemetry || {}
   return {
@@ -163,13 +163,13 @@ export function buildSessionCheckout({
 }: SessionCheckoutInput) {
   const warns = Array.isArray(session?.warns) ? session.warns : []
   const rankedOps = warns
-    .map((w: any) => ({
+    .map((w: unknown) => ({
       tool: String(w?.tool || "unknown"),
       reason: String(w?.reason || ""),
       savings_usd: Number(w?.est_savings_usd || 0),
       at: w?.at || null,
     }))
-    .sort((a: any, b: any) => b.savings_usd - a.savings_usd)
+    .sort((a: unknown, b: unknown) => b.savings_usd - a.savings_usd)
     .slice(0, 3)
   const summary = {
     session_id: sessionId,
@@ -194,7 +194,7 @@ export function buildSessionCheckout({
     report: {
       type: "session-checkout",
       summary: `Session checkout ${sessionId}: $${Number(summary.savings.total_usd || 0).toFixed(3)} saved`,
-      findings: rankedOps.map((op: any) => ({
+      findings: rankedOps.map((op: unknown) => ({
         severity: "info",
         topic: op.tool,
         detail: `${op.reason} ($${op.savings_usd.toFixed(6)})`,
@@ -218,11 +218,11 @@ export function buildSessionCheckout({
   }
 }
 
-export function diagnoseStructuredFromText(raw: string, creditPercent = 0): any {
+export function diagnoseStructuredFromText(raw: string, creditPercent = 0): unknown {
   const text = String(raw || "")
   const lines = text.split("\n")
-  const files: Array<any> = []
-  const model_probes: Array<any> = []
+  const files: Array<unknown> = []
+  const model_probes: Array<unknown> = []
   let apiFallback = { active: false, since: null as string | null }
   const suggestions: string[] = []
   let credit = { percent: Number(creditPercent || 0), ok: true, fix: null as string | null }
@@ -260,7 +260,7 @@ export function diagnoseStructuredFromText(raw: string, creditPercent = 0): any 
   }
 }
 
-export function projectStructuredFromText(raw: string, selection: SelectionLike, creditPercent = 0): any {
+export function projectStructuredFromText(raw: string, selection: SelectionLike, creditPercent = 0): unknown {
   const text = String(raw || "")
   const m1 = text.match(/Brain[^0-9]*(\d+)%/i)
   const m2 = text.match(/Worker[^0-9]*(\d+)%/i)
