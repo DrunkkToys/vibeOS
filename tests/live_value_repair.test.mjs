@@ -214,7 +214,6 @@ test("blackbox load mirrors top-level control vector into the current session re
     try { rmSync(root, { recursive: true, force: true }) } catch {}
   }
 })
-
 test("live session snapshot deduplicates repeated identical snapshots and preserves reward breakdown", async () => {
   const root = makeSandbox("value-repair-dedupe")
   const vibeHome = join(root, ".claude")
