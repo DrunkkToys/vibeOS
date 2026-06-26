@@ -259,6 +259,141 @@ export function shouldUseLocalTaskRouting(apiConnected: boolean, apiFallback: bo
   return !apiConnected || apiFallback
 }
 
+function _slotRank(slot: string | null): number {
+  if (slot === "brain") return 3
+  if (slot === "medium") return 2
+  if (slot === "cheap") return 1
+  return 0
+}
+
+function _slotFromModel(model: string | null, trinityCheap: string | null, trinityMedium: string | null, trinityBrain: string | null): string | null {
+  if (!model) return null
+  if (trinityBrain && model === trinityBrain) return "brain"
+  if (trinityMedium && model === trinityMedium) return "medium"
+  if (trinityCheap && model === trinityCheap) return "cheap"
+  const tier = classify(model)
+  if (tier === "high") return "brain"
+  if (tier === "mid") return "medium"
+  if (tier === "budget") return "cheap"
+  return null
+}
+
+function _modelForSlot(slot: string | null, trinityCheap: string | null, trinityMedium: string | null, trinityBrain: string | null): string | null {
+  if (slot === "brain") return trinityBrain
+  if (slot === "medium") return trinityMedium
+  if (slot === "cheap") return trinityCheap
+  return null
+}
+
+function _normalizeCascadeRoot(activePipeline: unknown, fallbackSlot: string | null): string[] {
+  const root = Array.isArray(activePipeline)
+    ? activePipeline.map((entry) => String(entry || "").trim().toLowerCase()).map((entry) => entry === "local" ? "cheap" : entry).filter((entry) => entry === "cheap" || entry === "medium" || entry === "brain")
+    : []
+  if (root.length > 0) return root
+  return fallbackSlot ? [fallbackSlot] : []
+}
+
+function _routePathForSlot(root: string[], slot: string | null): string[] {
+  if (!slot) return root.length ? [root[0]] : []
+  const idx = root.indexOf(slot)
+  if (idx >= 0) return root.slice(0, idx + 1)
+  if (slot === "brain") return ["cheap", "medium", "brain"]
+  if (slot === "medium") return ["cheap", "medium"]
+  return ["cheap"]
+}
+
+export function resolveCascadeRouteDecision(input: unknown = {}): unknown {
+  const prompt = String(input?.prompt || "")
+  const firstWord = String(input?.firstWord || prompt.trim().split(/\s+/)[0] || "").toLowerCase()
+  const trinityCheap = input?.trinityCheap || null
+  const trinityMedium = input?.trinityMedium || null
+  const trinityBrain = input?.trinityBrain || null
+  const hasMedia = input?.hasMedia === true
+  const backendRoute = input?.backendRoute && typeof input.backendRoute === "object" ? input.backendRoute : null
+  const backendExplicit = backendRoute?.explicit === true || backendRoute?.allow_local_upgrade === false
+  const cascadeRoot = _normalizeCascadeRoot(input?.activePipeline, _slotFromModel(input?.tierTarget || input?.exploratoryTarget || null, trinityCheap, trinityMedium, trinityBrain))
+  let selectedModel = input?.exploratoryTarget || input?.tierTarget || null
+  let selectedSlot = _slotFromModel(selectedModel, trinityCheap, trinityMedium, trinityBrain)
+  let source = selectedModel ? (input?.exploratoryTarget ? "exploratory" : "tier") : "none"
+  let reason = selectedModel ? `${source}:${firstWord || input?.currentTier || "task"}` : "no target"
+  let localConfidence = 0
+  let localScore = 0
+  let cascadeDecision = null
+
+  const applyCandidate = (slot: string | null, model: string | null, nextSource: string, nextReason: string, force = false) => {
+    if (!slot || !model || hasMedia) return
+    if (backendExplicit && !force && selectedModel === backendRoute?.target) return
+    if (!selectedSlot || force || _slotRank(slot) > _slotRank(selectedSlot)) {
+      selectedSlot = slot
+      selectedModel = model
+      source = nextSource
+      reason = nextReason
+    }
+  }
+
+  if (backendRoute?.target) {
+    selectedModel = String(backendRoute.target)
+    selectedSlot = backendRoute?.target_slot || backendRoute?.targetSlot || _slotFromModel(selectedModel, trinityCheap, trinityMedium, trinityBrain)
+    source = "backend"
+    reason = backendRoute?.reason || "backend route"
+  }
+
+  if (input?.mlEnabled !== false) {
+    try {
+      const mlDifficulty = computeDifficulty(prompt)
+      localConfidence = mlDifficulty.confidence
+      localScore = mlDifficulty.score
+      if (mlDifficulty.confidence >= Number(input?.mlConfidenceThreshold ?? ML_CONFIDENCE_THRESHOLD) && mlDifficulty.level !== "moderate") {
+        const mlSlot = mlDifficulty.suggestedTier
+        const mlModel = _modelForSlot(mlSlot, trinityCheap, trinityMedium, trinityBrain)
+        if (mlModel && (!backendExplicit || _slotRank(mlSlot) > _slotRank(selectedSlot))) {
+          applyCandidate(mlSlot, mlModel, "ml", `${mlDifficulty.level} score=${mlDifficulty.score.toFixed(2)} conf=${mlDifficulty.confidence.toFixed(2)}`)
+        }
+      }
+    } catch (err) {
+      if (DEBUG_INTERNALS) console.error(`[vibeOS] ML route resolver error: ${err.message}`)
+    }
+  }
+
+  if (cascadeRoot.length > 1 && trinityCheap && trinityMedium) {
+    try {
+      cascadeDecision = cascadeDecide(prompt, 0.001, 0.005, 0.02, 0.85)
+      if (cascadeDecision.escalate) {
+        const slot = cascadeRoot.length > 2 && cascadeDecision.confidence >= 0.8 ? cascadeRoot[2] : cascadeRoot[1]
+        const model = _modelForSlot(slot, trinityCheap, trinityMedium, trinityBrain)
+        if (model && (!backendExplicit || _slotRank(slot) > _slotRank(selectedSlot))) {
+          applyCandidate(slot, model, "cascade", cascadeDecision.reason)
+        }
+      } else if (cascadeDecision.useCheap && !selectedModel) {
+        applyCandidate(cascadeRoot[0], _modelForSlot(cascadeRoot[0], trinityCheap, trinityMedium, trinityBrain), "cascade", cascadeDecision.reason)
+      }
+    } catch (err) {
+      if (DEBUG_INTERNALS) console.error(`[vibeOS] cascade route resolver error: ${err.message}`)
+    }
+  }
+
+  if (!backendExplicit && selectedSlot === "cheap" && trinityMedium && Number(input?.stressScore || 0) > 0.5) {
+    applyCandidate("medium", trinityMedium, "stress", `stress ${Number(input?.stressScore || 0).toFixed(2)}`, true)
+  }
+
+  const routePath = _routePathForSlot(cascadeRoot, selectedSlot)
+  return {
+    selectedModel,
+    selectedSlot,
+    reason,
+    source,
+    cascadeDepth: routePath.length || 1,
+    cascadeRoot,
+    routePath,
+    backendTarget: backendRoute?.target || null,
+    backendExplicit,
+    localConfidence,
+    localScore,
+    cascadeConfidence: cascadeDecision?.confidence || 0,
+    cascadeReason: cascadeDecision?.reason || "",
+  }
+}
+
 // Strip any vibeOS footer block(s) already at the head of a tool-output string.
 // tool.execute.after can run more than once against the same output object; without
 // this the footer was prepended each time, producing "— … —\n\n— … —\n\n<output>".
@@ -512,103 +647,51 @@ export const onToolExecuteBefore = async (input, output) => {
     const _tierTarget = (currentTier === "high" && TRINITY_MEDIUM && TRINITY_MEDIUM !== currentModel) ? TRINITY_MEDIUM
       : TRINITY_CHEAP && TRINITY_CHEAP !== currentModel ? TRINITY_CHEAP
         : null
-    let _target = _exploratoryTarget ?? _tierTarget
-
     const _hasMedia = /\.(png|jpg|jpeg|gif|webp|bmp|svg|mp4|webm|ogg|mp3|wav|avi|mov)/i.test(_prompt)
     const stressScore = latestUserIntent ? scoreStress(latestUserIntent) : 0
     const apiConnected = isApiConnected()
     const apiRoute = await remoteCall("routeModel", [_prompt, currentTier, TRINITY_CHEAP, TRINITY_MEDIUM, LEARNED_EXPLORATORY, stressScore], null)
     const localRoutingAllowed = shouldUseLocalTaskRouting(apiConnected, isApiFallback(), apiRoute)
-    if (apiRoute?.target) {
-      _target = apiRoute.target
-    } else {
-      if (localRoutingAllowed) {
-        if (_target === TRINITY_CHEAP && TRINITY_MEDIUM && stressScore > 0.5) {
-          _target = TRINITY_MEDIUM
-          console.error(`[vibeOS] 🧘 Stress ${stressScore.toFixed(2)} → preserving medium tier for Task quality`)
-        }
-      }
-    }
+    const activePipeline = loadSelection().active_pipeline
+    const routeDecision = resolveCascadeRouteDecision({
+      prompt: _prompt,
+      firstWord: _firstWord,
+      currentTier,
+      currentModel,
+      trinityCheap: TRINITY_CHEAP,
+      trinityMedium: TRINITY_MEDIUM,
+      trinityBrain: TRINITY_BRAIN,
+      activePipeline,
+      backendRoute: apiRoute,
+      stressScore,
+      localRoutingAllowed,
+      hasMedia: _hasMedia,
+      exploratoryTarget: _exploratoryTarget,
+      tierTarget: _tierTarget,
+      mlEnabled: ML_ENABLED,
+      mlConfidenceThreshold: ML_CONFIDENCE_THRESHOLD,
+    })
+    const _target = routeDecision?.selectedModel || null
 
-    // ML Router: difficulty prediction + confidence cascading.
-    if (ML_ENABLED) {
+    if (ML_ENABLED && _target) {
       try {
-        const mlDifficulty = computeDifficulty(_prompt)
-        const _mlHash = hashQuery(_prompt)
         const mlGraphPrediction = predictBestModel(_mlGraph, _firstWord, currentTier)
-        if (mlDifficulty.confidence >= ML_CONFIDENCE_THRESHOLD && mlDifficulty.level !== "moderate") {
-          const mlTarget = mlDifficulty.suggestedTier === "cheap" ? TRINITY_CHEAP
-            : mlDifficulty.suggestedTier === "medium" ? TRINITY_MEDIUM
-              : mlDifficulty.suggestedTier === "brain" ? TRINITY_BRAIN
-                : null
-          if (mlTarget && mlTarget !== _target) {
-            const tierRank = { budget: 0, cheap: 1, mid: 2, medium: 2, high: 3, brain: 3 }
-            const mlRank = tierRank[mlDifficulty.suggestedTier] || 0
-            const curRank = _target ? (tierRank[classify(_target)] || 0) : 0
-            if (!_target) {
-              _target = mlTarget
-              console.error(`[vibeOS] 🧠 ML difficulty: ${mlDifficulty.level} (score ${mlDifficulty.score.toFixed(2)}, conf ${mlDifficulty.confidence.toFixed(2)}) → ${mlTarget}`)
-            } else if (!_hasMedia && mlRank > curRank && mlDifficulty.confidence >= 0.7) {
-              _target = mlTarget
-              console.error(`[vibeOS] 🧠 ML upgrade: ${mlDifficulty.level} (score ${mlDifficulty.score.toFixed(2)}, conf ${mlDifficulty.confidence.toFixed(2)}) → ${mlTarget}`)
-            }
-          }
-        }
         if (mlGraphPrediction && mlGraphPrediction !== currentModel) {
           const graphNode = _mlGraph.nodes[_firstWord]
-          if (graphNode && graphNode.count >= 3) {
-            if (!_target) {
-              _target = mlGraphPrediction
-              console.error(`[vibeOS] 🕸 ML graph: ${_firstWord} → ${mlGraphPrediction} (${graphNode.count} samples)`)
-            }
+          if (graphNode && graphNode.count >= 3 && DEBUG_INTERNALS) {
+            console.error(`[vibeOS] 🕸 ML graph: ${_firstWord} → ${mlGraphPrediction} (${graphNode.count} samples)`)
           }
         }
-        if (_target) {
-          const _mlTier = classify(_target) === "budget" ? "cheap" : classify(_target) === "mid" ? "medium" : classify(_target)
-          addRouteEdge(_mlGraph, _firstWord, _target, _mlTier, true)
-        }
+        const _mlTier = routeDecision.selectedSlot || (classify(_target) === "budget" ? "cheap" : classify(_target) === "mid" ? "medium" : classify(_target))
+        addRouteEdge(_mlGraph, _firstWord, _target, _mlTier, true)
       } catch (mlErr) {
         console.error(`[vibeOS] ML router error: ${mlErr.message}`)
       }
     }
 
-    const activePipeline = loadSelection().active_pipeline
-    if (activePipeline && Array.isArray(activePipeline) && activePipeline.length > 1 && TRINITY_CHEAP && TRINITY_MEDIUM) {
-      try {
-        const cheapCost = 0.001
-        const mediumCost = 0.005
-        const brainCost = 0.02
-        const cascadeResult = cascadeDecide(_prompt, cheapCost, mediumCost, brainCost, 0.85)
-        const tierMap: Record<string, string> = { cheap: TRINITY_CHEAP, medium: TRINITY_MEDIUM, brain: TRINITY_BRAIN }
-        const pipelineModels = activePipeline.map(t => tierMap[t] || TRINITY_CHEAP)
-        if (cascadeResult.escalate && pipelineModels.length > 1) {
-          if (pipelineModels.length > 2 && cascadeResult.confidence >= 0.8) {
-            const escalated = pipelineModels[2]
-            if (escalated && escalated !== currentModel && !_hasMedia && (!_target || escalated !== _target)) {
-              _target = escalated
-              console.error(`[vibeOS] 🔀 Cascade depth-3 escalate: ${cascadeResult.reason} → ${escalated}`)
-            }
-          } else {
-            const escalated = pipelineModels[1]
-            if (escalated && escalated !== currentModel && !_target) {
-              _target = escalated
-              console.error(`[vibeOS] 🔀 Cascade escalate: ${cascadeResult.reason} → ${escalated}`)
-            }
-          }
-        } else if (cascadeResult.useCheap && !_target) {
-          _target = pipelineModels[0]
-          if (_target && _target !== currentModel) {
-            console.error(`[vibeOS] 🔀 Cascade cheap: ${cascadeResult.reason} → ${_target}`)
-          }
-        }
-      } catch (cascadeErr) {
-        console.error(`[vibeOS] Cascade router error: ${cascadeErr.message}`)
-      }
-    }
-
     if (_target) noteTaskRoutingLearning(_firstWord, _target, _exploratoryTarget ? "exploratory" : `tier:${currentTier}`)
     if (_target && targetArgs?.model !== _target) {
-      const _reason = _exploratoryTarget ? `exploratory ('${_firstWord}')` : `tier=${currentTier}`
+      const _reason = routeDecision?.reason || (_exploratoryTarget ? `exploratory ('${_firstWord}')` : `tier=${currentTier}`)
       const _setModel = (obj) => {
         if (!obj || typeof obj !== "object") return
         obj.model = _target
@@ -620,14 +703,14 @@ export const onToolExecuteBefore = async (input, output) => {
         fromModel: currentModel,
         fromTier: currentTier,
         toModel: _target,
-        toTier: classify(_target) === "mid" ? "medium" : classify(_target) === "high" ? "brain" : "cheap",
+        toTier: routeDecision?.selectedSlot || (classify(_target) === "mid" ? "medium" : classify(_target) === "high" ? "brain" : "cheap"),
         reason: _reason,
         prompt: String(targetArgs?.prompt || ""),
         userText: latestUserIntent || "",
-        activePipeline: loadSelection().active_pipeline || [],
+        activePipeline: routeDecision?.cascadeRoot || loadSelection().active_pipeline || [],
         projectFingerprint: currentProjectFingerprint,
         projectName: currentProjectName || "",
-        sourceStrategy: apiRoute?.target ? "backend" : localRoutingAllowed ? "local" : "cascade",
+        sourceStrategy: routeDecision?.source || (apiRoute?.target ? "backend" : localRoutingAllowed ? "local" : "cascade"),
       })
       if (typeof targetArgs?.prompt === "string" && bridge.prompt_prefix) {
         targetArgs.prompt = `${bridge.prompt_prefix}${targetArgs.prompt}`
@@ -636,7 +719,7 @@ export const onToolExecuteBefore = async (input, output) => {
       _setModel(args)
       _setModel(inArgs)
       recordSessionBridge(bridge)
-      console.error(`[vibeOS] 🔀 Task → ${_target} (${_reason}, orchestrator: ${currentModel})`)
+      console.error(`[vibeOS] 🔀 Task → ${_target} (${routeDecision?.source || "route"}:${_reason}, path=${(routeDecision?.routePath || []).join("→") || "n/a"}, orchestrator: ${currentModel})`)
     }
   }
 

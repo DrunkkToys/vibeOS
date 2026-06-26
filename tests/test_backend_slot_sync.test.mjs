@@ -64,10 +64,10 @@ test("backend-authoritative sync applies cheap slot even with stale lock", async
   const sel = JSON.parse(readFileSync(join(sandbox, ".claude", "model-tiers.json"), "utf-8")).selection
   assert.strictEqual(sel.active_slot, "cheap")
   assert.strictEqual(sel.vector_changed_slot, "cheap")
-  assert.deepStrictEqual(JSON.parse(sel.active_pipeline), ["cheap"])
+  assert.deepStrictEqual(sel.active_pipeline, ["cheap", "medium", "brain"])
   assert.strictEqual(result.applied_slot, "cheap")
   assert.strictEqual(result.applied_mode, "vibeultrax")
-  assert.deepStrictEqual(result.applied_pipeline, ["cheap"])
+  assert.deepStrictEqual(result.applied_pipeline, ["cheap", "medium", "brain"])
 
   const { _appendFooter } = await import("../src/lib/hooks/footer.js?backend-sync=" + Date.now())
   const message = { text: "This is a long enough response to trigger the footer and verify the applied backend slot is what the user sees." }
@@ -227,7 +227,7 @@ test("applied slot is reported back to backend state via ack", async () => {
   assert.ok(capturedAck, "ack should be sent to backend")
   assert.strictEqual(capturedAck.body.applied_slot, "cheap", "ack should report cheap as applied slot")
   assert.strictEqual(capturedAck.body.applied_mode, "vibeultrax", "ack should report vibeultrax as applied mode")
-  assert.deepStrictEqual(capturedAck.body.applied_pipeline, ["cheap"], "ack should report cheap pipeline")
+  assert.deepStrictEqual(capturedAck.body.applied_pipeline, ["cheap", "medium", "brain"], "ack should report durable cascade pipeline")
 })
 
 test("footer matches the applied live slot from backend state", async () => {
