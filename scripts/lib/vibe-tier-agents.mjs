@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { homedir } from "node:os"
 
@@ -22,7 +22,9 @@ function readJson(path) {
 
 function writeJson(path, value) {
   mkdirSync(dirname(path), { recursive: true })
-  writeFileSync(path, JSON.stringify(value, null, 2) + "\n")
+  const tmp = `${path}.tmp.${process.pid}.${Date.now()}`
+  writeFileSync(tmp, JSON.stringify(value, null, 2) + "\n")
+  renameSync(tmp, path)
 }
 
 function readTiers(home = homedir()) {

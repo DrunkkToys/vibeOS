@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { cpSync, readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, rmSync } from "node:fs"
+import { cpSync, readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, rmSync, renameSync } from "node:fs"
 import { join, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 import { homedir } from "node:os"
@@ -124,7 +124,9 @@ try {
       config.$schema ||= "https://opencode.ai/config.json"
       config.plugin = filtered
       installVibeTierAgentsInConfig(config)
-      writeFileSync(ocConfigPath, JSON.stringify(config, null, 2) + "\n")
+      const ocConfigTmp = `${ocConfigPath}.tmp.${process.pid}.${Date.now()}`
+      writeFileSync(ocConfigTmp, JSON.stringify(config, null, 2) + "\n")
+      renameSync(ocConfigTmp, ocConfigPath)
       process.stderr.write(`[vibeOS deploy] Registered vibeOS in ${home}/opencode.json\n`)
     }
   } catch {

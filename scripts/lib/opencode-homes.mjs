@@ -1,56 +1,23 @@
-import { existsSync } from "node:fs"
-import { dirname, join, resolve } from "node:path"
+import { join } from "node:path"
 import { homedir } from "node:os"
 
-function hasOpenCodeConfig(dir) {
-  return existsSync(join(dir, "opencode.json")) || existsSync(join(dir, "opencode.jsonc"))
-}
-
-function collectWorkspaceOpenCodeHomes(cwd) {
-  const homes = []
-  const seen = new Set()
-  let dir = resolve(cwd || process.cwd())
-  while (true) {
-    for (const candidate of [dir, join(dir, "opencode"), join(dir, ".opencode")]) {
-      if (seen.has(candidate)) continue
-      if (hasOpenCodeConfig(candidate)) {
-        seen.add(candidate)
-        homes.push(candidate)
-      }
-    }
-    const parent = dirname(dir)
-    if (parent === dir) break
-    dir = parent
-  }
-  return homes
-}
-
-function collectHomeOpenCodeHomes(baseHome) {
-  const home = baseHome || homedir()
-  const desktopHome = process.env.VIBEOS_OPENCODE_DESKTOP_HOME
-    || (process.platform === "darwin" ? join(home, "Library", "Application Support", "ai.opencode.desktop") : null)
-  return [desktopHome, join(home, ".config", "opencode"), join(home, ".opencode")].filter(Boolean)
-}
-
-export function resolveOpenCodeHomes({ cwd = process.cwd(), home = homedir() } = {}) {
+// Single global source of truth: OpenCode (CLI and desktop sidecar alike)
+// treats ~/.opencode as the universal default config/plugin home — confirmed
+// live (both the CLI bootstrap log and the desktop sidecar's plugin loader
+// reference ~/.opencode/opencode.json and ~/.opencode/plugins/vibeOS.js for
+// every open project). Previously this spread the plugin registration across
+// the desktop app's own profile dir, ~/.config/opencode, AND every directory
+// up the tree from cwd that happened to already contain an opencode.json —
+// which meant a single project could load 2-3 separate vibeOS module
+// instances in the SAME OpenCode process (confirmed via duplicate
+// MODULE_TYPELESS_PACKAGE_JSON warnings for two different vibeOS.js paths in
+// one server run). One registration, one loaded instance, no exceptions.
+export function resolveOpenCodeHomes({ home = homedir() } = {}) {
   const override = process.env.VIBEOS_OPENCODE_HOME
   if (override) return [override]
-
-  const workspaceHomes = collectWorkspaceOpenCodeHomes(cwd)
-  const homeHomes = collectHomeOpenCodeHomes(home)
-  const activeHomeHomes = homeHomes.filter((dir) => existsSync(dir))
-
-  const homeCandidates = activeHomeHomes.length > 0 ? activeHomeHomes : homeHomes
-  const seen = new Set()
-  return [...workspaceHomes, ...homeCandidates].filter((dir) => {
-    if (dir == null) return false
-    if (seen.has(dir)) return false
-    seen.add(dir)
-    return true
-  })
+  return [join(home, ".opencode")]
 }
 
 export function resolveOpenCodeHome(opts = {}) {
-  const homes = resolveOpenCodeHomes(opts)
-  return homes[0] || join(opts.home || homedir(), ".config", "opencode")
+  return resolveOpenCodeHomes(opts)[0]
 }

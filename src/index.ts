@@ -31,6 +31,7 @@ import { onMessagesTransform, onSystemTransform, latestUserIntent, ensureProject
 import { onChatParams, onChatHeaders, setChatParamsDirectory } from "./lib/hooks/chat-params.js"
 import { onSessionCompacting } from "./lib/hooks/session-compact.js"
 import { onShellEnv, setShellDirectory } from "./lib/hooks/shell-env.js"
+import { installVibeTierAgents } from "./lib/runtime-config.js"
 import { getOpenCodeHome, getVibeOSHome } from "./lib/state.js"
 function getTiersFile() {
   return join(getVibeOSHome(), "model-tiers.json")
@@ -951,6 +952,19 @@ export async function DelegationEnforcer({ client, directory } = {}) {
       const _sel = safeJsonParse(readFileSync(getTiersFile(), "utf-8"))?.selection
       const _activeSlot = String(_sel?.active_slot || "").trim()
       if (_activeSlot) {
+        // reconcileSlotModel below only re-installs the vibe-* agents as a side effect
+        // of applySlot, which it SKIPS when the live model already matches the active
+        // slot (no drift). That left a gap: a config with the right `model` but a
+        // missing/stripped `agent`/`default_agent` block (e.g. after a manual repair,
+        // or a fresh global home that was never seeded) never got fixed, because no
+        // drift was ever detected. Install the tier agents unconditionally here —
+        // once per process load, no turn in flight, same safety window as the model
+        // reconcile below — so the dropdown default is always correct regardless of
+        // whether the model itself needed reconciling this time.
+        try {
+          const _tiersForAgents = safeJsonParse(readFileSync(getTiersFile(), "utf-8"))?.trinity || {}
+          installVibeTierAgents(directory, _tiersForAgents, _activeSlot)
+        } catch (e) { console.error("[vibeOS] startup agent install failed:", e?.message || e) }
         const r = reconcileSlotModel(_activeSlot, directory, "", { deferLiveSwitch: false })
         // _bootstrapModel ran BEFORE this reconcile (when opencode.json had no model),
         // so currentModel/currentTier can be stale (e.g. the brain model) while the live

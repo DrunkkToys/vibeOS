@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execSync } from "node:child_process";
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveOpenCodeHome, resolveOpenCodeHomes } from "../scripts/lib/opencode-homes.mjs";
@@ -54,14 +54,11 @@ if (isProject) {
   const pluginRef = resolve(installHome, "plugins", "vibeOS.js");
   config.plugin = config.plugin.filter((p) => !(typeof p === "string" && p.includes("vibeOS")));
   installVibeTierAgentsInConfig(config);
-  if (!config.plugin.includes(pluginRef)) {
-    config.plugin.push(pluginRef);
-    mkdirSync(dirname(configPath), { recursive: true });
-    writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
-  } else {
-    mkdirSync(dirname(configPath), { recursive: true });
-    writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
-  }
+  if (!config.plugin.includes(pluginRef)) config.plugin.push(pluginRef);
+  mkdirSync(dirname(configPath), { recursive: true });
+  const tmp = `${configPath}.tmp.${process.pid}.${Date.now()}`;
+  writeFileSync(tmp, JSON.stringify(config, null, 2) + "\n");
+  renameSync(tmp, configPath);
   console.log(`vibeOS registered in ${configPath}`);
 }
 

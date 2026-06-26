@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, rmSync, readdirSync, statSync } from "node:fs"
+import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, rmSync, readdirSync, statSync, renameSync } from "node:fs"
 import { join, dirname, basename } from "node:path"
 import { createHash } from "node:crypto"
 import {
@@ -162,7 +162,9 @@ function updateOpenCodeConfig(mutator: (oc: unknown) => boolean | void): boolean
     if (!oc) return false
     const result = mutator(oc)
     if (result === false) return false
-    writeFileSync(OC_CONFIG, JSON.stringify(oc, null, 2) + "\n")
+    const tmp = `${OC_CONFIG}.tmp.${process.pid}.${Date.now()}`
+    writeFileSync(tmp, JSON.stringify(oc, null, 2) + "\n")
+    renameSync(tmp, OC_CONFIG)
     return true
   } catch {
     return false
@@ -192,13 +194,30 @@ function getRuntimeProjectDirectory(): string {
   return String((onSystemTransform as unknown)?._directory || process.cwd?.() || "")
 }
 
+// Memoizes the last (directory, slot, trinity) signature this process has already
+// installed, so repeated calls within the same turn — or from a duplicate plugin
+// instance, since OpenCode can load this plugin both globally and per-project in
+// the same server process — skip the file read/parse entirely instead of re-checking
+// on every chat.system.transform call.
+let _lastVibeTierAgentsSignature = ""
+
 function ensureVibeUltraXSubagents(activeSlot: string | null = null, projectDir = ""): boolean {
   try { loadTrinitySlotsFromTiersFile() } catch {}
-  const result = installVibeTierAgents(projectDir || getRuntimeProjectDirectory(), {
+  const directory = projectDir || getRuntimeProjectDirectory()
+  const signature = `${directory}|${activeSlot}|${TRINITY_CHEAP}|${TRINITY_MEDIUM}|${TRINITY_BRAIN}`
+  if (signature === _lastVibeTierAgentsSignature) return false
+  // Scoped to this project's own opencode.json only (never the global homes): the
+  // desktop app runs ONE server process shared across every open project tab, and a
+  // write here landing on a shared global config races that process's other live
+  // turns/tabs. Global homes already get the same agent install at deploy/setup time
+  // (scripts/deploy.mjs, scripts/build-bundle.mjs, bin/setup.js) — a rare, explicit,
+  // single-process operation, not a per-turn hook running inside a shared server.
+  const result = installVibeTierAgents(directory, {
     cheap: { oc: TRINITY_CHEAP },
     medium: { oc: TRINITY_MEDIUM },
     brain: { oc: TRINITY_BRAIN },
-  }, activeSlot)
+  }, activeSlot, { includeGlobalHomes: false })
+  _lastVibeTierAgentsSignature = signature
   return result.changed.length > 0
 }
 

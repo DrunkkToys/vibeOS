@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { safeJsonParse, getOpenCodeHomes, getOpenCodeHome } from "./state.js"
 
@@ -36,14 +36,17 @@ export function buildVibeTierAgent(slot: string, model: string, existing: JsonRe
   }
 }
 
-export function collectOpenCodeConfigPaths(projectDir = ""): string[] {
+export function collectOpenCodeConfigPaths(projectDir = "", options: { includeGlobalHomes?: boolean } = {}): string[] {
+  const { includeGlobalHomes = true } = options
   const candidates: string[] = []
   if (projectDir) {
     candidates.push(join(projectDir, "opencode.json"))
     candidates.push(join(projectDir, ".opencode", "opencode.json"))
   }
-  for (const home of getOpenCodeHomes()) candidates.push(join(home, "opencode.json"))
-  candidates.push(join(getOpenCodeHome(), "opencode.json"))
+  if (includeGlobalHomes) {
+    for (const home of getOpenCodeHomes()) candidates.push(join(home, "opencode.json"))
+    candidates.push(join(getOpenCodeHome(), "opencode.json"))
+  }
   const seen = new Set<string>()
   return candidates.filter((path) => {
     if (!path || seen.has(path)) return false
@@ -58,9 +61,18 @@ export function readOpenCodeConfig(path: string): JsonRecord {
   return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {}
 }
 
+// Atomic write (tmp + rename) — this file is read live by other plugin instances
+// (a project can be loaded both globally and per-project in the same OpenCode
+// process) and, on the desktop app, by the renderer's own config reader. A plain
+// writeFileSync leaves a window where a concurrent reader sees a truncated/partial
+// JSON file; renaming a fully-written temp file into place is atomic on the same
+// filesystem, matching the convention used everywhere else in this codebase
+// (see TIERS_FILE/state writes in pricing.ts and state.ts).
 export function writeOpenCodeConfig(path: string, config: JsonRecord): void {
   mkdirSync(dirname(path), { recursive: true })
-  writeFileSync(path, JSON.stringify(config, null, 2) + "\n")
+  const tmp = `${path}.tmp.${process.pid}.${Date.now()}`
+  writeFileSync(tmp, JSON.stringify(config, null, 2) + "\n")
+  renameSync(tmp, path)
 }
 
 export function installVibeTierAgentsInConfig(config: JsonRecord, trinity: TrinityConfig, activeSlot: string | null = null): boolean {
@@ -87,10 +99,10 @@ export function installVibeTierAgentsInConfig(config: JsonRecord, trinity: Trini
   return changed
 }
 
-export function installVibeTierAgents(projectDir = "", trinity: TrinityConfig, activeSlot: string | null = null): { changed: string[]; checked: string[] } {
+export function installVibeTierAgents(projectDir = "", trinity: TrinityConfig, activeSlot: string | null = null, options: { includeGlobalHomes?: boolean } = {}): { changed: string[]; checked: string[] } {
   const changed: string[] = []
   const checked: string[] = []
-  for (const path of collectOpenCodeConfigPaths(projectDir)) {
+  for (const path of collectOpenCodeConfigPaths(projectDir, options)) {
     checked.push(path)
     const config = readOpenCodeConfig(path)
     if (!config || typeof config !== "object") continue
