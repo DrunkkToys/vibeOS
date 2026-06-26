@@ -935,6 +935,11 @@ export function recordLiveSessionSnapshot(input: {
       if (typeof input.pivotDetected === "boolean") ses.live_pivot_detected = input.pivotDetected
       ses.live_resolution_state = resolutionState
       ses.live_resolution_reason = resolutionReason
+      if (control) {
+        ses.cv = control
+        ses.control_vector = control
+        ses.live_control = control
+      }
       if (nextAction) ses.live_next_action = nextAction
       ses.live_updated_at = updatedAt
       ses.live_snapshot_fingerprint = snapshotFingerprint
@@ -1014,6 +1019,8 @@ export function recordLiveSessionSnapshot(input: {
       }
     }
     if (control) {
+      ses.cv = control
+      ses.control_vector = control
       ses.live_control = control
       _pushControlHistoryEntry(ses, {
         turn: Number(ses.turn_counter || 0) + 1,
@@ -1091,6 +1098,10 @@ function normalizeBlackboxRecord(record: unknown, sid: string, now: number): { r
   if (!Array.isArray(next.history)) { next.history = []; changed = true }
   if (!Array.isArray(next.pivotHistory)) { next.pivotHistory = []; changed = true }
   if (!Array.isArray(next.outcomeHistory)) { next.outcomeHistory = []; changed = true }
+  const liveControl = next.cv || next.control_vector || next.live_control || null
+  if (liveControl && !next.cv) { next.cv = liveControl; changed = true }
+  if (liveControl && !next.control_vector) { next.control_vector = liveControl; changed = true }
+  if (liveControl && !next.live_control) { next.live_control = liveControl; changed = true }
   return { record: next, changed }
 }
 
