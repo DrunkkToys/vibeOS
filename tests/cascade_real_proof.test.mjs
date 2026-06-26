@@ -720,6 +720,67 @@ test("cascade: vibeultrax control vector keeps a three-stage cascade root", asyn
   assert.equal(cv.cascade_root.join(","), "cheap,medium,brain")
 })
 
+test("cascade: a genuinely complex prompt at mid-confidence still escalates to brain", async (t) => {
+  // Regression for the inverted `escalate: diff.level !== "complex"` bug in the
+  // cascadeDecide tier-match fallback: a long, error-heavy, multi-file prompt scores
+  // "complex" but typically lands at confidence 0.5 (below the 0.7 fast-path), so it
+  // fell through to the fallback branch — which used to disable escalation exactly
+  // when the level WAS complex, leaving the cascade stuck on the cheap tier even with
+  // the backend offline and the local difficulty heuristic correctly flagging it.
+  const complexPrompt = "Refactor the entire payment processing pipeline: migrate the legacy REST API to GraphQL, add comprehensive error handling, rewrite all database queries with proper transactions, fix the race condition bug in src/payments/processor.js, src/payments/queue.js, src/payments/retry.js, and update tests across the whole microservices architecture with backward compatibility, zero downtime deployment, and rollback support."
+
+  const diff = mlRouter.computeDifficulty(complexPrompt)
+  assert.equal(diff.level, "complex", "fixture prompt must score as complex difficulty")
+  assert.ok(diff.confidence < 0.7, "fixture prompt must land in the mid-confidence fallback branch, not the >=0.7 fast path")
+
+  const decision = mlRouter.cascadeDecide(complexPrompt, 0.0001, 0.001, 0.01, 0.85)
+  assert.equal(decision.level, "complex")
+  assert.ok(decision.escalate, "mid-confidence complex prompt must still escalate")
+
+  const cv = vibeultrax.vibeultraxControlVector({ user_text: complexPrompt })
+  assert.equal(cv.ultrax_profile, "deep", "complex prompt must select the deep (3-tier) cascade profile")
+  assert.equal(cv.selected_slot, "brain", "complex prompt must escalate all the way to brain")
+  assert.equal(cv.route_path.join(","), "cheap,medium,brain")
+  assert.equal(cv.cascade_depth, 3)
+})
+
+test("cascade: a high-confidence complex prompt escalates to brain, not just medium", async (t) => {
+  // Regression for profileFromCascade mapping decision.escalate (without useCheap) to
+  // the "standard"/medium profile even when the underlying difficulty level was
+  // "complex" — the high-confidence complex branch in cascadeDecide never sets
+  // useCheap, so it could never reach the old useCheap&&escalate deep-profile check.
+  const complexPrompt = "implement migrate refactor redesign architect optimize across the distributed concurrent async parallel microservice database schema migration with breaking api changes and backward compat in src/a.ts src/b.ts src/c.ts src/d.ts src/e.ts package.json tsconfig.json docker-compose.yml, fixing bug error crash race deadlock leak issues --force --dry-run --verbose, run npm test jest pytest cargo docker kubectl"
+
+  const diff = mlRouter.computeDifficulty(complexPrompt)
+  assert.equal(diff.level, "complex")
+  assert.ok(diff.confidence >= 0.7, "fixture prompt must land in the high-confidence complex fast path")
+
+  const decision = mlRouter.cascadeDecide(complexPrompt, 0.001, 0.005, 0.02, 0.85)
+  assert.equal(decision.useCheap, false)
+  assert.ok(decision.escalate)
+  assert.equal(decision.level, "complex")
+
+  const cv = vibeultrax.vibeultraxControlVector({ user_text: complexPrompt })
+  assert.equal(cv.ultrax_profile, "deep")
+  assert.equal(cv.selected_slot, "brain")
+  assert.equal(cv.cascade_depth, 3)
+})
+
+test("cascade: a simple prompt at mid/low confidence still does not escalate", async (t) => {
+  // Guard the inverse: the escalate-fallback fix (`!== "simple"` instead of the old
+  // `!== "complex"`) must not start escalating simple prompts that miss the >=0.7 fast
+  // path.
+  const decision = mlRouter.cascadeDecide("ok thanks", 0.0001, 0.001, 0.01, 0.85)
+  if (decision.level === "simple" && decision.confidence < 0.7) {
+    assert.equal(decision.escalate, false, "low-confidence simple prompt must not escalate")
+  }
+
+  const cv = vibeultrax.vibeultraxControlVector({ user_text: "fix typo" })
+  assert.equal(cv.ultrax_profile, "direct", "trivially simple prompt must stay on the direct (cheap-only) profile")
+  assert.equal(cv.selected_slot, "cheap")
+  assert.equal(cv.cascade_depth, 1, "direct profile only takes the cheap hop")
+})
+
 test("cascade: vibeultraxPipeline exports and preserves the three-stage pipeline", async (t) => {
   const result = vibeultrax.vibeultraxPipeline({ user_text: "implement a multi-step migration with rollback" })
   assert.equal(result.mode, "vibeultrax")
