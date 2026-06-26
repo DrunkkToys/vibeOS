@@ -185,6 +185,14 @@ function cascadeDiagnosticResults(deps) {
   const results = []
   const tiers = readJsonFile(deps, deps.TIERS_FILE) || {}
   const sel = tiers.selection || {}
+  const ocConfigCandidates = [
+    join(deps.directory || "", "opencode.json"),
+    join(process.env.HOME || "", ".config", "opencode", "opencode.json"),
+    join(deps.OPENCODE_HOME || "", "opencode.json"),
+  ]
+  const ocConfigPath = ocConfigCandidates.find((p) => p && deps.existsSync(p)) || ocConfigCandidates[1]
+  const oc = readJsonFile(deps, ocConfigPath) || {}
+  const agents = oc.agent && typeof oc.agent === "object" ? oc.agent : {}
   const blackboxPath = join(deps.VIBEOS_HOME || getVibeOSHome(), "blackbox-state.json")
   const blackbox = readJsonFile(deps, blackboxPath) || {}
   const cv = blackbox.cv || {}
@@ -200,6 +208,12 @@ function cascadeDiagnosticResults(deps) {
   results.push({ ok: !sel.vector_changed_pipeline || sameJson(sel.vector_changed_pipeline, VIBEULTRAX_ROOT), okLabel: !sel.vector_changed_pipeline || sameJson(sel.vector_changed_pipeline, VIBEULTRAX_ROOT) ? "OK" : "WARN", label: "cascade vector_changed_pipeline", detail: JSON.stringify(sel.vector_changed_pipeline || null), fix: "run `trinity repair-state apply`" })
   results.push({ ok: sameJson(cv.cascade_root, VIBEULTRAX_ROOT), okLabel: sameJson(cv.cascade_root, VIBEULTRAX_ROOT) ? "OK" : "WARN", label: "cascade root cv", detail: JSON.stringify({ cascade_root: cv.cascade_root || null, route_path: cv.route_path || null, selected_slot: cv.selected_slot || null }), fix: "run `trinity repair-state apply`" })
   results.push({ ok: !!sessionCv || !sid, okLabel: !!sessionCv || !sid ? "OK" : "WARN", label: "cascade session cv", detail: sessionCv ? JSON.stringify({ cascade_root: sessionCv.cascade_root || null, route_path: sessionCv.route_path || null, selected_slot: sessionCv.selected_slot || null }) : (sid ? `missing for ${sid}` : "no session id") })
+  for (const [slot, name] of [["cheap", "vibe-cheap"], ["medium", "vibe-medium"], ["brain", "vibe-brain"]]) {
+    const model = tiers.trinity?.[slot]?.oc || ""
+    const agent = agents[name] || null
+    const ok = !!agent && agent.mode === "subagent" && agent.model === model
+    results.push({ ok, okLabel: ok ? "OK" : "WARN", label: `cascade ${name}`, detail: agent ? JSON.stringify({ mode: agent.mode || null, model: agent.model || null, expected: model || null }) : `missing in ${ocConfigPath}`, fix: "run a VibeUltraX turn or `trinity repair-state apply` after rebuild" })
+  }
   results.push({ ok: activeJobs.count === 0, okLabel: activeJobs.count === 0 ? "OK" : "WARN", label: "cascade stale active jobs", detail: `${activeJobs.count} in ${activeJobs.path}` })
   results.push({ ok: proc.stale.length === 0, okLabel: proc.stale.length === 0 ? "OK" : "WARN", label: "cascade opencode processes", detail: `${proc.count} found${proc.stale.length ? `; stale: ${proc.stale.join(" | ")}` : ""}` })
   results.push({ ok: repair.length === 0, okLabel: repair.length === 0 ? "OK" : "WARN", label: "cascade repair candidates", detail: String(repair.length), fix: repair.length ? "run `trinity repair-state apply`" : null })

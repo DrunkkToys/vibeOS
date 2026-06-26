@@ -64,6 +64,11 @@ function loadSelectionImpl(): any {
       requested_optimization_mode: j?.selection?.requested_optimization_mode || null,
       previous_default_agent: j?.selection?.previous_default_agent || null,
       previous_optimization_mode: j?.selection?.previous_optimization_mode || null,
+      selected_slot: j?.selection?.selected_slot || null,
+      worker_model: j?.selection?.worker_model || null,
+      selected_subagent: j?.selection?.selected_subagent || null,
+      route_path: Array.isArray(j?.selection?.route_path) ? j.selection.route_path : null,
+      requires_delegation: j?.selection?.requires_delegation === true,
     }
   } catch { _handleStateCorruption(TIERS_FILE); return DFLT_SEL }
 }
