@@ -25,7 +25,7 @@ import { loadCredit, thinkingLevel, _lazyRefresh, _readAuth } from "./lib/credit
 import { createTrinityTool } from "./lib/trinity-tool.js"
 import { classifyAndRankModels, modelToCcAlias, discoverAvailableModels, probeModel } from "./lib/trinity-rebuild.js"
 import { _appendFooter, didTextCompletePainted } from "./lib/hooks/footer.js"
-import { buildFallbackFooterLine } from "./lib/hooks/shared-footer.js"
+import { buildResilientFooterLine } from "./lib/hooks/shared-footer.js"
 import { onToolExecuteBefore, onToolExecuteAfter, setToolDirectory } from "./lib/hooks/tool-execute.js"
 import { onMessagesTransform, onSystemTransform, latestUserIntent, ensureProjectSkill } from "./lib/hooks/chat-transform.js"
 import { onChatParams, onChatHeaders, setChatParamsDirectory } from "./lib/hooks/chat-params.js"
@@ -197,7 +197,10 @@ function ensureFooterFallback(input, output, directory, hookName = "fallback") {
         },
       },
     })
-    const footer = `${currentText}\n\n${buildFallbackFooterLine({
+    // SINGLE SOURCE OF TRUTH: the safety net renders the SAME README footer line as the
+    // rich path (buildResilientFooterLine → buildFooterLine), just with fewer populated
+    // fields. It must never paint a different, shorter, alert-less line.
+    const footer = `${currentText}\n\n${buildResilientFooterLine({
       activeSlot: label,
       providerLabel: fallbackExecution.provider_label || "Unknown",
       modelName: modelDisplayName(fallbackExecution.model || resolvedModel || "unknown"),

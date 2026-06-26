@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { buildEnforcementTags, buildFallbackFooterLine, buildFooterLine, formatEnforcementPulse, formatModeLabel, formatSavingsPulse, formatVectorPulse, resolveBrand, resolveRegimeIcon, resolveTierIcon, trendGlyph } from "../shared-footer.js"
+import { buildEnforcementTags, buildResilientFooterLine, buildFooterLine, formatEnforcementPulse, formatModeLabel, formatSavingsPulse, formatVectorPulse, resolveBrand, resolveRegimeIcon, resolveTierIcon, trendGlyph } from "../shared-footer.js"
 
 test("shared-footer resolves the expected brand names", () => {
   assert.equal(resolveBrand("vibemax", "brain"), "VibeMaX")
@@ -96,14 +96,21 @@ test("shared-footer keeps the footer compact while showing savings and slot stat
   assert.ok(line.includes("⟡ cheap"))
 })
 
-test("shared-footer formats the fallback footer with split provider and model labels", () => {
-  const line = buildFallbackFooterLine({
+test("shared-footer degrade path renders the ONE README footer, never the bare 3-segment line", () => {
+  const line = buildResilientFooterLine({
     activeSlot: "cheap",
     providerLabel: "Opencode",
     modelName: "Big Pickle",
   })
 
-  assert.equal(line, "— ⚡ cheap | Opencode | Big Pickle —")
+  // The degrade path keeps the provider/model but is still the full README line
+  // (em-dash wrapper + tier icon + Vibe brand) — NOT the old alert-less
+  // "— ⚡ cheap | Opencode | Big Pickle —" the user kept seeing.
+  assert.ok(line.startsWith("—") && line.trimEnd().endsWith("—"))
+  assert.ok(line.includes("⚡ cheap"))
+  assert.ok(line.includes("Opencode | Big Pickle"))
+  assert.ok(/Vibe/.test(line), "the one footer always carries the Vibe brand")
+  assert.notEqual(line, "— ⚡ cheap | Opencode | Big Pickle —")
 })
 
 test("shared-footer renders experimental regime tags cleanly", () => {

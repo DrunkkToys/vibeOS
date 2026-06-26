@@ -406,6 +406,19 @@ The footer is the primary status line, appended to every assistant response. It 
 | ⟡ medium | Active slot changed to medium this turn |
 | ⟡ brain | Active slot changed to brain this turn |
 
+#### Alert Tags
+
+The alert is part of the one footer (it is **not** a separate line). When present it renders
+after the enforcement tags and before the stress gauge. Multiple alerts join with ` · `.
+This table is the single source of truth — `buildFooterAlert()` must match it exactly.
+
+| Alert | Trigger |
+|-------|---------|
+| ⚠ api degraded | API latency is degraded / the backend is unhealthy this turn |
+| ⚠ switch pending | A tier switch is deferred and will apply at the next turn boundary |
+| ⚠ model drift | The live model is outside the cascade tiers and differs from the expected slot model |
+| ⚠ model unreachable | The last model call failed with a network error (EHOSTUNREACH / ENOTFOUND / ETIMEDOUT) |
+
 **Segments (left to right):**
 
 | Segment | Format | Example | Meaning |
@@ -418,6 +431,7 @@ The footer is the primary status line, appended to every assistant response. It 
 | Brand + mode label | VibeBrand . modeLabel | VibeUltraX . Quality | Requested mode + regime-derived label |
 | Cascade icon | >>> or >> | >>> | VibeUltraX cascade depth >= 3 |
 | Enforcement tags | guarded, flow steady, tests live | guarded | Guard state summary |
+| Alert tags | ⚠ alert · ⚠ alert | ⚠ model drift | Live status alerts (see Alert Tags) |
 | Stress gauge | gaugeChar | _ | Current stress level |
 | Vector pulse | slot | cheap | Active slot changed this turn |
 
