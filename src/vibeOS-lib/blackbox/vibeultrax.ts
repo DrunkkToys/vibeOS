@@ -9,6 +9,7 @@ import { PivotCache } from "./pivot-cache.js"
 const CHEAP = 0.0001
 const MEDIUM = 0.001
 const BRAIN = 0.01
+const VIBEULTRAX_ROOT = ["cheap", "medium", "brain"]
 
 function normalizeText(input = {}) {
   return String(input.user_text || input.prompt || input.text || "").trim()
@@ -50,16 +51,12 @@ function learnedRouteFromGraph(text) {
 }
 
 function profileFromCascade(decision, learned = null) {
-  if (learned?.learnedTier === "cheap") return { profile: "direct", cascade_depth: 1, pipeline_root: ["cheap"], tier_bias: "cheap" }
-  if (learned?.learnedTier === "medium") return { profile: "standard", cascade_depth: 2, pipeline_root: ["medium", "brain"], tier_bias: "medium" }
-  // Cascade STARTS at the cheapest tier and escalates per-turn (cheap → medium → brain)
-  // when the acting tier struggles (stress/loops/complexity). tier_bias is the ENTRY
-  // tier = pipeline_root[0], never the final tier — so the dropdown/alert show what
-  // actually runs this turn. Confidence-aware cascade: "cheap → escalate if fail".
-  if (learned?.learnedTier === "brain") return { profile: "deep", cascade_depth: 3, pipeline_root: ["cheap", "medium", "brain"], tier_bias: "cheap" }
-  if (decision.useCheap && decision.escalate) return { profile: "deep", cascade_depth: 3, pipeline_root: ["cheap", "medium", "brain"], tier_bias: "cheap" }
-  if (decision.escalate) return { profile: "standard", cascade_depth: 2, pipeline_root: ["medium", "brain"], tier_bias: "medium" }
-  return { profile: "direct", cascade_depth: 1, pipeline_root: ["cheap"], tier_bias: "cheap" }
+  if (learned?.learnedTier === "cheap") return { profile: "direct", cascade_depth: 1, pipeline_root: ["cheap"], route_path: ["cheap"], tier_bias: "cheap", selected_slot: "cheap" }
+  if (learned?.learnedTier === "medium") return { profile: "standard", cascade_depth: 2, pipeline_root: ["cheap", "medium"], route_path: ["cheap", "medium"], tier_bias: "medium", selected_slot: "medium" }
+  if (learned?.learnedTier === "brain") return { profile: "deep", cascade_depth: 3, pipeline_root: VIBEULTRAX_ROOT, route_path: VIBEULTRAX_ROOT, tier_bias: "brain", selected_slot: "brain" }
+  if (decision.useCheap && decision.escalate) return { profile: "deep", cascade_depth: 3, pipeline_root: VIBEULTRAX_ROOT, route_path: VIBEULTRAX_ROOT, tier_bias: "brain", selected_slot: "brain" }
+  if (decision.escalate) return { profile: "standard", cascade_depth: 2, pipeline_root: ["cheap", "medium"], route_path: ["cheap", "medium"], tier_bias: "medium", selected_slot: "medium" }
+  return { profile: "direct", cascade_depth: 1, pipeline_root: ["cheap"], route_path: ["cheap"], tier_bias: "cheap", selected_slot: "cheap" }
 }
 
 function getPivotCache() {
@@ -78,6 +75,10 @@ export function vibeultraxControlVector(input = {}) {
     mode_root: "vibeultrax",
     mode_family: "cascade",
     cascade_depth: profile.cascade_depth,
+    cascade_root: VIBEULTRAX_ROOT,
+    route_path: profile.route_path,
+    selected_slot: profile.selected_slot,
+    route_source: learned ? "learned" : "local",
     pipeline_root: profile.pipeline_root,
     tier_bias: profile.tier_bias,
     enforcement_mode: "strict",
@@ -129,6 +130,10 @@ export function vibeultraxPipeline(input = {}) {
     pivot_confidence: pivotBack.confidence || 0,
     pivot_reason: pivotBack.reason || null,
     pipeline: profile.pipeline_root,
+    cascade_root: VIBEULTRAX_ROOT,
+    route_path: profile.route_path,
+    selected_slot: profile.selected_slot,
+    route_source: learned ? "learned" : "local",
     cascade_depth: profile.cascade_depth,
     ultrax_reason: cascade.reason,
     ultrax_confidence: cascade.confidence,

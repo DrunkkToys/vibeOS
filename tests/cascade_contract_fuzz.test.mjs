@@ -186,7 +186,8 @@ test("cascade: vibeultrax profile matches cascade depth for direct vs deep", asy
   // The cascade ENTERS on the first pipeline tier and escalates from there — tier_bias
   // is always the cascade entry tier, never the final tier. A full cheap→medium→brain
   // cascade therefore starts on cheap; a medium→brain cascade starts on medium.
-  assert.equal(deep.tier_bias, deep.pipeline_root[0], "non-direct profiles enter on the first pipeline tier")
+  assert.equal(deep.route_path[0], "cheap", "non-direct profiles enter on the cheap tier")
+  assert.equal(deep.selected_slot, deep.route_path[deep.route_path.length - 1], "selected_slot is the acting tier")
 })
 
 test("cascade: computeControlVector includes cascade_depth for vibeultrax mode", async () => {

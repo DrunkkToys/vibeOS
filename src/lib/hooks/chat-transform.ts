@@ -250,41 +250,73 @@ function normalizePipelineRoot(value: unknown, tierBias: unknown): string[] {
   return slot ? [slot] : []
 }
 
+function modeCascadeRoot(mode: unknown, fallbackPipeline: unknown = null, tierBias: unknown = null): string[] {
+  const normalized = String(mode || "").trim().toLowerCase()
+  if (normalized === "vibeultrax") return ["cheap", "medium", "brain"]
+  const allEntries = [...BRANDED_MODES, ...RUNTIME_MODES]
+  const modeEntry = allEntries.find((e: unknown) => e.id === normalized)
+  if (modeEntry?.pipeline?.length) return modeEntry.pipeline
+  return normalizePipelineRoot(fallbackPipeline, tierBias)
+}
+
+function normalizeRoutePath(value: unknown, fallbackSlot: unknown): string[] {
+  const route = normalizePipelineRoot(value, fallbackSlot)
+  const slot = normalizeSlot(fallbackSlot)
+  if (!slot || route.includes(slot)) return route
+  return [...route, slot]
+}
+
 function normalizeBackendDecision(raw: unknown, fallbackMode: unknown = null): unknown {
   if (!raw || typeof raw !== "object") return raw
   const sourceDecision = raw.decision && typeof raw.decision === "object" ? raw.decision : raw
   const requestedMode = String(sourceDecision.requested_mode || sourceDecision.requestedMode || fallbackMode || raw.requested_mode || raw.requestedMode || "").trim().toLowerCase() || null
   const requestedSlot = normalizeSlot(sourceDecision.requested_slot || sourceDecision.requestedSlot || slotFromMode(requestedMode)) || null
   const optimizationMode = String(sourceDecision.optimization_mode || sourceDecision.mode || fallbackMode || raw.optimization_mode || raw.mode || requestedMode || "auto").trim().toLowerCase()
-  const tierBias = normalizeSlot(sourceDecision.tier_bias || sourceDecision.active_slot || raw.tier_bias || raw.active_slot || slotFromMode(optimizationMode) || requestedSlot) || null
-  const pipelineRoot = normalizePipelineRoot(sourceDecision.pipeline_root || raw.pipeline_root || raw.active_pipeline, tierBias)
+  const selectedSlot = normalizeSlot(sourceDecision.selected_slot || sourceDecision.selectedSlot || raw.selected_slot || raw.selectedSlot || sourceDecision.tier_bias || sourceDecision.active_slot || raw.tier_bias || raw.active_slot || slotFromMode(optimizationMode) || requestedSlot) || null
+  const tierBias = selectedSlot
+  const routePath = normalizeRoutePath(sourceDecision.route_path || sourceDecision.routePath || raw.route_path || raw.routePath || sourceDecision.pipeline_root || raw.pipeline_root || raw.active_pipeline, selectedSlot)
+  const cascadeRoot = modeCascadeRoot(optimizationMode || requestedMode, sourceDecision.cascade_root || sourceDecision.cascadeRoot || raw.cascade_root || raw.cascadeRoot || sourceDecision.active_pipeline || raw.active_pipeline || sourceDecision.pipeline_root || raw.pipeline_root, selectedSlot)
+  const pipelineRoot = cascadeRoot.length ? cascadeRoot : routePath
   const source = String(sourceDecision.source || raw.source || raw.optimization_source || "backend")
   const decision = {
     optimization_mode: optimizationMode || null,
     tier_bias: tierBias,
+    selected_slot: selectedSlot,
     pipeline_root: pipelineRoot,
+    cascade_root: cascadeRoot,
+    route_path: routePath,
+    cascade_depth: routePath.length || pipelineRoot.length || 1,
     source,
     requested_mode: requestedMode,
     requested_slot: requestedSlot,
   }
-  const controlVector = raw.control_vector && typeof raw.control_vector === "object"
-    ? {
-      ...raw.control_vector,
-      optimization_mode: decision.optimization_mode,
-      tier_bias: decision.tier_bias,
-      pipeline_root: decision.pipeline_root,
-    }
-    : undefined
+  const baseControlVector = raw.control_vector && typeof raw.control_vector === "object" ? raw.control_vector : raw
+  const controlVector = {
+    ...baseControlVector,
+    optimization_mode: decision.optimization_mode,
+    tier_bias: decision.tier_bias,
+    selected_slot: decision.selected_slot,
+    pipeline_root: decision.pipeline_root,
+    cascade_root: decision.cascade_root,
+    route_path: decision.route_path,
+    cascade_depth: decision.cascade_depth,
+    route_source: decision.source,
+  }
   return {
     ...raw,
     optimization_mode: decision.optimization_mode,
     tier_bias: decision.tier_bias,
+    selected_slot: decision.selected_slot,
     pipeline_root: decision.pipeline_root,
+    cascade_root: decision.cascade_root,
+    route_path: decision.route_path,
+    cascade_depth: decision.cascade_depth,
+    route_source: decision.source,
     source: decision.source,
     requested_mode: decision.requested_mode,
     requested_slot: decision.requested_slot,
     decision,
-    control_vector: controlVector || raw.control_vector || null,
+    control_vector: controlVector,
   }
 }
 
@@ -467,35 +499,20 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
     const currentSel = loadSelection()
     const userSetMode = loadSessionOptMode(sid + "_opt")
     const userOptMode = userSetMode || loadOptimizationMode()
-    const isManualMode = userOptMode && userOptMode !== "auto"
+    const durablePipeline = modeCascadeRoot(cv.optimization_mode || userOptMode, cv.cascade_root || cv.pipeline_root, cv.selected_slot || cv.tier_bias)
+    const routePath = normalizeRoutePath(cv.route_path || cv.pipeline_root, cv.selected_slot || cv.tier_bias)
 
     const writeIf = (key: string, val: unknown) => {
       const sel = loadSelection()
       if (sel[key] !== val) writeSelection(key, val)
     }
 
-    if (isManualMode && !authoritative) {
-      // Manual modes (vibeultrax, etc.) keep the mode's configured cascade stable.
-      // Without this branch, the per-turn cv.pipeline_root write below — which
-      // legitimately collapses to a single tier whenever a turn doesn't need
-      // escalation — clobbers the full cascade right after it's set, permanently
-      // failing the `active_pipeline.length > 1` gate in tool-execute.ts and
-      // silently disabling cascade escalation for the rest of the mode session.
-      // However, when the backend is authoritative, its pipeline_root takes precedence.
-      const allEntries = [...BRANDED_MODES, ...RUNTIME_MODES]
-      const modeEntry = allEntries.find((e: unknown) => e.id === userOptMode)
-      if (modeEntry) {
-        const expectedPipeline = JSON.stringify(modeEntry.pipeline)
-        const currentPipeline = currentSel.active_pipeline
-        const currentPipelineStr = Array.isArray(currentPipeline) ? JSON.stringify(currentPipeline) : currentPipeline
-        if (currentPipelineStr !== expectedPipeline) {
-          writeSelection("active_pipeline", modeEntry.pipeline)
-        }
+    if (durablePipeline.length > 0) {
+      const currentPipeline = currentSel.active_pipeline
+      const currentPipelineStr = Array.isArray(currentPipeline) ? JSON.stringify(currentPipeline) : currentPipeline
+      if (currentPipelineStr !== JSON.stringify(durablePipeline)) {
+        writeSelection("active_pipeline", durablePipeline)
       }
-    } else if (cv?.pipeline_root && Array.isArray(cv.pipeline_root)) {
-      writeIf("active_pipeline", JSON.stringify(cv.pipeline_root))
-    } else if (cv?.cascade_depth && cv.cascade_depth >= 3) {
-      writeIf("active_pipeline", JSON.stringify(["cheap", "medium", "brain"]))
     }
 
     writeIf("enabled", true)
@@ -567,7 +584,7 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
       }
     }
 
-    const slot = cv.tier_bias
+    const slot = cv.selected_slot || cv.tier_bias
     const slotLocked = currentSel.slot_locked === true
     const canApplySlot = slot && slot !== "auto" && (authoritative || (!slotLocked && !_modelLocked))
     let appliedSlot = currentSel.active_slot || null
@@ -581,7 +598,6 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
         writeIf("vector_changed_slot", slot)
         writeIf("vector_changed_at", Date.now())
         if (cv.optimization_mode) writeIf("vector_changed_mode", cv.optimization_mode)
-        if (cv.pipeline_root) writeIf("vector_changed_pipeline", JSON.stringify(cv.pipeline_root))
         // NOTE: executed_model/selected_model are SHADOW_SELECTION_KEYS — derived
         // from active_slot + trinity[slot].oc at read time and stripped on every
         // writeSelection. Persisting them here is a no-op that fights the design;
@@ -596,7 +612,7 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
             reason: `control vector selected ${slot}`,
             prompt: userText || latestUserIntent || "",
             userText: latestUserIntent || userText || "",
-            activePipeline: cv.pipeline_root || [],
+            activePipeline: durablePipeline || [],
             projectFingerprint: currentProjectFingerprint,
             projectName: currentProjectName || "",
             sourceStrategy: cv.optimization_mode || "auto",
@@ -668,12 +684,15 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
     return {
       applied_slot: canApplySlot ? appliedSlot : currentSel.active_slot || null,
       applied_mode: cv.optimization_mode || null,
-      applied_pipeline: Array.isArray(cv.pipeline_root) ? cv.pipeline_root : [],
+      applied_pipeline: durablePipeline,
       authoritative,
       decision: backendDecision || null,
       optimization_mode: cv.optimization_mode || null,
       tier_bias: cv.tier_bias || null,
-      pipeline_root: Array.isArray(cv.pipeline_root) ? cv.pipeline_root : [],
+      selected_slot: cv.selected_slot || cv.tier_bias || null,
+      pipeline_root: durablePipeline,
+      cascade_root: durablePipeline,
+      route_path: routePath,
     }
   } catch (err) {
     console.error("[vibeOS] syncControlSettings failed:", err?.message || err)
@@ -682,12 +701,15 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
     return {
       applied_slot: fallbackSlot,
       applied_mode: cv?.optimization_mode || null,
-      applied_pipeline: Array.isArray(cv?.pipeline_root) ? cv.pipeline_root : [],
+      applied_pipeline: modeCascadeRoot(cv?.optimization_mode, cv?.cascade_root || cv?.pipeline_root, cv?.selected_slot || cv?.tier_bias),
       authoritative,
       decision: backendDecision || null,
       optimization_mode: cv?.optimization_mode || null,
       tier_bias: cv?.tier_bias || null,
-      pipeline_root: Array.isArray(cv?.pipeline_root) ? cv.pipeline_root : [],
+      selected_slot: cv?.selected_slot || cv?.tier_bias || null,
+      pipeline_root: modeCascadeRoot(cv?.optimization_mode, cv?.cascade_root || cv?.pipeline_root, cv?.selected_slot || cv?.tier_bias),
+      cascade_root: modeCascadeRoot(cv?.optimization_mode, cv?.cascade_root || cv?.pipeline_root, cv?.selected_slot || cv?.tier_bias),
+      route_path: normalizeRoutePath(cv?.route_path || cv?.pipeline_root, cv?.selected_slot || cv?.tier_bias),
     }
   }
 }
@@ -1186,6 +1208,7 @@ export const onSystemTransform = async (_input, output) => {
           requested_slot: _controlVector?.tier_bias || null,
         },
       }, requestedOptimizationMode)
+      _controlVector = optimizationDecision?.control_vector || _controlVector
       optimizationMode = optimizationDecision?.optimization_mode || optimizationMode
     }
     if (_controlVector) {
@@ -1223,6 +1246,7 @@ export const onSystemTransform = async (_input, output) => {
         blackboxState.sessions ??= {}
         blackboxState.sessions[_OC_SID] = {
           ...existingSession,
+          cv: _controlVector || existingSession?.cv || null,
           project_fingerprint: currentProjectFingerprint || existingSession?.project_fingerprint || "",
           sub_regime: sessionState.sub_regime || existingSession?.sub_regime || "INIT",
           regime: sessionState.sub_regime || existingSession?.regime || "INIT",
@@ -1230,8 +1254,19 @@ export const onSystemTransform = async (_input, output) => {
           momentum: sessionState.momentum ?? existingSession?.momentum ?? 0,
           control_history: controlHistory,
           optimization_mode: optimizationDecision?.optimization_mode || existingSession?.optimization_mode || null,
-          active_slot: optimizationDecision?.tier_bias || _controlVector?.tier_bias || existingSession?.active_slot || null,
+          active_slot: optimizationDecision?.selected_slot || optimizationDecision?.tier_bias || _controlVector?.selected_slot || _controlVector?.tier_bias || existingSession?.active_slot || null,
           turn_counter: turnCounter,
+        }
+        saveBlackboxStateToCtx(blackboxState)
+      }
+      if (_controlVector && existingSession?.sub_regime) {
+        blackboxState.sessions ??= {}
+        blackboxState.sessions[_OC_SID] = {
+          ...existingSession,
+          cv: _controlVector,
+          optimization_mode: optimizationDecision?.optimization_mode || existingSession?.optimization_mode || null,
+          active_slot: optimizationDecision?.selected_slot || optimizationDecision?.tier_bias || _controlVector?.selected_slot || _controlVector?.tier_bias || existingSession?.active_slot || null,
+          latest_control_vector_ts: Date.now(),
         }
         saveBlackboxStateToCtx(blackboxState)
       }

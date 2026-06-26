@@ -171,6 +171,49 @@ test("live session snapshot persists cv aliases and revives legacy live_control 
   }
 })
 
+test("blackbox load mirrors top-level control vector into the current session record", async () => {
+  const root = makeSandbox("value-repair-root-cv")
+  const vibeHome = join(root, ".claude")
+  const prevHome = process.env.HOME
+  const prevVibeHome = process.env.VIBEOS_HOME
+  process.env.HOME = root
+  process.env.VIBEOS_HOME = vibeHome
+
+  try {
+    writeFileSync(join(vibeHome, "blackbox-state.json"), JSON.stringify({
+      enabled: true,
+      cv: {
+        optimization_mode: "vibeultrax",
+        tier_bias: "cheap",
+        cascade_depth: 1,
+        pipeline_root: ["cheap"],
+      },
+      sessions: {
+        "opencode-test-root-cv": {
+          sub_regime: "LOOPING",
+          resolution: "looping",
+          updatedAt: new Date().toISOString(),
+        },
+      },
+    }, null, 2))
+
+    const state = await import("../src/lib/state.js?live-repair-root-cv=" + Date.now())
+    state.setCurrentSessionId("opencode-test-root-cv")
+
+    const loaded = state.loadBlackboxState()
+    const session = loaded.sessions["opencode-test-root-cv"]
+
+    assert.deepEqual(session.cv, loaded.cv, "session should inherit the live control vector from the root record")
+    assert.deepEqual(session.control_vector, loaded.cv, "session should keep the control_vector alias")
+    assert.deepEqual(session.live_control, loaded.cv, "session should keep the live_control alias")
+    const persisted = JSON.parse(readFileSync(join(vibeHome, "blackbox-state.json"), "utf8"))
+    assert.deepEqual(persisted.sessions["opencode-test-root-cv"].cv, loaded.cv, "mirrored session cv should persist to disk")
+  } finally {
+    try { process.env.HOME = prevHome } catch {}
+    try { process.env.VIBEOS_HOME = prevVibeHome } catch {}
+    try { rmSync(root, { recursive: true, force: true }) } catch {}
+  }
+})
 test("live session snapshot deduplicates repeated identical snapshots and preserves reward breakdown", async () => {
   const root = makeSandbox("value-repair-dedupe")
   const vibeHome = join(root, ".claude")
