@@ -13,7 +13,7 @@ import { getFlowWarns, ensureProjectDocs, syncFlowTodosToNative } from "./vibeOS
 import { computeSessionMetrics } from "./vibeOS-lib/session-metrics.js"
 import { createMcpServer, writeDashboardBaseConfig } from "./lib/vibeos-mcp-server.js"
 import { isApiConnected, isApiFallback, getBackendVersion, getApiFallbackSince, setApiToken, setApiBootstrapToken, ensureBootstrapExchange, VIBEOS_API_URL } from "./lib/api-client.js"
-import { applySlot, modelCostPerTurn, detectContext7, formatUsd, classify, resolveEffectiveTier, _refreshModel, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, readConfig, getTrinitySlotOrder, loadTrinitySlotsFromTiersFile, isModelFree, resolveCurrentExecution, modelDisplayName, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP } from "./lib/pricing.js"
+import { applySlot, reconcileSlotModel, modelCostPerTurn, detectContext7, formatUsd, classify, resolveEffectiveTier, _refreshModel, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, readConfig, getTrinitySlotOrder, loadTrinitySlotsFromTiersFile, isModelFree, resolveCurrentExecution, modelDisplayName, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP } from "./lib/pricing.js"
 import { scoreStress, detectTechStack, loadBlackboxState, saveBlackboxState, getBlackboxTracker, getBlackboxResolution, saveOptimizationMode, resetBlackboxTracker } from "./lib/turn-classify.js"
 import { safeJsonParse, readFullState, loadSelection, writeSelection, readLifetimeSavings, _OC_SID, _modelLocked, _blackboxEnabled, setBlackboxEnabled, _lockedSlot, _lockedModel, setModelLocked, setLockedSlot, setLockedModel, currentTier, currentModel, currentProjectFingerprint, currentProjectName, setCurrentTier, setCurrentModel, setCurrentProjectFingerprint, setCurrentProjectName, setCurrentSessionId, getCurrentSessionId, briefedProjects, _latestBlackboxState, _latestBlackboxLoopMsg, _latestBlackboxPivotMsg, getActiveJobForProject, projectFingerprint, loadProjectState, saveProjectState, ensureProjectBucket, mergeProjectBucket, setVibeOSHomeContext, SAVINGS_LEDGER_FILE, USER_HOME, CREDIT_CACHE_F, pruneScratchpadOnce, registerSessionCleanupHandlers, runStartupMaintenanceOnce, promotedProjectPatterns, projectPatternRows, clearProjectPatterns, loadTodos, getTodos, upsertTodo, markTodoDone, tool, loadSessionOrchestration, mutateSessionOrchestration } from "./lib/state.js"
 import { researchAudit } from "./lib/research-audit.js"
@@ -938,6 +938,34 @@ export async function DelegationEnforcer({ client, directory } = {}) {
     }
     await _seedOrRepairModelTiers(directory)
     loadTrinitySlotsFromTiersFile()
+    // ── Make the dropdown default match the active tier ───────────────────
+    // OpenCode binds the model PER PROMPT from the dropdown, and a NEW session's
+    // dropdown defaults to opencode.json `model`. If that default doesn't match
+    // active_slot (e.g. VibeUltraX starts on cheap), the very first turn runs on
+    // the wrong tier and the footer/alert/dropdown disagree. chat.params CANNOT
+    // fix this — it can't switch providers, and our tiers span 3 providers.
+    // So we reconcile the default model to trinity[active_slot].oc at load, while
+    // no turn is in flight (deferLiveSwitch:false is safe at startup — there is no
+    // in-flight turn to abort). This is the ONLY reliable lever on the live model.
+    try {
+      const _sel = safeJsonParse(readFileSync(getTiersFile(), "utf-8"))?.selection
+      const _activeSlot = String(_sel?.active_slot || "").trim()
+      if (_activeSlot) {
+        const r = reconcileSlotModel(_activeSlot, directory, "", { deferLiveSwitch: false })
+        // _bootstrapModel ran BEFORE this reconcile (when opencode.json had no model),
+        // so currentModel/currentTier can be stale (e.g. the brain model) while the live
+        // default is now the active tier. The footer reads currentModel for its leading
+        // execution identity — sync it so footer ↔ dropdown ↔ VibeUltraX agree from turn 1.
+        const _liveModel = String(r.to || "").trim()
+        if (_liveModel) {
+          setCurrentModel(_liveModel)
+          setCurrentTier(resolveEffectiveTier(_liveModel, _activeSlot))
+        }
+        if (r.reconciled)
+          console.error(`[vibeOS] startup: default model → ${r.to} (slot=${_activeSlot}, was ${r.from || "∅"})`)
+      }
+    }
+    catch (e) { console.error("[vibeOS] startup default-model reconcile failed:", e?.message || e) }
   }
   catch { }
   if (detectContext7())
