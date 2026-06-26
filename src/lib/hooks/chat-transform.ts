@@ -467,20 +467,21 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
     const currentSel = loadSelection()
     const userSetMode = loadSessionOptMode(sid + "_opt")
     const userOptMode = userSetMode || loadOptimizationMode()
-    const isManualMode = userSetMode && userOptMode !== "auto"
+    const isManualMode = userOptMode && userOptMode !== "auto"
 
     const writeIf = (key: string, val: unknown) => {
       const sel = loadSelection()
       if (sel[key] !== val) writeSelection(key, val)
     }
 
-    if (isManualMode) {
+    if (isManualMode && !authoritative) {
       // Manual modes (vibeultrax, etc.) keep the mode's configured cascade stable.
       // Without this branch, the per-turn cv.pipeline_root write below — which
       // legitimately collapses to a single tier whenever a turn doesn't need
       // escalation — clobbers the full cascade right after it's set, permanently
       // failing the `active_pipeline.length > 1` gate in tool-execute.ts and
       // silently disabling cascade escalation for the rest of the mode session.
+      // However, when the backend is authoritative, its pipeline_root takes precedence.
       const allEntries = [...BRANDED_MODES, ...RUNTIME_MODES]
       const modeEntry = allEntries.find((e: unknown) => e.id === userOptMode)
       if (modeEntry) {

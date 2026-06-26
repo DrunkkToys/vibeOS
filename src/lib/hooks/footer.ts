@@ -549,7 +549,6 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
       messageID,
       footerLine: vibeLine,
     })
-    if (hasExistingFooter) return
     if (stripped === _lastStrippedText && !claimTag) return
     // Streaming-aware dedup. We already painted this messageID once; skip the
     // re-call UNLESS the message text has grown — which means OpenCode streamed
