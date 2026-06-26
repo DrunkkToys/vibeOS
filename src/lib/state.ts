@@ -140,11 +140,7 @@ function resolveOpenCodeHomes(): string[] {
   const override = process.env.VIBEOS_OPENCODE_HOME
   if (override) return [override]
   const base = process.env.HOME || USER_HOME
-  const desktopHome = process.env.VIBEOS_OPENCODE_DESKTOP_HOME
-    || (process.platform === "darwin" ? join(base, "Library", "Application Support", "ai.opencode.desktop") : null)
-  const configHome = join(base, ".config", "opencode")
-  const dotHome = join(base, ".opencode")
-  return [desktopHome, configHome, dotHome].filter(Boolean) as string[]
+  return [join(base, ".opencode")]
 }
 
 function resolveOpenCodeHome(): string {

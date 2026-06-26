@@ -86,7 +86,10 @@ test("vibeultrax sync installs tier primary agents with trinity models in all Op
       thinking_mode: "full",
     }, { authoritative: true, directory: ctx.sandbox })
 
-    for (const configPath of [ctx.ocConfig, ctx.dotConfig, ctx.desktopConfig, ctx.projectConfig]) {
+    // Single global source of truth: ~/.opencode only, plus the project's own
+    // opencode.json — .config/opencode and the desktop sidecar home are no
+    // longer install targets (see src/lib/state.ts resolveOpenCodeHomes()).
+    for (const configPath of [ctx.dotConfig, ctx.projectConfig]) {
       const oc = JSON.parse(readFileSync(configPath, "utf8"))
       assert.equal(oc.agent["vibe-cheap"].mode, "primary", configPath)
       assert.equal(oc.agent["vibe-cheap"].model, "opencode/big-pickle", configPath)
