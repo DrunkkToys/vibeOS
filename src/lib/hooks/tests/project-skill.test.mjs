@@ -1,10 +1,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { tmpdir } from 'node:os';
 
-const { ensureProjectSkill, ensureVibeSkill } = await import('../chat-transform.js');
+const { ensureProjectSkill } = await import('../chat-transform.js');
 
 function tmpProjDir() {
   return mkdtempSync(join(tmpdir(), 'proj-skill-test-'));
@@ -40,16 +40,12 @@ describe('ensureProjectSkill', () => {
     }
   });
 
-  it('creates the universal /vibe skill without project patterns', () => {
+  it('does not duplicate the generic /vibe skill into project dirs (single source of truth: global home only)', () => {
     const dir = tmpProjDir();
     try {
-      const result = ensureVibeSkill(dir);
-      const skillPath = join(dir, '.opencode', 'skills', 'vibe', 'SKILL.md');
-      assert.equal(result.created, true);
-      assert.equal(result.skipped, false);
-      assert.equal(result.path, skillPath);
-      assert.ok(existsSync(skillPath), 'universal vibe skill should be written');
-      assert.match(readFileSync(skillPath, 'utf8'), /# \/vibe/);
+      ensureProjectSkill(dir, 'test-fp');
+      const vibeSkillPath = join(dir, '.opencode', 'skills', 'vibe', 'SKILL.md');
+      assert.ok(!existsSync(vibeSkillPath), 'ensureProjectSkill must not write a per-project copy of the generic vibe skill — it is installed once into the global OpenCode home by deploy.mjs/release.mjs');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

@@ -688,12 +688,16 @@ test("cascade contract: cascadeDecide returns escalate=true for low-confidence s
   assert.equal(moderate.confidence, 0.5, "moderate query has moderate confidence")
 })
 
-test("cascade contract: cascadeDecide returns useCheap=false,escalate=false for complex <0.7 relative confidence", async () => {
-  // cascadeDecide fallback (ml-router.js:262-269):
+test("cascade contract: cascadeDecide returns useCheap=false,escalate=true for complex <0.7 relative confidence", async () => {
+  // cascadeDecide fallback (ml-router.ts tier-match branch):
   //   level === "complex" && confidence < 0.7
-  //   -> useCheap=false, escalate=false
-  // The query was classified as complex but with low confidence;
-  // the tier match chooses medium/brain without escalating further.
+  //   -> useCheap=false, escalate=true
+  // Regression: the fallback used to compute `escalate: diff.level !== "complex"`,
+  // which is false exactly when the level IS complex — so a complex query with
+  // mid-confidence silently never escalated past the cheap tier. Fixed to
+  // `escalate: diff.level !== "simple"` so moderate AND complex levels escalate;
+  // only "simple" stays put. See tests/cascade_real_proof.test.mjs for the
+  // end-to-end vibeultraxControlVector coverage of this fix.
   const { cascadeDecide } = await import("../src/vibeOS-lib/ml-router.js")
   const cheap = 0.001, med = 0.005, brain = 0.02
 
@@ -705,7 +709,8 @@ test("cascade contract: cascadeDecide returns useCheap=false,escalate=false for 
     cheap, med, brain, 0.85
   )
   assert.equal(complex.useCheap, false, "complex query does not start cheap")
-  assert.equal(complex.escalate, false, "complex query already tier-matched")
+  assert.equal(complex.escalate, true, "complex query must still escalate toward brain")
+  assert.equal(complex.level, "complex")
   assert.ok(typeof complex.confidence === "number" && complex.confidence > 0,
     "confidence is positive number")
 })

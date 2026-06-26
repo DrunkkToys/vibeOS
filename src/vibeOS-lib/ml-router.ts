@@ -229,6 +229,7 @@ export interface CascadeDecision {
   confidence: number
   reason: string
   estimatedSavings: number
+  level: "simple" | "moderate" | "complex"
 }
 
 export function cascadeDecide(
@@ -246,6 +247,7 @@ export function cascadeDecide(
       useCheap: true, escalate: false, confidence: diff.confidence,
       reason: `simple query (difficulty ${diff.score.toFixed(2)})`,
       estimatedSavings: Math.max(0, savings),
+      level: diff.level,
     }
   }
 
@@ -254,6 +256,7 @@ export function cascadeDecide(
       useCheap: false, escalate: true, confidence: diff.confidence,
       reason: `complex query (difficulty ${diff.score.toFixed(2)})`,
       estimatedSavings: 0,
+      level: diff.level,
     }
   }
 
@@ -266,16 +269,22 @@ export function cascadeDecide(
       useCheap: true, escalate: true, confidence: diff.confidence,
       reason: `cascade: cheap (${cheapModelCost}) → escalate if fail`,
       estimatedSavings: savings * cheapSuccessRate,
+      level: diff.level,
     }
   }
 
   const tierCost = diff.level === "simple" ? cheapModelCost : mediumModelCost
   const savings = Math.max(0, brainModelCost - tierCost)
   return {
-    useCheap: diff.level === "simple", escalate: diff.level !== "complex",
+    // NOTE: escalate must trigger for "moderate" AND "complex" — only "simple" should
+    // stay put. A prior `!== "complex"` check inverted this, so a genuinely complex
+    // prompt landing here (mid-confidence, didn't hit the >=0.7 branch above) silently
+    // never escalated past the cheap tier.
+    useCheap: diff.level === "simple", escalate: diff.level !== "simple",
     confidence: diff.confidence,
     reason: `tier match: ${diff.level} (difficulty ${diff.score.toFixed(2)})`,
     estimatedSavings: savings,
+    level: diff.level,
   }
 }
 

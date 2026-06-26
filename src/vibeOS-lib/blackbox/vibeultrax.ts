@@ -54,6 +54,9 @@ function profileFromCascade(decision, learned = null) {
   if (learned?.learnedTier === "cheap") return { profile: "direct", cascade_depth: 1, pipeline_root: VIBEULTRAX_ROOT, route_path: ["cheap"], tier_bias: "cheap", selected_slot: "cheap" }
   if (learned?.learnedTier === "medium") return { profile: "standard", cascade_depth: 2, pipeline_root: VIBEULTRAX_ROOT, route_path: ["cheap", "medium"], tier_bias: "cheap", selected_slot: "medium" }
   if (learned?.learnedTier === "brain") return { profile: "deep", cascade_depth: 3, pipeline_root: VIBEULTRAX_ROOT, route_path: VIBEULTRAX_ROOT, tier_bias: "cheap", selected_slot: "brain" }
+  // A genuinely "complex" prompt must reach brain even when escalate fired without
+  // useCheap (the high-confidence complex branch in cascadeDecide never sets useCheap).
+  if (decision.escalate && decision.level === "complex") return { profile: "deep", cascade_depth: 3, pipeline_root: VIBEULTRAX_ROOT, route_path: VIBEULTRAX_ROOT, tier_bias: "cheap", selected_slot: "brain" }
   if (decision.useCheap && decision.escalate) return { profile: "deep", cascade_depth: 3, pipeline_root: VIBEULTRAX_ROOT, route_path: VIBEULTRAX_ROOT, tier_bias: "cheap", selected_slot: "brain" }
   if (decision.escalate) return { profile: "standard", cascade_depth: 2, pipeline_root: VIBEULTRAX_ROOT, route_path: ["cheap", "medium"], tier_bias: "cheap", selected_slot: "medium" }
   return { profile: "direct", cascade_depth: 1, pipeline_root: VIBEULTRAX_ROOT, route_path: ["cheap"], tier_bias: "cheap", selected_slot: "cheap" }

@@ -234,7 +234,8 @@ test("autoconfig: readConfig resolves provider-scoped model ids from short dropd
   process.env.HOME = sb
   process.env.VIBEOS_HOME = join(sb, ".claude")
   try {
-    writeFileSync(join(sb, ".config/opencode/opencode.json"), JSON.stringify({
+    mkdirSync(join(sb, ".opencode"), { recursive: true })
+    writeFileSync(join(sb, ".opencode/opencode.json"), JSON.stringify({
       provider: {
         google: {
           name: "Google",

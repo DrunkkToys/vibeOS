@@ -241,8 +241,8 @@ test("getScratchpadHit + buildTestReminder", () => {
 
 test("getOpenCodeHome: ignores vibeOS home context and keeps OpenCode config stable", () => {
   state.setVibeOSHomeContext(join(sandbox, ".claude"))
-  assert.equal(state.getOpenCodeHome(), join(sandbox, ".config/opencode"))
-  assert.equal(state.OPENCODE_HOME, join(sandbox, ".config/opencode"))
+  assert.equal(state.getOpenCodeHome(), join(sandbox, ".opencode"))
+  assert.equal(state.OPENCODE_HOME, join(sandbox, ".opencode"))
 })
 
 test("applySlot: handles missing trinity entry and missing file", async () => {
