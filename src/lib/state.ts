@@ -752,6 +752,7 @@ function loadBlackboxState(): DelegationState {
       raw.sessions[sid] = next
       if (recordChanged) changed = true
     }
+    if (_mirrorLiveControlVector(raw)) changed = true
     if (changed) {
       try { saveBlackboxState(raw) } catch {}
     }
@@ -769,6 +770,7 @@ function saveBlackboxState(state: unknown): void {
       if (!session || typeof session !== "object") continue
       next.sessions[sid] = normalizeBlackboxRecord(session as unknown, sid, now).record
     }
+    _mirrorLiveControlVector(next)
     mkdirSync(dirname(blackboxFile), { recursive: true })
     const tmp = blackboxFile + ".tmp"
     writeFileSync(tmp, JSON.stringify(next, null, 2) + "\n")
@@ -840,6 +842,43 @@ function _buildLiveSnapshotFingerprint(input: unknown, resolutionState: string, 
     rewardBreakdown: _normalizeSnapshotRewardBreakdown(input),
     source: String(input?.source || ""),
   })
+}
+
+function _mirrorLiveControlVector(state: unknown): boolean {
+  if (!state || typeof state !== "object") return false
+  const currentSid = getCurrentSessionId()
+  if (!currentSid) return false
+  const rootControl = state.cv || state.control_vector || state.live_control || null
+  const sessions = state.sessions && typeof state.sessions === "object" ? state.sessions : null
+  const currentSession = sessions?.[currentSid] && typeof sessions[currentSid] === "object" ? sessions[currentSid] : null
+  const sessionControl = currentSession?.cv || currentSession?.control_vector || currentSession?.live_control || null
+  const liveControl = rootControl || sessionControl
+  if (!liveControl) return false
+  let changed = false
+  if (!state.cv) { state.cv = liveControl; changed = true }
+  if (!state.control_vector) { state.control_vector = liveControl; changed = true }
+  if (!state.live_control) { state.live_control = liveControl; changed = true }
+  if (state.latest_control_vector_ts && currentSession && !currentSession.latest_control_vector_ts) {
+    currentSession.latest_control_vector_ts = state.latest_control_vector_ts
+    changed = true
+  }
+  if (!state.sessions || typeof state.sessions !== "object") {
+    state.sessions = { [currentSid]: {} }
+    changed = true
+  }
+  if (!state.sessions[currentSid] || typeof state.sessions[currentSid] !== "object") {
+    state.sessions[currentSid] = {}
+    changed = true
+  }
+  const targetSession = state.sessions[currentSid]
+  if (!targetSession.cv) { targetSession.cv = liveControl; changed = true }
+  if (!targetSession.control_vector) { targetSession.control_vector = liveControl; changed = true }
+  if (!targetSession.live_control) { targetSession.live_control = liveControl; changed = true }
+  if (state.latest_control_vector_ts && !targetSession.latest_control_vector_ts) {
+    targetSession.latest_control_vector_ts = state.latest_control_vector_ts
+    changed = true
+  }
+  return changed
 }
 
 function _deriveLiveResolutionState(input: unknown): { resolution_state: string; resolution_reason: string } {
