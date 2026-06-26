@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { appendFileSync, mkdirSync } from "node:fs"
 import { join } from "node:path"
-import { classify, _refreshModel, readConfig, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, formatUsd, resolveCurrentExecution, modelDisplayName, getPendingLiveSwitch } from "../pricing.js"
+import { classify, _refreshModel, readConfig, readLiveOpenCodeModel, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, formatUsd, resolveCurrentExecution, modelDisplayName, getPendingLiveSwitch } from "../pricing.js"
 import { latestUserIntent } from "./chat-transform.js"
 import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, classifyTurnSimple, autoSelectMode, loadOptimizationMode, computeControlVector } from "../turn-classify.js"
 import { recordBudgetFirstOutcome } from "../mode-policy.js"
@@ -204,20 +204,21 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
   let _footerStage = "init"
   let _footerStress = 0
   if (latestUserIntent) _footerStress = scoreStress(latestUserIntent)
-  // Always prefer the live OpenCode model setting when available.
-  let liveModelSetting = ""
-  try {
-    if (!isApiLatencyDegraded()) {
-      const cfg = await client.config.get("model")
-      if (cfg) liveModelSetting = String(cfg)
-    }
-  } catch { /* client.config may not be available */ }
+  // The footer MUST display the model the turn actually ran on = the live OpenCode
+  // default (project opencode.json `model`), which is exactly the dropdown the user
+  // and VibeUltraX drive. This used to probe client.config.get("model") (the MERGED /
+  // global config) and fall through to readConfig()'s remembered workspace-session
+  // model — both of which drift to a stale brain default, so the footer showed brain
+  // while a cheap turn ran (the footer↔dropdown↔VibeUltraX incoherence). Reading the
+  // SAME file the dropdown writes keeps them coherent by construction, and drops an
+  // async client probe that could stall the turn.
+  let liveModelSetting = readLiveOpenCodeModel(directory) || ""
   const hookModel = String(input?.args?.model || input?.model || output?.args?.model || "").trim()
   if (hookModel) liveModelSetting = hookModel
   if (liveModelSetting && liveModelSetting !== currentModel) {
     setCurrentModel(liveModelSetting)
     setCurrentTier(classify(liveModelSetting))
-    footerDebug(`[vibeOS] client-detected model: ${currentModel} (tier=${currentTier})`)
+    footerDebug(`[vibeOS] live model: ${currentModel} (tier=${currentTier})`)
   }
   try {
     const messageID =
@@ -688,7 +689,9 @@ function _paintResilientFooter(output, directory, lastModelError?: string) {
   if (footerSuffix.test(currentText)) return // a footer is already present, leave it
   const sel = loadSelection()
   const slot = sel.active_slot || "cheap"
-  const liveModel = currentModel || readConfig(directory) || process?.env?.OPENCODE_MODEL || ""
+  // Prefer the live OpenCode default (project opencode.json `model` = the dropdown) so
+  // even the resilient fallback footer stays coherent with what actually ran.
+  const liveModel = readLiveOpenCodeModel(directory) || currentModel || readConfig(directory) || process?.env?.OPENCODE_MODEL || ""
   const execution = resolveCurrentExecution({
     directory,
     activeSlot: slot,
