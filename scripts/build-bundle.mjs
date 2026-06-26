@@ -2,13 +2,12 @@ import { build } from 'esbuild';
 import { existsSync, mkdirSync, copyFileSync, readdirSync, statSync, readFileSync, writeFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
+import { resolveOpenCodeHomes } from './lib/opencode-homes.mjs';
 
 const ROOT = process.cwd();
 const SRC = join(ROOT, 'src');
 const DIST = join(ROOT, 'dist');
 const SRC_OUT = join(ROOT, 'src');
-const PLUGIN_DIR = join(homedir(), '.config', 'opencode', 'plugins');
-
 console.log('[bundle] Building single-file bundle...');
 
 // Bundle the TS entrypoint into a single file
@@ -54,16 +53,17 @@ if (existsSync(dashboardSrc)) {
   console.log('[bundle] Copied dashboard');
 }
 
-// Deploy to plugin directory
-if (!existsSync(PLUGIN_DIR)) mkdirSync(PLUGIN_DIR, { recursive: true });
-copyFileSync(join(DIST, 'vibeOS.js'), join(PLUGIN_DIR, 'vibeOS.js'));
-console.log(`[bundle] Deployed to ${PLUGIN_DIR}/vibeOS.js`);
-
-// Copy assets
-const pluginAssets = join(PLUGIN_DIR, 'assets');
-if (!existsSync(pluginAssets)) mkdirSync(pluginAssets, { recursive: true });
-copyDirRecursive(assetsDir, pluginAssets);
-console.log(`[bundle] Deployed assets to ${PLUGIN_DIR}/assets/`);
+for (const home of resolveOpenCodeHomes({ cwd: ROOT, home: homedir() })) {
+  const pluginDir = join(home, 'plugins');
+  const destPath = join(pluginDir, 'vibeOS.js');
+  const pluginAssets = join(pluginDir, 'assets');
+  if (!existsSync(pluginDir)) mkdirSync(pluginDir, { recursive: true });
+  copyFileSync(join(DIST, 'vibeOS.js'), destPath);
+  console.log(`[bundle] Deployed to ${destPath}`);
+  if (!existsSync(pluginAssets)) mkdirSync(pluginAssets, { recursive: true });
+  copyDirRecursive(assetsDir, pluginAssets);
+  console.log(`[bundle] Deployed assets to ${pluginAssets}/`);
+}
 
 console.log('[bundle] Done!');
 
