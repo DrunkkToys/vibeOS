@@ -9,14 +9,25 @@ function withSandbox(name) {
   const sandbox = mkdtempSync(join(tmpdir(), name))
   const oldHome = process.env.HOME
   const oldVibeHome = process.env.VIBEOS_HOME
+  const oldDesktopHome = process.env.VIBEOS_OPENCODE_DESKTOP_HOME
   const oldCredit = process.env.CLAUDE_CREDIT_PERCENT
   process.env.HOME = sandbox
   process.env.VIBEOS_HOME = join(sandbox, ".claude")
+  process.env.VIBEOS_OPENCODE_DESKTOP_HOME = join(sandbox, "Library", "Application Support", "ai.opencode.desktop")
   process.env.CLAUDE_CREDIT_PERCENT = "100"
   mkdirSync(process.env.VIBEOS_HOME, { recursive: true })
   mkdirSync(join(sandbox, ".config", "opencode"), { recursive: true })
+  mkdirSync(join(sandbox, ".opencode"), { recursive: true })
+  mkdirSync(join(sandbox, "Library", "Application Support", "ai.opencode.desktop"), { recursive: true })
   writeFileSync(join(sandbox, ".config", "opencode", "opencode.json"), JSON.stringify({
     model: "opencode/big-pickle",
+    plugin: ["vibeOS"],
+  }, null, 2))
+  writeFileSync(join(sandbox, ".opencode", "opencode.json"), JSON.stringify({
+    plugin: ["vibeOS"],
+  }, null, 2))
+  writeFileSync(join(sandbox, "Library", "Application Support", "ai.opencode.desktop", "opencode.json"), JSON.stringify({
+    model: "deepseek/deepseek-v4-flash",
     plugin: ["vibeOS"],
   }, null, 2))
   writeFileSync(join(process.env.VIBEOS_HOME, "model-tiers.json"), JSON.stringify({
@@ -41,11 +52,16 @@ function withSandbox(name) {
   return {
     sandbox,
     ocConfig: join(sandbox, ".config", "opencode", "opencode.json"),
+    dotConfig: join(sandbox, ".opencode", "opencode.json"),
+    desktopConfig: join(sandbox, "Library", "Application Support", "ai.opencode.desktop", "opencode.json"),
+    projectConfig: join(sandbox, "opencode.json"),
     cleanup() {
       if (oldHome === undefined) delete process.env.HOME
       else process.env.HOME = oldHome
       if (oldVibeHome === undefined) delete process.env.VIBEOS_HOME
       else process.env.VIBEOS_HOME = oldVibeHome
+      if (oldDesktopHome === undefined) delete process.env.VIBEOS_OPENCODE_DESKTOP_HOME
+      else process.env.VIBEOS_OPENCODE_DESKTOP_HOME = oldDesktopHome
       if (oldCredit === undefined) delete process.env.CLAUDE_CREDIT_PERCENT
       else process.env.CLAUDE_CREDIT_PERCENT = oldCredit
       rmSync(sandbox, { recursive: true, force: true })
@@ -53,7 +69,7 @@ function withSandbox(name) {
   }
 }
 
-test("vibeultrax sync installs tier subagents with trinity models", async () => {
+test("vibeultrax sync installs tier primary agents with trinity models in all OpenCode configs", async () => {
   const ctx = withSandbox("vibeos-tier-agents-")
   try {
     const mod = await import("../src/lib/hooks/chat-transform.js?tier-agents=" + Date.now())
@@ -68,15 +84,18 @@ test("vibeultrax sync installs tier subagents with trinity models", async () => 
       flow_mode: "strict",
       tdd_mode: "quality",
       thinking_mode: "full",
-    }, { authoritative: true })
+    }, { authoritative: true, directory: ctx.sandbox })
 
-    const oc = JSON.parse(readFileSync(ctx.ocConfig, "utf8"))
-    assert.equal(oc.agent["vibe-cheap"].mode, "subagent")
-    assert.equal(oc.agent["vibe-cheap"].model, "opencode/big-pickle")
-    assert.equal(oc.agent["vibe-medium"].mode, "subagent")
-    assert.equal(oc.agent["vibe-medium"].model, "opencode-go/mimo-v2.5")
-    assert.equal(oc.agent["vibe-brain"].mode, "subagent")
-    assert.equal(oc.agent["vibe-brain"].model, "deepseek/deepseek-v4-flash")
+    for (const configPath of [ctx.ocConfig, ctx.dotConfig, ctx.desktopConfig, ctx.projectConfig]) {
+      const oc = JSON.parse(readFileSync(configPath, "utf8"))
+      assert.equal(oc.agent["vibe-cheap"].mode, "primary", configPath)
+      assert.equal(oc.agent["vibe-cheap"].model, "opencode/big-pickle", configPath)
+      assert.equal(oc.agent["vibe-medium"].mode, "primary", configPath)
+      assert.equal(oc.agent["vibe-medium"].model, "opencode-go/mimo-v2.5", configPath)
+      assert.equal(oc.agent["vibe-brain"].mode, "primary", configPath)
+      assert.equal(oc.agent["vibe-brain"].model, "deepseek/deepseek-v4-flash", configPath)
+      assert.equal(oc.default_agent, "vibe-cheap", configPath)
+    }
     assert.equal(result.selected_subagent, "vibe-brain")
     assert.equal(result.requires_delegation, true)
   } finally {
@@ -84,7 +103,7 @@ test("vibeultrax sync installs tier subagents with trinity models", async () => 
   }
 })
 
-test("vibeultrax task routing uses tier subagent_type and legacy model fields", async () => {
+test("vibeultrax task routing normalizes task subagent_type to general", async () => {
   const ctx = withSandbox("vibeos-tier-task-")
   try {
     const mod = await import("../src/index.js?tier-task=" + Date.now())
@@ -114,7 +133,7 @@ test("vibeultrax task routing uses tier subagent_type and legacy model fields", 
     }
     await hooks["tool.execute.before"]({ tool: "task" }, { args })
 
-    assert.equal(args.subagent_type, "vibe-brain")
+    assert.equal(args.subagent_type, "general")
     assert.equal(args.model, "deepseek/deepseek-v4-flash")
     assert.equal(args.modelID, "deepseek/deepseek-v4-flash")
     assert.equal(args.modelId, "deepseek/deepseek-v4-flash")
@@ -123,7 +142,42 @@ test("vibeultrax task routing uses tier subagent_type and legacy model fields", 
   }
 })
 
-test("vibeultrax medium route selects vibe-medium and stress can upgrade cheap delegation", async () => {
+test("delegation hard block requires coherent brain tier agent binding", async () => {
+  const ctx = withSandbox("vibeos-tier-drift-")
+  try {
+    writeFileSync(join(process.env.VIBEOS_HOME, "model-tiers.json"), JSON.stringify({
+      selection: {
+        enabled: true,
+        active_slot: "brain",
+        delegation_enforce: true,
+        onboarding_mode: "strict",
+      },
+      trinity: {
+        cheap: { oc: "opencode/big-pickle" },
+        medium: { oc: "opencode-go/mimo-v2.5" },
+        brain: { oc: "deepseek/deepseek-v4-flash" },
+      },
+    }, null, 2))
+    writeFileSync(ctx.projectConfig, JSON.stringify({
+      model: "deepseek/deepseek-v4-flash",
+      default_agent: "build",
+      plugin: ["vibeOS"],
+    }, null, 2))
+    const mod = await import("../src/index.js?tier-drift=" + Date.now())
+    const hooks = await mod.DelegationEnforcer({ client: {}, directory: ctx.sandbox })
+    const input = { tool: "write", args: { filePath: "notes.txt", content: "x" } }
+    const output = { args: { filePath: "notes.txt", content: "x" } }
+
+    await hooks["tool.execute.before"](input, output)
+
+    assert.equal(output.blocked, undefined)
+    assert.equal(output.args.filePath, "notes.txt")
+  } finally {
+    ctx.cleanup()
+  }
+})
+
+test("vibeultrax medium route selects general task delegation and stress can upgrade cheap delegation", async () => {
   const mod = await import("../src/lib/hooks/tool-execute.js?tier-route=" + Date.now())
 
   const medium = mod.resolveCascadeRouteDecision({
@@ -145,7 +199,7 @@ test("vibeultrax medium route selects vibe-medium and stress can upgrade cheap d
     mlConfidenceThreshold: 0.6,
   })
   assert.equal(medium.selectedSlot, "medium")
-  assert.equal(medium.selectedSubagent, "vibe-medium")
+  assert.equal(medium.selectedSubagent, "general")
   assert.equal(medium.requiresDelegation, true)
 
   const stressed = mod.resolveCascadeRouteDecision({
@@ -167,6 +221,6 @@ test("vibeultrax medium route selects vibe-medium and stress can upgrade cheap d
     mlConfidenceThreshold: 0.6,
   })
   assert.equal(stressed.selectedSlot, "medium")
-  assert.equal(stressed.selectedSubagent, "vibe-medium")
+  assert.equal(stressed.selectedSubagent, "general")
   assert.equal(stressed.requiresDelegation, true)
 })

@@ -7,7 +7,7 @@ const libModules = [
   "cost-anomaly", "index-helpers", "research-audit", "reporting", "credit-api", "selection-manager",
   "session-orchestrator", "runtime-surface", "classifiers", "test-skeletons", "templates", "text-compress",
   "mode-policy", "mode-router", "turn-memo", "pattern-helpers", "pattern-store", "trinity-rebuild", "trinity-tool", "dashboard-base-url", "runtime-state", "session-bridge",
-  "constants", "claim-verification", "project-tree",
+  "constants", "claim-verification", "project-tree", "runtime-config",
 ]
 
 const hookModules = [

@@ -326,8 +326,8 @@ test("installer: asks before installing and respects no/yes answers", async () =
       timeout: 10000,
     })
     assert.equal(autoRun.status, 0, "non-interactive install should not hang")
-    assert.ok(existsSync(join(sb, ".config/opencode/opencode.json")), "non-interactive install should still deploy")
-    assert.ok(existsSync(join(sb, ".config/opencode/plugins/vibeOS.js")), "installer should install plugin")
+    assert.ok(existsSync(join(sb, ".opencode/opencode.json")), "non-interactive install should still deploy")
+    assert.ok(existsSync(join(sb, ".opencode/plugins/vibeOS.js")), "installer should install plugin")
   } finally {
     process.env.HOME = prevHome
     if (prevUserProfile === undefined) delete process.env.USERPROFILE
@@ -350,8 +350,8 @@ test("installer: legacy set alias still installs", async () => {
       timeout: 20000,
     })
     assert.equal(result.status, 0, result.stderr || result.stdout)
-    assert.ok(existsSync(join(sb, ".config/opencode/opencode.json")), "set should install config")
-    assert.ok(existsSync(join(sb, ".config/opencode/plugins/vibeOS.js")), "set should install plugin")
+    assert.ok(existsSync(join(sb, ".opencode/opencode.json")), "set should install config")
+    assert.ok(existsSync(join(sb, ".opencode/plugins/vibeOS.js")), "set should install plugin")
   } finally {
     process.env.HOME = prevHome
     rmSync(sb, { recursive: true, force: true })
@@ -665,19 +665,20 @@ test("install: deploy script creates opencode.json on a fresh machine", async ()
       encoding: "utf8",
     })
     assert.equal(result.status, 0, result.stderr || result.stdout)
-    const configHomes = [
-      join(sb, ".config", "opencode"),
-      join(sb, ".opencode"),
-      ...(process.platform === "darwin" ? [join(sb, "Library", "Application Support", "ai.opencode.desktop")] : []),
-    ]
-    for (const home of configHomes) {
-      const ocPath = join(home, "opencode.json")
-      const pluginRef = join(home, "plugins", "vibeOS.js")
-      assert.ok(existsSync(ocPath), `deploy should create opencode.json in ${home}`)
-      const oc = JSON.parse(readFileSync(ocPath, "utf8"))
-      assert.ok(Array.isArray(oc.plugin), `plugin array created in ${home}`)
-      assert.ok(oc.plugin.includes(pluginRef), `vibeOS plugin registered in ${home}`)
-      assert.ok(existsSync(join(home, "plugins", "vibeOS.js")), `plugin bundle copied in ${home}`)
+    // Single global source of truth: ~/.opencode only — OpenCode (CLI and
+    // desktop sidecar alike) merges this in for every project, so deploying
+    // anywhere else just creates a second loaded instance of the same plugin.
+    const home = join(sb, ".opencode")
+    const ocPath = join(home, "opencode.json")
+    const pluginRef = join(home, "plugins", "vibeOS.js")
+    assert.ok(existsSync(ocPath), `deploy should create opencode.json in ${home}`)
+    const oc = JSON.parse(readFileSync(ocPath, "utf8"))
+    assert.ok(Array.isArray(oc.plugin), `plugin array created in ${home}`)
+    assert.ok(oc.plugin.includes(pluginRef), `vibeOS plugin registered in ${home}`)
+    assert.ok(existsSync(join(home, "plugins", "vibeOS.js")), `plugin bundle copied in ${home}`)
+    // No stray registrations in the other historical candidate homes.
+    for (const other of [join(sb, ".config", "opencode"), join(sb, "Library", "Application Support", "ai.opencode.desktop")]) {
+      assert.ok(!existsSync(join(other, "opencode.json")), `deploy should not also write ${other}`)
     }
   } finally {
     process.env.HOME = prevHome
@@ -685,24 +686,18 @@ test("install: deploy script creates opencode.json on a fresh machine", async ()
   }
 })
 
-test("install: deploy script overwrites stale plugin copies across every resolved home", async () => {
+test("install: deploy script overwrites a stale plugin copy in the single global home", async () => {
   const sb = mkdtempSync(join(tmpdir(), "install-deploy-stale-"))
   const prevHome = process.env.HOME
   process.env.HOME = sb
   process.env.VIBEOS_HOME = join(sb, ".claude")
   try {
-    const homes = [
-      join(sb, ".config", "opencode"),
-      join(sb, ".opencode"),
-      ...(process.platform === "darwin" ? [join(sb, "Library", "Application Support", "ai.opencode.desktop")] : []),
-    ]
-    for (const home of homes) {
-      mkdirSync(join(home, "plugins"), { recursive: true })
-      writeFileSync(join(home, "plugins", "vibeOS.js"), `OLD-${home}`)
-      writeFileSync(join(home, "opencode.json"), JSON.stringify({
-        plugin: ["./plugins/vibeOS.js", "./plugins/legacy.js"]
-      }, null, 2))
-    }
+    const home = join(sb, ".opencode")
+    mkdirSync(join(home, "plugins"), { recursive: true })
+    writeFileSync(join(home, "plugins", "vibeOS.js"), `OLD-${home}`)
+    writeFileSync(join(home, "opencode.json"), JSON.stringify({
+      plugin: ["./plugins/vibeOS.js", "./plugins/legacy.js"]
+    }, null, 2))
 
     const cwd = mkdtempSync(join(tmpdir(), "install-deploy-stale-cwd-"))
     const result = spawnSync(process.execPath, [join(ROOT, "scripts", "deploy.mjs")], {
@@ -713,62 +708,58 @@ test("install: deploy script overwrites stale plugin copies across every resolve
     assert.equal(result.status, 0, result.stderr || result.stdout)
 
     const currentBundle = readFileSync(join(ROOT, "dist", "vibeOS.js"), "utf8")
-    for (const home of homes) {
-      const pluginPath = join(home, "plugins", "vibeOS.js")
-      const ocPath = join(home, "opencode.json")
-      const oc = JSON.parse(readFileSync(ocPath, "utf8"))
-      assert.equal(readFileSync(pluginPath, "utf8"), currentBundle, `fresh bundle should overwrite stale copy in ${home}`)
-      assert.ok(Array.isArray(oc.plugin), `plugin array preserved in ${home}`)
-      assert.ok(oc.plugin.includes(pluginPath), `current plugin path registered in ${home}`)
-      assert.ok(oc.plugin.includes("./plugins/legacy.js"), `unrelated plugin refs preserved in ${home}`)
-      assert.deepEqual(
-        oc.plugin.filter((p) => typeof p === "string" && p.includes("vibeOS")),
-        [pluginPath],
-        `stale vibeOS refs removed in ${home}`,
-      )
-    }
+    const pluginPath = join(home, "plugins", "vibeOS.js")
+    const ocPath = join(home, "opencode.json")
+    const oc = JSON.parse(readFileSync(ocPath, "utf8"))
+    assert.equal(readFileSync(pluginPath, "utf8"), currentBundle, `fresh bundle should overwrite stale copy in ${home}`)
+    assert.ok(Array.isArray(oc.plugin), `plugin array preserved in ${home}`)
+    assert.ok(oc.plugin.includes(pluginPath), `current plugin path registered in ${home}`)
+    assert.ok(oc.plugin.includes("./plugins/legacy.js"), `unrelated plugin refs preserved in ${home}`)
+    assert.deepEqual(
+      oc.plugin.filter((p) => typeof p === "string" && p.includes("vibeOS")),
+      [pluginPath],
+      `stale vibeOS refs removed in ${home}`,
+    )
   } finally {
     process.env.HOME = prevHome
     rmSync(sb, { recursive: true, force: true })
   }
 })
 
-test("install: setup --project registers against the resolved desktop OpenCode home", async () => {
+test("install: setup --project registers the single global home via VIBEOS_OPENCODE_HOME override", async () => {
   const sb = mkdtempSync(join(tmpdir(), "install-setup-project-"))
   const prevHome = process.env.HOME
-  const prevDesktopHome = process.env.VIBEOS_OPENCODE_DESKTOP_HOME
+  const prevOverride = process.env.VIBEOS_OPENCODE_HOME
   process.env.HOME = sb
   process.env.VIBEOS_HOME = join(sb, ".claude")
-  process.env.VIBEOS_OPENCODE_DESKTOP_HOME = join(sb, "Library", "Application Support", "ai.opencode.desktop")
+  process.env.VIBEOS_OPENCODE_HOME = join(sb, "custom-opencode-home")
   try {
-    mkdirSync(process.env.VIBEOS_OPENCODE_DESKTOP_HOME, { recursive: true })
+    mkdirSync(process.env.VIBEOS_OPENCODE_HOME, { recursive: true })
     const cwd = mkdtempSync(join(tmpdir(), "installer-desktop-cwd-"))
     const result = spawnSync(process.execPath, [join(ROOT, "bin", "setup.js"), "set"], {
       cwd,
-      env: { ...process.env, HOME: sb, VIBEOS_OPENCODE_DESKTOP_HOME: process.env.VIBEOS_OPENCODE_DESKTOP_HOME },
+      env: { ...process.env, HOME: sb, VIBEOS_OPENCODE_HOME: process.env.VIBEOS_OPENCODE_HOME },
       encoding: "utf8",
     })
     assert.equal(result.status, 0, result.stderr || result.stdout)
-    const pluginPath = join(process.env.VIBEOS_OPENCODE_DESKTOP_HOME, "plugins", "vibeOS.js")
-    const desktopConfig = JSON.parse(readFileSync(join(process.env.VIBEOS_OPENCODE_DESKTOP_HOME, "opencode.json"), "utf8"))
-    const desktopPluginRefs = desktopConfig.plugin.filter((p) => typeof p === "string" && p.includes("vibeOS"))
-    assert.equal(desktopPluginRefs.length, 1, "desktop config keeps one vibeOS ref")
+    const pluginPath = join(process.env.VIBEOS_OPENCODE_HOME, "plugins", "vibeOS.js")
+    const config = JSON.parse(readFileSync(join(process.env.VIBEOS_OPENCODE_HOME, "opencode.json"), "utf8"))
+    const pluginRefs = config.plugin.filter((p) => typeof p === "string" && p.includes("vibeOS"))
+    assert.equal(pluginRefs.length, 1, "config keeps exactly one vibeOS ref — single source of truth")
     assert.deepEqual(
-      desktopPluginRefs.map((p) => realpathSync(p)),
+      pluginRefs.map((p) => realpathSync(p)),
       [realpathSync(pluginPath)],
-      "stale vibeOS refs are rewritten",
+      "registration points at the single resolved home",
     )
-    assert.ok(Array.isArray(desktopConfig.plugin), "desktop config gets plugin array")
-    assert.ok(desktopPluginRefs[0].includes("/plugins/vibeOS.js"), "desktop config points at the resolved desktop OpenCode home")
   } finally {
     process.env.HOME = prevHome
-    if (prevDesktopHome === undefined) delete process.env.VIBEOS_OPENCODE_DESKTOP_HOME
-    else process.env.VIBEOS_OPENCODE_DESKTOP_HOME = prevDesktopHome
+    if (prevOverride === undefined) delete process.env.VIBEOS_OPENCODE_HOME
+    else process.env.VIBEOS_OPENCODE_HOME = prevOverride
     rmSync(sb, { recursive: true, force: true })
   }
 })
 
-test("install: setup --project installs into workspace-local OpenCode home when no home config exists", async () => {
+test("install: setup --project registers the project opencode.json against the single global plugin (no separate project-local copy)", async () => {
   const sb = mkdtempSync(join(tmpdir(), "install-setup-workspace-"))
   const prevHome = process.env.HOME
   const prevUserProfile = process.env.USERPROFILE
@@ -777,13 +768,8 @@ test("install: setup --project installs into workspace-local OpenCode home when 
   process.env.USERPROFILE = sb
   try {
     const workspaceDir = join(sb, "workspace")
-    const opencodeHome = join(workspaceDir, "opencode")
     const projectDir = join(workspaceDir, "project")
-    mkdirSync(opencodeHome, { recursive: true })
     mkdirSync(projectDir, { recursive: true })
-    writeFileSync(join(opencodeHome, "opencode.json"), JSON.stringify({
-      plugin: ["./plugins/legacy.js"]
-    }, null, 2))
     writeFileSync(join(projectDir, "opencode.json"), JSON.stringify({
       plugin: ["./plugins/other.js"]
     }, null, 2))
@@ -796,30 +782,18 @@ test("install: setup --project installs into workspace-local OpenCode home when 
     })
     assert.equal(result.status, 0, result.stderr || result.stdout)
 
-    const workspacePluginRef = join(opencodeHome, "plugins", "vibeOS.js")
-    const projectPluginRef = join(projectDir, "plugins", "vibeOS.js")
-    const workspaceConfig = JSON.parse(readFileSync(join(opencodeHome, "opencode.json"), "utf8"))
+    const globalPluginRef = join(sb, ".opencode", "plugins", "vibeOS.js")
     const projectConfig = JSON.parse(readFileSync(join(projectDir, "opencode.json"), "utf8"))
 
-    assert.ok(existsSync(workspacePluginRef), "workspace-local plugin bundle should be installed")
-    assert.ok(existsSync(projectPluginRef), "project-local plugin bundle should be installed")
-    const workspacePluginReal = realpathSync(workspacePluginRef)
-    const projectPluginReal = realpathSync(projectPluginRef)
-    assert.ok(Array.isArray(workspaceConfig.plugin), "workspace config gets plugin array")
-    assert.ok(workspaceConfig.plugin.includes(workspacePluginReal), "workspace config points at workspace-local plugin")
-    assert.ok(workspaceConfig.plugin.includes("./plugins/legacy.js"), "workspace config keeps unrelated plugins")
-    assert.deepEqual(
-      workspaceConfig.plugin.filter((p) => typeof p === "string" && p.includes("vibeOS")),
-      [workspacePluginReal],
-      "workspace config keeps one vibeOS ref",
-    )
+    assert.ok(existsSync(globalPluginRef), "the single global plugin bundle should be installed")
+    assert.ok(!existsSync(join(projectDir, "plugins", "vibeOS.js")), "no second project-local plugin copy should be created")
     assert.ok(Array.isArray(projectConfig.plugin), "project config gets plugin array")
-    assert.ok(projectConfig.plugin.includes(projectPluginReal), "project config points at project-local plugin")
+    assert.ok(projectConfig.plugin.includes(globalPluginRef), "project config points at the single global plugin")
     assert.ok(projectConfig.plugin.includes("./plugins/other.js"), "project config keeps unrelated plugins")
     assert.deepEqual(
       projectConfig.plugin.filter((p) => typeof p === "string" && p.includes("vibeOS")),
-      [projectPluginReal],
-      "project config keeps one vibeOS ref",
+      [globalPluginRef],
+      "project config keeps exactly one vibeOS ref",
     )
   } finally {
     process.env.HOME = prevHome

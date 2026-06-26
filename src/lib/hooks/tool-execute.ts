@@ -59,6 +59,7 @@ import { setActiveJobFromTaskPrompt, observeToolPattern, compressText, recordSav
 import { buildSessionBridge, recordSessionBridge } from "../session-bridge.js"
 import { scoreTaskQuality } from "./footer.js"
 import { SAVE_EST, WARN_ON_DIRECT, SOFT_QUOTA, FREE, MONITOR } from "../constants.js"
+import { runtimeTierCoherence } from "../runtime-config.js"
 
 const _warnCounts: Record<string, number> = {}
 export function _resetWarnCountsForTest(): void {
@@ -292,6 +293,11 @@ export function vibeUltraXSubagentForSlot(slot: string | null): string | null {
   return null
 }
 
+export function taskSubagentTypeForSlot(slot: string | null): string | null {
+  if (slot === "brain" || slot === "medium" || slot === "cheap") return "general"
+  return null
+}
+
 function _normalizeCascadeRoot(activePipeline: unknown, fallbackSlot: string | null): string[] {
   const root = Array.isArray(activePipeline)
     ? activePipeline.map((entry) => String(entry || "").trim().toLowerCase()).map((entry) => entry === "local" ? "cheap" : entry).filter((entry) => entry === "cheap" || entry === "medium" || entry === "brain")
@@ -384,7 +390,7 @@ export function resolveCascadeRouteDecision(input: unknown = {}): unknown {
   }
 
   const routePath = _routePathForSlot(cascadeRoot, selectedSlot)
-  const selectedSubagent = vibeUltraXSubagentForSlot(selectedSlot)
+  const selectedSubagent = taskSubagentTypeForSlot(selectedSlot)
   const requiresDelegation = selectedSlot === "medium" || selectedSlot === "brain"
   return {
     selectedModel,
@@ -634,7 +640,7 @@ export const onToolExecuteBefore = async (input, output) => {
       args.model = TRINITY_CHEAP
       args.modelID = TRINITY_CHEAP
       args.modelId = TRINITY_CHEAP
-      args.subagent_type = vibeUltraXSubagentForSlot("cheap") || args.subagent_type
+      args.subagent_type = taskSubagentTypeForSlot("cheap") || args.subagent_type
       console.error(`[vibeOS] 🔀 Credit ${_credit}%: forcing Task → cheap slot (${TRINITY_CHEAP})`)
     }
     return
@@ -687,12 +693,12 @@ export const onToolExecuteBefore = async (input, output) => {
       mlEnabled: ML_ENABLED,
       mlConfidenceThreshold: ML_CONFIDENCE_THRESHOLD,
     })
-    if (selection.optimization_mode === "vibeultrax" && selection.requires_delegation && selection.selected_subagent && selection.worker_model) {
+    if (selection.optimization_mode === "vibeultrax" && selection.requires_delegation && selection.worker_model) {
       routeDecision = {
         ...routeDecision,
         selectedModel: selection.worker_model,
         selectedSlot: selection.selected_slot || routeDecision?.selectedSlot || null,
-        selectedSubagent: selection.selected_subagent,
+        selectedSubagent: taskSubagentTypeForSlot(selection.selected_slot || routeDecision?.selectedSlot || null) || routeDecision?.selectedSubagent || null,
         requiresDelegation: true,
         delegationReason: "control vector requires delegation",
         source: "control-vector",
@@ -844,6 +850,12 @@ export const onToolExecuteBefore = async (input, output) => {
     const argSources = _toolArgSources(input, output)
     if (process.env.VIBEOS_DEBUG_DELEGATION === "1") console.error(`[vibeOS] [enforce-debug] tool=${t} tier=${currentTier} enforce=${sel?.delegation_enforce} argsType=${typeof args} argsExists=${argSources.length > 0}`)
     if (!compatibilityMode && sel.delegation_enforce && currentTier === "high") {
+      const coherence = runtimeTierCoherence(projectDirectory, sel?.active_slot || "", currentModel || "", TRINITY_BRAIN || "")
+      if (!coherence.coherent) {
+        pendingUiNote = `[vibeOS repair] Direct ${t} allowed because runtime tier binding is not coherent: slot=${coherence.slot || "unknown"} default_agent=${coherence.agent || "unset"} expected_agent=${coherence.expectedAgent || "unset"} model=${coherence.currentModel || "unset"} expected_model=${coherence.expectedModel || "unset"}. Run \`vibe diagnose cascade\` or \`vibe repair-state apply\`.`
+        if (shouldLogWarn(`${t}|runtime-drift|${coherence.slot || "unknown"}`)) console.error(`[vibeOS] [runtime-drift] allowing direct ${t}; ${pendingUiNote}`)
+        return
+      }
       const originalPath = argSources
         .flatMap((src) => [src?.filePath, src?.file_path, src?.path])
         .find((v) => typeof v === "string" && v.trim()) || ""
