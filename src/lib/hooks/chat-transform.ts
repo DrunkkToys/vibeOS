@@ -30,7 +30,7 @@ import { evaluateClaimVerification } from "../claim-verification.js"
 import { projectTreeDirective, recordProjectFact } from "../project-tree.js"
 import {
   _classify, _modelCostPerTurn, _isModelFree, _detectContext7, _isDocsTarget,
-  _shortModelName, _formatUsd, _refreshModel, applySlot, reconcileSlotModel, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN,
+  _shortModelName, _formatUsd, _refreshModel, applySlot, reconcileSlotModel, loadTrinitySlotsFromTiersFile, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN,
   cacheSavePer1MInputTokens,
   clearWorkspaceFollowupPauseForSession,
 } from "../pricing.js"
@@ -166,6 +166,49 @@ function updateOpenCodeConfig(mutator: (oc: unknown) => boolean | void): boolean
   } catch {
     return false
   }
+}
+
+function vibeUltraXSubagentForSlot(slot: string | null): string | null {
+  if (slot === "brain") return "vibe-brain"
+  if (slot === "medium") return "vibe-medium"
+  if (slot === "cheap") return "vibe-cheap"
+  return null
+}
+
+function modelForSlot(slot: string | null): string | null {
+  if (slot === "brain") return TRINITY_BRAIN
+  if (slot === "medium") return TRINITY_MEDIUM
+  if (slot === "cheap") return TRINITY_CHEAP
+  return null
+}
+
+function ensureVibeUltraXSubagents(): boolean {
+  try { loadTrinitySlotsFromTiersFile() } catch {}
+  return updateOpenCodeConfig((oc) => {
+    if (!oc || typeof oc !== "object") return false
+    const pairs = [
+      ["cheap", "vibe-cheap", TRINITY_CHEAP],
+      ["medium", "vibe-medium", TRINITY_MEDIUM],
+      ["brain", "vibe-brain", TRINITY_BRAIN],
+    ]
+    oc.agent = oc.agent && typeof oc.agent === "object" ? oc.agent : {}
+    let changed = false
+    for (const [slot, name, model] of pairs) {
+      if (!model) continue
+      const existing = oc.agent[name] && typeof oc.agent[name] === "object" ? oc.agent[name] : {}
+      const next = {
+        ...existing,
+        description: existing.description || `VibeUltraX ${slot} tier worker`,
+        mode: "subagent",
+        model,
+      }
+      if (JSON.stringify(existing) !== JSON.stringify(next)) {
+        oc.agent[name] = next
+        changed = true
+      }
+    }
+    return changed
+  })
 }
 
 let latestUserIntent = null
@@ -510,6 +553,11 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
     const userOptMode = userSetMode || loadOptimizationMode()
     const durablePipeline = modeCascadeRoot(cv.optimization_mode || userOptMode, cv.cascade_root || cv.pipeline_root, cv.selected_slot || cv.tier_bias)
     const routePath = normalizeRoutePath(cv.route_path || cv.pipeline_root, cv.selected_slot || cv.tier_bias)
+    const isUltraX = isVibeUltraXMode(cv.optimization_mode || userOptMode)
+    const workerSlot = normalizeSlot(cv.selected_slot || cv.tier_bias)
+    const workerModel = String(cv.selected_model || cv.selectedModel || modelForSlot(workerSlot) || "")
+    const selectedSubagent = String(cv.selected_subagent || cv.selectedSubagent || vibeUltraXSubagentForSlot(workerSlot) || "")
+    const requiresDelegation = isUltraX && (workerSlot === "medium" || workerSlot === "brain")
 
     const writeIf = (key: string, val: unknown) => {
       const sel = loadSelection()
@@ -525,6 +573,14 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
     }
 
     writeIf("enabled", true)
+    if (isUltraX) {
+      ensureVibeUltraXSubagents()
+      writeIf("selected_slot", workerSlot || null)
+      writeIf("worker_model", workerModel || null)
+      writeIf("selected_subagent", selectedSubagent || null)
+      writeIf("route_path", routePath)
+      writeIf("requires_delegation", requiresDelegation)
+    }
 
     const compatibilityMode = currentSel.onboarding_mode === "assist"
     const flowManuallyDisabled = currentSel.flow_enabled === false && currentSel.flow_enforce === false
@@ -699,6 +755,9 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
       optimization_mode: cv.optimization_mode || null,
       tier_bias: cv.tier_bias || null,
       selected_slot: cv.selected_slot || cv.tier_bias || null,
+      selected_model: workerModel || null,
+      selected_subagent: selectedSubagent || null,
+      requires_delegation: requiresDelegation,
       pipeline_root: durablePipeline,
       cascade_root: durablePipeline,
       route_path: routePath,
@@ -1058,13 +1117,18 @@ export function regimeAwareToolStyleDirective(regime: string, mode: string, stre
 
 function orchestratorDirective(cv: unknown, sel: unknown): string {
   const tierBias = cv?.tier_bias || "auto"
+  const selectedSlot = normalizeSlot(cv?.selected_slot || cv?.tier_bias)
+  const selectedSubagent = String(cv?.selected_subagent || cv?.selectedSubagent || vibeUltraXSubagentForSlot(selectedSlot) || "vibe-cheap")
+  const requiresDelegation = isVibeUltraXMode(cv?.optimization_mode) && (selectedSlot === "medium" || selectedSlot === "brain")
   let brainModel = "(brain)"
   try { brainModel = safeJsonParse(readFileSync(TIERS_FILE, "utf-8")).trinity?.brain?.oc || brainModel } catch {}
   const cheapModel = TRINITY_CHEAP || "the cheaper model"
   const mediumModel = TRINITY_MEDIUM || "the medium model"
   const targetModel = tierBias === "cheap" ? cheapModel : tierBias === "medium" ? mediumModel : tierBias === "brain" ? brainModel : `${cheapModel} or ${mediumModel}`
   const compatibilityMode = sel?.onboarding_mode === "assist"
-  const cheapSlot = TRINITY_CHEAP || cheapModel
+  const delegateNote = requiresDelegation
+    ? ` [vibeultrax cascade] This turn requires delegation: call the task tool with subagent_type="${selectedSubagent}" for the substantive work before final synthesis.`
+    : ""
   return `[AI ORCHESTRATOR AGENT] You are an AI orchestrator agent. ` +
     `Delegate heavy work to Task subagents (runs on ${targetModel}). ` +
     `Your role is to verify, fill gaps, and synthesize cleanly. ` +
@@ -1072,10 +1136,11 @@ function orchestratorDirective(cv: unknown, sel: unknown): string {
       ? "Compatibility mode is active, so direct Write/Edit stays available until strict guardrails are enabled."
       : "Brain-tier focuses on orchestration — hand file writes and edits to Task subagents (cheaper, same quality). Use medium directly with `trinity medium` if the task is simple enough.") +
     ` [delegation guide] When a write/edit is blocked, use the \`task\` tool with: ` +
-    `subagent_type="general" model="${cheapSlot}" prompt="write <path> with: <content>". ` +
-    `The task subagent runs on the cheap tier and handles file operations transparently. ` +
+    `subagent_type="${selectedSubagent}" prompt="write <path> with: <content>". ` +
+    `The tier subagent carries the selected VibeUltraX model and handles file operations transparently. ` +
     `Parallel task calls are encouraged for independent file changes. ` +
     ` Always display the vibeOS cost footer.` +
+    delegateNote +
     (tierBias !== "auto" ? ` [tier routing] This turn is biased toward ${tierBias} tier.` : "")
 }
 

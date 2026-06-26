@@ -285,6 +285,13 @@ function _modelForSlot(slot: string | null, trinityCheap: string | null, trinity
   return null
 }
 
+export function vibeUltraXSubagentForSlot(slot: string | null): string | null {
+  if (slot === "brain") return "vibe-brain"
+  if (slot === "medium") return "vibe-medium"
+  if (slot === "cheap") return "vibe-cheap"
+  return null
+}
+
 function _normalizeCascadeRoot(activePipeline: unknown, fallbackSlot: string | null): string[] {
   const root = Array.isArray(activePipeline)
     ? activePipeline.map((entry) => String(entry || "").trim().toLowerCase()).map((entry) => entry === "local" ? "cheap" : entry).filter((entry) => entry === "cheap" || entry === "medium" || entry === "brain")
@@ -377,9 +384,14 @@ export function resolveCascadeRouteDecision(input: unknown = {}): unknown {
   }
 
   const routePath = _routePathForSlot(cascadeRoot, selectedSlot)
+  const selectedSubagent = vibeUltraXSubagentForSlot(selectedSlot)
+  const requiresDelegation = selectedSlot === "medium" || selectedSlot === "brain"
   return {
     selectedModel,
     selectedSlot,
+    selectedSubagent,
+    requiresDelegation,
+    delegationReason: requiresDelegation ? reason : "",
     reason,
     source,
     cascadeDepth: routePath.length || 1,
@@ -620,6 +632,9 @@ export const onToolExecuteBefore = async (input, output) => {
   if (_credit < 40 && t === "task" && TRINITY_CHEAP && args && typeof args === "object") {
     if (args.model !== TRINITY_CHEAP) {
       args.model = TRINITY_CHEAP
+      args.modelID = TRINITY_CHEAP
+      args.modelId = TRINITY_CHEAP
+      args.subagent_type = vibeUltraXSubagentForSlot("cheap") || args.subagent_type
       console.error(`[vibeOS] 🔀 Credit ${_credit}%: forcing Task → cheap slot (${TRINITY_CHEAP})`)
     }
     return
@@ -652,8 +667,9 @@ export const onToolExecuteBefore = async (input, output) => {
     const apiConnected = isApiConnected()
     const apiRoute = await remoteCall("routeModel", [_prompt, currentTier, TRINITY_CHEAP, TRINITY_MEDIUM, LEARNED_EXPLORATORY, stressScore], null)
     const localRoutingAllowed = shouldUseLocalTaskRouting(apiConnected, isApiFallback(), apiRoute)
-    const activePipeline = loadSelection().active_pipeline
-    const routeDecision = resolveCascadeRouteDecision({
+    const selection = loadSelection()
+    const activePipeline = selection.active_pipeline
+    let routeDecision = resolveCascadeRouteDecision({
       prompt: _prompt,
       firstWord: _firstWord,
       currentTier,
@@ -671,6 +687,19 @@ export const onToolExecuteBefore = async (input, output) => {
       mlEnabled: ML_ENABLED,
       mlConfidenceThreshold: ML_CONFIDENCE_THRESHOLD,
     })
+    if (selection.optimization_mode === "vibeultrax" && selection.requires_delegation && selection.selected_subagent && selection.worker_model) {
+      routeDecision = {
+        ...routeDecision,
+        selectedModel: selection.worker_model,
+        selectedSlot: selection.selected_slot || routeDecision?.selectedSlot || null,
+        selectedSubagent: selection.selected_subagent,
+        requiresDelegation: true,
+        delegationReason: "control vector requires delegation",
+        source: "control-vector",
+        reason: "control vector requires delegation",
+        routePath: Array.isArray(selection.route_path) ? selection.route_path : routeDecision?.routePath || [],
+      }
+    }
     const _target = routeDecision?.selectedModel || null
 
     if (ML_ENABLED && _target) {
@@ -690,13 +719,14 @@ export const onToolExecuteBefore = async (input, output) => {
     }
 
     if (_target) noteTaskRoutingLearning(_firstWord, _target, _exploratoryTarget ? "exploratory" : `tier:${currentTier}`)
-    if (_target && targetArgs?.model !== _target) {
+    if (_target && (targetArgs?.model !== _target || (routeDecision?.selectedSubagent && targetArgs?.subagent_type !== routeDecision.selectedSubagent))) {
       const _reason = routeDecision?.reason || (_exploratoryTarget ? `exploratory ('${_firstWord}')` : `tier=${currentTier}`)
       const _setModel = (obj) => {
         if (!obj || typeof obj !== "object") return
         obj.model = _target
         obj.modelID = _target
         obj.modelId = _target
+        if (routeDecision?.selectedSubagent) obj.subagent_type = routeDecision.selectedSubagent
       }
       const bridge = buildSessionBridge({
         sessionId: getCurrentSessionId(),
