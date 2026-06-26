@@ -61,7 +61,6 @@ import { saveSessionStress } from "../index-helpers.js"
 import { COMPRESS_THRESHOLD, KEEP_HOT, COMPRESS_MARKER, PROTOCOL_MARKER, PROTOCOL_TEXT } from "../constants.js"
 import { TEMPLATES, DEFAULT_TEMPLATE, resolveTemplate, shouldInjectTemplate, resolveSessionTemplateDefinition } from "../templates.js"
 import { getRealityCheckView } from "../../vibeOS-lib/flow-enforcer.js"
-import { installVibeSkill } from "../../../scripts/lib/vibe-skill.mjs"
 import { installVibeTierAgents } from "../runtime-config.js"
 
 const BYTES_PER_TOKEN = 4
@@ -79,15 +78,6 @@ const ANTI_LOOP_DIRECTIVE = "[anti-loop cost guard] Token waste is real money: i
 // Cached context7 directive builder — only rebuilds when urgency changes
 let _cachedC7Full: string | null = null
 let _cachedC7Urgency: string | null = null
-
-export function ensureVibeSkill(dir: string): { created: boolean; path?: string; skipped: boolean } {
-  try {
-    return installVibeSkill(dir)
-  } catch (err: unknown) {
-    console.error(`[vibeOS] Project Guard: failed to create /vibe skill for ${basename(dir || "") || "unknown"}: ${err.message}`)
-    return { created: false, skipped: false }
-  }
-}
 
 export function mergeRemoteControlVector(remoteControlVector: unknown, localControlVector: unknown, options: unknown = {}): unknown {
   const merged = { ...remoteControlVector }
@@ -472,9 +462,6 @@ export function projectMemoryDirective(fp: string): string | null {
 }
 
 export function ensureProjectSkill(dir: string, fp: string): { created: boolean; path?: string; skipped: boolean } {
-  try {
-    ensureVibeSkill(dir)
-  } catch {}
   const skillsDir = join(dir, ".opencode", "skills")
   const projectName = basename(dir)
   const skillDir = join(skillsDir, projectName)
