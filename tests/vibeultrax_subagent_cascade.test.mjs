@@ -9,9 +9,11 @@ function withSandbox(name) {
   const sandbox = mkdtempSync(join(tmpdir(), name))
   const oldHome = process.env.HOME
   const oldVibeHome = process.env.VIBEOS_HOME
+  const oldDesktopHome = process.env.VIBEOS_OPENCODE_DESKTOP_HOME
   const oldCredit = process.env.CLAUDE_CREDIT_PERCENT
   process.env.HOME = sandbox
   process.env.VIBEOS_HOME = join(sandbox, ".claude")
+  process.env.VIBEOS_OPENCODE_DESKTOP_HOME = join(sandbox, "Library", "Application Support", "ai.opencode.desktop")
   process.env.CLAUDE_CREDIT_PERCENT = "100"
   mkdirSync(process.env.VIBEOS_HOME, { recursive: true })
   mkdirSync(join(sandbox, ".config", "opencode"), { recursive: true })
@@ -58,6 +60,8 @@ function withSandbox(name) {
       else process.env.HOME = oldHome
       if (oldVibeHome === undefined) delete process.env.VIBEOS_HOME
       else process.env.VIBEOS_HOME = oldVibeHome
+      if (oldDesktopHome === undefined) delete process.env.VIBEOS_OPENCODE_DESKTOP_HOME
+      else process.env.VIBEOS_OPENCODE_DESKTOP_HOME = oldDesktopHome
       if (oldCredit === undefined) delete process.env.CLAUDE_CREDIT_PERCENT
       else process.env.CLAUDE_CREDIT_PERCENT = oldCredit
       rmSync(sandbox, { recursive: true, force: true })
