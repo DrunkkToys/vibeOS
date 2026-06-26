@@ -467,7 +467,7 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
     const currentSel = loadSelection()
     const userSetMode = loadSessionOptMode(sid + "_opt")
     const userOptMode = userSetMode || loadOptimizationMode()
-    const isManualMode = userSetMode && userOptMode !== "auto"
+    const isManualMode = userOptMode && userOptMode !== "auto"
 
     const writeIf = (key: string, val: unknown) => {
       const sel = loadSelection()
