@@ -485,12 +485,7 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
       const allEntries = [...BRANDED_MODES, ...RUNTIME_MODES]
       const modeEntry = allEntries.find((e: unknown) => e.id === userOptMode)
       if (modeEntry) {
-        const expectedPipeline = JSON.stringify(modeEntry.pipeline)
-        const currentPipeline = currentSel.active_pipeline
-        const currentPipelineStr = Array.isArray(currentPipeline) ? JSON.stringify(currentPipeline) : currentPipeline
-        if (currentPipelineStr !== expectedPipeline) {
-          writeSelection("active_pipeline", modeEntry.pipeline)
-        }
+        writeIf("active_pipeline", JSON.stringify(modeEntry.pipeline))
       }
     } else if (cv?.pipeline_root && Array.isArray(cv.pipeline_root)) {
       writeIf("active_pipeline", JSON.stringify(cv.pipeline_root))
