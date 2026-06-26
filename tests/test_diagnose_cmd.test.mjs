@@ -4,7 +4,7 @@
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, writeFileSync, unlinkSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
@@ -108,6 +108,83 @@ test("diagnose: all checks pass with full config", async () => {
   const okCount = (output.match(/OK/g) || []).length
   // Model probe fails with fake API key; credit and slots should pass
   assert.ok(passCount + okCount >= 6, "diagnose passes: " + output.slice(0, 120))
+})
+
+test("diagnose cascade reports VIBEOS_HOME cascade state and repair candidates", async () => {
+  baseDirs()
+  writeOpenCodeConfig()
+  writeTiers({}, {
+    active_slot: "brain",
+    optimization_mode: "vibeultrax",
+    requested_optimization_mode: "vibeultrax",
+    active_pipeline: ["cheap"],
+    vector_changed_pipeline: ["cheap"],
+  })
+  writeState()
+  writeFileSync(join(HOME, ".claude/blackbox-state.json"), JSON.stringify({
+    enabled: true,
+    cv: {
+      optimization_mode: "vibeultrax",
+      tier_bias: "brain",
+      pipeline_root: ["cheap"],
+      cascade_depth: 1,
+    },
+    sessions: {},
+  }, null, 2) + "\n")
+
+  const hooks = await freshPlugin()
+  const output = await hooks.tool.trinity.execute({ action: "diagnose", slot: "cascade" })
+
+  assert.ok(output.includes("cascade vibeos_home"), "cascade VIBEOS_HOME line present: " + output)
+  assert.ok(output.includes("cascade active_pipeline"), "cascade active_pipeline line present: " + output)
+  assert.ok(output.includes("cascade repair candidates"), "cascade repair candidates line present: " + output)
+  assert.ok(output.includes("repair-state apply"), "cascade diagnose should point to repair command: " + output)
+})
+
+test("repair-state apply normalizes stale VibeUltraX state in VIBEOS_HOME", async () => {
+  baseDirs()
+  writeOpenCodeConfig()
+  writeTiers({}, {
+    active_slot: "brain",
+    optimization_mode: "vibeultrax",
+    requested_optimization_mode: "vibeultrax",
+    active_pipeline: ["cheap"],
+    vector_changed_pipeline: ["cheap"],
+  })
+  writeState()
+  writeFileSync(join(HOME, ".claude/blackbox-state.json"), JSON.stringify({
+    enabled: true,
+    cv: {
+      optimization_mode: "vibeultrax",
+      tier_bias: "brain",
+      pipeline_root: ["cheap"],
+      cascade_depth: 1,
+    },
+    sessions: {
+      "sid-repair": {
+        cv: {
+          optimization_mode: "vibeultrax",
+          tier_bias: "brain",
+          pipeline_root: ["cheap"],
+          cascade_depth: 1,
+        },
+      },
+    },
+  }, null, 2) + "\n")
+
+  const hooks = await freshPlugin()
+  const output = await hooks.tool.trinity.execute({ action: "repair-state", slot: "apply" })
+  const tiers = JSON.parse(readFileSync(join(HOME, ".claude/model-tiers.json"), "utf8"))
+  const blackbox = JSON.parse(readFileSync(join(HOME, ".claude/blackbox-state.json"), "utf8"))
+
+  assert.ok(output.includes("Applied"), "repair should apply: " + output)
+  assert.equal(tiers.selection.active_slot, "cheap")
+  assert.deepEqual(tiers.selection.active_pipeline, ["cheap", "medium", "brain"])
+  assert.deepEqual(tiers.selection.vector_changed_pipeline, ["cheap", "medium", "brain"])
+  assert.deepEqual(blackbox.cv.cascade_root, ["cheap", "medium", "brain"])
+  assert.deepEqual(blackbox.cv.pipeline_root, ["cheap", "medium", "brain"])
+  assert.deepEqual(blackbox.cv.route_path, ["cheap"])
+  assert.equal(blackbox.cv.tier_bias, "cheap")
 })
 
 test("diagnose: shows api fallback and non-failing runway when balance exists", async () => {

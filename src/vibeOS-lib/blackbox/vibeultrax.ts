@@ -51,12 +51,12 @@ function learnedRouteFromGraph(text) {
 }
 
 function profileFromCascade(decision, learned = null) {
-  if (learned?.learnedTier === "cheap") return { profile: "direct", cascade_depth: 1, pipeline_root: ["cheap"], route_path: ["cheap"], tier_bias: "cheap", selected_slot: "cheap" }
-  if (learned?.learnedTier === "medium") return { profile: "standard", cascade_depth: 2, pipeline_root: ["cheap", "medium"], route_path: ["cheap", "medium"], tier_bias: "medium", selected_slot: "medium" }
-  if (learned?.learnedTier === "brain") return { profile: "deep", cascade_depth: 3, pipeline_root: VIBEULTRAX_ROOT, route_path: VIBEULTRAX_ROOT, tier_bias: "brain", selected_slot: "brain" }
-  if (decision.useCheap && decision.escalate) return { profile: "deep", cascade_depth: 3, pipeline_root: VIBEULTRAX_ROOT, route_path: VIBEULTRAX_ROOT, tier_bias: "brain", selected_slot: "brain" }
-  if (decision.escalate) return { profile: "standard", cascade_depth: 2, pipeline_root: ["cheap", "medium"], route_path: ["cheap", "medium"], tier_bias: "medium", selected_slot: "medium" }
-  return { profile: "direct", cascade_depth: 1, pipeline_root: ["cheap"], route_path: ["cheap"], tier_bias: "cheap", selected_slot: "cheap" }
+  if (learned?.learnedTier === "cheap") return { profile: "direct", cascade_depth: 1, pipeline_root: VIBEULTRAX_ROOT, route_path: ["cheap"], tier_bias: "cheap", selected_slot: "cheap" }
+  if (learned?.learnedTier === "medium") return { profile: "standard", cascade_depth: 2, pipeline_root: VIBEULTRAX_ROOT, route_path: ["cheap", "medium"], tier_bias: "cheap", selected_slot: "medium" }
+  if (learned?.learnedTier === "brain") return { profile: "deep", cascade_depth: 3, pipeline_root: VIBEULTRAX_ROOT, route_path: VIBEULTRAX_ROOT, tier_bias: "cheap", selected_slot: "brain" }
+  if (decision.useCheap && decision.escalate) return { profile: "deep", cascade_depth: 3, pipeline_root: VIBEULTRAX_ROOT, route_path: VIBEULTRAX_ROOT, tier_bias: "cheap", selected_slot: "brain" }
+  if (decision.escalate) return { profile: "standard", cascade_depth: 2, pipeline_root: VIBEULTRAX_ROOT, route_path: ["cheap", "medium"], tier_bias: "cheap", selected_slot: "medium" }
+  return { profile: "direct", cascade_depth: 1, pipeline_root: VIBEULTRAX_ROOT, route_path: ["cheap"], tier_bias: "cheap", selected_slot: "cheap" }
 }
 
 function getPivotCache() {

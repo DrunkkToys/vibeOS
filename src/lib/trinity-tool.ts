@@ -2,6 +2,8 @@
 
 import { existsSync, readFileSync } from "node:fs"
 import { join, dirname } from "node:path"
+import { execFileSync } from "node:child_process"
+import { createHash } from "node:crypto"
 import { LABEL_MODES, buildDeterministicTrinity, resolveCurrentExecution, resolveExecutionIdentity } from "./pricing.js"
 import { BRANDED_MODES, RUNTIME_MODES, resolveCascadeSlot } from "./mode-router.js"
 import { getBackendVersion, invalidateApiToken, isApiConnected } from "./api-client.js"
@@ -19,6 +21,190 @@ const STRESS_GAUGE_MIN = 0.1
 const MOMENTUM_SIGNIFICANT_THRESHOLD = 0.3
 const DIAGNOSE_BUDGET_LINES = 50
 const CREDIT_MIN_OK = 40
+const VIBEULTRAX_ROOT = ["cheap", "medium", "brain"]
+
+function sameJson(a, b): boolean {
+  try { return JSON.stringify(a) === JSON.stringify(b) } catch { return false }
+}
+
+function normalizeSlotName(value): string {
+  const v = String(value || "").trim().toLowerCase()
+  return ["cheap", "medium", "brain"].includes(v) ? v : ""
+}
+
+function normalizeVibeUltraXControl(control): boolean {
+  if (!control || typeof control !== "object") return false
+  const mode = String(control.optimization_mode || control.mode_root || control.requested_mode || "").toLowerCase()
+  if (mode !== "vibeultrax") return false
+  let changed = false
+  const previousPipeline = Array.isArray(control.pipeline_root) ? control.pipeline_root.filter(Boolean) : []
+  if (!Array.isArray(control.route_path) || control.route_path.length === 0) {
+    control.route_path = previousPipeline.length ? previousPipeline : ["cheap"]
+    changed = true
+  }
+  if (!sameJson(control.cascade_root, VIBEULTRAX_ROOT)) {
+    control.cascade_root = VIBEULTRAX_ROOT
+    changed = true
+  }
+  if (!sameJson(control.pipeline_root, VIBEULTRAX_ROOT)) {
+    control.pipeline_root = VIBEULTRAX_ROOT
+    changed = true
+  }
+  if (control.tier_bias !== "cheap") {
+    control.tier_bias = "cheap"
+    changed = true
+  }
+  if (!normalizeSlotName(control.selected_slot)) {
+    const route = Array.isArray(control.route_path) && control.route_path.length ? control.route_path : ["cheap"]
+    control.selected_slot = normalizeSlotName(route[route.length - 1]) || "cheap"
+    changed = true
+  }
+  const depth = Array.isArray(control.route_path) && control.route_path.length ? control.route_path.length : 1
+  if (control.cascade_depth !== depth) {
+    control.cascade_depth = depth
+    changed = true
+  }
+  return changed
+}
+
+function normalizeVibeUltraXBlackboxState(state): boolean {
+  if (!state || typeof state !== "object") return false
+  let changed = false
+  for (const key of ["cv", "control_vector", "live_control"]) {
+    if (normalizeVibeUltraXControl(state[key])) changed = true
+  }
+  const sessions = state.sessions && typeof state.sessions === "object" ? state.sessions : null
+  if (!sessions) return changed
+  for (const session of Object.values(sessions)) {
+    if (!session || typeof session !== "object") continue
+    for (const key of ["cv", "control_vector", "live_control"]) {
+      if (normalizeVibeUltraXControl(session[key])) changed = true
+    }
+  }
+  return changed
+}
+
+function previewVibeUltraXRepair(deps) {
+  const changes = []
+  const tiersPath = deps.TIERS_FILE
+  try {
+    const tiers = deps.safeJsonParse(deps.readFileSync(tiersPath, "utf-8")) || {}
+    const sel = tiers.selection || {}
+    const mode = String(sel.optimization_mode || sel.requested_optimization_mode || "").toLowerCase()
+    if (mode === "vibeultrax") {
+      if (!sameJson(sel.active_pipeline, VIBEULTRAX_ROOT)) changes.push({ file: tiersPath, field: "selection.active_pipeline", from: sel.active_pipeline, to: VIBEULTRAX_ROOT })
+      if (!sameJson(sel.vector_changed_pipeline, VIBEULTRAX_ROOT)) changes.push({ file: tiersPath, field: "selection.vector_changed_pipeline", from: sel.vector_changed_pipeline, to: VIBEULTRAX_ROOT })
+      if (sel.active_slot !== "cheap") changes.push({ file: tiersPath, field: "selection.active_slot", from: sel.active_slot, to: "cheap" })
+    }
+  } catch {}
+  const blackboxPath = join(deps.VIBEOS_HOME || getVibeOSHome(), "blackbox-state.json")
+  try {
+    const blackbox = deps.safeJsonParse(deps.readFileSync(blackboxPath, "utf-8")) || {}
+    const before = JSON.stringify(blackbox)
+    normalizeVibeUltraXBlackboxState(blackbox)
+    if (before !== JSON.stringify(blackbox)) changes.push({ file: blackboxPath, field: "vibeultrax control vectors", from: "stale", to: "normalized" })
+  } catch {}
+  return changes
+}
+
+function applyVibeUltraXRepair(deps) {
+  const changes = previewVibeUltraXRepair(deps)
+  const touched = new Set(changes.map((c) => c.file))
+  const backups = []
+  for (const file of touched) {
+    const b = deps.backupFile?.(file, "vibeultrax-repair")
+    if (b) backups.push(b)
+  }
+  if (changes.some((c) => c.file === deps.TIERS_FILE)) {
+    const tiers = deps.safeJsonParse(deps.readFileSync(deps.TIERS_FILE, "utf-8")) || {}
+    tiers.selection ??= {}
+    tiers.selection.active_pipeline = VIBEULTRAX_ROOT
+    tiers.selection.vector_changed_pipeline = VIBEULTRAX_ROOT
+    tiers.selection.active_slot = "cheap"
+    deps.writeFileSync(deps.TIERS_FILE, JSON.stringify(tiers, null, 2) + "\n")
+  }
+  const blackboxPath = join(deps.VIBEOS_HOME || getVibeOSHome(), "blackbox-state.json")
+  if (changes.some((c) => c.file === blackboxPath)) {
+    const blackbox = deps.safeJsonParse(deps.readFileSync(blackboxPath, "utf-8")) || {}
+    normalizeVibeUltraXBlackboxState(blackbox)
+    deps.writeFileSync(blackboxPath, JSON.stringify(blackbox, null, 2) + "\n")
+  }
+  return { changes, backups }
+}
+
+function sha256File(path): string {
+  try {
+    return createHash("sha256").update(readFileSync(path)).digest("hex").slice(0, 12)
+  } catch {
+    return ""
+  }
+}
+
+function detectOpenCodeProcessState() {
+  try {
+    const output = execFileSync("ps", ["-axo", "pid,etime,%cpu,command"], { encoding: "utf8", timeout: 1000 })
+    const lines = output.split("\n").filter((line) => /(^|\s)opencode(\s|$)|OpenCode\.app/i.test(line))
+    const stale = lines.filter((line) => /\d+-\d\d:\d\d:\d\d|\d\d:\d\d:\d\d/.test(line) && !/Codex\.app/.test(line))
+    return { count: lines.length, stale: stale.slice(0, 3) }
+  } catch {
+    return { count: 0, stale: [] }
+  }
+}
+
+function readJsonFile(deps, path) {
+  try { return deps.safeJsonParse(deps.readFileSync(path, "utf-8")) || null } catch { return null }
+}
+
+function resolveLoadedPluginPath(deps) {
+  const candidates = []
+  const oc = readJsonFile(deps, join(deps.OPENCODE_HOME, "opencode.json"))
+  const plugins = Array.isArray(oc?.plugin) ? oc.plugin : []
+  for (const entry of plugins) {
+    if (String(entry || "").includes("vibeOS")) candidates.push(String(entry))
+  }
+  candidates.push(join(deps.OPENCODE_HOME, "plugins", "vibeOS.js"))
+  if (deps.directory) candidates.push(join(deps.directory, "plugins", "vibeOS.js"))
+  return candidates.find((p) => p && deps.existsSync(p)) || candidates[0] || ""
+}
+
+function countStaleActiveJobs(deps) {
+  const path = join(deps.VIBEOS_HOME || getVibeOSHome(), "active-jobs.json")
+  const jobs = readJsonFile(deps, path)
+  if (!jobs || typeof jobs !== "object") return { path, count: 0 }
+  const cutoff = Date.now() - 24 * 60 * 60 * 1000
+  let count = 0
+  for (const job of Object.values(jobs)) {
+    if (!job || typeof job !== "object") continue
+    const ts = Date.parse(job.updatedAt || job.createdAt || "")
+    if (job.status === "active" && (!Number.isFinite(ts) || ts < cutoff)) count++
+  }
+  return { path, count }
+}
+
+function cascadeDiagnosticResults(deps) {
+  const results = []
+  const tiers = readJsonFile(deps, deps.TIERS_FILE) || {}
+  const sel = tiers.selection || {}
+  const blackboxPath = join(deps.VIBEOS_HOME || getVibeOSHome(), "blackbox-state.json")
+  const blackbox = readJsonFile(deps, blackboxPath) || {}
+  const cv = blackbox.cv || {}
+  const sid = deps._OC_SID || ""
+  const sessionCv = sid && blackbox.sessions?.[sid]?.cv ? blackbox.sessions[sid].cv : null
+  const pluginPath = resolveLoadedPluginPath(deps)
+  const activeJobs = countStaleActiveJobs(deps)
+  const proc = detectOpenCodeProcessState()
+  const repair = previewVibeUltraXRepair(deps)
+  results.push({ ok: true, okLabel: "OK", label: "cascade vibeos_home", detail: deps.VIBEOS_HOME || getVibeOSHome() })
+  results.push({ ok: !!pluginPath && deps.existsSync(pluginPath), okLabel: pluginPath && deps.existsSync(pluginPath) ? "OK" : "WARN", label: "cascade plugin", detail: pluginPath ? `${pluginPath}${sha256File(pluginPath) ? ` sha256:${sha256File(pluginPath)}` : ""}` : "not found" })
+  results.push({ ok: sameJson(sel.active_pipeline, VIBEULTRAX_ROOT), okLabel: sameJson(sel.active_pipeline, VIBEULTRAX_ROOT) ? "OK" : "WARN", label: "cascade active_pipeline", detail: JSON.stringify(sel.active_pipeline || null), fix: "run `trinity repair-state apply`" })
+  results.push({ ok: !sel.vector_changed_pipeline || sameJson(sel.vector_changed_pipeline, VIBEULTRAX_ROOT), okLabel: !sel.vector_changed_pipeline || sameJson(sel.vector_changed_pipeline, VIBEULTRAX_ROOT) ? "OK" : "WARN", label: "cascade vector_changed_pipeline", detail: JSON.stringify(sel.vector_changed_pipeline || null), fix: "run `trinity repair-state apply`" })
+  results.push({ ok: sameJson(cv.cascade_root, VIBEULTRAX_ROOT), okLabel: sameJson(cv.cascade_root, VIBEULTRAX_ROOT) ? "OK" : "WARN", label: "cascade root cv", detail: JSON.stringify({ cascade_root: cv.cascade_root || null, route_path: cv.route_path || null, selected_slot: cv.selected_slot || null }), fix: "run `trinity repair-state apply`" })
+  results.push({ ok: !!sessionCv || !sid, okLabel: !!sessionCv || !sid ? "OK" : "WARN", label: "cascade session cv", detail: sessionCv ? JSON.stringify({ cascade_root: sessionCv.cascade_root || null, route_path: sessionCv.route_path || null, selected_slot: sessionCv.selected_slot || null }) : (sid ? `missing for ${sid}` : "no session id") })
+  results.push({ ok: activeJobs.count === 0, okLabel: activeJobs.count === 0 ? "OK" : "WARN", label: "cascade stale active jobs", detail: `${activeJobs.count} in ${activeJobs.path}` })
+  results.push({ ok: proc.stale.length === 0, okLabel: proc.stale.length === 0 ? "OK" : "WARN", label: "cascade opencode processes", detail: `${proc.count} found${proc.stale.length ? `; stale: ${proc.stale.join(" | ")}` : ""}` })
+  results.push({ ok: repair.length === 0, okLabel: repair.length === 0 ? "OK" : "WARN", label: "cascade repair candidates", detail: String(repair.length), fix: repair.length ? "run `trinity repair-state apply`" : null })
+  return results
+}
 
 export async function resolveDashboardBaseUrl(deps): Promise<string> {
   const fromMemory = resolveDashboardBaseUrlFromState({ dashboardBaseUrl: deps.dashboardBaseUrl })
@@ -84,7 +270,7 @@ export function createTrinityTool(deps) {
       "Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', 'vibe status' (or the legacy 'trinity status').",
     args: {
       action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "setup", "project", "patterns", "dashboard", "gui", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard", "reality-check", "api-token", "api-bootstrap-token", "verify-claims", "todo", "todo-done", "todo-sync"]).optional(),
-      slot: deps.tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "balanced", "audit", "forensic", "vibeultrax", "vibeqmax", "vibemax", "vibelitex", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings"]).optional(),
+      slot: deps.tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "balanced", "audit", "forensic", "vibeultrax", "vibeqmax", "vibemax", "vibelitex", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings", "cascade"]).optional(),
       level: deps.tool.schema.enum(["full", "brief", "off", "on"]).optional(),
       model: deps.tool.schema.string().optional(),
       token: deps.tool.schema.string().optional(),
@@ -1129,6 +1315,7 @@ export function createTrinityTool(deps) {
         const results = []
         const ocConfig = join(deps.OPENCODE_HOME, "opencode.json")
         const apiFallbackActive = typeof deps.isApiFallback === "function" ? deps.isApiFallback() : false
+        const diagnoseCascade = String(slot || "").toLowerCase() === "cascade"
 
         const checks = [
           { path: deps.TIERS_FILE,                                        label: "model-tiers.json"       },
@@ -1143,6 +1330,9 @@ export function createTrinityTool(deps) {
             detail: deps.existsSync(c.path) ? "exists" : "missing",
             fix: deps.existsSync(c.path) ? null : (c.label === "model-tiers.json" ? "run \`trinity rebuild\` to create it" : undefined),
           })
+        }
+        if (diagnoseCascade) {
+          results.push(...cascadeDiagnosticResults(deps))
         }
 
         try {
@@ -1285,6 +1475,7 @@ export function createTrinityTool(deps) {
         if (mode !== "preview" && mode !== "apply") {
           return "\u274c Use \`trinity repair-state preview\` or \`trinity repair-state apply\`."
         }
+        const cascadeChanges = previewVibeUltraXRepair(deps)
         const dstFp = deps.currentProjectFingerprint || deps.projectFingerprint(deps.directory)
         const name = deps.currentProjectName || (deps.directory ? deps.directory.split("/").pop() : "unknown")
         const idx = deps.reportsIndex()
@@ -1296,8 +1487,30 @@ export function createTrinityTool(deps) {
         const candidates = [...byFp.entries()]
           .filter(([fp2, count]) => fp2 && fp2 !== dstFp && count > 0)
           .sort((a, b) => b[1] - a[1])
+        if (candidates.length === 0 && cascadeChanges.length === 0) {
+          return `No duplicate fingerprint or VibeUltraX state repair candidates found for project "${name}".`
+        }
         if (candidates.length === 0) {
-          return `\u2705 No duplicate fingerprint candidates found for project "${name}".`
+          const lines = [
+            `State repair (${mode})`,
+            `  project: ${name}`,
+            `  vibeos_home: ${deps.VIBEOS_HOME || getVibeOSHome()}`,
+            `  vibeultrax changes: ${cascadeChanges.length}`,
+          ]
+          for (const change of cascadeChanges) {
+            lines.push(`  - ${change.field}: ${JSON.stringify(change.from)} -> ${JSON.stringify(change.to)}`)
+          }
+          if (mode === "preview") {
+            lines.push("", "Run `trinity repair-state apply` to execute with backups.")
+            return lines.join("\n")
+          }
+          const repaired = applyVibeUltraXRepair(deps)
+          lines.push("", `Applied ${repaired.changes.length} VibeUltraX state repairs.`)
+          if (repaired.backups.length > 0) {
+            lines.push("Backups:")
+            for (const b of repaired.backups) lines.push(`  - ${b}`)
+          }
+          return lines.join("\n")
         }
         const [srcFp, reportCount] = candidates[0]
         const pstate = deps.loadProjectState()
@@ -1307,13 +1520,18 @@ export function createTrinityTool(deps) {
         const lines = [
           `\u{1F6E0} State repair (${mode})`,
           `  project: ${name}`,
+          `  vibeos_home: ${deps.VIBEOS_HOME || getVibeOSHome()}`,
           `  target:  ${dstFp}`,
           `  source:  ${srcFp}`,
           `  reports to relabel: ${reportCount}`,
           `  sessions: ${(dstBucket.totalSessions || 0)} + ${(srcBucket?.totalSessions || 0)} -> ${merged.totalSessions}`,
           `  bypasses: ${(dstBucket.context7Bypasses || 0)} + ${(srcBucket?.context7Bypasses || 0)} -> ${merged.context7Bypasses}`,
           `  researchChains(max): ${Math.max(dstBucket.researchChains || 0, srcBucket?.researchChains || 0)}`,
+          `  vibeultrax changes: ${cascadeChanges.length}`,
         ]
+        for (const change of cascadeChanges) {
+          lines.push(`  - ${change.field}: ${JSON.stringify(change.from)} -> ${JSON.stringify(change.to)}`)
+        }
         if (mode === "preview") {
           lines.push("", "Run \`trinity repair-state apply\` to execute with backups.")
           return lines.join("\n")
@@ -1324,6 +1542,8 @@ export function createTrinityTool(deps) {
         if (b1) backups.push(b1)
         const b2 = deps.backupFile(deps.REPORTS_INDEX, "repair-state")
         if (b2) backups.push(b2)
+        const cascadeRepair = applyVibeUltraXRepair(deps)
+        for (const b of cascadeRepair.backups) backups.push(b)
 
         pstate.project_hashes ??= {}
         pstate.project_hashes[dstFp] = merged
