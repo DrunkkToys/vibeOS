@@ -103,7 +103,7 @@ test("vibeultrax sync installs tier primary agents with trinity models in all Op
   }
 })
 
-test("vibeultrax task routing uses tier subagent_type and legacy model fields", async () => {
+test("vibeultrax task routing normalizes task subagent_type to general", async () => {
   const ctx = withSandbox("vibeos-tier-task-")
   try {
     const mod = await import("../src/index.js?tier-task=" + Date.now())
@@ -133,7 +133,7 @@ test("vibeultrax task routing uses tier subagent_type and legacy model fields", 
     }
     await hooks["tool.execute.before"]({ tool: "task" }, { args })
 
-    assert.equal(args.subagent_type, "vibe-brain")
+    assert.equal(args.subagent_type, "general")
     assert.equal(args.model, "deepseek/deepseek-v4-flash")
     assert.equal(args.modelID, "deepseek/deepseek-v4-flash")
     assert.equal(args.modelId, "deepseek/deepseek-v4-flash")
@@ -177,7 +177,7 @@ test("delegation hard block requires coherent brain tier agent binding", async (
   }
 })
 
-test("vibeultrax medium route selects vibe-medium and stress can upgrade cheap delegation", async () => {
+test("vibeultrax medium route selects general task delegation and stress can upgrade cheap delegation", async () => {
   const mod = await import("../src/lib/hooks/tool-execute.js?tier-route=" + Date.now())
 
   const medium = mod.resolveCascadeRouteDecision({
@@ -199,7 +199,7 @@ test("vibeultrax medium route selects vibe-medium and stress can upgrade cheap d
     mlConfidenceThreshold: 0.6,
   })
   assert.equal(medium.selectedSlot, "medium")
-  assert.equal(medium.selectedSubagent, "vibe-medium")
+  assert.equal(medium.selectedSubagent, "general")
   assert.equal(medium.requiresDelegation, true)
 
   const stressed = mod.resolveCascadeRouteDecision({
@@ -221,6 +221,6 @@ test("vibeultrax medium route selects vibe-medium and stress can upgrade cheap d
     mlConfidenceThreshold: 0.6,
   })
   assert.equal(stressed.selectedSlot, "medium")
-  assert.equal(stressed.selectedSubagent, "vibe-medium")
+  assert.equal(stressed.selectedSubagent, "general")
   assert.equal(stressed.requiresDelegation, true)
 })

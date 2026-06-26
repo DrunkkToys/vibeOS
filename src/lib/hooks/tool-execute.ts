@@ -293,6 +293,11 @@ export function vibeUltraXSubagentForSlot(slot: string | null): string | null {
   return null
 }
 
+export function taskSubagentTypeForSlot(slot: string | null): string | null {
+  if (slot === "brain" || slot === "medium" || slot === "cheap") return "general"
+  return null
+}
+
 function _normalizeCascadeRoot(activePipeline: unknown, fallbackSlot: string | null): string[] {
   const root = Array.isArray(activePipeline)
     ? activePipeline.map((entry) => String(entry || "").trim().toLowerCase()).map((entry) => entry === "local" ? "cheap" : entry).filter((entry) => entry === "cheap" || entry === "medium" || entry === "brain")
@@ -385,7 +390,7 @@ export function resolveCascadeRouteDecision(input: unknown = {}): unknown {
   }
 
   const routePath = _routePathForSlot(cascadeRoot, selectedSlot)
-  const selectedSubagent = vibeUltraXSubagentForSlot(selectedSlot)
+  const selectedSubagent = taskSubagentTypeForSlot(selectedSlot)
   const requiresDelegation = selectedSlot === "medium" || selectedSlot === "brain"
   return {
     selectedModel,
@@ -635,7 +640,7 @@ export const onToolExecuteBefore = async (input, output) => {
       args.model = TRINITY_CHEAP
       args.modelID = TRINITY_CHEAP
       args.modelId = TRINITY_CHEAP
-      args.subagent_type = vibeUltraXSubagentForSlot("cheap") || args.subagent_type
+      args.subagent_type = taskSubagentTypeForSlot("cheap") || args.subagent_type
       console.error(`[vibeOS] 🔀 Credit ${_credit}%: forcing Task → cheap slot (${TRINITY_CHEAP})`)
     }
     return
@@ -688,12 +693,12 @@ export const onToolExecuteBefore = async (input, output) => {
       mlEnabled: ML_ENABLED,
       mlConfidenceThreshold: ML_CONFIDENCE_THRESHOLD,
     })
-    if (selection.optimization_mode === "vibeultrax" && selection.requires_delegation && selection.selected_subagent && selection.worker_model) {
+    if (selection.optimization_mode === "vibeultrax" && selection.requires_delegation && selection.worker_model) {
       routeDecision = {
         ...routeDecision,
         selectedModel: selection.worker_model,
         selectedSlot: selection.selected_slot || routeDecision?.selectedSlot || null,
-        selectedSubagent: selection.selected_subagent,
+        selectedSubagent: taskSubagentTypeForSlot(selection.selected_slot || routeDecision?.selectedSlot || null) || routeDecision?.selectedSubagent || null,
         requiresDelegation: true,
         delegationReason: "control vector requires delegation",
         source: "control-vector",

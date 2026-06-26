@@ -176,6 +176,11 @@ function vibeUltraXSubagentForSlot(slot: string | null): string | null {
   return null
 }
 
+function taskSubagentTypeForSlot(slot: string | null): string | null {
+  if (slot === "brain" || slot === "medium" || slot === "cheap") return "general"
+  return null
+}
+
 function modelForSlot(slot: string | null): string | null {
   if (slot === "brain") return TRINITY_BRAIN
   if (slot === "medium") return TRINITY_MEDIUM
@@ -1105,7 +1110,7 @@ export function regimeAwareToolStyleDirective(regime: string, mode: string, stre
 function orchestratorDirective(cv: unknown, sel: unknown): string {
   const tierBias = cv?.tier_bias || "auto"
   const selectedSlot = normalizeSlot(cv?.selected_slot || cv?.tier_bias)
-  const selectedSubagent = String(cv?.selected_subagent || cv?.selectedSubagent || vibeUltraXSubagentForSlot(selectedSlot) || "vibe-cheap")
+  const selectedSubagent = String(taskSubagentTypeForSlot(selectedSlot) || "general")
   const requiresDelegation = isVibeUltraXMode(cv?.optimization_mode) && (selectedSlot === "medium" || selectedSlot === "brain")
   let brainModel = "(brain)"
   try { brainModel = safeJsonParse(readFileSync(TIERS_FILE, "utf-8")).trinity?.brain?.oc || brainModel } catch {}
