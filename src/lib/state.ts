@@ -752,6 +752,7 @@ function loadBlackboxState(): DelegationState {
       raw.sessions[sid] = next
       if (recordChanged) changed = true
     }
+    if (_normalizeVibeUltraXBlackboxState(raw)) changed = true
     if (_mirrorLiveControlVector(raw)) changed = true
     if (changed) {
       try { saveBlackboxState(raw) } catch {}
@@ -770,6 +771,7 @@ function saveBlackboxState(state: unknown): void {
       if (!session || typeof session !== "object") continue
       next.sessions[sid] = normalizeBlackboxRecord(session as unknown, sid, now).record
     }
+    _normalizeVibeUltraXBlackboxState(next)
     _mirrorLiveControlVector(next)
     mkdirSync(dirname(blackboxFile), { recursive: true })
     const tmp = blackboxFile + ".tmp"
@@ -844,6 +846,65 @@ function _buildLiveSnapshotFingerprint(input: unknown, resolutionState: string, 
   })
 }
 
+function _normalizeVibeUltraXControlVector(control: unknown): boolean {
+  if (!control || typeof control !== "object") return false
+  const mode = String(control.optimization_mode || control.mode_root || control.requested_mode || "").toLowerCase()
+  if (mode !== "vibeultrax") return false
+  const root = ["cheap", "medium", "brain"]
+  const previousPipeline = Array.isArray(control.pipeline_root) ? control.pipeline_root.filter(Boolean) : []
+  let changed = false
+  if (!Array.isArray(control.route_path) || control.route_path.length === 0) {
+    control.route_path = previousPipeline.length ? previousPipeline : ["cheap"]
+    changed = true
+  }
+  if (JSON.stringify(control.cascade_root || []) !== JSON.stringify(root)) {
+    control.cascade_root = root
+    changed = true
+  }
+  if (JSON.stringify(control.pipeline_root || []) !== JSON.stringify(root)) {
+    control.pipeline_root = root
+    changed = true
+  }
+  if (control.tier_bias !== "cheap") {
+    control.tier_bias = "cheap"
+    changed = true
+  }
+  if (!control.selected_slot) {
+    const route = Array.isArray(control.route_path) && control.route_path.length ? control.route_path : ["cheap"]
+    control.selected_slot = route[route.length - 1] || "cheap"
+    changed = true
+  }
+  const depth = Array.isArray(control.route_path) && control.route_path.length ? control.route_path.length : 1
+  if (control.cascade_depth !== depth) {
+    control.cascade_depth = depth
+    changed = true
+  }
+  return changed
+}
+
+function _normalizeVibeUltraXBlackboxState(state: unknown): boolean {
+  if (!state || typeof state !== "object") return false
+  let changed = false
+  for (const key of ["cv", "control_vector", "live_control"]) {
+    if (_normalizeVibeUltraXControlVector(state[key])) changed = true
+  }
+  const sessions = state.sessions && typeof state.sessions === "object" ? state.sessions : null
+  if (!sessions) return changed
+  for (const session of Object.values(sessions)) {
+    if (!session || typeof session !== "object") continue
+    for (const key of ["cv", "control_vector", "live_control"]) {
+      if (_normalizeVibeUltraXControlVector(session[key])) changed = true
+    }
+    const history = Array.isArray(session.control_history) ? session.control_history : []
+    for (const entry of history) {
+      if (!entry || typeof entry !== "object") continue
+      if (_normalizeVibeUltraXControlVector(entry.control)) changed = true
+      if (_normalizeVibeUltraXControlVector(entry.cv)) changed = true
+    }
+  }
+  return changed
+}
+
 function _mirrorLiveControlVector(state: unknown): boolean {
   if (!state || typeof state !== "object") return false
   const currentSid = getCurrentSessionId()
@@ -858,6 +919,7 @@ function _mirrorLiveControlVector(state: unknown): boolean {
   if (!state.cv) { state.cv = liveControl; changed = true }
   if (!state.control_vector) { state.control_vector = liveControl; changed = true }
   if (!state.live_control) { state.live_control = liveControl; changed = true }
+  if (_normalizeVibeUltraXBlackboxState(state)) changed = true
   if (state.latest_control_vector_ts && currentSession && !currentSession.latest_control_vector_ts) {
     currentSession.latest_control_vector_ts = state.latest_control_vector_ts
     changed = true

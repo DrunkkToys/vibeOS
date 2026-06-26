@@ -119,6 +119,12 @@ test("live session snapshot persists cv aliases and revives legacy live_control 
       pipeline_root: ["cheap", "medium", "brain"],
       directives: ["[ultrax root] cascade profile=deep; reason=complex query"],
     }
+    const normalizedControl = {
+      ...control,
+      cascade_root: ["cheap", "medium", "brain"],
+      route_path: ["cheap", "medium", "brain"],
+      selected_slot: "brain",
+    }
 
     state.recordLiveSessionSnapshot({
       sessionId: "opencode-test-cv-alias",
@@ -139,16 +145,16 @@ test("live session snapshot persists cv aliases and revives legacy live_control 
 
     const written = JSON.parse(readFileSync(join(vibeHome, "blackbox-state.json"), "utf8"))
     const session = written.sessions["opencode-test-cv-alias"]
-    assert.deepEqual(session.cv, control, "live snapshot should persist the control vector under cv")
-    assert.deepEqual(session.control_vector, control, "live snapshot should persist the control vector under control_vector")
-    assert.deepEqual(session.live_control, control, "live snapshot should keep the live_control alias")
+    assert.deepEqual(session.cv, normalizedControl, "live snapshot should persist the control vector under cv")
+    assert.deepEqual(session.control_vector, normalizedControl, "live snapshot should persist the control vector under control_vector")
+    assert.deepEqual(session.live_control, normalizedControl, "live snapshot should keep the live_control alias")
     assert.equal(session.resolution_state, "working", "normal turn with a positive outcome should not stay unresolved")
 
     const legacyOnly = {
       ...session,
       cv: undefined,
       control_vector: undefined,
-      live_control: control,
+      live_control: normalizedControl,
     }
     writeFileSync(join(vibeHome, "blackbox-state.json"), JSON.stringify({
       ...written,
@@ -160,9 +166,9 @@ test("live session snapshot persists cv aliases and revives legacy live_control 
 
     const reloaded = state.loadBlackboxState()
     const revived = reloaded.sessions["opencode-test-cv-alias"]
-    assert.deepEqual(revived.cv, control, "legacy sessions with only live_control should normalize back to cv")
-    assert.deepEqual(revived.control_vector, control, "legacy sessions should normalize to control_vector too")
-    assert.deepEqual(revived.live_control, control, "legacy live_control should be preserved")
+    assert.deepEqual(revived.cv, normalizedControl, "legacy sessions with only live_control should normalize back to cv")
+    assert.deepEqual(revived.control_vector, normalizedControl, "legacy sessions should normalize to control_vector too")
+    assert.deepEqual(revived.live_control, normalizedControl, "legacy live_control should be preserved")
     assert.equal(revived.resolution_state, "working", "legacy normalization should keep the live resolution")
   } finally {
     try { process.env.HOME = prevHome } catch {}
@@ -208,6 +214,57 @@ test("blackbox load mirrors top-level control vector into the current session re
     assert.deepEqual(session.live_control, loaded.cv, "session should keep the live_control alias")
     const persisted = JSON.parse(readFileSync(join(vibeHome, "blackbox-state.json"), "utf8"))
     assert.deepEqual(persisted.sessions["opencode-test-root-cv"].cv, loaded.cv, "mirrored session cv should persist to disk")
+  } finally {
+    try { process.env.HOME = prevHome } catch {}
+    try { process.env.VIBEOS_HOME = prevVibeHome } catch {}
+    try { rmSync(root, { recursive: true, force: true }) } catch {}
+  }
+})
+
+test("blackbox load normalizes stale VibeUltraX cascade fields from VIBEOS_HOME", async () => {
+  const root = makeSandbox("value-repair-ultrax")
+  const vibeHome = join(root, ".claude")
+  const prevHome = process.env.HOME
+  const prevVibeHome = process.env.VIBEOS_HOME
+  process.env.HOME = root
+  process.env.VIBEOS_HOME = vibeHome
+
+  try {
+    writeFileSync(join(vibeHome, "blackbox-state.json"), JSON.stringify({
+      enabled: true,
+      cv: {
+        optimization_mode: "vibeultrax",
+        tier_bias: "brain",
+        pipeline_root: ["cheap"],
+        cascade_depth: 1,
+      },
+      sessions: {
+        "opencode-test-ultrax": {
+          cv: {
+            optimization_mode: "vibeultrax",
+            tier_bias: "brain",
+            pipeline_root: ["cheap"],
+            cascade_depth: 1,
+          },
+        },
+      },
+    }, null, 2))
+
+    const state = await import("../src/lib/state.js?live-repair-ultrax=" + Date.now())
+    state.setCurrentSessionId("opencode-test-ultrax")
+
+    const loaded = state.loadBlackboxState()
+    const session = loaded.sessions["opencode-test-ultrax"]
+
+    assert.deepEqual(loaded.cv.cascade_root, ["cheap", "medium", "brain"])
+    assert.deepEqual(loaded.cv.pipeline_root, ["cheap", "medium", "brain"])
+    assert.deepEqual(loaded.cv.route_path, ["cheap"])
+    assert.equal(loaded.cv.tier_bias, "cheap")
+    assert.deepEqual(session.cv.cascade_root, ["cheap", "medium", "brain"])
+    assert.deepEqual(session.cv.route_path, ["cheap"])
+    const persisted = JSON.parse(readFileSync(join(vibeHome, "blackbox-state.json"), "utf8"))
+    assert.deepEqual(persisted.cv.cascade_root, ["cheap", "medium", "brain"])
+    assert.deepEqual(persisted.sessions["opencode-test-ultrax"].cv.cascade_root, ["cheap", "medium", "brain"])
   } finally {
     try { process.env.HOME = prevHome } catch {}
     try { process.env.VIBEOS_HOME = prevVibeHome } catch {}

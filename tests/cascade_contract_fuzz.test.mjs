@@ -177,17 +177,16 @@ test("cascade: vibeultrax profile matches cascade depth for direct vs deep", asy
 
   const direct = vu.vibeultraxControlVector({ user_text: "hello", sub_regime: "INIT", stress_multiplier: 0 })
   assert.equal(direct.cascade_depth, 1, "simple text gets depth 1")
-  assert.deepEqual(direct.pipeline_root, ["cheap"], "direct pipeline is cheap only")
-  assert.equal(direct.tier_bias, "cheap", "direct profile stays on the cheap acting tier")
+  assert.deepEqual(direct.pipeline_root, ["cheap", "medium", "brain"], "direct pipeline keeps the durable root")
+  assert.deepEqual(direct.route_path, ["cheap"], "direct route path is cheap only")
+  assert.equal(direct.tier_bias, "cheap", "direct profile keeps the cheap root tier")
 
   const deep = vu.vibeultraxControlVector({ user_text: "refactor auth module with 3 files OAuth race condition", sub_regime: "REFINING", stress_multiplier: 0.3 })
   assert.ok(deep.cascade_depth >= 2, "complex text gets depth >= 2")
-  assert.ok(deep.pipeline_root.length >= 2, "complex text has pipeline with >= 2 stages")
-  // The cascade ENTERS on the first pipeline tier and escalates from there — tier_bias
-  // is always the cascade entry tier, never the final tier. A full cheap→medium→brain
-  // cascade therefore starts on cheap; a medium→brain cascade starts on medium.
+  assert.deepEqual(deep.pipeline_root, ["cheap", "medium", "brain"], "complex text keeps the durable root")
   assert.equal(deep.route_path[0], "cheap", "non-direct profiles enter on the cheap tier")
   assert.equal(deep.selected_slot, deep.route_path[deep.route_path.length - 1], "selected_slot is the acting tier")
+  assert.equal(deep.tier_bias, "cheap", "tier_bias stays the root tier")
 })
 
 test("cascade: computeControlVector includes cascade_depth for vibeultrax mode", async () => {

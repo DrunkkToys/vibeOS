@@ -266,6 +266,15 @@ function normalizeRoutePath(value: unknown, fallbackSlot: unknown): string[] {
   return [...route, slot]
 }
 
+function isVibeUltraXMode(mode: unknown): boolean {
+  return String(mode || "").trim().toLowerCase() === "vibeultrax"
+}
+
+function rootSlotForControlVector(cv: unknown, durablePipeline: string[]): string | null {
+  if (isVibeUltraXMode(cv?.optimization_mode)) return durablePipeline[0] || "cheap"
+  return normalizeSlot(cv?.tier_bias) || normalizeSlot(cv?.selected_slot) || null
+}
+
 function normalizeBackendDecision(raw: unknown, fallbackMode: unknown = null): unknown {
   if (!raw || typeof raw !== "object") return raw
   const sourceDecision = raw.decision && typeof raw.decision === "object" ? raw.decision : raw
@@ -273,7 +282,7 @@ function normalizeBackendDecision(raw: unknown, fallbackMode: unknown = null): u
   const requestedSlot = normalizeSlot(sourceDecision.requested_slot || sourceDecision.requestedSlot || slotFromMode(requestedMode)) || null
   const optimizationMode = String(sourceDecision.optimization_mode || sourceDecision.mode || fallbackMode || raw.optimization_mode || raw.mode || requestedMode || "auto").trim().toLowerCase()
   const selectedSlot = normalizeSlot(sourceDecision.selected_slot || sourceDecision.selectedSlot || raw.selected_slot || raw.selectedSlot || sourceDecision.tier_bias || sourceDecision.active_slot || raw.tier_bias || raw.active_slot || slotFromMode(optimizationMode) || requestedSlot) || null
-  const tierBias = selectedSlot
+  const tierBias = isVibeUltraXMode(optimizationMode || requestedMode) ? "cheap" : selectedSlot
   const routePath = normalizeRoutePath(sourceDecision.route_path || sourceDecision.routePath || raw.route_path || raw.routePath || sourceDecision.pipeline_root || raw.pipeline_root || raw.active_pipeline, selectedSlot)
   const cascadeRoot = modeCascadeRoot(optimizationMode || requestedMode, sourceDecision.cascade_root || sourceDecision.cascadeRoot || raw.cascade_root || raw.cascadeRoot || sourceDecision.active_pipeline || raw.active_pipeline || sourceDecision.pipeline_root || raw.pipeline_root, selectedSlot)
   const pipelineRoot = cascadeRoot.length ? cascadeRoot : routePath
@@ -584,7 +593,7 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
       }
     }
 
-    const slot = cv.selected_slot || cv.tier_bias
+    const slot = rootSlotForControlVector(cv, durablePipeline) || cv.selected_slot || cv.tier_bias
     const slotLocked = currentSel.slot_locked === true
     const canApplySlot = slot && slot !== "auto" && (authoritative || (!slotLocked && !_modelLocked))
     let appliedSlot = currentSel.active_slot || null
