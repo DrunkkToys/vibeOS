@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url"
 import { homedir } from "node:os"
 import { resolveOpenCodeHomes } from "./lib/opencode-homes.mjs"
 import { installVibeSkill } from "./lib/vibe-skill.mjs"
+import { installVibeTierAgentsInConfig } from "./lib/vibe-tier-agents.mjs"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, "..")
@@ -122,6 +123,7 @@ try {
       filtered.push(pluginRef)
       config.$schema ||= "https://opencode.ai/config.json"
       config.plugin = filtered
+      installVibeTierAgentsInConfig(config)
       writeFileSync(ocConfigPath, JSON.stringify(config, null, 2) + "\n")
       process.stderr.write(`[vibeOS deploy] Registered vibeOS in ${home}/opencode.json\n`)
     }

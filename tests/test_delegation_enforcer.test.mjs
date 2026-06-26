@@ -1684,7 +1684,16 @@ test("tier override: openrouter sonnet brain slot classified as high", async () 
   const { DelegationEnforcer, modelCostPerTurn } = await loadPlugin()
   const dir = join(sandbox, ".opencode-or-sonnet-brain")
   mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "openrouter/anthropic/claude-sonnet-4.6" }))
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({
+    model: "openrouter/anthropic/claude-sonnet-4.6",
+    default_agent: "vibe-brain",
+    agent: {
+      "vibe-brain": {
+        mode: "primary",
+        model: "openrouter/anthropic/claude-sonnet-4.6",
+      },
+    },
+  }))
   const hooks = await DelegationEnforcer({ client: {}, directory: dir })
 
   const stateFile = join(sandbox, ".claude/delegation-state.json")
@@ -2223,14 +2232,17 @@ test("applySlot: surfaces OpenCode config write failures", async () => {
 
 test("applySlot: preserves opencode.json all fields (only model changes)", async () => {
   let origHome = process.env.HOME
+  let origOpenCodeHome = process.env.VIBEOS_OPENCODE_HOME
   process.env.HOME = sandbox
   const { DelegationEnforcer, applySlot } = await loadPlugin()
   const dir = join(sandbox, ".opencode-applyslot2")
   mkdirSync(dir, { recursive: true })
+  rmSync(join(sandbox, "opencode.json"), { force: true })
 
   // Write opencode.json with full realistic content
   const ocConfigDir = join(sandbox, ".config/opencode")
   mkdirSync(ocConfigDir, { recursive: true })
+  process.env.VIBEOS_OPENCODE_HOME = ocConfigDir
   const ocConfigPath = join(ocConfigDir, "opencode.json")
   writeFileSync(ocConfigPath, JSON.stringify({
     "$schema": "https://opencode.ai/config.json",
@@ -2275,6 +2287,9 @@ test("applySlot: preserves opencode.json all fields (only model changes)", async
 
   const after = JSON.parse(readFileSync(ocConfigPath, "utf-8"))
   assert.equal(after.model, "deepseek/deepseek-v4-pro", "model updated to brain slot")
+  assert.equal(after.default_agent, "vibe-brain", "default agent updated to brain slot")
+  assert.equal(after.agent?.["vibe-brain"]?.mode, "primary", "brain agent is primary")
+  assert.equal(after.agent?.["vibe-brain"]?.model, "deepseek/deepseek-v4-pro", "brain agent model follows trinity")
   assert.equal(after["$schema"], "https://opencode.ai/config.json", "schema preserved")
   assert.deepEqual(after.provider, {
     opencode: {},
@@ -2290,6 +2305,8 @@ test("applySlot: preserves opencode.json all fields (only model changes)", async
   assert.deepEqual(after.mcp.context7.command, ["node", "context7-mcp"], "mcp preserved")
   assert.deepEqual(after.plugin, ["./plugins/vibeOS"], "plugin list preserved")
   process.env.HOME = origHome
+  if (origOpenCodeHome === undefined) delete process.env.VIBEOS_OPENCODE_HOME
+  else process.env.VIBEOS_OPENCODE_HOME = origOpenCodeHome
 })
 
 test("trinity mode switch persists to opencode.json for next session", async () => {
@@ -2664,7 +2681,16 @@ test("tool.execute.after: API outage injects cheap-lane reminder without hard bl
   const { DelegationEnforcer } = await loadPlugin()
   const dir = join(sandbox, ".opencode-protect-edit")
   mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "anthropic/claude-opus-4-7" }))
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({
+    model: "anthropic/claude-opus-4-7",
+    default_agent: "vibe-brain",
+    agent: {
+      "vibe-brain": {
+        mode: "primary",
+        model: "anthropic/claude-opus-4-7",
+      },
+    },
+  }))
   const hooks = await DelegationEnforcer({ client: {}, directory: dir })
   const input = { tool: "edit", args: { filePath: "notes/plan.txt", oldString: "x", newString: "y" } }
   const output = { error: "oldString not found", args: { filePath: "notes/plan.txt", oldString: "x", newString: "y" } }

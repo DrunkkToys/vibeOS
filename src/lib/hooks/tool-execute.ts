@@ -59,6 +59,7 @@ import { setActiveJobFromTaskPrompt, observeToolPattern, compressText, recordSav
 import { buildSessionBridge, recordSessionBridge } from "../session-bridge.js"
 import { scoreTaskQuality } from "./footer.js"
 import { SAVE_EST, WARN_ON_DIRECT, SOFT_QUOTA, FREE, MONITOR } from "../constants.js"
+import { runtimeTierCoherence } from "../runtime-config.js"
 
 const _warnCounts: Record<string, number> = {}
 export function _resetWarnCountsForTest(): void {
@@ -844,6 +845,12 @@ export const onToolExecuteBefore = async (input, output) => {
     const argSources = _toolArgSources(input, output)
     if (process.env.VIBEOS_DEBUG_DELEGATION === "1") console.error(`[vibeOS] [enforce-debug] tool=${t} tier=${currentTier} enforce=${sel?.delegation_enforce} argsType=${typeof args} argsExists=${argSources.length > 0}`)
     if (!compatibilityMode && sel.delegation_enforce && currentTier === "high") {
+      const coherence = runtimeTierCoherence(projectDirectory, sel?.active_slot || "", currentModel || "", TRINITY_BRAIN || "")
+      if (!coherence.coherent) {
+        pendingUiNote = `[vibeOS repair] Direct ${t} allowed because runtime tier binding is not coherent: slot=${coherence.slot || "unknown"} default_agent=${coherence.agent || "unset"} expected_agent=${coherence.expectedAgent || "unset"} model=${coherence.currentModel || "unset"} expected_model=${coherence.expectedModel || "unset"}. Run \`vibe diagnose cascade\` or \`vibe repair-state apply\`.`
+        if (shouldLogWarn(`${t}|runtime-drift|${coherence.slot || "unknown"}`)) console.error(`[vibeOS] [runtime-drift] allowing direct ${t}; ${pendingUiNote}`)
+        return
+      }
       const originalPath = argSources
         .flatMap((src) => [src?.filePath, src?.file_path, src?.path])
         .find((v) => typeof v === "string" && v.trim()) || ""

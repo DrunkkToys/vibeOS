@@ -62,6 +62,7 @@ import { COMPRESS_THRESHOLD, KEEP_HOT, COMPRESS_MARKER, PROTOCOL_MARKER, PROTOCO
 import { TEMPLATES, DEFAULT_TEMPLATE, resolveTemplate, shouldInjectTemplate, resolveSessionTemplateDefinition } from "../templates.js"
 import { getRealityCheckView } from "../../vibeOS-lib/flow-enforcer.js"
 import { installVibeSkill } from "../../../scripts/lib/vibe-skill.mjs"
+import { installVibeTierAgents } from "../runtime-config.js"
 
 const BYTES_PER_TOKEN = 4
 
@@ -182,33 +183,18 @@ function modelForSlot(slot: string | null): string | null {
   return null
 }
 
-function ensureVibeUltraXSubagents(): boolean {
+function getRuntimeProjectDirectory(): string {
+  return String((onSystemTransform as unknown)?._directory || process.cwd?.() || "")
+}
+
+function ensureVibeUltraXSubagents(activeSlot: string | null = null, projectDir = ""): boolean {
   try { loadTrinitySlotsFromTiersFile() } catch {}
-  return updateOpenCodeConfig((oc) => {
-    if (!oc || typeof oc !== "object") return false
-    const pairs = [
-      ["cheap", "vibe-cheap", TRINITY_CHEAP],
-      ["medium", "vibe-medium", TRINITY_MEDIUM],
-      ["brain", "vibe-brain", TRINITY_BRAIN],
-    ]
-    oc.agent = oc.agent && typeof oc.agent === "object" ? oc.agent : {}
-    let changed = false
-    for (const [slot, name, model] of pairs) {
-      if (!model) continue
-      const existing = oc.agent[name] && typeof oc.agent[name] === "object" ? oc.agent[name] : {}
-      const next = {
-        ...existing,
-        description: existing.description || `VibeUltraX ${slot} tier worker`,
-        mode: "subagent",
-        model,
-      }
-      if (JSON.stringify(existing) !== JSON.stringify(next)) {
-        oc.agent[name] = next
-        changed = true
-      }
-    }
-    return changed
-  })
+  const result = installVibeTierAgents(projectDir || getRuntimeProjectDirectory(), {
+    cheap: { oc: TRINITY_CHEAP },
+    medium: { oc: TRINITY_MEDIUM },
+    brain: { oc: TRINITY_BRAIN },
+  }, activeSlot)
+  return result.changed.length > 0
 }
 
 let latestUserIntent = null
@@ -548,6 +534,7 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
     const persistOptimizationMode = options.persistOptimizationMode !== false
     backendDecision = options.backendDecision && typeof options.backendDecision === "object" ? options.backendDecision : null
     authoritative = options.authoritative === true || (backendDecision && backendDecision.source !== "manual")
+    const syncDirectory = String(options.directory || options.projectDir || getRuntimeProjectDirectory())
     const currentSel = loadSelection()
     const userSetMode = loadSessionOptMode(sid + "_opt")
     const userOptMode = userSetMode || loadOptimizationMode()
@@ -574,7 +561,7 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
 
     writeIf("enabled", true)
     if (isUltraX) {
-      ensureVibeUltraXSubagents()
+      ensureVibeUltraXSubagents(workerSlot || currentSel.active_slot || null, syncDirectory)
       writeIf("selected_slot", workerSlot || null)
       writeIf("worker_model", workerModel || null)
       writeIf("selected_subagent", selectedSubagent || null)
@@ -692,7 +679,7 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
           // switch is queued and flushed in onMessagesTransform so the NEXT turn runs the
           // new model. Switching mid-turn aborts the in-flight turn — the platform only
           // lets us change the model at turn end.
-          const applied = applySlot(slot, directory, { deferLiveSwitch: true })
+          const applied = applySlot(slot, syncDirectory, { deferLiveSwitch: true })
           if (!applied?.ok) {
             console.error(`[vibeOS] failed to persist slot ${slot}: ${applied?.reason || "unknown"}`)
           }
@@ -706,7 +693,7 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
         // async client.config.get().then() that may never resolve headless (which
         // is why drift previously went uncorrected).
         try {
-          const r = reconcileSlotModel(slot, directory, _ocModel, { deferLiveSwitch: true })
+          const r = reconcileSlotModel(slot, syncDirectory, _ocModel, { deferLiveSwitch: true })
           if (r.reconciled) {
             console.error(`[vibeOS] reconciled drifted model: live=${r.from || "∅"} → ${r.to}`)
           }
@@ -715,7 +702,7 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
         }
       }
     }
-    if (cv.agent_mode) {
+    if (cv.agent_mode && !isUltraX) {
       updateOpenCodeConfig((oc) => {
         if (oc.default_agent === cv.agent_mode) return false
         if (cv.agent_mode === "plan" && oc.default_agent && oc.default_agent !== "plan") {
@@ -723,7 +710,7 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
         }
         oc.default_agent = cv.agent_mode
       })
-    } else {
+    } else if (!isUltraX) {
       updateOpenCodeConfig((oc) => {
         const restoreAgent = oc.default_agent === "plan" ? resolveRestorableOpenCodeAgent(currentSel) : null
         if (restoreAgent && oc.default_agent === "plan") {

@@ -10,6 +10,7 @@ import { getBackendVersion, invalidateApiToken, isApiConnected } from "./api-cli
 import { getRealityCheckView } from "../vibeOS-lib/flow-enforcer.js"
 import { getVibeOSHome } from "./state.js"
 import { resolveDashboardBaseUrlFromState } from "./dashboard-base-url.js"
+import { collectOpenCodeConfigPaths, installVibeTierAgents, tierAgentForSlot } from "./runtime-config.js"
 
 // ── Named constants (magic number extraction) ────────────────────────
 const MIN_TOOL_BREAKDOWN_THRESHOLD = 0.005
@@ -185,14 +186,10 @@ function cascadeDiagnosticResults(deps) {
   const results = []
   const tiers = readJsonFile(deps, deps.TIERS_FILE) || {}
   const sel = tiers.selection || {}
-  const ocConfigCandidates = [
-    join(deps.directory || "", "opencode.json"),
-    join(process.env.HOME || "", ".config", "opencode", "opencode.json"),
-    join(deps.OPENCODE_HOME || "", "opencode.json"),
-  ]
-  const ocConfigPath = ocConfigCandidates.find((p) => p && deps.existsSync(p)) || ocConfigCandidates[1]
-  const oc = readJsonFile(deps, ocConfigPath) || {}
-  const agents = oc.agent && typeof oc.agent === "object" ? oc.agent : {}
+  const ocConfigPaths = collectOpenCodeConfigPaths(deps.directory || "")
+  const existingOcConfigs = ocConfigPaths.filter((p) => p && deps.existsSync(p))
+  const primaryOcConfigPath = existingOcConfigs[0] || ocConfigPaths[0]
+  const primaryOc = readJsonFile(deps, primaryOcConfigPath) || {}
   const blackboxPath = join(deps.VIBEOS_HOME || getVibeOSHome(), "blackbox-state.json")
   const blackbox = readJsonFile(deps, blackboxPath) || {}
   const cv = blackbox.cv || {}
@@ -208,11 +205,19 @@ function cascadeDiagnosticResults(deps) {
   results.push({ ok: !sel.vector_changed_pipeline || sameJson(sel.vector_changed_pipeline, VIBEULTRAX_ROOT), okLabel: !sel.vector_changed_pipeline || sameJson(sel.vector_changed_pipeline, VIBEULTRAX_ROOT) ? "OK" : "WARN", label: "cascade vector_changed_pipeline", detail: JSON.stringify(sel.vector_changed_pipeline || null), fix: "run `trinity repair-state apply`" })
   results.push({ ok: sameJson(cv.cascade_root, VIBEULTRAX_ROOT), okLabel: sameJson(cv.cascade_root, VIBEULTRAX_ROOT) ? "OK" : "WARN", label: "cascade root cv", detail: JSON.stringify({ cascade_root: cv.cascade_root || null, route_path: cv.route_path || null, selected_slot: cv.selected_slot || null }), fix: "run `trinity repair-state apply`" })
   results.push({ ok: !!sessionCv || !sid, okLabel: !!sessionCv || !sid ? "OK" : "WARN", label: "cascade session cv", detail: sessionCv ? JSON.stringify({ cascade_root: sessionCv.cascade_root || null, route_path: sessionCv.route_path || null, selected_slot: sessionCv.selected_slot || null }) : (sid ? `missing for ${sid}` : "no session id") })
+  results.push({ ok: existingOcConfigs.length > 0, okLabel: existingOcConfigs.length > 0 ? "OK" : "WARN", label: "cascade opencode configs", detail: existingOcConfigs.length ? existingOcConfigs.join(" | ") : "none found", fix: "run `vibe setup --project` or `npm run deploy`" })
+  const activeAgent = tierAgentForSlot(sel.active_slot || "")
+  const defaultAgentOk = !!activeAgent && primaryOc.default_agent === activeAgent
+  results.push({ ok: defaultAgentOk, okLabel: defaultAgentOk ? "OK" : "WARN", label: "cascade default_agent", detail: JSON.stringify({ active_slot: sel.active_slot || null, default_agent: primaryOc.default_agent || null, expected: activeAgent || null }), fix: "run `trinity repair-state apply` or start a new VibeUltraX turn" })
   for (const [slot, name] of [["cheap", "vibe-cheap"], ["medium", "vibe-medium"], ["brain", "vibe-brain"]]) {
     const model = tiers.trinity?.[slot]?.oc || ""
-    const agent = agents[name] || null
-    const ok = !!agent && agent.mode === "subagent" && agent.model === model
-    results.push({ ok, okLabel: ok ? "OK" : "WARN", label: `cascade ${name}`, detail: agent ? JSON.stringify({ mode: agent.mode || null, model: agent.model || null, expected: model || null }) : `missing in ${ocConfigPath}`, fix: "run a VibeUltraX turn or `trinity repair-state apply` after rebuild" })
+    for (const ocConfigPath of existingOcConfigs.length ? existingOcConfigs : [primaryOcConfigPath]) {
+      const oc = readJsonFile(deps, ocConfigPath) || {}
+      const agents = oc.agent && typeof oc.agent === "object" ? oc.agent : {}
+      const agent = agents[name] || null
+      const ok = !!agent && agent.mode === "primary" && agent.model === model
+      results.push({ ok, okLabel: ok ? "OK" : "WARN", label: `cascade ${name}`, detail: agent ? `${ocConfigPath} ${JSON.stringify({ mode: agent.mode || null, model: agent.model || null, expected: model || null })}` : `missing in ${ocConfigPath}`, fix: "run a VibeUltraX turn or `trinity repair-state apply` after rebuild" })
+    }
   }
   results.push({ ok: activeJobs.count === 0, okLabel: activeJobs.count === 0 ? "OK" : "WARN", label: "cascade stale active jobs", detail: `${activeJobs.count} in ${activeJobs.path}` })
   results.push({ ok: proc.stale.length === 0, okLabel: proc.stale.length === 0 ? "OK" : "WARN", label: "cascade opencode processes", detail: `${proc.count} found${proc.stale.length ? `; stale: ${proc.stale.join(" | ")}` : ""}` })
@@ -1490,6 +1495,7 @@ export function createTrinityTool(deps) {
           return "\u274c Use \`trinity repair-state preview\` or \`trinity repair-state apply\`."
         }
         const cascadeChanges = previewVibeUltraXRepair(deps)
+        const tiers = readJsonFile(deps, deps.TIERS_FILE) || {}
         const dstFp = deps.currentProjectFingerprint || deps.projectFingerprint(deps.directory)
         const name = deps.currentProjectName || (deps.directory ? deps.directory.split("/").pop() : "unknown")
         const idx = deps.reportsIndex()
@@ -1519,7 +1525,9 @@ export function createTrinityTool(deps) {
             return lines.join("\n")
           }
           const repaired = applyVibeUltraXRepair(deps)
+          const agentRepair = installVibeTierAgents(deps.directory || "", tiers.trinity || {}, tiers.selection?.active_slot || null)
           lines.push("", `Applied ${repaired.changes.length} VibeUltraX state repairs.`)
+          lines.push(`Applied tier-agent repairs to ${agentRepair.changed.length} OpenCode config(s).`)
           if (repaired.backups.length > 0) {
             lines.push("Backups:")
             for (const b of repaired.backups) lines.push(`  - ${b}`)
@@ -1557,6 +1565,7 @@ export function createTrinityTool(deps) {
         const b2 = deps.backupFile(deps.REPORTS_INDEX, "repair-state")
         if (b2) backups.push(b2)
         const cascadeRepair = applyVibeUltraXRepair(deps)
+        const agentRepair = installVibeTierAgents(deps.directory || "", tiers.trinity || {}, tiers.selection?.active_slot || null)
         for (const b of cascadeRepair.backups) backups.push(b)
 
         pstate.project_hashes ??= {}
@@ -1588,6 +1597,7 @@ export function createTrinityTool(deps) {
 
         lines.push("")
         lines.push(`\u2705 Applied. Relabeled ${relabeled} report index entries.`)
+        lines.push(`Applied tier-agent repairs to ${agentRepair.changed.length} OpenCode config(s).`)
         if (backups.length > 0) {
           lines.push("Backups:")
           for (const b of backups) lines.push(`  - ${b}`)

@@ -26,6 +26,7 @@ import { homedir, tmpdir } from "node:os"
 import { createHash } from "node:crypto"
 import { currentModel, currentTier, setCurrentModel, setCurrentTier, safeJsonParse, HIGH_TIER_RE, MID_TIER_RE, loadTierRegexes, _modelLocked, withFileLock, _handleStateCorruption, getOpenCodeHome, getVibeOSHome } from "./state.js"
 import { loadSelection as loadSel, sanitizeSelection } from "./selection-manager.js"
+import { installVibeTierAgents } from "./runtime-config.js"
 
 export { HIGH_TIER_RE, MID_TIER_RE, loadTierRegexes }
 
@@ -1209,6 +1210,7 @@ export function applySlot(slot: string, projectDir = "", opts: { deferLiveSwitch
       // deferred path — see below. active_slot (the orchestrator decision) is always
       // persisted immediately; the live model file only moves at the turn boundary.
       if (!opts.deferLiveSwitch) writeLiveOpenCodeModel(projectDir, ocModel)
+      try { installVibeTierAgents(projectDir, j.trinity || {}, slot) } catch {}
       return { ok: true, ocModel }
     })
   } catch (err) {
