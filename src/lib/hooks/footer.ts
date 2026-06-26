@@ -9,7 +9,7 @@ import { saveReport } from "../reporting.js"
 import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, getCurrentSessionId, _modelLocked, _blackboxEnabled, _latestBlackboxState, loadBlackboxState, recordLiveSessionSnapshot, VIBEOS_HOME, getVibeOSHome, readLifetimeSavings, getLatestCacheEvent } from "../state.js"
 import { loadSelection, loadSessionSlot } from "../selection-manager.js"
 import { remoteCall, isApiConnected, isApiLatencyDegraded } from "../api-client.js"
-import { buildFooterLine, buildEnforcementTags, resolveBrand, buildFooterAlert } from "./shared-footer.js"
+import { buildFooterLine, buildEnforcementTags, resolveBrand, buildFooterAlert, buildResilientFooterLine } from "./shared-footer.js"
 import { computeReward } from "../../vibeOS-lib/reward-engine.js"
 import { detectLaziness } from "../../vibeOS-lib/laziness-detector.js"
 import { detectLies } from "../../vibeOS-lib/lie-detector.js"
@@ -176,8 +176,32 @@ function recordFooterProbe(input: {
   } catch {}
 }
 
+// Surface a swallowed footer exception into the per-session jsonl. For ~10 PRs the
+// rich footer threw every turn and the catch only wrote to stderr (which the OpenCode
+// desktop app discards), so the failure was invisible and the degraded fallback won
+// silently. This records WHICH stage threw so the exact cause is visible on the next
+// live turn instead of being guessed at.
+function recordFooterError(input: { stage: string; message: string; stack?: string; hook?: string }) {
+  try {
+    const sid = getSessionId()
+    if (!sid) return
+    const dir = join(getVibeOSHome(), "session-events")
+    mkdirSync(dir, { recursive: true })
+    appendFileSync(join(dir, `${sid}.jsonl`), JSON.stringify({
+      ts: new Date().toISOString(),
+      kind: "footer-error",
+      hook: input.hook || "",
+      stage: input.stage || "unknown",
+      message: input.message || "",
+      stack: (input.stack || "").split("\n").slice(0, 4).join(" | "),
+    }) + "\n")
+  } catch {}
+}
+
 async function _appendFooter(input, output, directory, lastModelError?: string, hookName = "experimental.text.complete") {
   _refreshModel(directory)
+  // Tracks how far the rich path got, so a throw names the failing stage in the jsonl.
+  let _footerStage = "init"
   let _footerStress = 0
   if (latestUserIntent) _footerStress = scoreStress(latestUserIntent)
   // Always prefer the live OpenCode model setting when available.
@@ -228,6 +252,7 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
     }
     const text = _extractText(output)
     if (!text) return
+    _footerStage = "savings"
     const { ltTasks, ltCache, ltCost, _count, sesTasks, sesEdit, sesCredit, sesC7, sesQuota, sesTaskDelegations, _sesDuration, _sesRatePerHour, sesTrend, _sesToolBreakdown, sesModelTurns, _quality_avg } = readLifetimeSavings()
     const { _stableStreak, _problemStreak } = readRewardSignals()
 
@@ -275,6 +300,7 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
       const c = String(classify(ultraLiveModel) || "").toLowerCase()
       return c === "high" || c === "brain" ? "brain" : c === "mid" || c === "medium" ? "medium" : "cheap"
     })()
+    _footerStage = "execution"
     const execution = resolveCurrentExecution({
       directory,
       activeSlot: displayMode === "vibeultrax" ? ultraResolvedTier : slot || "brain",
@@ -331,8 +357,12 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
       } catch (e) { footerDebug("[vibeOS] auto-report:", e.message) }
     }
 
+    // NOTE: do NOT re-import selection-manager with a cache-busting query string here.
+    // esbuild cannot resolve a runtime template-literal import inside the bundle
+    // (`dist/vibeOS.js`); it throws SYNCHRONOUSLY (so `.catch` never fires), which killed
+    // the rich footer on every live turn and let the degraded fallback win. loadSelection()
+    // already reads fresh from disk each call, so the plain import is sufficient.
     const selNowFooter = loadSelection()
-    const _freshSelection = await import(`../selection-manager.js?footer=${Date.now()}`).then((m) => m.loadSelection()).catch(() => null)
     const normalizedIntent = classifyTurnSimple(latestUserIntent || "")
     const currentSubRegime = _latestBlackboxState?.sub_regime || normalizedIntent
     const bbMode = resolveEnforcementMode()
@@ -345,6 +375,7 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
       quietIntent: isGreetingLike(latestUserIntent || ""),
     })
     const prevAssistantTexts = typeof _prevAssistantTexts !== "undefined" && Array.isArray(_prevAssistantTexts) ? _prevAssistantTexts : []
+    _footerStage = "claims"
     const claimStatus = evaluateClaimVerification({ text, vibeHome: VIBEOS_HOME })
     const lieResult = detectLies({
       assistantText: text,
@@ -375,6 +406,7 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
     const activeSlot = displayMode === "vibeultrax" ? ultraResolvedTier : ranTier
     const flashIcon = isApiConnected() ? " \u26A1" : ""
     const rawMode = displayMode
+    _footerStage = "control-vector"
     const cv = computeControlVector({ sub_regime: currentSubRegime, latest_stress_multiplier: _footerStress, user_text: latestUserIntent || "" }, undefined, rawMode)
     const vibeBrand = resolveBrand(displayMode, activeSlot)
     let _rewardTag = ""
@@ -496,6 +528,7 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
     const _expectedForAlert = displayMode === "vibeultrax" && liveModelSetting && _cascadeTierModels.has(liveModelSetting)
       ? liveModelSetting
       : _expectedModel
+    _footerStage = "alert"
     let _alertTag = ""
     try {
       const pendingSwitch = getPendingLiveSwitch()
@@ -508,6 +541,7 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
       })
     } catch {}
 
+    _footerStage = "build"
     const vibeLine = buildFooterLine({
       activeSlot,
       providerLabel: execution.provider_label,
@@ -618,8 +652,87 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
       for (let i = 0; i < 100; i++) textCompletePainted.delete(it.next().value)
     }
   } catch (err) {
-    footerDebug(`[vibeOS] footer failed: ${err.message}`)
+    footerDebug(`[vibeOS] footer failed at stage=${_footerStage}: ${err?.message}`)
+    // Make the failure VISIBLE (it has been swallowed to stderr for ~10 PRs): record
+    // which stage threw so the exact cause shows up in the next live session jsonl.
+    recordFooterError({ stage: _footerStage, message: String(err?.message || err), stack: String(err?.stack || ""), hook: hookName })
+    // SINGLE SOURCE OF TRUTH: a thrown rich path must STILL render the one README footer
+    // line (em-dash + brand + alert), never collapse to the degraded 3-segment fallback.
+    try {
+      _paintResilientFooter(output, directory, lastModelError)
+    } catch (paintErr) {
+      footerDebug(`[vibeOS] resilient footer paint failed: ${paintErr?.message}`)
+    }
   }
+}
+
+// Last-resort painter used by _appendFooter's catch: resolves the slot/provider/model
+// from current globals and renders the SAME README footer line (buildResilientFooterLine
+// → buildFooterLine) with the alert, then writes it onto the output payload. The only
+// thing that can ever render is the one README footer — never the bare provider|model line.
+function _paintResilientFooter(output, directory, lastModelError?: string) {
+  function _payload(obj) {
+    if (obj?.message && typeof obj.message === "object") return obj.message
+    return obj
+  }
+  const payload = _payload(output)
+  const currentText =
+    typeof payload?.text === "string" ? payload.text
+      : typeof payload?.result === "string" ? payload.result
+        : typeof payload?.content === "string" ? payload.content
+          : Array.isArray(payload?.content) ? payload.content.filter(p => p?.type === "text").map(p => p.text).filter(Boolean).join("\n")
+            : Array.isArray(payload?.parts) ? payload.parts.filter(p => p?.type === "text").map(p => p.text).filter(Boolean).join("\n")
+              : ""
+  if (!currentText) return
+  const footerSuffix = /\n\n— [^\n]+—\s*$/
+  if (footerSuffix.test(currentText)) return // a footer is already present, leave it
+  const sel = loadSelection()
+  const slot = sel.active_slot || "cheap"
+  const liveModel = currentModel || readConfig(directory) || process?.env?.OPENCODE_MODEL || ""
+  const execution = resolveCurrentExecution({
+    directory,
+    activeSlot: slot,
+    currentModel,
+    liveModel,
+    tiersData: { trinity: {
+      brain: { oc: TRINITY_BRAIN || currentModel },
+      medium: { oc: TRINITY_MEDIUM || currentModel },
+      cheap: { oc: TRINITY_CHEAP || currentModel },
+    } },
+  })
+  let alertTag = ""
+  try {
+    const pendingSwitch = getPendingLiveSwitch()
+    const expected = slot === "brain" ? TRINITY_BRAIN : slot === "medium" ? TRINITY_MEDIUM : TRINITY_CHEAP
+    alertTag = buildFooterAlert({
+      apiDegraded: isApiLatencyDegraded(),
+      liveModel: liveModel || undefined,
+      expectedModel: expected || undefined,
+      lastModelError,
+      pendingLiveModel: pendingSwitch?.model || undefined,
+    })
+  } catch {}
+  const vibeLine = buildResilientFooterLine({
+    activeSlot: slot,
+    providerLabel: execution.provider_label,
+    modelName: modelDisplayName(execution.model || liveModel),
+    optMode: String(loadSelection().optimization_mode || ""),
+    flashIcon: isApiConnected() ? " ⚡" : "",
+    alertTag: alertTag || undefined,
+  })
+  const footerText = `${currentText}\n\n${vibeLine}`
+  if (typeof payload?.text === "string") payload.text = footerText
+  else if (typeof payload?.result === "string") payload.result = footerText
+  else if (typeof payload?.content === "string") payload.content = footerText
+  else if (Array.isArray(payload?.content)) {
+    const tp = payload.content.filter(p => p?.type === "text")
+    if (tp.length > 0) tp[tp.length - 1].text = footerText
+    else payload.content.push({ type: "text", text: footerText })
+  } else if (Array.isArray(payload?.parts)) {
+    const tp = payload.parts.filter(p => p?.type === "text")
+    if (tp.length > 0) tp[tp.length - 1].text = footerText
+    else payload.parts.push({ type: "text", text: footerText })
+  } else payload.text = footerText
 }
 
 function didTextCompletePainted(messageID: string): boolean {

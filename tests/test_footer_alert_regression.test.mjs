@@ -264,6 +264,7 @@ test("footer: bundled runtime records probe entries and split provider/model lab
 
     const eventsDir = join(sandbox, ".claude", "session-events")
     const probes = []
+    const footerErrors = []
     if (existsSync(eventsDir)) {
         for (const file of readdirSync(eventsDir)) {
             if (!file.endsWith(".jsonl")) continue
@@ -273,15 +274,36 @@ test("footer: bundled runtime records probe entries and split provider/model lab
                 try {
                     const event = JSON.parse(line)
                     if (event?.kind === "footer-probe") probes.push(event)
+                    else if (event?.kind === "footer-error") footerErrors.push(event)
                 } catch {}
             }
         }
     }
 
-    const textProbe = probes.find((event) => event.hook === "experimental.text.complete" && event.builder === "fallback")
-    const updatedProbe = probes.find((event) => event.hook === "message.updated" && event.builder === "fallback")
-    assert.ok(textProbe, "expected a fallback footer probe for experimental.text.complete")
-    assert.ok(updatedProbe, "expected a fallback footer probe for message.updated")
+    // Root-cause lock: the rich footer must not throw in the bundle. A footer-error here
+    // (e.g. stage="execution" "Module not found in bundle: ../selection-manager.js?footer=")
+    // is exactly the regression that made the live footer collapse to 3 segments.
+    assert.equal(
+        footerErrors.length,
+        0,
+        "rich footer threw in the bundle: " + JSON.stringify(footerErrors.map((e) => ({ stage: e.stage, message: e.message }))),
+    )
+
+    // SINGLE SOURCE OF TRUTH: the bundle must now record the RICH footer builder, not the
+    // degraded "fallback". The rich path used to throw in the bundle (an unbundlable
+    // dynamic import of selection-manager) and silently lose to the 3-segment fallback;
+    // that is the "always cut" footer. There must be NO fallback probe anymore.
+    // The session-events jsonl is shared across every sub-test in this file, so select
+    // THIS test's own probes by message_id rather than by hook (which would match a
+    // leaked probe from an earlier sub-test).
+    const textProbe = probes.find((event) => event.message_id === "probe-text-1" && event.builder === "rich")
+    const updatedProbe = probes.find((event) => event.message_id === "probe-updated-1" && event.builder === "rich")
+    assert.ok(textProbe, "expected a RICH footer probe for experimental.text.complete (rich path must not throw in the bundle)")
+    assert.ok(updatedProbe, "expected a RICH footer probe for message.updated")
+    assert.ok(
+        !probes.some((e) => (e.message_id === "probe-text-1" || e.message_id === "probe-updated-1") && e.builder === "fallback"),
+        "the degraded fallback builder must never run for the bundled footer anymore",
+    )
     assert.equal(textProbe.provider_label, "Opencode")
     assert.equal(textProbe.model_name, "Big Pickle")
     assert.equal(updatedProbe.provider_label, "Opencode")
