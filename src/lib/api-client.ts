@@ -684,7 +684,7 @@ function persistBootstrapToken(token: string): void {
 export function setApiToken(newToken) {
   try {
     VIBEOS_API_DISABLED = false
-    VIBEOS_API_TOKEN = normalizeDirectApiToken(newToken)
+    VIBEOS_API_TOKEN = normalizeApiToken(newToken, "")
     VIBEOS_API_BOOTSTRAP_TOKEN = readBootstrapTokenFromDisk() || VIBEOS_API_BOOTSTRAP_TOKEN
     syncApiEnabledState(!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN)
     _apiPersistHome = _vibeHome
