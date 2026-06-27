@@ -17,7 +17,7 @@ import {
   _loadMLState, _saveMLState,
   SCRATCHPAD_ROOT,
   TRINITY_OPENCODE_CONFIG, _TRINITY_OPENCODE_CONFIGC, TIERS_FILE, _VIBEOS_HOME, _OPENCODE_HOME,
-  loadGlobalLearning, _updateGlobalLearning, _DFLT_GL,
+  loadGlobalLearning,
   _getLearnedExploratoryWords,
   setCurrentProjectFingerprint, setCurrentProjectName,
   stableJson, TOOL_NAME_NORMALIZE,
@@ -1165,6 +1165,10 @@ function orchestratorDirective(cv: unknown, sel: unknown): string {
   const delegateNote = requiresDelegation
     ? ` [vibeultrax cascade] This turn requires delegation: call the task tool with subagent_type="${selectedSubagent}" for the substantive work before final synthesis.`
     : ""
+  const orchestrationPlan = cv?.orchestration_plan
+  const orchestrationNote = orchestrationPlan?.recommended_next_action
+    ? ` [orchestration plan] ${orchestrationPlan.recommended_next_action}${orchestrationPlan.reason ? ` ${orchestrationPlan.reason}` : ""}`
+    : ""
   return `[AI ORCHESTRATOR AGENT] You are an AI orchestrator agent. ` +
     `Delegate heavy work to Task subagents (runs on ${targetModel}). ` +
     `Your role is to verify, fill gaps, and synthesize cleanly. ` +
@@ -1177,6 +1181,7 @@ function orchestratorDirective(cv: unknown, sel: unknown): string {
     `Parallel task calls are encouraged for independent file changes. ` +
     ` Always display the vibeOS cost footer.` +
     delegateNote +
+    orchestrationNote +
     (tierBias !== "auto" ? ` [tier routing] This turn is biased toward ${tierBias} tier.` : "")
 }
 
@@ -1371,6 +1376,9 @@ export const onSystemTransform = async (_input, output) => {
           optimization_mode: optimizationDecision?.optimization_mode || existingSession?.optimization_mode || null,
           active_slot: optimizationDecision?.selected_slot || optimizationDecision?.tier_bias || _controlVector?.selected_slot || _controlVector?.tier_bias || existingSession?.active_slot || null,
           turn_counter: turnCounter,
+          orchestration_plan: _controlVector?.orchestration_plan || existingSession?.orchestration_plan || null,
+          orchestration_kind: _controlVector?.orchestration_kind || existingSession?.orchestration_kind || null,
+          orchestration_recommended_next_action: _controlVector?.orchestration_recommended_next_action || existingSession?.orchestration_recommended_next_action || null,
         }
         saveBlackboxStateToCtx(blackboxState)
       }
@@ -1382,6 +1390,9 @@ export const onSystemTransform = async (_input, output) => {
           optimization_mode: optimizationDecision?.optimization_mode || existingSession?.optimization_mode || null,
           active_slot: optimizationDecision?.selected_slot || optimizationDecision?.tier_bias || _controlVector?.selected_slot || _controlVector?.tier_bias || existingSession?.active_slot || null,
           latest_control_vector_ts: Date.now(),
+          orchestration_plan: _controlVector?.orchestration_plan || existingSession?.orchestration_plan || null,
+          orchestration_kind: _controlVector?.orchestration_kind || existingSession?.orchestration_kind || null,
+          orchestration_recommended_next_action: _controlVector?.orchestration_recommended_next_action || existingSession?.orchestration_recommended_next_action || null,
         }
         saveBlackboxStateToCtx(blackboxState)
       }

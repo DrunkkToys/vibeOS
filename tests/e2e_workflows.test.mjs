@@ -309,19 +309,12 @@ serialTest('e2e: INIT live footer keeps the regime icon visible', async () => {
   process.env.HOME = home
   process.env.VIBEOS_HOME = join(home, ".claude")
 
-  const state = await import('../src/lib/state.ts?reset=' + Date.now())
-  const footerMod = await import('../src/lib/hooks/footer.ts?reset=' + Date.now())
-  const turn = await import('../src/lib/turn-classify.ts?reset=' + Date.now())
-  const chat = await import('../src/lib/hooks/chat-transform.ts?reset=' + Date.now())
-  const selection = await import('../src/lib/selection-manager.ts?reset=' + Date.now())
-  state.setCurrentModel(null)
-  state.setCurrentTier(null)
-  state.setCurrentSessionId("")
-  footerMod.resetFooterRuntimeState()
-  turn.resetTurnClassifyRuntimeState()
-  chat.resetChatTransformState()
-  selection._resetSelectionCacheForTest()
   const mod = await import('../src/index.js?init1=' + Date.now())
+  mod.resetRuntimeStateForTest()
+  mod.setCurrentModel(null)
+  mod.setCurrentTier(null)
+  mod.setCurrentSessionId("")
+  mod._resetSelectionCacheForTest()
   const hooks = await mod.DelegationEnforcer({ directory: projectDir })
 
   const userText = 'hi'

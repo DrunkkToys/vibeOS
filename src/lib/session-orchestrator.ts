@@ -156,6 +156,12 @@ function diffStrings(left: string[], right: string[]): { added: string[]; remove
   }
 }
 
+function extractSessionPlan(blackbox: AnyObject | null | undefined, sessionId: string): AnyObject | null {
+  const session = blackbox?.sessions?.[sessionId] || null
+  if (!session || typeof session !== "object") return null
+  return session?.orchestration_plan || session?.cv?.orchestration_plan || session?.plan || null
+}
+
 export function normalizeSessionOrchestration(raw: AnyObject | null | undefined, sessionId = "unknown"): SessionOrchestration {
   const current = raw && typeof raw === "object" ? raw : {}
   const snapshot = normalizeSessionSnapshot(current, sessionId)
@@ -391,6 +397,8 @@ function recommendationForSession(session: AnyObject, currentSession = false, bl
   if (session.archived) return "Archived: review notes or reopen"
   if (session.status === "paused") return "Resume the session"
   if (session.locked) return "Unlock to continue editing"
+  const plan = extractSessionPlan(blackbox, String(session.session_id || ""))
+  if (plan?.recommended_next_action) return String(plan.recommended_next_action)
   if (!session.template?.body) return "Apply a TDD template"
   if ((session.notes_count || 0) === 0) return "Add a note"
   const subRegime = blackbox?.sub_regime || blackbox?.regime
@@ -408,7 +416,7 @@ function sortSessions(items: any[]): any[] {
   })
 }
 
-export function buildSessionListItem(sessionId: string, session: AnyObject, metrics: AnyObject = {}, isCurrent = false): AnyObject {
+export function buildSessionListItem(sessionId: string, session: AnyObject, metrics: AnyObject = {}, isCurrent = false, blackbox: AnyObject = {}): AnyObject {
   const orchestration = normalizeSessionOrchestration(session?.orchestration || {}, sessionId)
   const sessionMetrics = pickSessionMetrics(session, metrics)
   return {
@@ -425,7 +433,7 @@ export function buildSessionListItem(sessionId: string, session: AnyObject, metr
     notes_count: sessionMetrics.notes_count,
     template_label: sessionMetrics.template_label,
     template_signature: sessionMetrics.template_signature,
-    recommendation: recommendationForSession({ ...sessionMetrics, ...orchestration }, isCurrent),
+    recommendation: recommendationForSession({ ...sessionMetrics, ...orchestration, session_id: sessionId }, isCurrent, blackbox),
   }
 }
 
@@ -433,6 +441,7 @@ export function buildSessionDetail(sessionId: string, session: AnyObject, metric
   const orchestration = normalizeSessionOrchestration(session?.orchestration || {}, sessionId)
   const sessionMetrics = pickSessionMetrics(session, metrics)
   const template = resolveSessionTemplateOrDefault(orchestration.template)
+  const plan = extractSessionPlan(blackbox, sessionId)
   const blackboxState = {
     enabled: Boolean(blackbox?.enabled),
     sub_regime: blackbox?.sub_regime || blackbox?.regime || "INIT",
@@ -455,10 +464,12 @@ export function buildSessionDetail(sessionId: string, session: AnyObject, metric
     notes_count: orchestration.notes.length,
     tags: orchestration.tags,
     template,
+    orchestration_plan: plan,
     blackbox: blackboxState,
     recommendation: recommendationForSession({
       ...sessionMetrics,
       ...orchestration,
+      session_id: sessionId,
       template,
       notes_count: orchestration.notes.length,
     }, sessionId === selection?.current_session_id, blackbox),
@@ -495,6 +506,7 @@ export function buildDashboardHomeModel({
     session as AnyObject,
     sessionId === currentSessionId ? metrics : {},
     sessionId === currentSessionId,
+    blackbox,
   ))
   const currentSession = buildSessionDetail(
     currentSessionId,

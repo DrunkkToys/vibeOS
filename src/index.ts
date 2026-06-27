@@ -651,6 +651,8 @@ async function ensureMcpServerRunning() {
               backendVersion: getBackendVersion(),
               optimizationMode: loadSelection()?.optimization_mode || null,
               tiers: (() => { try { return safeJsonParse(readFileSync(getTiersFile(), "utf-8"))?.trinity } catch { return null } })(),
+              blackbox: loadBlackboxState(),
+              sessionId: _OC_SID,
               apiFallbackMode: isApiFallback(),
               apiFallbackSince: getApiFallbackSince(),
               modelLocked: _modelLocked,

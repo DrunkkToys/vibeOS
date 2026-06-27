@@ -346,7 +346,7 @@ export function resolveCascadeRouteDecision(input: unknown = {}): unknown {
     reason = backendRoute?.reason || "backend route"
   }
 
-  if (input?.mlEnabled !== false) {
+  if (input?.mlEnabled !== false && cascadeSource !== "exploratory" && cascadeSource !== "tier") {
     try {
       const mlDifficulty = computeDifficulty(prompt)
       localConfidence = mlDifficulty.confidence
@@ -956,7 +956,15 @@ export const onToolExecuteBefore = async (input, output) => {
       const savings = Number.isFinite(remoteSavings) ? Math.min(remoteSavings, _estEdit) : _estEdit
       const MIN_MEANINGFUL_SAVINGS = 0.001
       const isFallback = apiResult?._fallback === true
-      const isBlocked = apiResult?.blocked !== false && (isFallback || savings >= MIN_MEANINGFUL_SAVINGS)
+      if (isFallback) {
+        const msg = `[vibeOS] ${resolveTierIcon("cheap")} cheap lane · API currently degraded. Use a task subagent for write operations.`
+        pendingUiNote = msg
+        if (output && typeof output === "object") {
+          output.error = (output.error || "") + "\n\n" + msg
+        }
+        return
+      }
+      const isBlocked = apiResult?.blocked !== false && savings >= MIN_MEANINGFUL_SAVINGS
 
       if (isBlocked) {
         const _total = recordSaving(t, "delegation enforced", savings, {

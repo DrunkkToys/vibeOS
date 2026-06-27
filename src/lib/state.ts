@@ -2667,7 +2667,6 @@ export {
   SOFT_QUOTA_LIMIT,
 
   // Session identity
-  _OC_SID,
   getOcSessionId,
   getSessionTimer,
 

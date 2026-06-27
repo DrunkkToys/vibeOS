@@ -3404,8 +3404,8 @@ test("integration: anti-fabrication co-exists with context7 and thinking directi
 })
 
 test("integration: empirical answer guardrail survives multi-turn correction and compaction", async () => {
-  const { DelegationEnforcer } = await loadPlugin()
-  const { _OC_SID: sid } = await import("../src/lib/state.js?t=" + Date.now())
+  const mod = await loadPlugin()
+  const { DelegationEnforcer, _OC_SID: sid } = mod
   const dir = join(sandbox, ".oc-empirical-cascade")
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-flash" }))
