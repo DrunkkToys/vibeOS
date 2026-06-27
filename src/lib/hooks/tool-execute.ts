@@ -43,7 +43,7 @@ function isGreetingLike(text: string): boolean {
 import {
   scoreStress, extractFirstWordFromArgs, shouldLogWarn, classifyTurnSimple, autoSelectMode, resolveOptimizationSlot,
   isUserAskingForTests, _isLikelyOffTopic, resolveEnforcementMode,
-  _getBlackboxTracker, loadBlackboxState, _saveBlackboxState,
+  _getBlackboxTracker, loadBlackboxState, saveBlackboxState as _saveBlackboxState,
   _loadGlobalLearning, _updateGlobalLearning, getLearnedExploratoryWords,
   noteTaskRoutingLearning,
   incrementTurnCounter,
@@ -727,6 +727,18 @@ export const onToolExecuteBefore = async (input, output) => {
         routePath: Array.isArray(selection.route_path) ? selection.route_path : routeDecision?.routePath || [],
       }
       }
+    }
+    try {
+      const _bbState = loadBlackboxState()
+      const _sid = _OC_SID
+      if (_bbState && _bbState.sessions && _sid && _bbState.sessions[_sid]) {
+        if (routeDecision?.cascadeRoot) _bbState.sessions[_sid].pipeline_root = routeDecision.cascadeRoot
+        if (routeDecision?.cascadeDepth) _bbState.sessions[_sid].cascade_depth = routeDecision.cascadeDepth
+        if (routeDecision?.routePath) _bbState.sessions[_sid].route_path = routeDecision.routePath
+        _saveBlackboxState(_bbState)
+      }
+    } catch (_bbErr) {
+      console.error("[vibeOS] CV persistence error:", _bbErr?.message || _bbErr)
     }
     const _target = routeDecision?.selectedModel || null
 
