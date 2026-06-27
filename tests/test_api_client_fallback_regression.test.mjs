@@ -37,7 +37,6 @@ function fresh() {
   env.HOME = home
   env.VIBEOS_HOME = home
   env.VIBEOS_API_URL = "http://127.0.0.1:1"
-  delete env.VIBEOS_API_DISABLED
   env.VIBEOS_API_TOKEN = "vos_" + "a".repeat(64)
   env.VIBEOS_MCP_PORT = "0"
   delete globalThis.__vibeOSRuntimeState
@@ -52,8 +51,6 @@ async function restore(ctx) {
   else env.VIBEOS_HOME = ctx.snap.VIBEOS_HOME
   if (ctx.snap.VIBEOS_API_URL === undefined) delete env.VIBEOS_API_URL
   else env.VIBEOS_API_URL = ctx.snap.VIBEOS_API_URL
-  if (ctx.snap.VIBEOS_API_DISABLED === undefined) delete env.VIBEOS_API_DISABLED
-  else env.VIBEOS_API_DISABLED = ctx.snap.VIBEOS_API_DISABLED
   if (ctx.snap.VIBEOS_API_TOKEN === undefined) delete env.VIBEOS_API_TOKEN
   else env.VIBEOS_API_TOKEN = ctx.snap.VIBEOS_API_TOKEN
   if (ctx.snap.VIBEOS_MCP_PORT === undefined) delete env.VIBEOS_MCP_PORT
@@ -72,8 +69,6 @@ async function restoreFull(ctx) {
   else env.VIBEOS_HOME = ctx.snap.VIBEOS_HOME
   if (ctx.snap.VIBEOS_API_URL === undefined) delete env.VIBEOS_API_URL
   else env.VIBEOS_API_URL = ctx.snap.VIBEOS_API_URL
-  if (ctx.snap.VIBEOS_API_DISABLED === undefined) delete env.VIBEOS_API_DISABLED
-  else env.VIBEOS_API_DISABLED = ctx.snap.VIBEOS_API_DISABLED
   if (ctx.snap.VIBEOS_API_TOKEN === undefined) delete env.VIBEOS_API_TOKEN
   else env.VIBEOS_API_TOKEN = ctx.snap.VIBEOS_API_TOKEN
   if (ctx.snap.VIBEOS_API_BOOTSTRAP_TOKEN === undefined) delete env.VIBEOS_API_BOOTSTRAP_TOKEN
@@ -166,7 +161,6 @@ test("primary VIBEOS_HOME token beats stale cwd disable file", async () => {
 
   env.HOME = home
   env.VIBEOS_HOME = home
-  delete env.VIBEOS_API_DISABLED
   delete env.VIBEOS_API_TOKEN
   delete env.VIBEOS_API_BOOTSTRAP_TOKEN
   env.VIBEOS_MCP_PORT = "0"
@@ -175,7 +169,6 @@ test("primary VIBEOS_HOME token beats stale cwd disable file", async () => {
 
   try {
     const api = await import(`../src/lib/api-client.js?r=home-${stamp}`)
-    assert.equal(api.VIBEOS_API_DISABLED, false, "VIBEOS_HOME token should override stale cwd disable file")
     assert.equal(api.VIBEOS_API_TOKEN, `vos_${"d".repeat(64)}`)
     assert.ok(api.getApiClient(), "client should be created from the VIBEOS_HOME token")
   } finally {
@@ -185,8 +178,6 @@ test("primary VIBEOS_HOME token beats stale cwd disable file", async () => {
     else env.VIBEOS_HOME = snap.VIBEOS_HOME
     if (snap.VIBEOS_API_URL === undefined) delete env.VIBEOS_API_URL
     else env.VIBEOS_API_URL = snap.VIBEOS_API_URL
-    if (snap.VIBEOS_API_DISABLED === undefined) delete env.VIBEOS_API_DISABLED
-    else env.VIBEOS_API_DISABLED = snap.VIBEOS_API_DISABLED
     if (snap.VIBEOS_API_TOKEN === undefined) delete env.VIBEOS_API_TOKEN
     else env.VIBEOS_API_TOKEN = snap.VIBEOS_API_TOKEN
     if (snap.VIBEOS_API_BOOTSTRAP_TOKEN === undefined) delete env.VIBEOS_API_BOOTSTRAP_TOKEN
@@ -216,7 +207,6 @@ test("embedded bootstrap token stays in bootstrap lane and exchanges before remo
   env.HOME = home
   env.VIBEOS_HOME = home
   env.VIBEOS_API_URL = "https://api.example.invalid"
-  delete env.VIBEOS_API_DISABLED
   delete env.VIBEOS_API_TOKEN
   delete env.VIBEOS_API_BOOTSTRAP_TOKEN
   env.VIBEOS_MCP_PORT = "0"
@@ -283,7 +273,6 @@ test("health responses cache the backend version for status surfaces", async () 
   env.HOME = home
   env.VIBEOS_HOME = home
   env.VIBEOS_API_URL = "https://api.example.invalid"
-  delete env.VIBEOS_API_DISABLED
   env.VIBEOS_API_TOKEN = "vos_" + "f".repeat(64)
   env.VIBEOS_MCP_PORT = "0"
   delete globalThis.__vibeOSRuntimeState
@@ -337,7 +326,6 @@ test("slow remote calls trigger a latency guard so the next call stays local", a
   env.HOME = home
   env.VIBEOS_HOME = home
   env.VIBEOS_API_URL = "https://api.example.invalid"
-  delete env.VIBEOS_API_DISABLED
   env.VIBEOS_API_TOKEN = "vos_" + "f".repeat(64)
   env.VIBEOS_MCP_PORT = "0"
   env.VIBEOS_REMOTE_LATENCY_DEGRADE_MS = "10"

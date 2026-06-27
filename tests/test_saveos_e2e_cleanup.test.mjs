@@ -853,7 +853,7 @@ test("saveOS FOOTER: flash icon stays hidden when backend is disabled", async ()
       ...process.env,
       HOME: sandbox,
       VIBEOS_API_TOKEN: "",
-      VIBEOS_API_ENABLED: "false",
+      VIBEOS_API_BOOTSTRAP_TOKEN: "",
     },
     encoding: "utf-8",
   })
@@ -869,7 +869,6 @@ test("saveOS API: VIBEOS_HOME token wins over repo token", async () => {
   const apiUrl = pathToFileURL(join(process.cwd(), "dist-ts/lib/api-client.js")).href
   const script = `
     process.env.VIBEOS_API_TOKEN = ""
-    process.env.VIBEOS_API_ENABLED = "true"
     const mod = await import(${JSON.stringify(apiUrl)})
     process.stdout.write(String(mod.VIBEOS_API_TOKEN || ""))
   `
@@ -879,7 +878,6 @@ test("saveOS API: VIBEOS_HOME token wins over repo token", async () => {
       HOME: tokenSandbox,
       VIBEOS_HOME: join(tokenSandbox, ".claude"),
       VIBEOS_API_TOKEN: "",
-      VIBEOS_API_ENABLED: "true",
     },
     encoding: "utf-8",
   })
@@ -915,7 +913,6 @@ test("saveOS API: embedded alpha token is valid on install", async () => {
       HOME: sandbox,
       VIBEOS_API_BOOTSTRAP_TOKEN: "",
       VIBEOS_API_TOKEN: "",
-      VIBEOS_API_ENABLED: "true",
     },
     encoding: "utf-8",
   })
@@ -953,7 +950,6 @@ test("saveOS API: invalidate switch disables the embedded fallback token", async
       HOME: tokenSandbox,
       VIBEOS_HOME: join(tokenSandbox, ".claude"),
       VIBEOS_API_TOKEN: "",
-      VIBEOS_API_ENABLED: "true",
     },
     encoding: "utf-8",
   })

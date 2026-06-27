@@ -364,6 +364,12 @@ export function resolveCascadeRouteDecision(input: unknown = {}): unknown {
     }
   }
 
+  // Stress upgrade: must run BEFORE cascade decision so it doesn't skip
+  // when cascadeSelectedSlot gets changed by cascade escalation
+  if (cascadeSelectedSlot === "cheap" && trinityMedium && Number(input?.stressScore || 0) > 0.5) {
+    applyLocalCandidate("medium", trinityMedium, "stress", `stress ${Number(input?.stressScore || 0).toFixed(2)}`, true)
+  }
+
   if (cascadeRoot.length > 1 && trinityCheap && trinityMedium) {
     try {
       cascadeDecision = cascadeDecide(prompt, 0.001, 0.005, 0.02, 0.85)
@@ -381,15 +387,11 @@ export function resolveCascadeRouteDecision(input: unknown = {}): unknown {
     }
   }
 
-  if (cascadeSelectedSlot === "cheap" && trinityMedium && Number(input?.stressScore || 0) > 0.5) {
-    applyLocalCandidate("medium", trinityMedium, "stress", `stress ${Number(input?.stressScore || 0).toFixed(2)}`, true)
-  }
-
   if (!backendRoute?.target) {
-    selectedModel = explicitTarget || cascadeSelectedModel
-    selectedSlot = explicitTarget ? _slotFromModel(explicitTarget, trinityCheap, trinityMedium, trinityBrain) : cascadeSelectedSlot
-    source = explicitTarget ? cascadeSource : cascadeSource
-    reason = explicitTarget ? cascadeReason : cascadeReason
+    selectedModel = cascadeSelectedModel
+    selectedSlot = cascadeSelectedSlot
+    source = cascadeSource
+    reason = cascadeReason
   }
 
   const routePath = _routePathForSlot(cascadeRoot, selectedSlot)
