@@ -388,8 +388,8 @@ export function resolveCascadeRouteDecision(input: unknown = {}): unknown {
   }
 
   if (!backendRoute?.target) {
-    selectedModel = cascadeSelectedModel
-    selectedSlot = cascadeSelectedSlot
+    selectedModel = (cascadeSource === "stress" || cascadeSource === "cascade") ? cascadeSelectedModel : (explicitTarget || cascadeSelectedModel)
+    selectedSlot = (cascadeSource === "stress" || cascadeSource === "cascade") ? cascadeSelectedSlot : (explicitTarget ? _slotFromModel(explicitTarget, trinityCheap, trinityMedium, trinityBrain) : cascadeSelectedSlot)
     source = cascadeSource
     reason = cascadeReason
   }
