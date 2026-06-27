@@ -497,10 +497,11 @@ test("8b — smart cache dedup and eviction", async () => {
   assert.ok(evicted >= 1, "evicted stale: " + evicted)
 })
 
-// ── GROUP 9: Build chain — mode-router in sync list ──
-test("9 — mode-router listed in sync-ts-build.mjs libModules", () => {
-  const syncScript = readFileSync(join(root, "scripts/sync-ts-build.mjs"), "utf-8")
-  assert.ok(syncScript.includes('"mode-router"'), "mode-router in libModules")
+// ── GROUP 9: Build chain — no sync-back bridge ──
+test("9 — package scripts do not depend on sync-ts-build.mjs", () => {
+  const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf-8"))
+  assert.equal(pkg.scripts.test.includes("sync-ts-build"), false)
+  assert.equal(pkg.scripts["test:ci"].includes("sync-ts-build"), false)
 })
 
 // ── GROUP 10A: Model name resolution regression (v0.22.25) ──

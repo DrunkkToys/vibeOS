@@ -3,7 +3,7 @@
 
 import test from "node:test"
 import assert from "node:assert/strict"
-import { readFileSync, existsSync, statSync } from "node:fs"
+import { readFileSync, existsSync, statSync, readdirSync } from "node:fs"
 import { join, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -32,4 +32,29 @@ test("contract: bundle file exists at dist/vibeOS.js and is >100KB", () => {
   assert.ok(existsSync(bundlePath), "dist/vibeOS.js must exist")
   const st = statSync(bundlePath)
   assert.ok(st.size > 100000, "bundle must be >100KB")
+})
+
+test("contract: src does not contain committed JS mirrors", () => {
+  const allowed = new Set([
+    "src/lib/hooks/tests/chat-transform-cv-gate.test.js",
+    "src/lib/tests/mode-router.test.js",
+    "src/tests/fallback-regex.test.js",
+  ])
+
+  const found = []
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name)
+      if (entry.isDirectory()) {
+        walk(full)
+      } else if (entry.isFile() && entry.name.endsWith(".js") && full.includes(`${join(ROOT, "src")}`)) {
+        const rel = full.slice(ROOT.length + 1)
+        const tsTwin = full.replace(/\.js$/, ".ts")
+        if (!allowed.has(rel) && existsSync(tsTwin)) found.push(rel)
+      }
+    }
+  }
+
+  walk(join(ROOT, "src"))
+  assert.deepEqual(found, [], "unexpected committed JS files under src: " + found.join(", "))
 })

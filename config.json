@@ -1,3 +1,4 @@
 {
-  "model": "deepseek/deepseek-v4-flash"
+  "model": "opencode/big-pickle",
+  "$schema": "https://opencode.ai/config.json"
 }

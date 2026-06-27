@@ -30,7 +30,7 @@ function spawnN(n, scriptStr) {
   const results = workers.map((r, idx) => {
     try {
       const out = execFileSync(process.execPath, ["--experimental-vm-modules", r], {
-        env: { ...process.env, HOME: s.fakeHome, USERPROFILE: s.fakeHome, VIBEOS_TEST_MODE: "1", NODE_OPTIONS: "" },
+        env: { ...process.env, HOME: s.fakeHome, USERPROFILE: s.fakeHome, VIBEOS_TEST_MODE: "1", NODE_OPTIONS: process.env.NODE_OPTIONS || "" },
         cwd: ROOT, timeout: 30000, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"],
       });
       return { idx, stdout: out.trim(), code: 0, stderr: "" };

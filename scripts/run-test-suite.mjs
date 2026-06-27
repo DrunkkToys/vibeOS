@@ -49,6 +49,7 @@ const result = spawnSync(process.execPath, args, {
   stdio: "inherit",
   env: {
     ...process.env,
+    NODE_OPTIONS: [`--loader ${loader}`, process.env.NODE_OPTIONS || ""].filter(Boolean).join(" "),
     VIBEOS_MCP_PORT: process.env.VIBEOS_MCP_PORT || "0",
     VIBEOS_TEST_CONTEXT: "1",
     VIBEOS_FAST_CI: mode === "ci" ? "1" : "0",
