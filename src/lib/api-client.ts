@@ -171,13 +171,10 @@ function editEnvLine(content: string, key: string, value: string | null): string
   return next.join("\n") + "\n"
 }
 
-function persistPrimaryApiEnvState(next: { token?: string | null; disabled?: boolean | null }): void {
+function persistPrimaryApiEnvState(next: { token?: string | null }): void {
   const primaryPath = _primaryApiEnvPath() + "/.env.production"
   try {
     let envContent = existsSync(primaryPath) ? readFileSync(primaryPath, "utf8") : ""
-    if (next.disabled !== undefined) {
-      envContent = editEnvLine(envContent, "VIBEOS_API_DISABLED", next.disabled ? "true" : null)
-    }
     if (next.token !== undefined) {
       envContent = editEnvLine(envContent, "VIBEOS_API_TOKEN", next.token ? String(next.token).trim() : null)
     }
@@ -347,6 +344,10 @@ export class VibeOSApiClient {
       learned_exploratory: learnedExploratory,
       stress_score: stressScore,
     })
+  }
+
+  async cascadeResolve(input: Record<string, unknown>): Promise<unknown> {
+    return this.request("/api/v1/cascade/resolve", input || {})
   }
 
   async getModes(): Promise<unknown> {
@@ -593,18 +594,8 @@ function readPrimaryEnvFile(): string | null {
   }
 }
 
-function readApiDisabledFromDisk(): boolean {
-  const primary = readPrimaryEnvFile()
-  if (primary !== null) {
-    const m = primary.match(/^VIBEOS_API_DISABLED=(.+)$/m)
-    if (m) return isTruthyFlag(m[1])
-    return false
-  }
-  return false
-}
-
+/** Read API token from primary env file. */
 function readTokenFromDisk(): string {
-  if (readApiDisabledFromDisk()) return ""
   const primary = readPrimaryEnvFile()
   if (primary !== null) {
     const m = primary.match(/^VIBEOS_API_TOKEN=(.+)$/m)
@@ -615,7 +606,6 @@ function readTokenFromDisk(): string {
 }
 
 function readBootstrapTokenFromDisk(): string {
-  if (readApiDisabledFromDisk()) return ""
   const primary = readPrimaryEnvFile()
   if (primary !== null) {
     const m = primary.match(/^VIBEOS_API_BOOTSTRAP_TOKEN=(.+)$/m)
@@ -635,8 +625,7 @@ function readBootstrapTokenFromDisk(): string {
   return ""
 }
 
-export let VIBEOS_API_DISABLED = readApiDisabledFromDisk()
-  || isTruthyFlag(process.env.VIBEOS_API_DISABLED)
+export let VIBEOS_API_DISABLED = isTruthyFlag(process.env.VIBEOS_API_DISABLED)
   || isExplicitlyDisabledFlag(process.env.VIBEOS_API_ENABLED)
 export let VIBEOS_API_TOKEN = VIBEOS_API_DISABLED ? "" : (readTokenFromDisk() || normalizeDirectApiToken(process.env.VIBEOS_API_TOKEN) || "")
 export let VIBEOS_API_BOOTSTRAP_TOKEN = VIBEOS_API_DISABLED ? "" : (readBootstrapTokenFromDisk() || process.env.VIBEOS_API_BOOTSTRAP_TOKEN || EMBEDDED_API_TOKEN)
@@ -693,7 +682,7 @@ export function setApiToken(newToken) {
     _apiFallbackMode = false
     _apiFallbackSince = null
     _apiLatencyDegradedUntil = 0
-    persistPrimaryApiEnvState({ token: VIBEOS_API_TOKEN, disabled: false })
+    persistPrimaryApiEnvState({ token: VIBEOS_API_TOKEN })
     if (_anomalyDetector) _anomalyDetector.reset()
     markApiConnected()
     console.error("[vibeOS] API token updated via setApiToken")
@@ -715,7 +704,7 @@ export function invalidateApiToken() {
     _apiLatencyDegradedUntil = 0
     if (_anomalyDetector) _anomalyDetector.reset()
     persistBootstrapToken("")
-    persistPrimaryApiEnvState({ token: "", disabled: true })
+    persistPrimaryApiEnvState({ token: "" })
     resetApiConnection()
     console.error("[vibeOS] API token invalidated and remote API disabled")
   } catch (e) {
@@ -731,7 +720,6 @@ export function setApiBootstrapToken(newToken) {
     _apiPersistHome = _vibeHome
     markApiConnected()
     _apiLatencyDegradedUntil = 0
-    persistPrimaryApiEnvState({ disabled: false })
     persistBootstrapToken(VIBEOS_API_BOOTSTRAP_TOKEN)
     console.error("[vibeOS] Alpha bootstrap token updated")
   } catch (e) {
@@ -860,8 +848,7 @@ export async function ensureBootstrapExchange(): Promise<boolean> {
 }
 
 function syncApiTokenFromDisk(): void {
-  const diskDisabled = readApiDisabledFromDisk()
-    || isTruthyFlag(process.env.VIBEOS_API_DISABLED)
+  const diskDisabled = isTruthyFlag(process.env.VIBEOS_API_DISABLED)
   const diskToken = readTokenFromDisk() || ""
   const diskBootstrapToken = readBootstrapTokenFromDisk() || ""
   const envToken = normalizeDirectApiToken(process.env.VIBEOS_API_TOKEN)
@@ -901,7 +888,7 @@ function syncApiTokenFromDisk(): void {
     markApiConnected()
     console.error("[vibeOS] Alpha bootstrap token synced from disk (disk is newer)")
   } else if (!diskToken && VIBEOS_API_TOKEN) {
-    persistPrimaryApiEnvState({ token: VIBEOS_API_TOKEN, disabled: false })
+    persistPrimaryApiEnvState({ token: VIBEOS_API_TOKEN })
     console.error("[vibeOS] API token persisted to disk from memory (disk was empty)")
     syncApiEnabledState(!!VIBEOS_API_TOKEN)
     markApiConnected()

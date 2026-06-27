@@ -13,26 +13,27 @@ import { getFlowWarns, ensureProjectDocs, syncFlowTodosToNative } from "./vibeOS
 import { computeSessionMetrics } from "./vibeOS-lib/session-metrics.js"
 import { createMcpServer, writeDashboardBaseConfig } from "./lib/vibeos-mcp-server.js"
 import { isApiConnected, isApiFallback, getBackendVersion, getApiFallbackSince, setApiToken, setApiBootstrapToken, ensureBootstrapExchange, VIBEOS_API_URL } from "./lib/api-client.js"
-import { applySlot, reconcileSlotModel, modelCostPerTurn, detectContext7, formatUsd, classify, resolveEffectiveTier, _refreshModel, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, readConfig, getTrinitySlotOrder, loadTrinitySlotsFromTiersFile, isModelFree, resolveCurrentExecution, modelDisplayName, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP } from "./lib/pricing.js"
-import { scoreStress, detectTechStack, loadBlackboxState, saveBlackboxState, getBlackboxTracker, getBlackboxResolution, saveOptimizationMode, resetBlackboxTracker, getLatestBlackboxLoopMsg, getLatestBlackboxPivotMsg } from "./lib/turn-classify.js"
-import { safeJsonParse, readFullState, loadSelection, writeSelection, readLifetimeSavings, _OC_SID, _modelLocked, _blackboxEnabled, setBlackboxEnabled, _lockedSlot, _lockedModel, setModelLocked, setLockedSlot, setLockedModel, currentTier, currentModel, currentProjectFingerprint, currentProjectName, setCurrentTier, setCurrentModel, setCurrentProjectFingerprint, setCurrentProjectName, setCurrentSessionId, getCurrentSessionId, briefedProjects, _latestBlackboxState, getActiveJobForProject, projectFingerprint, loadProjectState, saveProjectState, ensureProjectBucket, mergeProjectBucket, setVibeOSHomeContext, SAVINGS_LEDGER_FILE, USER_HOME, CREDIT_CACHE_F, pruneScratchpadOnce, registerSessionCleanupHandlers, runStartupMaintenanceOnce, promotedProjectPatterns, projectPatternRows, clearProjectPatterns, loadTodos, getTodos, upsertTodo, markTodoDone, tool, loadSessionOrchestration, mutateSessionOrchestration } from "./lib/state.js"
+import { applySlot, reconcileSlotModel, modelCostPerTurn, detectContext7, formatUsd, classify, resolveEffectiveTier, _refreshModel, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, readConfig, getTrinitySlotOrder, loadTrinitySlotsFromTiersFile, isModelFree, resolveCurrentExecution, modelDisplayName, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, resetPendingLiveSwitch } from "./lib/pricing.js"
+import { scoreStress, detectTechStack, loadBlackboxState, saveBlackboxState, getBlackboxTracker, getBlackboxResolution, getLatestBlackboxState, saveOptimizationMode, resetBlackboxTracker, getLatestBlackboxLoopMsg, getLatestBlackboxPivotMsg } from "./lib/turn-classify.js"
+import { safeJsonParse, readFullState, loadSelection, writeSelection, readLifetimeSavings, _OC_SID, _modelLocked, _blackboxEnabled, setBlackboxEnabled, _lockedSlot, _lockedModel, setModelLocked, setLockedSlot, setLockedModel, currentTier, currentModel, currentProjectFingerprint, currentProjectName, setCurrentTier, setCurrentModel, setCurrentProjectFingerprint, setCurrentProjectName, setCurrentSessionId, getCurrentSessionId, briefedProjects, getActiveJobForProject, projectFingerprint, loadProjectState, saveProjectState, ensureProjectBucket, mergeProjectBucket, setVibeOSHomeContext, resetSessionId, SAVINGS_LEDGER_FILE, USER_HOME, CREDIT_CACHE_F, pruneScratchpadOnce, registerSessionCleanupHandlers, runStartupMaintenanceOnce, promotedProjectPatterns, projectPatternRows, clearProjectPatterns, loadTodos, getTodos, upsertTodo, markTodoDone, tool, loadSessionOrchestration, mutateSessionOrchestration } from "./lib/state.js"
 import { researchAudit } from "./lib/research-audit.js"
 import { buildStatusPayload, buildSavingsPayload, buildSessionCheckout, diagnoseStructuredFromText, projectStructuredFromText } from "./lib/runtime-surface.js"
 import { TEMPLATE_LIBRARY } from "./lib/templates.js"
 import { saveReport, listReports, readReport } from "./lib/reporting.js"
-import { writeSessionSlot, writeSessionOptMode } from "./lib/selection-manager.js"
+import { writeSessionSlot, writeSessionOptMode, _resetSelectionCacheForTest } from "./lib/selection-manager.js"
 import { loadCredit, thinkingLevel, _lazyRefresh, _readAuth } from "./lib/credit-api.js"
 import { createTrinityTool } from "./lib/trinity-tool.js"
 import { classifyAndRankModels, modelToCcAlias, discoverAvailableModels, probeModel } from "./lib/trinity-rebuild.js"
-import { _appendFooter, didTextCompletePainted } from "./lib/hooks/footer.js"
+import { _appendFooter, didTextCompletePainted, resetFooterRuntimeState } from "./lib/hooks/footer.js"
 import { buildResilientFooterLine } from "./lib/hooks/shared-footer.js"
 import { onToolExecuteBefore, onToolExecuteAfter, setToolDirectory } from "./lib/hooks/tool-execute.js"
-import { onMessagesTransform, onSystemTransform, latestUserIntent, ensureProjectSkill } from "./lib/hooks/chat-transform.js"
+import { onMessagesTransform, onSystemTransform, latestUserIntent, ensureProjectSkill, resetChatTransformState } from "./lib/hooks/chat-transform.js"
 import { onChatParams, onChatHeaders, setChatParamsDirectory } from "./lib/hooks/chat-params.js"
 import { onSessionCompacting } from "./lib/hooks/session-compact.js"
 import { onShellEnv, setShellDirectory } from "./lib/hooks/shell-env.js"
 import { installVibeTierAgents } from "./lib/runtime-config.js"
 import { getOpenCodeHome, getVibeOSHome } from "./lib/state.js"
+import { resetTurnClassifyRuntimeState } from "./lib/turn-classify.js"
 function getTiersFile() {
   return join(getVibeOSHome(), "model-tiers.json")
 }
@@ -748,26 +749,27 @@ async function ensureMcpServerRunning() {
           getBlackboxState: () => {
             const persisted = loadBlackboxState() || {}
             const session = persisted?.sessions?.[_OC_SID] || {}
+            const liveBlackboxState = getLatestBlackboxState() || {}
             return {
               enabled: persisted?.enabled !== false,
-              sub_regime: session?.sub_regime || _latestBlackboxState?.sub_regime || "INIT",
-              resolution: session?.resolution || _latestBlackboxState?.resolution || "INIT",
-              momentum: Number(session?.momentum ?? _latestBlackboxState?.momentum ?? 0),
-              features: session?.features || _latestBlackboxState?.features || {},
-              signals: session?.signals || _latestBlackboxState?.signals || {},
+              sub_regime: session?.sub_regime || liveBlackboxState?.sub_regime || "INIT",
+              resolution: session?.resolution || liveBlackboxState?.resolution || "INIT",
+              momentum: Number(session?.momentum ?? liveBlackboxState?.momentum ?? 0),
+              features: session?.features || liveBlackboxState?.features || {},
+              signals: session?.signals || liveBlackboxState?.signals || {},
               loop: {
                 active: Boolean(session?.loop?.active || getLatestBlackboxLoopMsg() !== null),
                 message: session?.loop?.message || getLatestBlackboxLoopMsg(),
-                intervention_level: session?.loop?.intervention_level || getLatestBlackboxLoopMsg()?.intervention_level || _latestBlackboxState?.loop?.intervention_level || 0,
-                consecutive_loops: session?.loop?.consecutive_loops || _latestBlackboxState?.loop?.consecutive_loops || 0,
+                intervention_level: session?.loop?.intervention_level || getLatestBlackboxLoopMsg()?.intervention_level || liveBlackboxState?.loop?.intervention_level || 0,
+                consecutive_loops: session?.loop?.consecutive_loops || liveBlackboxState?.loop?.consecutive_loops || 0,
               },
               pivot: {
                 detected: Boolean(session?.pivot?.detected || getLatestBlackboxPivotMsg() !== null),
                 message: session?.pivot?.message || getLatestBlackboxPivotMsg(),
               },
-              continuity_state: session?.continuity_state || _latestBlackboxState?.continuity_state || null,
-              turn_index: session?.turn_index ?? _latestBlackboxState?.turn_index ?? 0,
-              stress_level: session?.stress_level ?? _latestBlackboxState?.stress_level ?? 0,
+              continuity_state: session?.continuity_state || liveBlackboxState?.continuity_state || null,
+              turn_index: session?.turn_index ?? liveBlackboxState?.turn_index ?? 0,
+              stress_level: session?.stress_level ?? liveBlackboxState?.stress_level ?? 0,
               dashboard_vectors: session?.dashboard_vectors || [],
               dashboard_outcomes: session?.dashboard_outcomes || [],
               session_id: _OC_SID,
@@ -858,19 +860,20 @@ export async function DelegationEnforcer({ client, directory } = {}) {
   console.error(`[vibeOS] LOADED cwd=${directory}`)
   const hookHome = process.env.HOME || USER_HOME
   const hookFp = projectFingerprint(directory || "")
-  // Use the single canonical session id (runtime-state, memoized on globalThis) rather
-  // than minting a fresh "opencode-<pid>-<Date.now()>" here. A separate id here made
-  // currentSessionId diverge from _OC_SID, fragmenting per-session state across keys.
-  if (!globalThis.__vibeOS_sessionId) {
-    globalThis.__vibeOS_sessionId = _OC_SID
-  }
-  const hookSessionId = globalThis.__vibeOS_sessionId
+  const hookSessionId = `opencode-${process.pid || "x"}-${Date.now()}-${Math.random().toString(16).slice(2)}`
   // Wire the live OpenCode SDK client so the orchestrator can actually switch the
   // running model (pushLiveModelSwitch reads globalThis.__vibeOS_client.config). Without
   // this, a "switch" only rewrites opencode.json (applies to NEW sessions) and the live
   // dropdown never moves. Guard against a falsy client clobbering a good one.
   if (client) globalThis.__vibeOS_client = client
+  setCurrentModel(null)
+  setCurrentTier(null)
+  resetPendingLiveSwitch()
+  resetFooterRuntimeState()
+  resetTurnClassifyRuntimeState()
   setVibeOSHomeContext(process.env.VIBEOS_HOME || join(hookHome, ".claude"))
+  resetSessionId(hookSessionId)
+  resetChatTransformState()
   setCurrentSessionId(hookSessionId)
   if (hookFp) {
     setCurrentProjectFingerprint(hookFp)
@@ -1065,7 +1068,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
   const trinityDeps = {
     tool, _lazyRefresh, _readAuth, _tiersData,
     _loadOpenCodeProviders, _modelCost, _modelTier,
-    _latestBlackboxState,
+    getLatestBlackboxState,
     currentModel, currentTier, currentProjectFingerprint, currentProjectName,
     get latestUserIntent() { return latestUserIntent }, directory,
     safeJsonParse, readFileSync, writeFileSync, existsSync, renameSync, mkdirSync,
@@ -1403,6 +1406,16 @@ export async function DelegationEnforcer({ client, directory } = {}) {
   if (!_inTestEnv)
     void ensureMcpServerRunning()
   return pluginHooks
+}
+export function resetRuntimeStateForTest(): void {
+  setCurrentModel(null)
+  setCurrentTier(null)
+  resetPendingLiveSwitch()
+  resetFooterRuntimeState()
+  resetTurnClassifyRuntimeState()
+  resetChatTransformState()
+  _resetSelectionCacheForTest()
+  try { setCurrentSessionId("") } catch {}
 }
 export const id = "vibeOS"
 export const server = DelegationEnforcer

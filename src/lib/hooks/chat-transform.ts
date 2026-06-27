@@ -23,9 +23,10 @@ import {
   stableJson, TOOL_NAME_NORMALIZE,
   loadSessionOrchestration,
   _cacheDb, recordCacheSaving, getOpenCodeHome, getVibeOSHome, safeCopyIntoSession,
+  _OC_SID,
 } from "../state.js"
 import { getOcSessionId } from "../runtime-state.js"
-import { getLatestBlackboxLoopMsg, getLatestBlackboxPivotMsg } from "../turn-classify.js"
+import { getLatestBlackboxLoopMsg, getLatestBlackboxPivotMsg, getLatestBlackboxState, resetBlackboxTracker, setLatestBlackboxState } from "../turn-classify.js"
 import { nextTurn, getCurrentTurnGen } from "../turn-memo.js"
 import { evaluateClaimVerification } from "../claim-verification.js"
 import { projectTreeDirective, recordProjectFact } from "../project-tree.js"
@@ -213,12 +214,6 @@ function ensureVibeUltraXSubagents(activeSlot: string | null = null, projectDir 
 }
 
 let latestUserIntent = null
-// Use the single canonical session id (from runtime-state, memoized on globalThis).
-// Previously this module minted its own "opencode-<pid>-<Date.now()>" id, which
-// diverged from the id the blackbox *reader* (turn-classify) used — so the writer
-// saved resolution history under one key and the reader looked under another,
-// leaving every session frozen at INIT. getOcSessionId() guarantees read==write.
-const _OC_SID = getOcSessionId()
 let _latestBlackboxState = null
 let _prevOutputText = ""
 let _prevBlackboxRegime = null
@@ -231,7 +226,39 @@ let _pivotLastCheckTurn = 0
 let _pivotLastRegime: string | null = null
 let _calBuffer: string[] = []
 let _pendingOrchestratorDirective = ""
+let _chatTransformHome = getVibeOSHome()
 const correctionSeenKeys = new Set()
+
+function isGreetingLike(text: string): boolean {
+  const value = String(text || "").trim().toLowerCase()
+  return value === "hi" || value === "hello" || value === "hey" || value === "yo" || /^hi[!.?\s]*$/.test(value) || /^hello[!.?\s]*$/.test(value) || /^hey[!.?\s]*$/.test(value)
+}
+
+function resetChatTransformStateForHome(): void {
+  const currentHome = getVibeOSHome()
+  if (currentHome === _chatTransformHome) return
+  resetChatTransformState()
+  _chatTransformHome = currentHome
+}
+
+export function resetChatTransformState(): void {
+  latestUserIntent = null
+  _latestBlackboxState = null
+  _prevOutputText = ""
+  _prevBlackboxRegime = null
+  _currentTemplate = DEFAULT_TEMPLATE
+  _currentTemplateSignature = DEFAULT_TEMPLATE
+  _prevTemplate = null
+  _prevTemplateSignature = null
+  _turnCountInject = 0
+  _pivotLastCheckTurn = 0
+  _pivotLastRegime = null
+  _calBuffer = []
+  _pendingOrchestratorDirective = ""
+  correctionSeenKeys.clear()
+  resetBlackboxTracker()
+  setLatestBlackboxState(null)
+}
 
 async function apiComputeControlVector(state: unknown, action: unknown, optimizationMode: unknown): Promise<unknown> {
   try {
@@ -903,6 +930,7 @@ async function trackBlackbox(messages: unknown[]): Promise<void> {
     : typeof lastUserMsg.text === "string" ? lastUserMsg.text
       : null
   if (!textPart?.text && !fallbackText) return
+  if (isGreetingLike(textPart?.text || fallbackText || "")) return
 
   latestUserIntent = textPart?.text || fallbackText
   if (!_blackboxEnabled) return
@@ -974,11 +1002,16 @@ async function trackBlackbox(messages: unknown[]): Promise<void> {
     }
     saveBlackboxStateToCtx(state)
     _latestBlackboxState = localState
+    setLatestBlackboxState(localState)
     const enrichmentTurnGen = getCurrentTurnGen()
+    const enrichmentSessionId = sid
     fetchBlackboxEnrichment(sid, localState).then(enriched => {
       // A later turn may have already started (and mutated _latestBlackboxState)
       // by the time this resolves — don't clobber fresher state with a stale enrichment.
-      if (enriched && getCurrentTurnGen() === enrichmentTurnGen) _latestBlackboxState = enriched
+      if (enriched && getCurrentTurnGen() === enrichmentTurnGen && _OC_SID === enrichmentSessionId) {
+        _latestBlackboxState = enriched
+        setLatestBlackboxState(enriched)
+      }
     }).catch(err => {
       console.error("[vibeOS] fetchBlackboxEnrichment failed:", err?.message || err)
     })
@@ -986,6 +1019,7 @@ async function trackBlackbox(messages: unknown[]): Promise<void> {
 }
 
 export const onMessagesTransform = async (_input, output) => {
+  resetChatTransformStateForHome()
   nextTurn()
   try {
     const { flushPendingLiveSwitch } = await import("../pricing.js")
@@ -1226,16 +1260,20 @@ function contextBudgetDirective(_input: unknown, output: unknown): string | null
 }
 
 export const onSystemTransform = async (_input, output) => {
+  resetChatTransformStateForHome()
   nextTurn()
   if (!loadSelection().enabled) return
   try {
-    // Ensure _latestBlackboxState is fresh (guard against cross-session module cache leak)
+    // Ensure the live blackbox snapshot is fresh (guard against cross-session module cache leak)
+    let liveBlackboxState = getLatestBlackboxState() || loadBlackboxStateFromCtx()
     const bbOnDisk = loadBlackboxStateFromCtx()
-    if (_latestBlackboxState && bbOnDisk) {
+    if (liveBlackboxState && bbOnDisk) {
       const diskHasSessions = Object.keys(bbOnDisk.sessions || {}).length > 0
-      const stateHasRegime = !!_latestBlackboxState.sub_regime
+      const stateHasRegime = !!liveBlackboxState.sub_regime
       if (diskHasSessions && !stateHasRegime) {
+        liveBlackboxState = bbOnDisk
         _latestBlackboxState = bbOnDisk
+        setLatestBlackboxState(bbOnDisk)
       }
     }
     const hookDirectory = String((onSystemTransform as unknown)._directory || "")
@@ -1244,7 +1282,8 @@ export const onSystemTransform = async (_input, output) => {
     else if (!latestUserIntent) latestUserIntent = null
     if (latestUserIntent) observeUserCorrection(latestUserIntent)
 
-    const classifiedRegime = _latestBlackboxState?.sub_regime || (latestUserIntent ? await classifyTurnRemote(latestUserIntent) : "INIT")
+    const classifiedRegime = liveBlackboxState?.sub_regime
+      || (latestUserIntent && isGreetingLike(latestUserIntent) ? "INIT" : latestUserIntent ? await classifyTurnRemote(latestUserIntent) : "INIT")
     const requestedOptimizationMode = loadOptimizationMode()
     const backendAutoModes = new Set(["auto", "vibeultrax", "vibeqmax", "vibemax", "vibelitex"])
     const useBackendDecision = backendAutoModes.has(String(requestedOptimizationMode || "").toLowerCase())
@@ -1253,8 +1292,8 @@ export const onSystemTransform = async (_input, output) => {
     let _controlVector = null
     ensureProjectContext(hookDirectory)
     const st = latestUserIntent ? scoreStress(latestUserIntent) : 0
-    const cvState = _latestBlackboxState
-      ? { ..._latestBlackboxState, latest_stress_multiplier: st || _latestBlackboxState.latest_stress_multiplier || 0 }
+    const cvState = liveBlackboxState
+      ? { ...liveBlackboxState, latest_stress_multiplier: st || liveBlackboxState.latest_stress_multiplier || 0 }
       : {
         sub_regime: classifiedRegime || "INIT",
         latest_stress_multiplier: st || undefined,
@@ -1290,12 +1329,12 @@ export const onSystemTransform = async (_input, output) => {
     if (_controlVector) {
       const fullState = loadBlackboxStateFromCtx() || { sessions: {}, enabled: true }
       fullState.cv = _controlVector
-      if (_latestBlackboxState) {
-        if (_latestBlackboxState.sub_regime) fullState.sub_regime = _latestBlackboxState.sub_regime
-        if (_latestBlackboxState.latest_stress_multiplier) fullState.latest_stress_multiplier = _latestBlackboxState.latest_stress_multiplier
-        if (_latestBlackboxState.n_interactions) fullState.n_interactions = _latestBlackboxState.n_interactions
-        if (_latestBlackboxState.resolution) fullState.resolution = _latestBlackboxState.resolution
-        if (_latestBlackboxState.momentum) fullState.momentum = _latestBlackboxState.momentum
+      if (liveBlackboxState) {
+        if (liveBlackboxState.sub_regime) fullState.sub_regime = liveBlackboxState.sub_regime
+        if (liveBlackboxState.latest_stress_multiplier) fullState.latest_stress_multiplier = liveBlackboxState.latest_stress_multiplier
+        if (liveBlackboxState.n_interactions) fullState.n_interactions = liveBlackboxState.n_interactions
+        if (liveBlackboxState.resolution) fullState.resolution = liveBlackboxState.resolution
+        if (liveBlackboxState.momentum) fullState.momentum = liveBlackboxState.momentum
         fullState.latest_control_vector_ts = Date.now()
       }
       fullState.sessions ??= {}
@@ -1305,7 +1344,7 @@ export const onSystemTransform = async (_input, output) => {
       const blackboxState = loadBlackboxStateFromCtx() || { sessions: {}, enabled: true }
       const existingSession = blackboxState.sessions?.[_OC_SID] || null
       if (!existingSession || !existingSession.sub_regime) {
-        const sessionState = _latestBlackboxState || {
+        const sessionState = liveBlackboxState || {
           sub_regime: classifiedRegime || "INIT",
           resolution: "unresolved",
           momentum: 0,
@@ -1394,7 +1433,7 @@ export const onSystemTransform = async (_input, output) => {
     _turnCountInject++
 
     // ── Pivot detection and PIVOT BACK injection (gated — 1/5 turns or regime change) ──
-    const _pivotRegimeChanged = _latestBlackboxState?.sub_regime && _latestBlackboxState.sub_regime !== _pivotLastRegime
+    const _pivotRegimeChanged = liveBlackboxState?.sub_regime && liveBlackboxState.sub_regime !== _pivotLastRegime
     const _pivotTurnTrigger = _turnCountInject - _pivotLastCheckTurn >= 5
     if (latestUserIntent && _blackboxEnabled !== false && (_pivotRegimeChanged || _pivotTurnTrigger)) {
       try {
@@ -1446,7 +1485,7 @@ export const onSystemTransform = async (_input, output) => {
         }
       } catch { /* pivot pipeline is best-effort */ }
       _pivotLastCheckTurn = _turnCountInject
-      if (_latestBlackboxState?.sub_regime) _pivotLastRegime = _latestBlackboxState.sub_regime
+      if (liveBlackboxState?.sub_regime) _pivotLastRegime = liveBlackboxState.sub_regime
     }
     const stressMitigationDirective = rawStress > 0.7
       ? "[stress mitigation: CRITICAL] The user's message shows very high stress indicators. " +
@@ -1464,7 +1503,7 @@ export const onSystemTransform = async (_input, output) => {
     // ── Template resolution ──
     _prevTemplate = _currentTemplate
     _prevTemplateSignature = _currentTemplateSignature
-    _currentTemplate = resolveTemplate(_prevTemplate, stressScore, latestUserIntent, credit, _latestBlackboxState?.sub_regime)
+    _currentTemplate = resolveTemplate(_prevTemplate, stressScore, latestUserIntent, credit, liveBlackboxState?.sub_regime)
     const sessionTemplate = loadSessionOrchestration(_OC_SID)?.template || null
     const activeTemplate = resolveSessionTemplateDefinition(sessionTemplate)
     _currentTemplateSignature = activeTemplate.signature || _currentTemplate
@@ -1501,9 +1540,9 @@ export const onSystemTransform = async (_input, output) => {
     }
 
     // ── Blackbox — only on regime change ──
-    else if (_blackboxEnabled && _latestBlackboxState?.n_interactions > 0) {
+    else if (_blackboxEnabled && liveBlackboxState?.n_interactions > 0) {
       const prevRegime = _prevBlackboxRegime
-      const res = _latestBlackboxState
+      const res = liveBlackboxState
       const currentRegime = res.sub_regime || "EXPLORING"
       if (currentRegime !== prevRegime) {
         _prevBlackboxRegime = currentRegime
@@ -1566,7 +1605,7 @@ export const onSystemTransform = async (_input, output) => {
     // across sessions instead of being a write-only display. Capped + deduped internally.
     try {
       if (fp && latestUserIntent && String(latestUserIntent).trim().length > 8) {
-        const branch = String(classifiedRegime || _latestBlackboxState?.sub_regime || "intent").toLowerCase()
+        const branch = String(classifiedRegime || liveBlackboxState?.sub_regime || "intent").toLowerCase()
         recordProjectFact(fp, currentProjectName || "", branch, "fact", String(latestUserIntent))
       }
     } catch {}
@@ -1575,7 +1614,7 @@ export const onSystemTransform = async (_input, output) => {
     }
 
     // ── Calibration logging (buffered — flush every 10 turns) ──
-    const regime2 = _latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || "")
+    const regime2 = liveBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || "")
     _calBuffer.push(JSON.stringify({
       ts: new Date().toISOString(), sid: _OC_SID,
       mode: _currentTemplate, regime: regime2, stress: stressScore,
@@ -1603,7 +1642,7 @@ export const onSystemTransform = async (_input, output) => {
     }
 
     if (!oneShot("vibeos_dopamine_style_" + fp)) {
-      pushSystem(output, regimeAwareToolStyleDirective(_latestBlackboxState?.sub_regime || classifiedRegime, _currentTemplate, stressScore, _controlVector?.agent_mode))
+      pushSystem(output, regimeAwareToolStyleDirective(liveBlackboxState?.sub_regime || classifiedRegime, _currentTemplate, stressScore, _controlVector?.agent_mode))
     }
     if (_pendingOrchestratorDirective) {
       pushSystem(output, _pendingOrchestratorDirective)

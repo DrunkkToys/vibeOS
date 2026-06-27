@@ -7,7 +7,7 @@ import { createHash } from "node:crypto"
 import { AsyncLocalStorage } from "node:async_hooks"
 import { loadSelection, writeSelection, DFLT_SEL } from "./selection-manager.js"
 import { mergeProjectBucket, _computeSessionMetrics, _pruneOldSessions } from "./pattern-helpers.js"
-import { getOcSessionId } from "./runtime-state.js"
+import { getOcSessionId, setOcSessionId } from "./runtime-state.js"
 
 // ── Delegation-state contract ────────────────────────────────────────
 // The real shape of delegation-state.json. Known fields are typed; the index
@@ -129,7 +129,7 @@ const MAX_PTR_CANDIDATES = 50
 const SUMMARY_HEAD_TRUNCATE = 500
 
 export function getVibeOSHome(): string {
-  return VIBEOS_CONTEXT.getStore()?.home || process.env.VIBEOS_HOME || join(process.env.HOME || "", ".claude")
+  return process.env.VIBEOS_HOME || VIBEOS_CONTEXT.getStore()?.home || join(process.env.HOME || "", ".claude")
 }
 
 function hasOpenCodeConfig(dir: string): boolean {
@@ -160,6 +160,21 @@ export function getOpenCodeHome(): string {
 
 export function getOpenCodeHomes(): string[] {
   return resolveOpenCodeHomes()
+}
+
+let _globalHookQueue: Promise<void> = Promise.resolve()
+
+export async function runWithGlobalHookLock<T>(fn: () => Promise<T> | T): Promise<T> {
+  let release!: () => void
+  const next = new Promise<void>((resolve) => { release = resolve })
+  const prev = _globalHookQueue
+  _globalHookQueue = next
+  await prev
+  try {
+    return await fn()
+  } finally {
+    release()
+  }
 }
 
 function syncVibeOSPathBindings(home = resolveVibeOSHome()): void {
@@ -227,7 +242,7 @@ const MAX_LOG_LINES = 500
 const SOFT_QUOTA_LIMIT = 5
 
 // ── Session identity ─────────────────────────────────────────────────
-const _OC_SID = getOcSessionId()
+export let _OC_SID = getOcSessionId()
 let currentSessionId = _OC_SID
 const _sessionStart = Date.now()
 const _sessionTimer = function () { return Date.now() - _sessionStart }
@@ -245,6 +260,11 @@ export function setCurrentProjectFingerprint(v: string) { currentProjectFingerpr
 export function setCurrentProjectName(v: string) { currentProjectName = v }
 export function setCurrentSessionId(v: string) { currentSessionId = String(v || _OC_SID) }
 export function getCurrentSessionId(): string { return currentSessionId || _OC_SID }
+export function resetSessionId(sessionId: string): void {
+  _OC_SID = String(sessionId || getOcSessionId())
+  setOcSessionId(_OC_SID)
+  currentSessionId = _OC_SID
+}
 const textCompletePainted = new Set()
 const softQuotaCounts: Record<string, number> = {}
 
@@ -293,7 +313,6 @@ export function setMlSavePending(v: boolean) { _mlSavePending = v }
 let _blackboxTracker: unknown = null
 let _blackboxEnabled = true
 export function setBlackboxEnabled(val: boolean) { _blackboxEnabled = val }
-let _latestBlackboxState: unknown = null
 export let _modelLocked = false
 export let _lockedSlot: string | null = null
 export let _lockedModel: string | null = null
@@ -2719,7 +2738,6 @@ export {
   // Blackbox state
   _blackboxTracker,
   _blackboxEnabled,
-  _latestBlackboxState,
   _detectedFramework,
 
   // JSONC parsing

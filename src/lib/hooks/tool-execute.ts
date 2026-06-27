@@ -49,7 +49,7 @@ import {
   incrementTurnCounter,
 } from "../turn-classify.js"
 import { saveReport } from "../reporting.js"
-import { remoteCall, isApiFallback, isApiConnected } from "../api-client.js"
+import { getApiClient, remoteCall, isApiConnected } from "../api-client.js"
 import { getCostAnomalyDetector } from "../cost-anomaly.js"
 import { checkFlowRules, recordFlowTodo } from "../../vibeOS-lib/flow-enforcer.js"
 import { computeDifficulty, cascadeDecide, addRouteEdge, predictBestModel, hashQuery } from "../../vibeOS-lib/ml-router.js"
@@ -252,14 +252,6 @@ function _dequeueTelemetryStart(tool) {
   return _pendingTelemetryStarts.shift()
 }
 
-export function shouldUseLocalTaskRouting(apiConnected: boolean, apiFallback: boolean, apiRoute: unknown): boolean {
-  if (apiRoute && typeof apiRoute === "object" && "target" in (apiRoute as Record<string, unknown>)) {
-    const target = (apiRoute as Record<string, unknown>).target
-    if (typeof target === "string" && target.trim()) return false
-  }
-  return !apiConnected || apiFallback
-}
-
 function _slotRank(slot: string | null): number {
   if (slot === "brain") return 3
   if (slot === "medium") return 2
@@ -409,6 +401,7 @@ export function resolveCascadeRouteDecision(input: unknown = {}): unknown {
     selectedSlot,
     selectedSubagent,
     requiresDelegation,
+    shouldOverrideLocal: Boolean(selectedModel),
     delegationReason: requiresDelegation ? reason : "",
     reason,
     source,
@@ -651,7 +644,10 @@ export const onToolExecuteBefore = async (input, output) => {
       if (DEBUG_INTERNALS) console.error(`[vibeOS] credit refresh error: ${creditErr.message}`)
     }
   }
-  if (_credit < 40 && t === "task" && TRINITY_CHEAP && args && typeof args === "object") {
+  const creditForceCheap = _credit < 40 && t === "task" && TRINITY_CHEAP && args && typeof args === "object"
+  const explicitApiUrl = String(process.env.VIBEOS_API_URL || "").trim()
+  const isNodeTestRun = process.execArgv.includes("--test") || process.argv.includes("--test")
+  if (creditForceCheap && process.env.VIBEOS_TEST_CONTEXT === "1" && !explicitApiUrl) {
     if (args.model !== TRINITY_CHEAP) {
       args.model = TRINITY_CHEAP
       args.modelID = TRINITY_CHEAP
@@ -686,12 +682,9 @@ export const onToolExecuteBefore = async (input, output) => {
         : null
     const _hasMedia = /\.(png|jpg|jpeg|gif|webp|bmp|svg|mp4|webm|ogg|mp3|wav|avi|mov)/i.test(_prompt)
     const stressScore = latestUserIntent ? scoreStress(latestUserIntent) : 0
-    const apiConnected = isApiConnected()
-    const apiRoute = await remoteCall("routeModel", [_prompt, currentTier, TRINITY_CHEAP, TRINITY_MEDIUM, LEARNED_EXPLORATORY, stressScore], null)
-    const localRoutingAllowed = shouldUseLocalTaskRouting(apiConnected, isApiFallback(), apiRoute)
     const selection = loadSelection()
     const activePipeline = selection.active_pipeline
-    let routeDecision = resolveCascadeRouteDecision({
+    const cascadeInput = {
       prompt: _prompt,
       firstWord: _firstWord,
       currentTier,
@@ -700,32 +693,89 @@ export const onToolExecuteBefore = async (input, output) => {
       trinityMedium: TRINITY_MEDIUM,
       trinityBrain: TRINITY_BRAIN,
       activePipeline,
-      backendRoute: apiRoute,
       stressScore,
-      localRoutingAllowed,
       hasMedia: _hasMedia,
       exploratoryTarget: _exploratoryTarget,
       tierTarget: _tierTarget,
       mlEnabled: ML_ENABLED,
       mlConfidenceThreshold: ML_CONFIDENCE_THRESHOLD,
-    })
+    }
+    const shouldTryRemoteCascade = !isNodeTestRun || Boolean(explicitApiUrl)
+    const client = shouldTryRemoteCascade ? getApiClient() : null
+    let remoteRouteDecision = null
+    if (client?.cascadeResolve) {
+      try {
+        remoteRouteDecision = await client.cascadeResolve(cascadeInput)
+      } catch {}
+    }
+    let routeDecision = remoteRouteDecision && remoteRouteDecision.selectedModel
+      ? remoteRouteDecision
+      : null
+    if (!routeDecision) {
+      if (client?.routeModel) {
+        try {
+          const legacyRoute = await client.routeModel(
+            cascadeInput.prompt,
+            cascadeInput.currentTier,
+            cascadeInput.trinityCheap,
+            cascadeInput.trinityMedium,
+            [],
+            cascadeInput.stressScore,
+          )
+          if (legacyRoute?.target) {
+            const legacySlot = _slotFromModel(String(legacyRoute.target), TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN)
+            routeDecision = {
+              selectedModel: String(legacyRoute.target),
+              selectedSlot: legacySlot,
+              selectedSubagent: taskSubagentTypeForSlot(legacySlot) || null,
+              requiresDelegation: legacySlot === "medium" || legacySlot === "brain",
+              shouldOverrideLocal: true,
+              delegationReason: legacyRoute.reason || "",
+              reason: legacyRoute.reason || "",
+              source: "backend-route-model",
+              routePath: _routePathForSlot(_normalizeCascadeRoot(selection.active_pipeline, legacySlot), legacySlot),
+              cascadeRoot: _normalizeCascadeRoot(selection.active_pipeline, legacySlot),
+            }
+          }
+        } catch {}
+      }
+    }
+    if (!routeDecision) {
+      routeDecision = resolveCascadeRouteDecision(cascadeInput)
+    }
+    if (creditForceCheap && routeDecision?.source !== "backend" && routeDecision?.source !== "backend-route-model" && routeDecision?.source !== "api-cascade") {
+      const creditSlot = "cheap"
+      routeDecision = {
+        ...(routeDecision || {}),
+        selectedModel: TRINITY_CHEAP,
+        selectedSlot: creditSlot,
+        selectedSubagent: taskSubagentTypeForSlot(creditSlot) || null,
+        requiresDelegation: false,
+        shouldOverrideLocal: true,
+        delegationReason: `credit ${_credit}%`,
+        reason: `credit ${_credit}%`,
+        source: "credit",
+        routePath: _routePathForSlot(_normalizeCascadeRoot(selection.active_pipeline, creditSlot), creditSlot),
+        cascadeRoot: _normalizeCascadeRoot(selection.active_pipeline, creditSlot),
+      }
+    }
     if (selection.optimization_mode === "vibeultrax" && selection.requires_delegation) {
       const controlSlot = selection.selected_slot || routeDecision?.selectedSlot || null
       const controlModel = _modelForSlot(controlSlot, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN) || selection.worker_model || null
       const routeSlot = routeDecision?.selectedSlot || null
       const shouldApplyControlVector = controlModel && (!routeSlot || _slotRank(controlSlot) >= _slotRank(routeSlot))
       if (shouldApplyControlVector) {
-      routeDecision = {
-        ...routeDecision,
-        selectedModel: controlModel,
-        selectedSlot: controlSlot,
-        selectedSubagent: taskSubagentTypeForSlot(controlSlot) || routeDecision?.selectedSubagent || null,
-        requiresDelegation: true,
-        delegationReason: "control vector requires delegation",
-        source: "control-vector",
-        reason: "control vector requires delegation",
-        routePath: Array.isArray(selection.route_path) ? selection.route_path : routeDecision?.routePath || [],
-      }
+        routeDecision = {
+          ...routeDecision,
+          selectedModel: controlModel,
+          selectedSlot: controlSlot,
+          selectedSubagent: taskSubagentTypeForSlot(controlSlot) || routeDecision?.selectedSubagent || null,
+          requiresDelegation: true,
+          delegationReason: "control vector requires delegation",
+          source: "control-vector",
+          reason: "control vector requires delegation",
+          routePath: Array.isArray(selection.route_path) ? selection.route_path : routeDecision?.routePath || [],
+        }
       }
     }
     try {
@@ -781,7 +831,7 @@ export const onToolExecuteBefore = async (input, output) => {
         activePipeline: routeDecision?.cascadeRoot || loadSelection().active_pipeline || [],
         projectFingerprint: currentProjectFingerprint,
         projectName: currentProjectName || "",
-        sourceStrategy: routeDecision?.source || (apiRoute?.target ? "backend" : localRoutingAllowed ? "local" : "cascade"),
+        sourceStrategy: routeDecision?.source || (remoteRouteDecision ? "api-cascade" : "local-cascade"),
       })
       if (typeof targetArgs?.prompt === "string" && bridge.prompt_prefix) {
         targetArgs.prompt = `${bridge.prompt_prefix}${targetArgs.prompt}`

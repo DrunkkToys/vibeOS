@@ -69,6 +69,37 @@ function readBody(req) {
 
 const backend = http.createServer(async (req, res) => {
   const url = new URL(req.url || "/", "http://127.0.0.1")
+  if (req.method === "POST" && url.pathname === "/api/v1/cascade/resolve") {
+    const body = await readBody(req)
+    const prompt = String(body?.prompt || "")
+    res.setHeader("Content-Type", "application/json")
+    if (/remote[- ]target/i.test(prompt)) {
+      res.end(JSON.stringify({
+        selectedModel: "deepseek/deepseek-v4-pro",
+        selectedSlot: "brain",
+        selectedSubagent: "general",
+        requiresDelegation: true,
+        shouldOverrideLocal: true,
+        delegationReason: "remote override",
+        reason: "remote override",
+        source: "backend",
+        routePath: ["cheap", "medium", "brain"],
+        cascadeRoot: ["cheap", "medium", "brain"],
+      }))
+      return
+    }
+    res.end(JSON.stringify({
+      selectedModel: null,
+      selectedSlot: null,
+      requiresDelegation: false,
+      shouldOverrideLocal: false,
+      reason: "allow local cascade",
+      source: "backend",
+      routePath: [],
+      cascadeRoot: ["cheap", "medium", "brain"],
+    }))
+    return
+  }
   if (req.method === "POST" && url.pathname === "/api/v1/route/model") {
     const body = await readBody(req)
     const prompt = String(body?.prompt || "")

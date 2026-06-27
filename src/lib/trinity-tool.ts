@@ -412,7 +412,7 @@ export function createTrinityTool(deps) {
         let decisionLine = ""
         if (deps._blackboxEnabled) {
           try {
-            const res = deps._latestBlackboxState || deps.getBlackboxResolution()
+            const res = deps.getLatestBlackboxState?.() || deps.getBlackboxResolution()
             if (res && res.n_interactions > 3) {
               const momentumIcon = res.momentum > MOMENTUM_SIGNIFICANT_THRESHOLD ? "↗" : res.momentum > 0 ? "↑" : res.momentum < -MOMENTUM_SIGNIFICANT_THRESHOLD ? "↘" : res.momentum < 0 ? "↓" : "→"
               const loopTag = res.is_looping ? " (loop)" : ""
@@ -1637,7 +1637,7 @@ export function createTrinityTool(deps) {
           const enabled = deps._blackboxEnabled || bbState.enabled
           const lines = [`Blackbox Decision Engine: ${enabled ? "ON" : "OFF"}`]
           if (enabled) {
-            const res = deps._latestBlackboxState || deps.getBlackboxResolution()
+            const res = deps.getLatestBlackboxState?.() || deps.getBlackboxResolution()
             if (res) {
               lines.push(`  Resolution: ${res.resolution}`)
               lines.push(`  Sub-regime: ${res.sub_regime}`)

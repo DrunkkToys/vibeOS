@@ -3,7 +3,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from "node:fs"
 import { join, dirname } from "node:path"
 import { ResolutionTracker } from "../vibeOS-lib/blackbox/index.js"
-import { safeJsonParse, _blackboxEnabled, setBlackboxEnabled as _setGlobalBlackboxEnabled, _OC_SID, currentProjectFingerprint, currentTier, setCurrentProjectFingerprint, _handleStateCorruption, _lockPathFor, withFileLock, readJsonOrEmpty, validateState, loadBlackboxState, saveBlackboxState, loadGlobalLearning, updateGlobalLearning, getLearnedExploratoryWords, projectFingerprint, loadProjectState, saveProjectState, detectTechStack, ensureProjectBucket, recordMissedContext7, recentToolEvents, getVibeOSHome } from "./state.js"
+import { safeJsonParse, _blackboxEnabled, setBlackboxEnabled as _setGlobalBlackboxEnabled, _OC_SID, currentProjectFingerprint, currentTier, setCurrentProjectFingerprint, _handleStateCorruption, _lockPathFor, withFileLock, readJsonOrEmpty, validateState, loadBlackboxState, saveBlackboxState, loadGlobalLearning, updateGlobalLearning, getLearnedExploratoryWords, projectFingerprint, loadProjectState, saveProjectState, detectTechStack, ensureProjectBucket, recordMissedContext7, recentToolEvents, getVibeOSHome, getCurrentSessionId } from "./state.js"
 import { loadSelection, loadSessionOptMode, loadGlobalOptMode, saveGlobalOptMode, writeSelection, writeSessionOptMode, writeSessionSlot } from "./selection-manager.js"
 import { getApiClient, isApiFallback } from "./api-client.js"
 import { classifyTurnSimple as _classifyTurnSimple } from "./classifiers.js"
@@ -490,8 +490,11 @@ class _BlackboxStub {
 }
 
 let _blackboxTracker = null
+let _blackboxTrackerHome = ""
 let _prevOutputText = ""
 let _latestBlackboxState = null
+let _latestBlackboxStateHome = ""
+let _latestBlackboxStateSessionId = ""
 let _latestBlackboxLoopMsg = null
 let _latestBlackboxPivotMsg = null
 
@@ -565,7 +568,15 @@ const TRINITY_CHEAP_MOD = _trinityModels.cheap
 const TRINITY_MEDIUM_MOD = _trinityModels.medium
 
 export function getBlackboxTracker() {
+  const currentHome = getVibeOSHome()
+  if (_blackboxTrackerHome && _blackboxTrackerHome !== currentHome) {
+    _blackboxTracker = null
+    _latestBlackboxState = null
+    _latestBlackboxStateHome = ""
+    _latestBlackboxStateSessionId = ""
+  }
   if (!_blackboxTracker) {
+    _blackboxTrackerHome = currentHome
     const state = loadBlackboxState()
     if (state.enabled !== undefined) _setGlobalBlackboxEnabled(state.enabled)
     const sid = _OC_SID
@@ -627,7 +638,7 @@ function computeLocalCalibration(): unknown {
 }
 
 export function resolveEnforcementMode() {
-  const sub = _latestBlackboxState?.sub_regime || "INIT"
+  const sub = getLatestBlackboxState()?.sub_regime || "INIT"
   if (sub === "EXPLORING" || sub === "DIVERGENT") return "relaxed"
   if (sub === "LOOPING") return "strict"
   if (sub === "CONVERGING" || sub === "CLOSED") return "strict"
@@ -802,11 +813,15 @@ export function setBlackboxEnabled(val) {
 }
 
 export function getLatestBlackboxState() {
+  if (_latestBlackboxStateHome && _latestBlackboxStateHome !== getVibeOSHome()) return null
+  if (_latestBlackboxStateSessionId && _latestBlackboxStateSessionId !== getCurrentSessionId()) return null
   return _latestBlackboxState
 }
 
 export function setLatestBlackboxState(val) {
   _latestBlackboxState = val
+  _latestBlackboxStateHome = getVibeOSHome()
+  _latestBlackboxStateSessionId = getCurrentSessionId()
 }
 
 export function getLatestBlackboxLoopMsg() {
@@ -958,4 +973,18 @@ export {
   saveBlackboxState,
 }
 
-export function resetBlackboxTracker() { _blackboxTracker = null }
+export function resetBlackboxTracker() {
+  _blackboxTracker = null
+  _blackboxTrackerHome = ""
+  _latestBlackboxState = null
+  _latestBlackboxStateHome = ""
+  _latestBlackboxStateSessionId = ""
+}
+
+export function resetTurnClassifyRuntimeState() {
+  _latestBlackboxLoopMsg = null
+  _latestBlackboxPivotMsg = null
+  _lastClassifiedByApi = false
+  _lastApiPredictedMode = ""
+  resetBlackboxTracker()
+}

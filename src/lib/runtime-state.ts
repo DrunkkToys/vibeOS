@@ -26,6 +26,10 @@ export function getOcSessionId(): string {
   return getRuntimeState().sessionId
 }
 
+export function setOcSessionId(sessionId: string): void {
+  getRuntimeState().sessionId = String(sessionId || "")
+}
+
 export function markApiConnected(): void {
   const state = getRuntimeState()
   state.apiConnected = true

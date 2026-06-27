@@ -1154,6 +1154,10 @@ export function _refreshModel(directory) {
 
 let _pendingLiveSwitch: { model: string, projectDir: string } | null = null
 
+export function resetPendingLiveSwitch(): void {
+  _pendingLiveSwitch = null
+}
+
 async function pushLiveModelSwitch(model: string, projectDir: string): Promise<boolean> {
   const _oc = (globalThis as unknown)?.__vibeOS_client?.config
   if (!_oc || typeof _oc.update !== "function") {

@@ -23,6 +23,7 @@ const SHADOW_SELECTION_KEYS = new Set(["selected_provider", "selected_quality_ti
 // no stale data even when other code writes directly to model-tiers.json
 let _selCache: any = null
 let _selLastStamp = ""
+let _selCacheHome = ""
 
 const _SEL_CACHE_KEY = "selection-manager:loadSelection"
 
@@ -31,6 +32,7 @@ const TIERS_FILE_PATH = () => join(getVibeOSHome(), "model-tiers.json")
 export function _resetSelectionCacheForTest(): void {
   _selCache = null
   _selLastStamp = ""
+  _selCacheHome = ""
 }
 
 function loadSelectionImpl(): any {
@@ -75,9 +77,16 @@ function loadSelectionImpl(): any {
 
 export function loadSelection(): any {
   const TIERS_FILE = TIERS_FILE_PATH()
+  const currentHome = getVibeOSHome()
+  if (_selCacheHome && _selCacheHome !== currentHome) {
+    _selCache = null
+    _selLastStamp = ""
+    _selCacheHome = ""
+  }
   if (!existsSync(TIERS_FILE)) {
     _selCache = DFLT_SEL
     _selLastStamp = ""
+    _selCacheHome = currentHome
     return _selCache
   }
   const st = statSync(TIERS_FILE, { bigint: true })
@@ -85,6 +94,7 @@ export function loadSelection(): any {
   if (_selCache && _selLastStamp === curStamp) return _selCache
   _selCache = loadSelectionImpl()
   _selLastStamp = curStamp
+  _selCacheHome = currentHome
   return _selCache
 }
 
