@@ -140,7 +140,7 @@ test("sync keeps vibeultrax root slot cheap when per-turn route selects brain", 
   }
 })
 
-test("route resolver upgrades backend cheap hint for complex vibeultrax task", async () => {
+test("route resolver preserves backend target while exposing local cascade target", async () => {
   const mod = await import("../src/lib/hooks/tool-execute.js?route-resolver=" + Date.now())
   const decision = mod.resolveCascadeRouteDecision({
     prompt: "fix refactor implement migrate validate the critical production crash error panic failure bug in src/lib/hooks/tool-execute.ts src/lib/hooks/chat-transform.ts src/lib/pricing.ts src/vibeOS-lib/ml-router.ts tests/cascade_route_contract.test.mjs with distributed consensus protocol raft leader election gossip protocol byzantine fault tolerance paxos algorithm eventual consistency CRDT data structures rollback observability retry circuit breaker concurrency race condition deadlock",
@@ -161,10 +161,13 @@ test("route resolver upgrades backend cheap hint for complex vibeultrax task", a
     mlConfidenceThreshold: 0.6,
   })
 
-  assert.equal(decision.selectedSlot, "brain")
-  assert.equal(decision.selectedModel, "test/brain")
+  assert.equal(decision.selectedSlot, "cheap")
+  assert.equal(decision.selectedModel, "test/cheap")
+  assert.equal(decision.cascadeSelectedSlot, "brain")
+  assert.equal(decision.cascadeSelectedModel, "test/brain")
   assert.deepEqual(decision.cascadeRoot, ["cheap", "medium", "brain"])
-  assert.deepEqual(decision.routePath, ["cheap", "medium", "brain"])
+  assert.deepEqual(decision.routePath, ["cheap"])
+  assert.deepEqual(decision.cascadeRoutePath, ["cheap", "medium", "brain"])
   assert.ok(decision.localConfidence >= 0.7)
 })
 

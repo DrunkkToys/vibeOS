@@ -325,22 +325,25 @@ export function resolveCascadeRouteDecision(input: unknown = {}): unknown {
   const backendRoute = input?.backendRoute && typeof input.backendRoute === "object" ? input.backendRoute : null
   const backendExplicit = backendRoute?.explicit === true || backendRoute?.allow_local_upgrade === false
   const cascadeRoot = _normalizeCascadeRoot(input?.activePipeline, _slotFromModel(input?.tierTarget || input?.exploratoryTarget || null, trinityCheap, trinityMedium, trinityBrain))
-  let selectedModel = input?.exploratoryTarget || input?.tierTarget || null
-  let selectedSlot = _slotFromModel(selectedModel, trinityCheap, trinityMedium, trinityBrain)
-  let source = selectedModel ? (input?.exploratoryTarget ? "exploratory" : "tier") : "none"
-  let reason = selectedModel ? `${source}:${firstWord || input?.currentTier || "task"}` : "no target"
+  let cascadeSelectedModel = input?.exploratoryTarget || input?.tierTarget || null
+  let cascadeSelectedSlot = _slotFromModel(cascadeSelectedModel, trinityCheap, trinityMedium, trinityBrain)
+  let cascadeSource = cascadeSelectedModel ? (input?.exploratoryTarget ? "exploratory" : "tier") : "none"
+  let cascadeReason = cascadeSelectedModel ? `${cascadeSource}:${firstWord || input?.currentTier || "task"}` : "no target"
+  let selectedModel = backendRoute?.target ? String(backendRoute.target) : cascadeSelectedModel
+  let selectedSlot = backendRoute?.target ? (backendRoute?.target_slot || backendRoute?.targetSlot || _slotFromModel(selectedModel, trinityCheap, trinityMedium, trinityBrain)) : cascadeSelectedSlot
+  let source = backendRoute?.target ? "backend" : cascadeSource
+  let reason = backendRoute?.target ? (backendRoute?.reason || "backend route") : cascadeReason
   let localConfidence = 0
   let localScore = 0
   let cascadeDecision = null
 
-  const applyCandidate = (slot: string | null, model: string | null, nextSource: string, nextReason: string, force = false) => {
+  const applyLocalCandidate = (slot: string | null, model: string | null, nextSource: string, nextReason: string, force = false) => {
     if (!slot || !model || hasMedia) return
-    if (backendExplicit && !force && selectedModel === backendRoute?.target) return
-    if (!selectedSlot || force || _slotRank(slot) > _slotRank(selectedSlot)) {
-      selectedSlot = slot
-      selectedModel = model
-      source = nextSource
-      reason = nextReason
+    if (!cascadeSelectedSlot || force || _slotRank(slot) > _slotRank(cascadeSelectedSlot)) {
+      cascadeSelectedSlot = slot
+      cascadeSelectedModel = model
+      cascadeSource = nextSource
+      cascadeReason = nextReason
     }
   }
 
@@ -359,8 +362,8 @@ export function resolveCascadeRouteDecision(input: unknown = {}): unknown {
       if (mlDifficulty.confidence >= Number(input?.mlConfidenceThreshold ?? ML_CONFIDENCE_THRESHOLD) && mlDifficulty.level !== "moderate") {
         const mlSlot = mlDifficulty.suggestedTier
         const mlModel = _modelForSlot(mlSlot, trinityCheap, trinityMedium, trinityBrain)
-        if (mlModel && (!backendExplicit || _slotRank(mlSlot) > _slotRank(selectedSlot))) {
-          applyCandidate(mlSlot, mlModel, "ml", `${mlDifficulty.level} score=${mlDifficulty.score.toFixed(2)} conf=${mlDifficulty.confidence.toFixed(2)}`)
+        if (mlModel) {
+          applyLocalCandidate(mlSlot, mlModel, "ml", `${mlDifficulty.level} score=${mlDifficulty.score.toFixed(2)} conf=${mlDifficulty.confidence.toFixed(2)}`)
         }
       }
     } catch (err) {
@@ -374,23 +377,32 @@ export function resolveCascadeRouteDecision(input: unknown = {}): unknown {
       if (cascadeDecision.escalate) {
         const slot = cascadeRoot.length > 2 && cascadeDecision.confidence >= 0.8 ? cascadeRoot[2] : cascadeRoot[1]
         const model = _modelForSlot(slot, trinityCheap, trinityMedium, trinityBrain)
-        if (model && (!backendExplicit || _slotRank(slot) > _slotRank(selectedSlot))) {
-          applyCandidate(slot, model, "cascade", cascadeDecision.reason)
+        if (model) {
+          applyLocalCandidate(slot, model, "cascade", cascadeDecision.reason)
         }
-      } else if (cascadeDecision.useCheap && !selectedModel) {
-        applyCandidate(cascadeRoot[0], _modelForSlot(cascadeRoot[0], trinityCheap, trinityMedium, trinityBrain), "cascade", cascadeDecision.reason)
+      } else if (cascadeDecision.useCheap && !cascadeSelectedModel) {
+        applyLocalCandidate(cascadeRoot[0], _modelForSlot(cascadeRoot[0], trinityCheap, trinityMedium, trinityBrain), "cascade", cascadeDecision.reason)
       }
     } catch (err) {
       if (DEBUG_INTERNALS) console.error(`[vibeOS] cascade route resolver error: ${err.message}`)
     }
   }
 
-  if (!backendExplicit && selectedSlot === "cheap" && trinityMedium && Number(input?.stressScore || 0) > 0.5) {
-    applyCandidate("medium", trinityMedium, "stress", `stress ${Number(input?.stressScore || 0).toFixed(2)}`, true)
+  if (cascadeSelectedSlot === "cheap" && trinityMedium && Number(input?.stressScore || 0) > 0.5) {
+    applyLocalCandidate("medium", trinityMedium, "stress", `stress ${Number(input?.stressScore || 0).toFixed(2)}`, true)
+  }
+
+  if (!backendRoute?.target) {
+    selectedModel = cascadeSelectedModel
+    selectedSlot = cascadeSelectedSlot
+    source = cascadeSource
+    reason = cascadeReason
   }
 
   const routePath = _routePathForSlot(cascadeRoot, selectedSlot)
+  const cascadeRoutePath = _routePathForSlot(cascadeRoot, cascadeSelectedSlot)
   const selectedSubagent = taskSubagentTypeForSlot(selectedSlot)
+  const cascadeSelectedSubagent = taskSubagentTypeForSlot(cascadeSelectedSlot)
   const requiresDelegation = selectedSlot === "medium" || selectedSlot === "brain"
   return {
     selectedModel,
@@ -403,6 +415,10 @@ export function resolveCascadeRouteDecision(input: unknown = {}): unknown {
     cascadeDepth: routePath.length || 1,
     cascadeRoot,
     routePath,
+    cascadeSelectedModel,
+    cascadeSelectedSlot,
+    cascadeSelectedSubagent,
+    cascadeRoutePath,
     backendTarget: backendRoute?.target || null,
     backendExplicit,
     localConfidence,
@@ -723,8 +739,9 @@ export const onToolExecuteBefore = async (input, output) => {
             console.error(`[vibeOS] 🕸 ML graph: ${_firstWord} → ${mlGraphPrediction} (${graphNode.count} samples)`)
           }
         }
-        const _mlTier = routeDecision.selectedSlot || (classify(_target) === "budget" ? "cheap" : classify(_target) === "mid" ? "medium" : classify(_target))
-        addRouteEdge(_mlGraph, _firstWord, _target, _mlTier, true)
+        const _cascadeTarget = routeDecision?.cascadeSelectedModel || _target
+        const _mlTier = routeDecision?.cascadeSelectedSlot || routeDecision.selectedSlot || (classify(_cascadeTarget) === "budget" ? "cheap" : classify(_cascadeTarget) === "mid" ? "medium" : classify(_cascadeTarget))
+        addRouteEdge(_mlGraph, _firstWord, _cascadeTarget, _mlTier, true)
       } catch (mlErr) {
         console.error(`[vibeOS] ML router error: ${mlErr.message}`)
       }
