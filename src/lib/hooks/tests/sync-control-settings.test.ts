@@ -1,9 +1,9 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 
-const mapCV = (cv) => {
+const mapCV = (cv: Record<string, any> | null | undefined): Record<string, any> | null => {
   if (!cv) return null
-  const out = {}
+  const out: Record<string, any> = {}
   out.delegation_enforce = cv.enforcement_mode !== "relaxed"
   if (cv.flow_mode === "audit") {
     out.flow_enabled = false; out.flow_enforce = false

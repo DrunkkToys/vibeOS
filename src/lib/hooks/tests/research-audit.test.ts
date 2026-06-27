@@ -53,7 +53,7 @@ describe('researchAudit', () => {
   });
 
   it('handles session filter without crashing', () => {
-    const result = researchAudit({ hours: 24, session: 'nonexistent-session-id' });
+    const result = researchAudit({ hours: 24, session: 'nonexistent-session-id' } as any);
     assert.ok(result);
     assert.equal(typeof result.totalFetches, 'number');
     assert.ok(Array.isArray(result.chains));

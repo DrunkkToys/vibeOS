@@ -5,7 +5,7 @@ import { PROTOCOL_MARKER, PROTOCOL_TEXT } from '../../constants.js';
 
 describe('injectWBP', () => {
   it('Adds WBP text after completed task', () => {
-    const messages = [
+    const messages: any[] = [
       {
         info: { role: 'user' },
         parts: [
@@ -26,7 +26,7 @@ describe('injectWBP', () => {
   });
 
   it('No task tool -> no injection', () => {
-    const messages = [
+    const messages: any[] = [
       {
         info: { role: 'user' },
         parts: [{ type: 'tool', tool: 'read', state: { status: 'completed' } }]
@@ -42,7 +42,7 @@ describe('injectWBP', () => {
   });
 
   it('Already has WBP -> no double injection', () => {
-    const messages = [
+    const messages: any[] = [
       {
         info: { role: 'user' },
         parts: [
@@ -64,7 +64,7 @@ describe('injectWBP', () => {
   });
 
   it('No text part in next msg', () => {
-    const messages = [
+    const messages: any[] = [
       {
         info: { role: 'user' },
         parts: [
@@ -88,7 +88,7 @@ describe('injectWBP', () => {
   });
 
   it('Non-array parts -> skip gracefully', () => {
-    const messages = [
+    const messages: any[] = [
       {
         info: { role: 'user' },
         parts: undefined
@@ -103,7 +103,7 @@ describe('injectWBP', () => {
   });
 
   it('Incomplete task (status !== "completed")', () => {
-    const messages = [
+    const messages: any[] = [
       {
         info: { role: 'user' },
         parts: [
@@ -125,7 +125,7 @@ describe('injectWBP', () => {
   });
 
   it('Multiple tasks in sequence', () => {
-    const messages = [
+    const messages: any[] = [
       {
         info: { role: 'user' },
         parts: [
@@ -153,7 +153,7 @@ describe('injectWBP', () => {
   });
 
   it('Edge: last message cannot be checked', () => {
-    const messages = [
+    const messages: any[] = [
       {
         info: { role: 'user' },
         parts: [

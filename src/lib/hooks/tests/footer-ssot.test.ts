@@ -17,7 +17,7 @@ describe("footer SSOT — exactly one renderer", () => {
     // The degraded 3-segment line must be impossible to render. Deleting the
     // builder is what guarantees "only 1 footer".
     assert.equal(
-      sf.buildFallbackFooterLine,
+      (sf as Record<string, unknown>).buildFallbackFooterLine,
       undefined,
       "buildFallbackFooterLine must be removed — it is the alert-less line the user kept seeing",
     )
@@ -54,7 +54,7 @@ describe("footer SSOT — the one renderer never collapses to 3 segments", () =>
     assert.doesNotThrow(() => sf.buildResilientFooterLine({}))
     assert.doesNotThrow(() => sf.buildResilientFooterLine(null))
     assert.doesNotThrow(() => sf.buildResilientFooterLine(undefined))
-    assert.doesNotThrow(() => sf.buildResilientFooterLine({ ltTotal: "not-a-number", enfTags: null }))
+    assert.doesNotThrow(() => sf.buildResilientFooterLine({ ltTotal: "not-a-number", enfTags: null } as any))
     const line = sf.buildResilientFooterLine(undefined)
     assert.ok(line.includes("—"), "even with no input it returns the README footer wrapper")
   })

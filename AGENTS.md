@@ -58,7 +58,18 @@ Every feature in the README is a promised behavior. **If a proposed change touch
 
 **If you are unsure whether a change affects any of these features: STOP and ASK.**
 
+### Test-Verified Specification Contract
+
+**SPEC.md** is the formal, test-verified specification of every working feature.
+Every claim in SPEC.md is backed by test assertions (1621 pass, 0 fail).
+
+- **Before modifying any code**, read SPEC.md and verify your change does not break any listed behavior.
+- **After modifying code**, run the full test suite to prove no regressions.
+- **SPEC.md is the contract.** If you must change a verified behavior, update the tests first, then update SPEC.md.
+
 ---
+
+
 
 ## 🏗 ARCHITECTURE — DO NOT RESTRUCTURE
 

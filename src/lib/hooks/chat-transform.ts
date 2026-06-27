@@ -25,7 +25,8 @@ import {
   _cacheDb, recordCacheSaving, getOpenCodeHome, getVibeOSHome, safeCopyIntoSession,
 } from "../state.js"
 import { getOcSessionId } from "../runtime-state.js"
-import { nextTurn } from "../turn-memo.js"
+import { getLatestBlackboxLoopMsg, getLatestBlackboxPivotMsg } from "../turn-classify.js"
+import { nextTurn, getCurrentTurnGen } from "../turn-memo.js"
 import { evaluateClaimVerification } from "../claim-verification.js"
 import { projectTreeDirective, recordProjectFact } from "../project-tree.js"
 import {
@@ -219,8 +220,6 @@ let latestUserIntent = null
 // leaving every session frozen at INIT. getOcSessionId() guarantees read==write.
 const _OC_SID = getOcSessionId()
 let _latestBlackboxState = null
-let _latestBlackboxLoopMsg = null
-let _latestBlackboxPivotMsg = null
 let _prevOutputText = ""
 let _prevBlackboxRegime = null
 let _currentTemplate = DEFAULT_TEMPLATE
@@ -975,9 +974,14 @@ async function trackBlackbox(messages: unknown[]): Promise<void> {
     }
     saveBlackboxStateToCtx(state)
     _latestBlackboxState = localState
+    const enrichmentTurnGen = getCurrentTurnGen()
     fetchBlackboxEnrichment(sid, localState).then(enriched => {
-      if (enriched) _latestBlackboxState = enriched
-    }).catch(() => {})
+      // A later turn may have already started (and mutated _latestBlackboxState)
+      // by the time this resolves — don't clobber fresher state with a stale enrichment.
+      if (enriched && getCurrentTurnGen() === enrichmentTurnGen) _latestBlackboxState = enriched
+    }).catch(err => {
+      console.error("[vibeOS] fetchBlackboxEnrichment failed:", err?.message || err)
+    })
   } catch {}
 }
 
@@ -1508,11 +1512,11 @@ export const onSystemTransform = async (_input, output) => {
         if (res.is_looping && res.loop_intervention_level && res.loop_intervention_level !== "none") {
           const severity = res.loop_intervention_level === "escalated" ? "CRITICAL"
             : res.loop_intervention_level === "assertive" ? "WARNING" : "NOTICE"
-          pushSystem(output, "[loop prevention: " + severity + "] " + (_latestBlackboxLoopMsg || "The conversation may be looping — try a different approach.") + " " +
+          pushSystem(output, "[loop prevention: " + severity + "] " + (getLatestBlackboxLoopMsg() || "The conversation may be looping — try a different approach.") + " " +
             "(level: " + res.loop_intervention_level + ")")
         }
-        if (res.pivot_detected && _latestBlackboxPivotMsg) {
-          pushSystem(output, "[context switch: PIVOT] " + _latestBlackboxPivotMsg)
+        if (res.pivot_detected && getLatestBlackboxPivotMsg()) {
+          pushSystem(output, "[context switch: PIVOT] " + getLatestBlackboxPivotMsg())
         }
       }
     }

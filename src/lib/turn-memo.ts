@@ -42,3 +42,7 @@ export function nextTurn(): void {
     }
   }
 }
+
+export function getCurrentTurnGen(): number {
+  return _turnGen
+}
