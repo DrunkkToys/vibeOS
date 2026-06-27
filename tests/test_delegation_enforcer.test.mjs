@@ -29,14 +29,14 @@ before(() => {
   sandbox = mkdtempSync(join(tmpdir(), "delegation-test-"))
   mkdirSync(join(sandbox, ".claude/scratch"), { recursive: true })
   process.env.HOME = sandbox
-  process.env.VIBEOS_API_DISABLED = "1"
+  process.env.VIBEOS_API_BOOTSTRAP_TOKEN = "disabled"
   process.env.VIBEOS_HOME = join(sandbox, ".claude")
 })
 beforeEach(async () => {
   process.env.HOME = sandbox
   // kept set to sandbox from before()
   delete process.env.VIBEOS_OPENCODE_HOME
-  process.env.VIBEOS_API_DISABLED = "1"
+  process.env.VIBEOS_API_BOOTSTRAP_TOKEN = "disabled"
   rmSync(join(sandbox, ".claude/model-tiers.json"), { force: true })
   rmSync(join(sandbox, ".claude/delegation-state.json"), { force: true })
   rmSync(join(sandbox, ".claude/savings-ledger.jsonl"), { force: true })
