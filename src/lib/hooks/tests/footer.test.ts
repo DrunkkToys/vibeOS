@@ -18,8 +18,13 @@ describe('buildFooterAlert', () => {
     assert.equal(result, '')
   })
 
-  it('degraded: returns alert when apiDegraded is true', () => {
-    const result = buildFooterAlert({ apiDegraded: true })
+  it('slow: returns alert when apiSlow is true', () => {
+    const result = buildFooterAlert({ apiSlow: true })
+    assert.equal(result, '⚠ api slow')
+  })
+
+  it('degraded: returns alert when apiDegraded is true and an error exists', () => {
+    const result = buildFooterAlert({ apiDegraded: true, lastModelError: 'fetch failed' })
     assert.equal(result, '⚠ api degraded')
   })
 
@@ -49,6 +54,7 @@ describe('buildFooterAlert', () => {
   it('combined: renders multiple alerts joined by ·', () => {
     const result = buildFooterAlert({
       apiDegraded: true,
+      lastModelError: 'fetch failed',
       liveModel: 'deepseek/deepseek-chat',
       expectedModel: 'deepseek/deepseek-v4-flash',
     })

@@ -568,7 +568,8 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
     try {
       const pendingSwitch = getPendingLiveSwitch()
       _alertTag = buildFooterAlert({
-        apiDegraded: isApiLatencyDegraded(),
+        apiDegraded: isApiFallback(),
+        apiSlow: isApiLatencyDegraded(),
         liveModel: liveModelSetting || undefined,
         expectedModel: _expectedForAlert || undefined,
         lastModelError,
@@ -742,7 +743,8 @@ function _paintResilientFooter(output, directory, lastModelError?: string) {
     const pendingSwitch = getPendingLiveSwitch()
     const expected = slot === "brain" ? TRINITY_BRAIN : slot === "medium" ? TRINITY_MEDIUM : TRINITY_CHEAP
     alertTag = buildFooterAlert({
-      apiDegraded: isApiLatencyDegraded(),
+      apiDegraded: isApiFallback(),
+      apiSlow: isApiLatencyDegraded(),
       liveModel: liveModel || undefined,
       expectedModel: expected || undefined,
       lastModelError,
