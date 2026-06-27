@@ -1,4 +1,5 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
 import {
   normalizeSessionOrchestration,
   applySessionAction,
@@ -9,7 +10,7 @@ import {
   buildSessionDetail,
   buildDashboardHomeModel,
   resolveSessionTemplateOrDefault,
-} from '../session-orchestrator';
+} from '../session-orchestrator.js';
 
 describe('session-orchestrator', () => {
   it('normalizes session state and template metadata', () => {
@@ -21,12 +22,12 @@ describe('session-orchestrator', () => {
       template: { id: 'quality', body: '  write tests  ', revision: 2 },
     }, 'sid-1');
 
-    expect(session.session_id).toBe('sid-1');
-    expect(session.status).toBe('paused');
-    expect(session.locked).toBe(true);
-    expect(session.tags).toEqual(['ops', 'dashboard']);
-    expect(session.notes).toHaveLength(1);
-    expect(session.template?.body).toBe('write tests');
+    assert.equal(session.session_id, 'sid-1');
+    assert.equal(session.status, 'paused');
+    assert.equal(session.locked, true);
+    assert.deepEqual(session.tags, ['ops', 'dashboard']);
+    assert.equal(session.notes.length, 1);
+    assert.equal(session.template?.body, 'write tests');
   });
 
   it('applies actions, versions history, and supports undo', () => {
@@ -39,11 +40,11 @@ describe('session-orchestrator', () => {
     const paused = applySessionAction(retagged, 'pause');
     const undone = applySessionAction(paused, 'undo');
 
-    expect(annotated.version).toBe(started.version + 1);
-    expect(retagged.tags).toEqual(['api', 'dashboard']);
-    expect(paused.status).toBe('paused');
-    expect(undone.status).toBe(retagged.status);
-    expect(undone.tags).toEqual(retagged.tags);
+    assert.equal(annotated.version, started.version + 1);
+    assert.deepEqual(retagged.tags, ['api', 'dashboard']);
+    assert.equal(paused.status, 'paused');
+    assert.equal(undone.status, retagged.status);
+    assert.deepEqual(undone.tags, retagged.tags);
   });
 
   it('compares and exports session state consistently', () => {
@@ -51,14 +52,14 @@ describe('session-orchestrator', () => {
     const right = normalizeSessionOrchestration({ session_id: 'right', status: 'archived', locked: true, tags: ['api', 'dashboard'] }, 'right');
     const compare = compareSessionOrchestrations(left, right);
 
-    expect(compare.status_changed).toBe(true);
-    expect(compare.lock_changed).toBe(true);
-    expect(compare.tag_diff.added).toEqual(['dashboard']);
+    assert.equal(compare.status_changed, true);
+    assert.equal(compare.lock_changed, true);
+    assert.deepEqual(compare.tag_diff.added, ['dashboard']);
 
     const exported = exportSessionOrchestration(right, 'right');
     const imported = importSessionOrchestration(exported, 'right');
-    expect(imported.session_id).toBe('right');
-    expect(imported.status).toBe('archived');
+    assert.equal(imported.session_id, 'right');
+    assert.equal(imported.status, 'archived');
   });
 
   it('builds list, detail, and dashboard models with real content', () => {
@@ -87,13 +88,13 @@ describe('session-orchestrator', () => {
       currentProjectName: 'demo-project',
     });
 
-    expect(listItem.recommendation).toContain('Resume');
-    expect(detail.title).toBe('Active Session');
-    expect(detail.recommendation).toContain('Resume');
-    expect(resolveSessionTemplateOrDefault(detail.orchestration?.template).id).toBe('quality');
-    expect(dashboard.home.title).toBe('Executive Summary');
-    expect(dashboard.current_session.session_id).toBe('sid-current');
-    expect(dashboard.current_session.recommendation).toContain('Resume');
-    expect(dashboard.home.cards[0].value).toBe('sid-current');
+    assert.ok(listItem.recommendation.includes('Resume'));
+    assert.equal(detail.title, 'Active Session');
+    assert.ok(detail.recommendation.includes('Resume'));
+    assert.equal(resolveSessionTemplateOrDefault(detail.orchestration?.template).id, 'quality');
+    assert.equal(dashboard.home.title, 'Executive Summary');
+    assert.equal(dashboard.current_session.session_id, 'sid-current');
+    assert.ok(dashboard.current_session.recommendation.includes('Resume'));
+    assert.equal(dashboard.home.cards[0].value, 'sid-current');
   });
 });

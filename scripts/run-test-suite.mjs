@@ -27,7 +27,11 @@ function collectTestFiles(dir, suffix) {
   return results
 }
 
-const tests = [
+function toCompiledTestPath(srcPath) {
+  return join("dist-ts-tests", srcPath.replace(/\.ts$/, ".js"))
+}
+
+const rawTests = [
   ...collectTestFiles("tests", ".test.mjs"),
   ...collectTestFiles("src/tests", ".test.js"),
   ...collectTestFiles("src/utils/tests", ".test.mjs"),
@@ -37,6 +41,17 @@ const tests = [
   ...collectTestFiles("scripts/tests", ".test.mjs"),
   ...collectTestFiles("scripts/tests", ".test.js"),
 ]
+
+const tsTests = [
+  ...collectTestFiles("tests", ".test.ts"),
+  ...collectTestFiles("src/lib/tests", ".test.ts"),
+  ...collectTestFiles("src/lib/hooks/tests", ".test.ts"),
+  ...collectTestFiles("src/utils/tests", ".test.ts"),
+  ...collectTestFiles("src/vibeOS-lib/tests", ".test.ts"),
+  ...collectTestFiles("scripts/tests", ".test.ts"),
+].map(toCompiledTestPath)
+
+const tests = [...rawTests, ...tsTests]
 
 const loader = pathToFileURL(join(process.cwd(), "scripts", "ts-src-loader.mjs")).href
 const args = ["--loader", loader, "--test", `--test-timeout=${timeout}`]

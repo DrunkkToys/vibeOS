@@ -1,30 +1,18 @@
 // [vibeOS-enforced] Skeleton test — replace with real assertions
-import { test, expect, describe, it } from 'vitest';
-import * as mod from '../session-compact';
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import * as mod from '../session-compact.js';
 
 describe('session-compact', () => {
   it('smoke: module loads', () => {
-    expect(mod).toBeDefined();
+    assert.notEqual(mod, undefined);
   });
 
-  // TODO: implement tests for onSessionCompacting
   it('onSessionCompacting is exported', () => {
-    expect(typeof mod.onSessionCompacting).toBe('function');
+    assert.equal(typeof mod.onSessionCompacting, 'function');
   });
 
-  it('should onSessionCompacting with valid input', () => {
-    // TODO: implement should onSessionCompacting with valid input
-    expect(true).toBe(true);
-  });
-
-  it('should handle invalid input for onSessionCompacting', () => {
-    // TODO: implement should handle invalid input for onSessionCompacting
-    expect(true).toBe(true);
-  });
-
-  it('should handle edge cases in onSessionCompacting', () => {
-    // TODO: implement should handle edge cases in onSessionCompacting
-    expect(true).toBe(true);
-  });
-
+  it.todo('should onSessionCompacting with valid input');
+  it.todo('should handle invalid input for onSessionCompacting');
+  it.todo('should handle edge cases in onSessionCompacting');
 });
