@@ -204,7 +204,8 @@ export function buildFooterAlert(opts: {
   expectedModel?: string
   lastModelError?: string
   pendingLiveModel?: string
-} = {}): string {
+} | null = {}): string {
+  opts = opts || {}
   const alerts: string[] = []
   if (opts.apiDegraded) alerts.push("⚠ api degraded")
   const expectedToCompare = opts.pendingLiveModel || opts.expectedModel

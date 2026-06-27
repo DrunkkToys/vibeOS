@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, it } from "node:test"
+import assert from "node:assert/strict"
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 
@@ -9,23 +10,23 @@ let hadDashboardConfig = false
 
 describe("vibeos-mcp-server", () => {
   it("writes the dashboard base config and strips trailing slashes", async () => {
-    const mod = await import("../vibeos-mcp-server")
+    const mod = await import("../vibeos-mcp-server.js")
     hadDashboardConfig = existsSync(DASHBOARD_CONFIG_PATH)
     originalDashboardConfig = hadDashboardConfig ? readFileSync(DASHBOARD_CONFIG_PATH, "utf8") : ""
 
     try {
       const written = mod.writeDashboardBaseConfig("http://127.0.0.1:9123/")
 
-      expect(written).toBe(DASHBOARD_CONFIG_PATH)
-      expect(readFileSync(DASHBOARD_CONFIG_PATH, "utf8")).toContain("http://127.0.0.1:9123")
-      expect(readFileSync(DASHBOARD_CONFIG_PATH, "utf8")).not.toContain("9123/")
+      assert.equal(written, DASHBOARD_CONFIG_PATH)
+      assert.ok(readFileSync(DASHBOARD_CONFIG_PATH, "utf8").includes("http://127.0.0.1:9123"))
+      assert.ok(!readFileSync(DASHBOARD_CONFIG_PATH, "utf8").includes("9123/"))
     } finally {
       if (hadDashboardConfig) writeFileSync(DASHBOARD_CONFIG_PATH, originalDashboardConfig, "utf8")
     }
   })
 
   it("creates a server that answers /health", async () => {
-    const mod = await import("../vibeos-mcp-server")
+    const mod = await import("../vibeos-mcp-server.js")
     const serverApi = mod.createMcpServer({
       getState: () => ({}),
       getSavings: () => ({}),
@@ -51,8 +52,8 @@ describe("vibeos-mcp-server", () => {
     const res = await fetch(`http://127.0.0.1:${port}/health`)
     const body = await res.json()
 
-    expect(res.status).toBe(200)
-    expect(body).toEqual({ ok: true })
+    assert.equal(res.status, 200)
+    assert.deepEqual(body, { ok: true })
 
     await serverApi.close()
   })

@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, describe, it } from "node:test"
+import assert from "node:assert/strict"
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
@@ -12,7 +13,7 @@ const ENV_KEYS = [
   "VIBEOS_API_BOOTSTRAP_TOKEN",
 ]
 
-async function withFreshApiClient<T>(fn: (mod: typeof import("../api-client")) => Promise<T> | T): Promise<T> {
+async function withFreshApiClient<T>(fn: (mod: typeof import("../api-client.js")) => Promise<T> | T): Promise<T> {
   const sandbox = mkdtempSync(join(tmpdir(), "vibeos-api-client-"))
   mkdirSync(join(sandbox, ".claude"), { recursive: true })
   const prevEnv = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]))
@@ -25,8 +26,7 @@ async function withFreshApiClient<T>(fn: (mod: typeof import("../api-client")) =
     delete process.env.VIBEOS_API_BOOTSTRAP_TOKEN
     delete (globalThis as Record<string, unknown>).__vibeOSRuntimeState
 
-    vi.resetModules()
-    const mod = await import("../api-client.js")
+    const mod = await import("../api-client.js?fresh=" + Date.now() + "-" + Math.random())
     return await fn(mod)
   } finally {
     for (const key of ENV_KEYS) {
@@ -46,46 +46,46 @@ describe("api-client", () => {
 
   it("exports the expected surface", async () => {
     await withFreshApiClient(async (mod) => {
-      expect(typeof mod.setAnomalyDetection).toBe("function")
-      expect(typeof mod.setApiToken).toBe("function")
-      expect(typeof mod.invalidateApiToken).toBe("function")
-      expect(typeof mod.setApiBootstrapToken).toBe("function")
-      expect(typeof mod.ensureBootstrapExchange).toBe("function")
-      expect(typeof mod.getApiClient).toBe("function")
-      expect(typeof mod.isApiFallback).toBe("function")
-      expect(typeof mod.isApiConnected).toBe("function")
-      expect(typeof mod.getBackendVersion).toBe("function")
-      expect(typeof mod.remoteCall).toBe("function")
-      expect(typeof mod.VIBEOS_API_URL).toBe("string")
+      assert.equal(typeof mod.setAnomalyDetection, "function")
+      assert.equal(typeof mod.setApiToken, "function")
+      assert.equal(typeof mod.invalidateApiToken, "function")
+      assert.equal(typeof mod.setApiBootstrapToken, "function")
+      assert.equal(typeof mod.ensureBootstrapExchange, "function")
+      assert.equal(typeof mod.getApiClient, "function")
+      assert.equal(typeof mod.isApiFallback, "function")
+      assert.equal(typeof mod.isApiConnected, "function")
+      assert.equal(typeof mod.getBackendVersion, "function")
+      assert.equal(typeof mod.remoteCall, "function")
+      assert.equal(typeof mod.VIBEOS_API_URL, "string")
     })
   })
 
   it("toggles anomaly detection without throwing", async () => {
     await withFreshApiClient(async (mod) => {
-      expect(() => mod.setAnomalyDetection(false)).not.toThrow()
-      expect(() => mod.setAnomalyDetection(true)).not.toThrow()
+      assert.doesNotThrow(() => mod.setAnomalyDetection(false))
+      assert.doesNotThrow(() => mod.setAnomalyDetection(true))
     })
   })
 
   it("keeps the API lifecycle coherent in a fresh sandbox", async () => {
     await withFreshApiClient(async (mod) => {
       mod.invalidateApiToken()
-      await expect(mod.ensureBootstrapExchange()).resolves.toBe(false)
+      assert.equal(await mod.ensureBootstrapExchange(), false)
 
       mod.setApiToken("vos_" + "a".repeat(64))
-      expect(mod.VIBEOS_API_TOKEN).toMatch(/^vos_[a-f0-9]{64}$/i)
-      expect(mod.VIBEOS_API_ENABLED).toBe(true)
-      expect(mod.isApiConnected()).toBe(true)
-      expect(mod.getApiClient()).toBeDefined()
+      assert.match(mod.VIBEOS_API_TOKEN, /^vos_[a-f0-9]{64}$/i)
+      assert.equal(mod.VIBEOS_API_ENABLED, true)
+      assert.equal(mod.isApiConnected(), true)
+      assert.notEqual(mod.getApiClient(), undefined)
 
       mod.setApiBootstrapToken("vos_" + "b".repeat(64))
-      expect(mod.VIBEOS_API_BOOTSTRAP_TOKEN).toMatch(/^vos_[a-f0-9]{64}$/i)
-      expect(mod.VIBEOS_API_ENABLED).toBe(true)
+      assert.match(mod.VIBEOS_API_BOOTSTRAP_TOKEN, /^vos_[a-f0-9]{64}$/i)
+      assert.equal(mod.VIBEOS_API_ENABLED, true)
 
       mod.invalidateApiToken()
-      expect(mod.VIBEOS_API_DISABLED).toBe(true)
-      expect(mod.isApiConnected()).toBe(false)
-      expect(mod.isApiFallback()).toBe(true)
+      assert.equal(mod.VIBEOS_API_DISABLED, true)
+      assert.equal(mod.isApiConnected(), false)
+      assert.equal(mod.isApiFallback(), true)
     })
   })
 
@@ -107,15 +107,14 @@ describe("api-client", () => {
       delete process.env.VIBEOS_API_BOOTSTRAP_TOKEN
       delete (globalThis as Record<string, unknown>).__vibeOSRuntimeState
 
-      vi.resetModules()
       const mod = await import("../api-client.js?home-source=" + Date.now())
-      expect(mod.VIBEOS_API_DISABLED).toBe(false)
-      expect(mod.VIBEOS_API_TOKEN).toBe("")
+      assert.equal(mod.VIBEOS_API_DISABLED, false)
+      assert.equal(mod.VIBEOS_API_TOKEN, "")
 
       mod.setApiToken(`vos_${"d".repeat(64)}`)
-      expect(readFileSync(join(vibeHome, ".env.production"), "utf8")).toContain(`vos_${"d".repeat(64)}`)
-      expect(readFileSync(join(legacyHome, ".env.production"), "utf8")).toContain(`vos_${"c".repeat(64)}`)
-      expect(existsSync(join(vibeHome, ".env.alpha"))).toBe(false)
+      assert.ok(readFileSync(join(vibeHome, ".env.production"), "utf8").includes(`vos_${"d".repeat(64)}`))
+      assert.ok(readFileSync(join(legacyHome, ".env.production"), "utf8").includes(`vos_${"c".repeat(64)}`))
+      assert.equal(existsSync(join(vibeHome, ".env.alpha")), false)
     } finally {
       for (const key of ENV_KEYS) {
         const prev = prevEnv[key]

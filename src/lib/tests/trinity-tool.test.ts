@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest"
+import { describe, it } from "node:test"
+import assert from "node:assert/strict"
 import { mkdtempSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
@@ -122,34 +123,34 @@ function makeDeps() {
 
 describe("trinity-tool", () => {
   it("exposes the tool shell", async () => {
-    const { createTrinityTool } = await import("../trinity-tool")
+    const { createTrinityTool } = await import("../trinity-tool.js")
     const tool = createTrinityTool(makeDeps().deps as any)
 
-    expect(typeof tool.execute).toBe("function")
-    expect(tool.description).toContain("Control the vibeOS plugin")
+    assert.equal(typeof tool.execute, "function")
+    assert.ok(tool.description.includes("Control the vibeOS plugin"))
   })
 
   it("uses the published dashboard URL before attempting startup", async () => {
-    const { createTrinityTool } = await import("../trinity-tool")
+    const { createTrinityTool } = await import("../trinity-tool.js")
     const ctx = makeDeps()
     const tool = createTrinityTool(ctx.deps as any)
 
     const out = await tool.execute({ action: "dashboard" })
 
-    expect(out).toContain("http://127.0.0.1:63342/")
-    expect(out).toContain("Dashboard:")
+    assert.ok(out.includes("http://127.0.0.1:63342/"))
+    assert.ok(out.includes("Dashboard:"))
   })
 
   it("switches a slot through applySlot and persists for next session", async () => {
-    const { createTrinityTool } = await import("../trinity-tool")
+    const { createTrinityTool } = await import("../trinity-tool.js")
     const ctx = makeDeps()
     const tool = createTrinityTool(ctx.deps as any)
 
     const out = await tool.execute({ action: "set", slot: "cheap", model: "opencode/big-pickle" })
 
-    expect(out).toContain("Updated cheap slot")
-    expect(out).toContain("Takes effect next session")
-    expect(ctx.calls.some((call) => call[0] === "applySlot" && call[1] === "cheap")).toBe(true)
-    expect(ctx.calls.some((call) => call[0] === "refresh")).toBe(true)
+    assert.ok(out.includes("Updated cheap slot"))
+    assert.ok(out.includes("Takes effect next session"))
+    assert.equal(ctx.calls.some((call) => call[0] === "applySlot" && call[1] === "cheap"), true)
+    assert.equal(ctx.calls.some((call) => call[0] === "refresh"), true)
   })
 })

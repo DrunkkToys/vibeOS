@@ -9,6 +9,7 @@ FEATURES.md
 # Generated / build
 dist/
 dist-ts/
+dist-ts-tests/
 src/dashboard/dist/
 src/dashboard/node_modules/
 src/index.js

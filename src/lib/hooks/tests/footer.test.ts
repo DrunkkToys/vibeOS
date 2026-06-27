@@ -1,10 +1,11 @@
-import { test, expect, describe, it } from 'vitest';
-import { buildFooterAlert } from '../shared-footer';
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { buildFooterAlert } from '../shared-footer.js';
 
 describe('buildFooterAlert', () => {
   it('all-clear: returns empty string when nothing is wrong', () => {
     const result = buildFooterAlert({})
-    expect(result).toBe('')
+    assert.equal(result, '')
   })
 
   it('all-clear: returns empty string when all fields are clean', () => {
@@ -14,12 +15,12 @@ describe('buildFooterAlert', () => {
       expectedModel: 'deepseek/deepseek-v4-flash',
       lastModelError: '',
     })
-    expect(result).toBe('')
+    assert.equal(result, '')
   })
 
   it('degraded: returns alert when apiDegraded is true', () => {
     const result = buildFooterAlert({ apiDegraded: true })
-    expect(result).toBe('⚠ api degraded')
+    assert.equal(result, '⚠ api degraded')
   })
 
   it('drift: returns alert when live model does not match expected', () => {
@@ -27,22 +28,22 @@ describe('buildFooterAlert', () => {
       liveModel: 'deepseek/deepseek-chat',
       expectedModel: 'deepseek/deepseek-v4-flash',
     })
-    expect(result).toBe('⚠ model drift')
+    assert.equal(result, '⚠ model drift')
   })
 
   it('unreachable: returns alert when lastModelError contains EHOSTUNREACH', () => {
     const result = buildFooterAlert({ lastModelError: 'fetch failed: EHOSTUNREACH' })
-    expect(result).toBe('⚠ model unreachable')
+    assert.equal(result, '⚠ model unreachable')
   })
 
   it('unreachable: returns alert when lastModelError contains ENOTFOUND', () => {
     const result = buildFooterAlert({ lastModelError: 'getaddrinfo ENOTFOUND api.example.com' })
-    expect(result).toBe('⚠ model unreachable')
+    assert.equal(result, '⚠ model unreachable')
   })
 
   it('unreachable: returns alert when lastModelError contains ETIMEDOUT', () => {
     const result = buildFooterAlert({ lastModelError: 'connect ETIMEDOUT 1.2.3.4:443' })
-    expect(result).toBe('⚠ model unreachable')
+    assert.equal(result, '⚠ model unreachable')
   })
 
   it('combined: renders multiple alerts joined by ·', () => {
@@ -51,11 +52,15 @@ describe('buildFooterAlert', () => {
       liveModel: 'deepseek/deepseek-chat',
       expectedModel: 'deepseek/deepseek-v4-flash',
     })
-    expect(result).toBe('⚠ api degraded · ⚠ model drift')
+    assert.equal(result, '⚠ api degraded · ⚠ model drift')
   })
 
-  it('no throw: returns empty string on null/undefined input', () => {
-    expect(() => buildFooterAlert(null as any)).not.toThrow()
-    expect(() => buildFooterAlert(undefined as any)).not.toThrow()
+  it('no throw: returns empty string on undefined input', () => {
+    assert.doesNotThrow(() => buildFooterAlert(undefined as any))
+  })
+
+  it('no throw: returns empty string on null input', () => {
+    assert.doesNotThrow(() => buildFooterAlert(null as any))
+    assert.equal(buildFooterAlert(null as any), '')
   })
 })
