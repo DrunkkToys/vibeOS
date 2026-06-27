@@ -58,7 +58,10 @@ try {
 
     if (vibeHomeDir) {
       mkdirSync(vibeHomeDir, { recursive: true })
-      writeFileSync(join(vibeHomeDir, ".env.production"), envContent)
+      const vibeEnvPath = join(vibeHomeDir, ".env.production")
+      if (!existsSync(vibeEnvPath)) {
+        writeFileSync(vibeEnvPath, envContent)
+      }
     }
     for (const home of resolveOpenCodeHomes()) {
       const pluginEnvDir = join(home, "plugins")
