@@ -24,7 +24,7 @@ function run(script) {
   const s = sb(); const r = join(s.dir, "r.mjs"); writeFileSync(r, script);
   try {
     const out = execFileSync(process.execPath, ["--experimental-vm-modules", r], {
-      env: { ...process.env, HOME: s.fakeHome, USERPROFILE: s.fakeHome, VIBEOS_TEST_MODE: "1", NODE_OPTIONS: "" },
+      env: { ...process.env, HOME: s.fakeHome, USERPROFILE: s.fakeHome, VIBEOS_TEST_MODE: "1", NODE_OPTIONS: process.env.NODE_OPTIONS || "" },
       cwd: ROOT, timeout: 15000, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"],
     });
     return { stdout: out.trim(), code: 0 };
