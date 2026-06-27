@@ -52,7 +52,6 @@ beforeEach(async () => {
   if (typeof fresh.setCurrentTier === "function") fresh.setCurrentTier(null)
   if (typeof fresh._resetToolExecuteStateForTest === "function") fresh._resetToolExecuteStateForTest()
   if (typeof fresh._resetSelectionCacheForTest === "function") fresh._resetSelectionCacheForTest()
-  if (typeof fresh._resetTrinitySlotsForTest === "function") fresh._resetTrinitySlotsForTest()
   if (typeof fresh._resetCostAnomalyDetectorForTest === "function") fresh._resetCostAnomalyDetectorForTest()
 })
 
@@ -71,7 +70,6 @@ async function loadPlugin() {
   const mod = await freshImport("../src/index.js")
   if (typeof mod._resetToolExecuteStateForTest === "function") mod._resetToolExecuteStateForTest()
   if (typeof mod._resetSelectionCacheForTest === "function") mod._resetSelectionCacheForTest()
-  if (typeof mod._resetTrinitySlotsForTest === "function") mod._resetTrinitySlotsForTest()
   if (typeof mod._resetCostAnomalyDetectorForTest === "function") mod._resetCostAnomalyDetectorForTest()
   return mod
 }
