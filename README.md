@@ -463,3 +463,4 @@ Controls: `vibe status` for full state, `vibe enable/disable` to toggle. Persist
 ---
 
 *vibe help is the canonical command reference. This README stays high-level so command details follow the code without a rewrite.*
+
