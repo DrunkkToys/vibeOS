@@ -2,7 +2,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-const mod = await import('../../api-client.js');
+const mod: any = await import('../../api-client.js');
 
 const noop = () => null;
 
