@@ -565,15 +565,14 @@ export const VIBEOS_API_URL = process.env.VIBEOS_API_URL || "https://api.vibethe
 
 const _apiDir = typeof __dirname !== "undefined" ? __dirname : dirname(fileURLToPath(import.meta.url))
 const _vibeHome = getVibeOSHome()
-const _homeClaude = join(process.env.HOME || homedir(), ".claude")
-const _envPaths = Array.from(new Set([_homeClaude, _vibeHome, _apiDir, process.cwd(), homedir()]))
-let _apiPersistHome = _vibeHome || _homeClaude
+const _envPaths = Array.from(new Set([_vibeHome, _apiDir, process.cwd(), homedir()]))
+let _apiPersistHome = _vibeHome
 function _setApiPersistHome(dir: string): void {
   const next = String(dir || "").trim()
   if (next) _apiPersistHome = next
 }
 function _primaryApiEnvPath(): string {
-  return _apiPersistHome || _vibeHome || _homeClaude
+  return _apiPersistHome || _vibeHome
 }
 function _bootstrapEnvPath(): string {
   return _primaryApiEnvPath() + "/.env.alpha"
@@ -587,27 +586,12 @@ function readPrimaryEnvFile(): string | null {
   }
 }
 
-function readFirstFallbackEnvFile(): string | null {
-  for (const dir of _envPaths) {
-    if (dir === _primaryApiEnvPath()) continue
-    try {
-      return readFileSync(dir + "/.env.production", "utf8")
-    } catch {}
-  }
-  return null
-}
-
 function readApiDisabledFromDisk(): boolean {
   const primary = readPrimaryEnvFile()
   if (primary !== null) {
     const m = primary.match(/^VIBEOS_API_DISABLED=(.+)$/m)
     if (m) return isTruthyFlag(m[1])
     return false
-  }
-  const fallback = readFirstFallbackEnvFile()
-  if (fallback !== null) {
-    const m = fallback.match(/^VIBEOS_API_DISABLED=(.+)$/m)
-    if (m && isTruthyFlag(m[1])) return true
   }
   return false
 }
@@ -619,17 +603,6 @@ function readTokenFromDisk(): string {
     const m = primary.match(/^VIBEOS_API_TOKEN=(.+)$/m)
     if (m) return normalizeDirectApiToken(m[1])
     return ""
-  }
-  const fallback = readFirstFallbackEnvFile()
-  if (fallback !== null) {
-    const m = fallback.match(/^VIBEOS_API_TOKEN=(.+)$/m)
-    if (m) {
-      const clean = normalizeDirectApiToken(m[1])
-      if (clean) {
-        _setApiPersistHome(_primaryApiEnvPath())
-        return clean
-      }
-    }
   }
   return ""
 }
@@ -707,7 +680,7 @@ export function setApiToken(newToken) {
     VIBEOS_API_TOKEN = normalizeDirectApiToken(newToken)
     VIBEOS_API_BOOTSTRAP_TOKEN = readBootstrapTokenFromDisk() || VIBEOS_API_BOOTSTRAP_TOKEN
     syncApiEnabledState(!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN)
-    _apiPersistHome = _vibeHome || _homeClaude
+    _apiPersistHome = _vibeHome
     _apiClientGen++
     _apiClientHolder = { client: null, gen: _apiClientGen, tokenSnapshot: VIBEOS_API_TOKEN }
     _apiFallbackMode = false
@@ -748,7 +721,7 @@ export function setApiBootstrapToken(newToken) {
     VIBEOS_API_DISABLED = false
     VIBEOS_API_BOOTSTRAP_TOKEN = String(newToken || "").trim()
     syncApiEnabledState(!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN)
-    _apiPersistHome = _vibeHome || _homeClaude
+    _apiPersistHome = _vibeHome
     markApiConnected()
     _apiLatencyDegradedUntil = 0
     persistPrimaryApiEnvState({ disabled: false })

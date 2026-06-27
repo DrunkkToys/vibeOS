@@ -6,8 +6,22 @@ import assert from "node:assert/strict"
 import { execSync } from "node:child_process"
 import { existsSync, mkdtempSync, rmSync, readFileSync } from "node:fs"
 import { join } from "node:path"
+import { installVibeSkill } from "../scripts/lib/vibe-skill.mjs"
 
 const ROOT = new URL("..", import.meta.url).pathname
+
+test("integration: /vibe skill installer writes directly under OpenCode home", () => {
+  const sandbox = mkdtempSync("/tmp/vibeos-skill-home-")
+  try {
+    const openCodeHome = join(sandbox, ".opencode")
+    const result = installVibeSkill(openCodeHome)
+    assert.equal(result.path, join(openCodeHome, "skills", "vibe", "SKILL.md"))
+    assert.equal(existsSync(result.path), true)
+    assert.equal(existsSync(join(openCodeHome, ".opencode", "skills", "vibe", "SKILL.md")), false)
+  } finally {
+    rmSync(sandbox, { recursive: true, force: true })
+  }
+})
 
 test("integration: npm pack creates tarball with bin/setup.js", () => {
   const sandbox = mkdtempSync("/tmp/vibeos-pack-")

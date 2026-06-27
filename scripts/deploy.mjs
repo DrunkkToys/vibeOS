@@ -54,12 +54,8 @@ try {
   const envSrc = join(ROOT, ".env.production")
   if (existsSync(envSrc)) {
     const envContent = readFileSync(envSrc)
-    const homeEnvDir = join(homedir(), ".claude")
-    const homeEnvDest = join(homeEnvDir, ".env.production")
     const vibeHomeDir = process.env.VIBEOS_HOME?.trim()
 
-    mkdirSync(homeEnvDir, { recursive: true })
-    writeFileSync(homeEnvDest, envContent)
     if (vibeHomeDir) {
       mkdirSync(vibeHomeDir, { recursive: true })
       writeFileSync(join(vibeHomeDir, ".env.production"), envContent)
@@ -69,7 +65,7 @@ try {
       mkdirSync(pluginEnvDir, { recursive: true })
       writeFileSync(join(pluginEnvDir, ".env.production"), envContent)
     }
-    process.stderr.write(`[vibeOS deploy] Synced .env.production to plugin dirs and ~/.claude\n`)
+    process.stderr.write(`[vibeOS deploy] Synced .env.production to plugin dirs${vibeHomeDir ? " and VIBEOS_HOME" : ""}\n`)
   }
 
   // ── Install nightly pricing sync cron if not already present ──
@@ -78,7 +74,8 @@ try {
     try {
       const { execSync } = await import("node:child_process")
       const CRON_MARKER = "# vibeOS nightly pricing sync"
-      const CRON_LINE = "0 0 * * * " + join(ROOT, "scripts", "nightly-experiment-cron.sh") + " >> " + join(homedir(), ".claude", "pricing-sync-cron.log") + " 2>&1"
+      const cronLogDir = process.env.VIBEOS_HOME?.trim() || join(homedir(), ".claude")
+      const CRON_LINE = "0 0 * * * " + join(ROOT, "scripts", "nightly-experiment-cron.sh") + " >> " + join(cronLogDir, "pricing-sync-cron.log") + " 2>&1"
       let currentCrontab = ""
       try { currentCrontab = execSync("crontab -l 2>/dev/null || true", { encoding: "utf8" }) } catch (e) { /* no crontab yet */ }
       if (!currentCrontab.includes(CRON_MARKER)) {
@@ -91,7 +88,8 @@ try {
       if (process.platform === "darwin") {
         process.stderr.write("[vibeOS deploy]   macOS: grant Full Disk Access in System Settings > Privacy > Full Disk Access, then re-run deploy.\n")
       } else {
-        process.stderr.write("[vibeOS deploy]   Linux: crontab -e and add '0 0 * * * " + join(ROOT, "scripts", "nightly-experiment-cron.sh") + " >> " + join(homedir(), ".claude", "pricing-sync-cron.log") + " 2>&1'\n")
+        const cronLogDir = process.env.VIBEOS_HOME?.trim() || join(homedir(), ".claude")
+        process.stderr.write("[vibeOS deploy]   Linux: crontab -e and add '0 0 * * * " + join(ROOT, "scripts", "nightly-experiment-cron.sh") + " >> " + join(cronLogDir, "pricing-sync-cron.log") + " 2>&1'\n")
       }
       process.stderr.write("[vibeOS deploy]   24h pricing sync is recommended to keep model cost data current.\n")
     }

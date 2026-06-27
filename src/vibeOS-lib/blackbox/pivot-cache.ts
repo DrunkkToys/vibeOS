@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join, dirname } from "node:path"
-import { homedir } from "node:os"
+import { getVibeOSHome } from "../../lib/state.js"
 
 interface PivotContext {
   tokens: string[]
@@ -59,7 +59,7 @@ export class PivotCache {
   private lastTokens: Set<string>
 
   constructor(baseDir?: string) {
-    this.baseDir = baseDir || join(homedir(), ".claude")
+    this.baseDir = baseDir || getVibeOSHome()
     this.pivotSequence = []
     this.currentWorkflow = null
     this.lastTokens = new Set()

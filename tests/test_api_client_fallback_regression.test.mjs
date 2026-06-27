@@ -151,8 +151,8 @@ test("primary VIBEOS_HOME token beats stale cwd disable file", async () => {
   const home = mkdtempSync(join(tmpdir(), `vibeos-home-${stamp}-`))
   const cwd = mkdtempSync(join(tmpdir(), `vibeos-cwd-${stamp}-`))
   sandboxes.push(home, cwd)
-  mkdirSync(join(home, ".claude"), { recursive: true })
-  writeFileSync(join(home, ".claude", ".env.production"), `VIBEOS_API_TOKEN=vos_${"d".repeat(64)}\n`)
+  mkdirSync(home, { recursive: true })
+  writeFileSync(join(home, ".env.production"), `VIBEOS_API_TOKEN=vos_${"d".repeat(64)}\n`)
   writeFileSync(join(cwd, ".env.production"), "VIBEOS_API_DISABLED=true\n")
 
   const env = process.env
@@ -178,9 +178,9 @@ test("primary VIBEOS_HOME token beats stale cwd disable file", async () => {
 
   try {
     const api = await import(`../src/lib/api-client.js?r=home-${stamp}`)
-    assert.equal(api.VIBEOS_API_DISABLED, false, "home token should override stale cwd disable file")
+    assert.equal(api.VIBEOS_API_DISABLED, false, "VIBEOS_HOME token should override stale cwd disable file")
     assert.equal(api.VIBEOS_API_TOKEN, `vos_${"d".repeat(64)}`)
-    assert.ok(api.getApiClient(), "client should be created from the HOME token")
+    assert.ok(api.getApiClient(), "client should be created from the VIBEOS_HOME token")
   } finally {
     process.chdir(snap.cwd)
     env.HOME = snap.HOME
@@ -248,7 +248,7 @@ test("embedded bootstrap token stays in bootstrap lane and exchanges before remo
   }
 
   try {
-    writeFileSync(join(home, ".claude", ".env.production"), `VIBEOS_API_TOKEN=${EMBEDDED_BOOTSTRAP_TOKEN}\n`)
+    writeFileSync(join(home, ".env.production"), `VIBEOS_API_TOKEN=${EMBEDDED_BOOTSTRAP_TOKEN}\n`)
     const api = await import(`../src/lib/api-client.js?r=bootstrap-${stamp}`)
     assert.equal(api.VIBEOS_API_TOKEN, "", "embedded bootstrap token must not load as direct API token")
     assert.ok(api.VIBEOS_API_BOOTSTRAP_TOKEN, "bootstrap token should still be available")
