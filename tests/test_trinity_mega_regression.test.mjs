@@ -44,7 +44,10 @@ function setTiers(brain, medium, cheap) {
 }
 
 async function getHooks(directory = join(sandbox, ".opencode")) {
-  return await DelegationEnforcer({ client: {}, directory })
+  delete globalThis.__vibeOSRuntimeState
+  const mod = await import("../src/index.js?t=" + Date.now() + "-" + Math.random())
+  const hooksFactory = mod.DelegationEnforcer || mod.default || DelegationEnforcer
+  return await hooksFactory({ client: {}, directory })
 }
 
 function readSel() {

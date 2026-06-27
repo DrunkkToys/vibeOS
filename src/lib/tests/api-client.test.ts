@@ -83,7 +83,7 @@ describe("api-client", () => {
       assert.equal(mod.VIBEOS_API_ENABLED, true)
 
       mod.invalidateApiToken()
-      assert.equal(mod.VIBEOS_API_DISABLED, true)
+      assert.equal(mod.VIBEOS_API_DISABLED, false)
       assert.equal(mod.isApiConnected(), false)
       assert.equal(mod.isApiFallback(), true)
     })

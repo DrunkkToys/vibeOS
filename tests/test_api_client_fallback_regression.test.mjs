@@ -98,7 +98,7 @@ test("setApiToken clears _apiFallbackMode after a failed API call", async () => 
     assert.equal(api.isApiFallback(), true, "in fallback after failure")
 
     // THE FIX: setApiToken must clear _apiFallbackMode
-    api.setApiToken("vos_fixed_token")
+    api.setApiToken("vos_" + "b".repeat(64))
 
     assert.equal(api.VIBEOS_API_DISABLED, false, "not disabled")
     assert.equal(api.isApiConnected(), true, "enabled (apiEnabled=true)")
@@ -117,7 +117,7 @@ test("after setApiToken, a remoteCall actually tries the API instead of short-ci
     assert.equal(api.isApiFallback(), true, "in fallback")
 
     // THE FIX: clear state
-    api.setApiToken("vos_new_client_token")
+    api.setApiToken("vos_" + "c".repeat(64))
     assert.equal(api.isApiFallback(), false, "fallback cleared")
     // After setApiToken, the runtime is marked connected again.
     assert.equal(api.isApiConnected(), true, "apiEnabled still true after setApiToken")

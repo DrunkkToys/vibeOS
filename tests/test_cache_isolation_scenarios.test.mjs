@@ -265,7 +265,7 @@ test("SC11: setApiToken clears fallback after API failure (regression)", async (
     assert.equal(api.isApiFallback(), false, "not in fallback initially")
     const r = await api.remoteCall("health", [], () => "fallback")
     assert.equal(r, "fallback"); assert.equal(api.isApiFallback(), true, "in fallback")
-    api.setApiToken("vos_fix_token")
+    api.setApiToken("vos_" + "d".repeat(64))
     assert.equal(api.isApiFallback(), false, "fallback cleared by setApiToken")
   } finally { cleanup() }
 })
@@ -273,6 +273,8 @@ test("SC11: setApiToken clears fallback after API failure (regression)", async (
 test("SC12: syncApiTokenFromDisk else branch clears fallback", async () => {
   const h = makeSandbox("sc12")
   try {
+    process.env.VIBEOS_API_TOKEN = "vos_" + "e".repeat(64)
+    delete globalThis.__vibeOSRuntimeState
     const api = await import(`../src/lib/api-client.js?regr2=${Date.now()}`)
     await api.remoteCall("health", [], () => "fb")
     assert.equal(api.isApiFallback(), true)
