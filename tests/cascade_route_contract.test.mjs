@@ -6,7 +6,7 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 
 test("vibeultrax control vector keeps durable cascade root for simple route", async () => {
-  const vu = await import("../src/vibeOS-lib/blackbox/vibeultrax.js?route-root=" + Date.now())
+  const vu = await import("../dist-ts/vibeOS-lib/blackbox/vibeultrax.js?route-root=" + Date.now())
   const cv = vu.vibeultraxControlVector({ user_text: "hello" })
 
   assert.deepEqual(cv.cascade_root, ["cheap", "medium", "brain"])
@@ -17,7 +17,7 @@ test("vibeultrax control vector keeps durable cascade root for simple route", as
 })
 
 test("vibeultrax complex route selects brain without moving the root slot", async () => {
-  const vu = await import("../src/vibeOS-lib/blackbox/vibeultrax.js?route-root-complex=" + Date.now())
+  const vu = await import("../dist-ts/vibeOS-lib/blackbox/vibeultrax.js?route-root-complex=" + Date.now())
   const cv = vu.vibeultraxControlVector({
     user_text: "implement a multi-file migration with rollback concurrency race condition distributed consensus validation and production recovery",
   })
@@ -50,7 +50,7 @@ test("normalizer keeps vibeultrax active_pipeline durable when backend route is 
       },
     }))
 
-    const mod = await import("../src/lib/hooks/chat-transform.js?route-sync=" + Date.now())
+    const mod = await import("../dist-ts/lib/hooks/chat-transform.js?route-sync=" + Date.now())
     const result = mod.syncControlSettings({
       optimization_mode: "vibeultrax",
       tier_bias: "cheap",
@@ -104,7 +104,7 @@ test("sync keeps vibeultrax root slot cheap when per-turn route selects brain", 
       },
     }))
 
-    const mod = await import("../src/lib/hooks/chat-transform.js?route-root-slot=" + Date.now())
+    const mod = await import("../dist-ts/lib/hooks/chat-transform.js?route-root-slot=" + Date.now())
     const result = mod.syncControlSettings({
       optimization_mode: "vibeultrax",
       tier_bias: "cheap",
@@ -141,7 +141,7 @@ test("sync keeps vibeultrax root slot cheap when per-turn route selects brain", 
 })
 
 test("route resolver preserves backend target while exposing local cascade target", async () => {
-  const mod = await import("../src/lib/hooks/tool-execute.js?route-resolver=" + Date.now())
+  const mod = await import("../dist-ts/lib/hooks/tool-execute.js?route-resolver=" + Date.now())
   const decision = mod.resolveCascadeRouteDecision({
     prompt: "fix refactor implement migrate validate the critical production crash error panic failure bug in src/lib/hooks/tool-execute.ts src/lib/hooks/chat-transform.ts src/lib/pricing.ts src/vibeOS-lib/ml-router.ts tests/cascade_route_contract.test.mjs with distributed consensus protocol raft leader election gossip protocol byzantine fault tolerance paxos algorithm eventual consistency CRDT data structures rollback observability retry circuit breaker concurrency race condition deadlock",
     firstWord: "fix",
@@ -172,7 +172,7 @@ test("route resolver preserves backend target while exposing local cascade targe
 })
 
 test("route resolver stress-upgrades cheap without collapsing cascade root", async () => {
-  const mod = await import("../src/lib/hooks/tool-execute.js?route-stress=" + Date.now())
+  const mod = await import("../dist-ts/lib/hooks/tool-execute.js?route-stress=" + Date.now())
   const decision = mod.resolveCascadeRouteDecision({
     prompt: "check current status",
     firstWord: "check",

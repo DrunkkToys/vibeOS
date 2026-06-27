@@ -625,7 +625,7 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
       }
       const fallbackPinned = isApiFallback() && cv.optimization_mode === "vibelitex"
       const restoreMode = sessionPreviousOptMode || previousOptMode || inferredRecoveryMode
-      const canRestorePrevious = !!restoreMode && cv.optimization_mode !== "vibelitex" && (previousOptMode !== null || sessionPreviousOptMode !== null)
+      const canRestorePrevious = !!restoreMode && cv.optimization_mode === "vibelitex" && (previousOptMode !== null || sessionPreviousOptMode !== null)
 
       if (fallbackPinned) {
         const snapshotMode =

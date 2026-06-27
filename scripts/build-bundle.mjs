@@ -8,6 +8,27 @@ const ROOT = process.cwd();
 const SRC = join(ROOT, 'src');
 const DIST = join(ROOT, 'dist');
 const SRC_OUT = join(ROOT, 'src');
+
+// ── Pre-build: clean stale .js files from src/ (gitignored compiled artifacts) ─────
+const GITIGNORE_PATTERNS = readFileSync(join(ROOT, '.gitignore'), 'utf8').split('\n')
+  .map(l => l.trim()).filter(l => l && !l.startsWith('#') && !l.startsWith('!'))
+function isGitignoredJs(absPath) {
+  const rel = absPath.replace(SRC + '/', 'src/')
+  if (!rel.endsWith('.js') || !rel.startsWith('src/')) return false
+  return GITIGNORE_PATTERNS.some(p => {
+    const pattern = '^' + p.replace(/\*\*/g, '.+').replace(/\*/g, '[^/]*').replace(/\./g, '\\.').replace(/\//g, '\\/') + '$'
+    return new RegExp(pattern).test(rel)
+  })
+}
+function cleanStaleJs(dir) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name)
+    if (entry.isDirectory()) cleanStaleJs(full)
+    else if (isGitignoredJs(full)) { try { copyFileSync('/dev/null', full); unlinkSync(full) } catch {} }
+  }
+}
+cleanStaleJs(SRC)
+
 console.log('[bundle] Building single-file bundle...');
 
 // Bundle the TS entrypoint into a single file
