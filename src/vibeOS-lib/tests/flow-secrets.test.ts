@@ -5,7 +5,7 @@ import { checkFlowRules, resetForTest, resolveRulesPath, resetAll, addFlowRule, 
 
 const SECRETS_RULE = {
   id: "detect-secrets",
-  severity: "flag",
+  severity: "flag" as const,
   trigger: "Edit",
   pattern: "(?<![a-zA-Z0-9])(sk-[a-zA-Z0-9_-]{10,}|gh[pousr]_[a-zA-Z0-9]{15,}|github_pat_[a-zA-Z0-9_]{15,}|xox[bpras]-[a-zA-Z0-9-]{10,}|-----BEGIN (?:RSA|EC|OPENSSH|ENCRYPTED) PRIVATE KEY-----)",
   description: "Potential secret/API key detected in content",
@@ -14,21 +14,21 @@ const SECRETS_RULE = {
 const REALITY_CHECK_RULES = [
   {
     id: "require-read-before-claim",
-    severity: "warn",
+    severity: "warn" as const,
     trigger: "Edit",
     pattern: "(?i)\\b(done|complete|success|trained|ready|works|fixed)\\b",
     description: "Success claim detected — verify live state before asserting completion",
   },
   {
     id: "verify-state-on-disk",
-    severity: "flag",
+    severity: "flag" as const,
     trigger: "Edit",
     pattern: "(?i)\\b(assume|guess|probably|likely|maybe|seems|appears)\\b",
     description: "Inference language detected — verify actual files/state first",
   },
   {
     id: "postmortem-trigger",
-    severity: "warn",
+    severity: "warn" as const,
     trigger: "Edit",
     pattern: "(?i)\\breality check\\b",
     description: "Reality check requested — read and verify live state before reporting",
@@ -62,10 +62,10 @@ describe("getSessionFlowCounts stale cache after resetForTest", () => {
   it("returns fresh counts after resetForTest with new rules", () => {
     resetForTest([{
       id: "stale-cache-test",
-      type: "pattern",
+      trigger: "Edit",
       pattern: "STALE_TEST_PATTERN",
       severity: "warn",
-      message: "Test stale cache"
+      description: "Test stale cache"
     }])
     const counts = getSessionFlowCounts()
     assert.ok(counts !== undefined, "counts should be defined after resetForTest")

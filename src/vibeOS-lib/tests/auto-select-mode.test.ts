@@ -1,7 +1,7 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 
-const autoSelectMode = (subRegime, stressMultiplier) => {
+const autoSelectMode = (subRegime: string, stressMultiplier?: number) => {
   if (subRegime === "CONVERGING" || subRegime === "CLOSED") return "quality"
   if (subRegime === "LOOPING") return "quality"
   if (stressMultiplier && stressMultiplier > 1.5) return "quality"
