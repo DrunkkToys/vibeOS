@@ -913,7 +913,6 @@ test("saveOS API: embedded alpha token is valid on install", async () => {
     env: {
       ...process.env,
       HOME: sandbox,
-      VIBEOS_API_DISABLED: "",
       VIBEOS_API_BOOTSTRAP_TOKEN: "",
       VIBEOS_API_TOKEN: "",
       VIBEOS_API_ENABLED: "true",
@@ -944,9 +943,8 @@ test("saveOS API: invalidate switch disables the embedded fallback token", async
     const mod = await import(${JSON.stringify(apiUrl)} + "?invalidate=" + Date.now())
     mod.invalidateApiToken()
     process.stdout.write(JSON.stringify({
-      disabled: mod.VIBEOS_API_DISABLED,
       token: mod.VIBEOS_API_TOKEN,
-      enabled: mod.isApiConnected(),
+      connected: mod.isApiConnected(),
     }))
   `
   const child = spawnSync(process.execPath, ["--input-type=module", "-e", script], {

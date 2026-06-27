@@ -28,7 +28,6 @@ function fresh() {
     HOME: env.HOME,
     VIBEOS_HOME: env.VIBEOS_HOME,
     VIBEOS_API_URL: env.VIBEOS_API_URL,
-    VIBEOS_API_DISABLED: env.VIBEOS_API_DISABLED,
     VIBEOS_API_TOKEN: env.VIBEOS_API_TOKEN,
     VIBEOS_MCP_PORT: env.VIBEOS_MCP_PORT,
     VIBEOS_REMOTE_LATENCY_DEGRADE_MS: env.VIBEOS_REMOTE_LATENCY_DEGRADE_MS,
@@ -100,7 +99,6 @@ test("setApiToken clears _apiFallbackMode after a failed API call", async () => 
     // THE FIX: setApiToken must clear _apiFallbackMode
     api.setApiToken("vos_" + "b".repeat(64))
 
-    assert.equal(api.VIBEOS_API_DISABLED, false, "not disabled")
     assert.equal(api.isApiConnected(), true, "enabled (apiEnabled=true)")
     assert.equal(api.isApiFallback(), false, "fallback cleared by setApiToken")
   } finally {
@@ -153,7 +151,7 @@ test("primary VIBEOS_HOME token beats stale cwd disable file", async () => {
   sandboxes.push(home, cwd)
   mkdirSync(home, { recursive: true })
   writeFileSync(join(home, ".env.production"), `VIBEOS_API_TOKEN=vos_${"d".repeat(64)}\n`)
-  writeFileSync(join(cwd, ".env.production"), "VIBEOS_API_DISABLED=true\n")
+  writeFileSync(join(cwd, ".env.production"), "# VIBEOS_API_DISABLED removed - API is purely token-based\n")
 
   const env = process.env
   const snap = {
@@ -161,7 +159,6 @@ test("primary VIBEOS_HOME token beats stale cwd disable file", async () => {
     VIBEOS_HOME: env.VIBEOS_HOME,
     cwd: process.cwd(),
     VIBEOS_API_URL: env.VIBEOS_API_URL,
-    VIBEOS_API_DISABLED: env.VIBEOS_API_DISABLED,
     VIBEOS_API_TOKEN: env.VIBEOS_API_TOKEN,
     VIBEOS_API_BOOTSTRAP_TOKEN: env.VIBEOS_API_BOOTSTRAP_TOKEN,
     VIBEOS_MCP_PORT: env.VIBEOS_MCP_PORT,
@@ -211,7 +208,6 @@ test("embedded bootstrap token stays in bootstrap lane and exchanges before remo
     HOME: env.HOME,
     VIBEOS_HOME: env.VIBEOS_HOME,
     VIBEOS_API_URL: env.VIBEOS_API_URL,
-    VIBEOS_API_DISABLED: env.VIBEOS_API_DISABLED,
     VIBEOS_API_TOKEN: env.VIBEOS_API_TOKEN,
     VIBEOS_API_BOOTSTRAP_TOKEN: env.VIBEOS_API_BOOTSTRAP_TOKEN,
     VIBEOS_MCP_PORT: env.VIBEOS_MCP_PORT,
@@ -278,7 +274,6 @@ test("health responses cache the backend version for status surfaces", async () 
     HOME: env.HOME,
     VIBEOS_HOME: env.VIBEOS_HOME,
     VIBEOS_API_URL: env.VIBEOS_API_URL,
-    VIBEOS_API_DISABLED: env.VIBEOS_API_DISABLED,
     VIBEOS_API_TOKEN: env.VIBEOS_API_TOKEN,
     VIBEOS_MCP_PORT: env.VIBEOS_MCP_PORT,
     VIBEOS_REMOTE_LATENCY_DEGRADE_MS: env.VIBEOS_REMOTE_LATENCY_DEGRADE_MS,
@@ -333,7 +328,6 @@ test("slow remote calls trigger a latency guard so the next call stays local", a
     HOME: env.HOME,
     VIBEOS_HOME: env.VIBEOS_HOME,
     VIBEOS_API_URL: env.VIBEOS_API_URL,
-    VIBEOS_API_DISABLED: env.VIBEOS_API_DISABLED,
     VIBEOS_API_TOKEN: env.VIBEOS_API_TOKEN,
     VIBEOS_MCP_PORT: env.VIBEOS_MCP_PORT,
     VIBEOS_REMOTE_LATENCY_DEGRADE_MS: env.VIBEOS_REMOTE_LATENCY_DEGRADE_MS,

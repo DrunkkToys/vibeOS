@@ -318,6 +318,7 @@ export function resolveCascadeRouteDecision(input: unknown = {}): unknown {
   const backendExplicit = backendRoute?.explicit === true || backendRoute?.allow_local_upgrade === false
   const cascadeRoot = _normalizeCascadeRoot(input?.activePipeline, _slotFromModel(input?.tierTarget || input?.exploratoryTarget || null, trinityCheap, trinityMedium, trinityBrain))
   let cascadeSelectedModel = input?.exploratoryTarget || input?.tierTarget || null
+  const explicitTarget = cascadeSelectedModel
   let cascadeSelectedSlot = _slotFromModel(cascadeSelectedModel, trinityCheap, trinityMedium, trinityBrain)
   let cascadeSource = cascadeSelectedModel ? (input?.exploratoryTarget ? "exploratory" : "tier") : "none"
   let cascadeReason = cascadeSelectedModel ? `${cascadeSource}:${firstWord || input?.currentTier || "task"}` : "no target"
@@ -346,7 +347,7 @@ export function resolveCascadeRouteDecision(input: unknown = {}): unknown {
     reason = backendRoute?.reason || "backend route"
   }
 
-  if (input?.mlEnabled !== false && cascadeSource !== "exploratory" && cascadeSource !== "tier") {
+  if (input?.mlEnabled !== false) {
     try {
       const mlDifficulty = computeDifficulty(prompt)
       localConfidence = mlDifficulty.confidence
@@ -385,10 +386,10 @@ export function resolveCascadeRouteDecision(input: unknown = {}): unknown {
   }
 
   if (!backendRoute?.target) {
-    selectedModel = cascadeSelectedModel
-    selectedSlot = cascadeSelectedSlot
-    source = cascadeSource
-    reason = cascadeReason
+    selectedModel = explicitTarget || cascadeSelectedModel
+    selectedSlot = explicitTarget ? _slotFromModel(explicitTarget, trinityCheap, trinityMedium, trinityBrain) : cascadeSelectedSlot
+    source = explicitTarget ? cascadeSource : cascadeSource
+    reason = explicitTarget ? cascadeReason : cascadeReason
   }
 
   const routePath = _routePathForSlot(cascadeRoot, selectedSlot)
