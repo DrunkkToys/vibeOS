@@ -16,6 +16,13 @@ const API_DISABLED_RE = /^(1|true|yes|on)$/i
 const REQUEST_TIMEOUT = 10000
 const MAX_RETRIES = 3
 const BASE_RETRY_DELAY = 1000
+// remoteCall() is invoked from synchronous-feeling hot-path hooks (footer, chat-transform,
+// tool-execute) on every turn. The full request() retry budget (MAX_RETRIES x REQUEST_TIMEOUT
+// + backoff) can exceed 45s on a single dead call, stalling a turn that long before the
+// _apiFallbackMode circuit breaker has a chance to trip. Cap how long a single remoteCall()
+// will wait before giving up and falling through to fallbackFn — the underlying request is
+// left to resolve in the background (it still updates _apiFallbackMode for next time).
+const HOT_PATH_DEADLINE_MS = 6000
 const ALPHA_BUILD_CHANNEL = String(process.env.VIBEOS_BUILD_CHANNEL || "alpha").toLowerCase()
 const BOOTSTRAP_EXCHANGE_PATH = "/api/v1/auth/bootstrap/exchange"
 const BOOTSTRAP_RETRY_COOLDOWN_MS = 60_000
@@ -984,7 +991,14 @@ export async function remoteCall(method, args, fallbackFn) {
       await probeApiHealth(client)
     }
     const startedAt = Date.now()
-    const result = await client[method](...args)
+    const DEADLINE = Symbol("remoteCallDeadline")
+    const result = await Promise.race([
+      client[method](...args),
+      new Promise(resolve => setTimeout(() => resolve(DEADLINE), HOT_PATH_DEADLINE_MS)),
+    ])
+    if (result === DEADLINE) {
+      throw new VibeOSTimeoutError(`remoteCall(${method}) exceeded hot-path deadline of ${HOT_PATH_DEADLINE_MS}ms`)
+    }
     if (shouldApplyLatencyGuard(method)) {
       markApiLatencyDegraded(Date.now() - startedAt)
     }

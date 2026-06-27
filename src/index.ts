@@ -14,8 +14,8 @@ import { computeSessionMetrics } from "./vibeOS-lib/session-metrics.js"
 import { createMcpServer, writeDashboardBaseConfig } from "./lib/vibeos-mcp-server.js"
 import { isApiConnected, isApiFallback, getBackendVersion, getApiFallbackSince, setApiToken, setApiBootstrapToken, ensureBootstrapExchange, VIBEOS_API_URL } from "./lib/api-client.js"
 import { applySlot, reconcileSlotModel, modelCostPerTurn, detectContext7, formatUsd, classify, resolveEffectiveTier, _refreshModel, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, readConfig, getTrinitySlotOrder, loadTrinitySlotsFromTiersFile, isModelFree, resolveCurrentExecution, modelDisplayName, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP } from "./lib/pricing.js"
-import { scoreStress, detectTechStack, loadBlackboxState, saveBlackboxState, getBlackboxTracker, getBlackboxResolution, saveOptimizationMode, resetBlackboxTracker } from "./lib/turn-classify.js"
-import { safeJsonParse, readFullState, loadSelection, writeSelection, readLifetimeSavings, _OC_SID, _modelLocked, _blackboxEnabled, setBlackboxEnabled, _lockedSlot, _lockedModel, setModelLocked, setLockedSlot, setLockedModel, currentTier, currentModel, currentProjectFingerprint, currentProjectName, setCurrentTier, setCurrentModel, setCurrentProjectFingerprint, setCurrentProjectName, setCurrentSessionId, getCurrentSessionId, briefedProjects, _latestBlackboxState, _latestBlackboxLoopMsg, _latestBlackboxPivotMsg, getActiveJobForProject, projectFingerprint, loadProjectState, saveProjectState, ensureProjectBucket, mergeProjectBucket, setVibeOSHomeContext, SAVINGS_LEDGER_FILE, USER_HOME, CREDIT_CACHE_F, pruneScratchpadOnce, registerSessionCleanupHandlers, runStartupMaintenanceOnce, promotedProjectPatterns, projectPatternRows, clearProjectPatterns, loadTodos, getTodos, upsertTodo, markTodoDone, tool, loadSessionOrchestration, mutateSessionOrchestration } from "./lib/state.js"
+import { scoreStress, detectTechStack, loadBlackboxState, saveBlackboxState, getBlackboxTracker, getBlackboxResolution, saveOptimizationMode, resetBlackboxTracker, getLatestBlackboxLoopMsg, getLatestBlackboxPivotMsg } from "./lib/turn-classify.js"
+import { safeJsonParse, readFullState, loadSelection, writeSelection, readLifetimeSavings, _OC_SID, _modelLocked, _blackboxEnabled, setBlackboxEnabled, _lockedSlot, _lockedModel, setModelLocked, setLockedSlot, setLockedModel, currentTier, currentModel, currentProjectFingerprint, currentProjectName, setCurrentTier, setCurrentModel, setCurrentProjectFingerprint, setCurrentProjectName, setCurrentSessionId, getCurrentSessionId, briefedProjects, _latestBlackboxState, getActiveJobForProject, projectFingerprint, loadProjectState, saveProjectState, ensureProjectBucket, mergeProjectBucket, setVibeOSHomeContext, SAVINGS_LEDGER_FILE, USER_HOME, CREDIT_CACHE_F, pruneScratchpadOnce, registerSessionCleanupHandlers, runStartupMaintenanceOnce, promotedProjectPatterns, projectPatternRows, clearProjectPatterns, loadTodos, getTodos, upsertTodo, markTodoDone, tool, loadSessionOrchestration, mutateSessionOrchestration } from "./lib/state.js"
 import { researchAudit } from "./lib/research-audit.js"
 import { buildStatusPayload, buildSavingsPayload, buildSessionCheckout, diagnoseStructuredFromText, projectStructuredFromText } from "./lib/runtime-surface.js"
 import { TEMPLATE_LIBRARY } from "./lib/templates.js"
@@ -756,14 +756,14 @@ async function ensureMcpServerRunning() {
               features: session?.features || _latestBlackboxState?.features || {},
               signals: session?.signals || _latestBlackboxState?.signals || {},
               loop: {
-                active: Boolean(session?.loop?.active || _latestBlackboxLoopMsg !== null),
-                message: session?.loop?.message || _latestBlackboxLoopMsg,
-                intervention_level: session?.loop?.intervention_level || _latestBlackboxLoopMsg?.intervention_level || _latestBlackboxState?.loop?.intervention_level || 0,
+                active: Boolean(session?.loop?.active || getLatestBlackboxLoopMsg() !== null),
+                message: session?.loop?.message || getLatestBlackboxLoopMsg(),
+                intervention_level: session?.loop?.intervention_level || getLatestBlackboxLoopMsg()?.intervention_level || _latestBlackboxState?.loop?.intervention_level || 0,
                 consecutive_loops: session?.loop?.consecutive_loops || _latestBlackboxState?.loop?.consecutive_loops || 0,
               },
               pivot: {
-                detected: Boolean(session?.pivot?.detected || _latestBlackboxPivotMsg !== null),
-                message: session?.pivot?.message || _latestBlackboxPivotMsg,
+                detected: Boolean(session?.pivot?.detected || getLatestBlackboxPivotMsg() !== null),
+                message: session?.pivot?.message || getLatestBlackboxPivotMsg(),
               },
               continuity_state: session?.continuity_state || _latestBlackboxState?.continuity_state || null,
               turn_index: session?.turn_index ?? _latestBlackboxState?.turn_index ?? 0,

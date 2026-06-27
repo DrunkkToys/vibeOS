@@ -294,8 +294,6 @@ let _blackboxTracker: unknown = null
 let _blackboxEnabled = true
 export function setBlackboxEnabled(val: boolean) { _blackboxEnabled = val }
 let _latestBlackboxState: unknown = null
-let _latestBlackboxLoopMsg: string | null = null
-let _latestBlackboxPivotMsg: string | null = null
 export let _modelLocked = false
 export let _lockedSlot: string | null = null
 export let _lockedModel: string | null = null
@@ -2722,8 +2720,6 @@ export {
   _blackboxTracker,
   _blackboxEnabled,
   _latestBlackboxState,
-  _latestBlackboxLoopMsg,
-  _latestBlackboxPivotMsg,
   _detectedFramework,
 
   // JSONC parsing

@@ -3,7 +3,7 @@ import { appendFileSync, mkdirSync } from "node:fs"
 import { join } from "node:path"
 import { classify, _refreshModel, readConfig, readLiveOpenCodeModel, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, formatUsd, resolveCurrentExecution, modelDisplayName, getPendingLiveSwitch } from "../pricing.js"
 import { latestUserIntent } from "./chat-transform.js"
-import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, classifyTurnSimple, autoSelectMode, loadOptimizationMode, computeControlVector } from "../turn-classify.js"
+import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, classifyTurnSimple, autoSelectMode, loadOptimizationMode, computeControlVector, getLatestBlackboxLoopMsg, getLatestBlackboxPivotMsg } from "../turn-classify.js"
 import { recordBudgetFirstOutcome } from "../mode-policy.js"
 import { saveReport } from "../reporting.js"
 import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, getCurrentSessionId, _modelLocked, _blackboxEnabled, _latestBlackboxState, loadBlackboxState, recordLiveSessionSnapshot, VIBEOS_HOME, getVibeOSHome, readLifetimeSavings, getLatestCacheEvent } from "../state.js"
@@ -61,8 +61,6 @@ let _autoReportCount = 0
 // the same-or-shorter text (skip), but a streaming update that GREW the text
 // and wiped our footer must be re-painted (see the guard in _appendFooter).
 const textCompletePainted = new Map()
-const _latestBlackboxLoopMsg = ""
-const _latestBlackboxPivotMsg = ""
 let _lastStrippedText = ""
 
 function isGreetingLike(text) {
@@ -610,8 +608,8 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
         resolutionState: _rewardOutcome === "positive" ? "working" : _rewardOutcome === "negative" ? "needs_attention" : (_latestBlackboxState?.resolution_state || _latestBlackboxState?.resolution || "unresolved"),
         resolutionReason: _rewardOutcome ? (_rewardOutcome === "positive" ? "positive outcome" : "negative outcome") : "no outcome yet",
         nextAction: _rewardOutcome === "negative"
-          ? (_latestBlackboxLoopMsg || _latestBlackboxPivotMsg || (Array.isArray(cv?.directives) ? cv.directives[0] : "") || "")
-          : (_latestBlackboxPivotMsg || (Array.isArray(cv?.directives) ? cv.directives[0] : "") || ""),
+          ? (getLatestBlackboxLoopMsg() || getLatestBlackboxPivotMsg() || (Array.isArray(cv?.directives) ? cv.directives[0] : "") || "")
+          : (getLatestBlackboxPivotMsg() || (Array.isArray(cv?.directives) ? cv.directives[0] : "") || ""),
         loopInterventionLevel: _latestBlackboxState?.loop_intervention_level || cv?.loop_intervention_level || "none",
         pivotDetected: Boolean(_latestBlackboxState?.pivot_detected),
         stress: _footerStress,
