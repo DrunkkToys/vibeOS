@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs"
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 
@@ -87,5 +87,43 @@ describe("api-client", () => {
       expect(mod.isApiConnected()).toBe(false)
       expect(mod.isApiFallback()).toBe(true)
     })
+  })
+
+  it("treats VIBEOS_HOME as the API credential source of truth", async () => {
+    const sandbox = mkdtempSync(join(tmpdir(), "vibeos-api-home-"))
+    const prevEnv = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]))
+    try {
+      const vibeHome = join(sandbox, "vibe-home")
+      const legacyHome = join(sandbox, ".claude")
+      mkdirSync(vibeHome, { recursive: true })
+      mkdirSync(legacyHome, { recursive: true })
+      writeFileSync(join(legacyHome, ".env.production"), `VIBEOS_API_TOKEN=vos_${"c".repeat(64)}\nVIBEOS_API_DISABLED=true\n`, "utf8")
+
+      process.env.HOME = sandbox
+      process.env.VIBEOS_HOME = vibeHome
+      process.env.VIBEOS_API_URL = "http://127.0.0.1:1"
+      delete process.env.VIBEOS_API_DISABLED
+      delete process.env.VIBEOS_API_TOKEN
+      delete process.env.VIBEOS_API_BOOTSTRAP_TOKEN
+      delete (globalThis as Record<string, unknown>).__vibeOSRuntimeState
+
+      vi.resetModules()
+      const mod = await import("../api-client.js?home-source=" + Date.now())
+      expect(mod.VIBEOS_API_DISABLED).toBe(false)
+      expect(mod.VIBEOS_API_TOKEN).toBe("")
+
+      mod.setApiToken(`vos_${"d".repeat(64)}`)
+      expect(readFileSync(join(vibeHome, ".env.production"), "utf8")).toContain(`vos_${"d".repeat(64)}`)
+      expect(readFileSync(join(legacyHome, ".env.production"), "utf8")).toContain(`vos_${"c".repeat(64)}`)
+      expect(existsSync(join(vibeHome, ".env.alpha"))).toBe(false)
+    } finally {
+      for (const key of ENV_KEYS) {
+        const prev = prevEnv[key]
+        if (prev === undefined) delete process.env[key]
+        else process.env[key] = String(prev)
+      }
+      delete (globalThis as Record<string, unknown>).__vibeOSRuntimeState
+      rmSync(sandbox, { recursive: true, force: true })
+    }
   })
 })

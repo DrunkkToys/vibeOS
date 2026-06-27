@@ -58,14 +58,16 @@ Pattern learning records recurring friction and routines per project. Project Gu
 
 ## State files
 
-- \`~/.claude/model-tiers.json\`
-- \`~/.claude/delegation-state.json\`
-- \`~/.claude/project-states.json\`
-- \`~/.claude/blackbox-state.json\`
-- \`~/.claude/savings-ledger.jsonl\`
-- \`~/.claude/reports/\`
-- \`~/.claude/.flow-todo-queue.jsonl\`
-- \`~/.claude/.enforcement-cooldown.jsonl\`
+The source of truth is \`$VIBEOS_HOME\`.
+
+- \`$VIBEOS_HOME/model-tiers.json\`
+- \`$VIBEOS_HOME/delegation-state.json\`
+- \`$VIBEOS_HOME/project-states.json\`
+- \`$VIBEOS_HOME/blackbox-state.json\`
+- \`$VIBEOS_HOME/savings-ledger.jsonl\`
+- \`$VIBEOS_HOME/reports/\`
+- \`$VIBEOS_HOME/.flow-todo-queue.jsonl\`
+- \`$VIBEOS_HOME/.enforcement-cooldown.jsonl\`
 
 ## Working rules
 

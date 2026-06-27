@@ -693,17 +693,23 @@ export const onToolExecuteBefore = async (input, output) => {
       mlEnabled: ML_ENABLED,
       mlConfidenceThreshold: ML_CONFIDENCE_THRESHOLD,
     })
-    if (selection.optimization_mode === "vibeultrax" && selection.requires_delegation && selection.worker_model) {
+    if (selection.optimization_mode === "vibeultrax" && selection.requires_delegation) {
+      const controlSlot = selection.selected_slot || routeDecision?.selectedSlot || null
+      const controlModel = _modelForSlot(controlSlot, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN) || selection.worker_model || null
+      const routeSlot = routeDecision?.selectedSlot || null
+      const shouldApplyControlVector = controlModel && (!routeSlot || _slotRank(controlSlot) >= _slotRank(routeSlot))
+      if (shouldApplyControlVector) {
       routeDecision = {
         ...routeDecision,
-        selectedModel: selection.worker_model,
-        selectedSlot: selection.selected_slot || routeDecision?.selectedSlot || null,
-        selectedSubagent: taskSubagentTypeForSlot(selection.selected_slot || routeDecision?.selectedSlot || null) || routeDecision?.selectedSubagent || null,
+        selectedModel: controlModel,
+        selectedSlot: controlSlot,
+        selectedSubagent: taskSubagentTypeForSlot(controlSlot) || routeDecision?.selectedSubagent || null,
         requiresDelegation: true,
         delegationReason: "control vector requires delegation",
         source: "control-vector",
         reason: "control vector requires delegation",
         routePath: Array.isArray(selection.route_path) ? selection.route_path : routeDecision?.routePath || [],
+      }
       }
     }
     const _target = routeDecision?.selectedModel || null

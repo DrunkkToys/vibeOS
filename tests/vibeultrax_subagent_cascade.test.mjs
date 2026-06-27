@@ -145,6 +145,56 @@ test("vibeultrax task routing normalizes task subagent_type to general", async (
   }
 })
 
+test("vibeultrax task routing ignores stale lower-tier worker_model for brain route", async () => {
+  const ctx = withSandbox("vibeos-tier-stale-worker-")
+  try {
+    writeFileSync(join(process.env.VIBEOS_HOME, "model-tiers.json"), JSON.stringify({
+      selection: {
+        enabled: true,
+        active_slot: "cheap",
+        slot_locked: false,
+        optimization_mode: "vibeultrax",
+        active_pipeline: ["cheap", "medium", "brain"],
+        selected_slot: "brain",
+        worker_model: "opencode-go/mimo-v2.5",
+        selected_subagent: "vibe-brain",
+        route_path: ["cheap", "medium", "brain"],
+        requires_delegation: true,
+      },
+      trinity: {
+        cheap: { oc: "opencode/big-pickle" },
+        medium: { oc: "opencode-go/mimo-v2.5" },
+        brain: { oc: "deepseek/deepseek-v4-flash" },
+      },
+      tiers: {
+        high: { regex: "v4-flash|pro|opus|brain" },
+        mid: { regex: "mimo|flash|sonnet|medium" },
+        budget: { regex: "big-pickle|cheap|chat" },
+      },
+    }, null, 2))
+
+    const mod = await import("../src/index.js?stale-worker=" + Date.now())
+    const hooks = await mod.DelegationEnforcer({ client: {}, directory: ctx.sandbox })
+    const args = {
+      description: "Fix complex cascade",
+      prompt: "implement a complex multi-file cascade repair with distributed consensus raft leader election byzantine fault tolerance paxos protocol CRDT rollback observability circuit breaker concurrency race condition deadlock across src/lib/hooks/tool-execute.ts src/lib/hooks/chat-transform.ts src/vibeOS-lib/ml-router.ts tests/cascade_route_contract.test.mjs",
+      subagent_type: "general",
+      model: null,
+      modelID: null,
+      modelId: null,
+    }
+
+    await hooks["tool.execute.before"]({ tool: "task" }, { args })
+
+    assert.equal(args.subagent_type, "general")
+    assert.equal(args.model, "deepseek/deepseek-v4-flash")
+    assert.equal(args.modelID, "deepseek/deepseek-v4-flash")
+    assert.equal(args.modelId, "deepseek/deepseek-v4-flash")
+  } finally {
+    ctx.cleanup()
+  }
+})
+
 test("delegation hard block requires coherent brain tier agent binding", async () => {
   const ctx = withSandbox("vibeos-tier-drift-")
   try {
