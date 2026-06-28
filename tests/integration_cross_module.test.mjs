@@ -316,7 +316,7 @@ test('footer alert chain: write warning survives tool result and later footer ap
       assistant: assistantOut.text || "",
     }));
   `
-  const raw = execFileSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8' }).trim()
+  const raw = execFileSync(process.execPath, ['--loader', './scripts/ts-src-loader.mjs', '--input-type=module', '-e', script], { encoding: 'utf8' }).trim()
   const parsed = JSON.parse(raw)
   assert.ok(String(parsed.assistant || '').includes('—') && (String(parsed.assistant || '').includes('🧠') || String(parsed.assistant || '').includes('◐') || String(parsed.assistant || '').includes('⚡')), 'assistant footer still renders after the tool alert chain')
 })
@@ -466,7 +466,7 @@ test('reconnect recovery: stale vibelitex cache heals to live brain mode and foo
       footer: out.text,
     }));
   `
-  const raw = execFileSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8' }).trim()
+  const raw = execFileSync(process.execPath, ['--loader', './scripts/ts-src-loader.mjs', '--input-type=module', '-e', script], { encoding: 'utf8' }).trim()
   const parsed = JSON.parse(raw)
   assert.equal(parsed.resolved, 'quality', 'stale vibelitex should recover to the live brain mode')
   assert.equal(parsed.persisted, 'quality', 'recovery should be written back to selection state')
@@ -757,7 +757,7 @@ test('startup repair: rebuild keeps valid project trinity slots instead of snapp
       text: textOut.text,
     }));
   `
-  const raw = execFileSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8' }).trim()
+  const raw = execFileSync(process.execPath, ['--loader', './scripts/ts-src-loader.mjs', '--input-type=module', '-e', script], { encoding: 'utf8' }).trim()
   const parsed = JSON.parse(raw)
   assert.ok(typeof parsed.rebuild === 'string' && parsed.rebuild.length > 0, 'rebuild should return a message')
   assert.equal(parsed.tiers.trinity.brain.oc, 'deepseek/deepseek-v4-flash', 'brain slot should keep the user-configured model')
