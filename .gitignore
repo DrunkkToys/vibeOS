@@ -68,6 +68,7 @@ MILESTONE_*.md
 PRODUCTION_EVALUATION_*.md
 LIVE_DEBUG.md
 MEMORY_STRESS_TEST_DELIVERABLE.md
+vibeOS-FULL-AUDIT-PROMPT.md
 docs/stabilization/
 qa_artifacts/
 test-api-put.md
