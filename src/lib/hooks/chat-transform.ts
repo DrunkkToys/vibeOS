@@ -27,7 +27,7 @@ import {
 } from "../state.js"
 import { getOcSessionId } from "../runtime-state.js"
 import { getLatestBlackboxLoopMsg, getLatestBlackboxPivotMsg, getLatestBlackboxState, resetBlackboxTracker, setLatestBlackboxState } from "../turn-classify.js"
-import { nextTurn, getCurrentTurnGen } from "../turn-memo.js"
+import { nextTurn } from "../turn-memo.js"
 import { evaluateClaimVerification } from "../claim-verification.js"
 import { projectTreeDirective, recordProjectFact } from "../project-tree.js"
 import {
@@ -953,23 +953,29 @@ async function trackBlackbox(messages: unknown[]): Promise<void> {
     }
     localState.user_text = latestUserIntent
 
+    // API is authoritative: await the remote blackbox analysis and use it as the
+    // source of truth for regime/loop/pivot. Fall back to the local tracker only
+    // when the API is unreachable or exceeds BLACKBOX_API_DEADLINE_MS (3000ms).
+    const enriched = await fetchBlackboxEnrichment(sid, latestUserIntent, localState)
+    const bbState = enriched || localState
+
     const modePreview = peekBudgetFirstMode({
       requestedMode: loadOptimizationMode(),
-      subRegime: localState.sub_regime || "INIT",
+      subRegime: bbState.sub_regime || "INIT",
       stress: st || 0,
     })
-    const cv = await apiComputeControlVector(localState, undefined, modePreview.mode)
+    const cv = await apiComputeControlVector(bbState, undefined, modePreview.mode)
     const lastEntry = state.sessions[sid].control_history?.[state.sessions[sid].control_history.length - 1]
-    const cvFingerprint = JSON.stringify({ regime: localState.sub_regime, mode: cv?.enforcement_mode })
+    const cvFingerprint = JSON.stringify({ regime: bbState.sub_regime, mode: cv?.enforcement_mode })
     const isDuplicate = lastEntry && (
       lastEntry.fingerprint === cvFingerprint ||
-      (lastEntry.regime === localState.sub_regime && lastEntry.enforcement === cv?.enforcement_mode)
+      (lastEntry.regime === bbState.sub_regime && lastEntry.enforcement === cv?.enforcement_mode)
     )
     if (!isDuplicate) {
       const turnNum = (existingSession.turn_counter || 0) + 1
       const entry = buildControlHistoryEntry(
         turnNum,
-        localState.sub_regime || "INIT",
+        bbState.sub_regime || "INIT",
         cv,
       )
       entry.fingerprint = cvFingerprint
@@ -982,39 +988,28 @@ async function trackBlackbox(messages: unknown[]): Promise<void> {
       ...existingSession,
       ...serialized,
       project_fingerprint: currentProjectFingerprint || existingSession.project_fingerprint || "",
-      sub_regime: localState.sub_regime || existingSession.sub_regime || "INIT",
-      regime: localState.sub_regime || existingSession.regime || "INIT",
-      resolution: localState.resolution || existingSession.resolution || "unresolved",
-      momentum: localState.momentum ?? existingSession.momentum ?? 0,
-      signals: localState.signals || existingSession.signals || {},
-      intent_state: localState.intent_state || existingSession.intent_state || {},
-      continuity_state: localState.continuity_state || existingSession.continuity_state || "HIGH",
-      is_looping: localState.is_looping ?? existingSession.is_looping ?? false,
-      loop_consecutive: localState.loop_consecutive ?? existingSession.loop_consecutive ?? 0,
-      loop_intervention_level: localState.loop_intervention_level || existingSession.loop_intervention_level || "none",
-      pivot_detected: localState.pivot_detected ?? existingSession.pivot_detected ?? false,
-      pivot_score: localState.pivot_score ?? existingSession.pivot_score ?? 0,
-      outcome: localState.outcome || existingSession.outcome || null,
+      sub_regime: bbState.sub_regime || existingSession.sub_regime || "INIT",
+      regime: bbState.sub_regime || existingSession.regime || "INIT",
+      resolution: bbState.resolution || existingSession.resolution || "unresolved",
+      momentum: bbState.momentum ?? existingSession.momentum ?? 0,
+      signals: bbState.signals || existingSession.signals || {},
+      intent_state: bbState.intent_state || existingSession.intent_state || {},
+      continuity_state: bbState.continuity_state || existingSession.continuity_state || "HIGH",
+      is_looping: bbState.is_looping ?? existingSession.is_looping ?? false,
+      loop_consecutive: bbState.loop_consecutive ?? existingSession.loop_consecutive ?? 0,
+      loop_intervention_level: bbState.loop_intervention_level || existingSession.loop_intervention_level || "none",
+      pivot_detected: bbState.pivot_detected ?? existingSession.pivot_detected ?? false,
+      pivot_score: bbState.pivot_score ?? existingSession.pivot_score ?? 0,
+      outcome: bbState.outcome || existingSession.outcome || null,
+      decision_source: bbState.source || "local",
       control_history: state.sessions[sid].control_history,
       optimization_mode: existingSession.optimization_mode || null,
       active_slot: existingSession.active_slot || null,
       turn_counter: (existingSession.turn_counter || 0) + 1,
     }
     saveBlackboxStateToCtx(state)
-    _latestBlackboxState = localState
-    setLatestBlackboxState(localState)
-    const enrichmentTurnGen = getCurrentTurnGen()
-    const enrichmentSessionId = sid
-    fetchBlackboxEnrichment(sid, localState).then(enriched => {
-      // A later turn may have already started (and mutated _latestBlackboxState)
-      // by the time this resolves — don't clobber fresher state with a stale enrichment.
-      if (enriched && getCurrentTurnGen() === enrichmentTurnGen && _OC_SID === enrichmentSessionId) {
-        _latestBlackboxState = enriched
-        setLatestBlackboxState(enriched)
-      }
-    }).catch(err => {
-      console.error("[vibeOS] fetchBlackboxEnrichment failed:", err?.message || err)
-    })
+    _latestBlackboxState = bbState
+    setLatestBlackboxState(bbState)
   } catch {}
 }
 
