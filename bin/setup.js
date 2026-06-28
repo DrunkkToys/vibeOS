@@ -122,17 +122,20 @@ var args = process.argv.slice(2);
 var command = args.find((a) => !a.startsWith("-")) ?? "setup";
 var isInstallCommand = command === "setup" || command === "set";
 var isProject = args.includes("--project");
+var writeLine = (text = "") => {
+  process.stdout.write(text + "\n");
+};
 if (!isInstallCommand || args.includes("--help") || args.includes("-h")) {
   console.error("Usage: npx vibeostheog set [--project]");
   console.error("       npx vibeostheog setup [--project]");
   process.exit(1);
 }
-console.log("");
-console.log("vibeOS \u2014 cost-aware delegation enforcer for OpenCode");
-console.log("");
-console.log("Installing to:");
-for (const h of resolveOpenCodeHomes({ cwd: process.cwd() })) console.log("  " + h);
-console.log("");
+writeLine();
+writeLine("vibeOS \u2014 cost-aware delegation enforcer for OpenCode");
+writeLine();
+writeLine("Installing to:");
+for (const h of resolveOpenCodeHomes({ cwd: process.cwd() })) writeLine("  " + h);
+writeLine();
 var deployScript = resolve(root, "scripts", "deploy.mjs");
 if (!existsSync2(deployScript)) {
   console.error("Fatal: scripts/deploy.mjs not found at", deployScript);
@@ -161,7 +164,7 @@ if (isProject) {
   const tmp = `${configPath}.tmp.${process.pid}.${Date.now()}`;
   writeFileSync2(tmp, JSON.stringify(config, null, 2) + "\n");
   renameSync2(tmp, configPath);
-  console.log(`vibeOS registered in ${configPath}`);
+  writeLine(`vibeOS registered in ${configPath}`);
 }
-console.log("");
-console.log("Done. Restart OpenCode to activate the plugin.");
+writeLine();
+writeLine("Done. Restart OpenCode to activate the plugin.");

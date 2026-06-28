@@ -12,6 +12,9 @@ const args = process.argv.slice(2)
 const command = args.find(a => !a.startsWith("-")) ?? "setup"
 const isInstallCommand = command === "setup" || command === "set"
 const isProject = args.includes("--project")
+const writeLine = (text = "") => {
+  process.stdout.write(text + "\n")
+}
 
 if (!isInstallCommand || args.includes("--help") || args.includes("-h")) {
   console.error("Usage: npx vibeostheog set [--project]")
@@ -19,12 +22,12 @@ if (!isInstallCommand || args.includes("--help") || args.includes("-h")) {
   process.exit(1)
 }
 
-console.log("")
-console.log("vibeOS — cost-aware delegation enforcer for OpenCode")
-console.log("")
-console.log("Installing to:")
-for (const h of resolveOpenCodeHomes({ cwd: process.cwd() })) console.log("  " + h)
-console.log("")
+writeLine()
+writeLine("vibeOS — cost-aware delegation enforcer for OpenCode")
+writeLine()
+writeLine("Installing to:")
+for (const h of resolveOpenCodeHomes({ cwd: process.cwd() })) writeLine("  " + h)
+writeLine()
 
 const deployScript = resolve(root, "scripts", "deploy.mjs")
 if (!existsSync(deployScript)) {
@@ -55,8 +58,8 @@ if (isProject) {
   const tmp = `${configPath}.tmp.${process.pid}.${Date.now()}`
   writeFileSync(tmp, JSON.stringify(config, null, 2) + "\n")
   renameSync(tmp, configPath)
-  console.log(`vibeOS registered in ${configPath}`)
+  writeLine(`vibeOS registered in ${configPath}`)
 }
 
-console.log("")
-console.log("Done. Restart OpenCode to activate the plugin.")
+writeLine()
+writeLine("Done. Restart OpenCode to activate the plugin.")
