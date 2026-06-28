@@ -3,6 +3,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from "node:fs"
 import { join, dirname } from "node:path"
 import { ResolutionTracker } from "../vibeOS-lib/blackbox/index.js"
+import { reconcileStickyLoopState } from "./loop-state.js"
 import { safeJsonParse, _blackboxEnabled, setBlackboxEnabled as _setGlobalBlackboxEnabled, _OC_SID, currentProjectFingerprint, currentTier, setCurrentProjectFingerprint, _handleStateCorruption, _lockPathFor, withFileLock, readJsonOrEmpty, validateState, loadBlackboxState, saveBlackboxState, loadGlobalLearning, updateGlobalLearning, getLearnedExploratoryWords, projectFingerprint, loadProjectState, saveProjectState, detectTechStack, ensureProjectBucket, recordMissedContext7, recentToolEvents, getVibeOSHome, getCurrentSessionId } from "./state.js"
 import { loadSelection, loadSessionOptMode, loadGlobalOptMode, saveGlobalOptMode, writeSelection, writeSessionOptMode, writeSessionSlot } from "./selection-manager.js"
 import { getApiClient, isApiFallback } from "./api-client.js"
@@ -673,22 +674,12 @@ export async function raceWithDeadline(promise, ms, onTimeout) {
 
 export function mergeAuthoritativeBlackboxState(localState, apiResult) {
   if (!apiResult || typeof apiResult !== "object") return localState
-  return {
+  return reconcileStickyLoopState(localState, {
     ...localState,
-    sub_regime: apiResult.sub_regime || localState.sub_regime,
-    resolution: apiResult.resolution || localState.resolution,
-    momentum: apiResult.momentum ?? localState.momentum,
-    signals: apiResult.signals || localState.signals,
-    intent_state: apiResult.intent_state || localState.intent_state,
-    continuity_state: apiResult.continuity_state || localState.continuity_state,
-    is_looping: apiResult.is_looping ?? localState.is_looping,
-    loop_consecutive: apiResult.loop_consecutive ?? localState.loop_consecutive,
-    loop_intervention_level: apiResult.loop_intervention_level || localState.loop_intervention_level,
-    pivot_detected: apiResult.pivot_detected ?? localState.pivot_detected,
-    pivot_score: apiResult.pivot_score ?? localState.pivot_score,
-    outcome: apiResult.outcome || localState.outcome,
+    ...apiResult,
     source: "api",
-  }
+    decision_source: "api",
+  }, { now: Date.now(), source: "api" })
 }
 
 async function fetchBlackboxEnrichment(sessionId, userText, localState) {

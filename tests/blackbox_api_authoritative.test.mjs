@@ -161,6 +161,87 @@ test("[e2e] falls back to local when the API errors", async () => {
   assert.notEqual(local.sub_regime, "LOOPING", "local fallback must not carry the API verdict")
 })
 
+test("[e2e] sticky LOOPING survives a later local footer snapshot", async () => {
+  const sid = "opencode-sticky-loop"
+  const blackboxPath = join(sandbox, ".claude", "blackbox-state.json")
+  writeFileSync(blackboxPath, JSON.stringify({
+    enabled: true,
+    sessions: {
+      [sid]: {
+        sub_regime: "LOOPING",
+        regime: "LOOPING",
+        resolution: "looping",
+        resolution_state: "intervened",
+        decision_source: "api",
+        is_looping: true,
+        loop_intervention_level: "assertive",
+        loop_consecutive: 4,
+        loop_hold_until: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+        loop_release_streak: 0,
+      },
+    },
+  }, null, 2) + "\n")
+  state.setCurrentSessionId(sid)
+
+  state.recordLiveSessionSnapshot({
+    sessionId: sid,
+    source: "footer",
+    subRegime: "DIVERGENT",
+    resolutionState: "unresolved",
+    resolutionReason: "local footer attempt",
+    footerLine: "footer",
+    loopInterventionLevel: "none",
+  })
+
+  const sessions = readSessions()
+  const sticky = sessions[sid]
+  assert.ok(sticky, "sticky session should remain persisted")
+  assert.equal(sticky.sub_regime, "LOOPING", "local footer snapshot must not clear API LOOPING")
+  assert.equal(sticky.decision_source, "api", "API source must remain sticky")
+  assert.equal(sticky.loop_intervention_level, "assertive", "existing loop intervention should survive")
+  assert.equal(sticky.resolution, "looping", "loop resolution must remain looped")
+})
+
+test("[unit] sticky LOOPING releases only after consecutive API recovery turns", async () => {
+  const { mergeAuthoritativeBlackboxState } = await import("../src/lib/turn-classify.js")
+  const sticky = {
+    sub_regime: "LOOPING",
+    regime: "LOOPING",
+    resolution: "looping",
+    resolution_state: "intervened",
+    decision_source: "api",
+    is_looping: true,
+    loop_intervention_level: "assertive",
+    loop_consecutive: 5,
+    loop_hold_until: new Date(Date.now() - 60_000).toISOString(),
+    loop_release_streak: 0,
+  }
+  const firstRecovery = mergeAuthoritativeBlackboxState(sticky, {
+    sub_regime: "REFINING",
+    regime: "REFINING",
+    resolution: "unresolved",
+    resolution_state: "unresolved",
+    is_looping: false,
+    decision_source: "api",
+    loop_intervention_level: "none",
+  })
+  assert.equal(firstRecovery.sub_regime, "LOOPING", "first recovery turn should still hold the loop")
+  assert.equal(firstRecovery.loop_release_streak, 1, "first recovery turn increments the release streak")
+
+  const secondRecovery = mergeAuthoritativeBlackboxState(firstRecovery, {
+    sub_regime: "REFINING",
+    regime: "REFINING",
+    resolution: "unresolved",
+    resolution_state: "unresolved",
+    is_looping: false,
+    decision_source: "api",
+    loop_intervention_level: "none",
+  })
+  assert.notEqual(secondRecovery.sub_regime, "LOOPING", "second consecutive API recovery turn should release the loop")
+  assert.equal(secondRecovery.decision_source, "api", "release should still be API-authored")
+  assert.equal(secondRecovery.loop_release_streak, 0, "release resets the hysteresis counter")
+})
+
 test.after(() => {
   try { server.close() } catch {}
   try { rmSync(sandbox, { recursive: true, force: true }) } catch {}

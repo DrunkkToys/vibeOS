@@ -4,10 +4,13 @@ import { join, dirname, basename } from "node:path"
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import { loadSelection, writeSelection, DFLT_SEL } from "./selection-manager.js"
+import { reconcileStickyLoopState } from "./loop-state.js"
 import { mergeProjectBucket, _computeSessionMetrics, _pruneOldSessions } from "./pattern-helpers.js"
 import { getOcSessionId, setOcSessionId } from "./runtime-state.js"
 import { safeJsonParse } from "../utils/fs-helpers.js"
 import { USER_HOME, getVibeOSHome as runtimeGetVibeOSHome, getOpenCodeHome as runtimeGetOpenCodeHome, getOpenCodeHomes as runtimeGetOpenCodeHomes, resolveVibeOSHome, resolveOpenCodeHome, setVibeOSHomeContext as runtimeSetVibeOSHomeContext } from "./runtime-paths.js"
+
+type AnyObject = Record<string, any>
 
 // ── Delegation-state contract ────────────────────────────────────────
 // The real shape of delegation-state.json. Known fields are typed; the index
@@ -813,6 +816,31 @@ function _buildLiveSnapshotFingerprint(input: unknown, resolutionState: string, 
   })
 }
 
+function _mergeLiveLoopSnapshot(existing: unknown, input: unknown, derived: { resolutionState: string; resolutionReason: string; now?: number }): unknown {
+  return reconcileStickyLoopState(existing as AnyObject, {
+    ...((input && typeof input === "object") ? input : {}),
+    source: String((input as AnyObject)?.source || "footer"),
+    sub_regime: typeof (input as AnyObject)?.subRegime === "string" && String((input as AnyObject).subRegime).trim()
+      ? String((input as AnyObject).subRegime).trim()
+      : String((existing as AnyObject)?.sub_regime || (existing as AnyObject)?.regime || "INIT"),
+    regime: typeof (input as AnyObject)?.subRegime === "string" && String((input as AnyObject).subRegime).trim()
+      ? String((input as AnyObject).subRegime).trim()
+      : String((existing as AnyObject)?.regime || (existing as AnyObject)?.sub_regime || "INIT"),
+    resolution: derived.resolutionState === "working"
+      ? "solved"
+      : derived.resolutionState === "intervened"
+        ? "looping"
+        : String((existing as AnyObject)?.resolution || "unresolved"),
+    resolution_state: derived.resolutionState,
+    resolution_reason: derived.resolutionReason,
+    loop_intervention_level: typeof (input as AnyObject)?.loopInterventionLevel === "string"
+      ? String((input as AnyObject).loopInterventionLevel)
+      : String((existing as AnyObject)?.loop_intervention_level || "none"),
+    loop_consecutive: Number((input as AnyObject)?.loopConsecutive ?? (existing as AnyObject)?.loop_consecutive ?? (existing as AnyObject)?.loopCount ?? 0) || 0,
+    is_looping: Boolean((input as AnyObject)?.isLooping ?? (existing as AnyObject)?.is_looping),
+  }, { now: derived.now })
+}
+
 function _normalizeVibeUltraXControlVector(control: unknown): boolean {
   if (!control || typeof control !== "object") return false
   const mode = String(control.optimization_mode || control.mode_root || control.requested_mode || "").toLowerCase()
@@ -979,6 +1007,7 @@ export function recordLiveSessionSnapshot(input: {
         state.sessions[sid] = { warns: [], cache_hits: [] }
       }
       const ses = state.sessions[sid]
+      const loopSnapshot = _mergeLiveLoopSnapshot(ses, input, { resolutionState, resolutionReason, now: Date.now() })
       if (ses.live_snapshot_fingerprint === snapshotFingerprint) {
         ses.live_updated_at = updatedAt
         _liveSnapshotFingerprints.set(sid, snapshotFingerprint)
@@ -997,12 +1026,16 @@ export function recordLiveSessionSnapshot(input: {
       if (rewardBreakdown) ses.live_reward_breakdown = rewardBreakdown
       if (typeof input.outcome === "string" && input.outcome) ses.last_outcome = input.outcome
       if (input.footerLine) ses.last_footer_line = input.footerLine
-      if (input.subRegime) ses.live_sub_regime = input.subRegime
+      ses.decision_source = loopSnapshot.decision_source || ses.decision_source || "footer"
+      ses.live_sub_regime = loopSnapshot.sub_regime || ses.live_sub_regime || "INIT"
+      ses.live_resolution_state = loopSnapshot.resolution_state || resolutionState
+      ses.live_resolution_reason = loopSnapshot.resolution_reason || resolutionReason
+      ses.live_loop_intervention_level = loopSnapshot.loop_intervention_level || ses.live_loop_intervention_level || "none"
+      ses.live_loop_consecutive = Number(loopSnapshot.loop_consecutive || ses.live_loop_consecutive || ses.loop_consecutive || 0) || 0
+      if (loopSnapshot.loop_hold_until !== undefined) ses.live_loop_hold_until = loopSnapshot.loop_hold_until
+      if (loopSnapshot.loop_release_streak !== undefined) ses.live_loop_release_streak = loopSnapshot.loop_release_streak
       if (typeof input.stress === "number" && Number.isFinite(input.stress)) ses.live_stress = Number(input.stress)
-      if (typeof input.loopInterventionLevel === "string") ses.live_loop_intervention_level = input.loopInterventionLevel
       if (typeof input.pivotDetected === "boolean") ses.live_pivot_detected = input.pivotDetected
-      ses.live_resolution_state = resolutionState
-      ses.live_resolution_reason = resolutionReason
       if (control) {
         ses.cv = control
         ses.control_vector = control
@@ -1037,6 +1070,7 @@ export function recordLiveSessionSnapshot(input: {
       bb.sessions[sid] = {}
     }
     const ses = bb.sessions[sid]
+    const mergedLoop = _mergeLiveLoopSnapshot(ses, input, { resolutionState, resolutionReason, now: Date.now() })
     if (ses.live_snapshot_fingerprint === snapshotFingerprint) {
       ses.updatedAt = updatedAt
       ses.last_snapshot_at = updatedAt
@@ -1047,13 +1081,11 @@ export function recordLiveSessionSnapshot(input: {
     if (input.projectFingerprint) ses.project_fingerprint = input.projectFingerprint
     if (input.projectName) ses.project_name = input.projectName
     if (input.footerLine) ses.last_footer_line = input.footerLine
-    if (input.subRegime) {
-      ses.sub_regime = input.subRegime
-      ses.regime = input.subRegime
-    }
-    ses.resolution = resolutionState === "working" ? "solved" : resolutionState === "intervened" ? "looping" : ses.resolution || "unresolved"
-    ses.resolution_state = resolutionState
-    ses.resolution_reason = resolutionReason
+    ses.sub_regime = mergedLoop.sub_regime || ses.sub_regime || "INIT"
+    ses.regime = mergedLoop.regime || ses.regime || ses.sub_regime || "INIT"
+    ses.resolution = mergedLoop.resolution || ses.resolution || "unresolved"
+    ses.resolution_state = mergedLoop.resolution_state || resolutionState
+    ses.resolution_reason = mergedLoop.resolution_reason || resolutionReason
     ses.updatedAt = updatedAt
     ses.last_snapshot_at = updatedAt
     if (typeof input.savingsUsd === "number" && Number.isFinite(input.savingsUsd)) {
@@ -1104,7 +1136,11 @@ export function recordLiveSessionSnapshot(input: {
     }
     if (nextAction) ses.live_next_action = nextAction
     if (typeof input.pivotDetected === "boolean") ses.pivot_detected = input.pivotDetected
-    if (typeof input.loopInterventionLevel === "string") ses.loop_intervention_level = input.loopInterventionLevel
+    ses.loop_intervention_level = mergedLoop.loop_intervention_level || ses.loop_intervention_level || "none"
+    ses.loop_consecutive = Number(mergedLoop.loop_consecutive || ses.loop_consecutive || 0) || 0
+    ses.loop_hold_until = mergedLoop.loop_hold_until ?? ses.loop_hold_until ?? null
+    ses.loop_release_streak = Number(mergedLoop.loop_release_streak || ses.loop_release_streak || 0) || 0
+    ses.decision_source = mergedLoop.decision_source || ses.decision_source || "footer"
     if (typeof input.stress === "number" && Number.isFinite(input.stress)) ses.stress_level = Number(input.stress)
     ses.live_snapshot_fingerprint = snapshotFingerprint
     _liveSnapshotFingerprints.set(sid, snapshotFingerprint)
