@@ -60,6 +60,7 @@ import { buildSessionBridge, recordSessionBridge } from "../session-bridge.js"
 import { scoreTaskQuality } from "./footer.js"
 import { SAVE_EST, WARN_ON_DIRECT, SOFT_QUOTA, FREE, MONITOR } from "../constants.js"
 import { runtimeTierCoherence } from "../runtime-config.js"
+import { ToolLoopGuard } from "../loop-guard.js"
 
 const _warnCounts: Record<string, number> = {}
 export function _resetWarnCountsForTest(): void {
@@ -79,6 +80,8 @@ export function _resetToolExecuteStateForTest(): void {
   _autoReportCount = 0
   _pendingTodoArgs = null
   _pendingTelemetryStarts = []
+  _loopGuard.reset()
+  _loopWarnedSig = null
 }
 export function _setPendingUiNoteForTest(note: string | null): void {
   pendingUiNote = note
@@ -104,6 +107,8 @@ let _prompt = ""
 let _autoReportCount = 0
 let _pendingTodoArgs = null
 let _pendingTelemetryStarts = []
+let _loopGuard = new ToolLoopGuard()
+let _loopWarnedSig: string | null = null
 
 function _bucketChars(n) {
   const size = Number(n || 0)
@@ -238,6 +243,25 @@ function _mutateBlockedToolArgs(toolName, sources, blockedPath, outputObj) {
     outputObj.blocked = true
     outputObj.status = "error"
     outputObj.error = outputObj.error || `blocked direct ${tLower}`
+  }
+}
+
+// Neutralize a runaway bash loop: replace the command with a harmless echo that
+// surfaces the stop directive, and mark the result blocked. Mirrors the
+// write/edit block path so the tool "runs" but does nothing costly.
+function _neutralizeBashLoop(input, output, directive) {
+  const safe = String(directive || "loop blocked").replace(/"/g, "'")
+  const replacement = `echo "[vibeOS loop-guard] ${safe}"`
+  for (const src of [output?.args, input?.args]) {
+    if (!src || typeof src !== "object") continue
+    if (typeof src.command === "string") src.command = replacement
+    if (typeof src.cmd === "string") src.cmd = replacement
+    if (typeof src.script === "string") src.script = replacement
+  }
+  if (output && typeof output === "object") {
+    output.blocked = true
+    output.status = "error"
+    output.error = output.error || "blocked runaway bash loop"
   }
 }
 
@@ -996,6 +1020,34 @@ export const onToolExecuteBefore = async (input, output) => {
   }
 
   if (SOFT_QUOTA.has(t)) {
+    // Loop circuit-breaker (bash only): catch tool-call poll/repeat loops that the
+    // text-similarity detector misses — e.g. `sleep 600 && gh pr view 348` re-run
+    // for hours. Warn first, then hard-block by neutralizing the command.
+    if (t === "bash") {
+      const command = String(args?.command ?? args?.cmd ?? args?.script ?? inArgs?.command ?? inArgs?.cmd ?? inArgs?.script ?? "")
+      if (command) {
+        const verdict = _loopGuard.observe(command)
+        if (verdict.level === "block") {
+          const _total = recordSaving(t, `loop blocked (${verdict.kind} x${verdict.count})`, SAVE_EST.LOOP_GUARD, {
+            firstWord: _firstWord,
+            projectFingerprint: currentProjectFingerprint,
+            projectName: currentProjectName || "",
+            sessionId: getCurrentSessionId(),
+          })
+          pendingUiNote = `[loop-guard] Blocked runaway ${verdict.kind} loop (${verdict.count}x). ${verdict.directive}`
+          enforcementBlocked = true
+          _neutralizeBashLoop(input, output, verdict.directive)
+          if (shouldLogWarn(`loop-block|${verdict.signature.slice(0, 60)}`)) {
+            console.error(`[vibeOS] [loop-guard] BLOCKED ${verdict.kind} loop (${verdict.count}x): ${verdict.signature.slice(0, 80)}`)
+          }
+          return
+        }
+        if (verdict.level === "warn" && _loopWarnedSig !== verdict.signature) {
+          _loopWarnedSig = verdict.signature
+          console.error(`[vibeOS] [loop-guard] ${verdict.kind} repeated ${verdict.count}x — ${verdict.directive}`)
+        }
+      }
+    }
     // Context7 nudge / install-suggestion / per-session alert (WebFetch/WebSearch only).
     if (t !== "bash") {
       const target = args?.url || args?.query || ""
