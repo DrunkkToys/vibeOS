@@ -61,3 +61,12 @@ declare module "./vibeOS-lib/smart-cache.js" {
   export function serializeCacheDb(db: unknown): unknown
   export function deserializeCacheDb(raw: unknown): unknown
 }
+
+declare module "../../scripts/lib/opencode-homes.mjs" {
+  export function resolveOpenCodeHomes(opts?: { cwd?: string; home?: string }): string[]
+  export function resolveOpenCodeHome(opts?: { cwd?: string; home?: string }): string
+}
+
+declare module "../../scripts/lib/vibe-tier-agents.mjs" {
+  export function installVibeTierAgentsInConfig(config: Record<string, any>, tiers?: unknown): boolean
+}

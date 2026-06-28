@@ -1,48 +1,153 @@
 #!/usr/bin/env node
 
+// src/bin/setup.ts
 import { execSync } from "node:child_process";
-import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { readFileSync as readFileSync2, writeFileSync as writeFileSync2, existsSync as existsSync2, mkdirSync as mkdirSync2, renameSync as renameSync2 } from "node:fs";
+import { dirname as dirname2, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { resolveOpenCodeHome, resolveOpenCodeHomes } from "../scripts/lib/opencode-homes.mjs";
-import { installVibeTierAgentsInConfig } from "../scripts/lib/vibe-tier-agents.mjs";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const root = resolve(__dirname, "..");
-const args = process.argv.slice(2);
-const command = args.find(a => !a.startsWith("-")) ?? "setup";
-const isInstallCommand = command === "setup" || command === "set";
-const isProject = args.includes("--project");
-const isYes = args.includes("--yes") || args.includes("-y");
+// scripts/lib/opencode-homes.mjs
+import { join } from "node:path";
+import { homedir } from "node:os";
+function resolveOpenCodeHomes({ home = homedir() } = {}) {
+  const override = process.env.VIBEOS_OPENCODE_HOME;
+  if (override) return [override];
+  return [join(home, ".opencode")];
+}
+function resolveOpenCodeHome(opts = {}) {
+  return resolveOpenCodeHomes(opts)[0];
+}
 
+// scripts/lib/vibe-tier-agents.mjs
+import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from "node:fs";
+import { dirname, join as join2 } from "node:path";
+import { homedir as homedir2 } from "node:os";
+var VIBE_TIER_AGENT_BY_SLOT = {
+  cheap: "vibe-cheap",
+  medium: "vibe-medium",
+  brain: "vibe-brain"
+};
+var VIBE_PRIMARY_AGENT = "vibe";
+function readJson(path) {
+  if (!existsSync(path)) return {};
+  try {
+    const raw = readFileSync(path, "utf8");
+    const cleaned = raw.replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
+    const parsed = JSON.parse(cleaned);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+function readTiers(home = homedir2()) {
+  return readJson(join2(process.env.VIBEOS_HOME || join2(home, ".claude"), "model-tiers.json"));
+}
+function primaryAgent(model, existing = {}) {
+  return {
+    ...existing && typeof existing === "object" ? existing : {},
+    description: "VibeUltraX primary agent",
+    mode: "primary",
+    model,
+    permission: {
+      read: "allow",
+      edit: "allow",
+      glob: "allow",
+      grep: "allow",
+      list: "allow",
+      bash: "allow",
+      task: "allow",
+      webfetch: "allow",
+      websearch: "allow",
+      ...existing?.permission && typeof existing.permission === "object" ? existing.permission : {}
+    }
+  };
+}
+function tierAgent(slot, model, existing = {}) {
+  return {
+    ...existing && typeof existing === "object" ? existing : {},
+    description: `VibeUltraX ${slot} tier subagent`,
+    mode: "subagent",
+    model,
+    permission: {
+      read: "allow",
+      edit: "allow",
+      glob: "allow",
+      grep: "allow",
+      list: "allow",
+      bash: "allow",
+      task: "allow",
+      webfetch: "allow",
+      websearch: "allow",
+      ...existing?.permission && typeof existing.permission === "object" ? existing.permission : {}
+    }
+  };
+}
+function installVibeTierAgentsInConfig(config, tiers = readTiers()) {
+  if (!config || typeof config !== "object" || Array.isArray(config)) return false;
+  const trinity = tiers?.trinity || {};
+  config.$schema ||= "https://opencode.ai/config.json";
+  config.agent = config.agent && typeof config.agent === "object" ? config.agent : {};
+  let changed = false;
+  const primaryModel = String(trinity?.cheap?.oc || "").trim();
+  if (primaryModel) {
+    const existing = config.agent[VIBE_PRIMARY_AGENT];
+    const next = primaryAgent(primaryModel, existing);
+    if (JSON.stringify(existing || null) !== JSON.stringify(next)) {
+      config.agent[VIBE_PRIMARY_AGENT] = next;
+      changed = true;
+    }
+    if (config.default_agent !== VIBE_PRIMARY_AGENT) {
+      config.default_agent = VIBE_PRIMARY_AGENT;
+      changed = true;
+    }
+  }
+  for (const slot of ["cheap", "medium", "brain"]) {
+    const model = String(trinity?.[slot]?.oc || "").trim();
+    const name = VIBE_TIER_AGENT_BY_SLOT[slot];
+    if (!model || !name) continue;
+    const existing = config.agent[name];
+    const next = tierAgent(slot, model, existing);
+    if (JSON.stringify(existing || null) !== JSON.stringify(next)) {
+      config.agent[name] = next;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+// src/bin/setup.ts
+var __dirname = dirname2(fileURLToPath(import.meta.url));
+var root = resolve(__dirname, "..");
+var args = process.argv.slice(2);
+var command = args.find((a) => !a.startsWith("-")) ?? "setup";
+var isInstallCommand = command === "setup" || command === "set";
+var isProject = args.includes("--project");
+var writeLine = (text = "") => {
+  process.stdout.write(text + "\n");
+};
 if (!isInstallCommand || args.includes("--help") || args.includes("-h")) {
   console.error("Usage: npx vibeostheog set [--project]");
   console.error("       npx vibeostheog setup [--project]");
   process.exit(1);
 }
-
-console.log("");
-console.log("vibeOS — cost-aware delegation enforcer for OpenCode");
-console.log("");
-console.log("Installing to:");
-for (const h of resolveOpenCodeHomes({ cwd: process.cwd() })) console.log("  " + h);
-console.log("");
-
-// Deploy plugin files to ~/.config/opencode/plugins/ and register globally
-const deployScript = resolve(root, "scripts", "deploy.mjs");
-if (!existsSync(deployScript)) {
+writeLine();
+writeLine("vibeOS \u2014 cost-aware delegation enforcer for OpenCode");
+writeLine();
+writeLine("Installing to:");
+for (const h of resolveOpenCodeHomes({ cwd: process.cwd() })) writeLine("  " + h);
+writeLine();
+var deployScript = resolve(root, "scripts", "deploy.mjs");
+if (!existsSync2(deployScript)) {
   console.error("Fatal: scripts/deploy.mjs not found at", deployScript);
   process.exit(1);
 }
 execSync(`node "${deployScript}"`, { stdio: "inherit", cwd: process.cwd() });
-
-// For per-project setup, also register in project-level opencode.json
 if (isProject) {
   const configPath = resolve(process.cwd(), "opencode.json");
   let config = {};
-  if (existsSync(configPath)) {
+  if (existsSync2(configPath)) {
     try {
-      config = JSON.parse(readFileSync(configPath, "utf8"));
+      config = JSON.parse(readFileSync2(configPath, "utf8"));
     } catch {
       config = {};
     }
@@ -55,12 +160,11 @@ if (isProject) {
   config.plugin = config.plugin.filter((p) => !(typeof p === "string" && p.includes("vibeOS")));
   installVibeTierAgentsInConfig(config);
   if (!config.plugin.includes(pluginRef)) config.plugin.push(pluginRef);
-  mkdirSync(dirname(configPath), { recursive: true });
+  mkdirSync2(dirname2(configPath), { recursive: true });
   const tmp = `${configPath}.tmp.${process.pid}.${Date.now()}`;
-  writeFileSync(tmp, JSON.stringify(config, null, 2) + "\n");
-  renameSync(tmp, configPath);
-  console.log(`vibeOS registered in ${configPath}`);
+  writeFileSync2(tmp, JSON.stringify(config, null, 2) + "\n");
+  renameSync2(tmp, configPath);
+  writeLine(`vibeOS registered in ${configPath}`);
 }
-
-console.log("");
-console.log("Done. Restart OpenCode to activate the plugin.");
+writeLine();
+writeLine("Done. Restart OpenCode to activate the plugin.");

@@ -77,6 +77,39 @@ export function collectOpenCodeConfigPaths(projectDir = "", options: { includeGl
   })
 }
 
+function isLegacyConfigJsonStub(config: unknown): config is JsonRecord {
+  if (!config || typeof config !== "object" || Array.isArray(config)) return false
+  const keys = Object.keys(config)
+  if (keys.length === 0) return false
+  if (!keys.every((key) => key === "model" || key === "$schema" || key === "default_agent")) return false
+  return typeof (config as JsonRecord).model === "string" && String((config as JsonRecord).model || "").trim().length > 0
+}
+
+export function cleanupLegacyOpenCodeConfigFiles(projectDir = "", options: { includeHome?: boolean } = {}): string[] {
+  const { includeHome = true } = options
+  const candidates = new Set<string>()
+  if (projectDir) candidates.add(join(projectDir, "config.json"))
+  if (includeHome) {
+    const home = process.env.HOME || ""
+    if (home) candidates.add(join(home, "config.json"))
+    for (const opencodeHome of getOpenCodeHomes()) candidates.add(join(opencodeHome, "config.json"))
+    candidates.add(join(getOpenCodeHome(), "config.json"))
+  }
+
+  const cleaned: string[] = []
+  for (const path of candidates) {
+    if (!path || !existsSync(path)) continue
+    try {
+      const parsed = safeJsonParse(readFileSync(path, "utf-8"))
+      if (!isLegacyConfigJsonStub(parsed)) continue
+      const backup = `${path}.vibeos-bak-${Date.now()}`
+      renameSync(path, backup)
+      cleaned.push(backup)
+    } catch {}
+  }
+  return cleaned
+}
+
 export function readOpenCodeConfig(path: string): JsonRecord {
   if (!existsSync(path)) return {}
   const parsed = safeJsonParse(readFileSync(path, "utf-8"))

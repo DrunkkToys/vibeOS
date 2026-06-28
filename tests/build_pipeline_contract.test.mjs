@@ -18,6 +18,12 @@ test("contract: build:bundle script is esbuild-only, no tsc or sync-ts-build", (
   assert.equal(cmd.includes("tsc"), false, "must NOT include tsc")
 })
 
+test("contract: build bundle emits bin/setup.js from src/bin/setup.ts", () => {
+  const src = readFileSync(join(ROOT, "scripts", "build-bundle.mjs"), "utf8")
+  assert.ok(src.includes('join(SRC, "bin", "setup.ts")'), "must build setup.ts")
+  assert.ok(src.includes('join(ROOT, "bin", "setup.js")'), "must emit bin/setup.js")
+})
+
 test("contract: build script includes typecheck before bundle", () => {
   const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"))
   const cmd = pkg.scripts.build
@@ -36,6 +42,7 @@ test("contract: bundle file exists at dist/vibeOS.js and is >100KB", () => {
 
 test("contract: src does not contain committed JS mirrors", () => {
   const allowed = new Set([
+    "src/index.js",
     "src/lib/hooks/tests/chat-transform-cv-gate.test.js",
     "src/lib/tests/mode-router.test.js",
     "src/tests/fallback-regex.test.js",

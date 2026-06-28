@@ -1,5 +1,5 @@
 import { build } from 'esbuild';
-import { existsSync, mkdirSync, copyFileSync, readdirSync, statSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, copyFileSync, readdirSync, statSync, readFileSync, writeFileSync, chmodSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { resolveOpenCodeHomes } from './lib/opencode-homes.mjs';
@@ -46,6 +46,25 @@ await build({
 });
 
 console.log('[bundle] Bundle created: dist/vibeOS.js');
+
+await build({
+  entryPoints: [join(SRC, "bin", "setup.ts")],
+  bundle: true,
+  platform: "node",
+  format: "esm",
+  outfile: join(ROOT, "bin", "setup.js"),
+  target: "node22",
+  external: ["node:*"],
+  banner: { js: "#!/usr/bin/env node" },
+  minify: false,
+  sourcemap: false,
+});
+
+try {
+  chmodSync(join(ROOT, "bin", "setup.js"), 0o755);
+} catch {}
+
+console.log("[bundle] Bundle created: bin/setup.js");
 
 // Copy non-JS assets (JSON configs, etc.)
 const assetsDir = join(DIST, 'assets');
