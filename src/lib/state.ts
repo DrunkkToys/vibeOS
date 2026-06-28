@@ -116,6 +116,7 @@ const MAX_SCRATCHPAD_FILES  = 1000
 const MAX_SCRATCHPAD_BYTES  = 10 * 1024 * 1024
 const MAX_SESSION_SCRATCHPAD_FILES = 200
 const MAX_SESSION_SCRATCHPAD_BYTES = 2 * 1024 * 1024
+const MAX_BLACKBOX_SESSIONS = 150
 const CORRUPTION_BACKUP_MAX = 5
 const CORRUPTION_BACKUP_TTL_MS = 24 * 60 * 60 * 1000
 const LEDGER_ROTATE_MAX_BYTES = 256 * 1024
@@ -731,6 +732,27 @@ function loadBlackboxState(): DelegationState {
   } catch { _handleStateCorruption(blackboxFile); return { enabled: false, sessions: {} } }
 }
 
+function _capBlackboxSessions(state: unknown): void {
+  if (!state || typeof state !== "object" || !state.sessions || typeof state.sessions !== "object") return
+  const sids = Object.keys(state.sessions)
+  if (sids.length <= MAX_BLACKBOX_SESSIONS) return
+  const ts = (sid: string): number => {
+    const s = state.sessions[sid]
+    const v = Date.parse(String(s?.updatedAt || s?.createdAt || s?.session_started_at || ""))
+    return Number.isFinite(v) ? v : 0
+  }
+  // Keep the active session plus the most-recently-updated up to the cap.
+  const ranked = sids
+    .filter((sid) => sid !== _OC_SID)
+    .sort((a, b) => ts(b) - ts(a))
+  const keepBudget = Math.max(0, MAX_BLACKBOX_SESSIONS - (state.sessions[_OC_SID] ? 1 : 0))
+  const keep = new Set(ranked.slice(0, keepBudget))
+  if (state.sessions[_OC_SID]) keep.add(_OC_SID)
+  for (const sid of sids) {
+    if (!keep.has(sid)) delete state.sessions[sid]
+  }
+}
+
 function saveBlackboxState(state: unknown): void {
   const blackboxFile = join(getVibeOSHome(), "blackbox-state.json")
   try {
@@ -741,6 +763,7 @@ function saveBlackboxState(state: unknown): void {
       if (!session || typeof session !== "object") continue
       next.sessions[sid] = normalizeBlackboxRecord(session as unknown, sid, now).record
     }
+    _capBlackboxSessions(next)
     _normalizeVibeUltraXBlackboxState(next)
     _mirrorLiveControlVector(next)
     mkdirSync(dirname(blackboxFile), { recursive: true })
@@ -1230,6 +1253,15 @@ function normalizeBlackboxRecord(record: unknown, sid: string, now: number): { r
   if (liveControl && !next.cv) { next.cv = liveControl; changed = true }
   if (liveControl && !next.control_vector) { next.control_vector = liveControl; changed = true }
   if (liveControl && !next.live_control) { next.live_control = liveControl; changed = true }
+  if (next.decision_source !== "api" && next.decision_source !== "local") {
+    next.decision_source = "local"
+    changed = true
+  }
+  if (!Number.isFinite(Number(next.n_interactions))) {
+    const histLen = Array.isArray(next.history) ? next.history.length : 0
+    next.n_interactions = histLen > 0 ? histLen : Number(next.turn_counter || 0)
+    changed = true
+  }
   return { record: next, changed }
 }
 

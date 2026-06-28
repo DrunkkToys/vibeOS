@@ -331,6 +331,26 @@ function _routePathForSlot(root: string[], slot: string | null): string[] {
   return ["cheap"]
 }
 
+function _writeCascadeAudit(prompt: string, slot: string | null, model: string | null, decision: unknown): void {
+  try {
+    const dir = join(getVibeOSHome(), "cascade-audit")
+    mkdirSync(dir, { recursive: true })
+    const line = JSON.stringify({
+      _ts: new Date().toISOString(),
+      query_hash: hashQuery(String(prompt || "")),
+      slot: String(slot || ""),
+      model: String(model || ""),
+      escalate: Boolean(decision?.escalate),
+      use_cheap: Boolean(decision?.useCheap),
+      confidence: Number(decision?.confidence || 0),
+      reason: String(decision?.reason || ""),
+    })
+    appendFileSync(join(dir, "cascade-audit.jsonl"), line + "\n")
+  } catch (err) {
+    if (DEBUG_INTERNALS) console.error(`[vibeOS] cascade-audit write error: ${err.message}`)
+  }
+}
+
 export function resolveCascadeRouteDecision(input: unknown = {}): unknown {
   const prompt = String(input?.prompt || "")
   const firstWord = String(input?.firstWord || prompt.trim().split(/\s+/)[0] || "").toLowerCase()
@@ -406,6 +426,7 @@ export function resolveCascadeRouteDecision(input: unknown = {}): unknown {
       } else if (cascadeDecision.useCheap && !cascadeSelectedModel) {
         applyLocalCandidate(cascadeRoot[0], _modelForSlot(cascadeRoot[0], trinityCheap, trinityMedium, trinityBrain), "cascade", cascadeDecision.reason)
       }
+      _writeCascadeAudit(prompt, cascadeSelectedSlot, cascadeSelectedModel, cascadeDecision)
     } catch (err) {
       if (DEBUG_INTERNALS) console.error(`[vibeOS] cascade route resolver error: ${err.message}`)
     }
@@ -786,7 +807,7 @@ export const onToolExecuteBefore = async (input, output) => {
         cascadeRoot: _normalizeCascadeRoot(selection.active_pipeline, creditSlot),
       }
     }
-    if (selection.optimization_mode === "vibeultrax" && selection.requires_delegation) {
+    if (selection.optimization_mode === "vibeultrax" && (selection.requires_delegation || routeDecision?.requiresDelegation)) {
       const controlSlot = selection.selected_slot || routeDecision?.selectedSlot || null
       const controlModel = _modelForSlot(controlSlot, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN) || selection.worker_model || null
       const routeSlot = routeDecision?.selectedSlot || null
