@@ -10,6 +10,7 @@ import { pathToFileURL } from "node:url"
 import { _OC_SID } from "../src/lib/state.js"
 
 const turn = await import("../src/lib/turn-classify.js?agent-test=" + Date.now())
+const DIST = (p) => pathToFileURL(join(process.cwd(), "dist-ts", p)).href
 
 // ── agent_mode: plan only for complex regimes ──
 test("agent_mode: REFINING + low stress → plan", () => {
@@ -225,8 +226,8 @@ test("syncControlSettings does not overwrite a pre-outage optimization mode with
         if (u.endsWith("/health")) throw new Error("simulated outage");
         throw new Error("unexpected fetch " + u);
       };
-      const api = await import("./src/lib/api-client.js");
-      const mod = await import("./src/lib/hooks/chat-transform.js");
+      const api = await import(${JSON.stringify(DIST("lib/api-client.js"))});
+      const mod = await import(${JSON.stringify(DIST("lib/hooks/chat-transform.js"))});
       const beforeFallback = await api.remoteCall("health", [], () => "fallback");
       const fallbackActive = api.isApiFallback();
       mod.syncControlSettings({
@@ -311,9 +312,9 @@ test("syncControlSettings restores a stuck vibelitex optimization mode back to t
           ${JSON.stringify(_OC_SID)}: { optimization_mode: "vibelitex" },
         },
       }, null, 2));
-      const api = await import("./src/lib/api-client.js");
-      const mod = await import("./src/lib/hooks/chat-transform.js");
-      const turn = await import("./src/lib/turn-classify.js");
+      const api = await import(${JSON.stringify(DIST("lib/api-client.js"))});
+      const mod = await import(${JSON.stringify(DIST("lib/hooks/chat-transform.js"))});
+      const turn = await import(${JSON.stringify(DIST("lib/turn-classify.js"))});
       api.setApiToken("vos_" + "c".repeat(64));
       mod.syncControlSettings({
         enforcement_mode: "strict",
@@ -375,9 +376,9 @@ test("loadOptimizationMode recovers vibelitex from live brain tier after boot", 
         },
       }, null, 2));
       mkdirSync(join(home, "proj"), { recursive: true });
-      const mod = await import("./src/index.js");
+      const mod = await import(${JSON.stringify(DIST("index.js"))});
       const hooks = await mod.DelegationEnforcer({ client: {}, directory: ${JSON.stringify(join(home, "proj"))} });
-      const turn = await import("./src/lib/turn-classify.js");
+      const turn = await import(${JSON.stringify(DIST("lib/turn-classify.js"))});
       const resolved = turn.loadOptimizationMode();
       const tiers = JSON.parse(readFileSync(join(home, ".claude/model-tiers.json"), "utf8"));
       const out = { text: "This assistant response is long enough to trigger the footer after a reconnect." };
