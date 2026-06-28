@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 
 const ROOT = resolve(import.meta.dirname, "../..");
-const _BB = (f) => pathToFileURL(join(ROOT, "src/vibeOS-lib/blackbox", f)).href + "?cb=" + Date.now();
+const _BB = (f) => pathToFileURL(join(ROOT, "dist-ts/vibeOS-lib/blackbox", f)).href + "?cb=" + Date.now();
 
 function sb() {
   const dir = mkdtempSync(join(tmpdir(), "m07-")); const fh = join(dir, "home");

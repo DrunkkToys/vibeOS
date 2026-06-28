@@ -67,7 +67,7 @@ test("mcp: dashboard resolves the published runtime URL even when tiers are stal
     process.env.VIBEOS_HOME = vibeHome;
     process.env.VIBEOS_OPENCODE_HOME = opencodeHome;
     process.env.VIBEOS_MCP_PORT = String(port);
-    const modA = await import(${JSON.stringify(new URL("../src/index.js", import.meta.url).href)} + "?dash-a=" + Date.now());
+    const modA = await import(${JSON.stringify(new URL("../dist-ts/index.js", import.meta.url).href)} + "?dash-a=" + Date.now());
     await modA.DelegationEnforcer({ client: {}, directory: projectDir });
     const waitFor = async (url) => {
       const start = Date.now();
@@ -82,7 +82,7 @@ test("mcp: dashboard resolves the published runtime URL even when tiers are stal
     };
     await waitFor("http://127.0.0.1:" + port + "/health");
     process.env.VIBEOS_MCP_PORT = "0";
-    const modB = await import(${JSON.stringify(new URL("../src/index.js", import.meta.url).href)} + "?dash-b=" + Date.now());
+    const modB = await import(${JSON.stringify(new URL("../dist-ts/index.js", import.meta.url).href)} + "?dash-b=" + Date.now());
     const hooksB = await modB.DelegationEnforcer({ client: {}, directory: projectDir });
     const dashboard = await hooksB.tool.trinity.execute({ action: "dashboard" });
     const runtime = JSON.parse(readFileSync(join(vibeHome, "mcp-runtime.json"), "utf-8"));
@@ -155,7 +155,7 @@ test("mcp: dashboard publication and blackbox survive restart", async () => {
     process.env.VIBEOS_HOME = vibeHome;
     process.env.VIBEOS_OPENCODE_HOME = opencodeHome;
     process.env.VIBEOS_MCP_PORT = String(port);
-    const modA = await import(${JSON.stringify(new URL("../src/index.js", import.meta.url).href)} + "?bb-a=" + Date.now());
+    const modA = await import(${JSON.stringify(new URL("../dist-ts/index.js", import.meta.url).href)} + "?bb-a=" + Date.now());
     const hooksA = await modA.DelegationEnforcer({ client: {}, directory: projectDir });
     const waitFor = async (url) => {
       const start = Date.now();
@@ -181,7 +181,7 @@ test("mcp: dashboard publication and blackbox survive restart", async () => {
     });
     const firstBlackbox = JSON.parse(readFileSync(join(vibeHome, "blackbox-state.json"), "utf-8"));
     await modA.closeMcpServer();
-    const modB = await import(${JSON.stringify(new URL("../src/index.js", import.meta.url).href)} + "?bb-b=" + Date.now());
+    const modB = await import(${JSON.stringify(new URL("../dist-ts/index.js", import.meta.url).href)} + "?bb-b=" + Date.now());
     const hooksB = await modB.DelegationEnforcer({ client: {}, directory: projectDir });
     await waitFor("http://127.0.0.1:" + port + "/health");
     const blackbox = await (await fetch("http://127.0.0.1:" + port + "/blackbox")).json();
@@ -237,7 +237,7 @@ test("state: startup maintenance prunes stale orphan sessions", async () => {
     }, null, 2) + "\\n");
     process.env.HOME = home;
     process.env.VIBEOS_HOME = vibeHome;
-    const stateMod = await import(${JSON.stringify(new URL("../src/lib/state.js", import.meta.url).href)} + "?cleanup=" + Date.now());
+    const stateMod = await import(${JSON.stringify(new URL("../dist-ts/lib/state.js", import.meta.url).href)} + "?cleanup=" + Date.now());
     stateMod.runStartupMaintenanceOnce();
     const next = JSON.parse(readFileSync(join(vibeHome, "delegation-state.json"), "utf-8"));
     console.log(JSON.stringify({

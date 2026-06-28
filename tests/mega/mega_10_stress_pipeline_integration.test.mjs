@@ -8,8 +8,8 @@ import { pathToFileURL } from "node:url";
 
 const ROOT = resolve(import.meta.dirname, "../..");
 const cb = () => "?cb=" + Date.now() + Math.random();
-const I = () => pathToFileURL(join(ROOT, "src/index.js")).href + cb();
-const CLASS = () => pathToFileURL(join(ROOT, "src/lib/classifiers.js")).href + cb();
+const I = () => pathToFileURL(join(ROOT, "dist-ts/index.js")).href + cb();
+const CLASS = () => pathToFileURL(join(ROOT, "dist-ts/lib/classifiers.js")).href + cb();
 
 function sb() {
   const dir = mkdtempSync(join(tmpdir(), "m10-"));

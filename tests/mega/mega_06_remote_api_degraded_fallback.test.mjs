@@ -8,7 +8,7 @@ import { pathToFileURL } from "node:url";
 
 const ROOT = resolve(import.meta.dirname, "../..");
 const cb = () => "?cb=" + Date.now() + Math.random();
-const I = () => pathToFileURL(join(ROOT, "src/index.js")).href + cb();
+const I = () => pathToFileURL(join(ROOT, "dist-ts/index.js")).href + cb();
 
 function sb() {
   const dir = mkdtempSync(join(tmpdir(), "m06-"));

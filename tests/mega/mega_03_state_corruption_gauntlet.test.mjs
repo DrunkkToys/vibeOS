@@ -7,9 +7,9 @@ import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 
 const ROOT = resolve(import.meta.dirname, "../..");
-const _S = () => pathToFileURL(join(ROOT, "src/lib/state.js")).href + "?cb=" + Date.now();
-const _C = () => pathToFileURL(join(ROOT, "src/lib/constants.js")).href + "?cb=" + Date.now();
-const _I = () => pathToFileURL(join(ROOT, "src/index.js")).href + "?cb=" + Date.now();
+const _S = () => pathToFileURL(join(ROOT, "dist-ts/lib/state.js")).href + "?cb=" + Date.now();
+const _C = () => pathToFileURL(join(ROOT, "dist-ts/lib/constants.js")).href + "?cb=" + Date.now();
+const _I = () => pathToFileURL(join(ROOT, "dist-ts/index.js")).href + "?cb=" + Date.now();
 
 function sb(files) {
   const dir = mkdtempSync(join(tmpdir(), "m03-")); const fh = join(dir, "home");

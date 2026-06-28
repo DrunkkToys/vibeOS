@@ -8,9 +8,9 @@ import { pathToFileURL } from "node:url";
 
 const ROOT = resolve(import.meta.dirname, "../..");
 const cb = () => "?cb=" + Date.now() + Math.random();
-const I = () => pathToFileURL(join(ROOT, "src/index.js")).href + cb();
-const S = () => pathToFileURL(join(ROOT, "src/lib/state.js")).href + cb();
-const C = () => pathToFileURL(join(ROOT, "src/lib/constants.js")).href + cb();
+const I = () => pathToFileURL(join(ROOT, "dist-ts/index.js")).href + cb();
+const S = () => pathToFileURL(join(ROOT, "dist-ts/lib/state.js")).href + cb();
+const C = () => pathToFileURL(join(ROOT, "dist-ts/lib/constants.js")).href + cb();
 
 function sb() {
   const dir = mkdtempSync(join(tmpdir(), "m09-"));

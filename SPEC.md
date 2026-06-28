@@ -408,9 +408,9 @@ When blackbox disabled:
 3. Single-file bundle dist/vibeOS.js (~860KB)
 4. Deploy to ~/.opencode/plugins/vibeOS.js
 5. tsc -p tsconfig.json --noEmit must pass
-6. npm test = typecheck + build + run 1729 tests
+6. npm test = typecheck + build + run the full suite
 
-**Verified:** typecheck clean, build succeeds, 1729 tests pass (1621 pass, 0 fail, 9 skip, 99 todo)
+**Verified:** typecheck clean, build succeeds, and `npm test` passes on the current suite.
 
 ---
 
@@ -440,12 +440,12 @@ npm run typecheck                           # TypeScript validation (also the sy
 node tests/deep_integration.test.mjs        # 815 assertions - core pipeline
 node tests/test_delegation_enforcer.test.mjs # 141 assertions - enforcement
 node tests/production_regressions.test.mjs  # 35 assertions - footer/mode
-node tests/forensic_cross_cascade.test.mjs  # 10 assertions - cascade
+node tests/cascade_real_proof.test.mjs      # cascade coverage
 node tests/test_install_and_recovery.test.mjs # 14 assertions - install
-node src/tests/index.test.js                # Core runtime
+node tests/test_mega_all_fixes.test.mjs      # core runtime
 ```
 
-**Test result (2026-06-27): 1729 total — 1621 pass, 0 fail, 9 skip, 99 todo**
+**Test result:** current suite verified via `npm test`; exact counts drift as tests are added.
 
 ---
 
