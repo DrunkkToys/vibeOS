@@ -1187,8 +1187,11 @@ test('v0.22.17 — vibeultrax mode writes valid active_slot (not local)', async 
     'active_slot should be brain/medium/cheap, got: ' + slot)
   assert.ok(tiers.selection.onboarding_mode === 'strict',
     'onboarding_mode should be strict for vibeultrax, got: ' + tiers.selection.onboarding_mode)
+  assert.equal(slot, 'cheap', 'vibeultrax activates the cheap tier (active_slot)')
+  // The watched opencode.json is NOT rewritten by a mode switch — that aborts the turn.
+  // The cheap-tier model is applied per turn by the chat.params override + subagent delegation.
   const oc = JSON.parse(readFileSync(join(dir, 'opencode.json'), 'utf8'))
-  assert.equal(oc.model, tiers.trinity.cheap.oc, 'vibeultrax should activate the cheap OpenCode model')
+  assert.equal(oc.model, 'deepseek/deepseek-v4-pro', 'opencode.json (watched) stays pinned — never rewritten mid-turn')
 })
 
 

@@ -351,6 +351,33 @@ When blackbox disabled:
 5. Local cascade wins when API unreachable (VibeLiteX fallback)
 6. API-bypass gate at tool-execute.ts:395 (local cascade on !backendRoute.target)
 
+### Model Switch Contract (no watched-file writes)
+
+**Source:** `src/lib/pricing.ts` (`applySlot`, `flushPendingLiveSwitch`),
+`src/lib/hooks/chat-params.ts`, `src/lib/hooks/tool-execute.ts`
+
+OpenCode binds the primary model at session start and watches `opencode.json` AND
+`config.json`; any mid-turn change to either disposes the active project instance and
+aborts the in-flight turn (`disposing instance` -> `AbortError`). vibeOS therefore
+NEVER rewrites a watched config file to switch models, and NEVER calls
+`client.config.update` (OpenCode's `Config.update` handler persists
+`<projectDir>/config.json`).
+
+1. `applySlot()` persists the orchestrator decision (`active_slot`) to the UNWATCHED
+   `model-tiers.json` only. It does not write `opencode.json` or `config.json`.
+2. The per-turn model override is applied by the `chat.params` middleware
+   (`onChatParams` sets `output.options.model` to `trinity[active_slot].oc` for
+   SAME-provider tiers) — no file write, no abort.
+3. Cross-provider tier work reaches a different model through `vibe-cheap` /
+   `vibe-medium` / `vibe-brain` subagent delegation in `tool-execute` (the Task tool's
+   `model` is rewritten to the tier target).
+4. `flushPendingLiveSwitch()` is state-only: it clears the queued footer hint and
+   performs no I/O and no SDK call.
+5. The `vibe-cheap/medium/brain` agent topology is installed into `opencode.json` once
+   at startup / `vibe rebuild` (out of any turn), not on every slot switch.
+6. `vibe set` / `vibe mode` report "Takes effect next turn" — the slot decision is read
+   by `chat.params` on the next outbound request within the same session.
+
 ### Live Cascade Test (2026-06-27)
 
 | Metric | Result |

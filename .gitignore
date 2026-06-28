@@ -24,6 +24,8 @@ src/vibeOS-lib/**/*.js
 
 # Local state
 opencode.json
+config.json
+config.json.vibeos-bak-*
 .vibeos-logs/
 .experiment/
 .vibetheog-cx/

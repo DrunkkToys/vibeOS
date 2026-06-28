@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: MIT
-// Real cascade switch + drift reconciliation tests.
+// Cascade slot + drift reconciliation tests.
 //
-// Covers the two regressions reported against VibeUltraX:
-//   1. applySlot must perform a REAL runtime switch via the OpenCode SDK
-//      (client.config.update / POST /config), not just a file write — and it
-//      must persist active_slot + the opencode.json default for the slot.
-//   2. Drift reconciliation must be synchronous and client-independent: a stale
-//      or foreign live model is corrected back to the slot's model on the next
-//      turn, and the derived (footer/report) model is always the slot's model —
-//      never a bogus persisted executed_model shadow key.
+// Contract (subagent-delegation-only, 2026-06-28):
+//   1. applySlot persists the orchestrator decision (active_slot) to the UNWATCHED
+//      model-tiers.json and must NOT rewrite opencode.json or call client.config.update
+//      — both touch OpenCode-watched config files whose change disposes the active
+//      project instance and aborts the in-flight turn. The per-turn model override is
+//      done by the chat.params middleware and subagent delegation, not a config rewrite.
+//   2. Drift reconciliation is synchronous and client-independent: it re-pins the slot
+//      decision and reports from/to for observability, but never writes a watched file.
+//      The derived (footer/report) model is always the slot's model — never a bogus
+//      persisted executed_model shadow key.
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs"
@@ -81,22 +83,19 @@ function freshPricing() {
 }
 
 // ── applySlot: real runtime switch ─────────────────────────────────────
-test("applySlot('medium') persists active_slot and opencode.json for next session", async () => {
+test("applySlot('medium') persists active_slot to model-tiers.json and does NOT touch the watched opencode.json", async () => {
   writeTiers({ active_slot: "cheap" })
   writeOcConfig("deepseek/cheap-model")
-  try {
-    const { applySlot } = await freshPricing()
-    const r = applySlot("medium", sandbox)
+  const { applySlot } = await freshPricing()
+  const r = applySlot("medium", sandbox)
 
-    assert.ok(r.ok, `applySlot should succeed: ${r.reason || ""}`)
-    assert.equal(r.ocModel, "deepseek/medium-model")
-    // (1) selection persisted
-    assert.equal(readSelection().active_slot, "medium", "active_slot must flip to medium")
-    // (2) opencode.json next-session default rewritten
-    assert.equal(readOcModel(), "deepseek/medium-model", "opencode.json model must be medium's model for next session")
-  } finally {
-    // SDK switch now happens at next session start, not mid-turn
-  }
+  assert.ok(r.ok, `applySlot should succeed: ${r.reason || ""}`)
+  assert.equal(r.ocModel, "deepseek/medium-model")
+  // (1) orchestrator decision persisted to the UNWATCHED tiers file
+  assert.equal(readSelection().active_slot, "medium", "active_slot must flip to medium")
+  // (2) the watched opencode.json is NOT rewritten — that would abort the turn. The model
+  // override for the turn is applied by the chat.params middleware, not a config write.
+  assert.equal(readOcModel(), "deepseek/cheap-model", "opencode.json (a watched file) stays pinned")
 })
 
 test("applySlot does NOT persist shadow execution keys", async () => {
@@ -111,15 +110,15 @@ test("applySlot does NOT persist shadow execution keys", async () => {
   assert.equal(sel.selected_model, undefined, "selected_model is a shadow key and must be stripped")
 })
 
-test("applySlot succeeds (file write) even when the SDK client is absent", async () => {
+test("applySlot succeeds headless and writes no watched file", async () => {
   writeTiers({ active_slot: "cheap" })
   writeOcConfig("deepseek/cheap-model")
   clearFakeClient()
   const { applySlot } = await freshPricing()
   const r = applySlot("brain", sandbox)
-  assert.ok(r.ok, "file-write fallback must still succeed headless")
+  assert.ok(r.ok, "applySlot must succeed headless (tiers-file write only)")
   assert.equal(readSelection().active_slot, "brain")
-  assert.equal(readOcModel(), "deepseek/brain-model")
+  assert.equal(readOcModel(), "deepseek/cheap-model", "opencode.json stays pinned — no watched-file write")
 })
 
 // ── readLiveOpenCodeModel ──────────────────────────────────────────────
@@ -146,30 +145,27 @@ test("reconcileSlotModel is a no-op when the live model already matches the slot
   }
 })
 
-test("reconcileSlotModel corrects a drifted/foreign live model back to the slot's model", async () => {
+test("reconcileSlotModel re-pins the slot on drift and reports from/to WITHOUT touching the watched file", async () => {
   writeTiers({ active_slot: "medium" })
   writeOcConfig("deepseek/FAKE_MODEL") // live model drifted to something foreign
-  try {
-    const { reconcileSlotModel } = await freshPricing()
-    const r = reconcileSlotModel("medium", sandbox, "deepseek/medium-model")
-    assert.equal(r.reconciled, true, "drift must be reconciled")
-    assert.equal(r.from, "deepseek/FAKE_MODEL")
-    assert.equal(r.to, "deepseek/medium-model")
-    // opencode.json corrected for next session
-    assert.equal(readOcModel(), "deepseek/medium-model")
-  } finally {
-    // no SDK call — file is updated, live switch takes effect next session
-  }
+  const { reconcileSlotModel } = await freshPricing()
+  const r = reconcileSlotModel("medium", sandbox, "deepseek/medium-model")
+  assert.equal(r.reconciled, true, "drift re-pins the slot decision")
+  assert.equal(r.from, "deepseek/FAKE_MODEL")
+  assert.equal(r.to, "deepseek/medium-model")
+  // opencode.json is NOT rewritten — that aborts the turn. The chat.params override applies
+  // the slot's model to the outbound request per turn instead.
+  assert.equal(readOcModel(), "deepseek/FAKE_MODEL", "opencode.json (watched) left untouched")
 })
 
-test("reconcileSlotModel falls back to trinity when no expected model is passed", async () => {
+test("reconcileSlotModel falls back to trinity when no expected model is passed (no watched-file write)", async () => {
   writeTiers({ active_slot: "brain" })
   writeOcConfig("deepseek/FAKE_MODEL")
   const { reconcileSlotModel } = await freshPricing()
   const r = reconcileSlotModel("brain", sandbox) // expectedModel omitted → read from trinity
   assert.equal(r.reconciled, true)
   assert.equal(r.to, "deepseek/brain-model")
-  assert.equal(readOcModel(), "deepseek/brain-model")
+  assert.equal(readOcModel(), "deepseek/FAKE_MODEL", "opencode.json (watched) left untouched")
 })
 
 // ── Footer/report derives execution from the slot, never a shadow key ──

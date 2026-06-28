@@ -821,10 +821,12 @@ export async function DelegationEnforcer({ client, directory } = {}) {
   const hookSessionId = shouldReuseSessionId
     ? existingSessionId
     : `opencode-${process.pid || "x"}-${Date.now()}-${Math.random().toString(16).slice(2)}`
-  // Wire the live OpenCode SDK client so the orchestrator can actually switch the
-  // running model (pushLiveModelSwitch reads globalThis.__vibeOS_client.config). Without
-  // this, a "switch" only rewrites opencode.json (applies to NEW sessions) and the live
-  // dropdown never moves. Guard against a falsy client clobbering a good one.
+  // Expose the live OpenCode SDK client for best-effort reads. NOTE: vibeOS does NOT use
+  // client.config.update to switch the running model — that handler persists
+  // <projectDir>/config.json, a watched file whose change disposes the active project
+  // instance and aborts the in-flight turn. Per-turn tier routing is done by the
+  // chat.params override and subagent delegation. Guard against a falsy client clobbering
+  // a good one.
   if (client) globalThis.__vibeOS_client = client
   setCurrentModel(null)
   setCurrentTier(null)

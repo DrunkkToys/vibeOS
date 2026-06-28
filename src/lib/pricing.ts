@@ -26,7 +26,6 @@ import { homedir, tmpdir } from "node:os"
 import { createHash } from "node:crypto"
 import { currentModel, currentTier, setCurrentModel, setCurrentTier, safeJsonParse, HIGH_TIER_RE, MID_TIER_RE, loadTierRegexes, _modelLocked, withFileLock, _handleStateCorruption, getOpenCodeHome, getVibeOSHome } from "./state.js"
 import { loadSelection as loadSel, sanitizeSelection } from "./selection-manager.js"
-import { installVibeTierAgents } from "./runtime-config.js"
 
 export { HIGH_TIER_RE, MID_TIER_RE, loadTierRegexes }
 
@@ -202,31 +201,14 @@ export function resolveTrinityDisplayModel(directory = "", activeSlot = "", live
   return resolveDisplayModelId(raw, directory) || raw
 }
 
-function writeLiveOpenCodeModel(projectDir: string, modelId: string): boolean {
-  const dir = projectDir || process.cwd()
-  const localOcConfig = join(dir, "opencode.json")
-  const ocConfig = existsSync(localOcConfig)
-    ? localOcConfig
-    : join(getOpenCodeHome(), "opencode.json")
-  mkdirSync(dirname(ocConfig), { recursive: true })
-  if (existsSync(ocConfig)) {
-    const oc = safeJsonParse(readFileSync(ocConfig, "utf-8"))
-    if (!oc || typeof oc !== "object") throw new Error(`OpenCode config is unreadable: ${ocConfig}`)
-    oc.model = modelId
-    try {
-      writeFileSync(ocConfig, JSON.stringify(oc, null, 2) + "\n")
-    } catch (err) {
-      throw new Error(`Failed to write OpenCode model config (${ocConfig}): ${err.message}`)
-    }
-  } else {
-    try {
-      writeFileSync(ocConfig, JSON.stringify({ model: modelId }, null, 2) + "\n")
-    } catch (err) {
-      throw new Error(`Failed to create OpenCode model config (${ocConfig}): ${err.message}`)
-    }
-  }
-  return true
-}
+// NOTE: vibeOS intentionally does NOT write the OpenCode primary-model config
+// (opencode.json `model`) during a session. opencode.json and config.json are both
+// watched by OpenCode; rewriting either disposes the active project instance and
+// aborts the in-flight turn (live opencode.log, 2026-06-28: "disposing instance" ->
+// AbortError). The running session's primary model is bound at session start
+// (see src/lib/hooks/chat-params.ts) and cannot be changed mid-session anyway. Per-turn
+// tier routing reaches a different model through the chat.params same-provider override
+// and vibe-cheap/medium/brain subagent delegation — neither writes a watched file.
 
 export function _providerOfModel(modelId: string, fallbackProvider = "") {
   const provider = getModelProvider(modelId)
@@ -1163,38 +1145,16 @@ export function resetPendingLiveSwitch(): void {
   _pendingLiveSwitch = null
 }
 
-async function pushLiveModelSwitch(model: string, projectDir: string): Promise<boolean> {
-  const _oc = (globalThis as unknown)?.__vibeOS_client?.config
-  if (!_oc || typeof _oc.update !== "function") {
-    // No live client wired — the SDK switch can't fire. opencode.json was already
-    // rewritten by the caller (applySlot), so NEW sessions still pick up the model,
-    // but the running session won't move. Surface this so it's never a silent no-op.
-    console.error(`[vibeOS] live model switch SKIPPED (no SDK client) → ${model}`)
-    return false
-  }
-  try {
-    await _oc.update({
-      body: { model },
-      query: projectDir ? { directory: projectDir } : undefined,
-    })
-    console.error(`[vibeOS] live model switch → ${model}`)
-    return true
-  } catch (e: unknown) {
-    console.error("[vibeOS] live model switch failed:", e?.message || e)
-    return false
-  }
-}
-
 export async function flushPendingLiveSwitch(): Promise<string | null> {
+  // The orchestrator's slot decision is already persisted to model-tiers.json (unwatched)
+  // and applied to the outbound request by the chat.params middleware. There is NO live
+  // primary-model switch to flush: client.config.update writes <projectDir>/config.json
+  // (OpenCode's Config.update handler), a watched file whose change disposes the active
+  // project instance and aborts the in-flight turn. So flush is now state-only — it clears
+  // the queued footer hint and performs no I/O and no SDK call.
   if (!_pendingLiveSwitch) return null
-  const { model, projectDir } = _pendingLiveSwitch
   _pendingLiveSwitch = null
-  // SDK-only switch (best-effort). We intentionally do NOT write opencode.json here:
-  // it is a watched file, and rewriting it makes OpenCode's config watcher dispose the
-  // active project instance and abort the in-flight turn. The primary model stays pinned;
-  // tier changes reach the model via subagent delegation, not a primary-model file rewrite.
-  const ok = await pushLiveModelSwitch(model, projectDir)
-  return ok ? model : null
+  return null
 }
 
 export function getPendingLiveSwitch(): { model: string, projectDir: string } | null {
@@ -1214,11 +1174,12 @@ export function applySlot(slot: string, projectDir = "", opts: { deferLiveSwitch
       const _tmp = TIERS_FILE + ".tmp." + Date.now()
       writeFileSync(_tmp, JSON.stringify(j, null, 2) + "\n", "utf-8")
       renameSync(_tmp, TIERS_FILE)
-      // NOTE: the opencode.json model write is intentionally NOT done here for the
-      // deferred path — see below. active_slot (the orchestrator decision) is always
-      // persisted immediately; the live model file only moves at the turn boundary.
-      if (!opts.deferLiveSwitch) writeLiveOpenCodeModel(projectDir, ocModel)
-      try { installVibeTierAgents(projectDir, j.trinity || {}, null) } catch {}
+      // active_slot (the orchestrator decision) is persisted to model-tiers.json — an
+      // UNWATCHED file. We do NOT write opencode.json or call installVibeTierAgents here:
+      // both touch OpenCode-watched config files, and any mid-turn change to them disposes
+      // the active project instance and aborts the turn. Tier agents are static config,
+      // installed once at setup / `vibe rebuild`; the per-turn model override is the job of
+      // the chat.params middleware and subagent delegation, not a config rewrite.
       return { ok: true, ocModel }
     })
   } catch (err) {
@@ -1232,16 +1193,10 @@ export function applySlot(slot: string, projectDir = "", opts: { deferLiveSwitch
   }
   if (result.ok) {
     try { _refreshModel(projectDir) } catch {}
-    if (opts.deferLiveSwitch) {
-      // Defer BOTH the opencode.json model write AND the SDK switch to the turn
-      // boundary (flushPendingLiveSwitch). This keeps opencode.json reflecting the model
-      // that actually RAN this turn, so the footer (which reads it via
-      // resolveOrchestratorState) can never claim a model that didn't answer. The new
-      // model takes effect next turn — the only point the platform lets us switch.
-      _pendingLiveSwitch = { model: result.ocModel!, projectDir }
-    } else {
-      void pushLiveModelSwitch(result.ocModel!, projectDir)
-    }
+    // Record the orchestrator's selected model as a footer hint only (no I/O, no SDK call).
+    // The actual per-turn model override happens in the chat.params middleware; the live
+    // primary model is never rewritten mid-session (that aborts the turn).
+    _pendingLiveSwitch = { model: result.ocModel!, projectDir }
   }
   return result
 }

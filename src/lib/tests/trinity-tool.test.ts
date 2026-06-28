@@ -141,7 +141,7 @@ describe("trinity-tool", () => {
     assert.ok(out.includes("Dashboard:"))
   })
 
-  it("switches a slot through applySlot and persists for next session", async () => {
+  it("switches a slot through applySlot and persists the orchestrator decision", async () => {
     const { createTrinityTool } = await import("../trinity-tool.js")
     const ctx = makeDeps()
     const tool = createTrinityTool(ctx.deps as any)
@@ -149,7 +149,7 @@ describe("trinity-tool", () => {
     const out = await tool.execute({ action: "set", slot: "cheap", model: "opencode/big-pickle" })
 
     assert.ok(out.includes("Updated cheap slot"))
-    assert.ok(out.includes("Takes effect next session"))
+    assert.ok(out.includes("Takes effect next turn"))
     assert.equal(ctx.calls.some((call) => call[0] === "applySlot" && call[1] === "cheap"), true)
     assert.equal(ctx.calls.some((call) => call[0] === "refresh"), true)
   })

@@ -2227,7 +2227,7 @@ test("applySlot: preserves model-tiers.json selection/tiers/pricing blocks", asy
   process.env.HOME = origHome
 })
 
-test("applySlot: surfaces OpenCode config write failures", async () => {
+test("applySlot: succeeds even on a read-only opencode.json (it never writes the watched file)", async () => {
   let origHome = process.env.HOME
   process.env.HOME = sandbox
   const { applySlot } = await loadPlugin()
@@ -2249,18 +2249,22 @@ test("applySlot: surfaces OpenCode config write failures", async () => {
   const origCwd = process.cwd()
   process.chdir(dir)
   try {
+    // applySlot persists active_slot to model-tiers.json only; it must NOT touch the watched
+    // opencode.json (that mid-turn write disposes the instance and aborts the turn). A
+    // read-only opencode.json therefore does NOT make applySlot fail.
     const result = applySlot("brain")
-    assert.equal(result.ok, false, `applySlot should fail when OpenCode config write fails: ${JSON.stringify(result)}`)
-    assert.match(String(result.reason || ""), /(write|OpenCode config|permission|EACCES)/i)
+    assert.equal(result.ok, true, `applySlot should succeed without writing opencode.json: ${JSON.stringify(result)}`)
     const after = JSON.parse(readFileSync(ocConfigPath, "utf-8"))
-    assert.equal(after.model, "deepseek/deepseek-v4-flash", "opencode model should remain unchanged when write fails")
+    assert.equal(after.model, "deepseek/deepseek-v4-flash", "opencode.json (watched) left untouched")
+    const tiers = JSON.parse(readFileSync(join(sandbox, ".claude/model-tiers.json"), "utf-8"))
+    assert.equal(tiers.selection.active_slot, "brain", "active_slot persisted to model-tiers.json")
   } finally {
     process.chdir(origCwd)
     process.env.HOME = origHome
   }
 })
 
-test("applySlot: preserves opencode.json all fields (only model changes)", async () => {
+test("applySlot: leaves opencode.json completely untouched (no watched-file write)", async () => {
   let origHome = process.env.HOME
   let origOpenCodeHome = process.env.VIBEOS_OPENCODE_HOME
   process.env.HOME = sandbox
@@ -2309,39 +2313,28 @@ test("applySlot: preserves opencode.json all fields (only model changes)", async
     tiers: { high: { regex: "." }, mid: { regex: "." }, budget: { regex: "." } },
   }))
 
+  const before = readFileSync(ocConfigPath, "utf-8")
   const origCwd = process.cwd()
   process.chdir(sandbox)
   const result = applySlot("brain")
   process.chdir(origCwd)
   assert.ok(result.ok, `applySlot returned ok: ${JSON.stringify(result)}`)
 
-  const after = JSON.parse(readFileSync(ocConfigPath, "utf-8"))
-  assert.equal(after.model, "deepseek/deepseek-v4-pro", "model updated to brain slot")
-  assert.equal(after.default_agent, "vibe", "default agent stays on the unified vibe primary agent")
-  assert.equal(after.agent?.vibe?.mode, "primary", "vibe agent remains primary")
-  assert.equal(after.agent?.vibe?.model, "deepseek/deepseek-chat", "vibe primary follows the cheap bootstrap model")
-  assert.equal(after.agent?.["vibe-brain"]?.mode, "subagent", "brain agent is a subagent")
-  assert.equal(after.agent?.["vibe-brain"]?.model, "deepseek/deepseek-v4-pro", "brain agent model follows trinity")
-  assert.equal(after["$schema"], "https://opencode.ai/config.json", "schema preserved")
-  assert.deepEqual(after.provider, {
-    opencode: {},
-    deepseek: {
-      models: {
-        "deepseek-v4-pro": {},
-        "deepseek-v4-flash": {},
-        "deepseek-chat": {},
-        "deepseek-reasoner": {}
-      }
-    }
-  }, "provider models fully preserved — models not deleted from dropdown")
-  assert.deepEqual(after.mcp.context7.command, ["node", "context7-mcp"], "mcp preserved")
-  assert.deepEqual(after.plugin, ["./plugins/vibeOS"], "plugin list preserved")
+  // applySlot must NOT write opencode.json — it is a watched file; a mid-turn rewrite
+  // disposes the active instance and aborts the turn. The vibe primary + tier subagents
+  // are installed once at startup (installVibeTierAgents), not on every slot switch; the
+  // per-turn model override is the chat.params middleware's job. So opencode.json is
+  // byte-for-byte identical: no model change, no agent topology added here.
+  const after = readFileSync(ocConfigPath, "utf-8")
+  assert.equal(after, before, "opencode.json (watched) left byte-for-byte unchanged by applySlot")
+  const tiers = JSON.parse(readFileSync(join(sandbox, ".claude/model-tiers.json"), "utf-8"))
+  assert.equal(tiers.selection.active_slot, "brain", "active_slot persisted to model-tiers.json")
   process.env.HOME = origHome
   if (origOpenCodeHome === undefined) delete process.env.VIBEOS_OPENCODE_HOME
   else process.env.VIBEOS_OPENCODE_HOME = origOpenCodeHome
 })
 
-test("trinity mode switch persists to opencode.json for next session", async () => {
+test("trinity mode switch persists the tier to model-tiers.json without rewriting the watched opencode.json", async () => {
   const { DelegationEnforcer } = await loadPlugin()
   const dir = join(sandbox, ".opencode-native-switch")
   mkdirSync(dir, { recursive: true })
@@ -2358,9 +2351,14 @@ test("trinity mode switch persists to opencode.json for next session", async () 
   const hooks = await DelegationEnforcer({ directory: dir })
   const result = await hooks.tool.trinity.execute({ action: "mode", slot: "vibeultrax" })
   assert.match(String(result), /Mode set to VIBEULTRAX/i)
-  assert.match(String(result), /Takes effect next session/i)
+  assert.match(String(result), /Takes effect next turn/i)
+  // The mode switch flips the tier in model-tiers.json; the cheap model reaches the request
+  // per turn via chat.params + subagent delegation. The watched opencode.json `model` is NOT
+  // rewritten (that aborts the turn).
+  const tiers = JSON.parse(readFileSync(join(sandbox, ".claude/model-tiers.json"), "utf-8"))
+  assert.equal(tiers.selection.active_slot, "cheap", "active_slot flips to cheap for vibeultrax")
   const updated = JSON.parse(readFileSync(join(dir, "opencode.json"), "utf-8"))
-  assert.equal(updated.model, "deepseek/deepseek-chat", "opencode.json persists cheap-tier model for next session")
+  assert.equal(updated.model, "deepseek/deepseek-v4-flash", "opencode.json `model` (watched) left pinned")
 })
 
 // ════════════════════════════════════════════════════════════════════════════
