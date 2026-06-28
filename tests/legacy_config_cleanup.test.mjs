@@ -37,15 +37,23 @@ writeFileSync(opencodeConfig, JSON.stringify({
   provider: { deepseek: { models: { "deepseek-v4-flash": {} } } },
 }, null, 2) + "\n")
 
-const { DelegationEnforcer } = await import("../dist/vibeOS.js?t=" + Date.now())
+const { DelegationEnforcer } = await import("../src/index.js?t=" + Date.now())
+const { cleanupLegacyOpenCodeConfigFiles } = await import("../src/lib/runtime-config.js?t=" + Date.now())
 
-test("system.transform cleans up legacy config.json stubs before the next turn", async () => {
+test("system.transform no longer cleans up legacy config.json stubs mid-turn", async () => {
   const hooks = await DelegationEnforcer({ client: {}, directory: projectDir })
   await hooks["experimental.chat.system.transform"]({}, { system: [] })
 
-  assert.equal(existsSync(projectConfig), false, "project config.json should be moved aside")
-  assert.equal(existsSync(homeConfig), false, "home config.json should be moved aside")
+  assert.equal(existsSync(projectConfig), true, "project config.json should remain during the turn")
+  assert.equal(existsSync(homeConfig), true, "home config.json should remain during the turn")
   assert.equal(existsSync(safeConfig), true, "opencode.json should remain untouched")
+  assert.equal(existsSync(join(projectDir, "config.json.vibeos-bak-")), false, "no backup should be created mid-turn")
+  assert.equal(existsSync(join(sandbox, "config.json.vibeos-bak-")), false, "no home backup should be created mid-turn")
+
+  const cleaned = cleanupLegacyOpenCodeConfigFiles(projectDir)
+  assert.equal(cleaned.length, 2, "explicit cleanup should still handle both legacy files")
+  assert.equal(existsSync(projectConfig), false, "project config.json should be moved aside by explicit cleanup")
+  assert.equal(existsSync(homeConfig), false, "home config.json should be moved aside by explicit cleanup")
   const backups = [
     ...readdirSync(projectDir).map((name) => join(projectDir, name)),
     ...readdirSync(sandbox).map((name) => join(sandbox, name)),
