@@ -48,6 +48,17 @@ export function isPollCommand(command: string): boolean {
   return false
 }
 
+// Read-only inspection commands are allowed to repeat without tripping the
+// runaway loop breaker. These are the commands the agent legitimately uses for
+// file discovery and state checks while debugging.
+export function isInspectionCommand(command: string): boolean {
+  const c = String(command || "").trim().toLowerCase()
+  if (!c) return false
+  if (/^(?:sudo\s+)?(?:ls|pwd|cat|head|tail|grep|rg|sed|find|wc|jq|file|stat|diff|sort|uniq|cut|awk)\b/.test(c)) return true
+  if (/^git\s+(?:status|diff|log|show|branch|rev-parse|ls-files)\b/.test(c)) return true
+  return false
+}
+
 function directiveFor(kind: LoopKind, count: number): string {
   if (kind === "poll") {
     return `You have polled the same status ${count} times — each poll spends a full model turn replaying the whole context. STOP polling in-band. Either end this turn and let the user re-invoke once the external job finishes, or check exactly once and move on. Do not run another sleep/poll.`
@@ -79,17 +90,30 @@ export class ToolLoopGuard {
     this.window.push({ sig: signature, poll, at: now })
     if (this.window.length > this.max) this.window.shift()
 
-    const repeatCount = this.window.reduce((n, e) => (e.sig === signature ? n + 1 : n), 0)
-    const pollCount = poll ? this.window.reduce((n, e) => (e.poll ? n + 1 : n), 0) : 0
-
-    let kind: LoopKind = null
-    let count = 0
-    if (pollCount >= repeatCount) {
-      if (pollCount > 0) { kind = "poll"; count = pollCount }
-      else { kind = "repeat"; count = repeatCount }
-    } else {
-      kind = "repeat"; count = repeatCount
+    if (poll) {
+      const pollCount = this.window.reduce((n, e) => (e.poll ? n + 1 : n), 0)
+      let level: LoopLevel = "none"
+      if (pollCount >= LOOP_BLOCK_THRESHOLD) level = "block"
+      else if (pollCount >= LOOP_WARN_THRESHOLD) level = "warn"
+      return {
+        level,
+        kind: level === "none" ? null : "poll",
+        count: pollCount,
+        signature,
+        directive: level === "none" ? "" : directiveFor("poll", pollCount),
+      }
     }
+
+    const repeatCount = this.window.reduce((n, e) => (e.sig === signature ? n + 1 : n), 0)
+    if (repeatCount < LOOP_WARN_THRESHOLD) {
+      return { level: "none", kind: null, count: repeatCount, signature, directive: "" }
+    }
+    if (isInspectionCommand(command)) {
+      return { level: "none", kind: null, count: repeatCount, signature, directive: "" }
+    }
+
+    const kind: LoopKind = "repeat"
+    const count = repeatCount
 
     let level: LoopLevel = "none"
     if (count >= LOOP_BLOCK_THRESHOLD) level = "block"
