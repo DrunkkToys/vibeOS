@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: MIT
-// Orchestrator → client contract tests.
+// Orchestrator → client contract tests (subagent-delegation-only, 2026-06-28).
 //
-// Proves the three fixes that make the cascade actually switch the model and the
-// footer tell the truth:
-//   1. With the live SDK client wired to globalThis.__vibeOS_client, a DEFERRED slot
-//      switch does NOT call config.update mid-turn — it queues — and
-//      flushPendingLiveSwitch() (called at the turn boundary) fires the real
-//      config.update with the slot's model.
-//   2. Without a wired client, flush degrades gracefully (no throw, returns null) but
-//      the file write still happened so new sessions pick up the model.
-//   3. resolveOrchestratorState reports ran_model = the live opencode.json model (what
-//      actually answered), and pending_model = the queued switch (what runs next turn).
+// Proves the cascade routes without ever writing an OpenCode-watched config file:
+//   1. A DEFERRED slot switch persists active_slot (model-tiers.json) and queues a footer
+//      hint, but neither applySlot nor flushPendingLiveSwitch() ever calls config.update
+//      or writes opencode.json — config.update persists <projectDir>/config.json, a
+//      watched file whose change disposes the active instance and aborts the turn.
+//   2. Without a wired client, flush degrades gracefully (no throw, returns null).
+//   3. resolveOrchestratorState reports ran_model = the live opencode.json model (the
+//      pinned dropdown that answered), intended_model = trinity[active_slot], and
+//      pending_model = the orchestrator's selected model (a display hint, not a live
+//      primary switch).
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync } from "node:fs"
@@ -73,7 +73,7 @@ function freshPricing() {
   return import("../src/lib/pricing.js?orch-test=" + (++_q) + "-" + Date.now())
 }
 
-test("deferred switch queues, does not fire mid-turn; flush fires the real SDK switch", async () => {
+test("deferred switch persists active_slot + footer hint; flush writes no watched file and makes no config.update", async () => {
   writeTiers({ active_slot: "cheap" })
   writeOcConfig("deepseek/cheap-model")
   const calls = installWiredClient()
@@ -82,20 +82,18 @@ test("deferred switch queues, does not fire mid-turn; flush fires the real SDK s
 
     const r = applySlot("brain", sandbox, { deferLiveSwitch: true })
     assert.ok(r.ok, `applySlot should succeed: ${r.reason || ""}`)
-    // Mid-turn: NEITHER the live file NOR the SDK switch moves — opencode.json still
-    // reflects the model that ran this turn; only the queued decision changed.
-    assert.equal(readOcModel(), "deepseek/cheap-model", "opencode.json unchanged mid-turn (truthful)")
-    assert.equal(calls.length, 0, "NO config.update mid-turn — switching mid-turn aborts the turn")
-    assert.equal(getPendingLiveSwitch()?.model, "deepseek/brain-model", "switch is queued")
+    // Mid-turn: nothing OpenCode watches moves — opencode.json still reflects the pinned
+    // dropdown; only the orchestrator decision (active_slot) and a footer hint changed.
+    assert.equal(readOcModel(), "deepseek/cheap-model", "opencode.json unchanged mid-turn (pinned dropdown)")
+    assert.equal(calls.length, 0, "NO config.update mid-turn — it would persist config.json and abort the turn")
+    assert.equal(getPendingLiveSwitch()?.model, "deepseek/brain-model", "orchestrator's selected model is recorded as a footer hint")
 
-    // Turn boundary: flush fires the real SDK switch ONLY. It must NOT write opencode.json
-    // — that watched-file write would dispose the active instance and abort the turn.
+    // Turn boundary: flush is state-only. No SDK call, no watched-file write of any kind.
     const flushed = await flushPendingLiveSwitch()
-    assert.equal(flushed, "deepseek/brain-model", "flush returns the switched model")
-    assert.equal(readOcModel(), "deepseek/cheap-model", "opencode.json NOT rewritten at boundary (watched-file write aborts the turn)")
-    assert.equal(calls.length, 1, "config.update fired exactly once at the boundary")
-    assert.equal(calls[0]?.body?.model, "deepseek/brain-model", "SDK switched to the slot's model")
-    assert.equal(getPendingLiveSwitch(), null, "pending cleared after flush")
+    assert.equal(flushed, null, "flush performs no live primary switch (primary pinned per session)")
+    assert.equal(readOcModel(), "deepseek/cheap-model", "opencode.json NOT rewritten at the boundary")
+    assert.equal(calls.length, 0, "config.update NEVER fires — config.json is the file that aborts turns")
+    assert.equal(getPendingLiveSwitch(), null, "pending hint cleared after flush")
   } finally {
     clearWiredClient()
   }
@@ -131,35 +129,36 @@ test("resolveOrchestratorState reports ran_model=live and pending_model=queued",
   }
 })
 
-test("foreign model in opencode.json reconciles back to active_slot's model (the live dropdown bug)", async () => {
-  // Reproduces the exact live incoherence: opencode.json held a FOREIGN model
-  // (in no trinity slot) while active_slot=cheap — the "dropdown ≠ alert" bug.
+test("foreign model in opencode.json: reconcile reports drift + queues the slot model, without rewriting the watched file", async () => {
+  // Live incoherence: opencode.json held a FOREIGN model (in no trinity slot) while
+  // active_slot=cheap. vibeOS does NOT rewrite opencode.json to fix it — that watched-file
+  // write aborts the turn. It re-pins the slot and queues the correct model; the per-turn
+  // chat.params override applies the slot's model to the actual outbound request.
   writeTiers({ active_slot: "cheap" })
   writeOcConfig("openrouter/anthropic/claude-sonnet-4.6") // foreign: in NO trinity slot
   installWiredClient()
   try {
     const { reconcileSlotModel, resolveOrchestratorState } = await freshPricing()
 
-    // Before reconcile: ran_model is the foreign model, intended is the slot's model
-    // → genuine drift (dropdown ≠ alert).
+    // Before reconcile: ran_model is the foreign model, intended is the slot's model,
+    // nothing queued → genuine, unexplained drift.
     const before = resolveOrchestratorState(sandbox)
     assert.equal(before.ran_model, "openrouter/anthropic/claude-sonnet-4.6", "live shows the foreign model")
     assert.equal(before.intended_model, "deepseek/cheap-model", "intended = trinity[active_slot]")
-    assert.equal(before.drift, true, "foreign live model with no pending switch = drift")
+    assert.equal(before.drift, true, "foreign live model with no pending hint = drift")
 
-    // Reconcile against the active slot — the single source of truth. Synchronous,
-    // so it works headless. (deferLiveSwitch:false → write the file now, like a same-turn fix.)
+    // Reconcile against the active slot — the single source of truth. Synchronous; headless.
     const r = reconcileSlotModel("cheap", sandbox, "deepseek/cheap-model")
-    assert.equal(r.reconciled, true, "drift was corrected")
+    assert.equal(r.reconciled, true, "drift re-pins the slot")
     assert.equal(r.from, "openrouter/anthropic/claude-sonnet-4.6", "from = the foreign model")
     assert.equal(r.to, "deepseek/cheap-model", "to = the slot's model")
 
-    // After reconcile: dropdown == trinity[active_slot].oc == intended == ran. Coherent.
-    assert.equal(readOcModel(), "deepseek/cheap-model", "opencode.json (the dropdown) now matches the slot")
+    // The watched file is left untouched — the dropdown stays where the user/platform put it.
+    assert.equal(readOcModel(), "openrouter/anthropic/claude-sonnet-4.6", "opencode.json (watched) NOT rewritten")
     const after = resolveOrchestratorState(sandbox)
     assert.equal(after.active_slot, "cheap", "active_slot unchanged")
-    assert.equal(after.ran_model, after.intended_model, "dropdown == alert (full coherence)")
-    assert.equal(after.drift, false, "no drift after reconcile")
+    assert.equal(after.pending_model, "deepseek/cheap-model", "the slot's model is queued as the footer hint")
+    assert.equal(after.drift, false, "drift is now explained by the queued slot model (chat.params applies it per turn)")
   } finally {
     clearWiredClient()
   }

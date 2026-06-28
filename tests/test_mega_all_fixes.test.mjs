@@ -96,7 +96,7 @@ test("1c — fast trinity mode switch reads from BRANDED_MODES not hardcoded lis
     "mode list not hardcoded — uses BRANDED_MODES array")
 })
 
-test("1d — trinity set model override rewrites the slot map and live config for the project", async () => {
+test("1d — trinity set model override rewrites the slot map (source of truth), not the watched opencode.json", async () => {
   setTiers()
   const targetModel = "magicoder:7b"
   const hooks = await getHooks()
@@ -107,10 +107,10 @@ test("1d — trinity set model override rewrites the slot map and live config fo
   })
   const tiers = JSON.parse(readFileSync(join(sandbox, ".claude/model-tiers.json"), "utf8"))
   const sel = tiers.selection
-  const oc = JSON.parse(readFileSync(join(sandbox, "opencode.json"), "utf8"))
   assert.equal(sel.active_slot, "cheap", "active slot switches to the requested cheap tier")
-  assert.equal(tiers.trinity.cheap.oc, targetModel, "cheap slot model persisted in tier map")
-  assert.equal(oc.model, targetModel, "OpenCode config switches to the overridden model")
+  assert.equal(tiers.trinity.cheap.oc, targetModel, "cheap slot model persisted in tier map (the source of truth)")
+  // opencode.json (watched) is NOT rewritten — the override reaches the request per turn via
+  // chat.params + subagent delegation; rewriting the watched file would abort the turn.
   assert.ok(result.includes(targetModel), "response mentions overridden model: " + result.slice(0, 120))
 })
 
@@ -125,11 +125,10 @@ test("1e — trinity set brain model override is live and persisted", async () =
   })
   const tiers = JSON.parse(readFileSync(join(sandbox, ".claude/model-tiers.json"), "utf8"))
   const sel = tiers.selection
-  const oc = JSON.parse(readFileSync(join(sandbox, "opencode.json"), "utf8"))
   assert.equal(sel.active_slot, "brain", "active slot switches to the requested brain tier")
-  assert.equal(tiers.trinity.brain.oc, targetModel, "brain slot model persisted in tier map")
+  assert.equal(tiers.trinity.brain.oc, targetModel, "brain slot model persisted in tier map (the source of truth)")
   assert.equal(tiers.trinity.brain.manual, true, "brain override is marked manual")
-  assert.equal(oc.model, targetModel, "OpenCode config switches to the overridden brain model")
+  // opencode.json (watched) is NOT rewritten — override applied per turn, not via a config rewrite.
   assert.ok(result.includes(targetModel), "response mentions overridden brain model: " + result.slice(0, 120))
 })
 
@@ -144,11 +143,10 @@ test("1f — trinity set medium model override is live and persisted", async () 
   })
   const tiers = JSON.parse(readFileSync(join(sandbox, ".claude/model-tiers.json"), "utf8"))
   const sel = tiers.selection
-  const oc = JSON.parse(readFileSync(join(sandbox, "opencode.json"), "utf8"))
   assert.equal(sel.active_slot, "medium", "active slot switches to the requested medium tier")
-  assert.equal(tiers.trinity.medium.oc, targetModel, "medium slot model persisted in tier map")
+  assert.equal(tiers.trinity.medium.oc, targetModel, "medium slot model persisted in tier map (the source of truth)")
   assert.equal(tiers.trinity.medium.manual, true, "medium override is marked manual")
-  assert.equal(oc.model, targetModel, "OpenCode config switches to the overridden medium model")
+  // opencode.json (watched) is NOT rewritten — override applied per turn, not via a config rewrite.
   assert.ok(result.includes(targetModel), "response mentions overridden medium model: " + result.slice(0, 120))
 })
 
@@ -194,7 +192,6 @@ test("1i — trinity mode covers all live optimization modes", async () => {
     const hooks = await getHooks()
     const out = await hooks.tool.trinity.execute({ action: "mode", slot: c.slot })
     const sel = readTiersFile().selection
-    const oc = JSON.parse(readFileSync(join(sandbox, "opencode.json"), "utf8"))
     if (c.auto) {
       assert.equal(sel.slot_locked, false, "auto should unlock slot locking")
       assert.ok(out.includes("Mode set to AUTO"), "auto response should be explicit: " + out)
@@ -203,7 +200,9 @@ test("1i — trinity mode covers all live optimization modes", async () => {
     assert.equal(sel.active_slot, c.active, `${c.slot} should resolve to ${c.active}`)
     assert.equal(sel.optimization_mode, c.mode || c.slot, `${c.slot} should persist as the optimization mode`)
     if (c.requested) assert.equal(sel.requested_optimization_mode, c.requested, `${c.slot} should persist requested mode separately`)
-    assert.equal(oc.model, readTiersFile().trinity[c.active].oc, `${c.slot} should switch OpenCode to the active slot model`)
+    // active_slot (model-tiers.json) is the switch source of truth; the watched opencode.json
+    // is never rewritten by a mode switch (that aborts the turn). The active slot model reaches
+    // the request per turn via chat.params + subagent delegation.
     assert.ok(out.includes("Mode set"), `${c.slot} response should be affirmative: ` + out)
   }
 })

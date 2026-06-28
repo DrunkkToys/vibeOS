@@ -249,28 +249,13 @@ export async function resolveDashboardBaseUrl(deps): Promise<string> {
   return ""
 }
 
-async function syncNativeOpenCodeModel(deps, modelId: string): Promise<boolean> {
-  const cfg = deps.client?.config
-  if (!cfg || typeof cfg.update !== "function") return false
-  try {
-    await cfg.update({
-      body: { model: modelId },
-      query: deps.directory ? { directory: deps.directory } : undefined,
-    })
-    return true
-  } catch (error) {
-    console.error("[vibeOS] WARN: native OpenCode config.update failed:", error?.message || error)
-    return false
-  }
-}
-
 export function createTrinityTool(deps) {
   return {
     description:
       "Control the vibeOS plugin and active model slot. " +
       "Use action='status' to see the current state. " +
       "Use action='enable' or 'disable' to toggle the plugin immediately. " +
-      "Use action='set' with slot='brain'|'medium'|'cheap' to switch model tiers (writes opencode.json). Optionally pass model='<model_id>' to set a custom model for that slot. " +
+      "Use action='set' with slot='brain'|'medium'|'cheap' to switch model tiers (applied per turn via the chat.params override and subagent delegation; never rewrites the watched opencode.json). Optionally pass model='<model_id>' to set a custom model for that slot. " +
       "Use action='mode' with slot='vibeultrax'|'vibeqmax'|'vibemax'|'budget'|'quality'|'speed'|'longrun'|'auto'|'balanced'|'audit'|'forensic' to switch optimization mode. " +
       "Use action='thinking' with level='full'|'brief'|'off'. " +
       "Use action='rebuild' to detect available models from configured providers and reassign brain/medium/cheap slots. " +
@@ -566,7 +551,7 @@ export function createTrinityTool(deps) {
         if (!result.ok) return `\u274c Failed to set slot: ${result.reason}`
         deps._refreshModel(deps.directory)
         const prefix = probeFailed ? `\u274c Probe failed for ${result.ocModel}.` : ""
-        return `${prefix}${prefix ? " " : ""}Updated ${slot} slot (${result.ocModel}). Takes effect next session.`
+        return `${prefix}${prefix ? " " : ""}Updated ${slot} slot (${result.ocModel}). Takes effect next turn.`
       }
       if (action === "mode") {
         const builtInIds = ["balanced", "budget", "quality", "speed", "longrun", "audit", "forensic"]
@@ -614,7 +599,7 @@ export function createTrinityTool(deps) {
             modeEntry.tdd === "quality" || modeEntry.tdd === "on" || modeEntry.tdd === "strict")
           deps.writeSelection("thinking_level", modeEntry.thinking)
           const pipelineStr = modeEntry.pipeline.join(" → ")
-          return `Mode set to ${slot.toUpperCase()}. Tier: ${tierSlot}. Pipeline: ${pipelineStr}. Takes effect next session.`
+          return `Mode set to ${slot.toUpperCase()}. Tier: ${tierSlot}. Pipeline: ${pipelineStr}. Takes effect next turn.`
         }
         if (resolvedSlot === "auto") {
           deps.writeSelection("slot_locked", false)
@@ -824,7 +809,9 @@ export function createTrinityTool(deps) {
         const bootstrapSlot = tiers.selection.active_slot || (brain ? "brain" : "medium")
         const booted = typeof deps.applySlot === "function" ? deps.applySlot(bootstrapSlot, deps.directory) : { ok: false, reason: "applySlot unavailable" }
         if (!booted?.ok) return `\u274c Failed to activate native OpenCode model: ${booted?.reason || "unknown error"}`
-        await syncNativeOpenCodeModel(deps, booted.ocModel)
+        // No client.config.update here: it persists <projectDir>/config.json (a watched file)
+        // and aborts the turn. active_slot is already persisted by applySlot above; the model
+        // reaches the request per turn via chat.params + subagent delegation.
         if (typeof deps._refreshModel === "function") deps._refreshModel(deps.directory)
         const lines = [
           "\u2705 Compatibility profile created.",
