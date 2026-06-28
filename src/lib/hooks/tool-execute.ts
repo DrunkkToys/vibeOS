@@ -781,6 +781,7 @@ export const onToolExecuteBefore = async (input, output) => {
           )
           if (legacyRoute?.target) {
             const legacySlot = _slotFromModel(String(legacyRoute.target), TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN)
+            const brp = _routePathForSlot(_normalizeCascadeRoot(selection.active_pipeline, legacySlot), legacySlot)
             routeDecision = {
               selectedModel: String(legacyRoute.target),
               selectedSlot: legacySlot,
@@ -790,7 +791,8 @@ export const onToolExecuteBefore = async (input, output) => {
               delegationReason: legacyRoute.reason || "",
               reason: legacyRoute.reason || "",
               source: "backend-route-model",
-              routePath: _routePathForSlot(_normalizeCascadeRoot(selection.active_pipeline, legacySlot), legacySlot),
+              cascadeDepth: brp.length || 1,
+              routePath: brp,
               cascadeRoot: _normalizeCascadeRoot(selection.active_pipeline, legacySlot),
             }
           }
@@ -840,7 +842,8 @@ export const onToolExecuteBefore = async (input, output) => {
       const _sid = _OC_SID
       if (_bbState && _bbState.sessions && _sid && _bbState.sessions[_sid]) {
         if (routeDecision?.cascadeRoot) _bbState.sessions[_sid].pipeline_root = routeDecision.cascadeRoot
-        if (routeDecision?.cascadeDepth) _bbState.sessions[_sid].cascade_depth = routeDecision.cascadeDepth
+        const cd = routeDecision?.cascadeDepth || (Array.isArray(routeDecision?.routePath) ? routeDecision.routePath.length : 0)
+        if (cd) _bbState.sessions[_sid].cascade_depth = cd
         if (routeDecision?.routePath) _bbState.sessions[_sid].route_path = routeDecision.routePath
         _saveBlackboxState(_bbState)
       }
