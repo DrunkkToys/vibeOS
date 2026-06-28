@@ -76,3 +76,9 @@ export function setRuntimeVibeOSHome(home: string): void {
 export function getRuntimeVibeOSHome(): string {
   return getRuntimeState().vibeOSHome || ""
 }
+
+export function resetRuntimeStateForTest(): void {
+  const g = globalThis as unknown as Record<string, unknown>
+  delete g[RUNTIME_KEY]
+  delete g.__vibeOS_sessionId
+}
