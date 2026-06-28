@@ -262,7 +262,7 @@ test("footer: bundled runtime records probe entries and split provider/model lab
     await hooks["message.updated"]({ messageID: "probe-updated-1", args: { model: "opencode/big-pickle" } }, updatedOut)
     assert.ok(updatedOut.text.includes("⚡ cheap | Opencode | Big Pickle"), "message.updated footer should stay split: " + updatedOut.text.slice(-180))
 
-    const eventsDir = join(sandbox, ".claude", "session-events")
+    const eventsDir = join(process.env.VIBEOS_HOME, "session-events")
     const probes = []
     const footerErrors = []
     if (existsSync(eventsDir)) {

@@ -1,16 +1,19 @@
 // SPDX-License-Identifier: MIT
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
 const SANDBOX = mkdtempSync(join(tmpdir(), 'semantic-observer-'))
-const claudeDir = join(SANDBOX, '.claude')
-mkdirSync(claudeDir, { recursive: true })
-mkdirSync(join(claudeDir, 'session-events'), { recursive: true })
-writeFileSync(join(claudeDir, 'project-states.json'), JSON.stringify({ sessions: {}, project_hashes: {} }))
-process.env.VIBEOS_HOME = claudeDir
+const vibeHome = join(SANDBOX, 'vibe-home')
+const claudeDir = vibeHome
+const fallbackHome = join(SANDBOX, 'home')
+mkdirSync(vibeHome, { recursive: true })
+mkdirSync(join(vibeHome, 'session-events'), { recursive: true })
+writeFileSync(join(vibeHome, 'project-states.json'), JSON.stringify({ sessions: {}, project_hashes: {} }))
+process.env.VIBEOS_HOME = vibeHome
+process.env.HOME = fallbackHome
 
 const ROOT = join(import.meta.dirname, '..')
 
@@ -23,6 +26,26 @@ let mod
 test('semantic: load module', async () => {
   mod = await import(join(ROOT, 'src/vibeOS-lib/semantic-observer.js'))
   assert.ok(typeof mod.observeToolPattern === 'function')
+})
+
+test('semantic: session events stay under VIBEOS_HOME only', async () => {
+  if (!mod) mod = await import(join(ROOT, 'src/vibeOS-lib/semantic-observer.js'))
+  const sid = 'vibe-home-session-events'
+  const expectedPath = join(vibeHome, 'session-events', `${sid}.jsonl`)
+  const fallbackPath = join(fallbackHome, '.claude', 'session-events', `${sid}.jsonl`)
+
+  mod.writeEvent(sid, {
+    tool: 'bash',
+    role: 'mutation',
+    family: 'write',
+    at: Date.now(),
+    isGuardBreach: false,
+    isProtectedTarget: false,
+    exitCode: 0,
+  })
+
+  assert.ok(existsSync(expectedPath), 'session event should be written under VIBEOS_HOME')
+  assert.ok(!existsSync(fallbackPath), 'session event should not fall back to HOME/.claude')
 })
 
 test('semantic: deriveRole detects mutation for write/edit', () => {
