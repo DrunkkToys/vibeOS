@@ -3,22 +3,7 @@ import { readFileSync, existsSync } from "node:fs"
 import { join } from "node:path"
 import { getOpenCodeHome } from "./state.js"
 import { modelCostPerTurn, normalizeModelId, _parseOpenRouterTurnCost, _writeDynamicPricingCache, HIGH_TIER_RE, MID_TIER_RE } from "./pricing.js"
-
-function safeJsonParse(raw) {
-  try {
-    return JSON.parse(raw)
-  } catch {}
-
-  let cleaned = raw
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/\/\/.*$/gm, "")
-    .replace(/,\s*([}\]])/g, "$1")
-  try {
-    return JSON.parse(cleaned)
-  } catch (e) {
-    throw e
-  }
-}
+import { safeJsonParse } from "../utils/fs-helpers.js"
 
 function parseJsonc(raw) {
   const noBlockComments = String(raw || "").replace(/\/\*[\s\S]*?\*\//g, "")
@@ -31,7 +16,7 @@ function readOpenCodeConfigObject(dir) {
   const jsonPath = join(dir, "opencode.json")
   const jsoncPath = join(dir, "opencode.jsonc")
   if (existsSync(jsonPath)) {
-    return safeJsonParse(readFileSync(jsonPath, "utf-8"))
+    return safeJsonParse(readFileSync(jsonPath, "utf-8")) ?? {}
   }
   if (existsSync(jsoncPath)) {
     return parseJsonc(readFileSync(jsoncPath, "utf-8"))

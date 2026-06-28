@@ -2,19 +2,9 @@ import { readFileSync, writeFileSync, existsSync, statSync, renameSync } from "n
 import { join } from "node:path"
 import { homedir, tmpdir } from "node:os"
 import { withFileLock, _handleStateCorruption, getVibeOSHome } from "./state.js"
+import { safeJsonParse } from "../utils/fs-helpers.js"
 
 const _USER_HOME = (() => { try { return homedir() } catch { return tmpdir() } })()
-
-function safeJsonParse(raw: string): any {
-  if (raw == null || raw === "") return null
-  try { return JSON.parse(raw) } catch {}
-
-  let cleaned = raw
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/\/\/.*$/gm, "")
-    .replace(/,\s*([}\]])/g, "$1")
-  try { return JSON.parse(cleaned) } catch (e) { throw e }
-}
 
 const DFLT_SEL = { enabled: true, active_slot: null, slot_locked: false, thinking_level: "off", flow_enabled: true, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: true, delegation_enforce: true, onboarding_mode: null, requested_optimization_mode: null, previous_default_agent: null, previous_optimization_mode: null }
 const SHADOW_SELECTION_KEYS = new Set(["selected_provider", "selected_quality_tier", "selected_model", "executed_provider", "executed_quality_tier", "executed_model"])
@@ -41,12 +31,12 @@ function loadSelectionImpl(): any {
     if (!existsSync(TIERS_FILE)) return DFLT_SEL
     const st = statSync(TIERS_FILE)
     if (st.size > 10485760) { _handleStateCorruption(TIERS_FILE); return DFLT_SEL }
-    const j = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
+    const j = safeJsonParse<any>(readFileSync(TIERS_FILE, "utf-8"))
     const activePipelineRaw = j?.selection?.active_pipeline
     const activePipeline = Array.isArray(activePipelineRaw)
       ? activePipelineRaw
       : typeof activePipelineRaw === "string"
-        ? safeJsonParse(activePipelineRaw)
+        ? safeJsonParse<any>(activePipelineRaw)
         : null
     return {
       enabled:            j?.selection?.enabled !== false,
@@ -102,7 +92,7 @@ export function writeSelection(key: string, value: any): boolean {
   const TIERS_FILE = join(getVibeOSHome(), "model-tiers.json")
   try {
     const result = withFileLock(TIERS_FILE, () => {
-      const j = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
+      const j = safeJsonParse<any>(readFileSync(TIERS_FILE, "utf-8"))
       if (!j.selection) j.selection = {}
       for (const shadowKey of SHADOW_SELECTION_KEYS) delete j.selection[shadowKey]
       j.selection[key] = value
@@ -128,7 +118,7 @@ function readSessionRecord(sid: string): any {
   const BLACKBOX_FILE = join(getVibeOSHome(), "blackbox-state.json")
   try {
     if (!existsSync(BLACKBOX_FILE)) return null
-    const j = safeJsonParse(readFileSync(BLACKBOX_FILE, "utf-8"))
+    const j = safeJsonParse<any>(readFileSync(BLACKBOX_FILE, "utf-8"))
     return j?.sessions?.[sid] || null
   } catch {
     return null
@@ -139,7 +129,7 @@ function writeSessionRecord(sid: string, updater: (record: any) => void): boolea
   const BLACKBOX_FILE = join(getVibeOSHome(), "blackbox-state.json")
   try {
     const j = existsSync(BLACKBOX_FILE)
-      ? safeJsonParse(readFileSync(BLACKBOX_FILE, "utf-8"))
+      ? safeJsonParse<any>(readFileSync(BLACKBOX_FILE, "utf-8"))
       : {}
     if (!j.sessions) j.sessions = {}
     if (!j.sessions[sid]) j.sessions[sid] = {}

@@ -3,22 +3,7 @@ import { readFileSync, writeFileSync, existsSync } from "node:fs"
 import { join } from "node:path"
 import { modelCostPerTurn } from "./pricing.js"
 import { AUTH_F, CREDIT_CACHE_F, getVibeOSHome } from "./state.js"
-
-function safeJsonParse(raw) {
-  try {
-    return JSON.parse(raw)
-  } catch {}
-
-  let cleaned = raw
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/\/\/.*$/gm, "")
-    .replace(/,\s*([}\]])/g, "$1")
-  try {
-    return JSON.parse(cleaned)
-  } catch (e) {
-    throw e
-  }
-}
+import { safeJsonParse } from "../utils/fs-helpers.js"
 
 // ── Credit API: fetch real balances from provider APIs ───────────────
 const BALANCE_APIS = {
@@ -43,7 +28,7 @@ let _mcpServerRuntime = null
 let _mcpServerHooked = false
 
 export function _readAuth() {
-  try { return existsSync(AUTH_F) ? safeJsonParse(readFileSync(AUTH_F, "utf-8")) : {} } catch { return {} }
+  try { return existsSync(AUTH_F) ? (safeJsonParse(readFileSync(AUTH_F, "utf-8")) ?? {}) : {} } catch { return {} }
 }
 
 async function _fetchBal(provider, key) {
