@@ -1,7 +1,5 @@
-// @ts-nocheck
-
 import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync } from "node:fs"
-import { dirname, join } from "node:path"
+import { dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 import { homedir } from "node:os"
 import { isApiEnabled as isRuntimeApiEnabled, isApiFallbackMode as isRuntimeApiFallbackMode, markApiConnected, markApiDisconnected, resetApiConnection, setApiEnabled } from "./runtime-state.js"
@@ -12,7 +10,6 @@ const DEFAULT_API_URL = "https://api.vibetheog.com"
 // without manual setup. This is a bootstrap credential, not a secrecy boundary.
 const EMBEDDED_API_TOKEN = "vos_8d73804b13bb46711b9a47f036dba7b4d026fd9583d96960e663716e62815a69"
 const API_TOKEN_RE = /^vos_[a-f0-9]{64}$/i
-const API_DISABLED_RE = /^(1|true|yes|on)$/i
 const REQUEST_TIMEOUT = 10000
 const MAX_RETRIES = 3
 const BASE_RETRY_DELAY = 1000
@@ -68,6 +65,19 @@ export class VibeOSNetworkError extends Error {
   constructor(message: string) {
     super(message)
     this.name = "VibeOSNetworkError"
+  }
+}
+
+// Single fetch wrapper that enforces a hard timeout via AbortController. Used by
+// every outbound request (request, bootstrap exchange, health probe) so the
+// controller/setTimeout/clearTimeout dance lives in exactly one place.
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    return await fetch(url, { ...init, signal: controller.signal })
+  } finally {
+    clearTimeout(timeoutId)
   }
 }
 
@@ -145,15 +155,6 @@ function normalizeDirectApiToken(token: string | null | undefined): string {
   return clean && clean !== EMBEDDED_API_TOKEN ? clean : ""
 }
 
-function isTruthyFlag(value: string | null | undefined): boolean {
-  return API_DISABLED_RE.test(String(value || "").trim())
-}
-
-function isExplicitlyDisabledFlag(value: string | null | undefined): boolean {
-  const normalized = String(value || "").trim().toLowerCase()
-  return normalized === "false" || normalized === "0" || normalized === "no" || normalized === "off"
-}
-
 function editEnvLine(content: string, key: string, value: string | null): string {
   const lines = String(content || "").split(/\r?\n/)
   const next: string[] = []
@@ -196,7 +197,7 @@ export class VibeOSApiClient {
   fallbackStubs: unknown
 
   constructor(options: ApiClientOptions = {}) {
-    this.baseUrl = options.baseUrl || process.env.VIBEOS_API_URL || DEFAULT_API_URL
+    this.baseUrl = resolveApiUrl(options.baseUrl)
     this.apiToken = normalizeApiToken(options.apiToken || process.env.VIBEOS_API_TOKEN || "", "")
       || null
     this.masterKey = options.masterKey || process.env.VIBEOS_API_MASTER_KEY || null
@@ -227,17 +228,11 @@ export class VibeOSApiClient {
       attempt++
 
       try {
-        const controller = new AbortController()
-        const timeoutId = setTimeout(() => controller.abort(), this.timeout)
-
-        const res = await fetch(url, {
+        const res = await fetchWithTimeout(url, {
           method: body ? "POST" : "GET",
           headers,
           body: body ? JSON.stringify(body) : null,
-          signal: controller.signal,
-        })
-
-        clearTimeout(timeoutId)
+        }, this.timeout)
 
         if (res.status === 401 || res.status === 403) {
           const errorBody = await res.json().catch(() => ({})) as { message?: string; code?: string }
@@ -286,36 +281,29 @@ export class VibeOSApiClient {
       throw new Error("VIBEOS_API_BOOTSTRAP_TOKEN is not set")
     }
     const url = this.baseUrl + BOOTSTRAP_EXCHANGE_PATH
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), this.timeout)
-    try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: "Bearer " + token,
-        },
-        body: JSON.stringify({
-          build_channel: buildChannel,
-          client: "opencode",
-        }),
-        signal: controller.signal,
-      })
-      if (res.status === 401 || res.status === 403) {
-        const errorBody = await res.json().catch(() => ({})) as { message?: string; code?: string }
-        throw new VibeOSAuthError(errorBody.message || "Bootstrap exchange failed", res.status, errorBody.code)
-      }
-      if (!res.ok) {
-        const errorBody = await res.json().catch(() => ({})) as { error?: string }
-        throw new Error("API error " + res.status + ": " + (errorBody.error || res.statusText))
-      }
-      const data = await res.json().catch(() => ({})) as { api_token?: string; token?: string; access_token?: string }
-      const apiToken = String(data?.api_token || data?.token || data?.access_token || "").trim()
-      if (!apiToken) throw new Error("Bootstrap exchange returned no API token")
-      return apiToken
-    } finally {
-      clearTimeout(timeoutId)
+    const res = await fetchWithTimeout(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + token,
+      },
+      body: JSON.stringify({
+        build_channel: buildChannel,
+        client: "opencode",
+      }),
+    }, this.timeout)
+    if (res.status === 401 || res.status === 403) {
+      const errorBody = await res.json().catch(() => ({})) as { message?: string; code?: string }
+      throw new VibeOSAuthError(errorBody.message || "Bootstrap exchange failed", res.status, errorBody.code)
     }
+    if (!res.ok) {
+      const errorBody = await res.json().catch(() => ({})) as { error?: string }
+      throw new Error("API error " + res.status + ": " + (errorBody.error || res.statusText))
+    }
+    const data = await res.json().catch(() => ({})) as { api_token?: string; token?: string; access_token?: string }
+    const apiToken = String(data?.api_token || data?.token || data?.access_token || "").trim()
+    if (!apiToken) throw new Error("Bootstrap exchange returned no API token")
+    return apiToken
   }
 
   async delegateCheck(tool: string, tier: string, model: string, prompt: string, dynamicCache: Record<string, unknown> = {}): Promise<unknown> {
@@ -346,7 +334,7 @@ export class VibeOSApiClient {
   }
 
   async getModes(): Promise<unknown> {
-    return this.request("/api/v1/modes", {}, "GET")
+    return this.request("/api/v1/modes")
   }
 
   async capabilities(): Promise<unknown> {
@@ -564,7 +552,14 @@ export class VibeOSApiClient {
 }
 
 // ── Remote API client (Phase 2) ─────────────────────────────────────
-export const VIBEOS_API_URL = process.env.VIBEOS_API_URL || "https://api.vibetheog.com"
+// Single source of truth for the API base URL: explicit override, then the
+// VIBEOS_API_URL env var, then the compiled-in default. Every reader (the
+// VIBEOS_API_URL export below and the client constructor) goes through here.
+export function resolveApiUrl(override?: string | null): string {
+  return String(override || process.env.VIBEOS_API_URL || DEFAULT_API_URL)
+}
+
+export const VIBEOS_API_URL = resolveApiUrl()
 
 const _apiDir = typeof __dirname !== "undefined" ? __dirname : dirname(fileURLToPath(import.meta.url))
 const _vibeHome = getVibeOSHome()
@@ -620,7 +615,15 @@ function readBootstrapTokenFromDisk(): string {
   return ""
 }
 
-export let VIBEOS_API_TOKEN = readTokenFromDisk() || normalizeDirectApiToken(process.env.VIBEOS_API_TOKEN) || ""
+// Single source of truth for the primary API token: disk (.env.production)
+// first, then the VIBEOS_API_TOKEN env var. Explicit setApiToken() persists to
+// disk, so a subsequent resolveApiToken() reflects it. The embedded bootstrap
+// token is handled separately as a one-time onboarding credential, not a token.
+export function resolveApiToken(): string {
+  return readTokenFromDisk() || normalizeDirectApiToken(process.env.VIBEOS_API_TOKEN) || ""
+}
+
+export let VIBEOS_API_TOKEN = resolveApiToken()
 export let VIBEOS_API_BOOTSTRAP_TOKEN = readBootstrapTokenFromDisk() || process.env.VIBEOS_API_BOOTSTRAP_TOKEN || EMBEDDED_API_TOKEN
 export let VIBEOS_API_ENABLED = !!(VIBEOS_API_TOKEN || VIBEOS_API_BOOTSTRAP_TOKEN)
 setApiEnabled(VIBEOS_API_ENABLED)
@@ -779,29 +782,14 @@ function recordBackendVersion(payload: unknown): void {
 
 async function probeApiHealth(client: VibeOSApiClient): Promise<boolean> {
   try {
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), client.timeout)
-    try {
-      const res = await fetch(client.baseUrl + "/health", {
-        method: "GET",
-        headers: client.apiToken
-          ? {
-            "Content-Type": "application/json",
-            Authorization: "Bearer " + client.apiToken,
-          }
-          : {
-            "Content-Type": "application/json",
-          },
-        signal: controller.signal,
-      })
-      if (res.ok) {
-        markApiConnected()
-        return true
-      }
-      return false
-    } finally {
-      clearTimeout(timeoutId)
+    const headers: Record<string, string> = { "Content-Type": "application/json" }
+    if (client.apiToken) headers.Authorization = "Bearer " + client.apiToken
+    const res = await fetchWithTimeout(client.baseUrl + "/health", { method: "GET", headers }, client.timeout)
+    if (res.ok) {
+      markApiConnected()
+      return true
     }
+    return false
   } catch {
     return false
   }
