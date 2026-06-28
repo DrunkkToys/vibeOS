@@ -4,6 +4,7 @@ import { readFileSync, existsSync, mkdirSync, writeFileSync, statSync, appendFil
 import { join, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 import { currentProjectFingerprint, getVibeOSHome } from "../lib/state.js"
+import { safeJsonParse } from "../utils/fs-helpers.js"
 
 const VIBEOS_STDERR_DEBUG = process.env.VIBEOS_DEBUG_STDERR === "1" || process.env.VIBEOS_DEBUG_LOGS === "1"
 const VIBEOS_CONSOLE_ERROR_GUARD = "__vibeOSConsoleErrorGuard"
@@ -80,19 +81,6 @@ type RealityCheckSettings = {
     enabled?: boolean
     rules?: RealityCheckRule[]
   }>
-}
-
-function safeJsonParse(raw: string): any {
-  if (raw == null || raw === "") return null
-  try {
-    return JSON.parse(raw)
-  } catch {}
-  let cleaned = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "").replace(/,\s*([}\]])/g, "$1")
-  try {
-    return JSON.parse(cleaned)
-  } catch {
-    return null
-  }
 }
 
 function getRealityCheckSettingsFile(): string {
@@ -232,7 +220,7 @@ function loadFlowDedupKeys(): void {
   try {
     if (existsSync(FLOW_DEDUP_FILE)) {
       const raw = readFileSync(FLOW_DEDUP_FILE, "utf-8")
-      const keys: string[] = safeJsonParse(raw)
+      const keys: string[] = safeJsonParse<any>(raw)
       if (Array.isArray(keys)) {
         for (const k of keys) _flowWarnsSeen.add(k)
       }
@@ -245,7 +233,7 @@ function persistFlowDedupKey(key: string): void {
     mkdirSync(dirname(FLOW_DEDUP_FILE), { recursive: true })
     let keys: string[] = []
     if (existsSync(FLOW_DEDUP_FILE)) {
-      try { keys = safeJsonParse(readFileSync(FLOW_DEDUP_FILE, "utf-8")) } catch {}
+      try { keys = safeJsonParse<any>(readFileSync(FLOW_DEDUP_FILE, "utf-8")) } catch {}
       if (!Array.isArray(keys)) keys = []
     }
     if (!keys.includes(key)) {
@@ -310,7 +298,7 @@ function readRealityCheckSettings(): RealityCheckSettings {
   try {
     if (existsSync(settingsFile)) {
       const raw = readFileSync(settingsFile, "utf-8")
-      const json = safeJsonParse(raw) as RealityCheckSettings
+      const json = safeJsonParse<any>(raw) as RealityCheckSettings
       if (json && typeof json === "object") parsed = json
     }
   } catch {}
@@ -408,7 +396,7 @@ function loadRules(): FlowRule[] {
       _realityCheckCacheKey = cacheKey
       return _cachedRules
     }
-    const j = safeJsonParse(readFileSync(rulesPath, "utf-8")) as { rules?: FlowRule[] }
+    const j = safeJsonParse<any>(readFileSync(rulesPath, "utf-8")) as { rules?: FlowRule[] }
     const baseRules = Array.isArray(j.rules) ? j.rules.map(normalizeRule).filter(Boolean) as FlowRule[] : []
     _cachedRules = mergeManagedRules(baseRules, getRealityCheckRulesForProject(scopeKey))
     _rulesMtime = rulesMtime
@@ -425,7 +413,7 @@ function recordFlowWarn(hit: RecordFlowWarnInput): void {
     let state: any = {}
     const stateFile = getStateFile()
     if (existsSync(stateFile)) {
-      try { state = safeJsonParse(readFileSync(stateFile, "utf-8")) } catch {}
+      try { state = safeJsonParse<any>(readFileSync(stateFile, "utf-8")) } catch {}
     } else {
       mkdirSync(dirname(stateFile), { recursive: true })
     }
@@ -452,7 +440,7 @@ function recordFlowWarn(hit: RecordFlowWarnInput): void {
     if (_stateWriter) _stateWriter(fp)
     else {
       const stateFile = getStateFile()
-      const existing = safeJsonParse(existsSync(stateFile) ? readFileSync(stateFile, "utf-8") : "{}")
+      const existing = safeJsonParse<any>(existsSync(stateFile) ? readFileSync(stateFile, "utf-8") : "{}")
       const merged = Object.assign({}, existing, fp)
       const tmpFile = stateFile + ".tmp." + Date.now()
       writeFileSync(tmpFile, JSON.stringify(merged, null, 2))
@@ -493,7 +481,7 @@ export function getFlowWarns(): any[] {
   try {
     const stateFile = getStateFile()
     if (!existsSync(stateFile)) return []
-    const s = safeJsonParse(readFileSync(stateFile, "utf-8"))
+    const s = safeJsonParse<any>(readFileSync(stateFile, "utf-8"))
     return s?.flow_warns || []
   } catch { return [] }
 }
@@ -557,7 +545,7 @@ export function recordFlowTodo({ filePath, content }: FlowTodoInput): number {
     const existingKeys = new Set<string>()
     for (const line of existingLines) {
       try {
-        const entry = safeJsonParse(line)
+        const entry = safeJsonParse<any>(line)
         if (entry && entry.filePath && entry.todos) {
           const key = `${entry.filePath}::${entry.todos.map((t: any) => `${t.type}:${t.text}`).join("|")}`
           existingKeys.add(key)
@@ -589,7 +577,7 @@ export function getFlowTodos(): Array<{ filePath: string; todos: Array<{ type: s
     if (!existsSync(flowTodoFile)) return []
     const raw = readFileSync(flowTodoFile, "utf-8").trim()
     if (!raw) return []
-    return raw.split("\n").filter(Boolean).map(line => safeJsonParse(line)).filter(Boolean)
+    return raw.split("\n").filter(Boolean).map(line => safeJsonParse<any>(line)).filter(Boolean)
   } catch { return [] }
 }
 

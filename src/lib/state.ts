@@ -8,6 +8,7 @@ import { AsyncLocalStorage } from "node:async_hooks"
 import { loadSelection, writeSelection, DFLT_SEL } from "./selection-manager.js"
 import { mergeProjectBucket, _computeSessionMetrics, _pruneOldSessions } from "./pattern-helpers.js"
 import { getOcSessionId, setOcSessionId } from "./runtime-state.js"
+import { safeJsonParse } from "../utils/fs-helpers.js"
 
 // ── Delegation-state contract ────────────────────────────────────────
 // The real shape of delegation-state.json. Known fields are typed; the index
@@ -523,24 +524,6 @@ export function withFileLock<T>(filePath: string, fn: () => T, opts: { staleMs?:
     }
   }
   throw new Error(`[vibeOS] lock not acquired for ${filePath} after ${timeoutMs}ms`)
-}
-
-// ── JSONC-tolerant JSON.parse ────────────────────────────────────────
-function safeJsonParse(raw: string): unknown {
-  if (raw == null || raw === "") return null
-  try {
-    return JSON.parse(raw)
-  } catch {}
-
-  let cleaned = raw
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/\/\/.*$/gm, "")
-    .replace(/,\s*([}\]])/g, "$1")
-  try {
-    return JSON.parse(cleaned)
-  } catch {
-    return null
-  }
 }
 
 // ── State validation ─────────────────────────────────────────────────

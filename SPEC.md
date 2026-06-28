@@ -1,6 +1,7 @@
 # SPEC: vibeOS Test-Verified Specification
 
-> **LAW.** Every claim below is verified by the test suite (1621 pass, 0 fail)
+> **LAW.** Every claim below is verified by the test suite (the contract is
+> **0 fail** across `npm test`; the exact pass count drifts as tests are added)
 > or by live session testing. Any code change that breaks these behaviors
 > violates the specification contract.
 
@@ -434,9 +435,8 @@ The following test suites form the contract verification layer.
 All must pass before any commit:
 
 ```
-npm test                                    # Full suite (1729 tests)
-npm run typecheck                           # TypeScript validation
-node --check src/index.js                   # Runtime syntax check
+npm test                                    # Full suite (0 fail is the gate)
+npm run typecheck                           # TypeScript validation (also the syntax gate; src has no committed .js)
 node tests/deep_integration.test.mjs        # 815 assertions - core pipeline
 node tests/test_delegation_enforcer.test.mjs # 141 assertions - enforcement
 node tests/production_regressions.test.mjs  # 35 assertions - footer/mode
