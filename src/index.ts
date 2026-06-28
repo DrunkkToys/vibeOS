@@ -1439,7 +1439,7 @@ export default { id: "vibeOS", server: DelegationEnforcer }
 export { researchAudit } from "./lib/research-audit.js"
 export { saveReport, listReports, readReport } from "./lib/reporting.js"
 export { applySlot, modelCostPerTurn, isModelFree, isDocsTarget, detectContext7, loadTierRegexes, classify, _refreshModel, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, setTrinityBrain, setTrinityMedium, setTrinityCheap, _resetTrinitySlotsForTest, trendDisplay, flushPendingLiveSwitch, getPendingLiveSwitch } from "./lib/pricing.js"
-export { getScratchpadHit, getSessionScratchpadDir, getSessionIndexPath, setCurrentModel, setCurrentTier, setCurrentSessionId, setCurrentProjectFingerprint, setCurrentProjectName, getCurrentSessionId } from "./lib/state.js"
+export { getScratchpadHit, getSessionScratchpadDir, getSessionIndexPath, setCurrentModel, setCurrentTier, setCurrentSessionId, setCurrentProjectFingerprint, setCurrentProjectName, getCurrentSessionId, _OC_SID } from "./lib/state.js"
 export { _resetSelectionCacheForTest } from "./lib/selection-manager.js"
 export { _setPendingUiNoteForTest, _setEnforcementBlockedForTest } from "./lib/hooks/tool-execute.js"
 export { extractExports, buildTestSkeleton, enforceTestFile, buildTestReminder } from "./lib/tdd-enforcer.js"
