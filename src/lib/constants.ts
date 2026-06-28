@@ -6,6 +6,9 @@ export const SAVE_EST = {
   SOFT_QUOTA:   0.0001,
   // DeepSeek cache: (0.14 - 0.0028)/1M * ~1000 tokens = 0.00014
   CONTEXT7:     0.00014,
+  // Cost of one runaway poll/repeat turn: ~$5.88 / 744 turns ≈ $0.0079 saved
+  // per blocked loop iteration (full-context replay avoided).
+  LOOP_GUARD:   0.008,
 }
 
 export const WARN_ON_DIRECT = new Set(["write", "edit", "notebookedit"])
