@@ -161,6 +161,111 @@ export class ResolutionTracker {
     }
     return streak
   }
+  isInspectionOnly(text, action, activity) {
+    const normalizedAction = String(action || activity?.action || activity?.kind || "").toLowerCase()
+    const normalizedText = this.normalizeText(text)
+    const normalizedTool = this.normalizeText(activity?.tool || activity?.toolName || activity?.kind || "")
+    const normalizedTarget = this.normalizeText(activity?.target || activity?.filePath || activity?.file_path || activity?.path || activity?.command || "")
+    const inspectionAction = /^(?:observe|explore|inspect|read|search|find|check|list|get|show|view|grep|cat|sed|ls)$/.test(normalizedAction)
+      || /(?:read|search|find|inspect|check|list|get|show|view|grep|cat|sed|ls)\b/.test(normalizedText)
+      || /(?:read|search|find|inspect|check|list|get|show|view|grep|cat|sed|ls)\b/.test(normalizedTool)
+    const mutationAction = /(?:write|edit|update|modify|patch|replace|implement|commit|deploy|save|fix|apply)/.test(normalizedAction)
+      || /(?:write|edit|update|modify|patch|replace|implement|commit|deploy|save|fix|apply)\b/.test(normalizedText)
+      || /(?:write|edit|update|modify|patch|replace|implement|commit|deploy|save|fix|apply)\b/.test(normalizedTool)
+    return inspectionAction && !mutationAction && !normalizedTarget.includes("tmp")
+  }
+  detectLoop() {
+    const last = this.history[this.history.length - 1] || {}
+    const repeatSignal = Math.max(
+      this.getRepeatStreak(),
+      this.getActivityRepeatStreak(),
+      this.getTargetRepeatStreak(),
+    )
+    const negativeOutcomeStreak = this.getRecentNegativeOutcomeStreak()
+    const normalizedAction = String(last.action || "").toLowerCase()
+    const normalizedText = String(last.text || "").toLowerCase()
+    const activity = last.activity || null
+    const inspectionOnly = this.isInspectionOnly(last.text, last.action, activity)
+    const pollSignal = /(?:sleep\s+\d+|poll|watch|status|statuscheck|checks?)/.test(normalizedText)
+      || /(?:sleep|poll|watch)/.test(normalizedAction)
+      || /gh\s+(?:pr\s+view|pr\s+checks|run\s+(?:list|view|watch))/.test(normalizedText)
+    const mutationSignal = /(?:write|edit|update|modify|patch|replace|implement|commit|deploy|save|fix|apply)/.test(normalizedAction)
+      || /(?:write|edit|update|modify|patch|replace|implement|commit|deploy|save|fix|apply)/.test(normalizedText)
+      || /(?:write|edit|update|modify|patch|replace|implement|commit|deploy|save|fix|apply)/.test(String(activity?.tool || activity?.kind || "").toLowerCase())
+    const targetRepeat = this.getTargetRepeatStreak()
+    const activityRepeat = this.getActivityRepeatStreak()
+    const failedMutationRepeat = mutationSignal && targetRepeat >= 3 && (negativeOutcomeStreak >= 1 || /negative|failed|unresolved/i.test(String(activity?.outcome || last.outcome || "")))
+    if (negativeOutcomeStreak >= 2) {
+      return {
+        isLooping: true,
+        authority: "authoritative-local",
+        kind: "negative-outcome-repeat",
+        confidence: 0.92,
+        reason: "repeated negative outcomes",
+      }
+    }
+    if (pollSignal && repeatSignal >= 2) {
+      return {
+        isLooping: true,
+        authority: "authoritative-local",
+        kind: "poll-repeat",
+        confidence: 0.9,
+        reason: "repeated polling behavior",
+      }
+    }
+    if (failedMutationRepeat) {
+      return {
+        isLooping: true,
+        authority: "authoritative-local",
+        kind: "failed-mutation-repeat",
+        confidence: 0.88,
+        reason: "repeated failed mutation on same target",
+      }
+    }
+    if (inspectionOnly) {
+      if (repeatSignal >= 2) {
+        return {
+          isLooping: false,
+          authority: "advisory-local",
+          kind: "inspection-repeat",
+          confidence: 0.55,
+          reason: "repeated inspection churn",
+        }
+      }
+      return {
+        isLooping: false,
+        authority: null,
+        kind: null,
+        confidence: 0.0,
+        reason: "",
+      }
+    }
+    if (repeatSignal >= 4 || (repeatSignal >= 3 && (activityRepeat >= 3 || targetRepeat >= 3))) {
+      return {
+        isLooping: true,
+        authority: "authoritative-local",
+        kind: "text-repeat",
+        confidence: 0.8,
+        reason: "high-confidence repeated intervention loop",
+      }
+    }
+    if (repeatSignal >= 3) {
+      return {
+        isLooping: false,
+        authority: "advisory-local",
+        kind: "text-repeat",
+        confidence: 0.5,
+        reason: "repeated text without strong loop evidence",
+      }
+    }
+    return {
+      isLooping: false,
+      authority: null,
+      kind: null,
+      confidence: 0.0,
+      reason: "",
+    }
+  }
   computeMessageLengthTrend() {
     const lengths = this.recentMessageLengths
     if (lengths.length < 3) return { trend: "stable", slope: 0 }
@@ -205,11 +310,11 @@ export class ResolutionTracker {
       this.history.shift()
     }
     const state = this.computeState()
-    if (state.is_looping) {
+    if (state.is_looping && state.loop_authority === "authoritative-local") {
       this.loopCount++
       this.history[this.history.length - 1].outcome = this.history[this.history.length - 1].outcome || "loop_detected"
     }
-    else if (state.sub_regime !== "LOOPING") {
+    else {
       this.loopCount = Math.max(0, this.loopCount - 1)
     }
     return state
@@ -255,6 +360,10 @@ export class ResolutionTracker {
         is_looping: false,
         loop_consecutive: 0,
         loop_intervention_level: "none",
+        loop_authority: null,
+        loop_detector_kind: null,
+        loop_detector_confidence: null,
+        loop_source_reason: null,
         pivot_detected: false,
         pivot_score: 0.0,
         outcome: null,
@@ -268,7 +377,8 @@ export class ResolutionTracker {
     const repeatStreak = this.getRepeatStreak()
     const activityRepeatStreak = this.getActivityRepeatStreak()
     const targetRepeatStreak = this.getTargetRepeatStreak()
-    const isLooping = this.detectLoop()
+    const loop = this.detectLoop()
+    const isLooping = loop.isLooping
     const intentState = this.computeIntentState()
     const continuityState = this.continuityState(intentState)
     let subRegime
@@ -350,6 +460,10 @@ export class ResolutionTracker {
       activity_repeat_streak: activityRepeatStreak,
       target_repeat_streak: targetRepeatStreak,
       loop_intervention_level: loopLevel,
+      loop_authority: loop.authority,
+      loop_detector_kind: loop.kind,
+      loop_detector_confidence: loop.confidence,
+      loop_source_reason: loop.reason,
       pivot_detected: pivotDetected,
       pivot_score: Math.round(pivotScore * 10000) / 10000,
       outcome: lastEntry.outcome || null,
@@ -404,15 +518,6 @@ export class ResolutionTracker {
     if (!a || !b)
       return 0.0
     return 1.0 - cosineSimilarity(a, b)
-  }
-  detectLoop() {
-    const repeatSignal = Math.max(
-      this.getRepeatStreak(),
-      this.getActivityRepeatStreak(),
-      this.getTargetRepeatStreak(),
-    )
-    const negativeOutcomeStreak = this.getRecentNegativeOutcomeStreak()
-    return this.loopCount >= 2 || repeatSignal >= 2 || negativeOutcomeStreak >= 2
   }
   computeIntentState() {
     const last = this.history[this.history.length - 1]

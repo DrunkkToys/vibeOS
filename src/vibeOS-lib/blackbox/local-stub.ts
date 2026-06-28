@@ -32,6 +32,11 @@ class LocalBlackboxStub {
     }
     return streak
   }
+  isInspectionOnly(text) {
+    const t = this.normalizeText(text)
+    return /\b(?:read|search|find|inspect|check|list|get|show|view|grep|cat|sed|ls)\b/.test(t)
+      && !/\b(?:write|edit|update|modify|patch|replace|implement|commit|deploy|save|fix|apply)\b/.test(t)
+  }
   extractFeatures(text) {
     if (!text || typeof text !== "string")
       return {}
@@ -104,7 +109,8 @@ class LocalBlackboxStub {
     if (this.history.length > 10)
       this.history.shift()
     const repeatStreak = this.getRepeatStreak()
-    const isLooping = repeatStreak >= 2 || this.detectBasicLoop(text)
+    const isLooping = !this.isInspectionOnly(text) && (repeatStreak >= 3 || this.detectBasicLoop(text, 0.7))
+    const advisoryKind = repeatStreak >= 2 ? (this.isInspectionOnly(text) ? "inspection-repeat" : "text-repeat") : null
     if (isLooping)
       this.loopCount++
     else
@@ -124,6 +130,10 @@ class LocalBlackboxStub {
       pivot_score: 0.0,
       outcome: null,
       n_interactions: this.history.length,
+      loop_authority: isLooping ? "authoritative-local" : (repeatStreak >= 2 ? "advisory-local" : null),
+      loop_detector_kind: isLooping ? (this.detectBasicLoop(text, 0.7) ? "text-repeat" : "inspection-repeat") : advisoryKind,
+      loop_detector_confidence: isLooping ? 0.8 : (repeatStreak >= 2 ? 0.55 : null),
+      loop_source_reason: isLooping ? "local fallback loop" : (repeatStreak >= 2 ? "repeated fallback inspection" : null),
       features,
       action,
       entropy,

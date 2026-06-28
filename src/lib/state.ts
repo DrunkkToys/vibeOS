@@ -537,6 +537,54 @@ function readJsonOrEmpty(filePath: string): unknown {
   } catch { _handleStateCorruption(filePath); return {} }
 }
 
+function appendLoopTransitionAudit(previousSession: unknown, nextSession: unknown, sid: string): void {
+  try {
+    const next = nextSession && typeof nextSession === "object" ? nextSession as AnyObject : {}
+    const previous = previousSession && typeof previousSession === "object" ? previousSession as AnyObject : {}
+    const nextSource = String(next.decision_source || next.source || "").trim().toLowerCase()
+    const nextAuthority = String(next.loop_authority || "").trim()
+    const previousRelevant = Boolean(previous.is_looping === true
+      || String(previous.sub_regime || previous.regime || "").trim().toUpperCase() === "LOOPING"
+      || String(previous.loop_authority || "").trim())
+    const nextRelevant = Boolean(next.is_looping === true
+      || String(next.sub_regime || next.regime || "").trim().toUpperCase() === "LOOPING"
+      || nextAuthority)
+    if (!previousRelevant && !nextRelevant) return
+    const prevSignature = JSON.stringify({
+      regime: previous.sub_regime || previous.regime || "",
+      looping: Boolean(previous.is_looping),
+      source: String(previous.decision_source || previous.source || ""),
+      authority: String(previous.loop_authority || ""),
+      kind: String(previous.loop_detector_kind || ""),
+      confidence: Number(previous.loop_detector_confidence || 0) || 0,
+      reason: String(previous.loop_source_reason || ""),
+    })
+    const nextSignature = JSON.stringify({
+      regime: next.sub_regime || next.regime || "",
+      looping: Boolean(next.is_looping),
+      source: nextSource,
+      authority: nextAuthority,
+      kind: String(next.loop_detector_kind || ""),
+      confidence: Number(next.loop_detector_confidence || 0) || 0,
+      reason: String(next.loop_source_reason || ""),
+    })
+    if (prevSignature === nextSignature) return
+    const auditPath = join(getVibeOSHome(), "loop-audit.jsonl")
+    const payload = {
+      _ts: new Date().toISOString(),
+      session_id: sid,
+      previous_regime: String(previous.sub_regime || previous.regime || "INIT"),
+      next_regime: String(next.sub_regime || next.regime || "INIT"),
+      decision_source: nextSource || "local",
+      loop_authority: nextAuthority || null,
+      loop_detector_kind: next.loop_detector_kind || null,
+      loop_detector_confidence: Number.isFinite(Number(next.loop_detector_confidence)) ? Number(next.loop_detector_confidence) : null,
+      reason: String(next.loop_source_reason || next.resolution_reason || ""),
+    }
+    appendFileSync(auditPath, JSON.stringify(payload) + "\n")
+  } catch {}
+}
+
 function updateState(mutator: (state: DelegationState) => DelegationState | void): DelegationState {
   const delegationStateFile = join(getVibeOSHome(), "delegation-state.json")
   const MAX_RETRIES = 3
@@ -757,11 +805,14 @@ function saveBlackboxState(state: unknown): void {
   const blackboxFile = join(getVibeOSHome(), "blackbox-state.json")
   try {
     const next = state && typeof state === "object" ? state : { enabled: true, sessions: {} }
+    const previous = readJsonOrEmpty(blackboxFile) as AnyObject
     next.sessions ??= {}
     const now = Date.now()
     for (const [sid, session] of Object.entries(next.sessions)) {
       if (!session || typeof session !== "object") continue
-      next.sessions[sid] = normalizeBlackboxRecord(session as unknown, sid, now).record
+      const normalized = normalizeBlackboxRecord(session as unknown, sid, now).record
+      appendLoopTransitionAudit(previous?.sessions?.[sid], normalized, sid)
+      next.sessions[sid] = normalized
     }
     _capBlackboxSessions(next)
     _normalizeVibeUltraXBlackboxState(next)
@@ -845,22 +896,24 @@ function _mergeLiveLoopSnapshot(existing: unknown, input: unknown, derived: { re
     source: String((input as AnyObject)?.source || "footer"),
     sub_regime: typeof (input as AnyObject)?.subRegime === "string" && String((input as AnyObject).subRegime).trim()
       ? String((input as AnyObject).subRegime).trim()
-      : String((existing as AnyObject)?.sub_regime || (existing as AnyObject)?.regime || "INIT"),
+      : "INIT",
     regime: typeof (input as AnyObject)?.subRegime === "string" && String((input as AnyObject).subRegime).trim()
       ? String((input as AnyObject).subRegime).trim()
-      : String((existing as AnyObject)?.regime || (existing as AnyObject)?.sub_regime || "INIT"),
+      : "INIT",
     resolution: derived.resolutionState === "working"
       ? "solved"
       : derived.resolutionState === "intervened"
         ? "looping"
-        : String((existing as AnyObject)?.resolution || "unresolved"),
+        : String((input as AnyObject)?.resolution || "unresolved"),
     resolution_state: derived.resolutionState,
     resolution_reason: derived.resolutionReason,
     loop_intervention_level: typeof (input as AnyObject)?.loopInterventionLevel === "string"
       ? String((input as AnyObject).loopInterventionLevel)
       : String((existing as AnyObject)?.loop_intervention_level || "none"),
     loop_consecutive: Number((input as AnyObject)?.loopConsecutive ?? (existing as AnyObject)?.loop_consecutive ?? (existing as AnyObject)?.loopCount ?? 0) || 0,
-    is_looping: Boolean((input as AnyObject)?.isLooping ?? (existing as AnyObject)?.is_looping),
+    is_looping: typeof (input as AnyObject)?.isLooping === "boolean"
+      ? Boolean((input as AnyObject).isLooping)
+      : derived.resolutionState === "intervened",
     loop_notice_signature: typeof (input as AnyObject)?.loopNoticeSignature === "string"
       ? String((input as AnyObject).loopNoticeSignature)
       : typeof (existing as AnyObject)?.loop_notice_signature === "string"
@@ -1017,6 +1070,10 @@ export function recordLiveSessionSnapshot(input: {
   stress?: number
   rewardBreakdown?: unknown
   source?: string
+  loopAuthority?: string | null
+  loopDetectorKind?: string | null
+  loopDetectorConfidence?: number | null
+  loopSourceReason?: string | null
 }): { sessionId: string; updatedAt: string; resolutionState: string; resolutionReason: string } {
   const explicitSessionId = typeof input?.sessionId === "string" ? input.sessionId.trim() : ""
   if (input && Object.prototype.hasOwnProperty.call(input, "sessionId") && !explicitSessionId) {
@@ -1067,10 +1124,15 @@ export function recordLiveSessionSnapshot(input: {
       if (input.footerLine) ses.last_footer_line = input.footerLine
       ses.decision_source = loopSnapshot.decision_source || ses.decision_source || "footer"
       ses.live_sub_regime = loopSnapshot.sub_regime || ses.live_sub_regime || "INIT"
+      ses.live_is_looping = loopSnapshot.is_looping
       ses.live_resolution_state = loopSnapshot.resolution_state || resolutionState
       ses.live_resolution_reason = loopSnapshot.resolution_reason || resolutionReason
       ses.live_loop_intervention_level = loopSnapshot.loop_intervention_level || ses.live_loop_intervention_level || "none"
-      ses.live_loop_consecutive = Number(loopSnapshot.loop_consecutive || ses.live_loop_consecutive || ses.loop_consecutive || 0) || 0
+      ses.live_loop_consecutive = Number(loopSnapshot.loop_consecutive ?? 0) || 0
+      ses.live_loop_authority = loopSnapshot.loop_authority ?? null
+      ses.live_loop_detector_kind = loopSnapshot.loop_detector_kind ?? null
+      ses.live_loop_detector_confidence = loopSnapshot.loop_detector_confidence ?? null
+      ses.live_loop_source_reason = loopSnapshot.loop_source_reason ?? null
       if (loopSnapshot.loop_hold_until !== undefined) ses.live_loop_hold_until = loopSnapshot.loop_hold_until
       if (loopSnapshot.loop_release_streak !== undefined) ses.live_loop_release_streak = loopSnapshot.loop_release_streak
       if (loopSnapshot.loop_notice_signature !== undefined) ses.live_loop_notice_signature = loopSnapshot.loop_notice_signature
@@ -1129,6 +1191,7 @@ export function recordLiveSessionSnapshot(input: {
     ses.resolution = mergedLoop.resolution || ses.resolution || "unresolved"
     ses.resolution_state = mergedLoop.resolution_state || resolutionState
     ses.resolution_reason = mergedLoop.resolution_reason || resolutionReason
+    ses.is_looping = mergedLoop.is_looping
     ses.updatedAt = updatedAt
     ses.last_snapshot_at = updatedAt
     if (typeof input.savingsUsd === "number" && Number.isFinite(input.savingsUsd)) {
@@ -1179,10 +1242,15 @@ export function recordLiveSessionSnapshot(input: {
     }
     if (nextAction) ses.live_next_action = nextAction
     if (typeof input.pivotDetected === "boolean") ses.pivot_detected = input.pivotDetected
+    ses.live_is_looping = mergedLoop.is_looping
     ses.loop_intervention_level = mergedLoop.loop_intervention_level || ses.loop_intervention_level || "none"
-    ses.loop_consecutive = Number(mergedLoop.loop_consecutive || ses.loop_consecutive || 0) || 0
+    ses.loop_consecutive = Number(mergedLoop.loop_consecutive ?? 0) || 0
+    ses.loop_authority = mergedLoop.loop_authority ?? null
+    ses.loop_detector_kind = mergedLoop.loop_detector_kind ?? null
+    ses.loop_detector_confidence = mergedLoop.loop_detector_confidence ?? null
+    ses.loop_source_reason = mergedLoop.loop_source_reason ?? null
     ses.loop_hold_until = mergedLoop.loop_hold_until ?? ses.loop_hold_until ?? null
-    ses.loop_release_streak = Number(mergedLoop.loop_release_streak || ses.loop_release_streak || 0) || 0
+    ses.loop_release_streak = Number(mergedLoop.loop_release_streak ?? 0) || 0
     ses.loop_notice_signature = mergedLoop.loop_notice_signature ?? ses.loop_notice_signature ?? null
     ses.loop_notice_at = mergedLoop.loop_notice_at ?? ses.loop_notice_at ?? null
     ses.loop_notice_hold_until = mergedLoop.loop_notice_hold_until ?? ses.loop_notice_hold_until ?? null
@@ -1246,6 +1314,24 @@ function normalizeBlackboxRecord(record: unknown, sid: string, now: number): { r
   if (!Number.isFinite(Number(next.turn_counter))) { next.turn_counter = 0; changed = true }
   if (!Number.isFinite(Number(next.loopCount))) { next.loopCount = 0; changed = true }
   if (!Number.isFinite(Number(next.loop_consecutive))) { next.loop_consecutive = Number(next.loopCount || 0); changed = true }
+  if (typeof next.loop_authority !== "string" || !next.loop_authority.trim()) { next.loop_authority = null; changed = true }
+  if (typeof next.loop_detector_kind !== "string" || !next.loop_detector_kind.trim()) { next.loop_detector_kind = null; changed = true }
+  if (!Number.isFinite(Number(next.loop_detector_confidence))) { next.loop_detector_confidence = null; changed = true }
+  if (typeof next.loop_source_reason !== "string" || !next.loop_source_reason.trim()) { next.loop_source_reason = null; changed = true }
+  const explicitLoopShape = String(next.sub_regime || next.regime || "").trim().toUpperCase() === "LOOPING"
+    || String(next.resolution || "").trim().toUpperCase() === "LOOPING"
+    || String(next.resolution_state || "").trim().toUpperCase() === "INTERVENED"
+  if (next.decision_source === "local" && next.is_looping === true && !next.loop_authority && !explicitLoopShape) {
+    next.is_looping = false
+    changed = true
+  }
+  if (next.decision_source === "api" && next.is_looping === true && next.loop_authority !== "api") {
+    next.loop_authority = "api"
+    changed = true
+  } else if (next.decision_source === "local" && next.is_looping === true && !next.loop_authority) {
+    next.loop_authority = "authoritative-local"
+    changed = true
+  }
   if (!Array.isArray(next.history)) { next.history = []; changed = true }
   if (!Array.isArray(next.pivotHistory)) { next.pivotHistory = []; changed = true }
   if (!Array.isArray(next.outcomeHistory)) { next.outcomeHistory = []; changed = true }
