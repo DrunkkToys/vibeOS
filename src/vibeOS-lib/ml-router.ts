@@ -21,6 +21,8 @@ export interface QueryFeatures {
   questionDensity: number
   commandHints: number
   fileKinds: number
+  codeBlocks: number
+  hasSteps: number
 }
 
 export interface DifficultyResult {
@@ -135,6 +137,12 @@ export function extractFeatures(prompt: string): QueryFeatures {
 
   const questionDensity = (lower.match(/\?/g) || []).length / Math.max(1, words.length)
 
+  const codeBlockPairs = (s.match(/```/g) || []).length / 2 | 0
+
+  const stepMatches = lower.match(/\b\d+\.\s/g) || []
+  const bulletMatches = lower.match(/^[-*]\s/gm) || []
+  const hasSteps = Math.min(stepMatches.length + bulletMatches.length, 5)
+
   return {
     length: s.length,
     wordCount: words.length,
@@ -146,6 +154,8 @@ export function extractFeatures(prompt: string): QueryFeatures {
     questionDensity,
     commandHints,
     fileKinds,
+    codeBlocks: codeBlockPairs,
+    hasSteps,
   }
 }
 
@@ -196,6 +206,12 @@ export function computeDifficulty(prompt: string): DifficultyResult {
   if (features.commandHints >= 2) score += 0.05
   else if (features.commandHints >= 1 && features.fileMentions >= 2) score += 0.04
   if (features.fileKinds >= 2) score += 0.05
+
+  if (features.codeBlocks >= 1) score += 0.03
+  if (features.codeBlocks >= 3) score += 0.02
+
+  if (features.hasSteps >= 1) score += 0.02
+  if (features.hasSteps >= 3) score += 0.02
 
   const wcs = wordComplexityScore(words)
   score += wcs * 0.15
