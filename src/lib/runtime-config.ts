@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from "node:fs"
-import { dirname, join } from "node:path"
+import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, readdirSync, rmSync } from "node:fs"
+import { basename, dirname, join } from "node:path"
 import { safeJsonParse, getOpenCodeHomes, getOpenCodeHome, getVibeOSHome } from "./state.js"
 
 type JsonRecord = Record<string, any>
@@ -85,6 +85,20 @@ function isLegacyConfigJsonStub(config: unknown): config is JsonRecord {
   return typeof (config as JsonRecord).model === "string" && String((config as JsonRecord).model || "").trim().length > 0
 }
 
+// OpenCode (or another writer) can regenerate the legacy config.json stub on
+// every turn. Without pruning, each cleanup would mint a new timestamped backup,
+// leaving an unbounded pile of *.vibeos-bak-* files. Keep only the newest by
+// removing prior backups of the same path before creating the next one.
+function pruneStubBackups(path: string): void {
+  try {
+    const dir = dirname(path)
+    const prefix = `${basename(path)}.vibeos-bak-`
+    for (const entry of readdirSync(dir)) {
+      if (entry.startsWith(prefix)) rmSync(join(dir, entry), { force: true })
+    }
+  } catch {}
+}
+
 export function cleanupLegacyOpenCodeConfigFiles(projectDir = "", options: { includeHome?: boolean } = {}): string[] {
   const { includeHome = true } = options
   const candidates = new Set<string>()
@@ -102,6 +116,7 @@ export function cleanupLegacyOpenCodeConfigFiles(projectDir = "", options: { inc
     try {
       const parsed = safeJsonParse(readFileSync(path, "utf-8"))
       if (!isLegacyConfigJsonStub(parsed)) continue
+      pruneStubBackups(path)
       const backup = `${path}.vibeos-bak-${Date.now()}`
       renameSync(path, backup)
       cleaned.push(backup)
