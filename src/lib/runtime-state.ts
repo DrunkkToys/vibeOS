@@ -6,6 +6,7 @@ type RuntimeState = {
   apiFallbackSince: string | null
   apiEnabled: boolean
   sessionId: string
+  vibeOSHome?: string
 }
 
 function getRuntimeState(): RuntimeState {
@@ -66,4 +67,12 @@ export function isApiConnected(): boolean {
 
 export function isApiFallbackMode(): boolean {
   return getRuntimeState().apiFallbackMode
+}
+
+export function setRuntimeVibeOSHome(home: string): void {
+  getRuntimeState().vibeOSHome = String(home || "")
+}
+
+export function getRuntimeVibeOSHome(): string {
+  return getRuntimeState().vibeOSHome || ""
 }

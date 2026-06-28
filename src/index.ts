@@ -16,6 +16,7 @@ import { isApiConnected, isApiFallback, getBackendVersion, getApiFallbackSince, 
 import { applySlot, reconcileSlotModel, modelCostPerTurn, detectContext7, formatUsd, classify, resolveEffectiveTier, _refreshModel, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, readConfig, getTrinitySlotOrder, loadTrinitySlotsFromTiersFile, isModelFree, resolveCurrentExecution, modelDisplayName, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, resetPendingLiveSwitch } from "./lib/pricing.js"
 import { scoreStress, detectTechStack, loadBlackboxState, saveBlackboxState, getBlackboxTracker, getBlackboxResolution, getLatestBlackboxState, saveOptimizationMode, resetBlackboxTracker, getLatestBlackboxLoopMsg, getLatestBlackboxPivotMsg } from "./lib/turn-classify.js"
 import { safeJsonParse, readFullState, loadSelection, writeSelection, readLifetimeSavings, _OC_SID, _modelLocked, _blackboxEnabled, setBlackboxEnabled, _lockedSlot, _lockedModel, setModelLocked, setLockedSlot, setLockedModel, currentTier, currentModel, currentProjectFingerprint, currentProjectName, setCurrentTier, setCurrentModel, setCurrentProjectFingerprint, setCurrentProjectName, setCurrentSessionId, getCurrentSessionId, briefedProjects, getActiveJobForProject, projectFingerprint, loadProjectState, saveProjectState, ensureProjectBucket, mergeProjectBucket, setVibeOSHomeContext, resetSessionId, SAVINGS_LEDGER_FILE, USER_HOME, CREDIT_CACHE_F, pruneScratchpadOnce, registerSessionCleanupHandlers, runStartupMaintenanceOnce, promotedProjectPatterns, projectPatternRows, clearProjectPatterns, loadTodos, getTodos, upsertTodo, markTodoDone, tool, loadSessionOrchestration, mutateSessionOrchestration } from "./lib/state.js"
+import { getRuntimeVibeOSHome, setRuntimeVibeOSHome } from "./lib/runtime-state.js"
 import { researchAudit } from "./lib/research-audit.js"
 import { buildStatusPayload, buildSavingsPayload, buildSessionCheckout, diagnoseStructuredFromText, projectStructuredFromText } from "./lib/runtime-surface.js"
 import { TEMPLATE_LIBRARY } from "./lib/templates.js"
@@ -862,7 +863,13 @@ export async function DelegationEnforcer({ client, directory } = {}) {
   console.error(`[vibeOS] LOADED cwd=${directory}`)
   const hookHome = process.env.HOME || USER_HOME
   const hookFp = projectFingerprint(directory || "")
-  const hookSessionId = `opencode-${process.pid || "x"}-${Date.now()}-${Math.random().toString(16).slice(2)}`
+  const resolvedVibeOSHome = process.env.VIBEOS_HOME || join(hookHome, ".claude")
+  const lastVibeOSHome = getRuntimeVibeOSHome()
+  const existingSessionId = _OC_SID
+  const shouldReuseSessionId = lastVibeOSHome === resolvedVibeOSHome && existingSessionId && existingSessionId.startsWith("opencode-") && existsSync(join(resolvedVibeOSHome, "delegation-state.json"))
+  const hookSessionId = shouldReuseSessionId
+    ? existingSessionId
+    : `opencode-${process.pid || "x"}-${Date.now()}-${Math.random().toString(16).slice(2)}`
   // Wire the live OpenCode SDK client so the orchestrator can actually switch the
   // running model (pushLiveModelSwitch reads globalThis.__vibeOS_client.config). Without
   // this, a "switch" only rewrites opencode.json (applies to NEW sessions) and the live
@@ -873,7 +880,8 @@ export async function DelegationEnforcer({ client, directory } = {}) {
   resetPendingLiveSwitch()
   resetFooterRuntimeState()
   resetTurnClassifyRuntimeState()
-  setVibeOSHomeContext(process.env.VIBEOS_HOME || join(hookHome, ".claude"))
+  setVibeOSHomeContext(resolvedVibeOSHome)
+  setRuntimeVibeOSHome(resolvedVibeOSHome)
   resetSessionId(hookSessionId)
   resetChatTransformState()
   setCurrentSessionId(hookSessionId)
