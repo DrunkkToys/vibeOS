@@ -4,7 +4,7 @@ A quality-first control plane for AI-assisted coding.
 
 When AI coding is cheap, you use more of it. That is the upside of the current moment -- the marginal cost of a code suggestion has collapsed. But volume does not equal quality. The more you delegate to AI, the more often a mediocre suggestion slips through: a half-implemented fix, a fabricated API call, a test that passes only because the assertions are stubs. The quality problem gets worse as the cost problem gets better. vibeOS exists to solve the quality problem. The savings are a side effect.
 
-OpenCode Desktop gives you access to the most capable language models ever created -- Opus, Sonnet, DeepSeek v4 Pro -- but running them on every single turn adds up fast. More importantly, routing every turn through the most expensive model does not guarantee the best output. A cheap model proposing, a mid-tier model reviewing, and a top-tier model polishing often produces better results than a single expensive model guessing alone. vibeOS makes that routing decision automatically, on every turn, based on what you are actually doing.
+OpenCode Desktop gives you access to the most capable language models ever created -- Opus, Sonnet, DeepSeek v4 Pro -- but running them on every single turn adds up fast. More importantly, routing every turn through the most expensive model does not guarantee the best output. vibeOS keeps one primary `vibe` agent in the dropdown, lets same-provider tier changes swap in-thread, and delegates cross-provider tier work to tier subagents without rewriting the active agent every turn.
 
 The real system is smaller than the feature list makes it sound:
 
@@ -33,17 +33,17 @@ The lie detector flags when the assistant claims success without evidence. The l
 
 ## The Cascade Engine
 
-vibeOS uses a three-tier cascade to route every turn through the cheapest model that can produce a quality result.
+vibeOS uses a single primary `vibe` agent plus three tier subagents to route every turn through the cheapest model that can produce a quality result.
 
 ### How It Works
 
-1. **Cheap proposal** -- Your configured cheap slot generates an initial response (e.g., a local Ollama model via `vibe set cheap magiccoder:7b`, or any API model).
-2. **Flash review** -- A mid-tier model (DeepSeek v4 Flash) critiques and refines the proposal.
-3. **Pro polish** -- The brain-tier model (DeepSeek v4 Pro) applies a final quality pass on complex sections.
+1. **Cheap proposal** -- The unified `vibe` primary starts on your configured cheap slot (e.g., a local Ollama model via `vibe set cheap magiccoder:7b`, or any API model).
+2. **Flash review** -- The medium tier runs as a subagent and critiques/refines the proposal without changing the dropdown agent.
+3. **Pro polish** -- The brain tier runs as a subagent on complex sections; cross-provider work delegates there instead of flipping the active agent.
 
 Not every turn goes through all three stages. The cascade router estimates input difficulty and routes simple queries directly to the cheap tier. Complex reasoning, multi-file edits, and ambiguous instructions escalate to medium or brain. The router learns from session outcomes and calibrates its thresholds over time.
 
-Benchmarked at **107% of raw brain quality at 58% of cost**. Local inference is free; only the Flash and Pro stages incur API costs. This is the first routing strategy that Pareto-dominates the raw brain baseline -- better quality, lower cost.
+Benchmarked at **107% of raw brain quality at 58% of cost**. Local inference is free; only the Flash and Pro stages incur API costs. This is the first routing strategy that Pareto-dominates the raw brain baseline -- better quality, lower cost, without per-turn agent churn.
 
 ### Research Foundation
 
@@ -157,13 +157,13 @@ DeepSeek Chat costs $0/turn when routed through the Direct DeepSeek provider (no
 
 | Policy | Quality vs Brain | Cost vs Brain | Savings | Method |
 |--------|-----------------|--------------|---------|--------|
-| VibeUltraX | 107% | 0.58x | 42% | cheap -> medium -> brain cascade |
+| VibeUltraX | 107% | 0.58x | 42% | vibe primary + tier subagents |
 | VibeQMaX | ~100% | 0.50x | 50% | same model, framework optimizations |
 | Raw Brain | 100% | 1.00x | - | baseline |
 | VibeMaX | ~75% | 0.18x | 82% | trained cascade (conservative escalate) |
 | Budget | ~40% | 0.00x | 100% | direct routing |
 
-**VibeUltraX** -- Default mode. Cheap slot proposes, medium reviews, brain refines. 107% quality at 58% cost.
+**VibeUltraX** -- Default mode. The unified `vibe` primary starts on cheap, medium and brain run as subagents, and same-provider escalations stay in-thread. 107% quality at 58% cost.
 
 **VibeQMaX** -- Routes strategic turns through v4 Pro with full thinking, strict enforcement, strict flow checks, and quality TDD. Write/edit delegated per enforcement rules. Blended cost ~$0.00029/turn (50% of brain baseline).
 
@@ -177,7 +177,7 @@ DeepSeek Chat costs $0/turn when routed through the Direct DeepSeek provider (no
 |------|-------|----------|-------------|------|-----|
 | Raw Brain | v4 Pro | full | - | - | - |
 | VibeQMaX | v4 Pro | full | strict | strict | quality |
-| VibeUltraX | cascade (cheap->medium->brain) | auto | auto | auto | auto |
+| VibeUltraX | vibe primary + tier subagents | auto | auto | auto | auto |
 | VibeMaX | v4 Flash (auto-escalate) | auto | auto | auto | auto |
 | Speed | v4 Flash | off | relaxed | audit | lazy |
 | Budget | DeepSeek Chat | off | relaxed | audit | lazy |
@@ -201,7 +201,7 @@ Stress > 1.5 escalates any regime to quality mode regardless of the above mappin
 | Delegation enforcement | Blocks write/edit on brain tier, routes to cheaper tiers transparently |
 | Live savings footer | Tier, provider, model name, total savings, mode -- one line of reassurance |
 | Web dashboard | Session-first SolidJS SPA with executive Home summary, session actions, per-session templates, polling refresh for model split, savings, session history, controls |
-| Trinity runtime | Update tier slots through the native OpenCode config path, change optimization mode, toggle subsystems live |
+| Trinity runtime | Update tier slots and keep the unified vibe primary plus tier subagents synced through the native OpenCode config path, change optimization mode, toggle subsystems live |
 | Flow enforcer | Pattern-rule checks on write/edit. Extracts TODO/FIXME into append-only queue. |
 | TDD enforcer | Auto-creates test skeletons for changed source. Strict mode fails TODO tests. |
 | Pattern learner | Tracks recurring struggle/routine patterns per project, cross-project too |
@@ -463,4 +463,3 @@ Controls: `vibe status` for full state, `vibe enable/disable` to toggle. Persist
 ---
 
 *vibe help is the canonical command reference. This README stays high-level so command details follow the code without a rewrite.*
-

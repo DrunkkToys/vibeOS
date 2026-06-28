@@ -1,10 +1,11 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from "node:fs"
 import { dirname, join } from "node:path"
-import { safeJsonParse, getOpenCodeHomes, getOpenCodeHome } from "./state.js"
+import { safeJsonParse, getOpenCodeHomes, getOpenCodeHome, getVibeOSHome } from "./state.js"
 
 type JsonRecord = Record<string, any>
 type TrinityConfig = Record<string, { oc?: string }>
 
+export const VIBE_PRIMARY_AGENT = "vibe"
 export const VIBE_TIER_AGENT_BY_SLOT: Record<string, string> = {
   cheap: "vibe-cheap",
   medium: "vibe-medium",
@@ -15,11 +16,32 @@ export function tierAgentForSlot(slot: string | null): string | null {
   return VIBE_TIER_AGENT_BY_SLOT[String(slot || "").trim().toLowerCase()] || null
 }
 
+export function buildVibePrimaryAgent(model: string, existing: JsonRecord = {}): JsonRecord {
+  return {
+    ...(existing && typeof existing === "object" ? existing : {}),
+    description: "VibeUltraX primary agent",
+    mode: "primary",
+    model,
+    permission: {
+      read: "allow",
+      edit: "allow",
+      glob: "allow",
+      grep: "allow",
+      list: "allow",
+      bash: "allow",
+      task: "allow",
+      webfetch: "allow",
+      websearch: "allow",
+      ...(existing?.permission && typeof existing.permission === "object" ? existing.permission : {}),
+    },
+  }
+}
+
 export function buildVibeTierAgent(slot: string, model: string, existing: JsonRecord = {}): JsonRecord {
   return {
     ...(existing && typeof existing === "object" ? existing : {}),
-    description: `VibeUltraX ${slot} tier primary agent`,
-    mode: "primary",
+    description: `VibeUltraX ${slot} tier subagent`,
+    mode: "subagent",
     model,
     permission: {
       read: "allow",
@@ -80,6 +102,19 @@ export function installVibeTierAgentsInConfig(config: JsonRecord, trinity: Trini
   config.$schema ||= "https://opencode.ai/config.json"
   config.agent = config.agent && typeof config.agent === "object" ? config.agent : {}
   let changed = false
+  const primaryModel = String(trinity?.cheap?.oc || "").trim()
+  if (primaryModel) {
+    const existing = config.agent[VIBE_PRIMARY_AGENT]
+    const next = buildVibePrimaryAgent(primaryModel, existing)
+    if (JSON.stringify(existing || null) !== JSON.stringify(next)) {
+      config.agent[VIBE_PRIMARY_AGENT] = next
+      changed = true
+    }
+    if (config.default_agent !== VIBE_PRIMARY_AGENT) {
+      config.default_agent = VIBE_PRIMARY_AGENT
+      changed = true
+    }
+  }
   for (const slot of ["cheap", "medium", "brain"]) {
     const model = String(trinity?.[slot]?.oc || "").trim()
     const name = tierAgentForSlot(slot)
@@ -90,11 +125,6 @@ export function installVibeTierAgentsInConfig(config: JsonRecord, trinity: Trini
       config.agent[name] = next
       changed = true
     }
-  }
-  const agentName = tierAgentForSlot(activeSlot)
-  if (agentName && config.agent[agentName] && config.default_agent !== agentName) {
-    config.default_agent = agentName
-    changed = true
   }
   return changed
 }
@@ -131,15 +161,28 @@ export function readDefaultAgent(projectDir = ""): string {
 export function runtimeTierCoherence(projectDir = "", activeSlot = "", currentModel = "", expectedModel = ""): JsonRecord {
   const slot = String(activeSlot || "").trim().toLowerCase()
   const agent = readDefaultAgent(projectDir)
-  const expectedAgent = tierAgentForSlot(slot)
+  const expectedAgent = VIBE_PRIMARY_AGENT
   const modelOk = !!expectedModel && !!currentModel && String(currentModel).trim() === String(expectedModel).trim()
-  const agentOk = !!expectedAgent && agent === expectedAgent
+  const configPath = collectOpenCodeConfigPaths(projectDir).find((path) => existsSync(path)) || ""
+  const config = configPath ? readOpenCodeConfig(configPath) : {}
+  const primaryAgent = config.agent && typeof config.agent === "object" ? config.agent[VIBE_PRIMARY_AGENT] : null
+  const tiersPath = join(getVibeOSHome(), "model-tiers.json")
+  const tiers = existsSync(tiersPath) ? (safeJsonParse(readFileSync(tiersPath, "utf-8")) as JsonRecord) : {}
+  const primaryExpectedModel = String(tiers?.trinity?.cheap?.oc || "").trim()
+  const tierAgentOk = ["cheap", "medium", "brain"].every((tier) => {
+    const name = tierAgentForSlot(tier)
+    const model = String((config?.agent && config.agent[name] && config.agent[name].model) || "").trim()
+    const expectedTierModel = String(tiers?.trinity?.[tier]?.oc || "").trim()
+    return !!name && !!model && !!expectedTierModel && model === expectedTierModel && config?.agent?.[name]?.mode === "subagent"
+  })
+  const primaryOk = !!primaryAgent && primaryAgent.mode === "primary" && (!primaryExpectedModel || String(primaryAgent.model || "").trim() === primaryExpectedModel)
+  const agentOk = agent === expectedAgent && primaryOk
   return {
     slot,
     agent,
     expectedAgent,
     currentModel: String(currentModel || "").trim(),
     expectedModel: String(expectedModel || "").trim(),
-    coherent: slot === "brain" && agentOk && modelOk,
+    coherent: slot === "brain" && agentOk && modelOk && tierAgentOk,
   }
 }

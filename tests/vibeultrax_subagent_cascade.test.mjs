@@ -69,7 +69,7 @@ function withSandbox(name) {
   }
 }
 
-test("vibeultrax sync installs tier primary agents with trinity models in all OpenCode configs", async () => {
+test("vibeultrax sync installs the unified vibe primary agent plus tier subagents in all OpenCode configs", async () => {
   const ctx = withSandbox("vibeos-tier-agents-")
   try {
     const mod = await import("../src/lib/hooks/chat-transform.js?tier-agents=" + Date.now())
@@ -91,16 +91,63 @@ test("vibeultrax sync installs tier primary agents with trinity models in all Op
     // longer install targets (see src/lib/state.ts resolveOpenCodeHomes()).
     for (const configPath of [ctx.dotConfig, ctx.projectConfig]) {
       const oc = JSON.parse(readFileSync(configPath, "utf8"))
-      assert.equal(oc.agent["vibe-cheap"].mode, "primary", configPath)
+      assert.equal(oc.agent.vibe.mode, "primary", configPath)
+      assert.equal(oc.agent.vibe.model, "opencode/big-pickle", configPath)
+      assert.equal(oc.agent["vibe-cheap"].mode, "subagent", configPath)
       assert.equal(oc.agent["vibe-cheap"].model, "opencode/big-pickle", configPath)
-      assert.equal(oc.agent["vibe-medium"].mode, "primary", configPath)
+      assert.equal(oc.agent["vibe-medium"].mode, "subagent", configPath)
       assert.equal(oc.agent["vibe-medium"].model, "opencode-go/mimo-v2.5", configPath)
-      assert.equal(oc.agent["vibe-brain"].mode, "primary", configPath)
+      assert.equal(oc.agent["vibe-brain"].mode, "subagent", configPath)
       assert.equal(oc.agent["vibe-brain"].model, "deepseek/deepseek-v4-flash", configPath)
-      assert.equal(oc.default_agent, "vibe-cheap", configPath)
+      assert.equal(oc.default_agent, "vibe", configPath)
     }
     assert.equal(result.selected_subagent, "vibe-brain")
     assert.equal(result.requires_delegation, true)
+  } finally {
+    ctx.cleanup()
+  }
+})
+
+test("vibeultrax sync does not rewrite default_agent when the active slot changes", async () => {
+  const ctx = withSandbox("vibeos-tier-default-agent-")
+  try {
+    const mod = await import("../src/lib/hooks/chat-transform.js?tier-default-agent=" + Date.now())
+    const first = mod.syncControlSettings({
+      optimization_mode: "vibeultrax",
+      tier_bias: "cheap",
+      selected_slot: "cheap",
+      selected_model: "opencode/big-pickle",
+      route_path: ["cheap"],
+      cascade_root: ["cheap", "medium", "brain"],
+      enforcement_mode: "strict",
+      flow_mode: "strict",
+      tdd_mode: "quality",
+      thinking_mode: "off",
+    }, { authoritative: true, directory: ctx.sandbox })
+
+    const initial = JSON.parse(readFileSync(ctx.projectConfig, "utf8"))
+    assert.equal(initial.default_agent, "vibe")
+    assert.equal(first.selected_slot, "cheap")
+
+    const second = mod.syncControlSettings({
+      optimization_mode: "vibeultrax",
+      tier_bias: "cheap",
+      selected_slot: "brain",
+      selected_model: "deepseek/deepseek-v4-flash",
+      route_path: ["cheap", "medium", "brain"],
+      cascade_root: ["cheap", "medium", "brain"],
+      enforcement_mode: "strict",
+      flow_mode: "strict",
+      tdd_mode: "quality",
+      thinking_mode: "full",
+    }, { authoritative: true, directory: ctx.sandbox })
+
+    const after = JSON.parse(readFileSync(ctx.projectConfig, "utf8"))
+    assert.equal(after.default_agent, "vibe", "per-turn slot changes must not churn the OpenCode default agent")
+    assert.equal(after.agent.vibe.mode, "primary")
+    assert.equal(after.agent["vibe-cheap"].mode, "subagent")
+    assert.equal(after.agent["vibe-brain"].mode, "subagent")
+    assert.equal(second.selected_slot, "brain")
   } finally {
     ctx.cleanup()
   }
