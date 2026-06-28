@@ -240,22 +240,13 @@ export class ResolutionTracker {
         reason: "",
       }
     }
-    if (repeatSignal >= 4 || (repeatSignal >= 3 && (activityRepeat >= 3 || targetRepeat >= 3))) {
+    if (repeatSignal >= 2 || (repeatSignal >= 3 && (activityRepeat >= 3 || targetRepeat >= 3))) {
       return {
         isLooping: true,
         authority: "authoritative-local",
         kind: "text-repeat",
         confidence: 0.8,
         reason: "high-confidence repeated intervention loop",
-      }
-    }
-    if (repeatSignal >= 3) {
-      return {
-        isLooping: false,
-        authority: "advisory-local",
-        kind: "text-repeat",
-        confidence: 0.5,
-        reason: "repeated text without strong loop evidence",
       }
     }
     return {
