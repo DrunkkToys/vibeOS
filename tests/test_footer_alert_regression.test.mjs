@@ -207,6 +207,25 @@ test("footer: vibeultrax shows the medium tier when the cascade escalates to the
     assert.ok(!footer.includes("⚡ cheap"), "footer should not pin to cheap once escalated: " + footer)
 })
 
+test("footer: vibeultrax cascade shows the escalated model name beside the indicator", async () => {
+    writeTiers({
+        active_slot: "cheap",
+        requested_optimization_mode: "vibeultrax",
+        optimization_mode: "vibeultrax",
+        vector_changed_slot: undefined,
+    })
+    writeFileSync(join(sandbox, ".claude/blackbox-state.json"), JSON.stringify({
+        cascade_depth: 3,
+        control_vector: { cascade_depth: 3 },
+        sessions: {},
+    }, null, 2) + "\n")
+    const { _appendFooter } = await import("../src/lib/hooks/footer.js?vx-label=" + Date.now())
+    const o = { text: "This message is long enough to trigger the footer and verify the cascade label is visible." }
+    await _appendFooter({ args: { model: "deepseek/v4-flash" } }, o)
+    const footer = o.text.split("\n").pop() || ""
+    assert.ok(/\|\s*(?:⚡ cheap|◆ medium|🧠 brain|▸▸▸|▸▸)\s+V4 Flash\b/.test(footer), "footer should combine the cascade indicator and escalated model name: " + footer)
+})
+
 // ── Regression: streaming rewrites the message text and wipes a footer painted
 // on an earlier (partial) chunk. _appendFooter must REPAINT the rich footer on
 // the final text instead of skipping by messageID — otherwise the basic

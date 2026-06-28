@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { buildEnforcementTags, buildResilientFooterLine, buildFooterLine, formatEnforcementPulse, formatModeLabel, formatSavingsPulse, formatVectorPulse, resolveBrand, resolveRegimeIcon, resolveTierIcon, trendGlyph } from "../shared-footer.js"
+import { buildEnforcementTags, buildResilientFooterLine, buildFooterLine, formatCascadePulse, formatEnforcementPulse, formatModeLabel, formatSavingsPulse, formatVectorPulse, resolveBrand, resolveRegimeIcon, resolveTierIcon, trendGlyph } from "../shared-footer.js"
 
 test("shared-footer resolves the expected brand names", () => {
   assert.equal(resolveBrand("vibemax", "brain"), "VibeMaX")
@@ -45,6 +45,12 @@ test("shared-footer formats a subtle savings pulse with trend cues", () => {
   assert.equal(formatSavingsPulse(4.2, "down"), "$4.20 saved ↘")
   assert.equal(formatSavingsPulse(0, "up"), "")
   assert.equal(trendGlyph("flat"), "→")
+})
+
+test("shared-footer formats cascade icon and label together", () => {
+  assert.equal(formatCascadePulse("▸▸▸", "V4 Flash"), "▸▸▸ V4 Flash")
+  assert.equal(formatCascadePulse("", "V4 Flash"), "V4 Flash")
+  assert.equal(formatCascadePulse(undefined, undefined), "")
 })
 
 test("shared-footer formats visible mode labels for branded modes", () => {
@@ -127,6 +133,23 @@ test("shared-footer renders experimental regime tags cleanly", () => {
   })
 
   assert.ok(line.includes("▶ ⚙ IMPL"))
+})
+
+test("shared-footer shows the escalated model name beside the cascade indicator", () => {
+  const line = buildFooterLine({
+    activeSlot: "medium",
+    providerLabel: "DeepSeek",
+    modelName: "v4-flash",
+    ltTotal: 0,
+    vibeBrand: "VibeQMaX",
+    optMode: "vibeultrax",
+    flashIcon: "",
+    enfTags: [],
+    cascadeIcon: "▸▸▸",
+    cascadeLabel: "V4 Flash",
+  })
+
+  assert.ok(line.includes("▸▸▸ V4 Flash"), "cascade segment should show the live escalated model name")
 })
 
 test("shared-footer softens enforcement tags into a compact pulse", () => {

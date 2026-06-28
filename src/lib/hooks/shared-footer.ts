@@ -16,6 +16,7 @@ export interface FooterLineInput {
   subRegime?: string
   stressGauge?: string
   cascadeIcon?: string
+  cascadeLabel?: string
   claimTag?: string
   rewardTag?: string
   alertTag?: string
@@ -131,6 +132,13 @@ export function formatSavingsPulse(amountUsd: number, trend?: string): string {
   return `$${amount.toFixed(2)} saved${arrow !== "→" ? ` ${arrow}` : ""}`
 }
 
+export function formatCascadePulse(cascadeIcon?: string, cascadeLabel?: string): string {
+  const icon = String(cascadeIcon || "").trim()
+  const label = String(cascadeLabel || "").trim()
+  if (!icon && !label) return ""
+  return [icon, label].filter(Boolean).join(" ")
+}
+
 // SINGLE SOURCE OF TRUTH degrade path. There is exactly ONE footer line format
 // (buildFooterLine). When the rich path can't gather every field (a sub-call threw,
 // or this is the index.ts safety net), we still render the SAME README line with safe
@@ -172,8 +180,10 @@ export function buildResilientFooterLine(partial?: Partial<FooterLineInput> | nu
     // Absolute last resort: still the README em-dash wrapper + tier icon + brand,
     // so even a catastrophic failure can never reproduce the bare 3-segment line.
     const tierIcon = resolveTierIcon(activeSlot)
+    const cascade = formatCascadePulse(p.cascadeIcon, p.cascadeLabel)
     const alert = typeof p.alertTag === "string" && p.alertTag ? ` | ${p.alertTag}` : ""
-    return `— ${tierIcon} ${activeSlot} | ${providerLabel} | ${modelName} | ${vibeBrand}${alert} —`
+    const cascadePart = cascade ? ` | ${cascade}` : ""
+    return `— ${tierIcon} ${activeSlot} | ${providerLabel} | ${modelName}${cascadePart} | ${vibeBrand}${alert} —`
   }
 }
 
@@ -247,8 +257,9 @@ export function buildFooterLine(input: FooterLineInput): string {
     line += ` · ${modeLabel}`
   }
 
-  if (input.cascadeIcon) {
-    line += ` ${input.cascadeIcon}`
+  const cascadePulse = formatCascadePulse(input.cascadeIcon, input.cascadeLabel)
+  if (cascadePulse) {
+    line += ` | ${cascadePulse}`
   }
 
   if (vectorChangedSlot && vectorChangedSlot !== activeSlot) {

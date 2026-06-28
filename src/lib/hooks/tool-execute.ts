@@ -1174,6 +1174,13 @@ export const onToolExecuteAfter = async (input, output) => {
         "",
       ).trim().toLowerCase()
       const displayMode = backendMode || autoSelectMode(currentSubRegime, latestUserIntent ? scoreStress(latestUserIntent) : 0)
+      const cascadeState = loadBlackboxState()
+      const cascadeDepth = Number(
+        cascadeState?.sessions?.[currentSid]?.cascade_depth ??
+        cascadeState?.control_vector?.cascade_depth ??
+        cascadeState?.cascade_depth ??
+        0,
+      ) || 0
       // VibeUltraX cascade: tier follows the LIVE model's trinity slot so the
       // header stays coherent (cheap entry \u2192 "\u26A1 cheap | Big Pickle"; escalated
       // to the medium-slot model \u2192 "\u25D0 medium | V4 Flash"), instead of pinning
@@ -1204,6 +1211,8 @@ export const onToolExecuteAfter = async (input, output) => {
         sessionSlot,
         vectorChangedSlot: selNow.vector_changed_slot,
         subRegime: currentSubRegime,
+        cascadeIcon: cascadeDepth >= 3 ? "▸▸▸" : cascadeDepth >= 2 ? "▸▸" : "",
+        cascadeLabel: cascadeDepth >= 2 ? modelDisplayName(execution.model) : "",
       }) + "\n\n"
       _prependFooterAlert(_payload(output), _footerText)
 

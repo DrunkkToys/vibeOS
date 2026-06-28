@@ -68,7 +68,7 @@ A real-time stress scoring pipeline analyzes user messages for frustration signa
 
 ### Pattern Learner
 
-Per-project friction and routine tracking. The learner watches repeated tool failures, recovery loops, and stable workflows, then stores the result locally first. Cross-project hints are merged later into `global-learning.json` so the client can stay small while still learning.
+Per-project friction and routine tracking. The learner watches repeated tool failures, recovery loops, and stable workflows, then stores the result locally first. Cross-project hints are merged later into `VIBEOS_HOME/global-learning.json` so the client can stay small while still learning.
 
 ### Context Compression
 
@@ -107,7 +107,7 @@ The smart cache predicts whether a tool query will hit scratchpad cache before e
 
 The prediction engine (`predictCacheHit`) computes a confidence score and returns whether caching is worthwhile, estimated savings, and the most similar cached entries. Per-tool hit rates are tracked with exponential decay (DECAY = 0.9) so recent performance matters more than historical averages.
 
-Cache state persists across sessions in `~/.claude/global-learning.json` with a 7-day TTL eviction. The prediction results feed into the delegation enforcer's cost calculations and appear in the live footer savings display.
+Cache state persists across sessions in `VIBEOS_HOME/global-learning.json` with a 7-day TTL eviction. The prediction results feed into the delegation enforcer's cost calculations and appear in the live footer savings display.
 
 ### Pivot and Counter-Pivot
 
@@ -222,7 +222,7 @@ Stress > 1.5 escalates any regime to quality mode regardless of the above mappin
 | Claim verification | Scans assistant output for made-up references, validates against codebase |
 | Token compression | Web fetch output stripped to 30% of original size -- verbose lines, bullet prefixes, and blank lines collapsed. Tool output history compressed to cold-storage references after the hot window (last 10 messages). Project memory condensed to single-line directives for system prompts. |
 | Rotation memory | Scratchpad files age through a four-stage lifecycle: fresh (< 5 min, full content), warm (5 min - 24 hr, 500-char summary), cold (24 - 48 hr, 200-char summary), expired (> 48 hr, deleted). Rotation runs opportunistically on every tool execution, throttled to once per minute. Cache hits degrade gracefully over time instead of failing abruptly. |
-| Smart cache | Predicts whether a tool query will hit scratchpad cache using composite similarity scoring (Jaccard + cosine bigram + weighted keyword overlap). Per-tool hit rates tracked with exponential decay. Estimated savings calculated and displayed in the live footer. Cache entries persisted across sessions via global-learning.json with 7-day TTL eviction. |
+| Smart cache | Predicts whether a tool query will hit scratchpad cache using composite similarity scoring (Jaccard + cosine bigram + weighted keyword overlap). Per-tool hit rates tracked with exponential decay. Estimated savings calculated and displayed in the live footer. Cache entries persisted across sessions via `VIBEOS_HOME/global-learning.json` with 7-day TTL eviction. |
 | Pivot / counter-pivot | Detects when you switch topics mid-session (forward pivot) and when you return to a previously abandoned workflow (counter-pivot). Forward pivots snapshot the old workflow context and downgrade to budget mode. Counter-pivots restore files, decisions, blockers, and code snippets from cached workflow snapshots into the system prompt. |
 | Deferred reports | saveReport deferred to setTimeout to avoid blocking tool output |
 | Stress gauge footer | Live indicator in footer -- ▁▂▃▅▆█ (none/minimal/calm/elevated/high/critical) |
@@ -302,9 +302,9 @@ vibeOS hooks into OpenCode Desktop through 8 extension points:
 | experimental.session.compacting | Preserves savings state |
 | shell.env | Injects OPENCODE_MODEL_TIER and OPENCODE_MODEL |
 
-### State Files (~/.claude/)
+### State Files (`VIBEOS_HOME/`)
 
-The plugin persists state to ~/.claude/ for cross-session continuity:
+The plugin persists state to `VIBEOS_HOME/` for cross-session continuity:
 
 - **delegation-state.json** -- Sessions, warns, cache hits, lifetime totals
 - **model-tiers.json** -- Brain/medium/cheap model IDs

@@ -967,6 +967,26 @@ test("tool.execute.after: footer alert reaches nested desktop content arrays", a
   )
 })
 
+test("tool.execute.after: cascade footer shows the escalated model name beside the indicator", async () => {
+  const { DelegationEnforcer } = await loadPlugin()
+  const dir = join(sandbox, ".opencode-cascade-label")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "deepseek/v4-flash" }, null, 2))
+  writeFileSync(join(sandbox, ".claude/blackbox-state.json"), JSON.stringify({
+    cascade_depth: 3,
+    control_vector: { cascade_depth: 3 },
+    sessions: {},
+  }, null, 2) + "\n")
+  const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+
+  const out = { result: "tool result that should receive the visible cascade footer label." }
+  await hooks["tool.execute.after"](
+    { tool: "write", callID: "c2-cascade-label", args: { filePath: `/tmp/cascade-label-${Date.now()}.py` } },
+    out,
+  )
+  assert.ok(/\|\s*(?:⚡ cheap|◆ medium|🧠 brain|▸▸▸|▸▸)\s+V4 Flash\b/.test(String(out.result || "")), "tool footer should combine the cascade indicator and escalated model name: " + out.result)
+})
+
 test("tool.execute.after: does not set output.result/text/content/data (wrong field names)", async () => {
   const { DelegationEnforcer } = await loadPlugin()
   const dir = join(sandbox, ".opencode-wrongfields")
