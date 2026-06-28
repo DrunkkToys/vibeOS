@@ -1684,10 +1684,22 @@ test("tier override: openrouter sonnet brain slot classified as high", async () 
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, "opencode.json"), JSON.stringify({
     model: "openrouter/anthropic/claude-sonnet-4.6",
-    default_agent: "vibe-brain",
+    default_agent: "vibe",
     agent: {
-      "vibe-brain": {
+      "vibe": {
         mode: "primary",
+        model: "deepseek/deepseek-chat",
+      },
+      "vibe-cheap": {
+        mode: "subagent",
+        model: "deepseek/deepseek-chat",
+      },
+      "vibe-medium": {
+        mode: "subagent",
+        model: "deepseek/deepseek-v4-flash",
+      },
+      "vibe-brain": {
+        mode: "subagent",
         model: "openrouter/anthropic/claude-sonnet-4.6",
       },
     },
@@ -2285,8 +2297,10 @@ test("applySlot: preserves opencode.json all fields (only model changes)", async
 
   const after = JSON.parse(readFileSync(ocConfigPath, "utf-8"))
   assert.equal(after.model, "deepseek/deepseek-v4-pro", "model updated to brain slot")
-  assert.equal(after.default_agent, "vibe-brain", "default agent updated to brain slot")
-  assert.equal(after.agent?.["vibe-brain"]?.mode, "primary", "brain agent is primary")
+  assert.equal(after.default_agent, "vibe", "default agent stays on the unified vibe primary agent")
+  assert.equal(after.agent?.vibe?.mode, "primary", "vibe agent remains primary")
+  assert.equal(after.agent?.vibe?.model, "deepseek/deepseek-chat", "vibe primary follows the cheap bootstrap model")
+  assert.equal(after.agent?.["vibe-brain"]?.mode, "subagent", "brain agent is a subagent")
   assert.equal(after.agent?.["vibe-brain"]?.model, "deepseek/deepseek-v4-pro", "brain agent model follows trinity")
   assert.equal(after["$schema"], "https://opencode.ai/config.json", "schema preserved")
   assert.deepEqual(after.provider, {
@@ -2681,10 +2695,22 @@ test("tool.execute.after: API outage injects cheap-lane reminder without hard bl
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, "opencode.json"), JSON.stringify({
     model: "anthropic/claude-opus-4-7",
-    default_agent: "vibe-brain",
+    default_agent: "vibe",
     agent: {
-      "vibe-brain": {
+      "vibe": {
         mode: "primary",
+        model: "anthropic/claude-haiku-4-5",
+      },
+      "vibe-cheap": {
+        mode: "subagent",
+        model: "anthropic/claude-haiku-4-5",
+      },
+      "vibe-medium": {
+        mode: "subagent",
+        model: "anthropic/claude-sonnet-4-6",
+      },
+      "vibe-brain": {
+        mode: "subagent",
         model: "anthropic/claude-opus-4-7",
       },
     },

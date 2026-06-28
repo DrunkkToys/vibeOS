@@ -10,7 +10,7 @@ import { getBackendVersion, invalidateApiToken, isApiConnected } from "./api-cli
 import { getRealityCheckView } from "../vibeOS-lib/flow-enforcer.js"
 import { getVibeOSHome } from "./state.js"
 import { resolveDashboardBaseUrlFromState } from "./dashboard-base-url.js"
-import { collectOpenCodeConfigPaths, installVibeTierAgents, tierAgentForSlot } from "./runtime-config.js"
+import { collectOpenCodeConfigPaths, installVibeTierAgents, VIBE_PRIMARY_AGENT } from "./runtime-config.js"
 
 // ── Named constants (magic number extraction) ────────────────────────
 const MIN_TOOL_BREAKDOWN_THRESHOLD = 0.005
@@ -206,16 +206,18 @@ function cascadeDiagnosticResults(deps) {
   results.push({ ok: sameJson(cv.cascade_root, VIBEULTRAX_ROOT), okLabel: sameJson(cv.cascade_root, VIBEULTRAX_ROOT) ? "OK" : "WARN", label: "cascade root cv", detail: JSON.stringify({ cascade_root: cv.cascade_root || null, route_path: cv.route_path || null, selected_slot: cv.selected_slot || null }), fix: "run `trinity repair-state apply`" })
   results.push({ ok: !!sessionCv || !sid, okLabel: !!sessionCv || !sid ? "OK" : "WARN", label: "cascade session cv", detail: sessionCv ? JSON.stringify({ cascade_root: sessionCv.cascade_root || null, route_path: sessionCv.route_path || null, selected_slot: sessionCv.selected_slot || null }) : (sid ? `missing for ${sid}` : "no session id") })
   results.push({ ok: existingOcConfigs.length > 0, okLabel: existingOcConfigs.length > 0 ? "OK" : "WARN", label: "cascade opencode configs", detail: existingOcConfigs.length ? existingOcConfigs.join(" | ") : "none found", fix: "run `vibe setup --project` or `npm run deploy`" })
-  const activeAgent = tierAgentForSlot(sel.active_slot || "")
-  const defaultAgentOk = !!activeAgent && primaryOc.default_agent === activeAgent
-  results.push({ ok: defaultAgentOk, okLabel: defaultAgentOk ? "OK" : "WARN", label: "cascade default_agent", detail: JSON.stringify({ active_slot: sel.active_slot || null, default_agent: primaryOc.default_agent || null, expected: activeAgent || null }), fix: "run `trinity repair-state apply` or start a new VibeUltraX turn" })
+  const primaryAgent = primaryOc.agent && typeof primaryOc.agent === "object" ? primaryOc.agent[VIBE_PRIMARY_AGENT] || null : null
+  const primaryAgentOk = !!primaryAgent && primaryAgent.mode === "primary" && primaryOc.default_agent === VIBE_PRIMARY_AGENT
+  results.push({ ok: primaryAgentOk, okLabel: primaryAgentOk ? "OK" : "WARN", label: "cascade vibe", detail: primaryAgent ? `${primaryOcConfigPath} ${JSON.stringify({ mode: primaryAgent.mode || null, model: primaryAgent.model || null, default_agent: primaryOc.default_agent || null, expected: VIBE_PRIMARY_AGENT })}` : `missing in ${primaryOcConfigPath}`, fix: "run `trinity repair-state apply` or start a new VibeUltraX turn" })
+  const defaultAgentOk = primaryOc.default_agent === VIBE_PRIMARY_AGENT
+  results.push({ ok: defaultAgentOk, okLabel: defaultAgentOk ? "OK" : "WARN", label: "cascade default_agent", detail: JSON.stringify({ default_agent: primaryOc.default_agent || null, expected: VIBE_PRIMARY_AGENT, active_slot: sel.active_slot || null }), fix: "run `trinity repair-state apply` or start a new VibeUltraX turn" })
   for (const [slot, name] of [["cheap", "vibe-cheap"], ["medium", "vibe-medium"], ["brain", "vibe-brain"]]) {
     const model = tiers.trinity?.[slot]?.oc || ""
     for (const ocConfigPath of existingOcConfigs.length ? existingOcConfigs : [primaryOcConfigPath]) {
       const oc = readJsonFile(deps, ocConfigPath) || {}
       const agents = oc.agent && typeof oc.agent === "object" ? oc.agent : {}
       const agent = agents[name] || null
-      const ok = !!agent && agent.mode === "primary" && agent.model === model
+      const ok = !!agent && agent.mode === "subagent" && agent.model === model
       results.push({ ok, okLabel: ok ? "OK" : "WARN", label: `cascade ${name}`, detail: agent ? `${ocConfigPath} ${JSON.stringify({ mode: agent.mode || null, model: agent.model || null, expected: model || null })}` : `missing in ${ocConfigPath}`, fix: "run a VibeUltraX turn or `trinity repair-state apply` after rebuild" })
     }
   }

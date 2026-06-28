@@ -598,7 +598,7 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
 
     writeIf("enabled", true)
     if (isUltraX) {
-      ensureVibeUltraXSubagents(workerSlot || currentSel.active_slot || null, syncDirectory)
+      ensureVibeUltraXSubagents(null, syncDirectory)
       writeIf("selected_slot", workerSlot || null)
       writeIf("worker_model", workerModel || null)
       writeIf("selected_subagent", selectedSubagent || null)

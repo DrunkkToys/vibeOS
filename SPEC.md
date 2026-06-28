@@ -338,7 +338,7 @@ When blackbox disabled:
 
 **Source:** `src/vibeOS-lib/ml-router.ts`, `src/lib/hooks/tool-execute.ts`
 
-1. Three tiers: cheap -> medium -> brain
+1. Single primary `vibe` agent plus cheap -> medium -> brain subagents
 2. Confidence thresholds: 0.6 (base), 0.7 (cheap), 0.7 (escalation), 0.8 (brain depth-3)
 3. HIGH/MID/BUDGET regex classification
 4. API authoritative when connected
@@ -351,7 +351,7 @@ When blackbox disabled:
 |--------|--------|
 | API route status | Remote API returned .target -> enforce ON |
 | Cascade fired? | Skipped when apiRoute.target truthy (line 395 gate) |
-| Slot switch via cascade? | No — cascade fires only when API unavailable |
+| Slot switch via cascade? | No — cascade fires only when API unavailable; same-provider changes stay in-thread and cross-provider work delegates to tier subagents |
 | applySlot() fired? | No when API route present |
 | CV persistence | No cv field in blackbox-state.json sessions |
 | Root cause | apiRoute.target gates out local cascade at line 409 |

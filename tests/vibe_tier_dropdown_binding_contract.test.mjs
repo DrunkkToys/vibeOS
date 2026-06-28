@@ -9,9 +9,9 @@
 // instead of readConfig()'s remembered "workspace-session" model, which the
 // commit message identifies as the thing that drifts to a stale tier and
 // breaks footer<->dropdown<->VibeUltraX coherence. installVibeTierAgentsInConfig
-// (scripts/lib/vibe-tier-agents.mjs), the new module that binds vibe-cheap/
-// vibe-medium/vibe-brain OpenCode agents to the trinity models and sets
-// default_agent to match active_slot, had zero test coverage at all.
+// (scripts/lib/vibe-tier-agents.mjs), the module that binds a single vibe
+// primary agent plus vibe-cheap/vibe-medium/vibe-brain OpenCode subagents to
+// the trinity models, had zero test coverage at all.
 import { test, after } from "node:test"
 import assert from "node:assert/strict"
 import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync } from "node:fs"
@@ -81,7 +81,7 @@ test("footer follows the live opencode.json model, not readConfig's stale rememb
   assert.ok(!o.text.includes("🧠 brain"), "footer must not show the stale remembered workspace-session model: " + o.text.slice(-150))
 })
 
-test("installVibeTierAgentsInConfig binds vibe-cheap/medium/brain agents to the trinity models and sets default_agent", async () => {
+test("installVibeTierAgentsInConfig binds vibe primary + tier subagents to the trinity models and keeps default_agent on vibe", async () => {
   writeTiers()
   const { installVibeTierAgentsInConfig } = await import("../scripts/lib/vibe-tier-agents.mjs?tier-dropdown-2=" + Date.now())
   const tiers = JSON.parse(readFileSync(join(sandbox, ".claude", "model-tiers.json"), "utf8"))
@@ -90,11 +90,15 @@ test("installVibeTierAgentsInConfig binds vibe-cheap/medium/brain agents to the 
   const changed = installVibeTierAgentsInConfig(config, tiers)
 
   assert.equal(changed, true, "first install must report a change")
+  assert.equal(config.agent.vibe.mode, "primary")
+  assert.equal(config.agent.vibe.model, "deepseek/v4-flash")
   assert.equal(config.agent["vibe-cheap"].model, "deepseek/v4-flash")
   assert.equal(config.agent["vibe-medium"].model, "z-ai/glm-4.6")
   assert.equal(config.agent["vibe-brain"].model, "deepseek/v4-pro")
-  assert.equal(config.agent["vibe-cheap"].mode, "primary")
-  assert.equal(config.default_agent, "vibe-cheap", "default_agent must follow active_slot (cheap)")
+  assert.equal(config.agent["vibe-cheap"].mode, "subagent")
+  assert.equal(config.agent["vibe-medium"].mode, "subagent")
+  assert.equal(config.agent["vibe-brain"].mode, "subagent")
+  assert.equal(config.default_agent, "vibe", "default_agent must stay on the unified primary vibe agent")
 })
 
 test("installVibeTierAgentsInConfig is idempotent and preserves custom permission overrides", async () => {

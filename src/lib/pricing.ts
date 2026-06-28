@@ -1219,7 +1219,7 @@ export function applySlot(slot: string, projectDir = "", opts: { deferLiveSwitch
       // deferred path — see below. active_slot (the orchestrator decision) is always
       // persisted immediately; the live model file only moves at the turn boundary.
       if (!opts.deferLiveSwitch) writeLiveOpenCodeModel(projectDir, ocModel)
-      try { installVibeTierAgents(projectDir, j.trinity || {}, slot) } catch {}
+      try { installVibeTierAgents(projectDir, j.trinity || {}, null) } catch {}
       return { ok: true, ocModel }
     })
   } catch (err) {

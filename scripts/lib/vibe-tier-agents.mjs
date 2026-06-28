@@ -8,6 +8,8 @@ export const VIBE_TIER_AGENT_BY_SLOT = {
   brain: "vibe-brain",
 }
 
+const VIBE_PRIMARY_AGENT = "vibe"
+
 function readJson(path) {
   if (!existsSync(path)) return {}
   try {
@@ -31,11 +33,32 @@ function readTiers(home = homedir()) {
   return readJson(join(process.env.VIBEOS_HOME || join(home, ".claude"), "model-tiers.json"))
 }
 
+function primaryAgent(model, existing = {}) {
+  return {
+    ...(existing && typeof existing === "object" ? existing : {}),
+    description: "VibeUltraX primary agent",
+    mode: "primary",
+    model,
+    permission: {
+      read: "allow",
+      edit: "allow",
+      glob: "allow",
+      grep: "allow",
+      list: "allow",
+      bash: "allow",
+      task: "allow",
+      webfetch: "allow",
+      websearch: "allow",
+      ...(existing?.permission && typeof existing.permission === "object" ? existing.permission : {}),
+    },
+  }
+}
+
 function tierAgent(slot, model, existing = {}) {
   return {
     ...(existing && typeof existing === "object" ? existing : {}),
-    description: `VibeUltraX ${slot} tier primary agent`,
-    mode: "primary",
+    description: `VibeUltraX ${slot} tier subagent`,
+    mode: "subagent",
     model,
     permission: {
       read: "allow",
@@ -55,10 +78,22 @@ function tierAgent(slot, model, existing = {}) {
 export function installVibeTierAgentsInConfig(config, tiers = readTiers()) {
   if (!config || typeof config !== "object" || Array.isArray(config)) return false
   const trinity = tiers?.trinity || {}
-  const activeSlot = String(tiers?.selection?.active_slot || "").trim().toLowerCase()
   config.$schema ||= "https://opencode.ai/config.json"
   config.agent = config.agent && typeof config.agent === "object" ? config.agent : {}
   let changed = false
+  const primaryModel = String(trinity?.cheap?.oc || "").trim()
+  if (primaryModel) {
+    const existing = config.agent[VIBE_PRIMARY_AGENT]
+    const next = primaryAgent(primaryModel, existing)
+    if (JSON.stringify(existing || null) !== JSON.stringify(next)) {
+      config.agent[VIBE_PRIMARY_AGENT] = next
+      changed = true
+    }
+    if (config.default_agent !== VIBE_PRIMARY_AGENT) {
+      config.default_agent = VIBE_PRIMARY_AGENT
+      changed = true
+    }
+  }
   for (const slot of ["cheap", "medium", "brain"]) {
     const model = String(trinity?.[slot]?.oc || "").trim()
     const name = VIBE_TIER_AGENT_BY_SLOT[slot]
@@ -69,11 +104,6 @@ export function installVibeTierAgentsInConfig(config, tiers = readTiers()) {
       config.agent[name] = next
       changed = true
     }
-  }
-  const defaultAgent = VIBE_TIER_AGENT_BY_SLOT[activeSlot]
-  if (defaultAgent && config.agent?.[defaultAgent] && config.default_agent !== defaultAgent) {
-    config.default_agent = defaultAgent
-    changed = true
   }
   return changed
 }
