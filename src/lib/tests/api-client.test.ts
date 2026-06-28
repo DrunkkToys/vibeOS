@@ -8,7 +8,6 @@ const ENV_KEYS = [
   "HOME",
   "VIBEOS_HOME",
   "VIBEOS_API_URL",
-  "VIBEOS_API_DISABLED",
   "VIBEOS_API_TOKEN",
   "VIBEOS_API_BOOTSTRAP_TOKEN",
 ]
@@ -21,8 +20,7 @@ async function withFreshApiClient<T>(fn: (mod: typeof import("../api-client.js")
     process.env.HOME = sandbox
     process.env.VIBEOS_HOME = join(sandbox, ".claude")
     process.env.VIBEOS_API_URL = "http://127.0.0.1:1"
-    delete process.env.VIBEOS_API_DISABLED
-    delete process.env.VIBEOS_API_TOKEN
+      delete process.env.VIBEOS_API_TOKEN
     delete process.env.VIBEOS_API_BOOTSTRAP_TOKEN
     delete (globalThis as Record<string, unknown>).__vibeOSRuntimeState
 
@@ -83,8 +81,7 @@ describe("api-client", () => {
       assert.equal(mod.VIBEOS_API_ENABLED, true)
 
       mod.invalidateApiToken()
-      assert.equal(mod.VIBEOS_API_DISABLED, true)
-      assert.equal(mod.isApiConnected(), false)
+          assert.equal(mod.isApiConnected(), false)
       assert.equal(mod.isApiFallback(), true)
     })
   })
@@ -102,14 +99,12 @@ describe("api-client", () => {
       process.env.HOME = sandbox
       process.env.VIBEOS_HOME = vibeHome
       process.env.VIBEOS_API_URL = "http://127.0.0.1:1"
-      delete process.env.VIBEOS_API_DISABLED
-      delete process.env.VIBEOS_API_TOKEN
+          delete process.env.VIBEOS_API_TOKEN
       delete process.env.VIBEOS_API_BOOTSTRAP_TOKEN
       delete (globalThis as Record<string, unknown>).__vibeOSRuntimeState
 
       const mod = await import("../api-client.js?home-source=" + Date.now())
-      assert.equal(mod.VIBEOS_API_DISABLED, false)
-      assert.equal(mod.VIBEOS_API_TOKEN, "")
+          assert.equal(mod.VIBEOS_API_TOKEN, "")
 
       mod.setApiToken(`vos_${"d".repeat(64)}`)
       assert.ok(readFileSync(join(vibeHome, ".env.production"), "utf8").includes(`vos_${"d".repeat(64)}`))

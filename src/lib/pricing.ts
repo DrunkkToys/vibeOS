@@ -1138,7 +1138,12 @@ export function _refreshModel(directory) {
     _setTrinitySlotsFromTiers(tiersData)
     const cfgModel = readConfig(directory) || readConfig(getOpenCodeHome()) || process?.env?.OPENCODE_MODEL || ""
     if (cfgModel) {
-      const nextTier = resolveEffectiveTier(cfgModel, sel?.active_slot || tiersData?.selection?.active_slot || "")
+      let nextTier = resolveEffectiveTier(cfgModel, sel?.active_slot || tiersData?.selection?.active_slot || "")
+      // Apply brain slot override: even if model normally maps to mid-tier, brain slot gets high
+      const activeSlot = sel?.active_slot || tiersData?.selection?.active_slot
+      if (nextTier !== "high" && activeSlot === "brain" && cfgModel && !PLACEHOLDER_RE.test(cfgModel)) {
+        nextTier = "high"
+      }
       if (currentModel !== cfgModel || currentTier !== nextTier) {
         const oldModel = currentModel
         const oldTier = currentTier
@@ -1153,6 +1158,10 @@ export function _refreshModel(directory) {
 }
 
 let _pendingLiveSwitch: { model: string, projectDir: string } | null = null
+
+export function resetPendingLiveSwitch(): void {
+  _pendingLiveSwitch = null
+}
 
 async function pushLiveModelSwitch(model: string, projectDir: string): Promise<boolean> {
   const _oc = (globalThis as unknown)?.__vibeOS_client?.config

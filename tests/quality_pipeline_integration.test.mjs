@@ -12,7 +12,6 @@ function makeSandbox(name) {
   const sandbox = mkdtempSync(join(tmpdir(), "vibeos-qp2-" + name + "-"))
   const home = sandbox
   process.env.VIBEOS_HOME = join(home, ".claude")
-  process.env.VIBEOS_API_DISABLED = "1"
   process.env.VIBEOS_OPENCODE_HOME = join(home, ".config/opencode")
   mkdirSync(join(home, ".config/opencode"), { recursive: true })
   mkdirSync(join(home, ".claude/reports"), { recursive: true })

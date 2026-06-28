@@ -2,16 +2,40 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 
-import { shouldUseLocalTaskRouting } from "../src/lib/hooks/tool-execute.js"
+import { resolveCascadeRouteDecision } from "../src/lib/hooks/tool-execute.js"
 
-test("task routing uses local ML only when the API is unavailable", () => {
-  assert.equal(shouldUseLocalTaskRouting(false, true, null), true)
-  assert.equal(shouldUseLocalTaskRouting(false, false, null), true)
-  assert.equal(shouldUseLocalTaskRouting(true, false, null), false)
-  assert.equal(shouldUseLocalTaskRouting(true, true, null), true)
+test("cascade route decision returns a live selected model and route path", () => {
+  const decision = resolveCascadeRouteDecision({
+    prompt: "check the logs",
+    firstWord: "check",
+    currentTier: "budget",
+    currentModel: "opencode/big-pickle",
+    trinityCheap: "opencode/big-pickle",
+    trinityMedium: "opencode-go/mimo-v2.5",
+    trinityBrain: "deepseek/deepseek-v4-flash",
+    activePipeline: ["cheap", "medium", "brain"],
+    stressScore: 0.1,
+  })
+
+  assert.equal(decision.selectedSlot, "cheap")
+  assert.equal(decision.selectedModel, "opencode/big-pickle")
+  assert.deepEqual(decision.routePath, ["cheap"])
+  assert.equal(decision.source, "ml")
 })
 
-test("task routing keeps backend target authoritative when present", () => {
-  assert.equal(shouldUseLocalTaskRouting(true, true, { target: "opencode/big-pickle" }), false)
-  assert.equal(shouldUseLocalTaskRouting(false, true, { target: "opencode/big-pickle" }), false)
+test("cascade route decision remains deterministic for the same live input", () => {
+  const input = {
+    prompt: "implement the fix",
+    firstWord: "implement",
+    currentTier: "high",
+    currentModel: "deepseek/deepseek-v4-flash",
+    trinityCheap: "opencode/big-pickle",
+    trinityMedium: "opencode-go/mimo-v2.5",
+    trinityBrain: "deepseek/deepseek-v4-flash",
+    activePipeline: ["cheap", "medium", "brain"],
+    stressScore: 0.2,
+  }
+  const first = resolveCascadeRouteDecision(input)
+  const second = resolveCascadeRouteDecision(input)
+  assert.deepEqual(second, first)
 })

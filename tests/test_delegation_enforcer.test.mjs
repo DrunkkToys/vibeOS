@@ -29,14 +29,14 @@ before(() => {
   sandbox = mkdtempSync(join(tmpdir(), "delegation-test-"))
   mkdirSync(join(sandbox, ".claude/scratch"), { recursive: true })
   process.env.HOME = sandbox
-  process.env.VIBEOS_API_DISABLED = "1"
+  process.env.VIBEOS_API_BOOTSTRAP_TOKEN = "disabled"
   process.env.VIBEOS_HOME = join(sandbox, ".claude")
 })
 beforeEach(async () => {
   process.env.HOME = sandbox
   // kept set to sandbox from before()
   delete process.env.VIBEOS_OPENCODE_HOME
-  process.env.VIBEOS_API_DISABLED = "1"
+  process.env.VIBEOS_API_BOOTSTRAP_TOKEN = "disabled"
   rmSync(join(sandbox, ".claude/model-tiers.json"), { force: true })
   rmSync(join(sandbox, ".claude/delegation-state.json"), { force: true })
   rmSync(join(sandbox, ".claude/savings-ledger.jsonl"), { force: true })
@@ -52,7 +52,6 @@ beforeEach(async () => {
   if (typeof fresh.setCurrentTier === "function") fresh.setCurrentTier(null)
   if (typeof fresh._resetToolExecuteStateForTest === "function") fresh._resetToolExecuteStateForTest()
   if (typeof fresh._resetSelectionCacheForTest === "function") fresh._resetSelectionCacheForTest()
-  if (typeof fresh._resetTrinitySlotsForTest === "function") fresh._resetTrinitySlotsForTest()
   if (typeof fresh._resetCostAnomalyDetectorForTest === "function") fresh._resetCostAnomalyDetectorForTest()
 })
 
@@ -71,7 +70,6 @@ async function loadPlugin() {
   const mod = await freshImport("../src/index.js")
   if (typeof mod._resetToolExecuteStateForTest === "function") mod._resetToolExecuteStateForTest()
   if (typeof mod._resetSelectionCacheForTest === "function") mod._resetSelectionCacheForTest()
-  if (typeof mod._resetTrinitySlotsForTest === "function") mod._resetTrinitySlotsForTest()
   if (typeof mod._resetCostAnomalyDetectorForTest === "function") mod._resetCostAnomalyDetectorForTest()
   return mod
 }
@@ -3404,12 +3402,16 @@ test("integration: anti-fabrication co-exists with context7 and thinking directi
 })
 
 test("integration: empirical answer guardrail survives multi-turn correction and compaction", async () => {
-  const { DelegationEnforcer } = await loadPlugin()
-  const { _OC_SID: sid } = await import("../src/lib/state.js?t=" + Date.now())
+  const mod = await loadPlugin()
+  const { DelegationEnforcer } = mod
   const dir = join(sandbox, ".oc-empirical-cascade")
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-flash" }))
   const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+
+  // DelegationEnforcer mints/resolves the runtime session id; the compaction hook
+  // reads turn state under that live id (getTurnCounter → _OC_SID), so seed under it.
+  const sid = mod.getCurrentSessionId()
 
   const bbPath = join(sandbox, ".claude/blackbox-state.json")
   mkdirSync(join(sandbox, ".claude"), { recursive: true })

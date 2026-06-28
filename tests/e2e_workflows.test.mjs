@@ -6,6 +6,8 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
+const serialTest = (name, fn) => test(name, { concurrency: false }, fn)
+
 function makeSandbox(name) {
   const sandbox = mkdtempSync(join(tmpdir(), 'vibeos-e2e-' + name + '-'))
   const home = sandbox
@@ -47,7 +49,7 @@ function makeSandbox(name) {
 
 // E2E: Full Trinity Lifecycle
 
-test('e2e: trinity enable -> disable -> enable cycle works', async () => {
+serialTest('e2e: trinity enable -> disable -> enable cycle works', async () => {
   const { home, sandbox } = makeSandbox('trin-life')
   const projectDir = join(sandbox, 'proj')
   mkdirSync(projectDir, { recursive: true })
@@ -71,7 +73,7 @@ test('e2e: trinity enable -> disable -> enable cycle works', async () => {
 
 // E2E: Mode Switching
 
-test('e2e: mode switching budget -> quality -> speed -> auto returns success', async () => {
+serialTest('e2e: mode switching budget -> quality -> speed -> auto returns success', async () => {
   const { home, sandbox } = makeSandbox('mode-cycle')
   const projectDir = join(sandbox, 'proj')
   mkdirSync(projectDir, { recursive: true })
@@ -90,7 +92,7 @@ test('e2e: mode switching budget -> quality -> speed -> auto returns success', a
 
 // E2E: Thinking Level
 
-test('e2e: thinking level full -> brief -> off returns success', async () => {
+serialTest('e2e: thinking level full -> brief -> off returns success', async () => {
   const { home, sandbox } = makeSandbox('think-cycle')
   const projectDir = join(sandbox, 'proj')
   mkdirSync(projectDir, { recursive: true })
@@ -109,7 +111,7 @@ test('e2e: thinking level full -> brief -> off returns success', async () => {
 
 // E2E: Enforcement Toggle (delegation_enforce is mandatory and cannot be disabled)
 
-test('e2e: enforcement commands return string (enforcement is mandatory)', async () => {
+serialTest('e2e: enforcement commands return string (enforcement is mandatory)', async () => {
   const { home, sandbox } = makeSandbox('enf-mandatory')
   const projectDir = join(sandbox, 'proj')
   mkdirSync(projectDir, { recursive: true })
@@ -132,7 +134,7 @@ test('e2e: enforcement commands return string (enforcement is mandatory)', async
 
 // E2E: Flow Toggle
 
-test('e2e: flow on -> off -> on persists in tier file', async () => {
+serialTest('e2e: flow on -> off -> on persists in tier file', async () => {
   const { home, sandbox } = makeSandbox('flow-cycle')
   const projectDir = join(sandbox, 'proj')
   mkdirSync(projectDir, { recursive: true })
@@ -153,7 +155,7 @@ test('e2e: flow on -> off -> on persists in tier file', async () => {
 
 // E2E: TDD Toggle
 
-test('e2e: tdd on -> off -> on persists in tier file', async () => {
+serialTest('e2e: tdd on -> off -> on persists in tier file', async () => {
   const { home, sandbox } = makeSandbox('tdd-cycle')
   const projectDir = join(sandbox, 'proj')
   mkdirSync(projectDir, { recursive: true })
@@ -174,7 +176,7 @@ test('e2e: tdd on -> off -> on persists in tier file', async () => {
 
 // E2E: Combined Toggles + Disable/Re-enable (tdd_enforce may reset during auto-config)
 
-test('e2e: flow and tdd toggle survive enable/disable cycle', async () => {
+serialTest('e2e: flow and tdd toggle survive enable/disable cycle', async () => {
   const { home, sandbox } = makeSandbox('combined')
   const projectDir = join(sandbox, 'proj')
   mkdirSync(projectDir, { recursive: true })
@@ -197,7 +199,7 @@ test('e2e: flow and tdd toggle survive enable/disable cycle', async () => {
 
 // E2E: All 8 Required Hooks Present
 
-test('e2e: all 8 required hooks are present in plugin output', async () => {
+serialTest('e2e: all 8 required hooks are present in plugin output', async () => {
   const { home, sandbox } = makeSandbox('hooks')
   const projectDir = join(sandbox, 'proj')
   mkdirSync(projectDir, { recursive: true })
@@ -224,7 +226,7 @@ test('e2e: all 8 required hooks are present in plugin output', async () => {
 
 // E2E: Full Hook Invocation Sequence (Simulated Session)
 
-test('e2e: simulated full session hook sequence does not crash', async () => {
+serialTest('e2e: simulated full session hook sequence does not crash', async () => {
   const { home, sandbox } = makeSandbox('full-session')
   const projectDir = join(sandbox, 'proj')
   mkdirSync(projectDir, { recursive: true })
@@ -300,7 +302,7 @@ test('e2e: simulated full session hook sequence does not crash', async () => {
   }
 })
 
-test('e2e: INIT live footer keeps the regime icon visible', async () => {
+serialTest('e2e: INIT live footer keeps the regime icon visible', async () => {
   const { home, sandbox } = makeSandbox('init-footer')
   const projectDir = join(sandbox, 'proj')
   mkdirSync(projectDir, { recursive: true })
@@ -308,6 +310,11 @@ test('e2e: INIT live footer keeps the regime icon visible', async () => {
   process.env.VIBEOS_HOME = join(home, ".claude")
 
   const mod = await import('../src/index.js?init1=' + Date.now())
+  mod.resetRuntimeStateForTest()
+  mod.setCurrentModel(null)
+  mod.setCurrentTier(null)
+  mod.setCurrentSessionId("")
+  mod._resetSelectionCacheForTest()
   const hooks = await mod.DelegationEnforcer({ directory: projectDir })
 
   const userText = 'hi'
@@ -329,7 +336,7 @@ test('e2e: INIT live footer keeps the regime icon visible', async () => {
   assert.ok(footer.includes('Quality') || footer.includes('VibeMaX') || footer.includes('Budget') || footer.includes('VibeUltraX'), 'INIT footer should show the live optimization mode: ' + footer)
 })
 
-test('e2e: blackbox advances past INIT with role-only user messages', async () => {
+serialTest('e2e: blackbox advances past INIT with role-only user messages', async () => {
   const { home, sandbox } = makeSandbox('role-only')
   const projectDir = join(sandbox, 'proj')
   mkdirSync(projectDir, { recursive: true })
@@ -362,7 +369,7 @@ test('e2e: blackbox advances past INIT with role-only user messages', async () =
 
 // E2E: Additional Trinity Commands
 
-test('e2e: trinity help returns non-empty string', async () => {
+serialTest('e2e: trinity help returns non-empty string', async () => {
   const { home, sandbox } = makeSandbox('help')
   const projectDir = join(sandbox, 'proj')
   mkdirSync(projectDir, { recursive: true })
@@ -377,7 +384,7 @@ test('e2e: trinity help returns non-empty string', async () => {
   assert.ok(helpText.length > 20, 'help text has meaningful length')
 })
 
-test('e2e: trinity diagnose returns string', async () => {
+serialTest('e2e: trinity diagnose returns string', async () => {
   const { home, sandbox } = makeSandbox('diag')
   const projectDir = join(sandbox, 'proj')
   mkdirSync(projectDir, { recursive: true })
@@ -391,7 +398,7 @@ test('e2e: trinity diagnose returns string', async () => {
   assert.ok(typeof diag === 'string', 'diagnose returns string')
 })
 
-test('e2e: trinity project returns string', async () => {
+serialTest('e2e: trinity project returns string', async () => {
   const { home, sandbox } = makeSandbox('proj')
   const projectDir = join(sandbox, 'proj')
   mkdirSync(projectDir, { recursive: true })
@@ -406,7 +413,7 @@ test('e2e: trinity project returns string', async () => {
   assert.ok(typeof proj === 'string', 'project returns string')
 })
 
-test('e2e: trinity patterns and patterns clear return strings', async () => {
+serialTest('e2e: trinity patterns and patterns clear return strings', async () => {
   const { home, sandbox } = makeSandbox('patts')
   const projectDir = join(sandbox, 'proj')
   mkdirSync(projectDir, { recursive: true })
@@ -423,7 +430,7 @@ test('e2e: trinity patterns and patterns clear return strings', async () => {
   assert.ok(typeof cleared === 'string', 'patterns clear returns string')
 })
 
-test('e2e: trinity rebuild returns string', async () => {
+serialTest('e2e: trinity rebuild returns string', async () => {
   const { home, sandbox } = makeSandbox('rebuild')
   const projectDir = join(sandbox, 'proj')
   mkdirSync(projectDir, { recursive: true })
@@ -437,7 +444,7 @@ test('e2e: trinity rebuild returns string', async () => {
   assert.ok(typeof result === 'string', 'rebuild returns string')
 })
 
-test('e2e: unknown trinity action does not crash', async () => {
+serialTest('e2e: unknown trinity action does not crash', async () => {
   const { home, sandbox } = makeSandbox('unknown')
   const projectDir = join(sandbox, 'proj')
   mkdirSync(projectDir, { recursive: true })
@@ -453,7 +460,7 @@ test('e2e: unknown trinity action does not crash', async () => {
 
 // E2E: Report Framework via Public API (not via trinity tool)
 
-test('e2e: report save -> list -> read via public API', async () => {
+serialTest('e2e: report save -> list -> read via public API', async () => {
   const { home, sandbox } = makeSandbox('rpt-cycle')
   process.env.HOME = home
   process.env.VIBEOS_HOME = join(home, ".claude")

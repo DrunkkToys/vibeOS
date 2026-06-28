@@ -200,6 +200,7 @@ export function buildEnforcementTags(opts: {
 
 export function buildFooterAlert(opts: {
   apiDegraded?: boolean
+  apiSlow?: boolean
   liveModel?: string
   expectedModel?: string
   lastModelError?: string
@@ -207,7 +208,8 @@ export function buildFooterAlert(opts: {
 } | null = {}): string {
   opts = opts || {}
   const alerts: string[] = []
-  if (opts.apiDegraded) alerts.push("⚠ api degraded")
+  if (opts.apiSlow) alerts.push("⚠ api slow")
+  if (opts.apiDegraded && String(opts.lastModelError || "").trim()) alerts.push("⚠ api degraded")
   const expectedToCompare = opts.pendingLiveModel || opts.expectedModel
   if (opts.liveModel && expectedToCompare && opts.liveModel !== expectedToCompare) {
     if (opts.pendingLiveModel) {

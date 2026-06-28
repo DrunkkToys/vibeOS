@@ -3,10 +3,10 @@ import { appendFileSync, mkdirSync } from "node:fs"
 import { join } from "node:path"
 import { classify, _refreshModel, readConfig, readLiveOpenCodeModel, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, formatUsd, resolveCurrentExecution, modelDisplayName, getPendingLiveSwitch } from "../pricing.js"
 import { latestUserIntent } from "./chat-transform.js"
-import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, classifyTurnSimple, autoSelectMode, loadOptimizationMode, computeControlVector, getLatestBlackboxLoopMsg, getLatestBlackboxPivotMsg } from "../turn-classify.js"
+import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, classifyTurnSimple, autoSelectMode, loadOptimizationMode, computeControlVector, getLatestBlackboxLoopMsg, getLatestBlackboxPivotMsg, getLatestBlackboxState } from "../turn-classify.js"
 import { recordBudgetFirstOutcome } from "../mode-policy.js"
 import { saveReport } from "../reporting.js"
-import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, getCurrentSessionId, _modelLocked, _blackboxEnabled, _latestBlackboxState, loadBlackboxState, recordLiveSessionSnapshot, VIBEOS_HOME, getVibeOSHome, readLifetimeSavings, getLatestCacheEvent } from "../state.js"
+import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, getCurrentSessionId, _modelLocked, _blackboxEnabled, loadBlackboxState, recordLiveSessionSnapshot, VIBEOS_HOME, getVibeOSHome, readLifetimeSavings, getLatestCacheEvent } from "../state.js"
 import { loadSelection, loadSessionSlot } from "../selection-manager.js"
 import { remoteCall, isApiConnected, isApiLatencyDegraded } from "../api-client.js"
 import { buildFooterLine, buildEnforcementTags, resolveBrand, buildFooterAlert, buildResilientFooterLine } from "./shared-footer.js"
@@ -23,8 +23,23 @@ function footerDebug(...args: unknown[]) {
   if (FOOTER_DEBUG_STDERR) console.error(...args)
 }
 
+export function resetFooterRuntimeState(): void {
+  _cachedAutoMode = null
+  _cachedAutoModeTs = 0
+  _cachedAutoModeSessionId = ""
+  _cachedAutoModeHome = ""
+  _cachedAutoModeKey = ""
+  _prevOutputText = ""
+  _autoReportCount = 0
+  textCompletePainted.clear()
+  _lastStrippedText = ""
+}
+
 let _cachedAutoMode = null
 let _cachedAutoModeTs = 0
+let _cachedAutoModeSessionId = ""
+let _cachedAutoModeHome = ""
+let _cachedAutoModeKey = ""
 const AUTO_CACHE_TTL = 60000
 
 const DEFAULT_REGIME_MAP = {
@@ -41,16 +56,33 @@ function regimeToMode(regime, stress) {
 
 async function apiAutoSelectMode(regime, stress) {
   const now = Date.now()
-  if (_cachedAutoMode && now - _cachedAutoModeTs < AUTO_CACHE_TTL) return _cachedAutoMode
+  const sessionId = getSessionId()
+  const home = getVibeOSHome()
+  const cacheKey = `${home}|${sessionId}|${String(regime || "")}|${String(stress || 0)}`
+  if (
+    _cachedAutoMode &&
+    _cachedAutoModeHome === home &&
+    _cachedAutoModeSessionId === sessionId &&
+    _cachedAutoModeKey === cacheKey &&
+    now - _cachedAutoModeTs < AUTO_CACHE_TTL
+  ) return _cachedAutoMode
   try {
     const res = await remoteCall("blackboxSelectMode", [regime, stress], null)
     if (res?.mode) {
       _cachedAutoMode = res.mode
       _cachedAutoModeTs = now
+      _cachedAutoModeSessionId = sessionId
+      _cachedAutoModeHome = home
+      _cachedAutoModeKey = cacheKey
       return res.mode
     }
   } catch (e) { footerDebug("[vibeOS] apiAutoSelectMode error:", e.message) }
   const fallback = regimeToMode(regime, stress)
+  _cachedAutoMode = fallback
+  _cachedAutoModeTs = now
+  _cachedAutoModeSessionId = sessionId
+  _cachedAutoModeHome = home
+  _cachedAutoModeKey = cacheKey
   return fallback || "balanced"
 }
 
@@ -201,7 +233,9 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
   // Tracks how far the rich path got, so a throw names the failing stage in the jsonl.
   let _footerStage = "init"
   let _footerStress = 0
+  const quietIntent = isGreetingLike(latestUserIntent || "")
   if (latestUserIntent) _footerStress = scoreStress(latestUserIntent)
+  const liveBlackboxState = quietIntent ? null : getLatestBlackboxState()
   // The footer MUST display the model the turn actually ran on = the live OpenCode
   // default (project opencode.json `model`), which is exactly the dropdown the user
   // and VibeUltraX drive. This used to probe client.config.get("model") (the MERGED /
@@ -276,15 +310,17 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
       loadSelection().requested_optimization_mode ||
       loadSelection().optimization_mode ||
       loadOptimizationMode() ||
-      _latestBlackboxState?.optimization_mode ||
+      liveBlackboxState?.optimization_mode ||
       "",
     ).trim().toLowerCase()
-    const displayMode = backendMode || (isApiConnected()
-      ? await apiAutoSelectMode(_latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""), _footerStress)
-      : autoSelectMode(_latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""), _footerStress))
+    const displayMode = backendMode || (quietIntent
+      ? regimeToMode("INIT", _footerStress)
+      : (isApiConnected()
+        ? await apiAutoSelectMode(liveBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""), _footerStress)
+        : autoSelectMode(liveBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""), _footerStress)))
     const ultraCascadeDepth = Number(
-      _latestBlackboxState?.control_vector?.cascade_depth ??
-      _latestBlackboxState?.cascade_depth ?? 0,
+      liveBlackboxState?.control_vector?.cascade_depth ??
+      liveBlackboxState?.cascade_depth ?? 0,
     ) || 0
     // VibeUltraX is a cascade: show the LIVE running model and the tier that
     // model actually occupies in the user's trinity (cheap → medium → brain).
@@ -363,7 +399,7 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
     // already reads fresh from disk each call, so the plain import is sufficient.
     const selNowFooter = loadSelection()
     const normalizedIntent = classifyTurnSimple(latestUserIntent || "")
-    const currentSubRegime = _latestBlackboxState?.sub_regime || normalizedIntent
+    const currentSubRegime = quietIntent ? "INIT" : (liveBlackboxState?.sub_regime || normalizedIntent)
     const bbMode = resolveEnforcementMode()
     const enfTags = buildEnforcementTags({
       delegationEnforce: selNowFooter.delegation_enforce,
@@ -419,7 +455,7 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
         _prevOutputText = _extractText(output) || ""
         if (_prevOutputText && prevText && _prevOutputText !== prevText) {
           const outcome = detectOutcomeSignal(_prevOutputText)
-          const regime = _latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || "")
+          const regime = liveBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || "")
           const stress = _footerStress
           // Passive negative outcome: LOOPING regime + elevated stress = auto-negative
           const isLooping = String(regime || "").toUpperCase() === "LOOPING"
@@ -494,7 +530,7 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
       try {
         const rewardText = _prevOutputText || _extractText(output) || ""
         const rewardOutcome = detectOutcomeSignal(rewardText)
-        const rewardRegime = _latestBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || "")
+        const rewardRegime = liveBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || "")
         const rewardStress = _footerStress
         const rewardPassiveNegative = (String(rewardRegime || "").toUpperCase() === "LOOPING" && Number(rewardStress || 0) > 0.3 && !rewardOutcome) ? "negative" : null
         const finalRewardOutcome = rewardOutcome || rewardPassiveNegative
@@ -532,7 +568,8 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
     try {
       const pendingSwitch = getPendingLiveSwitch()
       _alertTag = buildFooterAlert({
-        apiDegraded: isApiLatencyDegraded(),
+        apiDegraded: isApiFallback(),
+        apiSlow: isApiLatencyDegraded(),
         liveModel: liveModelSetting || undefined,
         expectedModel: _expectedForAlert || undefined,
         lastModelError,
@@ -605,13 +642,13 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
         footerLine: vibeLine,
         control: cv,
         subRegime: currentSubRegime,
-        resolutionState: _rewardOutcome === "positive" ? "working" : _rewardOutcome === "negative" ? "needs_attention" : (_latestBlackboxState?.resolution_state || _latestBlackboxState?.resolution || "unresolved"),
+        resolutionState: _rewardOutcome === "positive" ? "working" : _rewardOutcome === "negative" ? "needs_attention" : (liveBlackboxState?.resolution_state || liveBlackboxState?.resolution || "unresolved"),
         resolutionReason: _rewardOutcome ? (_rewardOutcome === "positive" ? "positive outcome" : "negative outcome") : "no outcome yet",
         nextAction: _rewardOutcome === "negative"
           ? (getLatestBlackboxLoopMsg() || getLatestBlackboxPivotMsg() || (Array.isArray(cv?.directives) ? cv.directives[0] : "") || "")
           : (getLatestBlackboxPivotMsg() || (Array.isArray(cv?.directives) ? cv.directives[0] : "") || ""),
-        loopInterventionLevel: _latestBlackboxState?.loop_intervention_level || cv?.loop_intervention_level || "none",
-        pivotDetected: Boolean(_latestBlackboxState?.pivot_detected),
+        loopInterventionLevel: liveBlackboxState?.loop_intervention_level || cv?.loop_intervention_level || "none",
+        pivotDetected: Boolean(liveBlackboxState?.pivot_detected),
         stress: _footerStress,
         source: "footer",
       })
@@ -706,7 +743,8 @@ function _paintResilientFooter(output, directory, lastModelError?: string) {
     const pendingSwitch = getPendingLiveSwitch()
     const expected = slot === "brain" ? TRINITY_BRAIN : slot === "medium" ? TRINITY_MEDIUM : TRINITY_CHEAP
     alertTag = buildFooterAlert({
-      apiDegraded: isApiLatencyDegraded(),
+      apiDegraded: isApiFallback(),
+      apiSlow: isApiLatencyDegraded(),
       liveModel: liveModel || undefined,
       expectedModel: expected || undefined,
       lastModelError,

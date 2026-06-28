@@ -2,12 +2,8 @@
 
 import { readFileSync, existsSync } from "node:fs"
 import { join } from "node:path"
-import { safeJsonParse, getVibeOSHome } from "./state.js"
-import { getOcSessionId } from "./runtime-state.js"
+import { safeJsonParse, getVibeOSHome, _OC_SID } from "./state.js"
 import { modelCostPerTurn } from "./pricing.js"
-
-// Canonical session id shared across the whole process (see runtime-state.ts).
-const _OC_SID = getOcSessionId()
 const SCRATCHPAD_ROOT = join(getVibeOSHome(), "scratch")
 const SCRATCHPAD_GLOBAL_DIR = join(SCRATCHPAD_ROOT, "by-hash")
 const SCRATCHPAD_SESSIONS_DIR = join(SCRATCHPAD_ROOT, "sessions")

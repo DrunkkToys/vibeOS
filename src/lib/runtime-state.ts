@@ -6,6 +6,7 @@ type RuntimeState = {
   apiFallbackSince: string | null
   apiEnabled: boolean
   sessionId: string
+  vibeOSHome?: string
 }
 
 function getRuntimeState(): RuntimeState {
@@ -24,6 +25,10 @@ function getRuntimeState(): RuntimeState {
 
 export function getOcSessionId(): string {
   return getRuntimeState().sessionId
+}
+
+export function setOcSessionId(sessionId: string): void {
+  getRuntimeState().sessionId = String(sessionId || "")
 }
 
 export function markApiConnected(): void {
@@ -62,4 +67,18 @@ export function isApiConnected(): boolean {
 
 export function isApiFallbackMode(): boolean {
   return getRuntimeState().apiFallbackMode
+}
+
+export function setRuntimeVibeOSHome(home: string): void {
+  getRuntimeState().vibeOSHome = String(home || "")
+}
+
+export function getRuntimeVibeOSHome(): string {
+  return getRuntimeState().vibeOSHome || ""
+}
+
+export function resetRuntimeStateForTest(): void {
+  const g = globalThis as unknown as Record<string, unknown>
+  delete g[RUNTIME_KEY]
+  delete g.__vibeOS_sessionId
 }

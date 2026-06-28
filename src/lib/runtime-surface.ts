@@ -46,6 +46,8 @@ export function buildStatusPayload({
   fallbackThinking,
   optimizationMode,
   tiers,
+  blackbox,
+  sessionId,
 }: {
   selection: SelectionLike
   tiersData: unknown
@@ -64,6 +66,8 @@ export function buildStatusPayload({
   lockedModel?: string | null
   optimizationMode?: string | null
   tiers?: Record<string, unknown> | null
+  blackbox?: Record<string, unknown> | null
+  sessionId?: string | null
 }) {
   const activeSlot = selection?.active_slot || "brain"
   const todoList = Array.isArray(todos) ? todos : []
@@ -79,6 +83,10 @@ export function buildStatusPayload({
   const lockActive = Boolean(modelLocked)
   const resolvedLockedSlot = lockActive ? (lockedSlot || activeSlot) : null
   const resolvedLockedModel = lockActive ? (lockedModel || current || null) : null
+  const currentSession = sessionId && blackbox?.sessions && typeof blackbox.sessions === "object"
+    ? blackbox.sessions[sessionId] || null
+    : null
+  const orchestrationPlan = currentSession?.orchestration_plan || currentSession?.cv?.orchestration_plan || null
   return {
     enabled: selection?.enabled !== false,
     active_slot: activeSlot,
@@ -103,6 +111,8 @@ export function buildStatusPayload({
     locked_slot: resolvedLockedSlot,
     locked_model: resolvedLockedModel,
     optimization_mode: selection?.optimization_mode || optimizationMode || null,
+    recommended_next_action: orchestrationPlan?.recommended_next_action || null,
+    orchestration_plan: orchestrationPlan,
     tiers: tiers?.trinity || null,
     label_modes: [...LABEL_MODES],
   }
