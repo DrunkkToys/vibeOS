@@ -427,7 +427,7 @@ export function resolveCascadeRouteDecision(input: unknown = {}): unknown {
     try {
       cascadeDecision = cascadeDecide(prompt, 0.001, 0.005, 0.02, 0.85)
       if (cascadeDecision.escalate) {
-        const slot = cascadeRoot.length > 2 && cascadeDecision.confidence >= 0.7 ? cascadeRoot[2] : cascadeRoot[1]
+        const slot = cascadeRoot.length > 2 && (cascadeDecision.confidence >= 0.7 || cascadeDecision.level === "complex") ? cascadeRoot[2] : cascadeRoot[1]
         const model = _modelForSlot(slot, trinityCheap, trinityMedium, trinityBrain)
         if (model) {
           applyLocalCandidate(slot, model, "cascade", cascadeDecision.reason)
