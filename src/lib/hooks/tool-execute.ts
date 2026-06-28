@@ -335,17 +335,26 @@ function _writeCascadeAudit(prompt: string, slot: string | null, model: string |
   try {
     const dir = join(getVibeOSHome(), "cascade-audit")
     mkdirSync(dir, { recursive: true })
+    const path = join(dir, "cascade-audit.jsonl")
+    if (!existsSync(path)) {
+      appendFileSync(path, "")
+    }
+    const difficulty = computeDifficulty(prompt)
     const line = JSON.stringify({
       _ts: new Date().toISOString(),
       query_hash: hashQuery(String(prompt || "")),
       slot: String(slot || ""),
       model: String(model || ""),
+      difficulty_score: Number(difficulty.score.toFixed(4)),
+      difficulty_level: difficulty.level,
+      difficulty_confidence: Number(difficulty.confidence.toFixed(2)),
+      difficulty_suggested_tier: difficulty.suggestedTier,
       escalate: Boolean(decision?.escalate),
       use_cheap: Boolean(decision?.useCheap),
       confidence: Number(decision?.confidence || 0),
       reason: String(decision?.reason || ""),
     })
-    appendFileSync(join(dir, "cascade-audit.jsonl"), line + "\n")
+    appendFileSync(path, line + "\n")
   } catch (err) {
     if (DEBUG_INTERNALS) console.error(`[vibeOS] cascade-audit write error: ${err.message}`)
   }
@@ -418,7 +427,7 @@ export function resolveCascadeRouteDecision(input: unknown = {}): unknown {
     try {
       cascadeDecision = cascadeDecide(prompt, 0.001, 0.005, 0.02, 0.85)
       if (cascadeDecision.escalate) {
-        const slot = cascadeRoot.length > 2 && cascadeDecision.confidence >= 0.8 ? cascadeRoot[2] : cascadeRoot[1]
+        const slot = cascadeRoot.length > 2 && cascadeDecision.confidence >= 0.7 ? cascadeRoot[2] : cascadeRoot[1]
         const model = _modelForSlot(slot, trinityCheap, trinityMedium, trinityBrain)
         if (model) {
           applyLocalCandidate(slot, model, "cascade", cascadeDecision.reason)
@@ -880,6 +889,7 @@ export const onToolExecuteBefore = async (input, output) => {
         projectFingerprint: currentProjectFingerprint,
         projectName: currentProjectName || "",
         sourceStrategy: routeDecision?.source || (remoteRouteDecision ? "api-cascade" : "local-cascade"),
+        routeDecision,
       })
       if (typeof targetArgs?.prompt === "string" && bridge.prompt_prefix) {
         targetArgs.prompt = `${bridge.prompt_prefix}${targetArgs.prompt}`

@@ -33,6 +33,55 @@ function parseHoldUntil(value: unknown): number {
   return Number.isFinite(ts) ? ts : NaN
 }
 
+function normalizeLoopAuthority(value: unknown): "api" | "authoritative-local" | "advisory-local" | null {
+  const normalized = normalizeSource(value)
+  if (normalized === "api") return "api"
+  if (normalized === "authoritative-local" || normalized === "authoritative_local" || normalized === "local-authoritative") return "authoritative-local"
+  if (normalized === "advisory-local" || normalized === "advisory_local" || normalized === "local-advisory") return "advisory-local"
+  return null
+}
+
+function normalizeLoopConfidence(value: unknown): number | null {
+  const n = Number(value)
+  return Number.isFinite(n) ? n : null
+}
+
+function normalizeLoopKind(value: unknown): string | null {
+  const v = String(value || "").trim().toLowerCase()
+  return v ? v : null
+}
+
+function clearLocalLoopState(current: AnyObject, next: AnyObject, incomingSource: string, authority: "api" | "authoritative-local" | "advisory-local" | null): AnyObject {
+  const nextSubRegime = normalizeText(next.sub_regime || next.regime) || normalizeText(current.sub_regime || current.regime || "INIT")
+  const resolvedRegime = nextSubRegime === "LOOPING" ? "REFINING" : (nextSubRegime || "REFINING")
+  return {
+    ...current,
+    ...next,
+    sub_regime: resolvedRegime,
+    regime: resolvedRegime,
+    is_looping: false,
+    resolution: next.resolution || current.resolution || "unresolved",
+    resolution_state: next.resolution_state || current.resolution_state || "unresolved",
+    loop_authority: null,
+    loop_detector_kind: null,
+    loop_detector_confidence: null,
+    loop_source_reason: null,
+    loop_intervention_level: "none",
+    loop_consecutive: Math.max(Number(next.loop_consecutive || next.loopCount || 0) || 0, 0),
+    loop_hold_until: null,
+    loop_release_streak: 0,
+    decision_source: incomingSource || normalizeSource(current.decision_source || current.source) || "local",
+    loop_notice_signature: null,
+    loop_notice_at: null,
+    loop_notice_hold_until: null,
+    loop_notice_count: 0,
+    live_loop_notice_signature: null,
+    live_loop_notice_at: null,
+    live_loop_notice_hold_until: null,
+    live_loop_notice_count: 0,
+  }
+}
+
 export function buildLoopNoticeSignature(record: AnyObject | null | undefined): string {
   if (!record || typeof record !== "object") return ""
   return JSON.stringify({
@@ -71,11 +120,17 @@ export function reconcileStickyLoopState(
   const next = incoming && typeof incoming === "object" ? { ...incoming } : {}
   const now = Number.isFinite(Number(options.now)) ? Number(options.now) : Date.now()
   const incomingSource = normalizeSource(next.source || next.decision_source || options.source)
+  const incomingAuthority = normalizeLoopAuthority(next.loop_authority)
   const existingStickyLoop = isApiSource(current) && isLoopValue(current)
+  const existingLocalLoop = !existingStickyLoop && normalizeSource(current.decision_source || current.source || incomingSource) === "local" && isLoopValue(current)
   const incomingLoopExplicit = normalizeText(next.sub_regime || next.regime) === "LOOPING"
     || normalizeText(next.resolution) === "LOOPING"
     || next.is_looping === true
-  const incomingLoop = incomingLoopExplicit || (incomingSource === "api" && normalizeText(next.resolution_state) === "INTERVENED")
+  const incomingLoop = (incomingAuthority === "api" && (
+    incomingLoopExplicit || normalizeText(next.resolution_state) === "INTERVENED"
+  ))
+    || incomingAuthority === "authoritative-local"
+    || (incomingSource !== "footer" && incomingAuthority !== "advisory-local" && incomingLoopExplicit)
   const previousHoldUntil = parseHoldUntil(current.loop_hold_until)
   const holdActive = Number.isFinite(previousHoldUntil) && previousHoldUntil > now
   const previousReleaseStreak = Number(current.loop_release_streak || 0)
@@ -91,6 +146,8 @@ export function reconcileStickyLoopState(
   )
 
   if (incomingLoop) {
+    const loopAuthority = incomingAuthority || (incomingSource === "api" ? "api" : "authoritative-local")
+    const isApiLoop = loopAuthority === "api"
     return {
       ...current,
       ...next,
@@ -101,13 +158,17 @@ export function reconcileStickyLoopState(
       resolution_state: next.resolution_state || "intervened",
       loop_intervention_level: preservedLoopLevel !== "none" ? preservedLoopLevel : "assertive",
       loop_consecutive: Math.max(nextLoopConsecutive, 1),
-      loop_hold_until: new Date(now + LOOP_HOLD_MS).toISOString(),
+      loop_hold_until: isApiLoop ? new Date(now + LOOP_HOLD_MS).toISOString() : null,
       loop_release_streak: 0,
-      decision_source: "api",
-      loop_notice_signature: current.loop_notice_signature || null,
-      loop_notice_at: current.loop_notice_at || null,
-      loop_notice_hold_until: current.loop_notice_hold_until || null,
-      loop_notice_count: Number(current.loop_notice_count || 0) || 0,
+      decision_source: isApiLoop ? "api" : "local",
+      loop_authority: loopAuthority,
+      loop_detector_kind: normalizeLoopKind(next.loop_detector_kind) || (isApiLoop ? "api" : "authoritative-local"),
+      loop_detector_confidence: normalizeLoopConfidence(next.loop_detector_confidence),
+      loop_source_reason: String(next.loop_source_reason || next.resolution_reason || current.loop_source_reason || "loop detected"),
+      loop_notice_signature: isApiLoop ? current.loop_notice_signature || null : null,
+      loop_notice_at: isApiLoop ? current.loop_notice_at || null : null,
+      loop_notice_hold_until: isApiLoop ? current.loop_notice_hold_until || null : null,
+      loop_notice_count: isApiLoop ? Number(current.loop_notice_count || 0) || 0 : 0,
     }
   }
 
@@ -129,6 +190,10 @@ export function reconcileStickyLoopState(
         loop_hold_until: current.loop_hold_until || null,
         loop_release_streak: nextReleaseStreak,
         decision_source: "api",
+        loop_authority: "api",
+        loop_detector_kind: normalizeLoopKind(next.loop_detector_kind) || normalizeLoopKind(current.loop_detector_kind),
+        loop_detector_confidence: normalizeLoopConfidence(next.loop_detector_confidence ?? current.loop_detector_confidence),
+        loop_source_reason: String(next.loop_source_reason || current.loop_source_reason || "api sticky loop"),
         loop_notice_signature: current.loop_notice_signature || null,
         loop_notice_at: current.loop_notice_at || null,
         loop_notice_hold_until: current.loop_notice_hold_until || null,
@@ -139,9 +204,50 @@ export function reconcileStickyLoopState(
       ...current,
       ...next,
       decision_source: "api",
+      loop_authority: "api",
       loop_hold_until: null,
       loop_release_streak: 0,
       loop_consecutive: Math.max(nextLoopConsecutive, 1),
+      loop_detector_kind: normalizeLoopKind(next.loop_detector_kind) || normalizeLoopKind(current.loop_detector_kind),
+      loop_detector_confidence: normalizeLoopConfidence(next.loop_detector_confidence ?? current.loop_detector_confidence),
+      loop_source_reason: String(next.loop_source_reason || current.loop_source_reason || "api recovery"),
+      loop_notice_signature: null,
+      loop_notice_at: null,
+      loop_notice_hold_until: null,
+      loop_notice_count: 0,
+      live_loop_notice_signature: null,
+      live_loop_notice_at: null,
+      live_loop_notice_hold_until: null,
+      live_loop_notice_count: 0,
+    }
+  }
+
+  if (existingLocalLoop && !incomingLoop) {
+    return clearLocalLoopState(current, next, incomingSource, incomingAuthority)
+  }
+
+  if (incomingAuthority === "advisory-local") {
+    return {
+      ...current,
+      ...next,
+      decision_source: "local",
+      loop_authority: "advisory-local",
+      loop_detector_kind: normalizeLoopKind(next.loop_detector_kind) || normalizeLoopKind(current.loop_detector_kind),
+      loop_detector_confidence: normalizeLoopConfidence(next.loop_detector_confidence ?? current.loop_detector_confidence),
+      loop_source_reason: String(next.loop_source_reason || current.loop_source_reason || "local advisory"),
+      sub_regime: next.sub_regime && normalizeText(next.sub_regime) !== "LOOPING"
+        ? next.sub_regime
+        : current.sub_regime || current.regime || "INIT",
+      regime: next.regime && normalizeText(next.regime) !== "LOOPING"
+        ? next.regime
+        : current.regime || current.sub_regime || "INIT",
+      is_looping: false,
+      resolution: next.resolution || current.resolution || "unresolved",
+      resolution_state: next.resolution_state || current.resolution_state || "unresolved",
+      loop_intervention_level: "none",
+      loop_hold_until: null,
+      loop_release_streak: 0,
+      loop_consecutive: Math.max(nextLoopConsecutive, 0),
       loop_notice_signature: null,
       loop_notice_at: null,
       loop_notice_hold_until: null,
@@ -157,6 +263,10 @@ export function reconcileStickyLoopState(
     ...current,
     ...next,
     decision_source: incomingSource || normalizeSource(current.decision_source || current.source) || "local",
+    loop_authority: normalizeLoopAuthority(next.loop_authority) || null,
+    loop_detector_kind: normalizeLoopKind(next.loop_detector_kind) || normalizeLoopKind(current.loop_detector_kind),
+    loop_detector_confidence: normalizeLoopConfidence(next.loop_detector_confidence ?? current.loop_detector_confidence),
+    loop_source_reason: String(next.loop_source_reason || current.loop_source_reason || ""),
     loop_hold_until: null,
     loop_release_streak: 0,
     loop_consecutive: Math.max(nextLoopConsecutive, 0),

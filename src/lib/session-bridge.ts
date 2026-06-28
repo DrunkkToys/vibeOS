@@ -7,6 +7,7 @@ import { join } from "node:path"
 
 import { currentProjectFingerprint, currentProjectName, _OC_SID, getCurrentSessionId, getVibeOSHome, removeJobRecord, saveJobRecord, updateSessionOrchestration, getActiveJobForProject, loadSelection, loadSessionOrchestration, _cacheDb } from "./state.js"
 import { extractRecentCacheOutputs } from "../vibeOS-lib/smart-cache.js"
+import { computeDifficulty } from "../vibeOS-lib/ml-router.js"
 
 function compactText(value: unknown, max = 900): string {
   const text = String(value || "").trim()
@@ -151,6 +152,7 @@ export function buildSessionBridge(input: {
   projectFingerprint?: string
   projectName?: string
   sourceStrategy?: string
+  routeDecision?: unknown
 } = {}) {
   const sessionId = String(input.sessionId || getCurrentSessionId() || _OC_SID || "unknown").trim() || "unknown"
   const fromModel = String(input.fromModel || "").trim()
@@ -168,6 +170,18 @@ export function buildSessionBridge(input: {
   const orchestrationSnapshot = summarizeOrchestration(loadSessionOrchestration(sessionId))
   const cacheSnapshot = summarizeCache(_cacheDb)
   const carryForward = [prompt, activeJobPrompt].filter(Boolean).join("\n")
+  const verifiedDifficulty = computeDifficulty(prompt)
+  const routeDecisionSnapshot = input.routeDecision && typeof input.routeDecision === "object"
+    ? input.routeDecision
+    : {
+        source: String(input.sourceStrategy || "local-cascade"),
+        reason,
+        from_tier: fromTier || null,
+        from_model: fromModel || null,
+        to_tier: toTier || null,
+        to_model: toModel || null,
+        verified: true,
+      }
   const createdAt = new Date().toISOString()
   const bridgeId = createHash("sha1").update([
     sessionId,
@@ -223,6 +237,13 @@ export function buildSessionBridge(input: {
     project_name: projectName,
     pipeline_root: pipelineRoot,
     source_strategy: String(input.sourceStrategy || "").trim() || null,
+    route_decision: routeDecisionSnapshot,
+    verified_difficulty: {
+      score: verifiedDifficulty.score,
+      level: verifiedDifficulty.level,
+      confidence: verifiedDifficulty.confidence,
+      suggested_tier: verifiedDifficulty.suggestedTier,
+    },
     selection: selectionSnapshot,
     orchestration: orchestrationSnapshot,
     cache: cacheSnapshot,
