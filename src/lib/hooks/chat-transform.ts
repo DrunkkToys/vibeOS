@@ -27,6 +27,7 @@ import {
 } from "../state.js"
 import { getOcSessionId } from "../runtime-state.js"
 import { getLatestBlackboxLoopMsg, getLatestBlackboxPivotMsg, getLatestBlackboxState, resetBlackboxTracker, setLatestBlackboxState } from "../turn-classify.js"
+import { shouldSuppressLoopNotice } from "../loop-state.js"
 import { nextTurn } from "../turn-memo.js"
 import { evaluateClaimVerification } from "../claim-verification.js"
 import { projectTreeDirective, recordProjectFact } from "../project-tree.js"
@@ -224,6 +225,8 @@ let _prevTemplateSignature = null
 let _turnCountInject = 0
 let _pivotLastCheckTurn = 0
 let _pivotLastRegime: string | null = null
+let _lastLoopNoticeSignature: string | null = null
+let _lastLoopNoticeAt = 0
 let _calBuffer: string[] = []
 let _pendingOrchestratorDirective = ""
 let _chatTransformHome = getVibeOSHome()
@@ -253,6 +256,8 @@ export function resetChatTransformState(): void {
   _turnCountInject = 0
   _pivotLastCheckTurn = 0
   _pivotLastRegime = null
+  _lastLoopNoticeSignature = null
+  _lastLoopNoticeAt = 0
   _calBuffer = []
   _pendingOrchestratorDirective = ""
   correctionSeenKeys.clear()
@@ -998,6 +1003,10 @@ async function trackBlackbox(messages: unknown[]): Promise<void> {
       is_looping: bbState.is_looping ?? existingSession.is_looping ?? false,
       loop_consecutive: bbState.loop_consecutive ?? existingSession.loop_consecutive ?? 0,
       loop_intervention_level: bbState.loop_intervention_level || existingSession.loop_intervention_level || "none",
+      loop_notice_signature: bbState.loop_notice_signature ?? existingSession.loop_notice_signature ?? null,
+      loop_notice_at: bbState.loop_notice_at ?? existingSession.loop_notice_at ?? null,
+      loop_notice_hold_until: bbState.loop_notice_hold_until ?? existingSession.loop_notice_hold_until ?? null,
+      loop_notice_count: Number(bbState.loop_notice_count ?? existingSession.loop_notice_count ?? 0) || 0,
       pivot_detected: bbState.pivot_detected ?? existingSession.pivot_detected ?? false,
       pivot_score: bbState.pivot_score ?? existingSession.pivot_score ?? 0,
       outcome: bbState.outcome || existingSession.outcome || null,
@@ -1335,6 +1344,10 @@ export const onSystemTransform = async (_input, output) => {
         if (liveBlackboxState.n_interactions) fullState.n_interactions = liveBlackboxState.n_interactions
         if (liveBlackboxState.resolution) fullState.resolution = liveBlackboxState.resolution
         if (liveBlackboxState.momentum) fullState.momentum = liveBlackboxState.momentum
+        if (liveBlackboxState.loop_notice_signature !== undefined) fullState.loop_notice_signature = liveBlackboxState.loop_notice_signature
+        if (liveBlackboxState.loop_notice_at !== undefined) fullState.loop_notice_at = liveBlackboxState.loop_notice_at
+        if (liveBlackboxState.loop_notice_hold_until !== undefined) fullState.loop_notice_hold_until = liveBlackboxState.loop_notice_hold_until
+        if (liveBlackboxState.loop_notice_count !== undefined) fullState.loop_notice_count = liveBlackboxState.loop_notice_count
         fullState.latest_control_vector_ts = Date.now()
       }
       fullState.sessions ??= {}
@@ -1367,6 +1380,10 @@ export const onSystemTransform = async (_input, output) => {
           regime: sessionState.sub_regime || existingSession?.regime || "INIT",
           resolution: sessionState.resolution || existingSession?.resolution || "unresolved",
           momentum: sessionState.momentum ?? existingSession?.momentum ?? 0,
+          loop_notice_signature: sessionState.loop_notice_signature ?? existingSession?.loop_notice_signature ?? null,
+          loop_notice_at: sessionState.loop_notice_at ?? existingSession?.loop_notice_at ?? null,
+          loop_notice_hold_until: sessionState.loop_notice_hold_until ?? existingSession?.loop_notice_hold_until ?? null,
+          loop_notice_count: Number(sessionState.loop_notice_count ?? existingSession?.loop_notice_count ?? 0) || 0,
           control_history: controlHistory,
           optimization_mode: optimizationDecision?.optimization_mode || existingSession?.optimization_mode || null,
           active_slot: optimizationDecision?.selected_slot || optimizationDecision?.tier_bias || _controlVector?.selected_slot || _controlVector?.tier_bias || existingSession?.active_slot || null,
@@ -1385,6 +1402,10 @@ export const onSystemTransform = async (_input, output) => {
           optimization_mode: optimizationDecision?.optimization_mode || existingSession?.optimization_mode || null,
           active_slot: optimizationDecision?.selected_slot || optimizationDecision?.tier_bias || _controlVector?.selected_slot || _controlVector?.tier_bias || existingSession?.active_slot || null,
           latest_control_vector_ts: Date.now(),
+          loop_notice_signature: existingSession?.loop_notice_signature ?? null,
+          loop_notice_at: existingSession?.loop_notice_at ?? null,
+          loop_notice_hold_until: existingSession?.loop_notice_hold_until ?? null,
+          loop_notice_count: Number(existingSession?.loop_notice_count ?? 0) || 0,
           orchestration_plan: _controlVector?.orchestration_plan || existingSession?.orchestration_plan || null,
           orchestration_kind: _controlVector?.orchestration_kind || existingSession?.orchestration_kind || null,
           orchestration_recommended_next_action: _controlVector?.orchestration_recommended_next_action || existingSession?.orchestration_recommended_next_action || null,
@@ -1550,19 +1571,65 @@ export const onSystemTransform = async (_input, output) => {
       const prevRegime = _prevBlackboxRegime
       const res = liveBlackboxState
       const currentRegime = res.sub_regime || "EXPLORING"
+      const { signature: loopNoticeSignature, suppress: suppressLoopInterruption } = shouldSuppressLoopNotice(res, res)
+      const persistedLoopNoticeSignature = String(res.loop_notice_signature || "")
+      const persistedLoopNoticeHoldUntil = Date.parse(String(res.loop_notice_hold_until || res.loop_hold_until || ""))
+      const loopNoticeAlreadyEmitted = Boolean(loopNoticeSignature) && (
+        loopNoticeSignature === persistedLoopNoticeSignature ||
+        loopNoticeSignature === _lastLoopNoticeSignature
+      )
+      const loopNoticeHeld = Number.isFinite(persistedLoopNoticeHoldUntil) && persistedLoopNoticeHoldUntil > Date.now()
+      const suppressLoopNoticeByState = Boolean(
+        res.is_looping &&
+        res.loop_intervention_level &&
+        res.loop_intervention_level !== "none" &&
+        loopNoticeAlreadyEmitted &&
+        (loopNoticeHeld || persistedLoopNoticeSignature === loopNoticeSignature)
+      )
+      const suppressNotice = suppressLoopInterruption || suppressLoopNoticeByState
       if (currentRegime !== prevRegime) {
         _prevBlackboxRegime = currentRegime
-        pushSystem(output, "[decision engine] Resolution: " + (res.resolution || "unresolved") + " " +
-          "(" + currentRegime + "). Momentum: " + ((res.momentum || 0) > 0 ? "↗ positive" : (res.momentum || 0) < 0 ? "↘ negative" : "→ steady") + ".")
-        if (res.is_looping && res.loop_intervention_level && res.loop_intervention_level !== "none") {
-          const severity = res.loop_intervention_level === "escalated" ? "CRITICAL"
-            : res.loop_intervention_level === "assertive" ? "WARNING" : "NOTICE"
-          pushSystem(output, "[loop prevention: " + severity + "] " + (getLatestBlackboxLoopMsg() || "The conversation may be looping — try a different approach.") + " " +
-            "(level: " + res.loop_intervention_level + ")")
+        if (!suppressNotice) {
+          pushSystem(output, "[decision engine] Resolution: " + (res.resolution || "unresolved") + " " +
+            "(" + currentRegime + "). Momentum: " + ((res.momentum || 0) > 0 ? "↗ positive" : (res.momentum || 0) < 0 ? "↘ negative" : "→ steady") + ".")
+          if (res.is_looping && res.loop_intervention_level && res.loop_intervention_level !== "none") {
+            const severity = res.loop_intervention_level === "escalated" ? "CRITICAL"
+              : res.loop_intervention_level === "assertive" ? "WARNING" : "NOTICE"
+            pushSystem(output, "[loop prevention: " + severity + "] " + (getLatestBlackboxLoopMsg() || "The conversation may be looping — try a different approach.") + " " +
+              "(level: " + res.loop_intervention_level + ")")
+          }
+          if (res.pivot_detected && getLatestBlackboxPivotMsg()) {
+            pushSystem(output, "[context switch: PIVOT] " + getLatestBlackboxPivotMsg())
+          }
         }
-        if (res.pivot_detected && getLatestBlackboxPivotMsg()) {
-          pushSystem(output, "[context switch: PIVOT] " + getLatestBlackboxPivotMsg())
+        if (res.is_looping && res.loop_intervention_level && res.loop_intervention_level !== "none" && loopNoticeSignature) {
+          _lastLoopNoticeSignature = loopNoticeSignature
+          _lastLoopNoticeAt = Date.now()
         }
+      }
+      if (res.is_looping && res.loop_intervention_level && res.loop_intervention_level !== "none" && loopNoticeSignature && !loopNoticeAlreadyEmitted) {
+        try {
+          const persisted = loadBlackboxStateFromCtx() || { sessions: {}, enabled: true }
+          persisted.sessions ??= {}
+          persisted.sessions[_OC_SID] ??= {}
+          const nextNoticeAt = new Date().toISOString()
+          const nextNoticeHoldUntil = typeof res.loop_hold_until === "string" && res.loop_hold_until ? res.loop_hold_until : persisted.sessions[_OC_SID].loop_hold_until || null
+          const nextNoticeCount = Number(persisted.sessions[_OC_SID].loop_notice_count || 0) + 1
+          persisted.sessions[_OC_SID].loop_notice_signature = loopNoticeSignature
+          persisted.sessions[_OC_SID].loop_notice_at = nextNoticeAt
+          persisted.sessions[_OC_SID].loop_notice_hold_until = nextNoticeHoldUntil
+          persisted.sessions[_OC_SID].loop_notice_count = nextNoticeCount
+          saveBlackboxStateToCtx(persisted)
+          const refreshed = {
+            ...(res || {}),
+            loop_notice_signature: loopNoticeSignature,
+            loop_notice_at: nextNoticeAt,
+            loop_notice_hold_until: nextNoticeHoldUntil,
+            loop_notice_count: nextNoticeCount,
+          }
+          _latestBlackboxState = refreshed
+          setLatestBlackboxState(refreshed)
+        } catch {}
       }
     }
 

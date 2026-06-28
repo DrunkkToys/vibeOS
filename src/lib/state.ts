@@ -838,6 +838,22 @@ function _mergeLiveLoopSnapshot(existing: unknown, input: unknown, derived: { re
       : String((existing as AnyObject)?.loop_intervention_level || "none"),
     loop_consecutive: Number((input as AnyObject)?.loopConsecutive ?? (existing as AnyObject)?.loop_consecutive ?? (existing as AnyObject)?.loopCount ?? 0) || 0,
     is_looping: Boolean((input as AnyObject)?.isLooping ?? (existing as AnyObject)?.is_looping),
+    loop_notice_signature: typeof (input as AnyObject)?.loopNoticeSignature === "string"
+      ? String((input as AnyObject).loopNoticeSignature)
+      : typeof (existing as AnyObject)?.loop_notice_signature === "string"
+        ? String((existing as AnyObject).loop_notice_signature)
+        : null,
+    loop_notice_at: typeof (input as AnyObject)?.loopNoticeAt === "string"
+      ? String((input as AnyObject).loopNoticeAt)
+      : typeof (existing as AnyObject)?.loop_notice_at === "string"
+        ? String((existing as AnyObject).loop_notice_at)
+        : null,
+    loop_notice_hold_until: typeof (input as AnyObject)?.loopNoticeHoldUntil === "string"
+      ? String((input as AnyObject).loopNoticeHoldUntil)
+      : typeof (existing as AnyObject)?.loop_notice_hold_until === "string"
+        ? String((existing as AnyObject).loop_notice_hold_until)
+        : null,
+    loop_notice_count: Number((input as AnyObject)?.loopNoticeCount ?? (existing as AnyObject)?.loop_notice_count ?? 0) || 0,
   }, { now: derived.now })
 }
 
@@ -1034,6 +1050,10 @@ export function recordLiveSessionSnapshot(input: {
       ses.live_loop_consecutive = Number(loopSnapshot.loop_consecutive || ses.live_loop_consecutive || ses.loop_consecutive || 0) || 0
       if (loopSnapshot.loop_hold_until !== undefined) ses.live_loop_hold_until = loopSnapshot.loop_hold_until
       if (loopSnapshot.loop_release_streak !== undefined) ses.live_loop_release_streak = loopSnapshot.loop_release_streak
+      if (loopSnapshot.loop_notice_signature !== undefined) ses.live_loop_notice_signature = loopSnapshot.loop_notice_signature
+      if (loopSnapshot.loop_notice_at !== undefined) ses.live_loop_notice_at = loopSnapshot.loop_notice_at
+      if (loopSnapshot.loop_notice_hold_until !== undefined) ses.live_loop_notice_hold_until = loopSnapshot.loop_notice_hold_until
+      if (loopSnapshot.loop_notice_count !== undefined) ses.live_loop_notice_count = loopSnapshot.loop_notice_count
       if (typeof input.stress === "number" && Number.isFinite(input.stress)) ses.live_stress = Number(input.stress)
       if (typeof input.pivotDetected === "boolean") ses.live_pivot_detected = input.pivotDetected
       if (control) {
@@ -1140,6 +1160,10 @@ export function recordLiveSessionSnapshot(input: {
     ses.loop_consecutive = Number(mergedLoop.loop_consecutive || ses.loop_consecutive || 0) || 0
     ses.loop_hold_until = mergedLoop.loop_hold_until ?? ses.loop_hold_until ?? null
     ses.loop_release_streak = Number(mergedLoop.loop_release_streak || ses.loop_release_streak || 0) || 0
+    ses.loop_notice_signature = mergedLoop.loop_notice_signature ?? ses.loop_notice_signature ?? null
+    ses.loop_notice_at = mergedLoop.loop_notice_at ?? ses.loop_notice_at ?? null
+    ses.loop_notice_hold_until = mergedLoop.loop_notice_hold_until ?? ses.loop_notice_hold_until ?? null
+    ses.loop_notice_count = Number(mergedLoop.loop_notice_count ?? ses.loop_notice_count ?? 0) || 0
     ses.decision_source = mergedLoop.decision_source || ses.decision_source || "footer"
     if (typeof input.stress === "number" && Number.isFinite(input.stress)) ses.stress_level = Number(input.stress)
     ses.live_snapshot_fingerprint = snapshotFingerprint

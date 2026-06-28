@@ -215,6 +215,7 @@ test("[unit] sticky LOOPING releases only after consecutive API recovery turns",
     loop_consecutive: 5,
     loop_hold_until: new Date(Date.now() - 60_000).toISOString(),
     loop_release_streak: 0,
+    loop_notice_signature: '{"sub_regime":"LOOPING"}',
   }
   const firstRecovery = mergeAuthoritativeBlackboxState(sticky, {
     sub_regime: "REFINING",
@@ -240,6 +241,31 @@ test("[unit] sticky LOOPING releases only after consecutive API recovery turns",
   assert.notEqual(secondRecovery.sub_regime, "LOOPING", "second consecutive API recovery turn should release the loop")
   assert.equal(secondRecovery.decision_source, "api", "release should still be API-authored")
   assert.equal(secondRecovery.loop_release_streak, 0, "release resets the hysteresis counter")
+  assert.equal(secondRecovery.loop_notice_signature, null, "release clears the loop notice signature")
+})
+
+test("[unit] repeated loop notices are suppressed for the same signature", async () => {
+  const { buildLoopNoticeSignature, shouldSuppressLoopNotice } = await import("../src/lib/loop-state.js")
+  const current = {
+    sub_regime: "LOOPING",
+    resolution: "looping",
+    resolution_state: "intervened",
+    decision_source: "api",
+    is_looping: true,
+    loop_intervention_level: "assertive",
+  }
+  const signature = buildLoopNoticeSignature(current)
+  assert.ok(signature, "a stable loop signature should be generated")
+  assert.equal(
+    shouldSuppressLoopNotice({ loop_notice_signature: signature }, current).suppress,
+    true,
+    "an identical loop signature must not re-emit the interruption",
+  )
+  assert.equal(
+    shouldSuppressLoopNotice({ loop_notice_signature: "different" }, current).suppress,
+    false,
+    "a materially different loop signature should be allowed through",
+  )
 })
 
 test.after(() => {
