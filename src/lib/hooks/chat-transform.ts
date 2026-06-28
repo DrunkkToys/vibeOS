@@ -63,7 +63,7 @@ import { saveSessionStress } from "../index-helpers.js"
 import { COMPRESS_THRESHOLD, KEEP_HOT, COMPRESS_MARKER, PROTOCOL_MARKER, PROTOCOL_TEXT } from "../constants.js"
 import { TEMPLATES, DEFAULT_TEMPLATE, resolveTemplate, shouldInjectTemplate, resolveSessionTemplateDefinition } from "../templates.js"
 import { getRealityCheckView } from "../../vibeOS-lib/flow-enforcer.js"
-import { installVibeTierAgents } from "../runtime-config.js"
+import { cleanupLegacyOpenCodeConfigFiles, installVibeTierAgents } from "../runtime-config.js"
 
 const BYTES_PER_TOKEN = 4
 
@@ -1296,6 +1296,7 @@ export const onSystemTransform = async (_input, output) => {
     let optimizationMode = requestedOptimizationMode
     let _controlVector = null
     ensureProjectContext(hookDirectory)
+    cleanupLegacyOpenCodeConfigFiles(hookDirectory)
     const st = latestUserIntent ? scoreStress(latestUserIntent) : 0
     const cvState = liveBlackboxState
       ? { ...liveBlackboxState, latest_stress_multiplier: st || liveBlackboxState.latest_stress_multiplier || 0 }
