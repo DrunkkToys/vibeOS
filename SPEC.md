@@ -256,6 +256,11 @@ api-bootstrap-token, shorthand brain/medium/cheap
 8. Auto-mode: control vector writes to model-tiers.json each turn
 9. Disabled fallback: classifyTurnSimple()
 10. Commands: vibe blackbox on|off|status|reset
+11. **API authoritative for regime/loop/pivot.** `trackBlackbox` awaits `POST /api/v1/blackbox/analyze` and persists its `sub_regime`/loop/pivot verdict as the source of truth each turn. The local `ResolutionTracker` is used only as fallback when the API is unreachable or exceeds the `BLACKBOX_API_DEADLINE_MS` (3000ms) cap. Persisted sessions carry `decision_source: "api" | "local"`.
+
+**Source (authoritative wiring):** `trackBlackbox` in `src/lib/hooks/chat-transform.ts`; `fetchBlackboxEnrichment`, `mergeAuthoritativeBlackboxState`, `raceWithDeadline`, `BLACKBOX_API_DEADLINE_MS` in `src/lib/turn-classify.ts`.
+
+**Test:** `tests/blackbox_api_authoritative.test.mjs` — contract units (merge precedence, 3000ms deadline cap, rejection fallback) plus real HTTP-server e2e proving the analyze verdict (LOOPING) is the persisted regime with `decision_source: "api"`, and that an API outage falls back to a local-sourced regime.
 
 **Live verified:** LOOPING regime, momentum 0.13, 253 session history
 

@@ -27,6 +27,15 @@ describe("vibeultrax orchestration", () => {
     assert.match(plan.recommended_next_action, /TDD helpers first/i)
   })
 
+  it("does not treat a normal broken implementation prompt as loop escalation", () => {
+    const plan = buildOrchestrationPlan({
+      user_text: "Fix the broken API route and add tests for the new handler.",
+    })
+
+    assert.equal(plan.plan_kind, "tdd-first")
+    assert.equal(plan.signals.loop_risk, false)
+  })
+
   it("routes recency prompts through web-search first", () => {
     const plan = buildOrchestrationPlan({
       user_text: "What changed in the latest API docs and cite the sources.",
@@ -48,6 +57,16 @@ describe("vibeultrax orchestration", () => {
     assert.equal(cv.orchestration_plan.plan_kind, "ultrax-escalate")
     assert.equal(cv.orchestration_steps[0].action, "vibeultrax")
     assert.ok(cv.orchestration_recommended_next_action.includes("VibeUltraX"))
+  })
+
+  it("still escalates when blackbox state explicitly reports looping", () => {
+    const plan = buildOrchestrationPlan({
+      user_text: "We are stuck in the same loop and need a reset.",
+      blackbox: { is_looping: true, loop_count: 3, repeat_streak: 2 },
+    })
+
+    assert.equal(plan.plan_kind, "ultrax-escalate")
+    assert.equal(plan.signals.loop_risk, true)
   })
 
   it("surfaces the live orchestration plan in the status payload and dashboard summary", () => {

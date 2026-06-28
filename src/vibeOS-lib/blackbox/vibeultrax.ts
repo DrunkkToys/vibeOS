@@ -19,6 +19,23 @@ function clampConfidence(value) {
   return Math.max(0.1, Math.min(0.99, Number.isFinite(Number(value)) ? Number(value) : 0.5))
 }
 
+function countLoopTextSignals(lower: string): number {
+  const patterns = [
+    /\bagain\b/g,
+    /\bstill\b/g,
+    /\bsame issue\b/g,
+    /\bkeeps failing\b/g,
+    /\bloops?\b/g,
+    /\bstuck\b/g,
+    /\bbroken\b/g,
+    /\bfailed again\b/g,
+    /\bno progress\b/g,
+    /\bnot working\b/g,
+    /\bworse\b/g,
+  ]
+  return patterns.reduce((count, pattern) => count + (lower.match(pattern)?.length || 0), 0)
+}
+
 function detectOrchestrationSignals(text, input = {}) {
   const lower = String(text || "").toLowerCase()
   const wordCount = lower ? lower.split(/\s+/).filter(Boolean).length : 0
@@ -27,7 +44,10 @@ function detectOrchestrationSignals(text, input = {}) {
   const codeHeavy = /\b(fix|build|implement|write|create|add|edit|modify|update|refactor|debug|patch|test|tdd|endpoint|route|component|function|class|module|file|branch|merge|commit|deploy|release)\b/i.test(lower) || /(\.ts|\.tsx|\.js|\.jsx|\.py|\.go|\.rs|\.java|package\.json|tsconfig\.json|swagger|openapi)/i.test(lower)
   const researchHeavy = /\b(latest|recent|today|current|now|news|release notes?|docs?|documentation|source|sources|cite|citations?|web[- ]search|search the web|what changed|status|health|reachable|available|web)\b/i.test(lower)
   const contextLong = contextBudgetPct >= 70 || text.length >= 1800 || wordCount >= 260 || /```/.test(text) || /\b(long|noisy|verbose|wall of text|big transcript|full transcript|large prompt)\b/i.test(lower)
-  const loopRisk = Boolean(input.blackbox?.is_looping || input.blackbox?.looping || input.blackbox?.loop_count >= 2 || input.blackbox?.repeat_streak >= 2 || /(\bagain\b|\bstill\b|\bsame issue\b|\bkeeps failing\b|\bloops?\b|\bstuck\b|\bbroken\b|\bfailed again\b|\bno progress\b|\bnot working\b|\bworse\b)/i.test(lower) || stressScore >= 0.65)
+  const loopTextSignals = countLoopTextSignals(lower)
+  const explicitLoop = Boolean(input.blackbox?.is_looping || input.blackbox?.looping || input.blackbox?.loop_count >= 2 || input.blackbox?.repeat_streak >= 2)
+  const textLoopRisk = loopTextSignals >= 3 || (loopTextSignals >= 2 && stressScore >= 0.35)
+  const loopRisk = Boolean(explicitLoop || textLoopRisk || (stressScore >= 0.8 && loopTextSignals >= 1))
   const mixed = codeHeavy && researchHeavy
   return { contextLong, codeHeavy, researchHeavy, loopRisk, mixed, wordCount, contextBudgetPct, stressScore }
 }

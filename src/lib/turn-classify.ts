@@ -653,36 +653,61 @@ async function syncOutcomeToApi(outcome) {
   } catch {}
 }
 
-async function fetchBlackboxEnrichment(sessionId, localState) {
+export const BLACKBOX_API_DEADLINE_MS = 3000
+
+export async function raceWithDeadline(promise, ms, onTimeout) {
+  const TIMEOUT = Symbol("blackboxDeadline")
+  const FAILED = Symbol("blackboxFailed")
+  let timer = null
+  const guarded = Promise.resolve(promise).catch(() => FAILED)
+  const result = await Promise.race([
+    guarded,
+    new Promise((resolve) => { timer = setTimeout(() => resolve(TIMEOUT), ms) }),
+  ])
+  if (timer) clearTimeout(timer)
+  if (result === TIMEOUT || result === FAILED) {
+    return typeof onTimeout === "function" ? onTimeout() : null
+  }
+  return result
+}
+
+export function mergeAuthoritativeBlackboxState(localState, apiResult) {
+  if (!apiResult || typeof apiResult !== "object") return localState
+  return {
+    ...localState,
+    sub_regime: apiResult.sub_regime || localState.sub_regime,
+    resolution: apiResult.resolution || localState.resolution,
+    momentum: apiResult.momentum ?? localState.momentum,
+    signals: apiResult.signals || localState.signals,
+    intent_state: apiResult.intent_state || localState.intent_state,
+    continuity_state: apiResult.continuity_state || localState.continuity_state,
+    is_looping: apiResult.is_looping ?? localState.is_looping,
+    loop_consecutive: apiResult.loop_consecutive ?? localState.loop_consecutive,
+    loop_intervention_level: apiResult.loop_intervention_level || localState.loop_intervention_level,
+    pivot_detected: apiResult.pivot_detected ?? localState.pivot_detected,
+    pivot_score: apiResult.pivot_score ?? localState.pivot_score,
+    outcome: apiResult.outcome || localState.outcome,
+    source: "api",
+  }
+}
+
+async function fetchBlackboxEnrichment(sessionId, userText, localState) {
   try {
     const client = getApiClient()
     if (!client || isApiFallback()) return null
-    const result = await client.blackboxAnalyze(sessionId, {
-      userText: "",
+    const analyze = client.blackboxAnalyze(sessionId, {
+      userText: typeof userText === "string" ? userText : "",
       features: localState.features || {},
       action: localState.action || "explore",
       entropy: localState.entropy ?? 1.0,
       uncertainty: localState.uncertainty ?? 50,
       project_id: currentProjectFingerprint || null,
     })
+    const result = await raceWithDeadline(analyze, BLACKBOX_API_DEADLINE_MS, () => null)
     if (result) {
       _latestBlackboxLoopMsg = result.loop_intervention_directive || null
       _latestBlackboxPivotMsg = result.pivot_directive || null
-      return {
-        ...localState,
-        sub_regime: result.sub_regime || localState.sub_regime,
-        resolution: result.resolution || localState.resolution,
-        momentum: result.momentum ?? localState.momentum,
-        signals: result.signals || localState.signals,
-        intent_state: result.intent_state || localState.intent_state,
-        continuity_state: result.continuity_state || localState.continuity_state,
-        is_looping: result.is_looping ?? localState.is_looping,
-        loop_consecutive: result.loop_consecutive ?? localState.loop_consecutive,
-        loop_intervention_level: result.loop_intervention_level || localState.loop_intervention_level,
-        pivot_detected: result.pivot_detected ?? localState.pivot_detected,
-        pivot_score: result.pivot_score ?? localState.pivot_score,
-        outcome: result.outcome || localState.outcome,
-      }
+      return mergeAuthoritativeBlackboxState(localState, result)
     }
   } catch {}
   return null
