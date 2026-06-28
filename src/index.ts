@@ -908,6 +908,10 @@ export async function DelegationEnforcer({ client, directory } = {}) {
           console.error(`[vibeOS] tier override → high (primary slot)`)
         }
       }
+      if (currentTier !== "high" && _activeSlot === "brain" && currentModel && !PLACEHOLDER_RE.test(currentModel)) {
+        setCurrentTier("high")
+        console.error(`[vibeOS] tier override → high (brain slot fallback)`)
+      }
     }
     catch { }
     console.error(`[vibeOS] ACTIVE: model=${currentModel} tier=${currentTier}`)
