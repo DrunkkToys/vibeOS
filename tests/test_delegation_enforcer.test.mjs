@@ -3403,11 +3403,15 @@ test("integration: anti-fabrication co-exists with context7 and thinking directi
 
 test("integration: empirical answer guardrail survives multi-turn correction and compaction", async () => {
   const mod = await loadPlugin()
-  const { DelegationEnforcer, _OC_SID: sid } = mod
+  const { DelegationEnforcer } = mod
   const dir = join(sandbox, ".oc-empirical-cascade")
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-flash" }))
   const hooks = await DelegationEnforcer({ client: {}, directory: dir })
+
+  // DelegationEnforcer mints/resolves the runtime session id; the compaction hook
+  // reads turn state under that live id (getTurnCounter → _OC_SID), so seed under it.
+  const sid = mod.getCurrentSessionId()
 
   const bbPath = join(sandbox, ".claude/blackbox-state.json")
   mkdirSync(join(sandbox, ".claude"), { recursive: true })
@@ -3418,10 +3422,6 @@ test("integration: empirical answer guardrail survives multi-turn correction and
   bb.sessions[sid] ??= {}
   bb.sessions[sid].turn_counter = 7
   bb.sessions[sid].sub_regime = "REFINING"
-  writeFileSync(bbPath, JSON.stringify(bb, null, 2) + "\n")
-
-  const altSid = sid.startsWith("opencode-") ? sid.replace(/-[^-]+$/, "-0") : sid + "-mirror"
-  bb.sessions[altSid] = bb.sessions[sid]
   writeFileSync(bbPath, JSON.stringify(bb, null, 2) + "\n")
 
   const turns = [

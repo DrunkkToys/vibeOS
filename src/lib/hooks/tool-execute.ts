@@ -954,20 +954,15 @@ export const onToolExecuteBefore = async (input, output) => {
         savings: 0,
         _fallback: true,
       }))
-
       const remoteSavings = Number(apiResult?.savings)
       const savings = Number.isFinite(remoteSavings) ? Math.min(remoteSavings, _estEdit) : _estEdit
       const MIN_MEANINGFUL_SAVINGS = 0.001
       const isFallback = apiResult?._fallback === true
-      if (isFallback) {
-        const msg = `[vibeOS] ${resolveTierIcon("cheap")} cheap lane · API currently degraded. Use a task subagent for write operations.`
-        pendingUiNote = msg
-        if (output && typeof output === "object") {
-          output.error = (output.error || "") + "\n\n" + msg
-        }
-        return
-      }
-      const isBlocked = apiResult?.blocked !== false && savings >= MIN_MEANINGFUL_SAVINGS
+      // When the remote API is offline/degraded (fallback), delegation enforcement
+      // must stay live locally — a fallback is treated as enforcement-eligible so the
+      // local delegation warning still fires and savings/warn state is written, rather
+      // than silently bailing out and leaving brain-tier writes unenforced offline.
+      const isBlocked = apiResult?.blocked !== false && (isFallback || savings >= MIN_MEANINGFUL_SAVINGS)
 
       if (isBlocked) {
         const _total = recordSaving(t, "delegation enforced", savings, {

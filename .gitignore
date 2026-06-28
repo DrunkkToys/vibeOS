@@ -81,3 +81,6 @@ saveOS-AUDIT-REPORT.md
 vibeOS.cjs
 *.tsbuildinfo
  
+
+# Local debug logs (not for version control)
+.codex-logs/
