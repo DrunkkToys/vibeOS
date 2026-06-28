@@ -33,6 +33,35 @@ function parseHoldUntil(value: unknown): number {
   return Number.isFinite(ts) ? ts : NaN
 }
 
+export function buildLoopNoticeSignature(record: AnyObject | null | undefined): string {
+  if (!record || typeof record !== "object") return ""
+  return JSON.stringify({
+    sub_regime: normalizeText(record.sub_regime || record.regime || ""),
+    resolution: normalizeText(record.resolution || ""),
+    resolution_state: normalizeText(record.resolution_state || ""),
+    loop_intervention_level: normalizeText(record.loop_intervention_level || record.live_loop_intervention_level || ""),
+    decision_source: normalizeSource(record.decision_source || record.source || ""),
+    is_looping: record.is_looping === true,
+    pivot_detected: record.pivot_detected === true,
+  })
+}
+
+export function shouldSuppressLoopNotice(
+  previous: AnyObject | null | undefined,
+  current: AnyObject | null | undefined,
+): { signature: string; suppress: boolean } {
+  const signature = buildLoopNoticeSignature(current)
+  if (!signature) return { signature, suppress: false }
+  if (!current || typeof current !== "object" || current.is_looping !== true) {
+    return { signature, suppress: false }
+  }
+  const previousSignature = String(previous?.loop_notice_signature || previous?.live_loop_notice_signature || "")
+  return {
+    signature,
+    suppress: previousSignature === signature,
+  }
+}
+
 export function reconcileStickyLoopState(
   existing: AnyObject | null | undefined,
   incoming: AnyObject | null | undefined,
@@ -75,6 +104,10 @@ export function reconcileStickyLoopState(
       loop_hold_until: new Date(now + LOOP_HOLD_MS).toISOString(),
       loop_release_streak: 0,
       decision_source: "api",
+      loop_notice_signature: current.loop_notice_signature || null,
+      loop_notice_at: current.loop_notice_at || null,
+      loop_notice_hold_until: current.loop_notice_hold_until || null,
+      loop_notice_count: Number(current.loop_notice_count || 0) || 0,
     }
   }
 
@@ -96,6 +129,10 @@ export function reconcileStickyLoopState(
         loop_hold_until: current.loop_hold_until || null,
         loop_release_streak: nextReleaseStreak,
         decision_source: "api",
+        loop_notice_signature: current.loop_notice_signature || null,
+        loop_notice_at: current.loop_notice_at || null,
+        loop_notice_hold_until: current.loop_notice_hold_until || null,
+        loop_notice_count: Number(current.loop_notice_count || 0) || 0,
       }
     }
     return {
@@ -105,6 +142,14 @@ export function reconcileStickyLoopState(
       loop_hold_until: null,
       loop_release_streak: 0,
       loop_consecutive: Math.max(nextLoopConsecutive, 1),
+      loop_notice_signature: null,
+      loop_notice_at: null,
+      loop_notice_hold_until: null,
+      loop_notice_count: 0,
+      live_loop_notice_signature: null,
+      live_loop_notice_at: null,
+      live_loop_notice_hold_until: null,
+      live_loop_notice_count: 0,
     }
   }
 
@@ -115,5 +160,13 @@ export function reconcileStickyLoopState(
     loop_hold_until: null,
     loop_release_streak: 0,
     loop_consecutive: Math.max(nextLoopConsecutive, 0),
+    loop_notice_signature: null,
+    loop_notice_at: null,
+    loop_notice_hold_until: null,
+    loop_notice_count: 0,
+    live_loop_notice_signature: null,
+    live_loop_notice_at: null,
+    live_loop_notice_hold_until: null,
+    live_loop_notice_count: 0,
   }
 }
