@@ -892,10 +892,10 @@ export async function DelegationEnforcer({ client, directory } = {}) {
   const _bootstrapModel = await _resolveBootstrapModel(client, directory)
   if (_bootstrapModel.model) {
     setCurrentModel(_bootstrapModel.model)
-    setCurrentTier(resolveEffectiveTier(_bootstrapModel.model))
+    setCurrentTier(resolveEffectiveTier(_bootstrapModel.model, _bootstrapModel.slot || ""))
   }
   if (currentModel) {
-    setCurrentTier(resolveEffectiveTier(currentModel))
+    setCurrentTier(resolveEffectiveTier(currentModel, ""))
     try {
       const _tiersData = safeJsonParse(readFileSync(getTiersFile(), "utf-8"))
       const _slotOrder = getTrinitySlotOrder(_tiersData)
