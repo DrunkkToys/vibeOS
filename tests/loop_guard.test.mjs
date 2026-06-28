@@ -5,6 +5,7 @@ import {
   ToolLoopGuard,
   normalizeCommandSignature,
   isPollCommand,
+  isInspectionCommand,
   LOOP_WARN_THRESHOLD,
   LOOP_BLOCK_THRESHOLD,
 } from "../src/lib/loop-guard.js"
@@ -37,6 +38,16 @@ describe("loop-guard: poll detection", () => {
     assert.ok(!isPollCommand("npm run build"))
     assert.ok(!isPollCommand("git commit -m x"))
     assert.ok(!isPollCommand("gh pr create"))
+  })
+})
+
+describe("loop-guard: inspection commands", () => {
+  it("treats read-only shell inspection as safe to repeat", () => {
+    assert.ok(isInspectionCommand("sed -n '1,40p' src/lib/state.ts"))
+    assert.ok(isInspectionCommand("rg -n loop src/lib"))
+    assert.ok(isInspectionCommand("git status --short"))
+    assert.ok(!isInspectionCommand("npm run build"))
+    assert.ok(!isInspectionCommand("git commit -m x"))
   })
 })
 
@@ -74,6 +85,16 @@ describe("loop-guard: escalation (the PR-348 loop)", () => {
     for (const c of varied) {
       assert.equal(g.observe(c).level, "none")
     }
+  })
+
+  it("does not block repeated inspection commands", () => {
+    const g = new ToolLoopGuard()
+    let v
+    for (let i = 0; i < LOOP_BLOCK_THRESHOLD + 1; i++) {
+      v = g.observe("sed -n '1,80p' src/lib/state.ts")
+    }
+    assert.equal(v.level, "none")
+    assert.equal(v.kind, null)
   })
 
   it("forgets old repeats once they fall out of the window", () => {
