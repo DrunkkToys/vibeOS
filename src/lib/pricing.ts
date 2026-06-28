@@ -1189,11 +1189,10 @@ export async function flushPendingLiveSwitch(): Promise<string | null> {
   if (!_pendingLiveSwitch) return null
   const { model, projectDir } = _pendingLiveSwitch
   _pendingLiveSwitch = null
-  // Land the deferred opencode.json write now (turn boundary) so new sessions pick up the
-  // model even if the SDK push fails, then fire the live SDK switch for the running app.
-  try { writeLiveOpenCodeModel(projectDir, model) } catch (e: unknown) {
-    console.error("[vibeOS] flush: opencode.json write failed:", e?.message || e)
-  }
+  // SDK-only switch (best-effort). We intentionally do NOT write opencode.json here:
+  // it is a watched file, and rewriting it makes OpenCode's config watcher dispose the
+  // active project instance and abort the in-flight turn. The primary model stays pinned;
+  // tier changes reach the model via subagent delegation, not a primary-model file rewrite.
   const ok = await pushLiveModelSwitch(model, projectDir)
   return ok ? model : null
 }
