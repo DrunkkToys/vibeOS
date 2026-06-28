@@ -2,13 +2,12 @@
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, statSync, readdirSync, openSync, readSync, closeSync, rmSync, copyFileSync, renameSync } from "node:fs"
 import { join, dirname, basename } from "node:path"
 import { spawn } from "node:child_process"
-import { homedir, tmpdir } from "node:os"
 import { createHash } from "node:crypto"
-import { AsyncLocalStorage } from "node:async_hooks"
 import { loadSelection, writeSelection, DFLT_SEL } from "./selection-manager.js"
 import { mergeProjectBucket, _computeSessionMetrics, _pruneOldSessions } from "./pattern-helpers.js"
 import { getOcSessionId, setOcSessionId } from "./runtime-state.js"
 import { safeJsonParse } from "../utils/fs-helpers.js"
+import { USER_HOME, getVibeOSHome as runtimeGetVibeOSHome, getOpenCodeHome as runtimeGetOpenCodeHome, getOpenCodeHomes as runtimeGetOpenCodeHomes, resolveVibeOSHome, resolveOpenCodeHome, setVibeOSHomeContext as runtimeSetVibeOSHomeContext } from "./runtime-paths.js"
 
 // ── Delegation-state contract ────────────────────────────────────────
 // The real shape of delegation-state.json. Known fields are typed; the index
@@ -82,12 +81,6 @@ export interface DelegationState {
 }
 
 // ── File system constants ────────────────────────────────────────────
-const USER_HOME = (() => { try { return homedir() } catch { return tmpdir() } })()
-const VIBEOS_CONTEXT = new AsyncLocalStorage<{ home?: string }>()
-function resolveVibeOSHome(): string {
-  return process.env.VIBEOS_HOME || join(process.env.HOME || USER_HOME, ".claude")
-}
-
 let VIBEOS_HOME = resolveVibeOSHome()
 let OPENCODE_HOME = resolveOpenCodeHome()
 let FILE_LOCK_DIR = join(VIBEOS_HOME, ".vibeOS-locks")
@@ -130,37 +123,15 @@ const MAX_PTR_CANDIDATES = 50
 const SUMMARY_HEAD_TRUNCATE = 500
 
 export function getVibeOSHome(): string {
-  return process.env.VIBEOS_HOME || VIBEOS_CONTEXT.getStore()?.home || join(process.env.HOME || "", ".claude")
-}
-
-function hasOpenCodeConfig(dir: string): boolean {
-  return existsSync(join(dir, "opencode.json")) || existsSync(join(dir, "opencode.jsonc"))
-}
-
-function resolveOpenCodeHomes(): string[] {
-  const override = process.env.VIBEOS_OPENCODE_HOME || process.env.OPENCODE_HOME
-  if (override) return [override]
-  const base = process.env.HOME || USER_HOME
-  return [join(base, ".opencode")]
-}
-
-function resolveOpenCodeHome(): string {
-  const homes = resolveOpenCodeHomes()
-  for (const home of homes) {
-    if (hasOpenCodeConfig(home)) return home
-  }
-  for (const home of homes) {
-    if (existsSync(home)) return home
-  }
-  return homes[0] || join(process.env.HOME || USER_HOME, ".config", "opencode")
+  return runtimeGetVibeOSHome()
 }
 
 export function getOpenCodeHome(): string {
-  return resolveOpenCodeHome()
+  return runtimeGetOpenCodeHome()
 }
 
 export function getOpenCodeHomes(): string[] {
-  return resolveOpenCodeHomes()
+  return runtimeGetOpenCodeHomes()
 }
 
 let _globalHookQueue: Promise<void> = Promise.resolve()
@@ -209,7 +180,7 @@ export function setVibeOSHomeContext(home: string): void {
   try {
     process.env.VIBEOS_HOME = resolved
   } catch {}
-  VIBEOS_CONTEXT.enterWith({ home: resolved })
+  runtimeSetVibeOSHomeContext(resolved)
   syncVibeOSPathBindings(resolved)
 }
 

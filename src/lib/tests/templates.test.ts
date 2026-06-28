@@ -1,8 +1,12 @@
-import { describe, it } from 'node:test';
+import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import * as mod from '../templates.js';
 
 describe('templates', () => {
+  beforeEach(() => {
+    mod.resetSessionPolicyStateForTest?.();
+  });
+
   it('exposes the preset library and defaults', () => {
     assert.equal(mod.DEFAULT_TEMPLATE, 'save');
     assert.equal(mod.TEMPLATES.save.tier_bias, 'cheap');

@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, readdirSync, rmSync } from "node:fs"
 import { basename, dirname, join } from "node:path"
-import { safeJsonParse, getOpenCodeHomes, getOpenCodeHome, getVibeOSHome } from "./state.js"
+import { safeJsonParse } from "./state.js"
+import { getOpenCodeHomes, getOpenCodeHome, getVibeOSHome } from "./runtime-paths.js"
 
 type JsonRecord = Record<string, any>
 type TrinityConfig = Record<string, { oc?: string }>
