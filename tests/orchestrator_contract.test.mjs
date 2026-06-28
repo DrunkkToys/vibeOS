@@ -88,10 +88,11 @@ test("deferred switch queues, does not fire mid-turn; flush fires the real SDK s
     assert.equal(calls.length, 0, "NO config.update mid-turn — switching mid-turn aborts the turn")
     assert.equal(getPendingLiveSwitch()?.model, "deepseek/brain-model", "switch is queued")
 
-    // Turn boundary: flush lands the file write AND fires the real SDK switch.
+    // Turn boundary: flush fires the real SDK switch ONLY. It must NOT write opencode.json
+    // — that watched-file write would dispose the active instance and abort the turn.
     const flushed = await flushPendingLiveSwitch()
     assert.equal(flushed, "deepseek/brain-model", "flush returns the switched model")
-    assert.equal(readOcModel(), "deepseek/brain-model", "opencode.json moved to next-turn model at boundary")
+    assert.equal(readOcModel(), "deepseek/cheap-model", "opencode.json NOT rewritten at boundary (watched-file write aborts the turn)")
     assert.equal(calls.length, 1, "config.update fired exactly once at the boundary")
     assert.equal(calls[0]?.body?.model, "deepseek/brain-model", "SDK switched to the slot's model")
     assert.equal(getPendingLiveSwitch(), null, "pending cleared after flush")
@@ -109,7 +110,7 @@ test("flush degrades gracefully without a wired client (no throw, null)", async 
   assert.equal(readOcModel(), "deepseek/cheap-model", "opencode.json unchanged until the boundary flush")
   const flushed = await flushPendingLiveSwitch()
   assert.equal(flushed, null, "no SDK client → flush reports no live switch (graceful, no throw)")
-  assert.equal(readOcModel(), "deepseek/medium-model", "flush still lands the file write so new sessions pick it up")
+  assert.equal(readOcModel(), "deepseek/cheap-model", "flush never writes the watched file — primary stays pinned, SDK best-effort only")
 })
 
 test("resolveOrchestratorState reports ran_model=live and pending_model=queued", async () => {
@@ -176,6 +177,15 @@ test("reconcile is a no-op when the live model already matches the slot (no need
   } finally {
     clearWiredClient()
   }
+})
+
+test("OpenCode home resolution honors OPENCODE_HOME (test isolation: never write real ~/.opencode)", async () => {
+  ensureSandbox() // sets process.env.OPENCODE_HOME = sandbox
+  const { getOpenCodeHomes } = await import("../src/lib/state.js?orch-test-home=" + Date.now())
+  const homes = getOpenCodeHomes()
+  assert.deepEqual(homes, [sandbox], "global homes scope to OPENCODE_HOME, not the real ~/.opencode")
+  const realHome = join(process.env.HOME || "", ".opencode")
+  assert.ok(!homes.includes(realHome), "real ~/.opencode is never a write target when OPENCODE_HOME is set")
 })
 
 test("CLEANUP", async () => {

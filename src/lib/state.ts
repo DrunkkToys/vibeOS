@@ -137,7 +137,7 @@ function hasOpenCodeConfig(dir: string): boolean {
 }
 
 function resolveOpenCodeHomes(): string[] {
-  const override = process.env.VIBEOS_OPENCODE_HOME
+  const override = process.env.VIBEOS_OPENCODE_HOME || process.env.OPENCODE_HOME
   if (override) return [override]
   const base = process.env.HOME || USER_HOME
   return [join(base, ".opencode")]
