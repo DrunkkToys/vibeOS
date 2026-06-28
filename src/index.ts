@@ -35,56 +35,7 @@ import { onShellEnv, setShellDirectory } from "./lib/hooks/shell-env.js"
 import { installVibeTierAgents } from "./lib/runtime-config.js"
 import { getOpenCodeHome, getVibeOSHome } from "./lib/state.js"
 import { resetTurnClassifyRuntimeState } from "./lib/turn-classify.js"
-function getTiersFile() {
-  return join(getVibeOSHome(), "model-tiers.json")
-}
-function getReportsDir() {
-  return join(getVibeOSHome(), "reports")
-}
-function _getReportsIndex() {
-  return join(getReportsDir(), "index.json")
-}
-function _getStateFile() {
-  return join(getVibeOSHome(), "delegation-state.json")
-}
-function getMcpRuntimeFile() {
-  return join(getVibeOSHome(), "mcp-runtime.json")
-}
-function readPublishedMcpRuntime() {
-  try {
-    if (!existsSync(getMcpRuntimeFile()))
-      return null
-    const runtime = safeJsonParse(readFileSync(getMcpRuntimeFile(), "utf-8"))
-    const baseUrl = String(runtime?.baseUrl || "").trim().replace(/\/$/, "")
-    const port = Number(runtime?.port || 0)
-    if (!baseUrl && !(Number.isFinite(port) && port > 0))
-      return null
-    return {
-      baseUrl: baseUrl || (Number.isFinite(port) && port > 0 ? `http://127.0.0.1:${port}` : ""),
-      port: Number.isFinite(port) && port > 0 ? port : null,
-      updatedAt: typeof runtime?.updatedAt === "string" ? runtime.updatedAt : null,
-    }
-  } catch {
-    return null
-  }
-}
-function publishMcpRuntime(port, baseUrl) {
-  try {
-    const resolvedPort = Number(port)
-    if (!Number.isFinite(resolvedPort) || resolvedPort <= 0)
-      return null
-    const normalizedBase = String(baseUrl || `http://127.0.0.1:${resolvedPort}`).trim().replace(/\/$/, "")
-    mkdirSync(dirname(getMcpRuntimeFile()), { recursive: true })
-    writeFileSync(getMcpRuntimeFile(), JSON.stringify({
-      port: resolvedPort,
-      baseUrl: normalizedBase,
-      updatedAt: new Date().toISOString(),
-    }, null, 2) + "\n", "utf-8")
-    return normalizedBase
-  } catch {
-    return null
-  }
-}
+import { getTiersFile, getReportsDir, getReportsIndex, getStateFile, getMcpRuntimeFile, readPublishedMcpRuntime, publishMcpRuntime } from "./lib/bootstrap-paths.js"
 function ensureDeferredBootstrap() {
   if (_deferredBootstrapDone || _modelLocked)
     return
