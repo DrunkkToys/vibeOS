@@ -2,8 +2,10 @@
 // @ts-nocheck
 
 import { createHash } from "node:crypto"
+import { appendFileSync, readFileSync, existsSync, mkdirSync } from "node:fs"
+import { join } from "node:path"
 
-import { currentProjectFingerprint, currentProjectName, _OC_SID, getCurrentSessionId, removeJobRecord, saveJobRecord, updateSessionOrchestration, getActiveJobForProject, loadSelection, loadSessionOrchestration, _cacheDb } from "./state.js"
+import { currentProjectFingerprint, currentProjectName, _OC_SID, getCurrentSessionId, getVibeOSHome, removeJobRecord, saveJobRecord, updateSessionOrchestration, getActiveJobForProject, loadSelection, loadSessionOrchestration, _cacheDb } from "./state.js"
 import { extractRecentCacheOutputs } from "../vibeOS-lib/smart-cache.js"
 
 function compactText(value: unknown, max = 900): string {
@@ -258,5 +260,27 @@ export function recordSessionBridge(bridge: unknown): boolean {
     })
   } catch {}
   try { removeJobRecord(bridge.bridge_id || sessionId) } catch {}
+  try {
+    const dir = getVibeOSHome()
+    mkdirSync(dir, { recursive: true })
+    appendFileSync(join(dir, ".session-bridges.jsonl"), JSON.stringify({ _ts: new Date().toISOString(), ...bridge }) + "\n")
+  } catch {}
   return true
+}
+
+export function loadLatestSessionBridge(projectFingerprint: string): unknown {
+  const fp = String(projectFingerprint || "").trim()
+  if (!fp) return null
+  try {
+    const file = join(getVibeOSHome(), ".session-bridges.jsonl")
+    if (!existsSync(file)) return null
+    const lines = readFileSync(file, "utf-8").trim().split("\n").filter(Boolean)
+    for (let i = lines.length - 1; i >= 0; i--) {
+      try {
+        const entry = JSON.parse(lines[i])
+        if (entry && String(entry.project_fingerprint || "").trim() === fp) return entry
+      } catch {}
+    }
+  } catch {}
+  return null
 }

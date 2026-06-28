@@ -357,6 +357,7 @@ export class ResolutionTracker {
       message_length_trend: this.computeMessageLengthTrend().trend,
       message_length_slope: this.computeMessageLengthTrend().slope,
       n_interactions: n,
+      source: "local",
     }
   }
   calcActionConsistency() {

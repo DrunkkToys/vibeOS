@@ -1011,6 +1011,7 @@ async function trackBlackbox(messages: unknown[]): Promise<void> {
       pivot_score: bbState.pivot_score ?? existingSession.pivot_score ?? 0,
       outcome: bbState.outcome || existingSession.outcome || null,
       decision_source: bbState.source || "local",
+      n_interactions: bbState.n_interactions ?? serialized.n_interactions ?? existingSession.n_interactions ?? 0,
       control_history: state.sessions[sid].control_history,
       optimization_mode: existingSession.optimization_mode || null,
       active_slot: existingSession.active_slot || null,
