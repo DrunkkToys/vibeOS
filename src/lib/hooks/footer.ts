@@ -235,7 +235,30 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
   let _footerStress = 0
   const quietIntent = isGreetingLike(latestUserIntent || "")
   if (latestUserIntent) _footerStress = scoreStress(latestUserIntent)
-  const liveBlackboxState = quietIntent ? null : getLatestBlackboxState()
+  let liveBlackboxState = quietIntent ? null : getLatestBlackboxState()
+  const diskBlackboxState = quietIntent ? null : loadBlackboxState()
+  try {
+    const liveCascadeDepth = Number(
+      liveBlackboxState?.control_vector?.cascade_depth ??
+      liveBlackboxState?.cascade_depth ??
+      0,
+    ) || 0
+    const diskCascadeDepth = Number(
+      diskBlackboxState?.control_vector?.cascade_depth ??
+      diskBlackboxState?.cascade_depth ??
+      0,
+    ) || 0
+    if (
+      diskBlackboxState &&
+      (
+        !liveBlackboxState ||
+        diskCascadeDepth > liveCascadeDepth ||
+        (diskBlackboxState?.sub_regime && !liveBlackboxState?.sub_regime)
+      )
+    ) {
+      liveBlackboxState = diskBlackboxState
+    }
+  } catch {}
   // The footer MUST display the model the turn actually ran on = the live OpenCode
   // default (project opencode.json `model`), which is exactly the dropdown the user
   // and VibeUltraX drive. This used to probe client.config.get("model") (the MERGED /
@@ -578,6 +601,7 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
     } catch {}
 
     _footerStage = "build"
+    const cascadeLabel = ultraCascadeDepth >= 2 ? modelDisplayName(execution.model) : ""
     const vibeLine = buildFooterLine({
       activeSlot,
       providerLabel: execution.provider_label,
@@ -602,6 +626,7 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
         const d = displayMode === "vibeultrax" && ultraCascadeDepth > 0 ? ultraCascadeDepth : (cv?.cascade_depth || 1)
         return d >= 3 ? "▸▸▸" : d >= 2 ? "▸▸" : ""
       })(),
+      cascadeLabel: cascadeLabel || undefined,
       claimTag: claimTag || undefined,
       rewardTag: _rewardTag || undefined,
       alertTag: _alertTag || undefined,
@@ -738,6 +763,13 @@ function _paintResilientFooter(output, directory, lastModelError?: string) {
       cheap: { oc: TRINITY_CHEAP || currentModel },
     } },
   })
+  const cascadeState = loadBlackboxState()
+  const cascadeDepth = Number(
+    cascadeState?.control_vector?.cascade_depth ??
+    cascadeState?.cascade_depth ??
+    cascadeState?.sessions?.[getCurrentSessionId()]?.cascade_depth ??
+    0,
+  ) || 0
   let alertTag = ""
   try {
     const pendingSwitch = getPendingLiveSwitch()
@@ -757,6 +789,8 @@ function _paintResilientFooter(output, directory, lastModelError?: string) {
     modelName: modelDisplayName(execution.model || liveModel),
     optMode: String(loadSelection().optimization_mode || ""),
     flashIcon: isApiConnected() ? " ⚡" : "",
+    cascadeIcon: cascadeDepth >= 3 ? "▸▸▸" : cascadeDepth >= 2 ? "▸▸" : "",
+    cascadeLabel: cascadeDepth >= 2 ? modelDisplayName(execution.model || liveModel) : "",
     alertTag: alertTag || undefined,
   })
   const footerText = `${currentText}\n\n${vibeLine}`
