@@ -27,6 +27,7 @@ after(() => {
 const COMPLEX = "refactor the authentication module across src/auth.ts src/session.ts and src/db.ts to support OAuth and JWT refresh tokens with rate limiting while keeping backward compatibility and updating every related test file"
 
 test("[cascade-audit] a cascade decision appends a parseable _ts line", () => {
+  assert.ok(existsSync(auditFile), "cascade-audit.jsonl should be seeded on startup")
   te.resolveCascadeRouteDecision({
     prompt: COMPLEX,
     trinityCheap: "opencode/big-pickle",
@@ -43,6 +44,8 @@ test("[cascade-audit] a cascade decision appends a parseable _ts line", () => {
   assert.equal(typeof entry.slot, "string")
   assert.ok("escalate" in entry, "entry records the escalate decision")
   assert.ok("confidence" in entry, "entry records confidence")
+  assert.ok("difficulty_score" in entry, "entry records the local difficulty snapshot")
+  assert.ok("difficulty_confidence" in entry, "entry records the local confidence snapshot")
 })
 
 test("[cascade-audit] the written line substantiates a claim within the window", () => {

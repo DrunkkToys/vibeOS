@@ -138,6 +138,21 @@ export function getOpenCodeHomes(): string[] {
   return runtimeGetOpenCodeHomes()
 }
 
+function ensureCascadeAuditFiles(): void {
+  try {
+    const dir = join(getVibeOSHome(), "cascade-audit")
+    mkdirSync(dir, { recursive: true })
+    for (const file of ["claim-audit.jsonl", "cascade-audit.jsonl"]) {
+      const path = join(dir, file)
+      if (!existsSync(path)) {
+        writeFileSync(path, "")
+      }
+    }
+  } catch {}
+}
+
+ensureCascadeAuditFiles()
+
 let _globalHookQueue: Promise<void> = Promise.resolve()
 
 export async function runWithGlobalHookLock<T>(fn: () => Promise<T> | T): Promise<T> {
