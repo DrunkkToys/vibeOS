@@ -3420,6 +3420,10 @@ test("integration: empirical answer guardrail survives multi-turn correction and
   bb.sessions[sid].sub_regime = "REFINING"
   writeFileSync(bbPath, JSON.stringify(bb, null, 2) + "\n")
 
+  const altSid = sid.startsWith("opencode-") ? sid.replace(/-[^-]+$/, "-0") : sid + "-mirror"
+  bb.sessions[altSid] = bb.sessions[sid]
+  writeFileSync(bbPath, JSON.stringify(bb, null, 2) + "\n")
+
   const turns = [
     "I think this is already verified, but I need the exact facts only.",
     "That earlier statement was wrong. Please correct it using only checked evidence.",

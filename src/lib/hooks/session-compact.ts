@@ -9,7 +9,6 @@ export const onSessionCompacting = async (_input, output) => {
   try {
     const turnCount = getTurnCounter()
     const needsCompact = turnCount >= 7
-    console.error(`[vibeOS] [compact] turnCount=${turnCount} needsCompact=${needsCompact}`)
 
     const indexPath = getSessionIndexPath()
     let recent = ""
