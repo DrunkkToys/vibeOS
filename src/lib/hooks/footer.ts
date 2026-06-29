@@ -603,8 +603,12 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
     } catch {}
 
     _footerStage = "build"
-    const cascadeTier = cv?.cascade_tier || cv?.control_vector?.cascade_tier || ""
-    const cascadeLabel = ""
+    const cascadeDepthForIcon = Number(
+      diskBlackboxState?.sessions?.[getCurrentSessionId()]?.cascade_depth ??
+      liveBlackboxState?.control_vector?.cascade_depth ??
+      liveBlackboxState?.cascade_depth ??
+      0,
+    ) || 0
     const vibeLine = buildFooterLine({
       activeSlot,
       providerLabel: execution.provider_label,
@@ -619,18 +623,8 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
       vectorChangedSlot: selNowFooter?.vector_changed_slot,
       subRegime: currentSubRegime,
       stressGauge: _footerStress > 0.85 ? "█" : _footerStress > 0.7 ? "▆" : _footerStress > 0.5 ? "▅" : _footerStress > 0.3 ? "▃" : _footerStress > 0.1 ? "▂" : "▁",
-      cascadeIcon: (() => {
-        // Use cascade_tier from API response if available, otherwise fallback to cascade_depth
-        const tier = cv?.cascade_tier || cv?.control_vector?.cascade_tier
-        if (tier === "cheap") return "⚡ cheap"
-        if (tier === "medium") return "◆ medium"
-        if (tier === "brain") return "🧠 brain"
-        // Fallback to depth-based display — use cascade_tier depth first
-        const tierDepth = tier === "medium" ? 2 : tier === "brain" ? 3 : 0
-        const d = tierDepth || (displayMode === "vibeultrax" && ultraCascadeDepth > 0 ? ultraCascadeDepth : (cv?.cascade_depth || 1))
-        return d >= 3 ? "▸▸▸" : d >= 2 ? "▸▸" : ""
-      })(),
-      cascadeLabel: cascadeLabel || undefined,
+      cascadeIcon: displayMode === "vibeultrax" && cascadeDepthForIcon >= 3 ? "▸▸▸" : displayMode === "vibeultrax" && cascadeDepthForIcon >= 2 ? "▸▸" : "",
+      cascadeLabel: "",
       claimTag: claimTag || undefined,
       rewardTag: _rewardTag || undefined,
       alertTag: _alertTag || undefined,
@@ -796,7 +790,7 @@ function _paintResilientFooter(output, directory, lastModelError?: string) {
     optMode: String(loadSelection().optimization_mode || ""),
     flashIcon: isApiConnected() ? " ⚡" : "",
     cascadeIcon: cascadeDepth >= 3 ? "▸▸▸" : cascadeDepth >= 2 ? "▸▸" : "",
-    cascadeLabel: cascadeDepth >= 2 ? modelDisplayName(execution.model || liveModel) : "",
+    cascadeLabel: "",
     alertTag: alertTag || undefined,
   })
   const footerText = `${currentText}\n\n${vibeLine}`

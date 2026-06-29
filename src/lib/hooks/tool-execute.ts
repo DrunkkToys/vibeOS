@@ -845,11 +845,6 @@ export const onToolExecuteBefore = async (input, output) => {
         const cd = routeDecision?.cascadeDepth || (Array.isArray(routeDecision?.routePath) ? routeDecision.routePath.length : 0)
         if (cd) _bbState.sessions[_sid].cascade_depth = cd
         if (routeDecision?.routePath) _bbState.sessions[_sid].route_path = routeDecision.routePath
-        if (routeDecision?.selectedSlot && ["medium", "brain"].includes(routeDecision.selectedSlot)) {
-          _bbState.control_vector = _bbState.control_vector || {}
-          _bbState.control_vector.cascade_tier = routeDecision.selectedSlot
-          _bbState.control_vector.cascade_depth = cd || 1
-        }
         _saveBlackboxState(_bbState)
       }
     } catch (_bbErr) {
