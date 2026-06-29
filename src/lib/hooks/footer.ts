@@ -352,6 +352,8 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
     // — tier and model stay coherent instead of a pinned "⚡ cheap | V4 Flash".
     const ultraLiveModel = displayModel || liveModel || currentModel || ""
     const ultraResolvedTier = ((): "cheap" | "medium" | "brain" => {
+      const ct = cv?.cascade_tier || cv?.control_vector?.cascade_tier
+      if (ct === "medium" || ct === "brain") return ct
       if (TRINITY_CHEAP && ultraLiveModel === TRINITY_CHEAP) return "cheap"
       if (TRINITY_MEDIUM && ultraLiveModel === TRINITY_MEDIUM) return "medium"
       if (TRINITY_BRAIN && ultraLiveModel === TRINITY_BRAIN) return "brain"
@@ -601,7 +603,8 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
     } catch {}
 
     _footerStage = "build"
-    const cascadeLabel = ultraCascadeDepth >= 2 ? modelDisplayName(execution.model) : ""
+    const cascadeTier = cv?.cascade_tier || cv?.control_vector?.cascade_tier || ""
+    const cascadeLabel = ultraCascadeDepth >= 2 ? cascadeTier : ""
     const vibeLine = buildFooterLine({
       activeSlot,
       providerLabel: execution.provider_label,
@@ -622,8 +625,9 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
         if (tier === "cheap") return "⚡ cheap"
         if (tier === "medium") return "◆ medium"
         if (tier === "brain") return "🧠 brain"
-        // Fallback to depth-based display
-        const d = displayMode === "vibeultrax" && ultraCascadeDepth > 0 ? ultraCascadeDepth : (cv?.cascade_depth || 1)
+        // Fallback to depth-based display — use cascade_tier depth first
+        const tierDepth = tier === "medium" ? 2 : tier === "brain" ? 3 : 0
+        const d = tierDepth || (displayMode === "vibeultrax" && ultraCascadeDepth > 0 ? ultraCascadeDepth : (cv?.cascade_depth || 1))
         return d >= 3 ? "▸▸▸" : d >= 2 ? "▸▸" : ""
       })(),
       cascadeLabel: cascadeLabel || undefined,
@@ -764,11 +768,13 @@ function _paintResilientFooter(output, directory, lastModelError?: string) {
     } },
   })
   const cascadeState = loadBlackboxState()
+  const cvCt = cascadeState?.control_vector?.cascade_tier
   const cascadeDepth = Number(
-    cascadeState?.control_vector?.cascade_depth ??
-    cascadeState?.cascade_depth ??
-    cascadeState?.sessions?.[getCurrentSessionId()]?.cascade_depth ??
-    0,
+    cvCt === "medium" ? 2 : cvCt === "brain" ? 3
+      : cascadeState?.control_vector?.cascade_depth ??
+        cascadeState?.cascade_depth ??
+        cascadeState?.sessions?.[getCurrentSessionId()]?.cascade_depth ??
+        0,
   ) || 0
   let alertTag = ""
   try {
