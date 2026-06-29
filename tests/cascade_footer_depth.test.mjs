@@ -58,9 +58,10 @@ test("footer buildFooterLine shows cascade tier label not model name", async () 
     flashIcon: " ⚡",
     enfTags: ["guarded", "tests live"],
     cascadeIcon: "▸▸▸",
-    cascadeLabel: "brain",
+    cascadeLabel: "",
   })
   assert.ok(typeof line === "string" && line.length > 10, "footer line rendered")
+  assert.ok(!line.includes("▸▸▸ brain"), "no tier text suffix")
 })
 
 test("cascadeDepth matches routePath.length for cheap root -> cheap slot", async () => {
