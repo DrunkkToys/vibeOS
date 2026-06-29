@@ -604,7 +604,7 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
 
     _footerStage = "build"
     const cascadeTier = cv?.cascade_tier || cv?.control_vector?.cascade_tier || ""
-    const cascadeLabel = ultraCascadeDepth >= 2 ? cascadeTier : ""
+    const cascadeLabel = ""
     const vibeLine = buildFooterLine({
       activeSlot,
       providerLabel: execution.provider_label,
