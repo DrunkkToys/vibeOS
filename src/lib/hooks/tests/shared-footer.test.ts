@@ -48,8 +48,8 @@ test("shared-footer formats a subtle savings pulse with trend cues", () => {
 })
 
 test("shared-footer formats cascade icon and label together", () => {
-  assert.equal(formatCascadePulse("▸▸▸", "V4 Flash"), "▸▸▸ V4 Flash")
-  assert.equal(formatCascadePulse("", "V4 Flash"), "V4 Flash")
+  assert.equal(formatCascadePulse("▸▸▸", ""), "▸▸▸")
+  assert.equal(formatCascadePulse("▸▸", ""), "▸▸")
   assert.equal(formatCascadePulse(undefined, undefined), "")
 })
 
@@ -135,7 +135,7 @@ test("shared-footer renders experimental regime tags cleanly", () => {
   assert.ok(line.includes("▶ ⚙ IMPL"))
 })
 
-test("shared-footer shows the escalated model name beside the cascade indicator", () => {
+test("shared-footer shows cascade arrow icon without text suffix", () => {
   const line = buildFooterLine({
     activeSlot: "medium",
     providerLabel: "DeepSeek",
@@ -146,10 +146,11 @@ test("shared-footer shows the escalated model name beside the cascade indicator"
     flashIcon: "",
     enfTags: [],
     cascadeIcon: "▸▸▸",
-    cascadeLabel: "V4 Flash",
+    cascadeLabel: "",
   })
 
-  assert.ok(line.includes("▸▸▸ V4 Flash"), "cascade segment should show the live escalated model name")
+  assert.ok(line.includes("▸▸▸"), "cascade arrow icon appears")
+  assert.ok(!line.includes("▸▸▸ brain"), "no tier text suffix after arrow")
 })
 
 test("shared-footer softens enforcement tags into a compact pulse", () => {

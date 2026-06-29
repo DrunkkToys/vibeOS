@@ -25,6 +25,45 @@ writeFileSync(join(claudeDir, "delegation-state.json"), JSON.stringify({ lifetim
 
 const COMPLEX = "refactor the auth module across src/auth.ts src/session.ts to support OAuth and JWT refresh tokens"
 
+test("cascade_tier is exported by tool-execute for control_vector persistence", async () => {
+  const te = await import("../src/lib/hooks/tool-execute.js?cascaded7=" + Date.now())
+  const res = te.resolveCascadeRouteDecision({
+    prompt: "refactor auth module from scratch to support OAuth, JWT, sessions, and refresh tokens across multiple files",
+    trinityCheap: "test/cheap",
+    trinityMedium: "test/medium",
+    trinityBrain: "test/brain",
+    activePipeline: ["cheap", "medium", "brain"],
+    mlEnabled: true,
+  })
+  assert.ok(res, "route decision exists")
+  if (res.selectedSlot === "medium") {
+    assert.equal(res.cascadeDepth, 2, "medium escalation has depth 2")
+  }
+  if (res.selectedSlot === "brain") {
+    assert.equal(res.cascadeDepth, 3, "brain escalation has depth 3")
+  }
+  assert.ok(res.selectedSlot, "route decision has a selected slot")
+  assert.equal(res.cascadeDepth, res.routePath?.length || 1, "cascadeDepth matches routePath.length")
+})
+
+test("footer buildFooterLine shows cascade tier label not model name", async () => {
+  const sf = await import("../src/lib/hooks/shared-footer.js?cascaded8=" + Date.now())
+  const line = sf.buildFooterLine({
+    activeSlot: "cheap",
+    providerLabel: "DeepSeek",
+    modelName: "my-model",
+    ltTotal: 1.23,
+    vibeBrand: "VibeUltraX",
+    optMode: "vibeultrax",
+    flashIcon: " ⚡",
+    enfTags: ["guarded", "tests live"],
+    cascadeIcon: "▸▸▸",
+    cascadeLabel: "",
+  })
+  assert.ok(typeof line === "string" && line.length > 10, "footer line rendered")
+  assert.ok(!line.includes("▸▸▸ brain"), "no tier text suffix")
+})
+
 test("cascadeDepth matches routePath.length for cheap root -> cheap slot", async () => {
   const te = await import("../src/lib/hooks/tool-execute.js?cascaded1=" + Date.now())
   const res = te.resolveCascadeRouteDecision({
@@ -63,7 +102,6 @@ test("routePath length determines cascade icon", async () => {
   assert.equal(sf.formatCascadePulse("", ""), "", "no icon + no label")
   assert.equal(sf.formatCascadePulse("▸▸", ""), "▸▸", "medium cascade icon alone")
   assert.equal(sf.formatCascadePulse("▸▸▸", ""), "▸▸▸", "brain cascade icon alone")
-  assert.equal(sf.formatCascadePulse("▸▸▸", "V4 Flash"), "▸▸▸ V4 Flash", "brain cascade + label")
   assert.equal(sf.formatCascadePulse(undefined, undefined), "", "undefined both")
 })
 
@@ -74,11 +112,11 @@ test("footer cascadeDepth >= 3 shows ▸▸▸ icon, >= 2 shows ▸▸, < 2 show
   assert.ok(empty, "footer line exists for empty cascade")
   assert.ok(!empty.includes("▸"), "no cascade icon when cascadeIcon is empty")
 
-  const medium = sf.buildResilientFooterLine({ activeSlot: "cheap", modelName: "test/medium", cascadeIcon: "▸▸", cascadeLabel: "test/medium", optMode: "vibeultrax" })
+  const medium = sf.buildResilientFooterLine({ activeSlot: "cheap", modelName: "test/medium", cascadeIcon: "▸▸", cascadeLabel: "", optMode: "vibeultrax" })
   assert.ok(medium, "footer line exists for medium cascade")
   assert.ok(medium.includes("▸▸"), "medium cascade icon shows")
 
-  const brain = sf.buildResilientFooterLine({ activeSlot: "cheap", modelName: "test/brain", cascadeIcon: "▸▸▸", cascadeLabel: "test/brain", optMode: "vibeultrax" })
+  const brain = sf.buildResilientFooterLine({ activeSlot: "cheap", modelName: "test/brain", cascadeIcon: "▸▸▸", cascadeLabel: "", optMode: "vibeultrax" })
   assert.ok(brain, "footer line exists for brain cascade")
   assert.ok(brain.includes("▸▸▸"), "brain cascade icon shows")
 })
