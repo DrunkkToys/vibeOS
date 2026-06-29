@@ -1,0 +1,40 @@
+import { createResource } from "solid-js"
+import { fetchSessions, type SessionEntry } from "../api"
+
+export default function SessionsPanel() {
+  const [s] = createResource(fetchSessions)
+
+  return (
+    <div class="card-full">
+      <h3>Sessions</h3>
+      {s.loading && <p class="muted">loading...</p>}
+      {s.error && <p class="error">Failed to load sessions</p>}
+      {s() && (
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Session</th>
+              <th>Started</th>
+              <th>Cost</th>
+              <th>Del Saved</th>
+              <th>Cache</th>
+              <th>Warns</th>
+            </tr>
+          </thead>
+          <tbody>
+            {s()!.sessions.map((e: SessionEntry) => (
+              <tr>
+                <td><code>{e.id.slice(0, 8)}</code></td>
+                <td>{e.started ? new Date(e.started).toLocaleDateString() : "-"}</td>
+                <td>${e.cost_usd.toFixed(2)}</td>
+                <td>${e.delegation_savings_usd.toFixed(4)}</td>
+                <td>${e.cache_savings_usd.toFixed(4)}</td>
+                <td>{e.warns_count}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  )
+}
