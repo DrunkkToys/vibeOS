@@ -2,6 +2,7 @@ import { build } from 'esbuild';
 import { existsSync, mkdirSync, copyFileSync, readdirSync, statSync, readFileSync, writeFileSync, chmodSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
+import { execFileSync } from 'child_process';
 import { resolveOpenCodeHomes } from './lib/opencode-homes.mjs';
 
 const ROOT = process.cwd();
@@ -30,6 +31,18 @@ function cleanStaleJs(dir) {
 cleanStaleJs(SRC)
 
 console.log('[bundle] Building single-file bundle...');
+
+const dashboardRoot = join(SRC, 'lib', 'dashboard');
+const dashboardPackageJson = join(dashboardRoot, 'package.json');
+if (existsSync(dashboardPackageJson)) {
+  const dashboardNodeModules = join(dashboardRoot, 'node_modules');
+  if (!existsSync(dashboardNodeModules)) {
+    console.log('[bundle] Installing dashboard dependencies...');
+    execFileSync('npm', ['install'], { cwd: dashboardRoot, stdio: 'inherit' });
+  }
+  console.log('[bundle] Building dashboard...');
+  execFileSync('npm', ['run', 'build'], { cwd: dashboardRoot, stdio: 'inherit' });
+}
 
 // Bundle the TS entrypoint into a single file
 await build({
