@@ -12,7 +12,7 @@ import { join, dirname, basename } from "node:path"
 import { getFlowWarns, ensureProjectDocs, syncFlowTodosToNative } from "./vibeOS-lib/flow-enforcer.js"
 import { computeSessionMetrics } from "./vibeOS-lib/session-metrics.js"
 import { createMcpServer, writeDashboardBaseConfig } from "./lib/vibeos-mcp-server.js"
-import { isApiConnected, isApiFallback, getBackendVersion, getApiFallbackSince, setApiToken, setApiBootstrapToken, ensureBootstrapExchange, VIBEOS_API_URL } from "./lib/api-client.js"
+import { isApiConnected, isApiFallback, getBackendVersion, getApiFallbackSince, setApiToken, setApiBootstrapToken, ensureBootstrapExchange, remoteCall, VIBEOS_API_URL } from "./lib/api-client.js"
 import { applySlot, reconcileSlotModel, modelCostPerTurn, detectContext7, formatUsd, classify, resolveEffectiveTier, _refreshModel, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, readConfig, getTrinitySlotOrder, loadTrinitySlotsFromTiersFile, isModelFree, resolveCurrentExecution, modelDisplayName, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, resetPendingLiveSwitch } from "./lib/pricing.js"
 import { scoreStress, detectTechStack, loadBlackboxState, saveBlackboxState, getBlackboxTracker, getBlackboxResolution, getLatestBlackboxState, saveOptimizationMode, resetBlackboxTracker, getLatestBlackboxLoopMsg, getLatestBlackboxPivotMsg } from "./lib/turn-classify.js"
 import { safeJsonParse, readFullState, loadSelection, writeSelection, readLifetimeSavings, _OC_SID, _modelLocked, _blackboxEnabled, setBlackboxEnabled, _lockedSlot, _lockedModel, setModelLocked, setLockedSlot, setLockedModel, currentTier, currentModel, currentProjectFingerprint, currentProjectName, setCurrentTier, setCurrentModel, setCurrentProjectFingerprint, setCurrentProjectName, setCurrentSessionId, getCurrentSessionId, briefedProjects, getActiveJobForProject, projectFingerprint, loadProjectState, saveProjectState, ensureProjectBucket, mergeProjectBucket, setVibeOSHomeContext, resetSessionId, SAVINGS_LEDGER_FILE, USER_HOME, CREDIT_CACHE_F, pruneScratchpadOnce, registerSessionCleanupHandlers, runStartupMaintenanceOnce, promotedProjectPatterns, projectPatternRows, clearProjectPatterns, loadTodos, getTodos, upsertTodo, markTodoDone, tool, loadSessionOrchestration, mutateSessionOrchestration } from "./lib/state.js"
@@ -211,6 +211,58 @@ let _mcpServerRestartTimer = null
 let _mcpServerShouldRun = false
 let _mcpServerClosing = false
 let _dashboardBaseUrl = null
+// Reference to the MCP server's data deps so the dashboard-sync loop can build
+// the same status/savings/sessions payloads without duplicating them.
+let _dashboardSyncDeps: any = null
+let _dashboardSyncTimer: any = null
+const DASHBOARD_SYNC_INTERVAL_MS = Number(process.env.VIBEOS_DASHBOARD_SYNC_MS || 20000)
+
+// Build the same {status, savings, sessions} payloads the local MCP server
+// serves, for pushing to the durable API. sessions_raw is stripped from status
+// to keep the payload small — the session list is sent separately.
+function buildDashboardSyncSnapshot(): Record<string, unknown> | null {
+  const deps = _dashboardSyncDeps
+  if (!deps) return null
+  try {
+    const state = (deps.getState?.() || {}) as Record<string, any>
+    const { sessions_raw, ...statusLite } = state
+    const sessionsMap = (sessions_raw && typeof sessions_raw === "object") ? sessions_raw : {}
+    const sessions = Object.entries(sessionsMap).map(([id, ses]: [string, any]) => ({
+      id,
+      started: ses?.started || null,
+      cost_usd: Number(ses?.cost_usd ?? 0) || 0,
+      delegation_savings_usd: Array.isArray(ses?.warns)
+        ? ses.warns.reduce((sum: number, w: any) => sum + (Number(w?.est_savings_usd ?? 0) || 0), 0)
+        : (ses?.total_savings_usd || 0),
+      cache_savings_usd: Number(ses?.cache_savings_usd ?? 0) || 0,
+      warns_count: Array.isArray(ses?.warns) ? ses.warns.length : 0,
+    }))
+    return {
+      status: statusLite,
+      savings: deps.getSavings?.() ?? {},
+      sessions: { sessions, total_sessions: sessions.length },
+    }
+  } catch {
+    return null
+  }
+}
+
+// Periodically push the snapshot to the API so the dashboard has durable live
+// data independent of this plugin's MCP server lifecycle. Best-effort: skipped
+// while offline; the timer is unref'd so it never keeps the process alive.
+function startDashboardSyncLoop(): void {
+  if (_dashboardSyncTimer) return
+  const push = async () => {
+    try {
+      if (isApiFallback()) return
+      const snapshot = buildDashboardSyncSnapshot()
+      if (snapshot) await remoteCall("dashboardSync", [snapshot], null)
+    } catch { }
+  }
+  void push()
+  _dashboardSyncTimer = setInterval(() => { void push() }, DASHBOARD_SYNC_INTERVAL_MS)
+  if (_dashboardSyncTimer && typeof _dashboardSyncTimer.unref === "function") _dashboardSyncTimer.unref()
+}
 let _pluginHooksRuntime = null
 let _context7Seen = new Set()
 let _prevOutputText = ""
@@ -581,7 +633,7 @@ async function ensureMcpServerRunning() {
   _mcpServerStartupPromise = Promise.resolve().then(async () => {
     try {
       if (!_mcpServerRuntime) {
-        _mcpServerRuntime = createMcpServer({
+        _dashboardSyncDeps = {
           getState: () => ({
             ...buildStatusPayload({
               selection: loadSelection(),
@@ -762,7 +814,8 @@ async function ensureMcpServerRunning() {
             })
             saveBlackboxState(state)
           },
-        })
+        }
+        _mcpServerRuntime = createMcpServer(_dashboardSyncDeps)
       }
       const requestedPort = port == null ? 0 : port
       const mcpServer = await _mcpServerRuntime.start(requestedPort)
@@ -773,6 +826,7 @@ async function ensureMcpServerRunning() {
         _dashboardBaseUrl = `http://127.0.0.1:${actualPort}`
         publishMcpRuntime(actualPort, _dashboardBaseUrl)
         writeDashboardBaseConfig(`http://127.0.0.1:${actualPort}`)
+        startDashboardSyncLoop()
       }
       console.error(`[vibeOS] MCP server on http://127.0.0.1:${actualPort}`)
       if (actualPort)

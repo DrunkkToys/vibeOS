@@ -345,6 +345,12 @@ export class VibeOSApiClient {
     return this.request("/api/v1/mode/select", { mode })
   }
 
+  // Push a dashboard snapshot (status / savings / sessions) so the API can serve
+  // it durably even when this plugin's local MCP server is down.
+  async dashboardSync(snapshot: Record<string, unknown>): Promise<unknown> {
+    return this.request("/api/v1/dashboard/sync", snapshot || {})
+  }
+
   async classifyQuery(text: string, state?: Record<string, unknown>): Promise<unknown> {
     return this.request("/api/v1/mode/classify", { text, state: state || {} })
   }
