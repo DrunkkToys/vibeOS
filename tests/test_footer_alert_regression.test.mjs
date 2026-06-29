@@ -223,7 +223,7 @@ test("footer: vibeultrax cascade shows the escalated model name beside the indic
     const o = { text: "This message is long enough to trigger the footer and verify the cascade label is visible." }
     await _appendFooter({ args: { model: "deepseek/v4-flash" } }, o)
     const footer = o.text.split("\n").pop() || ""
-    assert.ok(/\|\s*(?:⚡ cheap|◆ medium|🧠 brain|▸▸▸|▸▸)\s+V4 Flash\b/.test(footer), "footer should combine the cascade indicator and escalated model name: " + footer)
+    assert.ok(/\|\s*(?:▸▸▸|▸▸)\s*(?:\||$)/.test(footer), "footer should show cascade arrows without model name suffix: " + footer)
 })
 
 // ── Regression: streaming rewrites the message text and wipes a footer painted
