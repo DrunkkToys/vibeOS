@@ -352,7 +352,7 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
     // — tier and model stay coherent instead of a pinned "⚡ cheap | V4 Flash".
     const ultraLiveModel = displayModel || liveModel || currentModel || ""
     const ultraResolvedTier = ((): "cheap" | "medium" | "brain" => {
-      const ct = cv?.cascade_tier || cv?.control_vector?.cascade_tier
+      const ct = liveBlackboxState?.control_vector?.cascade_tier || liveBlackboxState?.cv?.cascade_tier
       if (ct === "medium" || ct === "brain") return ct
       if (TRINITY_CHEAP && ultraLiveModel === TRINITY_CHEAP) return "cheap"
       if (TRINITY_MEDIUM && ultraLiveModel === TRINITY_MEDIUM) return "medium"
