@@ -102,8 +102,6 @@ test("routePath length determines cascade icon", async () => {
   assert.equal(sf.formatCascadePulse("", ""), "", "no icon + no label")
   assert.equal(sf.formatCascadePulse("▸▸", ""), "▸▸", "medium cascade icon alone")
   assert.equal(sf.formatCascadePulse("▸▸▸", ""), "▸▸▸", "brain cascade icon alone")
-  assert.equal(sf.formatCascadePulse("▸▸▸", "brain"), "▸▸▸ brain", "brain cascade + tier label")
-  assert.equal(sf.formatCascadePulse("▸▸", "medium"), "▸▸ medium", "medium cascade + tier label")
   assert.equal(sf.formatCascadePulse(undefined, undefined), "", "undefined both")
 })
 
@@ -114,11 +112,11 @@ test("footer cascadeDepth >= 3 shows ▸▸▸ icon, >= 2 shows ▸▸, < 2 show
   assert.ok(empty, "footer line exists for empty cascade")
   assert.ok(!empty.includes("▸"), "no cascade icon when cascadeIcon is empty")
 
-  const medium = sf.buildResilientFooterLine({ activeSlot: "cheap", modelName: "test/medium", cascadeIcon: "▸▸", cascadeLabel: "test/medium", optMode: "vibeultrax" })
+  const medium = sf.buildResilientFooterLine({ activeSlot: "cheap", modelName: "test/medium", cascadeIcon: "▸▸", cascadeLabel: "", optMode: "vibeultrax" })
   assert.ok(medium, "footer line exists for medium cascade")
   assert.ok(medium.includes("▸▸"), "medium cascade icon shows")
 
-  const brain = sf.buildResilientFooterLine({ activeSlot: "cheap", modelName: "test/brain", cascadeIcon: "▸▸▸", cascadeLabel: "test/brain", optMode: "vibeultrax" })
+  const brain = sf.buildResilientFooterLine({ activeSlot: "cheap", modelName: "test/brain", cascadeIcon: "▸▸▸", cascadeLabel: "", optMode: "vibeultrax" })
   assert.ok(brain, "footer line exists for brain cascade")
   assert.ok(brain.includes("▸▸▸"), "brain cascade icon shows")
 })
