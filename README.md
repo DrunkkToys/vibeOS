@@ -1,5 +1,8 @@
 # vibeOS for OpenCode -- Innocence v0.25.55
 
+> **VIBEOS_HOME** = `/Users/drunkktoys/Library/Application Support/ai.opencode.desktop/vibeOS/`
+> All runtime state files live under `$VIBEOS_HOME` (set via `VIBEOS_HOME` env var on this machine).
+
 A quality-first control plane for AI-assisted coding.
 
 When AI coding is cheap, you use more of it. That is the upside of the current moment -- the marginal cost of a code suggestion has collapsed. But volume does not equal quality. The more you delegate to AI, the more often a mediocre suggestion slips through: a half-implemented fix, a fabricated API call, a test that passes only because the assertions are stubs. The quality problem gets worse as the cost problem gets better. vibeOS exists to solve the quality problem. The savings are a side effect.
@@ -114,7 +117,7 @@ Cache state persists across sessions in `VIBEOS_HOME/global-learning.json` with 
 Two complementary mechanisms manage context transitions:
 
 **Forward pivot** -- Detects when you abruptly change topic mid-session. Uses a composite score of word-overlap distance, instruction-density delta, message-length ratio, and action-type change. Fires when `pivotScore > 0.45`. When detected:
-1. Snapshots the current workflow (intent, files, decisions, blockers, code) to `~/.claude/.vibeos-pivot-cache.json`
+1. Snapshots the current workflow (intent, files, decisions, blockers, code) to `$VIBEOS_HOME/.vibeos-pivot-cache.json`
 2. Downgrades mode to budget (cheap tier, thinking off, relaxed enforcement)
 3. Injects a context-shift directive into the system prompt
 
@@ -138,7 +141,7 @@ The savings are real and measurable. Every write/edit on the brain tier is inter
 | Opus -> Sonnet | $0.0264 | $0.26 | $2.64 | $26.40 |
 | Sonnet -> Haiku | $0.0044 | $0.04 | $0.44 | $4.40 |
 
-The running total is persisted in ~/.claude/delegation-state.json and displayed in the live footer. Cache savings are tracked separately under cache_savings_usd.
+The running total is persisted in $VIBEOS_HOME/delegation-state.json and displayed in the live footer. Cache savings are tracked separately under cache_savings_usd.
 
 ### Model Tiers
 
@@ -435,7 +438,7 @@ This table is the single source of truth — `buildFooterAlert()` must match it 
 | Stress gauge | gaugeChar | _ | Current stress level |
 | Vector pulse | slot | cheap | Active slot changed this turn |
 
-Controls: `vibe status` for full state, `vibe enable/disable` to toggle. Persisted in ~/.claude/delegation-state.json.
+Controls: `vibe status` for full state, `vibe enable/disable` to toggle. Persisted in $VIBEOS_HOME/delegation-state.json.
 
 ### Environment Variables
 
