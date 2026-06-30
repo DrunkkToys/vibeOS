@@ -66,7 +66,9 @@ mkdirSync(join(sandbox, ".claude"), { recursive: true })
 mkdirSync(join(sandbox, ".opencode"), { recursive: true })
 
 let analyzeHits = 0
+let embeddingHits = 0
 let analyzeMode = "ok" // "ok" | "fail"
+let lastEmbeddingBody = null
 
 const server = http.createServer((req, res) => {
   let body = ""
@@ -74,6 +76,7 @@ const server = http.createServer((req, res) => {
   req.on("end", () => {
     const url = req.url || "/"
     const send = (code, obj) => { res.writeHead(code, { "Content-Type": "application/json" }); res.end(JSON.stringify(obj)) }
+    const parsedBody = body ? JSON.parse(body) : {}
     if (url.includes("/blackbox/analyze")) {
       analyzeHits++
       if (analyzeMode === "fail") return send(500, { error: "synthetic outage" })
@@ -87,7 +90,38 @@ const server = http.createServer((req, res) => {
         momentum: -0.4,
       })
     }
-    if (url.includes("/blackbox/control-vector")) return send(200, {})
+    if (url.includes("/blackbox/select-mode-embedding")) {
+      embeddingHits++
+      lastEmbeddingBody = parsedBody
+      return send(200, {
+        ok: true,
+        mode: "budget",
+        embedding: {
+          baseline_mode: parsedBody.optimization_mode || null,
+          final_mode: "budget",
+          override_applied: true,
+          similarity_delta: 0.42,
+        },
+      })
+    }
+    if (url.includes("/blackbox/control-vector")) {
+      return send(200, {
+        optimization_mode: parsedBody.optimization_mode || "budget",
+        tier_bias: parsedBody.optimization_mode === "budget" ? "cheap" : "brain",
+        selected_slot: parsedBody.optimization_mode === "budget" ? "cheap" : "brain",
+        pipeline_root: parsedBody.optimization_mode === "vibeultrax" ? ["cheap", "medium", "brain"] : ["cheap"],
+        cascade_root: parsedBody.optimization_mode === "vibeultrax" ? ["cheap", "medium", "brain"] : ["cheap"],
+        route_path: parsedBody.optimization_mode === "vibeultrax" ? ["cheap", "medium", "brain"] : ["cheap"],
+        decision: {
+          optimization_mode: parsedBody.optimization_mode || "budget",
+          requested_mode: parsedBody.requested_mode || parsedBody.optimization_mode || "budget",
+          tier_bias: parsedBody.optimization_mode === "budget" ? "cheap" : "brain",
+          selected_slot: parsedBody.optimization_mode === "budget" ? "cheap" : "brain",
+          pipeline_root: parsedBody.optimization_mode === "vibeultrax" ? ["cheap", "medium", "brain"] : ["cheap"],
+          source: "fixture",
+        },
+      })
+    }
     if (url.includes("/blackbox/select-mode")) return send(200, {})
     if (url.includes("/health")) return send(200, { status: "ok", version: "fixture" })
     return send(200, {})
@@ -106,13 +140,20 @@ writeFileSync(join(sandbox, ".claude", "model-tiers.json"), JSON.stringify({
     medium: { oc: "deepseek/deepseek-v4-flash" },
     cheap: { oc: "deepseek/deepseek-chat" },
   },
-  selection: { enabled: true, active_slot: "brain", onboarding_mode: "strict" },
+  selection: {
+    enabled: true,
+    active_slot: "cheap",
+    onboarding_mode: "strict",
+    optimization_mode: "vibeultrax",
+    requested_optimization_mode: "vibeultrax",
+  },
 }))
 
 await import("../src/index.js?bbapi=" + Date.now())
 const api = await import("../src/lib/api-client.js")
 const state = await import("../src/lib/state.js")
 const ct = await import("../src/lib/hooks/chat-transform.js")
+const turn = await import("../src/lib/turn-classify.js")
 
 api.setApiToken("vos_" + "a".repeat(64))
 state.setBlackboxEnabled(true)
@@ -137,6 +178,11 @@ test("[e2e] guard: client points at the local stub", () => {
 test("[e2e] API analysis is authoritative for the persisted regime", async () => {
   analyzeMode = "ok"
   const before = analyzeHits
+  const beforeEmbedding = embeddingHits
+  await turn.classifyTurnRemote("please implement a brand new caching layer for the dashboard")
+  assert.ok(embeddingHits > beforeEmbedding, "the embedding selector endpoint must actually be called")
+  assert.equal(lastEmbeddingBody?.optimization_mode, "vibeultrax", "session baseline mode must be forwarded to the embedding selector")
+  assert.equal(turn.lastApiPredictedMode(), "budget", "embedding selector mode must be recorded as the API-predicted mode")
   await ct.onMessagesTransform({}, { messages: userMessage("please implement a brand new caching layer for the dashboard") })
   assert.ok(analyzeHits > before, "the blackbox analyze endpoint must actually be called")
   const sessions = readSessions()
