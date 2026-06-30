@@ -11,6 +11,7 @@ import { getRealityCheckView } from "../vibeOS-lib/flow-enforcer.js"
 import { getVibeOSHome } from "./state.js"
 import { resolveDashboardBaseUrlFromState } from "./dashboard-base-url.js"
 import { collectOpenCodeConfigPaths, installVibeTierAgents, VIBE_PRIMARY_AGENT } from "./runtime-config.js"
+import { getSessionSavingsDiagnostics } from "./session-savings.js"
 
 // ── Named constants (magic number extraction) ────────────────────────
 const MIN_TOOL_BREAKDOWN_THRESHOLD = 0.005
@@ -156,12 +157,31 @@ function readJsonFile(deps, path) {
   try { return deps.safeJsonParse(deps.readFileSync(path, "utf-8")) || null } catch { return null }
 }
 
+function collectDiagnoseOpenCodeConfigPaths(deps) {
+  const base = process.env.HOME || ""
+  const candidates = [
+    ...collectOpenCodeConfigPaths(deps.directory || ""),
+    base ? join(base, ".config", "opencode", "opencode.json") : "",
+    base ? join(base, ".local", "share", "opencode", "opencode.json") : "",
+  ]
+  const seen = new Set()
+  return candidates.filter((path) => {
+    const key = String(path || "").trim()
+    if (!key || seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
 function resolveLoadedPluginPath(deps) {
   const candidates = []
-  const oc = readJsonFile(deps, join(deps.OPENCODE_HOME, "opencode.json"))
-  const plugins = Array.isArray(oc?.plugin) ? oc.plugin : []
-  for (const entry of plugins) {
-    if (String(entry || "").includes("vibeOS")) candidates.push(String(entry))
+  const ocConfigPaths = collectDiagnoseOpenCodeConfigPaths(deps)
+  for (const configPath of ocConfigPaths) {
+    const oc = readJsonFile(deps, configPath)
+    const plugins = Array.isArray(oc?.plugin) ? oc.plugin : []
+    for (const entry of plugins) {
+      if (String(entry || "").includes("vibeOS")) candidates.push(String(entry))
+    }
   }
   candidates.push(join(deps.OPENCODE_HOME, "plugins", "vibeOS.js"))
   if (deps.directory) candidates.push(join(deps.directory, "plugins", "vibeOS.js"))
@@ -1321,7 +1341,8 @@ export function createTrinityTool(deps) {
 
       if (action === "diagnose") {
         const results = []
-        const ocConfig = join(deps.OPENCODE_HOME, "opencode.json")
+        const ocConfigPaths = collectDiagnoseOpenCodeConfigPaths(deps)
+        const ocConfig = ocConfigPaths.find((path) => deps.existsSync(path)) || ocConfigPaths[0] || join(deps.OPENCODE_HOME, "opencode.json")
         const apiFallbackActive = typeof deps.isApiFallback === "function" ? deps.isApiFallback() : false
         const diagnoseCascade = String(slot || "").toLowerCase() === "cascade"
 
@@ -1339,6 +1360,23 @@ export function createTrinityTool(deps) {
             fix: deps.existsSync(c.path) ? null : (c.label === "model-tiers.json" ? "run \`trinity rebuild\` to create it" : undefined),
           })
         }
+        const configuredPluginRefs = ocConfigPaths.flatMap((configPath) => {
+          const ocConfigJson = readJsonFile(deps, configPath)
+          return Array.isArray(ocConfigJson?.plugin)
+            ? ocConfigJson.plugin.filter((entry) => String(entry || "").includes("vibeOS")).map((entry) => String(entry))
+            : []
+        })
+        const staleConfiguredPlugin = configuredPluginRefs.find((entry) => !deps.existsSync(entry))
+        const loadedPluginPath = resolveLoadedPluginPath(deps)
+        results.push({
+          ok: !staleConfiguredPlugin && Boolean(loadedPluginPath) && deps.existsSync(loadedPluginPath),
+          okLabel: !staleConfiguredPlugin && Boolean(loadedPluginPath) && deps.existsSync(loadedPluginPath) ? "\u2705" : "\u274c",
+          label: "plugin path",
+          detail: staleConfiguredPlugin || loadedPluginPath || "missing",
+          fix: !staleConfiguredPlugin && Boolean(loadedPluginPath) && deps.existsSync(loadedPluginPath)
+            ? null
+            : "run \`npx vibeostheog setup --project\` to repair stale vibeOS plugin registration",
+        })
         if (diagnoseCascade) {
           results.push(...cascadeDiagnosticResults(deps))
         }
@@ -1440,10 +1478,12 @@ export function createTrinityTool(deps) {
 
         try {
           const state = deps.safeJsonParse(deps.readFileSync(deps.STATE_FILE, "utf-8"))
-          const sid = String(process.pid || "?")
-          const ses = state?.sessions?.[sid]
+          const sessions = state?.sessions && typeof state.sessions === "object" ? state.sessions : {}
+          const sid = String(deps._OC_SID || process.pid || "?")
+          const ses = sessions?.[sid] || sessions?.[String(process.pid || "?")] || Object.values(sessions)[0]
           const delegationCount = ses?.warns?.length || 0
           const cacheSavings = deps.formatUsd(state?.lifetime?.cache_savings_usd || 0)
+          const savingsDiag = getSessionSavingsDiagnostics(ses)
           const fw = (state?.flow_warns || []).filter(w => String(w.sid) === sid)
           const flowW = fw.filter(w => w.severity === "warn").length
           const flowH = fw.filter(w => w.severity === "hint").length
@@ -1453,6 +1493,13 @@ export function createTrinityTool(deps) {
             ok: true, okLabel: "\u2705",
             label: "session",
             detail: `${delegationCount} delegates, $${cacheSavings} cache, ${flowW}w/${flowH}h flow, ${tdd} TDD${enf}`,
+          })
+          results.push({
+            ok: !savingsDiag.diverged,
+            okLabel: !savingsDiag.diverged ? "\u2705" : "\u26A0",
+            label: "savings sync",
+            detail: `delegation=$${savingsDiag.delegationUsd.toFixed(4)} live=$${savingsDiag.liveUsd.toFixed(4)} warns=$${savingsDiag.warnUsd.toFixed(4)} cache=$${savingsDiag.cacheUsd.toFixed(4)}`,
+            fix: savingsDiag.diverged ? "session totals diverged from warn/live snapshots — prefer persisted session totals and inspect recent footer snapshots" : null,
           })
         } catch {
           results.push({ ok: true, okLabel: "\u2705", label: "session", detail: "no state file yet" })

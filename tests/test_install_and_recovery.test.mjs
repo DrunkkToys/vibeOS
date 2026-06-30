@@ -804,6 +804,47 @@ test("install: setup --project registers the project opencode.json against the s
   }
 })
 
+test("install: setup --project repairs stale temp vibeOS plugin refs and preserves unrelated plugins", async () => {
+  const sb = mkdtempSync(join(tmpdir(), "install-setup-stale-project-"))
+  const prevHome = process.env.HOME
+  const prevUserProfile = process.env.USERPROFILE
+  process.env.HOME = sb
+  process.env.VIBEOS_HOME = join(sb, ".claude")
+  process.env.USERPROFILE = sb
+  try {
+    const projectDir = join(sb, "workspace", "project")
+    mkdirSync(projectDir, { recursive: true })
+    writeFileSync(join(projectDir, "opencode.json"), JSON.stringify({
+      plugin: [
+        "/private/tmp/vibeos-setup-dead/.opencode/plugins/vibeOS.js",
+        "./plugins/other.js"
+      ]
+    }, null, 2))
+
+    const result = spawnSync(process.execPath, [join(ROOT, "bin", "setup.js"), "set", "--project"], {
+      cwd: projectDir,
+      env: { ...process.env, HOME: sb, USERPROFILE: sb },
+      encoding: "utf8",
+      timeout: 20000,
+    })
+    assert.equal(result.status, 0, result.stderr || result.stdout)
+
+    const globalPluginRef = join(sb, ".opencode", "plugins", "vibeOS.js")
+    const projectConfig = JSON.parse(readFileSync(join(projectDir, "opencode.json"), "utf8"))
+    assert.deepEqual(
+      projectConfig.plugin.filter((p) => typeof p === "string" && p.includes("vibeOS")),
+      [globalPluginRef],
+      "stale temp vibeOS ref should be replaced by the canonical installed bundle",
+    )
+    assert.ok(projectConfig.plugin.includes("./plugins/other.js"), "unrelated plugin refs remain")
+  } finally {
+    process.env.HOME = prevHome
+    if (prevUserProfile === undefined) delete process.env.USERPROFILE
+    else process.env.USERPROFILE = prevUserProfile
+    rmSync(sb, { recursive: true, force: true })
+  }
+})
+
 test("bare machine: no opencode.json but OPENCODE_MODEL env var set", async () => {
   const sb = freshSandbox()
   const prevHome = process.env.HOME

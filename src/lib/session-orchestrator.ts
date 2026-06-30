@@ -3,6 +3,7 @@
 
 import { createHash } from "node:crypto"
 import { DEFAULT_TEMPLATE, TEMPLATE_LIBRARY as TEMPLATE_LIBRARY_SOURCE, normalizeSessionTemplate as normalizeSessionTemplateSource, resolveSessionTemplateDefinition as resolveSessionTemplateDefinitionSource } from "./templates.js"
+import { getSessionCacheSavings, getSessionDelegationSavings } from "./session-savings.js"
 
 export const TEMPLATE_LIBRARY = TEMPLATE_LIBRARY_SOURCE
 export const normalizeSessionTemplate = normalizeSessionTemplateSource
@@ -386,8 +387,8 @@ function pickSessionMetrics(session: AnyObject, metrics: AnyObject = {}): AnyObj
     template_id: session?.orchestration?.template?.id || DEFAULT_TEMPLATE,
     template_label: session?.orchestration?.template?.label || "Save",
     template_signature: session?.orchestration?.template?.signature || null,
-    delegation_savings_usd: Number(metrics?.sesTasks ?? session?.total_savings_usd ?? 0) || 0,
-    cache_savings_usd: Number(session?.cache_savings_usd ?? 0) || 0,
+    delegation_savings_usd: getSessionDelegationSavings(session),
+    cache_savings_usd: getSessionCacheSavings(session),
     duration_seconds: Number(metrics?.sesDuration ?? session?.duration_seconds ?? 0) || 0,
   }
 }

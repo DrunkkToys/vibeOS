@@ -37,6 +37,7 @@ import { getOpenCodeHome, getVibeOSHome } from "./lib/state.js"
 import { resetTurnClassifyRuntimeState } from "./lib/turn-classify.js"
 import { getTiersFile, getReportsDir, getReportsIndex, getStateFile, getMcpRuntimeFile, readPublishedMcpRuntime, publishMcpRuntime } from "./lib/bootstrap-paths.js"
 import { flushDashboardMutationQueue, primeDashboardBridgeCache, queueDashboardProjectionRefresh } from "./lib/dashboard-bridge.js"
+import { getSessionDelegationSavings } from "./lib/session-savings.js"
 function ensureDeferredBootstrap() {
   if (_deferredBootstrapDone || _modelLocked)
     return
@@ -232,9 +233,7 @@ function buildDashboardSyncSnapshot(): Record<string, unknown> | null {
       id,
       started: ses?.started || null,
       cost_usd: Number(ses?.cost_usd ?? 0) || 0,
-      delegation_savings_usd: Array.isArray(ses?.warns)
-        ? ses.warns.reduce((sum: number, w: any) => sum + (Number(w?.est_savings_usd ?? 0) || 0), 0)
-        : (ses?.total_savings_usd || 0),
+      delegation_savings_usd: getSessionDelegationSavings(ses),
       cache_savings_usd: Number(ses?.cache_savings_usd ?? 0) || 0,
       warns_count: Array.isArray(ses?.warns) ? ses.warns.length : 0,
     }))

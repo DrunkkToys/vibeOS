@@ -2,8 +2,8 @@
 
 // src/bin/setup.ts
 import { execSync } from "node:child_process";
-import { readFileSync as readFileSync2, writeFileSync as writeFileSync2, existsSync as existsSync2, mkdirSync as mkdirSync2, renameSync as renameSync2 } from "node:fs";
-import { dirname as dirname2, resolve } from "node:path";
+import { readFileSync as readFileSync2, writeFileSync as writeFileSync2, existsSync as existsSync3, mkdirSync as mkdirSync2, renameSync as renameSync2 } from "node:fs";
+import { dirname as dirname2, resolve as resolve2 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // scripts/lib/opencode-homes.mjs
@@ -115,9 +115,42 @@ function installVibeTierAgentsInConfig(config, tiers = readTiers()) {
   return changed;
 }
 
+// scripts/lib/plugin-config.mjs
+import { existsSync as existsSync2 } from "node:fs";
+import { resolve } from "node:path";
+function resolveVibeOSPluginRef(home) {
+  return resolve(home, "plugins", "vibeOS.js");
+}
+function normalizeVibeOSPluginRefs(pluginList, canonicalPluginRef) {
+  const refs = Array.isArray(pluginList) ? pluginList : [];
+  const kept = [];
+  let hasCanonical = false;
+  for (const ref of refs) {
+    if (typeof ref !== "string") {
+      kept.push(ref);
+      continue;
+    }
+    if (!ref.includes("vibeOS")) {
+      kept.push(ref);
+      continue;
+    }
+    const normalized = resolve(ref);
+    if (normalized === canonicalPluginRef || ref === canonicalPluginRef) {
+      if (!hasCanonical) {
+        hasCanonical = true;
+        kept.push(canonicalPluginRef);
+      }
+      continue;
+    }
+    if (existsSync2(normalized)) continue;
+  }
+  if (!hasCanonical) kept.push(canonicalPluginRef);
+  return kept;
+}
+
 // src/bin/setup.ts
 var __dirname = dirname2(fileURLToPath(import.meta.url));
-var root = resolve(__dirname, "..");
+var root = resolve2(__dirname, "..");
 var args = process.argv.slice(2);
 var command = args.find((a) => !a.startsWith("-")) ?? "setup";
 var isInstallCommand = command === "setup" || command === "set";
@@ -136,16 +169,16 @@ writeLine();
 writeLine("Installing to:");
 for (const h of resolveOpenCodeHomes({ cwd: process.cwd() })) writeLine("  " + h);
 writeLine();
-var deployScript = resolve(root, "scripts", "deploy.mjs");
-if (!existsSync2(deployScript)) {
+var deployScript = resolve2(root, "scripts", "deploy.mjs");
+if (!existsSync3(deployScript)) {
   console.error("Fatal: scripts/deploy.mjs not found at", deployScript);
   process.exit(1);
 }
 execSync(`node "${deployScript}"`, { stdio: "inherit", cwd: process.cwd() });
 if (isProject) {
-  const configPath = resolve(process.cwd(), "opencode.json");
+  const configPath = resolve2(process.cwd(), "opencode.json");
   let config = {};
-  if (existsSync2(configPath)) {
+  if (existsSync3(configPath)) {
     try {
       config = JSON.parse(readFileSync2(configPath, "utf8"));
     } catch {
@@ -156,10 +189,9 @@ if (isProject) {
   if (!config.$schema) config.$schema = "https://opencode.ai/config.json";
   if (!Array.isArray(config.plugin)) config.plugin = [];
   const installHome = resolveOpenCodeHome({ cwd: process.cwd() });
-  const pluginRef = resolve(installHome, "plugins", "vibeOS.js");
-  config.plugin = config.plugin.filter((p) => !(typeof p === "string" && p.includes("vibeOS")));
+  const pluginRef = resolveVibeOSPluginRef(installHome);
+  config.plugin = normalizeVibeOSPluginRefs(config.plugin, pluginRef);
   installVibeTierAgentsInConfig(config);
-  if (!config.plugin.includes(pluginRef)) config.plugin.push(pluginRef);
   mkdirSync2(dirname2(configPath), { recursive: true });
   const tmp = `${configPath}.tmp.${process.pid}.${Date.now()}`;
   writeFileSync2(tmp, JSON.stringify(config, null, 2) + "\n");
