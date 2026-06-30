@@ -2,6 +2,7 @@ import test from "node:test"
 import assert from "node:assert/strict"
 import http from "node:http"
 
+import * as apiClient from "../src/lib/api-client.js"
 import { createMcpServer } from "../src/lib/vibeos-mcp-server.js"
 
 test("dashboard API serves home, templates, and session actions", async () => {
@@ -383,6 +384,89 @@ test("dashboard API falls back when backend capabilities are missing", async () 
     assert.equal(capabilities.web_search.backend_status, 404)
   } finally {
     process.env.VIBEOS_API_URL = previousApiUrl
+    await server.close()
+    await new Promise((resolve) => backend.close(() => resolve()))
+  }
+})
+
+test("dashboard API proxies canonical backend dashboard read endpoints", async () => {
+  const backend = http.createServer((req, res) => {
+    const url = new URL(req.url || "/", "http://127.0.0.1")
+    res.setHeader("Content-Type", "application/json")
+    if (req.method === "GET" && url.pathname === "/api/v1/dashboard/status") {
+      res.end(JSON.stringify({ source: "backend", enabled: true, version: "9.9.9" }))
+      return
+    }
+    if (req.method === "GET" && url.pathname === "/api/v1/dashboard/savings") {
+      res.end(JSON.stringify({ source: "backend", lifetime: { delegation_usd: 12 } }))
+      return
+    }
+    if (req.method === "GET" && url.pathname === "/api/v1/dashboard/sessions") {
+      res.end(JSON.stringify({ source: "backend", sessions: [{ id: "remote-sid", cost_usd: 2.5 }], total_sessions: 1 }))
+      return
+    }
+    if (req.method === "GET" && url.pathname === "/api/v1/dashboard/sessions/current") {
+      res.end(JSON.stringify({ source: "backend", session: { session_id: "remote-sid" }, metrics: { sesDuration: 10 } }))
+      return
+    }
+    res.statusCode = 404
+    res.end(JSON.stringify({ error: "not found" }))
+  })
+
+  const backendPort = await new Promise((resolve, reject) => {
+    backend.once("error", reject)
+    backend.listen(0, "127.0.0.1", () => {
+      const address = backend.address()
+      resolve(typeof address === "object" && address ? address.port : 0)
+    })
+  })
+  const previousApiUrl = process.env.VIBEOS_API_URL
+  const previousApiToken = process.env.VIBEOS_API_TOKEN
+  process.env.VIBEOS_API_URL = `http://127.0.0.1:${backendPort}`
+  process.env.VIBEOS_API_TOKEN = `vos_${"a".repeat(64)}`
+  apiClient.setApiToken(process.env.VIBEOS_API_TOKEN)
+
+  const server = createMcpServer({
+    getState: () => ({ enabled: false, sessions_raw: {} }),
+    getSavings: () => ({ lifetime: { delegation_usd: 0 } }),
+    getTodos: () => [],
+    getSessionMetrics: () => ({ sesDuration: 1 }),
+    getCurrentSessionId: () => "local-sid",
+    listReports: () => [],
+    readReport: () => null,
+    runDiagnose: () => ({ ok: true }),
+    runProject: () => ({ ok: true }),
+    runTrinity: async () => "ok",
+    runResearchAudit: () => ({ ok: true }),
+    saveReport: () => "report-1",
+    generateSessionCheckout: () => ({ ok: true }),
+    getBlackboxState: () => ({ enabled: true, sessions: {} }),
+    saveBlackboxVector: () => {},
+    saveBlackboxOutcome: () => {},
+    listSessionTemplates: () => [],
+    getSessionOrchestration: () => null,
+    mutateSessionOrchestration: () => null,
+  })
+
+  const instance = await server.start(0)
+  const address = instance.address()
+  const port = typeof address === "object" && address ? address.port : 0
+  const base = `http://127.0.0.1:${port}`
+  try {
+    const status = await fetch(`${base}/status`).then((r) => r.json())
+    const savings = await fetch(`${base}/savings`).then((r) => r.json())
+    const sessions = await fetch(`${base}/sessions`).then((r) => r.json())
+    const current = await fetch(`${base}/sessions/current`).then((r) => r.json())
+
+    assert.equal(status.source, "backend")
+    assert.equal(savings.source, "backend")
+    assert.equal(sessions.source, "backend")
+    assert.equal(current.source, "backend")
+    assert.equal(current.session.session_id, "remote-sid")
+  } finally {
+    apiClient.invalidateApiToken()
+    process.env.VIBEOS_API_URL = previousApiUrl
+    process.env.VIBEOS_API_TOKEN = previousApiToken
     await server.close()
     await new Promise((resolve) => backend.close(() => resolve()))
   }
