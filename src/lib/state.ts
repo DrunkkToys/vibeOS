@@ -1031,7 +1031,12 @@ function _mirrorLiveControlVector(state: unknown): boolean {
     changed = true
   }
   if (!state.sessions[currentSid] || typeof state.sessions[currentSid] !== "object") {
-    state.sessions[currentSid] = {}
+    state.sessions[currentSid] = {
+      tier: currentTier || "",
+      model: currentModel || "",
+      provider: String(currentModel || "").split("/")[0] || "",
+      mode: "",
+    }
     changed = true
   }
   const targetSession = state.sessions[currentSid]
@@ -1115,7 +1120,7 @@ export function recordLiveSessionSnapshot(input: {
       state.sessions ??= {}
       state.lifetime ??= {}
       if (!state.sessions[sid]) {
-        state.sessions[sid] = { warns: [], cache_hits: [] }
+        state.sessions[sid] = { warns: [], cache_hits: [], tier: currentTier || "", model: currentModel || "", provider: String(currentModel || "").split("/")[0] || "", mode: "" }
       }
       const ses = state.sessions[sid]
       const loopSnapshot = _mergeLiveLoopSnapshot(ses, input, { resolutionState, resolutionReason, now: Date.now() })

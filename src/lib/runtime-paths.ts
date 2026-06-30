@@ -23,7 +23,11 @@ export function resolveOpenCodeHomes(): string[] {
   const override = process.env.VIBEOS_OPENCODE_HOME || process.env.OPENCODE_HOME
   if (override) return [override]
   const base = process.env.HOME || USER_HOME
-  return [join(base, ".opencode")]
+  const homes = [join(base, ".opencode")]
+  const xdgConfig = process.env.XDG_CONFIG_HOME || join(base, ".config")
+  const xdgOpenCode = join(xdgConfig, "opencode")
+  if (xdgOpenCode !== homes[0]) homes.push(xdgOpenCode)
+  return homes
 }
 
 function hasOpenCodeConfig(dir: string): boolean {
