@@ -839,6 +839,8 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
     console.error("[vibeOS] syncControlSettings failed:", err?.message || err)
     const fallbackSel = loadSelection()
     const fallbackSlot = fallbackSel?.active_slot || cv?.tier_bias || null
+    const fallbackEntrySlot = fallbackSel?.entry_slot || fallbackSel?.active_slot || rootSlotForControlVector(cv, modeCascadeRoot(cv?.optimization_mode, cv?.cascade_root || cv?.pipeline_root, cv?.selected_slot || cv?.tier_bias)) || cv?.tier_bias || null
+    const fallbackWorkerSlot = fallbackSel?.worker_slot || fallbackSel?.selected_slot || normalizeSlot(cv?.selected_slot || cv?.tier_bias) || null
     return {
       applied_slot: fallbackSlot,
       applied_mode: cv?.optimization_mode || null,
@@ -848,8 +850,8 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
       optimization_mode: cv?.optimization_mode || null,
       tier_bias: cv?.tier_bias || null,
       selected_slot: cv?.selected_slot || cv?.tier_bias || null,
-      entry_slot: entrySlot || null,
-      worker_slot: workerSlot || null,
+      entry_slot: fallbackEntrySlot,
+      worker_slot: fallbackWorkerSlot,
       pipeline_root: modeCascadeRoot(cv?.optimization_mode, cv?.cascade_root || cv?.pipeline_root, cv?.selected_slot || cv?.tier_bias),
       cascade_root: modeCascadeRoot(cv?.optimization_mode, cv?.cascade_root || cv?.pipeline_root, cv?.selected_slot || cv?.tier_bias),
       route_path: normalizeRoutePath(cv?.route_path || cv?.pipeline_root, cv?.selected_slot || cv?.tier_bias),
