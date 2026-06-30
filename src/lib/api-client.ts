@@ -351,6 +351,36 @@ export class VibeOSApiClient {
     return this.request("/api/v1/dashboard/sync", snapshot || {})
   }
 
+  async dashboardStatus(): Promise<unknown> {
+    return this.request("/api/v1/dashboard/status", null)
+  }
+
+  async dashboardSavings(): Promise<unknown> {
+    return this.request("/api/v1/dashboard/savings", null)
+  }
+
+  async dashboardSessions(): Promise<unknown> {
+    return this.request("/api/v1/dashboard/sessions", null)
+  }
+
+  async dashboardCurrentSession(sessionId = ""): Promise<unknown> {
+    const suffix = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : ""
+    return this.request("/api/v1/dashboard/sessions/current" + suffix, null)
+  }
+
+  async dashboardEvents(cursor = ""): Promise<unknown> {
+    const suffix = cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""
+    return this.request("/api/v1/dashboard/events" + suffix, null)
+  }
+
+  async dashboardMutation(mutation: Record<string, unknown>): Promise<unknown> {
+    return this.request("/api/v1/dashboard/mutations", mutation || {})
+  }
+
+  async dashboardMutationsReplay(input: Record<string, unknown>): Promise<unknown> {
+    return this.request("/api/v1/dashboard/mutations/replay", input || {})
+  }
+
   async classifyQuery(text: string, state?: Record<string, unknown>): Promise<unknown> {
     return this.request("/api/v1/mode/classify", { text, state: state || {} })
   }
@@ -813,7 +843,7 @@ export async function ensureBootstrapExchange(): Promise<boolean> {
   _bootstrapExchangeInFlight = (async () => {
     try {
       const client = new VibeOSApiClient({
-        baseUrl: VIBEOS_API_URL,
+        baseUrl: resolveApiUrl(),
         timeout: 5000,
       })
       const apiToken = await client.exchangeBootstrapToken(VIBEOS_API_BOOTSTRAP_TOKEN, ALPHA_BUILD_CHANNEL)
@@ -874,11 +904,12 @@ function syncApiTokenFromDisk(): void {
 export function getApiClient() {
   syncApiTokenFromDisk()
   if (_apiClientHolder.client && _apiClientHolder.gen === _apiClientGen) {
+    _apiClientHolder.client.baseUrl = resolveApiUrl()
     return _apiClientHolder.client
   }
   if (isRuntimeApiEnabled() && VIBEOS_API_TOKEN) {
     _apiClientHolder.client = new VibeOSApiClient({
-      baseUrl: VIBEOS_API_URL,
+      baseUrl: resolveApiUrl(),
       apiToken: VIBEOS_API_TOKEN,
       timeout: 5000,
     })

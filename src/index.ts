@@ -36,6 +36,7 @@ import { installVibeTierAgents } from "./lib/runtime-config.js"
 import { getOpenCodeHome, getVibeOSHome } from "./lib/state.js"
 import { resetTurnClassifyRuntimeState } from "./lib/turn-classify.js"
 import { getTiersFile, getReportsDir, getReportsIndex, getStateFile, getMcpRuntimeFile, readPublishedMcpRuntime, publishMcpRuntime } from "./lib/bootstrap-paths.js"
+import { flushDashboardMutationQueue, primeDashboardBridgeCache, queueDashboardProjectionRefresh } from "./lib/dashboard-bridge.js"
 function ensureDeferredBootstrap() {
   if (_deferredBootstrapDone || _modelLocked)
     return
@@ -218,8 +219,8 @@ let _dashboardSyncTimer: any = null
 const DASHBOARD_SYNC_INTERVAL_MS = Number(process.env.VIBEOS_DASHBOARD_SYNC_MS || 20000)
 
 // Build the same {status, savings, sessions} payloads the local MCP server
-// serves, for pushing to the durable API. sessions_raw is stripped from status
-// to keep the payload small — the session list is sent separately.
+// serves, but treat them as the local projection/journal input rather than the
+// authoritative durable state.
 function buildDashboardSyncSnapshot(): Record<string, unknown> | null {
   const deps = _dashboardSyncDeps
   if (!deps) return null
@@ -237,26 +238,38 @@ function buildDashboardSyncSnapshot(): Record<string, unknown> | null {
       cache_savings_usd: Number(ses?.cache_savings_usd ?? 0) || 0,
       warns_count: Array.isArray(ses?.warns) ? ses.warns.length : 0,
     }))
+    const currentSessionId = deps.getCurrentSessionId?.() || _OC_SID
     return {
       status: statusLite,
       savings: deps.getSavings?.() ?? {},
       sessions: { sessions, total_sessions: sessions.length },
+      current_session: {
+        session_id: currentSessionId,
+      },
     }
   } catch {
     return null
   }
 }
 
-// Periodically push the snapshot to the API so the dashboard has durable live
-// data independent of this plugin's MCP server lifecycle. Best-effort: skipped
-// while offline; the timer is unref'd so it never keeps the process alive.
+// Periodically persist the latest local projection into the write-behind bridge
+// and flush pending mutations to the durable backend. The backend becomes the
+// source of truth when reachable; the bridge preserves continuity when it is not.
 function startDashboardSyncLoop(): void {
   if (_dashboardSyncTimer) return
   const push = async () => {
     try {
-      if (isApiFallback()) return
       const snapshot = buildDashboardSyncSnapshot()
-      if (snapshot) await remoteCall("dashboardSync", [snapshot], null)
+      if (!snapshot) return
+      primeDashboardBridgeCache(snapshot)
+      queueDashboardProjectionRefresh({
+        session_id: _dashboardSyncDeps?.getCurrentSessionId?.() || _OC_SID,
+        status: snapshot.status,
+        savings: snapshot.savings,
+        sessions: snapshot.sessions,
+        current_session: snapshot.current_session,
+      })
+      if (!isApiFallback()) await flushDashboardMutationQueue()
     } catch { }
   }
   void push()

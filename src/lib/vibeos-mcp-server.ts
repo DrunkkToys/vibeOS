@@ -7,6 +7,8 @@ import { parse as parseUrl } from "node:url"
 import { createReadStream, existsSync, mkdirSync, statSync, writeFileSync } from "node:fs"
 import { extname, join, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
+import { flushDashboardMutationQueue, getDashboardBridgeBacklogCount, getDashboardBridgeProjection, primeDashboardBridgeCache, queueDashboardProjectionRefresh } from "./dashboard-bridge.js"
+import { resolveApiToken } from "./api-client.js"
 import { applySessionAction, buildDashboardHomeModel, buildSessionDetail, compareSessionOrchestrations, exportSessionOrchestration, importSessionOrchestration, TEMPLATE_LIBRARY } from "./session-orchestrator.js"
 
 const MIME_MAP: Record<string, string> = {
@@ -157,12 +159,15 @@ function buildCapabilityFallback(backendStatus = 0): Record<string, unknown> {
 async function proxyBackendJson(path: string, options: { method?: string; body?: unknown } = {}): Promise<{ status: number; data: unknown }> {
   const base = resolveBackendApiBase()
   const url = new URL(path, base.endsWith("/") ? base : `${base}/`).href
+  const token = resolveApiToken()
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "X-Requested-With": "vibeOS-dashboard",
+  }
+  if (token) headers.Authorization = "Bearer " + token
   const response = await fetch(url, {
     method: options.method || "GET",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Requested-With": "vibeOS-dashboard",
-    },
+    headers,
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
   })
   const text = await response.text()
@@ -188,6 +193,86 @@ function getSessionOrchestrationState(deps: Deps, sessionId: string): any {
   const state = deps.getState() as Record<string, unknown>
   const session = getSessionsFromState(state)?.[sessionId] || {}
   return session?.orchestration || null
+}
+
+function buildLocalStatus(deps: Deps, probe: { ok: boolean | null; version: string | null }): Record<string, unknown> {
+  const state = deps.getState() as Record<string, unknown>
+  const bb = deps.getBlackboxState()
+  return {
+    ...state,
+    backend_connected: probe.ok === true,
+    backend_health_url: BACKEND_HEALTH_URL,
+    backend_version: probe.version,
+    blackbox: bb ?? null,
+    dashboard_backlog_count: getDashboardBridgeBacklogCount(),
+  }
+}
+
+function buildLocalSavings(deps: Deps): unknown {
+  return deps.getSavings()
+}
+
+function buildLocalSessions(deps: Deps): { sessions: unknown[]; total_sessions: number } {
+  const state = deps.getState() as Record<string, unknown> | null
+  const sessionsMap = getSessionsFromState(state)
+  const currentSessionId = deps.getCurrentSessionId()
+  const sessions = Object.entries(sessionsMap).map(([id, ses]) => ({
+    ...buildSessionDetail(id, ses, deps.getSessionMetrics(id), deps.getBlackboxState() || {}, { current_session_id: currentSessionId }),
+    started: ses?.started || null,
+    cost_usd: Number(ses?.cost_usd ?? 0) || 0,
+    delegation_savings_usd: Array.isArray(ses?.warns)
+      ? (ses.warns as Array<Record<string, unknown>>).reduce((sum, w) => sum + (Number(w?.est_savings_usd ?? 0) || 0), 0)
+      : ses?.total_savings_usd || 0,
+    cache_savings_usd: Number(ses?.cache_savings_usd ?? 0) || 0,
+    warns_count: Array.isArray(ses?.warns) ? ses.warns.length : 0,
+  }))
+  return { sessions, total_sessions: sessions.length }
+}
+
+function buildLocalCurrentSession(deps: Deps, sessionId: string): Record<string, unknown> {
+  const state = deps.getState() as Record<string, any>
+  const session = getSessionsFromState(state)?.[sessionId] || {}
+  return {
+    session: buildSessionDetail(sessionId, session, deps.getSessionMetrics(sessionId), deps.getBlackboxState() || {}, { current_session_id: deps.getCurrentSessionId() }),
+    metrics: deps.getSessionMetrics(sessionId),
+    orchestration: getSessionOrchestrationState(deps, sessionId),
+  }
+}
+
+async function refreshDashboardProjectionCache(deps: Deps, sessionId: string): Promise<void> {
+  queueDashboardProjectionRefresh({
+    session_id: sessionId,
+    status: buildLocalStatus(deps, { ok: null, version: null }),
+    savings: buildLocalSavings(deps),
+    sessions: buildLocalSessions(deps),
+    current_session: buildLocalCurrentSession(deps, sessionId),
+  })
+  await flushDashboardMutationQueue()
+}
+
+async function readDashboardProjection(path: string, kind: "status" | "savings" | "sessions" | "current_session", fallback: unknown): Promise<unknown> {
+  try {
+    const { status, data } = await proxyBackendJson(path)
+    if (status >= 200 && status < 300) {
+      primeDashboardBridgeCache({ [kind]: data })
+      return data
+    }
+  } catch {}
+  return getDashboardBridgeProjection(kind, fallback)
+}
+
+function mergeStatusProjection(local: Record<string, unknown>, projected: unknown): Record<string, unknown> {
+  if (!projected || typeof projected !== "object") return local
+  const remote = projected as Record<string, unknown>
+  return {
+    ...local,
+    ...remote,
+    backend_connected: remote.backend_connected ?? remote.backendConnected ?? local.backend_connected,
+    backend_health_url: remote.backend_health_url ?? local.backend_health_url,
+    backend_version: remote.backend_version ?? local.backend_version,
+    blackbox: remote.blackbox ?? local.blackbox,
+    dashboard_backlog_count: remote.dashboard_backlog_count ?? local.dashboard_backlog_count,
+  }
 }
 
 let backendHealth: { ok: boolean | null; checkedAt: number; version: string | null } = { ok: null, checkedAt: 0, version: null }
@@ -258,23 +343,27 @@ export function createMcpServer(deps: Deps): McpServer {
       }
 
       if (method === "GET" && path === "/status") {
-        const state = deps.getState() as Record<string, unknown>
         const probe = await probeBackendHealth()
-        const bb = deps.getBlackboxState()
-        json(res, 200, { ...state, backend_connected: probe.ok === true, backend_health_url: BACKEND_HEALTH_URL, backend_version: probe.version, blackbox: bb ?? null })
+        const local = buildLocalStatus(deps, probe)
+        const status = mergeStatusProjection(local, await readDashboardProjection("/api/v1/dashboard/status", "status", local))
+        json(res, 200, status)
         return
       }
       if (method === "GET" && path === "/dashboard/home") {
-        const state = deps.getState() as Record<string, any>
         const currentSessionId = deps.getCurrentSessionId()
+        const state = mergeStatusProjection(
+          buildLocalStatus(deps, { ok: null, version: null }),
+          await readDashboardProjection("/api/v1/dashboard/status", "status", buildLocalStatus(deps, { ok: null, version: null })),
+        ) as Record<string, any>
+        const savings = await readDashboardProjection("/api/v1/dashboard/savings", "savings", buildLocalSavings(deps))
         const blackbox = deps.getBlackboxState() || {}
         const home = buildDashboardHomeModel({
           currentSessionId,
           status: state,
-          savings: deps.getSavings(),
+          savings,
           todos: deps.getTodos() as any[],
           blackbox,
-          sessions: getSessionsFromState(state),
+          sessions: getSessionsFromState(deps.getState() as Record<string, any>),
           metrics: deps.getSessionMetrics(currentSessionId),
           templates: (typeof deps.listSessionTemplates === "function" ? deps.listSessionTemplates() : TEMPLATE_LIBRARY) as any[],
           currentProjectName: deps.currentProjectName || "",
@@ -307,7 +396,8 @@ export function createMcpServer(deps: Deps): McpServer {
         return
       }
       if (method === "GET" && path === "/savings") {
-        json(res, 200, deps.getSavings())
+        const savings = await readDashboardProjection("/api/v1/dashboard/savings", "savings", buildLocalSavings(deps))
+        json(res, 200, savings)
         return
       }
       if (method === "GET" && path === "/todos") {
@@ -315,31 +405,33 @@ export function createMcpServer(deps: Deps): McpServer {
         return
       }
       if (method === "GET" && path === "/sessions") {
-        const state = deps.getState() as Record<string, unknown> | null
-        const sessionsMap = getSessionsFromState(state)
-        const currentSessionId = deps.getCurrentSessionId()
-        const sessions = Object.entries(sessionsMap).map(([id, ses]) => ({
-          ...buildSessionDetail(id, ses, deps.getSessionMetrics(id), deps.getBlackboxState() || {}, { current_session_id: currentSessionId }),
-          started: ses?.started || null,
-          cost_usd: Number(ses?.cost_usd ?? 0) || 0,
-          delegation_savings_usd: Array.isArray(ses?.warns)
-            ? (ses.warns as Array<Record<string, unknown>>).reduce((sum, w) => sum + (Number(w?.est_savings_usd ?? 0) || 0), 0)
-            : ses?.total_savings_usd || 0,
-          cache_savings_usd: Number(ses?.cache_savings_usd ?? 0) || 0,
-          warns_count: Array.isArray(ses?.warns) ? ses.warns.length : 0,
-        }))
-        json(res, 200, { sessions, total_sessions: sessions.length })
+        const sessions = await readDashboardProjection("/api/v1/dashboard/sessions", "sessions", buildLocalSessions(deps))
+        json(res, 200, sessions)
         return
       }
       if (method === "GET" && path === "/sessions/current") {
-        const state = deps.getState() as Record<string, any>
         const sid = deps.getCurrentSessionId()
-        const session = getSessionsFromState(state)?.[sid] || {}
-        json(res, 200, {
-          session: buildSessionDetail(sid, session, deps.getSessionMetrics(sid), deps.getBlackboxState() || {}, { current_session_id: sid }),
-          metrics: deps.getSessionMetrics(sid),
-          orchestration: getSessionOrchestrationState(deps, sid),
-        })
+        const current = await readDashboardProjection(`/api/v1/dashboard/sessions/current?session_id=${encodeURIComponent(sid)}`, "current_session", buildLocalCurrentSession(deps, sid))
+        json(res, 200, current)
+        return
+      }
+      if (method === "GET" && path === "/events") {
+        res.statusCode = 200
+        res.setHeader("Content-Type", "text/event-stream; charset=utf-8")
+        res.setHeader("Cache-Control", "no-cache")
+        res.setHeader("Connection", "keep-alive")
+        res.setHeader("Access-Control-Allow-Origin", "*")
+        const send = async () => {
+          const sid = deps.getCurrentSessionId()
+          const [status, savings] = await Promise.all([
+            readDashboardProjection("/api/v1/dashboard/status", "status", buildLocalStatus(deps, { ok: null, version: null })),
+            readDashboardProjection("/api/v1/dashboard/savings", "savings", buildLocalSavings(deps)),
+          ])
+          res.write(`data: ${JSON.stringify({ status, savings, session_id: sid })}\n\n`)
+        }
+        void send()
+        const timer = setInterval(() => { void send() }, 3000)
+        req.on("close", () => clearInterval(timer))
         return
       }
       if (method === "GET" && path.startsWith("/sessions/")) {
@@ -541,12 +633,23 @@ export function createMcpServer(deps: Deps): McpServer {
           if (typeof deps.mutateSessionOrchestration === "function") {
             deps.mutateSessionOrchestration(sessionId, (current) => applySessionAction(current, "checkout", { ...body, session_id: sessionId }))
           }
+          await refreshDashboardProjectionCache(deps, sessionId)
           json(res, 200, { ok: true, checkout })
           return
         }
         if (action === "batch") {
           if (typeof deps.mutateSessionOrchestration === "function") {
             const next = deps.mutateSessionOrchestration(sessionId, (current) => applySessionAction(current, "batch", { ...body, session_id: sessionId }))
+            queueDashboardProjectionRefresh({
+              session_id: sessionId,
+              sessions: buildLocalSessions(deps),
+              current_session: {
+                session: next,
+                orchestration: next,
+                metrics: deps.getSessionMetrics(sessionId),
+              },
+            })
+            await flushDashboardMutationQueue()
             json(res, 200, { ok: true, session: next })
             return
           }
@@ -556,6 +659,16 @@ export function createMcpServer(deps: Deps): McpServer {
         if (action === "undo") {
           if (typeof deps.mutateSessionOrchestration === "function") {
             const next = deps.mutateSessionOrchestration(sessionId, (current) => applySessionAction(current, "undo", { ...body, session_id: sessionId }))
+            queueDashboardProjectionRefresh({
+              session_id: sessionId,
+              sessions: buildLocalSessions(deps),
+              current_session: {
+                session: next,
+                orchestration: next,
+                metrics: deps.getSessionMetrics(sessionId),
+              },
+            })
+            await flushDashboardMutationQueue()
             json(res, 200, { ok: true, session: next })
             return
           }
@@ -564,6 +677,16 @@ export function createMcpServer(deps: Deps): McpServer {
         }
         if (typeof deps.mutateSessionOrchestration === "function") {
           const next = deps.mutateSessionOrchestration(sessionId, (current) => applySessionAction(current, action, { ...body, session_id: sessionId }))
+          queueDashboardProjectionRefresh({
+            session_id: sessionId,
+            sessions: buildLocalSessions(deps),
+            current_session: {
+              session: next,
+              orchestration: next,
+              metrics: deps.getSessionMetrics(sessionId),
+            },
+          })
+          await flushDashboardMutationQueue()
           json(res, 200, { ok: true, session: next })
           return
         }
@@ -595,6 +718,16 @@ export function createMcpServer(deps: Deps): McpServer {
           }
         if (typeof deps.mutateSessionOrchestration === "function") {
           const next = deps.mutateSessionOrchestration(sessionId, (current) => applySessionAction(current, "set-template", { ...body, template, session_id: sessionId }))
+          queueDashboardProjectionRefresh({
+            session_id: sessionId,
+            sessions: buildLocalSessions(deps),
+            current_session: {
+              session: next,
+              orchestration: next,
+              metrics: deps.getSessionMetrics(sessionId),
+            },
+          })
+          await flushDashboardMutationQueue()
           json(res, 200, { ok: true, session: next })
           return
         }
@@ -610,6 +743,7 @@ export function createMcpServer(deps: Deps): McpServer {
           return
         }
         deps.saveBlackboxVector(body)
+        await refreshDashboardProjectionCache(deps, deps.getCurrentSessionId())
         json(res, 200, { ok: true })
         return
       }
@@ -622,6 +756,7 @@ export function createMcpServer(deps: Deps): McpServer {
           return
         }
         deps.saveBlackboxOutcome(body)
+        await refreshDashboardProjectionCache(deps, deps.getCurrentSessionId())
         json(res, 200, { ok: true })
         return
       }
@@ -641,6 +776,16 @@ export function createMcpServer(deps: Deps): McpServer {
         }
         if (typeof deps.mutateSessionOrchestration === "function") {
           const next = deps.mutateSessionOrchestration(sessionId, () => importSessionOrchestration({ ...(orchestration as Record<string, unknown>), session_id: sessionId }, sessionId))
+          queueDashboardProjectionRefresh({
+            session_id: sessionId,
+            sessions: buildLocalSessions(deps),
+            current_session: {
+              session: next,
+              orchestration: next,
+              metrics: deps.getSessionMetrics(sessionId),
+            },
+          })
+          await flushDashboardMutationQueue()
           json(res, 200, { ok: true, session: next })
           return
         }
