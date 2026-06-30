@@ -17,12 +17,11 @@ export function tierAgentForSlot(slot: string | null): string | null {
   return VIBE_TIER_AGENT_BY_SLOT[String(slot || "").trim().toLowerCase()] || null
 }
 
-export function buildVibePrimaryAgent(model: string, existing: JsonRecord = {}): JsonRecord {
-  return {
+export function buildVibePrimaryAgent(existing: JsonRecord = {}): JsonRecord {
+  const next: JsonRecord = {
     ...(existing && typeof existing === "object" ? existing : {}),
     description: "VibeUltraX primary agent",
     mode: "primary",
-    model,
     permission: {
       read: "allow",
       edit: "allow",
@@ -36,6 +35,8 @@ export function buildVibePrimaryAgent(model: string, existing: JsonRecord = {}):
       ...(existing?.permission && typeof existing.permission === "object" ? existing.permission : {}),
     },
   }
+  delete next.model
+  return next
 }
 
 export function buildVibeTierAgent(slot: string, model: string, existing: JsonRecord = {}): JsonRecord {
@@ -151,18 +152,15 @@ export function installVibeTierAgentsInConfig(config: JsonRecord, trinity: Trini
   config.$schema ||= "https://opencode.ai/config.json"
   config.agent = config.agent && typeof config.agent === "object" ? config.agent : {}
   let changed = false
-  const primaryModel = String(trinity?.cheap?.oc || "").trim()
-  if (primaryModel) {
-    const existing = config.agent[VIBE_PRIMARY_AGENT]
-    const next = buildVibePrimaryAgent(primaryModel, existing)
-    if (JSON.stringify(existing || null) !== JSON.stringify(next)) {
-      config.agent[VIBE_PRIMARY_AGENT] = next
-      changed = true
-    }
-    if (config.default_agent !== VIBE_PRIMARY_AGENT) {
-      config.default_agent = VIBE_PRIMARY_AGENT
-      changed = true
-    }
+  const existingPrimary = config.agent[VIBE_PRIMARY_AGENT]
+  const nextPrimary = buildVibePrimaryAgent(existingPrimary)
+  if (JSON.stringify(existingPrimary || null) !== JSON.stringify(nextPrimary)) {
+    config.agent[VIBE_PRIMARY_AGENT] = nextPrimary
+    changed = true
+  }
+  if (config.default_agent !== VIBE_PRIMARY_AGENT) {
+    config.default_agent = VIBE_PRIMARY_AGENT
+    changed = true
   }
   for (const slot of ["cheap", "medium", "brain"]) {
     const model = String(trinity?.[slot]?.oc || "").trim()
@@ -217,21 +215,35 @@ export function runtimeTierCoherence(projectDir = "", activeSlot = "", currentMo
   const primaryAgent = config.agent && typeof config.agent === "object" ? config.agent[VIBE_PRIMARY_AGENT] : null
   const tiersPath = join(getVibeOSHome(), "model-tiers.json")
   const tiers = existsSync(tiersPath) ? (safeJsonParse(readFileSync(tiersPath, "utf-8")) as JsonRecord) : {}
-  const primaryExpectedModel = String(tiers?.trinity?.cheap?.oc || "").trim()
+  const selection = tiers?.selection && typeof tiers.selection === "object" ? tiers.selection : {}
+  const optimizationMode = String(selection?.optimization_mode || "").trim().toLowerCase()
+  const entrySlot = String(selection?.entry_slot || selection?.active_slot || slot || "").trim().toLowerCase() || null
+  const workerSlot = String(selection?.worker_slot || selection?.selected_slot || "").trim().toLowerCase() || null
+  const cheapExpectedModel = String(tiers?.trinity?.cheap?.oc || "").trim()
   const tierAgentOk = ["cheap", "medium", "brain"].every((tier) => {
     const name = tierAgentForSlot(tier)
     const model = String((config?.agent && config.agent[name] && config.agent[name].model) || "").trim()
     const expectedTierModel = String(tiers?.trinity?.[tier]?.oc || "").trim()
     return !!name && !!model && !!expectedTierModel && model === expectedTierModel && config?.agent?.[name]?.mode === "subagent"
   })
-  const primaryOk = !!primaryAgent && primaryAgent.mode === "primary" && (!primaryExpectedModel || String(primaryAgent.model || "").trim() === primaryExpectedModel)
+  const primaryOk = !!primaryAgent && primaryAgent.mode === "primary" && !String(primaryAgent?.model || "").trim()
   const agentOk = agent === expectedAgent && primaryOk
+  const cheapFirstExpected = optimizationMode === "vibeultrax" && entrySlot === "cheap" && !!cheapExpectedModel
+  const cheapFirstOk = !cheapFirstExpected || String(currentModel || "").trim() === cheapExpectedModel
+  const degraded = cheapFirstExpected && !cheapFirstOk
   return {
     slot,
+    entry_slot: entrySlot,
+    worker_slot: workerSlot,
+    optimization_mode: optimizationMode || null,
     agent,
     expectedAgent,
     currentModel: String(currentModel || "").trim(),
     expectedModel: String(expectedModel || "").trim(),
-    coherent: slot === "brain" && agentOk && modelOk && tierAgentOk,
+    cheapExpectedModel,
+    cheap_first_expected: cheapFirstExpected,
+    cheap_first_ok: cheapFirstOk,
+    degraded,
+    coherent: agentOk && tierAgentOk && (cheapFirstExpected ? cheapFirstOk : (slot === "brain" ? modelOk : true)),
   }
 }

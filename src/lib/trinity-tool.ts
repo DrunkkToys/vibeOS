@@ -219,6 +219,14 @@ function cascadeDiagnosticResults(deps) {
   const activeJobs = countStaleActiveJobs(deps)
   const proc = detectOpenCodeProcessState()
   const repair = previewVibeUltraXRepair(deps)
+  const liveModel = String(primaryOc.model || "").trim()
+  const cheapModel = String(tiers?.trinity?.cheap?.oc || "").trim()
+  const optimizationMode = String(sel.optimization_mode || "").toLowerCase()
+  const entrySlot = String(sel.entry_slot || sel.active_slot || "").toLowerCase()
+  const workerSlot = String(sel.worker_slot || sel.selected_slot || "").toLowerCase()
+  const cheapFirstExpected = optimizationMode === "vibeultrax" && entrySlot === "cheap" && !!cheapModel
+  const cheapFirstDegraded = sel.cheap_first_degraded === true
+  const cheapFirstOk = !cheapFirstExpected || liveModel === cheapModel || cheapFirstDegraded
   results.push({ ok: true, okLabel: "OK", label: "cascade vibeos_home", detail: deps.VIBEOS_HOME || getVibeOSHome() })
   results.push({ ok: !!pluginPath && deps.existsSync(pluginPath), okLabel: pluginPath && deps.existsSync(pluginPath) ? "OK" : "WARN", label: "cascade plugin", detail: pluginPath ? `${pluginPath}${sha256File(pluginPath) ? ` sha256:${sha256File(pluginPath)}` : ""}` : "not found" })
   results.push({ ok: sameJson(sel.active_pipeline, VIBEULTRAX_ROOT), okLabel: sameJson(sel.active_pipeline, VIBEULTRAX_ROOT) ? "OK" : "WARN", label: "cascade active_pipeline", detail: JSON.stringify(sel.active_pipeline || null), fix: "run `trinity repair-state apply`" })
@@ -231,6 +239,21 @@ function cascadeDiagnosticResults(deps) {
   results.push({ ok: primaryAgentOk, okLabel: primaryAgentOk ? "OK" : "WARN", label: "cascade vibe", detail: primaryAgent ? `${primaryOcConfigPath} ${JSON.stringify({ mode: primaryAgent.mode || null, model: primaryAgent.model || null, default_agent: primaryOc.default_agent || null, expected: VIBE_PRIMARY_AGENT })}` : `missing in ${primaryOcConfigPath}`, fix: "run `trinity repair-state apply` or start a new VibeUltraX turn" })
   const defaultAgentOk = primaryOc.default_agent === VIBE_PRIMARY_AGENT
   results.push({ ok: defaultAgentOk, okLabel: defaultAgentOk ? "OK" : "WARN", label: "cascade default_agent", detail: JSON.stringify({ default_agent: primaryOc.default_agent || null, expected: VIBE_PRIMARY_AGENT, active_slot: sel.active_slot || null }), fix: "run `trinity repair-state apply` or start a new VibeUltraX turn" })
+  results.push({
+    ok: cheapFirstOk,
+    okLabel: cheapFirstOk ? "OK" : "WARN",
+    label: "cascade cheap-first primary",
+    detail: JSON.stringify({
+      optimization_mode: optimizationMode || null,
+      entry_slot: entrySlot || null,
+      worker_slot: workerSlot || null,
+      live_model: liveModel || null,
+      expected_cheap_model: cheapModel || null,
+      degraded: cheapFirstDegraded,
+      degraded_reason: sel.cheap_first_reason || null,
+    }),
+    fix: "ensure VibeUltraX starts on cheap, keep tiers same-provider for primary override, or use the delegated worker path when cross-provider",
+  })
   for (const [slot, name] of [["cheap", "vibe-cheap"], ["medium", "vibe-medium"], ["brain", "vibe-brain"]]) {
     const model = tiers.trinity?.[slot]?.oc || ""
     for (const ocConfigPath of existingOcConfigs.length ? existingOcConfigs : [primaryOcConfigPath]) {

@@ -33,12 +33,11 @@ function readTiers(home = homedir()) {
   return readJson(join(process.env.VIBEOS_HOME || join(home, ".claude"), "model-tiers.json"))
 }
 
-function primaryAgent(model, existing = {}) {
-  return {
+function primaryAgent(existing = {}) {
+  const next = {
     ...(existing && typeof existing === "object" ? existing : {}),
     description: "VibeUltraX primary agent",
     mode: "primary",
-    model,
     permission: {
       read: "allow",
       edit: "allow",
@@ -52,6 +51,8 @@ function primaryAgent(model, existing = {}) {
       ...(existing?.permission && typeof existing.permission === "object" ? existing.permission : {}),
     },
   }
+  delete next.model
+  return next
 }
 
 function tierAgent(slot, model, existing = {}) {
@@ -81,18 +82,15 @@ export function installVibeTierAgentsInConfig(config, tiers = readTiers()) {
   config.$schema ||= "https://opencode.ai/config.json"
   config.agent = config.agent && typeof config.agent === "object" ? config.agent : {}
   let changed = false
-  const primaryModel = String(trinity?.cheap?.oc || "").trim()
-  if (primaryModel) {
-    const existing = config.agent[VIBE_PRIMARY_AGENT]
-    const next = primaryAgent(primaryModel, existing)
-    if (JSON.stringify(existing || null) !== JSON.stringify(next)) {
-      config.agent[VIBE_PRIMARY_AGENT] = next
-      changed = true
-    }
-    if (config.default_agent !== VIBE_PRIMARY_AGENT) {
-      config.default_agent = VIBE_PRIMARY_AGENT
-      changed = true
-    }
+  const existingPrimary = config.agent[VIBE_PRIMARY_AGENT]
+  const nextPrimary = primaryAgent(existingPrimary)
+  if (JSON.stringify(existingPrimary || null) !== JSON.stringify(nextPrimary)) {
+    config.agent[VIBE_PRIMARY_AGENT] = nextPrimary
+    changed = true
+  }
+  if (config.default_agent !== VIBE_PRIMARY_AGENT) {
+    config.default_agent = VIBE_PRIMARY_AGENT
+    changed = true
   }
   for (const slot of ["cheap", "medium", "brain"]) {
     const model = String(trinity?.[slot]?.oc || "").trim()

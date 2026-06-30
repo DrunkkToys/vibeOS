@@ -18,6 +18,7 @@
 // a single live turn proves whether the override is honored by the provider.
 
 import { resolveOrchestratorState } from "../pricing.js"
+import { writeSelection } from "../selection-manager.js"
 
 let _directory = ""
 export const setChatParamsDirectory = (dir) => { _directory = dir || "" }
@@ -45,15 +46,28 @@ export function resolveIntendedModel(projectDir, inputModel) {
   const inModel = String(inputModel?.modelID || "").trim()
   const inFull = inProvider ? `${inProvider}/${inModel}` : inModel
   const matches = !!intendedFull && inFull === intendedFull
+  const crossProvider = !!intended.providerID && !!inProvider && intended.providerID !== inProvider
+  const cheapFirstPrimaryMiss =
+    state.optimization_mode === "vibeultrax" &&
+    state.entry_slot === "cheap" &&
+    !!intendedFull &&
+    !matches &&
+    crossProvider
   return {
     active_slot: state.active_slot,
+    entry_slot: state.entry_slot,
+    worker_slot: state.worker_slot,
+    optimization_mode: state.optimization_mode,
+    selected_subagent: state.selected_subagent,
+    requires_delegation: state.requires_delegation,
     intended_full: intendedFull,
     providerID: intended.providerID,
     modelID: intended.modelID,
     input_provider: inProvider,
     input_model: inModel,
     input_full: inFull,
-    cross_provider: !!intended.providerID && !!inProvider && intended.providerID !== inProvider,
+    cross_provider: crossProvider,
+    cheap_first_primary_miss: cheapFirstPrimaryMiss,
     // LIVE-PROVEN CONSTRAINT (2026-06-24): chat.params/chat.headers cannot change the
     // provider. OpenCode keeps the resolved provider fixed; output.options.model only
     // changes the MODEL STRING sent to that provider. Sending a foreign-provider model id
@@ -66,9 +80,22 @@ export function resolveIntendedModel(projectDir, inputModel) {
   }
 }
 
+function recordCheapFirstState(result) {
+  try {
+    if (result?.cheap_first_primary_miss) {
+      writeSelection("cheap_first_degraded", true)
+      writeSelection("cheap_first_reason", `cross-provider primary miss: entry=${result.intended_full} input=${result.input_full || result.input_provider || "unknown"}`)
+      return
+    }
+    writeSelection("cheap_first_degraded", false)
+    writeSelection("cheap_first_reason", null)
+  } catch {}
+}
+
 export async function onChatParams(input, output) {
   try {
     const r = resolveIntendedModel(input?._directory || _directory, input?.model)
+    recordCheapFirstState(r)
     if (r.already_correct) {
       console.error(`[vibeOS] chat.params: coherent — slot=${r.active_slot} model=${r.input_full} (no override)`)
       return
@@ -76,7 +103,13 @@ export async function onChatParams(input, output) {
     if (r.cross_provider && !r.can_apply) {
       // The tier the user picked lives on a different provider than the turn resolved to.
       // We cannot switch providers here (proven: injecting a foreign id fails the turn).
-      console.error(`[vibeOS] chat.params: cross-provider — tier wants ${r.intended_full} but turn is on provider '${r.input_provider}'; NOT overriding (would fail the turn). Same-provider tiers switch; cross-provider needs subagent/per-prompt model binding.`)
+      const missLabel = r.cheap_first_primary_miss ? " cheap-first primary miss;" : ""
+      console.error(`[vibeOS] chat.params:${missLabel} cross-provider — tier wants ${r.intended_full} but turn is on provider '${r.input_provider}'; NOT overriding (would fail the turn). Same-provider tiers switch; cross-provider needs subagent/per-prompt model binding.`)
+      output.headers = output.headers || {}
+      if (r.cheap_first_primary_miss) {
+        output.headers["x-vibeos-cheap-first"] = "degraded"
+        if (r.selected_subagent) output.headers["x-vibeos-selected-subagent"] = r.selected_subagent
+      }
       return
     }
     if (r.can_apply) {
@@ -93,6 +126,12 @@ export async function onChatParams(input, output) {
 export async function onChatHeaders(input, output) {
   try {
     const r = resolveIntendedModel(input?._directory || _directory, input?.model)
+    recordCheapFirstState(r)
+    if (r.cheap_first_primary_miss) {
+      output.headers = output.headers || {}
+      output.headers["x-vibeos-cheap-first"] = "degraded"
+      if (r.selected_subagent) output.headers["x-vibeos-selected-subagent"] = r.selected_subagent
+    }
     if (r.can_apply) {
       output.headers = output.headers || {}
       // Gateways that route by header (instead of body) read it here. Harmless when ignored.
