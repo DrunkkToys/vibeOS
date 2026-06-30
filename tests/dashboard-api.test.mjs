@@ -471,3 +471,133 @@ test("dashboard API proxies canonical backend dashboard read endpoints", async (
     await new Promise((resolve) => backend.close(() => resolve()))
   }
 })
+
+test("dashboard API keeps local fallback and backend health fields authoritative over stale remote status", async () => {
+  const backend = http.createServer((req, res) => {
+    const url = new URL(req.url || "/", "http://127.0.0.1")
+    res.setHeader("Content-Type", "application/json")
+    if (req.method === "GET" && url.pathname === "/health") {
+      res.end(JSON.stringify({ status: "ok", version: "2.0.0" }))
+      return
+    }
+    if (req.method === "GET" && url.pathname === "/api/v1/dashboard/status") {
+      res.end(JSON.stringify({
+        source: "backend",
+        enabled: true,
+        api_fallback: true,
+        api_fallback_since: "2026-06-30T12:42:09.000Z",
+        backend_connected: false,
+        backend_health_url: "https://stale.example.test/health",
+        backend_version: "0.0.1",
+      }))
+      return
+    }
+    res.statusCode = 404
+    res.end(JSON.stringify({ error: "not found" }))
+  })
+
+  const backendPort = await new Promise((resolve, reject) => {
+    backend.once("error", reject)
+    backend.listen(0, "127.0.0.1", () => {
+      const address = backend.address()
+      resolve(typeof address === "object" && address ? address.port : 0)
+    })
+  })
+  const previousApiUrl = process.env.VIBEOS_API_URL
+  process.env.VIBEOS_API_URL = `http://127.0.0.1:${backendPort}`
+
+  const server = createMcpServer({
+    getState: () => ({
+      enabled: true,
+      api_fallback: false,
+      api_fallback_since: null,
+      backend_connected: true,
+      backend_health_url: `http://127.0.0.1:${backendPort}/health`,
+      backend_version: "2.0.0",
+      sessions_raw: {},
+    }),
+    getSavings: () => ({ lifetime: { delegation_usd: 0 } }),
+    getTodos: () => [],
+    getSessionMetrics: () => ({}),
+    getCurrentSessionId: () => "sid-test",
+    listReports: () => [],
+    readReport: () => null,
+    runDiagnose: () => ({ ok: true }),
+    runProject: () => ({ ok: true }),
+    runTrinity: async () => "ok",
+    runResearchAudit: () => ({ ok: true }),
+    saveReport: () => null,
+    generateSessionCheckout: () => ({ ok: true }),
+    getBlackboxState: () => ({ enabled: true, sessions: {} }),
+    saveBlackboxVector: () => {},
+    saveBlackboxOutcome: () => {},
+    listSessionTemplates: () => [],
+    getSessionOrchestration: () => null,
+    mutateSessionOrchestration: () => null,
+  })
+
+  const instance = await server.start(0)
+  const address = instance.address()
+  const port = typeof address === "object" && address ? address.port : 0
+  try {
+    const status = await fetch(`http://127.0.0.1:${port}/status`).then((r) => r.json())
+    assert.equal(status.api_fallback, false)
+    assert.equal(status.api_fallback_since, null)
+    assert.equal(status.backend_connected, true)
+    assert.equal(status.backend_health_url, `http://127.0.0.1:${backendPort}/health`)
+    assert.equal(status.backend_version, "2.0.0")
+    assert.equal(status.source, "backend")
+  } finally {
+    process.env.VIBEOS_API_URL = previousApiUrl
+    await server.close()
+    await new Promise((resolve) => backend.close(() => resolve()))
+  }
+})
+
+test("dashboard API sessions endpoint uses persisted session delegation savings instead of warn sums", async () => {
+  const sessions = {
+    "sid-a": {
+      started: "2026-06-19T10:00:00.000Z",
+      cost_usd: 1.23,
+      total_savings_usd: 4.25,
+      cache_savings_usd: 0.5,
+      warns: [
+        { est_savings_usd: 0.25 },
+        { est_savings_usd: 0.25 },
+      ],
+      orchestration: { status: "active", locked: false, tags: [], notes: [] },
+    },
+  }
+  const server = createMcpServer({
+    getState: () => ({ enabled: true, sessions_raw: sessions }),
+    getSavings: () => ({ lifetime: { delegation_usd: 0 } }),
+    getTodos: () => [],
+    getSessionMetrics: () => ({ sesDuration: 1 }),
+    getCurrentSessionId: () => "sid-a",
+    listReports: () => [],
+    readReport: () => null,
+    runDiagnose: () => ({ ok: true }),
+    runProject: () => ({ ok: true }),
+    runTrinity: async () => "ok",
+    runResearchAudit: () => ({ ok: true }),
+    saveReport: () => null,
+    generateSessionCheckout: () => ({ ok: true }),
+    getBlackboxState: () => ({ enabled: true, sessions: {} }),
+    saveBlackboxVector: () => {},
+    saveBlackboxOutcome: () => {},
+    listSessionTemplates: () => [],
+    getSessionOrchestration: () => sessions["sid-a"].orchestration,
+    mutateSessionOrchestration: () => null,
+  })
+
+  const instance = await server.start(0)
+  const address = instance.address()
+  const port = typeof address === "object" && address ? address.port : 0
+  try {
+    const payload = await fetch(`http://127.0.0.1:${port}/sessions`).then((r) => r.json())
+    assert.equal(payload.sessions[0].delegation_savings_usd, 4.25)
+    assert.equal(payload.sessions[0].cache_savings_usd, 0.5)
+  } finally {
+    await server.close()
+  }
+})

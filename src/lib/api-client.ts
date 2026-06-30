@@ -939,7 +939,7 @@ export function isApiFallback() {
 
 export function isApiConnected() {
   tryResetFallbackCooldown()
-  return isRuntimeApiEnabled()
+  return isRuntimeApiEnabled() && !isRuntimeApiFallbackMode()
 }
 
 export function getBackendVersion(): string {
@@ -1017,10 +1017,9 @@ export async function remoteCall(method, args, fallbackFn) {
       _apiFallbackSince = new Date().toISOString()
       console.error(`[vibeOS] API fallback activated (${method}): ${detail}`)
     }
+    markApiDisconnected()
     if (status === 401 || status === 403) {
       console.warn(`[vibeOS] API auth failed (${method}): server reachable but token rejected — will retry after cooldown`)
-    } else {
-      markApiDisconnected()
     }
     if (fallbackFn) {
       try { return fallbackFn() } catch (fe) { console.error(`[vibeOS] fallback also failed: ${fe?.message || fe}`) }

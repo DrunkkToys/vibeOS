@@ -7,6 +7,7 @@ import { homedir } from "node:os"
 import { resolveOpenCodeHomes } from "./lib/opencode-homes.mjs"
 import { installVibeSkill } from "./lib/vibe-skill.mjs"
 import { installVibeTierAgentsInConfig } from "./lib/vibe-tier-agents.mjs"
+import { normalizeVibeOSPluginRefs, resolveVibeOSPluginRef } from "./lib/plugin-config.mjs"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, "..")
@@ -120,10 +121,8 @@ try {
       }
       if (!config || typeof config !== "object" || Array.isArray(config)) config = {}
       if (!Array.isArray(config.plugin)) config.plugin = []
-      const filtered = config.plugin.filter((p) => !(typeof p === "string" && p.includes("vibeOS")))
-      filtered.push(pluginRef)
       config.$schema ||= "https://opencode.ai/config.json"
-      config.plugin = filtered
+      config.plugin = normalizeVibeOSPluginRefs(config.plugin, pluginRef)
       installVibeTierAgentsInConfig(config)
       const ocConfigTmp = `${ocConfigPath}.tmp.${process.pid}.${Date.now()}`
       writeFileSync(ocConfigTmp, JSON.stringify(config, null, 2) + "\n")

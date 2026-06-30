@@ -6,10 +6,11 @@ import { latestUserIntent } from "./chat-transform.js"
 import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, classifyTurnSimple, autoSelectMode, loadOptimizationMode, computeControlVector, getLatestBlackboxLoopMsg, getLatestBlackboxPivotMsg, getLatestBlackboxState } from "../turn-classify.js"
 import { recordBudgetFirstOutcome } from "../mode-policy.js"
 import { saveReport } from "../reporting.js"
-import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, getCurrentSessionId, _modelLocked, _blackboxEnabled, loadBlackboxState, recordLiveSessionSnapshot, VIBEOS_HOME, getVibeOSHome, readLifetimeSavings, getLatestCacheEvent } from "../state.js"
+import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, getCurrentSessionId, _modelLocked, _blackboxEnabled, loadBlackboxState, recordLiveSessionSnapshot, VIBEOS_HOME, getVibeOSHome, readLifetimeSavings, getLatestCacheEvent, readFullState } from "../state.js"
 import { loadSelection, loadSessionSlot } from "../selection-manager.js"
 import { remoteCall, isApiConnected, isApiLatencyDegraded } from "../api-client.js"
 import { buildFooterLine, buildEnforcementTags, resolveBrand, buildFooterAlert, buildResilientFooterLine } from "./shared-footer.js"
+import { getSessionCacheSavings } from "../session-savings.js"
 import { computeReward } from "../../vibeOS-lib/reward-engine.js"
 import { detectLaziness } from "../../vibeOS-lib/laziness-detector.js"
 import { detectLies } from "../../vibeOS-lib/lie-detector.js"
@@ -449,6 +450,9 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
     const hasExistingFooter = footerSuffix.test(text)
     const stripped = hasExistingFooter ? text.replace(footerSuffix, "").trimEnd() : text
     const ltTotal = ltTasks + ltCache
+    const sessionCacheSavings = getSessionCacheSavings(readFullState()?.sessions?.[sid] || {})
+    const sessionTotal = Number(sesTasks || 0) + Number(sessionCacheSavings || 0)
+    const footerSavingsTotal = sessionTotal > 0 ? sessionTotal : ltTotal
     // SINGLE SOURCE OF TRUTH: the tier icon must describe the model that ACTUALLY ran
     // this turn — the live model the footer already resolved (ultraLiveModel =
     // displayModel || liveModel || currentModel) — so the icon and the model name shown
@@ -613,7 +617,7 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
       activeSlot,
       providerLabel: execution.provider_label,
       modelName: modelDisplayName(execution.model),
-      ltTotal,
+      savingsTotal: footerSavingsTotal,
       ltTrend: sesTrend,
       vibeBrand,
       optMode: displayMode,

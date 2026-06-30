@@ -19,10 +19,12 @@ function baseDirs() {
   mkdirSync(join(HOME, ".local/share/opencode"), { recursive: true })
 }
 
-function writeOpenCodeConfig() {
+function writeOpenCodeConfig(extra = {}) {
   writeFileSync(join(HOME, ".config/opencode/opencode.json"), JSON.stringify({
     model: "deepseek/deepseek-v4-flash",
-    provider: { deepseek: { models: { "deepseek-v4-pro": {}, "deepseek-v4-flash": {} } } }
+    plugin: [join(HOME, ".opencode/plugins/vibeOS.js")],
+    provider: { deepseek: { models: { "deepseek-v4-pro": {}, "deepseek-v4-flash": {} } } },
+    ...extra,
   }, null, 2) + "\n")
 }
 
@@ -53,7 +55,9 @@ function writeState(sesWarns = [], flowWarns = []) {
       [String(process.pid)]: {
         model: "deepseek/deepseek-v4-flash",
         warns: sesWarns,
-        cost_usd: 0.10
+        cost_usd: 0.10,
+        total_savings_usd: 0,
+        cache_savings_usd: 0,
       }
     },
     flow_warns: flowWarns,
@@ -257,6 +261,29 @@ test("diagnose: missing files reported as ❌", async () => {
   assert.ok(output.includes("model-tiers.json") && output.includes("missing"), "model-tiers.json missing")
   assert.ok(output.includes("delegation-state.json") && output.includes("missing"), "delegation-state.json missing")
   assert.ok(output.includes("opencode.json") && output.includes("exists"), "opencode.json still exists")
+})
+
+test("diagnose: stale plugin path and savings divergence are reported", async () => {
+  baseDirs()
+  writeOpenCodeConfig({ plugin: ["/private/tmp/vibeos-setup-dead/.opencode/plugins/vibeOS.js"] })
+  writeTiers()
+  writeState([{ tool: "edit", reason: "warn", est_savings_usd: 0.5 }])
+
+  const raw = JSON.parse(readFileSync(join(HOME, ".claude/delegation-state.json"), "utf8"))
+  raw.sessions[String(process.pid)].total_savings_usd = 4.25
+  raw.sessions[String(process.pid)].cache_savings_usd = 0.75
+  raw.sessions[String(process.pid)].live_savings_usd = 1.1
+  writeFileSync(join(HOME, ".claude/delegation-state.json"), JSON.stringify(raw, null, 2) + "\n")
+
+  const hooks = await freshPlugin()
+  const output = await hooks.tool.trinity.execute({ action: "diagnose" })
+
+  assert.ok(output.includes("plugin path"), "plugin path check present")
+  assert.ok(output.includes("/private/tmp/vibeos-setup-dead/.opencode/plugins/vibeOS.js"), "stale plugin path surfaced")
+  assert.ok(output.includes("savings sync"), "savings sync line present")
+  assert.ok(output.includes("delegation=$4.2500"), "persisted delegation total shown")
+  assert.ok(output.includes("warns=$0.5000"), "warn sum shown for divergence")
+  assert.ok(output.includes("live=$1.1000"), "live snapshot shown for divergence")
 })
 
 test("diagnose: placeholder models flagged ❌", async () => {

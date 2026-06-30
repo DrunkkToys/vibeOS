@@ -2681,11 +2681,13 @@ function readLifetimeSavings(): unknown {
     reconcileStateFromLedger()
     const delegationStateFile = join(getVibeOSHome(), "delegation-state.json")
     if (!existsSync(delegationStateFile)) return empty
-    const mtime = statSync(delegationStateFile).mtimeMs
-    if (_savingsCache && mtime === _savingsCacheMtime) return _savingsCache
+    const stat = statSync(delegationStateFile)
+    const mtime = stat.mtimeMs
+    const size = stat.size
+    if (_savingsCache && mtime === _savingsCacheMtime && size === Number(_savingsCache?._stateSize || 0)) return _savingsCache
     const s = safeJsonParse(readFileSync(delegationStateFile, "utf-8"))
     const ledgerSize = existsSync(SAVINGS_LEDGER_FILE) ? statSync(SAVINGS_LEDGER_FILE).size : 0
-    _savingsCache = { ..._computeSessionMetrics(s, _OC_SID), telemetry: readTelemetrySummary(s, _OC_SID), _ledgerSize: ledgerSize }
+    _savingsCache = { ..._computeSessionMetrics(s, _OC_SID), telemetry: readTelemetrySummary(s, _OC_SID), _ledgerSize: ledgerSize, _stateSize: size }
     _savingsCacheMtime = mtime
     return _savingsCache
   } catch { return empty }

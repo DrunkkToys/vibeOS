@@ -90,11 +90,12 @@ test("setApiToken clears _apiFallbackMode after a failed API call", async () => 
     const r = await api.remoteCall("health", [], () => "fallback_used")
     assert.equal(r, "fallback_used", "falls back on unreachable API")
     assert.equal(api.isApiFallback(), true, "in fallback after failure")
+    assert.equal(api.isApiConnected(), false, "orchestration icon hides while fallback is active")
 
     // THE FIX: setApiToken must clear _apiFallbackMode
     api.setApiToken("vos_" + "b".repeat(64))
 
-    assert.equal(api.isApiConnected(), true, "enabled (apiEnabled=true)")
+    assert.equal(api.isApiConnected(), true, "connection is restored after token reset")
     assert.equal(api.isApiFallback(), false, "fallback cleared by setApiToken")
   } finally {
     await restore(ctx)
@@ -112,13 +113,13 @@ test("after setApiToken, a remoteCall actually tries the API instead of short-ci
     // THE FIX: clear state
     api.setApiToken("vos_" + "c".repeat(64))
     assert.equal(api.isApiFallback(), false, "fallback cleared")
-    // After setApiToken, the runtime is marked connected again.
-    assert.equal(api.isApiConnected(), true, "apiEnabled still true after setApiToken")
+    assert.equal(api.isApiConnected(), true, "connection restored after setApiToken")
 
     // The next remoteCall must try the fetch (not short-circuit) -> fails -> back to fallback
     const r2 = await api.remoteCall("health", [], () => "fallback2")
     assert.equal(r2, "fallback2", "second call fell back (API still unreachable)")
     assert.equal(api.isApiFallback(), true, "back in fallback after second attempt")
+    assert.equal(api.isApiConnected(), false, "connection drops again once fallback reactivates")
   } finally {
     await restore(ctx)
   }
@@ -134,6 +135,46 @@ test("syncApiTokenFromDisk else branch also clears fallback (via setApiToken wit
     api.setApiToken(api.VIBEOS_API_TOKEN) // same token — exercise else branch during persist
 
     assert.equal(api.isApiFallback(), false, "fallback cleared after setApiToken with same token")
+  } finally {
+    await restore(ctx)
+  }
+})
+
+test("contract: auth rejection counts as disconnected orchestration", async () => {
+  const ctx = fresh()
+  const api = await ctx.api
+  const prevFetch = global.fetch
+  try {
+    global.fetch = async () => ({
+      ok: false,
+      status: 401,
+      json: async () => ({ message: "invalid token" }),
+      statusText: "Unauthorized",
+    })
+
+    const result = await api.remoteCall("health", [], () => "auth-fallback")
+    assert.equal(result, "auth-fallback", "auth failure falls back locally")
+    assert.equal(api.isApiFallback(), true, "auth rejection activates fallback")
+    assert.equal(api.isApiConnected(), false, "auth rejection hides orchestration connectivity")
+  } finally {
+    global.fetch = prevFetch
+    await restore(ctx)
+  }
+})
+
+test("contract: runtime fallback bit suppresses isApiConnected even when API remains enabled", async () => {
+  const ctx = fresh()
+  const api = await ctx.api
+  try {
+    globalThis.__vibeOSRuntimeState = {
+      apiConnected: true,
+      apiFallbackMode: true,
+      apiFallbackSince: new Date().toISOString(),
+      apiEnabled: true,
+      sessionId: "test",
+    }
+    assert.equal(api.isApiFallback(), true, "fallback bit visible")
+    assert.equal(api.isApiConnected(), false, "enabled but fallbacked runtime is not connected")
   } finally {
     await restore(ctx)
   }

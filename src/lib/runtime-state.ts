@@ -62,7 +62,7 @@ export function isApiEnabled(): boolean {
 
 export function isApiConnected(): boolean {
   const state = getRuntimeState()
-  return !!state.apiEnabled
+  return !!state.apiEnabled && !!state.apiConnected && !state.apiFallbackMode
 }
 
 export function isApiFallbackMode(): boolean {

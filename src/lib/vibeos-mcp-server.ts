@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url"
 import { flushDashboardMutationQueue, getDashboardBridgeBacklogCount, getDashboardBridgeProjection, primeDashboardBridgeCache, queueDashboardProjectionRefresh } from "./dashboard-bridge.js"
 import { resolveApiToken } from "./api-client.js"
 import { applySessionAction, buildDashboardHomeModel, buildSessionDetail, compareSessionOrchestrations, exportSessionOrchestration, importSessionOrchestration, TEMPLATE_LIBRARY } from "./session-orchestrator.js"
+import { getSessionDelegationSavings } from "./session-savings.js"
 
 const MIME_MAP: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -200,9 +201,9 @@ function buildLocalStatus(deps: Deps, probe: { ok: boolean | null; version: stri
   const bb = deps.getBlackboxState()
   return {
     ...state,
-    backend_connected: probe.ok === true,
-    backend_health_url: BACKEND_HEALTH_URL,
-    backend_version: probe.version,
+    backend_connected: typeof state?.backend_connected === "boolean" ? state.backend_connected : probe.ok === true,
+    backend_health_url: state?.backend_health_url ?? BACKEND_HEALTH_URL,
+    backend_version: typeof state?.backend_version === "string" ? state.backend_version : probe.version,
     blackbox: bb ?? null,
     dashboard_backlog_count: getDashboardBridgeBacklogCount(),
   }
@@ -220,9 +221,7 @@ function buildLocalSessions(deps: Deps): { sessions: unknown[]; total_sessions: 
     ...buildSessionDetail(id, ses, deps.getSessionMetrics(id), deps.getBlackboxState() || {}, { current_session_id: currentSessionId }),
     started: ses?.started || null,
     cost_usd: Number(ses?.cost_usd ?? 0) || 0,
-    delegation_savings_usd: Array.isArray(ses?.warns)
-      ? (ses.warns as Array<Record<string, unknown>>).reduce((sum, w) => sum + (Number(w?.est_savings_usd ?? 0) || 0), 0)
-      : ses?.total_savings_usd || 0,
+    delegation_savings_usd: getSessionDelegationSavings(ses),
     cache_savings_usd: Number(ses?.cache_savings_usd ?? 0) || 0,
     warns_count: Array.isArray(ses?.warns) ? ses.warns.length : 0,
   }))
@@ -267,11 +266,49 @@ function mergeStatusProjection(local: Record<string, unknown>, projected: unknow
   return {
     ...local,
     ...remote,
-    backend_connected: remote.backend_connected ?? remote.backendConnected ?? local.backend_connected,
-    backend_health_url: remote.backend_health_url ?? local.backend_health_url,
-    backend_version: remote.backend_version ?? local.backend_version,
+    api_fallback: local.api_fallback,
+    api_fallback_since: local.api_fallback_since,
+    backend_connected: local.backend_connected,
+    backend_health_url: local.backend_health_url,
+    backend_version: local.backend_version,
+    backend_health_checked_at: local.backend_health_checked_at ?? remote.backend_health_checked_at ?? null,
+    backend_health_age_ms: local.backend_health_age_ms ?? remote.backend_health_age_ms ?? null,
+    backend_health_latency_ms: local.backend_health_latency_ms ?? remote.backend_health_latency_ms ?? null,
+    backend_health_status: local.backend_health_status ?? remote.backend_health_status ?? null,
+    backend_health_error: local.backend_health_error ?? remote.backend_health_error ?? null,
     blackbox: remote.blackbox ?? local.blackbox,
     dashboard_backlog_count: remote.dashboard_backlog_count ?? local.dashboard_backlog_count,
+  }
+}
+
+function mergeSessionProjection(local: { sessions: unknown[]; total_sessions: number }, projected: unknown): { sessions: unknown[]; total_sessions: number; source?: unknown } {
+  if (!projected || typeof projected !== "object") return local
+  const remote = projected as Record<string, unknown>
+  const localSessions = Array.isArray(local.sessions) ? local.sessions as Record<string, unknown>[] : []
+  const remoteSessions = Array.isArray(remote.sessions) ? remote.sessions as Record<string, unknown>[] : []
+  const remoteById = new Map(
+    remoteSessions
+      .filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === "object"))
+      .map((entry) => [String(entry.session_id ?? entry.id ?? "").trim(), entry]),
+  )
+  const sessions = localSessions.map((entry) => {
+    const sid = String(entry?.session_id ?? entry?.id ?? "").trim()
+    const remoteEntry = sid ? remoteById.get(sid) : null
+    if (!remoteEntry) return entry
+    return {
+      ...remoteEntry,
+      ...entry,
+      delegation_savings_usd: entry.delegation_savings_usd,
+      cache_savings_usd: entry.cache_savings_usd,
+      warns_count: entry.warns_count ?? remoteEntry.warns_count,
+      cost_usd: entry.cost_usd ?? remoteEntry.cost_usd,
+      started: entry.started ?? remoteEntry.started,
+    }
+  })
+  return {
+    ...remote,
+    sessions,
+    total_sessions: Number(remote.total_sessions ?? sessions.length) || sessions.length,
   }
 }
 
@@ -374,7 +411,7 @@ export function createMcpServer(deps: Deps): McpServer {
           blackbox,
           backend_connected: state?.backend_connected ?? false,
           backend_status: state?.backend_connected ? "online" : "degraded",
-          backend_health_url: BACKEND_HEALTH_URL,
+          backend_health_url: state?.backend_health_url ?? BACKEND_HEALTH_URL,
           backend_version: state?.backend_version || null,
         })
         return
@@ -405,7 +442,8 @@ export function createMcpServer(deps: Deps): McpServer {
         return
       }
       if (method === "GET" && path === "/sessions") {
-        const sessions = await readDashboardProjection("/api/v1/dashboard/sessions", "sessions", buildLocalSessions(deps))
+        const localSessions = buildLocalSessions(deps)
+        const sessions = mergeSessionProjection(localSessions, await readDashboardProjection("/api/v1/dashboard/sessions", "sessions", localSessions))
         json(res, 200, sessions)
         return
       }

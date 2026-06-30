@@ -1089,15 +1089,15 @@ test("integration: flash icon shows on fresh module (no prior calls)", async (t)
   }
 })
 
-test("integration: failed remoteCall does not hide flash icon", async (t) => {
+test("integration: failed remoteCall hides flash icon", async (t) => {
   delete globalThis.__vibeOSRuntimeState
   try {
     const api = await loadFreshApiClient()
     global.fetch = async () => { throw new Error("ECONNREFUSED") }
     await api.remoteCall("health", [], () => ({ local: true }))
 
-    // A failed call keeps the API marked connected for the footer, while fallback mode is set.
-    assert.equal(api.isApiConnected(), true, "flash icon survives ECONNREFUSED")
+    // A failed call means orchestration is no longer live for the footer.
+    assert.equal(api.isApiConnected(), false, "flash icon hides on ECONNREFUSED")
     assert.equal(api.isApiFallback(), true, "fallback mode IS set after failure")
   } finally {
     Date.now = REAL_DATE_NOW
@@ -1105,7 +1105,7 @@ test("integration: failed remoteCall does not hide flash icon", async (t) => {
   }
 })
 
-test("integration: 401 error does not hide flash icon", async (t) => {
+test("integration: 401 error hides flash icon", async (t) => {
   delete globalThis.__vibeOSRuntimeState
   try {
     const api = await loadFreshApiClient()
@@ -1115,10 +1115,10 @@ test("integration: 401 error does not hide flash icon", async (t) => {
     })
     await api.remoteCall("health", [], () => ({ local: true }))
 
-    // 401 sets fallback mode but keeps the footer-connected state visible.
+    // 401 means the backend is reachable but orchestration is not authorized.
     const state = globalThis.__vibeOSRuntimeState
-    assert.equal(state.apiConnected, true, "apiConnected stays true on 401")
-    assert.equal(api.isApiConnected(), true, "flash icon shows on 401")
+    assert.equal(state.apiConnected, false, "apiConnected drops on 401")
+    assert.equal(api.isApiConnected(), false, "flash icon hides on 401")
   } finally {
     Date.now = REAL_DATE_NOW
     delete globalThis.__vibeOSRuntimeState
@@ -1164,11 +1164,11 @@ test("integration: full flash icon lifecycle — startup failure → recovery", 
     // 2. First remoteCall fails (startup probe + actual call)
     global.fetch = async () => { throw new Error("ECONNREFUSED") }
     await api.remoteCall("health", [], () => ({ local: true }))
-    assert.equal(api.isApiConnected(), true, "step 2: flash icon survives failure")
+    assert.equal(api.isApiConnected(), false, "step 2: flash icon hides after failure")
     assert.equal(api.isApiFallback(), true, "step 2: fallback mode set")
 
-    // 3. Footer renders: isApiConnected must be true
-    assert.equal(api.isApiConnected(), true, "step 3: footer sees flash icon")
+    // 3. Footer renders: failed orchestration should hide the flash icon
+    assert.equal(api.isApiConnected(), false, "step 3: footer hides flash icon in fallback")
 
     // 4. Advance past cooldown, second call succeeds
     Date.now = () => REAL_DATE_NOW() + 61_000
@@ -1185,20 +1185,19 @@ test("integration: full flash icon lifecycle — startup failure → recovery", 
   }
 })
 
-test("integration: isApiFallback is independent of isApiConnected", async (t) => {
+test("integration: isApiConnected requires live non-fallback orchestration", async (t) => {
   delete globalThis.__vibeOSRuntimeState
   try {
     const api = await loadFreshApiClient()
-    // isApiFallback and isApiConnected are driven by different runtime bits.
     assert.equal(api.isApiConnected(), true, "connected on fresh")
     assert.equal(api.isApiFallback(), false, "no fallback on fresh")
 
-    // Force fallback mode: footer stays lit while the deeper runtime flags flip on.
+    // Fallback mode means orchestration is not currently usable, so the footer icon hides.
     globalThis.__vibeOSRuntimeState = { apiConnected: false, apiFallbackMode: true, apiFallbackSince: new Date().toISOString(), apiEnabled: true, sessionId: "test" }
-    assert.equal(api.isApiConnected(), true, "connected despite fallback")
+    assert.equal(api.isApiConnected(), false, "disconnected during fallback")
     assert.equal(api.isApiFallback(), true, "fallback active")
 
-    // Disable API: footer state drops only when apiEnabled is false.
+    // Disabled API remains disconnected as well.
     globalThis.__vibeOSRuntimeState.apiEnabled = false
     assert.equal(api.isApiConnected(), false, "disconnected when disabled")
     assert.equal(api.isApiFallback(), true, "fallback still active when disabled")

@@ -5,6 +5,7 @@ import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { resolveOpenCodeHome, resolveOpenCodeHomes } from "../../scripts/lib/opencode-homes.mjs"
 import { installVibeTierAgentsInConfig } from "../../scripts/lib/vibe-tier-agents.mjs"
+import { normalizeVibeOSPluginRefs, resolveVibeOSPluginRef } from "../../scripts/lib/plugin-config.mjs"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const root = resolve(__dirname, "..")
@@ -50,10 +51,9 @@ if (isProject) {
   if (!config.$schema) config.$schema = "https://opencode.ai/config.json"
   if (!Array.isArray(config.plugin)) config.plugin = []
   const installHome = resolveOpenCodeHome({ cwd: process.cwd() })
-  const pluginRef = resolve(installHome, "plugins", "vibeOS.js")
-  config.plugin = config.plugin.filter((p: unknown) => !(typeof p === "string" && p.includes("vibeOS")))
+  const pluginRef = resolveVibeOSPluginRef(installHome)
+  config.plugin = normalizeVibeOSPluginRefs(config.plugin, pluginRef)
   installVibeTierAgentsInConfig(config)
-  if (!config.plugin.includes(pluginRef)) config.plugin.push(pluginRef)
   mkdirSync(dirname(configPath), { recursive: true })
   const tmp = `${configPath}.tmp.${process.pid}.${Date.now()}`
   writeFileSync(tmp, JSON.stringify(config, null, 2) + "\n")

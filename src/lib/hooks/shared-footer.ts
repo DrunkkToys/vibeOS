@@ -6,7 +6,8 @@ export interface FooterLineInput {
   sessionSlot?: string
   providerLabel: string
   modelName: string
-  ltTotal: number
+  savingsTotal?: number
+  ltTotal?: number
   ltTrend?: string
   vibeBrand: string
   optMode: string
@@ -151,8 +152,8 @@ export function buildResilientFooterLine(partial?: Partial<FooterLineInput> | nu
   const activeSlot = typeof p.activeSlot === "string" && p.activeSlot ? p.activeSlot : "cheap"
   const providerLabel = typeof p.providerLabel === "string" && p.providerLabel ? p.providerLabel : "Unknown"
   const modelName = typeof p.modelName === "string" && p.modelName ? p.modelName : "unknown"
-  const ltTotalNum = Number(p.ltTotal)
-  const ltTotal = Number.isFinite(ltTotalNum) ? ltTotalNum : 0
+  const savingsTotalNum = Number(p.savingsTotal ?? p.ltTotal)
+  const savingsTotal = Number.isFinite(savingsTotalNum) ? savingsTotalNum : 0
   const optMode = typeof p.optMode === "string" ? p.optMode : ""
   const vibeBrand = typeof p.vibeBrand === "string" && p.vibeBrand ? p.vibeBrand : resolveBrand(optMode, activeSlot)
   const enfTags = Array.isArray(p.enfTags) ? p.enfTags : []
@@ -162,7 +163,8 @@ export function buildResilientFooterLine(partial?: Partial<FooterLineInput> | nu
       sessionSlot: p.sessionSlot,
       providerLabel,
       modelName,
-      ltTotal,
+      savingsTotal,
+      ltTotal: savingsTotal,
       ltTrend: p.ltTrend,
       vibeBrand,
       optMode,
@@ -236,7 +238,8 @@ export function buildFooterAlert(opts: {
 }
 
 export function buildFooterLine(input: FooterLineInput): string {
-  const { activeSlot, sessionSlot, providerLabel, modelName, ltTotal, ltTrend, vibeBrand, optMode, flashIcon, enfTags, vectorChangedSlot, subRegime } = input
+  const { activeSlot, sessionSlot, providerLabel, modelName, ltTrend, vibeBrand, optMode, flashIcon, enfTags, vectorChangedSlot, subRegime } = input
+  const savingsTotal = Number.isFinite(Number(input.savingsTotal ?? input.ltTotal)) ? Number(input.savingsTotal ?? input.ltTotal) : 0
 
   const tierIcon = resolveTierIcon(activeSlot)
   const regimeTag = subRegime ? REGIME_TAG[subRegime] || subRegime.slice(0, 4) : null
@@ -244,8 +247,8 @@ export function buildFooterLine(input: FooterLineInput): string {
   const modeLabel = formatModeLabel(optMode)
   let line = `\u2014 ${tierIcon} ${activeSlot} | ${providerLabel} | ${modelName}${regimeTag ? ` \u25B6 ${regimeIcon} ${regimeTag}` : ""}`
 
-  if (ltTotal > 0) {
-    const savingsPulse = formatSavingsPulse(ltTotal, ltTrend)
+  if (savingsTotal > 0) {
+    const savingsPulse = formatSavingsPulse(savingsTotal, ltTrend)
     if (savingsPulse) line += ` | ${savingsPulse}`
   }
 
