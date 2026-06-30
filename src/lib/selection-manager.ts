@@ -6,7 +6,7 @@ import { safeJsonParse } from "../utils/fs-helpers.js"
 
 const _USER_HOME = (() => { try { return homedir() } catch { return tmpdir() } })()
 
-const DFLT_SEL = { enabled: true, active_slot: null, slot_locked: false, thinking_level: "off", flow_enabled: true, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: true, delegation_enforce: true, onboarding_mode: null, requested_optimization_mode: null, previous_default_agent: null, previous_optimization_mode: null }
+const DFLT_SEL = { enabled: true, active_slot: null, entry_slot: null, worker_slot: null, slot_locked: false, thinking_level: "off", flow_enabled: true, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: true, delegation_enforce: true, onboarding_mode: null, requested_optimization_mode: null, previous_default_agent: null, previous_optimization_mode: null, cheap_first_degraded: false, cheap_first_reason: null }
 const SHADOW_SELECTION_KEYS = new Set(["selected_provider", "selected_quality_tier", "selected_model", "executed_provider", "executed_quality_tier", "executed_model"])
 
 // mtime-based cache for loadSelection — single stat() per turn (microseconds),
@@ -41,6 +41,8 @@ function loadSelectionImpl(): any {
     return {
       enabled:            j?.selection?.enabled !== false,
       active_slot:        j?.selection?.active_slot || null,
+      entry_slot:         j?.selection?.entry_slot || j?.selection?.active_slot || null,
+      worker_slot:        j?.selection?.worker_slot || j?.selection?.selected_slot || null,
       vector_changed_slot: j?.selection?.vector_changed_slot || null,
       slot_locked:        j?.selection?.slot_locked === true,
       active_pipeline:    Array.isArray(activePipeline) ? activePipeline : null,
@@ -61,6 +63,8 @@ function loadSelectionImpl(): any {
       selected_subagent: j?.selection?.selected_subagent || null,
       route_path: Array.isArray(j?.selection?.route_path) ? j.selection.route_path : null,
       requires_delegation: j?.selection?.requires_delegation === true,
+      cheap_first_degraded: j?.selection?.cheap_first_degraded === true,
+      cheap_first_reason: j?.selection?.cheap_first_reason || null,
     }
   } catch { _handleStateCorruption(TIERS_FILE); return DFLT_SEL }
 }

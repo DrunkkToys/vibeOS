@@ -620,6 +620,7 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
     const durablePipeline = modeCascadeRoot(cv.optimization_mode || userOptMode, cv.cascade_root || cv.pipeline_root, cv.selected_slot || cv.tier_bias)
     const routePath = normalizeRoutePath(cv.route_path || cv.pipeline_root, cv.selected_slot || cv.tier_bias)
     const isUltraX = isVibeUltraXMode(cv.optimization_mode || userOptMode)
+    const entrySlot = rootSlotForControlVector(cv, durablePipeline) || cv.selected_slot || cv.tier_bias || null
     const workerSlot = normalizeSlot(cv.selected_slot || cv.tier_bias)
     const workerModel = String(cv.selected_model || cv.selectedModel || modelForSlot(workerSlot) || "")
     const selectedSubagent = String(cv.selected_subagent || cv.selectedSubagent || vibeUltraXSubagentForSlot(workerSlot) || "")
@@ -641,11 +642,15 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
     writeIf("enabled", true)
     if (isUltraX) {
       ensureVibeUltraXSubagents(null, syncDirectory)
+      writeIf("entry_slot", entrySlot || "cheap")
+      writeIf("worker_slot", workerSlot || null)
       writeIf("selected_slot", workerSlot || null)
       writeIf("worker_model", workerModel || null)
       writeIf("selected_subagent", selectedSubagent || null)
       writeIf("route_path", routePath)
       writeIf("requires_delegation", requiresDelegation)
+      writeIf("cheap_first_degraded", false)
+      writeIf("cheap_first_reason", null)
     }
 
     const compatibilityMode = currentSel.onboarding_mode === "assist"
@@ -715,7 +720,7 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
       }
     }
 
-    const slot = rootSlotForControlVector(cv, durablePipeline) || cv.selected_slot || cv.tier_bias
+    const slot = entrySlot
     const slotLocked = currentSel.slot_locked === true
     const canApplySlot = slot && slot !== "auto" && (authoritative || (!slotLocked && !_modelLocked))
     let appliedSlot = currentSel.active_slot || null
@@ -821,6 +826,8 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
       optimization_mode: cv.optimization_mode || null,
       tier_bias: cv.tier_bias || null,
       selected_slot: cv.selected_slot || cv.tier_bias || null,
+      entry_slot: entrySlot || null,
+      worker_slot: workerSlot || null,
       selected_model: workerModel || null,
       selected_subagent: selectedSubagent || null,
       requires_delegation: requiresDelegation,
@@ -832,6 +839,8 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
     console.error("[vibeOS] syncControlSettings failed:", err?.message || err)
     const fallbackSel = loadSelection()
     const fallbackSlot = fallbackSel?.active_slot || cv?.tier_bias || null
+    const fallbackEntrySlot = fallbackSel?.entry_slot || fallbackSel?.active_slot || rootSlotForControlVector(cv, modeCascadeRoot(cv?.optimization_mode, cv?.cascade_root || cv?.pipeline_root, cv?.selected_slot || cv?.tier_bias)) || cv?.tier_bias || null
+    const fallbackWorkerSlot = fallbackSel?.worker_slot || fallbackSel?.selected_slot || normalizeSlot(cv?.selected_slot || cv?.tier_bias) || null
     return {
       applied_slot: fallbackSlot,
       applied_mode: cv?.optimization_mode || null,
@@ -841,6 +850,8 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
       optimization_mode: cv?.optimization_mode || null,
       tier_bias: cv?.tier_bias || null,
       selected_slot: cv?.selected_slot || cv?.tier_bias || null,
+      entry_slot: fallbackEntrySlot,
+      worker_slot: fallbackWorkerSlot,
       pipeline_root: modeCascadeRoot(cv?.optimization_mode, cv?.cascade_root || cv?.pipeline_root, cv?.selected_slot || cv?.tier_bias),
       cascade_root: modeCascadeRoot(cv?.optimization_mode, cv?.cascade_root || cv?.pipeline_root, cv?.selected_slot || cv?.tier_bias),
       route_path: normalizeRoutePath(cv?.route_path || cv?.pipeline_root, cv?.selected_slot || cv?.tier_bias),
@@ -1441,7 +1452,8 @@ export const onSystemTransform = async (_input, output) => {
           loop_notice_count: Number(sessionState.loop_notice_count ?? existingSession?.loop_notice_count ?? 0) || 0,
           control_history: controlHistory,
           optimization_mode: optimizationDecision?.optimization_mode || existingSession?.optimization_mode || null,
-          active_slot: optimizationDecision?.selected_slot || optimizationDecision?.tier_bias || _controlVector?.selected_slot || _controlVector?.tier_bias || existingSession?.active_slot || null,
+          active_slot: optimizationDecision?.entry_slot || optimizationDecision?.tier_bias || _controlVector?.tier_bias || existingSession?.active_slot || null,
+          worker_slot: optimizationDecision?.worker_slot || _controlVector?.selected_slot || existingSession?.worker_slot || null,
           turn_counter: turnCounter,
           orchestration_plan: _controlVector?.orchestration_plan || existingSession?.orchestration_plan || null,
           orchestration_kind: _controlVector?.orchestration_kind || existingSession?.orchestration_kind || null,
@@ -1455,7 +1467,8 @@ export const onSystemTransform = async (_input, output) => {
           ...existingSession,
           cv: _controlVector,
           optimization_mode: optimizationDecision?.optimization_mode || existingSession?.optimization_mode || null,
-          active_slot: optimizationDecision?.selected_slot || optimizationDecision?.tier_bias || _controlVector?.selected_slot || _controlVector?.tier_bias || existingSession?.active_slot || null,
+          active_slot: optimizationDecision?.entry_slot || optimizationDecision?.tier_bias || _controlVector?.tier_bias || existingSession?.active_slot || null,
+          worker_slot: optimizationDecision?.worker_slot || _controlVector?.selected_slot || existingSession?.worker_slot || null,
           latest_control_vector_ts: Date.now(),
           loop_notice_signature: existingSession?.loop_notice_signature ?? null,
           loop_notice_at: existingSession?.loop_notice_at ?? null,

@@ -1274,17 +1274,32 @@ export function reconcileSlotModel(
  */
 export function resolveOrchestratorState(projectDir = ""): {
   active_slot: string | null
+  entry_slot: string | null
+  worker_slot: string | null
+  optimization_mode: string | null
+  selected_subagent: string | null
+  requires_delegation: boolean
   intended_model: string
   ran_model: string
   pending_model: string | null
   drift: boolean
 } {
   let activeSlot: string | null = null
+  let entrySlot: string | null = null
+  let workerSlot: string | null = null
+  let optimizationMode: string | null = null
+  let selectedSubagent: string | null = null
+  let requiresDelegation = false
   let intendedModel = ""
   try {
     const TIERS_FILE = join(getVibeOSHome(), "model-tiers.json")
     const j = safeJsonParse(readFileSync(TIERS_FILE, "utf-8"))
     activeSlot = j?.selection?.active_slot || null
+    entrySlot = j?.selection?.entry_slot || activeSlot || null
+    workerSlot = j?.selection?.worker_slot || j?.selection?.selected_slot || null
+    optimizationMode = j?.selection?.optimization_mode || null
+    selectedSubagent = j?.selection?.selected_subagent || null
+    requiresDelegation = j?.selection?.requires_delegation === true
     intendedModel = String((activeSlot && j?.trinity?.[activeSlot]?.oc) || "").trim()
   } catch { /* fall through to live read */ }
   const ranModel = readLiveOpenCodeModel(projectDir)
@@ -1295,6 +1310,11 @@ export function resolveOrchestratorState(projectDir = ""): {
     (!pendingModel || pendingModel === ranModel)
   return {
     active_slot: activeSlot,
+    entry_slot: entrySlot || activeSlot,
+    worker_slot: workerSlot,
+    optimization_mode: optimizationMode,
+    selected_subagent: selectedSubagent,
+    requires_delegation: requiresDelegation,
     intended_model: intendedModel || ranModel,
     ran_model: ranModel || intendedModel,
     pending_model: pendingModel && pendingModel !== ranModel ? pendingModel : null,

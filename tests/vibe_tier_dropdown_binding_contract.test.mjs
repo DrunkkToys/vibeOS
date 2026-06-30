@@ -91,7 +91,7 @@ test("installVibeTierAgentsInConfig binds vibe primary + tier subagents to the t
 
   assert.equal(changed, true, "first install must report a change")
   assert.equal(config.agent.vibe.mode, "primary")
-  assert.equal(config.agent.vibe.model, "deepseek/v4-flash")
+  assert.equal(config.agent.vibe.model, undefined, "primary vibe agent must inherit from root model, not pin its own model")
   assert.equal(config.agent["vibe-cheap"].model, "deepseek/v4-flash")
   assert.equal(config.agent["vibe-medium"].model, "z-ai/glm-4.6")
   assert.equal(config.agent["vibe-brain"].model, "deepseek/v4-pro")
@@ -115,4 +115,21 @@ test("installVibeTierAgentsInConfig is idempotent and preserves custom permissio
   const secondChanged = installVibeTierAgentsInConfig(config, tiers)
   assert.equal(secondChanged, false, "re-running with unchanged tiers must be a no-op")
   assert.equal(config.agent["vibe-cheap"].permission.bash, "ask", "a user's custom permission override must survive re-install, not be clobbered back to the default 'allow'")
+})
+
+test("installVibeTierAgentsInConfig scrubs a stale primary vibe model pin", async () => {
+  writeTiers()
+  const { installVibeTierAgentsInConfig } = await import("../scripts/lib/vibe-tier-agents.mjs?tier-dropdown-4=" + Date.now())
+  const tiers = JSON.parse(readFileSync(join(sandbox, ".claude", "model-tiers.json"), "utf8"))
+  const config = {
+    agent: {
+      vibe: { mode: "primary", model: "deepseek/v4-pro" },
+    },
+  }
+
+  const changed = installVibeTierAgentsInConfig(config, tiers)
+
+  assert.equal(changed, true)
+  assert.equal(config.agent.vibe.mode, "primary")
+  assert.equal(config.agent.vibe.model, undefined, "stale primary model pin must be removed")
 })

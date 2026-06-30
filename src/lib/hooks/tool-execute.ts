@@ -819,7 +819,7 @@ export const onToolExecuteBefore = async (input, output) => {
       }
     }
     if (selection.optimization_mode === "vibeultrax" && (selection.requires_delegation || routeDecision?.requiresDelegation)) {
-      const controlSlot = selection.selected_slot || routeDecision?.selectedSlot || null
+      const controlSlot = selection.worker_slot || selection.selected_slot || routeDecision?.selectedSlot || null
       const controlModel = _modelForSlot(controlSlot, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN) || selection.worker_model || null
       const routeSlot = routeDecision?.selectedSlot || null
       const shouldApplyControlVector = controlModel && (!routeSlot || _slotRank(controlSlot) >= _slotRank(routeSlot))

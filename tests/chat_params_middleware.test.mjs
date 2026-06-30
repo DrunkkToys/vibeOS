@@ -43,6 +43,7 @@ test("tier mismatch (same provider) → override sets the MODEL ID within that p
   const r = resolveIntendedModel(sandbox, { providerID: "openrouter", modelID: "mid-model" })
   assert.equal(r.can_apply, true)
   assert.equal(r.modelID, "cheap-model")
+  assert.equal(r.cheap_first_primary_miss, false)
   const output = { options: {} }
   await onChatParams({ _directory: sandbox, model: { providerID: "openrouter", modelID: "mid-model" } }, output)
   // Provider is fixed by OpenCode; we set ONLY the model id (no provider prefix), else the
@@ -50,21 +51,28 @@ test("tier mismatch (same provider) → override sets the MODEL ID within that p
   assert.equal(output.options.model, "cheap-model", "model id only, within the resolved provider")
 })
 
-test("cross-provider tier → NOT injected (would fail the turn — live-proven)", async () => {
+test("cross-provider cheap-first miss is flagged and not injected", async () => {
   // The TIER is the source of truth, but the platform fixes the provider. Injecting a
   // foreign-provider model id errors and fails the turn, so we log and pass through.
   writeFileSync(TIERS, JSON.stringify({
-    trinity: { medium: { oc: "opencode-go/mimo-v2.5" } },
-    selection: { enabled: true, active_slot: "medium" },
+    trinity: {
+      cheap: { oc: "opencode-go/mimo-v2.5" },
+      medium: { oc: "deepseek/deepseek-v4-flash" },
+      brain: { oc: "deepseek/deepseek-v4-pro" },
+    },
+    selection: { enabled: true, active_slot: "cheap", entry_slot: "cheap", selected_slot: "brain", optimization_mode: "vibeultrax", selected_subagent: "vibe-brain", requires_delegation: true },
   }))
   writeFileSync(OC, JSON.stringify({ model: "deepseek/deepseek-v4-flash" }))
   const { onChatParams, resolveIntendedModel } = await fresh()
   const r = resolveIntendedModel(sandbox, { providerID: "deepseek", modelID: "deepseek-v4-flash" })
   assert.equal(r.cross_provider, true)
+  assert.equal(r.cheap_first_primary_miss, true, "vibeultrax cheap entry on a foreign provider must be flagged as degraded")
   assert.equal(r.can_apply, false, "cannot switch providers via this hook")
-  const output = { options: {} }
+  const output = { options: {}, headers: {} }
   await onChatParams({ _directory: sandbox, model: { providerID: "deepseek", modelID: "deepseek-v4-flash" } }, output)
   assert.equal(output.options.model, undefined, "no foreign-provider id injected — the turn is left intact")
+  assert.equal(output.headers["x-vibeos-cheap-first"], "degraded")
+  assert.equal(output.headers["x-vibeos-selected-subagent"], "vibe-brain")
 })
 
 test("already-coherent turn is a no-op", async () => {

@@ -54,14 +54,16 @@ The cascade shape follows the general LLM routing literature, but the live sourc
 
 ### VibeBoX Decision Engine
 
-At the core of vibeOS is a real-time decision engine that classifies every user turn into one of seven sub-regimes:
+At the core of vibeOS is a real-time decision engine that classifies every user turn into one of fourteen sub-regimes:
 
 - **INIT / DIVERGENT / EXPLORING** -- You are learning the codebase, asking questions, browsing. cheap model, relaxed enforcement. Stay out of your way.
-- **REFINING** -- You are iterating on a solution. Default mode: VibeUltraX, auto-escalate on complexity.
+- **REFINING / IMPLEMENTING / DESIGNING** -- You are iterating on a solution or actively building. Default mode: VibeUltraX, auto-escalate on complexity.
+- **RESEARCH / REVIEWING** -- You are investigating, comparing, or checking work. Routing and enforcement tighten as evidence requirements increase.
 - **CONVERGING / CLOSED** -- You are finalizing. Full quality mode, brain tier, strict enforcement and flow checks.
-- **LOOPING** -- You are stuck. Speed mode, medium tier, cycle-breaking interventions.
+- **LOOPING / ESCALATED** -- You are stuck or the session needs intervention. Speed mode or hard escalation paths activate to break cycles.
+- **FORENSIC / AUDIT** -- You are doing deep investigation or security-style review. Brain tier, strict enforcement, detailed verification.
 
-Classification uses 11 derived features per turn: message length, code block density, question ratio, urgency signals, sentiment, complexity estimate, repetition, instruction density, and more. Four escalating intervention levels prevent infinite loops. PIVOT/SWITCH detection recognizes context changes and injects scope-confirmation directives.
+For VibeMaX, feature extraction currently yields 14 numeric features per turn: 8 normalized metrics plus 6 raw/boolean indicators. Four escalating intervention levels prevent infinite loops. PIVOT/SWITCH detection recognizes context changes and injects scope-confirmation directives.
 
 When the VibeBoX is disabled, a lightweight classifyTurnSimple fallback distinguishes Q&A from implementation intent using regex patterns.
 
@@ -208,7 +210,7 @@ Stress > 1.5 escalates any regime to quality mode regardless of the above mappin
 | Flow enforcer | Pattern-rule checks on write/edit. Extracts TODO/FIXME into append-only queue. |
 | TDD enforcer | Auto-creates test skeletons for changed source. Strict mode fails TODO tests. |
 | Pattern learner | Tracks recurring struggle/routine patterns per project, cross-project too |
-| VibeBoX | 7 sub-regimes, 11 features per turn, loop intervention, PIVOT/SWITCH detection |
+| VibeBoX | 14 sub-regimes, 14 features per turn, loop intervention, PIVOT/SWITCH detection |
 | Stress-aware routing | Real-time stress scoring, auto-escalation, system prompt inoculation |
 | Cache savings | Separate cache_savings_usd tracking for scratchpad cache hits |
 | Report tools | report-save, report-list, report-read, research-audit |
