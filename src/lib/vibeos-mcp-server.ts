@@ -261,6 +261,20 @@ async function readDashboardProjection(path: string, kind: "status" | "savings" 
   return getDashboardBridgeProjection(kind, fallback)
 }
 
+function mergeStatusProjection(local: Record<string, unknown>, projected: unknown): Record<string, unknown> {
+  if (!projected || typeof projected !== "object") return local
+  const remote = projected as Record<string, unknown>
+  return {
+    ...local,
+    ...remote,
+    backend_connected: remote.backend_connected ?? remote.backendConnected ?? local.backend_connected,
+    backend_health_url: remote.backend_health_url ?? local.backend_health_url,
+    backend_version: remote.backend_version ?? local.backend_version,
+    blackbox: remote.blackbox ?? local.blackbox,
+    dashboard_backlog_count: remote.dashboard_backlog_count ?? local.dashboard_backlog_count,
+  }
+}
+
 let backendHealth: { ok: boolean | null; checkedAt: number; version: string | null } = { ok: null, checkedAt: 0, version: null }
 
 async function probeBackendHealth(force = false): Promise<{ ok: boolean | null; version: string | null }> {
@@ -331,13 +345,16 @@ export function createMcpServer(deps: Deps): McpServer {
       if (method === "GET" && path === "/status") {
         const probe = await probeBackendHealth()
         const local = buildLocalStatus(deps, probe)
-        const status = await readDashboardProjection("/api/v1/dashboard/status", "status", local)
+        const status = mergeStatusProjection(local, await readDashboardProjection("/api/v1/dashboard/status", "status", local))
         json(res, 200, status)
         return
       }
       if (method === "GET" && path === "/dashboard/home") {
         const currentSessionId = deps.getCurrentSessionId()
-        const state = await readDashboardProjection("/api/v1/dashboard/status", "status", buildLocalStatus(deps, { ok: null, version: null })) as Record<string, any>
+        const state = mergeStatusProjection(
+          buildLocalStatus(deps, { ok: null, version: null }),
+          await readDashboardProjection("/api/v1/dashboard/status", "status", buildLocalStatus(deps, { ok: null, version: null })),
+        ) as Record<string, any>
         const savings = await readDashboardProjection("/api/v1/dashboard/savings", "savings", buildLocalSavings(deps))
         const blackbox = deps.getBlackboxState() || {}
         const home = buildDashboardHomeModel({
