@@ -45,8 +45,8 @@ describe("footer SSOT — the one renderer never collapses to 3 segments", () =>
     assert.ok(line.includes("◐"), "must carry the README tier icon for medium")
     // The whole point: the degrade path is NOT the old 3-segment line.
     assert.ok(
-      /Vibe/.test(line),
-      "the one footer always carries the Vibe brand — never a bare provider|model line",
+      /vibeOS|Vibe/.test(line),
+      "the one footer always carries the footer product brand — never a bare provider|model line",
     )
   })
 
