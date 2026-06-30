@@ -79,12 +79,12 @@ test("footer: ⟡ pulse shows the decided slot vs what ran", async () => {
 })
 
 // ── Test 4: footer drops redundant mode label ──
-test("footer: brand is VibeQMaX when tier is brain", async () => {
-    writeTiers({ active_slot: "brain", vector_changed_slot: undefined })
+test("footer: brand follows actual mode, not just brain tier", async () => {
+    writeTiers({ active_slot: "brain", vector_changed_slot: undefined, optimization_mode: "vibeultrax", requested_optimization_mode: "vibeultrax" })
     const { _appendFooter } = await import("../src/lib/hooks/footer.js?ftr4=" + Date.now())
     const o = { text: "Testing the brand display in the footer with a sufficiently long message for vibeOS." }
     await _appendFooter({ args: { model: "deepseek/v4-pro" } }, o)
-    assert.ok(o.text.includes("VibeQMaX"), "footer should show VibeQMaX for brain: " + o.text.slice(-150))
+    assert.ok(o.text.includes("VibeUltraX"), "footer should show the persisted mode brand, not a brain-tier alias: " + o.text.slice(-150))
 })
 
 // ── Test 5: ML pipeline end-to-end via footer ──

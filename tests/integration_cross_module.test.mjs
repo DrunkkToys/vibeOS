@@ -8,6 +8,8 @@ import { tmpdir } from 'node:os'
 import { execFileSync } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
 
+const FOOTER_BRAND_RE = /(?:vibeOS|Vibe(?:MaX|QMaX|UltraX|LiteX)?|Quality|Budget|Speed|Longrun|Balanced|Audit|Forensic)/i
+
 function makeSandbox(name) {
   const sandbox = mkdtempSync(join(tmpdir(), 'vibeos-int-' + name + '-'))
   const home = sandbox
@@ -352,7 +354,10 @@ test('footer alert chain: desktop message wrapper keeps tool warning and footer 
     },
   }
   await hooks['message.updated']({ messageID: 'footer-chain-desktop-1' }, desktopAssistantOut)
-  assert.ok(desktopAssistantOut.message.text.includes('Vibe'), 'desktop wrapper footer still renders after the tool alert chain')
+  assert.ok(
+    FOOTER_BRAND_RE.test(desktopAssistantOut.message.text) && desktopAssistantOut.message.text.includes('—'),
+    'desktop wrapper footer still renders after the tool alert chain',
+  )
 })
 
 test('main pipeline: branded qmax request stays visible while ultrax still runs a real cascade', async () => {

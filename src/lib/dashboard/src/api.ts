@@ -63,11 +63,85 @@ export interface CapabilitiesPayload{
 }
 export interface WebSearchResult{id:string;title:string;url:string;domain:string;snippet?:string;source:string;rank:number}
 export interface WebSearchPayload{ok:boolean;query:string;provider:string;results:WebSearchResult[];citations:{id:number;title:string;url:string;domain:string}[];answer:string|null;meta:{resultCount:number;uniqueDomains:number}}
+export interface DashboardHomeCard{label:string;value:string}
+export interface DashboardTodo{id?:string;status?:string;title?:string;text?:string;content?:string}
+export interface DashboardSessionTemplate{id:string;label?:string;body?:string;signature?:string;revision?:number;source?:string}
+export interface DashboardSessionLifecycle{created_at?:string|null;paused_at?:string|null;resumed_at?:string|null;archived_at?:string|null;checked_out_at?:string|null}
+export interface DashboardSessionBlackbox{enabled:boolean;sub_regime:string;resolution:string;momentum:number;loop_count:number}
+export interface DashboardSessionSummary{
+  title:string
+  session_id:string
+  status:string
+  locked:boolean
+  archived:boolean
+  project_name:string
+  project_fingerprint:string|null
+  started_at:string|null
+  cost_usd:number
+  delegation_savings_usd:number
+  cache_savings_usd:number
+  notes_count:number
+  tags:string[]
+  template:DashboardSessionTemplate
+  orchestration_plan?:OrchPlan|null
+  blackbox:DashboardSessionBlackbox
+  recommendation:string
+  notes?:{text?:string}[]
+  lifecycle?:DashboardSessionLifecycle
+  orchestration?:Record<string,unknown>
+}
+export interface DashboardHomePayload{
+  home:{title:string;subtitle:string;recommendation:string;cards:DashboardHomeCard[]}
+  savings:SavingsPayload
+  todos:DashboardTodo[]
+  current_session:DashboardSessionSummary
+  template_editor:{
+    enabled:boolean
+    session_id:string
+    template:DashboardSessionTemplate
+    templates:DashboardSessionTemplate[]
+    can_edit:boolean
+    can_version:boolean
+    version?:number
+    history?:unknown[]
+  }
+  sessions:Array<{
+    session_id:string
+    is_current:boolean
+    started_at:string|null
+    cost_usd:number
+    delegation_savings_usd:number
+    cache_savings_usd:number
+    status:string
+    locked:boolean
+    archived:boolean
+    tags:string[]
+    notes_count:number
+    template_label:string
+    template_signature:string|null
+    recommendation:string
+  }>
+  templates:DashboardSessionTemplate[]
+  session_actions:string[]
+  totals:{
+    total_sessions:number
+    total_savings_usd:number
+    current_session_savings_usd:number
+    pending_todos:number
+  }
+  status?:StatusPayload
+  blackbox?:Record<string,unknown>
+  backend_connected?:boolean
+  backend_status?:string
+  backend_health_url?:string
+  backend_version?:string|null
+}
 export function fetchStatus():Promise<StatusPayload>{return f<StatusPayload>("/status")}
 export function fetchSavings():Promise<SavingsPayload>{return f<SavingsPayload>("/savings")}
 export function fetchSessions():Promise<{sessions:SessionEntry[];total_sessions:number}>{return f("/sessions")}
 export function fetchReports():Promise<ReportSummary[]>{return f("/reports")}
 export function fetchCapabilities():Promise<CapabilitiesPayload>{return f<CapabilitiesPayload>("/capabilities")}
+export function fetchDashboardHome():Promise<DashboardHomePayload>{return f<DashboardHomePayload>("/dashboard/home")}
 export function postTrinity(action:string,slot?:string,level?:string):Promise<{ok:boolean;result?:unknown;error?:string}>{const b:Record<string,string>={action};if(slot)b.slot=slot;if(level)b.level=level;return f("/trinity",{method:"POST",body:JSON.stringify(b)})}
 export function fetchRealityCheck(scope:"global"|"project"="global",project_id?:string):Promise<RealityCheckView>{const q=new URLSearchParams();q.set("scope",scope);if(project_id)q.set("project_id",project_id);return f<RealityCheckView>(`/reality-check?${q.toString()}`)}
 export function saveRealityCheck(payload:{scope:"global"|"project";project_id?:string;enabled:boolean;rules:RealityCheckRule[]}):Promise<{ok:boolean;settings?:RealityCheckView;error?:string}>{return f("/reality-check",{method:"POST",body:JSON.stringify(payload)})}
