@@ -452,6 +452,7 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
     const ltTotal = ltTasks + ltCache
     const sessionCacheSavings = getSessionCacheSavings(readFullState()?.sessions?.[sid] || {})
     const sessionTotal = Number(sesTasks || 0) + Number(sessionCacheSavings || 0)
+    const footerSavingsTotal = sessionTotal > 0 ? sessionTotal : ltTotal
     // SINGLE SOURCE OF TRUTH: the tier icon must describe the model that ACTUALLY ran
     // this turn — the live model the footer already resolved (ultraLiveModel =
     // displayModel || liveModel || currentModel) — so the icon and the model name shown
@@ -616,7 +617,7 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
       activeSlot,
       providerLabel: execution.provider_label,
       modelName: modelDisplayName(execution.model),
-      savingsTotal: sessionTotal,
+      savingsTotal: footerSavingsTotal,
       ltTrend: sesTrend,
       vibeBrand,
       optMode: displayMode,
