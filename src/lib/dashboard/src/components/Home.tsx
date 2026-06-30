@@ -1,0 +1,140 @@
+import { For, Show } from "solid-js"
+import type { DashboardHomePayload, OrchFlow, OrchProject, OrchSession } from "../api"
+import { resolveFlowSummary } from "../home-model"
+
+function fmtUsd(value: number | null | undefined): string {
+  return `$${Number(value || 0).toFixed(2)}`
+}
+
+function sessionLabel(session: OrchSession | null | undefined): string {
+  if (!session?.id) return "No active session"
+  return `${session.title} · ${session.id.slice(0, 8)}`
+}
+
+export default function Home(props: {
+  data: DashboardHomePayload | null
+  project: OrchProject | null
+  session: OrchSession | null
+  flows: OrchFlow[]
+  onOpenStatus: () => void
+  onOpenProject: () => void
+  onOpenSession: () => void
+}) {
+  if (!props.data) return <div class="home-view"><div class="card"><h3>Home</h3><p class="muted">loading executive summary...</p></div></div>
+
+  const flowSummary = () => resolveFlowSummary({ session: props.session, project: props.project, flows: props.flows })
+  const todoPreview = () => (props.data?.todos || []).filter((todo) => todo?.status !== "done").slice(0, 4)
+
+  return (
+    <div class="home-view">
+      <section class="home-hero">
+        <div class="home-hero-copy">
+          <div class="home-kicker">opencode mirror</div>
+          <h2>{props.data.home.title}</h2>
+          <p>{props.data.home.subtitle}</p>
+        </div>
+        <div class="home-hero-actions">
+          <button class="flow-save" onClick={props.onOpenSession}>Open session</button>
+          <button class="shell-link" onClick={props.onOpenProject}>Project</button>
+          <button class="shell-link" onClick={props.onOpenStatus}>Status</button>
+        </div>
+      </section>
+
+      <section class="home-overview-grid">
+        <div class="card home-summary-card">
+          <h3>Overview</h3>
+          <div class="home-summary-table">
+            <For each={props.data.home.cards}>{(card) => (
+              <div class="home-summary-row">
+                <span class="home-summary-label">{card.label}</span>
+                <span class="home-summary-value">{card.value}</span>
+              </div>
+            )}</For>
+          </div>
+        </div>
+
+        <div class="card home-recommendation-card">
+          <h3>Next Action</h3>
+          <p class="home-recommendation">{props.data.home.recommendation || "Continue with the active session."}</p>
+          <div class="home-inline-grid">
+            <div>
+              <span class="field-label">active session</span>
+              <div class="home-inline-value">{sessionLabel(props.session)}</div>
+            </div>
+            <div>
+              <span class="field-label">flow</span>
+              <div class="home-inline-value">{flowSummary()}</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="home-detail-grid">
+        <div class="card home-current-session">
+          <h3>Current Session</h3>
+          <div class="home-session-head">
+            <div class="home-session-title">{props.data.current_session.project_name}</div>
+            <span class={`badge ${props.data.current_session.locked ? "off" : "on"}`}>{props.data.current_session.status}</span>
+          </div>
+          <div class="home-metric-strip">
+            <span>session {props.data.current_session.session_id || "none"}</span>
+            <span>cost {fmtUsd(props.data.current_session.cost_usd)}</span>
+            <span>saved {fmtUsd((props.data.current_session.delegation_savings_usd || 0) + (props.data.current_session.cache_savings_usd || 0))}</span>
+          </div>
+          <p class="muted">{props.data.current_session.recommendation}</p>
+          <Show when={props.data.current_session.tags?.length}>
+            <div class="home-tag-row">
+              <For each={props.data.current_session.tags}>{(tag) => <span class="home-tag">{tag}</span>}</For>
+            </div>
+          </Show>
+        </div>
+
+        <div class="card home-todos-card">
+          <h3>Open TODOs</h3>
+          <Show when={todoPreview().length} fallback={<p class="muted">No pending TODOs.</p>}>
+            <div class="home-todo-list">
+              <For each={todoPreview()}>{(todo) => (
+                <div class="home-todo-item">
+                  <span class="home-todo-status">{String(todo.status || "pending").toUpperCase()}</span>
+                  <span>{todo.title || todo.text || todo.content || "Untitled task"}</span>
+                </div>
+              )}</For>
+            </div>
+          </Show>
+          <div class="home-totals">
+            <span>{props.data.totals.pending_todos} pending</span>
+            <span>{props.data.totals.total_sessions} sessions</span>
+          </div>
+        </div>
+
+        <div class="card home-savings-card">
+          <h3>Savings</h3>
+          <div class="home-money">{fmtUsd(props.data.totals.total_savings_usd)}</div>
+          <div class="home-money-sub">current session {fmtUsd(props.data.totals.current_session_savings_usd)}</div>
+          <div class="home-metric-strip">
+            <span>delegation {fmtUsd(props.data.savings?.lifetime?.delegation_usd)}</span>
+            <span>cache {fmtUsd(props.data.savings?.lifetime?.cache_usd)}</span>
+          </div>
+        </div>
+
+        <div class="card home-sessions-card">
+          <h3>Recent Sessions</h3>
+          <div class="home-session-list">
+            <For each={props.data.sessions.slice(0, 5)}>{(entry) => (
+              <div class={`home-session-item ${entry.is_current ? "current" : ""}`}>
+                <div>
+                  <div class="home-session-item-title">{entry.session_id}</div>
+                  <div class="muted">{entry.recommendation}</div>
+                </div>
+                <div class="home-session-item-meta">
+                  <span>{entry.template_label}</span>
+                  <span>{fmtUsd(entry.delegation_savings_usd + entry.cache_savings_usd)}</span>
+                </div>
+              </div>
+            )}</For>
+          </div>
+        </div>
+      </section>
+    </div>
+  )
+}
