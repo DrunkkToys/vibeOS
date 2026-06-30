@@ -100,18 +100,15 @@ test("footer: tier icon matches active_slot", async () => {
   }
 })
 
-test("footer: brand fallback follows active_slot", async () => {
+test("footer: footer brand does not alias unknown mode from active_slot", async () => {
   ensureSandbox()
   writeTiers({ active_slot: "brain", optimization_mode: "budget" })
   let sel = readSelection()
-  // When active_slot is brain → VibeQMaX
-  const brand = sel.active_slot === "brain" ? "VibeQMaX" : "VibeMaX"
-  assert.equal(brand, "VibeQMaX")
+  assert.equal(sel.optimization_mode, "budget")
 
   writeTiers({ active_slot: "medium", optimization_mode: "budget" })
   sel = readSelection()
-  const brand2 = sel.active_slot === "brain" ? "VibeQMaX" : "VibeMaX"
-  assert.equal(brand2, "VibeMaX")
+  assert.equal(sel.optimization_mode, "budget")
 })
 
 // ── Phase E: Full regime → mode → tier pipeline ──

@@ -212,14 +212,14 @@ test("footer: resolveBrand maps all modes correctly", () => {
   assert.equal(resolveBrand("vibeqmax", "medium"), "VibeQMaX")
   assert.equal(resolveBrand("vibemax", "cheap"), "VibeMaX")
   assert.equal(resolveBrand("litex", "brain"), "VibeLiteX")
-  assert.equal(resolveBrand("quality", "medium"), "VibeQMaX")
-  assert.equal(resolveBrand("audit", "brain"), "VibeQMaX")
-  assert.equal(resolveBrand("forensic", "cheap"), "VibeQMaX")
-  assert.equal(resolveBrand("budget", "brain"), "VibeQMaX")
-  assert.equal(resolveBrand("speed", "medium"), "VibeMaX")
-  assert.equal(resolveBrand("unknown", "brain"), "VibeQMaX")
-  assert.equal(resolveBrand("unknown", "medium"), "VibeMaX")
-  assert.equal(resolveBrand("unknown", "cheap"), "VibeMaX")
+  assert.equal(resolveBrand("quality", "medium"), "Quality")
+  assert.equal(resolveBrand("audit", "brain"), "Audit")
+  assert.equal(resolveBrand("forensic", "cheap"), "Forensic")
+  assert.equal(resolveBrand("budget", "brain"), "Budget")
+  assert.equal(resolveBrand("speed", "medium"), "Speed")
+  assert.equal(resolveBrand("unknown", "brain"), "vibeOS")
+  assert.equal(resolveBrand("unknown", "medium"), "vibeOS")
+  assert.equal(resolveBrand("unknown", "cheap"), "vibeOS")
 })
 
 test("footer: resolveBrand for branded modes maps to correct brand name", () => {
@@ -230,18 +230,18 @@ test("footer: resolveBrand for branded modes maps to correct brand name", () => 
 })
 
 test("footer: resolveBrand for built-in modes maps to correct brand name", () => {
-  assert.equal(resolveBrand("quality", "brain"), "VibeQMaX")
-  assert.equal(resolveBrand("audit", "brain"), "VibeQMaX")
-  assert.equal(resolveBrand("forensic", "brain"), "VibeQMaX")
-  assert.equal(resolveBrand("budget", "cheap"), "VibeMaX")
-  assert.equal(resolveBrand("speed", "medium"), "VibeMaX")
-  assert.equal(resolveBrand("longrun", "medium"), "VibeMaX")
+  assert.equal(resolveBrand("quality", "brain"), "Quality")
+  assert.equal(resolveBrand("audit", "brain"), "Audit")
+  assert.equal(resolveBrand("forensic", "brain"), "Forensic")
+  assert.equal(resolveBrand("budget", "cheap"), "Budget")
+  assert.equal(resolveBrand("speed", "medium"), "Speed")
+  assert.equal(resolveBrand("longrun", "medium"), "Longrun")
 })
 
 test("footer: resolveBrand fallback logic for unknown modes", () => {
-  assert.equal(resolveBrand("nonexistent", "brain"), "VibeQMaX")
-  assert.equal(resolveBrand("nonexistent", "medium"), "VibeMaX")
-  assert.equal(resolveBrand("nonexistent", "cheap"), "VibeMaX")
+  assert.equal(resolveBrand("nonexistent", "brain"), "vibeOS")
+  assert.equal(resolveBrand("nonexistent", "medium"), "vibeOS")
+  assert.equal(resolveBrand("nonexistent", "cheap"), "vibeOS")
 })
 
 test("footer: resolveTierIcon returns correct icons", () => {
@@ -320,7 +320,7 @@ test("footer: buildFooterLine with vibeqmax mode", () => {
 
   assert.ok(line.includes("\u26A1 cheap"))
   assert.ok(line.includes("| VibeQMaX"))
-  assert.ok(line.includes("Quality"))
+  assert.ok(!line.includes("· Quality"))
   assert.ok(line.includes("$42.00 saved \u2198"))
 })
 
@@ -341,7 +341,7 @@ test("footer: buildFooterLine with vibemax mode on cheap slot", () => {
 
   assert.ok(line.includes("\u26A1 cheap"))
   assert.ok(line.includes("| VibeMaX"))
-  assert.ok(line.includes("Budget"))
+  assert.ok(!line.includes("· Budget"))
   assert.ok(line.includes("$99.99 saved"))
 })
 

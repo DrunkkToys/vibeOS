@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Shared footer formatting — single source of truth for text.complete and tool.execute.after
 
+import { BRANDED_MODES, RUNTIME_MODES } from "../mode-router.js"
+
 export interface FooterLineInput {
   activeSlot: string
   sessionSlot?: string
@@ -55,15 +57,13 @@ const REGIME_ICON: Record<string, string> = {
   FORENSIC: "⟁",
 }
 
-const BRAND_MAP: Record<string, string> = {
-  vibeultrax: "VibeUltraX",
-  vibeqmax: "VibeQMaX",
-  vibemax: "VibeMaX",
-  litex: "VibeLiteX",
-  quality: "VibeQMaX",
-  audit: "VibeQMaX",
-  forensic: "VibeQMaX",
-}
+const BRAND_MAP: Record<string, string> = Object.fromEntries(
+  [...BRANDED_MODES, ...RUNTIME_MODES].flatMap((mode) => {
+    const aliases = [mode.id]
+    if (mode.id === "vibelitex") aliases.push("litex")
+    return aliases.map((alias) => [alias, mode.name])
+  }),
+)
 
 const TIER_ICON: Record<string, string> = {
   brain: "\u{1F9E0}",
@@ -72,8 +72,9 @@ const TIER_ICON: Record<string, string> = {
   free: "\u{1F381}",
 }
 
-export function resolveBrand(optMode: string, activeSlot: string): string {
-  return BRAND_MAP[optMode] || (activeSlot === "brain" ? "VibeQMaX" : "VibeMaX")
+export function resolveBrand(optMode: string, _activeSlot: string): string {
+  const normalized = String(optMode || "").trim().toLowerCase()
+  return BRAND_MAP[normalized] || "vibeOS"
 }
 
 export function resolveTierIcon(slot: string): string {
@@ -87,14 +88,17 @@ export function resolveRegimeIcon(subRegime: string): string {
 export function formatModeLabel(optMode: string): string {
   const normalized = String(optMode || "").toLowerCase()
   if (!normalized) return ""
-  if (normalized === "vibemax" || normalized === "vibelitex" || normalized === "budget") return "Budget"
-  if (normalized === "vibeqmax" || normalized === "quality") return "Quality"
+  if (normalized === "vibemax") return "VibeMaX"
+  if (normalized === "vibelitex" || normalized === "litex") return "VibeLiteX"
+  if (normalized === "vibeqmax") return "VibeQMaX"
   if (normalized === "vibeultrax") return "VibeUltraX"
   if (normalized === "speed") return "Speed"
   if (normalized === "longrun") return "Longrun"
   if (normalized === "audit") return "Audit"
   if (normalized === "forensic") return "Forensic"
   if (normalized === "balanced") return "Balanced"
+  if (normalized === "budget") return "Budget"
+  if (normalized === "quality") return "Quality"
   return normalized.charAt(0).toUpperCase() + normalized.slice(1)
 }
 

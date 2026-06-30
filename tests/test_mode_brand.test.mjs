@@ -12,13 +12,13 @@ const BRAND_EXPECTATIONS = {
   vibemax: "VibeMaX",
   vibeultrax: "VibeUltraX",
   vibeqmax: "VibeQMaX",
-  audit: "VibeQMaX",
-  forensic: "VibeQMaX",
-  budget: "VibeMaX",
-  quality: "VibeQMaX",
-  speed: "VibeMaX",
-  longrun: "VibeMaX",
-  auto: "VibeMaX",
+  audit: "Audit",
+  forensic: "Forensic",
+  budget: "Budget",
+  quality: "Quality",
+  speed: "Speed",
+  longrun: "Longrun",
+  auto: "Budget",
 };
 
 const MODE_LOAD_EXPECTATIONS = {

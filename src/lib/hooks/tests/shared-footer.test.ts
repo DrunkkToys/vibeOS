@@ -4,8 +4,8 @@ import { buildEnforcementTags, buildResilientFooterLine, buildFooterLine, format
 
 test("shared-footer resolves the expected brand names", () => {
   assert.equal(resolveBrand("vibemax", "brain"), "VibeMaX")
-  assert.equal(resolveBrand("quality", "medium"), "VibeQMaX")
-  assert.equal(resolveBrand("unknown", "cheap"), "VibeMaX")
+  assert.equal(resolveBrand("quality", "medium"), "Quality")
+  assert.equal(resolveBrand("unknown", "cheap"), "vibeOS")
 })
 
 test("shared-footer keeps tier icons compact and stable", () => {
@@ -54,9 +54,9 @@ test("shared-footer formats cascade icon and label together", () => {
 })
 
 test("shared-footer formats visible mode labels for branded modes", () => {
-  assert.equal(formatModeLabel("vibemax"), "Budget")
-  assert.equal(formatModeLabel("vibelitex"), "Budget")
-  assert.equal(formatModeLabel("vibeqmax"), "Quality")
+  assert.equal(formatModeLabel("vibemax"), "VibeMaX")
+  assert.equal(formatModeLabel("vibelitex"), "VibeLiteX")
+  assert.equal(formatModeLabel("vibeqmax"), "VibeQMaX")
 })
 
 test("shared-footer builds short enforcement tags", () => {
@@ -115,7 +115,7 @@ test("shared-footer degrade path renders the ONE README footer, never the bare 3
   assert.ok(line.startsWith("—") && line.trimEnd().endsWith("—"))
   assert.ok(line.includes("⚡ cheap"))
   assert.ok(line.includes("Opencode | Big Pickle"))
-  assert.ok(/Vibe/.test(line), "the one footer always carries the Vibe brand")
+  assert.ok(/vibeOS|Vibe/.test(line), "the one footer always carries the footer product brand")
   assert.notEqual(line, "— ⚡ cheap | Opencode | Big Pickle —")
 })
 
