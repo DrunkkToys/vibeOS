@@ -267,18 +267,30 @@ export function resetChatTransformState(): void {
 
 async function apiComputeControlVector(state: unknown, action: unknown, optimizationMode: unknown): Promise<unknown> {
   try {
-    const requestedMode = typeof optimizationMode === "string"
-      ? optimizationMode
-      : String(optimizationMode?.optimization_mode || optimizationMode?.requested_mode || "auto")
+    const decisionInput = typeof optimizationMode === "string"
+      ? {
+        optimization_mode: optimizationMode,
+        requested_mode: optimizationMode,
+        requested_slot: null,
+        pipeline_root: null,
+        source: null,
+      }
+      : (optimizationMode || {})
+    const effectiveMode = String(decisionInput?.optimization_mode || decisionInput?.requested_mode || "auto")
+    const requestedMode = String(decisionInput?.requested_mode || effectiveMode)
     const res = await remoteCall("blackboxControlVector", [state, action, {
-      optimization_mode: requestedMode,
+      optimization_mode: effectiveMode,
       requested_mode: requestedMode,
-      requested_slot: typeof optimizationMode === "object" ? optimizationMode?.requested_slot || null : null,
-      pipeline_root: typeof optimizationMode === "object" ? optimizationMode?.pipeline_root || null : null,
-      source: typeof optimizationMode === "object" ? optimizationMode?.source || null : null,
+      requested_slot: decisionInput?.requested_slot || null,
+      pipeline_root: decisionInput?.pipeline_root || null,
+      source: decisionInput?.source || null,
     }], null)
     if (res && typeof res === "object") {
-      return normalizeBackendDecision(res, requestedMode)
+      return normalizeBackendDecision({
+        ...res,
+        optimization_mode: res?.optimization_mode || effectiveMode,
+        requested_mode: res?.requested_mode || requestedMode,
+      }, effectiveMode)
     }
   } catch {}
   const fallbackMode = typeof optimizationMode === "string"
@@ -297,6 +309,31 @@ async function apiComputeControlVector(state: unknown, action: unknown, optimiza
       requested_slot: controlVector.tier_bias || null,
     },
   }, fallbackMode)
+}
+
+async function apiResolveEmbeddingMode(sessionId: string, state: unknown, requestedMode: unknown, userText: unknown): Promise<unknown> {
+  try {
+    const text = String(userText || state?.user_text || state?.prompt || "").trim()
+    if (!text) return null
+    const normalizedRequestedMode = String(requestedMode || "auto").trim().toLowerCase()
+    const res = await remoteCall("blackboxSelectModeEmbedding", [sessionId, {
+      project_id: currentProjectFingerprint || null,
+      userText: text,
+      prompt: text,
+      optimization_mode: normalizedRequestedMode || null,
+    }], null)
+    if (!res || typeof res !== "object") return null
+    const mode = String(res.mode || "").trim().toLowerCase()
+    if (!mode) return null
+    return {
+      optimization_mode: mode,
+      requested_mode: normalizedRequestedMode || mode,
+      requested_slot: slotFromMode(mode),
+      source: "backend+embedding",
+      embedding: res.embedding || null,
+    }
+  } catch {}
+  return null
 }
 
 function normalizeSlot(value: unknown): "brain" | "medium" | "cheap" | null {
@@ -1296,11 +1333,12 @@ export const onSystemTransform = async (_input, output) => {
     else if (!latestUserIntent) latestUserIntent = null
     if (latestUserIntent) observeUserCorrection(latestUserIntent)
 
-    const classifiedRegime = liveBlackboxState?.sub_regime
-      || (latestUserIntent && isGreetingLike(latestUserIntent) ? "INIT" : latestUserIntent ? await classifyTurnRemote(latestUserIntent) : "INIT")
-    const requestedOptimizationMode = loadOptimizationMode()
+    const selectionMode = String(loadSelection()?.requested_optimization_mode || loadSelection()?.optimization_mode || "").trim().toLowerCase()
+    const requestedOptimizationMode = selectionMode || loadOptimizationMode()
     const backendAutoModes = new Set(["auto", "vibeultrax", "vibeqmax", "vibemax", "vibelitex"])
     const useBackendDecision = backendAutoModes.has(String(requestedOptimizationMode || "").toLowerCase())
+    const classifiedRegime = liveBlackboxState?.sub_regime
+      || (latestUserIntent && isGreetingLike(latestUserIntent) ? "INIT" : latestUserIntent ? await classifyTurnRemote(latestUserIntent) : "INIT")
     let optimizationDecision = null
     let optimizationMode = requestedOptimizationMode
     let _controlVector = null
@@ -1313,6 +1351,9 @@ export const onSystemTransform = async (_input, output) => {
         latest_stress_multiplier: st || undefined,
         user_text: latestUserIntent || undefined,
       }
+    const embeddingDecision = useBackendDecision
+      ? await apiResolveEmbeddingMode(_OC_SID, cvState, requestedOptimizationMode, latestUserIntent)
+      : null
     const requestedDecision = {
       optimization_mode: requestedOptimizationMode,
       requested_mode: requestedOptimizationMode,
@@ -1320,7 +1361,16 @@ export const onSystemTransform = async (_input, output) => {
       source: useBackendDecision ? "backend" : "manual",
     }
     if (useBackendDecision) {
-      const backendResult = await apiComputeControlVector(cvState, undefined, requestedDecision)
+      const backendResult = await apiComputeControlVector(cvState, undefined, embeddingDecision
+        ? {
+          ...requestedDecision,
+          optimization_mode: embeddingDecision.optimization_mode,
+          requested_mode: requestedOptimizationMode,
+          requested_slot: embeddingDecision.requested_slot || requestedDecision.requested_slot,
+          source: embeddingDecision.source || requestedDecision.source,
+          embedding: embeddingDecision.embedding || null,
+        }
+        : requestedDecision)
       optimizationDecision = backendResult?.decision || backendResult || null
       _controlVector = backendResult?.control_vector || backendResult || null
       optimizationMode = optimizationDecision?.optimization_mode || optimizationMode

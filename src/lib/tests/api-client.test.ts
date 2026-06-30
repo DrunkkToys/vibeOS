@@ -86,6 +86,34 @@ describe("api-client", () => {
     })
   })
 
+  it("sends session mode baselines to the embedding selector endpoint", async () => {
+    await withFreshApiClient(async (mod) => {
+      const client = new mod.VibeOSApiClient({ baseUrl: "http://api.example.test", apiToken: "vos_" + "a".repeat(64) })
+      const calls: Array<{ path: string; body: Record<string, unknown> | null }> = []
+      client.request = async (path: string, body: Record<string, unknown> | null) => {
+        calls.push({ path, body })
+        return { ok: true, mode: "budget" }
+      }
+
+      await client.blackboxSelectModeEmbedding("session-1", {
+        project_id: "proj-1",
+        userText: "show status",
+        prompt: "show status",
+        optimization_mode: "vibeultrax",
+      })
+
+      assert.equal(calls.length, 1)
+      assert.equal(calls[0]?.path, "/api/v1/blackbox/select-mode-embedding")
+      assert.deepEqual(calls[0]?.body, {
+        session_id: "session-1",
+        project_id: "proj-1",
+        user_text: "show status",
+        prompt: "show status",
+        optimization_mode: "vibeultrax",
+      })
+    })
+  })
+
   it("treats VIBEOS_HOME as the API credential source of truth", async () => {
     const sandbox = mkdtempSync(join(tmpdir(), "vibeos-api-home-"))
     const prevEnv = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]))

@@ -28,6 +28,18 @@ export async function classifyTurnRemote(text: string): Promise<string> {
       _lastClassifiedByApi = false
       return _classifyTurnSimple(text)
     }
+    try {
+      const embedding = await client.blackboxSelectModeEmbedding(_OC_SID, {
+        session_id: _OC_SID,
+        project_id: currentProjectFingerprint || null,
+        userText: text,
+        prompt: text,
+        optimization_mode: loadOptimizationMode() || null,
+      } as unknown)
+      if (embedding && typeof embedding === "object" && "mode" in (embedding as Record<string, unknown>)) {
+        _lastApiPredictedMode = String((embedding as Record<string, unknown>).mode || "")
+      }
+    } catch {}
     const res = await client.blackboxAnalyze(_OC_SID, {
       session_id: _OC_SID,
       project_id: currentProjectFingerprint || null,
@@ -40,7 +52,7 @@ export async function classifyTurnRemote(text: string): Promise<string> {
     } as unknown)
     if (res && typeof res === "object" && "sub_regime" in (res as Record<string, unknown>)) {
       _lastClassifiedByApi = true
-      _lastApiPredictedMode = (res as Record<string, string>).optimization_mode || ""
+      if (!_lastApiPredictedMode) _lastApiPredictedMode = (res as Record<string, string>).optimization_mode || ""
       return (res as Record<string, string>).sub_regime
     }
   } catch {}

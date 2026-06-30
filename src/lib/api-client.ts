@@ -35,11 +35,13 @@ type ApiClientOptions = {
 type BlackboxEntry = {
   project_id?: string | null
   userText?: string
+  prompt?: string
   features?: Record<string, unknown>
   action?: string
   entropy?: number
   uncertainty?: number
   embedding?: unknown
+  optimization_mode?: string | null
 }
 
 export class VibeOSAuthError extends Error {
@@ -411,6 +413,16 @@ export class VibeOSApiClient {
       entropy: entry.entropy ?? 1.0,
       uncertainty: entry.uncertainty ?? 50,
       embedding: entry.embedding || null,
+    })
+  }
+
+  async blackboxSelectModeEmbedding(sessionId: string, entry: BlackboxEntry): Promise<unknown> {
+    return this.request("/api/v1/blackbox/select-mode-embedding", {
+      session_id: sessionId,
+      project_id: entry.project_id || null,
+      user_text: entry.userText || "",
+      prompt: entry.prompt || entry.userText || "",
+      optimization_mode: entry.optimization_mode || null,
     })
   }
 
