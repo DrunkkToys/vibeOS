@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { autoSelectMode } from "./meta-controller.js"
+import { autoSelectMode } from "../../lib/turn-classify.js"
 import { PivotCache } from "./pivot-cache.js"
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { resolve, dirname } from "node:path"

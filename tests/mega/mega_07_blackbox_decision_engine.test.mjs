@@ -72,7 +72,7 @@ test("mega_07: taxonomy exports load without crash", async (t) => {
 test("mega_07: buildAdvice and computeControlVector", async (t) => {
   const r = run([
     'import { buildAdvice, buildDecisionBlock } from "' + _BB("advice-layer.js") + '";',
-    'import { computeControlVector, REGIME_CONTROL_TABLE } from "' + _BB("meta-controller.js") + '";',
+    'import { computeControlVector, REGIME_CONTROL_TABLE } from "' + pathToFileURL(join(ROOT, "dist-ts/lib/turn-classify.js")).href + "?cb=" + Date.now() + '";',
     'const adv = buildAdvice({ regime: "EXPLORING", stress: 0.5 });',
     'const cv = computeControlVector({ regime: "REFINING", stress: 1.0 });',
     'process.stdout.write(JSON.stringify({ adv: !!adv, cv: !!cv, table: !!REGIME_CONTROL_TABLE }));',

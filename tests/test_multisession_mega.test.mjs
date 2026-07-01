@@ -81,24 +81,6 @@ test("[ML] classifyTurnSimple detects Q&A vs implementation", async () => {
   assert.ok(implResult.length > 0, "implementation result should not be empty")
 })
 
-test("[ML] mode-policy exports", async () => {
-  const mp = await import("../src/lib/mode-policy.js?mp=" + Date.now())
-  assert.equal(typeof mp.peekBudgetFirstMode, "function")
-  assert.equal(typeof mp.applyBudgetFirstMode, "function")
-  assert.equal(mp.peekBudgetFirstMode.name, "peekBudgetFirstMode")
-  assert.equal(mp.applyBudgetFirstMode.name, "applyBudgetFirstMode")
-})
-
-test("[ML] mode-policy maps vibeultrax -> brain tier", async () => {
-  const mp = await import("../src/lib/mode-policy.js?m2=" + Date.now())
-  const tier = mp.mapModeToTier ? mp.mapModeToTier("vibeultrax") : null
-  if (tier) {
-    assert.equal(tier, "brain")
-    assert.ok(typeof tier === "string")
-  } else {
-    assert.ok(true, "mapModeToTier not exported, skipping")
-  }
-})
 
 // ═══════════════════════════════════════════════════════════════
 // 2. TRINITY COMMANDS (full surface)
@@ -359,11 +341,6 @@ test("[VIBEBOX] pivot-cache exports", async () => {
   assert.ok(typeof pc.PivotCache === "function" || typeof pc.PivotCache === "object", "PivotCache should be callable or an object")
 })
 
-test("[VIBEBOX] meta-controller exports", async () => {
-  const mc = await import("../src/vibeOS-lib/blackbox/meta-controller.js?mc=" + Date.now())
-  assert.equal(typeof mc.computeControlVector, "function")
-  assert.equal(mc.computeControlVector.name, "computeControlVector")
-})
 
 test("[VIBEBOX] advice-layer exports", async () => {
   const al = await import("../src/vibeOS-lib/blackbox/advice-layer.js?al=" + Date.now())

@@ -108,18 +108,6 @@ test("auto-enable guard: setBlackboxEnabled(true) + save re-enables blackbox", a
   assert.strictEqual(reloaded.enabled, true, "blackbox should be enabled after auto-enable guard")
 })
 
-test("mode policy returns a decision when blackbox is enabled", async () => {
-  baseDirs()
-  writeOpenCodeConfig()
-  writeTiers()
-  writeState()
-  writeBlackboxState({ enabled: true, sessions: {} })
-
-  const { peekBudgetFirstMode } = await import("../src/lib/mode-policy.js?t=" + Date.now())
-  const decision = peekBudgetFirstMode({})
-  assert.ok(decision !== null && decision !== undefined, "peekBudgetFirstMode should return a non-null decision")
-  assert.ok(typeof decision === "object", "decision should be an object")
-})
 
 test("trinity blackbox toggle preserves enabled state through on/off/on cycle", async () => {
   baseDirs()

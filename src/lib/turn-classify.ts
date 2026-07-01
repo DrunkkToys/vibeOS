@@ -10,6 +10,7 @@ import { getApiClient, isApiFallback } from "./api-client.js"
 import { classifyTurnSimple as _classifyTurnSimple } from "./classifiers.js"
 import { vibeqmaxControlVector } from "../vibeOS-lib/blackbox/vibeqmax.js"
 import { vibeultraxControlVector } from "../vibeOS-lib/blackbox/vibeultrax.js"
+import { computeAxisBundle, buildAxisDirectives } from "./axis-bundle.js"
 export { scoreStress, estimateContextBudget, tokenizeWords, topKeywords, extractLastUserText, isUserAskingForTests, isLikelyOffTopic, detectOutcomeSignal } from "./classifiers.js"
 
 let _lastClassifiedByApi = false
@@ -224,6 +225,25 @@ function buildUltraxControlVector(state: { sub_regime?: string; latest_stress_mu
   }
 }
 
+function legacyModeToCanonical(mode: string): { mode: "vibemax" | "vibeqmax" | "vibeultrax" | "vibelitex" | "raw"; overrides: Record<string, string> } {
+  switch (mode) {
+    case "vibemax":    return { mode: "vibemax",    overrides: {} }
+    case "vibeqmax":   return { mode: "vibeqmax",   overrides: {} }
+    case "vibeultrax": return { mode: "vibeultrax", overrides: {} }
+    case "vibelitex":  return { mode: "vibelitex",  overrides: {} }
+    case "raw":        return { mode: "raw",        overrides: {} }
+    case "litex":      return { mode: "vibelitex",  overrides: {} }
+    case "quality":    return { mode: "vibeqmax",   overrides: {} }
+    case "audit":      return { mode: "vibeqmax",   overrides: { websearch: "encouraged", context7_urgency: "required" } }
+    case "forensic":   return { mode: "vibeqmax",   overrides: { websearch: "encouraged", wbp_verbosity: "detailed" } }
+    case "longrun":    return { mode: "vibeqmax",   overrides: { wbp_verbosity: "detailed" } }
+    case "speed":      return { mode: "vibemax",    overrides: { thinking: "off", enforcement: "relaxed" } }
+    case "balanced":   return { mode: "vibemax",    overrides: {} }
+    case "budget":     return { mode: "vibelitex",  overrides: { tier: "cheap" } }
+    default:           return { mode: "vibeultrax", overrides: {} }
+  }
+}
+
 function buildOfflineControlVector(
   state: { sub_regime?: string; latest_stress_multiplier?: number },
   mode: OptimizationMode,
@@ -231,41 +251,31 @@ function buildOfflineControlVector(
   const subRegime = String(state?.sub_regime || "INIT").toUpperCase()
   const stress = Number(state?.latest_stress_multiplier ?? 0)
   const looping = subRegime === "LOOPING"
-  const strict = looping || isStrictOptimizationMode(mode)
-  const relaxed = isRelaxedOptimizationMode(mode)
-  const tierBias = stress > QUALITY_STRESS_THRESHOLD || looping
-    ? "brain"
-    : subRegime === "CONVERGING" || subRegime === "CLOSED" || BRAIN_ROOT_MODES.has(mode)
-      ? "brain"
-      : subRegime === "REFINING" || subRegime === "LOOPING" || MEDIUM_ROOT_MODES.has(mode)
-        ? "medium"
-        : mode === "balanced"
-          ? "auto"
-          : "cheap"
+  const { mode: canonicalMode, overrides } = legacyModeToCanonical(String(mode || ""))
+  const bundle = computeAxisBundle(subRegime, canonicalMode, overrides, stress)
   const hardenedMode = looping ? "quality" : mode
   const hardenedRoot = looping ? buildModeRoot("quality") : buildModeRoot(mode)
+  const agentMode = (subRegime === "REFINING" || subRegime === "CONVERGING" || subRegime === "CLOSED") && stress <= QUALITY_STRESS_THRESHOLD ? "plan" : undefined
 
   return {
-    enforcement_mode: looping ? "strict" : strict ? "strict" : relaxed ? "relaxed" : "normal",
+    enforcement_mode: bundle.enforcement,
     enforcement_reason: looping
       ? "[optimize: LOOPING] recovery posture — tighten enforcement and preserve outcome detection"
-      : `[optimize: ${mode}] using safe offline defaults`,
-    flow_mode: looping ? "strict" : strict ? "strict" : relaxed ? "audit" : "normal",
-    flow_focus: [],
-    tdd_mode: looping ? "strict" : strict ? "strict" : relaxed ? "lazy" : "normal",
-    tdd_focus: [],
-    tier_bias: tierBias,
-    thinking_mode: looping ? "brief" : strict ? "full" : mode === "longrun" ? "brief" : relaxed ? "off" : "auto",
-    stress_multiplier: looping ? Math.max(1.5, stress) : 1.0,
-    context7_urgency: looping ? "required" : strict ? "required" : "preferred",
-    wbp_verbosity: looping ? "detailed" : strict ? "verbose" : relaxed ? "minimal" : "normal",
-    agent_mode: (subRegime === "REFINING" || subRegime === "CONVERGING" || subRegime === "CLOSED") && stress <= QUALITY_STRESS_THRESHOLD ? "plan" : undefined as unknown,
+      : `[optimize: ${mode}] using offline axis bundle`,
+    flow_mode: bundle.flow,
+    flow_focus: bundle.flow_focus,
+    tdd_mode: bundle.tdd,
+    tdd_focus: bundle.tdd_focus,
+    tier_bias: bundle.tier,
+    thinking_mode: bundle.thinking,
+    stress_multiplier: bundle.stress_multiplier,
+    context7_urgency: bundle.context7_urgency,
+    wbp_verbosity: bundle.wbp_verbosity,
+    agent_mode: agentMode,
     optimization_mode: hardenedMode,
     ...hardenedRoot,
     outcome_detection: true,
-    directives: relaxed && !looping && (subRegime === "EXPLORING" || subRegime === "INIT" || subRegime === "AUDIT" || subRegime === "FORENSIC" || subRegime === "LOOPING") ? [
-      `[speed guard] VERIFY BEFORE ACT - Speed-oriented mode "${mode}" is active and user intent is ${subRegime}. Before modifying files or executing commands, first verify the current state. When a request is ambiguous between "check and report" vs "fix", always choose CHECK FIRST. Treat "look at", "check", "investigate", "tell me about" as requests for information, not action items.`,
-    ] : [],
+    directives: buildAxisDirectives(bundle, canonicalMode, looping),
   }
 }
 
@@ -972,6 +982,7 @@ export function incrementTurnCounter(): number {
 }
 
 export { OptimizationMode, autoSelectMode, computeControlVector, buildControlHistoryEntry }
+export { REGIME_CONTROL_TABLE } from "./axis-bundle.js"
 
 export {
   // Blackbox

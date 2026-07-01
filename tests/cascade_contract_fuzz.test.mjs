@@ -87,7 +87,7 @@ test("contract: detectOutcomeSignal recognizes positive/negative", async () => {
 })
 
 test("pipeline: REGIME_CONTROL_TABLE covers all regimes", async () => {
-  const mod = await import("../src/vibeOS-lib/blackbox/meta-controller.js?" + Date.now())
+  const mod = await import("../src/lib/turn-classify.js?" + Date.now())
   const table = mod.REGIME_CONTROL_TABLE || {}
   for (const r of VALID_REGIMES) {
     assert.ok(r in table, `${r} in table`)

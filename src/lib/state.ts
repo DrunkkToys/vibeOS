@@ -33,23 +33,7 @@ export interface SessionCacheHit {
   est_savings_usd: number
 }
 export interface StressSample { ts: string; score: number; level: string }
-export interface SessionModePolicy {
-  active: boolean
-  active_mode: string
-  baseline_mode: string
-  reason: string | null
-  episode_id: string | null
-  problem_streak: number
-  stable_streak: number
-  last_sub_regime: string
-  last_stress: number
-  last_outcome: string | null
-  updated_at: string | null
-  started_at: string | null
-  [key: string]: unknown
-}
 export interface SessionRecord {
-  mode_policy?: SessionModePolicy
   total_savings_usd?: number
   cache_savings_usd?: number
   cost_usd?: number

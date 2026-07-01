@@ -5,13 +5,14 @@ import { join, dirname } from "node:path"
 import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { LABEL_MODES, buildDeterministicTrinity, resolveCurrentExecution, resolveExecutionIdentity } from "./pricing.js"
-import { BRANDED_MODES, RUNTIME_MODES, resolveCascadeSlot } from "./mode-router.js"
+import { BRANDED_MODES, RUNTIME_MODES, MODE_TABLE, normalizeLegacyMode, resolveCascadeSlot } from "./mode-router.js"
 import { getBackendVersion, invalidateApiToken, isApiConnected } from "./api-client.js"
 import { getRealityCheckView } from "../vibeOS-lib/flow-enforcer.js"
 import { getVibeOSHome } from "./state.js"
 import { resolveDashboardBaseUrlFromState } from "./dashboard-base-url.js"
 import { collectOpenCodeConfigPaths, installVibeTierAgents, VIBE_PRIMARY_AGENT } from "./runtime-config.js"
 import { getSessionSavingsDiagnostics } from "./session-savings.js"
+import { loadAxisOverrides, writeAxisOverride, clearAxisOverrides } from "./selection-manager.js"
 
 // ── Named constants (magic number extraction) ────────────────────────
 const MIN_TOOL_BREAKDOWN_THRESHOLD = 0.005
@@ -318,8 +319,8 @@ export function createTrinityTool(deps) {
       "Use action='api-bootstrap-token' with token='<new_token>' to store an alpha bootstrap token and exchange it for a normal API token on alpha builds. " +
       "Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', 'vibe status' (or the legacy 'trinity status').",
     args: {
-      action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "setup", "project", "patterns", "dashboard", "gui", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard", "reality-check", "api-token", "api-bootstrap-token", "verify-claims", "todo", "todo-done", "todo-sync"]).optional(),
-      slot: deps.tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "balanced", "audit", "forensic", "vibeultrax", "vibeqmax", "vibemax", "vibelitex", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings", "cascade"]).optional(),
+      action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "setup", "project", "patterns", "dashboard", "gui", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard", "reality-check", "api-token", "api-bootstrap-token", "verify-claims", "todo", "todo-done", "todo-sync", "axis"]).optional(),
+      slot: deps.tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "balanced", "audit", "forensic", "vibeultrax", "vibeqmax", "vibemax", "vibelitex", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings", "cascade", "enforcement", "context7_urgency", "wbp_verbosity", "websearch", "reset"]).optional(),
       level: deps.tool.schema.enum(["full", "brief", "off", "on"]).optional(),
       model: deps.tool.schema.string().optional(),
       token: deps.tool.schema.string().optional(),
@@ -600,38 +601,34 @@ export function createTrinityTool(deps) {
         const builtInIds = ["balanced", "budget", "quality", "speed", "longrun", "audit", "forensic"]
         const brandedIds = BRANDED_MODES.map(m => m.id)
         const allModeIds = [...builtInIds, "auto", ...brandedIds]
-        if (!slot) return `Provide mode: ${builtInIds.join(" | ")} | auto | ${brandedIds.join(" | ")}`
-        const modeAlias = { vibemax: "vibemax" }
-        const resolvedSlot = modeAlias[slot] || slot
-        const requestedMode = ["vibeultrax", "vibeqmax", "vibemax", "vibelitex"].includes(slot) ? slot : (slot === resolvedSlot ? null : slot)
-        if (!allModeIds.includes(resolvedSlot)) {
-          return `Provide mode: ${builtInIds.join(" | ")} | auto | ${brandedIds.join(" | ")}`
+        if (!slot) return `Provide mode: ${brandedIds.join(" | ")} | auto | ${builtInIds.join(" | ")}`
+        const resolvedSlot = slot
+        if (!allModeIds.includes(resolvedSlot) && resolvedSlot !== "auto") {
+          return `Provide mode: ${brandedIds.join(" | ")} | auto | ${builtInIds.join(" | ")}`
         }
         const ok = deps.saveOptimizationMode(resolvedSlot)
         if (!ok) return `Failed to write mode`
         deps.writeSessionOptMode(deps._OC_SID + "_opt", resolvedSlot)
-        deps.writeSelection("requested_optimization_mode", requestedMode)
+        deps.writeSelection("requested_optimization_mode", resolvedSlot)
 
-        const allEntries = [...BRANDED_MODES, ...RUNTIME_MODES]
-        const modeEntry = allEntries.find(e => e.id === slot)
+        const canonical = normalizeLegacyMode(resolvedSlot)
+        const modeEntry = [...BRANDED_MODES, ...RUNTIME_MODES].find(e => e.id === resolvedSlot) || MODE_TABLE[canonical]
         if (modeEntry) {
-          const tierSlot = slot === "vibeultrax" ? "cheap" : resolveCascadeSlot(modeEntry.pipeline)
+          const tierSlot = resolvedSlot === "vibeultrax" ? "cheap" : resolveCascadeSlot(modeEntry.pipeline)
           deps.writeSessionSlot(deps._OC_SID, tierSlot)
           deps.writeSelection("active_pipeline", modeEntry.pipeline)
-          // Defer the live re-bind to the next turn boundary so a mode switch
-          // mid-turn doesn't abort the in-flight assistant message.
           const switched = deps.applySlot(tierSlot, deps.directory)
           if (!switched?.ok) {
-            return `\u274c Failed to switch OpenCode model: ${switched?.reason || "unknown error"}`
+            return `❌ Failed to switch OpenCode model: ${switched?.reason || "unknown error"}`
           }
-          if (slot === "vibeultrax") {
+          if (resolvedSlot === "vibeultrax" || resolvedSlot === "auto") {
             deps._modelLocked = false
             deps._lockedSlot = null
             deps._lockedModel = null
             deps.writeSelection("slot_locked", false)
           }
           deps.writeSelection("onboarding_mode",
-            modeEntry.tdd === "quality" || modeEntry.enforcement === "strict" ? "strict" : "assist")
+            modeEntry.enforcement === "strict" || modeEntry.tdd === "quality" ? "strict" : "assist")
           deps.writeSelection("delegation_enforce",
             modeEntry.enforcement === "strict" || modeEntry.enforcement === "on")
           deps.writeSelection("flow_enabled",
@@ -642,12 +639,34 @@ export function createTrinityTool(deps) {
             modeEntry.tdd === "quality" || modeEntry.tdd === "on" || modeEntry.tdd === "strict")
           deps.writeSelection("thinking_level", modeEntry.thinking)
           const pipelineStr = modeEntry.pipeline.join(" → ")
-          return `Mode set to ${slot.toUpperCase()}. Tier: ${tierSlot}. Pipeline: ${pipelineStr}. Takes effect next turn.`
+          return `Mode set to ${resolvedSlot.toUpperCase()}. Tier: ${tierSlot}. Pipeline: ${pipelineStr}. Takes effect next turn.`
         }
         if (resolvedSlot === "auto") {
           deps.writeSelection("slot_locked", false)
         }
-        return `Mode set to ${slot.toUpperCase()}.`
+        return `Mode set to ${resolvedSlot.toUpperCase()}.`
+      }
+      if (action === "axis") {
+        const AXIS_NAMES = ["enforcement", "flow", "tdd", "tier", "thinking", "context7_urgency", "wbp_verbosity", "websearch"]
+        if (!slot || slot === "status") {
+          const overrides = loadAxisOverrides()
+          const keys = Object.keys(overrides)
+          if (keys.length === 0) return "No axis overrides active. All axes use mode defaults."
+          const lines = ["Active axis overrides:"]
+          for (const k of keys) lines.push(`  ${k}: ${overrides[k]}`)
+          return lines.join("\n")
+        }
+        if (slot === "reset") {
+          const ok = clearAxisOverrides()
+          return ok ? "Axis overrides cleared. All axes use mode defaults next turn." : `❌ Failed to clear axis overrides.`
+        }
+        if (AXIS_NAMES.includes(slot)) {
+          const value = level || model
+          if (!value) return `❌ Provide value for axis '${slot}'. e.g. on|off|strict|relaxed|full|brief|required|optional`
+          const ok = writeAxisOverride(slot, value)
+          return ok ? `Axis override: ${slot} = ${value}. Takes effect next turn.` : `❌ Failed to write axis override.`
+        }
+        return `❌ Unknown axis '${slot}'. Valid axes: ${AXIS_NAMES.join(" | ")} | reset | status`
       }
       if (action === "thinking") {
         if (!level || !["full", "brief", "off"].includes(level)) {

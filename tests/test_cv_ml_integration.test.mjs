@@ -136,12 +136,12 @@ test("E2E: stress > 1.5 overrides to quality", async () => {
   assert.equal(mode, "quality")
 })
 
-test("E2E: computeControlVector — tier_bias from regime not mode", async () => {
+test("E2E: computeControlVector — tier_bias from mode not regime (mode wins)", async () => {
   const turn = await import("../src/lib/turn-classify.js?e2e-5=" + Date.now())
-  // computeControlVector uses sub_regime from state
-  // For CONVERGING, tier should be brain regardless of mode input
+  // In the consolidated axis-bundle system, mode defaults win over regime base for tier.
+  // budget → vibelitex + tier:cheap override → cheap even in CONVERGING.
   const cv = turn.computeControlVector({ sub_regime: "CONVERGING", latest_stress_multiplier: 0 }, undefined, "budget")
-  assert.equal(cv.tier_bias, "brain")
+  assert.equal(cv.tier_bias, "cheap")
 })
 
 test("E2E: computeControlVector — DIVERGENT → brain with quality mode input", async () => {

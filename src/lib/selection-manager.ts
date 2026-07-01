@@ -6,7 +6,7 @@ import { safeJsonParse } from "../utils/fs-helpers.js"
 
 const _USER_HOME = (() => { try { return homedir() } catch { return tmpdir() } })()
 
-const DFLT_SEL = { enabled: true, active_slot: null, entry_slot: null, worker_slot: null, slot_locked: false, thinking_level: "off", flow_enabled: true, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: true, delegation_enforce: true, onboarding_mode: null, requested_optimization_mode: null, previous_default_agent: null, previous_optimization_mode: null, cheap_first_degraded: false, cheap_first_reason: null }
+const DFLT_SEL = { enabled: true, active_slot: null, entry_slot: null, worker_slot: null, slot_locked: false, thinking_level: "off", flow_enabled: true, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: true, delegation_enforce: true, onboarding_mode: null, requested_optimization_mode: null, previous_default_agent: null, previous_optimization_mode: null, cheap_first_degraded: false, cheap_first_reason: null, axis_overrides: {} }
 const SHADOW_SELECTION_KEYS = new Set(["selected_provider", "selected_quality_tier", "selected_model", "executed_provider", "executed_quality_tier", "executed_model"])
 
 // mtime-based cache for loadSelection — single stat() per turn (microseconds),
@@ -65,6 +65,7 @@ function loadSelectionImpl(): any {
       requires_delegation: j?.selection?.requires_delegation === true,
       cheap_first_degraded: j?.selection?.cheap_first_degraded === true,
       cheap_first_reason: j?.selection?.cheap_first_reason || null,
+      axis_overrides: j?.selection?.axis_overrides && typeof j.selection.axis_overrides === "object" ? j.selection.axis_overrides : {},
     }
   } catch { _handleStateCorruption(TIERS_FILE); return DFLT_SEL }
 }
@@ -179,6 +180,36 @@ export function writeSessionOptMode(sid: string, mode: string): boolean {
   return writeSessionRecord(sid, (record) => {
     record.optimization_mode = mode
   })
+}
+
+export function loadAxisOverrides(): Record<string, string> {
+  try {
+    return { ...(loadSelection().axis_overrides || {}) }
+  } catch { return {} }
+}
+
+export function writeAxisOverride(name: string, value: string): boolean {
+  const TIERS_FILE = join(getVibeOSHome(), "model-tiers.json")
+  try {
+    return withFileLock(TIERS_FILE, () => {
+      const j = safeJsonParse<any>(readFileSync(TIERS_FILE, "utf-8"))
+      if (!j.selection) j.selection = {}
+      for (const shadowKey of SHADOW_SELECTION_KEYS) delete j.selection[shadowKey]
+      if (!j.selection.axis_overrides || typeof j.selection.axis_overrides !== "object") j.selection.axis_overrides = {}
+      j.selection.axis_overrides[name] = value
+      const tmp = TIERS_FILE + ".tmp." + Date.now() + "." + Math.random().toString(36).slice(2, 8)
+      writeFileSync(tmp, JSON.stringify(j, null, 2) + "\n")
+      renameSync(tmp, TIERS_FILE)
+      return true
+    })
+  } catch (err) {
+    console.error(`[vibeOS] writeAxisOverride failed: ${err.message}`)
+    return false
+  }
+}
+
+export function clearAxisOverrides(): boolean {
+  return writeSelection("axis_overrides", {})
 }
 
 export { DFLT_SEL }
