@@ -1,11 +1,6 @@
-// Mode Router — 10 modes, 4 tiers. Full type-safe hierarchy.
-// Branded modes: user-selected strategy + tier pipeline.
-// Runtime modes: classifier-selected behavior per query.
-//
-// NOTE: Mode/MODES/isMode below are the canonical 5-mode identity
-// (vibemax|vibeqmax|vibeultrax|vibelitex|raw) that axis-bundle.ts orchestrates.
-// BRANDED_MODES/RUNTIME_MODES/RAW_MODE below are being consolidated into this;
-// see CLAUDE.md mode-axis-consolidation plan.
+// Mode Router — canonical 5-mode table + legacy compat shims.
+// MODE_TABLE / normalizeLegacyMode are the new canonical API.
+// BRANDED_MODES / RUNTIME_MODES are kept for backward-compat with existing tests.
 export type Mode = "vibemax" | "vibeqmax" | "vibeultrax" | "vibelitex" | "raw"
 export const MODES: readonly Mode[] = ["vibemax", "vibeqmax", "vibeultrax", "vibelitex", "raw"]
 export function isMode(v: unknown): v is Mode {
@@ -41,40 +36,68 @@ export const TIERS: Record<string, TierInfo> = {
   local:  { cost: 0,         desc: "Ollama local model" },
 }
 
-export const BRANDED_MODES: ModeEntry[] = [
-  {
+export const MODE_TABLE: Record<Mode, ModeEntry> = {
+  vibeultrax: {
     id: "vibeultrax", index: 1, name: "VibeUltraX", icon: "\u{1F3C6}",
     pipeline: ["cheap", "medium", "brain"],
     thinking: "full", tdd: "quality", enforcement: "strict", flow: "strict",
     qualityVsBrain: 107, costVsBrain: 58, default: true,
     desc: "Default mode. 3-model debate: cheap proposes, medium reviews, brain refines.",
   },
-  {
+  vibeqmax: {
     id: "vibeqmax", index: 2, name: "VibeQMaX", icon: "\u{2B50}",
     pipeline: ["brain"],
     thinking: "full", tdd: "quality", enforcement: "strict", flow: "strict",
     qualityVsBrain: 100, costVsBrain: 50,
     desc: "Brain tier only. Same quality as Raw Brain at half cost.",
   },
-  {
+  vibemax: {
     id: "vibemax", index: 3, name: "VibeMaX", icon: "\u{26A1}",
     pipeline: ["medium"],
     thinking: "off", tdd: "lazy", enforcement: "relaxed", flow: "audit",
     qualityVsBrain: 75, costVsBrain: 18,
     desc: "Medium tier auto-escalate. Speed-first.",
   },
-  {
+  vibelitex: {
     id: "vibelitex", index: 4, name: "VibeLiteX", icon: "\u{1F4A1}",
     pipeline: ["medium"],
     thinking: "brief", tdd: "lazy", enforcement: "normal", flow: "audit",
     qualityVsBrain: 65, costVsBrain: 20,
     desc: "Local fallback. Medium tier with enforcement. No API required.",
   },
+  raw: {
+    id: "raw", index: 10, name: "Raw Brain", icon: "\u{1F9E0}",
+    pipeline: ["brain"],
+    thinking: "full", tdd: "—", enforcement: "—", flow: "—",
+    qualityVsBrain: 100, costVsBrain: 0,
+    desc: "Pure v4 Pro baseline. No vibeOS overhead.",
+  },
+}
+
+export function normalizeLegacyMode(mode: string): Mode {
+  const m = String(mode || "").toLowerCase().trim()
+  if (isMode(m)) return m as Mode
+  switch (m) {
+    case "litex":                            return "vibelitex"
+    case "quality":                          return "vibeqmax"
+    case "audit": case "forensic":           return "vibeqmax"
+    case "longrun":                          return "vibeqmax"
+    case "speed": case "balanced":           return "vibemax"
+    case "budget":                           return "vibelitex"
+    default:                                 return "vibeultrax"
+  }
+}
+
+export const BRANDED_MODES: ModeEntry[] = [
+  MODE_TABLE.vibeultrax,
+  MODE_TABLE.vibeqmax,
+  MODE_TABLE.vibemax,
+  MODE_TABLE.vibelitex,
 ]
 
 export const RUNTIME_MODES: ModeEntry[] = [
   {
-    id: "balanced", index: 4, name: "Balanced", icon: "\u{2696}\u{FE0F}",
+    id: "balanced", index: 4, name: "Balanced", icon: "⚖️",
     pipeline: ["medium"],
     thinking: "brief", tdd: "lazy", enforcement: "relaxed", flow: "audit",
     qualityVsBrain: 70, costVsBrain: 30, defaultRuntime: true,
@@ -124,22 +147,17 @@ export const RUNTIME_MODES: ModeEntry[] = [
   },
 ]
 
-export const RAW_MODE: ModeEntry = {
-  id: "raw", index: 10, name: "Raw Brain", icon: "\u{1F9E0}",
-  pipeline: ["brain"],
-  thinking: "full", tdd: "\u2014", enforcement: "\u2014", flow: "\u2014",
-  qualityVsBrain: 100, costVsBrain: 0,
-  desc: "Pure v4 Pro baseline. No vibeOS overhead.",
-}
+export const RAW_MODE: ModeEntry = MODE_TABLE.raw
 
 export const ALL_MODES: ModeEntry[] = [...BRANDED_MODES, ...RUNTIME_MODES, RAW_MODE]
 
 export function getMode(id: string): ModeEntry {
-  return ALL_MODES.find(m => m.id === id) ?? getDefault()
+  const canonical = normalizeLegacyMode(id)
+  return MODE_TABLE[canonical]
 }
 
 export function getDefault(): ModeEntry {
-  return BRANDED_MODES.find(m => m.default)!
+  return MODE_TABLE.vibeultrax
 }
 
 export function getDefaultRuntime(): ModeEntry {

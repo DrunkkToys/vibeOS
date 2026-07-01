@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Shared footer formatting — single source of truth for text.complete and tool.execute.after
 
-import { BRANDED_MODES, RUNTIME_MODES } from "../mode-router.js"
+import { BRANDED_MODES, RUNTIME_MODES, MODE_TABLE } from "../mode-router.js"
 
 export interface FooterLineInput {
   activeSlot: string
@@ -57,13 +57,14 @@ const REGIME_ICON: Record<string, string> = {
   FORENSIC: "⟁",
 }
 
-const BRAND_MAP: Record<string, string> = Object.fromEntries(
-  [...BRANDED_MODES, ...RUNTIME_MODES].flatMap((mode) => {
+const BRAND_MAP: Record<string, string> = {
+  ...Object.fromEntries(Object.entries(MODE_TABLE).flatMap(([, mode]) => {
     const aliases = [mode.id]
     if (mode.id === "vibelitex") aliases.push("litex")
     return aliases.map((alias) => [alias, mode.name])
-  }),
-)
+  })),
+  ...Object.fromEntries(RUNTIME_MODES.map(m => [m.id, m.name])),
+}
 
 const TIER_ICON: Record<string, string> = {
   brain: "\u{1F9E0}",

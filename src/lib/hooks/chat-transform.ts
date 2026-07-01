@@ -53,7 +53,7 @@ import {
   setBlackboxEnabled,
 } from "../turn-classify.js"
 import { peekBudgetFirstMode } from "../mode-policy.js"
-import { BRANDED_MODES, RUNTIME_MODES } from "../mode-router.js"
+import { BRANDED_MODES, RUNTIME_MODES, MODE_TABLE, normalizeLegacyMode } from "../mode-router.js"
 import { addCacheEntry, extractRecentCacheOutputs } from "../../vibeOS-lib/smart-cache.js"
 import { getApiClient, remoteCall, isApiConnected, isApiFallback } from "../api-client.js"
 import { loadCredit } from "../credit-api.js"
@@ -364,8 +364,8 @@ function normalizePipelineRoot(value: unknown, tierBias: unknown): string[] {
 function modeCascadeRoot(mode: unknown, fallbackPipeline: unknown = null, tierBias: unknown = null): string[] {
   const normalized = String(mode || "").trim().toLowerCase()
   if (normalized === "vibeultrax") return ["cheap", "medium", "brain"]
-  const allEntries = [...BRANDED_MODES, ...RUNTIME_MODES]
-  const modeEntry = allEntries.find((e: unknown) => e.id === normalized)
+  const canonical = normalizeLegacyMode(normalized)
+  const modeEntry = MODE_TABLE[canonical] || [...BRANDED_MODES, ...RUNTIME_MODES].find((e: unknown) => (e as { id: string }).id === normalized)
   if (modeEntry?.pipeline?.length) return modeEntry.pipeline
   return normalizePipelineRoot(fallbackPipeline, tierBias)
 }
