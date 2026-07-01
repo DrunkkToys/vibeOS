@@ -63,17 +63,17 @@ test("computeControlVector: EXPLORING + budget -> tier_bias cheap", () => {
   assert.equal(cv.tier_bias, "cheap")
   assert.ok(cv.optimization_mode, "should have optimization_mode")
 })
-test("computeControlVector: REFINING + budget -> tier_bias medium", () => {
+test("computeControlVector: REFINING + budget -> tier_bias cheap (mode wins over regime)", () => {
   const cv = turn.computeControlVector({ sub_regime: "REFINING", latest_stress_multiplier: 0 }, undefined, "budget")
-  assert.equal(cv.tier_bias, "medium")
+  assert.equal(cv.tier_bias, "cheap")
 })
 test("computeControlVector: CONVERGING + quality -> tier_bias brain", () => {
   const cv = turn.computeControlVector({ sub_regime: "CONVERGING", latest_stress_multiplier: 0 }, undefined, "quality")
   assert.equal(cv.tier_bias, "brain")
 })
-test("computeControlVector: DIVERGENT + stress 1.8 -> tier_bias brain (stress override)", () => {
+test("computeControlVector: DIVERGENT + stress 1.8 + budget -> tier_bias cheap (mode wins, stress does not escalate tier)", () => {
   const cv = turn.computeControlVector({ sub_regime: "DIVERGENT", latest_stress_multiplier: 1.8 }, undefined, "budget")
-  assert.equal(cv.tier_bias, "brain")
+  assert.equal(cv.tier_bias, "cheap")
 })
 
 test("computeControlVector: vibeqmax carries a dedicated brain-ml root", () => {
