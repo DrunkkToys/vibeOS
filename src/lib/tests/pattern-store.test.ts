@@ -1,10 +1,9 @@
-// [vibeOS-enforced] Skeleton test — replace with real assertions
-import { test, expect, describe, it } from 'vitest';
-import * as mod from '../pattern-store';
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import * as mod from '../pattern-store.js';
 
 describe('pattern-store', () => {
   it('smoke: module loads', () => {
-    expect(mod).toBeDefined();
+    assert.ok(mod);
   });
-
 });
