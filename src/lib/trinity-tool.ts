@@ -12,6 +12,7 @@ import { getVibeOSHome } from "./state.js"
 import { resolveDashboardBaseUrlFromState } from "./dashboard-base-url.js"
 import { collectOpenCodeConfigPaths, installVibeTierAgents, VIBE_PRIMARY_AGENT } from "./runtime-config.js"
 import { getSessionSavingsDiagnostics } from "./session-savings.js"
+import { loadAxisOverrides, writeAxisOverride, clearAxisOverrides } from "./selection-manager.js"
 
 // ── Named constants (magic number extraction) ────────────────────────
 const MIN_TOOL_BREAKDOWN_THRESHOLD = 0.005
@@ -318,8 +319,8 @@ export function createTrinityTool(deps) {
       "Use action='api-bootstrap-token' with token='<new_token>' to store an alpha bootstrap token and exchange it for a normal API token on alpha builds. " +
       "Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', 'vibe status' (or the legacy 'trinity status').",
     args: {
-      action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "setup", "project", "patterns", "dashboard", "gui", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard", "reality-check", "api-token", "api-bootstrap-token", "verify-claims", "todo", "todo-done", "todo-sync"]).optional(),
-      slot: deps.tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "balanced", "audit", "forensic", "vibeultrax", "vibeqmax", "vibemax", "vibelitex", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings", "cascade"]).optional(),
+      action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "setup", "project", "patterns", "dashboard", "gui", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard", "reality-check", "api-token", "api-bootstrap-token", "verify-claims", "todo", "todo-done", "todo-sync", "axis"]).optional(),
+      slot: deps.tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "balanced", "audit", "forensic", "vibeultrax", "vibeqmax", "vibemax", "vibelitex", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings", "cascade", "enforcement", "context7_urgency", "wbp_verbosity", "websearch", "reset"]).optional(),
       level: deps.tool.schema.enum(["full", "brief", "off", "on"]).optional(),
       model: deps.tool.schema.string().optional(),
       token: deps.tool.schema.string().optional(),
@@ -644,6 +645,28 @@ export function createTrinityTool(deps) {
           deps.writeSelection("slot_locked", false)
         }
         return `Mode set to ${resolvedSlot.toUpperCase()}.`
+      }
+      if (action === "axis") {
+        const AXIS_NAMES = ["enforcement", "flow", "tdd", "tier", "thinking", "context7_urgency", "wbp_verbosity", "websearch"]
+        if (!slot || slot === "status") {
+          const overrides = loadAxisOverrides()
+          const keys = Object.keys(overrides)
+          if (keys.length === 0) return "No axis overrides active. All axes use mode defaults."
+          const lines = ["Active axis overrides:"]
+          for (const k of keys) lines.push(`  ${k}: ${overrides[k]}`)
+          return lines.join("\n")
+        }
+        if (slot === "reset") {
+          const ok = clearAxisOverrides()
+          return ok ? "Axis overrides cleared. All axes use mode defaults next turn." : `❌ Failed to clear axis overrides.`
+        }
+        if (AXIS_NAMES.includes(slot)) {
+          const value = level || model
+          if (!value) return `❌ Provide value for axis '${slot}'. e.g. on|off|strict|relaxed|full|brief|required|optional`
+          const ok = writeAxisOverride(slot, value)
+          return ok ? `Axis override: ${slot} = ${value}. Takes effect next turn.` : `❌ Failed to write axis override.`
+        }
+        return `❌ Unknown axis '${slot}'. Valid axes: ${AXIS_NAMES.join(" | ")} | reset | status`
       }
       if (action === "thinking") {
         if (!level || !["full", "brief", "off"].includes(level)) {
