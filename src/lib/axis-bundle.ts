@@ -259,3 +259,16 @@ export function buildAxisDirectives(bundle: AxisBundle, mode: Mode, looping = fa
   }
   return d
 }
+
+export const REGIME_CONTROL_TABLE: Record<string, Record<string, unknown>> = Object.fromEntries(
+  Object.entries(REGIME_AXIS_BASE).map(([regime, b]) => [regime, {
+    enforcement_mode: b.enforcement,
+    flow_mode: b.flow,
+    tdd_mode: b.tdd,
+    tier_bias: b.tier,
+    thinking_mode: b.thinking,
+    wbp_verbosity: b.wbp_verbosity,
+    context7_urgency: b.context7_urgency,
+    stress_multiplier: b.stress_multiplier,
+  }])
+)

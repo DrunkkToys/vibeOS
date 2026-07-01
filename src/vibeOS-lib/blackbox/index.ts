@@ -8,7 +8,6 @@ export { classifySituation, getActions, recommendAction, getSituationTypes } fro
 export { ResolutionTracker } from "./resolution-tracker.js"
 export { ExposureModel } from "./exposure-model.js"
 export { ACTION_TARGET, ACTION_TYPE, FALLBACK_PLANS, ACTION_SUGGESTIONS, CURIOSITY_PROMPTS } from "./crew-constants.js"
-export { computeControlVector, buildControlHistoryEntry, REGIME_CONTROL_TABLE } from "./meta-controller.js"
 export { vibemaxSelectMode, vibemaxPipeline, predictVibeMaX, trainVibeMaXModelFromTelemetry, getVibeMaXModelMeta, resetVibeMaXPipeline } from "./vibemax.js"
 export { vibeqmaxControlVector, vibeqmaxSelectMode, predictVibeQMax } from "./vibeqmax.js"
 export { vibeultraxPipeline, vibeultraxControlVector } from "./vibeultrax.js"

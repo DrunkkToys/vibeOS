@@ -341,11 +341,6 @@ test("[VIBEBOX] pivot-cache exports", async () => {
   assert.ok(typeof pc.PivotCache === "function" || typeof pc.PivotCache === "object", "PivotCache should be callable or an object")
 })
 
-test("[VIBEBOX] meta-controller exports", async () => {
-  const mc = await import("../src/vibeOS-lib/blackbox/meta-controller.js?mc=" + Date.now())
-  assert.equal(typeof mc.computeControlVector, "function")
-  assert.equal(mc.computeControlVector.name, "computeControlVector")
-})
 
 test("[VIBEBOX] advice-layer exports", async () => {
   const al = await import("../src/vibeOS-lib/blackbox/advice-layer.js?al=" + Date.now())

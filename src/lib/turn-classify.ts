@@ -982,6 +982,7 @@ export function incrementTurnCounter(): number {
 }
 
 export { OptimizationMode, autoSelectMode, computeControlVector, buildControlHistoryEntry }
+export { REGIME_CONTROL_TABLE } from "./axis-bundle.js"
 
 export {
   // Blackbox
