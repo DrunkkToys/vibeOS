@@ -1,6 +1,16 @@
 // Mode Router — 10 modes, 4 tiers. Full type-safe hierarchy.
 // Branded modes: user-selected strategy + tier pipeline.
 // Runtime modes: classifier-selected behavior per query.
+//
+// NOTE: Mode/MODES/isMode below are the canonical 5-mode identity
+// (vibemax|vibeqmax|vibeultrax|vibelitex|raw) that axis-bundle.ts orchestrates.
+// BRANDED_MODES/RUNTIME_MODES/RAW_MODE below are being consolidated into this;
+// see CLAUDE.md mode-axis-consolidation plan.
+export type Mode = "vibemax" | "vibeqmax" | "vibeultrax" | "vibelitex" | "raw"
+export const MODES: readonly Mode[] = ["vibemax", "vibeqmax", "vibeultrax", "vibelitex", "raw"]
+export function isMode(v: unknown): v is Mode {
+  return (MODES as readonly string[]).includes(String(v || "").toLowerCase())
+}
 
 export interface TierInfo {
   cost: number;
