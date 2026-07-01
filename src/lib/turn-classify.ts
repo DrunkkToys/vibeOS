@@ -90,16 +90,6 @@ const SUPPORTED_OPTIMIZATION_MODES = new Set<OptimizationMode>([
   "vibelitex",
 ])
 
-const STRICT_OPTIMIZATION_MODES = new Set<OptimizationMode>([
-  "quality",
-  "vibemax",
-  "vibeqmax",
-  "vibeultrax",
-  "forensic",
-  "audit",
-])
-
-const RELAXED_OPTIMIZATION_MODES = new Set<OptimizationMode>(["budget", "speed"])
 const BRAIN_ROOT_MODES = new Set<OptimizationMode>([
   "quality",
   "longrun",
@@ -119,13 +109,7 @@ function isSupportedOptimizationMode(mode: string): mode is OptimizationMode {
   return SUPPORTED_OPTIMIZATION_MODES.has(mode as OptimizationMode)
 }
 
-function isStrictOptimizationMode(mode: OptimizationMode): boolean {
-  return STRICT_OPTIMIZATION_MODES.has(mode)
-}
 
-function isRelaxedOptimizationMode(mode: OptimizationMode): boolean {
-  return RELAXED_OPTIMIZATION_MODES.has(mode)
-}
 
 function autoSelectMode(subRegime: string, stressMultiplier?: number): OptimizationMode {
   const regime = String(subRegime || "INIT").toUpperCase()

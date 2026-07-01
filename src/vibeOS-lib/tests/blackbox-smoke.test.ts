@@ -11,7 +11,7 @@ test("blackbox smoke: regime map stays stable", () => {
   assert.equal(turn.autoSelectMode("REFINING", 1.8), "quality")
 })
 
-test("blackbox smoke: resolveOptimizationMode — ML drives, explicit modes respected only in fallback", () => {
+test("blackbox smoke: resolveOptimizationMode — auto delegates to autoSelectMode, explicit modes pass through", () => {
   assert.equal(turn.resolveOptimizationMode("LOOPING", 0.1, "auto"), "quality")
   assert.equal(turn.resolveOptimizationMode("CONVERGING", 0.1, "auto"), "quality")
   assert.equal(turn.resolveOptimizationMode("DIVERGENT", 0.1, "auto"), "quality")

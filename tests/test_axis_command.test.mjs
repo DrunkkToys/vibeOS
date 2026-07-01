@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Phase 5: vibe axis command contract tests
-import { test } from "node:test"
+import { test, after } from "node:test"
 import assert from "node:assert/strict"
 import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -71,9 +71,8 @@ test("axis: multiple overrides survive round-trip", async () => {
   assert.equal(overrides.websearch, "encouraged")
 })
 
-test("CLEANUP", () => {
+after(() => {
   try { rmSync(sandbox, { recursive: true, force: true }) } catch {}
   sandbox = null
   if (prevVibeHome) process.env.VIBEOS_HOME = prevVibeHome
-  assert.ok(true)
 })
