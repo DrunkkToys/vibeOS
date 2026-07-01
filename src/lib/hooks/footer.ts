@@ -4,7 +4,6 @@ import { join } from "node:path"
 import { classify, _refreshModel, readConfig, readLiveOpenCodeModel, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, formatUsd, resolveCurrentExecution, modelDisplayName, getPendingLiveSwitch } from "../pricing.js"
 import { latestUserIntent } from "./chat-transform.js"
 import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, classifyTurnSimple, autoSelectMode, loadOptimizationMode, computeControlVector, getLatestBlackboxLoopMsg, getLatestBlackboxPivotMsg, getLatestBlackboxState } from "../turn-classify.js"
-import { recordBudgetFirstOutcome } from "../mode-policy.js"
 import { saveReport } from "../reporting.js"
 import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, getCurrentSessionId, _modelLocked, _blackboxEnabled, loadBlackboxState, recordLiveSessionSnapshot, VIBEOS_HOME, getVibeOSHome, readLifetimeSavings, getLatestCacheEvent, readFullState } from "../state.js"
 import { loadSelection, loadSessionSlot } from "../selection-manager.js"
@@ -493,11 +492,6 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
           const finalOutcome = outcome || passiveNegative
           if (finalOutcome) {
             _rewardOutcome = finalOutcome
-            recordBudgetFirstOutcome({
-              outcome: finalOutcome,
-              subRegime: regime,
-              stress,
-            })
             const tracker = getBlackboxTracker()
             tracker.recordOutcome(finalOutcome)
             try { syncOutcomeToApi(finalOutcome) } catch {}

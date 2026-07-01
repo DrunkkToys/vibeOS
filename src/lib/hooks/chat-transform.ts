@@ -52,7 +52,6 @@ import {
   buildControlHistoryEntry,
   setBlackboxEnabled,
 } from "../turn-classify.js"
-import { peekBudgetFirstMode } from "../mode-policy.js"
 import { BRANDED_MODES, RUNTIME_MODES, MODE_TABLE, normalizeLegacyMode } from "../mode-router.js"
 import { addCacheEntry, extractRecentCacheOutputs } from "../../vibeOS-lib/smart-cache.js"
 import { getApiClient, remoteCall, isApiConnected, isApiFallback } from "../api-client.js"
@@ -1012,12 +1011,7 @@ async function trackBlackbox(messages: unknown[]): Promise<void> {
     const enriched = await fetchBlackboxEnrichment(sid, latestUserIntent, localState)
     const bbState = enriched || localState
 
-    const modePreview = peekBudgetFirstMode({
-      requestedMode: loadOptimizationMode(),
-      subRegime: bbState.sub_regime || "INIT",
-      stress: st || 0,
-    })
-    const cv = await apiComputeControlVector(bbState, undefined, modePreview.mode)
+    const cv = await apiComputeControlVector(bbState, undefined, loadOptimizationMode())
     const lastEntry = state.sessions[sid].control_history?.[state.sessions[sid].control_history.length - 1]
     const cvFingerprint = JSON.stringify({ regime: bbState.sub_regime, mode: cv?.enforcement_mode })
     const isDuplicate = lastEntry && (
