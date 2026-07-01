@@ -81,9 +81,12 @@ export default function Session(props: { session: OrchSession; flows: OrchFlow[]
                 <Show when={m.role === "assistant"}>
                   <div class="msg-content">{m.content || "(no summary)"}</div>
                   <Show when={m.results && m.results.length}>
-                    <div class="run-trace">
-                      <For each={m.results!}>{(r) => <StepRow r={r} />}</For>
-                    </div>
+                    <details class="run-trace-details">
+                      <summary>steps ({m.results!.length})</summary>
+                      <div class="run-trace">
+                        <For each={m.results!}>{(r) => <StepRow r={r} />}</For>
+                      </div>
+                    </details>
                   </Show>
                 </Show>
               </div>
@@ -99,7 +102,7 @@ export default function Session(props: { session: OrchSession; flows: OrchFlow[]
               <div class="run-trace">
                 <For each={liveSteps()}>{(r) => <StepRow r={r} />}</For>
               </div>
-              <Show when={running()}><div class="run-spinner">▮ executing…</div></Show>
+              <Show when={running()}><span class="run-spinner">executing</span></Show>
             </div>
           </Show>
 

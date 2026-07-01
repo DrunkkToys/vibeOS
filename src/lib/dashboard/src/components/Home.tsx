@@ -1,5 +1,6 @@
 import { For, Show } from "solid-js"
-import type { DashboardHomePayload, OrchFlow, OrchProject, OrchSession } from "../api"
+import type { DashboardHomePayload, OrchFlow, OrchProject, OrchSession, StatusPayload } from "../api"
+import { postTrinity } from "../api"
 import { resolveFlowSummary } from "../home-model"
 
 function fmtUsd(value: number | null | undefined): string {
@@ -13,12 +14,14 @@ function sessionLabel(session: OrchSession | null | undefined): string {
 
 export default function Home(props: {
   data: DashboardHomePayload | null
+  status: StatusPayload | null
   project: OrchProject | null
   session: OrchSession | null
   flows: OrchFlow[]
   onOpenStatus: () => void
   onOpenProject: () => void
   onOpenSession: () => void
+  onTrinityAction: () => void
 }) {
   if (!props.data) return <div class="home-view"><div class="card"><h3>Home</h3><p class="muted">loading executive summary...</p></div></div>
 
@@ -39,6 +42,30 @@ export default function Home(props: {
           <button class="shell-link" onClick={props.onOpenStatus}>Status</button>
         </div>
       </section>
+
+      <Show when={props.status}>
+        <section class="home-controls-strip">
+          <div class="qc-group">
+            <span class="field-label">slot</span>
+            <For each={["brain", "medium", "cheap"]}>{(slot) => (
+              <button
+                class={`qc-slot ${props.status?.active_slot === slot ? "active" : ""}`}
+                onClick={() => postTrinity("set", slot).then(props.onTrinityAction).catch(() => {})}
+              >{slot}</button>
+            )}</For>
+          </div>
+          <div class="qc-group">
+            <span class="field-label">model</span>
+            <span class="qc-model">{props.status?.current_model?.split("/").pop() ?? "—"}</span>
+          </div>
+          <Show when={props.status}>
+            <div class="qc-group">
+              <span class="field-label">enforce</span>
+              <span class={`qc-pill ${props.status?.enforce ? "on" : "off"}`}>{props.status?.enforce ? "on" : "off"}</span>
+            </div>
+          </Show>
+        </section>
+      </Show>
 
       <section class="home-overview-grid">
         <div class="card home-summary-card">
@@ -123,7 +150,7 @@ export default function Home(props: {
             <For each={props.data.sessions.slice(0, 5)}>{(entry) => (
               <div class={`home-session-item ${entry.is_current ? "current" : ""}`}>
                 <div>
-                  <div class="home-session-item-title">{entry.session_id}</div>
+                  <div class="home-session-item-title">{entry.template_label || entry.session_id.slice(0, 14)}</div>
                   <div class="muted">{entry.recommendation}</div>
                 </div>
                 <div class="home-session-item-meta">

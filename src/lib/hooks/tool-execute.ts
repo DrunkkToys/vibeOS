@@ -400,6 +400,19 @@ export function resolveCascadeRouteDecision(input: unknown = {}): unknown {
     reason = backendRoute?.reason || "backend route"
   }
 
+  const precomputedEmbeddingMode = input?.embeddingMode ? String(input.embeddingMode) : null
+  if (!backendRoute?.target && precomputedEmbeddingMode) {
+    const isBudget = /budget|lite|speed|cheap/i.test(precomputedEmbeddingMode)
+    const isQuality = /quality|brain|ultra|opus|pro/i.test(precomputedEmbeddingMode)
+    if (isBudget && trinityCheap) {
+      applyLocalCandidate("cheap", trinityCheap, "embedding", `embedding=${precomputedEmbeddingMode}`)
+    } else if (isQuality && trinityBrain) {
+      applyLocalCandidate("brain", trinityBrain, "embedding", `embedding=${precomputedEmbeddingMode}`)
+    } else if (trinityMedium) {
+      applyLocalCandidate("medium", trinityMedium, "embedding", `embedding=${precomputedEmbeddingMode}`)
+    }
+  }
+
   if (input?.mlEnabled !== false) {
     try {
       const mlDifficulty = computeDifficulty(prompt)
@@ -800,7 +813,18 @@ export const onToolExecuteBefore = async (input, output) => {
       }
     }
     if (!routeDecision) {
-      routeDecision = resolveCascadeRouteDecision(cascadeInput)
+      let embeddingMode: string | null = null
+      if (ML_ENABLED) {
+        try {
+          const embResult = await remoteCall(
+            "blackboxSelectModeEmbedding",
+            [_OC_SID || getCurrentSessionId(), { userText: _prompt, prompt: _prompt }],
+            () => null,
+          ) as { mode?: string } | null
+          embeddingMode = embResult?.mode || null
+        } catch { /* non-fatal */ }
+      }
+      routeDecision = resolveCascadeRouteDecision(embeddingMode ? { ...cascadeInput, embeddingMode } : cascadeInput)
     }
     if (creditForceCheap && routeDecision?.source !== "backend" && routeDecision?.source !== "backend-route-model" && routeDecision?.source !== "api-cascade") {
       const creditSlot = "cheap"

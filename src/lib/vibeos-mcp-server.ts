@@ -11,6 +11,7 @@ import { flushDashboardMutationQueue, getDashboardBridgeBacklogCount, getDashboa
 import { resolveApiToken } from "./api-client.js"
 import { applySessionAction, buildDashboardHomeModel, buildSessionDetail, compareSessionOrchestrations, exportSessionOrchestration, importSessionOrchestration, TEMPLATE_LIBRARY } from "./session-orchestrator.js"
 import { getSessionDelegationSavings } from "./session-savings.js"
+import { readProjects, writeProjects, readSessions, writeSessions, readFlows, writeFlows, newId, nowIso, type FlowNode, type FlowEdge } from "./orch-store.js"
 
 const MIME_MAP: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -109,7 +110,8 @@ export function writeDashboardBaseConfig(baseUrl: string): string | null {
   try {
     if (!baseUrl) return null
     mkdirSync(DASHBOARD_DIR, { recursive: true })
-    const payload = `window.__VIBEOS_DASHBOARD_BASE__ = ${JSON.stringify(baseUrl.replace(/\/$/, ""))};\n`
+    const b = JSON.stringify(baseUrl.replace(/\/$/, ""))
+    const payload = `window.__VIBEOS_DASHBOARD_BASE__ = ${b};\nwindow.__VIBEOS_BACKEND_API_BASE__ = ${b};\n`
     writeFileSync(DASHBOARD_CONFIG_PATH, payload, "utf-8")
     return DASHBOARD_CONFIG_PATH
   } catch {
@@ -829,6 +831,134 @@ export function createMcpServer(deps: Deps): McpServer {
         }
         json(res, 500, { ok: false, error: "session mutation unavailable" })
         return
+      }
+      if (path.startsWith("/api/v1/orchestrator/")) {
+        const orchSuffix = path.slice("/api/v1/orchestrator".length).split("?")[0].replace(/^\//, "")
+        const segs = orchSuffix.split("/")
+        const resource = segs[0]
+        const resourceId = segs[1] || ""
+        const subResource = segs[2] || ""
+        let body: Record<string, unknown> = {}
+        if (method === "POST" || method === "PUT") {
+          try { body = await parseBody(req) } catch { json(res, 400, { error: "invalid body" }); return }
+        }
+        if (resource === "projects") {
+          if (method === "GET" && !resourceId) {
+            const projects = await readProjects()
+            json(res, 200, { projects }); return
+          }
+          if (method === "POST" && !resourceId) {
+            const projects = await readProjects()
+            const project = { id: newId("proj"), name: String(body.name || "Untitled"), fingerprint: (body.fingerprint as string | null) ?? null, default_flow_id: null, created_at: nowIso(), updated_at: nowIso() }
+            await writeProjects([...projects, project])
+            json(res, 200, { project }); return
+          }
+          if (method === "PUT" && resourceId) {
+            const projects = await readProjects()
+            const idx = projects.findIndex((p) => p.id === resourceId)
+            if (idx === -1) { json(res, 404, { error: "not found" }); return }
+            const updated = { ...projects[idx], ...(body.name !== undefined ? { name: String(body.name) } : {}), ...(body.default_flow_id !== undefined ? { default_flow_id: (body.default_flow_id as string | null) } : {}), ...(body.fingerprint !== undefined ? { fingerprint: (body.fingerprint as string | null) } : {}), updated_at: nowIso() }
+            projects[idx] = updated
+            await writeProjects(projects)
+            json(res, 200, { project: updated }); return
+          }
+          if (method === "DELETE" && resourceId) {
+            const projects = await readProjects()
+            await writeProjects(projects.filter((p) => p.id !== resourceId))
+            const sessions = await readSessions()
+            await writeSessions(sessions.filter((s) => s.project_id !== resourceId))
+            json(res, 200, { ok: true }); return
+          }
+        }
+        if (resource === "sessions") {
+          if (method === "GET" && !resourceId) {
+            const sessions = await readSessions()
+            const projectFilter = (parsed.query.project_id as string) || null
+            json(res, 200, { sessions: projectFilter ? sessions.filter((s) => s.project_id === projectFilter) : sessions }); return
+          }
+          if (method === "POST" && !resourceId) {
+            const sessions = await readSessions()
+            const session = { id: newId("sess"), project_id: String(body.project_id || ""), title: String(body.title || "New session"), flow_id: (body.flow_id as string | null) ?? null, messages: [], created_at: nowIso(), updated_at: nowIso() }
+            await writeSessions([...sessions, session])
+            json(res, 200, { session }); return
+          }
+          if (method === "PUT" && resourceId && !subResource) {
+            const sessions = await readSessions()
+            const idx = sessions.findIndex((s) => s.id === resourceId)
+            if (idx === -1) { json(res, 404, { error: "not found" }); return }
+            const updated = { ...sessions[idx], ...(body.title !== undefined ? { title: String(body.title) } : {}), ...(body.flow_id !== undefined ? { flow_id: (body.flow_id as string | null) } : {}), updated_at: nowIso() }
+            sessions[idx] = updated
+            await writeSessions(sessions)
+            json(res, 200, { session: updated }); return
+          }
+          if (method === "DELETE" && resourceId && !subResource) {
+            const sessions = await readSessions()
+            await writeSessions(sessions.filter((s) => s.id !== resourceId))
+            json(res, 200, { ok: true }); return
+          }
+          if (method === "GET" && resourceId && subResource === "messages") {
+            const sessions = await readSessions()
+            const session = sessions.find((s) => s.id === resourceId)
+            if (!session) { json(res, 404, { error: "not found" }); return }
+            json(res, 200, { messages: session.messages }); return
+          }
+          if (method === "POST" && resourceId && subResource === "run") {
+            const prompt = String(body.prompt || "")
+            const _sourceContent = String(body.sourceContent || "")
+            res.setHeader("Content-Type", "text/event-stream")
+            res.setHeader("Cache-Control", "no-cache")
+            res.setHeader("Connection", "keep-alive")
+            res.setHeader("Access-Control-Allow-Origin", "*")
+            res.statusCode = 200
+            const flowData = { flow_name: "direct" }
+            res.write(`event: flow\ndata: ${JSON.stringify(flowData)}\n\n`)
+            const steps = [{ tool: "direct", label: "direct response", condition: null }]
+            const plan = { steps }
+            res.write(`event: plan\ndata: ${JSON.stringify({ plan })}\n\n`)
+            const stepResult = { step: steps[0], skipped: false, result: { text: `Processed: ${prompt.slice(0, 80)}` } }
+            res.write(`event: step\ndata: ${JSON.stringify(stepResult)}\n\n`)
+            const sessions = await readSessions()
+            const idx = sessions.findIndex((s) => s.id === resourceId)
+            if (idx !== -1) {
+              const userMsg = { id: newId("msg"), role: "user" as const, content: prompt, plan: null, results: null, created_at: nowIso() }
+              const assistantMsg = { id: newId("msg"), role: "assistant" as const, content: `Ran flow for: ${prompt.slice(0, 120)}`, plan, results: [stepResult] as { step: { tool: string; label: string; condition: null }; skipped: boolean; result?: unknown }[], created_at: nowIso() }
+              sessions[idx] = { ...sessions[idx], messages: [...sessions[idx].messages, userMsg, assistantMsg], updated_at: nowIso() }
+              await writeSessions(sessions)
+            }
+            res.write(`event: done\ndata: {}\n\n`)
+            res.end(); return
+          }
+        }
+        if (resource === "flows") {
+          if (method === "GET" && !resourceId) {
+            const flows = await readFlows()
+            const projectFilter = (parsed.query.project_id as string) || null
+            json(res, 200, { flows: projectFilter ? flows.filter((f) => f.scope === "global" || f.project_id === projectFilter) : flows }); return
+          }
+          if (method === "POST" && !resourceId) {
+            const flows = await readFlows()
+            const scope: "project" | "global" = body.scope === "project" ? "project" : "global"
+            const graph = (body.graph as { nodes: FlowNode[]; edges: FlowEdge[] }) || { nodes: [], edges: [] }
+            const flow = { id: newId("flow"), scope, project_id: (body.project_id as string | null) ?? null, name: String(body.name || "New flow"), graph, created_at: nowIso(), updated_at: nowIso() }
+            await writeFlows([...flows, flow])
+            json(res, 200, { flow }); return
+          }
+          if (method === "PUT" && resourceId) {
+            const flows = await readFlows()
+            const idx = flows.findIndex((f) => f.id === resourceId)
+            if (idx === -1) { json(res, 404, { error: "not found" }); return }
+            const updated = { ...flows[idx], ...(body.name !== undefined ? { name: String(body.name) } : {}), ...(body.graph !== undefined ? { graph: body.graph as { nodes: FlowNode[]; edges: FlowEdge[] } } : {}), updated_at: nowIso() }
+            flows[idx] = updated
+            await writeFlows(flows)
+            json(res, 200, { flow: updated }); return
+          }
+          if (method === "DELETE" && resourceId) {
+            const flows = await readFlows()
+            await writeFlows(flows.filter((f) => f.id !== resourceId))
+            json(res, 200, { ok: true }); return
+          }
+        }
+        json(res, 404, { error: "not found" }); return
       }
       if (method === "GET" && path === "/") {
         serveDashboard(res, "/")
