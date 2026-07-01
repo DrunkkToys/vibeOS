@@ -2,6 +2,8 @@ import { createEffect, createSignal, For, onCleanup, Show } from "solid-js"
 import {
   createProject,
   createSession,
+  deleteProject,
+  deleteSession,
   fetchCapabilities,
   fetchDashboardHome,
   fetchSavings,
@@ -47,6 +49,8 @@ export default function App() {
   const [sessionsByProject, setSessionsByProject] = createSignal<Record<string, OrchSession[]>>({})
   const [flows, setFlows] = createSignal<OrchFlow[]>([])
   const [expanded, setExpanded] = createSignal<Record<string, boolean>>({})
+  const [creatingProject, setCreatingProject] = createSignal(false)
+  const [creatingSessionFor, setCreatingSessionFor] = createSignal<string | null>(null)
 
   const refreshStatus = () => fetchStatus().then(setS).catch(() => {})
   const refreshSavings = () => fetchSavings().then(setSv).catch(() => {})
@@ -78,9 +82,12 @@ export default function App() {
     if (tab() === "websearch" && !cap()?.web_search?.enabled) setTab("status")
   })
 
-  const newProject = async () => {
-    const name = window.prompt("Project name?")?.trim()
-    if (!name) return
+  const newProject = () => setCreatingProject(true)
+
+  const newSession = (projectId: string) => setCreatingSessionFor(projectId)
+
+  const submitNewProject = async (name: string) => {
+    setCreatingProject(false)
     const res = await createProject(name)
     await refreshProjects()
     await refreshHome()
@@ -88,14 +95,31 @@ export default function App() {
     setSelection({ kind: "project", projectId: res.project.id })
   }
 
-  const newSession = async (projectId: string) => {
-    const title = window.prompt("Session title?", "New session")?.trim()
-    if (title === undefined) return
+  const submitNewSession = async (projectId: string, title: string) => {
+    setCreatingSessionFor(null)
     const res = await createSession(projectId, title || "New session")
     await refreshSessions()
     await refreshHome()
     setExpanded((e) => ({ ...e, [projectId]: true }))
     setSelection({ kind: "session", projectId, sessionId: res.session.id })
+  }
+
+  const cancelCreate = () => { setCreatingProject(false); setCreatingSessionFor(null) }
+
+  const removeProject = async (id: string) => {
+    if (!confirm("Delete this project and all its sessions?")) return
+    await deleteProject(id)
+    await refreshProjects()
+    await refreshSessions()
+    await refreshHome()
+    if ((selection() as { kind: string; projectId?: string }).projectId === id) setSelection({ kind: "home" })
+  }
+
+  const removeSession = async (id: string) => {
+    await deleteSession(id)
+    await refreshSessions()
+    await refreshHome()
+    if ((selection() as { kind: string; sessionId?: string }).sessionId === id) setSelection({ kind: "home" })
   }
 
   const toggle = (projectId: string) => setExpanded((e) => ({ ...e, [projectId]: !e[projectId] }))
@@ -206,10 +230,17 @@ export default function App() {
         currentProjectId={currentProject()?.id || null}
         currentProjectName={home()?.current_session?.project_name || s()?.current_project_name || null}
         currentSessionId={home()?.current_session?.session_id || null}
+        creatingProject={creatingProject()}
+        creatingSessionFor={creatingSessionFor()}
         onSelect={setSelection}
         onToggle={toggle}
         onNewProject={newProject}
         onNewSession={newSession}
+        onCreateProjectName={submitNewProject}
+        onCreateSessionName={submitNewSession}
+        onCancelCreate={cancelCreate}
+        onDeleteProject={removeProject}
+        onDeleteSession={removeSession}
       />
 
       <div class="main">
@@ -233,12 +264,14 @@ export default function App() {
           <main class="content">
             <Home
               data={home()}
+              status={s()}
               project={currentProject()}
               session={currentSession()}
               flows={homeFlows()}
               onOpenStatus={() => setSelection({ kind: "status" })}
               onOpenProject={openCurrentProject}
               onOpenSession={openCurrentSession}
+              onTrinityAction={() => { refreshStatus(); refreshSavings(); refreshHome() }}
             />
           </main>
         </Show>
