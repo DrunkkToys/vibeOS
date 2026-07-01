@@ -345,23 +345,24 @@ test("footer: buildFooterLine with vibemax mode on cheap slot", () => {
   assert.ok(line.includes("$99.99 saved"))
 })
 
-test("footer: buildFooterLine shows session slot when different", () => {
+test("footer: buildFooterLine shows worker slot in brackets when workerSlot is provided", () => {
   const line = buildFooterLine({
-    activeSlot: "cheap",
-    sessionSlot: "brain",
-    providerLabel: "DeepSeek",
-    modelName: "deepseek-chat",
+    activeSlot: "brain",
+    providerLabel: "OpenCode Go",
+    modelName: "Mimo V2.5",
+    workerSlot: "cheap",
     ltTotal: 10.00,
     ltTrend: "up",
     vibeBrand: "VibeMaX",
-    optMode: "budget",
+    optMode: "vibeultrax",
     flashIcon: " \u26A1",
     enfTags: ["[Q&A]"],
-    vectorChangedSlot: "brain",
+    vectorChangedSlot: "medium",
   })
 
-  assert.ok(line.includes("session:brain"))
-  assert.ok(line.includes("⟡ brain") || line.includes("\u27A1 brain"))
+  assert.ok(line.includes("[cheap]"), "worker slot shown in brackets: " + line)
+  assert.ok(!line.includes("session:"), "no session: suffix: " + line)
+  assert.ok(line.includes("⟡ medium"), "vector pulse shows: " + line)
 })
 
 test("footer: buildFooterLine zero savings hides savings section", () => {

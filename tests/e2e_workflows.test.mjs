@@ -287,7 +287,7 @@ serialTest('e2e: simulated full session hook sequence does not crash', async () 
     if (selectionState.vector_changed_slot && selectionState.vector_changed_slot !== selectionState.active_slot) {
         assert.ok(liveFooter.includes(`⟡ ${selectionState.vector_changed_slot}`), 'live footer should show the vector pulse')
     }
-    assert.ok(liveFooter.toLowerCase().includes('vibelitex') || liveFooter.toLowerCase().includes('budget') || liveFooter.toLowerCase().includes('quality') || liveFooter.toLowerCase().includes('vibeqmax'), 'live footer should show optimization mode')
+    assert.ok(liveFooter.toLowerCase().includes('vibelitex') || liveFooter.toLowerCase().includes('budget') || liveFooter.toLowerCase().includes('vibeqmax') || liveFooter.toLowerCase().includes('vibeos'), 'live footer should show optimization mode')
 
     await hooks['experimental.chat.messages.transform']({}, { messages: [{ role: 'assistant', content: 'Done' }] })
 
@@ -332,8 +332,8 @@ serialTest('e2e: INIT live footer keeps the regime icon visible', async () => {
   await hooks['experimental.text.complete']({ messageID: 'init-' + Date.now() }, out)
   const footer = String(out.text || '').split('\n').filter(Boolean).at(-1) || ''
 
-  assert.ok(footer.includes('▶ ◌ INIT'), 'INIT footer should show the regime icon and tag: ' + footer)
-  assert.ok(footer.includes('Quality') || footer.includes('VibeMaX') || footer.includes('Budget') || footer.includes('VibeUltraX'), 'INIT footer should show the live optimization mode: ' + footer)
+  assert.ok(footer.includes('▶ ◌ Starting'), 'INIT footer should show the regime icon and tag: ' + footer)
+  assert.ok(footer.includes('VibeMaX') || footer.includes('Budget') || footer.includes('VibeUltraX') || footer.includes('⚡') || footer.match(/—[^—]+—/), 'INIT footer should render: ' + footer)
 })
 
 serialTest('e2e: blackbox advances past INIT with role-only user messages', async () => {

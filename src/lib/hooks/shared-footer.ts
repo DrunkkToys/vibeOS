@@ -6,6 +6,7 @@ import { BRANDED_MODES, RUNTIME_MODES, MODE_TABLE } from "../mode-router.js"
 export interface FooterLineInput {
   activeSlot: string
   sessionSlot?: string
+  workerSlot?: string
   providerLabel: string
   modelName: string
   savingsTotal?: number
@@ -26,19 +27,19 @@ export interface FooterLineInput {
 }
 
 const REGIME_TAG: Record<string, string> = {
-  INIT: "INIT",
-  DIVERGENT: "DVRG",
-  EXPLORING: "XPLR",
-  REFINING: "RFNE",
-  IMPLEMENTING: "IMPL",
-  RESEARCH: "RSCH",
-  REVIEWING: "RVW",
-  DESIGNING: "DSGN",
-  CONVERGING: "CVGE",
-  CLOSED: "CLSD",
-  LOOPING: "LOOP",
-  AUDIT: "AUDT",
-  FORENSIC: "FRNC",
+  INIT: "Starting",
+  DIVERGENT: "Off-track",
+  EXPLORING: "Exploring",
+  REFINING: "Refining",
+  IMPLEMENTING: "Building",
+  RESEARCH: "Researching",
+  REVIEWING: "Reviewing",
+  DESIGNING: "Designing",
+  CONVERGING: "Converging",
+  CLOSED: "Closed",
+  LOOPING: "Looping",
+  AUDIT: "Auditing",
+  FORENSIC: "Deep dive",
 }
 
 const REGIME_ICON: Record<string, string> = {
@@ -243,25 +244,30 @@ export function buildFooterAlert(opts: {
 }
 
 export function buildFooterLine(input: FooterLineInput): string {
-  const { activeSlot, sessionSlot, providerLabel, modelName, ltTrend, vibeBrand, optMode, flashIcon, enfTags, vectorChangedSlot, subRegime } = input
+  const { activeSlot, providerLabel, modelName, ltTrend, vibeBrand, optMode, flashIcon, enfTags, vectorChangedSlot, subRegime } = input
   const savingsTotal = Number.isFinite(Number(input.savingsTotal ?? input.ltTotal)) ? Number(input.savingsTotal ?? input.ltTotal) : 0
 
   const tierIcon = resolveTierIcon(activeSlot)
   const regimeTag = subRegime ? REGIME_TAG[subRegime] || subRegime.slice(0, 4) : null
   const regimeIcon = subRegime ? resolveRegimeIcon(subRegime) : null
   const modeLabel = formatModeLabel(optMode)
-  let line = `\u2014 ${tierIcon} ${activeSlot} | ${providerLabel} | ${modelName}${regimeTag ? ` \u25B6 ${regimeIcon} ${regimeTag}` : ""}`
+  const workerSuffix = input.workerSlot ? ` [${input.workerSlot}]` : ""
+  let line = `\u2014 ${tierIcon} ${activeSlot} | ${providerLabel} | ${modelName}${workerSuffix}${regimeTag ? ` \u25B6 ${regimeIcon} ${regimeTag}` : ""}`
 
   if (savingsTotal > 0) {
     const savingsPulse = formatSavingsPulse(savingsTotal, ltTrend)
     if (savingsPulse) line += ` | ${savingsPulse}`
   }
 
-  line += ` | ${vibeBrand}${flashIcon}`
+  if (vibeBrand) {
+    line += ` | ${vibeBrand}${flashIcon}`
+  } else if (flashIcon.trim()) {
+    line += ` | ${flashIcon.trim()}`
+  }
 
   // Avoid rendering the brand twice (e.g. "VibeUltraX · VibeUltraX") when the
   // mode label resolves to the same text as the brand.
-  if (optMode && optMode !== "auto" && modeLabel && modeLabel !== vibeBrand) {
+  if (vibeBrand && optMode && optMode !== "auto" && modeLabel && modeLabel !== vibeBrand) {
     line += ` · ${modeLabel}`
   }
 
@@ -295,9 +301,6 @@ export function buildFooterLine(input: FooterLineInput): string {
     line += ` | ${input.rewardTag}`
   }
 
-  if (sessionSlot && sessionSlot !== activeSlot) {
-    line += ` | session:${sessionSlot}`
-  }
   line += " \u2014"
 
   return line

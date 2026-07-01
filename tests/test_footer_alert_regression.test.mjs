@@ -130,8 +130,8 @@ test("footer: 'hi' stays quiet instead of inheriting quality/guarded state", asy
     const o = { text: "Hi. How can I help you? This greeting should stay quiet and not inherit a stale quality episode." }
     await _appendFooter({ args: { model: "deepseek/v4-pro" } }, o)
     const footer = o.text.split("\n").pop() || ""
-    assert.ok(footer.includes("Quality"), "greeting footer should follow INIT regime mode label: " + footer)
-    assert.ok(!footer.includes("quality"), "greeting footer should not inherit quality: " + footer)
+    assert.ok(!footer.includes("Quality"), "internal quality mode should not surface as brand label: " + footer)
+    assert.ok(!footer.includes("quality"), "greeting footer should not show lowercase quality: " + footer)
 })
 
 // ── Test 8: sticky branded mode stays visually distinct from the live regime label ──
