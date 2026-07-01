@@ -15,7 +15,7 @@ const BRAND_EXPECTATIONS = {
   audit: "Audit",
   forensic: "Forensic",
   budget: "Budget",
-  quality: "Quality",
+  quality: "vibeOS",
   speed: "Speed",
   longrun: "Longrun",
   auto: "Budget",

@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { appendFileSync, mkdirSync } from "node:fs"
 import { join } from "node:path"
-import { classify, _refreshModel, readConfig, readLiveOpenCodeModel, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, formatUsd, resolveCurrentExecution, modelDisplayName, getPendingLiveSwitch } from "../pricing.js"
+import { classify, _refreshModel, readConfig, readLiveOpenCodeModel, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, formatUsd, resolveCurrentExecution, modelDisplayName, getPendingLiveSwitch, formatProviderName } from "../pricing.js"
 import { latestUserIntent } from "./chat-transform.js"
 import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, classifyTurnSimple, autoSelectMode, loadOptimizationMode, computeControlVector, getLatestBlackboxLoopMsg, getLatestBlackboxPivotMsg, getLatestBlackboxState } from "../turn-classify.js"
 import { saveReport } from "../reporting.js"
@@ -426,10 +426,11 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
     const normalizedIntent = classifyTurnSimple(latestUserIntent || "")
     const currentSubRegime = quietIntent ? "INIT" : (liveBlackboxState?.sub_regime || normalizedIntent)
     const bbMode = resolveEnforcementMode()
+    const CODING_REGIMES = new Set(["REFINING", "IMPLEMENTING", "CONVERGING", "REVIEWING"])
     const enfTags = buildEnforcementTags({
       delegationEnforce: selNowFooter.delegation_enforce,
       flowEnforce: selNowFooter.flow_enforce,
-      tddEnforce: selNowFooter.tdd_enforce,
+      tddEnforce: selNowFooter.tdd_enforce && CODING_REGIMES.has(currentSubRegime),
       bbMode,
       modelLocked: _modelLocked,
       quietIntent: isGreetingLike(latestUserIntent || ""),
@@ -471,7 +472,10 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
     const rawMode = displayMode
     _footerStage = "control-vector"
     const cv = computeControlVector({ sub_regime: currentSubRegime, latest_stress_multiplier: _footerStress, user_text: latestUserIntent || "" }, undefined, rawMode)
-    const vibeBrand = resolveBrand(displayMode, activeSlot)
+    const SUPPRESS_SYNC_MODES = new Set(["quality", "auto"])
+    const isSuppressedMode = SUPPRESS_SYNC_MODES.has(String(displayMode || "").toLowerCase())
+    const vibeBrand = isSuppressedMode ? "vibeOS" : resolveBrand(displayMode, activeSlot)
+    const XP_SHOW_REGIMES = new Set(["CONVERGING", "CLOSED", "REVIEWING"])
     let _rewardTag = ""
     let _rewardOutcome = null
     let _rewardCredits = 0
@@ -512,7 +516,10 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
               _rewardCredits = rewardResult.credits
               _rewardBreakdown = rewardResult.breakdown
               if (rewardResult.credits !== 0) {
-                _rewardTag = rewardResult.credits > 0 ? `+${rewardResult.credits} XP` : `${rewardResult.credits} XP`
+                const suppressPositive = rewardResult.credits > 0 && !XP_SHOW_REGIMES.has(String(currentSubRegime || "").toUpperCase())
+                if (!suppressPositive) {
+                  _rewardTag = rewardResult.credits > 0 ? `+${rewardResult.credits} XP` : `${rewardResult.credits} XP`
+                }
               }
             } catch {}
             // Write outcome to calibration log
@@ -544,7 +551,10 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
         _rewardCredits = rewardResult.credits
         _rewardBreakdown = rewardResult.breakdown
         if (rewardResult.credits !== 0) {
-          _rewardTag = rewardResult.credits > 0 ? `+${rewardResult.credits} XP` : `${rewardResult.credits} XP`
+          const suppressPositive = rewardResult.credits > 0 && !XP_SHOW_REGIMES.has(String(currentSubRegime || "").toUpperCase())
+          if (!suppressPositive) {
+            _rewardTag = rewardResult.credits > 0 ? `+${rewardResult.credits} XP` : `${rewardResult.credits} XP`
+          }
         }
       } catch {}
     }
@@ -571,7 +581,10 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
           _rewardCredits = rewardResult.credits
           _rewardBreakdown = rewardResult.breakdown
           if (rewardResult.credits !== 0) {
-            _rewardTag = rewardResult.credits > 0 ? `+${rewardResult.credits} XP` : `${rewardResult.credits} XP`
+            const suppressPositive = rewardResult.credits > 0 && !XP_SHOW_REGIMES.has(String(currentSubRegime || "").toUpperCase())
+            if (!suppressPositive) {
+              _rewardTag = rewardResult.credits > 0 ? `+${rewardResult.credits} XP` : `${rewardResult.credits} XP`
+            }
           }
         }
       } catch {}
@@ -607,17 +620,34 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
       liveBlackboxState?.cascade_depth ??
       0,
     ) || 0
+    const TIER_RANK: Record<string, number> = { cheap: 0, medium: 1, brain: 2 }
+    const sessionRank = TIER_RANK[sessionSlot || ""] ?? -1
+    const activeRankVal = TIER_RANK[activeSlot || ""] ?? -1
+    const showSessionModel = Boolean(sessionSlot && sessionSlot !== activeSlot && sessionRank > activeRankVal)
+    const sessionTierModel = showSessionModel
+      ? (sessionSlot === "brain" ? (TRINITY_BRAIN || currentModel)
+        : sessionSlot === "medium" ? (TRINITY_MEDIUM || currentModel)
+          : (TRINITY_CHEAP || currentModel))
+      : null
+    const displayProviderLabel = showSessionModel && sessionTierModel
+      ? formatProviderName(String(sessionTierModel).split("/")[0] || "")
+      : execution.provider_label
+    const displayModelName = showSessionModel && sessionTierModel
+      ? modelDisplayName(sessionTierModel)
+      : modelDisplayName(execution.model)
+    const displayActiveSlot = showSessionModel ? (sessionSlot as "cheap" | "medium" | "brain") : activeSlot
+    const displayWorkerSlot = showSessionModel ? activeSlot : undefined
     const vibeLine = buildFooterLine({
-      activeSlot,
-      providerLabel: execution.provider_label,
-      modelName: modelDisplayName(execution.model),
+      activeSlot: displayActiveSlot,
+      providerLabel: displayProviderLabel,
+      modelName: displayModelName,
+      workerSlot: displayWorkerSlot,
       savingsTotal: footerSavingsTotal,
       ltTrend: sesTrend,
       vibeBrand,
-      optMode: displayMode,
+      optMode: isSuppressedMode ? "" : displayMode,
       flashIcon,
       enfTags,
-      sessionSlot,
       vectorChangedSlot: selNowFooter?.vector_changed_slot,
       subRegime: currentSubRegime,
       stressGauge: _footerStress > 0.85 ? "█" : _footerStress > 0.7 ? "▆" : _footerStress > 0.5 ? "▅" : _footerStress > 0.3 ? "▃" : _footerStress > 0.1 ? "▂" : "▁",

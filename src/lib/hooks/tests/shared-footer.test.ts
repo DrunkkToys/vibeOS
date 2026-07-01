@@ -132,7 +132,7 @@ test("shared-footer renders experimental regime tags cleanly", () => {
     subRegime: "IMPLEMENTING",
   })
 
-  assert.ok(line.includes("▶ ⚙ IMPL"))
+  assert.ok(line.includes("▶ ⚙ Building"))
 })
 
 test("shared-footer shows cascade arrow icon without text suffix", () => {
