@@ -389,11 +389,12 @@ function loadRules(): FlowRule[] {
     const realityMtime = existsSync(realityFile) ? statSync(realityFile).mtimeMs : 0
     const scopeKey = String(currentProjectFingerprint || "")
     const cacheKey = `${rulesMtime}:${realityMtime}:${scopeKey}`
-    if (_cachedRules && _realityCheckCacheKey === "__test__") return _cachedRules
-    if (_cachedRules && cacheKey === _realityCheckCacheKey) return _cachedRules
+    if (_cachedRules && _realityCheckCacheKey === "__test__") { _cachedRules = mergeLearnedRules(_cachedRules); return _cachedRules }
+    if (_cachedRules && cacheKey === _realityCheckCacheKey) { _cachedRules = mergeLearnedRules(_cachedRules); return _cachedRules }
     if (!existsSync(rulesPath)) {
       _cachedRules = mergeManagedRules([], getRealityCheckRulesForProject(scopeKey))
       _realityCheckCacheKey = cacheKey
+      _cachedRules = mergeLearnedRules(_cachedRules)
       return _cachedRules
     }
     const j = safeJsonParse<any>(readFileSync(rulesPath, "utf-8")) as { rules?: FlowRule[] }
@@ -401,6 +402,7 @@ function loadRules(): FlowRule[] {
     _cachedRules = mergeManagedRules(baseRules, getRealityCheckRulesForProject(scopeKey))
     _rulesMtime = rulesMtime
     _realityCheckCacheKey = cacheKey
+    _cachedRules = mergeLearnedRules(_cachedRules)
     return _cachedRules
   } catch {
     _cachedRules = []
@@ -600,3 +602,123 @@ export function syncFlowTodosToNative(upsertFn?: (entry: { content: string; file
   }
   return count
 }
+
+const LEARNED_RULES_PATH = join(getVibeOSHome(), "learned-flow-rules.json")
+const CORRECTIONS_PATH = join(getVibeOSHome(), "user-corrections.jsonl")
+
+function getLearnedRules(): FlowRule[] {
+  try {
+    if (!existsSync(LEARNED_RULES_PATH)) return []
+    const raw = readFileSync(LEARNED_RULES_PATH, "utf-8")
+    const data = safeJsonParse<any>(raw)
+    if (!data?.rules || !Array.isArray(data.rules)) return []
+    return data.rules.map(normalizeRule).filter(Boolean) as FlowRule[]
+  } catch { return [] }
+}
+
+function persistLearnedRules(rules: FlowRule[]): void {
+  try {
+    mkdirSync(dirname(LEARNED_RULES_PATH), { recursive: true })
+    writeFileSync(LEARNED_RULES_PATH, JSON.stringify({ rules }, null, 2), "utf-8")
+  } catch {}
+}
+
+export function trackUserCorrection(input: {
+  tool: string
+  issueDescription: string
+  suggestedRule?: string
+  filePath?: string
+}): void {
+  try {
+    const file = CORRECTIONS_PATH
+    mkdirSync(dirname(file), { recursive: true })
+    const correction = {
+      ts: new Date().toISOString(),
+      tool: input.tool,
+      issue: input.issueDescription,
+      suggestedRule: input.suggestedRule,
+      filePath: input.filePath,
+    }
+    appendFileSync(file, JSON.stringify(correction) + "\n")
+    tryPromoteCorrectionsToRules()
+  } catch {}
+}
+
+function loadCorrections(): Array<{
+  ts: string; tool: string; issue: string; suggestedRule?: string; filePath?: string
+}> {
+  try {
+    if (!existsSync(CORRECTIONS_PATH)) return []
+    const raw = readFileSync(CORRECTIONS_PATH, "utf-8").trim()
+    if (!raw) return []
+    return raw.split("\n").filter(Boolean).map(l => {
+      try { return JSON.parse(l) } catch { return null }
+    }).filter(Boolean)
+  } catch { return [] }
+}
+
+function tryPromoteCorrectionsToRules(): void {
+  try {
+    const corrections = loadCorrections()
+    if (corrections.length < 2) return
+
+    const groups = new Map<string, { count: number; items: typeof corrections }>()
+    for (const c of corrections) {
+      const key = `${c.tool}::${c.issue.substring(0, 60)}`
+      if (!groups.has(key)) groups.set(key, { count: 0, items: [] })
+      const g = groups.get(key)!
+      g.count++
+      g.items.push(c)
+    }
+
+    const existing = getLearnedRules()
+    const existingIds = new Set(existing.map(r => r.id))
+    let changed = false
+
+    for (const [key, group] of groups) {
+      if (group.count < 2) continue
+      const [tool] = key.split("::")
+      const issue = group.items[0].issue
+      const ruleId = `learned-${tool}-${issue.replace(/[^a-z0-9]/gi, "-").substring(0, 30)}`.toLowerCase()
+      if (existingIds.has(ruleId)) continue
+
+      const keywords = issue
+        .replace(/[.,!?;:]/g, "")
+        .split(/\s+/)
+        .filter(w => w.length > 3)
+        .slice(0, 5)
+        .join("|")
+      if (!keywords) continue
+
+      const rule: FlowRule = {
+        id: ruleId,
+        trigger: tool,
+        pattern: `(?i)\\b(${keywords})\\b`,
+        severity: "hint",
+        description: `Learned from ${group.count} corrections: ${issue.substring(0, 80)}`,
+      }
+
+      existing.push(rule)
+      existingIds.add(ruleId)
+      changed = true
+    }
+
+    if (changed) persistLearnedRules(existing)
+  } catch {}
+}
+
+function mergeLearnedRules(baseRules: FlowRule[]): FlowRule[] {
+  const learned = getLearnedRules()
+  if (learned.length === 0) return baseRules
+  const seen = new Set(baseRules.map(r => r.id))
+  const merged = [...baseRules]
+  for (const rule of learned) {
+    if (!seen.has(rule.id)) {
+      merged.push(rule)
+      seen.add(rule.id)
+    }
+  }
+  return merged
+}
+
+
