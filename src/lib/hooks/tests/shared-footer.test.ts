@@ -3,8 +3,8 @@ import assert from "node:assert/strict"
 import { buildEnforcementTags, buildResilientFooterLine, buildFooterLine, formatCascadePulse, formatEnforcementPulse, formatModeLabel, formatSavingsPulse, formatVectorPulse, resolveBrand, resolveRegimeIcon, resolveTierIcon, trendGlyph } from "../shared-footer.js"
 
 test("shared-footer resolves the expected brand names", () => {
-  assert.equal(resolveBrand("vibemax", "brain"), "VibeMaX")
-  assert.equal(resolveBrand("quality", "medium"), "Quality")
+  assert.equal(resolveBrand("vibemax", "brain"), "vibeOS")
+  assert.equal(resolveBrand("quality", "medium"), "vibeOS")
   assert.equal(resolveBrand("unknown", "cheap"), "vibeOS")
 })
 

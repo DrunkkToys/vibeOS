@@ -11,11 +11,14 @@ const FOOTER_BRAND_RE = /(?:vibeOS|Vibe(?:MaX|QMaX|UltraX|LiteX)?|Quality|Budget
 const sandbox = mkdtempSync(join(tmpdir(), "delegation-deep-"))
 process.env.HOME = sandbox
   process.env.VIBEOS_HOME = join(sandbox, ".claude")
+mkdirSync(join(sandbox, ".opencode"), { recursive: true })
 mkdirSync(join(sandbox, ".config/opencode"), { recursive: true })
 mkdirSync(join(sandbox, ".claude/reports"), { recursive: true })
 mkdirSync(join(sandbox, ".local/share/opencode"), { recursive: true })
 
 after(async () => { await closeMcpServer() })
+
+writeFileSync(join(sandbox, ".opencode/opencode.json"), JSON.stringify({ "model": "deepseek/deepseek-v4-flash" }) + "\n")
 
 writeFileSync(join(sandbox, ".config/opencode/opencode.json"), JSON.stringify({
   "$schema": "https://opencode.ai/config.json",
