@@ -721,7 +721,10 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
 
     const slot = entrySlot
     const slotLocked = currentSel.slot_locked === true
-    const canApplySlot = slot && slot !== "auto" && (authoritative || (!slotLocked && !_modelLocked))
+    const SLOT_RANK: Record<string, number> = { cheap: 0, medium: 1, brain: 2 }
+    const userRequestedQuality = currentSel.requested_optimization_mode === "quality"
+    const qualityFloorBlock = userRequestedQuality && slot && slot !== "auto" && (SLOT_RANK[slot] ?? 0) < (SLOT_RANK["brain"] ?? 2)
+    const canApplySlot = !qualityFloorBlock && slot && slot !== "auto" && (authoritative || (!slotLocked && !_modelLocked))
     let appliedSlot = currentSel.active_slot || null
     if (canApplySlot) {
       const existingSlot = loadSessionSlot(sid)

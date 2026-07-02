@@ -623,25 +623,13 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
     const TIER_RANK: Record<string, number> = { cheap: 0, medium: 1, brain: 2 }
     const sessionRank = TIER_RANK[sessionSlot || ""] ?? -1
     const activeRankVal = TIER_RANK[activeSlot || ""] ?? -1
-    const showSessionModel = Boolean(sessionSlot && sessionSlot !== activeSlot && sessionRank > activeRankVal)
-    const sessionTierModel = showSessionModel
-      ? (sessionSlot === "brain" ? (TRINITY_BRAIN || currentModel)
-        : sessionSlot === "medium" ? (TRINITY_MEDIUM || currentModel)
-          : (TRINITY_CHEAP || currentModel))
-      : null
-    const displayProviderLabel = showSessionModel && sessionTierModel
-      ? formatProviderName(String(sessionTierModel).split("/")[0] || "")
-      : execution.provider_label
-    const displayModelName = showSessionModel && sessionTierModel
-      ? modelDisplayName(sessionTierModel)
-      : modelDisplayName(execution.model)
-    const displayActiveSlot = showSessionModel ? (sessionSlot as "cheap" | "medium" | "brain") : activeSlot
-    const displayWorkerSlot = showSessionModel ? activeSlot : undefined
+    const showDowngrade = Boolean(sessionSlot && sessionSlot !== activeSlot && sessionRank > activeRankVal)
+    const downgradeWorkerSlot = showDowngrade ? `↓ ${sessionSlot}` : undefined
     const vibeLine = buildFooterLine({
-      activeSlot: displayActiveSlot,
-      providerLabel: displayProviderLabel,
-      modelName: displayModelName,
-      workerSlot: displayWorkerSlot,
+      activeSlot,
+      providerLabel: execution.provider_label,
+      modelName: modelDisplayName(execution.model),
+      workerSlot: downgradeWorkerSlot,
       savingsTotal: footerSavingsTotal,
       ltTrend: sesTrend,
       vibeBrand,
