@@ -7,7 +7,7 @@ import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTr
 import { saveReport } from "../reporting.js"
 import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, getCurrentSessionId, _modelLocked, _blackboxEnabled, loadBlackboxState, recordLiveSessionSnapshot, VIBEOS_HOME, getVibeOSHome, readLifetimeSavings, getLatestCacheEvent, readFullState } from "../state.js"
 import { loadSelection, loadSessionSlot } from "../selection-manager.js"
-import { remoteCall, isApiConnected, isApiLatencyDegraded } from "../api-client.js"
+import { remoteCall, isApiConnected, isApiLatencyDegraded, isApiFallback } from "../api-client.js"
 import { buildFooterLine, buildEnforcementTags, resolveBrand, buildFooterAlert, buildResilientFooterLine } from "./shared-footer.js"
 import { getSessionCacheSavings } from "../session-savings.js"
 import { computeReward } from "../../vibeOS-lib/reward-engine.js"

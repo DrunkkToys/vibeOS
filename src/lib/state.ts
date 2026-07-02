@@ -1113,6 +1113,9 @@ export function recordLiveSessionSnapshot(input: {
         _liveSnapshotFingerprints.set(sid, snapshotFingerprint)
         return state
       }
+      if (currentTier) ses.tier = currentTier
+      if (currentModel) { ses.model = currentModel; ses.provider = String(currentModel).split("/")[0] || ses.provider || "" }
+      ses.last_updated = updatedAt
       if (input.projectFingerprint) ses.project_fingerprint = input.projectFingerprint
       if (input.projectName) ses.project_name = input.projectName
       if (typeof input.savingsUsd === "number" && Number.isFinite(input.savingsUsd)) {
@@ -1519,7 +1522,7 @@ export function recordPrivacyTelemetry(event: unknown): unknown {
       state.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" }
       state.sessions ??= {}
       const sid = String(event.session_id || _OC_SID || "unknown")
-      state.sessions[sid] ??= { started: now, session_started_at: now, source: "opencode", tool_counts: {}, warns: [], cache_hits: [], seenWarnKeys: {} }
+      state.sessions[sid] ??= { started: now, session_started_at: now, source: "opencode", tool_counts: {}, warns: [], cache_hits: [], seenWarnKeys: {}, tier: currentTier || "", model: currentModel || "", provider: String(currentModel || "").split("/")[0] || "", last_updated: now }
       const lifetime = state.lifetime.telemetry ??= _newTelemetryBucket()
       const session = state.sessions[sid].telemetry ??= _newTelemetryBucket()
       const tool = String(event.tool || "unknown").toLowerCase()
@@ -2276,7 +2279,7 @@ function recordDelegation(tool: string, saveEst: number, _meta: unknown = {}): u
       s.lifetime.last_updated = now
       s.sessions ??= {}
       const sid = _OC_SID
-      s.sessions[sid] ??= { started: now, session_started_at: now, source: "opencode", tool_counts: {}, warns: [] }
+      s.sessions[sid] ??= { started: now, session_started_at: now, source: "opencode", tool_counts: {}, warns: [], tier: currentTier || "", model: currentModel || "", provider: String(currentModel || "").split("/")[0] || "", last_updated: now }
 
       if (currentProjectFingerprint && !s.sessions[sid].project_fingerprint) s.sessions[sid].project_fingerprint = currentProjectFingerprint
 
@@ -2311,7 +2314,7 @@ function recordCacheSaving(tool: string, saveEst: number, meta: unknown = {}): u
       s.lifetime.last_updated = now
       s.sessions ??= {}
       const sid = _OC_SID
-      s.sessions[sid] ??= { started: now, session_started_at: now, source: "opencode", tool_counts: {}, warns: [] }
+      s.sessions[sid] ??= { started: now, session_started_at: now, source: "opencode", tool_counts: {}, warns: [], tier: currentTier || "", model: currentModel || "", provider: String(currentModel || "").split("/")[0] || "", last_updated: now }
       if (currentProjectFingerprint && !s.sessions[sid].project_fingerprint) s.sessions[sid].project_fingerprint = currentProjectFingerprint
       if (currentProjectName && !s.sessions[sid].project_name) s.sessions[sid].project_name = currentProjectName
       s.sessions[sid].session_cache_dir = getSessionScratchpadDir()

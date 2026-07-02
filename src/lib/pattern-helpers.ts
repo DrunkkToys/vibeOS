@@ -107,6 +107,11 @@ export function _computeSessionMetrics(state: unknown, sid: string): unknown {
     sesTrend: "stable",
     sesToolBreakdown: toolBreakdown,
     sesModelTurns: session?.model_turns || { brain: 0, worker: 0 },
+    sesFlowWarns: Array.isArray(state?.flow_warns) ? state.flow_warns.filter((w: unknown) => String((w as Record<string, unknown>)?.sid || "") === sid) : [],
+    sesTier: session?.tier || "",
+    sesModel: session?.model || "",
+    sesProvider: session?.provider || "",
+    sesLastUpdated: session?.last_updated || session?.live_updated_at || null,
     quality_avg: state?.lifetime?.quality_total_count > 0
       ? Math.round((state?.lifetime?.quality_total_score || 0) / state?.lifetime?.quality_total_count)
       : 0,
