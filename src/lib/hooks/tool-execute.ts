@@ -398,6 +398,7 @@ export function resolveCascadeRouteDecision(input: unknown = {}): unknown {
     selectedSlot = backendRoute?.target_slot || backendRoute?.targetSlot || _slotFromModel(selectedModel, trinityCheap, trinityMedium, trinityBrain)
     source = "backend"
     reason = backendRoute?.reason || "backend route"
+    _writeCascadeAudit(prompt, selectedSlot, selectedModel, { escalate: selectedSlot !== "cheap", useCheap: selectedSlot === "cheap", confidence: backendRoute.confidence || 1, reason: `backend: ${reason}` })
   }
 
   const precomputedEmbeddingMode = input?.embeddingMode ? String(input.embeddingMode) : null
