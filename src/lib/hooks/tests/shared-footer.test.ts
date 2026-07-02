@@ -36,7 +36,7 @@ test("shared-footer assigns a unique icon to each regime", () => {
 })
 
 test("shared-footer formats a compact vector pulse", () => {
-  assert.equal(formatVectorPulse("cheap"), "⟡ cheap")
+  assert.equal(formatVectorPulse("cheap"), "⟡ ⚡")
   assert.equal(formatVectorPulse(undefined), "")
 })
 
@@ -99,7 +99,7 @@ test("shared-footer keeps the footer compact while showing savings and slot stat
   assert.ok(line.includes("$12.57 saved ↗"))
   assert.ok(line.includes("VibeMaX ⚡"))
   assert.ok(line.includes("guarded"))
-  assert.ok(line.includes("⟡ cheap"))
+  assert.ok(line.includes("⟡ ⚡"))
 })
 
 test("shared-footer degrade path renders the ONE README footer, never the bare 3-segment line", () => {

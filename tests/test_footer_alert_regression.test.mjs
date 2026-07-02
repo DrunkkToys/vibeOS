@@ -75,7 +75,7 @@ test("footer: ⟡ pulse shows the decided slot vs what ran", async () => {
     const { _appendFooter } = await import("../src/lib/hooks/footer.js?ftr3=" + Date.now())
     const o = { text: "Testing the arrow indicator when the ML wants to change the tier from brain to medium in a long message." }
     await _appendFooter({ args: { model: "deepseek/v4-pro" } }, o)
-    assert.ok(o.text.includes("⟡ medium"), "footer should show ⟡ medium pulse: " + o.text.slice(-150))
+    assert.ok(o.text.includes("⟡ ◐"), "footer should show ⟡ ◐ pulse (medium icon): " + o.text.slice(-150))
 })
 
 // ── Test 4: footer drops redundant mode label ──
@@ -102,7 +102,7 @@ test("footer: full ML pipeline — tier + mode + arrow in one line", async () =>
     const footer = o.text.slice(-200)
     assert.ok(footer.includes("🧠") || footer.includes("◐") || footer.includes("⚡") || footer.includes("🎁"), "has tier: " + footer)
     assert.ok(footer.includes("Budget"), "has backend-selected mode label: " + footer)
-    assert.ok(footer.includes("⟡ cheap"), "has vector pulse: " + footer)
+    assert.ok(footer.includes("⟡ ⚡"), "has vector pulse (cheap icon): " + footer)
     assert.ok(!footer.includes("slot:"), "footer should not repeat the slot label: " + footer)
 })
 

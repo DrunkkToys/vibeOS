@@ -106,7 +106,7 @@ export function formatModeLabel(optMode: string): string {
 
 export function formatVectorPulse(vectorChangedSlot?: string): string {
   if (!vectorChangedSlot) return ""
-  return `⟡ ${vectorChangedSlot}`
+  return `⟡ ${TIER_ICON[vectorChangedSlot] || "⚡"}`
 }
 
 export function formatEnforcementPulse(enfTags: string[]): string {

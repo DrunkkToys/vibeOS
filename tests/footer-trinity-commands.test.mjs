@@ -362,7 +362,7 @@ test("footer: buildFooterLine shows worker slot in brackets when workerSlot is p
 
   assert.ok(line.includes("[cheap]"), "worker slot shown in brackets: " + line)
   assert.ok(!line.includes("session:"), "no session: suffix: " + line)
-  assert.ok(line.includes("⟡ medium"), "vector pulse shows: " + line)
+  assert.ok(line.includes("⟡ ◐"), "vector pulse shows: " + line)
 })
 
 test("footer: buildFooterLine zero savings hides savings section", () => {
@@ -493,7 +493,7 @@ test("footer: formatSavingsPulse edge cases", () => {
 })
 
 test("footer: formatVectorPulse edge cases", () => {
-  assert.equal(formatVectorPulse("cheap"), "⟡ cheap")
+  assert.equal(formatVectorPulse("cheap"), "⟡ ⚡")
   assert.equal(formatVectorPulse(undefined), "")
   assert.equal(formatVectorPulse(null), "")
 })
