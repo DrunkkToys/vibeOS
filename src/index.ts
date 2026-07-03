@@ -32,7 +32,7 @@ import { onMessagesTransform, onSystemTransform, latestUserIntent, ensureProject
 import { onChatParams, onChatHeaders, setChatParamsDirectory } from "./lib/hooks/chat-params.js"
 import { onSessionCompacting } from "./lib/hooks/session-compact.js"
 import { onShellEnv, setShellDirectory } from "./lib/hooks/shell-env.js"
-import { installVibeTierAgents } from "./lib/runtime-config.js"
+import { installVibeTierAgents, readDefaultAgent } from "./lib/runtime-config.js"
 import { getOpenCodeHome, getVibeOSHome } from "./lib/state.js"
 import { resetTurnClassifyRuntimeState } from "./lib/turn-classify.js"
 import { getTiersFile, getReportsDir, getReportsIndex, getStateFile, getMcpRuntimeFile, readPublishedMcpRuntime, publishMcpRuntime } from "./lib/bootstrap-paths.js"
@@ -679,6 +679,7 @@ async function ensureMcpServerRunning() {
               backendHealthUrl: `${VIBEOS_API_URL}/health`,
               backendVersion: getBackendVersion(),
               optimizationMode: loadSelection()?.optimization_mode || null,
+              nativeAgent: readDefaultAgent(directory) || "vibe",
               tiers: (() => { try { return safeJsonParse(readFileSync(getTiersFile(), "utf-8"))?.trinity } catch { return null } })(),
               blackbox: loadBlackboxState(),
               sessionId: _OC_SID,

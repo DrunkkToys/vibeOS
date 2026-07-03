@@ -1,6 +1,7 @@
 // @ts-nocheck
 
 import { LABEL_MODES, resolveCurrentExecution } from "./pricing.js"
+import { NATIVE_OPENCODE_AGENTS, normalizeNativeOpenCodeAgent } from "./runtime-config.js"
 
 type SelectionLike = {
   enabled?: boolean
@@ -48,6 +49,7 @@ export function buildStatusPayload({
   tiers,
   blackbox,
   sessionId,
+  nativeAgent,
 }: {
   selection: SelectionLike
   tiersData: unknown
@@ -68,6 +70,7 @@ export function buildStatusPayload({
   tiers?: Record<string, unknown> | null
   blackbox?: Record<string, unknown> | null
   sessionId?: string | null
+  nativeAgent?: string | null
 }) {
   const activeSlot = selection?.active_slot || "brain"
   const todoList = Array.isArray(todos) ? todos : []
@@ -87,6 +90,7 @@ export function buildStatusPayload({
     ? blackbox.sessions[sessionId] || null
     : null
   const orchestrationPlan = currentSession?.orchestration_plan || currentSession?.cv?.orchestration_plan || null
+  const resolvedNativeAgent = normalizeNativeOpenCodeAgent(nativeAgent || "vibe")
   return {
     enabled: selection?.enabled !== false,
     active_slot: activeSlot,
@@ -111,6 +115,8 @@ export function buildStatusPayload({
     locked_slot: resolvedLockedSlot,
     locked_model: resolvedLockedModel,
     optimization_mode: selection?.optimization_mode || optimizationMode || null,
+    native_agent_mode: resolvedNativeAgent,
+    native_agent_options: [...NATIVE_OPENCODE_AGENTS],
     recommended_next_action: orchestrationPlan?.recommended_next_action || null,
     orchestration_plan: orchestrationPlan,
     tiers: tiers?.trinity || null,

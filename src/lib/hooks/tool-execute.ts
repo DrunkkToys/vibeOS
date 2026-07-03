@@ -1115,7 +1115,7 @@ export const onToolExecuteBefore = async (input, output) => {
     if (!compatibilityMode && sel.delegation_enforce && currentTier === "high") {
       const coherence = runtimeTierCoherence(projectDirectory, sel?.active_slot || "", currentModel || "", TRINITY_BRAIN || "")
       if (!coherence.coherent) {
-        pendingUiNote = `[vibeOS repair] Direct ${t} allowed because runtime tier binding is not coherent: slot=${coherence.slot || "unknown"} default_agent=${coherence.agent || "unset"} expected_agent=vibe model=${coherence.currentModel || "unset"} expected_model=${coherence.expectedModel || "unset"}. Run \`vibe diagnose cascade\` or \`vibe repair-state apply\`.`
+        pendingUiNote = `[vibeOS repair] Direct ${t} allowed because runtime tier binding is not coherent: slot=${coherence.slot || "unknown"} default_agent=${coherence.agent || "unset"} expected_agent=${coherence.expectedAgent || "build|plan|vibe"} model=${coherence.currentModel || "unset"} expected_model=${coherence.expectedModel || "unset"}. Run \`vibe diagnose cascade\` or \`vibe repair-state apply\`.`
         if (shouldLogWarn(`${t}|runtime-drift|${coherence.slot || "unknown"}`)) console.error(`[vibeOS] [runtime-drift] allowing direct ${t}; ${pendingUiNote}`)
         return
       }

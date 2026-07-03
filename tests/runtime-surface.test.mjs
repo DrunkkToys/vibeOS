@@ -53,6 +53,8 @@ test("buildStatusPayload assembles dashboard state from injected inputs", () => 
     locked_slot: null,
     locked_model: null,
     optimization_mode: null,
+    native_agent_mode: "vibe",
+    native_agent_options: ["build", "plan", "vibe"],
     recommended_next_action: null,
     orchestration_plan: null,
     tiers: null,

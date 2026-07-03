@@ -7,10 +7,20 @@ type JsonRecord = Record<string, any>
 type TrinityConfig = Record<string, { oc?: string }>
 
 export const VIBE_PRIMARY_AGENT = "vibe"
+export const NATIVE_OPENCODE_AGENTS = ["build", "plan", "vibe"] as const
 export const VIBE_TIER_AGENT_BY_SLOT: Record<string, string> = {
   cheap: "vibe-cheap",
   medium: "vibe-medium",
   brain: "vibe-brain",
+}
+
+export function isNativeOpenCodeAgent(value: string | null | undefined): value is typeof NATIVE_OPENCODE_AGENTS[number] {
+  return NATIVE_OPENCODE_AGENTS.includes(String(value || "").trim().toLowerCase() as typeof NATIVE_OPENCODE_AGENTS[number])
+}
+
+export function normalizeNativeOpenCodeAgent(value: string | null | undefined, fallback: typeof NATIVE_OPENCODE_AGENTS[number] = VIBE_PRIMARY_AGENT): typeof NATIVE_OPENCODE_AGENTS[number] {
+  const normalized = String(value || "").trim().toLowerCase()
+  return isNativeOpenCodeAgent(normalized) ? normalized : fallback
 }
 
 export function tierAgentForSlot(slot: string | null): string | null {
@@ -158,8 +168,9 @@ export function installVibeTierAgentsInConfig(config: JsonRecord, trinity: Trini
     config.agent[VIBE_PRIMARY_AGENT] = nextPrimary
     changed = true
   }
-  if (config.default_agent !== VIBE_PRIMARY_AGENT) {
-    config.default_agent = VIBE_PRIMARY_AGENT
+  const nextDefaultAgent = normalizeNativeOpenCodeAgent(String(config.default_agent || "").trim() || VIBE_PRIMARY_AGENT)
+  if (config.default_agent !== nextDefaultAgent) {
+    config.default_agent = nextDefaultAgent
     changed = true
   }
   for (const slot of ["cheap", "medium", "brain"]) {
@@ -207,8 +218,8 @@ export function readDefaultAgent(projectDir = ""): string {
 
 export function runtimeTierCoherence(projectDir = "", activeSlot = "", currentModel = "", expectedModel = ""): JsonRecord {
   const slot = String(activeSlot || "").trim().toLowerCase()
-  const agent = readDefaultAgent(projectDir)
-  const expectedAgent = VIBE_PRIMARY_AGENT
+  const agent = normalizeNativeOpenCodeAgent(readDefaultAgent(projectDir) || "")
+  const expectedAgent = "build|plan|vibe"
   const modelOk = !!expectedModel && !!currentModel && String(currentModel).trim() === String(expectedModel).trim()
   const configPath = collectOpenCodeConfigPaths(projectDir).find((path) => existsSync(path)) || ""
   const config = configPath ? readOpenCodeConfig(configPath) : {}
@@ -227,7 +238,7 @@ export function runtimeTierCoherence(projectDir = "", activeSlot = "", currentMo
     return !!name && !!model && !!expectedTierModel && model === expectedTierModel && config?.agent?.[name]?.mode === "subagent"
   })
   const primaryOk = !!primaryAgent && primaryAgent.mode === "primary" && !String(primaryAgent?.model || "").trim()
-  const agentOk = agent === expectedAgent && primaryOk
+  const agentOk = isNativeOpenCodeAgent(agent) && primaryOk
   const cheapFirstExpected = optimizationMode === "vibeultrax" && entrySlot === "cheap" && !!cheapExpectedModel
   const cheapFirstOk = !cheapFirstExpected || String(currentModel || "").trim() === cheapExpectedModel
   const degraded = cheapFirstExpected && !cheapFirstOk
