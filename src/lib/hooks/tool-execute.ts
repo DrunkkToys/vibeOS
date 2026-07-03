@@ -959,7 +959,10 @@ export const onToolExecuteBefore = async (input, output) => {
       enrichedRouteDecision.bridgeId = bridge?.bridge_id || null
       enrichedRouteDecision.parentSessionId = getCurrentSessionId()
       enrichedRouteDecision.status = "completed"
-      enrichedRouteDecision.contributedToFinalAnswer = true
+      // Task delegation records an executed worker leg, not the final visible
+      // assistant answer. The footer must not project this worker model onto
+      // the orchestrator response unless a later finalize event says it did.
+      enrichedRouteDecision.contributedToFinalAnswer = false
       if (typeof targetArgs?.prompt === "string" && bridge.prompt_prefix) {
         targetArgs.prompt = `${bridge.prompt_prefix}${targetArgs.prompt}`
       }
@@ -999,7 +1002,7 @@ export const onToolExecuteBefore = async (input, output) => {
           bridgeId: bridge?.bridge_id || null,
           parentSessionId: getCurrentSessionId(),
           status: "completed",
-          contributedToFinalAnswer: true,
+          contributedToFinalAnswer: false,
         },
       })
       _writeCascadeAudit(String(targetArgs?.prompt || ""), routeDecision?.selectedSlot || null, _target, { ...routeDecision, source: routeDecision?.source || "", reason: _reason }, {

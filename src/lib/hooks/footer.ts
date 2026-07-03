@@ -316,8 +316,9 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
     const sid = getSessionId()
     const latestTurnTruth = getLatestTurnTruth(sid)
     const latestExecutedRoute = latestTurnTruth?.executedRoute || null
+    const latestRouteDrivesVisibleAnswer = latestExecutedRoute?.contributedToFinalAnswer === true
     const latestFinalized = latestTurnTruth?.finalized || null
-    const sessionSlot = latestFinalized?.finalVisibleSlot || latestExecutedRoute?.selectedSlot || loadBlackboxState()?.sessions?.[sid]?.active_slot || loadSessionSlot(sid)
+    const sessionSlot = latestFinalized?.finalVisibleSlot || (latestRouteDrivesVisibleAnswer ? latestExecutedRoute?.selectedSlot : "") || loadBlackboxState()?.sessions?.[sid]?.active_slot || loadSessionSlot(sid)
     const slot = loadSelection().active_slot || sessionSlot || "brain"
     const brainModel = slot === "brain" ? (TRINITY_BRAIN || currentModel) : slot === "medium" ? (TRINITY_MEDIUM || currentModel) : (TRINITY_CHEAP || currentModel || "")
     const _cacheEvt = getLatestCacheEvent(sid)
@@ -327,7 +328,7 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
     if (!liveModel) {
       liveModel = readConfig(directory) || readConfig(join(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || ""
     }
-    const displayModel = latestFinalized?.finalVisibleModel || latestExecutedRoute?.selectedModel || liveModelSetting || liveModel || currentModel || ""
+    const displayModel = latestFinalized?.finalVisibleModel || (latestRouteDrivesVisibleAnswer ? latestExecutedRoute?.selectedModel : "") || liveModelSetting || liveModel || currentModel || ""
     const resolvedModel = displayModel || liveModelSetting || liveModel || currentModel || ""
     if (resolvedModel && resolvedModel !== currentModel) {
       setCurrentModel(resolvedModel)
@@ -347,8 +348,8 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
         : autoSelectMode(liveBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""), _footerStress)))
     const ultraCascadeDepth = Number(
       latestFinalized?.cascadeDepth ??
-      latestExecutedRoute?.cascadeDepth ??
-      (Array.isArray(latestExecutedRoute?.routePath) ? latestExecutedRoute.routePath.length : null) ??
+      (latestRouteDrivesVisibleAnswer ? latestExecutedRoute?.cascadeDepth : null) ??
+      (latestRouteDrivesVisibleAnswer && Array.isArray(latestExecutedRoute?.routePath) ? latestExecutedRoute.routePath.length : null) ??
       diskBlackboxState?.control_vector?.cascade_depth ??
       diskBlackboxState?.cascade_depth ??
       liveBlackboxState?.control_vector?.cascade_depth ??
