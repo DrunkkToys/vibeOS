@@ -9,7 +9,7 @@ import { extname, join, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 import { flushDashboardMutationQueue, getDashboardBridgeBacklogCount, getDashboardBridgeProjection, primeDashboardBridgeCache, queueDashboardProjectionRefresh } from "./dashboard-bridge.js"
 import { resolveApiToken } from "./api-client.js"
-import { applySessionAction, buildDashboardHomeModel, buildSessionDetail, compareSessionOrchestrations, exportSessionOrchestration, importSessionOrchestration, TEMPLATE_LIBRARY } from "./session-orchestrator.js"
+import { applySessionAction, buildDashboardHomeModel, buildSessionDetail, compareSessionOrchestrations, exportSessionOrchestration, importSessionOrchestration, normalizeSessionOrchestration, TEMPLATE_LIBRARY } from "./session-orchestrator.js"
 import { getSessionDelegationSavings } from "./session-savings.js"
 import { readProjects, writeProjects, readSessions, writeSessions, readFlows, writeFlows, newId, nowIso, type FlowNode, type FlowEdge } from "./orch-store.js"
 
@@ -187,6 +187,25 @@ function getSessionsFromState(state: any): Record<string, any> {
   return (state?.sessions_raw as Record<string, any>) || {}
 }
 
+function getMergedSessionState(deps: Deps, sessionId: string): Record<string, any> {
+  const state = deps.getState() as Record<string, any>
+  const rawSession = getSessionsFromState(state)?.[sessionId] || {}
+  const orchestration = getSessionOrchestrationState(deps, sessionId)
+  return orchestration ? { ...rawSession, orchestration } : rawSession
+}
+
+function getMergedSessionsMap(deps: Deps): Record<string, any> {
+  const state = deps.getState() as Record<string, any>
+  const rawSessions = getSessionsFromState(state)
+  const sessionIds = new Set<string>([
+    ...Object.keys(rawSessions || {}),
+    ...Object.keys((state?.sessions as Record<string, any>) || {}),
+  ])
+  const merged: Record<string, any> = {}
+  for (const sessionId of sessionIds) merged[sessionId] = getMergedSessionState(deps, sessionId)
+  return merged
+}
+
 function getSessionOrchestrationState(deps: Deps, sessionId: string): any {
   try {
     if (typeof deps.getSessionOrchestration === "function") {
@@ -216,8 +235,7 @@ function buildLocalSavings(deps: Deps): unknown {
 }
 
 function buildLocalSessions(deps: Deps): { sessions: unknown[]; total_sessions: number } {
-  const state = deps.getState() as Record<string, unknown> | null
-  const sessionsMap = getSessionsFromState(state)
+  const sessionsMap = getMergedSessionsMap(deps)
   const currentSessionId = deps.getCurrentSessionId()
   const sessions = Object.entries(sessionsMap).map(([id, ses]) => ({
     ...buildSessionDetail(id, ses, deps.getSessionMetrics(id), deps.getBlackboxState() || {}, { current_session_id: currentSessionId }),
@@ -231,8 +249,7 @@ function buildLocalSessions(deps: Deps): { sessions: unknown[]; total_sessions: 
 }
 
 function buildLocalCurrentSession(deps: Deps, sessionId: string): Record<string, unknown> {
-  const state = deps.getState() as Record<string, any>
-  const session = getSessionsFromState(state)?.[sessionId] || {}
+  const session = getMergedSessionState(deps, sessionId)
   return {
     session: buildSessionDetail(sessionId, session, deps.getSessionMetrics(sessionId), deps.getBlackboxState() || {}, { current_session_id: deps.getCurrentSessionId() }),
     metrics: deps.getSessionMetrics(sessionId),
@@ -402,7 +419,7 @@ export function createMcpServer(deps: Deps): McpServer {
           savings,
           todos: deps.getTodos() as any[],
           blackbox,
-          sessions: getSessionsFromState(deps.getState() as Record<string, any>),
+          sessions: getMergedSessionsMap(deps),
           metrics: deps.getSessionMetrics(currentSessionId),
           templates: (typeof deps.listSessionTemplates === "function" ? deps.listSessionTemplates() : TEMPLATE_LIBRARY) as any[],
           currentProjectName: deps.currentProjectName || "",
@@ -479,8 +496,7 @@ export function createMcpServer(deps: Deps): McpServer {
         if (!sessionId || sessionId === "current" || sessionId.includes("/")) {
           // fall through to the specific routes below
         } else {
-          const state = deps.getState() as Record<string, any>
-          const session = getSessionsFromState(state)?.[sessionId] || {}
+          const session = getMergedSessionState(deps, sessionId)
           json(res, 200, {
             session: buildSessionDetail(sessionId, session, deps.getSessionMetrics(sessionId), deps.getBlackboxState() || {}, { current_session_id: deps.getCurrentSessionId() }),
             metrics: deps.getSessionMetrics(sessionId),
@@ -654,6 +670,32 @@ export function createMcpServer(deps: Deps): McpServer {
         json(res, 200, result)
         return
       }
+      const buildSessionActionPayload = (sessionId: string, orchestration: unknown) => {
+        const blackbox = deps.getBlackboxState() || {}
+        const sessionState = { ...getMergedSessionState(deps, sessionId), orchestration: orchestration as Record<string, unknown> }
+        const metrics = deps.getSessionMetrics(sessionId)
+        const detail = buildSessionDetail(
+          sessionId,
+          sessionState,
+          metrics,
+          blackbox,
+          {
+            current_session_id: deps.getCurrentSessionId(),
+            optimization_mode: (deps.getState() as Record<string, any>)?.optimization_mode || (deps.getState() as Record<string, any>)?.selection?.optimization_mode || null,
+          },
+        )
+        const normalized = normalizeSessionOrchestration(orchestration as Record<string, unknown> | null | undefined, sessionId)
+        return {
+          ok: true,
+          session: {
+            ...detail,
+            version: detail?.version ?? normalized.version,
+            history: Array.isArray(detail?.history) ? detail.history : normalized.history,
+          },
+          metrics,
+          orchestration: orchestration as Record<string, unknown>,
+        }
+      }
       if (method === "POST" && path.startsWith("/sessions/") && path.endsWith("/action")) {
         const sessionId = decodeURIComponent(path.replace(/^\/sessions\//, "").replace(/\/action$/, "")).trim()
         let body: Record<string, unknown>
@@ -690,7 +732,7 @@ export function createMcpServer(deps: Deps): McpServer {
               },
             })
             await flushDashboardMutationQueue()
-            json(res, 200, { ok: true, session: next })
+            json(res, 200, buildSessionActionPayload(sessionId, next))
             return
           }
           json(res, 500, { ok: false, error: "session mutation unavailable" })
@@ -709,7 +751,7 @@ export function createMcpServer(deps: Deps): McpServer {
               },
             })
             await flushDashboardMutationQueue()
-            json(res, 200, { ok: true, session: next })
+            json(res, 200, buildSessionActionPayload(sessionId, next))
             return
           }
           json(res, 500, { ok: false, error: "session mutation unavailable" })
@@ -727,7 +769,7 @@ export function createMcpServer(deps: Deps): McpServer {
             },
           })
           await flushDashboardMutationQueue()
-          json(res, 200, { ok: true, session: next })
+          json(res, 200, buildSessionActionPayload(sessionId, next))
           return
         }
         json(res, 500, { ok: false, error: "session mutation unavailable" })
@@ -768,7 +810,7 @@ export function createMcpServer(deps: Deps): McpServer {
             },
           })
           await flushDashboardMutationQueue()
-          json(res, 200, { ok: true, session: next })
+          json(res, 200, buildSessionActionPayload(sessionId, next))
           return
         }
         json(res, 500, { ok: false, error: "session mutation unavailable" })

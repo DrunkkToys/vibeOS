@@ -1,6 +1,9 @@
 import { createSignal } from "solid-js"
 import { postTrinity, type StatusPayload } from "../api"
 import RealityCheckPanel from "./RealityCheck"
+import { getBrandedModes } from "../../../mode-router"
+
+const dashboardModes = getBrandedModes()
 
 export default function Controls({ status, onAction }: { status: StatusPayload | null; onAction: () => void }) {
   const [busy, setBusy] = createSignal<string | null>(null)
@@ -23,6 +26,22 @@ export default function Controls({ status, onAction }: { status: StatusPayload |
   return (
     <div class="card-full">
       <h3>Controls</h3>
+
+      <div class="control-group">
+        <h4>Vibe Mode</h4>
+        <div class="bracket-row">
+          {dashboardModes.map((mode) => (
+            <button
+              class={`bracket-btn ${status?.optimization_mode === mode.id ? "on" : ""}`}
+              disabled={busy() === `mode${mode.id}`}
+              onClick={() => run("mode", mode.id)}
+              title={mode.desc}
+            >{busy() === `mode${mode.id}` ? "..." : mode.name}</button>
+          ))}
+        </div>
+      </div>
+
+      <hr class="section-divider" />
 
       <div class="control-group">
         <h4>Slot</h4>

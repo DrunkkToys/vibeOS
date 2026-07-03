@@ -9,16 +9,16 @@ let prevHome;
 let prevVibeOSHome;
 
 const BRAND_EXPECTATIONS = {
-  vibemax: "vibeOS",
-  vibeultrax: "vibeOS",
-  vibeqmax: "vibeOS",
-  audit: "vibeOS",
-  forensic: "vibeOS",
-  budget: "vibeOS",
+  vibemax: "VibeMaX",
+  vibeultrax: "VibeUltraX",
+  vibeqmax: "VibeQMaX",
+  audit: "VibeQMaX",
+  forensic: "VibeQMaX",
+  budget: "VibeLiteX",
   quality: "vibeOS",
-  speed: "vibeOS",
-  longrun: "vibeOS",
-  auto: "vibeOS",
+  speed: "VibeMaX",
+  longrun: "VibeQMaX",
+  auto: "VibeLiteX",
 };
 
 const MODE_LOAD_EXPECTATIONS = {

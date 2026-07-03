@@ -443,6 +443,12 @@ export function buildSessionDetail(sessionId: string, session: AnyObject, metric
   const sessionMetrics = pickSessionMetrics(session, metrics)
   const template = resolveSessionTemplateOrDefault(orchestration.template)
   const plan = extractSessionPlan(blackbox, sessionId)
+  const optimizationMode = String(
+    session?.optimization_mode
+    || session?.cv?.optimization_mode
+    || selection?.optimization_mode
+    || "auto",
+  ).trim().toLowerCase() || "auto"
   const blackboxState = {
     enabled: Boolean(blackbox?.enabled),
     sub_regime: blackbox?.sub_regime || blackbox?.regime || "INIT",
@@ -453,6 +459,7 @@ export function buildSessionDetail(sessionId: string, session: AnyObject, metric
   const summary = {
     title: sessionId === selection?.current_session_id ? "Active Session" : "Session Workspace",
     session_id: sessionId,
+    version: orchestration.version,
     status: orchestration.status,
     locked: orchestration.locked,
     archived: orchestration.archived,
@@ -465,6 +472,7 @@ export function buildSessionDetail(sessionId: string, session: AnyObject, metric
     notes_count: orchestration.notes.length,
     tags: orchestration.tags,
     template,
+    optimization_mode: optimizationMode,
     orchestration_plan: plan,
     blackbox: blackboxState,
     recommendation: recommendationForSession({
@@ -475,6 +483,7 @@ export function buildSessionDetail(sessionId: string, session: AnyObject, metric
       notes_count: orchestration.notes.length,
     }, sessionId === selection?.current_session_id, blackbox),
     notes: orchestration.notes,
+    history: orchestration.history,
     lifecycle: orchestration.lifecycle,
     orchestration,
   }
@@ -529,7 +538,7 @@ export function buildDashboardHomeModel({
         { label: "Session", value: currentSession.session_id },
         { label: "Project", value: currentSession.project_name || "unknown" },
         { label: "Slot", value: status?.active_slot || "brain" },
-        { label: "Mode", value: status?.optimization_mode || "auto" },
+        { label: "Mode", value: currentSession.optimization_mode || status?.optimization_mode || "auto" },
         { label: "Stress", value: blackbox?.sub_regime || "INIT" },
         { label: "Blackbox", value: currentSession.blackbox?.sub_regime || "INIT" },
         { label: "Savings", value: `$${totalSavings.toFixed(2)}` },
