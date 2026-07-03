@@ -28,6 +28,14 @@ var VIBE_TIER_AGENT_BY_SLOT = {
   brain: "vibe-brain"
 };
 var VIBE_PRIMARY_AGENT = "vibe";
+var NATIVE_OPENCODE_AGENTS = ["build", "plan", "vibe"];
+function isNativeOpenCodeAgent(value) {
+  return NATIVE_OPENCODE_AGENTS.includes(String(value || "").trim().toLowerCase());
+}
+function normalizeNativeOpenCodeAgent(value, fallback = VIBE_PRIMARY_AGENT) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return isNativeOpenCodeAgent(normalized) ? normalized : fallback;
+}
 function readJson(path) {
   if (!existsSync(path)) return {};
   try {
@@ -95,8 +103,9 @@ function installVibeTierAgentsInConfig(config, tiers = readTiers()) {
     config.agent[VIBE_PRIMARY_AGENT] = nextPrimary;
     changed = true;
   }
-  if (config.default_agent !== VIBE_PRIMARY_AGENT) {
-    config.default_agent = VIBE_PRIMARY_AGENT;
+  const nextDefaultAgent = normalizeNativeOpenCodeAgent(String(config.default_agent || "").trim() || VIBE_PRIMARY_AGENT);
+  if (config.default_agent !== nextDefaultAgent) {
+    config.default_agent = nextDefaultAgent;
     changed = true;
   }
   for (const slot of ["cheap", "medium", "brain"]) {

@@ -62,5 +62,5 @@ test("[cascade-audit] the written line substantiates a claim within the window",
     windowMs: 120000,
   })
   assert.equal(res.unsubstantiatedCount, 0, "recent cascade run should substantiate the claim")
-  assert.equal(res.claimTag, "✓")
+  assert.equal(res.claimTag, "✓ evidence")
 })

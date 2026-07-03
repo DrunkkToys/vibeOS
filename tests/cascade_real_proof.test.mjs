@@ -937,7 +937,7 @@ test("cascade: reality-check is wired through the live runtime hooks", async (t)
     assert.ok(reality.includes("Scope: project"), reality.slice(0, 220))
     assert.ok(reality.includes("Enabled: YES"), reality.slice(0, 220))
     assert.ok(reality.includes("Rules loaded: 3"), reality.slice(0, 220))
-    assert.ok(reality.includes("require-read-before-claim"), reality.slice(0, 220))
+    assert.ok(reality.includes("Progress risk"), reality.slice(0, 220))
   } finally {
     if (prevVibeHome === undefined) delete process.env.VIBEOS_HOME
     else process.env.VIBEOS_HOME = prevVibeHome

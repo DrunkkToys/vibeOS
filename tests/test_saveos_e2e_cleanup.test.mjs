@@ -809,12 +809,14 @@ test("saveOS FOOTER: footer appended to completed text", async () => {
 
 test("saveOS FOOTER: same-turn claim status shows checkmark immediately", async () => {
   const { hooks } = await freshPlugin()
+  const { getCurrentSessionId } = await import("../src/lib/state.js?fresh=" + Date.now())
   const auditDir = join(sandbox, ".claude", "cascade-audit")
   mkdirSync(auditDir, { recursive: true })
   writeFileSync(join(auditDir, "claim-audit.jsonl"), "")
   writeFileSync(join(auditDir, "cascade-audit.jsonl"), JSON.stringify({
     _ts: new Date().toISOString(),
-    answer_empty: false,
+    executed: true,
+    sessionId: getCurrentSessionId(),
   }) + "\n")
 
   const out = {

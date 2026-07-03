@@ -463,7 +463,7 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
     _footerStage = "claims"
     const claimStatus = evaluateClaimVerification({
       text,
-      vibeHome: VIBEOS_HOME,
+      vibeHome: getVibeOSHome(),
       sessionId: sid,
       turnId: latestTurnTruth?.turnId || "",
       userText: latestUserIntent || "",
