@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { buildEnforcementTags, buildResilientFooterLine, buildFooterLine, formatCascadePulse, formatEnforcementPulse, formatModeLabel, formatSavingsPulse, formatVectorPulse, resolveBrand, resolveRegimeIcon, resolveTierIcon, trendGlyph } from "../shared-footer.js"
+import { buildEnforcementTags, buildResilientFooterLine, buildFooterLine, formatCascadePulse, formatEnforcementPulse, formatModeLabel, formatSavingsPulse, resolveBrand, resolveRegimeIcon, resolveTierIcon, trendGlyph } from "../shared-footer.js"
 
 test("shared-footer resolves the expected brand names", () => {
   assert.equal(resolveBrand("vibemax", "brain"), "VibeMaX")
@@ -35,12 +35,6 @@ test("shared-footer assigns a unique icon to each regime", () => {
   }
   const values = Object.values(icons)
   assert.equal(new Set(values).size, values.length, "regime icons should be unique")
-})
-
-test("shared-footer formats a compact vector pulse", () => {
-  assert.equal(formatVectorPulse("cheap"), "reroute: ⚡ cheap")
-  assert.equal(formatVectorPulse("garbage"), "")
-  assert.equal(formatVectorPulse(undefined), "")
 })
 
 test("shared-footer formats a subtle savings pulse with trend cues", () => {
@@ -95,14 +89,12 @@ test("shared-footer keeps the footer compact while showing savings and slot stat
     optMode: "budget",
     flashIcon: " ⚡",
     enfTags: ["[ENF ON]"],
-    vectorChangedSlot: "cheap",
   })
 
   assert.ok(line.includes("◐ medium"))
   assert.ok(line.includes("$12.57 saved ↗"))
   assert.ok(line.includes("VibeMaX ⚡"))
   assert.ok(line.includes("guarded"))
-  assert.ok(line.includes("reroute: ⚡ cheap"))
 })
 
 test("shared-footer degrade path renders the ONE README footer, never the bare 3-segment line", () => {

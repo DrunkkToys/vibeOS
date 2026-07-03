@@ -6,9 +6,8 @@ import { safeJsonParse } from "../utils/fs-helpers.js"
 
 const _USER_HOME = (() => { try { return homedir() } catch { return tmpdir() } })()
 
-const DFLT_SEL = { enabled: true, active_slot: null, entry_slot: null, worker_slot: null, vector_changed_slot: null, vector_changed_at: 0, slot_locked: false, thinking_level: "off", flow_enabled: true, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: true, delegation_enforce: true, onboarding_mode: null, requested_optimization_mode: null, previous_default_agent: null, previous_optimization_mode: null, cheap_first_degraded: false, cheap_first_reason: null, axis_overrides: {} }
+const DFLT_SEL = { enabled: true, active_slot: null, entry_slot: null, worker_slot: null, slot_locked: false, thinking_level: "off", flow_enabled: true, tdd_enforce: false, tdd_strict: false, tdd_quality: true, flow_enforce: true, delegation_enforce: true, onboarding_mode: null, requested_optimization_mode: null, previous_default_agent: null, previous_optimization_mode: null, cheap_first_degraded: false, cheap_first_reason: null, axis_overrides: {} }
 const SHADOW_SELECTION_KEYS = new Set(["selected_provider", "selected_quality_tier", "selected_model", "executed_provider", "executed_quality_tier", "executed_model"])
-const VECTOR_PULSE_TTL_MS = 120_000
 
 // mtime-based cache for loadSelection — single stat() per turn (microseconds),
 // no stale data even when other code writes directly to model-tiers.json
@@ -44,14 +43,6 @@ function loadSelectionImpl(): any {
       active_slot:        j?.selection?.active_slot || null,
       entry_slot:         j?.selection?.entry_slot || j?.selection?.active_slot || null,
       worker_slot:        j?.selection?.worker_slot || j?.selection?.selected_slot || null,
-      vector_changed_slot: (() => {
-        const raw = j?.selection?.vector_changed_slot || null
-        if (!raw) return null
-        const changedAt = Number(j?.selection?.vector_changed_at) || 0
-        if (changedAt && Date.now() - changedAt > VECTOR_PULSE_TTL_MS) return null
-        return raw
-      })(),
-      vector_changed_at:  Number(j?.selection?.vector_changed_at) || 0,
       slot_locked:        j?.selection?.slot_locked === true,
       active_pipeline:    Array.isArray(activePipeline) ? activePipeline : null,
       optimization_mode:  j?.selection?.optimization_mode || null,

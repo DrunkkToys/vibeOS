@@ -128,7 +128,6 @@ test("sync keeps vibeultrax root slot cheap when per-turn route selects brain", 
 
     const raw = JSON.parse(readFileSync(join(process.env.VIBEOS_HOME, "model-tiers.json"), "utf8"))
     assert.equal(raw.selection.active_slot, "cheap")
-    assert.equal(raw.selection.vector_changed_slot, "cheap")
     assert.deepEqual(raw.selection.active_pipeline, ["cheap", "medium", "brain"])
     assert.equal(result.applied_slot, "cheap")
     assert.equal(result.selected_slot, "brain")

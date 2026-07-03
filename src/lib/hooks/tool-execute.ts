@@ -1360,7 +1360,6 @@ export const onToolExecuteAfter = async (input, output) => {
         flashIcon,
         enfTags,
         sessionSlot,
-        vectorChangedSlot: selNow.vector_changed_slot,
         subRegime: currentSubRegime,
         cascadeIcon: cascadeDepth >= 3 ? "▸▸▸" : cascadeDepth >= 2 ? "▸▸" : cascadeDepth >= 1 ? "▸" : "",
         cascadeLabel: cascadeDepth >= 2 ? modelDisplayName(execution.model) : "",

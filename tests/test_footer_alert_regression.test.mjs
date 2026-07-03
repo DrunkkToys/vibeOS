@@ -21,7 +21,7 @@ function writeTiers(overrides = {}) {
     writeFileSync(join(sandbox, ".claude", "model-tiers.json"), JSON.stringify({
         selection: {
             enabled: true, active_slot: "brain", onboarding_mode: "strict",
-            optimization_mode: "vibeqmax", vector_changed_slot: "cheap",
+            optimization_mode: "vibeqmax",
             delegation_enforce: true, flow_enforce: true, tdd_enforce: true, tdd_strict: false,
             ...overrides
         },
@@ -51,7 +51,7 @@ test("SETUP: sandbox ready", () => assert.ok(true))
 test("footer: tier reflects the model that ran, not the stale active_slot", async () => {
     // active_slot is a stale decision (cheap); the model that actually ran is v4-pro
     // (the brain-slot model). The footer must show brain — the live model — not cheap.
-    writeTiers({ active_slot: "cheap", vector_changed_slot: "cheap" })
+    writeTiers({ active_slot: "cheap" })
     const { _appendFooter } = await import("../src/lib/hooks/footer.js?ftr1=" + Date.now())
     const o = { text: "This is a test message that is long enough to trigger the vibeOS footer mechanism and verify the ML pipeline." }
     await _appendFooter({ args: { model: "deepseek/v4-pro" } }, o)
@@ -60,27 +60,16 @@ test("footer: tier reflects the model that ran, not the stale active_slot", asyn
 
 // ── Test 2: optimization_mode follows the current regime vector ──
 test("footer: shows regime-derived mode instead of sticky selection", async () => {
-    writeTiers({ optimization_mode: "speed", vector_changed_slot: undefined })
+    writeTiers({ optimization_mode: "speed" })
     const { _appendFooter } = await import("../src/lib/hooks/footer.js?ftr2=" + Date.now())
     const o = { text: "Another test message that is sufficiently long to trigger the vibeOS footer and verify mode display." }
     await _appendFooter({ args: { model: "deepseek/v4-flash" } }, o)
     assert.ok(o.text.includes("vibeOS"), "footer should show the vibeOS brand: " + o.text.slice(-150))
 })
 
-// ── Test 3: reroute pulse shows the decided slot when it differs from the model that ran ──
-test("footer: reroute pulse shows the decided slot vs what ran", async () => {
-    // Ran model is v4-pro (brain); the decision moved the slot to medium. The pulse
-    // surfaces the decision in readable text while the tier icon stays truthful to what ran.
-    writeTiers({ active_slot: "brain", vector_changed_slot: "medium" })
-    const { _appendFooter } = await import("../src/lib/hooks/footer.js?ftr3=" + Date.now())
-    const o = { text: "Testing the arrow indicator when the ML wants to change the tier from brain to medium in a long message." }
-    await _appendFooter({ args: { model: "deepseek/v4-pro" } }, o)
-    assert.ok(o.text.includes("reroute: ◐ medium"), "footer should show readable reroute pulse (medium icon): " + o.text.slice(-150))
-})
-
 // ── Test 4: footer drops redundant mode label ──
 test("footer: brand follows actual mode, not just brain tier", async () => {
-    writeTiers({ active_slot: "brain", vector_changed_slot: undefined, optimization_mode: "vibeultrax", requested_optimization_mode: "vibeultrax" })
+    writeTiers({ active_slot: "brain", optimization_mode: "vibeultrax", requested_optimization_mode: "vibeultrax" })
     const { _appendFooter } = await import("../src/lib/hooks/footer.js?ftr4=" + Date.now())
     const o = { text: "Testing the brand display in the footer with a sufficiently long message for vibeOS." }
     await _appendFooter({ args: { model: "deepseek/v4-pro" } }, o)
@@ -89,9 +78,8 @@ test("footer: brand follows actual mode, not just brain tier", async () => {
 
 // ── Test 5: ML pipeline end-to-end via footer ──
 test("footer: full ML pipeline — tier + mode + arrow in one line", async () => {
-    writeTiers({ active_slot: "medium", vector_changed_slot: "cheap", optimization_mode: "budget" })
-    // Disambiguate the trinity so the live model maps to exactly one tier (medium): the
-    // tier icon follows the ran model (◐ medium) while ⟡ cheap shows the decided move.
+    writeTiers({ active_slot: "medium", optimization_mode: "budget" })
+    // Disambiguate the trinity so the live model maps to exactly one tier (medium).
     const tiersFile = join(sandbox, ".claude", "model-tiers.json")
     const tiers = JSON.parse(readFileSync(tiersFile, "utf8"))
     tiers.trinity = { brain: { oc: "deepseek/v4-pro" }, medium: { oc: "deepseek/v4-flash" }, cheap: { oc: "opencode/big-pickle" } }
@@ -102,7 +90,6 @@ test("footer: full ML pipeline — tier + mode + arrow in one line", async () =>
     const footer = o.text.slice(-200)
     assert.ok(footer.includes("🧠") || footer.includes("◐") || footer.includes("⚡") || footer.includes("🎁"), "has tier: " + footer)
     assert.ok(/Vibe|vibeOS/.test(footer), "has footer brand: " + footer)
-    assert.ok(footer.includes("reroute: ⚡ cheap"), "has readable vector pulse: " + footer)
     assert.ok(!footer.includes("slot:"), "footer should not repeat the slot label: " + footer)
 })
 
@@ -124,7 +111,6 @@ test("footer: 'hi' stays quiet instead of inheriting quality/guarded state", asy
         delegation_enforce: true,
         flow_enforce: true,
         tdd_enforce: true,
-        vector_changed_slot: undefined,
     })
     const { _appendFooter } = await import("../src/lib/hooks/footer.js?ftr7=" + Date.now())
     const o = { text: "Hi. How can I help you? This greeting should stay quiet and not inherit a stale quality episode." }
@@ -142,7 +128,6 @@ test("footer: sticky branded mode stays visually distinct from the live regime l
         delegation_enforce: true,
         flow_enforce: true,
         tdd_enforce: true,
-        vector_changed_slot: undefined,
     })
     const { _appendFooter } = await import("../src/lib/hooks/footer.js?ftr8=" + Date.now())
     const o = { text: "This message is long enough to trigger the footer and reproduce the sticky brand leak." }
@@ -156,7 +141,7 @@ test("footer: sticky branded mode stays visually distinct from the live regime l
 })
 
 test("footer: claim-bearing output shows a check icon without needing cascade audit", async () => {
-    writeTiers({ active_slot: "brain", vector_changed_slot: undefined, optimization_mode: "quality" })
+    writeTiers({ active_slot: "brain", optimization_mode: "quality" })
     const { getCurrentSessionId } = await import("../src/lib/state.js?csid=" + Date.now())
     const vibeHome = process.env.VIBEOS_HOME
     const cascadeDir = join(vibeHome, "cascade-audit")
@@ -183,7 +168,6 @@ test("footer: vibeultrax tier follows the live model, not the stale persistent s
         active_slot: "brain",
         requested_optimization_mode: "vibeultrax",
         optimization_mode: "vibeultrax",
-        vector_changed_slot: undefined,
     })
     const { _appendFooter } = await import("../src/lib/hooks/footer.js?vx-sync=" + Date.now())
     const o = { text: "This message is long enough to trigger the footer and verify the live model tier wins over stale slot state." }
@@ -201,7 +185,6 @@ test("footer: vibeultrax shows the medium tier when the cascade escalates to the
         active_slot: "cheap",
         requested_optimization_mode: "vibeultrax",
         optimization_mode: "vibeultrax",
-        vector_changed_slot: undefined,
         // make the medium slot distinct from cheap so the tie-break is unambiguous
     })
     // Overwrite trinity so medium is a distinct model from cheap.
@@ -223,7 +206,6 @@ test("footer: vibeultrax cascade shows the escalated model name beside the indic
         active_slot: "cheap",
         requested_optimization_mode: "vibeultrax",
         optimization_mode: "vibeultrax",
-        vector_changed_slot: undefined,
     })
     writeFileSync(join(sandbox, ".claude/blackbox-state.json"), JSON.stringify({
         cascade_depth: 3,
@@ -246,7 +228,6 @@ test("footer: re-paints rich footer after streaming wipes an earlier paint", asy
         active_slot: "cheap",
         requested_optimization_mode: "vibeultrax",
         optimization_mode: "vibeultrax",
-        vector_changed_slot: undefined,
     })
     const { _appendFooter } = await import("../src/lib/hooks/footer.js?stream-wipe=" + Date.now())
     const FULL = "Rebuilt the dataset pipeline and verified the regression suite passes end to end for the premium training run."
@@ -274,7 +255,6 @@ test("footer: bundled runtime records probe entries and split provider/model lab
         active_slot: "cheap",
         requested_optimization_mode: "vibeultrax",
         optimization_mode: "vibeultrax",
-        vector_changed_slot: undefined,
     })
     const bundleUrl = pathToFileURL(join(process.cwd(), "dist", "vibeOS.js")).href
     const mod = await import(bundleUrl + "?footer-probe=" + Date.now())

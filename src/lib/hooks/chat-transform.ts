@@ -733,8 +733,6 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
       if (existingSlot !== slot) {
         writeSessionSlot(sid, slot)
         writeIf("active_slot", slot)
-        writeIf("vector_changed_slot", slot)
-        writeIf("vector_changed_at", Date.now())
         if (cv.optimization_mode) writeIf("vector_changed_mode", cv.optimization_mode)
         // NOTE: executed_model/selected_model are SHADOW_SELECTION_KEYS — derived
         // from active_slot + trinity[slot].oc at read time and stripped on every
