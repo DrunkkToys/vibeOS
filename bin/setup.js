@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 // src/bin/setup.ts
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { readFileSync as readFileSync2, writeFileSync as writeFileSync2, existsSync as existsSync3, mkdirSync as mkdirSync2, renameSync as renameSync2 } from "node:fs";
 import { dirname as dirname2, resolve as resolve2 } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -172,7 +172,7 @@ if (!existsSync3(deployScript)) {
   console.error("Fatal: scripts/deploy.mjs not found at", deployScript);
   process.exit(1);
 }
-execSync(`node "${deployScript}"`, { stdio: "inherit", cwd: process.cwd() });
+execFileSync(process.execPath, [deployScript], { stdio: "inherit", cwd: process.cwd() });
 if (isProject) {
   const configPath = resolve2(process.cwd(), "opencode.json");
   let config = {};

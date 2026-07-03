@@ -1090,16 +1090,25 @@ test("v0.20.11 — no hardcoded model names in fallback", async () => {
 
 // ── v0.20.12: esbuild const-assignment regression ──
 test("v0.20.12 — esbuild compiles plugin without const assignment errors", async () => {
-  const { execSync } = await import("node:child_process")
+  const { execFileSync } = await import("node:child_process")
   const { readFileSync } = await import("node:fs")
   const { join, dirname } = await import("node:path")
   const { fileURLToPath } = await import("node:url")
   const projectRoot = join(dirname(fileURLToPath(import.meta.url)), "..")
   const src = readFileSync(join(projectRoot, "src", "index.ts"), "utf-8")
   try {
-    execSync(
-      `npx esbuild "${join(projectRoot, "src", "index.ts")}" --bundle --platform=node --format=esm --target=node22 --external:node:* --external:vibeOScore`,
-      { cwd: projectRoot, encoding: "utf-8", timeout: 30000, shell: true }
+    execFileSync(
+      join(projectRoot, "node_modules", "esbuild", "bin", "esbuild"),
+      [
+        join(projectRoot, "src", "index.ts"),
+        "--bundle",
+        "--platform=node",
+        "--format=esm",
+        "--target=node22",
+        "--external:node:*",
+        "--external:vibeOScore",
+      ],
+      { cwd: projectRoot, encoding: "utf-8", timeout: 30000 }
     )
   } catch (e) {
     const stderr = e.stderr || ""

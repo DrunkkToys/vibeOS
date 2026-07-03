@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-import { execSync } from "node:child_process"
+import { execFileSync } from "node:child_process"
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -35,7 +35,7 @@ if (!existsSync(deployScript)) {
   console.error("Fatal: scripts/deploy.mjs not found at", deployScript)
   process.exit(1)
 }
-execSync(`node "${deployScript}"`, { stdio: "inherit", cwd: process.cwd() })
+execFileSync(process.execPath, [deployScript], { stdio: "inherit", cwd: process.cwd() })
 
 if (isProject) {
   const configPath = resolve(process.cwd(), "opencode.json")
